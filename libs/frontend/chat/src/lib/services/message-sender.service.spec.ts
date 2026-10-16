@@ -93,6 +93,7 @@ describe('MessageSenderService', () => {
     detachSessionAndMarkLoaded: jest.Mock;
     setMessages: jest.Mock;
     consumeFirstMessagePreamble: jest.Mock;
+    setFirstMessagePreamble: jest.Mock;
     findTabByIdAcrossWorkspaces: jest.Mock;
     activeWorkspacePath: string | null;
   };
@@ -161,6 +162,7 @@ describe('MessageSenderService', () => {
       }),
       isTabStreaming: jest.fn((tabId: string) => streamingTabIds.has(tabId)),
       consumeFirstMessagePreamble: jest.fn(() => null),
+      setFirstMessagePreamble: jest.fn(),
       // Stub returns a real AbortSignal so the wireAbortDispatch listener
       // can attach without throwing.
       createAbortController: jest.fn(() => new AbortController().signal),
@@ -860,6 +862,32 @@ describe('MessageSenderService', () => {
       const [, msgs] = tabManager.appendUserMessageAndResetStreaming.mock
         .calls[0] as [string, ExecutionChatMessage[]];
       expect(msgs[0].rawContent).toBe('compare the two designs');
+    });
+
+    it('restores a consumed preamble when chat:start fails so retry sends it', async () => {
+      let preamble: string | null = 'NEW PROJECT SEED';
+      tabManager.consumeFirstMessagePreamble.mockImplementation(() => {
+        const value = preamble;
+        preamble = null;
+        return value;
+      });
+      tabManager.setFirstMessagePreamble.mockImplementation(
+        (_tabId: string, value: string) => {
+          preamble = value;
+        },
+      );
+      rpcCall.mockResolvedValueOnce({ success: false, error: 'offline' });
+      rpcCall.mockResolvedValue({ success: true });
+      await expect(service.send('Clinic scheduler')).resolves.toMatchObject({
+        success: false,
+      });
+      expect(preamble).toBe('NEW PROJECT SEED');
+      await service.send('Clinic scheduler');
+      const starts = rpcCall.mock.calls.filter(
+        (call) => call[0] === 'chat:start',
+      );
+      expect(starts).toHaveLength(2);
+      expect(starts[1][1].prompt).toBe('NEW PROJECT SEED\n\nClinic scheduler');
     });
 
     it('sends the raw content as prompt when no preamble is set', async () => {

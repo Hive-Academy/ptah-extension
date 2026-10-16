@@ -1,5 +1,9 @@
 import { TestBed } from '@angular/core/testing';
-import type { AgentScorecard, CloneSummary } from '@ptah-extension/shared';
+import type {
+  AgentOutcomeSignals,
+  AgentScorecard,
+  CloneSummary,
+} from '@ptah-extension/shared';
 
 import { SkillClonesStateService } from './skill-clones-state.service';
 import { SkillSynthesisRpcService } from './skill-synthesis-rpc.service';
@@ -43,9 +47,28 @@ function scorecard(overrides: Partial<AgentScorecard> = {}): AgentScorecard {
   };
 }
 
+function agentSignals(
+  overrides: Partial<AgentOutcomeSignals> = {},
+): AgentOutcomeSignals {
+  return {
+    slug: 'planner',
+    windowDays: 30,
+    runCount: 5,
+    delivered: { numerator: 4, denominator: 5 },
+    reviewPass: { numerator: 3, denominator: 4 },
+    avgReviseRounds: 1.5,
+    topFailureClass: 'timeout',
+    ...overrides,
+  };
+}
+
 type RpcSlice = Pick<
   SkillSynthesisRpcService,
-  'listClones' | 'getClone' | 'getScorecards' | 'getScorecardDetail'
+  | 'listClones'
+  | 'getClone'
+  | 'getScorecards'
+  | 'getScorecardDetail'
+  | 'getAgentOutcomeSignals'
 >;
 
 function makeRpc(): jest.Mocked<RpcSlice> {
@@ -60,6 +83,11 @@ function makeRpc(): jest.Mocked<RpcSlice> {
       history: [{ ts: '20260101T000000', hasBody: true }],
     })),
     getScorecards: jest.fn(async () => ({ planner: scorecard() })),
+    getAgentOutcomeSignals: jest.fn(async () => ({
+      signals: {},
+      windowDays: 30,
+      persistent: true,
+    })),
     getScorecardDetail: jest.fn(async () => ({
       slug: 'planner',
       rows: [
@@ -326,6 +354,9 @@ describe('SkillClonesStateService', () => {
     await svc.refreshClones();
     expect(rpc.getScorecards).not.toHaveBeenCalled();
     expect(svc.scorecards()).toEqual({});
+    expect(rpc.getAgentOutcomeSignals).not.toHaveBeenCalled();
+    expect(svc.agentOutcomeSignals()).toEqual({});
+    expect(svc.outcomeWindowDays()).toBeNull();
   });
 
   it('degrades to empty scorecards (not a blanked list) when getScorecards fails', async () => {
@@ -350,6 +381,114 @@ describe('SkillClonesStateService', () => {
     const { svc } = setup(rpc);
     await svc.refreshClones();
     expect(svc.scorecards()['planner']).toBeUndefined();
+  });
+
+  it('loads outcome signals once for every agent slug and keeps the window', async () => {
+    const rpc = makeRpc();
+    rpc.listClones.mockResolvedValueOnce([
+      clone({ slug: 'deep-research', kind: 'skill' }),
+      clone({ slug: 'planner', kind: 'agent' }),
+      clone({ slug: 'reviewer', kind: 'agent' }),
+      clone({ slug: 'ship', kind: 'command' }),
+    ]);
+    rpc.getAgentOutcomeSignals.mockResolvedValueOnce({
+      signals: { planner: agentSignals({ slug: 'planner', runCount: 5 }) },
+      windowDays: 30,
+      persistent: true,
+    });
+    const { svc } = setup(rpc);
+    await svc.refreshClones();
+    expect(rpc.getAgentOutcomeSignals).toHaveBeenCalledTimes(1);
+    expect(rpc.getAgentOutcomeSignals).toHaveBeenCalledWith([
+      'planner',
+      'reviewer',
+    ]);
+    expect(svc.agentOutcomeSignals()['planner']?.runCount).toBe(5);
+    expect(svc.agentOutcomeSignals()['reviewer']).toBeUndefined();
+    expect(svc.outcomeWindowDays()).toBe(30);
+    expect(svc.clones()).toHaveLength(4);
+    expect(svc.error()).toBeNull();
+  });
+
+  it('records unavailable outcome data without exposing the read error', async () => {
+    const rpc = makeRpc();
+    rpc.listClones.mockResolvedValueOnce([
+      clone({ slug: 'planner', kind: 'agent' }),
+    ]);
+    rpc.getAgentOutcomeSignals.mockRejectedValueOnce(new Error('signals boom'));
+    const { svc } = setup(rpc);
+    await svc.refreshClones();
+    expect(svc.clones()).toHaveLength(1);
+    expect(svc.agentOutcomeSignals()).toEqual({});
+    expect(svc.outcomeWindowDays()).toBeNull();
+    expect(svc.outcomeStatus()).toBe('unavailable');
+    expect(svc.outcomeReadFailures()).toBe(1);
+    expect(svc.error()).toBeNull();
+    expect(svc.scorecards()['planner']?.slug).toBe('planner');
+  });
+
+  it('keeps displayed outcome figures after a failed refresh', async () => {
+    const rpc = makeRpc();
+    rpc.listClones.mockResolvedValue([
+      clone({ slug: 'planner', kind: 'agent' }),
+    ]);
+    rpc.getAgentOutcomeSignals.mockResolvedValueOnce({
+      signals: { planner: agentSignals() },
+      windowDays: 30,
+      persistent: true,
+    });
+    const { svc } = setup(rpc);
+    await svc.refreshClones();
+    rpc.getAgentOutcomeSignals.mockRejectedValueOnce(
+      new Error('/secret/outcomes.db'),
+    );
+    await svc.refreshClones();
+    expect(svc.agentOutcomeSignals()['planner']?.runCount).toBe(5);
+    expect(svc.outcomeWindowDays()).toBe(30);
+    expect(svc.outcomeStatus()).toBe('unavailable');
+    expect(svc.outcomeReadFailures()).toBe(1);
+  });
+
+  it('marks outcome data as not persistent when the host has no durable store', async () => {
+    const rpc = makeRpc();
+    rpc.listClones.mockResolvedValueOnce([
+      clone({ slug: 'planner', kind: 'agent' }),
+    ]);
+    rpc.getAgentOutcomeSignals.mockResolvedValueOnce({
+      signals: {},
+      windowDays: 30,
+      persistent: false,
+    });
+    const { svc } = setup(rpc);
+    await svc.refreshClones();
+    expect(svc.outcomeStatus()).toBe('not-persistent');
+  });
+
+  it('marks the first outcome read as loading until it finishes', async () => {
+    const rpc = makeRpc();
+    rpc.listClones.mockResolvedValueOnce([
+      clone({ slug: 'planner', kind: 'agent' }),
+    ]);
+    let finish!: (
+      value: Awaited<
+        ReturnType<SkillSynthesisRpcService['getAgentOutcomeSignals']>
+      >,
+    ) => void;
+    rpc.getAgentOutcomeSignals.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const { svc } = setup(rpc);
+    const refresh = svc.refreshClones();
+    expect(svc.outcomeStatus()).toBe('loading');
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(svc.outcomeStatus()).toBe('loading');
+    finish({ signals: {}, windowDays: 30, persistent: true });
+    await refresh;
+    expect(svc.outcomeStatus()).toBe('ready');
   });
 
   it('lazily loads scorecard detail once and caches it per slug', async () => {

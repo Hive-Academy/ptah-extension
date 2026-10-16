@@ -63,7 +63,6 @@ import {
   THOTH_FIRST_RUN_DISMISSED_KEY,
   type AppState,
   type CanvasSessionRequest,
-  type HarnessWorkflowRequest,
   type LayoutMode,
   type ViewType,
 } from './app-state.service';
@@ -151,43 +150,6 @@ describe('AppStateManager', () => {
   afterEach(() => {
     TestBed.resetTestingModule();
     teardownGlobals();
-  });
-
-  describe('harness workflow request ownership', () => {
-    it('invalidates the pending request so it cannot be consumed later', () => {
-      const service = createService();
-      const request: HarnessWorkflowRequest = { mode: 'new-project' };
-      service.requestHarnessWorkflow(request);
-
-      service.clearHarnessWorkflowRequest(request);
-
-      expect(service.harnessWorkflowRequest()).toBeNull();
-      expect(service.consumeHarnessWorkflowRequest()).toBeNull();
-    });
-
-    it('preserves a replacement even when its payload is identical', () => {
-      const service = createService();
-      const older: HarnessWorkflowRequest = { mode: 'new-project' };
-      const newer: HarnessWorkflowRequest = { ...older };
-      service.requestHarnessWorkflow(older);
-      service.requestHarnessWorkflow(newer);
-
-      service.clearHarnessWorkflowRequest(older);
-
-      expect(service.consumeHarnessWorkflowRequest()).toBe(newer);
-      expect(service.consumeHarnessWorkflowRequest()).toBeNull();
-    });
-
-    it('does nothing when the request was already consumed', () => {
-      const service = createService();
-      const request: HarnessWorkflowRequest = { mode: 'new-project' };
-      service.requestHarnessWorkflow(request);
-      expect(service.consumeHarnessWorkflowRequest()).toBe(request);
-
-      service.clearHarnessWorkflowRequest(request);
-
-      expect(service.consumeHarnessWorkflowRequest()).toBeNull();
-    });
   });
 
   describe('initializeState from window.ptahConfig', () => {
@@ -714,6 +676,55 @@ describe('AppStateManager', () => {
   });
 
   describe('per-workspace view partitioning (TASK_2026_195)', () => {
+    it.each(['pending', 'settled'] as const)(
+      'keeps a %s boot-restored builder route when the first workspace activates',
+      async (timing) => {
+        const service = createService();
+        const router = TestBed.inject(Router);
+        const surfaceRouter = TestBed.inject(SurfaceRouterService);
+        let releaseGuard: ((allowed: boolean) => void) | undefined;
+        const guard = new Promise<boolean>((resolve) => {
+          releaseGuard = resolve;
+        });
+        router.resetConfig(
+          surfaceTestRoutes().map((route) =>
+            route.path === 'harness-builder'
+              ? {
+                  path: 'harness-builder',
+                  children: [
+                    {
+                      path: ':mode/:tabId',
+                      canActivate: [() => guard],
+                      children: [],
+                    },
+                  ],
+                }
+              : route,
+          ),
+        );
+
+        const restoredRoute = '/harness-builder/new-project/boot-tab';
+        const navigation = router.navigateByUrl(restoredRoute);
+        if (timing === 'pending') {
+          await settle();
+          expect(surfaceRouter.pendingSurface()).toBe('harness-builder');
+        } else {
+          releaseGuard?.(true);
+          await navigation;
+          expect(router.url).toBe(restoredRoute);
+        }
+
+        service.switchWorkspace('/ws/a');
+        releaseGuard?.(true);
+        await navigation;
+        await settle();
+
+        expect(router.url).toBe(restoredRoute);
+        expect(service.currentView()).toBe('harness-builder');
+        expect(service.openViews()).toContain('harness-builder');
+      },
+    );
+
     it('migrates the bootstrap slice onto the first real workspace so the surface survives', async () => {
       const service = createService();
       // `App.handleInitialView` lands the host's deep link before the initial

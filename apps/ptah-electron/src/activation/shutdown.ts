@@ -26,14 +26,17 @@ import type { BootRefs } from './boot-coordinator';
  * coordinator's STABLE refs object, so anything the boot managed to create in
  * the meantime is still disposed.
  *
- * A quit is ALSO deferred when the chain has something to await — today that is
- * exactly one thing, `GatewayService.stop()`, whose outbound drain persists to
- * the same database `SQLite close` is about to shut (TASK_2026_347). Electron
- * stops waiting the moment a synchronous listener returns, so an unawaited stop
- * is a lost write; the deferral is what buys the chain the microtasks that drain
- * needs, and {@link GATEWAY_STOP_BUDGET_MS} is what stops it becoming a hang.
+ * A quit is ALSO deferred when the chain has something to await
+ * ({@link requiresDeferredDisposal}): `GatewayService.stop()` and the
+ * lane-outcomes drain persist to the same database `SQLite close` is about to
+ * shut (TASK_2026_347), and the agent reap stages writes that both the drain
+ * and the final metadata flush depend on. Electron stops waiting the moment a
+ * synchronous listener returns, so an unawaited stop is a lost write; the
+ * deferral is what buys the chain the microtasks that drain needs, and a
+ * budget on each await ({@link GATEWAY_STOP_BUDGET_MS} and its siblings; the
+ * lane-outcomes drain bounds itself) is what stops it becoming a hang.
  *
- * With no boot in flight and no gateway to stop the whole sequence is still
+ * With no boot in flight and nothing to await the whole sequence is still
  * synchronous and identical to the pre-change code.
  */
 
@@ -97,7 +100,7 @@ export const AGENT_REAP_BUDGET_MS = 2000;
  * leave that promise pending forever. An unbounded await there sits ahead of
  * the `finally` that re-issues `app.quit()`, so the one failure it could
  * produce is an app the user cannot close. A lost final write is the lesser
- * failure, and it is the same trade the two budgets above already make.
+ * failure, and it is the same trade the budgets above already make.
  */
 export const METADATA_FLUSH_BUDGET_MS = 2000;
 
@@ -233,11 +236,14 @@ function disposeBeforePersistence(deps: DisposalDeps): Promise<void> {
 }
 
 /**
- * The tail of the LIFO chain: `SQLite close` and everything after it.
+ * The tail of the LIFO chain: the agent reap, the lane-outcomes drain,
+ * `SQLite close`, and everything after it.
  *
- * Nothing in here may run before {@link stopMessagingGateway} has SETTLED —
- * `SQLite close` is the first statement and the gateway's drain writes to the
- * database it closes.
+ * Nothing in here may run before {@link stopMessagingGateway} has SETTLED: its
+ * drain writes through the connection `SQLite close` shuts (TASK_2026_347
+ * invariant). The same holds inside this function: an agent exit stages a
+ * lane-outcome write, so the reap settles before the drain, and the drain
+ * settles before `SQLite close`.
  *
  * **Diagnostics is LAST**, mirroring its position as the FIRST thing armed in
  * the pre-window phase. Beyond LIFO correctness this keeps lag warnings coming
@@ -253,8 +259,6 @@ function disposeBeforePersistence(deps: DisposalDeps): Promise<void> {
 async function disposeAfterPersistence(deps: DisposalDeps): Promise<void> {
   const { refs } = deps;
 
-  nonFatal('SQLite close', () => refs.sqliteConnection?.close());
-  nonFatal('Voice worker dispose', deps.disposeVoiceWorker);
   // Child sessions BEFORE the agents (TASK_2026_584): synchronous, so it holds
   // its place on a path Electron does not wait for. It ends every live child
   // (`host-shutdown`) and clears its timers, so nothing is pushed into a parent
@@ -264,13 +268,24 @@ async function disposeAfterPersistence(deps: DisposalDeps): Promise<void> {
   // The guard is HERE rather than inside `reapAgents`, and that placement is
   // the whole reason the undeferred path still works. `await f()` suspends even
   // when `f` returns immediately, so hiding the null check inside an async
-  // helper would push `cliRegistry` and `diagnostics` into a microtask — and on
-  // a path Electron does not wait for, a microtask is never.
+  // helper would push `SQLite close`, `cliRegistry` and `diagnostics` into a
+  // microtask — and on a path Electron does not wait for, a microtask is never.
   const manager = refs.agentProcessManager;
   if (manager !== null) {
     await reapAgents(manager, deps.agentReapBudgetMs ?? AGENT_REAP_BUDGET_MS);
   }
 
+  // After the reap, whose agent exits stage outcome writes, and before
+  // `SQLite close`, which the outcome store writes through. The guard stays
+  // inline for the reason above. No `withBudget`: the drain is bounded by
+  // `startAndRegisterLaneOutcomes` and never rejects.
+  const laneOutcomes = refs.laneOutcomesDisposer;
+  if (laneOutcomes !== null) {
+    await laneOutcomes.dispose();
+  }
+
+  nonFatal('SQLite close', () => refs.sqliteConnection?.close());
+  nonFatal('Voice worker dispose', deps.disposeVoiceWorker);
   nonFatal('CLI registry dispose', () => refs.cliRegistry?.disposeAll());
   // Captured pre-window beside `cliRegistry`, so disposed beside it. Nothing
   // consumes it yet (Batch 11 moves the git watcher onto it, and that consumer
@@ -293,8 +308,9 @@ async function disposeAfterPersistence(deps: DisposalDeps): Promise<void> {
  *    `ptah.agentOutput:<agentId>` — so the relaunched session shows no CLI
  *    agent and cannot continue it.
  *  - **"Agents before proxies."** `disposeBeforePersistence` documents that an
- *    agent must stop before the translation proxy serving it. The CLI registry
- *    on the next line is that proxy, and it used to be disposed while the
+ *    agent must stop before the translation proxy serving it. The CLI registry,
+ *    disposed after the reap in `disposeAfterPersistence`, is that proxy, and
+ *    it used to be disposed while the
  *    agents were still exiting, so an agent mid-request hit a closed socket and
  *    logged a transport error before its SIGTERM landed. The CLI host has
  *    always awaited both (`shutdown-host-runtime.ts:131-132`); Electron was the
@@ -341,9 +357,10 @@ async function stopMessagingGateway(
 /**
  * Await one teardown step, give up after `budgetMs`, and never reject.
  *
- * The shape is shared by every await in this chain, and each one is bounded for
- * the same reason: a quit that hangs is a worse failure than the write the step
- * was going to make. `onExpiry` names what happens next, so the warning tells
+ * The shape is shared by every await in this chain except the lane-outcomes
+ * drain, which applies the same bound itself (`startAndRegisterLaneOutcomes`).
+ * Each one is bounded for the same reason: a quit that hangs is a worse
+ * failure than the write the step was going to make. `onExpiry` names what happens next, so the warning tells
  * the reader the consequence rather than only the timeout.
  *
  * A step that overruns is NOT cancelled — there is nothing to cancel, and
@@ -385,13 +402,15 @@ async function withBudget(
  * `true` when the disposal chain has something it must AWAIT, and the quit
  * therefore has to be deferred even with no boot in flight.
  *
- * Two handles qualify, and both because a WRITE happens after an `await`:
+ * Three handles qualify, all because a WRITE happens after an `await`:
  *
  *  - The **messaging gateway**, whose stop drains buffered adapter sends into
  *    the SQLite database `SQLite close` is about to shut.
  *  - The **agent process manager**, whose `disposeAll()` makes each running
  *    agent exit and stage its session reference, which only the final
- *    {@link disposeBootRefs} flush writes.
+ *    {@link disposeBootRefs} flush writes, and its lane-outcome write.
+ *  - The **lane-outcomes drain**, which writes pending outcomes through the
+ *    same SQLite connection before it closes.
  *
  * The agent reaper used to be listed here as the counter-example — "deliberately
  * fire-and-forget, whose settle nothing downstream depends on". That stopped
@@ -407,6 +426,7 @@ async function withBudget(
  */
 export function requiresDeferredDisposal(refs: BootRefs): boolean {
   return (
+    refs.laneOutcomesDisposer !== null ||
     refs.messagingGateway !== null ||
     refs.agentProcessManager !== null ||
     runningCheckPids().length > 0
@@ -414,8 +434,8 @@ export function requiresDeferredDisposal(refs: BootRefs): boolean {
 }
 
 /**
- * Dispose every handle in `refs`, LIFO, awaiting the gateway drain in the
- * middle.
+ * Dispose every handle in `refs`, LIFO, awaiting the gateway drain, the agent
+ * reap and the lane-outcomes drain in the middle.
  *
  * Used on the DEFERRED quit path only. When
  * {@link requiresDeferredDisposal} is `false` the two halves are run inline by
@@ -510,8 +530,8 @@ async function runDeferredDisposal(
  *    tears the process down the moment a synchronous `will-quit` listener
  *    returns, so anything after an `await` would run — if at all — against a
  *    dying process. `GatewayService.stop()`'s drain writes to SQLite, and
- *    `SQLite close` is the next thing in the chain: without the deferral the
- *    close wins the race and the final delivery is lost.
+ *    `SQLite close` follows only the agent reap and the outcome drain: without
+ *    the deferral the close wins the race and the final delivery is lost.
  */
 export function handleWillQuit(deps: QuitSequenceDeps): boolean {
   nonFatal('Workspace persistence flush', deps.flushWorkspacePersistence);
@@ -545,10 +565,11 @@ export function handleWillQuit(deps: QuitSequenceDeps): boolean {
     // can slip in front of `SQLite close` on a path Electron will not wait for.
     //
     // `disposeAfterPersistence` is async but takes no `await` here: its only
-    // one is the agent reap, and `requiresDeferredDisposal` returning false is
-    // exactly the statement that there is no agent manager to reap. So the body
-    // runs to completion synchronously before the promise is returned, and the
-    // `void` discards a promise that is already settled.
+    // two are the agent reap and the lane-outcomes drain, and
+    // `requiresDeferredDisposal` returning false is exactly the statement that
+    // there is neither an agent manager to reap nor an outcome drain to await.
+    // So the body runs to completion synchronously before the promise is
+    // returned, and the `void` discards a promise that is already settled.
     //
     // The run-check kill is discarded for the same reason: false also means no
     // check was running, so it has no tree to kill.

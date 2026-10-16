@@ -2,22 +2,14 @@ import { test, expect } from '../../support/fixtures';
 import type { UiDriver } from '../../support/ui-driver';
 
 /**
- * Surface-workflow prompt routing (TASK_2026_317).
+ * Workflow-tab prompt routing (TASK_2026_317).
  *
- * `new-project.spec.ts` already proves an AskUserQuestion renders on the
- * workflow surface — but it binds the surface to a real SDK session id first
- * (it pushes a `chat:chunk` carrying `SESSION_ID`, then addresses the question
- * to that same id). That is the AFTER state, and it is exactly the state
- * TASK_2026_317 says never exists on a NEW session: `SdkQueryOptionsBuilder`
- * derives a prompt's routing ids from `sessionConfig.tabId ?? sessionId`, so
- * before the SDK reports its UUID the question carries the workflow's
- * CORRELATION id in BOTH `sessionId` and `tabId`, and the real session id
- * never reaches the prompt at all.
+ * `new-project.spec.ts` covers a question after the SDK binds its session id.
+ * These scenarios cover the earlier question addressed only to the new
+ * workflow tab's correlation id and isolation from a different chat tab.
  *
- * These specs drive that unbound case. Test 1 is the reported symptom in full:
- * a canvas tile is open, so there IS a stranger's tile for the card to land
- * on, and the assertion is that the ONLY card in the app is the one on the
- * workflow's own panel. Test 2 covers the third defect in the same task — a
+ * Test 1 leaves a canvas tile open, so there is a stranger's tile for a
+ * misrouted card. Test 2 covers the third defect in the same task — a
  * stale private view mirror inside the old `WebviewNavigationService` made
  * "Resume New Project" report success and navigate nowhere. That service is
  * deleted (TASK_2026_524 batch 1) and the Router is now the single owner of
@@ -51,29 +43,26 @@ const UNRELATED_SESSION_ID = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
 const QUESTION_ID = '1f3a5c7e-9b2d-4e6f-8a1c-3d5e7f9a1b3c';
 
 /**
- * The `chat:start` this workflow makes, identified by `surfaceMode` rather
+ * The `chat:start` this workflow makes, identified by its seed prompt rather
  * than by being the most recent call. Test 1 opens a canvas tile first, and
  * `UiDriver.waitForObservedCall` returns the LAST call as soon as ANY exists —
  * so a tile that starts a chat of its own would satisfy it and hand back the
  * wrong `tabId`.
  */
-async function waitForSurfaceStart(
+async function waitForWorkflowStart(
   ui: UiDriver,
   timeoutMs = 10_000,
 ): Promise<{ tabId: string; prompt: string }> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const calls = await ui.getObservedCalls('chat:start');
-    const surfaceCall = calls
-      .map(
-        (c) =>
-          c.params as { tabId: string; prompt: string; surfaceMode: boolean },
-      )
-      .find((p) => p?.surfaceMode === true);
-    if (surfaceCall) return surfaceCall;
+    const workflowCall = calls
+      .map((c) => c.params as { tabId: string; prompt: string })
+      .find((p) => p?.prompt?.includes(SEED_PROMPT));
+    if (workflowCall) return workflowCall;
     if (Date.now() > deadline) {
       throw new Error(
-        `[TASK_2026_317] No surfaceMode chat:start within ${timeoutMs}ms ` +
+        `[TASK_2026_317] No workflow chat:start within ${timeoutMs}ms ` +
           `(saw ${calls.length} chat:start call(s))`,
       );
     }
@@ -84,7 +73,16 @@ async function waitForSurfaceStart(
 /** Opens the New Project workflow and returns its correlation id. */
 async function openWorkflow(ui: UiDriver): Promise<string> {
   await ui.mockRpc({
-    'harness:start-new-project': { success: true },
+    'harness:start-new-project': {
+      success: true,
+      seedPrompt: SEED_PROMPT,
+      intake: INTAKE,
+      plugins: {
+        enabledBundled: [],
+        missingExternal: [],
+        availableSkillIds: [],
+      },
+    },
     'chat:start': { success: true },
   });
   await ui.pushEvent({
@@ -94,8 +92,13 @@ async function openWorkflow(ui: UiDriver): Promise<string> {
 
   await expect(ui.page.locator('ptah-harness-builder-view')).toBeVisible();
 
-  const { tabId } = await waitForSurfaceStart(ui);
+  const { tabId } = await waitForWorkflowStart(ui);
   expect(tabId).toBeTruthy();
+  await expect(
+    ui.page.locator(
+      `ptah-harness-builder-view ptah-chat-transcript[data-tab-id="${tabId}"]`,
+    ),
+  ).toBeVisible();
   return tabId;
 }
 
@@ -113,7 +116,11 @@ test.describe('Surface workflow question routing (TASK_2026_317)', () => {
     // landed on a stranger's tile" has no stranger and the test would pass
     // against the broken build too.
     await ui.goto('chat');
-    await expect(ui.page.locator('[data-testid="canvas-grid"]')).toBeVisible();
+    await ui.page.locator('[data-testid="canvas-new-session-anchor"]').click();
+    await ui.page.getByRole('button', { name: 'Create', exact: true }).click();
+    await expect(
+      ui.page.locator('ptah-canvas-rail [data-rail-card]'),
+    ).toHaveCount(1);
 
     const correlationId = await openWorkflow(ui);
 
@@ -141,7 +148,7 @@ test.describe('Surface workflow question routing (TASK_2026_317)', () => {
         timeoutAt: 0,
         sessionId: correlationId,
         tabId: correlationId,
-        surfaceMode: true,
+        surfaceMode: false,
       },
     });
 
@@ -171,6 +178,36 @@ test.describe('Surface workflow question routing (TASK_2026_317)', () => {
   test('a question for a session this surface never claimed does not steal the workflow panel', async ({
     ui,
   }) => {
+    await ui.goto('chat');
+    await ui.page.locator('[data-testid="canvas-new-session-anchor"]').click();
+    await ui.page.getByRole('button', { name: 'Create', exact: true }).click();
+    const foreignTabId = await ui.page
+      .locator('ptah-canvas-rail [data-rail-card]')
+      .first()
+      .getAttribute('data-tab-id');
+    if (!foreignTabId) throw new Error('Canvas tab has no data-tab-id');
+    // A session:id-resolved message updates TabState, but the stream router
+    // learns the session-to-conversation binding from a stream event.
+    await ui.pushEvent({
+      type: 'chat:chunk',
+      payload: {
+        tabId: foreignTabId,
+        sessionId: UNRELATED_SESSION_ID,
+        surfaceMode: false,
+        event: {
+          id: 'evt-foreign-1',
+          eventType: 'message_start',
+          timestamp: Date.now(),
+          sessionId: UNRELATED_SESSION_ID,
+          messageId: 'msg-foreign-1',
+          role: 'assistant',
+        },
+      },
+    });
+    await ui.pushEvent({
+      type: 'session:id-resolved',
+      payload: { tabId: foreignTabId, realSessionId: UNRELATED_SESSION_ID },
+    });
     const correlationId = await openWorkflow(ui);
     expect(correlationId).not.toBe(UNRELATED_SESSION_ID);
 
@@ -194,17 +231,27 @@ test.describe('Surface workflow question routing (TASK_2026_317)', () => {
         timestamp: Date.now(),
         timeoutAt: 0,
         sessionId: UNRELATED_SESSION_ID,
-        tabId: UNRELATED_SESSION_ID,
-        surfaceMode: true,
+        tabId: foreignTabId,
+        surfaceMode: false,
       },
     });
 
-    // The claim map is keyed by correlation id, so a foreign id must miss.
-    // Without this, "route it to the surface" could be implemented as "route
-    // everything to the surface" and test 1 would still pass.
+    // The foreign SDK session is bound to another normal chat tab, so its
+    // question must stay off the workflow tab and remain available there.
     await expect(
       ui.page.locator('ptah-harness-builder-view ptah-question-card'),
     ).toHaveCount(0);
+    await ui.goto('chat');
+    await ui.page
+      .locator(
+        `ptah-canvas-rail [data-rail-card][data-tab-id="${foreignTabId}"]`,
+      )
+      .click();
+    await expect(
+      ui.page.locator(
+        `ptah-chat-view:has(ptah-chat-transcript[data-tab-id="${foreignTabId}"]) ptah-question-card`,
+      ),
+    ).toBeVisible();
   });
 });
 
@@ -212,7 +259,7 @@ test.describe('New Project resume navigation (TASK_2026_317)', () => {
   test('Resume New Project actually navigates back to the workflow after a direct view switch', async ({
     ui,
   }) => {
-    await openWorkflow(ui);
+    const tabId = await openWorkflow(ui);
 
     // `UiDriver.goto` pushes a `switchView` message. That path used to leave
     // the old navigation service's private view mirror stale, so its later
@@ -225,15 +272,17 @@ test.describe('New Project resume navigation (TASK_2026_317)', () => {
     await expect(resume).toBeVisible();
     await resume.click();
 
-    await expect(ui.page.locator('ptah-harness-builder-view')).toBeVisible();
+    await expect(
+      ui.page.locator(
+        `ptah-harness-builder-view ptah-chat-transcript[data-tab-id="${tabId}"]`,
+      ),
+    ).toBeVisible();
 
     // Resuming must re-enter the SAME run. A second `chat:start` would mean
     // the click started a new agent session instead of navigating back.
     const starts = await ui.getObservedCalls('chat:start');
     expect(
-      starts.filter(
-        (c) => (c.params as { surfaceMode?: boolean })?.surfaceMode === true,
-      ),
+      starts.filter((c) => (c.params as { tabId?: string })?.tabId === tabId),
     ).toHaveLength(1);
   });
 });

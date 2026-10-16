@@ -14,6 +14,7 @@
 import { ZodError } from 'zod';
 
 import {
+  SYSTEM_PROMPT_MAX_LENGTH,
   ChatStartParamsSchema,
   ChatContinueParamsSchema,
   ChatResumeParamsSchema,
@@ -29,6 +30,18 @@ const VALID_SESSION_UUID = '66666666-7777-4888-8999-aaaaaaaaaaaa';
 const LEGACY_TAB_ID = 'tab_1778939573732_w43e75q'; // the original Sentry crash payload
 
 describe('chat-rpc.schema', () => {
+  it.each([
+    ['continue', ChatContinueParamsSchema],
+    ['resume', ChatResumeParamsSchema],
+  ])('bounds %s systemPrompt without stripping other fields', (_name, schema) => {
+    const base = { tabId: VALID_TAB_UUID, sessionId: VALID_SESSION_UUID, other: 1 };
+    expect(schema.parse(base)).not.toHaveProperty('systemPrompt');
+    expect(schema.parse({ ...base, systemPrompt: 'x'.repeat(SYSTEM_PROMPT_MAX_LENGTH) })).toMatchObject({
+      systemPrompt: 'x'.repeat(SYSTEM_PROMPT_MAX_LENGTH), other: 1,
+    });
+    expect(() => schema.parse({ ...base, systemPrompt: 'x'.repeat(SYSTEM_PROMPT_MAX_LENGTH + 1) })).toThrow('systemPrompt exceeds maximum length');
+    expect(() => schema.parse({ ...base, systemPrompt: 4 })).toThrow('systemPrompt must be a string');
+  });
   describe('ChatStartParamsSchema', () => {
     it('accepts a payload with a valid UUID v4 tabId', () => {
       const parsed = ChatStartParamsSchema.parse({
@@ -302,7 +315,14 @@ describe.each([
     'continue',
     ChatContinueParamsSchema,
     { tabId: VALID_TAB_UUID, sessionId: VALID_SESSION_UUID },
-    ['tabId', 'sessionId', 'surfaceMode', 'mcpToolProfile', 'ptahUiFence'],
+    [
+      'systemPrompt',
+      'tabId',
+      'sessionId',
+      'surfaceMode',
+      'mcpToolProfile',
+      'ptahUiFence',
+    ],
   ],
 ] as const)(
   'ptahUiFence validation for %s',

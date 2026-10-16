@@ -15,6 +15,10 @@ import type {
 } from '@ptah-extension/vscode-core';
 import { setPtahMcpPort } from '@ptah-extension/agent-sdk';
 import {
+  LANE_OUTCOME_TOKENS,
+  type LaneOutcomesDisposer,
+} from '@ptah-extension/lane-outcomes';
+import {
   AGENT_GENERATION_TOKENS,
   EnhancedPromptsService,
 } from '@ptah-extension/agent-generation';
@@ -535,7 +539,7 @@ export async function wireRuntimePreWindow(
  * Eagerly construct the disposal handles whose dependency graphs must NOT
  * be built during teardown.
  *
- * Resolving either of these in `will-quit` forces a first-time lazy build
+ * Resolving these in `will-quit` forces a first-time lazy build
  * mid-teardown, which races with DI shutdown and can hang or throw (observed in
  * the auto-updater e2e: production build, blocked network). Non-fatal: a null
  * ref simply means `will-quit` has nothing to dispose.
@@ -544,6 +548,22 @@ function captureShutdownHandles(
   container: DependencyContainer,
   coordinator: BootCoordinator,
 ): void {
+  // Capture the registered drain while the container is healthy. Quit uses
+  // this ref after the agent reap, without resolving DI during teardown.
+  try {
+    coordinator.refs.laneOutcomesDisposer = container.isRegistered(
+      LANE_OUTCOME_TOKENS.DISPOSER,
+    )
+      ? container.resolve<LaneOutcomesDisposer>(LANE_OUTCOME_TOKENS.DISPOSER)
+      : null;
+  } catch (error: unknown) {
+    console.warn(
+      '[Ptah Electron] Lane outcomes disposer capture failed (non-fatal):',
+      error instanceof Error ? error.message : String(error),
+    );
+    coordinator.refs.laneOutcomesDisposer = null;
+  }
+
   try {
     coordinator.refs.cliRegistry = container.resolve<{
       disposeAll: () => void;

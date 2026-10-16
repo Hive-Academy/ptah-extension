@@ -2,7 +2,8 @@
  * Agent Orchestration RPC Handlers.
  *
  * Owns the `agent:*` namespace on every host:
- * - agent:getConfig / agent:setConfig — orchestration config via IWorkspaceProvider
+ * - agent:getConfig / agent:setConfig — orchestration config via IWorkspaceProvider.
+ *   Decision-model fields delegate to DECISION_MODEL_CONFIG (lane-routing).
  * - agent:detectClis / agent:listCliModels — rival-CLI detection and models
  * - agent:permissionResponse — routes decisions to the SDK + Copilot bridges
  * - agent:stop / agent:continue / agent:resumeCliSession — process control
@@ -47,6 +48,14 @@ import {
   SessionMetadataStore,
   SdkPermissionHandler,
 } from '@ptah-extension/agent-sdk';
+import {
+  DecisionModelSelectionSchema,
+  LANE_ROUTING_TOKENS,
+  type DecisionModelConfig,
+  type DecisionModelLocality,
+  type DecisionModelSelection,
+  type DecisionModelStatusDto,
+} from '@ptah-extension/lane-routing';
 import { z } from 'zod';
 import type {
   AgentOrchestrationConfig,
@@ -69,6 +78,7 @@ import {
   PI_REASONING_EFFORT_VALUES,
   SUBAGENT_PROMPT_CACHE_TTL_SETTINGS,
   resolveSubagentPromptCacheTtl,
+  DECISION_MODEL_KEY_MAY_HAVE_CHANGED,
 } from '@ptah-extension/shared';
 import { AgentResumeCliSessionParamsSchema } from './agent-rpc.schema';
 import { CliModelListService } from '../services/cli-model-list.service';
@@ -269,6 +279,42 @@ function isSubagentPromptCacheTtlSetting(
   );
 }
 
+/**
+ * Fixed `detail` texts for a decision-model row whose status read failed.
+ * Never the raw error: provider and storage errors can carry paths or
+ * credentials. The real Error goes to the host log only.
+ */
+const DECISION_STATUS_UNREAD_DETAIL =
+  'The status could not be read. The saved choice is unchanged.';
+const DECISION_SELECTION_UNREAD_DETAIL =
+  'The saved decision model could not be read. It is unchanged.';
+
+/** Whether two parsed decision-model selections name the same model. */
+function sameDecisionModelSelection(
+  a: DecisionModelSelection,
+  b: DecisionModelSelection,
+): boolean {
+  switch (a.kind) {
+    case 'unset':
+      return b.kind === 'unset';
+    case 'ollama':
+      return b.kind === 'ollama' && b.model === a.model;
+    case 'jev':
+      return b.kind === 'jev' && b.model === a.model;
+    case 'structured':
+      return (
+        b.kind === 'structured' &&
+        b.providerId === a.providerId &&
+        b.model === a.model
+      );
+  }
+}
+
+/** The error type for a log line; raw messages can carry keys or paths. */
+function errorTypeOf(error: unknown): string {
+  return error instanceof Error ? error.name : 'unknown';
+}
+
 @injectable()
 export class AgentRpcHandlers {
   /**
@@ -315,6 +361,17 @@ export class AgentRpcHandlers {
     private readonly fileSystemProvider: IFileSystemProvider,
     @inject(PLATFORM_TOKENS.PLATFORM_INFO)
     private readonly platformInfo: IPlatformInfo,
+    /** Registered by `registerLaneRoutingServices` (Batch 21). */
+    @inject(LANE_ROUTING_TOKENS.DECISION_MODEL_CONFIG)
+    private readonly decisionModelConfig: Pick<
+      DecisionModelConfig,
+      | 'getStatus'
+      | 'getSelection'
+      | 'localityOf'
+      | 'setSelection'
+      | 'setJevApiKey'
+      | 'readJevApiKey'
+    >,
   ) {}
 
   register(): void {
@@ -448,6 +505,7 @@ export class AgentRpcHandlers {
                 'workflows.disabled',
                 false,
               ) ?? false,
+            decisionModel: await this.readDecisionModelStatus(),
           };
 
           this.logger.debug('RPC: agent:getConfig success', {
@@ -465,6 +523,71 @@ export class AgentRpcHandlers {
         }
       },
     );
+  }
+
+  /**
+   * The `decisionModel` field of `agent:getConfig`. A status failure stays
+   * local to this field, so the rest of the config is still returned. The
+   * fallback reads the stored selection without the probe and reports it as
+   * `unreachable` with fixed detail; a stored `unset` stays `unset`, since an
+   * unset selection sends no request that could be unreachable.
+   */
+  private async readDecisionModelStatus(): Promise<DecisionModelStatusDto> {
+    try {
+      return await this.decisionModelConfig.getStatus();
+    } catch (error: unknown) {
+      this.logger.error(
+        'RPC: agent:getConfig decision model status failed; returning the stored selection',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    }
+    let selection: DecisionModelSelection;
+    try {
+      selection = this.decisionModelConfig.getSelection();
+    } catch (error: unknown) {
+      this.logger.error(
+        'RPC: agent:getConfig decision model selection could not be read',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+      // No `unknown` selection exists in the contract (decision #46), so the
+      // row reads as unset with the fixed "could not be read" detail. Loading
+      // never writes: only a user save changes the stored selection.
+      return {
+        selection: { kind: 'unset' },
+        locality: null,
+        reportsConfidence: false,
+        state: 'unreachable',
+        detail: DECISION_SELECTION_UNREAD_DETAIL,
+      };
+    }
+    if (selection.kind === 'unset') {
+      return {
+        selection,
+        locality: null,
+        reportsConfidence: false,
+        state: 'unset',
+        detail: null,
+      };
+    }
+    let locality: DecisionModelLocality | null = null;
+    try {
+      locality = this.decisionModelConfig.localityOf(selection);
+    } catch (error: unknown) {
+      // The row stays readable without a locality line; the cause is logged.
+      this.logger.warn(
+        'RPC: agent:getConfig decision model locality could not be read',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    }
+    return {
+      selection,
+      locality,
+      // Same rule as the service's status rows: structured reports none.
+      reportsConfidence:
+        selection.kind === 'ollama' || selection.kind === 'jev',
+      state: 'unreachable',
+      detail: DECISION_STATUS_UNREAD_DETAIL,
+    };
   }
 
   private registerSetConfig(): void {
@@ -504,6 +627,27 @@ export class AgentRpcHandlers {
       ) {
         return { success: false, error: 'Unsupported cursorApiKey value' };
       }
+      if (
+        params.decisionModelJevApiKey !== undefined &&
+        typeof params.decisionModelJevApiKey !== 'string'
+      ) {
+        return {
+          success: false,
+          error: 'Unsupported decisionModelJevApiKey value',
+        };
+      }
+      // The same schema `setSelection` applies, run here so an invalid
+      // selection is refused before the Jev key (or anything else) is written.
+      let decisionModel: DecisionModelSelection | undefined;
+      if (params.decisionModel !== undefined) {
+        const parsed = DecisionModelSelectionSchema.safeParse(
+          params.decisionModel,
+        );
+        if (!parsed.success) {
+          return { success: false, error: 'Unsupported decisionModel value' };
+        }
+        decisionModel = parsed.data;
+      }
       const invalidModel = invalidCliModel(params);
       if (invalidModel) {
         return { success: false, error: `Unsupported ${invalidModel} value` };
@@ -539,6 +683,16 @@ export class AgentRpcHandlers {
           success: false,
           error: 'Unsupported subagentPromptCacheTtl value',
         };
+      }
+      // Decision-model writes run before the other writes, so a failed one
+      // leaves those fields unchanged. The selection was validated above.
+      // See writeDecisionModel for the key-then-selection order and rollback.
+      const decisionModelFailure = await this.writeDecisionModel(
+        params.decisionModelJevApiKey,
+        decisionModel,
+      );
+      if (decisionModelFailure) {
+        return { success: false, error: decisionModelFailure };
       }
       if (params.preferredAgentOrder !== undefined) {
         await this.setAgentCfg(
@@ -672,6 +826,112 @@ export class AgentRpcHandlers {
             ? error.message
             : 'Could not save the orchestration settings.',
       };
+    }
+  }
+
+  /**
+   * Writes the decision-model fields of one `agent:setConfig` request; the
+   * selection is already validated. Returns fixed failure text only when a
+   * rollback failed. Any other failure rejects with the original error, which
+   * the caller turns into `{ success: false }` with fixed text.
+   *
+   * - The Jev key is written first, so a failed key write leaves the
+   *   selection unchanged.
+   * - With both fields present, the stored key is read before the key write.
+   *   If the selection write then fails, that key is put back (`null` deletes
+   *   the new one), so the failed request leaves both unchanged.
+   * - If the selection write rejects but the stored selection already equals
+   *   the requested one, the selection was stored: the new key is kept and
+   *   the save reports success (both fields hold the requested values), so
+   *   the row never says "unchanged" for a save that took effect. If that
+   *   check cannot read the selection, the key is put back as above.
+   * - A selection-only save applies the same check: a selection stored before
+   *   its write rejected reports success; otherwise the error propagates.
+   * - If putting the key back fails too, the result says the key may have
+   *   changed. Logs carry error types only; the key is never logged or
+   *   echoed.
+   * - Overlapping saves cannot interleave these steps: every
+   *   `agent:setConfig` call runs through {@link setConfigQueue}.
+   */
+  private async writeDecisionModel(
+    jevApiKey: string | undefined,
+    selection: DecisionModelSelection | undefined,
+  ): Promise<string | undefined> {
+    const config = this.decisionModelConfig;
+    if (jevApiKey === undefined) {
+      if (selection === undefined) return undefined;
+      try {
+        await config.setSelection(selection);
+      } catch (selectionError: unknown) {
+        // degradation-audit: reported — a selection stored before a late rejection is a completed save; the error type is logged
+        if (this.storedSelectionState(selection) !== 'stored') {
+          throw selectionError;
+        }
+        this.logger.warn(
+          'RPC: agent:setConfig decision model selection was stored before its write failed',
+          { selectionErrorType: errorTypeOf(selectionError) },
+        );
+      }
+      return undefined;
+    }
+    if (selection === undefined) {
+      await config.setJevApiKey(jevApiKey);
+      return undefined;
+    }
+    const previousKey = await config.readJevApiKey();
+    await config.setJevApiKey(jevApiKey);
+    try {
+      await config.setSelection(selection);
+      return undefined;
+    } catch (selectionError: unknown) {
+      // degradation-audit: reported — a selection stored before a late rejection is a completed save; the error type is logged
+      if (this.storedSelectionState(selection) === 'stored') {
+        this.logger.warn(
+          'RPC: agent:setConfig decision model selection was stored before its write failed; keeping the new key',
+          { selectionErrorType: errorTypeOf(selectionError) },
+        );
+        return undefined;
+      }
+      try {
+        await config.setJevApiKey(previousKey);
+      } catch (restoreError: unknown) {
+        this.logger.error(
+          'RPC: agent:setConfig could not restore the previous decision model key',
+          {
+            selectionErrorType: errorTypeOf(selectionError),
+            restoreErrorType: errorTypeOf(restoreError),
+          },
+        );
+        return DECISION_MODEL_KEY_MAY_HAVE_CHANGED;
+      }
+      throw selectionError;
+    }
+  }
+
+  /**
+   * Whether the stored selection equals `selection`. A failed read is logged
+   * and answers `'unreadable'`; the caller then treats the save as failed
+   * (and restores the previous key when one was written), the safe choice
+   * when the stored selection is unknown.
+   */
+  private storedSelectionState(
+    selection: DecisionModelSelection,
+  ): 'stored' | 'not-stored' | 'unreadable' {
+    try {
+      return sameDecisionModelSelection(
+        this.decisionModelConfig.getSelection(),
+        selection,
+      )
+        ? 'stored'
+        : 'not-stored';
+    } catch (readError: unknown) {
+      // degradation-audit: reported — the read failure is logged as a warn;
+      // 'unreadable' makes the caller restore the previous key.
+      this.logger.warn(
+        'RPC: agent:setConfig could not read the decision model selection after a failed write; restoring the previous key',
+        { errorType: errorTypeOf(readError) },
+      );
+      return 'unreadable';
     }
   }
 

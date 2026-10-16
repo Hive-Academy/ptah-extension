@@ -39,6 +39,7 @@
  * `apps` (TASK_2026_494) is Electron-only: it is a legal id on every host so
  * the list stays one list, but its route refuses to match outside Electron
  * and the `**` fallback lands the user on `chat` instead.
+ * `command-center` is Electron-only via the route guard, with the same fallback.
  */
 export type ViewType =
   | 'chat'
@@ -52,7 +53,8 @@ export type ViewType =
   | 'marketplace'
   | 'tribunal'
   | 'tasks'
-  | 'apps';
+  | 'apps'
+  | 'command-center';
 
 /**
  * Every surface that has a route, in the order the route table declares them.
@@ -74,6 +76,7 @@ export const SURFACE_ROUTE_IDS: readonly ViewType[] = [
   'tribunal',
   'tasks',
   'apps',
+  'command-center',
 ];
 
 /**

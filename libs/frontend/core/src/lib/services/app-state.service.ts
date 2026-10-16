@@ -16,7 +16,6 @@ import {
   SessionId,
   WorkspaceInfo,
   MESSAGE_TYPES,
-  type NewProjectIntake,
 } from '@ptah-extension/shared';
 import { MessageHandler } from './message-router.types';
 import type {
@@ -122,23 +121,6 @@ export const THOTH_FIRST_RUN_DISMISSED_KEY = 'ptah-thoth-first-run-dismissed';
 export const LEGACY_HERMES_FIRST_RUN_DISMISSED_KEY =
   'ptah-hermes-first-run-dismissed';
 
-/**
- * Request to open the harness-builder surface and run an agent-driven
- * workflow. `new-project` auto-starts the workflow with the seed prompt;
- * `configure-harness` opens the surface and waits for the first user turn.
- */
-export interface HarnessWorkflowRequest {
-  mode: 'new-project' | 'configure-harness';
-  /** Prompt sent to the agent. Not what the transcript renders. */
-  seedPrompt?: string;
-  /**
-   * Setup Hub intake answers behind `seedPrompt`, so the harness surface can
-   * show the user's own words as the first bubble rather than the full
-   * instruction prompt. `new-project` only.
-   */
-  intake?: NewProjectIntake;
-}
-
 export type SettingsTabId =
   'providers' | 'claude-auth' | 'orchestration' | 'pro-features' | 'tools';
 
@@ -176,7 +158,7 @@ interface SkillsDivergedRequest {
  * session, prefills its composer, then settles `resolve`. Kept in `core` so
  * `tasks-ui` never imports `chat` — the same
  * signal-bridge inversion used by {@link CanvasSessionRequest} and
- * {@link HarnessWorkflowRequest} (NFR-11 / D7).
+ * the chat prompt bridge (NFR-11 / D7).
  */
 export interface ChatPromptRequest {
   /** Prompt text submitted as the new session's first message. */
@@ -478,8 +460,6 @@ export class AppStateManager implements MessageHandler {
    */
   private readonly _canvasTabRequests = signal<readonly CanvasTabRequest[]>([]);
   /** Signal bridge: request to open the harness surface and run a workflow */
-  private readonly _harnessWorkflowRequest =
-    signal<HarnessWorkflowRequest | null>(null);
   /** Signal bridge: request to launch a chat session with a seed prompt (Tasks board → orchestrate) */
   private readonly _chatPromptRequest = signal<ChatPromptRequest | null>(null);
   /** Signal bridge: request to open an existing session in chat (Tasks board → "Open session") */
@@ -714,7 +694,6 @@ export class AppStateManager implements MessageHandler {
   /** Pending request to adopt an existing tab as a canvas tile (consumed by OrchestraCanvasComponent) */
   readonly canvasTabRequests = this._canvasTabRequests.asReadonly();
   /** Pending request to open the harness surface workflow (consumed by HarnessBuilderViewComponent) */
-  readonly harnessWorkflowRequest = this._harnessWorkflowRequest.asReadonly();
   /** Pending request to launch a chat session with a seed prompt (consumed by the chat-lib bridge) */
   readonly chatPromptRequest = this._chatPromptRequest.asReadonly();
   /** Pending request to open an existing session in chat (consumed by the chat-lib bridge) */
@@ -897,6 +876,7 @@ export class AppStateManager implements MessageHandler {
     const previousPath = this._activeWorkspacePath();
     if (previousPath === newPath) return;
 
+    const adoptingBootWorkspace = previousPath === IMPLICIT_WORKSPACE_PATH;
     // Router truth: this must match what is on screen.
     const staying = isConfigurationSurface(this.currentView());
 
@@ -925,7 +905,7 @@ export class AppStateManager implements MessageHandler {
     // surface; `recordSettledSurface` re-grants ownership to `newPath` when it
     // lands. The stay-branch starts no navigation, so it grants ownership to
     // the incoming workspace directly instead.
-    this._settlementOwner = staying ? newPath : null;
+    this._settlementOwner = staying || adoptingBootWorkspace ? newPath : null;
     this._activeWorkspacePath.set(newPath);
 
     if (!this._viewSlices().has(newPath)) {
@@ -953,6 +933,13 @@ export class AppStateManager implements MessageHandler {
       // shell's effect calls `SurfaceRouterService.remountActiveSurface()`).
       // The VS Code webview never reaches this branch.
       this._configurationSurfaceRemountTick.update((t) => t + 1);
+      return;
+    }
+
+    if (adoptingBootWorkspace) {
+      // The initial route is already on screen or navigating. Let it settle
+      // against the real workspace instead of replacing its child URL with the
+      // remembered surface root (or Chat while the route is still pending).
       return;
     }
 
@@ -1380,18 +1367,6 @@ export class AppStateManager implements MessageHandler {
     return requests;
   }
 
-  /** Request that the harness surface opens and runs the given workflow. */
-  requestHarnessWorkflow(req: HarnessWorkflowRequest): void {
-    this._harnessWorkflowRequest.set(req);
-  }
-
-  /** Invalidate a request only while it still owns the pending workflow. */
-  clearHarnessWorkflowRequest(request: HarnessWorkflowRequest): void {
-    if (this._harnessWorkflowRequest() === request) {
-      this._harnessWorkflowRequest.set(null);
-    }
-  }
-
   /**
    * Request that the chat lib launches a session seeded with `request.prompt`.
    * Mirrors {@link requestCanvasSession}: the chat-lib bridge consumes the
@@ -1455,20 +1430,6 @@ export class AppStateManager implements MessageHandler {
    */
   clearChatPromptRequest(): void {
     this._chatPromptRequest.set(null);
-  }
-
-  /**
-   * Consume the pending harness workflow request (read-and-clear). Returns
-   * the request or null. Mirrors the canvas request consume pattern — the
-   * harness view reads this once on init so re-entry doesn't replay a stale
-   * workflow.
-   */
-  consumeHarnessWorkflowRequest(): HarnessWorkflowRequest | null {
-    const req = this._harnessWorkflowRequest();
-    if (req) {
-      this._harnessWorkflowRequest.set(null);
-    }
-    return req;
   }
 
   requestSettingsTab(target: PendingSettingsTab): void {

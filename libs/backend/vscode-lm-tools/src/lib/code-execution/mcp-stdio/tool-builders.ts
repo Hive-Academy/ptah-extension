@@ -29,6 +29,8 @@ import {
 } from '../mcp-core/tool-description.builder';
 import { buildAgentWaitTool } from '../mcp-core/agent-wait.tool';
 import { buildRunCheckTool } from '../mcp-core/run-check.tool';
+import { buildRouteDecideTool } from '../mcp-core/route-tools';
+import { buildOutcomeReportTool } from '../mcp-core/tools/outcome-report.tool';
 import { getToolResultBudget } from '../mcp-core/tool-result-budget';
 import type { MCPToolDefinition } from '../mcp-core/types/mcp-protocol.types';
 
@@ -65,6 +67,8 @@ export const MCP_MVP_TOOL_NAMES = [
   'agent_list',
   'agent_wait',
   'run_check',
+  'route_decide',
+  'outcome_report',
   'session_submit',
 ] as const;
 
@@ -123,6 +127,14 @@ export function buildMcpAgentWaitTool(): MCPToolDefinition {
 
 export function buildMcpRunCheckTool(): MCPToolDefinition {
   return rename(buildRunCheckTool({ transport: 'stdio' }), 'run_check');
+}
+
+export function buildMcpRouteDecideTool(): MCPToolDefinition {
+  return rename(buildRouteDecideTool(), 'route_decide');
+}
+
+export function buildMcpOutcomeReportTool(): MCPToolDefinition {
+  return rename(buildOutcomeReportTool(), 'outcome_report');
 }
 
 /**
@@ -184,9 +196,9 @@ export function buildMcpSessionSubmitTool(): MCPToolDefinition {
 }
 
 /**
- * Build the full 10-tool MVP list advertised by `tools/list`. Order is
+ * Build the full 12-tool MVP list advertised by `tools/list`. Order is
  * deterministic so external hosts that fingerprint the catalog see stable
- * output across `mcp-serve` boots.
+ * output across `mcp-serve` boots. `session_submit` stays last.
  */
 export function buildMcpMvpTools(): readonly MCPToolDefinition[] {
   return [
@@ -199,6 +211,8 @@ export function buildMcpMvpTools(): readonly MCPToolDefinition[] {
     buildMcpAgentListTool(),
     buildMcpAgentWaitTool(),
     buildMcpRunCheckTool(),
+    buildMcpRouteDecideTool(),
+    buildMcpOutcomeReportTool(),
     buildMcpSessionSubmitTool(),
   ];
 }

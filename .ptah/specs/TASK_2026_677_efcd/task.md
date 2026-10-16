@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_677_efcd
-status: in_progress
+status: done
 type: FEATURE
 title: Clean session view with agent tiles and session inspector
 description: >-

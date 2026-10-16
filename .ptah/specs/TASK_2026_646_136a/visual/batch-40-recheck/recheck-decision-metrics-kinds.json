@@ -1,0 +1,322 @@
+[
+  {
+    "scenario": "kinds",
+    "theme": "dark",
+    "width": 1100,
+    "seed": null,
+    "cardText": "Decision model\nunset\nUnset · code ranking\n\nNo decision model is set. Code ranking chooses lanes and models, and no decision request is sent.",
+    "measure": [
+      {
+        "kind": "text",
+        "el": "h3#consumer-name-decision",
+        "text": "Decision model",
+        "fontPx": "12px",
+        "weight": "700",
+        "fg": "#e8e6e1",
+        "bg": "#1a1a20",
+        "ratio": 13.89
+      },
+      {
+        "kind": "text",
+        "el": "span#consumer-tier-decision",
+        "text": "unset",
+        "fontPx": "9px",
+        "weight": "400",
+        "fg": "#e8e6e1",
+        "bg": "#242430",
+        "ratio": 12.29
+      },
+      {
+        "kind": "target",
+        "el": "button#consumer-edit-decision",
+        "label": "Decision model: Unset · code ranking. Change",
+        "w": 202.7,
+        "h": 32,
+        "disabled": false
+      },
+      {
+        "kind": "icon",
+        "el": "svg",
+        "fg": "#e8e6e1",
+        "bg": "#1a1a20",
+        "ratio": 13.89,
+        "w": 24
+      },
+      {
+        "kind": "text",
+        "el": "span#consumer-summary-decision",
+        "text": "Unset · code ranking",
+        "fontPx": "12px",
+        "weight": "400",
+        "fg": "#e8e6e1",
+        "bg": "#1a1a20",
+        "ratio": 13.89
+      },
+      {
+        "kind": "icon",
+        "el": "svg",
+        "fg": "#989291",
+        "bg": "#1a1a20",
+        "ratio": 5.65,
+        "w": 12
+      },
+      {
+        "kind": "text",
+        "el": "p#decision-state",
+        "text": "No decision model is set. Code ranking chooses lanes and models, and n",
+        "fontPx": "12px",
+        "weight": "400",
+        "fg": "#e8e6e1",
+        "bg": "#1a1a20",
+        "ratio": 13.89
+      }
+    ],
+    "overflow": {
+      "box": {
+        "x": 307,
+        "y": 563,
+        "w": 228.7,
+        "h": 137
+      },
+      "docScrollW": 1100,
+      "innerW": 1100,
+      "clipped": []
+    },
+    "styleCompare": {
+      "synthesis": {
+        "article": {
+          "paddingTop": "12px",
+          "paddingLeft": "12px",
+          "borderRadius": "8px",
+          "backgroundColor": "oklch(0.220459 0.011628 285.407)",
+          "display": "flex",
+          "gap": "8px",
+          "h": 83,
+          "w": 228.7
+        },
+        "name": {
+          "fontSize": "12px",
+          "fontWeight": "700",
+          "lineHeight": "16px",
+          "color": "oklch(0.925095 0.00705 88.6451)",
+          "h": 16,
+          "w": 86
+        },
+        "badge": {
+          "fontSize": "9px",
+          "lineHeight": "12px",
+          "backgroundColor": "oklch(0.265698 0.022253 284.785)",
+          "color": "oklch(0.925095 0.00705 88.6451)",
+          "paddingLeft": "4px",
+          "h": 14,
+          "w": 49.1
+        },
+        "cell": {
+          "fontSize": "12px",
+          "color": "oklch(0.925095 0.00705 88.6451)",
+          "paddingLeft": "4px",
+          "gap": "4px",
+          "h": 32,
+          "w": 202.7
+        }
+      },
+      "decision": {
+        "article": {
+          "paddingTop": "12px",
+          "paddingLeft": "12px",
+          "borderRadius": "8px",
+          "backgroundColor": "oklch(0.220459 0.011628 285.407)",
+          "display": "flex",
+          "gap": "8px",
+          "h": 137,
+          "w": 228.7
+        },
+        "name": {
+          "fontSize": "12px",
+          "fontWeight": "700",
+          "lineHeight": "16px",
+          "color": "oklch(0.925095 0.00705 88.6451)",
+          "h": 16,
+          "w": 90
+        },
+        "badge": {
+          "fontSize": "9px",
+          "lineHeight": "12px",
+          "backgroundColor": "oklch(0.265698 0.022253 284.785)",
+          "color": "oklch(0.925095 0.00705 88.6451)",
+          "paddingLeft": "4px",
+          "h": 14,
+          "w": 33.6
+        },
+        "cell": {
+          "fontSize": "12px",
+          "color": "oklch(0.925095 0.00705 88.6451)",
+          "paddingLeft": "4px",
+          "gap": "4px",
+          "h": 32,
+          "w": 202.7
+        }
+      }
+    }
+  },
+  {
+    "scenario": "kinds",
+    "theme": "light",
+    "width": 1100,
+    "seed": null,
+    "cardText": "Decision model\nunset\nUnset · code ranking\n\nNo decision model is set. Code ranking chooses lanes and models, and no decision request is sent.",
+    "measure": [
+      {
+        "kind": "text",
+        "el": "h3#consumer-name-decision",
+        "text": "Decision model",
+        "fontPx": "12px",
+        "weight": "700",
+        "fg": "#291334",
+        "bg": "#efeae6",
+        "ratio": 14.21
+      },
+      {
+        "kind": "text",
+        "el": "span#consumer-tier-decision",
+        "text": "unset",
+        "fontPx": "9px",
+        "weight": "400",
+        "fg": "#291334",
+        "bg": "#e6e2df",
+        "ratio": 13.18
+      },
+      {
+        "kind": "target",
+        "el": "button#consumer-edit-decision",
+        "label": "Decision model: Unset · code ranking. Change",
+        "w": 200.7,
+        "h": 32,
+        "disabled": false
+      },
+      {
+        "kind": "icon",
+        "el": "svg",
+        "fg": "#291334",
+        "bg": "#faf7f5",
+        "ratio": 15.92,
+        "w": 24
+      },
+      {
+        "kind": "text",
+        "el": "span#consumer-summary-decision",
+        "text": "Unset · code ranking",
+        "fontPx": "12px",
+        "weight": "400",
+        "fg": "#291334",
+        "bg": "#faf7f5",
+        "ratio": 15.92
+      },
+      {
+        "kind": "icon",
+        "el": "svg",
+        "fg": "#745665",
+        "bg": "#faf7f5",
+        "ratio": 6.04,
+        "w": 12
+      },
+      {
+        "kind": "text",
+        "el": "p#decision-state",
+        "text": "No decision model is set. Code ranking chooses lanes and models, and n",
+        "fontPx": "12px",
+        "weight": "400",
+        "fg": "#291334",
+        "bg": "#efeae6",
+        "ratio": 14.21
+      }
+    ],
+    "overflow": {
+      "box": {
+        "x": 307,
+        "y": 562,
+        "w": 228.7,
+        "h": 138
+      },
+      "docScrollW": 1100,
+      "innerW": 1100,
+      "clipped": []
+    },
+    "styleCompare": {
+      "synthesis": {
+        "article": {
+          "paddingTop": "12px",
+          "paddingLeft": "12px",
+          "borderRadius": "8px",
+          "backgroundColor": "oklch(0.93982 0.007 61.449)",
+          "display": "flex",
+          "gap": "8px",
+          "h": 84,
+          "w": 228.7
+        },
+        "name": {
+          "fontSize": "12px",
+          "fontWeight": "700",
+          "lineHeight": "16px",
+          "color": "oklch(0.23574 0.066 313.189)",
+          "h": 16,
+          "w": 86
+        },
+        "badge": {
+          "fontSize": "9px",
+          "lineHeight": "12px",
+          "backgroundColor": "oklch(0.91586 0.006 53.44)",
+          "color": "oklch(0.23574 0.066 313.189)",
+          "paddingLeft": "4px",
+          "h": 14,
+          "w": 49.1
+        },
+        "cell": {
+          "fontSize": "12px",
+          "color": "oklch(0.23574 0.066 313.189)",
+          "paddingLeft": "4px",
+          "gap": "4px",
+          "h": 32,
+          "w": 200.7
+        }
+      },
+      "decision": {
+        "article": {
+          "paddingTop": "12px",
+          "paddingLeft": "12px",
+          "borderRadius": "8px",
+          "backgroundColor": "oklch(0.93982 0.007 61.449)",
+          "display": "flex",
+          "gap": "8px",
+          "h": 138,
+          "w": 228.7
+        },
+        "name": {
+          "fontSize": "12px",
+          "fontWeight": "700",
+          "lineHeight": "16px",
+          "color": "oklch(0.23574 0.066 313.189)",
+          "h": 16,
+          "w": 90
+        },
+        "badge": {
+          "fontSize": "9px",
+          "lineHeight": "12px",
+          "backgroundColor": "oklch(0.91586 0.006 53.44)",
+          "color": "oklch(0.23574 0.066 313.189)",
+          "paddingLeft": "4px",
+          "h": 14,
+          "w": 33.6
+        },
+        "cell": {
+          "fontSize": "12px",
+          "color": "oklch(0.23574 0.066 313.189)",
+          "paddingLeft": "4px",
+          "gap": "4px",
+          "h": 32,
+          "w": 200.7
+        }
+      }
+    }
+  }
+]

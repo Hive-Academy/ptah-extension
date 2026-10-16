@@ -22,6 +22,7 @@ import * as fsPromises from 'fs/promises';
 import * as path from 'path';
 import { homedir } from 'os';
 import { SettingsPersistError } from './file-settings-errors';
+import { FILE_BASED_OBJECT_SETTINGS_KEYS } from './file-settings-keys';
 
 export interface FileSettingsDefaults {
   [key: string]: unknown;
@@ -659,7 +660,8 @@ function fsErrorCode(error: unknown): string {
  *   => { "provider.github-copilot.clientId": "abc" }
  *
  * Skips metadata keys ($schema, version) that are not settings.
- * Leaf values (primitives, arrays, null) are kept as-is; only plain objects are recursed.
+ * Leaf values (primitives, arrays, null) are kept as-is; only plain objects are recursed,
+ * except the value of a key in FILE_BASED_OBJECT_SETTINGS_KEYS, which is kept whole.
  */
 function flattenObject(
   obj: Record<string, unknown>,
@@ -674,7 +676,7 @@ function flattenObject(
 
     const flatKey = prefix ? `${prefix}.${key}` : key;
 
-    if (isPlainObject(value)) {
+    if (isPlainObject(value) && !FILE_BASED_OBJECT_SETTINGS_KEYS.has(flatKey)) {
       Object.assign(
         result,
         flattenObject(value as Record<string, unknown>, flatKey),

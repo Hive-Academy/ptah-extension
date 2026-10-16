@@ -15,6 +15,7 @@ import {
   instanceCachingFactory,
   Lifecycle,
 } from 'tsyringe';
+import { LANE_ROUTING_TOKENS } from '@ptah-extension/lane-routing';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type {
   BackgroundWorkGovernor,
@@ -92,6 +93,7 @@ import {
   SdkAdapterEvents,
 } from '../helpers';
 import { InternalQueryService } from '../internal-query';
+import { StructuredDecisionAdapter } from '../lane-routing/structured-decision.adapter';
 import { CommitMessageGenerator } from '../commit-message/commit-message-generator.service';
 import { PeerSessionDirectory, PeerSessionMessenger } from '../peer-sessions';
 import { PluginLoaderService } from '../helpers/plugin-loader.service';
@@ -113,6 +115,7 @@ import { ToolOutputCapper } from '../helpers/compaction/tool-output-capper';
 import { CompactionCoordinator } from '../helpers/compaction/compaction-coordinator';
 import { ContextUsagePort } from '../helpers/compaction/context-usage.port';
 import { SubagentBudgetMonitor } from '../helpers/compaction/subagent-budget-monitor';
+import { SubagentBudgetStopCallbackRegistry } from '../helpers/subagent-budget-stop-callback-registry';
 import { SubagentHandoffFiles } from '../helpers/compaction/subagent-handoff-files';
 import { SubagentHandoffRecords } from '../helpers/compaction/subagent-handoff-record';
 import { SubagentHandoffIndex } from '../helpers/compaction/subagent-handoff-index';
@@ -262,6 +265,11 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_SUBAGENT_STOP_CALLBACK_REGISTRY,
     { useClass: SubagentStopCallbackRegistry },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  container.register(
+    SDK_TOKENS.SDK_SUBAGENT_BUDGET_STOP_CALLBACK_REGISTRY,
+    { useClass: SubagentBudgetStopCallbackRegistry },
     { lifecycle: Lifecycle.Singleton },
   );
 
@@ -537,6 +545,9 @@ export function registerSdkServices(
         // on main-thread prompts (UserPromptSubmit hook).
         new SubagentHandoffRecords(logger, workspaceOf),
         new SubagentHandoffIndex(logger),
+        c.resolve<SubagentBudgetStopCallbackRegistry>(
+          SDK_TOKENS.SDK_SUBAGENT_BUDGET_STOP_CALLBACK_REGISTRY,
+        ),
       );
     }),
   });
@@ -732,6 +743,14 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE,
     { useClass: InternalQueryService },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // Structured decision model (lane-routing port). One registration; every
+  // host that calls registerSdkServices binds the optional port.
+  container.register(
+    LANE_ROUTING_TOKENS.STRUCTURED_DECISION,
+    { useClass: StructuredDecisionAdapter },
     { lifecycle: Lifecycle.Singleton },
   );
 

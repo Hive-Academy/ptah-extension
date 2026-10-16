@@ -58,19 +58,18 @@ import type {
   CustomProviderStore,
   IActiveWorkspaceSource,
 } from '@ptah-extension/settings-core';
-import { TOKENS } from '@ptah-extension/vscode-core';
 import type {
   BackgroundWorkGovernor,
   Logger,
 } from '@ptah-extension/vscode-core';
 import {
+  TOKENS,
   armDiagnostics,
   registerVsCodeCorePlatformAgnostic,
   registerExtensionContextShim,
   registerStateStorageAdapters,
 } from '@ptah-extension/vscode-core';
-import { LicenseService } from '@ptah-extension/vscode-core';
-import { GitInfoService } from '@ptah-extension/vscode-core';
+import { LicenseService, GitInfoService } from '@ptah-extension/vscode-core';
 import {
   WorkspaceAwareStateStorage,
   WorkspaceContextManager,
@@ -88,6 +87,7 @@ import {
   SDK_TOKENS,
   wireAgentAdapterAliases,
   HARNESS_PREFLIGHT_TOKEN,
+  type PluginLoaderService,
 } from '@ptah-extension/agent-sdk';
 import {
   registerHarnessSyncServices,
@@ -108,14 +108,13 @@ import {
   registerCliAgentRuntimeServices,
   createContainerHarnessCliDetector,
 } from '@ptah-extension/cli-agent-runtime';
-import type { PluginLoaderService } from '@ptah-extension/agent-sdk';
+import { registerLaneRoutingServices } from '@ptah-extension/lane-routing';
+import { startCliLaneOutcomes, wireLaneOutcomes } from './lane-outcomes-wiring';
 import {
   registerAgentGenerationServices,
   AGENT_GENERATION_TOKENS,
-} from '@ptah-extension/agent-generation';
-import type {
-  EnhancedPromptsService,
-  IMultiPhaseAnalysisReader,
+  type EnhancedPromptsService,
+  type IMultiPhaseAnalysisReader,
 } from '@ptah-extension/agent-generation';
 import {
   registerVsCodeLmToolsServices,
@@ -733,6 +732,10 @@ export class CliDIContainer {
     container.register(HARNESS_PREFLIGHT_TOKEN, {
       useToken: HARNESS_SYNC_TOKENS.PREFLIGHT,
     });
+    // Before phase 4 registerVsCodeLmToolsServices and registerRpcSurface.
+    // AgentRpcHandlers injects DECISION_MODEL_CONFIG.
+    registerLaneRoutingServices(container, logger);
+    wireLaneOutcomes(container, logger);
     registerCliAgentRuntimeServices(container, logger);
 
     wireAgentAdapterAliases(container);
@@ -762,6 +765,7 @@ export class CliDIContainer {
     );
 
     registerThothLibraries(container, logger);
+    startCliLaneOutcomes(container, logger);
 
     phaseEnd('2', phase2Start);
     const phase3Start = phaseStart('3');

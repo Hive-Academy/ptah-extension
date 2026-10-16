@@ -1,7 +1,7 @@
 /**
  * Ptah API Builder Service
  *
- * Constructs the complete "ptah" API object with 21 namespaces for code execution context.
+ * Constructs the complete "ptah" API object with 22 namespaces for code execution context.
  * Delegates to specialized namespace builders for each domain:
  *
  * Core (workspace discovery):
@@ -67,7 +67,7 @@ import {
   ContextEnrichmentService,
   DependencyGraphService,
 } from '@ptah-extension/workspace-intelligence';
-import type { PtahAPI } from './types';
+import type { AgentNamespace, PtahAPI } from './types';
 import { WebSearchService } from './services/web-search.service';
 import {
   buildWorkspaceNamespace,
@@ -139,6 +139,15 @@ import type {
   LaneLimitLookupService,
 } from '@ptah-extension/cli-agent-runtime';
 import { buildSessionNamespace } from './namespace-builders/session-namespace.builder';
+import { buildRouteNamespace } from './namespace-builders/route-namespace.builder';
+import type { OutcomeReportDependencies } from './mcp-core/tools/outcome-report.tool';
+import { adaptOutcomeLogger } from './mcp-core/tools/outcome-report.handler';
+import {
+  LANE_OUTCOME_PIPELINE,
+  LANE_OUTCOME_TOKENS,
+  type LaneOutcomeStore,
+  type OutcomeWritePipeline,
+} from '@ptah-extension/lane-outcomes';
 import type { IAuthSecretsService } from '@ptah-extension/vscode-core';
 import {
   DIAGNOSTICS_CACHE_INVALIDATOR,
@@ -520,7 +529,7 @@ export class PtahAPIBuilder {
     private readonly laneLimitLookup?: LaneLimitLookupService,
   ) {
     diagnosticsCacheInvalidator.start();
-    this.logger.info('PtahAPIBuilder initialized with 21 namespaces');
+    this.logger.info('PtahAPIBuilder initialized with 22 namespaces');
   }
 
   /**
@@ -533,7 +542,7 @@ export class PtahAPIBuilder {
   }
 
   /**
-   * Build the complete Ptah API object with all 21 namespaces.
+   * Build the complete Ptah API object with all 22 namespaces.
    *
    * Each namespace builder is wrapped in try/catch so that one failing
    * namespace does not prevent the remaining namespaces (and their tools)
@@ -542,6 +551,9 @@ export class PtahAPIBuilder {
    */
   build(): PtahAPI {
     this.logger.debug('Building Ptah API with all namespaces');
+    // Assigned while the object literal evaluates `agent`, then read by the
+    // next property. `buildNamespaceSafe` runs the factory immediately.
+    let builtAgent: AgentNamespace | undefined;
     // ORDERING CONTRACT (TASK_2026_200, task 3.1) — the session-aware provider
     // MUST be constructed BEFORE any dependency bag, and every bag MUST carry
     // it. It previously sat below `coreDeps`, so `coreDeps` was built without a
@@ -657,7 +669,7 @@ export class PtahAPIBuilder {
       orchestration: this.buildNamespaceSafe('orchestration', () =>
         buildOrchestrationNamespace(orchestrationDeps),
       ),
-      agent: this.buildNamespaceSafe('agent', () =>
+      agent: (builtAgent = this.buildNamespaceSafe('agent', () =>
         buildAgentNamespace({
           agentProcessManager: this.agentProcessManager,
           cliDetectionService: this.cliDetectionService,
@@ -770,7 +782,18 @@ export class PtahAPIBuilder {
           },
           logger: this.logger,
         }),
-      ),
+      )),
+      route: this.buildNamespaceSafe('route', () => {
+        if (builtAgent === undefined) {
+          throw new Error(
+            'ptah.route requires ptah.agent, which was not built',
+          );
+        }
+        return buildRouteNamespace({
+          agent: builtAgent,
+          container: this.container,
+        });
+      }),
       git: this.buildNamespaceSafe('git', () =>
         buildGitNamespace({
           getWorkspaceRoot: getWorkspaceRootLazy,
@@ -873,7 +896,10 @@ export class PtahAPIBuilder {
           // Same root source as `getPluginPaths`: never the home fallback.
           getPolicyWorkspaceRoot: () => this.resolveSessionWorkspaceRoot(),
           getCallerSdkSessionId: () => this.resolveCallerSdkSessionId(),
-          saveProposal: (sessionId, update, complete) => {
+          getProposingTurnStartedAt: (sessionId, workspaceRoot) => {
+            if (!workspaceRoot) {
+              return { release: () => undefined };
+            }
             const token = PLATFORM_TOKENS.HARNESS_PROPOSAL_STORE;
             if (!this.container?.isRegistered(token, true)) {
               throw new Error(
@@ -882,7 +908,24 @@ export class PtahAPIBuilder {
             }
             return this.container
               .resolve<IHarnessProposalStore>(token)
-              .save(sessionId, update, complete);
+              .captureProposingTurnStartedAt(sessionId, workspaceRoot);
+          },
+          saveProposal: (
+            sessionId,
+            update,
+            complete,
+            turnStartedAt,
+            workspaceRoot,
+          ) => {
+            const token = PLATFORM_TOKENS.HARNESS_PROPOSAL_STORE;
+            if (!this.container?.isRegistered(token, true)) {
+              throw new Error(
+                'Harness proposal store is unavailable; retry when the host is ready.',
+              );
+            }
+            return this.container
+              .resolve<IHarnessProposalStore>(token)
+              .save(sessionId, update, complete, turnStartedAt, workspaceRoot);
           },
           broadcast: (type, payload) => {
             if (!webviewManager) {
@@ -1180,6 +1223,32 @@ export class PtahAPIBuilder {
     const container = this.container;
     if (!container?.isRegistered(token, true)) return undefined;
     return container.resolve<ISessionHandoff>(token);
+  }
+
+  /**
+   * Outcome-report collaborators, resolved on the call (TASK_2026_646).
+   * Hosts do not register lane-outcomes until Batch 30, so this is a
+   * locator, not an `@inject`. An unregistered pipeline or store leaves
+   * the tool able to parse and answer `outcome store unavailable`.
+   * The workspace root is the caller session's root, never `$HOME`.
+   */
+  outcomeReportDependencies(): OutcomeReportDependencies {
+    const container = this.container;
+    const pipeline =
+      container?.isRegistered(LANE_OUTCOME_PIPELINE, true) === true
+        ? container.resolve<OutcomeWritePipeline>(LANE_OUTCOME_PIPELINE)
+        : undefined;
+    const store =
+      container?.isRegistered(LANE_OUTCOME_TOKENS.STORE, true) === true
+        ? container.resolve<LaneOutcomeStore>(LANE_OUTCOME_TOKENS.STORE)
+        : undefined;
+    return {
+      pipeline,
+      store,
+      fileSystem: this.fileSystemProvider,
+      workspaceRoot: this.resolveSessionWorkspaceRoot() ?? '',
+      logger: adaptOutcomeLogger(this.logger),
+    };
   }
 
   /**

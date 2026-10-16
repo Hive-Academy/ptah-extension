@@ -1,9 +1,12 @@
-import { STACK_PROFILES, stackLabelForPlatform } from '@ptah-extension/shared';
+import { stackLabelForPlatform } from '@ptah-extension/shared';
 import type {
   NewProjectAudience,
   NewProjectIntake,
   NewProjectPlatform,
 } from '@ptah-extension/shared';
+import { NEW_PROJECT_PLATFORM_OPTIONS } from './harness-workflow-utils';
+
+export { NEW_PROJECT_PLATFORM_OPTIONS } from './harness-workflow-utils';
 
 /**
  * The intake vocabulary, in one place.
@@ -26,23 +29,6 @@ export const NEW_PROJECT_AUDIENCE_OPTIONS: ReadonlyArray<{
   { value: 'b2c', label: 'B2C' },
   { value: 'internal', label: 'Internal tool' },
   { value: 'unsure', label: 'Not sure' },
-];
-
-/**
- * The platform chips, in registry order, with an `other` escape hatch.
- *
- * Adding a language to `STACK_PROFILES` adds a chip here — that is the whole
- * point of the registry, and it is why this is a `map` and not a literal.
- */
-export const NEW_PROJECT_PLATFORM_OPTIONS: ReadonlyArray<{
-  value: NewProjectPlatform;
-  label: string;
-}> = [
-  ...STACK_PROFILES.map((profile) => ({
-    value: profile.id as NewProjectPlatform,
-    label: profile.label,
-  })),
-  { value: 'other', label: 'Other' },
 ];
 
 /** The platform chip's label, for display. */

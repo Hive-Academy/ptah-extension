@@ -92,6 +92,10 @@ export class SkillTriggerService {
   private readonly sessions = new Map<string, SessionState>();
   private readonly editTestStates = new Map<string, EditTestState>();
   private readonly turnCompleteStates = new Map<string, TurnCompleteState>();
+  private readonly harvestTimers = new Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >();
   private bootScanController: AbortController | null = null;
   /**
    * The arming gate in front of {@link runBootScan}. Created only on the path
@@ -256,6 +260,8 @@ export class SkillTriggerService {
     for (const state of this.turnCompleteStates.values()) {
       if (state.timer) clearTimeout(state.timer);
     }
+    for (const timer of this.harvestTimers.values()) clearTimeout(timer);
+    this.harvestTimers.clear();
     this.sessions.clear();
     this.editTestStates.clear();
     this.turnCompleteStates.clear();
@@ -423,6 +429,8 @@ export class SkillTriggerService {
   }
 
   private onStop(payload: StopPayload): void {
+    if (blankToUndefined(payload.workspaceRoot))
+      this.scheduleHarvest(payload.workspaceRoot);
     if (!this.readTurnCompleteEnabled()) return;
     if (blankToUndefined(payload.sessionId) === undefined) return;
     if (payload.hasBackgroundWork) return;
@@ -470,15 +478,22 @@ export class SkillTriggerService {
     }
 
     void this.enqueueAnalyze(sessionId, state.workspaceRoot, 'turn-complete');
-    void this.fireHarvest(state.workspaceRoot);
+  }
+
+  private scheduleHarvest(workspaceRoot: string): void {
+    const pending = this.harvestTimers.get(workspaceRoot);
+    if (pending) clearTimeout(pending);
+    this.harvestTimers.set(
+      workspaceRoot,
+      setTimeout(() => {
+        this.harvestTimers.delete(workspaceRoot);
+        void this.fireHarvest(workspaceRoot);
+      }, TURN_COMPLETE_DEBOUNCE_MS),
+    );
   }
 
   private async fireHarvest(workspaceRoot: string): Promise<void> {
-    // B-P (S4): the spec harvest is background capture, gated by the master
-    // switch like every other write. Invocation telemetry (S5) is deliberately
-    // NOT gated — pausing usage recording while the user keeps using skills
-    // would retire them after `dormantAfterDays` once resumed.
-    if (!this.readMasterEnabled()) return;
+    // Capture specs even while synthesis or turn-complete analysis is paused.
     try {
       await this.harvester.harvest(workspaceRoot);
     } catch (error: unknown) {
@@ -510,6 +525,7 @@ export class SkillTriggerService {
         succeeded: true,
         invokedAt: payload.timestamp,
         source: 'subagent',
+        runId: payload.agentId,
         transcriptPath: payload.transcriptPath,
       });
     }
@@ -685,6 +701,7 @@ export class SkillTriggerService {
     succeeded: boolean;
     invokedAt: number;
     source: 'tool-use' | 'prompt-expansion' | 'subagent';
+    runId?: string;
     /**
      * Subagent transcript path (SubagentStop only). When present, per-invocation
      * metrics + exact task_id are derived here — off the hot path. Extraction
@@ -728,6 +745,7 @@ export class SkillTriggerService {
 
       this.recorder.recordSkillEvent({
         slug: input.slug,
+        runId: input.runId ?? null,
         sessionId: input.sessionId,
         workspaceRoot: input.workspaceRoot,
         contextId,
@@ -992,9 +1010,8 @@ export class SkillTriggerService {
   /**
    * The skills master switch (`skillSynthesis.enabled`, B-P), live per read.
    *
-   * Gates the boot scan (arming and the per-session callback) and the spec
-   * harvest. It does NOT gate invocation telemetry (S5) — see
-   * {@link fireHarvest}.
+   * Gates the boot scan (arming and the per-session callback).
+   * Spec harvest and invocation telemetry continue while synthesis is paused.
    */
   private readMasterEnabled(): boolean {
     const v = this.workspace.getConfiguration<boolean>(

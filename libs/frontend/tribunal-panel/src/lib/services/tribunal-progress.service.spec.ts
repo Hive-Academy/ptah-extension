@@ -6,7 +6,7 @@ import { TabManagerService } from '@ptah-extension/chat-state';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import { TribunalProgressService } from './tribunal-progress.service';
 import { TribunalStateService } from './tribunal-state.service';
-import { DEFAULT_CRUCIBLE_ROUND_CAP } from './tribunal-run.service';
+import { DEFAULT_CRUCIBLE_ROUND_CAP } from './tribunal-run-framing';
 import type { TribunalProgress, VendorLane } from '../types/tribunal-ui.types';
 
 // ---------------------------------------------------------------------------

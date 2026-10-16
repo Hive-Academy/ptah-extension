@@ -39,6 +39,7 @@
  * above this store.
  */
 import { inject, injectable } from 'tsyringe';
+import { z } from 'zod';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   PERSISTENCE_TOKENS,
@@ -70,6 +71,11 @@ interface RawVerdictRow {
   created_at: number;
   updated_at: number;
 }
+
+const EvidenceRowSchema = z.object({
+  session_id: z.string(),
+  evidence_class: z.string().nullable(),
+});
 
 /** Every column but `session_id` and `created_at` — a re-analysis restates all of them. */
 const UPDATE_SQL = `UPDATE skill_session_verdicts
@@ -197,6 +203,35 @@ export class SessionVerdictStore {
       .prepare('SELECT * FROM skill_session_verdicts WHERE session_id = ?')
       .get(sessionId) as RawVerdictRow | undefined;
     return raw ? this.toRow(raw) : null;
+  }
+
+  evidenceClassForSessions(
+    sessionIds: readonly string[],
+  ): ReadonlyMap<string, EvidenceClass | null> {
+    const result = new Map<string, EvidenceClass | null>();
+    if (sessionIds.length === 0) return result;
+    const rows = this.db
+      .prepare(
+        `SELECT session_id, evidence_class FROM skill_session_verdicts
+         WHERE session_id IN (${sessionIds.map(() => '?').join(',')})`,
+      )
+      .all(...sessionIds);
+    for (const row of rows) {
+      const parsed = EvidenceRowSchema.safeParse(row);
+      if (!parsed.success) {
+        this.logger.warn('[skill-synthesis] invalid session evidence row');
+        continue;
+      }
+      const { session_id, evidence_class } = parsed.data;
+      if (evidence_class !== null && !isEvidenceClass(evidence_class)) {
+        this.logger.warn('[skill-synthesis] invalid session evidence class', {
+          sessionId: session_id,
+        });
+        continue;
+      }
+      result.set(session_id, evidence_class);
+    }
+    return result;
   }
 
   /**

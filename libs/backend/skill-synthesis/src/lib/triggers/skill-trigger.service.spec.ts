@@ -4,7 +4,10 @@ import type {
   IFileSystemProvider,
   IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
-import type { SqliteConnectionService } from '@ptah-extension/persistence-sqlite';
+import {
+  MIGRATIONS,
+  SqliteConnectionService,
+} from '@ptah-extension/persistence-sqlite';
 import type {
   JsonlReaderService,
   PostToolUseCallback,
@@ -29,6 +32,11 @@ import type {
 } from '@ptah-extension/agent-sdk';
 import { CuratorRateLimitService } from '@ptah-extension/agent-sdk';
 import { SkillTriggerService } from './skill-trigger.service';
+import { SkillCandidateStore } from '../skill-candidate.store';
+import { SkillInvocationRecorder as RealSkillInvocationRecorder } from '../skill-invocation-recorder';
+import { SkillTelemetrySeamAdapter } from '../outcome-seam/skill-telemetry-seam.adapter';
+import { SessionVerdictStore } from '../archaeology/session-verdict.store';
+import { resolveOpener } from '../queue/queue-db.test-support';
 import type { SkillSynthesisService } from '../skill-synthesis.service';
 import type { SkillInvocationRecorder } from '../skill-invocation-recorder';
 import type {
@@ -350,6 +358,7 @@ function buildService(opts?: {
   rateLimiter?: CuratorRateLimitService;
   extractor?: SubagentMetricsExtractor;
   harvester?: { harvest: jest.Mock };
+  recorder?: SkillInvocationRecorder;
 }): {
   service: SkillTriggerService;
   activity: ActivityHarness;
@@ -373,7 +382,7 @@ function buildService(opts?: {
   const expansion = makeUserPromptExpansionRegistry();
   const stop = makeStopRegistry();
   const sessionIdResolved = makeSessionIdResolvedRegistry();
-  const recorder = makeRecorder();
+  const recorder = opts?.recorder ?? makeRecorder();
   const synthesis = opts?.synthesis ?? makeSynthesis();
   const workspace = opts?.workspace ?? makeWorkspace();
   const rateLimiter =
@@ -820,6 +829,7 @@ describe('SkillTriggerService — subagent-stop trigger', () => {
         succeeded: true,
         invokedAt: 1000,
         source: 'subagent',
+        runId: 'agent-1',
       }),
     );
   });
@@ -953,7 +963,7 @@ describe('SkillTriggerService — turn-complete trigger', () => {
   it('respects the rate limit gate and emits rate-limited with source turn-complete', async () => {
     const rateLimiter = new CuratorRateLimitService(makeLogger());
     rateLimiter.tryAcquire('skill.analyze', 1);
-    const { service, stop, synthesis } = buildService({
+    const { service, stop, synthesis, harvester } = buildService({
       workspace: makeWorkspace({
         'skillSynthesis.triggers.maxAnalyzesPerHour': 1,
       }),
@@ -964,6 +974,8 @@ describe('SkillTriggerService — turn-complete trigger', () => {
     jest.advanceTimersByTime(91_000);
     await Promise.resolve();
     expect(synthesis.enqueueAnalyze).not.toHaveBeenCalled();
+    expect(harvester.harvest).toHaveBeenCalledTimes(1);
+    expect(harvester.harvest).toHaveBeenCalledWith('/ws');
     expect(synthesis.pushEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         kind: 'rate-limited',
@@ -972,8 +984,8 @@ describe('SkillTriggerService — turn-complete trigger', () => {
     );
   });
 
-  it('turnComplete enabled=false short-circuits before scheduling a timer', () => {
-    const { service, stop } = buildService({
+  it('turnComplete disabled still harvests without analyze', async () => {
+    const { service, stop, harvester, synthesis } = buildService({
       workspace: makeWorkspace({
         'skillSynthesis.triggers.turnComplete.enabled': false,
       }),
@@ -981,7 +993,24 @@ describe('SkillTriggerService — turn-complete trigger', () => {
     service.start();
     const before = jest.getTimerCount();
     stop.fire(stopPayload());
-    expect(jest.getTimerCount()).toBe(before);
+    expect(jest.getTimerCount()).toBe(before + 1);
+    jest.advanceTimersByTime(90_000);
+    await Promise.resolve();
+    expect(harvester.harvest).toHaveBeenCalledTimes(1);
+    expect(harvester.harvest).toHaveBeenCalledWith('/ws');
+    expect(synthesis.enqueueAnalyze).not.toHaveBeenCalled();
+  });
+
+  it('debounces two Stops in one workspace into one harvest', async () => {
+    const { service, stop, harvester } = buildService();
+    service.start();
+    stop.fire(stopPayload({ timestamp: 1000 }));
+    jest.advanceTimersByTime(500);
+    stop.fire(stopPayload({ timestamp: 1500 }));
+    jest.advanceTimersByTime(90_000);
+    await Promise.resolve();
+    expect(harvester.harvest).toHaveBeenCalledTimes(1);
+    expect(harvester.harvest).toHaveBeenCalledWith('/ws');
   });
 
   it('hasBackgroundWork Stop does not schedule a turn-complete analyze', () => {
@@ -1311,6 +1340,7 @@ describe('SkillTriggerService — Skill invocation telemetry', () => {
         succeeded: true,
         invokedAt: 1000,
         source: 'tool-use',
+        runId: null,
       }),
     );
   });
@@ -1435,6 +1465,7 @@ describe('SkillTriggerService — Skill invocation telemetry', () => {
         sessionId: 's1',
         succeeded: true,
         source: 'prompt-expansion',
+        runId: null,
       }),
     );
   });
@@ -1838,7 +1869,7 @@ describe('SkillTriggerService — rekeySession (TASK_2026_296)', () => {
 /**
  * TASK_2026_620 B-P — the skills master switch on the trigger surface.
  *
- * `skillSynthesis.enabled` gates the spec harvest (S4) and nothing else here:
+ * `skillSynthesis.enabled` gates synthesis analysis, while harvest continues:
  * the enqueue body lives in `SkillSynthesisService.enqueueAnalyze` and is
  * gated there (S2, plus the deferred-start lazy path), while invocation
  * telemetry (S5) stays ON while paused on purpose — pausing usage recording
@@ -1855,7 +1886,7 @@ describe('SkillTriggerService — the skills master switch (B-P)', () => {
 
   const TURN_COMPLETE_DEBOUNCE_MS = 90 * 1000;
 
-  it('does not harvest specs while paused, and does once enabled', async () => {
+  it('harvests specs while paused and while enabled', async () => {
     const harvester = { harvest: jest.fn().mockResolvedValue(undefined) };
     const paused = buildService({
       harvester,
@@ -1865,7 +1896,7 @@ describe('SkillTriggerService — the skills master switch (B-P)', () => {
     paused.stop.fire(stopPayload());
     jest.advanceTimersByTime(TURN_COMPLETE_DEBOUNCE_MS);
     await flushMicrotasks();
-    expect(harvester.harvest).not.toHaveBeenCalled();
+    expect(harvester.harvest).toHaveBeenCalledTimes(1);
     paused.service.stop();
 
     const enabled = buildService({ harvester });
@@ -1873,7 +1904,7 @@ describe('SkillTriggerService — the skills master switch (B-P)', () => {
     enabled.stop.fire(stopPayload());
     jest.advanceTimersByTime(TURN_COMPLETE_DEBOUNCE_MS);
     await flushMicrotasks();
-    expect(harvester.harvest).toHaveBeenCalledWith('/ws');
+    expect(harvester.harvest).toHaveBeenCalledTimes(2);
     enabled.service.stop();
   });
 
@@ -1892,11 +1923,143 @@ describe('SkillTriggerService — the skills master switch (B-P)', () => {
     await flushMicrotasks();
 
     expect(h.recorder.recordSkillEvent).toHaveBeenCalledTimes(1);
-    // Telemetry is the ONLY thing that ran: the enqueue gating (S2) is the
+    // Telemetry is recorded: the enqueue gating (S2) is the
     // synthesis service's own live read, pinned in
     // `skill-synthesis.pause-resume.spec.ts` — at this layer the call is
-    // expected, and the harvest stayed gated.
+    // expected; the harvest timer has not elapsed yet.
     expect(h.harvester.harvest).not.toHaveBeenCalled();
     h.service.stop();
   });
+
+  it('records Skill, prompt expansion, and subagent telemetry with master off', async () => {
+    const h = buildService({
+      workspace: makeWorkspace({
+        'skillSynthesis.enabled': false,
+        'skillSynthesis.triggers.skillInvocationTelemetry.enabled': true,
+      }),
+    });
+    h.service.start();
+    h.postToolUse.fire(
+      postToolUsePayload({
+        toolName: 'Skill',
+        toolInput: { command: 'my-skill' },
+      }),
+    );
+    h.expansion.fire({
+      skillSlug: 'another-skill',
+      expansionType: 'slash_command',
+      commandArgs: '',
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      timestamp: 2000,
+    });
+    h.subagentStop.fire(subagentStopPayload());
+    await flushMicrotasks();
+    expect(h.recorder.recordSkillEvent).toHaveBeenCalledTimes(3);
+    expect(h.recorder.recordSkillEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ source: 'tool-use', runId: null }),
+    );
+    expect(h.recorder.recordSkillEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ source: 'prompt-expansion', runId: null }),
+    );
+    expect(h.recorder.recordSkillEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ source: 'subagent', runId: 'agent-1' }),
+    );
+    h.service.stop();
+  });
+});
+
+describe('SkillTriggerService — run telemetry integration', () => {
+  const opener = resolveOpener();
+  const maybe = opener ? it : it.skip;
+
+  maybe(
+    'keeps two stops in one dedup bucket separate through recorder, store and seam',
+    async () => {
+      if (!opener) throw new Error('SQLite opener unavailable');
+      const db = opener(':memory:');
+      try {
+        db.exec(`CREATE TABLE skill_invocation_events (
+        id TEXT PRIMARY KEY, skill_slug TEXT NOT NULL, session_id TEXT NOT NULL,
+        context_id TEXT, source TEXT NOT NULL, succeeded INTEGER NOT NULL,
+        is_error INTEGER NOT NULL, invoked_at INTEGER NOT NULL,
+        input_tokens INTEGER, output_tokens INTEGER, cache_read_tokens INTEGER,
+        cache_creation_tokens INTEGER, cost_usd REAL, duration_ms INTEGER,
+        tool_count INTEGER, task_id TEXT, workspace_root TEXT,
+        verdict_source TEXT
+      );`);
+        db.exec(MIGRATIONS.find((m) => m.version === 55)?.sql ?? '');
+        const connection = Object.create(
+          SqliteConnectionService.prototype,
+        ) as SqliteConnectionService;
+        Object.defineProperty(connection, 'db', { value: db });
+        const store = new SkillCandidateStore(
+          makeLogger(),
+          connection,
+          {} as never,
+        );
+        const recorder = new RealSkillInvocationRecorder(makeLogger(), store);
+        const extractor = {
+          extract: jest.fn(async (transcriptPath: string) => ({
+            metrics: {
+              inputTokens: transcriptPath.endsWith('/run-a.jsonl') ? 10 : 20,
+              outputTokens: transcriptPath.endsWith('/run-a.jsonl') ? 2 : 3,
+              cacheReadTokens: null,
+              cacheCreationTokens: null,
+              costUsd: null,
+              durationMs: null,
+              toolCount: null,
+            },
+            taskId: null,
+          })),
+        } as unknown as SubagentMetricsExtractor;
+        const h = buildService({ recorder, extractor });
+        h.service.start();
+        h.subagentStop.fire(
+          subagentStopPayload({
+            agentId: 'run-a',
+            agentType: 'same-agent',
+            transcriptPath: '/tmp/run-a.jsonl',
+            timestamp: 1000,
+          }),
+        );
+        h.subagentStop.fire(
+          subagentStopPayload({
+            agentId: 'run-b',
+            agentType: 'same-agent',
+            transcriptPath: '/tmp/run-b.jsonl',
+            timestamp: 1500,
+          }),
+        );
+        await flushMicrotasks();
+        const rows = db
+          .prepare('SELECT run_id FROM skill_invocation_events ORDER BY run_id')
+          .all() as Array<{ run_id: string }>;
+        expect(rows.map((row) => row.run_id)).toEqual(['run-a', 'run-b']);
+        const seam = new SkillTelemetrySeamAdapter(
+          store,
+          new SessionVerdictStore(makeLogger(), connection),
+        );
+        const telemetry = await seam.subagentRuns([
+          'subagent:run-a',
+          'subagent:run-b',
+        ]);
+        expect(telemetry.get('subagent:run-a')).toMatchObject({
+          match: 'matched',
+          inputTokens: 10,
+        });
+        expect(telemetry.get('subagent:run-b')).toMatchObject({
+          match: 'matched',
+          inputTokens: 20,
+        });
+        expect(
+          (telemetry.get('subagent:run-a')?.inputTokens ?? 0) +
+            (telemetry.get('subagent:run-b')?.inputTokens ?? 0),
+        ).toBe(30);
+        h.service.stop();
+      } finally {
+        db.close();
+      }
+    },
+  );
 });

@@ -91,7 +91,7 @@ function createDb(): TestDatabase {
       task_id TEXT
     );
   `);
-  for (const version of [33, 36, 37, 32, 40, 22, 23]) {
+  for (const version of [33, 36, 37, 32, 40, 22, 23, 55]) {
     db.exec(sqlFor(version));
   }
   return db;

@@ -45,6 +45,12 @@ describe('CliLaneUsageSummaryComponent', () => {
     expect(text).toContain('cache write 300');
     expect(text).toContain('~$0.01 est.');
     expect(text).toContain('4m 2s');
+    const labels = fixture.nativeElement.querySelectorAll('[role="group"] span');
+    expect(labels).toHaveLength(7);
+    for (const label of labels) {
+      expect(label.classList.contains('text-base-content-muted')).toBe(true);
+      expect(label.className).not.toMatch(/text-(?:info|accent|warning)\/70/);
+    }
   });
 
   it('omits token labels that the provider did not report', () => {

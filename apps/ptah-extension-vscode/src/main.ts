@@ -32,6 +32,10 @@ import {
   type ISessionSpawner,
 } from '@ptah-extension/cli-agent-runtime';
 import { flushSessionMetadataStores } from '@ptah-extension/agent-sdk';
+import {
+  LANE_OUTCOME_TOKENS,
+  type LaneOutcomesDisposer,
+} from '@ptah-extension/lane-outcomes';
 import { killRunningChecks } from '@ptah-extension/vscode-lm-tools';
 import { DIContainer } from './di/container';
 import { PtahExtension } from './core/ptah-extension';
@@ -198,6 +202,21 @@ export async function deactivate(): Promise<void> {
   // awaited by VS Code, so this host can genuinely wait for the write to land
   // instead of merely starting it (TASK_2026_324 finding 3).
   await flushSessionMetadataStores();
+
+  // AFTER the reap, because an agent's exit stages a lane-outcome write, and
+  // BEFORE `DIContainer.clear()`. The drain bounds itself and never rejects
+  // (`startAndRegisterLaneOutcomes`); the `try` guards only the resolve.
+  if (DIContainer.isRegistered(LANE_OUTCOME_TOKENS.DISPOSER)) {
+    try {
+      await DIContainer.resolve<LaneOutcomesDisposer>(
+        LANE_OUTCOME_TOKENS.DISPOSER,
+      ).dispose();
+    } catch (error: unknown) {
+      logger.warn('Lane outcomes dispose failed (non-fatal)', {
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
 
   // The run-check tree kill started beside the reap; it is bounded by its own
   // budget and never rejects, so awaiting it last costs only what remains of it.

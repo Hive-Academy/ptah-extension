@@ -71,3 +71,19 @@ export {
   deriveSessionTitle,
   workspaceLabelFromPath,
 } from './lib/session-identity';
+export {
+  COMMAND_CENTER_PERSONA,
+  COMMAND_CENTER_TRIBUNAL_REQUEST_TAG,
+  TRIBUNAL_ROSTER_PROPOSAL_TAG,
+  TRIBUNAL_ROSTER_PROPOSAL_EXAMPLE,
+  commandCenterPersonaFor,
+} from './lib/command-center-persona';
+export {
+  CommandCenterRecordsService,
+  type CommandCenterLastSession,
+  type CommandCenterRunManifest,
+} from './lib/command-center-records';
+export {
+  CommandCenterSendLockService,
+  type CommandCenterSendLockState,
+} from './lib/command-center-send-lock.service';

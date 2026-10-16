@@ -6,20 +6,10 @@ import {
   signal,
   untracked,
 } from '@angular/core';
-import { AppStateManager } from '@ptah-extension/core';
-import {
-  createEmptyStreamingState,
-  type StreamingState,
-} from '@ptah-extension/chat-types';
-import { SurfaceId } from '@ptah-extension/chat-state';
-import {
-  StreamRouter,
-  StreamingSurfaceRegistry,
-} from '@ptah-extension/chat-routing';
+import { AppStateManager, LoggingService } from '@ptah-extension/core';
 import { mergeHarnessConfigUpdates } from '@ptah-extension/shared';
 import type {
   AvailableAgent,
-  FlatStreamEventUnion,
   HarnessConfig,
   HarnessInitializeResponse,
   HarnessMcpConfig,
@@ -34,52 +24,14 @@ import type {
   HarnessSubagentDefinition,
   GeneratedSkillSpec,
   HarnessAnalyzeIntentResponse,
-  HarnessConversationMessage,
 } from '@ptah-extension/shared';
 import { HarnessRpcService } from './harness-rpc.service';
 
-/**
- * Façade exposed to {@link HarnessStreamingService} so it can route flat
- * events through the canonical streaming pipeline without holding a
- * reference to the entire {@link HarnessBuilderStateService}.
- *
- * - `registerOperationSurface` — idempotent lazy mint of a SurfaceId for
- *   an operationId
- * - `routeOperationEvent` — forwards a flat event to
- *   `StreamRouter.routeStreamEventForSurface` (lazy-mints the surface
- *   if not already registered). If a second `operationId` arrives while
- *   another is in flight, emits a `harness.surface.concurrent-operation`
- *   structured warning and overwrites (single-operation assumption per
- *   spec §6 R3 — concurrent-build support is explicitly out of scope).
- * - `unregisterOperationSurface` — closes the routing binding for a
- *   single operation (called on `harness:flat-stream-complete`).
- * - `unregisterAllOperationSurfaces` — closes every active routing
- *   binding but KEEPS the accumulated `_streamingState` visible so the
- *   execution tree continues to render after the build completes.
- * - `resetOperationSurfaces` — full teardown: closes routing AND clears
- *   the accumulated streaming state (called on
- *   `HarnessBuilderStateService.reset()` and
- *   `resetStreamingState()`).
- */
-export interface HarnessSurfaceFacade {
-  registerOperationSurface(operationId: string): SurfaceId;
-  unregisterOperationSurface(operationId: string): void;
-  surfaceForOperation(operationId: string): SurfaceId | null;
-  routeOperationEvent(operationId: string, event: FlatStreamEventUnion): void;
-  unregisterAllOperationSurfaces(): void;
-  resetOperationSurfaces(): void;
-  registerWorkflowSurface(surfaceId: SurfaceId): void;
-}
-
 @Injectable({ providedIn: 'root' })
-export class HarnessBuilderStateService implements HarnessSurfaceFacade {
-  private readonly streamRouter = inject(StreamRouter);
-  private readonly surfaceRegistry = inject(StreamingSurfaceRegistry);
+export class HarnessBuilderStateService {
   private readonly appState = inject(AppStateManager);
-  // Used to re-run `harness:initialize` when the active workspace switches
-  // while the builder is idle. Safe to inject: HarnessRpcService only depends
-  // on ClaudeRpcService (no path back to this store), so no inject() cycle —
-  // unlike HarnessWorkflowService, which this store must NOT inject.
+  private readonly logger = inject(LoggingService);
+  // Re-runs initialization after an idle workspace switch.
   private readonly rpc = inject(HarnessRpcService);
 
   private readonly _config = signal<Partial<HarnessConfig>>({});
@@ -95,9 +47,6 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
   private readonly _intentSummary = signal<string>('');
   private readonly _intentInput = signal<string>('');
 
-  private readonly _conversationMessages = signal<HarnessConversationMessage[]>(
-    [],
-  );
   private readonly _isConfigComplete = signal<boolean>(false);
 
   private readonly _workspaceContext = signal<{
@@ -108,23 +57,6 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
   } | null>(null);
 
   /**
-   * The surface's streaming state slot.
-   *
-   * `equal: () => false` is load-bearing, not a micro-optimisation escape
-   * hatch. `StreamingAccumulatorCore` mutates this object IN PLACE and hands
-   * the SAME reference back through the adapter's `setState`, so the default
-   * reference equality would swallow every write and the transcript would only
-   * appear once the view component was re-created.
-   */
-  private readonly _streamingState = signal<StreamingState>(
-    createEmptyStreamingState(),
-    { equal: () => false },
-  );
-  private readonly _isStreaming = signal(false);
-  private readonly _currentOperationId = signal<string | null>(null);
-  private readonly _operationSurfaces = new Map<string, SurfaceId>();
-
-  /**
    * Workspace root captured from `harness:initialize` and PINNED for the
    * lifetime of the build session. `harness:apply` writes into this root even
    * if the active workspace changes mid-build. `null` = no workspace pinned
@@ -133,10 +65,8 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
   private readonly _pinnedWorkspaceRoot = signal<string | null>(null);
 
   /**
-   * True while a build session is underway (workflow started, not yet
-   * disposed/reset). Drives the "idle vs in-progress" decision when the active
-   * workspace switches. Set by {@link HarnessWorkflowService} — this store must
-   * NOT inject the workflow service (that would form an inject() cycle).
+   * The route tab owns the current build. This bit also retains the legacy
+   * idle-switch behavior for callers that initialize without a bound tab.
    */
   private readonly _buildInProgress = signal(false);
 
@@ -175,6 +105,7 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
    * if its stamp is still the latest, so only the newest workspace wins.
    */
   private reinitSeq = 0;
+  private boundTabKey: string | null = null;
 
   public readonly config = this._config.asReadonly();
   public readonly availableAgents = this._availableAgents.asReadonly();
@@ -189,14 +120,8 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
   public readonly intentAnalyzed = this._intentAnalyzed.asReadonly();
   public readonly intentSummary = this._intentSummary.asReadonly();
   public readonly intentInput = this._intentInput.asReadonly();
-  public readonly conversationMessages =
-    this._conversationMessages.asReadonly();
   public readonly isConfigComplete = this._isConfigComplete.asReadonly();
-  public readonly streamingState = this._streamingState.asReadonly();
-  public readonly isConversing = this._isStreaming.asReadonly();
-  public readonly currentOperationId = this._currentOperationId.asReadonly();
   public readonly pinnedWorkspaceRoot = this._pinnedWorkspaceRoot.asReadonly();
-  public readonly buildInProgress = this._buildInProgress.asReadonly();
   public readonly hasInitialized = this._hasInitialized.asReadonly();
   public readonly workspaceSwitchedDuringBuild =
     this._workspaceSwitchedDuringBuild.asReadonly();
@@ -229,6 +154,10 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
    * - Idle + never initialized → no-op (page never opened, nothing to follow).
    */
   private onWorkspaceSwitched(): void {
+    if (this.boundTabKey) {
+      this._workspaceSwitchedDuringBuild.set(true);
+      return;
+    }
     if (this._buildInProgress()) {
       this._workspaceSwitchedDuringBuild.set(true);
       return;
@@ -254,6 +183,11 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
       this.initialize(response);
     } catch (err: unknown) {
       if (seq !== this.reinitSeq) return;
+      this.logger.error(
+        'HarnessBuilderStateService',
+        'Could not reinitialize workspace',
+        err instanceof Error ? err : new Error(String(err)),
+      );
       this._error.set(
         err instanceof Error
           ? err.message
@@ -264,14 +198,14 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
     }
   }
 
-  /**
-   * Marks whether a build session is underway. Called by
-   * {@link HarnessWorkflowService} on workflow start (`true`) and dispose
-   * (`false`) so the workspace-switch effect can distinguish idle from
-   * in-progress without this store depending on the workflow service.
-   */
-  public setBuildInProgress(inProgress: boolean): void {
-    this._buildInProgress.set(inProgress);
+  /** Local config state belongs to one route tab; durable choices live in records. */
+  public bindTab(workspaceRoot: string, tabId: string): void {
+    const key = `${workspaceRoot}:${tabId}`;
+    if (this.boundTabKey === key) return;
+    this.resetSessionState();
+    this.boundTabKey = key;
+    this._pinnedWorkspaceRoot.set(workspaceRoot);
+    this._buildInProgress.set(true);
   }
 
   public readonly configSummary = computed(() => {
@@ -300,10 +234,6 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
 
     return parts.join(' | ') || 'No configuration yet';
   });
-
-  public addConversationMessage(msg: HarnessConversationMessage): void {
-    this._conversationMessages.update((msgs) => [...msgs, msg]);
-  }
 
   public setConfigComplete(complete: boolean): void {
     this._isConfigComplete.set(complete);
@@ -445,156 +375,6 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
   }
 
   /**
-   * Mint (or return existing) SurfaceId for an operation. Idempotent —
-   * repeat calls for the same `operationId` return the same SurfaceId.
-   * Synchronously binds via `StreamRouter.onSurfaceCreated` and registers
-   * the surface adapter with `StreamingSurfaceRegistry` BEFORE this method
-   * returns, so the very next `routeStreamEventForSurface` call has a live
-   * adapter to resolve (registration must precede the first event).
-   *
-   * The adapter's `getState()` returns the current `_streamingState()`
-   * signal value; `setState(next)` writes via `_streamingState.set(next)`
-   * (only fires on `compaction_complete`, where the accumulator hands back
-   * a brand-new state object reference).
-   */
-  /**
-   * Register the interactive workflow surface adapter against the shared
-   * `_streamingState` signal. Unlike `registerOperationSurface` (full-auto,
-   * non-interactive operations), the workflow surface is marked
-   * `{ interactive: true }` so `StreamRouter` attaches permission /
-   * AskUserQuestion prompts to it instead of auto-denying. The
-   * `HarnessWorkflowService` owns the `SurfaceId` lifecycle (claim,
-   * `onSurfaceCreated`, `onSurfaceClosed`) — this method only wires the
-   * state adapter so the canonical accumulator can mutate the streaming
-   * state in place.
-   */
-  public registerWorkflowSurface(surfaceId: SurfaceId): void {
-    this.surfaceRegistry.register(
-      surfaceId,
-      () => this._streamingState(),
-      (next) => {
-        this._streamingState.set(next);
-      },
-      { interactive: true },
-    );
-  }
-
-  public registerOperationSurface(operationId: string): SurfaceId {
-    const existing = this._operationSurfaces.get(operationId);
-    if (existing) return existing;
-
-    const surfaceId = SurfaceId.create();
-    this._operationSurfaces.set(operationId, surfaceId);
-
-    this.streamRouter.onSurfaceCreated(surfaceId);
-    this.surfaceRegistry.register(
-      surfaceId,
-      () => this._streamingState(),
-      (next) => {
-        this._streamingState.set(next);
-      },
-    );
-
-    return surfaceId;
-  }
-
-  /**
-   * Tear down a single operation surface. Calls `StreamRouter.onSurfaceClosed`
-   * (which handles unregistering the adapter from `StreamingSurfaceRegistry`
-   * — do NOT call surfaceRegistry.unregister here, it would race residual
-   * events) and removes the operation Map entry.
-   *
-   * The accumulated `_streamingState` is intentionally retained so the
-   * execution tree keeps rendering after the build completes — only the
-   * routing/registry state is torn down.
-   */
-  public unregisterOperationSurface(operationId: string): void {
-    const surfaceId = this._operationSurfaces.get(operationId);
-    if (!surfaceId) return;
-    this.streamRouter.onSurfaceClosed(surfaceId);
-    this._operationSurfaces.delete(operationId);
-  }
-
-  /** Lookup helper. Returns the SurfaceId for `operationId` or null. */
-  public surfaceForOperation(operationId: string): SurfaceId | null {
-    return this._operationSurfaces.get(operationId) ?? null;
-  }
-
-  /**
-   * Route a flat event for an operation through the canonical streaming
-   * pipeline. Lazy-mints the surface if `operationId` hasn't been seen yet
-   * (covers the stream-arrives-before-explicit-startStreaming ordering —
-   * the harness backend doesn't emit a discrete "operation start" message,
-   * just begins streaming).
-   *
-   * Single-operation assumption (spec §6 R3): if a second `operationId`
-   * arrives while another surface is in flight, emit the
-   * `harness.surface.concurrent-operation` structured warning and
-   * proceed (overwrite). Concurrent-build support is out of scope today.
-   */
-  public routeOperationEvent(
-    operationId: string,
-    event: FlatStreamEventUnion,
-  ): void {
-    const existingKeys = Array.from(this._operationSurfaces.keys());
-    const otherInFlight = existingKeys.find((key) => key !== operationId);
-    if (otherInFlight && !this._operationSurfaces.has(operationId)) {
-      console.warn(
-        '[HarnessBuilderStateService] harness.surface.concurrent-operation',
-        {
-          incomingOperationId: operationId,
-          inFlightOperationId: otherInFlight,
-          message:
-            'Concurrent harness operations are not supported. The new ' +
-            'operation will overwrite the in-flight streaming state. ' +
-            '(spec §6 R3 — single-operation assumption)',
-        },
-      );
-    }
-
-    const surfaceId = this.registerOperationSurface(operationId);
-    this.streamRouter.routeStreamEventForSurface(event, surfaceId);
-  }
-
-  /**
-   * Close routing for every active operation surface but PRESERVE the
-   * accumulated `_streamingState` so the execution tree continues to
-   * render after the build completes.
-   */
-  public unregisterAllOperationSurfaces(): void {
-    const operationIds = Array.from(this._operationSurfaces.keys());
-    for (const operationId of operationIds) {
-      this.unregisterOperationSurface(operationId);
-    }
-  }
-
-  /**
-   * Full teardown: close routing for every operation AND clear the
-   * accumulated streaming state. Called on `resetStreamingState()` and
-   * `reset()`.
-   */
-  public resetOperationSurfaces(): void {
-    this.unregisterAllOperationSurfaces();
-    this._streamingState.set(createEmptyStreamingState());
-  }
-
-  public startStreaming(operationId: string): void {
-    this._isStreaming.set(true);
-    this._currentOperationId.set(operationId);
-  }
-
-  public stopStreaming(): void {
-    this._isStreaming.set(false);
-    this._currentOperationId.set(null);
-  }
-
-  public resetStreamingState(): void {
-    this.resetOperationSurfaces();
-    this._isStreaming.set(false);
-    this._currentOperationId.set(null);
-  }
-
-  /**
    * Wipe all per-workspace session state (config, agents/skills/presets, pin,
    * streaming, conversation). Does NOT clear the `hasInitialized` follow latch,
    * so an idle-switch reset keeps the builder tracking the active workspace
@@ -615,14 +395,10 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
     this._intentAnalyzed.set(false);
     this._intentSummary.set('');
     this._intentInput.set('');
-    this._conversationMessages.set([]);
     this._isConfigComplete.set(false);
     this._pinnedWorkspaceRoot.set(null);
     this._buildInProgress.set(false);
     this._workspaceSwitchedDuringBuild.set(false);
-    this.resetOperationSurfaces();
-    this._isStreaming.set(false);
-    this._currentOperationId.set(null);
   }
 
   /**
@@ -633,6 +409,7 @@ export class HarnessBuilderStateService implements HarnessSurfaceFacade {
    */
   public reset(): void {
     this.resetSessionState();
+    this.boundTabKey = null;
     this._hasInitialized.set(false);
     this.reinitSeq++;
   }

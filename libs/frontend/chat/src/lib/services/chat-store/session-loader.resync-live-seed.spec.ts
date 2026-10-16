@@ -31,6 +31,7 @@ import { SessionHistoryReplayer } from './session-history-replayer.service';
 import { SessionLivenessReconcilerService } from './session-liveness-reconciler.service';
 import { SessionLoaderService } from './session-loader.service';
 import { StreamViewportController } from '../stream-viewport-controller.service';
+import { summarizeTodos } from '@ptah-extension/chat-ui';
 
 describe('SessionLoaderService resync live seed (R-F4)', () => {
   const workspacePath = 'D:/repo';
@@ -335,5 +336,158 @@ describe('SessionLoaderService resync live seed (R-F4)', () => {
     expect(finalized.filter((message) => message.id === 'task-history-start')).toHaveLength(1);
     expect(JSON.stringify(finalized.find((message) => message.id === 'task-history-start'))
       .match(/subagent live text/g)).toHaveLength(1);
+  });
+
+  it('resync renders a nested Task seed once beneath its materialized root', async () => {
+    const sessionId = SessionId.create();
+    const tabId = openStreamingTab(sessionId);
+    const root = 'nested-root';
+    const outer = 'toolu_outer';
+    const inner = 'toolu_inner';
+    const taskHistory = [
+      event(sessionId, 'nested-root-start', 'message_start', root, { role: 'assistant' }),
+      event(sessionId, 'nested-outer-tool', 'tool_start', root,
+        { toolCallId: outer, toolName: 'Task', isTaskTool: true }),
+      event(sessionId, 'nested-sub-start', 'message_start', 'nested-sub',
+        { role: 'assistant', parentToolUseId: outer }),
+      event(sessionId, 'nested-inner-tool', 'tool_start', 'nested-sub',
+        { toolCallId: inner, toolName: 'Task', isTaskTool: true }),
+    ];
+    const pending = loader.switchSession(sessionId, {
+      reason: 'resync', targetTabId: tabId,
+      liveSeed: seed([
+        generating(sessionId, 11),
+        event(sessionId, 'nested-agent', 'agent_start', 'nested-leaf',
+          { parentToolUseId: inner, toolCallId: inner, agentId: 'nested-agent-id' }),
+        event(sessionId, 'nested-leaf-start', 'message_start', 'nested-leaf',
+          { role: 'assistant', parentToolUseId: inner }),
+        event(sessionId, 'nested-leaf-text', 'text_delta', 'nested-leaf',
+          { blockIndex: 0, delta: 'nested live tail' }),
+      ], tabId, sessionId),
+    });
+    await waitForResume();
+    finishResume?.({ success: true, data: { events: taskHistory } });
+    await expect(pending).resolves.toEqual({ staleSnapshot: false });
+    batchedUpdate.flushSync();
+    const target = tab(tabId);
+    expect(target.messages.some((message) => message.id === 'nested-root-start')).toBe(false);
+    const state = target.streamingState;
+    if (!state) throw new Error('nested Task owner has no live state');
+    const roots = treeBuilder.buildTree(state, `nested-${tabId}`);
+    expect(roots.map((node) => node.id)).toEqual(['nested-root-start']);
+    expect(JSON.stringify(roots).match(/nested live tail/g)).toHaveLength(1);
+  });
+
+  it('resync keeps two seeded Task owners live and renders each tail once', async () => {
+    const sessionId = SessionId.create();
+    const tabId = openStreamingTab(sessionId);
+    const taskHistory = ['first', 'second'].flatMap((name) => [
+      event(sessionId, `${name}-start`, 'message_start', `${name}-root`, { role: 'assistant' }),
+      event(sessionId, `${name}-tool`, 'tool_start', `${name}-root`,
+        { toolCallId: `${name}-task`, toolName: 'Task', isTaskTool: true }),
+      ...(name === 'first' ? [event(sessionId, 'between-users', 'message_start',
+        'between-users', { role: 'user' })] : []),
+    ]);
+    const liveEvents = ['first', 'second'].flatMap((name) => [
+      event(sessionId, `${name}-agent`, 'agent_start', `${name}-sub`,
+        { parentToolUseId: `${name}-task`, toolCallId: `${name}-task`, agentId: `${name}-agent-id` }),
+      event(sessionId, `${name}-sub-start`, 'message_start', `${name}-sub`,
+        { role: 'assistant', parentToolUseId: `${name}-task` }),
+      event(sessionId, `${name}-sub-text`, 'text_delta', `${name}-sub`,
+        { blockIndex: 0, delta: `${name} live tail` }),
+    ]);
+    const pending = loader.switchSession(sessionId, {
+      reason: 'resync', targetTabId: tabId,
+      liveSeed: seed([generating(sessionId, 11), ...liveEvents], tabId, sessionId),
+    });
+    await waitForResume();
+    finishResume?.({ success: true, data: { events: taskHistory } });
+    await expect(pending).resolves.toEqual({ staleSnapshot: false });
+    batchedUpdate.flushSync();
+    const state = tab(tabId).streamingState;
+    if (!state) throw new Error('two Task owners have no live state');
+    const roots = treeBuilder.buildTree(state, `two-${tabId}`);
+    expect(state.messageEventIds).toEqual(expect.arrayContaining(['first-root', 'second-root']));
+    expect(roots.map((node) => node.id)).toEqual(['first-start', 'second-start']);
+    expect(tab(tabId).messages.map((message) => message.id)).toEqual(['between-users']);
+    for (const name of ['first', 'second']) {
+      expect(JSON.stringify(roots).match(new RegExp(`${name} live tail`, 'g'))).toHaveLength(1);
+    }
+    TestBed.inject(MessageFinalizationService).finalizeCurrentMessage(tabId);
+    expect(tab(tabId).messages.map((message) => message.id))
+      .toEqual(['first-start', 'between-users', 'second-start']);
+  });
+
+  it('finalizes a non-last Task owner before later frozen rows', async () => {
+    const sessionId = SessionId.create();
+    const tabId = openStreamingTab(sessionId);
+    const base = Date.now() - 10_000;
+    const taskHistory = [
+      event(sessionId, 'user-1-start', 'message_start', 'user-1',
+        { role: 'user', timestamp: base + 100 }),
+      event(sessionId, 'owner-start', 'message_start', 'owner',
+        { role: 'assistant', timestamp: base + 200 }),
+      event(sessionId, 'owner-tool', 'tool_start', 'owner',
+        { toolCallId: 'owner-task', toolName: 'Task', isTaskTool: true, timestamp: base + 210 }),
+      event(sessionId, 'user-2-start', 'message_start', 'user-2',
+        { role: 'user', timestamp: base + 300 }),
+      event(sessionId, 'assistant-2-start', 'message_start', 'assistant-2',
+        { role: 'assistant', timestamp: base + 400 }),
+      event(sessionId, 'assistant-2-text', 'text_delta', 'assistant-2',
+        { blockIndex: 0, delta: 'later reply', timestamp: base + 410 }),
+    ];
+    const pending = loader.switchSession(sessionId, {
+      reason: 'resync', targetTabId: tabId,
+      liveSeed: seed([
+        generating(sessionId, 11),
+        event(sessionId, 'owner-agent', 'agent_start', 'owner-sub',
+          { parentToolUseId: 'owner-task', toolCallId: 'owner-task', agentId: 'owner-agent-id' }),
+        event(sessionId, 'owner-sub-start', 'message_start', 'owner-sub',
+          { role: 'assistant', parentToolUseId: 'owner-task' }),
+        event(sessionId, 'owner-sub-text', 'text_delta', 'owner-sub',
+          { blockIndex: 0, delta: 'live owner' }),
+      ], tabId, sessionId),
+    });
+    await waitForResume();
+    finishResume?.({ success: true, data: { events: taskHistory } });
+    await expect(pending).resolves.toEqual({ staleSnapshot: false });
+    TestBed.inject(MessageFinalizationService).finalizeCurrentMessage(tabId);
+    const ids = tab(tabId).messages.map((message) => message.id);
+    expect(ids).toEqual(['user-1', 'owner-start', 'user-2', 'assistant-2-start']);
+    expect(ids.filter((id) => id === 'owner-start')).toHaveLength(1);
+  });
+
+  it('keeps earlier finalized TodoWrite visible while a later Task owner streams', async () => {
+    const sessionId = SessionId.create();
+    const tabId = openStreamingTab(sessionId);
+    const taskHistory = [
+      event(sessionId, 'todo-root-start', 'message_start', 'todo-root', { role: 'assistant' }),
+      event(sessionId, 'todo-tool', 'tool_start', 'todo-root', {
+        toolCallId: 'todo-call', toolName: 'TodoWrite',
+        toolInput: { todos: [{ content: 'Ship fix', activeForm: 'Shipping fix', status: 'in_progress' }] },
+      }),
+      event(sessionId, 'todo-root-complete', 'message_complete', 'todo-root',
+        { stopReason: 'end_turn' }),
+      event(sessionId, 'todo-owner-start', 'message_start', 'todo-owner', { role: 'assistant' }),
+      event(sessionId, 'todo-owner-task', 'tool_start', 'todo-owner',
+        { toolCallId: 'later-task', toolName: 'Task', isTaskTool: true }),
+    ];
+    const pending = loader.switchSession(sessionId, {
+      reason: 'resync', targetTabId: tabId,
+      liveSeed: seed([
+        generating(sessionId, 11),
+        event(sessionId, 'later-agent', 'agent_start', 'later-sub',
+          { parentToolUseId: 'later-task', toolCallId: 'later-task', agentId: 'later-agent-id' }),
+        event(sessionId, 'later-sub-start', 'message_start', 'later-sub',
+          { role: 'assistant', parentToolUseId: 'later-task' }),
+      ], tabId, sessionId),
+    });
+    await waitForResume();
+    finishResume?.({ success: true, data: { events: taskHistory } });
+    await expect(pending).resolves.toEqual({ staleSnapshot: false });
+    batchedUpdate.flushSync();
+    expect(tab(tabId).streamingState?.latestTodoWrite).toBeUndefined();
+    expect(summarizeTodos(tab(tabId).messages, tab(tabId).streamingState))
+      .toEqual({ kind: 'known', done: 0, total: 1, active: 'Shipping fix' });
   });
 });

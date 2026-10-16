@@ -36,6 +36,8 @@ import type {
   FlatStreamEventUnion,
   QuotaOwnerRef,
   LaneStopReason,
+  OutcomeTaskKind,
+  OutcomeRoutingSource,
 } from '@ptah-extension/shared';
 import { killProcessTree } from '@ptah-extension/platform-core';
 import { claudeModelFamily } from '@ptah-extension/agent-sdk';
@@ -86,6 +88,7 @@ import {
   upgradeQuotaOwner,
   type LaneOwnerResolver,
 } from './limits/lane-owner.resolver';
+import { matchesAuthFailure } from './limits/lane-auth-classifier';
 
 const DEFAULT_AGENT_READ_TAIL_LINES = 200;
 
@@ -635,6 +638,8 @@ export class AgentProcessManager {
         : {}),
       ...(originalTask !== undefined ? { originalTask } : {}),
       ...roleStamp,
+      taskKind: request.taskKind,
+      routingSource: request.routingSource,
     };
 
     this.logger.info('[AgentProcessManager] Spawning SDK agent', {
@@ -744,6 +749,8 @@ export class AgentProcessManager {
       parentSessionId?: string;
       ptahCliName?: string;
       ptahCliId?: string;
+      taskKind?: OutcomeTaskKind;
+      routingSource?: Exclude<OutcomeRoutingSource, 'not-routed'>;
       timeout?: number;
       resumedFromAgentId?: string;
       /** Resume session ID. Pre-sets cliSessionId on the agent:spawned event
@@ -790,6 +797,9 @@ export class AgentProcessManager {
         displayName: meta.ptahCliName,
         ptahCliName: meta.ptahCliName,
         ptahCliId: meta.ptahCliId,
+        providerId: sdkHandle.providerId,
+        taskKind: meta.taskKind,
+        routingSource: meta.routingSource,
         resumedFromAgentId: meta.resumedFromAgentId,
         ...(meta.resumeSessionId ? { cliSessionId: meta.resumeSessionId } : {}),
         ...(meta.originalTask !== undefined
@@ -2335,6 +2345,12 @@ export class AgentProcessManager {
         completedAt: new Date(observedAt).toISOString(),
         failureKind: limit ? limit.failureKind : undefined,
       };
+      if (status === 'failed') {
+        const texts = this.laneFailureTexts(tracked);
+        tracked.authMatched = matchesAuthFailure(texts);
+      } else {
+        tracked.authMatched = false;
+      }
       this.recordLaneLimits(tracked, limit, observedAt);
     } else if (!tracked.info.completedAt) {
       tracked.info = {
@@ -2392,20 +2408,13 @@ export class AgentProcessManager {
     tracked: TrackedAgent,
     observedAt: number,
   ): LaneLimitClassification | null {
-    const errors = tracked.accumulatedSegments
-      .filter((segment) => segment.type === 'error')
-      .slice(-LIMIT_CLASSIFIER_ERROR_SEGMENTS)
-      .reverse()
-      .map((segment) => segment.content.slice(-LIMIT_CLASSIFIER_SEGMENT_CHARS));
+    const texts = this.laneFailureTexts(tracked);
     const limit = classifyLaneLimit({
       cliOrProvider: laneLimitWording(
         tracked.info.cli,
         tracked.info.quotaOwner?.providerId,
       ),
-      texts: [
-        ...errors,
-        tracked.stdoutBuffer.slice(-LIMIT_CLASSIFIER_TAIL_CHARS),
-      ],
+      texts,
       observedAt,
     });
     if (limit) {
@@ -2421,6 +2430,18 @@ export class AgentProcessManager {
       );
     }
     return limit;
+  }
+
+  private laneFailureTexts(tracked: TrackedAgent): readonly string[] {
+    const errors = tracked.accumulatedSegments
+      .filter((segment) => segment.type === 'error')
+      .slice(-LIMIT_CLASSIFIER_ERROR_SEGMENTS)
+      .reverse()
+      .map((segment) => segment.content.slice(-LIMIT_CLASSIFIER_SEGMENT_CHARS));
+    return [
+      ...errors,
+      tracked.stdoutBuffer.slice(-LIMIT_CLASSIFIER_TAIL_CHARS),
+    ];
   }
 
   /**
@@ -2529,7 +2550,10 @@ export class AgentProcessManager {
   private signalLaneCompletion(tracked: TrackedAgent): void {
     const info = { ...tracked.info };
     const reportsDelivered = tracked.reportsDelivered;
-    void this.laneCompletion.signal(info, { reportsDelivered });
+    void this.laneCompletion.signal(info, {
+      reportsDelivered,
+      authMatched: tracked.authMatched ?? false,
+    });
   }
 
   /**

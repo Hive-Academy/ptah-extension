@@ -358,7 +358,7 @@ for (const host of HOSTS) {
       ).toBeVisible();
       await expect(
         page.locator('[data-testid="background-roles-summary"]'),
-      ).toContainText('6 roles');
+      ).toContainText('7 roles');
       await expect(page.locator('[data-testid="consumer-table"]')).toBeHidden();
       // Leaving the tab and coming back keeps them closed.
       await providersTab(page);

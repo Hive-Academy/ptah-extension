@@ -62,6 +62,8 @@ export interface NodeMaps {
  * Stores all streaming events as flat list with lookup maps for performance.
  */
 export interface StreamingState {
+  /** Frozen row preceding each resynced owner, keyed by the owner's start event id. */
+  readonly resyncOwnerPredecessors?: ReadonlyMap<string, string | null>;
   /**
    * Latest top-level TodoWrite, retained even when its start event is evicted.
    * `input` is the write's input once known (on its start, or parsed from the
@@ -628,6 +630,13 @@ export interface TabState {
    * user opened.
    */
   agentOrigin?: TabAgentOrigin;
+
+  /** Persisted origin of a Command Center tab; never carries live voice state. */
+  commandCenterOrigin?: {
+    workspaceId: string;
+    createdAt: number;
+    version: 1;
+  };
 
   /** User-provided or auto-generated session name */
   name: string;

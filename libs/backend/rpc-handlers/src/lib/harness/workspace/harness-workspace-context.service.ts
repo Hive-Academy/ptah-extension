@@ -100,7 +100,7 @@ export class HarnessWorkspaceContextService {
   }
 
   /**
-   * Resolve workspace context from the current workspace provider.
+   * Resolve workspace context from the requested root, or the active workspace.
    * Returns a default context if no workspace is open.
    *
    * Lightweight by design — one directory read plus one `package.json` parse,
@@ -108,10 +108,10 @@ export class HarnessWorkspaceContextService {
    * root listing declares; `package.json` is read for its *contents* because it
    * is the only manifest that also drives `frameworks` and `projectType`.
    */
-  async resolveWorkspaceContext(): Promise<
-    HarnessInitializeResponse['workspaceContext']
-  > {
-    const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+  async resolveWorkspaceContext(
+    workspaceRoot?: string,
+  ): Promise<HarnessInitializeResponse['workspaceContext']> {
+    workspaceRoot ??= this.workspaceProvider.getWorkspaceRoot();
 
     if (!workspaceRoot) {
       return {

@@ -353,11 +353,18 @@ export class ClaudeRpcService implements MessageHandler {
     userMessageId: string,
     dryRun?: boolean,
     anchorHint?: MessageAnchorHint,
+    systemPrompt?: string,
   ): Promise<RpcResult<SessionRewindResult>> {
     const timeout = dryRun === true ? 15000 : 60000;
     return this.call(
       'session:rewindFiles',
-      { sessionId, userMessageId, dryRun, anchorHint },
+      {
+        sessionId,
+        userMessageId,
+        dryRun,
+        anchorHint,
+        ...(systemPrompt !== undefined ? { systemPrompt } : {}),
+      },
       { timeout },
     );
   }

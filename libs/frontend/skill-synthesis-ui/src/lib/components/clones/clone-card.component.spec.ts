@@ -1,5 +1,9 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import type { AgentScorecard, CloneSummary } from '@ptah-extension/shared';
+import type {
+  AgentOutcomeSignals,
+  AgentScorecard,
+  CloneSummary,
+} from '@ptah-extension/shared';
 
 import { CloneCardComponent } from './clone-card.component';
 import type { AgentSyncChip } from './agent-sync-chips';
@@ -21,6 +25,21 @@ function clone(overrides: Partial<CloneSummary> = {}): CloneSummary {
   };
 }
 
+function signals(
+  overrides: Partial<AgentOutcomeSignals> = {},
+): AgentOutcomeSignals {
+  return {
+    slug: 'planner',
+    windowDays: 30,
+    runCount: 5,
+    delivered: { numerator: 4, denominator: 5 },
+    reviewPass: { numerator: 3, denominator: 4 },
+    avgReviseRounds: 1.5,
+    topFailureClass: 'timeout',
+    ...overrides,
+  };
+}
+
 describe('CloneCardComponent', () => {
   let fixture: ComponentFixture<CloneCardComponent>;
 
@@ -30,12 +49,30 @@ describe('CloneCardComponent', () => {
 
   function render(
     c: CloneSummary,
-    opts: { scorecard?: AgentScorecard | null; busy?: boolean } = {},
+    opts: {
+      scorecard?: AgentScorecard | null;
+      busy?: boolean;
+      outcomeSignals?: AgentOutcomeSignals | null;
+      outcomeWindowDays?: number | null;
+      outcomeStatus?: 'loading' | 'ready' | 'unavailable' | 'not-persistent';
+    } = {},
   ): void {
     fixture = TestBed.createComponent(CloneCardComponent);
     fixture.componentRef.setInput('clone', c);
     fixture.componentRef.setInput('scorecard', opts.scorecard ?? null);
     fixture.componentRef.setInput('busy', opts.busy ?? false);
+    fixture.componentRef.setInput(
+      'outcomeSignals',
+      opts.outcomeSignals ?? null,
+    );
+    fixture.componentRef.setInput(
+      'outcomeWindowDays',
+      opts.outcomeWindowDays ?? null,
+    );
+    fixture.componentRef.setInput(
+      'outcomeStatus',
+      opts.outcomeStatus ?? 'ready',
+    );
     fixture.detectChanges();
   }
 
@@ -291,5 +328,264 @@ describe('CloneCardComponent', () => {
     render(clone({ kind: 'agent', slug: 'planner' }));
     expect(q('scorecard-badge')).toBeTruthy();
     expect(q('scorecard-success')?.textContent?.trim()).toBe('no data yet');
+  });
+
+  // ── Outcome signals (Req 9) ──────────────────────────────────────────────
+
+  it('shows loading instead of no data while the first outcome read is pending', () => {
+    render(clone({ kind: 'agent', slug: 'planner' }), {
+      outcomeStatus: 'loading',
+    });
+    expect(q('clone-metric-outcome-loading')?.textContent).toContain(
+      'Loading outcome data',
+    );
+    expect(q('clone-metric-outcome-empty')).toBeNull();
+  });
+
+  it('shows a safe unavailable state without raw errors', () => {
+    render(clone({ kind: 'agent', slug: 'planner' }), {
+      outcomeStatus: 'unavailable',
+    });
+    expect(q('clone-metric-outcome-unavailable')?.textContent).toContain(
+      'Outcome data unavailable',
+    );
+    expect(q('clone-metric-outcome-empty')).toBeNull();
+  });
+
+  it('says "Outcome data unavailable" exactly once when the first read fails', () => {
+    render(clone({ kind: 'agent', slug: 'planner' }), {
+      outcomeStatus: 'unavailable',
+    });
+    const occurrences =
+      el().textContent?.match(/Outcome data unavailable/g)?.length ?? 0;
+    expect(occurrences).toBe(1);
+    expect(q('clone-outcome-unavailable')).toBeNull();
+    expect(q('clone-metric-outcome-unavailable')?.classList).toContain(
+      'text-warning',
+    );
+  });
+
+  it('keeps figures visible with an unavailable note after a failed refresh', () => {
+    render(clone({ kind: 'agent', slug: 'planner' }), {
+      outcomeSignals: signals(),
+      outcomeStatus: 'unavailable',
+    });
+    expect(q('clone-metric-outcome-delivered')?.textContent).toContain('4');
+    expect(q('clone-outcome-unavailable')).not.toBeNull();
+    expect(q('clone-metric-outcome-unavailable')).toBeNull();
+    const occurrences =
+      el().textContent?.match(/Outcome data unavailable/g)?.length ?? 0;
+    expect(occurrences).toBe(1);
+  });
+
+  it.each([
+    ['ready', 'clone-metric-outcome-empty', 'no data yet'],
+    ['loading', 'clone-metric-outcome-loading', 'Loading outcome data'],
+    [
+      'unavailable',
+      'clone-metric-outcome-unavailable',
+      'Outcome data unavailable',
+    ],
+  ] as const)(
+    'gives the %s outcome sentence a full row with no truncation',
+    (status, testId, text) => {
+      render(clone({ kind: 'agent', slug: 'planner', invocationCount: 7 }), {
+        outcomeStatus: status,
+      });
+      const value = q(testId);
+      expect(value?.textContent).toContain(text);
+      expect(value?.classList).not.toContain('truncate');
+      expect(value?.parentElement?.classList).toContain('col-span-full');
+
+      const invocations = q('clone-metric-invocations');
+      expect(invocations?.classList).toContain('truncate');
+      expect(invocations?.parentElement?.classList).not.toContain(
+        'col-span-full',
+      );
+    },
+  );
+
+  it('leaves the per-figure outcome metrics in the grid unchanged', () => {
+    render(clone({ kind: 'agent', slug: 'planner' }), {
+      outcomeSignals: signals(),
+      outcomeWindowDays: 30,
+    });
+    const delivered = q('clone-metric-outcome-delivered');
+    expect(delivered?.classList).toContain('truncate');
+    expect(delivered?.parentElement?.classList).not.toContain('col-span-full');
+  });
+
+  it('puts the full text on every truncating metric value as a title', () => {
+    render(
+      clone({
+        kind: 'agent',
+        slug: 'planner',
+        invocationCount: 7,
+        lastEnhancedAt: null,
+        historyCount: 3,
+      }),
+      {
+        outcomeSignals: signals({ topFailureClass: 'usage-limit' }),
+        outcomeWindowDays: 30,
+      },
+    );
+    const truncating = Array.from(
+      el().querySelectorAll<HTMLElement>(
+        '[data-testid="clone-card-metrics"] dd.truncate',
+      ),
+    );
+    expect(truncating.length).toBeGreaterThan(0);
+    for (const dd of truncating) {
+      expect(dd.getAttribute('title')).toBe(dd.textContent?.trim());
+    }
+    expect(q('clone-metric-outcome-failure')?.getAttribute('title')).toBe(
+      'usage-limit',
+    );
+    expect(q('clone-metric-outcome-window')?.getAttribute('title')).toBe(
+      '(last 30 days)',
+    );
+  });
+
+  it('leaves a full-row outcome sentence without a title (it wraps instead)', () => {
+    render(clone({ kind: 'agent', slug: 'planner' }));
+    expect(q('clone-metric-outcome-empty')?.hasAttribute('title')).toBe(false);
+  });
+
+  it('sizes the metric grid from the card, not the viewport', () => {
+    render(clone({ invocationCount: 7, successRate: 0.5 }));
+    const grid = q('clone-card-metrics');
+    expect(grid?.classList).toContain('clone-card-metrics');
+    expect(
+      Array.from(grid?.classList ?? []).some((name) =>
+        /^(sm|md|lg|xl):grid-cols-/.test(name),
+      ),
+    ).toBe(false);
+    expect(grid?.parentElement?.classList).toContain(
+      'clone-card-metrics-container',
+    );
+  });
+
+  it('shows a non-durable host note for outcome data', () => {
+    render(clone({ kind: 'agent', slug: 'planner' }), {
+      outcomeStatus: 'not-persistent',
+    });
+    expect(q('clone-outcome-not-persistent')?.textContent).toContain(
+      'not stored durably',
+    );
+  });
+
+  it('keeps Success on a skill card', () => {
+    render(
+      clone({
+        kind: 'skill',
+        invocationCount: 4,
+        successRate: 0.5,
+        lastEnhancedAt: null,
+        historyCount: 0,
+      }),
+    );
+    expect(q('clone-metric-success')?.textContent?.trim()).toBe('50%');
+    expect(q('clone-metric-outcome-empty')).toBeNull();
+    expect(q('clone-metric-outcome-delivered')).toBeNull();
+  });
+
+  it('keeps Success on a command card', () => {
+    render(
+      clone({
+        kind: 'command',
+        invocationCount: 4,
+        successRate: 0.25,
+        lastEnhancedAt: null,
+        historyCount: 0,
+      }),
+    );
+    expect(q('clone-metric-success')?.textContent?.trim()).toBe('25%');
+    expect(q('clone-metric-outcome-delivered')).toBeNull();
+  });
+
+  it('drops Success on an agent card and says no data yet when nothing was recorded', () => {
+    render(
+      clone({
+        kind: 'agent',
+        slug: 'planner',
+        invocationCount: 7,
+        successRate: 1,
+        lastEnhancedAt: null,
+        historyCount: 0,
+      }),
+    );
+    expect(q('clone-metric-success')).toBeNull();
+    expect(q('clone-metric-invocations')?.textContent?.trim()).toBe('7');
+    expect(q('clone-metric-outcome-empty')?.textContent?.trim()).toBe(
+      'no data yet',
+    );
+    expect(q('scorecard-badge')).toBeTruthy();
+  });
+
+  it('keeps invocations, last enhanced, history and the scorecard on an agent card', () => {
+    render(
+      clone({
+        kind: 'agent',
+        slug: 'planner',
+        invocationCount: 7,
+        successRate: 1,
+        lastEnhancedAt: Date.now() - 3 * 60 * 60_000,
+        historyCount: 3,
+      }),
+      { outcomeSignals: signals(), outcomeWindowDays: 30 },
+    );
+    expect(q('clone-metric-success')).toBeNull();
+    expect(q('clone-metric-invocations')?.textContent?.trim()).toBe('7');
+    expect(q('clone-metric-last-enhanced')?.textContent?.trim()).toBe('3h ago');
+    expect(q('clone-metric-history')?.textContent?.trim()).toBe('3 snapshots');
+    expect(q('clone-metric-outcome-delivered')?.textContent?.trim()).toBe(
+      '80% (4/5)',
+    );
+    expect(q('scorecard-badge')).toBeTruthy();
+    expect(q('scorecard-success')?.textContent?.trim()).toBe('no data yet');
+  });
+
+  it('shows different signals for two agents and ignores a mismatched slug', () => {
+    render(clone({ kind: 'agent', slug: 'planner', successRate: 1 }), {
+      outcomeSignals: signals({ slug: 'planner' }),
+      outcomeWindowDays: 30,
+    });
+    expect(q('clone-metric-outcome-delivered')?.textContent?.trim()).toBe(
+      '80% (4/5)',
+    );
+    expect(q('clone-metric-outcome-failure')?.textContent?.trim()).toBe(
+      'timeout',
+    );
+    expect(q('clone-metric-success')).toBeNull();
+
+    render(clone({ kind: 'agent', slug: 'reviewer', successRate: 1 }), {
+      outcomeSignals: signals({
+        slug: 'reviewer',
+        runCount: 2,
+        delivered: { numerator: 1, denominator: 2 },
+        reviewPass: { numerator: 0, denominator: 0 },
+        avgReviseRounds: null,
+        topFailureClass: 'auth',
+      }),
+      outcomeWindowDays: 30,
+    });
+    expect(q('clone-metric-outcome-delivered')?.textContent?.trim()).toBe(
+      '50% (1/2)',
+    );
+    expect(q('clone-metric-outcome-review')?.textContent?.trim()).toBe(
+      'not reviewed yet',
+    );
+    expect(q('clone-metric-outcome-revise')).toBeNull();
+    expect(q('clone-metric-outcome-failure')?.textContent?.trim()).toBe('auth');
+    expect(q('clone-metric-success')).toBeNull();
+
+    render(clone({ kind: 'agent', slug: 'planner', successRate: 1 }), {
+      outcomeSignals: signals({ slug: 'reviewer' }),
+      outcomeWindowDays: 30,
+    });
+    expect(q('clone-metric-outcome-empty')?.textContent?.trim()).toBe(
+      'no data yet',
+    );
+    expect(q('clone-metric-outcome-delivered')).toBeNull();
   });
 });

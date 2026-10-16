@@ -59,6 +59,26 @@ describe('deactivate() teardown order', () => {
     expect(deactivateBody).toContain(`await ${AGENT_DISPOSE}`);
   });
 
+  it('awaits the self-bounded lane-outcomes drain after the reap and before clearing the container', () => {
+    // The budget lives in `startAndRegisterLaneOutcomes` (P6 re-review style
+    // N1): this host awaits `dispose()` and owns no timer or constant of its
+    // own.
+    const drainCall = 'await DIContainer.resolve<LaneOutcomesDisposer>(';
+    const drainIndex = deactivateBody.indexOf(drainCall);
+    expect(drainIndex).toBeGreaterThan(-1);
+    expect(deactivateBody.split(drainCall)).toHaveLength(2);
+    expect(drainIndex).toBeGreaterThan(
+      deactivateBody.indexOf('await agentsReaped;'),
+    );
+    // The statement, not the comment above the drain that names it.
+    expect(drainIndex).toBeLessThan(
+      deactivateBody.indexOf('DIContainer.clear();'),
+    );
+    expect(fs.readFileSync(MAIN_TS_PATH, 'utf-8')).not.toContain(
+      'LANE_OUTCOME_DRAIN_BUDGET_MS',
+    );
+  });
+
   it('starts the bounded run-check kill beside the agent reap and awaits it after the metadata flush', () => {
     // TASK_2026_614 G-A: the kill is started (with its 5 s budget) before the
     // reap so both run together, and it is awaited. M1 (fix round B): the

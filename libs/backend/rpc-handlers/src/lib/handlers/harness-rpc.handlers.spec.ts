@@ -170,7 +170,7 @@ function cleanHealth(): HarnessHealth {
   };
 }
 
-function buildSuite(): Suite {
+function buildSuite(folders: string[] = ['/ws']): Suite {
   const logger = createMockLogger();
   const rpc = createMockRpcHandler();
   const sentry = createMockSentryService();
@@ -186,9 +186,7 @@ function buildSuite(): Suite {
   const harnessPropagation = {
     propagate: jest.fn().mockResolvedValue(cleanHealth()),
   } as unknown as Suite['harnessPropagation'];
-  const workspaceProvider = createMockWorkspaceProvider({
-    folders: ['/ws'],
-  }) as unknown as IWorkspaceProvider;
+  const workspaceProvider = createMockWorkspaceProvider({ folders });
   const platformCommands = createMockPlatformCommands();
   const container = createMockContainer();
 
@@ -608,12 +606,88 @@ describe('HarnessRpcHandlers (thin facade)', () => {
       const suite = buildSuite();
       suite.handlers.register();
       const result = await getHandler(suite.rpc, 'harness:initialize')({});
-      expect(suite.workspaceContext.resolveWorkspaceContext).toHaveBeenCalled();
+      expect(
+        suite.workspaceContext.resolveWorkspaceContext,
+      ).toHaveBeenCalledWith(undefined);
       expect(suite.configStore.loadPresetsFromDisk).toHaveBeenCalled();
       expect(result).toMatchObject({
         workspaceContext: { projectName: 'demo' },
         existingPresets: [],
         workspaceRoot: '/ws',
+      });
+    });
+
+    it('harness:initialize rejects a pinned root outside the open folders', async () => {
+      const suite = buildSuite();
+      suite.handlers.register();
+      await expect(
+        getHandler(
+          suite.rpc,
+          'harness:initialize',
+        )({ workspaceRoot: '/other' }),
+      ).rejects.toThrow('not an open workspace folder');
+      expect(
+        suite.workspaceContext.resolveWorkspaceContext,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('harness:initialize accepts a differently cased Windows folder with a trailing separator', async () => {
+      const platform = process.platform;
+      Object.defineProperty(process, 'platform', {
+        value: 'win32',
+        configurable: true,
+      });
+      try {
+        const folder = 'C:\\Users\\Ann\\MyApp';
+        const suite = buildSuite([folder]);
+        suite.handlers.register();
+        const response = await getHandler(
+          suite.rpc,
+          'harness:initialize',
+        )({
+          workspaceRoot: 'c:\\users\\ann\\myapp\\',
+        });
+        expect(
+          suite.workspaceContext.resolveWorkspaceContext,
+        ).toHaveBeenCalledWith(folder);
+        expect(response).toMatchObject({ workspaceRoot: folder });
+      } finally {
+        Object.defineProperty(process, 'platform', {
+          value: platform,
+          configurable: true,
+        });
+      }
+    });
+
+    it('harness:initialize resolves a pinned open folder while another folder is active', async () => {
+      const activeRoot = join(tmpdir(), 'harness-active');
+      const pinnedRoot = join(tmpdir(), 'harness-pinned');
+      const suite = buildSuite([activeRoot, pinnedRoot]);
+      const pinnedContext = {
+        projectName: 'other',
+        projectType: 'python',
+        frameworks: [],
+        languages: ['Python'],
+      };
+      suite.workspaceContext.resolveWorkspaceContext.mockResolvedValueOnce(
+        pinnedContext,
+      );
+      suite.handlers.register();
+
+      const result = await getHandler(
+        suite.rpc,
+        'harness:initialize',
+      )({
+        workspaceRoot: pinnedRoot,
+      });
+
+      expect(
+        suite.workspaceContext.resolveWorkspaceContext,
+      ).toHaveBeenCalledWith(pinnedRoot);
+      expect(result).toMatchObject({
+        workspaceRoot: pinnedRoot,
+        workspaceContext: pinnedContext,
+        existingPresets: [],
       });
     });
 
@@ -1124,12 +1198,51 @@ describe('HarnessRpcHandlers (thin facade)', () => {
   });
 
   describe('harness:get-proposal', () => {
+    it('accepts the open Windows folder spelling and rejects another root before store access', async () => {
+      const platform = process.platform;
+      Object.defineProperty(process, 'platform', {
+        value: 'win32',
+        configurable: true,
+      });
+      try {
+        const folder = 'C:\\Users\\Ann\\MyApp';
+        const suite = buildSuite([folder]);
+        const get = jest.fn().mockResolvedValue(null);
+        suite.container.__register(Symbol.for('PlatformHarnessProposalStore'), {
+          get,
+        });
+        suite.handlers.register();
+        await getHandler(
+          suite.rpc,
+          'harness:get-proposal',
+        )({
+          sessionId: 'session',
+          workspaceRoot: 'c:\\users\\ann\\myapp\\',
+        });
+        expect(get).toHaveBeenCalledWith('session', folder);
+        await expect(
+          getHandler(
+            suite.rpc,
+            'harness:get-proposal',
+          )({
+            sessionId: 'session',
+            workspaceRoot: 'C:\\Other',
+          }),
+        ).rejects.toThrow('not an open workspace folder');
+        expect(get).toHaveBeenCalledTimes(1);
+      } finally {
+        Object.defineProperty(process, 'platform', {
+          value: platform,
+          configurable: true,
+        });
+      }
+    });
     it.each([
       {},
       { sessionId: '' },
       { sessionId: '   ' },
       { sessionId: 'x'.repeat(257) },
-      { sessionId: 'valid', workspaceRoot: '/other' },
+      { sessionId: 'valid', workspaceRoot: 'relative/other' },
     ])('rejects invalid params before resolving the store', async (params) => {
       const suite = buildSuite();
       suite.handlers.register();
@@ -1144,13 +1257,19 @@ describe('HarnessRpcHandlers (thin facade)', () => {
     it('reads the proposal from the same workspace root used for the write', async () => {
       const root = await mkdtemp(join(tmpdir(), 'ptah-proposal-rpc-'));
       try {
-        const suite = buildSuite();
+        const suite = buildSuite([root]);
         const provider = createMockWorkspaceProvider({ folders: [root] });
         const store = new HarnessProposalStore(
           suite.logger as unknown as Logger,
           provider as unknown as IWorkspaceProvider,
         );
-        const written = await store.save('sdk-session', {}, false);
+        const written = await store.save(
+          'sdk-session',
+          {},
+          false,
+          undefined,
+          root,
+        );
         suite.container.__register(
           Symbol.for('PlatformHarnessProposalStore'),
           store,
@@ -1163,6 +1282,16 @@ describe('HarnessRpcHandlers (thin facade)', () => {
             'harness:get-proposal',
           )({
             sessionId: ' sdk-session ',
+          }),
+        ).resolves.toEqual({ proposal: written });
+        provider.__state.setFolders([root, join(root, 'other')]);
+        await expect(
+          getHandler(
+            suite.rpc,
+            'harness:get-proposal',
+          )({
+            sessionId: 'sdk-session',
+            workspaceRoot: root,
           }),
         ).resolves.toEqual({ proposal: written });
         await expect(
@@ -1323,7 +1452,7 @@ describe('HarnessRpcHandlers (thin facade)', () => {
     });
 
     it('explicit pinned workspaceRoot wins over the active workspace', async () => {
-      const suite = buildSuite();
+      const suite = buildSuite(['/ws', '/pinned/workspace']);
       const subagents = [
         {
           id: 'sentiment-watchdog',
@@ -1404,7 +1533,7 @@ describe('HarnessRpcHandlers (thin facade)', () => {
     });
 
     it('accepts a clean absolute workspaceRoot', async () => {
-      const suite = buildSuite();
+      const suite = buildSuite(['/ws', '/pinned/workspace']);
       const config = normalizedConfig();
       suite.configStore.normalizeHarnessConfig.mockReturnValue(config as never);
       suite.handlers.register();
@@ -1680,6 +1809,25 @@ describe('HarnessRpcHandlers (thin facade)', () => {
   });
 
   describe('harness:workflow-prompt', () => {
+    it('passes a context-only Configure request to the composer', async () => {
+      const suite = buildSuite();
+      suite.handlers.register();
+
+      const result = await getHandler(
+        suite.rpc,
+        'harness:workflow-prompt',
+      )({
+        mode: 'configure-harness',
+        contextOnly: true,
+      });
+
+      expect(result).toEqual({ prompt: 'WORKFLOW PROMPT' });
+      expect(suite.workflowPrompt.composePrompt).toHaveBeenCalledWith({
+        mode: 'configure-harness',
+        contextOnly: true,
+      });
+    });
+
     it('returns the prompt composed by HarnessWorkflowPromptService', async () => {
       const suite = buildSuite();
       suite.workflowPrompt.composePrompt.mockResolvedValueOnce({

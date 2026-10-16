@@ -65,9 +65,11 @@ function generate(schema: z.ZodType): JsonObject {
  * Merge a top-level `oneOf` of closed object branches, each discriminated by a
  * `const` on `discriminator`, into ONE closed object schema. Shared fields
  * keep the first branch's generated schema (the branches reuse the same zod
- * schema for them), and each field's description names the operations that
- * require it. `definitions` (the recursive component tree) is preserved, so
- * every `$ref` still resolves.
+ * schema for them). A field every branch requires joins the top-level
+ * `required`; every other field's description names the operations that
+ * require it, the operations that accept it as optional, and (when some
+ * branch lacks it) that no other operation allows it. `definitions` (the
+ * recursive component tree) is preserved, so every `$ref` still resolves.
  */
 export function flattenOperationUnion(
   fragment: JsonObject,
@@ -77,6 +79,7 @@ export function flattenOperationUnion(
   const values: string[] = [];
   const properties: JsonObject = {};
   const requiredBy = new Map<string, string[]>();
+  const presentIn = new Map<string, string[]>();
 
   for (const branch of Array.isArray(oneOf) ? oneOf : []) {
     if (!isJsonObject(branch) || !isJsonObject(branch['properties'])) continue;
@@ -93,16 +96,32 @@ export function flattenOperationUnion(
     for (const [key, schema] of Object.entries(branchProperties)) {
       if (key === discriminator) continue;
       if (!(key in properties)) properties[key] = schema;
+      presentIn.set(key, [...(presentIn.get(key) ?? []), value]);
       if (required.includes(key))
         requiredBy.set(key, [...(requiredBy.get(key) ?? []), value]);
     }
   }
 
+  const requiredEverywhere: string[] = [];
   for (const [key, schema] of Object.entries(properties)) {
     const operations = requiredBy.get(key) ?? [];
-    const note =
-      `Required for ${discriminator} ${operations.join(', ')}; ` +
-      `not allowed for any other ${discriminator}.`;
+    if (operations.length === values.length) {
+      requiredEverywhere.push(key);
+      continue;
+    }
+    const present = presentIn.get(key) ?? [];
+    const optional = present.filter((value) => !operations.includes(value));
+    const clauses: string[] = [];
+    if (operations.length > 0)
+      clauses.push(`Required for ${discriminator} ${operations.join(', ')}`);
+    if (optional.length > 0)
+      clauses.push(
+        `${operations.length > 0 ? 'optional' : 'Optional'} for ` +
+          `${discriminator} ${optional.join(', ')}`,
+      );
+    if (present.length < values.length)
+      clauses.push(`not allowed for any other ${discriminator}`);
+    const note = `${clauses.join('; ')}.`;
     properties[key] = isJsonObject(schema)
       ? {
           ...schema,
@@ -121,7 +140,7 @@ export function flattenOperationUnion(
       [discriminator]: { type: 'string', enum: values },
       ...properties,
     },
-    required: [discriminator],
+    required: [discriminator, ...requiredEverywhere],
     additionalProperties: false,
   } as InputSchema;
 }

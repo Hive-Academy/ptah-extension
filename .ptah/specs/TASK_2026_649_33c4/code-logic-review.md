@@ -1,0 +1,652 @@
+# Code Logic Review - TASK_2026_649_33c4
+
+Reviewer: code-logic-reviewer (Claude). Scope: `git diff main...HEAD -- libs apps` at HEAD `01cc3bc2a`,
+focused on the 649 commits `0019f598a..01cc3bc2a`. All paths are relative to the worktree root.
+Evidence: whole-file reads of the files named below, plus one targeted Jest run
+(`apps/ptah-extension-webview/src/app/unit5-message-routing.spec.ts`: 6 of 6 fail, see S5).
+No source was edited, no git write operation was run.
+
+## Summary
+
+| Metric | Value |
+| --- | --- |
+| Score | 6 / 10 |
+| Verdict | APPROVED WITH FIXES (fix S1-S5 before the PR; no Blocking issue) |
+| Blocking | 0 |
+| Serious | 5 |
+| Moderate | 11 |
+| Minor | 6 |
+
+Why 6 and not 7-8: the structure is sound (frozen turn start before the first await, pinned root on the
+write side, generation guards in hydration, single-flight guards in the leave and entry flows). But five
+defects sit on likely paths (interrupt then continue, first-message retry, leaving the builder by any
+route other than the dialog, a workspace switch, the webview test suite). Why not 5: nothing loses saved
+data, and each Serious item has a one- or two-line fix.
+
+## Findings
+
+| ID | Sev | Area | Where | One-line |
+| --- | --- | --- | --- | --- |
+| S1 | Serious | D9 | `harness-proposal-turn-attribution.service.ts:94,107-113`; `harness-proposal-store.service.ts:48-59`; `harness-proposal-hydration.service.ts:109-124,357-366` | After an interrupted turn the next turn is unattributed and its proposals sort BEFORE every older attributed one, so older values and an older `isConfigComplete=false` win |
+| S2 | Serious | Entry | `message-sender.service.ts:420-424`; `harness-workflow-request.service.ts:118-147,361` | The first-message preamble is consumed before `chat:start`; "Retry message" (and a reload) resends without the seed prompt, silently |
+| S3 | Serious | Hand-off | `harness-workflow-request.service.ts:211,231-240,259`; `harness-builder-view.component.ts:450` | A pending intent that is never cancelled makes every Hub entry point return `'cancelled'` with no message until reload |
+| S4 | Serious | D13 | `harness-proposal-store.service.ts:153-159,161-179`; `harness-rpc.handlers.ts:910-921`; `harness-builder-view.component.ts:454-479` | Proposals are saved under the pinned root but read (and the builder initialised) under the active root; after a workspace switch they are unreadable |
+| S5 | Serious | Tests | `apps/ptah-extension-webview/src/app/unit5-message-routing.spec.ts:186,237-245,280` | The spec now fails 6/6 (no `SURFACE_ACTIVE` provider, asserts the removed AppState hand-off); `ptah-extension-webview` test would fail in CI |
+| M1 | Moderate | D9 | `harness/di.ts:61-64`; `harness-proposal-store.service.ts:69-75` | The attribution service is constructed lazily with the store, so the first proposal after app start has no turn start |
+| M2 | Moderate | D13/D9 | `harness-proposal-turn-attribution.service.ts:52`; `harness-proposal-store.service.ts:161-179` | Exact string equality of hook cwd vs pinned root; `requireRoot` hard-fails any non-normalized root with no fallback |
+| M3 | Moderate | D13 | `ptah-api-builder.service.ts:874,1036-1045`; `mcp-caller-workspace-resolver.ts:66-77` | The pinned root can be the caller-declared MCP URL root, never checked against open folders |
+| M4 | Moderate | Leave | `harness-builder-view.component.ts:496-560` | The outcome of `completePendingIntent` is ignored; no progress while `startNewProject` runs; the page flips to "no longer open" |
+| M5 | Moderate | Binding | `harness-builder-view.component.ts:325,329,404-433,454-479`; `harness-helper.service.ts:80-85`; `harness-builder-sidebar.component.ts` (`document` signal) | State leaks and an init race when the route param changes on the same component instance |
+| M6 | Moderate | Hydration | `harness-proposal-hydration.service.ts:314,339-340`; `builder-apply-section.component.ts:285-292`; `builder-ai-helpers-section.component.ts` (`addHelperResult`) | In the `error` state the preview is frozen, Apply still works on it, and "Added to preview" is announced without effect |
+| M7 | Moderate | Records | `harness-builder-records.service.ts:244,255` | `sweepOrphans` is never called; tab close and session delete never `clearTab` (the spec requires both) |
+| M8 | Moderate | Hub | `setup-hub.component.ts:1339-1361`; `harness-workflow-request.service.ts:222,238-239` | `openHarnessBuilder` and `resumeNewProject` discard the outcome; a failed navigation is not reported |
+| M9 | Moderate | D12 | `harness-workflow-request.service.ts:97-106`; `harness-workflow-message.handler.ts:93,113,124` | The a1 abort warning and c1 relay errors only render on the Hub; in the switch flow the user never lands there |
+| M10 | Moderate | Pinned root | `harness-builder-records.service.ts:108-116`; `harness-builder-view.component.ts:341-352`; `builder-apply-section.component.ts:292` | Apply writes to the case-folded, slash-normalized root, wrong on case-sensitive trees (WSL UNC) |
+| M11 | Moderate | Entry | `harness-workflow-request.service.ts:221-222` | A same-mode tab makes a New Project request drop its validated intake silently |
+| m1-m6 | Minor | misc | see "Minor" | |
+
+## Five logic questions
+
+1. Silent failure. The first-message retry sends the visible text without the seed prompt and reports
+   success (S2). A proposal written in the turn after an interrupt is accepted and then shadowed (S1).
+   `acceptPush` drops a revision that fails the schema with no log and no refresh (M6). A failed
+   navigation from a Hub card shows nothing (M8). A stale pending intent makes the Hub cards inert (S3).
+2. Unexpected user action. Stop, then ask again (S1). Leave the dialog open and navigate with a shortcut
+   or a menu command (S3). Switch workspace in Electron and reopen the builder (S4). Click Back to Setup
+   Hub while a New Project start is still running (M4). Reload between tab creation and first send (S2).
+3. Wrong answer from valid input. Two proposals for the same field in different turns, the newer one
+   unattributed (S1). A Windows path with a different case or separators between hook cwd and the pinned
+   root (M2). A UNC/WSL workspace passed through `canonicalHarnessRoot` (M10).
+4. Dependency failure. `chat:abort` failure is handled (a1). `harness:get-proposal` failure sets `error`,
+   which then freezes the preview (M6). `harness:initialize` returning another root becomes a permanent
+   init error (S4). `startNewProject` failing after the old builder was discarded leaves the user on a
+   closed page (M4).
+5. Missing and unrequested. No cleanup of local records on tab close (M7). No capability check for
+   providers that never fire `UserPromptSubmit` (m2). No cap on the revision count in the proposal file
+   (m5). No auto-clear of a stale intent (S3).
+
+## Serious
+
+### S1 - An interrupted turn makes the next turn unattributed, and unattributed revisions lose to older ones
+
+- Files: `libs/backend/rpc-handlers/src/lib/harness/config/harness-proposal-turn-attribution.service.ts:94,101,107-113`;
+  `harness-proposal-store.service.ts:48-59,124-126`; `libs/frontend/harness-builder/src/lib/services/harness-proposal-hydration.service.ts:109-124,357-366`.
+- Evidence of the premise: the only emitters of `turnEnded`/`turnFailed` are the Stop hook
+  (`libs/backend/agent-sdk/src/lib/helpers/stop-hook-handler.ts:105`) and the StopFailure hook
+  (`stop-failure-hook-handler.ts:92`). `chat:abort` calls `sdkAdapter.interruptSession`
+  (`libs/backend/rpc-handlers/src/lib/chat/session/chat-session.service.ts:1289-1290`), a user interrupt,
+  for which Claude Code does not run Stop hooks. Nothing else clears `active`.
+- Scenario: turn T1 starts at 10:00, the agent proposes `agents` (partial, `isConfigComplete=false`),
+  revision R1 stores `turnStartedAt=10:00`. The user clicks Stop. `active` stays T1. The user types a
+  follow-up: `onPromptSubmit` sees `state.active` and sets `ambiguous = true`, `active = undefined`. The
+  agent proposes the final config (`isConfigComplete=true`): `capture()` returns no start, so R2 has no
+  `turnStartedAt`. Both `compareRevisions` (backend) and `orderedRevisions` (frontend) place revisions
+  without a start BEFORE every revision with one, so the order is `[R2, R1]`. Result: R1's field values
+  overwrite R2's on overlapping ids/fields, the merged `isConfigComplete` is R1's `false`, and the sidebar
+  never shows "Configuration looks ready" although the agent finished. Live and reload give the same
+  wrong answer.
+- Impact: a very ordinary interaction (Stop, then ask again) silently demotes the agent's newest
+  proposal; the user sees a stale preview.
+- Fix: clear attribution state on interrupt. Subscribe the service to the abort path (for example call
+  `onTurnEnd(sessionId)` from `ChatSessionService.abortSession`, or emit a `turnEnded`-like event from
+  `interruptSession`), and treat a new prompt after `active` as a replacement (the new turn wins) instead
+  of `ambiguous`, because the SDK serializes turns per session. Independently, order unattributed
+  revisions by write time among themselves and place them AFTER attributed ones only when their write
+  time is later than the newest attributed `turnStartedAt`.
+
+### S2 - Retrying the first New Project message drops the seed prompt
+
+- Files: `libs/frontend/chat/src/lib/services/message-sender.service.ts:420-424` (consume),
+  `libs/frontend/harness-builder/src/lib/services/harness-workflow-request.service.ts:118-147` (retry),
+  `:150-185` (send), `:361` (the only `setFirstMessagePreamble`), `libs/frontend/chat-state/src/lib/tab-persistence.ts:115,238` (only `workflow` persists).
+- Scenario: New Project start. `enter()` sets the preamble (the `startNewProject` seed with stack and
+  plugin context), navigates, then `sendFirstMessage`. `startConversation` calls
+  `consumeFirstMessagePreamble` before `chat:start`; the RPC then fails (backend rejects, auth, timeout).
+  The entry error and "Retry message" appear. `retryFirstSend` removes the failed bubble and calls
+  `sendFirstMessage(tabId, pending.content)` where `content` is only the intake summary. The preamble is
+  gone, so the agent runs without the seed prompt and without `proposeConfig` instructions; nothing tells
+  the user. The same loss happens when the app reloads between tab creation and the first send
+  (`firstMessagePreamble` is not persisted), and for Configure when the user's first send fails and they
+  resend by hand.
+- Impact: the builder looks alive but the agent is un-framed; no proposals arrive, the preview stays empty.
+- Fix: store the preamble in `pendingFirstSends` and re-apply `setFirstMessagePreamble` before every retry;
+  better, have `startConversation` restore the preamble when `chat:start` fails (it already undoes the
+  streaming flags there). Persist `firstMessagePreamble` in tab persistence for workflow-tagged tabs.
+
+### S3 - A pending intent that is never cancelled disables every Hub entry silently
+
+- Files: `harness-workflow-request.service.ts:211` (`if (this.transitioning || this._pendingIntent()) return 'cancelled'`),
+  `:231-240` (set before navigation), `:259` (`cancelPendingIntent`); `harness-builder-view.component.ts:450`
+  (`ngOnDestroy` only disconnects the observer); `setup-hub.component.ts:1339-1361,1478-1500` (outcome
+  `'cancelled'` is neither shown nor handled).
+- The intent is cleared only by: Cancel/Escape/backdrop in the dialog, a completed Save/Discard, or a
+  non-landed navigation. Paths that leave it set: the view is destroyed while the dialog is open (a
+  keyboard shortcut, a menu command, an `appState` view change, the source tab closed by another actor so
+  `pageState` becomes `missing`), the source page lands in `wrong`/`missing` so the dialog effect
+  (`view:435-446`) never opens it, or `completePendingIntent` returns `'cancelled'` because
+  `transitioning` was true (`:264`).
+- Scenario: Configure running; Hub, New Project, intake, "Open leave choices"; the builder page opens with
+  the dialog; the user presses a global shortcut to another surface. Back on the Hub, the AI Team Builder
+  and New Project cards, the relay and the confirm button all return `'cancelled'`. No error, no spinner,
+  until the webview reloads. If the user later reopens that builder page the old dialog pops up again.
+- Fix: in `ngOnDestroy` call `cancelPendingIntent()` when `pendingIntent()?.sourceTabId === tabId()` and no
+  transition is running; in `requestAndNavigate` replace a stale intent when its source tab no longer
+  exists or is not the displayed surface; make the Hub show `hubError` for `'cancelled'` with a stale
+  intent.
+
+### S4 - D13 is half done: reads and builder init still use the active workspace root
+
+- Files: `harness-proposal-store.service.ts:153-159` (`get` calls `requireRoot()` with no argument, so it
+  is always the provider root) versus `:93-101` (`save` honours the pinned root);
+  `harness-rpc.handlers.ts:910-921` and `harness-rpc.schema.ts:203-205` (`harness:get-proposal` takes
+  `sessionId` only, strict); `harness-builder-view.component.ts:454-479` (`rpc.initialize()` has no pin and
+  the response root must equal the pinned root).
+- Scenario: Electron, workspace A. A builder session proposes a config; the proposal is stored under
+  `A/.ptah/harness/proposals`. The user switches to workspace B (or opens the builder tab of A from the
+  tab bar while B is active), then reloads or the page rebinds. `hydration.bind` calls `getProposal`;
+  the store reads `B/.ptah/...` and returns `null` (`read` also rejects a record whose `workspaceRoot`
+  differs), so the status is `unavailable` and the preview is empty although the file exists. In the same
+  state `initializeBuilder` throws "Workspace changed during builder setup", so `initialized` stays false
+  and Apply, presets and helpers are unavailable ("Retry" fails the same way until the user switches back).
+  The header badge promises "This configuration will still be applied to the workspace this build started
+  in", which is not true for this state.
+- Fix: accept an optional `workspaceRoot` (validated like `HarnessWorkspacePinParamsSchema`, normalized)
+  in `harness:get-proposal` and `harness:initialize`, pass the tab's pinned root from the page, and have
+  `store.get(sessionId, workspaceRoot?)` use `requireRoot(workspaceRoot)`.
+
+### S5 - `unit5-message-routing.spec.ts` fails 6/6 after the transport change
+
+- File: `apps/ptah-extension-webview/src/app/unit5-message-routing.spec.ts:186` (injects
+  `HarnessWorkflowMessageHandler`), `:237-245` and `:280` (assert `appState.harnessWorkflowRequest()`).
+- Run: `npx jest -c apps/ptah-extension-webview/jest.config.ts <spec> --coverage=false --maxWorkers=2`:
+  "Tests: 6 failed, 6 total". Cause 1: the handler now injects `HarnessWorkflowRequestService` -> `ChatStore`
+  -> `BatchedUpdateService`, which needs `SURFACE_ACTIVE` (NG0201); the production root provides it
+  (`app.config.ts:148`), the spec does not. Cause 2: even with the provider, nothing sets
+  `AppStateManager.harnessWorkflowRequest` any more (`requestHarnessWorkflow` has no remaining caller, see m3),
+  so the two behavior asserts are stale.
+- Impact: the project's own test target fails; the handoff only ran `app.routes.spec.ts` for this project.
+- Fix: add the `SURFACE_ACTIVE` provider to the spec (mirror `app.config.ts`) and assert the new behavior
+  (`requestAndNavigate` called, or `hubError` set for a malformed payload); remove the dead AppState API.
+
+## Moderate
+
+- M1 `harness/di.ts:61-64`, `harness-proposal-store.service.ts:69-75`. The attribution service registers its
+  hook subscriptions only when the store is first resolved. Nothing resolves the store at startup (the RPC
+  handler and the API builder resolve it at call time). The first turn of a brand-new session after app
+  launch has already fired `UserPromptSubmit`, so its proposals are unattributed (user choice wins, e.g.
+  after loading a preset). Resumed sessions are fine because the page reads proposals on open. Fix: resolve
+  the attribution service eagerly in the composition root, or construct it from `registerHarnessServices`.
+- M2 `turn-attribution.service.ts:52` compares hook `cwd` with the session root by `===`; case, trailing
+  separator or worktree-vs-folder differences silently drop attribution. `harness-proposal-store.service.ts:161-179`
+  throws for any root where `path.normalize(root) !== root` (for example `C:/proj` on Windows); before
+  this change every root was accepted, now `proposeConfig` rejects with an error the agent sees but no
+  fallback to the unpinned path. Fix: compare with a normalizing helper; on a non-normalized root normalize
+  instead of throw.
+- M3 `ptah-api-builder.service.ts:874` feeds `getPolicyWorkspaceRoot` from `resolveSessionWorkspaceRoot`,
+  whose first tier is the root declared in the MCP URL (caller input, `workspace-root-resolver.ts`). The
+  proposal store then `mkdir -p`s and writes `<root>/.ptah/harness/proposals/<hash>.json`. The MCP
+  dispatcher validates the same value with `isPathWithinRoots` (`mcp-caller-workspace-resolver.ts:66-77`);
+  this path does not. Fix: validate the pinned root against `workspaceProvider.getWorkspaceFolders()`, or
+  prefer the session tier.
+- M4 `harness-builder-view.component.ts:496-560`. `await this.requests.completePendingIntent()` (line 549)
+  discards `'failed'/'cancelled'`. After Discard the tab is closed, so `pageState` becomes `missing` and
+  the "This builder session is no longer open" card shows for the whole `startNewProject` RPC (seconds);
+  its "Back to Setup Hub" button navigates to the Hub, after which `enter` navigates to the new builder
+  anyway. After Save the dialog closes, `leaving` is true but nothing is visible, and a failed `enter` puts
+  its `hubError` on a page the user is not on (the user stays on a paused draft). Fix: keep the dialog open
+  with a busy state until the outcome is known; surface failures on the current page.
+- M5 Same component instance, route param change (the switch flow navigates builder A -> builder B on one
+  route config). `initialized` is not reset (`view:325`, set only in `initializeBuilder`), so the sidebar
+  shows "ready" with emptied lists until the new response; two overlapping `initializeBuilder` calls can end
+  with `initError=true` after the winner set `initialized=true` (the stale call's catch at `:477-478` runs
+  last, success never clears `initError`). `saveFailed` (`:329`) is only reset on Cancel, so it stays true
+  after a successful retry and shows "The draft could not be saved" on the next dialog.
+  `HarnessHelperService._result` is a root singleton and the sidebar's `document` signal lives on the
+  retained instance, so a helper result or generated document from tab A can be "Added to preview" in tab B
+  and makes `hasPreview()` true for an empty tab B. Fix: key all of this state by `tabId` or reset it in the
+  binding effect.
+- M6 `hydration:339-340` skips `recompute()` while `status === 'error'`. In that state
+  `builder-apply-section.component.ts:285-292` still applies `hydration.config()` (a frozen, possibly
+  partial preview) and the helper/preset commit paths write a snapshot and announce "Added to preview"
+  though the preview did not change. `acceptPush` (`:314`) returns silently when a revision fails schema
+  validation (no log, no `refreshSession`). Fix: gate Apply on `status() !== 'error'`, fall back to
+  `refreshSession` and log in `acceptPush`, and let `setSnapshot` recompute when the cause is only the
+  failed read.
+- M7 `harness-builder-records.service.ts:255` (`sweepOrphans`) and tab-close/session-delete cleanup are
+  specified (`design-spec.md:181,412`, `implementation-plan.md:36,136`) but never called; `clearTab` is
+  only used by Discard and entry rollback. A closed draft tab leaves a draft pointer, so
+  `existingDraftAt` (`view` computed) tells the user "You already have a saved draft" and snapshots and
+  stack profiles accumulate in localStorage. Fix: sweep after tab restore and on `tabs.tabClosed` and the
+  delete path (`forgetWorkflowSession` site in `app-shell.component.ts`).
+- M8 `setup-hub.component.ts:1339-1361`: `openHarnessBuilder` and `resumeNewProject` ignore the outcome.
+  `requestAndNavigate` returns `navigateToBuilder(...)` directly for the same-mode path (`:222`) and for the
+  conflict path (`:238-239`), and a `'failed'` result there is not turned into `reportHubError` (only
+  thrown errors are). A failed lazy chunk load on a Hub click shows nothing. Fix: report `hubError` for
+  `'failed'` inside the service so every caller benefits.
+- M9 D12 a1/c1 render only on the Hub. In the two-way switch the user goes builder A -> builder B and never
+  sees the "previous session could not be stopped" warning, and the old agent may still be running. A relay
+  that arrives while the user is in chat and fails is invisible until they open the Hub, then persists
+  indefinitely. Fix: show the warning on the destination builder page too (read the same signal), and
+  clear stale `hubError` on a successful entry.
+- M10 `canonicalHarnessRoot` (`records.service.ts:108-116`) lowercases the whole path for drive and UNC
+  roots. `pinnedRoot()` (`view:341-352`) is that canonical form and is passed as the write target
+  (`apply-section:292`, `rpc.apply({workspaceRoot})`, backend `harness-rpc.handlers.ts:487-520`).
+  On a case-sensitive tree behind a UNC path (`\\wsl.localhost\Ubuntu\home\User\Proj`) Apply writes
+  CLAUDE.md, agents and MCP config into `//wsl.localhost/ubuntu/home/user/proj`. Fix: keep the canonical
+  form for keys and comparisons only; send the tab's original `workspacePath` to RPCs.
+- M11 `harness-workflow-request.service.ts:221-222`. When a same-mode tab or draft exists, a New Project
+  request with a validated intake (relay or `confirmDiscardAndStart`) navigates to it and drops the
+  intake with no message. Fix: report that the existing session was resumed, or route the intake into the
+  existing flow.
+
+## Minor
+
+- m1 Turn start is the hook time, not the send time (`attribution.service.ts:87-89`); a user choice made
+  between Send and the first hook (seconds on a cold SDK start) is overridden by that turn's proposals.
+- m2 Providers that never fire `UserPromptSubmit` (non-Claude adapters) get no turn starts, so the agent can
+  never override a user-chosen field and the UI does not say why.
+- m3 Dead code: `AppStateManager.requestHarnessWorkflow`/`consumeHarnessWorkflowRequest`/`HarnessWorkflowRequest`
+  (`app-state.service.ts:130,1384,1389,1466`) have no caller; `sweepOrphans` (M7).
+- m4 `HarnessProposalTurnAttributionService` reference counting (`capture().release`) protects nothing:
+  `turnStartedAt` is returned as a string copy at capture time.
+- m5 `revisions` in a proposal file grows without bound and the whole file is rewritten per save
+  (`store.service.ts:124-141`).
+- m6 The Hub status label "Running" (`hasRunningMode`) is true for any open non-draft flagged tab, including
+  an idle restored one, and the conflict confirm then triggers for it; Hub intake text is lost if the user
+  cancels from the leave dialog.
+
+## Hand-off and leave checks (focus 3 and 4)
+
+| Check | Result |
+| --- | --- |
+| Guard set before first await | OK (`requestAndNavigate:211-219`, `completePendingIntent:264-274`) |
+| Double click on Save/Discard | OK (`transition` flag, `chooseLeave:497`) |
+| Cancel clears intent | OK (`view:498-503`) |
+| `chat:abort` failure | OK, warning set and flow continues (`view:526-533`); visibility limited (M9) |
+| Malformed relay | OK, single error line and early return (`message-handler:93-124`) |
+| Intent survives view destroy | NO (S3) |
+| Tab id missing / closed / invalid | OK, `missing` card (`view:353-366`); bare `harness-builder` route (no params) also lands there |
+| Mode vs tab workflow mismatch | OK, `wrong` card with Open in chat; the page never retags |
+| Route param change on same instance | Partly (hydration and `bindTab` rebind; leaks in M5) |
+| Effects firing twice | OK (keys `hydrationKey` and `initKey`); `initializeBuilder` can overlap (M5) |
+| Unhandled rejections | None found; every async entry has try/catch or outcome handling |
+
+## D9 / D13 / hydration checks (focus 1, 2, 5)
+
+- Freeze before first await: OK. `harness-namespace.builder.ts:1106-1120` reads session, root and calls
+  `getProposingTurnStartedAt` synchronously, then `await saveProposal`. `release()` runs in `finally`.
+- Concurrent turns: OK for distinct sessions (keyed map). Same session: overlapping prompts mark the
+  session ambiguous (safe, unattributed). The stale-after-abort case is S1.
+- Record without start: user wins. Frontend `recompute` applies a pending choice last when no attributed
+  revision follows it (`hydration:357-367`), matching D9. Strict `<` on ISO strings is safe because both
+  sides use `toISOString`.
+- Pinned root on write: OK for the session-derived tier (stable per session). Read side: S4. Root source
+  trust: M3.
+- `legacy` records without `revisions` get one unattributed revision (`schemas.ts:487-499`): OK.
+- Precedence after reload equals live (same code path), which is why S1 is wrong in both.
+
+## Parity check (focus 6)
+
+Rows from `parity-inventory.md`; "reachable" means a wired user path exists at HEAD.
+
+| Row | Capability | Status |
+| --- | --- | --- |
+| 1, 2, 5, 6 | Hub grid, header, intake modal, start-new-project RPC | Reachable, unchanged (Hub design kept) |
+| 3, 4, 9, 10, 11 | Entry, resume, adapter, relay, hand-off | Reachable via `HarnessWorkflowRequestService`; old AppState hand-off removed (dead API m3, stale spec S5) |
+| 7 | Stack profile | Wired (`builder-stack-profile-section`), local record, gated on `initialized` |
+| 8, 43 | Conflict confirm, Start over | Wired: b1 copy + leave dialog (D12) |
+| 12, 13 | Init with Retry, pin badge | Wired; pin badge and init conflict in S4/M5; idle follow-the-workspace re-init no longer applies on the tab-bound page (intended by design, row 13 "one pin") |
+| 14 | Header title, summary | Wired (title, badge, `configSummary`) |
+| 15-26, 31 | Composer, transport, transcript, cards, stats, Stop, model/effort | Replaced by shared chat; reachable |
+| 27 | Stop (pause) | Chat-input Stop; no leave prompt |
+| 28 | Workflow error alert | Entry error banner with Retry (S2 caveat), Hub error line (M8, M9) |
+| 29 | Reload resume | Tab persistence plus draft pointer; no "Resumed after reload" note for plain reload (not a removal decision, minor) |
+| 30, 59 | Flagged session as tile/badge | Done in 648 |
+| 32, 33 | Leave while running, panel toggle | X button and Show/Hide panel present |
+| 34-38 | Live preview, intake, hydration, merge | Wired; New Project proposals no longer dropped (hydration not mode-gated) |
+| 39-42 | Ready banner, Apply, result, error | Wired in `builder-apply-section`; M6, M10 |
+| 44-46 | Presets list, Save, Start from preset | Wired in `builder-presets-section` (a preset's `claudeMd` is not a choice field and is not carried into the preview) |
+| 47 | Health | Wired (`HarnessHealthStore.refresh()` after Apply) |
+| 48 | Agent tools | Unchanged (`harness-namespace.builder.ts`) |
+| 49-53, 54 (discover-mcp, generate-prompt, generate-claude-md) | AI helpers | Wired: 8 `HELPERS` entries |
+| 54 (search-skills, create-skill) | Agent tools | `keep (agent tool)` per D7, no sidebar buttons: correct |
+| 55, 56 | Backend streaming, op-surface streaming | Unchanged backend; frontend surface removed (no callers) |
+| 57 | Accessibility | Dialog has trap, Escape, `aria-modal`; M5 stale `saveFailed` aside |
+| 58 | Grid adoption (FU-648-2) | Not exercised by 649 (D5); `requestCanvasTab` is called only in grid layout |
+| 60 | Route | `harness-builder/:mode/:tabId` added; bare `harness-builder` route kept and lands on the `missing` card (no params) |
+
+No user-visible capability disappeared without a decision row. The only removals are the old transport,
+the AppState hand-off consumer and the `ptah.harness.workflow.v1` record (all `replace-infra`).
+
+## D11 (focus 7)
+
+`harness-builder-view.component.ts` host: `display:flex; flex-direction:column; height:100%; min-height:0;
+overflow:hidden`; body row `flex flex-1 min-h-0 overflow-hidden`; docked wrapper `h-full min-h-0`;
+sheet `absolute inset-0 min-h-0 overflow-hidden`; sidebar `aside` `flex flex-col min-h-0 h-full` with
+`data-testid="sidebar-scroll-body"` as `flex-1 min-h-0 overflow-y-auto` and a fixed strip above it. The
+Electron shell adds `min-h-0` on the 3-panel row and the configuration host
+(`electron-shell.component.ts:276,308`); the route wrapper is `h-full w-full` (`app-shell.component.html:69`).
+No missing ancestor constraint found by reading. The pixel proof at a short height is still owed (handoff
+step 4); this review did not render it.
+
+## Failure modes (summary)
+
+| Name | Trigger | Symptom | Evidence | Fix |
+| --- | --- | --- | --- | --- |
+| Shadowed proposal | Stop, then continue | Stale preview, no "ready" state | S1 | Clear on interrupt |
+| Unframed agent | First send fails and is retried, or reload | Builder chats but never proposes | S2 | Restore and persist preamble |
+| Dead Hub | Dialog abandoned | Cards do nothing, no message | S3 | Cancel on destroy |
+| Invisible proposal | Workspace switch | Empty preview, no Apply | S4 | Pass pinned root on reads |
+| Red suite | CI | 6 failing tests | S5 | Fix spec, remove dead API |
+
+## Verdict
+
+- Recommendation: APPROVED WITH FIXES.
+- Confidence: HIGH for S2-S5 (read and, for S5, run); MEDIUM-HIGH for S1 (the premise that an interrupt
+  skips the Stop hook is documented Claude Code behavior and consistent with the code, but not run here).
+- Top risk: S1/S3 are silent. The user sees a wrong preview or a dead button with no message.
+- Fix round (suggested order): S5 (mechanical), S2, S3, S4, S1; then M1-M3, M6, M8 as cheap items. M4/M5
+  deserve one design decision (busy state in the dialog, per-tab state). Re-review scoped to the touched
+  files plus a test for each Serious item: interrupt-then-continue ordering, retry-with-preamble,
+  destroy-with-intent, get-proposal under another active root.
+
+## Re-review of 66e4227d6
+
+Scope: `git show 66e4227d6 -- libs apps` read for the backend, shared, chat-state, message-sender,
+hydration, request service, view and Hub changes. Orchestrator-verified checks were not re-run. No source
+edited, no git write.
+
+### Per-finding status
+
+| ID | Status | Evidence | Remaining or new risk |
+| --- | --- | --- | --- |
+| S1 | Fixed | `chat-session.service.ts:1294-1295` calls `turnAttribution?.onTurnAborted` after `interruptSession`; `harness-proposal-turn-attribution.service.ts:107-109` reuses `onTurnEnd` (clears `active` and `ambiguous`). The order key is `turnStartedAt ?? updatedAt`, then `updatedAt`, then stable position, identical in `harness-proposal-store.service.ts:48-57` and `harness-proposal-hydration.service.ts` `orderedRevisions`. My Stop-then-continue scenario now yields `[R1, R2]` and the merged `isConfigComplete` is R2's | Introduces N2. Other interrupt sites (`chat-session.service.ts:1515,1683`, `chat-slash-command-router.service.ts:93`) do not clear attribution; the next prompt is then `ambiguous`, which is benign now (ordered by write time) |
+| S2 | Fixed | `message-sender.service.ts:375,423,470-475,503-508` restores the consumed preamble on both the structural failure and the throw path; `pendingFirstSends` keeps `preamble` and `retryFirstSend` re-sets it only when the tab has none; `tab-persistence.ts:116-118,242-246` persists it for workflow tabs only and sanitizes on restore | Restore runs only on failure and the next success consumes it once, so no double apply. A throw after a successful `chat:start` would restore a used preamble; no such throw exists today (minor) |
+| S3 | Fixed | `requestAndNavigate` drops a pending intent when the source tab is gone or `router.currentSurface() !== 'harness-builder'`; the view's `ngOnDestroy` cancels when `!transition && dialogOpen && source == tab`. Live flows hold: a relay or Hub call while the builder page with the dialog is displayed keeps the intent (`'cancelled'`); the Hub cannot be the displayed surface while the dialog is open; the landing window is covered by the `transitioning` check that runs first. A `wrong`/`missing` page whose dialog never opened is handled by the surface rule | Residual: the surface check does not compare which builder tab is displayed, so a stale intent for tab A survives while the user sits on builder B. `'cancelled'` from a superseded navigation or a double click now shows "Finish the current builder switch before opening another" (misleading, minor) |
+| S4 | Partly fixed | `harness-rpc.schema.ts` get-proposal and initialize take a validated `workspaceRoot`; `harness-proposal-store.service.ts` `get(sessionId, workspaceRoot?)`; hydration passes `originalWorkspaceRoot`; `initializeBuilder` passes `pinnedWorkspaceRoot()`. Works when the tab's `workspacePath` is the same string the session was started with (Electron) | N1 breaks it when `workspacePath` is `null` (VS Code panel) on Windows; N4 |
+| S5 | Fixed | The AppState workflow-request API is removed with no remaining references (grep); `unit5-message-routing.spec.ts` provides `SURFACE_ACTIVE` and asserts the request flow (orchestrator ran 7/7) | none |
+| M10 | Partly fixed | The view keeps the original path (`pinnedWorkspaceRoot`) for the sidebar, Apply, initialize and get-proposal; the canonical form is for keys only | The fallback `lookup.workspacePath ?? this.requests.workspaceRoot` is still the canonical (lowercased, slash-normalized) form, see N1 |
+| M11 | Partly fixed | A same-mode request now lands on the existing tab, prefills its composer with `formatIntakeSummary(intake)` and returns `'resumed'`; the Hub closes the intake modal for `landed`/`resumed` | N3: the prefill overwrites text already in that composer; the notice goes through the Hub error line |
+
+### New findings
+
+#### N1 - Serious - pinned-root fallback sends the lowercased canonical root; initialize rejects it and the proposal read misses (VS Code, Windows)
+
+- Files: `libs/frontend/harness-builder/src/lib/components/harness-builder-view.component.ts`
+  (`pinnedWorkspaceRoot`: `lookup.workspacePath ?? this.requests.workspaceRoot`);
+  `harness-workflow-request.service.ts:73-77` (the `workspaceRoot` getter returns `canonicalHarnessRoot(...)`);
+  `harness-rpc.handlers.ts` initialize (`path.normalize(folder) === requestedRoot`);
+  `harness-proposal-store.service.ts:190-210` (`read` rejects `result.data.workspaceRoot !== root`).
+- `TabLookupResult.workspacePath` is `null` in the VS Code panel (`tab-workspace-partition.service.ts:21-27`), so
+  the fallback runs. `canonicalHarnessRoot` lowercases the whole path for drive-letter and UNC roots.
+- Scenario: VS Code on Windows, folder `C:\Users\Ann\MyApp`. The page sends `c:/users/ann/myapp` to
+  `harness:initialize`. The handler compares `c:\users\ann\myapp` with `C:\Users\Ann\MyApp` using `===`: no
+  match, so "Pinned workspace root is not an open workspace folder." is thrown. `initError` is permanent and
+  Apply, presets and AI helpers are unavailable. Before this commit initialize took no argument and worked.
+  Likewise `get-proposal` finds the file (case-insensitive FS) but `read` rejects the record because its stored
+  `workspaceRoot` differs by case, returns null, and the preview shows `unavailable` after reload. Even in
+  Electron, a difference in drive-letter case or trailing separator between the tab's `workspacePath` and
+  `getWorkspaceFolders()` triggers the same.
+- Fix: send the raw `tabs.activeWorkspacePath ?? vscode.config().workspaceRoot` as the fallback (not the
+  canonical getter), and compare roots on the backend with one helper that is case-insensitive on win32 and
+  tolerant of trailing separators (the existing `isPathWithinRoots`, or an equality variant), for the
+  open-folder check in initialize and for the stored-versus-requested check in `read`.
+
+#### N2 - Moderate - D9 user-choice precedence is lost for unattributed revisions that sort after an attributed one
+
+- File: `harness-proposal-hydration.service.ts` `recompute` (a choice is applied just before the first
+  revision whose `turnStartedAt > chosenAt`), combined with the new `turnStartedAt ?? updatedAt` ordering.
+- Scenario: the user picks `agents` at 10:00. Turn T2 starts 10:05 and an attributed revision R is written. A
+  later unattributed revision U (a mid-turn queued prompt marked `ambiguous`, or a provider that fires no hook)
+  is written at 10:07 for the same field. Order `[R, U]`: the choice is applied before R, then R and U
+  overwrite it. D9 says a record without a stored start leaves the user's choice winning; it now loses
+  whenever an attributed revision with a later start precedes it. Before the fix unattributed revisions sorted
+  first, so the choice always won over them.
+- Fix: in `recompute`, re-apply the user choice after any unattributed revision that touches the chosen
+  field (or apply the choice last for fields whose latest revision is unattributed).
+
+#### N3 - Moderate - the M11 resume overwrites the composer and reports through the Hub error line
+
+- Files: `harness-workflow-request.service.ts` (`requestComposerPrefill(formatIntakeSummary(...), same)` then
+  `reportHubError('Resumed your existing New Project session...')`); `chat-view.component.ts:1376-1388`
+  (`restoreContentToInput` replaces the composer text).
+- Scenario: the user has half-typed a reply in the open New Project session, goes to the Hub and submits a new
+  intake. The reply is replaced by the intake summary with no undo. The informational message is stored as
+  `hubError` (error styling), shown only on the Hub the user just left, and appears later as a stale red line.
+- Fix: append to, or confirm before replacing, non-empty composer text; show the notice as a status on the
+  builder page or through a Hub status signal, not the error channel.
+
+#### N4 - Minor - get-proposal accepts any absolute root and prunes under it
+
+- Files: `harness-rpc.handlers.ts` get-proposal (no open-folder check, unlike initialize) and
+  `harness-proposal-store.service.ts` `prune` (unlinks expired or invalid hash-named files under the supplied
+  root). The schema rejects relative and `..` paths and the input comes from the webview, so the reach is
+  small, but the two RPCs validate differently. Fix: share the open-folder check.
+
+### Other observations
+
+- M1, M2, M3 and M5-M9 were outside this fix scope and remain open. With the new ordering an unattributed
+  first proposal (M1) is placed by write time, so its impact dropped.
+- `reportEntryOutcome` is applied to `openHarnessBuilder`, `resumeNewProject` and both intake paths, which
+  closes M8 for the Hub cards.
+
+### Updated verdict
+
+- S1, S2, S3 and S5 are fixed. S4 and M10 are fixed for Electron and any host whose tab has a `workspacePath`,
+  and regress on VS Code for Windows paths with uppercase letters (N1).
+- Open Serious: N1. New Moderate: N2, N3.
+- Score 7/10. Verdict: APPROVED WITH FIXES (no Blocking). Fix N1 before the PR; N2 and N3 can follow in the
+  same round if cheap. Tests to add: initialize and get-proposal with a mixed-case Windows root and a null tab
+  `workspacePath`; hydration with `[choice, attributed R, unattributed U]`.
+
+## Final review of 0df579dbb
+
+Scope: `git show 0df579dbb -- libs apps`, read for the backend handlers, schema, store, the new
+`workspace-authorization.ts` helpers, and the harness-builder view, Hub, hydration and request service. The
+orchestrator-verified checks were not re-run. No source edited, no git write.
+
+### Per-finding status
+
+| ID | Status | Evidence |
+| --- | --- | --- |
+| N1 | Fixed | The VS Code fallback is now `requests.rawWorkspaceRoot` (`harness-builder-view.component.ts` `pinnedWorkspaceRoot`). The backend resolves every pinned root with `findOpenWorkspaceRoot` (`workspace-authorization.ts`), which uses `sameWorkspaceRoot` (resolve, strip trailing separators, lowercase on win32) and returns the open folder's own spelling. Initialize returns `pinnedFolder` as `workspaceRoot` and builds context from it. The store `read` now compares with `sameWorkspaceRoot`. The frontend compare in `initializeBuilder` is `canonicalHarnessRoot(response.workspaceRoot) !== canonicalHarnessRoot(pinned)`; canonical form folds drive case, slashes and trailing separators, which is what `sameWorkspaceRoot` equates, so a valid root no longer mismatches. Electron (tab `workspacePath`) and VS Code (null path) both reach the same helper |
+| N1 store change | Safe | `requireRoot` dropped `path.normalize(x) === x` and added a `..` segment check plus absolute, trim and NUL checks. The root is only used through `path.join(root, '.ptah', ...)`, so a non-normalized spelling (forward slashes, trailing separator) is harmless; traversal is rejected on both separators |
+| N2 | Mostly fixed | `harness-proposal-hydration.service.ts` `recompute`: after an unattributed revision, the user choice is re-applied for the fields that revision touches. The N2 scenario `[choice, attributed R, unattributed U]` now keeps the choice. New edge case N5 below |
+| N3 | Fixed | The prefill goes through `restoreContentToInput`, which returns early when the composer has non-blank text (`chat-input.component.ts:1574-1577`), so typed text is never overwritten; the intake is also stored in `resumedIntake` and shown in a `<details>` on the builder page for that tab id. The Hub no longer uses the error channel: `reportEntryOutcome` dismisses the Hub error for `landed`/`resumed` |
+| N4 | Fixed | `harness:get-proposal` calls `findOpenWorkspaceRoot` and throws before `resolveService`/`store.get`, so no read or prune happens for a non-open root. `harness:apply` got the same check and now writes into the open folder's spelling |
+
+### New findings
+
+#### N5 - Moderate - the N2 fix applies the choice early and lets a later stale attributed revision override it
+
+- File: `libs/frontend/harness-builder/src/lib/services/harness-proposal-hydration.service.ts` `recompute`
+  (`applyChoice` now does `pending.delete(field)` without an early return, and the new block calls it right
+  after an unattributed revision that touches the field).
+- Scenario: the unattributed revision U (for example the first proposal after launch, M1) is written at 10:03
+  and sorts by write time. Turn T2 starts 10:04. The user chooses `agents` at 10:05. T2 proposes `agents`,
+  attributed with start 10:04. Order `[U, R(10:04)]`. The choice is applied right after U and removed from
+  `pending`; then R merges over it. D9 says a proposal from a turn that started before the choice (10:04 <
+  10:05) is stale for the chosen field and the user wins; here the agent overrides the choice. Before this
+  change the choice stayed pending and was applied last.
+- Fix: keep the field pending after the unattributed re-apply (apply without deleting), so a later attributed
+  revision with `turnStartedAt > chosenAt` still triggers the pre-apply and a stale one is followed by the
+  end-of-loop apply; or re-apply the choice after every revision whose `turnStartedAt <= chosenAt`.
+
+#### N6 - Minor - the resumed-intake note is never cleared
+
+- File: `harness-workflow-request.service.ts` (`_resumedIntake` is set on `'resumed'` and cleared only on a
+  later `'landed'` for a same-mode request) and `harness-builder-view.component.ts` (`resumedIntake` has no
+  Dismiss). After the user sends the intake (or discards it) the banner "New intake for this session - review
+  before sending" stays for the tab until reload, and it duplicates the text the composer already holds.
+  Fix: clear it when the tab's message list grows or add a Dismiss button.
+
+### Other checks (no defect found)
+
+- `sameWorkspaceRoot` on posix is case-sensitive and strips trailing separators; on win32 it lowercases after
+  `path.win32.resolve`, and `C:\` / UNC share roots are kept intact by the `parse(...).root` guard.
+- `findOpenWorkspaceRoot` over `getWorkspaceFolders()` covers all open Electron workspaces
+  (`electron-workspace-provider.ts:78`), so a pinned root for a non-active workspace passes; a workspace that
+  was closed mid-build now makes initialize, get-proposal and apply reject with the same message (intended).
+  The CLI commands send no `workspaceRoot` (`apps/ptah-cli/src/cli/commands/harness.ts:348,393`), so they are
+  unaffected.
+- Still open from earlier rounds and not part of the correction scope: M1-M9 (notably M4 leave outcome,
+  M5 same-instance state, M6 hydration error state, M7 records sweep).
+
+### Final verdict
+
+- Blocking: 0. Serious open: 0 (S1-S5, N1, N3, N4 fixed). Moderate new: N5. Minor new: N6.
+- Score 8/10. Verdict: APPROVED. N5 is a narrow D9 edge and a one-line change; fix it in the PR if cheap,
+  otherwise track it with M1-M9 as follow-ups.
+
+## Review of ff2ea4f81 (F3)
+
+Review family: reviewer Claude (Sonnet 5.5), implementer codex CLI lane. Read via `git show ff2ea4f81`; no checks re-run (typecheck, lint, 96/96 tests reported green by the orchestrator).
+
+### Per-fix status
+
+| Fix | Status | Basis |
+| --- | --- | --- |
+| 1. Leave dialog inert ownership | OK | Binding order verified: the header `[attr.inert]` (view.component.ts:104) is written in the parent's update pass before the nested `@if (dialogOpen())` embedded view is refreshed, so the dialog's `ngAfterViewInit` (leave-dialog.component.ts:176-186) sees the attribute and skips the header. The dialog only owns the unbound `.relative` content div (view.component.ts:~236); `main` (241) and the sidebar wrappers (249, 267) sit inside it and are not dialog siblings, so the dialog never removes inert from an element a view binding controls. `narrow() && sheetOpen()` keeps `main` inert after Cancel (new spec covers it). The Hub/switch path uses the same bindings and the same dialog, so it behaves identically. |
+| 2. Hydration `unavailable` | OK with a semantic limit | Reset paths are consistent: `bind` (hydration.service.ts:174), `bind` success (196), `retry` success (249) and `clear` (275) reset `missingKnownProposal`; `knownProposalSessions` is keyed by canonical root + sessionId, so tabs and workspaces do not cross-contaminate. RPC rejection still yields `error` (the catch paths are untouched, and `recompute` returns early on `error`). Invalid or out-of-scope records set `unavailable` even when never seen (hydration.service.ts:307-311). |
+| 3. Preset select classes | OK | `!border-*`, `focus:!border-*` and `focus-visible:!outline-primary` are valid Tailwind 3.4 important and variant syntax. `base-content` takes `/50` through DaisyUI 4's `<alpha-value>` color mapping (already used by the previous class). The `!important` utilities beat DaisyUI's `.select-bordered` and `.select:focus` rules. Actual 3:1 contrast was not measured by me. |
+
+### Findings
+
+- Moderate - hydration.service.ts:296-300, 147. `knownProposalSessions` is in-memory only, so a proposal that expired or was deleted while the webview was closed produces `ready` and an empty preview on the first bind after a reload. The "Saved configuration unavailable / propose it again" state appears only if the proposal was seen earlier in the same webview run (or a returned record is invalid). This is the real expiry case, and the cold-start variant is now silent. The lane documented the decision (no durable proposal reference in the builder record). Accept it consciously, or persist a `hadProposal` marker in the builder record to restore the signal.
+- Minor - hydration.service.ts:147. `knownProposalSessions` is never cleared (not in `clear()`), so it grows by one string per session for the app lifetime. Negligible, but `clear()` is the natural place to drop it.
+- Minor - view.component.ts:344, 514. `leaveTrigger` is set only by `requestStartOver` and never reset, so a later Hub/switch dialog gets the stale Start over button as `trigger()` (leave-dialog.component.ts:~179 uses `trigger() ??`). Cancel then returns focus to Start over, not the switch origin. This predates F3. Fix: clear `leaveTrigger` in `chooseLeave('cancel')` or set it to null on the intent path.
+- Minor - builder-presets-section.component.ts:44. `focus-visible:` does not match mouse focus on a `<select>` in some browsers, so a clicked select shows DaisyUI's 20% outline. It is a mouse-only state and the border is 50% via `focus:!border`. Optional: use `focus:!outline-primary`.
+- Minor - spec gap: no test opens the dialog through the pending-intent (switch) path with the real dialog. The binding makes it equivalent, so this is only a regression guard.
+
+No Blocking or Serious defects.
+
+### Verdict
+
+APPROVED. Score 8/10: the three defects are fixed with no regressions found. The 2 points are the cold-start `unavailable` loss (Moderate) and small leftovers.
+
+## Review of eb9ad03a2 and 0dd82604a (F4)
+
+Review family: reviewer Claude (Sonnet 5.5), implementer codex CLI lanes. Different family; read-only review of `git show` output and worktree files. No tests or checks were run.
+
+### Per-item status
+
+| Item | Status |
+| --- | --- |
+| 1. `requireRoot` requires an open folder (save, get, capture) | OK with two Moderate gaps (M1, M2) |
+| 2. `name` and `claudeMd` as choice fields | OK, no defect found |
+| 3. `builderPreviewSummary`, Session summary | OK, no defect found |
+| e2e: the 10 updated specs | OK, no weakened assertion; one unverifiable runtime assumption (M3) |
+
+### Checked and fine
+
+- Callers of the store: `proposeConfig` (`harness-namespace.builder.ts:1112-1127`, root from `getPolicyWorkspaceRoot`) and `get-proposal` (`harness-rpc.handlers.ts:932-945`, which already required an open folder). Save and read now resolve the same open spelling, and `read()` compares with `sameWorkspaceRoot`, so reads and writes key consistently (`harness-proposal-store.service.ts:160-206`). A throw in `getProposingTurnStartedAt` happens before `try/finally` in `proposeConfig`, so no capture reference leaks. With no `workspaceRoot` the old `getWorkspaceRoot()` path is unchanged, so hosts with a single provider root are not affected.
+- Item 2: the snapshot schema (`harness-builder-records.service.ts:34-66`) only widens the allowed keys, so old records still parse. `name` is `z.string()` and `claudeMd` is a partial strict object in `HarnessConfigUpdatesSchema` (`rpc-harness.schemas.ts:374-455`), so a preset's name and claudeMd cannot make `writeSnapshot` fail. Fields are set only when `updates[field] !== undefined` (`builder-sidebar-helpers.ts:78-82`), so a user who never touched them is unaffected. The D9 order in `recompute()` (`harness-proposal-hydration.service.ts:376-415`) treats them like the other fields: an agent revision from a later turn overrides the choice, and an unattributed revision loses to it. As a side effect the AI helper `generate-claude-md` result now persists, where it was silently dropped before.
+- Item 3: `builderPreviewSummary` (`builder-sidebar-helpers.ts:21-29`) uses the same formulas as `agentCount` and `skillCount` in `harness-config-preview.component.ts:313-336`. The `Context —` branch is correct.
+- e2e: the reload helper `prepare()` is a real `webContents.reload()` (`ui-driver.ts:199-211`) that re-seeds `initialView: 'chat'`. `injectInitialNavigation` (`initial-navigation.ts:111-125`) takes the saved `ptahRoute` when the host deep link equals the stored seed, which holds here. So a reload landing on the builder tab is what the app is designed to do, not a test fiction. The new locator `ptah-harness-builder-view ptah-chat-transcript[data-tab-id=...]` is stricter than `ptah-harness-builder-view` alone: the view host renders even in the `missing` page state (`harness-builder-view.component.ts:67-76`), but the transcript renders only in the ready state. So the assertion fails closed if the tab is not restored. The tab-id, one-`chat:start`, and intake-in-transcript checks are kept. Replacing the URL check is required (MemoryPlatformLocation). `toContain(seedPrompt)` replacing `toBe` is required because `chat:start` now carries the intake preamble. The "foreign session" test has a positive card assertion on the foreign tab that covers the immediate-pass `toHaveCount(0)`.
+
+### Findings
+
+**M1 (Moderate): turn attribution now compares the open-folder spelling with the session's spelling.**
+`harness-proposal-store.service.ts:79-92` passes `requireRoot()`'s open-folder string to `turnAttribution.capture`, and `harness-proposal-turn-attribution.service.ts:52` compares it with `===` against `payload.workspaceRoot` recorded at prompt submit. Before this commit both came from the caller's own root string. Scenario: the session workspace is recorded as `D:\Proj\` or `d:\proj`, the open folder is `D:\Proj`; `capture` returns no `turnStartedAt`, the revision is saved unattributed, and D9 ordering falls back to `updatedAt` for that revision. There is no error, only silent loss of attribution (a user choice made during the turn can then win over the agent's proposal, or the reverse). Fix: compare with `sameWorkspaceRoot` at `harness-proposal-turn-attribution.service.ts:52`, and add a spec with a trailing-slash or case variant.
+
+**M2 (Moderate): a non-open root surfaces as a retry-able, generic failure.**
+`requireRoot` throws a plain `Error` (`harness-proposal-store.service.ts:181-190`). `harnessProposalErrorMessage` (`protocol-dispatcher.ts:2740-2767`) maps it to "Harness proposal could not be saved. Retry if the session and storage are available." The agent is told to retry something that cannot succeed until the folder is open again (Electron workspace switch mid-session, a declared-caller root from the MCP URL that is not an open folder). Fix: throw a coded error (for example `HARNESS_PROPOSAL_WORKSPACE_NOT_OPEN`, as `HarnessProposalWorkspaceError` does) and add a dispatcher branch with a non-retry message.
+
+**M3 (Moderate, unverified): the reload spec depends on tab and route persistence the lane could not run.**
+`new-project.spec.ts:365-377` asserts the same builder transcript after `prepare()`. It needs both `ptahRoute` restore (Electron `set-state` is async fire-and-forget) and restoration of the workflow tab with `workflow === 'harness-new-project'` and the intake message in its transcript. I could not confirm the second from code. If the tab is not restored the test fails visibly (the page shows "no longer open"), so it is not vacuous; but the earlier visual review that landed on Chat after a reload is consistent with exactly that failure, so treat CI as the deciding evidence. The same applies to the unverified `session:id-resolved` payload in `new-project-question-routing.spec.ts:~185`.
+
+**Minor:** dotnet and routing specs still assert `prompt` content that the test itself supplies through the `harness:start-new-project` mock, so those `toContain` / `not.toContain` checks prove transport, not prompt construction. This is unchanged from the original specs.
+
+### Verdict
+
+APPROVED WITH FIXES. Score 7/10. No Blocking or Serious defects. M1 and M2 are small, low-probability regressions from the stricter root check and should be fixed (or consciously deferred) before merge; M3 is for CI to confirm.
+
+## Review of 79af325bc, 5bbb40bac, adf6aa5d6 (F5/F6)
+
+Review family: reviewer Claude (Sonnet 5.5), implementer codex CLI lanes. Read-only review of the three commits plus the surrounding files; no tests, builds or e2e were run.
+
+| Item | Status |
+| --- | --- |
+| 79af325bc F5 attribution `sameWorkspaceRoot` + coded NOT_OPEN error | OK |
+| 5bbb40bac F6-bundle lazy workflow handler | OK logic; bundle saving unverified |
+| adf6aa5d6 F6 VSCodeService Electron snapshot | Race is real, fix is correct for one workspace; one regression |
+| adf6aa5d6 e2e spec updates | OK |
+
+### Verified
+
+- Race (adf6aa5d6) is real. `apps/ptah-electron/src/preload.ts:28-32` reads with `sendSync('get-state')` and writes with fire-and-forget `send('set-state')`. `ipc-bridge.ts:551-573` awaits `stateStorage.update`. In the worker-backed `ElectronStateStorage.update` (`libs/backend/platform-electron/src/implementations/electron-state-storage.ts:139-165`) the cache is refreshed only after `await workerHost.update(...)` (`finally { this.data = workerHost.getCache(); }`). A second `setState` right after the first therefore merges onto pre-write state and drops the first key. Only `ipc-bridge.ts:566` writes `webview-state`; the VS Code host path is gated by `isElectron` and is unchanged. The first snapshot is `{...vscode.getState(), key}`, so no key is lost at initialisation. The app has one main window.
+- 5bbb40bac: the chained `pending` promise keeps arrival order, and a proposal push during an in-flight import is queued behind it. The chain never rejects (`.catch` logs through `LoggingService`), and it does not grow. `inject(Injector)` in a root service returns the root injector, so `injector.get` returns the same instances the builder uses. `handleMessage(): Promise<void>` is assignable to `MessageHandler.handleMessage(): void`, and the router (`message-router.service.ts:279-285`) ignores the return value. The lazily built `HarnessWorkflowRequestService` has no constructor effect that must run before the first message (`toObservable(visibleTabIds)` replays the current value). The `isNewProjectIntake` copy in `harness-workflow-utils.ts` is identical to the removed handler copy; the utils file imports only `@ptah-extension/shared`.
+- 79af325bc: `sameWorkspaceRoot` (`workspace-authorization.ts:6-23`) handles case on win32, trailing separators and drive roots. The store passes the open folder's spelling to attribution, so the comparison is the right one. In `protocol-dispatcher.ts:2760-2766` the specific NOT_OPEN branch sits before the generic `typeof error.code === 'string'` branch, so the order is right. The message is fixed text with no path leak. Nothing in the repo matched the old plain-Error message string.
+- e2e: the transcript locator `ptah-harness-builder-view ptah-chat-transcript[data-tab-id=...]` is the one `openNewProjectWorkflow` already waits on (`new-project-dotnet.spec.ts:132`), so `innerText()` cannot silently match nothing. The positive intake-line assertions are kept. The `chat:chunk` `message_start` push is realistic (the stream router binds a session from a stream event). Minor: real flow resolves the session id first and chunks after; the spec reverses that order, which is harmless for this assertion.
+
+### Findings
+
+**Moderate M1: Electron state snapshot is not scoped to a workspace.** `libs/frontend/core/src/lib/services/vscode.service.ts:226-228, 252-259`. `WorkspaceAwareStateStorage` swaps the backing store on `workspace:switch` (`workspace-aware-state-storage.ts:185`) with no renderer reload, but `pendingElectronState` is never invalidated. Scenario: open workspace A, so the first `setState` snapshots A's `webview-state`. Switch to B, which has its own stored recent-branches or layout keys. `GitBranchesService.restoreRecentBranches` (`git-branches.service.ts:652`) now reads A's snapshot, so B's list is missing. The next `persistRecentBranches` or `persistLayout` writes A's whole snapshot into B's store, replacing B's keys. Before this commit, `getState` read B's store after the switch. Impact: in-session loss of B's persisted per-workspace UI state. Fix: key the snapshot by the active workspace root (`Map<root, state>` using `config().workspaceRoot`), or rebuild it from `vscode.getState()` on `updateWorkspaceRoot` once the switch RPC resolves. Also add a spec for a root change between writes.
+
+**Moderate M2: bundle saving depends on barrel tree-shaking and has not been measured.** `libs/frontend/harness-builder/src/services.ts:25-32` still statically re-exports `HarnessProposalHydrationService`, `HarnessWorkflowRequestService`, `HarnessBuilderRecordsService` and the other services. The root `package.json` and the lib declare no `sideEffects:false`. If the Angular/esbuild build keeps those re-exported modules (module-level `z.object` and `HarnessProposalSchema` calls are not provably pure), they stay in the initial chunk and the dynamic imports save nothing. The lane report says the same (its saving estimate is "inference from imports, not a measured bundle result"). The CI bundle budget will decide. If it fails, `app.config.ts` should import the handler from a handler-only entry or a direct path, and the barrel should stop re-exporting the lazy services.
+
+**Minor m1: no user-visible error when the lazy chunk fails to load.** `harness-workflow-message.handler.ts:41-55, 63-76`. A rejected `import()` is only logged. The Hub never gets `reportHubError`, so a `harness:open-workflow` click would do nothing visible. The request service is not loaded at that point, so the error would need to come from another path (for example a toast through `LoggingService` or an eager error signal). Unlikely in Electron, which loads local files.
+
+**Minor m2: the snapshot keeps values that main may have failed to persist.** `vscode.service.ts:259`. `ipc-bridge.ts:567-572` swallows a storage failure, so `getState` keeps serving a value that was never saved. This is the same loss as before, only hidden until reload.
+
+### Verdict
+
+APPROVED WITH FIXES. Score 7/10. No Blocking or Serious defects. Fix M1 before merge, or consciously defer it with a note. M2 is for CI to confirm.
+
+## Review of b36dbd648 and aa4c55562 (F7)
+
+Review family: reviewer Claude, implementer codex CLI lanes.
+
+Read-only review of both diffs plus the surrounding files. I ran two jest specs, one at a time: `ipc-bridge.state.spec.ts` (2/2 pass) and `vscode.service.spec.ts` (33/33 pass). No build or e2e was run.
+
+### Verified
+
+- **M1 (F5/F6) is fixed.** `vscode.service.ts:75-80, 168-170, 230-234, 261-275` now stores `{root, state}`. The snapshot is read and merged only when `root === config().workspaceRoot`. It is dropped when `updateWorkspaceRoot` is given a different root. The new spec "reads and merges the new workspace state after an Electron workspace switch" covers A to B. The edited spec "keeps an Electron route..." relies on the same-root call being a no-op, which works because the fixture root is already `/my/workspace` (spec line 45).
+- **(a) The reload does see the pending entry, as far as the unit evidence goes.** In the `set-state` handler, `pendingWebviewStates.set(...)` runs synchronously (`ipc-bridge.ts:578-580`) before the first `await`. Whenever Electron dispatches the old renderer's `set-state` before the new renderer's `sendSync('get-state')`, `get-state` serves the pending entry (`:559-565`). Both messages travel over the same renderer-to-main IPC channel, and the new document's sync call blocks until it is answered. I could not verify ordering across the document swap with real Electron IPC. It holds in practice for a same-site reload, which keeps the same RenderFrameHost. CI e2e `new-project.spec.ts:324` is the only real proof, and the lane did not run it.
+- **(b) The keying is correct.** `PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE` is registered as the `WorkspaceAwareStorage` instance (`phase-1-infra.ts:161-163`). It exposes `getActiveWorkspacePath()` (`workspace-aware-state-storage.ts:215`). `activeStateWorkspace()` (`ipc-bridge.ts:596-601`) is called in the same synchronous tick as `stateStorage.update(...)`. `WorkspaceAwareStateStorage.update` resolves `getActiveStorage()` synchronously before its first await. The pending key and the actual write target therefore cannot diverge, even if the workspace is switched mid-write. A pending A write cannot land in B's store, and B's `get-state` is not served A's entry. The null key (default storage) is handled the same way.
+- **Workspace switch ordering.** The renderer calls `updateWorkspaceRoot` only after the `workspace:switch` RPC has succeeded (`electron-layout.service.ts:489-506, 545`), so main's active workspace changes before the renderer's root does. `get-state` after a switch reads B's pending or committed state, and the renderer's own A snapshot is already dropped by b36dbd648.
+- **Overlapping writes.** `pending` is compared by identity (`:589`), so an earlier write settling does not remove a later pending entry. `'webview-state'` has no other writer (grep: only `ipc-bridge.ts:567, 582`).
+- **Cache refresh before cleanup.** `ElectronStateStorage.update` refreshes `this.data` in its own `finally` (`electron-state-storage.ts:163-165`), before the bridge's `finally` deletes the pending entry. There is no window where the entry is gone but the cache is still old.
+- **(c) Failed write: acceptable.** On a failed write the entry is deleted and `get-state` returns the committed, older state. That matches what is persisted. Persistence failures are still only a `console.error`, which predates this change. The renderer's in-session snapshot still holds the newer value until reload.
+- **(d) The two layers are consistent.** The renderer snapshot covers writes within one page lifetime, keyed by renderer root. The bridge map covers the page-reload gap, keyed by main's active workspace. They answer different questions and do not conflict. After a reload the snapshot is empty and the bridge answers.
+- **(e) The e2e change keeps the intent.** The assertion that the workflow panel has zero question cards still runs first (`new-project-question-routing.spec.ts:242-244`). The final assertion is still scoped to `ptah-chat-transcript[data-tab-id=foreignTabId]`, so the question must have landed in the foreign session. Clicking the rail card (`data-rail-card` and `data-tab-id` exist at `canvas-rail-card.component.ts:58-59`; `canvas.spec.ts` uses the same locator) matches what a user does to see a non-focused session. The cost is that "visible only after the tab is focused" is no longer checked, which is acceptable.
+- **Bundle budget** raised to 3.75 mb (`apps/ptah-extension-webview/project.json`), a user decision and not questioned.
+
+### Findings
+
+No Blocking, Serious or Moderate defects.
+
+**Minor m1: the pending branch is not guarded the way the committed branch is.** `ipc-bridge.ts:564` returns `pending.state` raw, while the committed path returns `state ?? {}` (`:569`). A `set-state` payload of `undefined` or `null` makes `get-state` return that value. In this case `update('webview-state', undefined)` deletes the key, so the committed read would be `{}`. Electron's sync-IPC behaviour for an `undefined` `returnValue` is unverified, and a missing reply blocks the renderer. The renderer only ever sends objects, so this is not reachable today. Fix: `event.returnValue = pending.state ?? {}`.
+
+**Minor m2: the spec misses the failure and overlap cases.** `ipc-bridge.state.spec.ts` covers pending-then-committed and workspace scoping. It does not cover a rejected `update` (entry removed, committed state served), two overlapping writes (the earlier settling must not clear the later entry, the identity guard at `:589`), or a payload of `undefined`. Add these three tests.
+
+**Minor m3: the A to B window between the `workspace:switch` RPC and `updateWorkspaceRoot`.** `electron-layout.service.ts:489-545` runs the RPC first. Between the main-side switch and the renderer's `updateWorkspaceRoot`, a renderer write still merges A's snapshot (`vscode.service.ts:261-275`) and sends it to main, where B is now active, so A's keys can be written into B. The window is one RPC round-trip wide and the problem predates this change. It is worth recording in TASK_2026_682_f705 alongside the earlier Minors. One possible fix is to drop the snapshot when the switch RPC starts.
+
+**Residual risk r1: no real-IPC proof of reload ordering.** The unit test calls the listeners directly. Unless CI e2e `new-project.spec.ts:324` goes green, the claim that a real reload reads the pending entry is unproven. If it still fails, the next suspect is dispatch order across the document swap, not the bridge logic.
+
+### Verdict
+
+APPROVED WITH FIXES. Score 8/10. The fixes are m1 (a one-line guard) and m2 (three tests), neither of which blocks merge. m3 and r1 are for the follow-up task and CI respectively.
+
+## Review of e8875508c (F8)
+
+Reviewer: Claude (code-logic). Implementer: codex lane. Scope: `app-state.service.ts` `switchWorkspace` (875-950), the new spec cases (`app-state.service.spec.ts:679-726`), and the e2e locator change. No builds or e2e were run; the reload e2e remains unverified locally.
+
+### Verified
+
+- (a) `_activeWorkspacePath` does not return to `''` on any production path I found. `coordinateWorkspaceCleared` -> `WorkspaceCoordinatorService.clearWorkspace` (`workspace-coordinator.service.ts:245-251`) never calls `appState.switchWorkspace`, and `removeWorkspaceState` only revokes ownership (`app-state.service.ts:982-985`). After "close all, then add a folder" `previousPath` is the last real path, so the normal navigating branch still runs and nobody is stranded. Only a boot with no folders keeps `''`; the first folder then adopts, and the screen already shows the sentinel slice's surface, which is equivalent to the old restore.
+- (b) Order is correct. `_settlementOwner = newPath` (908) is set before `_activeWorkspacePath.set(newPath)`, and the sentinel -> newPath slice migration (913-927) still runs before the early return at 939. The constructor effect (`:563`) then stamps the settled boot route under the real workspace, because owner equals active. In the pending case this ownership is what lets the stamp happen at all; before the fix the owner was `null` and the effect dropped it.
+- (c) VS Code: the webview never switches workspaces (`:433-435`), so the active path stays `''`. The only production caller there is `NotificationFocusCoordinator.run` (`notification-focus-coordinator.service.ts:41`), which calls `setCurrentView('chat')` right after the switch, so skipping the navigation is harmless. Boot behaviour is unchanged for VS Code.
+- (d) The spec is a real red/green test. The pending case asserts `pendingSurface() === 'harness-builder'` before the switch and holds the guard open. Pre-fix `requestSurface` supersedes that navigation. The settled case lands the URL first; pre-fix `requestSurface('harness-builder')` shortens it to `/harness-builder`. Only the pending case proves the new ownership: the sentinel slice starts with `chat`, so `openViews` containing `harness-builder` requires the effect to stamp under `/ws/a`. In the settled case `openViews` already held it via the migrated slice.
+- (e) The locator keeps the intent. Each `ptah-chat-view` is a separate component instance: the app-shell instance and the session-embed tile/builder instances. A card inside the builder's embed cannot pair with the foreign tab's transcript, and the main instance returns no questions in grid mode (`chat-view.component.ts:1362-1364`). So this locator cannot match the builder's card. The preceding `ptah-harness-builder-view ptah-question-card` count of 0 stays.
+
+### Findings
+
+1. Moderate (latent) - `app-state.service.ts:879`. The adoption test is `previousPath === ''`, not "first workspace of this boot". If `switchWorkspace('')` ever runs after boot (for example a notification target with an empty `workspacePath`), a later switch from `''` to a workspace X that already has a slice skips the restore navigation (939 returns early). It also makes X own whatever surface is on screen, which the effect then stamps over X's remembered surface. Not reachable from the Electron layout service paths I traced. Suggested fix: also require `!this._viewSlices().has(newPath)` (the no-slice case is the only one the sentinel migration serves), or track a one-shot `bootAdopted` flag.
+2. Minor - the settled spec case does not prove ownership (see (d)). Add one assertion that discriminates: switch `/ws/a` -> `/ws/b` -> `/ws/a` and expect the builder route back, or read the slice stamped under `/ws/a`.
+3. Minor - `new-project-question-routing.spec.ts:252`. The locator can match any chat view that retains the foreign transcript and does not assert which question the card shows. Add `{ hasText: 'Unrelated session question' }` on `ptah-question-card` so it pins the routed request.
+4. Residual risk, not a defect in the diff - adopting leaves the restored `/harness-builder/<mode>/<tabId>` in place while `tabManager.switchWorkspace(newPath)` loads that workspace's tabs. If the persisted route came from a different workspace than the one the backend activates, the builder opens on a tab id that does not exist. F8 says the view does not redirect to Chat in that case. The state-snapshot scoping in b36dbd648 mitigates this, and only the e2e can confirm it.
+
+### Verdict
+
+APPROVED WITH FIXES. Score 8/10. No blocking or serious issues. Finding 1 is a cheap hardening and finding 3 is a one-line tightening; 2 and 4 are optional.

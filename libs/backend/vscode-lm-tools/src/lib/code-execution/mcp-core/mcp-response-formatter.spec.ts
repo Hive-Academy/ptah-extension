@@ -1802,7 +1802,8 @@ describe('mcp-response-formatter › agent namespace', () => {
 
   // F52: the expected strings were produced by the pre-plan-limits formatter
   // (same json2md structure, before TASK_2026_596) and are stored verbatim, so
-  // any byte change to the no-`limits` output fails here.
+  // any byte change to the no-`limits` output fails here. The `Family` column
+  // is the deliberate TASK_2026_646 addition (SC-5), re-locked here.
   it('F52 keeps the list output byte-identical to the pre-change text when limits are absent', () => {
     const agents: CliDetectionResult[] = [
       {
@@ -1811,12 +1812,14 @@ describe('mcp-response-formatter › agent namespace', () => {
         messagingMode: 'steer',
         roleDelivery: 'preamble',
         roleChannel: 'developer-instructions',
+        family: 'codex',
       },
       {
         cli: 'copilot',
         installed: true,
         disabled: true,
         messagingMode: 'queue',
+        family: 'copilot',
       },
       {
         cli: 'ptah-cli',
@@ -1826,17 +1829,43 @@ describe('mcp-response-formatter › agent namespace', () => {
         ptahCliName: 'Glm',
         providerName: 'Cloud provider',
         providerId: 'ollama-cloud',
+        family: 'ollama-cloud',
       },
     ];
     expect(formatAgentList(agents, ['reviewer', 'implementer'])).toBe(
       '## Available Agents\n\n\n**Total:** 3\n\n' +
-        '| Agent | Type | Status | Capabilities |\n' +
-        '| ----- | ---- | ------ | ------------ |\n' +
-        '| codex | cli | installed | messaging: steer, role delivery: preamble/developer-instructions |\n' +
-        '| copilot | cli | disabled (installed) | messaging: queue |\n' +
-        '| Glm | ptah-cli | available | provider: Cloud provider, ptahCliId: glm-1, messaging: queue |\n' +
+        '| Agent | Type | Family | Status | Capabilities |\n' +
+        '| ----- | ---- | ------ | ------ | ------------ |\n' +
+        '| codex | cli | codex | installed | messaging: steer, role delivery: preamble/developer-instructions |\n' +
+        '| copilot | cli | copilot | disabled (installed) | messaging: queue |\n' +
+        '| Glm | ptah-cli | ollama-cloud | available | provider: Cloud provider, ptahCliId: glm-1, messaging: queue |\n' +
         '\n\nRoles in this workspace: reviewer, implementer\n',
     );
+  });
+
+  it('prints the family of every row, N/A when the row carries none (TASK_2026_646, SC-5)', () => {
+    const agents: CliDetectionResult[] = [
+      {
+        cli: 'codex',
+        installed: true,
+        messagingMode: 'steer',
+        family: 'codex',
+      },
+      {
+        cli: 'ptah-cli',
+        installed: true,
+        messagingMode: 'queue',
+        ptahCliId: 'glm-1',
+        ptahCliName: 'Glm',
+        providerId: 'z-ai',
+        family: 'z-ai',
+      },
+      { cli: 'copilot', installed: true, messagingMode: 'queue' },
+    ];
+    const out = formatAgentList(agents);
+    expect(out).toContain('| codex | cli | codex | installed |');
+    expect(out).toContain('| Glm | ptah-cli | z-ai | available |');
+    expect(out).toContain('| copilot | cli | N/A | installed |');
   });
 
   it('F52 keeps the spawn output byte-identical to the pre-change text when limits are absent', () => {

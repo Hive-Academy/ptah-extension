@@ -1,747 +1,537 @@
-/**
- * HarnessBuilderViewComponent — surface question routing regression (TASK_2026_263).
- *
- * The view's `surfaceQuestions` computed filters the shared
- * `PermissionHandlerService.questionRequests()` pool down to the questions that
- * belong to THIS surface. It previously used `hasSurfaceTargets`, which reads
- * the PERMISSION target map (`_promptTargetTabs`). Question targets live in a
- * DIFFERENT map (`_questionTargetTabs`), so the permission predicate always
- * answered `false` for a question id and the question card never rendered — the
- * agent then blocked on `awaitQuestionResponse` (which runs with `timeoutAt: 0`,
- * i.e. no timeout) until the backend's idle auto-pick fired.
- *
- * These specs drive the REAL `PermissionHandlerService` (only its two
- * collaborators are stubbed) and render the REAL component template, so they pin
- * the wiring end to end:
- *   1. surface-targeted question  -> included + `ptah-question-card` in the DOM
- *   2. live-tab-targeted question -> excluded (belongs to a chat tab)
- *   3. targets attached on the PERMISSION map only -> excluded (cross-wire guard)
- */
-
 import {
-  Component,
-  EventEmitter,
-  Input,
-  Output,
-  signal,
   ChangeDetectionStrategy,
-  type WritableSignal,
+  Component,
+  input,
+  output,
+  signal,
 } from '@angular/core';
-
-// `@ptah-extension/chat` transitively pulls in `ngx-markdown` -> `marked`, which
-// ships ESM-only and dies in Jest's CJS loader. Same stub pattern as
-// libs/frontend/chat/src/lib/components/organisms/message-bubble.component.spec.ts.
-// Nothing returned here is ever compiled by Angular — these symbols only sit in
-// the decorator metadata of chat components this spec never renders.
-jest.mock('ngx-markdown', () => {
-  class MarkdownModule {}
-  class MarkdownComponent {}
-  class MarkdownService {}
-
-  return {
-    MarkdownModule,
-    MarkdownComponent,
-    MarkdownService,
-    provideMarkdown: () => [],
-    MARKED_OPTIONS: 'MARKED_OPTIONS',
-    CLIPBOARD_OPTIONS: 'CLIPBOARD_OPTIONS',
-    MARKED_EXTENSIONS: 'MARKED_EXTENSIONS',
-    MERMAID_OPTIONS: 'MERMAID_OPTIONS',
-    SANITIZE: 'SANITIZE',
-  };
-});
-
-import { TestBed, type ComponentFixture } from '@angular/core/testing';
+import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import { FormsModule } from '@angular/forms';
-import { LucideAngularModule } from 'lucide-angular';
-import {
-  TabManagerService,
-  type SurfaceId,
-  type SurfaceSessionStats,
-} from '@ptah-extension/chat-state';
-import {
-  ExecutionTreeBuilderService,
-  PermissionHandlerService,
-} from '@ptah-extension/chat-streaming';
-import {
-  createEmptyStreamingState,
-  type StreamingState,
-} from '@ptah-extension/chat-types';
+import { ActivatedRoute, convertToParamMap } from '@angular/router';
+import { BehaviorSubject } from 'rxjs';
+
+jest.mock('ngx-markdown', () => ({
+  MarkdownModule: class {},
+  MarkdownComponent: class {},
+  MarkdownService: class {},
+  provideMarkdown: () => [],
+  MARKED_OPTIONS: 'MARKED_OPTIONS',
+  CLIPBOARD_OPTIONS: 'CLIPBOARD_OPTIONS',
+  MARKED_EXTENSIONS: 'MARKED_EXTENSIONS',
+  MERMAID_OPTIONS: 'MERMAID_OPTIONS',
+  SANITIZE: 'SANITIZE',
+}));
+
+import { TabManagerService } from '@ptah-extension/chat-state';
 import {
   AppStateManager,
-  ModelStateService,
-  VSCodeService,
+  ClaudeRpcService,
+  LoggingService,
+  SurfaceRouterService,
 } from '@ptah-extension/core';
-import { SessionStatsSummaryComponent } from '@ptah-extension/chat-ui';
-import type {
-  AskUserQuestionRequest,
-  ExecutionNode,
-  HarnessConfig,
-  PermissionRequest,
-  SessionStatsEntry,
-} from '@ptah-extension/shared';
-import { HarnessBuilderStateService } from '../services/harness-builder-state.service';
-import { HarnessRpcService } from '../services/harness-rpc.service';
-import { HarnessWorkflowService } from '../services/harness-workflow.service';
 import { HarnessBuilderViewComponent } from './harness-builder-view.component';
-
-// ---------------------------------------------------------------------------
-// Lightweight stand-ins for the child components. The real cards come from
-// `@ptah-extension/chat` and drag in the whole chat DI graph; the selectors,
-// inputs and outputs below are the only part of their contract this view uses.
-// `errorOnUnknownElements` / `errorOnUnknownProperties` are enabled in
-// test-setup.ts, so drift in a selector or input name fails the spec loudly.
-//
-// The legacy `@Input()` / `@Output()` decorators below are deliberate, not an
-// oversight. Rewriting them to `input()` / `output()` was verified (repeatedly)
-// to make the `jest.mock('ngx-markdown')` above stop taking effect, after which
-// the real ESM module loads and Jest dies parsing `marked`. Hence the
-// `prefer-signals` suppressions — these are throwaway test doubles, not app code.
-// ---------------------------------------------------------------------------
+import { HarnessBuilderLeaveDialogComponent } from './harness-builder-leave-dialog.component';
+import { HarnessBuilderRecordsService } from '../services/harness-builder-records.service';
+import { HarnessBuilderStateService } from '../services/harness-builder-state.service';
+import { HarnessProposalHydrationService } from '../services/harness-proposal-hydration.service';
+import { HarnessWorkflowRequestService } from '../services/harness-workflow-request.service';
+import { HarnessRpcService } from '../services/harness-rpc.service';
 
 @Component({
-  selector: 'ptah-execution-node',
+  selector: 'ptah-session-embed',
   standalone: true,
-  changeDetection: ChangeDetectionStrategy.Eager,
-  template: '',
+  template: '<div role="log">Shared chat</div>',
 })
-class StubExecutionNodeComponent {
-  // eslint-disable-next-line @angular-eslint/prefer-signals
-  @Input() public node: unknown;
-  // eslint-disable-next-line @angular-eslint/prefer-signals
-  @Input() public isStreaming = false;
+class EmbedStub {
+  readonly tabId = input.required<string>();
+  readonly chrome = input('full');
 }
-
+@Component({ selector: 'ptah-workflow-badge', standalone: true, template: '' })
+class BadgeStub {
+  readonly workflow = input<unknown>();
+  readonly variant = input('full');
+}
 @Component({
-  selector: 'ptah-permission-request-card',
+  selector: 'ptah-harness-builder-sidebar',
   standalone: true,
-  changeDetection: ChangeDetectionStrategy.Eager,
-  template: '',
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template:
+    '<aside id="builder-sidebar" class="flex flex-col h-full min-h-0"><div data-testid="sidebar-strip" class="shrink-0"></div><div data-testid="sidebar-scroll-body" class="flex-1 min-h-0 overflow-y-auto"></div></aside>',
 })
-class StubPermissionRequestCardComponent {
-  // eslint-disable-next-line @angular-eslint/prefer-signals
-  @Input() public request!: PermissionRequest;
-  @Output() public responded = new EventEmitter<unknown>();
+class SidebarStub {
+  readonly tabId = input.required<string>();
+  readonly workspaceRoot = input('');
+  readonly mode = input('configure-harness');
+  readonly initialized = input(false);
+  readonly initError = input(false);
+  readonly agentBusy = input(false);
+  readonly statsSnapshot = input<unknown>(null);
+  readonly liveModelStats = input<unknown>(null);
+  readonly sheet = input(false);
+  readonly retrySetup = output<void>();
 }
+const params = new BehaviorSubject(
+  convertToParamMap({ mode: 'configure-harness', tabId: 'tab-a' }),
+);
+const tabs = signal([
+  {
+    id: 'tab-a',
+    workflow: 'harness-configure',
+    claudeSessionId: 'session-a',
+    status: 'loaded',
+    sessionStats: null,
+    liveModelStats: null,
+  },
+]);
+const pendingIntent = signal<null | {
+  sourceTabId: string;
+  targetMode: 'new-project' | 'configure-harness';
+}>(null);
+const entryErrors = signal<Readonly<Record<string, string>>>({});
+const closeTab = jest.fn(async (id: string) =>
+  tabs.update((all) => all.filter((tab) => tab.id !== id)),
+);
+const bind = jest.fn(async () => undefined);
+const navigate = jest.fn(async () => 'landed');
+const layoutMode = signal<'single' | 'grid'>('single');
+const canvasRequest = jest.fn();
+const writeDraft = jest.fn(() => true);
+const abort = jest.fn(async () => ({ success: true, data: { success: true } }));
+const reportAbortFailure = jest.fn();
+const cancelPendingIntent = jest.fn();
+const retryFirstSend = jest.fn(async () => true);
+const logError = jest.fn();
+let lookupRoot: string | null = '/workspace/a';
+let rawRoot = '/workspace/a';
+const resumedIntake = signal<{ tabId: string; text: string } | null>(null);
+const initialize = jest.fn(
+  async (workspaceRoot: string | null = '/workspace/a') => ({
+    workspaceRoot,
+    workspaceContext: {
+      projectName: 'A',
+      projectType: 'app',
+      frameworks: [],
+      languages: [],
+    },
+    availableAgents: [],
+    availableSkills: [],
+    existingPresets: [],
+  }),
+);
 
-@Component({
-  selector: 'ptah-question-card',
-  standalone: true,
-  changeDetection: ChangeDetectionStrategy.Eager,
-  template: '',
-})
-class StubQuestionCardComponent {
-  // eslint-disable-next-line @angular-eslint/prefer-signals
-  @Input() public request!: AskUserQuestionRequest;
-  @Output() public answered = new EventEmitter<unknown>();
-}
-
-@Component({
-  selector: 'ptah-harness-config-preview',
-  standalone: true,
-  changeDetection: ChangeDetectionStrategy.Eager,
-  template: '',
-})
-class StubHarnessConfigPreviewComponent {}
-
-// ---------------------------------------------------------------------------
-// Test doubles
-// ---------------------------------------------------------------------------
-
-/** `surfaceQuestions` is `protected`; read it through a narrow typed view. */
-interface SurfaceQuestionsProbe {
-  surfaceQuestions: () => readonly AskUserQuestionRequest[];
-}
-
-function makeQuestionRequest(
-  overrides: Partial<AskUserQuestionRequest> = {},
-): AskUserQuestionRequest {
-  return {
-    id: 'q-1',
-    toolUseId: 'tool-1',
-    sessionId: 'sess-1',
-    timestamp: Date.now(),
-    // `timeoutAt: 0` mirrors the backend's no-timeout question contract and
-    // keeps the service's expiry effect from reaping the request mid-render.
-    timeoutAt: 0,
-    question: 'Which stack?',
-    options: [],
-    ...overrides,
-  } as AskUserQuestionRequest;
-}
-
-function makeStateStub(): Record<string, unknown> {
-  return {
-    isLoading: signal(false),
-    error: signal<string | null>(null),
-    hasInitialized: signal(false),
-    config: signal<Partial<HarnessConfig>>({}),
-    configSummary: signal('No configuration yet'),
-    isConfigComplete: signal(false),
-    workspaceContext: signal<{ projectName: string } | null>(null),
-    workspaceSwitchedDuringBuild: signal(false),
-    pinnedWorkspaceRoot: signal<string | null>(null),
-    streamingState: signal<StreamingState>(createEmptyStreamingState()),
-    initialize: jest.fn(),
-    reset: jest.fn(),
-  };
-}
-
-function makeWorkflowStub(
-  surfaceId: SurfaceId | null = 'surface-harness-1' as SurfaceId,
-): Record<string, unknown> {
-  return {
-    surfaceId: signal<SurfaceId | null>(surfaceId).asReadonly(),
-    userBubbles: signal<{ text: string }[]>([]),
-    viewMode: signal('configure-harness'),
-    isActive: signal(false),
-    isProcessing: signal(false),
-    resumedFromReload: signal(false),
-    error: signal<string | null>(null),
-    sessionStats: signal<SurfaceSessionStats | null>(null),
-    setViewMode: jest.fn(),
-    setUserBubbles: jest.fn(),
-    addUserBubble: jest.fn(),
-    startWorkflow: jest.fn().mockResolvedValue(undefined),
-    sendMessage: jest.fn().mockResolvedValue(undefined),
-    abort: jest.fn().mockResolvedValue(undefined),
-    abortAndDispose: jest.fn().mockResolvedValue(undefined),
-    dispose: jest.fn(),
-    setError: jest.fn(),
-    clearError: jest.fn(),
-  };
-}
-
-describe('HarnessBuilderViewComponent — surface question routing (TASK_2026_263)', () => {
-  let fixture: ComponentFixture<HarnessBuilderViewComponent>;
-  let permissions: PermissionHandlerService;
-
-  beforeEach(async () => {
-    const tabManagerStub = {
-      activeTabId: signal<string | null>('tab-live'),
-      activeTabMessages: signal<unknown[]>([]),
-      activeTabStreamingState: signal<StreamingState | null>(null),
-      tabs: signal<{ id: string }[]>([{ id: 'tab-live' }]),
-    } as unknown as TabManagerService;
-
-    TestBed.configureTestingModule({
-      imports: [HarnessBuilderViewComponent],
-      providers: [
-        PermissionHandlerService,
-        { provide: TabManagerService, useValue: tabManagerStub },
-        {
-          provide: VSCodeService,
-          useValue: { postMessage: jest.fn() } as unknown as VSCodeService,
+async function render() {
+  TestBed.configureTestingModule({
+    imports: [HarnessBuilderViewComponent],
+    providers: [
+      {
+        provide: ActivatedRoute,
+        useValue: {
+          snapshot: { paramMap: params.value },
+          paramMap: params.asObservable(),
         },
-        { provide: HarnessBuilderStateService, useValue: makeStateStub() },
-        { provide: HarnessWorkflowService, useValue: makeWorkflowStub() },
-        {
-          provide: HarnessRpcService,
-          useValue: {
-            initialize: jest.fn().mockResolvedValue({}),
-            workflowPrompt: jest.fn().mockResolvedValue({ prompt: '' }),
-            apply: jest.fn().mockResolvedValue({}),
-          },
-        },
-        {
-          // `setCurrentView` is the view's only navigation call now — leaving
-          // the builder and finishing "Start over" both go through it
-          // (TASK_2026_524 removed `WebviewNavigationService`). Stubbed rather
-          // than real so this spec keeps its Router-free TestBed.
-          provide: AppStateManager,
-          useValue: {
-            consumeHarnessWorkflowRequest: jest.fn(() => null),
-            setCurrentView: jest.fn(),
-          },
-        },
-        {
-          provide: ExecutionTreeBuilderService,
-          useValue: { buildTree: jest.fn(() => []) },
-        },
-        {
-          // The real stats summary renders below; it only reads model names.
-          provide: ModelStateService,
-          useValue: { availableModels: signal([]) },
-        },
-      ],
-    });
-
-    TestBed.overrideComponent(HarnessBuilderViewComponent, {
-      set: {
-        imports: [
-          LucideAngularModule,
-          FormsModule,
-          StubExecutionNodeComponent,
-          StubPermissionRequestCardComponent,
-          StubQuestionCardComponent,
-          StubHarnessConfigPreviewComponent,
-          SessionStatsSummaryComponent,
-        ],
       },
-    });
+      {
+        provide: TabManagerService,
+        useValue: {
+          tabs,
+          streamingTabIds: signal(new Set<string>()),
+          markLoaded: jest.fn(),
+          resetTabToFresh: jest.fn(),
+          findTabByIdAcrossWorkspaces: (id: string) => {
+            const tab = tabs().find((item) => item.id === id);
+            return tab ? { tab, workspacePath: lookupRoot } : null;
+          },
+          switchTab: jest.fn(),
+          markTabIdle: jest.fn(),
+          closeTab,
+        },
+      },
+      {
+        provide: SurfaceRouterService,
+        useValue: { navigateToSurface: navigate },
+      },
+      {
+        provide: AppStateManager,
+        useValue: { layoutMode, requestCanvasTab: canvasRequest },
+      },
+      { provide: ClaudeRpcService, useValue: { call: abort } },
+      { provide: HarnessRpcService, useValue: { initialize } },
+      {
+        provide: HarnessBuilderRecordsService,
+        useValue: {
+          readSnapshot: jest.fn(() => null),
+          readDraft: jest.fn(() => null),
+          replaceDraft: writeDraft,
+          clearTab: jest.fn(),
+        },
+      },
+      { provide: HarnessProposalHydrationService, useValue: { bind } },
+      {
+        provide: HarnessWorkflowRequestService,
+        useValue: {
+          workspaceRoot: '/workspace/a',
+          get rawWorkspaceRoot() {
+            return rawRoot;
+          },
+          resumedIntake,
+          pendingIntent,
+          entryErrors,
+          cancelPendingIntent,
+          completePendingIntent: jest.fn(async () => 'landed'),
+          retryFirstSend,
+          reportAbortFailure,
+        },
+      },
+      {
+        provide: HarnessBuilderStateService,
+        useValue: {
+          configSummary: signal('No configuration yet'),
+          bindTab: jest.fn(),
+          initialize: jest.fn(),
+          reset: jest.fn(),
+        },
+      },
+      { provide: LoggingService, useValue: { error: logError } },
+    ],
+  });
+  TestBed.overrideComponent(HarnessBuilderViewComponent, {
+    set: {
+      imports: [
+        EmbedStub,
+        BadgeStub,
+        SidebarStub,
+        HarnessBuilderLeaveDialogComponent,
+      ],
+    },
+  });
+  const fixture = TestBed.createComponent(HarnessBuilderViewComponent);
+  fixture.detectChanges();
+  TestBed.flushEffects();
+  await fixture.whenStable();
+  fixture.detectChanges();
+  return fixture;
+}
 
-    permissions = TestBed.inject(PermissionHandlerService);
-    fixture = TestBed.createComponent(HarnessBuilderViewComponent);
+describe('HarnessBuilderViewComponent shared session host', () => {
+  beforeEach(() => {
+    params.next(
+      convertToParamMap({ mode: 'configure-harness', tabId: 'tab-a' }),
+    );
+    lookupRoot = '/workspace/a';
+    rawRoot = '/workspace/a';
+    resumedIntake.set(null);
+    tabs.set([
+      {
+        id: 'tab-a',
+        workflow: 'harness-configure',
+        claudeSessionId: 'session-a',
+        status: 'loaded',
+        sessionStats: null,
+        liveModelStats: null,
+      },
+    ]);
+    pendingIntent.set(null);
+    entryErrors.set({});
+    layoutMode.set('single');
+    closeTab.mockClear();
+    bind.mockClear();
+    navigate.mockClear();
+    writeDraft.mockClear();
+    abort.mockClear();
+    canvasRequest.mockClear();
+    reportAbortFailure.mockClear();
+    cancelPendingIntent.mockClear();
+    retryFirstSend.mockClear();
+    initialize.mockClear();
+    logError.mockClear();
+  });
 
-    // ngOnInit kicks off the async `harness:initialize` RPC. The transcript —
-    // and therefore the surface-question block — only renders in the
-    // non-initializing branch, so let that promise settle first.
+  it('keeps the route tab when another tab becomes active', async () => {
+    const fixture = await render();
+    tabs.update((all) => [...all, { ...all[0], id: 'tab-b' }]);
     fixture.detectChanges();
+    expect(
+      fixture.debugElement
+        .query(By.directive(EmbedStub))
+        .componentInstance.tabId(),
+    ).toBe('tab-a');
+    expect(fixture.componentInstance.tabId()).toBe('tab-a');
+    expect(bind).toHaveBeenCalledWith(
+      '/workspace/a',
+      'tab-a',
+      ['session-a'],
+      null,
+    );
+  });
+
+  it('uses the original pinned UNC path for setup, hydration and sidebar actions', async () => {
+    const originalRoot = '\\\\wsl.localhost\\Ubuntu\\home\\User\\Proj';
+    lookupRoot = originalRoot;
+    initialize.mockImplementationOnce(async () => ({
+      workspaceRoot: originalRoot,
+      workspaceContext: {
+        projectName: 'Proj',
+        projectType: 'app',
+        frameworks: [],
+        languages: [],
+      },
+      availableAgents: [],
+      availableSkills: [],
+      existingPresets: [],
+    }));
+    const fixture = await render();
+    expect(initialize).toHaveBeenCalledWith(originalRoot);
+    expect(bind).toHaveBeenCalledWith(
+      originalRoot,
+      'tab-a',
+      ['session-a'],
+      null,
+    );
+    expect(
+      fixture.debugElement
+        .query(By.directive(SidebarStub))
+        .componentInstance.workspaceRoot(),
+    ).toBe(originalRoot);
+    expect(fixture.componentInstance.initialized()).toBe(true);
+  });
+
+  it('uses the raw active root when a VS Code tab has no workspace path', async () => {
+    lookupRoot = null;
+    rawRoot = 'C:\\Users\\Ann\\MyApp';
+    initialize.mockImplementationOnce(async () => ({
+      workspaceRoot: 'c:\\users\\ann\\myapp',
+      workspaceContext: {
+        projectName: 'MyApp',
+        projectType: 'app',
+        frameworks: [],
+        languages: [],
+      },
+      availableAgents: [],
+      availableSkills: [],
+      existingPresets: [],
+    }));
+    const fixture = await render();
+    expect(initialize).toHaveBeenCalledWith(rawRoot);
+    expect(fixture.componentInstance.initialized()).toBe(true);
+  });
+
+  it('shows a resumed intake on the builder page for review', async () => {
+    resumedIntake.set({ tabId: 'tab-a', text: 'Clinic scheduler intake' });
+    const fixture = await render();
+    expect(fixture.nativeElement.textContent).toContain(
+      'Clinic scheduler intake',
+    );
+  });
+
+  it('queues the pinned tab for canvas adoption in grid mode', async () => {
+    layoutMode.set('grid');
+    await render();
+    expect(canvasRequest).toHaveBeenCalledWith(
+      'tab-a',
+      '/workspace/a',
+      'AI Team Builder',
+    );
+  });
+
+  it('retries the first message for the routed tab without dismissing a failed notice', async () => {
+    entryErrors.set({ 'tab-a': 'The first message could not be sent.' });
+    retryFirstSend.mockResolvedValueOnce(false);
+    const fixture = await render();
+    const button = (
+      fixture.nativeElement as HTMLElement
+    ).querySelector<HTMLButtonElement>('[role="alert"] button');
+    expect(button?.textContent).toContain('Retry message');
+    button?.click();
     await fixture.whenStable();
     fixture.detectChanges();
-  });
-
-  afterEach(() => {
-    TestBed.resetTestingModule();
-  });
-
-  function probe(): SurfaceQuestionsProbe {
-    return fixture.componentInstance as unknown as SurfaceQuestionsProbe;
-  }
-
-  function questionCards(): StubQuestionCardComponent[] {
-    return fixture.debugElement
-      .queryAll(By.directive(StubQuestionCardComponent))
-      .map((de) => de.componentInstance as StubQuestionCardComponent);
-  }
-
-  describe('session stats panel (TASK_2026_533)', () => {
-    const snapshot: SessionStatsEntry = {
-      sessionId: 'sess-1',
-      model: 'claude-opus-4-7',
-      totalCost: 38.18,
-      knownCost: 38.18,
-      tokens: {
-        input: 15_200,
-        output: 396_700,
-        cacheRead: 14_388_100,
-        cacheCreation: 100_000,
-      },
-      tokenCount: 14_900_000,
-      messageCount: 0,
-      agentSessionCount: 9,
-      modelUsageList: [
-        {
-          model: 'claude-opus-4-7',
-          inputTokens: 15_200,
-          outputTokens: 396_700,
-          cacheRead: 14_388_100,
-          cacheCreation: 100_000,
-          costUSD: 38.18,
-        },
-      ],
-      status: 'ok',
-      pricingCoverage: 'full',
-      scope: 'session',
-      revision: 7,
-    };
-    const live = {
-      model: 'claude-opus-4-7',
-      contextKnown: true,
-      contextCapacity: {
-        tokens: 200_000,
-        source: 'provider-catalog' as const,
-        providerId: 'anthropic',
-        model: 'claude-opus-4-7',
-      },
-      contextUsed: 40_000,
-      contextWindow: 200_000,
-      contextPercent: 20,
-    };
-
-    it('binds stored snapshot and independent live context badge', () => {
-      const workflow = TestBed.inject(HarnessWorkflowService) as unknown as {
-        sessionStats: WritableSignal<SurfaceSessionStats | null>;
-      };
-      workflow.sessionStats.set({ live, snapshot });
-      fixture.detectChanges();
-
-      const panel = fixture.debugElement.query(
-        By.directive(SessionStatsSummaryComponent),
-      );
-      expect(panel).not.toBeNull();
-      const summary = panel.componentInstance as SessionStatsSummaryComponent;
-      // The stored backend object itself: no copied rows, no running totals.
-      expect(summary.snapshot()).toBe(snapshot);
-      expect(summary.liveModelStats()).toBe(live);
-
-      const chip = (id: string): string =>
-        (
-          (panel.nativeElement as HTMLElement).querySelector(
-            `[data-testid="${id}"]`,
-          )?.textContent ?? ''
-        ).trim();
-      expect(chip('stats-tokens')).toBe('14.9M');
-      expect(chip('stats-cost')).toBe('$38.18');
-      expect(chip('stats-agents')).toBe('9');
-      expect(chip('stats-context')).toBe('20%');
-
-      // A bare legacy window cannot establish capacity or alter accounting.
-      const legacyLive = { ...live, contextCapacity: undefined };
-      workflow.sessionStats.set({ live: legacyLive, snapshot });
-      fixture.detectChanges();
-      expect(summary.snapshot()).toBe(snapshot);
-      expect(summary.liveModelStats()).toBe(legacyLive);
-      expect(chip('stats-context')).toBe('\u2014');
-      expect((panel.nativeElement as HTMLElement).querySelector('.context-bar-track')).toBeNull();
-      expect(chip('stats-tokens')).toBe('14.9M');
-      expect(chip('stats-cost')).toBe('$38.18');
-      expect(chip('stats-agents')).toBe('9');
-    });
-  });
-
-  it('renders the transcript (not the initializing spinner) once init resolves', () => {
+    expect(retryFirstSend).toHaveBeenCalledWith('tab-a');
     expect(
-      fixture.nativeElement.querySelector(
-        '[aria-label="Conversation transcript"]',
-      ),
+      fixture.nativeElement.querySelector('[role="alert"]'),
     ).not.toBeNull();
   });
 
-  it('includes a question targeted at a SURFACE id and renders its card', () => {
-    const question = makeQuestionRequest({ id: 'q-surface' });
-    permissions.handleQuestionRequest(question);
-    permissions.attachQuestionTargets('q-surface', ['surface-harness-1']);
-    fixture.detectChanges();
-
-    expect(probe().surfaceQuestions()).toEqual([question]);
-
-    const cards = questionCards();
-    expect(cards).toHaveLength(1);
-    expect(cards[0].request).toBe(question);
-  });
-
-  it('excludes a question targeted at a LIVE TAB id (belongs to the chat view)', () => {
-    permissions.handleQuestionRequest(makeQuestionRequest({ id: 'q-tab' }));
-    permissions.attachQuestionTargets('q-tab', ['tab-live']);
-    fixture.detectChanges();
-
-    expect(probe().surfaceQuestions()).toEqual([]);
-    expect(questionCards()).toHaveLength(0);
-  });
-
-  it('excludes a question whose targets were attached on the PERMISSION map only', () => {
-    // The cross-wire guard, and the exact shape of the original bug: the two
-    // target maps are distinct, so a surface predicate that reads the wrong one
-    // can never agree with the map that actually owns the id.
-    permissions.handleQuestionRequest(
-      makeQuestionRequest({ id: 'q-crosswired' }),
-    );
-    permissions.attachPromptTargets('q-crosswired', ['surface-harness-1']);
-    fixture.detectChanges();
-
-    expect(permissions.hasSurfaceTargets('q-crosswired')).toBe(true);
-    expect(permissions.hasSurfaceQuestionTargets('q-crosswired')).toBe(false);
-    expect(probe().surfaceQuestions()).toEqual([]);
-    expect(questionCards()).toHaveLength(0);
-  });
-
-  it('excludes a question with no attached targets at all', () => {
-    permissions.handleQuestionRequest(makeQuestionRequest({ id: 'q-orphan' }));
-    fixture.detectChanges();
-
-    expect(probe().surfaceQuestions()).toEqual([]);
-    expect(questionCards()).toHaveLength(0);
-  });
-
-  it('keeps surface questions separate from tab questions in a mixed pool', () => {
-    const surfaceQuestion = makeQuestionRequest({ id: 'q-mine' });
-    permissions.handleQuestionRequest(surfaceQuestion);
-    permissions.attachQuestionTargets('q-mine', ['surface-harness-1']);
-
-    permissions.handleQuestionRequest(makeQuestionRequest({ id: 'q-theirs' }));
-    permissions.attachQuestionTargets('q-theirs', ['tab-live']);
-
-    permissions.handleQuestionRequest(makeQuestionRequest({ id: 'q-mixed' }));
-    permissions.attachQuestionTargets('q-mixed', [
-      'surface-harness-1',
-      'tab-live',
-    ]);
-
-    fixture.detectChanges();
-
-    expect(probe().surfaceQuestions()).toEqual([surfaceQuestion]);
-    expect(questionCards().map((c) => c.request.id)).toEqual(['q-mine']);
-  });
-
-  it('drops the card once the surface question is answered', () => {
-    permissions.handleQuestionRequest(makeQuestionRequest({ id: 'q-answer' }));
-    permissions.attachQuestionTargets('q-answer', ['surface-harness-1']);
-    fixture.detectChanges();
-    expect(questionCards()).toHaveLength(1);
-
-    questionCards()[0].answered.emit({ id: 'q-answer', answers: {} });
-    fixture.detectChanges();
-
-    expect(probe().surfaceQuestions()).toEqual([]);
-    expect(questionCards()).toHaveLength(0);
-  });
-
-  // -------------------------------------------------------------------------
-  // Stop / Start over / error alert
-  // -------------------------------------------------------------------------
-
-  /** Signal-backed handles on the workflow stub, for driving view state. */
-  interface WorkflowStubHandle {
-    isActive: ReturnType<typeof signal<boolean>>;
-    isProcessing: ReturnType<typeof signal<boolean>>;
-    error: ReturnType<typeof signal<string | null>>;
-    abort: jest.Mock;
-    abortAndDispose: jest.Mock;
-    dispose: jest.Mock;
-    clearError: jest.Mock;
-  }
-
-  function workflowStub(): WorkflowStubHandle {
-    return TestBed.inject(
-      HarnessWorkflowService,
-    ) as unknown as WorkflowStubHandle;
-  }
-
-  function click(testId: string): void {
-    const el = fixture.nativeElement.querySelector(
-      `[data-testid="${testId}"]`,
-    ) as HTMLElement | null;
-    if (!el) throw new Error(`No element with data-testid="${testId}"`);
-    el.click();
-    fixture.detectChanges();
-  }
-
-  it('hides the Stop button while nothing is running', () => {
-    expect(
-      fixture.nativeElement.querySelector('[data-testid="workflow-stop"]'),
-    ).toBeNull();
-  });
-
-  it('Stop aborts the backend session and keeps the workflow', async () => {
-    const workflow = workflowStub();
-    workflow.isProcessing.set(true);
-    fixture.detectChanges();
-
-    click('workflow-stop');
-    await fixture.whenStable();
-
-    expect(workflow.abort).toHaveBeenCalledTimes(1);
-    // Stopping is not discarding — the transcript and the claim must survive.
-    expect(workflow.dispose).not.toHaveBeenCalled();
-    expect(workflow.abortAndDispose).not.toHaveBeenCalled();
-  });
-
-  it('Start over aborts the run before tearing the workflow down', async () => {
-    const workflow = workflowStub();
-    workflow.isActive.set(true);
-    workflow.isProcessing.set(true);
-    fixture.detectChanges();
-
-    click('workflow-start-over');
-    click('workflow-start-over-confirm');
-    await fixture.whenStable();
-
-    // `dispose()` alone left the agent running with no surface listening.
-    expect(workflow.abortAndDispose).toHaveBeenCalledTimes(1);
-  });
-
-  it('renders the workflow error alert and dismisses it', () => {
-    const workflow = workflowStub();
-    expect(
-      fixture.nativeElement.querySelector('[data-testid="workflow-error"]'),
-    ).toBeNull();
-
-    workflow.error.set('chat:start failed: no provider configured');
-    fixture.detectChanges();
-
-    const alert = fixture.nativeElement.querySelector(
-      '[data-testid="workflow-error"]',
-    ) as HTMLElement;
-    expect(alert).not.toBeNull();
-    expect(alert.textContent).toContain('no provider configured');
-
-    click('workflow-error-dismiss');
-    expect(workflow.clearError).toHaveBeenCalledTimes(1);
-  });
-});
-
-/**
- * Transcript ordering.
- *
- * The view used to render two consecutive lists — every user bubble, then every
- * execution node. The surface's execution tree accumulates for the whole
- * workflow, so the second turn's bubble was drawn ABOVE the first turn's reply,
- * and it got worse with every follow-up. The transcript is now one list ordered
- * by wall clock, and these specs pin that.
- */
-describe('HarnessBuilderViewComponent — transcript ordering', () => {
-  let fixture: ComponentFixture<HarnessBuilderViewComponent>;
-  let bubbles: ReturnType<typeof signal<{ text: string; at: number }[]>>;
-  let streamingState: ReturnType<typeof signal<StreamingState>>;
-  let nodes: ExecutionNode[];
-
-  /**
-   * Drive one render. The tree comes from a memoized computed over
-   * `streamingState`, so a new tree only reaches the view when that signal
-   * moves — exactly as it does in the app, where the tree is rebuilt on each
-   * streamed event.
-   */
-  function render(
-    nextNodes: ExecutionNode[],
-    nextBubbles: { text: string; at: number }[],
-  ): void {
-    nodes = nextNodes;
-    bubbles.set(nextBubbles);
-    streamingState.set(makeStreamingState());
-    fixture.detectChanges();
-  }
-
-  /** A state that looks like a session which actually streamed something —
-   * `executionNodes` short-circuits on an empty event map. */
-  function makeStreamingState(): StreamingState {
-    return {
-      ...createEmptyStreamingState(),
-      events: new Map([['evt-1', {} as never]]),
-    } as StreamingState;
-  }
-
-  function makeNode(id: string, startTime: number): ExecutionNode {
-    return {
-      id,
-      type: 'message',
-      status: 'complete',
-      content: id,
-      startTime,
-    } as ExecutionNode;
-  }
-
-  /** Recover which node a rendered stub element was handed. */
-  function nodeIdOf(el: Element): string {
-    const stub = fixture.debugElement
-      .queryAll(By.directive(StubExecutionNodeComponent))
-      .find((de) => de.nativeElement === el);
-    const node = (stub?.componentInstance as StubExecutionNodeComponent)
-      ?.node as { id: string } | undefined;
-    return node?.id ?? '';
-  }
-
-  /** Each transcript entry, top to bottom, as the user reads them. */
-  function renderedOrder(): string[] {
-    const container = fixture.nativeElement.querySelector(
-      '[aria-label="Conversation transcript"]',
-    ) as HTMLElement;
-    const entries = container.querySelectorAll(
-      '[data-testid="user-turn"], ptah-execution-node',
-    );
-    return Array.from(entries).map((el) =>
-      el.tagName.toLowerCase() === 'ptah-execution-node'
-        ? `node:${nodeIdOf(el)}`
-        : `user:${(el.textContent ?? '').trim()}`,
-    );
-  }
-
-  beforeEach(async () => {
-    bubbles = signal<{ text: string; at: number }[]>([]);
-    nodes = [];
-
-    streamingState = signal<StreamingState>(makeStreamingState());
-    const state = makeStateStub();
-    state['streamingState'] = streamingState;
-
-    const workflow = makeWorkflowStub();
-    workflow['userBubbles'] = bubbles;
-
-    TestBed.configureTestingModule({
-      imports: [HarnessBuilderViewComponent],
-      providers: [
-        PermissionHandlerService,
-        {
-          provide: TabManagerService,
-          useValue: {
-            activeTabId: signal<string | null>(null),
-            activeTabMessages: signal<unknown[]>([]),
-            activeTabStreamingState: signal<StreamingState | null>(null),
-            tabs: signal<{ id: string }[]>([]),
-          } as unknown as TabManagerService,
-        },
-        {
-          provide: VSCodeService,
-          useValue: { postMessage: jest.fn() } as unknown as VSCodeService,
-        },
-        { provide: HarnessBuilderStateService, useValue: state },
-        { provide: HarnessWorkflowService, useValue: workflow },
-        {
-          provide: HarnessRpcService,
-          useValue: {
-            initialize: jest.fn().mockResolvedValue({}),
-            workflowPrompt: jest.fn().mockResolvedValue({ prompt: '' }),
-            apply: jest.fn().mockResolvedValue({}),
-          },
-        },
-        {
-          // `setCurrentView` is the view's only navigation call now — leaving
-          // the builder and finishing "Start over" both go through it
-          // (TASK_2026_524 removed `WebviewNavigationService`). Stubbed rather
-          // than real so this spec keeps its Router-free TestBed.
-          provide: AppStateManager,
-          useValue: {
-            consumeHarnessWorkflowRequest: jest.fn(() => null),
-            setCurrentView: jest.fn(),
-          },
-        },
-        {
-          provide: ExecutionTreeBuilderService,
-          useValue: { buildTree: jest.fn(() => nodes) },
-        },
-      ],
-    });
-
-    TestBed.overrideComponent(HarnessBuilderViewComponent, {
-      set: {
-        imports: [
-          LucideAngularModule,
-          FormsModule,
-          StubExecutionNodeComponent,
-          StubPermissionRequestCardComponent,
-          StubQuestionCardComponent,
-          StubHarnessConfigPreviewComponent,
-        ],
+  it('reports a missing workspace root from initialization as an error', async () => {
+    initialize.mockImplementationOnce(async () => ({
+      workspaceRoot: null,
+      workspaceContext: {
+        projectName: 'A',
+        projectType: 'app',
+        frameworks: [],
+        languages: [],
       },
-    });
-
-    fixture = TestBed.createComponent(HarnessBuilderViewComponent);
-    fixture.detectChanges();
-    await fixture.whenStable();
-    fixture.detectChanges();
-  });
-
-  afterEach(() => {
-    TestBed.resetTestingModule();
-  });
-
-  it('draws a follow-up turn BELOW the reply that preceded it', () => {
-    render(
-      [makeNode('reply-1', 1_000), makeNode('reply-2', 3_000)],
-      [
-        { text: 'first ask', at: 500 },
-        { text: 'follow-up', at: 2_000 },
-      ],
+      availableAgents: [],
+      availableSkills: [],
+      existingPresets: [],
+    }));
+    const fixture = await render();
+    expect(fixture.componentInstance.initError()).toBe(true);
+    expect(fixture.componentInstance.initialized()).toBe(false);
+    expect(
+      fixture.nativeElement.querySelector('ptah-session-embed'),
+    ).not.toBeNull();
+    expect(
+      fixture.debugElement
+        .query(By.directive(SidebarStub))
+        .componentInstance.initError(),
+    ).toBe(true);
+    expect(logError).toHaveBeenCalledWith(
+      'HarnessBuilderViewComponent',
+      'Builder setup failed',
+      expect.any(Error),
     );
-
-    expect(renderedOrder()).toEqual([
-      'user:first ask',
-      'node:reply-1',
-      'user:follow-up',
-      'node:reply-2',
-    ]);
   });
 
-  it('keeps an unstamped (pre-timeline) bubble above the replayed tree', () => {
-    render([makeNode('replayed', 9_000)], [{ text: 'from a reload', at: 0 }]);
+  it.each([360, 400, 720, 960])(
+    'bounds the page and sidebar at %ipx',
+    async (width) => {
+      const fixture = await render();
+      fixture.componentInstance.hostWidth.set(width);
+      if (width < 720) fixture.componentInstance.sheetOpen.set(true);
+      fixture.detectChanges();
+      const host = fixture.nativeElement as HTMLElement;
+      expect(host.querySelector('main')?.className).toContain(
+        'overflow-hidden',
+      );
+      expect(
+        host.querySelector('[data-testid="sidebar-strip"]')?.className,
+      ).toContain('shrink-0');
+      expect(
+        host.querySelector('[data-testid="sidebar-scroll-body"]')?.className,
+      ).toContain('overflow-y-auto');
+      if (width < 720)
+        expect(host.querySelector('.absolute.inset-0')).not.toBeNull();
+      else expect(host.querySelector('.border-l')).not.toBeNull();
+    },
+  );
 
-    expect(renderedOrder()).toEqual(['user:from a reload', 'node:replayed']);
+  it('keeps the 480px high host bounded', async () => {
+    const fixture = await render();
+    (fixture.nativeElement as HTMLElement).style.height = '480px';
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelector('.flex-1.min-h-0.overflow-hidden'),
+    ).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('main')?.className).toContain(
+      'min-h-0',
+    );
   });
 
-  it('puts the bubble first when a turn and its reply share a millisecond', () => {
-    render([makeNode('same-ms', 7_000)], [{ text: 'tie', at: 7_000 }]);
+  it('rejects missing and wrong-kind route tabs before mounting chat', async () => {
+    const fixture = await render();
+    params.next(
+      convertToParamMap({ mode: 'configure-harness', tabId: 'missing' }),
+    );
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('no longer open');
+    expect(
+      fixture.nativeElement.querySelector('ptah-session-embed'),
+    ).toBeNull();
+    params.next(convertToParamMap({ mode: 'new-project', tabId: 'tab-a' }));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain(
+      'not a New Project session',
+    );
+    expect(
+      fixture.nativeElement.querySelector('ptah-session-embed'),
+    ).toBeNull();
+  });
 
-    expect(renderedOrder()).toEqual(['user:tie', 'node:same-ms']);
+  it('writes a draft before aborting and leaves once', async () => {
+    const fixture = await render();
+    const page = fixture.componentInstance;
+    page.requestStartOver(fixture.nativeElement.querySelector('button'));
+    await page.chooseLeave('save');
+    expect(writeDraft).toHaveBeenCalledWith(
+      '/workspace/a',
+      'configure-harness',
+      'tab-a',
+    );
+    expect(abort).toHaveBeenCalledWith('chat:abort', {
+      sessionId: 'session-a',
+    });
+    expect(writeDraft.mock.invocationCallOrder[0]).toBeLessThan(
+      abort.mock.invocationCallOrder[0],
+    );
+    expect(navigate).toHaveBeenCalledWith('setup-hub');
+  });
+
+  it('cancels a pending handoff without stopping the tab', async () => {
+    const fixture = await render();
+    fixture.componentInstance.requestStartOver(
+      fixture.nativeElement.querySelector('button'),
+    );
+    await fixture.componentInstance.chooseLeave('cancel');
+    expect(abort).not.toHaveBeenCalled();
+    expect(closeTab).not.toHaveBeenCalled();
+    expect(cancelPendingIntent).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['cancel', 'Escape', 'backdrop'] as const)(
+    'restores the builder and trigger focus after %s',
+    async (dismissal) => {
+      const fixture = await render();
+      const host = fixture.nativeElement as HTMLElement;
+      const trigger = host.querySelector<HTMLButtonElement>(
+        '[aria-label="Start over: leave this workflow"]',
+      );
+      expect(trigger).not.toBeNull();
+      trigger!.focus();
+      trigger!.click();
+      fixture.detectChanges();
+      await Promise.resolve();
+
+      const dialog = host.querySelector<HTMLElement>('[role="dialog"]');
+      expect(dialog).not.toBeNull();
+      if (dismissal === 'cancel')
+        dialog!.querySelector<HTMLButtonElement>('button')!.click();
+      else if (dismissal === 'Escape')
+        dialog!.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+        );
+      else dialog!.parentElement!.click();
+      fixture.detectChanges();
+      await Promise.resolve();
+
+      expect(host.querySelector('[inert]')).toBeNull();
+      expect(document.activeElement).toBe(trigger);
+    },
+  );
+
+  it('keeps the chat inert when a narrow sheet remains open after Cancel', async () => {
+    const fixture = await render();
+    const host = fixture.nativeElement as HTMLElement;
+    fixture.componentInstance.hostWidth.set(400);
+    fixture.componentInstance.sheetOpen.set(true);
+    fixture.detectChanges();
+    const trigger = host.querySelector<HTMLButtonElement>(
+      '[aria-label="Start over: leave this workflow"]',
+    );
+    trigger!.click();
+    fixture.detectChanges();
+    host.querySelector<HTMLElement>('[role="dialog"] button')!.click();
+    fixture.detectChanges();
+    await Promise.resolve();
+
+    expect(host.querySelector('main')?.hasAttribute('inert')).toBe(true);
+    expect(host.querySelector('.shrink-0[inert]')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it('cancels an open pending handoff when the view is destroyed', async () => {
+    const fixture = await render();
+    pendingIntent.set({ sourceTabId: 'tab-a', targetMode: 'new-project' });
+    fixture.detectChanges();
+    TestBed.flushEffects();
+    expect(fixture.componentInstance.dialogOpen()).toBe(true);
+    fixture.destroy();
+    expect(cancelPendingIntent).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports an abort failure and still reaches the Hub', async () => {
+    const fixture = await render();
+    abort.mockRejectedValueOnce(new Error('abort rejected'));
+    await fixture.componentInstance.chooseLeave('discard');
+    expect(reportAbortFailure).toHaveBeenCalledWith(expect.any(Error));
+    expect(navigate).toHaveBeenCalledWith('setup-hub');
   });
 });

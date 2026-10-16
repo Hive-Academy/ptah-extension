@@ -31,11 +31,16 @@ import {
 } from '@angular/core';
 import { NativeCardComponent, NativeCardTone } from '@ptah-extension/ui';
 import type {
+  AgentOutcomeSignals,
   AgentScorecard,
   CloneSummary,
   SkillCloneStatus,
 } from '@ptah-extension/shared';
 
+import {
+  type CloneMetric,
+  formatAgentOutcomeSignals,
+} from './agent-outcome-signals';
 import { ScorecardBadgeComponent } from './scorecard-badge.component';
 import {
   CloneActionModel,
@@ -48,12 +53,6 @@ import {
 import type { AgentSyncChip, AgentSyncChipState } from './agent-sync-chips';
 import { AgentModelEditorComponent } from './agent-model-editor.component';
 import type { ReconcileGuardComponent } from './reconcile-guard';
-
-interface CloneMetric {
-  readonly label: string;
-  readonly value: string;
-  readonly testId: string;
-}
 
 interface SyncChipView extends AgentSyncChip {
   readonly toneClass: string;
@@ -71,6 +70,25 @@ const CHIP_TONE: Record<AgentSyncChipState, string> = {
   'in-sync': 'badge-success',
   'not-synced': 'badge-ghost',
 };
+
+interface CloneMetricView extends CloneMetric {
+  /** Spans the whole metric row and wraps instead of truncating. */
+  readonly fullRow: boolean;
+  readonly warning: boolean;
+}
+
+const OUTCOME_UNAVAILABLE_METRIC = 'clone-metric-outcome-unavailable';
+
+/**
+ * The single-cell outcome states. Their values are short sentences that a
+ * quarter-width cell cuts to "no ..." (P5 visual review S1), so each gets a
+ * full row of its own.
+ */
+const OUTCOME_SENTENCE_METRICS: ReadonlySet<string> = new Set([
+  'clone-metric-outcome-loading',
+  OUTCOME_UNAVAILABLE_METRIC,
+  'clone-metric-outcome-empty',
+]);
 
 const NOT_OWNED_NOTE =
   'This workspace has no source file for this agent. It was kept because it may hold your own changes.';
@@ -110,6 +128,34 @@ const STATUS_HINT: Record<SkillCloneStatus, string> = {
     NativeCardComponent,
     ScorecardBadgeComponent,
     AgentModelEditorComponent,
+  ],
+  // The metric grid takes its column count from the CARD's width, not the
+  // viewport: a `sm:grid-cols-4` grid squeezed each cell to about 33 px in
+  // the Agents list (P5 visual review S1). Native `@container` CSS, as in
+  // `catalog-grid.component.ts`; the Tailwind container-queries plugin is
+  // not installed.
+  styles: [
+    `
+      .clone-card-metrics-container {
+        container: ptah-clone-metrics / inline-size;
+      }
+
+      .clone-card-metrics {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      @container ptah-clone-metrics (width >= 10rem) {
+        .clone-card-metrics {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @container ptah-clone-metrics (width >= 32rem) {
+        .clone-card-metrics {
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+      }
+    `,
   ],
   template: `
     <ptah-native-card
@@ -171,23 +217,48 @@ const STATUS_HINT: Record<SkillCloneStatus, string> = {
           Never invoked yet — usage metrics appear after its first recorded run.
         </p>
       } @else {
-        <dl
-          class="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs sm:grid-cols-4"
-          data-testid="clone-card-metrics"
+        <div class="clone-card-metrics-container">
+          <dl
+            class="clone-card-metrics grid gap-x-4 gap-y-1.5 text-xs"
+            data-testid="clone-card-metrics"
+          >
+            @for (m of metricViews(); track m.testId) {
+              <div class="min-w-0" [class.col-span-full]="m.fullRow">
+                <dt
+                  class="text-[10px] uppercase tracking-wide text-base-content-muted"
+                >
+                  {{ m.label }}
+                </dt>
+                <dd
+                  class="tabular-nums"
+                  [class.truncate]="!m.fullRow"
+                  [class.text-warning]="m.warning"
+                  [attr.title]="m.fullRow ? null : m.value"
+                  [attr.data-testid]="m.testId"
+                >
+                  {{ m.value }}
+                </dd>
+              </div>
+            }
+          </dl>
+        </div>
+      }
+
+      @if (showUnavailableNote()) {
+        <p
+          class="mt-2 text-xs text-warning"
+          data-testid="clone-outcome-unavailable"
         >
-          @for (m of metrics(); track m.testId) {
-            <div class="min-w-0">
-              <dt
-                class="text-[10px] uppercase tracking-wide text-base-content-muted"
-              >
-                {{ m.label }}
-              </dt>
-              <dd class="truncate tabular-nums" [attr.data-testid]="m.testId">
-                {{ m.value }}
-              </dd>
-            </div>
-          }
-        </dl>
+          Outcome data unavailable.
+        </p>
+      }
+      @if (clone().kind === 'agent' && outcomeStatus() === 'not-persistent') {
+        <p
+          class="mt-2 text-xs text-base-content-muted"
+          data-testid="clone-outcome-not-persistent"
+        >
+          Outcome data is not stored durably on this host.
+        </p>
       }
 
       @if (clone().kind === 'agent') {
@@ -311,6 +382,18 @@ export class CloneCardComponent {
   public readonly clone = input.required<CloneSummary>();
   /** Batched agent scorecard; `null` means "no data yet", never zeros. */
   public readonly scorecard = input<AgentScorecard | null>(null);
+  /**
+   * Outcome signals for this agent. `null` means the slug had no records
+   * in the window (Req 9.2), never a fabricated rate. Ignored unless
+   * `clone.kind === 'agent'`. A record whose `slug` is not this card's
+   * slug is treated as absent.
+   */
+  public readonly outcomeSignals = input<AgentOutcomeSignals | null>(null);
+  /** Window echoed by `agent:outcomeSignals`. `null` until that call returns. */
+  public readonly outcomeWindowDays = input<number | null>(null);
+  public readonly outcomeStatus = input<
+    'loading' | 'ready' | 'unavailable' | 'not-persistent'
+  >('ready');
   /** An action for this entry is in flight. */
   public readonly busy = input<boolean>(false);
   /**
@@ -394,9 +477,11 @@ export class CloneCardComponent {
   });
 
   /**
-   * Only the metrics that actually carry data. An entry that has never run
-   * produces an EMPTY list, which the template renders as one explanatory
-   * sentence instead of a row of em dashes.
+   * Only the metrics that actually carry data. A skill or command that has
+   * never run produces an EMPTY list, which the template renders as one
+   * explanatory sentence instead of a row of em dashes. Agent cards always
+   * include outcome signals in place of Success, so an agent with no
+   * records shows "no data yet" instead of that sentence.
    */
   protected readonly metrics = computed<CloneMetric[]>(() => {
     const c = this.clone();
@@ -410,13 +495,25 @@ export class CloneCardComponent {
       });
     }
 
-    const success = formatSuccessRate(c);
-    if (success !== null) {
-      out.push({
-        label: 'Success',
-        value: success,
-        testId: 'clone-metric-success',
-      });
+    if (c.kind !== 'agent') {
+      const success = formatSuccessRate(c);
+      if (success !== null) {
+        out.push({
+          label: 'Success',
+          value: success,
+          testId: 'clone-metric-success',
+        });
+      }
+    } else {
+      const raw = this.outcomeSignals();
+      const signals = raw !== null && raw.slug === c.slug ? raw : null;
+      out.push(
+        ...formatAgentOutcomeSignals(
+          signals,
+          this.outcomeWindowDays(),
+          this.outcomeStatus(),
+        ),
+      );
     }
 
     if (c.lastEnhancedAt !== null) {
@@ -437,4 +534,24 @@ export class CloneCardComponent {
 
     return out;
   });
+
+  protected readonly metricViews = computed<CloneMetricView[]>(() =>
+    this.metrics().map((m) => ({
+      ...m,
+      fullRow: OUTCOME_SENTENCE_METRICS.has(m.testId),
+      warning: m.testId === OUTCOME_UNAVAILABLE_METRIC,
+    })),
+  );
+
+  /**
+   * The "Outcome data unavailable." note, only when the metric row does not
+   * already say it, i.e. after a failed refresh that kept an earlier record
+   * for this slug. Never both on one card.
+   */
+  protected readonly showUnavailableNote = computed(
+    () =>
+      this.clone().kind === 'agent' &&
+      this.outcomeStatus() === 'unavailable' &&
+      !this.metrics().some((m) => m.testId === OUTCOME_UNAVAILABLE_METRIC),
+  );
 }
