@@ -72,9 +72,12 @@ function getPtahWindow(): PtahWindow {
 export class VSCodeService implements MessageHandler {
   private vscode: VsCodeApi | null = null;
   // Electron's setState crosses async IPC while getState reads the last
-  // committed main-process value. Keep writes in this renderer merged until
-  // reload, so a later theme/layout write cannot erase a pending route write.
-  private pendingElectronState: Record<string, unknown> | null = null;
+  // committed main-process value. Keep writes for the current workspace merged
+  // until reload, so a later theme/layout write cannot erase a pending route.
+  private pendingElectronState: {
+    root: string;
+    state: Record<string, unknown>;
+  } | null = null;
   private readonly _config = signal<WebviewConfig>({
     isVSCode: false,
     theme: 'dark',
@@ -162,6 +165,9 @@ export class VSCodeService implements MessageHandler {
    * @param newPath - The new workspace folder path
    */
   updateWorkspaceRoot(newPath: string): void {
+    if (this.config().workspaceRoot !== newPath) {
+      this.pendingElectronState = null;
+    }
     const workspaceName = newPath.split(/[/\\]/).pop() ?? 'Workspace';
     this._config.update((current) => ({
       ...current,
@@ -221,8 +227,11 @@ export class VSCodeService implements MessageHandler {
       return undefined;
     }
 
-    if (this.config().isElectron && this.pendingElectronState) {
-      return this.pendingElectronState[key] as T | undefined;
+    if (
+      this.config().isElectron &&
+      this.pendingElectronState?.root === this.config().workspaceRoot
+    ) {
+      return this.pendingElectronState.state[key] as T | undefined;
     }
     const state = this.vscode.getState() as Record<string, unknown> | undefined;
     if (!state) {
@@ -249,13 +258,21 @@ export class VSCodeService implements MessageHandler {
       );
       return;
     }
+    const config = this.config();
     const currentState =
-      (this.config().isElectron && this.pendingElectronState) ||
+      (config.isElectron &&
+        this.pendingElectronState?.root === config.workspaceRoot &&
+        this.pendingElectronState.state) ||
       (this.vscode.getState() as Record<string, unknown>) ||
       {};
     const newState = { ...currentState, [key]: value };
     this.vscode.setState(newState);
-    if (this.config().isElectron) this.pendingElectronState = newState;
+    if (config.isElectron) {
+      this.pendingElectronState = {
+        root: config.workspaceRoot,
+        state: newState,
+      };
+    }
   }
 }
 

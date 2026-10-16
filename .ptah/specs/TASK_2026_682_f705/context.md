@@ -46,4 +46,10 @@ fixed in 649 (batch F3).
 | F3-m3 | Minor | Preset select: `focus-visible:` may not match mouse focus on a `<select>`, so a clicked select can show the faint DaisyUI outline |
 | F3-m4 | Minor | No spec opens the real leave dialog through the Hub switch path |
 
+| F6-m1 | Minor | `harness-workflow-message.handler.ts`: a failed lazy-chunk load of the request or hydration service is only logged; the user sees nothing |
+| F6-m2 | Minor | `vscode.service.ts`: after a swallowed `set-state` failure in the Electron main process, `getState` keeps serving the unsaved value until reload |
+
+F6 items come from "Review of 79af325bc, 5bbb40bac, adf6aa5d6 (F5/F6)" in
+`../TASK_2026_649_33c4/code-logic-review.md` (M1 was fixed in 649).
+
 F3 items come from "Review of ff2ea4f81 (F3)" in `../TASK_2026_649_33c4/code-logic-review.md`.

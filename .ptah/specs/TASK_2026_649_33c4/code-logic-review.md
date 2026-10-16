@@ -560,3 +560,35 @@ Review family: reviewer Claude (Sonnet 5.5), implementer codex CLI lanes. Differ
 ### Verdict
 
 APPROVED WITH FIXES. Score 7/10. No Blocking or Serious defects. M1 and M2 are small, low-probability regressions from the stricter root check and should be fixed (or consciously deferred) before merge; M3 is for CI to confirm.
+
+## Review of 79af325bc, 5bbb40bac, adf6aa5d6 (F5/F6)
+
+Review family: reviewer Claude (Sonnet 5.5), implementer codex CLI lanes. Read-only review of the three commits plus the surrounding files; no tests, builds or e2e were run.
+
+| Item | Status |
+| --- | --- |
+| 79af325bc F5 attribution `sameWorkspaceRoot` + coded NOT_OPEN error | OK |
+| 5bbb40bac F6-bundle lazy workflow handler | OK logic; bundle saving unverified |
+| adf6aa5d6 F6 VSCodeService Electron snapshot | Race is real, fix is correct for one workspace; one regression |
+| adf6aa5d6 e2e spec updates | OK |
+
+### Verified
+
+- Race (adf6aa5d6) is real. `apps/ptah-electron/src/preload.ts:28-32` reads with `sendSync('get-state')` and writes with fire-and-forget `send('set-state')`. `ipc-bridge.ts:551-573` awaits `stateStorage.update`. In the worker-backed `ElectronStateStorage.update` (`libs/backend/platform-electron/src/implementations/electron-state-storage.ts:139-165`) the cache is refreshed only after `await workerHost.update(...)` (`finally { this.data = workerHost.getCache(); }`). A second `setState` right after the first therefore merges onto pre-write state and drops the first key. Only `ipc-bridge.ts:566` writes `webview-state`; the VS Code host path is gated by `isElectron` and is unchanged. The first snapshot is `{...vscode.getState(), key}`, so no key is lost at initialisation. The app has one main window.
+- 5bbb40bac: the chained `pending` promise keeps arrival order, and a proposal push during an in-flight import is queued behind it. The chain never rejects (`.catch` logs through `LoggingService`), and it does not grow. `inject(Injector)` in a root service returns the root injector, so `injector.get` returns the same instances the builder uses. `handleMessage(): Promise<void>` is assignable to `MessageHandler.handleMessage(): void`, and the router (`message-router.service.ts:279-285`) ignores the return value. The lazily built `HarnessWorkflowRequestService` has no constructor effect that must run before the first message (`toObservable(visibleTabIds)` replays the current value). The `isNewProjectIntake` copy in `harness-workflow-utils.ts` is identical to the removed handler copy; the utils file imports only `@ptah-extension/shared`.
+- 79af325bc: `sameWorkspaceRoot` (`workspace-authorization.ts:6-23`) handles case on win32, trailing separators and drive roots. The store passes the open folder's spelling to attribution, so the comparison is the right one. In `protocol-dispatcher.ts:2760-2766` the specific NOT_OPEN branch sits before the generic `typeof error.code === 'string'` branch, so the order is right. The message is fixed text with no path leak. Nothing in the repo matched the old plain-Error message string.
+- e2e: the transcript locator `ptah-harness-builder-view ptah-chat-transcript[data-tab-id=...]` is the one `openNewProjectWorkflow` already waits on (`new-project-dotnet.spec.ts:132`), so `innerText()` cannot silently match nothing. The positive intake-line assertions are kept. The `chat:chunk` `message_start` push is realistic (the stream router binds a session from a stream event). Minor: real flow resolves the session id first and chunks after; the spec reverses that order, which is harmless for this assertion.
+
+### Findings
+
+**Moderate M1: Electron state snapshot is not scoped to a workspace.** `libs/frontend/core/src/lib/services/vscode.service.ts:226-228, 252-259`. `WorkspaceAwareStateStorage` swaps the backing store on `workspace:switch` (`workspace-aware-state-storage.ts:185`) with no renderer reload, but `pendingElectronState` is never invalidated. Scenario: open workspace A, so the first `setState` snapshots A's `webview-state`. Switch to B, which has its own stored recent-branches or layout keys. `GitBranchesService.restoreRecentBranches` (`git-branches.service.ts:652`) now reads A's snapshot, so B's list is missing. The next `persistRecentBranches` or `persistLayout` writes A's whole snapshot into B's store, replacing B's keys. Before this commit, `getState` read B's store after the switch. Impact: in-session loss of B's persisted per-workspace UI state. Fix: key the snapshot by the active workspace root (`Map<root, state>` using `config().workspaceRoot`), or rebuild it from `vscode.getState()` on `updateWorkspaceRoot` once the switch RPC resolves. Also add a spec for a root change between writes.
+
+**Moderate M2: bundle saving depends on barrel tree-shaking and has not been measured.** `libs/frontend/harness-builder/src/services.ts:25-32` still statically re-exports `HarnessProposalHydrationService`, `HarnessWorkflowRequestService`, `HarnessBuilderRecordsService` and the other services. The root `package.json` and the lib declare no `sideEffects:false`. If the Angular/esbuild build keeps those re-exported modules (module-level `z.object` and `HarnessProposalSchema` calls are not provably pure), they stay in the initial chunk and the dynamic imports save nothing. The lane report says the same (its saving estimate is "inference from imports, not a measured bundle result"). The CI bundle budget will decide. If it fails, `app.config.ts` should import the handler from a handler-only entry or a direct path, and the barrel should stop re-exporting the lazy services.
+
+**Minor m1: no user-visible error when the lazy chunk fails to load.** `harness-workflow-message.handler.ts:41-55, 63-76`. A rejected `import()` is only logged. The Hub never gets `reportHubError`, so a `harness:open-workflow` click would do nothing visible. The request service is not loaded at that point, so the error would need to come from another path (for example a toast through `LoggingService` or an eager error signal). Unlikely in Electron, which loads local files.
+
+**Minor m2: the snapshot keeps values that main may have failed to persist.** `vscode.service.ts:259`. `ipc-bridge.ts:567-572` swallows a storage failure, so `getState` keeps serving a value that was never saved. This is the same loss as before, only hidden until reload.
+
+### Verdict
+
+APPROVED WITH FIXES. Score 7/10. No Blocking or Serious defects. Fix M1 before merge, or consciously defer it with a note. M2 is for CI to confirm.

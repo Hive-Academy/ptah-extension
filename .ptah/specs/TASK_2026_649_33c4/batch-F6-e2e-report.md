@@ -25,3 +25,9 @@ none
 ## Unverified
 
 No Nx, Jest, Playwright, TypeScript, lint, build, serve, or e2e command was run, per the edit-only instruction. CI must verify the five cases and the new unit spec. The exact order of Electron main-process state commits during the failing run is not in the cleaned log, so the reload cause remains an inference from the state bridge and the observed return to Chat.
+
+## Correction: M1 workspace-scoped state snapshot
+
+The Electron main process stores webview state per workspace, so a renderer snapshot from workspace A must not be reused after switching to B. `libs/frontend/core/src/lib/services/vscode.service.ts:77` now records the snapshot with its workspace root. `updateWorkspaceRoot` clears it when the root changes (`:167-170`); `getState` and `setState` use it only when that root matches the current config (`:229-234`, `:261-271`). Consecutive writes within one workspace still merge against the renderer snapshot while Electron IPC catches up.
+
+`libs/frontend/core/src/lib/services/vscode.service.spec.ts:411-435` covers reading B's committed main-process state after a switch and merging a write with B's branch and layout keys without copying A's keys. The existing stale-IPC regression at `:386-409` now also makes an idempotent same-root update between its writes. No checks were run, per the edit-only instruction; CI verification remains outstanding.
