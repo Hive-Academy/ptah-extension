@@ -42,10 +42,11 @@ import {
   consumerPatch,
   formatProviderDisplayName,
   providerReadiness,
-  type BackgroundConsumerId,
+  type ProviderConsumerId,
   type BackgroundConsumerRow,
 } from './provider-consumer-rows';
 import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
+import { DecisionModelRowComponent } from './decision-model-row.component';
 
 const FOCUS =
   'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
@@ -62,7 +63,8 @@ const TIMEOUT_REFUSED =
 
 /**
  * Background model roles (design-spec §1.2 item 4, plan :765-774, prototype `orchestration.html` section 3): the six
- * background-consumer cards in fixed order inside the Orchestration tab's roles `<details>`.
+ * background-consumer cards in fixed order inside the Orchestration tab's roles `<details>`, then the Decision model
+ *   card (`DecisionModelRowComponent`, TASK_2026_646 Req 1), which owns its own `agent:getConfig` read and writes.
  * - The Provider & model cell opens the row's reassignment popover (the shared provider/model picker). A choice saves
  *   at once through `SettingsSaveFeedbackService` with Undo (D2); a provider that is not ready is not saved and the
  *   popover says why, with its "Set up" link (fixed sentences only). A role without its own provider shows the
@@ -81,6 +83,7 @@ const TIMEOUT_REFUSED =
   standalone: true,
   imports: [
     SettingsBusyDisabledDirective,
+    DecisionModelRowComponent,
     LucideAngularModule,
     NativePopoverComponent,
     ProviderMarkComponent,
@@ -488,6 +491,12 @@ const TIMEOUT_REFUSED =
             </section>
           }
         }
+        <!-- The seventh role (TASK_2026_646 Req 1): its own component, reading agent:getConfig. -->
+        <ptah-decision-model-row
+          [disabled]="disabled()"
+          [providers]="extraProviders()"
+          (setupProviderRequested)="onSetupProvider($event)"
+        />
       </div>
     </section>
   `,
@@ -540,21 +549,21 @@ export class ProviderConsumerAssignmentsComponent {
 
   readonly timeoutNotice = input<{ seconds: number } | null>(null);
   readonly disabled = input<boolean>(false);
-  readonly initialEditingConsumerId = input<BackgroundConsumerId | null>(null);
+  readonly initialEditingConsumerId = input<ProviderConsumerId | null>(null);
 
   readonly setupProviderRequested = output<string>();
   /** The `initialEditingConsumerId` deep link was applied: that row's popover is open. */
-  readonly deepLinkOpened = output<BackgroundConsumerId>();
+  readonly deepLinkOpened = output<ProviderConsumerId>();
   readonly retryEnhancementRequested = output<void>();
   readonly assignmentSaved = output<{
-    id: BackgroundConsumerId;
+    id: ProviderConsumerId;
     provider: string;
     model: string;
   }>();
   readonly timeoutSaved = output<number>();
 
   /** The row whose reassignment popover is open. */
-  protected readonly activeEditId = signal<BackgroundConsumerId | null>(null);
+  protected readonly activeEditId = signal<ProviderConsumerId | null>(null);
   /** The picker's current choice; it equals the saved value except while a choice is not ready to save. */
   protected readonly currentDraft = signal<{ provider: string; model: string }>(
     { provider: '', model: '' },
@@ -567,7 +576,7 @@ export class ProviderConsumerAssignmentsComponent {
 
   private readonly timeoutInputRef =
     viewChild<ElementRef<HTMLInputElement>>('timeoutInput');
-  private appliedDeepLinkId: BackgroundConsumerId | null = null;
+  private appliedDeepLinkId: ProviderConsumerId | null = null;
   /** The edit context, taken when the popover opens (as the other Settings popovers). */
   private context: ProvidersEditContext | null = null;
 
@@ -679,7 +688,7 @@ export class ProviderConsumerAssignmentsComponent {
       : null,
   );
 
-  protected toggleEdit(id: BackgroundConsumerId): void {
+  protected toggleEdit(id: ProviderConsumerId): void {
     if (this.activeEditId() === id) {
       this.cancelEdit();
       return;
@@ -709,7 +718,7 @@ export class ProviderConsumerAssignmentsComponent {
 
   /** A picker choice saves at once unless its provider is not ready (then the popover says why and nothing is written). */
   protected onDraftChange(
-    id: BackgroundConsumerId,
+    id: ProviderConsumerId,
     selection: ProviderModelSelection,
   ): void {
     this.currentDraft.set({
@@ -729,7 +738,7 @@ export class ProviderConsumerAssignmentsComponent {
    * save's `commit()` (Batch 17). A write that did not save puts the picker back on the read-back value (D15); the
    * toast names what failed.
    */
-  protected async saveDraft(id: BackgroundConsumerId): Promise<void> {
+  protected async saveDraft(id: ProviderConsumerId): Promise<void> {
     const row = this.rows().find((r) => r.id === id);
     const draft = this.currentDraft(),
       context = this.context;
@@ -755,7 +764,7 @@ export class ProviderConsumerAssignmentsComponent {
   }
 
   private async writeAssignment(
-    id: BackgroundConsumerId,
+    id: ProviderConsumerId,
     provider: string,
     model: string,
     context: ProvidersEditContext,
