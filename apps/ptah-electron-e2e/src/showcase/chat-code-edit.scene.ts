@@ -206,14 +206,15 @@ async function goToCanvas(page: Page, director: Director): Promise<void> {
  */
 async function closeStaleTiles(page: Page, director: Director): Promise<void> {
   for (let i = 0; i < 9; i++) {
-    const stale = page
-      .locator('[data-testid="canvas-tile"]')
-      .filter({
-        has: page.locator('.tile-header span', { hasText: TILE_LABEL }),
-      })
+    const staleCard = page.locator('aside[aria-label="Sessions"] li[ptah-canvas-rail-card]')
+      .filter({ has: page.locator('ptah-compact-rail-card span[title]', { hasText: /^code-edit$/ }) })
       .first();
-    if (!(await visible(stale))) return;
-    const close = stale.locator('[title="Close tile"]').first();
+    if (!(await staleCard.count())) return;
+    await staleCard.click({ position: { x: 10, y: 40 } });
+    const stale = page.locator('[data-testid="canvas-tile"]').filter({
+      has: page.locator('ptah-canvas-focus-header strong[title]', { hasText: /^code-edit$/ }),
+    }).first();
+    const close = stale.getByRole('button', { name: 'Close session' }).first();
     if (!(await visible(close))) return;
     await close.click({ timeout: 5_000 }).catch(() => undefined);
     await director.hold(400);

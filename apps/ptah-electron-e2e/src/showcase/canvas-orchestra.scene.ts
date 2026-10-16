@@ -117,14 +117,15 @@ async function closeStaleAgentTiles(
   director: Director,
 ): Promise<void> {
   for (let i = 0; i < 9; i++) {
-    const stale = page
-      .locator('[data-testid="canvas-tile"]')
-      .filter({
-        has: page.locator('.tile-header span', { hasText: /^agent-\d+$/ }),
-      })
+    const staleCard = page.locator('aside[aria-label="Sessions"] li[ptah-canvas-rail-card]')
+      .filter({ has: page.locator('ptah-compact-rail-card span[title]', { hasText: /^agent-\d+$/ }) })
       .first();
-    if (!(await visible(stale))) return;
-    const close = stale.locator('[title="Close tile"]').first();
+    if (!(await staleCard.count())) return;
+    await staleCard.click({ position: { x: 10, y: 40 } });
+    const stale = page.locator('[data-testid="canvas-tile"]').filter({
+      has: page.locator('ptah-canvas-focus-header strong[title]', { hasText: /^agent-\d+$/ }),
+    }).first();
+    const close = stale.getByRole('button', { name: 'Close session' }).first();
     if (!(await visible(close))) return;
     await close.click({ timeout: 5_000 }).catch(() => undefined);
     await director.hold(400);
@@ -135,7 +136,7 @@ async function closeStaleAgentTiles(
  * Exploration coda for a single tile: pan its conversation, spotlight the
  * stats strip, hover its agent indicator, and toggle compact/full view. Every
  * beat is guarded on visibility so a tile that finished sparse never stalls the
- * scene. Strictly non-destructive — we never touch "Close tile".
+ * scene. This exploration leaves the "Close session" control untouched.
  */
 async function exploreTile(director: Director, tile: Locator): Promise<void> {
   // Pan the tile's own conversation transcript so the camera reveals the full
