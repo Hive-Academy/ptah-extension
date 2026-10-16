@@ -95,3 +95,13 @@ were in scope. F-1, F-3, F-4, F-5 and F-7 of the round 1 review are fixed in the
   892x735 the command input sits at or below the fold; the "+1 completed" overflow chip backing overlaps the hint
   text; the Ptah plate sits far from its sphere with 24 nodes (M-r1-6, M-r1-7 carried).
 - Not reached in the r3 visual pass: a live mid-turn model question, a real Tribunal Confirm click, barge-in by voice.
+- r5 review (code-logic-review-phase-e-r5.md): M-2 a turn streaming on the old workspace keeps running when the binding
+  moves (same as leaving the page; document or abort deliberately); M-3 a start that fails before `coordinator.send`
+  sets `running` can miss the toast; m-1 a failed resume of an existing session (`claudeSessionId` set) stays silent
+  unless `lastTerminalReason` is set; m-3 the `canSend` toast says "switching" while the first open is in flight.
+- r6 review (code-logic-review-phase-e-r6.md, APPROVED 8/10): Moderate-1 the initial `page.open()` still has an
+  unhandled rejection and can stay `starting` (M-1 closed only for the binding paths); Moderate-2 after a failed
+  rebind, Status and a Tribunal Confirm retry are refused with the "switching" toast and nothing retries the open;
+  Minor-1 a Confirm in the stale window still answers the discovery question on the old tab (`transport.answer`
+  unguarded); Minor-2 `send` with no marked tab can send to workspace A if the workspace changes during
+  `openOrResume`; Minor-3 the guard toast always says "switching".
