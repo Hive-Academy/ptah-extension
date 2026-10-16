@@ -13,8 +13,12 @@
  */
 
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import { signal } from '@angular/core';
-import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
+import { ChangeDetectorRef, signal } from '@angular/core';
+import {
+  AppStateManager,
+  ClaudeRpcService,
+  VSCodeService,
+} from '@ptah-extension/core';
 import { provideSurfaceRouterTesting } from '@ptah-extension/core/testing';
 import { STACK_PROFILES, getStackProfile } from '@ptah-extension/shared';
 import type { NewProjectIntake } from '@ptah-extension/shared';
@@ -40,6 +44,7 @@ describe('SetupHubComponent — New Project intake', () => {
    * where it landed instead of that a stub was called.
    */
   let appState: AppStateManager;
+  let host: { isElectron: boolean };
 
   function el(testId: string): HTMLElement | null {
     return fixture.nativeElement.querySelector(`[data-testid="${testId}"]`);
@@ -78,6 +83,7 @@ describe('SetupHubComponent — New Project intake', () => {
   }
 
   beforeEach(async () => {
+    host = { isElectron: false };
     harnessRpc = {
       startNewProject: jest.fn().mockResolvedValue({ success: true }),
     };
@@ -92,6 +98,7 @@ describe('SetupHubComponent — New Project intake', () => {
       imports: [SetupHubComponent],
       providers: [
         ...provideSurfaceRouterTesting(),
+        { provide: VSCodeService, useValue: host },
         {
           provide: ClaudeRpcService,
           useValue: {
@@ -121,6 +128,38 @@ describe('SetupHubComponent — New Project intake', () => {
 
   afterEach(() => {
     TestBed.resetTestingModule();
+  });
+
+  it('shows the Command Center card in Electron and opens its page by click', () => {
+    host.isElectron = true;
+    fixture.componentRef.injector.get(ChangeDetectorRef).markForCheck();
+    fixture.detectChanges();
+
+    const card = required('command-center-card');
+    expect(card.getAttribute('role')).toBe('button');
+    expect(card.getAttribute('aria-label')).toBe('Open Command Center');
+    expect(card.textContent).toContain(
+      'Talk to Ptah by voice and watch your delegated work live.',
+    );
+    const navigate = jest.spyOn(appState, 'setCurrentView');
+    card.click();
+    expect(navigate).toHaveBeenCalledWith('command-center');
+  });
+
+  it('opens Command Center with Enter and hides the card in VS Code', () => {
+    host.isElectron = true;
+    fixture.componentRef.injector.get(ChangeDetectorRef).markForCheck();
+    fixture.detectChanges();
+    const navigate = jest.spyOn(appState, 'setCurrentView');
+    required('command-center-card').dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter' }),
+    );
+    expect(navigate).toHaveBeenCalledWith('command-center');
+
+    host.isElectron = false;
+    fixture.componentRef.injector.get(ChangeDetectorRef).markForCheck();
+    fixture.detectChanges();
+    expect(el('command-center-card')).toBeNull();
   });
 
   // ---- intake validation ---------------------------------------------------

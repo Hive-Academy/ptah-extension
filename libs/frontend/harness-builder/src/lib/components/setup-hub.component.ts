@@ -35,10 +35,15 @@ import {
   ArrowLeft,
   Rocket,
   Scale,
+  Mic,
   X,
   PlayCircle,
 } from 'lucide-angular';
-import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
+import {
+  AppStateManager,
+  ClaudeRpcService,
+  VSCodeService,
+} from '@ptah-extension/core';
 import type {
   SetupStatusGetResponse,
   HarnessPreset,
@@ -747,6 +752,60 @@ const DEFAULT_PLATFORM: NewProjectPlatform = 'node-ts';
                 </button>
               </div>
             </div>
+
+            @if (isElectron) {
+              <div
+                class="group relative rounded-xl p-px cursor-pointer
+                     bg-gradient-to-br from-accent/20 via-base-300/50 to-accent/10
+                     hover:from-accent/40 hover:via-accent/15 hover:to-accent/30
+                     transition-all duration-300 ease-out card-enter card-enter-delay-4"
+                (click)="openCommandCenter()"
+                (keydown.enter)="openCommandCenter()"
+                role="button"
+                tabindex="0"
+                aria-label="Open Command Center"
+                data-testid="command-center-card"
+              >
+                <div
+                  class="rounded-[11px] bg-base-200 p-5 h-full flex flex-col gap-4
+                       transition-colors duration-300 ease-out group-hover:bg-base-200/80"
+                >
+                  <div class="flex items-start justify-between">
+                    <div
+                      class="relative w-11 h-11 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center"
+                    >
+                      <lucide-angular
+                        [img]="MicIcon"
+                        class="w-5 h-5 text-accent"
+                        aria-hidden="true"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <h2 class="text-lg font-bold text-base-content">
+                      Command Center
+                    </h2>
+                    <p class="text-sm text-base-content-muted mt-1">
+                      Talk to Ptah by voice and watch your delegated work live.
+                    </p>
+                  </div>
+                  <span
+                    class="btn btn-sm w-full mt-auto gap-1
+                         bg-gradient-to-r from-accent/10 to-accent/5
+                         border border-accent/20
+                         group-hover:border-accent/40 group-hover:from-accent/20 group-hover:to-accent/10
+                         text-accent font-medium transition-all duration-200"
+                  >
+                    Open Command Center
+                    <lucide-angular
+                      [img]="ChevronRightIcon"
+                      class="w-3.5 h-3.5"
+                      aria-hidden="true"
+                    />
+                  </span>
+                </div>
+              </div>
+            }
           </div>
 
           <!-- ═══ Section: Configuration ═══ -->
@@ -1102,9 +1161,7 @@ const DEFAULT_PLATFORM: NewProjectPlatform = 'node-ts';
         aria-labelledby="new-project-discard-title"
         data-testid="new-project-discard-confirm"
       >
-        <div
-          class="surface-3 rounded-lg p-5 max-w-sm w-full"
-        >
+        <div class="surface-3 rounded-lg p-5 max-w-sm w-full">
           <h2
             id="new-project-discard-title"
             class="text-base font-semibold text-base-content mb-2"
@@ -1141,6 +1198,7 @@ export class SetupHubComponent implements OnInit {
   private readonly rpc = inject(ClaudeRpcService);
   private readonly harnessRpc = inject(HarnessRpcService);
   private readonly appState = inject(AppStateManager);
+  private readonly vscode = inject(VSCodeService);
   private readonly workflow = inject(HarnessWorkflowService);
   protected readonly SearchIcon = Search;
   protected readonly WrenchIcon = Wrench;
@@ -1154,6 +1212,10 @@ export class SetupHubComponent implements OnInit {
   protected readonly ArrowLeftIcon = ArrowLeft;
   protected readonly RocketIcon = Rocket;
   protected readonly ScaleIcon = Scale;
+  protected readonly MicIcon = Mic;
+  protected get isElectron(): boolean {
+    return this.vscode.isElectron;
+  }
   protected readonly XIcon = X;
   protected readonly PlayCircleIcon = PlayCircle;
   private readonly _isLoading = signal(false);
@@ -1302,6 +1364,10 @@ export class SetupHubComponent implements OnInit {
 
   conveneTribunal(): void {
     this.appState.setCurrentView('tribunal');
+  }
+
+  openCommandCenter(): void {
+    this.appState.setCurrentView('command-center');
   }
 
   /** Card body click: resume when one is running, otherwise collect intake. */

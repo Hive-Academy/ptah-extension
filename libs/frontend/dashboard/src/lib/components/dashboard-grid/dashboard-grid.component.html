@@ -45,6 +45,39 @@
     ></lucide-angular>
   </button>
 
+  @if (isElectron) {
+    <button
+      type="button"
+      class="group surface-2 mb-2 flex w-full items-center gap-4 rounded-xl p-4 text-left transition-colors hover:border-[var(--surface-border-strong)] hover:bg-surface-3"
+      (click)="openCommandCenter()"
+      aria-label="Open Command Center"
+      data-testid="dashboard-command-center"
+    >
+      <span
+        class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"
+      >
+        <lucide-angular
+          [img]="MicIcon"
+          class="w-5 h-5"
+          aria-hidden="true"
+        ></lucide-angular>
+      </span>
+      <span class="flex flex-col">
+        <span class="text-sm font-semibold text-base-content"
+          >Open Command Center</span
+        >
+        <span class="text-xs text-base-content-muted"
+          >Talk to Ptah by voice and watch your delegated work live.</span
+        >
+      </span>
+      <lucide-angular
+        [img]="ChevronRightIcon"
+        class="ml-auto w-4 h-4 text-base-content-muted transition-transform group-hover:translate-x-0.5"
+        aria-hidden="true"
+      ></lucide-angular>
+    </button>
+  }
+
   <ptah-provider-account-card />
 
   <ptah-harness-card />
