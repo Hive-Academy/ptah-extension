@@ -114,6 +114,7 @@ test.describe('plan limits > session inspector', () => {
         // board's focused pane (`ptah-canvas-focus-area`, rendered only for a
         // visible board); the main panel's own chat view stays mounted but hidden.
         const tile = page.locator('ptah-canvas-focus-area');
+        const board = page.locator('ptah-canvas-rail-board:visible').first();
         const inspectorToggle = tile.locator('ptah-canvas-focus-header [data-details]');
 
         for (const message of LIVE_LANE_MESSAGES) {
@@ -127,10 +128,15 @@ test.describe('plan limits > session inspector', () => {
         // closing collapses the panel's inner surface instead of hiding the host.
         await expect(agentPanel.locator('aside')).toHaveClass(/\bw-0\b/);
 
-        if (await inspectorToggle.isVisible() && await inspectorToggle.getAttribute('aria-expanded') === 'false') {
-          await inspectorToggle.click();
+        if (await inspectorToggle.isVisible()) {
+          if (await inspectorToggle.getAttribute('aria-expanded') === 'false') {
+            await inspectorToggle.click();
+          }
+        } else {
+          // At 440px the board uses its collapsed small-band details control.
+          await board.getByRole('button', { name: 'Open details' }).click();
         }
-        const inspector = page.locator('ptah-canvas-rail-board ptah-session-inspector:visible').first();
+        const inspector = board.locator('ptah-session-inspector:visible').first();
         const stats = inspector.locator('[data-testid="inspector-session-stats"]');
         const limits = inspector.locator('ptah-inspector-limits-lanes');
         await expect(stats).toBeVisible({ timeout: 15_000 });

@@ -302,6 +302,14 @@ test.describe('Compaction recovery for duplicate visible session tiles (TASK_202
       ).toBeVisible();
     }
 
+    // The split-pane inspector overlays the transcript. Close it through its
+    // visible control before opening the compaction marker beneath it.
+    const detailsDialog = page.locator(
+      'ptah-canvas-rail-board:visible [role="dialog"][aria-label="Session details"]',
+    );
+    await detailsDialog.getByRole('button', { name: 'Close session details' }).click();
+    await expect(detailsDialog).toHaveCount(0);
+
     await secondTile
       .locator('ptah-compaction-marker')
       .getByRole('button', { name: 'View' })
