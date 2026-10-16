@@ -151,6 +151,15 @@ import type { LaneUsageTileModel } from './stats-limit-view-model.types';
                 planChip of group.planTileChips;
                 track planChip.planTileId
               ) {
+                @if (linkPlanTiles()) {
+                  <button type="button"
+                    [class]="'h-6 min-w-6 focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content ' + chipClass(planChip.chip.tone)"
+                    data-testid="lane-plan-tile-chip"
+                    (click)="planTileRequested.emit(planChip.planTileId)">
+                    @if (planChip.chip.glyph) { <span aria-hidden="true">{{ planChip.chip.glyph }}</span> }
+                    {{ planChip.chip.text }}
+                  </button>
+                } @else {
                 <span
                   [class]="chipClass(planChip.chip.tone)"
                   data-testid="lane-plan-tile-chip"
@@ -160,6 +169,7 @@ import type { LaneUsageTileModel } from './stats-limit-view-model.types';
                   }
                   {{ planChip.chip.text }}
                 </span>
+                }
               }
             </div>
             @for (window of group.windows; track window.windowKey) {
@@ -193,6 +203,8 @@ import type { LaneUsageTileModel } from './stats-limit-view-model.types';
 })
 export class LaneUsageTileComponent {
   readonly tile = input.required<LaneUsageTileModel>();
+  readonly linkPlanTiles = input<boolean>(false);
+  readonly planTileRequested = output<string>();
   readonly open = input<boolean>(false);
   /** The section header already shows this row's caption. */
   readonly captionShared = input<boolean>(false);

@@ -57,6 +57,29 @@ describe('CanvasFocusHeaderComponent', () => {
         ?.textContent?.trim(),
     ).toBe('Workflow: Configure Harness');
   });
+  it('shows closed inspector limit, ring, dot, and description; hides them while open', () => {
+    const fixture = mount();
+    fixture.componentRef.setInput('splitDisplayed', true);
+    fixture.componentRef.setInput('limitCue', {
+      state: 'at', text: 'Weekly plan limit reached', extra: 0,
+      source: 'session', fullText: 'Weekly plan limit reached',
+    });
+    fixture.componentRef.setInput('contextRingPercent', 96);
+    fixture.componentRef.setInput('toggleDescription', 'Context 96%. Weekly plan limit reached.');
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const trigger = host.querySelector<HTMLButtonElement>('[data-details]')!;
+    expect(host.querySelector('[role="status"]')?.textContent).toContain('At limit');
+    expect(trigger.getAttribute('data-dot')).toBe('err');
+    expect(trigger.querySelector('ptah-context-ring')).not.toBeNull();
+    expect(host.querySelector(`#${trigger.getAttribute('aria-describedby')}`)?.textContent).toBe('Context 96%. Weekly plan limit reached.');
+    fixture.componentRef.setInput('detailsOpen', true);
+    fixture.detectChanges();
+    expect(host.querySelector('[role="status"]')).toBeNull();
+    expect(trigger.getAttribute('data-dot')).toBeNull();
+    expect(trigger.querySelector('ptah-context-ring')).toBeNull();
+    expect(trigger.getAttribute('aria-describedby')).toBeNull();
+  });
   it('keeps the focused Stop node on title and state changes', () => {
     const fixture = mount();
     const host = fixture.nativeElement as HTMLElement;

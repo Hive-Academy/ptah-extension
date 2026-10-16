@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_629_c0b3
-status: in_review
+status: done
 type: FEATURE
 title: "Orchestra Canvas mission board: status cards, detail row, lane tabs and attention queue"
 depends_on: []

@@ -4,6 +4,60 @@
   position: relative;
 }
 
+/* ==========================================================================
+   Shell + "This session" inspector (design-spec 2, 2.1, 4).
+   The shell is the size container; InspectorShellController observes the
+   same element and picks the band: docked >= 960 px, sheet 640-959 px,
+   full-width sheet below 640 px.
+   ========================================================================== */
+.cs-shell {
+  container-type: inline-size;
+}
+
+.cs-inspector {
+  display: block;
+  width: 336px;
+  height: 100%;
+  min-height: 0;
+  flex-shrink: 0;
+  border-left: 1px solid var(--surface-border);
+  background: oklch(var(--b1));
+  animation: csInspectorIn 220ms var(--ptah-ease-soft) both;
+}
+
+.cs-inspector--sheet {
+  position: absolute;
+  inset-block: 0;
+  right: 0;
+  z-index: 30;
+  width: min(336px, 100%);
+  box-shadow: var(--elev-shadow-raised);
+}
+
+.cs-inspector--full {
+  width: 100%;
+  border-left: 0;
+}
+
+/* Pointer-only; covers the whole shell (header included) under the sheet. */
+.cs-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  background: rgb(0 0 0 / 0.3);
+}
+
+@keyframes csInspectorIn {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 /* Custom scrollbar for message container
    Uses VS Code variables when available (extension webview),
    falls back to Anubis theme (Electron desktop) via global styles.css */
@@ -136,11 +190,66 @@
   animation: ptahFadeOut 160ms var(--ptah-ease-gentle-in) both;
 }
 
+/* ==========================================================================
+   Session-switch stagger (design-spec 7.1-7.3). The host carries
+   `is-entering` for 1 s after a tab switch. Header (`--d` 0) and composer
+   (`--d` 120 ms) fade; turn items (`.st-t`, indexed by the host's one pass,
+   `data-st-i`) rise in DOM order, capped at the eighth (360 ms); inspector
+   rows (`.st-r`, own `--i`) slide in. Worst case 8 * 45 + 260 = 620 ms.
+   ========================================================================== */
+@keyframes ptahStaggerUp {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes ptahStaggerLeft {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+:host(.is-entering) .st-f {
+  animation: ptahFadeIn 200ms var(--ptah-ease-soft) backwards;
+  animation-delay: var(--d, 0ms);
+}
+
+:host(.is-entering) ::ng-deep .st-t[data-st-i] {
+  animation: ptahStaggerUp 260ms var(--ptah-ease-soft) backwards;
+  animation-delay: calc(min(var(--i, 8), 8) * 45ms);
+}
+
+:host(.is-entering) ::ng-deep .st-r {
+  animation: ptahStaggerLeft 260ms var(--ptah-ease-soft) backwards;
+  animation-delay: calc(80ms + min(var(--i, 6), 6) * 36ms);
+}
+
+/* Global styles zero durations under reduced motion but not delays. */
+@media (prefers-reduced-motion: reduce) {
+  :host(.is-entering) .st-f,
+  :host(.is-entering) ::ng-deep .st-t,
+  :host(.is-entering) ::ng-deep .st-r {
+    animation: none !important;
+    animation-delay: 0ms !important;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .banner-enter,
   .banner-leave,
   .fade-enter,
-  .fade-leave {
+  .fade-leave,
+  .cs-inspector {
     animation: none !important;
     transition: none !important;
   }

@@ -1,0 +1,80 @@
+@if (presentation() === 'sheet') {
+  <div role="dialog" aria-modal="true" aria-label="This session" class="flex h-full min-h-0 flex-col bg-base-100">
+    <ng-container [ngTemplateOutlet]="body" />
+  </div>
+} @else {
+  <aside aria-label="This session" class="flex h-full min-h-0 flex-col bg-base-100">
+    <ng-container [ngTemplateOutlet]="body" />
+  </aside>
+}
+
+<ng-template #body>
+  <header class="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-surface-border pl-4 pr-2">
+    <h2 class="text-sm font-semibold">This session</h2>
+    <!-- data-inspector-close = INSPECTOR_CLOSE_ATTR: the shell focuses it when the sheet opens. -->
+    <button
+      #closeButton
+      type="button"
+      data-inspector-close
+      class="inline-flex size-7 items-center justify-center rounded text-base-content-muted hover:bg-base-content/5 hover:text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+      aria-label="Close session details"
+      (click)="closeRequested.emit()"
+    >
+      <lucide-angular [img]="XIcon" class="size-4" aria-hidden="true" />
+    </button>
+  </header>
+
+  @let m = model();
+  @let s = stats();
+  <div class="min-h-0 flex-1 overflow-y-auto">
+    <ptah-inspector-orchestrator-card
+      class="st-r block"
+      [style.--i]="0"
+      [card]="m.orchestrator"
+      [tabId]="tabId()"
+      (answerRequested)="answerRequested.emit($event)"
+      (announced)="announce($event)"
+    />
+
+    <ng-content select="[inspectorSection]" />
+
+    @if (s) {
+      <ptah-inspector-session-stats
+        class="st-r block border-t border-surface-border"
+        [style.--i]="1"
+        [stats]="s"
+        [turns]="m.orchestrator.turns"
+        (limitsLinkActivated)="onLimitsLinkActivated($event)"
+      />
+    }
+
+    <ptah-inspector-agents-section
+      class="block border-t border-surface-border"
+      [tabId]="tabId()"
+      [sessionId]="m.sessionId"
+      [agents]="m.agents"
+      [hasLaneSurface]="hasLaneSurface()"
+      [staggerStart]="agentsStaggerStart()"
+      (laneRequested)="laneRequested.emit($event)"
+      (answerRequested)="answerRequested.emit($event)"
+      (announced)="announce($event)"
+    />
+
+    @if (s?.limits; as limits) {
+      <ptah-inspector-limits-lanes
+        class="st-r block"
+        [style.--i]="afterAgentsIndex()"
+        [limits]="limits"
+        [sessionId]="s?.sessionId ?? null"
+      />
+    }
+
+    <ptah-inspector-task-section class="st-r block" [style.--i]="afterAgentsIndex() + 1" [tabId]="tabId()" />
+
+    <ptah-inspector-todos-section class="st-r block" [style.--i]="afterAgentsIndex() + 2" [tabId]="tabId()" />
+
+    <ptah-inspector-git-section class="st-r block" [style.--i]="afterAgentsIndex() + 3" [tabId]="tabId()" />
+  </div>
+
+  <p role="status" aria-live="polite" class="sr-only">{{ announcement() }}</p>
+</ng-template>

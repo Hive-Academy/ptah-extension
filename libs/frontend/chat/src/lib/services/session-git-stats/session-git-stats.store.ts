@@ -21,7 +21,43 @@ const MAX_CONCURRENT_READS = 2;
 const DEBOUNCE_MS = 1_000;
 const FRESHNESS_MS = 5_000;
 const RPC_TIMEOUT_MS = 15_000;
-const NONE: CompactGitState = { kind: 'none' };
+
+/**
+ * The store's git state: the card-facing `CompactGitState` whose `known`
+ * variant also carries the checked-out branch (`GitInfoResult.branch.branch`,
+ * `null` when the payload has none). A structural subtype, so every
+ * `CompactGitState` consumer keeps reading it unchanged.
+ */
+export type SessionGitState =
+  | Exclude<CompactGitState, { readonly kind: 'known' }>
+  | (Extract<CompactGitState, { readonly kind: 'known' }> & {
+      readonly branch: string | null;
+    });
+
+const NONE: SessionGitState = { kind: 'none' };
+
+/** `sameGitState` plus the branch, so a checkout alone publishes a new state. */
+function sameSessionGitState(
+  a: SessionGitState | undefined,
+  b: SessionGitState,
+): boolean {
+  if (!sameGitState(a, b)) return false;
+  return a?.kind !== 'known' || b.kind !== 'known' || a.branch === b.branch;
+}
+
+/**
+ * Branch hint of a session: the agent-origin branch of a spawned child, else
+ * the last known branch of the session's working root. Pure; it never starts
+ * git tracking (the caller passes the state it already reads).
+ */
+export function sessionBranch(
+  tab: Pick<TabState, 'agentOrigin'> | null | undefined,
+  gitState: SessionGitState | null | undefined,
+): string | null {
+  const origin = tab?.agentOrigin?.branch;
+  if (origin) return origin;
+  return gitState?.kind === 'known' ? gitState.branch : null;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -52,7 +88,15 @@ function isGitInfo(value: unknown): value is GitInfoResult {
   );
 }
 
-function toState(result: GitInfoResult): CompactGitState {
+/** The branch name of a validated payload; push payloads may omit `branch`. */
+function branchOf(result: GitInfoResult): string | null {
+  const branch: unknown = result.branch;
+  if (!isRecord(branch)) return null;
+  const name = branch['branch'];
+  return typeof name === 'string' && name.trim().length > 0 ? name : null;
+}
+
+function toState(result: GitInfoResult): SessionGitState {
   if (!result.isGitRepo) return NONE;
   if (result.statusUnavailable)
     return { kind: 'unknown', reason: 'unavailable' };
@@ -66,7 +110,13 @@ function toState(result: GitInfoResult): CompactGitState {
     additions += file.additions ?? 0;
     deletions += file.deletions ?? 0;
   }
-  return { kind: 'known', additions, deletions, partial };
+  return {
+    kind: 'known',
+    additions,
+    deletions,
+    partial,
+    branch: branchOf(result),
+  };
 }
 
 interface RootEntry {
@@ -95,7 +145,7 @@ export class SessionGitStatsStore implements MessageHandler {
   private readonly tabManager = inject(TabManagerService);
   private readonly entries = new Map<string, RootEntry>();
   private readonly queue: RootEntry[] = [];
-  private readonly states = signal<ReadonlyMap<string, CompactGitState>>(
+  private readonly states = signal<ReadonlyMap<string, SessionGitState>>(
     new Map(),
   );
   private activeReads = 0;
@@ -153,7 +203,7 @@ export class SessionGitStatsStore implements MessageHandler {
     };
   }
 
-  stateFor(root: string | null): CompactGitState {
+  stateFor(root: string | null): SessionGitState {
     return root
       ? (this.states().get(normalizeWorkspaceRoot(root)) ?? NONE)
       : NONE;
@@ -293,10 +343,10 @@ export class SessionGitStatsStore implements MessageHandler {
     }
   }
 
-  private setState(entry: RootEntry, state: CompactGitState): void {
+  private setState(entry: RootEntry, state: SessionGitState): void {
     const current = untracked(this.states);
     const key = normalizeWorkspaceRoot(entry.root);
-    if (sameGitState(current.get(key), state)) return;
+    if (sameSessionGitState(current.get(key), state)) return;
     this.states.set(new Map(current).set(key, state));
   }
 }

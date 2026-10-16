@@ -104,3 +104,18 @@ export {
 } from '../tokens/session-context.token';
 export { provideModelRefreshControl } from './chat-store/model-refresh-control.provider';
 export * from './workflow-tab-launcher.service';
+export {
+  buildSessionAgentRoster,
+  type SessionAgent,
+  type SessionAgentRosterInput,
+} from './session-agents/session-agent-roster';
+export {
+  SessionAgentRosterService,
+  type TabRequests,
+} from './session-agents/session-agent-roster.service';
+export { ownedBySession } from './session-agents/owned-by-session';
+export * from './session-inspector';
+export {
+  sessionBranch,
+  type SessionGitState,
+} from './session-git-stats/session-git-stats.store';

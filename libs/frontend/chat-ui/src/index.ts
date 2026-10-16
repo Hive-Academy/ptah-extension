@@ -157,3 +157,38 @@ export {
   toolStatusPresentation,
   type ToolStatusPresentation,
 } from './lib/utils/tool-status.utils';
+// Agent avatar vocabulary (TASK_2026_677 C1): one identity, one status word
+// set and one CLI-mark / role-icon table for the turn chips, the inspector
+// AGENTS rows and the agent dock.
+export { AgentAvatarComponent } from './lib/atoms/agent-avatar/agent-avatar.component';
+export {
+  AGENT_KIND_LABEL,
+  agentAccessibleLabel,
+  type AgentAvatarSize,
+  type AgentKind,
+  type AgentLabelParts,
+  type AgentStatusWord,
+} from './lib/atoms/agent-avatar/agent-avatar.types';
+export {
+  backgroundAgentStatusWord,
+  cliLaneStatusWord,
+  orchestratorStatusWord,
+  subagentStatusWord,
+} from './lib/atoms/agent-avatar/agent-status';
+export { formatAgentDuration } from './lib/atoms/agent-avatar/agent-duration';
+export {
+  CLI_PROVIDER_MARK_IDS,
+  cliMarkFor,
+  roleIconFor,
+  type CliMark,
+} from './lib/atoms/agent-avatar/agent-marks';
+// Badge text formatter as a pure fn (TASK_2026_677 A1-1) for the turn
+// activity panel. The cost text formatter is `formatUsdCost` in
+// `@ptah-extension/shared`, already shared by `ptah-cost-badge`.
+export { formatTokenCount } from './lib/atoms/token-badge.component';
+export { ContextRingComponent } from './lib/atoms/context-ring.component';
+export { InspectorSessionStatsComponent } from './lib/molecules/session/inspector-stats/inspector-session-stats.component';
+export { InspectorLimitsLanesComponent } from './lib/molecules/session/inspector-stats/inspector-limits-lanes.component';
+export { sessionContextCue, type SessionStatsInputs, type SessionContextCue } from './lib/molecules/session/session-stats-view';
+export { sessionLimitSummary, inspectorToggleDescription, limitAwareDot, type SessionLimitSummary } from './lib/molecules/session/plan-limits/session-limit-summary';
+export { backgroundAgentPopulation } from './lib/molecules/background-agent-population';

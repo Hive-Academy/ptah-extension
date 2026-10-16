@@ -8,7 +8,7 @@ import {
   output,
 } from '@angular/core';
 import { TabManagerService, ChatStore } from '@ptah-extension/chat';
-import type { CompactRailState } from '@ptah-extension/chat-ui';
+import type { CompactRailState, SessionLimitSummary } from '@ptah-extension/chat-ui';
 import { CanvasStore } from '../canvas.store';
 import { CanvasRenderMetricsService } from '../canvas-render-metrics.service';
 import { CanvasDetailService } from '../canvas-detail/canvas-detail.service';
@@ -42,6 +42,9 @@ import { CanvasFocusHeaderComponent } from './canvas-focus-header.component';
           [band]="band()"
           [splitDisplayed]="splitDisplayed()"
           [detailsOpen]="detailsOpen()"
+          [limitCue]="limitCue()"
+          [contextRingPercent]="contextRingPercent()"
+          [toggleDescription]="toggleDescription()"
           [paneFocused]="paneFocused()"
           [paneNumber]="paneNumber()"
           [panePlace]="panePlace()"
@@ -55,7 +58,7 @@ import { CanvasFocusHeaderComponent } from './canvas-focus-header.component';
         />
         <ptah-canvas-lane-tabs
           [panelId]="panelId()"
-          [sessionId]="tab()?.claudeSessionId ?? null"
+          [tabId]="id"
           [laneKey]="detail.laneKeyFor(id)"
           (laneSelected)="detail.selectLaneFor(id, $event)"
         />
@@ -89,6 +92,9 @@ export class CanvasFocusAreaComponent {
   readonly panePlace = input('');
   /** The split Details overlay is open on this pane. */
   readonly detailsOpen = input(false);
+  readonly limitCue = input<SessionLimitSummary | null>(null);
+  readonly contextRingPercent = input<number | null>(null);
+  readonly toggleDescription = input('');
   readonly panelId = computed(() => `rail-${this.paneId()}-lane-panel`);
   readonly state = input<CompactRailState>('idle');
   readonly band = input<'xl' | 'lg' | 'md' | 'sm'>('lg');

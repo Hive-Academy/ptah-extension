@@ -36,6 +36,9 @@ const buildTree = jest.fn(() => []);
 })
 class HeaderStub {
   readonly tabId = input.required<string>();
+  readonly limitCue = input<unknown>(null);
+  readonly contextRingPercent = input<number | null>(null);
+  readonly toggleDescription = input('');
   readonly title = input('');
   readonly state = input('idle');
   readonly branch = input<string | null>(null);
@@ -63,7 +66,7 @@ class HeaderStub {
 })
 class TabsStub {
   readonly panelId = input('canvas-lane-panel');
-  readonly sessionId = input<string | null>(null);
+  readonly tabId = input<string | null>(null);
   readonly laneKey = input('orchestrator');
   readonly laneSelected = output<string>();
 }
