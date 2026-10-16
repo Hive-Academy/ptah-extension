@@ -100,3 +100,84 @@ unchanged".
   frontend follow-up should show a different sentence when the host error is
   `DECISION_MODEL_KEY_MAY_HAVE_CHANGED`. Not edited, because frontend files are outside this
   batch.
+
+## Revise round 1 (41f)
+
+Fixes `reviews/batch-41-code-logic-review.md` NEW defect 2 (concurrent saves) and hardens
+NEW defect 1 (post-write rejection).
+
+### `libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.ts`
+
+- `:292-311` adds the module function `sameDecisionModelSelection(a, b)`. It compares two
+  parsed selections by kind, model and provider id.
+- `:313-316` adds `errorTypeOf(error)`. `writeDecisionModelNow` uses it in place of its local
+  closure.
+- `:831-893` `writeDecisionModel` keeps the 41a order: read the key, write the key, then write
+  the selection. If the selection write rejects, `storedSelectionState(selection)` runs first
+  (`:872`). When it answers `'stored'`, the handler logs a warn with the error type only,
+  keeps the new key, and rethrows. The outer catch then returns the existing fixed text.
+  Otherwise the rollback runs as before. The doc comment (`:850-851`) now says that
+  overlapping saves cannot interleave because every call runs through `setConfigQueue`.
+- `:895-919` adds `storedSelectionState(selection): 'stored' | 'not-stored' | 'unreadable'`.
+  It compares `decisionModelConfig.getSelection()` with the requested selection. If the read
+  throws, the catch logs a warn with the error type only and answers `'unreadable'`, so the
+  previous key is restored as before. The catch carries the marker
+  `// degradation-audit: reported — ...` as its first body line (`:911`, audit zone 2). On
+  `} catch` style, the line above the catch is code, so zone 1 cannot hold it.
+
+**No new queue (correction in round 1).** The first 41f draft added a decision-model write
+queue. `agent:setConfig` has been serialized since batch 25 (`08e51a353`):
+`registerSetConfig` (`:593-608`) runs every call through `setConfigQueue` (`:337`). That
+already covers `writeDecisionModel`, because `applySetConfig` is its only caller, so review
+defect 2 could not occur in the committed code. The redundant queue was removed. The brief's
+rule "calls without decision-model fields are not delayed" conflicts with that queue, which
+exists so validation and the lane-guard steer/stop write order see a settled store. That
+rule is not implemented; see Decisions (41f).
+
+### `libs/backend/rpc-handlers/src/lib/handlers/agent-rpc.handlers.decision-model.spec.ts`
+
+- `:125-129` adds `flushAsync()`, a `setImmediate` flush.
+- `:640` **the selection was stored before its write rejected: the new key is kept.**
+  `setJevApiKey` calls are `[[new]]`, and the result is the generic fixed text. The warn log
+  carries the error type only, and no log contains either key.
+- `:676` **the stored selection cannot be read after a failed write: the previous key is
+  restored.** Calls are `[[new], [previous]]`, the result is the `SettingsPersistError` text,
+  and the read failure is logged as a warn.
+- `:705` **overlapping saves.** A's selection write is held on a deferred promise. B is sent
+  while A is pending and does not read or write the key until A settles. A's write then
+  rejects: A rolls back to K0, then B writes K2 and succeeds. Key writes are
+  `[[K1], [K0], [K2]]`, the stored key ends as K2, A returns `success: false` and B returns
+  `success: true`. Without `setConfigQueue`, the stored key would end as K0. This spec is the
+  regression pin for review defect 2.
+- `:760` **a save without decision-model fields runs after a pending save settles.** C
+  (`piModel` only) writes nothing while A's selection write is pending. A is rejected, both
+  promises are awaited, C returns `success: true` and `piModel` is stored. Every deferred the
+  spec creates is settled before it ends. The first draft awaited C before rejecting A, so it
+  timed out at 5000 ms.
+- The 41a rollback specs (`:540`, `:574`, `:591`, `:623`) are unchanged. Their default
+  `getSelection` returns `{ kind: 'unset' }`, which differs from the requested Jev selection,
+  so the rollback path still runs.
+
+### Decisions (41f)
+
+- **Result when the selection was stored:** the handler rethrows the original error, and the
+  outer catch returns the existing fixed text (`SettingsPersistError.message` or "Could not
+  save the orchestration settings."). No new client text was added. Reversible.
+- **Overlapping saves stay serialized by the existing `setConfigQueue`, and no bypass was
+  added.** Options:
+  - (a) Keep the whole-call queue. Chosen.
+  - (b) Let calls without decision-model fields skip it.
+
+  Evidence: `registerSetConfig` documents that the queue stops two overlapping calls from
+  leaving a stop <= steer lane-guard pair. Validation (`invalidLaneGuard`) and
+  `laneGuardWriteOrder` read stored values. A bypass would reopen that race. It would also
+  need a second queue for the decision-model section. Reversible: the orchestrator can ask
+  for (b) with a split queue.
+- **Degradation audit:** marker in catch-body zone 2, not on the line above the catch,
+  because the catch opens on `} catch`.
+
+### Verification (41f)
+
+- No nx, jest or tsc run, per the brief.
+- `ptah_get_diagnostics` (TypeScript compiler, errors only), scoped to the two changed files:
+  0 errors, coverage clean.

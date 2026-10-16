@@ -122,6 +122,11 @@ function decisionModelDouble(
   };
 }
 
+/** Lets every queued promise callback run before the test continues. */
+function flushAsync(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
 function makeHarness(status: DecisionModelStatusDto = UNSET_STATUS) {
   const rpcHandler = createMockRpcHandler();
   const settings = new Map<string, unknown>();
@@ -630,6 +635,156 @@ describe('agent:setConfig decision model', () => {
     expect(h.decisionModel.setJevApiKey).not.toHaveBeenCalled();
     expect(h.decisionModel.setSelection).not.toHaveBeenCalled();
     expect(h.settings.size).toBe(0);
+  });
+
+  it('keeps the new key when the selection was stored before its write rejected (41f)', async () => {
+    const h = makeHarness();
+    const previous = 'jev-previous-key-11aa';
+    const secret = 'jev-secret-value-9f3a';
+    h.decisionModel.readJevApiKey.mockResolvedValue(previous);
+    h.decisionModel.getSelection.mockReturnValue({
+      kind: 'jev',
+      model: 'jev-1.13.0',
+    });
+    h.decisionModel.setSelection.mockRejectedValue(
+      new Error(`mark store refused ${secret}`),
+    );
+    const result = await h.setConfig({
+      decisionModel: { kind: 'jev' },
+      decisionModelJevApiKey: secret,
+      piModel: 'openai/gpt-4o',
+    });
+    expect(result).toEqual({
+      success: false,
+      error: 'Could not save the orchestration settings.',
+    });
+    expect(h.decisionModel.setJevApiKey.mock.calls).toEqual([[secret]]);
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      'RPC: agent:setConfig decision model selection was stored before its write failed; keeping the new key',
+      { selectionErrorType: 'Error' },
+    );
+    expect(h.settings.size).toBe(0);
+    const logged = JSON.stringify([
+      h.logger.error.mock.calls,
+      h.logger.warn.mock.calls,
+      h.logger.debug.mock.calls,
+    ]);
+    expect(logged).not.toContain(secret);
+    expect(logged).not.toContain(previous);
+  });
+
+  it('restores the previous key when the stored selection cannot be read after a failed write (41f)', async () => {
+    const h = makeHarness();
+    const previous = 'jev-previous-key-11aa';
+    const secret = 'jev-secret-value-9f3a';
+    h.decisionModel.readJevApiKey.mockResolvedValue(previous);
+    h.decisionModel.getSelection.mockImplementation(() => {
+      throw new Error('settings unreadable');
+    });
+    h.decisionModel.setSelection.mockRejectedValue(
+      new SettingsPersistError('EIO'),
+    );
+    const result = await h.setConfig({
+      decisionModel: { kind: 'jev' },
+      decisionModelJevApiKey: secret,
+    });
+    expect(result).toEqual({
+      success: false,
+      error: 'Settings could not be saved to disk (EIO)',
+    });
+    expect(h.decisionModel.setJevApiKey.mock.calls).toEqual([
+      [secret],
+      [previous],
+    ]);
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      'RPC: agent:setConfig could not read the decision model selection after a failed write; restoring the previous key',
+      { errorType: 'Error' },
+    );
+  });
+
+  it('runs overlapping decision-model saves one at a time, so a rollback never replaces a newer key (41f, review defect 2)', async () => {
+    const h = makeHarness();
+    const k0 = 'jev-key-k0-0000';
+    const k1 = 'jev-key-k1-1111';
+    const k2 = 'jev-key-k2-2222';
+    let storedKey: string | null = k0;
+    h.decisionModel.readJevApiKey.mockImplementation(() =>
+      Promise.resolve(storedKey),
+    );
+    h.decisionModel.setJevApiKey.mockImplementation((key: string | null) => {
+      storedKey = key;
+      return Promise.resolve();
+    });
+    let rejectA: (error: Error) => void = () => undefined;
+    h.decisionModel.setSelection
+      .mockImplementationOnce(
+        () =>
+          new Promise<DecisionModelSelection>((_resolve, reject) => {
+            rejectA = reject;
+          }),
+      )
+      .mockImplementationOnce(() =>
+        Promise.resolve({ kind: 'jev' as const, model: 'jev-1.13.0' }),
+      );
+
+    const saveA = h.setConfig({
+      decisionModel: { kind: 'jev' },
+      decisionModelJevApiKey: k1,
+    });
+    await flushAsync();
+    expect(h.decisionModel.setSelection).toHaveBeenCalledTimes(1);
+
+    const saveB = h.setConfig({
+      decisionModel: { kind: 'jev' },
+      decisionModelJevApiKey: k2,
+    });
+    await flushAsync();
+    // B waits behind A: no key read or write of its own yet.
+    expect(h.decisionModel.readJevApiKey).toHaveBeenCalledTimes(1);
+    expect(h.decisionModel.setJevApiKey.mock.calls).toEqual([[k1]]);
+    expect(h.decisionModel.setSelection).toHaveBeenCalledTimes(1);
+
+    rejectA(new SettingsPersistError('EIO'));
+    const [resultA, resultB] = await Promise.all([saveA, saveB]);
+
+    expect(resultA).toEqual({
+      success: false,
+      error: 'Settings could not be saved to disk (EIO)',
+    });
+    expect(resultB).toEqual({ success: true });
+    expect(h.decisionModel.setJevApiKey.mock.calls).toEqual([[k1], [k0], [k2]]);
+    expect(storedKey).toBe(k2);
+    expect(h.decisionModel.setSelection).toHaveBeenCalledTimes(2);
+  });
+
+  it('runs a save without decision-model fields after a pending one settles (41f)', async () => {
+    const h = makeHarness();
+    let rejectA: (error: Error) => void = () => undefined;
+    h.decisionModel.setSelection.mockImplementationOnce(
+      () =>
+        new Promise<DecisionModelSelection>((_resolve, reject) => {
+          rejectA = reject;
+        }),
+    );
+    const saveA = h.setConfig({
+      decisionModel: { kind: 'jev' },
+      decisionModelJevApiKey: 'jev-secret-value-9f3a',
+    });
+    await flushAsync();
+    expect(h.decisionModel.setSelection).toHaveBeenCalledTimes(1);
+
+    // setConfigQueue runs every agent:setConfig call in order, so C waits.
+    const saveC = h.setConfig({ piModel: 'openai/gpt-4o' });
+    await flushAsync();
+    expect(h.settings.has('ptah.agentOrchestration.piModel')).toBe(false);
+
+    rejectA(new SettingsPersistError('EIO'));
+    const [resultA, resultC] = await Promise.all([saveA, saveC]);
+    expect(resultA.success).toBe(false);
+    expect(resultC).toEqual({ success: true });
+    expect(h.settings.get('ptah.agentOrchestration.piModel')).toBe(
+      'openai/gpt-4o',
+    );
   });
 
   it('reads no previous key when only the key is sent', async () => {

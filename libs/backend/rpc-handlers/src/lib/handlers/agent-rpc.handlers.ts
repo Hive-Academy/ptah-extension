@@ -289,6 +289,32 @@ const DECISION_STATUS_UNREAD_DETAIL =
 const DECISION_SELECTION_UNREAD_DETAIL =
   'The saved decision model could not be read. It is unchanged.';
 
+/** Whether two parsed decision-model selections name the same model. */
+function sameDecisionModelSelection(
+  a: DecisionModelSelection,
+  b: DecisionModelSelection,
+): boolean {
+  switch (a.kind) {
+    case 'unset':
+      return b.kind === 'unset';
+    case 'ollama':
+      return b.kind === 'ollama' && b.model === a.model;
+    case 'jev':
+      return b.kind === 'jev' && b.model === a.model;
+    case 'structured':
+      return (
+        b.kind === 'structured' &&
+        b.providerId === a.providerId &&
+        b.model === a.model
+      );
+  }
+}
+
+/** The error type for a log line; raw messages can carry keys or paths. */
+function errorTypeOf(error: unknown): string {
+  return error instanceof Error ? error.name : 'unknown';
+}
+
 @injectable()
 export class AgentRpcHandlers {
   /**
@@ -814,9 +840,15 @@ export class AgentRpcHandlers {
    * - With both fields present, the stored key is read before the key write.
    *   If the selection write then fails, that key is put back (`null` deletes
    *   the new one), so the failed request leaves both unchanged.
+   * - If the selection write rejects but the stored selection already equals
+   *   the requested one, the selection was stored: the new key is kept and
+   *   the error still rejects. If that check cannot read the selection, the
+   *   key is put back as above.
    * - If putting the key back fails too, the result says the key may have
    *   changed. Logs carry error types only; the key is never logged or
    *   echoed.
+   * - Overlapping saves cannot interleave these steps: every
+   *   `agent:setConfig` call runs through {@link setConfigQueue}.
    */
   private async writeDecisionModel(
     jevApiKey: string | undefined,
@@ -837,21 +869,52 @@ export class AgentRpcHandlers {
       await config.setSelection(selection);
       return undefined;
     } catch (selectionError: unknown) {
+      if (this.storedSelectionState(selection) === 'stored') {
+        this.logger.warn(
+          'RPC: agent:setConfig decision model selection was stored before its write failed; keeping the new key',
+          { selectionErrorType: errorTypeOf(selectionError) },
+        );
+        throw selectionError;
+      }
       try {
         await config.setJevApiKey(previousKey);
       } catch (restoreError: unknown) {
-        const errorType = (error: unknown) =>
-          error instanceof Error ? error.name : 'unknown';
         this.logger.error(
           'RPC: agent:setConfig could not restore the previous decision model key',
           {
-            selectionErrorType: errorType(selectionError),
-            restoreErrorType: errorType(restoreError),
+            selectionErrorType: errorTypeOf(selectionError),
+            restoreErrorType: errorTypeOf(restoreError),
           },
         );
         return DECISION_MODEL_KEY_MAY_HAVE_CHANGED;
       }
       throw selectionError;
+    }
+  }
+
+  /**
+   * Whether the stored selection equals `selection`. A failed read is logged
+   * and answers `'unreadable'`; the caller then restores the previous key,
+   * the safe choice when the stored selection is unknown.
+   */
+  private storedSelectionState(
+    selection: DecisionModelSelection,
+  ): 'stored' | 'not-stored' | 'unreadable' {
+    try {
+      return sameDecisionModelSelection(
+        this.decisionModelConfig.getSelection(),
+        selection,
+      )
+        ? 'stored'
+        : 'not-stored';
+    } catch (readError: unknown) {
+      // degradation-audit: reported — the read failure is logged as a warn;
+      // 'unreadable' makes the caller restore the previous key.
+      this.logger.warn(
+        'RPC: agent:setConfig could not read the decision model selection after a failed write; restoring the previous key',
+        { errorType: errorTypeOf(readError) },
+      );
+      return 'unreadable';
     }
   }
 
