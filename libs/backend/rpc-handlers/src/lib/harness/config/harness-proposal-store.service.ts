@@ -1,6 +1,10 @@
 import { createHash, randomBytes } from 'crypto';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import {
+  findOpenWorkspaceRoot,
+  sameWorkspaceRoot,
+} from '../../utils/workspace-authorization';
 import { inject, injectable } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { serializeByKey, withFileLock } from '@ptah-extension/harness-sync';
@@ -13,11 +17,13 @@ import {
   mergeHarnessConfigUpdates,
   type HarnessConfig,
   type HarnessProposal,
+  type HarnessProposalRevision,
 } from '@ptah-extension/shared';
 import {
   HarnessProposalSchema,
   HarnessSessionIdSchema,
 } from '@ptah-extension/shared/schemas';
+import { HarnessProposalTurnAttributionService } from './harness-proposal-turn-attribution.service';
 
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 // Far above the one-read, merge, temp-write and rename critical section.
@@ -34,6 +40,15 @@ export class HarnessProposalWorkspaceError extends Error {
   }
 }
 
+export class HarnessProposalWorkspaceNotOpenError extends Error {
+  readonly code = 'HARNESS_PROPOSAL_WORKSPACE_NOT_OPEN';
+
+  constructor() {
+    super('Harness proposal workspace root is not an open workspace folder.');
+    this.name = 'HarnessProposalWorkspaceNotOpenError';
+  }
+}
+
 function isErrno(error: unknown, code: string): boolean {
   return (
     typeof error === 'object' &&
@@ -43,10 +58,22 @@ function isErrno(error: unknown, code: string): boolean {
   );
 }
 
+function compareRevisions(
+  left: HarnessProposalRevision,
+  right: HarnessProposalRevision,
+): number {
+  // Array.sort is stable, so equal turn/write timestamps retain array order.
+  const byTurn = (left.turnStartedAt ?? left.updatedAt).localeCompare(
+    right.turnStartedAt ?? right.updatedAt,
+  );
+  return byTurn || left.updatedAt.localeCompare(right.updatedAt);
+}
+
 @injectable()
 /**
- * Stores proposals under the workspace provider's root, merging each update.
+ * Stores proposals under the pinned caller root when supplied, merging each update.
  * Rejects with HarnessProposalWorkspaceError (HARNESS_PROPOSAL_NO_WORKSPACE),
+ * HarnessProposalWorkspaceNotOpenError (HARNESS_PROPOSAL_WORKSPACE_NOT_OPEN),
  * ZodError for an invalid session id, FileLockTimeoutError from
  * @ptah-extension/harness-sync on contention, or a file system error.
  */
@@ -55,15 +82,35 @@ export class HarnessProposalStore implements IHarnessProposalStore {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
+    @inject(HarnessProposalTurnAttributionService, { isOptional: true })
+    private readonly turnAttribution?: HarnessProposalTurnAttributionService,
   ) {}
+
+  captureProposingTurnStartedAt(
+    sessionId: string,
+    workspaceRoot?: string,
+  ): {
+    readonly turnStartedAt?: string;
+    release(): void;
+  } {
+    sessionId = HarnessSessionIdSchema.parse(sessionId);
+    const root = this.requireRoot(workspaceRoot);
+    return (
+      this.turnAttribution?.capture(sessionId, root) ?? {
+        release: () => undefined,
+      }
+    );
+  }
 
   async save(
     sessionId: string,
     update: Partial<HarnessConfig>,
     complete: boolean,
+    turnStartedAt?: string,
+    workspaceRoot?: string,
   ): Promise<HarnessProposal> {
     sessionId = HarnessSessionIdSchema.parse(sessionId);
-    const root = this.requireRoot();
+    const root = this.requireRoot(workspaceRoot);
     const directory = this.directory(root);
     const file = this.file(directory, sessionId);
     return serializeByKey(file, async () => {
@@ -73,16 +120,35 @@ export class HarnessProposalStore implements IHarnessProposalStore {
         `${file}.lock`,
         async () => {
           const current = await this.read(file, root, sessionId);
+          // Unique within this record so callers can identify the saved
+          // revision even when turn order places it before another revision.
+          const previousWrite = current ? Date.parse(current.updatedAt) : 0;
+          const updatedAt = new Date(
+            Math.max(Date.now(), previousWrite + 1),
+          ).toISOString();
+          const revision: HarnessProposalRevision = {
+            id: `${updatedAt}:${randomBytes(16).toString('hex')}`,
+            configUpdates: mergeHarnessConfigUpdates({}, update),
+            isConfigComplete: complete,
+            updatedAt,
+            ...(turnStartedAt === undefined ? {} : { turnStartedAt }),
+          };
+          const revisions = [...(current?.revisions ?? []), revision].sort(
+            compareRevisions,
+          );
+          const configUpdates = revisions.reduce<Partial<HarnessConfig>>(
+            (merged, item) =>
+              mergeHarnessConfigUpdates(merged, item.configUpdates),
+            {},
+          );
           const proposal: HarnessProposal = {
             version: 1,
             workspaceRoot: root,
             sessionId,
-            configUpdates: mergeHarnessConfigUpdates(
-              current?.configUpdates ?? {},
-              mergeHarnessConfigUpdates({}, update),
-            ),
-            isConfigComplete: complete,
-            updatedAt: new Date().toISOString(),
+            configUpdates,
+            isConfigComplete: revisions[revisions.length - 1].isConfigComplete,
+            updatedAt,
+            revisions,
           };
           const validated = HarnessProposalSchema.parse(proposal);
           await this.write(file, validated);
@@ -96,15 +162,41 @@ export class HarnessProposalStore implements IHarnessProposalStore {
     });
   }
 
-  async get(sessionId: string): Promise<HarnessProposal | null> {
+  async get(
+    sessionId: string,
+    workspaceRoot?: string,
+  ): Promise<HarnessProposal | null> {
     sessionId = HarnessSessionIdSchema.parse(sessionId);
-    const root = this.requireRoot();
+    const root = this.requireRoot(workspaceRoot);
     const directory = this.directory(root);
     await this.prune(directory);
     return this.read(this.file(directory, sessionId), root, sessionId);
   }
 
-  private requireRoot(): string {
+  private requireRoot(workspaceRoot?: string): string {
+    if (workspaceRoot !== undefined) {
+      if (
+        !workspaceRoot ||
+        !(process.platform === 'win32' ? path.win32 : path).isAbsolute(
+          workspaceRoot,
+        ) ||
+        workspaceRoot.split(/[\\/]+/).includes('..') ||
+        workspaceRoot.trim() !== workspaceRoot ||
+        workspaceRoot.includes('\0')
+      ) {
+        throw new Error(
+          'Harness proposal workspace root must be an absolute path without traversal.',
+        );
+      }
+      const openRoot = findOpenWorkspaceRoot(
+        workspaceRoot,
+        this.workspaceProvider,
+      );
+      if (!openRoot) {
+        throw new HarnessProposalWorkspaceNotOpenError();
+      }
+      return openRoot;
+    }
     const root = this.workspaceProvider.getWorkspaceRoot();
     if (!root) throw new HarnessProposalWorkspaceError();
     return root;
@@ -136,7 +228,7 @@ export class HarnessProposalStore implements IHarnessProposalStore {
       if (
         !result.success ||
         result.data.sessionId !== sessionId ||
-        result.data.workspaceRoot !== root
+        !sameWorkspaceRoot(result.data.workspaceRoot, root)
       ) {
         this.logger.warn('Ignoring invalid harness proposal record', { file });
         return null;

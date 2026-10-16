@@ -37,6 +37,22 @@ import {
 } from './tab-persistence';
 
 const LEGACY_KEY = 'ptah.tabs';
+
+it('persists and restores a workflow first-message preamble', () => {
+  const workflow = storedTab('workflow', 'draft', {
+    workflow: 'harness-new-project',
+    firstMessagePreamble: 'NEW PROJECT SEED',
+  }) as TabState;
+  const persisted = projectTabForPersist(workflow);
+  expect(persisted.firstMessagePreamble).toBe('NEW PROJECT SEED');
+  expect(sanitizeRestoredTab(persisted).firstMessagePreamble).toBe(
+    'NEW PROJECT SEED',
+  );
+  expect(
+    sanitizeRestoredTab(storedTab('legacy', 'draft') as TabState)
+      .firstMessagePreamble,
+  ).toBeNull();
+});
 const WORKSPACE_PATH = '/ws/restore';
 
 /** Every status that names work in flight, and therefore cannot be restored. */
@@ -251,9 +267,12 @@ describe('restored tabs — one sanitize, both readers', () => {
       ]);
       // The retired key is gone from the restored tabs, so the next save
       // cannot write it back either (code-logic-review-R9r.md Minor 2).
-      expect(
-        tabs.map((tab) => 'compactHeightUnits' in tab),
-      ).toEqual([false, false, false, false]);
+      expect(tabs.map((tab) => 'compactHeightUnits' in tab)).toEqual([
+        false,
+        false,
+        false,
+        false,
+      ]);
       expect(
         tabs.map((tab) => 'compactHeightUnits' in projectTabForPersist(tab)),
       ).toEqual([false, false, false, false]);

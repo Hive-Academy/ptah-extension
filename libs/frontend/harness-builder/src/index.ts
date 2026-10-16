@@ -1,11 +1,9 @@
 export { HarnessBuilderStateService } from './lib/services/harness-builder-state.service';
 export { HarnessRpcService } from './lib/services/harness-rpc.service';
-export {
-  HarnessWorkflowService,
-  HARNESS_WORKFLOW_STORAGE_KEY,
-  type HarnessWorkflowMode,
-  type HarnessUserBubble,
-} from './lib/services/harness-workflow.service';
+export { HarnessBuilderRecordsService } from './lib/services/harness-builder-records.service';
+export { HarnessProposalHydrationService } from './lib/services/harness-proposal-hydration.service';
+export { HarnessHelperService } from './lib/services/harness-helper.service';
+export { HarnessWorkflowRequestService } from './lib/services/harness-workflow-request.service';
 export {
   formatIntakeSummary,
   platformLabel,
@@ -14,5 +12,7 @@ export {
 } from './lib/services/new-project-intake';
 export { HarnessWorkflowMessageHandler } from './lib/services/harness-workflow-message.handler';
 export { HarnessBuilderViewComponent } from './lib/components/harness-builder-view.component';
+export { HarnessBuilderSidebarComponent } from './lib/components/harness-builder-sidebar.component';
+export { HarnessBuilderLeaveDialogComponent } from './lib/components/harness-builder-leave-dialog.component';
 export { SetupHubComponent } from './lib/components/setup-hub.component';
 export { HarnessConfigPreviewComponent } from './lib/components/harness-config-preview.component';

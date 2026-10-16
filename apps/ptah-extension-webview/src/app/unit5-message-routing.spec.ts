@@ -38,11 +38,13 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import {
-  AppStateManager,
   ClaudeRpcService,
   FILE_LINK_OPENER,
   MESSAGE_HANDLERS,
   MessageRouterService,
+  SurfaceRouterService,
+  SURFACE_ACTIVE,
+  surfaceActiveFor,
   VSCodeService,
 } from '@ptah-extension/core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
@@ -61,7 +63,11 @@ import { provideModelRefreshControl } from '@ptah-extension/chat';
 // `app.config.ts` uses after Batch 4. If a narrow barrel ever stops exporting
 // one of them, this file fails to compile — the cheapest possible R4 check.
 import { TasksStore } from '@ptah-extension/tasks-ui/services';
-import { HarnessWorkflowMessageHandler } from '@ptah-extension/harness-builder/services';
+import {
+  HarnessWorkflowMessageHandler,
+  HarnessWorkflowRequestService,
+  HarnessProposalHydrationService,
+} from '@ptah-extension/harness-builder/services';
 import { SetupWizardStateService } from '@ptah-extension/setup-wizard';
 
 /**
@@ -107,12 +113,24 @@ function dispatch(type: string, payload?: unknown): void {
   );
 }
 
+async function flushHarnessHandler(
+  handler: HarnessWorkflowMessageHandler,
+): Promise<void> {
+  // Allow the router's scheduled drain, then await the handler's lazy import
+  // queue. An unknown type is a no-op that returns the current pending work.
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  await handler.handleMessage({ type: '__test_flush__' });
+}
+
 describe('Unit 5 push-message delivery with tasks / harness-builder / setup-hub never opened (R4)', () => {
   let router: MessageRouterService;
   let tasks: TasksStore;
   let harness: HarnessWorkflowMessageHandler;
   let wizard: SetupWizardStateService;
-  let appState: AppStateManager;
+  let workflowRequests: {
+    requestAndNavigate: jest.Mock;
+    reportHubError: jest.Mock;
+  };
   let rpcCall: jest.Mock;
 
   beforeEach(() => {
@@ -123,10 +141,31 @@ describe('Unit 5 push-message delivery with tasks / harness-builder / setup-hub 
       data: null,
       error: new Error('stubbed'),
     });
+    workflowRequests = {
+      requestAndNavigate: jest.fn().mockResolvedValue('landed'),
+      reportHubError: jest.fn(),
+    };
 
     TestBed.configureTestingModule({
       providers: [
         { provide: VSCodeService, useValue: makeVscodeStub() },
+        {
+          provide: SurfaceRouterService,
+          useValue: { currentSurface: signal('chat') },
+        },
+        { provide: SURFACE_ACTIVE, useFactory: surfaceActiveFor('chat') },
+        {
+          provide: HarnessWorkflowRequestService,
+          useValue: {
+            ...workflowRequests,
+            workspaceRoot: '/ws/a',
+            hasResumableMode: () => false,
+          },
+        },
+        {
+          provide: HarnessProposalHydrationService,
+          useValue: { handlePush: jest.fn() },
+        },
         // `TasksStore` opens artifacts through this port (TASK_2026_413). It is
         // required and has no default provider — `app.config.ts` binds it to
         // `FileLinkRouterService` — so the router is stubbed here rather than
@@ -185,7 +224,6 @@ describe('Unit 5 push-message delivery with tasks / harness-builder / setup-hub 
     tasks.attachSurface();
     harness = TestBed.inject(HarnessWorkflowMessageHandler);
     wizard = TestBed.inject(SetupWizardStateService);
-    appState = TestBed.inject(AppStateManager);
     // Constructing the router builds the handler map, which reads
     // handledMessageTypes off all three services. A dropped registration or a
     // barrel that no longer resolves the class explodes here.
@@ -233,18 +271,25 @@ describe('Unit 5 push-message delivery with tasks / harness-builder / setup-hub 
     ).toBeGreaterThan(0);
   });
 
-  it('routes harness:open-workflow to HarnessWorkflowMessageHandler', () => {
-    expect(appState.harnessWorkflowRequest()).toBeNull();
-
+  it('routes harness:open-workflow to HarnessWorkflowMessageHandler', async () => {
     dispatch(WIRE.harnessOpenWorkflow, {
-      mode: 'new-project',
+      mode: 'configure-harness',
       seedPrompt: 'delivered',
     });
+    await flushHarnessHandler(harness);
+    expect(workflowRequests.requestAndNavigate).toHaveBeenCalledWith({
+      mode: 'configure-harness',
+      seedPrompt: 'delivered',
+    });
+  });
 
-    const req = appState.harnessWorkflowRequest();
-    expect(req).not.toBeNull();
-    expect(req?.mode).toBe('new-project');
-    expect(req?.seedPrompt).toBe('delivered');
+  it('reports a malformed harness relay through the Hub error', async () => {
+    dispatch(WIRE.harnessOpenWorkflow, { mode: 'new-project' });
+    await flushHarnessHandler(harness);
+    expect(workflowRequests.requestAndNavigate).not.toHaveBeenCalled();
+    expect(workflowRequests.reportHubError).toHaveBeenCalledWith(
+      'The workspace sent an invalid builder request. Try again.',
+    );
   });
 
   it('routes setup-wizard:scan-progress to SetupWizardStateService', () => {
@@ -263,7 +308,7 @@ describe('Unit 5 push-message delivery with tasks / harness-builder / setup-hub 
     expect(progress?.detections).toEqual(['angular']);
   });
 
-  it('keeps every registration live across a second dispatch of each type', () => {
+  it('keeps every registration live across a second dispatch of each type', async () => {
     rpcCall.mockClear();
 
     dispatch(WIRE.tasksChanged, {});
@@ -274,10 +319,14 @@ describe('Unit 5 push-message delivery with tasks / harness-builder / setup-hub 
       detections: [],
     });
 
+    await flushHarnessHandler(harness);
+
     expect(
       rpcCall.mock.calls.filter((c) => c[0] === 'tasks:board').length,
     ).toBeGreaterThan(0);
-    expect(appState.harnessWorkflowRequest()?.mode).toBe('configure-harness');
+    expect(workflowRequests.requestAndNavigate).toHaveBeenCalledWith({
+      mode: 'configure-harness',
+    });
     expect(wizard.scanProgress()?.totalFiles).toBe(2);
   });
 });

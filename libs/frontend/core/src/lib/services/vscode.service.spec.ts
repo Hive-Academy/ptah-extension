@@ -383,6 +383,55 @@ describe('VSCodeService', () => {
       });
     });
 
+    it('keeps an Electron route while later writes see stale async IPC state', () => {
+      const { setState, getState } = installVsCodeApi({ isElectron: true });
+      getState.mockReturnValue({ theme: 'dark' });
+      TestBed.configureTestingModule({ providers: [VSCodeService] });
+      service = TestBed.inject(VSCodeService);
+
+      const route = {
+        v: 1,
+        route: '/harness-builder/new-project/tab-1',
+        seed: 'chat',
+        panelId: 'electron-main',
+      };
+      service.setState('ptahRoute', route);
+      service.updateWorkspaceRoot('/my/workspace');
+      service.setState('layout', { mode: 'single' });
+
+      expect(getState).toHaveBeenCalledTimes(1);
+      expect(setState).toHaveBeenLastCalledWith({
+        theme: 'dark',
+        ptahRoute: route,
+        layout: { mode: 'single' },
+      });
+      expect(service.getState('ptahRoute')).toEqual(route);
+    });
+
+    it('reads and merges the new workspace state after an Electron workspace switch', () => {
+      const { setState, getState } = installVsCodeApi({ isElectron: true });
+      getState.mockReturnValue({ branchA: 'main', layoutA: 'grid' });
+      TestBed.configureTestingModule({ providers: [VSCodeService] });
+      service = TestBed.inject(VSCodeService);
+
+      service.setState('ptahRoute', '/workspace-a/route');
+      service.updateWorkspaceRoot('/workspace-b');
+      getState.mockReturnValue({ branchB: 'feature', layoutB: 'single' });
+
+      expect(service.getState('branchB')).toBe('feature');
+      expect(service.getState('branchA')).toBeUndefined();
+      expect(service.getState('ptahRoute')).toBeUndefined();
+
+      service.setState('ptahRoute', '/workspace-b/route');
+
+      expect(setState).toHaveBeenLastCalledWith({
+        branchB: 'feature',
+        layoutB: 'single',
+        ptahRoute: '/workspace-b/route',
+      });
+      expect(service.getState('branchB')).toBe('feature');
+    });
+
     it('creates new state object when current state is empty/null', () => {
       const { setState, getState } = installVsCodeApi();
       getState.mockReturnValue(null);

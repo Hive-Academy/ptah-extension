@@ -1,0 +1,117 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+import { TestBed } from '@angular/core/testing';
+import {
+  Router,
+  provideRouter,
+  withDisabledInitialNavigation,
+  type Route,
+} from '@angular/router';
+import {
+  SURFACE_ACTIVE,
+  SurfaceRoutePersistence,
+  VSCodeService,
+} from '@ptah-extension/core';
+import {
+  WEBVIEW_ROUTE_STATE_KEY,
+  parseWebviewRouteState,
+} from '@ptah-extension/shared';
+
+import { appRoutes } from './app.routes';
+
+function routeFor(path: string): Route {
+  const route = appRoutes.find((candidate) => candidate.path === path);
+  if (!route) throw new Error(`Missing route: ${path}`);
+  return route;
+}
+
+describe('harness builder route', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('keeps the bare route and Setup Hub while lazily loading the parameterized builder', async () => {
+    const builder = routeFor('harness-builder/:mode/:tabId');
+    const bareBuilder = routeFor('harness-builder');
+    const hub = routeFor('setup-hub');
+    const module = await import('@ptah-extension/harness-builder');
+
+    expect(builder.loadComponent).toBeDefined();
+    expect(await builder.loadComponent?.()).toBe(
+      module.HarnessBuilderViewComponent,
+    );
+    expect(await bareBuilder.loadComponent?.()).toBe(
+      module.HarnessBuilderViewComponent,
+    );
+    expect(await hub.loadComponent?.()).toBe(module.SetupHubComponent);
+    expect(builder.providers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ provide: SURFACE_ACTIVE }),
+      ]),
+    );
+  });
+
+  it.each(['configure-harness', 'new-project'])(
+    'keeps the %s mode and tab ID in the settled and restored URL',
+    async (mode) => {
+      const setState = jest.fn<void, [string, unknown]>();
+      TestBed.configureTestingModule({
+        providers: [
+          provideRouter(appRoutes, withDisabledInitialNavigation()),
+          {
+            provide: VSCodeService,
+            useValue: {
+              isConnected: () => true,
+              config: () => ({ panelId: 'ptah.panel.builder-route-test' }),
+              setState,
+            },
+          },
+        ],
+      });
+      const router = TestBed.inject(Router);
+      TestBed.inject(SurfaceRoutePersistence).start(null);
+      const tabId = 'tab-123';
+      const url = `/harness-builder/${mode}/${tabId}`;
+
+      expect(await router.navigateByUrl(url)).toBe(true);
+      expect(router.url).toBe(url);
+      const snapshot = router.routerState.snapshot.root.firstChild;
+      expect(snapshot?.routeConfig?.path).toBe('harness-builder/:mode/:tabId');
+      expect(snapshot?.paramMap.get('mode')).toBe(mode);
+      expect(snapshot?.paramMap.get('tabId')).toBe(tabId);
+
+      expect(setState).toHaveBeenCalledWith(
+        WEBVIEW_ROUTE_STATE_KEY,
+        expect.objectContaining({ route: url }),
+      );
+      const saved = setState.mock.lastCall?.[1];
+      const restored = parseWebviewRouteState({
+        [WEBVIEW_ROUTE_STATE_KEY]: saved,
+      });
+      expect(restored?.route).toBe(url);
+      expect(await router.navigateByUrl('/setup-hub')).toBe(true);
+      expect(await router.navigateByUrl(restored?.route ?? '')).toBe(true);
+      expect(
+        router.routerState.snapshot.root.firstChild?.paramMap.get('tabId'),
+      ).toBe(tabId);
+    },
+  );
+
+  it('bounds the Electron outer row and configuration host', () => {
+    const source = readFileSync(
+      join(
+        __dirname,
+        '../../../../libs/frontend/chat/src/lib/components/templates/electron-shell.component.ts',
+      ),
+      'utf-8',
+    );
+    const rowClasses = source.match(
+      /<!-- 3-Panel Content Area -->\s*<div class="([^"]+)"/,
+    )?.[1];
+    const hostClasses = source.match(
+      /data-test="configuration-surface-host"[\s\S]*?class="([^"]+)"/,
+    )?.[1];
+
+    expect(rowClasses?.split(' ')).toContain('min-h-0');
+    expect(hostClasses?.split(' ')).toContain('min-h-0');
+  });
+});
