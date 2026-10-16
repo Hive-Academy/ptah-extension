@@ -371,6 +371,12 @@ export class SessionHistoryReplayer {
           if (!resolved) this.logger.warn('SessionHistoryReplayer',
             'seeded subagent history owner not found', { parentToolUseId: seeded.parentToolUseId });
         }
+        if (historyState && owners.size) {
+          const missingOwnerIds = [...owners].filter((id) => !historyState.messageEventIds.includes(id));
+          for (const id of missingOwnerIds) owners.delete(id);
+          if (!owners.size) this.logger.warn('SessionHistoryReplayer',
+            'seeded subagent history owners missing from message events', { tabId, ownerIds: missingOwnerIds });
+        }
         if (!owners.size || !historyState || !tab) {
           if (owners.size) this.logger.warn('SessionHistoryReplayer',
             'seeded subagent history state not found');
