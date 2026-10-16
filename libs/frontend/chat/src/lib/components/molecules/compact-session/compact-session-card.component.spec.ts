@@ -599,7 +599,7 @@ describe(CompactSessionCardComponent.name, () => {
     const fixture = render(tab({ lastTerminalReason: 'api_error' }));
     const expanded = jest.fn();
     fixture.componentInstance.expandToFull.subscribe(expanded);
-    fixture.componentInstance.openFullView();
+    (fixture.nativeElement.querySelector('[data-testid="compact-session-card"] button') as HTMLButtonElement).click();
     expect(expanded).toHaveBeenCalledTimes(1);
     expect(openSession).not.toHaveBeenCalled();
   });
@@ -902,6 +902,48 @@ describe(CompactSessionCardComponent.name, () => {
     expect(metrics).toContain('Cost —');
     expect(metrics).not.toContain('0 tokens');
     expect(metrics).not.toContain('agents');
+  });
+
+  it('shows a settled session title, reply, activity and status', () => {
+    const fixture = render(tab({
+      title: 'Review changes',
+      viewMode: 'compact',
+      messages: [{
+        id: 'reply-1',
+        role: 'assistant',
+        timestamp: 1,
+        streamingState: {
+          id: 'node-1',
+          type: 'text',
+          status: 'complete',
+          content: 'The changes are ready to review.',
+          children: [],
+          isCollapsed: false,
+        },
+      }],
+    }));
+    fixture.componentRef.setInput('needsYouCount', 2);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('[data-testid="compact-session-title"]').textContent).toContain('Review changes');
+    expect(fixture.nativeElement.querySelector('[data-zone="status"]').textContent).toContain('Done');
+    expect(fixture.nativeElement.textContent).toContain('The changes are ready to review.');
+    expect(fixture.nativeElement.querySelector('[data-zone="feed"]').textContent).toContain('EVENTS');
+    expect(fixture.nativeElement.querySelector('[data-zone="lanes"]')).toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('2 needs you');
+
+    const expanded = jest.fn();
+    fixture.componentInstance.expandToFull.subscribe(expanded);
+    (fixture.nativeElement.querySelector('[data-testid="compact-session-card"] button') as HTMLButtonElement).click();
+    expect(expanded).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides empty activity and lanes sections for a compact session with no events', () => {
+    const fixture = render(tab({ viewMode: 'compact' }));
+    expect(fixture.nativeElement.querySelector('[data-testid="compact-session-empty"]')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('[data-zone="feed"]')).toBeNull();
+    expect(fixture.nativeElement.querySelector('[data-zone="lanes"]')).toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('Waiting');
   });
 
   it('uses stable session identity color and owning workspace label', () => {

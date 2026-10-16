@@ -4,6 +4,7 @@ import {
   formatEstimatedCost,
   formatOptionalTokens,
   isUsageSegment,
+  usageTotalsFromSegments,
 } from './stats-bar.utils';
 
 describe('per-agent usage formatters (N6)', () => {
@@ -22,6 +23,13 @@ describe('per-agent usage formatters (N6)', () => {
 });
 
 describe('typed CLI usage statistics', () => {
+  it('derives summary totals from usage segments and returns null without usage', () => {
+    expect(usageTotalsFromSegments([
+      { type: 'info', content: '', usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120, costUsd: 0.1, contextTokens: 500, cacheReadTokens: 30 } },
+      { type: 'info', content: '', usage: { inputTokens: 50, outputTokens: 3, totalTokens: 53, costUsd: 0.2 } },
+    ])).toEqual({ inputTokens: 150, outputTokens: 23, totalTokens: 173, costUsd: 0.2, partial: true });
+    expect(usageTotalsFromSegments([{ type: 'text', content: 'No usage' }])).toBeNull();
+  });
   it.each(['text', 'tool-result', 'command'] as const)(
     'does not filter a content-bearing %s segment carrying usage',
     (type) => {

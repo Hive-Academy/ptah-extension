@@ -14,7 +14,7 @@ import {
   output,
   signal,
 } from '@angular/core';
-import { InspectorShellController, ProjectSetupCardComponent, RailTranscriptRetentionCoordinator, TabManagerService, injectSessionStatsSource } from '@ptah-extension/chat';
+import { InspectorShellController, ProjectSetupCardComponent, RailTranscriptRetentionCoordinator, SessionInspectorStore, TabManagerService, injectSessionStatsSource } from '@ptah-extension/chat';
 import { SessionInspectorComponent } from '@ptah-extension/chat/inspector';
 import { SURFACE_ACTIVE } from '@ptah-extension/core';
 import { StatsTileExpansionState, inspectorToggleDescription, type CompactRailState } from '@ptah-extension/chat-ui';
@@ -44,7 +44,9 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
   if (element.tabIndex < 0 || (element as HTMLButtonElement).disabled) return false;
   if (element.closest('[hidden], [inert]')) return false;
   const overlay = element.closest(PANE_OVERLAYS);
-  if (overlay && overlay !== sheet) return false;
+  const inspectorDialog = sheet && overlay?.parentElement?.matches('ptah-session-inspector')
+    && overlay.parentElement.parentElement === sheet;
+  if (overlay && overlay !== sheet && !inspectorDialog) return false;
   if (typeof element.checkVisibility === 'function') return element.checkVisibility({ visibilityProperty: true });
   // Environments without checkVisibility (jsdom): walk the computed styles.
   const view = element.ownerDocument.defaultView;
@@ -155,7 +157,7 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
           <div class="flex min-w-0 flex-1 overflow-x-auto" [class.flex-col]="splitStacked() && splitDisplayed()" [class.flex-row]="!splitStacked() || !splitDisplayed()" [class.gap-1]="splitDisplayed()" [attr.inert]="compactSheetOpen() ? '' : null" data-testid="rail-pane-container">
             @for (side of sides; track side) {
               @if (paneTab(side); as id) {
-                <section class="relative overflow-y-auto" [class.min-w-[360px]]="splitDisplayed()" [class.min-h-[400px]]="splitDisplayed()" [class.flex-1]="true"
+                <section class="relative overflow-y-auto" data-testid="canvas-tile" [class.min-w-[360px]]="splitDisplayed()" [class.min-h-[400px]]="splitDisplayed()" [class.flex-1]="true"
                   [class.border-base-content-muted]="splitDisplayed()"
                   [class.border-l]="splitDisplayed() && !splitStacked() && paneNumber(side) === 2"
                   [class.border-t]="splitDisplayed() && splitStacked() && paneNumber(side) === 2"
@@ -269,6 +271,7 @@ export class CanvasRailBoardComponent {
   readonly detail = inject(CanvasDetailService);
   readonly metrics = inject(CanvasRenderMetricsService);
   private readonly tabs = inject(TabManagerService);
+  private readonly inspectorStore = inject(SessionInspectorStore);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
   private readonly destroyRef = inject(DestroyRef);
@@ -331,8 +334,9 @@ export class CanvasRailBoardComponent {
   });
   readonly closedDetailsDescription = computed(() => {
     const current = this.stats.inputs();
-    return current
-      ? inspectorToggleDescription(current.context, current.limitSummary, 0)
+    const id = this.focusedId();
+    return current && id
+      ? inspectorToggleDescription(current.context, current.limitSummary, this.inspectorStore.modelFor(id)().needsYouCount)
       : '';
   });
   readonly band = computed(() => railWidthBand(this.layout.containerWidth()));
@@ -734,9 +738,8 @@ export class CanvasRailBoardComponent {
 
   onSheetKeydown(event: KeyboardEvent): void {
     if (event.key !== 'Tab') return;
-    const wrapper = this.host.nativeElement.querySelector<HTMLElement>('[data-compact-sheet]');
-    const sheet = wrapper?.querySelector<HTMLElement>('ptah-session-inspector [role="dialog"]') ?? wrapper;
-    if (!sheet) { event.preventDefault(); return; }
+    const sheet = event.currentTarget;
+    if (!(sheet instanceof HTMLElement)) return;
     const items = [...sheet.querySelectorAll<HTMLElement>(TABBABLE)].filter((element) =>
       isTabbable(element, sheet),
     );

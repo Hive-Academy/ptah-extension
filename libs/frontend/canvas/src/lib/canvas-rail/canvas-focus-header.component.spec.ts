@@ -69,6 +69,14 @@ describe('CanvasFocusHeaderComponent', () => {
     fixture.detectChanges();
     const host = fixture.nativeElement as HTMLElement;
     const trigger = host.querySelector<HTMLButtonElement>('[data-details]')!;
+    expect(trigger.getAttribute('aria-label')).toBe('Open details');
+    expect(trigger.getAttribute('title')).toBe('Session details');
+    expect(trigger.querySelector('lucide-angular[aria-hidden="true"] svg')).not.toBeNull();
+    expect(trigger.textContent).not.toContain('ⓘ');
+    expect(trigger.classList.contains('focus-visible:outline-base-content')).toBe(true);
+    for (const button of host.querySelectorAll<HTMLButtonElement>('[data-compact], [data-header-menu], [title="Close session"]')) {
+      expect(button.classList.contains('focus-visible:outline-base-content')).toBe(true);
+    }
     expect(host.querySelector('[role="status"]')?.textContent).toContain('At limit');
     expect(trigger.getAttribute('data-dot')).toBe('err');
     expect(trigger.querySelector('ptah-context-ring')).not.toBeNull();
@@ -91,7 +99,7 @@ describe('CanvasFocusHeaderComponent', () => {
     expect(host.querySelector('[data-stop]')).toBe(stop);
     expect(document.activeElement).toBe(stop);
   });
-  it('moves focus to Compact when Stop disappears', () => {
+  it('moves focus to the compact view button when Stop disappears', () => {
     const fixture = mount();
     const host = fixture.nativeElement as HTMLElement;
     host.querySelector<HTMLButtonElement>('[data-stop]')!.focus();
@@ -99,6 +107,18 @@ describe('CanvasFocusHeaderComponent', () => {
     fixture.detectChanges();
     expect(host.querySelector('[data-stop]')).toBeNull();
     expect(document.activeElement).toBe(host.querySelector('[data-compact]'));
+    expect(host.querySelector('[data-compact]')?.getAttribute('title')).toBe('Switch to compact view');
+  });
+  it('labels both icon-only view modes', () => {
+    const fixture = mount();
+    const compact = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('[data-compact]')!;
+    expect(compact.textContent?.trim()).toBe('');
+    expect(compact.querySelector('lucide-angular[aria-hidden="true"]')).not.toBeNull();
+    expect(compact.getAttribute('aria-label')).toBe('Switch to compact view');
+    fixture.componentRef.setInput('viewMode', 'compact');
+    fixture.detectChanges();
+    expect(compact.title).toBe('Switch to full view');
+    expect(compact.getAttribute('aria-label')).toBe('Switch to full view');
   });
   it('closes its own menu on Escape, consumes the event and returns focus to the trigger', () => {
     const fixture = mount();
@@ -179,6 +199,10 @@ describe('CanvasFocusHeaderComponent', () => {
     const close = host.querySelector<HTMLButtonElement>(
       '[aria-label="Close session"]',
     )!;
+    expect(trigger.title).toBe('More session actions');
+    expect(trigger.querySelector('lucide-angular[aria-hidden="true"]')).not.toBeNull();
+    expect(close.title).toBe('Close session');
+    expect(close.querySelector('lucide-angular[aria-hidden="true"]')).not.toBeNull();
     for (const item of items) {
       expect(item.tabIndex).toBe(0);
       expect(
@@ -293,7 +317,6 @@ describe('CanvasFocusHeaderComponent', () => {
     function pane(active: boolean, number: 1 | 2, place: string) {
       const { fixture, host } = split();
       fixture.componentRef.setInput('branch', 'feat/x');
-      fixture.componentRef.setInput('model', 'claude-opus-5-5');
       fixture.componentRef.setInput('paneFocused', active);
       fixture.componentRef.setInput('paneNumber', number);
       fixture.componentRef.setInput('panePlace', place);
@@ -303,7 +326,7 @@ describe('CanvasFocusHeaderComponent', () => {
         ...header.querySelectorAll<HTMLElement>(
           'span.bg-base-200:not([data-pane-marker])',
         ),
-      ].filter((chip) => /feat\/x|claude-opus/.test(chip.textContent ?? ''));
+      ].filter((chip) => /feat\/x/.test(chip.textContent ?? ''));
       return {
         fixture,
         header,
@@ -326,7 +349,7 @@ describe('CanvasFocusHeaderComponent', () => {
       expect(marker?.classList).toContain('pane-marker-active');
       expect(header.firstElementChild).toBe(marker);
       expect(title.classList).not.toContain('text-base-content-muted');
-      expect(chips).toHaveLength(2);
+      expect(chips).toHaveLength(1);
       chips.forEach((chip) =>
         expect(chip.classList).not.toContain('text-base-content-muted'),
       );
@@ -345,7 +368,7 @@ describe('CanvasFocusHeaderComponent', () => {
       expect(marker?.classList).toContain('text-base-content-muted');
       expect(marker?.classList).not.toContain('pane-marker-active');
       expect(title.classList).toContain('text-base-content-muted');
-      expect(chips).toHaveLength(2);
+      expect(chips).toHaveLength(1);
       chips.forEach((chip) =>
         expect(chip.classList).toContain('text-base-content-muted'),
       );
@@ -396,7 +419,6 @@ describe('CanvasFocusHeaderComponent', () => {
       const host = fixture.nativeElement as HTMLElement;
       fixture.componentRef.setInput('paneFocused', false);
       fixture.componentRef.setInput('paneNumber', 2);
-      fixture.componentRef.setInput('model', 'claude-opus-5-5');
       fixture.detectChanges();
       const header = host.querySelector<HTMLElement>('header')!;
       expect(header.querySelector('[data-pane-marker]')).toBeNull();
@@ -409,18 +431,18 @@ describe('CanvasFocusHeaderComponent', () => {
       );
     });
   });
-  it('hides button words and model in a narrow band while preserving labels', () => {
+  it('keeps icon-only buttons labelled in a narrow band', () => {
     const fixture = mount();
     fixture.componentRef.setInput('band', 'sm');
-    fixture.componentRef.setInput('model', 'Opus');
     fixture.detectChanges();
     const host = fixture.nativeElement as HTMLElement;
-    expect(host.textContent).not.toContain('Opus');
     expect(host.querySelector('[data-compact]')?.textContent).not.toContain(
       'Compact',
     );
     expect(
       host.querySelector('[data-compact]')?.getAttribute('aria-label'),
     ).toBe('Switch to compact view');
+    expect(host.querySelector('[data-compact]')?.getAttribute('title')).toBe('Switch to compact view');
+    expect(host.querySelector('[data-compact] lucide-angular[aria-hidden="true"]')).not.toBeNull();
   });
 });

@@ -857,9 +857,9 @@ export class ChatViewComponent implements OnDestroy {
    * transcript freezes; when the token is absent (tribunal conductor, tests) the
    * tile is treated as always showing.
    *
-   * NOTE: a forced card (`showCompactCard()`) destroys the keep-alive region
-   * via the template `@if/@else`; only Rail hosts force it, and they rebuild
-   * on return. Accepted, not fixed (plan risk 6).
+   * A user-chosen compact tab keeps the main transcript region mounted but
+   * hidden. A forced Rail card tears it down and rebuilds it on return
+   * (plan risk 6).
    */
   readonly mainPanelShowing = computed(() =>
     this._sessionContext
@@ -920,12 +920,15 @@ export class ChatViewComponent implements OnDestroy {
   });
 
   /**
-   * The compact card shows only where a host forces it (Rail card, A-5). A
-   * user-chosen compact view renders the transcript, which reads the tab's
-   * `viewMode` itself (compact density), under the session header.
+   * Show the condensed card for a user-chosen compact tab or when its host
+   * forces the card (Rail card, A-5).
    */
+  protected readonly forcedCard = computed(() => this._forcedCard?.() ?? false);
+  protected readonly userCompact = computed(
+    () => !this.forcedCard() && this.resolvedActiveTab()?.viewMode === 'compact',
+  );
   protected readonly showCompactCard = computed(
-    () => this._forcedCard?.() ?? false,
+    () => this.forcedCard() || this.userCompact(),
   );
 
   /**
@@ -1097,12 +1100,12 @@ export class ChatViewComponent implements OnDestroy {
   protected readonly bareChrome =
     inject(SESSION_EMBED_CHROME, { optional: true }) === 'bare';
 
-  /** Only the main panel hosts the inspector; tiles and forced cards do not. */
+  /** Only the full main panel hosts the inspector. */
   protected readonly hostsInspector = computed(
     () =>
       !this.bareChrome &&
       !this._sessionContext &&
-      !(this._forcedCard?.() ?? false),
+      !this.showCompactCard(),
   );
 
   /** Agent rows open lanes only where the host has a lane surface. */
@@ -2092,7 +2095,7 @@ export class ChatViewComponent implements OnDestroy {
   /** Switch the current tab from compact back to full view */
   expandToFullView(): void {
     const tabId = this.resolvedTabId();
-    if (tabId) {
+    if (tabId && this.resolvedActiveTab()?.viewMode === 'compact') {
       this._tabManager.toggleTabViewMode(tabId);
     }
   }
