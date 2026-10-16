@@ -44,6 +44,52 @@ export const SPECS_README_FILE = 'README.md';
 /** Bumped only when the on-disk carrier shape changes. */
 export const SPEC_CONTRACT_VERSION = 1;
 
+// ---------------------------------------------------------------------------
+// Named per-task documents
+//
+// Each name below is written ONCE, here, and {@link DOC_FILES} is built from
+// these constants, so every one of them is a `DocFile` by construction. They
+// exist for consumers that need a SPECIFIC document (the Tasks inspector's
+// derived Stage ladder, the batch-breakdown fallback) without hand-writing the
+// filename — which the contract guard forbids outside this module.
+// ---------------------------------------------------------------------------
+
+/** The agent-owned prose document. Machines never write it. */
+export const CONTEXT_FILE = 'context.md';
+
+/** The project-manager's scoped requirements. */
+export const TASK_DESCRIPTION_FILE = 'task-description.md';
+
+/** The architect's implementation plan. */
+export const IMPLEMENTATION_PLAN_FILE = 'implementation-plan.md';
+
+/** Current name of the team-leader batch breakdown. */
+export const BATCHES_FILE = 'batches.md';
+
+/** The senior-tester's evidence report. */
+export const TEST_REPORT_FILE = 'test-report.md';
+
+/** The code-style reviewer's report. */
+export const CODE_STYLE_REVIEW_FILE = 'code-style-review.md';
+
+/** The code-logic reviewer's report. */
+export const CODE_LOGIC_REVIEW_FILE = 'code-logic-review.md';
+
+/** The visual reviewer's report. */
+export const VISUAL_REVIEW_FILE = 'visual-review.md';
+
+/** The designer's section-by-section visual specification. */
+export const VISUAL_DESIGN_SPECIFICATION_FILE = 'visual-design-specification.md';
+
+/** The designer's visual specification (`ui-ux-designer.template.md:104`). */
+export const DESIGN_SPEC_FILE = 'design-spec.md';
+
+/** The designer's developer handoff (`ui-ux-designer.template.md:148`). */
+export const DESIGN_HANDOFF_FILE = 'design-handoff.md';
+
+/** Permanent fallback name for {@link BATCHES_FILE}. */
+export const LEGACY_BATCHES_FILE = 'tasks.md';
+
 /**
  * The CLOSED set of per-task documents Ptah recognises inside a task folder.
  *
@@ -72,24 +118,24 @@ export const SPEC_CONTRACT_VERSION = 1;
  * the stale name was fixed in the assets instead.
  */
 export const DOC_FILES = [
-  'context.md',
-  'task-description.md',
-  'implementation-plan.md',
-  'batches.md',
-  'test-report.md',
+  CONTEXT_FILE,
+  TASK_DESCRIPTION_FILE,
+  IMPLEMENTATION_PLAN_FILE,
+  BATCHES_FILE,
+  TEST_REPORT_FILE,
   'testing-infrastructure-escalation.md',
-  'code-style-review.md',
-  'code-logic-review.md',
-  'visual-review.md',
-  'visual-design-specification.md',
-  'design-spec.md',
-  'design-handoff.md',
+  CODE_STYLE_REVIEW_FILE,
+  CODE_LOGIC_REVIEW_FILE,
+  VISUAL_REVIEW_FILE,
+  VISUAL_DESIGN_SPECIFICATION_FILE,
+  DESIGN_SPEC_FILE,
+  DESIGN_HANDOFF_FILE,
   'design-assets-inventory.md',
   'content-specification.md',
   'research-report.md',
   'future-enhancements.md',
   /** legacy — see `LEGACY_DOC_FILES`. */
-  'tasks.md',
+  LEGACY_BATCHES_FILE,
 ] as const;
 
 /** Literal union of every recognised per-task document. */
@@ -103,19 +149,10 @@ export type DocFile = (typeof DOC_FILES)[number];
  * deprecation-warned: existing task folders on disk are gitignored, so there is
  * no migration that can be trusted to have run.
  */
-export const LEGACY_DOC_FILES = ['tasks.md'] as const;
+export const LEGACY_DOC_FILES = [LEGACY_BATCHES_FILE] as const;
 
 /** Literal union of the legacy document names. */
 export type LegacyDocFile = (typeof LEGACY_DOC_FILES)[number];
-
-/** Current name of the team-leader batch breakdown. */
-export const BATCHES_FILE = 'batches.md';
-
-/** Permanent fallback name for {@link BATCHES_FILE}. */
-export const LEGACY_BATCHES_FILE = 'tasks.md';
-
-/** The agent-owned prose document. Machines never write it. */
-export const CONTEXT_FILE = 'context.md';
 
 /**
  * Crucible's frozen grading rubric (the tribunal skill's `crucible.md`).

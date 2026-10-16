@@ -20,6 +20,8 @@ function makeAutopilotState(enabled: boolean) {
   const enabledSignal = signal(enabled);
   return {
     isPending: signal(false).asReadonly(),
+    // Read by the approval chip ink (agent plan mode wins, like the text).
+    agentPlanMode: signal(false).asReadonly(),
     stateFor: (): FakeTabState => ({
       enabled: enabledSignal(),
       permissionLevel: 'yolo',

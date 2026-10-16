@@ -102,6 +102,24 @@ describe('TabManagerService — persistence payload + write cadence', () => {
     TestBed.resetTestingModule();
   });
 
+  it('persists a workflow tag and sanitizes unknown or malformed tags on restore', () => {
+    const id = service.createTab('Workflow');
+    service.setWorkflow(id, 'harness-configure');
+    jest.advanceTimersByTime(600);
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}');
+    expect(stored.tabs[0].workflow).toBe('harness-configure');
+
+    stored.tabs[0].workflow = { arbitrary: 'badge' };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+    service.loadTabState();
+    expect(service.tabs()[0].workflow).toBeUndefined();
+
+    stored.tabs[0].workflow = 'unrecognized-kind';
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+    service.loadTabState();
+    expect(service.tabs()[0].workflow).toBeUndefined();
+  });
+
   function readStored(): {
     version: number;
     activeTabId: string | null;

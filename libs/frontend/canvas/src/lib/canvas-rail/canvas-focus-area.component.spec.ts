@@ -31,15 +31,17 @@ const buildTree = jest.fn(() => []);
   selector: 'ptah-canvas-focus-header',
   standalone: true,
   template:
-    '<header>{{ title() }}<span class="branch-chip">{{ branch() }}</span><span class="model-chip">{{ model() }}</span></header>',
+    '<header>{{ title() }}<span class="branch-chip">{{ branch() }}</span></header>',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 class HeaderStub {
   readonly tabId = input.required<string>();
+  readonly limitCue = input<unknown>(null);
+  readonly contextRingPercent = input<number | null>(null);
+  readonly toggleDescription = input('');
   readonly title = input('');
   readonly state = input('idle');
   readonly branch = input<string | null>(null);
-  readonly model = input<string | null>(null);
   readonly running = input(false);
   readonly viewMode = input('full');
   readonly band = input('lg');
@@ -63,7 +65,7 @@ class HeaderStub {
 })
 class TabsStub {
   readonly panelId = input('canvas-lane-panel');
-  readonly sessionId = input<string | null>(null);
+  readonly tabId = input<string | null>(null);
   readonly laneKey = input('orchestrator');
   readonly laneSelected = output<string>();
 }
@@ -312,14 +314,11 @@ describe('CanvasFocusAreaComponent', () => {
     },
   );
 
-  it('passes the focused tab branch and live model into header chips', () => {
+  it('passes the focused tab branch into the header', () => {
     const { fixture } = mountWithLanes();
     expect(
       fixture.nativeElement.querySelector('.branch-chip')?.textContent,
     ).toBe('feature/a');
-    expect(
-      fixture.nativeElement.querySelector('.model-chip')?.textContent,
-    ).toBe('model-a');
   });
 
   it('processes one snapshot for the focused view and none for an unfocused tab', () => {

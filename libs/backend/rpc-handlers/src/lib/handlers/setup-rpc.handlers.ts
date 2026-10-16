@@ -40,6 +40,7 @@ import {
   normalizeAgentOutput,
   AgentRecommendationService,
   AnalysisStorageService,
+  AnalysisFreshnessService,
 } from '@ptah-extension/agent-generation';
 import { SDK_TOKENS, PluginLoaderService } from '@ptah-extension/agent-sdk';
 import type {
@@ -49,6 +50,8 @@ import type {
   WizardDeepAnalyzeParams,
   WizardGetResumableRunParams,
   WizardGetResumableRunResponse,
+  WizardAnalysisStatusParams,
+  WizardAnalysisStatusResponse,
   WizardListAgentPacksParams,
   WizardListAgentPacksResult,
   WizardInstallPackAgentsParams,
@@ -62,6 +65,7 @@ import { toResumableGenerationRun } from './wizard-generation-checkpoint.service
 import {
   WizardDeepAnalyzeParamsSchema,
   WizardGetResumableRunParamsSchema,
+  WizardAnalysisStatusParamsSchema,
   WizardInstallPackAgentsParamsSchema,
   WizardListAnalysesParamsSchema,
   WizardLoadAnalysisParamsSchema,
@@ -88,6 +92,7 @@ export class SetupRpcHandlers {
     'setup-wizard:launch',
     'wizard:deep-analyze',
     'wizard:get-resumable-run',
+    'wizard:analysis-status',
     'wizard:recommend-agents',
     'wizard:cancel-analysis',
     'wizard:list-analyses',
@@ -161,6 +166,7 @@ export class SetupRpcHandlers {
     this.registerLaunchWizard();
     this.registerDeepAnalyze();
     this.registerGetResumableRun();
+    this.registerAnalysisStatus();
     this.registerRecommendAgents();
     this.registerCancelAnalysis();
     this.registerListAnalyses();
@@ -446,6 +452,23 @@ export class SetupRpcHandlers {
         generationLifecycle: generation?.lifecycle ?? null,
       });
       return { analysis, generation };
+    });
+  }
+
+  /** Report whether the current workspace analysis is usable. */
+  private registerAnalysisStatus(): void {
+    this.rpcHandler.registerMethod<
+      WizardAnalysisStatusParams,
+      WizardAnalysisStatusResponse
+    >('wizard:analysis-status', async (rawParams) => {
+      this.parse(WizardAnalysisStatusParamsSchema, rawParams);
+      const freshnessService = this.resolveService<AnalysisFreshnessService>(
+        AGENT_GENERATION_TOKENS.ANALYSIS_FRESHNESS_SERVICE,
+        'AnalysisFreshnessService',
+      );
+      return freshnessService.getStatus(
+        this.workspaceProvider.getWorkspaceRoot() ?? null,
+      );
     });
   }
 

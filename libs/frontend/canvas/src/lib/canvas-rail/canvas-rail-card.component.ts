@@ -15,6 +15,7 @@ import {
   SESSION_CARD_ACTIONS,
   SESSION_FORCED_CARD,
   TabManagerService,
+  WorkflowBadgeComponent,
   type SessionCardActions,
 } from '@ptah-extension/chat';
 import {
@@ -40,7 +41,11 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
   // eslint-disable-next-line @angular-eslint/component-selector
   selector: 'li[ptah-canvas-rail-card]',
   standalone: true,
-  imports: [CompactSessionCardComponent, NativePopoverComponent],
+  imports: [
+    CompactSessionCardComponent,
+    NativePopoverComponent,
+    WorkflowBadgeComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [
     {
@@ -53,11 +58,13 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
     'data-rail-card': '',
     '[attr.data-tab-id]': 'tabId()',
     '[attr.data-state]': 'state()',
-    '[style.height.px]': 'collapsed() ? 56 : cardHeight()',
+    '[style.height.px]':
+      'collapsed() ? 56 : cardHeight() + (tab()?.workflow ? 20 : 0)',
     // The host click is a pointer shortcut; its keyboard equivalent is the
     // card's select button (or the collapsed button), so the li stays a listitem.
     role: 'listitem',
     class: 'flex relative cursor-pointer',
+    '[class.flex-col]': '!collapsed() && !!tab()?.workflow',
     '(click)': 'onClick($event)',
     '(keydown)': 'onKeydown($event)',
   },
@@ -110,7 +117,9 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
         <button
           type="button"
           class="rail-collapsed flex h-14 w-8 shrink-0 items-center justify-center gap-1 rounded-lg border border-base-content/10 bg-base-200 text-xs"
-          [attr.aria-label]="current.title + ', ' + state() + (focused() ? ', in focus' : '')"
+          [attr.aria-label]="
+            current.title + ', ' + state() + (focused() ? ', in focus' : '')
+          "
           [attr.aria-current]="focused() ? 'true' : null"
           [attr.title]="current.title + ', ' + state()"
           [tabIndex]="focused() ? 0 : -1"
@@ -123,6 +132,12 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
           >{{ index() }}
         </button>
       } @else {
+        @if (current.workflow) {
+          <ptah-workflow-badge
+            class="ml-4 shrink-0 self-start"
+            [workflow]="current.workflow"
+          />
+        }
         <ptah-compact-session-card
           class="min-w-0 flex-1"
           [tab]="current"
@@ -147,7 +162,9 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
         [class]="
           collapsed()
             ? 'flex w-6 shrink-0 items-center justify-center'
-            : 'absolute right-1.5 top-1.5 z-10 flex'
+            : tab()?.workflow
+              ? 'absolute right-1.5 top-[26px] z-10 flex'
+              : 'absolute right-1.5 top-1.5 z-10 flex'
         "
       >
         <!-- A block trigger wrapper adds no inline baseline gap to the cell. -->
@@ -190,7 +207,9 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
               class="btn btn-ghost btn-sm h-auto min-h-8 flex-col items-start justify-center py-1 text-left font-normal"
               [class.opacity-60]="!!splitDisabledReason()"
               [attr.aria-disabled]="splitDisabledReason() ? 'true' : null"
-              [attr.aria-describedby]="splitDisabledReason() ? reasonId() : null"
+              [attr.aria-describedby]="
+                splitDisabledReason() ? reasonId() : null
+              "
               [attr.title]="splitDisabledReason()"
               (click)="openBeside()"
             >
@@ -289,7 +308,10 @@ export class CanvasRailCardComponent implements SessionCardActions {
     // The trigger and menu items are buttons (the interactive-target rule);
     // the corner cell, menu panel and backdrop are action surface, never a select.
     const target = event.target;
-    if (target instanceof Node && this.actions()?.nativeElement.contains(target))
+    if (
+      target instanceof Node &&
+      this.actions()?.nativeElement.contains(target)
+    )
       return;
     if (!isIgnoredCardClick(event, this.host.nativeElement)) this.openSession();
   }
@@ -350,11 +372,20 @@ export class CanvasRailCardComponent implements SessionCardActions {
       (item) => item === item.ownerDocument.activeElement,
     );
     switch (event.key) {
-      case 'ArrowDown': this.focusMenuItem(current + 1); break;
-      case 'ArrowUp': this.focusMenuItem(current < 0 ? -1 : current - 1); break;
-      case 'Home': this.focusMenuItem(0); break;
-      case 'End': this.focusMenuItem(-1); break;
-      default: return;
+      case 'ArrowDown':
+        this.focusMenuItem(current + 1);
+        break;
+      case 'ArrowUp':
+        this.focusMenuItem(current < 0 ? -1 : current - 1);
+        break;
+      case 'Home':
+        this.focusMenuItem(0);
+        break;
+      case 'End':
+        this.focusMenuItem(-1);
+        break;
+      default:
+        return;
     }
     event.preventDefault();
   }

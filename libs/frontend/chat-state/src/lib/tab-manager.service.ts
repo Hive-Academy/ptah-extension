@@ -14,6 +14,8 @@ import {
   StreamingState,
   SendMessageOptions,
   type TitleOrigin,
+  type WorkflowKind,
+  isWorkflowKind,
 } from '@ptah-extension/chat-types';
 import {
   ExecutionChatMessage,
@@ -51,6 +53,7 @@ import { TabSessionBinding } from './tab-session-binding.service';
 import { ConversationRegistry } from './conversation-registry.service';
 import { TabId } from './identity/ids';
 import { withTerminalFailureSeq } from './terminal-failure-seq';
+import { WorkflowSessionIndexService } from './workflow-session-index.service';
 import {
   buildPersistedTabState,
   nextPersistFailure,
@@ -227,6 +230,7 @@ export class TabManagerService {
 
   private readonly confirmationDialog = inject(ConfirmationDialogService);
   private readonly workspacePartition = inject(TabWorkspacePartitionService);
+  private readonly workflowIndex = inject(WorkflowSessionIndexService);
   /**
    * Multi-tab fan-out support.
    *
@@ -284,6 +288,7 @@ export class TabManagerService {
    * for all visible tiles, not just the active one.
    */
   private readonly _visibleTabIds = signal<ReadonlySet<string>>(new Set());
+  private readonly visibleTabOwners = new Map<string, number>();
 
   /**
    * Signal emitted when a pop-out panel needs to load a specific session.
@@ -815,6 +820,9 @@ export class TabManagerService {
     // Update signals with target workspace's tab state
     this._tabs.set(result.tabs);
     this._activeTabId.set(result.activeTabId);
+    for (const tab of result.tabs) {
+      this.workflowIndex.rememberTab(tab, workspacePath);
+    }
   }
 
   /**
@@ -889,6 +897,12 @@ export class TabManagerService {
     );
 
     if (existingTab) {
+      const workflow = this.workflowForSession(
+        claudeSessionId,
+        this.workspacePartition.activeWorkspacePath ?? '',
+      );
+      if (workflow && !existingTab.workflow)
+        this.setWorkflow(existingTab.id, workflow);
       // Switch to existing tab instead of creating duplicate
       this.switchTab(existingTab.id);
       return existingTab.id;
@@ -899,6 +913,11 @@ export class TabManagerService {
     const newTab: TabState = {
       id,
       claudeSessionId,
+      workflow:
+        this.workflowForSession(
+          claudeSessionId,
+          this.workspacePartition.activeWorkspacePath ?? '',
+        ) ?? undefined,
       name: title || claudeSessionId.substring(0, 50),
       title: title || claudeSessionId.substring(0, 50),
       titleOrigin: 'history',
@@ -924,6 +943,32 @@ export class TabManagerService {
     this.saveTabState();
 
     return id;
+  }
+
+  /** Mark a normal tab as a workflow without changing its session transport. */
+  setWorkflow(tabId: string, workflow: WorkflowKind): void {
+    if (!isWorkflowKind(workflow)) return;
+    const located = this.findTabByIdAcrossWorkspaces(tabId);
+    if (!located) return;
+    if (this._tabs().some((tab) => tab.id === tabId)) {
+      this.updateTabInternal(tabId, { workflow });
+    } else {
+      this.workspacePartition.updateBackgroundTab(tabId, { workflow });
+    }
+    const updated = this.findTabByIdAcrossWorkspaces(tabId);
+    if (updated)
+      this.workflowIndex.rememberTab(updated.tab, updated.workspacePath);
+  }
+
+  workflowForSession(
+    sessionId: string,
+    workspacePath: string,
+  ): WorkflowKind | null {
+    return this.workflowIndex.get(sessionId, workspacePath);
+  }
+
+  forgetWorkflowSession(sessionId: string, workspacePath: string): void {
+    this.workflowIndex.forget(sessionId, workspacePath);
   }
 
   /**
@@ -1523,12 +1568,25 @@ export class TabManagerService {
     });
 
     if (found) {
+      if (changed && (updates.claudeSessionId || updates.workflow)) {
+        const tab = this._tabs().find((item) => item.id === tabId);
+        if (tab)
+          this.workflowIndex.rememberTab(
+            tab,
+            this.workspacePartition.activeWorkspacePath,
+          );
+      }
       if (changed) this.saveTabState();
       return;
     }
 
     // Tab not in active workspace -- delegate to partition service.
     this.workspacePartition.updateBackgroundTab(tabId, updates);
+    if (updates.claudeSessionId || updates.workflow) {
+      const located = this.findTabByIdAcrossWorkspaces(tabId);
+      if (located)
+        this.workflowIndex.rememberTab(located.tab, located.workspacePath);
+    }
   }
 
   // ============================================================================
@@ -2986,6 +3044,9 @@ export class TabManagerService {
    * active one.
    */
   registerVisibleTab(tabId: string): void {
+    const owners = this.visibleTabOwners.get(tabId) ?? 0;
+    this.visibleTabOwners.set(tabId, owners + 1);
+    if (owners > 0) return;
     this._visibleTabIds.update((set) => {
       if (set.has(tabId)) return set;
       return new Set([...set, tabId]);
@@ -2994,6 +3055,13 @@ export class TabManagerService {
 
   /** Drop a tab from the visible set when its surface unmounts. */
   unregisterVisibleTab(tabId: string): void {
+    const owners = this.visibleTabOwners.get(tabId);
+    if (owners === undefined) return;
+    if (owners > 1) {
+      this.visibleTabOwners.set(tabId, owners - 1);
+      return;
+    }
+    this.visibleTabOwners.delete(tabId);
     this._visibleTabIds.update((set) => {
       if (!set.has(tabId)) return set;
       const next = new Set(set);

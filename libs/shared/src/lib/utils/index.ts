@@ -1,4 +1,5 @@
 export { Result } from './result';
+export { mergeHarnessConfigUpdates } from './merge-harness-config-updates';
 export * from './retry.utils';
 export * from './json.utils';
 export { WorkspacePathEncoder } from './workspace-path-encoder';

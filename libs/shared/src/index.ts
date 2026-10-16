@@ -66,6 +66,7 @@ export * from './lib/utils/git.utils';
 export * from './lib/utils/auth-env.utils';
 export * from './lib/types/wizard';
 export * from './lib/types/rpc/rpc-harness.types';
+export * from './lib/types/rpc/rpc-harness-proposal.types';
 export * from './lib/types/rpc/rpc-error-codes.types';
 export * from './lib/types/rpc/rpc-persistence.types';
 export * from './lib/types/rpc/rpc-readiness.types';

@@ -256,6 +256,8 @@ import type {
   WizardDeepAnalyzeResponse,
   WizardGetResumableRunParams,
   WizardGetResumableRunResponse,
+  WizardAnalysisStatusParams,
+  WizardAnalysisStatusResponse,
   WizardRecommendAgentsParams,
   WizardRecommendAgentsResponse,
   WizardCancelAnalysisParams,
@@ -569,6 +571,10 @@ import type {
   HarnessWorkflowPromptParams,
   HarnessWorkflowPromptResponse,
 } from './rpc/rpc-harness.types';
+import type {
+  HarnessGetProposalParams,
+  HarnessGetProposalResult,
+} from './rpc/rpc-harness-proposal.types';
 
 // The reconciler's own surface (TASK_2026_278 Batch 4). It shares the
 // `harness:` namespace with the setup builder above but not its types: these
@@ -1013,6 +1019,10 @@ export interface RpcMethodRegistry {
   'wizard:get-resumable-run': {
     params: WizardGetResumableRunParams;
     result: WizardGetResumableRunResponse;
+  };
+  'wizard:analysis-status': {
+    params: WizardAnalysisStatusParams;
+    result: WizardAnalysisStatusResponse;
   };
   'wizard:recommend-agents': {
     params: WizardRecommendAgentsParams;
@@ -1810,6 +1820,10 @@ export interface RpcMethodRegistry {
   'harness:start-new-project': {
     params: HarnessStartNewProjectParams;
     result: HarnessStartNewProjectResult;
+  };
+  'harness:get-proposal': {
+    params: HarnessGetProposalParams;
+    result: HarnessGetProposalResult;
   };
   'harness:workflow-prompt': {
     params: HarnessWorkflowPromptParams;
@@ -3809,6 +3823,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'setup-wizard:launch': true,
   'wizard:deep-analyze': true,
   'wizard:get-resumable-run': true,
+  'wizard:analysis-status': true,
   'wizard:recommend-agents': true,
   'wizard:cancel-analysis': true,
   'wizard:submit-selection': true,
@@ -3994,6 +4009,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'harness:generate-document': true,
   'harness:analyze-intent': true,
   'harness:start-new-project': true,
+  'harness:get-proposal': true,
   'harness:workflow-prompt': true,
   'harness:health': true,
   'harness:reconcile': true,

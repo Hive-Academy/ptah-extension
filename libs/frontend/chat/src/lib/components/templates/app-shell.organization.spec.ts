@@ -42,6 +42,7 @@ import type {
   SessionOrganizationSummary,
 } from '@ptah-extension/shared';
 import { AppShellComponent } from './app-shell.component';
+import { WorkflowBadgeComponent } from '../atoms/workflow-badge.component';
 import { groupSessionRows } from './session-row-groups';
 import { ChatStore } from '../../services/chat.store';
 import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-ender.service';
@@ -118,7 +119,13 @@ interface StoreStub {
   organizationAvailable: WritableSignal<boolean>;
   listQuery: WritableSignal<SessionListQuery>;
   setListQuery: jest.Mock;
+  removeSessionFromList: jest.Mock;
 }
+
+const workflowForSession = jest.fn().mockReturnValue(null);
+const forgetWorkflowSession = jest.fn();
+const confirmDelete = jest.fn();
+const deleteSession = jest.fn();
 
 function createStore(): StoreStub {
   const listQuery = signal<SessionListQuery>({ sort: 'lastActive' });
@@ -127,6 +134,7 @@ function createStore(): StoreStub {
     organizationAvailable: signal(false),
     listQuery,
     setListQuery: jest.fn((query: SessionListQuery) => listQuery.set(query)),
+    removeSessionFromList: jest.fn(),
   };
 }
 
@@ -151,11 +159,15 @@ function configure(store: StoreStub): ComponentFixture<AppShellComponent> {
           getSessionDisplayName: (s: ChatSessionSummary) => s.name,
         },
       },
-      { provide: ConfirmationDialogService, useValue: { confirm: jest.fn() } },
+      {
+        provide: ConfirmationDialogService,
+        useValue: { confirm: confirmDelete },
+      },
       {
         provide: ClaudeRpcService,
         useValue: {
           call: jest.fn().mockResolvedValue({ success: false, error: 'stub' }),
+          deleteSession,
         },
       },
       { provide: AgentMonitorStore, useValue: {} },
@@ -171,7 +183,13 @@ function configure(store: StoreStub): ComponentFixture<AppShellComponent> {
       { provide: AgentFollowUpQueueService, useValue: {} },
       {
         provide: TabManagerService,
-        useValue: { activeTab: signal(null), findTabBySessionId: () => null },
+        useValue: {
+          activeTab: signal(null),
+          findTabBySessionId: () => null,
+          workflowForSession,
+          forgetWorkflowSession,
+          activeWorkspacePath: '/work',
+        },
       },
       {
         provide: ChatStore,
@@ -207,6 +225,7 @@ function configure(store: StoreStub): ComponentFixture<AppShellComponent> {
         SessionOrganizationChipsComponent,
         SessionLivePhaseIndicatorComponent,
         SessionOrganizationEditorComponent,
+        WorkflowBadgeComponent,
       ],
       providers: [],
     },
@@ -264,6 +283,10 @@ describe('AppShell sidebar organization (TASK_2026_580)', () => {
 
   beforeEach(() => {
     store = createStore();
+    workflowForSession.mockReset().mockReturnValue(null);
+    forgetWorkflowSession.mockReset();
+    confirmDelete.mockReset();
+    deleteSession.mockReset();
   });
 
   afterEach(() => {
@@ -272,6 +295,84 @@ describe('AppShell sidebar organization (TASK_2026_580)', () => {
   });
 
   describe('organization unavailable (VS Code shape, AC7)', () => {
+    it('shows a workflow badge only on the tagged session row', () => {
+      store.sessions.set([
+        session('tagged', 'Tagged'),
+        session('plain', 'Plain'),
+      ]);
+      workflowForSession.mockImplementation((id: string) =>
+        id === 'tagged' ? 'harness-new-project' : null,
+      );
+      const fixture = configure(store);
+      const rows = queryAll(fixture, 'li.group');
+      expect(rows).toHaveLength(2);
+      const badge = rows[0].querySelector('ptah-workflow-badge');
+      expect(badge?.textContent?.trim()).toBe('Workflow: New Project');
+      expect(badge?.querySelector('.sr-only')?.textContent?.trim()).toBe(
+        'Workflow:',
+      );
+      expect(badge?.textContent?.trim()).toBe('Workflow: New Project');
+      expect(
+        rows[1].querySelector('ptah-workflow-badge')?.textContent?.trim(),
+      ).toBe('');
+      expect(workflowForSession).toHaveBeenCalledWith('tagged', '/work');
+      expect(workflowForSession).toHaveBeenCalledWith('plain', '/work');
+    });
+
+    it('forgets workflow mapping only after a successful sidebar delete', async () => {
+      const target = session('tagged', 'Tagged');
+      store.sessions.set([target]);
+      const fixture = configure(store);
+      confirmDelete.mockResolvedValue(true);
+      deleteSession.mockResolvedValueOnce({
+        isSuccess: () => true,
+        data: { success: true },
+      });
+      await fixture.componentInstance.deleteSession(new Event('click'), target);
+      expect(deleteSession).toHaveBeenCalledWith('tagged');
+      expect(forgetWorkflowSession).toHaveBeenCalledWith('tagged', '/work');
+      expect(store.removeSessionFromList).toHaveBeenCalledWith('tagged');
+
+      forgetWorkflowSession.mockClear();
+      deleteSession.mockResolvedValueOnce({
+        isSuccess: () => true,
+        data: { success: false },
+        error: 'failed',
+      });
+      await fixture.componentInstance.deleteSession(new Event('click'), target);
+      expect(forgetWorkflowSession).not.toHaveBeenCalled();
+    });
+    it('keeps the deleted row workspace when it changes during confirmation', async () => {
+      const target = session('tagged', 'Tagged');
+      store.sessions.set([target]);
+      const fixture = configure(store);
+      let confirm: (accepted: boolean) => void = () => undefined;
+      confirmDelete.mockReturnValueOnce(
+        new Promise<boolean>((resolve) => {
+          confirm = resolve;
+        }),
+      );
+      deleteSession.mockResolvedValueOnce({
+        isSuccess: () => true,
+        data: { success: true },
+      });
+
+      const pending = fixture.componentInstance.deleteSession(
+        new Event('click'),
+        target,
+      );
+      Object.defineProperty(
+        TestBed.inject(TabManagerService),
+        'activeWorkspacePath',
+        {
+          value: '/other',
+          configurable: true,
+        },
+      );
+      confirm(true);
+      await pending;
+      expect(forgetWorkflowSession).toHaveBeenCalledWith('tagged', '/work');
+    });
     it("renders today's controls only", () => {
       store.sessions.set([
         session('a', 'Alpha', { organization: organization() }),

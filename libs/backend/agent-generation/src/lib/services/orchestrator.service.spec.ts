@@ -552,6 +552,37 @@ describe('AgentGenerationOrchestratorService', () => {
       expect(mocks.fileWriter.writeAgent).toHaveBeenCalledTimes(1);
     });
 
+    it.each(['missing', 'stale'])(
+      'passes gathered %s workspace context into the content prompt input',
+      async () => {
+        const { service, mocks } = createOrchestrator();
+        wireHappyPath(mocks);
+
+        const result = await service.generateAgents({
+          workspacePath: '/workspace/test-project',
+        });
+
+        expect(result.isOk()).toBe(true);
+        expect(mocks.workspaceAnalyzer.getProjectInfo).toHaveBeenCalledTimes(1);
+        expect(mocks.contentGenerator.generateContent).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({
+            projectType: ProjectType.Node,
+            frameworks: [Framework.Express],
+            techStack: expect.objectContaining({
+              languages: expect.arrayContaining(['TypeScript']),
+              frameworks: ['express'],
+            }),
+          }),
+          expect.anything(),
+        );
+        const promptContext =
+          mocks.contentGenerator.generateContent.mock.calls[0]![1];
+        expect(promptContext.fullAnalysis).toBeUndefined();
+        expect(promptContext.analysisDir).toBeUndefined();
+      },
+    );
+
     it('reports progress through every phase boundary', async () => {
       const { service, mocks } = createOrchestrator();
       wireHappyPath(mocks);

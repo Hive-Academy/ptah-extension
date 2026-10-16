@@ -420,7 +420,7 @@ describe('ChatTranscriptComponent replay render-window fence', () => {
 
     const liveBubble = h
       .bubbles()
-      .find((bubble) => bubble.messageIndex >= finalized.length);
+      .find((bubble) => bubble.message.id === 'live');
     expect(liveBubble).toBeDefined();
     expect(liveBubble?.isStreaming).toBe(true);
   });

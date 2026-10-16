@@ -113,6 +113,10 @@ module.exports = {
           '--state-ink-err': '#ef4444',
           '--state-ink-done': '#16a34a',
           '--state-ink-idle': '#9ca3af',
+          // Pending-todo checkbox outline: base-content at this alpha
+          // (5.05:1 here, 3.68:1 on anubis-light; UI minimum 3:1). The stock
+          // themes use 70% from styles.css (TASK_2026_677 design-spec 8.2).
+          '--ptah-check-edge': '55%',
 
           // SEMANTIC COLORS
           info: '#3b82f6',
@@ -187,6 +191,7 @@ module.exports = {
           '--state-ink-err': '#b4232a',
           '--state-ink-done': '#13713a',
           '--state-ink-idle': '#6b6570',
+          '--ptah-check-edge': '55%', // pending-todo checkbox outline, see `anubis`
 
           // SEMANTIC COLORS (cupcake exact match)
           info: 'oklch(68% 0.169 237.323)',

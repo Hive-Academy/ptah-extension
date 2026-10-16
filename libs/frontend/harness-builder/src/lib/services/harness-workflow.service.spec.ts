@@ -184,6 +184,21 @@ describe('HarnessWorkflowService', () => {
     expect(rpc.call).not.toHaveBeenCalled();
   });
 
+  it('exposes every session of the bound conversation in order', async () => {
+    expect(service.sessionIds()).toEqual([]);
+    await service.startWorkflow('configure-harness', 'configure');
+    const surfaceId = service.surfaceId();
+    expect(surfaceId).not.toBeNull();
+    const convId = binding.conversationForSurface(surfaceId!);
+    expect(convId).not.toBeNull();
+    registry.appendSession(convId!, REAL_SESSION);
+    const nextSession =
+      'cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd' as ClaudeSessionId;
+    registry.appendSession(convId!, nextSession);
+    expect(service.sessionIds()).toEqual([REAL_SESSION, nextSession]);
+    expect(service.sessionId()).toBe(nextSession);
+  });
+
   it('sendMessage resolves the head session and issues chat:continue with surfaceMode', async () => {
     await service.startWorkflow('configure-harness', 'configure');
     const surfaceId = surfaceRegistry.surfaces()[0];
@@ -294,6 +309,7 @@ describe('HarnessWorkflowService', () => {
     expect(JSON.parse(raw as string)).toEqual({
       mode: 'new-project',
       sessionId: null,
+      sessionIds: [],
       workspaceRoot: '/ws',
       bubbles: [
         {
@@ -322,7 +338,10 @@ describe('HarnessWorkflowService', () => {
     const stored: unknown = JSON.parse(
       localStorage.getItem(HARNESS_WORKFLOW_STORAGE_KEY) as string,
     );
-    expect(stored).toMatchObject({ sessionId: REAL_SESSION });
+    expect(stored).toMatchObject({
+      sessionId: REAL_SESSION,
+      sessionIds: [REAL_SESSION],
+    });
   });
 
   it('writes nothing while no workflow has started', () => {
@@ -623,6 +642,51 @@ describe('HarnessWorkflowService — resume after reload', () => {
     );
   });
 
+  it('restores an old record without sessionIds', async () => {
+    seed(PERSISTED);
+    const service = await bootWorkflow();
+
+    expect(service.sessionId()).toBe(REAL_SESSION);
+    expect(service.sessionIds()).toEqual([REAL_SESSION]);
+  });
+
+  it('keeps restored earlier sessions ahead of live conversation sessions and clears them on dispose', async () => {
+    const earlier = 'cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd' as ClaudeSessionId;
+    const newest = 'efefefef-efef-4fef-8fef-efefefefefef' as ClaudeSessionId;
+    seed({ ...PERSISTED, sessionIds: [earlier, REAL_SESSION, earlier] });
+    const service = await bootWorkflow();
+
+    expect(service.sessionId()).toBe(REAL_SESSION);
+    expect(service.sessionIds()).toEqual([earlier, REAL_SESSION]);
+
+    const surfaceId = TestBed.inject(StreamingSurfaceRegistry).surfaces()[0];
+    const binding = TestBed.inject(TabSessionBinding);
+    const registry = TestBed.inject(ConversationRegistry);
+    registry.appendSession(binding.conversationForSurface(surfaceId)!, newest);
+    expect(service.sessionIds()).toEqual([earlier, REAL_SESSION, newest]);
+    expect(service.sessionId()).toBe(newest);
+
+    TestBed.tick();
+    expect(
+      JSON.parse(localStorage.getItem(HARNESS_WORKFLOW_STORAGE_KEY) as string),
+    ).toMatchObject({
+      sessionId: newest,
+      sessionIds: [earlier, REAL_SESSION, newest],
+    });
+
+    service.dispose();
+    expect(service.sessionIds()).toEqual([]);
+    expect(service.sessionId()).toBeNull();
+
+    await service.startWorkflow('new-project', 'fresh run');
+    const freshSurface = service.surfaceId()!;
+    registry.appendSession(
+      binding.conversationForSurface(freshSurface)!,
+      newest,
+    );
+    expect(service.sessionIds()).toEqual([newest]);
+  });
+
   it('replays the session history onto the surface without restarting the agent', async () => {
     seed(PERSISTED);
     await bootWorkflow();
@@ -658,6 +722,14 @@ describe('HarnessWorkflowService — resume after reload', () => {
     seed({ ...PERSISTED, mode: 'something-else' });
     expect((await bootWorkflow()).isActive()).toBe(false);
   });
+
+  it.each([null, 'session-a', [REAL_SESSION, null]])(
+    'ignores invalid sessionIds: %p',
+    async (sessionIds) => {
+      seed({ ...PERSISTED, sessionIds });
+      expect((await bootWorkflow()).isActive()).toBe(false);
+    },
+  );
 
   it('resumes the transcript even when no session had resolved before the reload', async () => {
     seed({ ...PERSISTED, sessionId: null });

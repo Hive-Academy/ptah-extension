@@ -1,6 +1,6 @@
 /**
  * Visual capture for TASK_2026_596 (Phase 6 visual review): the session stats
- * strip with plan-limit and lane tiles, and the dashboard provider account
+ * inspector with plan-limit and lane tiles, and the dashboard provider account
  * card, through the REAL ptah-extension-webview bundle in `anubis` and
  * `anubis-light` at 280, 360 and 440 px.
  *
@@ -15,12 +15,12 @@
  *
  * Flow per theme and width: boot on the pop-out session path, which loads one
  * session through `session:load` + `chat:resume` (two restored lane runs);
- * push three live lane runs over `agent-monitor:*`; capture the collapsed
- * strip ("Near" alert from the `provider:getPlanLimits` answer); push one
+ * push three live lane runs over `agent-monitor:*`; capture the inspector's
+ * "Near" alert from the `provider:getPlanLimits` answer; push one
  * `planLimits:changed` (the session moves to Opus, whose weekly window is at
- * its limit) and capture the "At limit" alert; expand the grid; open one plan
+ * its limit) and capture the "At limit" alert; open one plan
  * tile and one lane tile. Last, the next `provider:getPlanLimits` pull fails
- * while the snapshot is held: the strip and the dashboard card each show the
+ * while the snapshot is held: the inspector and dashboard card each show the
  * neutral "Refresh failed — showing last observed data" notice
  * (`*-refresh-failed-*`).
  */
@@ -100,10 +100,10 @@ async function preparePage(page: Page, theme: string, width: number) {
   return bridge;
 }
 
-test.describe('plan limits > session stats strip', () => {
+test.describe('plan limits > session inspector', () => {
   for (const theme of THEMES) {
     for (const width of WIDTHS) {
-      test(`stats strip ${theme} ${width}`, async ({ page, fixtureServer }) => {
+      test(`session inspector ${theme} ${width}`, async ({ page, fixtureServer }) => {
         const bridge = await preparePage(page, theme, width);
         await installWorkspaceHost(page, 'chat');
         const rpc: PlanLimitsRpcControl = { failPulls: false };
@@ -114,8 +114,8 @@ test.describe('plan limits > session stats strip', () => {
         // board's focused pane (`ptah-canvas-focus-area`, rendered only for a
         // visible board); the main panel's own chat view stays mounted but hidden.
         const tile = page.locator('ptah-canvas-focus-area');
-        const strip = tile.locator('ptah-session-stats-summary');
-        await expect(strip).toBeVisible({ timeout: 15_000 });
+        const board = page.locator('ptah-canvas-rail-board:visible').first();
+        const inspectorToggle = tile.locator('ptah-canvas-focus-header [data-details]');
 
         for (const message of LIVE_LANE_MESSAGES) {
           await bridge.inject(message);
@@ -128,40 +128,48 @@ test.describe('plan limits > session stats strip', () => {
         // closing collapses the panel's inner surface instead of hiding the host.
         await expect(agentPanel.locator('aside')).toHaveClass(/\bw-0\b/);
 
-        // (a) Collapsed, from the RPC snapshot: Sonnet session, 5-hour at 94%.
-        const alert = strip.locator('[data-testid="limits-alert"]');
-        await expect(alert).toHaveAttribute('data-state', 'near-limit');
-        await expect(alert).toContainText('5-hour 94%');
-        await expect(strip.locator('[data-testid="stats-lanes"]')).toHaveText(
-          String(EXPECTED_LANE_TILES),
-        );
-        await capture(strip, shotPath('stats-strip', 'collapsed-near', theme, width));
+        if (await inspectorToggle.isVisible()) {
+          if (await inspectorToggle.getAttribute('aria-expanded') === 'false') {
+            await inspectorToggle.click();
+          }
+        } else {
+          // At 440px the board uses its collapsed small-band details control.
+          await board.getByRole('button', { name: 'Open details' }).click();
+        }
+        const inspector = board.locator('ptah-session-inspector:visible').first();
+        const stats = inspector.locator('[data-testid="inspector-session-stats"]');
+        const limits = inspector.locator('ptah-inspector-limits-lanes');
+        await expect(stats).toBeVisible({ timeout: 15_000 });
+
+        // (a) RPC snapshot: Sonnet session, 5-hour window at 94%.
+        await expect(stats).toContainText('5-hour 94%');
+        await expect(limits.locator('ptah-lane-usage-tile')).toHaveCount(EXPECTED_LANE_TILES);
+        await capture(stats, shotPath('session-inspector', 'near', theme, width));
 
         // Push path: one planLimits:changed replaces the snapshot.
         await bridge.inject({ type: 'planLimits:changed', payload: PUSHED_SNAPSHOT });
-        await expect(alert).toHaveAttribute('data-state', 'at-limit');
-        await capture(strip, shotPath('stats-strip', 'collapsed-at-limit', theme, width));
-        await capture(tile, shotPath('chat-tile', 'collapsed-at-limit', theme, width));
+        await expect(stats).toContainText('Weekly');
+        await capture(stats, shotPath('session-inspector', 'at-limit', theme, width));
+        await capture(tile, shotPath('chat-tile', 'at-limit', theme, width));
 
-        // (b) Expanded grid: plan tiles, lane tiles, subtotal.
-        await strip.locator('[data-testid="stats-expand"]').click();
-        const planTiles = strip.locator('ptah-plan-limit-tile');
-        const laneTiles = strip.locator('ptah-lane-usage-tile');
+        // (b) Plan tiles, lane tiles, and subtotal in the inspector.
+        const planTiles = limits.locator('ptah-plan-limit-tile');
+        const laneTiles = limits.locator('ptah-lane-usage-tile');
         await expect(laneTiles).toHaveCount(EXPECTED_LANE_TILES);
         await expect(planTiles.first()).toBeVisible();
-        await expect(strip.locator('ptah-lane-subtotal-tile')).toBeVisible();
-        await fitViewportHeight(page, strip, width);
-        await capture(strip, shotPath('stats-strip', 'expanded', theme, width));
+        await expect(limits.locator('ptah-lane-subtotal-tile')).toBeVisible();
+        await fitViewportHeight(page, limits, width);
+        await capture(limits, shotPath('session-limits', 'all-tiles', theme, width));
 
         // (c) One plan tile (the Opus window at its limit) and one lane tile
         // (Codex review: a different owner with an estimated-limit note).
-        const opusTile = strip.locator(
+        const opusTile = limits.locator(
           `ptah-plan-limit-tile[data-tile-id="plan:${CLAUDE_A.key}:weekly_model:opus"]`,
         );
         await opusTile.locator('[data-testid="plan-limit-tile"]').click();
         await expect(opusTile.locator('[data-testid="plan-limit-panel"]')).toBeVisible();
 
-        const reviewTile = strip.locator(
+        const reviewTile = limits.locator(
           'ptah-lane-usage-tile[data-tile-id="lane:codex:review"]',
         );
         await reviewTile.locator('[data-testid="lane-usage-tile"]').click();
@@ -171,14 +179,14 @@ test.describe('plan limits > session stats strip', () => {
           reviewPanel.locator('[data-testid="lane-subgroup"]').first(),
         ).toHaveAttribute('data-owner-status', 'different');
 
-        await fitViewportHeight(page, strip, width);
-        await capture(strip, shotPath('stats-strip', 'tiles-open', theme, width));
+        await fitViewportHeight(page, limits, width);
+        await capture(limits, shotPath('session-limits', 'tiles-open', theme, width));
         await capture(opusTile, shotPath('plan-tile', 'open-at-limit', theme, width));
         await capture(reviewTile, shotPath('lane-tile', 'open-different-owner', theme, width));
 
         // (d) A failed pull while the pushed snapshot is held. A run on a new
         // owner widens this surface's scope, so the store pulls once more.
-        const refreshNotice = strip.locator('[data-testid="limits-refresh-failed"]');
+        const refreshNotice = limits.locator('[role="status"]');
         await expect(refreshNotice).toHaveCount(0);
         rpc.failPulls = true;
         await bridge.inject(PULL_TRIGGER_MESSAGE);
@@ -186,10 +194,9 @@ test.describe('plan limits > session stats strip', () => {
         await expect(refreshNotice).toContainText(
           'Refresh failed — showing last observed data',
         );
-        await strip.locator('[data-testid="stats-collapse"]').click();
-        await expect(alert).toHaveAttribute('data-state', 'at-limit');
+        await expect(stats).toContainText('Weekly');
         await expect(refreshNotice).toBeVisible();
-        await capture(strip, shotPath('stats-strip', 'refresh-failed-collapsed', theme, width));
+        await capture(limits, shotPath('session-limits', 'refresh-failed', theme, width));
       });
     }
   }

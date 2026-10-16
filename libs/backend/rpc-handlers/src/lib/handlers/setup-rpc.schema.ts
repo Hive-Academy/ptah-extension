@@ -17,13 +17,15 @@ const workspacePath = z.string().min(1).max(4096).optional();
 
 export const WizardDeepAnalyzeParamsSchema = z.object({
   model: z.string().min(1).max(200).optional(),
-  /** Continue the unfinished version-3 analysis run instead of starting anew. */
+  /** Continue the unfinished version-4 analysis run instead of starting anew. */
   resume: z.boolean().optional(),
   workspacePath,
 });
 
 /** `wizard:get-resumable-run` takes no parameters; unknown keys are dropped. */
 export const WizardGetResumableRunParamsSchema = z.object({});
+/** `wizard:analysis-status` takes no parameters; unknown keys are dropped. */
+export const WizardAnalysisStatusParamsSchema = z.object({});
 
 export const WizardListAnalysesParamsSchema = z.object({ workspacePath });
 

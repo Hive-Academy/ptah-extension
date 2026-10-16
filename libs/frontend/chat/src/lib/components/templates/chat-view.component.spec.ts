@@ -65,8 +65,15 @@ import { TestBed } from '@angular/core/testing';
 import {
   ChatViewComponent,
   AGENT_PANEL_OVERLAY_BREAKPOINT,
-  toStatsLimitLaneRun,
 } from './chat-view.component';
+import {
+  toStatsLimitLaneRun,
+  type SessionStatsSource,
+} from '../../services/session-stats/session-stats-source';
+import {
+  InspectorOpenStateService,
+  SessionInspectorStore,
+} from '../../services/session-inspector';
 import { ChatStore } from '../../services/chat.store';
 import { ActionBannerService } from '../../services/action-banner.service';
 import { SessionHistoryReplayer } from '../../services/chat-store/session-history-replayer.service';
@@ -84,6 +91,7 @@ import type {
   PlanLimitsSnapshot,
   QuotaOwnerRef,
 } from '@ptah-extension/shared';
+import { formatLocalAbsolute } from '@ptah-extension/shared';
 import {
   TabManagerService,
   ConversationRegistry,
@@ -182,6 +190,8 @@ function makeHarness(
     activeTabViewMode?: TabViewMode;
     /** When set, provide a tile-local signal that forces the compact card. */
     forcedCard?: boolean;
+    /** Start with the docked inspector open. */
+    inspectorOpen?: boolean;
     startGuard?: () => string | null;
     isElectron?: boolean;
   } = {},
@@ -198,6 +208,7 @@ function makeHarness(
     renderCompactTemplate = false,
     activeTabViewMode = 'full',
     forcedCard,
+    inspectorOpen = false,
     startGuard,
     isElectron = false,
   } = opts;
@@ -208,6 +219,7 @@ function makeHarness(
 
   // Writable signals for reactive control from tests
   const sessionIdSig = signal<string | null>(sessionId);
+  const messagesSig = signal<unknown[]>([]);
   const sessionIsActiveSig = signal<boolean>(sessionIsActive);
   const showErrorMock = jest.fn();
   const loadOlderMock = jest.fn().mockResolvedValue('prepended');
@@ -234,7 +246,11 @@ function makeHarness(
     sessionIsActive: sessionIsActiveSig.asReadonly(),
     // Other signals required by computed() inside the component
     activeTab: signal(null),
-    messages: signal([]),
+    messages: messagesSig,
+    // Read by the stats source (the inspector's SESSION section).
+    sessionStats: signal(null),
+    liveModelStats: signal(null),
+    compactionCount: signal(0),
     isStreaming: signal(false),
     currentModel: signal('claude-sonnet-4-20250514'),
     sessionStatus: signal(null),
@@ -259,14 +275,16 @@ function makeHarness(
     Array<{
       id: string;
       claudeSessionId: string | null;
-      hasLiveSession: boolean;
+       hasLiveSession: boolean;
+       viewMode: TabViewMode;
       olderHistoryCursor?: string | null;
     }>
   >([
     {
       id: 'tab-abc',
       claudeSessionId: sessionId,
-      hasLiveSession: sessionIsActive,
+       hasLiveSession: sessionIsActive,
+       viewMode: activeTabViewMode,
       olderHistoryCursor: 'older-cursor',
     },
   ]);
@@ -275,11 +293,13 @@ function makeHarness(
   const findTabsBySessionIdMock = jest.fn().mockReturnValue([]);
   const findTabByIdAcrossWorkspacesMock = jest.fn();
   const closeTabMock = jest.fn().mockResolvedValue(undefined);
+  const forgetWorkflowSessionMock = jest.fn();
   const rebindTabSessionMock = jest.fn();
   const originTab = {
     id: 'tab-abc',
     name: 'Original Session',
     claudeSessionId: sessionId,
+    viewMode: activeTabViewMode,
   };
   const findTabBySessionIdMock = jest.fn().mockReturnValue(originTab);
   const activeTabMock = jest.fn().mockReturnValue(originTab);
@@ -302,6 +322,7 @@ function makeHarness(
     findTabsBySessionId: findTabsBySessionIdMock,
     rebindTabSession: rebindTabSessionMock,
     closeTab: closeTabMock,
+    forgetWorkflowSession: forgetWorkflowSessionMock,
     // Consumed by the component-scoped TranscriptRetentionService effects.
     closedTab: signal(null).asReadonly(),
     onTabClosed: jest.fn(() => () => undefined),
@@ -492,6 +513,20 @@ function makeHarness(
       { provide: TabSessionBinding, useValue: tabSessionBindingStub },
       { provide: AuthStateService, useValue: authStateStub },
       { provide: PlanLimitsStore, useValue: planLimitsStub },
+      // The inspector stays closed here: no deferred inspector chunk renders.
+      {
+        provide: SessionInspectorStore,
+        useValue: {
+          // The session header and the toggle dot read the needs-you count.
+          modelFor: jest.fn(() => signal({ needsYouCount: 0 })),
+          reportAnswerMiss: jest.fn(),
+          clearAnswerMiss: jest.fn(),
+        },
+      },
+      {
+        provide: InspectorOpenStateService,
+        useValue: { dockedOpen: () => inspectorOpen, setDocked: jest.fn() },
+      },
       ...(startGuard
         ? [{ provide: SESSION_START_GUARD, useValue: startGuard }]
         : []),
@@ -555,6 +590,8 @@ function makeHarness(
     findTabByIdAcrossWorkspacesMock,
     rebindTabSessionMock,
     closeTabMock,
+    tabManagerStub,
+    forgetWorkflowSessionMock,
     upsertSessionSummaryMock,
     removeSessionFromListMock,
     requestCanvasSessionMock,
@@ -565,6 +602,7 @@ function makeHarness(
     realActionBanner,
     sessionIsActiveSig,
     sessionIdSig,
+    messagesSig,
     activeTabIdSig,
     sessionVisibleSig,
     forcedCardSig,
@@ -588,6 +626,59 @@ function makeHarness(
     requestComposerPrefillMock,
   };
 }
+
+describe('ChatViewComponent — inspector Answer focus', () => {
+  beforeEach(() => jest.useFakeTimers());
+
+  afterEach(() => {
+    jest.useRealTimers();
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  function addQuestionCard(h: ReturnType<typeof makeHarness>, requestId: string) {
+    const card = document.createElement('ptah-question-card');
+    card.setAttribute('data-request-id', requestId);
+    const option = document.createElement('button');
+    card.appendChild(option);
+    h.fixture.nativeElement.appendChild(card);
+    return jest.spyOn(option, 'focus');
+  }
+
+  it('focuses the first option when the card is already present', () => {
+    const h = makeHarness();
+    const focus = addQuestionCard(h, 'question-now');
+    const miss = jest.spyOn(TestBed.inject(SessionInspectorStore), 'reportAnswerMiss');
+
+    h.component['focusQuestionCard']('question-now');
+
+    expect(focus).toHaveBeenCalledTimes(1);
+    expect(miss).not.toHaveBeenCalled();
+  });
+
+  it('focuses the first option when the card appears during the wait', () => {
+    const h = makeHarness();
+    const miss = jest.spyOn(TestBed.inject(SessionInspectorStore), 'reportAnswerMiss');
+
+    h.component['focusQuestionCard']('question-late');
+    jest.advanceTimersByTime(500);
+    const focus = addQuestionCard(h, 'question-late');
+    jest.advanceTimersByTime(500);
+
+    expect(focus).toHaveBeenCalledTimes(1);
+    expect(miss).not.toHaveBeenCalled();
+  });
+
+  it('reports a miss when no card appears by the end of the wait', () => {
+    const h = makeHarness();
+    const miss = jest.spyOn(TestBed.inject(SessionInspectorStore), 'reportAnswerMiss');
+
+    h.component['focusQuestionCard']('question-missing');
+    jest.advanceTimersByTime(1000);
+
+    expect(miss).toHaveBeenCalledWith('question-missing');
+  });
+});
 
 describe('ChatViewComponent — older history orchestration', () => {
   afterEach(() => {
@@ -914,6 +1005,10 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
     expect(h.closeTabMock).toHaveBeenNthCalledWith(1, 'tab-orig-1');
     expect(h.closeTabMock).toHaveBeenNthCalledWith(2, 'tab-orig-2');
     expect(h.deleteSessionMock).toHaveBeenCalledWith('session-uuid-123');
+    expect(h.forgetWorkflowSessionMock).toHaveBeenCalledWith(
+      'session-uuid-123',
+      '/ws',
+    );
 
     const firstClose = h.closeTabMock.mock.invocationCallOrder[0];
     const firstDelete = h.deleteSessionMock.mock.invocationCallOrder[0];
@@ -933,6 +1028,29 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
     );
   });
 
+  it('keeps the origin workspace when it changes during tab close', async () => {
+    const h = makeHarness();
+    primeHappyPath(h);
+    h.confirmWithCheckboxesMock.mockResolvedValueOnce({
+      confirmed: true,
+      checkboxes: { deleteOriginal: true },
+    });
+    h.findTabsBySessionIdMock
+      .mockReturnValueOnce([{ id: 'tab-abc' }])
+      .mockReturnValueOnce([]);
+    h.closeTabMock.mockImplementationOnce(async () => {
+      Object.defineProperty(h.tabManagerStub, 'activeWorkspacePath', {
+        value: '/other',
+        configurable: true,
+      });
+    });
+
+    await h.component.onRewindRequested('msg-delete-orig');
+    expect(h.forgetWorkflowSessionMock).toHaveBeenCalledWith(
+      'session-uuid-123',
+      '/ws',
+    );
+  });
   it('C5/UICS-011 — delete-original aborts when a streaming tab survives closeTab cancellation; warning banner shown', async () => {
     const h = makeHarness();
     primeHappyPath(h);
@@ -1446,15 +1564,6 @@ describe('ChatViewComponent — mainPanelShowing() / SESSION_VISIBLE gating', ()
 });
 
 // ---------------------------------------------------------------------------
-// showBackgroundStrip() / traySessionId() — tray-on-tiles gating.
-//
-// The main panel (no SESSION_CONTEXT) always renders the background-agent
-// tray, scoped to every session (traySessionId === null). A canvas tile only
-// renders it once its own session has resolved (resolvedSessionId() !== null)
-// — otherwise an unscoped tray would flash before the tile is bound to a real
-// session — and scopes the tray to exactly that session once resolved.
-// ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
 // TASK_2026_295 — the "N interrupted agents — Resume" banner in tile mode.
 //
 // The filter was a strict `s.parentSessionId === sid`. An interrupted subagent
@@ -1507,38 +1616,6 @@ describe('ChatViewComponent — resolvedResumableSubagents() scoping', () => {
     ]);
 
     expect(h.component.resolvedResumableSubagents()).toHaveLength(2);
-  });
-});
-
-describe('ChatViewComponent — showBackgroundStrip() / traySessionId()', () => {
-  afterEach(() => {
-    TestBed.resetTestingModule();
-    jest.clearAllMocks();
-  });
-
-  it('main panel (no SESSION_CONTEXT): always shows the strip, unscoped (null) session', () => {
-    const h = makeHarness();
-    expect(h.component.showBackgroundStrip()).toBe(true);
-    expect(h.component.traySessionId()).toBeNull();
-  });
-
-  it('tile mode: hides the strip while the tile session is unresolved', () => {
-    // 'tile-unresolved' has no matching entry in the stubbed tabs() array
-    // (which only contains 'tab-abc'), so resolvedSessionId() returns null —
-    // mirroring a canvas tile whose tab has not yet been bound to a session.
-    const h = makeHarness({ sessionContextTabId: 'tile-unresolved' });
-    expect(h.component.resolvedSessionId()).toBeNull();
-    expect(h.component.showBackgroundStrip()).toBe(false);
-    expect(h.component.traySessionId()).toBeNull();
-  });
-
-  it('tile mode: shows the strip scoped to the resolved session once resolvedSessionId() is non-null', () => {
-    // 'tab-abc' matches the default tabs() stub entry, whose claudeSessionId
-    // is the harness sessionId — simulates a tile already bound to a live session.
-    const h = makeHarness({ sessionContextTabId: 'tab-abc' });
-    expect(h.component.resolvedSessionId()).toBe(h.sessionId);
-    expect(h.component.showBackgroundStrip()).toBe(true);
-    expect(h.component.traySessionId()).toBe(h.sessionId);
   });
 });
 
@@ -1604,10 +1681,18 @@ describe('ChatViewComponent — plan limits wiring (TASK_2026_596)', () => {
     };
   }
 
+  /** The inspector's limits, from the view's one stats source (Delta 3). */
+  type StatsView = { stats: SessionStatsSource };
+  function statsLimits(h: ReturnType<typeof makeHarness>) {
+    return (h.component as unknown as StatsView).stats.inputs()?.limits;
+  }
+
   function harness() {
     // Children are swapped out (NO_ERRORS_SCHEMA) so `TestBed.tick()` can run
     // the effects without wiring every child component's DI graph.
     const h = makeHarness({ renderCompactTemplate: true });
+    // The stats show from the first message on (the old strip mount rule).
+    h.messagesSig.set([{ id: 'm1', role: 'user', timestamp: 0 }]);
     // The monitor's TOLERANT rule (unresolved parent visible everywhere). The
     // quota and lane tiles must not read it; they use the exact accessor.
     h.agentsForSessionMock.mockImplementation((sessionId: string) =>
@@ -1656,7 +1741,7 @@ describe('ChatViewComponent — plan limits wiring (TASK_2026_596)', () => {
       sessionIds: [],
       ownerKeys: [],
     });
-    expect(h.component.resolvedStatsLimits()).toBeNull();
+    expect(statsLimits(h)).toBeNull();
   });
 
   it('reloads when the recorded owner set changes, not on a usage-only update', () => {
@@ -1692,7 +1777,7 @@ describe('ChatViewComponent — plan limits wiring (TASK_2026_596)', () => {
       run('a2', h.sessionId),
       run('b1', 'session-other', { quotaOwner: OWNER_A }),
     ]);
-    expect(h.component.resolvedStatsLimits()).toBeNull();
+    expect(statsLimits(h)).toBeNull();
 
     h.planLimitsSnapshotSig.set({
       generatedAt: STARTED,
@@ -1702,7 +1787,7 @@ describe('ChatViewComponent — plan limits wiring (TASK_2026_596)', () => {
       },
     });
 
-    const limits = h.component.resolvedStatsLimits();
+    const limits = statsLimits(h);
     expect(limits?.lanesCount).toBe(2);
     const statuses = limits?.laneTiles
       .flatMap((tile) => tile.subgroups)
@@ -1730,15 +1815,15 @@ describe('ChatViewComponent — plan limits wiring (TASK_2026_596)', () => {
         [h.sessionId]: { ownerKey: OWNER_A.key, modelScope: 'opus' },
       },
     });
-    expect(h.component.resolvedStatsLimits()?.refreshNotice).toBeUndefined();
+    expect(statsLimits(h)?.refreshNotice).toBeUndefined();
 
     h.planLimitsLoadErrorSig.set(true);
-    expect(h.component.resolvedStatsLimits()?.refreshNotice).toMatch(
+    expect(statsLimits(h)?.refreshNotice).toMatch(
       /^Refresh failed — showing last observed data/,
     );
 
     h.planLimitsLoadErrorSig.set(false);
-    expect(h.component.resolvedStatsLimits()?.refreshNotice).toBeUndefined();
+    expect(statsLimits(h)?.refreshNotice).toBeUndefined();
   });
 
   it('shows a lane in no session`s tiles until its parent resolves, then only in that session`s', () => {
@@ -1754,7 +1839,7 @@ describe('ChatViewComponent — plan limits wiring (TASK_2026_596)', () => {
         [OTHER]: { ownerKey: OWNER_A.key, modelScope: null },
       },
     });
-    const lanes = () => h.component.resolvedStatsLimits()?.lanesCount;
+    const lanes = () => statsLimits(h)?.lanesCount;
 
     // Unresolved parent: the lane is in neither session's tiles, even though
     // the monitor's tolerant accessor would list it in both.
@@ -1780,13 +1865,32 @@ describe('ChatViewComponent — plan limits wiring (TASK_2026_596)', () => {
         return { ...real.call(this), timeZone: 'Europe/Berlin' };
       });
     const h = harness();
-
-    expect(
-      (h.component as unknown as { _limitTime: unknown })._limitTime,
-    ).toEqual({
-      timeZone: 'Europe/Berlin',
-      zoneNameLocale: TestBed.inject(LOCALE_ID),
+    // The time options live inside the stats source and reach the view only
+    // through the formatted reset line, so give the window a reset instant.
+    const owner = ownerSnapshot(OWNER_A);
+    const now = Date.UTC(2026, 9, 5, 12, 0, 0); // the harness's `now()`
+    const resetsAt = now + 3 * 60 * 60 * 1000;
+    h.planLimitsSnapshotSig.set({
+      generatedAt: STARTED,
+      owners: [{ ...owner, windows: [{ ...owner.windows[0], resetsAt }] }],
+      sessionOwners: {
+        [h.sessionId]: { ownerKey: OWNER_A.key, modelScope: 'opus' },
+      },
     });
+
+    const resetLine = statsLimits(h)?.planTiles.find(
+      (tile) => tile.kind === 'window',
+    )?.resetLine;
+    const zoneNameLocale = TestBed.inject(LOCALE_ID);
+    expect(resetLine).toContain(
+      formatLocalAbsolute(resetsAt, now, {
+        timeZone: 'Europe/Berlin',
+        zoneNameLocale,
+      }),
+    );
+    expect(resetLine).not.toContain(
+      formatLocalAbsolute(resetsAt, now, { timeZone: 'UTC', zoneNameLocale }),
+    );
   });
 
   describe('toStatsLimitLaneRun', () => {
@@ -2318,13 +2422,13 @@ describe('agent panel narrow overlay mode', () => {
   });
 });
 
-describe('ChatViewComponent — compact card gate (isCompactViewMode)', () => {
+describe('ChatViewComponent — compact card gate (forced only)', () => {
   afterEach(() => {
     TestBed.resetTestingModule();
     jest.clearAllMocks();
   });
 
-  it('renders the compact card for "compact"', () => {
+  it('renders the condensed card for a user-chosen compact view', () => {
     const { fixture } = makeHarness({
       activeTabViewMode: 'compact',
       renderCompactTemplate: true,
@@ -2334,14 +2438,66 @@ describe('ChatViewComponent — compact card gate (isCompactViewMode)', () => {
     expect(
       fixture.nativeElement.querySelector('ptah-compact-session-card'),
     ).not.toBeNull();
-    // Falling through to the full view would render the input area instead.
-    expect(fixture.nativeElement.querySelector('ptah-chat-input')).toBeNull();
-    expect(
-      fixture.nativeElement.querySelector('ptah-sidebar-tab'),
-    ).not.toBeNull();
+    const region = fixture.nativeElement.querySelector('[inert].hidden');
+    expect(region).not.toBeNull();
+    expect(region.querySelector('ptah-chat-transcript')).not.toBeNull();
+    expect(region.querySelector('ptah-chat-input')).not.toBeNull();
   });
 
-  it('keeps the display dock for a user-chosen compact mode', () => {
+  it('keeps transcript and composer instances through full, compact, full', () => {
+    const h = makeHarness({ renderCompactTemplate: true });
+    const tab = signal({ ...h.activeTabMock() });
+    h.activeTabMock.mockImplementation(() => tab());
+    h.fixture.detectChanges();
+    const transcript = h.fixture.nativeElement.querySelector('ptah-chat-transcript');
+    const composer = h.fixture.nativeElement.querySelector('ptah-chat-input');
+    expect(transcript).not.toBeNull();
+    expect(composer).not.toBeNull();
+
+    tab.set({ ...tab(), viewMode: 'compact' });
+    h.fixture.detectChanges();
+    expect(h.fixture.nativeElement.querySelector('ptah-chat-transcript')).toBe(transcript);
+    expect(h.fixture.nativeElement.querySelector('ptah-chat-input')).toBe(composer);
+    expect(h.fixture.nativeElement.querySelector('[inert].hidden')).not.toBeNull();
+
+    tab.set({ ...tab(), viewMode: 'full' });
+    h.fixture.detectChanges();
+    expect(h.fixture.nativeElement.querySelector('ptah-chat-transcript')).toBe(transcript);
+    expect(h.fixture.nativeElement.querySelector('ptah-chat-input')).toBe(composer);
+    expect(h.fixture.nativeElement.querySelector('[inert].hidden')).toBeNull();
+  });
+
+  it('removes the open inspector in compact mode and restores it in full mode', () => {
+    const h = makeHarness({ renderCompactTemplate: true, inspectorOpen: true });
+    const tab = signal({ ...h.activeTabMock() });
+    h.activeTabMock.mockImplementation(() => tab());
+    h.findTabByIdAcrossWorkspacesMock.mockImplementation(() => ({ tab: tab() }));
+    h.fixture.detectChanges();
+    expect(h.fixture.nativeElement.querySelector('.cs-inspector')).not.toBeNull();
+
+    tab.set({ ...tab(), viewMode: 'compact' });
+    h.fixture.detectChanges();
+    expect(h.fixture.nativeElement.querySelector('.cs-inspector')).toBeNull();
+
+    tab.set({ ...tab(), viewMode: 'full' });
+    h.fixture.detectChanges();
+    expect(h.fixture.nativeElement.querySelector('.cs-inspector')).not.toBeNull();
+  });
+
+  it('expands a user compact tab once', () => {
+    const h = makeHarness({ activeTabViewMode: 'compact' });
+    h.component.expandToFullView();
+    expect(h.tabManagerStub.toggleTabViewMode).toHaveBeenCalledTimes(1);
+    expect(h.tabManagerStub.toggleTabViewMode).toHaveBeenCalledWith('tab-abc');
+  });
+
+  it('does not toggle a full tab when its card is forced', () => {
+    const h = makeHarness({ activeTabViewMode: 'full', forcedCard: true });
+    h.component.expandToFullView();
+    expect(h.tabManagerStub.toggleTabViewMode).not.toHaveBeenCalled();
+  });
+
+  it('hides the display dock for a user-chosen compact mode', () => {
     const { fixture } = makeHarness({
       activeTabViewMode: 'compact',
       renderCompactTemplate: true,
@@ -2350,7 +2506,7 @@ describe('ChatViewComponent — compact card gate (isCompactViewMode)', () => {
     fixture.detectChanges();
     expect(
       fixture.nativeElement.querySelector('ptah-sidebar-tab'),
-    ).not.toBeNull();
+    ).toBeNull();
   });
 
   it('hides the display dock when card mode is forced', () => {
@@ -2367,14 +2523,13 @@ describe('ChatViewComponent — compact card gate (isCompactViewMode)', () => {
   });
 
   it('forces a compact card in full mode and restores the full view when cleared', () => {
-    const { component, fixture, forcedCardSig } = makeHarness({
+    const { fixture, forcedCardSig } = makeHarness({
       activeTabViewMode: 'full',
       forcedCard: true,
       renderCompactTemplate: true,
     });
     fixture.detectChanges();
 
-    expect(component.resolvedViewMode()).toBe('full');
     expect(
       fixture.nativeElement.querySelector('ptah-compact-session-card'),
     ).not.toBeNull();
@@ -2382,15 +2537,21 @@ describe('ChatViewComponent — compact card gate (isCompactViewMode)', () => {
       fixture.nativeElement.querySelector('ptah-chat-transcript'),
     ).toBeNull();
     expect(fixture.nativeElement.querySelector('ptah-sidebar-tab')).toBeNull();
+    // A forced card hosts no inspector, so it has no session header.
+    expect(
+      fixture.nativeElement.querySelector('ptah-session-header'),
+    ).toBeNull();
 
     forcedCardSig!.set(false);
     fixture.detectChanges();
-    expect(component.resolvedViewMode()).toBe('full');
     expect(
       fixture.nativeElement.querySelector('ptah-compact-session-card'),
     ).toBeNull();
     expect(
       fixture.nativeElement.querySelector('ptah-chat-input'),
+    ).not.toBeNull();
+    expect(
+      fixture.nativeElement.querySelector('ptah-chat-transcript'),
     ).not.toBeNull();
   });
 

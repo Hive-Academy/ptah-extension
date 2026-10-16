@@ -279,13 +279,17 @@ test.describe('Compaction recovery for duplicate visible session tiles (TASK_202
         tile.locator('[data-testid="chat-tool-output"]'),
       ).toContainText(RESTORED_TRANSCRIPT);
 
-      const stats = tile.locator('ptah-session-stats-summary');
+      const inspectorToggle = tile.locator('ptah-canvas-focus-header [data-details]');
+      if (await inspectorToggle.getAttribute('aria-expanded') === 'false') {
+        await inspectorToggle.click();
+      }
+      const stats = tile.locator('xpath=ancestor::ptah-canvas-rail-board')
+        .locator('ptah-session-inspector:visible [data-testid="inspector-session-stats"]');
       await expect(stats).toContainText('Tokens');
       await expect(stats).toContainText('226.7k');
       await expect(stats).toContainText('Cost');
       await expect(stats).toContainText('$35.67');
-      await expect(stats).toContainText('Compactions');
-      await expect(stats).toContainText('1');
+      await expect(stats).toContainText('1 compaction');
 
       const marker = tile.locator('ptah-compaction-marker');
       await expect(marker).toContainText('Context compacted');
@@ -297,6 +301,14 @@ test.describe('Compaction recovery for duplicate visible session tiles (TASK_202
         tile.locator('ptah-model-selector span[title="Fable Test"]'),
       ).toBeVisible();
     }
+
+    // The split-pane inspector overlays the transcript. Close it through its
+    // visible control before opening the compaction marker beneath it.
+    const detailsDialog = page.locator(
+      'ptah-canvas-rail-board:visible [role="dialog"][aria-label="Session details"]',
+    );
+    await detailsDialog.getByRole('button', { name: 'Close session details' }).click();
+    await expect(detailsDialog).toHaveCount(0);
 
     await secondTile
       .locator('ptah-compaction-marker')

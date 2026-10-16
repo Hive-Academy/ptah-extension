@@ -178,6 +178,7 @@ const AGENT_GENERATION_TOKENS = {
   SETUP_WIZARD_SERVICE: Symbol.for('SetupWizardService'),
   ENHANCED_PROMPTS_SERVICE: Symbol.for('SdkEnhancedPromptsService'),
   ANALYSIS_STORAGE_SERVICE: Symbol.for('AnalysisStorageService'),
+  ANALYSIS_FRESHNESS_SERVICE: Symbol.for('AnalysisFreshnessService'),
 } as const;
 
 const HARNESS_SYNC_TOKENS = {
@@ -394,6 +395,7 @@ function createMockContainer(
 
 interface Harness {
   handlers: WizardGenerationRpcHandlers;
+  runs: GenerationRunSupervisor;
   logger: MockLogger;
   rpcHandler: MockRpcHandler;
   pluginLoader: MockPluginLoader;
@@ -404,6 +406,7 @@ interface Harness {
   setupWizard: SetupWizardFake;
   webviewManager: WebviewManagerFake;
   storage: StorageFake;
+  freshness: { getStatus: jest.Mock };
   propagation: { propagate: jest.Mock };
   sentry: MockSentryService;
 }
@@ -427,6 +430,26 @@ function makeHarness(
   const setupWizard = createMockSetupWizard();
   const webviewManager = createMockWebviewManager();
   const storage = createStorageFake();
+  storage.resolveAuthorizedAnalysisDir.mockImplementation(
+    (ws: string, candidate: string): string | null => {
+      const absolute = path.posix.resolve(ws, candidate);
+      const root = path.posix.resolve(ws, '.ptah/analysis');
+      const relative = path.posix.relative(root, absolute);
+      return relative === '' ||
+        (!relative.startsWith('..') && !path.posix.isAbsolute(relative))
+        ? absolute
+        : null;
+    },
+  );
+  const freshness = {
+    getStatus: jest.fn().mockResolvedValue({
+      state: 'fresh',
+      reason: 'ok',
+      analysisDir: '.ptah/analysis/acme',
+      checkedAt: '2026-10-14T00:00:00.000Z',
+      analyzedAt: '2026-10-14T00:00:00.000Z',
+    }),
+  };
   const propagation = {
     propagate: jest.fn().mockResolvedValue({ targets: [] }),
   };
@@ -440,6 +463,7 @@ function makeHarness(
   maybeSet(AGENT_GENERATION_TOKENS.AGENT_GENERATION_ORCHESTRATOR, orchestrator);
   maybeSet(AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE, setupWizard);
   maybeSet(AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE, storage);
+  maybeSet(AGENT_GENERATION_TOKENS.ANALYSIS_FRESHNESS_SERVICE, freshness);
   maybeSet(TOKENS.WEBVIEW_MANAGER, webviewManager);
   maybeSet(HARNESS_SYNC_TOKENS.PROPAGATION, propagation);
   maybeSet(HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE, {
@@ -468,6 +492,7 @@ function makeHarness(
 
   return {
     handlers,
+    runs,
     logger,
     rpcHandler,
     pluginLoader,
@@ -478,6 +503,7 @@ function makeHarness(
     setupWizard,
     webviewManager,
     storage,
+    freshness,
     propagation,
     sentry,
   };
@@ -616,6 +642,35 @@ function seedCheckpoint(
 const BASE_SUBMIT_PARAMS: WizardSubmitSelectionParams = {
   selectedAgentIds: ['agent-a'],
 };
+const VALID_ANALYSIS = {
+  projectType: 'node',
+  fileCount: 10,
+  languages: ['TypeScript'],
+  frameworks: ['Express'],
+  architecturePatterns: [],
+  keyFileLocations: {
+    entryPoints: [],
+    configs: [],
+    testDirectories: [],
+    apiRoutes: [],
+    components: [],
+    services: [],
+  },
+  existingIssues: {
+    errorCount: 0,
+    warningCount: 0,
+    infoCount: 0,
+    errorsByType: {},
+    warningsByType: {},
+  },
+  testCoverage: {
+    percentage: 0,
+    hasTests: false,
+    hasUnitTests: false,
+    hasIntegrationTests: false,
+    hasE2eTests: false,
+  },
+};
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -717,6 +772,83 @@ describe('WizardGenerationRpcHandlers', () => {
       expect(manifestAt(h, ANALYSIS_DIR).analysisDirectory).toBe(ANALYSIS_DIR);
     });
 
+    it('passes validated analysis and its authorized fresh directory with selection and overrides', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+      await call(h, 'wizard:submit-selection', {
+        selectedAgentIds: ['agent-a', 'agent-b'],
+        variableOverrides: { language: 'TypeScript' },
+        analysisDir: ANALYSIS_DIR,
+        analysisData: VALID_ANALYSIS,
+      });
+      expect(firstOptions(h)).toEqual(
+        expect.objectContaining({
+          userOverrides: ['agent-a', 'agent-b'],
+          variableOverrides: { language: 'TypeScript' },
+          analysisDir: ANALYSIS_DIR,
+          preComputedAnalysis: expect.objectContaining({ projectType: 'node' }),
+        }),
+      );
+      expect(h.storage.resolveAuthorizedAnalysisDir).toHaveBeenCalledWith(
+        WORKSPACE,
+        '.ptah/analysis/acme',
+      );
+    });
+
+    it.each(['stale', 'missing'] as const)(
+      'uses workspace context for %s analysis without rejecting or moving the checkpoint',
+      async (state) => {
+        const h = makeHarness();
+        h.freshness.getStatus.mockResolvedValue({
+          state,
+          reason: state === 'missing' ? 'no-analysis' : 'expired',
+          analysisDir: state === 'missing' ? null : '.ptah/analysis/acme',
+        });
+        h.handlers.register();
+        const result = await call<{ success: boolean }>(
+          h,
+          'wizard:submit-selection',
+          {
+            ...BASE_SUBMIT_PARAMS,
+            analysisDir: ANALYSIS_DIR,
+            analysisData: VALID_ANALYSIS,
+          },
+        );
+        expect(result.success).toBe(true);
+        expect(firstOptions(h).analysisDir).toBeUndefined();
+        expect(firstOptions(h).preComputedAnalysis).toBeUndefined();
+        expect(manifestAt(h, ANALYSIS_DIR).analysisDirectory).toBe(
+          ANALYSIS_DIR,
+        );
+        expect(h.logger.warn).toHaveBeenCalledWith(
+          expect.stringContaining('using workspace context'),
+          expect.objectContaining({ analysisState: state }),
+        );
+      },
+    );
+
+    it('omits analysis when the fresh run does not match the authorized caller directory', async () => {
+      const h = makeHarness();
+      h.freshness.getStatus.mockResolvedValue({
+        state: 'fresh',
+        reason: 'ok',
+        analysisDir: '.ptah/analysis/other',
+      });
+      h.handlers.register();
+      const result = await call<{ success: boolean }>(
+        h,
+        'wizard:submit-selection',
+        {
+          ...BASE_SUBMIT_PARAMS,
+          analysisDir: ANALYSIS_DIR,
+          analysisData: VALID_ANALYSIS,
+        },
+      );
+      expect(result.success).toBe(true);
+      expect(firstOptions(h).analysisDir).toBeUndefined();
+      expect(firstOptions(h).preComputedAnalysis).toBeUndefined();
+    });
+
     it('drops analysisData that is not a ProjectAnalysisResult and warns, instead of failing the request', async () => {
       const h = makeHarness();
       h.handlers.register();
@@ -745,6 +877,142 @@ describe('WizardGenerationRpcHandlers', () => {
   // -------------------------------------------------------------------------
 
   describe('wizard:submit-selection — launch', () => {
+    it('reserves the submit slot while freshness is pending', async () => {
+      const h = makeHarness();
+      let releaseFreshness!: () => void;
+      const pending = new Promise<void>((resolve) => {
+        releaseFreshness = resolve;
+      });
+      h.freshness.getStatus.mockImplementationOnce(async () => {
+        await pending;
+        return {
+          state: 'fresh',
+          reason: 'ok',
+          analysisDir: '.ptah/analysis/acme',
+          checkedAt: '2026-10-14T00:00:00.000Z',
+          analyzedAt: '2026-10-14T00:00:00.000Z',
+        };
+      });
+      h.handlers.register();
+
+      const first = call<{ success: boolean }>(
+        h,
+        'wizard:submit-selection',
+        BASE_SUBMIT_PARAMS,
+      );
+      const second = await call<{ success: boolean; error?: string }>(
+        h,
+        'wizard:submit-selection',
+        BASE_SUBMIT_PARAMS,
+      );
+
+      expect(second.success).toBe(false);
+      expect(second.error).toMatch(/already in progress/i);
+      releaseFreshness();
+      expect((await first).success).toBe(true);
+      expect(h.storage.writeGenerationManifest).toHaveBeenCalledTimes(1);
+      expect(h.orchestrator.generateAgents).toHaveBeenCalledTimes(1);
+    });
+
+    it('releases the submit slot after a missing resume checkpoint', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+
+      const missing = await call<{ success: boolean; error?: string }>(
+        h,
+        'wizard:submit-selection',
+        { resume: true },
+      );
+      const next = await call<{ success: boolean }>(
+        h,
+        'wizard:submit-selection',
+        BASE_SUBMIT_PARAMS,
+      );
+
+      expect(missing.success).toBe(false);
+      expect(missing.error).toMatch(/no resumable/i);
+      expect(next.success).toBe(true);
+    });
+
+    it('finalizes the checkpoint and reports a rejected launch', async () => {
+      const h = makeHarness();
+      jest
+        .spyOn(h.runs, 'run')
+        .mockRejectedValueOnce(new Error('launch failed'));
+      h.handlers.register();
+
+      const result = await call<{ success: boolean }>(
+        h,
+        'wizard:submit-selection',
+        BASE_SUBMIT_PARAMS,
+      );
+      await settle();
+
+      expect(result.success).toBe(true);
+      expect(manifestAt(h).lifecycle).toBe('failed');
+      expect(h.storage.updateGenerationManifest).toHaveBeenCalled();
+      expect(h.logger.error).toHaveBeenCalledWith(
+        'RPC: wizard:submit-selection launch failed',
+      );
+      expect(h.sentry.captureException).toHaveBeenCalledWith(
+        expect.any(Error),
+        { errorSource: 'WizardGenerationRpcHandlers.registerSubmitSelection' },
+      );
+    });
+
+    it('warns when failed-launch reporting also fails', async () => {
+      const h = makeHarness();
+      jest
+        .spyOn(h.runs, 'run')
+        .mockRejectedValueOnce(new Error('launch failed'));
+      h.sentry.captureException.mockImplementationOnce(() => {
+        throw new Error('reporting failed');
+      });
+      h.handlers.register();
+
+      const result = await call<{ success: boolean }>(
+        h,
+        'wizard:submit-selection',
+        BASE_SUBMIT_PARAMS,
+      );
+      await settle();
+
+      expect(result.success).toBe(true);
+      expect(h.logger.warn).toHaveBeenCalledWith(
+        'RPC: wizard:submit-selection failure reporting did not complete',
+      );
+    });
+
+    it('refuses retry while a submit is preparing', async () => {
+      const h = makeHarness();
+      let releaseFreshness!: () => void;
+      h.freshness.getStatus.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            releaseFreshness = () =>
+              resolve({
+                state: 'stale',
+                reason: 'missing',
+                analysisDir: null,
+                checkedAt: '2026-10-14T00:00:00.000Z',
+                analyzedAt: null,
+              });
+          }),
+      );
+      h.handlers.register();
+
+      const submit = call(h, 'wizard:submit-selection', BASE_SUBMIT_PARAMS);
+      const retry = await call<{ success: boolean; error?: string }>(
+        h,
+        'wizard:retry-item',
+        { itemId: 'agent-a' },
+      );
+      expect(retry.success).toBe(false);
+      expect(retry.error).toMatch(/already in progress/i);
+      releaseFreshness();
+      await submit;
+    });
+
     it('returns success immediately (fire-and-forget orchestration)', async () => {
       const h = makeHarness();
       h.handlers.register();
