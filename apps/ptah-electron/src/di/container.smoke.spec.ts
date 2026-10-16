@@ -87,10 +87,12 @@ import { UPDATE_MANAGER_TOKEN } from '../services/update/update-tokens';
 describe('Electron DI — skill telemetry seam', () => {
   it('resolves after skill services register', () => {
     const child = rootContainer.createChildContainer();
+    const logger = { info: jest.fn() } as unknown as Logger;
     child.registerInstance(PERSISTENCE_TOKENS.SQLITE_CONNECTION, {});
-    registerSkillSynthesisServices(child, {
-      info: jest.fn(),
-    } as unknown as Logger);
+    child.registerInstance(PERSISTENCE_TOKENS.VEC_STATUS, {});
+    // The seam reads through the owning stores, which inject the host Logger.
+    child.registerInstance(TOKENS.LOGGER, logger);
+    registerSkillSynthesisServices(child, logger);
     expect(() =>
       child.resolve(LANE_OUTCOME_TOKENS.SKILL_TELEMETRY_SEAM),
     ).not.toThrow();

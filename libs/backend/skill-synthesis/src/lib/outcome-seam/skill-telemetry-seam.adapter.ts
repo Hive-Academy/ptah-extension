@@ -1,23 +1,14 @@
 import { inject, injectable } from 'tsyringe';
-import {
-  PERSISTENCE_TOKENS,
-  type SqliteConnectionService,
-} from '@ptah-extension/persistence-sqlite';
 import type {
   SkillTelemetrySeam,
   SubagentRunTelemetry,
 } from '@ptah-extension/lane-outcomes';
 
-interface RunRow {
-  run_id: string;
-  input_tokens: number | null;
-  output_tokens: number | null;
-  cost_usd: number | null;
-  duration_ms: number | null;
-  task_id: string | null;
-  is_error: number;
-  verdict_source: string | null;
-}
+import {
+  SkillCandidateStore,
+  type SubagentRunRow,
+} from '../skill-candidate.store';
+import { SessionVerdictStore } from '../archaeology/session-verdict.store';
 
 const UNMATCHED: SubagentRunTelemetry = {
   match: 'unmatched',
@@ -33,8 +24,10 @@ const UNMATCHED: SubagentRunTelemetry = {
 @injectable()
 export class SkillTelemetrySeamAdapter implements SkillTelemetrySeam {
   constructor(
-    @inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION)
-    private readonly connection: SqliteConnectionService,
+    @inject(SkillCandidateStore)
+    private readonly candidates: SkillCandidateStore,
+    @inject(SessionVerdictStore)
+    private readonly verdicts: SessionVerdictStore,
   ) {}
 
   async subagentRuns(
@@ -46,15 +39,8 @@ export class SkillTelemetrySeamAdapter implements SkillTelemetrySeam {
     const agentIds = ids.map((id) =>
       id.startsWith('subagent:') ? id.slice('subagent:'.length) : id,
     );
-    const placeholders = agentIds.map(() => '?').join(',');
-    const rows = this.connection.db
-      .prepare(
-        `SELECT run_id, input_tokens, output_tokens, cost_usd, duration_ms, task_id,
-              is_error, verdict_source FROM skill_invocation_events
-       WHERE source = 'subagent' AND run_id IN (${placeholders})`,
-      )
-      .all(...agentIds) as RunRow[];
-    const grouped = new Map<string, RunRow[]>();
+    const rows = this.candidates.findSubagentRuns(agentIds);
+    const grouped = new Map<string, SubagentRunRow[]>();
     for (const row of rows)
       grouped.set(row.run_id, [...(grouped.get(row.run_id) ?? []), row]);
     for (let i = 0; i < ids.length; i++) {
@@ -90,25 +76,17 @@ export class SkillTelemetrySeamAdapter implements SkillTelemetrySeam {
     }[],
   ): Promise<ReadonlyMap<string, readonly string[] | null>> {
     const result = new Map<string, readonly string[] | null>();
+    const eligible = scopes.filter(
+      (scope) => !scope.runId.startsWith('subagent:'),
+    );
+    const skills = this.candidates.listSkillsForScopes(eligible);
     for (const scope of scopes) {
       // Nested subagent Skill hooks do not carry a proven session join (PB-3).
       if (scope.runId.startsWith('subagent:')) {
         result.set(scope.runId, null);
         continue;
       }
-      const rows = this.connection.db
-        .prepare(
-          `SELECT DISTINCT skill_slug FROM skill_invocation_events
-         WHERE source IN ('tool-use', 'prompt-expansion') AND session_id = ?
-           AND invoked_at BETWEEN ? AND ? ORDER BY skill_slug`,
-        )
-        .all(scope.sessionId, scope.fromMs, scope.toMs) as Array<{
-        skill_slug: string;
-      }>;
-      result.set(
-        scope.runId,
-        rows.map((row) => row.skill_slug),
-      );
+      result.set(scope.runId, skills.get(scope.runId) ?? []);
     }
     return result;
   }
@@ -119,16 +97,12 @@ export class SkillTelemetrySeamAdapter implements SkillTelemetrySeam {
     const result = new Map<string, string | null>();
     if (sessionIds.length === 0) return result;
     const ids = [...new Set(sessionIds)];
-    const rows = this.connection.db
-      .prepare(
-        `SELECT session_id, evidence_class FROM skill_session_verdicts
-       WHERE session_id IN (${ids.map(() => '?').join(',')})`,
-      )
-      .all(...ids) as Array<{
-      session_id: string;
-      evidence_class: string | null;
-    }>;
-    for (const row of rows) result.set(row.session_id, row.evidence_class);
+    for (const [
+      sessionId,
+      evidenceClass,
+    ] of this.verdicts.evidenceClassForSessions(ids)) {
+      result.set(sessionId, evidenceClass);
+    }
     return result;
   }
 }

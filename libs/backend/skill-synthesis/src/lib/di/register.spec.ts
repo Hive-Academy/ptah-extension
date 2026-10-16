@@ -39,6 +39,9 @@ describe('registerSkillSynthesisServices', () => {
   it('binds the outcome telemetry seam to one adapter instance', () => {
     const container = rootContainer.createChildContainer();
     container.registerInstance(PERSISTENCE_TOKENS.SQLITE_CONNECTION, {});
+    container.registerInstance(PERSISTENCE_TOKENS.VEC_STATUS, {});
+    // The seam reads through the owning stores, which inject the host Logger.
+    container.registerInstance(TOKENS.LOGGER, stubLogger);
     registerSkillSynthesisServices(container, stubLogger);
     const seam = container.resolve(LANE_OUTCOME_TOKENS.SKILL_TELEMETRY_SEAM);
     expect(seam).toBeInstanceOf(SkillTelemetrySeamAdapter);

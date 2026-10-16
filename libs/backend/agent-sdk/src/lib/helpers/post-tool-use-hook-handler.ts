@@ -18,7 +18,12 @@ import type { ToolOutputCapper } from './compaction/tool-output-capper';
 import { PostToolUseCallbackRegistry } from './post-tool-use-callback-registry';
 import { MainThreadNoticeQueue } from './main-thread-notice-queue';
 import { SubagentNoticeQueue } from './subagent-notice-queue';
-import { buildSubagentRunTag } from './subagent-run-tag';
+import {
+  buildSubagentRunTag,
+  type SubagentRunTagResult,
+} from './subagent-run-tag';
+
+const RUN_TAG_MISS_HISTORY_SIZE = 256;
 
 /**
  * Upper bound for one output cap. The SDK's hook timeout defaults to 60 s; a
@@ -119,7 +124,8 @@ export class PostToolUseHookHandler {
           },
         );
       }
-      this.logRunTagSkip(input, sessionId, result.reason);
+      if (result.tag === null)
+        this.logRunTagSkip(input, sessionId, result.reason);
       return result.tag;
     } catch (error: unknown) {
       // degradation-audit: reported - a failed registry lookup loses only this
@@ -135,36 +141,30 @@ export class PostToolUseHookHandler {
     }
   }
 
-  /**
-   * `missing-agent-id` and `invalid-agent-id` are a lost join key: warn once
-   * per parent session. A tool that is not Agent or Task is not a join, so
-   * that skip stays at debug.
-   */
+  /** Warn once per parent session for a missing run-tag join key. */
   private logRunTagSkip(
     input: PostToolUseHookInput,
     sessionId: string | undefined,
-    reason: 'missing-agent-id' | 'invalid-agent-id' | undefined,
+    reason: SubagentRunTagResult['reason'],
   ): void {
-    if (reason === 'missing-agent-id' || reason === 'invalid-agent-id') {
-      const parentSessionId = resolveHookSessionId(input.session_id, sessionId);
-      if (parentSessionId !== null) {
-        if (this.runTagMissSessions.has(parentSessionId)) {
-          return;
-        }
-        this.runTagMissSessions.add(parentSessionId);
-      }
-      this.logger.warn('[PostToolUseHookHandler] subagent run tag skipped', {
-        reason,
-        toolName: input.tool_name,
-      });
+    if (input.tool_name !== 'Agent' && input.tool_name !== 'Task') {
       return;
     }
-    if (input.tool_name !== 'Agent' && input.tool_name !== 'Task') {
-      this.logger.debug('[PostToolUseHookHandler] subagent run tag skipped', {
-        reason: 'not-an-agent-tool',
-        toolName: input.tool_name,
-      });
+    const parentSessionId = resolveHookSessionId(input.session_id, sessionId);
+    const key =
+      parentSessionId === null
+        ? `unresolved:${input.tool_name}`
+        : `session:${parentSessionId}`;
+    if (this.runTagMissSessions.has(key)) return;
+    if (this.runTagMissSessions.size >= RUN_TAG_MISS_HISTORY_SIZE) {
+      const oldest = this.runTagMissSessions.values().next().value;
+      if (oldest !== undefined) this.runTagMissSessions.delete(oldest);
     }
+    this.runTagMissSessions.add(key);
+    this.logger.warn('[PostToolUseHookHandler] subagent run tag skipped', {
+      reason: reason ?? 'no reason',
+      toolName: input.tool_name,
+    });
   }
 
   /**

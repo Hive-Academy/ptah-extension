@@ -175,33 +175,114 @@ describe('PostToolUseHookHandler', () => {
     );
   });
 
-  it('a non-Agent tool logs the run-tag skip at debug only', async () => {
+  it('100 non-Agent PostToolUse calls produce no run-tag logs', async () => {
     const logger = makeLogger();
     const handler = new PostToolUseHookHandler(
       logger,
       new PostToolUseCallbackRegistry(logger),
     );
     const fn = getHookCallback(handler, 'parent', '/workspace');
-    const result = await fn(
+    for (let i = 0; i < 100; i++)
+      await fn(
+        {
+          hook_event_name: 'PostToolUse',
+          tool_name: 'Read',
+          tool_use_id: `tool-${i}`,
+          tool_input: {},
+          tool_response: { content: 'file' },
+          session_id: 'parent',
+        } as HookInput,
+        undefined,
+        { signal: new AbortController().signal },
+      );
+
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(logger.debug).not.toHaveBeenCalled();
+    expect(logger.info).not.toHaveBeenCalled();
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it('logs an Agent skip without reason once per session', async () => {
+    const logger = makeLogger();
+    const handler = new PostToolUseHookHandler(
+      logger,
+      new PostToolUseCallbackRegistry(logger),
+    );
+    const fn = getHookCallback(handler, 'parent', '/workspace');
+    const input = {
+      hook_event_name: 'PostToolUse',
+      tool_name: 'Agent',
+      tool_use_id: 'tool-1',
+      tool_input: {},
+      tool_response: {},
+      agent_id: 'nested',
+      session_id: 'parent',
+    } as HookInput;
+    await fn(input, undefined, { signal: new AbortController().signal });
+    await fn(input, undefined, { signal: new AbortController().signal });
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[PostToolUseHookHandler] subagent run tag skipped',
+      { reason: 'no reason', toolName: 'Agent' },
+    );
+  });
+
+  it('deduplicates unresolved Agent skips by tool name', async () => {
+    const logger = makeLogger();
+    const handler = new PostToolUseHookHandler(
+      logger,
+      new PostToolUseCallbackRegistry(logger),
+    );
+    const fn = getHookCallback(handler, '', '/workspace');
+    const input = {
+      hook_event_name: 'PostToolUse',
+      tool_name: 'Agent',
+      tool_use_id: 'tool-1',
+      tool_input: {},
+      tool_response: {},
+    } as HookInput;
+    await fn(input, undefined, { signal: new AbortController().signal });
+    await fn(input, undefined, { signal: new AbortController().signal });
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('bounds run-tag miss sessions to 256 entries with oldest-first eviction', async () => {
+    const logger = makeLogger();
+    const handler = new PostToolUseHookHandler(
+      logger,
+      new PostToolUseCallbackRegistry(logger),
+    );
+    const fn = getHookCallback(handler, 'parent', '/workspace');
+    for (let i = 0; i < 300; i++) {
+      await fn(
+        {
+          hook_event_name: 'PostToolUse',
+          tool_name: 'Agent',
+          tool_use_id: `tool-${i}`,
+          tool_input: {},
+          tool_response: {},
+          session_id: `session-${i}`,
+        } as HookInput,
+        undefined,
+        { signal: new AbortController().signal },
+      );
+      const history: unknown = Reflect.get(handler, 'runTagMissSessions');
+      expect(history).toBeInstanceOf(Set);
+      if (history instanceof Set) expect(history.size).toBeLessThanOrEqual(256);
+    }
+    await fn(
       {
         hook_event_name: 'PostToolUse',
-        tool_name: 'Read',
-        tool_use_id: 'tool-1',
+        tool_name: 'Agent',
+        tool_use_id: 'again',
         tool_input: {},
-        tool_response: { content: 'file' },
-        session_id: 'parent',
+        tool_response: {},
+        session_id: 'session-0',
       } as HookInput,
       undefined,
       { signal: new AbortController().signal },
     );
-
-    expect(result).toEqual({ continue: true });
-    expect(logger.warn).not.toHaveBeenCalled();
-    expect(logger.debug).toHaveBeenCalledTimes(1);
-    expect(logger.debug).toHaveBeenCalledWith(
-      '[PostToolUseHookHandler] subagent run tag skipped',
-      { reason: 'not-an-agent-tool', toolName: 'Read' },
-    );
+    expect(logger.warn).toHaveBeenCalledTimes(301);
   });
 
   it('happy path: validated PostToolUse input → registry.notifyAll with mapped payload', async () => {

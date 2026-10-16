@@ -13,6 +13,7 @@
  */
 import { inject, injectable } from 'tsyringe';
 import { ulid } from 'ulid';
+import { z } from 'zod';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   PERSISTENCE_TOKENS,
@@ -56,6 +57,25 @@ interface RawInvocationEventRow {
   source: string;
   context_id: string | null;
 }
+
+const SubagentRunRowSchema = z.object({
+  run_id: z.string(),
+  input_tokens: z.number().nullable(),
+  output_tokens: z.number().nullable(),
+  cost_usd: z.number().nullable(),
+  duration_ms: z.number().nullable(),
+  task_id: z.string().nullable(),
+  is_error: z.union([z.literal(0), z.literal(1)]),
+  verdict_source: z.string().nullable(),
+});
+
+export type SubagentRunRow = z.infer<typeof SubagentRunRowSchema>;
+
+const SkillScopeRowSchema = z.object({
+  session_id: z.string(),
+  invoked_at: z.number(),
+  skill_slug: z.string(),
+});
 
 /** `SUM(CASE …)` over an empty table is NULL, hence the `| null`. */
 type RawLifecycleCountsRow = {
@@ -1593,6 +1613,75 @@ export class SkillCandidateStore {
       .get(...sessionIds) as { skill_slug: string; c: number } | undefined;
     if (!row || !row.skill_slug) return null;
     return row.skill_slug;
+  }
+
+  findSubagentRuns(agentIds: readonly string[]): SubagentRunRow[] {
+    if (agentIds.length === 0) return [];
+    const rows = this.db
+      .prepare(
+        `SELECT run_id, input_tokens, output_tokens, cost_usd, duration_ms, task_id,
+                is_error, verdict_source FROM skill_invocation_events
+         WHERE source = 'subagent' AND run_id IN (${agentIds.map(() => '?').join(',')})`,
+      )
+      .all(...agentIds);
+    const valid: SubagentRunRow[] = [];
+    for (const row of rows) {
+      const parsed = SubagentRunRowSchema.safeParse(row);
+      if (parsed.success) valid.push(parsed.data);
+      else
+        this.logger.warn('[skill-synthesis] invalid subagent invocation row');
+    }
+    return valid;
+  }
+
+  listSkillsForScopes(
+    scopes: readonly {
+      runId: string;
+      sessionId: string;
+      fromMs: number;
+      toMs: number;
+    }[],
+  ): ReadonlyMap<string, readonly string[]> {
+    const skills = new Map<string, Set<string>>(
+      scopes.map((scope) => [scope.runId, new Set<string>()]),
+    );
+    for (let start = 0; start < scopes.length; start += 100) {
+      const batch = scopes.slice(start, start + 100);
+      const conditions = batch
+        .map(() => '(session_id = ? AND invoked_at BETWEEN ? AND ?)')
+        .join(' OR ');
+      const params = batch.flatMap((scope) => [
+        scope.sessionId,
+        scope.fromMs,
+        scope.toMs,
+      ]);
+      const rows = this.db
+        .prepare(
+          `SELECT DISTINCT session_id, invoked_at, skill_slug FROM skill_invocation_events
+           WHERE source IN ('tool-use', 'prompt-expansion') AND (${conditions})`,
+        )
+        .all(...params);
+      for (const row of rows) {
+        const parsed = SkillScopeRowSchema.safeParse(row);
+        if (!parsed.success) {
+          this.logger.warn('[skill-synthesis] invalid skill invocation row');
+          continue;
+        }
+        const { session_id, invoked_at, skill_slug } = parsed.data;
+        for (const scope of batch) {
+          if (
+            scope.sessionId === session_id &&
+            invoked_at >= scope.fromMs &&
+            invoked_at <= scope.toMs
+          ) {
+            skills.get(scope.runId)?.add(skill_slug);
+          }
+        }
+      }
+    }
+    return new Map(
+      [...skills].map(([runId, slugs]) => [runId, [...slugs].sort()]),
+    );
   }
 
   getRecentSessionsForSlug(slug: string, limit = 5): string[] {

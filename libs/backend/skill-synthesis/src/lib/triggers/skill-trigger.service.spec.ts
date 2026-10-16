@@ -35,6 +35,7 @@ import { SkillTriggerService } from './skill-trigger.service';
 import { SkillCandidateStore } from '../skill-candidate.store';
 import { SkillInvocationRecorder as RealSkillInvocationRecorder } from '../skill-invocation-recorder';
 import { SkillTelemetrySeamAdapter } from '../outcome-seam/skill-telemetry-seam.adapter';
+import { SessionVerdictStore } from '../archaeology/session-verdict.store';
 import { resolveOpener } from '../queue/queue-db.test-support';
 import type { SkillSynthesisService } from '../skill-synthesis.service';
 import type { SkillInvocationRecorder } from '../skill-invocation-recorder';
@@ -2035,7 +2036,10 @@ describe('SkillTriggerService — run telemetry integration', () => {
           .prepare('SELECT run_id FROM skill_invocation_events ORDER BY run_id')
           .all() as Array<{ run_id: string }>;
         expect(rows.map((row) => row.run_id)).toEqual(['run-a', 'run-b']);
-        const seam = new SkillTelemetrySeamAdapter(connection);
+        const seam = new SkillTelemetrySeamAdapter(
+          store,
+          new SessionVerdictStore(makeLogger(), connection),
+        );
         const telemetry = await seam.subagentRuns([
           'subagent:run-a',
           'subagent:run-b',
