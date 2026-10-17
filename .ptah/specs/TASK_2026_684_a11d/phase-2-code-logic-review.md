@@ -1,6 +1,6 @@
 # Phase 2 code logic review — Batches 6–10
 
-**Bounded correction result: 6/10. Verdict: REVISE.** The R2-1 allowlist collision remains; see “Bounded correction review (R2-1)” below.
+**Final R2-1 check: 8/10. Verdict: APPROVED.** The user-decided code removal closes R2-1; earlier Phase 2 findings remain recorded below.
 
 **Review family: codex (implementer: Claude).** Scope: the Phase 2 source and specs, their callers, the task context and plan, and the five named commits. No tests, builds, lint, or diagnostics were run under the review's no-heavy-command rule.
 
@@ -186,3 +186,26 @@ The bounded check read commit `c7097e0a1`, the changed helper and targeted tests
 ### Decisions
 
 - **Do not approve the exact-code allowlist as a universal secrecy boundary.** Options: omit `code`, retain the fixed allowlist, or reject keys that match it. The custom-key setter permits `EACCES`, and the test explicitly logs `EACCES` after a key-store rejection (`decision-model.keys.ts:84-108`; `route-decide.gate.spec.ts:933-945`). Omitting `code` is the smallest reversible correction and preserves the key format.
+## Final check (R2-1, user decision)
+
+**Score: 8/10. Verdict: APPROVED. Review family: codex (implementer: Claude).** R2-1 is closed for the scoped key-bearing rejection logs. The fixed-category implementation and collision gate support approval; the absence of a runtime test in this final check keeps it below the exemplary 9–10 band. There is no new material defect to place it in the 5–6 band. This verdict supersedes the earlier bounded R2-1 verdict only.
+
+**R2-1 status: closed.** `errorFacts` now returns only `{ name: errorName(error) }` and never reads `error.code` (`libs/backend/lane-routing/src/lib/route-decide.service.ts:458-465`). Its only callers log target-resolution and rotation-save failures (`:369-374,393-400`), and neither consumes a `code` field. `errorName` maps a caught Error name to a fixed set or `other`, including when a name getter throws (`decision-model/decision-model.detail.ts:47-86`); it does not forward arbitrary dependency text. The gate asserts that a secret-store rejection with `code: 'EACCES'` logs only `{ name: 'Error' }` and contains no `EACCES` (`route-decide.gate.spec.ts:933-949`). A repository search found no other `errorFacts` or `LOGGABLE_ERROR_CODES` consumer in lane-routing.
+
+**Other scoped rejection logs.** Key lookup, readiness, mark storage, catalog and probe failures log fixed `errorName` categories (`decision-model/decision-model.config.ts:469-470,510-512,569-571,697-699,741-745`; `decision-model/decision-model.catalog.ts:159-161,411-415`; `decision-model/decision-model.prober.ts:133-137`). The classifier's caught and late rejections use `classificationErrorFacts`, which returns `runId` and fixed `errorName` only (`failure-class/decision-model-failure-classifier.ts:133-135,467-475`). Its response failure logs use fixed causes and numeric status, not response body or error text (`:245-265`). No scoped rejection logger forwards dependency-controlled `code`, `message`, raw `name`, or another rejection field.
+
+**New defects:** none in this correction. **Failure modes:** 0 new R2-1 failure modes.
+
+### Five logic questions
+
+1. **Silent failure:** the old allowlist could make a key collision look like a harmless Node code; the new helper has no code branch (`route-decide.service.ts:464-465`).
+2. **User action:** a user can save `EACCES` as a custom key; the secret-store rejection gate now excludes that value from logs (`decision-model/decision-model.keys.ts:84-108`; `route-decide.gate.spec.ts:933-949`).
+3. **Wrong-answer input:** `code: 'EACCES'` no longer changes log metadata; both matching and nonmatching codes yield the same fixed category (`route-decide.service.ts:464-465`).
+4. **Dependency failure:** target and rotation rejections reach only `errorFacts`; malformed or throwing error names reduce to `other` (`route-decide.service.ts:369-374,393-400`; `decision-model/decision-model.detail.ts:64-86`).
+5. **Missing requirement detail:** collision safety must hold when a valid key equals a familiar diagnostic token; the new gate covers that exact case (`route-decide.gate.spec.ts:933-949`).
+
+**Verification and limit:** read commit `5051b9600`, the helper, its two call sites, the collision gate, and scoped decision-model and classifier log sites. Scoped `ptah_get_diagnostics` returned zero errors and warnings for the changed service and gate spec. No Nx, Jest, build, lint, or runtime failure injection was run, as required. Pre-existing logs in `pipeline/gather.ts`, `ranking/rotation.store.ts`, and `matrix/capability-matrix.store.ts` remain outside this check.
+
+### Decisions
+
+- **Approve the user-decided removal of error codes.** Options were omit codes or retain an allowlist. A valid key can equal `EACCES`; removing the field closes that collision without restricting key values (`decision-model/decision-model.keys.ts:84-108`; `route-decide.service.ts:464-465`). Reversible.
