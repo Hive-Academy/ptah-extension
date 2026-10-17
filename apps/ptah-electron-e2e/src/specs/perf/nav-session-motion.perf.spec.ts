@@ -33,7 +33,7 @@ const probeVersion = 3;
 type Scenario = 'S1' | 'S2' | 'S3' | 'S4' | 'S5' | 'S6' | 'S7' | 'S8';
 const expectedWindowCounts: Record<Scenario, number> = { S1: 30, S2: 10, S3: 5, S4: 3, S5: 2, S6: 44, S7: 4, S8: 4 };
 interface FocusRecord { tag: string | null; testId: string | null; title: string | null }
-interface InputEventRecord extends FocusRecord { type: 'pointerdown' | 'click'; viewTransitionActive: boolean }
+interface InputEventRecord extends FocusRecord { type: 'pointerdown' | 'click'; viewTransitionActive: boolean; rootClasses: string; path: string[]; stack: string[]; listButton: string | null }
 interface AnimationSample { type: 'CSSAnimation' | 'CSSTransition' | 'other'; name: string | null; target: string }
 interface TaskFrame { event: string; functionName: string | null; url: string | null; durationMs: number }
 interface TaskAttribution { startTime: number; duration: number; classification: 'motion' | 'render' | 'unknown'; topFrames: TaskFrame[]; reason?: string }
@@ -290,11 +290,16 @@ async function installWindowProbe(page: Page): Promise<void> {
     };
     const arm = () => { if (probe.clickAt === null) capture(); };
     const rearm = () => { probe.clickTimes.length = 0; capture(); probe.clickTimes.push(probe.clickAt ?? performance.now()); };
+    const describe = (el: Element) => `${el.tagName.toLowerCase()}.${(el.getAttribute('class') ?? '').slice(0, 80)}${el.getAttribute('data-testid') ? `[data-testid="${el.getAttribute('data-testid')}"]` : ''}`;
     const recordInput = (event: Event) => {
       const target = event.target instanceof Element ? event.target : null;
       probe.inputEvents.push({ type: event.type as 'pointerdown' | 'click', tag: target?.tagName ?? null,
         testId: target?.getAttribute('data-testid') ?? null, title: target?.getAttribute('title') ?? null,
-        viewTransitionActive: document.documentElement.classList.contains('ptah-vt-active') });
+        viewTransitionActive: document.documentElement.classList.contains('ptah-vt-active'),
+        rootClasses: document.documentElement.className,
+        path: (() => { const out: string[] = []; for (let el = target; el && out.length < 6; el = el.parentElement) out.push(describe(el)); return out; })(),
+        stack: event instanceof MouseEvent ? [`at ${event.clientX},${event.clientY}`, ...document.elementsFromPoint(event.clientX, event.clientY).slice(0, 6).map(describe)] : [],
+        listButton: (() => { const r = document.querySelector('ptah-tasks-view button[data-testid="tasks-view-mode-list"]')?.getBoundingClientRect(); return r ? `${r.x},${r.y} ${r.width}x${r.height}` : null; })() });
     };
     const pointerListener: EventListener = (event) => { if ((event as PointerEvent).isTrusted) recordInput(event); };
     const clickListener: EventListener = (event) => { if ((event as MouseEvent).isTrusted) { recordInput(event); arm(); probe.clickTimes.push(performance.now()); } };
