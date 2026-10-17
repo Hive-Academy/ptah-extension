@@ -214,6 +214,72 @@ describe('SurfaceTransitionTracker', () => {
     tracker = TestBed.inject(SurfaceTransitionTracker);
   });
 
+  it('skips the active transition on capture-phase pointerdown', () => {
+    const stub = makeTransition();
+    tracker.track(stub.transition);
+    document.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    expect(stub.skip).toHaveBeenCalledTimes(1);
+    stub.finish();
+  });
+
+  it('skips the active transition on capture-phase keydown', () => {
+    const stub = makeTransition();
+    tracker.track(stub.transition);
+    document.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Tab' }));
+    expect(stub.skip).toHaveBeenCalledTimes(1);
+    stub.finish();
+  });
+
+  it('runs a queued callback once after an input skip settles', async () => {
+    const stub = makeTransition();
+    const callback = jest.fn();
+    tracker.track(stub.transition);
+    tracker.afterTransition(callback);
+    document.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    expect(stub.skip).toHaveBeenCalledTimes(1);
+    expect(callback).not.toHaveBeenCalled();
+    stub.finish();
+    await Promise.resolve();
+    expect(callback).toHaveBeenCalledTimes(1);
+    await Promise.resolve();
+    expect(callback).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores input before tracking and after settling', async () => {
+    document.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    const stub = makeTransition();
+    tracker.track(stub.transition);
+    expect(stub.skip).not.toHaveBeenCalled();
+    stub.finish();
+    await Promise.resolve();
+    document.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    document.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true }));
+    expect(stub.skip).not.toHaveBeenCalled();
+  });
+
+  it('installs one listener of each type and removes both on destroy', () => {
+    const add = jest.spyOn(document, 'addEventListener');
+    const remove = jest.spyOn(document, 'removeEventListener');
+    try {
+      const first = makeTransition();
+      const second = makeTransition();
+      tracker.track(first.transition);
+      tracker.track(second.transition);
+      expect(add.mock.calls.filter(([type]) => type === 'pointerdown')).toHaveLength(1);
+      expect(add.mock.calls.filter(([type]) => type === 'keydown')).toHaveLength(1);
+      TestBed.resetTestingModule();
+      expect(remove).toHaveBeenCalledWith('pointerdown', expect.any(Function), true);
+      expect(remove).toHaveBeenCalledWith('keydown', expect.any(Function), true);
+      document.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+      expect(second.skip).not.toHaveBeenCalled();
+      first.finish();
+      second.finish();
+    } finally {
+      add.mockRestore();
+      remove.mockRestore();
+    }
+  });
+
   it('runs idle callbacks synchronously and busy callbacks in order', async () => {
     const calls: number[] = [];
     tracker.afterTransition(() => calls.push(1));

@@ -1,5 +1,5 @@
 import { DOCUMENT } from '@angular/common';
-import { Injectable, inject, signal, type Signal } from '@angular/core';
+import { DestroyRef, Injectable, inject, signal, type Signal } from '@angular/core';
 import {
   withViewTransitions,
   type ActivatedRouteSnapshot,
@@ -38,10 +38,13 @@ function prefersReducedMotion(): boolean {
 export class SurfaceTransitionTracker {
   private readonly document = inject(DOCUMENT);
   private readonly logger = inject(LoggingService);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly busyState = signal(false);
   readonly busy: Signal<boolean> = this.busyState.asReadonly();
   private current: ViewTransition | undefined;
   private callbacks: Array<() => void> = [];
+  private listening = false;
+  private readonly skipOnInput = () => this.current?.skipTransition();
 
   afterTransition(fn: () => void): void {
     if (!this.current) {
@@ -52,6 +55,15 @@ export class SurfaceTransitionTracker {
   }
 
   track(transition: ViewTransition): void {
+    if (!this.listening) {
+      this.document.addEventListener('pointerdown', this.skipOnInput, true);
+      this.document.addEventListener('keydown', this.skipOnInput, true);
+      this.destroyRef.onDestroy(() => {
+        this.document.removeEventListener('pointerdown', this.skipOnInput, true);
+        this.document.removeEventListener('keydown', this.skipOnInput, true);
+      });
+      this.listening = true;
+    }
     this.current = transition;
     this.busyState.set(true);
     this.document.documentElement.classList.add('ptah-vt-active');
