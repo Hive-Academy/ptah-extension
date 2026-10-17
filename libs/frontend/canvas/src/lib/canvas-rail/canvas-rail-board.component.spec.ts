@@ -456,6 +456,7 @@ describe('CanvasRailBoardComponent rendering', () => {
     // jsdom does not run Angular enter animations, so verify the binding in the template.
     const source = readFileSync(join(__dirname, 'canvas-rail-board.component.ts'), 'utf8');
     expect(source).toMatch(/<section[^>]*data-testid="canvas-tile"[^>]*\[animate\.enter\]="splitDisplayed\(\) \? 'rail-pane-enter' : ''"/);
+    expect(source).toMatch(/\[data-testid="rail-pane-container"\]:has\(> \.rail-pane-enter\) \{ overflow: clip; \}/);
     fixture.componentInstance.openBeside('b');
     fixture.detectChanges();
     expect(fixture.componentInstance.splitDisplayed()).toBe(true);

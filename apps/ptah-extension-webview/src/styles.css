@@ -751,8 +751,12 @@ Webkit pseudo-elements kept as fallback for older webview hosts.
 MOTION
 ============================================================================ */
 
-html.ptah-vt-active .ptah-vt-surface {
+html.ptah-vt-active:not(.ptah-vt-entering) .ptah-vt-surface {
   view-transition-name: ptah-surface;
+}
+
+html.ptah-vt-entering .ptah-vt-surface {
+  animation: ptahPageRiseIn var(--ptah-motion-in) var(--ptah-ease-soft) both;
 }
 
 /* Electron: keep the navbar, rail and git dock hit-testable during transitions. */
@@ -798,10 +802,6 @@ html.ptah-vt-active::view-transition-old(ptah-surface) {
   animation: ptahPageOut var(--ptah-motion-out) var(--ptah-ease-gentle-in) both;
 }
 
-html.ptah-vt-active::view-transition-new(ptah-surface) {
-  animation: ptahPageRiseIn var(--ptah-motion-in) var(--ptah-ease-soft) both;
-}
-
 @keyframes ptahPageOut {
   to {
     opacity: 0;
@@ -831,6 +831,10 @@ ACCESSIBILITY STYLES
 
 /* Respect user's motion preferences */
 @media (prefers-reduced-motion: reduce) {
+  html.ptah-vt-entering .ptah-vt-surface {
+    animation: none !important;
+  }
+
   ::view-transition-group(*),
   ::view-transition-old(*),
   ::view-transition-new(*) {

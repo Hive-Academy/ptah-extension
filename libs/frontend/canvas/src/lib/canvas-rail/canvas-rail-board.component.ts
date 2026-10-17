@@ -84,6 +84,7 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
     @keyframes rail-pane-enter { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: translateX(0); } }
     @media (prefers-reduced-motion: no-preference) {
       .rail-pane-enter { animation: rail-pane-enter 180ms var(--ptah-ease-soft) both; }
+      [data-testid="rail-pane-container"]:has(> .rail-pane-enter) { overflow: clip; }
     }
   `],
   template: `
