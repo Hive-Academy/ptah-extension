@@ -79,10 +79,13 @@ const DECORATIVE_EXCEPTIONS: ReadonlyMap<
     new Map([['text-base-content/20', 2]]),
   ],
   [
-    // Search / MessageSquare empty-state glyphs in the session list, each
-    // sitting directly above the sentence that says the same thing.
-    'chat/src/lib/components/templates/app-shell.component.html',
-    new Map([['text-base-content/20', 2]]),
+    // Empty-state glyphs in the previous-sessions modal, moved here from
+    // app-shell.component.html with the session list. Search sits above
+    // "No matching sessions", MessageSquare above "No sessions yet", and
+    // CalendarX above the invalid-range sentence. Each is an `aria-hidden`
+    // lucide icon whose meaning is already carried by that sentence.
+    'chat/src/lib/components/organisms/previous-sessions/previous-sessions-modal.component.html',
+    new Map([['text-base-content/20', 3]]),
   ],
   [
     // `aria-hidden` middot separating two metadata strings.
