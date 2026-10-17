@@ -105,6 +105,42 @@ describe('CompactionConfigProvider.getConfig', () => {
 });
 
 describe('CompactionConfigProvider.getIdleCompactionConfig', () => {
+  it.each([
+    [
+      'compaction.idleCompactionEnabled',
+      'Missing boolean idle compaction enabled default',
+    ],
+    [
+      'compaction.idleCompactionMinTokens',
+      'Missing valid idle compaction minimum token default',
+    ],
+  ])(
+    'throws during construction when %s has no shared default',
+    (key, message) => {
+      const original = FILE_BASED_SETTINGS_DEFAULTS[key];
+      try {
+        delete FILE_BASED_SETTINGS_DEFAULTS[key];
+        expect(() => makeProvider({})).toThrow(message);
+      } finally {
+        FILE_BASED_SETTINGS_DEFAULTS[key] = original;
+      }
+    },
+  );
+
+  it('uses validated constructor defaults for later invalid live values', () => {
+    const values: Record<string, unknown> = {};
+    const { provider } = makeProvider(values);
+    values['compaction.idleCompactionEnabled'] = 'false';
+    values['compaction.idleCompactionMinTokens'] = 99_999;
+    expect(() => provider.getIdleCompactionConfig()).not.toThrow();
+    expect(provider.getIdleCompactionConfig()).toEqual({
+      enabled: true,
+      minTokens: 200_000,
+    });
+    values['compaction.idleCompactionMinTokens'] = 100_000.5;
+    expect(provider.getIdleCompactionConfig().minTokens).toBe(200_000);
+  });
+
   it('uses the shared defaults when settings are unset or null', () => {
     const { provider, warn } = makeProvider({});
     expect(provider.getIdleCompactionConfig()).toEqual({

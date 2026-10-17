@@ -1,6 +1,6 @@
 # Batches - TASK_2026_692_f748
 
-Total tasks: 34 | Batches: 20 | Complete: 9/20 (fix round 8F-8H added after the Phase 1 review)
+Total tasks: 34 | Batches: 20 | Complete: 11/20 (fix round 8F-8H added after the Phase 1 review)
 
 Worktree (all edits, checks, commits): `D:\projects\ptah-extension\.claude-worktrees\idle-compaction`
 (branch `feat/idle-compaction`, base `7bdc6eed4`). Below, `<W>` means that absolute path; every
@@ -511,7 +511,7 @@ Decisions:
   18 suites / 428 tests passing; eslint on the barrels and the new file is clean. Lane
   report: batch-8F-report.md.
 
-## Batch 8G: Phase 1 fix — reducer deadlines, alias normalisation, pipeline containment — COMPLETE
+## Batch 8G: Phase 1 fix — reducer deadlines, alias normalisation, pipeline containment — COMPLETE (commit d27b9e13f)
 
 - Recommended executor: CLI lane [implementation, TypeScript, RxJS virtual time]
 - Execution mode: sequential
@@ -552,7 +552,7 @@ Decisions:
 
 - Command: `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/helpers/compaction/idle --coverage=false --maxWorkers=2 2>&1 | tail -20 && npx nx typecheck @ptah-extension/agent-sdk 2>&1 | tail -15 && npx prettier --check libs/backend/agent-sdk/src/lib/helpers/compaction/idle 2>&1 | tail -3`
 
-## Batch 8H: Phase 1 fix — validate idle defaults at construction — PENDING
+## Batch 8H: Phase 1 fix — validate idle defaults at construction — COMPLETE (commit PENDING_SHA)
 
 - Recommended executor: CLI lane [implementation, TypeScript]
 - Execution mode: sequential
@@ -563,7 +563,7 @@ Decisions:
 - Tasks: 1 | Depends on: Batch 8G
 - Phase: 1 (fix round) | Phase review: code-logic + style re-review, scoped to the 8F..8H fix commits, due after this batch commits
 
-### Task 8H.1: `getIdleCompactionConfig` cannot throw on read — PENDING
+### Task 8H.1: `getIdleCompactionConfig` cannot throw on read — COMPLETE
 
 - Files: `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction-config-provider.ts`, `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction-config-provider.spec.ts`
 - Pattern to follow: `budgetDefaults` validated in the constructor (`compaction-config-provider.ts:96-104`)
@@ -574,6 +574,15 @@ Decisions:
 ### Batch 8H verification
 
 - Command: `npx nx test @ptah-extension/agent-sdk --parallel=1 2>&1 | grep -E "Tests:|Test Suites:|FAIL|failed" | tail -20 && npx nx typecheck @ptah-extension/agent-sdk 2>&1 | tail -15 && npx nx lint @ptah-extension/agent-sdk 2>&1 | tail -20`
+
+- Result (team-leader, on disk): both throws moved into the constructor beside
+  `budgetDefaults`; `getIdleCompactionConfig` falls back to the stored defaults and has no
+  throw path. Keys, defaults and messages unchanged; 5 000 000 upper bound stays a Minor.
+  Team-leader checks: config-provider spec 52/52 pass; agent-sdk typecheck passes; prettier
+  clean. Lane full agent-sdk run: 3598 pass, with a Jest worker teardown warning, carried to
+  the Phase 1 re-review (`--detectOpenHandles` on the idle specs). Lane report:
+  batch-8H-report.md.
+- Phase 1 re-review: DUE (code-logic + style, scoped to the 8F..8H fix commits).
 
 ## Batch 9: Session tap signals — PENDING
 
