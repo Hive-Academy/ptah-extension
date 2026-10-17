@@ -17,6 +17,7 @@ import {
   agentAccessibleLabel,
   backgroundAgentPopulation,
   formatAgentDuration,
+  agentRunDurationMs,
   formatTokenCount,
   type AgentStatusWord,
 } from '@ptah-extension/chat-ui';
@@ -24,7 +25,6 @@ import { ModelStateService } from '@ptah-extension/core';
 import { resolveModelDisplayName } from '@ptah-extension/shared';
 import { Bot, LucideAngularModule } from 'lucide-angular';
 import { formatEstimatedCost, usageTotalsFromSegments } from '../../molecules/agent-card/stats-bar.utils';
-import { formatElapsed } from '../../molecules/agent-card/agent-card.utils';
 import type { TrayAgentContext } from '../../../services/session-agents/session-agent-tray';
 import { SessionAgentTrayService } from '../../../services/session-agents/session-agent-tray.service';
 import type {
@@ -326,10 +326,12 @@ export class InspectorAgentsSectionComponent {
       const agent = row.agent;
       const extra = extras.get(agent.key);
       const tray = extra?.tray ?? null;
-      const durationMs =
-        agent.startedAt !== null
-          ? (agent.endedAt ?? now) - agent.startedAt
-          : (tray?.entry.durationMs ?? null);
+      const durationMs = agentRunDurationMs({
+        running: agent.status === 'running',
+        startedAt: agent.startedAt,
+        endedAt: agent.endedAt,
+        reportedMs: tray?.entry.durationMs,
+      }, now);
       const modelRaw = extra?.model ?? null;
       const tokens = extra?.tokens ?? null;
       const fallbackUsage = agent.usageTotals == null ? usageTotalsFromSegments(agent.segments ?? []) : null;
@@ -339,14 +341,13 @@ export class InspectorAgentsSectionComponent {
         : typeof usage?.inputTokens === 'number' && typeof usage?.outputTokens === 'number'
           ? usage.inputTokens + usage.outputTokens
           : null;
-      const duration = durationMs === null ? null : agent.kind === 'cli' ? formatElapsed(durationMs) : formatAgentDuration(durationMs);
+      const duration = durationMs === null ? null : formatAgentDuration(durationMs);
       const label = agentAccessibleLabel({
         name: agent.name,
         kind: agent.kind,
         status: agent.status,
-        durationMs: agent.kind === 'cli' ? null : durationMs,
+        durationMs,
       });
-      const ariaLabel = agent.kind === 'cli' && duration ? `${label} ${duration}` : label;
       return {
         key: agent.key,
         row,
@@ -354,7 +355,7 @@ export class InspectorAgentsSectionComponent {
         kindLabel: AGENT_KIND_LABEL[agent.kind],
         statusInk: agent.status ? STATUS_INK[agent.status] : '',
         duration,
-        ariaLabel: agent.activity ? `${ariaLabel}. ${agent.activity}` : ariaLabel,
+        ariaLabel: agent.activity ? `${label}. ${agent.activity}` : label,
         modelName: modelRaw ? resolveModelDisplayName(modelRaw, models) : null,
         modelRaw,
         tokens:

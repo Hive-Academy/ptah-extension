@@ -37,6 +37,8 @@ import {
   generateAgentColorOklch,
   formatOklch,
   isThemeFallbackColor,
+  agentRunDurationMs,
+  formatAgentDuration,
 } from '@ptah-extension/chat-ui';
 import {
   AgentMonitorStore,
@@ -884,7 +886,16 @@ export class InlineAgentBubbleComponent {
    * Returns null if no duration data is available.
    * Note: DurationBadgeComponent handles unit normalization (seconds vs ms).
    */
-  readonly agentDuration = computed(() => this.node().duration ?? null);
+  readonly agentDuration = computed(() => {
+    const record = this.subagentRecord();
+    const duration = agentRunDurationMs({
+      running: record?.status === 'running' || record?.status === 'pending',
+      startedAt: record?.startedAt,
+      endedAt: record?.completedAt,
+      reportedMs: record?.durationMs ?? this.node().duration,
+    }, Date.now()); // Known limitation: computed duration refreshes only when a signal changes.
+    return duration !== null && formatAgentDuration(duration) !== null ? duration : null;
+  });
 
   /**
    * Computed: whether we have any stats to show in the footer
