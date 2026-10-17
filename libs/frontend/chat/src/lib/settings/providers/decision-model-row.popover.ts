@@ -7,7 +7,10 @@
 const EDITOR_CHROME_PX = 32;
 /** With at least this much room under the cell the editor opens below it, so it grows downward (finding 2). */
 const MIN_ROOM_BELOW_PX = 280;
-/** The cap never goes under this, so the heading, the kind picker and a scroll area stay usable. */
+/**
+ * The cap never goes under this, so the fixed heading, kind picker and Save footer (about 140 px together) and a
+ * scroll area stay usable. The cap bounds the whole editor, footer included, so Save is always on screen.
+ */
 const MIN_EDITOR_PX = 160;
 
 /**

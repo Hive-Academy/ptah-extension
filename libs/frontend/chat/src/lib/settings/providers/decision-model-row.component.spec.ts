@@ -703,7 +703,49 @@ describe('DecisionModelRowComponent', () => {
       const body = byTestId('decision-editor-body');
       expect(body?.className).toContain('overflow-y-auto');
       expect(body?.contains(byTestId('decision-kind'))).toBe(false);
-      expect(body?.contains(byTestId('decision-footer'))).toBe(true);
+      expect(body?.contains(byTestId('decision-footer'))).toBe(false);
+    });
+
+    it('keeps Save and its footer text in a fixed footer after the scrolling body (P4 re-review 8)', async () => {
+      await create();
+      await open();
+      await pickKind('ollama');
+      const editor = byTestId('consumer-editor-decision');
+      const body = byTestId('decision-editor-body');
+      const save = byTestId('decision-save');
+      const footer = byTestId('decision-footer');
+      if (!editor || !body || !save || !footer)
+        throw new Error('editor parts missing');
+      // Direct children of the flex-column dialog, outside the only scroll container (min-h-0 body).
+      for (const part of [save, footer]) {
+        expect(part.parentElement).toBe(editor);
+        expect(body.contains(part)).toBe(false);
+        expect(
+          body.compareDocumentPosition(part) & Node.DOCUMENT_POSITION_FOLLOWING,
+        ).toBeTruthy();
+      }
+      expect(editor.className).toContain('flex-col');
+      expect(body.className).toContain('min-h-0');
+    });
+
+    it('puts the footer Save last in the Tab wrap: Tab on Save goes to Close, Shift+Tab on Close to Save', async () => {
+      await create();
+      await open();
+      await pickKind('ollama');
+      const model = byTestId<HTMLInputElement>('decision-model');
+      if (!model) throw new Error('model field missing');
+      model.value = 'clef:27b';
+      model.dispatchEvent(new Event('input'));
+      await flush();
+      const save = byTestId<HTMLButtonElement>('decision-save');
+      const close = byTestId<HTMLButtonElement>('consumer-close-decision');
+      if (!save || !close) throw new Error('editor controls missing');
+      expect(save.disabled).toBe(false);
+      expect(tab(model).defaultPrevented).toBe(false);
+      expect(tab(save).defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(close);
+      expect(tab(close, true).defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(save);
     });
 
     it('keeps Tab inside the editor: the last control wraps to Close, Shift+Tab on Close wraps back', async () => {

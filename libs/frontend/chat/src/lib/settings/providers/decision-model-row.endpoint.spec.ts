@@ -382,6 +382,26 @@ describe('DecisionModelRowComponent: Ollama Cloud and custom endpoint (TASK_2026
       expect(saveButton()?.disabled).toBe(true);
     });
 
+    it('reserves the hint slot so the editor height does not change when a hint appears (P4 re-review 7)', async () => {
+      await create();
+      await open();
+      await pickKind('custom');
+      const slot = byTestId('decision-base-url-error-slot');
+      expect(slot?.className).toContain('min-h-8');
+      // Empty slot: nothing to announce, and the field does not point at it.
+      expect(slot?.textContent?.trim()).toBe('');
+      expect(slot?.querySelector('[role="alert"]')).toBeNull();
+      expect(
+        byTestId('decision-base-url')?.getAttribute('aria-describedby'),
+      ).toBe('decision-model-base-url-help');
+      await type('decision-base-url', 'ftp://decide.example.com');
+      expect(byTestId('decision-base-url-error-slot')).toBe(slot);
+      expect(slot?.contains(byTestId('decision-base-url-error'))).toBe(true);
+      await type('decision-base-url', 'https://decide.example.com');
+      expect(byTestId('decision-base-url-error-slot')).toBe(slot);
+      expect(byTestId('decision-base-url-error')).toBeNull();
+    });
+
     it('allows plain http without a key, but needs https for a key unless the host is loopback (D4)', async () => {
       await create();
       await open();

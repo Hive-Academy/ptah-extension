@@ -49,16 +49,19 @@ import {
       https, unless the endpoint is on this machine (localhost, [::1] or
       127.x.x.x).
     </p>
-    @if (error(); as message) {
-      <p
-        id="decision-model-base-url-error"
-        role="alert"
-        class="text-xs text-error"
-        data-testid="decision-base-url-error"
-      >
-        {{ message }}
-      </p>
-    }
+    <!-- Two text-xs lines are reserved, so a hint never resizes the editor or moves this field (P4 re-review 7). -->
+    <div class="min-h-8" data-testid="decision-base-url-error-slot">
+      @if (error(); as message) {
+        <p
+          id="decision-model-base-url-error"
+          role="alert"
+          class="text-xs text-error"
+          data-testid="decision-base-url-error"
+        >
+          {{ message }}
+        </p>
+      }
+    </div>
   `,
 })
 export class DecisionModelBaseUrlFieldComponent {

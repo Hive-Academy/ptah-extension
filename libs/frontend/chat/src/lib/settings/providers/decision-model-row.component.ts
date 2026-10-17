@@ -178,8 +178,8 @@ type WriteResult = { ok: true } | { ok: false; message: string };
               />
             </button>
             @if (editing()) {
-              <!-- Height capped to the room beside the cell (decisionEditorMaxHeight); the heading, close and kind
-                   picker stay fixed and only the body scrolls, so the editor always fits the viewport. -->
+              <!-- Height capped to the room beside the cell (decisionEditorMaxHeight); the heading, close, kind
+                   picker and Save footer stay fixed and only the body scrolls, so the editor always fits. -->
               <div
                 #editor
                 content
@@ -346,27 +346,27 @@ type WriteResult = { ok: true } | { ok: false; message: string };
                       (remove)="removeKey()"
                     />
                   }
-                  @if (draft().kind !== 'unset') {
-                    <button
-                      type="button"
-                      [class]="
-                        'btn btn-primary btn-sm min-h-8 disabled:border-base-content-muted disabled:bg-base-200 disabled:text-base-content-muted ' +
-                        focusRing
-                      "
-                      [disabled]="!canSave()"
-                      (click)="save()"
-                      data-testid="decision-save"
-                    >
-                      Save decision model
-                    </button>
-                  }
-                  <p
-                    class="px-1 text-xs text-base-content-muted"
-                    data-testid="decision-footer"
-                  >
-                    {{ footer() }}
-                  </p>
                 </div>
+                @if (draft().kind !== 'unset') {
+                  <button
+                    type="button"
+                    [class]="
+                      'btn btn-primary btn-sm min-h-8 self-start disabled:border-base-content-muted disabled:bg-base-200 disabled:text-base-content-muted ' +
+                      focusRing
+                    "
+                    [disabled]="!canSave()"
+                    (click)="save()"
+                    data-testid="decision-save"
+                  >
+                    Save decision model
+                  </button>
+                }
+                <p
+                  class="px-1 text-xs text-base-content-muted"
+                  data-testid="decision-footer"
+                >
+                  {{ footer() }}
+                </p>
               </div>
             }
           </ptah-native-popover>
