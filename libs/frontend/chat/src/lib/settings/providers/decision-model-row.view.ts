@@ -415,6 +415,22 @@ function normaliseEndpointBaseUrl(raw: string): string | null {
   return stripTrailingSlashes(url.href);
 }
 
+/**
+ * Whether the saved custom endpoint's stored key would travel with a draft base URL: only when the draft has the
+ * saved URL's origin (scheme, host, port). Mirrors the host's key binding (`decision-model-writer.ts` in rpc-handlers,
+ * `originOf` in lane-routing): a stored custom key is sent only to the origin it is bound to.
+ */
+export function storedKeyBoundTo(
+  draftBaseUrl: string,
+  saved: DecisionModelSelectionDto | undefined,
+): boolean {
+  if (saved?.kind !== 'custom') return false;
+  const draft = normaliseEndpointBaseUrl(draftBaseUrl);
+  const bound = parseUrl(saved.baseUrl);
+  if (draft === null || !bound || bound.origin === 'null') return false;
+  return parseUrl(draft)?.origin === bound.origin;
+}
+
 /** D4: a key may be sent only over https or to a loopback host. */
 function keyTransportAllowed(baseUrl: string): boolean {
   const url = parseUrl(baseUrl);

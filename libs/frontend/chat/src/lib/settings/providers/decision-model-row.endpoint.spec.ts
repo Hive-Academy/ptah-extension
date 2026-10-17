@@ -240,14 +240,42 @@ describe('DecisionModelRowComponent: Ollama Cloud and custom endpoint (TASK_2026
       expect(saveButton()?.disabled).toBe(false);
     });
 
-    it('drops an answer that is not a catalog result', async () => {
-      catalog = async () => rpcSuccess({ models: 'clef', filter: 'applied' });
-      await create();
-      await open();
-      await pickKind('ollama-cloud');
-      expect(suggestionIds()).toEqual([]);
-      expect(text('decision-model-help')).toBe(UNAVAILABLE);
-    });
+    it.each([
+      [
+        'models not an array',
+        { models: 'clef', filter: 'applied', undetermined: 0 },
+      ],
+      [
+        'a null model id',
+        { models: [null], filter: 'applied', undetermined: 0 },
+      ],
+      [
+        'a blank model id among valid ones',
+        { models: ['clef:27b-cloud', ' '], filter: 'applied', undetermined: 0 },
+      ],
+      [
+        'an unknown filter',
+        { models: ['clef:27b-cloud'], filter: 'all', undetermined: 0 },
+      ],
+      [
+        'no undetermined count',
+        { models: ['clef:27b-cloud'], filter: 'applied' },
+      ],
+      [
+        'a negative undetermined count',
+        { models: ['clef:27b-cloud'], filter: 'applied', undetermined: -1 },
+      ],
+    ])(
+      'drops an answer that is not a catalog result (%s)',
+      async (_label, answer) => {
+        catalog = async () => rpcSuccess(answer);
+        await create();
+        await open();
+        await pickKind('ollama-cloud');
+        expect(suggestionIds()).toEqual([]);
+        expect(text('decision-model-help')).toBe(UNAVAILABLE);
+      },
+    );
 
     it('a newer request wins: a slow listing never fills the list of a later kind', async () => {
       let resolveSlow: (value: unknown) => void = () => undefined;
@@ -404,7 +432,35 @@ describe('DecisionModelRowComponent: Ollama Cloud and custom endpoint (TASK_2026
       ]);
     });
 
-    it('a stored key counts for D4 and is removed only through Remove stored key', async () => {
+    it('a stored key counts for D4 on its own origin and is removed only through Remove stored key', async () => {
+      await create(
+        status({
+          selection: {
+            kind: 'custom',
+            baseUrl: 'http://decide.example.com/v1',
+            model: 'm1',
+          },
+          locality: 'remote',
+          state: 'ready',
+          apiKeyStored: true,
+        }),
+      );
+      await open();
+      expect(byTestId<HTMLInputElement>('decision-api-key')?.value).toBe('');
+      await type('decision-base-url', 'http://decide.example.com/v2');
+      expect(text('decision-base-url-error')).toBe(
+        DECISION_MODEL_KEY_NEEDS_HTTPS,
+      );
+      expect(saveButton()?.disabled).toBe(true);
+      await type('decision-base-url', 'https://decide.example.com');
+      expect(byTestId('decision-base-url-error')).toBeNull();
+      expect(setConfigCalls()).toEqual([]);
+      byTestId<HTMLButtonElement>('decision-api-key-remove')?.click();
+      await flush();
+      expect(setConfigCalls()).toEqual([{ decisionModelCustomApiKey: '' }]);
+    });
+
+    it('a stored key is not carried to another origin: a keyless http edit there may be saved (D4)', async () => {
       await create(
         status({
           selection: {
@@ -418,16 +474,24 @@ describe('DecisionModelRowComponent: Ollama Cloud and custom endpoint (TASK_2026
         }),
       );
       await open();
-      expect(byTestId<HTMLInputElement>('decision-api-key')?.value).toBe('');
-      await type('decision-base-url', 'http://decide.example.com');
-      expect(text('decision-base-url-error')).toBe(
-        DECISION_MODEL_KEY_NEEDS_HTTPS,
-      );
-      await type('decision-base-url', 'https://decide.example.com');
-      expect(setConfigCalls()).toEqual([]);
-      byTestId<HTMLButtonElement>('decision-api-key-remove')?.click();
-      await flush();
-      expect(setConfigCalls()).toEqual([{ decisionModelCustomApiKey: '' }]);
+      for (const other of [
+        'http://other.example.com',
+        'http://decide.example.com',
+      ]) {
+        await type('decision-base-url', other);
+        expect(byTestId('decision-base-url-error')).toBeNull();
+        expect(saveButton()?.disabled).toBe(false);
+      }
+      await save();
+      expect(setConfigCalls()).toEqual([
+        {
+          decisionModel: {
+            kind: 'custom',
+            baseUrl: 'http://decide.example.com',
+            model: 'm1',
+          },
+        },
+      ]);
     });
 
     it('hides Remove stored key when the host reports none', async () => {
@@ -465,6 +529,30 @@ describe('DecisionModelRowComponent: Ollama Cloud and custom endpoint (TASK_2026
       await save();
       expect(feedback.toast()?.message).toBe(SAVE_FAILED);
     });
+
+    it.each([
+      ['an empty object', {}],
+      ['a non-boolean success', { success: 'yes' }],
+    ])(
+      'treats %s as a failed save, never as saved',
+      async (_label, response) => {
+        await create();
+        await open();
+        await pickKind('custom');
+        await type('decision-base-url', 'https://decide.example.com');
+        await type('decision-model', 'm1');
+        call.mockImplementation(async (method: string) => {
+          if (method === 'agent:getConfig')
+            return rpcSuccess({
+              decisionModel: current,
+            } as AgentOrchestrationConfig);
+          return rpcSuccess(response);
+        });
+        await save();
+        expect(setConfigCalls()).toHaveLength(1);
+        expect(feedback.toast()?.message).toBe(SAVE_FAILED);
+      },
+    );
 
     it('names the endpoint host in the cell and the locality line', async () => {
       await create(

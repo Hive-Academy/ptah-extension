@@ -37,6 +37,7 @@ import {
   hostSaveSentence,
   parseDecisionModelStatus,
   sameDecisionSelection,
+  storedKeyBoundTo,
   type DecisionEndpointField,
   type DecisionModelDraft,
 } from './decision-model-row.view';
@@ -529,12 +530,13 @@ export class DecisionModelRowComponent implements OnInit {
     if (!kind) return false;
     return this.keyStoredKnown() ?? this.keyRemoved() !== kind;
   });
-  /** The first invalid custom endpoint field (D4 counts a typed key or one the host reports stored). */
+  /** The first invalid custom endpoint field (D4 counts a typed key, or a stored key bound to the draft's origin). */
   private readonly endpointError = computed(() =>
     endpointFieldError(
       this.draft(),
       this.keyTyped() ||
-        (this.keyedKind() === 'custom' && this.keyStoredKnown() === true),
+        (this.keyStoredKnown() === true &&
+          storedKeyBoundTo(this.draft().baseUrl, this.status()?.selection)),
     ),
   );
   protected readonly canSave = computed(() => {
@@ -732,8 +734,12 @@ export class DecisionModelRowComponent implements OnInit {
       const result = await this.rpc.call('agent:setConfig', params, {
         timeout: RPC_TIMEOUT_MS,
       });
-      if (!result.isSuccess() || !result.data.success) {
-        const hostError = result.isSuccess() ? result.data.error : undefined;
+      // The RPC boundary is untrusted at runtime: only a literal `success: true` confirms the write.
+      if (!result.isSuccess() || result.data.success !== true) {
+        const hostError =
+          result.isSuccess() && result.data.success === false
+            ? result.data.error
+            : undefined;
         return { ok: false, message: hostSaveSentence(hostError) ?? failed };
       }
     } catch (error: unknown) {

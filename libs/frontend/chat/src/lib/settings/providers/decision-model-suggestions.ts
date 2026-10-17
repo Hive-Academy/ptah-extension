@@ -124,13 +124,21 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const isFilter = (value: unknown): value is DecisionModelCatalogFilter =>
   value === 'applied' || value === 'partial' || value === 'unavailable';
 
-/** Validates the host's catalog answer before it reaches view state; any other shape is `null` (not read). */
+const isModelId = (value: unknown): value is string =>
+  typeof value === 'string' && value.trim() !== '';
+const isModelIdList = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every(isModelId);
+const isCount = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isInteger(value) && value >= 0;
+
+/**
+ * Validates the host's whole catalog answer (`AgentListDecisionModelsResult`) before it reaches view state: every
+ * model id must be a non-blank string. Any other shape is `null` (not read), shown as "could not check".
+ */
 function parseCatalogResult(value: unknown): DecisionSuggestions | null {
   if (!isRecord(value)) return null;
-  const { models, filter } = value;
-  if (!isFilter(filter) || !Array.isArray(models)) return null;
-  const ids = models.filter(
-    (id): id is string => typeof id === 'string' && id !== '',
-  );
-  return { status: 'ready', ids, filter };
+  const { models, filter, undetermined } = value;
+  if (!isFilter(filter) || !isModelIdList(models) || !isCount(undetermined))
+    return null;
+  return { status: 'ready', ids: [...models], filter };
 }
