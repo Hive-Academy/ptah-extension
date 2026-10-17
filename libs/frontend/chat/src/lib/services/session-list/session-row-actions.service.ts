@@ -46,9 +46,9 @@ export class SessionRowActionsService {
    * focus its tile, single switches to the session's tab.
    *
    * Grid resolves `'failed'` when the canvas drops the request (invalid id,
-   * or not taken within its timeout). Single resolves `'opened'` once the
-   * switch has started; the history load is not awaited, and its failure is
-   * logged.
+   * or not taken within its timeout). Single awaits the switch, history load
+   * included: it resolves `'opened'` once that settles and `'failed'` (logged)
+   * when it rejects, which is how `ChatStore.switchSession` reports failure.
    */
   async openSession(
     session: Pick<ChatSessionSummary, 'id' | 'name'>,
@@ -64,10 +64,13 @@ export class SessionRowActionsService {
       });
       return 'failed';
     }
-    this.chatStore.switchSession(session.id).catch((error: unknown) => {
+    try {
+      await this.chatStore.switchSession(session.id);
+      return 'opened';
+    } catch (error) {
       this.logger.error(LOG_CONTEXT, 'Failed to open session', error);
-    });
-    return 'opened';
+      return 'failed';
+    }
   }
 
   /**

@@ -140,12 +140,24 @@ describe('SessionRowActionsService', () => {
       expect(appState.requestCanvasSession).not.toHaveBeenCalled();
     });
 
-    it('resolves opened in single layout without awaiting the history load', async () => {
-      chatStore.switchSession.mockReturnValueOnce(new Promise(() => undefined));
+    it('waits for the single-layout switch to settle before resolving', async () => {
+      let finishSwitch: () => void = () => undefined;
+      chatStore.switchSession.mockReturnValueOnce(
+        new Promise<void>((resolve) => (finishSwitch = resolve)),
+      );
+      let settled: string | null = null;
+      void service
+        .openSession({ id: TAGGED, name: 'Tagged' })
+        .then((result) => (settled = result));
 
-      await expect(
-        service.openSession({ id: TAGGED, name: 'Tagged' }),
-      ).resolves.toBe('opened');
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(settled).toBeNull();
+
+      finishSwitch();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(settled).toBe('opened');
     });
 
     it('asks the canvas for a tile in grid layout and resolves opened', async () => {
@@ -179,12 +191,13 @@ describe('SessionRowActionsService', () => {
       expect(chatStore.switchSession).not.toHaveBeenCalled();
     });
 
-    it('logs a failed switch', async () => {
+    it('resolves failed and logs when the single-layout switch rejects', async () => {
       const error = new Error('load failed');
       chatStore.switchSession.mockRejectedValueOnce(error);
 
-      await service.openSession({ id: TAGGED, name: 'Tagged' });
-      await Promise.resolve();
+      await expect(
+        service.openSession({ id: TAGGED, name: 'Tagged' }),
+      ).resolves.toBe('failed');
 
       expect(logger.error).toHaveBeenCalledWith(
         'SessionRowActions',

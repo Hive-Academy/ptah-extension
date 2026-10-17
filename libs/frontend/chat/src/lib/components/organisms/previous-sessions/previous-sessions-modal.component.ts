@@ -84,6 +84,8 @@ const INVALID_RANGE_MESSAGE = 'The From date is after the To date.';
 
 /** Inline error and announcement after a failed rename (FU-6, design 8.7). */
 const RENAME_FAILED_MESSAGE = "Couldn't rename. Try again.";
+/** A failed open whose row may have left the list after a query change. */
+const OPEN_FAILED_MESSAGE = "Couldn't open the session. Try again.";
 
 /**
  * Tooltip on `transcript expired`: the Claude CLI's `cleanupPeriodDays`
@@ -286,6 +288,15 @@ export class PreviousSessionsModalComponent {
   private pendingStatus: AfterRenderRef | null = null;
   /** Row count last announced or accounted for; null until the first read. */
   private lastRowCount: number | null = null;
+  /** Reversed-range state last announced or accounted for. */
+  private lastRangeReversed = false;
+  /**
+   * Bumped when a rename starts, is cancelled or is committed; a save's
+   * failure reopens its field only while its own commit is still the latest.
+   */
+  private renameGeneration = 0;
+  /** Bumped on every query change (list query, search, dates). */
+  private queryGeneration = 0;
   /** The last pointerdown in the modal landed on the scrim. */
   private pointerDownOnScrim = false;
   /** A row's open is in flight; further opens are ignored until it settles. */
@@ -308,13 +319,18 @@ export class PreviousSessionsModalComponent {
       this.view.searchQuery();
       this.view.dateFrom();
       this.view.dateTo();
-      untracked(() => this.openError.set(''));
+      untracked(() => {
+        this.queryGeneration++;
+        this.openError.set('');
+      });
     });
 
-    // "N sessions" after the list a query asked for has arrived.
+    // "N sessions" after the list a query asked for has arrived, or why
+    // there are none when the date range turns reversed (also 0 -> 0).
     effect(() => {
       const count = this.rowCount();
-      untracked(() => this.onRowCountChange(count));
+      const reversed = this.dateRangeReversed();
+      untracked(() => this.onRowCountChange(count, reversed));
     });
   }
 
@@ -412,6 +428,7 @@ export class PreviousSessionsModalComponent {
 
   protected onRenameRequested(session: ChatSessionSummary): void {
     // The row focuses and selects its own field (D34).
+    this.renameGeneration++;
     this.editingSessionId.set(session.id);
     this.editingSessionName.set(session.name || '');
     this.renameError.set('');
@@ -431,6 +448,7 @@ export class PreviousSessionsModalComponent {
     if (this.editingSessionId() !== session.id) return;
     const requested = this.editingSessionName();
     this.endRename();
+    const attempt = ++this.renameGeneration;
     // After a blur the user clicked elsewhere: focus stays there (D32).
     if (trigger === 'enter') {
       this.afterRender(() => {
@@ -442,11 +460,12 @@ export class PreviousSessionsModalComponent {
         else this.focusSearch();
       });
     }
-    void this.renameRow(session, requested);
+    void this.renameRow(session, requested, attempt);
   }
 
   protected onRenameCancelled(session: ChatSessionSummary): void {
     if (this.editingSessionId() !== session.id) return;
+    this.renameGeneration++;
     this.endRename();
     this.focusAfterRender(() => this.rowAction(session.id, 'rename'));
   }
@@ -469,12 +488,14 @@ export class PreviousSessionsModalComponent {
    * Save a rename. The service logs a failure and the row keeps its name;
    * here the field opens again with the user's draft and the inline error,
    * and the same text is announced (FU-6, design 8.7). A result that comes
-   * back after the user started another rename, or after the row left the
-   * list, changes nothing.
+   * back after the user started, cancelled or committed another rename
+   * (`attempt` is no longer the latest), or after the row left the list,
+   * changes nothing.
    */
   private async renameRow(
     session: ChatSessionSummary,
     requested: string,
+    attempt: number,
   ): Promise<void> {
     const result = await this.actions.rename(
       session.id,
@@ -482,7 +503,7 @@ export class PreviousSessionsModalComponent {
       requested,
     );
     if (this.destroyed || result !== 'failed') return;
-    if (this.editingSessionId() !== null) return;
+    if (attempt !== this.renameGeneration) return;
     const stillListed = this.view
       .filteredSessions()
       .some((row) => row.id === session.id);
@@ -497,12 +518,15 @@ export class PreviousSessionsModalComponent {
   /**
    * Open a row's session, one at a time. The modal closes only once the
    * session opened; a grid open the canvas dropped keeps it open and says so
-   * on the status line.
+   * on the status line. A failure that arrives after the query changed is
+   * only announced, without the row's name, notice or focus move: the row
+   * may no longer be on screen.
    */
   private async openRow(session: ChatSessionSummary): Promise<void> {
     if (this.opening) return;
     this.opening = true;
     this.openError.set('');
+    const queryAtOpen = this.queryGeneration;
     let result: SessionOpenResult;
     try {
       result = await this.actions.openSession(session);
@@ -512,6 +536,10 @@ export class PreviousSessionsModalComponent {
     if (this.destroyed || !this.dialog.isOpen()) return;
     if (result === 'opened') {
       this.close();
+      return;
+    }
+    if (queryAtOpen !== this.queryGeneration) {
+      this.announce(OPEN_FAILED_MESSAGE);
       return;
     }
     const name = this.displayUtils.getSessionDisplayName(session);
@@ -600,17 +628,19 @@ export class PreviousSessionsModalComponent {
     else this.focusSearch();
   }
 
-  private onRowCountChange(count: number): void {
+  private onRowCountChange(count: number, reversed: boolean): void {
     // The first read, and rows still arriving at boot, are not a query result.
     if (this.lastRowCount === null || this.bootStatus.isBooting()) {
       this.lastRowCount = count;
+      this.lastRangeReversed = reversed;
       return;
     }
-    if (count === this.lastRowCount) return;
+    if (count === this.lastRowCount && reversed === this.lastRangeReversed) {
+      return;
+    }
     this.lastRowCount = count;
-    this.announce(
-      this.dateRangeReversed() ? INVALID_RANGE_MESSAGE : sessionCount(count),
-    );
+    this.lastRangeReversed = reversed;
+    this.announce(reversed ? INVALID_RANGE_MESSAGE : sessionCount(count));
   }
 
   /**

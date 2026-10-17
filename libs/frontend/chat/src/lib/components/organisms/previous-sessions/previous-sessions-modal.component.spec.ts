@@ -815,6 +815,57 @@ describe('PreviousSessionsModalComponent', () => {
       expect(document.activeElement).toBe(action('b', 'open'));
     });
 
+    it('stays open with the notice when the single-layout switch fails (FU-9)', async () => {
+      await open([session('a', 'Alpha')]);
+      store.switchSession.mockRejectedValueOnce(new Error('load failed'));
+      action('a', 'open').click();
+      await drain();
+      render();
+
+      expect(store.switchSession).toHaveBeenCalledWith('a');
+      expect(isOpen()).toBe(true);
+      expect(openError()?.textContent?.trim()).toBe(
+        `Couldn't open "Alpha". Try again.`,
+      );
+      expect(status()).toBe(`Couldn't open "Alpha". Try again.`);
+    });
+
+    it('closes only after the single-layout switch settles', async () => {
+      await open([session('a', 'Alpha')]);
+      let finishSwitch: () => void = () => undefined;
+      store.switchSession.mockReturnValueOnce(
+        new Promise<void>((resolve) => (finishSwitch = resolve)),
+      );
+      action('a', 'open').click();
+      await drain();
+      expect(isOpen()).toBe(true);
+
+      finishSwitch();
+      await drain();
+      expect(isOpen()).toBe(false);
+    });
+
+    it('announces a late open failure without the row once the query changed', async () => {
+      layoutMode.set('grid');
+      await open([session('a', 'Alpha'), session('b', 'Beta')]);
+      const answer = deferCanvas();
+      action('a', 'open').click();
+      type(search(), 'Be');
+      await settle();
+      expect(rowNames()).toEqual(['Beta']);
+      (document.activeElement as HTMLElement | null)?.blur();
+
+      answer(false);
+      await drain();
+      render();
+
+      expect(isOpen()).toBe(true);
+      // No notice for a row the user can no longer see, and no focus move.
+      expect(openError()).toBeNull();
+      expect(status()).toBe("Couldn't open the session. Try again.");
+      expect(document.activeElement).toBe(document.body);
+    });
+
     it('ignores a second open while the first is pending', async () => {
       layoutMode.set('grid');
       await open([session('a', 'Alpha'), session('b', 'Beta')]);
@@ -1058,6 +1109,57 @@ describe('PreviousSessionsModalComponent', () => {
         expect(renameError()).toBeNull();
         expect(status()).toBe('');
       });
+
+      /** Save A with a pending RPC; the returned function fails it. */
+      async function pendingRenameOfA(): Promise<() => void> {
+        let answer: (value: ReturnType<typeof failed>) => void = () =>
+          undefined;
+        rpc.renameSession.mockReturnValueOnce(
+          new Promise<ReturnType<typeof failed>>(
+            (resolve) => (answer = resolve),
+          ),
+        );
+        await renameTo('a', 'Renamed');
+        return () => answer(failed());
+      }
+
+      it('ignores a failure that arrives after another rename was cancelled', async () => {
+        await open([session('a', 'Alpha'), session('b', 'Beta')]);
+        const failA = await pendingRenameOfA();
+        action('b', 'rename').click();
+        render();
+        requireField().dispatchEvent(keydown('Escape'));
+        render();
+        expect(field()).toBeNull();
+        expect(document.activeElement).toBe(action('b', 'rename'));
+
+        failA();
+        await drain();
+        render();
+
+        expect(field()).toBeNull();
+        expect(renameError()).toBeNull();
+        expect(status()).toBe('');
+        expect(document.activeElement).toBe(action('b', 'rename'));
+      });
+
+      it('ignores a failure that arrives after another rename was saved', async () => {
+        await open([session('a', 'Alpha'), session('b', 'Beta')]);
+        const failA = await pendingRenameOfA();
+        await renameTo('b', 'Beta renamed');
+        expect(rpc.renameSession).toHaveBeenLastCalledWith('b', 'Beta renamed');
+        expect(field()).toBeNull();
+        expect(document.activeElement).toBe(action('b', 'rename'));
+
+        failA();
+        await drain();
+        render();
+
+        expect(field()).toBeNull();
+        expect(renameError()).toBeNull();
+        expect(status()).toBe('');
+        expect(document.activeElement).toBe(action('b', 'rename'));
+      });
     });
 
     it('sends nothing for an unchanged name', async () => {
@@ -1132,6 +1234,18 @@ describe('PreviousSessionsModalComponent', () => {
       await setRange('2026-09-01', '2026-09-03');
       expect(invalidRange()).toBeNull();
       expect(noMatch()).not.toBeNull();
+    });
+
+    it('announces a reversed range when the list was already empty (0 -> 0)', async () => {
+      await open([session('a', 'Alpha')]);
+      await setRange('2026-09-01', '2026-09-03');
+      expect(noMatch()).not.toBeNull();
+      expect(status()).not.toBe('The From date is after the To date.');
+
+      await setRange('2026-09-03', '2026-09-01');
+      render();
+      expect(invalidRange()).not.toBeNull();
+      expect(status()).toBe('The From date is after the To date.');
     });
   });
 
