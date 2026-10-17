@@ -1,6 +1,6 @@
 # Batches - TASK_2026_692_f748
 
-Total tasks: 29 | Batches: 17 | Complete: 8/17
+Total tasks: 34 | Batches: 20 | Complete: 9/20 (fix round 8F-8H added after the Phase 1 review)
 
 Worktree (all edits, checks, commits): `D:\projects\ptah-extension\.claude-worktrees\idle-compaction`
 (branch `feat/idle-compaction`, base `7bdc6eed4`). Below, `<W>` means that absolute path; every
@@ -388,7 +388,7 @@ after 5 -> {6}. Default ordering below is sequential by number.
 
 - Command: `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/helpers/compaction/idle --coverage=false --maxWorkers=2 2>&1 | tail -30 && npx nx typecheck @ptah-extension/agent-sdk 2>&1 | tail -15`
 
-## Batch 8: Service ordering, coalescing and leak spec — COMPLETE
+## Batch 8: Service ordering, coalescing and leak spec — COMPLETE (commit daeefb6ec)
 
 - Recommended executor: CLI lane [testing, TypeScript, RxJS virtual time]
 - Execution mode: sequential
@@ -425,7 +425,142 @@ after 5 -> {6}. Default ordering below is sequential by number.
   PostCompact; group cleanup is owned by an alias-set token so an old finalize cannot clear a
   rebound group, and release clears aliases at once). The three cases are now plain `it`;
   assertions match the defects in batch-8-report.md. Reports: batch-8-report.md, -fix-report.md.
-- Phase 1 review: PENDING (code-logic + style on 70478faf7^..HEAD)
+- Phase 1 review: NEEDS_REVISION. `code-logic-review.md` 6/10 (3 Serious: F1, F2, F3) and
+  `code-style-review.md` 7/10 (2 Serious). Reviewer family Claude, implementer family codex.
+  Fix round = Batches 8F, 8G, 8H below. One re-review, code-logic + style, scoped to the fix
+  commits, is due after 8H commits.
+
+## Phase 1 fix round (from the Phase 1 review)
+
+Disposition (fix-round rule: fix Serious; fix a Moderate only if it can break session config or
+lose data; Minor recorded only):
+
+| Finding | Severity | Disposition |
+| --- | --- | --- |
+| Style S1 inline `ManualCompactAdmission` in `src/index.ts:142-146` | Serious | Fix, Task 8F.2 |
+| Style S2 idle folder fails `prettier --check` (13 files) | Serious | Fix, Task 8F.1. Checked: real, not CRLF. Files are LF per `.gitattributes` `eol=lf`; `git show HEAD:<f> \| prettier` differs for all 13 |
+| Logic F2 reducer drops signals under a pre-rekey alias (`idle-session.reducer.ts:71`) | Serious | Fix in Phase 1 files, Task 8G.2. Phase 2 acceptance note on Batches 10 and 11 |
+| Logic F3 `sending` has no deadline (`idle-session.reducer.ts:22`) | Serious | Fix the reducer deadline, Task 8G.1. Whether the sender can hang is Phase 2: acceptance note on Batch 10 |
+| Logic F1 one throw kills a session pipeline (`idle-compaction.service.ts:117-157`, provider throw-on-read) | Serious | Fix, Tasks 8G.2 and 8H.1 |
+| Logic F4 `boundary` has no timer | Moderate | Fix with F3, Task 8G.1. A held claim coalesces every manual `/compact` for the session with no end, which breaks session state. Same `timerFor` line as F3 |
+| Logic F5 claim released under the old id after coordinator rebind | Moderate | Phase 2 dependent: acceptance note on Batch 11. Later item L1 |
+| Logic F6 stale idle notice on an unrelated compaction | Moderate | Later item L2 (wrong marker text, no data loss) |
+| Logic F7 phase regress if PreCompact beats `fire-sent` | Moderate | Acceptance note on Batch 10. Later item L3 |
+| Logic F8 manual reservation has no expiry or mutual exclusion | Moderate | Acceptance note on Batch 12 (`finally`). Later item L4 (count or timeout) |
+| Logic `rekey` collision dropped without a log (`service.ts:306-307`) | Moderate | Later item L5 |
+| Style M1 positional optional constructor params, `?` plus `\| null` | Moderate | Later item L6 |
+| Style M2 constants in `.types.ts`, min-tokens numbers copied three times | Moderate | Later item L7 |
+| Logic Minor: F9 per-signal `settings()` cost; `IDLE_MIN_TOKENS_FLOOR` unused by the provider and no max on read; `beforeEnqueue` does not re-check `activitySinceTurnEnd`; specs call `dispose()` without try/finally | Minor | Recorded only |
+| Style Minor: idle barrel scope (keep internal); `IdleSendVetoedError` reason spelling `manual-reserved` vs `manual-compact-reserved`; `ManualCompactDecision` bypasses `helpers/index.ts` | Minor | Recorded. The third is fixed as part of 8F.2 because S1 moves both exports onto the same path |
+
+Named later items (not in this task's batches; carry to `future-enhancements.md` at Mode 3):
+
+- L1 Release the idle claim by `claimId` across both ids, or let the coordinator release on rebind (F5).
+- L2 Consume-once idle notice, or clear it on a foreign `pre-compact` / `request-started` (F6).
+- L3 Treat `pre-compact` in `sending` as `precompact`; `fire-sent` is a no-op once the phase has moved on (F7).
+- L4 Manual reservation count or timeout; `requestManualCompact` checks for an existing reservation (F8).
+- L5 Log a `rekey-collision` warn when `rekey` finds `existing !== key`.
+- L6 `IdleCompactionService` constructor: one trailing `options?` object, one way to say absent.
+- L7 `idle-compaction.constants.ts`; derive the min-tokens floor and default from the shared descriptor.
+
+Decisions:
+
+- Split the fix round into 3 batches: format and barrel (8F), reducer and service logic (8G),
+  config provider (8H). Other options: one batch, or two. Evidence: 8F is mechanical and touches
+  15 files, so a separate commit keeps the logic re-review diff readable. 8G plus 8H would be 7
+  files, over the 6-file cap. Reversible.
+- 8F goes over the 6-file cap (13 formatted files plus 3 barrel files). This is allowed because
+  the 13 files only get `prettier --write` with no edits by hand. Reversible.
+- F4 is fixed now even though it is Moderate: see the table. Reversible.
+
+## Batch 8F: Phase 1 fix — formatting and `ManualCompactAdmission` port type — COMPLETE
+
+- Recommended executor: CLI lane [implementation, TypeScript]
+- Execution mode: sequential
+- Fallback order: other family same capability -> same family other provider/model -> subagent (backend-developer)
+- Subagent reason: N/A
+- Review family: different from implementer (Phase 1 fix re-review)
+- Rationale: mechanical formatting first, so the 8G and 8H diffs contain only logic; the barrel type move is a pure type relocation with no runtime change.
+- Tasks: 2 | Depends on: Batch 8
+- Phase: 1 (fix round) | Phase review: deferred to Batch 8H
+
+### Task 8F.1: Format the idle folder — COMPLETE
+
+- Files: the 13 `.ts` files in `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction\idle\`
+- Implementation details: `npx prettier --write libs/backend/agent-sdk/src/lib/helpers/compaction/idle`
+  from `<W>`. Change nothing by hand. Confirm afterwards that the files are still LF.
+
+### Task 8F.2: Move `ManualCompactAdmission` out of the barrel — COMPLETE
+
+- Files: `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction\manual-compact-admission.types.ts` (CREATE), `<W>\libs\backend\agent-sdk\src\lib\helpers\index.ts`, `<W>\libs\backend\agent-sdk\src\index.ts`
+- Pattern to follow: `CompactionCallbackRegistry` re-exported by name from `./lib/helpers` (`src/index.ts:141`)
+- Implementation details: the new file declares `export type ManualCompactAdmission = Pick<CompactionCoordinator, 'requestManualCompact' | 'admitManualCompact' | 'releaseManualReservation'>` using `import type { CompactionCoordinator } from './compaction-coordinator'`, plus a one-line JSDoc that says it is the port the router injects. `helpers/index.ts` re-exports `type ManualCompactAdmission` and `type ManualCompactDecision`. `src/index.ts` replaces lines 142-146 with `export type { ManualCompactAdmission, ManualCompactDecision } from './lib/helpers';`. No inline `import()` type is left anywhere.
+- Validation notes: the public name and shape do not change (Batch 12 types its injection as `ManualCompactAdmission`). Do not move `ManualCompactDecision` out of `compaction-state.types.ts`.
+
+### Batch 8F verification
+
+- Command: `npx prettier --check libs/backend/agent-sdk/src/lib/helpers/compaction/idle libs/backend/agent-sdk/src/index.ts libs/backend/agent-sdk/src/lib/helpers/index.ts libs/backend/agent-sdk/src/lib/helpers/compaction/manual-compact-admission.types.ts 2>&1 | tail -5 && npx nx typecheck @ptah-extension/agent-sdk 2>&1 | tail -15 && npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/helpers/compaction/idle --coverage=false --maxWorkers=2 2>&1 | tail -15`
+- Team-leader check: `git diff --stat` on the 13 idle files has no change except formatting (`git diff -w --word-diff` shows no token change).
+- Result (team-leader): a TypeScript AST walk (node kinds plus identifier and literal text) and
+  a comment set match HEAD for 12 of the 13 idle files. The only node change is prettier
+  parenthesising a multi-line `return a === b || (...)` (`idle-compaction.service.ts:66`),
+  which has the same semantics. All 13 files are LF. `ManualCompactAdmission` now lives in
+  `manual-compact-admission.types.ts` as an `import type` `Pick` with the same three methods.
+  Both barrels re-export it by name, and no inline `import()` is left in `src/index.ts`.
+  Prettier check passes; agent-sdk typecheck passes; Jest on `helpers/compaction` gives
+  18 suites / 428 tests passing; eslint on the barrels and the new file is clean. Lane
+  report: batch-8F-report.md.
+
+## Batch 8G: Phase 1 fix — reducer deadlines, alias normalisation, pipeline containment — IN_PROGRESS
+
+- Recommended executor: CLI lane [implementation, TypeScript, RxJS virtual time]
+- Execution mode: sequential
+- Fallback order: other family same capability -> same family other provider/model -> subagent (backend-developer)
+- Subagent reason: N/A
+- Review family: different from implementer (Phase 1 fix re-review)
+- Rationale: F3/F4 live in the reducer and F1/F2 live in the service. The service spec covers both through the real reducer, so they go together in one library and 5 files.
+- Tasks: 2 | Depends on: Batch 8F
+- Phase: 1 (fix round) | Phase review: deferred to Batch 8H
+
+### Task 8G.1: Deadlines for `sending` and `boundary` (F3, F4) — IN_PROGRESS
+
+- Files: `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction\idle\idle-session.reducer.ts`, `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction\idle\idle-session.reducer.spec.ts`, `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction\idle\idle-compaction.types.ts` (only if a new warn reason is needed)
+- Implementation details: `timerFor` (`reducer.ts:~22`) returns a `deadline` timer for `sending` (at `deadlineAt`, which is computed today but unused) and for `boundary` (at the stored `dwellAt`). In the `deadline-elapsed` case, a `sending` or `boundary` attempt with a matching `attemptId` releases the claim when it was claimed, closes the attempt (`attempt: null`) and emits one warn. Use the existing `claim-timeout` reason, or add `send-timeout` to the warn-reason union. A stale `deadline-elapsed` (other `attemptId` or phase) stays a no-op.
+- Spec: an unresolved send passes `deadlineAt` -> claim released, attempt closed, one warn, a later turn re-arms. A boundary without `turn-ended` or `post-compact` passes `dwellAt` -> released and closed. A deadline for a superseded attempt -> no-op.
+
+### Task 8G.2: Alias normalisation and per-signal containment (F2, F1) — IN_PROGRESS
+
+- Files: `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction\idle\idle-compaction.service.ts`, `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction\idle\idle-compaction.service.spec.ts`
+- Implementation details: (F2) `resolve` (`service.ts:~296`) returns the signal with `sessionId` replaced by the group's current id (`currentIds.get(key)`), so the reducer guard at `reducer.ts:71` matches signals sent under any alias. Do not loosen the reducer guard. (F1) Wrap the body of the `scan` accumulator (`service.ts:~118`, including the `settings()` call) in try/catch. On a throw it returns the previous state with no effects and emits one `signal-failed` warn, so one bad signal is dropped and the session stays alive. Wrap each effect in `runEffects` (`:~170`) in its own try/catch with the same warn. Keep the outer `catchError -> EMPTY` as the last resort.
+- Spec: after `rekey('old','new')`, `input`, `turn-ended` and `compact-boundary` sent under `old` change state. Activity is recorded, a turn re-arms, the notice is set for `new`. When `settings()` throws once, that signal is dropped with one warn, the next `turn-ended` arms and fires, and after `sessionReleased` no group and no scheduler action is left. When one effect throws, the other effects in the same step still run.
+- Validation notes: the existing coalesce spec cases (alias-set token cleanup, release clears aliases at once) must still pass unchanged.
+
+### Batch 8G verification
+
+- Command: `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/helpers/compaction/idle --coverage=false --maxWorkers=2 2>&1 | tail -20 && npx nx typecheck @ptah-extension/agent-sdk 2>&1 | tail -15 && npx prettier --check libs/backend/agent-sdk/src/lib/helpers/compaction/idle 2>&1 | tail -3`
+
+## Batch 8H: Phase 1 fix — validate idle defaults at construction — PENDING
+
+- Recommended executor: CLI lane [implementation, TypeScript]
+- Execution mode: sequential
+- Fallback order: other family same capability -> same family other provider/model -> subagent (backend-developer)
+- Subagent reason: N/A
+- Review family: different from implementer (Phase 1 fix re-review)
+- Rationale: the second half of F1, in a different file pair. Closes the fix round with the project-wide test run.
+- Tasks: 1 | Depends on: Batch 8G
+- Phase: 1 (fix round) | Phase review: code-logic + style re-review, scoped to the 8F..8H fix commits, due after this batch commits
+
+### Task 8H.1: `getIdleCompactionConfig` cannot throw on read — PENDING
+
+- Files: `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction-config-provider.ts`, `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction-config-provider.spec.ts`
+- Pattern to follow: `budgetDefaults` validated in the constructor (`compaction-config-provider.ts:96-104`)
+- Implementation details: resolve and validate the idle `enabled` and `minTokens` defaults once in the constructor and store them. The two `throw`s at `:193` and `:200` move into the constructor. `getIdleCompactionConfig` reads the live values and falls back to the stored defaults for a missing or invalid value, so it no longer throws.
+- Spec: missing shared idle defaults -> the constructor throws. Invalid live values (non-boolean, non-integer, below 100 000) -> defaults, no throw.
+- Validation notes: no change to the keys or defaults. Upper-bound enforcement (5 000 000) stays a recorded Minor.
+
+### Batch 8H verification
+
+- Command: `npx nx test @ptah-extension/agent-sdk --parallel=1 2>&1 | grep -E "Tests:|Test Suites:|FAIL|failed" | tail -20 && npx nx typecheck @ptah-extension/agent-sdk 2>&1 | tail -15 && npx nx lint @ptah-extension/agent-sdk 2>&1 | tail -20`
 
 ## Batch 9: Session tap signals — PENDING
 
@@ -470,6 +605,14 @@ after 5 -> {6}. Default ordering below is sequential by number.
 - Phase: 2 | Phase review: deferred to Batch 13
 - **Acceptance gate: Live probe P1 must be recorded as A2 PASS and A3 PASS in `research-report.md` before this batch is committed.** Implementation may proceed before P1 finishes; the team-leader holds the commit.
 - ACs: 2.1, 2.2, 2.3, 4.6, 4.7 (prefix change), rekey
+- Phase 1 review acceptance notes:
+  - (F3) `sendIdleCompact` must always settle. It resolves or rejects, never stays pending.
+    Spec: a pump rejection or a `beforeEnqueue` veto rejects the sender promise. The reducer's
+    `sending` deadline (8G.1) is only the backstop.
+  - (F2) After a rekey, the pump and the facade send under the current id that the service passes
+    to the sender, never a cached pre-rekey id. Spec: rekey, then fire -> `sendMessage` gets the new id.
+  - (F7) Spec: `pre-compact` arriving before `fire-sent` resolves. Record the outcome. If the
+    attempt ends in a timeout warn, leave it for later item L3.
 
 ### Task 10.1: Pump `beforeEnqueue` + spec — PENDING
 
@@ -512,6 +655,12 @@ after 5 -> {6}. Default ordering below is sequential by number.
 - Tasks: 2 | Depends on: Batch 10
 - Phase: 2 | Phase review: deferred to Batch 13
 - ACs: rekey (4.x), D10 hook part, DI guard
+- Phase 1 review acceptance notes:
+  - (F2) Call the idle `rekey` target right after `coordinator.onPostCompact`, with no `await`
+    between the two calls. Spec: `input` sent under the old id after the PostCompact rekey still
+    reaches the session.
+  - (F5) Spec: a held idle claim is released after PostCompact rebinds the coordinator record to
+    the new id. If the release goes to the old id and is lost, record it for later item L1.
 
 ### Task 11.1: `CompactionHookHandler` idle target + PostCompact fallback id + spec — PENDING
 
@@ -541,6 +690,12 @@ after 5 -> {6}. Default ordering below is sequential by number.
 - Tasks: 1 | Depends on: Batch 1
 - Phase: 2 | Phase review: deferred to Batch 13
 - ACs: 2.5, 2.7, D6, D9, D10 (router)
+- Phase 1 review acceptance note (F8): call `releaseManualReservation` in `finally` on every path,
+  including a throw from `executeSlashCommand` and a throw before it is called. Spec: two
+  overlapping manual admits leave no reservation once both settle. If they do not, record it for
+  later item L4.
+- Import `ManualCompactAdmission` from `@ptah-extension/agent-sdk`. Batch 8F moves it to
+  `manual-compact-admission.types.ts`; the public name and shape stay the same.
 
 ### Task 12.1: Router fast path + authoritative admission + spec — PENDING
 

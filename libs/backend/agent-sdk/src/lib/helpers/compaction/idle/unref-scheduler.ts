@@ -4,7 +4,9 @@ import { Subscription, type SchedulerAction, type SchedulerLike } from 'rxjs';
 class UnrefAction<T> extends Subscription implements SchedulerAction<T> {
   private handle: ReturnType<typeof setTimeout> | null = null;
 
-  constructor(private readonly work: (this: SchedulerAction<T>, state?: T) => void) {
+  constructor(
+    private readonly work: (this: SchedulerAction<T>, state?: T) => void,
+  ) {
     super();
     this.add(() => this.clearTimer());
   }
@@ -12,10 +14,13 @@ class UnrefAction<T> extends Subscription implements SchedulerAction<T> {
   schedule(state?: T, delay = 0): Subscription {
     if (this.closed) return this;
     this.clearTimer();
-    this.handle = setTimeout(() => {
-      this.handle = null;
-      if (!this.closed) this.work.call(this, state);
-    }, Math.max(0, delay));
+    this.handle = setTimeout(
+      () => {
+        this.handle = null;
+        if (!this.closed) this.work.call(this, state);
+      },
+      Math.max(0, delay),
+    );
     this.handle.unref?.();
     return this;
   }
@@ -32,7 +37,11 @@ class UnrefAction<T> extends Subscription implements SchedulerAction<T> {
 export function createUnrefScheduler(): SchedulerLike {
   return {
     now: () => Date.now(),
-    schedule<T>(work: (this: SchedulerAction<T>, state?: T) => void, delay = 0, state?: T): Subscription {
+    schedule<T>(
+      work: (this: SchedulerAction<T>, state?: T) => void,
+      delay = 0,
+      state?: T,
+    ): Subscription {
       return new UnrefAction(work).schedule(state, delay);
     },
   };

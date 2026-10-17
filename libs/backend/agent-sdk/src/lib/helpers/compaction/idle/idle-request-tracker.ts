@@ -1,9 +1,21 @@
 import type { SDKMessage } from '../../../types/sdk-types/claude-sdk.types';
-import { isMessageStart, isStreamEvent } from '../../../types/sdk-types/claude-sdk.types';
-import { readSubagentRequestUsage, type SubagentRequestUsage } from '../subagent-budget-monitor';
-import { IDLE_ANCHOR_SKEW_MS, type CacheTtlClass, type LastRequestSnapshot } from './idle-compaction.types';
+import {
+  isMessageStart,
+  isStreamEvent,
+} from '../../../types/sdk-types/claude-sdk.types';
+import {
+  readSubagentRequestUsage,
+  type SubagentRequestUsage,
+} from '../subagent-budget-monitor';
+import {
+  IDLE_ANCHOR_SKEW_MS,
+  type CacheTtlClass,
+  type LastRequestSnapshot,
+} from './idle-compaction.types';
 
-export function classifyCacheTtl(usage: SubagentRequestUsage | undefined): CacheTtlClass {
+export function classifyCacheTtl(
+  usage: SubagentRequestUsage | undefined,
+): CacheTtlClass {
   const split = usage?.cacheWriteByTtl;
   return split && split['1h'] > 0 && split['5m'] === 0 ? '1h' : 'not-1h';
 }
@@ -23,10 +35,15 @@ export class MainRequestTracker {
 
   observe(message: unknown, at: number): 'request-started' | null {
     try {
-      if (typeof message !== 'object' || message === null ||
-          !Number.isFinite(at)) return null;
+      if (
+        typeof message !== 'object' ||
+        message === null ||
+        !Number.isFinite(at)
+      )
+        return null;
       const frame = message as SDKMessage;
-      if ('parent_tool_use_id' in frame && frame.parent_tool_use_id !== null) return null;
+      if ('parent_tool_use_id' in frame && frame.parent_tool_use_id !== null)
+        return null;
       let key: string | undefined;
       if (isStreamEvent(frame) && frame.event && isMessageStart(frame.event)) {
         key = frame.event.message?.id;
@@ -40,7 +57,10 @@ export class MainRequestTracker {
       const started = key !== this.requestKey;
       if (started) {
         this.requestKey = key;
-        this.anchorAt = Math.max(this.turnStartAt, this.lastNonRequestFrameAt - IDLE_ANCHOR_SKEW_MS);
+        this.anchorAt = Math.max(
+          this.turnStartAt,
+          this.lastNonRequestFrameAt - IDLE_ANCHOR_SKEW_MS,
+        );
         this.usage = undefined;
       }
       if (frame.type === 'assistant') {
@@ -53,11 +73,14 @@ export class MainRequestTracker {
   }
 
   endTurn(at: number): LastRequestSnapshot | null {
-    const snapshot = this.requestKey === null ? null : {
-      requestKey: this.requestKey,
-      anchorAt: this.anchorAt,
-      ttl: classifyCacheTtl(this.usage),
-    };
+    const snapshot =
+      this.requestKey === null
+        ? null
+        : {
+            requestKey: this.requestKey,
+            anchorAt: this.anchorAt,
+            ttl: classifyCacheTtl(this.usage),
+          };
     this.requestKey = null;
     this.usage = undefined;
     if (Number.isFinite(at)) {

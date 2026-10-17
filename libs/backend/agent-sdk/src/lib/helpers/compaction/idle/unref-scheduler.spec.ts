@@ -12,15 +12,18 @@ describe('createUnrefScheduler', () => {
   it('unrefs the real RxJS timer action and emits at its due time', () => {
     const realSetTimeout = global.setTimeout;
     const unref = jest.fn();
-    jest.spyOn(global, 'setTimeout').mockImplementation((
-      (callback: Parameters<typeof setTimeout>[0], delay?: number) => {
-        const handle = realSetTimeout(callback, delay);
-        handle.unref = unref;
-        return handle;
-      }
-    ) as typeof setTimeout);
+    jest.spyOn(global, 'setTimeout').mockImplementation(((
+      callback: Parameters<typeof setTimeout>[0],
+      delay?: number,
+    ) => {
+      const handle = realSetTimeout(callback, delay);
+      handle.unref = unref;
+      return handle;
+    }) as typeof setTimeout);
     const values: number[] = [];
-    const subscription = timer(1000, createUnrefScheduler()).subscribe((value) => values.push(value));
+    const subscription = timer(1000, createUnrefScheduler()).subscribe(
+      (value) => values.push(value),
+    );
 
     expect(unref).toHaveBeenCalledTimes(1);
     expect(jest.getTimerCount()).toBe(1);

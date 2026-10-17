@@ -139,11 +139,10 @@ export {
   SUBAGENT_DISPATCHER_TOKEN,
 } from './lib/helpers';
 export { CompactionCallbackRegistry } from './lib/helpers';
-export type { ManualCompactDecision } from './lib/helpers/compaction/compaction-state.types';
-export type ManualCompactAdmission = Pick<
-  import('./lib/helpers/compaction/compaction-coordinator').CompactionCoordinator,
-  'requestManualCompact' | 'admitManualCompact' | 'releaseManualReservation'
->;
+export type {
+  ManualCompactAdmission,
+  ManualCompactDecision,
+} from './lib/helpers';
 export {
   SubagentBudgetStopCallbackRegistry,
   type SubagentBudgetStopCallback,

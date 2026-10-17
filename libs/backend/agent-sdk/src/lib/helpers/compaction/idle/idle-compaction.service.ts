@@ -1,12 +1,29 @@
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
-  EMPTY, Subject, Subscription, defer, from, merge, timer,
+  EMPTY,
+  Subject,
+  Subscription,
+  defer,
+  from,
+  merge,
+  timer,
   type Observable,
 } from 'rxjs';
 import {
-  catchError, distinctUntilChanged, exhaustMap, filter, finalize, groupBy,
-  ignoreElements, map, mergeMap, scan, share, switchMap, tap,
+  catchError,
+  distinctUntilChanged,
+  exhaustMap,
+  filter,
+  finalize,
+  groupBy,
+  ignoreElements,
+  map,
+  mergeMap,
+  scan,
+  share,
+  switchMap,
+  tap,
 } from 'rxjs/operators';
 import { SessionAdmissionRefusedError } from '../../../errors/session-admission-refused.error';
 import type { CompactionCallbackRegistry } from '../../compaction-callback-registry';
@@ -18,12 +35,25 @@ import { evaluateFireGate } from './idle-fire-gate';
 import { reduceIdleSession } from './idle-session.reducer';
 import { createUnrefScheduler } from './unref-scheduler';
 import type {
-  IdleAttempt, IdleBoundaryNotice, IdleCompactSender, IdleCompactionSignals,
-  IdleCompactionTiming, IdleEffect, IdleRateLimitStatus, IdleSessionState,
-  IdleSignal, IdleSkipReason, IdleStep, IdleTimerSpec, LastRequestSnapshot,
+  IdleAttempt,
+  IdleBoundaryNotice,
+  IdleCompactSender,
+  IdleCompactionSignals,
+  IdleCompactionTiming,
+  IdleEffect,
+  IdleRateLimitStatus,
+  IdleSessionState,
+  IdleSignal,
+  IdleSkipReason,
+  IdleStep,
+  IdleTimerSpec,
+  LastRequestSnapshot,
 } from './idle-compaction.types';
 
-interface KeyedSignal { readonly key: string; readonly signal: IdleSignal }
+interface KeyedSignal {
+  readonly key: string;
+  readonly signal: IdleSignal;
+}
 
 class IdleSendVetoedError extends Error {
   constructor(readonly reason: 'manual-reserved' | 'compaction-state') {
@@ -33,15 +63,31 @@ class IdleSendVetoedError extends Error {
 }
 
 function sameTimer(a: IdleTimerSpec, b: IdleTimerSpec): boolean {
-  return a === b || (a !== null && b !== null && a.kind === b.kind &&
-    a.attemptId === b.attemptId && a.phase === b.phase && a.at === b.at);
+  return (
+    a === b ||
+    (a !== null &&
+      b !== null &&
+      a.kind === b.kind &&
+      a.attemptId === b.attemptId &&
+      a.phase === b.phase &&
+      a.at === b.at)
+  );
 }
 
 function initialState(sessionId: string): IdleSessionState {
   return {
-    sessionId, runToken: '', codexProxy: false, lastTurn: null, reading: null,
-    activitySinceTurnEnd: false, prefixChangedSinceTurnEnd: false, rateLimit: null,
-    compactionOpen: false, idlePeriodClosed: false, attempt: null, timer: null,
+    sessionId,
+    runToken: '',
+    codexProxy: false,
+    lastTurn: null,
+    reading: null,
+    activitySinceTurnEnd: false,
+    prefixChangedSinceTurnEnd: false,
+    rateLimit: null,
+    compactionOpen: false,
+    idlePeriodClosed: false,
+    attempt: null,
+    timer: null,
   };
 }
 
@@ -70,27 +116,45 @@ export class IdleCompactionService implements IdleCompactionSignals {
     workspace?: IWorkspaceProvider | null,
     timing?: IdleCompactionTiming,
   ) {
-    this.timing = timing ?? { scheduler: createUnrefScheduler(), now: () => Date.now() };
-    this.stream = this.signals$.pipe(
-      groupBy(item => item.key, {
-        duration: group => group.pipe(filter(item => item.signal.type === 'session-released')),
-      }),
-      mergeMap(group => this.sessionPipeline(group.key, group)),
-    ).subscribe({ error: () => this.warn('pipeline-failed') });
+    this.timing = timing ?? {
+      scheduler: createUnrefScheduler(),
+      now: () => Date.now(),
+    };
+    this.stream = this.signals$
+      .pipe(
+        groupBy((item) => item.key, {
+          duration: (group) =>
+            group.pipe(
+              filter((item) => item.signal.type === 'session-released'),
+            ),
+        }),
+        mergeMap((group) => this.sessionPipeline(group.key, group)),
+      )
+      .subscribe({ error: () => this.warn('pipeline-failed') });
     if (callbacks) {
-      this.disposers.push(callbacks.register(data =>
-        this.enqueue({ type: 'pre-compact', sessionId: data.sessionId })));
+      this.disposers.push(
+        callbacks.register((data) =>
+          this.enqueue({ type: 'pre-compact', sessionId: data.sessionId }),
+        ),
+      );
     }
     if (events) {
-      this.disposers.push(events.onCompactionComplete(event =>
-        this.enqueue({ type: 'post-compact', sessionId: event.sessionId })));
+      this.disposers.push(
+        events.onCompactionComplete((event) =>
+          this.enqueue({ type: 'post-compact', sessionId: event.sessionId }),
+        ),
+      );
     }
     if (workspace) {
-      const subscription = workspace.onDidChangeConfiguration(event => {
-        if (![
-          'ptah.compaction.enabled', 'ptah.compaction.idleCompactionEnabled',
-          'ptah.compaction.idleCompactionMinTokens',
-        ].some(key => event.affectsConfiguration(key))) return;
+      const subscription = workspace.onDidChangeConfiguration((event) => {
+        if (
+          ![
+            'ptah.compaction.enabled',
+            'ptah.compaction.idleCompactionEnabled',
+            'ptah.compaction.idleCompactionMinTokens',
+          ].some((key) => event.affectsConfiguration(key))
+        )
+          return;
         for (const id of this.currentIds.values()) {
           this.enqueue({ type: 'settings-changed', sessionId: id });
         }
@@ -99,15 +163,23 @@ export class IdleCompactionService implements IdleCompactionSignals {
     }
   }
 
-  private settings(): { enabled: boolean; autoCompactEnabled: boolean; minTokens: number } {
+  private settings(): {
+    enabled: boolean;
+    autoCompactEnabled: boolean;
+    minTokens: number;
+  } {
     const idle = this.config.getIdleCompactionConfig();
     return {
-      enabled: idle.enabled, autoCompactEnabled: this.config.getConfig().enabled,
+      enabled: idle.enabled,
+      autoCompactEnabled: this.config.getConfig().enabled,
       minTokens: idle.minTokens,
     };
   }
 
-  private sessionPipeline(key: string, group: Observable<KeyedSignal>): Observable<never> {
+  private sessionPipeline(
+    key: string,
+    group: Observable<KeyedSignal>,
+  ): Observable<never> {
     // A released group can still have a pending send when the same key is rebound.
     const ownedAliases = new Set(this.keys.get(key) ?? [key]);
     this.keys.set(key, ownedAliases);
@@ -115,14 +187,26 @@ export class IdleCompactionService implements IdleCompactionSignals {
     let pending: Extract<IdleAttempt, { kind: 'pending' }> | null = null;
     let live = true;
     const steps$ = group.pipe(
-      scan((previous: IdleStep, item: KeyedSignal) => {
-        const settings = this.settings();
-        return reduceIdleSession(previous.state, item.signal, {
-          now: this.timing.now(), settings,
-        });
-      }, { signal: { type: 'session-bound', sessionId: key, runToken: '', codexProxy: false },
-        state: latest, effects: [] } as IdleStep),
-      tap(step => {
+      scan(
+        (previous: IdleStep, item: KeyedSignal) => {
+          const settings = this.settings();
+          return reduceIdleSession(previous.state, item.signal, {
+            now: this.timing.now(),
+            settings,
+          });
+        },
+        {
+          signal: {
+            type: 'session-bound',
+            sessionId: key,
+            runToken: '',
+            codexProxy: false,
+          },
+          state: latest,
+          effects: [],
+        } as IdleStep,
+      ),
+      tap((step) => {
         latest = step.state;
         if (latest.attempt?.kind === 'pending') pending = latest.attempt;
         this.runEffects(step);
@@ -130,22 +214,55 @@ export class IdleCompactionService implements IdleCompactionSignals {
       share(),
     );
     const timers$ = steps$.pipe(
-      map(step => step.state.timer), distinctUntilChanged(sameTimer),
-      switchMap(spec => spec ? timer(Math.max(0, spec.at - this.timing.now()),
-        this.timing.scheduler).pipe(map(() => spec)) : EMPTY),
-      tap(spec => this.enqueue(spec.kind === 'due'
-        ? { type: 'attempt-due', sessionId: latest.sessionId, attemptId: spec.attemptId }
-        : { type: 'deadline-elapsed', sessionId: latest.sessionId,
-          attemptId: spec.attemptId, phase: spec.phase })),
+      map((step) => step.state.timer),
+      distinctUntilChanged(sameTimer),
+      switchMap((spec) =>
+        spec
+          ? timer(
+              Math.max(0, spec.at - this.timing.now()),
+              this.timing.scheduler,
+            ).pipe(map(() => spec))
+          : EMPTY,
+      ),
+      tap((spec) =>
+        this.enqueue(
+          spec.kind === 'due'
+            ? {
+                type: 'attempt-due',
+                sessionId: latest.sessionId,
+                attemptId: spec.attemptId,
+              }
+            : {
+                type: 'deadline-elapsed',
+                sessionId: latest.sessionId,
+                attemptId: spec.attemptId,
+                phase: spec.phase,
+              },
+        ),
+      ),
       ignoreElements(),
     );
     const fires$ = steps$.pipe(
-      mergeMap(step => step.effects.filter((effect): effect is Extract<IdleEffect,
-        { type: 'fire' }> => effect.type === 'fire')),
-      exhaustMap(effect => this.fire(effect, () => latest, () => pending, () => live)),
+      mergeMap((step) =>
+        step.effects.filter(
+          (effect): effect is Extract<IdleEffect, { type: 'fire' }> =>
+            effect.type === 'fire',
+        ),
+      ),
+      exhaustMap((effect) =>
+        this.fire(
+          effect,
+          () => latest,
+          () => pending,
+          () => live,
+        ),
+      ),
     );
     return merge(timers$, fires$).pipe(
-      catchError(() => { this.warn('group-failed', latest.sessionId); return EMPTY; }),
+      catchError(() => {
+        this.warn('group-failed', latest.sessionId);
+        return EMPTY;
+      }),
       finalize(() => {
         live = false;
         const attempt = latest.attempt;
@@ -172,7 +289,8 @@ export class IdleCompactionService implements IdleCompactionSignals {
       switch (effect.type) {
         case 'log':
           this.logger[effect.level]('[IdleCompactionService] transition', {
-            sessionId: step.state.sessionId, attemptId: step.state.attempt?.attemptId,
+            sessionId: step.state.sessionId,
+            attemptId: step.state.attempt?.attemptId,
             reason: effect.reason,
           });
           break;
@@ -183,9 +301,9 @@ export class IdleCompactionService implements IdleCompactionSignals {
           this.notices.set(effect.noticeKey, { preTokens: effect.preTokens });
           break;
         case 'clear-notice':
-          for (const alias of this.keys.get(this.aliases.get(step.state.sessionId) ??
-            step.state.sessionId) ??
-            [step.state.sessionId]) {
+          for (const alias of this.keys.get(
+            this.aliases.get(step.state.sessionId) ?? step.state.sessionId,
+          ) ?? [step.state.sessionId]) {
             this.notices.delete(alias);
           }
           break;
@@ -205,56 +323,94 @@ export class IdleCompactionService implements IdleCompactionSignals {
     const pending = getPending();
     let refusal: IdleSkipReason | null;
     try {
-      refusal = !pending || pending.attemptId !== effect.attemptId
-        ? 'compaction-state'
-        : evaluateFireGate(current, pending, {
-          now: this.timing.now(),
-          settings: {
-            idleCompactionEnabled: this.config.getIdleCompactionConfig().enabled,
-            autoCompactEnabled: this.config.getConfig().enabled,
-            minTokens: this.config.getIdleCompactionConfig().minTokens,
-          },
-          coordinatorState: id => this.coordinator.getState(id),
-          coordinatorClaim: id => this.coordinator.getIdleClaim(id),
-          turnPhase: id => this.turns.get(id)?.phase,
-        });
+      refusal =
+        !pending || pending.attemptId !== effect.attemptId
+          ? 'compaction-state'
+          : evaluateFireGate(current, pending, {
+              now: this.timing.now(),
+              settings: {
+                idleCompactionEnabled:
+                  this.config.getIdleCompactionConfig().enabled,
+                autoCompactEnabled: this.config.getConfig().enabled,
+                minTokens: this.config.getIdleCompactionConfig().minTokens,
+              },
+              coordinatorState: (id) => this.coordinator.getState(id),
+              coordinatorClaim: (id) => this.coordinator.getIdleClaim(id),
+              turnPhase: (id) => this.turns.get(id)?.phase,
+            });
     } catch {
       refusal = 'lookup-failed';
     }
     if (refusal) {
-      this.enqueue({ type: 'fire-skipped', sessionId: current.sessionId,
-        attemptId: effect.attemptId, reason: refusal });
+      this.enqueue({
+        type: 'fire-skipped',
+        sessionId: current.sessionId,
+        attemptId: effect.attemptId,
+        reason: refusal,
+      });
       return EMPTY;
     }
     const sessionId = current.sessionId;
     const beforeEnqueue = (): void => {
       const attempt = state().attempt;
-      if (!isLive() || !this.aliases.has(sessionId) || state().sessionId !== sessionId ||
-        attempt?.kind !== 'in-flight' || attempt.phase !== 'sending' ||
-        attempt.attemptId !== effect.attemptId) {
+      if (
+        !isLive() ||
+        !this.aliases.has(sessionId) ||
+        state().sessionId !== sessionId ||
+        attempt?.kind !== 'in-flight' ||
+        attempt.phase !== 'sending' ||
+        attempt.attemptId !== effect.attemptId
+      ) {
         throw new IdleSendVetoedError('compaction-state');
       }
-      const claimed = this.coordinator.claimIdle(state().sessionId, effect.claimId);
+      const claimed = this.coordinator.claimIdle(
+        state().sessionId,
+        effect.claimId,
+      );
       if (claimed !== 'claimed') {
-        throw new IdleSendVetoedError(claimed === 'manual-reserved'
-          ? 'manual-reserved' : 'compaction-state');
+        throw new IdleSendVetoedError(
+          claimed === 'manual-reserved'
+            ? 'manual-reserved'
+            : 'compaction-state',
+        );
       }
     };
-    return defer(() => from(this.sender.sendIdleCompact(sessionId, beforeEnqueue))).pipe(
-      tap(() => this.enqueue({ type: 'fire-sent', sessionId: state().sessionId,
-        attemptId: effect.attemptId })),
-      catchError(error => {
+    return defer(() =>
+      from(this.sender.sendIdleCompact(sessionId, beforeEnqueue)),
+    ).pipe(
+      tap(() =>
+        this.enqueue({
+          type: 'fire-sent',
+          sessionId: state().sessionId,
+          attemptId: effect.attemptId,
+        }),
+      ),
+      catchError((error) => {
         const feedbackId = state().sessionId;
         if (error instanceof SessionAdmissionRefusedError) {
-          this.enqueue({ type: 'fire-skipped', sessionId: feedbackId, attemptId: effect.attemptId,
-            reason: 'not-idle-at-send' });
+          this.enqueue({
+            type: 'fire-skipped',
+            sessionId: feedbackId,
+            attemptId: effect.attemptId,
+            reason: 'not-idle-at-send',
+          });
         } else if (error instanceof IdleSendVetoedError) {
-          this.enqueue({ type: 'fire-skipped', sessionId: feedbackId, attemptId: effect.attemptId,
-            reason: error.reason === 'manual-reserved'
-              ? 'manual-compact-reserved' : 'compaction-state' });
+          this.enqueue({
+            type: 'fire-skipped',
+            sessionId: feedbackId,
+            attemptId: effect.attemptId,
+            reason:
+              error.reason === 'manual-reserved'
+                ? 'manual-compact-reserved'
+                : 'compaction-state',
+          });
         } else {
-          this.enqueue({ type: 'fire-failed', sessionId: feedbackId, attemptId: effect.attemptId,
-            reason: 'send-failed' });
+          this.enqueue({
+            type: 'fire-failed',
+            sessionId: feedbackId,
+            attemptId: effect.attemptId,
+            reason: 'send-failed',
+          });
         }
         return EMPTY;
       }),
@@ -315,14 +471,32 @@ export class IdleCompactionService implements IdleCompactionSignals {
   sessionBound(sessionId: string, runToken: string, codexProxy: boolean): void {
     this.enqueue({ type: 'session-bound', sessionId, runToken, codexProxy });
   }
-  requestStarted(sessionId: string): void { this.enqueue({ type: 'request-started', sessionId }); }
-  turnEnded(sessionId: string, turnId: string, lastRequest: LastRequestSnapshot | null): void {
-    this.enqueue({ type: 'turn-ended', sessionId, turnId, endedAt: this.timing.now(), lastRequest });
+  requestStarted(sessionId: string): void {
+    this.enqueue({ type: 'request-started', sessionId });
   }
-  turnContext(sessionId: string, turnId: string, totalTokens: number | null): void {
+  turnEnded(
+    sessionId: string,
+    turnId: string,
+    lastRequest: LastRequestSnapshot | null,
+  ): void {
+    this.enqueue({
+      type: 'turn-ended',
+      sessionId,
+      turnId,
+      endedAt: this.timing.now(),
+      lastRequest,
+    });
+  }
+  turnContext(
+    sessionId: string,
+    turnId: string,
+    totalTokens: number | null,
+  ): void {
     this.enqueue({ type: 'turn-context', sessionId, turnId, totalTokens });
   }
-  input(sessionId: string): void { this.enqueue({ type: 'input', sessionId }); }
+  input(sessionId: string): void {
+    this.enqueue({ type: 'input', sessionId });
+  }
   promptPrefixChanged(sessionId: string): void {
     this.enqueue({ type: 'prompt-prefix-changed', sessionId });
   }
