@@ -1026,6 +1026,20 @@ describe('PreviousSessionsModalComponent', () => {
       ).toEqual(['Rename session: Alpha', 'Delete session: Alpha']);
     });
 
+    it('sizes the narrow sheet to its dialog layer, not the viewport (V1 breaking 1)', async () => {
+      await open([session('a', 'Alpha')]);
+
+      // `html` reserves a stable scrollbar gutter, so the fixed dialog is
+      // narrower than 100vw; a viewport-sized sheet would scroll sideways.
+      const classes = panel().classList;
+      expect(classes).toContain('w-full');
+      expect(classes).toContain('h-full');
+      expect(classes).not.toContain('w-screen');
+      expect(classes).not.toContain('h-dvh');
+      expect(classes).toContain('sm:w-[min(720px,calc(100vw-48px))]');
+      expect(classes).toContain('sm:h-[min(720px,calc(100dvh-64px))]');
+    });
+
     it('paints one surface-1 header band over one scrolling list (A-10)', async () => {
       await open([session('a', 'Alpha')]);
 

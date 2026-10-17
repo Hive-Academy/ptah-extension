@@ -370,8 +370,19 @@ export class CanvasRailBoardComponent {
     effect((onCleanup) => {
       if (!this.visible()) return;
       const document = this.host.nativeElement.ownerDocument;
+      // A press places a caret, and its `selectionchange` fires before
+      // `pointerup`; the press hold must survive it, so `up` re-reads instead.
+      let pressing = false;
       const selection = () => {
-        const node = document.getSelection()?.anchorNode;
+        if (pressing) return;
+        // Hold only for selected text. A collapsed caret (left by a plain click,
+        // or by a focused field such as the Rename input) is not a selection to
+        // protect; holding on it kept a renamed card's visible title stale.
+        const current = document.getSelection();
+        const node =
+          current && !current.isCollapsed && current.toString()
+            ? current.anchorNode
+            : null;
         const element = node instanceof Element ? node : node?.parentElement;
         this.holdTabId.set(
           element && this.host.nativeElement.contains(element)
@@ -384,6 +395,7 @@ export class CanvasRailBoardComponent {
       const down = (event: PointerEvent) => {
         const target = event.target;
         if (!(target instanceof Element)) return;
+        pressing = true;
         this.holdTabId.set(
           target.closest<HTMLElement>('[data-rail-card]')?.dataset['tabId'] ??
             null,
@@ -394,6 +406,7 @@ export class CanvasRailBoardComponent {
       const up = () => {
         document.removeEventListener('pointerup', up);
         document.removeEventListener('pointercancel', up);
+        pressing = false;
         selection();
       };
       document.addEventListener('selectionchange', selection);

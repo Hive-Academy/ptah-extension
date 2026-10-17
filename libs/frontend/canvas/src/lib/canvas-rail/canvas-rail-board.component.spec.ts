@@ -689,6 +689,89 @@ describe('CanvasRailBoardComponent rendering', () => {
     remove.mockRestore();
   });
 
+  it('holds card text for a text selection or a press, never for a caret (V1 serious 1)', () => {
+    const { fixture } = mount();
+    const instance = fixture.componentInstance;
+    const host = fixture.nativeElement as HTMLElement;
+    const label = host.querySelector('[data-tab-id="a"] .rc-select')!
+      .firstChild as Text;
+    const selection = document.getSelection()!;
+    const selectionChanged = () =>
+      document.dispatchEvent(new Event('selectionchange'));
+
+    // A caret left in the card (a click, or the Rename input) must not latch
+    // the title: a rename has to show on the card at once.
+    selection.collapse(label, 0);
+    selectionChanged();
+    expect(instance.holdTabId()).toBeNull();
+
+    // Selected text in the card still holds it.
+    selection.setBaseAndExtent(label, 0, label, 1);
+    selectionChanged();
+    expect(instance.holdTabId()).toBe('a');
+    selection.collapse(label, 0);
+    selectionChanged();
+    expect(instance.holdTabId()).toBeNull();
+
+    // A press holds only while the pointer is down.
+    label.parentElement!.dispatchEvent(
+      new Event('pointerdown', { bubbles: true }),
+    );
+    expect(instance.holdTabId()).toBe('a');
+    document.dispatchEvent(new Event('pointerup'));
+    expect(instance.holdTabId()).toBeNull();
+    selection.removeAllRanges();
+  });
+
+  it('keeps the press hold through the caret the press places (V1.2 rework)', () => {
+    const { fixture } = mount();
+    const instance = fixture.componentInstance;
+    const host = fixture.nativeElement as HTMLElement;
+    const label = host.querySelector('[data-tab-id="a"] .rc-select')!
+      .firstChild as Text;
+    const selection = document.getSelection()!;
+    const selectionChanged = () =>
+      document.dispatchEvent(new Event('selectionchange'));
+    const press = () =>
+      label.parentElement!.dispatchEvent(
+        new Event('pointerdown', { bubbles: true }),
+      );
+
+    // The browser fires `selectionchange` for the press caret before
+    // `pointerup`; the hold must survive it so a drag keeps its anchor.
+    press();
+    selection.collapse(label, 0);
+    selectionChanged();
+    expect(instance.holdTabId()).toBe('a');
+
+    // Releasing with only a caret drops the hold.
+    document.dispatchEvent(new Event('pointerup'));
+    expect(instance.holdTabId()).toBeNull();
+
+    // A press that ends with selected text keeps the card held.
+    press();
+    selection.collapse(label, 0);
+    selectionChanged();
+    selection.setBaseAndExtent(label, 0, label, 1);
+    selectionChanged();
+    document.dispatchEvent(new Event('pointerup'));
+    expect(instance.holdTabId()).toBe('a');
+
+    // A cancelled press ends the press too: later selection changes apply.
+    selection.removeAllRanges();
+    selectionChanged();
+    expect(instance.holdTabId()).toBeNull();
+    press();
+    document.dispatchEvent(new Event('pointercancel'));
+    expect(instance.holdTabId()).toBeNull();
+    selection.setBaseAndExtent(label, 0, label, 1);
+    selectionChanged();
+    expect(instance.holdTabId()).toBe('a');
+    selection.removeAllRanges();
+    selectionChanged();
+    expect(instance.holdTabId()).toBeNull();
+  });
+
   it('focuses the selected lane tab after a lane request', () => {
     const { fixture } = mount();
     fixture.componentInstance.onLanesRequested('b');

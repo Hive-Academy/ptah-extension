@@ -7,6 +7,7 @@ import {
   input,
   output,
 } from '@angular/core';
+import { History, LucideAngularModule } from 'lucide-angular';
 import type {
   CompactRailDensity,
   CompactRailState,
@@ -36,7 +37,7 @@ const CHIP_STATES = [
 @Component({
   selector: 'ptah-canvas-rail',
   standalone: true,
-  imports: [CanvasRailCardComponent],
+  imports: [CanvasRailCardComponent, LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block h-full min-h-0' },
   styles: [
@@ -247,7 +248,7 @@ const CHIP_STATES = [
           type="button"
           data-testid="rail-previous-sessions"
           data-previous-sessions-trigger
-          class="btn btn-ghost btn-sm h-[30px] w-full border border-base-content/10"
+          class="btn btn-ghost btn-sm h-[30px] min-h-[30px] w-full gap-1.5 border border-[color:var(--surface-border-strong)] font-medium hover:bg-surface-2 [&[aria-expanded=true]]:bg-surface-3"
           aria-haspopup="dialog"
           [attr.aria-expanded]="previousSessionsOpen()"
           [attr.aria-controls]="previousSessionsOpen() ? 'previous-sessions-dialog' : null"
@@ -255,7 +256,7 @@ const CHIP_STATES = [
           [attr.title]="collapsed() ? 'Previous sessions' : null"
           (click)="previousSessionsRequested.emit()"
         >
-          <span aria-hidden="true">◷</span>
+          <lucide-angular [img]="HistoryIcon" class="w-3.5 h-3.5" aria-hidden="true" />
           @if (!collapsed()) { <span>Previous sessions</span> }
         </button>
         </div>
@@ -306,6 +307,7 @@ export class CanvasRailComponent {
   readonly maxRunning = MAX_RUNNING_SESSIONS;
   readonly chips = CHIP_STATES;
   readonly autoCollapseReason = AUTO_COLLAPSE_REASON;
+  protected readonly HistoryIcon = History;
   readonly orderedTiles = computed(() =>
     [...this.tiles()].sort((a, b) => a.order - b.order),
   );

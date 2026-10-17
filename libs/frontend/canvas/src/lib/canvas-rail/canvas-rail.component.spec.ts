@@ -81,6 +81,17 @@ describe('CanvasRailComponent', () => {
     expect(previous.textContent).toContain('Previous sessions');
     expect(previous.getAttribute('aria-haspopup')).toBe('dialog');
     expect(previous.getAttribute('aria-expanded')).toBe('false');
+    // Design 2.1: lucide History icon (not a text glyph) and the ghost + hairline class string.
+    const icon = previous.querySelector('lucide-angular');
+    expect(icon?.getAttribute('aria-hidden')).toBe('true');
+    expect(icon?.querySelector('svg')).not.toBeNull();
+    expect(icon?.classList).toContain('w-3.5');
+    expect(icon?.classList).toContain('h-3.5');
+    expect(previous.textContent).not.toContain('◷');
+    for (const cls of ['gap-1.5', 'font-medium', 'min-h-[30px]', 'border-[color:var(--surface-border-strong)]', 'hover:bg-surface-2', '[&[aria-expanded=true]]:bg-surface-3']) {
+      expect(previous.classList).toContain(cls);
+    }
+    expect(previous.classList).not.toContain('border-base-content/10');
     previous.click();
     expect(requested).toHaveBeenCalledTimes(1);
     fixture.componentRef.setInput('previousSessionsOpen', true);
@@ -88,7 +99,11 @@ describe('CanvasRailComponent', () => {
     fixture.detectChanges();
     expect(footer.classList.contains('h-[82px]')).toBe(true);
     expect(previous.getAttribute('aria-label')).toBe('Previous sessions');
+    expect(previous.getAttribute('title')).toBe('Previous sessions');
+    expect(previous.textContent?.trim()).toBe('');
+    expect(previous.querySelector('lucide-angular svg')).not.toBeNull();
     expect(previous.getAttribute('aria-expanded')).toBe('true');
+    expect(previous.getAttribute('aria-controls')).toBe('previous-sessions-dialog');
     expect(host.querySelector('#rail-new-session-reason')?.classList.contains('sr-only')).toBe(true);
     previous.click();
     expect(requested).toHaveBeenCalledTimes(2);
