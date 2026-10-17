@@ -36,6 +36,7 @@ import { ChatStore } from '../../../services/chat.store';
 import type { SessionListQuery } from '../../../services/chat-store/session-loader.service';
 import { SessionDisplayUtils } from '../../../services/session-display-utils.service';
 import { PreviousSessionsDialogService } from '../../../services/session-list/previous-sessions-dialog.service';
+import { SessionListViewStore } from '../../../services/session-list/session-list-view.store';
 import { SessionOrganizerService } from '../../../services/session-list/session-organizer.service';
 import { ConfirmationDialogComponent } from '../../molecules/confirmation-dialog.component';
 import { SessionOrganizationEditorComponent } from '../../molecules/session-organization-editor/session-organization-editor.component';
@@ -285,11 +286,11 @@ describe('PreviousSessionsModalComponent', () => {
       `li[data-session-id="${id}"] [data-action="${name}"]`,
     );
   const search = (): HTMLInputElement =>
-    el<HTMLInputElement>(
-      '[data-testid="session-filter-text"], [data-testid="session-search-local"]',
-    );
+    el<HTMLInputElement>('[data-previous-sessions-search]');
   const status = (): string =>
     el('[data-testid="previous-sessions-status"]').textContent?.trim() ?? '';
+  const openError = (): HTMLElement | null =>
+    maybe('[data-testid="previous-sessions-open-error"]');
   const isOpen = (): boolean =>
     TestBed.inject(PreviousSessionsDialogService).isOpen();
 
@@ -347,9 +348,9 @@ describe('PreviousSessionsModalComponent', () => {
           'aria-label',
         ),
       ).toBe('Close previous sessions');
-      expect(document.activeElement).toBe(
-        el('[data-testid="session-search-local"]'),
-      );
+      // FU-3: found by the behaviour attribute, and it is the plain field.
+      expect(document.activeElement).toBe(search());
+      expect(search().getAttribute('data-testid')).toBe('session-search-local');
       expect(el('[data-testid="page"]').hasAttribute('inert')).toBe(true);
     });
 
@@ -359,6 +360,7 @@ describe('PreviousSessionsModalComponent', () => {
       await open([session('a', 'Alpha', { organization: organization() })]);
 
       const field = search();
+      expect(field.hasAttribute('data-previous-sessions-search')).toBe(true);
       expect(field.getAttribute('data-testid')).toBe('session-filter-text');
       expect(document.activeElement).toBe(field);
       expect(field.value).toBe('login');
@@ -752,6 +754,11 @@ describe('PreviousSessionsModalComponent', () => {
       expect(isOpen()).toBe(true);
       expect(close).not.toHaveBeenCalled();
       expect(status()).toBe(`Couldn't open "Alpha". Try again.`);
+      // FU-9: the same text is visible, not only announced.
+      expect(openError()?.textContent?.trim()).toBe(
+        `Couldn't open "Alpha". Try again.`,
+      );
+      expect(openError()?.getAttribute('aria-live')).toBeNull();
       // Focus was still in the panel: it stays on the row.
       expect(document.activeElement).toBe(action('a', 'open'));
 
@@ -760,6 +767,37 @@ describe('PreviousSessionsModalComponent', () => {
       await drain();
       expect(requestCanvasSession).toHaveBeenCalledTimes(2);
       expect(isOpen()).toBe(false);
+    });
+
+    it('clears the failed-open notice on the next open attempt (FU-9)', async () => {
+      layoutMode.set('grid');
+      await open([session('a', 'Alpha')]);
+      requestCanvasSession.mockResolvedValueOnce(false);
+      action('a', 'open').click();
+      await drain();
+      expect(openError()).not.toBeNull();
+
+      const answer = deferCanvas();
+      action('a', 'open').click();
+      render();
+      // Gone while the retry is in flight, before any answer.
+      expect(openError()).toBeNull();
+      answer(true);
+      await drain();
+    });
+
+    it('clears the failed-open notice when the query changes (FU-9)', async () => {
+      layoutMode.set('grid');
+      await open([session('a', 'Alpha'), session('b', 'Beta')]);
+      requestCanvasSession.mockResolvedValueOnce(false);
+      action('a', 'open').click();
+      await drain();
+      expect(openError()).not.toBeNull();
+
+      type(search(), 'Al');
+      await settle();
+      expect(openError()).toBeNull();
+      expect(isOpen()).toBe(true);
     });
 
     it('returns focus to the row after a failed open when focus left the panel', async () => {
@@ -860,6 +898,168 @@ describe('PreviousSessionsModalComponent', () => {
       expect(document.activeElement).toBe(action('b', 'open'));
     });
 
+    describe('rename failure (FU-6)', () => {
+      const RENAME_FAILED = "Couldn't rename. Try again.";
+      const failed = () => ({
+        success: false,
+        error: 'store closed',
+        isSuccess: () => false,
+      });
+      const field = (): HTMLInputElement | null =>
+        maybe<HTMLInputElement>('[data-testid="session-rename-input"]');
+      const renameError = (): HTMLElement | null =>
+        maybe('[data-testid="session-rename-error"]');
+      const requireField = (): HTMLInputElement => {
+        const input = field();
+        if (!input) throw new Error('Missing rename field');
+        return input;
+      };
+
+      async function renameTo(id: string, name: string): Promise<void> {
+        action(id, 'rename').click();
+        render();
+        const input = requireField();
+        type(input, name);
+        input.dispatchEvent(keydown('Enter'));
+        await drain();
+        render();
+      }
+
+      /**
+       * Every text the status line rendered, in order. A record keeps the
+       * text it replaced, so the list is each old value, then the final one.
+       */
+      function watchStatus(): { texts: string[]; stop: () => void } {
+        const node = el('[data-testid="previous-sessions-status"]');
+        const texts: string[] = [];
+        const record = (records: MutationRecord[]): void => {
+          for (const change of records) {
+            if (change.type === 'characterData') {
+              texts.push(change.oldValue?.trim() ?? '');
+            }
+          }
+        };
+        const observer = new MutationObserver(record);
+        observer.observe(node, {
+          characterData: true,
+          characterDataOldValue: true,
+          subtree: true,
+        });
+        return {
+          texts,
+          stop: () => {
+            record(observer.takeRecords());
+            observer.disconnect();
+            texts.push(node.textContent?.trim() ?? '');
+          },
+        };
+      }
+
+      it('reopens the field with the draft, shows the inline error and announces it', async () => {
+        await open([session('a', 'Alpha')]);
+        rpc.renameSession.mockResolvedValueOnce(failed());
+        await renameTo('a', 'Renamed');
+
+        const input = requireField();
+        expect(input.value).toBe('Renamed');
+        expect(document.activeElement).toBe(input);
+        const error = renameError();
+        expect(error?.textContent?.trim()).toBe(RENAME_FAILED);
+        expect(input.getAttribute('aria-describedby')?.split(' ')).toContain(
+          error?.id,
+        );
+        // The rendered live-region text, not only the signal.
+        expect(status()).toBe(RENAME_FAILED);
+        expect(store.updateSessionName).not.toHaveBeenCalled();
+      });
+
+      it('re-announces a second identical failure by changing the rendered text', async () => {
+        await open([session('a', 'Alpha')]);
+        rpc.renameSession.mockResolvedValueOnce(failed());
+        await renameTo('a', 'Renamed');
+        expect(status()).toBe(RENAME_FAILED);
+
+        const watch = watchStatus();
+        rpc.renameSession.mockResolvedValueOnce(failed());
+        requireField().dispatchEvent(keydown('Enter'));
+        await drain();
+        render();
+        watch.stop();
+
+        // Emptied in one render, filled again in a later one.
+        expect(watch.texts.indexOf('')).toBeGreaterThanOrEqual(0);
+        expect(watch.texts.indexOf('')).toBeLessThan(
+          watch.texts.lastIndexOf(RENAME_FAILED),
+        );
+        expect(status()).toBe(RENAME_FAILED);
+        expect(renameError()?.textContent?.trim()).toBe(RENAME_FAILED);
+      });
+
+      it('clears the error when the draft is edited', async () => {
+        await open([session('a', 'Alpha')]);
+        rpc.renameSession.mockResolvedValueOnce(failed());
+        await renameTo('a', 'Renamed');
+        expect(renameError()).not.toBeNull();
+
+        type(requireField(), 'Renamed again');
+        render();
+        expect(renameError()).toBeNull();
+        expect(requireField().value).toBe('Renamed again');
+      });
+
+      it('clears the error on Cancel and on a later success', async () => {
+        await open([session('a', 'Alpha')]);
+        rpc.renameSession.mockResolvedValueOnce(failed());
+        await renameTo('a', 'Renamed');
+        requireField().dispatchEvent(keydown('Escape'));
+        render();
+        expect(field()).toBeNull();
+        action('a', 'rename').click();
+        render();
+        expect(renameError()).toBeNull();
+        expect(requireField().value).toBe('Alpha');
+        requireField().dispatchEvent(keydown('Escape'));
+        render();
+
+        rpc.renameSession.mockResolvedValueOnce(failed());
+        await renameTo('a', 'Renamed');
+        expect(renameError()).not.toBeNull();
+        requireField().dispatchEvent(keydown('Enter'));
+        await drain();
+        render();
+        expect(rpc.renameSession).toHaveBeenLastCalledWith('a', 'Renamed');
+        expect(field()).toBeNull();
+        expect(renameError()).toBeNull();
+        expect(store.updateSessionName).toHaveBeenCalledWith('a', 'Renamed');
+      });
+
+      it('ignores a failure that arrives after another rename started', async () => {
+        await open([session('a', 'Alpha'), session('b', 'Beta')]);
+        let answer: (value: ReturnType<typeof failed>) => void = () =>
+          undefined;
+        rpc.renameSession.mockReturnValueOnce(
+          new Promise<ReturnType<typeof failed>>(
+            (resolve) => (answer = resolve),
+          ),
+        );
+        await renameTo('a', 'Renamed');
+        action('b', 'rename').click();
+        render();
+
+        answer(failed());
+        await drain();
+        render();
+
+        const input = requireField();
+        expect(
+          input.closest('li[data-session-id]')?.getAttribute('data-session-id'),
+        ).toBe('b');
+        expect(input.value).toBe('Beta');
+        expect(renameError()).toBeNull();
+        expect(status()).toBe('');
+      });
+    });
+
     it('sends nothing for an unchanged name', async () => {
       await open([session('a', 'Alpha')]);
       action('a', 'rename').click();
@@ -881,6 +1081,57 @@ describe('PreviousSessionsModalComponent', () => {
         rows()[0].querySelectorAll<HTMLButtonElement>('button'),
       ).map((button) => button.getAttribute('data-action'));
       expect(buttons).toEqual(['open', 'organize', 'rename', 'delete']);
+    });
+  });
+
+  // ------------------------------------------------- date range (FU-2)
+
+  describe('date range (FU-2)', () => {
+    const invalidRange = (): HTMLElement | null =>
+      maybe('[data-testid="previous-sessions-invalid-range"]');
+    const noMatch = (): HTMLElement | null =>
+      maybe('[data-testid="previous-sessions-no-match"]');
+
+    async function setRange(from: string, to: string): Promise<void> {
+      const view = TestBed.inject(SessionListViewStore);
+      view.setDateFrom(from);
+      view.setDateTo(to);
+      await settle();
+    }
+
+    it('says From is after To instead of "No matching sessions", and keeps the dates', async () => {
+      await open([session('a', 'Alpha')]);
+      await setRange('2026-10-03', '2026-10-01');
+
+      expect(invalidRange()?.textContent).toContain(
+        'The From date is after the To date.',
+      );
+      expect(noMatch()).toBeNull();
+      expect(list().textContent).not.toContain('No matching sessions');
+      expect(status()).toBe('The From date is after the To date.');
+      // The store keeps the dates as entered (A3).
+      const view = TestBed.inject(SessionListViewStore);
+      expect(view.dateFrom()).toBe('2026-10-03');
+      expect(view.dateTo()).toBe('2026-10-01');
+    });
+
+    it('accepts the same day as From and To', async () => {
+      await open([session('a', 'Alpha')]);
+      await setRange('2026-10-02', '2026-10-02');
+
+      expect(invalidRange()).toBeNull();
+      expect(rowNames()).toEqual(['Alpha']);
+    });
+
+    it('shows rows for a normal range and "No matching sessions" when none fall in it', async () => {
+      await open([session('a', 'Alpha')]);
+      await setRange('2026-10-01', '2026-10-03');
+      expect(invalidRange()).toBeNull();
+      expect(rowNames()).toEqual(['Alpha']);
+
+      await setRange('2026-09-01', '2026-09-03');
+      expect(invalidRange()).toBeNull();
+      expect(noMatch()).not.toBeNull();
     });
   });
 

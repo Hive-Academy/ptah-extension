@@ -73,6 +73,23 @@
       />
     </header>
 
+    <!-- A failed open, visible as well as announced on the status line
+         (not a second live region). Above the scroll region so it stays in
+         view; cleared on the next open or a query change. -->
+    @if (openError(); as message) {
+      <p
+        class="flex-none mx-2 mt-2 flex items-start gap-2 rounded-md border border-error/30 bg-error/10 px-3 py-2 text-xs text-base-content"
+        data-testid="previous-sessions-open-error"
+      >
+        <lucide-angular
+          [img]="CircleAlertIcon"
+          class="w-3.5 h-3.5 mt-px shrink-0 text-error"
+          aria-hidden="true"
+        />
+        <span class="min-w-0">{{ message }}</span>
+      </p>
+    }
+
     <!-- The one scroll region: the header never scrolls. -->
     <div
       #list
@@ -97,11 +114,14 @@
           [workflow]="workflowFor(row.session.id)"
           [editing]="editingSessionId() === row.session.id"
           [editingName]="editingSessionName()"
+          [renameError]="
+            editingSessionId() === row.session.id ? renameError() : ''
+          "
           [expiredHint]="expiredTranscriptHint"
           (opened)="onOpened(row.session)"
           (organizeRequested)="onOrganize(row.session)"
           (renameRequested)="onRenameRequested(row.session)"
-          (renameNameChange)="editingSessionName.set($event)"
+          (renameNameChange)="onRenameNameChange($event)"
           (renameCommitted)="onRenameCommitted(row.session, $event)"
           (renameCancelled)="onRenameCancelled(row.session)"
           (deleteRequested)="onDeleteRequested(row.session)"
@@ -158,6 +178,25 @@
             titleWidthClass="w-32"
             subtitleWidthClass="w-20"
           />
+        </div>
+      } @else if (dateRangeReversed()) {
+        <!-- From after To matches nothing by definition: say why instead of
+             "No matching sessions" (FU-2). -->
+        <div
+          class="min-h-full grid place-content-center justify-items-center gap-1 p-6 text-center"
+          data-testid="previous-sessions-invalid-range"
+        >
+          <lucide-angular
+            [img]="CalendarXIcon"
+            class="w-8 h-8 mb-2 text-base-content/20"
+            aria-hidden="true"
+          />
+          <span class="text-sm text-base-content-muted">{{
+            invalidRangeMessage
+          }}</span>
+          <span class="text-xs text-base-content-muted"
+            >Pick a To date on or after the From date</span
+          >
         </div>
       } @else if (showNoMatch()) {
         <div

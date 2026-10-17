@@ -82,6 +82,15 @@ export const SESSION_LIST_ROW_STYLES = `
     box-shadow: inset 2px 0 0
       color-mix(in srgb, var(--ptah-link) 70%, transparent);
   }
+  /* An inset shadow follows the corner radius, so on rounded left corners
+     the accent curves like a bracket. Square left corners keep it a
+     straight bar the full height of the li (FU-9); the right corners and
+     the fill stay as they are. */
+  :host(.session-row-current),
+  :host(.session-row-open-tab) {
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+  }
   /* Inset ring: the scrolling list would clip an outer one. */
   .session-row-open:focus-visible {
     outline-offset: -2px;
@@ -130,28 +139,41 @@ export const SESSION_LIST_ROW_STYLES = `
   styles: SESSION_LIST_ROW_STYLES,
   template: `
     @if (editing()) {
-      <div
-        class="flex items-center gap-2 min-h-[52px] bg-surface-2 rounded-md py-1.5 pr-2.5"
-        [ngClass]="organizationAvailable() ? 'pl-[34px]' : 'pl-2.5'"
-      >
-        <input
-          #renameInput
-          type="text"
-          class="input input-xs input-bordered flex-1 min-w-0 h-7 text-[13px] rounded-md bg-surface-0 border-[color:var(--surface-border-strong)] ${FOCUS_RING}"
-          [attr.maxlength]="nameMaxLength"
-          aria-label="Edit session name"
-          [attr.aria-describedby]="renameHintId"
-          [value]="editingName()"
-          (input)="onRenameInput($event)"
-          (keydown)="onRenameKeydown($event)"
-          (blur)="onRenameBlur()"
-          data-testid="session-rename-input"
-        />
-        <span
-          [id]="renameHintId"
-          class="sr-only sm:not-sr-only whitespace-nowrap text-[11px] text-base-content-muted"
-          >Enter to save · Esc to cancel</span
+      <div class="bg-surface-2 rounded-md">
+        <div
+          class="flex items-center gap-2 min-h-[52px] py-1.5 pr-2.5"
+          [ngClass]="organizationAvailable() ? 'pl-[34px]' : 'pl-2.5'"
         >
+          <input
+            #renameInput
+            type="text"
+            class="input input-xs input-bordered flex-1 min-w-0 h-7 text-[13px] rounded-md bg-surface-0 border-[color:var(--surface-border-strong)] ${FOCUS_RING}"
+            [attr.maxlength]="nameMaxLength"
+            aria-label="Edit session name"
+            [attr.aria-describedby]="renameDescribedBy()"
+            [value]="editingName()"
+            (input)="onRenameInput($event)"
+            (keydown)="onRenameKeydown($event)"
+            (blur)="onRenameBlur()"
+            data-testid="session-rename-input"
+          />
+          <span
+            [id]="renameHintId"
+            class="sr-only sm:not-sr-only whitespace-nowrap text-[11px] text-base-content-muted"
+            >Enter to save · Esc to cancel</span
+          >
+        </div>
+        @if (renameError(); as error) {
+          <!-- Not a live region: the modal announces the same text once. -->
+          <p
+            [id]="renameErrorId"
+            class="-mt-1 pb-1.5 pr-2.5 text-xs text-error"
+            [ngClass]="organizationAvailable() ? 'pl-[34px]' : 'pl-2.5'"
+            data-testid="session-rename-error"
+          >
+            {{ error }}
+          </p>
+        }
       </div>
     } @else {
       <button
@@ -292,6 +314,8 @@ export class SessionListRowComponent {
   readonly editing = input(false);
   /** The rename draft (owned by the modal). */
   readonly editingName = input('');
+  /** Inline error under the rename field after a failed save; '' for none. */
+  readonly renameError = input('');
   /** Tooltip on `transcript expired`. */
   readonly expiredHint = input('');
 
@@ -312,7 +336,15 @@ export class SessionListRowComponent {
   protected readonly Trash2Icon = Trash2;
 
   protected readonly nameMaxLength = SESSION_NAME_MAX_LENGTH;
-  protected readonly renameHintId = `session-rename-hint-${nextId++}`;
+  private readonly rowId = nextId++;
+  protected readonly renameHintId = `session-rename-hint-${this.rowId}`;
+  protected readonly renameErrorId = `session-rename-error-${this.rowId}`;
+  /** The hint, plus the inline error while there is one. */
+  protected readonly renameDescribedBy = computed(() =>
+    this.renameError()
+      ? `${this.renameHintId} ${this.renameErrorId}`
+      : this.renameHintId,
+  );
 
   private readonly renameInput =
     viewChild<ElementRef<HTMLInputElement>>('renameInput');

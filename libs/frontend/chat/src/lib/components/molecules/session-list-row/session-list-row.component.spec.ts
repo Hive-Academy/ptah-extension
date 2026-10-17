@@ -70,6 +70,7 @@ function summary(
         [isOpenInTab]="isOpenInTab()"
         [editing]="editing()"
         [editingName]="editingName()"
+        [renameError]="renameError()"
         [expiredHint]="expiredHint"
         (opened)="events.push('opened')"
         (organizeRequested)="events.push('organize')"
@@ -90,6 +91,7 @@ class RowHostComponent {
   readonly isOpenInTab = signal(false);
   readonly editing = signal(false);
   readonly editingName = signal('');
+  readonly renameError = signal('');
   readonly expiredHint = EXPIRED_HINT;
   readonly events: string[] = [];
   readonly names: string[] = [];
@@ -210,6 +212,11 @@ describe('SessionListRowComponent', () => {
       );
       expect(css).toContain(
         ':host(:not(.session-row-current):hover) { background-color: var(--surface-2); }',
+      );
+      // FU-9: square left corners, so the inset accent is a straight bar
+      // rather than following the radius; the fill colour is unchanged.
+      expect(css).toContain(
+        ':host(.session-row-current), :host(.session-row-open-tab) { border-top-left-radius: 0; border-bottom-left-radius: 0; }',
       );
       // No highlight rule targets the row button alone.
       expect(css).not.toMatch(/session-row-open[^{]*\{[^}]*background/);
@@ -438,6 +445,30 @@ describe('SessionListRowComponent', () => {
       expect(q('[data-testid="session-rename-input"]')).toBeNull();
       expect(q('button[data-action="rename"]')).not.toBeNull();
       expect(hostCmp.commits).toEqual([]);
+    });
+
+    it('FU-6: shows the inline error under the field and links it with aria-describedby', () => {
+      const input = startEditing('My draft');
+      expect(q('[data-testid="session-rename-error"]')).toBeNull();
+      const hintId = input.getAttribute('aria-describedby');
+      expect(hintId?.split(' ')).toHaveLength(1);
+
+      hostCmp.renameError.set("Couldn't rename. Try again.");
+      render();
+      const error = req<HTMLElement>('[data-testid="session-rename-error"]');
+      expect(error.textContent?.trim()).toBe("Couldn't rename. Try again.");
+      expect(error.classList.contains('text-error')).toBe(true);
+      expect(error.classList.contains('text-xs')).toBe(true);
+      // Not a second live region: the modal announces it once.
+      expect(error.getAttribute('aria-live')).toBeNull();
+      const describedBy = input.getAttribute('aria-describedby')?.split(' ');
+      expect(describedBy).toEqual([hintId, error.id]);
+      expect(input.value).toBe('My draft');
+
+      hostCmp.renameError.set('');
+      render();
+      expect(q('[data-testid="session-rename-error"]')).toBeNull();
+      expect(input.getAttribute('aria-describedby')).toBe(hintId);
     });
 
     it('uses the plain-host padding without the marker column', () => {

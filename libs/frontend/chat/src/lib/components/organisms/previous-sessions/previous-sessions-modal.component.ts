@@ -33,7 +33,9 @@ import {
 } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import {
+  CalendarX,
   ChevronDown,
+  CircleAlert,
   History,
   LucideAngularModule,
   MessageSquare,
@@ -71,9 +73,17 @@ type RowAction = 'open' | 'organize' | 'rename' | 'delete';
 
 const LOG_CONTEXT = 'PreviousSessionsModal';
 
-/** The search field of either toolbar variant (organization, plain). */
-const SEARCH_FIELD =
-  '[data-testid="session-filter-text"], [data-testid="session-search-local"]';
+/**
+ * The search field of either toolbar variant (organization, plain): a
+ * behaviour attribute both inputs carry, not their test IDs (FU-3).
+ */
+const SEARCH_FIELD = '[data-previous-sessions-search]';
+
+/** Shown and announced when From is after To (FU-2). */
+const INVALID_RANGE_MESSAGE = 'The From date is after the To date.';
+
+/** Inline error and announcement after a failed rename (FU-6, design 8.7). */
+const RENAME_FAILED_MESSAGE = "Couldn't rename. Try again.";
 
 /**
  * Tooltip on `transcript expired`: the Claude CLI's `cleanupPeriodDays`
@@ -194,6 +204,9 @@ export class PreviousSessionsModalComponent {
   protected readonly SearchIcon = Search;
   protected readonly MessageSquareIcon = MessageSquare;
   protected readonly ChevronDownIcon = ChevronDown;
+  protected readonly CalendarXIcon = CalendarX;
+  protected readonly CircleAlertIcon = CircleAlert;
+  protected readonly invalidRangeMessage = INVALID_RANGE_MESSAGE;
   protected readonly expiredTranscriptHint = EXPIRED_TRANSCRIPT_HINT;
 
   private readonly panel = viewChild.required<ElementRef<HTMLElement>>('panel');
@@ -233,6 +246,17 @@ export class PreviousSessionsModalComponent {
       (this.view.hasClientFilters() && this.chatStore.sessions().length > 0),
   );
 
+  /**
+   * From is after To, so no session can match. Same day is valid. The
+   * `<input type="date">` values are `YYYY-MM-DD`, which order as strings.
+   * Derived here: the store keeps both dates as entered (FU-2).
+   */
+  protected readonly dateRangeReversed = computed(() => {
+    const from = this.view.dateFrom();
+    const to = this.view.dateTo();
+    return from !== '' && to !== '' && from > to;
+  });
+
   /** Hidden when client filters leave no row: another page may not match either. */
   protected readonly canLoadMore = computed(
     () =>
@@ -250,6 +274,11 @@ export class PreviousSessionsModalComponent {
   /** The session whose inline rename field is open, and its draft. */
   protected readonly editingSessionId = signal<SessionId | null>(null);
   protected readonly editingSessionName = signal('');
+  /** Inline error on the editing row after a failed save; '' for none. */
+  protected readonly renameError = signal('');
+
+  /** Visible notice after a failed open; cleared on the next open or query change. */
+  protected readonly openError = signal('');
 
   /** Text of the polite status line; set per announcement, cleared before the next. */
   protected readonly statusMessage = signal('');
@@ -272,6 +301,15 @@ export class PreviousSessionsModalComponent {
     // Initial focus: the search field, caret at the end, so a query kept
     // from the last open can be extended.
     afterNextRender(() => this.focusSearch());
+
+    // A changed query makes a failed-open notice stale.
+    effect(() => {
+      this.view.listQuery();
+      this.view.searchQuery();
+      this.view.dateFrom();
+      this.view.dateTo();
+      untracked(() => this.openError.set(''));
+    });
 
     // "N sessions" after the list a query asked for has arrived.
     effect(() => {
@@ -376,6 +414,13 @@ export class PreviousSessionsModalComponent {
     // The row focuses and selects its own field (D34).
     this.editingSessionId.set(session.id);
     this.editingSessionName.set(session.name || '');
+    this.renameError.set('');
+  }
+
+  /** The draft as typed; editing it clears a failed-save error. */
+  protected onRenameNameChange(name: string): void {
+    this.editingSessionName.set(name);
+    this.renameError.set('');
   }
 
   protected onRenameCommitted(
@@ -388,10 +433,16 @@ export class PreviousSessionsModalComponent {
     this.endRename();
     // After a blur the user clicked elsewhere: focus stays there (D32).
     if (trigger === 'enter') {
-      this.focusAfterRender(() => this.rowAction(session.id, 'rename'));
+      this.afterRender(() => {
+        // A fast failure has reopened a field, which holds focus: moving it
+        // would blur the field and save again.
+        if (this.editingSessionId() !== null) return;
+        const target = this.rowAction(session.id, 'rename');
+        if (target) target.focus();
+        else this.focusSearch();
+      });
     }
-    // A failure is logged by the service; the row keeps its name.
-    void this.actions.rename(session.id, session.name || '', requested);
+    void this.renameRow(session, requested);
   }
 
   protected onRenameCancelled(session: ChatSessionSummary): void {
@@ -411,6 +462,36 @@ export class PreviousSessionsModalComponent {
   private endRename(): void {
     this.editingSessionId.set(null);
     this.editingSessionName.set('');
+    this.renameError.set('');
+  }
+
+  /**
+   * Save a rename. The service logs a failure and the row keeps its name;
+   * here the field opens again with the user's draft and the inline error,
+   * and the same text is announced (FU-6, design 8.7). A result that comes
+   * back after the user started another rename, or after the row left the
+   * list, changes nothing.
+   */
+  private async renameRow(
+    session: ChatSessionSummary,
+    requested: string,
+  ): Promise<void> {
+    const result = await this.actions.rename(
+      session.id,
+      session.name || '',
+      requested,
+    );
+    if (this.destroyed || result !== 'failed') return;
+    if (this.editingSessionId() !== null) return;
+    const stillListed = this.view
+      .filteredSessions()
+      .some((row) => row.id === session.id);
+    if (!stillListed) return;
+    // The row focuses and selects its own field again.
+    this.editingSessionId.set(session.id);
+    this.editingSessionName.set(requested);
+    this.renameError.set(RENAME_FAILED_MESSAGE);
+    this.announce(RENAME_FAILED_MESSAGE);
   }
 
   /**
@@ -421,6 +502,7 @@ export class PreviousSessionsModalComponent {
   private async openRow(session: ChatSessionSummary): Promise<void> {
     if (this.opening) return;
     this.opening = true;
+    this.openError.set('');
     let result: SessionOpenResult;
     try {
       result = await this.actions.openSession(session);
@@ -433,7 +515,9 @@ export class PreviousSessionsModalComponent {
       return;
     }
     const name = this.displayUtils.getSessionDisplayName(session);
-    this.announce(`Couldn't open "${name}". Try again.`);
+    const message = `Couldn't open "${name}". Try again.`;
+    this.openError.set(message);
+    this.announce(message);
     // Focus is left where it is unless it fell out of the panel (e.g. to
     // <body>); a layer above the modal keeps its own focus.
     this.afterRender(() => {
@@ -524,7 +608,9 @@ export class PreviousSessionsModalComponent {
     }
     if (count === this.lastRowCount) return;
     this.lastRowCount = count;
-    this.announce(sessionCount(count));
+    this.announce(
+      this.dateRangeReversed() ? INVALID_RANGE_MESSAGE : sessionCount(count),
+    );
   }
 
   /**
