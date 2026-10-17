@@ -37,6 +37,7 @@ import type {
   QuotaOwnerRef,
 } from '@ptah-extension/shared';
 import {
+  AgentId,
   calculateMessageCost,
   resetPricingMapForTesting,
   updatePricingMap,
@@ -76,6 +77,25 @@ describe('AgentMonitorStore', () => {
     store = TestBed.inject(AgentMonitorStore);
     backgroundAgentStore = TestBed.inject(BackgroundAgentStore);
     mockActiveTab.set(null);
+  });
+
+  it('restores CLI completion time and accepts older or invalid references', () => {
+    const restoredId = AgentId.create();
+    const olderId = AgentId.create();
+    const invalidId = AgentId.create();
+    const ref: CliSessionReference = {
+      cliSessionId: 'cli-session', cli: 'codex', agentId: restoredId,
+      task: 'Review', startedAt: '2026-10-17T10:00:00.000Z',
+      completedAt: '2026-10-17T10:00:05.000Z', status: 'completed',
+    };
+    store.loadCliSessions([
+      ref,
+      { ...ref, agentId: olderId, completedAt: undefined },
+      { ...ref, agentId: invalidId, completedAt: 'invalid' },
+    ], 'session-1');
+    expect(store.agents().find((agent) => agent.agentId === restoredId)?.completedAt).toBe(Date.parse(ref.completedAt!));
+    expect(store.agents().find((agent) => agent.agentId === olderId)?.completedAt).toBeUndefined();
+    expect(store.agents().find((agent) => agent.agentId === invalidId)?.completedAt).toBeUndefined();
   });
 
   function spawnAgent(
@@ -710,6 +730,7 @@ describe('AgentMonitorStore', () => {
       expect(rec?.status).toBe('running');
       expect(rec?.taskId).toBe(TASK);
       expect(rec?.description).toBe('Explore the repo');
+      expect(rec?.startedAt).toBe(1);
     });
 
     it('agent_progress merges summary, lastToolName and stats', () => {
@@ -725,6 +746,14 @@ describe('AgentMonitorStore', () => {
       expect(rec?.status).toBe('running');
     });
 
+    it('uses the first observed event when agent_start is missing', () => {
+      store.onAgentProgress(progressEvent());
+      expect(store.subagents().get(PARENT)?.startedAt).toBe(2);
+      store.onAgentCompleted(completedEvent());
+      expect(store.subagents().get(PARENT)?.startedAt).toBe(2);
+      expect(store.subagents().get(PARENT)?.completedAt).toBe(4);
+    });
+
     it('agent_status updates lifecycle status and errorMessage', () => {
       store.onAgentStart(startEvent());
       store.onAgentStatus(
@@ -735,6 +764,22 @@ describe('AgentMonitorStore', () => {
       expect(rec?.errorMessage).toBe('boom');
     });
 
+    it('replaces the end time after a completed agent resumes and completes again', () => {
+      store.onAgentStart(startEvent());
+      store.onAgentCompleted(completedEvent({ timestamp: 4 }));
+      expect(store.getSubagent(PARENT)?.completedAt).toBe(4);
+
+      store.onAgentStatus(statusEvent({ status: 'running', timestamp: 5 }));
+      expect(store.getSubagent(PARENT)?.completedAt).toBeUndefined();
+      store.onAgentProgress(progressEvent({ timestamp: 6 }));
+      expect(store.getSubagent(PARENT)?.completedAt).toBeUndefined();
+
+      store.onAgentCompleted(completedEvent({ timestamp: 7 }));
+      expect(store.getSubagent(PARENT)?.completedAt).toBe(7);
+      store.onAgentStatus(statusEvent({ status: 'completed', timestamp: 8 }));
+      expect(store.getSubagent(PARENT)?.completedAt).toBe(8);
+    });
+
     it('agent_completed sets terminal status, outputFile and final stats', () => {
       store.onAgentStart(startEvent());
       store.onAgentCompleted(completedEvent({ status: 'stopped' }));
@@ -743,6 +788,8 @@ describe('AgentMonitorStore', () => {
       expect(rec?.outputFile).toBe('/tmp/out.json');
       expect(rec?.totalTokens).toBe(4321);
       expect(rec?.latestSummary).toBe('Done');
+      expect(rec?.startedAt).toBe(1);
+      expect(rec?.completedAt).toBe(4);
     });
 
     it('captures the owning session id from the event onto the record', () => {
@@ -788,10 +835,26 @@ describe('AgentMonitorStore', () => {
     });
 
     describe('onTaskToolResult (foreground completion from Task tool_result)', () => {
+      it('uses the historical tool_result timestamp during replay', () => {
+        store.onAgentStart(startEvent({ timestamp: 1_000 }));
+        store.onTaskToolResult(PARENT, false, 2_000);
+        expect(store.getSubagent(PARENT)?.completedAt).toBe(2_000);
+      });
+
+      it('falls back to wall time for a non-finite timestamp', () => {
+        store.onAgentStart(startEvent());
+        const before = Date.now();
+        store.onTaskToolResult(PARENT, false, Number.NaN);
+        const completedAt = store.getSubagent(PARENT)?.completedAt;
+        expect(completedAt).toBeGreaterThanOrEqual(before);
+        expect(completedAt).toBeLessThanOrEqual(Date.now());
+      });
+
       it('transitions running → completed', () => {
         store.onAgentStart(startEvent());
         store.onTaskToolResult(PARENT, false);
         expect(store.subagents().get(PARENT)?.status).toBe('completed');
+        expect(store.subagents().get(PARENT)?.completedAt).toEqual(expect.any(Number));
       });
 
       it('transitions running → failed when the tool_result is an error', () => {

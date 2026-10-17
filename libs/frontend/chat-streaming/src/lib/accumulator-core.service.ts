@@ -451,7 +451,7 @@ export class StreamingAccumulatorCore {
             backgroundAgentStore.isBackgroundAgent(event.toolCallId) ||
             isBackgroundedToolResult(event.output);
           if (!backgrounded) {
-            agentMonitorStore.onTaskToolResult(event.toolCallId, event.isError);
+            agentMonitorStore.onTaskToolResult(event.toolCallId, event.isError, event.timestamp);
           }
         }
 
