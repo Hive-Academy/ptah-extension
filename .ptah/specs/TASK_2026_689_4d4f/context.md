@@ -31,3 +31,11 @@ worktree while TASK_2026_687_615f (PR on `fix/command-center-open-issues`) conti
 Full orchestration: design spec + HTML prototype (dark + light) -> user approval -> implementation plan
 (with preserve contract of the current scene: projection, selection, hover/pin, keyboard, work-list focus,
 reduced motion, theme feeds, overflow) -> plan review -> codex lanes -> Anthropic review -> Electron visual check.
+
+## Design gate (2026-10-17)
+
+The user chose "Approve with fixes" (AskUserQuestion) after design review round 2 (8/10, revise cap
+reached). The implementation plan must close: N2 (hover preview grows the page; reserve space only
+for a pinned plate and release it on close, Escape, outside click and selection change), M-R4
+(ribbons under cards in compact and stacked layouts) and M-R5 (plate far from its row at 1440).
+The proposed removal of the `canvasUnavailable` output and fallback is approved.
