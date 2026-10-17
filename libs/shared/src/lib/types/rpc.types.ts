@@ -58,6 +58,11 @@ import type {
 } from './rpc/rpc-lane-outcome.types';
 
 import type {
+  AgentListDecisionModelsParams,
+  AgentListDecisionModelsResult,
+} from './rpc/rpc-decision-model-catalog.types';
+
+import type {
   CapabilitiesGetEffectiveParams,
   CapabilitiesGetEffectiveResult,
   CapabilitiesGetStateParams,
@@ -1399,6 +1404,14 @@ export interface RpcMethodRegistry {
   'agent:outcomeSignals': {
     params: AgentOutcomeSignalsParams;
     result: AgentOutcomeSignalsResult;
+  };
+  /**
+   * Decision-capable models of one host, for the decision-model picker
+   * (TASK_2026_684, Requirement 4). Every host; ids and counts only.
+   */
+  'agent:listDecisionModels': {
+    params: AgentListDecisionModelsParams;
+    result: AgentListDecisionModelsResult;
   };
   'ptahCli:list': {
     params: PtahCliListParams;
@@ -3903,6 +3916,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   // dual-registration. Capability-gated to Electron in RPC_HANDLER_MANIFEST.
   'agent:getLanePlanLimits': true,
   'agent:outcomeSignals': true,
+  'agent:listDecisionModels': true,
   'ptahCli:list': true,
   'ptahCli:create': true,
   'ptahCli:update': true,

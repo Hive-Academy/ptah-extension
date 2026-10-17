@@ -24,6 +24,10 @@ export {
 } from './lib/decision-model/decision-model.catalog';
 export { keyTransportAllowed } from './lib/decision-model/decision-endpoint.url';
 export {
+  errorName,
+  type LoggableErrorName,
+} from './lib/decision-model/decision-model.detail';
+export {
   DecisionModelKeys,
   type DecisionKeySlot,
 } from './lib/decision-model/decision-model.keys';

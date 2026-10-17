@@ -1,6 +1,6 @@
 # Batches - TASK_2026_684_a11d
 
-Total tasks: 45 | Batches: 23 (Batch 0 gate + 22 implementation batches) | Complete: 14/23
+Total tasks: 45 | Batches: 23 (Batch 0 gate + 22 implementation batches) | Complete: 15/23
 
 ## Execution precondition (read first)
 
@@ -760,7 +760,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - `T`, `TC` and `L` on `@ptah-extension/lane-routing`; then the three DI guards one at a time
   (no edits expected; they must stay green); di-lint; degradation-audit.
 
-## Batch 14: `agent:listDecisionModels` handler and registry (C10, library part) — PENDING
+## Batch 14: `agent:listDecisionModels` handler and registry (C10, library part) — COMPLETE
 
 - Recommended executor: CLI lane, backend-developer profile (non-codex)
 - Execution mode: sequential
@@ -774,7 +774,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - Phase: 3 | Phase review: code-logic + style (codex)
 - Criteria: 4.1-4.3 served over RPC, 7 (all hosts)
 
-### Task 14.1: Handler and spec — PENDING
+### Task 14.1: Handler and spec — COMPLETE
 
 - Files: CREATE `W\libs\backend\rpc-handlers\src\lib\handlers\decision-model-catalog-rpc.handlers.ts`,
   CREATE `...\decision-model-catalog-rpc.handlers.spec.ts`
@@ -783,7 +783,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - Quality requirements: Zod validates `source`. An unexpected rejection returns
   `filter: 'unavailable'` and logs the error type.
 
-### Task 14.2: Registry, manifest, registration and exports — PENDING
+### Task 14.2: Registry, manifest, registration and exports — COMPLETE
 
 - Depends on: Task 14.1
 - Files: MODIFY `W\libs\shared\src\lib\types\rpc.types.ts` (registry entry after `:1306`, name after
