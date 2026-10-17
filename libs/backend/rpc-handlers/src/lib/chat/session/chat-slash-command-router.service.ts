@@ -19,6 +19,7 @@ import {
   AuthRequiredError,
   SDK_TOKENS,
   SlashCommandInterceptor,
+  type ManualCompactAdmission,
 } from '@ptah-extension/agent-sdk';
 import {
   AUTH_PROVIDERS_TOKENS,
@@ -58,6 +59,8 @@ export class ChatSlashCommandRouterService {
     private readonly streamBroadcaster: ChatStreamBroadcaster,
     @inject(AUTH_PROVIDERS_TOKENS.SDK_WORKSPACE_PROVIDER_PROFILE_RESOLVER)
     private readonly workspaceProviderProfileResolver: WorkspaceProviderProfileResolver,
+    @inject(SDK_TOKENS.SDK_COMPACTION_COORDINATOR, { isOptional: true })
+    private readonly manualCompactAdmission?: ManualCompactAdmission,
   ) {}
 
   /**
@@ -119,12 +122,40 @@ export class ChatSlashCommandRouterService {
           sessionId,
         },
       );
+      if (
+        interceptResult.commandName === 'compact' &&
+        this.manualCompactAdmission
+      ) {
+        try {
+          const decision =
+            this.manualCompactAdmission.requestManualCompact(sessionId);
+          if (decision.action !== 'send') {
+            this.logger.info(
+              '[RPC] chat:continue - manual compact admitted without send',
+              {
+                sessionId,
+                decision: decision.action,
+              },
+            );
+            return { success: true, sessionId };
+          }
+        } catch (error) {
+          this.logger.warn(
+            '[RPC] chat:continue - manual compact admission failed',
+            {
+              sessionId,
+              error: error instanceof Error ? error.message : String(error),
+            },
+          );
+        }
+      }
       const mcpServerRunning = this.sdkContext.isMcpServerRunning();
       const enhancedPromptsContent =
         await this.sdkContext.resolveEnhancedPromptsContent(workspacePath);
       const command = interceptResult.rawCommand ?? prompt;
       const model =
         params.model || this.modelSettings.selectedModel.get() || 'default';
+      let reservationId: string | undefined;
       try {
         // The relaunch is a new query: it gets the same per-workspace provider
         // snapshot as chat:start / resume, never whatever the shared auth env
@@ -134,6 +165,34 @@ export class ChatSlashCommandRouterService {
             workspacePath ?? '',
             model,
           );
+        if (
+          interceptResult.commandName === 'compact' &&
+          this.manualCompactAdmission
+        ) {
+          try {
+            const admission =
+              this.manualCompactAdmission.admitManualCompact(sessionId);
+            if (admission.decision.action !== 'send') {
+              this.logger.info(
+                '[RPC] chat:continue - manual compact admitted without send',
+                {
+                  sessionId,
+                  decision: admission.decision.action,
+                },
+              );
+              return { success: true, sessionId };
+            }
+            reservationId = admission.reservationId;
+          } catch (error) {
+            this.logger.warn(
+              '[RPC] chat:continue - manual compact admission failed',
+              {
+                sessionId,
+                error: error instanceof Error ? error.message : String(error),
+              },
+            );
+          }
+        }
         const stream = await this.sdkAdapter.executeSlashCommand(
           sessionId,
           command,
@@ -181,6 +240,23 @@ export class ChatSlashCommandRouterService {
             : {}),
         };
         return result;
+      } finally {
+        if (reservationId !== undefined && this.manualCompactAdmission) {
+          try {
+            this.manualCompactAdmission.releaseManualReservation(
+              sessionId,
+              reservationId,
+            );
+          } catch (error) {
+            this.logger.warn(
+              '[RPC] chat:continue - manual compact release failed',
+              {
+                sessionId,
+                error: error instanceof Error ? error.message : String(error),
+              },
+            );
+          }
+        }
       }
     }
 
