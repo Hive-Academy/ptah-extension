@@ -117,3 +117,75 @@ left accent for active or linked sessions).
   `git merge-tree HEAD main` conflicts in canvas-rail-board.component.ts and .spec.ts (main commit
   `75ce4a6d1`: needs-you cue, sheet-scoped Tab trap, canvas-tile id). Plan: merge main into the
   branch after the Phase 3 code reviews and before the visual review.
+- 2026-10-17 (session 3): D82 build approved. 683 is not ready (it waits for a review and a Jest lane);
+  679 goes first. 679 sent "Electron: TASK_2026_679 launching, port 9361" to the 674 and 683 sessions.
+  Send "Electron: free" to both after close.
+- 2026-10-17 (session 3): user asked to merge main again. Visual review stopped before launch (no
+  build output, no process). Merge M2 = `5c892b28a` (main `71820e0c0`). Then the 683 session sent
+  "Electron: 683 launching" (M0 perf + 685 screenshots on 9351). 679 waits for its "Electron: free"
+  and runs no heavy check (no Electron build) meanwhile, to keep 683's perf numbers clean.
+  Batch 12 edits run meanwhile on a codex lane with no checks (D85).
+- 2026-10-17 end of session 3: Batch 12 edit lane (codex `aa88f3e7`) delivered; 6 e2e files changed,
+  uncommitted, no checks run yet (D85). Visual review not run (waits for 683 "Electron: free").
+  HANDOFF.md rewritten for session 4.
+
+## Session 4 (2026-10-17, orchestrator continuation)
+
+- Gate 0.1: lanes `enabled` (D58). `ptah_agent_list` 22:03 UTC: codex confirmed room (weekly 51%,
+  reset 2026-10-22); opencode near limit (monthly 92%); grok, Glm, antigravity unknown; none AT LIMIT.
+- D10: port 9351 LISTENING (PID 17688), 683 session busy, no "Electron: free" received. Sent 683 a
+  request for "Electron: free" (plus idle notice). No Electron build or heavy check until then.
+- Batch 13 edits: codex lane `b9984bc4-7b22-4458-a7ce-1f58ac768820` (role frontend-developer), no
+  checks (D86). Report: `reports/batch-13-report.md`.
+- Batch 13 lane delivered: 6 files (99+/34-), uncommitted; rg gate 0 hits; test counts unchanged.
+  Orchestrator spot-check: `data-testid="previous-sessions-modal"` (modal html:9) and the
+  "Delete Session" dialog title (`session-row-actions.service.ts:120`) exist. No check run yet.
+  Lane completed (exit 0, verdict delivered); CLI Session ID `01a146bd-f074-7172-b689-652683f33612`
+  (resume_session_id for defects).
+- 683 sent "Electron: free" (ports 9351/9361 free; it needs Electron again later for M1). Warning
+  from 683: a launch WITHOUT NODE_ENV=development ignored the userData override and opened the
+  production profile and ~/.ptah/state/ptah.sqlite. Checked: no electron.exe, 9351/9361 not
+  LISTENING. Sent "Electron: TASK_2026_679 launching, port 9361" to 683, 684, 678, 650, docs-lane.
+  Visual review B-vis started (visual-reviewer subagent) on head `5c892b28a`.
+- B-vis done: NEEDS_REVISION 5/10 (1 Breaking, 3 Serious, 7 Moderate, 5 Minor), 97 screenshots in
+  `screenshots/phase-3-visual/`. Electron closed, 9361 free. Profile safety: production
+  `ptah.sqlite` / `secrets.json` writes came from the user's installed Ptah.exe (PID 36432), not
+  the launch. Side effect: the dev app rewrote the `ptah` MCP entry in
+  `D:\projects\property-hub\.mcp.json` (git-ignored) and `D:\projects\ptah-final-run-ws\.mcp.json`
+  (untracked) to port 51821; production Ptah listens on 51820 (683 report). Not reverted; reported
+  to the user.
+- "Electron: free" sent to 683, 684, 678, 650, docs-lane (D89). 683 replied: it hands off and will
+  not launch now; its next session announces before M1.
+- Visual fix round V1 (D87) started: Claude `frontend-developer` subagent, report
+  `reports/fix-round-v1-report.md`. User answers: tab strip = follow-up FU-10 (D90, 678 session
+  told); one more build-dev + copy-renderer-dev for the V1 visual re-check (D91).
+- 678 confirmed: FU-10 (tab strip clip) is owned by TASK_2026_687_615f batch B4
+  (`.claude-worktrees/command-center-open-issues/.ptah/specs/TASK_2026_687_615f/HANDOFF.md`).
+  678 will use port 9334 only and announce first.
+- V1 delivered (`reports/fix-round-v1-report.md`). Team-leader MODE 2
+  (`reports/mode-2-batch-12-v1-gate.md`): gate green (typecheck,lint 3 projects 6/6; test chat +
+  canvas), D84 searches 0, Batch 12 verified (D7 runs pending). V1 NOT accepted: V1.2 clears the
+  card text hold on the caret `selectionchange` during a pointer press. No commit, head `5c892b28a`.
+  Watch item (not a defect in default runs): with `PTAH_PERF_SPECS=1`, the 3-tile perf loop can
+  click the next row while `openRow` still ignores clicks (`previous-sessions-modal.component.ts:422`).
+- V1.2 rework: fresh Claude `frontend-developer` (2 canvas-rail-board files); then team-leader
+  re-gates canvas and commits V1.
+- V1.2 rework delivered: `pressing` flag in `canvas-rail-board.component.ts` (:375-409), new spec
+  at `:726` (fails before, passes after; spec 94/94). Not yet re-gated or committed. Session 4 ended
+  here (token budget); HANDOFF.md rewritten for session 5. No lane or subagent running.
+
+## Session 5 (2026-10-17)
+
+- Team-leader MODE 2 accepted the V1.2 rework; canvas gate green; V1 committed `b8543ad25`.
+- Codex re-review of V1: REVISE 6/10 (D93). Fix round V1.4 (Claude `frontend-developer`, chat-ui rail
+  card shows the live title while held); chat-ui gate green; committed `36619f3a1`; codex re-review
+  APPROVED 8/10. Minor 3 (overlapping pointers) -> FU-11.
+- Electron slot (D10, port 9361, NODE_ENV=development, private userData): D91 build pair; V1 visual
+  re-check PASS dark + light (new Minor -> FU-9); 10 e2e runs 30 passed / 4 skipped / 0 failed.
+  "Electron: free" sent; peers 683 and 678/687 took the next slots.
+- Harness runs used the placeholder (D94); codex lane added `useAppBuild: true` + hard fixture-root
+  absence to the 3 session specs; re-runs 13/13 passed.
+- Batch 12 committed `6607db0d7`; Batch 13 gated and committed `fb6b0f6d2` (PNGs reverted, DP-12).
+- Team-leader MODE 3: COMPLETE, no gaps (`reports/mode-3-completion.md`); task.md -> in_review.
+- Merge main M3 (16 commits, no conflicts): gate green on chat, chat-ui, canvas, chat-state;
+  committed `ae4f9ac91`. Then records commit, push and PR.

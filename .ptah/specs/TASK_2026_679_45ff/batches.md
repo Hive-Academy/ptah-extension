@@ -1,7 +1,7 @@
 # Batches - TASK_2026_679_45ff
 
-Total tasks: 31 (26 + fix A1.1-A1.2 + fix P3.1-P3.2 + merge M.1) | Batches: 14 (8+9 and 10+11 merged; Fix rounds A1 and P3, Main merge M added) | Complete: 11/14
-Status (2026-10-17): Fix round P3 COMPLETE (4c4e429b0) -> Main merge M IN_PROGRESS (`git merge main` started, Task M.1 resolver || codex re-review of P3) -> visual review -> Batches 12-13 (D72-D79)
+Total tasks: 35 (26 + fix A1.1-A1.2 + fix P3.1-P3.2 + merge M.1 + merge M2.1 + visual fix V1.1-V1.4) | Batches: 16 (8+9 and 10+11 merged; Fix rounds A1, P3 and V1, Main merges M and M2 added) | Complete: 16/16
+Status (2026-10-17): ALL BATCHES COMPLETE. V1 + V1.4 (b8543ad25, 36619f3a1) re-review APPROVED, D91 visual re-check PASS; Batch 12 (6607db0d7) and Batch 13 (fb6b0f6d2) committed. Mode 3 completion verified: `reports/mode-3-completion.md` (COMPLETE). NEXT: push and open the PR with FU-1..FU-11.
 
 Worktree root (ROOT): `D:/projects/ptah-extension/.claude-worktrees/previous-sessions-modal`
 (branch `feat/previous-sessions-modal`, base `851846797`). Every path below is absolute under ROOT.
@@ -748,6 +748,12 @@ One fix round (D72): S1 and M4 in Fix round P3; S2 closed by Batch 12 (D77); M1,
 FU-5, FU-6; Minor -> FU-7 (recorded). Then Main merge M, then the visual review on the merged head
 (D76). Phase 3 closes when the codex re-review of P3 accepts and the visual review passes.
 
+Phase 3 code reviews CLOSED (2026-10-17): codex re-review of P3 `4c4e429b0` APPROVED 8/10
+(`reviews/phase-3-fix-rereview.md`; implementer Claude, reviewer codex/OpenAI): S1 FIXED, M4 FIXED,
+0 new source defects; 2 Minor spec-coverage gaps -> FU-8 (D81). Main merge M committed
+`8a29952a6`. Remaining Phase 3 gate: the visual review on `8a29952a6`
+(`reviews/phase-3-visual-review.md`).
+
 ## Batch 8-9: Rail footer "Previous sessions" button, card Rename and Organize — COMPLETE (commit 5202e97bc)
 
 - Merged from Batches 8 and 9 (D63). Runs as wave A2 in parallel with Fix round A1.
@@ -935,7 +941,7 @@ Files (10):
   @ptah-extension/chat", N=1). `ptah-extension-webview`: CSS only, not built (visual review).
   Committed `0fe789fce`. Executor decisions accepted as D69-D70.
 
-## Fix round P3: Phase 3 code-logic fixes — COMPLETE (commit 4c4e429b0; codex re-review PENDING: reviews/phase-3-fix-rereview.md)
+## Fix round P3: Phase 3 code-logic fixes — COMPLETE (commit 4c4e429b0; codex re-review APPROVED 8/10: reviews/phase-3-fix-rereview.md)
 
 Source: both Phase 3 code-logic reviews. Decisions D72-D76. Fixed here: Batch 10-11 S1 (Serious)
 and Batch 8-9 M4 (Moderate, data loss, D74). Not here: S2 (Batch 12, D77), M1/M2/M3 (FU-4..FU-6),
@@ -1015,7 +1021,7 @@ canvas card 36/36. Committed `4c4e429b0`. Executor decisions accepted as D78-D79
 - Then Main merge M (below), and NEEDS REVIEW: codex code-logic re-review scoped to the P3 commit,
   run in parallel with the merge resolver (reviewer reads `git show <P3>`; no tests, no builds)
 
-## Main merge M: merge `main` (TASK_2026_681) into the branch — IN_PROGRESS
+## Main merge M: merge `main` (TASK_2026_681) into the branch — COMPLETE (commit 8a29952a6)
 
 - Why: `main` (`6c0490f1f`) carries TASK_2026_681; `git merge-tree --write-tree HEAD main` reports
   content conflicts in exactly `canvas-rail-board.component.ts` and `.spec.ts` (main `75ce4a6d1`:
@@ -1033,7 +1039,7 @@ canvas card 36/36. Committed `4c4e429b0`. Executor decisions accepted as D78-D79
 - Executor family: Claude; no separate code review (both sides were reviewed; the resolution is a
   union checked by the gate and by the visual review on the merged head).
 
-### Task M.1: Resolve `canvas-rail-board` conflicts — IN_PROGRESS
+### Task M.1: Resolve `canvas-rail-board` conflicts — COMPLETE
 
 - Files: `ROOT/libs/frontend/canvas/src/lib/canvas-rail/canvas-rail-board.component.ts`,
   `ROOT/libs/frontend/canvas/src/lib/canvas-rail/canvas-rail-board.component.spec.ts`
@@ -1042,6 +1048,49 @@ canvas card 36/36. Committed `4c4e429b0`. Executor decisions accepted as D78-D79
   import/injection and the needs-you count in `closedDetailsDescription`, the `isTabbable`
   inspector-dialog clause, `onSheetKeydown` using `event.currentTarget`, `data-testid="canvas-tile"`,
   and main's new specs and providers. Both sides' specs pass.
+
+### Main merge M verification
+
+Result (team-leader, 2026-10-17): resolver report `reports/merge-m-report.md` (Claude
+`frontend-developer`, board spec 91/91). `git diff MERGE_HEAD` on the two files shows only the
+branch's additions (`PreviousSessionsDialogService` import/inject, `[previousSessionsOpen]`,
+`(previousSessionsRequested)`, three spec providers, RailStub input/output, the Previous-sessions
+spec); `git diff HEAD` shows only main's (`SessionInspectorStore` + needs-you count, `isTabbable`
+inspector-dialog clause, `onSheetKeydown` `event.currentTarget`, `data-testid="canvas-tile"`, main's
+provider and specs). Footer `aria-expanded` is in `canvas-rail.component.ts` (not conflicted). No
+conflict markers; no other unmerged path. Gate scope `chat` + `canvas` (D80): typecheck,lint
+"Successfully ran targets typecheck, lint for 2 projects"; test "Running target test for 2
+projects" -> "Successfully ran target test for 2 projects". Staged the two files by name;
+`git commit --no-edit` (foreground, hooks ran) -> `8a29952a6` (parents `4d34ec9bb`, `6c0490f1f`).
+
+## Main merge M2: merge `main` (PRs #731, #735, #736, #739) into the branch — COMPLETE (commit 5c892b28a)
+
+- Why: user asked to merge `main` again (`71820e0c0`, ~20 commits). Merge-base `6c0490f1f`.
+  Executor family: Claude `frontend-developer` (resolver); no separate code review (D80 rationale:
+  both sides reviewed, the resolution is an import union checked by the gate and the visual review).
+
+### Task M2.1: Resolve `canvas-rail-board.component.spec.ts` imports — COMPLETE
+
+- File: `ROOT/libs/frontend/canvas/src/lib/canvas-rail/canvas-rail-board.component.spec.ts` (one
+  hunk, imports). Main's `lucide-angular` import kept in main's position, then the branch's
+  `@ptah-extension/chat` import (superset of main's line). Report: `reports/merge-m2-report.md`.
+
+### Main merge M2 verification
+
+Result (team-leader, 2026-10-17): `git diff --name-only --diff-filter=U` listed only the spec; no
+conflict markers; `git diff --check` exit 0. `git diff HEAD` on the spec shows only main's additions
+(`LucideAngularModule` import + mount override, deferred-inspector spec with `completeDeferBlocks`,
+lucide details-strip spec); `git diff MERGE_HEAD` only the branch's (three chat symbols, RailStub
+`previousSessionsOpen`/`previousSessionsRequested`, three providers, Previous-sessions spec). Files
+changed on both sides (6): board `.ts`/`.spec.ts`, `electron-shell.component.ts`,
+`chat-message-handler.service.ts`, `libs/shared` `rpc.types.ts` and `rpc/rpc-session.types.ts`;
+none in `rpc-handlers`, so it is not gated (D83). Gate scope `chat` + `canvas` + `shared`:
+typecheck,lint "Running targets typecheck, lint for 3 projects" -> "Successfully ran targets
+typecheck, lint for 3 projects"; test "Running target test for 3 projects" -> "Successfully ran
+target test for 3 projects". Staged the spec by name; `git commit --no-edit` (foreground, hooks
+ran) -> `5c892b28a` (parents `8a29952a6`, `71820e0c0`). Visual-review additions from main: the
+Command Center nav tab, `overflow-x-auto` tablist and `min-h-0` rows in `electron-shell`; the
+lucide small-band Details opener (`aria-expanded`) and `@defer (on idle)` wide inspector in the board.
 
 ### Phase 3 follow-ups (named later tasks, not in this run)
 
@@ -1060,6 +1109,123 @@ canvas card 36/36. Committed `4c4e429b0`. Executor decisions accepted as D78-D79
   panel, shared with the New session popover (`NativePopover` follow-up); board spec never drives
   `isOpen` true (board.spec.ts:367,435); expanded footer fixed at 120 px could overflow a 3-line
   reason (canvas-rail.component.ts:231).
+- FU-8 "Phase 3 fix-round transition specs" (recorded, P3 re-review Minors, D81): (a) shell spec
+  (`app-shell.previous-sessions.spec.ts:441-543`) renders Complete after Loading with Close focused
+  (focus hands to the modal search, `previous-sessions-modal.component.ts:266-275`) and destroys
+  Loading before its first focus callback (`previous-sessions-load-state.component.ts:119-123`);
+  (b) card spec (`canvas-rail-card.component.spec.ts:595-625`) keeps the first rename pending across
+  Cancel and reopen (reopened popover stays open with focus) and rejects it (`renaming` clears,
+  `canvas-rail-card.component.ts:447-458`). Scope: `@ptah-extension/chat`, `@ptah-extension/canvas`.
+- FU-9 "Phase 3 visual Moderates and Minors" (recorded, `reviews/phase-3-visual-review.md` Moderate
+  1-7 and Minor 1-5, D87; none loses data or breaks config): Rename popover geometry and styling
+  (306 px vs `w-72` 288 px, muted heading, `flex-1` Cancel/Save, clip at 400 with Workspaces open,
+  `canvas-rail-card.component.ts:294`); footer button light-theme hairline 1.0 (Moderate 2, the class
+  part is fixed by V1.3); Organize item lacks `aria-haspopup="dialog"` (`canvas-rail-card.component.ts:258`,
+  same as FU-7 m1); failed open is announced only through the `sr-only` status line
+  (`previous-sessions-modal.component.ts:436`; joins FU-6); D20 focus to `<body>` with no opener
+  (Moderate 5; D20 accepted, not reopened); Details opener off-screen at 400 (pre-existing canvas
+  minimum width); row meta shows date only (fixture or binding gap, unscored). Minors: current-row
+  accent curves on the rounded `li`; scrim stops at the 1430 px layout width (app-wide
+  `scrollbar-gutter`); footer label weight (now `font-medium` by V1.3, re-check); `Open beside`
+  reason wraps to two lines; double focus outline on the Rename input. Scope: `@ptah-extension/chat`,
+  `@ptah-extension/canvas`.
+- FU-10 "Shell tab strip clips at narrow widths" (visual Serious 3, D88/D90; owner TASK_2026_687_615f
+  batch B4): main's Command Center tab (PR #735) makes the 7-tab strip need 569 px, so it scrolls with
+  a visible scrollbar at 760, 400 and about 800-900 px (`electron-shell.component.ts:135-136`). Not
+  fixed in this PR (USER, D90).
+
+## Visual fix round V1: Phase 3 visual Breaking 1 + Serious 1-2 — COMPLETE (commit b8543ad25; V1.2 rework re-gated 2026-10-17, `reports/mode-2-v1-regate.md`; codex re-review APPROVED via V1.4: `reviews/v1-4-fix-rereview.md`; D91 re-check PASS: `reviews/v1-visual-recheck.md`)
+
+- Source: `reviews/phase-3-visual-review.md:62-121` (NEEDS_REVISION 5/10); scope D87; report
+  `reports/fix-round-v1-report.md`; gate record `reports/mode-2-batch-12-v1-gate.md`
+- Executor: Claude subagent `frontend-developer` (D87) | Re-review: codex (different family, D87)
+- Execution mode: sequential | Phase: 3 (fix round) | Projects: `@ptah-extension/chat`, `@ptah-extension/canvas`
+- Commit order (D92): V1 commits on its own right after its gate, before Batch 12, with Batch 12 and
+  Batch 13 files and the task-folder records left unstaged
+- Planned subject: `fix(chat,canvas): visual fix round V1 - sheet width, card title, rail icon`
+
+Files (6):
+- MODIFY `ROOT/libs/frontend/chat/src/lib/components/organisms/previous-sessions/previous-sessions-modal.component.html`
+- MODIFY `ROOT/libs/frontend/chat/src/lib/components/organisms/previous-sessions/previous-sessions-modal.component.spec.ts`
+- MODIFY `ROOT/libs/frontend/canvas/src/lib/canvas-rail/canvas-rail-board.component.ts`
+- MODIFY `ROOT/libs/frontend/canvas/src/lib/canvas-rail/canvas-rail-board.component.spec.ts`
+- MODIFY `ROOT/libs/frontend/canvas/src/lib/canvas-rail/canvas-rail.component.ts`
+- MODIFY `ROOT/libs/frontend/canvas/src/lib/canvas-rail/canvas-rail.component.spec.ts`
+
+### Task V1.1: Breaking 1, the narrow sheet scrolls sideways — COMPLETE
+
+- `previous-sessions-modal.component.html:22` `w-screen h-dvh` -> `w-full h-full`; `sm:` sizes unchanged
+  (matches the review's fix advice). Spec `previous-sessions-modal.component.spec.ts:1029` pins the
+  class contract only (jsdom has no layout).
+- Open until the D91 re-check: at 400 px `dialog.modal` `scrollWidth === clientWidth`, and the sheet
+  fills the dialog height (`h-full` against the modal grid), dark and light.
+
+### Task V1.2: Serious 1, Rail card title stale after Rename — COMPLETE (rework verified, commit b8543ad25)
+
+- Rework verified 2026-10-17: a closure `pressing` flag set in `down` makes `selection()` return early
+  during a press (`canvas-rail-board.component.ts:373-377,398`); `up` clears it, then re-reads
+  (`:406-410`). New spec "keeps the press hold through the caret the press places (V1.2 rework)"
+  (`canvas-rail-board.component.spec.ts:727-773`) covers caret-in-press = 'a', release with caret =
+  null, press ending in text = 'a', and pointercancel ending the press. Earlier cases kept.
+- History of the first attempt (FAILED, kept for the record):
+
+- Root cause confirmed: `holdTabId` latched for a collapsed caret in a card (`canvas-rail-board.component.ts:373-383`
+  before the fix), so `shownTitle` kept the latched title (`compact-rail-card.component.ts:427-429,472`).
+  Ignoring a collapsed or empty selection is the right fix for the stale title.
+- Defect (regression the fix introduces): the press hold no longer lasts from `pointerdown` to `pointerup`.
+  `down` sets the hold (`canvas-rail-board.component.ts:391-397`), but the press itself puts a collapsed
+  caret in the card (the report says so), and the `selectionchange` that follows, which arrives before
+  `pointerup`, now runs `selection()` (`:373-390`). That call sets `holdTabId` to null in the middle of the
+  press. Before V1 that same event kept the hold on the pressed card. Live text that changes (the `now`
+  line or metrics of a streaming card) is no longer frozen between the press and the start of a drag, so
+  the drag anchor resets to offset 0. That case is what the press hold exists to prevent. The new spec
+  (`canvas-rail-board.component.spec.ts:715-722`) sends no `selectionchange` during the press, so it
+  cannot catch this.
+- Rework: while a press is in flight, `selectionchange` does not change the hold, and `up` re-reads the
+  selection once the press flag is clear. Spec: `pointerdown` in card `a`, then collapse the caret in `a`
+  and dispatch `selectionchange`, gives `'a'`; `pointerup` with a collapsed caret gives null; a press that
+  ends with selected text in `a` gives `'a'` after `pointerup`. Keep the three existing cases.
+- Watch at the D91 re-check: `onRenameOpened` calls `input.select()` (`canvas-rail-card.component.ts:434`);
+  confirm the card title shows the new name right after Save from the Rail popover and from a modal row.
+
+### Task V1.3: Serious 2, Rail footer button — COMPLETE
+
+- `canvas-rail.component.ts:10,40,251,259,310`: lucide `History` icon `w-3.5 h-3.5 aria-hidden`, and the
+  class string equals design-spec 2.1:79-80 exactly; `surface-2`/`surface-3` are Tailwind tokens
+  (`apps/ptah-extension-webview/tailwind.config.js:39-40`). ARIA and test ids unchanged. Spec updated.
+- Open until the D91 re-check: hover and open fills, hairline, label weight 500, dark and light.
+
+### Visual fix round V1 verification
+
+- Gate on the combined tree, 2026-10-17, team-leader: `nx run-many -t typecheck,lint -p ptah-electron-e2e
+  @ptah-extension/chat @ptah-extension/canvas --parallel=1`: 6/6 tasks passed (cache 0/6).
+  `nx run-many -t test -p @ptah-extension/chat @ptah-extension/canvas --parallel=1 --maxWorkers=2`:
+  "Running target test for 2 projects", both passed (cache 0/2).
+- After the V1.2 rework: re-gate `@ptah-extension/canvas` only (typecheck, lint, test). The chat V1
+  files and the e2e files passed this gate and do not change. Then commit the 6 V1 files only.
+- Then: codex re-review of the V1 commit, and the D91 visual re-check (the items above).
+- Re-gate 2026-10-17, team-leader: `nx run-many -t typecheck,lint -p @ptah-extension/canvas
+  --parallel=1` passed; `nx run-many -t test -p @ptah-extension/canvas --parallel=1 --maxWorkers=2`
+  passed. Committed the 6 V1 files only as b8543ad25 (hook passed); Batch 12, Batch 13 and
+  task-folder files left unstaged.
+
+### Task V1.4: re-review finding 1 + finding 2 test part, live card title under a held selection — COMPLETE (commit 36619f3a1, D93)
+
+- Source: `reviews/v1-fix-rereview.md` (codex re-review of b8543ad25) finding 1 (Serious) and finding 2
+  test part; report `reports/fix-round-v1-report.md` section `## V1.4 fix`; gate
+  `reports/mode-2-v1-4-gate.md`.
+- `compact-rail-card.component.ts`: title removed from the hold latch (`latched` = `{ now, metrics }`),
+  `shownTitle` deleted; visible title, its tooltip and four aria-labels bind live `title()`. Summary
+  and metrics still latched while `holdText()`. Spec: real card attached to `document.body`, DOM
+  selection survives, rename while held, asserts new visible title and tooltip, summary still held.
+- Gate 2026-10-17, team-leader: `nx run-many -t typecheck,lint -p @ptah-extension/chat-ui
+  --parallel=1` passed; `nx run-many -t test -p @ptah-extension/chat-ui --parallel=1 --maxWorkers=2`
+  passed (Nx cache hit on the current inputs). Committed the 2 V1.4 files only (hook passed).
+- Finding 2 browser part (400 px sheet geometry) stays with the D91 visual re-check.
+- FU-11 "Overlapping pointers release the press hold early" (re-review finding 3, Minor, not fixed):
+  the single `pressing` flag (`canvas-rail-board.component.ts:375,395-410`) clears on the first
+  `pointerup`/`pointercancel` while another pointer is still down. Track active pointer ids. Scope:
+  `@ptah-extension/canvas`.
 
 ---
 
@@ -1074,12 +1240,15 @@ the orchestrator sends "Electron: TASK_2026_679 launching, port <n>" before and 
 Never ports 9333 or 9351. Runs one at a time; each spec run once. The Electron e2e target depends on
 `ptah-electron:build-dev`; that is part of the approved run, never run build targets separately.
 
-## Batch 12: Electron e2e helpers and chat/git specs — PENDING
+## Batch 12: Electron e2e helpers and chat/git specs — COMPLETE (`6607db0d7`, D7 runs passed 2026-10-17 session 5, test-report.md)
 
-- Recommended executor: Claude subagent `senior-tester`
+- Recommended executor (D85): edits (Tasks 12.1 and the edit part of 12.2) by a codex CLI lane,
+  role frontend-developer, in parallel with the Phase 3 visual review, no heavy check; then the
+  team-leader gate and the four D7 runs by Claude subagent `senior-tester` after the visual review
 - Execution mode: sequential
-- Fallback order: fresh senior-tester subagent -> CLI lane with test capability (non-reviewer family)
-- Subagent reason: user-pinned executor policy (D3); the D7 runs launch Electron under D10 coordination
+- Fallback order: other CLI family same capability -> fresh senior-tester subagent
+- Subagent reason: the D7 runs launch Electron under D10 coordination (D3); edits need none
+- S2 grep rule (D84): `sidebar-scroll(?![-\w])` must have zero matches in `apps/` and `libs/`
 - Review family: n/a (no phase review; runs are the evidence)
 - Rationale: the shared helpers and the four specs that use them change and run together
 - Tasks: 2 | Depends on: Batches 7-11 (test ids and names)
@@ -1095,7 +1264,7 @@ Files (6):
 - MODIFY `ROOT/apps/ptah-electron-e2e/src/specs/git/change-set-card.spec.ts`
 - MODIFY `ROOT/apps/ptah-electron-e2e/src/specs/git/visual-review.spec.ts`
 
-### Task 12.1: Helpers `openPreviousSessions`, `openSessionFromList`, rescoped `sessionRowButton` — PENDING
+### Task 12.1: Helpers `openPreviousSessions`, `openSessionFromList`, rescoped `sessionRowButton` — COMPLETE (commit 6607db0d7)
 
 - Files: `perf-session-fixture.ts`, `perf-page-capture.ts`
 - Plan reference: implementation-plan.md:963-1000
@@ -1109,7 +1278,7 @@ Files (6):
   (`:481-484`) wait for rows in the modal list, not the sidebar; that setup stays outside any
   measured window (the measured click that opens the modal stays as DP-13 discloses).
 
-### Task 12.2: Update the four specs and run them — PENDING
+### Task 12.2: Update the four specs and run them — COMPLETE (commit 6607db0d7; four D7 runs passed, test-report.md runs 1-4)
 
 - Depends on: Task 12.1
 - Files: the four spec files
@@ -1135,7 +1304,30 @@ Files (6):
   caller listed in Task 12.2 is migrated
 - Commit: `test(e2e): batch 12 - open sessions through Previous sessions modal`
 
-## Batch 13: Canvas spec, docs shots and harness scenarios — PENDING
+Result (team-leader MODE 2, 2026-10-17, `reports/mode-2-batch-12-v1-gate.md`):
+- Edits verified against `reports/batch-12-report.md` by diff: 6 files, in scope; `resolveButtonHandles`
+  and `ElementHandle` removed; perf header discloses the measured modal open (DP-13); no test removed.
+- S2 grep (D84): `sidebar-scroll(?![-\w])` 0 in `apps libs`; `resolveButtonHandles` 0 in `apps`;
+  `sidebar-scroll-body` 4 (harness-builder test id, kept).
+- Gate: `typecheck,lint` passed for `ptah-electron-e2e` (with chat and canvas, 6/6, cache 0/6). This
+  also compiled the uncommitted Batch 13 Electron files with no error.
+- PENDING: the four D7 runs (senior-tester, one Electron slot after the D91 re-check), then commit.
+  Watch for the 3-tile perf cases if `PTAH_PERF_SPECS=1` is ever set: the in-page loop clicks the next
+  row one frame after the previous one, while `openRow` drops a click during `opening`
+  (`previous-sessions-modal.component.ts:422`) and `open()` is a no-op while open
+  (`previous-sessions-dialog.service.ts:44`). A marker timeout there points to this race. The default
+  run is skipped, as expected.
+
+## Batch 13: Canvas spec, docs shots and harness scenarios — COMPLETE (commit fb6b0f6d2)
+
+- Gate 2026-10-17, team-leader (`reports/mode-2-batch-13-gate.md`): 6 files verified on disk;
+  `nx run-many -t typecheck,lint -p ptah-electron-e2e @ptah-extension/webview-e2e-harness
+  --parallel=1` passed (4/4 tasks); Task 11.1 grep gate zero matches in `apps/`/`libs/`
+  (S2 boundary rule, D84); docs PNGs reverted (6 tracked via checkout, untracked
+  `sessions-analytics.png` from run 6 removed). Runs: test-report.md runs 5-7, harness-fix runs
+  (list 4/4, create 4/4, delete 5/5; list and delete passed on one `--workers=2` retry after
+  browser infrastructure failures outside the modal cases). A3 confirmed: `useAppBuild: true`
+  plus hard `#ptah-e2e-fixture-root` `toHaveCount(0)` in every modal case (D94).
 
 - Recommended executor: Claude subagent `senior-tester` (resume the Batch 12 tester if under 5 minutes idle)
 - Execution mode: sequential
@@ -1156,7 +1348,7 @@ Files (6):
 - MODIFY `ROOT/libs/frontend/webview-e2e-harness/src/lib/scenarios/sessions/session-create.e2e.spec.ts`
 - MODIFY `ROOT/libs/frontend/webview-e2e-harness/src/lib/scenarios/sessions/session-delete.e2e.spec.ts`
 
-### Task 13.1: `canvas.spec.ts` Rail footer locator — PENDING
+### Task 13.1: `canvas.spec.ts` Rail footer locator — COMPLETE
 
 - File: `canvas.spec.ts`
 - Plan reference: implementation-plan.md:79, 1005-1010; D14
@@ -1166,7 +1358,7 @@ Files (6):
 - Implementation details: run once (D14):
   `npx nx e2e ptah-electron-e2e -- src/specs/canvas/canvas.spec.ts -g "stacked split after a swap tabs from the Rail"`.
 
-### Task 13.2: Docs shots — PENDING
+### Task 13.2: Docs shots — COMPLETE
 
 - Files: `sessions.shot.ts`, `editor-git.shot.ts`
 - Plan reference: implementation-plan.md:1010-1016, 1225-1226; DP-12
@@ -1178,7 +1370,7 @@ Files (6):
   `npx playwright test --config=docs-screenshots.config.ts src/docs-screenshots/sessions.shot.ts`, then
   `… src/docs-screenshots/editor-git.shot.ts`.
 
-### Task 13.3: Harness scenarios — PENDING
+### Task 13.3: Harness scenarios — COMPLETE
 
 - Files: the three harness specs
 - Plan reference: implementation-plan.md:1016-1024, 1227-1229; A3
