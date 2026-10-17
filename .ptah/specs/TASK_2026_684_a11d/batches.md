@@ -1,6 +1,6 @@
 # Batches - TASK_2026_684_a11d
 
-Total tasks: 45 | Batches: 23 (Batch 0 gate + 22 implementation batches) | Complete: 16/23
+Total tasks: 45 | Batches: 23 (Batch 0 gate + 22 implementation batches) | Complete: 17/23
 
 ## Execution precondition (read first)
 
@@ -824,7 +824,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - `J(apps/ptah-extension-vscode, apps/ptah-extension-vscode/src/di/container.smoke.spec.ts)`, then
   `J(apps/ptah-electron, apps/ptah-electron/src/di/container.smoke.spec.ts)`. Never `nx test ptah-electron`.
 
-## Batch 16: CLI DI guard (C10 guard part) — PENDING
+## Batch 16: CLI DI guard (C10 guard part) — COMPLETE
 
 - Recommended executor: CLI lane, backend-developer profile (non-codex)
 - Execution mode: sequential
@@ -836,7 +836,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - Phase: 3 | Phase review: code-logic + style (codex), on the combined diff of Batches 11-16
 - Criteria: 7 (CLI)
 
-### Task 16.1: CLI guard — PENDING
+### Task 16.1: CLI guard — COMPLETE
 
 - Files: MODIFY `W\apps\ptah-cli\src\di\expected-resolvable.ts` (pattern `:37-43`), `W\apps\ptah-cli\src\di\container.smoke.spec.ts`
 
