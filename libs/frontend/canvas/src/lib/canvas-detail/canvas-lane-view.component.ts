@@ -99,7 +99,7 @@ export function effectiveCanvasLaneKind(
         <ptah-canvas-detail-transcript [tabId]="tabId()" [visible]="selectedKind() === 'orchestrator'" [paneFocused]="paneFocused()" [splitDisplayed]="splitDisplayed()" />
       </div>
       @for (block of laneBlocks(); track block.key) {
-        <div class="rail-lane-enter">
+        <div class="rail-lane-enter h-full min-h-0 flex flex-col">
         @switch (selectedKind()) {
           @case ('cli') {
             @if (selectedCli(); as agent) {
@@ -173,12 +173,14 @@ export function effectiveCanvasLaneKind(
       }
       <ng-template #subagentLane>
         @if (selectedSubagent(); as sub) {
-          <div class="space-y-2 px-3 pt-2">
-            <ptah-subagent-usage-summary [record]="sub" />
+          <div class="flex h-full min-h-0 flex-col gap-2 px-3 pt-2">
+            <ptah-subagent-usage-summary class="flex-none" [record]="sub" />
             @if (agentNode(); as node) {
               <ptah-execution-node
+                class="block flex-1 min-h-0"
                 [node]="node"
                 [agentTileMode]="false"
+                [fillHeight]="true"
                 [getPermissionForTool]="getPermissionForTool"
                 (permissionResponded)="chatStore.handlePermissionResponse($event)"
               />

@@ -401,6 +401,26 @@ describe('CanvasLaneViewComponent', () => {
     expect(selectLaneFor).toHaveBeenCalledWith('tab', 'orchestrator');
   });
 
+  it('asks the top-level execution node to fill the sub-agent lane', () => {
+    TestBed.overrideComponent(CanvasLaneViewComponent, {
+      set: {
+        imports: [AgentCardComponent, NgTemplateOutlet, ExecutionNodeComponent],
+        schemas: [NO_ERRORS_SCHEMA],
+      },
+    });
+    const agent = { id: 'task-tool', type: 'agent', toolCallId: 'task-tool', status: 'streaming', children: [] };
+    tabRecord.set({ messages: [{ streamingState: agent }], streamingState: null });
+    subagents.set(new Map([['task-tool', { parentToolUseId: 'task-tool', parentSessionId: 'owner', agentId: 'sub', status: 'running' }]]));
+    const fixture = TestBed.createComponent(CanvasLaneViewComponent);
+    fixture.componentRef.setInput('tabId', 'tab');
+    fixture.componentRef.setInput('sessionId', 'owner');
+    fixture.componentRef.setInput('laneKey', 'sub:task-tool');
+    fixture.detectChanges();
+    const rendered = fixture.debugElement.query(By.directive(ExecutionNodeComponent));
+    expect(rendered.componentInstance.fillHeight()).toBe(true);
+    fixture.destroy();
+  });
+
   it('labels the saved transcript fallback and offers Refresh without a live node', () => {
     subagents.set(
       new Map([
