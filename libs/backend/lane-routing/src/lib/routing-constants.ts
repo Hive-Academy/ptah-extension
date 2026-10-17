@@ -112,9 +112,12 @@ export const DECISION_RETURN_MARGIN_MS = 250;
 
 /**
  * Per decision-model request to a `remote` target (DC8); `local` targets
- * keep `DECISION_REQUEST_TIMEOUT_MS`. Starts equal to the local timeout.
- * Plan Component 16 (remote timeout calibration) sets the final value from
- * the first keyed live run against Ollama Cloud.
+ * keep `DECISION_REQUEST_TIMEOUT_MS`. Calibrated by plan Component 16 from
+ * the first keyed live run (TASK_2026_684, clef:27b-cloud): warm p50 644 ms,
+ * p95 1124 ms, so p95 is <= 3000 ms (margin 1876 ms). Provisional: that
+ * run's 438 ms "cold" figure was a warmed sample; the cold sample (the
+ * suite's first inference call, not proof the remote worker was cold) is
+ * pending one re-run of the updated live spec.
  */
 export const DECISION_REQUEST_TIMEOUT_REMOTE_MS = 3000;
 

@@ -1,6 +1,6 @@
 # Batches - TASK_2026_684_a11d
 
-Total tasks: 45 | Batches: 23 (Batch 0 gate + 22 implementation batches) | Complete: 22/23 (Batch 21 waits for the user live run)
+Total tasks: 45 | Batches: 23 (Batch 0 gate + 22 implementation batches) | Complete: 22/23 (Batch 21 code reviewed; waits for the user re-run of the updated live spec)
 
 ## Execution precondition (read first)
 
@@ -993,7 +993,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - Phase 5 is complete: return NEEDS REVIEW (code-logic) for the combined diff of Batches 18-20.
 - Then the user runs step U1 (below) before Batch 21 starts.
 
-## Batch 21: Remote timeout calibration and live-result fixes (C16) — PENDING
+## Batch 21: Remote timeout calibration and live-result fixes (C16) — AWAITING U1 RE-RUN (spec fixed, reviews: batch-21-code-logic-review.md, batch-21-re-review.md, batch-21-re-review-2.md APPROVED)
 
 - Recommended executor: Task 21.1 orchestrator (records numbers the user shared; no agent handles
   the key); Tasks 21.2 and 21.3 CLI lane, backend-developer profile (non-codex)

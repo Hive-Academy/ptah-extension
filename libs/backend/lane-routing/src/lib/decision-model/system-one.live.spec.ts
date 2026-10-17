@@ -21,6 +21,7 @@ import 'reflect-metadata';
 import { toCloudId } from '@ptah-extension/shared';
 import type { LaneRoutingLogger } from '../lane-routing-logger';
 import { DecisionModelCatalog } from './decision-model.catalog';
+import { buildProbeUrls } from './decision-model.probe';
 import { DecisionEndpointProber } from './decision-model.prober';
 import { SystemOneClient } from './system-one.client';
 import {
@@ -68,6 +69,11 @@ describeLive('decision model on Ollama Cloud (live)', () => {
   let model = process.env['PTAH_LIVE_DECISION_MODEL'] ?? '';
   let catalogModels: readonly string[] = [];
   let probeMs = 0;
+  /**
+   * Duration of the suite's first inference call when it succeeded (`undefined`
+   * otherwise); every later call is warm. Not proof the remote worker was cold.
+   */
+  let coldMs: number | undefined;
 
   function client(
     overrides: { model?: string; apiKey?: string; timeoutMs?: number } = {},
@@ -116,10 +122,16 @@ describeLive('decision model on Ollama Cloud (live)', () => {
     const suffixed = toCloudId(model);
     const hosted = toHostedId(suffixed);
     const accepted: Record<string, boolean> = {};
-    for (const id of [hosted, suffixed]) {
+    for (const [index, id] of [hosted, suffixed].entries()) {
+      const startedAt = performance.now();
       const outcome = await client({ model: id }).decide(
         payloadOf(fixture, id),
       );
+      // The suite's first inference call is the cold sample (5.1), kept only
+      // when it succeeded; a failed call's duration is not a latency sample.
+      if (index === 0 && outcome.ok) {
+        coldMs = Math.round(performance.now() - startedAt);
+      }
       accepted[id] = outcome.ok;
     }
     console.log(`DECISION_LIVE_MODEL_ID_FORMS ${JSON.stringify(accepted)}`);
@@ -148,6 +160,37 @@ describeLive('decision model on Ollama Cloud (live)', () => {
       apiKey: 'invalid-live-probe-key',
     });
     expect(bad.outcome).toBe('auth');
+  }, 60_000);
+
+  it('answers the keyed empty-body probe with 400/422 on the route and 404 on the control (A2)', async () => {
+    const urls = buildProbeUrls(CLOUD_BASE_URL);
+    expect(urls).not.toBeNull();
+    if (!urls) return;
+    // Same request the prober sends. Only the two statuses are printed.
+    const init: RequestInit = {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${apiKey}`,
+      },
+      body: '{}',
+    };
+    const [route, control] = await Promise.all([
+      fetch(urls.route, {
+        ...init,
+        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+      }),
+      fetch(urls.control, {
+        ...init,
+        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+      }),
+    ]);
+    // Release the unread bodies; only the statuses matter here.
+    await Promise.all([route.body?.cancel(), control.body?.cancel()]);
+    const statuses = { route: route.status, control: control.status };
+    console.log(`DECISION_LIVE_PROBE_STATUSES ${JSON.stringify(statuses)}`);
+    expect([400, 422]).toContain(statuses.route);
+    expect(statuses.control).toBe(404);
   }, 60_000);
 
   it('answers every fixture correctly in every run, with valid confidence and probabilities (6.4, 6.5, 5.1, 6.6)', async () => {
@@ -196,15 +239,18 @@ describeLive('decision model on Ollama Cloud (live)', () => {
       }
     }
 
-    const coldMs = durations[0];
-    const warm = durations.slice(1).sort((a, b) => a - b);
+    const warm = [...durations].sort((a, b) => a - b);
     const latency = {
-      coldMs,
+      coldMs: coldMs ?? null,
       p50Ms: percentile(warm, 50),
       p95Ms: percentile(warm, 95),
       probeMs,
     };
     console.log(`DECISION_LIVE_LATENCY ${JSON.stringify(latency)}`);
+
+    if (latency.coldMs === null) {
+      throw new Error('first inference call failed; no cold sample');
+    }
 
     expect(wrong).toEqual([]);
     expect(invalid).toEqual([]);
