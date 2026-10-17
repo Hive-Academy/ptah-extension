@@ -1,6 +1,6 @@
 # Batches - TASK_2026_692_f748
 
-Total tasks: 29 | Batches: 17 | Complete: 3/17
+Total tasks: 29 | Batches: 17 | Complete: 4/17
 
 Worktree (all edits, checks, commits): `D:\projects\ptah-extension\.claude-worktrees\idle-compaction`
 (branch `feat/idle-compaction`, base `7bdc6eed4`). Below, `<W>` means that absolute path; every
@@ -238,7 +238,7 @@ after 5 -> {6}. Default ordering below is sequential by number.
 
 - Command: `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/helpers/compaction/idle/unref-scheduler.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -20 && npx nx typecheck @ptah-extension/agent-sdk 2>&1 | tail -15 && npx nx lint @ptah-extension/agent-sdk 2>&1 | tail -20 && npx nx lint ptah-cli 2>&1 | tail -20`
 
-## Batch 3: Request tracker and fire gate (pure) — COMPLETE (commit PENDING_SHA)
+## Batch 3: Request tracker and fire gate (pure) — COMPLETE (commit b9cab2be6)
 
 - Recommended executor: CLI lane [implementation, TypeScript backend]
 - Execution mode: sequential (one lane; two independent pure units)
@@ -269,7 +269,7 @@ after 5 -> {6}. Default ordering below is sequential by number.
 
 - Command: `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/helpers/compaction/idle/idle-request-tracker.spec.ts libs/backend/agent-sdk/src/lib/helpers/compaction/idle/idle-fire-gate.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -30 && npx nx typecheck @ptah-extension/agent-sdk 2>&1 | tail -15`
 
-## Batch 4: Idle session reducer (pure) — IN_PROGRESS
+## Batch 4: Idle session reducer (pure) — COMPLETE
 
 - Recommended executor: CLI lane [implementation, TypeScript backend, state machines]
 - Execution mode: sequential
@@ -281,7 +281,7 @@ after 5 -> {6}. Default ordering below is sequential by number.
 - Phase: 1 | Phase review: deferred to Batch 8
 - ACs: 1.1-1.5, 2.4, 2.6, 2.8, 2.9, 4.1, 4.2, 4.5, 4.7, 6.4 (notice identity)
 
-### Task 4.1: `reduceIdleSession` + spec — IN_PROGRESS
+### Task 4.1: `reduceIdleSession` + spec — COMPLETE
 
 - Files: `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction\idle\idle-session.reducer.ts` (CREATE), `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction\idle\idle-session.reducer.spec.ts` (CREATE)
 - Plan reference: implementation-plan.md:294-378 (component 4), D2, D8, D10
@@ -298,7 +298,7 @@ after 5 -> {6}. Default ordering below is sequential by number.
 
 - Command: `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/helpers/compaction/idle/idle-session.reducer.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -30 && npx nx typecheck @ptah-extension/agent-sdk 2>&1 | tail -15`
 
-## Batch 5: Settings descriptors and file-key allow-list — PENDING
+## Batch 5: Settings descriptors and file-key allow-list — IN_PROGRESS
 
 - Recommended executor: CLI lane [implementation, TypeScript]
 - Execution mode: sequential
@@ -310,14 +310,14 @@ after 5 -> {6}. Default ordering below is sequential by number.
 - Phase: 1 | Phase review: deferred to Batch 8
 - ACs: 5.1, 5.2, 5.5 (partial), D5
 
-### Task 5.1: `ADVANCED_SETTINGS` descriptors + spec — PENDING
+### Task 5.1: `ADVANCED_SETTINGS` descriptors + spec — IN_PROGRESS
 
 - Files: `<W>\libs\shared\src\lib\types\advanced-settings.types.ts`, `<W>\libs\shared\src\lib\types\advanced-settings.types.spec.ts`
 - Plan reference: implementation-plan.md:620-650 (component 10), D5
 - Pattern to follow: existing `context-budgets` descriptors (`advanced-settings.types.ts:123-213`), boolean descriptor at `:208`
 - Validation notes: RISK — spec line 38 pins 27 keys; update to 29 and add range rows for `compaction.idleCompactionMinTokens` (100 000-5 000 000, integer) and a boolean row. Labels/help text exactly as the plan.
 
-### Task 5.2: `FILE_BASED_SETTINGS_KEYS` + spec — PENDING
+### Task 5.2: `FILE_BASED_SETTINGS_KEYS` + spec — IN_PROGRESS
 
 - Files: `<W>\libs\backend\platform-core\src\file-settings-keys.ts`, `<W>\libs\backend\platform-core\src\file-settings-keys.spec.ts`
 - Plan reference: implementation-plan.md:631
