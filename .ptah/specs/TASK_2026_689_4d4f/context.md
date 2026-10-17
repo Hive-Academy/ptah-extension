@@ -39,3 +39,19 @@ reached). The implementation plan must close: N2 (hover preview grows the page; 
 for a pinned plate and release it on close, Escape, outside click and selection change), M-R4
 (ribbons under cards in compact and stacked layouts) and M-R5 (plate far from its row at 1440).
 The proposed removal of the `canvasUnavailable` output and fallback is approved.
+
+## Plan removals gate (2026-10-17)
+
+After plan review round 2 the user decided (AskUserQuestion):
+
+- Provider palette: approve the tokenized provider monogram + provider text.
+- Failed/awaiting glyph: "can't we use icons better for that?" - use `lucide-angular` icons
+  (already a workspace dependency) in the state color plus the visible state word: completed
+  `CircleCheck`, failed `CircleX`, cancelled `Ban`, awaiting input `MessageCircleQuestion`,
+  running/starting `LoaderCircle`, queued/idle/unknown `CircleDashed`.
+- Anchoring APIs (`setCardAnchor`, `setOverlayLabels`, `getOverlayLabels`, `getCardAnchor`):
+  approve removal.
+- ngxui: the user confirmed "Local SVG/CSS" - no `@omnedia/ngx-*` package and no ported source;
+  build the beam, border glow and core effects in the lib with SVG/CSS.
+
+PR #747 (TASK_2026_687_615f): CI on `bb5f877b1` passed; all 4 CodeRabbit threads resolved.
