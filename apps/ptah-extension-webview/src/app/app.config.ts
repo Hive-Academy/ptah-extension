@@ -33,7 +33,9 @@ import {
   AGENT_FEEDBACK_SENDER,
   SURFACE_ACTIVE,
   surfaceActiveFor,
+  SurfaceRouterService,
 } from '@ptah-extension/core';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { appRoutes } from './app.routes';
 import { SurfaceUpdateInbox } from '@ptah-extension/chat-routing';
 import {
@@ -67,6 +69,8 @@ import { WorkspaceIndexingService } from '@ptah-extension/workspace-indexing';
 import {
   provideWizardInternalState,
   SetupWizardStateService,
+  SetupGenerationOpenHandler,
+  GenerationRunEventAdapter,
 } from '@ptah-extension/setup-wizard';
 import {
   FileContentChangesService,
@@ -183,6 +187,30 @@ export const appConfig: ApplicationConfig = {
     ),
     provideVSCodeService(),
     provideMessageRouter(),
+    {
+      provide: SurfaceRouterService.generationRouteTabValidatorToken,
+      useFactory: () => {
+        const tabs = inject(TabManagerService);
+        return (
+          tabId: string,
+          workflow: 'setup-agent-generation' | 'setup-project-prompt',
+        ) =>
+          !!tabs.activeWorkspacePath &&
+          tabs
+            .getWorkspaceTabs(tabs.activeWorkspacePath)
+            .some((tab) => tab.id === tabId && tab.workflow === workflow);
+      },
+    },
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: SetupGenerationOpenHandler,
+      multi: true,
+    },
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: GenerationRunEventAdapter,
+      multi: true,
+    },
     { provide: MESSAGE_HANDLERS, useExisting: VSCodeService, multi: true },
     { provide: MESSAGE_HANDLERS, useExisting: ClaudeRpcService, multi: true },
     {

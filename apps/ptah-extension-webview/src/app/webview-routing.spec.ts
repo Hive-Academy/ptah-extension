@@ -817,7 +817,10 @@ describe('app.routes', () => {
 
   it('roots every parameter route in a declared surface', () => {
     const paramRoutes = allPaths.filter((path) => path.includes('/:'));
-    expect(paramRoutes).toEqual(['harness-builder/:mode/:tabId']);
+    expect(paramRoutes).toEqual([
+      'setup-wizard/generation/:workflow/:tabId',
+      'harness-builder/:mode/:tabId',
+    ]);
     for (const path of paramRoutes) {
       expect(SURFACE_ROUTE_IDS).toContain(path.split('/')[0]);
     }

@@ -8,6 +8,11 @@ export {
 } from './lib/services/setup-wizard/wizard-internal-state';
 export { provideWizardInternalState } from './lib/services/wizard-internal-state.provider';
 export { WizardViewComponent } from './lib/components/wizard-view.component';
+export { GenerationWorkflowShellComponent } from './lib/components/generation-workflow-shell.component';
+export { GenerationWorkflowStore } from './lib/services/generation-workflow.store';
+export { GenerationHandoffStore } from './lib/services/generation-handoff.store';
+export { GenerationRunEventAdapter } from './lib/services/generation-run-event-adapter';
+export { SetupGenerationOpenHandler } from './lib/services/setup-generation-open.handler';
 export { WelcomeComponent } from './lib/components/welcome.component';
 export { ScanProgressComponent } from './lib/components/scan-progress.component';
 export { AnalysisResultsComponent } from './lib/components/analysis-results.component';

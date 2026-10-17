@@ -6,7 +6,10 @@ import {
 } from '@ptah-extension/core';
 import { SettingsComponent } from '@ptah-extension/chat';
 import { DashboardGridComponent } from '@ptah-extension/dashboard';
-import { WizardViewComponent } from '@ptah-extension/setup-wizard';
+import {
+  GenerationWorkflowShellComponent,
+  WizardViewComponent,
+} from '@ptah-extension/setup-wizard';
 
 import { electronOnlySurface } from './electron-only-surface.guard';
 
@@ -92,6 +95,13 @@ export const appRoutes: Routes = [
       { path: '', children: [] },
       { path: ':tabId', children: [] },
     ],
+  },
+  {
+    path: 'setup-wizard/generation/:workflow/:tabId',
+    providers: [
+      { provide: SURFACE_ACTIVE, useFactory: surfaceActiveFor('setup-wizard') },
+    ],
+    component: GenerationWorkflowShellComponent,
   },
   {
     path: 'setup-wizard',

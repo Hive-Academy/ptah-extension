@@ -11,6 +11,12 @@ import type {
   WizardInstallPackAgentsResult,
   WizardPreviewGenerationParams,
   WizardPreviewGenerationResponse,
+  SetupGenerationTabBinding,
+  SetupGenerationRunBinding,
+  SetupGenerationRunState,
+  WizardSubmitSelectionResponse,
+  WizardCancelResponse,
+  EnhancedPromptsCancelResponse,
 } from '@ptah-extension/shared';
 import { AgentSelection } from './setup-wizard-state.service';
 
@@ -73,6 +79,68 @@ export interface AgentSelectionResponse {
 export class WizardRpcService {
   private readonly rpcService = inject(ClaudeRpcService);
   private readonly modelState = inject(ModelStateService);
+
+  async getBoundRunState(
+    binding: SetupGenerationTabBinding,
+    runId?: string,
+  ): Promise<SetupGenerationRunState | null> {
+    const name =
+      binding.workflow === 'setup-agent-generation'
+        ? 'wizard:get-generation-run-state'
+        : 'enhancedPrompts:getRunState';
+    const result = await this.rpcService.call(
+      name,
+      { tabBinding: binding, runId },
+      { timeout: WIZARD_RPC_TIMEOUTS.LIST_MS },
+    );
+    if (!result.isSuccess() || !result.data)
+      throw new Error('Run state unavailable');
+    return result.data.run;
+  }
+
+  async cancelBoundRun(binding: SetupGenerationRunBinding): Promise<boolean> {
+    const name =
+      binding.workflow === 'setup-agent-generation'
+        ? 'wizard:cancel'
+        : 'enhancedPrompts:cancel';
+    const result = await this.rpcService.call(
+      name,
+      { tabBinding: binding },
+      { timeout: WIZARD_RPC_TIMEOUTS.LIST_MS },
+    );
+    if (!result.isSuccess() || !result.data)
+      throw new Error('Stop unconfirmed');
+    const data: WizardCancelResponse | EnhancedPromptsCancelResponse =
+      result.data;
+    return data.cancelled;
+  }
+
+  async startBoundAgents(
+    binding: SetupGenerationTabBinding,
+    selectedAgentIds: string[],
+  ): Promise<WizardSubmitSelectionResponse> {
+    const result = await this.rpcService.call(
+      'wizard:submit-selection',
+      { tabBinding: binding, selectedAgentIds },
+      { timeout: WIZARD_RPC_TIMEOUTS.GENERATION_MS },
+    );
+    if (!result.isSuccess() || !result.data)
+      throw new Error('Start unconfirmed');
+    return result.data;
+  }
+
+  async startBoundGuidance(
+    binding: SetupGenerationTabBinding,
+  ): Promise<EnhancedPromptsRunWizardResponse> {
+    const result = await this.rpcService.call(
+      'enhancedPrompts:runWizard',
+      { workspacePath: binding.workspacePath, tabBinding: binding },
+      { timeout: WIZARD_RPC_TIMEOUTS.GENERATION_MS },
+    );
+    if (!result.isSuccess() || !result.data)
+      throw new Error('Start unconfirmed');
+    return result.data;
+  }
 
   /**
    * Launch the setup wizard webview

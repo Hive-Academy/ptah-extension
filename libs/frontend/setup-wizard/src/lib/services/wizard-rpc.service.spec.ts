@@ -316,4 +316,29 @@ describe('WizardRpcService', () => {
       );
     });
   });
+
+  it('looks up and stops a tab-bound run using its exact identity', async () => {
+    const binding = {
+      tabId: 'tab',
+      workspacePath: '/ws',
+      workflow: 'setup-agent-generation' as const,
+    };
+    rpcCall
+      .mockResolvedValueOnce(okResult({ run: null }))
+      .mockResolvedValueOnce(okResult({ cancelled: true }));
+    await expect(service.getBoundRunState(binding, 'run')).resolves.toBeNull();
+    expect(rpcCall).toHaveBeenCalledWith(
+      'wizard:get-generation-run-state',
+      { tabBinding: binding, runId: 'run' },
+      expect.anything(),
+    );
+    await expect(
+      service.cancelBoundRun({ ...binding, runId: 'run' }),
+    ).resolves.toBe(true);
+    expect(rpcCall).toHaveBeenCalledWith(
+      'wizard:cancel',
+      { tabBinding: { ...binding, runId: 'run' } },
+      expect.anything(),
+    );
+  });
 });
