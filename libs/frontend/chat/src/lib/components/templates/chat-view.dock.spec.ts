@@ -562,6 +562,8 @@ describe('ChatViewComponent - Display dock (Task 25.2)', () => {
   describe('peek bar', () => {
     it('opens and collapses the sheet with aria-expanded', async () => {
       h = mount();
+      store().setSurfaces('tab-1', { surfaces: [surface('id:chart')], statuses: new Map() });
+      await settle();
       const bar = toggle() as HTMLButtonElement;
       expect(bar.tagName).toBe('BUTTON');
       expect(bar.tabIndex).toBe(0);
@@ -577,6 +579,8 @@ describe('ChatViewComponent - Display dock (Task 25.2)', () => {
 
   it('sheet region opens above the composer and Escape restores bar focus', async () => {
     h = mount();
+    store().setSurfaces('tab-1', { surfaces: [surface('id:chart')], statuses: new Map() });
+    await settle();
     const bar = toggle() as HTMLButtonElement;
     await clickToggle();
     expect(native().querySelectorAll('ptah-display-sheet')).toHaveLength(1);
@@ -604,23 +608,28 @@ describe('ChatViewComponent - Display dock (Task 25.2)', () => {
   it('a tab switch shows that tab and never auto-opens (R1.1, R1.9)', async () => {
     h = mount();
     h.emitHostWidth(1280);
+    store().setSurfaces('tab-1', { surfaces: [surface('id:chart')], statuses: new Map() });
+    await settle();
     await clickToggle();
     expect(store().tab('tab-1').open).toBe(true);
 
     h.activeTabId.set('tab-2');
     await settle();
-    expect(toggle()?.getAttribute('aria-expanded')).toBe('false');
+    expect(dockEl()?.style.display).toBe('none');
     expect((native().querySelector('[data-testid="display-sheet-region"]') as HTMLElement).hidden).toBe(true);
     expect(store().tab('tab-2').open).toBe(false);
 
     h.activeTabId.set('tab-1');
     await settle();
+    expect(dockEl()?.style.display).not.toBe('none');
     expect(native().querySelector('[data-testid="display-sheet-region"]')).not.toBeNull();
   });
 
   it('sheet chunk failure shows an alert without an agent monitor', async () => {
     h = mount({ deferBehavior: DeferBlockBehavior.Manual });
     h.emitHostWidth(1280);
+    store().setSurfaces('tab-1', { surfaces: [surface('id:chart')], statuses: new Map() });
+    await settle();
     await clickToggle();
     const [dockBlock] = await h.fixture.getDeferBlocks();
     await dockBlock.render(DeferBlockState.Error);

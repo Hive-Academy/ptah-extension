@@ -17,7 +17,7 @@ const ACTION_FAILED_TEXT = 'The review action failed.';
   standalone: true,
   imports: [DisplayPanelComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { class: 'min-w-0', 'data-testid': 'display-sheet', '[class.sheet-open]': 'state().open', '[class.sheet-full]': "state().open && mode() === 'full'" },
+  host: { class: 'min-w-0', 'data-testid': 'display-sheet', '[style.display]': "visible() ? null : 'none'", '[class.sheet-open]': 'state().open', '[class.sheet-full]': "state().open && mode() === 'full'" },
   styles: `
     :host { display: flex; flex-direction: column; flex: 0 0 auto; min-height: 0; }
     :host(.sheet-open) { flex: 0 1 40%; min-height: 2.25rem; }
@@ -74,6 +74,7 @@ export class DisplaySheetComponent {
   protected readonly state = computed(() => this.dock.tab(this.tabId()));
   protected readonly mode = computed(() => this.sheet.mode(this.tabId()));
   protected readonly summary = computed(() => this.dock.summaryFor(this.tabId()));
+  protected readonly visible = computed(() => this.state().open || this.state().surfaces.length > 0 || this.state().summaries.size > 0);
   protected readonly summaryTurnKey = computed(() => this.dock.summaryKeyFor(this.tabId()));
   protected readonly regionId = computed(() => `display-sheet-${this.tabId().replace(/[^a-zA-Z0-9_-]/g, '-')}`);
   protected readonly selectedKey = computed(() => {

@@ -57,9 +57,53 @@ describe('DisplaySheetComponent', () => {
     });
   });
 
+  it('takes no space when the tab has no display content and is closed', () => {
+    const fixture = TestBed.createComponent(DisplaySheetComponent);
+    fixture.componentRef.setInput('tabId', 'tab-1');
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.style.display).toBe('none');
+    expect(host.querySelector('[data-testid="display-sheet-bar"]')?.getClientRects()).toHaveLength(0);
+    fixture.destroy();
+  });
+
+  it('shows the bar when the tab has one surface', () => {
+    const fixture = TestBed.createComponent(DisplaySheetComponent);
+    fixture.componentRef.setInput('tabId', 'tab-1');
+    TestBed.inject(DisplayDockState).setSurfaces('tab-1', { surfaces: [surface], statuses: new Map() });
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.style.display).not.toBe('none');
+    expect(host.querySelector('[data-testid="display-sheet-bar"]')?.getAttribute('aria-label')).toBe('Display, 1 items');
+    fixture.destroy();
+  });
+
+  it('shows the bar for a summary without surfaces', () => {
+    const fixture = TestBed.createComponent(DisplaySheetComponent);
+    fixture.componentRef.setInput('tabId', 'tab-1');
+    TestBed.inject(DisplayDockState).setSummaries('tab-1', new Map([['turn-1', { model: {} as TurnSummaryModel, changeSet: null }]]));
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.style.display).not.toBe('none');
+    expect(host.querySelector('[data-testid="display-sheet-bar"]')).not.toBeNull();
+    fixture.destroy();
+  });
+
+  it('shows the bar when explicitly opened without content', () => {
+    const fixture = TestBed.createComponent(DisplaySheetComponent);
+    fixture.componentRef.setInput('tabId', 'tab-1');
+    TestBed.inject(DisplayDockState).open('tab-1');
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.style.display).not.toBe('none');
+    expect(host.querySelector('[data-testid="display-sheet-bar"]')?.getAttribute('aria-expanded')).toBe('true');
+    fixture.destroy();
+  });
+
   it('shows the peek bar, expands, changes height, pins and collapses with Escape', async () => {
     const fixture = TestBed.createComponent(DisplaySheetComponent);
     fixture.componentRef.setInput('tabId', 'tab-1');
+    TestBed.inject(DisplayDockState).setSurfaces('tab-1', { surfaces: [surface], statuses: new Map() });
     fixture.detectChanges();
     const host = fixture.nativeElement as HTMLElement;
     const bar = () => host.querySelector<HTMLButtonElement>('[data-testid="display-sheet-bar"]')!;
@@ -171,6 +215,7 @@ describe('DisplaySheetComponent', () => {
     fixture.componentRef.setInput('tabId', 'tab-1');
     fixture.detectChanges();
     fixture.componentRef.setInput('tabId', 'tab-2');
+    dock.open('tab-2');
     fixture.detectChanges();
     expect((fixture.nativeElement as HTMLElement).querySelector('.sheet-pulse')).toBeNull();
     dock.setLiveTurn('tab-1', 'turn-1');

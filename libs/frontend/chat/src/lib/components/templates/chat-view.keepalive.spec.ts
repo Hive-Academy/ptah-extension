@@ -89,6 +89,7 @@ import { SessionHistoryReplayer } from '../../services/chat-store/session-histor
 import { HistoryPagingService } from '../../services/chat-store/history-paging.service';
 import { ChangeSetActionsService } from '../../services/change-set/change-set-actions.service';
 import { DisplaySheetComponent } from '../organisms/display-sheet/display-sheet.component';
+import { DisplayDockState } from '../../services/display-dock/display-dock.state';
 import { SESSION_CARD_ACTIONS, SESSION_VISIBLE } from '../../tokens/session-context.token';
 
 @Component({
@@ -615,6 +616,9 @@ describe('Rail ChatView per-pane display dock', () => {
 
   it('Rail ChatView mounts a session sheet at narrow and wide widths', async () => {
     h = mountRail({ contextual: true });
+    h.fixture.debugElement.injector.get(DisplayDockState).setSurfaces('tab-1', {
+      surfaces: [{ key: 'id:a' } as DisplaySurface], statuses: new Map(),
+    });
     for (const width of [759, 760, 804, 644, 976, 648]) {
       h.emitHostWidth(width);
       expect(sheet()).not.toBeNull();
@@ -627,6 +631,10 @@ describe('Rail ChatView per-pane display dock', () => {
 
   it('Rail ChatView with coordinator keeps the sheet mounted', async () => {
     h = mountRail({ contextual: true });
+    h.fixture.debugElement.injector.get(DisplayDockState).setSurfaces('tab-1', {
+      surfaces: [{ key: 'id:a' } as DisplaySurface], statuses: new Map(),
+    });
+    h.fixture.detectChanges();
     await openSheet();
     expect(h.fixture.debugElement.injector.get(RailTranscriptRetentionCoordinator)).toBeDefined();
     expect(sheet()).not.toBeNull();
