@@ -59,7 +59,6 @@ describe('CommandCenterPageComponent', () => {
   ];
   const projection = signal<ProjectionResult>({ nodes, edges: [] });
   const hoveredNodeId = signal<string | null>(null);
-  const canvasUnavailable = signal(false);
   const pendingProposal = signal<TribunalRosterProposal | null>(null);
   const recordWriteFailure = signal<{
     workspacePath: string;
@@ -70,7 +69,6 @@ describe('CommandCenterPageComponent', () => {
     store,
     projection,
     hoveredNodeId,
-    canvasUnavailable,
     pendingProposal,
     shownProposal: computed(() =>
       store.pendingInput()?.kind === 'approval' ? null : pendingProposal(),
@@ -102,7 +100,6 @@ describe('CommandCenterPageComponent', () => {
     jest.clearAllMocks();
     controller.sendCommand.mockResolvedValue(true);
     hoveredNodeId.set(null);
-    canvasUnavailable.set(false);
     pendingProposal.set(null);
     store.setPendingInput(null);
     recordWriteFailure.set(null);

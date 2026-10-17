@@ -84,7 +84,6 @@ export class CommandCenterPageController {
   } | null>(null);
   private handledRosterQuestionId: string | null = null;
   private rosterTimeout: ReturnType<typeof setTimeout> | null = null;
-  public readonly canvasUnavailable = signal(false);
   public readonly hoveredNodeId = signal<string | null>(null);
   public readonly recordWriteFailure =
     this.tabs.commandCenterRecordWriteFailure;
