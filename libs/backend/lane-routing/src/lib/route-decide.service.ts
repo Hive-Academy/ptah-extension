@@ -456,43 +456,11 @@ function schemaError(
 }
 
 /**
- * Fixed Node error codes that may be logged. A code is untrusted data, so
- * only an exact member of this set passes; a shape test would let a
- * credential that looks like a code through.
- */
-const LOGGABLE_ERROR_CODES: ReadonlySet<string> = new Set([
-  'EACCES',
-  'EPERM',
-  'ENOENT',
-  'EBUSY',
-  'EIO',
-  'EMFILE',
-  'ENOSPC',
-  'EROFS',
-  'ETIMEDOUT',
-  'ECONNREFUSED',
-  'ECONNRESET',
-  'ENOTFOUND',
-  'EAI_AGAIN',
-  'ERR_INVALID_URL',
-]);
-
-/**
  * Log facts of a rejection from the key store, the target resolver or the
  * rotation store. Its `name` and `code` are set by that dependency and can
- * carry a key, so the name is the fixed `errorName` category and a code is
- * kept only when it has the shape of a Node error code.
+ * carry a key (a key can even equal a real Node code), so only the fixed
+ * `errorName` category is logged and the code is never read.
  */
-function errorFacts(error: unknown): {
-  readonly name: LoggableErrorName;
-  readonly code?: string;
-} {
-  const name = errorName(error);
-  if (typeof error === 'object' && error !== null && 'code' in error) {
-    const code = error['code'];
-    if (typeof code === 'string' && LOGGABLE_ERROR_CODES.has(code)) {
-      return { name, code };
-    }
-  }
-  return { name };
+function errorFacts(error: unknown): { readonly name: LoggableErrorName } {
+  return { name: errorName(error) };
 }

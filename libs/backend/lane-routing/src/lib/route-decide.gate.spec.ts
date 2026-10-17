@@ -930,7 +930,7 @@ describe('route decide gate: selection and target come from one snapshot (R1-3)'
     expect(h.seen).toEqual([]);
   });
 
-  it('keeps a Node error code from a key-store rejection', async () => {
+  it('never logs a code, even a real Node code a key could equal', async () => {
     const h = snapshotHarness();
     const failure = Object.assign(new Error(`open ${SENTINEL}`), {
       code: 'EACCES',
@@ -941,7 +941,10 @@ describe('route decide gate: selection and target come from one snapshot (R1-3)'
 
     expect(h.logger.warn).toHaveBeenCalledWith(
       '[lane-routing] decision model target could not be resolved',
-      { name: 'Error', code: 'EACCES' },
+      { name: 'Error' },
+    );
+    expect(JSON.stringify(jest.mocked(h.logger.warn).mock.calls)).not.toContain(
+      'EACCES',
     );
   });
 

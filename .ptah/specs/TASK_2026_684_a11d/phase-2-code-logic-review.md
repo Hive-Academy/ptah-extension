@@ -1,6 +1,6 @@
 # Phase 2 code logic review — Batches 6–10
 
-**Round-2 result: 6/10. Verdict: REVISE.** The earlier findings and fix assessments remain below; the current verdict is in “Re-review round 2.”
+**Bounded correction result: 6/10. Verdict: REVISE.** The R2-1 allowlist collision remains; see “Bounded correction review (R2-1)” below.
 
 **Review family: codex (implementer: Claude).** Scope: the Phase 2 source and specs, their callers, the task context and plan, and the five named commits. No tests, builds, lint, or diagnostics were run under the review's no-heavy-command rule.
 
@@ -164,3 +164,25 @@ This read-only round examined commit `0b783a5e0`, the changed source and targete
 ### Decisions
 
 - **Reject the Node-shape code filter as proof of secrecy.** Options: omit `code`, use a literal allowlist, or keep the regular expression. Criterion 1.6 forbids a logged key, and the regex accepts arbitrary `E`-prefixed alphanumeric text (`route-decide.service.ts:459,472-475`). Omitting `code` is the simplest reversible fix.
+
+## Bounded correction review (R2-1)
+
+**Score: 6/10. Verdict: REVISE. Review family: codex (implementer: Claude).** The correction closes the arbitrary Node-shaped-code leak but still permits an exact allowlist collision with a valid custom key. One serious secrecy gap keeps the result below the sound 7–8 band; the narrow, fixed allowlist and the scoped diagnostic check keep it above the 3–4 band. No blocking or moderate defects, or separate new defects, were found in this correction.
+
+**R2-1 status: partially fixed.** `LOGGABLE_ERROR_CODES` is a fixed set (`libs/backend/lane-routing/src/lib/route-decide.service.ts:463-478`), and `errorFacts` accepts only a string that is an exact member (`:486-497`). The new test proves an unlisted secret-shaped code is dropped (`route-decide.gate.spec.ts:948-963`); a non-string code is also excluded by the `typeof` check (`route-decide.service.ts:493`).
+
+**Remaining R2-1 — SERIOUS — an allowlisted code can be the key itself.** The custom-key setter accepts any nonblank trimmed string, so `EACCES` is a valid key (`libs/backend/lane-routing/src/lib/decision-model/decision-model.keys.ts:84-108`). If a key-store read rejects with `{ code: 'EACCES' }`, `openCaller` logs `{ name: 'Error', code: 'EACCES' }` (`route-decide.service.ts:369-374,463-478,490-497`). The existing test requires that exact log shape (`route-decide.gate.spec.ts:933-945`), while the new test uses a value outside the set (`:948-963`). Thus the log contains the user's key, violating criterion 1.6 (`task-description.md:88-90`). **Fix:** omit dependency-controlled `code` from this key-bearing log path; log only a fixed category that cannot be confused with a user key, and test a key whose value is an allowlisted code. This is reversible.
+
+### Five logic questions
+
+1. **Silent failure:** the privacy check passes for an unlisted code, while an allowlisted key value still enters the warning metadata (`route-decide.gate.spec.ts:948-963`; `route-decide.service.ts:493-494`).
+2. **User action:** saving `EACCES` as a custom key is allowed; a later key-store failure can expose it (`decision-model.keys.ts:84-108`; `route-decide.service.ts:369-374`).
+3. **Wrong-answer input:** an error with `code: 'EACCES'` is classified as safe metadata regardless of whether that string is also the user's key (`route-decide.service.ts:463-478,490-497`).
+4. **Dependency failure:** a rejected secret-store read reaches `errorFacts` and then `logger.warn`; an unlisted string or non-string code is dropped (`route-decide.service.ts:358,369-374,490-497`).
+5. **Missing requirement detail:** the universal no-key guarantee needs a collision test for every user-controlled value copied into logs, including allowlisted diagnostics (`task-description.md:88-90`; `route-decide.gate.spec.ts:933-963`).
+
+The bounded check read commit `c7097e0a1`, the changed helper and targeted tests, key storage, and error logging in `decision-model`, `route-decide.service.ts`, and `failure-class`. Those examined paths use fixed error-name categories or fixed failure details rather than raw dependency `message` or `name` (`decision-model.detail.ts:48-85`; `decision-model.prober.ts:133-152`; `failure-class/decision-model-failure-classifier.ts:468-475`). Scoped `ptah_get_diagnostics` reported zero errors. No Nx, Jest, build, lint, or runtime failure injection was run under this bounded review. Pre-existing logs in `pipeline/gather.ts`, `ranking/rotation.store.ts`, and `matrix/capability-matrix.store.ts` remain out of scope.
+
+### Decisions
+
+- **Do not approve the exact-code allowlist as a universal secrecy boundary.** Options: omit `code`, retain the fixed allowlist, or reject keys that match it. The custom-key setter permits `EACCES`, and the test explicitly logs `EACCES` after a key-store rejection (`decision-model.keys.ts:84-108`; `route-decide.gate.spec.ts:933-945`). Omitting `code` is the smallest reversible correction and preserves the key format.
