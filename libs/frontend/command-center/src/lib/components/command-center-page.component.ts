@@ -97,6 +97,9 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
           display: flex;
           flex-direction: column;
         }
+        .dock:has(ptah-command-voice-hud [role='status']) {
+          order: -1;
+        }
         .rail {
           max-height: none;
           overflow: visible;
@@ -134,7 +137,7 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
       <div class="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
         <button
           type="button"
-          class="inline-flex min-h-11 min-w-0 max-w-full items-center gap-2 rounded-full border border-base-300 bg-base-200 px-3 font-mono text-[11px] font-semibold text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
+          class="inline-flex min-h-11 min-w-0 max-w-full items-center gap-2 rounded-full border border-base-300 bg-base-200 px-3 font-mono text-[11px] font-semibold text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
           [title]="voiceChipAriaLabel()"
           [attr.aria-label]="voiceChipAriaLabel()"
           (click)="page.openVoiceSettings()"
@@ -153,7 +156,7 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
         >
         <button
           type="button"
-          class="btn btn-ghost min-h-11 border border-base-content text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
+          class="btn btn-ghost min-h-11 border border-base-content text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
           (click)="page.openVoiceSettings()"
         >
           Voice settings
@@ -211,48 +214,64 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
           </main>
         }
       </div>
-      <div
-        class="dock flex flex-wrap items-center gap-3 rounded-xl border border-base-300 bg-base-200 p-3"
-        aria-label="Command dock"
-      >
-        @if (page.store.toast(); as toast) {
-          <div
-            class="alert w-full flex items-start gap-2 border border-base-300 border-l-4 bg-base-100 text-base-content shadow-lg"
-            [class.border-l-error]="toast.tone === 'error'"
-            [class.border-l-warning]="toast.tone === 'warning'"
-            [class.border-l-success]="toast.tone === 'success'"
-            [class.border-l-info]="toast.tone === 'info'"
-            [attr.role]="toast.tone === 'error' ? 'alert' : 'status'"
+      @if (page.store.toast(); as toast) {
+        <div
+          class="fixed right-4 top-4 z-50 alert max-w-md flex items-start gap-2 border border-base-300 border-l-4 bg-base-100 text-base-content shadow-lg"
+          [class.border-l-error]="toast.tone === 'error'"
+          [class.border-l-warning]="toast.tone === 'warning'"
+          [class.border-l-success]="toast.tone === 'success'"
+          [class.border-l-info]="toast.tone === 'info'"
+          [attr.role]="toast.tone === 'error' ? 'alert' : 'status'"
+        >
+          <span
+            aria-hidden="true"
+            class="font-bold"
+            [class.text-error]="toast.tone === 'error'"
+            [class.text-warning]="toast.tone === 'warning'"
+            [class.text-success]="toast.tone === 'success'"
+            [class.text-info]="toast.tone === 'info'"
+            >{{ toast.tone === 'error' ? '!' : '●' }}</span
           >
-            <span
-              aria-hidden="true"
-              class="font-bold"
-              [class.text-error]="toast.tone === 'error'"
-              [class.text-warning]="toast.tone === 'warning'"
-              [class.text-success]="toast.tone === 'success'"
-              [class.text-info]="toast.tone === 'info'"
-              >{{ toast.tone === 'error' ? '!' : '●' }}</span
-            >
-            <span class="min-w-0 flex-1 text-sm">{{ toast.message }}</span>
-            @if (toast.action === 'retry-speech') {
-              <button
-                type="button"
-                class="btn btn-sm text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
-                (click)="page.retrySpeech()"
-              >
-                Retry speech
-              </button>
-            }
+          <span class="min-w-0 flex-1 text-sm">{{ toast.message }}</span>
+          @if (toast.action === 'retry-speech') {
             <button
               type="button"
-              class="btn btn-ghost btn-sm text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
-              aria-label="Dismiss notification"
-              (click)="dismissToast()"
+              class="btn btn-sm text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+              (click)="page.retrySpeech()"
             >
-              ×
+              Retry speech
             </button>
-          </div>
-        }
+          }
+          @if (toast.action === 'retry-decline') {
+            <button
+              type="button"
+              class="btn btn-sm text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+              (click)="page.retryInvalidDecline()"
+            >
+              Retry Decline
+            </button>
+          }
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+            aria-label="Dismiss notification"
+            (click)="dismissToast()"
+          >
+            ×
+          </button>
+        </div>
+      }
+      <div
+        class="dock flex flex-wrap items-center gap-2 rounded-xl border border-base-300 bg-base-200 p-2"
+        aria-label="Command dock"
+      >
+        <ptah-command-session-controls
+          class="min-w-0 flex-[1_1_26rem]"
+          [sessionStatus]="page.shownSessionStatus()"
+          (newSession)="page.coordinator.newCommandCenter()"
+          (requestStatus)="requestStatus()"
+          (commandSubmit)="submitCommand($event)"
+        />
         <ptah-command-voice-hud
           class="min-w-0 flex-[1_1_24rem]"
           [voiceState]="page.store.voiceState()"
@@ -266,13 +285,6 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
           (toggleMute)="page.toggleMuteVoice()"
           (interrupt)="page.interruptSpeech()"
           (openVoiceSettings)="page.openVoiceSettings()"
-        />
-        <ptah-command-session-controls
-          class="min-w-0 flex-[1_1_26rem]"
-          [sessionStatus]="page.shownSessionStatus()"
-          (newSession)="page.coordinator.newCommandCenter()"
-          (requestStatus)="page.coordinator.sendStatusTurn('Status')"
-          (commandSubmit)="submitCommand($event)"
         />
       </div>
       <aside class="rail flex flex-col gap-3">
@@ -420,6 +432,26 @@ export class CommandCenterPageComponent {
     }
   }
 
+  public async requestStatus(): Promise<void> {
+    try {
+      if (
+        this.page.store.workspace() !== this.page.tabs.activeWorkspacePath ||
+        !this.page.store.markedTabId()
+      ) {
+        if (!(await this.page.open())) return;
+      }
+      if (this.page.store.workspace() !== this.page.tabs.activeWorkspacePath)
+        return;
+      await this.page.coordinator.sendStatusTurn('Status');
+    } catch {
+      this.page.store.setSessionStatus('error');
+      this.page.store.setToast({
+        message: 'Could not open the Command Center session.',
+        tone: 'error',
+      });
+    }
+  }
+
   public constructor() {
     effect((onCleanup) => {
       const toast = this.page.store.toast();
@@ -429,7 +461,13 @@ export class CommandCenterPageComponent {
       }, 5000);
       onCleanup(() => clearTimeout(timeout));
     });
-    void this.page.open();
+    void this.page.open().catch(() => {
+      this.page.store.setSessionStatus('error');
+      this.page.store.setToast({
+        message: 'Could not open the Command Center session.',
+        tone: 'error',
+      });
+    });
     this.destroyRef.onDestroy(() => {
       this.overlay()?.closeCard();
       void this.page.exit();

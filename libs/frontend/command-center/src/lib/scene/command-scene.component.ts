@@ -2,6 +2,7 @@ import {
   afterNextRender,
   ChangeDetectionStrategy,
   Component,
+  computed,
   DestroyRef,
   ElementRef,
   effect,
@@ -82,9 +83,7 @@ function paletteName(
       <div class="pointer-events-none absolute inset-0">
         @if (layout().overflowChip; as chip) {
           <span
-            class="absolute rounded-full bg-base-200 px-2 py-1 text-xs text-base-content"
-            [style.left.px]="chip.x"
-            [style.top.px]="chip.y"
+            class="absolute right-3 top-3 max-w-[90%] rounded-full bg-base-200 px-2 py-1 text-xs text-base-content"
             >{{ chip.text }}</span
           >
         }
@@ -138,39 +137,39 @@ export class CommandSceneComponent {
     overflowChip: null,
   });
 
+  private readonly measuredLayout = computed(() => {
+    const labels = this.overlayLabels();
+    const measured = new Map(
+      labels.map((label) => [
+        label.id,
+        { width: label.width, height: label.height },
+      ]),
+    );
+    return layoutScene(
+      this.projection(),
+      this.viewport(),
+      (nodeId, text) => {
+        const size = measured.get(nodeId);
+        return size?.width && size.height
+          ? size
+          : {
+              width: Math.min(220, Math.max(72, text.length * 7 + 24)),
+              height: 28,
+            };
+      },
+      this.selectedId(),
+    );
+  });
+
   public constructor() {
     afterNextRender(() => this.initialize());
     effect(() => {
       if (!this.ready()) return;
-      const projection = this.projection();
       const selectedId = this.selectedId();
-      const viewport = this.viewport();
       const theme = this.theme();
       const reducedMotion = this.reducedMotion();
       const labels = this.overlayLabels();
-      const measuredLabels = new Map(
-        labels.map((label) => [
-          label.id,
-          {
-            width: label.width,
-            height: label.height,
-          },
-        ]),
-      );
-      const layout = layoutScene(
-        projection,
-        viewport,
-        (nodeId, text) => {
-          const measured = measuredLabels.get(nodeId);
-          return measured?.width && measured.height
-            ? measured
-            : {
-                width: Math.min(220, Math.max(72, text.length * 7 + 24)),
-                height: 28,
-              };
-        },
-        selectedId,
-      );
+      const layout = this.measuredLayout();
       this.layout.set(layout);
       const dpr = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
       const sprites: SceneSprite[] = layout.nodes.map((sceneNode) => {

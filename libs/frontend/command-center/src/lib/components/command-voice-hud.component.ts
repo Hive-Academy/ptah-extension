@@ -1,4 +1,4 @@
-﻿import {
+import {
   ChangeDetectionStrategy,
   Component,
   computed,
@@ -24,7 +24,7 @@ import type {
       <div class="flex flex-wrap items-center gap-3">
         <button
           type="button"
-          class="grid h-14 w-14 shrink-0 place-items-center rounded-full border-2 border-warning bg-base-100 text-warning shadow-sm transition-colors hover:bg-warning hover:text-warning-content hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning disabled:opacity-60"
+          class="grid h-14 w-14 shrink-0 place-items-center rounded-full border-2 border-warning bg-base-100 text-warning shadow-sm transition-colors hover:bg-warning hover:text-warning-content hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content disabled:opacity-100 disabled:text-base-content-muted disabled:border disabled:border-base-300"
           [attr.aria-label]="listening() ? 'Stop listening' : 'Start voice'"
           [attr.aria-pressed]="listening()"
           [disabled]="!listening() && !canStart()"
@@ -64,7 +64,7 @@ import type {
         </div>
         <button
           type="button"
-          class="btn btn-ghost min-h-11 disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
+          class="btn btn-ghost min-h-11 disabled:opacity-100 disabled:text-base-content-muted disabled:border disabled:border-base-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
           [disabled]="!canMute()"
           (click)="toggleMute.emit()"
         >
@@ -72,7 +72,7 @@ import type {
         </button>
         <button
           type="button"
-          class="btn btn-ghost min-h-11 disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
+          class="btn btn-ghost min-h-11 disabled:opacity-100 disabled:text-base-content-muted disabled:border disabled:border-base-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
           [disabled]="!canStopTurn()"
           (click)="stop.emit()"
         >
@@ -81,7 +81,7 @@ import type {
         @if (voiceState() === 'speaking') {
           <button
             type="button"
-            class="btn btn-ghost min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
+            class="btn btn-ghost min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
             (click)="interrupt.emit()"
           >
             Interrupt speech
@@ -94,13 +94,25 @@ import type {
           role="status"
         >
           <span>{{ error.message }}</span>
-          <button
-            type="button"
-            class="btn btn-ghost min-h-11 text-base-content underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
-            (click)="openVoiceSettings.emit()"
-          >
-            Open Voice settings
-          </button>
+          @if (error.kind === 'mic-denied') {
+            <button
+              type="button"
+              class="btn btn-ghost min-h-11 text-base-content underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+              (click)="openVoiceSettings.emit()"
+            >
+              Open Voice settings
+            </button>
+          } @else if (
+            error.kind === 'mic-unavailable' || error.kind === 'worklet'
+          ) {
+            <button
+              type="button"
+              class="btn btn-ghost min-h-11 border border-base-content text-base-content underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+              (click)="start.emit()"
+            >
+              Retry microphone
+            </button>
+          }
         </div>
       } @else if (!provider().transcription || !provider().synthesis) {
         <div
@@ -110,7 +122,7 @@ import type {
           <span>A voice provider is missing.</span>
           <button
             type="button"
-            class="btn btn-ghost min-h-11 text-base-content underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
+            class="btn btn-ghost min-h-11 text-base-content underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
             (click)="openVoiceSettings.emit()"
           >
             Open Voice settings

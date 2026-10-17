@@ -291,6 +291,7 @@ describe('CommandCenterRosterProvider', () => {
       jest.advanceTimersByTime(500);
       expect(answer).toHaveBeenCalledTimes(3);
       expect(store.toast()?.message).toContain('Retry the Decline');
+      expect(store.toast()?.action).toBe('retry-decline');
       jest.advanceTimersByTime(5_000);
       expect(answer).toHaveBeenCalledTimes(3);
       expect(roster.undeclinedInvalidQuestionId()).toBe('invalid');

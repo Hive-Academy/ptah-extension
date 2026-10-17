@@ -445,6 +445,7 @@ export class CommandCenterRosterProvider {
             ? 'Invalid Tribunal proposal could not be declined. Retrying the Decline.'
             : 'Invalid Tribunal proposal could not be declined. Retry the Decline before sending.',
         tone: 'error',
+        action: this.invalidDeclineAttempts >= 3 ? 'retry-decline' : undefined,
       });
       if (this.invalidDeclineAttempts < 3) {
         this.clearInvalidDeclineTimer();

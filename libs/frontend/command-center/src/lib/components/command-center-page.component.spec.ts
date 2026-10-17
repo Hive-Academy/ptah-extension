@@ -73,6 +73,7 @@ describe('CommandCenterPageComponent', () => {
     ordinaryQuestion: signal(null),
     ordinaryChoices: signal<readonly string[]>([]),
     coordinator: { newCommandCenter: jest.fn(), sendStatusTurn: jest.fn() },
+    tabs: { activeWorkspacePath: '/workspace' },
     open: jest.fn(async () => 'root-tab'),
     exit: jest.fn(async () => undefined),
     confirmProposal: jest.fn(async (_id: string) => undefined),
@@ -83,6 +84,7 @@ describe('CommandCenterPageComponent', () => {
     stopVoice: jest.fn(),
     toggleMuteVoice: jest.fn(),
     retrySpeech: jest.fn(),
+    retryInvalidDecline: jest.fn(),
     interruptSpeech: jest.fn(),
     openVoiceSettings: jest.fn(),
     sendCommand: jest.fn(),
@@ -343,7 +345,7 @@ describe('CommandCenterPageComponent', () => {
     fixture.destroy();
   });
 
-  it('shows dismissible toasts by the voice controls and expires only non-error tones', () => {
+  it('shows dismissible toasts outside the dock and expires only non-error tones', () => {
     jest.useFakeTimers();
     try {
       store.setToast({ tone: 'info', message: 'Ready' });
@@ -355,10 +357,9 @@ describe('CommandCenterPageComponent', () => {
       expect(infoAlert.textContent).toContain('Ready');
       expect(infoAlert.className).toContain('bg-base-100');
       expect(infoAlert.className).toContain('text-base-content');
-      expect(infoAlert.closest('[aria-label="Command dock"]')).not.toBeNull();
-      expect(infoAlert.nextElementSibling?.tagName.toLowerCase()).toBe(
-        'ptah-command-voice-hud',
-      );
+      // The toast floats outside the dock flow so it never shifts the input.
+      expect(infoAlert.closest('[aria-label="Command dock"]')).toBeNull();
+      expect(infoAlert.className).toContain('fixed');
       jest.advanceTimersByTime(5000);
       fixture.detectChanges();
       expect(store.toast()).toBeNull();
@@ -562,5 +563,45 @@ describe('CommandCenterPageComponent', () => {
     expect(controller.answerOrdinaryQuestion).toHaveBeenCalledTimes(2);
     fixture.destroy();
     store.setPendingInput(null);
+  });
+  it('offers the Decline retry action and catches initial open failures with fixed text', async () => {
+    controller.open.mockRejectedValueOnce(new Error('secret detail'));
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    await Promise.resolve();
+    expect(store.toast()?.message).toBe(
+      'Could not open the Command Center session.',
+    );
+    expect(store.toast()?.message).not.toContain('secret');
+    store.setToast({
+      tone: 'error',
+      message: 'Retry the Decline.',
+      action: 'retry-decline',
+    });
+    fixture.detectChanges();
+    const button = [
+      ...fixture.nativeElement.querySelectorAll('.alert button'),
+    ].find((item: HTMLButtonElement) =>
+      item.textContent?.includes('Retry Decline'),
+    ) as HTMLButtonElement;
+    button.click();
+    expect(controller.retryInvalidDecline).toHaveBeenCalledTimes(1);
+    fixture.destroy();
+  });
+
+  it('reopens for an explicit Status click before sending', async () => {
+    store.setSession('old-tab', 'old-session', '/other');
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    controller.open.mockImplementationOnce(async () => {
+      store.setSession('root-tab', 'session', '/workspace');
+      return 'root-tab';
+    });
+    await fixture.componentInstance.requestStatus();
+    expect(controller.open).toHaveBeenCalled();
+    expect(controller.coordinator.sendStatusTurn).toHaveBeenCalledWith(
+      'Status',
+    );
+    fixture.destroy();
   });
 });

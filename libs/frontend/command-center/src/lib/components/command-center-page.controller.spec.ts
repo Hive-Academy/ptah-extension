@@ -1,6 +1,7 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import {
+  CommandCenterVoiceSessionService,
   TabManagerService,
   type TerminalTurnPulse,
 } from '@ptah-extension/chat-state';
@@ -61,6 +62,7 @@ describe('CommandCenterPageController', () => {
     }[]
   >([]);
   const handlePermissionResponse = jest.fn();
+  const voiceSessions = { activate: jest.fn(), deactivate: jest.fn() };
   const rpc = { call: jest.fn() };
   const questionRequests = signal<
     readonly {
@@ -136,6 +138,7 @@ describe('CommandCenterPageController', () => {
       providers: [
         CommandCenterPageController,
         CommandCenterStore,
+        { provide: CommandCenterVoiceSessionService, useValue: voiceSessions },
         {
           provide: TabManagerService,
           useValue: {
@@ -1695,5 +1698,132 @@ describe('CommandCenterPageController', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+  it('keeps the pre-send sequence when a pulse arrives before send resolves', async () => {
+    page.store.setSession('root-tab', 'session', '/workspace');
+    page.voice['active'] = true;
+    let finishSend: ((value: boolean) => void) | undefined;
+    coordinator.send.mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          finishSend = resolve;
+        }),
+    );
+    const pending = page.sendCommand('Review');
+    lastTerminalPulseByTab.set(
+      new Map([
+        [
+          'root-tab',
+          {
+            tabId: 'root-tab',
+            seq: 1,
+            sessionId: 'session',
+            workspacePath: '/workspace',
+            revision: 1,
+            phase: 'idle',
+            terminalReason: 'completed',
+            classification: 'success',
+            lastAssistantMessage: 'Done',
+            title: 'Command Center',
+            occurredAt: Date.now(),
+          },
+        ],
+      ]),
+    );
+    finishSend?.(true);
+    expect(await pending).toBe(true);
+    expect(
+      page.voice['queuedTypedTurns'][0] ?? page['armedTurns'][0]?.minPulseSeq,
+    ).toBe(0);
+  });
+
+  it('expires an idle armed turn once and ignores its late pulse', () => {
+    jest.useFakeTimers();
+    try {
+      page.store.setSession('root-tab', 'session', '/workspace');
+      tabs.set([
+        { id: 'root-tab', status: 'loaded', claudeSessionId: 'session' },
+      ]);
+      const abandon = jest
+        .spyOn(page.voice, 'abandonTurn')
+        .mockImplementation();
+      page.voice['options'].onVoiceSend?.(1, 0);
+      TestBed.tick();
+      jest.advanceTimersByTime(12_000);
+      expect(abandon).toHaveBeenCalledWith(1, 'timed-out');
+      expect(page['armedTurns']).toHaveLength(0);
+      lastTerminalPulseByTab.set(
+        new Map([
+          [
+            'root-tab',
+            {
+              tabId: 'root-tab',
+              seq: 1,
+              sessionId: 'session',
+              workspacePath: '/workspace',
+              revision: 1,
+              phase: 'idle',
+              terminalReason: 'completed',
+              classification: 'success',
+              lastAssistantMessage: 'Late',
+              title: 'Command Center',
+              occurredAt: Date.now(),
+            },
+          ],
+        ]),
+      );
+      TestBed.tick();
+      expect(abandon).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it.each([
+    ['aborted_streaming', 'aborted'],
+    ['aborted_tools', 'aborted'],
+    ['api_error', 'failed'],
+  ] as const)(
+    'classifies %s pulse as %s for voice',
+    (terminalReason, outcome) => {
+      page.store.setSession('root-tab', 'session', '/workspace');
+      const abandon = jest
+        .spyOn(page.voice, 'abandonTurn')
+        .mockImplementation();
+      page.voice['options'].onVoiceSend?.(1, 0);
+      TestBed.tick();
+      lastTerminalPulseByTab.set(
+        new Map([
+          [
+            'root-tab',
+            {
+              tabId: 'root-tab',
+              seq: 1,
+              sessionId: 'session',
+              workspacePath: '/workspace',
+              revision: 1,
+              phase: 'idle',
+              terminalReason,
+              classification: 'error',
+              lastAssistantMessage: null,
+              title: 'Command Center',
+              occurredAt: Date.now(),
+            },
+          ],
+        ]),
+      );
+      TestBed.tick();
+      expect(abandon).toHaveBeenCalledWith(1, outcome);
+    },
+  );
+
+  it('marks the root voice session only after capture starts and clears it on stop', async () => {
+    page.store.setSession('root-tab', 'session', '/workspace');
+    jest.spyOn(page.voice, 'start').mockResolvedValue(true);
+    jest.spyOn(page.voice, 'stop').mockResolvedValue(undefined);
+    expect(await page.startVoice()).toBe(true);
+    expect(voiceSessions.activate).toHaveBeenCalledWith('root-tab');
+    await page.stopVoice();
+    expect(voiceSessions.deactivate).toHaveBeenCalledWith('root-tab');
   });
 });

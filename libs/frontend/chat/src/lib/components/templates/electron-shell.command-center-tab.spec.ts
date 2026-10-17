@@ -114,6 +114,22 @@ describe('ElectronShellComponent Command Center tab', () => {
     expect(tab.getAttribute('role')).toBe('tab');
     expect(tab.tabIndex).toBeGreaterThanOrEqual(0);
     expect(tab.disabled).toBe(false);
+    expect(tab.getAttribute('aria-label')).toBe('Command Center');
+    expect(tab.querySelector('lucide-angular')).not.toBeNull();
+    expect(tab.querySelector('.tab-label')?.textContent).toBe('Command Center');
+  });
+
+  it('keeps labels available to assistive tech when narrow styling hides them', () => {
+    const tabs = Array.from(
+      (
+        fixture.nativeElement as HTMLElement
+      ).querySelectorAll<HTMLButtonElement>('.electron-tabs [role="tab"]'),
+    );
+    expect(tabs).toHaveLength(7);
+    for (const tab of tabs) {
+      expect(tab.getAttribute('aria-label')).toBe(tab.title);
+      expect(tab.querySelector('.tab-label')).not.toBeNull();
+    }
   });
 
   it('selects only the Command Center tab when its view is current', () => {

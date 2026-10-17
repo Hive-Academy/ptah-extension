@@ -795,6 +795,7 @@ const DEFAULT_PLATFORM: NewProjectPlatform = 'node-ts';
                      transition-all duration-300 ease-out card-enter card-enter-delay-4"
                 (click)="openCommandCenter()"
                 (keydown.enter)="openCommandCenter()"
+                (keydown.space)="$event.preventDefault(); openCommandCenter()"
                 role="button"
                 tabindex="0"
                 aria-label="Open Command Center"

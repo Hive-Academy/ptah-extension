@@ -121,6 +121,20 @@ describe('SetupHubComponent entry handoff', () => {
     ).toBeNull();
   });
 
+  it('opens Command Center with Space and prevents page scrolling', () => {
+    host.isElectron = true;
+    fixture.componentRef.injector.get(ChangeDetectorRef).markForCheck();
+    fixture.detectChanges();
+    const event = new KeyboardEvent('keydown', {
+      key: ' ',
+      bubbles: true,
+      cancelable: true,
+    });
+    element('command-center-card').dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(navigate).toHaveBeenCalledWith('command-center');
+  });
+
   it('hands Configure to the adapter', async () => {
     await fixture.componentInstance.openHarnessBuilder();
     expect(requests.requestAndNavigate).toHaveBeenCalledWith({

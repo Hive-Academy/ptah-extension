@@ -38,7 +38,7 @@ import type { ProjectionResult } from '../model/work-projection';
           <li>
             <button
               type="button"
-              class="flex min-h-11 w-full items-center gap-3 rounded-lg border border-transparent px-2 py-2 text-left hover:bg-base-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
+              class="flex min-h-11 w-full items-center gap-3 rounded-lg border border-transparent px-2 py-2 text-left hover:bg-base-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
               [class.border-warning]="selectedId() === node.id"
               [attr.aria-current]="selectedId() === node.id ? 'true' : null"
               [attr.tabindex]="index === clampedActiveIndex() ? 0 : -1"

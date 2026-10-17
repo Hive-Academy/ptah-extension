@@ -235,4 +235,17 @@ describe('CommandSceneRenderer', () => {
     expect(renderer.hitTest(5, 5)).toBeNull();
     renderer.destroy();
   });
+
+  it('leaves the overflow chip background to its DOM pill', () => {
+    renderer.setSnapshot({
+      ...snapshot(),
+      layout: {
+        ...layout,
+        overflowChip: { text: '+2 more', x: 220, y: 190 },
+      },
+    });
+    callback(1000);
+    expect(context.fillRect).not.toHaveBeenCalledWith(212, 178, 120, 26);
+    renderer.destroy();
+  });
 });

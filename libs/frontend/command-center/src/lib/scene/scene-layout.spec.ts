@@ -1,5 +1,9 @@
 import type { CommandWorkNode } from '../model/command-center.store';
-import { layoutScene, type SceneRect } from './scene-layout';
+import {
+  layoutScene,
+  SCENE_LABEL_CANDIDATE_LIMIT,
+  type SceneRect,
+} from './scene-layout';
 
 const root: CommandWorkNode = {
   id: 'root:r',
@@ -37,6 +41,49 @@ const measure = jest.fn((_nodeId: string, text: string) => ({
 
 describe('layoutScene', () => {
   beforeEach(() => measure.mockClear());
+
+  it('caps each label search independently of viewport area', () => {
+    expect(SCENE_LABEL_CANDIDATE_LIMIT).toBe(452);
+  });
+
+  it.each([900, 1440, 1600])(
+    'keeps dense root labels nearby with bounded search at %ipx',
+    (width) => {
+      const nodes = [
+        root,
+        ...Array.from({ length: 23 }, (_, i) => node(`cli:${i}`)),
+      ];
+      let calls = 0;
+      const measured = (_id: string, _text: string) => {
+        calls++;
+        return { width: 72, height: 24 };
+      };
+      const result = layoutScene(
+        { nodes, edges: [] },
+        { width, height: 800 },
+        measured,
+      );
+      const hero = result.nodes[0];
+      expect(result.nodes).toHaveLength(24);
+      expect(calls).toBe(24);
+      expect(hero.labelRect).not.toBeNull();
+      const plate = hero.labelRect;
+      if (!plate) throw new Error('Missing root plate');
+      expect(
+        Math.hypot(
+          plate.x + plate.width / 2 - hero.x,
+          plate.y + plate.height / 2 - hero.y,
+        ),
+      ).toBeLessThan(300);
+      for (const orb of result.nodes) {
+        const dx = Math.max(plate.x - orb.x, 0, orb.x - plate.x - plate.width);
+        const dy = Math.max(plate.y - orb.y, 0, orb.y - plate.y - plate.height);
+        expect(Math.hypot(dx, dy)).toBeGreaterThanOrEqual(
+          orb.radius + (orb.kind === 'root' ? 32 : 12),
+        );
+      }
+    },
+  );
 
   it('positions root, delegate, Tribunal and satellites deterministically', () => {
     const nodes = [

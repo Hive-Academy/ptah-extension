@@ -37,7 +37,7 @@ export const COMMAND_OVERLAY_CLOSE_DELAY_MS = 200;
       @for (node of projection().nodes; track node.id) {
         <button
           type="button"
-          class="pointer-events-auto absolute left-0 top-0 flex min-h-11 min-w-11 flex-col items-center justify-center rounded-lg border border-base-300 bg-base-100/95 px-2 text-xs text-base-content shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
+          class="pointer-events-auto absolute left-0 top-0 flex min-h-11 min-w-11 flex-col items-center justify-center rounded-lg border border-base-300 bg-base-100/95 px-2 text-xs text-base-content shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
           [class.border-warning]="selectedId() === node.id"
           [style.visibility]="
             visibleLabelIds() === null || visibleLabelIds()?.includes(node.id)
@@ -118,7 +118,7 @@ export const COMMAND_OVERLAY_CLOSE_DELAY_MS = 200;
             @if (pinnedNodeId()) {
               <button
                 type="button"
-                class="min-h-11 min-w-11 rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-warning"
+                class="min-h-11 min-w-11 rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content"
                 aria-label="Close node details"
                 (click)="closePinned()"
               >
@@ -182,6 +182,23 @@ export class CommandOverlayComponent {
       const selection = this.store.selectedId();
       const pinned = this.pinnedNodeId();
       if (pinned && selection !== this.selectedBeforePin) this.unpin(false);
+    });
+    let shownPinnedId: string | null = null;
+    effect(() => {
+      const visible = this.visibleLabelIds();
+      const pinned = this.pinnedNodeId();
+      if (!pinned || visible === null) {
+        shownPinnedId = null;
+        return;
+      }
+      if (visible.includes(pinned)) {
+        shownPinnedId = pinned;
+      } else if (shownPinnedId === pinned) {
+        // Only a plate that a relayout hid hands focus to its work-list row.
+        shownPinnedId = null;
+        this.unpin(false);
+        this.focusWorkListRow.emit(pinned);
+      }
     });
     effect(() => {
       const id = this.activeNodeId();

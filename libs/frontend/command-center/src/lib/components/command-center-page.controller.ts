@@ -6,7 +6,10 @@ import {
   inject,
   signal,
 } from '@angular/core';
-import { TabManagerService } from '@ptah-extension/chat-state';
+import {
+  CommandCenterVoiceSessionService,
+  TabManagerService,
+} from '@ptah-extension/chat-state';
 import { ChatStore } from '@ptah-extension/chat';
 import {
   AppStateManager,
@@ -25,7 +28,10 @@ import {
 import { CommandVoiceLoop } from '../voice/command-voice-loop';
 import { hasTribunalIntent } from './command-center-tribunal-intent';
 import { commandCenterClock } from './command-center-clock';
-import { CommandCenterRosterProvider } from './command-center-roster.provider';
+import {
+  CommandCenterRosterProvider,
+  isRosterIdleWithoutPendingRequest,
+} from './command-center-roster.provider';
 import { CommandCenterTribunalTransport } from './command-center-tribunal.transport';
 import { CommandCenterProjectionSource } from './command-center-projection.source';
 import {
@@ -52,6 +58,7 @@ export class CommandCenterPageController {
   private readonly appState = inject(AppStateManager, { optional: true });
   private readonly destroyRef = inject(DestroyRef);
   private readonly chat = inject(ChatStore);
+  private readonly voiceSessions = inject(CommandCenterVoiceSessionService);
   private readonly tribunalTransport = inject(CommandCenterTribunalTransport);
   private readonly projectionSource = inject(CommandCenterProjectionSource);
   private readonly now = commandCenterClock();
@@ -94,8 +101,16 @@ export class CommandCenterPageController {
       : null;
   });
   private readonly voiceTurnToken = signal<number | null>(null);
-  private readonly armedTurns: { token: number; minPulseSeq: number }[] = [];
+  /** Each entry belongs to the tab active at send time, even after a rebind. */
+  private readonly armedTurns: {
+    tabId: string;
+    token: number;
+    minPulseSeq: number;
+  }[] = [];
   private deliveredPulseSeq = 0;
+  private graceTimer: ReturnType<typeof setTimeout> | null = null;
+  private stoppedTabId: string | null = null;
+  private voicePreSendSeq: number | null = null;
   private previousMarkedTabId: string | null = null;
   public readonly ordinaryQuestion = this.roster.ordinaryQuestion;
   public readonly ordinaryChoices = this.roster.ordinaryChoices;
@@ -150,13 +165,20 @@ export class CommandCenterPageController {
           ? this.answerOrdinaryQuestion(request.id, transcript)
           : false;
       },
-      onVoiceSend: (token) => {
-        const tabId = this.store.markedTabId();
-        const minPulseSeq = Math.max(
-          this.deliveredPulseSeq,
-          tabId ? (this.tabs.lastTerminalPulseByTab().get(tabId)?.seq ?? 0) : 0,
-        );
-        this.armedTurns.push({ token, minPulseSeq });
+      onVoiceSend: (token, minPulseSeq) => {
+        const tabId = this.store.markedTabId() ?? '';
+        this.armedTurns.push({
+          tabId,
+          token,
+          minPulseSeq:
+            minPulseSeq ??
+            this.voicePreSendSeq ??
+            Math.max(
+              this.deliveredPulseSeq,
+              this.tabs.lastTerminalPulseByTab().get(tabId)?.seq ?? 0,
+            ),
+        });
+        if (minPulseSeq === undefined) this.voicePreSendSeq = null;
         this.voiceTurnToken.set(this.armedTurns[0]?.token ?? null);
       },
       onTurnsAbandoned: () => this.clearArmedTurns(),
@@ -194,6 +216,8 @@ export class CommandCenterPageController {
     effect(() => {
       const tabId = this.store.markedTabId();
       if (this.previousMarkedTabId && tabId !== this.previousMarkedTabId) {
+        this.voiceSessions.deactivate(this.previousMarkedTabId);
+        this.deliveredPulseSeq = 0;
         this.teardownSessionState(false);
         // degradation-audit: reported — voice exit failure is shown through the safe toast
         void this.voice.exit().catch(() =>
@@ -210,26 +234,89 @@ export class CommandCenterPageController {
       const tabId = this.store.markedTabId();
       const token = this.voiceTurnToken();
       if (!tabId || token === null) return;
+      const armed = this.armedTurns[0];
+      if (!armed || armed.tabId !== tabId) return;
       const candidate = this.tabs.lastTerminalPulseByTab().get(tabId);
       const pulse =
         candidate &&
-        candidate.seq > (this.armedTurns[0]?.minPulseSeq ?? 0) &&
+        candidate.seq > armed.minPulseSeq &&
         candidate.seq > this.deliveredPulseSeq
           ? candidate
           : null;
       if (!pulse) return;
+      this.clearGraceTimer();
       this.deliveredPulseSeq = pulse.seq;
       this.armedTurns.shift();
       this.voiceTurnToken.set(this.armedTurns[0]?.token ?? null);
-      if (pulse.classification === 'success' && pulse.lastAssistantMessage)
-        this.voice.onTurnBoundary(pulse.lastAssistantMessage, token);
-      else this.voice.abandonTurn(token);
+      if (pulse.classification === 'success')
+        this.voice.onTurnBoundary(pulse.lastAssistantMessage ?? '', token);
+      else
+        this.voice.abandonTurn(
+          token,
+          this.stoppedTabId === tabId ||
+            pulse.terminalReason === 'aborted_streaming' ||
+            pulse.terminalReason === 'aborted_tools'
+            ? 'aborted'
+            : 'failed',
+        );
+      this.stoppedTabId = null;
+    });
+    effect(() => {
+      this.voiceTurnToken();
+      const armed = this.armedTurns[0];
+      const tabId = this.store.markedTabId();
+      if (
+        !armed ||
+        armed.tabId !== tabId ||
+        !isRosterIdleWithoutPendingRequest(
+          this.tabs,
+          this.chat,
+          tabId,
+          this.store.sessionId(),
+        )
+      ) {
+        this.clearGraceTimer();
+        return;
+      }
+      const pulseSeq = this.tabs.lastTerminalPulseByTab().get(tabId)?.seq ?? 0;
+      if (pulseSeq > armed.minPulseSeq) {
+        this.clearGraceTimer();
+        return;
+      }
+      if (this.graceTimer) return;
+      this.graceTimer = setTimeout(() => {
+        this.graceTimer = null;
+        if (
+          this.armedTurns[0] !== armed ||
+          this.store.markedTabId() !== tabId ||
+          !isRosterIdleWithoutPendingRequest(
+            this.tabs,
+            this.chat,
+            tabId,
+            this.store.sessionId(),
+          )
+        )
+          return;
+        this.armedTurns.shift();
+        this.voiceTurnToken.set(this.armedTurns[0]?.token ?? null);
+        this.voice.abandonTurn(armed.token, 'timed-out');
+      }, 12_000);
+    });
+    this.destroyRef.onDestroy(() => {
+      this.clearGraceTimer();
+      const tabId = this.store.markedTabId();
+      if (tabId) this.voiceSessions.deactivate(tabId);
     });
   }
 
   public async open(): Promise<string | null> {
     const tabId = await this.workspaceBinding.open();
-    void this.tribunalTransport.open();
+    void this.tribunalTransport.open().catch(() => {
+      this.store.setToast({
+        message: 'Tribunal is unavailable right now.',
+        tone: 'error',
+      });
+    });
     try {
       const response = await this.rpc.call(
         'voice:getProviderConfig',
@@ -248,20 +335,30 @@ export class CommandCenterPageController {
     return tabId;
   }
   public startVoice(): Promise<boolean> {
+    const rootTabId = this.store.markedTabId();
+    this.stoppedTabId = null;
     if (this.store.voiceError()) {
       this.store.setVoiceError(null);
       this.store.setToast(null);
     }
-    return this.voice.start();
+    return this.voice.start().then((started) => {
+      if (started && rootTabId && this.store.markedTabId() === rootTabId)
+        this.voiceSessions.activate(rootTabId);
+      return started;
+    });
   }
   public muteVoice(): Promise<void> {
     this.clearArmedTurns();
     return this.voice.mute();
   }
   public toggleMuteVoice(): Promise<void | boolean> {
-    return this.store.muted() ? this.voice.start() : this.voice.mute();
+    return this.store.muted() ? this.startVoice() : this.muteVoice();
   }
   public stopVoice(): Promise<void> {
+    this.stoppedTabId = this.store.markedTabId();
+    if (this.stoppedTabId) this.voiceSessions.deactivate(this.stoppedTabId);
+    const active = this.armedTurns[0];
+    if (active) this.voice.abandonTurn(active.token, 'aborted');
     this.clearArmedTurns();
     return this.voice.stop();
   }
@@ -317,16 +414,25 @@ export class CommandCenterPageController {
       });
       return false;
     }
+    this.stoppedTabId = null;
+    const tabId = this.store.markedTabId();
+    const minPulseSeq = tabId
+      ? (this.tabs.lastTerminalPulseByTab().get(tabId)?.seq ?? 0)
+      : 0;
+    if (source === 'voice') this.voicePreSendSeq = minPulseSeq;
     if (!hasTribunalIntent(content)) {
       const sent = await this.coordinator.send(content);
-      if (sent && source === 'text') this.voice.armTypedTurn();
+      if (!sent && source === 'voice') this.voicePreSendSeq = null;
+      if (sent && source === 'text') this.voice.armTypedTurn(minPulseSeq);
       return sent;
     }
     const sent = await this.roster.sendRequest(content, this.coordinator);
-    if (sent && source === 'text') this.voice.armTypedTurn();
+    if (!sent && source === 'voice') this.voicePreSendSeq = null;
+    if (sent && source === 'text') this.voice.armTypedTurn(minPulseSeq);
     return sent;
   }
   public confirmProposal(id: string): Promise<void> {
+    if (!this.workspaceBinding.canSend()) return Promise.resolve();
     return this.roster.confirmProposal(id);
   }
   public declineProposal(id: string): void {
@@ -342,6 +448,8 @@ export class CommandCenterPageController {
     return this.voice.getLatencyMarks();
   }
   public exit(): Promise<void> {
+    const tabId = this.store.markedTabId();
+    if (tabId) this.voiceSessions.deactivate(tabId);
     this.teardownSessionState(true);
     return this.voice.exit();
   }
@@ -350,7 +458,12 @@ export class CommandCenterPageController {
     this.roster.teardown(pageLeave);
   }
   private clearArmedTurns(): void {
+    this.clearGraceTimer();
     this.armedTurns.length = 0;
     this.voiceTurnToken.set(null);
+  }
+  private clearGraceTimer(): void {
+    if (this.graceTimer) clearTimeout(this.graceTimer);
+    this.graceTimer = null;
   }
 }

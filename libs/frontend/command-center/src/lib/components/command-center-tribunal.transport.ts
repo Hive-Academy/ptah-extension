@@ -173,6 +173,12 @@ export class CommandCenterTribunalTransport implements ProposalTransport {
     return this.records.removeRunManifest(workspace, runId);
   }
   public sendLaunchTurn(content: string): Promise<boolean> {
+    if (this.store.workspace() !== this.tabs.activeWorkspacePath) {
+      this.reportFailure(
+        'Command Center is switching workspaces. Confirm again when it is ready.',
+      );
+      return Promise.resolve(false);
+    }
     return this.coordinator.sendLaunchTurn(content);
   }
   public reportFailure(message: string): void {

@@ -62,6 +62,9 @@ describe('CommandWorkListComponent', () => {
       'ul button',
     ) as NodeListOf<HTMLButtonElement>;
     expect(document.activeElement).toBe(buttons[1]);
+    expect(buttons[1].className).toContain(
+      'focus-visible:outline-base-content',
+    );
   });
 
   it('announces a changed state through the one polite live region', () => {
