@@ -1,6 +1,6 @@
 # Batches - TASK_2026_692_f748
 
-Total tasks: 29 | Batches: 17 | Complete: 4/17
+Total tasks: 29 | Batches: 17 | Complete: 5/17
 
 Worktree (all edits, checks, commits): `D:\projects\ptah-extension\.claude-worktrees\idle-compaction`
 (branch `feat/idle-compaction`, base `7bdc6eed4`). Below, `<W>` means that absolute path; every
@@ -269,7 +269,7 @@ after 5 -> {6}. Default ordering below is sequential by number.
 
 - Command: `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/helpers/compaction/idle/idle-request-tracker.spec.ts libs/backend/agent-sdk/src/lib/helpers/compaction/idle/idle-fire-gate.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -30 && npx nx typecheck @ptah-extension/agent-sdk 2>&1 | tail -15`
 
-## Batch 4: Idle session reducer (pure) — COMPLETE
+## Batch 4: Idle session reducer (pure) — COMPLETE (commit 53018036f)
 
 - Recommended executor: CLI lane [implementation, TypeScript backend, state machines]
 - Execution mode: sequential
@@ -298,7 +298,7 @@ after 5 -> {6}. Default ordering below is sequential by number.
 
 - Command: `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/helpers/compaction/idle/idle-session.reducer.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -30 && npx nx typecheck @ptah-extension/agent-sdk 2>&1 | tail -15`
 
-## Batch 5: Settings descriptors and file-key allow-list — IN_PROGRESS
+## Batch 5: Settings descriptors and file-key allow-list — COMPLETE
 
 - Recommended executor: CLI lane [implementation, TypeScript]
 - Execution mode: sequential
@@ -310,14 +310,14 @@ after 5 -> {6}. Default ordering below is sequential by number.
 - Phase: 1 | Phase review: deferred to Batch 8
 - ACs: 5.1, 5.2, 5.5 (partial), D5
 
-### Task 5.1: `ADVANCED_SETTINGS` descriptors + spec — IN_PROGRESS
+### Task 5.1: `ADVANCED_SETTINGS` descriptors + spec — COMPLETE
 
 - Files: `<W>\libs\shared\src\lib\types\advanced-settings.types.ts`, `<W>\libs\shared\src\lib\types\advanced-settings.types.spec.ts`
 - Plan reference: implementation-plan.md:620-650 (component 10), D5
 - Pattern to follow: existing `context-budgets` descriptors (`advanced-settings.types.ts:123-213`), boolean descriptor at `:208`
 - Validation notes: RISK — spec line 38 pins 27 keys; update to 29 and add range rows for `compaction.idleCompactionMinTokens` (100 000-5 000 000, integer) and a boolean row. Labels/help text exactly as the plan.
 
-### Task 5.2: `FILE_BASED_SETTINGS_KEYS` + spec — IN_PROGRESS
+### Task 5.2: `FILE_BASED_SETTINGS_KEYS` + spec — COMPLETE
 
 - Files: `<W>\libs\backend\platform-core\src\file-settings-keys.ts`, `<W>\libs\backend\platform-core\src\file-settings-keys.spec.ts`
 - Plan reference: implementation-plan.md:631
@@ -328,7 +328,7 @@ after 5 -> {6}. Default ordering below is sequential by number.
 
 - Command: `npx nx run-many -t test -p @ptah-extension/shared @ptah-extension/platform-core --parallel=1 2>&1 | grep -E "Running target|Tests:|Test Suites:|FAIL|Successfully|failed" | tail -20` (header must say 2 projects)
 
-## Batch 6: Idle config read and export key list — PENDING
+## Batch 6: Idle config read and export key list — IN_PROGRESS
 
 - Recommended executor: CLI lane [implementation, TypeScript backend]
 - Execution mode: sequential
@@ -340,13 +340,13 @@ after 5 -> {6}. Default ordering below is sequential by number.
 - Phase: 1 | Phase review: deferred to Batch 8
 - ACs: 5.3, 5.4, 5.5
 
-### Task 6.1: `KNOWN_CONFIG_KEYS` + spec — PENDING
+### Task 6.1: `KNOWN_CONFIG_KEYS` + spec — IN_PROGRESS
 
 - Files: `<W>\libs\backend\agent-sdk\src\lib\types\settings-export.types.ts`, `<W>\libs\backend\agent-sdk\src\lib\types\settings-export.types.spec.ts`
 - Plan reference: implementation-plan.md:632
 - Pattern to follow: compaction keys case at `settings-export.types.spec.ts:72-80`
 
-### Task 6.2: `getIdleCompactionConfig` + spec — PENDING
+### Task 6.2: `getIdleCompactionConfig` + spec — IN_PROGRESS
 
 - Files: `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction-config-provider.ts`, `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction-config-provider.spec.ts`
 - Plan reference: implementation-plan.md:633-637
