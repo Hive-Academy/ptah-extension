@@ -488,7 +488,9 @@ export class SessionAnalyticsStateService {
         if (
           typeof stat !== 'object' ||
           stat === null ||
-          typeof stat.sessionId !== 'string'
+          typeof stat.sessionId !== 'string' ||
+          (stat.modelUsageList !== undefined &&
+            !Array.isArray(stat.modelUsageList))
         ) {
           continue;
         }

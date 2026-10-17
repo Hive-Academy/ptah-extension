@@ -361,7 +361,7 @@ describe('SessionAnalyticsStateService', () => {
 
     it('skips malformed stats elements and keeps valid entries', async () => {
       const done = service.loadDashboardData();
-      answerList(listCalls()[0], sessions(3));
+      answerList(listCalls()[0], sessions(4));
       await flush();
 
       statsCalls()[0].reply.resolve(
@@ -371,14 +371,16 @@ describe('SessionAnalyticsStateService', () => {
             null,
             'bad',
             { sessionId: 123 },
+            { ...okStats(sessionId(1)), modelUsageList: {} },
             okStats(sessionId(2)),
+            { ...okStats(sessionId(3)), modelUsageList: undefined },
           ],
         }),
       );
       await done;
 
-      expect(statuses()).toEqual(['ok', 'error', 'ok']);
-      expect(service.statsProgress()).toEqual({ loaded: 3, total: 3 });
+      expect(statuses()).toEqual(['ok', 'error', 'ok', 'ok']);
+      expect(service.statsProgress()).toEqual({ loaded: 4, total: 4 });
       expect(service.loadError()).toBeNull();
     });
 
