@@ -1,0 +1,137 @@
+name: Decision Model Live Eval
+
+on:
+  schedule:
+    # 05:41 UTC every Monday: clear of the nightly coverage job (02:00), the
+    # weekly connectors probe (03:17) and the daily model-lists probe (04:23).
+    - cron: '41 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+# A run in flight is never cancelled: a live eval spends real API calls, so a
+# newer run queues behind it instead.
+concurrency:
+  group: decision-model-live-eval
+  cancel-in-progress: false
+
+env:
+  # Node 24 bundles the npm 11 version required by this workspace's lockfile.
+  NODE_VERSION: 24
+  NX_TUI: false
+  PTAH_LIVE_PROBES: 1
+
+jobs:
+  decision-model-live-eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check the OLLAMA_API_KEY secret
+        id: gate
+        env:
+          OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+        run: |
+          if [[ -z "${OLLAMA_API_KEY}" ]]; then
+            echo '::notice title=Decision model live eval skipped::The OLLAMA_API_KEY repository secret is not set.'
+            echo 'keyed=false' >> "${GITHUB_OUTPUT}"
+          else
+            echo 'keyed=true' >> "${GITHUB_OUTPUT}"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.keyed == 'true'
+        with:
+          filter: tree:0
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        if: steps.gate.outputs.keyed == 'true'
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Cache node_modules
+        id: cache-modules
+        if: steps.gate.outputs.keyed == 'true'
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          # Own key: this install skips lifecycle scripts, so other workflows
+          # must never restore it.
+          key: node-modules-noscripts-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.gate.outputs.keyed == 'true' && steps.cache-modules.outputs.cache-hit != 'true'
+        # Locked versions only, and no lifecycle scripts: the Jest run below
+        # needs no native rebuilds.
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Run live decision model eval
+        id: probe
+        if: steps.gate.outputs.keyed == 'true'
+        env:
+          OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+        run: |
+          set -o pipefail
+          ./node_modules/.bin/nx test @ptah-extension/lane-routing --testPathPatterns system-one.live --passWithNoTests=false --coverage=false --maxWorkers=2 2>&1 | tee "${RUNNER_TEMP}/decision-model-live-eval-output.txt"
+
+      - name: Open or update the eval failure issue
+        if: failure() && steps.gate.outputs.keyed == 'true' && steps.probe.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+          ISSUE_TITLE: '[decision-model-live-eval] Decision model live eval failed'
+        run: |
+          output_file="${RUNNER_TEMP}/decision-model-live-eval-output.txt"
+          body_file="${RUNNER_TEMP}/decision-model-live-eval-issue-body.md"
+
+          {
+            echo 'The scheduled decision model live eval failed. See libs/backend/lane-routing/src/lib/decision-model/system-one.live.spec.ts.'
+            echo
+            printf -- '- Run: %s/%s/actions/runs/%s\n' \
+              "${GITHUB_SERVER_URL}" "${GITHUB_REPOSITORY}" "${GITHUB_RUN_ID}"
+            printf -- '- Commit: `%s`\n' "${GITHUB_SHA}"
+            echo
+            echo '## Eval output'
+            echo
+            echo '```text'
+            if [[ ! -f "${output_file}" ]]; then
+              echo 'The eval output file was not created.'
+            elif [[ -n "${OLLAMA_API_KEY}" ]] && grep -qF -- "${OLLAMA_API_KEY}" "${output_file}"; then
+              echo 'The eval output contained the API key and was withheld. See the workflow run log.'
+            else
+              cat "${output_file}"
+            fi
+            echo '```'
+          } > "${body_file}"
+
+          mapfile -t matching_issues < <(
+            gh issue list --state open --limit 1000 --json number,title \
+              --template '{{range .}}{{printf "%d\t%s\n" .number .title}}{{end}}' |
+              while IFS=$'\t' read -r issue_number candidate_title; do
+                if [[ "${candidate_title}" == "${ISSUE_TITLE}" ]]; then
+                  printf '%s\n' "${issue_number}"
+                fi
+              done |
+              sort -n
+          )
+
+          if (( ${#matching_issues[@]} == 0 )); then
+            issue_url="$(
+              gh issue create --title "${ISSUE_TITLE}" --body-file "${body_file}"
+            )"
+            keeper_number="${issue_url##*/}"
+          else
+            keeper_number="${matching_issues[0]}"
+            gh issue edit "${keeper_number}" \
+              --title "${ISSUE_TITLE}" \
+              --body-file "${body_file}"
+          fi
+
+          for duplicate_number in "${matching_issues[@]:1}"; do
+            gh issue close "${duplicate_number}" --reason 'not planned'
+          done
+
+          echo "Eval failure recorded in issue #${keeper_number}."

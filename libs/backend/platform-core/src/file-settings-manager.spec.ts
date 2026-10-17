@@ -259,6 +259,37 @@ describe('PtahFileSettingsManager', () => {
       expect(reader.get(`${key}.kind`)).toBeUndefined();
     });
 
+    // TASK_2026_684_a11d. The ollama-cloud and custom selections reuse the
+    // same key (DC2: no new key). The custom selection carries a `baseUrl`
+    // that must stay inside the whole value and never become a leaf key.
+    it.each([
+      { kind: 'ollama-cloud', model: 'clef:27b-cloud' },
+      {
+        kind: 'custom',
+        baseUrl: 'https://decide.example.com/gw',
+        model: 'm1',
+      },
+    ])('round-trips the $kind decision-model selection whole', async (sel) => {
+      const key = 'agentOrchestration.decisionModel';
+      const writer = new PtahFileSettingsManager(FILE_BASED_SETTINGS_DEFAULTS);
+      await writer.set(key, sel);
+
+      const raw = fs.readFileSync(SETTINGS_PATH, 'utf-8');
+      const parsed = JSON.parse(raw) as {
+        agentOrchestration: Record<string, unknown>;
+      };
+      expect(parsed.agentOrchestration['decisionModel']).toEqual(sel);
+      expect(raw).not.toContain(`${key}.baseUrl`);
+      expect(Object.keys(parsed.agentOrchestration)).not.toContain(
+        'decisionModel.baseUrl',
+      );
+
+      const reader = new PtahFileSettingsManager(FILE_BASED_SETTINGS_DEFAULTS);
+      expect(reader.get(key)).toEqual(sel);
+      expect(reader.get(`${key}.kind`)).toBeUndefined();
+      expect(reader.get(`${key}.baseUrl`)).toBeUndefined();
+    });
+
     it('reads an unset decision-model selection as null', () => {
       const mgr = new PtahFileSettingsManager(FILE_BASED_SETTINGS_DEFAULTS);
       expect(mgr.get('agentOrchestration.decisionModel')).toBeNull();
