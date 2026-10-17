@@ -61,8 +61,7 @@
 /* Custom scrollbar for message container
    Uses VS Code variables when available (extension webview),
    falls back to Anubis theme (Electron desktop) via global styles.css */
-:host ::ng-deep .overflow-y-auto,
-.chat-scroll-container {
+:host ::ng-deep .overflow-y-auto {
   overflow-anchor: none;
   scrollbar-width: thin;
   scrollbar-color: var(
@@ -70,21 +69,6 @@
       oklch(var(--bc) / 0.2)
     )
     var(--vscode-scrollbar-shadow, transparent);
-}
-
-.chat-scroll-container {
-  display: block;
-  min-height: 0;
-  height: 100%;
-  overflow-y: auto;
-  overflow-x: hidden;
-}
-
-.chat-scroll-content {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  width: 100%;
 }
 
 /* Browser-native windowing: off-screen bubbles skip layout + paint, giving
@@ -97,24 +81,20 @@
 }
 
 /* Webkit fallback */
-:host ::ng-deep .overflow-y-auto::-webkit-scrollbar,
-.chat-scroll-container::-webkit-scrollbar {
+:host ::ng-deep .overflow-y-auto::-webkit-scrollbar {
   width: 8px;
 }
 
-:host ::ng-deep .overflow-y-auto::-webkit-scrollbar-track,
-.chat-scroll-container::-webkit-scrollbar-track {
+:host ::ng-deep .overflow-y-auto::-webkit-scrollbar-track {
   background: var(--vscode-scrollbar-shadow, transparent);
 }
 
-:host ::ng-deep .overflow-y-auto::-webkit-scrollbar-thumb,
-.chat-scroll-container::-webkit-scrollbar-thumb {
+:host ::ng-deep .overflow-y-auto::-webkit-scrollbar-thumb {
   background: var(--vscode-scrollbarSlider-background, oklch(var(--bc) / 0.2));
   border-radius: 4px;
 }
 
-:host ::ng-deep .overflow-y-auto::-webkit-scrollbar-thumb:hover,
-.chat-scroll-container::-webkit-scrollbar-thumb:hover {
+:host ::ng-deep .overflow-y-auto::-webkit-scrollbar-thumb:hover {
   background: var(
     --vscode-scrollbarSlider-hoverBackground,
     oklch(var(--bc) / 0.35)

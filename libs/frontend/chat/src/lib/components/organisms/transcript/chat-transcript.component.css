@@ -37,16 +37,23 @@
   overflow-anchor: auto;
   display: block;
   min-height: 0;
-  height: 100%;
+  flex: 1 1 0%;
   overflow-y: auto;
   overflow-x: hidden;
+  scrollbar-gutter: stable both-edges;
 }
 
 .chat-scroll-content {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  width: 100%;
+  width: calc(100% - 1.5rem);
+  max-width: var(--chat-content-max-width, 758px);
+  margin-inline: auto;
+}
+
+:host ::ng-deep .cs-answer {
+  max-width: 100%;
 }
 
 /* Persistent per-message slot. Carries no padding and no containment of its
