@@ -257,6 +257,49 @@ describe('wizard generation tab ownership and recovery', () => {
     });
   }
 
+  it('pushes verified facts and recovers the same facts by checkpoint lookup alone', async () => {
+    const h = makeHarness();
+    recordingOrchestrator(h, [
+      outcome('agent-a', 'written', { rejectedSections: 2 }),
+    ]);
+    await previewAndSubmit(h);
+    await settle();
+    const pushed = completeBroadcasts(h)[0];
+    expect(pushed.result).toMatchObject({
+      counts: { written: 1, failed: 0, skipped: 0 },
+      rejectedSections: 2,
+      agentOutcomes: [
+        { agentId: 'agent-a', status: 'written', fileName: 'agent-a.md' },
+      ],
+    });
+    expect(pushed.result?.agentOutcomes?.[0]).not.toHaveProperty('filePath');
+    h.webviewManager.broadcastMessage.mockClear();
+    const lookup = await h.handlers.getGenerationRunState({ tabBinding: tab });
+    expect(lookup.run?.result?.agentOutcomes).toEqual(
+      pushed.result?.agentOutcomes,
+    );
+    expect(lookup.run?.result?.counts).toEqual(pushed.result?.counts);
+    expect(lookup.run?.result?.propagation).toEqual(pushed.result?.propagation);
+    expect(completeBroadcasts(h)).toHaveLength(0);
+  });
+
+  it('omits detailed facts for a failed checkpoint without a verified payload', async () => {
+    const h = makeHarness();
+    seedCheckpoint(
+      h,
+      { 'agent-a': 'failed' },
+      { lifecycle: 'failed', tabBinding: tab },
+    );
+    h.storage.list.mockResolvedValue([{ filename: 'acme' }]);
+    const lookup = await h.handlers.getGenerationRunState({ tabBinding: tab });
+    expect(lookup.run?.result).toMatchObject({
+      status: 'failed',
+      success: false,
+    });
+    expect(lookup.run?.result?.agentOutcomes).toBeUndefined();
+    expect(lookup.run?.result?.counts).toBeUndefined();
+  });
+
   it.each([
     [
       'missing',

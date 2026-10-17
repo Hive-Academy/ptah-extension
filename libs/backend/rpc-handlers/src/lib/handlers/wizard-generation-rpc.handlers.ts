@@ -71,6 +71,7 @@ import type {
   RpcMethodName,
   SetupGenerationTabBinding,
   SetupGenerationRunBinding,
+  SetupGenerationResultFacts,
   GenerationContextSource,
   WizardGetGenerationRunStateParams,
   WizardGetGenerationRunStateResponse,
@@ -111,6 +112,7 @@ import {
   rejectSubmit,
   resolveProviderRoute,
   sameWorkspacePath,
+  resultDetailsFromManifest,
   type GenerationProviderModels,
 } from './wizard-generation-binding';
 
@@ -711,6 +713,7 @@ export class WizardGenerationRpcHandlers {
             prepared.location,
             effectiveWorkspace,
             settled,
+            !!tabBinding,
           ),
       })
       .catch(async (error: unknown) => {
@@ -827,7 +830,7 @@ export class WizardGenerationRpcHandlers {
     prepared: PreparedGenerationRun,
     broadcaster: WebviewBroadcaster | null,
   ): Promise<void> {
-    await this.checkpoints.finalize(prepared.location, 'completed');
+    await this.checkpoints.finalize(prepared.location, 'completed', true);
     const payload = buildCompletePayload({
       summary: null,
       failure: null,
@@ -853,6 +856,7 @@ export class WizardGenerationRpcHandlers {
           effectiveProvider: manifest.effectiveProvider ?? 'unknown',
           effectiveModel: manifest.effectiveModel ?? 'unknown',
           enhancedPromptsUsed: manifest.enhancedPromptsUsed,
+          ...resultDetailsFromManifest(manifest),
         },
       });
     } else {
@@ -870,6 +874,7 @@ export class WizardGenerationRpcHandlers {
     location: GenerationCheckpointLocation,
     workspaceRoot: string,
     settled: SettledGenerationRun,
+    bound = false,
   ): Promise<void> {
     const lifecycle =
       settled.abortReason === GENERATION_CANCEL_REASON
@@ -879,7 +884,11 @@ export class WizardGenerationRpcHandlers {
           : (settled.summary?.lifecycle ?? 'failed');
     let finalizeError: unknown;
     try {
-      await this.checkpoints.finalize(location, lifecycle);
+      await this.checkpoints.finalize(
+        location,
+        lifecycle,
+        settled.summary !== null,
+      );
     } catch (error: unknown) {
       finalizeError = error;
     }
@@ -892,7 +901,17 @@ export class WizardGenerationRpcHandlers {
         durationMs: settled.durationMs,
       });
       if (settled.summary.writtenCount > 0) {
-        await this.propagateGeneratedAgents(workspaceRoot);
+        const propagation = await this.propagateGeneratedAgents(workspaceRoot);
+        if (bound) {
+          settled.propagation = propagation;
+          await this.checkpoints.recordPropagation(location, propagation);
+        }
+      } else if (bound) {
+        settled.propagation = {
+          consent: 'not-granted',
+          status: 'not-attempted',
+        };
+        await this.checkpoints.recordPropagation(location, settled.propagation);
       }
     } else {
       this.logger.error(`RPC: ${method} failed`, {
@@ -901,6 +920,12 @@ export class WizardGenerationRpcHandlers {
       });
     }
     if (finalizeError) throw finalizeError;
+    if (bound && settled.summary) {
+      const committed = await this.checkpoints.loadAt(location);
+      if (!committed)
+        throw new Error('Generation checkpoint missing after settlement');
+      settled.resultDetails = resultDetailsFromManifest(committed);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -1396,6 +1421,7 @@ export class WizardGenerationRpcHandlers {
                   checkpoint,
                   workspaceRoot,
                   result,
+                  !!retryBinding,
                 )
               : this.afterSettledWithoutCheckpoint(workspaceRoot, result),
         });
@@ -1644,13 +1670,20 @@ export class WizardGenerationRpcHandlers {
    * mirror has run). A wizard run must not fail because a rival CLI's
    * directory was read-only.
    */
-  private async propagateGeneratedAgents(workspaceRoot: string): Promise<void> {
+  private async propagateGeneratedAgents(
+    workspaceRoot: string,
+  ): Promise<NonNullable<SetupGenerationResultFacts['propagation']>> {
+    let consent = false;
     try {
       // BEFORE the propagate, because the reconciler resolves the gate at the
       // top of the pass: granting after it would leave the agents this run
       // just generated sitting in the user layer until a later trigger.
-      this.grantAgentSyncConsent(workspaceRoot);
-      if (!this.container.isRegistered(HARNESS_SYNC_TOKENS.PROPAGATION)) return;
+      consent = this.grantAgentSyncConsent(workspaceRoot);
+      if (!this.container.isRegistered(HARNESS_SYNC_TOKENS.PROPAGATION))
+        return {
+          consent: consent ? 'granted' : 'not-granted',
+          status: 'unavailable',
+        };
       const propagation = this.resolveService<HarnessPropagationService>(
         HARNESS_SYNC_TOKENS.PROPAGATION,
         'HarnessPropagationService',
@@ -1659,16 +1692,28 @@ export class WizardGenerationRpcHandlers {
         workspaceRoot,
         'wizard:generation-complete',
       );
-      if (health === null) return;
+      if (health === null)
+        return {
+          consent: consent ? 'granted' : 'not-granted',
+          status: 'unavailable',
+        };
       this.logger.info('Generated agents propagated to harness targets', {
         targets: health.targets
           .filter((target) => target.detected)
           .map((target) => target.target),
       });
+      return {
+        consent: consent ? 'granted' : 'not-granted',
+        status: 'completed',
+        targets: health.targets
+          .filter((target) => target.detected)
+          .map((target) => target.target),
+      };
     } catch (error: unknown) {
       this.logger.warn('Harness propagation after generation failed', {
         error: error instanceof Error ? error.message : String(error),
       });
+      return { consent: consent ? 'granted' : 'not-granted', status: 'failed' };
     }
   }
 
@@ -1678,24 +1723,26 @@ export class WizardGenerationRpcHandlers {
    * the reconciler would decline to fan a single generated agent out to
    * Codex, Copilot or Cursor.
    */
-  private grantAgentSyncConsent(workspaceRoot: string): void {
+  private grantAgentSyncConsent(workspaceRoot: string): boolean {
     try {
       if (!this.container.isRegistered(HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE)) {
-        return;
+        return false;
       }
       const gate = this.resolveService<AgentSyncGate>(
         HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE,
         'AgentSyncGate',
       );
-      if (gate.enable(workspaceRoot)) return;
+      if (gate.enable(workspaceRoot)) return true;
       this.logger.warn(
         'Could not record agent-sync consent; generated agents may not reach rival CLIs',
         { workspaceRoot },
       );
+      return false;
     } catch (error: unknown) {
       this.logger.warn('Recording agent-sync consent failed', {
         error: error instanceof Error ? error.message : String(error),
       });
+      return false;
     }
   }
 

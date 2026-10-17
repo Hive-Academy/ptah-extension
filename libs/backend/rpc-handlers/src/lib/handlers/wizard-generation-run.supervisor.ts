@@ -25,6 +25,7 @@ import type {
   Result,
   SetupGenerationRunBinding,
   GenerationContextSource,
+  SetupGenerationResultFacts,
 } from '@ptah-extension/shared';
 import type {
   GenerationSummary,
@@ -99,6 +100,15 @@ export interface SettledGenerationRun {
   abortReason: string | null;
   durationMs: number;
   payload: GenerationCompletePayload;
+  propagation?: SetupGenerationResultFacts['propagation'];
+  resultDetails?: Pick<
+    SetupGenerationResultFacts,
+    | 'agentOutcomes'
+    | 'counts'
+    | 'rejectedSections'
+    | 'tailoredSections'
+    | 'propagation'
+  >;
 }
 
 export interface CompletePayloadInput {
@@ -326,6 +336,7 @@ export class GenerationRunSupervisor {
             effectiveProvider: request.effectiveProvider ?? 'unknown',
             effectiveModel: request.effectiveModel ?? 'unknown',
             enhancedPromptsUsed: request.enhancedPromptsUsed,
+            ...(settled.resultDetails ?? {}),
           },
         };
       }

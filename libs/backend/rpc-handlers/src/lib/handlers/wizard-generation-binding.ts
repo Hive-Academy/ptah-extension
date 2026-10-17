@@ -1,4 +1,5 @@
 import { promises as fsPromises } from 'fs';
+import { basename } from 'path';
 import { RpcUserError, type Logger } from '@ptah-extension/vscode-core';
 import type {
   AnalysisFreshnessService,
@@ -11,6 +12,7 @@ import type {
   SetupGenerationRejection,
   WizardGetGenerationRunStateResponse,
   WizardSubmitSelectionResponse,
+  SetupGenerationResultFacts,
 } from '@ptah-extension/shared';
 import type { PreparedGenerationRun } from './wizard-generation-checkpoint.service';
 
@@ -20,6 +22,69 @@ type VerifiedManifest = Awaited<
   ReturnType<AnalysisStorageService['loadManifest']>
 >;
 const ORPHAN_GRACE_MS = 30_000;
+
+type ResultDetails = Pick<
+  SetupGenerationResultFacts,
+  | 'agentOutcomes'
+  | 'counts'
+  | 'rejectedSections'
+  | 'tailoredSections'
+  | 'propagation'
+>;
+
+function outcomeStatus(
+  status: 'written' | 'unchanged' | 'failed' | 'pending' | 'running',
+  rejectedSections: number,
+): NonNullable<SetupGenerationResultFacts['agentOutcomes']>[number]['status'] {
+  if (status === 'pending' || status === 'running') return 'skipped';
+  if (status === 'failed' && rejectedSections > 0) return 'rejected';
+  return status;
+}
+
+function countOutcomes(
+  outcomes: NonNullable<SetupGenerationResultFacts['agentOutcomes']>,
+): NonNullable<SetupGenerationResultFacts['counts']> {
+  const count = (status: (typeof outcomes)[number]['status']) =>
+    outcomes.filter((outcome) => outcome.status === status).length;
+  return {
+    total: outcomes.length,
+    written: count('written'),
+    unchanged: count('unchanged'),
+    failed: count('failed') + count('rejected'),
+    skipped: count('skipped'),
+    rejected: count('rejected'),
+  };
+}
+
+export function resultDetailsFromManifest(manifest: Manifest): ResultDetails {
+  const agentOutcomes = manifest.selectedAgentIds.map((agentId) => {
+    const agent = manifest.agents[agentId];
+    const status = manifest.carriedOverAgentIds?.includes(agentId)
+      ? 'unchanged'
+      : (agent?.status ?? 'pending');
+    return {
+      agentId,
+      status: outcomeStatus(status, agent?.rejectedSections ?? 0),
+      ...(agent?.filePath ? { fileName: basename(agent.filePath) } : {}),
+      rejectedSections: agent?.rejectedSections ?? 0,
+      tailoredSections: agent?.tailoredSections ?? 0,
+      ...(agent?.error ? { error: `Generation failed for ${agentId}.` } : {}),
+    };
+  });
+  return {
+    agentOutcomes,
+    counts: countOutcomes(agentOutcomes),
+    rejectedSections: agentOutcomes.reduce(
+      (sum, agent) => sum + agent.rejectedSections,
+      0,
+    ),
+    tailoredSections: agentOutcomes.reduce(
+      (sum, agent) => sum + agent.tailoredSections,
+      0,
+    ),
+    ...(manifest.propagation ? { propagation: manifest.propagation } : {}),
+  };
+}
 
 export async function sameWorkspacePath(
   a: string,
@@ -94,6 +159,9 @@ export function generationRunState(
               effectiveProvider,
               effectiveModel,
               enhancedPromptsUsed: manifest.enhancedPromptsUsed,
+              ...(manifest.verifiedResult || manifest.lifecycle === 'completed'
+                ? resultDetailsFromManifest(manifest)
+                : {}),
             },
           }
         : {}),

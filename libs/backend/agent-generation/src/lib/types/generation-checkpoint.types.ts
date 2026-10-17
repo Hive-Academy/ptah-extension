@@ -6,6 +6,7 @@
  */
 
 import { z } from 'zod';
+import { HARNESS_TARGET_IDS } from '@ptah-extension/shared';
 import type { ProjectAnalysisResult } from '@ptah-extension/shared';
 
 /** Durable status for one selected agent's generation work. */
@@ -28,6 +29,9 @@ export interface GenerationCheckpointManifest {
   effectiveProvider?: string;
   effectiveModel?: string;
   enhancedPromptsUsed?: boolean;
+  propagation?: import('@ptah-extension/shared').SetupGenerationResultFacts['propagation'];
+  verifiedResult?: boolean;
+  carriedOverAgentIds?: string[];
   analysisRunId?: string;
   analysisDirectory?: string;
   createdAt: string;
@@ -208,6 +212,15 @@ export const GenerationCheckpointManifestSchema = z.object({
   effectiveProvider: z.string().optional(),
   effectiveModel: z.string().optional(),
   enhancedPromptsUsed: z.boolean().optional(),
+  propagation: z
+    .object({
+      consent: z.enum(['granted', 'not-granted']),
+      status: z.enum(['completed', 'unavailable', 'failed', 'not-attempted']),
+      targets: z.array(z.enum(HARNESS_TARGET_IDS)).optional(),
+    })
+    .optional(),
+  verifiedResult: z.boolean().optional(),
+  carriedOverAgentIds: z.array(z.string()).optional(),
   analysisRunId: z.string().optional(),
   analysisDirectory: z.string().optional(),
   createdAt: z.string(),

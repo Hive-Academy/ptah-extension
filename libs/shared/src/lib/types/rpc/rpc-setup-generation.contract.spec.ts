@@ -99,6 +99,41 @@ const accepted: SetupGenerationAccepted = {
 };
 
 describe('setup generation compatibility contract', () => {
+  it('types optional verified bound result facts without changing the base result', () => {
+    const facts: SetupGenerationResultFacts = {
+      status: 'completed',
+      success: true,
+      source,
+      effectiveProvider: 'anthropic',
+      effectiveModel: 'claude-sonnet',
+      agentOutcomes: [
+        {
+          agentId: 'agent',
+          status: 'written',
+          fileName: 'agent.md',
+          rejectedSections: 1,
+          tailoredSections: 2,
+        },
+      ],
+      counts: {
+        total: 1,
+        written: 1,
+        unchanged: 0,
+        failed: 0,
+        skipped: 0,
+        rejected: 0,
+      },
+      rejectedSections: 1,
+      tailoredSections: 2,
+      propagation: {
+        consent: 'granted',
+        status: 'completed',
+        targets: ['claude'],
+      },
+    };
+    expect(facts.agentOutcomes?.[0].fileName).toBe('agent.md');
+    expect(facts.propagation?.consent).toBe('granted');
+  });
   it('keeps tabless requests and awaited result shapes valid', () => {
     const submit: WizardSubmitSelectionParams = { selectedAgentIds: ['agent'] };
     const guidance: EnhancedPromptsRunWizardParams = {

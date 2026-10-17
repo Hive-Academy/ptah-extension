@@ -6,6 +6,7 @@
 
 import type { ProjectAnalysisResult, AgentRecommendation } from '../wizard';
 import type { HarnessTargetId } from '../harness-sync.types';
+import type { GenerationAgentOutcome } from '../wizard/phase';
 
 export type SetupGenerationWorkflow =
   'setup-agent-generation' | 'setup-project-prompt';
@@ -70,6 +71,27 @@ export interface SetupGenerationResultFacts {
   effectiveProvider: string;
   effectiveModel: string;
   enhancedPromptsUsed?: boolean;
+  agentOutcomes?: Array<
+    Omit<GenerationAgentOutcome, 'status' | 'filePath'> & {
+      status: GenerationAgentOutcome['status'] | 'skipped' | 'rejected';
+      fileName?: string;
+    }
+  >;
+  counts?: {
+    total: number;
+    written: number;
+    unchanged: number;
+    failed: number;
+    skipped: number;
+    rejected: number;
+  };
+  rejectedSections?: number;
+  tailoredSections?: number;
+  propagation?: {
+    consent: 'granted' | 'not-granted';
+    status: 'completed' | 'unavailable' | 'failed' | 'not-attempted';
+    targets?: HarnessTargetId[];
+  };
 }
 
 export interface SetupGenerationRunState {

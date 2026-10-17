@@ -374,6 +374,7 @@ export class GenerationCheckpointService {
         : {}),
       lifecycle: 'running',
       updatedAt: new Date().toISOString(),
+      carriedOverAgentIds: carriedOver.map((agent) => agent.agentId),
       agents,
     };
     await this.storage().writeGenerationManifest(
@@ -430,13 +431,36 @@ export class GenerationCheckpointService {
   async finalize(
     location: GenerationCheckpointLocation,
     lifecycle: GenerationCheckpointManifest['lifecycle'],
+    verifiedResult = false,
   ): Promise<void> {
     const updated = await this.storage().updateGenerationManifest(
       location.workspaceRoot,
       location.analysisDir,
-      (current) => ({ ...current, lifecycle }),
+      (current) => ({ ...current, lifecycle, verifiedResult }),
     );
     if (!updated) throw new Error('Generation checkpoint missing at finalize');
+  }
+
+  async recordPropagation(
+    location: GenerationCheckpointLocation,
+    propagation: NonNullable<GenerationCheckpointManifest['propagation']>,
+  ): Promise<void> {
+    const updated = await this.storage().updateGenerationManifest(
+      location.workspaceRoot,
+      location.analysisDir,
+      (current) => ({ ...current, propagation }),
+    );
+    if (!updated)
+      throw new Error('Generation checkpoint missing at propagation');
+  }
+
+  async loadAt(
+    location: GenerationCheckpointLocation,
+  ): Promise<GenerationCheckpointManifest | null> {
+    return this.storage().loadGenerationManifest(
+      location.workspaceRoot,
+      location.analysisDir,
+    );
   }
 
   private storage(): AnalysisStorageService {
