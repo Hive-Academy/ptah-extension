@@ -9,6 +9,7 @@
  *   - session:addPrLink       - add (or refresh) a PR link
  *   - session:removePrLink    - remove a PR link
  *   - session:listForTasks    - linked sessions grouped by task id
+ *   - session:getOrganization - one session's summary (read, no push)
  *
  * Every method:
  *   1. Zod-parses params (session-organization-rpc.schema.ts) BEFORE any
@@ -16,7 +17,7 @@
  *   2. Answers `organization-unavailable` (`{ available: false }` for the
  *      list) when the host has no organization service — VS Code — or its
  *      store is closed.
- *   3. Authorizes: a mutation's session must have metadata
+ *   3. Authorizes: a mutation's or the read's session must have metadata
  *      (`session-not-found` otherwise) whose workspace is an open folder; the
  *      list's `workspacePath` must be an open folder
  *      (RpcUserError('UNAUTHORIZED_WORKSPACE')).
@@ -52,6 +53,7 @@ import {
 import {
   SESSION_ORGANIZATION_TOKENS,
   SessionOrganizationInputError,
+  toSessionOrganizationSummary,
   type SessionOrganizationChange,
   type SessionOrganizationService,
   type StoredSessionTaskLink,
@@ -63,6 +65,8 @@ import {
 import {
   MESSAGE_TYPES,
   type RpcMethodName,
+  type SessionGetOrganizationParams,
+  type SessionGetOrganizationResult,
   type SessionListForTasksParams,
   type SessionListForTasksResult,
   type SessionOrganizationMutationResult,
@@ -71,6 +75,7 @@ import {
 } from '@ptah-extension/shared';
 import {
   SessionAddPrLinkParamsSchema,
+  SessionGetOrganizationParamsSchema,
   SessionLinkTaskParamsSchema,
   SessionListForTasksParamsSchema,
   SessionRemovePrLinkParamsSchema,
@@ -110,6 +115,7 @@ export class SessionOrganizationRpcHandlers {
     'session:addPrLink',
     'session:removePrLink',
     'session:listForTasks',
+    'session:getOrganization',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -169,6 +175,7 @@ export class SessionOrganizationRpcHandlers {
       (organization, params) => organization.removeSessionPrLink(params),
     );
     this.registerListForTasks();
+    this.registerGetOrganization();
 
     this.logger.debug('Session organization RPC handlers registered', {
       methods: [...SessionOrganizationRpcHandlers.METHODS],
@@ -255,6 +262,55 @@ export class SessionOrganizationRpcHandlers {
           links: this.groupByTask(links, names, (sessionId) =>
             (stored.get(sessionId)?.prLinks ?? []).map((pr) => ({ ...pr })),
           ),
+        };
+      } catch (error: unknown) {
+        throw this.sanitize(error, method);
+      }
+    });
+  }
+
+  /**
+   * session:getOrganization — the organization summary of one persisted
+   * session, for a caller that does not hold its `session:list` row (a board
+   * session outside the loaded page or filters). Parse → unavailable →
+   * authorize (no metadata = `session-not-found`, e.g. a session whose first
+   * turn has not persisted yet) → summary → the real `missing` flag.
+   *
+   * Cost: a workspace-wide read, then ID lookup. The store has no by-ID
+   * read, so this runs `queryWorkspace(root)` and `countChildren(root)`
+   * (the same reads as one `session:list` page) and picks the session's
+   * entry. A session with no stored row gets the defaults, as in
+   * `session:list`. Nothing changes, so nothing is pushed.
+   */
+  private registerGetOrganization(): void {
+    const method = 'session:getOrganization';
+    this.rpcHandler.registerMethod<
+      SessionGetOrganizationParams,
+      SessionGetOrganizationResult
+    >(method, async (params) => {
+      const parsed = this.parse(
+        method,
+        SessionGetOrganizationParamsSchema,
+        params,
+      );
+      const organization = this.organization;
+      if (!organization?.isAvailable()) return UNAVAILABLE;
+      try {
+        const root = await this.authorizeSession(parsed.sessionId);
+        if (root === null) return NOT_FOUND;
+        const stored = organization.queryWorkspace(root);
+        const childCounts = organization.countChildren(root);
+        // The service's guarded reads answer empty maps when the store
+        // closed after the check above; that is unavailable, not defaults.
+        if (!organization.isAvailable()) return UNAVAILABLE;
+        const summary = toSessionOrganizationSummary(
+          stored.get(parsed.sessionId),
+          childCounts.get(parsed.sessionId) ?? 0,
+          new Set(),
+        );
+        return {
+          ok: true,
+          organization: await this.withMissingTasks(root, summary),
         };
       } catch (error: unknown) {
         throw this.sanitize(error, method);

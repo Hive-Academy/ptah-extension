@@ -74,7 +74,7 @@ describe('ElectronShellComponent — activity placement', () => {
 
   const layoutStub = {
     hasWorkspaceFolders: signal(true),
-    workspaceSidebarVisible: () => false,
+    workspaceSidebarVisible: signal(false),
     workspaceSidebarWidth: () => 240,
     editorPanelVisible: () => false,
     editorPanelWidth: () => 320,
@@ -185,31 +185,35 @@ describe('ElectronShellComponent — activity placement', () => {
     expect(navbar().querySelector('ptah-activity-ticker')).toBeNull();
   });
 
-  it('resizes the sessions sidebar from the between-sidebars divider and leaves the workspace width alone', () => {
-    const sessions = {
-      sidebarWidth: () => 272,
-      beginExternalSidebarResize: jest.fn(),
-      applyExternalSidebarResize: jest.fn(),
-      commitExternalSidebarResize: jest.fn(),
-    };
-    const component = fixture.componentInstance as unknown as {
-      sessionsShell: () => typeof sessions;
-      onSessionsDividerMouseDown: (event: MouseEvent) => void;
-      onSessionsDividerDrag: (pointerX: number) => void;
-      onSessionsDividerDragEnd: () => void;
-    };
-    component.sessionsShell = () => sessions;
+  describe('with the workspace sidebar visible', () => {
+    beforeEach(() => {
+      layoutStub.setWorkspaceSidebarWidth.mockClear();
+      layoutStub.workspaceSidebarVisible.set(true);
+      fixture.detectChanges();
+    });
 
-    component.onSessionsDividerMouseDown({ clientX: 252 } as MouseEvent);
-    component.onSessionsDividerDrag(292);
+    afterEach(() => layoutStub.workspaceSidebarVisible.set(false));
 
-    expect(sessions.beginExternalSidebarResize).toHaveBeenCalledTimes(1);
-    // +40px on the sessions pane (272 → 312), not the absolute pointer 292
-    // that used to be written as the workspace sidebar width.
-    expect(sessions.applyExternalSidebarResize).toHaveBeenCalledWith(312);
-    expect(layoutStub.setWorkspaceSidebarWidth).not.toHaveBeenCalled();
+    it('renders no sessions divider next to a visible workspace sidebar', () => {
+      expect(shell().querySelector('ptah-workspace-sidebar')).toBeTruthy();
+      // The editor panel is closed, so its handle is absent too: no resize
+      // handle is left in the content row at all.
+      expect(
+        shell().querySelectorAll('ptah-electron-resize-handle'),
+      ).toHaveLength(0);
+      // The Workspaces tab is followed directly by the chat column.
+      const tab = shell().querySelector('ptah-sidebar-tab[label="Workspaces"]');
+      expect(tab?.nextElementSibling?.getAttribute('data-test')).toBe(
+        'configuration-surface-host',
+      );
+    });
 
-    component.onSessionsDividerDragEnd();
-    expect(sessions.commitExternalSidebarResize).toHaveBeenCalledTimes(1);
+    it('the workspace sidebar width is untouched', () => {
+      const sidebar = shell().querySelector<HTMLElement & { width?: number }>(
+        'ptah-workspace-sidebar',
+      );
+      expect(sidebar?.width).toBe(240);
+      expect(layoutStub.setWorkspaceSidebarWidth).not.toHaveBeenCalled();
+    });
   });
 });

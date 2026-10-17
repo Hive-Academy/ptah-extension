@@ -136,6 +136,8 @@ import type {
   SessionStatusResponse,
   SessionSetOrganizationParams,
   SessionSetOrganizationResult,
+  SessionGetOrganizationParams,
+  SessionGetOrganizationResult,
   SessionLinkTaskParams,
   SessionLinkTaskResult,
   SessionUnlinkTaskParams,
@@ -832,6 +834,10 @@ export interface RpcMethodRegistry {
   'session:setOrganization': {
     params: SessionSetOrganizationParams;
     result: SessionSetOrganizationResult;
+  };
+  'session:getOrganization': {
+    params: SessionGetOrganizationParams;
+    result: SessionGetOrganizationResult;
   };
   'session:linkTask': {
     params: SessionLinkTaskParams;
@@ -3777,6 +3783,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'session:rewindFiles': true,
   'session:status': true,
   'session:setOrganization': true,
+  'session:getOrganization': true,
   'session:linkTask': true,
   'session:unlinkTask': true,
   'session:addPrLink': true,

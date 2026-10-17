@@ -29,6 +29,7 @@ import { StreamViewportController } from './stream-viewport-controller.service';
 import { AgentSessionAdoptionService } from './agent-session-adoption.service';
 import { ChatStore } from './chat.store';
 import { BoardTaskLinkCaptureService } from './chat-store/board-task-link-capture.service';
+import { SessionOrganizerService } from './session-list/session-organizer.service';
 
 const VALID_UUID = '11111111-1111-4111-8111-111111111111';
 const SESS_VALID = SessionId.create();
@@ -93,6 +94,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
   };
   let turnStateApplier: { apply: jest.Mock };
   let agentSessionAdoption: { adopt: jest.Mock; adoptHandoff: jest.Mock };
+  let organizer: { onOrganizationChanged: jest.Mock };
   let claims: WorkflowSessionClaimService;
   let surfaceRegistry: StreamingSurfaceRegistry;
   let consoleWarnSpy: jest.SpyInstance;
@@ -141,6 +143,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
     };
     turnStateApplier = { apply: jest.fn() };
     agentSessionAdoption = { adopt: jest.fn(), adoptHandoff: jest.fn() };
+    organizer = { onOrganizationChanged: jest.fn() };
 
     TestBed.configureTestingModule({
       providers: [
@@ -166,6 +169,7 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
           provide: AgentSessionAdoptionService,
           useValue: agentSessionAdoption,
         },
+        { provide: SessionOrganizerService, useValue: organizer },
       ],
     });
 
@@ -1052,6 +1056,41 @@ describe('ChatMessageHandler — payload validation (TASK_2026_120 Phase B)', ()
 
         jest.advanceTimersByTime(250);
 
+        expect(chatStore.loadSessions).toHaveBeenCalledTimes(1);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('hands the pushed session ids to the organizer next to the list refresh (TASK_2026_679)', () => {
+      jest.useFakeTimers();
+      try {
+        handler.handleMessage({
+          type: MESSAGE_TYPES.SESSION_ORGANIZATION_CHANGED,
+          payload: {
+            workspaceRoot: '/work',
+            sessionIds: ['s-1', 's-2'],
+            reason: 'user',
+          },
+        });
+        expect(organizer.onOrganizationChanged).toHaveBeenCalledTimes(1);
+        expect(organizer.onOrganizationChanged).toHaveBeenCalledWith([
+          's-1',
+          's-2',
+        ]);
+
+        handler.handleMessage({
+          type: MESSAGE_TYPES.SESSION_METADATA_CHANGED,
+        });
+        expect(organizer.onOrganizationChanged).toHaveBeenCalledTimes(1);
+
+        handler.handleMessage({
+          type: MESSAGE_TYPES.SESSION_ORGANIZATION_CHANGED,
+          payload: { sessionIds: 'not-a-list' },
+        });
+        expect(organizer.onOrganizationChanged).toHaveBeenLastCalledWith([]);
+
+        jest.advanceTimersByTime(250);
         expect(chatStore.loadSessions).toHaveBeenCalledTimes(1);
       } finally {
         jest.useRealTimers();

@@ -42,17 +42,20 @@ async function saveButtonIdle(page: Page): Promise<void> {
 }
 
 /**
- * Put the caret at the very end of the document and type `text`, then wait
- * until the editor really holds it. The first keys of a zero-delay burst can
- * be lost while CodeMirror settles after the focus click on a loaded runner
- * (CI once typed `// PTAH_E2E_EDIT` and the editor received
- * ` PTAH_E2E_EDIT`, so the disk poll spent 30 s blaming a save that worked).
+ * Put the caret at the very end of the document and insert `text`, then wait
+ * until the editor really holds it. The first key of a typed burst can be
+ * lost while CodeMirror settles after focus on a loaded runner (CI typed
+ * `// PTAH_E2E_EDIT` and `.cm-content` received `/ PTAH_E2E_EDIT`).
+ * `insertText` writes the literal string once the editor is focused, so that
+ * keystroke is not a key event that can be dropped.
  */
 async function typeAtEnd(page: Page, text: string): Promise<void> {
-  await spotEditorContent(page).click();
+  const content = spotEditorContent(page);
+  await content.click();
+  await expect(content).toBeFocused();
   await page.keyboard.press('Control+End');
-  await page.keyboard.type(text, { delay: 30 });
-  await expect(spotEditorContent(page)).toContainText(text, { timeout: 10_000 });
+  await page.keyboard.insertText(text);
+  await expect(content).toContainText(text, { timeout: 10_000 });
 }
 
 async function openEditable(

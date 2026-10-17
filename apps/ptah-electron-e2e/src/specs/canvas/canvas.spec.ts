@@ -212,10 +212,14 @@ test.describe('Canvas Rail split focus and reorder', () => {
     await headerAction(page, await visualPane(page, 0), 'Swap panes');
     await expect.poll(() => visualSide(page, 0)).not.toBe(topBefore);
     const top = await visualPane(page, 0);
-    // The Rail footer's New session button is the last tabbable element of the Rail, so Tab
-    // from it is the Rail -> panes hand-off. (Tab from the last card only reaches this button.)
-    // Match the footer button, not its name: a collapsed Rail renders the label as "+".
-    await railBoard(page).locator('ptah-canvas-rail footer button').focus();
+    // Tab from New session reaches Previous sessions, then hands off from the Rail to the panes.
+    await railBoard(page)
+      .getByRole('button', { name: 'New session', exact: true })
+      .focus();
+    await page.keyboard.press('Tab');
+    await expect(
+      railBoard(page).getByRole('button', { name: 'Previous sessions', exact: true }),
+    ).toBeFocused();
     await page.keyboard.press('Tab');
     await expect(top.locator(':focus')).toHaveCount(1);
   });

@@ -1,4 +1,4 @@
-import type { ElementHandle, Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
 import type {
   LongTaskAttribution,
   LongTaskEntry,
@@ -182,14 +182,15 @@ export async function stopTraceCapture(
 }
 
 /**
- * Clicks every button and waits for every marker to appear, ENTIRELY inside
- * one `page.evaluate` call: a native `HTMLElement.click()` per button (the
+ * Opens each named session from the Previous sessions modal and waits for
+ * every marker to appear, ENTIRELY inside one `page.evaluate` call: native
+ * `HTMLElement.click()` calls for the trigger and row button (the
  * same click event Angular's zone-patched listener reacts to — not
  * Playwright's `.click()`, which runs hit-testing/visibility/animation
  * actionability checks first) and a single `MutationObserver` resolving a
  * Promise once every marker string is found. No Playwright-side polling, no
  * locator resolution, runs during this call — that is the entire point: the
- * long-task window this wraps measures the app, not the test harness.
+ * long-task window includes each modal open (DP-13).
  *
  * Clicks are separated by one `requestAnimationFrame` yield to preserve the
  * harness's disclosed stress cadence. This is a deliberate pacing choice, not
@@ -203,12 +204,12 @@ export async function stopTraceCapture(
  */
 export async function openTilesWithinPage(
   page: Page,
-  buttons: ElementHandle<HTMLElement>[],
+  rowNames: string[],
   markers: string[],
   timeoutMs = 30_000,
 ): Promise<OpenTilesResult> {
   return page.evaluate(
-    async ({ buttons, markers, timeoutMs }) => {
+    async ({ rowNames, markers, timeoutMs }) => {
       const remaining = new Set(markers);
       const markerTimeByValue = new Map<string, number>();
       const clickTimes: number[] = [];
@@ -459,19 +460,59 @@ export async function openTilesWithinPage(
       });
 
       windowStartMs = performance.now();
-      for (const btn of buttons) {
-        clickTimes.push(performance.now());
-        btn.click();
-        // Disclosed FU-22a stress cadence; retained until the product queue lands.
-        await new Promise<void>((resolve) =>
-          requestAnimationFrame(() => resolve()),
-        );
-        scanWholeBody();
+      try {
+        for (const name of rowNames) {
+          const trigger = Array.from(
+            document.querySelectorAll<HTMLElement>(
+              '[data-previous-sessions-trigger]',
+            ),
+          ).find((element) => element.getClientRects().length > 0);
+          if (!trigger) {
+            throw new Error('[AC-11 perf] Previous sessions trigger not found');
+          }
+          clickTimes.push(performance.now());
+          trigger.click();
+
+          const deadline = performance.now() + timeoutMs;
+          let openButton: HTMLElement | null = null;
+          while (!openButton) {
+            const rows = document.querySelectorAll<HTMLElement>(
+              '[data-testid="previous-sessions-list"] li:not([data-testid="session-group"])',
+            );
+            for (const row of rows) {
+              if (row.textContent?.includes(name)) {
+                openButton = row.querySelector<HTMLElement>('[data-action="open"]');
+                if (openButton) break;
+              }
+            }
+            if (openButton) break;
+            if (performance.now() >= deadline) {
+              throw new Error(
+                `[AC-11 perf] Previous sessions row not found for "${name}" within ${timeoutMs} ms`,
+              );
+            }
+            await new Promise<void>((resolve) =>
+              requestAnimationFrame(() => resolve()),
+            );
+          }
+          openButton.click();
+          // Disclosed FU-22a stress cadence; retained until the product queue lands.
+          await new Promise<void>((resolve) =>
+            requestAnimationFrame(() => resolve()),
+          );
+          scanWholeBody();
+        }
+      } catch (error) {
+        observer.disconnect();
+        clearTimeout(markerTimeoutId);
+        if (quietId !== undefined) clearTimeout(quietId);
+        if (settleCapId !== undefined) clearTimeout(settleCapId);
+        throw error;
       }
 
       return donePromise;
     },
-    { buttons, markers, timeoutMs },
+    { rowNames, markers, timeoutMs },
   );
 }
 

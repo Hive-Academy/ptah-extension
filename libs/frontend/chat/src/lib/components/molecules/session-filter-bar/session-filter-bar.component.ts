@@ -1,6 +1,6 @@
 /**
- * SessionFilterBarComponent — the sidebar's organization query controls
- * (TASK_2026_580, plan component 11).
+ * SessionFilterBarComponent — the session list's organization query controls
+ * (TASK_2026_580, plan component 11; one wrapping toolbar since TASK_2026_679).
  *
  * Search text, a Filters popover (status and priority multi-select, task id,
  * pinned and has-PR toggles) and the sort and group menus. It owns the draft
@@ -102,14 +102,19 @@ function keepDraftUntilTrimmedChange(
   imports: [LucideAngularModule, NativePopoverComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
+    <!-- One wrapping toolbar (TASK_2026_679 design 3.4). From 640 px the
+         search (at least 200 px), Filters and both selects share one line;
+         below it the search takes its own line and Filters, Sort and Group
+         share the next. In a narrower container (the old sidebar) the
+         selects wrap onto their own line and shrink to fit. -->
     <div
-      class="flex flex-col gap-1"
+      class="flex flex-wrap items-center gap-2"
       role="search"
       aria-label="Filter sessions"
       data-testid="session-filter-bar"
     >
       <label
-        class="input input-sm rounded-lg h-8 min-h-8 w-full flex items-center gap-1.5 bg-surface-0 border-surface-border ${FOCUS_RING_WITHIN}"
+        class="input input-sm rounded-lg h-8 min-h-8 w-full min-w-0 sm:w-auto sm:flex-1 sm:min-w-[200px] flex items-center gap-1.5 bg-surface-0 border-surface-border ${FOCUS_RING_WITHIN}"
       >
         <lucide-angular
           [img]="SearchIcon"
@@ -118,11 +123,12 @@ function keepDraftUntilTrimmedChange(
         />
         <input
           type="text"
-          class="grow text-xs min-w-0"
+          class="grow text-xs min-w-0 placeholder:text-base-content-muted"
           placeholder="Search sessions..."
           aria-label="Search sessions by name"
           [value]="text()"
           (input)="onText($event)"
+          data-previous-sessions-search
           data-testid="session-filter-text"
         />
         @if (text()) {
@@ -137,7 +143,7 @@ function keepDraftUntilTrimmedChange(
         }
       </label>
 
-      <div class="flex items-center gap-1">
+      <div class="flex shrink-0 items-center">
         <ptah-native-popover
           [isOpen]="filtersOpen()"
           [placement]="'bottom-start'"
@@ -148,7 +154,7 @@ function keepDraftUntilTrimmedChange(
           <button
             trigger
             type="button"
-            class="btn btn-ghost btn-sm h-8 min-h-8 gap-1 px-1.5 text-base-content"
+            class="btn btn-ghost btn-sm h-8 min-h-8 gap-1 px-2 text-base-content"
             aria-haspopup="dialog"
             [attr.aria-expanded]="filtersOpen()"
             [attr.aria-label]="filtersButtonLabel()"
@@ -174,7 +180,7 @@ function keepDraftUntilTrimmedChange(
             content
             role="dialog"
             aria-label="Session filters"
-            class="w-60 max-w-[90vw] p-3 text-xs flex flex-col gap-3 text-base-content"
+            class="w-60 max-w-[90vw] max-h-[min(34rem,70dvh)] overflow-y-auto p-3 text-xs flex flex-col gap-3 text-base-content"
             data-testid="session-filter-panel"
           >
             <fieldset class="flex flex-col">
@@ -222,7 +228,7 @@ function keepDraftUntilTrimmedChange(
               <input
                 [id]="taskInputId"
                 type="text"
-                class="input input-sm rounded-lg h-8 min-h-8 w-full bg-surface-0 border-surface-border ${FOCUS_RING}"
+                class="input input-sm rounded-lg h-8 min-h-8 w-full bg-surface-0 border-surface-border placeholder:text-base-content-muted ${FOCUS_RING}"
                 placeholder="TASK_2026_..."
                 [value]="taskId()"
                 (input)="onTaskId($event)"
@@ -271,13 +277,14 @@ function keepDraftUntilTrimmedChange(
         </ptah-native-popover>
       </div>
 
-      <!-- Own row: at the 224px sidebar, sharing a row with "Filters" left
-           each select 72px and clipped its value ("Last a"). -->
-      <div class="flex items-center gap-1">
+      <!-- Sort and Group: 128 px each from 640 px, sharing the space beside
+           Filters below it. The wrapper may shrink, so a narrow container
+           wraps it onto its own line instead of clipping a value. -->
+      <div class="flex flex-1 min-w-0 items-center gap-2 sm:flex-initial">
         <label class="sr-only" [attr.for]="sortSelectId">Sort sessions</label>
         <select
           [id]="sortSelectId"
-          class="select select-sm rounded-lg h-8 min-h-8 min-w-0 flex-1 pl-2 pr-6 bg-surface-0 border-surface-border text-xs ${FOCUS_RING}"
+          class="select select-sm rounded-lg h-8 min-h-8 min-w-0 flex-1 sm:flex-initial sm:w-32 pl-2 pr-6 bg-surface-0 border-surface-border text-xs ${FOCUS_RING}"
           (change)="onSort($event)"
           data-testid="session-filter-sort"
         >
@@ -291,7 +298,7 @@ function keepDraftUntilTrimmedChange(
         <label class="sr-only" [attr.for]="groupSelectId">Group sessions</label>
         <select
           [id]="groupSelectId"
-          class="select select-sm rounded-lg h-8 min-h-8 min-w-0 flex-1 pl-2 pr-6 bg-surface-0 border-surface-border text-xs ${FOCUS_RING}"
+          class="select select-sm rounded-lg h-8 min-h-8 min-w-0 flex-1 sm:flex-initial sm:w-32 pl-2 pr-6 bg-surface-0 border-surface-border text-xs ${FOCUS_RING}"
           (change)="onGroup($event)"
           data-testid="session-filter-group"
         >

@@ -7,19 +7,28 @@
  */
 import { test, expect } from '../../test-fixtures';
 
+test.use({ useAppBuild: true });
+
 test.describe('webview > sessions > delete', () => {
   test('delete affordance opens confirmation dialog', async ({
     webviewPage,
   }) => {
-    const deleteBtn = webviewPage.getByRole('button', {
-      name: /delete session|remove session|trash/i,
-    });
+    await expect(webviewPage.locator('#ptah-e2e-fixture-root')).toHaveCount(0);
+    await webviewPage
+      .getByRole('button', { name: 'Previous sessions' })
+      .first()
+      .click();
+    await expect(
+      webviewPage.getByRole('dialog', { name: 'Previous sessions' }),
+    ).toBeVisible();
+    const deleteBtn = webviewPage
+      .getByRole('dialog', { name: 'Previous sessions' })
+      .getByRole('button', { name: /delete session|remove session|trash/i });
     if (await deleteBtn.count()) {
       await deleteBtn.first().click();
-      const dialog = webviewPage.getByRole('dialog');
-      if (await dialog.count()) {
-        await expect(dialog.first()).toBeVisible();
-      }
+      await expect(
+        webviewPage.getByRole('dialog', { name: 'Delete Session' }),
+      ).toBeVisible();
     }
     // Always verify the page is alive after the interaction attempt.
     await expect(webviewPage).toHaveURL(/127\.0\.0\.1/);
@@ -31,14 +40,22 @@ test.describe('webview > sessions > delete', () => {
   }) => {
     await bridge.reset();
 
-    const deleteBtn = webviewPage.getByRole('button', {
-      name: /delete session|remove session|trash/i,
-    });
+    await expect(webviewPage.locator('#ptah-e2e-fixture-root')).toHaveCount(0);
+    await webviewPage
+      .getByRole('button', { name: 'Previous sessions' })
+      .first()
+      .click();
+    await expect(
+      webviewPage.getByRole('dialog', { name: 'Previous sessions' }),
+    ).toBeVisible();
+    const deleteBtn = webviewPage
+      .getByRole('dialog', { name: 'Previous sessions' })
+      .getByRole('button', { name: /delete session|remove session|trash/i });
     if (await deleteBtn.count()) {
       await deleteBtn.first().click();
-      const confirm = webviewPage.getByRole('button', {
-        name: /confirm|delete|yes/i,
-      });
+      const confirm = webviewPage
+        .getByRole('dialog', { name: 'Delete Session' })
+        .getByRole('button', { name: /confirm|delete|yes/i });
       if (await confirm.count()) {
         await confirm.first().click();
       }
@@ -52,12 +69,22 @@ test.describe('webview > sessions > delete', () => {
     bridge,
   }) => {
     await bridge.reset();
-    const deleteBtn = webviewPage.getByRole('button', {
-      name: /delete session|remove session|trash/i,
-    });
+    await expect(webviewPage.locator('#ptah-e2e-fixture-root')).toHaveCount(0);
+    await webviewPage
+      .getByRole('button', { name: 'Previous sessions' })
+      .first()
+      .click();
+    await expect(
+      webviewPage.getByRole('dialog', { name: 'Previous sessions' }),
+    ).toBeVisible();
+    const deleteBtn = webviewPage
+      .getByRole('dialog', { name: 'Previous sessions' })
+      .getByRole('button', { name: /delete session|remove session|trash/i });
     if (await deleteBtn.count()) {
       await deleteBtn.first().click();
-      const cancel = webviewPage.getByRole('button', { name: /cancel|no/i });
+      const cancel = webviewPage
+        .getByRole('dialog', { name: 'Delete Session' })
+        .getByRole('button', { name: /cancel|no/i });
       if (await cancel.count()) {
         await cancel.first().click();
       }

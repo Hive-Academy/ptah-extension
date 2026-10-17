@@ -3,12 +3,13 @@
  * unavailable (TASK_2026_580 A5.2, plan component 9, D5, AC7 narrowed).
  *
  * The `sessionOrganization` manifest family is `requires: []`, so this host
- * constructs `SessionOrganizationRpcHandlers` and serves all six methods. Its
- * DI phases never call `registerSessionOrganizationServices` (no SQLite here),
- * so `SESSION_ORGANIZATION_TOKENS.SERVICE` stays unbound and the handler —
- * whose service injection is optional — answers every mutation with
- * `organization-unavailable` and `session:listForTasks` with
- * `{ available: false }`, without subscribing to change events.
+ * constructs `SessionOrganizationRpcHandlers` and serves all of its methods.
+ * Its DI phases never call `registerSessionOrganizationServices` (no SQLite
+ * here), so `SESSION_ORGANIZATION_TOKENS.SERVICE` stays unbound and the
+ * handler — whose service injection is optional — answers every mutation and
+ * the `session:getOrganization` read with `organization-unavailable` and
+ * `session:listForTasks` with `{ available: false }`, without subscribing to
+ * change events.
  *
  * The handler class is the one `resolveRpcHandlerPlan(createVscodeRpcHostProfile())`
  * plans (the same derivation `registerRpcSurface` executes), resolved from a
@@ -55,6 +56,18 @@ const MUTATIONS: ReadonlyArray<[string, Record<string, unknown>]> = [
   ['session:addPrLink', { sessionId: SESSION_ID, url: PR_URL }],
   ['session:removePrLink', { sessionId: SESSION_ID, url: PR_URL }],
 ];
+
+/**
+ * Reads that answer `organization-unavailable` (TASK_2026_679 D13): the
+ * Rail never calls `session:getOrganization` on this host, but the backend
+ * still has to answer it.
+ */
+const READS: ReadonlyArray<[string, Record<string, unknown>]> = [
+  ['session:getOrganization', { sessionId: SESSION_ID }],
+];
+
+/** The one method with its own unavailable shape (`{ available: false }`). */
+const LIST_FOR_TASKS = 'session:listForTasks';
 
 interface Composed {
   container: DependencyContainer;
@@ -135,7 +148,7 @@ describe('VS Code — session organization is planned and served', () => {
     });
   });
 
-  it('serves all six organization methods', () => {
+  it('serves every organization method', () => {
     const { registered } = deriveRpcSurface(profile);
     expect(registered).toEqual(
       expect.arrayContaining([...SessionOrganizationRpcHandlers.METHODS]),
@@ -185,11 +198,43 @@ describe('VS Code — session organization reports itself unavailable', () => {
     },
   );
 
-  it('session:listForTasks answers { available: false }', async () => {
+  it.each(READS)(
+    '%s answers organization-unavailable without reading session metadata',
+    async (method, params) => {
+      const { rpc, metadataStore } = compose();
+
+      const response = await rpc.handleMessage({
+        method,
+        params,
+        correlationId: `c-${method}`,
+      });
+
+      expect(response.success).toBe(true);
+      expect(response.data).toEqual({
+        ok: false,
+        reason: 'organization-unavailable',
+        message: expect.any(String),
+      });
+      expect(metadataStore.get).not.toHaveBeenCalled();
+      expect(metadataStore.getForWorkspace).not.toHaveBeenCalled();
+    },
+  );
+
+  it('has an unavailable case for every organization method', () => {
+    const covered = [
+      ...MUTATIONS.map(([method]) => method),
+      ...READS.map(([method]) => method),
+      LIST_FOR_TASKS,
+    ].sort();
+
+    expect(covered).toEqual([...SessionOrganizationRpcHandlers.METHODS].sort());
+  });
+
+  it(`${LIST_FOR_TASKS} answers { available: false }`, async () => {
     const { rpc, metadataStore } = compose();
 
     const response = await rpc.handleMessage({
-      method: 'session:listForTasks',
+      method: LIST_FOR_TASKS,
       params: { workspacePath: WORKSPACE, taskIds: [TASK_ID] },
       correlationId: 'c-listForTasks',
     });
@@ -206,6 +251,19 @@ describe('VS Code — session organization reports itself unavailable', () => {
       method: 'session:setOrganization',
       params: { sessionId: SESSION_ID },
       correlationId: 'c-invalid',
+    });
+
+    expect(response.success).toBe(false);
+    expect(response.errorCode).toBe('INVALID_PARAMS');
+  });
+
+  it('still validates session:getOrganization params before answering unavailable', async () => {
+    const { rpc } = compose();
+
+    const response = await rpc.handleMessage({
+      method: 'session:getOrganization',
+      params: {},
+      correlationId: 'c-invalid-read',
     });
 
     expect(response.success).toBe(false);

@@ -14,7 +14,7 @@ import {
   output,
   signal,
 } from '@angular/core';
-import { InspectorShellController, ProjectSetupCardComponent, RailTranscriptRetentionCoordinator, SessionInspectorStore, TabManagerService, injectSessionStatsSource } from '@ptah-extension/chat';
+import { InspectorShellController, PreviousSessionsDialogService, ProjectSetupCardComponent, RailTranscriptRetentionCoordinator, SessionInspectorStore, TabManagerService, injectSessionStatsSource } from '@ptah-extension/chat';
 import { SessionInspectorComponent } from '@ptah-extension/chat/inspector';
 import { SURFACE_ACTIVE } from '@ptah-extension/core';
 import { StatsTileExpansionState, inspectorToggleDescription, type CompactRailState } from '@ptah-extension/chat-ui';
@@ -97,12 +97,14 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
           [canAdd]="store.canAddTile()"
           [holdTabId]="holdTabId()"
           [surfaceActive]="visible()"
+          [previousSessionsOpen]="previousSessions.isOpen()"
           [splitDisabledReason]="splitDisabledReason()"
           (focusRequested)="focus($event)"
           (collapseToggled)="toggleCollapse()"
           (densityToggled)="toggleDensity()"
           (jumpTo)="jumpTo($event)"
           (newSession)="newSession()"
+          (previousSessionsRequested)="previousSessions.open()"
           (scrolled)="store.setRailScrollTop(workspacePath(), $event)"
           (railState)="onRailState($event)"
           (staleAction)="
@@ -273,6 +275,7 @@ export class CanvasRailBoardComponent {
   /** The footer or empty board asked for the host's named New session popover. */
   readonly newSessionRequested = output<void>();
   readonly store = inject(CanvasStore);
+  readonly previousSessions = inject(PreviousSessionsDialogService);
   readonly layout = inject(CanvasLayoutService);
   readonly persistence = inject(CanvasLayoutPersistenceService);
   readonly detail = inject(CanvasDetailService);
@@ -367,8 +370,39 @@ export class CanvasRailBoardComponent {
     effect((onCleanup) => {
       if (!this.visible()) return;
       const document = this.host.nativeElement.ownerDocument;
+      const window = document.defaultView;
+      // A press places a caret, and its `selectionchange` fires before
+      // `pointerup`; the press hold must survive it, so `up` re-reads instead.
+      const activePointerIds = new Set<number>();
+      const stopTracking = () => {
+        document.removeEventListener('pointerup', up);
+        document.removeEventListener('pointercancel', up);
+        this.host.nativeElement.removeEventListener('lostpointercapture', lostCapture);
+        window?.removeEventListener('blur', releaseAll);
+        document.removeEventListener('visibilitychange', hidden);
+      };
+      const releaseAll = () => {
+        if (activePointerIds.size === 0) return;
+        activePointerIds.clear();
+        stopTracking();
+        selection();
+      };
+      const hidden = () => {
+        if (document.hidden) releaseAll();
+      };
+      const lostCapture = (event: PointerEvent) => {
+        if (activePointerIds.has(event.pointerId)) releaseAll();
+      };
       const selection = () => {
-        const node = document.getSelection()?.anchorNode;
+        if (activePointerIds.size > 0) return;
+        // Hold only for selected text. A collapsed caret (left by a plain click,
+        // or by a focused field such as the Rename input) is not a selection to
+        // protect; holding on it kept a renamed card's visible title stale.
+        const current = document.getSelection();
+        const node =
+          current && !current.isCollapsed && current.toString()
+            ? current.anchorNode
+            : null;
         const element = node instanceof Element ? node : node?.parentElement;
         this.holdTabId.set(
           element && this.host.nativeElement.contains(element)
@@ -381,16 +415,22 @@ export class CanvasRailBoardComponent {
       const down = (event: PointerEvent) => {
         const target = event.target;
         if (!(target instanceof Element)) return;
+        if (activePointerIds.size === 0) {
+          document.addEventListener('pointerup', up);
+          document.addEventListener('pointercancel', up);
+          this.host.nativeElement.addEventListener('lostpointercapture', lostCapture);
+          window?.addEventListener('blur', releaseAll);
+          document.addEventListener('visibilitychange', hidden);
+        }
+        activePointerIds.add(event.pointerId);
         this.holdTabId.set(
           target.closest<HTMLElement>('[data-rail-card]')?.dataset['tabId'] ??
             null,
         );
-        document.addEventListener('pointerup', up);
-        document.addEventListener('pointercancel', up);
       };
-      const up = () => {
-        document.removeEventListener('pointerup', up);
-        document.removeEventListener('pointercancel', up);
+      const up = (event: PointerEvent) => {
+        if (!activePointerIds.delete(event.pointerId) || activePointerIds.size > 0) return;
+        stopTracking();
         selection();
       };
       document.addEventListener('selectionchange', selection);
@@ -398,8 +438,8 @@ export class CanvasRailBoardComponent {
       onCleanup(() => {
         document.removeEventListener('selectionchange', selection);
         this.host.nativeElement.removeEventListener('pointerdown', down);
-        document.removeEventListener('pointerup', up);
-        document.removeEventListener('pointercancel', up);
+        stopTracking();
+        activePointerIds.clear();
       });
     });
     effect(() => {

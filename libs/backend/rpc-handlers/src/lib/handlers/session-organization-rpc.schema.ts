@@ -8,7 +8,7 @@
  * before. Every enum is validated against the shared vocabulary tuples, so a
  * malformed filter is rejected instead of silently ignored.
  *
- * The remaining schemas are the params of the six
+ * The remaining schemas are the params of the seven
  * `SessionOrganizationRpcHandlers` methods. They are the RPC boundary: the
  * handler parses with them before any service call.
  */
@@ -87,6 +87,11 @@ export const SessionSetOrganizationParamsSchema = z
       params.pinned !== undefined,
     { message: 'at least one of priority, status or pinned is required' },
   );
+
+/** `session:getOrganization`: the read of one session's organization. */
+export const SessionGetOrganizationParamsSchema = z.object({
+  sessionId: SessionIdParamSchema,
+});
 
 /** `session:linkTask`; `source` defaults to `user`. */
 export const SessionLinkTaskParamsSchema = z.object({

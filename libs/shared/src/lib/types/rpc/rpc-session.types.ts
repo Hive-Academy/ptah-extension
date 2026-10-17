@@ -154,6 +154,22 @@ export interface SessionSetOrganizationParams {
 export type SessionSetOrganizationResult = SessionOrganizationMutationResult;
 
 /**
+ * Parameters for session:getOrganization: the organization summary of one
+ * persisted session, for a session whose row is not in the loaded list.
+ */
+export interface SessionGetOrganizationParams {
+  /** SDK session UUID. */
+  sessionId: string;
+}
+
+/**
+ * Response from session:getOrganization. Same shape as a mutation result:
+ * `session-not-found` when the session has no metadata (not persisted yet),
+ * `organization-unavailable` on a host without the organization store.
+ */
+export type SessionGetOrganizationResult = SessionOrganizationMutationResult;
+
+/**
  * Parameters for session:linkTask. Linking a `primary` task demotes an
  * existing different primary to `related`.
  */

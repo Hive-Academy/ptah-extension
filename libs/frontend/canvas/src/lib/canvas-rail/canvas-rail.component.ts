@@ -7,6 +7,7 @@ import {
   input,
   output,
 } from '@angular/core';
+import { History, LucideAngularModule } from 'lucide-angular';
 import type {
   CompactRailDensity,
   CompactRailState,
@@ -36,7 +37,7 @@ const CHIP_STATES = [
 @Component({
   selector: 'ptah-canvas-rail',
   standalone: true,
-  imports: [CanvasRailCardComponent],
+  imports: [CanvasRailCardComponent, LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block h-full min-h-0' },
   styles: [
@@ -228,7 +229,8 @@ const CHIP_STATES = [
           }
         </ul>
       </div>
-      <footer class="h-[84px] shrink-0 px-2 py-2">
+      <footer class="shrink-0 px-2 py-2" [class.h-[82px]]="collapsed()" [class.min-h-[120px]]="!collapsed()">
+        <div class="flex flex-col gap-1.5">
         <button
           type="button"
           class="btn btn-primary btn-sm h-[30px] w-full"
@@ -236,14 +238,33 @@ const CHIP_STATES = [
           [attr.aria-describedby]="
             disabledReason() ? 'rail-new-session-reason' : null
           "
+          [attr.title]="collapsed() ? disabledReason() : null"
+          [attr.aria-label]="collapsed() ? 'New session' : null"
           (click)="onNewSession()"
         >
           {{ collapsed() ? '+' : 'New session' }}
         </button>
+        <button
+          type="button"
+          data-testid="rail-previous-sessions"
+          data-previous-sessions-trigger
+          class="btn btn-ghost btn-sm h-[30px] min-h-[30px] w-full gap-1.5 border border-[color:var(--surface-border-strong)] font-medium hover:!bg-surface-2 hover:!border-[color:var(--surface-border-strong)] [&[aria-expanded=true]]:!bg-surface-3"
+          aria-haspopup="dialog"
+          [attr.aria-expanded]="previousSessionsOpen()"
+          [attr.aria-controls]="previousSessionsOpen() ? 'previous-sessions-dialog' : null"
+          [attr.aria-label]="collapsed() ? 'Previous sessions' : null"
+          [attr.title]="collapsed() ? 'Previous sessions' : null"
+          (click)="previousSessionsRequested.emit()"
+        >
+          <lucide-angular [img]="HistoryIcon" class="w-3.5 h-3.5" aria-hidden="true" />
+          @if (!collapsed()) { <span>Previous sessions</span> }
+        </button>
+        </div>
         @if (disabledReason(); as reason) {
           <p
             id="rail-new-session-reason"
             class="mt-1 text-xs text-base-content-muted"
+            [class.sr-only]="collapsed()"
           >
             {{ reason }}
           </p>
@@ -267,6 +288,7 @@ export class CanvasRailComponent {
   readonly canAdd = input(true);
   readonly holdTabId = input<string | null>(null);
   readonly surfaceActive = input(true);
+  readonly previousSessionsOpen = input(false);
   /** The board's reason no card can open beside (B6); null when split is possible. */
   readonly splitDisabledReason = input<string | null>(null);
   readonly focusRequested = output<string>();
@@ -274,6 +296,7 @@ export class CanvasRailComponent {
   readonly densityToggled = output<void>();
   readonly jumpTo = output<CompactRailState>();
   readonly newSession = output<void>();
+  readonly previousSessionsRequested = output<void>();
   readonly scrolled = output<number>();
   readonly railState = output<{ tabId: string; state: CompactRailState }>();
   readonly staleAction = output<string>();
@@ -284,6 +307,7 @@ export class CanvasRailComponent {
   readonly maxRunning = MAX_RUNNING_SESSIONS;
   readonly chips = CHIP_STATES;
   readonly autoCollapseReason = AUTO_COLLAPSE_REASON;
+  protected readonly HistoryIcon = History;
   readonly orderedTiles = computed(() =>
     [...this.tiles()].sort((a, b) => a.order - b.order),
   );

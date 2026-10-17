@@ -1,7 +1,7 @@
 /**
- * Sidebar row grouping (TASK_2026_580, plan component 11).
+ * Previous sessions modal row grouping (TASK_2026_580, plan component 11).
  *
- * Pure: turns the loaded `session:list` rows into the groups the sidebar
+ * Pure: turns the loaded `session:list` rows into the groups the modal
  * renders. The server already orders rows by group key (after pinned rows);
  * this only adds the headers and, for `parent`, the nesting. Groups appear in
  * the order their first row arrives, so a pinned row's group leads.
@@ -10,9 +10,9 @@ import type {
   ChatSessionSummary,
   SessionListGroup,
 } from '@ptah-extension/shared';
-import { SESSION_STATUS_LABELS } from '../atoms/session-organization-chips/session-organization-labels';
+import { SESSION_STATUS_LABELS } from '../../atoms/session-organization-chips/session-organization-labels';
 
-/** One sidebar row; `depth` is its nesting under a parent row (0 = top). */
+/** One modal row; `depth` is its nesting under a parent row (0 = top). */
 export interface SessionRow {
   readonly session: ChatSessionSummary;
   readonly depth: number;
@@ -37,7 +37,7 @@ export function groupSessionRows(
   sessions: readonly ChatSessionSummary[] | null | undefined,
   groupBy: SessionListGroup,
 ): SessionRowGroup[] {
-  // No rows, no groups: the sidebar's empty state needs an empty list. A
+  // No rows, no groups: the modal's empty state needs an empty list. A
   // missing list is read as empty: this runs in change detection, and a throw
   // here would abort the whole shell render.
   if (!sessions || sessions.length === 0) return [];

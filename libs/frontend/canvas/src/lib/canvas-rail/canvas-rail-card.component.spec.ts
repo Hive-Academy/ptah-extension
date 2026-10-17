@@ -3,6 +3,8 @@ import { join } from 'node:path';
 import {
   ChangeDetectionStrategy,
   Component,
+  Injector,
+  afterNextRender,
   effect,
   inject,
   input,
@@ -14,6 +16,8 @@ import { By } from '@angular/platform-browser';
 import {
   CompactSessionCardComponent,
   SESSION_CARD_ACTIONS,
+  SessionOrganizerService,
+  SessionRowActionsService,
   TabManagerService,
 } from '@ptah-extension/chat';
 import {
@@ -25,6 +29,7 @@ import {
   type CompactSessionSummary,
 } from '@ptah-extension/chat-ui';
 import { NativePopoverComponent } from '@ptah-extension/ui';
+import { SessionId } from '@ptah-extension/shared';
 import { CanvasStore } from '../canvas.store';
 import { CanvasDetailService } from '../canvas-detail/canvas-detail.service';
 import {
@@ -182,10 +187,25 @@ class RealRailCardHost {
 describe('CanvasRailCardComponent', () => {
   const focusTile = jest.fn();
   const open = jest.fn();
+  const sessionId = SessionId.create();
+  const available = signal(false);
+  let loaded = false;
+  const rowFor = jest.fn(() => loaded ? { id: sessionId } : null);
+  const organizeOpen = jest.fn((_id: typeof sessionId, _restore: () => void) => undefined);
+  const organizeClose = jest.fn(() => {
+    const restore = organizeOpen.mock.calls.at(-1)?.[1];
+    afterNextRender(() => restore?.(), { injector: TestBed.inject(Injector) });
+  });
+  const openForSession = jest.fn(async (_id: typeof sessionId, _name: string, _restore: () => void) => 'opened');
+  const rename = jest.fn().mockResolvedValue('renamed');
+  let persisted = true;
   let workflow: 'harness-configure' | undefined;
   beforeEach(() => {
     jest.clearAllMocks();
     workflow = undefined;
+    persisted = true;
+    loaded = false;
+    available.set(false);
     tabState.set('idle');
     TestBed.configureTestingModule({
       imports: [CanvasRailCardComponent],
@@ -194,12 +214,14 @@ describe('CanvasRailCardComponent', () => {
           provide: TabManagerService,
           useValue: {
             findTabByIdAcrossWorkspaces: () => ({
-              tab: { id: 'a', title: 'Alpha', workflow },
+              tab: { id: 'a', title: 'Alpha', claudeSessionId: persisted ? sessionId : null, workflow },
             }),
           },
         },
         { provide: CanvasStore, useValue: { focusTile } },
         { provide: CanvasDetailService, useValue: { open } },
+        { provide: SessionOrganizerService, useValue: { available, rowFor, open: organizeOpen, openForSession, close: organizeClose } },
+        { provide: SessionRowActionsService, useValue: { rename } },
       ],
     });
     TestBed.overrideComponent(CanvasRailCardComponent, {
@@ -281,8 +303,9 @@ describe('CanvasRailCardComponent', () => {
     expect(open).toHaveBeenCalledWith('a', 'orchestrator');
   });
 
-  it('forwards a stale action and announces it; Enter focuses the session', () => {
+  it('forwards repeated stale actions and rerenders the live notice; Enter focuses the session', async () => {
     const fixture = mount();
+    const live = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>('[aria-live="polite"]')!;
     const stale = jest.fn();
     fixture.componentInstance.staleAction.subscribe(stale);
     (
@@ -290,9 +313,18 @@ describe('CanvasRailCardComponent', () => {
     ).staleAction.emit();
     fixture.detectChanges();
     expect(stale).toHaveBeenCalledWith('a');
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain(
-      'This request has changed',
-    );
+    expect(live.textContent).toBe('');
+    await settle();
+    fixture.detectChanges();
+    expect(live.textContent).toBe('This request has changed. Open the current request.');
+    (
+      fixture.debugElement.children[0].componentInstance as CardStub
+    ).staleAction.emit();
+    fixture.detectChanges();
+    expect(live.textContent).toBe('');
+    await settle();
+    fixture.detectChanges();
+    expect(live.textContent).toBe('This request has changed. Open the current request.');
     const event = new KeyboardEvent('keydown', {
       key: 'Enter',
       bubbles: true,
@@ -420,6 +452,416 @@ describe('CanvasRailCardComponent', () => {
     return host;
   }
 
+  it('shows Rename but no Delete or Organize on hosts without organization', async () => {
+    const fixture = mount();
+    const host = await openMenu(fixture);
+    expect(item(host, 'rename').textContent).toContain('Rename');
+    expect(item(host, 'rename').getAttribute('aria-haspopup')).toBe('dialog');
+    expect(host.querySelector('[data-action="organize"]')).toBeNull();
+    expect(host.querySelector('[data-action="delete"]')).toBeNull();
+    expect([...host.querySelectorAll('[role="menuitem"]')].map((node) => node.getAttribute('data-action'))).toEqual(['open-beside', 'rename', 'move-up', 'move-down']);
+  });
+
+  it('keeps draft Rename and Organize focusable with the save reason', async () => {
+    persisted = false;
+    available.set(true);
+    const fixture = mount();
+    const host = await openMenu(fixture);
+    for (const action of ['rename', 'organize']) {
+      expect(item(host, action).getAttribute('aria-disabled')).toBe('true');
+      expect(item(host, action).textContent).toContain('Send a first message to save this session.');
+      item(host, action).click();
+    }
+    expect(host.querySelector('[role="menu"]')).not.toBeNull();
+    expect(organizeOpen).not.toHaveBeenCalled();
+    expect(openForSession).not.toHaveBeenCalled();
+  });
+
+  it('opens Rename after the menu closes, saves on Enter, and restores trigger focus', async () => {
+    const fixture = mount();
+    const host = await openMenu(fixture);
+    item(host, 'rename').click();
+    fixture.detectChanges();
+    expect(host.querySelector('[role="menu"]')).toBeNull();
+    await settle();
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+    const input = host.querySelector<HTMLInputElement>('input[aria-label="Session name"]')!;
+    expect(input).not.toBeNull();
+    expect(document.activeElement).toBe(input);
+    input.value = 'Renamed';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    keydown(input, 'Enter');
+    await settle();
+    fixture.detectChanges();
+    expect(rename).toHaveBeenCalledWith(sessionId, 'Alpha', 'Renamed');
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    await settle();
+    expect(document.activeElement).toBe(trigger(host));
+  });
+
+  it('cancels Rename on Escape without saving', async () => {
+    const fixture = mount();
+    const host = await openMenu(fixture);
+    item(host, 'rename').click();
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+    const input = host.querySelector<HTMLInputElement>('input[aria-label="Session name"]')!;
+    keydown(input, 'Escape');
+    fixture.detectChanges();
+    await settle();
+    expect(rename).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(trigger(host));
+  });
+
+  it('cycles Tab inside Rename and ignores composition Enter', async () => {
+    const fixture = mount();
+    const host = await openMenu(fixture);
+    item(host, 'rename').click();
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+    const input = host.querySelector<HTMLInputElement>('[role="dialog"] input')!;
+    const buttons = host.querySelectorAll<HTMLButtonElement>('[role="dialog"] button');
+    input.focus();
+    expect(keydown(input, 'Tab', { shiftKey: true }).defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(buttons[1]);
+    expect(keydown(buttons[1], 'Tab').defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(input);
+    document.body.focus();
+    input.blur();
+    expect(keydown(document.body, 'Tab').defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(input);
+    input.blur();
+    expect(keydown(document.body, 'Tab', { shiftKey: true }).defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(buttons[1]);
+    keydown(input, 'Enter', { isComposing: true });
+    expect(rename).not.toHaveBeenCalled();
+  });
+
+  it('uses the specified Rename geometry and a single input focus treatment', async () => {
+    const fixture = mount();
+    const host = await openMenu(fixture);
+    item(host, 'rename').click();
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+    const panel = host.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(panel.classList).toContain('w-72');
+    expect(panel.classList).toContain('p-4');
+    expect(panel.closest('ptah-native-popover')?.className).toContain('[&>.popover-panel]:p-0');
+    expect(panel.querySelector('h3')?.classList).toContain('text-base-content-muted');
+    expect(panel.querySelector('input')?.classList).toContain('input-sm');
+    // One 2 px ring over the 1 px border in the theme-measured focus ink
+    // (styles.css maps the --s utility to >= 3:1 inks in light themes); no
+    // separate primary border colour on focus, so no double outline.
+    const inputClasses = [...(panel.querySelector('input')?.classList ?? [])];
+    expect(inputClasses).toEqual(
+      expect.arrayContaining([
+        'focus-visible:outline',
+        'focus-visible:outline-2',
+        'focus-visible:outline-offset-[-1px]',
+        'focus-visible:outline-[oklch(var(--s))]',
+      ]),
+    );
+    expect(inputClasses.some((name) => name.startsWith('focus:border-'))).toBe(false);
+    // Equal-width actions: two equal grid columns, not flex-1 (border skew).
+    const actionRow = panel.querySelector('button')?.parentElement;
+    expect([...(actionRow?.classList ?? [])]).toEqual(
+      expect.arrayContaining(['grid', 'grid-cols-2']),
+    );
+    expect([...panel.querySelectorAll('button')].every((button) => button.classList.contains('w-full') && !button.classList.contains('flex-1'))).toBe(true);
+  });
+
+  it('raises the actions cell above later page content only while a panel is open', async () => {
+    const fixture = mount();
+    const host = fixture.nativeElement as HTMLElement;
+    const cell = () => host.querySelector('[data-rail-actions]') as HTMLElement;
+    expect(cell().classList).toContain('z-10');
+    expect(cell().classList).not.toContain('z-50');
+    await openMenu(fixture);
+    expect(cell().classList).toContain('z-50');
+    expect(cell().classList).not.toContain('z-10');
+    item(host, 'rename').click();
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+    expect(host.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(cell().classList).toContain('z-50');
+    host.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')[0].click();
+    fixture.detectChanges();
+    expect(cell().classList).toContain('z-10');
+    expect(cell().classList).not.toContain('z-50');
+  });
+
+  describe('Rename in flight (M4, D74)', () => {
+    let resolveRename: (result: string) => void = () => undefined;
+
+    beforeEach(() => {
+      rename.mockImplementation(
+        () =>
+          new Promise<string>((resolve) => {
+            resolveRename = resolve;
+          }),
+      );
+    });
+    afterEach(() => rename.mockResolvedValue('renamed'));
+
+    async function openRename(fixture: ReturnType<typeof mount>) {
+      const host = await openMenu(fixture);
+      item(host, 'rename').click();
+      fixture.detectChanges();
+      await settle();
+      fixture.detectChanges();
+      await settle();
+      fixture.detectChanges();
+      const input = host.querySelector<HTMLInputElement>('input[aria-label="Session name"]')!;
+      expect(document.activeElement).toBe(input);
+      input.value = 'Renamed';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return { host, input };
+    }
+    const saveButton = (host: HTMLElement) =>
+      [...host.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(
+        (button) => button.textContent?.trim() === 'Save',
+      ) as HTMLButtonElement;
+    const cancelButton = (host: HTMLElement) =>
+      [...host.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(
+        (button) => button.textContent?.trim() === 'Cancel',
+      ) as HTMLButtonElement;
+
+    async function finish(fixture: ReturnType<typeof mount>) {
+      resolveRename('renamed');
+      await settle();
+      fixture.detectChanges();
+      await settle();
+    }
+
+    it('sends one rename for two Enters before it resolves', async () => {
+      const fixture = mount();
+      const { input } = await openRename(fixture);
+      keydown(input, 'Enter');
+      keydown(input, 'Enter');
+      expect(rename).toHaveBeenCalledTimes(1);
+      await finish(fixture);
+      expect(rename).toHaveBeenCalledTimes(1);
+    });
+
+    it('sends one rename for Enter then Save', async () => {
+      const fixture = mount();
+      const { host, input } = await openRename(fixture);
+      const save = saveButton(host);
+      keydown(input, 'Enter');
+      save.click();
+      expect(rename).toHaveBeenCalledTimes(1);
+      expect(rename).toHaveBeenCalledWith(sessionId, 'Alpha', 'Renamed');
+      await finish(fixture);
+    });
+
+    it('makes the field read-only and disables Save while pending', async () => {
+      const fixture = mount();
+      const { host, input } = await openRename(fixture);
+      expect(input.readOnly).toBe(false);
+      expect(saveButton(host).disabled).toBe(false);
+      keydown(input, 'Enter');
+      fixture.detectChanges();
+      expect(input.readOnly).toBe(true);
+      expect(saveButton(host).disabled).toBe(true);
+      // Cancel stays available.
+      expect(cancelButton(host).disabled).toBe(false);
+      await finish(fixture);
+    });
+
+    it('closes the popover and focuses the trigger once the rename resolves', async () => {
+      const fixture = mount();
+      const { host, input } = await openRename(fixture);
+      keydown(input, 'Enter');
+      fixture.detectChanges();
+      await settle();
+      expect(host.querySelector('[role="dialog"]')).not.toBeNull();
+      await finish(fixture);
+      expect(host.querySelector('[role="dialog"]')).toBeNull();
+      expect(document.activeElement).toBe(trigger(host));
+    });
+
+    it('does not move focus when the rename resolves after a Cancel', async () => {
+      const fixture = mount();
+      const { host, input } = await openRename(fixture);
+      keydown(input, 'Enter');
+      cancelButton(host).click();
+      fixture.detectChanges();
+      await settle();
+      expect(host.querySelector('[role="dialog"]')).toBeNull();
+      const elsewhere = document.createElement('button');
+      document.body.appendChild(elsewhere);
+      elsewhere.focus();
+
+      await finish(fixture);
+
+      expect(document.activeElement).toBe(elsewhere);
+      elsewhere.remove();
+    });
+
+    it('keeps a reopened Rename focused when the previous request fails', async () => {
+      const fixture = mount();
+      const first = await openRename(fixture);
+      keydown(first.input, 'Enter');
+      cancelButton(first.host).click();
+      fixture.detectChanges();
+      await settle();
+      const second = await openRename(fixture);
+      resolveRename('failed');
+      await settle();
+      fixture.detectChanges();
+      expect(second.host.querySelector('[role="dialog"]')).not.toBeNull();
+      expect(document.activeElement).toBe(second.input);
+      expect(fixture.componentInstance.renaming()).toBe(false);
+      expect(fixture.componentInstance.renameError()).toBe('');
+    });
+
+    it('keeps a failed rename draft and announces its inline error', async () => {
+      const fixture = mount();
+      const { host, input } = await openRename(fixture);
+      const live = host.querySelector<HTMLElement>('[aria-live="polite"]')!;
+      keydown(input, 'Enter');
+      resolveRename('failed');
+      await Promise.resolve();
+      fixture.detectChanges();
+      expect(live.textContent).toBe('');
+      await settle();
+      fixture.detectChanges();
+      expect(host.querySelector('[role="dialog"]')).not.toBeNull();
+      expect(input.value).toBe('Renamed');
+      expect(input.getAttribute('aria-describedby')).toBe('rail-rename-error-a');
+      expect(host.querySelector('#rail-rename-error-a')?.textContent).toBe("Couldn't rename. Try again.");
+      expect(live.textContent).toBe("Couldn't rename. Try again.");
+      keydown(input, 'Enter');
+      resolveRename('failed');
+      await Promise.resolve();
+      fixture.detectChanges();
+      expect(live.textContent).toBe('');
+      await settle();
+      fixture.detectChanges();
+      expect(live.textContent).toBe("Couldn't rename. Try again.");
+      input.value = 'New draft';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      fixture.detectChanges();
+      expect(fixture.componentInstance.renameError()).toBe('');
+      expect(input.getAttribute('aria-describedby')).toBeNull();
+    });
+
+    it('returns focus to the input after Save fails in the current Rename dialog', async () => {
+      const fixture = mount();
+      const { host, input } = await openRename(fixture);
+      const save = saveButton(host);
+      save.focus();
+      save.click();
+      fixture.detectChanges();
+      expect(save.disabled).toBe(true);
+      input.blur();
+      resolveRename('failed');
+      await settle();
+      fixture.detectChanges();
+      expect(document.activeElement).toBe(input);
+      expect(input.value).toBe('Renamed');
+    });
+
+    it('lets a second rename through after the first resolves', async () => {
+      const fixture = mount();
+      const { input } = await openRename(fixture);
+      keydown(input, 'Enter');
+      await finish(fixture);
+      expect(rename).toHaveBeenCalledTimes(1);
+
+      const again = await openRename(fixture);
+      expect(again.input.readOnly).toBe(false);
+      keydown(again.input, 'Enter');
+      expect(rename).toHaveBeenCalledTimes(2);
+      await finish(fixture);
+    });
+  });
+
+  it('opens Organize for a loaded row and restores the menu trigger after editor close render (D30)', async () => {
+    available.set(true);
+    loaded = true;
+    const fixture = mount();
+    const host = await openMenu(fixture);
+    expect(item(host, 'organize').getAttribute('aria-haspopup')).toBe('dialog');
+    item(host, 'organize').click();
+    fixture.detectChanges();
+    expect(organizeOpen).toHaveBeenCalledWith(sessionId, expect.any(Function));
+    expect(openForSession).not.toHaveBeenCalled();
+    const editorClose = document.createElement('button');
+    host.append(editorClose);
+    editorClose.focus();
+    TestBed.inject(SessionOrganizerService).close();
+    editorClose.focus();
+    fixture.detectChanges();
+    await settle();
+    expect(document.activeElement).toBe(trigger(host));
+    editorClose.remove();
+  });
+
+  it('falls back to the select button when Organize closes after its trigger disconnects', async () => {
+    available.set(true);
+    loaded = true;
+    const fixture = mount();
+    const host = await openMenu(fixture);
+    item(host, 'organize').click();
+    fixture.detectChanges();
+    trigger(host).remove();
+    TestBed.inject(SessionOrganizerService).close();
+    fixture.detectChanges();
+    await settle();
+    expect(document.activeElement).toBe(host.querySelector('.rc-select'));
+  });
+
+  it('loads an excluded persisted card and announces only a failed read', async () => {
+    available.set(true);
+    openForSession.mockResolvedValueOnce('failed');
+    const fixture = mount();
+    const host = await openMenu(fixture);
+    const live = host.querySelector<HTMLElement>('[aria-live="polite"]')!;
+    item(host, 'organize').click();
+    await settle();
+    await settle();
+    fixture.detectChanges();
+    expect(openForSession).toHaveBeenCalledWith(sessionId, 'Alpha', expect.any(Function));
+    expect(live.textContent).toBe("Could not load this session's organization.");
+    openForSession.mockResolvedValueOnce('failed');
+    await openMenu(fixture);
+    item(host, 'organize').click();
+    fixture.detectChanges();
+    expect(live.textContent).toBe('');
+    await settle();
+    await settle();
+    fixture.detectChanges();
+    expect(live.textContent).toBe("Could not load this session's organization.");
+  });
+
+  it.each(['cancelled', 'unavailable'])('does not announce or move focus for %s Organize result', async (result) => {
+    available.set(true);
+    openForSession.mockResolvedValueOnce(result);
+    const fixture = mount();
+    const host = await openMenu(fixture);
+    item(host, 'organize').click();
+    const focusedAfterClick = document.activeElement;
+    await settle();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.announcement()).toBe('');
+    expect(document.activeElement).toBe(focusedAfterClick);
+  });
+
   function keydown(
     target: Element,
     key: string,
@@ -487,6 +929,8 @@ describe('CanvasRailCardComponent', () => {
         host.querySelector(`[id="${describedBy}"]`)?.textContent?.trim(),
       ).toBe(reason);
       expect(openBeside.textContent).toContain(reason);
+      expect(openBeside.querySelector('span[aria-hidden="true"]')?.classList).toContain('truncate');
+      expect(openBeside.querySelector('span[aria-hidden="true"]')?.getAttribute('title')).toBe(reason);
       openBeside.click();
       fixture.detectChanges();
       expect(beside).not.toHaveBeenCalled();
@@ -531,8 +975,8 @@ describe('CanvasRailCardComponent', () => {
     const host = await openMenu(fixture);
     expect(document.activeElement).toBe(item(host, 'open-beside'));
     keydown(item(host, 'open-beside'), 'ArrowDown');
-    expect(document.activeElement).toBe(item(host, 'move-up'));
-    const escape = keydown(item(host, 'move-up'), 'Escape');
+    expect(document.activeElement).toBe(item(host, 'rename'));
+    const escape = keydown(item(host, 'rename'), 'Escape');
     fixture.detectChanges();
     expect(escape.defaultPrevented).toBe(true);
     expect(host.querySelector('[role="menu"]')).toBeNull();

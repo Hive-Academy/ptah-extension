@@ -12,7 +12,7 @@ import {
 import { DeferBlockState, TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { LucideAngularModule } from 'lucide-angular';
-import { ChatStore, CompactSessionCardComponent, RailTranscriptRetentionCoordinator, SessionInspectorStore, TabManagerService } from '@ptah-extension/chat';
+import { ChatStore, CompactSessionCardComponent, PreviousSessionsDialogService, RailTranscriptRetentionCoordinator, SessionInspectorStore, SessionOrganizerService, SessionRowActionsService, TabManagerService } from '@ptah-extension/chat';
 import { SessionInspectorComponent } from '@ptah-extension/chat/inspector';
 import { PlanLimitsStore, SURFACE_ACTIVE } from '@ptah-extension/core';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
@@ -80,6 +80,8 @@ class RailStub {
   readonly densityToggled = output<void>();
   readonly jumpTo = output<CompactRailState>();
   readonly newSession = output<void>();
+  readonly previousSessionsOpen = input(false);
+  readonly previousSessionsRequested = output<void>();
   readonly scrolled = output<number>();
   readonly railState = output<{ tabId: string; state: CompactRailState }>();
   readonly staleAction = output<string>();
@@ -324,6 +326,7 @@ describe('CanvasRailBoardComponent rendering', () => {
     });
     const width = signal(1400);
     const writeFailed = signal(false);
+    const dialogOpen = signal(false);
     const setRailCollapsed = jest.fn((_: string, value: boolean) =>
       board.update((b) => ({ ...b, railCollapsed: value })),
     );
@@ -364,6 +367,9 @@ describe('CanvasRailBoardComponent rendering', () => {
           useValue: realFocus ? { laneKeyFor: () => null, selectLaneFor: jest.fn() } : {},
         },
         { provide: ChatStore, useValue: {} },
+        { provide: PreviousSessionsDialogService, useValue: { isOpen: dialogOpen, open: jest.fn() } },
+        { provide: SessionOrganizerService, useValue: { available: () => false } },
+        { provide: SessionRowActionsService, useValue: { rename: jest.fn() } },
         { provide: SessionInspectorStore, useValue: { modelFor: (id: string) => () => ({ needsYouCount: needsYou()[id] ?? 0 }) } },
         ...(surface ? [{ provide: SURFACE_ACTIVE, useValue: surface }] : []),
         {
@@ -416,6 +422,7 @@ describe('CanvasRailBoardComponent rendering', () => {
       writeFailed,
       store,
       canStart,
+      dialogOpen,
       metrics: TestBed.inject(CanvasRenderMetricsService),
     };
   }
@@ -427,6 +434,17 @@ describe('CanvasRailBoardComponent rendering', () => {
         '[data-rail-card], ptah-canvas-focus-area',
       ),
     ).toHaveLength(0);
+  });
+  it('passes dialog state to the Rail and opens Previous sessions on request', () => {
+    const { fixture, dialogOpen } = mount();
+    const dialog = TestBed.inject(PreviousSessionsDialogService);
+    const rail = fixture.debugElement.query(By.directive(RailStub)).componentInstance as RailStub;
+    expect(rail.previousSessionsOpen()).toBe(false);
+    dialogOpen.set(true);
+    fixture.detectChanges();
+    expect(rail.previousSessionsOpen()).toBe(true);
+    rail.previousSessionsRequested.emit();
+    expect(dialog.open).toHaveBeenCalledTimes(1);
   });
 
   it('includes the focused session needs-you count in the closed details description', () => {
@@ -667,13 +685,147 @@ describe('CanvasRailBoardComponent rendering', () => {
   it('removes document selection listeners when hidden', () => {
     const remove = jest.spyOn(document, 'removeEventListener');
     const { fixture } = mount();
+    (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>(
+      '[data-tab-id="a"] .rc-select',
+    )!.dispatchEvent(Object.assign(new Event('pointerdown', { bubbles: true }), { pointerId: 1 }));
     fixture.componentRef.setInput('visible', false);
     fixture.detectChanges();
     expect(remove).toHaveBeenCalledWith(
       'selectionchange',
       expect.any(Function),
     );
+    expect(remove).toHaveBeenCalledWith('pointerup', expect.any(Function));
+    expect(remove).toHaveBeenCalledWith('pointercancel', expect.any(Function));
     remove.mockRestore();
+  });
+
+  it('holds card text for a text selection or a press, never for a caret (V1 serious 1)', () => {
+    const { fixture } = mount();
+    const instance = fixture.componentInstance;
+    const host = fixture.nativeElement as HTMLElement;
+    const label = host.querySelector('[data-tab-id="a"] .rc-select')!
+      .firstChild as Text;
+    const selection = document.getSelection()!;
+    const selectionChanged = () =>
+      document.dispatchEvent(new Event('selectionchange'));
+
+    // A caret left in the card (a click, or the Rename input) must not latch
+    // the title: a rename has to show on the card at once.
+    selection.collapse(label, 0);
+    selectionChanged();
+    expect(instance.holdTabId()).toBeNull();
+
+    // Selected text in the card still holds it.
+    selection.setBaseAndExtent(label, 0, label, 1);
+    selectionChanged();
+    expect(instance.holdTabId()).toBe('a');
+    selection.collapse(label, 0);
+    selectionChanged();
+    expect(instance.holdTabId()).toBeNull();
+
+    // A press holds only while the pointer is down.
+    label.parentElement!.dispatchEvent(
+      Object.assign(new Event('pointerdown', { bubbles: true }), { pointerId: 1 }),
+    );
+    expect(instance.holdTabId()).toBe('a');
+    document.dispatchEvent(Object.assign(new Event('pointerup'), { pointerId: 1 }));
+    expect(instance.holdTabId()).toBeNull();
+    selection.removeAllRanges();
+  });
+
+  it('keeps the press hold through the caret the press places (V1.2 rework)', () => {
+    const { fixture } = mount();
+    const instance = fixture.componentInstance;
+    const host = fixture.nativeElement as HTMLElement;
+    const label = host.querySelector('[data-tab-id="a"] .rc-select')!
+      .firstChild as Text;
+    const selection = document.getSelection()!;
+    const selectionChanged = () =>
+      document.dispatchEvent(new Event('selectionchange'));
+    const press = () =>
+      label.parentElement!.dispatchEvent(
+        Object.assign(new Event('pointerdown', { bubbles: true }), { pointerId: 1 }),
+      );
+
+    // The browser fires `selectionchange` for the press caret before
+    // `pointerup`; the hold must survive it so a drag keeps its anchor.
+    press();
+    selection.collapse(label, 0);
+    selectionChanged();
+    expect(instance.holdTabId()).toBe('a');
+
+    // Releasing with only a caret drops the hold.
+    document.dispatchEvent(Object.assign(new Event('pointerup'), { pointerId: 1 }));
+    expect(instance.holdTabId()).toBeNull();
+
+    // A press that ends with selected text keeps the card held.
+    press();
+    selection.collapse(label, 0);
+    selectionChanged();
+    selection.setBaseAndExtent(label, 0, label, 1);
+    selectionChanged();
+    document.dispatchEvent(Object.assign(new Event('pointerup'), { pointerId: 1 }));
+    expect(instance.holdTabId()).toBe('a');
+
+    // A cancelled press ends the press too: later selection changes apply.
+    selection.removeAllRanges();
+    selectionChanged();
+    expect(instance.holdTabId()).toBeNull();
+    press();
+    document.dispatchEvent(Object.assign(new Event('pointercancel'), { pointerId: 1 }));
+    expect(instance.holdTabId()).toBeNull();
+    selection.setBaseAndExtent(label, 0, label, 1);
+    selectionChanged();
+    expect(instance.holdTabId()).toBe('a');
+    selection.removeAllRanges();
+    selectionChanged();
+    expect(instance.holdTabId()).toBeNull();
+  });
+
+  it('keeps the hold until the last active pointer ends', () => {
+    const { fixture } = mount();
+    const instance = fixture.componentInstance;
+    const card = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>(
+      '[data-tab-id="a"] .rc-select',
+    )!;
+    const pointer = (type: string, pointerId: number) =>
+      Object.assign(new Event(type, { bubbles: true }), { pointerId });
+    const selection = document.getSelection()!;
+    selection.removeAllRanges();
+
+    card.dispatchEvent(pointer('pointerdown', 1));
+    card.dispatchEvent(pointer('pointerdown', 2));
+    expect(instance.holdTabId()).toBe('a');
+    document.dispatchEvent(pointer('pointerup', 1));
+    document.dispatchEvent(new Event('selectionchange'));
+    expect(instance.holdTabId()).toBe('a');
+    document.dispatchEvent(pointer('pointerup', 2));
+    expect(instance.holdTabId()).toBeNull();
+  });
+
+  it('releases a stuck pointer and its listeners on window blur', () => {
+    const { fixture } = mount();
+    const instance = fixture.componentInstance;
+    const card = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>(
+      '[data-tab-id="a"] .rc-select',
+    )!;
+    const removeDocument = jest.spyOn(document, 'removeEventListener');
+    const removeWindow = jest.spyOn(window, 'removeEventListener');
+    const removeHost = jest.spyOn(fixture.nativeElement as HTMLElement, 'removeEventListener');
+    document.getSelection()?.removeAllRanges();
+
+    card.dispatchEvent(Object.assign(new Event('pointerdown', { bubbles: true }), { pointerId: 17 }));
+    expect(instance.holdTabId()).toBe('a');
+    window.dispatchEvent(new Event('blur'));
+    expect(instance.holdTabId()).toBeNull();
+    expect(removeDocument).toHaveBeenCalledWith('pointerup', expect.any(Function));
+    expect(removeDocument).toHaveBeenCalledWith('pointercancel', expect.any(Function));
+    expect(removeDocument).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
+    expect(removeWindow).toHaveBeenCalledWith('blur', expect.any(Function));
+    expect(removeHost).toHaveBeenCalledWith('lostpointercapture', expect.any(Function));
+    removeDocument.mockRestore();
+    removeWindow.mockRestore();
+    removeHost.mockRestore();
   });
 
   it('focuses the selected lane tab after a lane request', () => {

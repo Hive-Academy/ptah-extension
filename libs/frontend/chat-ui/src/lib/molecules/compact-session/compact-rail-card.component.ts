@@ -230,8 +230,8 @@ const EMPTY_LANES: CompactLaneSummary = {
           class="h-2 w-2 shrink-0 rounded-full"
           [style.background]="'var(--rail-state-ink)'"
         ></span>
-        <span class="rc-ellipsis flex-1 font-semibold" [title]="shownTitle()">{{
-          shownTitle()
+        <span class="rc-ellipsis flex-1 font-semibold" [title]="title()">{{
+          title()
         }}</span>
         <span class="rc-pill shrink-0 text-[10px]">{{ state() }}</span>
       </div>
@@ -284,7 +284,7 @@ const EMPTY_LANES: CompactLaneSummary = {
                   type="button"
                   class="rc-action bg-base-300"
                   [attr.data-rid]="c.requestId"
-                  [attr.aria-label]="'Open ' + shownTitle()"
+                  [attr.aria-label]="'Open ' + title()"
                   [tabIndex]="innerTabbable() ? 0 : -1"
                   (click)="openRequest.emit(c)"
                 >
@@ -306,7 +306,7 @@ const EMPTY_LANES: CompactLaneSummary = {
                   type="button"
                   class="rc-action bg-base-300"
                   [attr.data-rid]="c.requestId"
-                  [attr.aria-label]="'Show output of ' + shownTitle()"
+                  [attr.aria-label]="'Show output of ' + title()"
                   [tabIndex]="innerTabbable() ? 0 : -1"
                   (click)="showOutput.emit(c.requestId)"
                 >
@@ -325,7 +325,7 @@ const EMPTY_LANES: CompactLaneSummary = {
                 type="button"
                 class="rc-action bg-base-300 text-base-content"
                 [attr.aria-label]="
-                  'Open the ' + lanes().total + ' lanes of ' + shownTitle()
+                  'Open the ' + lanes().total + ' lanes of ' + title()
                 "
                 [tabIndex]="innerTabbable() ? 0 : -1"
                 (click)="moreLanes.emit()"
@@ -346,7 +346,7 @@ const EMPTY_LANES: CompactLaneSummary = {
                     'Open ' +
                     lanes().moreCount +
                     ' more lanes of ' +
-                    shownTitle()
+                    title()
                   "
                   [tabIndex]="innerTabbable() ? 0 : -1"
                   (click)="moreLanes.emit()"
@@ -423,10 +423,10 @@ export class CompactRailCardComponent implements DoCheck {
   readonly cardHeight = computed(
     () => COMPACT_RAIL_CARD_HEIGHT[this.density()],
   );
-  private readonly latched = signal({ title: '', now: '', metrics: '' });
-  readonly shownTitle = computed(() =>
-    this.holdText() ? this.latched().title : this.title(),
-  );
+  // The hold freezes only the live-changing summary and metrics under a press
+  // or text selection. The title is never latched: it changes only by an
+  // explicit rename, which must show at once even while a selection holds.
+  private readonly latched = signal({ now: '', metrics: '' });
   readonly shownNow = computed(() =>
     this.holdText() ? this.latched().now : this.summary().content.text,
   );
@@ -471,7 +471,6 @@ export class CompactRailCardComponent implements DoCheck {
     effect(() => {
       if (!this.holdText())
         this.latched.set({
-          title: this.title(),
           now: this.summary().content.text,
           metrics: this.metricsText(),
         });
