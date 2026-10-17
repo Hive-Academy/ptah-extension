@@ -31,16 +31,15 @@ function timerFor(attempt: IdleAttempt | null): IdleTimerSpec {
       at: attempt.fireAt,
     };
   }
-  if (
-    attempt?.kind === 'in-flight' &&
-    attempt.phase !== 'sending' &&
-    attempt.phase !== 'boundary'
-  ) {
+  if (attempt?.kind === 'in-flight') {
     return {
       kind: 'deadline',
       attemptId: attempt.attemptId,
       phase: attempt.phase,
-      at: attempt.deadlineAt,
+      at:
+        attempt.phase === 'boundary'
+          ? (attempt.dwellAt ?? attempt.deadlineAt)
+          : attempt.deadlineAt,
     };
   }
   return null;
@@ -379,19 +378,24 @@ export function reduceIdleSession(
             effects.push({ type: 'log', level: 'debug', reason: 'no-reading' });
             close();
           } else if (
+            attempt.phase === 'sending' ||
             attempt.phase === 'enqueued' ||
             attempt.phase === 'precompact' ||
+            attempt.phase === 'boundary' ||
             attempt.phase === 'boundary-ended'
           ) {
             effects.push({
               type: 'log',
               level: 'warn',
               reason:
-                attempt.phase === 'enqueued'
-                  ? 'claim-timeout'
-                  : attempt.phase === 'precompact'
-                    ? 'dwell-timeout'
-                    : 'postcompact-timeout',
+                attempt.phase === 'sending'
+                  ? 'send-timeout'
+                  : attempt.phase === 'enqueued'
+                    ? 'claim-timeout'
+                    : attempt.phase === 'precompact' ||
+                        attempt.phase === 'boundary'
+                      ? 'dwell-timeout'
+                      : 'postcompact-timeout',
             });
             release();
             close();

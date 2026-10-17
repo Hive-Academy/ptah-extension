@@ -473,7 +473,7 @@ Decisions:
   the 13 files only get `prettier --write` with no edits by hand. Reversible.
 - F4 is fixed now even though it is Moderate: see the table. Reversible.
 
-## Batch 8F: Phase 1 fix — formatting and `ManualCompactAdmission` port type — COMPLETE
+## Batch 8F: Phase 1 fix — formatting and `ManualCompactAdmission` port type — COMPLETE (commit 4af674c31)
 
 - Recommended executor: CLI lane [implementation, TypeScript]
 - Execution mode: sequential
@@ -511,7 +511,7 @@ Decisions:
   18 suites / 428 tests passing; eslint on the barrels and the new file is clean. Lane
   report: batch-8F-report.md.
 
-## Batch 8G: Phase 1 fix — reducer deadlines, alias normalisation, pipeline containment — IN_PROGRESS
+## Batch 8G: Phase 1 fix — reducer deadlines, alias normalisation, pipeline containment — COMPLETE
 
 - Recommended executor: CLI lane [implementation, TypeScript, RxJS virtual time]
 - Execution mode: sequential
@@ -522,13 +522,13 @@ Decisions:
 - Tasks: 2 | Depends on: Batch 8F
 - Phase: 1 (fix round) | Phase review: deferred to Batch 8H
 
-### Task 8G.1: Deadlines for `sending` and `boundary` (F3, F4) — IN_PROGRESS
+### Task 8G.1: Deadlines for `sending` and `boundary` (F3, F4) — COMPLETE
 
 - Files: `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction\idle\idle-session.reducer.ts`, `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction\idle\idle-session.reducer.spec.ts`, `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction\idle\idle-compaction.types.ts` (only if a new warn reason is needed)
 - Implementation details: `timerFor` (`reducer.ts:~22`) returns a `deadline` timer for `sending` (at `deadlineAt`, which is computed today but unused) and for `boundary` (at the stored `dwellAt`). In the `deadline-elapsed` case, a `sending` or `boundary` attempt with a matching `attemptId` releases the claim when it was claimed, closes the attempt (`attempt: null`) and emits one warn. Use the existing `claim-timeout` reason, or add `send-timeout` to the warn-reason union. A stale `deadline-elapsed` (other `attemptId` or phase) stays a no-op.
 - Spec: an unresolved send passes `deadlineAt` -> claim released, attempt closed, one warn, a later turn re-arms. A boundary without `turn-ended` or `post-compact` passes `dwellAt` -> released and closed. A deadline for a superseded attempt -> no-op.
 
-### Task 8G.2: Alias normalisation and per-signal containment (F2, F1) — IN_PROGRESS
+### Task 8G.2: Alias normalisation and per-signal containment (F2, F1) — COMPLETE
 
 - Files: `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction\idle\idle-compaction.service.ts`, `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction\idle\idle-compaction.service.spec.ts`
 - Implementation details: (F2) `resolve` (`service.ts:~296`) returns the signal with `sessionId` replaced by the group's current id (`currentIds.get(key)`), so the reducer guard at `reducer.ts:71` matches signals sent under any alias. Do not loosen the reducer guard. (F1) Wrap the body of the `scan` accumulator (`service.ts:~118`, including the `settings()` call) in try/catch. On a throw it returns the previous state with no effects and emits one `signal-failed` warn, so one bad signal is dropped and the session stays alive. Wrap each effect in `runEffects` (`:~170`) in its own try/catch with the same warn. Keep the outer `catchError -> EMPTY` as the last resort.
@@ -536,6 +536,19 @@ Decisions:
 - Validation notes: the existing coalesce spec cases (alias-set token cleanup, release clears aliases at once) must still pass unchanged.
 
 ### Batch 8G verification
+
+- Result (team-leader, on disk): reducer sessionId guard unchanged; coalesce spec has an empty
+  diff; `sending`/`boundary` deadlines come from `timerFor` and run on the injected scheduler and
+  clock; `release()` only emits for an in-flight claim; scan and per-effect catches log a
+  `signal-failed` warn with no error text; outer `catchError -> EMPTY` kept. The new
+  `idle-compaction.helpers.ts` holds code moved out of the service (settings read, resolve,
+  timer/state utilities) to keep the service under 500 lines; no duplication left. Jest idle:
+  6 suites / 78 tests pass; agent-sdk typecheck passes; prettier clean; eslint 0 errors.
+- Carried to the 8H re-review: `finalize` warns `group-failed` on release when the last
+  non-release signal failed (`idle-compaction.service.ts:235`). This keeps the unchanged
+  coalesce spec green but is now a log-only artefact, since the group no longer fails. A
+  logger that throws twice in one effect escapes the per-effect catch to the outer catchError.
+  Lane report: batch-8G-report.md.
 
 - Command: `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/helpers/compaction/idle --coverage=false --maxWorkers=2 2>&1 | tail -20 && npx nx typecheck @ptah-extension/agent-sdk 2>&1 | tail -15 && npx prettier --check libs/backend/agent-sdk/src/lib/helpers/compaction/idle 2>&1 | tail -3`
 

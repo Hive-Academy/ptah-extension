@@ -46,6 +46,7 @@ function harness(send?: IdleCompactSender['sendIdleCompact']) {
   let enabled = true;
   let autoEnabled = true;
   let minimum = 200_000;
+  let failSettingsOnce = false;
   let phase = 'idle';
   let onConfig:
     | ((event: { affectsConfiguration(section: string): boolean }) => void)
@@ -56,7 +57,13 @@ function harness(send?: IdleCompactSender['sendIdleCompact']) {
   const offPre = jest.fn();
   const offPost = jest.fn();
   const config = {
-    getIdleCompactionConfig: () => ({ enabled, minTokens: minimum }),
+    getIdleCompactionConfig: () => {
+      if (failSettingsOnce) {
+        failSettingsOnce = false;
+        throw new Error('temporary config failure');
+      }
+      return { enabled, minTokens: minimum };
+    },
     getConfig: () => ({ enabled: autoEnabled }),
   } as CompactionConfigProvider;
   const turns = {
@@ -127,6 +134,9 @@ function harness(send?: IdleCompactSender['sendIdleCompact']) {
     },
     setMinimum: (value: number) => {
       minimum = value;
+    },
+    failNextSettingsRead: () => {
+      failSettingsOnce = true;
     },
     setPhase: (value: string) => {
       phase = value;
@@ -363,6 +373,102 @@ describe('IdleCompactionService', () => {
     h.service.turnEnded('s', 'late', request);
     h.service.turnContext('s', 'late', 250_000);
     expect(h.scheduler.actions).toHaveLength(0);
+    h.coordinator.dispose();
+  });
+
+  it('releases a claim when a send never settles and allows a later turn to arm', () => {
+    const h = harness((_id, before) => {
+      before();
+      return new Promise<void>(() => {});
+    });
+    h.arm();
+    h.advance(DUE);
+    expect(h.coordinator.getIdleClaim('s')).toBeDefined();
+    h.advance(DUE + IDLE_CLAIM_TIMEOUT_MS);
+    expect(h.warn).toHaveBeenCalledTimes(1);
+    expect(h.warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ reason: 'send-timeout' }),
+    );
+    expect(h.coordinator.getIdleClaim('s')).toBeUndefined();
+    h.service.input('s');
+    h.service.turnEnded('s', 'later', {
+      ...request,
+      anchorAt: DUE + IDLE_CLAIM_TIMEOUT_MS,
+    });
+    h.service.turnContext('s', 'later', 250_000);
+    expect(h.scheduler.actions).toHaveLength(1);
+    h.service.dispose();
+    h.coordinator.dispose();
+  });
+
+  it('normalizes old aliases for activity, turns and boundary notices', async () => {
+    const h = harness();
+    h.coordinator.register('new-s', { codexProxy: false, e2Passed: true });
+    h.arm();
+    h.service.rekey('s', 'new-s');
+    h.service.input('s');
+    expect(h.scheduler.actions).toHaveLength(0);
+    h.service.turnEnded('s', 'later', request);
+    h.service.turnContext('s', 'later', 250_000);
+    expect(h.scheduler.actions).toHaveLength(1);
+    h.advance(DUE);
+    await settle();
+    expect(h.sender.sendIdleCompact).toHaveBeenCalledWith(
+      'new-s',
+      expect.any(Function),
+    );
+    h.preCompact('s');
+    h.service.compactBoundary('s', 240_000);
+    expect(h.service.boundaryNoticeFor('new-s')).toEqual({
+      preTokens: 240_000,
+    });
+    h.service.sessionReleased('s');
+    expect(h.scheduler.actions).toHaveLength(0);
+    h.service.dispose();
+    h.coordinator.dispose();
+  });
+
+  it('drops one signal when settings throws and keeps the session alive', async () => {
+    const h = harness();
+    h.service.sessionBound('s', 'run', false);
+    h.failNextSettingsRead();
+    h.service.turnEnded('s', 'discarded', request);
+    h.service.turnContext('s', 'discarded', 250_000);
+    expect(h.scheduler.actions).toHaveLength(0);
+    expect(h.warn).toHaveBeenCalledTimes(1);
+    expect(h.warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ reason: 'signal-failed' }),
+    );
+    h.service.turnEnded('s', 'later', request);
+    h.service.turnContext('s', 'later', 250_000);
+    h.advance(DUE);
+    await settle();
+    expect(h.sender.sendIdleCompact).toHaveBeenCalledTimes(1);
+    h.service.sessionReleased('s');
+    expect(h.scheduler.actions).toHaveLength(0);
+    h.service.dispose();
+    h.coordinator.dispose();
+  });
+
+  it('continues later effects when one effect throws', async () => {
+    const h = harness();
+    h.arm();
+    h.advance(DUE);
+    await settle();
+    expect(h.coordinator.getIdleClaim('s')).toBeDefined();
+    h.warn.mockImplementationOnce(() => {
+      throw new Error('logger failed');
+    });
+    h.advance(DUE + IDLE_CLAIM_TIMEOUT_MS);
+    expect(h.warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ reason: 'signal-failed' }),
+    );
+    expect(h.coordinator.getIdleClaim('s')).toBeUndefined();
+    expect(h.scheduler.actions).toHaveLength(0);
+    h.service.dispose();
     h.coordinator.dispose();
   });
 });

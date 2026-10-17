@@ -204,7 +204,11 @@ describe('reduceIdleSession', () => {
         claimId: `${due.attemptId}:claim`,
       },
     ]);
-    expect(fired.state.timer).toBeNull();
+    expect(fired.state.timer).toMatchObject({
+      kind: 'deadline',
+      phase: 'sending',
+      at: 120_100,
+    });
     expect(step(fired.state, due).effects).toEqual([]);
   });
 
@@ -286,7 +290,11 @@ describe('reduceIdleSession', () => {
       noticeKey: 's',
       preTokens: 240_000,
     });
-    expect(atBoundary.state.timer).toBeNull();
+    expect(atBoundary.state.timer).toMatchObject({
+      kind: 'deadline',
+      phase: 'boundary',
+      at: 300_100,
+    });
     const ended = step(atBoundary.state, turn());
     expect(ended.state.attempt).toMatchObject({
       phase: 'boundary-ended',
@@ -312,6 +320,57 @@ describe('reduceIdleSession', () => {
     });
     expect(finished.state.attempt).toBeNull();
     expect(finished.state.idlePeriodClosed).toBe(true);
+  });
+
+  it.each([
+    ['sending', sending(), 'send-timeout'],
+    ['boundary', boundary().state, 'dwell-timeout'],
+  ] as const)(
+    'closes %s at its deadline and permits a later turn',
+    (_phase, state, reason) => {
+      const timer = state.timer!;
+      const expired = step(
+        state,
+        {
+          type: 'deadline-elapsed',
+          sessionId: 's',
+          attemptId: timer.attemptId,
+          phase: timer.phase,
+        },
+        timer.at,
+      );
+      expect(expired.effects).toEqual([
+        { type: 'log', level: 'warn', reason },
+        {
+          type: 'release-claim',
+          sessionId: 's',
+          claimId: `${timer.attemptId}:claim`,
+        },
+      ]);
+      expect(expired.state.attempt).toBeNull();
+      expect(expired.state.timer).toBeNull();
+      const active = step(expired.state, sig('input')).state;
+      expect(
+        step(step(active, turn('later')).state, context('later')).state.attempt,
+      ).toMatchObject({ kind: 'pending', turnId: 'later' });
+    },
+  );
+
+  it('ignores a deadline from a superseded attempt', () => {
+    const old = sending();
+    const next = step(old, sig('input')).state;
+    const stale = step(
+      next,
+      {
+        type: 'deadline-elapsed',
+        sessionId: 's',
+        attemptId: 'superseded',
+        phase: 'sending',
+      },
+      120_100,
+    );
+    expect(stale.state).toEqual(next);
+    expect(stale.effects).toEqual([]);
   });
 
   it('warns postcompact-timeout after boundary and result', () => {

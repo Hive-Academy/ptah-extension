@@ -32,6 +32,14 @@ import type { SdkAdapterEvents } from '../../sdk-adapter-events.service';
 import type { SessionTurnStateRegistry } from '../../session-turn-state.registry';
 import type { CompactionCoordinator } from '../compaction-coordinator';
 import { evaluateFireGate } from './idle-fire-gate';
+import {
+  IdleSendVetoedError,
+  initialState,
+  readIdleSettings,
+  resolveIdleSignal,
+  sameTimer,
+  type KeyedSignal,
+} from './idle-compaction.helpers';
 import { reduceIdleSession } from './idle-session.reducer';
 import { createUnrefScheduler } from './unref-scheduler';
 import type {
@@ -46,50 +54,8 @@ import type {
   IdleSignal,
   IdleSkipReason,
   IdleStep,
-  IdleTimerSpec,
   LastRequestSnapshot,
 } from './idle-compaction.types';
-
-interface KeyedSignal {
-  readonly key: string;
-  readonly signal: IdleSignal;
-}
-
-class IdleSendVetoedError extends Error {
-  constructor(readonly reason: 'manual-reserved' | 'compaction-state') {
-    super(reason);
-    this.name = 'IdleSendVetoedError';
-  }
-}
-
-function sameTimer(a: IdleTimerSpec, b: IdleTimerSpec): boolean {
-  return (
-    a === b ||
-    (a !== null &&
-      b !== null &&
-      a.kind === b.kind &&
-      a.attemptId === b.attemptId &&
-      a.phase === b.phase &&
-      a.at === b.at)
-  );
-}
-
-function initialState(sessionId: string): IdleSessionState {
-  return {
-    sessionId,
-    runToken: '',
-    codexProxy: false,
-    lastTurn: null,
-    reading: null,
-    activitySinceTurnEnd: false,
-    prefixChangedSinceTurnEnd: false,
-    rateLimit: null,
-    compactionOpen: false,
-    idlePeriodClosed: false,
-    attempt: null,
-    timer: null,
-  };
-}
 
 /** Multi-session idle compaction orchestrator. All producer calls are synchronous and safe. */
 export class IdleCompactionService implements IdleCompactionSignals {
@@ -163,19 +129,6 @@ export class IdleCompactionService implements IdleCompactionSignals {
     }
   }
 
-  private settings(): {
-    enabled: boolean;
-    autoCompactEnabled: boolean;
-    minTokens: number;
-  } {
-    const idle = this.config.getIdleCompactionConfig();
-    return {
-      enabled: idle.enabled,
-      autoCompactEnabled: this.config.getConfig().enabled,
-      minTokens: idle.minTokens,
-    };
-  }
-
   private sessionPipeline(
     key: string,
     group: Observable<KeyedSignal>,
@@ -186,14 +139,28 @@ export class IdleCompactionService implements IdleCompactionSignals {
     let latest = initialState(key);
     let pending: Extract<IdleAttempt, { kind: 'pending' }> | null = null;
     let live = true;
+    let lastSignalFailed = false;
     const steps$ = group.pipe(
       scan(
-        (previous: IdleStep, item: KeyedSignal) => {
-          const settings = this.settings();
-          return reduceIdleSession(previous.state, item.signal, {
-            now: this.timing.now(),
-            settings,
-          });
+        (previous: IdleStep, item: KeyedSignal): IdleStep => {
+          try {
+            const step = reduceIdleSession(previous.state, item.signal, {
+              now: this.timing.now(),
+              settings: readIdleSettings(this.config),
+            });
+            if (item.signal.type !== 'session-released')
+              lastSignalFailed = false;
+            return step;
+          } catch {
+            lastSignalFailed = true;
+            return {
+              signal: item.signal,
+              state: previous.state,
+              effects: [
+                { type: 'log', level: 'warn', reason: 'signal-failed' },
+              ],
+            };
+          }
         },
         {
           signal: {
@@ -265,6 +232,7 @@ export class IdleCompactionService implements IdleCompactionSignals {
       }),
       finalize(() => {
         live = false;
+        if (lastSignalFailed) this.warn('group-failed', latest.sessionId);
         const attempt = latest.attempt;
         if (attempt?.kind === 'in-flight') {
           this.coordinator.releaseIdleClaim(latest.sessionId, attempt.claimId);
@@ -286,29 +254,33 @@ export class IdleCompactionService implements IdleCompactionSignals {
 
   private runEffects(step: IdleStep): void {
     for (const effect of step.effects) {
-      switch (effect.type) {
-        case 'log':
-          this.logger[effect.level]('[IdleCompactionService] transition', {
-            sessionId: step.state.sessionId,
-            attemptId: step.state.attempt?.attemptId,
-            reason: effect.reason,
-          });
-          break;
-        case 'release-claim':
-          this.coordinator.releaseIdleClaim(effect.sessionId, effect.claimId);
-          break;
-        case 'set-notice':
-          this.notices.set(effect.noticeKey, { preTokens: effect.preTokens });
-          break;
-        case 'clear-notice':
-          for (const alias of this.keys.get(
-            this.aliases.get(step.state.sessionId) ?? step.state.sessionId,
-          ) ?? [step.state.sessionId]) {
-            this.notices.delete(alias);
-          }
-          break;
-        case 'fire':
-          break;
+      try {
+        switch (effect.type) {
+          case 'log':
+            this.logger[effect.level]('[IdleCompactionService] transition', {
+              sessionId: step.state.sessionId,
+              attemptId: step.state.attempt?.attemptId,
+              reason: effect.reason,
+            });
+            break;
+          case 'release-claim':
+            this.coordinator.releaseIdleClaim(effect.sessionId, effect.claimId);
+            break;
+          case 'set-notice':
+            this.notices.set(effect.noticeKey, { preTokens: effect.preTokens });
+            break;
+          case 'clear-notice':
+            for (const alias of this.keys.get(
+              this.aliases.get(step.state.sessionId) ?? step.state.sessionId,
+            ) ?? [step.state.sessionId]) {
+              this.notices.delete(alias);
+            }
+            break;
+          case 'fire':
+            break;
+        }
+      } catch {
+        this.warn('signal-failed', step.state.sessionId);
       }
     }
   }
@@ -432,7 +404,12 @@ export class IdleCompactionService implements IdleCompactionSignals {
       while (this.queue.length > 0) {
         const next = this.queue.shift()!;
         try {
-          const item = this.resolve(next);
+          const item = resolveIdleSignal(
+            next,
+            this.aliases,
+            this.keys,
+            this.currentIds,
+          );
           if (item) {
             const ownedAliases = this.keys.get(item.key);
             this.signals$.next(item);
@@ -447,25 +424,6 @@ export class IdleCompactionService implements IdleCompactionSignals {
     } finally {
       this.draining = false;
     }
-  }
-
-  private resolve(signal: IdleSignal): KeyedSignal | null {
-    let key = this.aliases.get(signal.sessionId);
-    if (signal.type === 'session-bound' && key === undefined) {
-      key = signal.sessionId;
-      this.aliases.set(key, key);
-      this.keys.set(key, new Set([key]));
-      this.currentIds.set(key, key);
-    }
-    if (key === undefined) return null;
-    if (signal.type === 'rekey') {
-      const existing = this.aliases.get(signal.toId);
-      if (existing !== undefined && existing !== key) return null;
-      this.aliases.set(signal.toId, key);
-      this.keys.get(key)?.add(signal.toId);
-      this.currentIds.set(key, signal.toId);
-    }
-    return { key, signal };
   }
 
   sessionBound(sessionId: string, runToken: string, codexProxy: boolean): void {

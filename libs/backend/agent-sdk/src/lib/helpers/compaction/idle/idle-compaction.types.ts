@@ -145,6 +145,8 @@ export type IdleSkipReason =
 
 export type IdleWarnReason =
   | 'send-failed'
+  | 'send-timeout'
+  | 'signal-failed'
   | 'claim-timeout'
   | 'dwell-timeout'
   | 'postcompact-timeout'
