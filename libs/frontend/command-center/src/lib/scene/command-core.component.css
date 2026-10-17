@@ -1,0 +1,37 @@
+:host { display: block; min-width: 0; }
+.core { display: flex; justify-content: center; }
+.dial {
+  --diameter: 292px;
+  position: relative; display: grid; place-items: center;
+  width: var(--diameter); height: var(--diameter); border-radius: 50%;
+  border: 1px solid color-mix(in oklch, var(--ptah-gold) 34%, transparent);
+  background: radial-gradient(circle, color-mix(in oklch, var(--ptah-gold) 13%, oklch(var(--b1))) 0%, oklch(var(--b1)) 65%, oklch(var(--b2)) 69%);
+  box-shadow: 0 0 0 8px color-mix(in oklch, var(--ptah-gold) 7%, transparent);
+}
+.dial::before, .dial::after { content: ''; position: absolute; border-radius: 50%; pointer-events: none; }
+.dial::before { inset: 15px; border: 2px solid var(--ptah-gold); border-left-color: transparent; border-bottom-color: color-mix(in oklch, var(--ptah-gold) 40%, transparent); }
+.dial::after { inset: 28px; border: 1px solid color-mix(in oklch, var(--ptah-gold) 34%, transparent); }
+.ticks { position: absolute; inset: -7px; width: calc(100% + 14px); height: calc(100% + 14px); pointer-events: none; overflow: visible; }
+.ticks line { stroke: color-mix(in oklch, var(--ptah-gold) 65%, transparent); stroke-width: 1; }
+.ticks line.major { stroke: var(--ptah-gold); stroke-width: 1.5; }
+.voice-ring { position: absolute; inset: 8px; border: 3px solid var(--ptah-gold); border-radius: 50%; pointer-events: none; transform: scale(var(--voice-scale, 1)); opacity: .75; }
+.dial[data-voice='listening'] .voice-ring { border-color: color-mix(in oklch, var(--state-ink-run, #3b82f6) 45%, var(--state-ink-done, #16a34a)); }
+.dial[data-voice='thinking'] .voice-ring { border-color: var(--state-ink-run, var(--ptah-gold)); border-right-color: transparent; animation: voice-spin 3.7s linear infinite; }
+.dial[data-voice='speaking'] .voice-ring { border-style: dashed; }
+.dial[data-voice='muted'] .voice-ring, .dial[data-voice='stopped'] .voice-ring { border-color: var(--state-ink-idle, oklch(var(--bc))); border-style: dashed; }
+.dial[data-voice='error'] .voice-ring { border-color: var(--state-ink-err, oklch(var(--er))); border-style: dashed; }
+.dial.is-paused .voice-ring { animation-play-state: paused; }
+@keyframes voice-spin { to { transform: rotate(360deg); } }
+.root-button, .root-empty { position: relative; z-index: 1; width: 68%; height: 68%; border: 0; border-radius: 50%; background: transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: oklch(var(--bc)); }
+.root-button { cursor: pointer; }
+.root-button:hover { background: var(--ptah-gold-soft); }
+.root-button:focus-visible { outline: 2px solid var(--ptah-gold-strong); outline-offset: 3px; }
+.root-button[aria-pressed='true'] { box-shadow: inset 0 0 0 1px var(--ptah-gold-strong); }
+.brand { font: 700 12px Georgia, serif; letter-spacing: .2em; color: var(--ptah-gold-strong); }
+.count { margin: 7px 0; font: 500 50px/1 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; }
+.unit, .session, .voice-caption { font-size: 11px; line-height: 16px; }
+.unit { color: oklch(var(--bc)); max-width: 110px; }
+.session, .voice-caption { color: var(--ptah-gold-strong); }
+@container (max-width: 959px) { .dial { --diameter: 200px; } }
+@container (max-width: 679px) { .dial { --diameter: 160px; } .count { font-size: 34px; line-height: 34px; } .unit { max-width: 92px; } .voice-caption { display: none; } }
+@media (prefers-reduced-motion: reduce) { .voice-ring { animation: none !important; transform: none !important; } }
