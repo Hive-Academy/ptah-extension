@@ -560,8 +560,48 @@ describe('CanvasRailCardComponent', () => {
     expect(panel.closest('ptah-native-popover')?.className).toContain('[&>.popover-panel]:p-0');
     expect(panel.querySelector('h3')?.classList).toContain('text-base-content-muted');
     expect(panel.querySelector('input')?.classList).toContain('input-sm');
-    expect(panel.querySelector('input')?.classList).toContain('focus:outline-none');
-    expect([...panel.querySelectorAll('button')].every((button) => button.classList.contains('flex-1'))).toBe(true);
+    // One 2 px ring over the 1 px border in the theme-measured focus ink
+    // (styles.css maps the --s utility to >= 3:1 inks in light themes); no
+    // separate primary border colour on focus, so no double outline.
+    const inputClasses = [...(panel.querySelector('input')?.classList ?? [])];
+    expect(inputClasses).toEqual(
+      expect.arrayContaining([
+        'focus-visible:outline',
+        'focus-visible:outline-2',
+        'focus-visible:outline-offset-[-1px]',
+        'focus-visible:outline-[oklch(var(--s))]',
+      ]),
+    );
+    expect(inputClasses.some((name) => name.startsWith('focus:border-'))).toBe(false);
+    // Equal-width actions: two equal grid columns, not flex-1 (border skew).
+    const actionRow = panel.querySelector('button')?.parentElement;
+    expect([...(actionRow?.classList ?? [])]).toEqual(
+      expect.arrayContaining(['grid', 'grid-cols-2']),
+    );
+    expect([...panel.querySelectorAll('button')].every((button) => button.classList.contains('w-full') && !button.classList.contains('flex-1'))).toBe(true);
+  });
+
+  it('raises the actions cell above later page content only while a panel is open', async () => {
+    const fixture = mount();
+    const host = fixture.nativeElement as HTMLElement;
+    const cell = () => host.querySelector('[data-rail-actions]') as HTMLElement;
+    expect(cell().classList).toContain('z-10');
+    expect(cell().classList).not.toContain('z-50');
+    await openMenu(fixture);
+    expect(cell().classList).toContain('z-50');
+    expect(cell().classList).not.toContain('z-10');
+    item(host, 'rename').click();
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+    expect(host.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(cell().classList).toContain('z-50');
+    host.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')[0].click();
+    fixture.detectChanges();
+    expect(cell().classList).toContain('z-10');
+    expect(cell().classList).not.toContain('z-50');
   });
 
   describe('Rename in flight (M4, D74)', () => {

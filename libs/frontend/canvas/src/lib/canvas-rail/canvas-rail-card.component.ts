@@ -165,13 +165,7 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
       <div
         #actions
         data-rail-actions
-        [class]="
-          collapsed()
-            ? 'flex w-6 shrink-0 items-center justify-center'
-            : tab()?.workflow
-              ? 'absolute right-1.5 top-[26px] z-10 flex'
-              : 'absolute right-1.5 top-1.5 z-10 flex'
-        "
+        [class]="actionsClass()"
       >
         <!-- A block trigger wrapper adds no inline baseline gap to the cell. -->
         <ptah-native-popover
@@ -296,13 +290,14 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
           </div>
           <div content class="w-72 p-4" role="dialog" aria-label="Rename session">
             <h3 class="mb-3 text-sm font-semibold text-base-content-muted">Rename session</h3>
-            <input #renameInput type="text" class="input input-sm input-bordered mb-3 w-full bg-base-100 border-base-content/10 focus:border-primary focus:outline-none" aria-label="Session name" [attr.aria-describedby]="renameError() ? 'rail-rename-error-' + tabId() : null" [maxLength]="nameMaxLength" [value]="renameDraft()" [readOnly]="renaming()" (input)="onRenameInput(renameInput.value)" (keydown.enter)="onRenameEnter($event)" />
+            <input #renameInput type="text" class="input input-sm input-bordered mb-3 w-full bg-base-100 border-base-content/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-1px] focus-visible:outline-[oklch(var(--s))]" aria-label="Session name" [attr.aria-describedby]="renameError() ? 'rail-rename-error-' + tabId() : null" [maxLength]="nameMaxLength" [value]="renameDraft()" [readOnly]="renaming()" (input)="onRenameInput(renameInput.value)" (keydown.enter)="onRenameEnter($event)" />
             @if (renameError(); as error) {
               <p class="mb-3 text-xs text-error" [id]="'rail-rename-error-' + tabId()">{{ error }}</p>
             }
-            <div class="flex gap-2">
-              <button type="button" class="btn btn-sm btn-ghost flex-1" (click)="cancelRename()">Cancel</button>
-              <button type="button" class="btn btn-sm btn-primary flex-1" [disabled]="renaming()" (click)="saveRename()">Save</button>
+            <!-- Equal grid columns: ghost and primary borders differ per theme, so flex-1 skewed them. -->
+            <div class="grid grid-cols-2 gap-2">
+              <button type="button" class="btn btn-sm btn-ghost w-full" (click)="cancelRename()">Cancel</button>
+              <button type="button" class="btn btn-sm btn-primary w-full" [disabled]="renaming()" (click)="saveRename()">Save</button>
             </div>
           </div>
         </ptah-native-popover>
@@ -368,6 +363,19 @@ export class CanvasRailCardComponent implements SessionCardActions {
     () => this.tabs.findTabByIdAcrossWorkspaces(this.tabId())?.tab ?? null,
   );
   readonly sessionId = computed(() => this.tab()?.claudeSessionId ?? null);
+  /**
+   * The expanded actions cell is absolute with a z-index, so it is a stacking
+   * context that traps its popovers' z-50 (and their backdrop). While the
+   * menu or Rename panel is open it rises to z-50, so the panel paints above
+   * later page content (the chat welcome emblem, later rail cards); closed it
+   * stays at z-10 over its own card only.
+   */
+  readonly actionsClass = computed(() => {
+    if (this.collapsed()) return 'flex w-6 shrink-0 items-center justify-center';
+    const top = this.tab()?.workflow ? 'top-[26px]' : 'top-1.5';
+    const layer = this.menuOpen() || this.renameOpen() ? 'z-50' : 'z-10';
+    return `absolute right-1.5 ${top} ${layer} flex`;
+  });
   readonly reasonId = computed(() => `rail-split-reason-${this.tabId()}`);
 
   openLane(key: string): void {
