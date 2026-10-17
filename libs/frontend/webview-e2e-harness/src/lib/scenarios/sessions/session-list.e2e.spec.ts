@@ -1,14 +1,11 @@
 /**
  * E2E: session list rendering & switching.
  *
- * Drives the webview SPA via the harness fixtures. The Angular shell may not
- * be present when the harness falls back to its inline placeholder
- * (`dist/apps/ptah-extension-webview` missing), in which case these specs
- * still exercise the bridge contract — outbound RPC capture and inbound
- * injection — without asserting on DOM that doesn't exist. Spec authors
- * defensively skip DOM expectations when the SPA isn't booted.
+ * Drives the real webview SPA via the harness fixtures.
  */
 import { test, expect } from '../../test-fixtures';
+
+test.use({ useAppBuild: true });
 
 test.describe('webview > sessions > list', () => {
   test('webview boots and announces ready', async ({ webviewPage, bridge }) => {
@@ -32,12 +29,14 @@ test.describe('webview > sessions > list', () => {
         ],
       },
     });
-    // Defensive: only assert DOM when the live SPA is present. The fixture
-    // server falls back to a placeholder div when there is no build.
-    const placeholder = webviewPage.locator('#ptah-e2e-fixture-root');
-    if (await placeholder.count()) {
-      await expect(placeholder).toHaveAttribute('data-state', 'ready');
-    }
+    await expect(webviewPage.locator('#ptah-e2e-fixture-root')).toHaveCount(0);
+    await webviewPage
+      .getByRole('button', { name: 'Previous sessions' })
+      .first()
+      .click();
+    await expect(
+      webviewPage.getByRole('dialog', { name: 'Previous sessions' }),
+    ).toBeVisible();
   });
 
   test('switching session emits sessions:switch RPC with target id', async ({

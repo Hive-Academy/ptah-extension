@@ -14,7 +14,7 @@ test.use({ workspace: SAMPLE_REPO });
 /**
  * Drag the editor dock's resize handle left so the diff gets most of the
  * window. The handle is the rightmost `ptah-electron-resize-handle` (the
- * workspace and session rails own the others).
+ * workspace rail owns the other).
  */
 async function widenEditorPanel(page: Page): Promise<void> {
   const handles = page.locator('ptah-electron-resize-handle');
@@ -34,9 +34,9 @@ async function widenEditorPanel(page: Page): Promise<void> {
   await page.waitForTimeout(600);
 }
 
-/** Collapse the workspace and session rails so a shot is all editor. */
+/** Collapse the workspace rail so a shot is all editor. */
 async function collapseRails(page: Page): Promise<void> {
-  for (const rail of ['Toggle Workspaces panel', 'Toggle Sessions panel']) {
+  for (const rail of ['Toggle Workspaces panel']) {
     const toggle = page.locator(`[title="${rail}"], [aria-label="${rail}"]`);
     if (
       await toggle

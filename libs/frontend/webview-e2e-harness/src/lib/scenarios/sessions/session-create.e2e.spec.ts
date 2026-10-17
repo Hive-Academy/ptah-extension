@@ -8,6 +8,8 @@
  */
 import { test, expect } from '../../test-fixtures';
 
+test.use({ useAppBuild: true });
+
 test.describe('webview > sessions > create', () => {
   test('create button triggers sessions:create RPC with user input', async ({
     webviewPage,
@@ -33,6 +35,15 @@ test.describe('webview > sessions > create', () => {
           .click();
       }
     }
+    await expect(webviewPage.locator('#ptah-e2e-fixture-root')).toHaveCount(0);
+    await webviewPage
+      .getByRole('button', { name: 'Previous sessions' })
+      .first()
+      .click();
+    await expect(
+      webviewPage.getByRole('dialog', { name: 'Previous sessions' }),
+    ).toBeVisible();
+    await webviewPage.keyboard.press('Escape');
 
     // Either the SPA emitted the message or we synthesize the verification
     // path: the harness contract guarantees outbound() is observable.
@@ -58,6 +69,15 @@ test.describe('webview > sessions > create', () => {
         await submit.first().click();
       }
     }
+    await expect(webviewPage.locator('#ptah-e2e-fixture-root')).toHaveCount(0);
+    await webviewPage
+      .getByRole('button', { name: 'Previous sessions' })
+      .first()
+      .click();
+    await expect(
+      webviewPage.getByRole('dialog', { name: 'Previous sessions' }),
+    ).toBeVisible();
+    await webviewPage.keyboard.press('Escape');
 
     // No RPC should have been fired with an empty name. We check that no
     // outbound message has an empty `payload.name`.
