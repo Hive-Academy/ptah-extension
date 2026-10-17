@@ -6,12 +6,12 @@ import {
   DecisionModelCatalog,
   OLLAMA_CLOUD_TAGS_URL,
   type DecisionModelCatalogConfig,
+  type DecisionModelCatalogFetch,
 } from './decision-model.catalog';
 import {
-  OLLAMA_CATALOG_MAX_BODY_CHARS,
+  OLLAMA_CATALOG_MAX_BODY_BYTES,
   OLLAMA_CATALOG_MAX_MODELS,
 } from './ollama-catalog.schema';
-import type { SystemOneFetch } from './system-one.client';
 
 /*
  * Fixtures use invented model ids and none of them is clef: the list must
@@ -33,7 +33,9 @@ type Answer =
   /** Never settles, ignoring the signal. */
   | 'ignore-abort'
   /** Answers `reply` once `gate` resolves; rejects when the signal aborts. */
-  | { readonly gate: Promise<void>; readonly reply: Reply };
+  | { readonly gate: Promise<void>; readonly reply: Reply }
+  /** A 200 whose body is `stream`; `text()` must not be used. */
+  | { readonly stream: ReadableStream<Uint8Array> };
 
 interface Reply {
   readonly status: number;
@@ -75,7 +77,7 @@ function harness(
   let clock = 1_000_000;
   let inFlight = 0;
   let maxInFlight = 0;
-  const fetch: SystemOneFetch = async (url, init) => {
+  const fetch: DecisionModelCatalogFetch = async (url, init) => {
     calls.push({
       url,
       method: init?.method ?? 'GET',
@@ -97,6 +99,16 @@ function harness(
       }
       if (answer === 'ignore-abort') {
         return await new Promise<never>(() => undefined);
+      }
+      if (typeof answer === 'object' && 'stream' in answer) {
+        return {
+          ok: true,
+          status: 200,
+          body: answer.stream,
+          text: async () => {
+            throw new Error('a streamed answer is read through its body');
+          },
+        };
       }
       if (typeof answer === 'object' && 'gate' in answer) {
         await new Promise<void>((resolve, reject) => {
@@ -598,29 +610,138 @@ describe('DecisionModelCatalog — concurrency and budget', () => {
 });
 
 describe('DecisionModelCatalog — response bounds (phase 3 L3)', () => {
-  it('reports unavailable for a tag body over the size limit, without parsing it', async () => {
-    const body = JSON.stringify({
-      models: [{ name: 'alpha:7b' }],
-      padding: 'x'.repeat(OLLAMA_CATALOG_MAX_BODY_CHARS),
+  const UNAVAILABLE_RESULT = {
+    models: [],
+    filter: 'unavailable',
+    undetermined: 0,
+  };
+  const TOO_LARGE: [string, Record<string, unknown>] = [
+    '[lane-routing] decision model catalog body too large',
+    { step: 'tags', limit: OLLAMA_CATALOG_MAX_BODY_BYTES },
+  ];
+  const encoder = new TextEncoder();
+
+  /** A stream of `chunks`, recording how it ended. */
+  function streamOf(chunks: readonly Uint8Array[]) {
+    let next = 0;
+    let cancelled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        const chunk = chunks[next];
+        next += 1;
+        if (chunk === undefined) controller.close();
+        else controller.enqueue(chunk);
+      },
+      cancel() {
+        cancelled = true;
+      },
     });
-    const h = harness(() => ({ status: 200, body }));
+    return { stream, cancelled: () => cancelled };
+  }
+
+  it('cancels a never-ending tag body once it passes the byte cap, without parsing it', async () => {
+    const chunk = encoder.encode('x'.repeat(64 * 1024));
+    let pulled = 0;
+    let cancelled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled += chunk.byteLength;
+        controller.enqueue(chunk);
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const h = harness(() => ({ stream }));
     const parse = jest.spyOn(JSON, 'parse');
 
     try {
-      await expect(h.catalog.list('ollama')).resolves.toEqual({
-        models: [],
-        filter: 'unavailable',
-        undetermined: 0,
-      });
-      expect(parse).not.toHaveBeenCalledWith(body);
+      await expect(h.catalog.list('ollama')).resolves.toEqual(
+        UNAVAILABLE_RESULT,
+      );
+      expect(parse).not.toHaveBeenCalled();
     } finally {
       parse.mockRestore();
     }
-    expect(h.showCalls()).toBe(0);
-    expect(h.logger.warn).toHaveBeenCalledWith(
-      '[lane-routing] decision model catalog body too large',
-      { step: 'tags', limit: OLLAMA_CATALOG_MAX_BODY_CHARS },
+    expect(cancelled).toBe(true);
+    // Reading stopped at the cap, give or take the stream's read-ahead.
+    expect(pulled).toBeLessThanOrEqual(
+      OLLAMA_CATALOG_MAX_BODY_BYTES + 4 * chunk.byteLength,
     );
+    expect(h.showCalls()).toBe(0);
+    expect(h.logger.warn).toHaveBeenCalledWith(...TOO_LARGE);
+  });
+
+  it('counts the cap in bytes: a multi-byte body under it in chars but over it in bytes is refused', async () => {
+    // 'é' is one UTF-16 code unit and two UTF-8 bytes.
+    const text = JSON.stringify({
+      models: [{ name: 'alpha:7b' }],
+      padding: 'é'.repeat(OLLAMA_CATALOG_MAX_BODY_BYTES / 2 + 1),
+    });
+    expect(text.length).toBeLessThan(OLLAMA_CATALOG_MAX_BODY_BYTES);
+    // A trailing chunk keeps the stream open when the cap is passed, so the
+    // cancel reaches the source.
+    const body = streamOf([encoder.encode(text), encoder.encode(' ')]);
+    const h = harness(() => ({ stream: body.stream }));
+
+    await expect(h.catalog.list('ollama')).resolves.toEqual(
+      UNAVAILABLE_RESULT,
+    );
+    expect(body.cancelled()).toBe(true);
+    expect(h.showCalls()).toBe(0);
+    expect(h.logger.warn).toHaveBeenCalledWith(...TOO_LARGE);
+  });
+
+  it('parses a streamed tag body under the cap, across chunk and character boundaries', async () => {
+    const bytes = encoder.encode(
+      JSON.stringify({ models: [{ name: 'alpha:7b', note: 'café' }] }),
+    );
+    // Splits inside the two-byte 'é' as well as between ordinary bytes.
+    const split = bytes.indexOf(0xc3) + 1;
+    const h = harness((url) =>
+      url.endsWith('/api/tags')
+        ? {
+            stream: streamOf([
+              bytes.slice(0, 5),
+              bytes.slice(5, split),
+              bytes.slice(split),
+            ]).stream,
+          }
+        : show(['decision']),
+    );
+
+    await expect(h.catalog.list('ollama')).resolves.toEqual({
+      models: ['alpha:7b'],
+      filter: 'applied',
+      undetermined: 0,
+    });
+    expect(h.logger.warn).not.toHaveBeenCalledWith(...TOO_LARGE);
+  });
+
+  it('cancels a stalled tag body when the call budget runs out', async () => {
+    let cancelled: () => void = () => undefined;
+    const wasCancelled = new Promise<void>((resolve) => {
+      cancelled = resolve;
+    });
+    let sent = false;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent) return new Promise<void>(() => undefined);
+        sent = true;
+        controller.enqueue(encoder.encode('{"models":['));
+        return undefined;
+      },
+      cancel() {
+        cancelled();
+      },
+    });
+    const h = harness(() => ({ stream }), { timeoutMs: 50 });
+
+    await expect(h.catalog.list('ollama')).resolves.toEqual(
+      UNAVAILABLE_RESULT,
+    );
+    await expect(wasCancelled).resolves.toBeUndefined();
+    expect(h.logger.warn).not.toHaveBeenCalledWith(...TOO_LARGE);
   });
 
   it(`looks up at most ${OLLAMA_CATALOG_MAX_MODELS} local tags and counts the rest as undetermined`, async () => {

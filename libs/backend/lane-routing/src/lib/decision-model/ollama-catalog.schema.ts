@@ -13,11 +13,12 @@ import { z } from 'zod';
 export const OLLAMA_CATALOG_MAX_ID_CHARS = 128;
 
 /**
- * Largest body (in UTF-16 code units) the catalog parses. A longer body is
- * refused before `JSON.parse`, which runs synchronously and cannot be
- * interrupted by the call budget.
+ * Largest body (in bytes, as received) the catalog reads. The stream is
+ * cancelled once a body passes it, before the body is held whole or handed
+ * to `JSON.parse`, which runs synchronously and cannot be interrupted by the
+ * call budget.
  */
-export const OLLAMA_CATALOG_MAX_BODY_CHARS = 1024 * 1024;
+export const OLLAMA_CATALOG_MAX_BODY_BYTES = 1024 * 1024;
 
 /**
  * Most tag entries one listing classifies. Entries past it are counted as

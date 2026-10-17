@@ -20,8 +20,9 @@
  * One abort budget covers a whole `list` call. An `/api/show` lookup shared
  * by concurrent calls has its own lifetime: it is abandoned only once every
  * call waiting on it has run out of budget, so one call's deadline never
- * cuts another call's answer short. A body longer than
- * `OLLAMA_CATALOG_MAX_BODY_CHARS` is not parsed, and tags past
+ * cuts another call's answer short. A body is read as a stream and dropped
+ * (stream cancelled, never parsed) once it passes
+ * `OLLAMA_CATALOG_MAX_BODY_BYTES`, and tags past
  * `OLLAMA_CATALOG_MAX_MODELS` count as undetermined without a lookup.
  * `list` never rejects, and no host text (error message, body, URL) reaches
  * the result or a log line.
@@ -37,13 +38,24 @@ import {
 } from '@ptah-extension/shared';
 import type { LaneRoutingLogger } from '../lane-routing-logger';
 import {
-  OLLAMA_CATALOG_MAX_BODY_CHARS,
+  readBoundedBody,
+  type BoundedBodySource,
+} from './bounded-body-reader';
+import {
+  OLLAMA_CATALOG_MAX_BODY_BYTES,
   OLLAMA_CATALOG_MAX_MODELS,
   OllamaShowResponseSchema,
   OllamaTagEntrySchema,
   OllamaTagsResponseSchema,
 } from './ollama-catalog.schema';
 import type { SystemOneFetch } from './system-one.client';
+
+/** `SystemOneFetch` whose response may expose its body stream (Node's does). */
+export type DecisionModelCatalogFetch = (
+  ...args: Parameters<SystemOneFetch>
+) => Promise<
+  BoundedBodySource & { readonly ok: boolean; readonly status: number }
+>;
 
 /** Budget of one `list` call; the picker's RPC timeout is 5000 ms. */
 export const DECISION_MODEL_CATALOG_TIMEOUT_MS = 4000;
@@ -75,7 +87,7 @@ export interface DecisionModelCatalogConfig {
 
 export interface DecisionModelCatalogSeams {
   /** Node's global `fetch` by default. */
-  readonly fetch?: SystemOneFetch;
+  readonly fetch?: DecisionModelCatalogFetch;
   readonly now?: () => number;
   /** `DECISION_MODEL_CATALOG_TIMEOUT_MS` by default. */
   readonly timeoutMs?: number;
@@ -132,7 +144,7 @@ const UNAVAILABLE: DecisionModelCatalogResult = Object.freeze({
 });
 
 export class DecisionModelCatalog {
-  private readonly fetch: SystemOneFetch;
+  private readonly fetch: DecisionModelCatalogFetch;
   private readonly now: () => number;
   private readonly timeoutMs: number;
   /** Base URL the `/api/show` cache belongs to; a change clears it. */
@@ -455,18 +467,22 @@ export class DecisionModelCatalog {
         });
         return { ok: false, timedOut: false };
       }
-      const text = await response.text();
-      if (text.length > OLLAMA_CATALOG_MAX_BODY_CHARS) {
+      const body = await readBoundedBody(
+        response,
+        OLLAMA_CATALOG_MAX_BODY_BYTES,
+        signal,
+      );
+      if (!body.ok) {
         this.logger.warn(
           '[lane-routing] decision model catalog body too large',
           {
             step,
-            limit: OLLAMA_CATALOG_MAX_BODY_CHARS,
+            limit: OLLAMA_CATALOG_MAX_BODY_BYTES,
           },
         );
         return { ok: false, timedOut: false };
       }
-      const value: unknown = JSON.parse(text);
+      const value: unknown = JSON.parse(body.text);
       return { ok: true, value };
     } catch (error: unknown) {
       // degradation-audit: reported - the warn below records the failure.
