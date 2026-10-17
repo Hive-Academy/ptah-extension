@@ -212,15 +212,16 @@ describe('DecisionModelRowComponent: Ollama Cloud and custom endpoint (TASK_2026
     });
 
     it.each([
-      ['partial', ['clef:27b-cloud'], PARTIAL],
-      ['unavailable', [], UNAVAILABLE],
+      ['partial', ['clef:27b-cloud'], 2, PARTIAL],
+      ['partial', [], 1, PARTIAL],
+      ['unavailable', [], 0, UNAVAILABLE],
     ] as const)(
-      'says so when the filter is %s',
-      async (filter, models, help) => {
+      'says so when the filter is %s (models %j, undetermined %d)',
+      async (filter, models, undetermined, help) => {
         catalog = catalogResult({
           models: [...models],
           filter,
-          undetermined: 2,
+          undetermined,
         });
         await create();
         await open();
@@ -264,6 +265,22 @@ describe('DecisionModelRowComponent: Ollama Cloud and custom endpoint (TASK_2026
       [
         'a negative undetermined count',
         { models: ['clef:27b-cloud'], filter: 'applied', undetermined: -1 },
+      ],
+      [
+        'unavailable with a model listed',
+        { models: ['clef:27b-cloud'], filter: 'unavailable', undetermined: 0 },
+      ],
+      [
+        'unavailable with an undetermined count',
+        { models: [], filter: 'unavailable', undetermined: 1 },
+      ],
+      [
+        'applied with an undetermined count',
+        { models: [], filter: 'applied', undetermined: 1 },
+      ],
+      [
+        'partial with no undetermined count',
+        { models: ['clef:27b-cloud'], filter: 'partial', undetermined: 0 },
       ],
     ])(
       'drops an answer that is not a catalog result (%s)',

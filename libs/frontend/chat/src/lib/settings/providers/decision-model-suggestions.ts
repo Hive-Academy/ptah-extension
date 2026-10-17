@@ -132,13 +132,29 @@ const isCount = (value: unknown): value is number =>
   typeof value === 'number' && Number.isInteger(value) && value >= 0;
 
 /**
+ * The cross-field contract of `DecisionModelCatalogFilter`, as the host's catalog emits it: `unavailable` lists no
+ * model and counts none undetermined, `applied` counts none undetermined, `partial` counts at least one.
+ */
+function isConsistent(
+  filter: DecisionModelCatalogFilter,
+  models: readonly string[],
+  undetermined: number,
+): boolean {
+  if (filter === 'unavailable')
+    return models.length === 0 && undetermined === 0;
+  return filter === 'applied' ? undetermined === 0 : undetermined > 0;
+}
+
+/**
  * Validates the host's whole catalog answer (`AgentListDecisionModelsResult`) before it reaches view state: every
- * model id must be a non-blank string. Any other shape is `null` (not read), shown as "could not check".
+ * model id must be a non-blank string and the filter must agree with the models and the undetermined count. Any
+ * other shape is `null` (not read), shown as "could not check".
  */
 function parseCatalogResult(value: unknown): DecisionSuggestions | null {
   if (!isRecord(value)) return null;
   const { models, filter, undetermined } = value;
   if (!isFilter(filter) || !isModelIdList(models) || !isCount(undetermined))
     return null;
+  if (!isConsistent(filter, models, undetermined)) return null;
   return { status: 'ready', ids: [...models], filter };
 }
