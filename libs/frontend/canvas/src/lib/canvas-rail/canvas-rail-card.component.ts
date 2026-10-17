@@ -341,6 +341,7 @@ export class CanvasRailCardComponent implements SessionCardActions {
   readonly moveUpRequested = output<string>();
   readonly moveDownRequested = output<string>();
   readonly announcement = signal('');
+  private announcementTimer: ReturnType<typeof setTimeout> | undefined;
   readonly menuOpen = signal(false);
   readonly renameOpen = signal(false);
   readonly renameDraft = signal('');
@@ -371,11 +372,16 @@ export class CanvasRailCardComponent implements SessionCardActions {
     this.railState.emit(state);
   }
   onStaleAction(): void {
-    this.announcement.set('');
-    this.announcement.set(
-      'This request has changed. Open the current request.',
-    );
+    this.announce('This request has changed. Open the current request.');
     this.staleAction.emit(this.tabId());
+  }
+  private announce(message: string): void {
+    clearTimeout(this.announcementTimer);
+    this.announcement.set('');
+    this.announcementTimer = setTimeout(() => {
+      this.announcement.set(message);
+      this.announcementTimer = undefined;
+    });
   }
   onClick(event: MouseEvent): void {
     // The trigger and menu items are buttons (the interactive-target rule);
@@ -491,8 +497,7 @@ export class CanvasRailCardComponent implements SessionCardActions {
       if (this.renameOpen() && openCount === this.renameOpenCount) {
         if (result === 'failed') {
           this.renameError.set("Couldn't rename. Try again.");
-          this.announcement.set('');
-          this.announcement.set("Couldn't rename. Try again.");
+          this.announce("Couldn't rename. Try again.");
           return;
         }
         this.cancelRename();
@@ -505,6 +510,7 @@ export class CanvasRailCardComponent implements SessionCardActions {
     const id = this.sessionId();
     const current = this.tab();
     if (!id || !current || !this.organizer.available()) return;
+    clearTimeout(this.announcementTimer);
     this.announcement.set('');
     this.closeMenu();
     const restore = () => queueMicrotask(() => this.focusActionTrigger());
@@ -513,7 +519,7 @@ export class CanvasRailCardComponent implements SessionCardActions {
       return;
     }
     const result = await this.organizer.openForSession(id, current.title, restore);
-    if (result === 'failed') this.announcement.set("Could not load this session's organization.");
+    if (result === 'failed') this.announce("Could not load this session's organization.");
   }
   private focusActionTrigger(): void {
     const trigger = this.trigger()?.nativeElement;

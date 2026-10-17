@@ -303,8 +303,9 @@ describe('CanvasRailCardComponent', () => {
     expect(open).toHaveBeenCalledWith('a', 'orchestrator');
   });
 
-  it('forwards a stale action and announces it; Enter focuses the session', () => {
+  it('forwards repeated stale actions and rerenders the live notice; Enter focuses the session', async () => {
     const fixture = mount();
+    const live = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>('[aria-live="polite"]')!;
     const stale = jest.fn();
     fixture.componentInstance.staleAction.subscribe(stale);
     (
@@ -312,13 +313,18 @@ describe('CanvasRailCardComponent', () => {
     ).staleAction.emit();
     fixture.detectChanges();
     expect(stale).toHaveBeenCalledWith('a');
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain(
-      'This request has changed',
-    );
+    expect(live.textContent).toBe('');
+    await settle();
+    fixture.detectChanges();
+    expect(live.textContent).toBe('This request has changed. Open the current request.');
     (
       fixture.debugElement.children[0].componentInstance as CardStub
     ).staleAction.emit();
-    expect(fixture.componentInstance.announcement()).toBe('This request has changed. Open the current request.');
+    fixture.detectChanges();
+    expect(live.textContent).toBe('');
+    await settle();
+    fixture.detectChanges();
+    expect(live.textContent).toBe('This request has changed. Open the current request.');
     const event = new KeyboardEvent('keydown', {
       key: 'Enter',
       bubbles: true,
@@ -679,15 +685,27 @@ describe('CanvasRailCardComponent', () => {
     it('keeps a failed rename draft and announces its inline error', async () => {
       const fixture = mount();
       const { host, input } = await openRename(fixture);
+      const live = host.querySelector<HTMLElement>('[aria-live="polite"]')!;
       keydown(input, 'Enter');
       resolveRename('failed');
+      await Promise.resolve();
+      fixture.detectChanges();
+      expect(live.textContent).toBe('');
       await settle();
       fixture.detectChanges();
       expect(host.querySelector('[role="dialog"]')).not.toBeNull();
       expect(input.value).toBe('Renamed');
       expect(input.getAttribute('aria-describedby')).toBe('rail-rename-error-a');
       expect(host.querySelector('#rail-rename-error-a')?.textContent).toBe("Couldn't rename. Try again.");
-      expect(fixture.componentInstance.announcement()).toBe("Couldn't rename. Try again.");
+      expect(live.textContent).toBe("Couldn't rename. Try again.");
+      keydown(input, 'Enter');
+      resolveRename('failed');
+      await Promise.resolve();
+      fixture.detectChanges();
+      expect(live.textContent).toBe('');
+      await settle();
+      fixture.detectChanges();
+      expect(live.textContent).toBe("Couldn't rename. Try again.");
       input.value = 'New draft';
       input.dispatchEvent(new Event('input', { bubbles: true }));
       fixture.detectChanges();
@@ -750,18 +768,22 @@ describe('CanvasRailCardComponent', () => {
     openForSession.mockResolvedValueOnce('failed');
     const fixture = mount();
     const host = await openMenu(fixture);
+    const live = host.querySelector<HTMLElement>('[aria-live="polite"]')!;
     item(host, 'organize').click();
+    await settle();
     await settle();
     fixture.detectChanges();
     expect(openForSession).toHaveBeenCalledWith(sessionId, 'Alpha', expect.any(Function));
-    expect(fixture.componentInstance.announcement()).toBe("Could not load this session's organization.");
+    expect(live.textContent).toBe("Could not load this session's organization.");
     openForSession.mockResolvedValueOnce('failed');
     await openMenu(fixture);
     item(host, 'organize').click();
-    expect(fixture.componentInstance.announcement()).toBe('');
+    fixture.detectChanges();
+    expect(live.textContent).toBe('');
+    await settle();
     await settle();
     fixture.detectChanges();
-    expect(fixture.componentInstance.announcement()).toBe("Could not load this session's organization.");
+    expect(live.textContent).toBe("Could not load this session's organization.");
   });
 
   it.each(['cancelled', 'unavailable'])('does not announce or move focus for %s Organize result', async (result) => {
