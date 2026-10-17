@@ -367,6 +367,42 @@ describe(CompactRailCardComponent.name, () => {
     expect(f.nativeElement.textContent).not.toContain('New now');
   });
 
+  it('shows a rename at once while a text selection holds the card', () => {
+    const f = render();
+    const host = f.nativeElement as HTMLElement;
+    document.body.appendChild(host);
+    try {
+      // Select the card's "Now" text, as a user does before renaming.
+      const nowText = host.querySelector('.rc-line:not(.rc-title) [title]')
+        ?.firstChild as Text;
+      const range = document.createRange();
+      range.setStart(nowText, 0);
+      range.setEnd(nowText, 7);
+      const selection = document.getSelection() as Selection;
+      selection.removeAllRanges();
+      selection.addRange(range);
+      f.componentRef.setInput('holdText', true);
+      f.detectChanges();
+
+      f.componentRef.setInput('title', 'Renamed session');
+      f.componentRef.setInput('summary', summary('New now'));
+      f.detectChanges();
+
+      expect(selection.isCollapsed).toBe(false);
+      expect(selection.toString()).toBe('Working');
+      const title = host.querySelector('.rc-title .font-semibold');
+      expect(title?.textContent?.trim()).toBe('Renamed session');
+      expect(title?.getAttribute('title')).toBe('Renamed session');
+      expect(host.textContent).not.toContain('Session A');
+      // The summary stays held under the selection.
+      expect(host.textContent).toContain('Working now');
+      expect(host.textContent).not.toContain('New now');
+    } finally {
+      document.getSelection()?.removeAllRanges();
+      host.remove();
+    }
+  });
+
   it('shows an em dash and the unknown todo title', () => {
     const f = render();
     f.componentRef.setInput('todos', { kind: 'unknown' });
