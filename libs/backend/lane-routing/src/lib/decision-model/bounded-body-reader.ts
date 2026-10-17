@@ -4,13 +4,13 @@
  * The body is read chunk by chunk and counted in bytes, so a body over the cap
  * is refused, and its stream cancelled, before it is held in memory whole. An
  * abort of `signal` cancels the stream and rejects with the signal's reason.
+ * There is no `text()` fallback: a whole-body read could neither be capped
+ * before it is buffered nor cut short by `signal`.
  */
 
-/** A body source: a stream, `null` (no body), or `text()` alone. */
+/** A body source: a stream, or `null` when the response has no body. */
 export interface BoundedBodySource {
-  /** `undefined` when the fetch seam exposes `text()` only. */
-  readonly body?: ReadableStream<Uint8Array> | null;
-  text(): Promise<string>;
+  readonly body: ReadableStream<Uint8Array> | null;
 }
 
 export type BoundedBody =
@@ -29,13 +29,6 @@ export async function readBoundedBody(
   signal: AbortSignal,
 ): Promise<BoundedBody> {
   if (source.body === null) return { ok: true, text: '' };
-  if (source.body === undefined) {
-    // A `text()`-only seam cannot stream; the cap still holds in bytes.
-    const text = await source.text();
-    return new TextEncoder().encode(text).byteLength > maxBytes
-      ? OVERSIZED
-      : { ok: true, text };
-  }
   return readStream(source.body, maxBytes, signal);
 }
 

@@ -34,7 +34,7 @@ type Answer =
   | 'ignore-abort'
   /** Answers `reply` once `gate` resolves; rejects when the signal aborts. */
   | { readonly gate: Promise<void>; readonly reply: Reply }
-  /** A 200 whose body is `stream`; `text()` must not be used. */
+  /** A 200 whose body is `stream`. */
   | { readonly stream: ReadableStream<Uint8Array> };
 
 interface Reply {
@@ -58,6 +58,17 @@ interface TagFixture {
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
+
+/** `text` as a one-chunk stream of its UTF-8 bytes, as Node's fetch exposes it. */
+function textStream(text: string): ReadableStream<Uint8Array> {
+  const bytes = new TextEncoder().encode(text);
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      if (bytes.byteLength > 0) controller.enqueue(bytes);
+      controller.close();
+    },
+  });
+}
 
 const json = (value: unknown): Answer => ({
   status: 200,
@@ -101,14 +112,7 @@ function harness(
         return await new Promise<never>(() => undefined);
       }
       if (typeof answer === 'object' && 'stream' in answer) {
-        return {
-          ok: true,
-          status: 200,
-          body: answer.stream,
-          text: async () => {
-            throw new Error('a streamed answer is read through its body');
-          },
-        };
+        return { ok: true, status: 200, body: answer.stream };
       }
       if (typeof answer === 'object' && 'gate' in answer) {
         await new Promise<void>((resolve, reject) => {
@@ -122,7 +126,7 @@ function harness(
         return {
           ok: true,
           status: answer.reply.status,
-          text: async () => answer.reply.body,
+          body: textStream(answer.reply.body),
         };
       }
       if (answer === 'hang') {
@@ -137,7 +141,7 @@ function harness(
       return {
         ok: answer.status >= 200 && answer.status < 300,
         status: answer.status,
-        text: async () => answer.body,
+        body: textStream(answer.body),
       };
     } finally {
       inFlight -= 1;
@@ -741,6 +745,28 @@ describe('DecisionModelCatalog — response bounds (phase 3 L3)', () => {
       UNAVAILABLE_RESULT,
     );
     await expect(wasCancelled).resolves.toBeUndefined();
+    expect(h.logger.warn).not.toHaveBeenCalledWith(...TOO_LARGE);
+  });
+
+  it('ends at the call budget, and cancels the stream, when a tag body never sends a byte', async () => {
+    let cancelled: () => void = () => undefined;
+    const wasCancelled = new Promise<void>((resolve) => {
+      cancelled = resolve;
+    });
+    // Never enqueues and never closes.
+    const stream = new ReadableStream<Uint8Array>({
+      pull: () => new Promise<void>(() => undefined),
+      cancel() {
+        cancelled();
+      },
+    });
+    const h = harness(() => ({ stream }), { timeoutMs: 50 });
+
+    await expect(h.catalog.list('ollama')).resolves.toEqual(
+      UNAVAILABLE_RESULT,
+    );
+    await expect(wasCancelled).resolves.toBeUndefined();
+    expect(h.showCalls()).toBe(0);
     expect(h.logger.warn).not.toHaveBeenCalledWith(...TOO_LARGE);
   });
 

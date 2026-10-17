@@ -50,7 +50,11 @@ import {
 } from './ollama-catalog.schema';
 import type { SystemOneFetch } from './system-one.client';
 
-/** `SystemOneFetch` whose response may expose its body stream (Node's does). */
+/**
+ * The catalog's fetch seam: `SystemOneFetch`'s request, answered with a body
+ * stream (no `text()`), so every body is read capped and abortable. Node's
+ * global `fetch` satisfies it.
+ */
 export type DecisionModelCatalogFetch = (
   ...args: Parameters<SystemOneFetch>
 ) => Promise<
