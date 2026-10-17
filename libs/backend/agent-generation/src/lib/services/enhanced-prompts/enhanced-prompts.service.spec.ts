@@ -595,6 +595,122 @@ describe('EnhancedPromptsService', () => {
       );
     }
 
+    it('reserves the sole service lock before a bound start and releases it after execution', async () => {
+      primeSuccessfulSdk();
+      const reservation = service.acquireBoundGeneration();
+      expect(reservation).not.toBeNull();
+      expect(service.acquireBoundGeneration()).toBeNull();
+      expect(await service.runWizard(testWorkspacePath)).toEqual({
+        success: false,
+        error: 'Generation already in progress',
+      });
+      const controller = new AbortController();
+      const route = await service.resolveGuidanceRoute(
+        testWorkspacePath,
+        'requested',
+      );
+      const result = await service.runWizard(
+        testWorkspacePath,
+        undefined,
+        undefined,
+        {
+          workspacePath: testWorkspacePath,
+          projectType: 'app',
+          isMonorepo: false,
+          dependencies: [],
+          devDependencies: [],
+        },
+        undefined,
+        undefined,
+        { reservation: reservation!, signal: controller.signal, route },
+      );
+      expect(result.success).toBe(true);
+      expect(service.generationInProgress).toBe(false);
+      expect(mocks.freshness.getStatus).not.toHaveBeenCalled();
+      expect(mocks.workspaceLlm.resolveForPath).toHaveBeenCalledWith(
+        testWorkspacePath,
+        { requestedModel: 'requested' },
+      );
+    });
+
+    it('stops before trace and state commit when cancelled during preparation', async () => {
+      primeSuccessfulSdk();
+      const reservation = service.acquireBoundGeneration();
+      const controller = new AbortController();
+      let releaseHash: (value: string) => void = () => undefined;
+      mocks.cacheService.computeDependencyHash.mockReturnValueOnce(
+        new Promise<string>((resolve) => {
+          releaseHash = resolve;
+        }),
+      );
+      const route = await service.resolveGuidanceRoute(testWorkspacePath);
+      const pending = service.runWizard(
+        testWorkspacePath,
+        undefined,
+        undefined,
+        {
+          workspacePath: testWorkspacePath,
+          projectType: 'app',
+          isMonorepo: false,
+          dependencies: [],
+          devDependencies: [],
+        },
+        undefined,
+        undefined,
+        { reservation: reservation!, signal: controller.signal, route },
+      );
+      for (
+        let i = 0;
+        i < 10 &&
+        mocks.cacheService.computeDependencyHash.mock.calls.length === 0;
+        i++
+      )
+        await Promise.resolve();
+      controller.abort();
+      releaseHash('hash');
+      expect((await pending).success).toBe(false);
+      expect(
+        mocks.analysisStorage.writeEnhancedPromptTrace,
+      ).not.toHaveBeenCalled();
+      expect(mocks.context.globalState.update).not.toHaveBeenCalled();
+    });
+
+    it('stops after an in-flight stream abort without writing a trace', async () => {
+      primeSuccessfulSdk();
+      let releaseStream: (value: unknown) => void = () => undefined;
+      mockProcess.mockReturnValue(
+        new Promise((resolve) => {
+          releaseStream = resolve;
+        }),
+      );
+      const reservation = service.acquireBoundGeneration();
+      const controller = new AbortController();
+      const route = await service.resolveGuidanceRoute(testWorkspacePath);
+      const pending = service.runWizard(
+        testWorkspacePath,
+        undefined,
+        undefined,
+        {
+          workspacePath: testWorkspacePath,
+          projectType: 'app',
+          isMonorepo: false,
+          dependencies: [],
+          devDependencies: [],
+        },
+        undefined,
+        undefined,
+        { reservation: reservation!, signal: controller.signal, route },
+      );
+      for (let i = 0; i < 10 && mockProcess.mock.calls.length === 0; i++)
+        await Promise.resolve();
+      controller.abort();
+      releaseStream({ structuredOutput: { ok: true } });
+      expect((await pending).success).toBe(false);
+      expect(
+        mocks.analysisStorage.writeEnhancedPromptTrace,
+      ).not.toHaveBeenCalled();
+    });
+
     it('returns failure when generation lock is already held', async () => {
       primeSuccessfulSdk();
       let resolveProcess: (v: unknown) => void = () => undefined;
@@ -1552,7 +1668,7 @@ describe('EnhancedPromptsService', () => {
   });
 
   describe('generation lock timeout', () => {
-    it('releases lock when timeout fires', async () => {
+    it('aborts a timed-out tabless run, releases in finally, and never commits', async () => {
       jest.useFakeTimers();
       try {
         mocks.promptDesignerAgent.buildPrompts.mockResolvedValue({
@@ -1589,20 +1705,157 @@ describe('EnhancedPromptsService', () => {
           undefined,
           input,
         );
-        await Promise.resolve();
-        await Promise.resolve();
+        for (let i = 0; i < 100 && mockProcess.mock.calls.length === 0; i++)
+          await Promise.resolve();
+        expect(mockProcess).toHaveBeenCalled();
         expect(service.isGeneratingPrompt()).toBe(true);
 
         jest.advanceTimersByTime(5 * 60 * 1000 + 1);
-        expect(service.isGeneratingPrompt()).toBe(false);
+        expect(service.isGeneratingPrompt()).toBe(true);
+        expect(
+          mocks.internalQueryService.execute.mock.calls[0][0].abortController
+            .signal.aborted,
+        ).toBe(true);
         expect(mocks.logger.warn).toHaveBeenCalledWith(
           expect.stringContaining('Generation lock timed out'),
           expect.any(Object),
         );
 
         resolveProcess({ structuredOutput: { ok: true } });
+        const result = await wizardPromise;
+        expect(result.success).toBe(false);
+        expect(result.error).toMatch(/timed out/i);
+        expect(
+          mocks.analysisStorage.writeEnhancedPromptTrace,
+        ).not.toHaveBeenCalled();
+        expect(mocks.context.globalState.update).not.toHaveBeenCalled();
+        expect(service.isGeneratingPrompt()).toBe(false);
+      } finally {
         jest.useRealTimers();
-        await wizardPromise;
+      }
+    });
+
+    it('aborts a bound run before commit and reports its timeout callback', async () => {
+      jest.useFakeTimers();
+      try {
+        mocks.promptDesignerAgent.buildPrompts.mockResolvedValue({
+          systemPrompt: 's',
+          userPrompt: 'u',
+          outputSchema: {},
+        });
+        mocks.internalQueryService.execute.mockResolvedValue({
+          stream: (async function* () {
+            /* empty */
+          })(),
+          close: jest.fn(),
+        });
+        mockProcess.mockResolvedValue({ structuredOutput: { ok: true } });
+        mocks.promptDesignerAgent.parseAndValidateOutput.mockResolvedValue(
+          fullOutput(),
+        );
+        let releaseHash: (value: string) => void = () => undefined;
+        mocks.cacheService.computeDependencyHash.mockReturnValueOnce(
+          new Promise<string>((resolve) => {
+            releaseHash = resolve;
+          }),
+        );
+        const reservation = service.acquireBoundGeneration();
+        const controller = new AbortController();
+        const onTimeout = jest.fn();
+        const route = await service.resolveGuidanceRoute(testWorkspacePath);
+        const pending = service.runWizard(
+          testWorkspacePath,
+          undefined,
+          undefined,
+          {
+            workspacePath: testWorkspacePath,
+            projectType: 'app',
+            isMonorepo: false,
+            dependencies: [],
+            devDependencies: [],
+          },
+          undefined,
+          undefined,
+          {
+            reservation: reservation!,
+            signal: controller.signal,
+            route,
+            onTimeout,
+          },
+        );
+        for (
+          let i = 0;
+          i < 100 &&
+          mocks.cacheService.computeDependencyHash.mock.calls.length === 0;
+          i++
+        )
+          await Promise.resolve();
+        expect(mocks.cacheService.computeDependencyHash).toHaveBeenCalled();
+        jest.advanceTimersByTime(5 * 60 * 1000 + 1);
+        expect(onTimeout).toHaveBeenCalledTimes(1);
+        releaseHash('hash');
+        expect((await pending).error).toMatch(/timed out/i);
+        expect(service.isGeneratingPrompt()).toBe(false);
+        expect(
+          mocks.analysisStorage.writeEnhancedPromptTrace,
+        ).not.toHaveBeenCalled();
+        expect(mocks.context.globalState.update).not.toHaveBeenCalled();
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('force releases after grace and a stale tabless finally cannot release a new owner', async () => {
+      jest.useFakeTimers();
+      try {
+        const input: PromptDesignerInput = {
+          workspacePath: testWorkspacePath,
+          projectType: 'app',
+          isMonorepo: false,
+          dependencies: [],
+          devDependencies: [],
+        };
+        let resolveFirst: (value: unknown) => void = () => undefined;
+        mocks.promptDesignerAgent.buildPrompts.mockReturnValueOnce(
+          new Promise((resolve) => {
+            resolveFirst = resolve;
+          }),
+        );
+        const first = service.runWizard(
+          testWorkspacePath,
+          undefined,
+          undefined,
+          input,
+        );
+        await Promise.resolve();
+        jest.advanceTimersByTime(5 * 60 * 1000 + 30 * 1000 + 1);
+        expect(service.isGeneratingPrompt()).toBe(false);
+        const reservation = service.acquireBoundGeneration();
+        expect(reservation).not.toBeNull();
+        resolveFirst({ systemPrompt: 's', userPrompt: 'u', outputSchema: {} });
+        expect((await first).success).toBe(false);
+        expect(service.isGeneratingPrompt()).toBe(true);
+        expect(
+          mocks.analysisStorage.writeEnhancedPromptTrace,
+        ).not.toHaveBeenCalled();
+        expect(mocks.context.globalState.update).not.toHaveBeenCalled();
+        if (reservation) service.releaseBoundGeneration(reservation);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('a stale bound release cannot release a new owner after timeout grace', () => {
+      jest.useFakeTimers();
+      try {
+        const old = service.acquireBoundGeneration();
+        expect(old).not.toBeNull();
+        jest.advanceTimersByTime(5 * 60 * 1000 + 30 * 1000 + 1);
+        const next = service.acquireBoundGeneration();
+        expect(next).not.toBeNull();
+        if (old) service.releaseBoundGeneration(old);
+        expect(service.isGeneratingPrompt()).toBe(true);
+        if (next) service.releaseBoundGeneration(next);
       } finally {
         jest.useRealTimers();
       }

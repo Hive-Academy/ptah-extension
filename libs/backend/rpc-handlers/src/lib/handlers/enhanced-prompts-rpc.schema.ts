@@ -17,6 +17,19 @@ import { z } from 'zod';
 import { ProjectAnalysisResultSchema } from '@ptah-extension/agent-generation';
 
 const workspacePath = z.string().min(1).max(4096);
+const tabBinding = z.object({
+  tabId: z.string().min(1).max(200),
+  workflow: z.literal('setup-project-prompt'),
+  workspacePath,
+});
+export const EnhancedPromptsTabBindingSchema = tabBinding;
+export const EnhancedPromptsRunBindingSchema = tabBinding.extend({
+  runId: z.string().uuid(),
+});
+export const EnhancedPromptsRunStateLookupSchema = z.object({
+  tabBinding,
+  runId: z.string().uuid().optional(),
+});
 
 const EnhancedPromptsConfigOptionsSchema = z.object({
   includeStyleGuidelines: z.boolean().optional(),
@@ -29,6 +42,7 @@ const EnhancedPromptsConfigOptionsSchema = z.object({
 export const EnhancedPromptsWorkspaceParamsSchema = z.object({ workspacePath });
 
 export const EnhancedPromptsRunWizardParamsSchema = z.object({
+  tabBinding: tabBinding.optional(),
   workspacePath,
   config: EnhancedPromptsConfigOptionsSchema.optional(),
   analysisData: ProjectAnalysisResultSchema.optional(),
@@ -42,6 +56,7 @@ export const EnhancedPromptsSetEnabledParamsSchema = z.object({
 });
 
 export const EnhancedPromptsRegenerateParamsSchema = z.object({
+  tabBinding: tabBinding.optional(),
   workspacePath,
   force: z.boolean().optional(),
   config: EnhancedPromptsConfigOptionsSchema.optional(),

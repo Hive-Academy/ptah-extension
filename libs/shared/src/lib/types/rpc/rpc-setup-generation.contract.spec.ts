@@ -1,5 +1,6 @@
 import type {
   EnhancedPromptsCancelParams,
+  EnhancedPromptsCancelResponse,
   EnhancedPromptsGetRunStateParams,
   EnhancedPromptsRegenerateParams,
   EnhancedPromptsRunWizardParams,
@@ -7,6 +8,8 @@ import type {
   GenerationContextSource,
   SetupGenerationAccepted,
   SetupGenerationRunBinding,
+  SetupGenerationResultFacts,
+  SetupGenerationRunState,
   WizardCancelParams,
   WizardGetGenerationRunStateParams,
   WizardPreviewGenerationParams,
@@ -48,6 +51,22 @@ type _PreviewBindingOptional = Assert<
 type _BoundCancelRequired = Assert<
   Equal<EnhancedPromptsCancelParams['tabBinding'], SetupGenerationRunBinding>
 >;
+type CommittedState = 'committed' | 'unchanged' | 'unknown';
+type _ResultCommitOptional = Assert<
+  Equal<
+    SetupGenerationResultFacts['committedState'],
+    CommittedState | undefined
+  >
+>;
+type _RunCommitOptional = Assert<
+  Equal<SetupGenerationRunState['committedState'], CommittedState | undefined>
+>;
+type _GuidanceCancelOutcomeOptional = Assert<
+  Equal<
+    EnhancedPromptsCancelResponse['outcome'],
+    'cancelled' | 'already-finalized' | 'not-running' | 'refused' | undefined
+  >
+>;
 
 const binding: SetupGenerationRunBinding = {
   tabId: 'tab-1',
@@ -80,6 +99,18 @@ describe('setup generation compatibility contract', () => {
     const cancel: WizardCancelParams = { saveProgress: true };
     const retry: WizardRetryItemParams = { itemId: 'agent' };
     const result: WizardSubmitSelectionResponse = { success: true };
+    const oldRun: SetupGenerationRunState = {
+      binding,
+      status: 'running',
+      source,
+      effectiveProvider: 'anthropic',
+      effectiveModel: 'claude-sonnet',
+    };
+    const oldCancel: EnhancedPromptsCancelResponse = { cancelled: false };
+    expect([oldRun.committedState, oldCancel.outcome]).toEqual([
+      undefined,
+      undefined,
+    ]);
     expect([
       submit.tabBinding,
       guidance.tabBinding,
@@ -98,6 +129,32 @@ describe('setup generation compatibility contract', () => {
   });
 
   it('types bound starts, lookups and progress while preserving legacy envelopes', () => {
+    const resultFacts: SetupGenerationResultFacts = {
+      status: 'timed-out',
+      success: false,
+      source,
+      effectiveProvider: 'anthropic',
+      effectiveModel: 'claude-sonnet',
+      committedState: 'unknown',
+    };
+    const runState: SetupGenerationRunState = {
+      binding,
+      status: 'timed-out',
+      source,
+      effectiveProvider: 'anthropic',
+      effectiveModel: 'claude-sonnet',
+      committedState: 'unknown',
+      result: resultFacts,
+    };
+    const guidanceOutcome: EnhancedPromptsCancelResponse = {
+      cancelled: false,
+      outcome: 'already-finalized',
+    };
+    expect([
+      runState.committedState,
+      runState.result?.committedState,
+      guidanceOutcome.outcome,
+    ]).toEqual(['unknown', 'unknown', 'already-finalized']);
     const submit: WizardSubmitSelectionParams = {
       selectedAgentIds: ['agent'],
       tabBinding: binding,

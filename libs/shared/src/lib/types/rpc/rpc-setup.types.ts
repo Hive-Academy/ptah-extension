@@ -61,6 +61,7 @@ export type SetupGenerationRejection =
     };
 
 export interface SetupGenerationResultFacts {
+  committedState?: 'committed' | 'unchanged' | 'unknown';
   status: SetupGenerationTerminalStatus;
   success: boolean;
   source: GenerationContextSource;
@@ -70,6 +71,7 @@ export interface SetupGenerationResultFacts {
 }
 
 export interface SetupGenerationRunState {
+  committedState?: 'committed' | 'unchanged' | 'unknown';
   binding: SetupGenerationRunBinding;
   status: SetupGenerationRunLifecycle;
   source: GenerationContextSource;
@@ -551,6 +553,7 @@ export interface EnhancedPromptsCancelParams {
 
 export interface EnhancedPromptsCancelResponse {
   cancelled: boolean;
+  outcome?: 'cancelled' | 'already-finalized' | 'not-running' | 'refused';
   rejection?: SetupGenerationRejection;
 }
 

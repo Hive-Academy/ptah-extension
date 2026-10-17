@@ -234,8 +234,8 @@ Candidate only: unused duplicated old-generation presentation code after the new
 | Batch | Phase | Status | Executor | Commit |
 | --- | --- | --- | --- | --- |
 | B01 | 1 | done | codex backend-developer | 572bc762d |
-| B02 | 2 | done (2 revise rounds; handler 1698 lines, follow-up) | codex backend-developer | (this commit) |
-| B02G | 2 | pending | codex backend-developer | — |
+| B02 | 2 | done (2 revise rounds; handler 1698 lines, follow-up) | codex backend-developer | 6aa54f8d5 |
+| B02G | 2 | done (1 revise round: lock-timeout recovery, settled lookup, contract spec; long pre-existing methods grew slightly, follow-up) | codex backend-developer | (this commit) |
 | B03 | 2 | pending | codex backend-developer | — |
 | B04 | 3 | pending | codex frontend-developer | — |
 | B05 | 3 | pending | codex frontend-developer | — |

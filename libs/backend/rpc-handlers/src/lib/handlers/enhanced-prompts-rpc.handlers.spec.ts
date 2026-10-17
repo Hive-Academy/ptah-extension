@@ -138,12 +138,20 @@ import {
 } from '@ptah-extension/shared/testing';
 
 import { EnhancedPromptsRpcHandlers } from './enhanced-prompts-rpc.handlers';
+import type { WebviewBroadcaster } from '../harness/streaming';
+
+jest.mock('./wizard-generation-binding', () => ({
+  authorizeTabWorkspace: jest.fn(
+    async (host: string, binding: { workspacePath: string }) =>
+      host === binding.workspacePath ? host : null,
+  ),
+}));
 
 const WORKSPACE = '/fake/workspace';
 const ANALYSIS_ROOT = `${WORKSPACE}/.ptah/analysis`;
 
 type MockAnalysisStorage = jest.Mocked<
-  Pick<AnalysisStorageService, 'resolveAuthorizedAnalysisDir'>
+  Pick<AnalysisStorageService, 'resolveAuthorizedAnalysisDir' | 'loadManifest'>
 >;
 
 /**
@@ -153,6 +161,7 @@ type MockAnalysisStorage = jest.Mocked<
  */
 function createMockAnalysisStorage(): MockAnalysisStorage {
   return {
+    loadManifest: jest.fn().mockResolvedValue({ runId: 'analysis-run' }),
     resolveAuthorizedAnalysisDir: jest.fn(
       (workspacePath: string, candidate: string): string | null =>
         candidate.startsWith(`${workspacePath}/.ptah/analysis`) &&
@@ -175,6 +184,10 @@ type MockEnhancedPromptsService = jest.Mocked<
     | 'setEnabled'
     | 'regenerate'
     | 'getFullCombinedPromptContent'
+    | 'acquireBoundGeneration'
+    | 'releaseBoundGeneration'
+    | 'resolveGuidanceRoute'
+    | 'resolveGuidanceSource'
   >
 >;
 
@@ -185,6 +198,14 @@ function createMockEnhancedPromptsService(): MockEnhancedPromptsService {
     setEnabled: jest.fn(),
     regenerate: jest.fn(),
     getFullCombinedPromptContent: jest.fn(),
+    acquireBoundGeneration: jest.fn().mockReturnValue({}),
+    releaseBoundGeneration: jest.fn(),
+    resolveGuidanceRoute: jest
+      .fn()
+      .mockResolvedValue({ providerId: 'anthropic', model: 'sonnet' }),
+    resolveGuidanceSource: jest
+      .fn()
+      .mockResolvedValue({ kind: 'workspace-discovery', reason: 'missing' }),
   };
 }
 
@@ -241,7 +262,9 @@ interface Harness {
   sentry: MockSentryService;
 }
 
-function makeHarness(opts: { workspaceRoot?: string } = {}): Harness {
+function makeHarness(
+  opts: { workspaceRoot?: string; broadcaster?: WebviewBroadcaster } = {},
+): Harness {
   const logger = createMockLogger();
   const rpcHandler = createMockRpcHandler();
   const enhancedPrompts = createMockEnhancedPromptsService();
@@ -263,7 +286,7 @@ function makeHarness(opts: { workspaceRoot?: string } = {}): Harness {
     workspace as unknown as IWorkspaceProvider,
     saveDialog as unknown as ISaveDialogProvider,
     sentry as unknown as SentryService,
-    undefined,
+    opts.broadcaster,
     undefined,
   );
 
@@ -400,6 +423,251 @@ describe('EnhancedPromptsRpcHandlers', () => {
   // -------------------------------------------------------------------------
 
   describe('enhancedPrompts:runWizard', () => {
+    const tabBinding = {
+      tabId: 'prompt-tab',
+      workflow: 'setup-project-prompt' as const,
+      workspacePath: WORKSPACE,
+    };
+
+    it('accepts a bound run, ignores client analysis, and resolves a lost start response', async () => {
+      const h = makeHarness();
+      h.enhancedPrompts.runWizard.mockImplementation(
+        () => new Promise(() => undefined),
+      );
+      h.handlers.register();
+      const first = await call<{
+        success: boolean;
+        accepted?: { runId: string; source: { kind: string } };
+      }>(h, 'enhancedPrompts:runWizard', {
+        workspacePath: WORKSPACE,
+        tabBinding,
+        analysisData: { hostile: true },
+      });
+      expect(first.accepted?.runId).toBeTruthy();
+      expect(first.accepted?.source.kind).toBe('workspace-discovery');
+      expect(h.enhancedPrompts.runWizard).toHaveBeenCalledWith(
+        WORKSPACE,
+        undefined,
+        expect.any(Function),
+        undefined,
+        expect.any(Object),
+        undefined,
+        expect.objectContaining({ reservation: expect.any(Object) }),
+      );
+      expect(
+        (await h.handlers.getGuidanceRunState({ tabBinding })).run?.binding
+          .runId,
+      ).toBe(first.accepted?.runId);
+      const second = await call<{ accepted?: { runId: string } }>(
+        h,
+        'enhancedPrompts:runWizard',
+        { workspacePath: WORKSPACE, tabBinding },
+      );
+      expect(second.accepted?.runId).toBe(first.accepted?.runId);
+      expect(h.enhancedPrompts.runWizard).toHaveBeenCalledTimes(1);
+    });
+
+    it('broadcasts timed-out lifecycle when the service timeout ends a bound run', async () => {
+      const broadcaster: WebviewBroadcaster = {
+        broadcastMessage: jest.fn().mockResolvedValue(undefined),
+      };
+      const h = makeHarness({ broadcaster });
+      let onTimeout: (() => void) | undefined;
+      h.enhancedPrompts.runWizard.mockImplementation(
+        async (
+          _workspace,
+          _config,
+          _progress,
+          _input,
+          _sdk,
+          _analysisDir,
+          bound,
+        ) => {
+          onTimeout = bound?.onTimeout;
+          onTimeout?.();
+          return { success: false, error: 'Guidance generation timed out' };
+        },
+      );
+      h.handlers.register();
+      const response = await call<{ accepted?: { runId: string } }>(
+        h,
+        'enhancedPrompts:runWizard',
+        {
+          workspacePath: WORKSPACE,
+          tabBinding,
+        },
+      );
+      expect(response.accepted?.runId).toBeTruthy();
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(broadcaster.broadcastMessage).toHaveBeenCalledWith(
+        'setup-wizard:enhance-stream',
+        expect.objectContaining({
+          lifecycle: 'timed-out',
+          tabBinding: expect.objectContaining({
+            runId: response.accepted?.runId,
+          }),
+        }),
+      );
+      expect(
+        (
+          await h.handlers.getGuidanceRunState({
+            tabBinding,
+            runId: response.accepted?.runId,
+          })
+        ).run?.committedState,
+      ).toBe('unknown');
+    });
+
+    it('rejects foreign tabs and foreign analysis before service preparation', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+      const foreign = await call<{ rejection?: { reason: string } }>(
+        h,
+        'enhancedPrompts:runWizard',
+        {
+          workspacePath: WORKSPACE,
+          tabBinding: { ...tabBinding, workspacePath: '/other' },
+          analysisData: { hostile: true },
+        },
+      );
+      expect(foreign.rejection?.reason).toBe('workspace-mismatch');
+      const directory = await call<{ rejection?: { reason: string } }>(
+        h,
+        'enhancedPrompts:runWizard',
+        {
+          workspacePath: WORKSPACE,
+          tabBinding,
+          analysisDir: '/foreign/analysis',
+        },
+      );
+      expect(directory.rejection?.reason).toBe('foreign-directory');
+      expect(h.enhancedPrompts.acquireBoundGeneration).not.toHaveBeenCalled();
+    });
+
+    it('reports an existing service lock as blocked before acceptance', async () => {
+      const h = makeHarness();
+      h.enhancedPrompts.acquireBoundGeneration.mockReturnValue(null);
+      h.handlers.register();
+      const result = await call<{ rejection?: { reason: string } }>(
+        h,
+        'enhancedPrompts:runWizard',
+        { workspacePath: WORKSPACE, tabBinding },
+      );
+      expect(result.rejection?.reason).toBe('blocked');
+      expect(h.enhancedPrompts.runWizard).not.toHaveBeenCalled();
+    });
+
+    it('uses only the latest verified phase directory for a bound run', async () => {
+      const h = makeHarness();
+      const latest = `${ANALYSIS_ROOT}/latest`;
+      h.enhancedPrompts.resolveGuidanceSource.mockResolvedValue({
+        kind: 'verified-analysis',
+        analysisDir: latest,
+        analysisRunId: '',
+      });
+      h.enhancedPrompts.runWizard.mockResolvedValue({
+        success: false,
+        error: 'stopped',
+      });
+      h.handlers.register();
+      const result = await call<{
+        accepted?: { source: { kind: string; analysisRunId?: string } };
+      }>(h, 'enhancedPrompts:runWizard', {
+        workspacePath: WORKSPACE,
+        tabBinding,
+        analysisDir: latest,
+      });
+      expect(result.accepted?.source).toEqual({
+        kind: 'verified-analysis',
+        analysisDir: latest,
+        analysisRunId: 'analysis-run',
+      });
+      expect(h.enhancedPrompts.runWizard).toHaveBeenCalledWith(
+        WORKSPACE,
+        undefined,
+        expect.any(Function),
+        undefined,
+        expect.any(Object),
+        latest,
+        expect.any(Object),
+      );
+    });
+
+    it('falls back to workspace discovery for stale analysis and records the effective model', async () => {
+      const h = makeHarness();
+      h.enhancedPrompts.resolveGuidanceSource.mockResolvedValue({
+        kind: 'workspace-discovery',
+        reason: 'stale',
+      });
+      h.enhancedPrompts.resolveGuidanceRoute.mockResolvedValue({
+        providerId: 'openrouter',
+        model: 'supported-fallback',
+      });
+      h.enhancedPrompts.runWizard.mockImplementation(
+        () => new Promise(() => undefined),
+      );
+      h.handlers.register();
+      const result = await call<{
+        accepted?: {
+          source: { kind: string; reason?: string };
+          effectiveModel: string;
+        };
+      }>(h, 'enhancedPrompts:runWizard', {
+        workspacePath: WORKSPACE,
+        tabBinding,
+        model: 'unsupported',
+        analysisDir: `${ANALYSIS_ROOT}/old`,
+      });
+      expect(result.accepted?.source).toEqual({
+        kind: 'workspace-discovery',
+        reason: 'stale',
+      });
+      expect(result.accepted?.effectiveModel).toBe('supported-fallback');
+      expect(h.enhancedPrompts.resolveGuidanceRoute).toHaveBeenCalledWith(
+        WORKSPACE,
+        'unsupported',
+      );
+      expect(h.enhancedPrompts.runWizard).toHaveBeenCalledWith(
+        WORKSPACE,
+        undefined,
+        expect.any(Function),
+        undefined,
+        expect.any(Object),
+        undefined,
+        expect.any(Object),
+      );
+    });
+
+    it('cancels only the exact bound run', async () => {
+      const h = makeHarness();
+      h.enhancedPrompts.runWizard.mockImplementation(
+        () => new Promise(() => undefined),
+      );
+      h.handlers.register();
+      const response = await call<{ accepted: { runId: string } }>(
+        h,
+        'enhancedPrompts:runWizard',
+        { workspacePath: WORKSPACE, tabBinding },
+      );
+      expect(
+        (
+          await h.handlers.cancelGuidance({
+            tabBinding: {
+              ...tabBinding,
+              runId: '00000000-0000-4000-8000-000000000000',
+            },
+          })
+        ).outcome,
+      ).toBe('refused');
+      expect(
+        (
+          await h.handlers.cancelGuidance({
+            tabBinding: { ...tabBinding, runId: response.accepted.runId },
+          })
+        ).outcome,
+      ).toBe('cancelled');
+    });
+
     it('rejects missing workspacePath with structured error', async () => {
       const h = makeHarness();
       h.handlers.register();
