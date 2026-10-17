@@ -107,16 +107,23 @@ jobs:
             echo '```'
           } > "${body_file}"
 
-          mapfile -t matching_issues < <(
+          if ! issue_list="$(
             gh issue list --state open --limit 1000 --json number,title \
-              --template '{{range .}}{{printf "%d\t%s\n" .number .title}}{{end}}' |
-              while IFS=$'\t' read -r issue_number candidate_title; do
-                if [[ "${candidate_title}" == "${ISSUE_TITLE}" ]]; then
-                  printf '%s\n' "${issue_number}"
-                fi
-              done |
-              sort -n
-          )
+              --template '{{range .}}{{printf "%d\t%s\n" .number .title}}{{end}}'
+          )"; then
+            echo 'Listing open issues failed; not creating an issue.' >&2
+            exit 1
+          fi
+
+          matching_issues=()
+          while IFS=$'\t' read -r issue_number candidate_title; do
+            if [[ -n "${issue_number}" && "${candidate_title}" == "${ISSUE_TITLE}" ]]; then
+              matching_issues+=("${issue_number}")
+            fi
+          done <<< "${issue_list}"
+          if (( ${#matching_issues[@]} > 1 )); then
+            mapfile -t matching_issues < <(printf '%s\n' "${matching_issues[@]}" | sort -n)
+          fi
 
           if (( ${#matching_issues[@]} == 0 )); then
             issue_url="$(

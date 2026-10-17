@@ -14,8 +14,8 @@
  *   --coverage=false --maxWorkers=2
  * ```
  *
- * `PTAH_LIVE_DECISION_MODEL` picks the model; otherwise `clef:27b-cloud` when
- * the catalog lists it, else the first catalog entry.
+ * The model is pinned to `clef:27b-cloud`; the run fails when the catalog does
+ * not list it. Only an explicit `PTAH_LIVE_DECISION_MODEL` evaluates another model.
  */
 import 'reflect-metadata';
 import { toCloudId } from '@ptah-extension/shared';
@@ -93,10 +93,17 @@ describeLive('decision model on Ollama Cloud (live)', () => {
     const result = await catalog.list('ollama-cloud');
     catalogModels = result.models;
     if (model === '') {
-      model = catalogModels.includes(DEFAULT_MODEL)
-        ? DEFAULT_MODEL
-        : (catalogModels[0] ?? DEFAULT_MODEL);
+      // Pinned: never fall back to another catalog entry silently.
+      model = DEFAULT_MODEL;
+      if (!catalogModels.includes(DEFAULT_MODEL)) {
+        // Fails every dependent test too, so none passes against another model.
+        throw new Error(
+          `Pinned decision model "${DEFAULT_MODEL}" is not in the Ollama Cloud catalog ` +
+            `(${catalogModels.length} models listed). Set PTAH_LIVE_DECISION_MODEL to evaluate a different model.`,
+        );
+      }
     }
+    console.log(`DECISION_LIVE_MODEL ${model}`);
   }, 60_000);
 
   it('lists the decision model in the cloud catalog (6.3)', () => {
