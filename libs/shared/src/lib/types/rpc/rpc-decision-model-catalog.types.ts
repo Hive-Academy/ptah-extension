@@ -12,10 +12,20 @@
 // ---------------------------------------------------------------------------
 
 /**
+ * Every catalog source, the one runtime list: the RPC boundary schema is
+ * built from it, so a new source is accepted wherever the type allows it.
+ */
+export const DECISION_MODEL_CATALOG_SOURCES = [
+  'ollama',
+  'ollama-cloud',
+] as const;
+
+/**
  * Which host to list: the configured Ollama daemon, or Ollama Cloud
  * (`https://ollama.com`, ids returned in the `-cloud` form).
  */
-export type DecisionModelCatalogSource = 'ollama' | 'ollama-cloud';
+export type DecisionModelCatalogSource =
+  (typeof DECISION_MODEL_CATALOG_SOURCES)[number];
 
 /** Parameters for `agent:listDecisionModels`. */
 export interface AgentListDecisionModelsParams {

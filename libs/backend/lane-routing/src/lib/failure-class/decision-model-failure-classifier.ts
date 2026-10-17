@@ -16,11 +16,11 @@ import {
   type LaneFailureClass,
   type LaneFailureClassificationInput,
   type LaneFailureClassifier,
+  loggableErrorName,
 } from '@ptah-extension/shared';
 
 import { systemOneUrl } from '../decision-model/decision-endpoint.url';
 import type { DecisionModelConfig } from '../decision-model/decision-model.config';
-import { errorName } from '../decision-model/decision-model.detail';
 import type { DecisionModelSelection } from '../decision-model/decision-model.types';
 import type {
   StructuredDecisionCompleter,
@@ -471,6 +471,6 @@ function classificationErrorFacts(
 ): { readonly runId: string; readonly name: string } {
   return {
     runId,
-    name: errorName(error),
+    name: loggableErrorName(error),
   };
 }

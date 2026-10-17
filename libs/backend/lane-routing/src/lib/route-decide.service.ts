@@ -17,11 +17,11 @@ import {
   RouteDecideArgsSchema,
   type RouteDecideArgs,
 } from './contracts/route-decide-args.schema';
-import type { DecisionModelConfig } from './decision-model/decision-model.config';
 import {
-  errorName,
+  loggableErrorName,
   type LoggableErrorName,
-} from './decision-model/decision-model.detail';
+} from '@ptah-extension/shared';
+import type { DecisionModelConfig } from './decision-model/decision-model.config';
 import type { DecisionModelKind } from './decision-model/decision-model.types';
 import type { StructuredDecisionCompleter } from './decision-model/structured-decision.port';
 import {
@@ -459,8 +459,8 @@ function schemaError(
  * Log facts of a rejection from the key store, the target resolver or the
  * rotation store. Its `name` and `code` are set by that dependency and can
  * carry a key (a key can even equal a real Node code), so only the fixed
- * `errorName` category is logged and the code is never read.
+ * `loggableErrorName` category is logged and the code is never read.
  */
 function errorFacts(error: unknown): { readonly name: LoggableErrorName } {
-  return { name: errorName(error) };
+  return { name: loggableErrorName(error) };
 }

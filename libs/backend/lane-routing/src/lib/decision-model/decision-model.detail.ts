@@ -5,8 +5,9 @@
  * is untrusted text: it can carry a URL, a host name or provider output
  * ("fetch failed" reached the row this way). The decision-model row shows
  * one of these fixed strings instead; the original error goes to the log
- * only, as its error name (never its message). Same rule as
- * `system-one.client.ts` `classifyTransportFailure`.
+ * only, as its `loggableErrorName` category from `@ptah-extension/shared`
+ * (never its message). Same rule as `system-one.client.ts`
+ * `classifyTransportFailure`.
  */
 export const DECISION_MODEL_DETAIL = {
   /** A probe request was rejected before the endpoint answered. */
@@ -34,53 +35,3 @@ export const DECISION_MODEL_DETAIL = {
   invalidCloudBaseUrl:
     'The Ollama Cloud base URL setting is invalid: use an http(s) URL without a user name, password, query or fragment.',
 } as const;
-
-/** The error categories a log or a row detail may carry. */
-export type LoggableErrorName =
-  | 'AbortError'
-  | 'TimeoutError'
-  | 'TypeError'
-  | 'SyntaxError'
-  | 'RangeError'
-  | 'Error'
-  | 'other';
-
-const LOGGABLE_ERROR_NAMES: ReadonlySet<string> = new Set<LoggableErrorName>([
-  'AbortError',
-  'TimeoutError',
-  'TypeError',
-  'SyntaxError',
-  'RangeError',
-  'Error',
-]);
-
-/**
- * Loggable category of an untrusted rejection. Both its message and its
- * `name` are set by the dependency that threw (`fetch`, a body reader, the
- * secret store, a storage adapter), so either can hold a key, a header or a
- * URL. Only a fixed built-in name is passed through; any other value, a
- * non-`Error` rejection and a `name` getter that throws all read `'other'`.
- */
-export function errorName(error: unknown): LoggableErrorName {
-  if (!(error instanceof Error)) {
-    return 'other';
-  }
-  const name = readName(error);
-  return isLoggableErrorName(name) ? name : 'other';
-}
-
-function isLoggableErrorName(name: unknown): name is LoggableErrorName {
-  return typeof name === 'string' && LOGGABLE_ERROR_NAMES.has(name);
-}
-
-function readName(error: Error): unknown {
-  let name: unknown;
-  try {
-    name = error.name;
-  } catch {
-    // A throwing `name` getter is hostile input, not a failure to report:
-    // `errorName` maps the missing value to the fixed category 'other'.
-    name = undefined;
-  }
-  return name;
-}

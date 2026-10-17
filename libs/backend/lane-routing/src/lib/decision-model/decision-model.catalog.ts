@@ -17,13 +17,28 @@
  * Entries missing from the latest tag list are pruned and a base URL change
  * clears the cache, so it is bounded by the daemon's model count (4.2).
  *
- * One abort budget covers a whole `list` call. `list` never rejects, and no
- * host text (error message, body, URL) reaches the result or a log line.
+ * One abort budget covers a whole `list` call. An `/api/show` lookup shared
+ * by concurrent calls has its own lifetime: it is abandoned only once every
+ * call waiting on it has run out of budget, so one call's deadline never
+ * cuts another call's answer short. A body longer than
+ * `OLLAMA_CATALOG_MAX_BODY_CHARS` is not parsed, and tags past
+ * `OLLAMA_CATALOG_MAX_MODELS` count as undetermined without a lookup.
+ * `list` never rejects, and no host text (error message, body, URL) reaches
+ * the result or a log line.
+ *
+ * The source and filter unions are the wire contract in
+ * `@ptah-extension/shared` (`rpc-decision-model-catalog.types.ts`).
  */
-import { toCloudId } from '@ptah-extension/shared';
-import type { LaneRoutingLogger } from '../lane-routing-logger';
-import { errorName } from './decision-model.detail';
 import {
+  loggableErrorName,
+  toCloudId,
+  type DecisionModelCatalogFilter,
+  type DecisionModelCatalogSource,
+} from '@ptah-extension/shared';
+import type { LaneRoutingLogger } from '../lane-routing-logger';
+import {
+  OLLAMA_CATALOG_MAX_BODY_CHARS,
+  OLLAMA_CATALOG_MAX_MODELS,
   OllamaShowResponseSchema,
   OllamaTagEntrySchema,
   OllamaTagsResponseSchema,
@@ -43,14 +58,6 @@ export const OLLAMA_CLOUD_TAGS_URL = 'https://ollama.com/api/tags';
 
 /** The capability a model must report to be listed. */
 const DECISION_CAPABILITY = 'decision';
-
-export type DecisionModelCatalogSource = 'ollama' | 'ollama-cloud';
-
-/**
- * `applied`: every model was determined. `partial`: some were not, so the
- * list may be missing models. `unavailable`: the tag listing failed.
- */
-export type DecisionModelCatalogFilter = 'applied' | 'partial' | 'unavailable';
 
 export interface DecisionModelCatalogResult {
   /** Decision-capable model ids, in host order, without duplicates. */
@@ -88,6 +95,24 @@ interface CatalogModel {
   readonly capabilities: readonly string[] | undefined;
 }
 
+/**
+ * One `/api/show` lookup, shared by every concurrent call that needs it.
+ * `controller` aborts the request once every signal in `callers` has.
+ */
+interface ShowLookup {
+  readonly result: Promise<Capability>;
+  readonly controller: AbortController;
+  readonly callers: AbortSignal[];
+}
+
+/** A tag listing: parsed entries, and how many were past the cap. */
+interface TagListing {
+  /** Host order; `null` marks an entry that failed its schema. */
+  readonly models: ReadonlyArray<CatalogModel | null>;
+  /** Entries past `OLLAMA_CATALOG_MAX_MODELS`, never classified. */
+  readonly overflow: number;
+}
+
 type JsonAnswer =
   | { readonly ok: true; readonly value: unknown }
   | { readonly ok: false; readonly timedOut: boolean };
@@ -113,7 +138,7 @@ export class DecisionModelCatalog {
   /** Base URL the `/api/show` cache belongs to; a change clears it. */
   private showCacheBaseUrl: string | null = null;
   private readonly showCache = new Map<string, ShowCacheEntry>();
-  private readonly showInFlight = new Map<string, Promise<Capability>>();
+  private readonly showInFlight = new Map<string, ShowLookup>();
   private cloudCache: {
     readonly result: DecisionModelCatalogResult;
     readonly expiresAt: number;
@@ -158,7 +183,7 @@ export class DecisionModelCatalog {
       // can echo host text.
       this.logger.warn('[lane-routing] decision model catalog failed', {
         source,
-        errorName: errorName(error),
+        errorName: loggableErrorName(error),
       });
       return UNAVAILABLE;
     } finally {
@@ -175,12 +200,12 @@ export class DecisionModelCatalog {
     if (cached !== null && cached.expiresAt > this.now()) {
       return cached.result;
     }
-    const models = await this.fetchTags(OLLAMA_CLOUD_TAGS_URL, signal);
-    if (models === null) return UNAVAILABLE;
+    const listing = await this.fetchTags(OLLAMA_CLOUD_TAGS_URL, signal);
+    if (listing === null) return UNAVAILABLE;
 
     const ids: string[] = [];
-    let undetermined = 0;
-    for (const model of models) {
+    let undetermined = listing.overflow;
+    for (const model of listing.models) {
       const capability = model === null ? 'undetermined' : classify(model);
       if (capability === 'undetermined') undetermined += 1;
       if (model !== null && capability === 'capable') {
@@ -206,14 +231,15 @@ export class DecisionModelCatalog {
       this.showInFlight.clear();
       this.showCacheBaseUrl = baseUrl;
     }
-    const models = await this.fetchTags(`${baseUrl}/api/tags`, signal);
-    if (models === null) return UNAVAILABLE;
+    const listing = await this.fetchTags(`${baseUrl}/api/tags`, signal);
+    if (listing === null) return UNAVAILABLE;
+    const { models } = listing;
     if (baseUrl === this.showCacheBaseUrl) {
       this.prune(models);
     }
 
-    // A model not answered within the budget is undetermined, even when the
-    // lookup it shares with another call is still running.
+    // A model not answered within this call's budget is undetermined for
+    // this call; a lookup it shares with another call keeps running.
     const capabilities = await Promise.all(
       models.map((model) =>
         model === null
@@ -226,7 +252,7 @@ export class DecisionModelCatalog {
       ),
     );
     const ids: string[] = [];
-    let undetermined = 0;
+    let undetermined = listing.overflow;
     capabilities.forEach((capability, index) => {
       const model = models[index];
       if (capability === 'undetermined') undetermined += 1;
@@ -256,16 +282,29 @@ export class DecisionModelCatalog {
     if (cached !== undefined && cached.expiresAt > this.now()) {
       return Promise.resolve(cached.capability);
     }
-    const inFlight = this.showInFlight.get(key);
-    if (inFlight !== undefined) return inFlight;
+    let lookup = this.showInFlight.get(key);
+    // An abandoned lookup is still settling; it cannot answer a new caller.
+    if (lookup === undefined || lookup.controller.signal.aborted) {
+      lookup = this.startLookup(baseUrl, model, key);
+    }
+    joinLookup(lookup, signal);
+    return lookup.result;
+  }
 
-    const pending = this.show(baseUrl, model, signal).finally(() => {
-      if (this.showInFlight.get(key) === pending) {
+  private startLookup(
+    baseUrl: string,
+    model: CatalogModel,
+    key: string,
+  ): ShowLookup {
+    const controller = new AbortController();
+    const result = this.show(baseUrl, model, controller.signal).finally(() => {
+      if (this.showInFlight.get(key)?.result === result) {
         this.showInFlight.delete(key);
       }
     });
-    this.showInFlight.set(key, pending);
-    return pending;
+    const lookup: ShowLookup = { result, controller, callers: [] };
+    this.showInFlight.set(key, lookup);
+    return lookup;
   }
 
   private async show(
@@ -275,7 +314,7 @@ export class DecisionModelCatalog {
   ): Promise<Capability> {
     await this.acquireShowSlot();
     try {
-      // The budget may have run out while this lookup waited for a slot.
+      // Every caller may have run out of budget while this lookup waited.
       if (signal.aborted) return 'undetermined';
       const answer = await this.requestJson(
         'show',
@@ -349,13 +388,13 @@ export class DecisionModelCatalog {
   // ------------------------------------------------------------- shared
 
   /**
-   * Parsed tag entries in host order; `null` marks an entry that failed its
-   * schema. `null` overall when the listing failed.
+   * The parsed tag listing, capped at `OLLAMA_CATALOG_MAX_MODELS` entries.
+   * `null` when the listing failed.
    */
   private async fetchTags(
     url: string,
     signal: AbortSignal,
-  ): Promise<Array<CatalogModel | null> | null> {
+  ): Promise<TagListing | null> {
     const answer = await this.requestJson(
       'tags',
       url,
@@ -370,10 +409,25 @@ export class DecisionModelCatalog {
       });
       return null;
     }
-    return envelope.data.models.map(toCatalogModel);
+    const entries = envelope.data.models;
+    const overflow = Math.max(0, entries.length - OLLAMA_CATALOG_MAX_MODELS);
+    if (overflow > 0) {
+      this.logger.warn('[lane-routing] decision model catalog list capped', {
+        step: 'tags',
+        limit: OLLAMA_CATALOG_MAX_MODELS,
+        overflow,
+      });
+    }
+    return {
+      models: entries.slice(0, OLLAMA_CATALOG_MAX_MODELS).map(toCatalogModel),
+      overflow,
+    };
   }
 
-  /** One request bounded by the call budget, even if `fetch` ignores it. */
+  /**
+   * One request bounded by `signal` (the call budget for a tag listing, the
+   * shared lookup's lifetime for `/api/show`), even if `fetch` ignores it.
+   */
   private requestJson(
     step: RequestStep,
     url: string,
@@ -401,7 +455,18 @@ export class DecisionModelCatalog {
         });
         return { ok: false, timedOut: false };
       }
-      const value: unknown = JSON.parse(await response.text());
+      const text = await response.text();
+      if (text.length > OLLAMA_CATALOG_MAX_BODY_CHARS) {
+        this.logger.warn(
+          '[lane-routing] decision model catalog body too large',
+          {
+            step,
+            limit: OLLAMA_CATALOG_MAX_BODY_CHARS,
+          },
+        );
+        return { ok: false, timedOut: false };
+      }
+      const value: unknown = JSON.parse(text);
       return { ok: true, value };
     } catch (error: unknown) {
       // degradation-audit: reported - the warn below records the failure.
@@ -412,7 +477,7 @@ export class DecisionModelCatalog {
         step,
         timedOut,
         timeoutMs: this.timeoutMs,
-        errorName: errorName(error),
+        errorName: loggableErrorName(error),
       });
       return { ok: false, timedOut };
     }
@@ -437,6 +502,28 @@ function untilAborted<T>(
       resolve(value);
     });
   });
+}
+
+/**
+ * Adds `signal` to the callers of `lookup`. The lookup is aborted once every
+ * caller's signal has aborted, and not before: one caller's deadline never
+ * cuts short an answer another caller is still waiting for.
+ */
+function joinLookup(lookup: ShowLookup, signal: AbortSignal): void {
+  lookup.callers.push(signal);
+  const abandonIfUnwanted = (): void => {
+    if (lookup.callers.every((caller) => caller.aborted)) {
+      lookup.controller.abort();
+    }
+  };
+  if (signal.aborted) {
+    abandonIfUnwanted();
+    return;
+  }
+  signal.addEventListener('abort', abandonIfUnwanted, { once: true });
+  void lookup.result.then(() =>
+    signal.removeEventListener('abort', abandonIfUnwanted),
+  );
 }
 
 function toCatalogModel(entry: unknown): CatalogModel | null {

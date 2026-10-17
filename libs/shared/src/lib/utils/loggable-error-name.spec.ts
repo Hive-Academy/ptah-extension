@@ -1,7 +1,7 @@
-import { errorName } from './decision-model.detail';
+import { loggableErrorName } from './loggable-error-name';
 
 /*
- * `errorName` is the only part of an untrusted rejection that reaches a log
+ * `loggableErrorName` is the only part of an untrusted rejection that reaches a log
  * or a row detail (review re-review round 1, R1-1). The dependency sets
  * `name` as freely as `message`, so anything outside the fixed built-in set
  * reads 'other'.
@@ -15,7 +15,7 @@ function named(name: string): Error {
   return error;
 }
 
-describe('errorName', () => {
+describe('loggableErrorName', () => {
   it.each([
     ['Error', new Error('x')],
     ['TypeError', new TypeError('x')],
@@ -24,7 +24,7 @@ describe('errorName', () => {
     ['AbortError', named('AbortError')],
     ['TimeoutError', named('TimeoutError')],
   ])('passes the built-in name %s through', (expected, error) => {
-    expect(errorName(error)).toBe(expected);
+    expect(loggableErrorName(error)).toBe(expected);
   });
 
   it.each([
@@ -35,7 +35,7 @@ describe('errorName', () => {
     ['a custom class name', 'KeychainError'],
     ['an empty name', ''],
   ])('reads %s as other', (_case, name) => {
-    const result = errorName(named(name));
+    const result = loggableErrorName(named(name));
     expect(result).toBe('other');
     expect(result).not.toContain(SENTINEL);
   });
@@ -47,8 +47,8 @@ describe('errorName', () => {
         throw new Error(`getter leaked ${SENTINEL}`);
       },
     });
-    expect(() => errorName(error)).not.toThrow();
-    expect(errorName(error)).toBe('other');
+    expect(() => loggableErrorName(error)).not.toThrow();
+    expect(loggableErrorName(error)).toBe('other');
   });
 
   it('reads a name getter that returns a non-string as other', () => {
@@ -56,7 +56,7 @@ describe('errorName', () => {
     Object.defineProperty(error, 'name', {
       value: { toString: () => 'Error' },
     });
-    expect(errorName(error)).toBe('other');
+    expect(loggableErrorName(error)).toBe('other');
   });
 
   it.each([
@@ -65,6 +65,6 @@ describe('errorName', () => {
     ['undefined', undefined],
     ['null', null],
   ])('reads a non-Error rejection (%s) as other', (_case, rejection) => {
-    expect(errorName(rejection)).toBe('other');
+    expect(loggableErrorName(rejection)).toBe('other');
   });
 });

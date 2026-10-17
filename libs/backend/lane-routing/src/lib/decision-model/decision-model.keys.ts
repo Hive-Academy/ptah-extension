@@ -80,6 +80,11 @@ export class DecisionModelKeys {
   /**
    * Stores a key; `null` or blank deletes the slot. A non-blank `custom` key
    * needs the origin (or any URL of it) it is bound to.
+   *
+   * A rejection does not prove the slot is unchanged: a secret store can
+   * persist the write and reject afterwards. A caller that must leave the
+   * slot as it was takes a `snapshot` first and `restore`s it on rejection
+   * (`agent:setConfig` does, in `DecisionModelWriter`).
    */
   async set(
     slot: DecisionKeySlot,

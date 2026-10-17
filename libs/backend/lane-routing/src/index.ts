@@ -16,17 +16,13 @@ export {
   DecisionModelConfig,
   type SystemOneTarget,
 } from './lib/decision-model/decision-model.config';
+// The catalog's source and filter unions are the wire contract in
+// `@ptah-extension/shared` (`rpc-decision-model-catalog.types.ts`).
 export {
   DecisionModelCatalog,
-  type DecisionModelCatalogFilter,
   type DecisionModelCatalogResult,
-  type DecisionModelCatalogSource,
 } from './lib/decision-model/decision-model.catalog';
 export { keyTransportAllowed } from './lib/decision-model/decision-endpoint.url';
-export {
-  errorName,
-  type LoggableErrorName,
-} from './lib/decision-model/decision-model.detail';
 export {
   DecisionModelKeys,
   type DecisionKeySlot,

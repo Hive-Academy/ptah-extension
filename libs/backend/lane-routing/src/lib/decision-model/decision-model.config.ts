@@ -4,10 +4,13 @@ import type {
   IStateStorage,
   IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
-import { OLLAMA_PROVIDER_ENTRY } from '@ptah-extension/shared';
+import {
+  loggableErrorName,
+  OLLAMA_PROVIDER_ENTRY,
+} from '@ptah-extension/shared';
 import type { LaneRoutingLogger } from '../lane-routing-logger';
 import { keyOf, normaliseBaseUrl, toRowState } from './decision-model.probe';
-import { DECISION_MODEL_DETAIL, errorName } from './decision-model.detail';
+import { DECISION_MODEL_DETAIL } from './decision-model.detail';
 import {
   DecisionEndpointProber,
   type DecisionProbeRequest,
@@ -467,7 +470,7 @@ export class DecisionModelConfig {
       // The rejection text is untrusted (it can echo the key): only its name
       // is logged, and the row shows fixed text.
       this.logger.warn('[lane-routing] Jev credential lookup failed', {
-        errorName: errorName(error),
+        errorName: loggableErrorName(error),
       });
       return this.dto(
         selection,
@@ -509,7 +512,7 @@ export class DecisionModelConfig {
       // is logged, and the row shows fixed text.
       this.logger.warn('[lane-routing] decision model key lookup failed', {
         kind: selection.kind,
-        errorName: errorName(error),
+        errorName: loggableErrorName(error),
       });
       return {
         kind: 'row',
@@ -568,7 +571,7 @@ export class DecisionModelConfig {
       // Untrusted text (a provider can echo its credential): name only.
       this.logger.warn('[lane-routing] structured provider readiness failed', {
         providerId: selection.providerId,
-        errorName: errorName(error),
+        errorName: loggableErrorName(error),
       });
       return this.dto(
         selection,
@@ -696,7 +699,7 @@ export class DecisionModelConfig {
       // degradation-audit: reported - a failed unsupported-mark read starts with no mark so routing can continue
       this.logger.warn(
         '[lane-routing] decision model unsupported mark could not be read',
-        { errorName: errorName(error) },
+        { errorName: loggableErrorName(error) },
       );
       return null;
     }
@@ -742,7 +745,7 @@ export class DecisionModelConfig {
         value === undefined
           ? '[lane-routing] decision model unsupported mark was not cleared in storage'
           : '[lane-routing] decision model unsupported mark was not persisted',
-        { errorName: errorName(error) },
+        { errorName: loggableErrorName(error) },
       );
     }
   }

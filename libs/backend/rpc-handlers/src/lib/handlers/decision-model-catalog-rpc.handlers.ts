@@ -14,26 +14,25 @@ import { TOKENS, RpcUserError } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import {
   LANE_ROUTING_TOKENS,
-  errorName,
   type DecisionModelCatalog,
 } from '@ptah-extension/lane-routing';
-import type {
-  AgentListDecisionModelsParams,
-  AgentListDecisionModelsResult,
-  DecisionModelCatalogSource,
-  RpcMethodName,
+import {
+  DECISION_MODEL_CATALOG_SOURCES,
+  loggableErrorName,
+  type AgentListDecisionModelsParams,
+  type AgentListDecisionModelsResult,
+  type RpcMethodName,
 } from '@ptah-extension/shared';
 
 const METHOD = 'agent:listDecisionModels';
 
-const SOURCES = [
-  'ollama',
-  'ollama-cloud',
-] as const satisfies readonly DecisionModelCatalogSource[];
-
-/** `.strict()` rejects a caller that adds a field. */
+/**
+ * Built from the shared source list, so it accepts exactly the
+ * `DecisionModelCatalogSource` union. `.strict()` rejects a caller that adds
+ * a field.
+ */
 export const AgentListDecisionModelsParamsSchema = z
-  .object({ source: z.enum(SOURCES) })
+  .object({ source: z.enum(DECISION_MODEL_CATALOG_SOURCES) })
   .strict();
 
 /** The slice of the catalog this method calls. */
@@ -65,7 +64,7 @@ export class DecisionModelCatalogRpcHandlers {
     const parsed = AgentListDecisionModelsParamsSchema.safeParse(params);
     if (!parsed.success) {
       throw new RpcUserError(
-        `${METHOD}: invalid params — source must be one of ${SOURCES.join(', ')}.`,
+        `${METHOD}: invalid params — source must be one of ${DECISION_MODEL_CATALOG_SOURCES.join(', ')}.`,
         'INVALID_PARAMS',
       );
     }
@@ -83,10 +82,9 @@ export class DecisionModelCatalogRpcHandlers {
       // is logged by its error name so the failure stays visible.
       this.logger.warn(`[decisionModelCatalog] ${METHOD} failed`, {
         source: parsed.data.source,
-        errorName: errorName(error),
+        errorName: loggableErrorName(error),
       });
       return { models: [], filter: 'unavailable', undetermined: 0 };
     }
   }
 }
-

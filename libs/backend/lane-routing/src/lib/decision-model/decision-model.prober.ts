@@ -12,9 +12,10 @@
  * never logged and never sent where the transport rule (D4) forbids it.
  * `probe` never rejects; a failed request becomes a fixed-text answer.
  */
+import { loggableErrorName } from '@ptah-extension/shared';
 import type { LaneRoutingLogger } from '../lane-routing-logger';
 import { keyTransportAllowed } from './decision-endpoint.url';
-import { DECISION_MODEL_DETAIL, errorName } from './decision-model.detail';
+import { DECISION_MODEL_DETAIL } from './decision-model.detail';
 import {
   buildProbeUrls,
   checkVersion,
@@ -134,7 +135,7 @@ export class DecisionEndpointProber {
         method: init.method,
         timedOut,
         timeoutMs: this.seams.timeoutMs,
-        errorName: errorName(error),
+        errorName: loggableErrorName(error),
       });
       return {
         kind: 'failed',

@@ -7,6 +7,10 @@ import {
   OLLAMA_CLOUD_TAGS_URL,
   type DecisionModelCatalogConfig,
 } from './decision-model.catalog';
+import {
+  OLLAMA_CATALOG_MAX_BODY_CHARS,
+  OLLAMA_CATALOG_MAX_MODELS,
+} from './ollama-catalog.schema';
 import type { SystemOneFetch } from './system-one.client';
 
 /*
@@ -27,7 +31,14 @@ type Answer =
   /** Rejects when the request signal aborts. */
   | 'hang'
   /** Never settles, ignoring the signal. */
-  | 'ignore-abort';
+  | 'ignore-abort'
+  /** Answers `reply` once `gate` resolves; rejects when the signal aborts. */
+  | { readonly gate: Promise<void>; readonly reply: Reply };
+
+interface Reply {
+  readonly status: number;
+  readonly body: string;
+}
 
 interface Call {
   readonly url: string;
@@ -42,6 +53,9 @@ interface TagFixture {
   readonly digest?: string;
   readonly capabilities?: readonly string[];
 }
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
 
 const json = (value: unknown): Answer => ({
   status: 200,
@@ -83,6 +97,21 @@ function harness(
       }
       if (answer === 'ignore-abort') {
         return await new Promise<never>(() => undefined);
+      }
+      if (typeof answer === 'object' && 'gate' in answer) {
+        await new Promise<void>((resolve, reject) => {
+          void answer.gate.then(resolve);
+          init?.signal?.addEventListener('abort', () => {
+            const error = new Error(`aborted ${SENTINEL}`);
+            error.name = 'AbortError';
+            reject(error);
+          });
+        });
+        return {
+          ok: true,
+          status: answer.reply.status,
+          text: async () => answer.reply.body,
+        };
       }
       if (answer === 'hang') {
         return await new Promise<never>((_resolve, reject) => {
@@ -529,6 +558,110 @@ describe('DecisionModelCatalog — concurrency and budget', () => {
       filter: 'unavailable',
       undetermined: 0,
     });
+  });
+
+  it('keeps a shared lookup alive for a later call after an earlier call runs out of budget (phase 3 L2)', async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const reply: Reply = {
+      status: 200,
+      body: JSON.stringify({ capabilities: ['decision'] }),
+    };
+    const h = harness(
+      daemon(() => tags([{ name: 'alpha:7b' }]), {
+        'alpha:7b': { gate, reply },
+      }),
+      { timeoutMs: 100 },
+    );
+
+    const first = h.catalog.list('ollama');
+    await sleep(60);
+    // Joins the lookup the first call started; its own budget runs 60 ms past
+    // the first call's.
+    const second = h.catalog.list('ollama');
+
+    await expect(first).resolves.toEqual({
+      models: [],
+      filter: 'partial',
+      undetermined: 1,
+    });
+    release();
+    await expect(second).resolves.toEqual({
+      models: ['alpha:7b'],
+      filter: 'applied',
+      undetermined: 0,
+    });
+    expect(h.showCalls('alpha:7b')).toBe(1);
+  });
+});
+
+describe('DecisionModelCatalog — response bounds (phase 3 L3)', () => {
+  it('reports unavailable for a tag body over the size limit, without parsing it', async () => {
+    const body = JSON.stringify({
+      models: [{ name: 'alpha:7b' }],
+      padding: 'x'.repeat(OLLAMA_CATALOG_MAX_BODY_CHARS),
+    });
+    const h = harness(() => ({ status: 200, body }));
+    const parse = jest.spyOn(JSON, 'parse');
+
+    try {
+      await expect(h.catalog.list('ollama')).resolves.toEqual({
+        models: [],
+        filter: 'unavailable',
+        undetermined: 0,
+      });
+      expect(parse).not.toHaveBeenCalledWith(body);
+    } finally {
+      parse.mockRestore();
+    }
+    expect(h.showCalls()).toBe(0);
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      '[lane-routing] decision model catalog body too large',
+      { step: 'tags', limit: OLLAMA_CATALOG_MAX_BODY_CHARS },
+    );
+  });
+
+  it(`looks up at most ${OLLAMA_CATALOG_MAX_MODELS} local tags and counts the rest as undetermined`, async () => {
+    const names = Array.from(
+      { length: OLLAMA_CATALOG_MAX_MODELS + 3 },
+      (_, i) => `model-${i}`,
+    );
+    const h = harness((url) =>
+      url.endsWith('/api/tags')
+        ? tags(names.map((name) => ({ name })))
+        : show(['decision']),
+    );
+
+    const result = await h.catalog.list('ollama');
+
+    expect(result).toEqual({
+      models: names.slice(0, OLLAMA_CATALOG_MAX_MODELS),
+      filter: 'partial',
+      undetermined: 3,
+    });
+    expect(h.showCalls()).toBe(OLLAMA_CATALOG_MAX_MODELS);
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      '[lane-routing] decision model catalog list capped',
+      { step: 'tags', limit: OLLAMA_CATALOG_MAX_MODELS, overflow: 3 },
+    );
+  });
+
+  it('caps the cloud tag list the same way', async () => {
+    const names = Array.from(
+      { length: OLLAMA_CATALOG_MAX_MODELS + 2 },
+      (_, i) => `model-${i}`,
+    );
+    const h = harness(() =>
+      tags(names.map((name) => ({ name, capabilities: ['decision'] }))),
+    );
+
+    const result = await h.catalog.list('ollama-cloud');
+
+    expect(result.models).toHaveLength(OLLAMA_CATALOG_MAX_MODELS);
+    expect(result.filter).toBe('partial');
+    expect(result.undetermined).toBe(2);
   });
 });
 

@@ -12,9 +12,25 @@ import { z } from 'zod';
 /** Longest model id the catalog accepts from a host. */
 export const OLLAMA_CATALOG_MAX_ID_CHARS = 128;
 
+/**
+ * Largest body (in UTF-16 code units) the catalog parses. A longer body is
+ * refused before `JSON.parse`, which runs synchronously and cannot be
+ * interrupted by the call budget.
+ */
+export const OLLAMA_CATALOG_MAX_BODY_CHARS = 1024 * 1024;
+
+/**
+ * Most tag entries one listing classifies. Entries past it are counted as
+ * undetermined without a schema check or an `/api/show` lookup.
+ */
+export const OLLAMA_CATALOG_MAX_MODELS = 256;
+
 const ModelIdSchema = z.string().min(1).max(OLLAMA_CATALOG_MAX_ID_CHARS);
 
-/** Envelope of `GET /api/tags`; entries are parsed one by one. */
+/**
+ * Envelope of `GET /api/tags`; entries are parsed one by one, and only the
+ * first `OLLAMA_CATALOG_MAX_MODELS` of them.
+ */
 export const OllamaTagsResponseSchema = z
   .object({
     models: z.array(z.unknown()),

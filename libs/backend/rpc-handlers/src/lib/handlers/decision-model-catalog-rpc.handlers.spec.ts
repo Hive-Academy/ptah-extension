@@ -13,9 +13,12 @@ import { RpcUserError, TOKENS } from '@ptah-extension/vscode-core';
 import {
   LANE_ROUTING_TOKENS,
   type DecisionModelCatalogResult,
-  type DecisionModelCatalogSource,
 } from '@ptah-extension/lane-routing';
-import { RPC_METHOD_NAMES } from '@ptah-extension/shared';
+import {
+  DECISION_MODEL_CATALOG_SOURCES,
+  RPC_METHOD_NAMES,
+  type DecisionModelCatalogSource,
+} from '@ptah-extension/shared';
 import { DecisionModelCatalogRpcHandlers } from './decision-model-catalog-rpc.handlers';
 
 const METHOD = 'agent:listDecisionModels';
@@ -71,7 +74,7 @@ describe('DecisionModelCatalogRpcHandlers', () => {
     expect(list).not.toHaveBeenCalled();
   });
 
-  it.each<DecisionModelCatalogSource>(['ollama', 'ollama-cloud'])(
+  it.each<DecisionModelCatalogSource>([...DECISION_MODEL_CATALOG_SOURCES])(
     'lists %s through the catalog once',
     async (source) => {
       const { call, list } = setup(async () => applied);

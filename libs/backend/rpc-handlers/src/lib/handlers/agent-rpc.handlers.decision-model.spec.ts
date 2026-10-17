@@ -802,10 +802,11 @@ describe.each(KEY_FIELD_CASES)(
       }
     });
 
-    it('does not write the selection when the key write fails (P4 S-2)', async () => {
+    it('does not write the selection and restores the slot when the key write fails (P4 S-2, phase 3 L1)', async () => {
       const h = makeHarness();
       const slot = slotMocks(h.decisionModel, c.slot);
-      slot.write.mockRejectedValue(
+      slot.snapshot.mockResolvedValue(c.previous);
+      slot.write.mockRejectedValueOnce(
         new Error(`secret store refused ${c.secret}`),
       );
       const result = await h.setConfig({
@@ -817,7 +818,8 @@ describe.each(KEY_FIELD_CASES)(
         success: false,
         error: 'Could not save the orchestration settings.',
       });
-      expect(slot.write).toHaveBeenCalledTimes(1);
+      // The rejected write may have persisted, so the snapshot is put back.
+      expect(slot.write.mock.calls).toEqual([[c.secret], [c.previous]]);
       expect(h.decisionModel.setSelection).not.toHaveBeenCalled();
       expect(h.settings.size).toBe(0);
       expect(JSON.stringify(result)).not.toContain(c.secret);
@@ -892,7 +894,8 @@ describe.each(KEY_FIELD_CASES)(
         'RPC: agent:setConfig could not restore the previous decision model key',
         {
           slot: c.slot,
-          selectionErrorType: 'SettingsPersistError',
+          // A custom error class name is not a fixed category.
+          selectionErrorType: 'other',
           restoreErrorType: 'Error',
         },
       );
@@ -975,7 +978,7 @@ describe.each(KEY_FIELD_CASES)(
       );
     });
 
-    it('reads no previous key when only the key is sent', async () => {
+    it('snapshots the slot before a key-only write and writes no selection', async () => {
       const h = makeHarness();
       const slot = slotMocks(h.decisionModel, c.slot);
       // A custom key binds to the saved custom endpoint (DC10).
@@ -983,12 +986,32 @@ describe.each(KEY_FIELD_CASES)(
       expect(await h.setConfig({ [c.field]: c.secret })).toEqual({
         success: true,
       });
-      expect(slot.snapshot).not.toHaveBeenCalled();
+      expect(slot.snapshot).toHaveBeenCalledTimes(1);
       expect(slot.write.mock.calls).toEqual([[c.secret]]);
       expect(h.decisionModel.setSelection).not.toHaveBeenCalled();
       if (c.slot === 'custom') {
         expect(h.decisionModel.customKeyOrigin).toHaveBeenCalledWith(c.origin);
       }
+    });
+
+    it('says the key may have changed when a key-only write and its restore both fail (phase 3 L1)', async () => {
+      const h = makeHarness();
+      const slot = slotMocks(h.decisionModel, c.slot);
+      h.decisionModel.getSelection.mockReturnValue(c.stored);
+      slot.snapshot.mockResolvedValue(c.previous);
+      slot.write
+        .mockRejectedValueOnce(new Error(`secret store refused ${c.secret}`))
+        .mockRejectedValueOnce(new Error(`secret store refused ${c.previous}`));
+      const result = await h.setConfig({ [c.field]: c.secret });
+      expect(result).toEqual({ success: false, error: c.mayHaveChanged });
+      expect(slot.write.mock.calls).toEqual([[c.secret], [c.previous]]);
+      expect(h.logger.error).toHaveBeenCalledWith(
+        'RPC: agent:setConfig could not restore the previous decision model key',
+        { slot: c.slot, keyErrorType: 'Error', restoreErrorType: 'Error' },
+      );
+      const logged = JSON.stringify(h.logger.error.mock.calls);
+      expect(logged).not.toContain(c.secret);
+      expect(logged).not.toContain(c.previous);
     });
   },
 );

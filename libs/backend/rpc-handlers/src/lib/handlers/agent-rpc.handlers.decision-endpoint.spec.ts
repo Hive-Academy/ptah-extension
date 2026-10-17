@@ -39,6 +39,7 @@ import type {
 import { createMockRpcHandler } from '@ptah-extension/vscode-core/testing';
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import {
+  DECISION_MODEL_CUSTOM_KEY_MAY_HAVE_CHANGED,
   DECISION_MODEL_CUSTOM_KEY_NEEDS_ENDPOINT,
   DECISION_MODEL_INVALID_BASE_URL,
   DECISION_MODEL_INVALID_MODEL,
@@ -566,6 +567,85 @@ describe('agent:getConfig custom key indicator (2.4) and sentinel search (1.6)',
     });
     expect(h.setSelection).not.toHaveBeenCalled();
     expect(JSON.stringify(result)).not.toContain(SENTINEL);
+    expect(h.logged()).not.toContain(SENTINEL);
+  });
+});
+
+/*
+ * Phase 3 logic review defect 1: a secret store can persist a write and then
+ * reject. The fakes below change the backing map before they reject, so only
+ * a restore of the snapshot leaves the previous key in place.
+ */
+describe('agent:setConfig key write that persists and then rejects', () => {
+  const PREVIOUS = customRecord('https://gateway.example', 'previous-key-3c9e');
+
+  function storeThenReject(h: Harness): void {
+    h.secrets.store.mockImplementationOnce(async (key, value) => {
+      h.secrets.__state.entries.set(key, value);
+      throw new Error(`keychain refused ${SENTINEL}`);
+    });
+  }
+
+  it('restores the previous key when the store persists and then rejects', async () => {
+    const h = makeHarness();
+    h.secrets.__state.seed(CUSTOM_SLOT, PREVIOUS);
+    storeThenReject(h);
+
+    const result = await h.setConfig({
+      decisionModel: HTTPS_ENDPOINT,
+      decisionModelCustomApiKey: SENTINEL,
+    });
+
+    expect(result).toEqual({
+      success: false,
+      error: 'Could not save the orchestration settings.',
+    });
+    expect(h.secrets.__state.entries.get(CUSTOM_SLOT)).toBe(PREVIOUS);
+    expect(h.setSelection).not.toHaveBeenCalled();
+    expect(h.logged()).not.toContain(SENTINEL);
+  });
+
+  it('restores the previous key when a key-only save persists and then rejects', async () => {
+    const h = makeHarness(HTTPS_ENDPOINT);
+    h.secrets.__state.seed(CUSTOM_SLOT, PREVIOUS);
+    storeThenReject(h);
+
+    const result = await h.setConfig({ decisionModelCustomApiKey: SENTINEL });
+
+    expect(result.success).toBe(false);
+    expect(h.secrets.__state.entries.get(CUSTOM_SLOT)).toBe(PREVIOUS);
+  });
+
+  it('restores the key when a delete persists and then rejects', async () => {
+    const h = makeHarness(HTTPS_ENDPOINT);
+    h.secrets.__state.seed(CUSTOM_SLOT, PREVIOUS);
+    h.secrets.delete.mockImplementationOnce(async (key) => {
+      h.secrets.__state.entries.delete(key);
+      throw new Error(`keychain refused ${SENTINEL}`);
+    });
+
+    const result = await h.setConfig({ decisionModelCustomApiKey: '' });
+
+    expect(result.success).toBe(false);
+    expect(h.secrets.__state.entries.get(CUSTOM_SLOT)).toBe(PREVIOUS);
+  });
+
+  it('says the key may have changed when the restore fails too', async () => {
+    const h = makeHarness();
+    h.secrets.__state.seed(CUSTOM_SLOT, PREVIOUS);
+    storeThenReject(h);
+    h.secrets.store.mockRejectedValueOnce(new Error(`restore ${SENTINEL}`));
+
+    const result = await h.setConfig({
+      decisionModel: HTTPS_ENDPOINT,
+      decisionModelCustomApiKey: SENTINEL,
+    });
+
+    expect(result).toEqual({
+      success: false,
+      error: DECISION_MODEL_CUSTOM_KEY_MAY_HAVE_CHANGED,
+    });
+    expect(h.setSelection).not.toHaveBeenCalled();
     expect(h.logged()).not.toContain(SENTINEL);
   });
 });

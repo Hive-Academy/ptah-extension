@@ -1,6 +1,6 @@
+import { loggableErrorName } from '@ptah-extension/shared';
 import type { LaneRoutingLogger } from '../lane-routing-logger';
 import { originOf, systemOneUrl } from './decision-endpoint.url';
-import { errorName } from './decision-model.detail';
 import type { DecisionPayload } from './decision-payload';
 import {
   SystemOneResultSchema,
@@ -209,7 +209,7 @@ export class SystemOneClient {
    * so an aborted signal is a timeout and every other rejection is a
    * network failure (connection refused, DNS, TLS — Req 12.7 `unreachable`).
    * The rejection message and name are untrusted and are not copied into
-   * the detail or the log; only the fixed category of `errorName` is.
+   * the detail or the log; only the fixed category of `loggableErrorName` is.
    */
   private classifyTransportFailure(
     signal: AbortSignal,
@@ -222,7 +222,10 @@ export class SystemOneClient {
       );
     }
     return this.logged(
-      this.failure('unreachable', `transport error (${errorName(error)})`),
+      this.failure(
+        'unreachable',
+        `transport error (${loggableErrorName(error)})`,
+      ),
     );
   }
 
