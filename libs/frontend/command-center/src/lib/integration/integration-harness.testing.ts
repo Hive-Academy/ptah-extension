@@ -20,11 +20,13 @@ import type {
   ProjectionResult,
 } from '../model/work-projection';
 import { CommandSceneComponent } from '../scene/command-scene.component';
+import type { SceneGeometry } from '../scene/connector-geometry';
+import type { PlateReservation } from '../components/command-overlay-placement';
 
 @Component({
   selector: 'ptah-command-scene',
   standalone: true,
-  template: '<canvas></canvas>',
+  template: '<div data-scene-stage></div>',
 })
 export class SceneStubComponent {
   public readonly projection = input.required<ProjectionResult>();
@@ -33,9 +35,17 @@ export class SceneStubComponent {
   public readonly voiceState = input('idle');
   public readonly inputLevel = input(0);
   public readonly outputLevel = input(0);
+  public readonly reducedMotion = input(false);
+  public readonly activeId = input<string | null>(null);
+  public readonly pinnedId = input<string | null>(null);
+  public readonly plateReservation = input<PlateReservation>({ pinnedId: null, anchorKind: null, inlineSlotHeight: 0, reservedHeight: 0 });
   public readonly selection = output<string>();
   public readonly hoveredNodeId = output<string | null>();
-  public readonly canvasUnavailable = output<boolean>();
+  public readonly activate = output<string>();
+  public readonly escape = output<string>();
+  public readonly focusWorkList = output<string>();
+  public readonly geometryChange = output<SceneGeometry | null>();
+  public requestMeasure(): void { this.geometryChange.emit(null); }
 }
 
 export function createHarness(

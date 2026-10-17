@@ -21,6 +21,8 @@ import { CommandWorkListComponent } from './command-work-list.component';
 import { CommandCenterPageController } from './command-center-page.controller';
 import { CommandCenterTribunalTransport } from './command-center-tribunal.transport';
 import { CommandCenterProjectionSource } from './command-center-projection.source';
+import { EMPTY_PLATE_RESERVATION, type PlateReservation } from './command-overlay-placement';
+import type { SceneGeometry } from '../scene/connector-geometry';
 
 @Component({
   selector: 'ptah-command-center-page',
@@ -55,14 +57,14 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
         grid-template-areas:
           'stage rail'
           'dock dock';
-        grid-template-rows: clamp(420px, calc(100vh - 280px), 620px) auto;
+        grid-template-rows: minmax(clamp(420px, calc(100vh - 280px), 620px), max-content) auto;
         flex: 0 0 auto;
         gap: 16px;
         padding: 16px;
       }
       .stage-column {
         grid-area: stage;
-        min-height: 0;
+        min-height: auto;
       }
       .dock {
         grid-area: dock;
@@ -70,7 +72,7 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
       .stage {
         position: relative;
         flex: 1 1 auto;
-        min-height: 420px;
+        min-height: calc(420px + var(--plate-reserve, 0px));
       }
       .rail {
         grid-area: rail;
@@ -109,12 +111,12 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
         }
         .stage {
           flex: none;
-          min-height: 460px;
+          min-height: calc(460px + var(--plate-reserve, 0px));
         }
       }
       @container (width < 480px) {
         .stage {
-          min-height: 360px;
+          min-height: calc(360px + var(--plate-reserve, 0px));
         }
       }
     `,
@@ -161,10 +163,10 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
       </div>
     </header>
     <div class="layout">
-      <div class="stage-column flex min-h-0 min-w-0 flex-col">
-        @if (!page.canvasUnavailable()) {
+      <div class="stage-column flex min-w-0 flex-col">
           <main
-            class="stage min-w-0 overflow-hidden rounded-xl border border-base-300 bg-base-200"
+            class="stage min-w-0 rounded-xl border border-base-300 bg-base-200"
+            [style.--plate-reserve.px]="plateReservation().reservedHeight"
           >
             <ptah-command-scene
               #scene
@@ -174,18 +176,26 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
               [voiceState]="page.store.voiceState()"
               [inputLevel]="page.store.inputLevel()"
               [outputLevel]="page.store.outputLevel()"
-              (selection)="page.store.select($event)"
+              [reducedMotion]="page.store.reducedMotion()"
+              [activeId]="overlay?.activeNodeId() ?? null"
+              [pinnedId]="overlay?.pinnedNodeId() ?? null"
+              [plateReservation]="plateReservation()"
+              (activate)="activateNode($event)"
+              (escape)="overlay?.closePinned()"
+              (focusWorkList)="focusWorkRow($event)"
+              (geometryChange)="sceneGeometry.set($event)"
               (hoveredNodeId)="page.hoveredNodeId.set($event)"
-              (canvasUnavailable)="page.canvasUnavailable.set($event)"
             />
             <ptah-command-overlay
               #overlay
               [projection]="page.projection()"
-              [visibleLabelIds]="visibleLabelIds()"
+              [geometry]="sceneGeometry()"
               [hoveredNodeId]="page.hoveredNodeId()"
               [selectedId]="page.store.selectedId()"
               [reducedMotion]="page.store.reducedMotion()"
               (focusWorkListRow)="focusWorkRow($event)"
+              (reservationChange)="plateReservation.set($event)"
+              (repositionRequested)="scene?.requestMeasure()"
             />
             <div class="pointer-events-none absolute left-5 top-5 z-10">
               <p
@@ -206,10 +216,9 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
             <p
               class="pointer-events-none absolute bottom-5 left-5 right-5 z-10 text-xs uppercase tracking-wide text-base-content-muted"
             >
-              Select a sphere for status
+              Select a work stream for status.
             </p>
           </main>
-        }
       </div>
       <div
         class="dock flex flex-wrap items-center gap-3 rounded-xl border border-base-300 bg-base-200 p-3"
@@ -330,7 +339,7 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
           <ptah-command-work-list
             [projection]="page.projection()"
             [selectedId]="page.store.selectedId()"
-            (selection)="page.store.select($event)"
+            (selection)="selectWorkRow($event)"
           />
         </div>
       </aside>
@@ -384,13 +393,8 @@ export class CommandCenterPageComponent {
   private readonly scene = viewChild(CommandSceneComponent);
   private readonly controls = viewChild(CommandSessionControlsComponent);
   private submitting = false;
-  public readonly visibleLabelIds = computed(
-    () =>
-      this.scene()
-        ?.layout()
-        .nodes.filter((node) => node.labelRect !== null)
-        .map((node) => node.node.id) ?? [],
-  );
+  public readonly sceneGeometry = signal<SceneGeometry | null>(null);
+  public readonly plateReservation = signal<PlateReservation>(EMPTY_PLATE_RESERVATION);
   private readonly overlay = viewChild(CommandOverlayComponent);
   private readonly workList = viewChild(CommandWorkListComponent);
   private readonly pendingCard = viewChild<string, ElementRef<HTMLElement>>(
@@ -398,10 +402,6 @@ export class CommandCenterPageComponent {
     { read: ElementRef },
   );
   private lastPendingKey: string | null = null;
-  private measuredProjection: ReturnType<
-    CommandCenterPageController['projection']
-  > | null = null;
-  private measuredAnchorId: string | null = null;
 
   public async submitCommand(text: string): Promise<void> {
     // The draft stays until the send resolves, so a second Enter must not send it twice.
@@ -435,7 +435,6 @@ export class CommandCenterPageComponent {
       void this.page.exit();
     });
     afterEveryRender(() => {
-      this.measureOverlay();
       this.scrollToNewPendingCard();
     });
   }
@@ -451,20 +450,14 @@ export class CommandCenterPageComponent {
       this.pendingCard()?.nativeElement.scrollIntoView?.({ block: 'nearest' });
   }
 
-  private measureOverlay(): void {
-    const scene = this.scene();
-    const overlay = this.overlay();
-    if (!scene || !overlay) return;
-    const projection = this.page.projection();
-    if (projection !== this.measuredProjection) {
-      this.measuredProjection = projection;
-      scene.setOverlayLabels(overlay.getOverlayLabels());
-    }
-    const activeId = overlay.activeNodeId();
-    if (activeId !== this.measuredAnchorId) {
-      this.measuredAnchorId = activeId;
-      scene.setCardAnchor(overlay.getCardAnchor(), activeId);
-    }
+  public activateNode(id: string): void {
+    this.page.store.select(id);
+    this.overlay()?.activate(id);
+  }
+
+  public selectWorkRow(id: string): void {
+    this.overlay()?.closeCard();
+    this.page.store.select(id);
   }
 
   public focusWorkRow(id: string): void {

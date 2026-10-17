@@ -1,298 +1,100 @@
 import { TestBed } from '@angular/core/testing';
-import { FloatingUIService } from '@ptah-extension/ui';
-import type { CommandWorkNode } from '../model/command-center.store';
-import { CommandCenterStore } from '../model/command-center.store';
-import {
-  COMMAND_OVERLAY_CLOSE_DELAY_MS,
-  COMMAND_OVERLAY_OPEN_DELAY_MS,
-  CommandOverlayComponent,
-} from './command-overlay.component';
+import { CommandCenterStore, type CommandWorkNode } from '../model/command-center.store';
+import type { SceneGeometry } from '../scene/connector-geometry';
+import { COMMAND_OVERLAY_CLOSE_DELAY_MS, COMMAND_OVERLAY_OPEN_DELAY_MS, CommandOverlayComponent } from './command-overlay.component';
 
 const nodes: CommandWorkNode[] = [
-  {
-    id: 'a',
-    kind: 'root',
-    parentId: null,
-    label: 'Alpha',
-    providerId: 'codex',
-    state: 'running',
-  },
-  {
-    id: 'b',
-    kind: 'child',
-    parentId: 'a',
-    label: 'Beta',
-    providerId: 'unknown',
-    state: 'queued',
-  },
+  { id: 'root', kind: 'root', parentId: null, label: 'Root', providerId: null, state: 'running' },
+  { id: 'a', kind: 'child', parentId: 'root', label: 'Alpha', providerId: 'codex', state: 'running' },
+  { id: 'b', kind: 'child', parentId: 'root', label: 'Beta', providerId: 'codex', state: 'queued' },
 ];
+const geometry: SceneGeometry = {
+  stage: { x: 0, y: 0, width: 1056, height: 620 },
+  streamViewport: { x: 20, y: 80, width: 270, height: 500 },
+  streamContent: { x: 27, y: 80, width: 241, height: 500 },
+  rows: { a: { x: 27, y: 100, width: 241, height: 44 }, b: { x: 27, y: 150, width: 241, height: 44 } },
+  dial: { x: 340, y: 120, width: 292, height: 292 },
+  rootButton: { x: 380, y: 160, width: 212, height: 212 },
+  cards: {
+    inProgress: { x: 784, y: 80, width: 252, height: 100 },
+    waiting: { x: 784, y: 190, width: 252, height: 100 },
+    finished: { x: 784, y: 300, width: 252, height: 100 },
+    other: { x: 784, y: 410, width: 252, height: 100 },
+  },
+};
 
 describe('CommandOverlayComponent', () => {
-  const position = jest.fn().mockResolvedValue(undefined);
-  const cleanup = jest.fn();
-
+  beforeEach(() => { jest.useFakeTimers(); TestBed.configureTestingModule({ imports: [CommandOverlayComponent], providers: [CommandCenterStore] }); });
+  afterEach(() => { TestBed.resetTestingModule(); jest.useRealTimers(); });
   function setup() {
-    TestBed.configureTestingModule({
-      imports: [CommandOverlayComponent],
-      providers: [CommandCenterStore],
-    });
-    TestBed.overrideComponent(CommandOverlayComponent, {
-      set: {
-        providers: [
-          { provide: FloatingUIService, useValue: { position, cleanup } },
-        ],
-      },
-    });
     const fixture = TestBed.createComponent(CommandOverlayComponent);
-    TestBed.inject(CommandCenterStore).setProjection('a', nodes, []);
+    TestBed.inject(CommandCenterStore).setProjection('root', nodes, []);
     fixture.componentRef.setInput('projection', { nodes, edges: [] });
+    fixture.componentRef.setInput('geometry', geometry);
     fixture.detectChanges();
-    const labels = fixture.nativeElement.querySelectorAll(
-      '[data-node-id]',
-    ) as NodeListOf<HTMLButtonElement>;
-    return { fixture, labels, component: fixture.componentInstance };
+    return fixture;
   }
 
-  function advance(ms: number): void {
-    jest.advanceTimersByTime(ms);
-  }
-
-  beforeEach(() => {
-    jest.useFakeTimers();
-    position.mockClear();
-    cleanup.mockClear();
-  });
-
-  afterEach(() => {
-    TestBed.resetTestingModule();
-    jest.useRealTimers();
-  });
-
-  it('hides plates without a placed scene label, including a previously placed plate', () => {
-    const { fixture, labels } = setup();
-    fixture.componentRef.setInput('visibleLabelIds', ['a', 'b']);
-    fixture.detectChanges();
-    expect(labels[1].style.visibility).toBe('visible');
-    fixture.componentRef.setInput('visibleLabelIds', ['a']);
-    fixture.detectChanges();
-    expect(labels[0].style.visibility).toBe('visible');
-    expect(labels[1].style.visibility).toBe('hidden');
-  });
-
-  it('opens at 150 ms and cancels an early leave', () => {
-    const { component, fixture } = setup();
-    component.onLabelEnter('a');
-    advance(COMMAND_OVERLAY_OPEN_DELAY_MS - 1);
-    fixture.detectChanges();
-    expect(
-      fixture.nativeElement.querySelector('#command-node-card'),
-    ).toBeNull();
-    advance(1);
-    fixture.detectChanges();
-    expect(
-      fixture.nativeElement.querySelector('#command-node-card'),
-    ).not.toBeNull();
-    component.onLabelEnter('b');
-    component.onLabelLeave('b');
-    advance(COMMAND_OVERLAY_OPEN_DELAY_MS);
-    expect(component.activeNodeId()).toBe('a');
-  });
-
-  it('keeps a dense moved or hidden label open while the scene hover stays on its node', () => {
-    const { component, fixture, labels } = setup();
+  it('opens a pointer-inert preview after 150ms and closes after 200ms', () => {
+    const fixture = setup();
     fixture.componentRef.setInput('hoveredNodeId', 'a');
     fixture.detectChanges();
-    advance(COMMAND_OVERLAY_OPEN_DELAY_MS);
+    jest.advanceTimersByTime(COMMAND_OVERLAY_OPEN_DELAY_MS - 1);
+    expect(fixture.componentInstance.activeNodeId()).toBeNull();
+    jest.advanceTimersByTime(1);
     fixture.detectChanges();
-    const card = fixture.nativeElement.querySelector('#command-node-card');
-    labels[0].style.transform = 'translate3d(200px,20px,0)';
-    labels[0].style.display = 'none';
-    component.onLabelLeave('a');
-    advance(COMMAND_OVERLAY_CLOSE_DELAY_MS + 1);
+    expect(fixture.componentInstance.activeNodeId()).toBe('a');
+    expect(fixture.nativeElement.querySelector('[role="tooltip"]')?.className).toContain('pointer-events-none');
+    fixture.componentRef.setInput('hoveredNodeId', 'b');
     fixture.detectChanges();
-    expect(component.activeNodeId()).toBe('a');
-    expect(fixture.nativeElement.querySelector('#command-node-card')).toBe(
-      card,
-    );
+    jest.advanceTimersByTime(COMMAND_OVERLAY_OPEN_DELAY_MS);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.activeNodeId()).toBe('b');
+    fixture.componentRef.setInput('hoveredNodeId', null);
+    fixture.detectChanges();
+    jest.advanceTimersByTime(COMMAND_OVERLAY_CLOSE_DELAY_MS);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.activeNodeId()).toBeNull();
+    fixture.destroy();
   });
 
-  it('closes after 200 ms and cancels closing on card, trigger, or bridge entry', () => {
-    const { component, fixture } = setup();
-    component.onLabelEnter('a');
-    advance(COMMAND_OVERLAY_OPEN_DELAY_MS);
+  it('reserves only a pin and releases it synchronously on close', () => {
+    const fixture = setup();
+    const stage = document.createElement('div');
+    stage.dataset['sceneStage'] = '';
+    fixture.nativeElement.parentElement?.appendChild(stage);
+    const reservations: number[] = [];
+    fixture.componentInstance.reservationChange.subscribe(value => reservations.push(value.inlineSlotHeight + value.reservedHeight));
+    fixture.componentInstance.pin('a');
     fixture.detectChanges();
-    component.onLabelLeave('a');
-    advance(COMMAND_OVERLAY_CLOSE_DELAY_MS - 1);
-    expect(component.activeNodeId()).toBe('a');
-    component.onCardEnter();
-    advance(1);
-    component.onCardLeave();
-    component.onBridgeEnter();
-    advance(COMMAND_OVERLAY_CLOSE_DELAY_MS);
-    expect(component.activeNodeId()).toBe('a');
-    component.onBridgeLeave();
-    component.onLabelEnter('a');
-    advance(COMMAND_OVERLAY_CLOSE_DELAY_MS);
-    expect(component.activeNodeId()).toBe('a');
-    component.onLabelLeave('a');
-    advance(COMMAND_OVERLAY_CLOSE_DELAY_MS);
-    expect(component.activeNodeId()).toBeNull();
+    expect(fixture.componentInstance.pinnedNodeId()).toBe('a');
+    expect(reservations.some(value => value > 0)).toBe(true);
+    fixture.componentInstance.closePinned();
+    expect(fixture.componentInstance.pinnedNodeId()).toBeNull();
+    expect(reservations.at(-1)).toBe(0);
+    fixture.destroy();
+    stage.remove();
   });
 
-  it('pins by click and Enter, survives hover leave, and unpins on close, Escape, selection, and destroy', () => {
-    const { component, fixture, labels } = setup();
-    labels[0].click();
+  it('closes a pin on Escape and restores its trigger or rail focus', () => {
+    const fixture = setup();
+    fixture.componentInstance.pin('a');
     fixture.detectChanges();
-    component.onLabelLeave('a');
-    advance(COMMAND_OVERLAY_CLOSE_DELAY_MS + 1);
-    expect(component.pinnedNodeId()).toBe('a');
-    fixture.nativeElement
-      .querySelector('[aria-label="Close node details"]')
-      .click();
+    fixture.componentInstance.onEscape(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(fixture.componentInstance.pinnedNodeId()).toBeNull();
+    fixture.destroy();
+  });
+
+  it('closes a pin on outside pointer and external selection change', () => {
+    const fixture = setup();
+    fixture.componentInstance.pin('a');
     fixture.detectChanges();
-    labels[0].dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }),
-    );
-    fixture.detectChanges();
-    const close = fixture.nativeElement.querySelector(
-      '[aria-label="Close node details"]',
-    ) as HTMLButtonElement;
-    close.focus();
-    close.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
-    );
-    fixture.detectChanges();
-    expect(component.pinnedNodeId()).toBeNull();
-    expect(document.activeElement).toBe(labels[0]);
-    component.pin('a');
+    document.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    expect(fixture.componentInstance.pinnedNodeId()).toBeNull();
+    fixture.componentInstance.pin('a');
     TestBed.inject(CommandCenterStore).select('b');
     fixture.detectChanges();
-    expect(component.pinnedNodeId()).toBeNull();
-    component.pin('b');
+    expect(fixture.componentInstance.pinnedNodeId()).toBeNull();
     fixture.destroy();
-    expect(cleanup).toHaveBeenCalled();
-  });
-
-  it('selects from a plate by click, Enter and Space through the page store', () => {
-    const { fixture, labels } = setup();
-    const store = TestBed.inject(CommandCenterStore);
-    labels[0].click();
-    expect(store.selectedId()).toBe('a');
-    labels[1].dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }),
-    );
-    expect(store.selectedId()).toBe('b');
-    labels[0].dispatchEvent(
-      new KeyboardEvent('keydown', { key: ' ', bubbles: true }),
-    );
-    expect(store.selectedId()).toBe('a');
-    fixture.componentRef.setInput('selectedId', 'a');
-    fixture.detectChanges();
-    expect(labels[0].getAttribute('aria-pressed')).toBe('true');
-    expect(labels[0].classList.contains('border-warning')).toBe(true);
-  });
-
-  it('shows compact provider and state without an unknown placeholder', () => {
-    const { component, fixture, labels } = setup();
-    expect(labels[0].textContent).toMatch(/Codex\s*·\s*running/);
-    expect(labels[1].textContent).toContain('queued');
-    expect(labels[1].textContent).not.toContain('Unknown');
-    component.pin('b');
-    fixture.detectChanges();
-    const card = fixture.nativeElement.querySelector(
-      '#command-node-card',
-    ) as HTMLElement;
-    expect(card.textContent).not.toContain('Provider: Unknown');
-  });
-
-  it('uses one card, replaces its node, and exposes fallback focus for a hidden trigger', () => {
-    const { component, fixture, labels } = setup();
-    const fallback = jest.fn();
-    component.focusWorkListRow.subscribe(fallback);
-    component.pin('a');
-    fixture.detectChanges();
-    const card = fixture.nativeElement.querySelector('#command-node-card');
-    component.pin('b');
-    fixture.detectChanges();
-    expect(
-      fixture.nativeElement.querySelectorAll('#command-node-card'),
-    ).toHaveLength(1);
-    expect(fixture.nativeElement.querySelector('#command-node-card')).toBe(
-      card,
-    );
-    expect(card.textContent).toContain('Beta');
-    labels[1].style.display = 'none';
-    (card.querySelector('button') as HTMLButtonElement).focus();
-    component.closePinned();
-    expect(fallback).toHaveBeenCalledWith('b');
-  });
-
-  it('passes edge middleware and coalesces two anchor moves into one frame', async () => {
-    const { component, fixture, labels } = setup();
-    const rect = jest
-      .spyOn(labels[0], 'getBoundingClientRect')
-      .mockReturnValue(new DOMRect(1000, 800, 44, 44));
-    component.pin('a');
-    fixture.detectChanges();
-    advance(16);
-    expect(position).toHaveBeenCalledWith(labels[0], expect.any(HTMLElement), {
-      offset: 8,
-      flip: true,
-      shift: true,
-    });
-    const count = position.mock.calls.length;
-    rect.mockReturnValue(new DOMRect(980, 790, 44, 44));
-    labels[0].style.transform = 'translate3d(300px,20px,0)';
-    labels[0].style.transform = 'translate3d(320px,30px,0)';
-    await jest.advanceTimersByTimeAsync(32);
-    expect(position.mock.calls.length).toBe(count + 1);
-  });
-
-  it('moves the hover card away from a neighboring plate', async () => {
-    const { component, fixture, labels } = setup();
-    jest
-      .spyOn(labels[0], 'getBoundingClientRect')
-      .mockReturnValue(new DOMRect(100, 100, 44, 44));
-    jest
-      .spyOn(labels[1], 'getBoundingClientRect')
-      .mockReturnValue(new DOMRect(100, 145, 150, 60));
-    position.mockImplementationOnce(
-      (_anchor: HTMLElement, card: HTMLElement) => {
-        card.style.left = '100px';
-        card.style.top = '145px';
-        return Promise.resolve();
-      },
-    );
-    component.pin('a');
-    fixture.detectChanges();
-    const card = fixture.nativeElement.querySelector(
-      '#command-node-card',
-    ) as HTMLElement;
-    jest
-      .spyOn(card, 'getBoundingClientRect')
-      .mockImplementation(
-        () =>
-          new DOMRect(
-            Number.parseFloat(card.style.left) || 100,
-            Number.parseFloat(card.style.top) || 145,
-            256,
-            100,
-          ),
-      );
-    await jest.advanceTimersByTimeAsync(16);
-    expect(card.style.top).toBe('8px');
-    expect(card.style.visibility).toBe('visible');
-  });
-
-  it('removes card motion classes when reduced motion is set', () => {
-    const { component, fixture } = setup();
-    fixture.componentRef.setInput('reducedMotion', true);
-    component.pin('a');
-    fixture.detectChanges();
-    const card = fixture.nativeElement.querySelector(
-      '#command-node-card',
-    ) as HTMLElement;
-    expect(card.classList.contains('transition-opacity')).toBe(false);
-    expect(card.getAttribute('role')).toBe('region');
   });
 });

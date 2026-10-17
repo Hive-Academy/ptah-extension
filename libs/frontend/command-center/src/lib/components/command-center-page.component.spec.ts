@@ -14,6 +14,8 @@ import { CommandSessionControlsComponent } from './command-session-controls.comp
 import { CommandWorkListComponent } from './command-work-list.component';
 import { CommandCenterPageComponent } from './command-center-page.component';
 import { CommandCenterPageController } from './command-center-page.controller';
+import type { SceneGeometry } from '../scene/connector-geometry';
+import type { PlateReservation } from './command-overlay-placement';
 
 @Component({ selector: 'ptah-command-scene', standalone: true, template: '' })
 class SceneStubComponent {
@@ -23,9 +25,17 @@ class SceneStubComponent {
   public readonly voiceState = input('idle');
   public readonly inputLevel = input(0);
   public readonly outputLevel = input(0);
+  public readonly reducedMotion = input(false);
+  public readonly activeId = input<string | null>(null);
+  public readonly pinnedId = input<string | null>(null);
+  public readonly plateReservation = input<PlateReservation>({ pinnedId: null, anchorKind: null, inlineSlotHeight: 0, reservedHeight: 0 });
   public readonly selection = output<string>();
   public readonly hoveredNodeId = output<string | null>();
-  public readonly canvasUnavailable = output<boolean>();
+  public readonly activate = output<string>();
+  public readonly escape = output<string>();
+  public readonly focusWorkList = output<string>();
+  public readonly geometryChange = output<SceneGeometry | null>();
+  public requestMeasure(): void { this.geometryChange.emit(null); }
 }
 
 describe('CommandCenterPageComponent', () => {
@@ -418,16 +428,12 @@ describe('CommandCenterPageComponent', () => {
     fixture.destroy();
   });
 
-  it('keeps the work list and text controls in list-only mode', () => {
+  it('keeps the DOM scene, work list and text controls together', () => {
     const fixture = TestBed.createComponent(CommandCenterPageComponent);
-    fixture.detectChanges();
-    const scene = fixture.debugElement.query(By.directive(SceneStubComponent))
-      .componentInstance as SceneStubComponent;
-    scene.canvasUnavailable.emit(true);
     fixture.detectChanges();
     expect(
       fixture.debugElement.query(By.directive(SceneStubComponent)),
-    ).toBeNull();
+    ).not.toBeNull();
     expect(
       fixture.debugElement.query(By.directive(CommandWorkListComponent)),
     ).not.toBeNull();

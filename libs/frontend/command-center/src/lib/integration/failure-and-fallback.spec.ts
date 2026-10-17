@@ -247,12 +247,12 @@ describe('Command Center failure and fallback integration', () => {
     fixture.destroy();
   });
 
-  it('keeps the text controls and list when canvas is unavailable', async () => {
+  it('keeps the DOM scene, text controls and list available', async () => {
     const { fixture } = createHarness();
     const page = fixture.componentInstance.page;
     await page.open();
-    page.canvasUnavailable.set(true);
     fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[data-scene-stage]')).not.toBeNull();
     expect(
       fixture.nativeElement.querySelector('ptah-command-work-list'),
     ).not.toBeNull();

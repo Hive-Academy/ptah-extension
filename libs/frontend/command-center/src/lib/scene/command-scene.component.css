@@ -1,0 +1,9 @@
+:host { display: block; min-width: 0; height: 100%; container: stage / inline-size; }
+.scene-stage { position: relative; display: grid; grid-template-columns: minmax(0, 270fr) minmax(0, 470fr) minmax(0, 252fr); align-items: start; gap: 12px; box-sizing: border-box; min-width: 0; min-height: 100%; padding: 48px 20px 24px; }
+.scene-heading { position: absolute; top: 16px; left: 20px; z-index: 2; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+ptah-command-connectors { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+ptah-command-streams, .core-column, ptah-command-status-groups { position: relative; z-index: 1; min-width: 0; }
+.core-column { display: flex; flex-direction: column; align-items: center; }
+.root-plate-slot { width: min(256px, 100%); }
+@container stage (max-width: 959px) { .scene-stage { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding-inline: 16px; } ptah-command-status-groups { grid-column: 1 / -1; } }
+@container stage (max-width: 679px) { .scene-stage { grid-template-columns: minmax(0, 1fr); } ptah-command-streams { width: calc(100% - 24px); margin-inline: 12px; } ptah-command-status-groups { grid-column: 1; } }

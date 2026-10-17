@@ -4,11 +4,11 @@ import { createHarness } from './integration-harness.testing';
 describe('Command Center accessible page integration', () => {
   afterEach(() => TestBed.resetTestingModule());
 
-  it('shows a canvas and a text work list with usable voice and text controls', async () => {
+  it('shows a DOM scene and a text work list with usable voice and text controls', async () => {
     const { fixture } = createHarness();
     await fixture.componentInstance.page.open();
     fixture.detectChanges();
-    expect(fixture.nativeElement.querySelector('canvas')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('[data-scene-stage]')).not.toBeNull();
     expect(
       fixture.nativeElement.querySelector('ptah-command-work-list'),
     ).not.toBeNull();
