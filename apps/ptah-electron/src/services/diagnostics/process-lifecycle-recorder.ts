@@ -219,16 +219,22 @@ export class ProcessLifecycleRecorder {
     }
     this.consoleLinesInWindow += 1;
 
+    const context = {
+      windowId,
+      message: boundedConsoleLine(
+        firstLine(details.message.slice(0, CONSOLE_SCAN_CHARS)),
+      ),
+      source: `${boundedConsoleLine(details.sourceId)}:${details.lineNumber}`,
+    };
+    // Logger.error treats its second argument as structured context, unlike
+    // Logger.warn, which inlines it. Keep the bounded text on the main log line.
+    const label = `[renderer] console.${details.level}`;
     this.log(
       details.level === 'error' ? 'error' : 'warn',
-      `[renderer] console.${details.level}`,
-      {
-        windowId,
-        message: boundedConsoleLine(
-          firstLine(details.message.slice(0, CONSOLE_SCAN_CHARS)),
-        ),
-        source: `${boundedConsoleLine(details.sourceId)}:${details.lineNumber}`,
-      },
+      details.level === 'error'
+        ? `${label}: ${JSON.stringify(context)}`
+        : label,
+      context,
     );
   }
 

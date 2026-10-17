@@ -196,11 +196,14 @@ describe('ProcessLifecycleRecorder', () => {
       source: 'app://main.js:7',
     });
     expect(logger.error).toHaveBeenCalledTimes(1);
-    expect(logger.error).toHaveBeenCalledWith('[renderer] console.error', {
-      windowId: 2,
-      message: 'e',
-      source: 'app://main.js:7',
-    });
+    expect(logger.error).toHaveBeenCalledWith(
+      '[renderer] console.error: {"windowId":2,"message":"e","source":"app://main.js:7"}',
+      {
+        windowId: 2,
+        message: 'e',
+        source: 'app://main.js:7',
+      },
+    );
     // Console lines are not lifecycle events and do not touch the hang log.
     expect(readHangLog(logsDir)).toEqual([]);
   });
@@ -212,7 +215,10 @@ describe('ProcessLifecycleRecorder', () => {
 
     const total = CONSOLE_LINES_PER_WINDOW + 13;
     for (let i = 0; i < total; i++) {
-      window.webContents.emit('console-message', consoleMessage('error', `${i}`));
+      window.webContents.emit(
+        'console-message',
+        consoleMessage('error', `${i}`),
+      );
     }
     expect(logger.error).toHaveBeenCalledTimes(CONSOLE_LINES_PER_WINDOW);
     expect(logger.warn).not.toHaveBeenCalled();
@@ -251,6 +257,11 @@ describe('ProcessLifecycleRecorder', () => {
       message: 'OAuth callback failed for ?code=[REDACTED]',
       source: 'app://main.js:7',
     });
+    expect(logger.error.mock.calls[0][0]).toBe(
+      '[renderer] console.error: {"windowId":1,"message":"OAuth callback failed for ?code=[REDACTED]","source":"app://main.js:7"}',
+    );
+    expect(logger.error.mock.calls[0][0]).not.toContain('abc123');
+    expect(logger.error.mock.calls[0][0]).not.toContain('k-1');
   });
 
   it('keeps an empty first line empty instead of logging a later line', () => {
@@ -491,7 +502,10 @@ describe('redactSecrets', () => {
       'header Authorization: Bearer eyJ.p.s',
       'header Authorization: [REDACTED]',
     ],
-    ['body {"apiKey":"k-1","name":"x"}', 'body {"apiKey":"[REDACTED]","name":"x"}'],
+    [
+      'body {"apiKey":"k-1","name":"x"}',
+      'body {"apiKey":"[REDACTED]","name":"x"}',
+    ],
     ['body {"access_token":"t-1"}', 'body {"access_token":"[REDACTED]"}'],
     [
       'req {"authorization":"AWS4-HMAC-SHA256 Credential=AK/x"}',
@@ -513,7 +527,8 @@ describe('redactSecrets', () => {
   });
 
   it('leaves ordinary error text unchanged', () => {
-    const text = 'TypeError: Cannot read properties of undefined (reading "id")';
+    const text =
+      'TypeError: Cannot read properties of undefined (reading "id")';
     expect(redactSecrets(text)).toBe(text);
   });
 
