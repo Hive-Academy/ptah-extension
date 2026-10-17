@@ -185,6 +185,23 @@ describe('CanvasLaneViewComponent', () => {
     expect(toggleAgentExpanded).not.toHaveBeenCalledWith('b');
   });
 
+  it('keeps the lane subtree for unrelated input changes and replaces it on lane switch', () => {
+    const fixture = TestBed.createComponent(CanvasLaneViewComponent);
+    fixture.componentRef.setInput('tabId', 'tab');
+    fixture.componentRef.setInput('laneKey', 'orchestrator');
+    fixture.detectChanges();
+    const lane = fixture.nativeElement.querySelector('.rail-lane-enter');
+    expect(lane).not.toBeNull();
+
+    fixture.componentRef.setInput('paneFocused', false);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.rail-lane-enter')).toBe(lane);
+
+    fixture.componentRef.setInput('laneKey', 'cli:a');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.rail-lane-enter')).not.toBe(lane);
+  });
+
   it('does not reopen a CLI lane after its user collapses it', () => {
     const agent = {
       agentId: 'a',

@@ -65,7 +65,7 @@ import { CanvasDetailService } from './canvas-detail.service';
       <div [class.hidden]="selectedKind() !== 'orchestrator'" class="h-full">
         <ptah-canvas-detail-transcript [tabId]="tabId()" [visible]="selectedKind() === 'orchestrator'" [paneFocused]="paneFocused()" [splitDisplayed]="splitDisplayed()" />
       </div>
-      @for (key of [tabId() + ':' + laneKey()]; track key) {
+      @for (block of laneBlocks(); track block.key) {
         <div class="rail-lane-enter">
         @switch (selectedKind()) {
           @case ('cli') {
@@ -186,6 +186,7 @@ export class CanvasLaneViewComponent {
   readonly panelId = input('canvas-lane-panel');
   readonly sessionId = input<string | null>(null);
   readonly laneKey = input('orchestrator');
+  readonly laneBlocks = computed(() => [{ key: this.tabId() + ':' + this.laneKey() }]);
   private readonly parsed = computed(() => parseLaneKey(this.laneKey()));
   readonly selectedCli = computed(() =>
     this.parsed()?.kind === 'cli'
