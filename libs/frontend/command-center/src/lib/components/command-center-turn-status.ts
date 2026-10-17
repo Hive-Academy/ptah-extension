@@ -1,4 +1,11 @@
-import { computed, effect, untracked, type Signal } from '@angular/core';
+import {
+  computed,
+  DestroyRef,
+  effect,
+  inject,
+  untracked,
+  type Signal,
+} from '@angular/core';
 import type { TabManagerService } from '@ptah-extension/chat-state';
 import type {
   CommandCenterStore,
@@ -33,11 +40,33 @@ export function trackMarkedTabVisibility(
   tabs: TabManagerService,
   store: CommandCenterStore,
 ): void {
-  effect((onCleanup) => {
+  const registered = new Map<string, number>();
+  inject(DestroyRef).onDestroy(() => {
+    for (const tabId of registered.keys()) tabs.unregisterVisibleTab(tabId);
+    registered.clear();
+  });
+  effect(() => {
     const tabId = store.markedTabId();
-    if (!tabId) return;
-    untracked(() => tabs.registerVisibleTab(tabId));
-    onCleanup(() => tabs.unregisterVisibleTab(tabId));
+    tabs.tabs();
+    const pulses = tabs.lastTerminalPulseByTab();
+    for (const [previous, initialPulseSeq] of registered) {
+      if (previous === tabId) continue;
+      const status = tabs.findTabByIdAcrossWorkspaces(previous)?.tab.status;
+      const settled = (pulses.get(previous)?.seq ?? 0) > initialPulseSeq;
+      if (
+        !settled &&
+        (status === 'streaming' ||
+          status === 'resuming' ||
+          status === 'switching')
+      )
+        continue;
+      untracked(() => tabs.unregisterVisibleTab(previous));
+      registered.delete(previous);
+    }
+    if (tabId && !registered.has(tabId)) {
+      untracked(() => tabs.registerVisibleTab(tabId));
+      registered.set(tabId, pulses.get(tabId)?.seq ?? 0);
+    }
   });
 }
 
@@ -51,19 +80,21 @@ export function trackTurnStatus(
   store: CommandCenterStore,
   turnAbortable: Signal<boolean>,
 ): void {
-  let statusPulseSeq = 0;
+  let statusPulseSeq = untracked(
+    () =>
+      tabs.lastTerminalPulseByTab().get(store.markedTabId() ?? '')?.seq ?? 0,
+  );
   let previousTurnAbortable = false;
   effect(() => {
     const tabId = store.markedTabId();
     const pulse = tabId ? tabs.lastTerminalPulseByTab().get(tabId) : undefined;
     if (!pulse || pulse.seq <= statusPulseSeq) return;
-    statusPulseSeq = pulse.seq;
-    const root = tabs.tabs().find((tab) => tab.id === tabId);
+    const root = tabId ? tabs.findTabByIdAcrossWorkspaces(tabId)?.tab : null;
     if (
       !turnAbortable() &&
       root?.status !== 'awaiting-background' &&
       root?.status !== 'sleeping' &&
-      store.sessionStatus() === 'running'
+      (store.sessionStatus() === 'running' || pulse.classification === 'error')
     ) {
       store.setSessionStatus(
         pulse.classification === 'success' ? 'idle' : 'error',
@@ -74,6 +105,12 @@ export function trackTurnStatus(
           tone: 'error',
         });
     }
+    if (
+      !turnAbortable() &&
+      root?.status !== 'awaiting-background' &&
+      root?.status !== 'sleeping'
+    )
+      statusPulseSeq = pulse.seq;
   });
   effect(() => {
     const streaming = turnAbortable();

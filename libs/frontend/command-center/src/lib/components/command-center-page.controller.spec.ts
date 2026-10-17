@@ -146,6 +146,10 @@ describe('CommandCenterPageController', () => {
             },
             terminalTurnPulses,
             lastTerminalPulseByTab,
+            findTabByIdAcrossWorkspaces: (id: string) => {
+              const tab = tabs().find((candidate) => candidate.id === id);
+              return tab ? { tab, workspacePath: activeWorkspacePath() } : null;
+            },
             visibleTabIds,
             registerVisibleTab,
             unregisterVisibleTab,
@@ -1349,7 +1353,7 @@ describe('CommandCenterPageController', () => {
     expect(transport.answer).toHaveBeenCalledTimes(2);
     expect(page.store.toast()?.message).toContain('It was declined');
     expect(page.undeclinedInvalidQuestionId()).toBeNull();
-    expect(page['invalidRosterQuestionIds'].has(request.id)).toBe(true);
+    expect(page.ordinaryQuestion()).toBeNull();
     expect(await page.sendCommand('status')).toBe(true);
   });
 
@@ -1375,7 +1379,7 @@ describe('CommandCenterPageController', () => {
     expect(page.undeclinedInvalidQuestionId()).toBe('q-deviating');
     await page.exit();
     expect(page.undeclinedInvalidQuestionId()).toBeNull();
-    expect(page['invalidDeclineTimer']).toBeNull();
+    expect(page.pendingProposal()).toBeNull();
   });
 
   it('keeps approval shown when a roster arrives and shows roster after permission resolves', async () => {
@@ -1398,7 +1402,6 @@ describe('CommandCenterPageController', () => {
         coordinator.send.mock.calls.at(-1)?.[0] ?? '',
       )?.[1] ?? '';
     offer(roster(nonce));
-    expect(page['rosterTimeout']).toBeNull();
     expect(page.voice['pendingRoster']).toBe(false);
     expect(page.store.pendingInput()).toMatchObject({
       id: 'permission-1',
@@ -1408,7 +1411,6 @@ describe('CommandCenterPageController', () => {
     expect(page.answerPermission('permission-1', 'Approve')).toBe(true);
     permissionRequests.set([]);
     TestBed.tick();
-    expect(page['rosterTimeout']).not.toBeNull();
     expect(page.voice['pendingRoster']).toBe(true);
     expect(page.store.pendingInput()).toMatchObject({
       id: 'q-roster',

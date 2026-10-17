@@ -14,9 +14,10 @@ Minor items are recorded only. Out of scope: D58 artwork icon (separate PR), zoo
 
 - Worktree: `D:/projects/ptah-extension/.claude-worktrees/command-center-open-issues`
 - Branch: `fix/command-center-open-issues`, STACKED on `fix/command-center-review` (PR #741, head `d5d3db286`).
-  NOT pushed yet; no PR yet. When PR #741 merges, rebase/retarget onto `main` (or open the PR with base
+  PUSHED at `3190d44a6` (docs only: plan, reviews, lane reports, this handoff); no PR yet. This handoff line was
+  edited after that push and is uncommitted, together with the Wave 1 code. When PR #741 merges, rebase/retarget onto `main` (or open the PR with base
   `fix/command-center-review` and retarget after #741 merges).
-- Commits on this branch so far (local only): `ce439c2cc` docs(task-specs): plan (687).
+- Commits on this branch (pushed): `ce439c2cc` docs(task-specs): plan (687); `3190d44a6` docs(task-specs): handoff.
 - `node_modules` is a junction to the main checkout. Husky hooks active; read `.commitlintrc.json` (scopes used:
   command-center, chat-state, chat, harness-builder, task-specs; `notification-center` - check the enum).
 - Codex lanes running under PowerShell have written UTF-8 BOMs before: strip BOMs from every changed file before
@@ -115,7 +116,7 @@ Blocking or Serious items that cannot be fixed in one round.
     `command-center-roster.provider.ts` + spec; controller spec updated. B1 saw diagnostics errors in "sibling
     integration specs" (likely `libs/frontend/command-center/src/lib/integration/*.spec.ts` still reading moved
     controller internals) - check with the typecheck in step 2 and fix (resume B1 with its session id).
-  - B2 (`reports/b2-report.md`): voice loop, turn-status (+ new spec), send-lock isolation, new chat-state
+  - B2 (`reports/b2-report.md`, CLI session `01a146ee-5c77-7f02-8652-5605f1a8c6e2`): voice loop, turn-status (+ new spec), send-lock isolation, new chat-state
     `command-center-voice-session.service.ts` (+ spec, exported from chat-state index), message-dispatch interleaving
     spec, notification-ledger sound gating (+ `notification-center.store.spec.ts`). B3 must consume
     `onVoiceSend(token, minPulseSeq?)`, pass abandon outcomes, and call `CommandCenterVoiceSessionService.activate/

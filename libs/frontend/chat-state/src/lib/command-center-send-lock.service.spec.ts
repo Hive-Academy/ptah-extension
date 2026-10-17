@@ -106,4 +106,23 @@ describe('CommandCenterSendLockService', () => {
 
     expect(listener).not.toHaveBeenCalled();
   });
+
+  it('clears state and notifies later listeners when an earlier listener throws', () => {
+    const warn = jest
+      .spyOn(console, 'warn')
+      .mockImplementation(() => undefined);
+    const lock = new CommandCenterSendLockService();
+    const later = jest.fn();
+    lock.onRelease(() => {
+      expect(lock.state()).toBeNull();
+      throw new Error('listener failure');
+    });
+    lock.onRelease(later);
+    lock.engage('root', 'sdk', 'voice');
+
+    expect(() => lock.release('voice')).not.toThrow();
+    expect(later).toHaveBeenCalledWith('root');
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
 });

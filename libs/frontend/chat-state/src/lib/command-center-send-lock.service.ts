@@ -64,6 +64,13 @@ export class CommandCenterSendLockService {
   }
 
   private notifyRelease(rootTabId: string): void {
-    for (const listener of this.releaseListeners) listener(rootTabId);
+    // Each listener is isolated so one failure cannot skip a later queue flush.
+    for (const listener of Array.from(this.releaseListeners)) {
+      try {
+        listener(rootTabId);
+      } catch (error) {
+        console.warn('[CommandCenterSendLock] Release listener failed:', error);
+      }
+    }
   }
 }

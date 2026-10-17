@@ -398,7 +398,7 @@ describe('CommandVoiceLoop', () => {
     loop['busy'] = true;
     loop['turnGeneration'] = loop['generation'];
     loop.armTypedTurn();
-    expect(loop['queuedTypedTurns']).toBe(1);
+    expect(loop['queuedTypedTurns']).toHaveLength(1);
     expect(armed).toEqual([]);
     loop['awaitingBoundary'] = true;
     loop['awaitingTurnToken'] = 1;
@@ -410,6 +410,70 @@ describe('CommandVoiceLoop', () => {
     expect(loop['lastReply']).toBe('Typed reply');
   });
 
+  it('keeps each queued typed turn pre-send sequence in FIFO order', () => {
+    const { loop } = frameLoop();
+    const armed = jest.fn();
+    Object.assign(loop['options'], { onVoiceSend: armed });
+    loop['speak'] = jest.fn();
+    loop['busy'] = true;
+    loop.armTypedTurn(5);
+    loop.armTypedTurn(9);
+    loop['awaitingBoundary'] = true;
+    loop['turnGeneration'] = loop['generation'];
+    loop['awaitingTurnToken'] = 1;
+    loop['nextVoiceTurnToken'] = 1;
+
+    loop.onTurnBoundary('Voice reply', 1);
+    loop.onTurnBoundary('First typed reply', 2);
+    loop.onTurnBoundary('Second typed reply', 3);
+
+    expect(armed.mock.calls).toEqual([
+      [2, 5],
+      [3, 9],
+    ]);
+    expect(loop['lastReply']).toBe('Second typed reply');
+  });
+
+  it('holds a clip behind an already armed typed turn', async () => {
+    const { loop } = frameLoop();
+    loop['speak'] = jest.fn();
+    loop.armTypedTurn(4);
+    await loop['onClip']({ audioBase64: 'AA==', mimeType: 'audio/wav' });
+    expect(loop['queuedClip']).not.toBeNull();
+    expect(loop['busy']).toBe(false);
+    loop['onClip'] = jest.fn();
+    loop.onTurnBoundary('Typed reply', 1);
+    expect(loop['onClip']).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives one retry cue for failure or timeout and no cue for abort', () => {
+    const { loop } = frameLoop();
+    const speak = jest.fn();
+    loop['speak'] = speak;
+    loop.armTypedTurn();
+    loop.abandonTurn(1, 'failed');
+    loop.abandonTurn(1, 'failed');
+    expect(speak).toHaveBeenCalledTimes(1);
+    loop.armTypedTurn();
+    loop.abandonTurn(2, 'aborted');
+    expect(speak).toHaveBeenCalledTimes(1);
+    loop.armTypedTurn();
+    loop.abandonTurn(3, 'timed-out');
+    expect(speak).toHaveBeenCalledTimes(2);
+  });
+
+  it('cues a successful reply with no speakable text', () => {
+    const { loop } = frameLoop();
+    const speak = jest.fn();
+    loop['speak'] = speak;
+    loop.armTypedTurn();
+    loop.onTurnBoundary('', 1);
+    expect(speak).toHaveBeenCalledWith(
+      'The turn finished without a spoken reply.',
+      'status',
+    );
+  });
+
   it('clears a queued typed turn on mute and does not arm it on restart', async () => {
     const { loop } = frameLoop();
     Object.assign(loop['coordinator'], { mute: jest.fn() });
@@ -419,7 +483,7 @@ describe('CommandVoiceLoop', () => {
     loop['busy'] = true;
     loop.armTypedTurn();
     await loop.mute();
-    expect(loop['queuedTypedTurns']).toBe(0);
+    expect(loop['queuedTypedTurns']).toHaveLength(0);
     loop['active'] = true;
     loop['muted'] = false;
     loop['finishTurn']();
@@ -629,6 +693,72 @@ describe('CommandVoiceLoop', () => {
       message: 'Voice capture could not start.',
     });
     expect(stopTrack).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries capture after an unavailable microphone and clears the error', async () => {
+    const originalNode = globalThis.AudioWorkletNode;
+    const store = new CommandCenterStore();
+    const context = Object.assign(Object.create(null) as AudioContext, {
+      audioWorklet: { addModule: jest.fn().mockResolvedValue(undefined) },
+      createMediaStreamSource: () => ({
+        connect: jest.fn(),
+        disconnect: jest.fn(),
+      }),
+      destination: {},
+      close: jest.fn().mockResolvedValue(undefined),
+    });
+    const stream = Object.assign(Object.create(null) as MediaStream, {
+      getTracks: () => [],
+    });
+    const getUserMedia = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('device unavailable'))
+      .mockResolvedValue(stream);
+    Object.defineProperty(globalThis, 'AudioWorkletNode', {
+      configurable: true,
+      value: jest.fn(() => ({
+        port: { onmessage: null, close: jest.fn() },
+        connect: jest.fn(),
+        disconnect: jest.fn(),
+      })),
+    });
+    const loop = new CommandVoiceLoop(
+      store,
+      Object.assign(Object.create(null) as CommandCenterSessionCoordinator, {
+        startVoice: jest.fn(),
+      }),
+      Object.assign(Object.create(null) as ClaudeRpcService, {
+        call: jest.fn().mockResolvedValue({
+          success: true,
+          data: {
+            ok: true,
+            config: {
+              sttProvider: 'local',
+              ttsProvider: 'local',
+              local: { sttDownloaded: true, ttsDownloaded: true },
+              elevenlabs: { apiKeyConfigured: false },
+            },
+          },
+        }),
+      }),
+      {
+        captureFactories: { getUserMedia, audioContext: () => context },
+        sendTranscript: async () => true,
+      },
+    );
+    try {
+      await expect(loop.start()).resolves.toBe(false);
+      expect(store.voiceError()?.kind).toBe('mic-unavailable');
+      await expect(loop.start()).resolves.toBe(true);
+      expect(store.voiceError()).toBeNull();
+      expect(getUserMedia).toHaveBeenCalledTimes(2);
+    } finally {
+      await loop.exit();
+      Object.defineProperty(globalThis, 'AudioWorkletNode', {
+        configurable: true,
+        value: originalNode,
+      });
+    }
   });
 
   it('does not turn a pending approval into a voice answer', () => {

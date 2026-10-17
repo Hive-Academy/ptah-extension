@@ -12,6 +12,7 @@ jest.mock('ngx-markdown', () => {
 });
 import { TestBed } from '@angular/core/testing';
 import {
+  CommandCenterVoiceSessionService,
   TabManagerService,
   type TerminalTurnPulse,
 } from '@ptah-extension/chat-state';
@@ -292,6 +293,30 @@ describe('NotificationCenterStore', () => {
     expect(store.completionEntries()).toHaveLength(12);
     jest.advanceTimersByTime(350);
     expect(store.announcement()).toBe('12 sessions finished');
+    expect(playBurst).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps voice completion and announcement silent even if voice stops before the burst expires', () => {
+    const sessions = TestBed.inject(CommandCenterVoiceSessionService);
+    sessions.activate('tab-1');
+    emit(1);
+    sessions.deactivate('tab-1');
+    jest.advanceTimersByTime(350);
+
+    expect(store.completionEntries()).toHaveLength(1);
+    expect(store.announcement()).toBe('1 session finished');
+    expect(playBurst).not.toHaveBeenCalled();
+  });
+
+  it('sounds a mixed burst only for its ordinary completion', () => {
+    const sessions = TestBed.inject(CommandCenterVoiceSessionService);
+    sessions.activate('tab-1');
+    emit(1);
+    emit(2, { tabId: 'tab-2' });
+    jest.advanceTimersByTime(350);
+
+    expect(store.completionEntries()).toHaveLength(2);
+    expect(store.announcement()).toBe('2 sessions finished');
     expect(playBurst).toHaveBeenCalledTimes(1);
   });
 

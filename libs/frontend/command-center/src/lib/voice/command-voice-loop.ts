@@ -25,7 +25,7 @@ export interface VoiceLoopOptions {
   /** The page resolves an ordinary question using its full prompt and question key. */
   readonly answerOrdinaryQuestion?: (transcript: string) => boolean;
   /** Identifies the voice send so a page can correlate its terminal event. */
-  readonly onVoiceSend?: (turnToken: number) => void;
+  readonly onVoiceSend?: (turnToken: number, minPulseSeq?: number) => void;
   readonly onTurnsAbandoned?: () => void;
   /** Optional echo rejection override; browser AEC plus playback-mode VAD handles the default. */
   readonly isIndependentSpeech?: (samples: Float32Array) => boolean;
@@ -59,13 +59,14 @@ export class CommandVoiceLoop {
   private currentReplyOrigin: ReplyOrigin | null = null;
   private readonly playbackMarks: PlaybackMark[] = [];
   private readonly synthesisIds: number[] = [];
+  private synthesisFailurePending = false;
   private nextPlaybackId = 0;
   private nextReplyId = 0;
   private turnGeneration: number | null = null;
   private nextVoiceTurnToken = 0;
   private awaitingTurnToken: number | null = null;
   private awaitingBoundary = false;
-  private queuedTypedTurns = 0;
+  private readonly queuedTypedTurns: (number | undefined)[] = [];
   private sendTail: Promise<void> = Promise.resolve();
   private firstReplyAfterStart = true;
   private bargeInOnset = false;
@@ -102,6 +103,8 @@ export class CommandVoiceLoop {
           return new Blob([bytes], { type: mimeType });
         } catch (error: unknown) {
           if (id !== undefined) this.removePlaybackMark(id);
+          this.synthesisFailurePending = true;
+          this.reportSpeechFailure('tts');
           throw error;
         }
       },
@@ -134,13 +137,13 @@ export class CommandVoiceLoop {
           onEnded: (callback, onError) => handle.onEnded(callback, onError),
         };
       },
-      () =>
-        this.store.setToast({
-          message:
-            'Speech playback failed. Text is still available; retry voice when ready.',
-          tone: 'error',
-          action: 'retry-speech',
-        }),
+      () => {
+        if (this.synthesisFailurePending) {
+          this.synthesisFailurePending = false;
+          return;
+        }
+        this.reportSpeechFailure('playback');
+      },
       (playing) => {
         if (!this.active || this.muted) return;
         if (playing) {
@@ -162,6 +165,15 @@ export class CommandVoiceLoop {
 
   private now(): number {
     return this.options.now?.() ?? performance.now();
+  }
+
+  private reportSpeechFailure(kind: 'tts' | 'playback'): void {
+    const message =
+      kind === 'tts'
+        ? 'Speech synthesis failed. Text is still available; retry voice when ready.'
+        : 'Speech playback failed. Text is still available; retry voice when ready.';
+    this.store.setVoiceError?.({ kind, message });
+    this.store.setToast({ message, tone: 'error', action: 'retry-speech' });
   }
 
   private removePlaybackMark(id: number): void {
@@ -273,6 +285,7 @@ export class CommandVoiceLoop {
       return false;
     }
     this.capture = capture;
+    this.store.setVoiceError?.(null);
     this.active = true;
     this.muted = false;
     this.firstReplyAfterStart = true;
@@ -346,7 +359,7 @@ export class CommandVoiceLoop {
     const origin = this.currentUtteranceOrigin;
     this.currentUtteranceOrigin = null;
     this.bargeInCandidateAt = null;
-    if (this.busy) {
+    if (this.busy || this.awaitingBoundary) {
       this.queuedClip ??= { clip, origin };
       return;
     }
@@ -355,12 +368,18 @@ export class CommandVoiceLoop {
     const turnGeneration = this.generation;
     this.turnGeneration = turnGeneration;
     this.awaitingBoundary = false;
+    this.store.setVoiceError?.(null);
+    let requestStage: 'stt' | 'chat' = 'stt';
     try {
       const result = await this.rpc.call('voice:transcribe', clip, {
         timeout: 30_000,
       });
       if (turnGeneration !== this.generation) return;
       if (!result.success || !result.data?.ok) {
+        this.store.setVoiceError?.({
+          kind: 'stt',
+          message: 'Transcription failed. Please try again or use text.',
+        });
         this.store.setToast({
           message: 'Transcription failed. Please try again or use text.',
           tone: 'error',
@@ -412,19 +431,35 @@ export class CommandVoiceLoop {
         return;
       }
       try {
+        requestStage = 'chat';
         const sent = await this.options.sendTranscript(transcript);
         if (turnGeneration !== this.generation) return;
         if (sent) {
           this.awaitingBoundary = true;
           this.awaitingTurnToken = ++this.nextVoiceTurnToken;
           this.options.onVoiceSend?.(this.awaitingTurnToken);
-        } else this.finishTurn();
+        } else {
+          const message = 'Voice request failed. Please try again or use text.';
+          this.store.setVoiceError?.({
+            kind: 'chat',
+            message,
+          });
+          this.store.setToast({ message, tone: 'error' });
+          this.finishTurn();
+        }
       } finally {
         releaseSend();
       }
     } catch {
       // degradation-audit: reported — transcription failure is shown as a safe text error and creates no turn
       if (turnGeneration === this.generation) {
+        this.store.setVoiceError?.({
+          kind: requestStage,
+          message:
+            requestStage === 'stt'
+              ? 'Transcription failed. Please try again or use text.'
+              : 'Voice request failed. Please try again or use text.',
+        });
         this.store.setToast({
           message: 'Voice request failed. Please try again or use text.',
           tone: 'error',
@@ -434,20 +469,20 @@ export class CommandVoiceLoop {
     }
   }
 
-  public armTypedTurn(): void {
+  public armTypedTurn(minPulseSeq?: number): void {
     if (!this.active) return;
     if (this.busy || this.awaitingBoundary) {
-      this.queuedTypedTurns++;
+      this.queuedTypedTurns.push(minPulseSeq);
       return;
     }
-    this.beginAwaitingTurn();
+    this.beginAwaitingTurn(minPulseSeq);
   }
 
-  private beginAwaitingTurn(): void {
+  private beginAwaitingTurn(minPulseSeq?: number): void {
     this.turnGeneration = this.generation;
     this.awaitingBoundary = true;
     this.awaitingTurnToken = ++this.nextVoiceTurnToken;
-    this.options.onVoiceSend?.(this.awaitingTurnToken);
+    this.options.onVoiceSend?.(this.awaitingTurnToken, minPulseSeq);
   }
 
   /** Called by the page after the assistant stream and its tool calls settle. */
@@ -462,15 +497,28 @@ export class CommandVoiceLoop {
     this.awaitingBoundary = false;
     this.awaitingTurnToken = null;
     this.lastReply = assistantText;
-    this.speak(assistantText, 'reply', this.currentReplyOrigin);
+    if (toSpokenText(assistantText, 'reply'))
+      this.speak(assistantText, 'reply', this.currentReplyOrigin);
+    else this.speak('The turn finished without a spoken reply.', 'status');
     this.currentReplyOrigin = null;
     for (const update of this.narrator.drain()) this.speak(update, 'status');
     this.finishTurn();
   }
 
-  public abandonTurn(turnToken: number): void {
+  public abandonTurn(
+    turnToken: number,
+    outcome?: 'failed' | 'aborted' | 'timed-out',
+  ): void {
     if (turnToken !== this.awaitingTurnToken) return;
     this.awaitingTurnToken = null;
+    if (outcome === 'failed' || outcome === 'timed-out') {
+      const message =
+        outcome === 'timed-out'
+          ? 'The turn stopped responding. Please try again.'
+          : 'The turn could not finish. Please try again.';
+      this.store.setVoiceError?.({ kind: 'chat', message });
+      this.speak(message, 'status');
+    }
     this.finishTurn();
   }
 
@@ -504,7 +552,10 @@ export class CommandVoiceLoop {
   }
 
   public retrySpeech(): void {
-    if (this.lastReply) this.speak(this.lastReply, 'reply');
+    if (this.lastReply) {
+      this.store.setVoiceError?.(null);
+      this.speak(this.lastReply, 'reply');
+    }
   }
 
   private speak(
@@ -531,9 +582,8 @@ export class CommandVoiceLoop {
     this.turnGeneration = null;
     this.awaitingBoundary = false;
     this.currentReplyOrigin = null;
-    if (this.queuedTypedTurns > 0) {
-      this.queuedTypedTurns--;
-      this.beginAwaitingTurn();
+    if (this.queuedTypedTurns.length > 0) {
+      this.beginAwaitingTurn(this.queuedTypedTurns.shift());
       return;
     }
     if (this.queuedClip && this.active && !this.muted) {
@@ -557,17 +607,7 @@ export class CommandVoiceLoop {
     this.options.onTurnsAbandoned?.();
     this.muted = true;
     this.active = false;
-    this.busy = false;
-    this.queuedClip = null;
-    this.playbackMarks.length = 0;
-    this.synthesisIds.length = 0;
-    this.turnGeneration = null;
-    this.awaitingBoundary = false;
-    this.awaitingTurnToken = null;
-    this.queuedTypedTurns = 0;
-    this.currentReplyOrigin = null;
-    this.currentUtteranceOrigin = null;
-    this.bargeInCandidateAt = null;
+    this.resetTurnState();
     this.playback.mute();
     this.playbackEpoch++;
     this.vad.reset();
@@ -592,18 +632,8 @@ export class CommandVoiceLoop {
     this.active = false;
     this.muted = false;
     this.store.setMuted(false);
-    this.busy = false;
-    this.queuedClip = null;
-    this.playbackMarks.length = 0;
-    this.synthesisIds.length = 0;
-    this.turnGeneration = null;
-    this.awaitingBoundary = false;
-    this.awaitingTurnToken = null;
-    this.queuedTypedTurns = 0;
-    this.currentReplyOrigin = null;
-    this.currentUtteranceOrigin = null;
+    this.resetTurnState();
     this.pendingRoster = false;
-    this.bargeInCandidateAt = null;
     this.playback.stopAll();
     this.playbackEpoch++;
     this.vad.reset();
@@ -613,5 +643,19 @@ export class CommandVoiceLoop {
     this.store.setVoiceState('idle');
     this.store.resetLevels();
     await capture?.stop();
+  }
+
+  private resetTurnState(): void {
+    this.busy = false;
+    this.queuedClip = null;
+    this.playbackMarks.length = 0;
+    this.synthesisIds.length = 0;
+    this.turnGeneration = null;
+    this.awaitingBoundary = false;
+    this.awaitingTurnToken = null;
+    this.queuedTypedTurns.length = 0;
+    this.currentReplyOrigin = null;
+    this.currentUtteranceOrigin = null;
+    this.bargeInCandidateAt = null;
   }
 }
