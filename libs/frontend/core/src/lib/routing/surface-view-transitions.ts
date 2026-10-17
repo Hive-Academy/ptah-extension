@@ -24,14 +24,10 @@ export function shouldAnimateSurfaceChange(
 }
 
 function prefersReducedMotion(): boolean {
-  try {
-    return (
-      typeof matchMedia === 'function' &&
-      matchMedia('(prefers-reduced-motion: reduce)').matches
-    );
-  } catch {
-    return false;
-  }
+  return (
+    typeof matchMedia === 'function' &&
+    matchMedia('(prefers-reduced-motion: reduce)').matches
+  );
 }
 
 @Injectable({ providedIn: 'root' })
