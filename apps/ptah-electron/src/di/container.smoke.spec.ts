@@ -67,6 +67,7 @@ import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import {
   AgentRpcHandlers,
   AuthRpcHandlers,
+  DecisionModelCatalogRpcHandlers,
   LanePlanLimitsRpcHandlers,
   SetupRpcHandlers,
   registerSharedRpcHandlers,
@@ -74,6 +75,7 @@ import {
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 
 import {
+  DECISION_MODEL_CATALOG_TOKEN,
   DECISION_MODEL_CONFIG_TOKEN,
   EXPECTED_RESOLVABLE,
   LANE_MODEL_LISTING_TOKEN,
@@ -396,6 +398,22 @@ describe('Electron DI — decision model config (TL-59)', () => {
 
     const handlers = c.resolve(AgentRpcHandlers);
     expect(handlers).toBeInstanceOf(AgentRpcHandlers);
+  });
+
+  it('resolves DECISION_MODEL_CATALOG and DecisionModelCatalogRpcHandlers', () => {
+    const c = buildMinimalContainer();
+    registerAgentHandlerFixtures(c);
+    registerLaneRoutingServices(c, c.resolve<Logger>(TOKENS.LOGGER));
+
+    expect(DECISION_MODEL_CATALOG_TOKEN).toBe(
+      LANE_ROUTING_TOKENS.DECISION_MODEL_CATALOG,
+    );
+    const catalog: unknown = c.resolve(DECISION_MODEL_CATALOG_TOKEN);
+    expect(catalog).toBeDefined();
+    expect(c.resolve(DECISION_MODEL_CATALOG_TOKEN)).toBe(catalog);
+
+    const handlers = c.resolve(DecisionModelCatalogRpcHandlers);
+    expect(handlers).toBeInstanceOf(DecisionModelCatalogRpcHandlers);
   });
 });
 

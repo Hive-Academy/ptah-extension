@@ -1,6 +1,6 @@
 # Batches - TASK_2026_684_a11d
 
-Total tasks: 45 | Batches: 23 (Batch 0 gate + 22 implementation batches) | Complete: 15/23
+Total tasks: 45 | Batches: 23 (Batch 0 gate + 22 implementation batches) | Complete: 16/23
 
 ## Execution precondition (read first)
 
@@ -798,7 +798,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
   `TC(@ptah-extension/rpc-handlers)`; `TC(@ptah-extension/shared)`; `L` for both; then `T(@ptah-extension/rpc-handlers)`.
 - The RPC surface guards (PD-4) and the three DI guards, one at a time; di-lint; degradation-audit.
 
-## Batch 15: VS Code and Electron DI guards (C10 guard part) — PENDING
+## Batch 15: VS Code and Electron DI guards (C10 guard part) — COMPLETE
 
 - Recommended executor: CLI lane, backend-developer profile (non-codex)
 - Execution mode: sequential
@@ -810,12 +810,12 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - Phase: 3 | Phase review: code-logic + style (codex)
 - Criteria: 7 (the catalog handler resolves in VS Code and Electron)
 
-### Task 15.1: VS Code guard — PENDING
+### Task 15.1: VS Code guard — COMPLETE
 
 - Files: MODIFY `W\apps\ptah-extension-vscode\src\di\expected-resolvable.ts` (`DECISION_MODEL_CATALOG_TOKEN`, pattern `:39-47`),
   `W\apps\ptah-extension-vscode\src\di\container.smoke.spec.ts` (resolve assertion)
 
-### Task 15.2: Electron guard — PENDING
+### Task 15.2: Electron guard — COMPLETE
 
 - Files: MODIFY `W\apps\ptah-electron\src\di\expected-resolvable.ts` (pattern `:47-53`), `W\apps\ptah-electron\src\di\container.smoke.spec.ts`
 
