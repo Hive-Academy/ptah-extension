@@ -28,6 +28,8 @@ import {
 // fence pipeline, zod and the declarative renderer) as a lazy chunk. Same
 // contract as `@ptah-extension/chat-ui/change-set-card` in the transcript.
 import { PtahUiMessageTextComponent } from '@ptah-extension/chat-ui/ptah-ui';
+import { PTAH_UI_HOST_SOURCES } from '@ptah-extension/chat-ui';
+import { DisplayDockState } from '../../../services/display-dock/display-dock.state';
 import { MermaidMessageTextComponent } from '@ptah-extension/chat-ui/mermaid';
 import { ToolCallItemComponent } from '../../molecules/tool-execution/tool-call-item.component';
 import { WorkflowCardComponent } from './workflow-card.component';
@@ -195,6 +197,7 @@ function scheduleFrame(cb: () => void): FrameHandle {
                 [active]="surfaceActive()"
                 [snapshot]="host.snapshot ?? null"
                 [finalized]="!isNodeStreaming() && !isFinalizing()"
+                (openInDisplayRequested)="openInDisplay($event)"
               />
             } @placeholder {
               <markdown
@@ -357,9 +360,10 @@ function scheduleFrame(cb: () => void): FrameHandle {
       animate.enter is gated by isFinalizing() to avoid fade waves during
       the finalize burst.
     -->
-        <div [class.exec-fade-in]="!isFinalizing()">
+        <div [class.exec-fade-in]="!isFinalizing()" [class.exec-fill-height]="fillHeight()">
           <ptah-inline-agent-bubble
             [node]="node()"
+            [fillHeight]="fillHeight()"
             [getPermissionForTool]="getPermissionForTool()"
             [nodeTemplate]="bubbleChildTemplate"
             [isFinalizing]="isFinalizing()"
@@ -416,6 +420,13 @@ function scheduleFrame(cb: () => void): FrameHandle {
         display: block;
       }
 
+      :host(.fill-height), .exec-fill-height {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        min-height: 0;
+      }
+
       .exec-children {
         display: flex;
         flex-direction: column;
@@ -452,11 +463,22 @@ function scheduleFrame(cb: () => void): FrameHandle {
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { '[class.fill-height]': 'fillHeight()' },
 })
 export class ExecutionNodeComponent {
+  private readonly displayDock = inject(DisplayDockState, { optional: true });
+  private readonly displaySources = inject(PTAH_UI_HOST_SOURCES, { optional: true });
+
+  protected openInDisplay(surfaceKey: string): void {
+    const tabId = this.displaySources?.tabId();
+    if (tabId && this.displayDock?.tab(tabId).surfaces.some((surface) => surface.key === surfaceKey)) {
+      this.displayDock.openSurface(tabId, surfaceKey);
+    }
+  }
   readonly node = input.required<ExecutionNode>();
   /** Main-transcript opt-in. Other execution-tree hosts retain inline agents. */
   readonly agentTileMode = input<boolean>(false);
+  readonly fillHeight = input(false);
 
   /** Global streaming state passed from parent */
   readonly isStreaming = input<boolean>(false);

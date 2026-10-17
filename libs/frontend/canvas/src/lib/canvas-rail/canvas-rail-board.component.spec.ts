@@ -17,7 +17,7 @@ import { LucideAngularModule } from 'lucide-angular';
 import { ChatStore, CompactSessionCardComponent, RailTranscriptRetentionCoordinator, SessionInspectorStore, TabManagerService } from '@ptah-extension/chat';
 import { SessionInspectorComponent } from '@ptah-extension/chat/inspector';
 import { PlanLimitsStore, SURFACE_ACTIVE } from '@ptah-extension/core';
-import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import { AgentMonitorStore, BackgroundAgentStore } from '@ptah-extension/chat-streaming';
 import {
   COMPACT_RAIL_CARD_HEIGHT,
   type CompactRailDensity,
@@ -326,6 +326,10 @@ describe('CanvasRailBoardComponent rendering', () => {
     });
     const width = signal(1400);
     const writeFailed = signal(false);
+    const laneKeys = signal<ReadonlyMap<string, string>>(new Map());
+    const agents = signal<{ agentId: string; parentSessionId: string }[]>([]);
+    const subagents = signal(new Map<string, { parentToolUseId: string; parentSessionId: string }>());
+    const backgroundAgents = signal<{ toolCallId: string; sessionId: string }[]>([]);
     const setRailCollapsed = jest.fn((_: string, value: boolean) =>
       board.update((b) => ({ ...b, railCollapsed: value })),
     );
@@ -360,10 +364,13 @@ describe('CanvasRailBoardComponent rendering', () => {
         { provide: CanvasLayoutService, useValue: { containerWidth: width } },
         { provide: CanvasLayoutPersistenceService, useValue: { writeFailed } },
         { provide: PlanLimitsStore, useValue: { snapshot: () => null } },
-        { provide: AgentMonitorStore, useValue: { agentsOwnedBySession: () => [] } },
+        { provide: AgentMonitorStore, useValue: { agentsOwnedBySession: () => [], agents, subagents } },
+        { provide: BackgroundAgentStore, useValue: { agents: backgroundAgents } },
         {
           provide: CanvasDetailService,
-          useValue: realFocus ? { laneKeyFor: () => null, selectLaneFor: jest.fn() } : {},
+          useValue: realFocus
+            ? { laneKeyFor: () => 'orchestrator', selectLaneFor: jest.fn() }
+            : { laneKeyFor: (id: string) => laneKeys().get(id) ?? 'orchestrator' },
         },
         { provide: ChatStore, useValue: {} },
         { provide: SessionInspectorStore, useValue: { modelFor: (id: string) => () => ({ needsYouCount: needsYou()[id] ?? 0 }) } },
@@ -373,7 +380,7 @@ describe('CanvasRailBoardComponent rendering', () => {
           useValue: {
             activeTabId: () => focused(),
             findTabByIdAcrossWorkspaces: (id: string) => ({
-              tab: { title: id },
+              tab: { title: id, claudeSessionId: 'owner' },
             }),
           },
         },
@@ -415,6 +422,10 @@ describe('CanvasRailBoardComponent rendering', () => {
       needsYou,
       board,
       width,
+      laneKeys,
+      agents,
+      subagents,
+      backgroundAgents,
       writeFailed,
       store,
       canStart,
@@ -448,6 +459,38 @@ describe('CanvasRailBoardComponent rendering', () => {
     fixture.componentInstance.openBeside('b');
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelectorAll('[data-testid="canvas-tile"]')).toHaveLength(2);
+  });
+
+  it.each([1600, 760])('%i split clips the orchestrator tile while another lane keeps pane scrolling', (pixels) => {
+    const { fixture, width, laneKeys, agents, backgroundAgents } = mount();
+    width.set(pixels);
+    laneKeys.set(new Map([['b', 'cli:agent']]));
+    agents.set([{ agentId: 'agent', parentSessionId: 'owner' }]);
+    fixture.componentInstance.openBeside('b');
+    fixture.detectChanges();
+
+    const container = fixture.nativeElement.querySelector('[data-testid="rail-pane-container"]');
+    const orchestrator = fixture.nativeElement.querySelector('[data-pane-side="left"]');
+    const cli = fixture.nativeElement.querySelector('[data-pane-side="right"]');
+    expect(container.classList).toContain(pixels === 1600 ? 'overflow-y-hidden' : 'overflow-y-auto');
+    expect(container.classList).toContain(pixels === 1600 ? 'flex-row' : 'flex-col');
+    expect(orchestrator.classList).toContain('overflow-hidden');
+    expect(orchestrator.classList).not.toContain('overflow-y-auto');
+    expect(orchestrator.classList).toContain(pixels === 1600 ? 'min-h-0' : 'min-h-[240px]');
+    expect(cli.classList).toContain('overflow-y-auto');
+    expect(cli.classList).not.toContain('overflow-hidden');
+    expect(orchestrator.querySelector('ptah-canvas-focus-area')?.classList).toContain('min-h-0');
+
+    laneKeys.set(new Map([['a', 'bg:agent']]));
+    backgroundAgents.set([{ toolCallId: 'agent', sessionId: 'owner' }]);
+    fixture.detectChanges();
+    expect(orchestrator.classList).toContain('overflow-y-auto');
+    expect(cli.classList).toContain('overflow-hidden');
+
+    backgroundAgents.set([]);
+    fixture.detectChanges();
+    expect(orchestrator.classList).toContain('overflow-hidden');
+    expect(orchestrator.classList).not.toContain('overflow-y-auto');
   });
 
   it('binds the pane entrance only when a split is displayed', () => {
@@ -1054,18 +1097,26 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(fixture.componentInstance.announcement()).toBe('Sessions side by side.');
   });
 
-  it.each([1280, 920])('%i stacked keeps two live hosts with 400 px wrappers and vertical scroll', (pixels) => {
+  it.each([1280, 920])('%i stacked gives each pane a floor and scrolls the container when needed', (pixels) => {
     const { fixture, width } = mount();
     fixture.componentInstance.openBeside('b');
     width.set(pixels);
     fixture.detectChanges();
     const container = fixture.nativeElement.querySelector('[data-testid="rail-pane-container"]');
     expect(container.classList.contains('flex-col')).toBe(true);
+    expect(container.classList).toContain('min-h-0');
+    expect(container.classList).toContain('overflow-x-auto');
+    expect(container.classList).toContain('overflow-y-auto');
+    expect(container.classList).not.toContain('overflow-y-hidden');
     const panes = fixture.nativeElement.querySelectorAll('[data-pane-side]');
     expect(panes).toHaveLength(2);
     for (const pane of panes) {
-      expect(pane.classList.contains('min-h-[400px]')).toBe(true);
-      expect(pane.classList.contains('overflow-y-auto')).toBe(true);
+      expect(pane.classList).not.toContain('min-h-0');
+      expect(pane.classList).toContain('flex-1');
+      expect(pane.classList).toContain('overflow-hidden');
+      expect(pane.classList).not.toContain('overflow-y-auto');
+      expect(pane.classList).toContain('min-h-[240px]');
+      expect(pane.classList).not.toContain('min-h-[400px]');
       expect(pane.classList.contains('min-w-[360px]')).toBe(true);
       // NEW-3: Details lives in the pane header; the wrapper adds no control over header or lane tabs.
       expect(pane.querySelector('ptah-canvas-focus-area [aria-label="Open details"]')).not.toBeNull();
@@ -1829,7 +1880,8 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(right.classList).not.toContain('border-l');
     for (const pane of [left, right]) {
       expect(pane.classList).toContain('min-w-[360px]');
-      expect(pane.classList).toContain('min-h-[400px]');
+      expect(pane.classList).toContain('min-h-0');
+      expect(pane.classList).not.toContain('min-h-[400px]');
     }
   });
 
