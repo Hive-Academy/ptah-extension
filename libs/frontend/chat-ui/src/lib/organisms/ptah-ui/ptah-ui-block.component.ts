@@ -35,6 +35,10 @@ import {
 import type { TurnSourceSnapshot } from '@ptah-extension/shared';
 import { PtahUiLiveWindow } from '../../services/ptah-ui-live-window';
 import {
+  anonymousDisplaySurfaceId,
+  compileDisplayFences,
+} from '../display-panel/display-surfaces';
+import {
   PTAH_UI_HOST_SOURCES,
   type PtahUiHostSources,
 } from '../../services/ptah-ui-host-sources';
@@ -112,14 +116,18 @@ export const PTAH_UI_BLOCK_LIVE_SOURCES =
  * Display only (Req 2.17): no selection, no submit. The renderer keeps its
  * local view actions (sort, filter, page, expand), which never leave it.
  */
-const READ_ONLY_INTERACTION: SurfaceInteractionState = {
-  selection: null,
-  selectionUnsynced: false,
-  pendingValues: new Map(),
-  issues: new Map(),
-  actions: new Map(),
-  submitDisabled: true,
-};
+function readOnlyInteraction(): SurfaceInteractionState {
+  return {
+    selection: null,
+    selectionUnsynced: false,
+    pendingValues: new Map(),
+    issues: new Map(),
+    actions: new Map(),
+    submitDisabled: true,
+  };
+}
+
+let nextBlockDomId = 0;
 
 const SURFACE_ID_PREFIX = 'ptah-ui-';
 const UTF8 = new TextEncoder();
@@ -219,12 +227,12 @@ function isSettled(snapshot: TurnSourceSnapshot | null): boolean {
     } @else {
       <markdown
         [data]="raw() | surfaceMarkdown: active()"
-        [attr.aria-describedby]="reasonId()"
+        [attr.aria-describedby]="reasonId"
       />
       <p
         data-ptah-ui-reason
         class="text-xs text-base-content-muted"
-        [id]="reasonId()"
+        [id]="reasonId"
       >
         Not rendered: {{ reason() }}
       </p>
@@ -248,6 +256,8 @@ export class PtahUiBlockComponent implements OnInit {
   readonly raw = input.required<string>();
   /** The lines between the fence lines (the pipeline input). */
   readonly body = input.required<string>();
+  /** Present only for a display-target fence; null is an anonymous target. */
+  readonly displayId = input<string | null | undefined>(undefined);
   /** Ordinal of this fence within its text node. */
   readonly ordinal = input.required<number>();
   readonly messageId = input.required<string>();
@@ -259,7 +269,7 @@ export class PtahUiBlockComponent implements OnInit {
   /** Host data for `$diff`/`$tests`/`$usage`; `null` resolves to `unavailable`. */
   readonly snapshot = input<TurnSourceSnapshot | null>(null);
 
-  protected readonly readOnlyInteraction = READ_ONLY_INTERACTION;
+  protected readonly readOnlyInteraction = readOnlyInteraction();
 
   /** True once the block left the live window; never reverts for this instance. */
   protected readonly snapshotMode = signal(false);
@@ -273,17 +283,41 @@ export class PtahUiBlockComponent implements OnInit {
   /** Set once the block is frozen and detached; it reads no source again. */
   private retired = false;
 
-  private readonly surfaceId = computed(() =>
-    blockSurfaceId(this.nodeId(), this.ordinal()),
+  private readonly compileSurfaceId = computed(() =>
+    this.displayId() === undefined
+      ? blockSurfaceId(this.nodeId(), this.ordinal())
+      : (this.displayId() ??
+        anonymousDisplaySurfaceId(this.nodeId(), this.ordinal())),
   );
-  protected readonly reasonId = computed(() => `${this.surfaceId()}-reason`);
+  protected readonly reasonId = `ptah-ui-reason-${++nextBlockDomId}`;
 
   /** One compile per body (and surface id); snapshots and live sources never re-run it. */
   private readonly compiled = computed((): CompilePtahUiBlockResult => {
     const body = this.body();
-    const surfaceId = this.surfaceId();
+    if (this.displayId() !== undefined && this.displayId() !== null) {
+      // Use the same fence compiler as the display collection, including its
+      // reserved-id rule and any future named-id validation added there.
+      // Anonymous fences compile directly so their original ordinal remains
+      // part of the compiler surface id.
+      return (
+        compileDisplayFences(
+          [
+            {
+              blockKey: `${this.messageId()}:${this.nodeId()}`,
+              messageId: this.messageId(),
+              nodeId: this.nodeId(),
+              orderKey: this.orderKey(),
+              text: this.raw(),
+              turnKey: '',
+              live: false,
+            },
+          ],
+          this.pipeline.compile,
+        )[0]?.compiled ?? INTERNAL_ERROR
+      );
+    }
     try {
-      return this.pipeline.compile(body, surfaceId);
+      return this.pipeline.compile(body, this.compileSurfaceId());
     } catch {
       // The shipped pipeline never throws; an injected one might. Either way
       // the message renders and this block falls back (Req 2.4).
@@ -382,7 +416,7 @@ export class PtahUiBlockComponent implements OnInit {
     const content = this.renderable();
     if (content === null) return '';
     const lines = renderSurfaceText({
-      surfaceId: this.surfaceId(),
+      surfaceId: this.compileSurfaceId(),
       revision: 0,
       content,
       selection: null,
