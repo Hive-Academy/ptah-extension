@@ -9,10 +9,13 @@
  * `setConfigQueue`, so two saves never interleave these steps.
  */
 import type { Logger } from '@ptah-extension/vscode-core';
-import type {
-  DecisionKeySlot,
-  DecisionModelConfig,
-  DecisionModelSelection,
+// `keyTransportAllowed` is the one copy of the D4 rule
+// (lane-routing `decision-endpoint.url.ts`).
+import {
+  keyTransportAllowed,
+  type DecisionKeySlot,
+  type DecisionModelConfig,
+  type DecisionModelSelection,
 } from '@ptah-extension/lane-routing';
 import {
   DECISION_MODEL_CUSTOM_KEY_MAY_HAVE_CHANGED,
@@ -43,31 +46,6 @@ const KEY_MAY_HAVE_CHANGED: Readonly<Record<DecisionKeySlot, string>> = {
   jev: DECISION_MODEL_KEY_MAY_HAVE_CHANGED,
   custom: DECISION_MODEL_CUSTOM_KEY_MAY_HAVE_CHANGED,
 };
-
-/**
- * D4 loopback hosts, as `URL.hostname` reports them: `localhost`, `localhost.`,
- * `[::1]` and 127.0.0.0/8. Same rule as lane-routing `decision-endpoint.url.ts`
- * (`keyTransportAllowed`), which that library does not export.
- */
-const LOOPBACK_HOSTNAMES: ReadonlySet<string> = new Set([
-  'localhost',
-  'localhost.',
-  '[::1]',
-]);
-const LOOPBACK_IPV4 = /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
-
-/** D4: a key may travel only over `https:` or to a loopback host. */
-function keyTransportAllowed(baseUrl: string): boolean {
-  if (!URL.canParse(baseUrl)) {
-    return false;
-  }
-  const { protocol, hostname } = new URL(baseUrl);
-  return (
-    protocol === 'https:' ||
-    LOOPBACK_HOSTNAMES.has(hostname) ||
-    LOOPBACK_IPV4.test(hostname)
-  );
-}
 
 /** Whether two parsed decision-model selections name the same model. */
 export function sameDecisionModelSelection(

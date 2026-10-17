@@ -8,6 +8,7 @@ import {
   createMockWorkspaceProvider,
 } from '@ptah-extension/platform-core/testing';
 
+import { DecisionModelCatalog } from '../decision-model/decision-model.catalog';
 import { DecisionModelConfig } from '../decision-model/decision-model.config';
 import type { StructuredDecisionCompleter } from '../decision-model/structured-decision.port';
 import { DecisionModelFailureClassifier } from '../failure-class/decision-model-failure-classifier';
@@ -73,6 +74,24 @@ describe('registerLaneRoutingServices', () => {
     expect(classifier).toBe(
       child.resolve(LANE_ROUTING_TOKENS.FAILURE_CLASSIFIER),
     );
+  });
+
+  it('resolves one catalog without a network call at registration', () => {
+    const fetchSpy = jest.spyOn(globalThis, 'fetch');
+    try {
+      const child = platformChild();
+      registerLaneRoutingServices(child, testLogger());
+
+      const catalog = child.resolve(LANE_ROUTING_TOKENS.DECISION_MODEL_CATALOG);
+
+      expect(catalog).toBeInstanceOf(DecisionModelCatalog);
+      expect(catalog).toBe(
+        child.resolve(LANE_ROUTING_TOKENS.DECISION_MODEL_CATALOG),
+      );
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 
   it('reports structured models unreachable when the port is not registered', async () => {

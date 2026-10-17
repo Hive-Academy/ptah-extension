@@ -17,6 +17,13 @@ export {
   type SystemOneTarget,
 } from './lib/decision-model/decision-model.config';
 export {
+  DecisionModelCatalog,
+  type DecisionModelCatalogFilter,
+  type DecisionModelCatalogResult,
+  type DecisionModelCatalogSource,
+} from './lib/decision-model/decision-model.catalog';
+export { keyTransportAllowed } from './lib/decision-model/decision-endpoint.url';
+export {
   DecisionModelKeys,
   type DecisionKeySlot,
 } from './lib/decision-model/decision-model.keys';

@@ -1,6 +1,6 @@
 # Batches - TASK_2026_684_a11d
 
-Total tasks: 45 | Batches: 23 (Batch 0 gate + 22 implementation batches) | Complete: 13/23
+Total tasks: 45 | Batches: 23 (Batch 0 gate + 22 implementation batches) | Complete: 14/23
 
 ## Execution precondition (read first)
 
@@ -731,7 +731,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - `T`, `TC` and `L` on `@ptah-extension/lane-routing`; degradation-audit.
 - Searching `decision-model.catalog.ts` for `clef` finds nothing.
 
-## Batch 13: Catalog DI registration and lane-routing exports (C8 wiring) — PENDING
+## Batch 13: Catalog DI registration and lane-routing exports (C8 wiring) — COMPLETE
 
 - Recommended executor: CLI lane, backend-developer profile (non-codex)
 - Execution mode: sequential
@@ -743,13 +743,17 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - Phase: 3 | Phase review: code-logic + style (codex)
 - Criteria: 7 (the catalog resolves in every host), 4.x
 
-### Task 13.1: Register `DECISION_MODEL_CATALOG` — PENDING
+### Task 13.1: Register `DECISION_MODEL_CATALOG` — COMPLETE
 
 - Files: MODIFY `W\libs\backend\lane-routing\src\lib\di\tokens.ts`, `...\di\register.ts`,
   `...\di\register.spec.ts`, `W\libs\backend\lane-routing\src\index.ts` (token and result types)
 - Plan reference: implementation-plan.md:384-386
 - Pattern to follow: `di/register.ts:84-98` (`instanceCachingFactory`)
 - Quality requirements: no network call at registration.
+- Added by the orchestrator: `index.ts` also exports `keyTransportAllowed`
+  (`decision-endpoint.url.ts`). The Batch 11 writer
+  `rpc-handlers/.../decision-model-writer.ts` imports it from `@ptah-extension/lane-routing`
+  and its local copy of the D4 rule is deleted, so the rule has one copy.
 
 ### Batch 13 verification
 
