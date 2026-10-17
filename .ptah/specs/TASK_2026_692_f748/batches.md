@@ -728,7 +728,7 @@ Decisions:
   the pump has no await after the push, so `fire-sent` (microtask) always precedes PreCompact
   (CLI hook over IPC); an out-of-order case only holds the claim to `claim-timeout`.
 
-## Batch 11: PostCompact rekey target and CLI smoke assertion — PENDING
+## Batch 11: PostCompact rekey target and CLI smoke assertion — COMPLETE
 
 - Recommended executor: CLI lane [implementation, TypeScript backend, tsyringe]
 - Execution mode: sequential

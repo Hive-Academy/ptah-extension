@@ -146,6 +146,7 @@ function buildMinimalContainer(): DependencyContainer {
       getWorkspaceFolders: jest.fn(() => []),
       getConfiguration: jest.fn(() => ({ get: jest.fn() })),
       onDidChangeWorkspaceFolders: jest.fn(() => ({ dispose: jest.fn() })),
+      onDidChangeConfiguration: jest.fn(() => ({ dispose: jest.fn() })),
     },
   });
   c.register(PLATFORM_TOKENS.SECRET_STORAGE, {
@@ -351,6 +352,8 @@ describe('CLI DI — SDK budget-stop registry', () => {
     expect(
       c.resolve(SDK_TOKENS.SDK_SUBAGENT_BUDGET_STOP_CALLBACK_REGISTRY),
     ).toBe(first);
+    const idleCompaction = c.resolve(SDK_TOKENS.SDK_IDLE_COMPACTION);
+    expect(c.resolve(SDK_TOKENS.SDK_IDLE_COMPACTION)).toBe(idleCompaction);
   });
 });
 
