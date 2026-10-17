@@ -71,6 +71,8 @@ import type { NoActivityWatchdog } from './no-activity-watchdog';
 import type { UsageCostSource } from '../session-stats/session-stats-owner.service';
 import type { HarnessPolicySync } from '../harness/harness-policy-sync';
 import type { CompactionConfigProvider } from './compaction-config-provider';
+import type { IdleCompactionService } from './compaction/idle/idle-compaction.service';
+import { IDLE_COMPACT_ORIGIN } from './compaction/idle/idle-compaction.types';
 export type { SDKUserMessage, ContentBlock };
 export type {
   SessionRecord,
@@ -415,6 +417,8 @@ export class SessionLifecycleManager {
     private readonly subagentBudgetMonitor: SubagentBudgetSink | null = null,
     @inject(SDK_TOKENS.SDK_SESSION_BUDGET, { isOptional: true })
     private readonly sessionBudget: SessionBudgetService | null = null,
+    @inject(SDK_TOKENS.SDK_IDLE_COMPACTION, { isOptional: true })
+    private readonly idleCompaction: IdleCompactionService | null = null,
   ) {
     this._registry = new SessionRegistry(this.logger);
     this._streamPump = new SessionStreamPump(
@@ -437,6 +441,7 @@ export class SessionLifecycleManager {
       this.compactionCoordinator,
       this.contextUsagePort,
       this.subagentBudgetMonitor,
+      this.idleCompaction,
     );
     const compactionProvider = this.compactionConfigProvider;
     this._control = new SessionControl(
@@ -473,6 +478,7 @@ export class SessionLifecycleManager {
   }
 
   dispose(): void {
+    this.idleCompaction?.dispose();
     this._registry.stopEvictionSweep();
     this.compactionThresholdWatch?.dispose();
     this.compactionThresholdWatch = null;
@@ -709,6 +715,8 @@ export class SessionLifecycleManager {
       admission?: AIMessageOptions['admission'];
     },
   ): Promise<void> {
+    const record = this._registry.find(sessionId as string);
+    this.idleCompaction?.input(record?.realSessionId ?? (sessionId as string));
     return this._streamPump.sendMessage(
       sessionId,
       content,
@@ -716,6 +724,23 @@ export class SessionLifecycleManager {
       images,
       options,
     );
+  }
+
+  sendIdleCompact(
+    sessionId: SessionId,
+    beforeEnqueue: () => void,
+  ): Promise<void> {
+    return this._streamPump.sendMessage(
+      sessionId,
+      '/compact',
+      undefined,
+      undefined,
+      { origin: IDLE_COMPACT_ORIGIN, admission: 'require-idle', beforeEnqueue },
+    );
+  }
+
+  idleCompactionNoticeFor(sessionId: SessionId) {
+    return this.idleCompaction?.boundaryNoticeFor(sessionId as string);
   }
 
   /**
@@ -791,6 +816,10 @@ export class SessionLifecycleManager {
    * @param model - Model ID or bare tier name to set
    */
   async setSessionModel(sessionId: SessionId, model: string): Promise<void> {
+    const record = this._registry.find(sessionId as string);
+    this.idleCompaction?.promptPrefixChanged(
+      record?.realSessionId ?? (sessionId as string),
+    );
     return this._control.setSessionModel(sessionId, model);
   }
 

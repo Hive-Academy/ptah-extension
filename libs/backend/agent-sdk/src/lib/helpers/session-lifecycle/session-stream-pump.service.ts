@@ -203,6 +203,7 @@ export class SessionStreamPump {
     options?: {
       origin?: SDKMessageOrigin;
       admission?: AIMessageOptions['admission'];
+      beforeEnqueue?: () => void;
     },
   ): Promise<void> {
     const requireIdle = options?.admission === 'require-idle';
@@ -242,6 +243,7 @@ export class SessionStreamPump {
       // Synchronous from here to the push: no competing send, teardown or
       // turn start can interleave between this check and the enqueue.
       this.assertAdmissible(sessionId, session);
+      options?.beforeEnqueue?.();
       this.registry.markActive(sessionId as string);
     }
     session.messageQueue.push(sdkUserMessage);

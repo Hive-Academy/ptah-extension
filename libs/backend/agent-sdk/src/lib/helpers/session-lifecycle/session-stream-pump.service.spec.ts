@@ -219,6 +219,36 @@ function makeDeferredHarness(): Harness & {
 const flush = (): Promise<void> => new Promise((r) => setImmediate(r));
 
 describe('SessionStreamPump — require-idle admission (TASK_2026_538)', () => {
+  it('runs the claim check immediately before enqueue and propagates a veto', async () => {
+    const h = makeDeferredHarness();
+    let claim = true;
+    const beforeEnqueue = jest.fn(() => {
+      if (!claim) throw new Error('claim released');
+    });
+    const sent = h.pump.sendMessage(TAB, '/compact', undefined, undefined, {
+      admission: 'require-idle',
+      beforeEnqueue,
+    });
+    await flush();
+    claim = false;
+    h.release(0);
+    await expect(sent).rejects.toThrow('claim released');
+    expect(beforeEnqueue).toHaveBeenCalledTimes(1);
+    expect(h.registry.find(TAB as string)?.messageQueue).toHaveLength(0);
+  });
+
+  it('ignores beforeEnqueue for ordinary admission', async () => {
+    const h = makeHarness();
+    const beforeEnqueue = jest.fn(() => {
+      throw new Error('unexpected');
+    });
+    await expect(
+      h.pump.sendMessage(TAB, 'hello', undefined, undefined, {
+        beforeEnqueue,
+      }),
+    ).resolves.toBeUndefined();
+    expect(beforeEnqueue).not.toHaveBeenCalled();
+  });
   it('admits a message onto a live, idle session and yields it', async () => {
     const h = makeHarness();
 
@@ -253,9 +283,7 @@ describe('SessionStreamPump — require-idle admission (TASK_2026_538)', () => {
     const sent = h.pump.sendMessage('tab_missing' as SessionId, 'x');
 
     await expect(sent).rejects.toBeInstanceOf(SdkError);
-    await expect(sent).rejects.not.toBeInstanceOf(
-      SessionAdmissionRefusedError,
-    );
+    await expect(sent).rejects.not.toBeInstanceOf(SessionAdmissionRefusedError);
   });
 
   it('refuses busy up front while a turn is in flight, without building a message', async () => {

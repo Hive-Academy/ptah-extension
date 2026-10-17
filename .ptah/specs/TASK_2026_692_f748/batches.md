@@ -629,7 +629,7 @@ Decisions:
   sender enqueue after claim release -> acceptance note on Task 10.2; reducer throw on
   `session-released` without a spec -> later item L8.
 
-## Batch 9: Session tap signals — COMPLETE
+## Batch 9: Session tap signals — COMPLETE (commit bb9cb377b)
 
 - Recommended executor: CLI lane [implementation, TypeScript backend]
 - Execution mode: sequential
@@ -641,7 +641,7 @@ Decisions:
 - Phase: 2 | Phase review: deferred to Batch 13
 - ACs: 1.1-1.5 producers, 4.4 (release), A4
 
-### Task 9.1: `CompactionSessionTap` idle producers — IN_PROGRESS
+### Task 9.1: `CompactionSessionTap` idle producers — COMPLETE
 
 - Files: `<W>\libs\backend\agent-sdk\src\lib\helpers\session-lifecycle\session-query-executor.service.ts`, `<W>\libs\backend\agent-sdk\src\lib\helpers\session-lifecycle\session-query-executor.idle-signals.spec.ts` (CREATE)
 - Plan reference: implementation-plan.md:536-552 (8a)
@@ -666,7 +666,7 @@ Decisions:
   `session-query-executor.idle-signals.spec.ts:49` and `:66`. Also new: `max-lines` warning on
   the service (756 > 700; base had none) -> carried to the Phase 2 style review.
 
-## Batch 10: Pump veto, facade, token and DI registration (send path live) — PENDING
+## Batch 10: Pump veto, facade, token and DI registration (send path live) — COMPLETE
 
 - Recommended executor: CLI lane [implementation, TypeScript backend, tsyringe]
 - Execution mode: sequential
@@ -687,13 +687,13 @@ Decisions:
   - (F7) Spec: `pre-compact` arriving before `fire-sent` resolves. Record the outcome. If the
     attempt ends in a timeout warn, leave it for later item L3.
 
-### Task 10.1: Pump `beforeEnqueue` + spec — PENDING
+### Task 10.1: Pump `beforeEnqueue` + spec — IMPLEMENTED
 
 - Files: `<W>\libs\backend\agent-sdk\src\lib\helpers\session-lifecycle\session-stream-pump.service.ts`, `<W>\libs\backend\agent-sdk\src\lib\helpers\session-lifecycle\session-stream-pump.service.spec.ts`
 - Plan reference: implementation-plan.md:554-559 (8b)
 - Validation notes: honoured only with `admission: 'require-idle'`; called after the second `assertAdmissible` and before `markActive`/push (`session-stream-pump.service.ts:241-247`); a throw queues nothing and propagates.
 
-### Task 10.2: Token, facade delegates and facade spec — PENDING
+### Task 10.2: Token, facade delegates and facade spec — IN_PROGRESS
 
 - Files: `<W>\libs\backend\agent-sdk\src\lib\di\tokens.ts`, `<W>\libs\backend\agent-sdk\src\lib\helpers\session-lifecycle-manager.ts`, `<W>\libs\backend\agent-sdk\src\lib\helpers\session-lifecycle-manager.idle.spec.ts` (CREATE)
 - Plan reference: implementation-plan.md:561-571 (8c), :589 (token)
@@ -710,7 +710,7 @@ Decisions:
   sender's claim is released (sending deadline elapsed) before enqueue -> no enqueue, and the
   sender promise settles (rejects).
 
-### Task 10.3: DI registration — PENDING
+### Task 10.3: DI registration — IMPLEMENTED
 
 - File: `<W>\libs\backend\agent-sdk\src\lib\di\register.ts`
 - Plan reference: implementation-plan.md:589-598 (component 9)
@@ -721,6 +721,12 @@ Decisions:
 
 - Command: `npx nx test @ptah-extension/agent-sdk --parallel=1 2>&1 | grep -E "Tests:|Test Suites:|FAIL|failed" | tail -20 && npx nx typecheck @ptah-extension/agent-sdk 2>&1 | tail -15 && npx nx lint @ptah-extension/agent-sdk 2>&1 | tail -20`
 - Gate: `research-report.md` "Live probe P1" shows A2 PASS and A3 PASS.
+- Result (team-leader, attempt 1): NOT ACCEPTED. Jest on the 2 changed specs 24/24 pass;
+  typecheck passes; ESLint 0 errors. Defects: (1) the manager does not pass the idle service to
+  `new SessionQueryExecutor(` (`session-lifecycle-manager.ts:429-444`), so no tap signal reaches
+  the service in production (plan 8c); (2) Prettier fails on 4 changed files. F7 judged L3:
+  the pump has no await after the push, so `fire-sent` (microtask) always precedes PreCompact
+  (CLI hook over IPC); an out-of-order case only holds the claim to `claim-timeout`.
 
 ## Batch 11: PostCompact rekey target and CLI smoke assertion — PENDING
 

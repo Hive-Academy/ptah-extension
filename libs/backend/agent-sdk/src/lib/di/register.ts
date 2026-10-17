@@ -17,6 +17,10 @@ import {
 } from 'tsyringe';
 import { LANE_ROUTING_TOKENS } from '@ptah-extension/lane-routing';
 import { TOKENS } from '@ptah-extension/vscode-core';
+import {
+  PLATFORM_TOKENS,
+  type IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
 import type {
   BackgroundWorkGovernor,
   Logger,
@@ -113,6 +117,8 @@ import { MainThreadNoticeQueue } from '../helpers/main-thread-notice-queue';
 import { SubagentNoticeQueue } from '../helpers/subagent-notice-queue';
 import { ToolOutputCapper } from '../helpers/compaction/tool-output-capper';
 import { CompactionCoordinator } from '../helpers/compaction/compaction-coordinator';
+import { IdleCompactionService } from '../helpers/compaction/idle/idle-compaction.service';
+import { createUnrefScheduler } from '../helpers/compaction/idle/unref-scheduler';
 import { ContextUsagePort } from '../helpers/compaction/context-usage.port';
 import { SubagentBudgetMonitor } from '../helpers/compaction/subagent-budget-monitor';
 import { SubagentStopNotices } from '../helpers/compaction/subagent-stop-notices';
@@ -489,6 +495,52 @@ export function registerSdkServices(
           errorType: error instanceof Error ? error.name : typeof error,
           error: error instanceof Error ? error.message : String(error),
         }),
+      );
+    }),
+  });
+
+  container.register(SDK_TOKENS.SDK_IDLE_COMPACTION, {
+    useFactory: instanceCachingFactory((c) => {
+      const workspace = c.isRegistered(PLATFORM_TOKENS.WORKSPACE_PROVIDER, true)
+        ? c.resolve<IWorkspaceProvider>(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+        : undefined;
+      const events = c.isRegistered(SDK_TOKENS.SDK_ADAPTER_EVENTS, true)
+        ? c.resolve<SdkAdapterEvents>(SDK_TOKENS.SDK_ADAPTER_EVENTS)
+        : undefined;
+      if (!workspace || !events) {
+        c.resolve<Logger>(TOKENS.LOGGER).debug(
+          '[IdleCompaction] Optional host signals unavailable',
+          { workspace: Boolean(workspace), events: Boolean(events) },
+        );
+      }
+      return new IdleCompactionService(
+        c.resolve<Logger>(TOKENS.LOGGER),
+        c.resolve<CompactionCoordinator>(SDK_TOKENS.SDK_COMPACTION_COORDINATOR),
+        c.resolve<CompactionConfigProvider>(
+          SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER,
+        ),
+        c.resolve<SessionTurnStateRegistry>(
+          SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY,
+        ),
+        {
+          sendIdleCompact: (sessionId, beforeEnqueue) =>
+            c
+              .resolve<SessionLifecycleManager>(
+                SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER,
+              )
+              .sendIdleCompact(
+                sessionId as Parameters<
+                  SessionLifecycleManager['sendIdleCompact']
+                >[0],
+                beforeEnqueue,
+              ),
+        },
+        c.resolve<CompactionCallbackRegistry>(
+          SDK_TOKENS.SDK_COMPACTION_CALLBACK_REGISTRY,
+        ),
+        events,
+        workspace,
+        { scheduler: createUnrefScheduler(), now: () => Date.now() },
       );
     }),
   });
