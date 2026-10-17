@@ -57,8 +57,11 @@ The final report went to the parent session.
 
 Decisions D1–D6 are in `decisions.md`. Open items:
 
-- CI must confirm the DI smoke spec (`di/register.compaction-boundary-registry.smoke.spec.ts`)
-  and `codex-stream-parity.spec.ts`. They cannot run locally because of the `marked` problem.
+- The DI smoke spec, the other three `marked`-blocked suites (62 tests) and
+  `codex-stream-parity.spec.ts` (9 tests) pass locally with a temporary mapper to
+  `D:/projects/ptah-extension/node_modules/marked/lib/marked.umd.js`.
+- CodeRabbit finding (clear the notice after the final failed stop): not changed, see
+  decisions.md. Reply posted on the PR.
 - Environment problem: Jest `moduleNameMapper` maps `marked` to
   `<worktree>/node_modules/marked/lib/marked.umd.js`, which is missing in this worktree.
   Affected: DI smoke spec, tool-output-capper, deleted-exports.contract, sdk-adapter-events

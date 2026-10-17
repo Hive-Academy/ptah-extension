@@ -59,6 +59,13 @@ The `marked` load failures in the agent-sdk Jest target are environmental:
 the Jest `moduleNameMapper` points to `<worktree>/node_modules/marked`,
 which this worktree does not have. They are not caused by this change.
 
+Follow-up (PR #743): CodeRabbit asked to clear the notice after the final
+failed stop. Not changed, for the reason above; replied on the PR. With a
+temporary, uncommitted mapper to the main checkout's `marked`, the four
+blocked agent-sdk suites (DI smoke, tool-output-capper,
+deleted-exports.contract, sdk-adapter-events: 62 tests) and
+`codex-stream-parity.spec.ts` (9 tests) pass.
+
 ## D5 — Executor
 
 Implementation runs on one CLI lane (codex first). Review: one Claude
