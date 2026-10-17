@@ -11,6 +11,8 @@ import {
 import { filter, map } from 'rxjs/operators';
 import {
   DEFAULT_SURFACE_ID,
+  GENERATION_ROUTE_TAB_VALIDATOR,
+  generationRouteBinding,
   isSurfaceRouteId,
   surfaceIdFromSegment,
   type ViewType,
@@ -63,9 +65,16 @@ export function surfaceNavigationLanded(
  */
 @Injectable({ providedIn: 'root' })
 export class SurfaceRouterService {
+  /** DI seam for main-shell validation of restored generation tab identity. */
+  static readonly generationRouteTabValidatorToken =
+    GENERATION_ROUTE_TAB_VALIDATOR;
   private readonly router = inject(Router);
   private readonly outletContexts = inject(ChildrenOutletContexts);
   private readonly urlSerializer = inject(UrlSerializer);
+  private readonly generationRouteTabValidator = inject(
+    GENERATION_ROUTE_TAB_VALIDATOR,
+    { optional: true },
+  );
 
   /**
    * The last URL the Router successfully settled on.
@@ -172,6 +181,19 @@ export class SurfaceRouterService {
   async navigateToUrl(route: string): Promise<SurfaceNavigationResult> {
     try {
       const targetTree = this.urlSerializer.parse(route);
+      const segments =
+        targetTree.root.children[PRIMARY_OUTLET]?.segments.map(
+          (segment) => segment.path,
+        ) ?? [];
+      if (segments[0] === 'setup-wizard' && segments[1] === 'generation') {
+        const binding = generationRouteBinding(segments);
+        if (
+          !binding ||
+          !this.generationRouteTabValidator?.(binding.tabId, binding.workflow)
+        ) {
+          return 'failed';
+        }
+      }
       if (!isSurfaceRouteId(this.firstPrimaryPath(targetTree))) {
         console.warn(
           `[SurfaceRouterService] "${route}" addresses no surface — not navigating.`,

@@ -39,6 +39,8 @@ export { SESSION_CARD_ACTIONS } from './lib/tokens/session-context.token';
 export { SESSION_FORCED_CARD } from './lib/tokens/session-context.token';
 export { SESSION_START_GUARD } from './lib/tokens/session-context.token';
 export type { SessionStartGuard } from './lib/tokens/session-context.token';
+export { SESSION_STOP_HANDLER } from './lib/tokens/session-context.token';
+export type { SessionStopHandler } from './lib/tokens/session-context.token';
 export { StreamPresentationStore } from './lib/services/stream-presentation-store.service';
 export type { SessionCardActions } from './lib/tokens/session-context.token';
 

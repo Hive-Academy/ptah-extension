@@ -56,7 +56,11 @@ import {
   surfaceNavigationLanded,
   type SurfaceNavigationResult,
 } from './surface-router.service';
-import { DEFAULT_SURFACE_ID, SURFACE_ROUTE_IDS } from './surface-routes';
+import {
+  DEFAULT_SURFACE_ID,
+  GENERATION_ROUTE_TAB_VALIDATOR,
+  SURFACE_ROUTE_IDS,
+} from './surface-routes';
 
 /** Resolves on the Router's next settled navigation. Subscribe BEFORE acting. */
 function nextNavigationEnd(router: Router): Promise<NavigationEnd> {
@@ -554,6 +558,24 @@ describe('SurfaceRouterService', () => {
   });
 
   describe('navigateToUrl (restored route, TASK_2026_524 Batch 4)', () => {
+    it('rejects a generation route whose tab identity is absent or invalid', async () => {
+      TestBed.configureTestingModule({
+        providers: [
+          ...provideSurfaceRouterTesting(),
+          { provide: GENERATION_ROUTE_TAB_VALIDATOR, useValue: () => false },
+        ],
+      });
+      const service = TestBed.inject(SurfaceRouterService);
+      await expect(
+        service.navigateToUrl(
+          '/setup-wizard/generation/setup-agent-generation/deleted-tab',
+        ),
+      ).resolves.toBe('failed');
+      await expect(
+        service.navigateToUrl('/setup-wizard/generation/unknown/deleted-tab'),
+      ).resolves.toBe('failed');
+      expect(TestBed.inject(Router).url).toBe('/');
+    });
     it('lands on a restored chat tab URL and reports chat', async () => {
       const service = createService();
 

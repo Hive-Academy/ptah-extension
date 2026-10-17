@@ -960,6 +960,61 @@ export class TabManagerService {
       this.workflowIndex.rememberTab(updated.tab, updated.workspacePath);
   }
 
+  /** Find an existing owner only in the requested workspace partition. */
+  findWorkflowTab(
+    workspacePath: string,
+    workflow: WorkflowKind,
+  ): TabState | null {
+    if (!workspacePath || !isWorkflowKind(workflow)) return null;
+    return (
+      this.getWorkspaceTabs(workspacePath).find(
+        (tab) => tab.workflow === workflow,
+      ) ?? null
+    );
+  }
+
+  /** Create a tagged tab without switching the active workspace. */
+  createWorkflowTabForWorkspace(
+    workspacePath: string,
+    workflow: WorkflowKind,
+    title: string,
+    afterTabId?: string,
+  ): string | null {
+    if (!workspacePath || !isWorkflowKind(workflow) || !title.trim())
+      return null;
+    if (this.findWorkflowTab(workspacePath, workflow)) return null;
+    if (workspacePath === this.activeWorkspacePath) {
+      const id = this.createTab(title, 'default', false);
+      this.setWorkflow(id, workflow);
+      return id;
+    }
+    if (!afterTabId) return null;
+    const tabs = this.getWorkspaceTabs(workspacePath);
+    if (!tabs.some((tab) => tab.id === afterTabId)) return null;
+    const id = this.generateTabId();
+    const tab: TabState = {
+      id,
+      claudeSessionId: null,
+      workflow,
+      name: title,
+      title,
+      titleOrigin: 'default',
+      order: tabs.length,
+      status: 'fresh',
+      isDirty: false,
+      lastActivityAt: Date.now(),
+      messages: [],
+      streamingState: null,
+    };
+    return this.workspacePartition.addTabToWorkspace(
+      workspacePath,
+      tab,
+      afterTabId,
+    )
+      ? id
+      : null;
+  }
+
   workflowForSession(
     sessionId: string,
     workspacePath: string,
@@ -979,6 +1034,7 @@ export class TabManagerService {
   createTab(
     name?: string,
     titleOrigin?: Extract<TitleOrigin, 'default' | 'user'>,
+    activate = true,
   ): string {
     const id = this.generateTabId();
     const sessionName = name || 'New Chat';
@@ -1008,7 +1064,7 @@ export class TabManagerService {
     };
 
     this._tabs.update((tabs) => [...tabs, newTab]);
-    this._activeTabId.set(id);
+    if (activate) this._activeTabId.set(id);
     this.saveTabState();
 
     this.modelRefresh.refreshModels().catch((err) => {

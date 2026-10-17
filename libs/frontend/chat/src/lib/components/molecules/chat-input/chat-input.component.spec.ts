@@ -79,6 +79,7 @@ import type { AtTriggerEvent } from '../../../directives/at-trigger.directive';
 import {
   SESSION_CONTEXT,
   SESSION_START_GUARD,
+  SESSION_STOP_HANDLER,
 } from '../../../tokens/session-context.token';
 import { CompactionLifecycleService } from '../../../services/chat-store/compaction-lifecycle.service';
 import { SessionLoaderService } from '../../../services/chat-store/session-loader.service';
@@ -195,6 +196,7 @@ describe('ChatInputComponent', () => {
       /** Tile tab id for SESSION_CONTEXT; `undefined` = token not provided. */
       sessionContextTabId?: string | null;
       startGuard?: () => string | null;
+      stopHandler?: (tabId: string) => 'handled' | 'not-handled';
     } = {},
   ): void {
     mockIsElectron = opts.isElectron ?? false;
@@ -233,6 +235,9 @@ describe('ChatInputComponent', () => {
         ...(opts.startGuard
           ? [{ provide: SESSION_START_GUARD, useValue: opts.startGuard }]
           : []),
+        ...(opts.stopHandler
+          ? [{ provide: SESSION_STOP_HANDLER, useValue: opts.stopHandler }]
+          : []),
       ],
     });
 
@@ -249,6 +254,24 @@ describe('ChatInputComponent', () => {
     mockVoiceInput.stopRecording.mockResolvedValue(null);
     createComponent();
     jest.clearAllMocks();
+  });
+
+  it('routes handled Stop to the embedded workflow and preserves chat fallback', async () => {
+    const handler = jest.fn(() => 'handled' as const);
+    createComponent({
+      sessionContextTabId: 'workflow-tab',
+      stopHandler: handler,
+    });
+    await component.handleStop();
+    expect(handler).toHaveBeenCalledWith('workflow-tab');
+    expect(mockChatStore.abortWithConfirmation).not.toHaveBeenCalled();
+
+    createComponent({
+      sessionContextTabId: 'chat-tab',
+      stopHandler: () => 'not-handled',
+    });
+    await component.handleStop();
+    expect(mockChatStore.abortWithConfirmation).toHaveBeenCalledTimes(1);
   });
 
   it('should be created', () => {
@@ -483,7 +506,9 @@ describe('ChatInputComponent', () => {
     first.handleInput({
       target: { value: 'draft typed' },
     } as unknown as Event);
-    const second = TestBed.runInInjectionContext(() => new ChatInputComponent());
+    const second = TestBed.runInInjectionContext(
+      () => new ChatInputComponent(),
+    );
     first.ngOnDestroy();
     second.ngOnDestroy();
     component = TestBed.runInInjectionContext(() => new ChatInputComponent());
@@ -519,7 +544,9 @@ describe('ChatInputComponent', () => {
   describe('contextual F5 drafts per SESSION_CONTEXT tab', () => {
     const typed = (composer: ChatInputComponent, value: string) =>
       composer.handleInput({ target: { value } } as unknown as Event);
-    function paneComposer(context: WritableSignal<string | null>): ChatInputComponent {
+    function paneComposer(
+      context: WritableSignal<string | null>,
+    ): ChatInputComponent {
       const injector = createEnvironmentInjector(
         [{ provide: SESSION_CONTEXT, useValue: context.asReadonly() }],
         TestBed.inject(EnvironmentInjector),
@@ -568,7 +595,9 @@ describe('ChatInputComponent', () => {
       TestBed.tick();
       expect(left.currentMessage()).toBe('left draft');
       expect(right.currentMessage()).toBe('right draft');
-      expect(TestBed.inject(ComposerDraftStore).get('tile-C')?.text).toBe('replacement draft');
+      expect(TestBed.inject(ComposerDraftStore).get('tile-C')?.text).toBe(
+        'replacement draft',
+      );
     });
 
     it('F5: both pane composers remount and each restores its own tab draft, also after a pane swap', () => {
@@ -583,7 +612,9 @@ describe('ChatInputComponent', () => {
       expect(left.currentMessage()).toBe('left draft');
       expect(right.currentMessage()).toBe('right draft');
       // A swap moves no composer; even a composer bound to the other tab reads that tab's draft.
-      expect(paneComposer(signal<string | null>('tile-B')).currentMessage()).toBe('right draft');
+      expect(
+        paneComposer(signal<string | null>('tile-B')).currentMessage(),
+      ).toBe('right draft');
     });
   });
 

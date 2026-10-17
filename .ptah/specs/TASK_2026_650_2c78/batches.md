@@ -237,8 +237,8 @@ Candidate only: unused duplicated old-generation presentation code after the new
 | B02 | 2 | done (2 revise rounds; handler 1698 lines, follow-up) | codex backend-developer | 6aa54f8d5 |
 | B02G | 2 | done (1 revise round: lock-timeout recovery, settled lookup, contract spec; long pre-existing methods grew slightly, follow-up) | codex backend-developer | 20474f335 |
 | B03 | 2 | done (continuation lane after tool-call ceiling; supervisors not in expected-resolvable, resolved via handlers) | codex backend-developer | 725d982e6 |
-| P2 review | 2 | APPROVE 8/10 after 1 revise round (S1, S2, M1–M9 fixed; Part B continuation lane after the first lane stopped without a report) | Claude code-logic-reviewer; codex fixes | (this commit) |
-| B04 | 3 | pending | codex frontend-developer | — |
+| P2 review | 2 | APPROVE 8/10 after 1 revise round (S1, S2, M1–M9 fixed; Part B continuation lane after the first lane stopped without a report) | Claude code-logic-reviewer; codex fixes | 41c82d930 |
+| B04 | 3 | done (tab-manager +58 lines; route validator token on SurfaceRouterService for B05) | codex frontend-developer | (this commit) |
 | B05 | 3 | pending | codex frontend-developer | — |
 | B06 | 3 | pending | codex backend-developer | — |
 | B07 | 4 | pending | codex frontend-developer | — |

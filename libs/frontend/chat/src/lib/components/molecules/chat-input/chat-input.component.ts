@@ -39,6 +39,7 @@ import { TabManagerService } from '@ptah-extension/chat-state';
 import {
   SESSION_CONTEXT,
   SESSION_START_GUARD,
+  SESSION_STOP_HANDLER,
 } from '../../../tokens/session-context.token';
 import {
   ComposerDraftStore,
@@ -588,6 +589,9 @@ export class ChatInputComponent implements OnInit, OnDestroy {
     optional: true,
   });
   private readonly sessionStartGuard = inject(SESSION_START_GUARD, {
+    optional: true,
+  });
+  private readonly sessionStopHandler = inject(SESSION_STOP_HANDLER, {
     optional: true,
   });
   readonly autopilotState = inject(AutopilotStateService);
@@ -1716,6 +1720,8 @@ export class ChatInputComponent implements OnInit, OnDestroy {
    * Uses abortWithConfirmation() to warn user about running sub-agents.
    */
   async handleStop(): Promise<void> {
+    const tabId = this._sessionContext?.() ?? this.tabManager.activeTabId();
+    if (tabId && this.sessionStopHandler?.(tabId) === 'handled') return;
     try {
       const aborted = await this.chatStore.abortWithConfirmation();
       console.log('[ChatInputComponent] Stop requested, aborted:', aborted);
@@ -1791,11 +1797,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
     )
       return;
     this.lastDraft = { text, files, images };
-    if (
-      !text &&
-      files.length === 0 &&
-      images.length === 0
-    ) {
+    if (!text && files.length === 0 && images.length === 0) {
       this.draftStore.clear(this.draftTabId);
       return;
     }

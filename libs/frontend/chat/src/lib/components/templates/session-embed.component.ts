@@ -24,9 +24,11 @@ import {
   SESSION_CONTEXT,
   SESSION_FOCUSED,
   SESSION_START_GUARD,
+  SESSION_STOP_HANDLER,
   SESSION_VISIBLE,
   type SessionCardActions,
   type SessionStartGuard,
+  type SessionStopHandler,
 } from '../../tokens/session-context.token';
 import {
   ChatViewComponent,
@@ -64,6 +66,7 @@ export class SessionEmbedComponent implements OnDestroy {
   readonly focused = input(true);
   readonly minContentWidth = input<number | null>(null);
   readonly startGuard = input<SessionStartGuard | null>(null);
+  readonly stopHandler = input<SessionStopHandler | null>(null);
   readonly cardActions = input<SessionCardActions | null>(null);
   readonly retainRailTranscript = input(false);
 
@@ -88,6 +91,11 @@ export class SessionEmbedComponent implements OnDestroy {
       {
         provide: SESSION_START_GUARD,
         useValue: () => this.startGuard()?.() ?? null,
+      },
+      {
+        provide: SESSION_STOP_HANDLER,
+        useValue: (tabId: string) =>
+          this.stopHandler()?.(tabId) ?? 'not-handled',
       },
       { provide: SURFACE_ACTIVE, useValue: this.sessionVisible },
       {
