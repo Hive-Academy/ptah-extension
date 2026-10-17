@@ -174,7 +174,7 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
       >
         <!-- A block trigger wrapper adds no inline baseline gap to the cell. -->
         <ptah-native-popover
-          class="[&>.popover-trigger]:block"
+          class="[&>.popover-trigger]:block [&>.popover-panel]:p-0"
           [isOpen]="renameOpen()"
           placement="right-start"
           [hasBackdrop]="true"
@@ -232,8 +232,9 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
               @if (splitDisabledReason(); as reason) {
                 <span
                   aria-hidden="true"
-                  class="text-xs text-base-content-muted"
+                  class="max-w-full truncate text-xs text-base-content-muted"
                   [id]="reasonId()"
+                  [title]="reason"
                   >{{ reason }}</span
                 >
               }
@@ -256,6 +257,7 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
                 type="button"
                 role="menuitem"
                 data-action="organize"
+                aria-haspopup="dialog"
                 class="btn btn-ghost btn-sm h-auto min-h-8 flex-col items-start justify-center py-1 text-left font-normal"
                 [attr.aria-disabled]="sessionId() ? null : 'true'"
                 [attr.aria-describedby]="sessionId() ? null : 'rail-organize-reason-' + tabId()"
@@ -291,12 +293,15 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
           </div>
         </ptah-native-popover>
           </div>
-          <div content class="w-72 p-3" role="dialog" aria-label="Rename session">
-            <h3 class="mb-2 text-sm font-semibold">Rename session</h3>
-            <input #renameInput type="text" class="input input-bordered w-full" aria-label="Session name" [maxLength]="nameMaxLength" [value]="renameDraft()" [readOnly]="renaming()" (input)="renameDraft.set(renameInput.value)" (keydown.enter)="saveRename()" />
-            <div class="mt-3 flex justify-end gap-2">
-              <button type="button" class="btn btn-ghost btn-sm" (click)="cancelRename()">Cancel</button>
-              <button type="button" class="btn btn-primary btn-sm" [disabled]="renaming()" (click)="saveRename()">Save</button>
+          <div content class="w-72 p-4" role="dialog" aria-label="Rename session" (keydown)="onRenameKeydown($event)">
+            <h3 class="mb-3 text-sm font-semibold text-base-content-muted">Rename session</h3>
+            <input #renameInput type="text" class="input input-sm input-bordered mb-3 w-full bg-base-100 border-base-content/10 focus:border-primary focus:outline-none" aria-label="Session name" [attr.aria-describedby]="renameError() ? 'rail-rename-error-' + tabId() : null" [maxLength]="nameMaxLength" [value]="renameDraft()" [readOnly]="renaming()" (input)="onRenameInput(renameInput.value)" (keydown.enter)="onRenameEnter($event)" />
+            @if (renameError(); as error) {
+              <p class="mb-3 text-xs text-error" [id]="'rail-rename-error-' + tabId()">{{ error }}</p>
+            }
+            <div class="flex gap-2">
+              <button type="button" class="btn btn-sm btn-ghost flex-1" (click)="cancelRename()">Cancel</button>
+              <button type="button" class="btn btn-sm btn-primary flex-1" [disabled]="renaming()" (click)="saveRename()">Save</button>
             </div>
           </div>
         </ptah-native-popover>
@@ -339,6 +344,7 @@ export class CanvasRailCardComponent implements SessionCardActions {
   readonly menuOpen = signal(false);
   readonly renameOpen = signal(false);
   readonly renameDraft = signal('');
+  readonly renameError = signal('');
   /** A `session:rename` is in flight: Enter and Save are ignored, the field is read-only (D74). */
   readonly renaming = signal(false);
   /** Bumped per Rename open, so a late save result never closes a later popover. */
@@ -365,6 +371,7 @@ export class CanvasRailCardComponent implements SessionCardActions {
     this.railState.emit(state);
   }
   onStaleAction(): void {
+    this.announcement.set('');
     this.announcement.set(
       'This request has changed. Open the current request.',
     );
@@ -421,6 +428,7 @@ export class CanvasRailCardComponent implements SessionCardActions {
   }
   startRename(): void {
     if (!this.sessionId()) return;
+    this.renameError.set('');
     this.renameDraft.set(this.tab()?.title ?? '');
     this.renameOpenCount++;
     this.closeMenu();
@@ -435,7 +443,38 @@ export class CanvasRailCardComponent implements SessionCardActions {
   }
   cancelRename(): void {
     this.renameOpen.set(false);
+    this.renameError.set('');
     queueMicrotask(() => this.focusActionTrigger());
+  }
+  onRenameInput(value: string): void {
+    this.renameDraft.set(value);
+    this.renameError.set('');
+  }
+  onRenameEnter(event: Event): void {
+    if (
+      event instanceof KeyboardEvent &&
+      (event.isComposing || event.keyCode === 229)
+    ) {
+      return;
+    }
+    void this.saveRename();
+  }
+  onRenameKeydown(event: KeyboardEvent): void {
+    if (event.key !== 'Tab') return;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const panel = target.closest<HTMLElement>('[role="dialog"]');
+    if (!panel) return;
+    const controls = [...panel.querySelectorAll<HTMLElement>('input, button:not(:disabled)')];
+    const first = controls[0];
+    const last = controls.at(-1);
+    if (event.shiftKey && document.activeElement === first) {
+      last?.focus();
+      event.preventDefault();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      first?.focus();
+      event.preventDefault();
+    }
   }
   async saveRename(): Promise<void> {
     // Enter repeat, or Enter then Save, must not send overlapping renames:
@@ -447,10 +486,15 @@ export class CanvasRailCardComponent implements SessionCardActions {
     const openCount = this.renameOpenCount;
     this.renaming.set(true);
     try {
-      // A 'failed' result closes like success (design 8.7, D75).
-      await this.rowActions.rename(id, current.title, this.renameDraft());
+      const result = await this.rowActions.rename(id, current.title, this.renameDraft());
       // Closed meanwhile (Cancel, Escape, backdrop) or reopened: leave focus alone.
       if (this.renameOpen() && openCount === this.renameOpenCount) {
+        if (result === 'failed') {
+          this.renameError.set("Couldn't rename. Try again.");
+          this.announcement.set('');
+          this.announcement.set("Couldn't rename. Try again.");
+          return;
+        }
         this.cancelRename();
       }
     } finally {
@@ -461,6 +505,7 @@ export class CanvasRailCardComponent implements SessionCardActions {
     const id = this.sessionId();
     const current = this.tab();
     if (!id || !current || !this.organizer.available()) return;
+    this.announcement.set('');
     this.closeMenu();
     const restore = () => queueMicrotask(() => this.focusActionTrigger());
     if (this.organizer.rowFor(id)) {

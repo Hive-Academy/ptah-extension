@@ -3,6 +3,8 @@ import { join } from 'node:path';
 import {
   ChangeDetectionStrategy,
   Component,
+  Injector,
+  afterNextRender,
   effect,
   inject,
   input,
@@ -190,7 +192,10 @@ describe('CanvasRailCardComponent', () => {
   let loaded = false;
   const rowFor = jest.fn(() => loaded ? { id: sessionId } : null);
   const organizeOpen = jest.fn((_id: typeof sessionId, _restore: () => void) => undefined);
-  const organizeClose = jest.fn(() => organizeOpen.mock.calls.at(-1)?.[1]());
+  const organizeClose = jest.fn(() => {
+    const restore = organizeOpen.mock.calls.at(-1)?.[1];
+    afterNextRender(() => restore?.(), { injector: TestBed.inject(Injector) });
+  });
   const openForSession = jest.fn(async (_id: typeof sessionId, _name: string, _restore: () => void) => 'opened');
   const rename = jest.fn().mockResolvedValue('renamed');
   let persisted = true;
@@ -310,6 +315,10 @@ describe('CanvasRailCardComponent', () => {
     expect((fixture.nativeElement as HTMLElement).textContent).toContain(
       'This request has changed',
     );
+    (
+      fixture.debugElement.children[0].componentInstance as CardStub
+    ).staleAction.emit();
+    expect(fixture.componentInstance.announcement()).toBe('This request has changed. Open the current request.');
     const event = new KeyboardEvent('keydown', {
       key: 'Enter',
       bubbles: true,
@@ -441,6 +450,7 @@ describe('CanvasRailCardComponent', () => {
     const fixture = mount();
     const host = await openMenu(fixture);
     expect(item(host, 'rename').textContent).toContain('Rename');
+    expect(item(host, 'rename').getAttribute('aria-haspopup')).toBe('dialog');
     expect(host.querySelector('[data-action="organize"]')).toBeNull();
     expect(host.querySelector('[data-action="delete"]')).toBeNull();
     expect([...host.querySelectorAll('[role="menuitem"]')].map((node) => node.getAttribute('data-action'))).toEqual(['open-beside', 'rename', 'move-up', 'move-down']);
@@ -500,6 +510,45 @@ describe('CanvasRailCardComponent', () => {
     await settle();
     expect(rename).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(trigger(host));
+  });
+
+  it('cycles Tab inside Rename and ignores composition Enter', async () => {
+    const fixture = mount();
+    const host = await openMenu(fixture);
+    item(host, 'rename').click();
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+    const input = host.querySelector<HTMLInputElement>('[role="dialog"] input')!;
+    const buttons = host.querySelectorAll<HTMLButtonElement>('[role="dialog"] button');
+    input.focus();
+    expect(keydown(input, 'Tab', { shiftKey: true }).defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(buttons[1]);
+    expect(keydown(buttons[1], 'Tab').defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(input);
+    keydown(input, 'Enter', { isComposing: true });
+    expect(rename).not.toHaveBeenCalled();
+  });
+
+  it('uses the specified Rename geometry and a single input focus treatment', async () => {
+    const fixture = mount();
+    const host = await openMenu(fixture);
+    item(host, 'rename').click();
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+    await settle();
+    fixture.detectChanges();
+    const panel = host.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(panel.classList).toContain('w-72');
+    expect(panel.classList).toContain('p-4');
+    expect(panel.closest('ptah-native-popover')?.className).toContain('[&>.popover-panel]:p-0');
+    expect(panel.querySelector('h3')?.classList).toContain('text-base-content-muted');
+    expect(panel.querySelector('input')?.classList).toContain('input-sm');
+    expect(panel.querySelector('input')?.classList).toContain('focus:outline-none');
+    expect([...panel.querySelectorAll('button')].every((button) => button.classList.contains('flex-1'))).toBe(true);
   });
 
   describe('Rename in flight (M4, D74)', () => {
@@ -610,6 +659,42 @@ describe('CanvasRailCardComponent', () => {
       elsewhere.remove();
     });
 
+    it('keeps a reopened Rename focused when the previous request fails', async () => {
+      const fixture = mount();
+      const first = await openRename(fixture);
+      keydown(first.input, 'Enter');
+      cancelButton(first.host).click();
+      fixture.detectChanges();
+      await settle();
+      const second = await openRename(fixture);
+      resolveRename('failed');
+      await settle();
+      fixture.detectChanges();
+      expect(second.host.querySelector('[role="dialog"]')).not.toBeNull();
+      expect(document.activeElement).toBe(second.input);
+      expect(fixture.componentInstance.renaming()).toBe(false);
+      expect(fixture.componentInstance.renameError()).toBe('');
+    });
+
+    it('keeps a failed rename draft and announces its inline error', async () => {
+      const fixture = mount();
+      const { host, input } = await openRename(fixture);
+      keydown(input, 'Enter');
+      resolveRename('failed');
+      await settle();
+      fixture.detectChanges();
+      expect(host.querySelector('[role="dialog"]')).not.toBeNull();
+      expect(input.value).toBe('Renamed');
+      expect(input.getAttribute('aria-describedby')).toBe('rail-rename-error-a');
+      expect(host.querySelector('#rail-rename-error-a')?.textContent).toBe("Couldn't rename. Try again.");
+      expect(fixture.componentInstance.announcement()).toBe("Couldn't rename. Try again.");
+      input.value = 'New draft';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      fixture.detectChanges();
+      expect(fixture.componentInstance.renameError()).toBe('');
+      expect(input.getAttribute('aria-describedby')).toBeNull();
+    });
+
     it('lets a second rename through after the first resolves', async () => {
       const fixture = mount();
       const { input } = await openRename(fixture);
@@ -630,6 +715,7 @@ describe('CanvasRailCardComponent', () => {
     loaded = true;
     const fixture = mount();
     const host = await openMenu(fixture);
+    expect(item(host, 'organize').getAttribute('aria-haspopup')).toBe('dialog');
     item(host, 'organize').click();
     fixture.detectChanges();
     expect(organizeOpen).toHaveBeenCalledWith(sessionId, expect.any(Function));
@@ -639,10 +725,24 @@ describe('CanvasRailCardComponent', () => {
     editorClose.focus();
     TestBed.inject(SessionOrganizerService).close();
     editorClose.focus();
-    await settle();
     fixture.detectChanges();
+    await settle();
     expect(document.activeElement).toBe(trigger(host));
     editorClose.remove();
+  });
+
+  it('falls back to the select button when Organize closes after its trigger disconnects', async () => {
+    available.set(true);
+    loaded = true;
+    const fixture = mount();
+    const host = await openMenu(fixture);
+    item(host, 'organize').click();
+    fixture.detectChanges();
+    trigger(host).remove();
+    TestBed.inject(SessionOrganizerService).close();
+    fixture.detectChanges();
+    await settle();
+    expect(document.activeElement).toBe(host.querySelector('.rc-select'));
   });
 
   it('loads an excluded persisted card and announces only a failed read', async () => {
@@ -654,6 +754,13 @@ describe('CanvasRailCardComponent', () => {
     await settle();
     fixture.detectChanges();
     expect(openForSession).toHaveBeenCalledWith(sessionId, 'Alpha', expect.any(Function));
+    expect(fixture.componentInstance.announcement()).toBe("Could not load this session's organization.");
+    openForSession.mockResolvedValueOnce('failed');
+    await openMenu(fixture);
+    item(host, 'organize').click();
+    expect(fixture.componentInstance.announcement()).toBe('');
+    await settle();
+    fixture.detectChanges();
     expect(fixture.componentInstance.announcement()).toBe("Could not load this session's organization.");
   });
 
@@ -737,6 +844,8 @@ describe('CanvasRailCardComponent', () => {
         host.querySelector(`[id="${describedBy}"]`)?.textContent?.trim(),
       ).toBe(reason);
       expect(openBeside.textContent).toContain(reason);
+      expect(openBeside.querySelector('span[aria-hidden="true"]')?.classList).toContain('truncate');
+      expect(openBeside.querySelector('span[aria-hidden="true"]')?.getAttribute('title')).toBe(reason);
       openBeside.click();
       fixture.detectChanges();
       expect(beside).not.toHaveBeenCalled();
