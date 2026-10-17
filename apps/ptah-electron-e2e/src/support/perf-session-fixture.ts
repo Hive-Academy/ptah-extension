@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import type { ElementHandle, Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
 import {
   encodeHistoryCursor,
   HISTORY_PAGE_DEFAULT_EVENTS,
@@ -429,18 +429,42 @@ async function mockSessions(
   });
 }
 
-/** Resolves the sidebar row button without matching its rename/delete buttons. */
+/** Opens the loaded Previous sessions list, including after its lazy-load dialog. */
+export async function openPreviousSessions(page: Page): Promise<void> {
+  const dialog = page
+    .getByRole('dialog', { name: 'Previous sessions' })
+    .filter({ has: page.locator('[data-testid="previous-sessions-list"]') });
+  const list = dialog.locator('[data-testid="previous-sessions-list"]');
+  if (!(await list.isVisible())) {
+    await page.locator('[data-previous-sessions-trigger]:visible').first().click();
+  }
+  await expect(list).toBeVisible();
+}
+
+/** Resolves the modal row's open button without matching its other actions. */
 export function sessionRowButton(page: Page, name: string) {
-  // A grouped sidebar wraps rows in a session-group <li>; skip it so the
-  // filter matches the row itself.
   return page
-    .locator('.sidebar-scroll li:not([data-testid="session-group"])')
+    .locator(
+      '[data-testid="previous-sessions-list"] li:not([data-testid="session-group"])',
+    )
     .filter({ hasText: name })
-    .getByRole('button')
+    .locator('[data-action="open"]')
     .first();
 }
 
-/** Opens the canvas, mocks the sessions, and waits for their sidebar rows. */
+/** Opens a session from the modal, whether the list is already showing or not. */
+export async function openSessionFromList(
+  page: Page,
+  name: string,
+): Promise<void> {
+  await openPreviousSessions(page);
+  await sessionRowButton(page, name).click();
+  await expect(
+    page.getByRole('dialog', { name: 'Previous sessions' }),
+  ).toBeHidden();
+}
+
+/** Opens the canvas, mocks sessions, and leaves their modal list open. */
 export async function prepareCanvasWithSessions(
   ui: UiDriver,
   sessions: readonly SessionFixture[],
@@ -453,6 +477,7 @@ export async function prepareCanvasWithSessions(
   // debounced metadata refresh used by the application.
   await ui.pushEvent({ type: 'session:metadataChanged', payload: {} });
 
+  await openPreviousSessions(ui.page);
   for (const session of sessions) {
     await expect(sessionRowButton(ui.page, session.name)).toBeVisible();
   }
@@ -469,22 +494,4 @@ export async function waitForTileMarker(
       .filter({ hasText: marker })
       .locator('[data-testid="chat-tool-output"]', { hasText: marker }),
   ).toBeVisible({ timeout: 20_000 });
-}
-
-/** Resolves sidebar handles before the measured window opens. */
-export async function resolveButtonHandles(
-  page: Page,
-  sessions: readonly SessionFixture[],
-): Promise<ElementHandle<HTMLElement>[]> {
-  const handles: ElementHandle<HTMLElement>[] = [];
-  for (const session of sessions) {
-    const handle = await sessionRowButton(page, session.name).elementHandle();
-    if (!handle) {
-      throw new Error(
-        `[AC-11 perf] sessionRowButton element handle not found for "${session.name}"`,
-      );
-    }
-    handles.push(handle as ElementHandle<HTMLElement>);
-  }
-  return handles;
 }
