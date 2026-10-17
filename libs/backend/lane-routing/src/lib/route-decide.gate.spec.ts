@@ -944,4 +944,22 @@ describe('route decide gate: selection and target come from one snapshot (R1-3)'
       { name: 'Error', code: 'EACCES' },
     );
   });
+
+  it('drops a code shaped like a Node code that is not on the allowlist (R2-1)', async () => {
+    const h = snapshotHarness();
+    const secretShaped = 'ESK4LIVE9X2QZ7';
+    h.secrets.get.mockRejectedValue(
+      Object.assign(new Error('rejected'), { code: secretShaped }),
+    );
+
+    await h.service.decide(implement(), candidateSource([...THREE]));
+
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      '[lane-routing] decision model target could not be resolved',
+      { name: 'Error' },
+    );
+    expect(JSON.stringify(jest.mocked(h.logger.warn).mock.calls)).not.toContain(
+      secretShaped,
+    );
+  });
 });

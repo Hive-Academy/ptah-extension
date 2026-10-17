@@ -455,8 +455,27 @@ function schemaError(
   return new Error(`${prefix} at ${path}: ${first?.message ?? 'invalid'}`);
 }
 
-/** Node system and internal error codes (`ENOENT`, `ERR_INVALID_URL`). */
-const NODE_ERROR_CODE = /^(?:E[A-Z0-9]{1,31}|ERR_[A-Z0-9_]{1,60})$/;
+/**
+ * Fixed Node error codes that may be logged. A code is untrusted data, so
+ * only an exact member of this set passes; a shape test would let a
+ * credential that looks like a code through.
+ */
+const LOGGABLE_ERROR_CODES: ReadonlySet<string> = new Set([
+  'EACCES',
+  'EPERM',
+  'ENOENT',
+  'EBUSY',
+  'EIO',
+  'EMFILE',
+  'ENOSPC',
+  'EROFS',
+  'ETIMEDOUT',
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'ERR_INVALID_URL',
+]);
 
 /**
  * Log facts of a rejection from the key store, the target resolver or the
@@ -471,7 +490,7 @@ function errorFacts(error: unknown): {
   const name = errorName(error);
   if (typeof error === 'object' && error !== null && 'code' in error) {
     const code = error['code'];
-    if (typeof code === 'string' && NODE_ERROR_CODE.test(code)) {
+    if (typeof code === 'string' && LOGGABLE_ERROR_CODES.has(code)) {
       return { name, code };
     }
   }

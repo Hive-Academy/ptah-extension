@@ -1,6 +1,6 @@
 # Phase 2 code logic review — Batches 6–10
 
-**Round-1 result: 6/10. Verdict: REVISE.** The original findings and the round-1 fix assessment are recorded below; the current verdict is in “Re-review round 1.”
+**Round-2 result: 6/10. Verdict: REVISE.** The earlier findings and fix assessments remain below; the current verdict is in “Re-review round 2.”
 
 **Review family: codex (implementer: Claude).** Scope: the Phase 2 source and specs, their callers, the task context and plan, and the five named commits. No tests, builds, lint, or diagnostics were run under the review's no-heavy-command rule.
 
@@ -130,3 +130,37 @@ Verification:
   - Reversible.
 - **`RangeError` added to the allowlist.** It is a fixed built-in name, and the existing body-read test relies on it. Reversible.
 - **`resolveSystemOneTarget` keeps a default parameter.** `failure-class/decision-model-failure-classifier.ts:201` still calls it with no argument. That file is outside this round's scope and has the same two-read pattern; it should pass its own selection in a later change.
+
+## Re-review round 2
+
+**Score: 6/10. Verdict: REVISE. Review family: codex (implementer: Claude).** The three round-1 paths are corrected, but a custom or Cloud key can still reach a log through the newly filtered `error.code` path. This violates criterion 1.6 and keeps the review below the sound 7–8 band. Target and mark identity checks, fixed error names, and the targeted tests keep it above the 3–4 band. One serious defect remains; no blocking or moderate defects were found in this round.
+
+### Round-1 defect status
+
+1. **R1-1: fixed for `Error.name`; overall secrecy still needs revision.** `errorName` accepts only fixed names and catches a throwing getter (`libs/backend/lane-routing/src/lib/decision-model/decision-model.detail.ts:48-85`). The prober, config, client, catalog, route service, and failure classifier use it (`decision-model.prober.ts:137`; `decision-model.config.ts:699`; `system-one.client.ts:225`; `route-decide.service.ts:471`; `failure-class/decision-model-failure-classifier.ts:474`). Hostile-name cases appear in `decision-model.config.endpoint.spec.ts:1308-1406` and `route-decide.gate.spec.ts:913-930`. A separate `error.code` leak is defect R2-1 below.
+2. **R1-2: fixed.** Constructor binding leaves restored keyed marks unverified (`decision-model.config.ts:178-179,898-901`); matching requires a non-null credential binding (`:717-723`). An unsupported probe replaces the mark and detail, while a ready probe clears it (`:604-635`). The restart cases cover key B before a probe, ready, unsupported, unreachable, and key A reprobe (`decision-model.config.endpoint.spec.ts:1410-1534`).
+3. **R1-3: fixed.** `openCaller` passes its captured selection into target resolution (`route-decide.service.ts:335-368`; `decision-model.config.ts:244-251`); failure classification now does the same (`failure-class/decision-model-failure-classifier.ts:143-150,197-202`). The snapshot test covers a selection change during key read (`route-decide.gate.spec.ts:797-911`).
+
+### Implementer deviations
+
+- **(a) Accept.** A restored local `ollama` mark may bind to the empty credential because the resolver passes no key for that kind (`decision-model.target.ts:120-126`; `decision-model.config.ts:898-901`). It still must match the current selection and base URL (`decision-model.config.ts:717-723`).
+- **(b) Accept.** `RangeError` is a fixed allowlisted category; arbitrary names fall back to `other` (`decision-model.detail.ts:48-73`).
+- **(c) Reject as a secrecy boundary.** A Node-shaped string is still untrusted data. The filter at `route-decide.service.ts:459,472-475` accepts a value shaped like a credential; see R2-1.
+
+### New defect
+
+1. **R2-1 — SERIOUS — A dependency can still log a key through `error.code`.** `libs/backend/lane-routing/src/lib/route-decide.service.ts:369-374,459,467-475`. If the key store rejects while resolving a custom or Cloud target with `code` equal to a key such as `ESECRET123`, the regular expression accepts that value and `logger.warn` receives the key. The new test rejects `Bearer <sentinel>` and expects it to be dropped, but separately requires `EACCES` to be logged; it does not test a key that itself matches the pattern (`route-decide.gate.spec.ts:913-945`). The same helper is used for a rotation-store rejection (`route-decide.service.ts:393-399`). **Fix:** log only the fixed error category, or map known codes through a literal allowlist that cannot echo an arbitrary key; add a sentinel credential with a Node-shaped value to the key-store failure test.
+
+### Five logic questions
+
+1. **Silent failure:** after restart, a keyed mark no longer reports unsupported without a current probe; a failed probe returns its own state (`decision-model.config.ts:717-723,638-643`).
+2. **User action:** selecting a different model while target resolution awaits now preserves the original selection and target for that call (`route-decide.service.ts:335-368`).
+3. **Wrong-answer input:** an `error.code` string that is both a credential and Node-shaped is logged as if it were a trusted system code (`route-decide.service.ts:459,472-475`).
+4. **Dependency failure:** a key-store rejection with that code reaches the target-resolution warning; a rejected fetch with a hostile name instead reaches a fixed category (`route-decide.service.ts:369-374`; `decision-model.detail.ts:63-85`).
+5. **Missing requirement detail:** criterion 1.6's universal no-key rule needs a test where the key resembles accepted diagnostic metadata, including a Node-shaped code (`task-description.md:88-90`; `route-decide.gate.spec.ts:913-945`).
+
+This read-only round examined commit `0b783a5e0`, the changed source and targeted specs, the prior review and task requirements. Scoped `ptah_get_diagnostics` returned zero TypeScript errors. The implementer reported 26 suites and 764 tests passing; this reviewer ran no Nx, Jest, build, lint, or git mutation. Runtime behavior of an actual failing secret store was not executed. Out of scope, pre-existing raw `error.name` logs remain in `pipeline/gather.ts`, `ranking/rotation.store.ts`, and `matrix/capability-matrix.store.ts`; they are not counted as Phase 2 defects.
+
+### Decisions
+
+- **Reject the Node-shape code filter as proof of secrecy.** Options: omit `code`, use a literal allowlist, or keep the regular expression. Criterion 1.6 forbids a logged key, and the regex accepts arbitrary `E`-prefixed alphanumeric text (`route-decide.service.ts:459,472-475`). Omitting `code` is the simplest reversible fix.
