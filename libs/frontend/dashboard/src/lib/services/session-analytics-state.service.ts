@@ -476,9 +476,24 @@ export class SessionAnalyticsStateService {
     result: RpcResult<SessionStatsBatchResult>,
   ): void {
     const answered = new Map<string, SessionStatsEntry>();
-    if (result.isSuccess() && pageMatchesLoad(result.data, load)) {
+    if (
+      result.isSuccess() &&
+      typeof result.data === 'object' &&
+      result.data !== null &&
+      pageMatchesLoad(result.data, load) &&
+      Array.isArray(result.data.sessionStats)
+    ) {
       const requested = new Set(page);
       for (const stat of result.data.sessionStats) {
+        if (
+          typeof stat !== 'object' ||
+          stat === null ||
+          typeof stat.sessionId !== 'string' ||
+          (stat.modelUsageList !== undefined &&
+            !Array.isArray(stat.modelUsageList))
+        ) {
+          continue;
+        }
         if (requested.has(stat.sessionId)) answered.set(stat.sessionId, stat);
       }
     }

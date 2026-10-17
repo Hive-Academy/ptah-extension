@@ -317,6 +317,73 @@ describe('SessionAnalyticsStateService', () => {
   });
 
   describe('coverage, failures and cost', () => {
+    it('marks a successful page without sessionStats as unreadable and continues', async () => {
+      const done = service.loadDashboardData();
+      answerList(listCalls()[0], sessions(23));
+      await flush();
+
+      statsCalls()[0].reply.resolve(new RpcResult(true, {}));
+      await flush();
+      expect(service.statsProgress()).toEqual({ loaded: 20, total: 23 });
+      expect(statsCalls()).toHaveLength(2);
+
+      answerStats(statsCalls()[1]);
+      await done;
+
+      expect(
+        statuses()
+          .slice(0, 20)
+          .every((status) => status === 'error'),
+      ).toBe(true);
+      expect(statuses().slice(20)).toEqual(['ok', 'ok', 'ok']);
+      expect(service.statsProgress()).toEqual({ loaded: 23, total: 23 });
+      expect(service.loadError()).toBeNull();
+    });
+
+    it('marks a successful page with null data as unreadable and continues', async () => {
+      const done = service.loadDashboardData();
+      answerList(listCalls()[0], sessions(23));
+      await flush();
+
+      statsCalls()[0].reply.resolve(new RpcResult(true, null));
+      await flush();
+      expect(service.statsProgress()).toEqual({ loaded: 20, total: 23 });
+      expect(statsCalls()).toHaveLength(2);
+
+      answerStats(statsCalls()[1]);
+      await done;
+
+      expect(statuses().slice(0, 20)).toEqual(Array(20).fill('error'));
+      expect(statuses().slice(20)).toEqual(['ok', 'ok', 'ok']);
+      expect(service.statsProgress()).toEqual({ loaded: 23, total: 23 });
+      expect(service.loadError()).toBeNull();
+    });
+
+    it('skips malformed stats elements and keeps valid entries', async () => {
+      const done = service.loadDashboardData();
+      answerList(listCalls()[0], sessions(4));
+      await flush();
+
+      statsCalls()[0].reply.resolve(
+        new RpcResult(true, {
+          sessionStats: [
+            okStats(sessionId(0)),
+            null,
+            'bad',
+            { sessionId: 123 },
+            { ...okStats(sessionId(1)), modelUsageList: {} },
+            okStats(sessionId(2)),
+            { ...okStats(sessionId(3)), modelUsageList: undefined },
+          ],
+        }),
+      );
+      await done;
+
+      expect(statuses()).toEqual(['ok', 'error', 'ok', 'ok']);
+      expect(service.statsProgress()).toEqual({ loaded: 4, total: 4 });
+      expect(service.loadError()).toBeNull();
+    });
+
     it('marks a failed page as error and still reads the pages after it', async () => {
       const done = service.loadDashboardData();
       answerList(listCalls()[0], sessions(25));
