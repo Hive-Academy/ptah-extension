@@ -462,6 +462,9 @@ Named later items (not in this task's batches; carry to `future-enhancements.md`
 - L5 Log a `rekey-collision` warn when `rekey` finds `existing !== key`.
 - L6 `IdleCompactionService` constructor: one trailing `options?` object, one way to say absent.
 - L7 `idle-compaction.constants.ts`; derive the min-tokens floor and default from the shared descriptor.
+- L8 Spec for a reducer that throws on `session-released` (the one legitimate `group-failed`
+  path). In that path the reducer keeps the prior state, so a hung `sending` attempt can keep
+  `finalize` from running (leaked claim and aliases). From the Batch 8I re-review, Minor.
 
 Decisions:
 
@@ -584,7 +587,7 @@ Decisions:
   batch-8H-report.md.
 - Phase 1 re-review: DONE; found N1 (Serious), N2, N3 and 8G item 1. See Batch 8I.
 
-## Batch 8I: Phase 1 bounded correction — hung send, safe warn, rekey log — COMPLETE (commit PENDING_SHA)
+## Batch 8I: Phase 1 bounded correction — hung send, safe warn, rekey log — COMPLETE (commit 2e8b4820b)
 
 - Recommended executor: CLI lane [implementation, TypeScript]
 - Execution mode: sequential
@@ -621,8 +624,12 @@ Decisions:
   passes; eslint on the idle folder 0 errors (20 pre-existing non-null-assertion warnings in
   specs). `steps$` is `share()`d, so the `takeUntil` subscription adds no second reducer pass.
   Lane report: batch-8I-report.md.
+- Phase 1 scoped re-review of 8I: APPROVED (code-logic-review.md § Batch 8I re-review; 0
+  Blocking, 0 Serious; implementer codex, reviewer Claude). Phase 1 is CLOSED. Minor residuals:
+  sender enqueue after claim release -> acceptance note on Task 10.2; reducer throw on
+  `session-released` without a spec -> later item L8.
 
-## Batch 9: Session tap signals — PENDING
+## Batch 9: Session tap signals — COMPLETE
 
 - Recommended executor: CLI lane [implementation, TypeScript backend]
 - Execution mode: sequential
@@ -634,7 +641,7 @@ Decisions:
 - Phase: 2 | Phase review: deferred to Batch 13
 - ACs: 1.1-1.5 producers, 4.4 (release), A4
 
-### Task 9.1: `CompactionSessionTap` idle producers — PENDING
+### Task 9.1: `CompactionSessionTap` idle producers — IN_PROGRESS
 
 - Files: `<W>\libs\backend\agent-sdk\src\lib\helpers\session-lifecycle\session-query-executor.service.ts`, `<W>\libs\backend\agent-sdk\src\lib\helpers\session-lifecycle\session-query-executor.idle-signals.spec.ts` (CREATE)
 - Plan reference: implementation-plan.md:536-552 (8a)
@@ -652,6 +659,12 @@ Decisions:
 ### Batch 9 verification
 
 - Command: `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/helpers/session-lifecycle --coverage=false --maxWorkers=2 2>&1 | tail -30 && npx nx typecheck @ptah-extension/agent-sdk 2>&1 | tail -15`
+- Result (team-leader, on disk, attempt 1): NOT ACCEPTED. Code matches 8a and the P1 note
+  (`sessionBound` only in `bind`; same-id init emits nothing; no `input` from the tap; `idle`
+  optional last param; `guardIdle` fail-open). Jest 12 suites / 260 pass; typecheck passes.
+  ESLint on the new spec: 2 errors `require-yield` at
+  `session-query-executor.idle-signals.spec.ts:49` and `:66`. Also new: `max-lines` warning on
+  the service (756 > 700; base had none) -> carried to the Phase 2 style review.
 
 ## Batch 10: Pump veto, facade, token and DI registration (send path live) — PENDING
 
@@ -691,6 +704,11 @@ Decisions:
   `sendIdleCompact(id, before)` calls `_streamPump.sendMessage(id, '/compact', undefined,
   undefined, { origin: IDLE_COMPACT_ORIGIN, admission: 'require-idle', beforeEnqueue: before })`,
   with `origin` equal to `{ kind: 'coordinator' }`, and emits no `input`.
+- Carried from the Batch 8I re-review (Minor residual): the sender must not enqueue the idle
+  `/compact` after its claim was released. The final liveness/claim check (`beforeEnqueue`)
+  and the enqueue must be atomic: no `await` between that check and the push. Spec: the
+  sender's claim is released (sending deadline elapsed) before enqueue -> no enqueue, and the
+  sender promise settles (rejects).
 
 ### Task 10.3: DI registration — PENDING
 

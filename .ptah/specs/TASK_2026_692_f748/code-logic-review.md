@@ -138,3 +138,51 @@ addressed. The rekey is dropped silently and later signals under `toId` never re
 
 Decisions: none needed. F1 to F4 are confirmed fixed at the state-machine level; N1 is reported rather than
 treated as a regression of F3 because the claim and attempt do release.
+
+## Batch 8I re-review
+
+Review family: Claude (Sonnet 5.5) reviewing codex implementation. Scope: uncommitted diff of
+`libs/backend/agent-sdk/src/lib/helpers/compaction/idle/` read against the full service file and
+`idle-session.reducer.ts:408-414`. No tests, typecheck or lint run by me; the codex report's tails are not
+independently verified.
+
+| Finding | Verdict | Evidence |
+| ------- | ------- | -------- |
+| N1 hung send wedges `exhaustMap` | FIXED | `idle-compaction.service.ts:219-237`: each `fire()` inner is piped through `takeUntil(steps$.pipe(filter(state is not in-flight/sending for this attemptId)))`. `steps$` is `share()`d (`:181`) and always has subscribers, so the notifier is a plain Subject subscription; a subscriber added during the emitting step does not receive that step, so the inner is not cancelled by its own triggering step. When `deadline-elapsed` (or release, which sets `attempt: null` at reducer `:410`, or `fire-sent`/`fire-skipped`) moves the attempt out of `sending`, the notifier fires, the inner is unsubscribed, and `exhaustMap` accepts the next fire. |
+| N1 late resolve enqueues or claims | FIXED | `beforeEnqueue` (`:~330-358`) throws `IdleSendVetoedError` unless `isLive()`, the alias exists, and `state().attempt` is `in-flight`/`sending` with the same `attemptId`, before `claimIdle`. After the deadline the attempt is closed or a different id, so it vetoes. The late rejection is harmless: the inner was unsubscribed, and rxjs ignores `error` on a stopped subscriber, so no unhandled rejection and no stray `fire-skipped` is enqueued (it would be attempt-id guarded anyway). |
+| N2 throwing logger | FIXED for all logger calls in the idle folder | `safeWarn` (`idle-compaction.helpers.ts:9-20`) wraps `logger.warn` in try/catch. Every former `this.warn` call site now uses it (`service.ts:101, 241, 247, 293, 430, 433`). The one direct logger call, `this.logger[effect.level]` in `runEffects` (`:272`), is inside the per-effect try whose catch uses `safeWarn`. No logger call remains that can throw into `scan`, `catchError`, `finalize` or the outer subscriber. |
+| N3 silent rekey collision | FIXED | `enqueue` (`:424-431`) warns `rekey-collision` with source and destination ids only when `resolveIdleSignal` returned null for a `rekey` whose both ids are registered under different keys. No false positive for unknown sessions (`aliases.has(sessionId)` guard). |
+| 8G item 1 false `group-failed` | FIXED | `releaseSignalFailed` is assigned only in the reducer catch and is true only when the failing signal is `session-released` (`:148`); `finalize` warns on that flag only (`:246-247`). `catchError` still warns for real pipeline errors. |
+
+### Specs
+
+- N1: `idle-compaction.service.spec.ts:379-407` holds the first send forever, passes its deadline, starts a later
+  turn and asserts the sender is called a second time and a claim is held. This fails without `takeUntil`
+  (the second fire would be dropped by `exhaustMap`), so it exercises the fix. `:480-499` resumes a send after the
+  deadline and asserts no enqueue, no claim, no notice. It exercises the veto only, which is the intended scope.
+- N2: coalesce spec `:444-463` makes `warn` always throw, fails one session's signal, then asserts another session
+  still fires. Exercises the `runEffects` and `enqueue` catch paths. It does not drive the `catchError` or
+  outer-subscriber paths, but they now share the same `safeWarn`.
+- N3: coalesce spec `:467-479` asserts the exact payload.
+- Coalesce spec edit to existing tests: the diff changes only the expected `reason` in the failed-signal test
+  from `group-failed` to `signal-failed` and adds a `not.toHaveBeenCalledWith(... group-failed)`. Nothing else in
+  existing tests changed. Correct and consistent with 8G item 1.
+
+### New defects introduced
+
+None Blocking or Serious. Minor and residual:
+
+- Minor: no spec covers the remaining legitimate `group-failed` case (reducer throwing on `session-released`).
+  Note in that case the reducer's catch returns the previous state, so an in-flight `sending` attempt would
+  keep the `takeUntil` unsatisfied; `groupBy` still closes the group but a hung send would keep `finalize` from
+  running (leaked claim and aliases). Only reachable if the reducer throws on release; low likelihood.
+- Minor: a send that called `beforeEnqueue` successfully (claim taken) and then hangs inside the sender past the
+  deadline can still enqueue its message after the reducer released the claim. This is a Phase 2 sender contract
+  matter (the sender must re-check or hold the claim); not introduced by 8I.
+- Minor (style, route to style reviewer): removal of the blank line before `private fire` at `service.ts:~296`.
+
+### Verdict
+
+- Recommendation: APPROVE
+- Assessment: APPROVED (0 Blocking, 0 Serious, 0 new Moderate; 2 Minor residuals above)
+- Confidence: MEDIUM-HIGH. Derived from reading the code and rxjs semantics; test execution is the team-leader's.
