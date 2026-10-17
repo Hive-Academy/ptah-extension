@@ -534,6 +534,13 @@ describe('CanvasRailCardComponent', () => {
     expect(document.activeElement).toBe(buttons[1]);
     expect(keydown(buttons[1], 'Tab').defaultPrevented).toBe(true);
     expect(document.activeElement).toBe(input);
+    document.body.focus();
+    input.blur();
+    expect(keydown(document.body, 'Tab').defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(input);
+    input.blur();
+    expect(keydown(document.body, 'Tab', { shiftKey: true }).defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(buttons[1]);
     keydown(input, 'Enter', { isComposing: true });
     expect(rename).not.toHaveBeenCalled();
   });
@@ -711,6 +718,22 @@ describe('CanvasRailCardComponent', () => {
       fixture.detectChanges();
       expect(fixture.componentInstance.renameError()).toBe('');
       expect(input.getAttribute('aria-describedby')).toBeNull();
+    });
+
+    it('returns focus to the input after Save fails in the current Rename dialog', async () => {
+      const fixture = mount();
+      const { host, input } = await openRename(fixture);
+      const save = saveButton(host);
+      save.focus();
+      save.click();
+      fixture.detectChanges();
+      expect(save.disabled).toBe(true);
+      input.blur();
+      resolveRename('failed');
+      await settle();
+      fixture.detectChanges();
+      expect(document.activeElement).toBe(input);
+      expect(input.value).toBe('Renamed');
     });
 
     it('lets a second rename through after the first resolves', async () => {

@@ -370,9 +370,29 @@ export class CanvasRailBoardComponent {
     effect((onCleanup) => {
       if (!this.visible()) return;
       const document = this.host.nativeElement.ownerDocument;
+      const window = document.defaultView;
       // A press places a caret, and its `selectionchange` fires before
       // `pointerup`; the press hold must survive it, so `up` re-reads instead.
       const activePointerIds = new Set<number>();
+      const stopTracking = () => {
+        document.removeEventListener('pointerup', up);
+        document.removeEventListener('pointercancel', up);
+        this.host.nativeElement.removeEventListener('lostpointercapture', lostCapture);
+        window?.removeEventListener('blur', releaseAll);
+        document.removeEventListener('visibilitychange', hidden);
+      };
+      const releaseAll = () => {
+        if (activePointerIds.size === 0) return;
+        activePointerIds.clear();
+        stopTracking();
+        selection();
+      };
+      const hidden = () => {
+        if (document.hidden) releaseAll();
+      };
+      const lostCapture = (event: PointerEvent) => {
+        if (activePointerIds.has(event.pointerId)) releaseAll();
+      };
       const selection = () => {
         if (activePointerIds.size > 0) return;
         // Hold only for selected text. A collapsed caret (left by a plain click,
@@ -398,6 +418,9 @@ export class CanvasRailBoardComponent {
         if (activePointerIds.size === 0) {
           document.addEventListener('pointerup', up);
           document.addEventListener('pointercancel', up);
+          this.host.nativeElement.addEventListener('lostpointercapture', lostCapture);
+          window?.addEventListener('blur', releaseAll);
+          document.addEventListener('visibilitychange', hidden);
         }
         activePointerIds.add(event.pointerId);
         this.holdTabId.set(
@@ -407,8 +430,7 @@ export class CanvasRailBoardComponent {
       };
       const up = (event: PointerEvent) => {
         if (!activePointerIds.delete(event.pointerId) || activePointerIds.size > 0) return;
-        document.removeEventListener('pointerup', up);
-        document.removeEventListener('pointercancel', up);
+        stopTracking();
         selection();
       };
       document.addEventListener('selectionchange', selection);
@@ -416,10 +438,7 @@ export class CanvasRailBoardComponent {
       onCleanup(() => {
         document.removeEventListener('selectionchange', selection);
         this.host.nativeElement.removeEventListener('pointerdown', down);
-        if (activePointerIds.size > 0) {
-          document.removeEventListener('pointerup', up);
-          document.removeEventListener('pointercancel', up);
-        }
+        stopTracking();
         activePointerIds.clear();
       });
     });

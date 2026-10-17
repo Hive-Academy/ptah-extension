@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   ElementRef,
   Injector,
   afterNextRender,
@@ -293,7 +294,7 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
           </div>
         </ptah-native-popover>
           </div>
-          <div content class="w-72 p-4" role="dialog" aria-label="Rename session" (keydown)="onRenameKeydown($event)">
+          <div content class="w-72 p-4" role="dialog" aria-label="Rename session">
             <h3 class="mb-3 text-sm font-semibold text-base-content-muted">Rename session</h3>
             <input #renameInput type="text" class="input input-sm input-bordered mb-3 w-full bg-base-100 border-base-content/10 focus:border-primary focus:outline-none" aria-label="Session name" [attr.aria-describedby]="renameError() ? 'rail-rename-error-' + tabId() : null" [maxLength]="nameMaxLength" [value]="renameDraft()" [readOnly]="renaming()" (input)="onRenameInput(renameInput.value)" (keydown.enter)="onRenameEnter($event)" />
             @if (renameError(); as error) {
@@ -317,7 +318,9 @@ export class CanvasRailCardComponent implements SessionCardActions {
   readonly organizer = inject(SessionOrganizerService);
   private readonly rowActions = inject(SessionRowActionsService);
   private readonly injector = inject(Injector);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly renameKeydown = (event: KeyboardEvent) => this.onRenameKeydown(event);
   private readonly actions = viewChild<ElementRef<HTMLElement>>('actions');
   private readonly trigger =
     viewChild<ElementRef<HTMLButtonElement>>('trigger');
@@ -342,6 +345,12 @@ export class CanvasRailCardComponent implements SessionCardActions {
   readonly moveDownRequested = output<string>();
   readonly announcement = signal('');
   private announcementTimer: ReturnType<typeof setTimeout> | undefined;
+  constructor() {
+    this.destroyRef.onDestroy(() => {
+      clearTimeout(this.announcementTimer);
+      this.host.nativeElement.ownerDocument.removeEventListener('keydown', this.renameKeydown);
+    });
+  }
   readonly menuOpen = signal(false);
   readonly renameOpen = signal(false);
   readonly renameDraft = signal('');
@@ -434,6 +443,8 @@ export class CanvasRailCardComponent implements SessionCardActions {
   }
   startRename(): void {
     if (!this.sessionId()) return;
+    clearTimeout(this.announcementTimer);
+    this.announcement.set('');
     this.renameError.set('');
     this.renameDraft.set(this.tab()?.title ?? '');
     this.renameOpenCount++;
@@ -443,11 +454,14 @@ export class CanvasRailCardComponent implements SessionCardActions {
     }, { injector: this.injector });
   }
   onRenameOpened(): void {
+    if (!this.renameOpen()) return;
+    this.host.nativeElement.ownerDocument.addEventListener('keydown', this.renameKeydown);
     const input = this.renameInput()?.nativeElement;
     input?.focus();
     input?.select();
   }
   cancelRename(): void {
+    this.host.nativeElement.ownerDocument.removeEventListener('keydown', this.renameKeydown);
     this.renameOpen.set(false);
     this.renameError.set('');
     queueMicrotask(() => this.focusActionTrigger());
@@ -467,14 +481,16 @@ export class CanvasRailCardComponent implements SessionCardActions {
   }
   onRenameKeydown(event: KeyboardEvent): void {
     if (event.key !== 'Tab') return;
-    const target = event.target;
-    if (!(target instanceof Element)) return;
-    const panel = target.closest<HTMLElement>('[role="dialog"]');
-    if (!panel) return;
+    const document = this.host.nativeElement.ownerDocument;
+    const panel = this.renameInput()?.nativeElement.closest<HTMLElement>('[role="dialog"]');
+    if (!this.renameOpen() || !panel?.isConnected) return;
     const controls = [...panel.querySelectorAll<HTMLElement>('input, button:not(:disabled)')];
     const first = controls[0];
     const last = controls.at(-1);
-    if (event.shiftKey && document.activeElement === first) {
+    if (!panel.contains(document.activeElement)) {
+      (event.shiftKey ? last : first)?.focus();
+      event.preventDefault();
+    } else if (event.shiftKey && document.activeElement === first) {
       last?.focus();
       event.preventDefault();
     } else if (!event.shiftKey && document.activeElement === last) {
@@ -498,6 +514,7 @@ export class CanvasRailCardComponent implements SessionCardActions {
         if (result === 'failed') {
           this.renameError.set("Couldn't rename. Try again.");
           this.announce("Couldn't rename. Try again.");
+          this.renameInput()?.nativeElement.focus();
           return;
         }
         this.cancelRename();
@@ -530,7 +547,8 @@ export class CanvasRailCardComponent implements SessionCardActions {
   /** Escape, a backdrop click or a chosen item: close and return to the trigger. */
   closeMenu(): void {
     this.menuOpen.set(false);
-    this.trigger()?.nativeElement.focus();
+    const trigger = this.trigger()?.nativeElement;
+    if (trigger?.isConnected) trigger.focus();
   }
   /** A late `opened` after the menu already closed must not pull focus back in. */
   onMenuOpened(): void {
