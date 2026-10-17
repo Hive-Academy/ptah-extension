@@ -1,0 +1,60 @@
+:host { display: block; min-width: 0; }
+.streams { min-width: 0; color: oklch(var(--bc)); }
+.stream-viewport {
+  --rows: 10;
+  --row-height: 44px;
+  --row-gap: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--row-gap);
+  box-sizing: border-box;
+  height: calc(var(--rows) * var(--row-height) + (var(--rows) - 1) * var(--row-gap) + 14px);
+  padding: 7px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-color: var(--surface-border-strong) transparent;
+}
+.stream-entry { min-width: 0; }
+.stream-row {
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  width: 100%;
+  height: 44px;
+  min-height: 44px;
+  gap: 7px;
+  padding: 4px 7px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: oklch(var(--bc));
+  text-align: left;
+  cursor: pointer;
+}
+.stream-row:hover, .stream-row[aria-pressed='true'] { border-color: var(--surface-border-strong); background: var(--surface-3); }
+.stream-row:focus-visible, .view-all:focus-visible { outline: 2px solid var(--state-ink-need, oklch(var(--wa))); outline-offset: 2px; }
+.is-satellite .stream-row { padding-left: 16px; }
+.is-satellite .provider-monogram { position: relative; }
+.is-satellite .provider-monogram::before { content: ''; position: absolute; left: -10px; top: -8px; width: 6px; height: 16px; border-left: 1px solid oklch(var(--bcm, var(--bc))); border-bottom: 1px solid oklch(var(--bcm, var(--bc))); }
+.provider-monogram { display: grid; flex: none; place-items: center; width: 24px; height: 24px; border: 1px solid var(--surface-border); border-radius: 6px; background: var(--surface-0); color: oklch(var(--bc)); font-size: 10px; font-weight: 700; }
+.stream-text { min-width: 0; flex: 1; }
+.stream-name, .stream-sub { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.stream-name { font-size: 12px; line-height: 16px; font-weight: 600; }
+.stream-sub { color: oklch(var(--bcm, var(--bc))); font-size: 11px; line-height: 15px; }
+.state-icon { display: inline-flex; flex: none; color: var(--state-ink-idle, oklch(var(--bc))); }
+.stream-row[data-state='starting'] .state-icon, .stream-row[data-state='running'] .state-icon { color: var(--state-ink-run, oklch(var(--in))); }
+.stream-row[data-state='awaiting input'] .state-icon { color: var(--state-ink-need, oklch(var(--wa))); }
+.stream-row[data-state='completed'] .state-icon { color: var(--state-ink-done, oklch(var(--su))); }
+.stream-row[data-state='failed'] .state-icon, .stream-row[data-state='cancelled'] .state-icon { color: var(--state-ink-err, oklch(var(--er))); }
+.stream-row[data-state='starting'] .state-icon lucide-icon, .stream-row[data-state='running'] .state-icon lucide-icon { animation: loader-spin 3.7s linear infinite; }
+.state-icon.is-static lucide-icon { animation: none; }
+@keyframes loader-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .state-icon lucide-icon { animation: none !important; } }
+.stream-age { flex: none; color: oklch(var(--bcm, var(--bc))); font-family: monospace; font-size: 11px; white-space: nowrap; }
+.tribunal-progress { display: inline-flex; align-items: center; flex: none; gap: 4px; color: oklch(var(--bcm, var(--bc))); font-size: 10px; }
+.tribunal-arc { width: 17px; height: 17px; border-radius: 50%; background: conic-gradient(var(--state-ink-done, oklch(var(--su))) var(--progress), var(--surface-border-strong) 0); mask: radial-gradient(transparent 50%, black 54%); }
+.plate-slot { box-sizing: border-box; width: 100%; margin-top: 8px; }
+.view-all { display: block; min-height: 34px; margin-top: 5px; padding: 5px 4px; border: 0; border-radius: 4px; background: transparent; color: var(--state-ink-need, oklch(var(--wa))); text-align: left; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+@container stage (max-width: 959px) { .stream-viewport { --rows: 6; } }
+@container stage (max-width: 679px) { .stream-viewport { --rows: 4; } .stream-age { display: none; } }
+@container stage (max-width: 339px) { .stream-viewport { --rows: 3; } }
