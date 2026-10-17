@@ -1,0 +1,1636 @@
+<!doctype html>
+<html lang="en" data-theme="anubis">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Ptah Command Center — scene revision</title>
+    <style>
+      /* Theme literals: apps/ptah-extension-webview/tailwind.config.js and src/styles.css. */
+      :root {
+        font-family: Inter, system-ui, sans-serif;
+        color-scheme: dark;
+        --b1: #131317;
+        --b2: #1a1a20;
+        --b3: #242430;
+        --bc: #e8e6e1;
+        --muted: oklch(66.509856% 0.007403 31.090978);
+        --gold: #d4af37;
+        --gold-strong: #f5d97d;
+        --run: #3b82f6;
+        --need: #f97316;
+        --err: #ef4444;
+        --done: #16a34a;
+        --idle: #9ca3af;
+        --row-muted: #b8b5b3;
+        --chip-error: #ff7979;
+        --edge: color-mix(in oklch, var(--bc) 20%, transparent);
+        --glass: color-mix(in oklch, var(--b2) 82%, transparent);
+      }
+      html[data-theme='anubis-light'] {
+        color-scheme: light;
+        --b1: oklch(97.788% 0.004 56.375);
+        --b2: oklch(93.982% 0.007 61.449);
+        --b3: oklch(91.586% 0.006 53.44);
+        --bc: oklch(23.574% 0.066 313.189);
+        --muted: oklch(48.955188% 0.044796 348.478612);
+        --gold: oklch(58% 0.132 75);
+        --gold-strong: oklch(48% 0.12 70);
+        --run: #2a56c6;
+        --need: #8f5200;
+        --err: #b4232a;
+        --done: #13713a;
+        --idle: #6b6570;
+        --row-muted: var(--muted);
+        --chip-error: var(--err);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--b1);
+        color: var(--bc);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+      button,
+      select {
+        font: inherit;
+        color: inherit;
+      }
+      button {
+        cursor: pointer;
+      }
+      button:focus-visible,
+      select:focus-visible {
+        outline: 2px solid var(--gold-strong);
+        outline-offset: 3px;
+      }
+      .toolbar {
+        position: sticky;
+        top: 0;
+        z-index: 30;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+        padding: 10px 16px;
+        background: var(--b1);
+        border-bottom: 1px solid var(--edge);
+      }
+      .toolbar strong,
+      .eyebrow {
+        color: var(--gold-strong);
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        font-size: 11px;
+      }
+      .toolbar label {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
+      .toolbar select {
+        background: var(--b2);
+        border: 1px solid var(--edge);
+        border-radius: 6px;
+        min-height: 36px;
+        padding: 0 8px;
+      }
+      .toolbar small {
+        margin-left: auto;
+        color: var(--muted);
+      }
+      .viewport {
+        width: min(100%, var(--view-width, 1440px));
+        min-height: var(--view-height, 900px);
+        margin: 16px auto;
+        border: 1px solid var(--edge);
+        background: var(--b1);
+      }
+      .page-head {
+        min-height: 72px;
+        padding: 10px 16px;
+        border-bottom: 1px solid var(--edge);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .page-head h1 {
+        margin: 0;
+        font-size: 20px;
+      }
+      .page-head .chip {
+        border: 1px solid var(--edge);
+        border-radius: 99px;
+        padding: 7px 10px;
+        font-size: 11px;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 336px;
+        gap: 16px;
+        padding: 16px;
+        align-items: start;
+      }
+      .stage {
+        container: stage / inline-size;
+        position: relative;
+        min-width: 0;
+        min-height: 420px;
+        border: 1px solid var(--edge);
+        border-radius: 12px;
+        background: var(--b2);
+      }
+      .stage:before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background-image: radial-gradient(var(--edge) 0.7px, transparent 0.7px);
+        background-size: 16px 16px;
+        opacity: 0.4;
+        pointer-events: none;
+      }
+      .stage-top {
+        position: relative;
+        padding: 16px 20px 0;
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .stage-top p {
+        margin: 0;
+      }
+      .kicker {
+        color: var(--gold-strong);
+        font-size: 11px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        font-weight: 700;
+      }
+      .meta,
+      .voice-label {
+        color: var(--muted);
+        font-size: 11px;
+      }
+      .scene {
+        position: relative;
+        display: grid;
+        grid-template-columns: minmax(190px, 270px) minmax(210px, 1fr) minmax(
+            190px,
+            252px
+          );
+        align-items: center;
+        gap: 12px;
+        min-height: 530px;
+        padding: 20px;
+        isolation: isolate;
+      }
+      .wires {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        z-index: -1;
+        pointer-events: none;
+      }
+      .streams,
+      .core,
+      .groups {
+        position: relative;
+        min-width: 0;
+      }
+      .streams h2,
+      .groups h2 {
+        margin: 0 0 8px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        font-size: 11px;
+      }
+      .stream-list {
+        --rows: 10;
+        --row: 44px;
+        --gap: 5px;
+        display: flex;
+        flex-direction: column;
+        gap: var(--gap);
+        height: calc(
+          var(--rows) * var(--row) + (var(--rows) - 1) * var(--gap) + 14px
+        );
+        max-height: calc(
+          var(--rows) * var(--row) + (var(--rows) - 1) * var(--gap) + 14px
+        );
+        overflow: auto;
+        padding: 7px;
+        scrollbar-color: var(--edge) transparent;
+      }
+      .stream {
+        height: 44px;
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+        width: 100%;
+        gap: 8px;
+        text-align: left;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        background: color-mix(in oklch, var(--b3) 55%, transparent);
+        padding: 4px 8px;
+      }
+      .stream:hover,
+      .stream:focus-visible,
+      .stream[aria-pressed='true'] {
+        border-color: var(--edge);
+        background: var(--b3);
+      }
+      .stream .dot {
+        width: 8px;
+        height: 8px;
+        flex: none;
+        border-radius: 50%;
+        background: var(--state, var(--idle));
+      }
+      .stream[data-state='running'],
+      .stream[data-state='starting'] {
+        --state: var(--run);
+      }
+      .stream[data-state='awaiting input'] {
+        --state: var(--need);
+      }
+      .stream[data-state='failed'],
+      .stream[data-state='cancelled'] {
+        --state: var(--err);
+      }
+      .stream[data-state='completed'] {
+        --state: var(--done);
+      }
+      .stream .text {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .stream .name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .stream .sub,
+      .stream .age {
+        font-size: 11px;
+        color: var(--row-muted);
+      }
+      .stream .sub {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .stream .age {
+        margin-left: auto;
+        white-space: nowrap;
+        font-family: 'JetBrains Mono', monospace;
+      }
+      .overflow {
+        display: block;
+        min-height: 34px;
+        margin-top: 5px;
+        padding: 5px 4px;
+        border: 0;
+        background: transparent;
+        text-decoration: underline;
+        text-underline-offset: 3px;
+        color: var(--gold-strong);
+        text-align: left;
+      }
+      #overflow[hidden] {
+        display: none;
+      }
+      .core {
+        display: flex;
+        justify-content: center;
+      }
+      .dial {
+        --diameter: 292px;
+        position: relative;
+        width: var(--diameter);
+        height: var(--diameter);
+        border: 1px solid var(--edge);
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: radial-gradient(
+          circle,
+          color-mix(in oklch, var(--gold) 13%, var(--b1)) 0%,
+          var(--b1) 65%,
+          var(--b2) 69%
+        );
+        box-shadow: 0 0 0 8px color-mix(in oklch, var(--gold) 7%, transparent);
+      }
+      .dial:before {
+        content: '';
+        position: absolute;
+        inset: 15px;
+        border-radius: 50%;
+        border: 2px solid var(--gold);
+        border-left-color: transparent;
+        border-bottom-color: color-mix(in oklch, var(--gold) 40%, transparent);
+      }
+      .dial:after {
+        content: '';
+        position: absolute;
+        inset: 28px;
+        border-radius: 50%;
+        border: 1px solid var(--edge);
+      }
+      .ticks {
+        position: absolute;
+        inset: -7px;
+        width: calc(100% + 14px);
+        height: calc(100% + 14px);
+        pointer-events: none;
+      }
+      .voice-ring {
+        position: absolute;
+        inset: 8px;
+        border: 3px solid var(--gold);
+        border-radius: 50%;
+        pointer-events: none;
+        transform: scale(var(--voice-scale, 1));
+        opacity: 0.75;
+      }
+      .dial[data-voice='listening'] .voice-ring {
+        border-color: #67d5c6;
+      }
+      .dial[data-voice='thinking'] .voice-ring {
+        border-color: #8ebcff;
+        border-right-color: transparent;
+      }
+      .dial[data-voice='speaking'] .voice-ring {
+        border-color: var(--gold);
+        border-style: dashed;
+      }
+      .dial[data-voice='muted'] .voice-ring,
+      .dial[data-voice='stopped'] .voice-ring {
+        border-color: var(--idle);
+        border-style: dashed;
+      }
+      .dial[data-voice='error'] .voice-ring {
+        border-color: var(--err);
+        border-style: dashed;
+      }
+      .root-button {
+        position: relative;
+        z-index: 1;
+        width: 74%;
+        height: 74%;
+        border: 0;
+        border-radius: 50%;
+        background: transparent;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+      }
+      .root-button[aria-pressed='true'] {
+        outline: 1px solid var(--gold-strong);
+      }
+      .brand {
+        font:
+          700 12px Georgia,
+          serif;
+        letter-spacing: 0.2em;
+        color: var(--gold-strong);
+      }
+      .count {
+        font:
+          500 50px/1 'JetBrains Mono',
+          monospace;
+        margin: 7px 0;
+        font-variant-numeric: tabular-nums;
+      }
+      .unit,
+      .session,
+      .voice-caption {
+        font-size: 11px;
+      }
+      .unit {
+        color: var(--muted);
+      }
+      .session,
+      .voice-caption {
+        color: var(--gold-strong);
+      }
+      .groups {
+        display: grid;
+        gap: 8px;
+      }
+      .group {
+        min-height: 80px;
+        border: 1px solid var(--edge);
+        border-radius: 12px;
+        background: var(--glass);
+        padding: 9px 12px;
+        box-shadow:
+          inset 0 1px color-mix(in oklch, var(--bc) 12%, transparent),
+          0 8px 20px #0002;
+      }
+      .gtitle,
+      .gsub,
+      .gcount em {
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .gcount {
+        font:
+          500 24px/1.2 'JetBrains Mono',
+          monospace;
+        font-variant-numeric: tabular-nums;
+      }
+      .gcount em {
+        font-style: normal;
+        margin-left: 5px;
+      }
+      .failed-chip {
+        color: var(--chip-error);
+        font-weight: 700;
+      }
+      .rail {
+        border: 1px solid var(--edge);
+        border-radius: 12px;
+        background: var(--b2);
+        padding: 14px;
+        max-height: 620px;
+        overflow: auto;
+      }
+      .rail h2 {
+        margin: 0;
+        font-size: 14px;
+      }
+      .rail p {
+        margin: 3px 0 10px;
+        color: var(--muted);
+        font-size: 11px;
+      }
+      .rail-list {
+        display: grid;
+        gap: 4px;
+      }
+      .rail-row {
+        min-height: 44px;
+        width: 100%;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        text-align: left;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        background: transparent;
+        padding: 5px 8px;
+      }
+      .rail-row:hover,
+      .rail-row:focus-visible,
+      .rail-row[aria-pressed='true'] {
+        background: var(--b3);
+        border-color: var(--edge);
+      }
+      .rname {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .rstate {
+        margin-left: auto;
+        color: var(--muted);
+        font-size: 11px;
+        white-space: nowrap;
+      }
+      .dock {
+        grid-column: 1/-1;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+        border: 1px solid var(--edge);
+        border-radius: 12px;
+        background: var(--b2);
+        padding: 12px;
+      }
+      .command {
+        flex: 1;
+        min-width: 180px;
+        border: 1px solid var(--edge);
+        border-radius: 6px;
+        background: var(--b1);
+        color: var(--muted);
+        padding: 8px 10px;
+      }
+      .dock button {
+        border: 1px solid var(--gold);
+        background: var(--gold);
+        color: var(--b1);
+        border-radius: 6px;
+        padding: 8px 12px;
+      }
+      .plate {
+        position: absolute;
+        z-index: 5;
+        width: min(256px, calc(100% - 16px));
+        display: none;
+        padding: 12px;
+        border: 1px solid var(--gold);
+        border-radius: 12px;
+        background: var(--b1);
+        box-shadow: 0 15px 35px #0007;
+      }
+      .plate.open {
+        display: block;
+      }
+      .plate h3 {
+        margin: 0 30px 4px 0;
+        font-size: 14px;
+      }
+      .plate p {
+        margin: 3px 0;
+        color: var(--muted);
+        font-size: 11px;
+      }
+      .plate button {
+        border: 1px solid var(--edge);
+        border-radius: 5px;
+        background: var(--b2);
+        padding: 6px 8px;
+      }
+      .plate .close {
+        position: absolute;
+        right: 6px;
+        top: 6px;
+        width: 30px;
+        height: 30px;
+      }
+      .plate .focus-row {
+        margin-top: 7px;
+      }
+      .viewport {
+        container: page / inline-size;
+      }
+      .stream[data-state='running'] .dot {
+        position: relative;
+      }
+      .stream[data-state='running'] .dot:after {
+        content: '';
+        position: absolute;
+        inset: -4px;
+        border: 1px solid var(--run);
+        border-right-color: transparent;
+        border-radius: 50%;
+        animation: running-turn 3.7s linear infinite;
+      }
+      @keyframes running-turn {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      .tribunal-cue {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        margin-left: 4px;
+        color: var(--gold-strong);
+        white-space: nowrap;
+      }
+      .tribunal-cue .satellite {
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: var(--gold);
+        box-shadow: 7px 0 var(--gold);
+      }
+      .tribunal-cue .arc {
+        width: 12px;
+        height: 12px;
+        border: 2px solid var(--gold);
+        border-left-color: var(--edge);
+        border-radius: 50%;
+      }
+      @container stage (max-width:959px) {
+        .scene {
+          grid-template-columns: 1fr;
+          gap: 26px;
+          min-height: 0;
+          padding: 18px 20px 24px;
+        }
+        .streams {
+          width: calc(100% - 24px);
+        }
+        .stream-list {
+          --rows: 6;
+        }
+        .core {
+          min-height: 220px;
+        }
+        .dial {
+          --diameter: 200px;
+        }
+        .groups {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 8px;
+        }
+        .group {
+          min-height: 72px;
+        }
+      }
+      @container stage (max-width:679px) {
+        .scene {
+          gap: 25px;
+          padding: 16px;
+        }
+        .stream-list {
+          --rows: 4;
+        }
+        .core {
+          min-height: 180px;
+        }
+        .dial {
+          --diameter: 160px;
+        }
+        .count {
+          font-size: 38px;
+        }
+        .groups {
+          gap: 6px;
+        }
+        .group {
+          min-height: 76px;
+          padding: 7px;
+        }
+        .gcount {
+          font-size: 20px;
+        }
+        .stream .age {
+          display: none;
+        }
+      }
+      @container stage (max-width:339px) {
+        .wires {
+          display: none;
+        }
+        .scene {
+          gap: 12px;
+        }
+        .groups {
+          grid-template-columns: 1fr;
+        }
+        .stream-list {
+          --rows: 3;
+        }
+        .core {
+          min-height: 168px;
+        }
+      }
+      @container page (max-width:760px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+        .rail {
+          max-height: 280px;
+        }
+        .page-head .chip {
+          display: none;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *:before,
+        *:after {
+          animation-duration: 0s !important;
+          transition-duration: 0s !important;
+          scroll-behavior: auto !important;
+        }
+      }
+      .dial[data-voice='thinking'] .voice-ring {
+        animation: thinking-turn 3.7s linear infinite;
+      }
+      @keyframes thinking-turn {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      .rail {
+        max-height: none;
+      }
+      .rail-list {
+        height: 484px;
+        overflow: auto;
+        padding: 4px;
+        scrollbar-color: var(--edge) transparent;
+      }
+      @container page (max-width:760px) {
+        .rail {
+          max-height: none;
+        }
+        .rail-list {
+          height: 196px;
+        }
+      }
+      @container stage (max-width:679px) {
+        .brand {
+          font-size: 11px;
+        }
+        .count {
+          font-size: 34px;
+          margin: 2px 0;
+        }
+        .unit,
+        .session,
+        .voice-caption {
+          font-size: 11px;
+          line-height: 1.1;
+        }
+        .session {
+          margin-top: 2px;
+        }
+        .voice-caption {
+          display: none;
+        }
+        .root-button {
+          width: 68%;
+          height: 68%;
+        }
+        .unit {
+          max-width: 92px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="toolbar">
+      <strong>Scene prototype</strong
+      ><label
+        >Theme
+        <select id="theme">
+          <option value="anubis">Dark Anubis</option>
+          <option value="anubis-light">Light Anubis</option>
+        </select></label
+      ><label
+        >Window
+        <select id="size">
+          <option value="1440x900">1440×900</option>
+          <option value="1100x700">1100×700</option>
+          <option value="900x800">900×800</option>
+          <option value="892x735">892×735</option>
+          <option value="400x800">400×800</option>
+        </select></label
+      ><label
+        >Data
+        <select id="variant">
+          <option value="8">8 nodes</option>
+          <option value="24">24 nodes</option>
+          <option value="32">32 nodes / overflow</option>
+          <option value="0">Empty</option>
+        </select></label
+      ><label
+        >Voice
+        <select id="voice">
+          <option>idle</option>
+          <option>listening</option>
+          <option>thinking</option>
+          <option>speaking</option>
+          <option>muted</option>
+          <option>stopped</option>
+          <option>error</option>
+        </select></label
+      ><label
+        >Input
+        <input
+          id="input-level"
+          type="range"
+          min="0"
+          max="1"
+          step=".05"
+          value="0"
+          aria-label="Voice input level" /></label
+      ><label
+        >Output
+        <input
+          id="output-level"
+          type="range"
+          min="0"
+          max="1"
+          step=".05"
+          value="0"
+          aria-label="Voice output level" /></label
+      ><small>Click or Enter to select · hover to preview</small>
+    </div>
+    <div class="viewport" id="viewport">
+      <header class="page-head">
+        <div>
+          <div class="eyebrow">Ptah / Engineering</div>
+          <h1>Command Center</h1>
+        </div>
+        <span class="chip" id="voice-chip">Voice idle</span>
+      </header>
+      <div class="layout">
+        <main class="stage" id="stage" aria-label="Live orchestration scene">
+          <div class="stage-top">
+            <div>
+              <p class="kicker">Live orchestration</p>
+              <p class="meta" id="stage-meta"></p>
+            </div>
+            <p class="voice-label" id="voice-label">Voice · idle</p>
+          </div>
+          <div class="scene" id="scene">
+            <svg class="wires" id="wires" aria-hidden="true">
+              <defs>
+                <linearGradient id="r-run">
+                  <stop stop-color="var(--run)" stop-opacity=".75" />
+                  <stop offset="1" stop-color="var(--run)" stop-opacity=".62" />
+                </linearGradient>
+                <linearGradient id="r-need">
+                  <stop stop-color="var(--need)" stop-opacity=".8" />
+                  <stop
+                    offset="1"
+                    stop-color="var(--need)"
+                    stop-opacity=".65"
+                  />
+                </linearGradient>
+                <linearGradient id="r-done">
+                  <stop stop-color="var(--done)" stop-opacity=".65" />
+                  <stop
+                    offset="1"
+                    stop-color="var(--done)"
+                    stop-opacity=".55"
+                  />
+                </linearGradient>
+                <linearGradient id="r-other">
+                  <stop stop-color="var(--idle)" stop-opacity=".65" />
+                  <stop
+                    offset="1"
+                    stop-color="var(--idle)"
+                    stop-opacity=".55"
+                  />
+                </linearGradient>
+              </defs>
+              <g id="paths"></g>
+            </svg>
+            <section class="streams" aria-labelledby="streams-title">
+              <h2 id="streams-title">Work streams</h2>
+              <div class="stream-list" id="streams" role="list"></div>
+              <button type="button" class="overflow" id="overflow">
+                View all work
+              </button>
+            </section>
+            <div class="core">
+              <div class="dial" id="dial" data-voice="idle">
+                <svg
+                  class="ticks"
+                  id="ticks"
+                  aria-hidden="true"
+                  viewBox="0 0 300 300"
+                ></svg>
+                <div class="voice-ring"></div>
+                <button
+                  type="button"
+                  class="root-button"
+                  id="root-button"
+                  aria-label="Ptah root session, running"
+                >
+                  <span class="brand">PTAH</span
+                  ><span class="count" id="active-count">0</span
+                  ><span class="unit">active delegated work</span
+                  ><span class="session">Root session · running</span
+                  ><span class="voice-caption" id="voice-caption"
+                    >Voice · idle</span
+                  >
+                </button>
+              </div>
+            </div>
+            <section class="groups" aria-label="Status overview">
+              <div
+                class="group"
+                data-group="run"
+                role="group"
+                aria-label="In progress"
+              >
+                <div class="gtitle">↗ In progress</div>
+                <div class="gcount">
+                  <span id="count-run">0</span><em>active</em>
+                </div>
+                <div class="gsub">Running and starting</div>
+              </div>
+              <div
+                class="group"
+                data-group="need"
+                role="group"
+                aria-label="Waiting for you"
+              >
+                <div class="gtitle">◇ Waiting for you</div>
+                <div class="gcount">
+                  <span id="count-need">0</span><em>input</em>
+                </div>
+                <div class="gsub">Response needed</div>
+              </div>
+              <div
+                class="group"
+                data-group="done"
+                role="group"
+                aria-label="Finished"
+              >
+                <div class="gtitle">✓ Finished</div>
+                <div class="gcount">
+                  <span id="count-done">0</span><em>done</em>
+                </div>
+                <div class="gsub">Completed work</div>
+              </div>
+              <div
+                class="group"
+                data-group="other"
+                role="group"
+                aria-label="Other work"
+              >
+                <div class="gtitle">◌ Other work</div>
+                <div class="gcount">
+                  <span id="count-other">0</span><em>other</em>
+                </div>
+                <div class="gsub" id="other-sub">Queued, idle, unknown</div>
+              </div>
+            </section>
+            <div
+              class="plate"
+              id="plate"
+              role="dialog"
+              aria-modal="false"
+              aria-label="Work details"
+            >
+              <button
+                class="close"
+                id="close"
+                type="button"
+                aria-label="Close details"
+              >
+                ×
+              </button>
+              <h3 id="plate-title"></h3>
+              <p id="plate-kind"></p>
+              <p id="plate-state"></p>
+              <button class="focus-row" id="focus-row" type="button">
+                Focus in work list ↗
+              </button>
+            </div>
+          </div>
+        </main>
+        <aside class="rail" aria-label="Work list">
+          <h2>Delegated work</h2>
+          <p id="rail-intro"></p>
+          <div class="rail-list" id="rail-list" role="list"></div>
+        </aside>
+        <div class="dock" aria-label="Command dock">
+          <span class="eyebrow">Command</span>
+          <div class="command">Ask Ptah to coordinate the next step…</div>
+          <button type="button">Send command</button
+          ><span id="dock-voice">Voice idle · session active</span>
+        </div>
+      </div>
+    </div>
+    <script>
+      const $ = (s) => document.querySelector(s),
+        ns = 'http://www.w3.org/2000/svg';
+      const base = [
+        {
+          id: 'child:planning',
+          kind: 'Child session',
+          name: 'Plan command routing',
+          state: 'running',
+          age: '2m',
+        },
+        {
+          id: 'agent:architect',
+          kind: 'SDK agent',
+          name: 'Scene architecture',
+          state: 'running',
+          age: '4m',
+          parentId: 'child:planning',
+        },
+        {
+          id: 'agent:voice',
+          kind: 'CLI agent',
+          name: 'Voice capture',
+          state: 'awaiting input',
+          age: '1m',
+        },
+        {
+          id: 'agent:tools',
+          kind: 'SDK agent',
+          name: 'Tool broker',
+          state: 'running',
+          age: '6m',
+        },
+        {
+          id: 'tribunal:review',
+          kind: 'Tribunal run',
+          name: 'Tribunal review',
+          state: 'running',
+          age: '3m',
+          phaseDone: 2,
+          phaseTotal: 3,
+        },
+        {
+          id: 'lane:visual',
+          kind: 'Tribunal lane',
+          name: 'Visual review lane',
+          state: 'queued',
+          parentId: 'tribunal:review',
+        },
+        {
+          id: 'agent:qa',
+          kind: 'CLI agent',
+          name: 'Accessibility audit',
+          state: 'failed',
+          age: '7m',
+        },
+        {
+          id: 'agent:docs',
+          kind: 'SDK agent',
+          name: 'Handoff notes',
+          state: 'completed',
+          age: '9m',
+        },
+      ];
+      const extraNames = [
+        'Dependency map',
+        'Component inventory',
+        'Token review',
+        'Contrast audit',
+        'Keyboard pass',
+        'Voice transcription',
+        'Error triage',
+        'Status grouping',
+        'Electron viewport',
+        'Sidebar parity',
+        'Provider marks',
+        'Hover details',
+        'Phase summary',
+        'Scene diagnostics',
+        'Release notes',
+        'Final review',
+        'Asset audit',
+        'Light theme',
+        'Focus return',
+        'Response review',
+        'Event stream',
+        'Readiness check',
+        'Command handoff',
+        'Final archive',
+      ];
+      const states = [
+        'running',
+        'queued',
+        'completed',
+        'running',
+        'unknown',
+        'starting',
+        'completed',
+        'running',
+        'idle',
+        'queued',
+        'completed',
+        'failed',
+        'running',
+        'completed',
+        'cancelled',
+        'awaiting input',
+      ];
+      let nodes = [],
+        placed = [],
+        selected = 'root',
+        preview = null,
+        pinned = false,
+        trigger = null,
+        hoverTimer = 0,
+        closeTimer = 0,
+        frame = 0,
+        rovingStream = null,
+        rovingRail = null;
+      function makeData() {
+        const n = Number($('#variant').value);
+        nodes =
+          n === 0
+            ? []
+            : n === 8
+              ? base
+              : [
+                  ...base,
+                  ...extraNames
+                    .slice(0, n - 8)
+                    .map((name, i) => ({
+                      id: 'extra:' + i,
+                      kind:
+                        i === 12
+                          ? 'Tribunal phase'
+                          : i % 4 === 0
+                            ? 'Child session'
+                            : 'SDK agent',
+                      name,
+                      state: states[i % states.length],
+                      age: i === 12 ? '' : i + 2 + 'm',
+                      parentId: i === 12 ? 'tribunal:review' : null,
+                    })),
+                ];
+        if (!nodes.some((x) => x.id === selected)) selected = 'root';
+        build();
+      }
+      function priority(x) {
+        return x.id === selected
+          ? 0
+          : x.state === 'failed' || x.state === 'awaiting input'
+            ? 1
+            : x.state === 'completed'
+              ? 3
+              : 2;
+      }
+      function placeNodes() {
+        const root = 'root';
+        const byId = new Map(nodes.map((n) => [n.id, n]));
+        const candidate = nodes.filter((n) => n.kind !== 'Tribunal phase');
+        const ids = new Set();
+        for (const n of candidate
+          .map((node, index) => ({ node, index }))
+          .sort(
+            (a, b) => priority(a.node) - priority(b.node) || a.index - b.index,
+          )) {
+          let needed = [n.node.id],
+            parent = n.node.parentId,
+            valid = true,
+            seen = new Set(needed);
+          while (parent && parent !== root) {
+            if (
+              seen.has(parent) ||
+              !byId.has(parent) ||
+              byId.get(parent).kind === 'Tribunal phase'
+            ) {
+              valid = false;
+              break;
+            }
+            seen.add(parent);
+            needed.push(parent);
+            parent = byId.get(parent).parentId;
+          }
+          if (
+            valid &&
+            ids.size + needed.filter((id) => !ids.has(id)).length <= 23
+          )
+            needed.forEach((id) => ids.add(id));
+        }
+        placed = candidate.filter((n) => ids.has(n.id));
+        const excluded = candidate.filter((n) => !ids.has(n.id));
+        return {
+          completed: excluded.filter((n) => n.state === 'completed').length,
+          other: excluded.filter((n) => n.state !== 'completed').length,
+        };
+      }
+      function createRow(n, rail) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = rail ? 'rail-row' : 'stream';
+        b.dataset.id = n.id;
+        b.dataset.state = n.state;
+        b.setAttribute('role', 'listitem');
+        b.setAttribute('aria-label', n.name + ', ' + n.kind + ', ' + n.state);
+        b.setAttribute('aria-pressed', String(selected === n.id));
+        b.tabIndex = -1;
+        if (rail) {
+          b.innerHTML =
+            '<span class="rname"></span><span class="rstate"></span>';
+          b.querySelector('.rname').textContent =
+            (n.parentId ? '↳ ' : '') + n.name;
+          b.querySelector('.rstate').textContent = n.state;
+        } else {
+          b.innerHTML =
+            '<span class="dot"></span><span class="text"><span class="name"></span><span class="sub"></span></span><span class="age"></span>';
+          b.querySelector('.name').textContent =
+            (n.parentId ? '↳ ' : '') + n.name;
+          b.querySelector('.sub').textContent = n.kind + ' · ' + n.state;
+          b.querySelector('.age').textContent = n.age || '';
+          if (n.kind === 'Tribunal run') {
+            const cue = document.createElement('span');
+            cue.className = 'tribunal-cue';
+            cue.setAttribute('aria-hidden', 'true');
+            cue.innerHTML =
+              '<span class="arc"></span><span class="satellite"></span><span>2/3</span>';
+            b.setAttribute(
+              'aria-label',
+              n.name +
+                ', Tribunal run, ' +
+                n.state +
+                ', 2 of 3 phases complete',
+            );
+            b.append(cue);
+          }
+        }
+        b.addEventListener('click', () => select(n, b));
+        b.addEventListener('mouseenter', () => schedulePreview(n, b));
+        b.addEventListener('mouseleave', () => scheduleClose());
+        b.addEventListener('focusin', () => {
+          setRoving(b, rail);
+          scheduleDraw();
+        });
+        b.addEventListener('keydown', (e) => {
+          if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            const list = [...b.parentElement.children];
+            list[
+              (list.indexOf(b) +
+                (e.key === 'ArrowDown' ? 1 : -1) +
+                list.length) %
+                list.length
+            ]?.focus();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            hidePlate(true);
+          }
+        });
+        return b;
+      }
+      function setRoving(b, rail) {
+        const list = rail ? $('#rail-list') : $('#streams');
+        [...list.children].forEach((x) => (x.tabIndex = x === b ? 0 : -1));
+        if (rail) rovingRail = b.dataset.id;
+        else rovingStream = b.dataset.id;
+      }
+      function build() {
+        const overflow = placeNodes();
+        $('#overflow').hidden = !nodes.length;
+        const streams = $('#streams'),
+          rail = $('#rail-list');
+        streams.replaceChildren(...placed.map((n) => createRow(n, false)));
+        rail.replaceChildren(...nodes.map((n) => createRow(n, true)));
+        setRoving(
+          streams.querySelector('[data-id="' + rovingStream + '"]') ||
+            streams.firstElementChild ||
+            $('#overflow'),
+          false,
+        );
+        if (rail.firstElementChild)
+          setRoving(
+            rail.querySelector('[data-id="' + rovingRail + '"]') ||
+              rail.firstElementChild,
+            true,
+          );
+        $('#overflow').textContent =
+          (overflow.completed
+            ? '+' + overflow.completed + ' completed · '
+            : '') +
+          (overflow.other ? '+' + overflow.other + ' more · ' : '') +
+          'View all work';
+        $('#stage-meta').textContent = nodes.length
+          ? nodes.length + ' projected nodes'
+          : 'No delegated work yet';
+        $('#rail-intro').textContent = nodes.length
+          ? nodes.length + ' projected nodes · select a row to inspect'
+          : 'Delegated work will appear here when Ptah starts it.';
+        const count = { run: 0, need: 0, done: 0, other: 0 };
+        for (const n of nodes.filter((x) => x.kind !== 'Tribunal phase')) {
+          if (n.state === 'running' || n.state === 'starting') count.run++;
+          else if (n.state === 'awaiting input') count.need++;
+          else if (n.state === 'completed') count.done++;
+          else count.other++;
+        }
+        $('#active-count').textContent = count.run;
+        for (const key in count) $('#count-' + key).textContent = count[key];
+        const failed = nodes.filter(
+            (x) => x.kind !== 'Tribunal phase' && x.state === 'failed',
+          ).length,
+          cancel = nodes.filter(
+            (x) => x.kind !== 'Tribunal phase' && x.state === 'cancelled',
+          ).length;
+        $('#other-sub').innerHTML =
+          '<span class="failed-chip"></span><span class="neutral-sub">Queued, idle, unknown</span>';
+        $('#other-sub .failed-chip').textContent =
+          (failed ? failed + ' failed ' : '') +
+          (cancel ? cancel + ' cancelled · ' : '');
+        updateSelection();
+        hidePlate(false);
+        scheduleDraw();
+      }
+      function updateSelection() {
+        document
+          .querySelectorAll('[data-id]')
+          .forEach((b) =>
+            b.setAttribute('aria-pressed', String(b.dataset.id === selected)),
+          );
+        $('#root-button').setAttribute(
+          'aria-pressed',
+          String(selected === 'root'),
+        );
+      }
+      function select(n, b) {
+        selected = n.id;
+        pinned = true;
+        trigger = b;
+        preview = n;
+        clearTimeout(hoverTimer);
+        clearTimeout(closeTimer);
+        if (n.kind !== 'Tribunal phase' && !placed.some((x) => x.id === n.id))
+          syncPlacement();
+        updateSelection();
+        showPlate(n, b);
+      }
+      function syncPlacement() {
+        const overflow = placeNodes(),
+          list = $('#streams'),
+          byId = new Map([...list.children].map((el) => [el.dataset.id, el]));
+        for (const old of [...list.children])
+          if (!placed.some((n) => n.id === old.dataset.id)) old.remove();
+        for (let i = 0; i < placed.length; i++) {
+          const n = placed[i],
+            el = byId.get(n.id) || createRow(n, false),
+            at = list.children[i];
+          if (el !== at) list.insertBefore(el, at || null);
+        }
+        if (!list.querySelector('[tabindex="0"]') && list.firstElementChild)
+          setRoving(list.firstElementChild, false);
+        $('#overflow').textContent =
+          (overflow.completed
+            ? '+' + overflow.completed + ' completed · '
+            : '') +
+          (overflow.other ? '+' + overflow.other + ' more · ' : '') +
+          'View all work';
+        scheduleDraw();
+      }
+      function schedulePreview(n, b) {
+        if (pinned) return;
+        clearTimeout(closeTimer);
+        clearTimeout(hoverTimer);
+        hoverTimer = setTimeout(() => {
+          preview = n;
+          trigger = b;
+          showPlate(n, b);
+        }, 150);
+      }
+      function scheduleClose() {
+        clearTimeout(hoverTimer);
+        if (!pinned) closeTimer = setTimeout(() => hidePlate(false), 200);
+      }
+      function showPlate(n, b) {
+        const plate = $('#plate');
+        $('#plate-title').textContent = n.name;
+        $('#plate-kind').textContent = n.kind;
+        $('#plate-state').textContent =
+          n.state +
+          (n.kind === 'Tribunal run' ? ' · 2 of 3 phases complete' : '');
+        plate.classList.add('open');
+        b.setAttribute('aria-expanded', 'true');
+        placePlate(b);
+      }
+      function placePlate(b) {
+        const plate = $('#plate'),
+          stage = $('#stage'),
+          scene = $('#scene'),
+          streams = $('.streams');
+        if (!plate.classList.contains('open')) return;
+        const pw = plate.offsetWidth,
+          ph = plate.offsetHeight,
+          stacked = stage.clientWidth < 960;
+        streams.style.marginBottom = stacked ? ph + 56 + 'px' : '0px';
+        scene.style.marginBottom = stacked ? '0px' : ph + 56 + 'px';
+        const sr = stage.getBoundingClientRect(),
+          br = b.getBoundingClientRect(),
+          streamRect = streams.getBoundingClientRect(),
+          sceneRect = scene.getBoundingClientRect();
+        const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+        const block = [
+          streamRect,
+          $('#dial').getBoundingClientRect(),
+          ...document.querySelectorAll('.group'),
+        ].map((r) => ({
+          left: r.left - sr.left - 4,
+          right: r.right - sr.left + 4,
+          top: r.top - sr.top - 4,
+          bottom: r.bottom - sr.top + 4,
+        }));
+        const fits = (x, y) =>
+          x >= 8 &&
+          x + pw <= sr.width - 8 &&
+          y >= 8 &&
+          y + ph <= sr.height - 8 &&
+          !block.some(
+            (r) =>
+              x < r.right && x + pw > r.left && y < r.bottom && y + ph > r.top,
+          );
+        const candidates = [
+          [br.right - sr.left + 8, br.top - sr.top],
+          [br.left - sr.left - pw - 8, br.top - sr.top],
+        ];
+        let choice = candidates.find(([x, y]) => fits(x, y));
+        if (!choice) {
+          const x = clamp(br.left - sr.left, 8, Math.max(8, sr.width - pw - 8));
+          const y =
+            (stacked ? streamRect.bottom : sceneRect.bottom) - sr.top + 8;
+          choice = [x, y];
+        }
+        plate.style.left = choice[0] + 'px';
+        plate.style.top = choice[1] + 'px';
+      }
+      function hidePlate(restore) {
+        $('#scene').style.marginBottom = '0px';
+        clearTimeout(hoverTimer);
+        clearTimeout(closeTimer);
+        $('#plate').classList.remove('open');
+        document
+          .querySelectorAll('[aria-expanded=true]')
+          .forEach((b) => b.removeAttribute('aria-expanded'));
+        pinned = false;
+        preview = null;
+        if (restore) {
+          const target = trigger?.isConnected
+            ? trigger
+            : document.querySelector('#rail-list [data-id="' + selected + '"]');
+          target?.focus();
+        }
+      }
+      function scheduleDraw() {
+        if (frame) return;
+        frame = requestAnimationFrame(() => {
+          frame = 0;
+          draw();
+        });
+      }
+      function draw() {
+        const scene = $('#scene'),
+          svg = $('#wires'),
+          paths = $('#paths'),
+          sr = scene.getBoundingClientRect(),
+          dr = $('#dial').getBoundingClientRect();
+        svg.setAttribute('viewBox', '0 0 ' + sr.width + ' ' + sr.height);
+        paths.replaceChildren();
+        if (sr.width < 340) return;
+        const stacked = sr.width < 960,
+          cx = dr.left - sr.left + dr.width / 2,
+          cy = dr.top - sr.top + dr.height / 2,
+          r = dr.width / 2;
+        const path = (d, stroke, width, opacity = 1) => {
+          const p = document.createElementNS(ns, 'path');
+          p.setAttribute('d', d);
+          p.setAttribute('fill', 'none');
+          p.setAttribute('stroke', stroke);
+          p.setAttribute('stroke-width', width);
+          p.setAttribute('opacity', opacity);
+          p.setAttribute('stroke-linecap', 'round');
+          paths.append(p);
+        };
+        const dot = (x, y) => {
+          const c = document.createElementNS(ns, 'circle');
+          c.setAttribute('cx', x);
+          c.setAttribute('cy', y);
+          c.setAttribute('r', 3);
+          c.setAttribute('fill', 'var(--gold-strong)');
+          paths.append(c);
+        };
+        const lr = $('#streams').getBoundingClientRect(),
+          visible = [...$('#streams').children].filter((b) => {
+            const a = b.getBoundingClientRect();
+            return a.bottom >= lr.top + 3 && a.top <= lr.bottom - 3;
+          });
+        visible.forEach((b, i) => {
+          const a = b.getBoundingClientRect(),
+            x = stacked ? a.right - sr.left + 3 : a.right - sr.left,
+            y = a.top - sr.top + a.height / 2;
+          const ex = stacked
+              ? cx +
+                (r * 0.65 * (i - (visible.length - 1) / 2)) /
+                  Math.max(1, visible.length - 1)
+              : cx - r + 4,
+            ey = stacked ? cy - r + 5 : cy + (i - 4) * 4;
+          if (stacked) {
+            const gx = sr.width - 10,
+              gy = lr.bottom - sr.top + 12 + i * 2;
+            path(
+              `M ${x} ${y} L ${gx} ${y} L ${gx} ${gy} C ${gx} ${gy + 22} ${ex} ${ey - 28} ${ex} ${ey}`,
+              'var(--gold)',
+              1.5,
+              0.65,
+            );
+          } else
+            path(
+              `M ${x} ${y} C ${x + 38} ${y} ${ex - 36} ${ey} ${ex} ${ey}`,
+              'var(--gold)',
+              1.5,
+              0.65,
+            );
+          dot(x, y);
+        });
+        [...document.querySelectorAll('.group')].forEach((g, i) => {
+          const a = g.getBoundingClientRect(),
+            x = stacked ? a.left - sr.left + a.width / 2 : a.left - sr.left,
+            y = a.top - sr.top + a.height / 2;
+          const sx = stacked
+              ? cx + r * [-0.65, 0.65, -0.35, 0.35][i]
+              : cx + r - 5,
+            sy = stacked ? cy + r - 6 : cy + (r * 0.54 * (i - 1.5)) / 2;
+          path(
+            stacked
+              ? `M ${sx} ${sy} C ${sx} ${sy + 32} ${x} ${y - 32} ${x} ${y}`
+              : `M ${sx} ${sy} C ${sx + 42} ${sy} ${x - 42} ${y} ${x} ${y}`,
+            'url(#r-' + g.dataset.group + ')',
+            i === 1 ? 20 : 16,
+          );
+        });
+      }
+      function ticks() {
+        const svg = $('#ticks');
+        for (let i = 0; i < 96; i++) {
+          const a = (i * Math.PI * 2) / 96,
+            major = i % 8 === 0;
+          const line = document.createElementNS(ns, 'line');
+          for (const [k, v] of Object.entries({
+            x1: 150 + 139 * Math.cos(a),
+            y1: 150 + 139 * Math.sin(a),
+            x2: 150 + (major ? 148 : 144) * Math.cos(a),
+            y2: 150 + (major ? 148 : 144) * Math.sin(a),
+          }))
+            line.setAttribute(k, v);
+          line.setAttribute('stroke', 'var(--gold)');
+          line.setAttribute('stroke-opacity', major ? '.75' : '.4');
+          line.setAttribute('stroke-width', major ? '1.5' : '1');
+          svg.append(line);
+        }
+      }
+      function voice() {
+        const v = $('#voice').value,
+          level =
+            v === 'listening'
+              ? Number($('#input-level').value)
+              : v === 'speaking'
+                ? Number($('#output-level').value)
+                : 0,
+          reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+        $('#dial').dataset.voice = v;
+        $('#voice-caption').textContent = 'Voice · ' + v;
+        $('#voice-label').textContent = 'Voice · ' + v;
+        $('#voice-chip').textContent = 'Voice ' + v;
+        $('#dock-voice').textContent = 'Voice ' + v + ' · session active';
+        $('#dial').style.setProperty(
+          '--voice-scale',
+          reduced ? 1 : 1 + 0.025 * Math.max(0, Math.min(1, level)),
+        );
+      }
+      $('#theme').addEventListener('change', (e) => {
+        document.documentElement.dataset.theme = e.target.value;
+        scheduleDraw();
+      });
+      $('#size').addEventListener('change', (e) => {
+        const [w, h] = e.target.value.split('x');
+        $('#viewport').style.setProperty('--view-width', w + 'px');
+        $('#viewport').style.setProperty('--view-height', h + 'px');
+        scheduleDraw();
+      });
+      $('#variant').addEventListener('change', makeData);
+      $('#voice').addEventListener('change', voice);
+      $('#input-level').addEventListener('input', voice);
+      $('#output-level').addEventListener('input', voice);
+      $('#root-button').addEventListener('click', () => {
+        selected = 'root';
+        hidePlate(false);
+        updateSelection();
+      });
+      $('#overflow').addEventListener('click', () =>
+        $('#rail-list [tabindex="0"]')?.focus(),
+      );
+      $('#focus-row').addEventListener('click', () => {
+        const b = document.querySelector(
+          '#rail-list [data-id="' + (preview?.id || selected) + '"]',
+        );
+        hidePlate(false);
+        b?.focus();
+      });
+      $('#close').addEventListener('click', () => hidePlate(true));
+      $('#plate').addEventListener('mouseenter', () =>
+        clearTimeout(closeTimer),
+      );
+      $('#plate').addEventListener('mouseleave', scheduleClose);
+      $('#streams').addEventListener('scroll', scheduleDraw, { passive: true });
+      $('#streams').addEventListener('focusin', scheduleDraw);
+      new ResizeObserver(scheduleDraw).observe($('#scene'));
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && $('#plate').classList.contains('open')) {
+          e.preventDefault();
+          hidePlate(true);
+        }
+      });
+      document.addEventListener('pointerdown', (e) => {
+        if (
+          pinned &&
+          !$('#plate').contains(e.target) &&
+          !e.target.closest('[data-id]')
+        )
+          hidePlate(false);
+      });
+      ticks();
+      voice();
+      makeData();
+    </script>
+  </body>
+</html>
