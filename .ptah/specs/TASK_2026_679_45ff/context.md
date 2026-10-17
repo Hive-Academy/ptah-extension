@@ -189,3 +189,17 @@ left accent for active or linked sessions).
 - Team-leader MODE 3: COMPLETE, no gaps (`reports/mode-3-completion.md`); task.md -> in_review.
 - Merge main M3 (16 commits, no conflicts): gate green on chat, chat-ui, canvas, chat-state;
   committed `ae4f9ac91`. Then records commit, push and PR.
+
+## Session 6 (2026-10-17, Phase 4 follow-ups, D95-D97)
+
+- USER asked for follow-up commits on PR #745 fixing FU-1..FU-9 and FU-11 (D95). Batches 14, 16,
+  17 (codex lanes) and 15 (Claude) committed; FU-5 fix `01ef29d31`.
+- Phase review: codex batches APPROVED 7.5; Batch 15 REVISE 5 -> fix `4a30e63cd` -> APPROVED 8;
+  canvas fixes `8cd9aaba3` APPROVED 8.5.
+- PR #745 CI fix `921c9f1ab` (grok lane); pushed; CI fully green.
+- D96 build pair + one Electron slot: visual check PASS WITH NOTES. Fixes `35fc3d2e4` (tile-cap
+  order) and `256fb7d15` (rail popover stacking, focus ring, button widths), code review APPROVED
+  8; no visual re-check (FU-15). The false "Couldn't open" was a private-HOME test artifact.
+- Team-leader MODE 3: Phase 4 COMPLETE (D97, `reports/mode-3-phase-4-completion.md`); canvas
+  re-gate green at HEAD. New follow-ups FU-12..FU-16. task.md -> in_review.
+- `35fc3d2e4` and `256fb7d15` plus the records commit are local; push pending.

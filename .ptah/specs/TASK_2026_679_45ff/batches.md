@@ -1,7 +1,7 @@
 # Batches - TASK_2026_679_45ff
 
 Total tasks: 35 (26 + fix A1.1-A1.2 + fix P3.1-P3.2 + merge M.1 + merge M2.1 + visual fix V1.1-V1.4) | Batches: 16 (8+9 and 10+11 merged; Fix rounds A1, P3 and V1, Main merges M and M2 added) | Complete: 16/16
-Status (2026-10-17): ALL BATCHES COMPLETE. V1 + V1.4 (b8543ad25, 36619f3a1) re-review APPROVED, D91 visual re-check PASS; Batch 12 (6607db0d7) and Batch 13 (fb6b0f6d2) committed. Mode 3 completion verified: `reports/mode-3-completion.md` (COMPLETE). NEXT: push and open the PR with FU-1..FU-11.
+Status (2026-10-17): ALL BATCHES COMPLETE. V1 + V1.4 (b8543ad25, 36619f3a1) re-review APPROVED, D91 visual re-check PASS; Batch 12 (6607db0d7) and Batch 13 (fb6b0f6d2) committed. Mode 3 completion verified: `reports/mode-3-completion.md` (COMPLETE). NEXT: push and open the PR with FU-1..FU-11. UPDATE (session 5, D95): PR #745 open; "Phase 4 follow-ups (D95)" Batches 14-17 decomposed, Wave 1 (14, 16, 17) IN_PROGRESS.
 
 Worktree root (ROOT): `D:/projects/ptah-extension/.claude-worktrees/previous-sessions-modal`
 (branch `feat/previous-sessions-modal`, base `851846797`). Every path below is absolute under ROOT.
@@ -1399,3 +1399,296 @@ Files (6):
 - Visual evidence: Phase 3 visual review, dark and light, against `prototype/` and D12.
 - Write-path trace: no persisted settings are written by this task. The sidebar width write
   (`ptah.sessionSidebarWidth`) is removed with no new writer (DP-11); confirm in Mode 3.
+
+---
+
+## Phase 4 follow-ups (D95) — COMPLETE (D97; `reports/mode-3-phase-4-completion.md`)
+
+Scope (D95): FU-1..FU-9 and FU-11, BUGFIX, depth Partial. Excluded with evidence (D95): FU-10
+(TASK_2026_687_615f B4, USER D90); FU-9 "D20 focus to body" (D20 accepted); FU-9 "Details opener
+off-screen at 400" (pre-existing canvas minimum width); FU-9 "scrim stops at 1430 px" (app-wide
+`scrollbar-gutter`). FU-9 "footer label weight" needs no code (V1.3 set `font-medium`, verified in
+`reviews/v1-visual-recheck.md`); it is only re-checked in the D96 visual check.
+
+W = `D:/projects/ptah-extension/.claude-worktrees/previous-sessions-modal` (all edits, checks and
+commits happen in W, never in the main checkout). The ~259 modified PNGs under
+`.ptah/specs/TASK_2026_576_e16a/screenshots/` are unrelated working-tree noise: never stage them.
+
+### Phase 4 follow-ups: plan validation
+
+Status: PASSED WITH RISKS (0 BLOCKER, 3 RISK, 3 ASSUMPTION).
+
+Contract checks (producer vs consumer, read on disk 2026-10-17):
+
+- `SessionRowActionsService.rename()` returns `Promise<SessionRenameResult>`
+  (`libs/frontend/chat/src/lib/services/session-list/session-row-actions.service.ts:77-81`). Both
+  consumers ignore it today: modal `previous-sessions-modal.component.ts:393` (`void ...rename`) and
+  Rail card `canvas-rail-card.component.ts:451` (comment "A 'failed' result closes like success").
+  FU-6 consumes the existing `'failed'` value on both sides; no service change. OK.
+- FU-7 m1: the Rename item already has `aria-haspopup="dialog"` (card.ts:246); the Organize item
+  (card.ts:255-266) does not. Only Organize changes.
+- FU-9 row meta: `session-list-row.component.ts:197-200` renders `relativeTime()` plus `N msgs`
+  only when `messageCount > 0`; `SessionDisplayUtilsService.formatRelativeDate`
+  (`session-display-utils.service.ts:30-50`) returns a short date for activity older than 7 days.
+  The sandbox fixture had old dates, so this is probably not a defect (A2, checked in Task 15.4).
+
+Assumptions:
+
+- A1: the FU-7 Rename-panel Tab trap can be done inside `canvas-rail-card.component.ts` (a keydown
+  handler on the panel `div[role=dialog]`, card.ts:294) without changing
+  `libs/frontend/ui/src/lib/native/popover/native-popover.component.ts`. Unverified; Task 16.3
+  checks it. If it needs a NativePopover change, skip it and record "skipped: needs a NativePopover
+  change (shared with the New session popover), out of scope" in the report.
+- A2: row meta "date only" is the fixture (old `lastActivityAt`, `messageCount` 0), not a binding
+  gap. Unverified; Task 15.4 traces `messageCount` from the list RPC producer to the row binding.
+- A3: the reversed-range state is derivable in the modal from the store's existing From/To
+  signals, so `session-list-view.store.ts` does not change. Unverified; Task 15.1 checks it. If the
+  store must change, the executor stops and reports (file-disjointness); it does not edit the store.
+
+| Risk | Severity | Mitigation |
+| ---- | -------- | ---------- |
+| R1 FU-3 split: the modal switches its focus selector to `[data-previous-sessions-search]` (Batch 15) before both inputs carry it (Batch 14) | MEDIUM | Batch 15 depends on Batch 14 (committed first); Task 15.2 asserts the selector finds both layouts |
+| R2 FU-6 copy drift between the two surfaces | MEDIUM | One copy string fixed below (FU-6 design update), used verbatim by Tasks 15.3 and 16.2 |
+| R3 Batches 16 and 17 share `@ptah-extension/canvas`; parallel lanes could run two heavy checks at once | LOW | Lanes run only their own scoped Jest, one heavy check at a time across lanes (CLAUDE.md); Nx gates run in Mode 2, sequentially |
+
+Edge cases:
+
+- A repeated identical failure must be re-announced (FU-5): Task 16.1 clears, then sets.
+- Rename failure after the panel or row was closed or reopened meanwhile (D74 open-count guard):
+  Task 16.2 shows the error only for the same open; Task 15.3 only for the row still edited.
+- IME composition Enter (FU-7 m2): `event.isComposing` (or keyCode 229) must not save; Task 16.3.
+- Two pointers down, one released (FU-11): the hold survives until the last tracked pointer ends;
+  a `pointercancel` for an untracked id is ignored; Task 17.2.
+- From == To is a valid range, not reversed; Task 15.1.
+
+### FU-6 design update to 8.7 (decided by evidence, D95)
+
+Replaces `design-spec.md:443` ("title unchanged, logged | same as the modal row"):
+"`session:rename` fails | the field stays open with the user's draft, an inline error
+`Couldn't rename. Try again.` (`text-xs text-error`, linked to the input with `aria-describedby`)
+and the same text in the polite live region; editing the draft clears the error | same on the Rail
+card Rename panel and the modal row". Task 15.5 writes it into `design-spec.md:443` and changes the
+Rename spec line `design-spec.md:413` ("a failed call keeps the title and is logged" -> "a failed
+call keeps the title, keeps the draft open and shows the inline error").
+
+## Batch 14: FU-1 race spec, FU-3 search hook, FU-8a shell transition spec — COMPLETE (dbf317601)
+
+- Recommended executor: CLI lane (codex first; general coding capability)
+- Execution mode: sequential
+- Fallback order: other family same capability -> same family other provider/model -> subagent
+- Subagent reason: N/A
+- Review family: Claude `code-logic-reviewer` (implementer codex)
+- Rationale: spec and attribute work across two projects, no visual design; small and bounded.
+- Tasks: 3 | Depends on: none | Nx projects: `@ptah-extension/rpc-handlers`, `@ptah-extension/chat`
+- Phase: Phase 4 follow-ups | Phase review: code-logic (combined phase diff)
+- Files (6):
+  - `W/libs/backend/rpc-handlers/src/lib/handlers/session-organization-rpc.handlers.spec.ts`
+  - `W/libs/frontend/chat/src/lib/components/molecules/previous-sessions-toolbar/previous-sessions-toolbar.component.ts`
+  - `W/libs/frontend/chat/src/lib/components/molecules/session-filter-bar/session-filter-bar.component.ts`
+  - `W/libs/frontend/chat/src/lib/components/molecules/session-filter-bar/session-filter-bar.component.spec.ts`
+  - `W/libs/frontend/chat/src/lib/components/organisms/previous-sessions/session-row-groups.ts`
+  - `W/libs/frontend/chat/src/lib/components/templates/app-shell.previous-sessions.spec.ts`
+
+### Task 14.1: FU-1 getOrganization store-close race spec — COMPLETE
+
+- Plan reference: batches.md FU-1; production guard `session-organization-rpc.handlers.ts:301-305`.
+- Acceptance: in the spec near :1106-1119, `queryWorkspace` or `countChildren` closes the fake
+  store during the read; the test asserts both reads ran and the `organization-unavailable`
+  response, and no longer pins the second `isAvailable()` call count. No production change.
+
+### Task 14.2: FU-3 search behaviour attribute and "sidebar" comments — COMPLETE
+
+- Acceptance: both search inputs carry `data-previous-sessions-search` (filter bar ~:131, toolbar
+  ~:83), test IDs unchanged; the filter-bar spec asserts the attribute.
+  `session-row-groups.ts:2-7,15,40-42` comments describe the Previous sessions modal, not a sidebar
+  (comments only). The modal selector switch is Task 15.2 (R1).
+
+### Task 14.3: FU-8a shell Loading -> Complete transition spec — COMPLETE
+
+- Acceptance: `app-shell.previous-sessions.spec.ts` (~:441-543) adds (a) Complete rendered after
+  Loading with Close focused hands focus to the modal search
+  (`previous-sessions-modal.component.ts:266-275`); (b) Loading destroyed before its first focus
+  callback (`previous-sessions-load-state.component.ts:119-123`) neither throws nor moves focus.
+  Spec only.
+
+### Batch 14 verification
+
+- Scoped Jest, one run at a time:
+  `npx jest -c libs/backend/rpc-handlers/jest.config.ts libs/backend/rpc-handlers/src/lib/handlers/session-organization-rpc.handlers.spec.ts --coverage=false --maxWorkers=2`,
+  then
+  `npx jest -c libs/frontend/chat/jest.config.ts libs/frontend/chat/src/lib/components/molecules/session-filter-bar/session-filter-bar.component.spec.ts libs/frontend/chat/src/lib/components/templates/app-shell.previous-sessions.spec.ts libs/frontend/chat/src/lib/components/organisms/previous-sessions/session-row-groups.spec.ts --coverage=false --maxWorkers=2`
+- Mode 2 gate: see "Phase 4 follow-ups verification".
+
+## Batch 15: FU-2, FU-3 modal selector, FU-6 modal row, FU-9 modal and row items — COMPLETE (dff42282b)
+
+- Recommended executor: Claude `frontend-developer` (fresh)
+- Execution mode: sequential
+- Fallback order: other family same capability -> same family other provider/model -> subagent
+- Subagent reason: new visible UI states (invalid-range message, inline rename error, visible
+  failed-open notice, row accent geometry) that must match the design tokens and `prototype/`.
+- Review family: codex lane (implementer Claude), as part of the phase review below.
+- Tasks: 5 | Depends on: Batch 14 (R1) | Nx project: `@ptah-extension/chat`
+- Phase: Phase 4 follow-ups | Phase review: code-logic
+- Files (6):
+  - `W/libs/frontend/chat/src/lib/components/organisms/previous-sessions/previous-sessions-modal.component.ts`
+  - `W/libs/frontend/chat/src/lib/components/organisms/previous-sessions/previous-sessions-modal.component.html`
+  - `W/libs/frontend/chat/src/lib/components/organisms/previous-sessions/previous-sessions-modal.component.spec.ts`
+  - `W/libs/frontend/chat/src/lib/components/molecules/session-list-row/session-list-row.component.ts`
+  - `W/libs/frontend/chat/src/lib/components/molecules/session-list-row/session-list-row.component.spec.ts`
+  - `W/.ptah/specs/TASK_2026_679_45ff/design-spec.md` (Task 15.5, doc only)
+
+### Task 15.1: FU-2 reversed date range message — COMPLETE
+
+- Acceptance: when From > To (same day is valid) the list area shows an invalid-range message
+  (e.g. "The From date is after the To date.") instead of "No matching sessions" (`.ts:224-229`,
+  `.html:162-176`); spec covers reversed, equal and normal ranges. A3: derive it in the modal; do
+  not edit `session-list-view.store.ts`.
+
+### Task 15.2: FU-3 modal search focus via the behaviour attribute — COMPLETE
+
+- Acceptance: `.ts:70-72,547-550` select `[data-previous-sessions-search]`, not test IDs; the spec
+  asserts initial focus reaches the search input in both the toolbar and the filter-bar layouts.
+
+### Task 15.3: FU-6 modal row rename failure feedback — COMPLETE
+
+- Acceptance: on `'failed'` from `actions.rename` (`.ts:381-395`) the row re-enters editing with
+  the requested draft, shows the FU-6 inline error through a new `session-list-row` input, and
+  announces the same text; editing the draft, a later success or Cancel clears it; a stale result
+  for a row no longer edited does nothing. Specs in both spec files.
+
+### Task 15.4: FU-9 failed-open notice, row accent curve, row meta investigation — COMPLETE
+
+- Failed open (`.ts:436`): show the existing "Couldn't open ..." text visibly (inline alert in the
+  modal body, cleared on the next open or filter change), keeping the live announcement. Spec.
+- Accent curve: the 2 px current-row accent on the rounded `li`
+  (`session-list-row.component.ts:68-85`) reads straight at the corners; current fill unchanged.
+- Row meta (A2): trace `messageCount` and `lastActivityAt` from the list RPC producer to
+  `session-list-row.component.ts:197-200`. Fix only if a field is dropped or mis-bound; otherwise
+  record "not a defect: fixture" with file:line evidence in the report.
+
+### Task 15.5: design-spec 8.7 update — COMPLETE
+
+- Acceptance: `design-spec.md:413` and `:443` carry the FU-6 text above, verbatim.
+
+### Batch 15 verification
+
+- `npx jest -c libs/frontend/chat/jest.config.ts libs/frontend/chat/src/lib/components/organisms/previous-sessions/previous-sessions-modal.component.spec.ts libs/frontend/chat/src/lib/components/molecules/session-list-row/session-list-row.component.spec.ts --coverage=false --maxWorkers=2`
+
+## Batch 16: Rail card FU-4, FU-5, FU-6, FU-7 m1-m3, FU-8b, FU-9 card items — COMPLETE (c29a7e986)
+
+- Recommended executor: CLI lane (codex first)
+- Execution mode: sequential (one component and its spec)
+- Fallback order: other family same capability -> same family other provider/model -> subagent
+- Subagent reason: N/A (the panel geometry has exact classes in `design-spec.md:413`)
+- Review family: Claude `code-logic-reviewer` (implementer codex)
+- Tasks: 4 | Depends on: none (parallel with 14 and 17) | Nx project: `@ptah-extension/canvas`
+- Phase: Phase 4 follow-ups | Phase review: code-logic
+- Files (2):
+  - `W/libs/frontend/canvas/src/lib/canvas-rail/canvas-rail-card.component.ts`
+  - `W/libs/frontend/canvas/src/lib/canvas-rail/canvas-rail-card.component.spec.ts`
+
+### Task 16.1: FU-4 focus-order spec and FU-5 re-announce — COMPLETE
+
+- FU-4: spec ~:505-523 uses the real `SessionOrganizerService` and editor (or an editor stub that
+  restores focus in its own `afterNextRender`), asserts the trigger holds focus after the close
+  render, and adds the disconnected-trigger fallback case for `.rc-select`.
+- FU-5: `announcement` is cleared before each Organize and stale action (card.ts:338,368,471) so
+  the same failure text is announced again; the spec drives two identical failures.
+
+### Task 16.2: FU-6 card rename failure feedback — COMPLETE
+
+- `saveRename()` (card.ts:441-458) reads the result; on `'failed'` the panel stays open with the
+  draft, the FU-6 inline error shows under the input (`aria-describedby`) and is announced; editing
+  clears it; the D74 open-count guard still applies. Replace the "closes like success" comment.
+
+### Task 16.3: FU-7 m1-m3 — COMPLETE
+
+- m1: the Organize item gets `aria-haspopup="dialog"`. m2: Enter during IME composition does not
+  save. m3 (A1): Tab and Shift+Tab cycle inside the Rename panel (input, Cancel, Save) through a
+  local handler; if that needs NativePopover, skip it and record why. A spec for each.
+
+### Task 16.4: FU-8b spec and FU-9 card visuals — COMPLETE
+
+- FU-8b: spec ~:595-625 keeps the first rename pending across Cancel and reopen (the reopened
+  popover stays open with focus), then rejects it (`renaming` clears).
+- FU-9: Rename panel to `design-spec.md:413` (`p-4 w-72`, muted `h3`, `input-sm`, `flex-1`
+  Cancel/Save; no 306 px drift); one focus outline on the Rename input (card.ts:93-101 vs the daisy
+  input focus); the "Open beside" reason (card.ts:232-237) fits one line at the rail width
+  (truncate with `title`, or shorter copy). Clip at 400 with Workspaces open: fix only if the card
+  owns the placement; otherwise record it.
+
+### Batch 16 verification
+
+- `npx jest -c libs/frontend/canvas/jest.config.ts libs/frontend/canvas/src/lib/canvas-rail/canvas-rail-card.component.spec.ts --coverage=false --maxWorkers=2`
+
+## Batch 17: Rail footer and board FU-7 m4-m5, FU-9 footer hover, FU-11 — COMPLETE (6d63e9a54)
+
+- Recommended executor: CLI lane (codex first)
+- Execution mode: sequential
+- Fallback order: other family same capability -> same family other provider/model -> subagent
+- Subagent reason: N/A
+- Review family: Claude `code-logic-reviewer` (implementer codex)
+- Tasks: 2 | Depends on: none (parallel with 14 and 16) | Nx project: `@ptah-extension/canvas`
+- Phase: Phase 4 follow-ups | Phase review: code-logic
+- Files (4):
+  - `W/libs/frontend/canvas/src/lib/canvas-rail/canvas-rail.component.ts`
+  - `W/libs/frontend/canvas/src/lib/canvas-rail/canvas-rail.component.spec.ts`
+  - `W/libs/frontend/canvas/src/lib/canvas-rail/canvas-rail-board.component.ts`
+  - `W/libs/frontend/canvas/src/lib/canvas-rail/canvas-rail-board.component.spec.ts`
+
+### Task 17.1: FU-7 m5 footer height, FU-9 footer light hover — COMPLETE
+
+- m5: the expanded footer (rail.ts:232, fixed `h-[120px]`) no longer clips a 3-line reason
+  (`min-h` instead of `h`, or the reason clamps with a `title`). Spec.
+- FU-9: the light-theme hover fill is `--surface-2` and the 0.22 border stays on hover (rail.ts:251;
+  daisy `.btn-ghost:hover` wins today, `reviews/v1-visual-recheck.md` Minor 1); dark unchanged.
+
+### Task 17.2: FU-7 m4 board isOpen spec, FU-11 pointer ids — COMPLETE
+
+- m4: the board spec (~:367,435) drives `isOpen` true and asserts the open-state behaviour.
+- FU-11: replace the single `pressing` flag (board.ts:375-418) with a set of active pointer ids;
+  the hold clears only when the last tracked pointer ends; listeners are removed once, and on
+  destroy. Spec: two pointers down, the first up keeps the hold, the second up releases it.
+
+### Batch 17 verification
+
+- `npx jest -c libs/frontend/canvas/jest.config.ts libs/frontend/canvas/src/lib/canvas-rail/canvas-rail.component.spec.ts libs/frontend/canvas/src/lib/canvas-rail/canvas-rail-board.component.spec.ts --coverage=false --maxWorkers=2`
+
+### Phase 4 follow-ups verification
+
+Run order: Wave 1 = Batches 14, 16, 17 in parallel lanes (file-disjoint, max 3 lanes); Wave 2 =
+Batch 15 after Batch 14 is committed. Lane scoped Jest runs go one at a time across lanes.
+
+1. Per-batch Mode 2 gate (team-leader, in W, sequential, output tailed):
+   `npx nx run-many -t typecheck,lint -p <projects> --parallel=1`, then separately
+   `npx nx run-many -t test -p <projects> --parallel=1 --maxWorkers=2`; confirm the header
+   "Running target ... for N projects" with N as requested.
+   - Batch 14: `-p @ptah-extension/rpc-handlers @ptah-extension/chat`
+   - Batch 15: `-p @ptah-extension/chat`
+   - Batches 16 and 17: `-p @ptah-extension/canvas` (when both are back, one gate, then two commits)
+   Commit each batch on its own (foreground), staging only its files; never the TASK_2026_576 PNGs.
+2. One different-family code-logic review on the phase diff (parent of the first Phase 4
+   follow-up commit .. HEAD). Implementers: codex (14, 16, 17), Claude (15). Reviewer: Claude
+   `code-logic-reviewer` for the 14/16/17 commits and a codex lane for the Batch 15 commit, one
+   review request in two scoped parts with one phase verdict. If the orchestrator moves Batch 15 to
+   codex, one Claude review covers the whole diff. Style review: none unless a batch adds a library
+   export (new public API). At most one fix round (lean rules).
+3. D96 single build pair: `ptah-electron:build-dev`, then `copy-renderer-dev`, once, in W, after
+   the review is accepted (Electron slot protocol, D10).
+4. One Electron visual check (visual-reviewer), dark + light, of only the changed UI: modal
+   invalid-range message, modal row rename error, failed-open notice, current-row accent, Rail
+   Rename panel (geometry, focus outline, error), Open beside reason line, rail footer (light
+   hover, expanded height, label weight re-check). Then push to `feat/previous-sessions-modal`
+   (PR #745).
+
+### Phase 4 follow-ups result — COMPLETE (Mode 3, 2026-10-17, D97)
+
+- Commits: B14 `dbf317601`, B16 `c29a7e986`, B17 `6d63e9a54`, B15 `dff42282b`, FU-5 fix
+  `01ef29d31`, chat review fixes `4a30e63cd`, canvas review fixes `8cd9aaba3`, PR #745 CI fix
+  `921c9f1ab`, tile-cap order fix `35fc3d2e4`, rail popover fix `256fb7d15`.
+- Reviews: codex batches APPROVED 7.5; Batch 15 REVISE 5 -> fix re-review APPROVED 8; canvas fix
+  re-review APPROVED 8.5; visual check PASS WITH NOTES; visual-fix review APPROVED 8 (no render).
+- Gates: Mode 2 gates A and B green; Mode 3 re-gate of `@ptah-extension/canvas` at `256fb7d15`
+  (typecheck, lint, test) PASS.
+- CI green on the `921c9f1ab` push; `35fc3d2e4` and `256fb7d15` not pushed yet.
+- Not verified: `256fb7d15` has no rendered check (FU-15). New follow-ups FU-12..FU-16 (D97).

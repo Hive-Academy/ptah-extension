@@ -155,3 +155,19 @@ clicks (`previous-sessions-modal.component.ts:422`); default runs skip the perf 
 All steps above are done: V1 `b8543ad25`, V1.4 `36619f3a1`, Batch 12 `6607db0d7`, Batch 13
 `fb6b0f6d2`, merge main M3 `ae4f9ac91`, MODE 3 COMPLETE. See `context.md` "Session 5" and D93-D94.
 The branch is pushed and the PR is open; only the user's PR review and merge remain.
+
+## Session 6 / Phase 4 result
+
+- Phase 4 follow-ups (D95) are COMPLETE (D97, `reports/mode-3-phase-4-completion.md`).
+- Commits: B14 `dbf317601`, B16 `c29a7e986`, B17 `6d63e9a54`, B15 `dff42282b`, FU-5
+  `01ef29d31`, review fixes `4a30e63cd` and `8cd9aaba3`, CI fix `921c9f1ab`, tile-cap order
+  `35fc3d2e4`, rail popovers `256fb7d15`, then the records commit.
+- Pushed through `921c9f1ab` (CI green). Not pushed: `35fc3d2e4`, `256fb7d15`, records commit.
+- All due reviews accepting; canvas typecheck, lint and test green at `256fb7d15`.
+- Not verified: no rendered check of `256fb7d15` (no further build approved).
+- Open follow-ups: FU-12 Rename popover clips at 400 px with Workspaces open (`NativePopover`);
+  FU-13 `session-rpc.handlers.ts:485` sends `messageCount: 0` (no "N msgs"); FU-14 one lost
+  pointer capture releases all pointers (`canvas-rail-board` ~:411-414) + missing cleanup specs;
+  FU-15 visual re-check of `256fb7d15`; FU-16 accent only at corners during inline edit.
+  FU-10 stays with TASK_2026_687_615f.
+- Next: push the branch (background), confirm CI on PR #745, then the user's review and merge.
