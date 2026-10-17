@@ -1,6 +1,6 @@
 # Batches - TASK_2026_692_f748
 
-Total tasks: 29 | Batches: 17 | Complete: 6/17
+Total tasks: 29 | Batches: 17 | Complete: 7/17
 
 Worktree (all edits, checks, commits): `D:\projects\ptah-extension\.claude-worktrees\idle-compaction`
 (branch `feat/idle-compaction`, base `7bdc6eed4`). Below, `<W>` means that absolute path; every
@@ -328,7 +328,7 @@ after 5 -> {6}. Default ordering below is sequential by number.
 
 - Command: `npx nx run-many -t test -p @ptah-extension/shared @ptah-extension/platform-core --parallel=1 2>&1 | grep -E "Running target|Tests:|Test Suites:|FAIL|Successfully|failed" | tail -20` (header must say 2 projects)
 
-## Batch 6: Idle config read and export key list — COMPLETE
+## Batch 6: Idle config read and export key list — COMPLETE (commit 7901e5155)
 
 - Recommended executor: CLI lane [implementation, TypeScript backend]
 - Execution mode: sequential
@@ -357,7 +357,7 @@ after 5 -> {6}. Default ordering below is sequential by number.
 
 - Command: `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/types/settings-export.types.spec.ts libs/backend/agent-sdk/src/lib/helpers/compaction-config-provider.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -30 && npx nx typecheck @ptah-extension/agent-sdk 2>&1 | tail -15`
 
-## Batch 7: IdleCompactionService (RxJS pipeline) and core spec — IN_PROGRESS
+## Batch 7: IdleCompactionService (RxJS pipeline) and core spec — COMPLETE
 
 - Recommended executor: CLI lane [implementation, TypeScript backend, RxJS]
 - Execution mode: sequential
@@ -369,7 +369,7 @@ after 5 -> {6}. Default ordering below is sequential by number.
 - Phase: 1 | Phase review: deferred to Batch 8
 - ACs: 1.1, 2.1-2.3, 2.6, 2.9, 3.3, 4.1-4.7
 
-### Task 7.1: Service + internal barrel — IN_PROGRESS
+### Task 7.1: Service + internal barrel — COMPLETE
 
 - Files: `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction\idle\idle-compaction.service.ts` (CREATE), `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction\idle\index.ts` (CREATE)
 - Plan reference: implementation-plan.md:426-533 (component 7)
@@ -377,7 +377,7 @@ after 5 -> {6}. Default ordering below is sequential by number.
 - Quality requirements: one trampolined FIFO `enqueue` for every signal; alias index; `groupBy` with release duration; `scan` -> `tap(runEffects)` -> `share`; one `switchMap` timer from `state.timer`; `exhaustMap(fire)`; per-group `catchError`; release in `finalize`; `dispose` idempotent; logs never carry message text.
 - Validation notes: `beforeEnqueue` checks group live + `latest` still this attempt in `sending`, then `claimIdle`; throws `IdleSendVetoedError` unless `claimed`; error mapping exactly as the plan (`SessionAdmissionRefusedError` -> `not-idle-at-send`, `manual-reserved` -> `manual-compact-reserved`). Settings subscription filters `ptah.compaction.enabled`, `ptah.compaction.idleCompactionEnabled`, `ptah.compaction.idleCompactionMinTokens`.
 
-### Task 7.2: Core service spec — IN_PROGRESS
+### Task 7.2: Core service spec — COMPLETE
 
 - Depends on: Task 7.1
 - File: `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction\idle\idle-compaction.service.spec.ts` (CREATE)
@@ -406,6 +406,13 @@ after 5 -> {6}. Default ordering below is sequential by number.
 - Plan reference: implementation-plan.md:516-530
 - Quality requirements: real coordinator; manual via `admitManualCompact` before and after the claim; boundary -> result -> manual -> PostCompact; PostCompact-first and PostCompact-without-boundary + manual -> `send` without advancing virtual time, on an acting (`e2Passed: true`) and an OBSERVE_ONLY record; same-frame `attempt-due`/`input`/feedback both orders; unresolved send promise + release -> veto, no claim, no group, `scheduler.actions.length === 0`; late feedback for released key; 1 000 sessions armed and released -> zero actions, zero retained entries.
 - Validation notes: if a case exposes a service defect, report it with `file:line`; do not edit the service in this batch (the team-leader returns it to Batch 7's executor).
+- Added at Batch 7 verification (RISK, MEDIUM): a group's `finalize` waits for an unresolved
+  send inside `exhaustMap` (`idle-compaction.service.ts:139-158`). Add a case: send promise
+  unresolved -> `sessionReleased('s')` -> `sessionBound('s', 'run-2', ...)` -> resolve the old
+  send. Assert the old group's `finalize` does not delete the new group's alias/currentId entries
+  (the new session still arms and fires). Add a case: a reducer throw inside one group
+  (`catchError` at `:145`) leaves other sessions working and leaves no retained group or timer
+  action for the failed key after `sessionReleased`.
 
 ### Batch 8 verification
 
@@ -435,6 +442,8 @@ after 5 -> {6}. Default ordering below is sequential by number.
   `runToken` or start a new turn/request for it. Spec: a same-id `init` frame after
   `compact_boundary` produces no `sessionBound`/`requestStarted` call. The two `user` echo frames
   between boundary and `result` are not user `input` and must not emit `input`.
+- Note: the Batch 7 carried sender-options assertion lives on Task 10.2 (the sender is the
+  facade's `sendIdleCompact`, implementation-plan.md:563-565), not in this batch.
 
 ### Batch 9 verification
 
@@ -465,6 +474,11 @@ after 5 -> {6}. Default ordering below is sequential by number.
 - Plan reference: implementation-plan.md:561-571 (8c), :589 (token)
 - Pattern to follow: optional injects (`commit-message-generator.service.ts:98`)
 - Validation notes: `@inject(SDK_TOKENS.SDK_IDLE_COMPACTION, { isOptional: true })` as the LAST constructor parameter (2 existing `new SessionLifecycleManager(` specs); thin delegates only (file is 814 lines); `sendIdleCompact` does not emit `input`; `dispose()` disposes the service.
+- Carried from Batch 7 (AC 2.1): the core service spec could not assert the sender's options
+  because the sender did not exist. `session-lifecycle-manager.idle.spec.ts` must assert that
+  `sendIdleCompact(id, before)` calls `_streamPump.sendMessage(id, '/compact', undefined,
+  undefined, { origin: IDLE_COMPACT_ORIGIN, admission: 'require-idle', beforeEnqueue: before })`,
+  with `origin` equal to `{ kind: 'coordinator' }`, and emits no `input`.
 
 ### Task 10.3: DI registration — PENDING
 
