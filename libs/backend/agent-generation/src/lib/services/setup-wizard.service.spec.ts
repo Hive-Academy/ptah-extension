@@ -19,6 +19,7 @@ jest.mock('@ptah-extension/vscode-core', () => ({
     LOGGER: Symbol.for('Logger'),
     SENTRY_SERVICE: Symbol.for('SentryService'),
     PLATFORM_COMMANDS: Symbol.for('PlatformCommands'),
+    WEBVIEW_MANAGER: Symbol.for('WebviewManager'),
   },
 }));
 
@@ -49,6 +50,7 @@ interface MockWebviewLifecycle {
 
 interface MockPlatformCommands {
   reloadWindow: jest.Mock;
+  focusChat: jest.Mock;
 }
 
 interface MockSentryService {
@@ -72,6 +74,7 @@ describe('SetupWizardService (facade)', () => {
   let mockPlatformCommands: MockPlatformCommands;
   let mockSentryService: MockSentryService;
   let mockPanel: MockPanel;
+  let sendMessage: jest.Mock<(...args: unknown[]) => Promise<boolean>>;
 
   const WORKSPACE_PATH = '/workspace/test-project';
 
@@ -97,7 +100,11 @@ describe('SetupWizardService (facade)', () => {
 
     mockPlatformCommands = {
       reloadWindow: jest.fn(async () => undefined) as unknown as jest.Mock,
+      focusChat: jest.fn(async () => undefined),
     };
+    sendMessage = jest.fn<(...args: unknown[]) => Promise<boolean>>(
+      async () => true,
+    );
 
     mockSentryService = {
       initialize: jest.fn(),
@@ -114,6 +121,7 @@ describe('SetupWizardService (facade)', () => {
       mockWebviewLifecycle as unknown as WizardWebviewLifecycleService,
       mockPlatformCommands as never,
       mockSentryService as never,
+      { sendMessage } as never,
     );
   });
 
@@ -202,8 +210,7 @@ describe('SetupWizardService (facade)', () => {
 
     it('should reload window when wizard-complete message received', async () => {
       let capturedHandler:
-        | ((msg: unknown) => boolean | Promise<boolean>)
-        | undefined;
+        ((msg: unknown) => boolean | Promise<boolean>) | undefined;
       mockWebviewLifecycle.createWizardPanel.mockImplementation(
         (..._args: unknown[]) => {
           const handlers = _args[2] as Array<
@@ -228,10 +235,69 @@ describe('SetupWizardService (facade)', () => {
       expect(mockPlatformCommands.reloadWindow).toHaveBeenCalledTimes(1);
     });
 
+    it('hands a typed generation request to main and keeps the legacy panel open', async () => {
+      let handler: ((message: unknown) => Promise<boolean>) | undefined;
+      mockWebviewLifecycle.createWizardPanel.mockImplementation(
+        (...args: unknown[]) => {
+          handler = (
+            args[2] as Array<(message: unknown) => Promise<boolean>>
+          )[0];
+          return Promise.resolve(mockPanel);
+        },
+      );
+      await service.launchWizard(WORKSPACE_PATH);
+      const payload = {
+        workspacePath: WORKSPACE_PATH,
+        workflow: 'setup-agent-generation',
+        origin: 'independent-start',
+      };
+      expect(
+        await handler?.({ type: MESSAGE_TYPES.SETUP_GENERATION_OPEN, payload }),
+      ).toBe(true);
+      expect(mockPlatformCommands.focusChat).toHaveBeenCalledTimes(1);
+      expect(sendMessage).toHaveBeenCalledWith(
+        'ptah.main',
+        MESSAGE_TYPES.SETUP_GENERATION_OPEN,
+        payload,
+      );
+      expect(mockWebviewLifecycle.disposeWebview).not.toHaveBeenCalled();
+      expect(
+        await handler?.({ type: MESSAGE_TYPES.SETUP_WIZARD_COMPLETE }),
+      ).toBe(true);
+      expect(mockWebviewLifecycle.disposeWebview).toHaveBeenCalledWith(
+        'ptah.setupWizard',
+      );
+    });
+
+    it('keeps the landing available for retry when main is live but unbootstrapped', async () => {
+      let handler: ((message: unknown) => Promise<boolean>) | undefined;
+      mockWebviewLifecycle.createWizardPanel.mockImplementation(
+        (...args: unknown[]) => {
+          handler = (
+            args[2] as Array<(message: unknown) => Promise<boolean>>
+          )[0];
+          return Promise.resolve(mockPanel);
+        },
+      );
+      sendMessage.mockResolvedValueOnce(false);
+      await service.launchWizard(WORKSPACE_PATH);
+      const message = {
+        type: MESSAGE_TYPES.SETUP_GENERATION_OPEN,
+        payload: {
+          workspacePath: WORKSPACE_PATH,
+          workflow: 'setup-project-prompt',
+          origin: 'analysis-result-continue',
+        },
+      };
+      expect(await handler?.(message)).toBe(false);
+      expect(mockWebviewLifecycle.disposeWebview).not.toHaveBeenCalled();
+      expect(await handler?.(message)).toBe(true);
+      expect(sendMessage).toHaveBeenCalledTimes(2);
+    });
+
     it('should ignore unrelated messages in the handler', async () => {
       let capturedHandler:
-        | ((msg: unknown) => boolean | Promise<boolean>)
-        | undefined;
+        ((msg: unknown) => boolean | Promise<boolean>) | undefined;
       mockWebviewLifecycle.createWizardPanel.mockImplementation(
         (..._args: unknown[]) => {
           const handlers = _args[2] as Array<

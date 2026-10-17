@@ -239,8 +239,8 @@ Candidate only: unused duplicated old-generation presentation code after the new
 | B03 | 2 | done (continuation lane after tool-call ceiling; supervisors not in expected-resolvable, resolved via handlers) | codex backend-developer | 725d982e6 |
 | P2 review | 2 | APPROVE 8/10 after 1 revise round (S1, S2, M1–M9 fixed; Part B continuation lane after the first lane stopped without a report) | Claude code-logic-reviewer; codex fixes | 41c82d930 |
 | B04 | 3 | done (tab-manager +58 lines; route validator token on SurfaceRouterService for B05) | codex frontend-developer | 649e7a3cc |
-| B05 | 3 | done (1 revise round: transcript adapter via processStreamEvent instead of a local log, composer guard, route allowlist, deeper specs) | codex frontend-developer | (this commit) |
-| B06 | 3 | pending | codex backend-developer | — |
+| B05 | 3 | done (1 revise round: transcript adapter via processStreamEvent instead of a local log, composer guard, route allowlist, deeper specs) | codex frontend-developer | f79b795ae |
+| B06 | 3 | done (panel kept open after push; explicit workflow arg on ptah.setupAgents; Phase 2 N1/N3/N4 in the next commit) | codex backend-developer | (this commit) |
 | B07 | 4 | pending | codex frontend-developer | — |
 | B07B | 4 | pending | codex frontend-developer | — |
 | B08 | 5 | pending | codex frontend-developer | — |
