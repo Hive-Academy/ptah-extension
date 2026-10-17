@@ -164,7 +164,7 @@ describe('unified CLI agent output', () => {
           durationMs: 3500,
         },
       },
-      expected: ['claude-sonnet-4.5', '↑ 1.0k', '↓ 500', '$0.0025', '3.5s'],
+      expected: ['claude-sonnet-4.5', '↑ 1.0k', '↓ 500', '$0.0025', '3s'],
     },
     {
       cli: 'antigravity',
@@ -345,7 +345,7 @@ describe('unified CLI agent output', () => {
     ).textContent;
     expect(text).toContain('Reported total: 11.9k tokens');
     expect(text).toContain('$0.0000');
-    expect(text).toContain('0ms');
+    expect(text).not.toContain('0ms');
     expect(text).not.toContain('↑');
     expect(text).not.toContain('↓');
   });

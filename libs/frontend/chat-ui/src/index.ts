@@ -175,7 +175,7 @@ export {
   orchestratorStatusWord,
   subagentStatusWord,
 } from './lib/atoms/agent-avatar/agent-status';
-export { formatAgentDuration } from './lib/atoms/agent-avatar/agent-duration';
+export { formatAgentDuration, agentRunDurationMs, agentRunLabel } from './lib/atoms/agent-avatar/agent-duration';
 export {
   CLI_PROVIDER_MARK_IDS,
   cliMarkFor,

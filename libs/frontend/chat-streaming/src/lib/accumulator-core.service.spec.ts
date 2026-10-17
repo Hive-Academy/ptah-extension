@@ -989,6 +989,7 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
       expect(agentMonitorStore.onTaskToolResult).toHaveBeenCalledWith(
         'tool-1',
         false,
+        5,
       );
     });
 
@@ -998,6 +999,7 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
       expect(agentMonitorStore.onTaskToolResult).toHaveBeenCalledWith(
         'tool-1',
         true,
+        5,
       );
     });
 
