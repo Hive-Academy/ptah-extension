@@ -1,349 +1,90 @@
-/**
- * McpStatusChipComponent — the MCP chip in the composer status line under the
- * input card, beside the Autopilot and Peer controls (TASK_2026_375 B4.4).
- *
- * The CLI reports every MCP server's status once per session, in the SDK `init`
- * message. Before this task Ptah logged that at debug level and showed nothing,
- * so a Smithery server the CLI itself called `needs-auth` looked installed and
- * simply had no tools (`context.md` F3/F4). This chip is where that verdict
- * finally surfaces.
- *
- * Smart component, deliberately: it reads a session-keyed registry, calls RPC
- * for the recovery read and for the Authorize actions, and navigates. Its only
- * presentational neighbours in `chat-ui` are stateless, so it belongs here.
- */
 import {
-  ChangeDetectionStrategy,
-  Component,
-  DestroyRef,
-  computed,
-  effect,
-  inject,
-  input,
-  signal,
+  ChangeDetectionStrategy, Component, computed, effect, inject, input, signal,
 } from '@angular/core';
-import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
 import { NativePopoverComponent } from '@ptah-extension/ui';
-import { MARKETPLACE_RPC_TIMEOUTS } from '@ptah-extension/chat-ui';
 import { SessionMcpStatusRegistry } from '@ptah-extension/chat-state';
-import {
-  PTAH_CONNECTORS,
-  ptahConnectorKindHint,
-  type McpOAuthConnectedRecord,
-  type SessionMcpNotice,
-  type SessionMcpServerEntry,
-} from '@ptah-extension/shared';
+import { McpServerListComponent } from './mcp-server-list.component';
+import { McpServerStatusService, type McpServerRow } from './mcp-server-status.service';
 
-/** One row of the popover. */
-export interface McpServerRow {
-  /** Server key as the session knows it. */
-  readonly key: string;
-  /** Friendliest name available: OAuth record, then catalog, then the key. */
-  readonly label: string;
-  readonly status: string;
-  /** Short status wording for the pill. */
-  readonly statusLabel: string;
-  /** True when the row offers an Authorize button. */
-  readonly needsAction: boolean;
-  /** One-line explanation of how this server signs in, when we know it. */
-  readonly hint: string | null;
-}
+export type { McpServerRow } from './mcp-server-status.service';
 
-/**
- * The statuses that mean "listed, but this server will not answer".
- *
- * `failed` is included: the user's next move is the same in both cases — open
- * the surface that owns the connection — and offering nothing on a failed
- * server is what made the original defect invisible.
- */
-const ACTIONABLE_STATUSES: readonly string[] = ['needs-auth', 'failed'];
-
-/**
- * The composer status-line pill shape, shared by the autopilot, peer and MCP
- * triggers: h-6, rounded-full, text-xs, no border.
- */
 const CHIP_BASE_CLASSES =
   'inline-flex items-center gap-1 h-6 px-1.5 rounded-full text-xs font-normal ' +
   'whitespace-nowrap cursor-pointer transition-colors ' +
   'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-base-content/30';
-
 const DOT_BASE_CLASSES = 'w-1.5 h-1.5 rounded-full';
-
-/** The notice codes the popover has a row for; see the template's `@switch`. */
-const RENDERED_NOTICE_CODES: readonly SessionMcpNotice['code'][] = [
-  'claude-ai-connectors-disabled',
-  'capability-policy-unverified',
-];
-
-const PILL_BASE_CLASSES = 'rounded px-1.5 py-0.5 whitespace-nowrap';
-
-/**
- * Resolve a catalog entry through the OAuth record's `serverUrl`, never by
- * substring-matching the server key. A key like `oauth-mcp.sentry.dev-mcp`
- * contains `sentry` by coincidence of the host name, and matching on that would
- * attach the wrong label the first time two providers share a word.
- */
-function catalogForRecord(
-  record: McpOAuthConnectedRecord | undefined,
-): (typeof PTAH_CONNECTORS)[number] | undefined {
-  if (!record) return undefined;
-  const url = normalizeUrl(record.serverUrl);
-  return PTAH_CONNECTORS.find(
-    (entry) => entry.url && normalizeUrl(entry.url) === url,
-  );
-}
-
-/** Normalize a server URL for catalog matching (trailing slash, host case). */
-function normalizeUrl(url: string): string {
-  try {
-    const parsed = new URL(url);
-    const path = parsed.pathname.replace(/\/+$/, '');
-    return `${parsed.protocol}//${parsed.host.toLowerCase()}${path}`;
-  } catch {
-    return url.replace(/\/+$/, '').toLowerCase();
-  }
-}
 
 @Component({
   selector: 'ptah-mcp-status-chip',
   standalone: true,
-  imports: [NativePopoverComponent],
+  imports: [NativePopoverComponent, McpServerListComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  // `display: contents` so the host box disappears entirely. The chip lives in
-  // the composer footer row (TASK_2026_375 B4.4 placed it on its own row, which
-  // cost a full row of height for one badge). With `contents` the chip itself
-  // is the flex item, and a session that reports no MCP servers contributes no
-  // item at all — no stray gap next to the Agents button.
   styles: [':host { display: contents; }'],
   template: `
     @if (rows().length > 0 || notices().length > 0) {
-      <ptah-native-popover
-        [isOpen]="isOpen()"
-        [placement]="'top-end'"
-        [hasBackdrop]="true"
-        [backdropClass]="'transparent'"
-        (closed)="isOpen.set(false)"
-      >
-        <button
-          trigger
-          type="button"
-          [class]="chipClasses()"
-          [title]="chipTitle()"
-          [attr.aria-expanded]="isOpen()"
-          (click)="toggle()"
-        >
-          <span
-            class="w-3.5 h-3.5 flex-shrink-0 flex items-center justify-center"
-            aria-hidden="true"
-          >
+      <ptah-native-popover [isOpen]="isOpen()" [placement]="'top-end'"
+        [hasBackdrop]="true" [backdropClass]="'transparent'" (closed)="isOpen.set(false)">
+        <button trigger type="button" [class]="chipClasses()" [title]="chipTitle()"
+          [attr.aria-expanded]="isOpen()" (click)="toggle()">
+          <span class="w-3.5 h-3.5 flex-shrink-0 flex items-center justify-center" aria-hidden="true">
             <span [class]="dotClasses()"></span>
           </span>
           <span>MCP</span>
           <span class="tabular-nums">{{ chipLabel() }}</span>
         </button>
-
         <div content class="w-80 max-w-[90vw] p-3 text-xs">
           <div class="mb-2 font-semibold">MCP servers</div>
-
-          @for (row of rows(); track row.key) {
-            <div
-              class="flex items-start gap-2 border-b border-base-content/10 py-1.5 last:border-b-0"
-            >
-              <div class="min-w-0 flex-1">
-                <div class="truncate font-medium" [title]="row.key">
-                  {{ row.label }}
-                </div>
-                @if (row.hint) {
-                  <div class="text-base-content-muted">{{ row.hint }}</div>
-                }
-              </div>
-              <span [class]="pillClasses(row.status)">{{
-                row.statusLabel
-              }}</span>
-              @if (row.needsAction) {
-                <button
-                  type="button"
-                  class="rounded border border-warning/40 px-1.5 py-0.5 text-warning transition-colors hover:bg-warning/10"
-                  (click)="authorize(row)"
-                >
-                  Authorize
-                </button>
-              }
-            </div>
-          } @empty {
-            <div class="py-1.5 text-base-content-muted">
-              This session reports no MCP servers.
-            </div>
-          }
-
-          @for (notice of notices(); track notice.code) {
-            @switch (notice.code) {
-              @case ('claude-ai-connectors-disabled') {
-                <div
-                  class="mt-2 rounded border border-info/25 bg-info/10 p-2"
-                  [title]="notice.message"
-                >
-                  <div class="mb-1 font-medium text-info">
-                    claude.ai connectors are not loaded
-                  </div>
-                  <p class="mb-1 text-base-content-muted">
-                    Your claude.ai connectors (Gmail, Calendar, Drive…) are
-                    disabled because Ptah runs this session on
-                    {{ providerLabel() }}. Switch the provider to Claude login
-                    to load them.
-                  </p>
-                  <button
-                    type="button"
-                    class="underline transition-colors hover:text-info"
-                    (click)="openProviderSettings()"
-                  >
-                    Settings → Providers
-                  </button>
-                </div>
-              }
-              @case ('capability-policy-unverified') {
-                <!-- The backend composes the sentence, path and reason
-                     included; it is rendered as text, never as HTML. -->
-                <div
-                  class="mt-2 rounded border border-warning/25 bg-warning/10 p-2"
-                  role="status"
-                >
-                  <div class="mb-1 font-medium text-warning">
-                    Capability settings could not be read
-                  </div>
-                  <p class="text-base-content-muted">{{ notice.message }}</p>
-                </div>
-              }
-            }
-          }
+          <ptah-mcp-server-list [rows]="rows()" [notices]="notices()"
+            [providerLabel]="providerLabel()" (authorize)="authorize($event)"
+            (providerSettings)="openProviderSettings()" />
         </div>
       </ptah-native-popover>
     }
   `,
 })
 export class McpStatusChipComponent {
+  private readonly statusService = inject(McpServerStatusService);
   private readonly registry = inject(SessionMcpStatusRegistry);
-  private readonly rpc = inject(ClaudeRpcService);
-  private readonly appState = inject(AppStateManager);
-
-  /** The SDK session UUID, once the tab knows it. */
   readonly sessionId = input<string | null>(null);
-  /**
-   * The tab id this surface routes on. The backend pushes under the tabId until
-   * the SDK reports the UUID, so both ids are consulted — see
-   * `SessionMcpStatusRegistry.statusFor`.
-   */
   readonly tabId = input<string | null>(null);
-
   readonly isOpen = signal(false);
 
-  private readonly oauthRecords = signal<readonly McpOAuthConnectedRecord[]>(
-    [],
-  );
-  private readonly providerName = signal<string | null>(null);
-  private destroyed = false;
-  /** Session ids whose `session:status` recovery read has already been made. */
-  private readonly recovered = new Set<string>();
-
   private readonly status = computed(() =>
-    this.registry.statusFor(this.sessionId(), this.tabId())(),
-  );
-
-  /**
-   * The notices this chip knows how to render. A code it does not know is
-   * dropped here, so it neither shows a row nor, on its own, keeps an empty
-   * trigger on screen or colours the dot.
-   */
-  readonly notices = computed<readonly SessionMcpNotice[]>(() =>
-    (this.status()?.notices ?? []).filter((notice) =>
-      RENDERED_NOTICE_CODES.includes(notice.code),
-    ),
-  );
-
-  private readonly servers = computed<readonly SessionMcpServerEntry[]>(
-    () => this.status()?.servers ?? [],
-  );
-
-  readonly rows = computed<readonly McpServerRow[]>(() => {
-    const records = this.oauthRecords();
-    return this.servers().map((server) => this.toRow(server, records));
-  });
-
-  private readonly attentionCount = computed(
-    () => this.rows().filter((row) => row.needsAction).length,
-  );
-
-  private readonly connectedCount = computed(
-    () => this.rows().filter((row) => row.status === 'connected').length,
-  );
-
+    this.registry.statusFor(this.sessionId(), this.tabId())());
+  readonly notices = computed(() =>
+    this.statusService.notices(this.status()?.notices));
+  readonly rows = computed(() =>
+    this.statusService.rows(this.status()?.servers));
+  private readonly attentionCount = computed(() =>
+    this.rows().filter((row) => row.needsAction).length);
+  private readonly connectedCount = computed(() =>
+    this.rows().filter((row) => row.status === 'connected').length);
   readonly chipLabel = computed(() => {
-    const attention = this.attentionCount();
     const connected = this.connectedCount();
-    return attention > 0
-      ? `${connected}/${this.rows().length}`
-      : `${connected}`;
+    return this.attentionCount() > 0
+      ? `${connected}/${this.rows().length}` : `${connected}`;
   });
-
-  /**
-   * Full class string, base included. Angular forbids a static `class` next to
-   * a `[class]` binding on the same element, so the base lives here.
-   */
-  readonly chipClasses = computed(
-    () =>
-      `${CHIP_BASE_CLASSES} ${
-        this.needsAttention()
-          ? 'text-warning hover:bg-warning/10'
-          : 'text-base-content-muted hover:text-base-content hover:bg-base-content/5'
-      }${this.isOpen() ? ' bg-base-300' : ''}`,
-  );
-
-  /** Status dot: warning when anything needs attention, success when live. */
+  private readonly needsAttention = computed(() =>
+    this.attentionCount() > 0 || this.notices().length > 0);
+  readonly chipClasses = computed(() =>
+    `${CHIP_BASE_CLASSES} ${this.needsAttention()
+      ? 'text-warning hover:bg-warning/10'
+      : 'text-base-content-muted hover:text-base-content hover:bg-base-content/5'}${this.isOpen() ? ' bg-base-300' : ''}`);
   readonly dotClasses = computed(() => {
     if (this.needsAttention()) return `${DOT_BASE_CLASSES} bg-warning`;
     if (this.connectedCount() > 0) return `${DOT_BASE_CLASSES} bg-success`;
     return `${DOT_BASE_CLASSES} bg-base-content/40`;
   });
-
-  private readonly needsAttention = computed(
-    () => this.attentionCount() > 0 || this.notices().length > 0,
-  );
-
-  readonly chipTitle = computed(() => {
-    const attention = this.attentionCount();
-    if (attention > 0) {
-      return `${attention} MCP server(s) need attention`;
-    }
-    return `${this.connectedCount()} MCP server(s) connected`;
-  });
-
-  /**
-   * The provider the session actually runs on, for the notice sentence.
-   *
-   * Loaded on demand rather than read from `AuthStateService`: that service's
-   * `selectedProviderId` defaults to `'openrouter'` until something calls
-   * `loadAuthStatus()`, and naming the wrong provider in an explanation is
-   * worse than naming none.
-   */
-  readonly providerLabel = computed(
-    () => this.providerName() ?? 'another provider',
-  );
+  readonly chipTitle = computed(() => this.attentionCount() > 0
+    ? `${this.attentionCount()} MCP server(s) need attention`
+    : `${this.connectedCount()} MCP server(s) connected`);
+  readonly providerLabel = computed(() =>
+    this.statusService.providerName() ?? 'another provider');
 
   constructor() {
-    const destroyRef = inject(DestroyRef);
-    destroyRef.onDestroy(() => {
-      this.destroyed = true;
-    });
-
-    // Recovery read. A cold-loaded webview (VS Code recreates the webview on
-    // panel hide→reshow; HMR reloads it) missed the one `session:mcpStatus`
-    // push this session will ever send, so the chip would stay empty for the
-    // rest of it. Runs once per session id, and only when nothing is recorded.
     effect(() => {
       const sessionId = this.sessionId();
-      if (!sessionId || this.status() || this.recovered.has(sessionId)) return;
-      this.recovered.add(sessionId);
-      void this.recoverFromSessionStatus(sessionId);
+      if (sessionId && !this.status()) void this.statusService.recover(sessionId);
     });
   }
 
@@ -351,152 +92,22 @@ export class McpStatusChipComponent {
     const next = !this.isOpen();
     this.isOpen.set(next);
     if (next) {
-      void this.loadOAuthRecords();
-      void this.loadProviderName();
+      void this.statusService.loadOAuthRecords();
+      void this.statusService.loadProviderName(this.notices());
     }
   }
 
-  /**
-   * Route the Authorize action by server key.
-   *
-   * A Connections-API Smithery install appears in the session as ONE server
-   * named `smithery` — one namespace endpoint holding several connections in
-   * different states — so there is no single connection for this chip to
-   * authorize. It opens the Marketplace Smithery surface, which lists the
-   * connections with their own per-connection Authorize buttons (B2/B3).
-   * Everything else that cannot be authorized from here opens the Connectors
-   * page.
-   */
   async authorize(row: McpServerRow): Promise<void> {
     this.isOpen.set(false);
-    if (row.key === 'smithery' || row.key.startsWith('smithery')) {
-      this.navigateToMarketplace('smithery');
-      return;
-    }
-    if (row.key.startsWith('oauth-')) {
-      const record = this.oauthRecords().find((r) => r.serverKey === row.key);
-      if (record) {
-        await this.rpc.call(
-          'mcpDirectory:connectOAuth',
-          {
-            serverUrl: record.serverUrl,
-            serverKey: record.serverKey,
-            name: record.name,
-          },
-          { timeout: MARKETPLACE_RPC_TIMEOUTS.OAUTH_CONNECT_MS },
-        );
-        return;
-      }
-      // The key claims OAuth but no manifest record backs it. Nothing here can
-      // build a connect request, so hand the user the surface that can.
-    }
-    this.navigateToMarketplace('connectors');
+    await this.statusService.authorize(row);
   }
 
   openProviderSettings(): void {
     this.isOpen.set(false);
-    this.appState.setCurrentView('settings');
+    this.statusService.openProviderSettings();
   }
 
   pillClasses(status: string): string {
-    if (status === 'connected') {
-      return `${PILL_BASE_CLASSES} bg-success/15 text-success`;
-    }
-    if (ACTIONABLE_STATUSES.includes(status)) {
-      return `${PILL_BASE_CLASSES} bg-warning/15 text-warning`;
-    }
-    return `${PILL_BASE_CLASSES} bg-base-content/10 text-base-content-muted`;
-  }
-
-  // ── Internals ──────────────────────────────────────────────────────────────
-
-  /**
-   * Open the Marketplace page that owns the connection: the Smithery server
-   * source for a Smithery namespace, the Connectors page for anything else.
-   *
-   * `chat` cannot import `@ptah-extension/marketplace`, so the route comes
-   * from `core`'s `MarketplaceRoute` and `openMarketplace` navigates to it.
-   */
-  private navigateToMarketplace(source: 'connectors' | 'smithery'): void {
-    this.appState.openMarketplace(
-      source === 'smithery'
-        ? { page: 'servers', source: 'smithery' }
-        : { page: 'connectors' },
-    );
-  }
-
-  private toRow(
-    server: SessionMcpServerEntry,
-    records: readonly McpOAuthConnectedRecord[],
-  ): McpServerRow {
-    const isSmithery = server.name === 'smithery';
-    const record = records.find((r) => r.serverKey === server.name);
-    const catalog = catalogForRecord(record);
-    return {
-      key: server.name,
-      // A blank `name` on the record is absent, not a name — `??` alone would
-      // render an empty row label for a manifest entry saved without one.
-      label: isSmithery
-        ? 'Smithery'
-        : record?.name || catalog?.label || server.name,
-      status: server.status,
-      statusLabel: McpStatusChipComponent.statusLabel(server.status),
-      needsAction: ACTIONABLE_STATUSES.includes(server.status),
-      hint: isSmithery
-        ? ptahConnectorKindHint('smithery')
-        : catalog
-          ? ptahConnectorKindHint(catalog.kind)
-          : null,
-    };
-  }
-
-  private static statusLabel(status: string): string {
-    switch (status) {
-      case 'connected':
-        return 'Connected';
-      case 'needs-auth':
-        return 'Needs authorization';
-      case 'failed':
-        return 'Failed';
-      case 'pending':
-        return 'Connecting';
-      case 'disabled':
-        return 'Disabled';
-      default:
-        return status;
-    }
-  }
-
-  private async recoverFromSessionStatus(sessionId: string): Promise<void> {
-    const result = await this.rpc.call('session:status', { sessionId });
-    if (this.destroyed || !result.isSuccess()) return;
-    const { mcpServers, notices } = result.data;
-    // Absent means the backend has nothing recorded, which is different from
-    // an empty list. Writing an empty record for it would hide the chip on a
-    // session whose init message simply has not arrived yet.
-    if (!mcpServers && !notices) return;
-    this.registry.record(sessionId, {
-      servers: mcpServers ?? [],
-      notices: notices ?? [],
-    });
-  }
-
-  private async loadOAuthRecords(): Promise<void> {
-    const result = await this.rpc.call('mcpDirectory:listOAuthConnected', {});
-    if (this.destroyed || !result.isSuccess()) return;
-    this.oauthRecords.set(result.data.servers);
-  }
-
-  private async loadProviderName(): Promise<void> {
-    // Only the claude.ai notice names the provider.
-    const namesProvider = this.notices().some(
-      (notice) => notice.code === 'claude-ai-connectors-disabled',
-    );
-    if (!namesProvider || this.providerName()) return;
-    const result = await this.rpc.call('auth:getAuthStatus', {});
-    if (this.destroyed || !result.isSuccess()) return;
-    const { anthropicProviderId, availableProviders } = result.data;
-    const match = availableProviders.find((p) => p.id === anthropicProviderId);
-    this.providerName.set(match?.name ?? anthropicProviderId ?? null);
+    return this.statusService.pillClasses(status);
   }
 }
