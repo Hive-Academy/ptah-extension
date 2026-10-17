@@ -183,6 +183,63 @@ export class CompactionConfigProvider {
     return compactionConfig;
   }
 
+  /** Read idle compaction settings at each arm/fire so live edits take effect. */
+  getIdleCompactionConfig(): { enabled: boolean; minTokens: number } {
+    const enabledDefault: unknown =
+      FILE_BASED_SETTINGS_DEFAULTS['compaction.idleCompactionEnabled'];
+    const minTokensDefault: unknown =
+      FILE_BASED_SETTINGS_DEFAULTS['compaction.idleCompactionMinTokens'];
+    if (typeof enabledDefault !== 'boolean') {
+      throw new Error('Missing boolean idle compaction enabled default');
+    }
+    if (
+      typeof minTokensDefault !== 'number' ||
+      !Number.isInteger(minTokensDefault) ||
+      minTokensDefault < 100_000
+    ) {
+      throw new Error('Missing valid idle compaction minimum token default');
+    }
+
+    const rawEnabled = this.config.get<unknown>(
+      'compaction.idleCompactionEnabled',
+    );
+    const rawMinTokens = this.config.get<unknown>(
+      'compaction.idleCompactionMinTokens',
+    );
+    let enabled = enabledDefault;
+    let minTokens = minTokensDefault;
+
+    if (rawEnabled !== undefined && rawEnabled !== null) {
+      if (typeof rawEnabled === 'boolean') {
+        enabled = rawEnabled;
+      } else {
+        this.warnOnce(
+          `compaction.idleCompactionEnabled:${typeof rawEnabled}:${String(rawEnabled)}`,
+          '[CompactionConfigProvider] Invalid compaction.idleCompactionEnabled, using the default',
+          { providedType: typeof rawEnabled, defaultValue: enabledDefault },
+        );
+      }
+    }
+
+    if (rawMinTokens !== undefined && rawMinTokens !== null) {
+      if (
+        typeof rawMinTokens === 'number' &&
+        Number.isInteger(rawMinTokens) &&
+        rawMinTokens >= 100_000
+      ) {
+        minTokens = rawMinTokens;
+      } else {
+        this.warnOnce(
+          `compaction.idleCompactionMinTokens:${typeof rawMinTokens}:${String(rawMinTokens)}`,
+          '[CompactionConfigProvider] Invalid compaction.idleCompactionMinTokens, using the default',
+          { providedType: typeof rawMinTokens, defaultValue: minTokensDefault },
+        );
+      }
+    }
+
+    return { enabled, minTokens };
+  }
+
   /**
    * Reads one positive-integer budget. Unset is the default; a hand-edited
    * value that is not a positive integer (non-number, non-integer, zero or

@@ -104,6 +104,104 @@ describe('CompactionConfigProvider.getConfig', () => {
   });
 });
 
+describe('CompactionConfigProvider.getIdleCompactionConfig', () => {
+  it('uses the shared defaults when settings are unset or null', () => {
+    const { provider, warn } = makeProvider({});
+    expect(provider.getIdleCompactionConfig()).toEqual({
+      enabled: true,
+      minTokens: 200_000,
+    });
+    const withNulls = makeProvider({
+      'compaction.idleCompactionEnabled': null,
+      'compaction.idleCompactionMinTokens': null,
+    });
+    expect(withNulls.provider.getIdleCompactionConfig()).toEqual({
+      enabled: true,
+      minTokens: 200_000,
+    });
+    expect(
+      FILE_BASED_SETTINGS_DEFAULTS['compaction.idleCompactionEnabled'],
+    ).toBe(true);
+    expect(
+      FILE_BASED_SETTINGS_DEFAULTS['compaction.idleCompactionMinTokens'],
+    ).toBe(200_000);
+    expect(warn).not.toHaveBeenCalled();
+    expect(withNulls.warn).not.toHaveBeenCalled();
+  });
+
+  it('reads valid settings on every call, including the minimum', () => {
+    const values: Record<string, unknown> = {
+      'compaction.idleCompactionEnabled': false,
+      'compaction.idleCompactionMinTokens': 100_000,
+    };
+    const { provider, warn } = makeProvider(values);
+    expect(provider.getIdleCompactionConfig()).toEqual({
+      enabled: false,
+      minTokens: 100_000,
+    });
+    values['compaction.idleCompactionEnabled'] = true;
+    values['compaction.idleCompactionMinTokens'] = 5_000_000;
+    expect(provider.getIdleCompactionConfig()).toEqual({
+      enabled: true,
+      minTokens: 5_000_000,
+    });
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it.each(['false', 0, 1, []])(
+    'defaults a non-boolean enabled value (%p)',
+    (value) => {
+      const { provider, warn } = makeProvider({
+        'compaction.idleCompactionEnabled': value,
+      });
+      expect(provider.getIdleCompactionConfig().enabled).toBe(true);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('Invalid compaction.idleCompactionEnabled'),
+        expect.objectContaining({ defaultValue: true }),
+      );
+    },
+  );
+
+  it.each([99_999, 100_000.5, -1, '200000', Number.NaN, Infinity, true])(
+    'defaults an invalid minimum (%p) without clamping',
+    (value) => {
+      const { provider, warn } = makeProvider({
+        'compaction.idleCompactionMinTokens': value,
+      });
+      expect(provider.getIdleCompactionConfig().minTokens).toBe(200_000);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('Invalid compaction.idleCompactionMinTokens'),
+        expect.objectContaining({ defaultValue: 200_000 }),
+      );
+    },
+  );
+
+  it('warns once per distinct bad value across reads', () => {
+    const values: Record<string, unknown> = {
+      'compaction.idleCompactionEnabled': 'false',
+      'compaction.idleCompactionMinTokens': 99_999,
+    };
+    const { provider, warn } = makeProvider(values);
+    provider.getIdleCompactionConfig();
+    provider.getIdleCompactionConfig();
+    expect(warn).toHaveBeenCalledTimes(2);
+    values['compaction.idleCompactionEnabled'] = 1;
+    values['compaction.idleCompactionMinTokens'] = 100_000.5;
+    provider.getIdleCompactionConfig();
+    expect(warn).toHaveBeenCalledTimes(4);
+  });
+
+  it('constructs with the boolean default outside budget validation', () => {
+    expect(
+      typeof FILE_BASED_SETTINGS_DEFAULTS['compaction.idleCompactionEnabled'],
+    ).toBe('boolean');
+    const { provider, warn } = makeProvider({});
+    expect(provider.getConfig().toolOutputBudgetTokens).toBe(2500);
+    expect(provider.getIdleCompactionConfig().enabled).toBe(true);
+    expect(warn).not.toHaveBeenCalled();
+  });
+});
+
 describe('CompactionConfigProvider.getConfig — budget keys', () => {
   const BUDGETS = [
     ['compaction.toolOutputBudgetTokens', 'toolOutputBudgetTokens', 2500],

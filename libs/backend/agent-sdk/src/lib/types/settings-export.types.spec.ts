@@ -84,6 +84,15 @@ describe('KNOWN_CONFIG_KEYS', () => {
       );
     });
 
+    it('exports both idle compaction settings', () => {
+      expect(KNOWN_CONFIG_KEYS).toEqual(
+        expect.arrayContaining([
+          'compaction.idleCompactionEnabled',
+          'compaction.idleCompactionMinTokens',
+        ]),
+      );
+    });
+
     it('exports the subagent prompt-cache TTL key (TASK_2026_597 N1)', () => {
       expect(KNOWN_CONFIG_KEYS).toContain(
         'agentOrchestration.subagentPromptCacheTtl',

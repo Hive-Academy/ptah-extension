@@ -1,6 +1,6 @@
 # Batches - TASK_2026_692_f748
 
-Total tasks: 29 | Batches: 17 | Complete: 5/17
+Total tasks: 29 | Batches: 17 | Complete: 6/17
 
 Worktree (all edits, checks, commits): `D:\projects\ptah-extension\.claude-worktrees\idle-compaction`
 (branch `feat/idle-compaction`, base `7bdc6eed4`). Below, `<W>` means that absolute path; every
@@ -298,7 +298,7 @@ after 5 -> {6}. Default ordering below is sequential by number.
 
 - Command: `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/helpers/compaction/idle/idle-session.reducer.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -30 && npx nx typecheck @ptah-extension/agent-sdk 2>&1 | tail -15`
 
-## Batch 5: Settings descriptors and file-key allow-list — COMPLETE
+## Batch 5: Settings descriptors and file-key allow-list — COMPLETE (commit cdb70c581)
 
 - Recommended executor: CLI lane [implementation, TypeScript]
 - Execution mode: sequential
@@ -328,7 +328,7 @@ after 5 -> {6}. Default ordering below is sequential by number.
 
 - Command: `npx nx run-many -t test -p @ptah-extension/shared @ptah-extension/platform-core --parallel=1 2>&1 | grep -E "Running target|Tests:|Test Suites:|FAIL|Successfully|failed" | tail -20` (header must say 2 projects)
 
-## Batch 6: Idle config read and export key list — IN_PROGRESS
+## Batch 6: Idle config read and export key list — COMPLETE
 
 - Recommended executor: CLI lane [implementation, TypeScript backend]
 - Execution mode: sequential
@@ -340,13 +340,13 @@ after 5 -> {6}. Default ordering below is sequential by number.
 - Phase: 1 | Phase review: deferred to Batch 8
 - ACs: 5.3, 5.4, 5.5
 
-### Task 6.1: `KNOWN_CONFIG_KEYS` + spec — IN_PROGRESS
+### Task 6.1: `KNOWN_CONFIG_KEYS` + spec — COMPLETE
 
 - Files: `<W>\libs\backend\agent-sdk\src\lib\types\settings-export.types.ts`, `<W>\libs\backend\agent-sdk\src\lib\types\settings-export.types.spec.ts`
 - Plan reference: implementation-plan.md:632
 - Pattern to follow: compaction keys case at `settings-export.types.spec.ts:72-80`
 
-### Task 6.2: `getIdleCompactionConfig` + spec — IN_PROGRESS
+### Task 6.2: `getIdleCompactionConfig` + spec — COMPLETE
 
 - Files: `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction-config-provider.ts`, `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction-config-provider.spec.ts`
 - Plan reference: implementation-plan.md:633-637
@@ -357,7 +357,7 @@ after 5 -> {6}. Default ordering below is sequential by number.
 
 - Command: `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/types/settings-export.types.spec.ts libs/backend/agent-sdk/src/lib/helpers/compaction-config-provider.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -30 && npx nx typecheck @ptah-extension/agent-sdk 2>&1 | tail -15`
 
-## Batch 7: IdleCompactionService (RxJS pipeline) and core spec — PENDING
+## Batch 7: IdleCompactionService (RxJS pipeline) and core spec — IN_PROGRESS
 
 - Recommended executor: CLI lane [implementation, TypeScript backend, RxJS]
 - Execution mode: sequential
@@ -369,7 +369,7 @@ after 5 -> {6}. Default ordering below is sequential by number.
 - Phase: 1 | Phase review: deferred to Batch 8
 - ACs: 1.1, 2.1-2.3, 2.6, 2.9, 3.3, 4.1-4.7
 
-### Task 7.1: Service + internal barrel — PENDING
+### Task 7.1: Service + internal barrel — IN_PROGRESS
 
 - Files: `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction\idle\idle-compaction.service.ts` (CREATE), `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction\idle\index.ts` (CREATE)
 - Plan reference: implementation-plan.md:426-533 (component 7)
@@ -377,7 +377,7 @@ after 5 -> {6}. Default ordering below is sequential by number.
 - Quality requirements: one trampolined FIFO `enqueue` for every signal; alias index; `groupBy` with release duration; `scan` -> `tap(runEffects)` -> `share`; one `switchMap` timer from `state.timer`; `exhaustMap(fire)`; per-group `catchError`; release in `finalize`; `dispose` idempotent; logs never carry message text.
 - Validation notes: `beforeEnqueue` checks group live + `latest` still this attempt in `sending`, then `claimIdle`; throws `IdleSendVetoedError` unless `claimed`; error mapping exactly as the plan (`SessionAdmissionRefusedError` -> `not-idle-at-send`, `manual-reserved` -> `manual-compact-reserved`). Settings subscription filters `ptah.compaction.enabled`, `ptah.compaction.idleCompactionEnabled`, `ptah.compaction.idleCompactionMinTokens`.
 
-### Task 7.2: Core service spec — PENDING
+### Task 7.2: Core service spec — IN_PROGRESS
 
 - Depends on: Task 7.1
 - File: `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction\idle\idle-compaction.service.spec.ts` (CREATE)
