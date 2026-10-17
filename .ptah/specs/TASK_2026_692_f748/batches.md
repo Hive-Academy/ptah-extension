@@ -1,6 +1,6 @@
 # Batches - TASK_2026_692_f748
 
-Total tasks: 29 | Batches: 17 | Complete: 7/17
+Total tasks: 29 | Batches: 17 | Complete: 8/17
 
 Worktree (all edits, checks, commits): `D:\projects\ptah-extension\.claude-worktrees\idle-compaction`
 (branch `feat/idle-compaction`, base `7bdc6eed4`). Below, `<W>` means that absolute path; every
@@ -357,7 +357,7 @@ after 5 -> {6}. Default ordering below is sequential by number.
 
 - Command: `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/types/settings-export.types.spec.ts libs/backend/agent-sdk/src/lib/helpers/compaction-config-provider.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -30 && npx nx typecheck @ptah-extension/agent-sdk 2>&1 | tail -15`
 
-## Batch 7: IdleCompactionService (RxJS pipeline) and core spec — COMPLETE
+## Batch 7: IdleCompactionService (RxJS pipeline) and core spec — COMPLETE (commit c7e24c58b)
 
 - Recommended executor: CLI lane [implementation, TypeScript backend, RxJS]
 - Execution mode: sequential
@@ -388,7 +388,7 @@ after 5 -> {6}. Default ordering below is sequential by number.
 
 - Command: `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/helpers/compaction/idle --coverage=false --maxWorkers=2 2>&1 | tail -30 && npx nx typecheck @ptah-extension/agent-sdk 2>&1 | tail -15`
 
-## Batch 8: Service ordering, coalescing and leak spec — PENDING
+## Batch 8: Service ordering, coalescing and leak spec — COMPLETE
 
 - Recommended executor: CLI lane [testing, TypeScript, RxJS virtual time]
 - Execution mode: sequential
@@ -400,7 +400,7 @@ after 5 -> {6}. Default ordering below is sequential by number.
 - Phase: 1 | Phase review: code-logic + style, due after this batch commits (diff from parent of Batch 1's commit to HEAD)
 - ACs: 2.4, 2.5, 2.7, R1-R4, D10, NFR leak/perf
 
-### Task 8.1: `idle-compaction.service.coalesce.spec.ts` — PENDING
+### Task 8.1: `idle-compaction.service.coalesce.spec.ts` — COMPLETE
 
 - File: `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction\idle\idle-compaction.service.coalesce.spec.ts` (CREATE)
 - Plan reference: implementation-plan.md:516-530
@@ -417,6 +417,15 @@ after 5 -> {6}. Default ordering below is sequential by number.
 ### Batch 8 verification
 
 - Command: `npx nx test @ptah-extension/agent-sdk --parallel=1 2>&1 | grep -E "Tests:|Test Suites:|FAIL|failed" | tail -20` (whole-project run once, closing Phase 1)
+- Result (team-leader): idle folder 6 suites / 71 tests pass; agent-sdk typecheck pass;
+  agent-sdk project 169 suites / 3588 tests pass (2 suites, 3 tests skipped). Jest printed
+  "worker failed to exit gracefully" once; handed to the Phase 1 logic review (NFR leak).
+- Fix round inside the batch: the spec pinned two service defects with `it.failing`; a fix lane
+  corrected them (reducer emits `clear-notice` on a new run token and on manual pre-compact after
+  PostCompact; group cleanup is owned by an alias-set token so an old finalize cannot clear a
+  rebound group, and release clears aliases at once). The three cases are now plain `it`;
+  assertions match the defects in batch-8-report.md. Reports: batch-8-report.md, -fix-report.md.
+- Phase 1 review: PENDING (code-logic + style on 70478faf7^..HEAD)
 
 ## Batch 9: Session tap signals — PENDING
 

@@ -58,6 +58,7 @@ export function reduceIdleSession(state: IdleSessionState, signal: IdleSignal,
 
   if (signal.type === 'session-bound') {
     if (signal.runToken !== state.runToken) {
+      effects.push({ type: 'clear-notice' });
       if (attempt?.kind === 'in-flight' && attempt.phase !== 'postcompacted') release();
       next = { ...state, sessionId: signal.sessionId, runToken: signal.runToken,
         codexProxy: signal.codexProxy, lastTurn: null, reading: null,
@@ -127,6 +128,7 @@ export function reduceIdleSession(state: IdleSessionState, signal: IdleSignal,
         break;
       case 'pre-compact':
         if (attempt?.kind === 'in-flight' && attempt.phase === 'postcompacted') {
+          effects.push({ type: 'clear-notice' });
           close();
         } else if (attempt?.kind === 'in-flight' && attempt.phase === 'enqueued') {
           const dwellAt = ctx.now + COMPACTION_MAX_DWELL_MS;

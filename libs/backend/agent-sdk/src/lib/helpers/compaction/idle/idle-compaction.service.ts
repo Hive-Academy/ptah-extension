@@ -108,6 +108,9 @@ export class IdleCompactionService implements IdleCompactionSignals {
   }
 
   private sessionPipeline(key: string, group: Observable<KeyedSignal>): Observable<never> {
+    // A released group can still have a pending send when the same key is rebound.
+    const ownedAliases = new Set(this.keys.get(key) ?? [key]);
+    this.keys.set(key, ownedAliases);
     let latest = initialState(key);
     let pending: Extract<IdleAttempt, { kind: 'pending' }> | null = null;
     let live = true;
@@ -149,14 +152,19 @@ export class IdleCompactionService implements IdleCompactionSignals {
         if (attempt?.kind === 'in-flight') {
           this.coordinator.releaseIdleClaim(latest.sessionId, attempt.claimId);
         }
-        for (const alias of this.keys.get(key) ?? []) {
-          this.aliases.delete(alias);
-          this.notices.delete(alias);
-        }
-        this.keys.delete(key);
-        this.currentIds.delete(key);
+        this.clearGroup(key, ownedAliases);
       }),
     );
+  }
+
+  private clearGroup(key: string, ownedAliases: Set<string>): void {
+    if (this.keys.get(key) !== ownedAliases) return;
+    for (const alias of ownedAliases) {
+      this.aliases.delete(alias);
+      this.notices.delete(alias);
+    }
+    this.keys.delete(key);
+    this.currentIds.delete(key);
   }
 
   private runEffects(step: IdleStep): void {
@@ -175,7 +183,11 @@ export class IdleCompactionService implements IdleCompactionSignals {
           this.notices.set(effect.noticeKey, { preTokens: effect.preTokens });
           break;
         case 'clear-notice':
-          this.notices.delete(step.state.sessionId);
+          for (const alias of this.keys.get(this.aliases.get(step.state.sessionId) ??
+            step.state.sessionId) ??
+            [step.state.sessionId]) {
+            this.notices.delete(alias);
+          }
           break;
         case 'fire':
           break;
@@ -265,7 +277,13 @@ export class IdleCompactionService implements IdleCompactionSignals {
         const next = this.queue.shift()!;
         try {
           const item = this.resolve(next);
-          if (item) this.signals$.next(item);
+          if (item) {
+            const ownedAliases = this.keys.get(item.key);
+            this.signals$.next(item);
+            if (next.type === 'session-released' && ownedAliases) {
+              this.clearGroup(item.key, ownedAliases);
+            }
+          }
         } catch {
           this.warn('signal-failed', next.sessionId);
         }
