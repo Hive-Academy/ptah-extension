@@ -1,6 +1,6 @@
 # Batches - TASK_2026_684_a11d
 
-Total tasks: 45 | Batches: 23 (Batch 0 gate + 22 implementation batches) | Complete: 11/23
+Total tasks: 45 | Batches: 23 (Batch 0 gate + 22 implementation batches) | Complete: 12/23
 
 ## Execution precondition (read first)
 
@@ -656,7 +656,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - `T(@ptah-extension/lane-routing)`; `TC(@ptah-extension/lane-routing)`.
 - Phase 2 is complete: return NEEDS REVIEW (code-logic) for the combined diff of Batches 6-10.
 
-## Batch 11: Decision-model writer and custom key (C9) — PENDING
+## Batch 11: Decision-model writer and custom key (C9) — COMPLETE
 
 - Recommended executor: CLI lane, backend-developer profile (non-codex)
 - Execution mode: sequential
@@ -668,7 +668,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - Phase: 3 - Write path, catalog and RPC | Phase review: code-logic + style (new public API) (codex)
 - Criteria: 2.1, 2.2, 2.4, 2.5, 1.6 (RPC sentinel), D4, DC10
 
-### Task 11.1: Extract `DecisionModelWriter` — PENDING
+### Task 11.1: Extract `DecisionModelWriter` — COMPLETE
 
 - Files: CREATE `W\libs\backend\rpc-handlers\src\lib\handlers\decision-model-writer.ts`, MODIFY
   `...\agent-rpc.handlers.ts` (`writeDecisionModel`, `storedSelectionState` and
@@ -678,7 +678,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
   `DECISION_MODEL_KEY_MAY_HAVE_CHANGED` for jev and `DECISION_MODEL_CUSTOM_KEY_MAY_HAVE_CHANGED`
   for custom. Logs carry error types only.
 
-### Task 11.2: Validate before any write — PENDING
+### Task 11.2: Validate before any write — COMPLETE
 
 - Depends on: Task 11.1
 - File: `agent-rpc.handlers.ts` (`applySetConfig`, `:618-650`)
@@ -688,7 +688,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
   The writer refuses `..._CUSTOM_KEY_NEEDS_ENDPOINT` and `..._KEY_NEEDS_HTTPS`; the effective key is
   the new key, or the stored key bound to the same origin. A failed validation changes nothing (2.2).
 
-### Task 11.3: Specs — PENDING
+### Task 11.3: Specs — COMPLETE
 
 - Files: MODIFY `W\libs\backend\rpc-handlers\src\lib\handlers\agent-rpc.handlers.decision-model.spec.ts`
   (rollback cases become `describe.each` over both key fields, 2.5), CREATE
