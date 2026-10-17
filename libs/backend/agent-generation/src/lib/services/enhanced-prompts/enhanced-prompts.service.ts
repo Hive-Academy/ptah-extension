@@ -221,11 +221,6 @@ const SERVICE_TAG = '[EnhancedPrompts]';
  * - SDK call via InternalQueryService for prompt generation
  * - Providing prompt content to SdkQueryOptionsBuilder
  */
-/**
- * Default timeout for generation lock (5 minutes)
- * Prevents deadlock if async exception escapes try/catch
- */
-const GENERATION_LOCK_TIMEOUT_MS = 5 * 60 * 1000;
 const GENERATION_LOCK_GRACE_MS = 30 * 1000;
 
 /**
@@ -234,6 +229,8 @@ const GENERATION_LOCK_GRACE_MS = 30 * 1000;
  * behind a long one-shot cannot block indefinitely.
  */
 const PROMPT_DESIGNER_TIMEOUT_MS = 10 * 60 * 1000;
+/** Allow designer timeout and workspace discovery before aborting a wedged run. */
+const GENERATION_LOCK_TIMEOUT_MS = PROMPT_DESIGNER_TIMEOUT_MS + 2 * 60 * 1000;
 
 @injectable()
 export class EnhancedPromptsService {
@@ -251,6 +248,8 @@ export class EnhancedPromptsService {
   private generationOwner: object | null = null;
   private generationAbort: AbortController | null = null;
   private generationOnTimeout: (() => void) | null = null;
+  private generationOnForceRelease: (() => void) | null = null;
+  private generationCommitting = false;
   private boundReservation: object | null = null;
 
   /**
@@ -325,11 +324,13 @@ export class EnhancedPromptsService {
     this.generationLockTimer = setTimeout(() => {
       if (this.generationOwner !== owner) return;
       this.logger.warn(
-        'EnhancedPromptsService: Generation lock timed out, aborting run',
+        'EnhancedPromptsService: Generation lock timed out; waiting for release',
         { timeoutMs: GENERATION_LOCK_TIMEOUT_MS },
       );
-      this.generationAbort?.abort();
-      this.generationOnTimeout?.();
+      if (!this.generationCommitting) {
+        this.generationAbort?.abort();
+        this.generationOnTimeout?.();
+      }
       this.generationGraceTimer = setTimeout(() => {
         if (this.generationOwner !== owner) return;
         this.logger.warn(
@@ -338,7 +339,11 @@ export class EnhancedPromptsService {
             graceMs: GENERATION_LOCK_GRACE_MS,
           },
         );
-        this.releaseGenerationLock(owner);
+        try {
+          this.generationOnForceRelease?.();
+        } finally {
+          this.releaseGenerationLock(owner);
+        }
       }, GENERATION_LOCK_GRACE_MS);
     }, GENERATION_LOCK_TIMEOUT_MS);
 
@@ -357,6 +362,8 @@ export class EnhancedPromptsService {
     this.generationOwner = null;
     this.generationAbort = null;
     this.generationOnTimeout = null;
+    this.generationOnForceRelease = null;
+    this.generationCommitting = false;
     if (this.generationLockTimer) {
       clearTimeout(this.generationLockTimer);
       this.generationLockTimer = null;
@@ -493,6 +500,7 @@ export class EnhancedPromptsService {
       allowPhaseEnrichment?: boolean;
       beforeCommit?: () => boolean;
       onTimeout?: () => void;
+      onForceRelease?: () => void;
     },
   ): Promise<EnhancedPromptsWizardResult> {
     if (
@@ -513,6 +521,7 @@ export class EnhancedPromptsService {
     bound?.signal.addEventListener('abort', abortRun, { once: true });
     if (timeoutSignal?.aborted || bound?.signal.aborted) abortRun();
     this.generationOnTimeout = bound?.onTimeout ?? null;
+    this.generationOnForceRelease = bound?.onForceRelease ?? null;
 
     this.logger.info('EnhancedPromptsService: Starting wizard', {
       workspacePath,
@@ -697,8 +706,11 @@ export class EnhancedPromptsService {
       };
       try {
         ensureActive();
-        if (bound?.beforeCommit && !bound.beforeCommit())
-          throw new Error('Guidance generation cancelled');
+        if (bound?.beforeCommit) {
+          if (!bound.beforeCommit())
+            throw new Error('Guidance generation cancelled');
+          this.generationCommitting = true;
+        }
         await this.traceWriter.writeEnhancedPromptTrace(
           workspacePath,
           enrichment.analysisDirectory,
@@ -717,13 +729,13 @@ export class EnhancedPromptsService {
           error: `Failed to persist the enhanced prompt trace: ${message}`,
         };
       }
-      ensureActive();
+      if (!this.generationCommitting) ensureActive();
       await this.stateStore.save(workspacePath, newState);
-      ensureActive();
+      if (!this.generationCommitting) ensureActive();
       if (configHash) {
         await this.cacheService.set(workspacePath, configHash, output);
       }
-      ensureActive();
+      if (!this.generationCommitting) ensureActive();
 
       onProgress?.({
         status: 'complete',
@@ -802,6 +814,7 @@ export class EnhancedPromptsService {
       allowPhaseEnrichment?: boolean;
       beforeCommit?: () => boolean;
       onTimeout?: () => void;
+      onForceRelease?: () => void;
     },
   ): Promise<RegeneratePromptsResponse> {
     if (request?.force) {

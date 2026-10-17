@@ -1668,6 +1668,76 @@ describe('EnhancedPromptsService', () => {
   });
 
   describe('generation lock timeout', () => {
+    it('allows a committing run through the timer and past the designer timeout', async () => {
+      jest.useFakeTimers();
+      try {
+        mocks.promptDesignerAgent.buildPrompts.mockResolvedValue({
+          systemPrompt: 's',
+          userPrompt: 'u',
+          outputSchema: {},
+        });
+        mocks.internalQueryService.execute.mockResolvedValue({
+          stream: (async function* () {
+            /* empty */
+          })(),
+          close: jest.fn(),
+        });
+        mockProcess.mockResolvedValue({ structuredOutput: { ok: true } });
+        mocks.promptDesignerAgent.parseAndValidateOutput.mockResolvedValue(
+          fullOutput(),
+        );
+        let releaseTrace: () => void = () => undefined;
+        mocks.analysisStorage.writeEnhancedPromptTrace.mockReturnValueOnce(
+          new Promise<void>((resolve) => {
+            releaseTrace = resolve;
+          }),
+        );
+        const reservation = service.acquireBoundGeneration();
+        const route = await service.resolveGuidanceRoute(testWorkspacePath);
+        const onTimeout = jest.fn();
+        const pending = service.runWizard(
+          testWorkspacePath,
+          undefined,
+          undefined,
+          {
+            workspacePath: testWorkspacePath,
+            projectType: 'app',
+            isMonorepo: false,
+            dependencies: [],
+            devDependencies: [],
+          },
+          undefined,
+          undefined,
+          {
+            reservation: reservation!,
+            signal: new AbortController().signal,
+            route,
+            beforeCommit: () => true,
+            onTimeout,
+          },
+        );
+        for (
+          let i = 0;
+          i < 100 &&
+          !mocks.analysisStorage.writeEnhancedPromptTrace.mock.calls.length;
+          i++
+        )
+          await Promise.resolve();
+        expect(
+          mocks.analysisStorage.writeEnhancedPromptTrace,
+        ).toHaveBeenCalled();
+        jest.advanceTimersByTime(10 * 60 * 1000 + 1);
+        expect(onTimeout).not.toHaveBeenCalled();
+        jest.advanceTimersByTime(2 * 60 * 1000);
+        expect(onTimeout).not.toHaveBeenCalled();
+        releaseTrace();
+        expect((await pending).success).toBe(true);
+        expect(mocks.context.globalState.update).toHaveBeenCalled();
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
     it('aborts a timed-out tabless run, releases in finally, and never commits', async () => {
       jest.useFakeTimers();
       try {
@@ -1710,7 +1780,7 @@ describe('EnhancedPromptsService', () => {
         expect(mockProcess).toHaveBeenCalled();
         expect(service.isGeneratingPrompt()).toBe(true);
 
-        jest.advanceTimersByTime(5 * 60 * 1000 + 1);
+        jest.advanceTimersByTime(12 * 60 * 1000 + 1);
         expect(service.isGeneratingPrompt()).toBe(true);
         expect(
           mocks.internalQueryService.execute.mock.calls[0][0].abortController
@@ -1762,6 +1832,7 @@ describe('EnhancedPromptsService', () => {
         const reservation = service.acquireBoundGeneration();
         const controller = new AbortController();
         const onTimeout = jest.fn();
+        const onForceRelease = jest.fn();
         const route = await service.resolveGuidanceRoute(testWorkspacePath);
         const pending = service.runWizard(
           testWorkspacePath,
@@ -1781,6 +1852,7 @@ describe('EnhancedPromptsService', () => {
             signal: controller.signal,
             route,
             onTimeout,
+            onForceRelease,
           },
         );
         for (
@@ -1791,8 +1863,10 @@ describe('EnhancedPromptsService', () => {
         )
           await Promise.resolve();
         expect(mocks.cacheService.computeDependencyHash).toHaveBeenCalled();
-        jest.advanceTimersByTime(5 * 60 * 1000 + 1);
+        jest.advanceTimersByTime(12 * 60 * 1000 + 1);
         expect(onTimeout).toHaveBeenCalledTimes(1);
+        jest.advanceTimersByTime(30 * 1000 + 1);
+        expect(onForceRelease).toHaveBeenCalledTimes(1);
         releaseHash('hash');
         expect((await pending).error).toMatch(/timed out/i);
         expect(service.isGeneratingPrompt()).toBe(false);
@@ -1828,7 +1902,7 @@ describe('EnhancedPromptsService', () => {
           input,
         );
         await Promise.resolve();
-        jest.advanceTimersByTime(5 * 60 * 1000 + 30 * 1000 + 1);
+        jest.advanceTimersByTime(12 * 60 * 1000 + 30 * 1000 + 1);
         expect(service.isGeneratingPrompt()).toBe(false);
         const reservation = service.acquireBoundGeneration();
         expect(reservation).not.toBeNull();
@@ -1850,7 +1924,7 @@ describe('EnhancedPromptsService', () => {
       try {
         const old = service.acquireBoundGeneration();
         expect(old).not.toBeNull();
-        jest.advanceTimersByTime(5 * 60 * 1000 + 30 * 1000 + 1);
+        jest.advanceTimersByTime(12 * 60 * 1000 + 30 * 1000 + 1);
         const next = service.acquireBoundGeneration();
         expect(next).not.toBeNull();
         if (old) service.releaseBoundGeneration(old);

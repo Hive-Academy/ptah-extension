@@ -69,8 +69,9 @@ export class GuidanceGenerationRunSupervisor {
   finish(
     binding: SetupGenerationRunBinding,
     status: 'completed' | 'cancelled' | 'failed' | 'timed-out',
-  ): void {
-    if (!this.matches(binding) || !this.current) return;
+    committedState?: 'unknown',
+  ): boolean {
+    if (!this.matches(binding) || !this.current) return false;
     const state = this.current.state;
     state.status = this.current.timedOut
       ? 'timed-out'
@@ -78,7 +79,10 @@ export class GuidanceGenerationRunSupervisor {
         ? 'cancelled'
         : status;
     state.committedState =
-      state.status === 'completed' ? 'committed' : 'unknown';
+      state.status === 'completed'
+        ? 'committed'
+        : (committedState ??
+          (this.current.committing ? 'unknown' : 'unchanged'));
     state.result = {
       status: state.status,
       success: state.status === 'completed',
@@ -89,12 +93,25 @@ export class GuidanceGenerationRunSupervisor {
     };
     this.settled = state;
     this.current = null;
+    return true;
   }
 
   timeout(binding: SetupGenerationRunBinding): void {
-    if (!this.matches(binding) || !this.current) return;
+    if (
+      !this.matches(binding) ||
+      !this.current ||
+      this.current.controller.signal.aborted
+    )
+      return;
     this.current.timedOut = true;
     this.current.controller.abort();
+  }
+
+  forceRelease(binding: SetupGenerationRunBinding): boolean {
+    if (!this.matches(binding) || !this.current) return false;
+    this.current.timedOut = true;
+    this.current.controller.abort();
+    return this.finish(binding, 'timed-out', 'unknown');
   }
 
   cancel(binding: SetupGenerationRunBinding): EnhancedPromptsCancelResponse {
@@ -108,11 +125,14 @@ export class GuidanceGenerationRunSupervisor {
     if (this.exact(this.settled?.binding, binding)) {
       return { cancelled: false, outcome: 'already-finalized' };
     }
+    const sameOwnerTab =
+      !!this.current && this.sameTab(this.current.binding, binding);
     return {
       cancelled: false,
-      outcome: this.current ? 'refused' : 'not-running',
+      outcome: this.current && !sameOwnerTab ? 'refused' : 'not-running',
       rejection: {
-        reason: this.current ? 'workspace-mismatch' : 'not-running',
+        reason:
+          this.current && !sameOwnerTab ? 'workspace-mismatch' : 'not-running',
       },
     };
   }

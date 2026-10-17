@@ -57,11 +57,13 @@ export type SetupGenerationRejection =
         | 'invalid-binding'
         | 'workspace-mismatch'
         | 'foreign-directory'
+        | 'preview-required'
         | 'not-running';
     };
 
 export interface SetupGenerationResultFacts {
   committedState?: 'committed' | 'unchanged' | 'unknown';
+  interrupted?: boolean;
   status: SetupGenerationTerminalStatus;
   success: boolean;
   source: GenerationContextSource;
@@ -72,6 +74,7 @@ export interface SetupGenerationResultFacts {
 
 export interface SetupGenerationRunState {
   committedState?: 'committed' | 'unchanged' | 'unknown';
+  interrupted?: boolean;
   binding: SetupGenerationRunBinding;
   status: SetupGenerationRunLifecycle;
   source: GenerationContextSource;

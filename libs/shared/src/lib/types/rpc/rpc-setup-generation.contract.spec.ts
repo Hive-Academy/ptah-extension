@@ -61,6 +61,17 @@ type _ResultCommitOptional = Assert<
 type _RunCommitOptional = Assert<
   Equal<SetupGenerationRunState['committedState'], CommittedState | undefined>
 >;
+type _ResultInterruptedOptional = Assert<
+  Equal<SetupGenerationResultFacts['interrupted'], boolean | undefined>
+>;
+type _RunInterruptedOptional = Assert<
+  Equal<SetupGenerationRunState['interrupted'], boolean | undefined>
+>;
+type _PreviewRequiredReason = Assert<
+  'preview-required' extends import('./rpc-setup.types').SetupGenerationRejection['reason']
+    ? true
+    : false
+>;
 type _GuidanceCancelOutcomeOptional = Assert<
   Equal<
     EnhancedPromptsCancelResponse['outcome'],

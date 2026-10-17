@@ -364,6 +364,96 @@ describe('wizard generation tab ownership and recovery', () => {
     expect(malformed.rejection?.reason).toBe('invalid-binding');
   });
 
+  it('authorizes before parsing bound analysis data and ignores it for valid tabs', async () => {
+    const h = makeHarness();
+    h.handlers.register();
+    const hostile = new Proxy(
+      {},
+      {
+        get: () => {
+          throw new Error('analysis parsed');
+        },
+      },
+    );
+    const foreign = await call<{ rejection?: { reason: string } }>(
+      h,
+      'wizard:submit-selection',
+      {
+        selectedAgentIds: ['agent-a'],
+        tabBinding: { ...tab, workspacePath: '/elsewhere' },
+        analysisData: hostile,
+      },
+    );
+    expect(foreign.rejection?.reason).toBe('workspace-mismatch');
+    await call(h, 'wizard:preview-generation', {
+      selectedAgentIds: ['agent-a'],
+      tabBinding: tab,
+    });
+    const accepted = await call<{ success: boolean }>(
+      h,
+      'wizard:submit-selection',
+      {
+        selectedAgentIds: ['agent-a'],
+        tabBinding: tab,
+        analysisData: hostile,
+      },
+    );
+    expect(accepted.success).toBe(true);
+    await settle();
+  });
+
+  it('requires preview and keeps confirmation after a launch preparation failure', async () => {
+    const h = makeHarness();
+    h.handlers.register();
+    const missing = await call<{ rejection?: { reason: string } }>(
+      h,
+      'wizard:submit-selection',
+      {
+        selectedAgentIds: ['agent-a'],
+        tabBinding: tab,
+      },
+    );
+    expect(missing.rejection?.reason).toBe('preview-required');
+    await call(h, 'wizard:preview-generation', {
+      selectedAgentIds: ['agent-a'],
+      tabBinding: tab,
+    });
+    h.storage.writeGenerationManifest.mockRejectedValueOnce(
+      new Error('disk full'),
+    );
+    const failed = await call<{ success: boolean }>(
+      h,
+      'wizard:submit-selection',
+      {
+        selectedAgentIds: ['agent-a'],
+        tabBinding: tab,
+      },
+    );
+    expect(failed.success).toBe(false);
+    const accepted = await call<{ success: boolean }>(
+      h,
+      'wizard:submit-selection',
+      {
+        selectedAgentIds: ['agent-a'],
+        tabBinding: tab,
+      },
+    );
+    expect(accepted.success).toBe(true);
+    await settle();
+  });
+
+  it('reports an unavailable bound model through the RPC error', async () => {
+    const h = makeHarness();
+    h.handlers.register();
+    const result = await callRaw(h, 'wizard:submit-selection', {
+      selectedAgentIds: ['agent-a'],
+      tabBinding: tab,
+      model: 'unavailable-model',
+    });
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('selected model is unavailable');
+  });
+
   it('returns the prepared run id before work settles and recovers a lost start response', async () => {
     const h = makeHarness();
     h.orchestrator.generateAgents.mockImplementation(
@@ -392,8 +482,19 @@ describe('wizard generation tab ownership and recovery', () => {
     );
     h.storage.list.mockResolvedValue([{ filename: 'acme' }]);
     const state = await h.handlers.getGenerationRunState({ tabBinding: tab });
-    expect(state.run?.status).toBe('starting');
-    expect(state.run?.result).toBeUndefined();
+    expect(state.run?.status).toBe('failed');
+    expect(state.run?.interrupted).toBe(true);
+    expect(state.run?.committedState).toBe('unknown');
+    expect(state.run?.result?.interrupted).toBe(true);
+    expect(state.run?.effectiveProvider).toBe('unknown');
+    expect(state.run?.effectiveModel).toBe('unknown');
+    const recent = manifestAt(h, ANALYSIS_DIR);
+    recent.updatedAt = new Date().toISOString();
+    const starting = await h.handlers.getGenerationRunState({
+      tabBinding: tab,
+    });
+    expect(starting.run?.status).toBe('starting');
+    expect(starting.run?.result).toBeUndefined();
   });
 
   it('finds a bound checkpoint beside an older analysis after a newer one exists', async () => {
@@ -464,13 +565,81 @@ describe('wizard generation tab ownership and recovery', () => {
     const accepted = await previewAndSubmit(h, { resume: true });
     expect(accepted.accepted?.runId).toBe('run-prev');
     expect(manifestAt(h, ANALYSIS_DIR).tabBinding).toEqual(tab);
-    expect(manifestAt(h, ANALYSIS_DIR).input.model).toBe(
-      'model-from-checkpoint',
-    );
+    expect(manifestAt(h, ANALYSIS_DIR).input.model).toBe('sonnet');
+    expect(manifestAt(h, ANALYSIS_DIR).effectiveModel).toBe('sonnet');
     expect(manifestAt(h, ANALYSIS_DIR).agents['agent-a'].status).toBe(
       'written',
     );
     await settle();
+  });
+
+  it('blocks another tab from adopting a paused bound checkpoint', async () => {
+    const h = makeHarness();
+    seedCheckpoint(h, { 'agent-a': 'failed' }, { tabBinding: tab });
+    h.storage.resumable = {
+      slugDir: ANALYSIS_DIR,
+      manifest: {},
+      generation: manifestAt(h, ANALYSIS_DIR),
+    };
+    h.handlers.register();
+    const response = await call<{
+      rejection?: { reason: string; ownerTabId?: string };
+    }>(h, 'wizard:submit-selection', {
+      resume: true,
+      tabBinding: { ...tab, tabId: 'tab-two' },
+    });
+    expect(response.rejection).toEqual({
+      reason: 'blocked',
+      ownerTabId: tab.tabId,
+    });
+    expect(manifestAt(h, ANALYSIS_DIR).tabBinding?.tabId).toBe(tab.tabId);
+  });
+
+  it('uses the authorized path for bound lookup and cancellation', async () => {
+    const h = makeHarness();
+    jest
+      .spyOn(fs.promises, 'realpath')
+      .mockImplementation(async (value) =>
+        String(value).toLowerCase() === WORKSPACE.toLowerCase()
+          ? WORKSPACE
+          : String(value),
+      );
+    abortAwareOrchestrator(h, () => makeSummary([]));
+    await previewAndSubmit(h);
+    const alternate = { ...tab, workspacePath: WORKSPACE.toUpperCase() };
+    const state = await h.handlers.getGenerationRunState({
+      tabBinding: alternate,
+    });
+    expect(state.run?.status).toBe('running');
+    const result = await call<{ cancelled: boolean }>(h, 'wizard:cancel', {
+      tabBinding: { ...alternate, runId: state.run?.binding.runId },
+    });
+    expect(result.cancelled).toBe(true);
+    await settle();
+  });
+
+  it('locates an older checkpoint whose stored workspace spelling differs', async () => {
+    const h = makeHarness();
+    const storedPath =
+      process.platform === 'win32' ? WORKSPACE.toUpperCase() : `${WORKSPACE}/.`;
+    jest
+      .spyOn(fs.promises, 'realpath')
+      .mockImplementation(async (value) =>
+        String(value) === storedPath || String(value) === WORKSPACE
+          ? WORKSPACE
+          : String(value),
+      );
+    seedCheckpoint(
+      h,
+      { 'agent-a': 'written' },
+      {
+        lifecycle: 'completed',
+        tabBinding: { ...tab, workspacePath: storedPath },
+      },
+    );
+    h.storage.list.mockResolvedValue([{ filename: 'acme' }]);
+    const state = await h.handlers.getGenerationRunState({ tabBinding: tab });
+    expect(state.run?.status).toBe('completed');
   });
 
   it('rejects bound retry without its run and reuses the matching checkpoint model', async () => {
@@ -498,7 +667,9 @@ describe('wizard generation tab ownership and recovery', () => {
 
   it('does not report completed when checkpoint finalization fails', async () => {
     const h = makeHarness();
-    recordingOrchestrator(h, []);
+    h.orchestrator.generateAgents.mockResolvedValue(
+      Result.ok(makeSummary([outcome('agent-a', 'written')])),
+    );
     h.storage.updateGenerationManifest.mockImplementation(async () => null);
     await previewAndSubmit(h);
     await settle();
@@ -506,6 +677,38 @@ describe('wizard generation tab ownership and recovery', () => {
     expect(completion.success).toBe(false);
     expect(completion.terminalStatus).toBe('failed');
     expect(manifestAt(h).lifecycle).toBe('running');
+    expect(h.propagation.propagate).toHaveBeenCalled();
+  });
+
+  it('propagates written agents after tabless checkpoint finalization fails', async () => {
+    const h = makeHarness();
+    h.handlers.register();
+    h.orchestrator.generateAgents.mockResolvedValue(
+      Result.ok(makeSummary([outcome('agent-a', 'written')])),
+    );
+    h.storage.updateGenerationManifest.mockImplementation(async () => null);
+    const accepted = await call<{ success: boolean }>(
+      h,
+      'wizard:submit-selection',
+      { selectedAgentIds: ['agent-a'] },
+    );
+    expect(accepted.success).toBe(true);
+    await settle();
+    expect(h.propagation.propagate).toHaveBeenCalledTimes(1);
+    expect(manifestAt(h).lifecycle).toBe('running');
+    expect(completeBroadcasts(h)[0].success).toBe(false);
+  });
+
+  it('pushes one terminal failure when launch loses the active-run race', async () => {
+    const h = makeHarness();
+    jest
+      .spyOn(h.runs, 'run')
+      .mockRejectedValueOnce(new Error('A generation run is already active.'));
+    const accepted = await previewAndSubmit(h);
+    expect(accepted.success).toBe(true);
+    await settle();
+    expect(completeBroadcasts(h)).toHaveLength(1);
+    expect(completeBroadcasts(h)[0].terminalStatus).toBe('failed');
   });
 
   it('blocks a second tab with only the owner tab id, and keeps owner ids private across workspaces', async () => {

@@ -103,7 +103,7 @@ describe('GuidanceGenerationRunSupervisor', () => {
     });
   });
 
-  it('cancels only the exact binding and keeps an unknown commit outcome', () => {
+  it('cancels only the exact binding and records unchanged before commit', () => {
     const supervisor = new GuidanceGenerationRunSupervisor();
     const { binding, controller } = supervisor.start(
       tab,
@@ -111,16 +111,19 @@ describe('GuidanceGenerationRunSupervisor', () => {
       'anthropic',
       'sonnet',
     );
-    expect(supervisor.cancel({ ...binding, runId: 'wrong' }).outcome).toBe(
-      'refused',
-    );
+    expect(supervisor.cancel({ ...binding, runId: 'wrong' })).toMatchObject({
+      outcome: 'not-running',
+      rejection: { reason: 'not-running' },
+    });
     expect(supervisor.cancel(binding)).toEqual({
       cancelled: true,
       outcome: 'cancelled',
     });
     expect(controller.signal.aborted).toBe(true);
     supervisor.finish(binding, 'completed');
-    expect(supervisor.lookup(tab).run?.result?.committedState).toBe('unknown');
+    expect(supervisor.lookup(tab).run?.result?.committedState).toBe(
+      'unchanged',
+    );
     expect(supervisor.lookup(tab).run?.status).toBe('cancelled');
     expect(supervisor.cancel(binding).outcome).toBe('already-finalized');
     expect(supervisor.cancel({ ...binding, runId: 'other' }).outcome).toBe(
@@ -144,7 +147,7 @@ describe('GuidanceGenerationRunSupervisor', () => {
     expect(controller.signal.aborted).toBe(false);
   });
 
-  it('records timeout separately from user cancellation with unknown commit state', () => {
+  it('records timeout separately from user cancellation before commit', () => {
     const supervisor = new GuidanceGenerationRunSupervisor();
     const { binding, controller } = supervisor.start(
       tab,
@@ -157,13 +160,54 @@ describe('GuidanceGenerationRunSupervisor', () => {
     supervisor.finish(binding, 'failed');
     expect(supervisor.lookup(tab, binding.runId).run).toMatchObject({
       status: 'timed-out',
-      committedState: 'unknown',
+      committedState: 'unchanged',
       result: {
         status: 'timed-out',
         success: false,
-        committedState: 'unknown',
+        committedState: 'unchanged',
       },
     });
+  });
+
+  it('keeps a user cancellation when the lock timer fires later', () => {
+    const supervisor = new GuidanceGenerationRunSupervisor();
+    const { binding } = supervisor.start(tab, source, 'anthropic', 'sonnet');
+    supervisor.cancel(binding);
+    supervisor.timeout(binding);
+    supervisor.finish(binding, 'failed');
+    expect(supervisor.lookup(tab, binding.runId).run).toMatchObject({
+      status: 'cancelled',
+      committedState: 'unchanged',
+    });
+  });
+
+  it('force releases once and a late return cannot overwrite the settled run', () => {
+    const supervisor = new GuidanceGenerationRunSupervisor();
+    const { binding } = supervisor.start(tab, source, 'anthropic', 'sonnet');
+    expect(supervisor.forceRelease(binding)).toBe(true);
+    expect(supervisor.forceRelease(binding)).toBe(false);
+    const later = supervisor.start(
+      { ...tab, tabId: 'next' },
+      source,
+      'anthropic',
+      'sonnet',
+    );
+    expect(supervisor.finish(binding, 'completed')).toBe(false);
+    expect(supervisor.lookup(tab, binding.runId).run).toMatchObject({
+      status: 'timed-out',
+      committedState: 'unknown',
+    });
+    supervisor.finish(later.binding, 'completed');
+  });
+
+  it('reports an unknown failed outcome after commit begins', () => {
+    const supervisor = new GuidanceGenerationRunSupervisor();
+    const { binding } = supervisor.start(tab, source, 'anthropic', 'sonnet');
+    supervisor.beginCommit(binding);
+    supervisor.finish(binding, 'failed');
+    expect(supervisor.lookup(tab, binding.runId).run?.committedState).toBe(
+      'unknown',
+    );
   });
 
   it('returns an exact settled result even while another tab runs or the service is busy', () => {

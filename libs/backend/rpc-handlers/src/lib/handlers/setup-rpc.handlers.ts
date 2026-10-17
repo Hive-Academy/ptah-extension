@@ -516,7 +516,13 @@ export class SetupRpcHandlers {
           'mode' in rawAnalysis &&
           rawAnalysis.mode === 'workspace-catalog';
         if (catalogMode) {
-          const request = catalogRequest.parse(rawAnalysis);
+          const parsed = catalogRequest.safeParse(rawAnalysis);
+          if (!parsed.success)
+            throw new RpcUserError(
+              'Invalid catalog request.',
+              'INVALID_PARAMS',
+            );
+          const request = parsed.data;
           if (request.tabBinding) {
             const host = this.workspaceProvider.getWorkspaceRoot();
             if (
@@ -673,10 +679,9 @@ export class SetupRpcHandlers {
               // Opt-in specialists (e.g. video-director) are offered but not
               // pre-selected, so they aren't force-generated into every project.
               recommended: agentId !== 'video-director',
-              matchedCriteria: [
-                'Deep codebase analysis',
-                'All agents recommended',
-              ],
+              matchedCriteria: catalogMode
+                ? ['Workspace catalog', 'All agents available']
+                : ['Deep codebase analysis', 'All agents recommended'],
               description,
             }),
           );

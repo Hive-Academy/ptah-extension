@@ -236,7 +236,8 @@ Candidate only: unused duplicated old-generation presentation code after the new
 | B01 | 1 | done | codex backend-developer | 572bc762d |
 | B02 | 2 | done (2 revise rounds; handler 1698 lines, follow-up) | codex backend-developer | 6aa54f8d5 |
 | B02G | 2 | done (1 revise round: lock-timeout recovery, settled lookup, contract spec; long pre-existing methods grew slightly, follow-up) | codex backend-developer | 20474f335 |
-| B03 | 2 | done (continuation lane after tool-call ceiling; supervisors not in expected-resolvable, resolved via handlers) | codex backend-developer | (this commit) |
+| B03 | 2 | done (continuation lane after tool-call ceiling; supervisors not in expected-resolvable, resolved via handlers) | codex backend-developer | 725d982e6 |
+| P2 review | 2 | APPROVE 8/10 after 1 revise round (S1, S2, M1–M9 fixed; Part B continuation lane after the first lane stopped without a report) | Claude code-logic-reviewer; codex fixes | (this commit) |
 | B04 | 3 | pending | codex frontend-developer | — |
 | B05 | 3 | pending | codex frontend-developer | — |
 | B06 | 3 | pending | codex backend-developer | — |
@@ -247,5 +248,11 @@ Candidate only: unused duplicated old-generation presentation code after the new
 | B10 | 6 | pending | codex frontend-developer | — |
 | B11 | 6 | pending | codex frontend-developer | — |
 | B12 | 6 | pending | codex frontend-developer | — |
+
+## Follow-ups from the Phase 2 review
+
+- **With Phase 3 (small backend lane after B06, file-disjoint):** N1 make `generationCommitting` a local of `runWizard` (`enhanced-prompts.service.ts:712,732-738`); N4 pass `canonicalWorkspace` to `locateBound`/`isTrusted` on bound retry; N3 treat an unparseable `updatedAt` as stale.
+- **B07/B08 frontend requirements:** never render `source.analysisDir`; on `preview-required` reopen the preview; call a bound preview right before submit; hide provider/model when `unknown`; offer Resume on `interrupted`; cancel-vs-completion copy must not say "nothing was written"; rely on the terminal push for guidance `timed-out` (N2, single settled slot); persist the tab id or offer "start over" for a paused run owned by a dead tab (N5).
+- **Size:** `wizard-generation-rpc.handlers.ts` 1736 lines, `enhanced-prompts.service.ts` 1484 lines, long `registerRunWizard`/`runWizard`; split behind their facades in a later task.
 
 The first assignment when execution begins is B01. No batch is marked IN_PROGRESS during this decomposition-only invocation.

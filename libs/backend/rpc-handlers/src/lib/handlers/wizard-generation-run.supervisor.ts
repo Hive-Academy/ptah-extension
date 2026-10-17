@@ -323,8 +323,8 @@ export class GenerationRunSupervisor {
               kind: 'workspace-discovery',
               reason: 'missing',
             },
-            effectiveProvider: request.effectiveProvider ?? 'anthropic',
-            effectiveModel: request.effectiveModel ?? 'sonnet',
+            effectiveProvider: request.effectiveProvider ?? 'unknown',
+            effectiveModel: request.effectiveModel ?? 'unknown',
             enhancedPromptsUsed: request.enhancedPromptsUsed,
           },
         };

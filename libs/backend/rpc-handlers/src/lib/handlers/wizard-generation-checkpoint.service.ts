@@ -37,6 +37,7 @@ import type {
   ResumableGenerationRun,
   SetupGenerationTabBinding,
 } from '@ptah-extension/shared';
+import { sameWorkspacePath } from './wizard-generation-binding';
 
 /** Where a run's checkpoint lives: beside its analysis slug, or in the root. */
 export interface GenerationCheckpointLocation {
@@ -257,7 +258,10 @@ export class GenerationCheckpointService {
       if (
         manifest &&
         manifest.tabBinding?.tabId === binding.tabId &&
-        manifest.tabBinding.workspacePath === binding.workspacePath &&
+        (await sameWorkspacePath(
+          manifest.tabBinding.workspacePath,
+          binding.workspacePath,
+        )) &&
         (!runId || manifest.runId === runId)
       ) {
         const location = { workspaceRoot, analysisDir };
@@ -286,8 +290,21 @@ export class GenerationCheckpointService {
     if (!isPathWithinRoots(manifest.outputDirectory, [workspaceRoot])) {
       return false;
     }
+    if (
+      (manifest.workspaceRoot &&
+        !isPathWithinRoots(manifest.workspaceRoot, [workspaceRoot])) ||
+      (manifest.tabBinding?.workspacePath &&
+        !isPathWithinRoots(manifest.tabBinding.workspacePath, [workspaceRoot]))
+    )
+      return false;
     const storage = this.storage();
-    const candidates = [location.analysisDir, manifest.analysisDirectory];
+    const candidates = [
+      location.analysisDir,
+      manifest.analysisDirectory,
+      manifest.source?.kind === 'verified-analysis'
+        ? manifest.source.analysisDir
+        : null,
+    ];
     return candidates.every(
       (dir) =>
         dir === null ||
@@ -348,10 +365,8 @@ export class GenerationCheckpointService {
         : {}),
       ...(metadata?.effectiveModel
         ? {
-            effectiveModel:
-              manifest.effectiveModel ??
-              manifest.input.model ??
-              metadata.effectiveModel,
+            effectiveModel: metadata.effectiveModel,
+            input: { ...manifest.input, model: metadata.effectiveModel },
           }
         : {}),
       ...(metadata?.enhancedPromptsUsed !== undefined

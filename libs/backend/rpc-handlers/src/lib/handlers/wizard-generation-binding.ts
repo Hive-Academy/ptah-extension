@@ -19,6 +19,24 @@ type Freshness = Awaited<ReturnType<AnalysisFreshnessService['getStatus']>>;
 type VerifiedManifest = Awaited<
   ReturnType<AnalysisStorageService['loadManifest']>
 >;
+const ORPHAN_GRACE_MS = 30_000;
+
+export async function sameWorkspacePath(
+  a: string,
+  b: string,
+): Promise<boolean> {
+  try {
+    const [left, right] = await Promise.all([
+      fsPromises.realpath(a),
+      fsPromises.realpath(b),
+    ]);
+    return process.platform === 'win32'
+      ? left.toLowerCase() === right.toLowerCase()
+      : left === right;
+  } catch {
+    return false;
+  }
+}
 
 export function generationRunState(
   manifest: Manifest,
@@ -30,28 +48,36 @@ export function generationRunState(
     active?.runId === manifest.runId &&
     active.tabId === binding.tabId &&
     active.workspacePath === binding.workspacePath;
+  const interrupted =
+    !isActive &&
+    manifest.lifecycle === 'running' &&
+    Date.now() - Date.parse(manifest.updatedAt) > ORPHAN_GRACE_MS;
   const status = isActive
     ? 'running'
-    : manifest.lifecycle === 'completed'
-      ? 'completed'
-      : manifest.lifecycle === 'timed-out'
-        ? 'timed-out'
-        : manifest.lifecycle === 'paused'
-          ? 'cancelled'
-          : manifest.lifecycle === 'failed'
-            ? 'failed'
-            : 'starting';
+    : interrupted
+      ? 'failed'
+      : manifest.lifecycle === 'completed'
+        ? 'completed'
+        : manifest.lifecycle === 'timed-out'
+          ? 'timed-out'
+          : manifest.lifecycle === 'paused'
+            ? 'cancelled'
+            : manifest.lifecycle === 'failed'
+              ? 'failed'
+              : 'starting';
   const source: GenerationContextSource = manifest.source ?? {
     kind: 'workspace-discovery',
     reason: 'missing',
   };
-  const effectiveProvider = manifest.effectiveProvider ?? 'anthropic';
-  const effectiveModel =
-    manifest.effectiveModel ?? manifest.input.model ?? 'sonnet';
+  const effectiveProvider = manifest.effectiveProvider ?? 'unknown';
+  const effectiveModel = manifest.effectiveModel ?? 'unknown';
   return {
     run: {
       binding,
       status,
+      ...(interrupted
+        ? { interrupted: true, committedState: 'unknown' as const }
+        : {}),
       source,
       effectiveProvider,
       effectiveModel,
@@ -59,6 +85,9 @@ export function generationRunState(
         ? {
             result: {
               status,
+              ...(interrupted
+                ? { interrupted: true, committedState: 'unknown' as const }
+                : {}),
               success: status === 'completed',
               source,
               effectiveProvider,
@@ -234,11 +263,9 @@ export function acceptedSubmit(
           source,
           status: 'starting',
           effectiveProvider:
-            prepared.manifest.effectiveProvider ??
-            route?.provider ??
-            'anthropic',
+            prepared.manifest.effectiveProvider ?? route?.provider ?? 'unknown',
           effectiveModel:
-            prepared.manifest.effectiveModel ?? route?.model ?? 'sonnet',
+            prepared.manifest.effectiveModel ?? route?.model ?? 'unknown',
         },
       }
     : { success: true };
@@ -249,10 +276,11 @@ export function consumeConfirmedPreview(
   tabBinding: SetupGenerationTabBinding,
   workspaceRoot: string,
   currentPreview: string,
+  consume = true,
 ): boolean {
   const previewKey = `${tabBinding.tabId}\0${workspaceRoot}`;
   const confirmed = confirmedPreviews.get(previewKey) === currentPreview;
-  confirmedPreviews.delete(previewKey);
+  if (consume && confirmed) confirmedPreviews.delete(previewKey);
   return confirmed;
 }
 

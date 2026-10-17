@@ -110,6 +110,7 @@ import {
   generationRunState,
   rejectSubmit,
   resolveProviderRoute,
+  sameWorkspacePath,
   type GenerationProviderModels,
 } from './wizard-generation-binding';
 
@@ -255,17 +256,17 @@ export class WizardGenerationRpcHandlers {
     if (!workspaceRoot)
       return { run: null, rejection: { reason: 'workspace-mismatch' } };
     const active = this.runs.binding;
+    const canonicalBinding = {
+      ...parsed.data.tabBinding,
+      workspacePath: workspaceRoot,
+    };
     const checkpoint = await this.checkpoints.locateBound(
       workspaceRoot,
-      parsed.data.tabBinding,
+      canonicalBinding,
       parsed.data.runId,
     );
     if (!checkpoint) return { run: null };
-    return generationRunState(
-      checkpoint.manifest,
-      parsed.data.tabBinding,
-      active,
-    );
+    return generationRunState(checkpoint.manifest, canonicalBinding, active);
   }
 
   // ---------------------------------------------------------------------------
@@ -290,8 +291,22 @@ export class WizardGenerationRpcHandlers {
         !WizardTabBindingSchema.safeParse(params.tabBinding).success
       )
         return rejectSubmit('invalid-binding');
-      const parsed = this.parse(WizardSubmitSelectionParamsSchema, params);
-      const tabBinding = parsed.tabBinding;
+      const requestedBinding = params?.tabBinding;
+      const hostRoot = this.workspaceProvider.getWorkspaceRoot();
+      const authorizedWorkspace =
+        requestedBinding && hostRoot
+          ? await authorizeTabWorkspace(hostRoot, requestedBinding, this.logger)
+          : null;
+      if (requestedBinding && !authorizedWorkspace)
+        return rejectSubmit('workspace-mismatch');
+      const parsed = this.parse(
+        WizardSubmitSelectionParamsSchema,
+        requestedBinding ? { ...params, analysisData: undefined } : params,
+      );
+      const tabBinding =
+        parsed.tabBinding && authorizedWorkspace
+          ? { ...parsed.tabBinding, workspacePath: authorizedWorkspace }
+          : undefined;
       const resume = parsed.resume === true;
       const selectedAgentIds = parsed.selectedAgentIds ?? [];
       if (!resume && selectedAgentIds.length === 0) {
@@ -308,12 +323,6 @@ export class WizardGenerationRpcHandlers {
           'RPC: wizard:submit-selection rejected - generation already in progress',
         );
         if (tabBinding) {
-          const hostRoot = this.workspaceProvider.getWorkspaceRoot();
-          if (
-            !hostRoot ||
-            !(await authorizeTabWorkspace(hostRoot, tabBinding, this.logger))
-          )
-            return rejectSubmit('workspace-mismatch');
           return blockedSubmit(tabBinding, this.runs.binding);
         }
         return {
@@ -333,11 +342,7 @@ export class WizardGenerationRpcHandlers {
               'No workspace folder open. Please open a folder to generate agents.',
           };
         }
-        const canonicalWorkspace = tabBinding
-          ? await authorizeTabWorkspace(workspaceRoot, tabBinding, this.logger)
-          : workspaceRoot;
-        if (tabBinding && !canonicalWorkspace)
-          return rejectSubmit('workspace-mismatch');
+        const canonicalWorkspace = authorizedWorkspace ?? workspaceRoot;
         const effectiveWorkspace = canonicalWorkspace ?? workspaceRoot;
         if (
           tabBinding &&
@@ -353,6 +358,7 @@ export class WizardGenerationRpcHandlers {
           parsed.analysisDir,
         );
         if (
+          !tabBinding &&
           params?.analysisData !== undefined &&
           parsed.analysisData === undefined
         ) {
@@ -378,6 +384,7 @@ export class WizardGenerationRpcHandlers {
             'RPC: wizard:submit-selection unexpected error',
             error instanceof Error ? error : new Error(errorMessage),
           );
+          if (error instanceof RpcUserError) throw error;
           this.sentryService.captureException(
             error instanceof Error ? error : new Error(errorMessage),
             {
@@ -443,6 +450,31 @@ export class WizardGenerationRpcHandlers {
           parsed.model,
         )
       : null;
+    if (resume && tabBinding) {
+      const owner = await this.checkpoints.locateResumable(
+        effectiveWorkspace,
+        null,
+      );
+      if (
+        owner &&
+        this.checkpoints.isTrusted(owner.location, owner.manifest) &&
+        owner.manifest.tabBinding &&
+        (owner.manifest.tabBinding.tabId !== tabBinding.tabId ||
+          !(await sameWorkspacePath(
+            owner.manifest.tabBinding.workspacePath,
+            tabBinding.workspacePath,
+          )))
+      ) {
+        return {
+          success: false,
+          rejection: {
+            reason: 'blocked',
+            ownerTabId: owner.manifest.tabBinding.tabId,
+          },
+          error: 'Agent generation is already owned by another tab.',
+        };
+      }
+    }
     if (tabBinding && !resume) {
       const currentPreview = await this.previewSignature(
         effectiveWorkspace,
@@ -454,10 +486,12 @@ export class WizardGenerationRpcHandlers {
           tabBinding,
           effectiveWorkspace,
           currentPreview,
+          false,
         )
       ) {
         return {
           success: false,
+          rejection: { reason: 'preview-required' },
           error:
             'Generation targets changed. Review the preview and confirm again.',
         };
@@ -483,10 +517,14 @@ export class WizardGenerationRpcHandlers {
     }
     if (prepared.agentIds.length === 0) {
       await this.completeWithoutWork(prepared, runtime.webviewManager);
+      if (tabBinding && !resume)
+        this.confirmedPreviews.delete(
+          `${tabBinding.tabId}\0${effectiveWorkspace}`,
+        );
       return acceptedSubmit(tabBinding, prepared, source, route);
     }
 
-    return this.launchSubmittedRun({
+    const accepted = await this.launchSubmittedRun({
       workspaceRoot,
       effectiveWorkspace,
       analysisDir,
@@ -500,6 +538,11 @@ export class WizardGenerationRpcHandlers {
       tabBinding,
       resume,
     });
+    if (accepted.success && tabBinding && !resume)
+      this.confirmedPreviews.delete(
+        `${tabBinding.tabId}\0${effectiveWorkspace}`,
+      );
+    return accepted;
   }
 
   private async prepareSubmittedRun(args: {
@@ -670,9 +713,37 @@ export class WizardGenerationRpcHandlers {
             settled,
           ),
       })
-      .catch((error: unknown) =>
-        this.reportSubmitLaunchFailure(error, prepared.location),
-      )
+      .catch(async (error: unknown) => {
+        try {
+          await this.reportSubmitLaunchFailure(error, prepared.location);
+        } finally {
+          if (tabBinding) {
+            await this.runs.broadcastCompletion(runtime.webviewManager, {
+              ...buildCompletePayload({
+                summary: null,
+                failure: {
+                  message: 'Agent generation could not start.',
+                  thrown: true,
+                },
+                abortReason: null,
+                carriedOver: prepared.carriedOver,
+                outputDirectory: prepared.manifest.outputDirectory,
+                durationMs: 0,
+              }),
+              tabBinding: { ...tabBinding, runId: prepared.manifest.runId },
+              terminalStatus: 'failed',
+              result: {
+                status: 'failed',
+                success: false,
+                source,
+                effectiveProvider: route?.provider ?? 'unknown',
+                effectiveModel: route?.model ?? 'unknown',
+                committedState: 'unknown',
+              },
+            });
+          }
+        }
+      })
       .catch(() => {
         // degradation-audit: reported - the launch failure was already logged,
         // captured and its checkpoint finalized; a secondary reporting failure
@@ -729,14 +800,16 @@ export class WizardGenerationRpcHandlers {
       metadata?.tabBinding &&
       located.manifest.tabBinding &&
       (located.manifest.tabBinding.tabId !== metadata.tabBinding.tabId ||
-        located.manifest.tabBinding.workspacePath !==
-          metadata.tabBinding.workspacePath)
+        !(await sameWorkspacePath(
+          located.manifest.tabBinding.workspacePath,
+          metadata.tabBinding.workspacePath,
+        )))
     )
       return null;
     if (
       metadata?.tabBinding &&
       located.manifest.workspaceRoot &&
-      located.manifest.workspaceRoot !== workspaceRoot
+      !(await sameWorkspacePath(located.manifest.workspaceRoot, workspaceRoot))
     )
       return null;
     return this.checkpoints.prepareResume(
@@ -777,9 +850,8 @@ export class WizardGenerationRpcHandlers {
           status: 'completed',
           success: true,
           source,
-          effectiveProvider: manifest.effectiveProvider ?? 'anthropic',
-          effectiveModel:
-            manifest.effectiveModel ?? manifest.input.model ?? 'sonnet',
+          effectiveProvider: manifest.effectiveProvider ?? 'unknown',
+          effectiveModel: manifest.effectiveModel ?? 'unknown',
           enhancedPromptsUsed: manifest.enhancedPromptsUsed,
         },
       });
@@ -805,7 +877,12 @@ export class WizardGenerationRpcHandlers {
         : settled.abortReason !== null
           ? 'timed-out'
           : (settled.summary?.lifecycle ?? 'failed');
-    await this.checkpoints.finalize(location, lifecycle);
+    let finalizeError: unknown;
+    try {
+      await this.checkpoints.finalize(location, lifecycle);
+    } catch (error: unknown) {
+      finalizeError = error;
+    }
     if (settled.summary) {
       this.logger.info(`RPC: ${method} settled`, {
         lifecycle,
@@ -823,6 +900,7 @@ export class WizardGenerationRpcHandlers {
         durationMs: settled.durationMs,
       });
     }
+    if (finalizeError) throw finalizeError;
   }
 
   // ---------------------------------------------------------------------------
@@ -877,32 +955,36 @@ export class WizardGenerationRpcHandlers {
           'INVALID_PARAMS',
         );
       }
-      if (
-        parsed.tabBinding &&
-        !(await authorizeTabWorkspace(
-          workspaceRoot,
-          parsed.tabBinding,
-          this.logger,
-        ))
-      )
+      const canonicalWorkspace = parsed.tabBinding
+        ? await authorizeTabWorkspace(
+            workspaceRoot,
+            parsed.tabBinding,
+            this.logger,
+          )
+        : null;
+      if (parsed.tabBinding && !canonicalWorkspace)
         throw new RpcUserError(
           'Generation workspace does not match the active workspace.',
           'UNAUTHORIZED_WORKSPACE',
         );
+      const binding =
+        parsed.tabBinding && canonicalWorkspace
+          ? { ...parsed.tabBinding, workspacePath: canonicalWorkspace }
+          : undefined;
       const rivals = await this.previewRivals(workspaceRoot);
       const agents = await Promise.all(
         [...new Set(parsed.selectedAgentIds)].map((agentId) =>
           this.previewAgent(workspaceRoot, agentId, rivals),
         ),
       );
-      if (parsed.tabBinding) {
-        const canonical = await fsPromises.realpath(workspaceRoot);
+      if (binding) {
+        const canonical = binding.workspacePath;
         if (this.confirmedPreviews.size >= 64) {
           const oldest = this.confirmedPreviews.keys().next().value;
           if (oldest) this.confirmedPreviews.delete(oldest);
         }
         this.confirmedPreviews.set(
-          `${parsed.tabBinding.tabId}\0${canonical}`,
+          `${binding.tabId}\0${canonical}`,
           JSON.stringify(
             agents.flatMap((agent) =>
               agent.files
@@ -1082,14 +1164,14 @@ export class WizardGenerationRpcHandlers {
         const parsed = this.parse(WizardCancelParamsSchema, params);
         if (parsed.tabBinding) {
           const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
-          if (
-            !workspaceRoot ||
-            !(await authorizeTabWorkspace(
-              workspaceRoot,
-              parsed.tabBinding,
-              this.logger,
-            ))
-          )
+          const canonicalWorkspace = workspaceRoot
+            ? await authorizeTabWorkspace(
+                workspaceRoot,
+                parsed.tabBinding,
+                this.logger,
+              )
+            : null;
+          if (!canonicalWorkspace)
             return {
               cancelled: false,
               rejection: { reason: 'workspace-mismatch' },
@@ -1097,7 +1179,10 @@ export class WizardGenerationRpcHandlers {
           const active = this.runs.binding;
           if (
             !active ||
-            !this.runs.abortBound(parsed.tabBinding, GENERATION_CANCEL_REASON)
+            !this.runs.abortBound(
+              { ...parsed.tabBinding, workspacePath: canonicalWorkspace },
+              GENERATION_CANCEL_REASON,
+            )
           )
             return { cancelled: false, rejection: { reason: 'not-running' } };
           return { cancelled: true, progressSaved: true };
@@ -1202,15 +1287,19 @@ export class WizardGenerationRpcHandlers {
           error: 'No workspace folder open. Please open a folder first.',
         };
       }
-      if (
-        parsed.tabBinding &&
-        !(await authorizeTabWorkspace(
-          workspaceRoot,
-          parsed.tabBinding,
-          this.logger,
-        ))
-      )
+      const canonicalWorkspace = parsed.tabBinding
+        ? await authorizeTabWorkspace(
+            workspaceRoot,
+            parsed.tabBinding,
+            this.logger,
+          )
+        : null;
+      if (parsed.tabBinding && !canonicalWorkspace)
         return { success: false, rejection: { reason: 'workspace-mismatch' } };
+      const retryBinding =
+        parsed.tabBinding && canonicalWorkspace
+          ? { ...parsed.tabBinding, workspacePath: canonicalWorkspace }
+          : undefined;
 
       try {
         this.logger.info('RPC: wizard:retry-item started', {
@@ -1222,33 +1311,32 @@ export class WizardGenerationRpcHandlers {
           'AgentGenerationOrchestratorService',
         );
         const webviewManager = this.resolveWebviewManager();
-        const boundCheckpoint = parsed.tabBinding
+        const boundCheckpoint = retryBinding
           ? await this.checkpoints.locateBound(
               workspaceRoot,
-              parsed.tabBinding,
-              parsed.tabBinding.runId,
+              retryBinding,
+              retryBinding.runId,
             )
           : null;
         if (
-          parsed.tabBinding &&
+          retryBinding &&
           (!boundCheckpoint ||
-            boundCheckpoint.manifest.runId !== parsed.tabBinding.runId ||
-            boundCheckpoint.manifest.tabBinding?.tabId !==
-              parsed.tabBinding.tabId ||
+            boundCheckpoint.manifest.runId !== retryBinding.runId ||
+            boundCheckpoint.manifest.tabBinding?.tabId !== retryBinding.tabId ||
             !this.checkpoints.isTrusted(
               boundCheckpoint.location,
               boundCheckpoint.manifest,
             ))
         )
           return { success: false, rejection: { reason: 'not-running' } };
-        const checkpoint = parsed.tabBinding
+        const checkpoint = retryBinding
           ? (boundCheckpoint?.location ?? null)
           : this.lastCheckpoint;
-        const boundRuntime = parsed.tabBinding
+        const boundRuntime = retryBinding
           ? await this.resolveRuntime(workspaceRoot)
           : null;
         const options: OrchestratorGenerationOptions = {
-          ...(parsed.tabBinding
+          ...(retryBinding
             ? {
                 threshold: boundCheckpoint?.manifest.input.threshold,
                 variableOverrides:
@@ -1270,7 +1358,7 @@ export class WizardGenerationRpcHandlers {
           userOverrides: [parsed.itemId],
           onStreamEvent: this.createStreamBroadcaster(
             webviewManager,
-            parsed.tabBinding,
+            retryBinding,
           ),
           onAgentOutcome: checkpoint
             ? (outcome) => this.checkpoints.recordOutcome(checkpoint, outcome)
@@ -1279,9 +1367,9 @@ export class WizardGenerationRpcHandlers {
 
         const settled = await this.runs.run({
           orchestrator,
-          ...(parsed.tabBinding
+          ...(retryBinding
             ? {
-                tabBinding: parsed.tabBinding,
+                tabBinding: retryBinding,
                 source: boundCheckpoint?.manifest.source,
                 effectiveProvider: boundCheckpoint?.manifest.effectiveProvider,
                 effectiveModel: boundCheckpoint?.manifest.effectiveModel,
@@ -1290,11 +1378,11 @@ export class WizardGenerationRpcHandlers {
               }
             : {}),
           options,
-          ...(parsed.tabBinding
+          ...(retryBinding
             ? {
                 progressCallback: this.createProgressBroadcaster(
                   webviewManager,
-                  parsed.tabBinding,
+                  retryBinding,
                 ),
               }
             : {}),

@@ -586,10 +586,13 @@ export class EnhancedPromptsRpcHandlers {
       };
     const workspacePath = this.resolveWorkspacePath(params.workspacePath);
     const host = this.workspaceProvider.getWorkspaceRoot();
+    const canonicalHost = host
+      ? await authorizeTabWorkspace(host, tab, this.logger)
+      : null;
     if (
       !host ||
       !isAuthorizedWorkspace(workspacePath, this.workspaceProvider) ||
-      !(await authorizeTabWorkspace(host, tab, this.logger)) ||
+      !canonicalHost ||
       !(await authorizeTabWorkspace(workspacePath, tab, this.logger))
     ) {
       return {
@@ -598,7 +601,10 @@ export class EnhancedPromptsRpcHandlers {
         error: 'Generation workspace does not match the active tab.',
       };
     }
-    const binding: SetupGenerationTabBinding = { ...tab, workspacePath: host };
+    const binding: SetupGenerationTabBinding = {
+      ...tab,
+      workspacePath: canonicalHost,
+    };
     const current = this.guidanceRuns.activeBinding;
     if (
       current?.tabId === binding.tabId &&
@@ -606,6 +612,12 @@ export class EnhancedPromptsRpcHandlers {
       current.workspacePath === binding.workspacePath
     ) {
       const run = this.guidanceRuns.lookup(binding).run;
+      if (run?.status === 'cancelling')
+        return {
+          success: false,
+          rejection: { reason: 'blocked', ownerTabId: binding.tabId },
+          error: 'Guidance generation is cancelling.',
+        };
       if (run)
         return {
           success: true,
@@ -759,6 +771,10 @@ export class EnhancedPromptsRpcHandlers {
       allowPhaseEnrichment: source.kind === 'verified-analysis',
       beforeCommit: (): boolean => this.guidanceRuns.beginCommit(runBinding),
       onTimeout: (): void => this.guidanceRuns.timeout(runBinding),
+      onForceRelease: (): void => {
+        if (this.guidanceRuns.forceRelease(runBinding))
+          this.broadcastGuidanceTerminal(broadcaster, runBinding, 'timed-out');
+      },
     };
     try {
       const result =
@@ -782,75 +798,99 @@ export class EnhancedPromptsRpcHandlers {
               sdkConfig,
               boundExecution,
             );
-      this.guidanceRuns.finish(
-        runBinding,
-        result.success ? 'completed' : 'failed',
-      );
-      const final = this.guidanceRuns.lookup(runBinding).run?.status;
-      broadcaster({
-        kind: 'status',
-        content:
-          final === 'completed'
-            ? 'Guidance generation complete'
-            : 'Guidance generation stopped',
-        timestamp: Date.now(),
-        tabBinding: runBinding,
-        lifecycle:
-          final === 'completed'
-            ? 'completed'
-            : final === 'cancelled'
-              ? 'cancelled'
-              : final === 'timed-out'
-                ? 'timed-out'
-                : 'failed',
-      });
+      if (
+        this.guidanceRuns.finish(
+          runBinding,
+          result.success ? 'completed' : 'failed',
+        )
+      )
+        this.broadcastGuidanceTerminal(
+          broadcaster,
+          runBinding,
+          this.guidanceRuns.lookup(runBinding, runBinding.runId).run?.status ??
+            'failed',
+        );
     } catch (error: unknown) {
       this.logger.error(
         'Bound guidance execution failed',
         error instanceof Error ? error : new Error(String(error)),
       );
-      this.guidanceRuns.finish(runBinding, 'failed');
-      const final = this.guidanceRuns.lookup(runBinding, runBinding.runId).run
-        ?.status;
-      if (final === 'timed-out')
-        broadcaster({
-          kind: 'status',
-          content: 'Guidance generation timed out',
-          timestamp: Date.now(),
-          tabBinding: runBinding,
-          lifecycle: 'timed-out',
-        });
+      if (this.guidanceRuns.finish(runBinding, 'failed'))
+        this.broadcastGuidanceTerminal(
+          broadcaster,
+          runBinding,
+          this.guidanceRuns.lookup(runBinding, runBinding.runId).run?.status ??
+            'failed',
+        );
     } finally {
       this.enhancedPromptsService.releaseBoundGeneration(reservation);
     }
+  }
+
+  private broadcastGuidanceTerminal(
+    broadcaster: ReturnType<
+      EnhancedPromptsRpcHandlers['createEnhanceStreamBroadcaster']
+    >,
+    binding: SetupGenerationRunBinding,
+    status:
+      | 'completed'
+      | 'cancelled'
+      | 'failed'
+      | 'timed-out'
+      | 'starting'
+      | 'running'
+      | 'cancelling',
+  ): void {
+    const lifecycle =
+      status === 'completed' || status === 'cancelled' || status === 'timed-out'
+        ? status
+        : 'failed';
+    broadcaster({
+      kind: 'status',
+      content:
+        lifecycle === 'completed'
+          ? 'Guidance generation complete'
+          : lifecycle === 'timed-out'
+            ? 'Guidance generation timed out'
+            : 'Guidance generation stopped',
+      timestamp: Date.now(),
+      tabBinding: binding,
+      lifecycle,
+    });
   }
 
   async cancelGuidance(
     raw: EnhancedPromptsCancelParams,
   ): Promise<EnhancedPromptsCancelResponse> {
     const parsed = EnhancedPromptsRunBindingSchema.safeParse(raw?.tabBinding);
-    if (!parsed.success || !(await this.authorizeGuidanceTab(parsed.data))) {
+    const canonical = parsed.success
+      ? await this.authorizeGuidanceTab(parsed.data)
+      : null;
+    if (!parsed.success || !canonical) {
       return {
         cancelled: false,
         outcome: 'refused',
         rejection: { reason: 'invalid-binding' },
       };
     }
-    return this.guidanceRuns.cancel(parsed.data);
+    return this.guidanceRuns.cancel({
+      ...parsed.data,
+      workspacePath: canonical,
+    });
   }
 
   async getGuidanceRunState(
     raw: EnhancedPromptsGetRunStateParams,
   ): Promise<EnhancedPromptsGetRunStateResponse> {
     const parsed = EnhancedPromptsRunStateLookupSchema.safeParse(raw);
-    if (
-      !parsed.success ||
-      !(await this.authorizeGuidanceTab(parsed.data.tabBinding))
-    ) {
+    const canonical = parsed.success
+      ? await this.authorizeGuidanceTab(parsed.data.tabBinding)
+      : null;
+    if (!parsed.success || !canonical) {
       return { run: null, rejection: { reason: 'invalid-binding' } };
     }
     return this.guidanceRuns.lookup(
-      parsed.data.tabBinding,
+      { ...parsed.data.tabBinding, workspacePath: canonical },
       parsed.data.runId,
       this.enhancedPromptsService.generationInProgress,
     );
@@ -858,9 +898,9 @@ export class EnhancedPromptsRpcHandlers {
 
   private async authorizeGuidanceTab(
     tab: SetupGenerationTabBinding,
-  ): Promise<boolean> {
+  ): Promise<string | null> {
     const host = this.workspaceProvider.getWorkspaceRoot();
-    return !!host && !!(await authorizeTabWorkspace(host, tab, this.logger));
+    return host ? authorizeTabWorkspace(host, tab, this.logger) : null;
   }
 
   /**
