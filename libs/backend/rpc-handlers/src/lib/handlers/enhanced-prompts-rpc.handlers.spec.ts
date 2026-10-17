@@ -326,7 +326,21 @@ async function call<TResult>(
 
 describe('EnhancedPromptsRpcHandlers', () => {
   describe('register()', () => {
-    it('registers all six enhancedPrompts RPC methods', () => {
+    it('routes cancel and run-state lookup to the prepared functions', async () => {
+      const h = makeHarness();
+      const cancel = jest
+        .spyOn(h.handlers, 'cancelGuidance')
+        .mockResolvedValue({ cancelled: false });
+      const lookup = jest
+        .spyOn(h.handlers, 'getGuidanceRunState')
+        .mockResolvedValue({ run: null });
+      h.handlers.register();
+      await call(h, 'enhancedPrompts:cancel', {});
+      await call(h, 'enhancedPrompts:getRunState', {});
+      expect(cancel).toHaveBeenCalledTimes(1);
+      expect(lookup).toHaveBeenCalledTimes(1);
+    });
+    it('registers all eight enhancedPrompts RPC methods', () => {
       const h = makeHarness();
       h.handlers.register();
 
@@ -336,6 +350,8 @@ describe('EnhancedPromptsRpcHandlers', () => {
           'enhancedPrompts:getPromptContent',
           'enhancedPrompts:getStatus',
           'enhancedPrompts:regenerate',
+          'enhancedPrompts:cancel',
+          'enhancedPrompts:getRunState',
           'enhancedPrompts:runWizard',
           'enhancedPrompts:setEnabled',
         ].sort(),

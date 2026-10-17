@@ -186,6 +186,7 @@ export class WizardGenerationRpcHandlers {
     'wizard:submit-selection',
     'wizard:preview-generation',
     'wizard:cancel',
+    'wizard:get-generation-run-state',
     'wizard:retry-item',
   ] as const satisfies readonly RpcMethodName[];
 
@@ -223,6 +224,12 @@ export class WizardGenerationRpcHandlers {
     this.registerSubmitSelection();
     this.registerPreviewGeneration();
     this.registerCancel();
+    this.rpcHandler.registerMethod<
+      WizardGetGenerationRunStateParams,
+      WizardGetGenerationRunStateResponse
+    >('wizard:get-generation-run-state', (params) =>
+      this.getGenerationRunState(params),
+    );
     this.registerRetryItem();
 
     this.logger.debug('Wizard generation RPC handlers registered', {

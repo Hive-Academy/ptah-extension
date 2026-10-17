@@ -235,6 +235,14 @@ export type WizardDeepAnalyzeResponse = MultiPhaseAnalysisResponse;
 /** Parameters for wizard:recommend-agents RPC method */
 export type WizardRecommendAgentsParams = unknown; // DeepProjectAnalysis input
 
+/** Explicit static catalog request; legacy analysis input remains supported. */
+export interface WizardRecommendAgentsCatalogParams {
+  mode: 'workspace-catalog';
+  tabBinding?: SetupGenerationTabBinding & {
+    workflow: 'setup-agent-generation';
+  };
+}
+
 /**
  * Response from wizard:recommend-agents RPC method
  *

@@ -203,6 +203,16 @@ export const VSCODE_EXPECTED_ABSENT_METHODS: readonly string[] = [
 describe('VS Code RPC surface', () => {
   const surface = deriveRpcSurface(createVscodeRpcHostProfile(NOOP_LOGGER));
 
+  it('serves bound guidance and generation recovery methods', () => {
+    expect(surface.registered).toEqual(
+      expect.arrayContaining([
+        'enhancedPrompts:cancel',
+        'enhancedPrompts:getRunState',
+        'wizard:get-generation-run-state',
+      ]),
+    );
+  });
+
   it('excludes exactly the pre-refactor Electron-only method list', () => {
     expect([...surface.excluded]).toEqual([...VSCODE_EXPECTED_ABSENT_METHODS]);
   });

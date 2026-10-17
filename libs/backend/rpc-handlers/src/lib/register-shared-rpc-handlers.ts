@@ -27,6 +27,8 @@ import { PlanLimitsSnapshotService } from './services/plan-limits-snapshot.servi
 import { ConnectionCheckRecorder } from './utils/connection-check-recorder';
 import { TurnChangeSetRecorder } from './chat/change-set/turn-change-set-recorder.service';
 import { TurnChangeSetStore } from './chat/change-set/turn-change-set.store';
+import { GuidanceGenerationRunSupervisor } from './handlers/guidance-generation-run.supervisor';
+import { GenerationRunSupervisor } from './handlers/wizard-generation-run.supervisor';
 
 /**
  * Register the shared RPC handler classes that every app wires the same way,
@@ -53,6 +55,8 @@ export function registerSharedRpcHandlers(
   container: DependencyContainer,
 ): void {
   container.registerSingleton(CliModelListService);
+  container.registerSingleton(GuidanceGenerationRunSupervisor);
+  container.registerSingleton(GenerationRunSupervisor);
   container.registerSingleton(SetupRpcHandlers);
   container.registerSingleton(WizardGenerationRpcHandlers);
   container.registerSingleton(EnhancedPromptsRpcHandlers);

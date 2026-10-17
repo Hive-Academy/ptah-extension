@@ -89,6 +89,8 @@ export class EnhancedPromptsRpcHandlers {
     'enhancedPrompts:runWizard',
     'enhancedPrompts:setEnabled',
     'enhancedPrompts:regenerate',
+    'enhancedPrompts:cancel',
+    'enhancedPrompts:getRunState',
     'enhancedPrompts:getPromptContent',
     'enhancedPrompts:download',
   ] as const satisfies readonly RpcMethodName[];
@@ -124,6 +126,16 @@ export class EnhancedPromptsRpcHandlers {
     this.registerRunWizard();
     this.registerSetEnabled();
     this.registerRegenerate();
+    this.rpcHandler.registerMethod<
+      EnhancedPromptsCancelParams,
+      EnhancedPromptsCancelResponse
+    >('enhancedPrompts:cancel', (params) => this.cancelGuidance(params));
+    this.rpcHandler.registerMethod<
+      EnhancedPromptsGetRunStateParams,
+      EnhancedPromptsGetRunStateResponse
+    >('enhancedPrompts:getRunState', (params) =>
+      this.getGuidanceRunState(params),
+    );
     this.registerGetPromptContent();
     this.registerDownload();
 
@@ -133,6 +145,8 @@ export class EnhancedPromptsRpcHandlers {
         'enhancedPrompts:runWizard',
         'enhancedPrompts:setEnabled',
         'enhancedPrompts:regenerate',
+        'enhancedPrompts:cancel',
+        'enhancedPrompts:getRunState',
         'enhancedPrompts:getPromptContent',
         'enhancedPrompts:download',
       ],

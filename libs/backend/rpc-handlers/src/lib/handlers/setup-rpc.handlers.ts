@@ -10,7 +10,7 @@
 
 import * as path from 'path';
 import { injectable, inject, DependencyContainer } from 'tsyringe';
-import type { z } from 'zod';
+import { z } from 'zod';
 import {
   Logger,
   RpcHandler,
@@ -61,6 +61,7 @@ import { Result } from '@ptah-extension/shared';
 import type { MultiPhaseManifest } from '@ptah-extension/agent-generation';
 import type { RpcMethodName } from '@ptah-extension/shared';
 import { isAuthorizedWorkspace } from '../utils/workspace-authorization';
+import { authorizeTabWorkspace } from './wizard-generation-binding';
 import { toResumableGenerationRun } from './wizard-generation-checkpoint.service';
 import {
   WizardDeepAnalyzeParamsSchema,
@@ -499,6 +500,45 @@ export class SetupRpcHandlers {
       async (rawAnalysis) => {
         this.logger.debug('RPC: wizard:recommend-agents called');
 
+        const catalogRequest = z.object({
+          mode: z.literal('workspace-catalog'),
+          tabBinding: z
+            .object({
+              tabId: z.string().min(1).max(200),
+              workflow: z.literal('setup-agent-generation'),
+              workspacePath: z.string().min(1).max(4096),
+            })
+            .optional(),
+        });
+        const catalogMode =
+          typeof rawAnalysis === 'object' &&
+          rawAnalysis !== null &&
+          'mode' in rawAnalysis &&
+          rawAnalysis.mode === 'workspace-catalog';
+        if (catalogMode) {
+          const request = catalogRequest.parse(rawAnalysis);
+          if (request.tabBinding) {
+            const host = this.workspaceProvider.getWorkspaceRoot();
+            if (
+              !host ||
+              !isAuthorizedWorkspace(
+                request.tabBinding.workspacePath,
+                this.workspaceProvider,
+              ) ||
+              !(await authorizeTabWorkspace(
+                host,
+                request.tabBinding,
+                this.logger,
+              ))
+            ) {
+              throw new RpcUserError(
+                'Workspace is not authorized for this catalog request.',
+                'UNAUTHORIZED_WORKSPACE',
+              );
+            }
+          }
+        }
+
         if (!rawAnalysis) {
           throw new Error(
             'Missing analysis input. Please run wizard:deep-analyze first.',
@@ -506,7 +546,7 @@ export class SetupRpcHandlers {
         }
 
         const input = rawAnalysis as Record<string, unknown>;
-        if (input['isMultiPhase'] === true) {
+        if (catalogMode || input['isMultiPhase'] === true) {
           this.logger.info(
             'Multi-phase analysis detected, returning all agents recommended',
           );

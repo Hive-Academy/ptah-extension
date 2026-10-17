@@ -1018,13 +1018,23 @@ const VALID_ANALYSIS = {
 
 describe('WizardGenerationRpcHandlers', () => {
   describe('register()', () => {
-    it('registers all four wizard generation RPC methods, exactly the METHODS list', () => {
+    it('routes run-state lookup to the prepared function', async () => {
+      const h = makeHarness();
+      const lookup = jest
+        .spyOn(h.handlers, 'getGenerationRunState')
+        .mockResolvedValue({ run: null });
+      h.handlers.register();
+      await callRaw(h, 'wizard:get-generation-run-state', {});
+      expect(lookup).toHaveBeenCalledTimes(1);
+    });
+    it('registers all five wizard generation RPC methods, exactly the METHODS list', () => {
       const h = makeHarness();
       h.handlers.register();
 
       expect(h.rpcHandler.getRegisteredMethods().sort()).toEqual(
         [
           'wizard:cancel',
+          'wizard:get-generation-run-state',
           'wizard:preview-generation',
           'wizard:retry-item',
           'wizard:submit-selection',
