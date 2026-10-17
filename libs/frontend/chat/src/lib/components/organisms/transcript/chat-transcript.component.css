@@ -1,6 +1,16 @@
-:host {
-  --ptah-ease-soft: cubic-bezier(0.22, 0.61, 0.36, 1);
-  --ptah-ease-gentle-in: cubic-bezier(0.4, 0, 0.2, 1);
+@keyframes ptahPaneSwitchEnter {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.ptah-pane-switch-enter {
+  animation: ptahPaneSwitchEnter var(--ptah-motion-switch) var(--ptah-ease-soft) backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ptah-pane-switch-enter {
+    animation: none !important;
+  }
 }
 
 /* Custom scrollbar for message container

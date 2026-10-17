@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_674_fa33
-status: in_review
+status: done
 type: BUGFIX
 title: "Keep a nested subagent's live tail visible after resync"
 depends_on: []

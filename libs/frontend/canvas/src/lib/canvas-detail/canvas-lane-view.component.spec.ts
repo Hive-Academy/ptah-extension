@@ -185,6 +185,23 @@ describe('CanvasLaneViewComponent', () => {
     expect(toggleAgentExpanded).not.toHaveBeenCalledWith('b');
   });
 
+  it('keeps the lane subtree for unrelated input changes and replaces it on lane switch', () => {
+    const fixture = TestBed.createComponent(CanvasLaneViewComponent);
+    fixture.componentRef.setInput('tabId', 'tab');
+    fixture.componentRef.setInput('laneKey', 'orchestrator');
+    fixture.detectChanges();
+    const lane = fixture.nativeElement.querySelector('.rail-lane-enter');
+    expect(lane).not.toBeNull();
+
+    fixture.componentRef.setInput('paneFocused', false);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.rail-lane-enter')).toBe(lane);
+
+    fixture.componentRef.setInput('laneKey', 'cli:a');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.rail-lane-enter')).not.toBe(lane);
+  });
+
   it('does not reopen a CLI lane after its user collapses it', () => {
     const agent = {
       agentId: 'a',
@@ -683,6 +700,27 @@ describe('CanvasLaneViewComponent', () => {
     fixture.detectChanges();
     await fixture.whenStable();
     expect(document.activeElement).toBe(focused);
+  });
+
+  it('does not request a frame or add a focus fade when tabId changes', () => {
+    const fixture = TestBed.createComponent(CanvasLaneViewComponent);
+    fixture.componentRef.setInput('tabId', 'first');
+    fixture.detectChanges();
+    const originalRequestFrame = globalThis.requestAnimationFrame;
+    const requestFrame = jest.spyOn(globalThis, 'requestAnimationFrame');
+    const frameStacks: string[] = [];
+    requestFrame.mockImplementation((callback) => {
+      frameStacks.push(new Error().stack ?? '');
+      return originalRequestFrame(callback);
+    });
+    try {
+      fixture.componentRef.setInput('tabId', 'second');
+      fixture.detectChanges();
+      expect(frameStacks.filter((stack) => stack.includes('canvas-lane-view.component.ts'))).toEqual([]);
+      expect(fixture.nativeElement.querySelector('[role="tabpanel"]')?.className).toBe('h-full min-h-0');
+    } finally {
+      requestFrame.mockRestore();
+    }
   });
 
   it('does not move focus on first mount with a lane already open', async () => {

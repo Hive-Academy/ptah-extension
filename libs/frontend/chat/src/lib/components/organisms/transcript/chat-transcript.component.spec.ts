@@ -215,8 +215,9 @@ describe('ChatTranscriptComponent — hidden-transcript reactivity pause', () =>
     surfaceActive.set(true);
     h.fixture.detectChanges();
     expect(h.bubbleCount()).toBe(2);
+    expect(container.scrollTop).toBe(1000);
     staleFrames.forEach((frame) => frame(0));
-    expect(container.scrollTop).toBe(300);
+    expect(container.scrollTop).toBe(1000);
     h.fixture.componentRef.setInput('active', false);
     h.fixture.detectChanges();
     h.messagesSig.set([

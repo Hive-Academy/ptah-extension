@@ -43,7 +43,7 @@ describe('SessionHistoryReplayer', () => {
   let holdYields: boolean;
   let heldDeliveries: Array<() => void>;
   let log: string[];
-  let tabs: Array<{ id: string; claudeSessionId: string | null; messages?: unknown[] }>;
+  let tabs: Array<{ id: string; claudeSessionId: string | null; messages?: unknown[]; streamingState?: unknown }>;
   let streamingHandler: {
     processStreamEvent: jest.Mock;
     finalizeSessionHistory: jest.Mock;
@@ -51,6 +51,7 @@ describe('SessionHistoryReplayer', () => {
   };
   let setStatus: jest.Mock;
   let setMessages: jest.Mock;
+  let setStreamingState: jest.Mock;
   let replayer: SessionHistoryReplayer;
   let consoleWarn: jest.SpyInstance;
   /** 1-based post that throws, or `null` for none. */
@@ -102,6 +103,7 @@ describe('SessionHistoryReplayer', () => {
       const tab = tabs.find((candidate) => candidate.id === tabId);
       if (tab) tab.messages = messages;
     });
+    setStreamingState = jest.fn();
     consoleWarn = jest.spyOn(console, 'warn').mockImplementation();
 
     TestBed.configureTestingModule({
@@ -116,6 +118,7 @@ describe('SessionHistoryReplayer', () => {
               return tab ? { tab, workspacePath: 'D:/repo' } : null;
             }),
             setMessages,
+            setStreamingState,
           },
         },
         { provide: StreamingHandlerService, useValue: streamingHandler },
@@ -890,6 +893,57 @@ describe('SessionHistoryReplayer', () => {
         'seeded subagent history owner not found', { parentToolUseId: 'toolu_T' });
       expect(apply).toHaveBeenCalledWith([start]);
       expect(setMessages).not.toHaveBeenCalled();
+    });
+
+    it('keeps owner rows when all seeded owners are absent from messageEventIds', async () => {
+      const loggerWarn = jest.spyOn(TestBed.inject(LoggingService), 'warn');
+      const start = e('start-A', 'message_start', { messageId: 'A', role: 'assistant' });
+      const tool = e('tool-A', 'tool_start', { messageId: 'A', toolCallId: 'toolu_A' });
+      const seed = e('child-A', 'agent_start', { messageId: 'child-A', parentToolUseId: 'toolu_A' });
+      const rows = [{ id: 'start-A', role: 'assistant' }];
+      tabs[0].messages = rows;
+      tabs[0].streamingState = {
+        events: new Map([[start.id, start], [tool.id, tool]]), messageEventIds: [],
+        toolCallMap: new Map(), textAccumulators: new Map(), toolInputAccumulators: new Map(),
+        agentSummaryAccumulators: new Map(), agentContentBlocksMap: new Map(), eventsByMessage: new Map(),
+      };
+      const claim = replayer.claim(TAB, SESSION, { events: [seed], apply: jest.fn() });
+
+      await replayer.replay([start, tool], claim, SESSION, undefined);
+
+      expect(tabs[0].messages).toBe(rows);
+      expect(setMessages).not.toHaveBeenCalled();
+      expect(setStreamingState).not.toHaveBeenCalled();
+      expect(loggerWarn).toHaveBeenCalledWith('SessionHistoryReplayer',
+        'seeded subagent history owners missing from message events', { tabId: TAB, ownerIds: ['A'] });
+    });
+
+    it('moves only seeded owners still present in messageEventIds', async () => {
+      const startA = e('start-A', 'message_start', { messageId: 'A', role: 'assistant' });
+      const startB = e('start-B', 'message_start', { messageId: 'B', role: 'assistant' });
+      const toolA = e('tool-A', 'tool_start', { messageId: 'A', toolCallId: 'toolu_A' });
+      const toolB = e('tool-B', 'tool_start', { messageId: 'B', toolCallId: 'toolu_B' });
+      const seedA = e('child-A', 'agent_start', { messageId: 'child-A', parentToolUseId: 'toolu_A' });
+      const seedB = e('child-B', 'agent_start', { messageId: 'child-B', parentToolUseId: 'toolu_B' });
+      const rows = [{ id: 'start-A', role: 'assistant' }, { id: 'start-B', role: 'assistant' }];
+      tabs[0].messages = rows;
+      tabs[0].streamingState = {
+        events: new Map([[startB.id, startB], [toolB.id, toolB]]), messageEventIds: ['B'],
+        toolCallMap: new Map(), textAccumulators: new Map(), toolInputAccumulators: new Map(),
+        agentSummaryAccumulators: new Map(), agentContentBlocksMap: new Map(), eventsByMessage: new Map(),
+      };
+      const claim = replayer.claim(TAB, SESSION, { events: [seedA, seedB], apply: jest.fn() });
+
+      await replayer.replay([startA, toolA, startB, toolB], claim, SESSION, undefined);
+
+      expect(tabs[0].messages).toEqual([rows[0]]);
+      expect(setMessages).toHaveBeenCalledTimes(1);
+      expect(setStreamingState).toHaveBeenCalledWith(TAB, expect.objectContaining({
+        messageEventIds: ['B'], currentMessageId: 'B',
+      }));
+      const liveState = setStreamingState.mock.calls[0][1];
+      expect([...liveState.events.values()].map((event: FlatStreamEventUnion) => event.messageId)).toEqual(['B', 'B']);
+      expect(liveState.resyncOwnerPredecessors).toEqual(new Map([['start-B', 'start-A']]));
     });
 
     it('preserves arrival across claims and filters only pre-snapshot seed copies', async () => {

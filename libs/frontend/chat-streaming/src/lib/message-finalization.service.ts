@@ -352,6 +352,10 @@ export class MessageFinalizationService {
     return {
       resyncOwnerPredecessors: state.resyncOwnerPredecessors
         ? new Map(state.resyncOwnerPredecessors) : undefined,
+      latestTodoWrite: state.latestTodoWrite
+        ? { ...state.latestTodoWrite, input: state.latestTodoWrite.input
+          ? { ...state.latestTodoWrite.input } : undefined }
+        : undefined,
       events: new Map(state.events),
       messageEventIds: [...state.messageEventIds],
       toolCallMap: new Map(

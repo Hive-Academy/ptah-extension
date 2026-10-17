@@ -33,6 +33,7 @@ import {
   AGENT_FEEDBACK_SENDER,
   SURFACE_ACTIVE,
   surfaceActiveFor,
+  withSurfaceViewTransitions,
 } from '@ptah-extension/core';
 import { appRoutes } from './app.routes';
 import { SurfaceUpdateInbox } from '@ptah-extension/chat-routing';
@@ -180,6 +181,8 @@ export const appConfig: ApplicationConfig = {
       appRoutes,
       withComponentInputBinding(),
       withDisabledInitialNavigation(),
+      // Keep the surface transition feature beside the two routing boot features.
+      withSurfaceViewTransitions(),
     ),
     provideVSCodeService(),
     provideMessageRouter(),
