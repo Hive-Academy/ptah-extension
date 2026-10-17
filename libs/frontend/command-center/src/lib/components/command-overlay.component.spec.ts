@@ -80,18 +80,42 @@ describe('CommandOverlayComponent', () => {
   });
 
   it('unpins a hidden plate and requests focus on its work-list row', () => {
-    const { fixture, component } = setup();
+    const { fixture, component, labels } = setup();
     const focus = jest.fn();
     component.focusWorkListRow.subscribe(focus);
     fixture.componentRef.setInput('visibleLabelIds', ['a', 'b']);
     fixture.detectChanges();
     component.pin('b');
     fixture.detectChanges();
+    // The plate held focus (keyboard pin), so the relayout hands it over.
+    labels[1].focus();
     fixture.componentRef.setInput('visibleLabelIds', ['a']);
     fixture.detectChanges();
     expect(component.pinnedNodeId()).toBeNull();
     expect(focus).toHaveBeenCalledTimes(1);
     expect(focus).toHaveBeenCalledWith('b');
+  });
+
+  it('unpins a hidden plate without stealing focus from a control outside the overlay', () => {
+    const { fixture, component } = setup();
+    const focus = jest.fn();
+    component.focusWorkListRow.subscribe(focus);
+    const outside = document.createElement('input');
+    document.body.appendChild(outside);
+    try {
+      outside.focus();
+      fixture.componentRef.setInput('visibleLabelIds', ['a', 'b']);
+      fixture.detectChanges();
+      component.pin('b');
+      fixture.detectChanges();
+      fixture.componentRef.setInput('visibleLabelIds', ['a']);
+      fixture.detectChanges();
+      expect(component.pinnedNodeId()).toBeNull();
+      expect(focus).not.toHaveBeenCalled();
+      expect(document.activeElement).toBe(outside);
+    } finally {
+      outside.remove();
+    }
   });
 
   it('keeps a pin whose plate was never laid out', () => {

@@ -347,6 +347,33 @@ describe('ProcessLifecycleRecorder', () => {
     early.dispose();
   });
 
+  it('does not append the serialized context twice on the console fallback for an error line', () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {
+      /* silenced for the test */
+    });
+    const early = new ProcessLifecycleRecorder({
+      logsPath: logsDir,
+      getLogger: () => null,
+    });
+    const earlyApp = new EventEmitter();
+    early.install(earlyApp as unknown as AnyApp);
+    const window = new FakeWindow(4);
+    earlyApp.emit('browser-window-created', {}, window);
+
+    window.webContents.emit('console-message', consoleMessage('error', 'e'));
+
+    // The error message already carries the serialized context for
+    // Logger.error's structured second argument; the fallback replays that
+    // one complete line instead of appending the context a second time.
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[renderer] console.error: {"windowId":4,"message":"e","source":"app://main.js:7"}',
+    );
+    expect(readHangLog(logsDir)).toEqual([]);
+    errorSpy.mockRestore();
+    early.dispose();
+  });
+
   it('rotates the hang log to .1 once it reaches the cap, honouring the shared rule', () => {
     const capped = new ProcessLifecycleRecorder({
       logsPath: logsDir,

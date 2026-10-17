@@ -80,13 +80,21 @@ export function trackTurnStatus(
   store: CommandCenterStore,
   turnAbortable: Signal<boolean>,
 ): void {
+  let boundTabId = untracked(() => store.markedTabId());
   let statusPulseSeq = untracked(
-    () =>
-      tabs.lastTerminalPulseByTab().get(store.markedTabId() ?? '')?.seq ?? 0,
+    () => tabs.lastTerminalPulseByTab().get(boundTabId ?? '')?.seq ?? 0,
   );
   let previousTurnAbortable = false;
   effect(() => {
     const tabId = store.markedTabId();
+    if (tabId !== boundTabId) {
+      // The store starts unbound and `open()` can later bind an existing tab
+      // that already carries a terminal pulse from before the Command Center
+      // opened it: re-seed from the pulse that is already terminal at binding
+      // so only pulses AFTER the binding are reported (no historical toast).
+      boundTabId = tabId;
+      statusPulseSeq = tabs.lastTerminalPulseByTab().get(tabId ?? '')?.seq ?? 0;
+    }
     const pulse = tabId ? tabs.lastTerminalPulseByTab().get(tabId) : undefined;
     if (!pulse || pulse.seq <= statusPulseSeq) return;
     const root = tabId ? tabs.findTabByIdAcrossWorkspaces(tabId)?.tab : null;

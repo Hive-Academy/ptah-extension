@@ -386,6 +386,8 @@ describe('CommandCenterPageController', () => {
     ]);
     page.store.setSession('root-tab', 'session', '/workspace');
     page.store.setSessionStatus('running');
+    // Binding flushes before the turn can end, as it does in the app.
+    TestBed.tick();
     expect(page.turnAbortable()).toBe(true);
     tabs.set([
       { id: 'root-tab', status: 'loaded', claudeSessionId: 'session' },

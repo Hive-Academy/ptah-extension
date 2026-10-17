@@ -89,6 +89,50 @@ describe('Command Center turn status', () => {
     );
   });
 
+  it('does not toast a terminal pulse that predates binding the marked tab', () => {
+    const store = new CommandCenterStore();
+    const root = { id: 'a', status: 'loaded' };
+    const activeTabs = signal([root]);
+    const pulses = signal(new Map<string, TerminalTurnPulse>());
+    const tabs = Object.assign(Object.create(null) as TabManagerService, {
+      tabs: activeTabs,
+      lastTerminalPulseByTab: pulses,
+      findTabByIdAcrossWorkspaces: () => ({ tab: root }),
+    });
+    TestBed.runInInjectionContext(() =>
+      trackTurnStatus(tabs, store, signal(false)),
+    );
+    TestBed.flushEffects();
+    const pulse: TerminalTurnPulse = {
+      seq: 1,
+      tabId: 'a',
+      sessionId: 'session-a',
+      workspacePath: '/a',
+      revision: 1,
+      phase: 'failed',
+      terminalReason: 'api_error',
+      lastAssistantMessage: null,
+      classification: 'error',
+      title: 'Root',
+      occurredAt: 1,
+    };
+    // The pulse arrives while no tab is marked; the marked tab is bound only
+    // after the pulse already exists, so it is historical and not reportable.
+    pulses.set(new Map([['a', pulse]]));
+    TestBed.flushEffects();
+    store.setSession('a', null, '/a');
+    TestBed.flushEffects();
+    expect(store.sessionStatus()).toBe('idle');
+    expect(store.toast()).toBeNull();
+    // A pulse after the binding is still reported.
+    pulses.set(new Map([['a', { ...pulse, seq: 2 }]]));
+    TestBed.flushEffects();
+    expect(store.sessionStatus()).toBe('error');
+    expect(store.toast()?.message).toBe(
+      'The Command Center turn could not finish.',
+    );
+  });
+
   it.each(['aborted_streaming', 'aborted_tools'] as const)(
     'keeps Stop without an error toast after %s',
     (terminalReason) => {

@@ -45,7 +45,7 @@ describe('CommandPendingInputComponent', () => {
     const answer = fixture.nativeElement.querySelector(
       '#pending-answer',
     ) as HTMLInputElement;
-    expect(answer.className).toContain('placeholder:!text-base-content/70');
+    expect(answer.className).toContain('placeholder:!text-base-content-muted');
     expect(answer.className).toContain('!border-base-content/70');
     expect(answer.className).toContain('focus-visible:outline-base-content');
   });

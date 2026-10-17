@@ -152,6 +152,7 @@ export class CommandOverlayComponent {
   private readonly floating = inject(FloatingUIService);
   private readonly zone = inject(NgZone);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly hostRef = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly anchorRef =
     viewChild.required<ElementRef<HTMLElement>>('cardAnchor');
   private readonly cardRef = viewChild<ElementRef<HTMLElement>>('card');
@@ -194,10 +195,14 @@ export class CommandOverlayComponent {
       if (visible.includes(pinned)) {
         shownPinnedId = pinned;
       } else if (shownPinnedId === pinned) {
-        // Only a plate that a relayout hid hands focus to its work-list row.
+        // Only a plate that a relayout hid hands focus to its work-list row —
+        // and only when focus is inside the pinned card, on its plate, or on
+        // the overlay host: a relayout must not steal focus from a control
+        // the user is typing in elsewhere. The plate is unpinned either way.
         shownPinnedId = null;
+        const handoff = this.focusInsidePinnedOverlay(pinned);
         this.unpin(false);
-        this.focusWorkListRow.emit(pinned);
+        if (handoff) this.focusWorkListRow.emit(pinned);
       }
     });
     effect(() => {
@@ -324,6 +329,17 @@ export class CommandOverlayComponent {
       if (trigger && trigger.style.display !== 'none') trigger.focus();
       else this.focusWorkListRow.emit(id);
     }
+  }
+
+  /** Focus is inside the pinned card, on its plate, or on the overlay host. */
+  private focusInsidePinnedOverlay(pinnedId: string): boolean {
+    const active = document.activeElement;
+    if (!(active instanceof HTMLElement)) return false;
+    if (active === this.hostRef.nativeElement) return true;
+    const card = this.cardRef()?.nativeElement;
+    if (card && card.contains(active)) return true;
+    const plate = this.findLabel(pinnedId);
+    return !!plate && plate.contains(active);
   }
 
   private requestOpen(id: string): void {

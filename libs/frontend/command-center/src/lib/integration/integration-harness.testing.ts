@@ -82,7 +82,6 @@ export function createHarness(
     createCommandCenterTab: jest.fn(() => root.id),
     attachSession: jest.fn(),
     findTabBySessionId: jest.fn(() => null),
-    findTabByIdAcrossWorkspaces: jest.fn(() => ({ tab: root })),
   };
   const records = {
     readActiveTabId: jest.fn(() => root.id),
