@@ -80,6 +80,7 @@ let nextId = 0;
             aria-label="Search sessions by name"
             [value]="searchQuery()"
             (input)="onSearchInput($event)"
+            data-previous-sessions-search
             data-testid="session-search-local"
           />
           @if (searchQuery()) {

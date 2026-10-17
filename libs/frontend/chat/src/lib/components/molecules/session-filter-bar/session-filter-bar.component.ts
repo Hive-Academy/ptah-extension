@@ -128,6 +128,7 @@ function keepDraftUntilTrimmedChange(
           aria-label="Search sessions by name"
           [value]="text()"
           (input)="onText($event)"
+          data-previous-sessions-search
           data-testid="session-filter-text"
         />
         @if (text()) {

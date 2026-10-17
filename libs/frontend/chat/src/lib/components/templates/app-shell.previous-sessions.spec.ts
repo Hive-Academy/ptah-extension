@@ -39,6 +39,7 @@ import {
   AuthStateService,
   BootStatusService,
   ClaudeRpcService,
+  LoggingService,
   RetainedViewDirective,
   SurfaceRouterService,
   ThemeService,
@@ -53,6 +54,11 @@ import { NotificationLedgerService } from '@ptah-extension/notification-center';
 import type { ChatSessionSummary } from '@ptah-extension/shared';
 import { AppShellComponent } from './app-shell.component';
 import { PreviousSessionsLoadStateComponent } from '../organisms/previous-sessions/previous-sessions-load-state.component';
+import { PreviousSessionsModalComponent } from '../organisms/previous-sessions/previous-sessions-modal.component';
+import { ChatStore } from '../../services/chat.store';
+import { SessionDisplayUtils } from '../../services/session-display-utils.service';
+import { SessionListViewStore } from '../../services/session-list/session-list-view.store';
+import { SessionRowActionsService } from '../../services/session-list/session-row-actions.service';
 import { KeyboardShortcutsService } from '../../services/keyboard-shortcuts.service';
 import { SubagentTranscriptViewerService } from '../../services/subagent-transcript-viewer.service';
 import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-ender.service';
@@ -94,7 +100,10 @@ describe('AppShellComponent — previous sessions (TASK_2026_679)', () => {
    * `manualDefer` drives the defer blocks by hand and renders the real
    * load-state surface (Fix round P3); otherwise defer blocks play through.
    */
-  function mount(host: Host, { manualDefer = false } = {}): void {
+  function mount(
+    host: Host,
+    { manualDefer = false, realModal = false } = {},
+  ): void {
     currentView = signal('chat');
     layoutMode = signal(host.layout);
     organizer = {
@@ -142,8 +151,46 @@ describe('AppShellComponent — previous sessions (TASK_2026_679)', () => {
           provide: AgentMonitorStore,
           useValue: { shouldSuggestEditorPanel: () => false },
         },
-        { provide: TabManagerService, useValue: { activeTab: signal(null) } },
+        {
+          provide: TabManagerService,
+          useValue: {
+            activeTab: signal(null),
+            findTabBySessionId: () => null,
+            workflowForSession: () => null,
+          },
+        },
         { provide: ClaudeRpcService, useValue: {} },
+        {
+          provide: ChatStore,
+          useValue: {
+            sessions: signal<readonly ChatSessionSummary[]>([]),
+            currentSession: signal<ChatSessionSummary | null>(null),
+            hasMoreSessions: signal(false),
+            totalSessions: signal(0),
+            isLoadingMoreSessions: signal(false),
+          },
+        },
+        {
+          provide: SessionListViewStore,
+          useValue: {
+            filteredSessions: signal<readonly ChatSessionSummary[]>([]),
+            organizationAvailable: signal(false),
+            listQuery: signal({ sort: 'lastActive' }),
+            searchQuery: signal(''),
+            dateFrom: signal(''),
+            dateTo: signal(''),
+            dateFilterOpen: signal(false),
+            hasActiveFilters: signal(false),
+            hasServerFilters: signal(false),
+            hasClientFilters: signal(false),
+          },
+        },
+        { provide: SessionRowActionsService, useValue: {} },
+        {
+          provide: SessionDisplayUtils,
+          useValue: { formatRelativeDate: () => 'today' },
+        },
+        { provide: LoggingService, useValue: { error: jest.fn() } },
         {
           provide: ConfirmationDialogService,
           useValue: { isOpen: signal(false) },
@@ -164,7 +211,13 @@ describe('AppShellComponent — previous sessions (TASK_2026_679)', () => {
     TestBed.overrideComponent(AppShellComponent, {
       set: {
         imports: manualDefer
-          ? [RetainedViewDirective, PreviousSessionsLoadStateComponent]
+          ? realModal
+            ? [
+                RetainedViewDirective,
+                PreviousSessionsLoadStateComponent,
+                PreviousSessionsModalComponent,
+              ]
+            : [RetainedViewDirective, PreviousSessionsLoadStateComponent]
           : [RetainedViewDirective],
         providers: [],
         schemas: [NO_ERRORS_SCHEMA],
@@ -406,7 +459,10 @@ describe('AppShellComponent — previous sessions (TASK_2026_679)', () => {
     const CLOSE = '[data-testid="previous-sessions-load-close"]';
 
     beforeEach(() =>
-      mount({ isElectron: false, layout: 'single' }, { manualDefer: true }),
+      mount(
+        { isElectron: false, layout: 'single' },
+        { manualDefer: true, realModal: true },
+      ),
     );
 
     /** The Previous sessions block: the third @defer in the template. */
@@ -437,6 +493,38 @@ describe('AppShellComponent — previous sessions (TASK_2026_679)', () => {
       page.querySelector<HTMLElement>(SURFACE);
     const closeButton = (): HTMLButtonElement | null =>
       page.querySelector<HTMLButtonElement>(CLOSE);
+
+    it('hands focus from Loading Close to the Complete modal search', async () => {
+      await openFromButton();
+      await showState(DeferBlockState.Loading);
+      expect(document.activeElement).toBe(closeButton());
+
+      await (await previousSessionsBlock()).render(DeferBlockState.Complete);
+      await settle();
+
+      const search = page.querySelector<HTMLInputElement>(
+        '[data-previous-sessions-search]',
+      );
+      expect(surface()).toBeNull();
+      expect(search).not.toBeNull();
+      expect(document.activeElement).toBe(search);
+    });
+
+    it('does not focus a Loading Close destroyed before its first render callback', async () => {
+      await openFromButton();
+      const abandoned = TestBed.createComponent(
+        PreviousSessionsLoadStateComponent,
+      );
+      abandoned.componentRef.setInput('state', 'loading');
+      const focus = jest.spyOn(HTMLElement.prototype, 'focus');
+      abandoned.destroy();
+      render();
+      expect(
+        focus.mock.instances.some((element) => element.matches(CLOSE)),
+      ).toBe(false);
+      focus.mockRestore();
+      expect(surface()).toBeNull();
+    });
 
     it.each([
       ['Loading', DeferBlockState.Loading, 'Loading previous sessions...'],

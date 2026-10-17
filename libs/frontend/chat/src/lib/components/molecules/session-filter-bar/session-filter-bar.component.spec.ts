@@ -63,6 +63,14 @@ describe('SessionFilterBarComponent', () => {
     fixture.detectChanges();
   });
 
+  it('marks the search input for Previous sessions focus', () => {
+    expect(
+      el<HTMLInputElement>('session-filter-text').hasAttribute(
+        'data-previous-sessions-search',
+      ),
+    ).toBe(true);
+  });
+
   it('debounces search text by 250 ms and sends only the settled value', fakeAsync(() => {
     type('session-filter-text', 'a');
     tick(100);

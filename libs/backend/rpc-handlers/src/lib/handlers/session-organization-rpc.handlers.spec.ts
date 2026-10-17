@@ -1105,9 +1105,10 @@ describe('SessionOrganizationRpcHandlers', () => {
 
       it('answers organization-unavailable, not defaults, when the store closes during the read', async () => {
         const fakes = createFakes();
-        fakes.organization.isAvailable
-          .mockReturnValueOnce(true)
-          .mockReturnValue(false);
+        fakes.organization.queryWorkspace.mockImplementation(() => {
+          fakes.organization.isAvailable.mockReturnValue(false);
+          return new Map();
+        });
         build(fakes);
         await expect(
           call(fakes, 'session:getOrganization', { sessionId: SESSION_A }),
@@ -1116,6 +1117,8 @@ describe('SessionOrganizationRpcHandlers', () => {
           reason: 'organization-unavailable',
           message: expect.any(String),
         });
+        expect(fakes.organization.queryWorkspace).toHaveBeenCalledWith(WORKSPACE);
+        expect(fakes.organization.countChildren).toHaveBeenCalledWith(WORKSPACE);
       });
 
       it('changes nothing and pushes nothing', async () => {
