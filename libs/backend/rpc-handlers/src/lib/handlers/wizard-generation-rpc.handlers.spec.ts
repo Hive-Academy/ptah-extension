@@ -495,6 +495,10 @@ describe('wizard generation tab ownership and recovery', () => {
     });
     expect(starting.run?.status).toBe('starting');
     expect(starting.run?.result).toBeUndefined();
+    recent.updatedAt = 'invalid-date';
+    const invalid = await h.handlers.getGenerationRunState({ tabBinding: tab });
+    expect(invalid.run?.status).toBe('failed');
+    expect(invalid.run?.interrupted).toBe(true);
   });
 
   it('finds a bound checkpoint beside an older analysis after a newer one exists', async () => {
@@ -663,6 +667,27 @@ describe('wizard generation tab ownership and recovery', () => {
     });
     expect(retried.success).toBe(true);
     expect(firstOptions(h).model).toBe('model-from-checkpoint');
+  });
+
+  it('finds a bound retry checkpoint through a differently spelled host root', async () => {
+    const alias = `${WORKSPACE}/.`;
+    const h = makeHarness({ workspaceRoot: alias });
+    jest
+      .spyOn(fs.promises, 'realpath')
+      .mockImplementation(async (value) =>
+        String(value) === alias ? WORKSPACE : String(value),
+      );
+    const runId = '11111111-1111-4111-8111-111111111111';
+    seedCheckpoint(h, { 'agent-a': 'failed' }, { tabBinding: tab, runId });
+    h.storage.list.mockResolvedValue([{ filename: 'acme' }]);
+    recordingOrchestrator(h, [outcome('agent-a', 'written')]);
+    h.handlers.register();
+    const retried = await call<{ success: boolean }>(h, 'wizard:retry-item', {
+      itemId: 'agent-a',
+      tabBinding: { ...tab, runId },
+    });
+    expect(retried.success).toBe(true);
+    expect(h.storage.list).toHaveBeenCalledWith(WORKSPACE);
   });
 
   it('does not report completed when checkpoint finalization fails', async () => {

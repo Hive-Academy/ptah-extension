@@ -51,7 +51,8 @@ export function generationRunState(
   const interrupted =
     !isActive &&
     manifest.lifecycle === 'running' &&
-    Date.now() - Date.parse(manifest.updatedAt) > ORPHAN_GRACE_MS;
+    (Number.isNaN(Date.parse(manifest.updatedAt)) ||
+      Date.now() - Date.parse(manifest.updatedAt) > ORPHAN_GRACE_MS);
   const status = isActive
     ? 'running'
     : interrupted

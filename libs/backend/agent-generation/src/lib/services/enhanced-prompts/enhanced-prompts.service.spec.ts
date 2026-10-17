@@ -1668,6 +1668,94 @@ describe('EnhancedPromptsService', () => {
   });
 
   describe('generation lock timeout', () => {
+    it('checks a force-released stale run abort while a new run is committing', async () => {
+      jest.useFakeTimers();
+      try {
+        mocks.promptDesignerAgent.buildPrompts.mockResolvedValue({
+          systemPrompt: 's',
+          userPrompt: 'u',
+          outputSchema: {},
+        });
+        mocks.internalQueryService.execute.mockResolvedValue({
+          stream: (async function* () {})(),
+          close: jest.fn(),
+        });
+        mockProcess.mockResolvedValue({ structuredOutput: { ok: true } });
+        mocks.promptDesignerAgent.parseAndValidateOutput.mockResolvedValue(
+          fullOutput(),
+        );
+        let releaseOld: () => void = () => undefined;
+        let releaseNew: () => void = () => undefined;
+        mocks.analysisStorage.writeEnhancedPromptTrace
+          .mockReturnValueOnce(
+            new Promise<void>((resolve) => {
+              releaseOld = resolve;
+            }),
+          )
+          .mockReturnValueOnce(
+            new Promise<void>((resolve) => {
+              releaseNew = resolve;
+            }),
+          );
+        const input: PromptDesignerInput = {
+          workspacePath: testWorkspacePath,
+          projectType: 'app',
+          isMonorepo: false,
+          dependencies: [],
+          devDependencies: [],
+        };
+        const stale = service.runWizard(
+          testWorkspacePath,
+          undefined,
+          undefined,
+          input,
+        );
+        for (
+          let i = 0;
+          i < 100 &&
+          mocks.analysisStorage.writeEnhancedPromptTrace.mock.calls.length < 1;
+          i++
+        )
+          await Promise.resolve();
+        expect(
+          mocks.analysisStorage.writeEnhancedPromptTrace,
+        ).toHaveBeenCalledTimes(1);
+        jest.advanceTimersByTime(12 * 60 * 1000 + 30 * 1000 + 1);
+        const reservation = service.acquireBoundGeneration();
+        expect(reservation).not.toBeNull();
+        const route = await service.resolveGuidanceRoute(testWorkspacePath);
+        const current = service.runWizard(
+          testWorkspacePath,
+          undefined,
+          undefined,
+          input,
+          undefined,
+          undefined,
+          {
+            reservation: reservation!,
+            signal: new AbortController().signal,
+            route,
+            beforeCommit: () => true,
+          },
+        );
+        for (
+          let i = 0;
+          i < 100 &&
+          mocks.analysisStorage.writeEnhancedPromptTrace.mock.calls.length < 2;
+          i++
+        )
+          await Promise.resolve();
+        expect(
+          mocks.analysisStorage.writeEnhancedPromptTrace,
+        ).toHaveBeenCalledTimes(2);
+        releaseOld();
+        expect((await stale).success).toBe(false);
+        releaseNew();
+        expect((await current).success).toBe(true);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
     it('allows a committing run through the timer and past the designer timeout', async () => {
       jest.useFakeTimers();
       try {

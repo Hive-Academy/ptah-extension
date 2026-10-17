@@ -1313,7 +1313,7 @@ export class WizardGenerationRpcHandlers {
         const webviewManager = this.resolveWebviewManager();
         const boundCheckpoint = retryBinding
           ? await this.checkpoints.locateBound(
-              workspaceRoot,
+              canonicalWorkspace!,
               retryBinding,
               retryBinding.runId,
             )

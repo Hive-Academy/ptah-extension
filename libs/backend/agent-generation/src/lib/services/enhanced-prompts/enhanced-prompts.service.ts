@@ -246,10 +246,10 @@ export class EnhancedPromptsService {
   private generationLockTimer: ReturnType<typeof setTimeout> | null = null;
   private generationGraceTimer: ReturnType<typeof setTimeout> | null = null;
   private generationOwner: object | null = null;
+  private generationCommittingOwner: object | null = null;
   private generationAbort: AbortController | null = null;
   private generationOnTimeout: (() => void) | null = null;
   private generationOnForceRelease: (() => void) | null = null;
-  private generationCommitting = false;
   private boundReservation: object | null = null;
 
   /**
@@ -327,7 +327,7 @@ export class EnhancedPromptsService {
         'EnhancedPromptsService: Generation lock timed out; waiting for release',
         { timeoutMs: GENERATION_LOCK_TIMEOUT_MS },
       );
-      if (!this.generationCommitting) {
+      if (this.generationCommittingOwner !== owner) {
         this.generationAbort?.abort();
         this.generationOnTimeout?.();
       }
@@ -360,10 +360,10 @@ export class EnhancedPromptsService {
     this.isGenerating = false;
     this.boundReservation = null;
     this.generationOwner = null;
+    this.generationCommittingOwner = null;
     this.generationAbort = null;
     this.generationOnTimeout = null;
     this.generationOnForceRelease = null;
-    this.generationCommitting = false;
     if (this.generationLockTimer) {
       clearTimeout(this.generationLockTimer);
       this.generationLockTimer = null;
@@ -514,6 +514,7 @@ export class EnhancedPromptsService {
       };
     }
     const owner = this.generationOwner;
+    let generationCommitting = false;
     const timeoutSignal = this.generationAbort?.signal;
     const runAbort = new AbortController();
     const abortRun = (): void => runAbort.abort();
@@ -709,7 +710,9 @@ export class EnhancedPromptsService {
         if (bound?.beforeCommit) {
           if (!bound.beforeCommit())
             throw new Error('Guidance generation cancelled');
-          this.generationCommitting = true;
+          generationCommitting = true;
+          if (this.generationOwner === owner)
+            this.generationCommittingOwner = owner;
         }
         await this.traceWriter.writeEnhancedPromptTrace(
           workspacePath,
@@ -729,13 +732,13 @@ export class EnhancedPromptsService {
           error: `Failed to persist the enhanced prompt trace: ${message}`,
         };
       }
-      if (!this.generationCommitting) ensureActive();
+      if (!generationCommitting) ensureActive();
       await this.stateStore.save(workspacePath, newState);
-      if (!this.generationCommitting) ensureActive();
+      if (!generationCommitting) ensureActive();
       if (configHash) {
         await this.cacheService.set(workspacePath, configHash, output);
       }
-      if (!this.generationCommitting) ensureActive();
+      if (!generationCommitting) ensureActive();
 
       onProgress?.({
         status: 'complete',

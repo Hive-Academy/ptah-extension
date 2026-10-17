@@ -240,7 +240,7 @@ Candidate only: unused duplicated old-generation presentation code after the new
 | P2 review | 2 | APPROVE 8/10 after 1 revise round (S1, S2, M1–M9 fixed; Part B continuation lane after the first lane stopped without a report) | Claude code-logic-reviewer; codex fixes | 41c82d930 |
 | B04 | 3 | done (tab-manager +58 lines; route validator token on SurfaceRouterService for B05) | codex frontend-developer | 649e7a3cc |
 | B05 | 3 | done (1 revise round: transcript adapter via processStreamEvent instead of a local log, composer guard, route allowlist, deeper specs) | codex frontend-developer | f79b795ae |
-| B06 | 3 | done (panel kept open after push; explicit workflow arg on ptah.setupAgents; Phase 2 N1/N3/N4 in the next commit) | codex backend-developer | (this commit) |
+| B06 | 3 | done (panel kept open after push; explicit workflow arg on ptah.setupAgents; Phase 2 N1/N3/N4 in the next commit) | codex backend-developer | ddf655a63 |
 | B07 | 4 | pending | codex frontend-developer | — |
 | B07B | 4 | pending | codex frontend-developer | — |
 | B08 | 5 | pending | codex frontend-developer | — |
@@ -251,7 +251,7 @@ Candidate only: unused duplicated old-generation presentation code after the new
 
 ## Follow-ups from the Phase 2 review
 
-- **With Phase 3 (small backend lane after B06, file-disjoint):** N1 make `generationCommitting` a local of `runWizard` (`enhanced-prompts.service.ts:712,732-738`); N4 pass `canonicalWorkspace` to `locateBound`/`isTrusted` on bound retry; N3 treat an unparseable `updatedAt` as stale.
+- **Done with B06 (separate commit):** N1 make `generationCommitting` a local of `runWizard` (`enhanced-prompts.service.ts:712,732-738`); N4 pass `canonicalWorkspace` to `locateBound`/`isTrusted` on bound retry; N3 treat an unparseable `updatedAt` as stale.
 - **B07/B08 frontend requirements:** never render `source.analysisDir`; on `preview-required` reopen the preview; call a bound preview right before submit; hide provider/model when `unknown`; offer Resume on `interrupted`; cancel-vs-completion copy must not say "nothing was written"; rely on the terminal push for guidance `timed-out` (N2, single settled slot); persist the tab id or offer "start over" for a paused run owned by a dead tab (N5).
 - **Size:** `wizard-generation-rpc.handlers.ts` 1736 lines, `enhanced-prompts.service.ts` 1484 lines, long `registerRunWizard`/`runWizard`; split behind their facades in a later task.
 
