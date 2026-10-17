@@ -17,6 +17,15 @@ export interface StatusCounts {
   readonly other: number;
 }
 
+export function formatWorkAge(updatedAt?: number, now = Date.now()): string | null {
+  if (updatedAt === undefined || !Number.isFinite(updatedAt)) return null;
+  const minutes = Math.max(0, Math.floor((now - updatedAt) / 60_000));
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  return hours < 24 ? `${hours}h ago` : `${Math.floor(hours / 24)}d ago`;
+}
+
 export interface ScenePlacement {
   readonly placed: readonly PlacedNode[];
   readonly overflow: OverflowCounts;

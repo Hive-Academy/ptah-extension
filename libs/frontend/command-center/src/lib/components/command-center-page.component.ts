@@ -166,7 +166,7 @@ import type { SceneGeometry } from '../scene/connector-geometry';
       <div class="stage-column flex min-w-0 flex-col">
           <main
             class="stage min-w-0 rounded-xl border border-base-300 bg-base-200"
-            [style.--plate-reserve.px]="plateReservation().reservedHeight"
+            [style.--plate-reserve.px]="plateReservation().anchorKind === 'root' ? 0 : plateReservation().reservedHeight"
           >
             <ptah-command-scene
               #scene
@@ -177,6 +177,7 @@ import type { SceneGeometry } from '../scene/connector-geometry';
               [inputLevel]="page.store.inputLevel()"
               [outputLevel]="page.store.outputLevel()"
               [reducedMotion]="page.store.reducedMotion()"
+              [now]="now()"
               [activeId]="overlay?.activeNodeId() ?? null"
               [pinnedId]="overlay?.pinnedNodeId() ?? null"
               [plateReservation]="plateReservation()"
@@ -193,6 +194,7 @@ import type { SceneGeometry } from '../scene/connector-geometry';
               [hoveredNodeId]="page.hoveredNodeId()"
               [selectedId]="page.store.selectedId()"
               [reducedMotion]="page.store.reducedMotion()"
+              [now]="now()"
               (focusWorkListRow)="focusWorkRow($event)"
               (reservationChange)="plateReservation.set($event)"
               (repositionRequested)="scene?.requestMeasure()"
@@ -347,6 +349,7 @@ import type { SceneGeometry } from '../scene/connector-geometry';
   `,
 })
 export class CommandCenterPageComponent {
+  public readonly now = signal(Date.now());
   public readonly page = inject(CommandCenterPageController);
   public readonly voiceChipReady = computed(
     () =>
@@ -421,6 +424,12 @@ export class CommandCenterPageComponent {
   }
 
   public constructor() {
+    effect((onCleanup) => {
+      if (!this.page.projection().nodes.some(node => node.updatedAt !== undefined)) return;
+      this.now.set(Date.now());
+      const ageTicker = setInterval(() => this.now.set(Date.now()), 60_000);
+      onCleanup(() => clearInterval(ageTicker));
+    });
     effect((onCleanup) => {
       const toast = this.page.store.toast();
       if (!toast || toast.tone === 'error') return;

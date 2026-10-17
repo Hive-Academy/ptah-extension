@@ -36,6 +36,7 @@ export class SceneStubComponent {
   public readonly inputLevel = input(0);
   public readonly outputLevel = input(0);
   public readonly reducedMotion = input(false);
+  public readonly now = input(Date.now());
   public readonly activeId = input<string | null>(null);
   public readonly pinnedId = input<string | null>(null);
   public readonly plateReservation = input<PlateReservation>({ pinnedId: null, anchorKind: null, inlineSlotHeight: 0, reservedHeight: 0 });

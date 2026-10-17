@@ -13,19 +13,19 @@ import { getConnectorPaths, type SceneGeometry } from './connector-geometry';
     <svg data-scene-connectors aria-hidden="true" focusable="false"
       [attr.viewBox]="viewBox()" preserveAspectRatio="none">
       <defs>
-        <linearGradient id="connector-inProgress" x1="0" y1="0" x2="1" y2="1">
+        <linearGradient id="connector-inProgress" gradientUnits="userSpaceOnUse" x1="0" y1="0" [attr.x2]="geometry()?.stage?.width ?? 1" [attr.y2]="geometry()?.stage?.height ?? 1">
           <stop offset="0" class="running-start" />
           <stop offset="1" class="running-end" />
         </linearGradient>
-        <linearGradient id="connector-waiting" x1="0" y1="0" x2="1" y2="1">
+        <linearGradient id="connector-waiting" gradientUnits="userSpaceOnUse" x1="0" y1="0" [attr.x2]="geometry()?.stage?.width ?? 1" [attr.y2]="geometry()?.stage?.height ?? 1">
           <stop offset="0" class="waiting-start" />
           <stop offset="1" class="waiting-end" />
         </linearGradient>
-        <linearGradient id="connector-finished" x1="0" y1="0" x2="1" y2="1">
+        <linearGradient id="connector-finished" gradientUnits="userSpaceOnUse" x1="0" y1="0" [attr.x2]="geometry()?.stage?.width ?? 1" [attr.y2]="geometry()?.stage?.height ?? 1">
           <stop offset="0" class="finished-start" />
           <stop offset="1" class="finished-end" />
         </linearGradient>
-        <linearGradient id="connector-other" x1="0" y1="0" x2="1" y2="1">
+        <linearGradient id="connector-other" gradientUnits="userSpaceOnUse" x1="0" y1="0" [attr.x2]="geometry()?.stage?.width ?? 1" [attr.y2]="geometry()?.stage?.height ?? 1">
           <stop offset="0" class="other-start" />
           <stop offset="1" class="other-end" />
         </linearGradient>

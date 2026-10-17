@@ -19,6 +19,7 @@ import {
 } from 'lucide-angular';
 import type { CommandWorkState } from '../model/command-center.store';
 import type { OverflowCounts, PlacedNode } from './scene-placement';
+import { formatWorkAge } from './scene-placement';
 
 @Component({
   selector: 'ptah-command-streams',
@@ -40,6 +41,7 @@ import type { OverflowCounts, PlacedNode } from './scene-placement';
               [attr.aria-pressed]="selectedId() === node.id"
               [attr.aria-describedby]="activeId() === node.id && pinnedId() !== node.id ? 'command-plate' : null"
               [attr.aria-expanded]="pinnedId() === node.id ? 'true' : null"
+              [attr.aria-controls]="pinnedId() === node.id ? 'command-plate' : null"
               [attr.tabindex]="index === rovingIndex() ? 0 : -1"
               (click)="activate.emit(node.id)"
               (mouseenter)="hover.emit(node.id)"
@@ -66,7 +68,7 @@ import type { OverflowCounts, PlacedNode } from './scene-placement';
               <span class="state-icon" aria-hidden="true" [class.is-static]="reducedMotion()">
                 <lucide-icon [img]="stateIcon(node.state)" [size]="16" [strokeWidth]="2" />
               </span>
-              @if (age(node.updatedAt); as ageText) {
+              @if (formatWorkAge(node.updatedAt, now()); as ageText) {
                 <span class="stream-age">{{ ageText }}</span>
               }
             </button>
@@ -85,8 +87,16 @@ import type { OverflowCounts, PlacedNode } from './scene-placement';
   `,
 })
 export class CommandStreamsComponent {
+  public readonly formatWorkAge = formatWorkAge;
+  public measurementElements(): { viewport: HTMLElement | null; rows: NodeListOf<HTMLElement> } {
+    return {
+      viewport: this.host.nativeElement.querySelector<HTMLElement>('[data-stream-viewport]'),
+      rows: this.host.nativeElement.querySelectorAll<HTMLElement>('[data-stream-row-id]'),
+    };
+  }
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   public readonly placed = input.required<readonly PlacedNode[]>();
+  public readonly now = input(Date.now());
   public readonly selectedId = input<string | null>(null);
   public readonly activeId = input<string | null>(null);
   public readonly pinnedId = input<string | null>(null);
@@ -145,15 +155,6 @@ export class CommandStreamsComponent {
       ? `, ${this.completedPhases(node)} of ${node.phases.length} phases complete`
       : '';
     return `${node.label}, ${node.kind}, ${this.providerName(node.providerId)}, ${node.state}${phaseText}`;
-  }
-
-  public age(updatedAt?: number): string | null {
-    if (updatedAt === undefined || !Number.isFinite(updatedAt)) return null;
-    const minutes = Math.max(0, Math.floor((Date.now() - updatedAt) / 60_000));
-    if (minutes < 1) return 'just now';
-    if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.floor(minutes / 60);
-    return hours < 24 ? `${hours}h ago` : `${Math.floor(hours / 24)}d ago`;
   }
 
   public onFocus(id: string): void {

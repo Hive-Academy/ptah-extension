@@ -12,6 +12,7 @@ export type PlateMode = 'inline' | 'external';
 export interface PinnedPlatePlacement {
   readonly mode: PlateMode;
   readonly plate: Rect;
+  readonly visible: boolean;
   readonly scrollInsidePlate: boolean;
   readonly reservation: PlateReservation;
 }
@@ -42,6 +43,7 @@ export function placePinnedPlate(
     const rootWidth = Math.min(width, geometry.dial.width);
     return {
       mode: 'external',
+      visible: true,
       plate: { x: Math.max(geometry.dial.x, Math.min(geometry.rootButton.x, geometry.dial.x + geometry.dial.width - rootWidth)), y: geometry.dial.y + geometry.dial.height + 8, width: rootWidth, height: plateHeight },
       scrollInsidePlate: natural > plateHeight,
       reservation: { pinnedId, anchorKind, inlineSlotHeight: 0, reservedHeight: plateHeight + 56 },
@@ -54,6 +56,7 @@ export function placePinnedPlate(
   const plateHeight = mode === 'inline' ? Math.min(natural, Math.max(0, availableHeight)) : natural;
   return {
     mode,
+    visible: row.y >= geometry.streamViewport.y && row.y + row.height <= geometry.streamViewport.y + geometry.streamViewport.height,
     plate: {
       x: geometry.streamContent.x,
       y: mode === 'inline' ? row.y + row.height + 8 : geometry.streamViewport.y + geometry.streamViewport.height + 8,

@@ -3,6 +3,7 @@ import { MonogramTileComponent, ProviderMarkComponent, PROVIDER_BRAND_SLUGS } fr
 import type { ProjectionResult } from '../model/work-projection';
 import { CommandCenterStore } from '../model/command-center.store';
 import type { SceneGeometry } from '../scene/connector-geometry';
+import { formatWorkAge } from '../scene/scene-placement';
 import { CommandOverlayPositioner } from './command-overlay-positioner';
 import { EMPTY_PLATE_RESERVATION, type PlateMode, type PlateReservation } from './command-overlay-placement';
 
@@ -17,6 +18,7 @@ export const COMMAND_OVERLAY_CLOSE_DELAY_MS = 200;
   template: `
     @if (activeNode(); as node) {
       <section #card id="command-plate"
+        style="visibility: hidden"
         class="fixed z-20 rounded-xl border border-base-300 bg-base-100 p-3 text-base-content shadow-xl"
         [class.pointer-events-none]="!pinnedNodeId()"
         [class.pointer-events-auto]="!!pinnedNodeId()"
@@ -36,7 +38,7 @@ export const COMMAND_OVERLAY_CLOSE_DELAY_MS = 200;
               @if (providerName(node.providerId); as provider) { {{ provider }} · }
               {{ node.kind }} · {{ node.state }}
             </p>
-            @if (age(node.updatedAt); as ageText) {
+            @if (formatWorkAge(node.updatedAt, now()); as ageText) {
               <p class="text-xs text-base-content-muted">{{ ageText }}</p>
             }
           </div>
@@ -55,10 +57,12 @@ export const COMMAND_OVERLAY_CLOSE_DELAY_MS = 200;
   `,
 })
 export class CommandOverlayComponent {
+  public readonly formatWorkAge = formatWorkAge;
   public readonly projection = input.required<ProjectionResult>();
   public readonly hoveredNodeId = input<string | null>(null);
   public readonly selectedId = input<string | null>(null);
   public readonly reducedMotion = input(false);
+  public readonly now = input(Date.now());
   public readonly geometry = input<SceneGeometry | null>(null);
   public readonly focusWorkListRow = output<string>();
   public readonly reservationChange = output<PlateReservation>();
@@ -83,18 +87,28 @@ export class CommandOverlayComponent {
   private lastViewport = '';
   private scrolledPin: string | null = null;
   private destroyed = false;
+  private dismissedHover: string | null = null;
 
   public constructor() {
     effect(() => {
       const hover = this.hoveredNodeId();
       if (this.pinnedNodeId()) return;
-      if (hover) this.requestOpen(hover);
-      else this.scheduleClose();
+      if (hover && hover !== this.dismissedHover) {
+        this.dismissedHover = null;
+        this.requestOpen(hover);
+      } else if (!hover) {
+        this.dismissedHover = null;
+        this.scheduleClose();
+      }
     });
     effect(() => {
       const selected = this.store.selectedId();
       const pinned = this.pinnedNodeId();
       if (pinned && selected !== this.selectedBeforePin) this.unpin(false);
+    });
+    effect(() => {
+      const pinned = this.pinnedNodeId();
+      if (pinned && !this.projection().nodes.some(node => node.id === pinned)) this.closeCard();
     });
     afterEveryRender(() => this.position());
     this.destroyRef.onDestroy(() => {
@@ -102,6 +116,7 @@ export class CommandOverlayComponent {
       this.clearTimers();
       this.generation++;
       document.removeEventListener('pointerdown', this.onOutsidePointer);
+      document.removeEventListener('scroll', this.onScroll, true);
       this.setReservation(EMPTY_PLATE_RESERVATION);
     });
   }
@@ -110,16 +125,8 @@ export class CommandOverlayComponent {
     return id && Object.hasOwn(PROVIDER_BRAND_SLUGS, id) ? id : null;
   }
   public providerName(id: string | null): string | null {
-    if (!id || id.toLowerCase() === 'unknown') return null;
+    if (!id || id.toLowerCase() === 'unknown') return 'Session';
     return id.replace(/[-_]+/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase());
-  }
-  public age(updatedAt?: number): string | null {
-    if (updatedAt === undefined || !Number.isFinite(updatedAt)) return null;
-    const minutes = Math.max(0, Math.floor((Date.now() - updatedAt) / 60_000));
-    if (minutes < 1) return 'just now';
-    if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.floor(minutes / 60);
-    return hours < 24 ? `${hours}h ago` : `${Math.floor(hours / 24)}d ago`;
   }
   public activate(id: string): void {
     if (!this.projection().nodes.some(node => node.id === id)) return;
@@ -129,16 +136,24 @@ export class CommandOverlayComponent {
     this.mode = null;
     this.lastViewport = '';
     this.scrolledPin = null;
+    this.dismissedHover = id;
     this._pinnedNodeId.set(id);
     this._activeNodeId.set(id);
     document.addEventListener('pointerdown', this.onOutsidePointer);
+    document.addEventListener('scroll', this.onScroll, { capture: true, passive: true });
     this.repositionRequested.emit();
   }
   public pin(id: string): void {
     this.store.select(id);
     this.activate(id);
   }
-  public closePinned(): void { this.unpin(true); }
+  public closePinned(): void { this.dismissHover(); this.unpin(true); }
+  public dismissHover(): void {
+    this.dismissedHover = this.hoveredNodeId();
+    this.clearTimers();
+    this.generation++;
+    if (!this.pinnedNodeId()) { this._activeNodeId.set(null); this.setReservation(EMPTY_PLATE_RESERVATION); }
+  }
   public closeCard(): void {
     this.clearTimers();
     this.generation++;
@@ -148,17 +163,19 @@ export class CommandOverlayComponent {
     this.lastViewport = '';
     this.scrolledPin = null;
     document.removeEventListener('pointerdown', this.onOutsidePointer);
+    document.removeEventListener('scroll', this.onScroll, true);
     this.setReservation(EMPTY_PLATE_RESERVATION);
   }
   public onEscape(event: Event): void {
-    if (!(event instanceof KeyboardEvent) || !this.pinnedNodeId()) return;
+    if (!(event instanceof KeyboardEvent)) return;
     event.preventDefault();
     event.stopPropagation();
-    this.unpin(true);
+    this.closePinned();
   }
   private unpin(restoreFocus: boolean): void {
     const id = this.pinnedNodeId();
     if (!id) return;
+    this.dismissedHover = this.hoveredNodeId();
     this.closeCard();
     if (restoreFocus) this.restoreFocus(id);
   }
@@ -178,6 +195,9 @@ export class CommandOverlayComponent {
     const stage = this.host.nativeElement.parentElement;
     if (target instanceof Element && (target.closest('[data-stream-row-id]') || target.closest('[data-core-root-id]')) && stage?.contains(target)) return;
     this.unpin(true);
+  };
+  private readonly onScroll = (): void => {
+    if (this.pinnedNodeId()) this.repositionRequested.emit();
   };
   private requestOpen(id: string): void {
     if (this.destroyed || !this.projection().nodes.some(node => node.id === id)) return;
@@ -211,16 +231,18 @@ export class CommandOverlayComponent {
     const geometry = this.geometry();
     const card = this.card()?.nativeElement;
     const stage = this.host.nativeElement.parentElement?.querySelector<HTMLElement>('[data-scene-stage]');
-    if (!id || !geometry || !card || !stage) return;
+    if (this.pinnedNodeId() && !this.activeNode()) { this.closeCard(); return; }
+    if (!id || !geometry || !card || !stage) { if (card) card.style.visibility = 'hidden'; return; }
     const kind = this.projection().nodes.find(node => node.id === id)?.kind === 'root' ? 'root' : 'stream';
     if (this.pinnedNodeId()) {
       const viewport = `${geometry.streamViewport.width}:${geometry.streamViewport.height}`;
       const previousMode = this.lastViewport && this.lastViewport !== viewport ? this.mode : null;
       const placed = this.positioner.pinned(geometry, id, kind, card.scrollHeight, previousMode);
-      if (!placed) { this.unpin(true); return; }
+      if (!placed) { this.unpin(false); return; }
       this.mode = placed.mode;
       this.lastViewport = viewport;
       this.positioner.apply(card, stage, placed.plate, placed.scrollInsidePlate);
+      if (!placed.visible) card.style.visibility = 'hidden';
       this.setReservation(placed.reservation);
       if (kind === 'stream' && placed.mode === 'inline' && this.scrolledPin !== id) {
         const slot = Array.from(stage.querySelectorAll<HTMLElement>('[data-plate-slot-id]'))

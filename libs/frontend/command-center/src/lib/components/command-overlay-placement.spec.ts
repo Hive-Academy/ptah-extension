@@ -55,6 +55,22 @@ describe('pinned plate placement', () => {
     expect(choosePlateMode(135, 'external')).toBe('external');
     expect(choosePlateMode(136, 'external')).toBe('inline');
   });
+
+  it('hides a pinned stream plate when its row leaves the viewport', () => {
+    const scrolled = geometry();
+    const moved = { ...scrolled, rows: { ...scrolled.rows, first: rect(27, 20, 241, 44) } };
+    expect(placePinnedPlate(scrolled, 'first', 'stream', 80)?.visible).toBe(true);
+    expect(placePinnedPlate(moved, 'first', 'stream', 80)?.visible).toBe(false);
+  });
+
+  it('keeps root plate height stable when the stage gains its slot', () => {
+    const initial = geometry();
+    const first = placePinnedPlate(initial, 'root', 'root', 180);
+    const grown = { ...initial, stage: { ...initial.stage, height: initial.stage.height + (first?.reservation.reservedHeight ?? 0) } };
+    const second = placePinnedPlate(grown, 'root', 'root', 180);
+    expect(second?.plate.height).toBe(first?.plate.height);
+    expect(second?.reservation.reservedHeight).toBe(first?.reservation.reservedHeight);
+  });
 });
 
 describe('hover preview placement', () => {

@@ -18,7 +18,8 @@
 .dial[data-voice='listening'] .voice-ring { border-color: color-mix(in oklch, var(--state-ink-run, #3b82f6) 45%, var(--state-ink-done, #16a34a)); }
 .dial[data-voice='thinking'] .voice-ring { border-color: var(--state-ink-run, var(--ptah-gold)); border-right-color: transparent; animation: voice-spin 3.7s linear infinite; }
 .dial[data-voice='speaking'] .voice-ring { border-style: dashed; }
-.dial[data-voice='muted'] .voice-ring, .dial[data-voice='stopped'] .voice-ring { border-color: var(--state-ink-idle, oklch(var(--bc))); border-style: dashed; }
+.dial[data-voice='muted'] .voice-ring { border-color: var(--state-ink-idle, oklch(var(--bc))); border-style: dashed; }
+.dial[data-voice='stopped'] .voice-ring { border-color: var(--state-ink-idle, oklch(var(--bc))); border-style: solid; }
 .dial[data-voice='error'] .voice-ring { border-color: var(--state-ink-err, oklch(var(--er))); border-style: dashed; }
 .dial.is-paused .voice-ring { animation-play-state: paused; }
 @keyframes voice-spin { to { transform: rotate(360deg); } }

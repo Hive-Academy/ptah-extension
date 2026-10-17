@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, ElementRef, inject, input, output } from '@angular/core';
 import type { CommandVoiceState, CommandWorkNode } from '../model/command-center.store';
 
 const TICKS = Array.from({ length: 96 }, (_, index) => index);
@@ -28,6 +28,7 @@ const TICKS = Array.from({ length: 96 }, (_, index) => index);
             [attr.aria-pressed]="pinnedId() === rootNode.id"
             [attr.aria-describedby]="activeId() === rootNode.id && pinnedId() !== rootNode.id ? 'command-plate' : null"
             [attr.aria-expanded]="pinnedId() === rootNode.id ? 'true' : null"
+            [attr.aria-controls]="pinnedId() === rootNode.id ? 'command-plate' : null"
             (pointerenter)="hoverRoot.emit(rootNode.id)"
             (pointerleave)="hoverRoot.emit(null)"
             (focus)="hoverRoot.emit(rootNode.id)"
@@ -51,6 +52,13 @@ const TICKS = Array.from({ length: 96 }, (_, index) => index);
   `,
 })
 export class CommandCoreComponent {
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  public measurementElements(): { dial: HTMLElement | null; root: HTMLElement | null } {
+    return {
+      dial: this.host.nativeElement.querySelector<HTMLElement>('[data-core-dial]'),
+      root: this.host.nativeElement.querySelector<HTMLElement>('[data-core-root-id]'),
+    };
+  }
   public readonly root = input<CommandWorkNode | null>(null);
   public readonly activeCount = input(0);
   public readonly voiceState = input<CommandVoiceState>('idle');

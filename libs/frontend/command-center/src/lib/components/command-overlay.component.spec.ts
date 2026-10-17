@@ -37,6 +37,8 @@ describe('CommandOverlayComponent', () => {
 
   it('opens a pointer-inert preview after 150ms and closes after 200ms', () => {
     const fixture = setup();
+    const reservations: number[] = [];
+    fixture.componentInstance.reservationChange.subscribe(value => reservations.push(value.reservedHeight + value.inlineSlotHeight));
     fixture.componentRef.setInput('hoveredNodeId', 'a');
     fixture.detectChanges();
     jest.advanceTimersByTime(COMMAND_OVERLAY_OPEN_DELAY_MS - 1);
@@ -44,6 +46,7 @@ describe('CommandOverlayComponent', () => {
     jest.advanceTimersByTime(1);
     fixture.detectChanges();
     expect(fixture.componentInstance.activeNodeId()).toBe('a');
+    expect(reservations.every(value => value === 0)).toBe(true);
     expect(fixture.nativeElement.querySelector('[role="tooltip"]')?.className).toContain('pointer-events-none');
     fixture.componentRef.setInput('hoveredNodeId', 'b');
     fixture.detectChanges();
@@ -78,11 +81,128 @@ describe('CommandOverlayComponent', () => {
 
   it('closes a pin on Escape and restores its trigger or rail focus', () => {
     const fixture = setup();
+    const trigger = document.createElement('button');
+    trigger.dataset['streamRowId'] = 'a';
+    fixture.nativeElement.parentElement?.appendChild(trigger);
     fixture.componentInstance.pin('a');
     fixture.detectChanges();
     fixture.componentInstance.onEscape(new KeyboardEvent('keydown', { key: 'Escape' }));
     expect(fixture.componentInstance.pinnedNodeId()).toBeNull();
+    expect(document.activeElement).toBe(trigger);
     fixture.destroy();
+    trigger.remove();
+  });
+
+  it('follows scroll geometry, hides a scrolled-out row, and releases the scroll listener on close', () => {
+    const fixture = setup();
+    const stage = document.createElement('div');
+    stage.dataset['sceneStage'] = '';
+    fixture.nativeElement.parentElement?.appendChild(stage);
+    const requests: number[] = [];
+    fixture.componentInstance.repositionRequested.subscribe(() => requests.push(1));
+    fixture.componentInstance.pin('a');
+    fixture.detectChanges();
+    const card = fixture.nativeElement.querySelector('#command-plate') as HTMLElement;
+    expect(card.style.visibility).toBe('visible');
+    document.dispatchEvent(new Event('scroll', { bubbles: true }));
+    expect(requests).toHaveLength(2);
+    fixture.componentRef.setInput('geometry', { ...geometry, rows: { ...geometry.rows, a: { ...geometry.rows.a, y: 20 } } });
+    fixture.detectChanges();
+    expect(card.style.visibility).toBe('hidden');
+    fixture.componentRef.setInput('geometry', { ...geometry, rows: { ...geometry.rows, a: { ...geometry.rows.a, y: 180 } } });
+    fixture.detectChanges();
+    expect(card.style.visibility).toBe('visible');
+    fixture.componentInstance.closePinned();
+    document.dispatchEvent(new Event('scroll', { bubbles: true }));
+    expect(requests).toHaveLength(2);
+    fixture.destroy();
+    stage.remove();
+  });
+
+  it('releases a pin when its projected node disappears', () => {
+    const fixture = setup();
+    const stage = document.createElement('div');
+    stage.dataset['sceneStage'] = '';
+    fixture.nativeElement.parentElement?.appendChild(stage);
+    const reservations: number[] = [];
+    fixture.componentInstance.reservationChange.subscribe(value => reservations.push(value.reservedHeight + value.inlineSlotHeight));
+    fixture.componentInstance.pin('a');
+    fixture.detectChanges();
+    fixture.componentRef.setInput('projection', { nodes: nodes.filter(node => node.id !== 'a'), edges: [] });
+    fixture.detectChanges();
+    expect(fixture.componentInstance.pinnedNodeId()).toBeNull();
+    expect(reservations.at(-1)).toBe(0);
+    fixture.destroy();
+    stage.remove();
+  });
+
+  it('hides a pin without geometry and does not steal focus when its row is no longer placed', () => {
+    const fixture = setup();
+    const stage = document.createElement('div');
+    stage.dataset['sceneStage'] = '';
+    fixture.nativeElement.parentElement?.appendChild(stage);
+    const focusRequests: string[] = [];
+    fixture.componentInstance.focusWorkListRow.subscribe(id => focusRequests.push(id));
+    fixture.componentRef.setInput('geometry', null);
+    fixture.componentInstance.pin('a');
+    fixture.detectChanges();
+    expect((fixture.nativeElement.querySelector('#command-plate') as HTMLElement).style.visibility).toBe('hidden');
+    fixture.componentRef.setInput('geometry', { ...geometry, rows: { b: geometry.rows.b } });
+    fixture.detectChanges();
+    expect(fixture.componentInstance.pinnedNodeId()).toBeNull();
+    expect(focusRequests).toEqual([]);
+    fixture.destroy();
+    stage.remove();
+  });
+
+  it('shows an unknown provider as Session and keeps one card when switching pins', () => {
+    const fixture = setup();
+    fixture.componentInstance.pin('a');
+    fixture.detectChanges();
+    fixture.componentInstance.pin('b');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('#command-plate')).toHaveLength(1);
+    expect(fixture.componentInstance.providerName('unknown')).toBe('Session');
+    fixture.destroy();
+  });
+
+  it('dismisses hover on Escape until the hovered node changes', () => {
+    const fixture = setup();
+    fixture.componentRef.setInput('hoveredNodeId', 'a');
+    fixture.detectChanges();
+    jest.advanceTimersByTime(COMMAND_OVERLAY_OPEN_DELAY_MS);
+    fixture.detectChanges();
+    fixture.componentInstance.closePinned();
+    expect(fixture.componentInstance.activeNodeId()).toBeNull();
+    fixture.detectChanges();
+    jest.advanceTimersByTime(COMMAND_OVERLAY_OPEN_DELAY_MS);
+    expect(fixture.componentInstance.activeNodeId()).toBeNull();
+    fixture.componentRef.setInput('hoveredNodeId', 'b');
+    fixture.detectChanges();
+    jest.advanceTimersByTime(COMMAND_OVERLAY_OPEN_DELAY_MS);
+    expect(fixture.componentInstance.activeNodeId()).toBe('b');
+    fixture.destroy();
+  });
+
+  it('suppresses a hover preview below 960px and releases a pin on destroy', () => {
+    const fixture = setup();
+    fixture.componentRef.setInput('geometry', { ...geometry, stage: { ...geometry.stage, width: 900 } });
+    fixture.componentRef.setInput('hoveredNodeId', 'a');
+    fixture.detectChanges();
+    jest.advanceTimersByTime(COMMAND_OVERLAY_OPEN_DELAY_MS);
+    expect(fixture.componentInstance.activeNodeId()).toBeNull();
+    const stage = document.createElement('div');
+    stage.dataset['sceneStage'] = '';
+    fixture.nativeElement.parentElement?.appendChild(stage);
+    const reservations: number[] = [];
+    fixture.componentInstance.reservationChange.subscribe(value => reservations.push(value.reservedHeight + value.inlineSlotHeight));
+    fixture.componentInstance.pin('a');
+    fixture.detectChanges();
+    expect(reservations.some(value => value > 0)).toBe(true);
+    const emit = jest.spyOn(fixture.componentInstance.reservationChange, 'emit');
+    fixture.destroy();
+    expect(emit).toHaveBeenCalledWith({ pinnedId: null, anchorKind: null, inlineSlotHeight: 0, reservedHeight: 0 });
+    stage.remove();
   });
 
   it('closes a pin on outside pointer and external selection change', () => {

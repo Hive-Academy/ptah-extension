@@ -21,14 +21,15 @@ import { placeScene } from './scene-placement';
       [attr.data-theme]="theme()">
       <h2 data-scene-heading tabindex="-1" class="scene-heading">Live orchestration</h2>
       <ptah-command-connectors [geometry]="geometry()" />
-      <ptah-command-streams [placed]="placement().placed" [overflow]="placement().overflow"
+      <ptah-command-streams style="position: relative; z-index: 1" [placed]="placement().placed" [overflow]="placement().overflow"
+        [now]="now()"
         [selectedId]="selectedId()" [activeId]="activeId()" [pinnedId]="pinnedId()"
         [inlineSlotHeight]="plateReservation().anchorKind === 'stream' ? plateReservation().inlineSlotHeight : 0"
         [reducedMotion]="reducedMotion() || visibilityPaused()"
         (activate)="onActivate($event)" (hover)="hoveredNodeId.emit($event)"
         (escape)="escape.emit($event)" (focusWorkList)="focusWorkList.emit($event)"
         (measureRequested)="requestMeasure()" />
-      <div class="core-column">
+      <div class="core-column" style="position: relative; z-index: 1">
         <ptah-command-core [root]="root()" [activeCount]="placement().activeCount"
           [voiceState]="voiceState()" [inputLevel]="inputLevel()" [outputLevel]="outputLevel()"
           [reducedMotion]="reducedMotion()" [visibilityPaused]="visibilityPaused()"
@@ -39,7 +40,7 @@ import { placeScene } from './scene-placement';
           <div class="root-plate-slot" [style.height.px]="plateReservation().reservedHeight"></div>
         }
       </div>
-      <ptah-command-status-groups [counts]="placement().counts" />
+      <ptah-command-status-groups style="position: relative; z-index: 1" [counts]="placement().counts" />
     </div>
   `,
 })
@@ -51,6 +52,7 @@ export class CommandSceneComponent {
   public readonly inputLevel = input(0);
   public readonly outputLevel = input(0);
   public readonly reducedMotion = input(false);
+  public readonly now = input(Date.now());
   public readonly activeId = input<string | null>(null);
   public readonly pinnedId = input<string | null>(null);
   public readonly plateReservation = input<PlateReservation>(EMPTY_PLATE_RESERVATION);
@@ -65,6 +67,9 @@ export class CommandSceneComponent {
   public readonly geometry = signal<SceneGeometry | null>(null);
   public readonly visibilityPaused = signal(false);
   private readonly stage = viewChild.required<ElementRef<HTMLElement>>('stage');
+  private readonly streams = viewChild.required(CommandStreamsComponent);
+  private readonly core = viewChild.required(CommandCoreComponent);
+  private readonly statusGroups = viewChild.required(CommandStatusGroupsComponent);
   private readonly destroyRef = inject(DestroyRef);
   private observer: ResizeObserver | null = null;
   private frame = 0;
@@ -73,8 +78,10 @@ export class CommandSceneComponent {
   public constructor() {
     afterNextRender(() => {
       if (this.destroyed) return;
-      this.observer = new ResizeObserver(() => this.requestMeasure());
-      this.observer.observe(this.stage().nativeElement);
+      if (typeof ResizeObserver !== 'undefined') {
+        this.observer = new ResizeObserver(() => this.requestMeasure());
+        this.observer.observe(this.stage().nativeElement);
+      }
       document.addEventListener('visibilitychange', this.onVisibilityChange);
       this.onVisibilityChange();
       this.requestMeasure();
@@ -96,22 +103,21 @@ export class CommandSceneComponent {
   private readonly onVisibilityChange = (): void => this.visibilityPaused.set(document.hidden);
   private measure(): void {
     const stage = this.stage().nativeElement;
-    const viewport = stage.querySelector<HTMLElement>('.stream-viewport');
-    const dial = stage.querySelector<HTMLElement>('[data-core-dial]');
-    const root = stage.querySelector<HTMLElement>('[data-core-root-id]');
-    if (!viewport || !dial) return;
+    const { viewport, rows: rowElements } = this.streams().measurementElements();
+    const { dial, root } = this.core().measurementElements();
+    if (!viewport || !dial) { this.clearGeometry(); return; }
     const rect = (element: Element): Rect => {
       const r = element.getBoundingClientRect();
       return { x: r.left, y: r.top, width: r.width, height: r.height };
     };
     const rows: Record<string, Rect> = {};
-    for (const row of stage.querySelectorAll<HTMLElement>('[data-stream-row-id]')) {
+    for (const row of rowElements) {
       const id = row.dataset['streamRowId']; if (id) rows[id] = rect(row);
     }
     const cards = {} as Record<StatusGroupKey, Rect>;
     for (const key of ['inProgress', 'waiting', 'finished', 'other'] as const) {
-      const card = Array.from(stage.querySelectorAll<HTMLElement>('[data-status-card]')).find(element => element.dataset['statusCard'] === key);
-      if (!card) return;
+      const card = Array.from(this.statusGroups().measurementElements()).find(element => element.dataset['statusCard'] === key);
+      if (!card) { this.clearGeometry(); return; }
       cards[key] = rect(card);
     }
     const style = getComputedStyle(viewport);
@@ -122,5 +128,10 @@ export class CommandSceneComponent {
     });
     this.geometry.set(geometry);
     this.geometryChange.emit(geometry);
+  }
+  private clearGeometry(): void {
+    if (this.geometry() === null) return;
+    this.geometry.set(null);
+    this.geometryChange.emit(null);
   }
 }
