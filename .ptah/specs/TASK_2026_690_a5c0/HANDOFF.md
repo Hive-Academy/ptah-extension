@@ -86,7 +86,10 @@ reviews; `implementation-plan-review.md`).
   `D:\projects\ptah-extension\.ptah\tmp\690-dev-build2.log`. The launch step ran anyway and opened the OLD
   dist (Batches 1+3 only); it was stopped. `dist/apps/ptah-electron` in the 690 worktree is therefore stale
   and partly rebuilt — do not test from it.
-- Electron slot was released ("Electron: free" sent to 687). Announce again before the next launch.
+- Electron slot was released ("Electron: free" sent to 687). After that, 687/689
+  (`ptah-ptah-extension-task-687-command-cen-9aedd90000nb42qhydm5m08`) announced its launch on port 9334.
+  Its "free" message goes to the OLD 683 session, so before launching, ask 687 via SendMessage whether it
+  is done (or check `tasklist | grep -i electron` and ListAgents), then announce "Electron: 683 launching".
 - First action next session: run `npx nx build-state-storage-worker ptah-electron --verbose` alone in the
   690 worktree to see the error (a file lock from the killed app, or a real build error), fix it, then
   rebuild + launch with CDP (section 5). Make the launch conditional on the build (`&&`), not `;`.
