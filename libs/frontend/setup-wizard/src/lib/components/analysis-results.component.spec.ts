@@ -7,6 +7,7 @@ import type {
 import { AnalysisResultsComponent } from './analysis-results.component';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 import { WizardAnalysisRunner } from '../services/wizard-analysis-runner.service';
+import { SetupGenerationOpenHandler } from '../services/setup-generation-open.handler';
 
 const mockMultiPhase = {
   isMultiPhase: true,
@@ -91,6 +92,10 @@ describe('AnalysisResultsComponent', () => {
     await TestBed.configureTestingModule({
       imports: [AnalysisResultsComponent],
       providers: [
+        {
+          provide: SetupGenerationOpenHandler,
+          useValue: { launchNotice: signal(null) },
+        },
         { provide: SetupWizardStateService, useValue: mockStateService },
         { provide: WizardAnalysisRunner, useValue: mockRunner },
       ],

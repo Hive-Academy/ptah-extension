@@ -15,6 +15,7 @@ import {
 } from 'lucide-angular';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 import { WizardRpcService } from '../services/wizard-rpc.service';
+import { SetupGenerationOpenHandler } from '../services/setup-generation-open.handler';
 import { AnalysisTranscriptComponent } from './analysis-transcript.component';
 
 /**
@@ -47,6 +48,11 @@ import { AnalysisTranscriptComponent } from './analysis-transcript.component';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="container mx-auto px-3 py-4">
+      @if (openHandler.launchNotice(); as notice) {
+        <div class="alert alert-warning mb-3 text-sm" role="status">
+          {{ notice }}
+        </div>
+      }
       <div class="max-w-6xl mx-auto">
         <div class="mb-4">
           <h2 class="text-lg font-bold mb-2">Generating Your Configuration</h2>
@@ -333,6 +339,7 @@ import { AnalysisTranscriptComponent } from './analysis-transcript.component';
   `,
 })
 export class GenerationProgressComponent implements OnDestroy {
+  readonly openHandler = inject(SetupGenerationOpenHandler);
   private readonly wizardState = inject(SetupWizardStateService);
   private readonly wizardRpc = inject(WizardRpcService);
 

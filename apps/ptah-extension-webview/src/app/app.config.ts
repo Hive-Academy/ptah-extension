@@ -36,6 +36,27 @@ import {
   SurfaceRouterService,
 } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
+
+/** Restored tabs are available before the active workspace is selected. */
+export function generationRouteTabValidator(
+  tabs: Pick<
+    TabManagerService,
+    'findTabByIdAcrossWorkspaces' | 'activeWorkspacePath'
+  >,
+) {
+  return (
+    tabId: string,
+    workflow: 'setup-agent-generation' | 'setup-project-prompt',
+  ): boolean => {
+    const located = tabs.findTabByIdAcrossWorkspaces(tabId);
+    return (
+      !!located &&
+      located.tab.workflow === workflow &&
+      (!tabs.activeWorkspacePath ||
+        located.workspacePath === tabs.activeWorkspacePath)
+    );
+  };
+}
 import { appRoutes } from './app.routes';
 import { SurfaceUpdateInbox } from '@ptah-extension/chat-routing';
 import {
@@ -191,14 +212,7 @@ export const appConfig: ApplicationConfig = {
       provide: SurfaceRouterService.generationRouteTabValidatorToken,
       useFactory: () => {
         const tabs = inject(TabManagerService);
-        return (
-          tabId: string,
-          workflow: 'setup-agent-generation' | 'setup-project-prompt',
-        ) =>
-          !!tabs.activeWorkspacePath &&
-          tabs
-            .getWorkspaceTabs(tabs.activeWorkspacePath)
-            .some((tab) => tab.id === tabId && tab.workflow === workflow);
+        return generationRouteTabValidator(tabs);
       },
     },
     {

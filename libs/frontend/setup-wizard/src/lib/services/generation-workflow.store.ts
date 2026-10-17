@@ -34,6 +34,8 @@ export class GenerationWorkflowStore {
     null,
   );
   private pendingStop = false;
+  private watchdog: ReturnType<typeof setTimeout> | null = null;
+  private lookupFailures = 0;
   readonly binding = this.bindingValue.asReadonly();
   readonly run = this.runValue.asReadonly();
   readonly state = this.stateValue.asReadonly();
@@ -67,6 +69,7 @@ export class GenerationWorkflowStore {
     )
       return;
     this.pendingStop = false;
+    this.clearWatchdog();
     this.runValue.set(null);
     this.stateValue.set('idle');
     this.rejectionValue.set(null);
@@ -76,6 +79,7 @@ export class GenerationWorkflowStore {
 
   unbind(): void {
     this.pendingStop = false;
+    this.clearWatchdog();
     this.bindingValue.set(null);
     this.runValue.set(null);
     this.stateValue.set('idle');
@@ -117,6 +121,27 @@ export class GenerationWorkflowStore {
     this.stateValue.set('starting');
     try {
       const response = await this.rpc.startBoundGuidance(binding);
+      if (!this.sameBinding(binding)) return;
+      if (response.accepted) await this.accept(binding, response.accepted);
+      else if (response.rejection) this.reject(response.rejection);
+      else await this.refresh();
+    } catch {
+      if (this.sameBinding(binding)) await this.refresh();
+    }
+  }
+
+  async resumeBoundAgents(): Promise<void> {
+    const binding = this.bindingValue();
+    if (
+      !binding ||
+      binding.workflow !== 'setup-agent-generation' ||
+      !this.runValue()?.interrupted
+    )
+      return;
+    if (!this.canStartInChat(binding)) return;
+    this.stateValue.set('starting');
+    try {
+      const response = await this.rpc.startBoundAgents(binding, [], true);
       if (!this.sameBinding(binding)) return;
       if (response.accepted) await this.accept(binding, response.accepted);
       else if (response.rejection) this.reject(response.rejection);
@@ -181,6 +206,13 @@ export class GenerationWorkflowStore {
     const run = await this.safeLookup(binding, this.runValue()?.binding.runId);
     if (!this.sameBinding(binding)) return;
     if (!run) {
+      const lastRun = this.runValue();
+      if (lastRun && this.isTerminal(lastRun.status)) return;
+      if (this.stateValue() !== 'idle' && this.lookupFailures < 3) {
+        const delay = 1000 * 2 ** this.lookupFailures++;
+        this.clearWatchdog();
+        this.watchdog = setTimeout(() => void this.refresh(), delay);
+      }
       this.stateValue.set(
         this.pendingStop
           ? 'stop-unknown'
@@ -190,6 +222,8 @@ export class GenerationWorkflowStore {
       );
       return;
     }
+    this.lookupFailures = 0;
+    this.clearWatchdog();
     const expectedRunId = this.runValue()?.binding.runId;
     if (expectedRunId && run.binding.runId !== expectedRunId) return;
     this.applyRun(run);
@@ -237,6 +271,14 @@ export class GenerationWorkflowStore {
       run.binding.workflow !== binding.workflow
     )
       return;
+    const previous = this.runValue();
+    if (
+      previous?.binding.runId === run.binding.runId &&
+      this.isTerminal(previous.status)
+    ) {
+      if (!this.isTerminal(run.status) || previous.result || !run.result)
+        return;
+    }
     this.runValue.set(run);
     this.stateValue.set(
       this.isTerminal(run.status)
@@ -249,7 +291,15 @@ export class GenerationWorkflowStore {
               ? 'cancelling'
               : run.status,
     );
-    if (this.isTerminal(run.status)) this.pendingStop = false;
+    if (this.isTerminal(run.status)) {
+      this.pendingStop = false;
+      this.clearWatchdog();
+    }
+  }
+
+  private clearWatchdog(): void {
+    if (this.watchdog) clearTimeout(this.watchdog);
+    this.watchdog = null;
   }
 
   private sameBinding(binding: SetupGenerationTabBinding): boolean {

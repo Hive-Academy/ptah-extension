@@ -29,7 +29,7 @@ import { WorkflowCardComponent } from './workflow-card.component';
     <main class="mx-auto max-w-[720px] space-y-3 px-4 py-6">
       <h1 class="text-xl font-bold">Setup Wizard</h1>
       <h2 class="text-lg font-bold">What do you want to set up?</h2>
-      <p class="text-sm text-base-content/70">
+      <p class="text-sm text-base-content-muted">
         Each workflow runs on its own. Generation uses a current analysis when
         one exists and otherwise reads your workspace.
       </p>
@@ -59,7 +59,7 @@ import { WorkflowCardComponent } from './workflow-card.component';
         <summary class="cursor-pointer text-sm font-medium">
           Provider and model for analysis
         </summary>
-        <p class="mt-2 text-xs text-base-content/70">
+        <p class="mt-2 text-xs text-base-content-muted">
           Changing the workspace provider affects other tabs in this workspace.
           Agent generation and project guidance use the model selected in their
           tabs.
@@ -79,7 +79,7 @@ import { WorkflowCardComponent } from './workflow-card.component';
           }
         </select>
         @if (!workspaceProviderAvailable()) {
-          <p class="text-xs text-base-content/70">
+          <p class="text-xs text-base-content-muted">
             Global provider fallback is read-only here.
           </p>
         }
@@ -135,7 +135,7 @@ import { WorkflowCardComponent } from './workflow-card.component';
           >
             <div>
               <p class="font-medium">{{ analysis.projectType }}</p>
-              <p class="text-xs text-base-content/70">
+              <p class="text-xs text-base-content-muted">
                 {{ analysis.phaseCount }} phases · {{ analysis.savedAt }} ·
                 {{ analysis.model }}
               </p>

@@ -48,7 +48,7 @@ import { GenerationSourceStatusComponent } from './generation-source-status.comp
         [effectiveModel]="store.model()"
       />
       @if (catalogMode()) {
-        <p class="text-sm text-base-content/70">
+        <p class="text-sm text-base-content-muted">
           Catalog list. Every agent is shown without a workspace score.
         </p>
       }
@@ -106,7 +106,7 @@ import { GenerationSourceStatusComponent } from './generation-source-status.comp
                     >{{ agent.relevanceScore }}%</span
                   >
                 }
-                <span class="block text-xs text-base-content/70">{{
+                <span class="block text-xs text-base-content-muted">{{
                   agent.description
                 }}</span>
                 @if (!catalogMode() && agent.matchedCriteria.length) {

@@ -21,6 +21,18 @@ export type GenerationWorkflowOpenResult =
 export class GenerationWorkflowLauncherService {
   private readonly tabs = inject(TabManagerService);
   private readonly router = inject(SurfaceRouterService);
+  private readonly launchIntents = new Map<
+    string,
+    'analysis-result-continue' | 'independent-start'
+  >();
+
+  consumeOrigin(
+    tabId: string,
+  ): 'analysis-result-continue' | 'independent-start' | null {
+    const origin = this.launchIntents.get(tabId) ?? null;
+    this.launchIntents.delete(tabId);
+    return origin;
+  }
 
   async open(
     request: GenerationWorkflowOpenRequest,
@@ -52,13 +64,28 @@ export class GenerationWorkflowLauncherService {
       );
     if (!tabId) return { outcome: 'failed' };
     if (!focus) return { outcome: 'landed', tabId };
+    this.launchIntents.set(
+      tabId,
+      request.origin === 'analysis-result-continue'
+        ? 'analysis-result-continue'
+        : 'independent-start',
+    );
     const outcome = await this.router.navigateToSurface('setup-wizard', [
       'generation',
       workflow,
       tabId,
     ]);
-    if (outcome === 'cancelled') return { outcome: 'cancelled' };
-    if (!surfaceNavigationLanded(outcome)) return { outcome: 'failed' };
+    if (outcome === 'cancelled') {
+      this.launchIntents.delete(tabId);
+      return { outcome: 'cancelled' };
+    }
+    if (
+      !surfaceNavigationLanded(outcome) ||
+      workspacePath !== this.tabs.activeWorkspacePath
+    ) {
+      this.launchIntents.delete(tabId);
+      return { outcome: 'failed' };
+    }
     this.tabs.switchTab(tabId);
     return { outcome: 'landed', tabId };
   }

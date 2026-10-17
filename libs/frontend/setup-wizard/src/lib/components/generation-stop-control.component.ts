@@ -1,4 +1,4 @@
-﻿import {
+import {
   ChangeDetectionStrategy,
   Component,
   input,
@@ -18,7 +18,7 @@
       >
         Stop generation
       </button>
-      <p class="text-xs text-base-content/70">
+      <p class="text-xs text-base-content-muted">
         Stopping may take a moment. Saved results remain available.
       </p>
     }

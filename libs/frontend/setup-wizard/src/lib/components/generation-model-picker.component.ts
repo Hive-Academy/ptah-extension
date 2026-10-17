@@ -30,7 +30,7 @@ import { ModelStateService } from '@ptah-extension/core';
           </option>
         }
       </select>
-      <p class="text-xs text-base-content/70">
+      <p class="text-xs text-base-content-muted">
         This is the tab model used by generation and chat.
       </p>
       @if (effectiveProvider() && effectiveProvider() !== 'unknown') {

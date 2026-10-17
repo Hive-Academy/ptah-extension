@@ -19,21 +19,21 @@ import type { GenerationContextSource } from '@ptah-extension/shared';
       @if (source(); as current) {
         @if (current.kind === 'verified-analysis') {
           <p class="text-sm">Verified latest analysis</p>
-          <p class="text-xs text-base-content/70">
+          <p class="text-xs text-base-content-muted">
             The host verified this analysis for the current workspace.
           </p>
         } @else {
           <p class="text-sm">Workspace discovery</p>
-          <p class="text-xs text-base-content/70">
+          <p class="text-xs text-base-content-muted">
             {{ reasonLabel() }} The workspace will be inspected when generation
             starts.
           </p>
         }
         @if (recorded()) {
-          <p class="text-xs text-base-content/70">Recorded for this run.</p>
+          <p class="text-xs text-base-content-muted">Recorded for this run.</p>
         }
       } @else {
-        <p class="text-sm text-base-content/70">
+        <p class="text-sm text-base-content-muted">
           Context source is checked when generation starts.
         </p>
       }

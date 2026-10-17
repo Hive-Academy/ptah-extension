@@ -12,5 +12,8 @@ describe('GenerationErrorsComponent', () => {
     expect(
       fixture.nativeElement.querySelector('summary').textContent,
     ).toContain('1 more');
+    expect(fixture.nativeElement.querySelectorAll('details li')).toHaveLength(
+      1,
+    );
   });
 });

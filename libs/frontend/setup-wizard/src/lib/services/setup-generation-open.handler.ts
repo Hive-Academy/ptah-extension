@@ -1,4 +1,4 @@
-import { Injectable, inject } from '@angular/core';
+import { Injectable, inject, signal } from '@angular/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { GenerationWorkflowLauncherService } from '@ptah-extension/chat-ui';
 import type { MessageHandler } from '@ptah-extension/core';
@@ -9,6 +9,7 @@ import type { SetupGenerationOpenPayload } from '@ptah-extension/shared';
 export class SetupGenerationOpenHandler implements MessageHandler {
   private readonly tabs = inject(TabManagerService);
   private readonly launcher = inject(GenerationWorkflowLauncherService);
+  readonly launchNotice = signal<string | null>(null);
   readonly handledMessageTypes = [MESSAGE_TYPES.SETUP_GENERATION_OPEN] as const;
 
   handleMessage(message: { type: string; payload?: unknown }): void {
@@ -17,8 +18,26 @@ export class SetupGenerationOpenHandler implements MessageHandler {
       !this.isPayload(message.payload)
     )
       return;
-    if (message.payload.workspacePath !== this.tabs.activeWorkspacePath) return;
-    void this.launcher.open(message.payload).catch(() => undefined);
+    if (message.payload.workspacePath !== this.tabs.activeWorkspacePath) {
+      console.debug(
+        '[SetupGenerationOpenHandler] Ignored a generation open for another workspace',
+      );
+      return;
+    }
+    this.launchNotice.set(null);
+    void this.launcher
+      .open(message.payload)
+      .then((result) => {
+        if (result.outcome === 'failed')
+          this.launchNotice.set(
+            'The generation tab could not open. Try Continue again.',
+          );
+      })
+      .catch(() =>
+        this.launchNotice.set(
+          'The generation tab could not open. Try Continue again.',
+        ),
+      );
   }
 
   private isPayload(payload: unknown): payload is SetupGenerationOpenPayload {

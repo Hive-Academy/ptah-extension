@@ -30,6 +30,91 @@ const tabProvider = {
 };
 
 describe('GenerationWorkflowStore', () => {
+  it('keeps a terminal result when a stale running read arrives', async () => {
+    const terminal = {
+      ...active,
+      status: 'completed' as const,
+      result: {
+        status: 'completed' as const,
+        success: true,
+        source: active.source,
+        effectiveProvider: 'unknown',
+        effectiveModel: 'unknown',
+      },
+    };
+    const getBoundRunState = jest
+      .fn()
+      .mockResolvedValueOnce(terminal)
+      .mockResolvedValueOnce(active)
+      .mockResolvedValue({ ...terminal, result: undefined });
+    TestBed.configureTestingModule({
+      providers: [
+        GenerationWorkflowStore,
+        tabProvider,
+        { provide: WizardRpcService, useValue: { getBoundRunState } },
+      ],
+    });
+    const store = TestBed.inject(GenerationWorkflowStore);
+    store.bind(binding);
+    await Promise.resolve();
+    await store.refresh();
+    await store.refresh();
+    await store.refresh();
+    expect(store.run()).toEqual(terminal);
+    expect(store.state()).toBe('completed');
+  });
+
+  it('retries a lost status read with a bounded watchdog', async () => {
+    jest.useFakeTimers();
+    const getBoundRunState = jest
+      .fn()
+      .mockResolvedValueOnce(active)
+      .mockRejectedValue(new Error('offline'));
+    TestBed.configureTestingModule({
+      providers: [
+        GenerationWorkflowStore,
+        tabProvider,
+        { provide: WizardRpcService, useValue: { getBoundRunState } },
+      ],
+    });
+    const store = TestBed.inject(GenerationWorkflowStore);
+    store.bind(binding);
+    await Promise.resolve();
+    await store.refresh();
+    await jest.advanceTimersByTimeAsync(7000);
+    expect(getBoundRunState).toHaveBeenCalledTimes(5);
+    store.unbind();
+    expect(jest.getTimerCount()).toBe(0);
+    jest.useRealTimers();
+  });
+
+  it('resumes an interrupted run through the bound submit and exposes rejection', async () => {
+    const getBoundRunState = jest
+      .fn()
+      .mockResolvedValue({ ...active, status: 'failed', interrupted: true });
+    const startBoundAgents = jest.fn().mockResolvedValue({
+      rejection: { reason: 'blocked', ownerTabId: 'owner' },
+    });
+    TestBed.configureTestingModule({
+      providers: [
+        GenerationWorkflowStore,
+        tabProvider,
+        {
+          provide: WizardRpcService,
+          useValue: { getBoundRunState, startBoundAgents },
+        },
+      ],
+    });
+    const store = TestBed.inject(GenerationWorkflowStore);
+    store.bind(binding);
+    await store.refresh();
+    await store.resumeBoundAgents();
+    expect(startBoundAgents).toHaveBeenCalledWith(binding, [], true);
+    expect(store.rejection()).toEqual({
+      reason: 'blocked',
+      ownerTabId: 'owner',
+    });
+  });
   it('queues Stop until exact accepted or looked-up run ID and hides unknown model', async () => {
     const getBoundRunState = jest
       .fn()
@@ -215,12 +300,10 @@ describe('GenerationWorkflowStore', () => {
     const store = TestBed.inject(GenerationWorkflowStore);
     store.bind(binding);
     await store.refresh();
-    getBoundRunState
-      .mockResolvedValueOnce(null)
-      .mockResolvedValue({
-        ...active,
-        binding: { ...binding, runId: 'foreign' },
-      });
+    getBoundRunState.mockResolvedValueOnce(null).mockResolvedValue({
+      ...active,
+      binding: { ...binding, runId: 'foreign' },
+    });
     store.stop();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(store.state()).toBe('stop-unknown');

@@ -118,10 +118,15 @@ export class WizardRpcService {
   async startBoundAgents(
     binding: SetupGenerationTabBinding,
     selectedAgentIds: string[],
+    resume = false,
   ): Promise<WizardSubmitSelectionResponse> {
     const result = await this.rpcService.call(
       'wizard:submit-selection',
-      { tabBinding: binding, selectedAgentIds },
+      {
+        tabBinding: binding,
+        selectedAgentIds,
+        ...(resume ? { resume: true } : {}),
+      },
       { timeout: WIZARD_RPC_TIMEOUTS.GENERATION_MS },
     );
     if (!result.isSuccess() || !result.data)

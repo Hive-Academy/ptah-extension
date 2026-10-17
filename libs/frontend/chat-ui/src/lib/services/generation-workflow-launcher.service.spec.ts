@@ -33,7 +33,7 @@ describe('GenerationWorkflowLauncherService', () => {
   const request = {
     workspacePath: '/ws',
     workflow: 'setup-agent-generation' as const,
-    origin: 'hub',
+    origin: 'analysis-result-continue' as const,
   };
 
   it('focuses an existing same-workspace workflow owner', async () => {
@@ -49,6 +49,8 @@ describe('GenerationWorkflowLauncherService', () => {
       'owner',
     ]);
     expect(tabs.switchTab).toHaveBeenCalledWith('owner');
+    expect(launcher.consumeOrigin('owner')).toBe('analysis-result-continue');
+    expect(launcher.consumeOrigin('owner')).toBeNull();
   });
 
   it('creates in the background without changing focus', async () => {
@@ -81,5 +83,18 @@ describe('GenerationWorkflowLauncherService', () => {
       outcome: 'failed',
     });
     expect(tabs.switchTab).not.toHaveBeenCalled();
+  });
+
+  it('fails if the active workspace changes while navigation is pending', async () => {
+    router.navigateToSurface.mockImplementationOnce(async () => {
+      tabs.activeWorkspacePath = '/other';
+      return 'navigated';
+    });
+    await expect(launcher.open(request)).resolves.toEqual({
+      outcome: 'failed',
+    });
+    expect(tabs.switchTab).not.toHaveBeenCalled();
+    expect(launcher.consumeOrigin('new-tab')).toBeNull();
+    tabs.activeWorkspacePath = '/ws';
   });
 });

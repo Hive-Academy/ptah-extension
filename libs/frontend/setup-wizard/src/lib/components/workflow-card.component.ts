@@ -22,7 +22,7 @@ import {
               <span class="badge badge-sm">Optional</span>
             }
           </h3>
-          <p class="text-sm text-base-content/70">{{ description() }}</p>
+          <p class="text-sm text-base-content-muted">{{ description() }}</p>
           <ng-content />
         </div>
         <button

@@ -15,5 +15,11 @@ describe('GenerationStopControlComponent', () => {
     fixture.detectChanges();
     fixture.nativeElement.querySelector('button').click();
     expect(stop).toHaveBeenCalledTimes(1);
+    expect(fixture.nativeElement.textContent).toContain(
+      'Stopping may take a moment',
+    );
+    fixture.componentRef.setInput('active', false);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('button')).toBeNull();
   });
 });

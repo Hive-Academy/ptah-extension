@@ -4,12 +4,123 @@ import { signal } from '@angular/core';
 import { BehaviorSubject } from 'rxjs';
 import { convertToParamMap } from '@angular/router';
 import { TabManagerService } from '@ptah-extension/chat-state';
+import { GenerationWorkflowLauncherService } from '@ptah-extension/chat-ui';
 import { GenerationWorkflowStore } from '../services/generation-workflow.store';
 import { AgentGenerationStore } from '../services/agent-generation.store';
 import { GenerationHandoffStore } from '../services/generation-handoff.store';
 import { GenerationWorkflowShellComponent } from './generation-workflow-shell.component';
 
 describe('GenerationWorkflowShellComponent', () => {
+  beforeEach(() =>
+    TestBed.configureTestingModule({
+      providers: [
+        {
+          provide: GenerationWorkflowLauncherService,
+          useValue: { consumeOrigin: () => null },
+        },
+      ],
+    }),
+  );
+
+  it('schedules combined guidance once after a verified terminal result', () => {
+    const run = signal(
+      null as null | {
+        binding: {
+          tabId: string;
+          workspacePath: string;
+          workflow: 'setup-agent-generation';
+          runId: string;
+        };
+        status: 'completed';
+        result: {
+          counts: { total: number };
+          agentOutcomes: never[];
+          rejectedSections: number;
+          tailoredSections: number;
+          propagation: { status: 'completed'; consent: 'granted' };
+        };
+      },
+    );
+    const schedule = jest.fn();
+    TestBed.configureTestingModule({
+      providers: [
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            paramMap: new BehaviorSubject(
+              convertToParamMap({
+                tabId: 'tab',
+                workflow: 'setup-agent-generation',
+              }),
+            ),
+            snapshot: {
+              paramMap: convertToParamMap({
+                tabId: 'tab',
+                workflow: 'setup-agent-generation',
+              }),
+            },
+          },
+        },
+        {
+          provide: TabManagerService,
+          useValue: {
+            tabs: signal([]),
+            activeWorkspacePath$: signal('/ws'),
+            getWorkspaceTabs: () => [
+              { id: 'tab', workflow: 'setup-agent-generation' },
+            ],
+          },
+        },
+        {
+          provide: GenerationWorkflowStore,
+          useValue: {
+            bind: jest.fn(),
+            unbind: jest.fn(),
+            run,
+            state: () => 'completed',
+            isBound: () => false,
+          },
+        },
+        {
+          provide: AgentGenerationStore,
+          useValue: { discover: jest.fn(), checkGuidance: jest.fn() },
+        },
+        {
+          provide: GenerationHandoffStore,
+          useValue: { pending: () => null, schedule, outcome: () => 'idle' },
+        },
+        {
+          provide: GenerationWorkflowLauncherService,
+          useValue: { consumeOrigin: () => 'analysis-result-continue' },
+        },
+      ],
+    });
+    TestBed.overrideComponent(GenerationWorkflowShellComponent, {
+      set: { template: '<p>shell</p>', imports: [] },
+    });
+    const fixture = TestBed.createComponent(GenerationWorkflowShellComponent);
+    fixture.detectChanges();
+    run.set({
+      binding: {
+        tabId: 'tab',
+        workspacePath: '/ws',
+        workflow: 'setup-agent-generation',
+        runId: 'run',
+      },
+      status: 'completed',
+      result: {
+        counts: { total: 1 },
+        agentOutcomes: [],
+        rejectedSections: 0,
+        tailoredSections: 0,
+        propagation: { status: 'completed', consent: 'granted' },
+      },
+    });
+    fixture.detectChanges();
+    fixture.detectChanges();
+    expect(schedule).toHaveBeenCalledTimes(1);
+    expect(schedule).toHaveBeenCalledWith('tab', '/ws');
+  });
   it('rejects a tab with a mismatched workflow before embedding chat', () => {
     TestBed.configureTestingModule({
       providers: [
@@ -135,6 +246,7 @@ describe('GenerationWorkflowShellComponent', () => {
             stop,
             state: () => 'quiet',
             isBound: () => bound,
+            run: () => null,
           },
         },
       ],
@@ -216,6 +328,7 @@ describe('GenerationWorkflowShellComponent', () => {
             unbind,
             state: () => 'idle',
             isBound: () => false,
+            run: () => null,
           },
         },
       ],

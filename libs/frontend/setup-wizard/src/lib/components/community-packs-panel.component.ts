@@ -14,7 +14,7 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
   template: `
     <section aria-labelledby="community-packs-title" class="space-y-2">
       <h3 id="community-packs-title" class="font-semibold">Community packs</h3>
-      <p class="text-sm text-base-content/70">
+      <p class="text-sm text-base-content-muted">
         Install extra agents shared by the community. They are added to your
         workspace right away.
       </p>
@@ -52,7 +52,9 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
             {{ pack.name }} · {{ pack.agents.length }} agents
           </button>
           @if (expanded() === pack.source) {
-            <p class="text-xs text-base-content/70">{{ pack.description }}</p>
+            <p class="text-xs text-base-content-muted">
+              {{ pack.description }}
+            </p>
             <button
               type="button"
               class="btn btn-outline btn-xs"

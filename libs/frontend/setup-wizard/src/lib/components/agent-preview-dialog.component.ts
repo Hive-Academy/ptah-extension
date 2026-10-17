@@ -29,7 +29,7 @@ import type { WizardPreviewGenerationResponse } from '@ptah-extension/shared';
           <h2 id="preview-title" class="text-lg font-bold">
             Review generation targets
           </h2>
-          <p id="preview-description" class="text-sm text-base-content/70">
+          <p id="preview-description" class="text-sm text-base-content-muted">
             Definite targets will hold generated content. Conditional targets
             depend on the stated condition.
           </p>

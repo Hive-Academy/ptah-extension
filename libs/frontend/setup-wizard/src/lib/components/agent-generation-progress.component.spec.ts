@@ -16,5 +16,13 @@ describe('AgentGenerationProgressComponent', () => {
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('written');
     expect(fixture.nativeElement.querySelectorAll('button').length).toBe(1);
+    const retry = jest.fn();
+    fixture.componentInstance.retry.subscribe(retry);
+    fixture.nativeElement.querySelector('button').click();
+    expect(retry).toHaveBeenCalledWith('failed');
+    fixture.componentRef.setInput('remaining', { failed: 0 });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('button').disabled).toBe(true);
+    expect(fixture.nativeElement.textContent).toContain('written');
   });
 });

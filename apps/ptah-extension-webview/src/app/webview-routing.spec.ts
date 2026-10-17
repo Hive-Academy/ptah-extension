@@ -26,6 +26,7 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { generationRouteTabValidator } from './app.config';
 
 import { PlatformLocation } from '@angular/common';
 import { ErrorHandler } from '@angular/core';
@@ -222,6 +223,22 @@ function savedRoute(
 }
 
 describe('webview routing composition', () => {
+  it('validates a restored workflow tab before workspace selection, then checks the selected workspace', () => {
+    const tabs = {
+      activeWorkspacePath: null as string | null,
+      findTabByIdAcrossWorkspaces: jest.fn().mockReturnValue({
+        workspacePath: '/ws',
+        tab: { workflow: 'setup-agent-generation' },
+      }),
+    };
+    const valid = generationRouteTabValidator(tabs);
+    expect(valid('restored', 'setup-agent-generation')).toBe(true);
+    expect(valid('restored', 'setup-project-prompt')).toBe(false);
+    tabs.activeWorkspacePath = '/other';
+    expect(valid('restored', 'setup-agent-generation')).toBe(false);
+    tabs.findTabByIdAcrossWorkspaces.mockReturnValue(null);
+    expect(valid('missing', 'setup-agent-generation')).toBe(false);
+  });
   let history: Record<string, jest.SpyInstance>;
 
   beforeEach(() => {

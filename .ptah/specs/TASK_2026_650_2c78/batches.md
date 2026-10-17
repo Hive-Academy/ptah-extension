@@ -244,7 +244,8 @@ Candidate only: unused duplicated old-generation presentation code after the new
 | P3 review | 3 | APPROVE 7/10 after 2 revise rounds (S1–S3, N1 shell-return path, N2 fixed; N4/N5 deferred to B07B) | Claude code-logic-reviewer; codex fixes | 9ddb2f0b7 |
 | B07 | 4 | done (components exported; B07B places AgentSelectionList and source/model in the shell; old Welcome kept under "Analysis and recovery options") | codex frontend-developer | e1d173fa9 |
 | B07B | 4 | part 1 done (run page, checkpoint, retry, N4/N5, pre-start buffer, handoff busy check); open: bound result facts DTO, launch origin + combined countdown, store monotonic/watchdog, bound Resume -> B07C (backend) + B07D (frontend) | codex frontend-developer | de74d39d5 |
-| B07C | 4 | done (new: verified bound agent result facts from the committed checkpoint for push and lookup; tabless unchanged) | codex backend-developer | (this commit) |
+| B07C | 4 | done (new: verified bound agent result facts from the committed checkpoint for push and lookup; tabless unchanged) | codex backend-developer | 805de7457 |
+| B07D | 4 | done (new: verified result panel, one-time launch origin + combined countdown, store monotonic + watchdog, bound Resume, Phase 3 M-items in open handler/launcher/restore validator; muted text token for contrast) | codex frontend-developer | (this commit) |
 | B08 | 5 | pending | codex frontend-developer | — |
 | B09 | 6 | pending | codex frontend-developer | — |
 | B10 | 6 | pending | codex frontend-developer | — |

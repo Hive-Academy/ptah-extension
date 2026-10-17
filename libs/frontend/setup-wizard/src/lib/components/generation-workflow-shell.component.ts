@@ -1,6 +1,7 @@
 ﻿import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   computed,
   effect,
   inject,
@@ -13,6 +14,7 @@ import {
   type SessionStopHandler,
 } from '@ptah-extension/chat';
 import { TabManagerService } from '@ptah-extension/chat-state';
+import { GenerationWorkflowLauncherService } from '@ptah-extension/chat-ui';
 import type { SetupGenerationWorkflow } from '@ptah-extension/shared';
 import { GenerationWorkflowStore } from '../services/generation-workflow.store';
 import { AgentGenerationStore } from '../services/agent-generation.store';
@@ -51,7 +53,7 @@ import { GenerationStopControlComponent } from './generation-stop-control.compon
             <ptah-agent-run-card
               [state]="store.state()"
               [run]="store.run()"
-              (resumeRequested)="agents.resume()"
+              (resumeRequested)="store.resumeBoundAgents()"
             />
             @if (agents.resumable(); as checkpoint) {
               <div class="alert alert-info block">
@@ -90,10 +92,77 @@ import { GenerationStopControlComponent } from './generation-stop-control.compon
             @if (!store.isBound()) {
               <ptah-agent-selection-list [binding]="current" />
             }
-            @if (store.run()?.result) {
-              <p class="text-sm">
-                Guidance used:
-                {{ store.run()?.result?.enhancedPromptsUsed ? 'yes' : 'no' }}
+            @if (store.rejection(); as rejection) {
+              <div class="alert alert-warning text-sm" role="alert">
+                @if (rejection.reason === 'blocked') {
+                  This run is active in another tab{{
+                    rejection.ownerTabId
+                      ? ' (' + rejection.ownerTabId + ')'
+                      : ''
+                  }}.
+                } @else if (rejection.reason === 'preview-required') {
+                  Review the generation preview before resuming.
+                } @else {
+                  The saved run could not be resumed.
+                }
+              </div>
+            }
+            @if (store.run()?.result; as result) {
+              @if (
+                result.counts &&
+                result.agentOutcomes &&
+                result.rejectedSections !== undefined &&
+                result.tailoredSections !== undefined &&
+                result.propagation
+              ) {
+                <section
+                  class="rounded-lg border border-base-300 bg-base-200 p-4 text-sm"
+                  aria-label="Verified agent results"
+                >
+                  <h2 class="font-semibold">Generated agents</h2>
+                  <p>
+                    {{ result.counts.total }} selected ·
+                    {{ result.counts.written }} written ·
+                    {{ result.counts.unchanged }} already current ·
+                    {{ result.counts.failed }} failed ·
+                    {{ result.counts.skipped }} skipped ·
+                    {{ result.counts.rejected }} rejected
+                  </p>
+                  <p>
+                    {{ result.rejectedSections }} sections rejected ·
+                    {{ result.tailoredSections }} sections tailored
+                  </p>
+                  <ul class="list-disc pl-5">
+                    @for (agent of result.agentOutcomes; track agent.agentId) {
+                      <li>
+                        {{ agent.fileName || agent.agentId }}:
+                        {{ agent.status }}
+                      </li>
+                    }
+                  </ul>
+                  <p>
+                    Propagation: {{ result.propagation.status }}; consent:
+                    {{ result.propagation.consent }}
+                  </p>
+                  <p>
+                    Guidance used:
+                    {{
+                      result.enhancedPromptsUsed === undefined
+                        ? 'unavailable'
+                        : result.enhancedPromptsUsed
+                          ? 'yes'
+                          : 'no'
+                    }}
+                  </p>
+                </section>
+              } @else {
+                <p role="status">
+                  Verified results unavailable. Continue or skip manually.
+                </p>
+              }
+            } @else if (showNextSteps()) {
+              <p role="status">
+                Verified results unavailable. Continue or skip manually.
               </p>
             }
             @if (showNextSteps()) {
@@ -102,6 +171,7 @@ import { GenerationStopControlComponent } from './generation-stop-control.compon
                 [remainingSeconds]="remainingSeconds()"
                 [manualRecovery]="
                   handoff.outcome() === 'manual-recovery' ||
+                  !hasVerifiedResults() ||
                   store.state() === 'failed'
                 "
                 (startNow)="handoff.startNow()"
@@ -145,10 +215,15 @@ export class GenerationWorkflowShellComponent {
     initialValue: this.route.snapshot.paramMap,
   });
   private readonly tabs = inject(TabManagerService);
+  private readonly launcher = inject(GenerationWorkflowLauncherService);
+  private readonly destroyRef = inject(DestroyRef);
   readonly store = inject(GenerationWorkflowStore);
   readonly agents = inject(AgentGenerationStore);
   readonly handoff = inject(GenerationHandoffStore);
   private discoveryKey = '';
+  private activeTabId: string | null = null;
+  private combinedTabId: string | null = null;
+  private scheduledRunId: string | null = null;
   private readonly now = signal(Date.now());
   readonly remainingSeconds = computed(() =>
     Math.max(
@@ -165,6 +240,16 @@ export class GenerationWorkflowShellComponent {
     return (
       !!run &&
       ['completed', 'failed', 'cancelled', 'timed-out'].includes(run.status)
+    );
+  });
+  readonly hasVerifiedResults = computed(() => {
+    const result = this.store.run()?.result;
+    return !!(
+      result?.counts &&
+      result.agentOutcomes &&
+      result.propagation &&
+      result.rejectedSections !== undefined &&
+      result.tailoredSections !== undefined
     );
   });
   readonly binding = computed(() => {
@@ -204,6 +289,7 @@ export class GenerationWorkflowShellComponent {
     effect(() => {
       const binding = this.binding();
       if (binding) {
+        this.activeTabId = binding.tabId;
         this.store.bind(binding);
         const key = `${binding.workspacePath}\u0000${binding.tabId}\u0000${binding.workflow}`;
         if (
@@ -211,13 +297,40 @@ export class GenerationWorkflowShellComponent {
           key !== this.discoveryKey
         ) {
           this.discoveryKey = key;
+          this.combinedTabId =
+            this.launcher.consumeOrigin(binding.tabId) ===
+            'analysis-result-continue'
+              ? binding.tabId
+              : null;
           void this.agents.discover();
           void this.agents.checkGuidance(binding.workspacePath);
         }
       } else {
+        this.activeTabId = null;
         this.discoveryKey = '';
+        this.combinedTabId = null;
         this.store.unbind();
       }
+    });
+    effect(() => {
+      const run = this.store.run();
+      if (
+        run &&
+        run.binding.tabId === this.combinedTabId &&
+        run.status === 'completed' &&
+        this.hasVerifiedResults() &&
+        run.binding.runId !== this.scheduledRunId
+      ) {
+        this.scheduledRunId = run.binding.runId;
+        this.handoff.schedule(run.binding.tabId, run.binding.workspacePath);
+      }
+    });
+    this.destroyRef.onDestroy(() => {
+      if (
+        this.activeTabId &&
+        this.handoff.pending()?.agentTabId === this.activeTabId
+      )
+        this.handoff.skip();
     });
     effect((onCleanup) => {
       if (!this.handoff.pending()) return;

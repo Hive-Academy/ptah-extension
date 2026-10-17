@@ -17,6 +17,7 @@ import {
 import { MarkdownModule } from 'ngx-markdown';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 import { WizardAnalysisRunner } from '../services/wizard-analysis-runner.service';
+import { SetupGenerationOpenHandler } from '../services/setup-generation-open.handler';
 import { ConfirmationModalComponent } from './confirmation-modal.component';
 
 /**
@@ -51,6 +52,11 @@ import { ConfirmationModalComponent } from './confirmation-modal.component';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="px-3 py-4">
+      @if (openHandler.launchNotice(); as notice) {
+        <div class="alert alert-warning mb-3 text-sm" role="status">
+          {{ notice }}
+        </div>
+      }
       <h2 class="text-xl font-semibold mb-4">Analysis Complete</h2>
 
       <!-- Resume offer for a persisted, unfinished generation run -->
@@ -113,9 +119,7 @@ import { ConfirmationModalComponent } from './confirmation-modal.component';
 
           <!-- Phase cards -->
           @for (phase of phaseEntries(); track phase.id) {
-            <div
-              class="collapse collapse-arrow surface-2"
-            >
+            <div class="collapse collapse-arrow surface-2">
               <input
                 type="checkbox"
                 [checked]="isPhaseExpanded(phase.id)"
@@ -232,6 +236,7 @@ import { ConfirmationModalComponent } from './confirmation-modal.component';
   `,
 })
 export class AnalysisResultsComponent {
+  readonly openHandler = inject(SetupGenerationOpenHandler);
   private readonly wizardState = inject(SetupWizardStateService);
   private readonly runner = inject(WizardAnalysisRunner);
   protected readonly TriangleAlertIcon = TriangleAlert;
