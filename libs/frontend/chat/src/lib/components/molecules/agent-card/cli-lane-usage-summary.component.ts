@@ -52,18 +52,12 @@ import { formatEstimatedCost, formatOptionalTokens, usageTotalsFromSegments } fr
       <span class="ml-auto text-base-content-muted" title="Reported or estimated cost">
         {{ costLabel() }}
       </span>
-      @if (presentation() === 'card') {
-        <span class="text-base-content-muted" title="Elapsed duration">
-          {{ duration() }}
-        </span>
-      }
     </div>
   `,
 })
 export class CliLaneUsageSummaryComponent {
   readonly agent = input.required<MonitoredAgent>();
   readonly presentation = input<'card' | 'flat'>('card');
-  readonly duration = input.required<string>();
 
   protected readonly structured = computed(() => this.agent().usageTotals ?? null);
   private readonly fallbackUsage = computed(() =>
