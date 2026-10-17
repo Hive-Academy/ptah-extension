@@ -34,6 +34,32 @@ import type { ExecutionNode, SubagentTranscriptMessage } from '@ptah-extension/s
 import { CanvasDetailTranscriptComponent } from './canvas-detail-transcript.component';
 import { CanvasDetailService } from './canvas-detail.service';
 
+/** Resolve the displayed lane, including a stored lane whose agent has gone away. */
+export function effectiveCanvasLaneKind(
+  laneKey: string,
+  sessionId: string | null,
+  monitor: AgentMonitorStore,
+  background: BackgroundAgentStore,
+): 'orchestrator' | 'cli' | 'subagent' | 'background' {
+  const parsed = parseLaneKey(laneKey);
+  if (!parsed) return 'orchestrator';
+  if (parsed.kind === 'cli') {
+    return ownedBySession(monitor.agents(), sessionId, (agent) => agent.parentSessionId)
+      .some((agent) => agent.agentId === parsed.id) ? 'cli' : 'orchestrator';
+  }
+  const subagentExists = ownedBySession(
+    [...monitor.subagents().values()], sessionId, (agent) => agent.parentSessionId,
+  ).some((agent) => agent.parentToolUseId === parsed.id);
+  if (parsed.kind === 'subagent') return subagentExists ? 'subagent' : 'orchestrator';
+  if (parsed.kind === 'background') {
+    const backgroundExists = ownedBySession(
+      background.agents(), sessionId, (agent) => agent.sessionId,
+    ).some((agent) => agent.toolCallId === parsed.id);
+    return subagentExists || backgroundExists ? 'background' : 'orchestrator';
+  }
+  return 'orchestrator';
+}
+
 @Component({
   selector: 'ptah-canvas-lane-view',
   standalone: true,
@@ -47,7 +73,12 @@ import { CanvasDetailService } from './canvas-detail.service';
     NgTemplateOutlet,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { class: 'block h-full min-h-0 overflow-auto', '(keydown.escape)': 'onEscape($event)' },
+  host: {
+    class: 'block h-full min-h-0',
+    '[class.overflow-hidden]': "selectedKind() === 'orchestrator'",
+    '[class.overflow-auto]': "selectedKind() !== 'orchestrator'",
+    '(keydown.escape)': 'onEscape($event)',
+  },
   styles: [`
     @keyframes rail-lane-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
     @media (prefers-reduced-motion: no-preference) {
@@ -61,8 +92,10 @@ import { CanvasDetailService } from './canvas-detail.service';
       tabindex="-1"
       [attr.aria-labelledby]="panelId() + '-tab-' + laneKey()"
       class="h-full min-h-0"
+      [class.flex]="selectedKind() === 'orchestrator'"
+      [class.flex-col]="selectedKind() === 'orchestrator'"
     >
-      <div [class.hidden]="selectedKind() !== 'orchestrator'" class="h-full">
+      <div [class.hidden]="selectedKind() !== 'orchestrator'" class="min-h-0 flex-1">
         <ptah-canvas-detail-transcript [tabId]="tabId()" [visible]="selectedKind() === 'orchestrator'" [paneFocused]="paneFocused()" [splitDisplayed]="splitDisplayed()" />
       </div>
       @for (block of laneBlocks(); track block.key) {
@@ -219,17 +252,9 @@ export class CanvasLaneViewComponent {
         ).find((a) => a.toolCallId === this.parsed()?.id)
       : undefined,
   );
-  readonly selectedKind = computed(() => {
-    const kind = this.parsed()?.kind;
-    if (kind === 'cli' && this.selectedCli()) return kind;
-    if (kind === 'subagent' && this.selectedSubagent()) return kind;
-    if (
-      kind === 'background' &&
-      (this.selectedSubagent() || this.selectedBackground())
-    )
-      return kind;
-    return 'orchestrator';
-  });
+  readonly selectedKind = computed(() => effectiveCanvasLaneKind(
+    this.laneKey(), this.sessionId(), this.monitor, this.background,
+  ));
   readonly messages = signal<readonly SubagentTranscriptMessage[]>([]);
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);

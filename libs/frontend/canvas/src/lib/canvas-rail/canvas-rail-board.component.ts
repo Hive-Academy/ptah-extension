@@ -25,6 +25,8 @@ import { CanvasLayoutService } from '../canvas-layout.service';
 import { CanvasLayoutPersistenceService } from '../canvas-layout-persistence.service';
 import { CanvasRenderMetricsService } from '../canvas-render-metrics.service';
 import { CanvasDetailService } from '../canvas-detail/canvas-detail.service';
+import { effectiveCanvasLaneKind } from '../canvas-detail/canvas-lane-view.component';
+import { AgentMonitorStore, BackgroundAgentStore } from '@ptah-extension/chat-streaming';
 import { CanvasRailComponent } from './canvas-rail.component';
 import { CanvasFocusAreaComponent } from './canvas-focus-area.component';
 import { LucideAngularModule, PanelRight } from 'lucide-angular';
@@ -37,7 +39,7 @@ import {
 
 const TABBABLE = 'a[href], button, input, select, textarea, [tabindex], [contenteditable="true"]';
 /** Open layers inside a pane that own their focus: Details dialog, menus, an overlay dock. */
-const PANE_OVERLAYS = '[role="dialog"], [role="menu"], ptah-display-dock.absolute';
+const PANE_OVERLAYS = '[role="dialog"], [role="menu"], ptah-display-sheet [role="region"].full';
 // 272 px Rail + 44 px details control + about 320 px for the session pane.
 const RAIL_AUTO_COLLAPSE_PX = 640;
 
@@ -163,17 +165,18 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
             </div>
           </section>
         } @else {
-          <div class="flex min-w-0 flex-1 overflow-x-auto" [class.flex-col]="splitStacked() && splitDisplayed()" [class.flex-row]="!splitStacked() || !splitDisplayed()" [class.gap-1]="splitDisplayed()" [attr.inert]="compactSheetOpen() ? '' : null" data-testid="rail-pane-container">
+          <div class="flex min-h-0 min-w-0 flex-1 overflow-x-auto" [class.overflow-y-auto]="splitStacked() && splitDisplayed()" [class.overflow-y-hidden]="!splitStacked() || !splitDisplayed()" [class.flex-col]="splitStacked() && splitDisplayed()" [class.flex-row]="!splitStacked() || !splitDisplayed()" [class.gap-1]="splitDisplayed()" [attr.inert]="compactSheetOpen() ? '' : null" data-testid="rail-pane-container">
             @for (side of sides; track side) {
               @if (paneTab(side); as id) {
-                <section class="relative overflow-y-auto" data-testid="canvas-tile" [animate.enter]="splitDisplayed() ? 'rail-pane-enter' : ''" [class.min-w-[360px]]="splitDisplayed()" [class.min-h-[400px]]="splitDisplayed()" [class.flex-1]="true"
+                @let orchestratorLane = effectiveLaneKind(id) === 'orchestrator';
+                <section class="relative flex-1" data-testid="canvas-tile" [animate.enter]="splitDisplayed() ? 'rail-pane-enter' : ''" [class.min-w-[360px]]="splitDisplayed()" [class.min-h-0]="!splitDisplayed() || !splitStacked()" [class.min-h-[240px]]="splitDisplayed() && splitStacked()" [class.overflow-hidden]="orchestratorLane" [class.overflow-y-auto]="!orchestratorLane"
                   [class.border-base-content-muted]="splitDisplayed()"
                   [class.border-l]="splitDisplayed() && !splitStacked() && paneNumber(side) === 2"
                   [class.border-t]="splitDisplayed() && splitStacked() && paneNumber(side) === 2"
                   [attr.data-pane-divider]="splitDisplayed() && paneNumber(side) === 2 ? (splitStacked() ? 'horizontal' : 'vertical') : null"
                   [style.order]="visualOrder().indexOf(side)" [attr.data-pane-side]="side" [attr.aria-label]="paneLabel(side, id)" (click)="activatePane(side)" (focusin)="activatePane(side)">
                   <ptah-canvas-focus-area
-                    class="block h-full min-w-0"
+                    class="block h-full min-h-0 min-w-0"
                     [focusedTabId]="id"
                     [paneId]="side"
                     [paneFocused]="activeSide() === side"
@@ -283,6 +286,8 @@ export class CanvasRailBoardComponent {
   readonly layout = inject(CanvasLayoutService);
   readonly persistence = inject(CanvasLayoutPersistenceService);
   readonly detail = inject(CanvasDetailService);
+  private readonly monitor = inject(AgentMonitorStore);
+  private readonly background = inject(BackgroundAgentStore);
   readonly metrics = inject(CanvasRenderMetricsService);
   private readonly tabs = inject(TabManagerService);
   private readonly inspectorStore = inject(SessionInspectorStore);
@@ -302,6 +307,10 @@ export class CanvasRailBoardComponent {
   readonly visualOrder = signal<readonly ('left' | 'right')[]>(['left', 'right']);
   readonly splitDisplayed = computed(() => !!this.otherTabId());
   readonly splitStacked = computed(() => this.layout.containerWidth() < 1440);
+  effectiveLaneKind(tabId: string): 'orchestrator' | 'cli' | 'subagent' | 'background' {
+    const sessionId = this.tabs.findTabByIdAcrossWorkspaces(tabId)?.tab.claudeSessionId ?? null;
+    return effectiveCanvasLaneKind(this.detail.laneKeyFor(tabId), sessionId, this.monitor, this.background);
+  }
   readonly splitDisabledReason = computed(() => this.orderedTiles().length < 2 ? 'Open another session first to split' : null);
   private lastFocusedId: string | null = null;
   private lastOrderedIds: readonly string[] = [];
