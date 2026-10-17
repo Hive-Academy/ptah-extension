@@ -80,18 +80,23 @@ reviews; `implementation-plan-review.md`).
   B7 -> B6). Plan: `lane-execution-stream\.ptah\specs\TASK_2026_685_64f4\implementation-plan.md`.
 - The 685 docs session (`ptah-docs-lane-header-proof-…`) was not running: PR #748 link still to send.
 
-## 2. In progress at hand-off
-- A dev-app rebuild was started from the 690 worktree (all four batches) and then launched with
-  `node apps/ptah-electron/scripts/launch.js --remote-debugging-port=9370` (user's `Ptah Dev` profile).
-  Log: `D:\projects\ptah-extension\.ptah\tmp\690-dev-build2.log` (`build_exit=` line, `did-finish-load`).
-  At hand-off it was still building. **683 holds the Electron slot**; 687 waits for "Electron: free".
+## 2. State at hand-off (updated after the rebuild ended)
+- The dev-app rebuild from the 690 worktree FAILED: `ptah-electron:build-dev` stopped at
+  `nx build-state-storage-worker ptah-electron` (non-zero exit, no error text). Log:
+  `D:\projects\ptah-extension\.ptah\tmp\690-dev-build2.log`. The launch step ran anyway and opened the OLD
+  dist (Batches 1+3 only); it was stopped. `dist/apps/ptah-electron` in the 690 worktree is therefore stale
+  and partly rebuilt — do not test from it.
+- Electron slot was released ("Electron: free" sent to 687). Announce again before the next launch.
+- First action next session: run `npx nx build-state-storage-worker ptah-electron --verbose` alone in the
+  690 worktree to see the error (a file lock from the killed app, or a real build error), fix it, then
+  rebuild + launch with CDP (section 5). Make the launch conditional on the build (`&&`), not `;`.
 
 ## 3. Open problem (user's last report) — do this first
 User screenshot (Canvas orchestrator lane, light theme): composer not at the bottom of the session
 (empty area under it), and two vertical scrollbars (inner at the transcript, outer at the far right next
 to the DISPLAY rail). That screenshot came from the OLD build (Batches 1+3 only: the right DISPLAY rail is
 still visible), so Batches 2 and 4 were not in it. Nothing is proven yet for the new build.
-1. When the rebuilt app is up (or relaunch it, see section 5), attach to CDP port 9370 (e.g. Playwright
+1. After a successful rebuild (section 2), launch with CDP (section 5) and attach to CDP port 9370 (e.g. Playwright
    `chromium.connectOverCDP('http://127.0.0.1:9370')`, or `curl http://127.0.0.1:9370/json`) and, for the
    Canvas orchestrator lane AND normal chat mode at the current window size, list every ancestor of the
    transcript scroller and of the composer with: `clientHeight`, `scrollHeight`, computed `overflowY`,
