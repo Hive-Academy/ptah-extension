@@ -4,6 +4,20 @@ import type {
   IdleTimerSpec,
 } from './idle-compaction.types';
 import type { CompactionConfigProvider } from '../../compaction-config-provider';
+import type { Logger } from '@ptah-extension/vscode-core';
+
+export function safeWarn(
+  logger: Logger,
+  reason: string,
+  sessionId?: string,
+  toId?: string,
+): void {
+  try {
+    logger.warn('[IdleCompactionService] failure', { reason, sessionId, toId });
+  } catch {
+    // Logging must not terminate the signal pipeline.
+  }
+}
 
 export function readIdleSettings(config: CompactionConfigProvider): {
   enabled: boolean;

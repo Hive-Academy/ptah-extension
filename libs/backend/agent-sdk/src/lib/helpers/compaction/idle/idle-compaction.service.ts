@@ -23,6 +23,7 @@ import {
   scan,
   share,
   switchMap,
+  takeUntil,
   tap,
 } from 'rxjs/operators';
 import { SessionAdmissionRefusedError } from '../../../errors/session-admission-refused.error';
@@ -37,6 +38,7 @@ import {
   initialState,
   readIdleSettings,
   resolveIdleSignal,
+  safeWarn,
   sameTimer,
   type KeyedSignal,
 } from './idle-compaction.helpers';
@@ -96,7 +98,7 @@ export class IdleCompactionService implements IdleCompactionSignals {
         }),
         mergeMap((group) => this.sessionPipeline(group.key, group)),
       )
-      .subscribe({ error: () => this.warn('pipeline-failed') });
+      .subscribe({ error: () => safeWarn(this.logger, 'pipeline-failed') });
     if (callbacks) {
       this.disposers.push(
         callbacks.register((data) =>
@@ -139,7 +141,7 @@ export class IdleCompactionService implements IdleCompactionSignals {
     let latest = initialState(key);
     let pending: Extract<IdleAttempt, { kind: 'pending' }> | null = null;
     let live = true;
-    let lastSignalFailed = false;
+    let releaseSignalFailed = false;
     const steps$ = group.pipe(
       scan(
         (previous: IdleStep, item: KeyedSignal): IdleStep => {
@@ -148,11 +150,9 @@ export class IdleCompactionService implements IdleCompactionSignals {
               now: this.timing.now(),
               settings: readIdleSettings(this.config),
             });
-            if (item.signal.type !== 'session-released')
-              lastSignalFailed = false;
             return step;
           } catch {
-            lastSignalFailed = true;
+            releaseSignalFailed = item.signal.type === 'session-released';
             return {
               signal: item.signal,
               state: previous.state,
@@ -222,17 +222,29 @@ export class IdleCompactionService implements IdleCompactionSignals {
           () => latest,
           () => pending,
           () => live,
+        ).pipe(
+          takeUntil(
+            steps$.pipe(
+              filter(
+                ({ state }) =>
+                  state.attempt?.kind !== 'in-flight' ||
+                  state.attempt.phase !== 'sending' ||
+                  state.attempt.attemptId !== effect.attemptId,
+              ),
+            ),
+          ),
         ),
       ),
     );
     return merge(timers$, fires$).pipe(
       catchError(() => {
-        this.warn('group-failed', latest.sessionId);
+        safeWarn(this.logger, 'group-failed', latest.sessionId);
         return EMPTY;
       }),
       finalize(() => {
         live = false;
-        if (lastSignalFailed) this.warn('group-failed', latest.sessionId);
+        if (releaseSignalFailed)
+          safeWarn(this.logger, 'group-failed', latest.sessionId);
         const attempt = latest.attempt;
         if (attempt?.kind === 'in-flight') {
           this.coordinator.releaseIdleClaim(latest.sessionId, attempt.claimId);
@@ -276,15 +288,12 @@ export class IdleCompactionService implements IdleCompactionSignals {
               this.notices.delete(alias);
             }
             break;
-          case 'fire':
-            break;
         }
       } catch {
-        this.warn('signal-failed', step.state.sessionId);
+        safeWarn(this.logger, 'signal-failed', step.state.sessionId);
       }
     }
   }
-
   private fire(
     effect: Extract<IdleEffect, { type: 'fire' }>,
     state: () => IdleSessionState,
@@ -390,10 +399,6 @@ export class IdleCompactionService implements IdleCompactionSignals {
     );
   }
 
-  private warn(reason: string, sessionId?: string): void {
-    this.logger.warn('[IdleCompactionService] failure', { reason, sessionId });
-  }
-
   /** A trampoline gives producers, timers and send feedback one FIFO order. */
   private enqueue(signal: IdleSignal): void {
     if (this.disposed) return;
@@ -416,9 +421,16 @@ export class IdleCompactionService implements IdleCompactionSignals {
             if (next.type === 'session-released' && ownedAliases) {
               this.clearGroup(item.key, ownedAliases);
             }
+          } else if (
+            next.type === 'rekey' &&
+            this.aliases.has(next.sessionId) &&
+            this.aliases.get(next.toId) !== undefined &&
+            this.aliases.get(next.sessionId) !== this.aliases.get(next.toId)
+          ) {
+            safeWarn(this.logger, 'rekey-collision', next.sessionId, next.toId);
           }
         } catch {
-          this.warn('signal-failed', next.sessionId);
+          safeWarn(this.logger, 'signal-failed', next.sessionId);
         }
       }
     } finally {

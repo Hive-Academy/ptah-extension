@@ -1,6 +1,6 @@
 # Batches - TASK_2026_692_f748
 
-Total tasks: 34 | Batches: 20 | Complete: 11/20 (fix round 8F-8H added after the Phase 1 review)
+Total tasks: 38 | Batches: 21 | Complete: 12/21 (fix round 8F-8H after the Phase 1 review; bounded correction 8I after the re-review)
 
 Worktree (all edits, checks, commits): `D:\projects\ptah-extension\.claude-worktrees\idle-compaction`
 (branch `feat/idle-compaction`, base `7bdc6eed4`). Below, `<W>` means that absolute path; every
@@ -552,7 +552,7 @@ Decisions:
 
 - Command: `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/helpers/compaction/idle --coverage=false --maxWorkers=2 2>&1 | tail -20 && npx nx typecheck @ptah-extension/agent-sdk 2>&1 | tail -15 && npx prettier --check libs/backend/agent-sdk/src/lib/helpers/compaction/idle 2>&1 | tail -3`
 
-## Batch 8H: Phase 1 fix — validate idle defaults at construction — COMPLETE (commit PENDING_SHA)
+## Batch 8H: Phase 1 fix — validate idle defaults at construction — COMPLETE (commit e931d243c)
 
 - Recommended executor: CLI lane [implementation, TypeScript]
 - Execution mode: sequential
@@ -582,7 +582,45 @@ Decisions:
   clean. Lane full agent-sdk run: 3598 pass, with a Jest worker teardown warning, carried to
   the Phase 1 re-review (`--detectOpenHandles` on the idle specs). Lane report:
   batch-8H-report.md.
-- Phase 1 re-review: DUE (code-logic + style, scoped to the 8F..8H fix commits).
+- Phase 1 re-review: DONE; found N1 (Serious), N2, N3 and 8G item 1. See Batch 8I.
+
+## Batch 8I: Phase 1 bounded correction — hung send, safe warn, rekey log — COMPLETE (commit PENDING_SHA)
+
+- Recommended executor: CLI lane [implementation, TypeScript]
+- Execution mode: sequential
+- Fallback order: other family same capability -> same family other provider/model -> subagent (backend-developer)
+- Subagent reason: N/A
+- Review family: different from implementer (scoped re-review of the 8I diff, Claude code-logic-reviewer)
+- Rationale: the one fix round allowed after the Phase 1 re-review (`decisions.md` #11). Same four idle files.
+- Tasks: 4 | Depends on: Batch 8H
+- Phase: 1 (bounded correction) | Phase review: one scoped code-logic re-review of the 8I diff; if it still finds defects, report to the user and stop
+
+### Task 8I.1: N1 — sending deadline frees the fire pipeline — COMPLETE
+
+- Files: `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction\idle\idle-compaction.service.ts`, `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction\idle\idle-compaction.service.spec.ts`
+- Each send's inner is ended by `takeUntil` on the shared `steps$` once the attempt leaves `sending`; `beforeEnqueue` vetoes a callback that resumes after the deadline. Specs: hung first send then a later send; a resumed-after-deadline send makes no enqueue, claim or notice.
+
+### Task 8I.2: N2 — logger-safe warnings — COMPLETE
+
+- Files: `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction\idle\idle-compaction.helpers.ts`, service, coalesce spec
+- `safeWarn` wraps the injected `Logger`; every service warning path uses it. Spec: `warn` always throws, another session still fires.
+
+### Task 8I.3: N3 — rekey collision is logged — COMPLETE
+
+- Files: service, coalesce spec
+- A `rekey` whose destination alias belongs to another group logs `rekey-collision` with the two ids only.
+
+### Task 8I.4: 8G item 1 — no false `group-failed` — COMPLETE
+
+- Files: service, coalesce spec
+- Only a failed `session-released` signal sets the finalize flag. The coalesce spec at `:409` expected `group-failed`; it now expects `signal-failed` and excludes `group-failed`. The coalesce spec also gains the two new 8I.2 and 8I.3 tests; no other assertion changed.
+
+### Batch 8I verification
+
+- Result (team-leader, on disk): idle-folder Jest 6 suites / 81 tests pass; agent-sdk typecheck
+  passes; eslint on the idle folder 0 errors (20 pre-existing non-null-assertion warnings in
+  specs). `steps$` is `share()`d, so the `takeUntil` subscription adds no second reducer pass.
+  Lane report: batch-8I-report.md.
 
 ## Batch 9: Session tap signals — PENDING
 

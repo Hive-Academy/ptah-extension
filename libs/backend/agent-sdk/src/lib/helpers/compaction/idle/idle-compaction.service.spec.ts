@@ -376,10 +376,11 @@ describe('IdleCompactionService', () => {
     h.coordinator.dispose();
   });
 
-  it('releases a claim when a send never settles and allows a later turn to arm', () => {
+  it('unblocks a later fire after a hung send reaches its deadline', async () => {
+    let calls = 0;
     const h = harness((_id, before) => {
       before();
-      return new Promise<void>(() => {});
+      return ++calls === 1 ? new Promise<void>(() => {}) : Promise.resolve();
     });
     h.arm();
     h.advance(DUE);
@@ -398,6 +399,10 @@ describe('IdleCompactionService', () => {
     });
     h.service.turnContext('s', 'later', 250_000);
     expect(h.scheduler.actions).toHaveLength(1);
+    h.advance(DUE + IDLE_CLAIM_TIMEOUT_MS + DUE);
+    await settle();
+    expect(h.sender.sendIdleCompact).toHaveBeenCalledTimes(2);
+    expect(h.coordinator.getIdleClaim('s')).toBeDefined();
     h.service.dispose();
     h.coordinator.dispose();
   });
@@ -468,6 +473,26 @@ describe('IdleCompactionService', () => {
     );
     expect(h.coordinator.getIdleClaim('s')).toBeUndefined();
     expect(h.scheduler.actions).toHaveLength(0);
+    h.service.dispose();
+    h.coordinator.dispose();
+  });
+
+  it('vetoes a send that resumes after its deadline', async () => {
+    let resume!: () => void;
+    const enqueued = jest.fn();
+    const h = harness(async (_id, before) => {
+      await new Promise<void>((resolve) => (resume = resolve));
+      before();
+      enqueued();
+    });
+    h.arm();
+    h.advance(DUE);
+    h.advance(DUE + IDLE_CLAIM_TIMEOUT_MS);
+    resume();
+    await settle();
+    expect(enqueued).not.toHaveBeenCalled();
+    expect(h.coordinator.getIdleClaim('s')).toBeUndefined();
+    expect(h.service.boundaryNoticeFor('s')).toBeUndefined();
     h.service.dispose();
     h.coordinator.dispose();
   });

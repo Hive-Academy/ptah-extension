@@ -407,7 +407,11 @@ describe('IdleCompactionService ordering, coalescing and cleanup', () => {
     h.service.sessionReleased('failed');
     expect(h.warn).toHaveBeenCalledWith(
       expect.any(String),
-      expect.objectContaining({ reason: 'group-failed', sessionId: 'failed' }),
+      expect.objectContaining({ reason: 'signal-failed', sessionId: 'failed' }),
+    );
+    expect(h.warn).not.toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ reason: 'group-failed' }),
     );
     expect(h.retained().aliases.has('failed')).toBe(false);
     expect(h.retained().keys.has('failed')).toBe(false);
@@ -434,6 +438,42 @@ describe('IdleCompactionService ordering, coalescing and cleanup', () => {
     expect(h.retained().keys.size).toBe(0);
     expect(h.retained().currentIds.size).toBe(0);
     expect(h.retained().notices.size).toBe(0);
+    h.dispose();
+  });
+
+  it('keeps other sessions firing when warning logging always throws', async () => {
+    const h = harness();
+    h.warn.mockImplementation(() => {
+      throw new Error('logger failed');
+    });
+    h.service.sessionBound('failed', 'run', false);
+    h.failNextSettings();
+    h.service.turnEnded('failed', 'turn', {
+      requestKey: 'request',
+      anchorAt: 0,
+      ttl: '1h',
+    });
+    h.service.sessionReleased('failed');
+    h.arm('healthy');
+    h.advance(DUE);
+    await settle();
+    expect(h.sender.sendIdleCompact).toHaveBeenCalledWith(
+      'healthy',
+      expect.any(Function),
+    );
+    h.dispose();
+  });
+
+  it('warns with ids when a rekey collides', () => {
+    const h = harness();
+    h.arm('s');
+    h.arm('other');
+    h.service.rekey('s', 'other');
+    expect(h.warn).toHaveBeenCalledWith(expect.any(String), {
+      reason: 'rekey-collision',
+      sessionId: 's',
+      toId: 'other',
+    });
     h.dispose();
   });
 });
