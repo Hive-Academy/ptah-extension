@@ -11,6 +11,7 @@ import type {
   SetupGenerationRunBinding,
 } from '@ptah-extension/shared';
 import { GenerationWorkflowStore } from './generation-workflow.store';
+import { WizardRpcService } from './wizard-rpc.service';
 
 /** One routed bridge from generator pushes into the ordinary chat transcript. */
 @Injectable({ providedIn: 'root' })
@@ -20,6 +21,7 @@ export class GenerationRunEventAdapter implements MessageHandler {
   private readonly streaming = inject(StreamingHandlerService);
   private readonly batchedUpdate = inject(BatchedUpdateService);
   private readonly finalization = inject(MessageFinalizationService);
+  private readonly rpc = inject(WizardRpcService);
   private sequence = 0;
   private readonly ownedMessages = new Map<
     string,
@@ -28,6 +30,7 @@ export class GenerationRunEventAdapter implements MessageHandler {
   private activeRunId: string | null = null;
   private terminalRunId: string | null = null;
   private terminalPushRunId: string | null = null;
+  private readonly pendingEvents = new Map<string, unknown[]>();
   readonly handledMessageTypes = [
     'setup-wizard:generation-stream',
     'setup-wizard:enhance-stream',
@@ -37,6 +40,7 @@ export class GenerationRunEventAdapter implements MessageHandler {
 
   constructor() {
     effect(() => {
+      this.tabs.tabs();
       const run = this.workflow.run();
       const binding = this.workflow.binding();
       const runId = run?.binding.runId ?? null;
@@ -47,6 +51,15 @@ export class GenerationRunEventAdapter implements MessageHandler {
       }
       if (binding && run && this.isTerminal(run.status))
         this.finish(run.binding, run.status);
+      if (binding && run) {
+        const queued = this.pendingEvents.get(binding.tabId) ?? [];
+        this.pendingEvents.delete(binding.tabId);
+        for (const payload of queued) this.accept(payload);
+      }
+      for (const [tabId] of this.ownedMessages) {
+        if (!this.tabs.findTabByIdAcrossWorkspaces(tabId))
+          this.ownedMessages.delete(tabId);
+      }
     });
   }
 
@@ -59,19 +72,45 @@ export class GenerationRunEventAdapter implements MessageHandler {
     } else if (
       (message.type === 'setup-wizard:generation-complete' ||
         message.type === 'setup-wizard:error') &&
-      this.matches(message.payload)
+      this.isOwnedTerminalPush(message.payload)
     ) {
-      // A push prompts a committed-state reread; it never claims success.
-      this.terminalPushRunId = this.workflow.run()?.binding.runId ?? null;
-      void this.workflow.refresh();
+      const value = message.payload as {
+        tabBinding: SetupGenerationRunBinding;
+      };
+      const pushed = value.tabBinding;
+      if (this.matches(pushed)) {
+        this.terminalPushRunId = pushed.runId;
+        void this.workflow.refresh();
+      } else {
+        void this.rpc
+          .getBoundRunState(pushed, pushed.runId)
+          .then((run) => {
+            if (
+              run?.binding.runId === pushed.runId &&
+              run.binding.tabId === pushed.tabId &&
+              run.binding.workspacePath === pushed.workspacePath &&
+              run.binding.workflow === pushed.workflow &&
+              this.isTerminal(run.status)
+            )
+              this.finish(pushed, run.status);
+          })
+          .catch(() => undefined);
+      }
     }
   }
 
   accept(payload: unknown): boolean {
-    if (!payload || typeof payload !== 'object' || !this.workflow.isBound())
-      return false;
+    if (!payload || typeof payload !== 'object') return false;
     const value = payload as Record<string, unknown>;
     const binding = value['tabBinding'];
+    if (!this.workflow.run() && this.isCurrentTab(binding)) {
+      const tabId = (binding as SetupGenerationRunBinding).tabId;
+      const queued = this.pendingEvents.get(tabId) ?? [];
+      if (queued.length < 100) queued.push(payload);
+      this.pendingEvents.set(tabId, queued);
+      return true;
+    }
+    if (!this.workflow.isBound()) return false;
     if (!this.matches(binding)) return false;
     const runId = (binding as SetupGenerationRunBinding).runId;
     if (runId !== this.activeRunId) {
@@ -147,12 +186,15 @@ export class GenerationRunEventAdapter implements MessageHandler {
 
   /** Verified lookup also closes a run when its terminal push was lost. */
   private finish(binding: SetupGenerationRunBinding, status: string): void {
-    if (!this.matches(binding) || this.terminalRunId === binding.runId) return;
+    if (this.terminalRunId === binding.runId) return;
     this.terminalRunId = binding.runId;
     const owned = this.ownedMessages.get(binding.tabId);
     if (!owned || owned.runId !== binding.runId) return;
+    this.ownedMessages.delete(binding.tabId);
     this.batchedUpdate.flushSync(binding.tabId);
-    const tab = this.tabs.findTabByIdAcrossWorkspaces(binding.tabId)?.tab;
+    const located = this.tabs.findTabByIdAcrossWorkspaces(binding.tabId);
+    const tab =
+      located?.workspacePath === binding.workspacePath ? located.tab : null;
     if (
       !tab ||
       tab.streamingState?.currentMessageId !== owned.messageId ||
@@ -165,7 +207,6 @@ export class GenerationRunEventAdapter implements MessageHandler {
       binding.tabId,
       status !== 'completed',
     );
-    this.ownedMessages.delete(binding.tabId);
   }
 
   private ensureMessage(
@@ -174,6 +215,16 @@ export class GenerationRunEventAdapter implements MessageHandler {
     timestamp: number,
   ): string {
     let owned = this.ownedMessages.get(tabId);
+    if (owned?.runId !== runId) {
+      const current = this.tabs.findTabByIdAcrossWorkspaces(tabId)?.tab;
+      if (
+        owned &&
+        current?.streamingState?.currentMessageId === owned.messageId
+      )
+        this.finalization.finalizeCurrentMessage(tabId, true);
+      this.ownedMessages.delete(tabId);
+      owned = undefined;
+    }
     if (!owned) {
       owned = { messageId: `wizard-message-${++this.sequence}`, runId };
       this.ownedMessages.set(tabId, owned);
@@ -193,7 +244,7 @@ export class GenerationRunEventAdapter implements MessageHandler {
     return owned.messageId;
   }
 
-  private matches(payload: unknown): payload is SetupGenerationRunBinding {
+  private matches(payload: unknown): boolean {
     if (!payload || typeof payload !== 'object') return false;
     const value = payload as Record<string, unknown>;
     const candidate = value['tabBinding'] ?? payload;
@@ -208,6 +259,37 @@ export class GenerationRunEventAdapter implements MessageHandler {
       binding['workspacePath'] === current.workspacePath &&
       binding['workflow'] === current.workflow &&
       binding['runId'] === runId
+    );
+  }
+
+  private isCurrentTab(payload: unknown): payload is SetupGenerationRunBinding {
+    if (!payload || typeof payload !== 'object') return false;
+    const candidate = payload as Partial<SetupGenerationRunBinding>;
+    const current = this.workflow.binding();
+    return (
+      !!current &&
+      typeof candidate.runId === 'string' &&
+      candidate.tabId === current.tabId &&
+      candidate.workspacePath === current.workspacePath &&
+      candidate.workflow === current.workflow
+    );
+  }
+
+  private isOwnedTerminalPush(payload: unknown): boolean {
+    if (!payload || typeof payload !== 'object') return false;
+    const candidate = (payload as { tabBinding?: unknown }).tabBinding;
+    if (!candidate || typeof candidate !== 'object') return false;
+    const binding = candidate as Partial<SetupGenerationRunBinding>;
+    const owned = binding.tabId ? this.ownedMessages.get(binding.tabId) : null;
+    const located = binding.tabId
+      ? this.tabs.findTabByIdAcrossWorkspaces(binding.tabId)
+      : null;
+    return (
+      this.matches(candidate) ||
+      (!!owned &&
+        owned.runId === binding.runId &&
+        located?.workspacePath === binding.workspacePath &&
+        located?.tab.workflow === binding.workflow)
     );
   }
 

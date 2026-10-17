@@ -241,9 +241,9 @@ Candidate only: unused duplicated old-generation presentation code after the new
 | B04 | 3 | done (tab-manager +58 lines; route validator token on SurfaceRouterService for B05) | codex frontend-developer | 649e7a3cc |
 | B05 | 3 | done (1 revise round: transcript adapter via processStreamEvent instead of a local log, composer guard, route allowlist, deeper specs) | codex frontend-developer | f79b795ae |
 | B06 | 3 | done (panel kept open after push; explicit workflow arg on ptah.setupAgents; Phase 2 N1/N3/N4 in the next commit) | codex backend-developer | ddf655a63 |
-| P3 review | 3 | APPROVE 7/10 after 2 revise rounds (S1–S3, N1 shell-return path, N2 fixed; N4/N5 deferred to B07) | Claude code-logic-reviewer; codex fixes | 9ddb2f0b7 |
-| B07 | 4 | done (components exported; B07B places AgentSelectionList and source/model in the shell; old Welcome kept under "Analysis and recovery options") | codex frontend-developer | (this commit) |
-| B07B | 4 | pending | codex frontend-developer | — |
+| P3 review | 3 | APPROVE 7/10 after 2 revise rounds (S1–S3, N1 shell-return path, N2 fixed; N4/N5 deferred to B07B) | Claude code-logic-reviewer; codex fixes | 9ddb2f0b7 |
+| B07 | 4 | done (components exported; B07B places AgentSelectionList and source/model in the shell; old Welcome kept under "Analysis and recovery options") | codex frontend-developer | e1d173fa9 |
+| B07B | 4 | part 1 done (run page, checkpoint, retry, N4/N5, pre-start buffer, handoff busy check); open: bound result facts DTO, launch origin + combined countdown, store monotonic/watchdog, bound Resume -> B07C (backend) + B07D (frontend) | codex frontend-developer | (this commit) |
 | B08 | 5 | pending | codex frontend-developer | — |
 | B09 | 6 | pending | codex frontend-developer | — |
 | B10 | 6 | pending | codex frontend-developer | — |

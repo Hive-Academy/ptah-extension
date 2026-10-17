@@ -1,4 +1,4 @@
-import { signal } from '@angular/core';
+﻿import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { SURFACE_ACTIVE } from '@ptah-extension/core';
 import {
@@ -31,7 +31,7 @@ const activeRun = {
 
 describe('GenerationRunEventAdapter', () => {
   const setup = () => {
-    const run = signal(activeRun);
+    const run = signal<typeof activeRun | null>(activeRun);
     const busy = signal(true);
     const tab = {
       claudeSessionId: 'real-chat-session',
@@ -45,7 +45,12 @@ describe('GenerationRunEventAdapter', () => {
       abortController: new AbortController(),
     };
     const processStreamEvent = jest.fn(
-      (event: { eventType: string; messageId?: string }) => {
+      (
+        event: { eventType: string; messageId?: string },
+        _tabId?: string,
+        _sessionId?: string,
+        _options?: { fanOut: boolean },
+      ) => {
         if (event.eventType === 'message_start' && event.messageId)
           tab.streamingState = { currentMessageId: event.messageId };
         return null;
@@ -60,6 +65,10 @@ describe('GenerationRunEventAdapter', () => {
       providers: [
         GenerationRunEventAdapter,
         {
+          provide: WizardRpcService,
+          useValue: { getBoundRunState: jest.fn().mockResolvedValue(null) },
+        },
+        {
           provide: GenerationWorkflowStore,
           useValue: {
             binding: () => binding,
@@ -71,6 +80,7 @@ describe('GenerationRunEventAdapter', () => {
         {
           provide: TabManagerService,
           useValue: {
+            tabs: signal([{ id: 'tab' }]),
             findTabByIdAcrossWorkspaces: () => ({ tab, workspacePath: '/ws' }),
           },
         },
@@ -196,6 +206,47 @@ describe('GenerationRunEventAdapter', () => {
     expect(tab.queuedContent).toBeNull();
   });
 
+  it('replaces stale message ownership when a new run starts on the same tab', () => {
+    const { adapter, run, processStreamEvent, finalizeCurrentMessage } =
+      setup();
+    expect(
+      adapter.accept({ tabBinding: binding, kind: 'text', content: 'first' }),
+    ).toBe(true);
+    const nextBinding = { ...binding, runId: 'next-run' };
+    run.set({ ...activeRun, binding: nextBinding });
+    TestBed.flushEffects();
+    expect(
+      adapter.accept({
+        tabBinding: nextBinding,
+        kind: 'text',
+        content: 'second',
+      }),
+    ).toBe(true);
+    expect(finalizeCurrentMessage).toHaveBeenCalledWith('tab', true);
+    expect(
+      processStreamEvent.mock.calls.filter(
+        ([event]) => event.eventType === 'message_start',
+      ),
+    ).toHaveLength(2);
+  });
+
+  it('buffers early stream events until the accepted run ID is known', () => {
+    const { adapter, run, processStreamEvent } = setup();
+    run.set(null);
+    TestBed.flushEffects();
+    expect(
+      adapter.accept({ tabBinding: binding, kind: 'text', content: 'early' }),
+    ).toBe(true);
+    expect(processStreamEvent).not.toHaveBeenCalled();
+    run.set(activeRun);
+    TestBed.flushEffects();
+    expect(
+      processStreamEvent.mock.calls.some(
+        ([event]) => event.eventType === 'text_delta',
+      ),
+    ).toBe(true);
+  });
+
   it('leaves a restored terminal on a real-session tab untouched', () => {
     const {
       adapter,
@@ -258,6 +309,10 @@ describe('GenerationRunEventAdapter with real chat state and streaming', () => {
         TabManagerService,
         GenerationWorkflowStore,
         GenerationRunEventAdapter,
+        {
+          provide: WizardRpcService,
+          useValue: { getBoundRunState: jest.fn().mockResolvedValue(null) },
+        },
         { provide: SURFACE_ACTIVE, useValue: signal(true) },
         {
           provide: ConfirmationDialogService,
@@ -322,10 +377,6 @@ describe('GenerationRunEventAdapter with real chat state and streaming', () => {
     expect(
       adapter.accept({ tabBinding: runA.binding, kind: 'text', content: 'A' }),
     ).toBe(true);
-    const ownedA =
-      tabs.findTabByIdAcrossWorkspaces(tabA)?.tab.streamingState
-        ?.currentMessageId;
-
     store.bind(runB.binding);
     await store.refresh();
     TestBed.flushEffects();
@@ -336,10 +387,18 @@ describe('GenerationRunEventAdapter with real chat state and streaming', () => {
       tabs.findTabByIdAcrossWorkspaces(tabB)?.tab.streamingState
         ?.currentMessageId;
     runs.set(tabA, { ...runA, status: 'completed' });
+    adapter.handleMessage({
+      type: 'setup-wizard:generation-complete',
+      payload: { tabBinding: runA.binding },
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    tabs.switchTab(tabA);
     expect(
       tabs.findTabByIdAcrossWorkspaces(tabA)?.tab.streamingState
         ?.currentMessageId,
-    ).toBe(ownedA);
+    ).toBeFalsy();
+    expect(tabs.isTabStreaming(tabA)).toBe(false);
 
     store.bind(runA.binding);
     await store.refresh();
@@ -385,6 +444,10 @@ describe('GenerationRunEventAdapter with real chat state and streaming', () => {
         TabManagerService,
         GenerationWorkflowStore,
         GenerationRunEventAdapter,
+        {
+          provide: WizardRpcService,
+          useValue: { getBoundRunState: jest.fn().mockResolvedValue(null) },
+        },
         { provide: SURFACE_ACTIVE, useValue: signal(true) },
         {
           provide: ConfirmationDialogService,

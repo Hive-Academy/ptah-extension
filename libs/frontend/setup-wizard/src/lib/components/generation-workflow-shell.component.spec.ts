@@ -1,16 +1,34 @@
-import { TestBed } from '@angular/core/testing';
+﻿import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute } from '@angular/router';
 import { signal } from '@angular/core';
 import { BehaviorSubject } from 'rxjs';
 import { convertToParamMap } from '@angular/router';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { GenerationWorkflowStore } from '../services/generation-workflow.store';
+import { AgentGenerationStore } from '../services/agent-generation.store';
+import { GenerationHandoffStore } from '../services/generation-handoff.store';
 import { GenerationWorkflowShellComponent } from './generation-workflow-shell.component';
 
 describe('GenerationWorkflowShellComponent', () => {
   it('rejects a tab with a mismatched workflow before embedding chat', () => {
     TestBed.configureTestingModule({
       providers: [
+        {
+          provide: AgentGenerationStore,
+          useValue: {
+            discover: jest.fn(),
+            checkGuidance: jest.fn(),
+            guidanceStatus: () => 'unknown',
+            checkpoint: () => null,
+            resumable: () => null,
+            loading: () => false,
+            error: () => false,
+          },
+        },
+        {
+          provide: GenerationHandoffStore,
+          useValue: { pending: () => null, outcome: () => 'idle' },
+        },
         {
           provide: ActivatedRoute,
           useValue: {
@@ -68,6 +86,22 @@ describe('GenerationWorkflowShellComponent', () => {
     let bound = true;
     TestBed.configureTestingModule({
       providers: [
+        {
+          provide: AgentGenerationStore,
+          useValue: {
+            discover: jest.fn(),
+            checkGuidance: jest.fn(),
+            guidanceStatus: () => 'unknown',
+            checkpoint: () => null,
+            resumable: () => null,
+            loading: () => false,
+            error: () => false,
+          },
+        },
+        {
+          provide: GenerationHandoffStore,
+          useValue: { pending: () => null, outcome: () => 'idle' },
+        },
         {
           provide: ActivatedRoute,
           useValue: {
@@ -144,6 +178,22 @@ describe('GenerationWorkflowShellComponent', () => {
     const unbind = jest.fn();
     TestBed.configureTestingModule({
       providers: [
+        {
+          provide: AgentGenerationStore,
+          useValue: {
+            discover: jest.fn(),
+            checkGuidance: jest.fn(),
+            guidanceStatus: () => 'unknown',
+            checkpoint: () => null,
+            resumable: () => null,
+            loading: () => false,
+            error: () => false,
+          },
+        },
+        {
+          provide: GenerationHandoffStore,
+          useValue: { pending: () => null, outcome: () => 'idle' },
+        },
         {
           provide: ActivatedRoute,
           useValue: {

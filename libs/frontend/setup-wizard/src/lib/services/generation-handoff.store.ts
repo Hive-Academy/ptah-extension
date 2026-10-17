@@ -90,6 +90,22 @@ export class GenerationHandoffStore {
       this.outcomeValue.set('manual-recovery');
       return;
     }
+    const located = this.tabs.findTabByIdAcrossWorkspaces(opened.tabId);
+    const tab = located?.workspacePath === workspacePath ? located.tab : null;
+    if (
+      !tab ||
+      tab.status === 'streaming' ||
+      tab.status === 'resuming' ||
+      this.tabs.isTabStreaming(opened.tabId) ||
+      (tab.streamingState?.currentMessageId != null &&
+        tab.status !== 'awaiting-background' &&
+        tab.status !== 'sleeping') ||
+      Boolean(tab.queuedContent?.trim()) ||
+      Boolean(tab.queuedOptions)
+    ) {
+      this.outcomeValue.set('manual-recovery');
+      return;
+    }
     try {
       const response = await this.rpc.startBoundGuidance({
         workspacePath,

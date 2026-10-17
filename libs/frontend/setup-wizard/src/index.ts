@@ -16,6 +16,12 @@ export { AgentSelectionListComponent } from './lib/components/agent-selection-li
 export { CommunityPacksPanelComponent } from './lib/components/community-packs-panel.component';
 export { AgentPreviewDialogComponent } from './lib/components/agent-preview-dialog.component';
 export { GenerationWorkflowShellComponent } from './lib/components/generation-workflow-shell.component';
+export { AgentRunCardComponent } from './lib/components/agent-run-card.component';
+export { AgentGenerationProgressComponent } from './lib/components/agent-generation-progress.component';
+export { AgentNextStepsComponent } from './lib/components/agent-next-steps.component';
+export { GenerationErrorsComponent } from './lib/components/generation-errors.component';
+export { GenerationStopControlComponent } from './lib/components/generation-stop-control.component';
+export { AgentGenerationStore } from './lib/services/agent-generation.store';
 export { GenerationWorkflowStore } from './lib/services/generation-workflow.store';
 export { GenerationHandoffStore } from './lib/services/generation-handoff.store';
 export { GenerationRunEventAdapter } from './lib/services/generation-run-event-adapter';

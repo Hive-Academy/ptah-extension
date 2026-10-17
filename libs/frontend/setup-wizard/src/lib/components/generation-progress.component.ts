@@ -529,8 +529,8 @@ export class GenerationProgressComponent implements OnDestroy {
 
     try {
       await this.wizardRpc.retryGenerationItem(itemId);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Retry failed';
+    } catch {
+      const message = 'Retry failed. Check the workspace and try again';
       const retriesLeft =
         GenerationProgressComponent.MAX_RETRIES - (currentRetries + 1);
 
