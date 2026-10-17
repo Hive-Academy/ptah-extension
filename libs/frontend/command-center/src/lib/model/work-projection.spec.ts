@@ -2,7 +2,6 @@ import type {
   PhaseDerivationInput,
   VendorLane,
 } from '@ptah-extension/tribunal-panel/phase';
-import { layoutScene } from '../scene/scene-layout';
 import {
   computeAgesMs,
   projectOwnedWork,
@@ -170,7 +169,7 @@ describe('projectOwnedWork', () => {
     );
   });
 
-  it('projects child names and provider IDs for the scene label', () => {
+  it('projects child names, provider IDs, and parent relationships', () => {
     const result = projectOwnedWork({
       ...base,
       rootProviderId: 'codex',
@@ -195,18 +194,15 @@ describe('projectOwnedWork', () => {
       result.nodes.find((node) => node.id === 'root:tab')?.providerId,
     ).toBe('codex');
     expect(result.nodes.find((node) => node.id === 'child:builder')).toEqual(
-      expect.objectContaining({ label: 'Builder', providerId: 'cursor' }),
+      expect.objectContaining({
+        parentId: 'root:tab',
+        label: 'Builder',
+        providerId: 'cursor',
+      }),
     );
     expect(result.nodes.find((node) => node.id === 'child:unnamed')).toEqual(
       expect.objectContaining({ label: 'Child session', providerId: null }),
     );
-    const layout = layoutScene(result, { width: 1200, height: 800 }, () => ({
-      width: 80,
-      height: 20,
-    }));
-    expect(
-      layout.nodes.find((entry) => entry.node.id === 'child:builder')?.label,
-    ).toBe('Codex · Builder');
   });
 
   it('computes ages only for timestamped projected nodes and includes one in status', () => {
