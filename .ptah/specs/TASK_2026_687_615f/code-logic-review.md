@@ -100,3 +100,20 @@ Preserve contract: every listed public controller member still exists with the s
 - Confidence: MEDIUM-HIGH (static trace; no execution)
 - Top risk: S-1 turns a normal Stop into a visible failure state.
 - A robust implementation would add: abort-aware status handling, `action` on every gate toast, mute-aware voice-session flag, a single owner for speech-failure reporting tied to the playback epoch, and an "activity first" condition on the voice grace.
+
+## Re-review (c39fc4ae7)
+
+Diff read: `git diff 88d59192d..c39fc4ae7 -- libs` (non-spec files). Static trace only.
+
+| Finding | Status | Evidence |
+| --- | --- | --- |
+| S-1 Stop becomes error | CLOSED | turn-status.ts:94-100 skips `aborted_streaming`/`aborted_tools` pulses and `sessionStatus() === 'stopped'`; the `failed` computation (127-135) also excludes the abort reasons. Stop stays `stopped`; an external abort settles to `idle` through the second effect. No Stop fallback timer exists (controller `stopVoice` unchanged). |
+| S-2 Decline recovery / toast overwrite | CLOSED | Gate toast now carries `action: 'retry-decline'` (controller.ts:431); the loop only sets its generic toast when `store.toast()` is empty (voice-loop.ts:452-453) while still recording the typed `voiceError`. Residual: an unrelated stale error toast can hide the generic voice-failure toast, but the HUD still shows `voiceError`; not a defect. |
+| M-1 mute keeps flag | CLOSED | `muteVoice` deactivates the root tab (controller.ts:366-367); `startVoice` re-activates on un-mute. |
+| M-2 stale `synthesisFailurePending` | CLOSED | Reported only when the playback epoch is unchanged and the loop is active and not muted (voice-loop.ts:107-110); flag reset in start, barge-in, `interruptSpeech` and `resetTurnState`. |
+| M-3 chip collision | CLOSED | Chip moved to `right-5 top-12`, below the caption at `top-5` (scene.component.ts:86). |
+| M-4 grace without activity | CLOSED | Armed entries start `graceEligible: false`; set only after a non-idle active status is observed; timer arms only when eligible and idle (controller.ts:267-295). Pulse, rebind, mute, stop and destroy still clear it. |
+
+New-issue check: Confirm remains click-only behind `canSend()` (unchanged), no replay path added, stale-workspace guard untouched, no new timers beyond the existing grace timer (cleared on all prior paths). `armed.graceEligible` is a plain field written inside the effect; harmless because the effect re-runs on each status change. No new Blocking or Serious issue found.
+
+Updated verdict: APPROVED, score 8.5/10. Open Minors m-1 to m-4 from the original review remain optional.
