@@ -1,6 +1,9 @@
 import {
+  DECISION_MODEL_CUSTOM_KEY_MAY_HAVE_CHANGED,
+  DECISION_MODEL_CUSTOM_KEY_NEEDS_ENDPOINT,
   DECISION_MODEL_INVALID_BASE_URL,
   DECISION_MODEL_INVALID_MODEL,
+  DECISION_MODEL_KEY_MAY_HAVE_CHANGED,
   DECISION_MODEL_KEY_NEEDS_HTTPS,
   type DecisionModelSelectionDto,
   type DecisionModelSelectionInputDto,
@@ -19,19 +22,54 @@ export type DecisionModelKind = DecisionModelSelectionDto['kind'];
 
 export const DECISION_ROW_NAME = 'Decision model';
 
-/** Exactly the four choices of Req 1.2, in the picker's order; Unset is the default. */
+/** Every kind, in the picker's order (TASK_2026_684 plan C12, criterion 1.1); Unset is the default. */
 export const DECISION_KIND_OPTIONS: readonly {
   readonly value: DecisionModelKind;
   readonly label: string;
 }[] = [
   { value: 'unset', label: 'Unset' },
   { value: 'ollama', label: 'Ollama decision model' },
+  { value: 'ollama-cloud', label: 'Ollama Cloud' },
   { value: 'jev', label: 'TypeSafe Jev' },
+  { value: 'custom', label: 'Custom endpoint (/v1/systemone)' },
   { value: 'structured', label: 'Structured-output model' },
 ];
 
 /** The model the host applies when a Jev write omits one (`DecisionModelSelectionDto`, rpc-agents.types.ts). */
 export const JEV_DEFAULT_MODEL = 'jev-1.13.0';
+
+/** The model field's label for a kind. */
+export function decisionModelLabel(kind: DecisionModelKind): string {
+  switch (kind) {
+    case 'jev':
+      return 'Jev model (optional)';
+    case 'ollama':
+      return 'Ollama model';
+    case 'ollama-cloud':
+      return 'Ollama Cloud model';
+    case 'custom':
+      return 'Model';
+    default:
+      return 'Model with structured output';
+  }
+}
+
+/**
+ * Host save errors the row repeats word for word (DC12): fixed shared constants, never free host text.
+ */
+const HOST_SAVE_SENTENCES: ReadonlySet<string> = new Set([
+  DECISION_MODEL_KEY_MAY_HAVE_CHANGED,
+  DECISION_MODEL_CUSTOM_KEY_MAY_HAVE_CHANGED,
+  DECISION_MODEL_INVALID_BASE_URL,
+  DECISION_MODEL_INVALID_MODEL,
+  DECISION_MODEL_KEY_NEEDS_HTTPS,
+  DECISION_MODEL_CUSTOM_KEY_NEEDS_ENDPOINT,
+]);
+
+/** The host's save error when it is one of the fixed shared sentences, else `null` (the row shows its own). */
+export function hostSaveSentence(error: string | undefined): string | null {
+  return error !== undefined && HOST_SAVE_SENTENCES.has(error) ? error : null;
+}
 
 /** The decision-model row's view: fixed sentences, plus the host's `detail` shown as plain text. */
 export interface DecisionModelRow {

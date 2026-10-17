@@ -105,11 +105,19 @@ describe('DecisionModelRowComponent', () => {
 
   beforeEach(() => {
     setConfigResult = { success: true };
-    call = jest.fn(async (method: string) =>
-      method === 'agent:getConfig'
-        ? rpcSuccess({ decisionModel: current } as AgentOrchestrationConfig)
-        : rpcSuccess(setConfigResult),
-    );
+    call = jest.fn(async (method: string) => {
+      if (method === 'agent:getConfig')
+        return rpcSuccess({
+          decisionModel: current,
+        } as AgentOrchestrationConfig);
+      if (method === 'agent:listDecisionModels')
+        return rpcSuccess({
+          models: ['tev1', 'laya'],
+          filter: 'applied',
+          undetermined: 0,
+        });
+      return rpcSuccess(setConfigResult);
+    });
     listModels = jest.fn(async (providerId?: string) => ({
       models:
         providerId === 'ollama'
@@ -276,7 +284,7 @@ describe('DecisionModelRowComponent', () => {
   });
 
   describe('the kind picker (Req 1.2)', () => {
-    it('offers exactly the four kinds with Unset selected by default, and no fields for Unset', async () => {
+    it('offers every kind with Unset selected by default, and no fields for Unset', async () => {
       await create();
       await open();
       const options = Array.from(
@@ -285,7 +293,9 @@ describe('DecisionModelRowComponent', () => {
       expect(options.map((option) => option.textContent?.trim())).toEqual([
         'Unset',
         'Ollama decision model',
+        'Ollama Cloud',
         'TypeSafe Jev',
+        'Custom endpoint (/v1/systemone)',
         'Structured-output model',
       ]);
       expect(byTestId<HTMLSelectElement>('decision-kind')?.value).toBe('unset');
@@ -296,11 +306,16 @@ describe('DecisionModelRowComponent', () => {
       ).not.toBeNull();
     });
 
-    it('Ollama: a free-text model with suggestions from the Ollama catalogue, saved as typed', async () => {
+    it('Ollama: a free-text model with decision-capable suggestions from agent:listDecisionModels, saved as typed', async () => {
       await create();
       await open();
       await pickKind('ollama');
-      expect(listModels).toHaveBeenCalledWith('ollama');
+      expect(call).toHaveBeenCalledWith(
+        'agent:listDecisionModels',
+        { source: 'ollama' },
+        { timeout: 5000 },
+      );
+      expect(listModels).not.toHaveBeenCalled();
       const suggestions = Array.from(
         host().querySelectorAll('#decision-model-suggestions option'),
       ).map((o) => o.getAttribute('value'));
@@ -387,13 +402,13 @@ describe('DecisionModelRowComponent', () => {
         }),
       );
       await open();
-      const key = byTestId<HTMLInputElement>('decision-jev-key');
+      const key = byTestId<HTMLInputElement>('decision-api-key');
       expect(key?.type).toBe('password');
       expect(key?.value).toBe('');
       expect(byTestId<HTMLInputElement>('decision-model')?.value).toBe(
         'jev-1.13.0',
       );
-      await type('decision-jev-key', ' sk-secret ');
+      await type('decision-api-key', ' sk-secret ');
       await save();
       expect(setConfigCalls()).toEqual([
         {
@@ -401,7 +416,7 @@ describe('DecisionModelRowComponent', () => {
           decisionModelJevApiKey: 'sk-secret',
         },
       ]);
-      expect(byTestId<HTMLInputElement>('decision-jev-key')?.value).toBe('');
+      expect(byTestId<HTMLInputElement>('decision-api-key')?.value).toBe('');
       expect(host().textContent).not.toContain('sk-secret');
       expect(feedback.toast()?.canUndo).toBe(false);
     });
@@ -410,7 +425,7 @@ describe('DecisionModelRowComponent', () => {
       await create();
       await open();
       await pickKind('jev');
-      await type('decision-jev-key', '   ');
+      await type('decision-api-key', '   ');
       await save();
       expect(setConfigCalls()).toEqual([{ decisionModel: { kind: 'jev' } }]);
     });
@@ -424,9 +439,9 @@ describe('DecisionModelRowComponent', () => {
         }),
       );
       await open();
-      await type('decision-jev-key', '');
+      await type('decision-api-key', '');
       expect(setConfigCalls()).toEqual([]);
-      byTestId<HTMLButtonElement>('decision-jev-key-remove')?.click();
+      byTestId<HTMLButtonElement>('decision-api-key-remove')?.click();
       await flush();
       expect(setConfigCalls()).toEqual([{ decisionModelJevApiKey: '' }]);
     });
@@ -440,8 +455,8 @@ describe('DecisionModelRowComponent', () => {
         }),
       );
       await open();
-      expect(byTestId('decision-jev-key')).not.toBeNull();
-      expect(byTestId('decision-jev-key-remove')).toBeNull();
+      expect(byTestId('decision-api-key')).not.toBeNull();
+      expect(byTestId('decision-api-key-remove')).toBeNull();
       expect(text('decision-footer')).toBe(
         'Unset saves at once and sends no decision request. Other choices save with Save. Undo puts the previous choice back; a key change has no Undo.',
       );
@@ -457,13 +472,13 @@ describe('DecisionModelRowComponent', () => {
       );
       await open();
       await pickKind('jev');
-      expect(byTestId('decision-jev-key-remove')).not.toBeNull();
-      byTestId<HTMLButtonElement>('decision-jev-key-remove')?.click();
+      expect(byTestId('decision-api-key-remove')).not.toBeNull();
+      byTestId<HTMLButtonElement>('decision-api-key-remove')?.click();
       await flush();
       expect(setConfigCalls()).toEqual([{ decisionModelJevApiKey: '' }]);
       expect(feedback.toast()?.canUndo).toBe(false);
-      expect(byTestId('decision-jev-key-remove')).toBeNull();
-      expect(document.activeElement).toBe(byTestId('decision-jev-key'));
+      expect(byTestId('decision-api-key-remove')).toBeNull();
+      expect(document.activeElement).toBe(byTestId('decision-api-key'));
     });
   });
 
@@ -490,7 +505,7 @@ describe('DecisionModelRowComponent', () => {
     await create();
     await open();
     await pickKind('jev');
-    await type('decision-jev-key', 'sk-new');
+    await type('decision-api-key', 'sk-new');
     await save();
     expect(feedback.toast()).toEqual({
       tone: 'alert',
@@ -591,11 +606,11 @@ describe('DecisionModelRowComponent', () => {
     });
 
     it('a model listing that throws, or rejects with a non-Error', async () => {
-      listModels.mockImplementationOnce(async () => {
-        throw new Error(SECRET);
-      });
       await create();
       await open();
+      call.mockImplementationOnce(async () => {
+        throw new Error(SECRET);
+      });
       await pickKind('ollama');
       expect(warn).toHaveBeenCalledWith(
         'DecisionModelRow',
@@ -603,11 +618,18 @@ describe('DecisionModelRowComponent', () => {
         { errorType: 'Error' },
       );
       expect(text('decision-model-help')).toBe(
-        'Could not list models. Type a model name.',
+        'Could not check decision support. Type a model name.',
       );
       listModels.mockImplementationOnce(() => Promise.reject(SECRET));
-      await pickKind('jev');
-      await pickKind('ollama');
+      await pickKind('structured');
+      const provider = byTestId<HTMLSelectElement>('decision-provider');
+      if (!provider) throw new Error('provider picker missing');
+      provider.value = 'anthropic';
+      provider.dispatchEvent(new Event('change'));
+      await flush();
+      expect(text('decision-model-help')).toBe(
+        'Could not list models. Type a model name.',
+      );
       expect(warn).toHaveBeenLastCalledWith(
         'DecisionModelRow',
         'model suggestions failed',
@@ -621,9 +643,9 @@ describe('DecisionModelRowComponent', () => {
     await create();
     await open();
     await pickKind('jev');
-    for (const id of ['decision-kind', 'decision-model', 'decision-jev-key'])
+    for (const id of ['decision-kind', 'decision-model', 'decision-api-key'])
       expect(byTestId(id)?.className).toContain('!border-base-content-muted');
-    for (const id of ['decision-model', 'decision-jev-key'])
+    for (const id of ['decision-model', 'decision-api-key'])
       expect(byTestId(id)?.className).toContain(
         'placeholder:!text-base-content-muted',
       );

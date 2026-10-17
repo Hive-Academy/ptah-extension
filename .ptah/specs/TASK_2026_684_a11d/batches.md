@@ -1,6 +1,6 @@
 # Batches - TASK_2026_684_a11d
 
-Total tasks: 45 | Batches: 23 (Batch 0 gate + 22 implementation batches) | Complete: 17/23
+Total tasks: 45 | Batches: 23 (Batch 0 gate + 22 implementation batches) | Complete: 18/23
 
 ## Execution precondition (read first)
 
@@ -846,7 +846,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - Phase 3 is complete when Batches 15 and 16 are committed: return NEEDS REVIEW (code-logic and
   style) for the combined diff of Batches 11-16.
 
-## Batch 17: Decision row editor for Ollama Cloud and custom endpoint (C13) — PENDING
+## Batch 17: Decision row editor for Ollama Cloud and custom endpoint (C13) — COMPLETE
 
 - Recommended executor: CLI lane, frontend-developer profile (non-codex)
 - Execution mode: sequential
@@ -859,14 +859,14 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - Phase: 4 - Decision row editor | Phase review: code-logic (codex) + visual (visual-reviewer subagent)
 - Criteria: 1.1, 2.1, 3.2 (UI), 4.1, 4.3 (help text), 4.4, 4.5
 
-### Task 17.1: `decision-model-key-field.component.ts` — PENDING
+### Task 17.1: `decision-model-key-field.component.ts` — COMPLETE
 
 - File: CREATE `W\libs\frontend\chat\src\lib\settings\providers\decision-model-key-field.component.ts`
 - Plan reference: implementation-plan.md:531-535
 - Quality requirements: a password input that is never prefilled; inputs `label`, `value`,
   `disabled`, `showRemove`; outputs `valueChange`, `remove`; the existing labels and `aria-describedby`.
 
-### Task 17.2: `decision-model-suggestions.ts` — PENDING
+### Task 17.2: `decision-model-suggestions.ts` — COMPLETE
 
 - File: CREATE `W\libs\frontend\chat\src\lib\settings\providers\decision-model-suggestions.ts`
 - Plan reference: implementation-plan.md:536-541
@@ -874,7 +874,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
   keeps `PROVIDER_MODELS_LOADER`. `jev` and `custom` stay idle. Help text for `partial` and
   `unavailable`, word for word as in the plan.
 
-### Task 17.3: Row editor — PENDING
+### Task 17.3: Row editor — COMPLETE
 
 - Depends on: Tasks 17.1, 17.2
 - Files: MODIFY `W\libs\frontend\chat\src\lib\settings\providers\decision-model-row.component.ts`,
@@ -886,7 +886,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
   invalid. One `apiKey` signal sends `decisionModelJevApiKey` or `decisionModelCustomApiKey`.
   Nothing is preselected. The "newer request wins" counter stays. No timer or listener is added.
 
-### Task 17.4: Specs — PENDING
+### Task 17.4: Specs — COMPLETE
 
 - Depends on: Task 17.3
 - Files: CREATE `W\libs\frontend\chat\src\lib\settings\providers\decision-model-row.endpoint.spec.ts`,

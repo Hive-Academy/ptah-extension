@@ -28,11 +28,13 @@ const status = (
 });
 
 describe('decision-model-row.view: the Decision model row (TASK_2026_646 Req 1)', () => {
-  it('offers exactly the four kinds, Unset first (Req 1.2)', () => {
+  it('offers every kind in the plan order, Unset first (Req 1.2; TASK_2026_684 criterion 1.1)', () => {
     expect(DECISION_KIND_OPTIONS).toEqual([
       { value: 'unset', label: 'Unset' },
       { value: 'ollama', label: 'Ollama decision model' },
+      { value: 'ollama-cloud', label: 'Ollama Cloud' },
       { value: 'jev', label: 'TypeSafe Jev' },
+      { value: 'custom', label: 'Custom endpoint (/v1/systemone)' },
       { value: 'structured', label: 'Structured-output model' },
     ]);
   });
@@ -526,12 +528,15 @@ describe('decision-model-row.view: Ollama Cloud and custom endpoint kinds (TASK_
       'http://127.0.0.1.evil.com:8080',
       'http://localhost.evil.com:8080',
       'http://app.localhost:8080',
-    ])('refuses a key over plain http to %s, which is not loopback (D4)', (baseUrl) => {
-      expect(endpointFieldError(draft({ baseUrl }), true)).toEqual({
-        field: 'baseUrl',
-        message: DECISION_MODEL_KEY_NEEDS_HTTPS,
-      });
-    });
+    ])(
+      'refuses a key over plain http to %s, which is not loopback (D4)',
+      (baseUrl) => {
+        expect(endpointFieldError(draft({ baseUrl }), true)).toEqual({
+          field: 'baseUrl',
+          message: DECISION_MODEL_KEY_NEEDS_HTTPS,
+        });
+      },
+    );
 
     it('names the model field when the model is empty', () => {
       expect(endpointFieldError(draft({ model: '  ' }), false)).toEqual({
