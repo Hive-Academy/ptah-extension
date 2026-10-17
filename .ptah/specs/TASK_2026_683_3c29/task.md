@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_683_3c29
-status: in_progress
+status: in_review
 type: FEATURE
 title: Smooth native animations for page navigation and session switching
 depends_on: []
