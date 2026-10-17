@@ -208,7 +208,7 @@ describe('ElectronShellComponent configuration gate', () => {
     ).toBe('Settings route');
   });
 
-  it('shows the workspace app shell and Chat, Command Center, Apps, Tasks, Tribunal, Analytics, Setup hub tabs in order', () => {
+  it('shows the workspace app shell and Chat, Voice, Apps, Tasks, Tribunal, Analytics, Setup hub tabs in order', () => {
     layoutStub.hasWorkspaceFolders.set(true);
     fixture.detectChanges();
     expect(shell().querySelector('ptah-app-shell')).not.toBeNull();
@@ -220,7 +220,7 @@ describe('ElectronShellComponent configuration gate', () => {
     );
     const names = [
       'Chat',
-      'Command Center',
+      'Voice',
       'Apps',
       'Tasks',
       'Tribunal',

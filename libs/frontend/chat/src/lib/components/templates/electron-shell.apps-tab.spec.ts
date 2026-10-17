@@ -134,10 +134,10 @@ describe('ElectronShellComponent Apps tab', () => {
 
   afterEach(() => fixture.destroy());
 
-  it('orders the tab row Chat, Command Center, Apps, Tasks, Tribunal, Analytics, Setup hub when folders exist', () => {
+  it('orders the tab row Chat, Voice, Apps, Tasks, Tribunal, Analytics, Setup hub when folders exist', () => {
     const order = [
       'Chat',
-      'Command Center',
+      'Voice',
       'Apps',
       'Tasks',
       'Tribunal',

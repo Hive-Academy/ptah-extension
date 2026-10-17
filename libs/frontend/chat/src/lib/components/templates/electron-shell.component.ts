@@ -170,12 +170,12 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
               class="tab gap-1.5 no-drag whitespace-nowrap"
               [class.tab-active]="appState.currentView() === 'command-center'"
               [attr.aria-selected]="appState.currentView() === 'command-center'"
-              title="Command Center"
-              aria-label="Command Center"
+              title="Voice"
+              aria-label="Voice"
               (click)="openCommandCenter()"
             >
               <lucide-angular [img]="MicIcon" class="w-3.5 h-3.5" />
-              <span class="tab-label">Command Center</span>
+              <span class="tab-label">Voice</span>
             </button>
             <button
               role="tab"

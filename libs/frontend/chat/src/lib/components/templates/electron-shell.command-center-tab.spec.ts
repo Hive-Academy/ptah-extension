@@ -68,7 +68,7 @@ describe('ElectronShellComponent Command Center tab', () => {
   function commandCenterTab(): HTMLButtonElement {
     const tab = (
       fixture.nativeElement as HTMLElement
-    ).querySelector<HTMLButtonElement>('button[title="Command Center"]');
+    ).querySelector<HTMLButtonElement>('button[title="Voice"]');
     if (!tab) throw new Error('Command Center tab was not rendered');
     return tab;
   }
@@ -114,9 +114,9 @@ describe('ElectronShellComponent Command Center tab', () => {
     expect(tab.getAttribute('role')).toBe('tab');
     expect(tab.tabIndex).toBeGreaterThanOrEqual(0);
     expect(tab.disabled).toBe(false);
-    expect(tab.getAttribute('aria-label')).toBe('Command Center');
+    expect(tab.getAttribute('aria-label')).toBe('Voice');
     expect(tab.querySelector('lucide-angular')).not.toBeNull();
-    expect(tab.querySelector('.tab-label')?.textContent).toBe('Command Center');
+    expect(tab.querySelector('.tab-label')?.textContent).toBe('Voice');
   });
 
   it('keeps labels available to assistive tech when narrow styling hides them', () => {
@@ -143,7 +143,7 @@ describe('ElectronShellComponent Command Center tab', () => {
         '[role="tab"][aria-selected="true"]',
       ),
     );
-    expect(selected.map((tab) => tab.title)).toEqual(['Command Center']);
+    expect(selected.map((tab) => tab.title)).toEqual(['Voice']);
     appStateStub.currentView.set('apps');
     fixture.detectChanges();
     expect(commandCenterTab().getAttribute('aria-selected')).toBe('false');
