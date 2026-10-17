@@ -65,3 +65,8 @@ disagree. Also `ctx —` because `usageTotals` is null for that lane (partial se
 - No information or action lost without user approval (preserve list above).
 - One status word and one duration formatter across tab chip, hover card, inspector and lane view.
 - Dark + light screenshots, before/after, at 1440 and 760.
+- (User decision 2026-10-17) CLI lanes and subagents show the same real-time message stream with
+  the same renderer as the main agent (`ExecutionNode` tree, `ptah-execution-node`). A subagent
+  keeps its own independent execution tree, outside the main orchestration tree (memory and
+  resource decision). "View transcript", the saved-transcript fallback and the
+  `subagent:transcript` overlay path are removed. Details: `visual-proof.md` "User decision".
