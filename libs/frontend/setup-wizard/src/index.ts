@@ -8,6 +8,13 @@ export {
 } from './lib/services/setup-wizard/wizard-internal-state';
 export { provideWizardInternalState } from './lib/services/wizard-internal-state.provider';
 export { WizardViewComponent } from './lib/components/wizard-view.component';
+export { WizardLandingComponent } from './lib/components/wizard-landing.component';
+export { WorkflowCardComponent } from './lib/components/workflow-card.component';
+export { GenerationSourceStatusComponent } from './lib/components/generation-source-status.component';
+export { GenerationModelPickerComponent } from './lib/components/generation-model-picker.component';
+export { AgentSelectionListComponent } from './lib/components/agent-selection-list.component';
+export { CommunityPacksPanelComponent } from './lib/components/community-packs-panel.component';
+export { AgentPreviewDialogComponent } from './lib/components/agent-preview-dialog.component';
 export { GenerationWorkflowShellComponent } from './lib/components/generation-workflow-shell.component';
 export { GenerationWorkflowStore } from './lib/services/generation-workflow.store';
 export { GenerationHandoffStore } from './lib/services/generation-handoff.store';
