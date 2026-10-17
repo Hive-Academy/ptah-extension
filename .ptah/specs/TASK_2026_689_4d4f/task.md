@@ -1,11 +1,11 @@
 ---
 id: TASK_2026_689_4d4f
-status: in_progress
+status: cancelled
 type: FEATURE
 title: Redesign the Command Center scene as an SVG/DOM view
 depends_on: []
 created: '2026-10-17T14:06:17.531Z'
-updated: '2026-10-17T14:06:17.531Z'
+updated: '2026-10-17T18:30:00.000Z'
 description: "Replace the canvas scene with a pixel-exact, accessible SVG/DOM scene in the style of the user's reference (glowing core, curved connectors, status ribbons), evaluating ngxui effects."
 estimate: L
 labels:

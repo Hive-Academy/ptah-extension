@@ -54,4 +54,26 @@ After plan review round 2 the user decided (AskUserQuestion):
 - ngxui: the user confirmed "Local SVG/CSS" - no `@omnedia/ngx-*` package and no ported source;
   build the beam, border glow and core effects in the lib with SVG/CSS.
 
+## Follow-up task (user, 2026-10-17) - start after 689 merges its PR
+
+New task, own worktree and PR:
+- Command Center initial state: show it first, then let the user start a new session or load a
+  previous one. Today `CommandCenterSessionCoordinator.openOrResume()`
+  (`model/session-coordinator.ts:55-145`) picks the active tab, else the last session, else a
+  new tab, with no picker; only a "New session" button exists.
+- Voice reply rule: the persona (`chat-state/src/lib/command-center-persona.ts:30`) has no rule
+  for spoken replies; `toSpokenText()` (`voice/spoken-text.ts`) speaks the first 4 sentences /
+  600 chars of the last assistant message. Add a rule: start each reply with 1-2 plain spoken
+  sentences that give the answer, details after.
+
 PR #747 (TASK_2026_687_615f): CI on `bb5f877b1` passed; all 4 CodeRabbit threads resolved.
+
+## Outcome (user, 2026-10-17): reverted, not merged
+
+After seeing the SVG/DOM scene in the running Electron app, the user said the previous canvas
+view was much better: its radial layout and its motion/animation. Decision ("Revert + small PR"):
+close PR #749 unmerged and keep the canvas scene on `main`. A new small PR from `main` keeps
+only the transferable parts: provider marks (`ptah-provider-mark`) with the root-provider
+fallback, Lucide state icons + state words in the DOM plate and work list, and the overlay fixes
+from `code-logic-review.md` that also apply to the old overlay. The visual review was stopped
+(not needed after the user's own verdict). This branch and worktree stay as a reference.
