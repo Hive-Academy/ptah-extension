@@ -737,7 +737,8 @@ const DEFAULT_PLATFORM: NewProjectPlatform = 'node-ts';
                      bg-gradient-to-br from-accent/20 via-base-300/50 to-accent/10
                      hover:from-accent/40 hover:via-accent/15 hover:to-accent/30
                      transition-all duration-300 ease-out
-                     card-enter card-enter-delay-4"
+                     card-enter card-enter-delay-4
+                     focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
               (click)="conveneTribunal()"
               (keydown.enter)="conveneTribunal()"
               role="button"
@@ -775,7 +776,7 @@ const DEFAULT_PLATFORM: NewProjectPlatform = 'node-ts';
                          bg-gradient-to-r from-accent/10 to-accent/5
                          border border-accent/20
                          hover:border-accent/40 hover:from-accent/20 hover:to-accent/10
-                         text-accent font-medium transition-all duration-200"
+                         text-base-content font-medium transition-all duration-200"
                 >
                   Convene a Tribunal
                   <lucide-angular
@@ -792,9 +793,11 @@ const DEFAULT_PLATFORM: NewProjectPlatform = 'node-ts';
                 class="group relative rounded-xl p-px cursor-pointer
                      bg-gradient-to-br from-accent/20 via-base-300/50 to-accent/10
                      hover:from-accent/40 hover:via-accent/15 hover:to-accent/30
-                     transition-all duration-300 ease-out card-enter card-enter-delay-4"
+                     transition-all duration-300 ease-out card-enter card-enter-delay-4
+                     focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
                 (click)="openCommandCenter()"
                 (keydown.enter)="openCommandCenter()"
+                (keydown.space)="$event.preventDefault(); openCommandCenter()"
                 role="button"
                 tabindex="0"
                 aria-label="Open Command Center"
@@ -810,7 +813,7 @@ const DEFAULT_PLATFORM: NewProjectPlatform = 'node-ts';
                     >
                       <lucide-angular
                         [img]="MicIcon"
-                        class="w-5 h-5 text-accent"
+                        class="w-5 h-5 text-base-content"
                         aria-hidden="true"
                       />
                     </div>
@@ -828,7 +831,7 @@ const DEFAULT_PLATFORM: NewProjectPlatform = 'node-ts';
                          bg-gradient-to-r from-accent/10 to-accent/5
                          border border-accent/20
                          group-hover:border-accent/40 group-hover:from-accent/20 group-hover:to-accent/10
-                         text-accent font-medium transition-all duration-200"
+                         text-base-content font-medium transition-all duration-200"
                   >
                     Open Command Center
                     <lucide-angular

@@ -43,6 +43,7 @@ export type MeasureSceneLabel = (
 
 const clamp = (value: number, low: number, high: number): number =>
   Math.max(low, Math.min(high, value));
+export const SCENE_LABEL_CANDIDATE_LIMIT = 4 + 7 * 16 * 4;
 
 const providerName = (id: string | null): string => {
   if (!id) return 'Session';
@@ -348,13 +349,28 @@ export function layoutScene(
         [point.x + point.radius + gap, point.y - size.height / 2],
         [point.x - point.radius - size.width - gap, point.y - size.height / 2],
       ];
-      if (point.kind === 'root') {
-        for (let y = 66; y <= viewport.height - size.height - 42; y += 12) {
-          for (let x = 14; x <= viewport.width - size.width - 14; x += 12) {
-            candidates.push([x, y]);
+      // Search near the sphere in fixed rings. The old viewport grid could
+      // attach the root plate to an unrelated, distant corner.
+      for (const radius of [18, 36, 54, 72, 96, 120, 144]) {
+        if (candidates.length >= SCENE_LABEL_CANDIDATE_LIMIT) break;
+        for (let step = 0; step < 16; step++) {
+          const angle = (step * Math.PI * 2) / 16;
+          const dx = Math.cos(angle) * radius;
+          const dy = Math.sin(angle) * radius;
+          for (const [baseX, baseY] of candidates.slice(0, 4)) {
+            candidates.push([baseX + dx, baseY + dy]);
           }
         }
       }
+      candidates.sort((a, b) => {
+        const da =
+          (a[0] + size.width / 2 - point.x) ** 2 +
+          (a[1] + size.height / 2 - point.y) ** 2;
+        const db =
+          (b[0] + size.width / 2 - point.x) ** 2 +
+          (b[1] + size.height / 2 - point.y) ** 2;
+        return da - db || a[0] - b[0] || a[1] - b[1];
+      });
       for (const [x0, y0] of candidates) {
         const x = clamp(x0, 14, Math.max(14, viewport.width - size.width - 14));
         const y = clamp(

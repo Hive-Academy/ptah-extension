@@ -1,4 +1,11 @@
-import { computed, effect, untracked, type Signal } from '@angular/core';
+import {
+  computed,
+  DestroyRef,
+  effect,
+  inject,
+  untracked,
+  type Signal,
+} from '@angular/core';
 import type { TabManagerService } from '@ptah-extension/chat-state';
 import type {
   CommandCenterStore,
@@ -33,11 +40,33 @@ export function trackMarkedTabVisibility(
   tabs: TabManagerService,
   store: CommandCenterStore,
 ): void {
-  effect((onCleanup) => {
+  const registered = new Map<string, number>();
+  inject(DestroyRef).onDestroy(() => {
+    for (const tabId of registered.keys()) tabs.unregisterVisibleTab(tabId);
+    registered.clear();
+  });
+  effect(() => {
     const tabId = store.markedTabId();
-    if (!tabId) return;
-    untracked(() => tabs.registerVisibleTab(tabId));
-    onCleanup(() => tabs.unregisterVisibleTab(tabId));
+    tabs.tabs();
+    const pulses = tabs.lastTerminalPulseByTab();
+    for (const [previous, initialPulseSeq] of registered) {
+      if (previous === tabId) continue;
+      const status = tabs.findTabByIdAcrossWorkspaces(previous)?.tab.status;
+      const settled = (pulses.get(previous)?.seq ?? 0) > initialPulseSeq;
+      if (
+        !settled &&
+        (status === 'streaming' ||
+          status === 'resuming' ||
+          status === 'switching')
+      )
+        continue;
+      untracked(() => tabs.unregisterVisibleTab(previous));
+      registered.delete(previous);
+    }
+    if (tabId && !registered.has(tabId)) {
+      untracked(() => tabs.registerVisibleTab(tabId));
+      registered.set(tabId, pulses.get(tabId)?.seq ?? 0);
+    }
   });
 }
 
@@ -51,19 +80,32 @@ export function trackTurnStatus(
   store: CommandCenterStore,
   turnAbortable: Signal<boolean>,
 ): void {
-  let statusPulseSeq = 0;
+  let boundTabId = untracked(() => store.markedTabId());
+  let statusPulseSeq = untracked(
+    () => tabs.lastTerminalPulseByTab().get(boundTabId ?? '')?.seq ?? 0,
+  );
   let previousTurnAbortable = false;
   effect(() => {
     const tabId = store.markedTabId();
+    if (tabId !== boundTabId) {
+      // The store starts unbound and `open()` can later bind an existing tab
+      // that already carries a terminal pulse from before the Command Center
+      // opened it: re-seed from the pulse that is already terminal at binding
+      // so only pulses AFTER the binding are reported (no historical toast).
+      boundTabId = tabId;
+      statusPulseSeq = tabs.lastTerminalPulseByTab().get(tabId ?? '')?.seq ?? 0;
+    }
     const pulse = tabId ? tabs.lastTerminalPulseByTab().get(tabId) : undefined;
     if (!pulse || pulse.seq <= statusPulseSeq) return;
-    statusPulseSeq = pulse.seq;
-    const root = tabs.tabs().find((tab) => tab.id === tabId);
+    const root = tabId ? tabs.findTabByIdAcrossWorkspaces(tabId)?.tab : null;
     if (
       !turnAbortable() &&
       root?.status !== 'awaiting-background' &&
       root?.status !== 'sleeping' &&
-      store.sessionStatus() === 'running'
+      pulse.terminalReason !== 'aborted_streaming' &&
+      pulse.terminalReason !== 'aborted_tools' &&
+      store.sessionStatus() !== 'stopped' &&
+      (store.sessionStatus() === 'running' || pulse.classification === 'error')
     ) {
       store.setSessionStatus(
         pulse.classification === 'success' ? 'idle' : 'error',
@@ -74,6 +116,12 @@ export function trackTurnStatus(
           tone: 'error',
         });
     }
+    if (
+      !turnAbortable() &&
+      root?.status !== 'awaiting-background' &&
+      root?.status !== 'sleeping'
+    )
+      statusPulseSeq = pulse.seq;
   });
   effect(() => {
     const streaming = turnAbortable();
@@ -87,7 +135,9 @@ export function trackTurnStatus(
     ) {
       const failed =
         (!!root?.lastTerminalReason &&
-          root.lastTerminalReason !== 'completed') ||
+          root.lastTerminalReason !== 'completed' &&
+          root.lastTerminalReason !== 'aborted_streaming' &&
+          root.lastTerminalReason !== 'aborted_tools') ||
         (root?.status === 'loaded' &&
           !root.claudeSessionId &&
           root.hasLiveSession === false);

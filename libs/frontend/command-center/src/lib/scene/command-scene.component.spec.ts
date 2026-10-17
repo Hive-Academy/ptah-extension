@@ -85,6 +85,20 @@ describe('CommandSceneComponent', () => {
     return fixture;
   };
 
+  it('positions the overflow pill below the page caption', async () => {
+    const fixture = await create();
+    fixture.componentInstance.layout.set({
+      ...fixture.componentInstance.layout(),
+      overflowChip: { text: '+2 more', x: 700, y: 550 },
+    });
+    fixture.detectChanges();
+    const chip = Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll('span'),
+    ).find((element) => element.textContent?.includes('+2 more'));
+    expect(chip?.className).toContain('top-12');
+    expect(chip?.className).toContain('right-5');
+  });
+
   it('emits one hover for repeated moves, then null on leaving, without frame emissions', async () => {
     const fixture = await create();
     const emissions: (string | null)[] = [];

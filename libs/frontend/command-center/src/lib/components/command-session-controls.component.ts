@@ -1,4 +1,4 @@
-﻿import {
+import {
   ChangeDetectionStrategy,
   Component,
   input,
@@ -26,7 +26,7 @@ import type { CommandSessionStatus } from '../model/command-center.store';
           >
           <input
             id="command-text"
-            class="min-h-11 min-w-0 flex-1 rounded-lg bg-transparent px-3 text-sm text-base-content placeholder:text-base-content-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
+            class="min-h-11 min-w-0 flex-1 rounded-lg bg-transparent px-3 text-sm text-base-content placeholder:text-base-content-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
             type="text"
             [value]="draft()"
             (input)="onInput($event)"
@@ -34,7 +34,7 @@ import type { CommandSessionStatus } from '../model/command-center.store';
           />
           <button
             type="submit"
-            class="btn btn-ghost min-h-11 min-w-11 disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
+            class="btn btn-ghost min-h-11 min-w-11 disabled:opacity-100 disabled:text-base-content-muted disabled:border disabled:border-base-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
             [disabled]="!draft().trim()"
             aria-label="Send command"
             title="Send command"
@@ -52,14 +52,14 @@ import type { CommandSessionStatus } from '../model/command-center.store';
         </form>
         <button
           type="button"
-          class="btn btn-ghost min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
+          class="btn btn-ghost min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
           (click)="newSession.emit()"
         >
           Start new
         </button>
         <button
           type="button"
-          class="btn btn-ghost min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
+          class="btn btn-ghost min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
           (click)="requestStatus.emit()"
         >
           Status

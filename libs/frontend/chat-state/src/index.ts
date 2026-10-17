@@ -87,3 +87,4 @@ export {
   CommandCenterSendLockService,
   type CommandCenterSendLockState,
 } from './lib/command-center-send-lock.service';
+export { CommandCenterVoiceSessionService } from './lib/command-center-voice-session.service';

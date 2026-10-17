@@ -1,6 +1,7 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import {
+  CommandCenterVoiceSessionService,
   TabManagerService,
   type TerminalTurnPulse,
 } from '@ptah-extension/chat-state';
@@ -61,6 +62,7 @@ describe('CommandCenterPageController', () => {
     }[]
   >([]);
   const handlePermissionResponse = jest.fn();
+  const voiceSessions = { activate: jest.fn(), deactivate: jest.fn() };
   const rpc = { call: jest.fn() };
   const questionRequests = signal<
     readonly {
@@ -136,6 +138,7 @@ describe('CommandCenterPageController', () => {
       providers: [
         CommandCenterPageController,
         CommandCenterStore,
+        { provide: CommandCenterVoiceSessionService, useValue: voiceSessions },
         {
           provide: TabManagerService,
           useValue: {
@@ -146,6 +149,10 @@ describe('CommandCenterPageController', () => {
             },
             terminalTurnPulses,
             lastTerminalPulseByTab,
+            findTabByIdAcrossWorkspaces: (id: string) => {
+              const tab = tabs().find((candidate) => candidate.id === id);
+              return tab ? { tab, workspacePath: activeWorkspacePath() } : null;
+            },
             visibleTabIds,
             registerVisibleTab,
             unregisterVisibleTab,
@@ -379,6 +386,8 @@ describe('CommandCenterPageController', () => {
     ]);
     page.store.setSession('root-tab', 'session', '/workspace');
     page.store.setSessionStatus('running');
+    // Binding flushes before the turn can end, as it does in the app.
+    TestBed.tick();
     expect(page.turnAbortable()).toBe(true);
     tabs.set([
       { id: 'root-tab', status: 'loaded', claudeSessionId: 'session' },
@@ -568,7 +577,7 @@ describe('CommandCenterPageController', () => {
     expect(page.shownSessionStatus()).toBe('error');
   });
 
-  it('shows a fixed error toast when an aborted stream emits a failed terminal pulse', () => {
+  it('shows a fixed error toast when a real failure emits a terminal pulse', () => {
     tabs.set([
       { id: 'root-tab', status: 'streaming', claudeSessionId: 'session' },
     ]);
@@ -580,7 +589,7 @@ describe('CommandCenterPageController', () => {
         id: 'root-tab',
         status: 'loaded',
         claudeSessionId: 'session',
-        lastTerminalReason: 'aborted_streaming',
+        lastTerminalReason: 'api_error',
       },
     ]);
     lastTerminalPulseByTab.set(
@@ -594,7 +603,7 @@ describe('CommandCenterPageController', () => {
             workspacePath: '/workspace',
             revision: 1,
             phase: 'idle',
-            terminalReason: 'aborted_streaming',
+            terminalReason: 'api_error',
             lastAssistantMessage: null,
             classification: 'error',
             title: 'Command Center',
@@ -1345,11 +1354,12 @@ describe('CommandCenterPageController', () => {
     expect(await page.voice['options'].sendTranscript('yes')).toBe(false);
     expect(coordinator.send).not.toHaveBeenCalled();
     expect(page.store.toast()?.message).toContain('Retry the Decline');
+    expect(page.store.toast()?.action).toBe('retry-decline');
     page.retryInvalidDecline();
     expect(transport.answer).toHaveBeenCalledTimes(2);
     expect(page.store.toast()?.message).toContain('It was declined');
     expect(page.undeclinedInvalidQuestionId()).toBeNull();
-    expect(page['invalidRosterQuestionIds'].has(request.id)).toBe(true);
+    expect(page.ordinaryQuestion()).toBeNull();
     expect(await page.sendCommand('status')).toBe(true);
   });
 
@@ -1375,7 +1385,7 @@ describe('CommandCenterPageController', () => {
     expect(page.undeclinedInvalidQuestionId()).toBe('q-deviating');
     await page.exit();
     expect(page.undeclinedInvalidQuestionId()).toBeNull();
-    expect(page['invalidDeclineTimer']).toBeNull();
+    expect(page.pendingProposal()).toBeNull();
   });
 
   it('keeps approval shown when a roster arrives and shows roster after permission resolves', async () => {
@@ -1398,7 +1408,6 @@ describe('CommandCenterPageController', () => {
         coordinator.send.mock.calls.at(-1)?.[0] ?? '',
       )?.[1] ?? '';
     offer(roster(nonce));
-    expect(page['rosterTimeout']).toBeNull();
     expect(page.voice['pendingRoster']).toBe(false);
     expect(page.store.pendingInput()).toMatchObject({
       id: 'permission-1',
@@ -1408,7 +1417,6 @@ describe('CommandCenterPageController', () => {
     expect(page.answerPermission('permission-1', 'Approve')).toBe(true);
     permissionRequests.set([]);
     TestBed.tick();
-    expect(page['rosterTimeout']).not.toBeNull();
     expect(page.voice['pendingRoster']).toBe(true);
     expect(page.store.pendingInput()).toMatchObject({
       id: 'q-roster',
@@ -1693,5 +1701,154 @@ describe('CommandCenterPageController', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+  it('keeps the pre-send sequence when a pulse arrives before send resolves', async () => {
+    page.store.setSession('root-tab', 'session', '/workspace');
+    page.voice['active'] = true;
+    let finishSend: ((value: boolean) => void) | undefined;
+    coordinator.send.mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          finishSend = resolve;
+        }),
+    );
+    const pending = page.sendCommand('Review');
+    lastTerminalPulseByTab.set(
+      new Map([
+        [
+          'root-tab',
+          {
+            tabId: 'root-tab',
+            seq: 1,
+            sessionId: 'session',
+            workspacePath: '/workspace',
+            revision: 1,
+            phase: 'idle',
+            terminalReason: 'completed',
+            classification: 'success',
+            lastAssistantMessage: 'Done',
+            title: 'Command Center',
+            occurredAt: Date.now(),
+          },
+        ],
+      ]),
+    );
+    finishSend?.(true);
+    expect(await pending).toBe(true);
+    expect(
+      page.voice['queuedTypedTurns'][0] ?? page['armedTurns'][0]?.minPulseSeq,
+    ).toBe(0);
+  });
+
+  it('expires an idle armed turn once and ignores its late pulse', () => {
+    jest.useFakeTimers();
+    try {
+      page.store.setSession('root-tab', 'session', '/workspace');
+      tabs.set([
+        { id: 'root-tab', status: 'loaded', claudeSessionId: 'session' },
+      ]);
+      const abandon = jest
+        .spyOn(page.voice, 'abandonTurn')
+        .mockImplementation();
+      page.voice['options'].onVoiceSend?.(1, 0);
+      TestBed.tick();
+      jest.advanceTimersByTime(12_000);
+      expect(abandon).not.toHaveBeenCalled();
+      tabs.set([
+        { id: 'root-tab', status: 'streaming', claudeSessionId: 'session' },
+      ]);
+      TestBed.tick();
+      tabs.set([
+        { id: 'root-tab', status: 'loaded', claudeSessionId: 'session' },
+      ]);
+      TestBed.tick();
+      jest.advanceTimersByTime(12_000);
+      expect(abandon).toHaveBeenCalledWith(1, 'timed-out');
+      expect(page['armedTurns']).toHaveLength(0);
+      lastTerminalPulseByTab.set(
+        new Map([
+          [
+            'root-tab',
+            {
+              tabId: 'root-tab',
+              seq: 1,
+              sessionId: 'session',
+              workspacePath: '/workspace',
+              revision: 1,
+              phase: 'idle',
+              terminalReason: 'completed',
+              classification: 'success',
+              lastAssistantMessage: 'Late',
+              title: 'Command Center',
+              occurredAt: Date.now(),
+            },
+          ],
+        ]),
+      );
+      TestBed.tick();
+      expect(abandon).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it.each([
+    ['aborted_streaming', 'aborted'],
+    ['aborted_tools', 'aborted'],
+    ['api_error', 'failed'],
+  ] as const)(
+    'classifies %s pulse as %s for voice',
+    (terminalReason, outcome) => {
+      page.store.setSession('root-tab', 'session', '/workspace');
+      const abandon = jest
+        .spyOn(page.voice, 'abandonTurn')
+        .mockImplementation();
+      page.voice['options'].onVoiceSend?.(1, 0);
+      TestBed.tick();
+      lastTerminalPulseByTab.set(
+        new Map([
+          [
+            'root-tab',
+            {
+              tabId: 'root-tab',
+              seq: 1,
+              sessionId: 'session',
+              workspacePath: '/workspace',
+              revision: 1,
+              phase: 'idle',
+              terminalReason,
+              classification: 'error',
+              lastAssistantMessage: null,
+              title: 'Command Center',
+              occurredAt: Date.now(),
+            },
+          ],
+        ]),
+      );
+      TestBed.tick();
+      expect(abandon).toHaveBeenCalledWith(1, outcome);
+    },
+  );
+
+  it('marks the root voice session only after capture starts and clears it on stop', async () => {
+    page.store.setSession('root-tab', 'session', '/workspace');
+    jest.spyOn(page.voice, 'start').mockResolvedValue(true);
+    jest.spyOn(page.voice, 'stop').mockResolvedValue(undefined);
+    expect(await page.startVoice()).toBe(true);
+    expect(voiceSessions.activate).toHaveBeenCalledWith('root-tab');
+    await page.stopVoice();
+    expect(voiceSessions.deactivate).toHaveBeenCalledWith('root-tab');
+  });
+
+  it('deactivates the root voice flag on mute and reactivates on unmute', async () => {
+    page.store.setSession('root-tab', 'session', '/workspace');
+    jest.spyOn(page.voice, 'start').mockResolvedValue(true);
+    jest.spyOn(page.voice, 'mute').mockResolvedValue(undefined);
+    expect(await page.startVoice()).toBe(true);
+    await page.muteVoice();
+    expect(voiceSessions.deactivate).toHaveBeenCalledWith('root-tab');
+    page.store.setMuted(true);
+    await page.toggleMuteVoice();
+    expect(voiceSessions.activate).toHaveBeenCalledTimes(2);
   });
 });

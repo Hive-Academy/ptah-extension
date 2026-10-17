@@ -121,7 +121,7 @@ describe('Command Center failure and fallback integration', () => {
       action: 'retry-speech',
     });
     expect(fixture.nativeElement.textContent).toContain(
-      'Speech playback failed',
+      'Speech synthesis failed',
     );
     expect(fixture.nativeElement.textContent).not.toContain('sk-test-123');
     const attempts = synthesisCalls();

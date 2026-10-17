@@ -1,4 +1,4 @@
-﻿import { TestBed } from '@angular/core/testing';
+import { TestBed } from '@angular/core/testing';
 import { CommandVoiceHudComponent } from './command-voice-hud.component';
 
 describe('CommandVoiceHudComponent', () => {
@@ -100,5 +100,26 @@ describe('CommandVoiceHudComponent', () => {
     expect(stop.disabled).toBe(false);
     muteButton.click();
     expect(mute).not.toHaveBeenCalled();
+  });
+  it('offers capture retry for unavailable and worklet errors without permission settings', () => {
+    const fixture = render();
+    const start = jest.fn();
+    fixture.componentInstance.start.subscribe(start);
+    for (const kind of ['mic-unavailable', 'worklet'] as const) {
+      fixture.componentRef.setInput('voiceError', {
+        kind,
+        message: 'Capture failed.',
+      });
+      fixture.detectChanges();
+      expect(fixture.nativeElement.textContent).not.toContain(
+        'Open Voice settings',
+      );
+      const retry = [...fixture.nativeElement.querySelectorAll('button')].find(
+        (button: HTMLButtonElement) =>
+          button.textContent?.includes('Retry microphone'),
+      ) as HTMLButtonElement;
+      retry.click();
+    }
+    expect(start).toHaveBeenCalledTimes(2);
   });
 });

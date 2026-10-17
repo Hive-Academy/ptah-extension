@@ -32,6 +32,8 @@ jest.mock('ngx-markdown', () => {
 
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter, RouterOutlet } from '@angular/router';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   AppStateManager,
   type ConfigurationSurfaceId,
@@ -68,7 +70,7 @@ describe('ElectronShellComponent Command Center tab', () => {
   function commandCenterTab(): HTMLButtonElement {
     const tab = (
       fixture.nativeElement as HTMLElement
-    ).querySelector<HTMLButtonElement>('button[title="Command Center"]');
+    ).querySelector<HTMLButtonElement>('button[title="Voice"]');
     if (!tab) throw new Error('Command Center tab was not rendered');
     return tab;
   }
@@ -114,6 +116,34 @@ describe('ElectronShellComponent Command Center tab', () => {
     expect(tab.getAttribute('role')).toBe('tab');
     expect(tab.tabIndex).toBeGreaterThanOrEqual(0);
     expect(tab.disabled).toBe(false);
+    expect(tab.getAttribute('aria-label')).toBe('Voice');
+    expect(tab.querySelector('lucide-angular')).not.toBeNull();
+    expect(tab.querySelector('.tab-label')?.textContent).toBe('Voice');
+  });
+
+  it('keeps labels available to assistive tech when narrow styling hides them', () => {
+    const tabs = Array.from(
+      (
+        fixture.nativeElement as HTMLElement
+      ).querySelectorAll<HTMLButtonElement>('.electron-tabs [role="tab"]'),
+    );
+    expect(tabs).toHaveLength(7);
+    for (const tab of tabs) {
+      expect(tab.getAttribute('aria-label')).toBe(tab.title);
+      expect(tab.querySelector('.tab-label')).not.toBeNull();
+      expect(
+        tab
+          .querySelector('.tab-label')
+          ?.classList.contains('whitespace-nowrap'),
+      ).toBe(true);
+    }
+    const styles = readFileSync(
+      join(__dirname, 'electron-shell.component.ts'),
+      'utf8',
+    );
+    expect(styles).toContain('max-width: 1023px');
+    expect(styles).toContain('.electron-tabs .tab-label');
+    expect(styles).toContain('white-space: nowrap');
   });
 
   it('selects only the Command Center tab when its view is current', () => {
@@ -127,7 +157,7 @@ describe('ElectronShellComponent Command Center tab', () => {
         '[role="tab"][aria-selected="true"]',
       ),
     );
-    expect(selected.map((tab) => tab.title)).toEqual(['Command Center']);
+    expect(selected.map((tab) => tab.title)).toEqual(['Voice']);
     appStateStub.currentView.set('apps');
     fixture.detectChanges();
     expect(commandCenterTab().getAttribute('aria-selected')).toBe('false');

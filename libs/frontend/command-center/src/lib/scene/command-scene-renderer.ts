@@ -224,6 +224,18 @@ export class CommandSceneRenderer {
       );
       context.stroke();
     }
+    const root = snapshot.layout.nodes.find((node) => node.kind === 'root');
+    if (root?.labelRect) {
+      const rect = root.labelRect;
+      const edgeX = Math.max(rect.x, Math.min(root.x, rect.x + rect.width));
+      const edgeY = Math.max(rect.y, Math.min(root.y, rect.y + rect.height));
+      if (Math.hypot(edgeX - root.x, edgeY - root.y) > root.radius + 24) {
+        context.beginPath();
+        context.moveTo(root.x, root.y);
+        context.lineTo(edgeX, edgeY);
+        context.stroke();
+      }
+    }
     let particles = 0;
     if (this.active) {
       for (const node of snapshot.layout.nodes) {
@@ -295,11 +307,6 @@ export class CommandSceneRenderer {
         if (previous?.display !== display || previous?.transform !== transform)
           this.labelStyles.set(label.element, { display, transform });
       }
-    }
-    if (snapshot.layout.overflowChip) {
-      const chip = snapshot.layout.overflowChip;
-      context.fillStyle = snapshot.theme === 'dark' ? '#3f3854' : '#e3ddea';
-      context.fillRect(chip.x - 8, chip.y - 12, 120, 26);
     }
     if (this.anchor) {
       const node = this.anchorNodeId

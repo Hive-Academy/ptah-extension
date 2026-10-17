@@ -73,12 +73,15 @@ export function createHarness(
     ),
     terminalTurnPulses: pulses,
     lastTerminalPulseByTab,
+    findTabByIdAcrossWorkspaces: (id: string) => {
+      const tab = tabs().find((candidate) => candidate.id === id);
+      return tab ? { tab, workspacePath: '/repo' } : null;
+    },
     commandCenterRecordWriteFailure: recordWriteFailure,
     switchTab: jest.fn(),
     createCommandCenterTab: jest.fn(() => root.id),
     attachSession: jest.fn(),
     findTabBySessionId: jest.fn(() => null),
-    findTabByIdAcrossWorkspaces: jest.fn(() => ({ tab: root })),
   };
   const records = {
     readActiveTabId: jest.fn(() => root.id),

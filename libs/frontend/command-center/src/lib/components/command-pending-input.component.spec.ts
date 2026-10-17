@@ -40,6 +40,16 @@ describe('CommandPendingInputComponent', () => {
     return fixture;
   }
 
+  it('uses readable light input tokens and a base-content focus ring', () => {
+    const fixture = setup(null);
+    const answer = fixture.nativeElement.querySelector(
+      '#pending-answer',
+    ) as HTMLInputElement;
+    expect(answer.className).toContain('placeholder:!text-base-content-muted');
+    expect(answer.className).toContain('!border-base-content/70');
+    expect(answer.className).toContain('focus-visible:outline-base-content');
+  });
+
   it('confirms a Tribunal once by click and shows its roster, mode and rounds', () => {
     const fixture = setup();
     const confirm = jest.fn();

@@ -36,6 +36,7 @@ describe('Command Center dispatch lock', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     root.status = 'loaded';
+    Object.assign(root, { queuedContent: 'saved' });
     TestBed.configureTestingModule({
       providers: [
         MessageDispatchService,
@@ -150,4 +151,25 @@ describe('Command Center dispatch lock', () => {
     expect(clear).not.toHaveBeenCalled();
     expect(flush).not.toHaveBeenCalled();
   });
+
+  it.each(['release first', 'turn end first'])(
+    'flushes once when release and turn end interleave: %s',
+    async (order) => {
+      clear.mockImplementation(() =>
+        Object.assign(root, { queuedContent: null }),
+      );
+      const turnEnd = () => dispatch.sendQueuedMessage('root', 'saved');
+      if (order === 'release first') {
+        lock.release('owner');
+        await turnEnd();
+      } else {
+        await turnEnd();
+        lock.release('owner');
+      }
+      await Promise.resolve();
+
+      expect(clear).toHaveBeenCalledTimes(1);
+      expect(flush).toHaveBeenCalledTimes(1);
+    },
+  );
 });

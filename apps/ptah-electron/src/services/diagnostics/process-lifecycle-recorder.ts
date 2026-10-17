@@ -219,16 +219,27 @@ export class ProcessLifecycleRecorder {
     }
     this.consoleLinesInWindow += 1;
 
+    const context = {
+      windowId,
+      message: boundedConsoleLine(
+        firstLine(details.message.slice(0, CONSOLE_SCAN_CHARS)),
+      ),
+      source: `${boundedConsoleLine(details.sourceId)}:${details.lineNumber}`,
+    };
+    // Logger.error treats its second argument as structured context, unlike
+    // Logger.warn, which inlines it. Keep the bounded text on the main log
+    // line. That line is complete on its own, so the console fallback replays
+    // it as-is instead of appending the serialized context a second time.
+    const label = `[renderer] console.${details.level}`;
+    const message =
+      details.level === 'error'
+        ? `${label}: ${JSON.stringify(context)}`
+        : label;
     this.log(
       details.level === 'error' ? 'error' : 'warn',
-      `[renderer] console.${details.level}`,
-      {
-        windowId,
-        message: boundedConsoleLine(
-          firstLine(details.message.slice(0, CONSOLE_SCAN_CHARS)),
-        ),
-        source: `${boundedConsoleLine(details.sourceId)}:${details.lineNumber}`,
-      },
+      message,
+      context,
+      details.level === 'error' ? message : undefined,
     );
   }
 
@@ -283,13 +294,18 @@ export class ProcessLifecycleRecorder {
     level: Level,
     message: string,
     context: Record<string, unknown>,
+    /**
+     * Line to write when no logger exists AND `message` already carries the
+     * serialized context. Defaults to appending the context once.
+     */
+    fallbackLine?: string,
   ): void {
     const logger = this.resolveLogger();
     if (logger !== null) {
       logger[level](message, context);
       return;
     }
-    const line = `${message} ${JSON.stringify(context)}`;
+    const line = fallbackLine ?? `${message} ${JSON.stringify(context)}`;
     if (level === 'error') console.error(line);
     else if (level === 'warn') console.warn(line);
     else console.log(line);

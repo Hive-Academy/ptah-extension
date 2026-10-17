@@ -22,7 +22,7 @@ describe('CommandSessionControlsComponent', () => {
     expect(input.parentElement?.className).toContain('border-base-content');
     expect(input.parentElement?.className).toContain('min-w-[15rem]');
     expect(input.parentElement?.className).toContain('flex-[1_1_15rem]');
-    expect(input.className).toContain('focus-visible:outline-warning');
+    expect(input.className).toContain('focus-visible:outline-base-content');
     input.value = '  Review release  ';
     input.dispatchEvent(new Event('input'));
     fixture.detectChanges();

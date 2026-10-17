@@ -7,8 +7,7 @@ import {
   signal,
 } from '@angular/core';
 import {
-  COMMAND_CENTER_TRIBUNAL_REQUEST_TAG,
-  TRIBUNAL_ROSTER_PROPOSAL_TAG,
+  CommandCenterVoiceSessionService,
   TabManagerService,
 } from '@ptah-extension/chat-state';
 import { ChatStore } from '@ptah-extension/chat';
@@ -29,8 +28,10 @@ import {
 import { CommandVoiceLoop } from '../voice/command-voice-loop';
 import { hasTribunalIntent } from './command-center-tribunal-intent';
 import { commandCenterClock } from './command-center-clock';
-import { TribunalRunCoordinator } from '../model/tribunal-run-coordinator';
-import { type TribunalRosterProposal } from '../model/tribunal-roster-proposal';
+import {
+  CommandCenterRosterProvider,
+  isRosterIdleWithoutPendingRequest,
+} from './command-center-roster.provider';
 import { CommandCenterTribunalTransport } from './command-center-tribunal.transport';
 import { CommandCenterProjectionSource } from './command-center-projection.source';
 import {
@@ -57,12 +58,22 @@ export class CommandCenterPageController {
   private readonly appState = inject(AppStateManager, { optional: true });
   private readonly destroyRef = inject(DestroyRef);
   private readonly chat = inject(ChatStore);
+  private readonly voiceSessions = inject(CommandCenterVoiceSessionService);
   private readonly tribunalTransport = inject(CommandCenterTribunalTransport);
   private readonly projectionSource = inject(CommandCenterProjectionSource);
   private readonly now = commandCenterClock();
-  public readonly tribunal = new TribunalRunCoordinator(this.tribunalTransport);
-  public readonly pendingProposal = signal<TribunalRosterProposal | null>(null);
-  public readonly rosterTimedOut = signal(false);
+  private readonly roster: CommandCenterRosterProvider =
+    new CommandCenterRosterProvider(
+      this.store,
+      this.tabs,
+      this.chat,
+      this.tribunalTransport,
+      this.destroyRef,
+      (): CommandVoiceLoop => this.voice,
+    );
+  public readonly tribunal = this.roster.tribunal;
+  public readonly pendingProposal = this.roster.pendingProposal;
+  public readonly rosterTimedOut = this.roster.rosterTimedOut;
   public readonly turnAbortable = computed(() => {
     const tabId = this.store.markedTabId();
     return (
@@ -76,14 +87,6 @@ export class CommandCenterPageController {
     this.tabs,
     this.store,
   );
-  private readonly expectedRequest = signal<{
-    nonce: string;
-    rootSessionId: string;
-    minPulseSeq: number;
-    skipNextPulse: boolean;
-  } | null>(null);
-  private handledRosterQuestionId: string | null = null;
-  private rosterTimeout: ReturnType<typeof setTimeout> | null = null;
   public readonly canvasUnavailable = signal(false);
   public readonly hoveredNodeId = signal<string | null>(null);
   public readonly recordWriteFailure =
@@ -98,116 +101,25 @@ export class CommandCenterPageController {
       : null;
   });
   private readonly voiceTurnToken = signal<number | null>(null);
-  private readonly armedTurns: { token: number; minPulseSeq: number }[] = [];
+  /** Each entry belongs to the tab active at send time, even after a rebind. */
+  private readonly armedTurns: {
+    tabId: string;
+    token: number;
+    minPulseSeq: number;
+    graceEligible: boolean;
+  }[] = [];
   private deliveredPulseSeq = 0;
+  private graceTimer: ReturnType<typeof setTimeout> | null = null;
+  private stoppedTabId: string | null = null;
+  private voicePreSendSeq: number | null = null;
   private previousMarkedTabId: string | null = null;
-  private readonly spokenRequestIds = new Set<string>();
-  private readonly invalidRosterQuestionIds = new Set<string>();
-  public readonly undeclinedInvalidQuestionId = signal<string | null>(null);
-  private invalidDeclineAttempts = 0;
-  private invalidDeclineTimer: ReturnType<typeof setTimeout> | null = null;
-  private readonly activeTribunalRequest = computed(() => {
-    const expected = this.expectedRequest();
-    return expected?.rootSessionId === this.store.sessionId() ? expected : null;
-  });
-  private readonly invalidRosterQuestion = computed(() => {
-    if (!this.activeTribunalRequest()) return null;
-    const tabId = this.store.markedTabId();
-    const sessionId = this.store.sessionId();
-    return (
-      this.chat
-        .questionRequests()
-        .find(
-          (request) =>
-            (request.tabId === tabId || request.sessionId === sessionId) &&
-            !!request.questions[0] &&
-            !request.questions[0].question.includes(
-              `<${TRIBUNAL_ROSTER_PROPOSAL_TAG}>`,
-            ),
-        ) ?? null
-    );
-  });
-  public readonly ordinaryQuestion = computed(() => {
-    const tabId = this.store.markedTabId();
-    const sessionId = this.store.sessionId();
-    return (
-      this.chat
-        .questionRequests()
-        .find(
-          (request) =>
-            (request.tabId === tabId || request.sessionId === sessionId) &&
-            !!request.questions[0] &&
-            !request.questions[0].question.includes(
-              `<${TRIBUNAL_ROSTER_PROPOSAL_TAG}>`,
-            ) &&
-            !this.invalidRosterQuestionIds.has(request.id) &&
-            request.id !== this.invalidRosterQuestion()?.id,
-        ) ?? null
-    );
-  });
-  public readonly ordinaryChoices = computed(() => {
-    const options = this.ordinaryQuestion()?.questions[0]?.options ?? [];
-    const hasConfirm =
-      !!this.activeTribunalRequest() &&
-      options.some((option) => /\bconfirm\b/i.test(option.label));
-    return options
-      .filter(
-        (option) =>
-          !hasConfirm ||
-          !/^(confirm|yes|approve|go ahead)\b/i.test(option.label),
-      )
-      .map((option) => option.label);
-  });
-  public readonly permissionRequest = computed(() => {
-    const tabId = this.store.markedTabId();
-    const sessionId = this.store.sessionId();
-    return (
-      this.chat
-        .permissionRequests()
-        .find((request) =>
-          request.tabId
-            ? request.tabId === tabId
-            : !!sessionId && request.sessionId === sessionId,
-        ) ?? null
-    );
-  });
-  public readonly shownInput = computed(() => {
-    const permission = this.permissionRequest();
-    if (permission)
-      return {
-        id: permission.id,
-        kind: 'approval' as const,
-        title: `${permission.toolName} permission`,
-        description: permission.description,
-        prompt: `${permission.toolName} requests permission. Use the card to approve or deny.`,
-      };
-    const proposal = this.pendingProposal();
-    if (proposal && this.handledRosterQuestionId)
-      return {
-        id: this.handledRosterQuestionId,
-        kind: 'question' as const,
-        title: 'Tribunal proposal',
-        description: 'Review the roster before launch.',
-        prompt: `Tribunal ${proposal.move} proposal. Review the pending card.`,
-      };
-    const request = this.ordinaryQuestion();
-    const question = request?.questions[0];
-    return request && question
-      ? {
-          id: request.id,
-          kind: 'question' as const,
-          title: question.header,
-          description: question.question,
-          prompt: question.question,
-        }
-      : null;
-  });
-  public readonly shownProposal = computed(() =>
-    this.shownInput()?.kind === 'question' &&
-    this.shownInput()?.id === this.handledRosterQuestionId
-      ? this.pendingProposal()
-      : null,
-  );
+  public readonly ordinaryQuestion = this.roster.ordinaryQuestion;
+  public readonly ordinaryChoices = this.roster.ordinaryChoices;
+  public readonly permissionRequest = this.roster.permissionRequest;
+  public readonly shownInput = this.roster.shownInput;
+  public readonly shownProposal = this.roster.shownProposal;
+  public readonly undeclinedInvalidQuestionId =
+    this.roster.undeclinedInvalidQuestionId;
   public readonly projection = computed(() => {
     const tabId = this.store.markedTabId();
     const root = this.tabs.tabs().find((tab) => tab.id === tabId);
@@ -243,7 +155,7 @@ export class CommandCenterPageController {
       rootQuestionPending,
     });
   });
-  public readonly voice = new CommandVoiceLoop(
+  public readonly voice: CommandVoiceLoop = new CommandVoiceLoop(
     this.store,
     this.coordinator,
     this.rpc,
@@ -254,13 +166,21 @@ export class CommandCenterPageController {
           ? this.answerOrdinaryQuestion(request.id, transcript)
           : false;
       },
-      onVoiceSend: (token) => {
-        const tabId = this.store.markedTabId();
-        const minPulseSeq = Math.max(
-          this.deliveredPulseSeq,
-          tabId ? (this.tabs.lastTerminalPulseByTab().get(tabId)?.seq ?? 0) : 0,
-        );
-        this.armedTurns.push({ token, minPulseSeq });
+      onVoiceSend: (token, minPulseSeq) => {
+        const tabId = this.store.markedTabId() ?? '';
+        this.armedTurns.push({
+          tabId,
+          token,
+          minPulseSeq:
+            minPulseSeq ??
+            this.voicePreSendSeq ??
+            Math.max(
+              this.deliveredPulseSeq,
+              this.tabs.lastTerminalPulseByTab().get(tabId)?.seq ?? 0,
+            ),
+          graceEligible: false,
+        });
+        if (minPulseSeq === undefined) this.voicePreSendSeq = null;
         this.voiceTurnToken.set(this.armedTurns[0]?.token ?? null);
       },
       onTurnsAbandoned: () => this.clearArmedTurns(),
@@ -269,27 +189,6 @@ export class CommandCenterPageController {
   );
 
   public constructor() {
-    this.destroyRef.onDestroy(() => this.clearInvalidDeclineTimer());
-    effect(() => {
-      const pendingId = this.undeclinedInvalidQuestionId();
-      if (
-        pendingId &&
-        !this.chat.questionRequests().some((item) => item.id === pendingId)
-      ) {
-        this.clearInvalidDecline();
-      }
-      const request = this.invalidRosterQuestion();
-      const question = request?.questions[0];
-      if (
-        !request ||
-        !question ||
-        pendingId ||
-        this.invalidRosterQuestionIds.has(request.id)
-      )
-        return;
-      this.invalidDeclineAttempts = 0;
-      this.tryInvalidDecline(request.id, question.question);
-    });
     effect(() =>
       this.store.setTheme(this.theme?.isDarkMode() ? 'dark' : 'light'),
     );
@@ -319,6 +218,8 @@ export class CommandCenterPageController {
     effect(() => {
       const tabId = this.store.markedTabId();
       if (this.previousMarkedTabId && tabId !== this.previousMarkedTabId) {
+        this.voiceSessions.deactivate(this.previousMarkedTabId);
+        this.deliveredPulseSeq = 0;
         this.teardownSessionState(false);
         // degradation-audit: reported — voice exit failure is shown through the safe toast
         void this.voice.exit().catch(() =>
@@ -333,135 +234,104 @@ export class CommandCenterPageController {
     trackTurnStatus(this.tabs, this.store, this.turnAbortable);
     effect(() => {
       const tabId = this.store.markedTabId();
-      const rootSessionId = this.store.sessionId();
-      const expected = this.expectedRequest();
-      const request = this.chat
-        .questionRequests()
-        .find(
-          (item) =>
-            item.tabId === tabId &&
-            !!item.questions[0]?.question.includes(
-              `<${TRIBUNAL_ROSTER_PROPOSAL_TAG}>`,
-            ),
-        );
-      const question = request?.questions[0];
-      if (
-        !request ||
-        !question ||
-        request.id === this.handledRosterQuestionId ||
-        !tabId
-      )
-        return;
-      this.handledRosterQuestionId = request.id;
-      const proposal = this.tribunal.receive(question.question, {
-        questionId: request.id,
-        questionKey: question.question,
-        rootSdkId: rootSessionId ?? '',
-        rootTabId: tabId,
-        workspace: this.store.workspace() ?? '',
-        nonce: expected?.rootSessionId === rootSessionId ? expected.nonce : '',
-        availability: this.tribunalTransport.availability(),
-      });
-      if (!proposal || !expected || expected.rootSessionId !== rootSessionId) {
-        this.expectedRequest.set(null);
-        this.pendingProposal.set(null);
-        this.store.setToast({
-          message: 'Invalid Tribunal proposal. It was declined.',
-          tone: 'error',
-        });
-        this.voice.onRosterProposal('Invalid Tribunal proposal.', false);
-        this.voice.onRosterResolved();
-        return;
-      }
-      this.pendingProposal.set(proposal);
-      this.rosterTimedOut.set(false);
-    });
-    effect(() => {
-      const expected = this.activeTribunalRequest();
-      const tabId = this.store.markedTabId();
-      const pulse = tabId
-        ? this.tabs.lastTerminalPulseByTab().get(tabId)
-        : undefined;
-      if (
-        expected &&
-        pulse &&
-        pulse.seq > expected.minPulseSeq &&
-        !this.pendingProposal() &&
-        !this.chat
-          .questionRequests()
-          .some(
-            (request) =>
-              (request.tabId === tabId ||
-                request.sessionId === expected.rootSessionId) &&
-              !!request.questions[0]?.question.includes(
-                `<${TRIBUNAL_ROSTER_PROPOSAL_TAG}>`,
-              ),
-          )
-      ) {
-        if (expected.skipNextPulse) {
-          this.expectedRequest.set({
-            ...expected,
-            minPulseSeq: pulse.seq,
-            skipNextPulse: false,
-          });
-          return;
-        }
-        this.expectedRequest.set(null);
-      }
-    });
-    effect(() => {
-      const shown = this.shownInput();
-      const proposal = this.pendingProposal();
-      const rosterShown =
-        !!proposal && shown?.id === this.handledRosterQuestionId;
-      this.voice.setRosterPending(rosterShown);
-      if (!rosterShown) this.clearRosterTimeout();
-      else if (this.rosterTimeout === null)
-        this.rosterTimeout = setTimeout(
-          () => this.timeoutProposal(proposal.proposalId),
-          120_000,
-        );
-      this.store.setPendingInput(
-        shown
-          ? {
-              id: shown.id,
-              kind: shown.kind,
-              title: shown.title,
-              description: shown.description,
-            }
-          : null,
-      );
-      if (shown && !this.spokenRequestIds.has(shown.id)) {
-        this.spokenRequestIds.add(shown.id);
-        if (shown.id === this.handledRosterQuestionId && this.pendingProposal())
-          this.voice.onRosterProposal(shown.prompt, true);
-        else this.voice.onPendingPrompt(shown.prompt);
-      }
-    });
-    effect(() => {
-      const tabId = this.store.markedTabId();
       const token = this.voiceTurnToken();
       if (!tabId || token === null) return;
+      const armed = this.armedTurns[0];
+      if (!armed || armed.tabId !== tabId) return;
       const candidate = this.tabs.lastTerminalPulseByTab().get(tabId);
       const pulse =
         candidate &&
-        candidate.seq > (this.armedTurns[0]?.minPulseSeq ?? 0) &&
+        candidate.seq > armed.minPulseSeq &&
         candidate.seq > this.deliveredPulseSeq
           ? candidate
           : null;
       if (!pulse) return;
+      this.clearGraceTimer();
       this.deliveredPulseSeq = pulse.seq;
       this.armedTurns.shift();
       this.voiceTurnToken.set(this.armedTurns[0]?.token ?? null);
-      if (pulse.classification === 'success' && pulse.lastAssistantMessage)
-        this.voice.onTurnBoundary(pulse.lastAssistantMessage, token);
-      else this.voice.abandonTurn(token);
+      if (pulse.classification === 'success')
+        this.voice.onTurnBoundary(pulse.lastAssistantMessage ?? '', token);
+      else
+        this.voice.abandonTurn(
+          token,
+          this.stoppedTabId === tabId ||
+            pulse.terminalReason === 'aborted_streaming' ||
+            pulse.terminalReason === 'aborted_tools'
+            ? 'aborted'
+            : 'failed',
+        );
+      this.stoppedTabId = null;
+    });
+    effect(() => {
+      this.voiceTurnToken();
+      const armed = this.armedTurns[0];
+      const tabId = this.store.markedTabId();
+      const idle = isRosterIdleWithoutPendingRequest(
+        this.tabs,
+        this.chat,
+        tabId,
+        this.store.sessionId(),
+      );
+      if (!armed || armed.tabId !== tabId) {
+        this.clearGraceTimer();
+        return;
+      }
+      if (!idle) {
+        const status = this.tabs.tabs().find((tab) => tab.id === tabId)?.status;
+        if (
+          status &&
+          status !== 'loaded' &&
+          status !== 'fresh' &&
+          status !== 'draft'
+        )
+          armed.graceEligible = true;
+        this.clearGraceTimer();
+        return;
+      }
+      if (!armed.graceEligible) {
+        this.clearGraceTimer();
+        return;
+      }
+      const pulseSeq = this.tabs.lastTerminalPulseByTab().get(tabId)?.seq ?? 0;
+      if (pulseSeq > armed.minPulseSeq) {
+        this.clearGraceTimer();
+        return;
+      }
+      if (this.graceTimer) return;
+      this.graceTimer = setTimeout(() => {
+        this.graceTimer = null;
+        if (
+          this.armedTurns[0] !== armed ||
+          this.store.markedTabId() !== tabId ||
+          !isRosterIdleWithoutPendingRequest(
+            this.tabs,
+            this.chat,
+            tabId,
+            this.store.sessionId(),
+          )
+        )
+          return;
+        this.armedTurns.shift();
+        this.voiceTurnToken.set(this.armedTurns[0]?.token ?? null);
+        this.voice.abandonTurn(armed.token, 'timed-out');
+      }, 12_000);
+    });
+    this.destroyRef.onDestroy(() => {
+      this.clearGraceTimer();
+      const tabId = this.store.markedTabId();
+      if (tabId) this.voiceSessions.deactivate(tabId);
     });
   }
 
   public async open(): Promise<string | null> {
     const tabId = await this.workspaceBinding.open();
-    void this.tribunalTransport.open();
+    void this.tribunalTransport.open().catch(() => {
+      this.store.setToast({
+        message: 'Tribunal is unavailable right now.',
+        tone: 'error',
+      });
+    });
     try {
       const response = await this.rpc.call(
         'voice:getProviderConfig',
@@ -480,20 +350,32 @@ export class CommandCenterPageController {
     return tabId;
   }
   public startVoice(): Promise<boolean> {
+    const rootTabId = this.store.markedTabId();
+    this.stoppedTabId = null;
     if (this.store.voiceError()) {
       this.store.setVoiceError(null);
       this.store.setToast(null);
     }
-    return this.voice.start();
+    return this.voice.start().then((started) => {
+      if (started && rootTabId && this.store.markedTabId() === rootTabId)
+        this.voiceSessions.activate(rootTabId);
+      return started;
+    });
   }
   public muteVoice(): Promise<void> {
+    const tabId = this.store.markedTabId();
+    if (tabId) this.voiceSessions.deactivate(tabId);
     this.clearArmedTurns();
     return this.voice.mute();
   }
   public toggleMuteVoice(): Promise<void | boolean> {
-    return this.store.muted() ? this.voice.start() : this.voice.mute();
+    return this.store.muted() ? this.startVoice() : this.muteVoice();
   }
   public stopVoice(): Promise<void> {
+    this.stoppedTabId = this.store.markedTabId();
+    if (this.stoppedTabId) this.voiceSessions.deactivate(this.stoppedTabId);
+    const active = this.armedTurns[0];
+    if (active) this.voice.abandonTurn(active.token, 'aborted');
     this.clearArmedTurns();
     return this.voice.stop();
   }
@@ -511,7 +393,7 @@ export class CommandCenterPageController {
     const question = request?.questions[0];
     if (!request || !question || request.id !== id) return false;
     if (
-      this.activeTribunalRequest() &&
+      this.roster.tribunalRequestActive() &&
       question.options.some((option) => /\bconfirm\b/i.test(option.label)) &&
       /^(confirm|yes|approve|go ahead)\b/i.test(answer.trim())
     )
@@ -546,150 +428,60 @@ export class CommandCenterPageController {
         message:
           'Invalid Tribunal proposal is awaiting Decline. Retry the Decline before sending.',
         tone: 'error',
+        action: 'retry-decline',
       });
       return false;
     }
-    if (!hasTribunalIntent(content)) {
-      const sent = await this.coordinator.send(content);
-      if (sent && source === 'text') this.voice.armTypedTurn();
-      return sent;
-    }
-    const rootSessionId = this.store.sessionId();
-    if (!rootSessionId) {
-      this.store.setToast({
-        message: 'Start a Command Center session before requesting Tribunal.',
-        tone: 'error',
-      });
-      return false;
-    }
-    const nonce = crypto.randomUUID();
+    this.stoppedTabId = null;
     const tabId = this.store.markedTabId();
     const minPulseSeq = tabId
       ? (this.tabs.lastTerminalPulseByTab().get(tabId)?.seq ?? 0)
       : 0;
-    const skipNextPulse = this.tabs
-      .tabs()
-      .some((tab) => tab.id === tabId && tab.status === 'streaming');
-    this.expectedRequest.set({
-      nonce,
-      rootSessionId,
-      minPulseSeq,
-      skipNextPulse,
-    });
-    const sent = await this.coordinator.send(
-      `${content}\n\n<${COMMAND_CENTER_TRIBUNAL_REQUEST_TAG}>\n${JSON.stringify({ nonce, rootSessionId })}\n</${COMMAND_CENTER_TRIBUNAL_REQUEST_TAG}>`,
-    );
-    if (!sent) this.expectedRequest.set(null);
-    if (sent && source === 'text') this.voice.armTypedTurn();
+    if (source === 'voice') this.voicePreSendSeq = minPulseSeq;
+    if (!hasTribunalIntent(content)) {
+      const sent = await this.coordinator.send(content);
+      if (!sent && source === 'voice') this.voicePreSendSeq = null;
+      if (sent && source === 'text') this.voice.armTypedTurn(minPulseSeq);
+      return sent;
+    }
+    const sent = await this.roster.sendRequest(content, this.coordinator);
+    if (!sent && source === 'voice') this.voicePreSendSeq = null;
+    if (sent && source === 'text') this.voice.armTypedTurn(minPulseSeq);
     return sent;
   }
-  public async confirmProposal(id: string): Promise<void> {
-    if (this.pendingProposal()?.proposalId !== id) return;
-    this.clearRosterTimeout();
-    const result = await this.tribunal.confirm(id);
-    this.expectedRequest.set(null);
-    if (result.ok || !result.retryable) this.pendingProposal.set(null);
-    this.voice.onRosterResolved();
+  public confirmProposal(id: string): Promise<void> {
+    if (!this.workspaceBinding.canSend()) return Promise.resolve();
+    return this.roster.confirmProposal(id);
   }
   public declineProposal(id: string): void {
-    if (this.pendingProposal()?.proposalId !== id) return;
-    this.clearRosterTimeout();
-    this.expectedRequest.set(null);
-    this.tribunal.decline(id);
-    this.tribunal.pageExit();
-    this.tribunalTransport.cancelDiscovery();
-    this.pendingProposal.set(null);
-    this.voice.onRosterResolved();
+    this.roster.declineProposal(id);
   }
   public timeoutProposal(id: string): void {
-    if (this.pendingProposal()?.proposalId !== id) return;
-    this.clearRosterTimeout();
-    this.expectedRequest.set(null);
-    this.rosterTimedOut.set(true);
-    this.store.setToast({
-      message: 'Tribunal proposal timed out. Request a new roster.',
-      tone: 'error',
-    });
-    this.tribunal.timeout(id);
-    this.pendingProposal.set(null);
-    this.voice.onRosterResolved();
+    this.roster.timeoutProposal(id);
+  }
+  public retryInvalidDecline(): void {
+    this.roster.retryInvalidDecline();
   }
   public getLatencyMarks(): ReturnType<CommandVoiceLoop['getLatencyMarks']> {
     return this.voice.getLatencyMarks();
   }
   public exit(): Promise<void> {
+    const tabId = this.store.markedTabId();
+    if (tabId) this.voiceSessions.deactivate(tabId);
     this.teardownSessionState(true);
     return this.voice.exit();
   }
   private teardownSessionState(pageLeave: boolean): void {
-    this.clearInvalidDecline();
     this.clearArmedTurns();
-    this.clearRosterTimeout();
-    this.expectedRequest.set(null);
-    this.tribunal.pageExit();
-    if (pageLeave) this.tribunalTransport.pageExit();
-    else this.tribunalTransport.cancelDiscovery();
-    this.pendingProposal.set(null);
-    this.rosterTimedOut.set(false);
-    this.voice.onRosterResolved();
-  }
-  private tryInvalidDecline(id: string, question: string): void {
-    this.invalidDeclineAttempts += 1;
-    if (!this.tribunalTransport.answer(id, question, 'Decline')) {
-      this.undeclinedInvalidQuestionId.set(id);
-      this.store.setToast({
-        message:
-          'Invalid Tribunal proposal could not be declined. Retry the Decline before sending.',
-        tone: 'error',
-      });
-      if (this.invalidDeclineAttempts < 3) {
-        this.clearInvalidDeclineTimer();
-        this.invalidDeclineTimer = setTimeout(
-          () => this.retryInvalidDecline(),
-          250,
-        );
-      }
-      return;
-    }
-    this.clearInvalidDecline();
-    this.invalidRosterQuestionIds.add(id);
-    this.expectedRequest.set(null);
-    this.store.setToast({
-      message:
-        'Invalid Tribunal proposal. It was declined. Tribunal request cancelled - ask again.',
-      tone: 'error',
-    });
-    this.voice.onRosterProposal('Invalid Tribunal proposal.', false);
-    this.voice.onRosterResolved();
-  }
-  public retryInvalidDecline(): void {
-    const id = this.undeclinedInvalidQuestionId();
-    if (!id) return;
-    this.clearInvalidDeclineTimer();
-    const request = this.chat.questionRequests().find((item) => item.id === id);
-    const question = request?.questions[0]?.question;
-    if (!question) {
-      this.clearInvalidDecline();
-      return;
-    }
-    this.tryInvalidDecline(id, question);
-  }
-  private clearInvalidDecline(): void {
-    this.clearInvalidDeclineTimer();
-    this.undeclinedInvalidQuestionId.set(null);
-    this.invalidDeclineAttempts = 0;
-  }
-  private clearInvalidDeclineTimer(): void {
-    if (this.invalidDeclineTimer !== null)
-      clearTimeout(this.invalidDeclineTimer);
-    this.invalidDeclineTimer = null;
-  }
-  private clearRosterTimeout(): void {
-    if (this.rosterTimeout !== null) clearTimeout(this.rosterTimeout);
-    this.rosterTimeout = null;
+    this.roster.teardown(pageLeave);
   }
   private clearArmedTurns(): void {
+    this.clearGraceTimer();
     this.armedTurns.length = 0;
     this.voiceTurnToken.set(null);
+  }
+  private clearGraceTimer(): void {
+    if (this.graceTimer) clearTimeout(this.graceTimer);
+    this.graceTimer = null;
   }
 }

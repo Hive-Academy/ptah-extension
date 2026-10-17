@@ -57,7 +57,7 @@ import type { TribunalRosterProposal } from '../model/tribunal-roster-proposal';
             <div class="mt-3 flex flex-wrap gap-2">
               <button
                 type="button"
-                class="btn btn-outline min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
+                class="btn btn-outline min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
                 [disabled]="declinedIds().has(roster.proposalId)"
                 (click)="declineRoster(roster.proposalId)"
               >
@@ -65,7 +65,7 @@ import type { TribunalRosterProposal } from '../model/tribunal-roster-proposal';
               </button>
               <button
                 type="button"
-                class="btn btn-warning min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
+                class="btn btn-warning min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
                 [disabled]="confirmedId() === roster.proposalId || timedOut()"
                 (click)="confirmRoster(roster)"
                 (keydown)="confirmFromKey($event, roster)"
@@ -79,7 +79,7 @@ import type { TribunalRosterProposal } from '../model/tribunal-roster-proposal';
             </p>
             <button
               type="button"
-              class="btn btn-outline mt-3 min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
+              class="btn btn-outline mt-3 min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
               [disabled]="declinedIds().has(roster.proposalId)"
               (click)="declineRoster(roster.proposalId)"
             >
@@ -96,7 +96,7 @@ import type { TribunalRosterProposal } from '../model/tribunal-roster-proposal';
                 @for (choice of choices(); track choice) {
                   <button
                     type="button"
-                    class="btn btn-outline min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
+                    class="btn btn-outline min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
                     [disabled]="
                       timedOut() ||
                       respondedIds().has(request.id) ||
@@ -115,7 +115,7 @@ import type { TribunalRosterProposal } from '../model/tribunal-roster-proposal';
             <input
               #answerInput
               id="pending-answer"
-              class="input mt-1 min-h-11 w-full border !border-base-content/50 placeholder:!text-base-content-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
+              class="input mt-1 min-h-11 w-full border !border-base-content/70 placeholder:!text-base-content-muted dark:!border-base-content/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
               [placeholder]="
                 choices()[0] ? 'e.g. ' + choices()[0] : 'Type an answer'
               "
@@ -129,7 +129,7 @@ import type { TribunalRosterProposal } from '../model/tribunal-roster-proposal';
             />
             <button
               type="button"
-              class="btn btn-warning mt-3 min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
+              class="btn btn-warning mt-3 min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
               [disabled]="
                 !answer().trim() ||
                 timedOut() ||
@@ -148,7 +148,7 @@ import type { TribunalRosterProposal } from '../model/tribunal-roster-proposal';
             <div class="mt-3 flex gap-2">
               <button
                 type="button"
-                class="btn btn-outline min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
+                class="btn btn-outline min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
                 [disabled]="
                   timedOut() ||
                   respondedIds().has(request.id) ||
@@ -160,7 +160,7 @@ import type { TribunalRosterProposal } from '../model/tribunal-roster-proposal';
               </button>
               <button
                 type="button"
-                class="btn btn-warning min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
+                class="btn btn-warning min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
                 [disabled]="
                   timedOut() ||
                   respondedIds().has(request.id) ||

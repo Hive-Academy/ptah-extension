@@ -64,7 +64,7 @@ export interface CommandProviderDirection {
 export interface CommandToast {
   readonly message: string;
   readonly tone: 'info' | 'success' | 'warning' | 'error';
-  readonly action?: 'retry-speech';
+  readonly action?: 'retry-speech' | 'retry-decline';
 }
 
 export type CommandVoiceErrorKind =

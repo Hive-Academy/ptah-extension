@@ -37,7 +37,7 @@ export const COMMAND_OVERLAY_CLOSE_DELAY_MS = 200;
       @for (node of projection().nodes; track node.id) {
         <button
           type="button"
-          class="pointer-events-auto absolute left-0 top-0 flex min-h-11 min-w-11 flex-col items-center justify-center rounded-lg border border-base-300 bg-base-100/95 px-2 text-xs text-base-content shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-warning"
+          class="pointer-events-auto absolute left-0 top-0 flex min-h-11 min-w-11 flex-col items-center justify-center rounded-lg border border-base-300 bg-base-100/95 px-2 text-xs text-base-content shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
           [class.border-warning]="selectedId() === node.id"
           [style.visibility]="
             visibleLabelIds() === null || visibleLabelIds()?.includes(node.id)
@@ -118,7 +118,7 @@ export const COMMAND_OVERLAY_CLOSE_DELAY_MS = 200;
             @if (pinnedNodeId()) {
               <button
                 type="button"
-                class="min-h-11 min-w-11 rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-warning"
+                class="min-h-11 min-w-11 rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content"
                 aria-label="Close node details"
                 (click)="closePinned()"
               >
@@ -152,6 +152,7 @@ export class CommandOverlayComponent {
   private readonly floating = inject(FloatingUIService);
   private readonly zone = inject(NgZone);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly hostRef = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly anchorRef =
     viewChild.required<ElementRef<HTMLElement>>('cardAnchor');
   private readonly cardRef = viewChild<ElementRef<HTMLElement>>('card');
@@ -182,6 +183,27 @@ export class CommandOverlayComponent {
       const selection = this.store.selectedId();
       const pinned = this.pinnedNodeId();
       if (pinned && selection !== this.selectedBeforePin) this.unpin(false);
+    });
+    let shownPinnedId: string | null = null;
+    effect(() => {
+      const visible = this.visibleLabelIds();
+      const pinned = this.pinnedNodeId();
+      if (!pinned || visible === null) {
+        shownPinnedId = null;
+        return;
+      }
+      if (visible.includes(pinned)) {
+        shownPinnedId = pinned;
+      } else if (shownPinnedId === pinned) {
+        // Only a plate that a relayout hid hands focus to its work-list row —
+        // and only when focus is inside the pinned card, on its plate, or on
+        // the overlay host: a relayout must not steal focus from a control
+        // the user is typing in elsewhere. The plate is unpinned either way.
+        shownPinnedId = null;
+        const handoff = this.focusInsidePinnedOverlay(pinned);
+        this.unpin(false);
+        if (handoff) this.focusWorkListRow.emit(pinned);
+      }
     });
     effect(() => {
       const id = this.activeNodeId();
@@ -307,6 +329,17 @@ export class CommandOverlayComponent {
       if (trigger && trigger.style.display !== 'none') trigger.focus();
       else this.focusWorkListRow.emit(id);
     }
+  }
+
+  /** Focus is inside the pinned card, on its plate, or on the overlay host. */
+  private focusInsidePinnedOverlay(pinnedId: string): boolean {
+    const active = document.activeElement;
+    if (!(active instanceof HTMLElement)) return false;
+    if (active === this.hostRef.nativeElement) return true;
+    const card = this.cardRef()?.nativeElement;
+    if (card && card.contains(active)) return true;
+    const plate = this.findLabel(pinnedId);
+    return !!plate && plate.contains(active);
   }
 
   private requestOpen(id: string): void {
