@@ -18,6 +18,10 @@ import {
   type RouteDecideArgs,
 } from './contracts/route-decide-args.schema';
 import type { DecisionModelConfig } from './decision-model/decision-model.config';
+import {
+  errorName,
+  type LoggableErrorName,
+} from './decision-model/decision-model.detail';
 import type { DecisionModelKind } from './decision-model/decision-model.types';
 import type { StructuredDecisionCompleter } from './decision-model/structured-decision.port';
 import {
@@ -348,7 +352,10 @@ export class RouteDecideService {
       };
     }
     try {
-      const target = await this.deps.config.resolveSystemOneTarget();
+      // Resolved from the selection read above, not re-read: a setting that
+      // changes during the key read cannot pair this selection (provider,
+      // 404 re-check identity) with another selection's endpoint.
+      const target = await this.deps.config.resolveSystemOneTarget(selection);
       if (target === null) return { kind: 'blocked', cause: 'unreachable' };
       if (selection.kind === 'jev' && target.apiKey === undefined) {
         return { kind: 'blocked', cause: 'auth' };
@@ -448,14 +455,25 @@ function schemaError(
   return new Error(`${prefix} at ${path}: ${first?.message ?? 'invalid'}`);
 }
 
+/** Node system and internal error codes (`ENOENT`, `ERR_INVALID_URL`). */
+const NODE_ERROR_CODE = /^(?:E[A-Z0-9]{1,31}|ERR_[A-Z0-9_]{1,60})$/;
+
+/**
+ * Log facts of a rejection from the key store, the target resolver or the
+ * rotation store. Its `name` and `code` are set by that dependency and can
+ * carry a key, so the name is the fixed `errorName` category and a code is
+ * kept only when it has the shape of a Node error code.
+ */
 function errorFacts(error: unknown): {
-  readonly name: string;
+  readonly name: LoggableErrorName;
   readonly code?: string;
 } {
-  const name = error instanceof Error ? error.name : 'UnknownError';
+  const name = errorName(error);
   if (typeof error === 'object' && error !== null && 'code' in error) {
     const code = error['code'];
-    if (typeof code === 'string') return { name, code };
+    if (typeof code === 'string' && NODE_ERROR_CODE.test(code)) {
+      return { name, code };
+    }
   }
   return { name };
 }

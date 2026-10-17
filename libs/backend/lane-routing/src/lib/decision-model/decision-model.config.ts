@@ -6,13 +6,8 @@ import type {
 } from '@ptah-extension/platform-core';
 import { OLLAMA_PROVIDER_ENTRY } from '@ptah-extension/shared';
 import type { LaneRoutingLogger } from '../lane-routing-logger';
-import {
-  errorName,
-  keyOf,
-  normaliseBaseUrl,
-  toRowState,
-} from './decision-model.probe';
-import { DECISION_MODEL_DETAIL } from './decision-model.detail';
+import { keyOf, normaliseBaseUrl, toRowState } from './decision-model.probe';
+import { DECISION_MODEL_DETAIL, errorName } from './decision-model.detail';
 import {
   DecisionEndpointProber,
   type DecisionProbeRequest,
@@ -141,11 +136,13 @@ export class DecisionModelConfig {
   private readonly now: () => number;
   private mark: DecisionModelUnsupportedMark | null;
   /**
-   * Key fingerprint the mark was written under in this session; `null` for a
-   * mark loaded from storage (the fingerprint is never persisted), which
-   * matches any key until a probe replaces or clears it.
+   * Key fingerprint the mark is evidence for; `null` while it is unverified.
+   * A mark written this session carries the fingerprint of the key its probe
+   * sent. The fingerprint is never persisted, so a mark loaded from storage
+   * is unverified (see `loadedMarkCredential`): it matches no key until a
+   * probe under the current key writes it again or clears it.
    */
-  private markCredential: string | null = null;
+  private markCredential: string | null;
   /** Salt of `credentialFingerprint`; random per instance, never stored. */
   private readonly fingerprintSalt = randomBytes(32);
   /** In memory only: cleared by a success, a selection change or a restart. */
@@ -179,6 +176,7 @@ export class DecisionModelConfig {
     });
     this.now = seams.now ?? Date.now;
     this.mark = this.loadMark();
+    this.markCredential = loadedMarkCredential(this.mark);
   }
 
   // ------------------------------------------------------------ selection
@@ -238,10 +236,16 @@ export class DecisionModelConfig {
    * selection does not use System One (`unset`, `structured`) or the
    * resolver blocks it (a key would cross plain http, D4). Callers already
    * treat `null` as "no call". A rejected secret read propagates.
+   *
+   * `selection` defaults to the stored one. A caller that already holds a
+   * selection passes it, so the target always belongs to that selection
+   * even when the setting changes while the key is read.
    */
-  async resolveSystemOneTarget(): Promise<SystemOneTarget | null> {
+  async resolveSystemOneTarget(
+    selection: DecisionModelSelection = this.getSelection(),
+  ): Promise<SystemOneTarget | null> {
     const resolution = await resolveDecisionEndpoint(
-      this.getSelection(),
+      selection,
       this.endpointDeps(),
     );
     return isBlockedDecisionEndpoint(resolution) ? null : resolution;
@@ -319,10 +323,11 @@ export class DecisionModelConfig {
   }
 
   /**
-   * True when a persisted mark matches the current selection, the base URL
-   * it resolves to now and (for a mark written this session) the key it was
-   * written under. Async: the Ollama Cloud base depends on whether its key
-   * is stored.
+   * True when a verified mark matches the current selection, the base URL
+   * it resolves to now and the key it was written under. A mark loaded from
+   * storage for a selection that can send a key is unverified until a probe
+   * under the current key confirms it. Async: the Ollama Cloud base depends
+   * on whether its key is stored.
    */
   async isMarkedUnsupported(): Promise<boolean> {
     return this.markMatches(await this.currentProbeKey());
@@ -691,7 +696,7 @@ export class DecisionModelConfig {
       // degradation-audit: reported - a failed unsupported-mark read starts with no mark so routing can continue
       this.logger.warn(
         '[lane-routing] decision model unsupported mark could not be read',
-        { name: error instanceof Error ? error.name : 'UnknownError' },
+        { errorName: errorName(error) },
       );
       return null;
     }
@@ -713,8 +718,8 @@ export class DecisionModelConfig {
     return (
       this.mark !== null &&
       keyOf(this.mark.selection, this.mark.baseUrl) === identity.target &&
-      (this.markCredential === null ||
-        this.markCredential === identity.credential)
+      this.markCredential !== null &&
+      this.markCredential === identity.credential
     );
   }
 
@@ -879,6 +884,21 @@ export class DecisionModelConfig {
       .update(apiKey)
       .digest('hex');
   }
+}
+
+/**
+ * Credential binding of a mark loaded from storage. The persisted mark has
+ * no key identity (the fingerprint salt lives in memory only), so a mark for
+ * a selection that may send a key (`ollama-cloud`, `custom`) is unverified
+ * (`null`) and matches no key until it is probed again under the current
+ * key. A local `ollama` selection never sends a key (`resolveDecisionEndpoint`
+ * passes none), so its mark is evidence for the only credential it can have,
+ * none (`''`), and survives a restart.
+ */
+function loadedMarkCredential(
+  mark: DecisionModelUnsupportedMark | null,
+): string | null {
+  return mark !== null && mark.selection.kind === 'ollama' ? '' : null;
 }
 
 function sameIdentity(a: ProbeIdentity, b: ProbeIdentity): boolean {

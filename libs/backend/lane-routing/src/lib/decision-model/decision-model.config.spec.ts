@@ -412,7 +412,7 @@ describe('DecisionModelConfig row detail never carries a raw error (P4 visual Mo
 
     expect(status.detail).toBe('The model endpoint could not be reached.');
     expect(h.logger.warn.mock.calls[0]?.[1]).toMatchObject({
-      errorName: 'UnknownError',
+      errorName: 'other',
     });
   });
 
@@ -935,7 +935,7 @@ describe('DecisionModelConfig probe binding and mark read', () => {
     expect(h.logger.warn).toHaveBeenCalledTimes(1);
     expect(h.logger.warn).toHaveBeenCalledWith(
       '[lane-routing] decision model unsupported mark could not be read',
-      { name: 'Error' },
+      { errorName: 'Error' },
     );
     expect(JSON.stringify(h.logger.warn.mock.calls)).not.toContain(
       'SECRET-PROMPT',

@@ -20,6 +20,7 @@ import {
 
 import { systemOneUrl } from '../decision-model/decision-endpoint.url';
 import type { DecisionModelConfig } from '../decision-model/decision-model.config';
+import { errorName } from '../decision-model/decision-model.detail';
 import type { DecisionModelSelection } from '../decision-model/decision-model.types';
 import type {
   StructuredDecisionCompleter,
@@ -198,7 +199,7 @@ export class DecisionModelFailureClassifier implements LaneFailureClassifier {
     payload: FailureClassificationPayload,
     runId: string,
   ): Promise<LaneFailureClass | null> {
-    const target = await this.deps.config.resolveSystemOneTarget();
+    const target = await this.deps.config.resolveSystemOneTarget(selection);
     if (target === null) {
       this.deps.logger.warn(
         '[lane-routing] failure classification has no system one target',
@@ -470,6 +471,6 @@ function classificationErrorFacts(
 ): { readonly runId: string; readonly name: string } {
   return {
     runId,
-    name: error instanceof Error ? error.name : 'UnknownError',
+    name: errorName(error),
   };
 }

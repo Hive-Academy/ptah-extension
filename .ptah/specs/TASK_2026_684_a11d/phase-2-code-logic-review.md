@@ -87,3 +87,46 @@ Read-only review covered the fix commit, the status and resolver flows, changed 
 ## Decisions
 
 - **Loaded mark is unverified until reprobed.** Options: trust it for every key, persist a stable key fingerprint, or keep the memory-only salt and require a fresh probe. The last option preserves the deliberate no-persisted-fingerprint design and follows the per-key evidence rule (`decision-model.config.ts:145-150,712-718`); it is reversible.
+
+## Revise round 2 fixes
+
+1. **R1-1: an error name that carries a key.**
+   - Fix: `errorName()` moved to `decision-model.detail.ts:64`. It returns a fixed `LoggableErrorName`. Only `AbortError`, `TimeoutError`, `TypeError`, `SyntaxError`, `RangeError` and `Error` pass the allowlist (`:48`). Any other name, a non-`Error` rejection, a non-string name and a `name` getter that throws (`readName`, `:76`) all read `'other'`. The old helper and the unused `errorMessage` were removed from `decision-model.probe.ts`.
+   - Every caller now uses the allowlist: catalog `:161,415`, prober `:137`, config `:470,512,571,699,745` (the mark-read catch at `:699` used `error.name` directly and now logs `errorName`).
+   - The same leak was also in the row detail and in the service logs. `system-one.client.ts:225` copied `error.name` into the `transport error (...)` detail and its log. `route-decide.service.ts:467` (`errorFacts`) logged the key store's `name` and any `code`. That function now logs the fixed name and keeps a `code` only when it has the Node shape (`NODE_ERROR_CODE`, `:459`).
+   - Tests:
+     - `decision-model.detail.spec.ts` covers the allowlist, a sentinel key in `name`, a throwing getter, a non-string name and non-`Error` rejections.
+     - The prober spec (`:386,418`), the catalog spec (`:291,310`) and the client spec (`:537`) each use a hostile `name`.
+     - Endpoint spec `round 2, R1-1` (`:1308`) covers fetch, key store, throwing getter, mark write and mark read.
+     - Gate spec (`:913`) covers a hostile `name` and `code` from the key store, plus a kept `EACCES`.
+2. **R1-2: a restored mark matched any key.**
+   - Fix: the reviewer's decision is implemented. `markMatches` requires a non-null credential binding (`decision-model.config.ts:721`). A restored mark gets its binding from `loadedMarkCredential` (`:898`, set at `:179`).
+   - For the key-capable kinds `ollama-cloud` and `custom`, a restored mark is unverified (`null`). It matches no key, so `isMarkedUnsupported()` is false and the row is not `unsupported-endpoint` until a probe under the current key runs. That probe replaces the mark and its detail (unsupported) or clears it (ready). An unreachable probe leaves it unusable.
+   - A local `ollama` mark is bound to `''`, the only credential that kind can carry: `resolveDecisionEndpoint` never gives it a key. This keeps the existing restart requirement test `(b) live route missing → mark persisted and still present after a restart`.
+   - No fingerprint, and no other key data, is persisted.
+   - Tests: endpoint spec `round 2, R1-2` (`:1410`), with key A marked, then a restart:
+     - key B before any probe gives no mark and no request;
+     - key B ready clears the stored mark;
+     - key B unsupported replaces the mark and detail, and A does not inherit it;
+     - key B unreachable leaves no usable mark;
+     - the same key A stays unverified until its probe re-establishes the mark.
+3. **R1-3: a stale selection paired with a new target.**
+   - Fix: `resolveSystemOneTarget(selection = this.getSelection())` (`decision-model.config.ts:244`) resolves the target for the selection it is given. `openCaller` passes the selection it captured (`route-decide.service.ts:358`), so the selection, provider, target and 404 re-check identity all come from one snapshot.
+   - Tests: gate spec `selection and target come from one snapshot (R1-3)` (`:797`):
+     - `getSelection` returns A and then B. The opened client gets A's base and model, and the re-check gets `{ selection: A, baseUrl: A }`. Nothing is probed or marked. This test fails on the previous code.
+     - A real setting save happens inside the deferred key read. The result is the same.
+
+Verification:
+- `nx test lane-routing --parallel=1 --maxWorkers=2`: 26 suites, 764 tests passed.
+- `nx typecheck lane-routing`: passed.
+- `nx lint lane-routing`: passed.
+- Degradation audit: TOTAL 294.
+
+### Decisions (revise round 2)
+
+- **A restored local `ollama` mark stays verified.**
+  - Options: treat every restored mark as unverified; persist a "key used" flag (a schema change to a `.strict()` v1 mark); or bind by kind.
+  - Choice: bind by kind. A local `ollama` endpoint never carries a key (`decision-model.target.ts`, `case 'ollama'` passes `null`), so its mark is already evidence for the current, empty credential. This keeps the requirement pinned by `decision-model.config.spec.ts` `(b)`.
+  - Reversible.
+- **`RangeError` added to the allowlist.** It is a fixed built-in name, and the existing body-read test relies on it. Reversible.
+- **`resolveSystemOneTarget` keeps a default parameter.** `failure-class/decision-model-failure-classifier.ts:201` still calls it with no argument. That file is outside this round's scope and has the same two-read pattern; it should pass its own selection in a later change.

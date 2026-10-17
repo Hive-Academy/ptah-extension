@@ -172,22 +172,6 @@ export function keyOf(
 }
 
 /**
- * Loggable type of an untrusted rejection. Its message can echo a header,
- * a key or a URL, so logs carry the name only (`classifyTransportFailure`).
- */
-export function errorName(error: unknown): string {
-  return error instanceof Error && error.name.length > 0
-    ? error.name
-    : 'UnknownError';
-}
-
-export function errorMessage(error: unknown): string {
-  return error instanceof Error && error.message.length > 0
-    ? error.message
-    : String(error);
-}
-
-/**
  * Status plus body with the request path masked as `<path>`; a JSON body is
  * compared by value (canonical key order), any other body as trimmed text.
  */

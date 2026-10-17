@@ -22,6 +22,8 @@ const SENTINEL = 'sentinel-host-text-9d2e';
 type Answer =
   | { readonly status: number; readonly body: string }
   | 'throw'
+  /** Rejects with an Error whose `name` carries the sentinel (R1-1). */
+  | 'throw-hostile-name'
   /** Rejects when the request signal aborts. */
   | 'hang'
   /** Never settles, ignoring the signal. */
@@ -73,6 +75,11 @@ function harness(
       await Promise.resolve();
       if (answer === 'throw') {
         throw new TypeError(`fetch failed ${SENTINEL} ${url}`);
+      }
+      if (answer === 'throw-hostile-name') {
+        const error = new Error('fetch failed');
+        error.name = `Authorization: Bearer ${SENTINEL}`;
+        throw error;
       }
       if (answer === 'ignore-abort') {
         return await new Promise<never>(() => undefined);
@@ -278,6 +285,38 @@ describe('DecisionModelCatalog — local Ollama (4.2, 4.3, 4.6)', () => {
       filter: 'unavailable',
       undetermined: 0,
     });
+    expect(loggedText(h.logger)).not.toContain(SENTINEL);
+  });
+
+  it('logs a fixed category when a failure carries the key in its name (R1-1)', async () => {
+    const hostile = new Error('base url');
+    hostile.name = `Authorization: Bearer ${SENTINEL}`;
+    const h = harness(() => tags([]), {
+      baseUrl: () => {
+        throw hostile;
+      },
+    });
+
+    await expect(h.catalog.list('ollama')).resolves.toMatchObject({
+      filter: 'unavailable',
+    });
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      '[lane-routing] decision model catalog failed',
+      expect.objectContaining({ errorName: 'other' }),
+    );
+    expect(loggedText(h.logger)).not.toContain(SENTINEL);
+  });
+
+  it('logs a fixed category when a request rejects with the key in its name (R1-1)', async () => {
+    const h = harness(() => 'throw-hostile-name');
+
+    await expect(h.catalog.list('ollama')).resolves.toMatchObject({
+      filter: 'unavailable',
+    });
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      '[lane-routing] decision model catalog request failed',
+      expect.objectContaining({ errorName: 'other' }),
+    );
     expect(loggedText(h.logger)).not.toContain(SENTINEL);
   });
 

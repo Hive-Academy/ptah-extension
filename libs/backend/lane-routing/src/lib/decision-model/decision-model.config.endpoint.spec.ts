@@ -1304,4 +1304,233 @@ describe('review round 1: untrusted errors, invalid overrides, key rotation, sta
       expect(loggedText(h.logger)).not.toContain(KEY_A);
     });
   });
+
+  describe('round 2, R1-1: an error name that carries the key is never logged', () => {
+    function hostile(text: string): Error {
+      const error = new Error('rejected');
+      error.name = text;
+      return error;
+    }
+
+    it('a fetch rejection naming the Authorization header logs a fixed category', async () => {
+      const h = harness({
+        selection: CUSTOM,
+        secrets: customKeys(SENTINEL),
+        fetch: async (_url, init) => {
+          throw hostile(
+            `Authorization: ${init?.headers?.['authorization'] ?? ''}`,
+          );
+        },
+      });
+
+      const status = await h.config.getStatus();
+
+      expect(status).toMatchObject({
+        state: 'unreachable',
+        detail: DECISION_MODEL_DETAIL.unreachable,
+      });
+      expect(h.logger.warn).toHaveBeenCalledWith(
+        '[lane-routing] decision model probe request failed',
+        expect.objectContaining({ errorName: 'other' }),
+      );
+      expect(loggedText(h.logger)).not.toContain(SENTINEL);
+      expect(loggedText(h.logger)).not.toContain('Authorization');
+      expect(JSON.stringify(status)).not.toContain(SENTINEL);
+    });
+
+    it('a key-store rejection naming the key logs a fixed category', async () => {
+      const h = harness({ selection: CUSTOM, fetch: neverCalled });
+      jest.spyOn(h.secrets, 'get').mockRejectedValue(hostile(SENTINEL));
+
+      const status = await h.config.getStatus();
+
+      expect(status.detail).toBe(DECISION_MODEL_DETAIL.credentialStore);
+      expect(h.logger.warn).toHaveBeenCalledWith(
+        '[lane-routing] decision model key lookup failed',
+        { kind: 'custom', errorName: 'other' },
+      );
+      expect(loggedText(h.logger)).not.toContain(SENTINEL);
+    });
+
+    it('a key-store rejection whose name getter throws logs a fixed category', async () => {
+      const h = harness({ selection: CUSTOM, fetch: neverCalled });
+      const throwing = new Error('rejected');
+      Object.defineProperty(throwing, 'name', {
+        get(): string {
+          throw new Error(SENTINEL);
+        },
+      });
+      jest.spyOn(h.secrets, 'get').mockRejectedValue(throwing);
+
+      const status = await h.config.getStatus();
+
+      expect(status.detail).toBe(DECISION_MODEL_DETAIL.credentialStore);
+      expect(h.logger.warn).toHaveBeenCalledWith(
+        '[lane-routing] decision model key lookup failed',
+        { kind: 'custom', errorName: 'other' },
+      );
+      expect(loggedText(h.logger)).not.toContain(SENTINEL);
+    });
+
+    it('a mark write rejected with the key in its name logs a fixed category', async () => {
+      const server = keyedServer({ notServed: [KEY_A] });
+      const h = harness({
+        selection: CUSTOM,
+        secrets: customKeys(KEY_A),
+        fetch: server.fetch,
+      });
+      h.storage.update.mockRejectedValueOnce(hostile(`Bearer ${KEY_A}`));
+
+      const status = await h.config.getStatus();
+
+      expect(status.state).toBe('unsupported-endpoint');
+      expect(h.logger.warn).toHaveBeenCalledWith(
+        '[lane-routing] decision model unsupported mark was not persisted',
+        { errorName: 'other' },
+      );
+      expect(loggedText(h.logger)).not.toContain(KEY_A);
+    });
+
+    it('a mark read rejected with the key in its name logs a fixed category', async () => {
+      const first = harness({ selection: CUSTOM, fetch: neverCalled });
+      jest.spyOn(first.storage, 'get').mockImplementation(() => {
+        throw hostile(`Bearer ${SENTINEL}`);
+      });
+
+      const fresh = restart(first, neverCalled);
+
+      expect(fresh.logger.warn).toHaveBeenCalledWith(
+        '[lane-routing] decision model unsupported mark could not be read',
+        { errorName: 'other' },
+      );
+      expect(loggedText(fresh.logger)).not.toContain(SENTINEL);
+    });
+  });
+
+  describe('round 2, R1-2: a mark loaded after a restart is unverified until reprobed', () => {
+    /** Marks CUSTOM unsupported under key A, with a live detail on the mark. */
+    async function markedUnderA(): Promise<Harness> {
+      const server = keyedServer({ notServed: [KEY_A] });
+      const h = harness({
+        selection: CUSTOM,
+        secrets: customKeys(KEY_A),
+        fetch: server.fetch,
+      });
+      const marked = await h.config.recheckAfterLiveNotFound(
+        { selection: CUSTOM, baseUrl: CUSTOM.baseUrl },
+        'old 404 under A',
+      );
+      expect(marked.state).toBe('unsupported-endpoint');
+      expect(h.storage.__state.entries.get(MARK_KEY)).toMatchObject({
+        selection: CUSTOM,
+        detail: expect.stringContaining('old 404 under A'),
+      });
+      return h;
+    }
+
+    async function rotateToB(h: Harness): Promise<void> {
+      await h.secrets.store(
+        DECISION_MODEL_CUSTOM_SECRET_KEY,
+        customKeyValue(GATEWAY, KEY_B),
+      );
+    }
+
+    it('reports no mark for key B before any probe', async () => {
+      const h = await markedUnderA();
+      await rotateToB(h);
+      const server = keyedServer({ notServed: [] });
+
+      const fresh = restart(h, server.fetch);
+
+      expect(await fresh.config.isMarkedUnsupported()).toBe(false);
+      expect(server.calls).toEqual([]);
+    });
+
+    it('a ready probe under key B clears the old mark', async () => {
+      const h = await markedUnderA();
+      await rotateToB(h);
+      const server = keyedServer({ notServed: [KEY_A] });
+      const fresh = restart(h, server.fetch);
+
+      const status = await fresh.config.getStatus();
+
+      expect(status).toMatchObject({ state: 'ready', detail: null });
+      expect(server.calls.map(authorizationOf)).toEqual([
+        `Bearer ${KEY_B}`,
+        `Bearer ${KEY_B}`,
+      ]);
+      expect(await fresh.config.isMarkedUnsupported()).toBe(false);
+      expect(h.storage.__state.entries.get(MARK_KEY)).toBeUndefined();
+    });
+
+    it('an unsupported probe under key B replaces the mark and its detail', async () => {
+      const h = await markedUnderA();
+      await rotateToB(h);
+      const server = keyedServer({ notServed: [KEY_A, KEY_B] });
+      const fresh = restart(h, server.fetch);
+
+      const status = await fresh.config.getStatus();
+
+      expect(status.state).toBe('unsupported-endpoint');
+      expect(status.detail).not.toContain('old 404 under A');
+      expect(server.calls.map(authorizationOf)).toEqual([
+        `Bearer ${KEY_B}`,
+        `Bearer ${KEY_B}`,
+      ]);
+      const stored = h.storage.__state.entries.get(MARK_KEY);
+      expect(stored).toMatchObject({
+        selection: CUSTOM,
+        detail: status.detail,
+      });
+      expect(JSON.stringify(stored)).not.toContain('old 404 under A');
+      expect(await fresh.config.isMarkedUnsupported()).toBe(true);
+
+      // The new mark is bound to key B: rotating back to A does not inherit it.
+      await h.secrets.store(
+        DECISION_MODEL_CUSTOM_SECRET_KEY,
+        customKeyValue(GATEWAY, KEY_A),
+      );
+      expect(await fresh.config.isMarkedUnsupported()).toBe(false);
+      for (const text of [loggedText(fresh.logger), persistedText(h)]) {
+        expect(text).not.toContain(KEY_A);
+        expect(text).not.toContain(KEY_B);
+      }
+    });
+
+    it('an unreachable probe under key B leaves no usable mark', async () => {
+      const h = await markedUnderA();
+      await rotateToB(h);
+      const unreachable: SystemOneFetch = async () => {
+        throw new TypeError('fetch failed');
+      };
+      const fresh = restart(h, unreachable);
+
+      const status = await fresh.config.getStatus();
+
+      expect(status).toMatchObject({
+        state: 'unreachable',
+        detail: DECISION_MODEL_DETAIL.unreachable,
+      });
+      expect(JSON.stringify(status)).not.toContain('old 404 under A');
+      expect(await fresh.config.isMarkedUnsupported()).toBe(false);
+    });
+
+    it('the same key A is unverified after a restart until a probe confirms it', async () => {
+      const h = await markedUnderA();
+      const server = keyedServer({ notServed: [KEY_A] });
+      const fresh = restart(h, server.fetch);
+
+      expect(await fresh.config.isMarkedUnsupported()).toBe(false);
+      expect(server.calls).toEqual([]);
+
+      const status = await fresh.config.getStatus();
+
+      expect(status.state).toBe('unsupported-endpoint');
+      expect(server.calls.map(authorizationOf)).toEqual([
+        `Bearer ${KEY_A}`,
+        `Bearer ${KEY_A}`,
+      ]);
+      expect(await fresh.config.isMarkedUnsupported()).toBe(true);
+    });
+  });
 });

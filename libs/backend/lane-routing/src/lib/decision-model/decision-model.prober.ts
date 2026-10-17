@@ -14,12 +14,11 @@
  */
 import type { LaneRoutingLogger } from '../lane-routing-logger';
 import { keyTransportAllowed } from './decision-endpoint.url';
-import { DECISION_MODEL_DETAIL } from './decision-model.detail';
+import { DECISION_MODEL_DETAIL, errorName } from './decision-model.detail';
 import {
   buildProbeUrls,
   checkVersion,
   discriminate,
-  errorName,
   type ProbeAnswer,
 } from './decision-model.probe';
 import type { DecisionEndpointProbe } from './decision-model.target';

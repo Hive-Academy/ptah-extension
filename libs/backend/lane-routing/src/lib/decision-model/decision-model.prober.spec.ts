@@ -383,6 +383,67 @@ describe('DecisionEndpointProber, failures and logs', () => {
     ]);
   });
 
+  it('a rejection whose name carries the key logs a fixed category (R1-1)', async () => {
+    const hostile: SystemOneFetch = async (_url, init) => {
+      const error = new Error('rejected');
+      error.name = `Authorization: ${init?.headers?.['authorization'] ?? ''}`;
+      throw error;
+    };
+    const { prober: p, entries } = prober(hostile);
+
+    const result = await p.probe(ENDPOINT);
+
+    expect(result).toEqual({
+      outcome: 'unreachable',
+      detail: DECISION_MODEL_DETAIL.unreachable,
+    });
+    const logged = JSON.stringify(entries);
+    expect(logged).not.toContain(KEY);
+    expect(logged).not.toContain('Authorization');
+    expect(
+      entries.filter(
+        (e) =>
+          e.message === '[lane-routing] decision model probe request failed',
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        meta: expect.objectContaining({ errorName: 'other' }),
+      }),
+      expect.objectContaining({
+        meta: expect.objectContaining({ errorName: 'other' }),
+      }),
+    ]);
+  });
+
+  it('a body read whose name getter throws logs a fixed category (R1-1)', async () => {
+    const reading: SystemOneFetch = async () => ({
+      ok: false,
+      status: 400,
+      text: async () => {
+        const error = new Error('body');
+        Object.defineProperty(error, 'name', {
+          get(): string {
+            throw new Error(`getter ${KEY}`);
+          },
+        });
+        throw error;
+      },
+    });
+    const { prober: p, entries } = prober(reading);
+
+    const result = await p.probe(ENDPOINT);
+
+    expect(result).toEqual({
+      outcome: 'unreachable',
+      detail: DECISION_MODEL_DETAIL.unreachable,
+    });
+    expect(JSON.stringify(entries)).not.toContain(KEY);
+    expect(entries).toContainEqual({
+      message: '[lane-routing] decision model probe request failed',
+      meta: expect.objectContaining({ errorName: 'other' }),
+    });
+  });
+
   it('a body read that rejects with the key logs only the error name', async () => {
     const reading: SystemOneFetch = async () => ({
       ok: false,

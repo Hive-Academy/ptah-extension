@@ -22,7 +22,7 @@
  */
 import { toCloudId } from '@ptah-extension/shared';
 import type { LaneRoutingLogger } from '../lane-routing-logger';
-import { errorName } from './decision-model.probe';
+import { errorName } from './decision-model.detail';
 import {
   OllamaShowResponseSchema,
   OllamaTagEntrySchema,

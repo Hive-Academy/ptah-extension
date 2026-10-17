@@ -533,4 +533,37 @@ describe('SystemOneClient', () => {
     expect(JSON.stringify(entries)).not.toContain(secret);
     expect(JSON.stringify(entries)).toContain('nimble');
   });
+
+  it('never copies a transport error name into a log or detail (R1-1)', async () => {
+    const entries: Array<{ message: string; meta: Record<string, unknown> }> =
+      [];
+    const record = (message: string, meta?: Record<string, unknown>): void => {
+      entries.push({ message, meta: meta ?? {} });
+    };
+    const logger: LaneRoutingLogger = {
+      debug: record,
+      info: record,
+      warn: record,
+      error: record,
+    };
+    const key = 'sk-hostile-name-key-61b0';
+    const transport = new SystemOneClient(
+      { baseUrl: 'https://gateway.example', model: 'nimble', apiKey: key },
+      {
+        fetch: (_url, init) => {
+          const error = new Error('rejected');
+          error.name = `Authorization: ${init?.headers?.['authorization'] ?? ''}`;
+          return Promise.reject(error);
+        },
+        logger,
+      },
+    );
+
+    const failure = requireFailure(await transport.decide(payload));
+
+    expect(failure.cause).toBe('unreachable');
+    expect(failure.detail).toBe('transport error (other)');
+    expect(JSON.stringify(entries)).not.toContain(key);
+    expect(JSON.stringify(entries)).not.toContain('Authorization');
+  });
 });

@@ -1,5 +1,6 @@
 import type { LaneRoutingLogger } from '../lane-routing-logger';
 import { originOf, systemOneUrl } from './decision-endpoint.url';
+import { errorName } from './decision-model.detail';
 import type { DecisionPayload } from './decision-payload';
 import {
   SystemOneResultSchema,
@@ -207,8 +208,8 @@ export class SystemOneClient {
    * from OAuth discovery): the signal's only source is the request timeout,
    * so an aborted signal is a timeout and every other rejection is a
    * network failure (connection refused, DNS, TLS — Req 12.7 `unreachable`).
-   * The rejection message is untrusted and is not copied into the detail or
-   * the log; only the error name is.
+   * The rejection message and name are untrusted and are not copied into
+   * the detail or the log; only the fixed category of `errorName` is.
    */
   private classifyTransportFailure(
     signal: AbortSignal,
@@ -220,10 +221,8 @@ export class SystemOneClient {
         this.failure('timeout', `request timed out after ${timeoutMs} ms`),
       );
     }
-    const name =
-      error instanceof Error && error.name.length > 0 ? error.name : 'Error';
     return this.logged(
-      this.failure('unreachable', `transport error (${name})`),
+      this.failure('unreachable', `transport error (${errorName(error)})`),
     );
   }
 
