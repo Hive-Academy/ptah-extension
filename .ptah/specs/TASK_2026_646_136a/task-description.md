@@ -124,6 +124,9 @@ Acceptance criteria:
    research lists tev1, nimble, clef-flash, clef and laya, `research-decision-models.md:38-44`). Rationale: the three
    kinds are the user's agreed shape (context.md:75); no separate "Ollama Cloud" choice is offered because serving of
    decision models on Ollama Cloud is not documented (`research-decision-models.md:209,545`).
+   > Correction (2026-10-17, TASK_2026_684_a11d): `clef:27b` is served on Ollama Cloud with the `decision`
+   > capability, so this rationale no longer holds. Source: `.ptah/specs/TASK_2026_684_a11d/context.md`,
+   > "Ollama Cloud API".
 3. When the selection is unset, the system shall make no decision-model network request during orchestration. A test
    asserts zero outbound decision requests across a Pre-flight and a Gate 0.1 call.
 4. When the selected model is served off the machine (Jev, a remote Ollama endpoint, or a hosted structured-output
