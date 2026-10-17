@@ -752,6 +752,11 @@ Webkit pseudo-elements kept as fallback for older webview hosts.
 MOTION
 ============================================================================ */
 
+html.ptah-vt-none,
+html.ptah-vt-none * {
+  view-transition-name: none !important;
+}
+
 html.ptah-vt-active:not(.ptah-vt-entering) .ptah-vt-surface {
   view-transition-name: ptah-surface;
 }

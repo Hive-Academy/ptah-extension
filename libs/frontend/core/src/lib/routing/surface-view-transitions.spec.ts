@@ -60,11 +60,16 @@ interface StubTransition {
   transition: ViewTransition;
   skip: jest.Mock;
   finish: () => void;
+  rejectFinish: (reason: Error) => void;
 }
 
 function makeTransition(): StubTransition {
   let finish: () => void = () => undefined;
-  const finished = new Promise<void>((resolve) => { finish = resolve; });
+  let rejectFinish: (reason: Error) => void = () => undefined;
+  const finished = new Promise<void>((resolve, reject) => {
+    finish = resolve;
+    rejectFinish = reject;
+  });
   const skip = jest.fn();
   return {
     transition: {
@@ -76,6 +81,7 @@ function makeTransition(): StubTransition {
     },
     skip,
     finish,
+    rejectFinish,
   };
 }
 
@@ -118,13 +124,14 @@ describe('surface view transitions', () => {
 
   afterEach(async () => {
     created.forEach(({ finish }) => finish());
-    await Promise.resolve();
+    await Promise.all(created.map(({ transition }) => transition.finished.catch(() => undefined)));
     if (originalStart) Object.defineProperty(document, 'startViewTransition', originalStart);
     else Reflect.deleteProperty(document, 'startViewTransition');
     if (originalMatch) Object.defineProperty(globalThis, 'matchMedia', originalMatch);
     else Reflect.deleteProperty(globalThis, 'matchMedia');
     expect(document.documentElement.classList.contains('ptah-vt-active')).toBe(false);
     expect(document.documentElement.classList.contains('ptah-vt-entering')).toBe(false);
+    expect(document.documentElement.classList.contains('ptah-vt-none')).toBe(false);
   });
 
   it('skips the first navigation, then tracks chat to settings', async () => {
@@ -150,13 +157,87 @@ describe('surface view transitions', () => {
     ['/settings;panel=x', '/settings'],
     ['/chat/a', '/'],
     ['/chat/a', '/unrecognised'],
-  ])('skips same-surface navigation %s to %s', async (from, to) => {
+  ])('captures no snapshots for same-surface navigation %s to %s', async (from, to) => {
     await harness.navigateByUrl(from);
     await harness.navigateByUrl(to);
     expect(created).toHaveLength(1);
-    expect(created[0].skip).toHaveBeenCalledTimes(1);
+    expect(created[0].skip).not.toHaveBeenCalled();
     expect(tracker.busy()).toBe(false);
     expect(document.documentElement.classList.contains('ptah-vt-active')).toBe(false);
+    expect(document.documentElement.classList.contains('ptah-vt-none')).toBe(true);
+    document.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    expect(created[0].skip).not.toHaveBeenCalled();
+    created[0].finish();
+    await created[0].transition.finished;
+    expect(document.documentElement.classList.contains('ptah-vt-none')).toBe(false);
+  });
+
+  it('clears the no-snapshot class when finished rejects', async () => {
+    await harness.navigateByUrl('/chat');
+    await harness.navigateByUrl('/chat/a');
+    expect(document.documentElement.classList.contains('ptah-vt-none')).toBe(true);
+    const error = new Error('view update failed');
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      created[0].rejectFinish(error);
+      await expect(created[0].transition.finished).rejects.toBe(error);
+      expect(document.documentElement.classList.contains('ptah-vt-none')).toBe(false);
+      expect(consoleError).toHaveBeenCalledWith(error);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it('keeps the no-snapshot class until overlapping session switches finish', async () => {
+    await harness.navigateByUrl('/chat');
+    await harness.navigateByUrl('/chat/a');
+    await harness.navigateByUrl('/chat/b');
+    expect(created).toHaveLength(2);
+    created[0].finish();
+    await created[0].transition.finished;
+    expect(document.documentElement.classList.contains('ptah-vt-none')).toBe(true);
+    created[1].finish();
+    await created[1].transition.finished;
+    expect(document.documentElement.classList.contains('ptah-vt-none')).toBe(false);
+    expect(created[0].skip).not.toHaveBeenCalled();
+    expect(created[1].skip).not.toHaveBeenCalled();
+  });
+
+  it('restores cross-surface capture before tracking and ignores the old finish', async () => {
+    await harness.navigateByUrl('/chat');
+    await harness.navigateByUrl('/chat/a');
+    expect(document.documentElement.classList.contains('ptah-vt-none')).toBe(true);
+    const classAtTrack: boolean[] = [];
+    const track = tracker.track.bind(tracker);
+    const trackSpy = jest.spyOn(tracker, 'track').mockImplementation((transition) => {
+      classAtTrack.push(document.documentElement.classList.contains('ptah-vt-none'));
+      track(transition);
+    });
+    try {
+      await harness.navigateByUrl('/settings');
+      expect(classAtTrack).toEqual([false]);
+      expect(document.documentElement.classList.contains('ptah-vt-none')).toBe(false);
+      expect(tracker.busy()).toBe(true);
+      created[0].finish();
+      await created[0].transition.finished;
+      expect(document.documentElement.classList.contains('ptah-vt-none')).toBe(false);
+      expect(tracker.busy()).toBe(true);
+      created[1].finish();
+      await created[1].transition.finished;
+    } finally {
+      trackSpy.mockRestore();
+    }
+  });
+
+  it('clears the no-snapshot class when the router injector is destroyed', async () => {
+    await harness.navigateByUrl('/chat');
+    await harness.navigateByUrl('/chat/a');
+    expect(document.documentElement.classList.contains('ptah-vt-none')).toBe(true);
+    TestBed.resetTestingModule();
+    expect(document.documentElement.classList.contains('ptah-vt-none')).toBe(false);
+    created[0].finish();
+    await created[0].transition.finished;
+    expect(document.documentElement.classList.contains('ptah-vt-none')).toBe(false);
   });
 
   it.each(['/','/unrecognised'])('animates settings to redirect %s', async (to) => {
@@ -167,16 +248,20 @@ describe('surface view transitions', () => {
     expect(tracker.busy()).toBe(true);
   });
 
-  it('skips a navigation under reduced motion', async () => {
+  it('captures no snapshots under reduced motion', async () => {
     await harness.navigateByUrl('/chat');
     Object.defineProperty(globalThis, 'matchMedia', {
       configurable: true,
       value: jest.fn().mockReturnValue({ matches: true }),
     });
     await harness.navigateByUrl('/settings');
-    expect(created[0].skip).toHaveBeenCalledTimes(1);
+    expect(created[0].skip).not.toHaveBeenCalled();
     expect(tracker.busy()).toBe(false);
     expect(document.documentElement.classList.contains('ptah-vt-active')).toBe(false);
+    expect(document.documentElement.classList.contains('ptah-vt-none')).toBe(true);
+    created[0].finish();
+    await created[0].transition.finished;
+    expect(document.documentElement.classList.contains('ptah-vt-none')).toBe(false);
   });
 
   it('does not create a transition for a guard-cancelled navigation', async () => {

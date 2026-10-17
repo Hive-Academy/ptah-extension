@@ -98,16 +98,41 @@ export class SurfaceTransitionTracker {
 }
 
 export function withSurfaceViewTransitions(): ViewTransitionsFeature {
+  let noSnapshotTransitions = 0;
+  let generation = 0;
+  let cleanupRegistered = false;
   return withViewTransitions({
     skipInitialTransition: true,
     onViewTransitionCreated: ({ transition, from, to }) => {
-      // Skip, not a zero-duration transition: a session switch changes the URL, and a
-      // running transition would capture page snapshots on every switch. Dev builds log
-      // the skipped transition's rejected `ready` promise; production builds do not.
+      const root = inject(DOCUMENT).documentElement;
+      // The callback runs before the capture frame. With every view-transition-name
+      // cleared, the browser has no snapshots to animate and ready can resolve.
       if (!shouldAnimateSurfaceChange(from, to, prefersReducedMotion())) {
-        transition.skipTransition();
+        if (!cleanupRegistered) {
+          inject(DestroyRef).onDestroy(() => {
+            generation++;
+            noSnapshotTransitions = 0;
+            root.classList.remove('ptah-vt-none');
+          });
+          cleanupRegistered = true;
+        }
+        const transitionGeneration = generation;
+        noSnapshotTransitions++;
+        root.classList.add('ptah-vt-none');
+        const clearNoSnapshotClass = () => {
+          if (transitionGeneration !== generation) return;
+          noSnapshotTransitions--;
+          if (noSnapshotTransitions === 0) root.classList.remove('ptah-vt-none');
+        };
+        void transition.finished.then(
+          clearNoSnapshotClass,
+          clearNoSnapshotClass,
+        );
         return;
       }
+      generation++;
+      noSnapshotTransitions = 0;
+      root.classList.remove('ptah-vt-none');
       inject(SurfaceTransitionTracker).track(transition);
     },
   });
