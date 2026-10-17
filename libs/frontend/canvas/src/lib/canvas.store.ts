@@ -283,11 +283,11 @@ export class CanvasStore {
   /**
    * Add a tile for an existing session. If a tile for this session already
    * exists, focuses it instead of creating a duplicate.
-   * @returns The tabId, or null if the tile cap is reached.
+   * The existing-tile lookup runs before the cap check: focusing an open tile
+   * adds nothing, so it succeeds even when the board is full.
+   * @returns The tabId, or null if a new tile is needed and the cap is reached.
    */
   addTileFromSession(sessionId: SessionId, name?: string): string | null {
-    if (this.tiles().length >= CanvasStore.MAX_TILES) return null;
-
     const existingTile = this.tiles().find((t) => {
       const tab = this.tabManager.tabs().find((tab) => tab.id === t.tabId);
       return tab?.claudeSessionId === sessionId;
@@ -296,6 +296,8 @@ export class CanvasStore {
       this.focusTile(existingTile.tabId);
       return existingTile.tabId;
     }
+
+    if (this.tiles().length >= CanvasStore.MAX_TILES) return null;
 
     const tabId = this.tabManager.openSessionTab(sessionId, name);
     this.appendTile(tabId);

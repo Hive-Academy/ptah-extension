@@ -614,6 +614,12 @@ describe('OrchestraCanvasComponent workspace effects', () => {
     await Promise.resolve();
 
     expect(resolve).toHaveBeenCalledWith(false);
+    // One request, one tile add, one load, one settle: the failed load does
+    // not retry, re-queue or settle twice (Phase 4 visual M2).
+    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(canvasStoreMock.addTileFromSession).toHaveBeenCalledTimes(1);
+    expect(switchSessionMock).toHaveBeenCalledTimes(1);
+    expect(takeCanvasSessionRequestsMock).toHaveBeenCalledTimes(1);
     expect(consoleError).toHaveBeenCalledWith(
       '[OrchestraCanvas] Failed to open queued session tile',
       error,
