@@ -530,6 +530,8 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
             activeSessionSubagents: activeSessionSubagentsSig,
             sessionSubagentsForSession: sessionSubagentsForSessionMock,
             activeTabAgents: activeTabAgentsSig,
+            agents: activeTabAgentsSig,
+            agentsById: signal(new Map()),
             pendingPermissions: signal([]),
             panelOpen: signal(true),
             closePanel: jest.fn(),

@@ -1,5 +1,19 @@
 import type { ExecutionNode } from '@ptah-extension/shared';
-import { extractMessageSummary } from './message-summary.utils';
+import { extractMessageSummary, summarizeExecutionNodes } from './message-summary.utils';
+
+describe('summarizeExecutionNodes', () => {
+  it('counts nested tools and distinct file paths across roots', () => {
+    const tool = (id: string, file: string): ExecutionNode => ({
+      id, type: 'tool', status: 'complete', content: '', isCollapsed: false,
+      toolInput: { file_path: file }, children: [],
+    });
+    expect(summarizeExecutionNodes([
+      { ...text('root'), children: [tool('a', 'one.ts'), tool('b', 'one.ts')] },
+      tool('c', 'two.ts'),
+    ])).toEqual({ toolCount: 3, filesChanged: 2 });
+    expect(summarizeExecutionNodes([])).toEqual({ toolCount: 0, filesChanged: 0 });
+  });
+});
 
 function text(content: string): ExecutionNode {
   return {
