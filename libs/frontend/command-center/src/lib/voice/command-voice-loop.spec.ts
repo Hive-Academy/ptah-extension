@@ -230,6 +230,91 @@ describe('CommandVoiceLoop', () => {
     },
   );
 
+  it('keeps provider labels after voice starts', async () => {
+    const originalNode = globalThis.AudioWorkletNode;
+    const store = new CommandCenterStore();
+    const context = Object.assign(Object.create(null) as AudioContext, {
+      audioWorklet: { addModule: jest.fn().mockResolvedValue(undefined) },
+      createMediaStreamSource: () => ({
+        connect: jest.fn(),
+        disconnect: jest.fn(),
+      }),
+      destination: {},
+      close: jest.fn().mockResolvedValue(undefined),
+    });
+    Object.defineProperty(globalThis, 'AudioWorkletNode', {
+      configurable: true,
+      value: jest.fn(() => ({
+        port: { onmessage: null, close: jest.fn() },
+        connect: jest.fn(),
+        disconnect: jest.fn(),
+      })),
+    });
+    const loop = new CommandVoiceLoop(
+      store,
+      Object.assign(Object.create(null) as CommandCenterSessionCoordinator, {
+        startVoice: jest.fn(),
+      }),
+      Object.assign(Object.create(null) as ClaudeRpcService, {
+        call: jest.fn().mockResolvedValue({
+          success: true,
+          data: {
+            ok: true,
+            config: {
+              sttProvider: 'local',
+              ttsProvider: 'local',
+              local: {
+                sttDownloaded: true,
+                ttsDownloaded: true,
+                modelSource: 'curated',
+                whisperModel: 'tiny',
+                ttsVoice: 'nova',
+              },
+              elevenlabs: { apiKeyConfigured: false },
+            },
+          },
+        }),
+      }),
+      {
+        sendTranscript: async () => true,
+        captureFactories: {
+          getUserMedia: async () =>
+            Object.assign(Object.create(null) as MediaStream, {
+              getTracks: () => [],
+            }),
+          audioContext: () => context,
+        },
+      },
+    );
+    try {
+      await expect(loop.start()).resolves.toBe(true);
+      expect(store.provider()).toEqual({
+        transcription: true,
+        synthesis: true,
+        stt: {
+          providerId: 'local',
+          providerLabel: 'Local',
+          modelLabel: 'tiny',
+          ready: true,
+          status: 'Ready',
+        },
+        tts: {
+          providerId: 'local',
+          providerLabel: 'Local',
+          modelLabel: 'nova',
+          ready: true,
+          status: 'Ready',
+        },
+      });
+    } finally {
+      await loop.exit();
+      Object.defineProperty(globalThis, 'AudioWorkletNode', {
+        configurable: true,
+        value: originalNode,
+      });
+    }
+  });
+
   it('ignores Mute before voice has started', async () => {
     const store = new CommandCenterStore();
     const mute = jest.fn();
@@ -433,10 +518,14 @@ describe('CommandVoiceLoop', () => {
       },
     );
     await expect(loop.start()).resolves.toBe(false);
-    expect(setProvider).toHaveBeenCalledWith({
-      transcription: false,
-      synthesis: true,
-    });
+    expect(setProvider).toHaveBeenCalledWith(
+      expect.objectContaining({
+        transcription: false,
+        synthesis: true,
+        stt: expect.objectContaining({ providerId: 'local', ready: false }),
+        tts: expect.objectContaining({ providerId: 'local', ready: true }),
+      }),
+    );
     expect(getUserMedia).not.toHaveBeenCalled();
   });
 

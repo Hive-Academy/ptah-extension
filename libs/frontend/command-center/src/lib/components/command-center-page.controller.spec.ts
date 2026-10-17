@@ -1045,7 +1045,7 @@ describe('CommandCenterPageController', () => {
 
   it('declines an untagged Tribunal choice and rejects click and spoken approval', async () => {
     page.store.setSession('root-tab', 'session', '/workspace');
-    await page.sendCommand('Council review');
+    await page.sendCommand('run council review');
     questionRequests.set([
       {
         id: 'q-untagged',
@@ -1208,7 +1208,7 @@ describe('CommandCenterPageController', () => {
 
   it('restores ordinary Confirm after a proposal resolves', async () => {
     page.store.setSession('root-tab', 'session', '/workspace');
-    await page.sendCommand('Council review');
+    await page.sendCommand('run council review');
     const nonce =
       /"nonce":"([^"]+)"/.exec(
         coordinator.send.mock.calls.at(-1)?.[0] ?? '',
@@ -1224,7 +1224,7 @@ describe('CommandCenterPageController', () => {
 
   it('restores ordinary Confirm after a request turn ends without a proposal', async () => {
     page.store.setSession('root-tab', 'session', '/workspace');
-    await page.sendCommand('Council review');
+    await page.sendCommand('run council review');
     const pulse: TerminalTurnPulse = {
       seq: 1,
       tabId: 'root-tab',
@@ -1291,7 +1291,7 @@ describe('CommandCenterPageController', () => {
 
   it('declines deviating untagged output on the root session while Tribunal is outstanding', async () => {
     page.store.setSession('root-tab', 'session', '/workspace');
-    await page.sendCommand('Council review');
+    await page.sendCommand('run council review');
     questionRequests.set([
       {
         id: 'q-deviating',
@@ -1322,7 +1322,7 @@ describe('CommandCenterPageController', () => {
 
   it('blocks text and voice sends after a failed Decline until an explicit retry succeeds', async () => {
     page.store.setSession('root-tab', 'session', '/workspace');
-    await page.sendCommand('Council review');
+    await page.sendCommand('run council review');
     transport.answer.mockReturnValueOnce(false);
     const request = {
       id: 'q-deviating',
@@ -1355,7 +1355,7 @@ describe('CommandCenterPageController', () => {
 
   it('clears a failed Decline and its retry timer on exit', async () => {
     page.store.setSession('root-tab', 'session', '/workspace');
-    await page.sendCommand('Council review');
+    await page.sendCommand('run council review');
     transport.answer.mockReturnValue(false);
     questionRequests.set([
       {
@@ -1392,7 +1392,7 @@ describe('CommandCenterPageController', () => {
       },
     ]);
     TestBed.tick();
-    await page.sendCommand('Council review');
+    await page.sendCommand('run council review');
     const nonce =
       /"nonce":"([^"]+)"/.exec(
         coordinator.send.mock.calls.at(-1)?.[0] ?? '',
@@ -1446,7 +1446,7 @@ describe('CommandCenterPageController', () => {
       },
     ]);
     TestBed.tick();
-    await page.sendCommand('Council review');
+    await page.sendCommand('run council review');
     const nonce =
       /"nonce":"([^"]+)"/.exec(
         coordinator.send.mock.calls.at(-1)?.[0] ?? '',
@@ -1462,16 +1462,24 @@ describe('CommandCenterPageController', () => {
     expect(prompt).toHaveBeenCalledTimes(1);
   });
 
-  it('frames typed move words with a fresh page nonce and root id; ordinary text stays unchanged', async () => {
+  it('frames explicit Tribunal intent with a fresh page nonce and root id; ordinary text stays unchanged', async () => {
     page.store.setSession('root-tab', 'session', '/workspace');
     coordinator.send.mockClear();
-    await page.sendCommand('Review with Council');
+    await page.sendCommand('run a Council review');
     const framed = coordinator.send.mock.calls.at(-1)?.[0] ?? '';
     expect(framed).toContain('<COMMAND_CENTER_TRIBUNAL_REQUEST>');
     expect(framed).toContain('"rootSessionId":"session"');
     expect(framed).toMatch(/"nonce":"[0-9a-f-]{36}"/);
     await page.sendCommand('Just discuss the work');
     expect(coordinator.send).toHaveBeenLastCalledWith('Just discuss the work');
+    await page.sendCommand('fix the race condition');
+    expect(coordinator.send).toHaveBeenLastCalledWith('fix the race condition');
+  });
+
+  it('sends incidental move words without a session as ordinary text', async () => {
+    page.store.setSession('root-tab', null, '/workspace');
+    expect(await page.sendCommand('fix the race condition')).toBe(true);
+    expect(coordinator.send).toHaveBeenLastCalledWith('fix the race condition');
   });
 
   it('opens a matching roster and rejects wrong nonce or root', async () => {
@@ -1479,17 +1487,17 @@ describe('CommandCenterPageController', () => {
     const announce = jest
       .spyOn(page.voice, 'onRosterProposal')
       .mockImplementation();
-    await page.sendCommand('Council review');
+    await page.sendCommand('run council review');
     offer(roster('wrong'), 'q-wrong');
     expect(page.pendingProposal()).toBeNull();
-    await page.sendCommand('Council review');
+    await page.sendCommand('run council review');
     let nonce =
       /"nonce":"([^"]+)"/.exec(
         coordinator.send.mock.calls.at(-1)?.[0] ?? '',
       )?.[1] ?? '';
     offer(roster(nonce, 'wrong'), 'q-root');
     expect(page.pendingProposal()).toBeNull();
-    await page.sendCommand('Council review');
+    await page.sendCommand('run council review');
     nonce =
       /"nonce":"([^"]+)"/.exec(
         coordinator.send.mock.calls.at(-1)?.[0] ?? '',
@@ -1504,7 +1512,7 @@ describe('CommandCenterPageController', () => {
 
   it('confirms once and launches after the manifest without affirmative answer text', async () => {
     page.store.setSession('root-tab', 'session', '/workspace');
-    await page.sendCommand('Relay review');
+    await page.sendCommand('run relay review');
     const nonce =
       /"nonce":"([^"]+)"/.exec(
         coordinator.send.mock.calls.at(-1)?.[0] ?? '',
@@ -1536,9 +1544,31 @@ describe('CommandCenterPageController', () => {
     expect(transport.sendLaunchTurn).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps a retryable roster card and clears one that cannot launch', async () => {
+    page.store.setSession('root-tab', 'session', '/workspace');
+    await page.sendCommand('run council review');
+    const nonce =
+      /"nonce":"([^"]+)"/.exec(
+        coordinator.send.mock.calls.at(-1)?.[0] ?? '',
+      )?.[1] ?? '';
+    offer(roster(nonce));
+    transport.writeManifest.mockReturnValueOnce(false);
+    await page.confirmProposal('p1');
+    expect(page.pendingProposal()?.proposalId).toBe('p1');
+    transport.availability.mockReturnValueOnce({
+      lanes: [],
+      disabledClis: [],
+    });
+    await page.confirmProposal('p1');
+    expect(page.pendingProposal()).toBeNull();
+    const reports = transport.reportFailure.mock.calls.length;
+    await page.confirmProposal('p1');
+    expect(transport.reportFailure).toHaveBeenCalledTimes(reports);
+  });
+
   it('cancels an answered confirmation when Decline is used before launch', async () => {
     page.store.setSession('root-tab', 'session', '/workspace');
-    await page.sendCommand('Council review');
+    await page.sendCommand('run council review');
     const nonce =
       /"nonce":"([^"]+)"/.exec(
         coordinator.send.mock.calls.at(-1)?.[0] ?? '',
@@ -1566,14 +1596,14 @@ describe('CommandCenterPageController', () => {
     const resolved = jest
       .spyOn(page.voice, 'onRosterResolved')
       .mockImplementation();
-    await page.sendCommand('Council review');
+    await page.sendCommand('run council review');
     const first =
       /"nonce":"([^"]+)"/.exec(
         coordinator.send.mock.calls.at(-1)?.[0] ?? '',
       )?.[1] ?? '';
     offer(roster(first));
     page.declineProposal('p1');
-    await page.sendCommand('Forge review');
+    await page.sendCommand('run forge review');
     const second =
       /"nonce":"([^"]+)"/.exec(
         coordinator.send.mock.calls.at(-1)?.[0] ?? '',
@@ -1616,7 +1646,7 @@ describe('CommandCenterPageController', () => {
     jest.useFakeTimers();
     try {
       page.store.setSession('root-tab', 'session', '/workspace');
-      await page.sendCommand('Council review');
+      await page.sendCommand('run council review');
       const nonce =
         /"nonce":"([^"]+)"/.exec(
           coordinator.send.mock.calls.at(-1)?.[0] ?? '',
@@ -1641,7 +1671,7 @@ describe('CommandCenterPageController', () => {
       tabs.set([{ id: 'root-tab', status: 'loaded' }]);
       page.store.setSession('root-tab', 'session', '/workspace');
       TestBed.tick();
-      await page.sendCommand('Council review');
+      await page.sendCommand('run council review');
       const nonce =
         /"nonce":"([^"]+)"/.exec(
           coordinator.send.mock.calls.at(-1)?.[0] ?? '',

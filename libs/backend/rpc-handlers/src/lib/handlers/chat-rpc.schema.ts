@@ -64,6 +64,10 @@ const uuidString = (label: string) =>
 export const ChatStartParamsSchema = z
   .object({
     tabId: uuidString('tabId'),
+    options: z
+      .object({ systemPrompt: SystemPromptSchema })
+      .passthrough()
+      .optional(),
     surfaceMode: z.boolean().optional(),
     mcpToolProfile: z.enum(MCP_TOOL_PROFILES).optional(),
     ptahUiFence: z.boolean().optional(),

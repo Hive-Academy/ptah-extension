@@ -1,4 +1,4 @@
-import { Injectable, inject } from '@angular/core';
+import { DestroyRef, Injectable, inject } from '@angular/core';
 import { AuthStateService } from '@ptah-extension/core';
 import {
   createExecutionChatMessage,
@@ -124,6 +124,32 @@ export class MessageDispatchService {
   private readonly conversation = inject(ConversationService);
   private readonly permissionHandler = inject(PermissionHandlerService);
   private readonly sendLock = inject(CommandCenterSendLockService);
+  private readonly destroyRef = inject(DestroyRef);
+
+  constructor() {
+    let destroyed = false;
+    const unsubscribe = this.sendLock.onRelease((rootTabId) => {
+      queueMicrotask(() => {
+        if (destroyed || this.sendLock.isHeld(rootTabId)) return;
+        const tab = this.tabManager.findTabByIdAcrossWorkspaces(rootTabId)?.tab;
+        if (
+          !tab?.queuedContent?.trim() ||
+          isTabBusyGenerating({
+            status: tab.status,
+            streamingState: tab.streamingState,
+            isStreamingTab: this.tabManager.isTabStreaming(rootTabId),
+          })
+        ) {
+          return;
+        }
+        void this.sendQueuedMessage(rootTabId, tab.queuedContent);
+      });
+    });
+    this.destroyRef.onDestroy(() => {
+      destroyed = true;
+      unsubscribe();
+    });
+  }
 
   /**
    * SDK-native slash commands whose output is only correct on a first-party

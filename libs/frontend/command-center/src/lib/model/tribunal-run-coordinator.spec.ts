@@ -149,6 +149,21 @@ describe('TribunalRunCoordinator', () => {
     );
     expect(transport.reportFailure).toHaveBeenCalledTimes(1);
   });
+  it('retries launch after discovery without awaiting another terminal pulse', async () => {
+    transport.sendLaunchTurn.mockResolvedValueOnce(false);
+    receive(coordinator);
+    expect(await coordinator.confirm('p1')).toEqual({
+      ok: false,
+      reason: 'launch-send-failed',
+      retryable: true,
+    });
+    transport.discoveryComplete.mockImplementation(() => {
+      throw new Error('No second terminal pulse');
+    });
+    expect(await coordinator.confirm('p1')).toEqual({ ok: true });
+    expect(transport.discoveryComplete).toHaveBeenCalledTimes(1);
+    expect(transport.answer).toHaveBeenCalledTimes(1);
+  });
   it('rolls back a failed send and reuses its run ID', async () => {
     transport.sendLaunchTurn.mockResolvedValueOnce(false);
     receive(coordinator);
@@ -329,7 +344,7 @@ describe('TribunalRunCoordinator', () => {
     expect(transport.writeManifest).not.toHaveBeenCalled();
     expect(transport.sendLaunchTurn).not.toHaveBeenCalled();
   });
-  it('removes the earlier run after a retry is cancelled in discovery', async () => {
+  it('removes the earlier run after a retry is cancelled during launch', async () => {
     transport.sendLaunchTurn.mockResolvedValueOnce(false);
     receive(coordinator);
     expect(await coordinator.confirm('p1')).toEqual({
@@ -338,11 +353,12 @@ describe('TribunalRunCoordinator', () => {
       retryable: true,
     });
     const runId = transport.writeManifest.mock.calls[0][1].runId;
-    const discovery = deferred<void>();
-    transport.discoveryComplete.mockReturnValue(discovery.promise);
+    const send = deferred<boolean>();
+    transport.sendLaunchTurn.mockReturnValue(send.promise);
     const retry = coordinator.confirm('p1');
+    await Promise.resolve();
     coordinator.pageExit();
-    discovery.resolve(undefined);
+    send.resolve(false);
     expect(await retry).toEqual({
       ok: false,
       reason: 'cancelled',
@@ -350,7 +366,7 @@ describe('TribunalRunCoordinator', () => {
     });
     expect(transport.removeManifest).toHaveBeenCalledTimes(2);
     expect(transport.removeManifest).toHaveBeenNthCalledWith(2, '/repo', runId);
-    expect(transport.writeManifest).toHaveBeenCalledTimes(1);
+    expect(transport.writeManifest).toHaveBeenCalledTimes(2);
   });
   it('rolls back and consumes a cancelled send that returns false', async () => {
     const send = deferred<boolean>();

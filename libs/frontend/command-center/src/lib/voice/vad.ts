@@ -15,6 +15,7 @@ export class EnergyVad {
   private readonly options: Required<EnergyVadOptions>;
   private aboveSince: number | null = null;
   private belowSince: number | null = null;
+  private dipSince: number | null = null;
   private speechSince: number | null = null;
   private lastTime = -Infinity;
 
@@ -36,6 +37,7 @@ export class EnergyVad {
   public reset(): void {
     this.aboveSince = null;
     this.belowSince = null;
+    this.dipSince = null;
     this.speechSince = null;
     this.lastTime = -Infinity;
   }
@@ -58,19 +60,30 @@ export class EnergyVad {
     const rms = Math.sqrt(sum / samples.length);
     const active =
       rms > Math.max(this.options.noiseFloor, this.options.speechThreshold);
+    const onset = playbackMode
+      ? this.options.playbackStartMs
+      : this.options.speechStartMs;
+    const dipAllowance = Math.min(onset / 2, 60);
     if (active) {
+      if (this.dipSince !== null && timeMs - this.dipSince > dipAllowance) {
+        this.aboveSince = null;
+      }
+      this.dipSince = null;
       this.belowSince = null;
       this.aboveSince ??= timeMs;
-      const onset = playbackMode
-        ? this.options.playbackStartMs
-        : this.options.speechStartMs;
       if (this.speechSince === null && timeMs - this.aboveSince >= onset) {
         this.speechSince = this.aboveSince;
         return 'start';
       }
       return null;
     }
-    this.aboveSince = null;
+    if (rms < this.options.noiseFloor) {
+      this.aboveSince = null;
+      this.dipSince = null;
+    } else {
+      this.dipSince ??= timeMs;
+      if (timeMs - this.dipSince > dipAllowance) this.aboveSince = null;
+    }
     this.belowSince ??= timeMs;
     if (
       this.speechSince !== null &&
@@ -78,6 +91,8 @@ export class EnergyVad {
     ) {
       const valid =
         this.belowSince - this.speechSince >= this.options.minUtteranceMs;
+      this.aboveSince = null;
+      this.dipSince = null;
       this.speechSince = null;
       this.belowSince = null;
       return valid ? 'end' : 'discard';

@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { signal } from '@angular/core';
+import { computed, signal } from '@angular/core';
 import { ChatStore } from '@ptah-extension/chat';
 import {
   CommandCenterRecordsService,
@@ -11,10 +11,19 @@ import {
   type SubagentRecord,
 } from '@ptah-extension/chat-streaming';
 import type { TabState } from '@ptah-extension/chat-types';
-import { CommandCenterProjectionSource } from './command-center-projection.source';
+import {
+  CommandCenterProjectionSource,
+  runState,
+} from './command-center-projection.source';
 import { projectOwnedWork } from '../model/work-projection';
 
 describe('CommandCenterProjectionSource', () => {
+  it('shows a manifest without agents as starting only during its launch window', () => {
+    const now = 1_000_000;
+    expect(runState([], now - 119_999, now)).toBe('starting');
+    expect(runState([], now - 120_000, now)).toBe('unknown');
+    expect(runState([], now + 120_001, now)).toBe('unknown');
+  });
   it('projects provider, live and persisted children, owned agents and a root run', () => {
     const root = {
       id: 'root-tab',
@@ -124,17 +133,17 @@ describe('CommandCenterProjectionSource', () => {
         { provide: CommandCenterRecordsService, useValue: records },
       ],
     });
-    const input = TestBed.inject(CommandCenterProjectionSource).input({
-      tabId: 'root-tab',
-      sessionId: 'root-session',
-    });
+    const input = TestBed.inject(CommandCenterProjectionSource).input(
+      { tabId: 'root-tab', sessionId: 'root-session' },
+      Date.now(),
+    );
     expect(input.rootTabStatus).toBe('streaming');
     expect(projectOwnedWork(input).nodes[0]?.state).toBe('running');
     questions.set([{ tabId: 'root-tab', sessionId: 'root-session' }]);
-    const pendingInput = TestBed.inject(CommandCenterProjectionSource).input({
-      tabId: 'root-tab',
-      sessionId: 'root-session',
-    });
+    const pendingInput = TestBed.inject(CommandCenterProjectionSource).input(
+      { tabId: 'root-tab', sessionId: 'root-session' },
+      Date.now(),
+    );
     expect(pendingInput.rootQuestionPending).toBe(true);
     expect(projectOwnedWork(pendingInput).nodes[0]?.state).toBe(
       'awaiting input',
@@ -252,10 +261,10 @@ describe('CommandCenterProjectionSource', () => {
         },
       ],
     });
-    const input = TestBed.inject(CommandCenterProjectionSource).input({
-      tabId: 'root-tab',
-      sessionId: 'root',
-    });
+    const input = TestBed.inject(CommandCenterProjectionSource).input(
+      { tabId: 'root-tab', sessionId: 'root' },
+      Date.now(),
+    );
     expect(
       input.children.find((child) => child.sessionId === 'grandchild')
         ?.parentSessionId,
@@ -280,6 +289,7 @@ describe('CommandCenterProjectionSource', () => {
   });
 
   it('binds UUID agents to manifest lanes and advances the lane and run through terminal states', () => {
+    const startedAt = Date.now();
     const tabs = Object.assign(Object.create(null) as TabManagerService, {
       tabs: signal(
         [{ id: 'root-tab', claudeSessionId: 'root', status: 'running' }].map(
@@ -324,7 +334,7 @@ describe('CommandCenterProjectionSource', () => {
           specTaskId: 'TASK_1',
           lanes: [{ laneId: 'codex#1' }, { laneId: 'cursor#1' }],
           rounds: 1,
-          startedAt: 1,
+          startedAt,
         },
       ],
     };
@@ -338,9 +348,13 @@ describe('CommandCenterProjectionSource', () => {
       ],
     });
     const source = TestBed.inject(CommandCenterProjectionSource);
-    const project = () =>
-      projectOwnedWork(source.input({ tabId: 'root-tab', sessionId: 'root' }))
-        .nodes;
+    const now = signal(startedAt);
+    const project = computed(
+      () =>
+        projectOwnedWork(
+          source.input({ tabId: 'root-tab', sessionId: 'root' }, now()),
+        ).nodes,
+    );
     expect(
       project().find(
         (node) =>
@@ -370,5 +384,17 @@ describe('CommandCenterProjectionSource', () => {
         (node) => node.id === 'tribunal:11111111-1111-4111-8111-111111111111',
       )?.state,
     ).toBe('failed');
+    agents.set([]);
+    expect(
+      project().find(
+        (node) => node.id === 'tribunal:11111111-1111-4111-8111-111111111111',
+      )?.state,
+    ).toBe('starting');
+    now.set(startedAt + 120_000);
+    expect(
+      project().find(
+        (node) => node.id === 'tribunal:11111111-1111-4111-8111-111111111111',
+      )?.state,
+    ).toBe('unknown');
   });
 });

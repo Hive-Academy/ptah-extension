@@ -11,7 +11,13 @@ export interface CommandCenterSendLockState {
 @Injectable({ providedIn: 'root' })
 export class CommandCenterSendLockService {
   private readonly _state = signal<CommandCenterSendLockState | null>(null);
+  private readonly releaseListeners = new Set<(rootTabId: string) => void>();
   readonly state = this._state.asReadonly();
+
+  onRelease(listener: (rootTabId: string) => void): () => void {
+    this.releaseListeners.add(listener);
+    return () => this.releaseListeners.delete(listener);
+  }
 
   engage(
     rootTabId: string,
@@ -19,17 +25,25 @@ export class CommandCenterSendLockService {
     ownerToken: string,
   ): void {
     if (!rootTabId || !ownerToken) return;
+    const previous = this._state();
     this._state.set({ rootTabId, sdkSessionId, ownerToken, active: true });
+    if (previous?.active && previous.rootTabId !== rootTabId) {
+      this.notifyRelease(previous.rootTabId);
+    }
   }
 
   release(ownerToken: string): void {
-    if (this._state()?.ownerToken !== ownerToken) return;
+    const current = this._state();
+    if (!current?.active || current.ownerToken !== ownerToken) return;
     this._state.set(null);
+    this.notifyRelease(current.rootTabId);
   }
 
   clearForRoot(tabId: string): void {
-    if (this._state()?.rootTabId !== tabId) return;
+    const current = this._state();
+    if (!current?.active || current.rootTabId !== tabId) return;
     this._state.set(null);
+    this.notifyRelease(current.rootTabId);
   }
 
   rekey(rootTabId: string, sdkSessionId: string): void {
@@ -47,5 +61,9 @@ export class CommandCenterSendLockService {
         current.sdkSessionId === tabIdOrSdkId) &&
       current.ownerToken !== ownerToken
     );
+  }
+
+  private notifyRelease(rootTabId: string): void {
+    for (const listener of this.releaseListeners) listener(rootTabId);
   }
 }

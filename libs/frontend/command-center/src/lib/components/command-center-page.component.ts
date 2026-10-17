@@ -206,7 +206,7 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
             <p
               class="pointer-events-none absolute bottom-5 left-5 right-5 z-10 text-xs uppercase tracking-wide text-base-content-muted"
             >
-              Drag to tilt orbits · Select a sphere for status
+              Select a sphere for status
             </p>
           </main>
         }
