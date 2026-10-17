@@ -83,7 +83,7 @@ function paletteName(
       <div class="pointer-events-none absolute inset-0">
         @if (layout().overflowChip; as chip) {
           <span
-            class="absolute right-3 top-3 max-w-[90%] rounded-full bg-base-200 px-2 py-1 text-xs text-base-content"
+            class="absolute right-5 top-12 max-w-[90%] rounded-full bg-base-200 px-2 py-1 text-xs text-base-content"
             >{{ chip.text }}</span
           >
         }

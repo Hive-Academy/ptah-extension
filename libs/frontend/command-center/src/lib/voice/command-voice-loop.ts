@@ -89,6 +89,7 @@ export class CommandVoiceLoop {
     this.playback = new TtsPlaybackQueue(
       async (text) => {
         const id = this.synthesisIds.shift();
+        const epoch = this.playbackEpoch;
         try {
           const result = await this.rpc.call(
             'voice:synthesize',
@@ -103,8 +104,10 @@ export class CommandVoiceLoop {
           return new Blob([bytes], { type: mimeType });
         } catch (error: unknown) {
           if (id !== undefined) this.removePlaybackMark(id);
-          this.synthesisFailurePending = true;
-          this.reportSpeechFailure('tts');
+          if (epoch === this.playbackEpoch && this.active && !this.muted) {
+            this.synthesisFailurePending = true;
+            this.reportSpeechFailure('tts');
+          }
           throw error;
         }
       },
@@ -286,6 +289,7 @@ export class CommandVoiceLoop {
     }
     this.capture = capture;
     this.store.setVoiceError?.(null);
+    this.synthesisFailurePending = false;
     this.active = true;
     this.muted = false;
     this.firstReplyAfterStart = true;
@@ -313,6 +317,7 @@ export class CommandVoiceLoop {
     ) {
       this.playback.bargeIn();
       this.playbackEpoch++;
+      this.synthesisFailurePending = false;
       this.playbackMarks.length = 0;
       this.synthesisIds.length = 0;
       this.bargeInOnset = true;
@@ -444,7 +449,8 @@ export class CommandVoiceLoop {
             kind: 'chat',
             message,
           });
-          this.store.setToast({ message, tone: 'error' });
+          if (!this.store.toast())
+            this.store.setToast({ message, tone: 'error' });
           this.finishTurn();
         }
       } finally {
@@ -525,6 +531,7 @@ export class CommandVoiceLoop {
   public interruptSpeech(): void {
     this.playback.bargeIn();
     this.playbackEpoch++;
+    this.synthesisFailurePending = false;
     this.playbackMarks.length = 0;
     this.synthesisIds.length = 0;
     if (!this.busy) this.store.setVoiceState('listening');
@@ -646,6 +653,7 @@ export class CommandVoiceLoop {
   }
 
   private resetTurnState(): void {
+    this.synthesisFailurePending = false;
     this.busy = false;
     this.queuedClip = null;
     this.playbackMarks.length = 0;

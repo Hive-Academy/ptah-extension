@@ -7,6 +7,66 @@ describe('CommandVoiceLoop', () => {
   const frames = new Float32Array(128).fill(0.2);
   const silence = new Float32Array(128);
 
+  it('preserves a sender toast when a transcribed send fails', async () => {
+    const store = new CommandCenterStore();
+    const senderToast = {
+      message: 'Retry the Decline before sending.',
+      tone: 'error' as const,
+      action: 'retry-decline' as const,
+    };
+    const rpc = Object.assign(Object.create(null) as ClaudeRpcService, {
+      call: jest.fn().mockResolvedValue({
+        success: true,
+        data: { ok: true, transcript: 'continue' },
+      }),
+    });
+    const loop = new CommandVoiceLoop(
+      store,
+      Object.create(null) as CommandCenterSessionCoordinator,
+      rpc,
+      {
+        sendTranscript: async () => {
+          store.setToast(senderToast);
+          return false;
+        },
+      },
+    );
+    loop['active'] = true;
+    await loop['onClip']({ audioBase64: '', mimeType: 'audio/wav' });
+    expect(store.toast()).toEqual(senderToast);
+    expect(store.voiceError()?.kind).toBe('chat');
+  });
+
+  it('clears stale synthesis failures and reports the next playback failure', async () => {
+    const store = new CommandCenterStore();
+    let rejectSynthesis: ((reason: Error) => void) | undefined;
+    const rpc = Object.assign(Object.create(null) as ClaudeRpcService, {
+      call: jest.fn().mockImplementation(
+        () =>
+          new Promise((_, reject) => {
+            rejectSynthesis = reject;
+          }),
+      ),
+    });
+    const loop = new CommandVoiceLoop(
+      store,
+      Object.create(null) as CommandCenterSessionCoordinator,
+      rpc,
+      { sendTranscript: async () => true },
+    );
+    loop['active'] = true;
+    const stale = loop['playback']['synthesize']('old');
+    loop['playbackEpoch']++;
+    rejectSynthesis?.(new Error('synthesis failed'));
+    await expect(stale).rejects.toThrow('synthesis failed');
+    expect(store.toast()).toBeNull();
+    expect(loop['synthesisFailurePending']).toBe(false);
+    loop['synthesisFailurePending'] = true;
+    loop['resetTurnState']();
+    loop['playback']['onFailure']('new', new Error('playback failed'));
+    expect(store.toast()).toMatchObject({ action: 'retry-speech' });
+  });
+
   describe('speech playback state', () => {
     const originalCreate = URL.createObjectURL;
     const originalRevoke = URL.revokeObjectURL;

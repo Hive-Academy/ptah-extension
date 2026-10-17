@@ -88,4 +88,54 @@ describe('Command Center turn status', () => {
       'The Command Center turn could not finish.',
     );
   });
+
+  it.each(['aborted_streaming', 'aborted_tools'] as const)(
+    'keeps Stop without an error toast after %s',
+    (terminalReason) => {
+      const store = new CommandCenterStore();
+      store.setSession('a', null, '/a');
+      const root = {
+        id: 'a',
+        status: 'loaded',
+        lastTerminalReason: terminalReason,
+      };
+      const activeTabs = signal([root]);
+      const pulses = signal(new Map<string, TerminalTurnPulse>());
+      const tabs = Object.assign(Object.create(null) as TabManagerService, {
+        tabs: activeTabs,
+        lastTerminalPulseByTab: pulses,
+        findTabByIdAcrossWorkspaces: () => ({ tab: root }),
+      });
+      const abortable = signal(true);
+      TestBed.runInInjectionContext(() =>
+        trackTurnStatus(tabs, store, abortable),
+      );
+      TestBed.flushEffects();
+      store.setSessionStatus('stopped');
+      abortable.set(false);
+      pulses.set(
+        new Map([
+          [
+            'a',
+            {
+              seq: 1,
+              tabId: 'a',
+              sessionId: 'session-a',
+              workspacePath: '/a',
+              revision: 1,
+              phase: 'idle',
+              terminalReason,
+              lastAssistantMessage: null,
+              classification: 'error',
+              title: 'Root',
+              occurredAt: 1,
+            },
+          ],
+        ]),
+      );
+      TestBed.flushEffects();
+      expect(store.sessionStatus()).toBe('stopped');
+      expect(store.toast()).toBeNull();
+    },
+  );
 });

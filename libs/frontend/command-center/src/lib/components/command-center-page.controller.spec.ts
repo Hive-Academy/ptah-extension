@@ -575,7 +575,7 @@ describe('CommandCenterPageController', () => {
     expect(page.shownSessionStatus()).toBe('error');
   });
 
-  it('shows a fixed error toast when an aborted stream emits a failed terminal pulse', () => {
+  it('shows a fixed error toast when a real failure emits a terminal pulse', () => {
     tabs.set([
       { id: 'root-tab', status: 'streaming', claudeSessionId: 'session' },
     ]);
@@ -587,7 +587,7 @@ describe('CommandCenterPageController', () => {
         id: 'root-tab',
         status: 'loaded',
         claudeSessionId: 'session',
-        lastTerminalReason: 'aborted_streaming',
+        lastTerminalReason: 'api_error',
       },
     ]);
     lastTerminalPulseByTab.set(
@@ -601,7 +601,7 @@ describe('CommandCenterPageController', () => {
             workspacePath: '/workspace',
             revision: 1,
             phase: 'idle',
-            terminalReason: 'aborted_streaming',
+            terminalReason: 'api_error',
             lastAssistantMessage: null,
             classification: 'error',
             title: 'Command Center',
@@ -1352,6 +1352,7 @@ describe('CommandCenterPageController', () => {
     expect(await page.voice['options'].sendTranscript('yes')).toBe(false);
     expect(coordinator.send).not.toHaveBeenCalled();
     expect(page.store.toast()?.message).toContain('Retry the Decline');
+    expect(page.store.toast()?.action).toBe('retry-decline');
     page.retryInvalidDecline();
     expect(transport.answer).toHaveBeenCalledTimes(2);
     expect(page.store.toast()?.message).toContain('It was declined');
@@ -1750,6 +1751,16 @@ describe('CommandCenterPageController', () => {
       page.voice['options'].onVoiceSend?.(1, 0);
       TestBed.tick();
       jest.advanceTimersByTime(12_000);
+      expect(abandon).not.toHaveBeenCalled();
+      tabs.set([
+        { id: 'root-tab', status: 'streaming', claudeSessionId: 'session' },
+      ]);
+      TestBed.tick();
+      tabs.set([
+        { id: 'root-tab', status: 'loaded', claudeSessionId: 'session' },
+      ]);
+      TestBed.tick();
+      jest.advanceTimersByTime(12_000);
       expect(abandon).toHaveBeenCalledWith(1, 'timed-out');
       expect(page['armedTurns']).toHaveLength(0);
       lastTerminalPulseByTab.set(
@@ -1825,5 +1836,17 @@ describe('CommandCenterPageController', () => {
     expect(voiceSessions.activate).toHaveBeenCalledWith('root-tab');
     await page.stopVoice();
     expect(voiceSessions.deactivate).toHaveBeenCalledWith('root-tab');
+  });
+
+  it('deactivates the root voice flag on mute and reactivates on unmute', async () => {
+    page.store.setSession('root-tab', 'session', '/workspace');
+    jest.spyOn(page.voice, 'start').mockResolvedValue(true);
+    jest.spyOn(page.voice, 'mute').mockResolvedValue(undefined);
+    expect(await page.startVoice()).toBe(true);
+    await page.muteVoice();
+    expect(voiceSessions.deactivate).toHaveBeenCalledWith('root-tab');
+    page.store.setMuted(true);
+    await page.toggleMuteVoice();
+    expect(voiceSessions.activate).toHaveBeenCalledTimes(2);
   });
 });

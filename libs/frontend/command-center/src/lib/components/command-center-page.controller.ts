@@ -106,6 +106,7 @@ export class CommandCenterPageController {
     tabId: string;
     token: number;
     minPulseSeq: number;
+    graceEligible: boolean;
   }[] = [];
   private deliveredPulseSeq = 0;
   private graceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -177,6 +178,7 @@ export class CommandCenterPageController {
               this.deliveredPulseSeq,
               this.tabs.lastTerminalPulseByTab().get(tabId)?.seq ?? 0,
             ),
+          graceEligible: false,
         });
         if (minPulseSeq === undefined) this.voicePreSendSeq = null;
         this.voiceTurnToken.set(this.armedTurns[0]?.token ?? null);
@@ -265,16 +267,29 @@ export class CommandCenterPageController {
       this.voiceTurnToken();
       const armed = this.armedTurns[0];
       const tabId = this.store.markedTabId();
-      if (
-        !armed ||
-        armed.tabId !== tabId ||
-        !isRosterIdleWithoutPendingRequest(
-          this.tabs,
-          this.chat,
-          tabId,
-          this.store.sessionId(),
+      const idle = isRosterIdleWithoutPendingRequest(
+        this.tabs,
+        this.chat,
+        tabId,
+        this.store.sessionId(),
+      );
+      if (!armed || armed.tabId !== tabId) {
+        this.clearGraceTimer();
+        return;
+      }
+      if (!idle) {
+        const status = this.tabs.tabs().find((tab) => tab.id === tabId)?.status;
+        if (
+          status &&
+          status !== 'loaded' &&
+          status !== 'fresh' &&
+          status !== 'draft'
         )
-      ) {
+          armed.graceEligible = true;
+        this.clearGraceTimer();
+        return;
+      }
+      if (!armed.graceEligible) {
         this.clearGraceTimer();
         return;
       }
@@ -348,6 +363,8 @@ export class CommandCenterPageController {
     });
   }
   public muteVoice(): Promise<void> {
+    const tabId = this.store.markedTabId();
+    if (tabId) this.voiceSessions.deactivate(tabId);
     this.clearArmedTurns();
     return this.voice.mute();
   }
@@ -411,6 +428,7 @@ export class CommandCenterPageController {
         message:
           'Invalid Tribunal proposal is awaiting Decline. Retry the Decline before sending.',
         tone: 'error',
+        action: 'retry-decline',
       });
       return false;
     }

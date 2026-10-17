@@ -94,6 +94,9 @@ export function trackTurnStatus(
       !turnAbortable() &&
       root?.status !== 'awaiting-background' &&
       root?.status !== 'sleeping' &&
+      pulse.terminalReason !== 'aborted_streaming' &&
+      pulse.terminalReason !== 'aborted_tools' &&
+      store.sessionStatus() !== 'stopped' &&
       (store.sessionStatus() === 'running' || pulse.classification === 'error')
     ) {
       store.setSessionStatus(
@@ -124,7 +127,9 @@ export function trackTurnStatus(
     ) {
       const failed =
         (!!root?.lastTerminalReason &&
-          root.lastTerminalReason !== 'completed') ||
+          root.lastTerminalReason !== 'completed' &&
+          root.lastTerminalReason !== 'aborted_streaming' &&
+          root.lastTerminalReason !== 'aborted_tools') ||
         (root?.status === 'loaded' &&
           !root.claudeSessionId &&
           root.hasLiveSession === false);
