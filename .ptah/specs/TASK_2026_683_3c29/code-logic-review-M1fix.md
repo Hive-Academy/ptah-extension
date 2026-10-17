@@ -41,3 +41,15 @@ Findings 4-7 checked in the diff; findings 1-3 not re-reviewed.
 - No regressions seen.
 
 Verdict: APPROVED. Score 8/10.
+
+## Re-review (S7 CSS fix)
+
+Verdict: APPROVED (8/10). No Serious findings. Nothing was run; this is CSS and code reading only.
+
+- Mechanism correct (`styles.css:758-761`). The root group existed only because `html` had the implicit root name, and its pseudo layer overlays the page, which matched the run-2 symptom (target = HTML). With the root name removed, only `ptah-surface` is captured. Navbar, rail and dock stay live DOM. `::view-transition` keeps `pointer-events: none` (:763).
+- Timing OK. `track()` adds `ptah-vt-active` synchronously in `onViewTransitionCreated`, before the next-frame old-state capture. It is removed on settle. The existing surface naming rule relies on the same timing.
+- VS Code unchanged. `:has(.ptah-vt-surface)` is false there (the class is only used in `electron-shell.component.ts`), so the root cross-fade (plan rows 226-227) stays.
+- The `(root)` animation rules at :779-793 match nothing in Electron; they are harmless dead CSS.
+- Clicks inside the surface: the A2 pointerdown/keydown skip still covers them. Reduced motion is unchanged: transitions are skipped before `track()`, and :834 sets animation none.
+- Minor (visual): with root uncaptured, the live background shows through while old/new fade at <1 opacity. Confirm the surface or html background is the same colour and that there is no flash in the frame strip. The surface group does not overlap the navbar, so there is no z-order risk. `:has()` needs Chromium 105 or later, which Electron satisfies.
+- Minor: add a CSS or spec guard that `.ptah-vt-surface` is only set in the Electron shell.

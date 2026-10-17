@@ -755,6 +755,11 @@ html.ptah-vt-active .ptah-vt-surface {
   view-transition-name: ptah-surface;
 }
 
+/* Electron: keep the navbar, rail and git dock hit-testable during transitions. */
+html.ptah-vt-active:has(.ptah-vt-surface) {
+  view-transition-name: none;
+}
+
 ::view-transition {
   pointer-events: none;
 }
