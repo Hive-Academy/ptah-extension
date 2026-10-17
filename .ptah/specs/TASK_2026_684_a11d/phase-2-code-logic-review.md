@@ -1,6 +1,6 @@
 # Phase 2 code logic review — Batches 6–10
 
-**Score: 6/10. Verdict: REVISE.** The endpoint and status paths work for the tested shapes, but untrusted failure text can expose a credential, an unvalidated Cloud override can persist URL secrets and misroute requests, and rechecks can reuse evidence from an obsolete key. These concrete gaps put this below the sound 7–8 band; the fixed transport gate and largely correct per-kind routing keep it above the 3–4 band.
+**Round-1 result: 6/10. Verdict: REVISE.** The original findings and the round-1 fix assessment are recorded below; the current verdict is in “Re-review round 1.”
 
 **Review family: codex (implementer: Claude).** Scope: the Phase 2 source and specs, their callers, the task context and plan, and the five named commits. No tests, builds, lint, or diagnostics were run under the review's no-heavy-command rule.
 
@@ -55,3 +55,35 @@ Read-only inspection covered the full target, prober, URL parser and client path
 5. **Spec coverage.** The new cases assert together the request URL and Authorization, the log text (`loggedText`), the persisted mark or its absence (`persistedText`, storage entries) and the row. Existing log assertions now expect `errorName` instead of the message.
 
 Verification: `nx test @ptah-extension/lane-routing` passed 24/24 suites and 701/701 tests. `nx typecheck` and `nx lint` passed. The degradation audit TOTAL is 294.
+
+## Re-review round 1
+
+**Score: 6/10. Verdict: REVISE.** The Cloud override is now refused before a key read and in-session key rotation is isolated by an HMAC fingerprint. The fix still permits a credential to enter logs through an error name, and a mark loaded after restart can report unsupported for a different key. Those are material correctness and secrecy gaps, keeping the score below the sound 7–8 band. The resolver and recheck guards keep it above the 3–4 band. Review family: codex (implementer: Claude).
+
+### Status of the five original defects
+
+1. **Fixed for the original error-message path.** The prober and key-read catches log `errorName` instead of `message` (`decision-model.prober.ts:130-143`; `decision-model.config.ts:461-470,502-515`). A new name-based leak remains, defect R1-1 below.
+2. **Fixed.** The Cloud override passes `parseEndpointBaseUrl`; a refused value yields `invalid-base-url` before `readOllamaCloudKey` (`decision-model.target.ts:180-189,242-253`). The status becomes fixed-text `unreachable` and no URL is logged (`decision-model.config.ts:518-529`).
+3. **Fixed for marks and rechecks made in this instance; not fixed across restart.** The random salt and HMAC fingerprint are memory-only (`decision-model.config.ts:145-150,858-880`); `applyProbe`, mark writes, and the 60-second cache compare that fingerprint (`:591-608,348-381,647-683`). A reloaded mark has no credential binding (`:181,712-718`), as defect R1-2 explains.
+4. **Fixed for a 404 belonging to an earlier selection.** The caller passes its selection and base URL (`route-decide.service.ts:287-296`), and the recheck returns before probing if the selection changed (`decision-model.config.ts:403-414`). A separate snapshot race remains, defect R1-3 below.
+5. **Fixed for the original five paths.** The added specs assert echoed messages, malformed Cloud overrides, in-flight key rotation, cached rechecks, and a late 404 (`decision-model.config.endpoint.spec.ts:1060-1305`). They do not cover hostile error *names*, restart followed by key rotation, or selection changing while target resolution awaits; those omissions correspond to R1-1 through R1-3. The stated 701 passing tests are implementer evidence; this read-only re-review did not rerun them.
+
+### New defects
+
+1. **R1-1 — MAJOR — A dependency can still place a key in logs through `Error.name`.** `libs/backend/lane-routing/src/lib/decision-model/decision-model.probe.ts:178-181`; `libs/backend/lane-routing/src/lib/decision-model/decision-model.prober.ts:130-143`; `libs/backend/lane-routing/src/lib/decision-model/decision-model.config.ts:461-465,502-507,734-740`. The replacement helper returns the exception's mutable `name` verbatim. A fetch, body reader, key store, or storage adapter that rejects with an `Error` whose `name` is `Authorization: Bearer <key>` makes the logger receive the key. The new tests use ordinary `Error` objects with `name === 'Error'` (`decision-model.config.endpoint.spec.ts:1068-1097,1102-1119`), so they do not pin this case. Use an allowlist of fixed built-in names or a fixed `DependencyError` label; test a secret-bearing `name` and a throwing `name` getter.
+2. **R1-2 — MAJOR — A persisted unsupported mark is accepted under a new key after restart.** `libs/backend/lane-routing/src/lib/decision-model/decision-model.config.ts:145-150,181,327-328,603-613,711-718`. The random salt is intentionally not persisted, and a loaded mark has `markCredential === null`; `markMatches` then accepts any credential. If key A is marked, the process restarts, and key B is installed at the same custom base, `isMarkedUnsupported()` returns true before a probe. A normal `getStatus()` does probe, but if B is also unsupported, `applyProbe` skips replacing the old mark and returns its old detail; if B is unreachable, the old mark stays available to `isMarkedUnsupported()` and no probe clears it (`:599-638`). Treat loaded marks as unverified until a probe with the current key establishes the result, and replace the mark/detail on that probe. Pin restart plus key rotation for ready, unsupported, and unreachable outcomes.
+3. **R1-3 — MINOR — Target resolution can pair a stale selection with a new endpoint.** `libs/backend/lane-routing/src/lib/route-decide.service.ts:331-359`; `libs/backend/lane-routing/src/lib/decision-model/decision-model.config.ts:242-247`. `openCaller` captures selection A, then awaits `resolveSystemOneTarget`, which reads the selection again. If settings change to B before that read, the returned caller carries A but calls B's target and derives the provider from A. A B 404 is then dropped by the new selection guard (`decision-model.config.ts:407-414`), and routing metadata can describe the wrong provider. Resolve the target from the captured selection, or return the selection and target from one atomic resolver result; add a deferred-key-read test that changes selection during `openCaller`.
+
+### Five logic questions and limits
+
+1. **Silent failure:** A reloaded mark matches any key, so `isMarkedUnsupported()` can report a success-looking unsupported determination without evidence for the current credential (`decision-model.config.ts:327-328,712-718`).
+2. **User action:** Rotating the key after restart can retain the prior key's mark and detail (`decision-model.config.ts:181,603-613`). Switching selections during a key read can pair the earlier selection with the later endpoint (`route-decide.service.ts:331-359`).
+3. **Wrong-answer input:** A dependency-controlled error name containing a key is copied to logs (`decision-model.probe.ts:178-181`); an old persisted mark at the same base is treated as matching the new key (`decision-model.config.ts:712-718`).
+4. **Dependency failure:** A rejected fetch or secret read with a hostile `Error.name` leaks that name; ordinary rejected messages are now excluded (`decision-model.prober.ts:130-143`; `decision-model.config.ts:502-515`).
+5. **Missing requirement detail:** The persisted mark format has no credential identity, so restart semantics for a rotated key need an explicit unverified state (`decision-model.config.ts:123-127,145-150,712-718`).
+
+Read-only review covered the fix commit, the status and resolver flows, changed caller signatures, and targeted specs. Scoped `ptah_get_diagnostics` reported zero TypeScript errors; no Nx, Jest, build, lint, or git mutation was run. The runtime ordering of the new races remains untested here.
+
+## Decisions
+
+- **Loaded mark is unverified until reprobed.** Options: trust it for every key, persist a stable key fingerprint, or keep the memory-only salt and require a fresh probe. The last option preserves the deliberate no-persisted-fingerprint design and follows the per-key evidence rule (`decision-model.config.ts:145-150,712-718`); it is reversible.

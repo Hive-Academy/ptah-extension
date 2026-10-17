@@ -1,6 +1,6 @@
 # Batches - TASK_2026_684_a11d
 
-Total tasks: 45 | Batches: 23 (Batch 0 gate + 22 implementation batches) | Complete: 12/23
+Total tasks: 45 | Batches: 23 (Batch 0 gate + 22 implementation batches) | Complete: 13/23
 
 ## Execution precondition (read first)
 
@@ -701,7 +701,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - `T`, `TC` and `L` on `@ptah-extension/rpc-handlers`; degradation-audit.
 - `settings:set` still refuses `agentOrchestration.decisionModel` (existing 41j spec passes).
 
-## Batch 12: Decision-model catalog (C8 class) — PENDING
+## Batch 12: Decision-model catalog (C8 class) — COMPLETE
 
 - Recommended executor: CLI lane, backend-developer profile (non-codex)
 - Execution mode: sequential
@@ -713,7 +713,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - Phase: 3 | Phase review: code-logic + style (codex)
 - Criteria: 4.1, 4.2, 4.3, 4.6
 
-### Task 12.1: `DecisionModelCatalog`, schemas and spec — PENDING
+### Task 12.1: `DecisionModelCatalog`, schemas and spec — COMPLETE
 
 - Files: CREATE `W\libs\backend\lane-routing\src\lib\decision-model\decision-model.catalog.ts`,
   CREATE `...\ollama-catalog.schema.ts`, CREATE `...\decision-model.catalog.spec.ts`
