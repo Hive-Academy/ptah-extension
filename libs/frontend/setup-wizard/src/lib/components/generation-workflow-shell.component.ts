@@ -6,6 +6,7 @@ import {
   inject,
 } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
+import { toSignal } from '@angular/core/rxjs-interop';
 import {
   SessionEmbedComponent,
   type SessionStopHandler,
@@ -56,13 +57,16 @@ import { GenerationWorkflowStore } from '../services/generation-workflow.store';
 })
 export class GenerationWorkflowShellComponent {
   private readonly route = inject(ActivatedRoute);
+  private readonly paramMap = toSignal(this.route.paramMap, {
+    initialValue: this.route.snapshot.paramMap,
+  });
   private readonly tabs = inject(TabManagerService);
   readonly store = inject(GenerationWorkflowStore);
   readonly binding = computed(() => {
     this.tabs.tabs();
     const workspacePath = this.tabs.activeWorkspacePath$();
-    const tabId = this.route.snapshot.paramMap.get('tabId');
-    const workflow = this.route.snapshot.paramMap.get('workflow');
+    const tabId = this.paramMap().get('tabId');
+    const workflow = this.paramMap().get('workflow');
     if (
       !workspacePath ||
       !tabId ||

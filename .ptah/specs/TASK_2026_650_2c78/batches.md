@@ -241,6 +241,7 @@ Candidate only: unused duplicated old-generation presentation code after the new
 | B04 | 3 | done (tab-manager +58 lines; route validator token on SurfaceRouterService for B05) | codex frontend-developer | 649e7a3cc |
 | B05 | 3 | done (1 revise round: transcript adapter via processStreamEvent instead of a local log, composer guard, route allowlist, deeper specs) | codex frontend-developer | f79b795ae |
 | B06 | 3 | done (panel kept open after push; explicit workflow arg on ptah.setupAgents; Phase 2 N1/N3/N4 in the next commit) | codex backend-developer | ddf655a63 |
+| P3 review | 3 | APPROVE 7/10 after 2 revise rounds (S1–S3, N1 shell-return path, N2 fixed; N4/N5 deferred to B07) | Claude code-logic-reviewer; codex fixes | (this commit) |
 | B07 | 4 | pending | codex frontend-developer | — |
 | B07B | 4 | pending | codex frontend-developer | — |
 | B08 | 5 | pending | codex frontend-developer | — |
@@ -253,6 +254,8 @@ Candidate only: unused duplicated old-generation presentation code after the new
 
 - **Done with B06 (separate commit):** N1 make `generationCommitting` a local of `runWizard` (`enhanced-prompts.service.ts:712,732-738`); N4 pass `canonicalWorkspace` to `locateBound`/`isTrusted` on bound retry; N3 treat an unparseable `updatedAt` as stale.
 - **B07/B08 frontend requirements:** never render `source.analysisDir`; on `preview-required` reopen the preview; call a bound preview right before submit; hide provider/model when `unknown`; offer Resume on `interrupted`; cancel-vs-completion copy must not say "nothing was written"; rely on the terminal push for guidance `timed-out` (N2, single settled slot); persist the tab id or offer "start over" for a paused run owned by a dead tab (N5).
+- **Phase 3 review follow-ups for B07/B08 (Moderate/Minor):** stream events before the start RPC returns are dropped; a stale refresh can revert a terminal state; no watchdog after a failed status lookup; `GenerationHandoffStore` skips the chat-busy check and has no caller yet; the open handler drops a mismatched workspace silently and ignores the launcher result; the launcher does not re-check the active workspace after navigation; the restored-route validator can run before tabs are restored, so restore may always fall back to chat; a failed navigation leaves an empty tagged tab (reused by the next open).
+- **Phase 3 re-review deferrals, owner B07 (adapter, shell and handoff wiring):** N4 `ensureMessage` reuses a stale ownership entry from an earlier run on the same tab, so the new run never finalizes; treat a different runId as stale, delete the entry whenever `finish()` skips, and on tab close. N5 a terminal push for a tab the shell is not bound to is dropped, so that tab stays busy until the shell binds it again; finalize by tab when the push's tab owns a message for the same run. Acceptance: A runs, user opens B, A completes, user opens A from the tab strip, A is not busy.
 - **Size:** `wizard-generation-rpc.handlers.ts` 1736 lines, `enhanced-prompts.service.ts` 1484 lines, long `registerRunWizard`/`runWizard`; split behind their facades in a later task.
 
 The first assignment when execution begins is B01. No batch is marked IN_PROGRESS during this decomposition-only invocation.

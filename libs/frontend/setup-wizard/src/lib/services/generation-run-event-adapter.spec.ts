@@ -1,9 +1,21 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { TabManagerService } from '@ptah-extension/chat-state';
-import { StreamingHandlerService } from '@ptah-extension/chat-streaming';
+import { SURFACE_ACTIVE } from '@ptah-extension/core';
+import {
+  ConfirmationDialogService,
+  MODEL_REFRESH_CONTROL,
+  TabManagerService,
+} from '@ptah-extension/chat-state';
+import type { SetupGenerationRunState } from '@ptah-extension/shared';
+import { SessionId } from '@ptah-extension/shared';
+import {
+  BatchedUpdateService,
+  MessageFinalizationService,
+  StreamingHandlerService,
+} from '@ptah-extension/chat-streaming';
 import { GenerationRunEventAdapter } from './generation-run-event-adapter';
 import { GenerationWorkflowStore } from './generation-workflow.store';
+import { WizardRpcService } from './wizard-rpc.service';
 
 const binding = {
   tabId: 'tab',
@@ -25,32 +37,24 @@ describe('GenerationRunEventAdapter', () => {
       claudeSessionId: 'real-chat-session',
       lastTurnStateRevision: 42,
       queuedContent: null,
-      status: 'streaming',
+      status: 'loaded',
+      streamingState: null as { currentMessageId: string | null } | null,
+      pendingBackgroundTasks: ['real-task'],
+      pendingSessionCrons: ['real-cron'],
+      lastTerminalReason: 'end_turn',
+      abortController: new AbortController(),
     };
     const processStreamEvent = jest.fn(
-      (event: { eventType: string; phase?: string; revision?: number }) => {
-        if (event.eventType === 'turn_state' && event.revision !== undefined) {
-          // Match the tab applier: same-floor ordered terminal heals, while a
-          // subsequent normal turn needs a strictly newer generating revision.
-          if (
-            event.phase === 'idle' &&
-            event.revision >= tab.lastTurnStateRevision
-          ) {
-            busy.set(false);
-            tab.status = 'loaded';
-            tab.lastTurnStateRevision = event.revision;
-          } else if (
-            event.phase === 'generating' &&
-            event.revision > tab.lastTurnStateRevision
-          ) {
-            busy.set(true);
-            tab.status = 'streaming';
-            tab.lastTurnStateRevision = event.revision;
-          }
-        }
+      (event: { eventType: string; messageId?: string }) => {
+        if (event.eventType === 'message_start' && event.messageId)
+          tab.streamingState = { currentMessageId: event.messageId };
         return null;
       },
     );
+    const finalizeCurrentMessage = jest.fn(() => {
+      tab.streamingState = null;
+      busy.set(false);
+    });
     const refresh = jest.fn();
     TestBed.configureTestingModule({
       providers: [
@@ -71,11 +75,24 @@ describe('GenerationRunEventAdapter', () => {
           },
         },
         { provide: StreamingHandlerService, useValue: { processStreamEvent } },
+        { provide: BatchedUpdateService, useValue: { flushSync: jest.fn() } },
+        {
+          provide: MessageFinalizationService,
+          useValue: { finalizeCurrentMessage },
+        },
       ],
     });
     const adapter = TestBed.inject(GenerationRunEventAdapter);
     TestBed.flushEffects();
-    return { adapter, run, busy, tab, processStreamEvent, refresh };
+    return {
+      adapter,
+      run,
+      busy,
+      tab,
+      processStreamEvent,
+      finalizeCurrentMessage,
+      refresh,
+    };
   };
 
   it('routes sanitized text and tool labels to the exact tab with no nested or flat generator IDs', () => {
@@ -149,8 +166,15 @@ describe('GenerationRunEventAdapter', () => {
     ).toBe(false);
   });
 
-  it('uses a same-floor terminal heal and admits the next ordinary chat turn', () => {
-    const { adapter, run, tab, busy, processStreamEvent } = setup();
+  it('finalizes only its own wizard message without changing real chat turn fields', () => {
+    const {
+      adapter,
+      run,
+      tab,
+      busy,
+      processStreamEvent,
+      finalizeCurrentMessage,
+    } = setup();
     expect(
       adapter.accept({
         tabBinding: binding,
@@ -161,36 +185,28 @@ describe('GenerationRunEventAdapter', () => {
     run.set({ ...activeRun, status: 'cancelled' });
     TestBed.flushEffects();
     expect(busy()).toBe(false);
-    const terminal = processStreamEvent.mock.calls.at(-1)?.[0];
-    expect(terminal).toEqual(
-      expect.objectContaining({
-        eventType: 'turn_state',
-        sessionId: 'real-chat-session',
-        revision: 42,
-        phase: 'idle',
-      }),
-    );
+    expect(finalizeCurrentMessage).toHaveBeenCalledWith('tab', true);
+    expect(
+      processStreamEvent.mock.calls.some(
+        ([event]) => event.eventType === 'turn_state',
+      ),
+    ).toBe(false);
     expect(tab.lastTurnStateRevision).toBe(42);
-    processStreamEvent({
-      eventType: 'turn_state',
-      phase: 'generating',
-      revision: 43,
-    });
-    expect(busy()).toBe(true);
-    expect(tab.status).toBe('streaming');
-    processStreamEvent({
-      eventType: 'turn_state',
-      phase: 'idle',
-      revision: 44,
-    });
-    expect(busy()).toBe(false);
     expect(tab.status).toBe('loaded');
-    expect(tab.lastTurnStateRevision).toBe(44);
     expect(tab.queuedContent).toBeNull();
   });
 
-  it('rereads a matching completion and closes a run found terminal by lookup', () => {
-    const { adapter, run, refresh, processStreamEvent } = setup();
+  it('leaves a restored terminal on a real-session tab untouched', () => {
+    const {
+      adapter,
+      run,
+      tab,
+      refresh,
+      processStreamEvent,
+      finalizeCurrentMessage,
+    } = setup();
+    tab.status = 'streaming';
+    const original = { ...tab };
     adapter.handleMessage({
       type: 'setup-wizard:generation-complete',
       payload: { tabBinding: binding },
@@ -201,11 +217,272 @@ describe('GenerationRunEventAdapter', () => {
     ).toBe(false);
     run.set({ ...activeRun, status: 'failed' });
     TestBed.flushEffects();
-    expect(processStreamEvent.mock.calls.at(-1)?.[0]).toEqual(
-      expect.objectContaining({
-        eventType: 'turn_state',
-        phase: 'idle',
-      }),
+    expect(processStreamEvent).not.toHaveBeenCalled();
+    expect(finalizeCurrentMessage).not.toHaveBeenCalled();
+    expect(tab).toEqual(original);
+  });
+
+  it.each([
+    ['completed', false],
+    ['failed', true],
+    ['cancelled', true],
+    ['timed-out', true],
+  ] as const)('finalizes %s with isAborted=%s', (status, isAborted) => {
+    const { adapter, run, finalizeCurrentMessage } = setup();
+    expect(
+      adapter.accept({ tabBinding: binding, kind: 'text', content: 'output' }),
+    ).toBe(true);
+    run.set({ ...activeRun, status });
+    TestBed.flushEffects();
+    expect(finalizeCurrentMessage).toHaveBeenCalledTimes(1);
+    expect(finalizeCurrentMessage).toHaveBeenCalledWith('tab', isAborted);
+  });
+});
+
+describe('GenerationRunEventAdapter with real chat state and streaming', () => {
+  it('finalizes tab A after a terminal lookup on return without closing tab B', async () => {
+    localStorage.clear();
+    const runs = new Map<string, SetupGenerationRunState>();
+    const startBoundAgents = jest.fn().mockResolvedValue({
+      success: true,
+      accepted: {
+        runId: 'run-a-next',
+        status: 'starting',
+        source: { kind: 'workspace-discovery', reason: 'missing' },
+        effectiveProvider: 'unknown',
+        effectiveModel: 'unknown',
+      },
+    });
+    TestBed.configureTestingModule({
+      providers: [
+        TabManagerService,
+        GenerationWorkflowStore,
+        GenerationRunEventAdapter,
+        { provide: SURFACE_ACTIVE, useValue: signal(true) },
+        {
+          provide: ConfirmationDialogService,
+          useValue: { confirm: jest.fn() },
+        },
+        {
+          provide: MODEL_REFRESH_CONTROL,
+          useValue: { refreshModels: jest.fn().mockResolvedValue(undefined) },
+        },
+        {
+          provide: WizardRpcService,
+          useValue: {
+            startBoundAgents,
+            getBoundRunState: jest
+              .fn()
+              .mockImplementation(
+                async (bound: { tabId: string }) =>
+                  runs.get(bound.tabId) ?? null,
+              ),
+          },
+        },
+      ],
+    });
+    const tabs = TestBed.inject(TabManagerService);
+    tabs.switchWorkspace('/ws');
+    const tabA = tabs.createTab('Agents');
+    tabs.setWorkflow(tabA, 'setup-agent-generation');
+    const tabB = tabs.createTab('Guidance');
+    tabs.setWorkflow(tabB, 'setup-project-prompt');
+    const runA: SetupGenerationRunState = {
+      binding: {
+        tabId: tabA,
+        workspacePath: '/ws',
+        workflow: 'setup-agent-generation',
+        runId: 'run-a',
+      },
+      status: 'running',
+      source: { kind: 'workspace-discovery', reason: 'missing' },
+      effectiveProvider: 'unknown',
+      effectiveModel: 'unknown',
+    };
+    const runB: SetupGenerationRunState = {
+      ...runA,
+      binding: {
+        tabId: tabB,
+        workspacePath: '/ws',
+        workflow: 'setup-project-prompt',
+        runId: 'run-b',
+      },
+    };
+    runs.set(tabA, runA);
+    runs.set(tabB, runB);
+    const store = TestBed.inject(GenerationWorkflowStore);
+    const adapter = TestBed.inject(GenerationRunEventAdapter);
+    const finalization = jest.spyOn(
+      TestBed.inject(MessageFinalizationService),
+      'finalizeCurrentMessage',
     );
+    store.bind(runA.binding);
+    await store.refresh();
+    TestBed.flushEffects();
+    expect(
+      adapter.accept({ tabBinding: runA.binding, kind: 'text', content: 'A' }),
+    ).toBe(true);
+    const ownedA =
+      tabs.findTabByIdAcrossWorkspaces(tabA)?.tab.streamingState
+        ?.currentMessageId;
+
+    store.bind(runB.binding);
+    await store.refresh();
+    TestBed.flushEffects();
+    expect(
+      adapter.accept({ tabBinding: runB.binding, kind: 'text', content: 'B' }),
+    ).toBe(true);
+    const ownedB =
+      tabs.findTabByIdAcrossWorkspaces(tabB)?.tab.streamingState
+        ?.currentMessageId;
+    runs.set(tabA, { ...runA, status: 'completed' });
+    expect(
+      tabs.findTabByIdAcrossWorkspaces(tabA)?.tab.streamingState
+        ?.currentMessageId,
+    ).toBe(ownedA);
+
+    store.bind(runA.binding);
+    await store.refresh();
+    TestBed.flushEffects();
+    await Promise.resolve();
+    expect(
+      tabs.findTabByIdAcrossWorkspaces(tabA)?.tab.streamingState
+        ?.currentMessageId,
+    ).toBeFalsy();
+    expect(tabs.findTabByIdAcrossWorkspaces(tabA)?.tab.status).toBe('loaded');
+    expect(tabs.isTabStreaming(tabA)).toBe(false);
+    expect(finalization).toHaveBeenCalledTimes(1);
+    expect(finalization).toHaveBeenCalledWith(tabA, false);
+    expect(
+      tabs.findTabByIdAcrossWorkspaces(tabB)?.tab.streamingState
+        ?.currentMessageId,
+    ).toBe(ownedB);
+    await store.startAgents(['agent']);
+    expect(startBoundAgents).toHaveBeenCalledTimes(1);
+    expect(store.chatTurnRejection()).toBeNull();
+    expect(
+      tabs.findTabByIdAcrossWorkspaces(tabB)?.tab.streamingState
+        ?.currentMessageId,
+    ).toBe(ownedB);
+  });
+
+  it('finalizes two consecutive never-chatted runs and admits a third start', async () => {
+    localStorage.clear();
+    let currentRun: SetupGenerationRunState | null = null;
+    let nextRunId = 0;
+    const startBoundAgents = jest.fn().mockImplementation(async () => ({
+      success: true,
+      accepted: {
+        runId: `run-${++nextRunId}`,
+        status: 'starting',
+        source: { kind: 'workspace-discovery', reason: 'missing' },
+        effectiveProvider: 'unknown',
+        effectiveModel: 'unknown',
+      },
+    }));
+    TestBed.configureTestingModule({
+      providers: [
+        TabManagerService,
+        GenerationWorkflowStore,
+        GenerationRunEventAdapter,
+        { provide: SURFACE_ACTIVE, useValue: signal(true) },
+        {
+          provide: ConfirmationDialogService,
+          useValue: { confirm: jest.fn() },
+        },
+        {
+          provide: MODEL_REFRESH_CONTROL,
+          useValue: {
+            refreshModels: jest.fn().mockResolvedValue(undefined),
+          },
+        },
+        {
+          provide: WizardRpcService,
+          useValue: {
+            startBoundAgents,
+            getBoundRunState: jest
+              .fn()
+              .mockImplementation(async () => currentRun),
+          },
+        },
+      ],
+    });
+    const tabs = TestBed.inject(TabManagerService);
+    tabs.switchWorkspace('/ws');
+    const tabId = tabs.createTab('Generation');
+    tabs.setWorkflow(tabId, 'setup-agent-generation');
+    const store = TestBed.inject(GenerationWorkflowStore);
+    store.bind({
+      tabId,
+      workspacePath: '/ws',
+      workflow: 'setup-agent-generation',
+    });
+    const adapter = TestBed.inject(GenerationRunEventAdapter);
+    for (let index = 0; index < 2; index++) {
+      await store.startAgents(['agent']);
+      currentRun = {
+        binding: {
+          tabId,
+          workspacePath: '/ws',
+          workflow: 'setup-agent-generation',
+          runId: `run-${index + 1}`,
+        },
+        status: 'running',
+        source: { kind: 'workspace-discovery', reason: 'missing' },
+        effectiveProvider: 'unknown',
+        effectiveModel: 'unknown',
+      };
+      await store.refresh();
+      TestBed.flushEffects();
+      expect(
+        adapter.accept({
+          tabBinding: currentRun.binding,
+          kind: 'text',
+          content: `output ${index}`,
+        }),
+      ).toBe(true);
+      currentRun = { ...currentRun, status: 'completed' };
+      await store.refresh();
+      TestBed.flushEffects();
+      await Promise.resolve();
+      const tab = tabs.findTabByIdAcrossWorkspaces(tabId)?.tab;
+      expect(tab?.streamingState?.currentMessageId).toBeFalsy();
+      expect(tab?.status).toBe('loaded');
+      expect(tabs.isTabStreaming(tabId)).toBe(false);
+      expect(tab?.claudeSessionId).toBeNull();
+    }
+    await store.startAgents(['agent']);
+    expect(startBoundAgents).toHaveBeenCalledTimes(3);
+    expect(store.chatTurnRejection()).toBeNull();
+
+    currentRun = {
+      binding: {
+        tabId,
+        workspacePath: '/ws',
+        workflow: 'setup-agent-generation',
+        runId: 'run-3',
+      },
+      status: 'completed',
+      source: { kind: 'workspace-discovery', reason: 'missing' },
+      effectiveProvider: 'unknown',
+      effectiveModel: 'unknown',
+    };
+    await store.refresh();
+    TestBed.flushEffects();
+    tabs.attachSession(tabId, SessionId.create());
+    tabs.setStatus(tabId, 'streaming');
+    const abortSignal = tabs.createAbortController(tabId);
+    const realTurn = tabs.findTabByIdAcrossWorkspaces(tabId)?.tab;
+    store.unbind();
+    TestBed.flushEffects();
+    store.bind({
+      tabId,
+      workspacePath: '/ws',
+      workflow: 'setup-agent-generation',
+    });
+    await store.refresh();
+    TestBed.flushEffects();
+    expect(tabs.findTabByIdAcrossWorkspaces(tabId)?.tab).toEqual(realTurn);
+    expect(tabs.getAbortSignal(tabId)).toBe(abortSignal);
   });
 });

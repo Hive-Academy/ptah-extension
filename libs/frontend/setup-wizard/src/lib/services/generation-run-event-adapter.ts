@@ -1,7 +1,11 @@
 import { Injectable, effect, inject } from '@angular/core';
 import type { MessageHandler } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { StreamingHandlerService } from '@ptah-extension/chat-streaming';
+import {
+  BatchedUpdateService,
+  MessageFinalizationService,
+  StreamingHandlerService,
+} from '@ptah-extension/chat-streaming';
 import type {
   FlatStreamEventUnion,
   SetupGenerationRunBinding,
@@ -14,8 +18,13 @@ export class GenerationRunEventAdapter implements MessageHandler {
   private readonly workflow = inject(GenerationWorkflowStore);
   private readonly tabs = inject(TabManagerService);
   private readonly streaming = inject(StreamingHandlerService);
+  private readonly batchedUpdate = inject(BatchedUpdateService);
+  private readonly finalization = inject(MessageFinalizationService);
   private sequence = 0;
-  private messageId: string | null = null;
+  private readonly ownedMessages = new Map<
+    string,
+    { messageId: string; runId: string }
+  >();
   private activeRunId: string | null = null;
   private terminalRunId: string | null = null;
   private terminalPushRunId: string | null = null;
@@ -33,12 +42,11 @@ export class GenerationRunEventAdapter implements MessageHandler {
       const runId = run?.binding.runId ?? null;
       if (runId !== this.activeRunId) {
         this.activeRunId = runId;
-        this.messageId = null;
         this.terminalRunId = null;
         this.terminalPushRunId = null;
       }
       if (binding && run && this.isTerminal(run.status))
-        this.finish(run.binding);
+        this.finish(run.binding, run.status);
     });
   }
 
@@ -68,7 +76,6 @@ export class GenerationRunEventAdapter implements MessageHandler {
     const runId = (binding as SetupGenerationRunBinding).runId;
     if (runId !== this.activeRunId) {
       this.activeRunId = runId;
-      this.messageId = null;
       this.terminalRunId = null;
       this.terminalPushRunId = null;
     }
@@ -100,7 +107,7 @@ export class GenerationRunEventAdapter implements MessageHandler {
       runId,
       value['sessionId'],
     );
-    const messageId = this.ensureMessage(tabId, timestamp);
+    const messageId = this.ensureMessage(tabId, runId, timestamp);
     const base = {
       id: `wizard-event-${++this.sequence}`,
       messageId,
@@ -139,40 +146,42 @@ export class GenerationRunEventAdapter implements MessageHandler {
   }
 
   /** Verified lookup also closes a run when its terminal push was lost. */
-  private finish(binding: SetupGenerationRunBinding): void {
+  private finish(binding: SetupGenerationRunBinding, status: string): void {
     if (!this.matches(binding) || this.terminalRunId === binding.runId) return;
     this.terminalRunId = binding.runId;
+    const owned = this.ownedMessages.get(binding.tabId);
+    if (!owned || owned.runId !== binding.runId) return;
+    this.batchedUpdate.flushSync(binding.tabId);
     const tab = this.tabs.findTabByIdAcrossWorkspaces(binding.tabId)?.tab;
-    if (!tab) return;
-    // Same revision invokes the terminal heal, never advancing the real chat floor.
-    this.streaming.processStreamEvent(
-      {
-        id: `wizard-terminal-${++this.sequence}`,
-        eventType: 'turn_state',
-        messageId: this.messageId ?? `wizard-terminal-message-${this.sequence}`,
-        timestamp: Date.now(),
-        sessionId: tab.claudeSessionId ?? undefined,
-        revision: tab.lastTurnStateRevision ?? 0,
-        phase: 'idle',
-        backgroundTasks: [],
-        sessionCrons: [],
-        terminalReason: null,
-      },
+    if (
+      !tab ||
+      tab.streamingState?.currentMessageId !== owned.messageId ||
+      tab.status === 'streaming' ||
+      tab.status === 'awaiting-background' ||
+      tab.status === 'sleeping'
+    )
+      return;
+    this.finalization.finalizeCurrentMessage(
       binding.tabId,
-      undefined,
-      { fanOut: false },
+      status !== 'completed',
     );
-    this.messageId = null;
+    this.ownedMessages.delete(binding.tabId);
   }
 
-  private ensureMessage(tabId: string, timestamp: number): string {
-    if (!this.messageId) {
-      this.messageId = `wizard-message-${++this.sequence}`;
+  private ensureMessage(
+    tabId: string,
+    runId: string,
+    timestamp: number,
+  ): string {
+    let owned = this.ownedMessages.get(tabId);
+    if (!owned) {
+      owned = { messageId: `wizard-message-${++this.sequence}`, runId };
+      this.ownedMessages.set(tabId, owned);
       this.streaming.processStreamEvent(
         {
           id: `wizard-start-${this.sequence}`,
           eventType: 'message_start',
-          messageId: this.messageId,
+          messageId: owned.messageId,
           timestamp,
           role: 'assistant',
         },
@@ -181,7 +190,7 @@ export class GenerationRunEventAdapter implements MessageHandler {
         { fanOut: false },
       );
     }
-    return this.messageId;
+    return owned.messageId;
   }
 
   private matches(payload: unknown): payload is SetupGenerationRunBinding {

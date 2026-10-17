@@ -334,3 +334,164 @@ APPROVE, 8/10. Every round-0 Serious and Moderate finding is fixed, and the regr
 concerns. Nothing must be fixed before commit. Cheap cleanups worth doing if a lane is already open: N1 (local commit flag),
 N3 (NaN guard), N4 (pass `canonicalWorkspace` to retry). Otherwise carry N1/N4 into the next batch that touches these files and
 N2/N5 into the B07/B08 briefs.
+
+---
+
+## Phase 3 review (B04-B06)
+
+Scope: commits 649e7a3cc (B04), f79b795ae (B05), ddf655a63 (B06) and, briefly, e0a4fec0a (Phase 2 follow-ups). Read in full: launcher, `TabManagerService` additions, route validator/persistence, shell, workflow store, event adapter, handoff store, open handler, `WizardRpcService` additions, host handoff (`setup-wizard.service.ts`, Electron service, `setup-agents-command.ts`). I also read the real `StreamingHandlerService.processStreamEvent`, `TurnStateApplier.apply` and `TabManagerService.acceptsTurnState/applyTurnState`, which the adapter spec replaces with a double. No heavy checks run.
+
+| Metric | Value |
+| --- | --- |
+| Score | 5.5/10 |
+| Verdict | REVISE |
+| Blocking | 0 |
+| Serious | 3 |
+| Moderate | 7 |
+| Minor | 6 |
+
+### Phase 2 follow-ups (e0a4fec0a)
+
+N1 closed: the commit flag is a run-local `generationCommitting` and the lock-wide owner is only recorded when `generationOwner === owner` (`enhanced-prompts.service.ts:517, 710-716`); the timeout check reads `generationCommittingOwner !== owner` (`:330`). N3 closed: `NaN` from `Date.parse` makes an orphaned running manifest `interrupted` (`wizard-generation-binding.ts:54-55`). N4 closed: `canonicalWorkspace!` is safe because `retryBinding` is built only when `canonicalWorkspace` is set (`wizard-generation-rpc.handlers.ts:1297-1301`). No new issue.
+
+### Serious (must fix before B07)
+
+**S1. A second terminal on a never-chatted tab is rejected by the turn-state guard, so the transcript never finalizes and the tab stays "busy".**
+- File: `libs/frontend/setup-wizard/src/lib/services/generation-run-event-adapter.ts:142-165` (revision at `:155`), against `tab-manager.service.ts:1760` and `acceptsTurnState` (`:1902-1940`).
+- Scenario: a workflow tab has `claudeSessionId = null` (the normal case: the launcher created it and nobody chatted in it). Run 1 terminal: `last === undefined`, so it is accepted, and `applyTurnState` records `lastTurnStateRevision = 0`, `lastTurnStateSessionId = undefined`. Run 2 terminal (retry after failure or cancel, or a second generation): `bound` is null, `last = 0`, `0 > 0` is false, and the heal branch needs `Boolean(bound)`, so `canApplyTurnState` returns false. `TurnStateApplier.apply` then has no targets: it neither calls `finalizeCurrentMessage` nor `applyTurnState`. The run-2 wizard message stays as `streamingState.currentMessageId`. `isTabBusyGenerating` (`message-dispatch.service.ts:83-99`) then reports busy forever, chat Stop appears, and `canStartInChat` (`generation-workflow.store.ts:135-151`) rejects every later run with "Finish this chat reply first". A normal chat Send is queued and nothing drains it. Reload is the only exit.
+- The adapter spec uses a streaming double, so it cannot see this. The comment "Same revision invokes the terminal heal" is only true for a tab bound to a real session.
+- Fix: do not drive finalization through `turn_state` for a tab that has no real session. Preferred: use a narrow finalize call (for example `MessageFinalizationService.finalizeCurrentMessage(tabId, false)` plus the idle transition) for both cases, and add a spec that runs two terminals against the real `TabManagerService`/`TurnStateApplier`. If `turn_state` is kept for a null-session tab, use `(last ?? -1) + 1`.
+
+**S2. The synthetic terminal is emitted for any terminal run observation, including a restored one, and on a real-session tab it overwrites real chat state.**
+- File: `generation-run-event-adapter.ts:35-42, 142-165`.
+- Scenario: `finish()` runs whenever the store shows a terminal run for the bound tab, even when this page lifetime never streamed a wizard message (`messageId === null`, and a fake `wizard-terminal-message-N` id is used). Example: the user generated agents, then chatted in the same tab (real session S), then switches to the other workflow tab and back, or reloads and reopens the shell. Bind refreshes the settled terminal run, `finish()` fires, and `acceptsTurnState` takes the same-floor heal (bound to S, `revision == last`, terminal). `TurnStateApplier.apply` then runs `finalizeCurrentMessage` on the tab's current tree, drains the session's hard-deny bucket, and `applyTurnState` forces `status = 'loaded'`, clears `_streamingTabIds`, calls `clearAbortController(tabId)` (`tab-manager.service.ts:1798`), and overwrites `pendingBackgroundTasks`, `pendingSessionCrons` and `lastTerminalReason` with `[]`, `[]`, `null`. Liveness is marked idle for S. If the real turn was streaming, awaiting background, or sleeping, it is finalized early and loses its abort controller and background-task list.
+- Likelihood is low-to-moderate (a terminal run plus a live or background real session on the same tab), but the damage lands on the user's real chat.
+- Fix: emit the closing event only when this adapter opened a message for the run (`this.messageId !== null`) and the tab's `streamingState.currentMessageId === this.messageId`. Skip it when the tab status is `streaming`, `awaiting-background` or `sleeping`. Prefer the narrow finalize call from S1 so no real-session fields are written. Add a spec using the real services with a tab that has a real session and an idle or streaming last turn.
+
+**S3. The shell binding does not react to route param changes, so the guidance handoff from the agent tab lands on the wrong tab.**
+- File: `libs/frontend/setup-wizard/src/lib/components/generation-workflow-shell.component.ts:61-66`.
+- Scenario: the computed reads `this.route.snapshot.paramMap` but depends on no route signal. With the default `RouteReuseStrategy` (none is installed; `app.config.ts:278`, `app.routes.ts:47`), navigating from `/setup-wizard/generation/setup-agent-generation/A` to `/setup-wizard/generation/setup-project-prompt/B` reuses the same component instance and only updates the snapshot. Nothing in the computed changes, so the binding, the embedded `tabId` input and the store stay on tab A while the URL says tab B. `launcher.open` then calls `switchTab(B)`, which does not touch `tabs()`. Persistence stores the B URL; the chat renders A. This is exactly the agents-to-guidance handoff (`manualContinue`/`openAndStart` with `focus:true`). The spec mocks `ActivatedRoute` and never changes params.
+- Fix: derive the params from `route.paramMap` with `toSignal` (initial value from the snapshot) and read that signal in the computed. Add a spec that emits a second param map on the same instance.
+
+### Moderate (can wait with the batch named)
+
+- **M1 (B07, store). Early events dropped.** `matches()` needs `workflow.run().binding.runId` (`adapter:187-197`), but `runValue` is only set after the start RPC returns (`generation-workflow.store.ts:157-165`). Stream pushes that arrive before the accepted response are discarded with no buffer, so the first lines of the transcript can be missing. Buffer pre-accept events for the binding, or set a provisional run on `starting`.
+- **M2 (B07, store). A stale refresh can regress a terminal state.** `refresh()`/`applyRun` have no sequence guard (`store:178-199, 231-251`). A slower non-terminal response arriving after a terminal one flips the state back to running and re-enables the bound guard and Stop. Ignore non-terminal results once the same `runId` is terminal.
+- **M3 (B07, store). No watchdog after a lost push or failed lookup.** A failed lookup maps to `quiet` (`store:178-190`) and nothing re-polls. The run stays "bound" until the user presses Stop (which does recover, via `stop-unconfirmed` then reread). Acceptable for now, but the shell needs a visible "status unknown, retry" action and a bounded re-check for `quiet`.
+- **M4 (B07, handoff). `openAndStart` skips the busy check.** `GenerationHandoffStore.openAndStart` calls `startBoundGuidance` directly (`generation-handoff.store.ts:94`), not `canStartInChat`. A background start onto an existing guidance tab with a live chat reply starts a run whose events the adapter drops (not bound). It also reports `manual-recovery` when the backend answers "already running" (a `startNow` plus `manualContinue` pair overwrites `started`). Nothing calls `schedule`/`manualContinue` yet; wire it with the busy check and distinguish rejection kinds.
+- **M5 (B07, open handler). Silent drops.** `SetupGenerationOpenHandler` ignores a payload whose `workspacePath` is not byte-equal to `activeWorkspacePath` (`setup-generation-open.handler.ts:20`) and discards the launcher outcome (`:21`). Host `fsPath` spelling versus the webview path (drive-letter case, separators) can differ, and a not-yet-bootstrapped main drops the push although `postMessage` returned true. The user sees nothing. Compare canonically and surface a toast or the panel retry on `failed`. The panel stays open (the B06 decision is right), so this is recoverable.
+- **M6 (B07/B08, launcher). Workspace re-check after the await.** `launcher.open` verifies the active workspace only before `navigateToSurface`; after it, `switchTab(tabId)` and `landed` are returned even if the workspace changed during navigation (`generation-workflow-launcher.service.ts:55-63`). Re-check `activeWorkspacePath` after the await. The shell fails closed, so this is not a data leak.
+- **M7 (B07, route restore). Validator timing.** The validator consults `getWorkspaceTabs` at restore time (`app.config.ts:190-203`); if initial navigation runs before the tab store is restored, the route fails closed and falls back to chat. Safe, but generation routes may never restore. Check the order in `initial-navigation.ts` when B07 adds the restore test.
+
+### Minor
+
+- `tool_result` uses its own new id as `toolCallId`, not the matching `tool_start` id (adapter event build), so tool nodes never pair until finalize. All deltas use `blockIndex: 0`, so text after a tool call lands in the first block (B07 polish).
+- `terminalPushRunId` is set on any matching `setup-wizard:error` push; if the following reread returns a non-terminal run, later stream events for that run are dropped.
+- A launcher failure after tab creation (navigation `failed` or `cancelled`) leaves an empty tagged tab (`launcher:36-60`). Severity Minor: the next `open` reuses it through `findWorkflowTab`, it holds no session or run, and nothing starts a backend run. No cleanup needed.
+- `createTab(..., activate=false)` in an empty workspace leaves no active tab until `switchTab`; only reachable with `focus:false` in an empty partition.
+- Double Stop issues `cancelBoundRun` twice (`store:171-176`); backend cancel is idempotent per Phase 2.
+- Chat Stop and the shell Stop are both visible while streaming (duplicate controls, B07 polish).
+
+### Focus-point answers
+
+1. **Route/partition isolation: OK, apart from S3.** The launcher refuses `focus` for a non-active workspace (`launcher:30-32`). `addTabToWorkspace` now rejects a missing `afterTabId` (`tab-workspace-partition.service.ts:430`). An unloaded partition gives `getWorkspaceTabs() = []`, so there is no anchor, `createWorkflowTabForWorkspace` returns null, and the result is `failed`. The restored-route validator is applied in both `navigateToUrl` and persistence and fails closed when the token is absent (`!undefined?.()` is true). A workspace change makes the shell binding null, shows the unavailable alert and unbinds.
+2. **Event adapter: IDs are clean, finalization is not.** The event is a closed whitelist, `sessionId` is omitted so `attachSession` is never triggered (`streaming-handler.service.ts:392-395`), run and SDK IDs are redacted in text, and `fanOut:false` plus `tabId` routing keeps `processStreamEvent` and `TurnStateApplier.resolveTabs` to the one tab. Wizard events do not set the tab to `streaming`; busy comes from `currentMessageId`, which is why S1 sticks. S1 and S2 are the real-service failures the double hid. A normal chat turn after a clean first run is unaffected (`applyNewConversationStreaming` resets the revision).
+3. **Composer contract: correct.** `handleSend` returns the guard reason before `sendOrQueueMessage` (`chat-input.component.ts:1645-1646`); `ChatView` guards its other three send paths; nothing is queued. `handleStop` consults the handler first and returns on `handled` (`:1722-1726`), synchronously, so it never reaches `chat:abort`; the store `stop()` is `void` and an async error ends in `stop-unconfirmed` plus a reread (`store:200-225`). The separate shell Stop is the right call, not a deviation: chat Stop is gated on `isActiveTabStreaming`, which only becomes true once a wizard message is open, so before the first event (and after a finalize) there would be no Stop at all. Plan section 5 ("show chat Stop even during a quiet stream") is only partly met by chat Stop; the shell control closes the gap. Keep both.
+4. **Launcher leftover tab:** Minor, see above.
+5. **B06 panel retention: OK.** No auto close on a true `postMessage`; false or a throw returns `Result.err` and the handler returns false so the panel stays for retry; Close is untouched. The payload is exactly `{workspacePath, workflow, origin}` and the panel handler validates workspace equality, workflow and origin before sending (`setup-wizard.service.ts:93-100, 162-171`); no `analysisDir`. `ptah.setupAgents` accepts only the two literal workflow values from a possibly non-object argument; anything else keeps the landing. The unbootstrapped-main case cannot strand the user, only confuse them (M5).
+6. **No backend start on open: confirmed.** Nothing in the launcher, shell, open handler or route restore calls `submit`/`runWizard`; only `startAgents`/`startGuidance` and the handoff store do, and no UI or route calls them yet (B07 owns wiring and the busy check, M4).
+7. **Handoff store: OK as built.** The deadline is one `setTimeout(5000)` from `schedule` (the stored `guidanceStartDeadline` is never read, harmless); `skip` clears it; closing or removing the agent tab skips through the `tabs()` effect and `tabClosed`; a workspace switch does not cancel it and a background start works via the `afterTabId` anchor; a reload drops the timer with no recovery affordance (`outcome` has no consumer yet, B07).
+
+### Verdict
+
+REVISE (score 5.5). Route isolation, the composer contract and the host handoff are sound. The three Serious items are in code the batch specs could not catch because they stub the real chat services.
+
+Must fix before B07 (revise round 1 of 2):
+1. S1: terminal finalization must work for a null-session tab on the second and later runs (direct finalize or a monotonic revision), covered by a real-service spec.
+2. S2: emit the closing event only when the adapter owns an open wizard message on that tab; never write real-session fields (`lastTerminalReason`, background tasks, abort controller, liveness) from the synthetic event.
+3. S3: make the shell binding reactive to `route.paramMap` and add a param-change spec.
+
+Defer M1-M7 and the Minor list to B07/B08 as labelled above.
+
+---
+
+## Phase 3 re-review (round 1)
+
+Scope: uncommitted diff on `generation-run-event-adapter.ts` and `generation-workflow-shell.component.ts` (specs not re-run). I re-read the real `MessageFinalizationService.finalizeCurrentMessage`, `BatchedUpdateService.flushSync`, `TabManagerService.applyFinalizedTurn`, and the stream path of `StreamingHandlerService` to answer the coordinator's two questions.
+
+| Finding | Status | Evidence |
+| --- | --- | --- |
+| S1 second terminal on a null-session tab | FIXED | `finish()` no longer sends a `turn_state`; it calls `finalizeCurrentMessage(tabId, false)` (`adapter:154-178`), which has no revision guard. Run 2 on the same tab finalizes the same way as run 1. |
+| S2 synthetic terminal overwrites real chat state | FIXED for the case reviewed | No `turn_state`, so `lastTerminalReason`, background tasks, crons, abort controller and liveness are never written. Finalize runs only when `messageId`, `messageTabId` and `messageRunId` match the bound tab and run and the tab's `currentMessageId` is that message. A restored terminal run on a real-session tab has `messageId === null` and does nothing. A related leftover is N1 below. |
+| S3 shell binding not reactive | FIXED | `toSignal(route.paramMap, {initialValue: snapshot.paramMap})` is read in the computed (`shell:60-69`); field order is valid (`route` is declared before it, injection context is the field initializer). |
+
+### The coordinator's two questions
+
+1. **Do the generator's forwarded events set the tab status to `streaming`? No.** The stream path in `StreamingHandlerService` only reads `activeTab.status` (`:281, 651-660`) and writes `streamingState`; it never writes tab status. Status becomes `streaming` only through `applyTurnState(generating)` and `markTabStreaming` (message sender), neither of which the adapter emits. So for a normal generator run the status is `fresh`/`loaded` and the early return on `streaming`/`awaiting-background`/`sleeping` is not taken; S1 does not come back. The guard fires only when a real turn is live, which is the intent. One loose end: `resuming` and `switching` are not in that guard; unlikely to coincide with a wizard message, Minor.
+2. **Can `flushSync` plus `finalizeCurrentMessage` finalize a real message that became current in between? No.** The ownership check `tab.streamingState?.currentMessageId !== this.messageId` runs synchronously after `flushSync(tabId)` and `finalizeCurrentMessage` reads the same tab state and calls `flushSync()` again with no await or microtask in between (`finish()` is fully synchronous, `message-finalization.service.ts:144-156`). A real message that was already current earlier fails the id comparison. A real message cannot become current inside the call. Residual: `applyFinalizedTurn` flips the status in a microtask only if the tab is not in `_streamingTabIds`; a real `generating` that lands in that microtask is handled by that function's own guard (`tab-manager.service.ts:2252-2255`).
+
+### New findings
+
+**N1 (Serious). Ownership is dropped when the shell moves to another tab or workspace mid-run, which leaves the first tab permanently busy.**
+- File: `generation-run-event-adapter.ts:38-50` (effect reset), `:154-178` (`finish` guard). Interacts with `generation-workflow.store.ts:135-151` and `conversation.service.ts:323-327`.
+- Scenario: the agents run on tab A is streaming, so the adapter owns a wizard message in A's `streamingState`. The user opens the guidance tab B (the handoff path, or any tab or workspace switch). The store rebinds, `run()` becomes null, and the adapter effect sees `runId !== activeRunId` and sets `messageId`, `messageTabId`, `messageRunId` to null without finalizing. Events for A are now dropped (not bound), so the message is never closed. The run ends while the user is away. On return the store rebinds and rereads a terminal run; `finish()` sees `messageId === null` and returns. A's `currentMessageId` still points at the wizard message, so `isTabBusyGenerating` is true: chat Stop appears but does nothing (`abortCurrentMessage` logs "No active session to abort" for a null-session tab), a chat Send is queued, and `canStartInChat` refuses a new run. This is the S1 symptom reached by a different path, and it is the handoff flow the feature is built for.
+- Before this revision the unconditional synthetic terminal happened to close it; the new ownership guard removed that by accident.
+- Fix: do not forget the owned message when the binding changes. Either finalize it in the reset branch of the effect (before nulling, using the old `messageTabId`), or keep ownership in a map keyed by tab id and recognise adapter-owned messages by their `wizard-message-` id prefix, so `finish()` for any tab finalizes when `currentMessageId` carries that prefix. Add a spec: stream events for run R on tab A, rebind to tab B, rebind to A with R terminal, expect A not busy.
+
+**N2 (Minor). Failed, cancelled and timed-out runs finalize as complete.** `finalizeCurrentMessage(tabId, false)` is used for every terminal status; pass `isAborted` for `failed`/`cancelled`/`timed-out` so unfinished tool nodes render as interrupted.
+
+**N3 (Minor).** `terminalRunId` is set before the ownership guard, so a skipped finalize (live real turn on the tab) is never retried; the wizard message is then folded into the real turn's finalize. Acceptable, noted.
+
+### Carried over, unchanged (B07/B08)
+
+M1 to M7 and the earlier Minor list from the first Phase 3 review are untouched by this revision and remain scheduled as labelled there.
+
+### Verdict
+
+REVISE (round 2 of 2). Score 6.5/10. S1, S2 and S3 are fixed and the two coordinator questions come out clean. One Serious item (N1) remains, in the same ownership logic. It is small to fix, and it needs a real-service spec for the switch-away case so the same gap cannot return.
+
+Must fix:
+1. N1: keep or release adapter ownership correctly on rebind (finalize the old owned message before resetting, or recognise adapter-owned messages by id prefix), with a real-service spec for A to B to A.
+
+Optional while in the file: N2 (`isAborted` for non-completed runs).
+
+---
+
+## Phase 3 re-review (round 2)
+
+Scope: uncommitted `generation-run-event-adapter.ts` (plus round-1 diff). I did not run the specs. I read the full adapter and re-checked the interactions with `GenerationWorkflowStore.bind/refresh/unbind`, `canStartInChat` and the chat busy predicate from earlier rounds.
+
+| Finding | Status | Evidence |
+| --- | --- | --- |
+| N1 ownership dropped on rebind | PARTIAL | Ownership now lives in `ownedMessages` per tab and survives rebind (`adapter:22-26, 175-196`). Return to the same shell tab finalizes through `bind` then `refresh` then the effect (`:38-50, 154-173`), and finalization deletes the entry so it closes once. The gap that remains is N5 below (closing depends on the shell being bound to that tab). |
+| N2 failed/cancelled finalize as complete | FIXED | `finalizeCurrentMessage(tabId, status !== 'completed')` (`:168-171`). |
+| S1 | no regression | Finalization has no revision guard; the entry is deleted after each close, so run 2 opens a new message. One exception: N4. |
+| S2 | no regression | Nothing is written unless an owned entry matches the exact run and is still `currentMessageId`; no `turn_state` is ever emitted. |
+| S3 | no regression | Shell file unchanged since round 1. |
+
+### The coordinator's questions
+
+1. **If the user never returns to tab A, does the terminal push finalize it? No.** `handleMessage` runs the push through `matches(message.payload)` (`:60-62`), which compares against the CURRENT binding and `run()` runId. While the shell is bound to tab B (or unbound by a workspace switch) the push for run A is dropped, and `finish()` is only reached from the effect for the current binding. A's owned message stays current in `streamingState`. **If the user then opens tab A through the normal chat (tab strip), nothing calls `bind`/`refresh`**, so A remains busy: `isTabBusyGenerating` is true via `currentMessageId`, chat Stop does nothing on a null-session tab (`conversation.service.ts:323-327`), a Send is queued, and the next run is refused by `canStartInChat`. It clears when the shell is next bound to A (launcher open, route, restore). That is recoverable through the feature's own entry points, so I rate it Moderate and deferrable (N5).
+2. **Growth and leakage.** Keys are tab ids, which are unique and workspace-scoped in practice, and `matches()` includes `workspacePath`, so there is no cross-workspace leak. Size is bounded by the number of tabs that ever hosted a run. Entries are deleted only on a successful finalize; they are never removed on tab close, on a skipped finish, or when the tab is missing. That is a small bounded leak (Minor), but it causes the stale-entry bug N4.
+3. **Regression to S1-S3: none**, apart from N4, which is a new edge in the new map.
+
+### New findings
+
+**N4 (Moderate, fix now: it is a two-line change). A stale ownership entry is reused for the next run on the same tab.**
+- File: `generation-run-event-adapter.ts:175-196` (`ensureMessage`) and `:154-173` (`finish`).
+- Scenario: a finish that returns early without deleting (a live real turn on the tab, `tab` missing, or an observation that never happened) leaves `ownedMessages[tab] = {messageId: m1, runId: R1}`. The next run R2 on that tab calls `ensureMessage`, finds the entry, sends no `message_start`, and streams into `m1` (which may already have been finalized by a real turn, or may be still current). On R2's terminal, `owned.runId !== binding.runId` makes `finish()` return, so R2's content is never closed and the tab is busy.
+- Fix: in `ensureMessage`, treat an entry whose `runId` differs from the incoming run as stale: finalize it if still current, then replace it with a new message. Also delete the entry whenever `finish()` decides not to finalize (after setting `terminalRunId`), and drop entries when a tab closes.
+
+**N5 (Moderate, defer to B07 with a named owner). Terminal push for a run on a tab other than the bound one is dropped, leaving that tab busy until the shell is bound to it.**
+- Fix shape: handle `generation-complete`/`error` pushes by tab, not only by current binding. When the push's `tabBinding.tabId` has an owned entry with the same `runId`, finalize that message directly (aborted for `error`), without touching the workflow store. This is safe because it only closes the adapter's own transcript message; it makes no claim about run success. A second option is to make `canStartInChat`/the busy predicate ignore an adapter-owned message of a terminal run, but the push-by-tab fix is simpler.
+- Owner: B07 (shell and handoff wiring), because B07 is where entering a generation tab from the strip and the agents-to-guidance handoff are wired, and the stuck state is only reachable through them. Put it in the B07 brief as an acceptance case: "A runs, user opens B, A completes, user opens A from the tab strip: A is not busy". If B07 instead routes strip clicks on workflow tabs through the shell, the existing `bind` then `refresh` path already covers this, and the item reduces to a regression spec.
+
+### Carried over, unchanged
+
+M1 to M7 and the Minor list from the first Phase 3 review remain scheduled for B07/B08 as labelled there.
+
+### Verdict
+
+APPROVE with deferrals. Score 7/10. No Blocking or Serious items remain: S1, S2, S3 and N2 are fixed, N1 is closed for the shell-return path, and the remaining gaps (N4, N5) are Moderate edge cases that need an earlier skipped or missed finish and recover through the feature's own entry points.
+
+Fix with the next change to this file (cheap, no new risk): N4. Carry to the B07 brief: N5, plus M1 to M7.
