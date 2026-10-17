@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_678_9083
-status: in_progress
+status: done
 type: FEATURE
 title: Voice Command Center page with Ptah head-of-engineering orchestrator
 description: >-

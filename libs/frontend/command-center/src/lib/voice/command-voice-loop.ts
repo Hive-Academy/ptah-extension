@@ -221,16 +221,9 @@ export class CommandVoiceLoop {
       });
       return false;
     }
-    const { sttProvider, ttsProvider, local, elevenlabs } = config.data.config;
-    const ready = (provider: string, direction: 'stt' | 'tts'): boolean =>
-      provider === 'local'
-        ? direction === 'stt'
-          ? local.sttDownloaded
-          : local.ttsDownloaded
-        : provider === 'elevenlabs' && elevenlabs.apiKeyConfigured;
-    const transcription = ready(sttProvider, 'stt');
-    const synthesis = ready(ttsProvider, 'tts');
-    this.store.setProvider({ transcription, synthesis });
+    const summary = summarizeVoiceProviders(config.data.config);
+    this.store.setProvider(summary);
+    const { transcription, synthesis } = summary;
     if (!transcription || !synthesis) {
       this.store.setToast({
         message:

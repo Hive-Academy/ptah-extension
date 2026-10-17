@@ -7,10 +7,12 @@ import type { SessionLifecycleManager } from '../helpers/session-lifecycle-manag
 import type { LiveUsageTracker } from '../helpers/live-usage-tracker';
 import type { SessionTurnStateRegistry } from '../helpers/session-turn-state.registry';
 import type { CompactionBoundaryGenerationRegistry } from '../helpers/compaction-boundary-generation-registry';
+import type { SubagentStopNotices } from '../helpers/compaction/subagent-stop-notices';
 
 export interface TransformerHelpers {
   readonly logger: Logger;
   readonly subagentRegistry: SubagentRegistryService;
+  readonly stopNotices: SubagentStopNotices;
   readonly modelResolver: IModelResolver;
   readonly sessionLifecycle: SessionLifecycleManager;
   readonly usageTracker: LiveUsageTracker;

@@ -53,6 +53,25 @@ export function nearBudgetWarning(
   );
 }
 
+/** Summary for the SDK task notification when Ptah invoked the stop. */
+export function stopNotice(
+  subject: HandoffSubject,
+  usage: HandoffUsage,
+): string {
+  const name = subject.teammateName
+    ? `\`${subject.agentType}\` ('${subject.teammateName}')`
+    : `\`${subject.agentType}\``;
+  const why =
+    usage.reason === 'handoff'
+      ? `context reached the handoff size (${usage.contextTokens} of ${usage.handoffTokens} tokens)`
+      : `weighted tokens reached the safety limit (${Math.round(usage.weightedUsed)} of ${usage.stopWeightedTokens} tokens)`;
+  return (
+    `Ptah stopped ${name}: ${why}. The user did not stop it. ` +
+    `It cannot be resumed; start a fresh agent with a handoff. ` +
+    `Its partial output is in the transcript.`
+  );
+}
+
 /** The line that names a handoff record and how to resolve it. */
 function recordLine(recordPath: string): string {
   return (

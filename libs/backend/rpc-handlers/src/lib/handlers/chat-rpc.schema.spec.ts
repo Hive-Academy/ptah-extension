@@ -33,16 +33,62 @@ describe('chat-rpc.schema', () => {
   it.each([
     ['continue', ChatContinueParamsSchema],
     ['resume', ChatResumeParamsSchema],
-  ])('bounds %s systemPrompt without stripping other fields', (_name, schema) => {
-    const base = { tabId: VALID_TAB_UUID, sessionId: VALID_SESSION_UUID, other: 1 };
-    expect(schema.parse(base)).not.toHaveProperty('systemPrompt');
-    expect(schema.parse({ ...base, systemPrompt: 'x'.repeat(SYSTEM_PROMPT_MAX_LENGTH) })).toMatchObject({
-      systemPrompt: 'x'.repeat(SYSTEM_PROMPT_MAX_LENGTH), other: 1,
-    });
-    expect(() => schema.parse({ ...base, systemPrompt: 'x'.repeat(SYSTEM_PROMPT_MAX_LENGTH + 1) })).toThrow('systemPrompt exceeds maximum length');
-    expect(() => schema.parse({ ...base, systemPrompt: 4 })).toThrow('systemPrompt must be a string');
-  });
+  ])(
+    'bounds %s systemPrompt without stripping other fields',
+    (_name, schema) => {
+      const base = {
+        tabId: VALID_TAB_UUID,
+        sessionId: VALID_SESSION_UUID,
+        other: 1,
+      };
+      expect(schema.parse(base)).not.toHaveProperty('systemPrompt');
+      expect(
+        schema.parse({
+          ...base,
+          systemPrompt: 'x'.repeat(SYSTEM_PROMPT_MAX_LENGTH),
+        }),
+      ).toMatchObject({
+        systemPrompt: 'x'.repeat(SYSTEM_PROMPT_MAX_LENGTH),
+        other: 1,
+      });
+      expect(() =>
+        schema.parse({
+          ...base,
+          systemPrompt: 'x'.repeat(SYSTEM_PROMPT_MAX_LENGTH + 1),
+        }),
+      ).toThrow('systemPrompt exceeds maximum length');
+      expect(() => schema.parse({ ...base, systemPrompt: 4 })).toThrow(
+        'systemPrompt must be a string',
+      );
+    },
+  );
   describe('ChatStartParamsSchema', () => {
+    it('bounds options.systemPrompt and preserves other options', () => {
+      const prompt = 'x'.repeat(SYSTEM_PROMPT_MAX_LENGTH);
+      expect(
+        ChatStartParamsSchema.parse({
+          tabId: VALID_TAB_UUID,
+          options: { systemPrompt: prompt, model: 'custom', files: ['a.ts'] },
+          other: 1,
+        }),
+      ).toMatchObject({
+        options: { systemPrompt: prompt, model: 'custom', files: ['a.ts'] },
+        other: 1,
+      });
+      expect(() =>
+        ChatStartParamsSchema.parse({
+          tabId: VALID_TAB_UUID,
+          options: { systemPrompt: 'x'.repeat(SYSTEM_PROMPT_MAX_LENGTH + 1) },
+        }),
+      ).toThrow('systemPrompt exceeds maximum length');
+      expect(() =>
+        ChatStartParamsSchema.parse({
+          tabId: VALID_TAB_UUID,
+          options: { systemPrompt: 4 },
+        }),
+      ).toThrow('systemPrompt must be a string');
+    });
+
     it('accepts a payload with a valid UUID v4 tabId', () => {
       const parsed = ChatStartParamsSchema.parse({
         tabId: VALID_TAB_UUID,
@@ -191,8 +237,9 @@ describe('chat-rpc.schema', () => {
     it.each([
       [VALID_TAB_UUID, VALID_TAB_UUID],
       ['not-a-tab-id'],
-      Array.from({ length: 129 }, (_, i) =>
-        `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+      Array.from(
+        { length: 129 },
+        (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
       ),
     ])('rejects an invalid resync tab list %#', (...resyncTabIds) => {
       expect(() =>
@@ -309,7 +356,7 @@ describe.each([
     'start',
     ChatStartParamsSchema,
     { tabId: VALID_TAB_UUID },
-    ['tabId', 'surfaceMode', 'mcpToolProfile', 'ptahUiFence'],
+    ['tabId', 'options', 'surfaceMode', 'mcpToolProfile', 'ptahUiFence'],
   ],
   [
     'continue',

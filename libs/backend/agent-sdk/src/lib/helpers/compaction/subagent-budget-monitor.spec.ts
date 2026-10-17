@@ -24,6 +24,7 @@ import {
   PARENT_PUSH_RETRY_DELAY_MS,
 } from './subagent-handoff-delivery';
 import { SubagentNoticeQueue } from '../subagent-notice-queue';
+import { SubagentStopNotices } from './subagent-stop-notices';
 import {
   HANDOFF_RECORD_SUFFIX,
   SubagentHandoffRecords,
@@ -233,6 +234,7 @@ function makeHarness(
   const budgetStops = new SubagentBudgetStopCallbackRegistry(
     Object.assign(Object.create(LoggerClass.prototype) as Logger, logger),
   );
+  const stopNotices = new SubagentStopNotices();
   const monitor = new SubagentBudgetMonitor(
     logger as unknown as Logger,
     config as unknown as CompactionConfigProvider,
@@ -247,6 +249,7 @@ function makeHarness(
     opts.records ?? recordStore,
     opts.index ?? index,
     budgetStops,
+    stopNotices,
   );
   return {
     monitor,
@@ -260,6 +263,7 @@ function makeHarness(
     notices,
     subagentNotices,
     budgetStops,
+    stopNotices,
   };
 }
 
@@ -477,6 +481,51 @@ describe('SubagentBudgetMonitor', () => {
     expect(h.streamed[0]).toContain('safety limit 3000000');
     expect(h.monitor.getSnapshot(SESSION, TOOL_CALL)?.budgetReached).toBe(true);
   });
+
+  it.each([
+    {
+      reason: 'handoff size',
+      usage: { input: 150_000 },
+      amount: '150000 of 150000 tokens',
+    },
+    {
+      reason: 'safety limit',
+      usage: { output: 600_000 },
+      amount: '3000000 of 3000000 tokens',
+    },
+  ])(
+    'records the $reason notice before the stop settles',
+    async ({ reason, usage, amount }) => {
+      const h = makeHarness({ teammateName: 'scout' });
+      let finishStop: () => void = () => undefined;
+      let signalStarted: () => void = () => undefined;
+      const started = new Promise<void>((resolve) => {
+        signalStarted = resolve;
+      });
+      h.dispatcher.stopSubagent.mockImplementationOnce(() => {
+        signalStarted();
+        return new Promise<void>((resolve) => {
+          finishStop = resolve;
+        });
+      });
+
+      const observing = h.monitor.observe(
+        SESSION,
+        assistant(usage, { id: 'm1' }),
+      );
+      await started;
+      const notice = h.stopNotices.noticeFor('task-1');
+      expect(notice).toContain("Ptah stopped `Explore` ('scout')");
+      expect(notice).toContain(reason);
+      expect(notice).toContain(amount);
+      expect(notice).not.toContain('stopped by user');
+
+      finishStop();
+      await observing;
+      h.monitor.release(SESSION);
+      expect(h.stopNotices.noticeFor('task-1')).toBeUndefined();
+    },
+  );
 
   it('counts a request streamed as several messages with one id only once', async () => {
     const h = makeHarness();
@@ -719,6 +768,7 @@ describe('SubagentBudgetMonitor', () => {
       expect.objectContaining({ attempts: MAX_STOP_ATTEMPTS }),
     );
     expect(h.monitor.getSnapshot(SESSION, TOOL_CALL)?.stopped).toBe(false);
+    expect(h.stopNotices.noticeFor('task-1')).toContain('handoff size');
   });
 
   it('a retried stop that succeeds hands off once', async () => {
@@ -959,6 +1009,18 @@ describe('SubagentBudgetMonitor', () => {
     expect(h.dispatcher.postMainThreadNotice).not.toHaveBeenCalled();
     expect(h.registry.update).not.toHaveBeenCalled();
     expect(h.monitor.getSnapshot('session-2', TOOL_CALL)).toBeUndefined();
+  });
+
+  it('release after rekey forgets notices recorded under both session ids', () => {
+    const h = makeHarness();
+    h.stopNotices.record(SESSION, 'task-old', 'old notice');
+    h.monitor.rekey(SESSION, 'session-2');
+    h.stopNotices.record('session-2', 'task-new', 'new notice');
+
+    h.monitor.release('session-2');
+
+    expect(h.stopNotices.noticeFor('task-old')).toBeUndefined();
+    expect(h.stopNotices.noticeFor('task-new')).toBeUndefined();
   });
 
   it('an old-id message after a rekey adds to the same state (G.2 FM-2)', async () => {
@@ -1254,6 +1316,9 @@ describe('SubagentBudgetMonitor', () => {
         SESSION,
         h.dispatcher.postMainThreadNotice.mock.calls[0][1],
       );
+      const parentHandoff = h.dispatcher.pushParentMessage.mock.calls[0][1];
+      expect(parentHandoff).toContain('The user did not stop it');
+      expect(parentHandoff).not.toContain('stopped by user');
       expect(h.notices.take(SESSION)).toBeUndefined();
     });
 

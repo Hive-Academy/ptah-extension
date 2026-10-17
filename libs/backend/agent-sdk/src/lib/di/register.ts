@@ -115,6 +115,7 @@ import { ToolOutputCapper } from '../helpers/compaction/tool-output-capper';
 import { CompactionCoordinator } from '../helpers/compaction/compaction-coordinator';
 import { ContextUsagePort } from '../helpers/compaction/context-usage.port';
 import { SubagentBudgetMonitor } from '../helpers/compaction/subagent-budget-monitor';
+import { SubagentStopNotices } from '../helpers/compaction/subagent-stop-notices';
 import { SubagentBudgetStopCallbackRegistry } from '../helpers/subagent-budget-stop-callback-registry';
 import { SubagentHandoffFiles } from '../helpers/compaction/subagent-handoff-files';
 import { SubagentHandoffRecords } from '../helpers/compaction/subagent-handoff-record';
@@ -235,6 +236,12 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_MESSAGE_TRANSFORMER,
     { useClass: SdkMessageTransformer },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_SUBAGENT_STOP_NOTICES,
+    { useClass: SubagentStopNotices },
     { lifecycle: Lifecycle.Singleton },
   );
 
@@ -548,6 +555,7 @@ export function registerSdkServices(
         c.resolve<SubagentBudgetStopCallbackRegistry>(
           SDK_TOKENS.SDK_SUBAGENT_BUDGET_STOP_CALLBACK_REGISTRY,
         ),
+        c.resolve<SubagentStopNotices>(SDK_TOKENS.SDK_SUBAGENT_STOP_NOTICES),
       );
     }),
   });
