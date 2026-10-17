@@ -20,7 +20,11 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import type { AgentId, AgentProcessInfo } from '@ptah-extension/shared';
+import type {
+  AgentId,
+  AgentProcessInfo,
+  CliSessionReference,
+} from '@ptah-extension/shared';
 import type { DependencyContainer } from 'tsyringe';
 import {
   persistCliSessionReference,
@@ -130,6 +134,90 @@ describe('persistCliSessionReference — missing parent session', () => {
       PARENT_SESSION,
       expect.objectContaining({ cliSessionId: 'cli-sess-1' }),
     );
+  });
+});
+
+describe('persistCliSessionReference — completion time', () => {
+  const completedAt = '2026-10-17T12:34:56.000Z';
+
+  function persist(info: AgentProcessInfo, addCliSession: jest.Mock): void {
+    const logger = createMockLogger();
+    const container = buildContainer([
+      [
+        SDK_TOKENS.SDK_SESSION_METADATA_STORE,
+        {
+          addCliSession,
+          markChildSession: jest.fn().mockResolvedValue(undefined),
+        },
+      ],
+    ]);
+    persistCliSessionReference(
+      container,
+      logger as unknown as Logger,
+      '[test]',
+      info,
+      undefined,
+    );
+  }
+
+  it('writes the exit completion time on the reference', () => {
+    const addCliSession = jest.fn().mockResolvedValue(undefined);
+    const info = buildInfo({
+      parentSessionId: PARENT_SESSION,
+      cliSessionId: 'cli-sess-1',
+      status: 'completed',
+      completedAt,
+    });
+
+    persist(info, addCliSession);
+
+    expect(addCliSession).toHaveBeenCalledWith(
+      PARENT_SESSION,
+      expect.objectContaining({ completedAt }),
+    );
+  });
+
+  it('adds completion time when a terminal write replaces an older reference', () => {
+    const references: CliSessionReference[] = [];
+    const addCliSession = jest
+      .fn()
+      .mockImplementation((_sessionId: string, ref: CliSessionReference) => {
+        references.push(ref);
+        return Promise.resolve();
+      });
+    const base = {
+      parentSessionId: PARENT_SESSION,
+      cliSessionId: 'cli-sess-1',
+      ptahCliId: 'ptah-agent-1',
+      modelScope: 'model-1',
+    };
+
+    persist(buildInfo({ ...base, status: 'running' }), addCliSession);
+    const olderReference = references[0];
+    expect(olderReference).not.toHaveProperty('completedAt');
+
+    persist(
+      buildInfo({ ...base, status: 'completed', completedAt }),
+      addCliSession,
+    );
+
+    expect(references[1]).toEqual({
+      ...olderReference,
+      status: 'completed',
+      completedAt,
+    });
+  });
+
+  it('omits completion time when the process has none', () => {
+    const addCliSession = jest.fn().mockResolvedValue(undefined);
+    const info = buildInfo({
+      parentSessionId: PARENT_SESSION,
+      cliSessionId: 'cli-sess-1',
+      status: 'completed',
+    });
+
+    persist(info, addCliSession);
+    expect(addCliSession.mock.calls[0][1]).not.toHaveProperty('completedAt');
   });
 });
 
