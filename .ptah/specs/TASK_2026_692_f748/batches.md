@@ -1,6 +1,6 @@
 # Batches - TASK_2026_692_f748
 
-Total tasks: 29 | Batches: 17 | Complete: 2/17
+Total tasks: 29 | Batches: 17 | Complete: 3/17
 
 Worktree (all edits, checks, commits): `D:\projects\ptah-extension\.claude-worktrees\idle-compaction`
 (branch `feat/idle-compaction`, base `7bdc6eed4`). Below, `<W>` means that absolute path; every
@@ -200,7 +200,7 @@ after 5 -> {6}. Default ordering below is sequential by number.
 - Command: `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/helpers/compaction/compaction-coordinator.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -30 && npx nx typecheck @ptah-extension/agent-sdk 2>&1 | tail -20`
 - Artifacts exist with real implementations; no per-batch review.
 
-## Batch 2: Idle contracts, unref'd scheduler, rxjs dependency — COMPLETE (commit PENDING_SHA)
+## Batch 2: Idle contracts, unref'd scheduler, rxjs dependency — COMPLETE (commit a3ecaff29)
 
 - Recommended executor: CLI lane [implementation, TypeScript backend]
 - Execution mode: sequential
@@ -238,7 +238,7 @@ after 5 -> {6}. Default ordering below is sequential by number.
 
 - Command: `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/helpers/compaction/idle/unref-scheduler.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -20 && npx nx typecheck @ptah-extension/agent-sdk 2>&1 | tail -15 && npx nx lint @ptah-extension/agent-sdk 2>&1 | tail -20 && npx nx lint ptah-cli 2>&1 | tail -20`
 
-## Batch 3: Request tracker and fire gate (pure) — IN_PROGRESS
+## Batch 3: Request tracker and fire gate (pure) — COMPLETE (commit PENDING_SHA)
 
 - Recommended executor: CLI lane [implementation, TypeScript backend]
 - Execution mode: sequential (one lane; two independent pure units)
@@ -250,7 +250,7 @@ after 5 -> {6}. Default ordering below is sequential by number.
 - Phase: 1 | Phase review: deferred to Batch 8
 - ACs: 1.1, 1.2, 3.1-3.9 (3.7 as amended by decision 9)
 
-### Task 3.1: `MainRequestTracker` + `classifyCacheTtl` + spec — IN_PROGRESS
+### Task 3.1: `MainRequestTracker` + `classifyCacheTtl` + spec — COMPLETE
 
 - Files: `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction\idle\idle-request-tracker.ts` (CREATE), `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction\idle\idle-request-tracker.spec.ts` (CREATE)
 - Plan reference: implementation-plan.md:262-292 (component 3), D3
@@ -258,7 +258,7 @@ after 5 -> {6}. Default ordering below is sequential by number.
 - Quality requirements: O(1) per frame; never throws; no clock of its own.
 - Validation notes: A4 fixture — an `assistant` frame with `usage.cache_creation` split; read-only last request after an earlier 1h write -> `not-1h`; AC 1.2 anchor (send t=0, response t=7 min -> anchor <= t0).
 
-### Task 3.2: `evaluateFireGate` + spec — IN_PROGRESS
+### Task 3.2: `evaluateFireGate` + spec — COMPLETE
 
 - Files: `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction\idle\idle-fire-gate.ts` (CREATE), `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction\idle\idle-fire-gate.spec.ts` (CREATE)
 - Plan reference: implementation-plan.md:380-401 (component 5), D1
@@ -269,7 +269,7 @@ after 5 -> {6}. Default ordering below is sequential by number.
 
 - Command: `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/helpers/compaction/idle/idle-request-tracker.spec.ts libs/backend/agent-sdk/src/lib/helpers/compaction/idle/idle-fire-gate.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -30 && npx nx typecheck @ptah-extension/agent-sdk 2>&1 | tail -15`
 
-## Batch 4: Idle session reducer (pure) — PENDING
+## Batch 4: Idle session reducer (pure) — IN_PROGRESS
 
 - Recommended executor: CLI lane [implementation, TypeScript backend, state machines]
 - Execution mode: sequential
@@ -281,7 +281,7 @@ after 5 -> {6}. Default ordering below is sequential by number.
 - Phase: 1 | Phase review: deferred to Batch 8
 - ACs: 1.1-1.5, 2.4, 2.6, 2.8, 2.9, 4.1, 4.2, 4.5, 4.7, 6.4 (notice identity)
 
-### Task 4.1: `reduceIdleSession` + spec — PENDING
+### Task 4.1: `reduceIdleSession` + spec — IN_PROGRESS
 
 - Files: `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction\idle\idle-session.reducer.ts` (CREATE), `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction\idle\idle-session.reducer.spec.ts` (CREATE)
 - Plan reference: implementation-plan.md:294-378 (component 4), D2, D8, D10
