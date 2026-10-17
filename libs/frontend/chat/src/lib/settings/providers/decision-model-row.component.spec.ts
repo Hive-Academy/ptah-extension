@@ -8,7 +8,11 @@
  */
 import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import { PROVIDER_MODELS_LOADER } from '@ptah-extension/ui';
+import { By } from '@angular/platform-browser';
+import {
+  NativePopoverComponent,
+  PROVIDER_MODELS_LOADER,
+} from '@ptah-extension/ui';
 import {
   ClaudeRpcService,
   LoggingService,
@@ -718,6 +722,39 @@ describe('DecisionModelRowComponent', () => {
       expect(document.activeElement).toBe(model);
       const inside = tab(byTestId<HTMLSelectElement>('decision-kind') ?? close);
       expect(inside.defaultPrevented).toBe(false);
+    });
+
+    it('moves focus into the dialog once the popover opens, and Shift+Tab there wraps to the last control', async () => {
+      await create();
+      await open();
+      const editor = byTestId('consumer-editor-decision');
+      if (!editor) throw new Error('editor missing');
+      expect(editor.getAttribute('tabindex')).toBe('-1');
+      // The popover focuses its own panel, then reports `opened`; the row hands focus on to the dialog.
+      editor.parentElement?.focus();
+      fixture.debugElement
+        .query(By.directive(NativePopoverComponent))
+        .componentInstance.opened.emit();
+      expect(document.activeElement).toBe(editor);
+      const back = tab(editor, true);
+      expect(back.defaultPrevented).toBe(true);
+      // Unset: the kind picker is the last enabled control.
+      expect(document.activeElement).toBe(byTestId('decision-kind'));
+    });
+
+    it('closes on Escape from the focused dialog and returns focus to the cell', async () => {
+      await create();
+      await open();
+      const editor = byTestId('consumer-editor-decision');
+      fixture.debugElement
+        .query(By.directive(NativePopoverComponent))
+        .componentInstance.opened.emit();
+      editor?.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+      );
+      await flush();
+      expect(byTestId('consumer-editor-decision')).toBeNull();
+      expect(document.activeElement).toBe(byTestId('consumer-edit-decision'));
     });
 
     it('shows a model placeholder for Ollama Cloud and the custom endpoint, never a value (D3)', async () => {

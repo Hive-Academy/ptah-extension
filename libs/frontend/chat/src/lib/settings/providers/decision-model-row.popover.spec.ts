@@ -80,6 +80,15 @@ describe('decision-model-row.popover (P4 visual 1, 2, 5)', () => {
       expect(document.activeElement).toBe(last);
     });
 
+    it('wraps Shift+Tab from the dialog itself (the initial focus target) to the last enabled control', () => {
+      editor.tabIndex = -1;
+      editor.focus();
+      expect(
+        press(editor, { key: 'Tab', shiftKey: true }).defaultPrevented,
+      ).toBe(true);
+      expect(document.activeElement).toBe(last);
+    });
+
     it('leaves Tab between inner controls, other keys and targets outside the panel alone', () => {
       expect(press(middle, { key: 'Tab' }).defaultPrevented).toBe(false);
       expect(press(last, { key: 'Enter' }).defaultPrevented).toBe(false);

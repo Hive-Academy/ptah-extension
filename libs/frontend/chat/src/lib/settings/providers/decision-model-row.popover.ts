@@ -37,8 +37,8 @@ const TAB_STOPS = [
 
 /**
  * Keeps Tab inside the editor dialog (finding 5): Tab on its last control moves to the first, Shift+Tab on the first
- * control (or on the popover panel, which takes focus on open) moves to the last. Escape is the popover's own close,
- * which returns focus to the cell. `editor` is the dialog element; its parent is the popover panel.
+ * control (or on the dialog itself, which takes focus on open, or on the popover panel) moves to the last. Escape is
+ * the popover's own close, which returns focus to the cell. `editor` is the dialog element; its parent is the panel.
  */
 export function wrapEditorTab(event: KeyboardEvent, editor: HTMLElement): void {
   const target = event.target;
@@ -50,7 +50,7 @@ export function wrapEditorTab(event: KeyboardEvent, editor: HTMLElement): void {
   const last = stops[stops.length - 1];
   if (!first || !last) return;
   const leaving = event.shiftKey
-    ? target === first || target === panel
+    ? target === first || target === editor || target === panel
     : target === last;
   if (!leaving) return;
   event.preventDefault();

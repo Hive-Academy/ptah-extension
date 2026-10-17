@@ -144,6 +144,7 @@ type WriteResult = { ok: true } | { ok: false; message: string };
             [hasBackdrop]="true"
             backdropClass="transparent"
             (closed)="close()"
+            (opened)="editorRef()?.nativeElement?.focus()"
             (keydown)="onEditorKeydown($event)"
           >
             <button
@@ -184,6 +185,7 @@ type WriteResult = { ok: true } | { ok: false; message: string };
                 content
                 role="dialog"
                 aria-modal="true"
+                tabindex="-1"
                 aria-label="Choose the decision model"
                 class="relative flex w-[27rem] max-w-[calc(100vw-2rem)] flex-col gap-2 whitespace-normal p-2 text-left text-xs"
                 [style.max-height.px]="editorMaxHeight()"
@@ -474,7 +476,8 @@ export class DecisionModelRowComponent implements OnInit {
   protected readonly editorMaxHeight = signal<number | null>(null);
 
   private readonly cellRef = viewChild<ElementRef<HTMLButtonElement>>('cell');
-  private readonly editorRef = viewChild<ElementRef<HTMLElement>>('editor');
+  /** The popover focuses its panel on open; `(opened)` moves focus on to this dialog so AT lands on its role. */
+  protected readonly editorRef = viewChild<ElementRef<HTMLElement>>('editor');
   private readonly keyFieldRef = viewChild(DecisionModelKeyFieldComponent);
 
   /** Save triggers wait while any save runs (D3). */
