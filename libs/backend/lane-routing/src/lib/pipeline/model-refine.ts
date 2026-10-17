@@ -8,7 +8,6 @@
  */
 import type { LaneRoutingLogger } from '../lane-routing-logger';
 import {
-  DECISION_REQUEST_TIMEOUT_MS,
   MIN_OPTIONS_PER_PHASE,
   OPTIONS_PER_PHASE_CAP,
   PROVIDER_OPTION_LIMIT,
@@ -86,19 +85,23 @@ export type ModelDispatch =
       readonly signal: AbortSignal;
     };
 
-/** Client options for one System One call. The timeout is the routing constant. */
+/**
+ * Client options for one System One call. The timeout is the target's
+ * per-locality budget (DC8); a call past it fails with `timeout` and the
+ * pipeline falls back. No retry.
+ */
 export function systemOneClientOptions(
   target: SystemOneTarget,
 ): SystemOneClientOptions {
   return {
     baseUrl: target.baseUrl,
     model: target.model,
-    timeoutMs: DECISION_REQUEST_TIMEOUT_MS,
+    timeoutMs: target.timeoutMs,
     ...(target.apiKey !== undefined ? { apiKey: target.apiKey } : {}),
   };
 }
 
-/** Default caller. The pipeline passes `DECISION_REQUEST_TIMEOUT_MS`. */
+/** Default caller, with the target's timeout. */
 export function openSystemOne(
   target: SystemOneTarget,
   logger: LaneRoutingLogger,

@@ -19,6 +19,10 @@ import {
 } from '../decision-model/system-one.client';
 import type { LaneRoutingLogger } from '../lane-routing-logger';
 import {
+  DECISION_REQUEST_TIMEOUT_REMOTE_MS,
+  DECISION_RETURN_MARGIN_MS,
+} from '../routing-constants';
+import {
   DecisionModelFailureClassifier,
   FAILURE_CLASSIFICATION_TIMEOUT_MS,
   buildFailureClassificationPayload,
@@ -76,6 +80,7 @@ async function harness(options: {
   readonly fetchImpl?: SystemOneFetch;
 }): Promise<{
   readonly classifier: DecisionModelFailureClassifier;
+  readonly config: DecisionModelConfig;
   readonly logger: jest.Mocked<LaneRoutingLogger>;
 }> {
   const logger = testLogger();
@@ -98,7 +103,7 @@ async function harness(options: {
       : {}),
     seams: { fetch: options.fetchImpl ?? refuseFetch },
   });
-  return { classifier, logger };
+  return { classifier, config, logger };
 }
 
 function structuredCompleter(
@@ -369,6 +374,55 @@ describe('DecisionModelFailureClassifier', () => {
     expect(body['model']).toBe('nimble');
     expect(Object.keys(record(body['state'])).sort()).toEqual(STATE_KEYS);
     expect(JSON.stringify(body)).not.toContain('leak-me');
+  });
+
+  it('posts a custom endpoint request under its path with its key and remote budget', async () => {
+    const calls: { url: string; headers: Record<string, string> }[] = [];
+    const fetchImpl: SystemOneFetch = async (url, init) => {
+      calls.push({ url, headers: init?.headers ?? {} });
+      return {
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            model: 'clef:27b',
+            answers: {
+              failureClass: {
+                type: 'choice',
+                choice: 'usage-limit',
+                confidence: 0.9,
+              },
+            },
+          }),
+      };
+    };
+    const timeout = jest
+      .spyOn(AbortSignal, 'timeout')
+      .mockImplementation(() => new AbortController().signal);
+    try {
+      const { classifier, config } = await harness({
+        selection: {
+          kind: 'custom',
+          baseUrl: 'https://gateway.example/team/',
+          model: 'clef:27b',
+        },
+        fetchImpl,
+      });
+      await config.keys.set('custom', 'custom-key', 'https://gateway.example');
+
+      await expect(classifier.classify(INPUT)).resolves.toBe('usage-limit');
+
+      expect(calls).toHaveLength(1);
+      const call = calls[0];
+      if (call === undefined) throw new Error('expected one request');
+      expect(call.url).toBe(`https://gateway.example/team${SYSTEM_ONE_PATH}`);
+      expect(call.headers['authorization']).toBe('Bearer custom-key');
+      expect(timeout).toHaveBeenCalledWith(
+        DECISION_REQUEST_TIMEOUT_REMOTE_MS + DECISION_RETURN_MARGIN_MS,
+      );
+    } finally {
+      timeout.mockRestore();
+    }
   });
 
   it('makes zero requests when the structured port is not registered', async () => {

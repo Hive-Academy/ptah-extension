@@ -177,6 +177,40 @@ describe('SystemOneClient', () => {
     expect(calls[0].url).toBe('https://api.typesafe.ai/v1/systemone');
   });
 
+  it('keeps the base path when it joins the route (DC11)', async () => {
+    const { calls, fetch } = recordingFetch(200, successBody);
+    const client = new SystemOneClient(
+      { baseUrl: 'https://gateway.example.com/gw/', model: 'nimble' },
+      { fetch },
+    );
+
+    await client.decide(payload);
+
+    expect(calls[0].url).toBe('https://gateway.example.com/gw/v1/systemone');
+  });
+
+  it('sends a custom endpoint key as a Bearer header to that endpoint only', async () => {
+    const { calls, fetch } = recordingFetch(200, successBody);
+    const client = new SystemOneClient(
+      {
+        baseUrl: 'https://gateway.example.com/gw',
+        model: 'gpt-oss:120b',
+        apiKey: 'custom-key-7',
+      },
+      { fetch },
+    );
+
+    requireSuccess(await client.decide(payload));
+
+    expect(calls.length).toBe(1);
+    expect(calls[0].url).toBe('https://gateway.example.com/gw/v1/systemone');
+    expect(calls[0].init.headers).toEqual({
+      'content-type': 'application/json',
+      authorization: 'Bearer custom-key-7',
+    });
+    expect(calls[0].init.body ?? '').not.toContain('custom-key-7');
+  });
+
   it('flags a plain-text 404 as not-found without the body text', async () => {
     const { fetch } = recordingFetch(404, '404 page not found');
     const client = new SystemOneClient(
@@ -498,5 +532,38 @@ describe('SystemOneClient', () => {
     expect(result.model).toBe(`echo-${secret}`);
     expect(JSON.stringify(entries)).not.toContain(secret);
     expect(JSON.stringify(entries)).toContain('nimble');
+  });
+
+  it('never copies a transport error name into a log or detail (R1-1)', async () => {
+    const entries: Array<{ message: string; meta: Record<string, unknown> }> =
+      [];
+    const record = (message: string, meta?: Record<string, unknown>): void => {
+      entries.push({ message, meta: meta ?? {} });
+    };
+    const logger: LaneRoutingLogger = {
+      debug: record,
+      info: record,
+      warn: record,
+      error: record,
+    };
+    const key = 'sk-hostile-name-key-61b0';
+    const transport = new SystemOneClient(
+      { baseUrl: 'https://gateway.example', model: 'nimble', apiKey: key },
+      {
+        fetch: (_url, init) => {
+          const error = new Error('rejected');
+          error.name = `Authorization: ${init?.headers?.['authorization'] ?? ''}`;
+          return Promise.reject(error);
+        },
+        logger,
+      },
+    );
+
+    const failure = requireFailure(await transport.decide(payload));
+
+    expect(failure.cause).toBe('unreachable');
+    expect(failure.detail).toBe('transport error (other)');
+    expect(JSON.stringify(entries)).not.toContain(key);
+    expect(JSON.stringify(entries)).not.toContain('Authorization');
   });
 });

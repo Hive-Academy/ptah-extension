@@ -5,7 +5,7 @@ import {
 import { X, LucideAngularModule } from 'lucide-angular';
 import { ProvidersSettingsStateService, type ProvidersEditContext } from '@ptah-extension/core';
 import {
-  NativePopoverComponent, PROVIDER_MODELS_LOADER, ProviderModelSearchFieldComponent, type ProviderModelSearchOption,
+  DEFAULT_OVERLAY_OFFSET, NativePopoverComponent, PROVIDER_MODELS_LOADER, ProviderModelSearchFieldComponent, type ProviderModelSearchOption,
 } from '@ptah-extension/ui';
 import type { EffortLevel, ProviderModelInfo, SettingScope } from '@ptah-extension/shared';
 import { SettingsSaveFeedbackService, type SettingsSaveResult } from '../feedback/settings-save-feedback.service';
@@ -72,7 +72,7 @@ type MainAgentPatch = Parameters<ProvidersSettingsStateService['saveSettings']>[
       (closed)="cancel()" (opened)="focusRequested()">
       <!-- Zero-size anchor: the host sits at the Main Agent node's bottom-left edge. -->
       <span trigger class="block h-0 w-0" aria-hidden="true"></span>
-      <!-- Height capped at the space below its top edge (fitToViewport); only the body scrolls, so the header and the
+      <!-- Height capped at the larger free side of its trigger (fitToViewport); only the body scrolls, so the header and the
            Save / Cancel footer stay visible in every state, the provider-change confirm included (Gate V 28). Header,
            body and footer share one horizontal padding (px-3), so every row starts on the same left edge. -->
       <div content role="dialog" aria-labelledby="main-agent-popover-title" class="flex w-[19rem] max-w-[calc(100vw-2rem)] flex-col text-xs"
@@ -521,15 +521,25 @@ export class MainAgentReassignPopoverComponent {
   }
 
   /**
-   * Caps the popover at the space between its top edge and the viewport bottom (8 px margin, 10rem minimum), so a
-   * state that adds rows (the provider-change confirm, an outcome, the manual model field) scrolls its body instead
-   * of running off screen. Runs once the panel is positioned, after each such state change, and on window resize.
+   * Caps the popover at the larger free side of the popover's trigger (less the overlay offset, the panel's own
+   * padding and an 8 px margin; 10rem minimum), so a state that adds rows (the provider-change confirm, an outcome,
+   * the manual model field) scrolls its body instead of running off screen. The cap is measured from the trigger,
+   * not from the panel: Floating UI flips a panel taller than the space below it above the trigger, where a cap taken
+   * from the panel's own (flipped) top edge never bound it and it ran off the top of the viewport. Capped to one
+   * side, the panel fits there, so the flip settles on it. Runs once the panel is positioned, after each such state
+   * change, and on window resize.
    */
   protected fitToViewport(): void {
-    const panel = this.element.nativeElement.querySelector<HTMLElement>('[data-testid="main-agent-popover"]');
-    const view = this.element.nativeElement.ownerDocument.defaultView;
-    if (!panel || !view) return;
-    this.maxHeight.set(Math.max(160, Math.floor(view.innerHeight - panel.getBoundingClientRect().top - 8)));
+    const host = this.element.nativeElement;
+    const trigger = host.querySelector<HTMLElement>('.popover-trigger');
+    const panel = host.querySelector<HTMLElement>('[data-testid="main-agent-popover"]');
+    const view = host.ownerDocument.defaultView;
+    if (!trigger || !panel || !view) return;
+    const { top, bottom } = trigger.getBoundingClientRect();
+    const frame = panel.closest<HTMLElement>('.popover-panel');
+    const chrome = frame ? frame.offsetHeight - panel.offsetHeight : 0;
+    const reserve = DEFAULT_OVERLAY_OFFSET + chrome + 8;
+    this.maxHeight.set(Math.max(160, Math.floor(Math.max(view.innerHeight - bottom, top) - reserve)));
   }
 
   /** The drafted model and effort in one write; Undo writes the stored values back (none when no model was stored). */

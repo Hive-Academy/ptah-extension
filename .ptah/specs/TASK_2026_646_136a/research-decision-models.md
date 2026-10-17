@@ -208,6 +208,11 @@ names.
   decision models are coming soon, including models served by Ollama's cloud" [BLOG]. As of
   2026-10-14 no decision model is documented as served on Ollama Cloud.
 
+> Correction (2026-10-17, TASK_2026_684_a11d): this no longer holds. `https://ollama.com/api/tags` lists
+> `clef:27b` with `capabilities: ["decision","vision"]`, and `POST https://ollama.com/api/show` for
+> `clef:27b` returns the same capabilities without a key. Source: `.ptah/specs/TASK_2026_684_a11d/context.md`,
+> "Ollama Cloud API".
+
 ### Accuracy evidence
 
 Two published comparisons exist. Neither measures orchestration routing.
@@ -544,6 +549,8 @@ below every decision model for this tool.
 - Ollama decision-endpoint error codes and retry contract [OLDOCS].
 - Whether any decision model ships on Ollama Cloud. "Currently available locally" [OLDOCS];
   cloud models were "coming soon" on 2026-09-29 [BLOG].
+  > Correction (2026-10-17, TASK_2026_684_a11d): settled. `clef:27b` is served on Ollama Cloud with the
+  > `decision` capability. Source: `.ptah/specs/TASK_2026_684_a11d/context.md`, "Ollama Cloud API".
 - Score-level limits disagree: 2-10 [OLDOCS] versus 2-26 [CLEF-F].
 - Context windows disagree inside three model pages (256K table rows versus readme notes) [TEV1],
   [NIMBLE], [CLEF]. This report plans against the readme numbers.

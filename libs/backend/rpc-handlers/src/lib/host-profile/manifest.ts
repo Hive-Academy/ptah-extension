@@ -27,6 +27,7 @@ import type { Capability } from './capabilities';
 import {
   AgentRpcHandlers,
   AgentOutcomeRpcHandlers,
+  DecisionModelCatalogRpcHandlers,
   ConfigScopeRpcHandlers,
   AuthRpcHandlers,
   BootRpcHandlers,
@@ -126,6 +127,15 @@ export const RPC_HANDLER_MANIFEST = [
     methods: AgentOutcomeRpcHandlers.METHODS,
     requires: [],
     handler: AgentOutcomeRpcHandlers,
+  },
+  {
+    // Decision-model picker read (TASK_2026_684, C10). Every host serves
+    // it; the catalog answers `unavailable` when a host cannot be reached,
+    // so no capability switches the method off.
+    key: 'decisionModelCatalog',
+    methods: DecisionModelCatalogRpcHandlers.METHODS,
+    requires: [],
+    handler: DecisionModelCatalogRpcHandlers,
   },
   {
     key: 'auth',

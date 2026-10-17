@@ -110,6 +110,17 @@ export const QUESTIONS_PER_REQUEST = 32;
 export const DECISION_REQUEST_TIMEOUT_MS = 3000;
 export const DECISION_RETURN_MARGIN_MS = 250;
 
+/**
+ * Per decision-model request to a `remote` target (DC8); `local` targets
+ * keep `DECISION_REQUEST_TIMEOUT_MS`. Calibrated by plan Component 16 from
+ * the first keyed live run (TASK_2026_684, clef:27b-cloud): warm p50 644 ms,
+ * p95 1124 ms, so p95 is <= 3000 ms (margin 1876 ms). Provisional: that
+ * run's 438 ms "cold" figure was a warmed sample; the cold sample (the
+ * suite's first inference call, not proof the remote worker was cold) is
+ * pending one re-run of the updated live spec.
+ */
+export const DECISION_REQUEST_TIMEOUT_REMOTE_MS = 3000;
+
 /** Model lists for every row, each row raced on its own. */
 export const MODEL_LISTING_BUDGET_MS = 2000;
 
@@ -118,11 +129,15 @@ export const GATHER_BUDGET_MS = 2000;
 
 export const MAX_DECISION_REQUESTS = 2;
 
-/** `GATHER_BUDGET_MS + MAX_DECISION_REQUESTS * (timeout + margin)`. */
+/**
+ * `GATHER_BUDGET_MS + MAX_DECISION_REQUESTS * (timeout + margin)`, with the
+ * larger of the local and remote request timeouts.
+ */
 export const OVERALL_CALL_BUDGET_MS =
   GATHER_BUDGET_MS +
   MAX_DECISION_REQUESTS *
-    (DECISION_REQUEST_TIMEOUT_MS + DECISION_RETURN_MARGIN_MS);
+    (Math.max(DECISION_REQUEST_TIMEOUT_MS, DECISION_REQUEST_TIMEOUT_REMOTE_MS) +
+      DECISION_RETURN_MARGIN_MS);
 
 /** Falls back when `confidence < CONFIDENCE_THRESHOLD`. */
 export const CONFIDENCE_THRESHOLD = 0.5;

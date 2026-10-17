@@ -5,7 +5,9 @@
  * is untrusted text: it can carry a URL, a host name or provider output
  * ("fetch failed" reached the row this way). The decision-model row shows
  * one of these fixed strings instead; the original error goes to the log
- * only. Same rule as `system-one.client.ts` `classifyTransportFailure`.
+ * only, as its `loggableErrorName` category from `@ptah-extension/shared`
+ * (never its message). Same rule as `system-one.client.ts`
+ * `classifyTransportFailure`.
  */
 export const DECISION_MODEL_DETAIL = {
   /** A probe request was rejected before the endpoint answered. */
@@ -16,4 +18,20 @@ export const DECISION_MODEL_DETAIL = {
   credentialStore: 'The credential store could not be read.',
   /** `StructuredDecisionCompleter.isReady` rejected. */
   providerCheck: 'The provider readiness check failed.',
+  /** The endpoint answered 401/403 to a request that carried a key. */
+  keyRefused: 'The endpoint refused the stored API key.',
+  /** The endpoint answered 401/403 to a request without a key. */
+  keyRequired: 'The endpoint requires an API key.',
+  /**
+   * A stored key would travel over plain http to a host that is not this
+   * computer (D4, DC6), so the key is not sent and the call is blocked.
+   */
+  keyNeedsHttps:
+    'An API key can be sent only over HTTPS or to this computer (localhost).',
+  /**
+   * `provider.ollama-cloud.baseUrl` is set but is not an absolute http(s)
+   * URL without user name, password, query or fragment. It is never used.
+   */
+  invalidCloudBaseUrl:
+    'The Ollama Cloud base URL setting is invalid: use an http(s) URL without a user name, password, query or fragment.',
 } as const;

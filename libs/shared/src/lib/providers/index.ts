@@ -11,6 +11,7 @@
 export * from './provider-registry';
 export * from './provider-base-url';
 export * from './proxy-token-placeholders';
+export { isCloudTag, toCloudId } from './ollama-cloud-model-id';
 export {
   COPILOT_PROVIDER_ENTRY,
   COPILOT_DEFAULT_TIERS,
