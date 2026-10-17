@@ -28,6 +28,8 @@ import {
 // fence pipeline, zod and the declarative renderer) as a lazy chunk. Same
 // contract as `@ptah-extension/chat-ui/change-set-card` in the transcript.
 import { PtahUiMessageTextComponent } from '@ptah-extension/chat-ui/ptah-ui';
+import { PTAH_UI_HOST_SOURCES } from '@ptah-extension/chat-ui';
+import { DisplayDockState } from '../../../services/display-dock/display-dock.state';
 import { MermaidMessageTextComponent } from '@ptah-extension/chat-ui/mermaid';
 import { ToolCallItemComponent } from '../../molecules/tool-execution/tool-call-item.component';
 import { WorkflowCardComponent } from './workflow-card.component';
@@ -195,6 +197,7 @@ function scheduleFrame(cb: () => void): FrameHandle {
                 [active]="surfaceActive()"
                 [snapshot]="host.snapshot ?? null"
                 [finalized]="!isNodeStreaming() && !isFinalizing()"
+                (openInDisplayRequested)="openInDisplay($event)"
               />
             } @placeholder {
               <markdown
@@ -454,6 +457,15 @@ function scheduleFrame(cb: () => void): FrameHandle {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ExecutionNodeComponent {
+  private readonly displayDock = inject(DisplayDockState, { optional: true });
+  private readonly displaySources = inject(PTAH_UI_HOST_SOURCES, { optional: true });
+
+  protected openInDisplay(surfaceKey: string): void {
+    const tabId = this.displaySources?.tabId();
+    if (tabId && this.displayDock?.tab(tabId).surfaces.some((surface) => surface.key === surfaceKey)) {
+      this.displayDock.openSurface(tabId, surfaceKey);
+    }
+  }
   readonly node = input.required<ExecutionNode>();
   /** Main-transcript opt-in. Other execution-tree hosts retain inline agents. */
   readonly agentTileMode = input<boolean>(false);
