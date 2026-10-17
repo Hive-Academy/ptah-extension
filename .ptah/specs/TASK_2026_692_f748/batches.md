@@ -763,7 +763,7 @@ Decisions:
 
 - Command: `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/helpers/compaction-hook-handler.spec.ts libs/backend/agent-sdk/src/lib/helpers/live-usage-tracker.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -20 && npx nx test ptah-cli --parallel=1 2>&1 | grep -E "Tests:|Test Suites:|FAIL|failed" | tail -15`
 
-## Batch 12: Manual `/compact` admission in the router — PENDING
+## Batch 12: Manual `/compact` admission in the router — COMPLETE
 
 - Recommended executor: CLI lane [implementation, TypeScript backend, concurrency]
 - Execution mode: sequential
@@ -792,7 +792,7 @@ Decisions:
 
 - Command: `npx nx test @ptah-extension/rpc-handlers --parallel=1 2>&1 | grep -E "Tests:|Test Suites:|FAIL|failed" | tail -15 && npx nx typecheck @ptah-extension/rpc-handlers 2>&1 | tail -10`
 
-## Batch 13: Electron and VS Code smoke assertions — PENDING
+## Batch 13: Electron and VS Code smoke assertions — COMPLETE
 
 - Recommended executor: CLI lane [testing, TypeScript, tsyringe]
 - Execution mode: sequential
