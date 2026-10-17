@@ -19,7 +19,7 @@ import {
   buildProbeUrls,
   checkVersion,
   discriminate,
-  errorMessage,
+  errorName,
   type ProbeAnswer,
 } from './decision-model.probe';
 import type { DecisionEndpointProbe } from './decision-model.target';
@@ -51,9 +51,6 @@ interface ProbeInit {
   readonly headers?: Record<string, string>;
   readonly body?: string;
 }
-
-/** Absolute URLs inside an untrusted error message (they can hold userinfo). */
-const URL_IN_TEXT = /[a-z][a-z0-9+.-]*:\/\/\S+/gi;
 
 export class DecisionEndpointProber {
   constructor(
@@ -129,15 +126,16 @@ export class DecisionEndpointProber {
       return { kind: 'answered', status: response.status, body };
     } catch (error: unknown) {
       // Classified by the abort signal, never by message (its only source is
-      // the probe budget). The message is untrusted (it can name the host or
-      // echo a URL with userinfo): URLs are masked and it goes to the log
-      // only; the row detail is fixed text. The request URL is not logged.
+      // the probe budget). The message is untrusted: a dependency can echo a
+      // header, the key or a URL in it, so only the error name is logged
+      // (`SystemOneClient.classifyTransportFailure`). The row detail is fixed
+      // text and the request URL is not logged.
       const timedOut = signal.aborted;
       this.logger.warn('[lane-routing] decision model probe request failed', {
         method: init.method,
         timedOut,
         timeoutMs: this.seams.timeoutMs,
-        error: errorMessage(error).replace(URL_IN_TEXT, '<url>'),
+        errorName: errorName(error),
       });
       return {
         kind: 'failed',

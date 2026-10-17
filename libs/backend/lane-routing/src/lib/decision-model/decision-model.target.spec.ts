@@ -155,7 +155,9 @@ describe('resolveDecisionEndpoint', () => {
 
   describe('jev', () => {
     it('sends the stored Jev key to JEV_BASE_URL, no probe, remote', async () => {
-      const h = harness({ secrets: { [DECISION_MODEL_JEV_SECRET_KEY]: JEV_KEY } });
+      const h = harness({
+        secrets: { [DECISION_MODEL_JEV_SECRET_KEY]: JEV_KEY },
+      });
       await expect(
         resolveDecisionEndpoint({ kind: 'jev', model: 'jev-1.13.0' }, h.deps),
       ).resolves.toEqual({
@@ -277,7 +279,7 @@ describe('resolveDecisionEndpoint', () => {
         expect(result.locality).toBe('remote');
       });
 
-      it.each(['http://proxy.lan:11434', 'not a url'])(
+      it.each(['http://proxy.lan:11434', 'http://10.0.0.9'])(
         'with a key: blocks the override %s with the fixed detail',
         async (override) => {
           const h = harness({
@@ -290,12 +292,76 @@ describe('resolveDecisionEndpoint', () => {
           );
           expect(result).toEqual({
             blocked: true,
+            reason: 'key-needs-https',
             detail: DECISION_MODEL_DETAIL.keyNeedsHttps,
           });
           expect(JSON.stringify(result)).not.toContain(CLOUD_KEY);
           expect(JSON.stringify(result)).not.toContain('proxy.lan');
         },
       );
+
+      describe('an override refused by the base URL policy (review defect 2)', () => {
+        const INVALID: ReadonlyArray<readonly [string, string]> = [
+          ['userinfo', 'https://user:url-secret@gateway.example/gw'],
+          ['query', 'https://gateway.example/gw?token=url-secret'],
+          ['fragment', 'https://gateway.example/gw#url-secret'],
+          ['no http scheme', 'gateway.example/url-secret'],
+        ];
+
+        it.each(INVALID)(
+          'with a key: blocks a %s override before reading the key',
+          async (_component, override) => {
+            const h = harness({
+              secrets: { [OLLAMA_CLOUD_SECRET_KEY]: CLOUD_KEY },
+              config: { [OVERRIDE_CONFIG]: override },
+            });
+            const read = jest.spyOn(h.secrets, 'get');
+            const result = await resolveDecisionEndpoint(
+              { kind: 'ollama-cloud', model: 'clef:27b' },
+              h.deps,
+            );
+            expect(result).toEqual({
+              blocked: true,
+              reason: 'invalid-base-url',
+              detail: DECISION_MODEL_DETAIL.invalidCloudBaseUrl,
+            });
+            expect(read).not.toHaveBeenCalled();
+            expect(JSON.stringify(result)).not.toContain('url-secret');
+            expect(JSON.stringify(result)).not.toContain(CLOUD_KEY);
+          },
+        );
+
+        it.each(INVALID)(
+          'without a key: blocks a %s override instead of probing it',
+          async (_component, override) => {
+            const h = harness({ config: { [OVERRIDE_CONFIG]: override } });
+            const result = await resolveDecisionEndpoint(
+              { kind: 'ollama-cloud', model: 'clef:27b' },
+              h.deps,
+            );
+            expect(result).toEqual({
+              blocked: true,
+              reason: 'invalid-base-url',
+              detail: DECISION_MODEL_DETAIL.invalidCloudBaseUrl,
+            });
+          },
+        );
+
+        it('normalises a valid override with the same policy', async () => {
+          const h = harness({
+            secrets: { [OLLAMA_CLOUD_SECRET_KEY]: CLOUD_KEY },
+            config: { [OVERRIDE_CONFIG]: ' HTTPS://Gateway.Example:443/gw/ ' },
+          });
+          const result = asEndpoint(
+            await resolveDecisionEndpoint(
+              { kind: 'ollama-cloud', model: 'clef:27b' },
+              h.deps,
+            ),
+          );
+          expect(result.baseUrl).toBe('https://gateway.example/gw');
+          expect(result.apiKey).toBe(CLOUD_KEY);
+        });
+      });
 
       it('without a key: uses a plain-http override with no key', async () => {
         const h = harness({
@@ -336,12 +402,16 @@ describe('resolveDecisionEndpoint', () => {
         model: 'clef:27b',
       };
 
-      const before = asEndpoint(await resolveDecisionEndpoint(selection, h.deps));
+      const before = asEndpoint(
+        await resolveDecisionEndpoint(selection, h.deps),
+      );
       expect(before.probe).toBe('daemon');
       expect('apiKey' in before).toBe(false);
 
       await h.secrets.store(OLLAMA_CLOUD_SECRET_KEY, CLOUD_KEY);
-      const added = asEndpoint(await resolveDecisionEndpoint(selection, h.deps));
+      const added = asEndpoint(
+        await resolveDecisionEndpoint(selection, h.deps),
+      );
       expect(added.baseUrl).toBe(OLLAMA_CLOUD_DIRECT_BASE_URL);
       expect(added.apiKey).toBe(CLOUD_KEY);
       expect(added.probe).toBe('endpoint');
@@ -438,7 +508,11 @@ describe('resolveDecisionEndpoint', () => {
       });
       const result = asEndpoint(
         await resolveDecisionEndpoint(
-          { kind: 'custom', baseUrl: 'http://127.0.0.1:8080', model: 'clef:27b' },
+          {
+            kind: 'custom',
+            baseUrl: 'http://127.0.0.1:8080',
+            model: 'clef:27b',
+          },
           h.deps,
         ),
       );
@@ -489,6 +563,7 @@ describe('resolveDecisionEndpoint', () => {
       );
       expect(result).toEqual({
         blocked: true,
+        reason: 'key-needs-https',
         detail: DECISION_MODEL_DETAIL.keyNeedsHttps,
       });
       expect(JSON.stringify(result)).not.toContain(CUSTOM_KEY);
@@ -502,14 +577,18 @@ describe('resolveDecisionEndpoint', () => {
         baseUrl: HTTPS_BASE,
         model: 'm',
       };
-      const before = asEndpoint(await resolveDecisionEndpoint(selection, h.deps));
+      const before = asEndpoint(
+        await resolveDecisionEndpoint(selection, h.deps),
+      );
       expect('apiKey' in before).toBe(false);
 
       await h.secrets.store(
         DECISION_MODEL_CUSTOM_SECRET_KEY,
         customSecret('https://gateway.example', CUSTOM_KEY),
       );
-      const added = asEndpoint(await resolveDecisionEndpoint(selection, h.deps));
+      const added = asEndpoint(
+        await resolveDecisionEndpoint(selection, h.deps),
+      );
       expect(added.apiKey).toBe(CUSTOM_KEY);
 
       await h.secrets.delete(DECISION_MODEL_CUSTOM_SECRET_KEY);
@@ -564,7 +643,11 @@ describe('localityOfSelection', () => {
     [{ kind: 'ollama', model: 'clef:27b' }, LOCAL_DAEMON, 'local'],
     [{ kind: 'ollama', model: 'clef:27b-cloud' }, LOCAL_DAEMON, 'remote'],
     [{ kind: 'ollama', model: 'gpt-oss:cloud' }, LOCAL_DAEMON, 'remote'],
-    [{ kind: 'ollama', model: 'clef:27b' }, 'http://gpu-box.lan:11434', 'remote'],
+    [
+      { kind: 'ollama', model: 'clef:27b' },
+      'http://gpu-box.lan:11434',
+      'remote',
+    ],
     [
       { kind: 'structured', providerId: 'ollama', model: 'llama3' },
       LOCAL_DAEMON,
@@ -604,7 +687,9 @@ describe('localityOfSelection', () => {
       { kind: 'custom', baseUrl: 'http://127.0.0.1:8080', model: 'm' },
     ];
     for (const selection of selections) {
-      const result = asEndpoint(await resolveDecisionEndpoint(selection, h.deps));
+      const result = asEndpoint(
+        await resolveDecisionEndpoint(selection, h.deps),
+      );
       expect(result.locality).toBe(localityOfSelection(selection, h.deps));
     }
   });

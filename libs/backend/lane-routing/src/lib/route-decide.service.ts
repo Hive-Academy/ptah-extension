@@ -291,7 +291,7 @@ export class RouteDecideService {
     if (caller.kind !== 'system-one' || !outcome.sent) return;
     if (outcome.notFoundDetail !== null) {
       await this.deps.config.recheckAfterLiveNotFound(
-        caller.target.baseUrl,
+        { selection: caller.selection, baseUrl: caller.target.baseUrl },
         outcome.notFoundDetail,
       );
       return;
@@ -355,6 +355,7 @@ export class RouteDecideService {
       }
       return {
         kind: 'system-one',
+        selection,
         target,
         provider: systemOneProvider(selection.kind),
       };

@@ -5,7 +5,8 @@
  * is untrusted text: it can carry a URL, a host name or provider output
  * ("fetch failed" reached the row this way). The decision-model row shows
  * one of these fixed strings instead; the original error goes to the log
- * only. Same rule as `system-one.client.ts` `classifyTransportFailure`.
+ * only, as its error name (never its message). Same rule as
+ * `system-one.client.ts` `classifyTransportFailure`.
  */
 export const DECISION_MODEL_DETAIL = {
   /** A probe request was rejected before the endpoint answered. */
@@ -26,4 +27,10 @@ export const DECISION_MODEL_DETAIL = {
    */
   keyNeedsHttps:
     'An API key can be sent only over HTTPS or to this computer (localhost).',
+  /**
+   * `provider.ollama-cloud.baseUrl` is set but is not an absolute http(s)
+   * URL without user name, password, query or fragment. It is never used.
+   */
+  invalidCloudBaseUrl:
+    'The Ollama Cloud base URL setting is invalid: use an http(s) URL without a user name, password, query or fragment.',
 } as const;

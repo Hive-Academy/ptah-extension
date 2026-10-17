@@ -12,6 +12,7 @@ import { DECISION_MODEL_DETAIL } from './decision-model.detail';
 import {
   DECISION_MODEL_CUSTOM_SECRET_KEY,
   DECISION_MODEL_JEV_SECRET_KEY,
+  DECISION_MODEL_UNSUPPORTED_STORAGE_KEY,
   OLLAMA_CLOUD_SECRET_KEY,
   SYSTEM_ONE_CONTROL_PATH,
   type DecisionModelStatusDto,
@@ -878,7 +879,7 @@ describe('1.6 a sentinel key stays out of every DTO, log and stored value', () =
     });
 
     const status = await h.config.recheckAfterLiveNotFound(
-      `${GATEWAY}/gw`,
+      { selection: CUSTOM, baseUrl: `${GATEWAY}/gw` },
       'http 404',
     );
 
@@ -975,5 +976,332 @@ describe('2.7 a fresh config reports the stored-key indicator', () => {
 
     expect(await cloud.config.getStatus()).not.toHaveProperty('apiKeyStored');
     expect(await unset.config.getStatus()).not.toHaveProperty('apiKeyStored');
+  });
+});
+
+describe('review round 1: untrusted errors, invalid overrides, key rotation, stale 404s', () => {
+  const MARK_KEY = DECISION_MODEL_UNSUPPORTED_STORAGE_KEY;
+  const ROUTE_URL = `${GATEWAY}/gw${SYSTEM_ONE_PATH}`;
+  const CONTROL_URL = `${GATEWAY}/gw${SYSTEM_ONE_CONTROL_PATH}`;
+  const KEY_A = 'sk-rotate-a-1f0e';
+  const KEY_B = 'sk-rotate-b-77c3';
+
+  function customKeys(key: string): Record<string, string> {
+    return { [DECISION_MODEL_CUSTOM_SECRET_KEY]: customKeyValue(GATEWAY, key) };
+  }
+
+  /**
+   * Answers by the key in the Authorization header: `notServed` keys get the
+   * Go not-found on both POSTs (unsupported), others the healthy route.
+   * Requests with the `held` key wait for `release()`.
+   */
+  function keyedServer(options: {
+    readonly notServed: readonly string[];
+    readonly held?: string;
+  }): {
+    fetch: SystemOneFetch;
+    calls: FakeCall[];
+    heldPosts: () => number;
+    release: () => void;
+  } {
+    const calls: FakeCall[] = [];
+    let heldCount = 0;
+    let release = (): void => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const fetchImpl: SystemOneFetch = async (url, init) => {
+      const headers = { ...(init?.headers ?? {}) };
+      calls.push({
+        url,
+        method: init?.method ?? 'GET',
+        path: new URL(url).pathname,
+        headers,
+        body: init?.body,
+      });
+      const auth = headers['authorization'] ?? '';
+      if (options.held !== undefined && auth === `Bearer ${options.held}`) {
+        heldCount += 1;
+        await gate;
+      }
+      const notServed = options.notServed.some((k) => auth === `Bearer ${k}`);
+      const answer =
+        notServed || url.endsWith(SYSTEM_ONE_CONTROL_PATH)
+          ? GO_NOT_FOUND
+          : ROUTE_400;
+      return {
+        ok: false,
+        status: answer.status,
+        text: async () => answer.body,
+      };
+    };
+    return {
+      fetch: fetchImpl,
+      calls,
+      heldPosts: () => heldCount,
+      release: () => release(),
+    };
+  }
+
+  async function flush(until: () => boolean): Promise<void> {
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      if (until()) {
+        return;
+      }
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    throw new Error('condition not reached');
+  }
+
+  describe('defect 1: a rejection that echoes the key is never logged', () => {
+    it('a fetch error echoing the Authorization header logs only its name', async () => {
+      const calls: FakeCall[] = [];
+      const echoing: SystemOneFetch = async (url, init) => {
+        const headers = { ...(init?.headers ?? {}) };
+        calls.push({
+          url,
+          method: init?.method ?? 'GET',
+          path: new URL(url).pathname,
+          headers,
+          body: init?.body,
+        });
+        throw new Error(
+          `proxy rejected Authorization: ${headers['authorization'] ?? ''}`,
+        );
+      };
+      const h = harness({
+        selection: CUSTOM,
+        secrets: customKeys(SENTINEL),
+        fetch: echoing,
+      });
+
+      const status = await h.config.getStatus();
+
+      expect(status).toMatchObject({
+        state: 'unreachable',
+        detail: DECISION_MODEL_DETAIL.unreachable,
+      });
+      expect(calls.map((call) => call.url).sort()).toEqual(
+        [ROUTE_URL, CONTROL_URL].sort(),
+      );
+      expect(calls.map(authorizationOf)).toEqual([
+        `Bearer ${SENTINEL}`,
+        `Bearer ${SENTINEL}`,
+      ]);
+      expect(h.logger.warn).toHaveBeenCalledWith(
+        '[lane-routing] decision model probe request failed',
+        expect.objectContaining({ errorName: 'Error', timedOut: false }),
+      );
+      expect(JSON.stringify(status)).not.toContain(SENTINEL);
+      expect(loggedText(h.logger)).not.toContain(SENTINEL);
+      expect(loggedText(h.logger)).not.toContain('proxy rejected');
+      expect(persistedText(h)).not.toContain(SENTINEL);
+      expect(h.storage.__state.entries.has(MARK_KEY)).toBe(false);
+    });
+
+    it('a key-store error echoing the key logs only its name', async () => {
+      const h = harness({ selection: CUSTOM, fetch: neverCalled });
+      jest
+        .spyOn(h.secrets, 'get')
+        .mockRejectedValue(new Error(`keychain dump: ${SENTINEL}`));
+
+      const status = await h.config.getStatus();
+
+      expect(status).toMatchObject({
+        state: 'unreachable',
+        detail: DECISION_MODEL_DETAIL.credentialStore,
+      });
+      expect(h.logger.warn).toHaveBeenCalledWith(
+        '[lane-routing] decision model key lookup failed',
+        { kind: 'custom', errorName: 'Error' },
+      );
+      expect(loggedText(h.logger)).not.toContain(SENTINEL);
+      expect(loggedText(h.logger)).not.toContain('keychain');
+      expect(JSON.stringify(status)).not.toContain(SENTINEL);
+      expect(persistedText(h)).not.toContain(SENTINEL);
+    });
+  });
+
+  describe('defect 2: an invalid Ollama Cloud override is refused', () => {
+    const INVALID: ReadonlyArray<readonly [string, string]> = [
+      ['userinfo', 'https://user:url-secret@proxy.example/ollama'],
+      ['query', 'https://proxy.example/ollama?token=url-secret'],
+      ['fragment', 'https://proxy.example/ollama#url-secret'],
+    ];
+
+    it.each(INVALID)(
+      'a %s override is never called, logged or marked',
+      async (_component, override) => {
+        const server = fakeServer({});
+        const h = harness({
+          selection: CLOUD,
+          cloudBaseUrl: override,
+          secrets: { [OLLAMA_CLOUD_SECRET_KEY]: SENTINEL },
+          fetch: server.fetch,
+        });
+
+        const status = await h.config.getStatus();
+        const recheck = await h.config.recheckAfterLiveNotFound(
+          { selection: CLOUD, baseUrl: override },
+          'http 404',
+        );
+
+        expect(status).toMatchObject({
+          state: 'unreachable',
+          detail: DECISION_MODEL_DETAIL.invalidCloudBaseUrl,
+        });
+        expect(recheck).toMatchObject({
+          state: 'unreachable',
+          detail: DECISION_MODEL_DETAIL.invalidCloudBaseUrl,
+        });
+        expect(await h.config.resolveSystemOneTarget()).toBeNull();
+        expect(await h.config.isMarkedUnsupported()).toBe(false);
+        expect(server.calls).toEqual([]);
+        expect(h.storage.update).not.toHaveBeenCalled();
+        expect(h.storage.__state.entries.has(MARK_KEY)).toBe(false);
+        for (const text of [
+          loggedText(h.logger),
+          persistedText(h),
+          JSON.stringify([status, recheck]),
+        ]) {
+          expect(text).not.toContain('url-secret');
+          expect(text).not.toContain(SENTINEL);
+        }
+      },
+    );
+
+    it.each(INVALID)(
+      'a %s override is refused without a key too',
+      async (_component, override) => {
+        const server = fakeServer({});
+        const h = harness({
+          selection: CLOUD,
+          cloudBaseUrl: override,
+          fetch: server.fetch,
+        });
+
+        const status = await h.config.getStatus();
+
+        expect(status.detail).toBe(DECISION_MODEL_DETAIL.invalidCloudBaseUrl);
+        expect(server.calls).toEqual([]);
+        expect(loggedText(h.logger)).not.toContain('url-secret');
+      },
+    );
+  });
+
+  describe('defect 3: probe, re-check and mark evidence is bound to the key', () => {
+    it('a probe in flight under key A cannot mark the endpoint for key B', async () => {
+      const server = keyedServer({ notServed: [KEY_A], held: KEY_A });
+      const h = harness({
+        selection: CUSTOM,
+        secrets: customKeys(KEY_A),
+        fetch: server.fetch,
+      });
+
+      const pending = h.config.recheckAfterLiveNotFound(
+        { selection: CUSTOM, baseUrl: CUSTOM.baseUrl },
+        'http 404',
+      );
+      await flush(() => server.heldPosts() === 2);
+      await h.secrets.store(
+        DECISION_MODEL_CUSTOM_SECRET_KEY,
+        customKeyValue(GATEWAY, KEY_B),
+      );
+      server.release();
+      const stale = await pending;
+
+      expect(stale.state).not.toBe('unsupported-endpoint');
+      expect(stale.detail).toBeNull();
+      expect(await h.config.isMarkedUnsupported()).toBe(false);
+      expect(h.storage.update).not.toHaveBeenCalled();
+      expect(h.storage.__state.entries.has(MARK_KEY)).toBe(false);
+
+      const fresh = await h.config.getStatus();
+      expect(fresh).toMatchObject({ state: 'ready', detail: null });
+      const lastPosts = server.calls.slice(-2);
+      expect(lastPosts.map((call) => call.url).sort()).toEqual(
+        [ROUTE_URL, CONTROL_URL].sort(),
+      );
+      expect(lastPosts.map(authorizationOf)).toEqual([
+        `Bearer ${KEY_B}`,
+        `Bearer ${KEY_B}`,
+      ]);
+      for (const text of [loggedText(h.logger), persistedText(h)]) {
+        expect(text).not.toContain(KEY_A);
+        expect(text).not.toContain(KEY_B);
+      }
+    });
+
+    it('a key change inside the 60 s window re-checks with the new key', async () => {
+      const server = keyedServer({ notServed: [KEY_B] });
+      const h = harness({
+        selection: CUSTOM,
+        secrets: customKeys(KEY_A),
+        fetch: server.fetch,
+      });
+      const live = { selection: CUSTOM, baseUrl: CUSTOM.baseUrl };
+
+      const first = await h.config.recheckAfterLiveNotFound(live, 'http 404');
+      expect(first).toMatchObject({
+        state: 'ready',
+        detail: 'last call failed: http 404',
+      });
+
+      await h.secrets.store(
+        DECISION_MODEL_CUSTOM_SECRET_KEY,
+        customKeyValue(GATEWAY, KEY_B),
+      );
+      const second = await h.config.recheckAfterLiveNotFound(live, 'http 404');
+
+      const postsWithB = server.calls.filter(
+        (call) => authorizationOf(call) === `Bearer ${KEY_B}`,
+      );
+      expect(postsWithB.map((call) => call.url).sort()).toEqual(
+        [ROUTE_URL, CONTROL_URL].sort(),
+      );
+      expect(second.state).toBe('unsupported-endpoint');
+      expect(h.storage.__state.entries.get(MARK_KEY)).toMatchObject({
+        selection: CUSTOM,
+        baseUrl: CUSTOM.baseUrl,
+      });
+      expect(await h.config.isMarkedUnsupported()).toBe(true);
+
+      // The mark was written under key B: key A does not inherit it.
+      await h.secrets.store(
+        DECISION_MODEL_CUSTOM_SECRET_KEY,
+        customKeyValue(GATEWAY, KEY_A),
+      );
+      expect(await h.config.isMarkedUnsupported()).toBe(false);
+
+      for (const text of [
+        loggedText(h.logger),
+        persistedText(h),
+        JSON.stringify([first, second]),
+      ]) {
+        expect(text).not.toContain(KEY_A);
+        expect(text).not.toContain(KEY_B);
+      }
+    });
+  });
+
+  describe('defect 4: a late 404 does not attach to a newer selection', () => {
+    it('a 404 for model laya-1 is dropped after a switch to laya-2 at the same base', async () => {
+      const h = harness({ selection: CUSTOM, secrets: customKeys(KEY_A) });
+      const switched = { ...CUSTOM, model: 'laya-2' } as const;
+      await h.config.setSelection(switched);
+
+      const status = await h.config.recheckAfterLiveNotFound(
+        { selection: CUSTOM, baseUrl: CUSTOM.baseUrl },
+        'http 404',
+      );
+
+      expect(status.selection).toEqual(switched);
+      expect(status.detail).toBeNull();
+      expect(h.server.calls).toEqual([]);
+      expect(h.storage.__state.entries.has(MARK_KEY)).toBe(false);
+      const next = await h.config.getStatus();
+      expect(next).toMatchObject({ state: 'ready', detail: null });
+      expect(loggedText(h.logger)).not.toContain(KEY_A);
+    });
   });
 });

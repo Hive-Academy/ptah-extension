@@ -366,13 +366,16 @@ describe('DecisionModelConfig status probe (route discriminator)', () => {
     expect(status.detail).not.toContain('aborted');
     expect(h.logger.warn).toHaveBeenCalledWith(
       '[lane-routing] decision model probe request failed',
-      expect.objectContaining({ timedOut: true, error: expect.any(String) }),
+      expect.objectContaining({
+        timedOut: true,
+        errorName: expect.any(String),
+      }),
     );
   });
 });
 
 describe('DecisionModelConfig row detail never carries a raw error (P4 visual Moderate 1)', () => {
-  it("a TypeError('fetch failed') shows fixed text; the logger gets the original error", async () => {
+  it("a TypeError('fetch failed') shows fixed text; the logger gets its name only", async () => {
     const thrown = new TypeError('fetch failed');
     const failing: SystemOneFetch = async () => {
       throw thrown;
@@ -392,14 +395,14 @@ describe('DecisionModelConfig row detail never carries a raw error (P4 visual Mo
     expect(status.detail).not.toContain('fetch failed');
     expect(h.logger.warn).toHaveBeenCalledWith(
       '[lane-routing] decision model probe request failed',
-      expect.objectContaining({ timedOut: false, error: 'fetch failed' }),
+      expect.objectContaining({ timedOut: false, errorName: 'TypeError' }),
     );
     const logged = JSON.stringify(h.logger.warn.mock.calls);
     expect(logged).not.toContain('127.0.0.1');
     expect(logged).not.toContain('pw@');
   });
 
-  it('a non-Error rejection is logged and not shown', async () => {
+  it('a non-Error rejection is logged by type and not shown', async () => {
     const failing: SystemOneFetch = async () => {
       throw 'socket hang up';
     };
@@ -409,11 +412,11 @@ describe('DecisionModelConfig row detail never carries a raw error (P4 visual Mo
 
     expect(status.detail).toBe('The model endpoint could not be reached.');
     expect(h.logger.warn.mock.calls[0]?.[1]).toMatchObject({
-      error: 'socket hang up',
+      errorName: 'UnknownError',
     });
   });
 
-  it('a Jev credential lookup failure shows fixed text; the logger gets the original error', async () => {
+  it('a Jev credential lookup failure shows fixed text; the logger gets its name only', async () => {
     const thrown = new Error('keychain locked at /home/someone/.secrets');
     const h = harness({ selection: { kind: 'jev' }, fetch: neverCalled });
     jest.spyOn(h.secrets, 'get').mockRejectedValue(thrown);
@@ -427,11 +430,11 @@ describe('DecisionModelConfig row detail never carries a raw error (P4 visual Mo
     expect(status.detail).not.toContain('keychain');
     expect(h.logger.warn).toHaveBeenCalledWith(
       '[lane-routing] Jev credential lookup failed',
-      { error: thrown.message },
+      { errorName: 'Error' },
     );
   });
 
-  it('a structured readiness failure shows fixed text; the logger gets the original error', async () => {
+  it('a structured readiness failure shows fixed text; the logger gets its name only', async () => {
     const thrown = new Error('provider said: 500 internal at https://x.test');
     const structured: StructuredDecisionCompleter = {
       isReady: jest.fn(async () => {
@@ -454,7 +457,7 @@ describe('DecisionModelConfig row detail never carries a raw error (P4 visual Mo
     expect(status.detail).not.toContain('x.test');
     expect(h.logger.warn).toHaveBeenCalledWith(
       '[lane-routing] structured provider readiness failed',
-      { providerId: 'ollama', error: thrown.message },
+      { providerId: 'ollama', errorName: 'Error' },
     );
   });
 });
@@ -467,7 +470,7 @@ describe('DecisionModelConfig.recheckAfterLiveNotFound (decision #46)', () => {
     });
 
     const status = await h.config.recheckAfterLiveNotFound(
-      BASE,
+      { selection: OLLAMA, baseUrl: BASE },
       LIVE_MODEL_NOT_FOUND,
     );
 
@@ -493,7 +496,7 @@ describe('DecisionModelConfig.recheckAfterLiveNotFound (decision #46)', () => {
     });
 
     const status = await h.config.recheckAfterLiveNotFound(
-      BASE,
+      { selection: OLLAMA, baseUrl: BASE },
       '404 page not found',
     );
 
@@ -529,9 +532,15 @@ describe('DecisionModelConfig.recheckAfterLiveNotFound (decision #46)', () => {
       routes: { [VERSION_PATH]: VERSION_OK, [SYSTEM_ONE_PATH]: MODEL_REQUIRED },
     });
 
-    await h.config.recheckAfterLiveNotFound(BASE, 'first');
+    await h.config.recheckAfterLiveNotFound(
+      { selection: OLLAMA, baseUrl: BASE },
+      'first',
+    );
     h.clock.now += DECISION_MODEL_RECHECK_WINDOW_MS - 1;
-    const second = await h.config.recheckAfterLiveNotFound(BASE, 'second');
+    const second = await h.config.recheckAfterLiveNotFound(
+      { selection: OLLAMA, baseUrl: BASE },
+      'second',
+    );
 
     expect(h.server.count(VERSION_PATH)).toBe(1);
     expect(h.server.count(SYSTEM_ONE_PATH)).toBe(1);
@@ -541,7 +550,10 @@ describe('DecisionModelConfig.recheckAfterLiveNotFound (decision #46)', () => {
     });
 
     h.clock.now += 1;
-    await h.config.recheckAfterLiveNotFound(BASE, 'third');
+    await h.config.recheckAfterLiveNotFound(
+      { selection: OLLAMA, baseUrl: BASE },
+      'third',
+    );
     expect(h.server.count(VERSION_PATH)).toBe(2);
   });
 
@@ -552,8 +564,14 @@ describe('DecisionModelConfig.recheckAfterLiveNotFound (decision #46)', () => {
     });
 
     await Promise.all([
-      h.config.recheckAfterLiveNotFound(BASE, 'one'),
-      h.config.recheckAfterLiveNotFound(BASE, 'two'),
+      h.config.recheckAfterLiveNotFound(
+        { selection: OLLAMA, baseUrl: BASE },
+        'one',
+      ),
+      h.config.recheckAfterLiveNotFound(
+        { selection: OLLAMA, baseUrl: BASE },
+        'two',
+      ),
     ]);
 
     expect(h.server.count(VERSION_PATH)).toBe(1);
@@ -571,7 +589,7 @@ describe('DecisionModelConfig.recheckAfterLiveNotFound (decision #46)', () => {
     expect(await h.config.isMarkedUnsupported()).toBe(true);
 
     const status = await h.config.recheckAfterLiveNotFound(
-      BASE,
+      { selection: OLLAMA, baseUrl: BASE },
       LIVE_MODEL_NOT_FOUND,
     );
 
@@ -591,7 +609,10 @@ describe('DecisionModelConfig.recheckAfterLiveNotFound (decision #46)', () => {
       routes: { [VERSION_PATH]: 'network-error' },
     });
 
-    const status = await h.config.recheckAfterLiveNotFound(BASE, 'x');
+    const status = await h.config.recheckAfterLiveNotFound(
+      { selection: OLLAMA, baseUrl: BASE },
+      'x',
+    );
 
     expect(status.state).toBe('unreachable');
     expect(storage.update).not.toHaveBeenCalled();
@@ -606,7 +627,7 @@ describe('DecisionModelConfig.recheckAfterLiveNotFound (decision #46)', () => {
     });
 
     const status = await h.config.recheckAfterLiveNotFound(
-      JEV_BASE_URL,
+      { selection: h.config.getSelection(), baseUrl: JEV_BASE_URL },
       'model not found',
     );
 
@@ -629,13 +650,16 @@ describe('DecisionModelConfig.recheckAfterLiveNotFound (decision #46)', () => {
       routes: { [VERSION_PATH]: VERSION_OK },
     });
 
-    const status = await h.config.recheckAfterLiveNotFound(BASE, 'gone');
+    const status = await h.config.recheckAfterLiveNotFound(
+      { selection: OLLAMA, baseUrl: BASE },
+      'gone',
+    );
 
     expect(status.state).toBe('unsupported-endpoint');
     expect(await h.config.isMarkedUnsupported()).toBe(true);
     expect(h.logger.warn).toHaveBeenCalledWith(
       '[lane-routing] decision model unsupported mark was not persisted',
-      { error: 'disk full' },
+      { errorName: 'Error' },
     );
   });
 });
@@ -885,7 +909,10 @@ describe('DecisionModelConfig probe binding and mark read', () => {
       selection: { kind: 'ollama', model: 'alpha' },
       fetch: held.fetch,
     });
-    const pending = h.config.recheckAfterLiveNotFound(BASE, 'http 404');
+    const pending = h.config.recheckAfterLiveNotFound(
+      { selection: { kind: 'ollama', model: 'alpha' }, baseUrl: BASE },
+      'http 404',
+    );
     await held.bothPosts;
     await h.config.setSelection({ kind: 'ollama', model: 'beta' });
     held.releaseStale();
@@ -947,7 +974,7 @@ describe('DecisionModelConfig probe binding and mark read', () => {
     });
 
     const marking = h.config.markUnsupported(
-      BASE,
+      { baseUrl: BASE },
       'endpoint does not serve /v1/systemone',
       { kind: 'ollama', model: 'alpha' },
     );

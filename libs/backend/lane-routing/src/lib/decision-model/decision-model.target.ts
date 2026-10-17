@@ -9,7 +9,11 @@ import {
   DECISION_REQUEST_TIMEOUT_MS,
   DECISION_REQUEST_TIMEOUT_REMOTE_MS,
 } from '../routing-constants';
-import { isLoopbackBase, keyTransportAllowed } from './decision-endpoint.url';
+import {
+  isLoopbackBase,
+  keyTransportAllowed,
+  parseEndpointBaseUrl,
+} from './decision-endpoint.url';
 import { DECISION_MODEL_DETAIL } from './decision-model.detail';
 import type { DecisionModelKeys } from './decision-model.keys';
 import { normaliseBaseUrl } from './decision-model.probe';
@@ -29,9 +33,7 @@ import {
  * listed again only for readability.
  */
 export type DecisionEndpointSelection =
-  | DecisionModelSelection
-  | OllamaCloudSelection
-  | CustomEndpointSelection;
+  DecisionModelSelection | OllamaCloudSelection | CustomEndpointSelection;
 
 /**
  * How the row status checks an endpoint:
@@ -56,19 +58,22 @@ export interface DecisionEndpoint {
 }
 
 /**
- * A selection that would send a key where the transport rule (D4) forbids
- * it. `detail` is a fixed `DECISION_MODEL_DETAIL` text with no host in it.
+ * A selection that must not be called:
+ * - `key-needs-https`: a key would go where the transport rule (D4) forbids;
+ * - `invalid-base-url`: the Ollama Cloud base URL override is set but fails
+ *   `parseEndpointBaseUrl` (userinfo, query, fragment, not http(s)), so the
+ *   malformed URL is never used.
+ * `detail` is a fixed `DECISION_MODEL_DETAIL` text with no URL or host in it.
  */
 export interface BlockedDecisionEndpoint {
   readonly blocked: true;
+  readonly reason: 'key-needs-https' | 'invalid-base-url';
   readonly detail: string;
 }
 
 /** `null` when the selection does not use System One (`unset`, `structured`). */
 export type DecisionEndpointResolution =
-  | DecisionEndpoint
-  | BlockedDecisionEndpoint
-  | null;
+  DecisionEndpoint | BlockedDecisionEndpoint | null;
 
 /** What the resolver reads. Keys are read per call and never cached (1.4). */
 export interface DecisionEndpointDeps {
@@ -99,7 +104,9 @@ export function isBlockedDecisionEndpoint(
  *
  * A key goes only to the base URL resolved for it (1.2, 2.3). A key that
  * would travel over plain http to a non-loopback host blocks the selection
- * instead (D4, DC6). A rejected secret read propagates to the caller.
+ * instead (D4, DC6). An Ollama Cloud override that fails the base URL policy
+ * blocks the selection too, before any key is read. A rejected secret read
+ * propagates to the caller.
  */
 export async function resolveDecisionEndpoint(
   selection: DecisionEndpointSelection,
@@ -172,6 +179,13 @@ async function resolveOllamaCloud(
 ): Promise<DecisionEndpoint | BlockedDecisionEndpoint> {
   const model = toCloudId(selection.model);
   const override = ollamaCloudOverride(deps.workspace);
+  if (override === INVALID_OVERRIDE) {
+    return {
+      blocked: true,
+      reason: 'invalid-base-url',
+      detail: DECISION_MODEL_DETAIL.invalidCloudBaseUrl,
+    };
+  }
   const key = await deps.keys.readOllamaCloudKey();
   if (key === null) {
     return endpoint(
@@ -184,7 +198,7 @@ async function resolveOllamaCloud(
   }
   const baseUrl = override ?? OLLAMA_CLOUD_DIRECT_BASE_URL;
   if (!keyTransportAllowed(baseUrl)) {
-    return { blocked: true, detail: DECISION_MODEL_DETAIL.keyNeedsHttps };
+    return keyNeedsHttps();
   }
   return endpoint(baseUrl, model, key, 'endpoint', 'remote');
 }
@@ -196,7 +210,7 @@ async function resolveCustom(
   const baseUrl = normaliseBaseUrl(selection.baseUrl);
   const key = await deps.keys.get('custom', baseUrl);
   if (key !== null && !keyTransportAllowed(baseUrl)) {
-    return { blocked: true, detail: DECISION_MODEL_DETAIL.keyNeedsHttps };
+    return keyNeedsHttps();
   }
   return endpoint(
     baseUrl,
@@ -207,17 +221,36 @@ async function resolveCustom(
   );
 }
 
-/** `provider.ollama-cloud.baseUrl`, normalised, or `null` when not set. */
+function keyNeedsHttps(): BlockedDecisionEndpoint {
+  return {
+    blocked: true,
+    reason: 'key-needs-https',
+    detail: DECISION_MODEL_DETAIL.keyNeedsHttps,
+  };
+}
+
+/** Marks an override that is set but refused by `parseEndpointBaseUrl`. */
+const INVALID_OVERRIDE: unique symbol = Symbol('invalid-override');
+
+/**
+ * `provider.ollama-cloud.baseUrl` through the custom-endpoint URL policy
+ * (`parseEndpointBaseUrl`): the normalised base, `null` when not set (absent,
+ * not a string, or blank), or `INVALID_OVERRIDE` when it is set but has
+ * userinfo, a query, a fragment or no http(s) scheme. The raw value is never
+ * returned, so it cannot reach a request, a log or a persisted mark.
+ */
 function ollamaCloudOverride(
   workspace: Pick<IWorkspaceProvider, 'getConfiguration'>,
-): string | null {
+): string | null | typeof INVALID_OVERRIDE {
   const raw = workspace.getConfiguration<unknown>(
     DECISION_MODEL_CONFIG_SECTION,
     OLLAMA_CLOUD_BASE_URL_CONFIG_KEY,
   );
-  return typeof raw === 'string' && raw.trim().length > 0
-    ? normaliseBaseUrl(raw)
-    : null;
+  if (typeof raw !== 'string' || raw.trim().length === 0) {
+    return null;
+  }
+  const parsed = parseEndpointBaseUrl(raw);
+  return parsed.ok ? parsed.baseUrl : INVALID_OVERRIDE;
 }
 
 /** DC7: `local` only for a loopback base URL and a model that is not a cloud tag. */

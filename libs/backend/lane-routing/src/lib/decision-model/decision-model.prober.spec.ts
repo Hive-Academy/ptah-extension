@@ -333,6 +333,76 @@ describe('DecisionEndpointProber, failures and logs', () => {
     expect(logged).not.toContain('pw@');
     expect(logged).not.toContain('10.0.0.9');
     expect(logged).not.toContain('gateway.example.com');
-    expect(logged).toContain('<url>');
+    expect(logged).not.toContain('credentials');
+    expect(entries).toContainEqual({
+      message: '[lane-routing] decision model probe request failed',
+      meta: {
+        method: 'POST',
+        timedOut: false,
+        timeoutMs: DECISION_MODEL_PROBE_TIMEOUT_MS,
+        errorName: 'TypeError',
+      },
+    });
+  });
+
+  it('a rejection that echoes the key without a URL logs only the error name (review defect 1)', async () => {
+    const calls: string[] = [];
+    const echoing: SystemOneFetch = async (url, init) => {
+      calls.push(url);
+      throw new Error(
+        `upstream said: ${init?.headers?.['authorization'] ?? ''} rejected`,
+      );
+    };
+    const { prober: p, entries } = prober(echoing);
+
+    const result = await p.probe(ENDPOINT);
+
+    expect(result).toEqual({
+      outcome: 'unreachable',
+      detail: DECISION_MODEL_DETAIL.unreachable,
+    });
+    expect(calls).toEqual([
+      `https://gateway.example.com/gw${SYSTEM_ONE_PATH}`,
+      `https://gateway.example.com/gw${SYSTEM_ONE_CONTROL_PATH}`,
+    ]);
+    const logged = JSON.stringify(entries);
+    expect(logged).not.toContain(KEY);
+    expect(logged).not.toContain('upstream said');
+    expect(
+      entries.filter(
+        (e) =>
+          e.message === '[lane-routing] decision model probe request failed',
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        meta: expect.objectContaining({ errorName: 'Error' }),
+      }),
+      expect.objectContaining({
+        meta: expect.objectContaining({ errorName: 'Error' }),
+      }),
+    ]);
+  });
+
+  it('a body read that rejects with the key logs only the error name', async () => {
+    const reading: SystemOneFetch = async () => ({
+      ok: false,
+      status: 400,
+      text: async () => {
+        throw new RangeError(`bad header Bearer ${KEY}`);
+      },
+    });
+    const { prober: p, entries } = prober(reading);
+
+    const result = await p.probe(ENDPOINT);
+
+    expect(result).toEqual({
+      outcome: 'unreachable',
+      detail: DECISION_MODEL_DETAIL.unreachable,
+    });
+    expect(JSON.stringify(entries)).not.toContain(KEY);
+    expect(entries).toContainEqual({
+      message: '[lane-routing] decision model probe request failed',
+      meta: expect.objectContaining({ errorName: 'RangeError' }),
+    });
   });
 });

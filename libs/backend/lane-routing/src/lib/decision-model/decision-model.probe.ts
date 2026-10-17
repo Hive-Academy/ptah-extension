@@ -171,6 +171,16 @@ export function keyOf(
   return `${canonicalJson(selection)}|${normaliseBaseUrl(baseUrl)}`;
 }
 
+/**
+ * Loggable type of an untrusted rejection. Its message can echo a header,
+ * a key or a URL, so logs carry the name only (`classifyTransportFailure`).
+ */
+export function errorName(error: unknown): string {
+  return error instanceof Error && error.name.length > 0
+    ? error.name
+    : 'UnknownError';
+}
+
 export function errorMessage(error: unknown): string {
   return error instanceof Error && error.message.length > 0
     ? error.message
