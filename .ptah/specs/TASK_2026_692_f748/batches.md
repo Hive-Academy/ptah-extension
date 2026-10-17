@@ -1,6 +1,6 @@
 # Batches - TASK_2026_692_f748
 
-Total tasks: 29 | Batches: 17 | Complete: 1/17
+Total tasks: 29 | Batches: 17 | Complete: 2/17
 
 Worktree (all edits, checks, commits): `D:\projects\ptah-extension\.claude-worktrees\idle-compaction`
 (branch `feat/idle-compaction`, base `7bdc6eed4`). Below, `<W>` means that absolute path; every
@@ -163,7 +163,7 @@ Parallel-safe batch groups (file-disjoint, no shared entry point), if the orches
 concurrency (max 3 lanes, one heavy check at a time): after Batch 1 -> {2, 5, 12}; after 2 -> {3, 4};
 after 5 -> {6}. Default ordering below is sequential by number.
 
-## Batch 1: Coordinator idle claim and manual admission — COMPLETE
+## Batch 1: Coordinator idle claim and manual admission — COMPLETE (commit 70478faf7)
 
 - Recommended executor: CLI lane [implementation, TypeScript backend]
 - Execution mode: sequential
@@ -200,7 +200,7 @@ after 5 -> {6}. Default ordering below is sequential by number.
 - Command: `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/helpers/compaction/compaction-coordinator.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -30 && npx nx typecheck @ptah-extension/agent-sdk 2>&1 | tail -20`
 - Artifacts exist with real implementations; no per-batch review.
 
-## Batch 2: Idle contracts, unref'd scheduler, rxjs dependency — IN_PROGRESS
+## Batch 2: Idle contracts, unref'd scheduler, rxjs dependency — COMPLETE (commit PENDING_SHA)
 
 - Recommended executor: CLI lane [implementation, TypeScript backend]
 - Execution mode: sequential
@@ -212,7 +212,7 @@ after 5 -> {6}. Default ordering below is sequential by number.
 - Phase: 1 | Phase review: deferred to Batch 8
 - ACs: 7.1, 7.2, NFR process lifetime
 
-### Task 2.1: `idle-compaction.types.ts` — IN_PROGRESS
+### Task 2.1: `idle-compaction.types.ts` — COMPLETE
 
 - File: `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction\idle\idle-compaction.types.ts` (CREATE)
 - Plan reference: implementation-plan.md:219-260 (component 2)
@@ -220,7 +220,7 @@ after 5 -> {6}. Default ordering below is sequential by number.
 - Quality requirements: no `any`; readonly; constants exactly as the plan; `import type { SchedulerLike } from 'rxjs'`; origin type via `types/sdk-types/claude-sdk.types`.
 - Implementation details: constants, `CacheTtlClass`, `LastRequestSnapshot`, `IdleSignal` union (external + internal signals, each internal naming its attempt), `IdleStep`, `IdleTimerSpec`, effect union, reason-code unions, ports `IdleCompactionSignals`, `IdleCompactSender`, `IdleBoundaryNotice`, `IdleCompactionTiming`, `IdleSendVetoedError` may live in the service (Batch 7).
 
-### Task 2.2: Unref'd `SchedulerLike` + spec — IN_PROGRESS
+### Task 2.2: Unref'd `SchedulerLike` + spec — COMPLETE
 
 - Files: `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction\idle\unref-scheduler.ts` (CREATE), `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction\idle\unref-scheduler.spec.ts` (CREATE)
 - Plan reference: implementation-plan.md:403-424 (component 6)
@@ -228,7 +228,7 @@ after 5 -> {6}. Default ordering below is sequential by number.
 - Quality requirements: public rxjs types only, no `rxjs/internal`; one handle per action; zero after unsubscribe.
 - Validation notes: the spec must drive a real `timer(1000, createUnrefScheduler())` under jest fake timers (verifies the `this`-bound action assumption) and assert `unref` was called.
 
-### Task 2.3: Declare `rxjs` — IN_PROGRESS
+### Task 2.3: Declare `rxjs` — COMPLETE
 
 - Files: `<W>\libs\backend\agent-sdk\package.json`, `<W>\apps\ptah-cli\package.json`
 - Plan reference: implementation-plan.md:725-736 (component 13)
@@ -238,7 +238,7 @@ after 5 -> {6}. Default ordering below is sequential by number.
 
 - Command: `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/helpers/compaction/idle/unref-scheduler.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -20 && npx nx typecheck @ptah-extension/agent-sdk 2>&1 | tail -15 && npx nx lint @ptah-extension/agent-sdk 2>&1 | tail -20 && npx nx lint ptah-cli 2>&1 | tail -20`
 
-## Batch 3: Request tracker and fire gate (pure) — PENDING
+## Batch 3: Request tracker and fire gate (pure) — IN_PROGRESS
 
 - Recommended executor: CLI lane [implementation, TypeScript backend]
 - Execution mode: sequential (one lane; two independent pure units)
@@ -250,7 +250,7 @@ after 5 -> {6}. Default ordering below is sequential by number.
 - Phase: 1 | Phase review: deferred to Batch 8
 - ACs: 1.1, 1.2, 3.1-3.9 (3.7 as amended by decision 9)
 
-### Task 3.1: `MainRequestTracker` + `classifyCacheTtl` + spec — PENDING
+### Task 3.1: `MainRequestTracker` + `classifyCacheTtl` + spec — IN_PROGRESS
 
 - Files: `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction\idle\idle-request-tracker.ts` (CREATE), `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction\idle\idle-request-tracker.spec.ts` (CREATE)
 - Plan reference: implementation-plan.md:262-292 (component 3), D3
@@ -258,7 +258,7 @@ after 5 -> {6}. Default ordering below is sequential by number.
 - Quality requirements: O(1) per frame; never throws; no clock of its own.
 - Validation notes: A4 fixture — an `assistant` frame with `usage.cache_creation` split; read-only last request after an earlier 1h write -> `not-1h`; AC 1.2 anchor (send t=0, response t=7 min -> anchor <= t0).
 
-### Task 3.2: `evaluateFireGate` + spec — PENDING
+### Task 3.2: `evaluateFireGate` + spec — IN_PROGRESS
 
 - Files: `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction\idle\idle-fire-gate.ts` (CREATE), `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction\idle\idle-fire-gate.spec.ts` (CREATE)
 - Plan reference: implementation-plan.md:380-401 (component 5), D1
