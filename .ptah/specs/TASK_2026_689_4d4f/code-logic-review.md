@@ -161,3 +161,44 @@ Implicit requirements not addressed: scroll tracking for fixed overlays, a teard
 ## Confidence
 
 Confidence: HIGH on the static findings (1, 2, 3, 5, 6, 8). MEDIUM on finding 1's visual effect: I did not run the app, so what the detached plate covers is inferred from the CSS and code.
+
+## Re-review (fix round)
+
+Review family: Anthropic (reviewer) vs codex (implementer). Scope: `git diff edc93bd93..3c52df9e2 -- libs/` (commit 3c52df9e2). I read the changed overlay, placement, scene, streams, core, status-groups, connectors and page code. I ran Jest once on `scene/`, `components/command-overlay*` and the page spec: 12 suites, 94 tests, all pass. The only warning was the known worker-teardown notice. Paths are relative to `libs/frontend/command-center/src/lib/`.
+
+**Verdict: APPROVED. Score 8/10. Blocking 0, Serious 0, Minor 3 (new, non-gating).**
+
+### Closure of the 13 findings
+
+| # | Status | Evidence |
+| --- | --- | --- |
+| 1 Scroll following and clipping | Closed | `components/command-overlay.component.ts:145` registers one `{capture, passive}` document `scroll` listener, and `closeCard` and destroy remove it. It only emits `repositionRequested`, which the page routes to `scene.requestMeasure()`, so the single rAF scheduler (`scene/command-scene.component.ts:92-95`) coalesces the work. The plate's own and the stream list's scrolls do not loop, because `position()` only writes styles. `components/command-overlay-placement.ts` adds `visible` (the whole row inside the stream viewport), and `position()` hides the plate when false while keeping the reservation. |
+| 2 Pin outlives node | Closed | An effect closes the pin when its id leaves the projection (`components/command-overlay.component.ts:107-110`). `position()` also repairs a pin with no active node (`:228`). `closeCard` releases the reservation, the listeners and the pin synchronously. |
+| 3 Coverage | Closed | The z-order test is renamed "stacks cards above the connector layer". It asserts inline z-index 0 against 1 and DOM order (`scene/command-scene.component.spec.ts:47-63`). Enter and Space, teardown, visibility, null geometry, preview reservation, focus return, unknown provider and destroy cases were added. Z-order is still checked through inline styles, not the real stylesheet, which is acceptable. |
+| 4 Status glyphs | Closed | `scene/command-status-groups.component.ts` renders four lucide icons with `aria-hidden` plus the visible title. |
+| 5 Escape and preview reopening | Closed for Escape | `onEscape` and `closePinned` call `dismissHover()`. `dismissedHover` blocks reopening until the hovered id changes or goes null (`components/command-overlay.component.ts:88-97`). See residual N1 for the focus-restore paths. |
+| 6 Muted / stopped | Closed | `scene/command-core.component.css:21-22` (muted dashed, stopped solid). |
+| 7 Measurement / null geometry | Closed | The scene reads the children through `measurementElements()` public methods. It clears stale geometry (`clearGeometry`). It guards `typeof ResizeObserver`. `position()` hides the card when geometry is missing (`:229`). |
+| 8 Missing row steals focus | Closed | `components/command-overlay.component.ts:235` calls `unpin(false)`. |
+| 9 Unknown provider copy | Closed | `providerName` returns "Session" (`:121`), matching the row. |
+| 10 ARIA | Closed | `aria-controls="command-plate"` on pinned rows and root (`scene/command-streams.component.ts:44`, `scene/command-core.component.ts:31`). |
+| 11 Gradient units | Closed in effect, see N2 | `userSpaceOnUse` is used. |
+| 12 Double reservation | Closed | `command-center-page.component.ts:169` excludes root pins from `--plate-reserve`. The core-column slot supplies the height. |
+| 13 Duplication / age tick | Closed | `StatusCounts` has one source. `formatWorkAge` is shared. The page ticker is one interval created inside an effect with `onCleanup` (`command-center-page.component.ts:427-432`). |
+
+### New observations
+
+- **N1 (Minor). The preview can reappear after a non-Escape unpin.**
+  - `components/command-overlay.component.ts:164-168`: `unpin` records `dismissedHover = hoveredNodeId()`, then restores focus to the row.
+  - When the pin is closed with the × button or by an outside click, the hovered id may already be null. The focus restore then emits `hover(id)` from the row's `(focus)` handler, which differs from the recorded null. The preview opens about 150ms later (a pure preview, no reservation).
+  - Fix: in `unpin(true)`, set `dismissedHover = id`.
+- **N2 (Minor). The ribbon gradient is now stage-diagonal.**
+  - `scene/command-connectors.component.ts:16-28`: `userSpaceOnUse` runs from (0,0) to (stageW, stageH) for all four gradients. Each ribbon therefore shows only the slice of the gradient where it sits, so the start and end colours the design intended per ribbon may not appear.
+  - Fix: set each gradient's `x1/y1/x2/y2` per ribbon from `ribbon.start` and `ribbon.end` (one gradient per ribbon).
+- **N3 (Minor). Scroll repositioning lags the scroll by a frame.**
+  - The fixed plate follows the scroll through a measure then a render then `position()`.
+  - Fix: acceptable as is. If a visible wobble shows up in the Electron check, set the plate's top from `stage.getBoundingClientRect()` inside the rAF directly.
+
+### Residual risk
+
+I did not run the app. The plate's behaviour under real page scroll is inferred from the code and the unit tests. The Electron visual check is still the only evidence for the end-to-end look.
