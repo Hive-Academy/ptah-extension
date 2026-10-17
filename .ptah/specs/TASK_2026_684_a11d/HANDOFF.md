@@ -69,7 +69,15 @@ pushed; their CI may still be running at handoff.
    fake credentials (`https://user:secret@host.example` etc.) in commit `8a40121af`,
    `decision-endpoint.url.spec.ts:54-56,87` and a comment at `decision-endpoint.url.ts:85`. No history
    rewrite (same handling as PR #735).
-2. USER: live run (bash, in `W`):
+2. DONE (user, 2026-10-17): live run PASSED, 7/7 tests, 28.9 s. Lines the user shared:
+   - `DECISION_LIVE_MODEL clef:27b-cloud`
+   - `DECISION_LIVE_MODEL_ID_FORMS {"clef:27b":true,"clef:27b-cloud":true}`
+   - `DECISION_LIVE_LATENCY {"coldMs":438,"p50Ms":644,"p95Ms":1124,"probeMs":551}`
+   - All fixtures correct in all 3 runs with valid confidence and probabilities; error mapping auth,
+     notFound (unknown model) and timeout all pass. No product findings.
+   Batch 21 now applies the plan's timeout formula to these numbers. Current constants:
+   `SYSTEM_ONE_TIMEOUT_MS = 3000`, `DECISION_MODEL_PROBE_TIMEOUT_MS = 1500`,
+   `DECISION_MODEL_CATALOG_TIMEOUT_MS = 4000`. Command used (for reference):
    `PTAH_LIVE_PROBES=1 OLLAMA_API_KEY=<key> npx jest -c libs/backend/lane-routing/jest.config.ts libs/backend/lane-routing/src/lib/decision-model/system-one.live.spec.ts --coverage=false --maxWorkers=2`
    (PowerShell: set `$env:PTAH_LIVE_PROBES='1'` and `$env:OLLAMA_API_KEY` first). The user shares the
    `DECISION_LIVE_LATENCY {...}`, `DECISION_LIVE_MODEL`, `DECISION_LIVE_MODEL_ID_FORMS` lines and any
@@ -124,7 +132,7 @@ pushed; their CI may still be running at handoff.
 1. `git -C W status -sb`; commit this HANDOFF.md if uncommitted (`docs(task-specs): ...`), push in background.
 2. `gh pr checks 740`; if a non-GitGuardian check failed, read
    `gh run view <id> --log-failed | grep -E "✘|Error|Expected|Received"` and fix (Claude subagent).
-3. When the user shares the live-run lines: Batch 21 with a Claude backend-developer subagent (read
+3. The live-run lines are in "In progress / waiting" item 2. Batch 21 with a Claude backend-developer subagent (read
    `batches.md` Batch 21 and the plan's formula; apply the remote timeout from the user's numbers; fix
    any live-result findings). Then a codex `code-logic-reviewer` lane (read-only, deliverable in the
    task folder, 40-call ceiling, `ptah_agent_list` first). Max 2 revise rounds; at the cap report or
