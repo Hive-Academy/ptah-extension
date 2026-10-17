@@ -10,11 +10,21 @@ import {
   decisionDraftForKind,
   decisionDraftFrom,
   decisionModelInput,
+  decisionModelPlaceholder,
   endpointFieldError,
+  inlineHintOf,
   parseDecisionModelStatus,
+  storedKeyKnown,
   sameDecisionSelection,
   type DecisionModelDraft,
 } from './decision-model-row.view';
+
+/** The inline hints: the host's fixed save errors without the "Could not save" lead (P4 visual 3). */
+const URL_HINT =
+  'Base URL must be an absolute http or https URL without credentials, query or fragment.';
+const HTTPS_HINT =
+  'An API key needs an https base URL unless the endpoint is on this machine.';
+const MODEL_HINT = 'Model must not be empty.';
 
 const status = (
   overrides: Partial<DecisionModelStatusDto>,
@@ -458,6 +468,49 @@ describe('decision-model-row.view: Ollama Cloud and custom endpoint kinds (TASK_
     ).toBeNull();
   });
 
+  describe('inline hints and placeholders (P4 visual 3, 6)', () => {
+    it('drops the save-failure lead from each shared field error, and leaves other text alone', () => {
+      expect(inlineHintOf(DECISION_MODEL_INVALID_BASE_URL)).toBe(URL_HINT);
+      expect(inlineHintOf(DECISION_MODEL_KEY_NEEDS_HTTPS)).toBe(HTTPS_HINT);
+      expect(inlineHintOf(DECISION_MODEL_INVALID_MODEL)).toBe(MODEL_HINT);
+      expect(inlineHintOf('Something else.')).toBe('Something else.');
+    });
+
+    it('shows an example model for Ollama Cloud and the custom endpoint, the host default for Jev', () => {
+      expect(decisionModelPlaceholder('ollama-cloud')).toBe(
+        'e.g. clef:27b-cloud',
+      );
+      expect(decisionModelPlaceholder('custom')).toBe('model id');
+      expect(decisionModelPlaceholder('jev')).toBe('jev-1.13.0');
+      expect(decisionModelPlaceholder('unset')).toBe('');
+    });
+  });
+
+  describe('storedKeyKnown (P4 visual 4)', () => {
+    const jev = { kind: 'jev', model: 'jev-1.13.0' } as const;
+    it('is unknown when the saved selection is another kind, e.g. a fresh profile', () => {
+      expect(storedKeyKnown('jev', status({}))).toBeNull();
+      expect(storedKeyKnown('custom', null)).toBeNull();
+    });
+    it('follows apiKeyStored, else the saved Jev state', () => {
+      expect(
+        storedKeyKnown(
+          'jev',
+          status({ selection: jev, state: 'ready', apiKeyStored: false }),
+        ),
+      ).toBe(false);
+      expect(
+        storedKeyKnown('jev', status({ selection: jev, state: 'ready' })),
+      ).toBe(true);
+      expect(
+        storedKeyKnown(
+          'jev',
+          status({ selection: jev, state: 'no-credential' }),
+        ),
+      ).toBe(false);
+    });
+  });
+
   describe('endpointFieldError (mirrors the host URL policy and D4)', () => {
     it('is silent for every other kind', () => {
       for (const kind of [
@@ -496,7 +549,7 @@ describe('decision-model-row.view: Ollama Cloud and custom endpoint kinds (TASK_
     ])('names the base URL field for %j', (baseUrl) => {
       expect(endpointFieldError(draft({ baseUrl }), false)).toEqual({
         field: 'baseUrl',
-        message: DECISION_MODEL_INVALID_BASE_URL,
+        message: URL_HINT,
       });
     });
 
@@ -506,7 +559,7 @@ describe('decision-model-row.view: Ollama Cloud and custom endpoint kinds (TASK_
           draft({ baseUrl: 'http://192.168.1.20:11434' }),
           true,
         ),
-      ).toEqual({ field: 'baseUrl', message: DECISION_MODEL_KEY_NEEDS_HTTPS });
+      ).toEqual({ field: 'baseUrl', message: HTTPS_HINT });
     });
 
     it.each([
@@ -533,7 +586,7 @@ describe('decision-model-row.view: Ollama Cloud and custom endpoint kinds (TASK_
       (baseUrl) => {
         expect(endpointFieldError(draft({ baseUrl }), true)).toEqual({
           field: 'baseUrl',
-          message: DECISION_MODEL_KEY_NEEDS_HTTPS,
+          message: HTTPS_HINT,
         });
       },
     );
@@ -541,7 +594,7 @@ describe('decision-model-row.view: Ollama Cloud and custom endpoint kinds (TASK_
     it('names the model field when the model is empty', () => {
       expect(endpointFieldError(draft({ model: '  ' }), false)).toEqual({
         field: 'model',
-        message: DECISION_MODEL_INVALID_MODEL,
+        message: MODEL_HINT,
       });
     });
   });

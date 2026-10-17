@@ -55,6 +55,23 @@ export function decisionModelLabel(kind: DecisionModelKind): string {
 }
 
 /**
+ * The model field's placeholder for a kind: Jev shows the host default; Ollama Cloud and the custom endpoint show an
+ * example of the expected shape. A placeholder only: the value is never filled in (D3, no preselection).
+ */
+export function decisionModelPlaceholder(kind: DecisionModelKind): string {
+  switch (kind) {
+    case 'jev':
+      return JEV_DEFAULT_MODEL;
+    case 'ollama-cloud':
+      return 'e.g. clef:27b-cloud';
+    case 'custom':
+      return 'model id';
+    default:
+      return '';
+  }
+}
+
+/**
  * Host save errors the row repeats word for word (DC12): fixed shared constants, never free host text.
  */
 const HOST_SAVE_SENTENCES: ReadonlySet<string> = new Set([
@@ -356,7 +373,10 @@ export function parseDecisionModelStatus(
 /** A custom endpoint field the row can mark invalid. */
 export type DecisionEndpointField = 'baseUrl' | 'model';
 
-/** An inline field hint; `message` is one of the host's fixed save errors, so the row and the host say the same. */
+/**
+ * An inline field hint. `message` is one of the host's fixed save errors without its "Could not save the decision
+ * model." lead: the hint shows while typing, before any save, so it must not read as a failed save (P4 visual 3).
+ */
 export interface DecisionEndpointFieldError {
   readonly field: DecisionEndpointField;
   readonly message: string;
@@ -375,12 +395,29 @@ export function endpointFieldError(
   if (draft.kind !== 'custom') return null;
   const baseUrl = normaliseEndpointBaseUrl(draft.baseUrl);
   if (baseUrl === null)
-    return { field: 'baseUrl', message: DECISION_MODEL_INVALID_BASE_URL };
+    return fieldHint('baseUrl', DECISION_MODEL_INVALID_BASE_URL);
   if (keyPresent && !keyTransportAllowed(baseUrl))
-    return { field: 'baseUrl', message: DECISION_MODEL_KEY_NEEDS_HTTPS };
+    return fieldHint('baseUrl', DECISION_MODEL_KEY_NEEDS_HTTPS);
   if (!draft.model.trim())
-    return { field: 'model', message: DECISION_MODEL_INVALID_MODEL };
+    return fieldHint('model', DECISION_MODEL_INVALID_MODEL);
   return null;
+}
+
+/** The lead every shared decision-model save error starts with (rpc-agents.types.ts). */
+const SAVE_ERROR_LEAD = 'Could not save the decision model. ';
+
+/** A host save error as an inline hint: the same sentence without the save-failure lead. */
+export function inlineHintOf(saveError: string): string {
+  return saveError.startsWith(SAVE_ERROR_LEAD)
+    ? saveError.slice(SAVE_ERROR_LEAD.length)
+    : saveError;
+}
+
+function fieldHint(
+  field: DecisionEndpointField,
+  saveError: string,
+): DecisionEndpointFieldError {
+  return { field, message: inlineHintOf(saveError) };
 }
 
 /** Same limit as `ENDPOINT_BASE_URL_MAX_LENGTH` in lane-routing. */
@@ -429,6 +466,22 @@ export function storedKeyBoundTo(
   const bound = parseUrl(saved.baseUrl);
   if (draft === null || !bound || bound.origin === 'null') return false;
   return parseUrl(draft)?.origin === bound.origin;
+}
+
+/**
+ * The host's knowledge of a keyed kind's stored key: `apiKeyStored` when the saved selection is that kind and reports
+ * it, else a saved Jev selection's state (`ready` = stored, `no-credential` = none); `null` when unknown. The host
+ * reports `apiKeyStored` for the saved kind only (DC13), so a key of another kind is always unknown here.
+ */
+export function storedKeyKnown(
+  kind: 'jev' | 'custom' | null,
+  status: DecisionModelStatusDto | null,
+): boolean | null {
+  if (!kind || status?.selection.kind !== kind) return null;
+  if (status.apiKeyStored !== undefined) return status.apiKeyStored;
+  if (kind === 'jev' && status.state === 'ready') return true;
+  if (kind === 'jev' && status.state === 'no-credential') return false;
+  return null;
 }
 
 /** D4: a key may be sent only over https or to a loopback host. */

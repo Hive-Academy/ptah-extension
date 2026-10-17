@@ -462,7 +462,7 @@ describe('DecisionModelRowComponent', () => {
       );
     });
 
-    it('offers Remove stored key while the key state is unknown, then hides it once removed and focuses the key field', async () => {
+    it('offers no Remove stored key while the host cannot say a key is stored, e.g. a fresh profile (P4 visual 4)', async () => {
       await create(
         status({
           selection: { kind: 'ollama', model: 'tev1' },
@@ -472,7 +472,22 @@ describe('DecisionModelRowComponent', () => {
       );
       await open();
       await pickKind('jev');
+      expect(byTestId('decision-api-key')).not.toBeNull();
+      expect(byTestId('decision-api-key-remove')).toBeNull();
+      await type('decision-api-key', 'sk-typed-not-saved');
+      expect(byTestId('decision-api-key-remove')).toBeNull();
+    });
+
+    it('offers Remove stored key while the host reports one, then hides it once removed and focuses the key field', async () => {
+      const jev = {
+        selection: { kind: 'jev', model: 'jev-1.13.0' },
+        locality: 'remote',
+        state: 'ready',
+      } as const;
+      await create(status({ ...jev, apiKeyStored: true }));
+      await open();
       expect(byTestId('decision-api-key-remove')).not.toBeNull();
+      current = status({ ...jev, state: 'no-credential', apiKeyStored: false });
       byTestId<HTMLButtonElement>('decision-api-key-remove')?.click();
       await flush();
       expect(setConfigCalls()).toEqual([{ decisionModelJevApiKey: '' }]);
@@ -661,5 +676,61 @@ describe('DecisionModelRowComponent', () => {
     await flush();
     expect(byTestId('consumer-editor-decision')).toBeNull();
     expect(document.activeElement).toBe(byTestId('consumer-edit-decision'));
+  });
+
+  describe('the editor popover (P4 visual 1, 2, 5)', () => {
+    const tab = (target: HTMLElement, shiftKey = false): KeyboardEvent => {
+      const event = new KeyboardEvent('keydown', {
+        key: 'Tab',
+        shiftKey,
+        bubbles: true,
+        cancelable: true,
+      });
+      target.dispatchEvent(event);
+      return event;
+    };
+
+    it('is a modal dialog capped to the viewport, with a fixed kind picker and a scrolling body', async () => {
+      await create();
+      await open();
+      const editor = byTestId('consumer-editor-decision');
+      expect(editor?.getAttribute('aria-modal')).toBe('true');
+      expect(editor?.style.maxHeight).toMatch(/^\d+px$/);
+      const body = byTestId('decision-editor-body');
+      expect(body?.className).toContain('overflow-y-auto');
+      expect(body?.contains(byTestId('decision-kind'))).toBe(false);
+      expect(body?.contains(byTestId('decision-footer'))).toBe(true);
+    });
+
+    it('keeps Tab inside the editor: the last control wraps to Close, Shift+Tab on Close wraps back', async () => {
+      await create();
+      await open();
+      await pickKind('ollama');
+      const close = byTestId<HTMLButtonElement>('consumer-close-decision');
+      const model = byTestId<HTMLInputElement>('decision-model');
+      if (!close || !model) throw new Error('editor controls missing');
+      // Save is disabled with an empty model, so the model field is the last stop.
+      const forward = tab(model);
+      expect(forward.defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(close);
+      const back = tab(close, true);
+      expect(back.defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(model);
+      const inside = tab(byTestId<HTMLSelectElement>('decision-kind') ?? close);
+      expect(inside.defaultPrevented).toBe(false);
+    });
+
+    it('shows a model placeholder for Ollama Cloud and the custom endpoint, never a value (D3)', async () => {
+      await create();
+      await open();
+      await pickKind('ollama-cloud');
+      const model = (): HTMLInputElement | null =>
+        byTestId<HTMLInputElement>('decision-model');
+      expect(model()?.placeholder).toBe('e.g. clef:27b-cloud');
+      expect(model()?.value).toBe('');
+      await pickKind('custom');
+      expect(model()?.placeholder).toBe('model id');
+      expect(model()?.value).toBe('');
+    });
   });
 });

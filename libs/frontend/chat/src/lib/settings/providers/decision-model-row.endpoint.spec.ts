@@ -17,7 +17,6 @@ import {
 } from '@ptah-extension/core';
 import { rpcError, rpcSuccess } from '@ptah-extension/core/testing';
 import {
-  DECISION_MODEL_INVALID_BASE_URL,
   DECISION_MODEL_KEY_NEEDS_HTTPS,
   type AgentListDecisionModelsResult,
   type AgentOrchestrationConfig,
@@ -26,6 +25,11 @@ import {
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import { DecisionModelRowComponent } from './decision-model-row.component';
 
+/** Inline hints carry no "Could not save" lead: nothing was saved yet (P4 visual 3). */
+const URL_HINT =
+  'Base URL must be an absolute http or https URL without credentials, query or fragment.';
+const HTTPS_HINT =
+  'An API key needs an https base URL unless the endpoint is on this machine.';
 const SAVE_FAILED =
   'Could not save the decision model. The saved choice is unchanged.';
 const PARTIAL =
@@ -366,9 +370,8 @@ describe('DecisionModelRowComponent: Ollama Cloud and custom endpoint (TASK_2026
       await type('decision-model', 'm1');
       await type('decision-base-url', 'ftp://decide.example.com');
       const field = byTestId<HTMLInputElement>('decision-base-url');
-      expect(text('decision-base-url-error')).toBe(
-        DECISION_MODEL_INVALID_BASE_URL,
-      );
+      expect(text('decision-base-url-error')).toBe(URL_HINT);
+      expect(text('decision-base-url-error')).not.toContain('Could not save');
       expect(byTestId('decision-base-url-error')?.getAttribute('role')).toBe(
         'alert',
       );
@@ -388,9 +391,7 @@ describe('DecisionModelRowComponent: Ollama Cloud and custom endpoint (TASK_2026
       expect(byTestId('decision-base-url-error')).toBeNull();
       expect(saveButton()?.disabled).toBe(false);
       await type('decision-api-key', 'sk-secret');
-      expect(text('decision-base-url-error')).toBe(
-        DECISION_MODEL_KEY_NEEDS_HTTPS,
-      );
+      expect(text('decision-base-url-error')).toBe(HTTPS_HINT);
       expect(saveButton()?.disabled).toBe(true);
       for (const loopback of [
         'http://localhost:8080',
@@ -401,9 +402,7 @@ describe('DecisionModelRowComponent: Ollama Cloud and custom endpoint (TASK_2026
         expect(byTestId('decision-base-url-error')).toBeNull();
       }
       await type('decision-base-url', 'http://127.0.0.1.evil.com');
-      expect(text('decision-base-url-error')).toBe(
-        DECISION_MODEL_KEY_NEEDS_HTTPS,
-      );
+      expect(text('decision-base-url-error')).toBe(HTTPS_HINT);
     });
 
     it('sends the typed key in decisionModelCustomApiKey with the selection, then clears it (no Undo)', async () => {
@@ -465,9 +464,7 @@ describe('DecisionModelRowComponent: Ollama Cloud and custom endpoint (TASK_2026
       await open();
       expect(byTestId<HTMLInputElement>('decision-api-key')?.value).toBe('');
       await type('decision-base-url', 'http://decide.example.com/v2');
-      expect(text('decision-base-url-error')).toBe(
-        DECISION_MODEL_KEY_NEEDS_HTTPS,
-      );
+      expect(text('decision-base-url-error')).toBe(HTTPS_HINT);
       expect(saveButton()?.disabled).toBe(true);
       await type('decision-base-url', 'https://decide.example.com');
       expect(byTestId('decision-base-url-error')).toBeNull();
@@ -525,6 +522,14 @@ describe('DecisionModelRowComponent: Ollama Cloud and custom endpoint (TASK_2026
         }),
       );
       await open();
+      expect(byTestId('decision-api-key')).not.toBeNull();
+      expect(byTestId('decision-api-key-remove')).toBeNull();
+    });
+
+    it('offers no Remove stored key on a fresh profile, where the host reports no custom key (P4 visual 4)', async () => {
+      await create();
+      await open();
+      await pickKind('custom');
       expect(byTestId('decision-api-key')).not.toBeNull();
       expect(byTestId('decision-api-key-remove')).toBeNull();
     });
