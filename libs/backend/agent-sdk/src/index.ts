@@ -148,6 +148,7 @@ export {
 // consumer that constructs the transformer directly — `auth-providers`' Codex
 // stream-parity spec — cannot reach the internal helpers barrel.
 export { CompactionBoundaryGenerationRegistry } from './lib/helpers';
+export { SubagentStopNotices } from './lib/helpers/compaction/subagent-stop-notices';
 export {
   SessionTurnStateRegistry,
   toTurnStateEvent,

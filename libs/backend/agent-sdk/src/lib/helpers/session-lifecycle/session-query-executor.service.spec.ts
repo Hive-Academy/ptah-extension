@@ -50,6 +50,8 @@ import {
   type SubagentHandoffIndexPort,
   type SubagentHandoffRecordsPort,
 } from '../compaction/subagent-budget-monitor';
+import { SubagentStopNotices } from '../compaction/subagent-stop-notices';
+import { SubagentBudgetStopCallbackRegistry } from '../subagent-budget-stop-callback-registry';
 import type { CompactionConfigProvider } from '../compaction-config-provider';
 
 /** A monitor's handoff files when the session has no workspace. */
@@ -1035,6 +1037,8 @@ describe('SessionQueryExecutor — compaction coordinator wiring (TASK_2026_597 
         noHandoffFiles,
         memoryHandoffRecords,
         noHandoffIndex,
+        new SubagentBudgetStopCallbackRegistry(makeLogger()),
+        new SubagentStopNotices(),
       );
     }
 
@@ -1580,6 +1584,8 @@ describe('SessionQueryExecutor — subagent budget monitor wiring (TASK_2026_597
         noHandoffFiles,
         memoryHandoffRecords,
         noHandoffIndex,
+        new SubagentBudgetStopCallbackRegistry(makeLogger()),
+        new SubagentStopNotices(),
       );
       return { monitor, port, registry };
     }
@@ -1742,6 +1748,8 @@ describe('SessionQueryExecutor — subagent budget monitor wiring (TASK_2026_597
         noHandoffFiles,
         memoryHandoffRecords,
         noHandoffIndex,
+        new SubagentBudgetStopCallbackRegistry(makeLogger()),
+        new SubagentStopNotices(),
       );
     }
     /** 1000 cache-write tokens and no `cache_creation` TTL split. */

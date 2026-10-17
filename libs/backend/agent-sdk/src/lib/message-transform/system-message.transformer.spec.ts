@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { SystemMessageTransformer } from './system-message.transformer';
 import type { TransformerState } from './transformer-state';
 import type { TransformerHelpers } from './transformer-helpers';
+import { SubagentStopNotices } from '../helpers/compaction/subagent-stop-notices';
 
 function makeState(): jest.Mocked<TransformerState> {
   // Backs the announcement-mark mocks with a real Map (id → origin), so
@@ -79,6 +80,7 @@ function makeHelpers(
       peekPendingTeammateName: jest.fn().mockReturnValue(undefined),
       update: jest.fn(),
     },
+    stopNotices: new SubagentStopNotices(),
     modelResolver: { resolveForPricing: jest.fn() },
     sessionLifecycle: {
       getActiveSessionIds: jest.fn().mockReturnValue(activeIds),
@@ -825,6 +827,42 @@ describe('SystemMessageTransformer', () => {
   });
 
   describe('task_notification', () => {
+    it('uses a Ptah notice only for a recorded stopped task', () => {
+      const helpers = makeHelpers();
+      helpers.stopNotices.record(
+        'sess',
+        'task-budget',
+        'Ptah stopped `Explore`: handoff size. The user did not stop it.',
+      );
+      const stopped = {
+        task_id: 'task-budget',
+        tool_use_id: 'tool-budget',
+        status: 'stopped',
+        summary: 'Agent "Explore" was stopped by user',
+      };
+      const budgetEvents = transformer.transformTaskNotification(
+        stopped as never,
+        state,
+        helpers,
+      );
+      expect(budgetEvents[0]).toMatchObject({
+        eventType: 'agent_completed',
+        summary:
+          'Ptah stopped `Explore`: handoff size. The user did not stop it.',
+      });
+      expect(JSON.stringify(budgetEvents)).not.toContain('stopped by user');
+
+      const userEvents = transformer.transformTaskNotification(
+        { ...stopped, task_id: 'task-user', tool_use_id: 'tool-user' } as never,
+        state,
+        helpers,
+      );
+      expect(userEvents[0]).toMatchObject({
+        eventType: 'agent_completed',
+        summary: 'Agent "Explore" was stopped by user',
+      });
+    });
+
     it('cleans up taskId mapping and emits agent_completed', () => {
       state.getTaskParentToolUseId.mockReturnValue('tool-n');
       const helpers = makeHelpers();

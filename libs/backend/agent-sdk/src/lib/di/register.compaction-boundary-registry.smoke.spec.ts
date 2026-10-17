@@ -28,6 +28,7 @@
  */
 
 import 'reflect-metadata';
+import { SubagentStopNotices } from '../helpers/compaction/subagent-stop-notices';
 
 import { container as rootContainer } from 'tsyringe';
 import type { DependencyContainer } from 'tsyringe';
@@ -189,6 +190,19 @@ describe('registerSdkServices — CompactionBoundaryGenerationRegistry DI smoke'
 
   beforeEach(() => {
     container = buildSmokeContainer();
+  });
+
+  it('resolves the same stop notice store for SDK services', () => {
+    const notices = container.resolve<SubagentStopNotices>(
+      SDK_TOKENS.SDK_SUBAGENT_STOP_NOTICES,
+    );
+    expect(notices).toBeInstanceOf(SubagentStopNotices);
+    expect(container.resolve(SDK_TOKENS.SDK_SUBAGENT_STOP_NOTICES)).toBe(
+      notices,
+    );
+    expect(
+      container.resolve(SDK_TOKENS.SDK_MESSAGE_TRANSFORMER),
+    ).toBeInstanceOf(SdkMessageTransformer);
   });
 
   it('resolves SDK_TOKENS.SDK_COMPACTION_BOUNDARY_GENERATION_REGISTRY', () => {

@@ -3,6 +3,7 @@ import * as http from 'node:http';
 import Anthropic from '@anthropic-ai/sdk';
 import {
   CompactionBoundaryGenerationRegistry,
+  SubagentStopNotices,
   SdkMessageTransformer,
   type SDKMessage,
 } from '@ptah-extension/agent-sdk';
@@ -55,6 +56,7 @@ function ptahConsumer(): { transformer: SdkMessageTransformer; total: () => numb
       {} as never, usageTracker as never,
       { markGenerating: () => undefined, settleTurn: () => undefined } as never,
       new CompactionBoundaryGenerationRegistry(),
+      new SubagentStopNotices(),
     ),
     total: usageTracker.getCumulativeTokens,
   };

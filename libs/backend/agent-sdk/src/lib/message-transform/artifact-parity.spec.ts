@@ -10,6 +10,7 @@ import type {
 
 import type { IModelResolver } from '../auth-env.port';
 import { CompactionBoundaryGenerationRegistry } from '../helpers/compaction-boundary-generation-registry';
+import { SubagentStopNotices } from '../helpers/compaction/subagent-stop-notices';
 import { LiveUsageTracker } from '../helpers/live-usage-tracker';
 import type { SessionLifecycleManager } from '../helpers/session-lifecycle-manager';
 import { SessionTurnStateRegistry } from '../helpers/session-turn-state.registry';
@@ -63,6 +64,7 @@ function createLiveTransformer(): SdkMessageTransformer {
     new LiveUsageTracker(),
     new SessionTurnStateRegistry(),
     new CompactionBoundaryGenerationRegistry(),
+    new SubagentStopNotices(),
   );
 }
 
