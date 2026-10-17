@@ -1,6 +1,6 @@
 # Batches - TASK_2026_684_a11d
 
-Total tasks: 45 | Batches: 23 (Batch 0 gate + 22 implementation batches) | Complete: 18/23
+Total tasks: 45 | Batches: 23 (Batch 0 gate + 22 implementation batches) | Complete: 22/23 (Batch 21 waits for the user live run)
 
 ## Execution precondition (read first)
 
@@ -902,7 +902,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
   before/after screenshots of Settings -> Agent Orchestration -> Decision model in dark and light
   themes. The "before" comes from the base commit (Batch 0 merge, before Batch 1).
 
-## Batch 18: Persistence proof (C11) — PENDING
+## Batch 18: Persistence proof (C11) — COMPLETE
 
 - Recommended executor: CLI lane, senior-tester profile (non-codex)
 - Execution mode: sequential
@@ -914,7 +914,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - Phase: 5 - Evals, persistence proof and workflow | Phase review: code-logic (codex)
 - Criteria: 2.7, 7.1 (no new key, DC2), 7.2
 
-### Task 18.1: Extend the 41i round-trip spec — PENDING
+### Task 18.1: Extend the 41i round-trip spec — COMPLETE
 
 - File: MODIFY `W\libs\backend\platform-core\src\file-settings-manager.spec.ts` (`:243-265`)
 - Plan reference: implementation-plan.md:477-491
@@ -926,7 +926,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 
 - `J(libs/backend/platform-core, libs/backend/platform-core/src/file-settings-manager.spec.ts libs/backend/platform-core/src/file-settings-keys.spec.ts)`; `TC(@ptah-extension/platform-core)`.
 
-## Batch 19: Live eval spec (C14) — PENDING
+## Batch 19: Live eval spec (C14) — COMPLETE
 
 - Recommended executor: CLI lane, senior-tester profile (non-codex)
 - Execution mode: sequential
@@ -938,14 +938,14 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - Phase: 5 | Phase review: code-logic (codex)
 - Criteria: 6.2-6.7, 6.10 and 5.1 (spec side; the numbers come from U1)
 
-### Task 19.1: `system-one.live.fixtures.ts` — PENDING
+### Task 19.1: `system-one.live.fixtures.ts` — COMPLETE
 
 - File: CREATE `W\libs\backend\lane-routing\src\lib\decision-model\system-one.live.fixtures.ts`
 - Plan reference: implementation-plan.md:571-573
 - Quality requirements: about 10 routing questions, each with one unambiguous expected `choice`.
   Each body is checked against `SystemOneRequestBodySchema`.
 
-### Task 19.2: `system-one.live.spec.ts` — PENDING
+### Task 19.2: `system-one.live.spec.ts` — COMPLETE
 
 - Depends on: Task 19.1
 - File: CREATE `W\libs\backend\lane-routing\src\lib\decision-model\system-one.live.spec.ts`
@@ -963,7 +963,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - `J(libs/backend/lane-routing, libs/backend/lane-routing/src/lib/decision-model/system-one.live.spec.ts)`
   with no env set: the suite reports skipped. Then `TC(@ptah-extension/lane-routing)` and `L(@ptah-extension/lane-routing)`.
 
-## Batch 20: Live eval workflow (C15) — PENDING
+## Batch 20: Live eval workflow (C15) — COMPLETE
 
 - Recommended executor: CLI lane, devops-engineer profile (non-codex)
 - Execution mode: sequential
@@ -975,7 +975,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - Phase: 5 | Phase review: code-logic (codex), on the combined diff of Batches 18-20 (the workflow handles a secret)
 - Criteria: 6.8, 6.9
 
-### Task 20.1: `.github/workflows/decision-model-live-eval.yml` — PENDING
+### Task 20.1: `.github/workflows/decision-model-live-eval.yml` — COMPLETE
 
 - File: CREATE `W\.github\workflows\decision-model-live-eval.yml`
 - Plan reference: implementation-plan.md:594-617
@@ -1035,7 +1035,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - `T`, `TC` and `L` on `@ptah-extension/lane-routing` (if code changed); degradation-audit.
 - If Task 21.3 applied, ask the user to re-run U1 once to confirm.
 
-## Batch 22: Documentation correction (C17) — PENDING
+## Batch 22: Documentation correction (C17) — COMPLETE
 
 - Recommended executor: CLI lane, backend-developer profile (non-codex), docs only
 - Execution mode: sequential
@@ -1047,7 +1047,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - Phase: 6 | Phase review: none (docs only)
 - Criteria: 9.1
 
-### Task 22.1: Dated correction notes — PENDING
+### Task 22.1: Dated correction notes — COMPLETE
 
 - Files: MODIFY `W\.ptah\specs\TASK_2026_646_136a\research-decision-models.md` (under `:209` and
   `:545`), MODIFY `W\.ptah\specs\TASK_2026_646_136a\task-description.md` (beside `:125-126`)
@@ -1101,3 +1101,13 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 | TL-5 | Six review phases: 1 (B1-5), 2 (B6-10), 3 (B11-16, plus style), 4 (B17, plus visual), 5 (B18-20), 6 (B21-22: none unless Task 21.3 applies). Reviewer: codex lane | one phase / per library / per risk boundary | TL risk-based review rule; codex is reserved for reviews | Yes |
 | TL-6 | The remote timeout ships at 3000 ms until U1; Batch 21 applies the formula | wait for U1 / ship 3000 and calibrate | User choice (local run); plan "Needs the user" option (a) | Yes |
 | TL-7 | Persistence proof (B18) and docs (B22) are independent and may run at any point after Batch 0 | fixed slot / floating | No code dependency | Yes |
+
+## Follow-ups recorded after the revise caps (2026-10-17)
+
+- Decision model editor: in a very narrow panel an error can wrap past the two-line reserved slot,
+  and in a very short viewport the fixed header and Save footer can exceed the 160 px minimum cap
+  (`phase-4-visual-fix-round-2-review.md`). Widths 900 px and 1531 px measured clean
+  (`phase-4-visual-check-round-2.md`).
+- Main Agent popover: the 160 px minimum cap, unchanged from before `e76096b7d`, can overflow a
+  window shorter than about 350 px (`main-agent-popover-fix-review.md`).
+- Phase 3 L3 closed by one bounded correction after the cap (`phase-3-final-check.md`).
