@@ -51,10 +51,12 @@ function mount(): {
   activeTabId: ReturnType<typeof signal<string | null>>;
   sessionId: ReturnType<typeof signal<string | null>>;
   viewMode: ReturnType<typeof signal<string>>;
+  messages: ReturnType<typeof signal<unknown[]>>;
 } {
   const activeTabId = signal<string | null>('A');
   const sessionId = signal<string | null>(null);
   const viewMode = signal('full');
+  const messages = signal<unknown[]>([]);
   const tabs = signal([{ id: 'A' }, { id: 'B' }]);
   const tabManager = {
     activeTabId: activeTabId.asReadonly(),
@@ -88,7 +90,7 @@ function mount(): {
         isCompactingForTab: () => false,
         currentSessionId: sessionId.asReadonly(),
         sessionIsActive: signal(false).asReadonly(),
-        activeTab: signal(null), messages: signal([]),
+        activeTab: signal(null), messages,
         isStreaming: signal(false), currentModel: signal('model'),
         sessionStatus: signal(null), queueRestoreContent: signal(null),
         queuedContent: signal(null), unmatchedPermissions: signal([]),
@@ -120,7 +122,7 @@ function mount(): {
   });
   const fixture = TestBed.createComponent(ChatViewComponent);
   fixture.detectChanges();
-  return { fixture, activeTabId, sessionId, viewMode };
+  return { fixture, activeTabId, sessionId, viewMode, messages };
 }
 
 describe('ChatView session entrance', () => {
@@ -162,6 +164,16 @@ describe('ChatView session entrance', () => {
     h.viewMode.set('compact'); h.sessionId.set('session-A'); fixture.detectChanges();
     expect(transcripts().every((item) => !item.entering())).toBe(true);
     expect(fixture.nativeElement.classList.contains('is-entering')).toBe(false);
+  });
+
+  it('does not rearm the pane entrance timer when a streamed message arrives', () => {
+    const h = mount(); fixture = h.fixture;
+    h.activeTabId.set('B'); fixture.detectChanges();
+    jest.advanceTimersByTime(200);
+    h.messages.set([{ id: 'streamed' }]); fixture.detectChanges();
+    expect(transcripts()[1].entering()).toBe(true);
+    jest.advanceTimersByTime(200); fixture.detectChanges();
+    expect(transcripts().every((item) => !item.entering())).toBe(true);
   });
 
   it('clears at 400 ms', () => {

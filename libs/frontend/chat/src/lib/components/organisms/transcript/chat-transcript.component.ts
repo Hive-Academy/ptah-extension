@@ -6,7 +6,6 @@ import {
   signal,
   computed,
   viewChild,
-  viewChildren,
   ChangeDetectionStrategy,
   afterNextRender,
   type AfterRenderRef,
@@ -16,7 +15,6 @@ import {
   DestroyRef,
   ElementRef,
   NgZone,
-  Renderer2,
 } from '@angular/core';
 import { AlertTriangle, LucideAngularModule } from 'lucide-angular';
 import {
@@ -74,7 +72,6 @@ import { TranscriptOlderHistorySentinelDirective } from './transcript-older-hist
 import { TranscriptPrependAnchorDirective } from './transcript-prepend-anchor.directive';
 import { TranscriptRenderWindow } from './transcript-render-window';
 import { TranscriptSlotDirective } from './transcript-slot.directive';
-import { TranscriptSessionEntrance } from './transcript-session-entrance';
 import {
   STREAM_PRESENTATION_RECORDS_ENABLED,
   StreamPresentationStore,
@@ -306,7 +303,6 @@ export class ChatTranscriptComponent {
     optional: true,
   });
   private readonly ngZone = inject(NgZone);
-  private readonly renderer = inject(Renderer2);
   private readonly changeSetStore = inject(ChangeSetStore);
   private readonly changeSetActions = inject(ChangeSetActionsService);
 
@@ -379,7 +375,6 @@ export class ChatTranscriptComponent {
   /** Native scroll container; rendered slots may be windowed. */
   private readonly scrollContainer =
     viewChild<ElementRef<HTMLElement>>('messageContainer');
-  private readonly slotRefs = viewChildren(TranscriptSlotDirective);
   /** Inner content wrapper observed for height changes (streaming growth). */
   private readonly contentWrapper =
     viewChild<ElementRef<HTMLElement>>('messageContent');
@@ -401,18 +396,6 @@ export class ChatTranscriptComponent {
 
   /** Last user offset, saved before a hidden tab loses its native scrollTop. */
   private savedScrollTop: number | null = null;
-  private readonly sessionEntrance = new TranscriptSessionEntrance({
-    injector: this.injector,
-    renderer: this.renderer,
-    entering: () => this.entering(),
-    workActive: () => this.workActive(),
-    historyReplaying: () => this.historyReplaying(),
-    slotCount: () => this.vm().slots.length,
-    scroller: () => this.scrollContainer()?.nativeElement,
-    slots: () => this.slotRefs(),
-    pinnedToBottom: () => this.pinnedToBottom(),
-    savedScrollTop: () => this.savedScrollTop,
-  });
   /** Previous combined activity value — detects the hidden→visible activation edge. */
   private wasActive = false;
 
@@ -1069,10 +1052,7 @@ export class ChatTranscriptComponent {
             this.lastScrollTop = 0;
             el.scrollTop = 0;
           }
-          this.sessionEntrance.setEntering(true);
           this.restoreScrollOnActivation();
-        } else {
-          this.sessionEntrance.setEntering(entering);
         }
       });
     });
@@ -1131,7 +1111,6 @@ export class ChatTranscriptComponent {
               el.scrollTop = 0;
             }
           }
-          this.sessionEntrance.setEntering(this.entering());
           this.restoreScrollOnActivation();
           this.setupResizeObserver();
         } else if (!isActive) {
@@ -1345,7 +1324,6 @@ export class ChatTranscriptComponent {
 
   /** Cleanup observer, animation frames, and timeouts on destroy. */
   private cleanup(): void {
-    this.sessionEntrance.destroy();
     if (this.resizeObserver) {
       this.resizeObserver.disconnect();
       this.resizeObserver = null;

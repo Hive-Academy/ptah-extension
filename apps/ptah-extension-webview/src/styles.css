@@ -42,6 +42,7 @@ ANUBIS MYSTICAL EFFECTS - Glass Morphism & Divine Gradients
   --ptah-ease-gentle-in: cubic-bezier(0.4, 0, 0.2, 1);
   --ptah-motion-out: 120ms;
   --ptah-motion-in: 200ms;
+  --ptah-motion-switch: 260ms;
   --ptah-stagger-step: 28ms;
 
   /* Brand gold — theme-aware (overridden for light theme below) */

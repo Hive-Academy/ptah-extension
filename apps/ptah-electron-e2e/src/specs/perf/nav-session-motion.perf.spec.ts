@@ -155,24 +155,24 @@ async function installWindowProbe(page: Page): Promise<void> {
     };
     const visibleInScroller = (el: Element): boolean => {
       const scroller = activeScroller();
-      if (!scroller?.contains(el)) return false;
+      if (!scroller || (el !== scroller && !scroller.contains(el))) return false;
       const item = (el.closest('.chat-msg-slot') ?? el).getBoundingClientRect();
       const viewport = scroller.getBoundingClientRect();
       return item.bottom > viewport.top && item.top < viewport.bottom;
     };
     const recordEntrance = (el: Element, name: string, source: 'start' | 'observed') => {
       const slot = el.closest<HTMLElement>('.chat-msg-slot');
-      const modern = (name === 'ptahTurnEnter' || name.endsWith('_ptahTurnEnter')) && el.matches('.chat-msg-slot.ptah-turn-enter');
+      const modern = (name === 'ptahPaneSwitchEnter' || name.endsWith('_ptahPaneSwitchEnter')) && el.matches('.chat-scroll-container.ptah-pane-switch-enter');
       const legacy = name === 'ptahStaggerUp' && el.matches('.st-t');
       if (!modern && !legacy) return;
       if (legacy && probe.observedStagger.has(el)) return;
       if (legacy) probe.observedStagger.add(el);
-      const rawIndex = modern ? el.getAttribute('data-enter-i') : getComputedStyle(el).getPropertyValue('--i').trim();
+      const rawIndex = modern ? null : getComputedStyle(el).getPropertyValue('--i').trim();
       const style = getComputedStyle(el);
       const rawDelay = style.animationDelay.split(',')[0]?.trim() ?? '';
       const delay = Number.parseFloat(rawDelay) * (rawDelay.endsWith('ms') ? 1 : 1000);
       const id = slot?.getAttribute('data-ptah-transcript-message-id') ?? null;
-      const record: EntranceRecord = { source, name: modern ? 'ptahTurnEnter' : name, selector: modern ? '.chat-msg-slot.ptah-turn-enter' : '.st-t', id,
+      const record: EntranceRecord = { source, name: modern ? 'ptahPaneSwitchEnter' : name, selector: modern ? '.chat-scroll-container.ptah-pane-switch-enter' : '.st-t', id,
         entranceIndex: rawIndex !== null && rawIndex !== '' && Number.isFinite(Number(rawIndex)) ? Number(rawIndex) : null,
         delayMs: Number.isFinite(delay) ? delay : null, atMs: performance.now() - (probe.clickAt ?? performance.now()),
         visibleAtSwitch: id !== null && probe.visibleAtSwitch.includes(id), visibleAtStart: source === 'observed' && visibleInScroller(el) };
@@ -212,7 +212,7 @@ async function installWindowProbe(page: Page): Promise<void> {
         const effect = a.effect;
         const target = effect instanceof KeyframeEffect ? effect.target : null;
         const type = a instanceof CSSAnimation ? 'CSSAnimation' : a instanceof CSSTransition ? 'CSSTransition' : 'other';
-        const name = a instanceof CSSAnimation ? (a.animationName === 'ptahTurnEnter' || a.animationName.endsWith('_ptahTurnEnter') ? 'ptahTurnEnter' : a.animationName) : null;
+        const name = a instanceof CSSAnimation ? (a.animationName === 'ptahPaneSwitchEnter' || a.animationName.endsWith('_ptahPaneSwitchEnter') ? 'ptahPaneSwitchEnter' : a.animationName) : null;
         return { type, name, target: target instanceof Element
           ? `${target.tagName.toLowerCase()}.${target.getAttribute('class') ?? ''}${target.getAttribute('data-testid') ? `[data-testid="${target.getAttribute('data-testid')}"]` : ''}:${name ?? ''}`
           : 'pseudo' };
@@ -539,8 +539,7 @@ test('records Electron navigation and session motion S1-S8', async ({ ui, electr
       if (!at0 || !at50 || !at100 || !at400) throw new Error(`${name}: measurement probe did not sample`);
       const placements = probe?.placements ?? [];
       const entranceEvents = probe?.entranceEvents ?? [];
-      const firstVisible = entranceEvents.filter((event) => event.source === 'start' && event.name === 'ptahTurnEnter' && event.visibleAtStart)
-        .sort((a, b) => (a.entranceIndex ?? 99) - (b.entranceIndex ?? 99))[0];
+      const firstVisible = entranceEvents.find((event) => event.source === 'start' && event.name === 'ptahPaneSwitchEnter' && event.visibleAtStart);
       const delta = (key: 'rail' | 'focus') => before[key] !== null && after[key] !== null && Number.isFinite(Number(before[key])) && Number.isFinite(Number(after[key])) ? Number(after[key]) - Number(before[key]) : null;
       const clicksAfter = scenario === 'S7' ? await page.evaluate(() => ({ ...(window as Window & { __ptahMotionClicks?: Record<string, number> }).__ptahMotionClicks })) : {};
       const receipt = Object.fromEntries(Object.entries(clicksAfter).map(([key, count]) => [key, count - (clicksBefore[key] ?? 0)]));
@@ -553,7 +552,7 @@ test('records Electron navigation and session motion S1-S8', async ({ ui, electr
         viewTransitionStarted: (probe?.viewTransitionEvents ?? []).some((event) => event.phase === 'start'),
         viewTransitionEvents: probe?.viewTransitionEvents ?? [], splitPaneEvents: probe?.splitPaneEvents ?? [],
         entrance: { visibleAtSwitch: probe?.visibleAtSwitch ?? [], placements, events: entranceEvents,
-          animatedCount: entranceEvents.filter((event) => event.source === 'start' && event.name === 'ptahTurnEnter').length,
+          animatedCount: entranceEvents.filter((event) => event.source === 'start' && event.name === 'ptahPaneSwitchEnter').length,
           firstVisibleIndex: firstVisible?.entranceIndex ?? null, firstVisibleDelayMs: firstVisible?.delayMs ?? null },
         scrollFrames: probe?.scrollFrames ?? [], railShiftsDelta: delta('rail'),
         m0RailShiftsDelta: baseline?.windows?.find((old) => old.scenario === scenario && old.name === name)?.railShiftsDelta ?? null,
@@ -751,15 +750,15 @@ test('records Electron navigation and session motion S1-S8', async ({ ui, electr
         expect.soft(row.focusSwapsDelta, `${row.name} focus swaps`).toBe(row.name === 'rapid-focus-five' ? 5 : 1);
       }
       if (row.reducedMotion) {
-        expect.soft((row.samples.at50.animationDetails ?? []).filter((animation) => animation.type === 'CSSAnimation' && animation.name === 'ptahTurnEnter' && animation.target.includes('chat-msg-slot')).length, row.name).toBe(0);
+        expect.soft((row.samples.at50.animationDetails ?? []).filter((animation) => animation.type === 'CSSAnimation' && animation.name === 'ptahPaneSwitchEnter' && animation.target.includes('chat-scroll-container')).length, row.name).toBe(0);
         if (row.name.includes('split-')) expect.soft(row.splitPaneEvents.filter((event) => event.phase === 'start').length, `${row.name} reduced split entrance`).toBe(0);
       }
       if (row.scenario === 'S2' || row.scenario === 'S3' || row.scenario === 'S4') {
-        const animated = row.entrance.events.filter((event) => event.source === 'start' && (event.name === 'ptahTurnEnter' || event.name.endsWith('_ptahTurnEnter')));
+        const animated = row.entrance.events.filter((event) => event.source === 'start' && event.name === 'ptahPaneSwitchEnter');
         if (row.scenario === 'S2') expect.soft(animated.length, `${row.name} entrance exists`).toBeGreaterThan(0);
         if (animated.length > 0) {
           expect.soft(animated.every((event) => event.visibleAtStart), `${row.name} entrance viewport`).toBe(true);
-          expect.soft(row.entrance.firstVisibleIndex, `${row.name} first visible index`).toBe(0);
+          expect.soft(animated.length, `${row.name} one pane entrance`).toBe(1);
           expect.soft(row.entrance.firstVisibleDelayMs, `${row.name} first visible delay`).toBe(0);
         }
       }
