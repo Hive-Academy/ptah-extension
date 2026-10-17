@@ -122,6 +122,25 @@ describe('CommandSceneRenderer', () => {
     theme: 'dark',
   });
 
+  it('draws a leader when a crowded root plate clears the sphere by more than 24px', () => {
+    const data = snapshot();
+    renderer.setSnapshot({
+      ...data,
+      layout: {
+        ...data.layout,
+        nodes: data.layout.nodes.map((node, index) =>
+          index === 0
+            ? { ...node, labelRect: { x: 80, y: 145, width: 40, height: 20 } }
+            : node,
+        ),
+      },
+    });
+    callback(1000);
+    expect(context.moveTo).toHaveBeenCalledWith(100, 80);
+    expect(context.lineTo).toHaveBeenCalledWith(100, 145);
+    renderer.destroy();
+  });
+
   it('draws every sprite once, positions labels and the card anchor, and stops when idle', () => {
     const anchor = document.createElement('div');
     const data = snapshot();

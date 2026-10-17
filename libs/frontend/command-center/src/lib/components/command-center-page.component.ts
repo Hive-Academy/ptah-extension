@@ -87,12 +87,18 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
         outline: 2px solid currentColor;
         outline-offset: -2px;
       }
+      .pending-cue {
+        display: none;
+      }
       @container (width >= 1280px) {
         .dock {
           flex-wrap: nowrap;
         }
       }
       @container (width < 720px) {
+        .pending-cue {
+          display: block;
+        }
         .layout {
           display: flex;
           flex-direction: column;
@@ -135,6 +141,20 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
         <h1 class="text-xl font-semibold">Command Center</h1>
       </div>
       <div class="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
+        @if (page.store.voiceError()?.kind === 'mic-denied') {
+          <div
+            class="flex items-center gap-2 rounded-lg border border-error px-2 text-sm text-base-content"
+          >
+            <span>Microphone access blocked</span>
+            <button
+              type="button"
+              class="btn btn-ghost min-h-11 underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+              (click)="page.openVoiceSettings()"
+            >
+              Open Voice settings
+            </button>
+          </div>
+        }
         <button
           type="button"
           class="inline-flex min-h-11 min-w-0 max-w-full items-center gap-2 rounded-full border border-base-300 bg-base-200 px-3 font-mono text-[11px] font-semibold text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
@@ -163,8 +183,17 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
         </button>
       </div>
     </header>
+    @if (page.store.pendingInput() || page.shownProposal()) {
+      <button
+        type="button"
+        class="pending-cue mx-4 mt-2 min-h-11 rounded-lg border border-warning bg-base-200 px-3 text-left text-sm font-semibold text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+        (click)="jumpToPendingCard()"
+      >
+        Question waiting · Show question
+      </button>
+    }
     <div class="layout">
-      <div class="stage-column flex min-h-0 min-w-0 flex-col">
+      <div class="stage-column relative flex min-h-0 min-w-0 flex-col">
         @if (!page.canvasUnavailable()) {
           <main
             class="stage min-w-0 overflow-hidden rounded-xl border border-base-300 bg-base-200"
@@ -213,54 +242,54 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
             </p>
           </main>
         }
+        @if (page.store.toast(); as toast) {
+          <div
+            class="page-toast absolute right-4 top-16 z-20 alert max-w-md flex items-start gap-2 border border-base-300 border-l-4 bg-base-100 text-base-content shadow-lg"
+            [class.border-l-error]="toast.tone === 'error'"
+            [class.border-l-warning]="toast.tone === 'warning'"
+            [class.border-l-success]="toast.tone === 'success'"
+            [class.border-l-info]="toast.tone === 'info'"
+            [attr.role]="toast.tone === 'error' ? 'alert' : 'status'"
+          >
+            <span
+              aria-hidden="true"
+              class="font-bold"
+              [class.text-error]="toast.tone === 'error'"
+              [class.text-warning]="toast.tone === 'warning'"
+              [class.text-success]="toast.tone === 'success'"
+              [class.text-info]="toast.tone === 'info'"
+              >{{ toast.tone === 'error' ? '!' : '●' }}</span
+            >
+            <span class="min-w-0 flex-1 text-sm">{{ toast.message }}</span>
+            @if (toast.action === 'retry-speech') {
+              <button
+                type="button"
+                class="btn btn-sm text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+                (click)="page.retrySpeech()"
+              >
+                Retry speech
+              </button>
+            }
+            @if (toast.action === 'retry-decline') {
+              <button
+                type="button"
+                class="btn btn-sm text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+                (click)="page.retryInvalidDecline()"
+              >
+                Retry Decline
+              </button>
+            }
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+              aria-label="Dismiss notification"
+              (click)="dismissToast()"
+            >
+              ×
+            </button>
+          </div>
+        }
       </div>
-      @if (page.store.toast(); as toast) {
-        <div
-          class="fixed right-4 top-4 z-50 alert max-w-md flex items-start gap-2 border border-base-300 border-l-4 bg-base-100 text-base-content shadow-lg"
-          [class.border-l-error]="toast.tone === 'error'"
-          [class.border-l-warning]="toast.tone === 'warning'"
-          [class.border-l-success]="toast.tone === 'success'"
-          [class.border-l-info]="toast.tone === 'info'"
-          [attr.role]="toast.tone === 'error' ? 'alert' : 'status'"
-        >
-          <span
-            aria-hidden="true"
-            class="font-bold"
-            [class.text-error]="toast.tone === 'error'"
-            [class.text-warning]="toast.tone === 'warning'"
-            [class.text-success]="toast.tone === 'success'"
-            [class.text-info]="toast.tone === 'info'"
-            >{{ toast.tone === 'error' ? '!' : '●' }}</span
-          >
-          <span class="min-w-0 flex-1 text-sm">{{ toast.message }}</span>
-          @if (toast.action === 'retry-speech') {
-            <button
-              type="button"
-              class="btn btn-sm text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
-              (click)="page.retrySpeech()"
-            >
-              Retry speech
-            </button>
-          }
-          @if (toast.action === 'retry-decline') {
-            <button
-              type="button"
-              class="btn btn-sm text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
-              (click)="page.retryInvalidDecline()"
-            >
-              Retry Decline
-            </button>
-          }
-          <button
-            type="button"
-            class="btn btn-ghost btn-sm text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
-            aria-label="Dismiss notification"
-            (click)="dismissToast()"
-          >
-            ×
-          </button>
-        </div>
-      }
       <div
         class="dock flex flex-wrap items-center gap-2 rounded-xl border border-base-300 bg-base-200 p-2"
         aria-label="Command dock"
@@ -487,6 +516,10 @@ export class CommandCenterPageComponent {
     this.lastPendingKey = key;
     if (key)
       this.pendingCard()?.nativeElement.scrollIntoView?.({ block: 'nearest' });
+  }
+
+  public jumpToPendingCard(): void {
+    this.pendingCard()?.nativeElement.scrollIntoView?.({ block: 'start' });
   }
 
   private measureOverlay(): void {

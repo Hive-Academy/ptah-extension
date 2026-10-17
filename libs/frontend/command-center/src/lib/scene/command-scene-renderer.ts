@@ -229,7 +229,7 @@ export class CommandSceneRenderer {
       const rect = root.labelRect;
       const edgeX = Math.max(rect.x, Math.min(root.x, rect.x + rect.width));
       const edgeY = Math.max(rect.y, Math.min(root.y, rect.y + rect.height));
-      if (Math.hypot(edgeX - root.x, edgeY - root.y) > root.radius + 48) {
+      if (Math.hypot(edgeX - root.x, edgeY - root.y) > root.radius + 24) {
         context.beginPath();
         context.moveTo(root.x, root.y);
         context.lineTo(edgeX, edgeY);

@@ -97,6 +97,7 @@ describe('CommandCenterPageComponent', () => {
     canvasUnavailable.set(false);
     pendingProposal.set(null);
     store.setPendingInput(null);
+    store.setVoiceError(null);
     recordWriteFailure.set(null);
     store.setProjection('root:session', nodes, []);
     store.select(null);
@@ -227,6 +228,28 @@ describe('CommandCenterPageComponent', () => {
     fixture.detectChanges();
     await fixture.whenStable();
     expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    const cue = fixture.nativeElement.querySelector(
+      '.pending-cue',
+    ) as HTMLButtonElement;
+    expect(cue.textContent).toContain('Question waiting');
+    cue.click();
+    expect(scrollIntoView).toHaveBeenLastCalledWith({ block: 'start' });
+    fixture.destroy();
+  });
+
+  it('keeps microphone denial recovery in the page header with one live status', () => {
+    store.setVoiceError({ kind: 'mic-denied', message: 'Microphone blocked' });
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const header = fixture.nativeElement.querySelector('header') as HTMLElement;
+    const recovery = [...header.querySelectorAll('button')].find((button) =>
+      button.textContent?.includes('Open Voice settings'),
+    ) as HTMLButtonElement;
+    expect(header.textContent).toContain('Microphone access blocked');
+    expect(recovery).toBeDefined();
+    expect(recovery.parentElement?.hasAttribute('role')).toBe(false);
+    recovery.click();
+    expect(controller.openVoiceSettings).toHaveBeenCalledTimes(1);
     fixture.destroy();
   });
 
@@ -359,7 +382,9 @@ describe('CommandCenterPageComponent', () => {
       expect(infoAlert.className).toContain('text-base-content');
       // The toast floats outside the dock flow so it never shifts the input.
       expect(infoAlert.closest('[aria-label="Command dock"]')).toBeNull();
-      expect(infoAlert.className).toContain('fixed');
+      expect(infoAlert.className).toContain('absolute');
+      expect(infoAlert.closest('.stage-column')).not.toBeNull();
+      expect(infoAlert.closest('header')).toBeNull();
       jest.advanceTimersByTime(5000);
       fixture.detectChanges();
       expect(store.toast()).toBeNull();

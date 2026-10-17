@@ -32,6 +32,8 @@ jest.mock('ngx-markdown', () => {
 
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter, RouterOutlet } from '@angular/router';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   AppStateManager,
   type ConfigurationSurfaceId,
@@ -129,7 +131,19 @@ describe('ElectronShellComponent Command Center tab', () => {
     for (const tab of tabs) {
       expect(tab.getAttribute('aria-label')).toBe(tab.title);
       expect(tab.querySelector('.tab-label')).not.toBeNull();
+      expect(
+        tab
+          .querySelector('.tab-label')
+          ?.classList.contains('whitespace-nowrap'),
+      ).toBe(true);
     }
+    const styles = readFileSync(
+      join(__dirname, 'electron-shell.component.ts'),
+      'utf8',
+    );
+    expect(styles).toContain('max-width: 1023px');
+    expect(styles).toContain('.electron-tabs .tab-label');
+    expect(styles).toContain('white-space: nowrap');
   });
 
   it('selects only the Command Center tab when its view is current', () => {

@@ -109,7 +109,10 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
     .electron-tabs::-webkit-scrollbar {
       display: none;
     }
-    @media (max-width: 899px) {
+    .electron-tabs .tab-label {
+      white-space: nowrap;
+    }
+    @media (max-width: 1023px) {
       .electron-tabs .tab-label {
         display: none;
       }
@@ -163,7 +166,7 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
               (click)="onCanvasTab()"
             >
               <lucide-angular [img]="LayoutGridIcon" class="w-3.5 h-3.5" />
-              <span class="tab-label">Chat</span>
+              <span class="tab-label whitespace-nowrap">Chat</span>
             </button>
             <button
               role="tab"
@@ -175,7 +178,7 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
               (click)="openCommandCenter()"
             >
               <lucide-angular [img]="MicIcon" class="w-3.5 h-3.5" />
-              <span class="tab-label">Voice</span>
+              <span class="tab-label whitespace-nowrap">Voice</span>
             </button>
             <button
               role="tab"
@@ -187,7 +190,7 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
               (click)="openApps()"
             >
               <lucide-angular [img]="AppWindowIcon" class="w-3.5 h-3.5" />
-              <span class="tab-label">Apps</span>
+              <span class="tab-label whitespace-nowrap">Apps</span>
             </button>
             <button
               role="tab"
@@ -199,7 +202,7 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
               (click)="openTasks()"
             >
               <lucide-angular [img]="ClipboardListIcon" class="w-3.5 h-3.5" />
-              <span class="tab-label">Tasks</span>
+              <span class="tab-label whitespace-nowrap">Tasks</span>
             </button>
             <button
               role="tab"
@@ -211,7 +214,7 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
               (click)="openTribunal()"
             >
               <lucide-angular [img]="ScaleIcon" class="w-3.5 h-3.5" />
-              <span class="tab-label">Tribunal</span>
+              <span class="tab-label whitespace-nowrap">Tribunal</span>
             </button>
             <button
               role="tab"
@@ -223,7 +226,7 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
               (click)="openDashboard()"
             >
               <lucide-angular [img]="BarChart3Icon" class="w-3.5 h-3.5" />
-              <span class="tab-label">Analytics</span>
+              <span class="tab-label whitespace-nowrap">Analytics</span>
             </button>
             <!-- Keeps the former config-menu hook: e2e specs and the showcase
                  harness address the Setup hub surface by it. -->
@@ -247,7 +250,7 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
               (click)="openSetupHub()"
             >
               <lucide-angular [img]="WrenchIcon" class="w-3.5 h-3.5" />
-              <span class="tab-label">Setup hub</span>
+              <span class="tab-label whitespace-nowrap">Setup hub</span>
             </button>
           </div>
         }

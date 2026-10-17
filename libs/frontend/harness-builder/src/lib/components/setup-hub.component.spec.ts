@@ -95,6 +95,17 @@ describe('SetupHubComponent entry handoff', () => {
     const card = element('command-center-card');
     expect(card.getAttribute('role')).toBe('button');
     expect(card.getAttribute('aria-label')).toBe('Open Command Center');
+    expect(card.classList.contains('focus-visible:outline-base-content')).toBe(
+      true,
+    );
+    expect(
+      card
+        .querySelector('lucide-angular')
+        ?.classList.contains('text-base-content'),
+    ).toBe(true);
+    expect(
+      card.querySelector('span.btn')?.classList.contains('text-base-content'),
+    ).toBe(true);
     expect(card.textContent).toContain(
       'Talk to Ptah by voice and watch your delegated work live.',
     );
