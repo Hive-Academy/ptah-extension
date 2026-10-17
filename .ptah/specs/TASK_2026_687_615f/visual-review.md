@@ -26,60 +26,60 @@ breakpoint leaves the tab labels clipped between 900 and 963 px (Serious), and t
 
 Directory: `.ptah/specs/TASK_2026_687_615f/reports/visual/` (70 PNG).
 
-| Pattern | Theme | Viewports | What |
-| --- | --- | --- | --- |
-| `shell-{dark,light}-{892x735,900x800,1100x700,1440x900}.png`, `shell-dark-800x735.png` | both | 4 (+800) | tab strip; 900x800 shows the clipped labels (F-1) |
-| `page-{dark,light}-<vp>-idle.png` | both | 4 | idle page, dock, input |
-| `toast-{dark,light}-<vp>.png` | both | 4 | error toast with Retry speech (F-2) |
-| `micfail-{dark,light}-<vp>.png` | both | 4 | mic-denied recovery at stacked top |
-| `scene24-{dark,light}-{900x800,1440x900}.png`, `crop-*.png` | both | 2 | 25 nodes, root plate, overflow pill |
-| `roster-*`, `question-*` | both | 4 | roster card, mid-turn question card |
-| `confirm-typed-*`, `confirm-focus-*` | both | 1440 | typed "confirm", Confirm focus ring |
-| `retry-decline-*` | both | 892 | Retry Decline toast button |
-| `pin-1440-pinned.png`, `pin-900-after-relayout.png` | dark | 1440 to 900 | overlay unpin and focus handoff |
-| `hub-*` | both | 1440 | Setup hub, Command Center card focus (F-3) |
+| Pattern                                                                                | Theme | Viewports   | What                                              |
+| -------------------------------------------------------------------------------------- | ----- | ----------- | ------------------------------------------------- |
+| `shell-{dark,light}-{892x735,900x800,1100x700,1440x900}.png`, `shell-dark-800x735.png` | both  | 4 (+800)    | tab strip; 900x800 shows the clipped labels (F-1) |
+| `page-{dark,light}-<vp>-idle.png`                                                      | both  | 4           | idle page, dock, input                            |
+| `toast-{dark,light}-<vp>.png`                                                          | both  | 4           | error toast with Retry speech (F-2)               |
+| `micfail-{dark,light}-<vp>.png`                                                        | both  | 4           | mic-denied recovery at stacked top                |
+| `scene24-{dark,light}-{900x800,1440x900}.png`, `crop-*.png`                            | both  | 2           | 25 nodes, root plate, overflow pill               |
+| `roster-*`, `question-*`                                                               | both  | 4           | roster card, mid-turn question card               |
+| `confirm-typed-*`, `confirm-focus-*`                                                   | both  | 1440        | typed "confirm", Confirm focus ring               |
+| `retry-decline-*`                                                                      | both  | 892         | Retry Decline toast button                        |
+| `pin-1440-pinned.png`, `pin-900-after-relayout.png`                                    | dark  | 1440 to 900 | overlay unpin and focus handoff                   |
+| `hub-*`                                                                                | both  | 1440        | Setup hub, Command Center card focus (F-3)        |
 
 ## Per-item results
 
-| Item | Result | Evidence |
-| --- | --- | --- |
-| 1a Tab labelled "Voice" with Mic icon | PASS | All 7 tabs have an svg; aria-label and title "Voice" (`shell-*`). |
-| 1b No scrollbar over labels | PASS | `::-webkit-scrollbar` display none, strip `overflow-x:auto` with `scrollbar-width:none`; 0 px scrollbar height at all sizes. |
-| 1c Collapse to icons below ~900 px with tooltip and aria-label | PASS at <900 | 892 and 800: label hidden, tab 40x32, `title` and `aria-label` set. |
-| 1d Labels readable at 900 to 963 px | **FAIL (F-1)** | At 900x800 every label wraps under its icon and is clipped by the 32 px tab (`shell-light-900x800.png`). Wrap detected for 900..963 px, gone at 965. |
-| 1e Labels do not shift | PASS with Minor | 1440: 1 px drift when the active tab changes. Icon mode: subsequent tabs move 6 px (active tab is 46 px, others 40) at 800, 850, 892 (F-9). |
-| 1f Active tab kept in view | PASS | At 560 and 480 px, selecting Setup hub moves `scrollLeft` 0 to 43 and 0 to 123 and the tab sits inside the strip. |
-| 1g All 7 tabs reachable at 800-900 px | PASS | At 800, 850, 892 the strip is 286 px, no overflow; Tab order Chat..Setup hub, all within x 182-468 (800). |
-| 2a Compact dock, input above fold, stacked | PASS | Input y 674-718 at 892x735 and 900x800 (above 735/800); 1100x700 y 589; 1440x900 y 789. No horizontal scroll at any size. |
-| 2b Toast outside dock, no layout shift | PASS (layout) | With and without the toast, dock, input and stage rects are identical at 4 viewports x 2 themes. Toast is `position: fixed` (`command-center-page.component.ts:218`). See F-2 for the overlap it causes. |
-| 2c Mic failure and recovery at top of stacked page | PASS | 892 and 900: recovery message y 403-479, "Open Voice settings" y 431, above the stage (y 517), inside the 735/800 fold. At 1100/1440 it stays in the dock (not stacked), at the fold bottom (y 778-826 of 700 at 1100; 850-926 of 900 at 1440), reachable by page scroll. |
-| 2d Disabled controls legible | PASS (see F-8) | Dark Mute/Stop 5.60:1, Send 5.93:1; light Mute/Stop 3.68:1, Send 4.09:1 (settled values; first reads after a theme switch lag one frame). Native `disabled` kept. |
-| 3a Focus ring contrast, light | PASS | `focus-visible:outline-base-content` ring is oklch(0.236 0.066 313) = rgb(41,19,52): 14.2 to 15.9:1 against input, dock and card backgrounds (Voice settings, send, Start new, Status, Start voice, sphere label, input, Confirm Tribunal). Dark 13.9 to 14.9:1. 2 px, offset 2 px. |
-| 3b Light pending input placeholder and border | PASS | Placeholder 6.21:1 (eff rgb 103,87,110 on 250,247,245); border 5.88:1 against the card, 6.59:1 against the input. Dark 7.68 and 7.36:1. |
-| 4a Root plate near root or leader | PASS at 1440, weak at 900 (F-6) | 1440, 25 nodes: plate beside the root sphere (upper left, about 70 px from the ring). 900: plate about 110 px from the ring, no leader drawn, sits next to a child node. |
-| 4b No canvas square behind overflow pill | PASS | `crop-pill-light-900.png`, `crop-pill-dark-1440.png`: text only. |
-| 4c Pill clear of caption and hints | PASS | Pill (729,222,92x24) at 900, (917,177) at 1440; caption "01 / Voice command" sits above it (about y 195-208 at 900); "SELECT A SPHERE FOR STATUS" is bottom-left. No overlap. |
-| 5 Pinned plate hidden by relayout unpins and focuses its row | PASS | 1440: pinned `cli:syn-0` with Enter (`pinnedNodeId` set, card open). Resized to 900: `pinnedNodeId` null, card closed, `document.activeElement` is the work-list row "Reviewer 1 / Codex / running" (`inWork` true). Selection retained. |
-| 6a Setup hub card opens with Space, no scroll | PASS | Real Space key on the focused card: `defaultPrevented` true, view switched to Command Center in dark and light. |
-| 6b Enter | PASS | Opens Command Center in both themes. |
-| 6c Visible focus on the card | PARTIAL (F-3) | A 2 px amber outline is visible in both themes; light-theme contrast is 2.25:1 (dark 7.73:1). |
-| 7a Mid-turn question card | PASS (visual) | Card with Answer input and disabled Send answer renders at 4 viewports. At 892/900 it is at y 1061, below the fold (F-4). |
-| 7b Click-only Confirm | PASS (stubbed) | Typed "confirm" plus Enter in the dock input: `tribunal.confirm` calls `[]`, the text went to `coordinator.send` as an ordinary command. Clicking "Confirm Tribunal": one `confirm` call. Light and dark. |
-| 7c Retry Decline toast button | PASS | `retry-decline` toast shows "Retry Decline" (96x32 px, 13.9 to 14.2:1) and a dismiss; a real click called `retryInvalidDecline` once. |
+| Item                                                           | Result                          | Evidence                                                                                                                                                                                                                                                                            |
+| -------------------------------------------------------------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1a Tab labelled "Voice" with Mic icon                          | PASS                            | All 7 tabs have an svg; aria-label and title "Voice" (`shell-*`).                                                                                                                                                                                                                   |
+| 1b No scrollbar over labels                                    | PASS                            | `::-webkit-scrollbar` display none, strip `overflow-x:auto` with `scrollbar-width:none`; 0 px scrollbar height at all sizes.                                                                                                                                                        |
+| 1c Collapse to icons below ~900 px with tooltip and aria-label | PASS at <900                    | 892 and 800: label hidden, tab 40x32, `title` and `aria-label` set.                                                                                                                                                                                                                 |
+| 1d Labels readable at 900 to 963 px                            | **FAIL (F-1)**                  | At 900x800 every label wraps under its icon and is clipped by the 32 px tab (`shell-light-900x800.png`). Wrap detected for 900..963 px, gone at 965.                                                                                                                                |
+| 1e Labels do not shift                                         | PASS with Minor                 | 1440: 1 px drift when the active tab changes. Icon mode: subsequent tabs move 6 px (active tab is 46 px, others 40) at 800, 850, 892 (F-9).                                                                                                                                         |
+| 1f Active tab kept in view                                     | PASS                            | At 560 and 480 px, selecting Setup hub moves `scrollLeft` 0 to 43 and 0 to 123 and the tab sits inside the strip.                                                                                                                                                                   |
+| 1g All 7 tabs reachable at 800-900 px                          | PASS                            | At 800, 850, 892 the strip is 286 px, no overflow; Tab order Chat..Setup hub, all within x 182-468 (800).                                                                                                                                                                           |
+| 2a Compact dock, input above fold, stacked                     | PASS                            | Input y 674-718 at 892x735 and 900x800 (above 735/800); 1100x700 y 589; 1440x900 y 789. No horizontal scroll at any size.                                                                                                                                                           |
+| 2b Toast outside dock, no layout shift                         | PASS (layout)                   | With and without the toast, dock, input and stage rects are identical at 4 viewports x 2 themes. Toast is `position: fixed` (`command-center-page.component.ts:218`). See F-2 for the overlap it causes.                                                                            |
+| 2c Mic failure and recovery at top of stacked page             | PASS                            | 892 and 900: recovery message y 403-479, "Open Voice settings" y 431, above the stage (y 517), inside the 735/800 fold. At 1100/1440 it stays in the dock (not stacked), at the fold bottom (y 778-826 of 700 at 1100; 850-926 of 900 at 1440), reachable by page scroll.           |
+| 2d Disabled controls legible                                   | PASS (see F-8)                  | Dark Mute/Stop 5.60:1, Send 5.93:1; light Mute/Stop 3.68:1, Send 4.09:1 (settled values; first reads after a theme switch lag one frame). Native `disabled` kept.                                                                                                                   |
+| 3a Focus ring contrast, light                                  | PASS                            | `focus-visible:outline-base-content` ring is oklch(0.236 0.066 313) = rgb(41,19,52): 14.2 to 15.9:1 against input, dock and card backgrounds (Voice settings, send, Start new, Status, Start voice, sphere label, input, Confirm Tribunal). Dark 13.9 to 14.9:1. 2 px, offset 2 px. |
+| 3b Light pending input placeholder and border                  | PASS                            | Placeholder 6.21:1 (eff rgb 103,87,110 on 250,247,245); border 5.88:1 against the card, 6.59:1 against the input. Dark 7.68 and 7.36:1.                                                                                                                                             |
+| 4a Root plate near root or leader                              | PASS at 1440, weak at 900 (F-6) | 1440, 25 nodes: plate beside the root sphere (upper left, about 70 px from the ring). 900: plate about 110 px from the ring, no leader drawn, sits next to a child node.                                                                                                            |
+| 4b No canvas square behind overflow pill                       | PASS                            | `crop-pill-light-900.png`, `crop-pill-dark-1440.png`: text only.                                                                                                                                                                                                                    |
+| 4c Pill clear of caption and hints                             | PASS                            | Pill (729,222,92x24) at 900, (917,177) at 1440; caption "01 / Voice command" sits above it (about y 195-208 at 900); "SELECT A SPHERE FOR STATUS" is bottom-left. No overlap.                                                                                                       |
+| 5 Pinned plate hidden by relayout unpins and focuses its row   | PASS                            | 1440: pinned `cli:syn-0` with Enter (`pinnedNodeId` set, card open). Resized to 900: `pinnedNodeId` null, card closed, `document.activeElement` is the work-list row "Reviewer 1 / Codex / running" (`inWork` true). Selection retained.                                            |
+| 6a Setup hub card opens with Space, no scroll                  | PASS                            | Real Space key on the focused card: `defaultPrevented` true, view switched to Command Center in dark and light.                                                                                                                                                                     |
+| 6b Enter                                                       | PASS                            | Opens Command Center in both themes.                                                                                                                                                                                                                                                |
+| 6c Visible focus on the card                                   | PARTIAL (F-3)                   | A 2 px amber outline is visible in both themes; light-theme contrast is 2.25:1 (dark 7.73:1).                                                                                                                                                                                       |
+| 7a Mid-turn question card                                      | PASS (visual)                   | Card with Answer input and disabled Send answer renders at 4 viewports. At 892/900 it is at y 1061, below the fold (F-4).                                                                                                                                                           |
+| 7b Click-only Confirm                                          | PASS (stubbed)                  | Typed "confirm" plus Enter in the dock input: `tribunal.confirm` calls `[]`, the text went to `coordinator.send` as an ordinary command. Clicking "Confirm Tribunal": one `confirm` call. Light and dark.                                                                           |
+| 7c Retry Decline toast button                                  | PASS                            | `retry-decline` toast shows "Retry Decline" (96x32 px, 13.9 to 14.2:1) and a dismiss; a real click called `retryInvalidDecline` once.                                                                                                                                               |
 
 ## Contrast numbers (measured in the running app)
 
-| Pair | Light | Dark |
-| --- | --- | --- |
-| Focus ring vs surface (CC controls) | 14.2 to 15.9:1 | 13.9 to 14.9:1 |
-| Setup hub card focus ring vs page | **2.25:1** | 7.73:1 |
-| Pending input placeholder | 6.21:1 | 7.68:1 |
-| Pending input border (vs card) | 5.88:1 | 7.36:1 |
-| Disabled Mute/Stop text | 3.68:1 | 5.60:1 |
-| Disabled Send text | 4.09:1 | 5.93:1 |
-| Toast text, Retry buttons | 14.2 to 15.9:1 | 13.9 to 14.9:1 |
-| Setup hub CC card CTA text "Open Command Center" | **1.14:1** | 10.37:1 |
-| Setup hub CC card mic icon | **1.13:1** | 8.44:1 |
+| Pair                                             | Light          | Dark           |
+| ------------------------------------------------ | -------------- | -------------- |
+| Focus ring vs surface (CC controls)              | 14.2 to 15.9:1 | 13.9 to 14.9:1 |
+| Setup hub card focus ring vs page                | **2.25:1**     | 7.73:1         |
+| Pending input placeholder                        | 6.21:1         | 7.68:1         |
+| Pending input border (vs card)                   | 5.88:1         | 7.36:1         |
+| Disabled Mute/Stop text                          | 3.68:1         | 5.60:1         |
+| Disabled Send text                               | 4.09:1         | 5.93:1         |
+| Toast text, Retry buttons                        | 14.2 to 15.9:1 | 13.9 to 14.9:1 |
+| Setup hub CC card CTA text "Open Command Center" | **1.14:1**     | 10.37:1        |
+| Setup hub CC card mic icon                       | **1.13:1**     | 8.44:1         |
 
 ## Console summary
 
@@ -166,3 +166,46 @@ input 291x44), no regression.
 
 - Recommendation: REVISE. Confidence: HIGH for layout and contrast numbers, MEDIUM for interaction paths that were stubbed.
 - Key concern: F-1 (tab labels clipped at 900-963 px) and F-2 (toast covers the header and Voice settings).
+
+## Re-check (round 2)
+
+Run on the already-running Electron dev app (PID 29516, CDP 9334 only, nothing launched, killed or built). The renderer
+bundle (`dist/apps/ptah-electron/renderer/main.js`, 17:39:47) is newer than the edited sources (latest 17:08), so the
+build under test contains the fixes. Themes `anubis` (dark) and `anubis-light`; viewports 900x800, 1100x700, 1440x900
+(tab strip also 930, 963, 1000, 1023, 1024, 1040). Screenshots: `reports/visual/recheck-*.png` (30 files). Synthetic
+aids as in round 1 (`store.setToast`, `setVoiceError`, `setPendingInput`, 24 fake agents with valid statuses only); all
+reset at the end (pending input null, toast null, agents `[]`, nodes 1, theme `anubis`, window 1628x983). Side effect to
+disclose: my console walk clicked the workspace and git panel toggles; I restored both to their original state
+(workspaces open, git collapsed) and confirmed it. Some CDP screenshots intermittently timed out (20 s) in the question
+and mic states; the DOM geometry below was measured in the same state, and a passing screenshot exists for each item.
+
+| Finding                          | Status                      | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| -------------------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| F-1 Tab labels clip 900-963 px   | FIXED                       | 900, 930, 963, 1000, 1023: 7 tabs, mic icon on Voice, labels hidden (icon-only), strip 286/286 (no overflow), tab 32 px high, `title` and `aria-label` set. 1024, 1100, 1440: 7 labels on one line (`white-space: nowrap`, label 24 px high, `scrollWidth` = `clientWidth`), strip 641/641, last tab right edge 758 at 1024 with the right icons at x 924. No document overflow at any width (`recheck-tabs-{dark,light}-{900,963,1023,1100}.png`). |
+| F-2 Toast covers app chrome      | FIXED                       | Toast is `position: absolute` inside the stage column: 900x800 at (378,289) 448x58 dark, (378,237) light; 1100 and 1440 at y 192. Zero overlap with the Tribunal, Analytics and Setup hub tabs and with the "Voice settings" button at every size and theme (`recheck-toast-*`). Retry speech and dismiss still present.                                                                                                                            |
+| F-3 Hub card light contrast      | FIXED (Command Center card) | Light: CTA 14.21:1 (was 1.14), mic icon 14.03:1 (was 1.13), focus ring 3 px rgb(41,19,52) 15.92:1 (was 2.25). Dark: CTA 13.89, icon 11.30, ring 14.86. The Tribunal card CTA is now 14.21 light and 13.89 dark (`recheck-hub-{light,dark}-1440x900.png`). Residual, pre-existing and out of this task: see N-2.                                                                                                                                     |
+| F-4 Question card below the fold | FIXED                       | Stacked 900x800: a "Question waiting · Show question" button sits at the top of the page (y 165-209, 568x44) above the stage; the card is auto-scrolled into view (y 557-800 light); activating the cue scrolls the card to y 0 (height 243, inside 800). At 1100 and 1440 the card is inside the rail (y 285 and 280) and the cue is not rendered (not stacked). `recheck-question-light-900x800.png`.                                             |
+| F-5 Mic recovery below the fold  | FIXED                       | The header now carries "Microphone access blocked / Open Voice settings" (160x48) at y 49-52 at 900, 1100 and 1440, dark and light, inside every fold (700, 800, 900). The dock HUD keeps its single `role=status` live message. `recheck-mic-{dark,light}-*.png`.                                                                                                                                                                                  |
+| F-6 Detached root plate          | FIXED                       | 25 nodes at 900x800 (scene 566x458) in both themes: the root plate "Ptah / idle" now has a leader line to the root sphere (`recheck-scene24-{dark,light}-900x800.png`). 1440x900 plate unchanged and near the root.                                                                                                                                                                                                                                 |
+
+### New findings
+
+- **N-1 (Minor).** In the mic-denied state at 900 and 1100 the recovery link appears twice, plus the pre-existing
+  "Voice settings" button (header banner at y 49, dock link at y 541, header button at y 158): three controls for one
+  destination. The banner adds no second live region. Optional: drop the dock link or the header banner.
+- **N-2 (Moderate, pre-existing, outside this task).** Setup hub light theme: Tribunal card icon 1.13:1, "AI Team
+  Builder" card CTA 1.25:1 and icon 1.21:1 (dark 3.35 and 3.08), "Workspace" and "New Project" cards CTA 3.67:1 (icon
+  3.27). Decorative icons are exempt from 1.4.3, CTA text is not. Same `text-accent` pattern the F-3 fix replaced on the
+  Command Center card.
+- **N-3 (Minor).** F-7 to F-10 from round 1 were not re-measured and are unchanged in scope. The theme-switch colour lag
+  (F-8) reappeared: dark hub values were stale after 1.5 s and settled after 5 s.
+
+No regression found on the Voice tab idle page (document width = viewport at all sizes), the tab strip (label "Voice"
+with a mic icon, no clipping, labels from 1024 up), the Command Center page or the setup hub.
+
+### Verdict (round 2)
+
+**APPROVED, 9/10.** All three Serious (F-1, F-2, F-3) and all three Moderate (F-4, F-5, F-6) findings are fixed in dark
+and light and re-measured; the new items are Minor or pre-existing. Counts: Visual breaking 0, Serious 0, Moderate 1
+(N-2, pre-existing), Minor 5. Residual uncertainty: question and mic screenshots were partly flaky to capture; geometry
+was measured in the same state. Console result (no product errors reproduced): `reports/console-audit.md`.

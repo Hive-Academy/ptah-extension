@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_687_615f
-status: in_progress
+status: in_review
 type: BUGFIX
 title: Fix the open Command Center Moderate issues
 description: >-
