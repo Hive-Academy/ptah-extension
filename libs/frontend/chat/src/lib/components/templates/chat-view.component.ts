@@ -33,6 +33,7 @@ import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.com
 import { DisplayDockComponent } from '../organisms/display-dock/display-dock.component';
 import { DisplayDockState } from '../../services/display-dock/display-dock.state';
 import { ChatInputComponent } from '../molecules/chat-input/chat-input.component';
+import { ChatSessionLayoutComponent } from './chat-session-layout.component';
 import {
   PermissionBadgeComponent,
   QuestionCardComponent,
@@ -203,6 +204,7 @@ const VIEW_PANEL_KEY = '';
     AgentMonitorPanelComponent,
     DisplayDockComponent,
     ChatInputComponent,
+    ChatSessionLayoutComponent,
     PermissionBadgeComponent,
     QuestionCardComponent,
     ResumeNotificationBannerComponent,
