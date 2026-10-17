@@ -303,6 +303,151 @@ describe('CompactionCoordinator', () => {
     });
   });
 
+  describe('idle claims and manual reservations', () => {
+    beforeEach(() => coordinator.register(SID, ACTIVE));
+
+    it('coalesces a manual request until the matching claim is released without emitting', () => {
+      expect(coordinator.claimIdle(SID, 'idle-1')).toBe('claimed');
+      expect(coordinator.getIdleClaim(SID)).toBe('idle-1');
+      expect(coordinator.claimIdle(SID, 'idle-2')).toBe('held');
+      expect(coordinator.requestManualCompact(SID)).toEqual({ action: 'coalesced' });
+      expect(coordinator.admitManualCompact(SID)).toEqual({
+        decision: { action: 'coalesced' },
+      });
+      expect(coordinator.releaseIdleClaim(SID, 'idle-2')).toBe(false);
+      expect(coordinator.getIdleClaim(SID)).toBe('idle-1');
+      expect(coordinator.releaseIdleClaim(SID, 'idle-1')).toBe(true);
+      expect(coordinator.requestManualCompact(SID)).toEqual({ action: 'send' });
+      expect(changes).toEqual([]);
+    });
+
+    it('orders manual admission before an idle claim and releases only the matching reservation', () => {
+      const admission = coordinator.admitManualCompact(SID);
+      expect(admission.decision).toEqual({ action: 'send' });
+      expect(admission.reservationId).toBeDefined();
+      expect(coordinator.claimIdle(SID, 'idle-1')).toBe('manual-reserved');
+      expect(coordinator.releaseManualReservation(SID, 'wrong')).toBe(false);
+      expect(coordinator.claimIdle(SID, 'idle-1')).toBe('manual-reserved');
+      expect(coordinator.releaseManualReservation(SID, admission.reservationId!)).toBe(true);
+      expect(coordinator.claimIdle(SID, 'idle-1')).toBe('claimed');
+      expect(changes).toEqual([]);
+    });
+
+    it('moves a claim on rebind and drops it on unregister, reset and dispose', () => {
+      expect(coordinator.claimIdle(SID, 'idle-1')).toBe('claimed');
+      expect(coordinator.onPostCompact(SID, 'session-2')).toBe(true);
+      expect(coordinator.getIdleClaim(SID)).toBeUndefined();
+      expect(coordinator.getIdleClaim('session-2')).toBe('idle-1');
+      expect(coordinator.releaseIdleClaim(SID, 'idle-1')).toBe(false);
+      coordinator.register('session-2', ACTIVE);
+      expect(coordinator.getIdleClaim('session-2')).toBeUndefined();
+      expect(coordinator.claimIdle('session-2', 'idle-2')).toBe('claimed');
+      coordinator.unregister('session-2');
+      expect(coordinator.getIdleClaim('session-2')).toBeUndefined();
+      expect(coordinator.releaseIdleClaim('session-2', 'idle-2')).toBe(false);
+      coordinator.register('session-2', ACTIVE);
+      coordinator.claimIdle('session-2', 'idle-3');
+      coordinator.dispose();
+      expect(coordinator.getIdleClaim('session-2')).toBeUndefined();
+      expect(coordinator.claimIdle('session-2', 'idle-4')).toBe('unknown');
+    });
+
+    it('drops manual reservations on reset and moves them on rebind', () => {
+      const first = coordinator.admitManualCompact(SID).reservationId!;
+      expect(coordinator.onPostCompact(SID, 'session-2')).toBe(true);
+      expect(coordinator.claimIdle('session-2', 'idle-1')).toBe('manual-reserved');
+      expect(coordinator.releaseManualReservation(SID, first)).toBe(false);
+      coordinator.register('session-2', ACTIVE);
+      expect(coordinator.releaseManualReservation('session-2', first)).toBe(false);
+      expect(coordinator.claimIdle('session-2', 'idle-1')).toBe('claimed');
+    });
+
+    it('refuses claims in either open state and admits an unknown manual session', () => {
+      expect(coordinator.claimIdle('unknown', 'idle-1')).toBe('unknown');
+      expect(coordinator.admitManualCompact('unknown')).toEqual({
+        decision: { action: 'send' },
+      });
+      expect(coordinator.onPreCompact(SID, 'auto')).toBe(true);
+      expect(coordinator.claimIdle(SID, 'idle-1')).toBe('open');
+      coordinator.onStatusCompacting(SID);
+      expect(coordinator.claimIdle(SID, 'idle-1')).toBe('open');
+    });
+
+    it('applies claims and reservations to OBSERVE_ONLY sessions', () => {
+      coordinator.register(SID, { codexProxy: true, e2Passed: null });
+      expect(coordinator.claimIdle(SID, 'idle-1')).toBe('claimed');
+      expect(coordinator.requestManualCompact(SID)).toEqual({ action: 'coalesced' });
+      coordinator.releaseIdleClaim(SID, 'idle-1');
+      const reservationId = coordinator.admitManualCompact(SID).reservationId!;
+      expect(coordinator.claimIdle(SID, 'idle-2')).toBe('manual-reserved');
+      expect(coordinator.releaseManualReservation(SID, reservationId)).toBe(true);
+      expect(coordinator.getState(SID)).toBe(CompactionState.OBSERVE_ONLY);
+    });
+  });
+
+  describe('PostCompact manual admission', () => {
+    beforeEach(() => coordinator.register(SID, ACTIVE));
+
+    it('admits manual sends after equal-id PostCompact while still TRIGGERED', () => {
+      coordinator.onPreCompact(SID, 'auto');
+      expect(coordinator.requestManualCompact(SID).action).toBe('deduped');
+      expect(coordinator.onPostCompact(SID, SID)).toBe(false);
+      expect(coordinator.requestManualCompact(SID)).toEqual({ action: 'send' });
+      const admission = coordinator.admitManualCompact(SID);
+      expect(admission.decision).toEqual({ action: 'send' });
+      expect(admission.reservationId).toBeDefined();
+      expect(coordinator.claimIdle(SID, 'idle-1')).toBe('open');
+    });
+
+    it('keeps PostCompact across a late compacting status and admits manual send', () => {
+      coordinator.onPreCompact(SID, 'auto');
+      expect(coordinator.onPostCompact(SID, SID)).toBe(false);
+      expect(coordinator.onStatusCompacting(SID)).toBe(true);
+      expect(coordinator.requestManualCompact(SID)).toEqual({ action: 'send' });
+      const admission = coordinator.admitManualCompact(SID);
+      expect(admission.decision).toEqual({ action: 'send' });
+      expect(admission.reservationId).toBeDefined();
+      expect(coordinator.claimIdle(SID, 'idle-1')).toBe('open');
+    });
+
+    it('admits under the new id after PostCompact rebind while COMPACTING', () => {
+      coordinator.onPreCompact(SID, 'auto');
+      coordinator.onStatusCompacting(SID);
+      expect(coordinator.requestManualCompact(SID).action).toBe('deduped');
+      expect(coordinator.onPostCompact(SID, 'session-2')).toBe(true);
+      expect(coordinator.requestManualCompact('session-2')).toEqual({ action: 'send' });
+      expect(coordinator.admitManualCompact('session-2').reservationId).toBeDefined();
+    });
+
+    it('clears the mark on boundary, turn end and the next PreCompact', () => {
+      coordinator.onPreCompact(SID, 'auto');
+      coordinator.onPostCompact(SID, SID);
+      coordinator.onCompactBoundary(SID, { preTokens: 1 });
+      coordinator.onTurnEnd(SID);
+      coordinator.onPreCompact(SID, 'manual');
+      expect(coordinator.requestManualCompact(SID).action).toBe('deduped');
+    });
+
+    it('resets the PostCompact mark on registration without a state notification', () => {
+      coordinator.onPreCompact(SID, 'auto');
+      expect(coordinator.onPostCompact(SID, SID)).toBe(false);
+      expect(changes).toHaveLength(1);
+      expect(coordinator.requestManualCompact(SID).action).toBe('send');
+      coordinator.register(SID, ACTIVE);
+      coordinator.onPreCompact(SID, 'auto');
+      expect(coordinator.requestManualCompact(SID).action).toBe('deduped');
+    });
+
+    it('does not mark an IDLE or OBSERVE_ONLY record', () => {
+      expect(coordinator.onPostCompact(SID, SID)).toBe(false);
+      coordinator.onPreCompact(SID, 'manual');
+      expect(coordinator.requestManualCompact(SID).action).toBe('deduped');
+      coordinator.register(SID, { codexProxy: true, e2Passed: null });
+      expect(coordinator.onPostCompact(SID, SID)).toBe(false);
+      expect(coordinator.requestManualCompact(SID)).toEqual({ action: 'send' });
+    });
+  });
+
   describe('rebind on PostCompact session_id', () => {
     beforeEach(() => coordinator.register(SID, ACTIVE));
 

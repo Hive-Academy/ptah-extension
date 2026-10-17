@@ -1,0 +1,14 @@
+# Decisions - TASK_2026_692_f748
+
+| # | Stage | Decision | Evidence | By |
+|---|---|---|---|---|
+| 1 | Pre-flight | FEATURE, Full depth, no designer phase | New capability across agent-sdk + settings; UI is only a setting and a notice | orchestrator |
+| 2 | Pre-flight | Build idle compaction in Ptah, not via SDK | SDK 0.3.302 `idleCompaction` is off-switch only; CLI `G2()` excludes `sdk-ts` | orchestrator (binary inspection) |
+| 3 | Pre-flight | Do not spoof `CLAUDE_CODE_ENTRYPOINT` | Server flag still gates it; fragile across updates | orchestrator |
+| 4 | Gate 0.1 | Lanes enabled, approval lane-review, codex primary lane | Memory `orchestration-executor-preference`; codex only lane with confirmed room | orchestrator |
+| 6 | Gate 1 SR | Idle compaction ON by default (PM clarification) | CLI default is on (`bs("idleCompaction",!0)`); the user called the feature crucial for usage; an off-switch exists | orchestrator |
+| 7 | Gate 1 R2 | Arm only when the turn's last request shows a confirmed 1h cache write (`ephemeral_1h_input_tokens > 0`, no 5m write). Read-only last requests do not arm; drop `1h-inherited` | Review finding 1: read counts carry no TTL (`subagent-budget-monitor.ts:222-235`); normal turns write new tokens, so few turns are lost | orchestrator |
+| 8 | Gate 1 R2 | The idle handler claims the coordinator at enqueue time (a pending-idle claim that `requestManualCompact` treats like TRIGGERED). A manual `/compact` from enqueue until PostCompact/failure is coalesced into the idle compaction: one compaction, one notice that names the idle compaction. Exact mechanism is the architect's | Review findings 2 and 7: dedupe today starts only at PreCompact (`compaction-coordinator.ts:166-179, 243-252`); hooks carry no send identity | orchestrator |
+| 9 | Gate 2 SR | Option A for AC 3.7: idle compaction skips only Codex-proxy sessions and ignores E2. AC 3.7 is amended to match | Every session registers `e2Passed: null` (`session-query-executor.service.ts:613-622`), so AC 3.7 as written disables the feature; E2 tests `autoCompactWindow` forwarding, which idle compaction does not use | orchestrator (architect recommendation) |
+| 10 | Gate 2 | Revise cap reached with one Serious finding (`postCompactSeen` cleared by TRIGGERED→COMPACTING). User chose "Approve with fix": keep the mark across TRIGGERED→COMPACTING, clear only on leaving open states or a new PreCompact; add the test. Plan amended by the orchestrator; no further document review; code-logic review on the diff checks it | implementation-plan-review.md Round 3 | user |
+| 5 | Task ID | TASK_2026_692 (691 exists in another worktree) | `git worktree list` scan | orchestrator |
