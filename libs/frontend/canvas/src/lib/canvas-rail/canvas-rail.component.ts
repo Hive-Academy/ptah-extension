@@ -229,7 +229,7 @@ const CHIP_STATES = [
           }
         </ul>
       </div>
-      <footer class="shrink-0 px-2 py-2" [class.h-[82px]]="collapsed()" [class.h-[120px]]="!collapsed()">
+      <footer class="shrink-0 px-2 py-2" [class.h-[82px]]="collapsed()" [class.min-h-[120px]]="!collapsed()">
         <div class="flex flex-col gap-1.5">
         <button
           type="button"
@@ -248,7 +248,7 @@ const CHIP_STATES = [
           type="button"
           data-testid="rail-previous-sessions"
           data-previous-sessions-trigger
-          class="btn btn-ghost btn-sm h-[30px] min-h-[30px] w-full gap-1.5 border border-[color:var(--surface-border-strong)] font-medium hover:bg-surface-2 [&[aria-expanded=true]]:bg-surface-3"
+          class="btn btn-ghost btn-sm h-[30px] min-h-[30px] w-full gap-1.5 border border-[color:var(--surface-border-strong)] font-medium hover:!bg-surface-2 hover:!border-[color:var(--surface-border-strong)] [&[aria-expanded=true]]:!bg-surface-3"
           aria-haspopup="dialog"
           [attr.aria-expanded]="previousSessionsOpen()"
           [attr.aria-controls]="previousSessionsOpen() ? 'previous-sessions-dialog' : null"

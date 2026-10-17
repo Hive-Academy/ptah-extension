@@ -76,7 +76,9 @@ describe('CanvasRailComponent', () => {
     const host = fixture.nativeElement as HTMLElement;
     const footer = host.querySelector('footer')!;
     const previous = host.querySelector<HTMLButtonElement>('[data-previous-sessions-trigger]')!;
-    expect(footer.classList.contains('h-[120px]')).toBe(true);
+    expect(footer.classList.contains('min-h-[120px]')).toBe(true);
+    expect(footer.classList.contains('h-[120px]')).toBe(false);
+    expect(host.querySelector('#rail-new-session-reason')?.textContent?.trim()).toBeTruthy();
     expect(previous.previousElementSibling?.textContent).toContain('New session');
     expect(previous.textContent).toContain('Previous sessions');
     expect(previous.getAttribute('aria-haspopup')).toBe('dialog');
@@ -88,7 +90,7 @@ describe('CanvasRailComponent', () => {
     expect(icon?.classList).toContain('w-3.5');
     expect(icon?.classList).toContain('h-3.5');
     expect(previous.textContent).not.toContain('◷');
-    for (const cls of ['gap-1.5', 'font-medium', 'min-h-[30px]', 'border-[color:var(--surface-border-strong)]', 'hover:bg-surface-2', '[&[aria-expanded=true]]:bg-surface-3']) {
+    for (const cls of ['gap-1.5', 'font-medium', 'min-h-[30px]', 'border-[color:var(--surface-border-strong)]', 'hover:!bg-surface-2', 'hover:!border-[color:var(--surface-border-strong)]', '[&[aria-expanded=true]]:!bg-surface-3']) {
       expect(previous.classList).toContain(cls);
     }
     expect(previous.classList).not.toContain('border-base-content/10');
