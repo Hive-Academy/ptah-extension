@@ -28,6 +28,11 @@ const SkillScopeRowSchema = z.object({
   skill_slug: z.string(),
 });
 
+const SkillUsageStatsRowSchema = z.object({
+  invocationCount: z.number(),
+  distinctContexts: z.number(),
+});
+
 export interface NewSkillInvocationEvent {
   skillSlug: string;
   sessionId: string;
@@ -72,6 +77,15 @@ export class SkillInvocationEventStore {
       metrics?.toolCount ?? null, input.taskId ?? null,
       input.workspaceRoot ?? null, input.runId ?? null,
     );
+  }
+
+  getUsageStats(slug: string): { invocationCount: number; distinctContexts: number } {
+    const row = this.db.prepare(
+      `SELECT COUNT(*) AS invocationCount,
+              COUNT(DISTINCT context_id) AS distinctContexts
+       FROM skill_invocation_events WHERE skill_slug = ?`,
+    ).get(slug);
+    return SkillUsageStatsRowSchema.parse(row);
   }
 
   findSubagentRuns(agentIds: readonly string[]): SubagentRunRow[] {

@@ -7,6 +7,38 @@ const opener = resolveOpener();
 const maybe = opener ? it : it.skip;
 
 describe('SkillInvocationEventStore', () => {
+  maybe('counts all slug events and distinct non-null contexts', () => {
+    if (!opener) throw new Error('SQLite opener unavailable');
+    const db = opener(':memory:');
+    try {
+      db.exec(`CREATE TABLE skill_invocation_events (
+        id TEXT PRIMARY KEY, skill_slug TEXT, session_id TEXT, context_id TEXT,
+        source TEXT, succeeded INTEGER NULL, is_error INTEGER NOT NULL,
+        invoked_at INTEGER, input_tokens INTEGER, output_tokens INTEGER,
+        cache_read_tokens INTEGER, cache_creation_tokens INTEGER,
+        cost_usd REAL, duration_ms INTEGER, tool_count INTEGER,
+        task_id TEXT, workspace_root TEXT, run_id TEXT, verdict_source TEXT
+      )`);
+      const connection = Object.create(
+        SqliteConnectionService.prototype,
+      ) as SqliteConnectionService;
+      Object.defineProperty(connection, 'db', { value: db });
+      const store = new SkillInvocationEventStore(noopLogger, connection);
+      const base = { skillSlug: 'reviewer', sessionId: 's1', source: 'tool-use',
+        isError: false, invokedAt: 1 };
+      store.recordSkillEvent({ ...base, contextId: 'ctx-1' });
+      store.recordSkillEvent({ ...base, contextId: 'ctx-1', source: 'subagent', workspaceRoot: '/other' });
+      store.recordSkillEvent({ ...base, contextId: 'ctx-2' });
+      store.recordSkillEvent({ ...base, contextId: null });
+      store.recordSkillEvent({ ...base, skillSlug: 'other', contextId: 'ctx-3' });
+
+      expect(store.getUsageStats('reviewer')).toEqual({ invocationCount: 4, distinctContexts: 2 });
+      expect(store.getUsageStats('missing')).toEqual({ invocationCount: 0, distinctContexts: 0 });
+    } finally {
+      db.close();
+    }
+  });
+
   maybe('writes nullable grades independently from explicit error flags', () => {
     if (!opener) throw new Error('SQLite opener unavailable');
     const db = opener(':memory:');

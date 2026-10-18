@@ -29,8 +29,11 @@ function makeService() {
     getAggregates: jest.fn(() => new Map([['agent-a', { graded: 1, passed: 0, successRate: 0 }]])),
     listRecent: jest.fn(() => [grade]),
   };
-  const service = new SkillScorecardService(logger as never, store as never, grades as never, null);
-  return { service, store, grades };
+  const events = {
+    getUsageStats: jest.fn(() => ({ invocationCount: 4, distinctContexts: 2 })),
+  };
+  const service = new SkillScorecardService(logger as never, store as never, grades as never, null, events as never);
+  return { service, store, grades, events };
 }
 
 describe('SkillScorecardService', () => {
@@ -67,5 +70,29 @@ describe('SkillScorecardService', () => {
     const detail = await service.getScorecardDetail('agent-a');
     expect(grades.listRecent).toHaveBeenCalledWith('agent', 'agent-a', 20);
     expect(detail.rows[0]).toMatchObject({ taskId: grade.taskId, succeeded: false, exactAttribution: true });
+  });
+
+  it('counts graded tasks while preserving invocation telemetry contexts', () => {
+    const { service, grades, store, events } = makeService();
+    grades.getAggregates.mockReturnValue(new Map([['agent-a', { graded: 5, passed: 3, successRate: 0.6 }]]));
+
+    expect(service.getInvocationStats('agent', 'agent-a')).toEqual({
+      total: 5, succeeded: 3, failed: 2, distinctContexts: 2,
+      invocationCount: 4, successRate: 0.6,
+    });
+    expect(grades.getAggregates).toHaveBeenCalledWith('agent', ['agent-a']);
+    expect(events.getUsageStats).toHaveBeenCalledWith('agent-a');
+    expect(store.getScorecardAggregates).not.toHaveBeenCalled();
+  });
+
+  it('returns a null rate with zero grades despite invocation telemetry', () => {
+    const { service, grades, store } = makeService();
+    grades.getAggregates.mockReturnValue(new Map());
+
+    expect(service.getInvocationStats('skill', 'agent-a')).toEqual({
+      total: 0, succeeded: 0, failed: 0, distinctContexts: 2,
+      invocationCount: 4, successRate: null,
+    });
+    expect(store.getScorecardAggregates).not.toHaveBeenCalled();
   });
 });

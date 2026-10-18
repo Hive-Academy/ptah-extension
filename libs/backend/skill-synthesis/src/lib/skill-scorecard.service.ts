@@ -17,11 +17,13 @@ import {
   type SkillWinRate,
 } from './skill-candidate.store';
 import { SkillTaskGradeStore, type SkillTaskGradeAggregate } from './skill-task-grade.store';
+import { SkillInvocationEventStore } from './skill-invocation-event.store';
 import {
   SPEC_FINDINGS_TOKEN,
   type SpecFindingsPort,
 } from './spec-findings.port';
 import type { ScorecardAggregate } from './types';
+import type { SkillRegistryKind } from './skill-registry.store';
 
 /** Recent-verdict cap surfaced on each card (D9). */
 const MAX_RECENT_VERDICTS = 5;
@@ -41,7 +43,31 @@ export class SkillScorecardService {
     private readonly grades: SkillTaskGradeStore,
     @inject(SPEC_FINDINGS_TOKEN, { isOptional: true })
     private readonly findings: SpecFindingsPort | null,
+    private readonly events: SkillInvocationEventStore,
   ) {}
+
+  /** Graded task counts and rate, with distinct contexts from invocation telemetry. */
+  getInvocationStats(kind: SkillRegistryKind, slug: string): {
+    total: number;
+    succeeded: number;
+    failed: number;
+    distinctContexts: number;
+    invocationCount: number;
+    successRate: number | null;
+  } {
+    const grade = this.grades.getAggregates(kind, [slug]).get(slug);
+    const total = grade?.graded ?? 0;
+    const succeeded = grade?.passed ?? 0;
+    const contextRow = this.events.getUsageStats(slug);
+    return {
+      total,
+      succeeded,
+      failed: total - succeeded,
+      distinctContexts: contextRow.distinctContexts,
+      invocationCount: contextRow.invocationCount,
+      successRate: total > 0 ? succeeded / total : null,
+    };
+  }
 
   /**
    * Batched scorecards for every visible agent-clone slug. One aggregate pass;

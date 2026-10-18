@@ -1775,8 +1775,16 @@ export class SkillsSynthesisRpcHandlers {
         'skillSynthesis:invocationStats',
       );
       try {
-        const stats = this.store.getInvocationStats(parsed.slug);
-        return { slug: parsed.slug, stats };
+        const graded = this.scorecard?.getInvocationStats('skill', parsed.slug);
+        return {
+          slug: parsed.slug,
+          stats: {
+            total: graded?.total ?? 0,
+            succeeded: graded?.succeeded ?? 0,
+            failed: graded?.failed ?? 0,
+            distinctContexts: graded?.distinctContexts ?? 0,
+          },
+        };
       } catch (error: unknown) {
         if (error instanceof RpcUserError) throw error;
         this.report(
@@ -2323,11 +2331,8 @@ export class SkillsSynthesisRpcHandlers {
     mirror: UserLayerMirrorService,
     orphaned: boolean,
   ): Promise<CloneSummary> {
-    const stats = this.store.getInvocationStats(row.slug);
-    const successRate =
-      stats.total > 0 && stats.succeeded + stats.failed === stats.total
-        ? stats.succeeded / stats.total
-        : null;
+    const stats = this.scorecard?.getInvocationStats(row.kind, row.slug);
+    const successRate = stats?.successRate ?? null;
     let historyCount = 0;
     try {
       const history = await mirror.listHistory(
@@ -2344,7 +2349,7 @@ export class SkillsSynthesisRpcHandlers {
       kind: row.kind as SkillCloneKind,
       cloneStatus: row.cloneStatus,
       diverged: row.diverged,
-      invocationCount: stats.total,
+      invocationCount: stats?.invocationCount ?? 0,
       successRate,
       lastEnhancedAt: row.lastEnhancedAt,
       historyCount,

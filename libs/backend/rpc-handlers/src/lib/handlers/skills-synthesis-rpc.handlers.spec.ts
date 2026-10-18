@@ -223,6 +223,10 @@ function emptyScorecard(slug: string) {
 
 function makeScorecard() {
   return {
+    getInvocationStats: jest.fn().mockReturnValue({
+      total: 0, succeeded: 0, failed: 0, distinctContexts: 0,
+      invocationCount: 0, successRate: null,
+    }),
     getScorecards: jest.fn().mockReturnValue({}),
     // B4.4.3: `skillSynthesis:getScorecards` now merges the win-rate pass into
     // the aggregate, so the double has to answer both calls.
@@ -292,7 +296,7 @@ function makeDiagnostics() {
   };
 }
 
-function buildHandlers(workspaceFolders: string[] = ['/workspace/project']) {
+function buildHandlers(workspaceFolders: string[] = ['/workspace/project'], withScorecard = true) {
   const logger = makeLogger();
   const rpcHandler = makeRpcHandler();
   const sentry = makeSentry();
@@ -329,10 +333,12 @@ function buildHandlers(workspaceFolders: string[] = ['/workspace/project']) {
   child.registerInstance(SKILL_SYNTHESIS_TOKENS.SKILL_REGISTRY_STORE, registry);
   child.registerInstance(USER_LAYER_MIRROR_SERVICE_TOKEN, mirror);
   child.registerInstance(PLATFORM_TOKENS.CONTENT_DOWNLOAD, contentDownload);
-  child.registerInstance(
-    SKILL_SYNTHESIS_TOKENS.SKILL_SCORECARD_SERVICE,
-    scorecard,
-  );
+  if (withScorecard) {
+    child.registerInstance(
+      SKILL_SYNTHESIS_TOKENS.SKILL_SCORECARD_SERVICE,
+      scorecard,
+    );
+  }
   child.registerInstance(SKILL_SYNTHESIS_TOKENS.SKILL_QUEUE_STORE, queueStore);
   child.registerInstance(
     SKILL_SYNTHESIS_TOKENS.SKILL_BUDGET_STORE,
@@ -958,14 +964,16 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
     updatedAt: 1700000000000,
   };
 
-  it('listClones joins registry rows with invocation stats + history count', async () => {
-    const { rpcHandler, registry, store, mirror } = buildHandlers();
+  it('listClones joins grade rates with telemetry counts and history', async () => {
+    const { rpcHandler, registry, store, scorecard, mirror } = buildHandlers();
     registry.listAll.mockReturnValue([sampleRow]);
-    store.getInvocationStats.mockReturnValue({
-      total: 10,
-      succeeded: 7,
-      failed: 3,
+    scorecard.getInvocationStats.mockReturnValue({
+      total: 5,
+      succeeded: 3,
+      failed: 2,
       distinctContexts: 4,
+      invocationCount: 10,
+      successRate: 0.6,
     });
     mirror.listHistory.mockResolvedValue([
       { ts: 't1', path: '/p/t1', hasSkillMd: true },
@@ -982,41 +990,86 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
       kind: 'skill',
       cloneStatus: 'clone',
       invocationCount: 10,
-      successRate: 0.7,
+      successRate: 0.6,
       historyCount: 2,
       lastEnhancedAt: 1700000000000,
       enhanceMinInvocations: 5,
       enhanceCooldownUntil: 1700000000000 + 24 * 60 * 60 * 1000,
     });
+    expect(scorecard.getInvocationStats).toHaveBeenCalledWith('skill', 'deep-research');
+    expect(store.getInvocationStats).not.toHaveBeenCalled();
   });
 
-  it('listClones returns a null success rate without invocations', async () => {
-    const { rpcHandler, registry } = buildHandlers();
+  it('listClones returns a null success rate without grades', async () => {
+    const { rpcHandler, registry, scorecard, store } = buildHandlers();
     registry.listAll.mockReturnValue([sampleRow]);
+    scorecard.getInvocationStats.mockReturnValue({
+      total: 0, succeeded: 0, failed: 0, distinctContexts: 3,
+      invocationCount: 8, successRate: null,
+    });
 
     const result = (await rpcHandler.call('skillSynthesis:listClones', {})) as {
-      clones: Array<{ successRate: number | null }>;
+      clones: Array<{ invocationCount: number; successRate: number | null }>;
     };
 
     expect(result.clones[0].successRate).toBeNull();
+    expect(result.clones[0].invocationCount).toBe(8);
+    expect(store.getInvocationStats).not.toHaveBeenCalled();
   });
 
-  it('listClones returns a null success rate when some invocations are ungraded', async () => {
-    const { rpcHandler, registry, store } = buildHandlers();
+  it('listClones keeps rows available when the optional scorecard is absent', async () => {
+    const { rpcHandler, registry, store, scorecard } = buildHandlers(['/workspace/project'], false);
     registry.listAll.mockReturnValue([sampleRow]);
-    store.getInvocationStats.mockReturnValue({
-      total: 3,
-      succeeded: 0,
-      failed: 0,
+
+    const result = (await rpcHandler.call('skillSynthesis:listClones', {})) as {
+      clones: Array<{ invocationCount: number; successRate: number | null }>;
+    };
+
+    expect(result.clones).toHaveLength(1);
+    expect(result.clones[0]).toMatchObject({ invocationCount: 0, successRate: null });
+    expect(scorecard.getInvocationStats).not.toHaveBeenCalled();
+    expect(store.getInvocationStats).not.toHaveBeenCalled();
+  });
+
+  it('listClones uses graded rate even with ungraded invocations', async () => {
+    const { rpcHandler, registry, scorecard, store } = buildHandlers();
+    registry.listAll.mockReturnValue([sampleRow]);
+    scorecard.getInvocationStats.mockReturnValue({
+      total: 2,
+      succeeded: 1,
+      failed: 1,
       distinctContexts: 1,
+      invocationCount: 3,
+      successRate: 0.5,
     });
 
     const result = (await rpcHandler.call('skillSynthesis:listClones', {})) as {
       clones: Array<{ successRate: number | null }>;
     };
 
-    expect(result.clones[0].successRate).toBeNull();
+    expect(result.clones[0].successRate).toBe(0.5);
+    expect(store.getInvocationStats).not.toHaveBeenCalled();
   });
+
+  it.each(['agent', 'command'] as const)(
+    'listClones reads %s grades using the clone kind',
+    async (kind) => {
+      const { rpcHandler, registry, scorecard, store } = buildHandlers();
+      registry.listAll.mockReturnValue([{ ...sampleRow, kind }]);
+      scorecard.getInvocationStats.mockReturnValue({
+        total: 2, succeeded: 1, failed: 1, distinctContexts: 1,
+        invocationCount: 3, successRate: 0.5,
+      });
+
+      const result = (await rpcHandler.call('skillSynthesis:listClones', {})) as {
+        clones: Array<{ successRate: number | null }>;
+      };
+
+      expect(scorecard.getInvocationStats).toHaveBeenCalledWith(kind, 'deep-research');
+      expect(result.clones[0].successRate).toBe(0.5);
+      expect(store.getInvocationStats).not.toHaveBeenCalled();
+    },
+  );
 
   it('listClones returns PERSISTENCE_UNAVAILABLE when registry unbound (VS Code)', async () => {
     const logger = makeLogger();
@@ -1928,24 +1981,60 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
     });
   });
 
-  it('invocationStats returns slug-keyed counts from the candidate store', async () => {
-    const { rpcHandler, store } = buildHandlers();
-    store.getInvocationStats.mockReturnValue({
+  it('invocationStats returns grade counts and telemetry contexts', async () => {
+    const { rpcHandler, store, scorecard } = buildHandlers();
+    scorecard.getInvocationStats.mockReturnValue({
       total: 5,
-      succeeded: 4,
-      failed: 1,
+      succeeded: 3,
+      failed: 2,
       distinctContexts: 2,
+      invocationCount: 9,
+      successRate: 0.6,
     });
 
     const result = await rpcHandler.call('skillSynthesis:invocationStats', {
       slug: 'deep-research',
     });
 
-    expect(store.getInvocationStats).toHaveBeenCalledWith('deep-research');
+    expect(scorecard.getInvocationStats).toHaveBeenCalledWith('skill', 'deep-research');
+    expect(store.getInvocationStats).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       slug: 'deep-research',
-      stats: { total: 5, succeeded: 4, failed: 1, distinctContexts: 2 },
+      stats: { total: 5, succeeded: 3, failed: 2, distinctContexts: 2 },
     });
+    expect(result).toEqual({
+      slug: 'deep-research',
+      stats: { total: 5, succeeded: 3, failed: 2, distinctContexts: 2 },
+    });
+  });
+
+  it('invocationStats reports no graded tasks even when telemetry exists', async () => {
+    const { rpcHandler, store, scorecard } = buildHandlers();
+    scorecard.getInvocationStats.mockReturnValue({
+      total: 0, succeeded: 0, failed: 0, distinctContexts: 2,
+      invocationCount: 9, successRate: null,
+    });
+
+    expect(await rpcHandler.call('skillSynthesis:invocationStats', {
+      slug: 'deep-research',
+    })).toEqual({
+      slug: 'deep-research',
+      stats: { total: 0, succeeded: 0, failed: 0, distinctContexts: 2 },
+    });
+    expect(store.getInvocationStats).not.toHaveBeenCalled();
+  });
+
+  it('invocationStats returns zeros when the optional scorecard is absent', async () => {
+    const { rpcHandler, scorecard, store } = buildHandlers(['/workspace/project'], false);
+
+    expect(await rpcHandler.call('skillSynthesis:invocationStats', {
+      slug: 'deep-research',
+    })).toEqual({
+      slug: 'deep-research',
+      stats: { total: 0, succeeded: 0, failed: 0, distinctContexts: 0 },
+    });
+    expect(scorecard.getInvocationStats).not.toHaveBeenCalled();
+    expect(store.getInvocationStats).not.toHaveBeenCalled();
   });
 
   it('invocationStats rejects empty slug with INVALID_PARAMS', async () => {
