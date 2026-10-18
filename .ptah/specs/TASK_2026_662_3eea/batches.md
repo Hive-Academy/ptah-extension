@@ -1,6 +1,6 @@
 # Batches - TASK_2026_662_3eea
 
-Total tasks: 75 (71 + carry-over tasks 44.2, 65.2, 67.2, 53.2) | Batches: 71 (+2 operational steps OP-1, OP-2) | Phases: 6 (A-F) | Complete: 19/71 (Phase A 15/15 CLOSED: logic gate APPROVED after one fix round, 8360e7aca; style fixes verified in the round-2 re-review; visual review APPROVED 8/10. Phase B 4/9: batches 16, 17, 19, 22)
+Total tasks: 75 (71 + carry-over tasks 44.2, 65.2, 67.2, 53.2) | Batches: 71 (+2 operational steps OP-1, OP-2) | Phases: 6 (A-F) | Complete: 21/71 (Phase A 15/15 CLOSED: logic gate APPROVED after one fix round, 8360e7aca; style fixes verified in the round-2 re-review; visual review APPROVED 8/10. Phase B 6/9: batches 16, 17, 18, 19, 20, 22; next 21 -> 23 -> 24, sequential, SU-gated)
 
 Worktree root (prefix every path below with it): `D:\projects\ptah-extension\.claude-worktrees\skill-synthesis-purge\`
 Branch: `refactor/skill-synthesis-purge`. Aliases (same as implementation-plan.md:153):
@@ -144,7 +144,7 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
 | Phase | Batches | Phase review (after its last batch commits) |
 | --- | --- | --- |
 | A - add beside old | 1-15 | code-logic, plus style (new public API: event store, grade store, skills-root, enhancement keys, archive preflight) |
-| B - switch readers/writers | 16-24 | code-logic, plus visual (Providers, Library, dashboard, pause switch, model editor; added 2026-10-19: dashboard Skills tile telemetry On/Off (O10), Library header pause + telemetry controls (batch 19), Phase A carry-overs Moderate 1 null detail-row pill + Minor 1 neutral verdict dot after batch 24; added after batch 17: Providers consumer assignments Enhancement row (provider, model, timeout + Undo) replacing "Judging & enhancement" and the lane rows, and the Orchestration background-roles summary "Memory curator, enhancement, decision" (3 roles)) |
+| B - switch readers/writers | 16-24 | code-logic, plus visual (Providers, Library, dashboard, pause switch, model editor; added 2026-10-19: dashboard Skills tile telemetry On/Off (O10), Library header pause + telemetry controls (batch 19), Phase A carry-overs Moderate 1 null detail-row pill + Minor 1 neutral verdict dot after batch 24; added after batch 17: Providers consumer assignments Enhancement row (provider, model, timeout + Undo) replacing "Judging & enhancement" and the lane rows, and the Orchestration background-roles summary "Memory curator, enhancement, decision" (3 roles); added after batches 18 and 20: the routing map Background roles node (2 roles: Memory curator, Enhancement; was 6) and the pause switch showing the committed host value while a write is pending, disabled in flight, error alert on failure) |
 | C - cut consumers | 25-56 | code-logic, plus visual (Library tab removal in 27, dashboard in 27) |
 | D - delete pipeline source + RPC contract | 57-61 | code-logic, plus visual (Library after SU deletion) |
 | E - remove shared contracts | 62-66 | code-logic, plus visual (Advanced settings rows removed in 65) |
@@ -821,7 +821,7 @@ including O10 tile, Library pause/telemetry controls, Phase A Moderate 1 and Min
 - UI: Enhancement row and the background-roles summary are on the Phase B visual list (Phase map row B).
 - Commit: f2e072e0a `refactor(core,chat): batch 17 - providers enhancement row` (15 files).
 
-## Batch 18: Chat routing map and Providers page drop lanes; advanced spec fixture (R3, R5) - IN_PROGRESS
+## Batch 18: Chat routing map and Providers page drop lanes; advanced spec fixture (R3, R5) - COMPLETE (03efa52df)
 
 - Phase: B | Executor: CLI lane Glm | Depends on: 17 | Tasks: 1
 - Flags: UI (Providers routing map)
@@ -829,7 +829,7 @@ including O10 tile, Library pause/telemetry controls, Phase A Moderate 1 and Min
 - Precondition: batch 17 is done. `providers-settings.component.ts:831-856` and
   `routing-map.component.ts:7-286` still read the lanes.
 
-### Task 18.1: Remove the lanes section; Enhancement uses the new provider key - IN_PROGRESS
+### Task 18.1: Remove the lanes section; Enhancement uses the new provider key - COMPLETE
 
 - Files: `libs/frontend/chat/src/lib/settings/providers/routing-map.component.ts` + spec,
   `providers-settings.component.ts` + spec, `libs/frontend/chat/src/lib/settings/advanced/advanced-settings-group.component.spec.ts`.
@@ -842,6 +842,30 @@ including O10 tile, Library pause/telemetry controls, Phase A Moderate 1 and Min
   (`archaeologist`, `synthesis`, `judge`, `replay`) go with the lanes section; do NOT edit the core union
   (`app-state.service.ts`) here, Task 53.2 owns it.
 - Implementation details: none beyond the requirements above.
+
+### Batch 18 verification - COMPLETE (03efa52df)
+
+- Executor: CLI lane codex (planned Glm; Glm-planned batches go to codex per the wave note). Report
+  `reports/batch-18-report.md`.
+- On disk: `routing-map.component.ts` drops `LANES`, the `SkillLaneIdDto` import and the lane/judging
+  reads; `backgroundRolesPreview(curatorProvider, enhancementProvider, nameOf)` lists Memory curator and
+  Enhancement (`state.enhancement().data.provider`); Retry re-reads only failed memory/enhancement.
+  `providers-settings.component.ts:851-856` error state uses `enhancement()` in place of
+  `lanes()`/`judging()`. Advanced spec fixture uses `compaction.toolOutputBudgetTokens` (survives 65).
+  Core union in `app-state.service.ts` untouched (Task 53.2 owns it). No stubs/TODOs.
+- Validation grep `rg -n "SkillLane|refreshLanes|state\.lanes\(\)|judgeProvider" libs/frontend/chat`
+  (non-spec) = 0 hits (orchestrator-verified).
+- Gate `nx run-many -t test typecheck lint -p @ptah-extension/chat --parallel=1` PASS
+  (orchestrator-verified).
+- UI: the Background roles node now shows 2 roles (was 6: curator, 4 lanes, judging); on the Phase B
+  visual list (Phase map row B).
+- Lane decision (accepted, reversible): 2 roles in the node, matching the prior node's set minus the
+  deleted lanes, with judging replaced by Enhancement (batch 17).
+- **Proposed removal (NOT approved, kept; awaits user approval):** the `routing-background-more`
+  template branch (`routing-map.component.ts:156`, spec `:199` asserts it is absent) can no longer
+  render with 2 roles and `.slice(0, 2)`. Kept as-is; remove only with recorded user approval (or let
+  Phase C/E reductions pick it up once approved).
+- Commit: 03efa52df `refactor(chat): batch 18 - routing map drops skill lanes` (5 files).
 
 ## Batch 19: Library pause/telemetry round trip + dashboard candidate cut (R5) - COMPLETE (f2f58fdea)
 
@@ -885,14 +909,14 @@ including O10 tile, Library pause/telemetry controls, Phase A Moderate 1 and Min
   show no `getSettings`/`updateSettings` call left in SU state or tab.
 - Commit: f2f58fdea `refactor(skill-synthesis-ui,dashboard): batch 19 - settings round trip` (7 files).
 
-## Batch 20: Pause switch uses the migrated state - IN_PROGRESS
+## Batch 20: Pause switch uses the migrated state - COMPLETE (221127d6a)
 
 - Phase: B | Executor: CLI lane Glm | Depends on: 19 | Tasks: 1
 - Flags: UI, WRITE-PATH (`skillSynthesis.enabled`)
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/skill-synthesis-ui --parallel=1`
 - Precondition: the batch 19 readBack exists.
 
-### Task 20.1: Keep the switch working through the new state API - IN_PROGRESS
+### Task 20.1: Keep the switch working through the new state API - COMPLETE
 
 - Files: `SU/components/skills-pause-switch.component.ts` + spec.
 - Plan reference: plan row 18.
@@ -901,7 +925,26 @@ including O10 tile, Library pause/telemetry controls, Phase A Moderate 1 and Min
 - Validation notes: none beyond the plan row.
 - Implementation details: none beyond the plan row.
 
-## Batch 21: Model timeout fix + manual draft drawer - PENDING
+### Batch 20 verification - COMPLETE (221127d6a)
+
+- Executor: CLI lane codex. Report `reports/batch-20-report.md`.
+- On disk: checkbox, status and paused badge bind `skillsEnabledCommitted`
+  (`skill-synthesis-state.service.ts:375`); `paused = computed(() => enabled() === false)`; `onToggle`
+  restores the DOM checkbox to the committed value and returns while disabled, else calls
+  `setSkillsEnabled`. The service's optimistic `skillsEnabled` stays for other consumers. Spec adds
+  one-call, in-flight disabled, read-back, failure rollback + error, telemetry isolation and
+  no-legacy-RPC cases. No stubs/TODOs/skips.
+- Gate `nx run-many -t test typecheck lint -p @ptah-extension/skill-synthesis-ui --parallel=1` PASS
+  (orchestrator-verified).
+- WRITE-PATH: switch -> `setSkillsEnabled` -> `settings:set skillSynthesis.enabled` ->
+  `settings:get` readBack -> `skillsEnabledCommitted`; never writes `skills.telemetry.enabled`. Same key
+  and reader as batch 19's trace; runtime reader unchanged.
+- Lane note: scoped diagnostics showed 16 errors in sibling SU files outside batch 20; the SU gate
+  passed, so these are diagnostics-tool noise, not gate failures. No action.
+- UI: pause switch is on the Phase B visual list (Phase map row B).
+- Commit: 221127d6a `refactor(skill-synthesis-ui): batch 20 - pause switch reads committed` (2 files).
+
+## Batch 21: Model timeout fix + manual draft drawer - IN_PROGRESS
 
 - Phase: B | Executor: CLI lane Glm | Depends on: 10, 20 | Tasks: 1
 - Flags: UI (agent model editor, enhance preview drawer), WRITE-PATH (`setAgentModel`, explicit `saveCloneBody`)
@@ -909,7 +952,7 @@ including O10 tile, Library pause/telemetry controls, Phase A Moderate 1 and Min
 - Precondition: the UI allows 10 s for the read and 8 s for save against a 15 s server budget
   (`skill-synthesis-rpc.service.ts:88-107,710-737`).
 
-### Task 21.1: UI timeout greater than 15 s plus margin; draft, then explicit save - PENDING
+### Task 21.1: UI timeout greater than 15 s plus margin; draft, then explicit save - IN_PROGRESS
 
 - Files: `SU/services/skill-synthesis-rpc.service.ts` + spec, `SU/components/clones/agent-models.store.ts`, `agent-model-editor.component.ts` + spec, `enhance-preview-drawer.component.ts`.
 - Plan reference: plan row 19; implementation-plan.md:20, 61, 63.
