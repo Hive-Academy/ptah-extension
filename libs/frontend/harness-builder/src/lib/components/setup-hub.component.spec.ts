@@ -1,6 +1,11 @@
 import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
+import {
+  AppStateManager,
+  ClaudeRpcService,
+  WorkspaceScopeService,
+} from '@ptah-extension/core';
+import { GenerationWorkflowLauncherService } from '@ptah-extension/chat-ui';
 import { SetupHubComponent } from './setup-hub.component';
 import { HarnessWorkflowRequestService } from '../services/harness-workflow-request.service';
 
@@ -8,6 +13,9 @@ describe('SetupHubComponent entry handoff', () => {
   let fixture: ComponentFixture<SetupHubComponent>;
   const runningMode = signal<string | null>(null);
   const resumableMode = signal<string | null>(null);
+  const activeWorkspacePath = signal<string | null>('D:/projects/current');
+  const openGeneration = jest.fn();
+  const setCurrentView = jest.fn();
   let requests: {
     requestAndNavigate: jest.Mock;
     hasRunningMode: jest.Mock;
@@ -40,6 +48,11 @@ describe('SetupHubComponent entry handoff', () => {
   beforeEach(async () => {
     runningMode.set(null);
     resumableMode.set(null);
+    activeWorkspacePath.set('D:/projects/current');
+    openGeneration
+      .mockReset()
+      .mockResolvedValue({ outcome: 'landed', tabId: 'tab-1' });
+    setCurrentView.mockReset();
     requests = {
       requestAndNavigate: jest.fn().mockResolvedValue('landed'),
       hasRunningMode: jest.fn((mode: string) => runningMode() === mode),
@@ -56,7 +69,12 @@ describe('SetupHubComponent entry handoff', () => {
       imports: [SetupHubComponent],
       providers: [
         { provide: HarnessWorkflowRequestService, useValue: requests },
-        { provide: AppStateManager, useValue: { setCurrentView: jest.fn() } },
+        { provide: AppStateManager, useValue: { setCurrentView } },
+        { provide: WorkspaceScopeService, useValue: { activeWorkspacePath } },
+        {
+          provide: GenerationWorkflowLauncherService,
+          useValue: { open: openGeneration },
+        },
         {
           provide: ClaudeRpcService,
           useValue: {
@@ -83,6 +101,65 @@ describe('SetupHubComponent entry handoff', () => {
     expect(requests.requestAndNavigate).toHaveBeenCalledWith({
       mode: 'configure-harness',
     });
+  });
+
+  it.each([
+    ['setup-agent-generation', 'Generate Agents'],
+    ['setup-project-prompt', 'Generate Project Guidance'],
+  ])(
+    'opens %s independently for the active workspace',
+    async (workflow, title) => {
+      expect(element(workflow).textContent).toContain(title);
+      click(workflow);
+      await fixture.whenStable();
+      expect(openGeneration).toHaveBeenCalledWith({
+        workspacePath: 'D:/projects/current',
+        workflow,
+        origin: 'independent-start',
+      });
+    },
+  );
+
+  it('asks the launcher to focus the existing workspace tab on another click', async () => {
+    click('setup-agent-generation');
+    await fixture.whenStable();
+    openGeneration.mockResolvedValueOnce({ outcome: 'landed', tabId: 'tab-1' });
+    click('setup-agent-generation');
+    await fixture.whenStable();
+    expect(openGeneration).toHaveBeenCalledTimes(2);
+    expect(openGeneration.mock.calls[1][0]).toEqual(
+      openGeneration.mock.calls[0][0],
+    );
+  });
+
+  it('shows safe copy for a failed launcher result', async () => {
+    openGeneration.mockResolvedValueOnce({ outcome: 'failed' });
+    click('setup-project-prompt');
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain(
+      'Generation could not be opened. Try again.',
+    );
+  });
+
+  it('shows no generation error when launch is cancelled', async () => {
+    openGeneration.mockResolvedValueOnce({ outcome: 'cancelled' });
+    click('setup-agent-generation');
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelector(
+        '[aria-label="Dismiss generation error"]',
+      ),
+    ).toBeNull();
+  });
+
+  it('keeps Workspace Analysis on the existing wizard entry', () => {
+    fixture.nativeElement
+      .querySelector('[aria-label="Open Workspace Analysis setup wizard"]')
+      .click();
+    expect(setCurrentView).toHaveBeenCalledWith('setup-wizard');
+    expect(openGeneration).not.toHaveBeenCalled();
   });
 
   it('shows the existing Hub alert when a builder switch is cancelled', async () => {
