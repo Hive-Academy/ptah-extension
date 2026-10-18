@@ -826,7 +826,7 @@ Decisions:
 - File overlap with Batches 14-17: none (`rpc-chat.types.ts` and `message-sender.service.ts` are
   not in their file lists).
 
-## Batch 14: Notice contract and backend stamp — PENDING
+## Batch 14: Notice contract and backend stamp — COMPLETE
 
 - Recommended executor: CLI lane [implementation, TypeScript backend]
 - Execution mode: sequential
@@ -838,13 +838,13 @@ Decisions:
 - Phase: 3 | Phase review: deferred to Batch 17
 - ACs: 6.1, 6.3, 6.4, D4, D8
 
-### Task 14.1: `CompactionCompleteEvent.idleCompaction` — PENDING
+### Task 14.1: `CompactionCompleteEvent.idleCompaction` — COMPLETE
 
 - File: `<W>\libs\shared\src\lib\types\execution\stream.ts`
 - Plan reference: implementation-plan.md:696-697
 - Implementation details: `readonly idleCompaction?: { readonly preTokens: number }` on `CompactionCompleteEvent` (`stream.ts:288-300`).
 
-### Task 14.2: Transformer stamp + spec — PENDING
+### Task 14.2: Transformer stamp + spec — COMPLETE
 
 - Files: `<W>\libs\backend\agent-sdk\src\lib\message-transform\system-message.transformer.ts`, `<W>\libs\backend\agent-sdk\src\lib\message-transform\system-message.transformer.spec.ts`
 - Plan reference: implementation-plan.md:698-700, D4
