@@ -44,6 +44,7 @@ export class GenerationWorkflowStore {
   readonly state = this.stateValue.asReadonly();
   readonly rejection = this.rejectionValue.asReadonly();
   readonly chatTurnRejection = signal<string | null>(null);
+  readonly startError = signal<string | null>(null);
   readonly isBound = computed(() =>
     [
       'starting',
@@ -73,9 +74,11 @@ export class GenerationWorkflowStore {
       return;
     this.pendingStop = false;
     this.clearWatchdog();
+    this.lookupFailures = 0;
     this.runValue.set(null);
     this.stateValue.set('idle');
     this.rejectionValue.set(null);
+    this.startError.set(null);
     this.bindingValue.set(binding);
     void this.refresh();
   }
@@ -83,6 +86,7 @@ export class GenerationWorkflowStore {
   unbind(): void {
     this.pendingStop = false;
     this.clearWatchdog();
+    this.lookupFailures = 0;
     this.bindingValue.set(null);
     this.runValue.set(null);
     this.stateValue.set('idle');
@@ -98,6 +102,7 @@ export class GenerationWorkflowStore {
       return;
     if (!this.canStartInChat(binding)) return;
     this.stateValue.set('starting');
+    this.startError.set(null);
     try {
       const response = await this.rpc.startBoundAgents(
         binding,
@@ -107,8 +112,16 @@ export class GenerationWorkflowStore {
       if (response.accepted) await this.accept(binding, response.accepted);
       else if (response.rejection) this.reject(response.rejection);
       else await this.refresh();
-    } catch {
-      if (this.sameBinding(binding)) await this.refresh();
+    } catch (error: unknown) {
+      if (this.sameBinding(binding)) {
+        if (
+          error instanceof Error &&
+          error.message ===
+            'The selected model is not available for this provider.'
+        )
+          this.startError.set(error.message);
+        await this.refresh();
+      }
     }
   }
 
@@ -192,6 +205,7 @@ export class GenerationWorkflowStore {
     binding: SetupGenerationTabBinding,
     accepted: SetupGenerationAccepted,
   ): Promise<void> {
+    this.lookupFailures = 0;
     this.acceptedRun.update((previous) => ({
       runId: accepted.runId,
       revision: (previous?.revision ?? 0) + 1,

@@ -341,6 +341,24 @@ describe('WizardRpcService', () => {
     });
   });
 
+  it('reports an unavailable selected model without exposing host error text', async () => {
+    rpcCall.mockResolvedValue(
+      errResult(
+        'The selected model is unavailable for this provider. private-host-detail',
+      ),
+    );
+    await expect(
+      service.startBoundAgents(
+        {
+          tabId: 'tab',
+          workspacePath: '/ws',
+          workflow: 'setup-agent-generation',
+        },
+        ['a'],
+      ),
+    ).rejects.toThrow('The selected model is not available for this provider.');
+  });
+
   describe('retryGenerationItem', () => {
     it('uses the exact bound run for retry and rejects an unsuccessful result', async () => {
       const tabBinding = {

@@ -99,6 +99,7 @@ export async function sameWorkspacePath(
       ? left.toLowerCase() === right.toLowerCase()
       : left === right;
   } catch {
+    // degradation-audit: reported - an unresolved workspace cannot be authorized.
     return false;
   }
 }
@@ -212,6 +213,7 @@ export async function authorizeTabWorkspace(
         ? host
         : null;
   } catch (error: unknown) {
+    // degradation-audit: reported - authorization failure is logged and denied.
     logger.warn(
       'Could not authorize generation workspace',
       error instanceof Error ? error : new Error(String(error)),

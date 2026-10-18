@@ -251,17 +251,16 @@ export class WizardLandingComponent implements OnInit {
   protected async open(workflow: SetupGenerationWorkflow): Promise<void> {
     this.openError.set(false);
     const workspacePath = this.tabs.activeWorkspacePath;
-    if (
-      !workspacePath ||
-      (
-        await this.launcher.open({
-          workspacePath,
-          workflow,
-          origin: 'wizard-landing',
-        })
-      ).outcome !== 'landed'
-    )
+    if (!workspacePath) {
       this.openError.set(true);
+      return;
+    }
+    const result = await this.launcher.open({
+      workspacePath,
+      workflow,
+      origin: 'wizard-landing',
+    });
+    this.openError.set(result.outcome === 'failed');
   }
 
   protected async use(analysis: SavedAnalysisMetadata): Promise<void> {

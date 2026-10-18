@@ -7,7 +7,11 @@ import {
   TabManagerService,
 } from '@ptah-extension/chat-state';
 import type { SetupGenerationRunState } from '@ptah-extension/shared';
-import { SessionId } from '@ptah-extension/shared';
+import {
+  SessionId,
+  createExecutionChatMessage,
+  type ExecutionChatMessage,
+} from '@ptah-extension/shared';
 import {
   BatchedUpdateService,
   MessageFinalizationService,
@@ -32,6 +36,7 @@ const activeRun = {
 describe('GenerationRunEventAdapter', () => {
   const setup = () => {
     const run = signal<typeof activeRun | null>(activeRun);
+    const bound = signal<typeof binding | null>(binding);
     const busy = signal(true);
     const tab = {
       claudeSessionId: 'real-chat-session',
@@ -43,6 +48,7 @@ describe('GenerationRunEventAdapter', () => {
       pendingSessionCrons: ['real-cron'],
       lastTerminalReason: 'end_turn',
       abortController: new AbortController(),
+      messages: [] as ExecutionChatMessage[],
     };
     const processStreamEvent = jest.fn(
       (
@@ -71,7 +77,7 @@ describe('GenerationRunEventAdapter', () => {
         {
           provide: GenerationWorkflowStore,
           useValue: {
-            binding: () => binding,
+            binding: bound,
             run,
             isBound: () => busy(),
             refresh,
@@ -82,6 +88,9 @@ describe('GenerationRunEventAdapter', () => {
           useValue: {
             tabs: signal([{ id: 'tab' }]),
             findTabByIdAcrossWorkspaces: () => ({ tab, workspacePath: '/ws' }),
+            setMessages: (_tabId: string, messages: ExecutionChatMessage[]) => {
+              tab.messages = messages;
+            },
           },
         },
         { provide: StreamingHandlerService, useValue: { processStreamEvent } },
@@ -97,6 +106,7 @@ describe('GenerationRunEventAdapter', () => {
     return {
       adapter,
       run,
+      bound,
       busy,
       tab,
       processStreamEvent,
@@ -228,6 +238,55 @@ describe('GenerationRunEventAdapter', () => {
     run.set({ ...activeRun, status: 'completed' });
     TestBed.flushEffects();
     expect(finalizeCurrentMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it('corrects an interrupted transcript after verified completion replaces finalization failure', () => {
+    const { adapter, run, tab, processStreamEvent } = setup();
+    expect(
+      adapter.accept({ tabBinding: binding, kind: 'text', content: 'result' }),
+    ).toBe(true);
+    const messageId =
+      processStreamEvent.mock.calls[0][0].messageId ?? 'missing';
+    run.set({ ...activeRun, status: 'failed' });
+    TestBed.flushEffects();
+    tab.messages = [
+      createExecutionChatMessage({
+        id: messageId,
+        role: 'assistant',
+        streamingState: {
+          id: messageId,
+          type: 'message',
+          status: 'interrupted',
+          content: 'result',
+          children: [],
+          isCollapsed: false,
+        },
+      }),
+    ];
+    run.set({ ...activeRun, status: 'completed' });
+    TestBed.flushEffects();
+    expect(tab.messages[0].streamingState?.status).toBe('complete');
+  });
+
+  it('purges buffered activity when the workflow unbinds', () => {
+    const { adapter, run, bound, processStreamEvent } = setup();
+    run.set(null);
+    TestBed.flushEffects();
+    for (let i = 0; i < 105; i++) {
+      expect(
+        adapter.accept({
+          tabBinding: binding,
+          kind: 'text',
+          content: `event ${i}`,
+        }),
+      ).toBe(true);
+    }
+    bound.set(null);
+    TestBed.flushEffects();
+    bound.set(binding);
+    run.set(activeRun);
+    TestBed.flushEffects();
+    expect(processStreamEvent).not.toHaveBeenCalled();
   });
 
   it('replaces stale message ownership when a new run starts on the same tab', () => {

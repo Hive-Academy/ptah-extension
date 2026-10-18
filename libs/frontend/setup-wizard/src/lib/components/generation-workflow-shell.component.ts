@@ -1,7 +1,6 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  DestroyRef,
   computed,
   effect,
   inject,
@@ -14,6 +13,10 @@ import {
   type SessionStopHandler,
 } from '@ptah-extension/chat';
 import { TabManagerService } from '@ptah-extension/chat-state';
+import {
+  ModelStateService,
+  ProvidersSettingsStateService,
+} from '@ptah-extension/core';
 import { GenerationWorkflowLauncherService } from '@ptah-extension/chat-ui';
 import type { SetupGenerationWorkflow } from '@ptah-extension/shared';
 import { GenerationWorkflowStore } from '../services/generation-workflow.store';
@@ -59,17 +62,21 @@ import { GenerationStopControlComponent } from './generation-stop-control.compon
               (resumeRequested)="store.resumeBoundAgents()"
             />
             @if (agents.resumable(); as checkpoint) {
-              <div class="alert alert-info block">
-                <p>Saved agent run available. Resume keeps completed agents.</p>
-                <button
-                  type="button"
-                  class="btn btn-outline btn-sm"
-                  [disabled]="agents.loading()"
-                  (click)="agents.resume()"
-                >
-                  Resume saved run
-                </button>
-              </div>
+              @if (!store.run()) {
+                <div class="alert alert-info block">
+                  <p>
+                    Saved agent run available. Resume keeps completed agents.
+                  </p>
+                  <button
+                    type="button"
+                    class="btn btn-outline btn-sm"
+                    [disabled]="agents.loading()"
+                    (click)="agents.resume()"
+                  >
+                    Resume saved run
+                  </button>
+                </div>
+              }
               <ptah-agent-generation-progress
                 [checkpoint]="checkpoint"
                 [remaining]="agents.remainingCounts()"
@@ -116,6 +123,11 @@ import { GenerationStopControlComponent } from './generation-stop-control.compon
                   The saved run could not be resumed.
                 }
               </div>
+            }
+            @if (store.startError(); as startError) {
+              <p class="alert alert-warning text-sm" role="alert">
+                {{ startError }}
+              </p>
             }
             @if (store.run()?.result; as result) {
               @if (
@@ -184,11 +196,14 @@ import { GenerationStopControlComponent } from './generation-stop-control.compon
               <ptah-agent-next-steps
                 [pending]="!!handoff.pending()"
                 [remainingSeconds]="remainingSeconds()"
+                [previewModel]="guidancePreviewModel()"
+                [previewProvider]="guidancePreviewProvider()"
                 [manualRecovery]="
                   handoff.outcome() === 'manual-recovery' ||
                   !hasVerifiedResults() ||
                   store.state() === 'failed'
                 "
+                [skipped]="handoff.outcome() === 'skipped'"
                 (startNow)="handoff.startNow()"
                 (continue)="handoff.manualContinue(current.workspacePath)"
                 (skip)="handoff.skip()"
@@ -236,17 +251,19 @@ export class GenerationWorkflowShellComponent {
     initialValue: this.route.snapshot.paramMap,
   });
   private readonly tabs = inject(TabManagerService);
+  private readonly models = inject(ModelStateService, { optional: true });
+  private readonly providers = inject(ProvidersSettingsStateService, {
+    optional: true,
+  });
   private readonly launcher = inject(GenerationWorkflowLauncherService);
-  private readonly destroyRef = inject(DestroyRef);
   readonly store = inject(GenerationWorkflowStore);
   readonly agents = inject(AgentGenerationStore);
   readonly handoff = inject(GenerationHandoffStore);
   readonly guidance = inject(GuidanceGenerationStore);
   private discoveryKey = '';
-  private activeTabId: string | null = null;
   private combinedTabId: string | null = null;
-  private scheduledRunId: string | null = null;
   private combinedBaselineRevision = 0;
+  private discoveredTerminalRunId: string | null = null;
   private readonly now = signal(Date.now());
   readonly remainingSeconds = computed(() =>
     Math.max(
@@ -257,6 +274,21 @@ export class GenerationWorkflowShellComponent {
           1000,
       ),
     ),
+  );
+  readonly guidancePreviewModel = computed(() => {
+    const pending = this.handoff.pending();
+    if (!pending) return null;
+    this.tabs.tabs();
+    const tab = this.tabs.findWorkflowTab(
+      pending.workspacePath,
+      'setup-project-prompt',
+    );
+    return tab?.overrideModel ?? this.models?.currentModel() ?? null;
+  });
+  readonly guidancePreviewProvider = computed(() =>
+    this.handoff.pending()?.workspacePath === this.tabs.activeWorkspacePath
+      ? (this.providers?.activeProviderId() ?? null)
+      : null,
   );
   readonly showNextSteps = computed(() => {
     const run = this.store.run();
@@ -324,11 +356,11 @@ export class GenerationWorkflowShellComponent {
     effect(() => {
       const binding = this.binding();
       if (binding) {
-        this.activeTabId = binding.tabId;
         this.store.bind(binding);
-        if (binding.workflow === 'setup-project-prompt')
+        if (binding.workflow === 'setup-project-prompt') {
+          this.launcher.consumeOrigin(binding.tabId);
           this.guidance.bind(binding);
-        else this.guidance.unbind();
+        } else this.guidance.unbind();
         const key = `${binding.workspacePath}\u0000${binding.tabId}\u0000${binding.workflow}`;
         if (
           binding.workflow === 'setup-agent-generation' &&
@@ -346,7 +378,6 @@ export class GenerationWorkflowShellComponent {
           void this.agents.checkGuidance(binding.workspacePath);
         }
       } else {
-        this.activeTabId = null;
         this.discoveryKey = '';
         this.combinedTabId = null;
         this.store.unbind();
@@ -357,6 +388,16 @@ export class GenerationWorkflowShellComponent {
       const run = this.store.run();
       if (run?.binding.workflow === 'setup-project-prompt')
         void this.guidance.refresh();
+      if (
+        run?.binding.workflow === 'setup-agent-generation' &&
+        ['completed', 'failed', 'cancelled', 'timed-out'].includes(
+          run.status,
+        ) &&
+        run.binding.runId !== this.discoveredTerminalRunId
+      ) {
+        this.discoveredTerminalRunId = run.binding.runId;
+        void this.agents.discover();
+      }
     });
     effect(() => {
       const run = this.store.run();
@@ -368,21 +409,15 @@ export class GenerationWorkflowShellComponent {
         accepted.revision > this.combinedBaselineRevision &&
         run.status === 'completed' &&
         this.hasVerifiedResults() &&
-        run.binding.runId !== this.scheduledRunId
+        this.combinedTabId !== null
       ) {
-        this.scheduledRunId = run.binding.runId;
+        this.combinedTabId = null;
         this.handoff.schedule(run.binding.tabId, run.binding.workspacePath);
       }
     });
-    this.destroyRef.onDestroy(() => {
-      if (
-        this.activeTabId &&
-        this.handoff.pending()?.agentTabId === this.activeTabId
-      )
-        this.handoff.skip();
-    });
     effect((onCleanup) => {
       if (!this.handoff.pending()) return;
+      this.now.set(Date.now());
       const timer = setInterval(() => this.now.set(Date.now()), 250);
       onCleanup(() => clearInterval(timer));
     });

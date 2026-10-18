@@ -223,7 +223,7 @@ function savedRoute(
 }
 
 describe('webview routing composition', () => {
-  it('validates a restored workflow tab before workspace selection, then checks the selected workspace', () => {
+  it('falls back from a restored workflow route until its workspace is active', () => {
     const tabs = {
       activeWorkspacePath: null as string | null,
       findTabByIdAcrossWorkspaces: jest.fn().mockReturnValue({
@@ -232,8 +232,10 @@ describe('webview routing composition', () => {
       }),
     };
     const valid = generationRouteTabValidator(tabs);
-    expect(valid('restored', 'setup-agent-generation')).toBe(true);
+    expect(valid('restored', 'setup-agent-generation')).toBe(false);
     expect(valid('restored', 'setup-project-prompt')).toBe(false);
+    tabs.activeWorkspacePath = '/ws';
+    expect(valid('restored', 'setup-agent-generation')).toBe(true);
     tabs.activeWorkspacePath = '/other';
     expect(valid('restored', 'setup-agent-generation')).toBe(false);
     tabs.findTabByIdAcrossWorkspaces.mockReturnValue(null);

@@ -8,9 +8,79 @@ import { GenerationWorkflowLauncherService } from '@ptah-extension/chat-ui';
 import { GenerationWorkflowStore } from '../services/generation-workflow.store';
 import { AgentGenerationStore } from '../services/agent-generation.store';
 import { GenerationHandoffStore } from '../services/generation-handoff.store';
+import { GuidanceGenerationStore } from '../services/guidance-generation.store';
 import { GenerationWorkflowShellComponent } from './generation-workflow-shell.component';
 
 describe('GenerationWorkflowShellComponent', () => {
+  it('consumes the launch intent when a guidance tab binds', () => {
+    const consumeOrigin = jest.fn().mockReturnValue('independent-start');
+    const bindGuidance = jest.fn();
+    TestBed.configureTestingModule({
+      providers: [
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            paramMap: new BehaviorSubject(
+              convertToParamMap({
+                tabId: 'guidance',
+                workflow: 'setup-project-prompt',
+              }),
+            ),
+            snapshot: {
+              paramMap: convertToParamMap({
+                tabId: 'guidance',
+                workflow: 'setup-project-prompt',
+              }),
+            },
+          },
+        },
+        {
+          provide: TabManagerService,
+          useValue: {
+            tabs: signal([]),
+            activeWorkspacePath$: signal('/ws'),
+            getWorkspaceTabs: () => [
+              { id: 'guidance', workflow: 'setup-project-prompt' },
+            ],
+          },
+        },
+        {
+          provide: GenerationWorkflowLauncherService,
+          useValue: { consumeOrigin },
+        },
+        {
+          provide: GenerationWorkflowStore,
+          useValue: {
+            bind: jest.fn(),
+            unbind: jest.fn(),
+            run: signal(null),
+            acceptedRun: signal(null),
+          },
+        },
+        { provide: AgentGenerationStore, useValue: { discover: jest.fn() } },
+        {
+          provide: GenerationHandoffStore,
+          useValue: { pending: signal(null) },
+        },
+        {
+          provide: GuidanceGenerationStore,
+          useValue: { bind: bindGuidance, unbind: jest.fn() },
+        },
+      ],
+    });
+    TestBed.overrideComponent(GenerationWorkflowShellComponent, {
+      set: { template: '<p>guidance</p>', imports: [] },
+    });
+    const fixture = TestBed.createComponent(GenerationWorkflowShellComponent);
+    fixture.detectChanges();
+    expect(consumeOrigin).toHaveBeenCalledWith('guidance');
+    expect(bindGuidance).toHaveBeenCalledWith({
+      tabId: 'guidance',
+      workspacePath: '/ws',
+      workflow: 'setup-project-prompt',
+    });
+    fixture.destroy();
+  });
   it('labels not-attempted propagation without implying denied consent', () => {
     const label =
       GenerationWorkflowShellComponent.prototype.propagationConsentLabel;
@@ -51,6 +121,11 @@ describe('GenerationWorkflowShellComponent', () => {
       },
     );
     const schedule = jest.fn();
+    const pending = signal<{
+      agentTabId: string;
+      guidanceStartDeadline: number;
+    } | null>(null);
+    const skip = jest.fn();
     TestBed.configureTestingModule({
       providers: [
         {
@@ -97,7 +172,7 @@ describe('GenerationWorkflowShellComponent', () => {
         },
         {
           provide: GenerationHandoffStore,
-          useValue: { pending: () => null, schedule, outcome: () => 'idle' },
+          useValue: { pending, schedule, skip, outcome: () => 'idle' },
         },
         {
           provide: GenerationWorkflowLauncherService,
@@ -152,7 +227,22 @@ describe('GenerationWorkflowShellComponent', () => {
     fixture.detectChanges();
     fixture.detectChanges();
     expect(schedule).toHaveBeenCalledTimes(1);
+    pending.set({
+      agentTabId: 'tab',
+      guidanceStartDeadline: Date.now() + 5_000,
+    });
+    fixture.detectChanges();
+    expect(fixture.componentInstance.remainingSeconds()).toBeLessThanOrEqual(5);
     expect(schedule).toHaveBeenCalledWith('tab', '/ws');
+    acceptedRun.set({ runId: 'second', revision: 2 });
+    run.set({
+      ...completed,
+      binding: { ...completed.binding, runId: 'second' },
+    });
+    fixture.detectChanges();
+    expect(schedule).toHaveBeenCalledTimes(1);
+    fixture.destroy();
+    expect(skip).not.toHaveBeenCalled();
   });
   it('rejects a tab with a mismatched workflow before embedding chat', () => {
     TestBed.configureTestingModule({

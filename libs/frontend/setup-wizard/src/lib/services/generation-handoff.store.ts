@@ -16,7 +16,7 @@ export class GenerationHandoffStore {
   private readonly rpc = inject(WizardRpcService);
   private readonly pendingValue = signal<GuidanceHandoff | null>(null);
   private readonly outcomeValue = signal<
-    'idle' | 'started' | 'manual-recovery'
+    'idle' | 'started' | 'manual-recovery' | 'skipped'
   >('idle');
   private timer: ReturnType<typeof setTimeout> | null = null;
   readonly pending = this.pendingValue.asReadonly();
@@ -52,6 +52,7 @@ export class GenerationHandoffStore {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     this.pendingValue.set(null);
+    this.outcomeValue.set('skipped');
   }
 
   tabClosed(tabId: string): void {

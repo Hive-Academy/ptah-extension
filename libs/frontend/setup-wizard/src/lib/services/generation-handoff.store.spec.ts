@@ -102,6 +102,8 @@ describe('GenerationHandoffStore', () => {
     TestBed.configureTestingModule({ providers });
     const reloaded = TestBed.inject(GenerationHandoffStore);
     expect(reloaded.pending()).toBeNull();
+    reloaded.skip();
+    expect(reloaded.outcome()).toBe('skipped');
     await reloaded.manualContinue('/ws');
     expect(reloaded.outcome()).toBe('manual-recovery');
     expect(open).toHaveBeenCalledWith(expect.objectContaining({ focus: true }));

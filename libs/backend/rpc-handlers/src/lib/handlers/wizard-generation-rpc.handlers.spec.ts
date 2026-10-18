@@ -189,6 +189,7 @@ const HARNESS_SYNC_TOKENS = {
 } as const;
 
 import { WizardGenerationRpcHandlers } from './wizard-generation-rpc.handlers';
+import { sameWorkspacePath } from './wizard-generation-binding';
 import { GenerationCheckpointService } from './wizard-generation-checkpoint.service';
 import {
   GENERATION_TIMEOUT_MS,
@@ -203,6 +204,11 @@ const WORKSPACE = '/fake/workspace';
 const ANALYSIS_DIR = `${WORKSPACE}/.ptah/analysis/acme`;
 /** Same computation the checkpoint service and the orchestrator use. */
 const OUTPUT_DIR = path.join(WORKSPACE, '.claude', 'agents');
+
+it('denies unresolved workspace paths', async () => {
+  const missing = path.join(os.tmpdir(), 'ptah-missing-generation-workspace');
+  expect(await sameWorkspacePath(missing, missing)).toBe(false);
+});
 
 function outcome(
   agentId: string,
@@ -2929,7 +2935,7 @@ describe('WizardGenerationRpcHandlers', () => {
       expect(response.errorCode).toBe('INVALID_PARAMS');
     });
 
-    it('a folder nested under another harness root lists Claude paths only, with a warning naming that root', async () => {
+    it('a folder nested under another harness root lists Claude paths with a safe warning', async () => {
       const nested = path.join(tempWorkspace, 'packages', 'app');
       fs.mkdirSync(nested, { recursive: true });
       const h = makeHarness({ workspaceRoot: nested });
@@ -2946,7 +2952,8 @@ describe('WizardGenerationRpcHandlers', () => {
         { selectedAgentIds: ['backend-developer'] },
       );
 
-      expect(response.warning).toContain(path.resolve(tempWorkspace));
+      expect(response.warning).toContain('different folder');
+      expect(response.warning).not.toContain(path.resolve(tempWorkspace));
       expect(files(response, 'backend-developer')).toEqual([
         ['claude', '.claude/agents/backend-developer.md', 'definite', false],
       ]);

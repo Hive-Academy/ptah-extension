@@ -142,4 +142,51 @@ describe('AgentGenerationStore', () => {
     await store.checkGuidance('/ws');
     expect(store.guidanceStatus()).toBe('missing');
   });
+
+  it('keeps the retry cap when a bound retry is followed by a tabless retry', async () => {
+    const retryGenerationItem = jest
+      .fn()
+      .mockRejectedValue(new Error('failed'));
+    TestBed.configureTestingModule({
+      providers: [
+        AgentGenerationStore,
+        { provide: WizardRpcService, useValue: { retryGenerationItem } },
+      ],
+    });
+    const store = TestBed.inject(AgentGenerationStore);
+    const binding = {
+      tabId: 'tab',
+      workspacePath: '/ws',
+      workflow: 'setup-agent-generation' as const,
+      runId: 'run',
+    };
+    for (const current of [binding, undefined, binding]) {
+      const attempt = store.retry('a', current);
+      jest.runOnlyPendingTimers();
+      await attempt;
+    }
+    expect(store.remaining('a')).toBe(0);
+    await store.retry('a');
+    expect(retryGenerationItem).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not report retry failure when only checkpoint discovery fails', async () => {
+    const retryGenerationItem = jest.fn().mockResolvedValue(undefined);
+    const getResumableRun = jest.fn().mockRejectedValue(new Error('offline'));
+    TestBed.configureTestingModule({
+      providers: [
+        AgentGenerationStore,
+        {
+          provide: WizardRpcService,
+          useValue: { retryGenerationItem, getResumableRun },
+        },
+      ],
+    });
+    const store = TestBed.inject(AgentGenerationStore);
+    const attempt = store.retry('a');
+    jest.advanceTimersByTime(1000);
+    await attempt;
+    expect(retryGenerationItem).toHaveBeenCalledTimes(1);
+    expect(store.error()).toBe(false);
+  });
 });

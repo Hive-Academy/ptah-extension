@@ -1090,7 +1090,8 @@ export class WizardGenerationRpcHandlers {
       // harness root's, so nothing generated here reaches another CLI.
       return {
         kind: 'unavailable',
-        warning: `Other CLIs sync agents from ${harnessRoot}, not from this folder, so only the Claude agent files are listed.`,
+        warning:
+          'Other CLIs sync agents from a different folder, so only the Claude agent files are listed.',
       };
     }
     try {
@@ -1781,6 +1782,7 @@ export class WizardGenerationRpcHandlers {
       );
       return false;
     } catch (error: unknown) {
+      // degradation-audit: reported - consent failure is logged and surfaced as unavailable.
       this.logger.warn('Recording agent-sync consent failed', {
         error: error instanceof Error ? error.message : String(error),
       });

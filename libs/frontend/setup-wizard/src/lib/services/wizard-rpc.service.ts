@@ -136,8 +136,16 @@ export class WizardRpcService {
       },
       { timeout: WIZARD_RPC_TIMEOUTS.GENERATION_MS },
     );
-    if (!result.isSuccess() || !result.data)
+    if (!result.isSuccess() || !result.data) {
+      if (
+        result.error?.includes('selected model') &&
+        result.error.includes('unavailable')
+      )
+        throw new Error(
+          'The selected model is not available for this provider.',
+        );
       throw new Error('Start unconfirmed');
+    }
     return result.data;
   }
 

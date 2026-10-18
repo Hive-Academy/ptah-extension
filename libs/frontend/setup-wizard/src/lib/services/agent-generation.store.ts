@@ -42,7 +42,7 @@ export class AgentGenerationStore {
       : null;
   });
 
-  async discover(): Promise<void> {
+  async discover(suppressError = false): Promise<void> {
     const revision = ++this.discoveryRevision;
     this.checkpointValue.set(null);
     this.loadingValue.set(true);
@@ -53,7 +53,8 @@ export class AgentGenerationStore {
         this.errorValue.set(false);
       }
     } catch {
-      if (revision === this.discoveryRevision) this.errorValue.set(true);
+      if (revision === this.discoveryRevision && !suppressError)
+        this.errorValue.set(true);
     } finally {
       if (revision === this.discoveryRevision) this.loadingValue.set(false);
     }
@@ -101,7 +102,7 @@ export class AgentGenerationStore {
     binding?: SetupGenerationRunBinding,
   ): Promise<void> {
     const runId = binding?.runId ?? null;
-    if (runId !== this.retryRunId) {
+    if (runId && runId !== this.retryRunId) {
       this.retryRunId = runId;
       this.retryCounts.set({});
     }
@@ -110,15 +111,17 @@ export class AgentGenerationStore {
     const attempt = 3 - this.remaining(itemId);
     this.retryCounts.update((counts) => ({ ...counts, [itemId]: attempt + 1 }));
     this.pendingRetries.update((pending) => new Set([...pending, itemId]));
+    let retried = false;
     try {
       await new Promise<void>((resolve) =>
         setTimeout(resolve, 1000 * 2 ** attempt),
       );
       await this.rpc.retryGenerationItem(itemId, binding);
-      await this.discover();
+      retried = true;
       this.errorValue.set(false);
+      await this.discover(true);
     } catch {
-      this.errorValue.set(true);
+      if (!retried) this.errorValue.set(true);
     } finally {
       this.pendingRetries.update((pending) => {
         const next = new Set(pending);

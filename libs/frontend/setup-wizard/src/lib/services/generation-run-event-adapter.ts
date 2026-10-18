@@ -7,6 +7,7 @@ import {
   StreamingHandlerService,
 } from '@ptah-extension/chat-streaming';
 import type {
+  ExecutionNode,
   FlatStreamEventUnion,
   SetupGenerationRunBinding,
 } from '@ptah-extension/shared';
@@ -31,6 +32,10 @@ export class GenerationRunEventAdapter implements MessageHandler {
   private terminalRunId: string | null = null;
   private terminalPushRunId: string | null = null;
   private readonly pendingEvents = new Map<string, unknown[]>();
+  private readonly finalized = new Map<
+    string,
+    { runId: string; messageId: string; status: string }
+  >();
   readonly handledMessageTypes = [
     'setup-wizard:generation-stream',
     'setup-wizard:enhance-stream',
@@ -66,9 +71,14 @@ export class GenerationRunEventAdapter implements MessageHandler {
         this.pendingEvents.delete(binding.tabId);
         for (const payload of queued) this.accept(payload);
       }
+      if (!binding) this.pendingEvents.clear();
       for (const [tabId] of this.ownedMessages) {
         if (!this.tabs.findTabByIdAcrossWorkspaces(tabId))
           this.ownedMessages.delete(tabId);
+      }
+      for (const [tabId] of this.pendingEvents) {
+        if (!this.tabs.findTabByIdAcrossWorkspaces(tabId))
+          this.pendingEvents.delete(tabId);
       }
     });
   }
@@ -118,7 +128,15 @@ export class GenerationRunEventAdapter implements MessageHandler {
     if (!this.workflow.run() && this.isCurrentTab(binding)) {
       const tabId = (binding as SetupGenerationRunBinding).tabId;
       const queued = this.pendingEvents.get(tabId) ?? [];
-      if (queued.length < 100) queued.push(payload);
+      if (queued.length >= 99) {
+        queued.splice(0, queued.length - 98);
+        queued.push({
+          tabBinding: binding,
+          kind: 'status',
+          content: 'Earlier generation activity was omitted.',
+        });
+      }
+      queued.push(payload);
       this.pendingEvents.set(tabId, queued);
       return true;
     }
@@ -198,7 +216,10 @@ export class GenerationRunEventAdapter implements MessageHandler {
 
   /** Verified lookup also closes a run when its terminal push was lost. */
   private finish(binding: SetupGenerationRunBinding, status: string): void {
-    if (this.terminalRunId === binding.runId) return;
+    if (this.terminalRunId === binding.runId) {
+      if (status === 'completed') this.correctFinalizedMessage(binding);
+      return;
+    }
     this.terminalRunId = binding.runId;
     const owned = this.ownedMessages.get(binding.tabId);
     if (!owned || owned.runId !== binding.runId) return;
@@ -219,6 +240,35 @@ export class GenerationRunEventAdapter implements MessageHandler {
       binding.tabId,
       status !== 'completed',
     );
+    this.finalized.set(binding.tabId, {
+      runId: binding.runId,
+      messageId: owned.messageId,
+      status,
+    });
+  }
+
+  private correctFinalizedMessage(binding: SetupGenerationRunBinding): void {
+    const prior = this.finalized.get(binding.tabId);
+    if (!prior || prior.runId !== binding.runId || prior.status === 'completed')
+      return;
+    const located = this.tabs.findTabByIdAcrossWorkspaces(binding.tabId);
+    if (located?.workspacePath !== binding.workspacePath) return;
+    const messages = located.tab.messages;
+    if (!messages.some((message) => message.id === prior.messageId)) return;
+    const complete = (node: ExecutionNode): ExecutionNode => ({
+      ...node,
+      status: node.status === 'interrupted' ? 'complete' : node.status,
+      children: node.children.map(complete),
+    });
+    this.tabs.setMessages(
+      binding.tabId,
+      messages.map((message) =>
+        message.id === prior.messageId && message.streamingState
+          ? { ...message, streamingState: complete(message.streamingState) }
+          : message,
+      ),
+    );
+    this.finalized.set(binding.tabId, { ...prior, status: 'completed' });
   }
 
   private ensureMessage(

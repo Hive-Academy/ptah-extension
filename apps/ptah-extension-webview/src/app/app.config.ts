@@ -52,8 +52,8 @@ export function generationRouteTabValidator(
     return (
       !!located &&
       located.tab.workflow === workflow &&
-      (!tabs.activeWorkspacePath ||
-        located.workspacePath === tabs.activeWorkspacePath)
+      !!tabs.activeWorkspacePath &&
+      located.workspacePath === tabs.activeWorkspacePath
     );
   };
 }

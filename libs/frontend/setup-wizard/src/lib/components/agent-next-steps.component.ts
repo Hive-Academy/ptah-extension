@@ -17,6 +17,10 @@ import {
       <h2 id="agent-next-title" class="font-semibold">Next steps</h2>
       @if (pending()) {
         <p>Project guidance starts in {{ remainingSeconds() }} seconds.</p>
+        <p class="text-xs text-base-content-muted">
+          Will use: {{ previewProvider() || 'current workspace provider' }} ·
+          {{ previewModel() || 'default model' }}
+        </p>
         <button
           type="button"
           class="btn btn-primary btn-sm"
@@ -32,7 +36,13 @@ import {
           Skip guidance
         </button>
       } @else {
-        <p>Generate project guidance when you are ready.</p>
+        <p>
+          {{
+            skipped()
+              ? 'Project guidance skipped. You can start it later.'
+              : 'Generate project guidance when you are ready.'
+          }}
+        </p>
         <button
           type="button"
           class="btn btn-outline btn-sm"
@@ -40,7 +50,7 @@ import {
         >
           Continue to project guidance
         </button>
-        @if (manualRecovery()) {
+        @if (manualRecovery() && !skipped()) {
           <button
             type="button"
             class="btn btn-ghost btn-sm"
@@ -84,7 +94,10 @@ import {
 export class AgentNextStepsComponent {
   readonly pending = input(false);
   readonly remainingSeconds = input(0);
+  readonly previewModel = input<string | null>(null);
+  readonly previewProvider = input<string | null>(null);
   readonly manualRecovery = input(false);
+  readonly skipped = input(false);
   readonly startNow = output<void>();
   readonly continue = output<void>();
   readonly skip = output<void>();

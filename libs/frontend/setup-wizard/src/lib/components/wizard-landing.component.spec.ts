@@ -80,6 +80,13 @@ describe('WizardLandingComponent', () => {
       workflow: 'setup-agent-generation',
       origin: 'wizard-landing',
     });
+    open.mockResolvedValueOnce({ outcome: 'cancelled' });
+    fixture.nativeElement.querySelector('ptah-workflow-card button').click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).not.toContain(
+      'This workflow could not be opened',
+    );
     const provider: HTMLSelectElement = fixture.nativeElement.querySelector(
       '#landing-analysis-provider',
     );

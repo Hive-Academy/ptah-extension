@@ -229,6 +229,8 @@ After all B01–B12, B02G and B07B commits and Phase 6 reviews, inspect all 20 A
 
 Candidate only: unused duplicated old-generation presentation code after the new chat path proves transcript, controls and recovery parity (`implementation-plan.md:223-225`). Options: keep it temporarily, or delete only the now-unused internal code after parity; recommend the latter under the role's replace-in-place rule. This batch plan does **not** approve deletion; send this candidate to the spawner for a decision before any removal. No user-visible capability, old landing/Close, analysis-phase code, Settings/CLI contract or e2e fixture is proposed for removal. Any further removal or public breaking change likewise requires spawner decision with options and evidence.
 
+**User decision (2026-10-18):** delete only the old-generation presentation code that no caller uses after parity (option b). B12 lists each deleted file with the caller search that proves it unused; anything with a remaining caller stays.
+
 ## Status
 
 | Batch | Phase | Status | Executor | Commit |

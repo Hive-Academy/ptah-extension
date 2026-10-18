@@ -145,6 +145,44 @@ describe('GenerationWorkflowStore', () => {
     jest.useRealTimers();
   });
 
+  it('restores the lookup watchdog for a newly accepted binding after exhaustion', async () => {
+    jest.useFakeTimers();
+    const getBoundRunState = jest
+      .fn()
+      .mockResolvedValueOnce(active)
+      .mockRejectedValue(new Error('offline'));
+    const startBoundAgents = jest.fn().mockResolvedValue({
+      accepted: {
+        runId: 'second-run',
+        source: active.source,
+        effectiveProvider: 'unknown',
+        effectiveModel: 'unknown',
+      },
+    });
+    TestBed.configureTestingModule({
+      providers: [
+        GenerationWorkflowStore,
+        tabProvider,
+        {
+          provide: WizardRpcService,
+          useValue: { getBoundRunState, startBoundAgents },
+        },
+      ],
+    });
+    const store = TestBed.inject(GenerationWorkflowStore);
+    store.bind(binding);
+    await Promise.resolve();
+    await store.refresh();
+    await jest.advanceTimersByTimeAsync(7000);
+    store.bind({ ...binding, tabId: 'second-tab' });
+    await Promise.resolve();
+    await store.startAgents(['a']);
+    await store.refresh();
+    expect(jest.getTimerCount()).toBe(1);
+    store.unbind();
+    jest.useRealTimers();
+  });
+
   it('resumes an interrupted run through the bound submit and exposes rejection', async () => {
     const getBoundRunState = jest
       .fn()
