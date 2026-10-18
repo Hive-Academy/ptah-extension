@@ -79,6 +79,7 @@ class StateStub {
   readonly connections = signal<ProvidersSettingsSection<readonly ProvidersConnection[]>>(ready([connection('first'), connection('second')]));
   // Read by the connection drawer's Used-by list.
   readonly memory = signal(ready({ curatorProvider: '' }));
+  readonly enhancement = signal(ready({ provider: '', model: '', timeoutMs: 120000 }));
   readonly lanes = signal(ready({}));
   readonly judging = signal(ready({ judgeProvider: '' }));
   readonly customEntry = jest.fn(() => null);
@@ -111,6 +112,7 @@ class StateStub {
   readonly refreshCliAgents = jest.fn(async () => undefined);
   readonly refreshCliModels = jest.fn(async () => undefined);
   readonly refreshJudging = jest.fn(async () => undefined);
+  readonly refreshEnhancement = jest.fn(async () => undefined);
   readonly refreshOrchestration = jest.fn(async () => undefined);
   readonly reviewContext = jest.fn(() => ({ scopeKey: 'workspace', activePath: '/workspace' }));
   readonly scopeEntry = jest.fn(() => null);

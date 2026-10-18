@@ -211,11 +211,7 @@ describe('SettingsComponent deep-link', () => {
   it.each([
     'background-models',
     'memory-curator',
-    'archaeologist',
-    'synthesis',
-    'judge',
-    'replay',
-    'judging-enhancement',
+    'enhancement',
   ] as const)(
     'routes the %s background-role section to Orchestration',
     async (section) => {
@@ -278,10 +274,10 @@ describe('SettingsComponent deep-link', () => {
 
   // Batch 35 revise R3: a deep-link target belongs to the visit it opened; leaving the tab clears it.
   it('clears a deep-link target when the tab changes, so a later visit does not re-apply it', async () => {
-    const page = await landWith({ tab: 'providers', section: 'judge' });
-    expect(page.orchestrationTarget()).toBe('judge');
+    const page = await landWith({ tab: 'providers', section: 'enhancement' });
+    expect(page.orchestrationTarget()).toBe('enhancement');
     page.setActiveTab('orchestration');
-    expect(page.orchestrationTarget()).toBe('judge');
+    expect(page.orchestrationTarget()).toBe('enhancement');
     page.setActiveTab('pro-features');
     expect(page.orchestrationTarget()).toBeNull();
     page.setActiveTab('orchestration');
@@ -353,11 +349,7 @@ describe('SettingsComponent Orchestration landing', () => {
   it.each([
     'background-models',
     'memory-curator',
-    'archaeologist',
-    'synthesis',
-    'judge',
-    'replay',
-    'judging-enhancement',
+    'enhancement',
   ] as const)(
     'opens the background roles <details> for the %s deep link and focuses the section',
     async (section) => {
@@ -408,7 +400,7 @@ describe('SettingsComponent Orchestration landing', () => {
     });
     TestBed.inject(AppStateManager).requestSettingsTab({
       tab: 'providers',
-      section: 'judge',
+      section: 'enhancement',
     });
     const fixture = TestBed.createComponent(SettingsComponent);
     await fixture.componentInstance.ngOnInit();
@@ -470,7 +462,7 @@ describe('SettingsComponent Orchestration landing', () => {
       set: { imports: [OrchestrationStub], schemas: [CUSTOM_ELEMENTS_SCHEMA] },
     });
     const appState = TestBed.inject(AppStateManager);
-    appState.requestSettingsTab({ tab: 'providers', section: 'judge' });
+    appState.requestSettingsTab({ tab: 'providers', section: 'enhancement' });
     const fixture = TestBed.createComponent(SettingsComponent);
     await fixture.componentInstance.ngOnInit();
     fixture.detectChanges();
@@ -481,15 +473,15 @@ describe('SettingsComponent Orchestration landing', () => {
       fixture.debugElement.query(
         (node) => node.componentInstance instanceof OrchestrationStub,
       ).componentInstance as OrchestrationStub;
-    expect(stub().focusTarget()).toBe('judge');
+    expect(stub().focusTarget()).toBe('enhancement');
     stub().focusTargetConsumed.emit();
     fixture.detectChanges();
     expect(fixture.componentInstance.orchestrationTarget()).toBeNull();
     expect(stub().focusTarget()).toBeNull();
-    appState.requestSettingsTab({ tab: 'providers', section: 'judge' });
+    appState.requestSettingsTab({ tab: 'providers', section: 'enhancement' });
     TestBed.tick();
     expect(fixture.componentInstance.activeSettingsTab()).toBe('orchestration');
-    expect(stub().focusTarget()).toBe('judge');
+    expect(stub().focusTarget()).toBe('enhancement');
   });
 
   it.each([
@@ -808,7 +800,7 @@ describe('SettingsComponent deferred tabs', () => {
   it('shows an aria-busy placeholder until the Orchestration chunk renders, then passes the deep-link target', async () => {
     const fixture = create(DeferBlockBehavior.Manual);
     fixture.componentInstance.setActiveTab('orchestration');
-    fixture.componentInstance.orchestrationTarget.set('judge');
+    fixture.componentInstance.orchestrationTarget.set('enhancement');
     fixture.detectChanges();
     const element = fixture.nativeElement as HTMLElement;
     expect(element.querySelector('ptah-orchestration-settings')).toBeNull();
@@ -821,7 +813,7 @@ describe('SettingsComponent deferred tabs', () => {
     const stub = fixture.debugElement.query(
       (node) => node.nativeElement === host,
     ).componentInstance as OrchestrationStub;
-    expect(stub.focusTarget()).toBe('judge');
+    expect(stub.focusTarget()).toBe('enhancement');
     stub.focusTargetConsumed.emit();
     expect(fixture.componentInstance.orchestrationTarget()).toBeNull();
   });

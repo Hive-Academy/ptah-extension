@@ -828,9 +828,8 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
   protected readonly usage = computed(() => {
     const route = this.state.route(),
       memory = this.state.memory(),
-      lanes = this.state.lanes();
-    const judging = this.state.judging(),
-      agents = this.state.cliAgents(),
+      enhancement = this.state.enhancement();
+    const agents = this.state.cliAgents(),
       clis = this.state.orchestration();
     return connectionUsage({
       mainProviderId:
@@ -841,9 +840,8 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
             : null,
       curatorProvider:
         memory.status === 'ready' ? (memory.data?.curatorProvider ?? '') : null,
-      lanes: lanes.status === 'ready' ? lanes.data : null,
-      judgeProvider:
-        judging.status === 'ready' ? (judging.data?.judgeProvider ?? '') : null,
+      enhancementProvider:
+        enhancement.status === 'ready' ? (enhancement.data?.provider ?? '') : null,
       cliAgents: agents.status === 'ready' ? agents.data : null,
       // The Codex CLI's detection and on/off state (`agent:getConfig`); "Codex CLI" counts under OpenAI Codex.
       systemClis: clis.status === 'ready' ? clis.data : null,

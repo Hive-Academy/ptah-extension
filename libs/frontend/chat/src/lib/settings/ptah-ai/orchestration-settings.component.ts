@@ -146,8 +146,7 @@ const FOCUS =
             <span
               class="ml-auto hidden min-w-0 truncate text-xs text-base-content-muted sm:block"
               data-testid="background-roles-list"
-              >Memory curator, archaeologist, synthesis, judge, replay, judging,
-              decision</span
+              >Memory curator, enhancement, decision</span
             >
           </summary>
           <section

@@ -331,18 +331,17 @@ describe('OrchestrationSettingsComponent', () => {
       'background-roles-summary',
     );
     expect(summary?.textContent).toContain('Background Model Roles');
-    // TASK_2026_646 Req 1.1: the Decision model row is the seventh role.
-    expect(summary?.textContent).toContain('7 roles');
+    expect(summary?.textContent).toContain('3 roles');
     expect(
       summary
         ?.querySelector('[data-testid="background-roles-list"]')
         ?.textContent?.replace(/\s+/g, ' ')
         .trim(),
     ).toBe(
-      'Memory curator, archaeologist, synthesis, judge, replay, judging, decision',
+      'Memory curator, enhancement, decision',
     );
     const list = Array.from(summary?.querySelectorAll('span') ?? []).find(
-      (span) => span.textContent?.includes('archaeologist'),
+      (span) => span.textContent?.includes('enhancement'),
     );
     // Secondary helper text must use the theme's contrast-tested muted-content token.
     expect(list?.className).toContain('text-base-content-muted');
@@ -365,11 +364,7 @@ describe('OrchestrationSettingsComponent', () => {
 
   it.each([
     'memory-curator',
-    'archaeologist',
-    'synthesis',
-    'judge',
-    'replay',
-    'judging-enhancement',
+    'enhancement',
   ] as const)(
     'opens the roles for the %s deep link, forwards the role and focuses the background section',
     async (target) => {
@@ -409,17 +404,17 @@ describe('OrchestrationSettingsComponent', () => {
     });
 
     it('consumes a role link only once the roles are focused and the role popover has opened', async () => {
-      fixture.componentRef.setInput('focusTarget', 'judge');
+      fixture.componentRef.setInput('focusTarget', 'enhancement');
       await render();
       expect(consumed).not.toHaveBeenCalled();
-      consumer().deepLinkOpened.emit('judge');
+      consumer().deepLinkOpened.emit('enhancement');
       expect(consumed).toHaveBeenCalledTimes(1);
     });
 
     it('consumes when the popover opened first (rows loaded before the section focus ran)', async () => {
       await render();
-      fixture.componentRef.setInput('focusTarget', 'replay');
-      consumer().deepLinkOpened.emit('replay');
+      fixture.componentRef.setInput('focusTarget', 'memory-curator');
+      consumer().deepLinkOpened.emit('memory-curator');
       expect(consumed).not.toHaveBeenCalled();
       await render();
       expect(consumed).toHaveBeenCalledTimes(1);
@@ -435,9 +430,9 @@ describe('OrchestrationSettingsComponent', () => {
     );
 
     it('applies the same role again after the target was consumed and cleared: roles re-open and take focus', async () => {
-      fixture.componentRef.setInput('focusTarget', 'judge');
+      fixture.componentRef.setInput('focusTarget', 'enhancement');
       await render();
-      consumer().deepLinkOpened.emit('judge');
+      consumer().deepLinkOpened.emit('enhancement');
       fixture.componentRef.setInput('focusTarget', null);
       await render();
       expect(consumer().initialEditingConsumerId()).toBeNull();
@@ -445,14 +440,14 @@ describe('OrchestrationSettingsComponent', () => {
       const details = rolesDetails();
       if (details) details.open = false;
       (document.activeElement as HTMLElement | null)?.blur();
-      fixture.componentRef.setInput('focusTarget', 'judge');
+      fixture.componentRef.setInput('focusTarget', 'enhancement');
       await render();
       expect(rolesDetails()?.open).toBe(true);
-      expect(consumer().initialEditingConsumerId()).toBe('judge');
+      expect(consumer().initialEditingConsumerId()).toBe('enhancement');
       expect(document.activeElement).toBe(
         element.querySelector('[data-focus="background-models"]'),
       );
-      consumer().deepLinkOpened.emit('judge');
+      consumer().deepLinkOpened.emit('enhancement');
       expect(consumed).toHaveBeenCalledTimes(2);
     });
   });
@@ -480,7 +475,7 @@ describe('OrchestrationSettingsComponent', () => {
     await render();
     consumer().setupProviderRequested.emit('moonshot');
     consumer().assignmentSaved.emit({
-      id: 'judge',
+      id: 'enhancement',
       provider: 'moonshot',
       model: 'kimi',
     });
