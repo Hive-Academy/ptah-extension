@@ -70,6 +70,14 @@ export interface FloatingUIOptions {
    * @default 8
    */
   shiftPadding?: number;
+
+  /**
+   * Opt-in: shift also moves the element along the placement's own axis (vertically for top/bottom), with the same
+   * padding, so a panel taller than either side of its reference stays inside the boundary. It may then overlap
+   * the reference. Leave unset for the default, cross-axis-only shift.
+   * @default false
+   */
+  shiftCrossAxis?: boolean;
 }
 
 /**
@@ -138,12 +146,21 @@ export class FloatingUIService {
       flip: enableFlip = true,
       shift: enableShift = true,
       shiftPadding = 8,
+      shiftCrossAxis = false,
       boundary,
     } = options;
     const middleware = [
       offset(offsetValue),
       ...(enableFlip ? [flip({ boundary })] : []),
-      ...(enableShift ? [shift({ boundary, padding: shiftPadding })] : []),
+      ...(enableShift
+        ? [
+            shift(
+              shiftCrossAxis
+                ? { boundary, padding: shiftPadding, crossAxis: true }
+                : { boundary, padding: shiftPadding },
+            ),
+          ]
+        : []),
     ];
     // `fixed` matches the `position: fixed` that applyPosition writes: with the default `absolute`, `x`/`y` carry
     // the page scroll, and a scrolled page put the CLI matrix Cursor panel hundreds of px off. Set it first:

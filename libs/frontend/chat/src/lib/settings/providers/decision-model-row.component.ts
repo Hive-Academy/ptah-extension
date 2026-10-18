@@ -142,6 +142,7 @@ type WriteResult = { ok: true } | { ok: false; message: string };
             [isOpen]="editing()"
             placement="bottom-start"
             [hasBackdrop]="true"
+            [keepInViewport]="true"
             backdropClass="transparent"
             (closed)="close()"
             (opened)="editorRef()?.nativeElement?.focus()"
@@ -178,8 +179,8 @@ type WriteResult = { ok: true } | { ok: false; message: string };
               />
             </button>
             @if (editing()) {
-              <!-- Height capped to the room beside the cell (decisionEditorMaxHeight); the heading, close, kind
-                   picker and Save footer stay fixed and only the body scrolls, so the editor always fits. -->
+              <!-- Capped to the room beside the cell (decisionEditorMaxHeight); only the body scrolls, unless the
+                   window is too short for the fixed chrome: then the body keeps 4rem and the whole editor scrolls. -->
               <div
                 #editor
                 content
@@ -187,7 +188,7 @@ type WriteResult = { ok: true } | { ok: false; message: string };
                 aria-modal="true"
                 tabindex="-1"
                 aria-label="Choose the decision model"
-                class="relative flex w-[27rem] max-w-[calc(100vw-2rem)] flex-col gap-2 whitespace-normal p-2 text-left text-xs"
+                class="relative flex w-[27rem] max-w-[calc(100vw-2rem)] flex-col gap-2 overflow-y-auto whitespace-normal p-2 text-left text-xs"
                 [style.max-height.px]="editorMaxHeight()"
                 data-testid="consumer-editor-decision"
               >
@@ -227,7 +228,7 @@ type WriteResult = { ok: true } | { ok: false; message: string };
                   }
                 </select>
                 <div
-                  class="-mx-2 min-h-0 space-y-2 overflow-y-auto px-2 py-1"
+                  class="-mx-2 min-h-16 space-y-2 overflow-y-auto px-2 py-1"
                   data-testid="decision-editor-body"
                 >
                   @if (draft().kind === 'ollama-cloud') {

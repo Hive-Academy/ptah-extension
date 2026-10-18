@@ -9,6 +9,7 @@ jest.mock('@floating-ui/dom', () => {
     ...actual,
     computePosition: jest.fn(),
     autoUpdate: jest.fn(),
+    shift: jest.fn(actual.shift),
   };
 });
 
@@ -141,6 +142,24 @@ describe('FloatingUIService', () => {
       expect(opts.placement).toBe('top-end');
       // Only offset middleware
       expect(opts.middleware.length).toBe(1);
+    });
+
+    it('shifts on the cross axis only by default, and on both axes with shiftCrossAxis', async () => {
+      const mockedShift = FloatingDom.shift as unknown as jest.Mock;
+      mockedCompute.mockResolvedValue({ x: 0, y: 0 });
+
+      await service.position(reference, floating);
+      expect(mockedShift.mock.calls.at(-1)).toEqual([
+        { boundary: undefined, padding: 8 },
+      ]);
+      expect(mockedShift.mock.calls.at(-1)?.[0]).not.toHaveProperty(
+        'crossAxis',
+      );
+
+      await service.position(reference, floating, { shiftCrossAxis: true });
+      expect(mockedShift.mock.calls.at(-1)).toEqual([
+        { boundary: undefined, padding: 8, crossAxis: true },
+      ]);
     });
 
     it('should register an auto-update listener', async () => {

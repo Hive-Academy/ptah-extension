@@ -153,6 +153,13 @@ export class NativePopoverComponent implements OnDestroy {
   readonly backdropClass = input<'transparent' | 'dark'>('dark');
 
   /**
+   * Opt-in: keep the whole panel inside the viewport by also shifting it along the placement axis (it may then
+   * overlap the trigger). For a height-capped panel that can be taller than either side of its trigger.
+   * @default false
+   */
+  readonly keepInViewport = input<boolean>(false);
+
+  /**
    * Emitted when popover opens and is positioned.
    */
   readonly opened = output<void>();
@@ -253,6 +260,7 @@ export class NativePopoverComponent implements OnDestroy {
             offset: this.offset(),
             flip: true,
             shift: true,
+            ...(this.keepInViewport() ? { shiftCrossAxis: true } : {}),
           })
           .then((): PositionOutcome => 'positioned'),
         timedOut,

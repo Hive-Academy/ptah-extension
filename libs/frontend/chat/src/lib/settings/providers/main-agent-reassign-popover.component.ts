@@ -11,6 +11,7 @@ import type { EffortLevel, ProviderModelInfo, SettingScope } from '@ptah-extensi
 import { SettingsSaveFeedbackService, type SettingsSaveResult } from '../feedback/settings-save-feedback.service';
 import { runDrawerWrite, type DrawerWriteOutcome } from './connection-drawer/drawer-write';
 import { injectAppScopeName, saveTargetLabels } from './app-scope-label';
+import { capPopoverHeight } from './popover-height-cap';
 import { SettingsBusyDisabledDirective } from '../feedback/busy-disabled.directive';
 
 export type MainAgentFocus = 'main-agent' | 'main-model' | 'main-effort';
@@ -68,14 +69,15 @@ type MainAgentPatch = Parameters<ProvidersSettingsStateService['saveSettings']>[
   // Angular owns (and removes) this listener with the component.
   host: { '(window:resize)': 'open() && fitToViewport()' },
   template: `
-    <ptah-native-popover [isOpen]="open()" placement="bottom-start" [hasBackdrop]="true" backdropClass="transparent"
+    <ptah-native-popover [isOpen]="open()" placement="bottom-start" [hasBackdrop]="true" [keepInViewport]="true" backdropClass="transparent"
       (closed)="cancel()" (opened)="focusRequested()">
       <!-- Zero-size anchor: the host sits at the Main Agent node's bottom-left edge. -->
       <span trigger class="block h-0 w-0" aria-hidden="true"></span>
       <!-- Height capped at the larger free side of its trigger (fitToViewport); only the body scrolls, so the header and the
-           Save / Cancel footer stay visible in every state, the provider-change confirm included (Gate V 28). Header,
+           Save / Cancel footer stay visible in every state, the provider-change confirm included (Gate V 28). In a
+           window too short for that chrome the body keeps 4rem and the whole panel scrolls instead. Header,
            body and footer share one horizontal padding (px-3), so every row starts on the same left edge. -->
-      <div content role="dialog" aria-labelledby="main-agent-popover-title" class="flex w-[19rem] max-w-[calc(100vw-2rem)] flex-col text-xs"
+      <div content role="dialog" aria-labelledby="main-agent-popover-title" class="flex w-[19rem] max-w-[calc(100vw-2rem)] flex-col overflow-y-auto text-xs"
         [style.max-height.px]="maxHeight()" data-testid="main-agent-popover">
         <div class="flex shrink-0 items-center justify-between gap-2 border-b border-base-300 px-3 py-2">
           <h2 id="main-agent-popover-title" class="text-xs font-bold text-base-content">Reassign main agent</h2>
@@ -90,7 +92,7 @@ type MainAgentPatch = Parameters<ProvidersSettingsStateService['saveSettings']>[
           </div>
         </div>
 
-        <div class="grid min-h-0 grid-cols-1 gap-3 overflow-y-auto px-3 py-3" data-testid="main-agent-popover-body">
+        <div class="grid min-h-16 grid-cols-1 gap-3 overflow-y-auto px-3 py-3" data-testid="main-agent-popover-body">
           <div class="grid gap-1">
             <label for="main-agent-provider" [class]="label">Provider connection</label>
             <select id="main-agent-provider" [class]="select" data-focus="main-agent" [disabled]="busy()"
@@ -522,12 +524,14 @@ export class MainAgentReassignPopoverComponent {
 
   /**
    * Caps the popover at the larger free side of the popover's trigger (less the overlay offset, the panel's own
-   * padding and an 8 px margin; 10rem minimum), so a state that adds rows (the provider-change confirm, an outcome,
+   * padding and an 8 px margin), so a state that adds rows (the provider-change confirm, an outcome,
    * the manual model field) scrolls its body instead of running off screen. The cap is measured from the trigger,
    * not from the panel: Floating UI flips a panel taller than the space below it above the trigger, where a cap taken
    * from the panel's own (flipped) top edge never bound it and it ran off the top of the viewport. Capped to one
-   * side, the panel fits there, so the flip settles on it. Runs once the panel is positioned, after each such state
-   * change, and on window resize.
+   * side, the panel fits there, so the flip settles on it. In a window too short for the header and footer the
+   * panel scrolls whole; `capPopoverHeight` keeps a usable floor, so the cap is never zero or NaN, and clamps it so
+   * the whole panel fits inside the viewport's 8 px edges, where `keepInViewport` shifts it. Runs once the panel
+   * is positioned, after each such state change, and on window resize.
    */
   protected fitToViewport(): void {
     const host = this.element.nativeElement;
@@ -539,7 +543,7 @@ export class MainAgentReassignPopoverComponent {
     const frame = panel.closest<HTMLElement>('.popover-panel');
     const chrome = frame ? frame.offsetHeight - panel.offsetHeight : 0;
     const reserve = DEFAULT_OVERLAY_OFFSET + chrome + 8;
-    this.maxHeight.set(Math.max(160, Math.floor(Math.max(view.innerHeight - bottom, top) - reserve)));
+    this.maxHeight.set(capPopoverHeight(Math.max(view.innerHeight - bottom, top) - reserve, view.innerHeight - chrome - 16));
   }
 
   /** The drafted model and effort in one write; Undo writes the stored values back (none when no model was stored). */

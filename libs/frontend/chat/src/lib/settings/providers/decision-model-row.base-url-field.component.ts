@@ -49,13 +49,16 @@ import {
       https, unless the endpoint is on this machine (localhost, [::1] or
       127.x.x.x).
     </p>
-    <!-- Two text-xs lines are reserved, so a hint never resizes the editor or moves this field (P4 re-review 7). -->
+    <!-- Two text-xs lines are reserved, so a hint never resizes the editor or moves this field (P4 re-review 7).
+         A hint that wraps further in a narrow panel is clamped to them; the title and aria-describedby keep the
+         full sentence. -->
     <div class="min-h-8" data-testid="decision-base-url-error-slot">
       @if (error(); as message) {
         <p
           id="decision-model-base-url-error"
           role="alert"
-          class="text-xs text-error"
+          class="line-clamp-2 text-xs text-error"
+          [attr.title]="message"
           data-testid="decision-base-url-error"
         >
           {{ message }}
