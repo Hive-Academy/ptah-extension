@@ -50,6 +50,7 @@ import type {
   ProvidersConnectionDraft,
   ProvidersEditContext,
   ProvidersEffectiveRoute,
+  ProvidersEnhancementSettings,
   ProvidersExternalAuthAction,
   ProvidersJudgingSettings,
   ProvidersMainSources,
@@ -60,6 +61,7 @@ import type {
   ProvidersSettingsPatch,
   SaveOperation,
 } from './providers-settings.types';
+import { PROVIDERS_ENHANCEMENT_KEYS } from './providers-settings.types';
 import { WorkspaceScopeService } from './workspace-scope.service';
 
 export type {
@@ -67,6 +69,8 @@ export type {
   ProvidersEffectiveRoute,
   ProvidersJudgingSettings,
   ProvidersJudgingPatch,
+  ProvidersEnhancementSettings,
+  ProvidersEnhancementPatch,
   ProvidersEditContext,
   ProvidersSettingsCommit,
   ProvidersSettingsPatch,
@@ -120,6 +124,8 @@ export class ProvidersSettingsStateService {
     createSectionStore<RpcMethodResult<'config:effort-get'>>();
   private readonly memoryStore =
     createSectionStore<RpcMethodResult<'memory:getTriggers'>['triggers']>();
+  private readonly enhancementStore =
+    createSectionStore<ProvidersEnhancementSettings>();
   private readonly lanesStore =
     createSectionStore<RpcMethodResult<'skillSynthesis:getLanes'>['lanes']>();
   private readonly judgingStore =
@@ -148,6 +154,7 @@ export class ProvidersSettingsStateService {
   readonly model = this.view(this.modelStore);
   readonly effort = this.freshEffortView(this.effortStore, this.effortRevision);
   readonly memory = this.view(this.memoryStore);
+  readonly enhancement = this.view(this.enhancementStore);
   readonly lanes = this.view(this.lanesStore);
   readonly judging = this.view(this.judgingStore);
   readonly cliAgents = this.view(this.cliStore);
@@ -215,6 +222,7 @@ export class ProvidersSettingsStateService {
       this.refreshModel(),
       this.refreshEffort(),
       this.refreshMemory(),
+      this.refreshEnhancement(),
       this.refreshLanes(),
       this.refreshJudging(),
       this.refreshCliAgents(),
@@ -660,6 +668,26 @@ export class ProvidersSettingsStateService {
       async () => (await this.require('memory:getTriggers', {})).triggers,
     );
   }
+  async refreshEnhancement(): Promise<void> {
+    await this.read(this.enhancementStore, async () => {
+      const [provider, model, timeoutMs] = await Promise.all(
+        (['provider', 'model', 'timeoutMs'] as const).map(async (field) => {
+          const result = await this.require('settings:get', {
+            key: PROVIDERS_ENHANCEMENT_KEYS[field],
+          });
+          if (!result.success) throw new Error('Enhancement settings unavailable');
+          return result.value;
+        }),
+      );
+      if (
+        typeof provider !== 'string' ||
+        typeof model !== 'string' ||
+        typeof timeoutMs !== 'number' ||
+        !Number.isFinite(timeoutMs)
+      ) throw new Error('Enhancement settings unavailable');
+      return { provider, model: model === 'inherit' ? '' : model, timeoutMs };
+    });
+  }
   async refreshLanes(): Promise<void> {
     await this.read(
       this.lanesStore,
@@ -968,6 +996,7 @@ export class ProvidersSettingsStateService {
         this.model(),
         this.effort(),
         this.memory(),
+        this.enhancement(),
         this.lanes(),
         this.judging(),
         this.cliAgents(),

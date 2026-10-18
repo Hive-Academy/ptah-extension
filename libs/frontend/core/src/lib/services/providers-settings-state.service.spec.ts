@@ -117,6 +117,7 @@ describe('ProvidersSettingsStateService', () => {
     curatorProvider: string;
     curatorModel: string;
   };
+  let enhancementResponse: Record<string, string | number>;
   let handlers: Map<
     RpcMethodName,
     (params: unknown) => Promise<RpcResult<unknown>>
@@ -149,12 +150,28 @@ describe('ProvidersSettingsStateService', () => {
       curatorProvider: '',
       curatorModel: '',
     };
+    enhancementResponse = {
+      'skills.enhancement.provider': '',
+      'skills.enhancement.model': 'inherit',
+      'skills.enhancement.timeoutMs': 120000,
+    };
     handlers = new Map<
       RpcMethodName,
       (params: unknown) => Promise<RpcResult<unknown>>
     >([
       ['auth:getApiKeyStatus', async () => success({ providers: [] })],
-      ['settings:get', async () => success({ success: true, value: [] })],
+      ['settings:get', async (params) => {
+        const key = (params as { key: string }).key;
+        return success({
+          success: true,
+          value: key in enhancementResponse ? enhancementResponse[key] : [],
+        });
+      }],
+      ['settings:set', async (params) => {
+        const { key, value } = params as { key: string; value: string | number };
+        enhancementResponse[key] = value;
+        return success({ success: true });
+      }],
       [
         'llm:getProviderBaseUrl',
         async () => success({ baseUrl: null, defaultBaseUrl: null }),
@@ -224,6 +241,71 @@ describe('ProvidersSettingsStateService', () => {
     service = TestBed.inject(ProvidersSettingsStateService);
   });
   afterEach(() => TestBed.resetTestingModule());
+
+  it('loads enhancement file settings into its own section', async () => {
+    enhancementResponse['skills.enhancement.provider'] = 'openrouter';
+    enhancementResponse['skills.enhancement.model'] = 'model-one';
+    enhancementResponse['skills.enhancement.timeoutMs'] = 90000;
+    await service.refreshEnhancement();
+    expect(service.enhancement()).toEqual({
+      status: 'ready',
+      data: { provider: 'openrouter', model: 'model-one', timeoutMs: 90000 },
+      error: null,
+    });
+    expect(call.mock.calls.map(([method, params]) => [method, params])).toEqual([
+      ['settings:get', { key: 'skills.enhancement.provider' }],
+      ['settings:get', { key: 'skills.enhancement.model' }],
+      ['settings:get', { key: 'skills.enhancement.timeoutMs' }],
+    ]);
+    expect(service.judging().status).toBe('unloaded');
+    expect(service.lanes().status).toBe('unloaded');
+  });
+
+  it('saves enhancement fields with readback and leaves judging and lanes intact', async () => {
+    const reviewed = await context();
+    await service.refreshJudging();
+    await service.refreshLanes();
+    const priorJudging = service.judging().data;
+    const priorLanes = service.lanes().data;
+    call.mockClear();
+    await service.saveSettings(
+      { enhancement: { provider: 'openrouter', model: ' ', timeoutMs: 90000 } },
+      reviewed,
+    );
+    expect(service.commit()).toMatchObject({
+      status: 'saved',
+      saved: [
+        'skills.enhancement.provider',
+        'skills.enhancement.model',
+        'skills.enhancement.timeoutMs',
+      ],
+    });
+    expect(service.enhancement().data).toEqual({
+      provider: 'openrouter', model: '', timeoutMs: 90000,
+    });
+    for (const [key, value] of [
+      ['skills.enhancement.provider', 'openrouter'],
+      ['skills.enhancement.model', 'inherit'],
+      ['skills.enhancement.timeoutMs', 90000],
+    ] as const) {
+      const writeIndex = call.mock.calls.findIndex(
+        ([method, params]) => method === 'settings:set' &&
+          (params as { key: string }).key === key,
+      );
+      const readIndex = call.mock.calls.findIndex(
+        ([method, params], index) => index > writeIndex &&
+          method === 'settings:get' && (params as { key: string }).key === key,
+      );
+      expect(writeIndex).toBeGreaterThanOrEqual(0);
+      expect(readIndex).toBeGreaterThan(writeIndex);
+      expect(call.mock.calls[writeIndex][1]).toEqual({ key, value });
+    }
+    expect(service.judging().data).toEqual(priorJudging);
+    expect(service.lanes().data).toEqual(priorLanes);
+    expect(call.mock.calls.some(([method]) =>
+      method === 'skillSynthesis:updateSettings' || method === 'skillSynthesis:setLanes',
+    )).toBe(false);
+  });
 
   it('rereads effective effort on open and refresh without exposing the cached value during loading', async () => {
     handlers.set('config:effort-get', async () => success({ effort: 'low' }));
@@ -2490,12 +2572,15 @@ describe('ProvidersSettingsStateService', () => {
         saved: ['Main agent haiku model'],
       });
       handlers.set('ptahCli:update', async () => success({ success: true }));
-      handlers.set('settings:get', async () =>
-        success({
+      handlers.set('settings:get', async (params) => {
+        const key = (params as { key: string }).key;
+        return success({
           success: true,
-          value: [{ id: 'agent-1', tierMappings: { opus: 'big' } }],
-        }),
-      );
+          value: key === 'ptahCliAgents'
+            ? [{ id: 'agent-1', tierMappings: { opus: 'big' } }]
+            : enhancementResponse[key],
+        });
+      });
       call.mockClear();
       await expect(
         service.setCliInstanceTiers('agent-1', { opus: 'big' }, reviewed),

@@ -15,6 +15,7 @@ import type {
   SaveOperation,
   SaveOutcome,
 } from './providers-settings.types';
+import { PROVIDERS_ENHANCEMENT_KEYS } from './providers-settings.types';
 import { WorkspaceScopeService } from './workspace-scope.service';
 
 const MODEL_TIERS = ['sonnet', 'opus', 'haiku'] as const;
@@ -129,6 +130,22 @@ export class ProvidersCommitService {
             (await this.require('memory:getTriggers', {})).triggers[field] ===
             value,
         });
+    }
+    for (const field of ['provider', 'model', 'timeoutMs'] as const) {
+      const requested = patch.enhancement?.[field];
+      if (requested === undefined) continue;
+      const value = field === 'model' && typeof requested === 'string'
+        ? requested.trim() || 'inherit'
+        : requested;
+      const key = PROVIDERS_ENHANCEMENT_KEYS[field];
+      operations.push({
+        fields: [key],
+        write: async () => (await this.require('settings:set', { key, value })).success,
+        readBack: async () => {
+          const stored = await this.require('settings:get', { key });
+          return stored.success && stored.value === value;
+        },
+      });
     }
     for (const lane of [
       'archaeologist',

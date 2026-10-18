@@ -365,6 +365,41 @@ describe('ProvidersCommitService', () => {
   });
 
   describe('operations', () => {
+    it('writes enhancement keys through settings RPC and confirms each value', async () => {
+      const stored = new Map<string, unknown>();
+      call.mockImplementation(async (method, params) => {
+        if (method === 'settings:set') {
+          const { key, value } = params as { key: string; value: unknown };
+          stored.set(key, value);
+          return success({ success: true });
+        }
+        if (method === 'settings:get') {
+          const { key } = params as { key: string };
+          return success({ success: true, value: stored.get(key) });
+        }
+        throw new Error(`Unexpected RPC: ${method}`);
+      });
+      const operations = service.operations({
+        enhancement: { provider: 'openrouter', model: ' ', timeoutMs: 90000 },
+      });
+      expect(operations.map(({ fields }) => fields)).toEqual([
+        ['skills.enhancement.provider'],
+        ['skills.enhancement.model'],
+        ['skills.enhancement.timeoutMs'],
+      ]);
+      for (const operation of operations) {
+        await expect(operation.write()).resolves.toBe(true);
+        await expect(operation.readBack?.()).resolves.toBe(true);
+      }
+      expect(stored.get('skills.enhancement.model')).toBe('inherit');
+      expect(call.mock.calls.map(([method]) => method)).toEqual([
+        'settings:set', 'settings:get',
+        'settings:set', 'settings:get',
+        'settings:set', 'settings:get',
+      ]);
+      expect(call.mock.calls.some(([method]) => method.startsWith('skillSynthesis:'))).toBe(false);
+    });
+
     it('builds one operation per patch field and writes through the host', async () => {
       const operations = service.operations({
         judging: { judgeModel: '  ' },
