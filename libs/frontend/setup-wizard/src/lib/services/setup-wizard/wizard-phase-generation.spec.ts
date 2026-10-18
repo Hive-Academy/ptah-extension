@@ -331,6 +331,22 @@ describe('WizardPhaseGeneration (TASK_2026_107 Phase 3)', () => {
       expect(skillGenerationProgress()[0].status).toBe('error');
       expect(skillGenerationProgress()[0].errorMessage).toBe('aborted');
     });
+
+    it('does not mark a previous agent complete when progress moves to another', () => {
+      skillGenerationProgress.set([
+        { id: 'first', name: 'first', type: 'agent', status: 'in-progress' },
+        { id: 'second', name: 'second', type: 'agent', status: 'pending' },
+      ]);
+      phaseGen.handleGenerationProgress({
+        progress: {
+          phase: 'customization',
+          currentAgent: 'second',
+          percentComplete: 50,
+        },
+      });
+      expect(skillGenerationProgress()[0].status).toBe('in-progress');
+      expect(skillGenerationProgress()[1].status).toBe('in-progress');
+    });
   });
 
   describe('handleError', () => {

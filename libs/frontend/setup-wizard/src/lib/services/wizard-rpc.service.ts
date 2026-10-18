@@ -1,5 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { ClaudeRpcService, ModelStateService } from '@ptah-extension/core';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import type {
   AgentPackInfoDto,
   AgentRecommendation,
@@ -11,8 +12,15 @@ import type {
   WizardInstallPackAgentsResult,
   WizardPreviewGenerationParams,
   WizardPreviewGenerationResponse,
+  SetupGenerationTabBinding,
+  SetupGenerationRunBinding,
+  SetupGenerationRunState,
+  WizardSubmitSelectionResponse,
+  WizardCancelResponse,
+  EnhancedPromptsCancelResponse,
 } from '@ptah-extension/shared';
 import { AgentSelection } from './setup-wizard-state.service';
+import { findBoundGenerationTab } from './bound-generation-tab';
 
 /**
  * Centralized RPC timeout budget for wizard backend calls. The values
@@ -73,6 +81,111 @@ export interface AgentSelectionResponse {
 export class WizardRpcService {
   private readonly rpcService = inject(ClaudeRpcService);
   private readonly modelState = inject(ModelStateService);
+  private readonly tabs = inject(TabManagerService);
+
+  async getBoundRunState(
+    binding: SetupGenerationTabBinding,
+    runId?: string,
+  ): Promise<SetupGenerationRunState | null> {
+    const name =
+      binding.workflow === 'setup-agent-generation'
+        ? 'wizard:get-generation-run-state'
+        : 'enhancedPrompts:getRunState';
+    const result = await this.rpcService.call(
+      name,
+      { tabBinding: binding, runId },
+      { timeout: WIZARD_RPC_TIMEOUTS.LIST_MS },
+    );
+    if (!result.isSuccess() || !result.data)
+      throw new Error('Run state unavailable');
+    return result.data.run;
+  }
+
+  async cancelBoundRun(binding: SetupGenerationRunBinding): Promise<boolean> {
+    const name =
+      binding.workflow === 'setup-agent-generation'
+        ? 'wizard:cancel'
+        : 'enhancedPrompts:cancel';
+    const result = await this.rpcService.call(
+      name,
+      { tabBinding: binding },
+      { timeout: WIZARD_RPC_TIMEOUTS.LIST_MS },
+    );
+    if (!result.isSuccess() || !result.data)
+      throw new Error('Stop unconfirmed');
+    const data: WizardCancelResponse | EnhancedPromptsCancelResponse =
+      result.data;
+    return data.cancelled;
+  }
+
+  async startBoundAgents(
+    binding: SetupGenerationTabBinding,
+    selectedAgentIds: string[],
+    resume = false,
+  ): Promise<WizardSubmitSelectionResponse> {
+    const tab = findBoundGenerationTab(this.tabs, binding);
+    const result = await this.rpcService.call(
+      'wizard:submit-selection',
+      {
+        tabBinding: binding,
+        selectedAgentIds,
+        model:
+          tab?.overrideModel ?? this.modelState.currentModel() ?? undefined,
+        ...(resume ? { resume: true } : {}),
+      },
+      { timeout: WIZARD_RPC_TIMEOUTS.GENERATION_MS },
+    );
+    if (!result.isSuccess() || !result.data) {
+      if (
+        result.error?.includes('selected model') &&
+        result.error.includes('unavailable')
+      )
+        throw new Error(
+          'The selected model is not available for this provider.',
+        );
+      throw new Error('Start unconfirmed');
+    }
+    return result.data;
+  }
+
+  async startBoundGuidance(
+    binding: SetupGenerationTabBinding,
+  ): Promise<EnhancedPromptsRunWizardResponse> {
+    const tab = findBoundGenerationTab(this.tabs, binding);
+    const result = await this.rpcService.call(
+      'enhancedPrompts:runWizard',
+      {
+        workspacePath: binding.workspacePath,
+        tabBinding: binding,
+        model:
+          tab?.overrideModel ?? this.modelState.currentModel() ?? undefined,
+      },
+      { timeout: WIZARD_RPC_TIMEOUTS.GENERATION_MS },
+    );
+    if (!result.isSuccess() || !result.data)
+      throw new Error('Start unconfirmed');
+    return result.data;
+  }
+
+  async regenerateBoundGuidance(
+    binding: SetupGenerationTabBinding,
+  ): Promise<EnhancedPromptsRunWizardResponse> {
+    const tab = findBoundGenerationTab(this.tabs, binding);
+    const result = await this.rpcService.call(
+      'enhancedPrompts:regenerate',
+      {
+        workspacePath: binding.workspacePath,
+        tabBinding: binding,
+        force: true,
+        model:
+          tab?.overrideModel ?? this.modelState.currentModel() ?? undefined,
+      },
+      { timeout: WIZARD_RPC_TIMEOUTS.GENERATION_MS },
+    );
+    if (!result.isSuccess() || !result.data)
+      throw new Error('Regeneration unconfirmed');
+    return result.data;
+  }
 
   /**
    * Launch the setup wizard webview
@@ -155,10 +268,17 @@ export class WizardRpcService {
    *
    * @param itemId - Identifier of the generation item to retry
    */
-  public async retryGenerationItem(itemId: string): Promise<void> {
-    const result = await this.rpcService.call('wizard:retry-item', { itemId });
-    if (!result.isSuccess()) {
-      throw new Error(result.error || 'Failed to retry generation item');
+  public async retryGenerationItem(
+    itemId: string,
+    tabBinding?: SetupGenerationRunBinding,
+  ): Promise<void> {
+    const result = await this.rpcService.call(
+      'wizard:retry-item',
+      { itemId, ...(tabBinding ? { tabBinding } : {}) },
+      { timeout: WIZARD_RPC_TIMEOUTS.GENERATION_MS },
+    );
+    if (!result.isSuccess() || (tabBinding && !result.data?.success)) {
+      throw new Error('Failed to retry generation item');
     }
   }
 

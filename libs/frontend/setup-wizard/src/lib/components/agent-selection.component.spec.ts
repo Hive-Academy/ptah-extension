@@ -384,9 +384,7 @@ describe('AgentSelectionComponent', () => {
       // Generation now starts only after preview confirmation.
       expect(mockRpcService.submitAgentSelection).not.toHaveBeenCalled();
       // Generation now starts only after preview confirmation.
-      expect(component['errorMessage']()).toContain(
-        'No analysis data available',
-      );
+      expect(component['errorMessage']()).toContain('could not start');
       // Generation now starts only after preview confirmation.
       expect(mockStateService.setCurrentStep).not.toHaveBeenCalledWith(
         'generation',
@@ -404,7 +402,7 @@ describe('AgentSelectionComponent', () => {
       await component['onConfirmPreview']();
 
       // Generation now starts only after preview confirmation.
-      expect(component['errorMessage']()).toContain('Backend exploded');
+      expect(component['errorMessage']()).toContain('could not start');
       // Generation now starts only after preview confirmation.
       expect(mockStateService.setCurrentStep).not.toHaveBeenCalledWith(
         'generation',
@@ -421,7 +419,7 @@ describe('AgentSelectionComponent', () => {
       await component['onConfirmPreview']();
 
       // Generation now starts only after preview confirmation.
-      expect(component['errorMessage']()).toContain('RPC timeout');
+      expect(component['errorMessage']()).toContain('could not start');
       // Generation now starts only after preview confirmation.
       expect(component['isGenerating']()).toBe(false);
     });
@@ -535,6 +533,25 @@ describe('AgentSelectionComponent', () => {
       expect(mockRpcService.previewGeneration).toHaveBeenCalledTimes(3);
     });
 
+    it('requires renewed confirmation when a definite target changes overwrite status', async () => {
+      await component['onGenerateAgents']();
+      (mockRpcService.previewGeneration as jest.Mock).mockResolvedValue({
+        agents: [
+          {
+            agentId: 'a',
+            files: preview.agents[0].files.map((file) =>
+              file.certainty === 'definite'
+                ? { ...file, willOverwrite: false }
+                : file,
+            ),
+          },
+        ],
+      });
+      await component['onConfirmPreview']();
+      expect(component['targetsChanged']()).toBe(true);
+      expect(mockRpcService.submitAgentSelection).not.toHaveBeenCalled();
+    });
+
     it.each(['initial', 'confirm'])(
       'shows the reason and permits explicit generation after %s preview failure',
       async (stage) => {
@@ -547,7 +564,8 @@ describe('AgentSelectionComponent', () => {
         fixture.detectChanges();
         const dialog: HTMLDialogElement =
           fixture.nativeElement.querySelector('dialog');
-        expect(dialog.textContent).toContain('preview offline');
+        expect(dialog.textContent).toContain('Preview unavailable');
+        expect(dialog.textContent).not.toContain('preview offline');
         const generate = dialog.querySelector<HTMLButtonElement>(
           '[modal-footer] .btn-primary',
         );

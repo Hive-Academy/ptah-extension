@@ -13,9 +13,14 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import {
+  Logger,
+  TOKENS,
+  type WebviewManager,
+} from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { MESSAGE_TYPES, Result } from '@ptah-extension/shared';
+import type { SetupGenerationOpenPayload } from '@ptah-extension/shared';
 import { ISetupWizardService } from '../interfaces/setup-wizard.interface';
 import { AGENT_GENERATION_TOKENS } from '../di/tokens';
 import { WizardWebviewLifecycleService } from './wizard';
@@ -38,9 +43,14 @@ export class SetupWizardService implements ISetupWizardService {
     @inject(AGENT_GENERATION_TOKENS.WIZARD_WEBVIEW_LIFECYCLE)
     private readonly webviewLifecycle: WizardWebviewLifecycleService,
     @inject(TOKENS.PLATFORM_COMMANDS)
-    private readonly platformCommands: { reloadWindow(): Promise<void> },
+    private readonly platformCommands: {
+      reloadWindow(): Promise<void>;
+      focusChat(): Promise<void>;
+    },
     @inject(TOKENS.SENTRY_SERVICE)
     private readonly sentryService: SentryService,
+    @inject(TOKENS.WEBVIEW_MANAGER)
+    private readonly webviewManager: WebviewManager,
   ) {
     this.logger.debug('SetupWizardService initialized');
   }
@@ -81,7 +91,14 @@ export class SetupWizardService implements ISetupWizardService {
         this.WIZARD_VIEW_TYPE,
         [
           async (message: unknown) => {
-            const msg = message as { type?: string };
+            if (!message || typeof message !== 'object') return false;
+            const msg = message as { type?: string; payload?: unknown };
+            if (msg.type === MESSAGE_TYPES.SETUP_GENERATION_OPEN) {
+              if (!this.isGenerationOpenPayload(msg.payload, workspacePath))
+                return false;
+              const result = await this.openGeneration(msg.payload);
+              return result.isOk();
+            }
             if (msg.type === MESSAGE_TYPES.SETUP_WIZARD_COMPLETE) {
               this.logger.info(
                 'Wizard complete - closing panel and reloading window',
@@ -116,6 +133,41 @@ export class SetupWizardService implements ISetupWizardService {
     } finally {
       this.isLaunching = false;
     }
+  }
+
+  async openGeneration(
+    payload: SetupGenerationOpenPayload,
+  ): Promise<Result<void, Error>> {
+    try {
+      await this.platformCommands.focusChat();
+      const delivered = await this.webviewManager.sendMessage(
+        'ptah.main',
+        MESSAGE_TYPES.SETUP_GENERATION_OPEN,
+        payload,
+      );
+      if (!delivered)
+        return Result.err(new Error('Main chat is not ready. Try again.'));
+      return Result.ok(undefined);
+    } catch (error) {
+      const cause = error instanceof Error ? error : new Error(String(error));
+      this.logger.error('Failed to open generation in main chat', cause);
+      return Result.err(new Error('Main chat is not ready. Try again.'));
+    }
+  }
+
+  private isGenerationOpenPayload(
+    value: unknown,
+    workspacePath: string,
+  ): value is SetupGenerationOpenPayload {
+    if (!value || typeof value !== 'object') return false;
+    const payload = value as Record<string, unknown>;
+    return (
+      payload['workspacePath'] === workspacePath &&
+      (payload['workflow'] === 'setup-agent-generation' ||
+        payload['workflow'] === 'setup-project-prompt') &&
+      (payload['origin'] === 'analysis-result-continue' ||
+        payload['origin'] === 'independent-start')
+    );
   }
 
   /**

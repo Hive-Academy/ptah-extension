@@ -56,6 +56,16 @@ export const CLI_EXPECTED_ABSENT_METHODS: readonly string[] = [
 describe('CLI RPC surface', () => {
   const surface = deriveRpcSurface(createCliRpcHostProfile('cli'));
 
+  it('serves bound guidance and generation recovery methods', () => {
+    expect(surface.registered).toEqual(
+      expect.arrayContaining([
+        'enhancedPrompts:cancel',
+        'enhancedPrompts:getRunState',
+        'wizard:get-generation-run-state',
+      ]),
+    );
+  });
+
   it('excludes exactly the webview-only surface methods', () => {
     expect([...surface.excluded]).toEqual([...CLI_EXPECTED_ABSENT_METHODS]);
   });

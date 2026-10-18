@@ -37,6 +37,7 @@ import {
 
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 import { WelcomeComponent } from './welcome.component';
+import { WizardLandingComponent } from './wizard-landing.component';
 import { ScanProgressComponent } from './scan-progress.component';
 import { AnalysisResultsComponent } from './analysis-results.component';
 import { AgentSelectionComponent } from './agent-selection.component';
@@ -48,6 +49,7 @@ import { PromptEnhancementComponent } from './prompt-enhancement.component';
   selector: 'ptah-wizard-view',
   imports: [
     WelcomeComponent,
+    WizardLandingComponent,
     ScanProgressComponent,
     AnalysisResultsComponent,
     AgentSelectionComponent,
@@ -111,7 +113,13 @@ import { PromptEnhancementComponent } from './prompt-enhancement.component';
         >
           @switch (currentStep()) {
             @case ('welcome') {
-              <ptah-welcome />
+              <ptah-wizard-landing />
+              <details class="mx-auto max-w-[720px] px-4 pb-4">
+                <summary class="cursor-pointer text-sm">
+                  Analysis and recovery options
+                </summary>
+                <ptah-welcome />
+              </details>
             }
             @case ('scan') {
               <ptah-scan-progress />

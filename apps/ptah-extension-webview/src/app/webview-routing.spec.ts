@@ -26,6 +26,7 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { generationRouteTabValidator } from './app.config';
 
 import { PlatformLocation } from '@angular/common';
 import { ErrorHandler } from '@angular/core';
@@ -222,6 +223,24 @@ function savedRoute(
 }
 
 describe('webview routing composition', () => {
+  it('keeps a restored workflow route until its workspace activates and then revalidates', () => {
+    const tabs = {
+      activeWorkspacePath: null as string | null,
+      findTabByIdAcrossWorkspaces: jest.fn().mockReturnValue({
+        workspacePath: '/ws',
+        tab: { workflow: 'setup-agent-generation' },
+      }),
+    };
+    const valid = generationRouteTabValidator(tabs);
+    expect(valid('restored', 'setup-agent-generation')).toBe(true);
+    expect(valid('restored', 'setup-project-prompt')).toBe(false);
+    tabs.activeWorkspacePath = '/ws';
+    expect(valid('restored', 'setup-agent-generation')).toBe(true);
+    tabs.activeWorkspacePath = '/other';
+    expect(valid('restored', 'setup-agent-generation')).toBe(false);
+    tabs.findTabByIdAcrossWorkspaces.mockReturnValue(null);
+    expect(valid('missing', 'setup-agent-generation')).toBe(false);
+  });
   let history: Record<string, jest.SpyInstance>;
 
   beforeEach(() => {
@@ -846,7 +865,10 @@ describe('app.routes', () => {
 
   it('roots every parameter route in a declared surface', () => {
     const paramRoutes = allPaths.filter((path) => path.includes('/:'));
-    expect(paramRoutes).toEqual(['harness-builder/:mode/:tabId']);
+    expect(paramRoutes).toEqual([
+      'setup-wizard/generation/:workflow/:tabId',
+      'harness-builder/:mode/:tabId',
+    ]);
     for (const path of paramRoutes) {
       expect(SURFACE_ROUTE_IDS).toContain(path.split('/')[0]);
     }

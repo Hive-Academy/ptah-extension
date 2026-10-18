@@ -37,10 +37,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, sep } from 'node:path';
 
 import { TestBed } from '@angular/core/testing';
-import {
-  MESSAGE_HANDLERS,
-  MessageRouterService,
-} from '@ptah-extension/core';
+import { MESSAGE_HANDLERS, MessageRouterService } from '@ptah-extension/core';
 import { SurfaceUpdateInbox } from '@ptah-extension/chat-routing';
 import {
   MESSAGE_TYPES,
@@ -98,7 +95,10 @@ function handlerSourceFiles(): string[] {
       if (entry.isDirectory()) {
         if (entry.name === 'node_modules') continue;
         walk(full, acc);
-      } else if (entry.name.endsWith('.ts') && !entry.name.endsWith('.spec.ts')) {
+      } else if (
+        entry.name.endsWith('.ts') &&
+        !entry.name.endsWith('.spec.ts')
+      ) {
         acc.push(full);
       }
     }
@@ -116,9 +116,7 @@ function handlerSourceFiles(): string[] {
 
 /** Strip comments so a doc-block *mentioning* a message type is not a hit. */
 function stripComments(source: string): string {
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/^\s*\/\/.*$/gm, '');
+  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 }
 
 /**
@@ -132,9 +130,7 @@ function handlerDeclarationsFor(
   wireLiteral: string,
 ): string[] {
   const escaped = wireLiteral.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const wireRef = new RegExp(
-    `${constantRef}|['"\`]${escaped}['"\`]`,
-  );
+  const wireRef = new RegExp(`${constantRef}|['"\`]${escaped}['"\`]`);
   return files
     .filter((relative) => {
       const source = stripComments(
@@ -181,7 +177,9 @@ describe('surface:updated delivery through the real router (Batch 1)', () => {
 
   it('the shared constants hold the exact strings the backend broadcasts', () => {
     expect(MESSAGE_TYPES.SURFACE_UPDATED).toBe(WIRE.surfaceUpdated);
-    expect(MESSAGE_TYPES.DASHBOARD_SPEC_PROPOSED).toBe(WIRE.dashboardSpecProposed);
+    expect(MESSAGE_TYPES.DASHBOARD_SPEC_PROPOSED).toBe(
+      WIRE.dashboardSpecProposed,
+    );
   });
 
   it('delivers a raw surface:updated message for a CLAIMED routing id to exactly its listener', () => {
@@ -230,6 +228,13 @@ describe('surface:updated delivery through the real router (Batch 1)', () => {
 
 describe('app.config surface:updated wiring', () => {
   const source = readFileSync(join(__dirname, 'app.config.ts'), 'utf-8');
+
+  it('registers the generation open consumer and route tab validator', () => {
+    expect(source).toContain('useExisting: SetupGenerationOpenHandler');
+    expect(source).toContain(
+      'SurfaceRouterService.generationRouteTabValidatorToken',
+    );
+  });
 
   it('registers SurfaceUpdateInbox as a MESSAGE_HANDLERS entry', () => {
     // Without this the router never sees the inbox: `useExisting` resolves
@@ -288,8 +293,7 @@ describe('surface:updated handler uniqueness (Req 3.2/3.3)', () => {
     // count, a real one MUST.
     const commented =
       '/** handledMessageTypes = [MESSAGE_TYPES.SURFACE_UPDATED] */\nexport class DocOnly {}';
-    const real =
-      "readonly handledMessageTypes = ['surface:updated'] as const;";
+    const real = "readonly handledMessageTypes = ['surface:updated'] as const;";
 
     expect(stripComments(commented)).not.toContain('handledMessageTypes');
     expect(real).toContain('handledMessageTypes');

@@ -38,6 +38,16 @@ import { RPC_METHOD_NAMES } from '@ptah-extension/shared';
 import { RPC_HANDLER_MANIFEST, assertManifestInvariants } from './host-profile';
 
 describe('RPC handler manifest', () => {
+  it('publishes all bound generation methods', () => {
+    const methods = RPC_HANDLER_MANIFEST.flatMap((entry) => entry.methods);
+    expect(methods).toEqual(
+      expect.arrayContaining([
+        'enhancedPrompts:cancel',
+        'enhancedPrompts:getRunState',
+        'wizard:get-generation-run-state',
+      ]),
+    );
+  });
   it('claims every registry method exactly once', () => {
     expect(() => assertManifestInvariants(RPC_METHOD_NAMES)).not.toThrow();
   });

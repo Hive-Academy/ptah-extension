@@ -55,6 +55,7 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
       getWorkspaceTabs: jest.fn().mockReturnValue([]),
       setBackendEncodedPath: jest.fn(),
       updateBackgroundTab: jest.fn(),
+      addTabToWorkspace: jest.fn(),
     };
 
     modelRefreshMock = {
@@ -71,6 +72,112 @@ describe('TabManagerService — abort streaming on tab close (Wave E2)', () => {
     });
 
     service = TestBed.inject(TabManagerService);
+  });
+
+  describe('workspace workflow tabs', () => {
+    it('creates and activates a workflow in the VS Code unpartitioned tab set', () => {
+      const configWindow = window as Window & {
+        ptahConfig?: { workspaceRoot?: string; isVSCode?: boolean };
+      };
+      const previousConfig = configWindow.ptahConfig;
+      configWindow.ptahConfig = {
+        ...previousConfig,
+        workspaceRoot: 'C:\\ws',
+        isVSCode: true,
+      };
+      try {
+        Object.assign(partitionMock, { activeWorkspacePath: null });
+        const previousTab = service.createTab('Current');
+        const created = service.createWorkflowTabForWorkspace(
+          'c:/ws/',
+          'setup-agent-generation',
+          'Generate agents',
+        );
+        expect(created).toBeTruthy();
+        expect(created).not.toBe(previousTab);
+        expect(service.activeTabId()).toBe(created);
+        expect(
+          service.findWorkflowTab('c:/ws/', 'setup-agent-generation')?.id,
+        ).toBe(created);
+        expect(
+          service.createWorkflowTabForWorkspace(
+            'c:/ws/',
+            'setup-agent-generation',
+            'Generate agents',
+          ),
+        ).toBeNull();
+        expect(partitionMock.addTabToWorkspace).not.toHaveBeenCalled();
+        configWindow.ptahConfig = { workspaceRoot: 'C:\\ws', isVSCode: false };
+        expect(
+          service.createWorkflowTabForWorkspace(
+            'c:/ws/',
+            'setup-project-prompt',
+            'Guidance',
+          ),
+        ).toBeNull();
+        if (created) service.forceCloseTab(created);
+        service.forceCloseTab(previousTab);
+        service.flushPendingSave();
+      } finally {
+        configWindow.ptahConfig = previousConfig;
+      }
+    });
+
+    it('creates a tagged tab without changing the focused tab', () => {
+      Object.assign(partitionMock, { activeWorkspacePath: '/ws' });
+      partitionMock.getWorkspaceTabs = jest.fn((path, tabs) =>
+        path === '/ws' ? (tabs ?? []) : [],
+      );
+      const focused = service.createTab('Current chat');
+      const created = service.createWorkflowTabForWorkspace(
+        '/ws',
+        'setup-agent-generation',
+        'Generate agents',
+      );
+      expect(created).toBeTruthy();
+      expect(service.activeTabId()).toBe(focused);
+      expect(service.findWorkflowTab('/ws', 'setup-agent-generation')?.id).toBe(
+        created,
+      );
+    });
+
+    it('rejects a missing background anchor before creating a tab', () => {
+      Object.assign(partitionMock, { activeWorkspacePath: '/other' });
+      expect(
+        service.createWorkflowTabForWorkspace(
+          '/ws',
+          'setup-project-prompt',
+          'Guidance',
+          'missing',
+        ),
+      ).toBeNull();
+      expect(partitionMock.addTabToWorkspace).not.toHaveBeenCalled();
+    });
+
+    it('creates in a loaded background partition after its own anchor', () => {
+      Object.assign(partitionMock, { activeWorkspacePath: '/other' });
+      const anchor = service.createTab('Current');
+      partitionMock.getWorkspaceTabs = jest.fn((path) =>
+        path === '/ws' ? [{ id: 'ws-anchor' } as TabState] : [],
+      );
+      partitionMock.addTabToWorkspace = jest.fn().mockReturnValue(true);
+      const created = service.createWorkflowTabForWorkspace(
+        '/ws',
+        'setup-project-prompt',
+        'Project guidance',
+        'ws-anchor',
+      );
+      expect(created).toBeTruthy();
+      expect(service.activeTabId()).toBe(anchor);
+      expect(partitionMock.addTabToWorkspace).toHaveBeenCalledWith(
+        '/ws',
+        expect.objectContaining({
+          id: created,
+          workflow: 'setup-project-prompt',
+        }),
+        'ws-anchor',
+      );
+    });
   });
 
   // The header's one-click affordance is binary and its round-trip is

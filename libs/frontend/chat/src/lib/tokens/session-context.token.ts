@@ -52,6 +52,12 @@ export const SESSION_START_GUARD = new InjectionToken<SessionStartGuard>(
   'SESSION_START_GUARD',
 );
 
+/** Synchronous interception; the owner dispatches cancellation asynchronously. */
+export type SessionStopHandler = (tabId: string) => 'handled' | 'not-handled';
+export const SESSION_STOP_HANDLER = new InjectionToken<SessionStopHandler>(
+  'SESSION_STOP_HANDLER',
+);
+
 /** Optional actions supplied by a canvas tile to the compact session card. */
 export interface SessionCardActions {
   openLane(laneKey: string): void;

@@ -250,6 +250,7 @@ interface Fixture {
   gate: AgentSyncGate;
   reconciler: HarnessReconcilerService;
   contentGenerator: { generateContent: jest.Mock };
+  validator: { validate: jest.Mock };
   /** Resolves with the one completion payload of the next generation. */
   nextCompletion: () => Promise<GenerationCompletePayload>;
 }
@@ -265,6 +266,12 @@ function buildFixture(opts: { disabledAgentIds?: string[] } = {}): Fixture {
 
   const logger = createMockLogger() as unknown as Logger;
   const container = rootContainer.createChildContainer();
+  container.register(Symbol.for('SdkProviderModels'), {
+    useValue: {
+      resolveActiveProviderId: () => 'anthropic',
+      getModelTiers: () => ({ sonnet: 'sonnet' }),
+    },
+  });
   container.register(TOKENS.LOGGER, { useValue: logger });
   container.register(TOKENS.SENTRY_SERVICE, {
     useValue: createMockSentryService(),
@@ -293,11 +300,13 @@ function buildFixture(opts: { disabledAgentIds?: string[] } = {}): Fixture {
   container.register(AGENT_GENERATION_TOKENS.CONTENT_GENERATION_SERVICE, {
     useValue: contentGenerator,
   });
+  const validator = {
+    validate: jest.fn(async () =>
+      Result.ok({ isValid: true, issues: [], score: 100 }),
+    ),
+  };
   container.register(AGENT_GENERATION_TOKENS.OUTPUT_VALIDATION_SERVICE, {
-    useValue: {
-      validate: async () =>
-        Result.ok({ isValid: true, issues: [], score: 100 }),
-    },
+    useValue: validator,
   });
   container.register(AGENT_GENERATION_TOKENS.AGENT_SELECTION_SERVICE, {
     useValue: { selectAgents: jest.fn() },
@@ -403,6 +412,7 @@ function buildFixture(opts: { disabledAgentIds?: string[] } = {}): Fixture {
       HARNESS_SYNC_TOKENS.RECONCILER,
     ),
     contentGenerator,
+    validator,
     nextCompletion: () =>
       new Promise<GenerationCompletePayload>((resolve) =>
         completions.push(resolve),
@@ -520,6 +530,78 @@ describe('wizard:preview-generation fidelity against the real wizard:submit-sele
       process.env['CODEX_HOME'] = savedCodexHome;
     }
   });
+
+  it(
+    'requires renewed confirmation when a definite target changes after a bound preview',
+    async () => {
+      const f = buildFixture();
+      const tabBinding = {
+        tabId: 'preview-tab',
+        workflow: 'setup-agent-generation' as const,
+        workspacePath: f.workspace,
+      };
+      const params = { selectedAgentIds: ['backend-developer'], tabBinding };
+      await call<WizardPreviewGenerationResponse>(
+        f,
+        'wizard:preview-generation',
+        params,
+      );
+      const target = path.join(
+        f.workspace,
+        '.claude',
+        'agents',
+        'backend-developer.md',
+      );
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, 'changed after preview');
+      const refused = await call<{ success: boolean; error?: string }>(
+        f,
+        'wizard:submit-selection',
+        params,
+      );
+      expect(refused.success).toBe(false);
+      expect(refused.error).toMatch(/review the preview and confirm again/i);
+      await call<WizardPreviewGenerationResponse>(
+        f,
+        'wizard:preview-generation',
+        params,
+      );
+      const completion = f.nextCompletion();
+      const accepted = await call<{
+        success: boolean;
+        accepted?: { runId: string };
+      }>(f, 'wizard:submit-selection', params);
+      expect(accepted.success).toBe(true);
+      expect(accepted.accepted?.runId).toBeTruthy();
+      expect((await completion).terminalStatus).toBe('completed');
+    },
+    STEP_TIMEOUT_MS,
+  );
+
+  it(
+    'writes the authored fallback when generated content fails safety validation',
+    async () => {
+      const f = buildFixture();
+      f.validator.validate.mockResolvedValue(
+        Result.ok({
+          isValid: false,
+          issues: [
+            { severity: 'error', message: 'Sensitive credential detected' },
+          ],
+          score: 0,
+        }),
+      );
+      const payload = await generate(f, ['backend-developer']);
+      const content = fs.readFileSync(
+        path.join(f.workspace, '.claude', 'agents', 'backend-developer.md'),
+        'utf8',
+      );
+      expect(payload.success).toBe(true);
+      expect(content).toContain('Authored guidance for backend-developer.');
+      expect(content).not.toContain('Tailored for this workspace.');
+    },
+    STEP_TIMEOUT_MS,
+  );
 
   it(
     'fresh workspace with sync enabled: rival copies are conditional (nothing in sync yet) and generation writes them, honouring a per-agent opt-out',

@@ -69,6 +69,12 @@ import type {
   GenerationStreamPayload,
   Result,
   RpcMethodName,
+  SetupGenerationTabBinding,
+  SetupGenerationRunBinding,
+  SetupGenerationResultFacts,
+  GenerationContextSource,
+  WizardGetGenerationRunStateParams,
+  WizardGetGenerationRunStateResponse,
 } from '@ptah-extension/shared';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
@@ -92,7 +98,23 @@ import {
   WizardRetryItemParamsSchema,
   WizardSubmitSelectionParamsSchema,
   formatIssue,
+  WizardTabBindingSchema,
+  WizardRunBindingSchema,
+  WizardGetGenerationRunStateParamsSchema,
 } from './wizard-generation-rpc.schema';
+import {
+  acceptedSubmit,
+  consumeConfirmedPreview,
+  authorizeTabWorkspace,
+  blockedSubmit,
+  resolveGenerationContext,
+  generationRunState,
+  rejectSubmit,
+  resolveProviderRoute,
+  sameWorkspacePath,
+  resultDetailsFromManifest,
+  type GenerationProviderModels,
+} from './wizard-generation-binding';
 
 /**
  * Interface for the SetupWizardService methods we need.
@@ -151,6 +173,8 @@ const PREVIEW_POLICY_UNKNOWN_CONDITION =
   'plugin and skill settings become readable again; agent sync is paused while they cannot be read';
 const PREVIEW_WRITE_DEPENDENT_CONDITION =
   'generation changes at least one selected agent file; other CLIs are only synced when a file is written';
+/** Exact DI identity from auth-providers-tokens, without pulling its package into this project. */
+const SDK_PROVIDER_MODELS_TOKEN = Symbol.for('SdkProviderModels');
 
 /**
  * RPC handlers for setup wizard generation operations.
@@ -165,6 +189,7 @@ export class WizardGenerationRpcHandlers {
     'wizard:submit-selection',
     'wizard:preview-generation',
     'wizard:cancel',
+    'wizard:get-generation-run-state',
     'wizard:retry-item',
   ] as const satisfies readonly RpcMethodName[];
 
@@ -179,6 +204,7 @@ export class WizardGenerationRpcHandlers {
 
   /** Reserves the submit slot while its checkpoint and runtime are prepared. */
   private submitReserved = false;
+  private readonly confirmedPreviews = new Map<string, string>();
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -201,11 +227,48 @@ export class WizardGenerationRpcHandlers {
     this.registerSubmitSelection();
     this.registerPreviewGeneration();
     this.registerCancel();
+    this.rpcHandler.registerMethod<
+      WizardGetGenerationRunStateParams,
+      WizardGetGenerationRunStateResponse
+    >('wizard:get-generation-run-state', (params) =>
+      this.getGenerationRunState(params),
+    );
     this.registerRetryItem();
 
     this.logger.debug('Wizard generation RPC handlers registered', {
       methods: [...WizardGenerationRpcHandlers.METHODS],
     });
+  }
+
+  /** Internal recovery seam. B03 owns registration of its RPC name. */
+  async getGenerationRunState(
+    params: WizardGetGenerationRunStateParams,
+  ): Promise<WizardGetGenerationRunStateResponse> {
+    const parsed = WizardGetGenerationRunStateParamsSchema.safeParse(params);
+    if (!parsed.success)
+      return { run: null, rejection: { reason: 'invalid-binding' } };
+    const hostRoot = this.workspaceProvider.getWorkspaceRoot();
+    if (!hostRoot)
+      return { run: null, rejection: { reason: 'workspace-mismatch' } };
+    const workspaceRoot = await authorizeTabWorkspace(
+      hostRoot,
+      parsed.data.tabBinding,
+      this.logger,
+    );
+    if (!workspaceRoot)
+      return { run: null, rejection: { reason: 'workspace-mismatch' } };
+    const active = this.runs.binding;
+    const canonicalBinding = {
+      ...parsed.data.tabBinding,
+      workspacePath: workspaceRoot,
+    };
+    const checkpoint = await this.checkpoints.locateBound(
+      workspaceRoot,
+      canonicalBinding,
+      parsed.data.runId,
+    );
+    if (!checkpoint) return { run: null };
+    return generationRunState(checkpoint.manifest, canonicalBinding, active);
   }
 
   // ---------------------------------------------------------------------------
@@ -225,7 +288,27 @@ export class WizardGenerationRpcHandlers {
       WizardSubmitSelectionParams,
       WizardSubmitSelectionResponse
     >('wizard:submit-selection', async (params) => {
-      const parsed = this.parse(WizardSubmitSelectionParamsSchema, params);
+      if (
+        params?.tabBinding !== undefined &&
+        !WizardTabBindingSchema.safeParse(params.tabBinding).success
+      )
+        return rejectSubmit('invalid-binding');
+      const requestedBinding = params?.tabBinding;
+      const hostRoot = this.workspaceProvider.getWorkspaceRoot();
+      const authorizedWorkspace =
+        requestedBinding && hostRoot
+          ? await authorizeTabWorkspace(hostRoot, requestedBinding, this.logger)
+          : null;
+      if (requestedBinding && !authorizedWorkspace)
+        return rejectSubmit('workspace-mismatch');
+      const parsed = this.parse(
+        WizardSubmitSelectionParamsSchema,
+        requestedBinding ? { ...params, analysisData: undefined } : params,
+      );
+      const tabBinding =
+        parsed.tabBinding && authorizedWorkspace
+          ? { ...parsed.tabBinding, workspacePath: authorizedWorkspace }
+          : undefined;
       const resume = parsed.resume === true;
       const selectedAgentIds = parsed.selectedAgentIds ?? [];
       if (!resume && selectedAgentIds.length === 0) {
@@ -241,6 +324,9 @@ export class WizardGenerationRpcHandlers {
         this.logger.warn(
           'RPC: wizard:submit-selection rejected - generation already in progress',
         );
+        if (tabBinding) {
+          return blockedSubmit(tabBinding, this.runs.binding);
+        }
         return {
           success: false,
           error:
@@ -251,17 +337,30 @@ export class WizardGenerationRpcHandlers {
       try {
         const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
         if (!workspaceRoot) {
+          if (tabBinding) return rejectSubmit('workspace-mismatch');
           return {
             success: false,
             error:
               'No workspace folder open. Please open a folder to generate agents.',
           };
         }
+        const canonicalWorkspace = authorizedWorkspace ?? workspaceRoot;
+        const effectiveWorkspace = canonicalWorkspace ?? workspaceRoot;
+        if (
+          tabBinding &&
+          parsed.analysisDir &&
+          !this.checkpoints.resolveAuthorizedAnalysisDir(
+            effectiveWorkspace,
+            parsed.analysisDir,
+          )
+        )
+          return rejectSubmit('foreign-directory');
         const analysisDir = this.authorizeAnalysisDir(
-          workspaceRoot,
+          effectiveWorkspace,
           parsed.analysisDir,
         );
         if (
+          !tabBinding &&
           params?.analysisData !== undefined &&
           parsed.analysisData === undefined
         ) {
@@ -271,148 +370,15 @@ export class WizardGenerationRpcHandlers {
         }
 
         try {
-          const freshness = this.resolveService<AnalysisFreshnessService>(
-            AGENT_GENERATION_TOKENS.ANALYSIS_FRESHNESS_SERVICE,
-            'AnalysisFreshnessService',
-          );
-          const storage = this.resolveService<AnalysisStorageService>(
-            AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
-            'AnalysisStorageService',
-          );
-          let status: Awaited<
-            ReturnType<AnalysisFreshnessService['getStatus']>
-          >;
-          try {
-            status = await freshness.getStatus(workspaceRoot);
-          } catch (error: unknown) {
-            // degradation-audit: optional-capability - freshness lookup failure
-            // leaves generation available through current workspace discovery.
-            this.logger.warn(
-              'RPC: wizard:submit-selection could not determine analysis freshness',
-              { cause: error instanceof Error ? error.name : typeof error },
-            );
-            status = {
-              state: 'stale',
-              reason: 'unreadable',
-              analysisDir: null,
-              checkedAt: new Date().toISOString(),
-              analyzedAt: null,
-            };
-          }
-          const freshDir =
-            status.state === 'fresh' && status.analysisDir
-              ? storage.resolveAuthorizedAnalysisDir(
-                  workspaceRoot,
-                  status.analysisDir,
-                )
-              : null;
-          const runtime = await this.resolveRuntime(workspaceRoot);
-          const prepared = resume
-            ? await this.prepareResumedRun(workspaceRoot, analysisDir)
-            : await this.checkpoints.createFresh({
-                workspaceRoot,
-                analysisDir,
-                selectedAgentIds,
-                input: {
-                  threshold: parsed.threshold,
-                  variableOverrides: parsed.variableOverrides,
-                  model: parsed.model,
-                  analysisData: parsed.analysisData,
-                },
-              });
-          if (!prepared) {
-            return {
-              success: false,
-              error:
-                'No resumable generation run was found for this workspace.',
-            };
-          }
-          if (prepared.agentIds.length === 0) {
-            await this.completeWithoutWork(prepared, runtime.webviewManager);
-            return { success: true };
-          }
-
-          const requestedDir = analysisDir ?? prepared.location.analysisDir;
-          const trustedDir =
-            freshDir && (!requestedDir || requestedDir === freshDir)
-              ? freshDir
-              : null;
-          if (!trustedDir) {
-            this.logger.warn(
-              'RPC: wizard:submit-selection using workspace context',
-              {
-                analysisState: status.state,
-                analysisReason: status.reason,
-                analysisDirMatches: !requestedDir || requestedDir === freshDir,
-              },
-            );
-          }
-          const options = this.buildOptions(
+          return await this.executeSubmitInWorkspace({
             workspaceRoot,
-            prepared,
-            runtime,
-            trustedDir,
-          );
-          if (this.runs.isActive) {
-            await this.checkpoints.finalize(prepared.location, 'failed');
-            return {
-              success: false,
-              error:
-                'Agent generation is already in progress. Please wait for it to complete or cancel it first.',
-            };
-          }
-          this.lastGenerationOptions = options;
-          this.lastCheckpoint = prepared.location;
-          this.logger.info('RPC: wizard:submit-selection started', {
-            runId: prepared.manifest.runId,
+            effectiveWorkspace,
+            analysisDir,
+            parsed,
+            tabBinding,
             resume,
-            agents: prepared.agentIds,
-            carriedOver: prepared.carriedOver.length,
-            workspace: workspaceRoot,
+            selectedAgentIds,
           });
-          void this.runs
-            .run({
-              orchestrator: runtime.orchestrator,
-              options,
-              progressCallback: this.createProgressBroadcaster(
-                runtime.webviewManager,
-              ),
-              broadcaster: runtime.webviewManager,
-              outputDirectory: prepared.manifest.outputDirectory,
-              carriedOver: prepared.carriedOver,
-              onSettled: (settled) =>
-                this.afterSettled(
-                  'wizard:submit-selection',
-                  prepared.location,
-                  workspaceRoot,
-                  settled,
-                ),
-            })
-            .catch(async (error: unknown) => {
-              try {
-                this.logger.error('RPC: wizard:submit-selection launch failed');
-                this.sentryService.captureException(
-                  error instanceof Error
-                    ? error
-                    : new Error('Generation run launch failed'),
-                  {
-                    errorSource:
-                      'WizardGenerationRpcHandlers.registerSubmitSelection',
-                  },
-                );
-              } finally {
-                await this.checkpoints.finalize(prepared.location, 'failed');
-              }
-            })
-            .catch(() => {
-              // degradation-audit: reported - the launch failure was already logged,
-              // captured and its checkpoint finalized; a secondary reporting failure
-              // must not become an unhandled rejection.
-              this.logger.warn(
-                'RPC: wizard:submit-selection failure reporting did not complete',
-              );
-            });
-          return { success: true };
         } catch (error: unknown) {
           const errorMessage =
             error instanceof Error ? error.message : String(error);
@@ -420,6 +386,7 @@ export class WizardGenerationRpcHandlers {
             'RPC: wizard:submit-selection unexpected error',
             error instanceof Error ? error : new Error(errorMessage),
           );
+          if (error instanceof RpcUserError) throw error;
           this.sentryService.captureException(
             error instanceof Error ? error : new Error(errorMessage),
             {
@@ -429,13 +396,386 @@ export class WizardGenerationRpcHandlers {
           );
           return {
             success: false,
-            error: `Agent generation failed: ${errorMessage}`,
+            error: tabBinding
+              ? 'Agent generation could not start. Please retry.'
+              : `Agent generation failed: ${errorMessage}`,
           };
         }
       } finally {
         this.submitReserved = false;
       }
     });
+  }
+
+  private async executeSubmitInWorkspace(args: {
+    workspaceRoot: string;
+    effectiveWorkspace: string;
+    analysisDir: string | null;
+    parsed: z.infer<typeof WizardSubmitSelectionParamsSchema>;
+    tabBinding: SetupGenerationTabBinding | undefined;
+    resume: boolean;
+    selectedAgentIds: string[];
+  }): Promise<WizardSubmitSelectionResponse> {
+    const {
+      workspaceRoot,
+      effectiveWorkspace,
+      analysisDir,
+      parsed,
+      tabBinding,
+      resume,
+      selectedAgentIds,
+    } = args;
+    const freshness = this.resolveService<AnalysisFreshnessService>(
+      AGENT_GENERATION_TOKENS.ANALYSIS_FRESHNESS_SERVICE,
+      'AnalysisFreshnessService',
+    );
+    const storage = this.resolveService<AnalysisStorageService>(
+      AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
+      'AnalysisStorageService',
+    );
+    const { status, freshDir, trustedDir, source } =
+      await resolveGenerationContext(
+        freshness,
+        storage,
+        effectiveWorkspace,
+        analysisDir,
+        tabBinding,
+        this.logger,
+      );
+    const runtime = await this.resolveRuntime(effectiveWorkspace);
+    const route = tabBinding
+      ? resolveProviderRoute(
+          this.resolveService<GenerationProviderModels>(
+            SDK_PROVIDER_MODELS_TOKEN,
+            'ProviderModelsService',
+          ),
+          parsed.model,
+        )
+      : null;
+    if (resume && tabBinding) {
+      const owner = await this.checkpoints.locateResumable(
+        effectiveWorkspace,
+        null,
+      );
+      if (
+        owner &&
+        this.checkpoints.isTrusted(owner.location, owner.manifest) &&
+        owner.manifest.tabBinding &&
+        (owner.manifest.tabBinding.tabId !== tabBinding.tabId ||
+          !(await sameWorkspacePath(
+            owner.manifest.tabBinding.workspacePath,
+            tabBinding.workspacePath,
+          )))
+      ) {
+        return {
+          success: false,
+          rejection: {
+            reason: 'blocked',
+            ownerTabId: owner.manifest.tabBinding.tabId,
+          },
+          error: 'Agent generation is already owned by another tab.',
+        };
+      }
+    }
+    if (tabBinding && !resume) {
+      const currentPreview = await this.previewSignature(
+        effectiveWorkspace,
+        selectedAgentIds,
+      );
+      if (
+        !consumeConfirmedPreview(
+          this.confirmedPreviews,
+          tabBinding,
+          effectiveWorkspace,
+          currentPreview,
+          false,
+        )
+      ) {
+        return {
+          success: false,
+          rejection: { reason: 'preview-required' },
+          error:
+            'Generation targets changed. Review the preview and confirm again.',
+        };
+      }
+    }
+    const prepared = await this.prepareSubmittedRun({
+      resume,
+      effectiveWorkspace,
+      analysisDir,
+      tabBinding,
+      source,
+      route,
+      runtime,
+      selectedAgentIds,
+      parsed,
+      trustedDir,
+    });
+    if (!prepared) {
+      return {
+        success: false,
+        error: 'No resumable generation run was found for this workspace.',
+      };
+    }
+    if (prepared.agentIds.length === 0) {
+      await this.completeWithoutWork(prepared, runtime.webviewManager);
+      if (tabBinding && !resume)
+        this.confirmedPreviews.delete(
+          `${tabBinding.tabId}\0${effectiveWorkspace}`,
+        );
+      return acceptedSubmit(tabBinding, prepared, source, route);
+    }
+
+    const accepted = await this.launchSubmittedRun({
+      workspaceRoot,
+      effectiveWorkspace,
+      analysisDir,
+      status,
+      freshDir,
+      trustedDir,
+      source,
+      route,
+      runtime,
+      prepared,
+      tabBinding,
+      resume,
+    });
+    if (accepted.success && tabBinding && !resume)
+      this.confirmedPreviews.delete(
+        `${tabBinding.tabId}\0${effectiveWorkspace}`,
+      );
+    return accepted;
+  }
+
+  private async prepareSubmittedRun(args: {
+    resume: boolean;
+    effectiveWorkspace: string;
+    analysisDir: string | null;
+    tabBinding: SetupGenerationTabBinding | undefined;
+    source: GenerationContextSource;
+    route: { provider: string; model: string } | null;
+    runtime: GenerationRuntime;
+    selectedAgentIds: string[];
+    parsed: z.infer<typeof WizardSubmitSelectionParamsSchema>;
+    trustedDir: string | null;
+  }): Promise<PreparedGenerationRun | null> {
+    const {
+      resume,
+      effectiveWorkspace,
+      analysisDir,
+      tabBinding,
+      source,
+      route,
+      runtime,
+      selectedAgentIds,
+      parsed,
+      trustedDir,
+    } = args;
+    const prepared = resume
+      ? await this.prepareResumedRun(
+          effectiveWorkspace,
+          tabBinding ? null : analysisDir,
+          tabBinding
+            ? {
+                tabBinding,
+                source,
+                effectiveProvider: route?.provider,
+                effectiveModel: route?.model,
+                enhancedPromptsUsed: !!runtime.enhancedPromptContent,
+              }
+            : undefined,
+        )
+      : await this.checkpoints.createFresh({
+          workspaceRoot: effectiveWorkspace,
+          analysisDir: tabBinding
+            ? source.kind === 'verified-analysis'
+              ? trustedDir
+              : null
+            : analysisDir,
+          selectedAgentIds,
+          ...(tabBinding
+            ? {
+                tabBinding,
+                source,
+                effectiveProvider: route?.provider,
+                effectiveModel: route?.model,
+                enhancedPromptsUsed: !!runtime.enhancedPromptContent,
+              }
+            : {}),
+          input: {
+            threshold: parsed.threshold,
+            variableOverrides: parsed.variableOverrides,
+            model: route?.model ?? parsed.model,
+            analysisData: tabBinding ? undefined : parsed.analysisData,
+          },
+        });
+    return prepared;
+  }
+
+  private async launchSubmittedRun(args: {
+    workspaceRoot: string;
+    effectiveWorkspace: string;
+    analysisDir: string | null;
+    status: Awaited<ReturnType<AnalysisFreshnessService['getStatus']>>;
+    freshDir: string | null;
+    trustedDir: string | null;
+    source: GenerationContextSource;
+    route: { provider: string; model: string } | null;
+    runtime: GenerationRuntime;
+    prepared: PreparedGenerationRun;
+    tabBinding: SetupGenerationTabBinding | undefined;
+    resume: boolean;
+  }): Promise<WizardSubmitSelectionResponse> {
+    const {
+      workspaceRoot,
+      effectiveWorkspace,
+      analysisDir,
+      status,
+      freshDir,
+      trustedDir,
+      source,
+      route,
+      runtime,
+      prepared,
+      tabBinding,
+      resume,
+    } = args;
+    const resumeRequestedDir = analysisDir ?? prepared.location.analysisDir;
+    const selectedTrustedDir =
+      freshDir && (!resumeRequestedDir || resumeRequestedDir === freshDir)
+        ? freshDir
+        : null;
+    if (!selectedTrustedDir) {
+      this.logger.warn('RPC: wizard:submit-selection using workspace context', {
+        analysisState: status.state,
+        analysisReason: status.reason,
+        analysisDirMatches:
+          !resumeRequestedDir || resumeRequestedDir === freshDir,
+      });
+    }
+    const options = this.buildOptions(
+      effectiveWorkspace,
+      prepared,
+      runtime,
+      tabBinding
+        ? source.kind === 'verified-analysis'
+          ? trustedDir
+          : null
+        : selectedTrustedDir,
+    );
+    if (this.runs.isActive) {
+      await this.checkpoints.finalize(prepared.location, 'failed');
+      return {
+        success: false,
+        error:
+          'Agent generation is already in progress. Please wait for it to complete or cancel it first.',
+      };
+    }
+    if (!tabBinding) {
+      this.lastGenerationOptions = options;
+      this.lastCheckpoint = prepared.location;
+    }
+    this.logger.info('RPC: wizard:submit-selection started', {
+      runId: prepared.manifest.runId,
+      resume,
+      agents: prepared.agentIds,
+      carriedOver: prepared.carriedOver.length,
+      workspace: workspaceRoot,
+    });
+    void this.runs
+      .run({
+        orchestrator: runtime.orchestrator,
+        ...(tabBinding
+          ? {
+              tabBinding: {
+                ...tabBinding,
+                runId: prepared.manifest.runId,
+              },
+              source,
+              effectiveProvider: route?.provider,
+              effectiveModel: route?.model,
+              enhancedPromptsUsed: !!runtime.enhancedPromptContent,
+            }
+          : {}),
+        options,
+        progressCallback: this.createProgressBroadcaster(
+          runtime.webviewManager,
+          tabBinding
+            ? { ...tabBinding, runId: prepared.manifest.runId }
+            : undefined,
+        ),
+        broadcaster: runtime.webviewManager,
+        outputDirectory: prepared.manifest.outputDirectory,
+        carriedOver: prepared.carriedOver,
+        onSettled: (settled) =>
+          this.afterSettled(
+            'wizard:submit-selection',
+            prepared.location,
+            effectiveWorkspace,
+            settled,
+            !!tabBinding,
+            prepared.previousPropagation,
+          ),
+      })
+      .catch(async (error: unknown) => {
+        try {
+          await this.reportSubmitLaunchFailure(error, prepared.location);
+        } finally {
+          if (tabBinding) {
+            await this.runs.broadcastCompletion(runtime.webviewManager, {
+              ...buildCompletePayload({
+                summary: null,
+                failure: {
+                  message: 'Agent generation could not start.',
+                  thrown: true,
+                },
+                abortReason: null,
+                carriedOver: prepared.carriedOver,
+                outputDirectory: prepared.manifest.outputDirectory,
+                durationMs: 0,
+              }),
+              tabBinding: { ...tabBinding, runId: prepared.manifest.runId },
+              terminalStatus: 'failed',
+              result: {
+                status: 'failed',
+                success: false,
+                source,
+                effectiveProvider: route?.provider ?? 'unknown',
+                effectiveModel: route?.model ?? 'unknown',
+                committedState: 'unknown',
+              },
+            });
+          }
+        }
+      })
+      .catch(() => {
+        // degradation-audit: reported - the launch failure was already logged,
+        // captured and its checkpoint finalized; a secondary reporting failure
+        // must not become an unhandled rejection.
+        this.logger.warn(
+          'RPC: wizard:submit-selection failure reporting did not complete',
+        );
+      });
+    return acceptedSubmit(tabBinding, prepared, source, route);
+  }
+
+  private async reportSubmitLaunchFailure(
+    error: unknown,
+    location: GenerationCheckpointLocation,
+  ): Promise<void> {
+    try {
+      this.logger.error('RPC: wizard:submit-selection launch failed');
+      this.sentryService.captureException(
+        error instanceof Error
+          ? error
+          : new Error('Generation run launch failed'),
+        {
+          errorSource: 'WizardGenerationRpcHandlers.registerSubmitSelection',
+        },
+      );
+    } finally {
+      await this.checkpoints.finalize(location, 'failed');
+    }
   }
 
   /**
@@ -446,10 +786,12 @@ export class WizardGenerationRpcHandlers {
   private async prepareResumedRun(
     workspaceRoot: string,
     analysisDir: string | null,
+    metadata?: Parameters<GenerationCheckpointService['prepareResume']>[2],
   ): Promise<PreparedGenerationRun | null> {
     const located = await this.checkpoints.locateResumable(
       workspaceRoot,
       analysisDir,
+      !metadata?.tabBinding && analysisDir === null,
     );
     if (!located) return null;
     if (!this.checkpoints.isTrusted(located.location, located.manifest)) {
@@ -459,7 +801,34 @@ export class WizardGenerationRpcHandlers {
       );
       return null;
     }
-    return this.checkpoints.prepareResume(located.location, located.manifest);
+    // An unbound resume (legacy wizard / CLI) must not adopt a chat-tab run.
+    if (!metadata?.tabBinding && located.manifest.tabBinding) {
+      throw new RpcUserError(
+        'This generation run belongs to a chat tab. Resume it in that tab.',
+        'INVALID_PARAMS',
+      );
+    }
+    if (
+      metadata?.tabBinding &&
+      located.manifest.tabBinding &&
+      (located.manifest.tabBinding.tabId !== metadata.tabBinding.tabId ||
+        !(await sameWorkspacePath(
+          located.manifest.tabBinding.workspacePath,
+          metadata.tabBinding.workspacePath,
+        )))
+    )
+      return null;
+    if (
+      metadata?.tabBinding &&
+      located.manifest.workspaceRoot &&
+      !(await sameWorkspacePath(located.manifest.workspaceRoot, workspaceRoot))
+    )
+      return null;
+    return this.checkpoints.prepareResume(
+      located.location,
+      located.manifest,
+      metadata,
+    );
   }
 
   /**
@@ -470,18 +839,53 @@ export class WizardGenerationRpcHandlers {
     prepared: PreparedGenerationRun,
     broadcaster: WebviewBroadcaster | null,
   ): Promise<void> {
-    await this.checkpoints.finalize(prepared.location, 'completed');
-    await this.runs.broadcastCompletion(
-      broadcaster,
-      buildCompletePayload({
-        summary: null,
-        failure: null,
-        abortReason: null,
-        carriedOver: prepared.carriedOver,
-        outputDirectory: prepared.manifest.outputDirectory,
-        durationMs: 0,
-      }),
-    );
+    await this.checkpoints.finalize(prepared.location, 'completed', true);
+    const payload = buildCompletePayload({
+      summary: null,
+      failure: null,
+      abortReason: null,
+      carriedOver: prepared.carriedOver,
+      outputDirectory: prepared.manifest.outputDirectory,
+      durationMs: 0,
+    });
+    const manifest = prepared.manifest;
+    if (prepared.previousPropagation) {
+      try {
+        await this.checkpoints.recordPropagation(
+          prepared.location,
+          prepared.previousPropagation,
+        );
+        manifest.propagation = prepared.previousPropagation;
+      } catch (error: unknown) {
+        // degradation-audit: reported - finalization is committed; propagation persistence is supplementary.
+        this.logger.error(
+          'RPC: completed propagation could not be restored',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      }
+    }
+    if (manifest.tabBinding) {
+      const source = manifest.source ?? {
+        kind: 'workspace-discovery' as const,
+        reason: 'missing' as const,
+      };
+      await this.runs.broadcastCompletion(broadcaster, {
+        ...payload,
+        tabBinding: { ...manifest.tabBinding, runId: manifest.runId },
+        terminalStatus: 'completed',
+        result: {
+          status: 'completed',
+          success: true,
+          source,
+          effectiveProvider: manifest.effectiveProvider ?? 'unknown',
+          effectiveModel: manifest.effectiveModel ?? 'unknown',
+          enhancedPromptsUsed: manifest.enhancedPromptsUsed,
+          ...resultDetailsFromManifest(manifest),
+        },
+      });
+    } else {
+      await this.runs.broadcastCompletion(broadcaster, payload);
+    }
   }
 
   /**
@@ -494,9 +898,53 @@ export class WizardGenerationRpcHandlers {
     location: GenerationCheckpointLocation,
     workspaceRoot: string,
     settled: SettledGenerationRun,
+    bound = false,
+    previousPropagation?: PreparedGenerationRun['previousPropagation'],
   ): Promise<void> {
-    const lifecycle = settled.summary?.lifecycle ?? 'failed';
-    await this.checkpoints.finalize(location, lifecycle);
+    let lifecycle =
+      settled.abortReason === GENERATION_CANCEL_REASON
+        ? 'paused'
+        : settled.abortReason !== null
+          ? 'timed-out'
+          : bound &&
+              settled.summary?.lifecycle === 'completed' &&
+              settled.payload.failedCount > 0
+            ? 'failed'
+            : (settled.summary?.lifecycle ?? 'failed');
+    let finalizeError: unknown;
+    try {
+      if (
+        bound &&
+        settled.abortReason === null &&
+        settled.summary?.lifecycle === 'completed'
+      ) {
+        const checkpoint = await this.checkpoints.loadAt(location);
+        if (!checkpoint)
+          throw new Error('Generation checkpoint missing before settlement');
+        const recordedFailedCount = checkpoint.selectedAgentIds.filter(
+          (agentId) => checkpoint.agents[agentId]?.status === 'failed',
+        ).length;
+        if (recordedFailedCount > 0) {
+          lifecycle = 'failed';
+          settled.payload = {
+            ...settled.payload,
+            success: false,
+            failedCount: Math.max(
+              settled.payload.failedCount,
+              recordedFailedCount,
+            ),
+            errors: settled.payload.errors ?? ['Some agents still failed.'],
+          };
+        }
+      }
+      await this.checkpoints.finalize(
+        location,
+        lifecycle,
+        settled.summary !== null,
+      );
+    } catch (error: unknown) {
+      finalizeError = error;
+    }
     if (settled.summary) {
       this.logger.info(`RPC: ${method} settled`, {
         lifecycle,
@@ -506,13 +954,55 @@ export class WizardGenerationRpcHandlers {
         durationMs: settled.durationMs,
       });
       if (settled.summary.writtenCount > 0) {
-        await this.propagateGeneratedAgents(workspaceRoot);
+        const propagation = await this.propagateGeneratedAgents(workspaceRoot);
+        if (bound) {
+          try {
+            await this.checkpoints.recordPropagation(location, propagation);
+            settled.propagation = propagation;
+          } catch (error: unknown) {
+            // degradation-audit: reported - finalization succeeded; omit unrecorded propagation facts.
+            this.logger.error(
+              'RPC: propagation checkpoint update failed',
+              error instanceof Error ? error : new Error(String(error)),
+            );
+          }
+        }
+      } else if (bound) {
+        const propagation = previousPropagation ?? {
+          consent: 'not-granted' as const,
+          status: 'not-attempted' as const,
+        };
+        try {
+          await this.checkpoints.recordPropagation(location, propagation);
+          settled.propagation = propagation;
+        } catch (error: unknown) {
+          // degradation-audit: reported - finalization succeeded; omit unrecorded propagation facts.
+          this.logger.error(
+            'RPC: propagation checkpoint update failed',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        }
       }
     } else {
       this.logger.error(`RPC: ${method} failed`, {
         error: settled.failure?.message,
         durationMs: settled.durationMs,
       });
+    }
+    if (finalizeError) throw finalizeError;
+    if (bound && settled.summary) {
+      try {
+        const committed = await this.checkpoints.loadAt(location);
+        if (!committed)
+          throw new Error('Generation checkpoint missing after settlement');
+        settled.resultDetails = resultDetailsFromManifest(committed);
+      } catch (error: unknown) {
+        // degradation-audit: reported - finalization succeeded; the push can omit unreadable facts.
+        this.logger.error(
+          'RPC: finalized generation checkpoint could not be reloaded',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      }
     }
   }
 
@@ -551,6 +1041,15 @@ export class WizardGenerationRpcHandlers {
       WizardPreviewGenerationParams,
       WizardPreviewGenerationResponse
     >('wizard:preview-generation', async (params) => {
+      const previewBinding = (params as { tabBinding?: unknown })?.tabBinding;
+      if (
+        previewBinding !== undefined &&
+        !WizardTabBindingSchema.safeParse(previewBinding).success
+      )
+        throw new RpcUserError(
+          'Invalid generation tab binding.',
+          'INVALID_PARAMS',
+        );
       const parsed = this.parse(WizardPreviewGenerationParamsSchema, params);
       const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
       if (!workspaceRoot) {
@@ -559,12 +1058,45 @@ export class WizardGenerationRpcHandlers {
           'INVALID_PARAMS',
         );
       }
+      const canonicalWorkspace = parsed.tabBinding
+        ? await authorizeTabWorkspace(
+            workspaceRoot,
+            parsed.tabBinding,
+            this.logger,
+          )
+        : null;
+      if (parsed.tabBinding && !canonicalWorkspace)
+        throw new RpcUserError(
+          'Generation workspace does not match the active workspace.',
+          'UNAUTHORIZED_WORKSPACE',
+        );
+      const binding =
+        parsed.tabBinding && canonicalWorkspace
+          ? { ...parsed.tabBinding, workspacePath: canonicalWorkspace }
+          : undefined;
       const rivals = await this.previewRivals(workspaceRoot);
       const agents = await Promise.all(
         [...new Set(parsed.selectedAgentIds)].map((agentId) =>
           this.previewAgent(workspaceRoot, agentId, rivals),
         ),
       );
+      if (binding) {
+        const canonical = binding.workspacePath;
+        if (this.confirmedPreviews.size >= 64) {
+          const oldest = this.confirmedPreviews.keys().next().value;
+          if (oldest) this.confirmedPreviews.delete(oldest);
+        }
+        this.confirmedPreviews.set(
+          `${binding.tabId}\0${canonical}`,
+          JSON.stringify(
+            agents.flatMap((agent) =>
+              agent.files
+                .filter((file) => file.certainty === 'definite')
+                .map((file) => [file.target, file.relPath, file.willOverwrite]),
+            ),
+          ),
+        );
+      }
       this.logger.debug('RPC: wizard:preview-generation', {
         agents: agents.length,
         rivalTargets:
@@ -594,7 +1126,8 @@ export class WizardGenerationRpcHandlers {
       // harness root's, so nothing generated here reaches another CLI.
       return {
         kind: 'unavailable',
-        warning: `Other CLIs sync agents from ${harnessRoot}, not from this folder, so only the Claude agent files are listed.`,
+        warning:
+          'Other CLIs sync agents from a different folder, so only the Claude agent files are listed.',
       };
     }
     try {
@@ -727,9 +1260,43 @@ export class WizardGenerationRpcHandlers {
     this.rpcHandler.registerMethod<WizardCancelParams, WizardCancelResponse>(
       'wizard:cancel',
       async (params) => {
+        if (
+          params?.tabBinding !== undefined &&
+          !WizardRunBindingSchema.safeParse(params.tabBinding).success
+        )
+          return { cancelled: false, rejection: { reason: 'invalid-binding' } };
         const parsed = this.parse(WizardCancelParamsSchema, params);
+        if (parsed.tabBinding) {
+          const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+          const canonicalWorkspace = workspaceRoot
+            ? await authorizeTabWorkspace(
+                workspaceRoot,
+                parsed.tabBinding,
+                this.logger,
+              )
+            : null;
+          if (!canonicalWorkspace)
+            return {
+              cancelled: false,
+              rejection: { reason: 'workspace-mismatch' },
+            };
+          const active = this.runs.binding;
+          if (
+            !active ||
+            !this.runs.abortBound(
+              { ...parsed.tabBinding, workspacePath: canonicalWorkspace },
+              GENERATION_CANCEL_REASON,
+            )
+          )
+            return { cancelled: false, rejection: { reason: 'not-running' } };
+          return { cancelled: true, progressSaved: true };
+        }
         const saveProgress = parsed.saveProgress ?? true;
-        const abortedRun = this.runs.abort(GENERATION_CANCEL_REASON);
+        // Legacy cancel has no tab id. Abort only an unbound run; a chat-tab
+        // run stays active and this response does not claim it was cancelled.
+        const abortedRun = this.runs.binding
+          ? false
+          : this.runs.abort(GENERATION_CANCEL_REASON);
         this.logger.debug('RPC: wizard:cancel called', {
           saveProgress,
           abortedRun,
@@ -803,6 +1370,11 @@ export class WizardGenerationRpcHandlers {
       WizardRetryItemParams,
       WizardRetryItemResponse
     >('wizard:retry-item', async (params) => {
+      if (
+        params?.tabBinding !== undefined &&
+        !WizardRunBindingSchema.safeParse(params.tabBinding).success
+      )
+        return { success: false, rejection: { reason: 'invalid-binding' } };
       const parsed = this.parse(WizardRetryItemParamsSchema, params);
       if (this.runs.isActive || this.submitReserved) {
         return {
@@ -813,11 +1385,29 @@ export class WizardGenerationRpcHandlers {
       }
       const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
       if (!workspaceRoot) {
+        if (parsed.tabBinding)
+          return {
+            success: false,
+            rejection: { reason: 'workspace-mismatch' },
+          };
         return {
           success: false,
           error: 'No workspace folder open. Please open a folder first.',
         };
       }
+      const canonicalWorkspace = parsed.tabBinding
+        ? await authorizeTabWorkspace(
+            workspaceRoot,
+            parsed.tabBinding,
+            this.logger,
+          )
+        : null;
+      if (parsed.tabBinding && !canonicalWorkspace)
+        return { success: false, rejection: { reason: 'workspace-mismatch' } };
+      const retryBinding =
+        parsed.tabBinding && canonicalWorkspace
+          ? { ...parsed.tabBinding, workspacePath: canonicalWorkspace }
+          : undefined;
 
       try {
         this.logger.info('RPC: wizard:retry-item started', {
@@ -829,12 +1419,55 @@ export class WizardGenerationRpcHandlers {
           'AgentGenerationOrchestratorService',
         );
         const webviewManager = this.resolveWebviewManager();
-        const checkpoint = this.lastCheckpoint;
+        const boundCheckpoint = retryBinding
+          ? await this.checkpoints.locateBound(
+              canonicalWorkspace!,
+              retryBinding,
+              retryBinding.runId,
+            )
+          : null;
+        if (
+          retryBinding &&
+          (!boundCheckpoint ||
+            boundCheckpoint.manifest.runId !== retryBinding.runId ||
+            boundCheckpoint.manifest.tabBinding?.tabId !== retryBinding.tabId ||
+            !this.checkpoints.isTrusted(
+              boundCheckpoint.location,
+              boundCheckpoint.manifest,
+            ))
+        )
+          return { success: false, rejection: { reason: 'not-running' } };
+        const checkpoint = retryBinding
+          ? (boundCheckpoint?.location ?? null)
+          : this.lastCheckpoint;
+        const boundRuntime = retryBinding
+          ? await this.resolveRuntime(workspaceRoot)
+          : null;
         const options: OrchestratorGenerationOptions = {
-          ...(this.lastGenerationOptions ?? {}),
+          ...(retryBinding
+            ? {
+                threshold: boundCheckpoint?.manifest.input.threshold,
+                variableOverrides:
+                  boundCheckpoint?.manifest.input.variableOverrides,
+                model:
+                  boundCheckpoint?.manifest.effectiveModel ??
+                  boundCheckpoint?.manifest.input.model,
+                enhancedPromptContent: boundCheckpoint?.manifest
+                  .enhancedPromptsUsed
+                  ? boundRuntime?.enhancedPromptContent
+                  : undefined,
+                analysisDir:
+                  boundCheckpoint?.manifest.source?.kind === 'verified-analysis'
+                    ? boundCheckpoint.manifest.source.analysisDir
+                    : undefined,
+              }
+            : (this.lastGenerationOptions ?? {})),
           workspacePath: workspaceRoot,
           userOverrides: [parsed.itemId],
-          onStreamEvent: this.createStreamBroadcaster(webviewManager),
+          onStreamEvent: this.createStreamBroadcaster(
+            webviewManager,
+            retryBinding,
+          ),
           onAgentOutcome: checkpoint
             ? (outcome) => this.checkpoints.recordOutcome(checkpoint, outcome)
             : undefined,
@@ -842,7 +1475,25 @@ export class WizardGenerationRpcHandlers {
 
         const settled = await this.runs.run({
           orchestrator,
+          ...(retryBinding
+            ? {
+                tabBinding: retryBinding,
+                source: boundCheckpoint?.manifest.source,
+                effectiveProvider: boundCheckpoint?.manifest.effectiveProvider,
+                effectiveModel: boundCheckpoint?.manifest.effectiveModel,
+                enhancedPromptsUsed:
+                  boundCheckpoint?.manifest.enhancedPromptsUsed,
+              }
+            : {}),
           options,
+          ...(retryBinding
+            ? {
+                progressCallback: this.createProgressBroadcaster(
+                  webviewManager,
+                  retryBinding,
+                ),
+              }
+            : {}),
           broadcaster: webviewManager,
           outputDirectory: this.checkpoints.outputDirectoryFor(workspaceRoot),
           carriedOver: [],
@@ -853,6 +1504,7 @@ export class WizardGenerationRpcHandlers {
                   checkpoint,
                   workspaceRoot,
                   result,
+                  !!retryBinding,
                 )
               : this.afterSettledWithoutCheckpoint(workspaceRoot, result),
         });
@@ -860,7 +1512,20 @@ export class WizardGenerationRpcHandlers {
         if (settled.failure?.thrown) {
           throw new Error(settled.failure.message);
         }
-        if (settled.payload.success) {
+        if (
+          settled.payload.success ||
+          (retryBinding &&
+            settled.resultDetails?.finalizationFailed !== true &&
+            settled.abortReason === null &&
+            settled.failure === null &&
+            settled.summary?.lifecycle === 'completed' &&
+            settled.summary.outcomes.some(
+              (outcome) =>
+                outcome.agentId === parsed.itemId &&
+                (outcome.status === 'written' ||
+                  outcome.status === 'unchanged'),
+            ))
+        ) {
           return { success: true };
         }
         const errorMessage =
@@ -885,7 +1550,9 @@ export class WizardGenerationRpcHandlers {
         );
         return {
           success: false,
-          error: `Retry failed: ${errorMessage}`,
+          error: parsed.tabBinding
+            ? 'Agent retry failed. Please retry or resume.'
+            : `Retry failed: ${errorMessage}`,
         };
       }
     });
@@ -984,10 +1651,18 @@ export class WizardGenerationRpcHandlers {
       threshold: input.threshold,
       variableOverrides: input.variableOverrides,
       enhancedPromptContent: runtime.enhancedPromptContent,
-      preComputedAnalysis: trustedDir ? input.analysisData : undefined,
+      preComputedAnalysis:
+        trustedDir && !prepared.manifest.tabBinding
+          ? input.analysisData
+          : undefined,
       mcpServerRunning: runtime.mcpServerRunning,
       mcpPort: runtime.mcpPort,
-      onStreamEvent: this.createStreamBroadcaster(runtime.webviewManager),
+      onStreamEvent: this.createStreamBroadcaster(
+        runtime.webviewManager,
+        prepared.manifest.tabBinding
+          ? { ...prepared.manifest.tabBinding, runId: prepared.manifest.runId }
+          : undefined,
+      ),
       model: input.model,
       analysisDir: trustedDir ?? undefined,
       pluginPaths: runtime.pluginPaths,
@@ -1020,11 +1695,15 @@ export class WizardGenerationRpcHandlers {
 
   private createStreamBroadcaster(
     webviewManager: WebviewBroadcaster | null,
+    tabBinding?: SetupGenerationRunBinding,
   ): (event: GenerationStreamPayload) => void {
     return (event) => {
       if (!webviewManager) return;
       webviewManager
-        .broadcastMessage('setup-wizard:generation-stream', event)
+        .broadcastMessage(
+          'setup-wizard:generation-stream',
+          tabBinding ? { ...event, tabBinding } : event,
+        )
         .catch((broadcastError: unknown) => {
           this.logger.warn('Failed to broadcast generation stream event', {
             error:
@@ -1039,11 +1718,13 @@ export class WizardGenerationRpcHandlers {
   /** Progress callback errors are caught so they cannot crash the pipeline. */
   private createProgressBroadcaster(
     webviewManager: WebviewBroadcaster | null,
+    tabBinding?: SetupGenerationRunBinding,
   ): (progress: GenerationProgress) => void {
     return (progress) => {
       if (!webviewManager) return;
       try {
         const payload: GenerationProgressPayload = {
+          ...(tabBinding ? { tabBinding, lifecycle: 'running' as const } : {}),
           progress: {
             phase: progress.phase === 'writing' ? 'rendering' : progress.phase,
             percentComplete: progress.percentComplete,
@@ -1085,13 +1766,20 @@ export class WizardGenerationRpcHandlers {
    * mirror has run). A wizard run must not fail because a rival CLI's
    * directory was read-only.
    */
-  private async propagateGeneratedAgents(workspaceRoot: string): Promise<void> {
+  private async propagateGeneratedAgents(
+    workspaceRoot: string,
+  ): Promise<NonNullable<SetupGenerationResultFacts['propagation']>> {
+    let consent = false;
     try {
       // BEFORE the propagate, because the reconciler resolves the gate at the
       // top of the pass: granting after it would leave the agents this run
       // just generated sitting in the user layer until a later trigger.
-      this.grantAgentSyncConsent(workspaceRoot);
-      if (!this.container.isRegistered(HARNESS_SYNC_TOKENS.PROPAGATION)) return;
+      consent = this.grantAgentSyncConsent(workspaceRoot);
+      if (!this.container.isRegistered(HARNESS_SYNC_TOKENS.PROPAGATION))
+        return {
+          consent: consent ? 'granted' : 'not-granted',
+          status: 'unavailable',
+        };
       const propagation = this.resolveService<HarnessPropagationService>(
         HARNESS_SYNC_TOKENS.PROPAGATION,
         'HarnessPropagationService',
@@ -1100,16 +1788,28 @@ export class WizardGenerationRpcHandlers {
         workspaceRoot,
         'wizard:generation-complete',
       );
-      if (health === null) return;
+      if (health === null)
+        return {
+          consent: consent ? 'granted' : 'not-granted',
+          status: 'unavailable',
+        };
       this.logger.info('Generated agents propagated to harness targets', {
         targets: health.targets
           .filter((target) => target.detected)
           .map((target) => target.target),
       });
+      return {
+        consent: consent ? 'granted' : 'not-granted',
+        status: 'completed',
+        targets: health.targets
+          .filter((target) => target.detected)
+          .map((target) => target.target),
+      };
     } catch (error: unknown) {
       this.logger.warn('Harness propagation after generation failed', {
         error: error instanceof Error ? error.message : String(error),
       });
+      return { consent: consent ? 'granted' : 'not-granted', status: 'failed' };
     }
   }
 
@@ -1119,24 +1819,27 @@ export class WizardGenerationRpcHandlers {
    * the reconciler would decline to fan a single generated agent out to
    * Codex, Copilot or Cursor.
    */
-  private grantAgentSyncConsent(workspaceRoot: string): void {
+  private grantAgentSyncConsent(workspaceRoot: string): boolean {
     try {
       if (!this.container.isRegistered(HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE)) {
-        return;
+        return false;
       }
       const gate = this.resolveService<AgentSyncGate>(
         HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE,
         'AgentSyncGate',
       );
-      if (gate.enable(workspaceRoot)) return;
+      if (gate.enable(workspaceRoot)) return true;
       this.logger.warn(
         'Could not record agent-sync consent; generated agents may not reach rival CLIs',
         { workspaceRoot },
       );
+      return false;
     } catch (error: unknown) {
+      // degradation-audit: reported - consent failure is logged and surfaced as unavailable.
       this.logger.warn('Recording agent-sync consent failed', {
         error: error instanceof Error ? error.message : String(error),
       });
+      return false;
     }
   }
 
@@ -1183,6 +1886,25 @@ export class WizardGenerationRpcHandlers {
   /**
    * Resolve a service from the DI container with a descriptive failure.
    */
+  private async previewSignature(
+    workspaceRoot: string,
+    agentIds: string[],
+  ): Promise<string> {
+    const rivals = await this.previewRivals(workspaceRoot);
+    const agents = await Promise.all(
+      [...new Set(agentIds)].map((id) =>
+        this.previewAgent(workspaceRoot, id, rivals),
+      ),
+    );
+    return JSON.stringify(
+      agents.flatMap((agent) =>
+        agent.files
+          .filter((file) => file.certainty === 'definite')
+          .map((file) => [file.target, file.relPath, file.willOverwrite]),
+      ),
+    );
+  }
+
   private resolveService<T>(token: symbol | string, serviceName: string): T {
     try {
       const service = this.container.resolve(token);

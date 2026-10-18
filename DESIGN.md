@@ -1,6 +1,6 @@
 # Design
 
-Authoritative long-form system: `.claude/skills/technical-content-writer/DESIGN-SYSTEM.md` ("Egyptian Sacred Tech v2"). Live token source: `apps/ptah-landing-page/tailwind.config.js` (daisyUI `anubis` theme). This file is the quick reference.
+Authoritative long-form system: `docs/design-system/ptah-content-brand.md` ("Egyptian Sacred Tech v2"). Live token source: `apps/ptah-landing-page/tailwind.config.js` (daisyUI `anubis` theme). This file is the quick reference.
 
 ## Theme
 

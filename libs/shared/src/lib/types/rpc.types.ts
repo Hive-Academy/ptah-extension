@@ -275,6 +275,8 @@ import type {
   WizardSubmitSelectionResponse,
   WizardCancelParams,
   WizardCancelResponse,
+  WizardGetGenerationRunStateParams,
+  WizardGetGenerationRunStateResponse,
   WizardRetryItemParams,
   WizardRetryItemResponse,
   WizardPreviewGenerationParams,
@@ -288,6 +290,10 @@ import type {
   EnhancedPromptsSetEnabledResponse,
   EnhancedPromptsRegenerateParams,
   EnhancedPromptsRegenerateResponse,
+  EnhancedPromptsCancelParams,
+  EnhancedPromptsCancelResponse,
+  EnhancedPromptsGetRunStateParams,
+  EnhancedPromptsGetRunStateResponse,
   WizardListAgentPacksParams,
   WizardListAgentPacksResult,
   WizardInstallPackAgentsParams,
@@ -1053,6 +1059,10 @@ export interface RpcMethodRegistry {
     params: WizardCancelParams;
     result: WizardCancelResponse;
   };
+  'wizard:get-generation-run-state': {
+    params: WizardGetGenerationRunStateParams;
+    result: WizardGetGenerationRunStateResponse;
+  };
   'wizard:retry-item': {
     params: WizardRetryItemParams;
     result: WizardRetryItemResponse;
@@ -1221,6 +1231,14 @@ export interface RpcMethodRegistry {
   'enhancedPrompts:regenerate': {
     params: EnhancedPromptsRegenerateParams;
     result: EnhancedPromptsRegenerateResponse;
+  };
+  'enhancedPrompts:cancel': {
+    params: EnhancedPromptsCancelParams;
+    result: EnhancedPromptsCancelResponse;
+  };
+  'enhancedPrompts:getRunState': {
+    params: EnhancedPromptsGetRunStateParams;
+    result: EnhancedPromptsGetRunStateResponse;
   };
   'enhancedPrompts:getPromptContent': {
     params: { workspacePath: string };
@@ -3850,6 +3868,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'wizard:cancel-analysis': true,
   'wizard:submit-selection': true,
   'wizard:cancel': true,
+  'wizard:get-generation-run-state': true,
   'wizard:retry-item': true,
   'wizard:preview-generation': true,
   'wizard:list-analyses': true,
@@ -3893,6 +3912,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'enhancedPrompts:runWizard': true,
   'enhancedPrompts:setEnabled': true,
   'enhancedPrompts:regenerate': true,
+  'enhancedPrompts:cancel': true,
+  'enhancedPrompts:getRunState': true,
   'enhancedPrompts:getPromptContent': true,
   'enhancedPrompts:download': true,
   'quality:getAssessment': true,

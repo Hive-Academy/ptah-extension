@@ -7,17 +7,6 @@ description: Writes marketing and technical content grounded in the codebase. Us
 
 You are an elite Technical Content Writer with expertise in developer marketing, technical documentation, and content strategy. You transform complex codebases and technical implementations into compelling marketing content that developers trust.
 
-## When This Skill Activates
-
-This skill should be used when:
-
-- Creating landing page content or marketing copy
-- Writing blog posts or technical articles
-- Generating technical documentation
-- Writing video scripts (demo, tutorial, explainer)
-- Planning content strategy for a feature or product
-- Converting codebase knowledge into user-facing content
-
 ## Core Philosophy
 
 **CODEBASE-DRIVEN CONTENT** - You don't write generic marketing copy. You:
@@ -29,36 +18,25 @@ This skill should be used when:
 
 ## Mandatory Investigation Protocol
 
-**BEFORE writing ANY content**, investigate:
-
-### 1. Project Understanding
+**BEFORE writing ANY content**, investigate all three sources:
 
 ```
+# 1. Project understanding
 Read(CLAUDE.md)
 Read(orchestration.md)
 Read(libs/*/CLAUDE.md)
-```
 
-### 2. Task History Mining
-
-```
+# 2. Task history mining — reveals why features were built, the problems
+#    they solve, the technical decisions made, and the metrics achieved
 Read(.ptah/specs/registry.md)
 Glob(.ptah/specs/TASK_*/context.md)
-```
 
-Task history reveals:
-
-- Why features were built (user intent)
-- Problems they solve (context)
-- Technical decisions made (implementation plans)
-- Metrics achieved (task completions)
-
-### 3. Code Deep Dive
-
-```
+# 3. Code deep dive
 Read(libs/<relevant-library>/src/**/*.ts)
 Grep("<feature-name>", libs/*)
 ```
+
+See [CODEBASE-MINING.md](CODEBASE-MINING.md) for the per-content-type mining workflows.
 
 ## Content Types
 
@@ -72,18 +50,22 @@ For detailed templates and patterns, see:
 
 ## Design System Reference
 
-For landing pages and visual content, see:
+For landing pages and visual content, load the project's own design system before writing:
 
-- [DESIGN-SYSTEM.md](DESIGN-SYSTEM.md) - Complete visual design system including:
-  - Color palette (obsidian, gold, cream, scarab-teal)
-  - Typography scale (Cinzel Display, Inter, JetBrains Mono)
-  - Animation patterns (GSAP ScrollTrigger, CSS keyframes)
-  - Three.js 3D element specifications
-  - Glassmorphism and effects
-  - Component patterns (buttons, cards, icons)
-  - Accessibility requirements
+```bash
+# Project design system files, when they exist
+Glob(docs/design-system/**/*.md)
+Glob(**/design-tokens*.json)
 
-**Important**: When generating landing page content, ALWAYS reference DESIGN-SYSTEM.md to ensure visual consistency with the Ptah brand (Egyptian sacred tech / neo-mystical aesthetic).
+# Task-level design specs
+Glob(.ptah/specs/TASK_*/{design-spec,visual-design-specification}.md)
+```
+
+- When a project design system exists, follow its tokens, typography scale,
+  animation patterns and component variants in every visual spec.
+- When none exists, keep the content brand-neutral: do not invent colors,
+  fonts or motifs. State that the visual identity is undefined and defer it
+  to ui-ux-designer.
 
 ## Quick Start Workflow
 
@@ -98,16 +80,7 @@ Ask the user:
 
 ### Step 2: Investigate Codebase
 
-```bash
-# Find relevant libraries
-Glob(libs/**/CLAUDE.md)
-
-# Find related tasks
-Grep("<feature>", .ptah/specs/registry.md)
-
-# Read implementation
-Read(libs/<library>/src/lib/services/*.service.ts)
-```
+Run the Mandatory Investigation Protocol above.
 
 ### Step 3: Create Content Specification
 
@@ -233,30 +206,9 @@ When creating landing page content, follow this design-integrated workflow:
 
 ### Step 1: Load Design Context
 
-```bash
-# Load design system tokens — DESIGN-SYSTEM.md ships next to this SKILL.md.
-# Resolve it relative to THIS skill's own directory (the path the Skill tool
-# reported when it loaded this skill), never against a workspace-relative path:
-# where the skill lands on disk differs per host and install method.
-Read(DESIGN-SYSTEM.md)
+Load the project's design system (see Design System Reference above). If no design system exists, keep the content brand-neutral and defer the visual identity to ui-ux-designer.
 
-# Check for project-specific design specs
-Glob(.ptah/specs/TASK_*/{design-spec,visual-design-specification}.md)
-Read(.ptah/specs/TASK_2026_072/context.md)
-```
-
-### Step 2: Investigate Product Features
-
-```bash
-# Understand the product
-Read(CLAUDE.md)
-Read(libs/*/CLAUDE.md)
-
-# Find the story
-Grep("<feature>", .ptah/specs/registry.md)
-```
-
-### Step 3: Generate Design-Integrated Content
+### Step 2: Generate Design-Integrated Content
 
 For each section, output structured specs following [LANDING-PAGES.md](LANDING-PAGES.md):
 
@@ -278,31 +230,17 @@ section:
     key_file: [path]
 ```
 
-### Step 4: Validate Design Consistency
+### Step 3: Validate Design Consistency
 
-- [ ] Colors reference design system tokens (--gold, --obsidian, etc.)
-- [ ] Typography follows scale (display-xl, heading-1, body-lg)
-- [ ] Animations use defined patterns (reveal-up, scale-in, stagger)
-- [ ] Components match defined variants (primary button, glass card)
+- [ ] Colors reference the project's design system tokens
+- [ ] Typography follows the project's type scale
+- [ ] Animations use the design system's named patterns
+- [ ] Components match the design system's defined variants
 - [ ] Accessibility requirements met (contrast ratios, motion preferences)
 
 ## Integration Notes
 
 This skill integrates with:
 
-- **Orchestration workflow**: Follow task-tracking patterns
 - **Agent delegation**: Can request researcher-expert for deep research
-- **UI/UX handoff**: Provide content specs for design work
-- **Design system**: Reference DESIGN-SYSTEM.md for visual consistency
-
-## Example Prompts That Activate This Skill
-
-- "Create landing page content for the chat feature"
-- "Write a blog post about our new agent generation system"
-- "Generate documentation for the workspace intelligence library"
-- "Create a video script explaining how the SDK integration works"
-- "Plan content strategy for our VS Code extension launch"
-- "Help me write marketing copy based on our codebase"
-- "Generate a design-integrated landing page matching our visual specs"
-- "Create hero section content with 3D element specifications"
-- "Write feature cards with glassmorphism styling and animations"
+- **UI/UX handoff**: Provide content specs for design work; ui-ux-designer owns the visual identity and the design system

@@ -13,11 +13,16 @@ import * as vscode from 'vscode';
 import type { DependencyContainer } from 'tsyringe';
 import type { CommandManager, Logger } from '@ptah-extension/vscode-core';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
+import type { SetupGenerationOpenPayload } from '@ptah-extension/shared';
 
 interface SetupWizardServiceLike {
   launchWizard(workspacePath: string): Promise<{
     isErr?: () => boolean;
     error?: { message: string };
+  }>;
+  openGeneration(payload: SetupGenerationOpenPayload): Promise<{
+    isErr(): boolean;
+    error?: Error;
   }>;
 }
 
@@ -31,7 +36,7 @@ export function registerSetupAgentsCommand(
       id: 'ptah.setupAgents',
       title: 'Setup Ptah Agents',
       category: 'Ptah',
-      handler: async () => {
+      handler: async (request?: { workflow?: unknown }) => {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
 
         if (!workspaceFolder) {
@@ -46,9 +51,18 @@ export function registerSetupAgentsCommand(
             AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE,
           );
 
-          const result = await setupWizardService.launchWizard(
-            workspaceFolder.uri.fsPath,
-          );
+          const workflow = request?.workflow;
+          const result =
+            workflow === 'setup-agent-generation' ||
+            workflow === 'setup-project-prompt'
+              ? await setupWizardService.openGeneration({
+                  workspacePath: workspaceFolder.uri.fsPath,
+                  workflow,
+                  origin: 'independent-start',
+                })
+              : await setupWizardService.launchWizard(
+                  workspaceFolder.uri.fsPath,
+                );
 
           if (result.isErr && result.isErr()) {
             vscode.window.showErrorMessage(

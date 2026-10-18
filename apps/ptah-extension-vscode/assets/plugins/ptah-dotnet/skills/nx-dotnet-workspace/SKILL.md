@@ -19,11 +19,11 @@ Decides whether a .NET workspace should be Nx-managed, and if so, documents exac
 | Team has no existing Node/npm tooling and no interest in acquiring any                                              | No -- `@nx/dotnet` still requires Node to run Nx itself, even though it never touches .NET-vs-TS build mechanics |
 | Team has no interest in a mixed workspace ambition (never plans to add a frontend or another service)               | No                                                                                                               |
 
-Never force either answer. When the user picks "Recommend for me," give the one-sentence rationale from whichever row applied before moving on.
+Never force either answer. When the user picks "Recommend for me," give the one-sentence rationale from whichever row applied before moving on. In every "No" case, say plainly that Nx is unnecessary (not just optional) and name the non-Nx alternative, plain `dotnet new sln`, explicitly.
 
 ## Prerequisites
 
-- **Nx >= 22.0.0.** (Nx 23.1.1 is the latest as of this skill's authoring and also satisfies it. Check the Nx version in your own workspace before assuming the plugin is available.)
+- **Nx >= 22.0.0.** (Check the Nx version in the workspace before assuming the plugin is available.)
 - **.NET SDK 8.0+.** `@nx/dotnet` ships a compiled `MsbuildAnalyzer` that uses `Microsoft.Build.Locator`, which needs the 8.0 SDK at minimum regardless of which target framework the projects themselves build against. Pin the SDK via `global.json` (see `dotnet-solution-architect`'s Central Package Management reference) so this requirement is enforced in CI, not just on one developer's machine.
 
 ## Installation
@@ -89,7 +89,7 @@ By design, `@nx/dotnet` ships only `init` and `ci-workflow` generators. There is
 
 ## Experimental status
 
-`@nx/dotnet` is officially marked **EXPERIMENTAL** ([nrwl/nx#35837](https://github.com/nrwl/nx/issues/35837)) despite the Nx 22 release marketing presenting it as a first-class technology. Say this plainly when recommending it -- "experimental" here means the rough edges above (configuration-scoped `dependsOn`, publish cache correctness, undocumented targets) are known and open, not hypothetical. Offer `@nx/dotnet`, never force it, and always mention the plain-`dotnet-new-sln` alternative in the same breath for a single-service workspace.
+`@nx/dotnet` was experimental in Nx 22 and earlier and is generally available from Nx 23. The rough edges above (configuration-scoped `dependsOn`, publish cache correctness, undocumented targets) may still matter. Offer `@nx/dotnet`, never force it.
 
 ## `@nx-dotnet/core` is archived — never recommend it
 
@@ -98,19 +98,3 @@ The community package `@nx-dotnet/core` predates `@nx/dotnet` and is now archive
 ## Debugging
 
 Set `NX_DOTNET_DISABLE=true` to disable the plugin's project inference entirely -- useful for isolating whether an Nx graph problem originates from `@nx/dotnet`'s inference or from something else in the workspace configuration.
-
-## When NOT to use Nx
-
-Say plainly that Nx is unnecessary, not just "optional," in these cases:
-
-- **Single service.** One solution, one deployable, no `nx affected`/caching win to claim. Plain `dotnet new sln` plus normal `dotnet build`/`dotnet test` is simpler and has no experimental-plugin surface to debug.
-- **Team with no Node tooling.** Nx itself runs on Node regardless of what languages it orchestrates. A team with zero npm/Node in its toolchain today, and no plan to acquire any, takes on that dependency purely to wrap `dotnet build` -- a cost with no corresponding benefit for a single-language, single-project repo.
-- **No interest in a mixed workspace.** Nx's main value for .NET is coordinating a polyglot repo (multiple .NET projects, or .NET plus a frontend) through one graph, one cache, one `affected` command. A team that will never add a second project or a frontend to this repo is not the audience Nx was built for here.
-
-In every "when NOT to use" case, the honest recommendation is plain `dotnet new sln` -- name it explicitly rather than leaving the user to infer the non-Nx alternative.
-
-## References
-
-- [dotnet-solution-initializer](../dotnet-solution-initializer/SKILL.md) -- asks the Nx question in Round 2 and invokes this skill for the recommendation
-- [dotnet-solution-architect](../dotnet-solution-architect/SKILL.md) -- designs the project layout Nx then wraps; this skill does not change that layout
-- `dotnet-template-engine`, skill `template-instantiation` (dotnet/skills marketplace) -- scaffolds the projects `@nx/dotnet` will infer targets for

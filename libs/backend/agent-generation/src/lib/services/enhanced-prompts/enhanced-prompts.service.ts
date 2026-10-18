@@ -35,6 +35,7 @@ import {
 import type {
   InternalQueryService,
   IWorkspaceLlmResolver,
+  WorkspaceLlmSnapshot,
   SDKMessage,
   StreamEventEmitter,
   StreamEvent,
@@ -220,11 +221,7 @@ const SERVICE_TAG = '[EnhancedPrompts]';
  * - SDK call via InternalQueryService for prompt generation
  * - Providing prompt content to SdkQueryOptionsBuilder
  */
-/**
- * Default timeout for generation lock (5 minutes)
- * Prevents deadlock if async exception escapes try/catch
- */
-const GENERATION_LOCK_TIMEOUT_MS = 5 * 60 * 1000;
+const GENERATION_LOCK_GRACE_MS = 30 * 1000;
 
 /**
  * Ceiling on a single prompt-designer SDK query, covering the queue wait for a
@@ -232,6 +229,8 @@ const GENERATION_LOCK_TIMEOUT_MS = 5 * 60 * 1000;
  * behind a long one-shot cannot block indefinitely.
  */
 const PROMPT_DESIGNER_TIMEOUT_MS = 10 * 60 * 1000;
+/** Allow designer timeout and workspace discovery before aborting a wedged run. */
+const GENERATION_LOCK_TIMEOUT_MS = PROMPT_DESIGNER_TIMEOUT_MS + 2 * 60 * 1000;
 
 @injectable()
 export class EnhancedPromptsService {
@@ -245,6 +244,13 @@ export class EnhancedPromptsService {
    */
   private isGenerating = false;
   private generationLockTimer: ReturnType<typeof setTimeout> | null = null;
+  private generationGraceTimer: ReturnType<typeof setTimeout> | null = null;
+  private generationOwner: object | null = null;
+  private generationCommittingOwner: object | null = null;
+  private generationAbort: AbortController | null = null;
+  private generationOnTimeout: (() => void) | null = null;
+  private generationOnForceRelease: (() => void) | null = null;
+  private boundReservation: object | null = null;
 
   /**
    * Optional multi-phase analysis reader for enriching prompts with
@@ -312,12 +318,33 @@ export class EnhancedPromptsService {
     }
 
     this.isGenerating = true;
+    const owner = {};
+    this.generationOwner = owner;
+    this.generationAbort = new AbortController();
     this.generationLockTimer = setTimeout(() => {
+      if (this.generationOwner !== owner) return;
       this.logger.warn(
-        'EnhancedPromptsService: Generation lock timed out, force releasing',
+        'EnhancedPromptsService: Generation lock timed out; waiting for release',
         { timeoutMs: GENERATION_LOCK_TIMEOUT_MS },
       );
-      this.releaseGenerationLock();
+      if (this.generationCommittingOwner !== owner) {
+        this.generationAbort?.abort();
+        this.generationOnTimeout?.();
+      }
+      this.generationGraceTimer = setTimeout(() => {
+        if (this.generationOwner !== owner) return;
+        this.logger.warn(
+          'EnhancedPromptsService: Timed-out run did not release lock; force releasing',
+          {
+            graceMs: GENERATION_LOCK_GRACE_MS,
+          },
+        );
+        try {
+          this.generationOnForceRelease?.();
+        } finally {
+          this.releaseGenerationLock(owner);
+        }
+      }, GENERATION_LOCK_GRACE_MS);
     }, GENERATION_LOCK_TIMEOUT_MS);
 
     return true;
@@ -326,11 +353,91 @@ export class EnhancedPromptsService {
   /**
    * Release generation lock and clear timeout
    */
-  private releaseGenerationLock(): void {
+  private releaseGenerationLock(
+    owner: object | null = this.generationOwner,
+  ): void {
+    if (!owner || this.generationOwner !== owner) return;
     this.isGenerating = false;
+    this.boundReservation = null;
+    this.generationOwner = null;
+    this.generationCommittingOwner = null;
+    this.generationAbort = null;
+    this.generationOnTimeout = null;
+    this.generationOnForceRelease = null;
     if (this.generationLockTimer) {
       clearTimeout(this.generationLockTimer);
       this.generationLockTimer = null;
+    }
+    if (this.generationGraceTimer) {
+      clearTimeout(this.generationGraceTimer);
+      this.generationGraceTimer = null;
+    }
+  }
+
+  get generationInProgress(): boolean {
+    return this.isGenerating;
+  }
+
+  acquireBoundGeneration(): object | null {
+    if (!this.acquireGenerationLock()) return null;
+    this.boundReservation = this.generationOwner;
+    return this.boundReservation;
+  }
+
+  releaseBoundGeneration(reservation: object): void {
+    if (this.boundReservation === reservation)
+      this.releaseGenerationLock(reservation);
+  }
+
+  async resolveGuidanceRoute(
+    workspacePath: string,
+    requestedModel?: string,
+  ): Promise<WorkspaceLlmSnapshot> {
+    return this.workspaceLlm.resolveForPath(workspacePath, { requestedModel });
+  }
+
+  async resolveGuidanceSource(workspacePath: string, analysisDir?: string) {
+    if (!this.freshness)
+      return {
+        kind: 'workspace-discovery' as const,
+        reason: 'missing' as const,
+      };
+    try {
+      const status = await this.freshness.getStatus(workspacePath);
+      if (status.state !== 'fresh' || !status.analysisDir) {
+        return {
+          kind: 'workspace-discovery' as const,
+          reason:
+            status.reason === 'unreadable'
+              ? ('unreadable' as const)
+              : status.state === 'missing'
+                ? ('missing' as const)
+                : ('stale' as const),
+        };
+      }
+      const latest = this.traceWriter.resolveAuthorizedAnalysisDir(
+        workspacePath,
+        status.analysisDir,
+      );
+      if (!latest || (analysisDir && analysisDir !== latest))
+        return {
+          kind: 'workspace-discovery' as const,
+          reason: 'not-latest' as const,
+        };
+      return {
+        kind: 'verified-analysis' as const,
+        analysisDir: latest,
+        analysisRunId: '',
+      };
+    } catch (error: unknown) {
+      this.logger.error(
+        'Guidance freshness lookup failed',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+      return {
+        kind: 'workspace-discovery' as const,
+        reason: 'lookup-failed' as const,
+      };
     }
   }
 
@@ -385,13 +492,37 @@ export class EnhancedPromptsService {
     preComputedInput?: PromptDesignerInput,
     sdkConfig?: EnhancedPromptsSdkConfig,
     analysisDir?: string,
+    bound?: {
+      reservation: object;
+      signal: AbortSignal;
+      route: WorkspaceLlmSnapshot;
+      analysisDir?: string;
+      allowPhaseEnrichment?: boolean;
+      beforeCommit?: () => boolean;
+      onTimeout?: () => void;
+      onForceRelease?: () => void;
+    },
   ): Promise<EnhancedPromptsWizardResult> {
-    if (!this.acquireGenerationLock()) {
+    if (
+      bound
+        ? this.boundReservation !== bound.reservation
+        : !this.acquireGenerationLock()
+    ) {
       return {
         success: false,
         error: 'Generation already in progress',
       };
     }
+    const owner = this.generationOwner;
+    let generationCommitting = false;
+    const timeoutSignal = this.generationAbort?.signal;
+    const runAbort = new AbortController();
+    const abortRun = (): void => runAbort.abort();
+    timeoutSignal?.addEventListener('abort', abortRun, { once: true });
+    bound?.signal.addEventListener('abort', abortRun, { once: true });
+    if (timeoutSignal?.aborted || bound?.signal.aborted) abortRun();
+    this.generationOnTimeout = bound?.onTimeout ?? null;
+    this.generationOnForceRelease = bound?.onForceRelease ?? null;
 
     this.logger.info('EnhancedPromptsService: Starting wizard', {
       workspacePath,
@@ -400,6 +531,15 @@ export class EnhancedPromptsService {
     });
 
     try {
+      const ensureActive = (): void => {
+        if (runAbort.signal.aborted)
+          throw new Error(
+            timeoutSignal?.aborted
+              ? 'Guidance generation timed out'
+              : 'Guidance generation cancelled',
+          );
+      };
+      ensureActive();
       let detectedStack: DetectedStack;
       let input: PromptDesignerInput;
 
@@ -425,8 +565,10 @@ export class EnhancedPromptsService {
         let analysis: WorkspaceAnalysisResult;
         try {
           const projectInfo = await this.workspaceIntelligence.getProjectInfo();
+          ensureActive();
           const wsInfo =
             await this.workspaceIntelligence.getCurrentWorkspaceInfo();
+          ensureActive();
           const languageMap: Record<string, string> = {
             '.ts': 'TypeScript',
             '.tsx': 'TypeScript',
@@ -493,11 +635,15 @@ export class EnhancedPromptsService {
         });
         input = this.buildDesignerInput(workspacePath, analysis, config);
       }
-      const enrichment = await this.enrichWithMultiPhaseAnalysis(
-        input,
-        workspacePath,
-        analysisDir,
-      );
+      const enrichment =
+        bound && !bound.allowPhaseEnrichment
+          ? { analysisDirectory: null, phaseIds: [] }
+          : await this.enrichWithMultiPhaseAnalysis(
+              input,
+              workspacePath,
+              analysisDir,
+            );
+      ensureActive();
       onProgress?.({
         status: 'generating',
         message: 'Generating project-specific guidance...',
@@ -509,13 +655,17 @@ export class EnhancedPromptsService {
         workspacePath,
         sdkConfig,
         (progress) => {
+          if (runAbort.signal.aborted) return;
           const mappedProgress = 0.5 + (progress.progress || 0) * 0.004;
           onProgress?.({
             ...progress,
             progress: mappedProgress,
           });
         },
+        runAbort.signal,
+        bound?.route,
       );
+      ensureActive();
 
       if (!output) {
         return {
@@ -526,6 +676,7 @@ export class EnhancedPromptsService {
       const generatedPrompt = this.buildCombinedPrompt(output, sdkConfig);
       const baseHash =
         await this.cacheService.computeDependencyHash(workspacePath);
+      ensureActive();
       const configHash = baseHash
         ? `${baseHash}:pt${PTAH_CORE_SYSTEM_PROMPT_TOKENS}`
         : null;
@@ -555,6 +706,14 @@ export class EnhancedPromptsService {
         promptLength: generatedPrompt.length,
       };
       try {
+        ensureActive();
+        if (bound?.beforeCommit) {
+          if (!bound.beforeCommit())
+            throw new Error('Guidance generation cancelled');
+          generationCommitting = true;
+          if (this.generationOwner === owner)
+            this.generationCommittingOwner = owner;
+        }
         await this.traceWriter.writeEnhancedPromptTrace(
           workspacePath,
           enrichment.analysisDirectory,
@@ -573,11 +732,13 @@ export class EnhancedPromptsService {
           error: `Failed to persist the enhanced prompt trace: ${message}`,
         };
       }
-
+      if (!generationCommitting) ensureActive();
       await this.stateStore.save(workspacePath, newState);
+      if (!generationCommitting) ensureActive();
       if (configHash) {
         await this.cacheService.set(workspacePath, configHash, output);
       }
+      if (!generationCommitting) ensureActive();
 
       onProgress?.({
         status: 'complete',
@@ -612,7 +773,10 @@ export class EnhancedPromptsService {
           error instanceof Error ? error.message : 'Unknown error occurred',
       };
     } finally {
-      this.releaseGenerationLock();
+      timeoutSignal?.removeEventListener('abort', abortRun);
+      bound?.signal.removeEventListener('abort', abortRun);
+      // The bound supervisor releases its reservation after terminal delivery.
+      if (!bound) this.releaseGenerationLock(owner);
     }
   }
 
@@ -646,6 +810,16 @@ export class EnhancedPromptsService {
     request?: RegeneratePromptsRequest,
     onProgress?: (progress: PromptGenerationProgress) => void,
     sdkConfig?: EnhancedPromptsSdkConfig,
+    bound?: {
+      reservation: object;
+      signal: AbortSignal;
+      route: WorkspaceLlmSnapshot;
+      analysisDir?: string;
+      allowPhaseEnrichment?: boolean;
+      beforeCommit?: () => boolean;
+      onTimeout?: () => void;
+      onForceRelease?: () => void;
+    },
   ): Promise<RegeneratePromptsResponse> {
     if (request?.force) {
       await this.cacheService.invalidate(workspacePath, 'manual');
@@ -656,7 +830,8 @@ export class EnhancedPromptsService {
       onProgress,
       undefined,
       sdkConfig,
-      undefined,
+      bound?.analysisDir,
+      bound,
     );
 
     if (result.success) {
@@ -791,10 +966,14 @@ export class EnhancedPromptsService {
     workspacePath: string,
     sdkConfig?: EnhancedPromptsSdkConfig,
     onProgress?: (progress: PromptGenerationProgress) => void,
+    externalSignal?: AbortSignal,
+    route?: WorkspaceLlmSnapshot,
   ): Promise<PromptDesignerOutput | null> {
     const mcpServerRunning = false;
     const mcpPort = undefined;
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    let abortFromExternal: (() => void) | undefined;
+    let timedOut = false;
 
     try {
       const {
@@ -821,17 +1000,23 @@ export class EnhancedPromptsService {
       // Provider and model of ONE snapshot for this workspace — never the
       // active workspace's model or the process-wide auth. A frontend model
       // is kept only when that provider offers it.
-      const { model, auth } = await this.workspaceLlm.resolveForPath(
-        workspacePath,
-        { requestedModel: sdkConfig?.model },
-      );
+      const { model, auth } =
+        route ??
+        (await this.workspaceLlm.resolveForPath(workspacePath, {
+          requestedModel: sdkConfig?.model,
+        }));
       const abortController = new AbortController();
+      abortFromExternal = (): void => abortController.abort();
+      externalSignal?.addEventListener('abort', abortFromExternal, {
+        once: true,
+      });
+      if (externalSignal?.aborted) abortController.abort();
       // Arm the timeout BEFORE execute() so the budget covers the queue wait
       // for a concurrency slot, not just the stream after the handle resolves.
-      timeoutHandle = setTimeout(
-        () => abortController.abort(),
-        PROMPT_DESIGNER_TIMEOUT_MS,
-      );
+      timeoutHandle = setTimeout(() => {
+        timedOut = true;
+        abortController.abort();
+      }, PROMPT_DESIGNER_TIMEOUT_MS);
       const handle = await this.internalQueryService.execute({
         cwd: workspacePath,
         model,
@@ -889,7 +1074,10 @@ export class EnhancedPromptsService {
       });
     } finally {
       if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
+      if (abortFromExternal)
+        externalSignal?.removeEventListener('abort', abortFromExternal);
     }
+    if (externalSignal?.aborted || timedOut) return null;
     onProgress?.({
       status: 'fallback',
       message: 'Using template-based guidance',

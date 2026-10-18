@@ -43,7 +43,9 @@ import {
   AppStateManager,
   ClaudeRpcService,
   VSCodeService,
+  WorkspaceScopeService,
 } from '@ptah-extension/core';
+import { GenerationWorkflowLauncherService } from '@ptah-extension/chat-ui';
 import type {
   SetupStatusGetResponse,
   HarnessPreset,
@@ -51,6 +53,7 @@ import type {
   NewProjectIntake,
   NewProjectPlatform,
   NewProjectStack,
+  SetupGenerationWorkflow,
 } from '@ptah-extension/shared';
 import {
   isNewProjectStack,
@@ -303,6 +306,24 @@ const DEFAULT_PLATFORM: NewProjectPlatform = 'node-ts';
           </div>
         }
 
+        @if (generationError()) {
+          <div class="alert alert-error mb-6 text-sm" role="alert">
+            <span>{{ generationError() }}</span>
+            <button
+              class="btn btn-sm btn-ghost"
+              type="button"
+              aria-label="Dismiss generation error"
+              (click)="generationError.set(null)"
+            >
+              <lucide-angular
+                [img]="XIcon"
+                class="w-4 h-4"
+                aria-hidden="true"
+              />
+            </button>
+          </div>
+        }
+
         <div class="max-w-4xl mx-auto">
           <!-- ═══ Hero Section ═══ -->
           <section
@@ -359,6 +380,54 @@ const DEFAULT_PLATFORM: NewProjectPlatform = 'node-ts';
           <div
             class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mb-2"
           >
+            @for (action of generationActions; track action.workflow) {
+              <div
+                class="group relative rounded-xl p-px cursor-pointer
+                       bg-gradient-to-br from-secondary/10 via-base-300/50 to-secondary/5
+                       hover:from-secondary/20 hover:via-secondary/[0.08] hover:to-secondary/15
+                       transition-all duration-300 ease-out
+                       hover:shadow-[0_0_30px_oklch(var(--s)/0.04)]
+                       card-enter card-enter-delay-1"
+                (click)="openGeneration(action.workflow)"
+                (keydown.enter)="openGeneration(action.workflow)"
+                role="button"
+                tabindex="0"
+                [attr.aria-label]="action.title"
+                [attr.data-testid]="action.workflow"
+              >
+                <div
+                  class="rounded-[11px] bg-base-200 p-5 h-full flex flex-col gap-4 transition-colors duration-300 ease-out group-hover:bg-base-200/80"
+                >
+                  <div
+                    class="relative w-11 h-11 rounded-xl bg-secondary/10 border border-secondary/20 flex items-center justify-center"
+                  >
+                    <lucide-angular
+                      [img]="FileTextIcon"
+                      class="w-5 h-5 text-secondary"
+                      aria-hidden="true"
+                    />
+                  </div>
+                  <div>
+                    <h2 class="text-lg font-bold text-base-content">
+                      {{ action.title }}
+                    </h2>
+                    <p class="text-sm text-base-content-muted mt-1">
+                      {{ action.description }}
+                    </p>
+                  </div>
+                  <button
+                    class="btn btn-sm w-full mt-auto gap-1 bg-gradient-to-r from-secondary/5 to-secondary/[0.03] border border-secondary/10 hover:border-secondary/20 hover:from-secondary/10 hover:to-secondary/5 text-secondary font-medium transition-all duration-200"
+                  >
+                    {{ action.title }}
+                    <lucide-angular
+                      [img]="ChevronRightIcon"
+                      class="w-3.5 h-3.5"
+                      aria-hidden="true"
+                    />
+                  </button>
+                </div>
+              </div>
+            }
             <!-- ── Card 1: Workspace Analysis ── -->
             <div
               class="group relative rounded-xl p-px cursor-pointer
@@ -1235,6 +1304,28 @@ export class SetupHubComponent implements OnInit {
   private readonly rpc = inject(ClaudeRpcService);
   private readonly workflowRequest = inject(HarnessWorkflowRequestService);
   private readonly appState = inject(AppStateManager);
+  private readonly workspaceScope = inject(WorkspaceScopeService);
+  private readonly generationLauncher = inject(
+    GenerationWorkflowLauncherService,
+  );
+  readonly generationError = signal<string | null>(null);
+  readonly generationLaunching = signal(false);
+  protected readonly generationActions: ReadonlyArray<{
+    workflow: SetupGenerationWorkflow;
+    title: string;
+    description: string;
+  }> = [
+    {
+      workflow: 'setup-agent-generation',
+      title: 'Generate Agents',
+      description: 'Create workspace agents using current project context.',
+    },
+    {
+      workflow: 'setup-project-prompt',
+      title: 'Generate Project Guidance',
+      description: 'Create guidance for conversations in this workspace.',
+    },
+  ];
   private readonly vscode = inject(VSCodeService);
   protected readonly SearchIcon = Search;
   protected readonly WrenchIcon = Wrench;
@@ -1401,6 +1492,33 @@ export class SetupHubComponent implements OnInit {
 
   openSetupWizard(): void {
     this.appState.setCurrentView('setup-wizard');
+  }
+
+  async openGeneration(workflow: SetupGenerationWorkflow): Promise<void> {
+    if (this.generationLaunching()) return;
+    this.generationLaunching.set(true);
+    const workspacePath = this.workspaceScope.activeWorkspacePath();
+    if (!workspacePath) {
+      this.generationError.set('Open a workspace to start generation.');
+      this.generationLaunching.set(false);
+      return;
+    }
+    try {
+      const result = await this.generationLauncher.open({
+        workspacePath,
+        workflow,
+        origin: 'independent-start',
+      });
+      if (result.outcome === 'failed') {
+        this.generationError.set('Generation could not be opened. Try again.');
+      } else if (result.outcome === 'landed') {
+        this.generationError.set(null);
+      }
+    } catch {
+      this.generationError.set('Generation could not be opened. Try again.');
+    } finally {
+      this.generationLaunching.set(false);
+    }
   }
 
   async openHarnessBuilder(): Promise<void> {

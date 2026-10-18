@@ -95,6 +95,7 @@ export type StrictMessageType =
   | 'switchView'
   | 'workspaceChanged'
   | 'setup-wizard:scan-progress'
+  | 'setup-generation:open'
   | 'agent-monitor:permission-request'
   | 'agent-monitor:permission-response'
   | 'agent-monitor:user-input-request'

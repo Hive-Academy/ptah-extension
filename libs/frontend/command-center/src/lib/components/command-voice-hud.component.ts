@@ -52,6 +52,7 @@ import type {
           aria-valuemin="0"
           aria-valuemax="100"
           [attr.aria-valuenow]="levelPercent()"
+          [attr.aria-valuetext]="'Microphone level ' + levelPercent() + '%'"
         >
           @for (bar of meterBars; track bar) {
             <span
@@ -62,6 +63,26 @@ import type {
             ></span>
           }
         </div>
+        @if (voiceState() === 'speaking') {
+          <div
+            class="flex h-8 items-center gap-1"
+            role="meter"
+            aria-label="Speaker"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            [attr.aria-valuenow]="outputPercent()"
+            [attr.aria-valuetext]="'Speaker level ' + outputPercent() + '%'"
+          >
+            @for (bar of speakerBars; track bar) {
+              <span
+                class="w-1 rounded-full bg-warning"
+                [class.h-2]="outputPercent() < bar"
+                [class.h-5]="outputPercent() >= bar"
+                aria-hidden="true"
+              ></span>
+            }
+          </div>
+        }
         <button
           type="button"
           class="btn btn-ghost min-h-11 disabled:opacity-100 disabled:text-base-content-muted disabled:border disabled:border-base-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
@@ -139,15 +160,23 @@ export class CommandVoiceHudComponent {
   public readonly turnAbortable = input(false);
   public readonly voiceError = input<CommandVoiceError | null>(null);
   public readonly inputLevel = input(0);
+  public readonly outputLevel = input(0);
   public readonly start = output<void>();
   public readonly stop = output<void>();
   public readonly toggleMute = output<void>();
   public readonly interrupt = output<void>();
   public readonly openVoiceSettings = output<void>();
   public readonly meterBars = [15, 30, 45, 60, 75, 90] as const;
+  public readonly speakerBars = [20, 40, 60, 80, 100] as const;
   public readonly levelPercent = computed(() =>
     Math.round(this.inputLevel() * 100),
   );
+  public readonly outputPercent = computed(() => {
+    const level = this.outputLevel();
+    return Math.round(
+      Math.max(0, Math.min(1, Number.isFinite(level) ? level : 0)) * 100,
+    );
+  });
   public readonly listening = computed(() => this.voiceState() === 'listening');
   public readonly canMute = computed(() =>
     ['listening', 'thinking', 'speaking', 'muted'].includes(this.voiceState()),
