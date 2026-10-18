@@ -50,6 +50,7 @@ describe('Command Center Tribunal confirmation integration', () => {
     const { fixture, questions, transport, sender } = createHarness();
     const page = fixture.componentInstance.page;
     await page.open();
+    page.coordinator.chooseCurrentTab();
     await page.sendCommand('run relay review');
     questions.set([
       {
@@ -98,6 +99,7 @@ describe('Command Center Tribunal confirmation integration', () => {
       const { fixture, questions, transport, sender } = createHarness();
       const page = fixture.componentInstance.page;
       await page.open();
+    page.coordinator.chooseCurrentTab();
       await page.sendCommand('run relay review');
       const nonce =
         /"nonce":"([^"]+)"/.exec(
@@ -168,6 +170,7 @@ describe('Command Center Tribunal confirmation integration', () => {
       const { fixture, questions, transport, sender } = createHarness();
       const page = fixture.componentInstance.page;
       await page.open();
+    page.coordinator.chooseCurrentTab();
       await page.sendCommand('run relay review');
       const nonce =
         /"nonce":"([^"]+)"/.exec(
@@ -209,6 +212,7 @@ describe('Command Center Tribunal confirmation integration', () => {
       const { fixture, questions, transport, sender } = createHarness();
       const page = fixture.componentInstance.page;
       await page.open();
+    page.coordinator.chooseCurrentTab();
       await page.sendCommand('run relay review');
       const nonce =
         /"nonce":"([^"]+)"/.exec(

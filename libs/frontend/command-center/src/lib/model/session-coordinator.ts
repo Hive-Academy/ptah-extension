@@ -1,4 +1,4 @@
-import { DestroyRef, Injectable, inject } from '@angular/core';
+import { DestroyRef, Injectable, inject, signal } from '@angular/core';
 import { ChatStore, MessageSenderService } from '@ptah-extension/chat';
 import {
   CommandCenterRecordsService,
@@ -8,7 +8,7 @@ import {
   commandCenterPersonaFor,
 } from '@ptah-extension/chat-state';
 import { ClaudeRpcService } from '@ptah-extension/core';
-import { SessionId } from '@ptah-extension/shared';
+import { SessionId, type ChatSessionSummary } from '@ptah-extension/shared';
 import { CommandCenterStore } from './command-center.store';
 import { buildStatusContext } from './status-context';
 
@@ -25,7 +25,18 @@ export class CommandCenterSessionCoordinator {
   private readonly store = inject(CommandCenterStore);
   private readonly destroyRef = inject(DestroyRef);
   private readonly ownerToken = crypto.randomUUID();
-  private opening: Promise<string | null> | null = null;
+  private sessionListRequest = 0;
+  private readonly _sessions = signal<readonly ChatSessionSummary[]>([]);
+  public readonly sessions = this._sessions.asReadonly();
+  private readonly _listStatus = signal<'loading' | 'ready' | 'error'>(
+    'loading',
+  );
+  public readonly listStatus = this._listStatus.asReadonly();
+  public readonly showAll = signal(false);
+  public readonly choosing = signal(false);
+  public readonly currentTabId = signal<string | null>(null);
+  public readonly currentSessionId = signal<string | null>(null);
+  public readonly recordedSessionId = signal<string | null>(null);
   private statusContextProvider: (() => string | null) | null = () =>
     buildStatusContext(this.store.nodes());
 
@@ -39,78 +50,140 @@ export class CommandCenterSessionCoordinator {
     this.statusContextProvider = provider;
   }
 
-  public openOrResume(): Promise<string | null> {
-    if (this.opening) return this.opening;
-    const opening = this.openOrResumeInternal();
-    this.opening = opening;
-    // degradation-audit: reported — the caller receives the original promise and handles its rejection
-    void opening
-      .finally(() => {
-        if (this.opening === opening) this.opening = null;
-      })
-      .catch(() => undefined);
-    return opening;
-  }
-
-  private async openOrResumeInternal(): Promise<string | null> {
+  /** Enter the page without selecting a session. */
+  public async openStart(): Promise<string | null> {
     const workspace = this.tabs.activeWorkspacePath;
+    this.stopVoiceLocally();
+    this.store.setSession(null, null, workspace);
+    this.showAll.set(false);
     if (!workspace) {
+      this._sessions.set([]);
+      this._listStatus.set('error');
+      this.currentTabId.set(null);
+      this.currentSessionId.set(null);
       this.fail('Open a workspace to use Command Center.');
       return null;
     }
-    this.store.setSessionStatus('starting');
+    this.store.setSessionStatus('idle');
     const activeId = this.records.readActiveTabId(workspace);
-    const existing =
-      activeId &&
-      this.tabs
+    const current = this.tabs
+      .tabs()
+      .find(
+        (tab) =>
+          tab.id === activeId &&
+          tab.commandCenterOrigin?.workspaceId === workspace &&
+          commandCenterPersonaFor(tab) !== undefined,
+      );
+    this.currentTabId.set(current?.id ?? null);
+    this.currentSessionId.set(current?.claudeSessionId ?? null);
+    this.recordedSessionId.set(
+      this.records.readLastSession(workspace)?.sdkSessionId ?? null,
+    );
+    await this.refreshSessions(workspace);
+    return null;
+  }
+
+  public async refreshSessions(
+    workspace = this.tabs.activeWorkspacePath,
+  ): Promise<void> {
+    if (!workspace) {
+      this._listStatus.set('error');
+      return;
+    }
+    const request = ++this.sessionListRequest;
+    this._listStatus.set('loading');
+    try {
+      const sessions: ChatSessionSummary[] = [];
+      const all = this.showAll();
+      const limit = all ? 50 : 10;
+      let hasMore: boolean;
+      do {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+        let result;
+        try {
+          result = await this.rpc.call(
+            'session:list',
+            { workspacePath: workspace, limit, offset: sessions.length },
+            { signal: controller.signal },
+          );
+        } finally {
+          clearTimeout(timeout);
+        }
+        if (
+          request !== this.sessionListRequest ||
+          this.tabs.activeWorkspacePath !== workspace
+        )
+          return;
+        if (!result.success || !Array.isArray(result.data?.sessions))
+          throw new Error('session list unavailable');
+        sessions.push(...result.data.sessions);
+        hasMore = all && result.data.hasMore && result.data.sessions.length > 0;
+      } while (hasMore);
+      if (
+        request !== this.sessionListRequest ||
+        this.tabs.activeWorkspacePath !== workspace
+      )
+        return;
+      this._sessions.set(
+        sessions.sort((a, b) => b.lastActivityAt - a.lastActivityAt),
+      );
+      this._listStatus.set('ready');
+    } catch {
+      // degradation-audit: reported — the start view shows a retry control without exposing RPC errors
+      if (
+        request === this.sessionListRequest &&
+        this.tabs.activeWorkspacePath === workspace
+      )
+        this._listStatus.set('error');
+    }
+  }
+
+  public openAllSessions(): void {
+    this.showAll.set(true);
+    void this.refreshSessions();
+  }
+
+  public async chooseSession(sessionId: string): Promise<string | null> {
+    if (this.choosing()) return null;
+    const workspace = this.tabs.activeWorkspacePath;
+    if (!workspace) return null;
+    this.choosing.set(true);
+    try {
+      const current = this.tabs
         .tabs()
         .find(
           (tab) =>
-            tab.id === activeId &&
-            tab.commandCenterOrigin?.workspaceId === workspace &&
-            commandCenterPersonaFor(tab) !== undefined,
+            tab.id === this.currentTabId() &&
+            tab.claudeSessionId === sessionId &&
+            tab.commandCenterOrigin?.workspaceId === workspace,
         );
-    if (existing) {
-      this.tabs.switchTab(existing.id);
-      this.store.setSession(
-        existing.id,
-        existing.claudeSessionId ?? null,
-        workspace,
-      );
-      if (
-        existing.claudeSessionId &&
-        existing.messages.length === 0 &&
-        !existing.hasLiveSession
-      ) {
-        try {
-          await this.chat.switchSession(existing.claudeSessionId, {
-            targetTabId: existing.id,
-          });
-        } catch {
-          // degradation-audit: reported — the restore failure is shown through the safe fail message
-          this.fail('Could not restore the Command Center session.');
-          return null;
+      if (current) {
+        this.tabs.switchTab(current.id);
+        if (current.messages.length === 0 && !current.hasLiveSession) {
+          try {
+            await this.chat.switchSession(SessionId.from(sessionId), {
+              targetTabId: TabId.from(current.id),
+            });
+            if (this.tabs.activeWorkspacePath !== workspace) return null;
+          } catch {
+            // degradation-audit: reported — restore failure is shown through a fixed message
+            this.store.setSession(null, null, workspace);
+            this.fail('Could not restore the Command Center session.');
+            return null;
+          }
         }
+        this.store.setSession(current.id, sessionId, workspace);
+        this.store.setSessionStatus(
+          current.status === 'streaming' ||
+            current.status === 'awaiting-background' ||
+            current.status === 'sleeping'
+            ? 'running'
+            : 'idle',
+        );
+        return current.id;
       }
-      this.store.setSessionStatus(
-        existing.status === 'streaming' ||
-          existing.status === 'awaiting-background' ||
-          existing.status === 'sleeping'
-          ? 'running'
-          : 'idle',
-      );
-      return existing.id;
-    }
-    const last = this.records.readLastSession(workspace);
-    const exists = last
-      ? await this.sessionExists(last.sdkSessionId, workspace)
-      : false;
-    if (exists === null) {
-      this.fail('Could not check the previous Command Center session.');
-      return null;
-    }
-    if (last && exists) {
-      const openTab = this.tabs.findTabBySessionId(last.sdkSessionId);
+      const openTab = this.tabs.findTabBySessionId(sessionId);
       if (openTab) {
         this.tabs.switchTab(openTab.id);
         this.fail(
@@ -119,13 +192,14 @@ export class CommandCenterSessionCoordinator {
         return null;
       }
       const tabId = this.tabs.createCommandCenterTab('Command Center');
-      this.tabs.attachSession(tabId, last.sdkSessionId);
+      this.tabs.attachSession(tabId, sessionId);
       this.tabs.switchTab(tabId);
       try {
-        await this.chat.switchSession(SessionId.from(last.sdkSessionId), {
+        await this.chat.switchSession(SessionId.from(sessionId), {
           targetTabId: TabId.from(tabId),
         });
-        this.store.setSession(tabId, last.sdkSessionId, workspace);
+        if (this.tabs.activeWorkspacePath !== workspace) return null;
+        this.store.setSession(tabId, sessionId, workspace);
         const restored = this.tabs.tabs().find((tab) => tab.id === tabId);
         this.store.setSessionStatus(
           restored?.status === 'streaming' ||
@@ -136,43 +210,38 @@ export class CommandCenterSessionCoordinator {
         );
         return tabId;
       } catch {
-        // degradation-audit: reported — restore failure is shown through the safe fail message
+        // degradation-audit: reported — restore failure is shown through a fixed message
+        this.tabs.forceCloseTab(tabId);
+        this.lock.clearForRoot(tabId);
+        if (this.records.readActiveTabId(workspace) === tabId)
+          this.records.setActiveTabId(workspace, null);
+        if (this.currentTabId() === tabId) this.currentTabId.set(null);
         this.fail('Could not restore the Command Center session.');
         return null;
       }
+    } finally {
+      this.choosing.set(false);
     }
-    return this.newCommandCenter();
   }
 
-  private async sessionExists(
-    sessionId: string,
-    workspace: string,
-  ): Promise<boolean | null> {
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5000);
-      try {
-        const result = await this.rpc.call(
-          'session:list',
-          { workspacePath: workspace },
-          { signal: controller.signal },
-        );
-        if (result.success && Array.isArray(result.data?.sessions)) {
-          return result.data.sessions.some(
-            (session) => session.id === sessionId,
-          );
-        }
-      } catch {
-        // Only this read is retried; writes and sends must never be repeated.
-      } finally {
-        clearTimeout(timeout);
-      }
-      if (attempt < 2)
-        await new Promise<void>((resolve) =>
-          setTimeout(resolve, 150 * (attempt + 1)),
-        );
+  public chooseCurrentTab(): string | null {
+    const workspace = this.tabs.activeWorkspacePath;
+    const tab = this.tabs
+      .tabs()
+      .find(
+        (candidate) =>
+          candidate.id === this.currentTabId() &&
+          candidate.commandCenterOrigin?.workspaceId === workspace,
+      );
+    if (!tab || !workspace) return null;
+    if (tab.claudeSessionId) {
+      void this.chooseSession(tab.claudeSessionId);
+      return tab.id;
     }
-    return null;
+    this.tabs.switchTab(tab.id);
+    this.store.setSession(tab.id, null, workspace);
+    this.store.setSessionStatus('idle');
+    return tab.id;
   }
 
   public newCommandCenter(): string | null {
@@ -249,7 +318,7 @@ export class CommandCenterSessionCoordinator {
     }
     const workspaceAtStart = this.tabs.activeWorkspacePath;
     const markedTabId = this.store.markedTabId();
-    const tabId = markedTabId ?? (await this.openOrResume());
+    const tabId = markedTabId ?? this.newCommandCenter();
     if (!markedTabId && this.tabs.activeWorkspacePath !== workspaceAtStart) {
       this.store.setToast({
         message:

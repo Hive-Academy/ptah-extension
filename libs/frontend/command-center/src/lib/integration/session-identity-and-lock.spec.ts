@@ -9,7 +9,8 @@ describe('Command Center session integration', () => {
   it('opens the marked chat session and sends text through the existing sender', async () => {
     const { fixture, sender } = createHarness();
     const page = fixture.componentInstance.page;
-    expect(await page.open()).toBe('22222222-2222-4222-8222-222222222222');
+    expect(await page.open()).toBeNull();
+    page.coordinator.chooseCurrentTab();
     expect(page.store.sessionId()).toBe('11111111-1111-4111-8111-111111111111');
     await page.sendCommand('Investigate CI');
     expect(sender.send).toHaveBeenCalledWith(
@@ -26,9 +27,11 @@ describe('Command Center session integration', () => {
     const { fixture } = createHarness();
     const page = fixture.componentInstance.page;
     await page.open();
+    page.coordinator.chooseCurrentTab();
     await page.exit();
     expect(page.store.sessionId()).toBe('11111111-1111-4111-8111-111111111111');
-    expect(await page.open()).toBe(page.store.markedTabId());
+    expect(await page.open()).toBeNull();
+    page.coordinator.chooseCurrentTab();
     fixture.destroy();
   });
 
@@ -36,6 +39,7 @@ describe('Command Center session integration', () => {
     const { fixture } = createHarness();
     const page = fixture.componentInstance.page;
     await page.open();
+    page.coordinator.chooseCurrentTab();
     const coordinator = fixture.debugElement.injector.get(
       CommandCenterSessionCoordinator,
     );
@@ -48,6 +52,7 @@ describe('Command Center session integration', () => {
     const { fixture } = createHarness();
     const page = fixture.componentInstance.page;
     await page.open();
+    page.coordinator.chooseCurrentTab();
     const lock = TestBed.inject(CommandCenterSendLockService);
     const tabId = page.store.markedTabId() ?? '';
     page.coordinator.startVoice();
