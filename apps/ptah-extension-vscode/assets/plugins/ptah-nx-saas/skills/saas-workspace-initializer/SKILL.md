@@ -40,3 +40,8 @@ and pick up dependencies from the roadmap.
 ```
 
 After handoff, do not implement feature libraries, pre-create future task stubs, or run multiple roadmap items in this session.
+
+## Requires
+
+- `dotnet-solution-initializer` (ptah-dotnet plugin) — the .NET sibling that reuses this skill's Stage A contract and roadmap schema; `references/roadmap-format.md` keeps the schema stack-agnostic because of it. If it is not installed, the shared contract here still stands on its own.
+- `nx-workspace-architect` — the Nx lib layout `references/stage-a-workflow.md` invokes with the discovery answers before the roadmap is written. If it is not installed, tell the user to enable it before scaffolding the foundation.

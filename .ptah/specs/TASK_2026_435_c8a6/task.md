@@ -1,5 +1,5 @@
 ---
-status: in_progress
+status: done
 type: refactoring
 title: >-
   Apply one prompt-authoring rubric to every other shipped skill and publish it where skill authors will meet it
