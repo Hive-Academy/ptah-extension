@@ -26,21 +26,27 @@ describe(CacheCountdownClockService.name, () => {
     jest.useRealTimers();
   });
 
-  it('shares one timer, samples immediately, and releases the last listener', () => {
+  it('shares one timer, samples on the first mount without dirtying an existing tile, and releases the last listener', () => {
     const clock = TestBed.inject(CacheCountdownClockService);
     const first = clock.acquire();
     expect(clock.now()).toBe(1_000);
     expect(jest.getTimerCount()).toBe(1);
     jest.setSystemTime(2_000);
     const second = clock.acquire();
-    expect(clock.now()).toBe(2_000);
+    expect(clock.now()).toBe(1_000);
     expect(jest.getTimerCount()).toBe(1);
+    jest.advanceTimersByTime(1_000);
+    expect(clock.now()).toBe(3_000);
     first();
     expect(jest.getTimerCount()).toBe(1);
     second();
     second();
     expect(jest.getTimerCount()).toBe(0);
     expect(documentMock.removeEventListener).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
+    jest.setSystemTime(4_000);
+    const third = clock.acquire();
+    expect(clock.now()).toBe(4_000);
+    third();
   });
 
   it('pauses while hidden and samples immediately when visible', () => {

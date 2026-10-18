@@ -20,8 +20,8 @@ export class CacheCountdownClockService {
   };
 
   acquire(): () => void {
-    this.tick.set(Date.now());
     if (++this.subscribers === 1) {
+      this.tick.set(Date.now());
       this.document.addEventListener('visibilitychange', this.visibilityChanged);
       this.start();
     }

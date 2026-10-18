@@ -36,7 +36,11 @@ describe(InspectorCacheTileComponent.name, () => {
     now.set(expiresAt);
     fixture.detectChanges();
     expect(root.textContent).toContain('Cache expired');
-    expect(root.querySelector('[data-testid="inspector-cache-tile"]')?.getAttribute('aria-label')).toContain('server can evict cached content early');
+    const tile = root.querySelector('[data-testid="inspector-cache-tile"]');
+    expect(tile?.getAttribute('role')).toBe('group');
+    expect(tile?.getAttribute('aria-label')).toContain('server can evict cached content early');
+    expect(tile?.getAttribute('aria-label')).toContain('Cache expired');
+    expect(tile?.hasAttribute('aria-live')).toBe(false);
     fixture.destroy();
     expect(release).toHaveBeenCalledTimes(1);
   });

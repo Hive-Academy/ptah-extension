@@ -10,7 +10,7 @@ const ESTIMATE_TITLE = 'Estimated from the last request. The server can evict ca
   selector: 'ptah-inspector-cache-tile',
   standalone: true,
   template: `
-    <div class="col-span-2 min-w-0 rounded-md border border-surface-border bg-surface-1 p-2.5"
+    <div class="col-span-2 min-w-0 rounded-md border border-surface-border bg-surface-1 p-2.5" role="group"
       data-testid="inspector-cache-tile" [title]="estimateTitle" [attr.aria-label]="accessibleText()">
       <div class="text-[11px] text-base-content-muted">Prompt cache · {{ cache().ttl }}</div>
       <div class="text-[15px] font-semibold tabular-nums">{{ expiryText() }}</div>
