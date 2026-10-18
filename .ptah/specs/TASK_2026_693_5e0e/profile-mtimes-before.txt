@@ -1,0 +1,3 @@
+﻿C:\Users\abdal\.ptah\state\ptah.sqlite | 2026-10-18T14:58:29.5037411Z
+C:\Users\abdal\AppData\Roaming\Ptah\secrets.json | 2026-10-18T13:55:53.2811399Z
+C:\Users\abdal\AppData\Roaming\Ptah Dev | 2026-10-18T14:59:16.2919038Z

@@ -397,9 +397,9 @@ export class CanvasRailBoardComponent {
       const hidden = () => {
         if (document.hidden) releaseAll();
       };
-      const lostCapture = (event: PointerEvent) => {
-        if (activePointerIds.has(event.pointerId)) releaseAll();
-      };
+      // One pointer losing capture ends only that pointer; the hold ends with
+      // the last tracked pointer, exactly as the last `up` does.
+      const lostCapture = (event: PointerEvent) => up(event);
       const selection = () => {
         if (activePointerIds.size > 0) return;
         // Hold only for selected text. A collapsed caret (left by a plain click,
@@ -447,6 +447,8 @@ export class CanvasRailBoardComponent {
         this.host.nativeElement.removeEventListener('pointerdown', down);
         stopTracking();
         activePointerIds.clear();
+        // A hide or destroy mid-press ends the press; no card stays held.
+        this.holdTabId.set(null);
       });
     });
     effect(() => {

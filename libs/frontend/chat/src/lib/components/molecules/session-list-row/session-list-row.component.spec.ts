@@ -222,6 +222,23 @@ describe('SessionListRowComponent', () => {
       expect(css).not.toMatch(/session-row-open[^{]*\{[^}]*background/);
     });
 
+    it('FU-16: the inline-rename wrapper repeats the accent above its fill along the full left edge', () => {
+      const css = rowStyles();
+      expect(css).toContain(
+        ':host(.session-row-current) .session-row-edit, :host(.session-row-open-tab) .session-row-edit { box-shadow: inherit; border-top-left-radius: 0; border-bottom-left-radius: 0; }',
+      );
+      hostCmp.isCurrent.set(true);
+      hostCmp.editingName.set('Fix the login flow');
+      hostCmp.editing.set(true);
+      render();
+      const wrapper = req<HTMLElement>('[data-testid="session-row-edit"]');
+      expect(wrapper.classList.contains('session-row-edit')).toBe(true);
+      // The edit wrapper is the li's only child, so its accent spans the row.
+      expect(wrapper.parentElement).toBe(li());
+      expect(li().children).toHaveLength(1);
+      expect(li().classList.contains('session-row-current')).toBe(true);
+    });
+
     it('a row that is not current has no aria-current and regular weight', () => {
       const open = req<HTMLButtonElement>('button[data-action="open"]');
       expect(open.hasAttribute('aria-current')).toBe(false);

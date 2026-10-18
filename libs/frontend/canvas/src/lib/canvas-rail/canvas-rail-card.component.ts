@@ -167,11 +167,15 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
         data-rail-actions
         [class]="actionsClass()"
       >
-        <!-- A block trigger wrapper adds no inline baseline gap to the cell. -->
+        <!-- A block trigger wrapper adds no inline baseline gap to the cell.
+             Rename opens below the trigger: Floating UI's shift moves a
+             bottom placement along x, so a narrow rail beside the Workspaces
+             panel keeps the panel inside the viewport (a right/left placement
+             only shifts vertically and clipped at 400 px). -->
         <ptah-native-popover
           class="[&>.popover-trigger]:block [&>.popover-panel]:p-0"
           [isOpen]="renameOpen()"
-          placement="right-start"
+          placement="bottom-end"
           [hasBackdrop]="true"
           backdropClass="transparent"
           (opened)="onRenameOpened()"
@@ -288,7 +292,7 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
           </div>
         </ptah-native-popover>
           </div>
-          <div content class="w-72 p-4" role="dialog" aria-label="Rename session">
+          <div content class="w-72 max-w-[calc(100vw-1rem)] p-4" role="dialog" aria-label="Rename session">
             <h3 class="mb-3 text-sm font-semibold text-base-content-muted">Rename session</h3>
             <input #renameInput type="text" class="input input-sm input-bordered mb-3 w-full bg-base-100 border-base-content/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-1px] focus-visible:outline-[oklch(var(--s))]" aria-label="Session name" [attr.aria-describedby]="renameError() ? 'rail-rename-error-' + tabId() : null" [maxLength]="nameMaxLength" [value]="renameDraft()" [readOnly]="renaming()" (input)="onRenameInput(renameInput.value)" (keydown.enter)="onRenameEnter($event)" />
             @if (renameError(); as error) {

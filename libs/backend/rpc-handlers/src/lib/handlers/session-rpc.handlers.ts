@@ -15,7 +15,10 @@ import {
   RpcUserError,
   TOKENS,
 } from '@ptah-extension/vscode-core';
-import type { SentryService } from '@ptah-extension/vscode-core';
+import type {
+  SentryService,
+  WebviewManager,
+} from '@ptah-extension/vscode-core';
 import {
   PLATFORM_TOKENS,
   type IFileSystemProvider,
@@ -36,6 +39,7 @@ import {
   MESSAGE_ID_NOT_FOUND_PHRASE,
   SessionTurnStateRegistry,
   SessionTitleService,
+  type JsonlReaderService,
 } from '@ptah-extension/agent-sdk';
 import {
   SessionId,
@@ -57,6 +61,8 @@ import {
   SessionRewindResult,
   MessageAnchorHint,
   UUID_REGEX,
+  MESSAGE_TYPES,
+  type SessionMetadataChangedNotification,
 } from '@ptah-extension/shared';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -98,6 +104,10 @@ import {
   isSessionListQueryMode,
   type SessionOrganizationMap,
 } from './session-list-query';
+import {
+  SessionMessageCounter,
+  type SessionTranscriptRef,
+} from './session-message-count';
 
 /**
  * Abort budget for one `session:stats-batch` page — well inside the renderer's
@@ -108,6 +118,12 @@ const STATS_PAGE_BUDGET_MS = 20_000;
 
 /** `session:list` calls slower than this log one warn line (AC1, L13). */
 const SESSION_LIST_SLOW_MS = 200;
+
+/** Surviving transcripts of one sessions directory. */
+interface TranscriptIndex {
+  readonly sessionsDir: string;
+  readonly ids: ReadonlySet<string>;
+}
 
 /** Organization data of one `session:list` call (organization hosts only). */
 interface SessionListOrganization {
@@ -159,6 +175,9 @@ export class SessionRpcHandlers {
 
   private readonly reportedCorruptSessionIds = new Set<string>();
 
+  /** `session:list` message counts, read from the page's transcripts. */
+  private readonly messageCounter: SessionMessageCounter;
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
@@ -200,6 +219,9 @@ export class SessionRpcHandlers {
      */
     @inject(TurnChangeSetStore)
     private readonly turnChangeSets: TurnChangeSetStore,
+    /** Streams the paginated rows' transcripts for `session:list` counts. */
+    @inject(SDK_TOKENS.SDK_JSONL_READER)
+    jsonlReader: JsonlReaderService,
     /**
      * Optional so a host that never registers the manager serves this method
      * exactly as before. See `session:cli-sessions` for the one use.
@@ -216,7 +238,15 @@ export class SessionRpcHandlers {
     /** Task index, read once per list call for the `missing` task flag. */
     @inject(TASK_SPECS_TOKENS.TASK_INDEX_SERVICE, { isOptional: true })
     private readonly taskIndex: TaskIndexService | null = null,
-  ) {}
+    /**
+     * Pushes `session:metadataChanged` when a background message-count warm
+     * changed a row, so the open list refreshes. Absent without a webview.
+     */
+    @inject(TOKENS.WEBVIEW_MANAGER, { isOptional: true })
+    private readonly webviewManager: WebviewManager | null = null,
+  ) {
+    this.messageCounter = new SessionMessageCounter(jsonlReader, logger);
+  }
 
   /**
    * Verify that a workspacePath supplied by the frontend is one of the
@@ -383,7 +413,9 @@ export class SessionRpcHandlers {
 
   /**
    * session:list - List all sessions for workspace (with pagination)
-   * Returns metadata only - SDK handles actual message storage
+   * Returns metadata, plus a `messageCount` that `SessionMessageCounter`
+   * counts from each page row's transcript in the background (the store keeps
+   * no count); a row not yet counted reports 0 until the next list.
    *
    * Organization (TASK_2026_580): the query fields are Zod-validated
    * (`INVALID_PARAMS` on failure) and applied by `applySessionListQuery`
@@ -442,6 +474,32 @@ export class SessionRpcHandlers {
           );
           const transcriptIdsByDirectory =
             await this.listTranscriptIdsByDirectory(transcriptDirectories);
+          const transcriptIndexOf = (sessionId: string) =>
+            transcriptIdsByDirectory.get(
+              transcriptDirectories.get(sessionId) ?? workspacePath,
+            );
+          // Counts come from the counter's cache with no I/O; this page's
+          // surviving transcripts are warmed in the background, and one push
+          // per page refreshes the open list when a count changed. A row
+          // without a count keeps 0, which hides "N msgs".
+          const messageCounts = this.messageCounter.peekAndWarm(
+            paginated.flatMap((s): SessionTranscriptRef[] => {
+              const index = transcriptIndexOf(s.sessionId);
+              return index && index.ids.has(s.sessionId)
+                ? [
+                    {
+                      sessionId: s.sessionId,
+                      filePath: path.join(
+                        index.sessionsDir,
+                        `${s.sessionId}.jsonl`,
+                      ),
+                    },
+                  ]
+                : [];
+            }),
+            (changedSessionIds) =>
+              this.pushMessageCountsChanged(workspacePath, changedSessionIds),
+          );
           const missingTaskIds = organization
             ? await this.findMissingTaskIds(
                 workspacePath,
@@ -473,19 +531,17 @@ export class SessionRpcHandlers {
               return [];
             }
             const livePhase = this.turnState.get(s.sessionId)?.phase;
-            const transcriptIds = transcriptIdsByDirectory.get(
-              transcriptDirectories.get(s.sessionId) ?? workspacePath,
-            );
+            const transcriptIndex = transcriptIndexOf(s.sessionId);
             return [
               {
                 id,
                 name: s.name,
                 lastActivityAt: s.lastActiveAt,
                 createdAt: s.createdAt,
-                messageCount: 0, // SDK handles messages - count not stored in metadata
+                messageCount: messageCounts.get(s.sessionId) ?? 0,
                 isActive: false, // Listed sessions are not currently active
-                ...(transcriptIds
-                  ? { hasTranscript: transcriptIds.has(s.sessionId) }
+                ...(transcriptIndex
+                  ? { hasTranscript: transcriptIndex.ids.has(s.sessionId) }
                   : {}),
                 ...(s.totalTokens &&
                 (s.totalTokens.input > 0 || s.totalTokens.output > 0)
@@ -1638,6 +1694,34 @@ export class SessionRpcHandlers {
   }
 
   /**
+   * One `session:metadataChanged` push per page warm that changed a count.
+   * The webview answers any such push with one debounced `loadSessions()`,
+   * which keeps its loaded pages; that list reads the warmed counts from the
+   * cache, finds nothing changed and pushes nothing, so the loop ends.
+   */
+  private pushMessageCountsChanged(
+    workspacePath: string,
+    changedSessionIds: readonly string[],
+  ): void {
+    if (!this.webviewManager || changedSessionIds.length === 0) return;
+    const payload: SessionMetadataChangedNotification = {
+      kind: 'updated',
+      sessionId: changedSessionIds[0],
+      workspaceId: workspacePath,
+    };
+    this.webviewManager
+      .broadcastMessage(MESSAGE_TYPES.SESSION_METADATA_CHANGED, payload)
+      .catch((error: unknown) => {
+        // degradation-audit: reported - a failed push is logged as an error;
+        // the counts are cached and the next session:list shows them.
+        this.logger.error(
+          `RPC: session:list failed to push ${MESSAGE_TYPES.SESSION_METADATA_CHANGED}`,
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      });
+  }
+
+  /**
    * Index the session IDs that still have a transcript on disk for a workspace.
    *
    * One `readdir` per transcript directory rather than one `stat` per row.
@@ -1647,18 +1731,21 @@ export class SessionRpcHandlers {
    */
   private async listTranscriptIds(
     workspacePath: string,
-  ): Promise<ReadonlySet<string> | null> {
+  ): Promise<TranscriptIndex | null> {
     try {
       const sessionDir = await this.resolveSessionsDir(workspacePath);
       if (!sessionDir) {
         return null;
       }
       const entries = await fs.readdir(sessionDir);
-      return new Set(
-        entries
-          .filter((e) => e.endsWith('.jsonl'))
-          .map((e) => e.slice(0, -'.jsonl'.length)),
-      );
+      return {
+        sessionsDir: sessionDir,
+        ids: new Set(
+          entries
+            .filter((e) => e.endsWith('.jsonl'))
+            .map((e) => e.slice(0, -'.jsonl'.length)),
+        ),
+      };
     } catch (error: unknown) {
       // degradation-audit: optional-capability - transcript indexing is an
       // optional enrichment; null leaves hasTranscript undefined rather than
@@ -1678,7 +1765,7 @@ export class SessionRpcHandlers {
    */
   private async listTranscriptIdsByDirectory(
     directoriesBySession: ReadonlyMap<string, string>,
-  ): Promise<ReadonlyMap<string, ReadonlySet<string> | null>> {
+  ): Promise<ReadonlyMap<string, TranscriptIndex | null>> {
     const directories = new Set(directoriesBySession.values());
     const entries = await Promise.all(
       [...directories].map(

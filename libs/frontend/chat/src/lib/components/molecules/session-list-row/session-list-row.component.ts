@@ -91,6 +91,17 @@ export const SESSION_LIST_ROW_STYLES = `
     border-top-left-radius: 0;
     border-bottom-left-radius: 0;
   }
+  /* FU-16: the inline-rename wrapper's own fill paints over the li's inset
+     accent (a parent's inset shadow sits below its children's backgrounds),
+     leaving it only at the rounded corners. The wrapper repeats the li's
+     accent above its fill, with the same square left corners, so the bar
+     runs the full left edge while editing. */
+  :host(.session-row-current) .session-row-edit,
+  :host(.session-row-open-tab) .session-row-edit {
+    box-shadow: inherit;
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+  }
   /* Inset ring: the scrolling list would clip an outer one. */
   .session-row-open:focus-visible {
     outline-offset: -2px;
@@ -139,7 +150,7 @@ export const SESSION_LIST_ROW_STYLES = `
   styles: SESSION_LIST_ROW_STYLES,
   template: `
     @if (editing()) {
-      <div class="bg-surface-2 rounded-md">
+      <div class="session-row-edit bg-surface-2 rounded-md" data-testid="session-row-edit">
         <div
           class="flex items-center gap-2 min-h-[52px] py-1.5 pr-2.5"
           [ngClass]="organizationAvailable() ? 'pl-[34px]' : 'pl-2.5'"
