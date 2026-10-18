@@ -578,7 +578,6 @@ function folderName(root: string): string {
       .ptah-composer {
         container-type: inline-size;
         container-name: ptah-composer;
-        padding-inline: calc(0.75rem + var(--chat-scrollbar-gutter, 8px));
       }
 
       .chat-composer-column {

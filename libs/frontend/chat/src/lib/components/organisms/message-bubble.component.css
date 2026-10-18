@@ -2,6 +2,11 @@
   display: block;
 }
 
+/* No avatar column: drop the chat grid gap so the bubble meets the column edge. */
+.cs-user-chat {
+  column-gap: 0;
+}
+
 .cs-user-bubble {
   width: 100%;
   max-width: none;

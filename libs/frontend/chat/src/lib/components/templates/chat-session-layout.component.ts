@@ -14,7 +14,6 @@ import { ChangeDetectionStrategy, Component } from '@angular/core';
   styles: `
     :host {
       --chat-content-max-width: 758px;
-      --chat-scrollbar-gutter: 8px;
     }
 
     :host(.hidden) {
