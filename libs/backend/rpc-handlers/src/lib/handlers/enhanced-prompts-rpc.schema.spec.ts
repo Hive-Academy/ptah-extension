@@ -26,6 +26,7 @@ describe('enhanced prompts bound schemas', () => {
       EnhancedPromptsRegenerateParamsSchema.safeParse({
         workspacePath: '/workspace',
         tabBinding,
+        model: 'sonnet',
       }).success,
     ).toBe(true);
   });

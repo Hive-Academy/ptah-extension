@@ -69,17 +69,20 @@ import type { GuidanceCommittedResult } from '../services/guidance-generation.st
           No saved guidance is available yet.
         </p>
       }
-      <button
-        type="button"
-        class="btn btn-ghost btn-sm mt-2"
-        (click)="skipRequested.emit()"
-      >
-        Skip guidance
-      </button>
+      @if (showSkip()) {
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm mt-2"
+          (click)="skipRequested.emit()"
+        >
+          Skip guidance
+        </button>
+      }
     </section>
   `,
 })
 export class GuidanceResultPanelComponent {
+  readonly showSkip = input(false);
   readonly result = input<GuidanceCommittedResult | null>(null);
   readonly enabledChanged = output<boolean>();
   readonly cacheRequested = output<void>();

@@ -1,4 +1,4 @@
-﻿import {
+import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
@@ -19,6 +19,8 @@ import type { SetupGenerationWorkflow } from '@ptah-extension/shared';
 import { GenerationWorkflowStore } from '../services/generation-workflow.store';
 import { AgentGenerationStore } from '../services/agent-generation.store';
 import { GenerationHandoffStore } from '../services/generation-handoff.store';
+import { GuidanceGenerationStore } from '../services/guidance-generation.store';
+import { GenerationGuidancePageComponent } from './generation-guidance-page.component';
 import { AgentSelectionListComponent } from './agent-selection-list.component';
 import { AgentRunCardComponent } from './agent-run-card.component';
 import { AgentGenerationProgressComponent } from './agent-generation-progress.component';
@@ -37,6 +39,7 @@ import { GenerationStopControlComponent } from './generation-stop-control.compon
     AgentNextStepsComponent,
     GenerationErrorsComponent,
     GenerationStopControlComponent,
+    GenerationGuidancePageComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -192,6 +195,9 @@ import { GenerationStopControlComponent } from './generation-stop-control.compon
               />
             }
           }
+          @if (current.workflow === 'setup-project-prompt') {
+            <ptah-generation-guidance-page />
+          }
           <ptah-generation-errors
             [errors]="
               agents.error()
@@ -235,6 +241,7 @@ export class GenerationWorkflowShellComponent {
   readonly store = inject(GenerationWorkflowStore);
   readonly agents = inject(AgentGenerationStore);
   readonly handoff = inject(GenerationHandoffStore);
+  readonly guidance = inject(GuidanceGenerationStore);
   private discoveryKey = '';
   private activeTabId: string | null = null;
   private combinedTabId: string | null = null;
@@ -319,6 +326,9 @@ export class GenerationWorkflowShellComponent {
       if (binding) {
         this.activeTabId = binding.tabId;
         this.store.bind(binding);
+        if (binding.workflow === 'setup-project-prompt')
+          this.guidance.bind(binding);
+        else this.guidance.unbind();
         const key = `${binding.workspacePath}\u0000${binding.tabId}\u0000${binding.workflow}`;
         if (
           binding.workflow === 'setup-agent-generation' &&
@@ -340,7 +350,13 @@ export class GenerationWorkflowShellComponent {
         this.discoveryKey = '';
         this.combinedTabId = null;
         this.store.unbind();
+        this.guidance.unbind();
       }
+    });
+    effect(() => {
+      const run = this.store.run();
+      if (run?.binding.workflow === 'setup-project-prompt')
+        void this.guidance.refresh();
     });
     effect(() => {
       const run = this.store.run();

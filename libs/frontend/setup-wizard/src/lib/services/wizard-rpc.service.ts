@@ -165,12 +165,17 @@ export class WizardRpcService {
   async regenerateBoundGuidance(
     binding: SetupGenerationTabBinding,
   ): Promise<EnhancedPromptsRunWizardResponse> {
+    const located = this.tabs.findTabByIdAcrossWorkspaces(binding.tabId);
+    const tab =
+      located?.workspacePath === binding.workspacePath ? located.tab : null;
     const result = await this.rpcService.call(
       'enhancedPrompts:regenerate',
       {
         workspacePath: binding.workspacePath,
         tabBinding: binding,
         force: true,
+        model:
+          tab?.overrideModel ?? this.modelState.currentModel() ?? undefined,
       },
       { timeout: WIZARD_RPC_TIMEOUTS.GENERATION_MS },
     );

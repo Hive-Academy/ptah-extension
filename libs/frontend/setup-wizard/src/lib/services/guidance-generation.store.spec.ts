@@ -90,6 +90,14 @@ describe('GuidanceGenerationStore', () => {
     expect(store.status()).toBe('failed');
   });
 
+  it('keeps an unchanged completed run successful after an active run', async () => {
+    store.bind(binding);
+    await store.start();
+    rpc.getBoundRunState.mockResolvedValue(run('completed', 'unchanged'));
+    await store.refresh();
+    expect(store.status()).toBe('completed');
+  });
+
   it('shows committed guidance with neutral status after reload unless cancellation is verified', async () => {
     rpc.getBoundRunState.mockResolvedValue(run('completed', 'committed'));
     rpc.getEnhancedPromptsStatus.mockResolvedValue({

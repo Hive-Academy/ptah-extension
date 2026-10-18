@@ -104,7 +104,9 @@ export class GenerationRunEventAdapter implements MessageHandler {
             )
               this.finish(pushed, run.status);
           })
-          .catch(() => undefined);
+          .catch(() => {
+            // degradation-audit: reported - a background lookup failure cannot establish a terminal run.
+          });
       }
     }
   }

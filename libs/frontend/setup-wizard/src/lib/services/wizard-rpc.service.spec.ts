@@ -86,6 +86,7 @@ describe('WizardRpcService', () => {
         workspacePath: '/ws',
         tabBinding: binding,
         force: true,
+        model: 'tab-model',
       },
       { timeout: 300_000 },
     );

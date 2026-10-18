@@ -59,6 +59,7 @@ export const EnhancedPromptsRegenerateParamsSchema = z.object({
   tabBinding: tabBinding.optional(),
   workspacePath,
   force: z.boolean().optional(),
+  model: z.string().min(1).max(200).optional(),
   config: EnhancedPromptsConfigOptionsSchema.optional(),
 });
 

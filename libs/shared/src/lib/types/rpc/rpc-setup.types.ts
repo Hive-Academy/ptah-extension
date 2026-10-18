@@ -561,6 +561,7 @@ export interface EnhancedPromptsSetEnabledResponse {
 /** Parameters for enhancedPrompts:regenerate RPC method */
 export interface EnhancedPromptsRegenerateParams {
   tabBinding?: SetupGenerationTabBinding;
+  model?: string;
   /** Workspace path */
   workspacePath: string;
   /** Force regeneration even if cache is valid */

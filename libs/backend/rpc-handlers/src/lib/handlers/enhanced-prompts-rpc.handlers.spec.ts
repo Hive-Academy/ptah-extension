@@ -1010,6 +1010,31 @@ describe('EnhancedPromptsRpcHandlers', () => {
   // -------------------------------------------------------------------------
 
   describe('enhancedPrompts:regenerate', () => {
+    it('passes the bound guidance model to provider resolution', async () => {
+      const h = makeHarness();
+      h.enhancedPrompts.regenerate.mockImplementation(
+        () => new Promise(() => undefined),
+      );
+      h.handlers.register();
+      const response = await call<{ accepted?: { runId: string } }>(
+        h,
+        'enhancedPrompts:regenerate',
+        {
+          workspacePath: WORKSPACE,
+          tabBinding: {
+            tabId: 'prompt-tab',
+            workflow: 'setup-project-prompt',
+            workspacePath: WORKSPACE,
+          },
+          model: 'tab-model',
+        },
+      );
+      expect(response.accepted?.runId).toBeTruthy();
+      expect(h.enhancedPrompts.resolveGuidanceRoute).toHaveBeenCalledWith(
+        WORKSPACE,
+        'tab-model',
+      );
+    });
     it('rejects missing workspacePath', async () => {
       const h = makeHarness();
       h.handlers.register();

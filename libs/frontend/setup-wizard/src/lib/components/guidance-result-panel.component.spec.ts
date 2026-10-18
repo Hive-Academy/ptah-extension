@@ -5,6 +5,7 @@ describe('GuidanceResultPanelComponent', () => {
   it('shows committed metadata and emits actions without changing agent outcome', () => {
     TestBed.configureTestingModule({ imports: [GuidanceResultPanelComponent] });
     const fixture = TestBed.createComponent(GuidanceResultPanelComponent);
+    fixture.componentRef.setInput('showSkip', true);
     fixture.componentRef.setInput('result', {
       generatedAt: '2026-10-18',
       enabled: true,

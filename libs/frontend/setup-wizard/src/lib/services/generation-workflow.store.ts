@@ -113,6 +113,14 @@ export class GenerationWorkflowStore {
   }
 
   async startGuidance(): Promise<void> {
+    await this.submitGuidance(false);
+  }
+
+  async regenerateGuidance(): Promise<void> {
+    await this.submitGuidance(true);
+  }
+
+  private async submitGuidance(force: boolean): Promise<void> {
     const binding = this.bindingValue();
     if (
       !binding ||
@@ -123,7 +131,9 @@ export class GenerationWorkflowStore {
     if (!this.canStartInChat(binding)) return;
     this.stateValue.set('starting');
     try {
-      const response = await this.rpc.startBoundGuidance(binding);
+      const response = force
+        ? await this.rpc.regenerateBoundGuidance(binding)
+        : await this.rpc.startBoundGuidance(binding);
       if (!this.sameBinding(binding)) return;
       if (response.accepted) await this.accept(binding, response.accepted);
       else if (response.rejection) this.reject(response.rejection);
@@ -265,6 +275,7 @@ export class GenerationWorkflowStore {
     try {
       return await this.rpc.getBoundRunState(binding, runId);
     } catch {
+      // degradation-audit: reported - refresh retries a failed host lookup without exposing transport errors.
       return null;
     }
   }

@@ -188,7 +188,9 @@ export class GuidanceGenerationStore {
       this.statusValue.set(
         this.restoring && terminal && run.status !== 'cancelled'
           ? 'idle'
-          : run.status === 'completed' && committed !== 'committed'
+          : run.status === 'completed' &&
+              committed !== 'committed' &&
+              committed !== 'unchanged'
             ? 'failed'
             : run.status,
       );
