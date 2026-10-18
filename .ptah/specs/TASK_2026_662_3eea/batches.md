@@ -1,6 +1,6 @@
 # Batches - TASK_2026_662_3eea
 
-Total tasks: 75 (71 + carry-over tasks 44.2, 65.2, 67.2, 53.2) | Batches: 71 (+2 operational steps OP-1, OP-2) | Phases: 6 (A-F) | Complete: 22/71 (Phase A 15/15 CLOSED: logic gate APPROVED after one fix round, 8360e7aca; style fixes verified in the round-2 re-review; visual review APPROVED 8/10. Phase B 7/9: batches 16-22; next 23 -> 24, sequential, SU-gated)
+Total tasks: 75 (71 + carry-over tasks 44.2, 65.2, 67.2, 53.2) | Batches: 71 (+2 operational steps OP-1, OP-2) | Phases: 6 (A-F) | Complete: 24/71 (Phase A 15/15 CLOSED: logic gate APPROVED after one fix round, 8360e7aca; style fixes verified in the round-2 re-review; visual review APPROVED 8/10. Phase B 9/9: batches 16-24 committed; Phase B review (code-logic + visual) due)
 
 Worktree root (prefix every path below with it): `D:\projects\ptah-extension\.claude-worktrees\skill-synthesis-purge\`
 Branch: `refactor/skill-synthesis-purge`. Aliases (same as implementation-plan.md:153):
@@ -729,26 +729,17 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
 
 ### Next action:
 
-Phase B batches 16-22 are COMPLETE (21 = 917be31f2). Run batch 23 now (IN_PROGRESS), then batch 24,
-sequentially, one lane each, both gated on `-p @ptah-extension/skill-synthesis-ui` (scoped checks one at
-a time).
+Phase B batches 16-24 are COMPLETE (23 = 691777d85, 24 = 7e64882c2). Run the Phase B review now; no
+Phase C batch starts until it accepts.
 
-- Batch 23 - Formatter drops the `invocationCount` gate. Files:
-  `libs/frontend/skill-synthesis-ui/src/lib/components/clones/clone-action-gating.ts` + its spec.
-  Requirement (plan row 21): the success-rate formatter formats from the graded value alone; remove the
-  `invocationCount <= 0` guard (precondition: present at `clone-action-gating.ts:241`); a null graded
-  value stays "no grade", never 0 %. Depends on 22 (producer reads `skill_task_grades`; `successRate`
-  may be `null`). Flags: UI. Gate:
-  `npx nx run-many -t test typecheck lint -p @ptah-extension/skill-synthesis-ui --parallel=1`.
-- Batch 24 - Three-kind nullable grade display: `skill-clones-view.component.ts` + spec,
-  `clone-card.component.ts` + spec, `clone-detail-drawer.component.ts` + spec (plan row 22; preserve rows
-  "Library tabs" and "Scorecard", implementation-plan.md:47-48). Same gate. Note: batch 21 last edited
-  `skill-clones-view.component.ts` (O14 save handler at `:813-838`); keep it.
-
-After batch 24 commits: Phase B review = code-logic on `dc10d73b2..HEAD` (parent of the first Phase B
-commit 6071e8ccc) plus visual (list in the Phase map row B, including O10 tile, Library pause/telemetry
-controls, the model editor slow/unavailable states and the enhance preview drawer from batch 21, and
-Phase A Moderate 1 and Minor 1).
+- Code-logic review on `dc10d73b2..HEAD` (parent of the first Phase B commit 6071e8ccc), reviewer from
+  a different family than the implementing lanes.
+- Visual review per the Phase map row B list: O10 dashboard Skills tile, Library pause/telemetry
+  controls, Providers Enhancement row and background-roles summary, routing map Background roles node,
+  pause switch pending/error states, model editor slow/unavailable states, enhance preview drawer
+  (batch 21), and Phase A Moderate 1 (null detail-row pill) and Minor 1 (neutral verdict dot), now
+  checkable after batch 24, plus the batch 24 three-kind card/drawer grade display.
+- Then re-invoke team-leader Mode 2 step 6 with both review paths and verdicts.
 
 ---
 
@@ -1041,14 +1032,14 @@ Phase A Moderate 1 and Minor 1).
   --parallel=1` PASS after fix round 1 (orchestrator-verified; not re-run here, RAM rule).
 - Commit: e632e109d `refactor(skill-synthesis,rpc-handlers): batch 22 - rates read grades` (6 files).
 
-## Batch 23: Formatter drops the `invocationCount` gate - IN_PROGRESS
+## Batch 23: Formatter drops the `invocationCount` gate - COMPLETE (691777d85)
 
 - Phase: B | Executor: CLI lane Glm | Depends on: 22 | Tasks: 1
 - Flags: UI
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/skill-synthesis-ui --parallel=1`
 - Precondition: the `invocationCount <= 0` guard at `clone-action-gating.ts:241`.
 
-### Task 23.1: Format from the graded value alone - IN_PROGRESS
+### Task 23.1: Format from the graded value alone - COMPLETE
 
 - Files: `SU/components/clones/clone-action-gating.ts` + spec.
 - Plan reference: plan row 21.
@@ -1057,14 +1048,14 @@ Phase A Moderate 1 and Minor 1).
 - Validation notes: none beyond the plan row.
 - Implementation details: none beyond the plan row.
 
-## Batch 24: Three-kind nullable grade display - PENDING
+## Batch 24: Three-kind nullable grade display - COMPLETE (7e64882c2)
 
 - Phase: B | Executor: CLI lane Glm | Depends on: 23 | Tasks: 1
 - Flags: UI (Library Skills/Agents/Commands cards and drawer)
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/skill-synthesis-ui --parallel=1`
 - Precondition: the batch 22 producer and batch 23 formatter are done.
 
-### Task 24.1: Cards, view and drawer show an honest use/grade per kind - PENDING
+### Task 24.1: Cards, view and drawer show an honest use/grade per kind - COMPLETE
 
 - Files: `SU/components/clones/skill-clones-view.component.ts` + spec, `clone-card.component.ts` + spec, `clone-detail-drawer.component.ts` + spec.
 - Plan reference: plan row 22; preserve rows "Library tabs" and "Scorecard" (implementation-plan.md:47-48).
@@ -1073,7 +1064,21 @@ Phase A Moderate 1 and Minor 1).
 - Validation notes: none beyond the plan row and the preserve rows.
 - Implementation details: none beyond the plan row and the preserve rows.
 
-**Phase B review due after batch 24: code-logic + visual.**
+### Batches 23-24 verification - COMPLETE (691777d85, 7e64882c2)
+
+- Executor: CLI lane (one each, sequential); reports `reports/batch-23-report.md`,
+  `reports/batch-24-report.md`.
+- 23 on disk: `formatSuccessRate` drops the `invocationCount <= 0` guard, returns `string`; null or
+  non-finite grade -> "No grade", never 0 %. Spec covers null at 0 and 4 uses, graded at 0 uses.
+- 24 on disk: card and drawer show Success whenever `invocationCount > 0 || successRate !== null`, for
+  all three kinds; "No grade" styled `text-base-content-muted`; agent outcome signals and scorecard
+  kept. View spec adds card-to-drawer parity per Library tab. `skill-clones-view.component.ts` has no
+  diff, so the O14 save handler (batch 21) is kept. Preserve rows "Library tabs" and "Scorecard" held.
+- No TODO/PLACEHOLDER/STUB in the added lines.
+- Gate (O15, combined for both batches, orchestrator-run, not re-run here):
+  `nx run-many -t test typecheck lint -p @ptah-extension/skill-synthesis-ui --parallel=1` PASS.
+
+**Phase B review due now: code-logic on `dc10d73b2..HEAD` + visual (Phase map row B).**
 
 ---
 
@@ -1972,3 +1977,17 @@ D3), but the user must see and confirm the archive before the drop. Do not commi
 | T10 | Split the old "then 17, 18, 20-24" into waves B-W2 (17 chat + 22 RH/SS) and B-W3 (18 chat + 20 SU); 17 and 22 marked IN_PROGRESS together. | 17 + 20 first; fully sequential | Wave rule (different Nx projects incl. gate projects): 20 and 22 both gate SU, so they cannot pair; 22 starts the longest chain (22 -> 23 -> 24). | Yes |
 | T11 | Phase A visual Serious 1 (dark `badge-success`/`badge-error` contrast) is a named follow-up outside this task; Moderate 1 and Minor 1 re-checked in the Phase B visual review after batch 24. | add a Phase A UI fix batch | Reviewer marked Serious 1 pre-existing (classes predate batches 7/11) and APPROVED 8/10; the null row is not reachable until batches 22-24. | Yes |
 | T12 | Legacy `PendingSettingsTab` ids kept by batch 17 are removed in a new Task 53.2 (core union), after their users go: routing map (18), providers commit service (25), e2e fixtures (51, 52). | remove in 18; remove in 25; leave as a follow-up | O13a kept them because `routing-map.component.ts:14-17`, `providers-commit.service.ts:151-154`, `skills-lane-pickers.e2e.spec.ts:114` and `ptah-electron-e2e/.../skills.spec.ts:121` still use them; 53 is the first batch after 51 and 52 (via 52) and is Phase C, so the Phase C review covers it. | Yes |
+
+## Batches 23-24 commit record
+
+| Commit | Subject | Files |
+| --- | --- | --- |
+| 691777d85 | `refactor(skill-synthesis-ui): batch 23 - format rate from grade alone` | `SU/components/clones/clone-action-gating.ts` + spec (2) |
+| 7e64882c2 | `refactor(skill-synthesis-ui): batch 24 - one grade display per kind` | `SU/components/clones/clone-card.component.ts` + spec, `clone-detail-drawer.component.ts` + spec, `skill-clones-view.component.spec.ts` (5) |
+| (docs commit) | `docs(task-specs): TASK_2026_662 batches 23 and 24 records` | `batches.md`, `decisions.md`, `HANDOFF.md`, `reports/batch-23-report.md`, `reports/batch-24-report.md`, `research/wizard-skills-harmony.md` |
+
+- Gate: combined per O15, `nx run-many -t test typecheck lint -p @ptah-extension/skill-synthesis-ui
+  --parallel=1` PASS (orchestrator-run before both commits; not re-run).
+- `skill-clones-view.component.ts` unchanged (O14 save handler from batch 21 kept); preserve rows
+  "Library tabs" and "Scorecard" held.
+- Staged per batch only; no amend, no `--no-verify`, no push. Phase B review is next.
