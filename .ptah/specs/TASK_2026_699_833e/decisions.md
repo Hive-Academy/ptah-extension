@@ -1,0 +1,16 @@
+# Decisions - TASK_2026_699_833e
+
+| # | Stage | Decision | Evidence | Source |
+|---|-------|----------|----------|--------|
+| 1 | Pre-flight | Type FEATURE, depth Partial | Request says "add"; requirements are concrete | orchestrator rules |
+| 2 | Pre-flight | Redesign of an existing surface → parity-inventory + designer + Gate 1.7 | orchestration SKILL.md task-folder rule | skill rule |
+| 3 | Gate 0.1 | Lanes enabled, lane-review approval; Claude subagents implement frontend, codex reviews | memories orchestration-executor-preference, agent-lane-review-workflow; codex confirmed room | memory |
+| 5 | Gate 1 SR | Inspector open/closed state stays per-tab in memory (no new persistence); only width persists | Today's behavior per parity-inventory; user asked only for persisted width; reversible | evidence (PM recommendation) |
+| 6 | Gate 1 SR | Evidence = 4 Electron screenshots (dark/light × 1440/760); VS Code webview covered by component tests | User request lists one screenshot set; Electron is the hosting shell named in the request | evidence (PM recommendation) |
+| 7 | Scope | User's Plan Limits card request joins this task (same inspector surface, same screenshot set); PM revises task-description + parity rows after the Gate 1 review returns, then one re-review | User message 2026-10-19; avoids a second worktree/PR touching the same panel | user request |
+| 8 | Gate 1.7 | Design review at cap: REVISE (rev 3). Sole open finding judged a false positive: the 5-hour "Usage unknown" card is a plan-window (expandable via windowDetail), not kind `status`; it only reuses a `.status` CSS class in the prototype. Escalated to user per cap rule | plan-limit-tile.component.ts:192-193 (`expandable` excludes only kinds status/local-usage); plan-limit-tiles.ts:362-363 (Usage unknown chip is a window state), 387-401 (windowDetail); user's screenshot shows a chevron on the 5-hour unknown row; prototype/index.html:238-240 | orchestrator evidence |
+| 9 | Gate 1.7 | User APPROVED design-spec.md + prototype revision 3 (2026-10-19), accepting decision 8 and all [lane-proposed] constraints in prototype/README.md | User reply "approved" | user |
+| 10 | Gate 2 | Relax AC 3.6 "one shared width per host install": Electron stays install-wide (one localStorage origin); in VS Code the width persists per webview view type (sidebar `ptah.main` and editor panels `ptah-angular-spa` may differ). No new RPC | User asked only for "a persisted width clamped to min/max" (context.md); "shared per install" was PM-introduced; VS Code partitions webview storage by view type (implementation-plan-review.md F1); cross-view sync would need a new RPC + 4 DI guard specs. Reversible later | evidence |
+| 11 | Gate 2 | implementation-plan.md rev 3 passed by codex APPROVED (lane-review mode, round 3); posted as notice | implementation-plan-review.md rev 3 | cross-side reviewer |
+| 12 | Execution | Implementation by Claude frontend-developer subagents (frontend memory); phase code-logic review by codex (different family) | memory agent-lane-review-workflow | memory |
+| 4 | Setup | Worktree feat/inspector-side-dock; node_modules junction to main checkout | CLAUDE.md worktree rule; memory worktree-node-modules-junction | project rule |

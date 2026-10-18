@@ -7,59 +7,101 @@ import {
   inject,
   input,
   output,
+  signal,
 } from '@angular/core';
 
 export type SplitHandleOrientation = 'vertical' | 'horizontal';
+export type SplitHandleAppearance = 'line' | 'grip';
 
 const KEYBOARD_STEP = 16;
+const SHIFT_STEP_FACTOR = 3;
+
+const GRIP_SEPARATOR_BASE =
+  'group relative flex h-full w-full touch-none items-center justify-center outline-none transition-colors duration-150 motion-reduce:transition-none focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-1 focus-visible:outline-base-content';
 
 /**
  * Drag handle between two panes. It owns no layout state: the parent keeps
- * the size of the pane BEFORE the handle and binds it back through `size`.
+ * the size of one pane and binds it back through `size`. By default that is
+ * the pane BEFORE the handle; with `inverted` it is the pane AFTER it, so
+ * dragging toward that pane shrinks it and the arrow keys swap.
  *
  * - `vertical` separator: a column divider, drags on the x axis.
  * - `horizontal` separator: a row divider, drags on the y axis.
+ * - `appearance="line"` (default): a thin line; the host sizes itself.
+ * - `appearance="grip"`: a visible grip, a width readout and a solid focus
+ *   outline; the parent positions and sizes the host.
  *
  * `sizeChange` fires once per animation frame while dragging and on every
- * keyboard step. `sizeCommit` fires when a drag or key step ends, so the
- * parent can persist. Escape or a lost pointer restores the start size.
- * Double-click emits `reset`.
+ * keyboard step (Shift triples the step). `sizeCommit` fires when a drag or
+ * key step ends, so the parent can persist. Escape, window blur or a lost
+ * pointer restores the start size and then emits `sizeCancel`.
+ * `draggingChange` is a visual flag only. Double-click emits `sizeReset`.
  */
 @Component({
   selector: 'ptah-split-handle',
   standalone: true,
   template: `
-    <div
-      class="group flex h-full w-full touch-none items-center justify-center outline-none focus-visible:bg-primary/20"
-      [class.cursor-col-resize]="orientation() === 'vertical'"
-      [class.cursor-row-resize]="orientation() === 'horizontal'"
-      role="separator"
-      tabindex="0"
-      [attr.aria-orientation]="orientation()"
-      [attr.aria-label]="label()"
-      [attr.aria-valuenow]="roundedSize()"
-      [attr.aria-valuemin]="min()"
-      [attr.aria-valuemax]="max()"
-      title="Drag to resize · double-click to reset"
-      (pointerdown)="onPointerDown($event)"
-      (lostpointercapture)="onLostPointerCapture($event)"
-      (keydown)="onKeydown($event)"
-      (dblclick)="sizeReset.emit()"
-    >
+    @if (appearance() === 'grip') {
       <div
-        class="rounded-full bg-base-content/15 transition-colors group-hover:bg-primary/60 group-active:bg-primary"
-        [class.h-full]="orientation() === 'vertical'"
-        [class.w-px]="orientation() === 'vertical'"
-        [class.w-full]="orientation() === 'horizontal'"
-        [class.h-px]="orientation() === 'horizontal'"
-      ></div>
-    </div>
+        [class]="gripSeparatorClass()"
+        [class.cursor-col-resize]="orientation() === 'vertical'"
+        [class.cursor-row-resize]="orientation() === 'horizontal'"
+        role="separator"
+        tabindex="0"
+        [attr.aria-orientation]="orientation()"
+        [attr.aria-label]="label()"
+        [attr.aria-valuenow]="roundedSize()"
+        [attr.aria-valuemin]="min()"
+        [attr.aria-valuemax]="max()"
+        title="Drag to resize · double-click to reset"
+        (pointerdown)="onPointerDown($event)"
+        (lostpointercapture)="onLostPointerCapture($event)"
+        (keydown)="onKeydown($event)"
+        (dblclick)="sizeReset.emit()"
+      >
+        <span [class]="gripLineClass()" data-testid="split-handle-line"></span>
+        <span [class]="gripClass()" data-testid="split-handle-grip"></span>
+        <span
+          [class]="readoutClass()"
+          aria-hidden="true"
+          data-testid="split-handle-readout"
+          >{{ roundedSize() }} px</span
+        >
+      </div>
+    } @else {
+      <div
+        class="group flex h-full w-full touch-none items-center justify-center outline-none focus-visible:bg-primary/20"
+        [class.cursor-col-resize]="orientation() === 'vertical'"
+        [class.cursor-row-resize]="orientation() === 'horizontal'"
+        role="separator"
+        tabindex="0"
+        [attr.aria-orientation]="orientation()"
+        [attr.aria-label]="label()"
+        [attr.aria-valuenow]="roundedSize()"
+        [attr.aria-valuemin]="min()"
+        [attr.aria-valuemax]="max()"
+        title="Drag to resize · double-click to reset"
+        (pointerdown)="onPointerDown($event)"
+        (lostpointercapture)="onLostPointerCapture($event)"
+        (keydown)="onKeydown($event)"
+        (dblclick)="sizeReset.emit()"
+      >
+        <div
+          class="rounded-full bg-base-content/15 transition-colors group-hover:bg-primary/60 group-active:bg-primary"
+          [class.h-full]="orientation() === 'vertical'"
+          [class.w-px]="orientation() === 'vertical'"
+          [class.w-full]="orientation() === 'horizontal'"
+          [class.h-px]="orientation() === 'horizontal'"
+        ></div>
+      </div>
+    }
   `,
   host: {
     class: 'block shrink-0',
-    '[class.w-1.5]': "orientation() === 'vertical'",
+    '[class.w-1.5]': "appearance() === 'line' && orientation() === 'vertical'",
     '[class.h-full]': "orientation() === 'vertical'",
-    '[class.h-1.5]': "orientation() === 'horizontal'",
+    '[class.h-1.5]':
+      "appearance() === 'line' && orientation() === 'horizontal'",
     '[class.w-full]': "orientation() === 'horizontal'",
   },
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -70,12 +112,60 @@ export class SplitHandleComponent {
   readonly min = input.required<number>();
   readonly max = input.required<number>();
   readonly label = input('Resize panes');
+  /** `size` belongs to the pane AFTER the handle instead of the one before. */
+  readonly inverted = input(false);
+  readonly appearance = input<SplitHandleAppearance>('line');
 
   readonly sizeChange = output<number>();
   readonly sizeCommit = output<void>();
   readonly sizeReset = output<void>();
+  /** Emitted after a cancelled drag has restored the start size. */
+  readonly sizeCancel = output<void>();
+  /** Visual flag only: on pointerup it turns false before `sizeCommit`. */
+  readonly draggingChange = output<boolean>();
 
   protected readonly roundedSize = computed(() => Math.round(this.size()));
+  protected readonly dragging = signal(false);
+
+  protected readonly gripSeparatorClass = computed(
+    () =>
+      `${GRIP_SEPARATOR_BASE} ${
+        this.dragging()
+          ? 'bg-primary/20'
+          : 'focus-visible:bg-base-content/[0.08]'
+      }`,
+  );
+
+  protected readonly gripLineClass = computed(() => {
+    const vertical = this.orientation() === 'vertical';
+    const edge = vertical
+      ? `inset-y-0 w-px ${this.inverted() ? 'left-0' : 'right-0'}`
+      : `inset-x-0 h-px ${this.inverted() ? 'top-0' : 'bottom-0'}`;
+    const tone = this.dragging()
+      ? 'bg-primary'
+      : 'bg-base-content/15 group-hover:bg-primary/60';
+    return `pointer-events-none absolute ${edge} transition-colors duration-150 motion-reduce:transition-none ${tone}`;
+  });
+
+  protected readonly gripClass = computed(() => {
+    const shape = this.orientation() === 'vertical' ? 'w-1 h-8' : 'h-1 w-8';
+    const tone = this.dragging()
+      ? 'bg-base-content'
+      : 'bg-base-content/60 group-hover:bg-base-content/80';
+    return `pointer-events-none relative rounded-full ${shape} transition-colors duration-150 motion-reduce:transition-none ${tone}`;
+  });
+
+  protected readonly readoutClass = computed(() => {
+    const vertical = this.orientation() === 'vertical';
+    const inverted = this.inverted();
+    const anchor = vertical
+      ? `top-2 ${inverted ? 'left-0' : 'right-0'}`
+      : `left-2 ${inverted ? 'top-0' : 'bottom-0'}`;
+    const visibility = this.dragging()
+      ? 'block'
+      : 'hidden group-focus-visible:block';
+    return `pointer-events-none absolute z-10 ${anchor} ${visibility} whitespace-nowrap rounded bg-base-300 px-1.5 py-0.5 text-[11px] leading-4 tabular-nums text-base-content`;
+  });
 
   private readonly element = inject(ElementRef<HTMLElement>);
   private readonly destroyRef = inject(DestroyRef);
@@ -91,16 +181,14 @@ export class SplitHandleComponent {
     if (this.frame !== null) return;
     this.frame = requestAnimationFrame(() => {
       this.frame = null;
-      this.sizeChange.emit(
-        this.clamp(this.startSize + this.pendingPos - this.startPos),
-      );
+      this.sizeChange.emit(this.dragSize());
     });
   };
 
   private readonly pointerUp = (event: PointerEvent): void => {
     if (event.pointerId !== this.pointerId) return;
     this.flushPendingMove(this.axisPos(event));
-    this.finishDrag();
+    this.finishDrag(true);
     this.sizeCommit.emit();
   };
 
@@ -117,7 +205,9 @@ export class SplitHandleComponent {
   };
 
   constructor() {
-    this.destroyRef.onDestroy(() => this.cancelDrag());
+    // Outputs are already torn down here, so emitting would log NG0953.
+    // Release listeners, capture and body styles silently.
+    this.destroyRef.onDestroy(() => this.finishDrag(false));
   }
 
   protected onPointerDown(event: PointerEvent): void {
@@ -135,11 +225,15 @@ export class SplitHandleComponent {
       // Pointer capture is an optimization; document listeners remain authoritative.
     }
     document.body.style.userSelect = 'none';
+    document.body.style.cursor =
+      this.orientation() === 'vertical' ? 'col-resize' : 'row-resize';
     document.addEventListener('pointermove', this.pointerMove);
     document.addEventListener('pointerup', this.pointerUp);
     document.addEventListener('pointercancel', this.pointerCancel);
     document.addEventListener('keydown', this.documentKeydown);
     window.addEventListener('blur', this.windowBlur);
+    this.dragging.set(true);
+    this.draggingChange.emit(true);
   }
 
   protected onLostPointerCapture(event: PointerEvent): void {
@@ -148,11 +242,17 @@ export class SplitHandleComponent {
 
   protected onKeydown(event: KeyboardEvent): void {
     const vertical = this.orientation() === 'vertical';
-    const decrease = vertical ? 'ArrowLeft' : 'ArrowUp';
-    const increase = vertical ? 'ArrowRight' : 'ArrowDown';
+    const before = vertical ? 'ArrowLeft' : 'ArrowUp';
+    const after = vertical ? 'ArrowRight' : 'ArrowDown';
+    const [decrease, increase] = this.inverted()
+      ? [after, before]
+      : [before, after];
+    const step = event.shiftKey
+      ? KEYBOARD_STEP * SHIFT_STEP_FACTOR
+      : KEYBOARD_STEP;
     let next: number | null = null;
-    if (event.key === decrease) next = this.size() - KEYBOARD_STEP;
-    else if (event.key === increase) next = this.size() + KEYBOARD_STEP;
+    if (event.key === decrease) next = this.size() - step;
+    else if (event.key === increase) next = this.size() + step;
     else if (event.key === 'Home') next = this.min();
     else if (event.key === 'End') next = this.max();
     if (next === null) return;
@@ -165,37 +265,48 @@ export class SplitHandleComponent {
     return this.orientation() === 'vertical' ? event.clientX : event.clientY;
   }
 
+  private dragSize(): number {
+    const delta = this.pendingPos - this.startPos;
+    return this.clamp(
+      this.inverted() ? this.startSize - delta : this.startSize + delta,
+    );
+  }
+
   private flushPendingMove(pos: number): void {
     if (this.frame !== null) {
       cancelAnimationFrame(this.frame);
       this.frame = null;
     }
     this.pendingPos = pos;
-    this.sizeChange.emit(
-      this.clamp(this.startSize + this.pendingPos - this.startPos),
-    );
+    this.sizeChange.emit(this.dragSize());
   }
 
   private cancelDrag(): void {
     if (this.pointerId === null) return;
     this.sizeChange.emit(this.startSize);
-    this.finishDrag();
+    this.finishDrag(true);
+    this.sizeCancel.emit();
   }
 
-  private finishDrag(): void {
+  /**
+   * Ends a drag on every exit path. `notify` is false only on destroy, where
+   * the outputs no longer exist.
+   */
+  private finishDrag(notify: boolean): void {
     const pointerId = this.pointerId;
     this.pointerId = null;
     if (this.frame !== null) {
       cancelAnimationFrame(this.frame);
       this.frame = null;
     }
-    document.body.style.userSelect = '';
     document.removeEventListener('pointermove', this.pointerMove);
     document.removeEventListener('pointerup', this.pointerUp);
     document.removeEventListener('pointercancel', this.pointerCancel);
     document.removeEventListener('keydown', this.documentKeydown);
     window.removeEventListener('blur', this.windowBlur);
     if (pointerId === null) return;
+    document.body.style.userSelect = '';
+    document.body.style.cursor = '';
     try {
       const separator = this.element.nativeElement.querySelector(
         '[role="separator"]',
@@ -204,6 +315,8 @@ export class SplitHandleComponent {
     } catch {
       // The pointer may already have lost capture.
     }
+    this.dragging.set(false);
+    if (notify) this.draggingChange.emit(false);
   }
 
   private clamp(size: number): number {
