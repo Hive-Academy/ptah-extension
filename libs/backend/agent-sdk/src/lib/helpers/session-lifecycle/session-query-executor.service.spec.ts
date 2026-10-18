@@ -53,6 +53,7 @@ import {
 import { SubagentStopNotices } from '../compaction/subagent-stop-notices';
 import { SubagentBudgetStopCallbackRegistry } from '../subagent-budget-stop-callback-registry';
 import type { CompactionConfigProvider } from '../compaction-config-provider';
+import type { IdleCompactionSignals } from '../compaction/idle/idle-compaction.types';
 
 /** A monitor's handoff files when the session has no workspace. */
 const noHandoffFiles: SubagentHandoffFilesPort = {
@@ -166,6 +167,7 @@ function makeHarness(
     logger?: Logger;
     /** What the options build reports as the effective subagent cache TTL. */
     subagentCacheTtl?: SubagentPromptCacheTtl;
+    idle?: IdleCompactionSignals;
   } = {},
 ): Harness {
   const logger = compaction.logger ?? makeLogger();
@@ -241,6 +243,7 @@ function makeHarness(
     compaction.coordinator ?? null,
     compaction.port ?? null,
     compaction.subagentMonitor ?? null,
+    compaction.idle ?? null,
   );
 
   return {
@@ -747,6 +750,35 @@ describe('real watchdog query ownership regressions', () => {
 // ---------------------------------------------------------------------------
 
 describe('SessionQueryExecutor — compaction coordinator wiring (TASK_2026_597 A8)', () => {
+  it('binds native route evidence and releases before stats disposal once across teardown paths', async () => {
+    const bound = jest.fn();
+    const released = jest.fn();
+    const idle: IdleCompactionSignals = {
+      sessionBound: bound,
+      requestStarted: jest.fn(), turnEnded: jest.fn(), turnContext: jest.fn(),
+      input: jest.fn(), promptPrefixChanged: jest.fn(), rateLimit: jest.fn(),
+      compactBoundary: jest.fn(), sessionReleased: released, rekey: jest.fn(),
+    };
+    const native = makeHarness('ask', {} as AuthEnv, { idle });
+    const nativeRun = await native.executor.executeQuery(makeConfig('native-route'));
+    feed(nativeRun, { type: 'system', subtype: 'init', session_id: 'native-sdk' } as SDKMessage);
+    expect(bound).toHaveBeenCalledWith('native-sdk', nativeRun.sessionToken, false, true);
+    nativeRun.beforeLiveStatsDispose?.();
+    nativeRun.onStreamEnd();
+    nativeRun.abortController.abort();
+    expect(released).toHaveBeenCalledTimes(1);
+
+    const proxy = makeHarness('ask', {} as AuthEnv, { idle });
+    const proxyRun = await proxy.executor.executeQuery(makeConfig('proxy-route', {
+      authEnvOverride: {
+        ANTHROPIC_BASE_URL: 'http://127.0.0.1:418',
+        ANTHROPIC_AUTH_TOKEN: 'codex-proxy-managed',
+      },
+    }));
+    feed(proxyRun, { type: 'system', subtype: 'init', session_id: 'proxy-sdk' } as SDKMessage);
+    expect(bound).toHaveBeenCalledWith('proxy-sdk', proxyRun.sessionToken, true, false);
+    proxyRun.abortController.abort();
+  });
   const noTimers: CompactionTimers = {
     setTimeout: () => undefined,
     clearTimeout: () => undefined,

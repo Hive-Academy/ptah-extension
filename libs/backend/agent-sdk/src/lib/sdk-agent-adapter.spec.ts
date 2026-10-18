@@ -1565,6 +1565,7 @@ describe('SdkAgentAdapter', () => {
       const activityWatchdog = new NoActivityWatchdog(100000, () => undefined);
       const onMessage: ExecuteQueryResult['onMessage'] = jest.fn();
       const onStreamEnd: ExecuteQueryResult['onStreamEnd'] = jest.fn();
+      const beforeLiveStatsDispose: ExecuteQueryResult['beforeLiveStatsDispose'] = jest.fn();
       h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
         sdkQuery,
         initialModel: 'claude-sonnet-4-20250514',
@@ -1572,6 +1573,7 @@ describe('SdkAgentAdapter', () => {
         activityWatchdog,
         onMessage,
         onStreamEnd,
+        beforeLiveStatsDispose,
       } as ExecuteQueryResult);
 
       await h.adapter.startChatSession(makeSessionConfig());
@@ -1582,6 +1584,7 @@ describe('SdkAgentAdapter', () => {
       // The compaction tap's callbacks reach the stream (TASK_2026_614 D.11).
       expect(transformArg.onMessage).toBe(onMessage);
       expect(transformArg.onStreamEnd).toBe(onStreamEnd);
+      expect(transformArg.beforeLiveStatsDispose).toBe(beforeLiveStatsDispose);
       expect(transformArg.sdkQuery).toBe(sdkQuery);
       expect(transformArg.sessionId).toBe('tab_1');
       expect(transformArg.initialModel).toBe('claude-sonnet-4-20250514');
@@ -1726,6 +1729,7 @@ describe('SdkAgentAdapter', () => {
       const sdkQuery = createFakeQuery();
       const onMessage: ExecuteQueryResult['onMessage'] = jest.fn();
       const onStreamEnd: ExecuteQueryResult['onStreamEnd'] = jest.fn();
+      const beforeLiveStatsDispose: ExecuteQueryResult['beforeLiveStatsDispose'] = jest.fn();
       h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
         sdkQuery,
         initialModel: 'claude-sonnet-4-20250514',
@@ -1733,6 +1737,7 @@ describe('SdkAgentAdapter', () => {
         activityWatchdog: new NoActivityWatchdog(100000, () => undefined),
         onMessage,
         onStreamEnd,
+        beforeLiveStatsDispose,
       } as ExecuteQueryResult);
       await h.adapter.resumeSession('sess-1' as SessionId);
 
@@ -1761,6 +1766,7 @@ describe('SdkAgentAdapter', () => {
       expect(reused.sdkQuery).toBe(sdkQuery);
       expect(reused.onMessage).toBe(onMessage);
       expect(reused.onStreamEnd).toBe(onStreamEnd);
+      expect(reused.beforeLiveStatsDispose).toBe(beforeLiveStatsDispose);
     });
 
     it('dispatches a new executeQuery() when no active session exists, threading the watchdog through', async () => {
@@ -1773,6 +1779,7 @@ describe('SdkAgentAdapter', () => {
       const activityWatchdog = new NoActivityWatchdog(100000, () => undefined);
       const onMessage: ExecuteQueryResult['onMessage'] = jest.fn();
       const onStreamEnd: ExecuteQueryResult['onStreamEnd'] = jest.fn();
+      const beforeLiveStatsDispose: ExecuteQueryResult['beforeLiveStatsDispose'] = jest.fn();
       h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
         sdkQuery,
         initialModel: 'claude-sonnet-4-20250514',
@@ -1780,6 +1787,7 @@ describe('SdkAgentAdapter', () => {
         activityWatchdog,
         onMessage,
         onStreamEnd,
+        beforeLiveStatsDispose,
       } as ExecuteQueryResult);
 
       await h.adapter.resumeSession('sess-1' as SessionId);
@@ -1795,6 +1803,7 @@ describe('SdkAgentAdapter', () => {
       // The compaction tap's callbacks reach the stream (TASK_2026_614 D.11).
       expect(transformArg.onMessage).toBe(onMessage);
       expect(transformArg.onStreamEnd).toBe(onStreamEnd);
+      expect(transformArg.beforeLiveStatsDispose).toBe(beforeLiveStatsDispose);
       expect(transformArg.sdkQuery).toBe(sdkQuery);
     });
 
@@ -2476,6 +2485,7 @@ describe('SdkAgentAdapter', () => {
       const activityWatchdog = new NoActivityWatchdog(100000, () => undefined);
       const onMessage: ExecuteQueryResult['onMessage'] = jest.fn();
       const onStreamEnd: ExecuteQueryResult['onStreamEnd'] = jest.fn();
+      const beforeLiveStatsDispose: ExecuteQueryResult['beforeLiveStatsDispose'] = jest.fn();
       h.sessionLifecycle.executeSlashCommandQuery.mockResolvedValueOnce({
         sdkQuery,
         initialModel: 'claude-sonnet-4-20250514',
@@ -2483,6 +2493,7 @@ describe('SdkAgentAdapter', () => {
         activityWatchdog,
         onMessage,
         onStreamEnd,
+        beforeLiveStatsDispose,
       } as ExecuteQueryResult);
 
       await h.adapter.executeSlashCommand('sess-1' as SessionId, '/help', {
@@ -2499,6 +2510,7 @@ describe('SdkAgentAdapter', () => {
       // The compaction tap's callbacks reach the stream (TASK_2026_614 D.11).
       expect(transformArg.onMessage).toBe(onMessage);
       expect(transformArg.onStreamEnd).toBe(onStreamEnd);
+      expect(transformArg.beforeLiveStatsDispose).toBe(beforeLiveStatsDispose);
       expect(transformArg.sdkQuery).toBe(sdkQuery);
       expect(transformArg.tabId).toBe('tab-1');
       expect(h.metadataStore.updateProvider).not.toHaveBeenCalled();

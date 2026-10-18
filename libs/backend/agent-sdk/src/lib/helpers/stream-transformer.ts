@@ -268,6 +268,8 @@ export interface StreamTransformConfig {
    * D.2, D.11). A throw is logged and does not mask the stream's own outcome.
    */
   onStreamEnd?: () => void;
+  /** Release the idle tap while the live stats owner watcher is still attached. */
+  beforeLiveStatsDispose?: () => void;
 }
 
 /**
@@ -446,6 +448,7 @@ export class StreamTransformer {
       activityWatchdog,
       onMessage,
       onStreamEnd,
+      beforeLiveStatsDispose,
       runToken,
       usageCostSource,
       accountingAuthEnv,
@@ -997,6 +1000,9 @@ export class StreamTransformer {
                       ...validatedStats,
                       ...(sessionStats && { sessionStats }),
                     });
+                    if (sessionStats) {
+                      livePublisher.noteResultPublished(sessionStats);
+                    }
                   }
                 }
               } finally {
@@ -1087,6 +1093,14 @@ export class StreamTransformer {
           // Stop the watchdog on every teardown path (end-of-stream, error,
           // abort) so it can neither leak nor fire after the turn ends.
           activityWatchdog?.stop();
+          if (beforeLiveStatsDispose) {
+            runGuardedCallback(
+              logger,
+              '[StreamTransformer] beforeLiveStatsDispose callback failed; teardown continues',
+              { sessionId },
+              beforeLiveStatsDispose,
+            );
+          }
           // Cancels the throttle timer, detaches the owner watcher and settles
           // an estimate the stream ended on without a result. Never throws.
           livePublisher.dispose();

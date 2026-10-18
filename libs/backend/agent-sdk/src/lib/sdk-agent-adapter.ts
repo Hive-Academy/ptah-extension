@@ -86,7 +86,10 @@ export type {
 } from './helpers';
 
 /** The stream callbacks of one run's compaction tap. */
-type StreamTap = Pick<ExecuteQueryResult, 'onMessage' | 'onStreamEnd'>;
+type StreamTap = Pick<
+  ExecuteQueryResult,
+  'onMessage' | 'onStreamEnd' | 'beforeLiveStatsDispose'
+>;
 
 const SDK_CAPABILITIES: ProviderCapabilities = {
   streaming: true,
@@ -956,6 +959,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       activityWatchdog,
       onMessage,
       onStreamEnd,
+      beforeLiveStatsDispose,
       sessionToken,
       usageCostSource,
       accountingAuthEnv,
@@ -1031,7 +1035,11 @@ export class SdkAgentAdapter implements IAgentAdapter {
       onCompactBoundary: this.recordBudgetCompaction,
       tabId: config?.tabId,
       activityWatchdog,
-      ...this.rememberStreamTap(sdkQuery, { onMessage, onStreamEnd }),
+      ...this.rememberStreamTap(sdkQuery, {
+        onMessage,
+        onStreamEnd,
+        beforeLiveStatsDispose,
+      }),
     });
   }
 
@@ -1259,6 +1267,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       activityWatchdog,
       onMessage,
       onStreamEnd,
+      beforeLiveStatsDispose,
       sessionToken,
       usageCostSource,
       accountingAuthEnv,
@@ -1359,7 +1368,11 @@ export class SdkAgentAdapter implements IAgentAdapter {
       onCompactBoundary: this.recordBudgetCompaction,
       tabId: config?.tabId,
       activityWatchdog,
-      ...this.rememberStreamTap(sdkQuery, { onMessage, onStreamEnd }),
+      ...this.rememberStreamTap(sdkQuery, {
+        onMessage,
+        onStreamEnd,
+        beforeLiveStatsDispose,
+      }),
     });
   }
 
@@ -1660,6 +1673,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       activityWatchdog,
       onMessage,
       onStreamEnd,
+      beforeLiveStatsDispose,
       sessionToken,
       usageCostSource,
       accountingAuthEnv,
@@ -1731,7 +1745,11 @@ export class SdkAgentAdapter implements IAgentAdapter {
       onCompactBoundary: this.recordBudgetCompaction,
       tabId: config.tabId,
       activityWatchdog,
-      ...this.rememberStreamTap(sdkQuery, { onMessage, onStreamEnd }),
+      ...this.rememberStreamTap(sdkQuery, {
+        onMessage,
+        onStreamEnd,
+        beforeLiveStatsDispose,
+      }),
     });
   }
 

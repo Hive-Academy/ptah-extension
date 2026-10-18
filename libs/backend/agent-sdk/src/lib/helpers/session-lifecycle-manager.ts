@@ -329,6 +329,8 @@ export interface ExecuteQueryResult {
    * tracked on any teardown (TASK_2026_614 D.11). Never throws.
    */
   onStreamEnd: () => void;
+  /** Release the idle tap before the live stats publisher is disposed. */
+  beforeLiveStatsDispose?: () => void;
   /**
    * `token` of the registry record this query owns.
    *
