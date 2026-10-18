@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { WizardRpcService } from './wizard-rpc.service';
 import { ClaudeRpcService, ModelStateService } from '@ptah-extension/core';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { AgentSelection } from './setup-wizard-state.service';
 
 /**
@@ -31,6 +32,13 @@ describe('WizardRpcService', () => {
         WizardRpcService,
         { provide: ClaudeRpcService, useValue: mockRpcService },
         { provide: ModelStateService, useValue: mockModelState },
+        {
+          provide: TabManagerService,
+          useValue: {
+            findTabByIdAcrossWorkspaces: jest.fn(),
+            getWorkspaceTabs: jest.fn().mockReturnValue([]),
+          },
+        },
       ],
     });
 
@@ -53,6 +61,88 @@ describe('WizardRpcService', () => {
     success: false,
     isSuccess: () => false,
     error,
+  });
+
+  it('uses the bound guidance tab model and preserves tabless Settings calls', async () => {
+    rpcCall.mockResolvedValue(okResult({ accepted: { runId: 'r' } }));
+    const binding = {
+      tabId: 'guidance',
+      workflow: 'setup-project-prompt' as const,
+      workspacePath: '/ws',
+    };
+    const tabs = TestBed.inject(TabManagerService);
+    jest.spyOn(tabs, 'findTabByIdAcrossWorkspaces').mockReturnValue({
+      workspacePath: '/ws',
+      tab: { overrideModel: 'tab-model' },
+    } as ReturnType<TabManagerService['findTabByIdAcrossWorkspaces']>);
+    await service.startBoundGuidance(binding);
+    expect(rpcCall).toHaveBeenCalledWith(
+      'enhancedPrompts:runWizard',
+      { workspacePath: '/ws', tabBinding: binding, model: 'tab-model' },
+      { timeout: 300_000 },
+    );
+    rpcCall.mockClear();
+    await service.regenerateBoundGuidance(binding);
+    expect(rpcCall).toHaveBeenCalledWith(
+      'enhancedPrompts:regenerate',
+      {
+        workspacePath: '/ws',
+        tabBinding: binding,
+        force: true,
+        model: 'tab-model',
+      },
+      { timeout: 300_000 },
+    );
+    rpcCall.mockClear();
+    await service.regenerateEnhancedPrompts('/ws');
+    expect(rpcCall).toHaveBeenCalledWith(
+      'enhancedPrompts:regenerate',
+      { workspacePath: '/ws', force: true },
+      { timeout: 300_000 },
+    );
+  });
+
+  it('passes the VS Code active tab override model for all bound starts', async () => {
+    rpcCall.mockResolvedValue(okResult({ accepted: { runId: 'r' } }));
+    const tabs = TestBed.inject(TabManagerService);
+    jest.spyOn(tabs, 'findTabByIdAcrossWorkspaces').mockReturnValue({
+      workspacePath: null,
+      tab: { overrideModel: 'tab-model' },
+    } as ReturnType<TabManagerService['findTabByIdAcrossWorkspaces']>);
+    jest.spyOn(tabs, 'getWorkspaceTabs').mockReturnValue([
+      { id: 'tab' },
+    ] as ReturnType<TabManagerService['getWorkspaceTabs']>);
+    const agentBinding = {
+      tabId: 'tab',
+      workflow: 'setup-agent-generation' as const,
+      workspacePath: '/ws',
+    };
+    const guidanceBinding = {
+      ...agentBinding,
+      workflow: 'setup-project-prompt' as const,
+    };
+    await service.startBoundAgents(agentBinding, ['agent']);
+    await service.startBoundGuidance(guidanceBinding);
+    await service.regenerateBoundGuidance(guidanceBinding);
+    expect(rpcCall).toHaveBeenNthCalledWith(
+      1,
+      'wizard:submit-selection',
+      expect.objectContaining({ model: 'tab-model' }),
+      expect.any(Object),
+    );
+    expect(rpcCall).toHaveBeenNthCalledWith(
+      2,
+      'enhancedPrompts:runWizard',
+      expect.objectContaining({ model: 'tab-model' }),
+      expect.any(Object),
+    );
+    expect(rpcCall).toHaveBeenNthCalledWith(
+      3,
+      'enhancedPrompts:regenerate',
+      expect.objectContaining({ model: 'tab-model' }),
+      expect.any(Object),
+    );
+    expect(tabs.getWorkspaceTabs).toHaveBeenCalledWith('/ws');
   });
 
   describe('launchWizard', () => {
@@ -297,23 +387,118 @@ describe('WizardRpcService', () => {
     });
   });
 
+  it('reports an unavailable selected model without exposing host error text', async () => {
+    rpcCall.mockResolvedValue(
+      errResult(
+        'The selected model is unavailable for this provider. private-host-detail',
+      ),
+    );
+    await expect(
+      service.startBoundAgents(
+        {
+          tabId: 'tab',
+          workspacePath: '/ws',
+          workflow: 'setup-agent-generation',
+        },
+        ['a'],
+      ),
+    ).rejects.toThrow('The selected model is not available for this provider.');
+  });
+
   describe('retryGenerationItem', () => {
+    it('uses the exact bound run for retry and rejects an unsuccessful result', async () => {
+      const tabBinding = {
+        tabId: 'tab',
+        workspacePath: '/ws',
+        workflow: 'setup-agent-generation' as const,
+        runId: 'run',
+      };
+      rpcCall
+        .mockResolvedValueOnce(okResult({ success: true }))
+        .mockResolvedValueOnce(okResult({ success: false }));
+      await service.retryGenerationItem('agent', tabBinding);
+      expect(rpcCall).toHaveBeenCalledWith(
+        'wizard:retry-item',
+        { itemId: 'agent', tabBinding },
+        { timeout: 300_000 },
+      );
+      await expect(
+        service.retryGenerationItem('agent', tabBinding),
+      ).rejects.toThrow('Failed to retry generation item');
+    });
     it('should call wizard:retry-item with the given itemId', async () => {
       rpcCall.mockResolvedValue(okResult());
 
       await service.retryGenerationItem('item-42');
 
-      expect(rpcCall).toHaveBeenCalledWith('wizard:retry-item', {
-        itemId: 'item-42',
-      });
+      expect(rpcCall).toHaveBeenCalledWith(
+        'wizard:retry-item',
+        {
+          itemId: 'item-42',
+        },
+        { timeout: 300_000 },
+      );
     });
 
     it('should throw when RPC fails', async () => {
       rpcCall.mockResolvedValue(errResult('not-found'));
 
       await expect(service.retryGenerationItem('item-42')).rejects.toThrow(
-        'not-found',
+        'Failed to retry generation item',
       );
     });
+  });
+
+  it('sends the tab picker model on bound submit and resume', async () => {
+    const tabBinding = {
+      tabId: 'tab',
+      workspacePath: '/ws',
+      workflow: 'setup-agent-generation' as const,
+    };
+    const tabs = TestBed.inject(TabManagerService);
+    jest.spyOn(tabs, 'findTabByIdAcrossWorkspaces').mockReturnValue({
+      workspacePath: '/ws',
+      tab: { overrideModel: 'opus' },
+    } as ReturnType<TabManagerService['findTabByIdAcrossWorkspaces']>);
+    rpcCall.mockResolvedValue(okResult({ accepted: { runId: 'run' } }));
+    await service.startBoundAgents(tabBinding, ['a']);
+    await service.startBoundAgents(tabBinding, [], true);
+    expect(rpcCall).toHaveBeenNthCalledWith(
+      1,
+      'wizard:submit-selection',
+      expect.objectContaining({ model: 'opus', selectedAgentIds: ['a'] }),
+      expect.any(Object),
+    );
+    expect(rpcCall).toHaveBeenNthCalledWith(
+      2,
+      'wizard:submit-selection',
+      expect.objectContaining({ model: 'opus', resume: true }),
+      expect.any(Object),
+    );
+  });
+
+  it('looks up and stops a tab-bound run using its exact identity', async () => {
+    const binding = {
+      tabId: 'tab',
+      workspacePath: '/ws',
+      workflow: 'setup-agent-generation' as const,
+    };
+    rpcCall
+      .mockResolvedValueOnce(okResult({ run: null }))
+      .mockResolvedValueOnce(okResult({ cancelled: true }));
+    await expect(service.getBoundRunState(binding, 'run')).resolves.toBeNull();
+    expect(rpcCall).toHaveBeenCalledWith(
+      'wizard:get-generation-run-state',
+      { tabBinding: binding, runId: 'run' },
+      expect.anything(),
+    );
+    await expect(
+      service.cancelBoundRun({ ...binding, runId: 'run' }),
+    ).resolves.toBe(true);
+    expect(rpcCall).toHaveBeenCalledWith(
+      'wizard:cancel',
+      { tabBinding: { ...binding, runId: 'run' } },
+      expect.anything(),
+    );
   });
 });

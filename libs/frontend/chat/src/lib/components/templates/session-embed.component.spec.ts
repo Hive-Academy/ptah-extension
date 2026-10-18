@@ -17,6 +17,7 @@ import {
   SESSION_CONTEXT,
   SESSION_FOCUSED,
   SESSION_START_GUARD,
+  SESSION_STOP_HANDLER,
   SESSION_VISIBLE,
 } from '../../tokens/session-context.token';
 import { RAIL_MIN_CONTENT_WIDTH } from './chat-view.component';
@@ -160,6 +161,19 @@ describe('SessionEmbedComponent', () => {
     fixture.componentRef.setInput('startGuard', () => 'Second');
     fixture.detectChanges();
     expect(injectedGuard()).toBe('Second');
+    fixture.destroy();
+  });
+
+  it('passes the embedded tab to a synchronous Stop handler and defaults to not-handled', () => {
+    const fixture = mount('workflow-tab');
+    const injected =
+      fixture.componentInstance.childInjector.get(SESSION_STOP_HANDLER);
+    expect(injected('workflow-tab')).toBe('not-handled');
+    const handler = jest.fn(() => 'handled' as const);
+    fixture.componentRef.setInput('stopHandler', handler);
+    fixture.detectChanges();
+    expect(injected('workflow-tab')).toBe('handled');
+    expect(handler).toHaveBeenCalledWith('workflow-tab');
     fixture.destroy();
   });
 

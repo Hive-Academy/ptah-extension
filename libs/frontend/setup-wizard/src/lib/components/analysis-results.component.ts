@@ -17,6 +17,9 @@ import {
 import { MarkdownModule } from 'ngx-markdown';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 import { WizardAnalysisRunner } from '../services/wizard-analysis-runner.service';
+import { SetupGenerationOpenHandler } from '../services/setup-generation-open.handler';
+import { TabManagerService } from '@ptah-extension/chat-state';
+import { GenerationWorkflowLauncherService } from '@ptah-extension/chat-ui';
 import { ConfirmationModalComponent } from './confirmation-modal.component';
 
 /**
@@ -51,6 +54,11 @@ import { ConfirmationModalComponent } from './confirmation-modal.component';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="px-3 py-4">
+      @if (openHandler.launchNotice(); as notice) {
+        <div class="alert alert-warning mb-3 text-sm" role="status">
+          {{ notice }}
+        </div>
+      }
       <h2 class="text-xl font-semibold mb-4">Analysis Complete</h2>
 
       <!-- Resume offer for a persisted, unfinished generation run -->
@@ -113,9 +121,7 @@ import { ConfirmationModalComponent } from './confirmation-modal.component';
 
           <!-- Phase cards -->
           @for (phase of phaseEntries(); track phase.id) {
-            <div
-              class="collapse collapse-arrow surface-2"
-            >
+            <div class="collapse collapse-arrow surface-2">
               <input
                 type="checkbox"
                 [checked]="isPhaseExpanded(phase.id)"
@@ -197,6 +203,11 @@ import { ConfirmationModalComponent } from './confirmation-modal.component';
             Yes, Continue
           </button>
         </div>
+        @if (continueError()) {
+          <p role="alert" class="mt-2 text-center text-sm text-error">
+            Agent generation could not be opened. Try again.
+          </p>
+        }
       } @else {
         <!-- Skeleton loading state (no analysis available) -->
         <div class="space-y-4">
@@ -232,6 +243,10 @@ import { ConfirmationModalComponent } from './confirmation-modal.component';
   `,
 })
 export class AnalysisResultsComponent {
+  readonly openHandler = inject(SetupGenerationOpenHandler);
+  private readonly tabs = inject(TabManagerService);
+  private readonly launcher = inject(GenerationWorkflowLauncherService);
+  protected readonly continueError = signal(false);
   private readonly wizardState = inject(SetupWizardStateService);
   private readonly runner = inject(WizardAnalysisRunner);
   protected readonly TriangleAlertIcon = TriangleAlert;
@@ -334,8 +349,23 @@ For now, you can:
    * - User confirmed analysis results
    * - Transition to agent selection step
    */
-  protected onContinue(): void {
-    this.wizardState.setCurrentStep('selection');
+  protected async onContinue(): Promise<void> {
+    this.continueError.set(false);
+    const workspacePath = this.tabs.activeWorkspacePath;
+    if (!workspacePath) {
+      this.continueError.set(true);
+      return;
+    }
+    try {
+      const result = await this.launcher.open({
+        workspacePath,
+        workflow: 'setup-agent-generation',
+        origin: 'analysis-result-continue',
+      });
+      this.continueError.set(result.outcome === 'failed');
+    } catch {
+      this.continueError.set(true);
+    }
   }
 
   /**

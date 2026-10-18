@@ -34,6 +34,16 @@ describe('Electron RPC surface', () => {
     expect([...surface.excluded]).toEqual([]);
   });
 
+  it('serves bound guidance and generation recovery methods', () => {
+    expect(surface.registered).toEqual(
+      expect.arrayContaining([
+        'enhancedPrompts:cancel',
+        'enhancedPrompts:getRunState',
+        'wizard:get-generation-run-state',
+      ]),
+    );
+  });
+
   it('serves every method in the RPC registry', () => {
     expect(surface.registered.length).toBe(RPC_METHOD_NAMES.length);
     expect([...surface.registered].sort()).toEqual(

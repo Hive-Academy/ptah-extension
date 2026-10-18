@@ -29,3 +29,37 @@ export {
   surfaceRoutePath,
   type ViewType,
 } from '@ptah-extension/shared';
+import { InjectionToken } from '@angular/core';
+
+/** Installed by the main shell, where workspace-scoped tab state is available. */
+export type GenerationRouteTabValidator = (
+  tabId: string,
+  workflow: 'setup-agent-generation' | 'setup-project-prompt',
+) => boolean;
+export const GENERATION_ROUTE_TAB_VALIDATOR =
+  new InjectionToken<GenerationRouteTabValidator>(
+    'GENERATION_ROUTE_TAB_VALIDATOR',
+  );
+
+export function generationRouteBinding(
+  segments: readonly string[],
+): {
+  tabId: string;
+  workflow: 'setup-agent-generation' | 'setup-project-prompt';
+} | null {
+  if (
+    segments.length !== 4 ||
+    segments[0] !== 'setup-wizard' ||
+    segments[1] !== 'generation'
+  )
+    return null;
+  const workflow = segments[2];
+  if (
+    workflow !== 'setup-agent-generation' &&
+    workflow !== 'setup-project-prompt'
+  )
+    return null;
+  const tabId = segments[3];
+  if (!tabId || tabId.includes('/') || tabId.includes('\\')) return null;
+  return { tabId, workflow };
+}

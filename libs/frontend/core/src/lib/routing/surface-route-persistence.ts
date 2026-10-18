@@ -1,5 +1,5 @@
 import { DestroyRef, Injectable, inject } from '@angular/core';
-import { NavigationEnd, Router } from '@angular/router';
+import { NavigationEnd, PRIMARY_OUTLET, Router } from '@angular/router';
 import {
   WEBVIEW_ROUTE_STATE_KEY,
   parseWebviewRouteState,
@@ -7,6 +7,10 @@ import {
 } from '@ptah-extension/shared';
 import { filter } from 'rxjs/operators';
 import { VSCodeService } from '../services/vscode.service';
+import {
+  GENERATION_ROUTE_TAB_VALIDATOR,
+  generationRouteBinding,
+} from './surface-routes';
 
 /**
  * Persists every URL the Router settles on, so a reloaded or restored webview
@@ -30,6 +34,10 @@ export class SurfaceRoutePersistence {
   private readonly router = inject(Router);
   private readonly vscodeService = inject(VSCodeService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly generationRouteTabValidator = inject(
+    GENERATION_ROUTE_TAB_VALIDATOR,
+    { optional: true },
+  );
   private started = false;
   private warnedRejected = false;
 
@@ -61,6 +69,20 @@ export class SurfaceRoutePersistence {
     // Outside a host (a plain browser) there is nothing to persist into, and
     // `VSCodeService.setState` would warn on every navigation.
     if (!this.vscodeService.isConnected()) return;
+    const segments =
+      this.router
+        .parseUrl(route)
+        .root.children[PRIMARY_OUTLET]?.segments.map(
+          (segment) => segment.path,
+        ) ?? [];
+    if (segments[0] === 'setup-wizard' && segments[1] === 'generation') {
+      const binding = generationRouteBinding(segments);
+      if (
+        !binding ||
+        !this.generationRouteTabValidator?.(binding.tabId, binding.workflow)
+      )
+        return;
+    }
 
     // Only a record the shared parser accepts is written. `setState` replaces
     // the whole `ptahRoute` entry, so writing a rejected one (a colon in the

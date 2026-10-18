@@ -20,6 +20,19 @@
 import { z } from 'zod';
 import { ProjectAnalysisResultSchema } from '@ptah-extension/agent-generation';
 
+export const WizardTabBindingSchema = z.object({
+  tabId: z.string().min(1).max(200),
+  workflow: z.literal('setup-agent-generation'),
+  workspacePath: z.string().min(1).max(4096),
+});
+export const WizardRunBindingSchema = WizardTabBindingSchema.extend({
+  runId: z.string().uuid(),
+});
+export const WizardGetGenerationRunStateParamsSchema = z.object({
+  tabBinding: WizardTabBindingSchema,
+  runId: z.string().uuid().optional(),
+});
+
 /** One agent id: a file-name-safe token, never a path. */
 export const WizardAgentIdSchema = z
   .string()
@@ -34,6 +47,7 @@ export const WizardAgentIdSchema = z
   });
 
 export const WizardSubmitSelectionParamsSchema = z.object({
+  tabBinding: WizardTabBindingSchema.optional(),
   /** Empty or absent is allowed only together with `resume: true`. */
   selectedAgentIds: z.array(WizardAgentIdSchema).max(200).optional(),
   threshold: z.number().min(0).max(100).optional(),
@@ -56,14 +70,17 @@ export type WizardSubmitSelectionParsedParams = z.infer<
  * {@link WizardAgentIdSchema} under the same cap.
  */
 export const WizardPreviewGenerationParamsSchema = z.object({
+  tabBinding: WizardTabBindingSchema.optional(),
   selectedAgentIds: z.array(WizardAgentIdSchema).min(1).max(200),
 });
 
 export const WizardCancelParamsSchema = z.object({
+  tabBinding: WizardRunBindingSchema.optional(),
   saveProgress: z.boolean().optional(),
 });
 
 export const WizardRetryItemParamsSchema = z.object({
+  tabBinding: WizardRunBindingSchema.optional(),
   itemId: WizardAgentIdSchema,
 });
 

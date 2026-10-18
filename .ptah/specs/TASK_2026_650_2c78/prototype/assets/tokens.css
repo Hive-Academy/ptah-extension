@@ -1,0 +1,103 @@
+/* ==========================================================================
+   Prototype tokens: the app's REAL DaisyUI theme variables, copied.
+   Source: apps/ptah-extension-webview/tailwind.config.js (themes `anubis`, `anubis-light`;
+   hex values converted to daisyUI's `L% C H` form, oklch values copied verbatim) and
+   apps/ptah-extension-webview/src/styles.css (surfaces, elevation, gold, motion).
+   Nothing below is invented; every custom property named here exists in the app.
+   ========================================================================== */
+
+:root {
+  --ptah-gold: #d4af37;
+  --ptah-gold-strong: #f5d97d;
+  --ptah-gold-soft: rgba(212, 175, 55, 0.12);
+  /* chat-view.component.css */
+  --ptah-ease-soft: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ptah-ease-gentle-in: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+[data-theme='anubis'] {
+  color-scheme: dark;
+  --p: 54.615% 0.2152 262.88;
+  --pc: 97.607% 0.0041 91.45;
+  --s: 76.6528% 0.1387 91.06;
+  --sc: 18.8562% 0.008 285.6;
+  --a: 83.6861% 0.1644 84.43;
+  --n: 23.859% 0.0152 285.19;
+  --nc: 87.1681% 0.0093 258.34;
+  --b1: 18.8562% 0.008 285.6;
+  --b2: 22.0459% 0.0116 285.41;
+  --b3: 26.5698% 0.0223 284.79;
+  --bc: 92.5095% 0.0071 88.65;
+  --bcm: 66.509856% 0.007403 31.090978;
+  --in: 62.3083% 0.188 259.81;
+  --su: 62.7052% 0.1699 149.21;
+  --wa: 70.4871% 0.1867 47.6;
+  --er: 57.7099% 0.2152 27.33;
+  --state-ink-run: #3b82f6;
+  --state-ink-need: #f97316;
+  --state-ink-err: #ef4444;
+  --state-ink-done: #16a34a;
+  --state-ink-idle: #9ca3af;
+  --rounded-box: 0.75rem;
+  --rounded-btn: 0.375rem;
+  --rounded-badge: 0.25rem;
+  /* styles.css [data-theme-mode='dark'] */
+  --surface-highlight: color-mix(in oklch, oklch(var(--bc)) 13%, transparent);
+  --elev-shadow: 0 1px 1px oklch(0% 0 0 / 0.28);
+  --elev-shadow-raised: 0 12px 30px oklch(0% 0 0 / 0.42);
+  /* NEW token proposed by this spec: text-safe gold for links (gold itself is 8.8:1 here) */
+  --ptah-link: var(--ptah-gold);
+  --diff-add: #4ade80;
+  --diff-del: #f87171;
+}
+
+[data-theme='anubis-light'] {
+  color-scheme: light;
+  --p: 85% 0.138 181.071;
+  --pc: 36% 0.078 188.216;
+  --s: 58% 0.132 75;
+  --sc: 98% 0.015 80;
+  --a: 90% 0.076 70.697;
+  --n: 27% 0.006 286.033;
+  --nc: 92% 0.004 286.32;
+  --b1: 97.788% 0.004 56.375;
+  --b2: 93.982% 0.007 61.449;
+  --b3: 91.586% 0.006 53.44;
+  --bc: 23.574% 0.066 313.189;
+  --bcm: 48.955188% 0.044796 348.478612;
+  --in: 68% 0.169 237.323;
+  --su: 69% 0.17 162.48;
+  --wa: 72% 0.18 55;
+  --er: 64% 0.246 16.439;
+  --state-ink-run: #2a56c6;
+  --state-ink-need: #8f5200;
+  --state-ink-err: #b4232a;
+  --state-ink-done: #13713a;
+  --state-ink-idle: #6b6570;
+  --rounded-box: 1rem;
+  --rounded-btn: 2rem;
+  --rounded-badge: 1rem;
+  --ptah-gold: oklch(58% 0.132 75);
+  --ptah-gold-strong: oklch(48% 0.12 70);
+  --ptah-gold-soft: oklch(58% 0.132 75 / 0.14);
+  --ptah-link: var(--ptah-gold-strong);
+  --diff-add: #13713a;
+  --diff-del: #b4232a;
+  --surface-highlight: color-mix(in oklch, oklch(var(--bc)) 10%, transparent);
+  --elev-shadow: 0 1px 2px oklch(var(--bc) / 0.1);
+  --elev-shadow-raised: 0 8px 24px oklch(var(--bc) / 0.18);
+}
+
+/* styles.css :root,[data-theme] semantic surfaces (verbatim) */
+:root,
+[data-theme] {
+  --surface-0: oklch(var(--b1));
+  --surface-1: color-mix(in oklch, oklch(var(--b2)) 88%, oklch(var(--b1)));
+  --surface-2: oklch(var(--b2));
+  --surface-3: color-mix(in oklch, oklch(var(--b3)) 86%, oklch(var(--b2)));
+  --surface-border: color-mix(in oklch, oklch(var(--bc)) 14%, transparent);
+  --surface-border-strong: color-mix(in oklch, oklch(var(--bc)) 22%, transparent);
+}
+
+/* Round 2: the 32 stock themes get generated --state-ink-*, --ptah-accent-ink and --ptah-check-edge blocks in styles.css (design-spec.md 8.2, D24).
+   They are not needed by the prototype, which renders anubis and anubis-light only. Source: `node contrast-check.mjs emit`. */

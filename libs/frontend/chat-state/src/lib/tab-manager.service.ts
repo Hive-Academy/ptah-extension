@@ -37,6 +37,7 @@ import {
   type SessionBudgetState,
 } from '@ptah-extension/shared';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
+import { isActiveWorkspaceTabSet } from './active-workspace-tab-set';
 import { CommandCenterRecordsService } from './command-center-records';
 import { CommandCenterSendLockService } from './command-center-send-lock.service';
 import { MODEL_REFRESH_CONTROL } from './model-refresh-control';
@@ -264,6 +265,17 @@ export class TabManagerService {
   private readonly modelRefresh = inject(MODEL_REFRESH_CONTROL);
   private readonly destroyRef = inject(DestroyRef);
   private readonly ngZone = inject(NgZone);
+  private get configuredWorkspaceRoot(): string | undefined {
+    return (window as Window & { ptahConfig?: { workspaceRoot?: string } })
+      .ptahConfig?.workspaceRoot;
+  }
+
+  private get isVSCode(): boolean {
+    return (
+      (window as Window & { ptahConfig?: { isVSCode?: boolean } }).ptahConfig
+        ?.isVSCode === true
+    );
+  }
 
   // ============================================================================
   // PRIVATE STATE SIGNALS
@@ -873,6 +885,15 @@ export class TabManagerService {
    * Returns the tab array for the given workspace, or empty array if not found.
    */
   getWorkspaceTabs(workspacePath: string): TabState[] {
+    if (
+      isActiveWorkspaceTabSet(
+        workspacePath,
+        this.activeWorkspacePath,
+        this.configuredWorkspaceRoot,
+        this.isVSCode,
+      )
+    )
+      return this._tabs();
     return this.workspacePartition.getWorkspaceTabs(
       workspacePath,
       this._tabs(),
@@ -985,6 +1006,72 @@ export class TabManagerService {
       this.workflowIndex.rememberTab(updated.tab, updated.workspacePath);
   }
 
+  /** Find an existing owner only in the requested workspace partition. */
+  findWorkflowTab(
+    workspacePath: string,
+    workflow: WorkflowKind,
+  ): TabState | null {
+    if (!workspacePath || !isWorkflowKind(workflow)) return null;
+    return (
+      this.getWorkspaceTabs(workspacePath).find(
+        (tab) => tab.workflow === workflow,
+      ) ?? null
+    );
+  }
+
+  /** Create a tagged tab without switching the active workspace. */
+  createWorkflowTabForWorkspace(
+    workspacePath: string,
+    workflow: WorkflowKind,
+    title: string,
+    afterTabId?: string,
+  ): string | null {
+    if (!workspacePath || !isWorkflowKind(workflow) || !title.trim())
+      return null;
+    if (this.findWorkflowTab(workspacePath, workflow)) return null;
+    if (
+      isActiveWorkspaceTabSet(
+        workspacePath,
+        this.activeWorkspacePath,
+        this.configuredWorkspaceRoot,
+        this.isVSCode,
+      )
+    ) {
+      const id = this.createTab(
+        title,
+        'default',
+        this.activeWorkspacePath === null,
+      );
+      this.setWorkflow(id, workflow);
+      return id;
+    }
+    if (!afterTabId) return null;
+    const tabs = this.getWorkspaceTabs(workspacePath);
+    if (!tabs.some((tab) => tab.id === afterTabId)) return null;
+    const id = this.generateTabId();
+    const tab: TabState = {
+      id,
+      claudeSessionId: null,
+      workflow,
+      name: title,
+      title,
+      titleOrigin: 'default',
+      order: tabs.length,
+      status: 'fresh',
+      isDirty: false,
+      lastActivityAt: Date.now(),
+      messages: [],
+      streamingState: null,
+    };
+    return this.workspacePartition.addTabToWorkspace(
+      workspacePath,
+      tab,
+      afterTabId,
+    )
+      ? id
+      : null;
+  }
+
   workflowForSession(
     sessionId: string,
     workspacePath: string,
@@ -1004,6 +1091,7 @@ export class TabManagerService {
   createTab(
     name?: string,
     titleOrigin?: Extract<TitleOrigin, 'default' | 'user'>,
+    activate = true,
   ): string {
     const id = this.generateTabId();
     const sessionName = name || 'New Chat';
@@ -1033,7 +1121,7 @@ export class TabManagerService {
     };
 
     this._tabs.update((tabs) => [...tabs, newTab]);
-    this._activeTabId.set(id);
+    if (activate) this._activeTabId.set(id);
     this.saveTabState();
 
     this.modelRefresh.refreshModels().catch((err) => {
@@ -2883,7 +2971,9 @@ export class TabManagerService {
     sessionId: SessionId,
     providerId?: string,
   ): void {
-    if (this.findTabByIdAcrossWorkspaces(tabId)?.tab.claudeSessionId !== sessionId)
+    if (
+      this.findTabByIdAcrossWorkspaces(tabId)?.tab.claudeSessionId !== sessionId
+    )
       return;
     this.updateTabInternal(tabId, { providerId });
   }

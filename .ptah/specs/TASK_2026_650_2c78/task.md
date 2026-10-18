@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_650_2c78
-status: backlog
+status: in_progress
 type: REFACTORING
 title: Split agent and system-prompt generation out of the Setup Wizard analysis
 depends_on:

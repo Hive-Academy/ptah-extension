@@ -19,6 +19,7 @@ import { injectable, inject } from 'tsyringe';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { Result, MESSAGE_TYPES } from '@ptah-extension/shared';
+import type { SetupGenerationOpenPayload } from '@ptah-extension/shared';
 
 /**
  * Minimal interface for the WebviewManager's broadcast capability.
@@ -90,6 +91,30 @@ export class ElectronSetupWizardService implements ISetupWizardService {
     }
 
     return Result.ok(undefined);
+  }
+
+  async openGeneration(
+    payload: SetupGenerationOpenPayload,
+  ): Promise<Result<void, Error>> {
+    if (!payload.workspacePath?.trim())
+      return Result.err(new Error('No workspace folder open'));
+    try {
+      await this.webviewManager.broadcastMessage(MESSAGE_TYPES.SWITCH_VIEW, {
+        view: 'orchestra-canvas',
+      });
+      await this.webviewManager.broadcastMessage(
+        MESSAGE_TYPES.SETUP_GENERATION_OPEN,
+        payload,
+      );
+      return Result.ok(undefined);
+    } catch (error) {
+      const cause = error instanceof Error ? error : new Error(String(error));
+      this.logger.error(
+        '[ElectronSetupWizardService] Generation handoff failed',
+        cause,
+      );
+      return Result.err(new Error('Main chat is not ready. Try again.'));
+    }
   }
 
   /**

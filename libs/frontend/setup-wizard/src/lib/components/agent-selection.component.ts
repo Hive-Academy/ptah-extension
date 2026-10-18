@@ -524,8 +524,7 @@ import { NativeModalComponent } from '@ptah-extension/ui';
           role="alert"
           class="mb-2 rounded bg-warning px-2 py-1 text-xs text-warning-content"
         >
-          Preview unavailable: {{ error }}. You can still generate without a
-          preview.
+          Preview unavailable. You can still generate without a preview.
         </p>
       }
       @if (generationPreview(); as preview) {
@@ -867,10 +866,9 @@ export class AgentSelectionComponent {
     try {
       const packs = await this.wizardRpc.listAgentPacks();
       this.wizardState.setCommunityPacks(packs);
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : 'Unknown error';
+    } catch {
       this.errorMessage.set(
-        `Failed to load community packs: ${msg}. Check your internet connection.`,
+        'Failed to load community packs. Check your internet connection.',
       );
     } finally {
       this.wizardState.setCommunityPacksLoading(false);
@@ -1041,7 +1039,7 @@ export class AgentSelectionComponent {
         new Set(
           value.agents.flatMap((agent) =>
             this.previewFiles(agent.files, 'definite').map(
-              (file) => file.relPath,
+              (file) => `${file.target}:${file.relPath}:${file.willOverwrite}`,
             ),
           ),
         );
@@ -1058,14 +1056,12 @@ export class AgentSelectionComponent {
         this.cancelPreview();
         await this.confirmGenerate();
       }
-    } catch (error: unknown) {
+    } catch {
       // degradation-audit: reported - the failure is shown via previewError;
       // the early return only drops a reply a newer preview request superseded.
       if (request !== this.previewRequest) return;
       this.generationPreview.set(null);
-      this.previewError.set(
-        error instanceof Error ? error.message : String(error),
-      );
+      this.previewError.set('Preview unavailable');
       this.targetsChanged.set(false);
     } finally {
       if (request === this.previewRequest) this.previewLoading.set(false);
@@ -1111,11 +1107,9 @@ export class AgentSelectionComponent {
         return response;
       },
       'Starting agent generation',
-      (error) => {
-        this.errorMessage.set(error.message);
-        console.error(
-          'Agent generation failed:',
-          error.details ?? error.message,
+      () => {
+        this.errorMessage.set(
+          'Agent generation could not start. Check your workspace and try again.',
         );
       },
     );

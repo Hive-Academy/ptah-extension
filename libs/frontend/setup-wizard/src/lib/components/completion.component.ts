@@ -290,9 +290,7 @@ interface AgentOutcomeTile {
                   </div>
 
                   <!-- Pro Tips -->
-                  <div
-                  class="surface-2 rounded-lg p-4"
-                  >
+                  <div class="surface-2 rounded-lg p-4">
                     <div class="flex gap-3">
                       <lucide-angular
                         [img]="InfoIcon"
@@ -413,8 +411,7 @@ export class CompletionComponent {
 
   /**
    * Agent cards derived from the explicit outcomes in the completion
-   * payload. Falls back to completed streamed items only when no payload
-   * ever arrived (a flow that never received a generation-complete event).
+   * payload. Streamed progress never establishes a terminal write outcome.
    */
   protected readonly agentTiles = computed<AgentOutcomeTile[]>(() => {
     const data = this.completion();
@@ -429,14 +426,7 @@ export class CompletionComponent {
         };
       });
     }
-    return this.wizardState
-      .skillGenerationProgress()
-      .filter((item) => item.type === 'agent' && item.status === 'complete')
-      .map((item) => ({
-        id: item.id,
-        name: item.name,
-        status: 'written' as const,
-      }));
+    return [];
   });
 
   /**
