@@ -5,9 +5,9 @@ import type {
 } from '@ptah-extension/lane-outcomes';
 
 import {
-  SkillCandidateStore,
+  SkillInvocationEventStore,
   type SubagentRunRow,
-} from '../skill-candidate.store';
+} from '../skill-invocation-event.store';
 import { SessionVerdictStore } from '../archaeology/session-verdict.store';
 
 const UNMATCHED: SubagentRunTelemetry = {
@@ -24,8 +24,11 @@ const UNMATCHED: SubagentRunTelemetry = {
 @injectable()
 export class SkillTelemetrySeamAdapter implements SkillTelemetrySeam {
   constructor(
-    @inject(SkillCandidateStore)
-    private readonly candidates: SkillCandidateStore,
+    @inject(SkillInvocationEventStore)
+    private readonly events: Pick<
+      SkillInvocationEventStore,
+      'findSubagentRuns' | 'listSkillsForScopes'
+    >,
     @inject(SessionVerdictStore)
     private readonly verdicts: SessionVerdictStore,
   ) {}
@@ -39,7 +42,7 @@ export class SkillTelemetrySeamAdapter implements SkillTelemetrySeam {
     const agentIds = ids.map((id) =>
       id.startsWith('subagent:') ? id.slice('subagent:'.length) : id,
     );
-    const rows = this.candidates.findSubagentRuns(agentIds);
+    const rows = this.events.findSubagentRuns(agentIds);
     const grouped = new Map<string, SubagentRunRow[]>();
     for (const row of rows)
       grouped.set(row.run_id, [...(grouped.get(row.run_id) ?? []), row]);
@@ -79,7 +82,7 @@ export class SkillTelemetrySeamAdapter implements SkillTelemetrySeam {
     const eligible = scopes.filter(
       (scope) => !scope.runId.startsWith('subagent:'),
     );
-    const skills = this.candidates.listSkillsForScopes(eligible);
+    const skills = this.events.listSkillsForScopes(eligible);
     for (const scope of scopes) {
       // Nested subagent Skill hooks do not carry a proven session join (PB-3).
       if (scope.runId.startsWith('subagent:')) {

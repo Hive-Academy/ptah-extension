@@ -16,6 +16,7 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import { LANE_OUTCOME_TOKENS } from '@ptah-extension/lane-outcomes';
 import { SkillTelemetrySeamAdapter } from '../outcome-seam/skill-telemetry-seam.adapter';
 import { SkillCandidateStore } from '../skill-candidate.store';
+import { SkillInvocationEventStore } from '../skill-invocation-event.store';
 import { SkillBacklogCleanupStore } from '../cleanup/skill-backlog-cleanup.store';
 import { SkillBacklogCleanupService } from '../cleanup/skill-backlog-cleanup.service';
 import { SessionTranscriptLocator } from '../cleanup/session-transcript-locator';
@@ -70,6 +71,7 @@ export function registerSkillSynthesisServices(
 ): void {
   logger.info('[skill-synthesis] registering services');
   container.registerSingleton(SkillCandidateStore);
+  container.registerSingleton(SkillInvocationEventStore);
   container.registerSingleton(SkillTelemetrySeamAdapter);
   container.register(LANE_OUTCOME_TOKENS.SKILL_TELEMETRY_SEAM, {
     useToken: SkillTelemetrySeamAdapter,
