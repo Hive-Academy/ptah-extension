@@ -287,7 +287,7 @@ export class IdleCompactionService implements IdleCompactionSignals {
         const retained = owner.getCacheTtl(sessionId, runToken);
         if (!nativeAnthropic) {
           owner.setCacheEstimate(sessionId, runToken, null, null);
-        } else if (request) {
+        } else if (request && request.cacheAnchorAt != null) {
           const read = request.cacheReadTokens ?? 0;
           const write = request.cacheWriteTokens ?? 0;
           const ttl = write > 0 ? (request.cacheWriteTtl ?? null) : read > 0 ? retained : null;

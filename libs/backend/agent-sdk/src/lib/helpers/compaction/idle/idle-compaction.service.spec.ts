@@ -212,6 +212,22 @@ describe('IdleCompactionService', () => {
     h.coordinator.dispose();
   });
 
+  it('keeps the cache estimate when the turn saw only a synthetic request', () => {
+    const owner = new SessionStatsOwnerService();
+    const lease = owner.startNew('s');
+    owner.beginRun('s', lease.generation, 'run', null);
+    const h = harness(undefined, owner);
+    h.service.sessionBound('s', 'run', false, true);
+    h.service.turnEnded('s', 'write', {
+      ...request, cacheAnchorAt: 1_000, cacheWriteTokens: 12, cacheWriteTtl: '1h',
+    });
+    const before = owner.snapshot('s')?.cache;
+    h.service.turnEnded('s', 'synthetic', { ...request, cacheAnchorAt: null });
+    expect(owner.snapshot('s')?.cache).toEqual(before);
+    h.service.dispose();
+    h.coordinator.dispose();
+  });
+
   it('clears the cache estimate at a compact boundary and retains the confirmed TTL', () => {
     const owner = new SessionStatsOwnerService();
     const lease = owner.startNew('s');
