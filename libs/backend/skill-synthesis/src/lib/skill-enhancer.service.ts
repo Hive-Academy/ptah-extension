@@ -124,6 +124,7 @@ export interface EnhanceOptions extends QueryOrigin {
 }
 
 export type EnhanceSkipReason =
+  | 'paused'
   | 'missing-clone'
   | 'cooldown'
   | 'below-threshold'
@@ -298,6 +299,14 @@ export class SkillEnhancerService {
     settings: SkillSynthesisSettings,
     kind: SkillRegistryKind = 'skill',
   ): boolean {
+    if (
+      this.workspaceProvider.getConfiguration<boolean>(
+        'ptah',
+        'skillSynthesis.enabled',
+      ) === false
+    ) {
+      return false;
+    }
     const stats = this.candidates.getInvocationStats(slug);
     if (stats.total < MIN_INVOCATIONS_TO_ENHANCE) return false;
     if (this.isWithinCooldown(slug, settings, kind)) return false;
@@ -374,6 +383,14 @@ export class SkillEnhancerService {
     };
 
     try {
+      if (
+        this.workspaceProvider.getConfiguration<boolean>(
+          'ptah',
+          'skillSynthesis.enabled',
+        ) === false
+      ) {
+        return { ...base, skipReason: 'paused' };
+      }
       if (!this.internalQuery) {
         return { ...base, skipReason: 'no-internal-query' };
       }
@@ -407,7 +424,6 @@ export class SkillEnhancerService {
       const candidateBody = await this.generateCandidate(
         slug,
         currentBody,
-        settings,
         cwd,
         kind,
         scorecardBlock,
@@ -774,7 +790,6 @@ export class SkillEnhancerService {
   private async generateCandidate(
     slug: string,
     currentBody: string,
-    settings: SkillSynthesisSettings,
     cwd: string,
     kind: SkillRegistryKind,
     scorecardBlock: string | null,
@@ -791,23 +806,31 @@ export class SkillEnhancerService {
     const specFindings = await this.collectSpecFindings(slug);
     const configuredTimeout = this.workspaceProvider.getConfiguration<number>(
       'ptah',
-      'skillSynthesis.enhanceTimeoutMs',
+      'skills.enhancement.timeoutMs',
     );
-    const rawTimeout = Number(configuredTimeout);
-    const timeoutMs = Number.isFinite(rawTimeout)
+    const timeoutMs =
+      typeof configuredTimeout === 'number' && Number.isFinite(configuredTimeout)
       ? Math.min(
-          Math.max(rawTimeout, ENHANCE_TIMEOUT_MIN_MS),
+          Math.max(configuredTimeout, ENHANCE_TIMEOUT_MIN_MS),
           ENHANCE_TIMEOUT_MAX_MS,
         )
       : ENHANCE_TIMEOUT_DEFAULT_MS;
 
-    const judgeProvider = (settings.judgeProvider ?? '').trim();
-    const judgeModel = settings.judgeModel;
+    const enhancementProvider = (
+      this.workspaceProvider.getConfiguration<string>(
+        'ptah',
+        'skills.enhancement.provider',
+      ) ?? ''
+    ).trim();
+    const enhancementModel = this.workspaceProvider.getConfiguration<string>(
+      'ptah',
+      'skills.enhancement.model',
+    ) || 'inherit';
     const model = resolveLaneModel(
       {
         id: 'judge',
-        provider: judgeProvider,
-        model: judgeModel === 'inherit' ? '' : judgeModel,
+        provider: enhancementProvider,
+        model: enhancementModel === 'inherit' ? '' : enhancementModel,
         defaultTier: 'haiku',
         structuredOutput: 'sdk',
         toolUse: 'none',
@@ -820,20 +843,20 @@ export class SkillEnhancerService {
     );
 
     let authOverride: LaneAuthOverride | undefined;
-    if (judgeProvider && this.authResolver) {
+    if (enhancementProvider && this.authResolver) {
       try {
         const resolvedAuth = await this.authResolver.resolve(
-          judgeProvider,
+          enhancementProvider,
           'lane',
         );
         authOverride = resolvedAuth ?? undefined;
-      } catch (error: unknown) {
+      } catch {
+        // Auth errors can quote credentials, so the message is not logged.
         this.logger.warn(
           '[skill-enhancer] provider auth resolution failed; provider unreachable',
           {
             slug,
-            provider: judgeProvider || '(active)',
-            error: error instanceof Error ? error.message : String(error),
+            provider: enhancementProvider,
           },
         );
         return PROVIDER_UNREACHABLE;

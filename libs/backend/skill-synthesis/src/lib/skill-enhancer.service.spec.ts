@@ -551,16 +551,7 @@ describe('SkillEnhancerService', () => {
       reason: 'judge-verdict',
     } as const;
 
-    /**
-     * `judgeModel: 'inherit'` is NOT optional here, and the reason is a trap
-     * worth naming: `makeSettings()`'s default is the literal
-     * `'claude-haiku-4-5-20251001'` — an EXPLICIT model, which
-     * `resolveJudgeModel` returns on its first line without reading any
-     * setting. That literal is also the value of `JUDGE_DEFAULT_MODEL_ID`, so a
-     * case written against the default would assert the right string for
-     * entirely the wrong reason and pass against any implementation. Caught by
-     * mutation-testing these cases against the pre-change resolver.
-     */
+    /** An unconfigured enhancement model inherits the active provider model. */
     async function modelSentWith(
       configSeed: Record<string, string>,
     ): Promise<{ model: string; call: Record<string, unknown> }> {
@@ -603,17 +594,19 @@ describe('SkillEnhancerService', () => {
       expect(model).toBe(JUDGE_DEFAULT_MODEL_ID);
     });
 
-    it('sends an EXPLICIT judgeModel verbatim, consulting no setting', async () => {
-      // The complement of the three cases above, and what makes their
-      // `judgeModel: 'inherit'` load-bearing rather than decorative.
+    it('sends an explicitly configured enhancement model verbatim', async () => {
+      // A legacy argument must not override the dedicated enhancement key.
       const h = makeHarness({
         judgeDecision,
         candidateText: 'Improved body',
-        configSeed: { 'provider.apiKey.selectedModel': 'active-chat-model' },
+        configSeed: {
+          'provider.apiKey.selectedModel': 'active-chat-model',
+          'skills.enhancement.model': 'an-explicitly-pinned-model',
+        },
       });
       await h.svc.enhance(
         'deep-research',
-        makeSettings({ judgeModel: 'an-explicitly-pinned-model' }),
+        makeSettings({ judgeModel: 'ignored-legacy-model' }),
       );
       const call = h.internalQuery.execute.mock.calls[0][0] as Record<
         string,
@@ -622,7 +615,7 @@ describe('SkillEnhancerService', () => {
       expect(call['model']).toBe('an-explicitly-pinned-model');
     });
 
-    it('resolves model and authOverride when judgeProvider is set and judgeModel is inherit', async () => {
+    it('resolves model and authOverride from the enhancement provider with inherited model', async () => {
       const mockAuthOverride = {
         apiKey: 'secret-key',
         baseUrl: 'https://api.deepseek.com',
@@ -634,12 +627,13 @@ describe('SkillEnhancerService', () => {
         judgeDecision,
         candidateText: 'Improved body',
         authResolver,
+        configSeed: { 'skills.enhancement.provider': 'deepseek' },
       });
 
       await h.svc.enhance(
         'deep-research',
         makeSettings({
-          judgeProvider: 'deepseek',
+          judgeProvider: 'ignored-legacy-provider',
           judgeModel: 'inherit',
         }),
       );
@@ -654,7 +648,7 @@ describe('SkillEnhancerService', () => {
       expect(call['auth']).toEqual(mockAuthOverride);
     });
 
-    it('resolves model and authOverride when judgeProvider is set and judgeModel is explicit', async () => {
+    it('resolves model and authOverride from explicit enhancement settings', async () => {
       const mockAuthOverride = { apiKey: 'secret-key' };
       const authResolver = {
         resolve: jest.fn().mockReturnValue(mockAuthOverride),
@@ -663,13 +657,17 @@ describe('SkillEnhancerService', () => {
         judgeDecision,
         candidateText: 'Improved body',
         authResolver,
+        configSeed: {
+          'skills.enhancement.provider': 'deepseek',
+          'skills.enhancement.model': 'deepseek-reasoner',
+        },
       });
 
       await h.svc.enhance(
         'deep-research',
         makeSettings({
-          judgeProvider: 'deepseek',
-          judgeModel: 'deepseek-reasoner',
+          judgeProvider: 'ignored-legacy-provider',
+          judgeModel: 'ignored-legacy-model',
         }),
       );
 
@@ -682,7 +680,7 @@ describe('SkillEnhancerService', () => {
       expect(call['auth']).toEqual(mockAuthOverride);
     });
 
-    it('returns provider-unreachable skipReason when authResolver throws for judgeProvider', async () => {
+    it('returns provider-unreachable when configured enhancement auth fails', async () => {
       const authResolver = {
         resolve: jest.fn().mockImplementation(() => {
           throw new Error('Credential not found in secret store');
@@ -692,12 +690,13 @@ describe('SkillEnhancerService', () => {
         judgeDecision,
         candidateText: 'Improved body',
         authResolver,
+        configSeed: { 'skills.enhancement.provider': 'deepseek' },
       });
 
       const result = await h.svc.enhance(
         'deep-research',
         makeSettings({
-          judgeProvider: 'deepseek',
+          judgeProvider: 'ignored-legacy-provider',
           judgeModel: 'deepseek-reasoner',
         }),
       );
@@ -709,9 +708,13 @@ describe('SkillEnhancerService', () => {
       });
       expect(h.internalQuery.execute).not.toHaveBeenCalled();
       expect(h.judge.judge).not.toHaveBeenCalled();
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('provider auth resolution failed'),
+        expect.not.objectContaining({ error: expect.anything() }),
+      );
     });
 
-    it('does not resolve auth when judgeProvider is empty', async () => {
+    it('does not resolve auth when enhancement provider is empty', async () => {
       const authResolver = {
         resolve: jest.fn(),
       };
@@ -738,7 +741,7 @@ describe('SkillEnhancerService', () => {
     });
   });
 
-  describe('enhance: enhanceTimeoutMs configuration', () => {
+  describe('enhance: enhancement timeout configuration', () => {
     const judgeDecision = {
       status: 'scored',
       score: 8,
@@ -746,12 +749,12 @@ describe('SkillEnhancerService', () => {
       reason: 'judge-verdict',
     } as const;
 
-    it('reads skillSynthesis.enhanceTimeoutMs from workspace without defaultValue', async () => {
+    it('reads skills.enhancement.timeoutMs from workspace without defaultValue', async () => {
       const h = makeHarness({
         judgeDecision,
         candidateText: 'Improved body',
         configSeed: {
-          'skillSynthesis.enhanceTimeoutMs': 45_000,
+          'skills.enhancement.timeoutMs': 45_000,
         },
       });
 
@@ -759,13 +762,13 @@ describe('SkillEnhancerService', () => {
 
       expect(h.workspaceProvider.getConfiguration).toHaveBeenCalledWith(
         'ptah',
-        'skillSynthesis.enhanceTimeoutMs',
+        'skills.enhancement.timeoutMs',
       );
       // Ensure exactly 2 arguments were passed (no defaultValue passed)
       const callArgs = h.workspaceProvider.getConfiguration.mock.calls.find(
-        (args: unknown[]) => args[1] === 'skillSynthesis.enhanceTimeoutMs',
+        (args: unknown[]) => args[1] === 'skills.enhancement.timeoutMs',
       );
-      expect(callArgs).toEqual(['ptah', 'skillSynthesis.enhanceTimeoutMs']);
+      expect(callArgs).toEqual(['ptah', 'skills.enhancement.timeoutMs']);
       expect(callArgs.length).toBe(2);
     });
 
@@ -779,9 +782,36 @@ describe('SkillEnhancerService', () => {
 
       expect(h.workspaceProvider.getConfiguration).toHaveBeenCalledWith(
         'ptah',
-        'skillSynthesis.enhanceTimeoutMs',
+        'skills.enhancement.timeoutMs',
       );
     });
+  });
+
+  it('pauses eligibility and proposal generation from the workspace setting', async () => {
+    const h = makeHarness({
+      judgeDecision: {
+        status: 'scored',
+        score: 8,
+        criteria: null,
+        reason: 'judge-verdict',
+      },
+      candidateText: 'Improved body',
+      configSeed: { 'skillSynthesis.enabled': false },
+    });
+
+    expect(h.svc.isEligible('deep-research', makeSettings())).toBe(false);
+    const result = await h.svc.generateProposal(
+      'deep-research',
+      makeSettings({ enabled: true }),
+      { manual: true },
+    );
+    expect(result).toMatchObject({ proposed: false, skipReason: 'paused' });
+    expect(h.internalQuery.execute).not.toHaveBeenCalled();
+    expect(h.judge.judge).not.toHaveBeenCalled();
+    expect(h.workspaceProvider.getConfiguration).toHaveBeenCalledWith(
+      'ptah',
+      'skillSynthesis.enabled',
+    );
   });
 
   it('spec findings: graded review verdict is injected into the enhance prompt', async () => {
