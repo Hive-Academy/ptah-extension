@@ -64,6 +64,7 @@ class InlineAgentBubbleStubComponent {
   >();
   readonly nodeTemplate = input<TemplateRef<unknown>>();
   readonly isFinalizing = input<boolean>(false);
+  readonly fillHeight = input(false);
   readonly permissionResponded = output<PermissionResponse>();
 }
 

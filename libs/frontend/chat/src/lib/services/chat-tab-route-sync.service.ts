@@ -125,7 +125,12 @@ export class ChatTabRouteSync {
       .subscribe((event) => {
         if (event instanceof NavigationStart) {
           this.routeGeneration++;
-          if (this.deferredCorrectionGeneration !== null) this.correctionDropped = true;
+          if (
+            this.deferredCorrectionGeneration !== null ||
+            this.supersedesCorrection(event.url)
+          ) {
+            this.correctionDropped = true;
+          }
         } else if (event instanceof NavigationEnd) {
           this.correctionDropped = false;
           this.followUrl(event.urlAfterRedirects);
@@ -328,11 +333,26 @@ export class ChatTabRouteSync {
   }
 
   /**
+   * Whether a navigation starting at `url` is another one than the correction
+   * in flight. Its own start names the correction's tab; any other URL
+   * supersedes it, so the correction is marked dropped: should that newer
+   * navigation be cancelled or fail, nothing settles to call reaction 1, and
+   * {@link reconcileDroppedCorrection} restores the URL instead.
+   */
+  private supersedesCorrection(url: string): boolean {
+    return this.correction !== null && this.chatTabOf(url) !== this.correction.tabId;
+  }
+
+  /**
    * The replace is remembered until it finishes, so its landing is recognised
-   * as ours: `NavigationEnd` is emitted before `navigateByUrl` resolves. The
-   * outcome is otherwise ignored: the tab state is already correct whatever
-   * the navigation does, and a cancelled or failed replace is reconciled by
-   * the next settle. `navigateToSurface` never rejects and logs a failure.
+   * as ours: `NavigationEnd` is emitted before `navigateByUrl` resolves, and a
+   * different navigation starting meanwhile marks it dropped
+   * ({@link supersedesCorrection}). The outcome is otherwise ignored: the tab
+   * state is already correct whatever the navigation does. A superseded
+   * replace is reconciled when the superseding navigation is cancelled or
+   * fails; one cancelled or failed on its own (a guard) is left as it is, so a
+   * guard that always refuses cannot re-issue it forever. `navigateToSurface`
+   * never rejects and logs a failure.
    */
   private async issueCorrection(activeTabId: string | null): Promise<void> {
     const correction: Correction = { tabId: activeTabId };

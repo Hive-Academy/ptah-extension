@@ -68,6 +68,10 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
  */
 @Component({
   selector: 'ptah-inline-agent-bubble',
+  host: {
+    '[class.fill-height]': 'fillHeight()',
+    '[class.fill-height-expanded]': 'fillHeight() && !isCollapsed()',
+  },
   imports: [
     LucideAngularModule,
     TypingCursorComponent,
@@ -83,6 +87,8 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
     <!-- Background agents get dashed border + info tint -->
     <div
       class="surface-1 my-3 border-l-2 rounded-lg overflow-hidden transition-colors"
+      [class.flex]="fillHeight()" [class.flex-col]="fillHeight()"
+      [class.flex-1]="fillHeight() && !isCollapsed()" [class.min-h-0]="fillHeight() && !isCollapsed()"
       [ngClass]="{
         'bg-warning/10': isInterrupted(),
         'border-warning': isInterrupted(),
@@ -439,11 +445,14 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
       <div
         class="agent-collapse-wrapper"
         [class.agent-collapsed]="isCollapsed()"
+        [class.fill-height]="fillHeight()"
       >
-        <div class="agent-collapse-inner">
+        <div class="agent-collapse-inner" [class.flex]="fillHeight()" [class.flex-col]="fillHeight()">
           <div
             #contentContainer
-            class="px-3 pb-2 max-h-80 overflow-y-auto border-t border-base-300/30"
+            class="px-3 pb-2 overflow-y-auto border-t border-base-300/30"
+            [class.max-h-80]="!fillHeight()"
+            [class.flex-1]="fillHeight()" [class.min-h-0]="fillHeight()"
           >
             <!-- summaryContent is rendered as a text child node instead of a
              separate block. This ensures agent text is properly interleaved
@@ -544,6 +553,9 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
       .agent-collapse-wrapper.agent-collapsed {
         grid-template-rows: 0fr;
       }
+      :host(.fill-height) { display: flex; flex-direction: column; min-height: 0; }
+      :host(.fill-height-expanded) { flex: 1; }
+      .agent-collapse-wrapper.fill-height:not(.agent-collapsed) { flex: 1; min-height: 0; }
       .agent-collapse-inner {
         min-height: 0;
         overflow: hidden;
@@ -634,6 +646,7 @@ export class InlineAgentBubbleComponent {
   private observerSetupPending = false;
 
   readonly node = input.required<ExecutionNode>();
+  readonly fillHeight = input(false);
 
   /**
    * Permission lookup function forwarded from parent

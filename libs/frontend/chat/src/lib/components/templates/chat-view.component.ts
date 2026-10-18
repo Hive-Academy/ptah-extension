@@ -30,9 +30,11 @@ import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.com
 // Referenced only in `imports` and inside `@defer (when panelOpen())`, so the
 // dock and the lazy `chat-ui/display-panel` entry it imports stay out of the
 // eager chunk (decisions #84, #89, #107).
-import { DisplayDockComponent } from '../organisms/display-dock/display-dock.component';
+import { DisplaySheetComponent } from '../organisms/display-sheet/display-sheet.component';
+import { DisplaySheetState } from '../organisms/display-sheet/display-sheet.state';
 import { DisplayDockState } from '../../services/display-dock/display-dock.state';
 import { ChatInputComponent } from '../molecules/chat-input/chat-input.component';
+import { ChatSessionLayoutComponent } from './chat-session-layout.component';
 import {
   PermissionBadgeComponent,
   QuestionCardComponent,
@@ -201,8 +203,9 @@ const VIEW_PANEL_KEY = '';
     ChatTranscriptComponent,
     ChatEmptyStateComponent,
     AgentMonitorPanelComponent,
-    DisplayDockComponent,
+    DisplaySheetComponent,
     ChatInputComponent,
+    ChatSessionLayoutComponent,
     PermissionBadgeComponent,
     QuestionCardComponent,
     ResumeNotificationBannerComponent,
@@ -228,6 +231,7 @@ const VIEW_PANEL_KEY = '';
     // Open state, width band and sheet focus of this view's inspector.
     InspectorShellController,
     PanelResizeService,
+    DisplaySheetState,
     // One tile-expansion map per session view, released with the view (A3).
     StatsTileExpansionState,
     // Budget banner state belongs to this view's tab and session.
@@ -427,6 +431,7 @@ export class ChatViewComponent implements OnDestroy {
 
   /** The Electron dock store; `null` in VS Code. */
   private readonly displayDock = inject(DisplayDockState, { optional: true });
+  private readonly sheetState = inject(DisplaySheetState);
   /** Electron: the right-side panel is the display dock. */
   protected readonly dockEnabled = this.displayDock !== null;
   /**
@@ -447,7 +452,6 @@ export class ChatViewComponent implements OnDestroy {
   /** The right-side panel (dock or monitor) is open. */
   readonly panelOpen = computed(() => this.panelTab().open);
   /** Raised when the user opens the dock as an overlay: it focuses its close. */
-  protected readonly dockFocusRequest = signal(0);
 
   /** The dock width beside the chat: the user's width or 400 px, clamped. */
   protected readonly dockWidth = computed(() => {
@@ -561,11 +565,7 @@ export class ChatViewComponent implements OnDestroy {
    */
   toggleAgentPanel(): void {
     const key = this.panelKey();
-    const opening = !this.panelState.tab(key).open;
     this.panelState.toggle(key);
-    if (opening && this.dockEnabled && this.isOverlay()) {
-      this.dockFocusRequest.update((request) => request + 1);
-    }
   }
 
   closeAgentPanel(): void {
@@ -608,7 +608,6 @@ export class ChatViewComponent implements OnDestroy {
     } else {
       this.panelResizeService.setCustomWidth(next, host);
     }
-    this.storeDockWidth();
   }
 
   private resizeHandleEl: HTMLElement | null = null;
@@ -637,7 +636,6 @@ export class ChatViewComponent implements OnDestroy {
         newWidth,
         this.hostEl.nativeElement.clientWidth,
       );
-      this.storeDockWidth();
     });
   };
 
@@ -693,7 +691,6 @@ export class ChatViewComponent implements OnDestroy {
   /** Double-click the handle to fall back to the responsive default width. */
   onResizeReset(): void {
     this.panelResizeService.resetWidth();
-    this.storeDockWidth();
   }
 
   ngOnDestroy(): void {
@@ -718,8 +715,7 @@ export class ChatViewComponent implements OnDestroy {
           startWidth,
           this.hostEl.nativeElement.clientWidth,
         );
-        this.storeDockWidth();
-      });
+          });
     } else {
       this._applyResize();
     }
@@ -1394,7 +1390,7 @@ export class ChatViewComponent implements OnDestroy {
           if (!current.has(tabId))
             untracked(() => {
               if (!this._tabManager.findTabByIdAcrossWorkspaces(tabId))
-                dock.forgetTab(tabId);
+                { dock.forgetTab(tabId); this.sheetState.forgetTab(tabId); }
             });
         openTabIds = current;
       });
@@ -1476,7 +1472,6 @@ export class ChatViewComponent implements OnDestroy {
       });
     });
 
-    this.syncDockWidthPerTab();
 
     effect(() => {
       const request = this._appState.composerPrefillRequest();
@@ -1514,40 +1509,6 @@ export class ChatViewComponent implements OnDestroy {
         }
       });
     });
-  }
-
-  /**
-   * Electron: the dock width is kept per chat tab (R1.5). A tab switch
-   * restores the tab's width into `PanelResizeService`. Only a user resize
-   * stores a width (`storeDockWidth`): a restore clamped to a narrow host
-   * never overwrites the tab's saved width.
-   */
-  private syncDockWidthPerTab(): void {
-    const dock = this.displayDock;
-    if (dock === null) return;
-    effect(() => {
-      const key = this.panelKey();
-      untracked(() => {
-        const width = dock.tab(key).widthPx;
-        if (width === this.panelResizeService.customWidth()) return;
-        if (width === null) {
-          this.panelResizeService.resetWidth();
-        } else {
-          this.panelResizeService.setCustomWidth(
-            width,
-            this.hostWidth() || window.innerWidth,
-          );
-        }
-      });
-    });
-  }
-
-  /** Stores the current width for this tab after a user resize (R1.5). */
-  private storeDockWidth(): void {
-    this.displayDock?.setWidth(
-      untracked(this.panelKey),
-      this.panelResizeService.customWidth(),
-    );
   }
 
   /**
