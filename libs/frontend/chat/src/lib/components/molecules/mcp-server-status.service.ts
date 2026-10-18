@@ -62,7 +62,8 @@ export class McpServerStatusService {
   private readonly registry = inject(SessionMcpStatusRegistry);
   private readonly rpc = inject(ClaudeRpcService);
   private readonly appState = inject(AppStateManager);
-  private readonly recovered = new Set<string>();
+  /** Session ids with a status read in flight; callers only recover a session with no recorded status. */
+  private readonly recovering = new Set<string>();
   private readonly _oauthRecords = signal<readonly McpOAuthConnectedRecord[]>([]);
   private readonly _providerName = signal<string | null>(null);
   readonly providerName = this._providerName.asReadonly();
@@ -101,9 +102,8 @@ export class McpServerStatusService {
   }
 
   async recover(sessionId: string): Promise<void> {
-    if (this.recovered.has(sessionId)) return;
-    this.recovered.add(sessionId);
-    let recorded = false;
+    if (this.recovering.has(sessionId)) return;
+    this.recovering.add(sessionId);
     try {
       const result = await this.rpc.call('session:status', { sessionId });
       if (!result.isSuccess()) return;
@@ -115,11 +115,10 @@ export class McpServerStatusService {
         servers: mcpServers ?? [],
         notices: notices ?? [],
       });
-      recorded = true;
     } finally {
-      // Keep the id during the read to deduplicate concurrent mounts, but let a
-      // later mount or tab change retry when no status was recorded.
-      if (!recorded) this.recovered.delete(sessionId);
+      // The id only deduplicates concurrent mounts; the root service must not
+      // keep an entry for every session it has read.
+      this.recovering.delete(sessionId);
     }
   }
 
@@ -129,7 +128,8 @@ export class McpServerStatusService {
   }
 
   async loadProviderName(notices: readonly SessionMcpNotice[]): Promise<void> {
-    if (!notices.some((notice) => notice.code === 'claude-ai-connectors-disabled') || this._providerName()) return;
+    // Read on every notice change: the user may switch provider without a restart.
+    if (!notices.some((notice) => notice.code === 'claude-ai-connectors-disabled')) return;
     const result = await this.rpc.call('auth:getAuthStatus', {});
     if (!result.isSuccess()) return;
     const { anthropicProviderId, availableProviders } = result.data;
