@@ -75,9 +75,9 @@ const MAX_ARTIFACTS = 64;
 
 function terminalVerdict(value: unknown): 'pass' | 'fail' | null {
   if (typeof value !== 'string') return null;
-  const normalized = value.trim().toLowerCase();
-  if (['pass', 'passed', 'approved', 'complete', 'success'].includes(normalized)) return 'pass';
-  if (['fail', 'failed', 'rejected', 'revise'].includes(normalized)) return 'fail';
+  const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (['pass', 'passed', 'approve', 'approved', 'complete', 'success'].includes(normalized)) return 'pass';
+  if (['fail', 'failed', 'reject', 'rejected', 'revise', 'needs_revision'].includes(normalized)) return 'fail';
   return null;
 }
 
@@ -105,10 +105,12 @@ export function parseReviewVerdict(file: string, content: string, digest: string
     const rawBatch = data['batch'] ?? data['batchNumber'];
     batch = typeof rawBatch === 'number' && Number.isSafeInteger(rawBatch) ? rawBatch : null;
   } else {
-    const fields = [...content.matchAll(/^\s*(?:#{1,6}\s*)?(?:\*\*)?(?:final\s+)?(?:verdict|review status|status)(?:\*\*)?\s*:\s*([a-z]+)\b/gim)];
-    verdict = terminalVerdict(fields.at(-1)?.[1]);
+    const fields = [...content.matchAll(/^\s*(?:[-*]\s*)?(?:#{1,6}\s*)?(?:\*\*)?(?:final\s+)?(?:verdict|review status|status|recommendation)(?:\*\*)?\s*:\s*([a-z_]+(?:[ -][a-z_]+)*)\b/gim)];
+    for (let i = fields.length - 1; i >= 0 && verdict === null; i--) {
+      verdict = terminalVerdict(fields[i]?.[1]);
+    }
     if (!verdict) {
-      const sections = [...content.matchAll(/^\s*#{1,6}\s+(?:final\s+)?(?:verdict|review status|status)\s*\n\s*(?:[-*]\s*)?(pass|passed|fail|failed|approved|rejected|revise|complete|success)\b/gim)];
+      const sections = [...content.matchAll(/^\s*#{1,6}\s+(?:final\s+)?(?:verdict|review status|status)\s*\n\s*(?:[-*]\s*)?(pass|passed|fail|failed|approve|approved|reject|rejected|revise|needs[_ -]revision|complete|success)\b/gim)];
       verdict = terminalVerdict(sections.at(-1)?.[1]);
     }
     runId = /^\s*run[_ -]?id\s*:\s*([\w:-]+)/im.exec(content)?.[1] ?? null;
@@ -256,7 +258,7 @@ export async function extractSpec(dir: string, specsRoot = dirname(dir)): Promis
       const review = parseReviewVerdict(file, content, createHash('sha256').update(content).digest('hex'));
       if (review && (review.taskId === null || review.taskId === taskId)) reviews.push(review);
       else if (review?.taskId && review.taskId !== taskId) diagnostics.push(`${file}: task id mismatch`);
-      else if (file.endsWith('.json')) diagnostics.push(`${file}: invalid or missing terminal verdict`);
+      else diagnostics.push(`${file}: invalid or missing terminal verdict`);
     }
   }
   const reviewFindings = findingsParts

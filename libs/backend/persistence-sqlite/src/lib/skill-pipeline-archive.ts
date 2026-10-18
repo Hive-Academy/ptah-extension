@@ -4,6 +4,9 @@ import * as path from 'node:path';
 import { createHash } from 'node:crypto';
 import type { SqliteDatabase } from './sqlite-connection.service';
 
+export const FIRST_DESTRUCTIVE_SKILL_PIPELINE_VERSION = 57;
+export const SKILL_PIPELINE_ARCHIVE_DIR_PREFIX = 'pre-0057-';
+
 const TABLES = [
   'skill_candidates',
   'skill_suggestions',
@@ -42,7 +45,7 @@ export function archiveSkillPipeline(
 ): SkillPipelineArchiveReceipt {
   fs.mkdirSync(archiveRoot, { recursive: true, mode: 0o700 });
   fs.chmodSync(archiveRoot, 0o700);
-  const archivePath = fs.mkdtempSync(path.join(archiveRoot, 'pre-0057-'));
+  const archivePath = fs.mkdtempSync(path.join(archiveRoot, SKILL_PIPELINE_ARCHIVE_DIR_PREFIX));
   fs.chmodSync(archivePath, 0o700);
   const entries: SkillPipelineArchiveEntry[] = [];
 

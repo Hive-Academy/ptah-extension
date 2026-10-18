@@ -105,7 +105,7 @@ export class SkillInvocationEventStore {
       const params = batch.flatMap((scope) => [scope.sessionId, scope.fromMs, scope.toMs]);
       const rows = this.db.prepare(
         `SELECT DISTINCT session_id, invoked_at, skill_slug FROM skill_invocation_events
-         WHERE source IN ('tool-use', 'prompt-expansion') AND (${conditions})`,
+         WHERE source IN ('tool-use', 'prompt-expansion', 'slash-command') AND (${conditions})`,
       ).all(...params);
       for (const row of rows) {
         const parsed = SkillScopeRowSchema.safeParse(row);

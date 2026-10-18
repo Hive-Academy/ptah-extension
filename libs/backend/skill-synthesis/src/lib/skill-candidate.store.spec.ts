@@ -248,6 +248,21 @@ function candidateInput(suffix: string): NewCandidateInput {
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe('SkillCandidateStore', () => {
+  maybe('includes slash commands in scoped skill loads', () => {
+    const db = createInMemoryDb();
+    try {
+      const store = makeStore(db);
+      db.prepare(`INSERT INTO skill_invocation_events
+        (id, skill_slug, session_id, source, succeeded, is_error, invoked_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`).run('event-command', 'review', 'session-command', 'slash-command', 0, 0, 15);
+      expect(store.listSkillsForScopes([
+        { runId: 'run-command', sessionId: 'session-command', fromMs: 10, toMs: 20 },
+      ])).toEqual(new Map([['run-command', ['review']]]));
+    } finally {
+      db.close();
+    }
+  });
+
   describe('promoteAtomically', () => {
     maybe(
       'rolls back residency demotion when promotion status write fails',
@@ -840,6 +855,36 @@ describe('SkillCandidateStore', () => {
            FROM skill_invocation_events WHERE skill_slug = ? AND task_id = ?`,
         )
         .get(slug, taskId) as VerdictRow;
+    }
+
+    for (const originalError of [0, 1]) {
+      maybe(`preserves is_error=${originalError} when reconciliation omits isError`, () => {
+        const db = createInMemoryDb();
+        try {
+          const store = makeStore(db);
+          recordSubagent(store, 'backend-developer', 1000, 'TASK_2026_003');
+          db.prepare(`UPDATE skill_invocation_events SET is_error = ? WHERE task_id = ?`)
+            .run(originalError, 'TASK_2026_003');
+
+          expect(store.reconcileSubagentEvent({
+            slug: 'backend-developer',
+            taskId: 'TASK_2026_003',
+            succeeded: false,
+            windowStart: 0,
+            windowEnd: 2000,
+            verdictSource: 'spec:TASK_2026_003',
+            reconciledAt: 5000,
+          })).toBe(true);
+
+          expect(rowByTask(db, 'backend-developer', 'TASK_2026_003')).toMatchObject({
+            succeeded: 0,
+            is_error: originalError,
+            reconciled_at: 5000,
+          });
+        } finally {
+          db.close();
+        }
+      });
     }
 
     maybe(

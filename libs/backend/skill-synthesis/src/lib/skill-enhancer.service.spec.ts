@@ -1434,6 +1434,27 @@ describe('SkillEnhancerService — preview-before-apply', () => {
     expect(h.repropagation.repropagate).not.toHaveBeenCalled();
   });
 
+  it('logs a sanitized diagnostic when proposal generation fails', async () => {
+    const h = passingHarness();
+    logger.warn.mockClear();
+    h.judge.judge.mockRejectedValueOnce(
+      new Error('request failed bearer secret-token at https://example.test/?key=secret'),
+    );
+
+    const result = await h.svc.generateProposal('deep-research', makeSettings());
+
+    expect(result.skipReason).toBe('error');
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[skill-enhancer] proposal generation failed',
+      expect.objectContaining({
+        errorName: 'Error',
+        errorMessage: expect.stringContaining('[credential]'),
+      }),
+    );
+    expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('secret-token');
+    expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('example.test');
+  });
+
   it('provider failure returns a draft skip and leaves the clone untouched', async () => {
     const authResolver = {
       resolve: jest.fn().mockRejectedValue(new Error('provider unavailable')),

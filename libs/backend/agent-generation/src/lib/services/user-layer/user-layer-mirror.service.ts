@@ -1,9 +1,9 @@
 import { injectable, inject } from 'tsyringe';
 import { homedir } from 'os';
 import { join, basename, isAbsolute } from 'path';
-import { createHash } from 'node:crypto';
 import { mkdir, readdir, readFile, stat } from 'fs/promises';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
+import { formatSourceHash } from '@ptah-extension/platform-core';
 import {
   USER_LAYER_AGENTS_DIR_NAME,
   userLayerAgentDirName,
@@ -706,20 +706,16 @@ export class UserLayerMirrorService {
       };
     }
 
-    if (expectedSourceHash !== undefined) {
-      const currentBody = await readFile(skillFile, 'utf8');
-      const currentHash = `sha256:${createHash('sha256').update(currentBody).digest('hex')}`;
-      if (currentHash !== expectedSourceHash) {
-        return {
-          kind: 'skill',
-          slug,
-          historyTs: null,
-          written: false,
-          reason: 'stale-source',
-          metadataIncomplete: false,
-          reconcileProtected: false,
-        };
-      }
+    if (await this.isStaleSource(skillFile, expectedSourceHash)) {
+      return {
+        kind: 'skill',
+        slug,
+        historyTs: null,
+        written: false,
+        reason: 'stale-source',
+        metadataIncomplete: false,
+        reconcileProtected: false,
+      };
     }
 
     const historyTs = basename(await this.snapshotDirToHistory(cloneDir));
@@ -802,20 +798,16 @@ export class UserLayerMirrorService {
       };
     }
 
-    if (expectedSourceHash !== undefined) {
-      const currentBody = await readFile(cloneFile, 'utf8');
-      const currentHash = `sha256:${createHash('sha256').update(currentBody).digest('hex')}`;
-      if (currentHash !== expectedSourceHash) {
-        return {
-          kind,
-          slug,
-          historyTs: null,
-          written: false,
-          reason: 'stale-source',
-          metadataIncomplete: false,
-          reconcileProtected: false,
-        };
-      }
+    if (await this.isStaleSource(cloneFile, expectedSourceHash)) {
+      return {
+        kind,
+        slug,
+        historyTs: null,
+        written: false,
+        reason: 'stale-source',
+        metadataIncomplete: false,
+        reconcileProtected: false,
+      };
     }
 
     const historyTs = basename(
@@ -835,6 +827,15 @@ export class UserLayerMirrorService {
   }
 
   /** Flat-file twin of {@link refreshSavedSidecarDir}. */
+  private async isStaleSource(
+    bodyPath: string,
+    expectedSourceHash?: string,
+  ): Promise<boolean> {
+    if (expectedSourceHash === undefined) return false;
+    const currentBody = await readFile(bodyPath, 'utf8');
+    return formatSourceHash(currentBody) !== expectedSourceHash;
+  }
+
   private async refreshSavedSidecarFile(
     kind: OriginKind,
     slug: string,

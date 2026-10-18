@@ -539,25 +539,13 @@ export class PtahFileSettingsManager {
       }
 
       if (migrated) {
-        const tmpPath = `${this.filePath}.${process.pid}.${++persistTempSequence}.tmp`;
-        try {
-          const output = {
-            $schema: parsed['$schema'] ?? 'https://ptah.live/schemas/settings.json',
-            version: parsed['version'] ?? 1,
-            ...unflattenObject(this.settings),
-          };
-          fs.writeFileSync(tmpPath, JSON.stringify(output, null, 2), 'utf-8');
-          fs.renameSync(tmpPath, this.filePath);
-        } catch (error: unknown) {
-          try {
-            fs.rmSync(tmpPath, { force: true });
-          } catch {
-            // The next load sweeps old temporary files.
-          }
-          console.warn(
-            `[PtahFileSettingsManager] Could not migrate settings in ${this.filePath} (${fsErrorCode(error)})`,
-          );
-        }
+        this.writePromise = this.writePromise
+          .then(() => this.persist())
+          .catch((error: unknown) => {
+            console.warn(
+              `[PtahFileSettingsManager] Could not migrate settings in ${this.filePath} (${fsErrorCode(error)})`,
+            );
+          });
       }
     } catch (error: unknown) {
       if (isNodeError(error) && error.code === 'ENOENT') {

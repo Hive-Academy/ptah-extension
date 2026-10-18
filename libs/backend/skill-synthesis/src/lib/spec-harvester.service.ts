@@ -30,6 +30,7 @@ import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
   PLATFORM_TOKENS,
+  normalizeWorkspaceRoot,
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 import { CARRIER_FILE } from '@ptah-extension/shared';
@@ -119,7 +120,6 @@ export class SpecHarvesterService implements SpecFindingsPort {
           slug: batch.slug,
           taskId: spec.taskId,
           succeeded: batch.status === 'COMPLETE',
-          isError: batch.status === 'FAILED',
           windowStart: spec.windowStart,
           windowEnd: spec.windowEnd,
           verdictSource: `spec:${spec.taskId}`,
@@ -130,7 +130,7 @@ export class SpecHarvesterService implements SpecFindingsPort {
           reconciled += 1;
         }
       }
-      if (this.grades) this.writeGrades(spec, root, now);
+      if (this.grades && !this.writeGrades(spec, root, now)) continue;
       await this.writeMarker(spec, now, count);
       harvested += 1;
     }
@@ -145,48 +145,54 @@ export class SpecHarvesterService implements SpecFindingsPort {
     return { scanned: specs.length, harvested, reconciled };
   }
 
-  private writeGrades(spec: HarvestedSpec, specsRoot: string, now: number): void {
-    if (!this.grades) return;
-    const workspaceRoot = join(specsRoot, '..', '..');
-    let attributions: GradeAttribution[];
-    try { attributions = this.grades.findAttributions(spec.taskId, workspaceRoot); }
-    catch (error: unknown) {
-      this.logger.warn('[spec-harvester] grade attribution unavailable', {
+  private writeGrades(spec: HarvestedSpec, specsRoot: string, now: number): boolean {
+    if (!this.grades) return true;
+    const workspaceRoot = normalizeWorkspaceRoot(join(specsRoot, '..', '..'));
+    try {
+      const attributions: GradeAttribution[] = this.grades.findAttributions(spec.taskId, workspaceRoot);
+      if (attributions.length === 0 && spec.batches.length > 0) {
+        this.logger.warn('[spec-harvester] no grade attributions for spec batches', {
+          taskId: spec.taskId, batchCount: spec.batches.length, attributionCount: 0,
+        });
+      }
+      const keep: string[] = [];
+      for (const attribution of attributions) {
+        const siblings = attributions.filter((candidate) => candidate.kind === attribution.kind && candidate.slug === attribution.slug);
+        const batch = attribution.kind === 'agent' && siblings.length === 1
+          ? spec.batches.find((item) => item.slug === attribution.slug) : undefined;
+        const matching = spec.reviews.filter((review) =>
+          (review.runId !== null && review.runId === attribution.runId) ||
+          (review.runId === null && review.sessionId !== null && review.sessionId === attribution.sessionId && siblings.length === 1) ||
+          (review.runId === null && review.sessionId === null && siblings.length === 1 && attribution.kind === 'agent' && !/plan|architecture/i.test(review.file)));
+        const final = matching.filter((review) => !review.file.startsWith('judge-round-'));
+        const selected = final.length > 0 ? final : matching;
+        const verdicts = new Set(selected.map((review) => review.verdict));
+        const laneVerdict = attribution.finalReview === 'approved' ? 'pass' : attribution.finalReview === 'rejected' ? 'fail' : null;
+        if (!batch && !laneVerdict && verdicts.size > 1) {
+          this.logger.warn('[spec-harvester] conflicting review verdicts', { taskId: spec.taskId, slug: attribution.slug.slice(0, 80) });
+          continue;
+        }
+        const review = selected.at(-1);
+        const verdict = batch ? (batch.status === 'COMPLETE' ? 'pass' : 'fail') : laneVerdict ?? review?.verdict;
+        if (!verdict) continue;
+        const grade: SkillTaskGrade = {
+          taskId: spec.taskId, subjectKind: attribution.kind, subjectSlug: attribution.slug,
+          attributionKey: attribution.attributionKey, runId: attribution.runId, verdict,
+          sourceFile: batch ? 'batches.md' : laneVerdict ? 'lane_outcome_records' : review?.file ?? null,
+          sourceDigest: spec.artifactDigest, evidenceSource: batch ? 'batch' : laneVerdict ? 'lane-final-review' : 'task-review',
+          workspaceRoot, gradedAt: now, findingsRef: review ? `${spec.taskId}/${review.file}` : null,
+        };
+        this.grades.upsert(grade);
+        keep.push(`${grade.subjectKind}:${grade.subjectSlug}:${grade.attributionKey}`);
+      }
+      this.grades.removeAbsent(spec.taskId, workspaceRoot, keep);
+      return true;
+    } catch (error: unknown) {
+      this.logger.warn('[spec-harvester] grade write unavailable', {
         taskId: spec.taskId, reason: error instanceof Error ? error.name : 'unknown',
       });
-      return;
+      return false;
     }
-    const keep: string[] = [];
-    for (const attribution of attributions) {
-      const siblings = attributions.filter((candidate) => candidate.kind === attribution.kind && candidate.slug === attribution.slug);
-      const batch = attribution.kind === 'agent' && siblings.length === 1
-        ? spec.batches.find((item) => item.slug === attribution.slug) : undefined;
-      const matching = spec.reviews.filter((review) =>
-        (review.runId !== null && review.runId === attribution.runId) ||
-        (review.runId === null && review.sessionId !== null && review.sessionId === attribution.sessionId && siblings.length === 1) ||
-        (review.runId === null && review.sessionId === null && siblings.length === 1 && attribution.kind === 'agent' && !/plan|architecture/i.test(review.file)));
-      const final = matching.filter((review) => !review.file.startsWith('judge-round-'));
-      const selected = final.length > 0 ? final : matching;
-      const verdicts = new Set(selected.map((review) => review.verdict));
-      if (verdicts.size > 1) {
-        this.logger.warn('[spec-harvester] conflicting review verdicts', { taskId: spec.taskId, slug: attribution.slug.slice(0, 80) });
-        continue;
-      }
-      const review = selected.at(-1);
-      const laneVerdict = attribution.finalReview === 'approved' ? 'pass' : attribution.finalReview === 'rejected' ? 'fail' : null;
-      const verdict = batch ? (batch.status === 'COMPLETE' ? 'pass' : 'fail') : laneVerdict ?? review?.verdict;
-      if (!verdict) continue;
-      const grade: SkillTaskGrade = {
-        taskId: spec.taskId, subjectKind: attribution.kind, subjectSlug: attribution.slug,
-        attributionKey: attribution.attributionKey, runId: attribution.runId, verdict,
-        sourceFile: batch ? 'batches.md' : laneVerdict ? 'lane_outcome_records' : review?.file ?? null,
-        sourceDigest: spec.artifactDigest, evidenceSource: batch ? 'batch' : laneVerdict ? 'lane-final-review' : 'task-review',
-        workspaceRoot, gradedAt: now, findingsRef: review ? `${spec.taskId}/${review.file}` : null,
-      };
-      this.grades.upsert(grade);
-      keep.push(`${grade.subjectKind}:${grade.subjectSlug}:${grade.attributionKey}`);
-    }
-    this.grades.removeAbsent(spec.taskId, workspaceRoot, keep);
   }
 
   /** Classify every TASK_* spec for the cleanup UI. */

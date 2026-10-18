@@ -1,5 +1,7 @@
 import { inject, injectable } from 'tsyringe';
+import { z } from 'zod';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import { normalizeWorkspaceRoot } from '@ptah-extension/platform-core';
 import {
   PERSISTENCE_TOKENS,
   type SqliteConnectionService,
@@ -37,30 +39,38 @@ export interface GradeAttribution {
   readonly finalReview: 'approved' | 'rejected' | null;
 }
 
-interface RawAttribution {
-  kind: SkillRegistryKind;
-  slug: string;
-  run_id: string | null;
-  session_id: string | null;
-  attribution_key: string;
-  final_review: 'approved' | 'rejected' | null;
-}
+const KindSchema = z.enum(['skill', 'agent', 'command']);
+const AttributionRowSchema = z.object({
+  kind: KindSchema,
+  slug: z.string(),
+  run_id: z.string().nullable(),
+  session_id: z.string().nullable(),
+  attribution_key: z.string(),
+  final_review: z.enum(['approved', 'rejected']).nullable(),
+  workspace_root: z.string().nullable(),
+});
+type RawAttribution = z.infer<typeof AttributionRowSchema>;
 
-interface RawAggregate { graded: number; passed: number }
-interface RawGrade {
-  task_id: string;
-  subject_kind: SkillRegistryKind;
-  subject_slug: string;
-  attribution_key: string;
-  run_id: string | null;
-  verdict: 'pass' | 'fail';
-  source_file: string | null;
-  source_digest: string | null;
-  evidence_source: string;
-  workspace_root: string | null;
-  graded_at: number;
-  findings_ref: string | null;
-}
+const AggregateRowSchema = z.object({ graded: z.number(), passed: z.number() });
+const PruneRowSchema = z.object({
+  subject_kind: KindSchema,
+  subject_slug: z.string(),
+  attribution_key: z.string(),
+});
+const GradeRowSchema = z.object({
+  task_id: z.string(),
+  subject_kind: KindSchema,
+  subject_slug: z.string(),
+  attribution_key: z.string(),
+  run_id: z.string().nullable(),
+  verdict: z.enum(['pass', 'fail']),
+  source_file: z.string().nullable(),
+  source_digest: z.string().nullable(),
+  evidence_source: z.string(),
+  workspace_root: z.string().nullable(),
+  graded_at: z.number(),
+  findings_ref: z.string().nullable(),
+});
 
 @injectable()
 export class SkillTaskGradeStore {
@@ -72,6 +82,15 @@ export class SkillTaskGradeStore {
 
   private get db(): SqliteDatabase {
     return this.connection.db;
+  }
+
+  private parseRow<T>(schema: z.ZodType<T>, row: unknown): T {
+    const parsed = schema.safeParse(row);
+    if (!parsed.success) {
+      this.logger.warn('[skill-synthesis] invalid task grade row');
+      throw new Error('Invalid task grade row');
+    }
+    return parsed.data;
   }
 
   upsert(grade: SkillTaskGrade): void {
@@ -96,12 +115,13 @@ export class SkillTaskGradeStore {
 
   /** Only exact task or uniquely linked session facts are eligible. */
   findAttributions(taskId: string, workspaceRoot: string): GradeAttribution[] {
+    const normalizedRoot = normalizeWorkspaceRoot(workspaceRoot);
     const rows = this.db.prepare(`SELECT
       CASE WHEN e.source = 'subagent' THEN 'agent'
            WHEN e.source = 'slash-command' THEN 'command' ELSE 'skill' END AS kind,
       e.skill_slug AS slug, e.run_id, e.session_id,
       CASE WHEN e.run_id IS NOT NULL THEN 'run:' || e.run_id ELSE 'event:' || e.id END AS attribution_key,
-      l.final_review
+      l.final_review, e.workspace_root
       FROM skill_invocation_events e
       LEFT JOIN lane_outcome_records l ON l.run_id = e.run_id
       WHERE e.source IN ('subagent', 'tool-use', 'slash-command')
@@ -110,21 +130,22 @@ export class SkillTaskGradeStore {
           WHERE registry.slug = e.skill_slug AND registry.kind =
             CASE WHEN e.source = 'subagent' THEN 'agent'
               WHEN e.source = 'slash-command' THEN 'command' ELSE 'skill' END)
-        AND e.workspace_root = ?
         AND (e.task_id = ? OR (e.task_id IS NULL AND EXISTS (
           SELECT 1 FROM session_task_links s
-          WHERE s.workspace_root = ? AND s.session_id = e.session_id AND s.task_id = ?
+          WHERE s.workspace_root = e.workspace_root AND s.session_id = e.session_id AND s.task_id = ?
             AND NOT EXISTS (SELECT 1 FROM session_task_links other
               WHERE other.workspace_root = s.workspace_root AND other.session_id = s.session_id
                 AND other.task_id <> s.task_id)
-        )))`).all(workspaceRoot, taskId, workspaceRoot, taskId) as RawAttribution[];
+        )))`).all(taskId, taskId).map((row) => this.parseRow(AttributionRowSchema, row))
+      .filter((row) => row.workspace_root !== null && normalizeWorkspaceRoot(row.workspace_root) === normalizedRoot);
     const laneRows = this.db.prepare(`SELECT 'agent' AS kind, role AS slug,
       run_id, subagent_session_id AS session_id, 'run:' || run_id AS attribution_key,
-      final_review FROM lane_outcome_records
-      WHERE task_id = ? AND workspace_root = ? AND role IS NOT NULL AND role <> ''
+      final_review, workspace_root FROM lane_outcome_records
+      WHERE task_id = ? AND role IS NOT NULL AND role <> ''
         AND EXISTS (SELECT 1 FROM skill_registry registry
           WHERE registry.slug = lane_outcome_records.role AND registry.kind = 'agent')
-        AND executor_kind = 'subagent'`).all(taskId, workspaceRoot) as RawAttribution[];
+        AND executor_kind = 'subagent'`).all(taskId).map((row) => this.parseRow(AttributionRowSchema, row))
+      .filter((row) => row.workspace_root !== null && normalizeWorkspaceRoot(row.workspace_root) === normalizedRoot);
     for (const row of laneRows) {
       if (!rows.some((event) => event.kind === row.kind && event.slug === row.slug && event.run_id === row.run_id)) rows.push(row);
     }
@@ -144,11 +165,14 @@ export class SkillTaskGradeStore {
   }
 
   removeAbsent(taskId: string, workspaceRoot: string, keys: readonly string[]): void {
+    if (keys.length === 0) return;
     const rows = this.db.prepare(`SELECT subject_kind, subject_slug, attribution_key FROM skill_task_grades
-      WHERE task_id = ? AND workspace_root = ?`).all(taskId, workspaceRoot) as { subject_kind: string; subject_slug: string; attribution_key: string }[];
+      WHERE task_id = ? AND workspace_root = ? AND evidence_source NOT LIKE 'spec:%'`).all(taskId, workspaceRoot)
+      .map((row) => this.parseRow(PruneRowSchema, row));
     const keep = new Set(keys);
     const remove = this.db.prepare(`DELETE FROM skill_task_grades
-      WHERE task_id = ? AND workspace_root = ? AND subject_kind = ? AND subject_slug = ? AND attribution_key = ?`);
+      WHERE task_id = ? AND workspace_root = ? AND subject_kind = ? AND subject_slug = ? AND attribution_key = ?
+        AND evidence_source NOT LIKE 'spec:%'`);
     for (const row of rows) if (!keep.has(`${row.subject_kind}:${row.subject_slug}:${row.attribution_key}`))
       remove.run(taskId, workspaceRoot, row.subject_kind, row.subject_slug, row.attribution_key);
   }
@@ -167,7 +191,7 @@ export class SkillTaskGradeStore {
       FROM skill_task_grades INDEXED BY idx_skill_task_grades_subject
       WHERE subject_kind = ? AND subject_slug = ?`);
     for (const slug of slugs) {
-      const row = stmt.get(kind, slug) as RawAggregate;
+      const row = this.parseRow(AggregateRowSchema, stmt.get(kind, slug));
       result.set(slug, {
         graded: row.graded,
         passed: row.passed,
@@ -181,7 +205,8 @@ export class SkillTaskGradeStore {
     const rows = this.db.prepare(`SELECT * FROM skill_task_grades
       INDEXED BY idx_skill_task_grades_subject
       WHERE subject_kind = ? AND subject_slug = ?
-      ORDER BY graded_at DESC LIMIT ?`).all(kind, slug, limit) as RawGrade[];
+      ORDER BY graded_at DESC LIMIT ?`).all(kind, slug, limit)
+      .map((row) => this.parseRow(GradeRowSchema, row));
     return rows.map((row) => ({
       taskId: row.task_id,
       subjectKind: row.subject_kind,

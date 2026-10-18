@@ -3,7 +3,12 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { SqliteDatabase } from './sqlite-connection.service';
-import { archiveSkillPipeline, verifySkillPipelineArchive } from './skill-pipeline-archive';
+import {
+  archiveSkillPipeline,
+  FIRST_DESTRUCTIVE_SKILL_PIPELINE_VERSION,
+  SKILL_PIPELINE_ARCHIVE_DIR_PREFIX,
+  verifySkillPipelineArchive,
+} from './skill-pipeline-archive';
 import { SqliteMigrationRunner } from './migration-runner';
 import { createMockLogger } from './testing/mock-logger';
 
@@ -44,6 +49,10 @@ maybe('skill pipeline archive', () => {
 
   it('records absent tables and verifies only pipeline job rows', () => {
     const receipt = archiveSkillPipeline(db, root);
+    expect(FIRST_DESTRUCTIVE_SKILL_PIPELINE_VERSION).toBe(57);
+    expect(path.basename(receipt.archivePath)).toMatch(
+      new RegExp(`^${SKILL_PIPELINE_ARCHIVE_DIR_PREFIX}`),
+    );
     expect(verifySkillPipelineArchive(path.join(receipt.archivePath, 'receipt.json'))).toEqual(receipt);
     expect(receipt.tables.find((entry) => entry.table === 'skill_candidates')).toMatchObject({ present: true, rows: 1 });
     expect(receipt.tables.find((entry) => entry.table === 'skill_candidates_vec')).toMatchObject({ present: false, rows: 0 });

@@ -1377,7 +1377,7 @@ export class SkillCandidateStore {
     slug: string;
     taskId: string;
     succeeded: boolean;
-    isError: boolean;
+    isError?: boolean;
     windowStart: number;
     windowEnd: number;
     verdictSource: string;
@@ -1424,9 +1424,19 @@ export class SkillCandidateStore {
 
   private applyReconciliation(
     eventId: string,
-    input: { succeeded: boolean; isError: boolean; reconciledAt: number },
+    input: { succeeded: boolean; isError?: boolean; reconciledAt: number },
     verdictSource: string,
   ): void {
+    if (input.isError === undefined) {
+      this.db
+        .prepare(
+          `UPDATE skill_invocation_events
+           SET succeeded = ?, reconciled_at = ?, verdict_source = ?
+           WHERE id = ?`,
+        )
+        .run(input.succeeded ? 1 : 0, input.reconciledAt, verdictSource, eventId);
+      return;
+    }
     this.db
       .prepare(
         `UPDATE skill_invocation_events
@@ -1658,7 +1668,7 @@ export class SkillCandidateStore {
       const rows = this.db
         .prepare(
           `SELECT DISTINCT session_id, invoked_at, skill_slug FROM skill_invocation_events
-           WHERE source IN ('tool-use', 'prompt-expansion') AND (${conditions})`,
+           WHERE source IN ('tool-use', 'prompt-expansion', 'slash-command') AND (${conditions})`,
         )
         .all(...params);
       for (const row of rows) {

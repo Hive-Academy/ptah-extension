@@ -73,10 +73,12 @@ describe('SkillInvocationEventStore', () => {
         source: 'tool-use', isError: false, invokedAt: 30 });
       store.recordSkillEvent({ skillSlug: 'loaded', sessionId: 's2', contextId: null,
         source: 'prompt-expansion', isError: false, invokedAt: 20 });
+      store.recordSkillEvent({ skillSlug: 'command', sessionId: 's1', contextId: null,
+        source: 'slash-command', isError: false, invokedAt: 15 });
       expect(store.listSkillsForScopes([
         { runId: 'r1', sessionId: 's1', fromMs: 0, toMs: 20 },
         { runId: 'r2', sessionId: 's2', fromMs: 0, toMs: 25 },
-      ])).toEqual(new Map([['r1', ['loaded']], ['r2', ['loaded']]]));
+      ])).toEqual(new Map([['r1', ['command', 'loaded']], ['r2', ['loaded']]]));
       expect(store.getDominantSkillSlugForSessions(['s1', 's2'])).toBe('loaded');
       expect(store.getRecentSessionsForSlug('loaded')).toEqual(['s2', 's1']);
     } finally {

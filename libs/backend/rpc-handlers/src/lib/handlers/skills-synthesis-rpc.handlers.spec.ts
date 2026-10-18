@@ -1001,6 +1001,23 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
     expect(result.clones[0].successRate).toBeNull();
   });
 
+  it('listClones returns a null success rate when some invocations are ungraded', async () => {
+    const { rpcHandler, registry, store } = buildHandlers();
+    registry.listAll.mockReturnValue([sampleRow]);
+    store.getInvocationStats.mockReturnValue({
+      total: 3,
+      succeeded: 0,
+      failed: 0,
+      distinctContexts: 1,
+    });
+
+    const result = (await rpcHandler.call('skillSynthesis:listClones', {})) as {
+      clones: Array<{ successRate: number | null }>;
+    };
+
+    expect(result.clones[0].successRate).toBeNull();
+  });
+
   it('listClones returns PERSISTENCE_UNAVAILABLE when registry unbound (VS Code)', async () => {
     const logger = makeLogger();
     const rpcHandler = makeRpcHandler();
@@ -5050,6 +5067,39 @@ describe('SkillsSynthesisRpcHandlers — manual runs while skills are paused', (
 });
 
 describe('SkillsSynthesisRpcHandlers — updateSettings curator restart', () => {
+  it.each([
+    ['judgeProvider', 'selected-provider', 'skills.enhancement.provider'],
+    ['judgeModel', 'selected-model', 'skills.enhancement.model'],
+    ['enhanceTimeoutMs', 60000, 'skills.enhancement.timeoutMs'],
+  ])('dual-writes %s with value %s', async (key, value, enhancementKey) => {
+    const { rpcHandler, workspaceProvider } = buildHandlersWithSuggestions();
+    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
+
+    await rpcHandler.call('skillSynthesis:updateSettings', {
+      settings: { [key]: value },
+    });
+
+    expect(setSpy).toHaveBeenCalledTimes(2);
+    expect(setSpy).toHaveBeenNthCalledWith(1, 'ptah', enhancementKey, value);
+    expect(setSpy).toHaveBeenNthCalledWith(2, 'ptah', `skillSynthesis.${key}`, value);
+  });
+
+  it('does not dual-write unrelated settings', async () => {
+    const { rpcHandler, workspaceProvider } = buildHandlersWithSuggestions();
+    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
+
+    await rpcHandler.call('skillSynthesis:updateSettings', {
+      settings: { maxPinnedSkills: 8 },
+    });
+
+    expect(setSpy).toHaveBeenCalledTimes(1);
+    expect(setSpy).toHaveBeenCalledWith(
+      'ptah',
+      'skillSynthesis.maxPinnedSkills',
+      8,
+    );
+  });
+
   it('a curatorIntervalHours change restarts the curator through the service', async () => {
     const { rpcHandler, synthesis, curator, workspaceProvider } =
       buildHandlersWithSuggestions();

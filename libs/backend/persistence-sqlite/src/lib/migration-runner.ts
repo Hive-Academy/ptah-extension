@@ -20,7 +20,10 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import type { Migration } from './migrations';
 import type { SqliteDatabase } from './sqlite-connection.service';
 import { KEEP_BY_KIND, type IBackupService } from './backup.service';
-import { archiveSkillPipeline } from './skill-pipeline-archive';
+import {
+  archiveSkillPipeline,
+  FIRST_DESTRUCTIVE_SKILL_PIPELINE_VERSION,
+} from './skill-pipeline-archive';
 
 /** Result of an `applyAll` run — useful for telemetry. */
 export interface MigrationRunResult {
@@ -111,18 +114,9 @@ export class SqliteMigrationRunner {
       : new Set<number>();
 
     let archiveVerified = false;
-    const ensureArchive = (): void => {
+    const ensureArchiveOnce = (): void => {
       if (archiveVerified) return;
-      if (vecLoaded) {
-        this.runVecCatchUp(sorted, appliedNow, 56, true);
-      } else if (this.db.prepare("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?")
-        .get('skill_candidates_vec') !== undefined) {
-        throw new Error('SqliteMigrationRunner: skill_candidates_vec exists but sqlite-vec is unavailable; archive preflight failed');
-      }
-      const receipt = archiveSkillPipeline(this.db);
-      this.logger.info('[persistence-sqlite] verified skill pipeline archive', {
-        archivePath: receipt.archivePath,
-      });
+      this.ensureArchive(sorted, appliedNow, vecLoaded);
       archiveVerified = true;
     };
 
@@ -135,7 +129,9 @@ export class SqliteMigrationRunner {
         skippedNow.push(migration.version);
         continue;
       }
-      if (migration.version >= 57) ensureArchive();
+      if (migration.version >= FIRST_DESTRUCTIVE_SKILL_PIPELINE_VERSION) {
+        ensureArchiveOnce();
+      }
       const isPureVec =
         migration.requiresVec === true && migration.sql === undefined;
       if (isPureVec && !vecLoaded) {
@@ -151,8 +147,12 @@ export class SqliteMigrationRunner {
     }
 
     if (vecLoaded) {
-      if (this.readPendingVecVersions().some((version) => version >= 57)) {
-        ensureArchive();
+      if (
+        this.readPendingVecVersions().some(
+          (version) => version >= FIRST_DESTRUCTIVE_SKILL_PIPELINE_VERSION,
+        )
+      ) {
+        ensureArchiveOnce();
       }
       this.runVecCatchUp(sorted, appliedNow);
     }
@@ -337,12 +337,32 @@ export class SqliteMigrationRunner {
    * clear the pending row. Versions whose migration is no longer bundled are
    * dropped from the pending table.
    */
+  private ensureArchive(
+    sorted: readonly Migration[],
+    appliedNow: number[],
+    vecLoaded: boolean,
+  ): void {
+    if (vecLoaded) {
+      this.runVecCatchUp(sorted, appliedNow, {
+        maxVersion: FIRST_DESTRUCTIVE_SKILL_PIPELINE_VERSION - 1,
+        fatal: true,
+      });
+    } else if (this.db.prepare("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?")
+      .get('skill_candidates_vec') !== undefined) {
+      throw new Error('SqliteMigrationRunner: skill_candidates_vec exists but sqlite-vec is unavailable; archive preflight failed');
+    }
+    const receipt = archiveSkillPipeline(this.db);
+    this.logger.info('[persistence-sqlite] verified skill pipeline archive', {
+      archivePath: receipt.archivePath,
+    });
+  }
+
   private runVecCatchUp(
     sorted: readonly Migration[],
     appliedNow: number[],
-    maxVersion = Number.POSITIVE_INFINITY,
-    fatal = false,
+    options: { maxVersion?: number; fatal?: boolean } = {},
   ): void {
+    const { maxVersion = Number.POSITIVE_INFINITY, fatal = false } = options;
     const pending = this.readPendingVecVersions().filter((version) => version <= maxVersion);
     if (pending.length === 0) return;
     const byVersion = new Map(sorted.map((m) => [m.version, m]));

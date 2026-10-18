@@ -482,6 +482,7 @@ export const SkillSaveCloneBodyParamsSchema = z.object({
     .refine((b) => b.trim().length > 0, 'body must not be blank'),
   expectedSourceHash: z
     .string()
+    // formatSourceHash(body) in platform-core produces this exact shape.
     .regex(/^sha256:[0-9a-f]{64}$/)
     .optional(),
 });

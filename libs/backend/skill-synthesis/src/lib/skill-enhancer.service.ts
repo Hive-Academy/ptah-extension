@@ -1,6 +1,6 @@
 import * as os from 'node:os';
 import { join } from 'node:path';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
@@ -8,6 +8,7 @@ import {
   ENHANCE_TIMEOUT_DEFAULT_MS,
   ENHANCE_TIMEOUT_MAX_MS,
   ENHANCE_TIMEOUT_MIN_MS,
+  formatSourceHash,
   PLATFORM_TOKENS,
   resolveMcpSessionWiring,
   type IMcpServerStatus,
@@ -214,6 +215,26 @@ export interface ApplyProposalResult {
 
 /** Why a `proposalId` could not be redeemed. */
 export type ProposalRejectionCode = 'not-found' | 'expired' | 'mismatch';
+
+function safeGenerationError(error: unknown): {
+  errorName: string;
+  errorMessage: string;
+} {
+  if (!(error instanceof Error)) {
+    return { errorName: 'UnknownError', errorMessage: 'Non-Error thrown' };
+  }
+  const errorName = /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(error.name)
+    ? error.name
+    : 'Error';
+  const errorMessage = error.message
+    .replace(/https?:\/\/\S+/gi, '[url]')
+    .replace(/(?:bearer|token|secret|password|api[_-]?key|authorization)\s*[:=]?\s*\S+/gi, '[credential]')
+    .replace(/\b(?:sk|pk|rk)-[A-Za-z0-9_-]+\b/g, '[credential]')
+    .replace(/["'`][^"'`]*["'`]/g, '[quoted value]')
+    .replace(/[A-Za-z0-9+/=_-]{32,}/g, '[value]')
+    .slice(0, 240);
+  return { errorName, errorMessage };
+}
 
 /**
  * Thrown by {@link SkillEnhancerService.applyProposal} when the id does not
@@ -459,7 +480,7 @@ export class SkillEnhancerService {
       const draft: EnhancementDraft = {
         before: currentBody,
         after: candidateBody,
-        sourceHash: `sha256:${createHash('sha256').update(currentBody).digest('hex')}`,
+        sourceHash: formatSourceHash(currentBody),
         evidence: draftContext.evidence ?? {
           trajectory: '',
           findings: '',
@@ -557,10 +578,11 @@ export class SkillEnhancerService {
       this.cacheProposal(proposal);
 
       return { ...judged, proposed: true, proposalId: proposal.proposalId };
-    } catch {
+    } catch (error: unknown) {
       this.logger.warn('[skill-enhancer] proposal generation failed', {
         slug,
         kind,
+        ...safeGenerationError(error),
       });
       return { ...base, skipReason: 'error' };
     }
@@ -981,6 +1003,7 @@ export class SkillEnhancerService {
       }
       this.logger.warn('[skill-enhancer] candidate generation failed', {
         slug,
+        ...safeGenerationError(error),
       });
       return null;
     } finally {

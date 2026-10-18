@@ -2,7 +2,8 @@ import 'reflect-metadata';
 import { MIGRATIONS } from '@ptah-extension/persistence-sqlite';
 import { mkdtemp, mkdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
+import { normalizeWorkspaceRoot } from '@ptah-extension/platform-core';
 import { SpecHarvesterService } from './spec-harvester.service';
 import { SkillCandidateStore } from './skill-candidate.store';
 import { HARVEST_MARKER_FILE } from './spec-extractor';
@@ -128,8 +129,11 @@ describe('SpecHarvesterService', () => {
       expect.objectContaining({ slug: 'backend-developer', succeeded: true }),
     );
     expect(store.reconcileSubagentEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ slug: 'frontend-developer', isError: true }),
+      expect.objectContaining({ slug: 'frontend-developer', succeeded: false }),
     );
+    for (const [input] of store.reconcileSubagentEvent.mock.calls) {
+      expect(input).not.toHaveProperty('isError');
+    }
     expect(await fileExists(join(dir, HARVEST_MARKER_FILE))).toBe(true);
   });
 
@@ -159,6 +163,107 @@ describe('SpecHarvesterService', () => {
     expect(store.reconcileSubagentEvent).not.toHaveBeenCalled();
   });
 
+  it('lets batch and lane verdicts outrank conflicting reviews', async () => {
+    const grades = {
+      findAttributions: jest.fn().mockReturnValue([{
+        kind: 'agent', slug: 'backend-developer', runId: 'run-1',
+        sessionId: 'session-1', attributionKey: 'run:run-1', finalReview: null,
+      }]),
+      upsert: jest.fn(), removeAbsent: jest.fn(), hasGradeForTask: jest.fn(),
+    };
+    const logger = makeLogger();
+    svc = new SpecHarvesterService(logger as never, { getWorkspaceRoot: () => root } as never, store as never, grades as never);
+    const batchDir = await writeSpec('TASK_2026_091', { review: 'Verdict: FAIL' });
+    await writeFile(join(batchDir, 'code-style-review.md'), 'Verdict: PASS', 'utf8');
+    await svc.harvest();
+    expect(grades.upsert).toHaveBeenCalledWith(expect.objectContaining({ verdict: 'pass', evidenceSource: 'batch' }));
+
+    grades.findAttributions.mockReturnValue([{
+      kind: 'agent', slug: 'backend-developer', runId: 'run-1',
+      sessionId: 'session-1', attributionKey: 'run:run-1', finalReview: 'approved',
+    }]);
+    const laneDir = await writeSpec('TASK_2026_092', {
+      tasksMd: '## Batch 1: Backend — IN PROGRESS\n\n**Recommended Executor**: backend-developer\n',
+      review: 'Verdict: FAIL',
+    });
+    await writeFile(join(laneDir, 'code-style-review.md'), 'Verdict: PASS', 'utf8');
+    await svc.harvest();
+    expect(grades.upsert).toHaveBeenLastCalledWith(expect.objectContaining({ verdict: 'pass', evidenceSource: 'lane-final-review' }));
+    expect(logger.warn).not.toHaveBeenCalledWith('[spec-harvester] conflicting review verdicts', expect.anything());
+
+    grades.findAttributions.mockReturnValue([{
+      kind: 'agent', slug: 'backend-developer', runId: 'run-1',
+      sessionId: 'session-1', attributionKey: 'run:run-1', finalReview: null,
+    }]);
+    const reviewDir = await writeSpec('TASK_2026_095', {
+      tasksMd: '## Batch 1: Backend — IN PROGRESS\n\n**Recommended Executor**: backend-developer\n',
+      review: 'Verdict: FAIL',
+    });
+    await writeFile(join(reviewDir, 'code-style-review.md'), 'Verdict: PASS', 'utf8');
+    const priorWrites = grades.upsert.mock.calls.length;
+    await svc.harvest();
+    expect(grades.upsert).toHaveBeenCalledTimes(priorWrites);
+    expect(logger.warn).toHaveBeenCalledWith('[spec-harvester] conflicting review verdicts', expect.objectContaining({ taskId: 'TASK_2026_095' }));
+  });
+
+  it('passes the canonical workspace root to grade attribution and writes', async () => {
+    const grades = {
+      findAttributions: jest.fn().mockReturnValue([{
+        kind: 'agent', slug: 'backend-developer', runId: 'run-1',
+        sessionId: 'session-1', attributionKey: 'run:run-1', finalReview: 'approved',
+      }]),
+      upsert: jest.fn(), removeAbsent: jest.fn(), hasGradeForTask: jest.fn(),
+    };
+    svc = new SpecHarvesterService(makeLogger() as never, { getWorkspaceRoot: () => root } as never, store as never, grades as never);
+    await writeSpec('TASK_2026_093');
+    const suppliedRoot = process.platform === 'win32'
+      ? `${root.replace(/^[a-zA-Z]:/, (drive) => drive.toUpperCase())}${sep}`
+      : `${root}${sep}`;
+    await svc.harvest(suppliedRoot);
+    const normalized = normalizeWorkspaceRoot(root);
+    expect(grades.findAttributions).toHaveBeenCalledWith('TASK_2026_093', normalized);
+    expect(grades.upsert).toHaveBeenCalledWith(expect.objectContaining({ workspaceRoot: normalized }));
+    expect(grades.removeAbsent).toHaveBeenCalledWith('TASK_2026_093', normalized, expect.any(Array));
+  });
+
+  it('warns once when a batched spec has no grade attributions and still marks it harvested', async () => {
+    const grades = {
+      findAttributions: jest.fn().mockReturnValue([]),
+      upsert: jest.fn(), removeAbsent: jest.fn(), hasGradeForTask: jest.fn(),
+    };
+    const logger = makeLogger();
+    svc = new SpecHarvesterService(logger as never, { getWorkspaceRoot: () => root } as never, store as never, grades as never);
+    const dir = await writeSpec('TASK_2026_096');
+    expect((await svc.harvest()).harvested).toBe(1);
+    expect(logger.warn.mock.calls.filter(([message]) =>
+      message === '[spec-harvester] no grade attributions for spec batches')).toHaveLength(1);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[spec-harvester] no grade attributions for spec batches',
+      { taskId: 'TASK_2026_096', batchCount: 2, attributionCount: 0 },
+    );
+    expect(await fileExists(join(dir, HARVEST_MARKER_FILE))).toBe(true);
+  });
+
+  it.each(['attribution', 'write'] as const)('retries after a failed grade %s without marking harvested', async (failure) => {
+    const attribution = {
+      kind: 'agent', slug: 'backend-developer', runId: 'run-1',
+      sessionId: 'session-1', attributionKey: 'run:run-1', finalReview: 'approved',
+    };
+    const grades = {
+      findAttributions: jest.fn().mockReturnValue([attribution]),
+      upsert: jest.fn(), removeAbsent: jest.fn(), hasGradeForTask: jest.fn(),
+    };
+    if (failure === 'attribution') grades.findAttributions.mockImplementationOnce(() => { throw new Error('unavailable'); });
+    else grades.upsert.mockImplementationOnce(() => { throw new Error('unavailable'); });
+    svc = new SpecHarvesterService(makeLogger() as never, { getWorkspaceRoot: () => root } as never, store as never, grades as never);
+    const dir = await writeSpec('TASK_2026_094');
+    expect((await svc.harvest()).harvested).toBe(0);
+    expect(await fileExists(join(dir, HARVEST_MARKER_FILE))).toBe(false);
+    expect((await svc.harvest()).harvested).toBe(1);
+    expect(grades.upsert).toHaveBeenCalledWith(expect.objectContaining({ taskId: 'TASK_2026_094' }));
+    expect(await fileExists(join(dir, HARVEST_MARKER_FILE))).toBe(true);
+  });
+
   // ─── Task 3.1: taskId + provenance threading (harvest → store) ─────────────
   it('threads spec.taskId and spec: provenance into every reconcile call', async () => {
     await writeSpec('TASK_2026_311');
@@ -179,7 +284,7 @@ describe('SpecHarvesterService', () => {
       expect.objectContaining({
         slug: 'frontend-developer',
         taskId: 'TASK_2026_311',
-        isError: true,
+        succeeded: false,
         verdictSource: 'spec:TASK_2026_311',
       }),
     );

@@ -264,7 +264,8 @@ describe('SpecHarvesterService — end-to-end concurrent-task attribution (R4.3)
       expect(row401.succeeded).toBe(1); // COMPLETE
       expect(row402.verdict_source).toBe('spec:TASK_2026_402');
       expect(row402.succeeded).toBe(0); // FAILED
-      expect(row402.is_error).toBe(1);
+      // Reconciliation preserves the event's seeded is_error value.
+      expect(row402.is_error).toBe(0);
 
       // The legacy row is untouched by the exact passes (still unreconciled) —
       // proving the window-restricted fallback (task_id IS NULL only) is the

@@ -374,7 +374,7 @@ describe('PtahFileSettingsManager', () => {
       expect(reader.get('skills.telemetry.enabled')).toBe(false);
     });
 
-    it('copies only stored old values and persists the new keys before returning', () => {
+    it('copies only stored old values through the serialized persist path', async () => {
       writeSettingsFile(JSON.stringify({
         skillSynthesis: {
           judgeProvider: 'saved-provider',
@@ -389,6 +389,8 @@ describe('PtahFileSettingsManager', () => {
       expect(manager.get('skills.enhancement.model')).toBe('saved-model');
       expect(manager.get('skills.enhancement.timeoutMs')).toBe(45000);
       expect(manager.get('skills.telemetry.enabled')).toBe(false);
+
+      await manager.set('skills.enhancement.model', 'saved-model');
 
       const saved = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf-8'));
       expect(saved.skills.enhancement).toEqual({
@@ -405,7 +407,7 @@ describe('PtahFileSettingsManager', () => {
       expect(fs.readFileSync(SETTINGS_PATH, 'utf-8')).toBe(firstWrite);
     });
 
-    it('preserves each explicit new choice while copying other stored old values', () => {
+    it('preserves each explicit new choice while copying other stored old values', async () => {
       writeSettingsFile(JSON.stringify({
         skillSynthesis: {
           judgeProvider: 'old-provider',
@@ -424,6 +426,8 @@ describe('PtahFileSettingsManager', () => {
       expect(manager.get('skills.enhancement.model')).toBe('old-model');
       expect(manager.get('skills.enhancement.timeoutMs')).toBe(90000);
       expect(manager.get('skills.telemetry.enabled')).toBe(false);
+
+      await manager.set('skills.enhancement.model', 'old-model');
 
       const restarted = new PtahFileSettingsManager(FILE_BASED_SETTINGS_DEFAULTS);
       expect(restarted.get('skills.enhancement.provider')).toBe('');
