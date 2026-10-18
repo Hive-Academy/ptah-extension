@@ -21,6 +21,24 @@ export function spotEditorContent(page: Page): Locator {
   return spotEditor(page).locator('.cm-content');
 }
 
+/** The complete CodeMirror document, including lines outside its rendered viewport. */
+export async function spotEditorText(page: Page): Promise<string | null> {
+  return page.evaluate(() => {
+    const host = document.querySelector('ptah-review-shell ptah-spot-editor');
+    const angular = (
+      window as unknown as {
+        ng?: {
+          getComponent(element: Element): {
+            handle?: { text(): string };
+          };
+        };
+      }
+    ).ng;
+    if (!host || !angular) return null;
+    return angular.getComponent(host).handle?.text() ?? null;
+  });
+}
+
 /** The editor's document text, lines joined with `\n` (display text). */
 export async function spotEditorLines(page: Page): Promise<string[]> {
   return spotEditorContent(page)

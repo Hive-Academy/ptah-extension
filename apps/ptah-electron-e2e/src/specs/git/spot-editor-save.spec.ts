@@ -11,7 +11,7 @@ import {
   openFileInShell,
   spotEditor,
   spotEditorContent,
-  spotEditorLines,
+  spotEditorText,
 } from '../../support/spot-editor';
 import { expectNoBlockingViolationsInBothThemes } from '../../support/axe';
 
@@ -43,7 +43,7 @@ async function saveButtonIdle(page: Page): Promise<void> {
 
 /**
  * Put the caret at the very end of the document and insert `text`, then wait
- * until the editor really holds it. The first key of a typed burst can be
+ * until the full editor document holds it. The first key of a typed burst can be
  * lost while CodeMirror settles after focus on a loaded runner (CI typed
  * `// PTAH_E2E_EDIT` and `.cm-content` received `/ PTAH_E2E_EDIT`).
  * `insertText` writes the literal string once the editor is focused, so that
@@ -51,11 +51,15 @@ async function saveButtonIdle(page: Page): Promise<void> {
  */
 async function typeAtEnd(page: Page, text: string): Promise<void> {
   const content = spotEditorContent(page);
+  const before = await spotEditorText(page);
+  expect(before).not.toBeNull();
   await content.click();
   await expect(content).toBeFocused();
   await page.keyboard.press('Control+End');
   await page.keyboard.insertText(text);
-  await expect(content).toContainText(text, { timeout: 10_000 });
+  await expect
+    .poll(() => spotEditorText(page), { timeout: 10_000 })
+    .toBe(before + text);
 }
 
 async function openEditable(
@@ -74,6 +78,9 @@ async function openEditable(
     'contenteditable',
     'true',
   );
+  await expect
+    .poll(() => spotEditorText(page))
+    .toBe(fs.readFileSync(path.join(repo.root, relativePath), 'utf8'));
 }
 
 test.describe('spot editor save, end to end in Electron (TASK_2026_576 Requirement 7)', () => {
@@ -105,6 +112,7 @@ test.describe('spot editor save, end to end in Electron (TASK_2026_576 Requireme
       'true',
     );
     await saveButtonIdle(page);
+    await expect.poll(() => spotEditorText(page)).toBe(MODIFIED_CONTENT);
 
     await typeAtEnd(page, TYPED);
     const save = editor.locator('[data-testid="spot-editor-save"]');
@@ -244,7 +252,7 @@ test.describe('spot editor save, end to end in Electron (TASK_2026_576 Requireme
     // Keep editing: the dialog closes, the edit stays, the file is marked stale.
     await dialog.locator('[data-testid="git-confirm-cancel"]').click();
     await expect(dialog).toHaveCount(0);
-    expect((await spotEditorLines(page)).at(-1)).toBe(TYPED);
+    expect(await spotEditorText(page)).toBe(MODIFIED_CONTENT + TYPED);
     await expect(
       editor.locator('[data-testid="spot-editor-stale"]'),
     ).toBeVisible();
@@ -283,7 +291,7 @@ test.describe('spot editor save, end to end in Electron (TASK_2026_576 Requireme
     await expect(dialog).toHaveCount(0);
 
     await expect(editor).toHaveCount(1);
-    expect((await spotEditorLines(page)).at(-1)).toBe(TYPED);
+    expect(await spotEditorText(page)).toBe(MODIFIED_CONTENT + TYPED);
     expect(fs.readFileSync(target, 'utf8')).toBe(MODIFIED_CONTENT);
   });
 });
