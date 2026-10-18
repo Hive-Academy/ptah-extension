@@ -492,6 +492,36 @@ describe('ExecutionTreeBuilderService — incremental rebuild', () => {
     );
   });
 
+  it('keeps parent-linked tool calls in a subagent execution root', () => {
+    feed({
+      ...messageStart('msg-agent', 'assistant'),
+      parentToolUseId: 'toolu_task',
+    });
+    feed({
+      ...toolStart('msg-agent', 'toolu_read'),
+      parentToolUseId: 'toolu_task',
+    });
+
+    const before = builder.buildTree(state, 'subagent-tools', {
+      rootParentToolUseId: 'toolu_task',
+    });
+    expect(before).toHaveLength(1);
+    expect(
+      before[0].children.filter((node) => node.type === 'tool'),
+    ).toHaveLength(1);
+
+    feed({
+      ...toolStart('msg-agent', 'toolu_grep'),
+      parentToolUseId: 'toolu_task',
+    });
+    const after = builder.buildTree(state, 'subagent-tools', {
+      rootParentToolUseId: 'toolu_task',
+    });
+    expect(
+      after[0].children.filter((node) => node.type === 'tool'),
+    ).toHaveLength(2);
+  });
+
   it('drops an evicted message from messageEventIds when the cap bites', () => {
     const warn = jest
       .spyOn(console, 'warn')

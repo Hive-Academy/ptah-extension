@@ -420,8 +420,15 @@ export class ExecutionTreeBuilderService {
           ? this.reusableRootNode(cached, digestByRoot, messageId)
           : undefined;
 
+      // A selected subagent root is nested beneath its parent Task tool.
+      // Its own tool events carry that parent id and need nested-depth collection.
       const messageNode =
-        reusable ?? this.deps.buildMessageNode(messageId, streamingState);
+        reusable ??
+        this.deps.buildMessageNode(
+          messageId,
+          streamingState,
+          options?.rootParentToolUseId === undefined ? 0 : 1,
+        );
       if (!messageNode) continue;
       nodeByRoot.set(messageId, messageNode);
       if (reusable) reusedRoots.add(reusable);
