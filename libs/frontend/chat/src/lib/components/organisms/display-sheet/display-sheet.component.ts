@@ -2,12 +2,22 @@ import {
   ChangeDetectionStrategy, Component, DestroyRef, ElementRef,
   computed, effect, inject, input, signal, viewChild,
 } from '@angular/core';
-import { DisplayPanelComponent, DISPLAY_PANEL_SUMMARY_KEY, type DisplayPanelViewStateChange } from '@ptah-extension/chat-ui/display-panel';
+// The panel is the only runtime symbol, and the template names it only inside
+// `@defer (on immediate)`. The compiler drops this static import when every
+// symbol of the declaration is defer-only; a second runtime symbol would keep
+// the whole `display-panel` barrel (and declarative-dashboard) eager.
+import { DisplayPanelComponent, type DisplayPanelViewStateChange } from '@ptah-extension/chat-ui/display-panel';
 import type { TurnChangeSet } from '@ptah-extension/shared';
 import { DisplayDockState } from '../../../services/display-dock/display-dock.state';
 import { ChangeSetActionsService } from '../../../services/change-set/change-set-actions.service';
 import { DisplaySheetState } from './display-sheet.state';
 
+/**
+ * Same string as `DISPLAY_PANEL_SUMMARY_KEY` in
+ * `display-panel.component.ts` (`id:` / `anon:` surface keys never match it).
+ * Duplicated so this eager sheet does not value-import the lazy entry.
+ */
+const DISPLAY_PANEL_SUMMARY_KEY = 'summary';
 const NO_CHANGE_SET_TEXT = 'This turn has no recorded file changes to open.';
 const ACTION_FAILED_TEXT = 'The review action failed.';
 

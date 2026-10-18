@@ -27,9 +27,9 @@ import {
 import { ChatTranscriptComponent } from '../organisms/transcript/chat-transcript.component';
 import { ChatEmptyStateComponent } from '../molecules/setup-plugins/chat-empty-state.component';
 import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.component';
-// Referenced only in `imports` and inside `@defer (when panelOpen())`, so the
-// dock and the lazy `chat-ui/display-panel` entry it imports stay out of the
-// eager chunk (decisions #84, #89, #107).
+// Sheet chrome is an allowed eager input. The lazy `chat-ui/display-panel`
+// entry stays out of this chunk because the sheet names that panel only
+// inside its own `@defer` (decisions #84, #89, #107).
 import { DisplaySheetComponent } from '../organisms/display-sheet/display-sheet.component';
 import { DisplaySheetState } from '../organisms/display-sheet/display-sheet.state';
 import { DisplayDockState } from '../../services/display-dock/display-dock.state';
