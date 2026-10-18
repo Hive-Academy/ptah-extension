@@ -92,3 +92,68 @@ Counts: Blocking 2, Serious 3, Moderate 4, Minor 2.
 5. `audit.cjs` computed contrast with canvas colour conversion and checked target sizes for each tab and theme. `hubc.cjs` measured the hub CTA contrast.
 6. `focus.cjs` pressed Tab 14 times on the guidance tab in light theme and recorded the outline of each stop. `tog.cjs` took the toggle focus shot and did the duplicate-tab check.
 7. Restored the Anubis theme and cleared the metrics override.
+
+## V1 re-check (2026-10-18)
+
+Verdict: PASS. Score 8/10.
+
+Counts: Blocking 0, Serious 0 (new), Moderate 3 new, Minor 1 new. Deferred and known: S3, M1 (still open).
+
+### Environment
+
+- Same running Electron dev build (CDP 9335, not launched or closed by me). `dist/apps/ptah-electron/renderer/main.js` was built 20:51, after commit 11ddf3949 (20:50), so the bundle contains the revision.
+- Native window 795x735 (Electron `minWidth` is 800, `apps/ptah-electron/src/windows/main-window.ts:119`). 400 and 360 via `Emulation.setDeviceMetricsOverride`, cleared afterwards (innerWidth back to 795). Themes Anubis (dark) and Anubis Light; restored to Anubis.
+- No generation was started. The only state touched was one agent checkbox, checked to open the "Review generation targets" preview, dismissed with Cancel, then unchecked.
+- Screenshots are in `visual/`, prefixed `v1-`.
+
+### Per-finding table
+
+| Finding | Status | Evidence |
+| --- | --- | --- |
+| B1 chat and composer pushed out of view | FIXED. At 795 the chat region and the composer (textarea top 600, height 60) are visible beside the sidebar in dark and light. At 400 and 360 the peek row sits above the chat and the composer is visible. | v1-agents-anubis-795.png, v1-guidance-anubis-light-795.png, v1-agents-anubis-400.png, v1-guidance-anubis-light-360.png |
+| B2 responsive bands missing | FIXED. 795: header strip (title, workspace chip, status) plus a 336px docked sidebar (measured 336 wide, left 532 at 900px). 400/360: peek row button with `aria-expanded`, sheet as `role=dialog` `aria-modal=true`. Stop button beside the peek row is in code but needs a bound run, not testable here. | v1-agents-anubis-795.png, v1-sheet-closed-*, v1-sheet-open-* |
+| S1 two primary buttons on guidance tab | FIXED. Only "Regenerate guidance" is `btn-primary` in the sidebar (dark and light). | v1-toggle-focus-light-795.png |
+| S2 faint switch focus ring in light theme | FIXED. Outline is now oklch(0.236 0.066 313), 2px, on a cream background (about 13:1). Dark ring is oklch(0.925 ...) on dark (high contrast). | v1-toggle-focus-light-795.png, v1-toggle-focus-dark-795.png |
+| S3 light-theme Hub CTA contrast | STILL OPEN (deferred). Text oklch(0.58 0.132 75) on oklch(0.94 ...), unchanged, about 3.7:1. | v1-hub-light-795.png |
+| M1 app nav overflow at 360/400 | STILL OPEN (deferred). Document scrollWidth 722 at both widths. Cause: `electron-shell.component.ts` has `min-w-[400px]` on the main region (from release 0.2.32) beside a 32px rail, and the nav tabs overflow. Not reachable in the real app (min window 800). | v1-agents-anubis-400.png |
+
+### Narrow sheet checks (400 and 360, dark and light)
+
+| Check | Result |
+| --- | --- |
+| Opens and closes from the peek row | PASS. Sheet goes from hidden (0x0) to 400x611 under the peek row and `aria-expanded` flips. |
+| Focus moves into the sheet | PASS. First control receives focus (toggle on guidance, model select on agents). The embed gets `inert` and `aria-hidden`. |
+| Escape closes the sheet and returns focus | PASS. Focus returns to the peek button, `inert` is removed. |
+| Dialog opened from inside the sheet is not clipped | PASS. The "Review generation targets" wrapper measures 0,0,400,735 (full viewport), the sheet computed `transform` is `none` after the 180ms animation. Cancel closes only the dialog. |
+| Widening to 900 closes the sheet | PASS. Peek row is gone, sidebar docks at 336px, `role` and `aria-modal` removed, embed no longer inert. |
+| Reduced motion | Not run. The code guards the animation with `prefers-reduced-motion`. |
+
+Screenshots: v1-sheet-closed-light-400.png, v1-sheet-open-light-400.png, v1-sheet-esc-light-400.png, v1-sheet-widened-light-400.png, v1-agents-sheet-open-light-400.png, v1-agents-dialog-light-400.png, v1-agents-dialog-dark-400.png, and the dark and 360 variants (`v1-sheet-*-dark-*`, `v1-sheet-*-light-360.png`).
+
+### Viewport table
+
+| Screen | Theme | 795 | 400 | 360 |
+| --- | --- | --- | --- | --- |
+| Agent generation | dark | PASS | PASS apart from M1 clipping | PASS apart from M1 clipping |
+| Agent generation | light | PASS | PASS apart from M1 | PASS apart from M1 |
+| Project guidance | dark | PASS | PASS apart from M1 | PASS apart from M1 |
+| Project guidance | light | PASS | PASS apart from M1 | PASS apart from M1 |
+
+The shell itself never overflows. Its host is 400px wide at both 400 and 360, because of the app shell `min-w-[400px]`, so the right 32px (at 400) or 72px (at 360) is clipped by the app shell, not by this task's code.
+
+### New findings
+
+- **N1 (Moderate, consequence of M1).** At 400 and 360 the clipped band hides the right end of the header strip status ("idle" is cut off) and of the peek row (the chevron, and the 32px Stop button when a run is bound). Opening the sheet focuses a control and scrolls the overflow-hidden app region by 32px, so the left rail disappears (v1-sheet-open-light-400.png). Cleared by fixing M1; not reachable at the 800px minimum window.
+- **N2 (Moderate).** In narrow mode the header strip (`Agent generation`, workspace chip, status) and the peek row repeat the same title and status one under the other (v1-agents-anubis-400.png). Consider hiding the title and status in the header strip when `narrow()` is true. `generation-workflow-shell.component.ts` header and peek row.
+- **N3 (Moderate).** In the target preview dialog the "Replaces existing file" notice breaks mid-word ("Replac/es", "R/eplaces") next to long paths (v1-agents-dialog-dark-400.png). Add `whitespace-nowrap` to the notice or put it on its own line.
+- **N4 (Minor).** The "Setup hub" nav label still wraps to two lines at 795 (pre-existing, same as before). M2 (20px checkboxes), M3 and M4 from the earlier review were not re-evaluated.
+
+### Not re-checked
+
+- Needs-attention badge and the Stop button (need an error or a bound run).
+- Run, countdown, completion and error states, and the status widget in chat.
+- Tab pass with focus screenshots at 400 and 360.
+
+### Verdict
+
+PASS, 8/10. Both blockers and both serious findings are fixed, and the narrow sheet behaves to the contract. The score is held back by the open deferred items (S3, M1), the N1 to N3 polish items, and the states that could not be exercised without a real run.

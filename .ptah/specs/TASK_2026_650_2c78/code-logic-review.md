@@ -990,3 +990,35 @@ S2. The sheet's entry animation leaves a transform that breaks the `position: fi
 
 ### Defer
 M1, M2 (cheap; do them with the must-fix if convenient), M4, M5, and removal of the dead duplicated computeds and injections in the shell (style review).
+
+## V1 re-review (round 1)
+
+Scope: commit 11ddf3949, read in full: `generation-workflow-shell.component.ts`, `guidance-result-panel.component.ts`, the shell spec diff, and `agent-preview-dialog.component.ts` (the child that handles Escape). No tests were run (read-only per instructions).
+
+### Per-item verdict
+
+| # | Item | Verdict | Evidence |
+| - | ---- | ------- | -------- |
+| 1 | Escape ignores defaultPrevented, scoped to sheet | FIXED | Host `keydown` removed. `(keydown)="onSheetKeydown($event)"` is on the sheet element (shell.component.ts:180). The handler returns on `event.defaultPrevented` (:283). The preview dialog calls `preventDefault()` on Escape before the event bubbles (agent-preview-dialog.component.ts:125-127), so it closes only itself. Spec dispatches a prevented Escape (spec ~:229-237). |
+| 2 | No transform left after animation | FIXED | Fill mode is `backwards` (:55), so the `translateX(100%)` keyframe applies only before and during the run. After 180ms the computed transform is `none`. A `fixed inset-0` preview dialog inside the sheet is then not re-parented by a transform containing block. `animation: none` under reduced motion (:63-65). Toggling `hidden` restarts the animation on each open. jsdom cannot assert the containing-block effect, so this is verified by reading only. |
+| 3 | Specs | FIXED | Real-sidebar test (spec :21, with `overrideComponent` at ~:132). Prevented Escape keeps `inert` on the chat (~:237). Widening clears the sheet and removes `inert` (~:246-271). |
+| 4 | Regenerate hidden during a run | FIXED, see N3 | `@if (!runActive())` (guidance-result-panel.component.ts, diff hunk ~:66-77). |
+| 5 | Dialog semantics and focus | FIXED, see N1 | `role=dialog`, `aria-modal` only when open, `aria-label` and `tabindex=-1` (:176-179). `toggleSheet` uses `afterNextRender` with an explicit injector, so it runs after `hidden` is removed. It re-checks `sheetOpen()` and falls back to focusing the sheet (:266-281). |
+| 6 | Reset on rebind | FIXED | The effect keys on workspace, tab and workflow (:364-373), not on object identity. Initial bind sets `false` to `false`, a no-op. It cannot fire on every `binding()` recompute because the key is a string compare. |
+| 7 | Error badge on peek row | FIXED | `needsAttention` (:251-259) and the badge (:122-126). It is workflow-aware: guidance uses `actionFailed`, agent uses `error`. The signals exist (`rejection`, `chatTurnRejection`, `startError`, `actionFailed`, `error`). |
+| 8 | Dead computeds and injections removed | FIXED | `ModelStateService`, `ProvidersSettingsStateService`, `remainingSeconds`, `guidancePreviewModel`, `guidancePreviewProvider`, `showNextSteps` and `propagationConsentLabel` are gone. The orchestrator reports typecheck and lint pass. |
+
+### New findings
+
+- N1 (Moderate): `aria-modal="true"` is set, but there is no focus trap. Tab from the last sheet control reaches the peek and Stop buttons, which sit outside the dialog (the chat is inert). Escape is only handled while focus is inside the sheet (:180). If focus is on the peek button, Escape does nothing. The peek button toggles, so users are not stuck. Suggest also listening for Escape on the peek row, or accepting this as documented.
+- N2 (Minor): When the sheet closes through widening or a rebind, focus is not returned. It falls to `body` if it was inside the sheet. Escape and the peek toggle do restore focus (:287).
+- N3 (Minor, per the no-capability-removed rule): Regenerate changes from disabled to absent during a run. It returns on completion, so no capability is permanently lost, but the control now appears and disappears with the run state. This matches review item 4's wording. The orchestrator may want to confirm the user is happy with that.
+- N4 (Minor): The `needsAttention` badge shows even when the sheet that holds the error text is open. This is cosmetic.
+
+No blocking or serious findings.
+
+### Score and verdict
+
+Score: 8/10. All 8 items are verified fixed by reading. The remaining gaps are accessibility polish and the unverifiable jsdom-only animation containing-block claim.
+
+Verdict: APPROVE.

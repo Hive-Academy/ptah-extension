@@ -257,6 +257,9 @@ Candidate only: unused duplicated old-generation presentation code after the new
 | P6 review | 6 | APPROVE 8/10 (B09-B11, no must-fix); new Moderates from P5/P6 re-review go to P56F | Claude code-logic-reviewer | - |
 | B12 | 6 | done (analysis-result Continue opens the combined flow; old landing starts stay independent; removal option b applied: nothing deleted, all four old generation components still rendered by WizardViewComponent and the old resume path) | codex frontend-developer | 3c80790a9 |
 | P6 completion review | 6 | APPROVE 8/10 (B12, P56F; no must-fix) | Claude code-logic-reviewer | - |
+| V1 | 7 | done (responsive shell: 336 px sidebar >= 720 px, narrow sheet, one primary action, toggle focus ring) | codex frontend-developer | aa09eed28 |
+| V1 review | 7 | APPROVE 8/10 after 1 revise round (items 1-8: sheet-scoped Escape, no lasting transform, dialog semantics + focus, rebind reset, Needs attention badge, Regenerate hidden during a run, dead state removed; N1-N4 minor, deferred) | Claude code-logic-reviewer; codex fixes | 11ddf3949 |
+| V1 visual re-check | 7 | PASS 8/10 in Electron (dark + light, 795/400/360 px): B1, B2, S1, S2 fixed; sheet dialog not clipped; S3, M1 deferred; new N1-N4 not blocking | Claude visual-reviewer | - |
 
 ## Phase 7 gate record (2026-10-18)
 
@@ -265,6 +268,8 @@ Candidate only: unused duplicated old-generation presentation code after the new
 - Focused regression specs (per-project configs, `--maxWorkers=2`): chat (drawer + chat-input) 111, ptah-cli prompts/setup/wizard 33, setup-wizard run event adapter 16, vscode rpc-surface 3, electron surface-composition 4 - all pass.
 - Degradation audit: setup-wizard 1/1, rpc-handlers 1/1 (pre-existing base site), chat-ui 12/14, chat 11/11.
 - Review families: implementer codex for every shipping batch; reviewer Claude code-logic-reviewer for Phases 2-6.
+- Re-run after V1 (11ddf3949): setup-wizard typecheck + lint pass, Nx test 35 suites / 435 tests
+  pass, run event adapter spec 16 pass, degradation audit setup-wizard 1/1.
 - Open (deferred, recorded in code-logic-review.md): D11 has no end-to-end spec that sends a normal chat turn after a generator run (adapter and chat-input specs cover the cleared tab state); m6 and N5; Continue has no in-flight guard; design-spec 2.6 Hub running line not shown (B09 note).
 
 ## Follow-ups from the Phase 2 review
