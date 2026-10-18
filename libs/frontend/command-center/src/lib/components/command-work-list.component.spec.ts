@@ -16,6 +16,7 @@ describe('CommandWorkListComponent', () => {
     TestBed.configureTestingModule({ imports: [CommandWorkListComponent] });
     const fixture = TestBed.createComponent(CommandWorkListComponent);
     fixture.componentRef.setInput('projection', { nodes, edges: [] });
+    fixture.componentRef.setInput('now', Date.now());
     fixture.detectChanges();
     return fixture;
   }
@@ -35,6 +36,38 @@ describe('CommandWorkListComponent', () => {
         'li button [data-test="work-state-icon"]',
       ),
     ).toHaveLength(29);
+  });
+
+  it('shows clock-driven freshness and scene overflow counts with a visible state edge', () => {
+    const fixture = setup();
+    fixture.componentRef.setInput('projection', {
+      nodes: [nodes[0], { ...nodes[1], updatedAt: 820_000 }], edges: [],
+    });
+    fixture.componentRef.setInput('now', 1_000_000);
+    fixture.componentRef.setInput('overflowCompleted', 2);
+    fixture.componentRef.setInput('overflowOther', 3);
+    fixture.componentRef.setInput('selectedId', nodes[1].id);
+    fixture.detectChanges();
+    const row = fixture.nativeElement.querySelector('li button') as HTMLButtonElement;
+    expect(row.textContent).toContain('Updated 3m ago');
+    expect(row.classList.contains('border-l-state-idle')).toBe(true);
+    expect(row.classList.contains('ring-warning')).toBe(true);
+    expect(row.classList.contains('outline')).toBe(true);
+    expect(row.getAttribute('aria-current')).toBe('true');
+    expect(fixture.nativeElement.textContent).toMatch(/\+2 completed\s*·\s*\+3 more/);
+    fixture.componentRef.setInput('now', 1_060_000);
+    fixture.detectChanges();
+    expect(row.textContent).toContain('Updated 4m ago');
+  });
+
+  it('omits invalid freshness and zero overflow', () => {
+    const fixture = setup();
+    fixture.componentRef.setInput('projection', {
+      nodes: [nodes[0], { ...nodes[1], updatedAt: Number.NaN }], edges: [],
+    });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).not.toContain('Updated');
+    expect(fixture.nativeElement.textContent).not.toContain('completed ·');
   });
 
   it('selects using arrow keys and Enter', () => {
@@ -158,6 +191,11 @@ describe('CommandWorkListComponent', () => {
       fixture.detectChanges();
       const row = fixture.nativeElement.querySelector('li button') as HTMLButtonElement;
       expect(row.textContent).toContain(state);
+      const edge = state === 'completed' ? 'done'
+        : state === 'failed' ? 'err'
+        : state === 'awaiting input' ? 'need'
+        : state === 'running' || state === 'starting' ? 'run' : 'idle';
+      expect(row.classList.contains(`border-l-state-${edge}`)).toBe(true);
       const icon = row.querySelector('[data-test="work-state-icon"] svg') as SVGElement;
       expect(icon).not.toBeNull();
       expect(icon.getAttribute('aria-hidden') ?? icon.parentElement?.getAttribute('aria-hidden')).toBe('true');

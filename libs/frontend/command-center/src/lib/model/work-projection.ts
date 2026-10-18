@@ -113,6 +113,7 @@ export function projectOwnedWork(input: ProjectionInput): ProjectionResult {
   const candidates = [
     ...input.children.map((child) => ({
       id: child.sessionId ?? child.tabId,
+      tabId: child.tabId,
       parent: child.parentSessionId,
       state: child.state,
       name: child.name,
@@ -123,6 +124,7 @@ export function projectOwnedWork(input: ProjectionInput): ProjectionResult {
       .filter((child) => !childBySession.has(canonical(child.sessionId)))
       .map((child) => ({
         id: child.sessionId,
+        tabId: undefined,
         parent: child.parentSessionId,
         state: 'unknown' as const,
         name: undefined,
@@ -165,6 +167,7 @@ export function projectOwnedWork(input: ProjectionInput): ProjectionResult {
       providerId: child.providerId ?? null,
       state: child.state,
       updatedAt: child.updatedAt,
+      tabId: child.tabId,
     });
   }
   const runs = new Map(
@@ -261,6 +264,7 @@ export function projectOwnedWork(input: ProjectionInput): ProjectionResult {
       providerId: agent.providerId ?? null,
       state: agent.state,
       updatedAt: agent.updatedAt,
+      task: agent.task,
     });
   }
   const unique = [...new Map(nodes.map((node) => [node.id, node])).values()];

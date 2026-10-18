@@ -21,6 +21,7 @@ describe('CommandCenterStartComponent', () => {
     const fixture = TestBed.createComponent(CommandCenterStartComponent);
     fixture.componentRef.setInput('sessions', sessions);
     fixture.componentRef.setInput('status', status);
+    fixture.componentRef.setInput('now', Date.now());
     fixture.detectChanges();
     return fixture;
   }
@@ -43,6 +44,20 @@ describe('CommandCenterStartComponent', () => {
     expect(fixture.nativeElement.querySelectorAll('.grid button')).toHaveLength(
       7,
     );
+  });
+
+  it('updates recency from the supplied shared clock', () => {
+    const fixture = render();
+    fixture.componentRef.setInput('sessions', [{ ...sessions[0], lastActivityAt: 820_000 }]);
+    fixture.componentRef.setInput('now', 1_000_000);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('3m ago');
+    fixture.componentRef.setInput('now', 1_060_000);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('4m ago');
+    fixture.componentRef.setInput('sessions', [{ ...sessions[0], lastActivityAt: 1_065_000 }]);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Just now');
   });
 
   it('places Current before recent cards and marks the recorded session', () => {

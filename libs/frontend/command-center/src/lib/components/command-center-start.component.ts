@@ -6,6 +6,7 @@ import {
   output,
 } from '@angular/core';
 import type { ChatSessionSummary } from '@ptah-extension/shared';
+import { relativeTime } from './command-relative-time';
 
 @Component({
   selector: 'ptah-command-center-start',
@@ -118,6 +119,7 @@ export class CommandCenterStartComponent {
   public readonly choosing = input(false);
   public readonly currentTabId = input<string | null>(null);
   public readonly currentSessionId = input<string | null>(null);
+  public readonly now = input.required<number>();
   public readonly recordedSessionId = input<string | null>(null);
   public readonly selected = output<string>();
   public readonly current = output<void>();
@@ -137,11 +139,6 @@ export class CommandCenterStartComponent {
   });
 
   public relativeTime(timestamp: number): string {
-    const minutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60_000));
-    if (minutes < 1) return 'Just now';
-    if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
-    return `${Math.floor(hours / 24)}d ago`;
+    return relativeTime(timestamp, this.now()) ?? 'Unknown';
   }
 }

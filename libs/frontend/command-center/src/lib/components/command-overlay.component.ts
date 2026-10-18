@@ -24,7 +24,8 @@ import { CommandCenterStore } from '../model/command-center.store';
 import type { ProjectionResult } from '../model/work-projection';
 import type { SceneLabel } from '../scene/command-scene-renderer';
 import { CommandOverlayPositioner } from './command-overlay-positioner';
-import { stateColor, stateIcon } from './command-state-icon';
+import { CommandNodeDetailComponent, type CommandPhaseCount } from './command-node-detail.component';
+import { stateBorder, stateColor, stateIcon } from './command-state-icon';
 
 export const COMMAND_OVERLAY_OPEN_DELAY_MS = 150;
 export const COMMAND_OVERLAY_CLOSE_DELAY_MS = 200;
@@ -32,7 +33,7 @@ export const COMMAND_OVERLAY_CLOSE_DELAY_MS = 200;
 @Component({
   selector: 'ptah-command-overlay',
   standalone: true,
-  imports: [ProviderMarkComponent, MonogramTileComponent, LucideAngularModule],
+  imports: [ProviderMarkComponent, MonogramTileComponent, LucideAngularModule, CommandNodeDetailComponent],
   providers: [FloatingUIService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -40,8 +41,14 @@ export const COMMAND_OVERLAY_CLOSE_DELAY_MS = 200;
       @for (node of projection().nodes; track node.id) {
         <button
           type="button"
-          class="pointer-events-auto absolute left-0 top-0 flex min-h-11 min-w-11 flex-col items-center justify-center rounded-lg border border-base-300 bg-base-100/95 px-2 text-xs text-base-content shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+          class="pointer-events-auto absolute left-0 top-0 flex min-h-11 min-w-11 flex-col items-center justify-center rounded-lg border border-base-300 border-l-4 bg-base-100/95 px-2 text-xs text-base-content shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+          [class]="stateBorder(node.state)"
           [class.border-warning]="selectedId() === node.id"
+          [class.ring-2]="selectedId() === node.id"
+          [class.ring-warning]="selectedId() === node.id"
+          [class.outline]="selectedId() === node.id"
+          [class.outline-2]="selectedId() === node.id"
+          [class.outline-warning]="selectedId() === node.id"
           [style.visibility]="
             visibleLabelIds() === null || visibleLabelIds()?.includes(node.id)
               ? 'visible'
@@ -128,37 +135,8 @@ export const COMMAND_OVERLAY_CLOSE_DELAY_MS = 200;
           (keydown.escape)="onEscape($event)"
         >
           <div class="flex items-start gap-2">
-            @if (knownProvider(node.providerId); as providerId) {
-              <ptah-provider-mark [providerId]="providerId" size="sm" />
-            } @else {
-              <ptah-monogram-tile
-                [label]="node.providerId || node.label"
-                size="sm"
-              />
-            }
-            <div class="min-w-0 flex-1">
-              <p class="truncate text-sm font-semibold">{{ node.label }}</p>
-              <p class="text-xs text-base-content-muted">
-                @if (providerName(node.providerId); as provider) {
-                  {{ provider }} ·
-                }
-                <span
-                  class="inline-flex items-center gap-1"
-                  [class]="stateColor(node.state)"
-                >
-                  <lucide-angular
-                    [img]="stateIcon(node.state)"
-                    class="h-3 w-3"
-                    aria-hidden="true"
-                    [class.animate-spin]="
-                      (node.state === 'running' || node.state === 'starting') &&
-                      !reducedMotion()
-                    "
-                  />
-                  {{ node.state }}
-                </span>
-              </p>
-            </div>
+            <ptah-command-node-detail class="min-w-0 flex-1" [node]="node"
+              [phaseCount]="phaseCount(node.id)" [now]="now()" [reducedMotion]="reducedMotion()" />
             @if (pinnedNodeId()) {
               <button
                 type="button"
@@ -182,6 +160,7 @@ export class CommandOverlayComponent {
   public readonly hoveredNodeId = input<string | null>(null);
   public readonly selectedId = input<string | null>(null);
   public readonly reducedMotion = input(false);
+  public readonly now = input.required<number>();
   public readonly focusWorkListRow = output<string>();
   private readonly _activeNodeId = signal<string | null>(null);
   public readonly activeNodeId = this._activeNodeId.asReadonly();
@@ -194,6 +173,17 @@ export class CommandOverlayComponent {
   );
   public readonly stateIcon = stateIcon;
   public readonly stateColor = stateColor;
+  public readonly stateBorder = stateBorder;
+
+  public phaseCount(nodeId: string): CommandPhaseCount | null {
+    const phases = this.projection().nodes.filter((node) =>
+      node.parentId === nodeId && node.kind === 'phase' &&
+      node.label !== 'No phase tracking' && node.label !== 'Phase unavailable',
+    );
+    return phases.length
+      ? { done: phases.filter((phase) => phase.state === 'completed').length, total: phases.length }
+      : null;
+  }
 
   private readonly floating = inject(FloatingUIService);
   private readonly zone = inject(NgZone);

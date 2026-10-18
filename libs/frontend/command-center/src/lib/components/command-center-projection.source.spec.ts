@@ -249,6 +249,7 @@ describe('CommandCenterProjectionSource', () => {
     expect(input.rootProviderId).toBe('anthropic');
     expect(input.children).toEqual([
       expect.objectContaining({
+        tabId: 'child-tab',
         name: 'Builder',
         providerId: 'openai-codex',
         state: 'unknown',
@@ -263,6 +264,7 @@ describe('CommandCenterProjectionSource', () => {
           agentId: 'cli-1',
           kind: 'cli',
           state: 'running',
+          task: 'Design the architecture',
         }),
         expect.objectContaining({
           agentId: 'sdk-1',

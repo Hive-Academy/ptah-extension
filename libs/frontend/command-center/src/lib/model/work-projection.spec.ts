@@ -81,6 +81,7 @@ describe('projectOwnedWork', () => {
     expect(result.nodes.find((node) => node.id === 'cli:named')?.label).toBe(
       'Architecture review',
     );
+    expect(result.nodes.find((node) => node.id === 'cli:named')?.task).toBe('Ignored task');
     const taskLabel = result.nodes.find(
       (node) => node.id === 'sdk:root:task',
     )?.label;
@@ -120,6 +121,8 @@ describe('projectOwnedWork', () => {
       'child:grandchild',
       'cli:a',
     ]);
+    expect(result.nodes.find((node) => node.id === 'child:child-sdk')?.tabId).toBe('temporary');
+    expect(result.nodes.find((node) => node.id === 'child:grandchild')?.tabId).toBeUndefined();
     expect(result.edges).toContainEqual({
       fromId: 'child:child-sdk',
       toId: 'child:grandchild',

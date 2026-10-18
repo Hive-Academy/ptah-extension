@@ -115,6 +115,8 @@ describe('CommandSceneRenderer', () => {
       },
     ],
     selectedId: child.id,
+    hoveredId: null,
+    inks: { run: '#3b82f6', need: '#f97316', err: '#ef4444', done: '#16a34a', idle: '#9ca3af' },
     voiceState: 'idle',
     inputLevel: 0,
     outputLevel: 0,
@@ -252,6 +254,48 @@ describe('CommandSceneRenderer', () => {
     renderer.setSnapshot(snapshot());
     expect(renderer.hitTest(210, 120)).toBe(child.id);
     expect(renderer.hitTest(5, 5)).toBeNull();
+    renderer.destroy();
+  });
+
+  it('draws one solid hover halo and invalidates once per hover change', () => {
+    renderer.setSnapshot(snapshot());
+    callback(1000);
+    renderer.setHoveredId(child.id);
+    renderer.setHoveredId(child.id);
+    expect(frame).toHaveBeenCalledTimes(2);
+    callback(1016);
+    expect(context.arc).toHaveBeenCalledWith(210, 120, 41, 0, Math.PI * 2);
+    expect(context.strokeStyle).toBe('#9ca3af');
+    expect(frame).toHaveBeenCalledTimes(2);
+    renderer.setHoveredId(null);
+    expect(frame).toHaveBeenCalledTimes(3);
+    renderer.destroy();
+  });
+
+  it('keeps state and voice arcs visible without scheduling motion', () => {
+    renderer.setSnapshot({ ...snapshot('running'), reducedMotion: true, voiceState: 'speaking' });
+    callback(1000);
+    expect(context.arc).toHaveBeenCalledWith(210, 120, 26, -Math.PI / 2, -Math.PI / 2 + 2.25);
+    expect(context.arc).toHaveBeenCalledWith(100, 80, 46, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2);
+    expect(frame).toHaveBeenCalledTimes(1);
+    renderer.destroy();
+  });
+
+  it('uses resolved inks for status arcs, glyphs, and the voice ring', () => {
+    const strokes: string[] = [];
+    const fills: string[] = [];
+    context.stroke.mockImplementation(() => strokes.push(String(context.strokeStyle)));
+    context.fill.mockImplementation(() => fills.push(String(context.fillStyle)));
+    renderer.setSnapshot({
+      ...snapshot('awaiting input'),
+      voiceState: 'error',
+      inks: { run: '#2a56c6', need: '#8f5200', err: '#b4232a', done: '#13713a', idle: '#6b6570' },
+      theme: 'light',
+    });
+    callback(1000);
+    expect(strokes).toContain('#8f5200');
+    expect(strokes).toContain('#b4232a');
+    expect(fills).toContain('#8f5200');
     renderer.destroy();
   });
 

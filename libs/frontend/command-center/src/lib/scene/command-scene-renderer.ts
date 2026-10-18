@@ -18,11 +18,21 @@ export interface SceneRenderSnapshot {
   readonly sprites: readonly SceneSprite[];
   readonly labels: readonly SceneLabel[];
   readonly selectedId: string | null;
+  readonly hoveredId: string | null;
+  readonly inks: SceneInks;
   readonly voiceState: CommandVoiceState;
   readonly inputLevel: number;
   readonly outputLevel: number;
   readonly reducedMotion: boolean;
   readonly theme: 'light' | 'dark';
+}
+
+export interface SceneInks {
+  readonly run: string;
+  readonly need: string;
+  readonly err: string;
+  readonly done: string;
+  readonly idle: string;
 }
 
 export type SceneVoiceSnapshot = Pick<
@@ -95,6 +105,12 @@ export class CommandSceneRenderer {
     this.voice = voice;
     if (!this.snapshot) return;
     this.recomputeActive();
+    this.invalidate();
+  }
+
+  public setHoveredId(id: string | null): void {
+    if (!this.snapshot || this.snapshot.hoveredId === id) return;
+    this.snapshot = { ...this.snapshot, hoveredId: id };
     this.invalidate();
   }
 
@@ -190,7 +206,7 @@ export class CommandSceneRenderer {
       context.fillRect(dot.x * width, dot.y * height, dot.size, dot.size);
     }
     context.globalAlpha = 1;
-    context.strokeStyle = snapshot.theme === 'dark' ? '#504b68' : '#cbc3d5';
+    context.strokeStyle = snapshot.theme === 'dark' ? '#504b68' : '#aaa1b1';
     context.lineWidth = 1;
     for (let orbit = 0; orbit < 3; orbit++) {
       const inner = orbit === 0;
@@ -293,6 +309,19 @@ export class CommandSceneRenderer {
         context.stroke();
         context.setLineDash([]);
       }
+      if (snapshot.hoveredId === node.node.id) {
+        context.strokeStyle = snapshot.inks.idle;
+        context.lineWidth = 1.5;
+        context.beginPath();
+        context.arc(
+          node.x,
+          node.y,
+          node.radius + (node.kind === 'root' ? 31 : 21),
+          0,
+          Math.PI * 2,
+        );
+        context.stroke();
+      }
       const label = this.labelById.get(node.node.id);
       if (label) {
         const display = node.labelRect ? '' : 'none';
@@ -341,12 +370,14 @@ export class CommandSceneRenderer {
     const state = node.node.state;
     context.strokeStyle =
       state === 'failed'
-        ? '#eb6d75'
+        ? snapshot.inks.err
         : state === 'awaiting input'
-          ? '#f2bb65'
-          : state === 'completed'
-            ? '#75c9a5'
-            : '#87b9dc';
+          ? snapshot.inks.need
+        : state === 'completed'
+            ? snapshot.inks.done
+            : state === 'running' || state === 'starting'
+              ? snapshot.inks.run
+              : snapshot.inks.idle;
     context.lineWidth = 2.5;
     if (state === 'queued') context.setLineDash([3, 6]);
     context.beginPath();
@@ -364,7 +395,7 @@ export class CommandSceneRenderer {
     context.stroke();
     context.setLineDash([]);
     if (state === 'awaiting input') {
-      context.fillStyle = '#f2bb65';
+      context.fillStyle = snapshot.inks.need;
       context.beginPath();
       context.moveTo(node.x + node.radius + 12, node.y - 5);
       context.lineTo(node.x + node.radius + 18, node.y);
@@ -420,14 +451,16 @@ export class CommandSceneRenderer {
     const voice = this.voice.voiceState;
     context.strokeStyle =
       voice === 'error'
-        ? '#eb6d75'
+        ? snapshot.inks.err
         : voice === 'muted' || voice === 'stopped'
-          ? '#8e8993'
+          ? snapshot.inks.idle
           : voice === 'listening'
-            ? '#67d5c6'
+            ? snapshot.inks.done
             : voice === 'thinking'
-              ? '#8ebcff'
-              : '#e5bd79';
+              ? snapshot.inks.run
+              : voice === 'speaking'
+                ? snapshot.inks.need
+                : snapshot.inks.idle;
     context.lineWidth = 3;
     context.setLineDash(
       voice === 'muted'

@@ -30,17 +30,28 @@ export function stateIcon(state: CommandWorkState): LucideIconData {
 export function stateColor(state: CommandWorkState): string {
   switch (state) {
     case 'completed':
-      return 'text-success';
+      return 'text-state-done';
     case 'failed':
-      return 'text-error';
+      return 'text-state-err';
     case 'cancelled':
-      return 'text-base-content-muted';
+      return 'text-state-idle';
     case 'awaiting input':
-      return 'text-warning';
+      return 'text-state-need';
     case 'running':
     case 'starting':
-      return 'text-info';
+      return 'text-state-run';
     default:
-      return 'text-base-content-muted';
+      return 'text-state-idle';
+  }
+}
+
+export function stateBorder(state: CommandWorkState): string {
+  switch (state) {
+    case 'completed': return 'border-l-state-done';
+    case 'failed': return 'border-l-state-err';
+    case 'awaiting input': return 'border-l-state-need';
+    case 'running':
+    case 'starting': return 'border-l-state-run';
+    default: return 'border-l-state-idle';
   }
 }

@@ -99,8 +99,48 @@ describe('CommandSceneComponent', () => {
     expect(chip?.className).toContain('right-5');
   });
 
+  it('refreshes inks after same-class data-theme switches and uses base content for idle', async () => {
+    let onThemeChange: MutationCallback | undefined;
+    const themeObserver = jest.spyOn(globalThis, 'MutationObserver').mockImplementation((callback) => {
+      onThemeChange = callback;
+      return { observe: jest.fn(), disconnect: jest.fn() } as unknown as MutationObserver;
+    });
+    const originalGetComputedStyle = window.getComputedStyle;
+    const stageStyle = {
+      color: 'rgb(1, 2, 3)',
+      getPropertyValue: (name: string) => {
+        if (name === '--state-ink-run') return document.documentElement.dataset['theme'] === 'forest' ? '#abcdef' : '#123456';
+        if (name === '--bcm') return '50% 0 0';
+        return '';
+      },
+    } as CSSStyleDeclaration;
+    const style = jest.spyOn(window, 'getComputedStyle').mockImplementation((element) =>
+      element.getAttribute('role') === 'group' ? stageStyle : originalGetComputedStyle(element),
+    );
+    document.documentElement.dataset['theme'] = 'dark';
+    const snapshots = jest.spyOn(CommandSceneRenderer.prototype, 'setSnapshot');
+    const fixture = await create();
+    fixture.detectChanges();
+    expect(snapshots).toHaveBeenLastCalledWith(expect.objectContaining({
+      inks: expect.objectContaining({ run: '#123456', idle: 'oklch(50% 0 0)' }),
+    }));
+    document.documentElement.dataset['theme'] = 'forest';
+    onThemeChange?.([], {} as MutationObserver);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(snapshots).toHaveBeenLastCalledWith(expect.objectContaining({
+      inks: expect.objectContaining({ run: '#abcdef' }),
+    }));
+    fixture.destroy();
+    snapshots.mockRestore();
+    themeObserver.mockRestore();
+    style.mockRestore();
+    document.documentElement.removeAttribute('data-theme');
+  });
+
   it('emits one hover for repeated moves, then null on leaving, without frame emissions', async () => {
     const fixture = await create();
+    const hoverUpdate = jest.spyOn(CommandSceneRenderer.prototype, 'setHoveredId');
     const emissions: (string | null)[] = [];
     fixture.componentInstance.hoveredNodeId.subscribe((id) =>
       emissions.push(id),
@@ -134,9 +174,34 @@ describe('CommandSceneComponent', () => {
     );
     frames.shift()?.(1032);
     expect(emissions).toEqual([root.id, null]);
+    expect(hoverUpdate.mock.calls).toEqual([[root.id], [null]]);
     canvas.dispatchEvent(new MouseEvent('pointerleave'));
     expect(emissions).toEqual([root.id, null]);
     raf.mockRestore();
+    hoverUpdate.mockRestore();
+    fixture.destroy();
+  });
+
+  it('does not resolve canvas inks during voice or theme class updates', async () => {
+    const fixture = await create();
+    const styles = jest.spyOn(window, 'getComputedStyle');
+    const stage = (fixture.nativeElement as HTMLElement).querySelector('[role="group"]');
+    const stageReads = () => styles.mock.calls.filter(([element]) => element === stage).length;
+    await fixture.whenStable();
+    const initialReads = stageReads();
+    fixture.componentRef.setInput('theme', 'light');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(stageReads()).toBe(initialReads);
+    fixture.componentRef.setInput('inputLevel', 0.5);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(stageReads()).toBe(initialReads);
+    fixture.componentRef.setInput('theme', 'dark');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(stageReads()).toBe(initialReads);
+    styles.mockRestore();
     fixture.destroy();
   });
 

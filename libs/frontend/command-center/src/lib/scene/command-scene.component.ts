@@ -24,6 +24,7 @@ import { SpriteCache, type SpritePalette } from './sprite-cache';
 import {
   CommandSceneRenderer,
   type SceneLabel,
+  type SceneInks,
   type SceneSprite,
   type SceneVoiceSnapshot,
 } from './command-scene-renderer';
@@ -47,6 +48,11 @@ const SCENE_PALETTES: Record<CommandTheme, Record<string, SpritePalette>> = {
     jade: { lit: '#e8fae9', mid: '#a5d8b5', dark: '#568368', rim: '#75a184' },
     silver: { lit: '#fafaff', mid: '#c4c5d2', dark: '#777a91', rim: '#9c9eb2' },
   },
+};
+
+const FALLBACK_INKS: Record<CommandTheme, SceneInks> = {
+  dark: { run: '#3b82f6', need: '#f97316', err: '#ef4444', done: '#16a34a', idle: '#9ca3af' },
+  light: { run: '#2a56c6', need: '#8f5200', err: '#b4232a', done: '#13713a', idle: '#6b6570' },
 };
 
 function paletteName(
@@ -112,11 +118,28 @@ export class CommandSceneComponent {
   private readonly viewport = signal({ width: 0, height: 0 });
   private readonly reducedMotion = signal(false);
   private readonly ready = signal(false);
+  private readonly inks = signal<SceneInks>(FALLBACK_INKS.dark);
+  private resolveInks(): void {
+    const theme = this.theme();
+    const style = getComputedStyle(this.stageRef().nativeElement);
+    const fallback = FALLBACK_INKS[theme];
+    const read = (name: string, defaultValue: string): string =>
+      style.getPropertyValue(`--state-ink-${name}`).trim() || defaultValue;
+    const baseContent = style.getPropertyValue('--bcm').trim() || style.getPropertyValue('--bc').trim();
+    this.inks.set({
+      run: read('run', fallback.run),
+      need: read('need', fallback.need),
+      err: read('err', fallback.err),
+      done: read('done', fallback.done),
+      idle: read('idle', baseContent ? `oklch(${baseContent})` : style.color),
+    });
+  }
   private readonly cache = new SpriteCache(() =>
     document.createElement('canvas'),
   );
   private renderer: CommandSceneRenderer | null = null;
   private observer: ResizeObserver | null = null;
+  private themeObserver: MutationObserver | null = null;
   private media: MediaQueryList | null = null;
   private pointerFrame = 0;
   private pointerX = 0;
@@ -167,6 +190,7 @@ export class CommandSceneComponent {
       if (!this.ready()) return;
       const selectedId = this.selectedId();
       const theme = this.theme();
+      const inks = this.inks();
       const reducedMotion = this.reducedMotion();
       const labels = this.overlayLabels();
       const layout = this.measuredLayout();
@@ -197,6 +221,8 @@ export class CommandSceneComponent {
           sprites,
           labels,
           selectedId,
+          hoveredId: this.hoveredId,
+          inks,
           ...this.voiceSnapshot,
           reducedMotion,
           theme,
@@ -302,6 +328,14 @@ export class CommandSceneComponent {
       this.onVisibility();
     });
     this.ready.set(true);
+    this.resolveInks();
+    this.themeObserver = new MutationObserver(() =>
+      this.zone.run(() => this.resolveInks()),
+    );
+    this.themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    });
   }
 
   private resize(): void {
@@ -359,6 +393,7 @@ export class CommandSceneComponent {
   private updateHover(id: string | null): void {
     if (id === this.hoveredId) return;
     this.hoveredId = id;
+    this.renderer?.setHoveredId(id);
     this.zone.run(() => this.hoveredNodeId.emit(id));
   }
 
@@ -367,6 +402,7 @@ export class CommandSceneComponent {
       if (this.pointerFrame) cancelAnimationFrame(this.pointerFrame);
       this.pointerFrame = 0;
       this.observer?.disconnect();
+      this.themeObserver?.disconnect();
       this.media?.removeEventListener('change', this.onMotion);
       document.removeEventListener('visibilitychange', this.onVisibility);
       const canvas = this.canvasRef().nativeElement;

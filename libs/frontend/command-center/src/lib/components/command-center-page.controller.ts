@@ -61,7 +61,7 @@ export class CommandCenterPageController {
   private readonly voiceSessions = inject(CommandCenterVoiceSessionService);
   private readonly tribunalTransport = inject(CommandCenterTribunalTransport);
   private readonly projectionSource = inject(CommandCenterProjectionSource);
-  private readonly now = commandCenterClock();
+  public readonly now = commandCenterClock();
   private readonly roster: CommandCenterRosterProvider =
     new CommandCenterRosterProvider(
       this.store,

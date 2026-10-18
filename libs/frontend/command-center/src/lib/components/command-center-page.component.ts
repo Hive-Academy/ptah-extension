@@ -10,6 +10,7 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
+import { sessionContextCue } from '@ptah-extension/chat-ui';
 import { CommandCenterStore } from '../model/command-center.store';
 import { CommandCenterSessionCoordinator } from '../model/session-coordinator';
 import { CommandSceneComponent } from '../scene/command-scene.component';
@@ -176,6 +177,17 @@ import { CommandCenterStartComponent } from './command-center-start.component';
           >Session {{ page.store.sessionId()?.slice(0, 8) ?? 'new' }} ·
           {{ page.shownSessionStatus() }}</span
         >
+        @if (page.store.markedTabId()) {
+          <span
+            class="badge badge-outline min-h-8 !text-xs"
+            [class.text-base-content-muted]="!contextWarning()"
+            [class.text-state-need]="contextWarning()"
+            [class.border-state-need]="contextWarning()"
+          >
+            Context {{ contextCue().known ? contextCue().label : 'unknown' }}
+            @if (contextWarning()) { <span>· Warning</span> }
+          </span>
+        }
         <button
           type="button"
           class="btn btn-ghost min-h-11 border border-base-content text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
@@ -234,6 +246,7 @@ import { CommandCenterStartComponent } from './command-center-start.component';
     }
     @if (!page.store.markedTabId()) {
       <ptah-command-center-start
+        [now]="page.now()"
         [sessions]="page.coordinator.sessions()"
         [status]="page.coordinator.listStatus()"
         [expanded]="page.coordinator.showAll()"
@@ -281,6 +294,7 @@ import { CommandCenterStartComponent } from './command-center-start.component';
               />
               <ptah-command-overlay
                 #overlay
+                [now]="page.now()"
                 [projection]="page.projection()"
                 [visibleLabelIds]="visibleLabelIds()"
                 [hoveredNodeId]="page.hoveredNodeId()"
@@ -296,7 +310,9 @@ import { CommandCenterStartComponent } from './command-center-start.component';
                 </p>
                 <p class="mt-1 text-xs text-base-content-muted">
                   {{ page.shownSessionStatus() }} ·
-                  {{ page.projection().nodes.length }} nodes
+                   {{ page.projection().nodes.length }} nodes
+                   @if (stageCounts().running) { · {{ stageCounts().running }} running }
+                   @if (stageCounts().waiting) { · {{ stageCounts().waiting }} waiting }
                 </p>
               </div>
               <p
@@ -392,6 +408,9 @@ import { CommandCenterStartComponent } from './command-center-start.component';
             aria-label="Delegated work list"
           >
             <ptah-command-work-list
+              [now]="page.now()"
+              [overflowCompleted]="overflow().completed"
+              [overflowOther]="overflow().other"
               [projection]="page.projection()"
               [reducedMotion]="page.store.reducedMotion()"
               [selectedId]="page.store.selectedId()"
@@ -405,6 +424,24 @@ import { CommandCenterStartComponent } from './command-center-start.component';
 })
 export class CommandCenterPageComponent {
   public readonly page = inject(CommandCenterPageController);
+  public readonly contextCue = computed(() => {
+    const rootId = this.page.store.markedTabId();
+    const root = this.page.tabs.tabs().find((tab) => tab.id === rootId);
+    return sessionContextCue(root?.liveModelStats ?? null);
+  });
+  public readonly contextWarning = computed(() =>
+    this.contextCue().known && (this.contextCue().percent ?? 0) >= 70,
+  );
+  public readonly stageCounts = computed(() => {
+    let running = 0;
+    let waiting = 0;
+    for (const node of this.page.projection().nodes) {
+      if (node.kind === 'root' || node.kind === 'phase') continue;
+      if (node.state === 'running' || node.state === 'starting') running++;
+      if (node.state === 'awaiting input') waiting++;
+    }
+    return { running, waiting };
+  });
   public readonly voiceChipReady = computed(
     () =>
       this.page.store.provider().transcription &&
@@ -447,7 +484,11 @@ export class CommandCenterPageComponent {
     this.answerResult.set({ id: response.id, accepted });
   }
   private readonly destroyRef = inject(DestroyRef);
-  private readonly scene = viewChild(CommandSceneComponent);
+  private readonly scene = viewChild<CommandSceneComponent>('scene');
+  protected readonly overflow = computed(() => ({
+    completed: this.scene()?.layout().overflowCompleted ?? 0,
+    other: this.scene()?.layout().overflowOther ?? 0,
+  }));
   private readonly controls = viewChild(CommandSessionControlsComponent);
   private submitting = false;
   public readonly visibleLabelIds = computed(
