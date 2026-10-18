@@ -19,7 +19,6 @@
  */
 import { inject, injectable } from 'tsyringe';
 import * as fs from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
@@ -27,6 +26,15 @@ import {
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 import type { SkillReference } from './types';
+import { resolveSkillsRoot } from './skills-root';
+
+// The existing generator root spec imports these through this module until
+// the generator is removed in batch 61.
+export {
+  resolveSkillsRoot,
+  SKILLS_ROOT_KEY,
+  SKILLS_ROOT_SECTION,
+} from './skills-root';
 
 const MAX_SLUG_RETRIES = 5;
 
@@ -58,43 +66,8 @@ export interface PromoteToActiveOptions {
   isSlugTaken?: (slug: string) => boolean;
 }
 
-/** Settings section, matching every other reader in this library. */
-export const SKILLS_ROOT_SECTION = 'ptah';
-export const SKILLS_ROOT_KEY = 'skillSynthesis.skillsRoot';
 /** The candidate sub-directory, relative to the skills root. */
 export const CANDIDATES_DIR_NAME = '_candidates';
-
-/**
- * The single root every synthesized-skill path is derived from.
- *
- * `~/.ptah/skills` unless `skillSynthesis.skillsRoot` names another absolute
- * path. Read through the port so the CLI, Electron and VS Code hosts agree, and
- * fail-soft to the default: a hand-edited settings file must not be able to
- * point promotion at one root while the user-layer mirror walks another — that
- * divergence is exactly the defect this function exists to close.
- *
- * Callers OUTSIDE this lib (the host activation glue that feeds
- * `UserLayerMirrorService.mirrorAll`) must use this too, or the mirror is told a
- * third root and promoted skills stop being cloned.
- */
-export function resolveSkillsRoot(
-  workspace: IWorkspaceProvider | null | undefined,
-): string {
-  const fallback = path.join(os.homedir(), '.ptah', 'skills');
-  if (!workspace) return fallback;
-  try {
-    const raw = workspace.getConfiguration<string>(
-      SKILLS_ROOT_SECTION,
-      SKILLS_ROOT_KEY,
-      '',
-    );
-    return typeof raw === 'string' && raw.trim().length > 0
-      ? raw.trim()
-      : fallback;
-  } catch {
-    return fallback;
-  }
-}
 
 /**
  * The candidate root: an explicit `skillSynthesis.candidatesDir` override if the

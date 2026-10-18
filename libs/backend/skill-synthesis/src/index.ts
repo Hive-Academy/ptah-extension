@@ -28,10 +28,12 @@ export {
 export { SkillMdGenerator } from './lib/skill-md-generator';
 export {
   resolveSkillsRoot,
-  resolveCandidatesRoot,
-  CANDIDATES_DIR_NAME,
   SKILLS_ROOT_KEY,
   SKILLS_ROOT_SECTION,
+} from './lib/skills-root';
+export {
+  resolveCandidatesRoot,
+  CANDIDATES_DIR_NAME,
 } from './lib/skill-md-generator';
 export type { SkillMdInput, MaterializedSkill } from './lib/skill-md-generator';
 export {
