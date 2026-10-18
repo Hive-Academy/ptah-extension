@@ -68,6 +68,9 @@ export class MainRequestTracker {
       }
       return started ? 'request-started' : null;
     } catch {
+      // degradation-audit: optional-capability - an unreadable frame only skips
+      // idle request tracking for it; idle compaction then does not arm, and
+      // the session stream is unaffected.
       return null;
     }
   }
