@@ -1,6 +1,6 @@
 # Batches - TASK_2026_662_3eea
 
-Total tasks: 71 | Batches: 71 (+2 operational steps OP-1, OP-2) | Phases: 6 (A-F) | Complete: 15/71 (Phase A 15/15; phase review due)
+Total tasks: 74 (71 + carry-over tasks 44.2, 65.2, 67.2) | Batches: 71 (+2 operational steps OP-1, OP-2) | Phases: 6 (A-F) | Complete: 15/71 (Phase A 15/15; logic gate APPROVED after one fix round, 8360e7aca; style fixes verified in the round-2 re-review; visual review in progress)
 
 Worktree root (prefix every path below with it): `D:\projects\ptah-extension\.claude-worktrees\skill-synthesis-purge\`
 Branch: `refactor/skill-synthesis-purge`. Aliases (same as implementation-plan.md:153):
@@ -671,18 +671,65 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
 
 **Phase A review due after the last Phase A batch commits (batch 14 in wave run order; 15 landed early in A-W2): code-logic + style (new public API) + visual before/after.**
 
+## Phase A review and fix round - COMPLETE (8360e7aca; records in the docs commit that follows it)
+
+- Combined diff reviewed: `271198ced..fd0110afc` (batches 1-15).
+- Review family: reviewer Claude (`code-logic-reviewer` / `code-style-reviewer` subagents, a third
+  family); implementers codex (lanes A1, A2, B, D) and Glm (lane C). Different-family rule met.
+- Round 1: `code-logic-review.md` REVISE 6/10 (L-), `code-style-review.md` REVISE 6/10 (St-).
+  Fix plan: `phase-a-fix-round.md`. Decisions O7 (source-hash helper in platform-core), O8, O9
+  (normalise roots after task-scoped SQL selection) in `decisions.md`.
+- Fixed (one round, lanes A1, A2, B, C; reports `reports/phase-a-fix-{A1,A2,B,C}-report.md`):
+  L-S1, L-S2, L-S3, L-M1, L-M2, L-M3, L-M4, L-M5, L-M6, L-M7, L-M8, St-S1, St-S2, St-S3, St-M1.
+- Round 2 (re-review scoped to the fixes): `code-logic-review-round-2.md` REVISE 7/10. Bounded
+  correction (lane D, `reports/phase-a-fix-D-report.md`): S1 (normalised root mismatch silently
+  dropped grades), M3 (write `skills.enhancement.*` before the legacy key), M4 (REJECT / NEEDS
+  REVISION), M5 (last parseable verdict).
+- Round 3 (correction only): `code-logic-review-round-3.md` APPROVED 8/10. Phase A logic gate passed.
+  The style fixes (St-S1, St-S2, St-S3, St-M1) were verified FIXED in the round-2 per-item table; no
+  separate style re-review was run.
+- Checks before commit (orchestrator): `nx run-many -t test typecheck lint --parallel=1` PASS for
+  skill-synthesis, rpc-handlers (after the correction), agent-generation, persistence-sqlite and
+  platform-core. `voice-rpc` and `skills-sh-legacy-adoption` specs (rpc-handlers) timed out once under
+  load and passed alone; not touched by this round.
+- Write-path traces: in `code-logic-review-round-2.md` (Write-path traces table): new and legacy
+  enhancement keys, load-time settings migration via `persist()`, `skill_task_grades`,
+  `skill_invocation_events`, `.harvested.json` marker, archive dir.
+- Commit: 8360e7aca `fix(skill-synthesis,rpc-handlers): phase A review fix round` (25 files). The
+  agent-generation `user-layer/source-hash.spec.ts` the lanes deleted was never tracked, so no deletion
+  was staged.
+- Deferred to named later work (each recorded on the receiving batch):
+  - L-M9 archive Windows file modes and archive directory accumulation -> batch 67 (Task 67.2).
+  - St-M2 attribution grouping to a pure function; round-2 M1 bounded retry for a persistently failing
+    grade write; round-2 M2 stale grade when every attribution is skipped; round-3 N1
+    `spec-extractor.ts:109` verdict capture swallows trailing words -> batch 44 (Task 44.2).
+  - St-M3 move `SKILL_SETTINGS_MIGRATIONS` to `file-settings-keys.ts` -> batch 65 (Task 65.2).
+  - Minor findings (recorded only, not fixed): round-1 L/St Minors; round-2 Mi1-Mi6; round-3 N2 (lost
+    workspace pre-filter on the task-id-null branch, cost only), N3 (stale grades under pre-fix root
+    form), N4 (lane-record and null-root spec coverage).
+- Visual review (batches 7, 11; dark + light, "before" from `271198ced`): IN PROGRESS by the
+  visual-reviewer (`visual/`, `visual-review-phase-a.md`, not yet committed). Phase A is fully closed
+  only when it accepts; it does not block Phase B backend batches.
+
+### Next action:
+
+Run Phase B wave B-W1: batches 16 (core; gate core + chat) and 19 (SU + dashboard) in parallel, one CLI
+lane each (file-disjoint, different Nx projects), scoped checks one at a time. Then 17, 18, 20-24
+sequentially. When the Phase A visual review returns, record its verdict here; a REVISE adds one UI fix
+batch to Phase A.
+
 ---
 
 # Phase B - switch readers and writers
 
-## Batch 16: Core Providers - Enhancement slice beside old (R3) - PENDING
+## Batch 16: Core Providers - Enhancement slice beside old (R3) - IN_PROGRESS
 
 - Phase: B | Wave: B-W1 | Executor: CLI lane Glm | Depends on: 2 | Tasks: 1
 - Flags: WRITE-PATH (`settings:set skills.enhancement.*`, readBack `settings:get`)
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/core @ptah-extension/chat --parallel=1`
 - Precondition: core has `judging`/`lanes` slices (`providers-settings.types.ts:10,34,39,90`). The batch 2 keys exist.
 
-### Task 16.1: Add an `enhancement` slice; keep `judging`/`lanes` for now - PENDING
+### Task 16.1: Add an `enhancement` slice; keep `judging`/`lanes` for now - IN_PROGRESS
 
 - Files: `libs/frontend/core/src/lib/services/providers-settings.types.ts`, `providers-settings-state.service.ts` + spec, `providers-commit.service.ts` + spec.
 - Plan reference: plan row 16; implementation-plan.md:62; round-2 R3.
@@ -729,7 +776,7 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
 - Validation notes: after the batch, `rg -n "SkillLane|refreshLanes|state\.lanes\(\)|judgeProvider" libs/frontend/chat` has zero live hits.
 - Implementation details: none beyond the requirements above.
 
-## Batch 19: Library pause/telemetry round trip + dashboard candidate cut (R5) - PENDING
+## Batch 19: Library pause/telemetry round trip + dashboard candidate cut (R5) - IN_PROGRESS
 
 - Phase: B | Wave: B-W1 | Executor: CLI lane Glm | Depends on: 2 | Tasks: 1
 - Flags: UI (Library header, dashboard Thoth status), WRITE-PATH (`skillSynthesis.enabled`, `skills.telemetry.enabled`)
@@ -737,7 +784,7 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
 - Precondition: the state service calls the old `getSettings`/`updateSettings`.
   `thoth-status.service.ts:325` calls `getSettings` and `:385` calls `listCandidates`.
 
-### Task 19.1: Switch the state service and dashboard to `settings:get`/`set`; remove the candidate count - PENDING
+### Task 19.1: Switch the state service and dashboard to `settings:get`/`set`; remove the candidate count - IN_PROGRESS
 
 - Files: `SU/services/skill-synthesis-state.service.ts` + spec, `SU/components/skill-synthesis-tab.component.ts` + spec, `libs/frontend/dashboard/src/lib/services/thoth-status.service.ts` + spec.
 - Plan reference: plan row 17; preserve table "Pause switch" (implementation-plan.md:44); round-2 R5.
@@ -1151,6 +1198,21 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
 - Validation notes: none beyond the plan row.
 - Implementation details: none beyond the plan row.
 
+### Task 44.2: Phase A review carry-overs (harvest and grade store) - PENDING
+
+- Files: `SS/spec-extractor.ts` + spec, `SS/spec-harvester.service.ts` + spec,
+  `SS/skill-task-grade.store.ts` + spec.
+- Source: Phase A review deferrals (St-M2, `code-logic-review-round-2.md` M1 and M2,
+  `code-logic-review-round-3.md` N1).
+- Quality requirements: (1) N1: `spec-extractor.ts:109` captures every word after the verdict, so
+  `Recommendation: APPROVE with minor changes` parses to null; capture the first token plus an optional
+  `revision` word (or try shorter prefixes) and add a spec for that line. (2) St-M2: move attribution
+  grouping out of `SkillTaskGradeStore` into a pure function. (3) M1: bound the retry of a persistently
+  failing grade write (retry count or once-per-session warn). (4) M2: when every attribution is skipped,
+  prune the stale grade per key or record the accepted behaviour in a comment and spec.
+- Validation notes: file cap - 44.1 already owns 6 files, so run 44.2 as its own lane after 44.1 with the
+  same verification command.
+
 ## Batch 45: mcp-bench namer/trigger family deletion (R4) - PENDING
 
 - Phase: C | Wave: C-W3 | Executor: CLI lane codex | Depends on: none in C | Tasks: 1
@@ -1533,6 +1595,14 @@ pipeline tokens (batch 59) before SS registrations are removed (batch 60).
   `memory-trigger-config.ts:88`).
 - Implementation details: none beyond the plan row and the finding.
 
+### Task 65.2: Phase A review carry-over St-M3 - PENDING
+
+- Files: `PC/file-settings-keys.ts`, `PC/file-settings-manager.ts` + spec.
+- Source: `code-style-review.md` St-M3 (deferred at the Phase A fix round).
+- Quality requirements: `SKILL_SETTINGS_MIGRATIONS` moves to `file-settings-keys.ts`, beside the keys
+  it maps; the manager imports it. Behaviour unchanged. Do it in the same edit as 65.1 so the
+  migration map and the removed keys stay consistent.
+
 ## Batch 66: Remove the drain constants - PENDING
 
 - Phase: E | Executor: CLI lane codex | Depends on: 37, 59 | Tasks: 1
@@ -1575,6 +1645,14 @@ D3), but the user must see and confirm the archive before the drop. Do not commi
   row counts and sha256.
 - Validation notes: none beyond the plan row.
 - Implementation details: none beyond the plan row.
+
+### Task 67.2: Phase A review carry-over L-M9 - PENDING
+
+- Files: `PS/skill-pipeline-archive.ts` + spec (same files as 67.1).
+- Source: `code-logic-review.md` L-M9 (deferred at the Phase A fix round).
+- Quality requirements: `0700`/`0600` modes are not enforced on Windows - restrict access there (ACL or a
+  documented user-profile location) and say which; bound the accumulation of `pre-0057-*` archive
+  directories across repeated preflights (reuse a verified archive or prune older unverified ones).
 
 ## OP-1: Archive dry-run and user confirmation (orchestrator, no lane, no code)
 
