@@ -8,7 +8,7 @@ Generate **design-integrated landing page content** that works with:
 - GSAP scroll-triggered reveals
 - Glassmorphism UI components
 - Premium typography hierarchy
-- The project's own design system and brand identity
+- Egyptian/tech-sacred design aesthetic
 
 This skill produces content **alongside design specifications**, not just text.
 
@@ -16,11 +16,37 @@ This skill produces content **alongside design specifications**, not just text.
 
 ## Design System Reference
 
-Before generating content, load the project's design system (see this skill's
-SKILL.md, "Design System Reference", for where to look). Use its token names in
-every visual spec below — never invent colors, typography, or effects. If the
-project has no design system, keep the visual specs structural (layout,
-hierarchy, animation triggers) and defer the visual identity to ui-ux-designer.
+Before generating content, understand the visual language:
+
+### Color Palette
+
+| Token         | Value                  | Usage                     |
+| ------------- | ---------------------- | ------------------------- |
+| `--obsidian`  | `#0a0a0a`              | Primary background        |
+| `--gold`      | `#d4af37`              | Accents, CTAs, highlights |
+| `--gold-glow` | `rgba(212,175,55,0.4)` | Glow effects              |
+| `--cream`     | `#f5f5dc`              | Secondary text            |
+| `--charcoal`  | `#1a1a1a`              | Card backgrounds          |
+
+### Typography Scale
+
+| Level            | Size                  | Font           | Usage            |
+| ---------------- | --------------------- | -------------- | ---------------- |
+| Hero Headline    | `text-7xl`/`text-8xl` | Cinzel Display | Main hero        |
+| Section Headline | `text-5xl`/`text-6xl` | Cinzel         | Section headers  |
+| Feature Headline | `text-2xl`/`text-3xl` | Inter          | Card titles      |
+| Body             | `text-lg`             | Inter          | Descriptions     |
+| Caption          | `text-sm`             | Inter          | Labels, metadata |
+
+### Animation Patterns
+
+| Pattern         | Trigger           | Effect                    |
+| --------------- | ----------------- | ------------------------- |
+| `reveal-up`     | ScrollTrigger 85% | opacity 0→1, y: 60→0      |
+| `scale-in`      | ScrollTrigger 85% | scale 0.95→1, opacity 0→1 |
+| `stagger-cards` | ScrollTrigger     | 0.15s delay between items |
+| `glow-pulse`    | Continuous        | 2s ease-in-out infinite   |
+| `float`         | Continuous        | 6s ease-in-out infinite   |
 
 ---
 
@@ -35,13 +61,14 @@ Read(libs/*/CLAUDE.md)
 
 # 2. Find the story
 Grep("<feature>", .ptah/specs/registry.md)
-Read(<taskFolder>/context.md)
+Read(.ptah/specs/TASK_XXXX/context.md)
 
 # 3. Check design specs
-Read(<taskFolder>/design-spec.md)
+Read(.ptah/specs/TASK_2026_072/design-spec.md)
+Read(.ptah/specs/TASK_2026_072/context.md)
 
 # 4. Review design assets
-Glob(<taskFolder>/design-assets/*)
+Glob(.ptah/specs/TASK_2026_072/design-assets/*)
 ```
 
 ---
@@ -50,7 +77,7 @@ Glob(<taskFolder>/design-assets/*)
 
 ### 1. Hero Section - "Commanding Presence"
 
-**Design Reference**: BlueYard Capital (full-viewport hero, centered 3D motif)
+**Design Reference**: BlueYard Capital + Egyptian sacred tech
 
 ```markdown
 ## Hero Section
@@ -58,15 +85,15 @@ Glob(<taskFolder>/design-assets/*)
 ### Visual Design
 
 - **Layout**: Full viewport, centered content
-- **3D Element**: [The project's signature 3D motif, from its design system]
-- **Background**: Radial gradient ([accent] glow center → [background] edge)
-- **Particles**: [Accent] dust emanating from 3D element
+- **3D Element**: [Specify: Ankh sphere / Pyramid / Scarab]
+- **Background**: Radial gradient (gold glow center → obsidian edge)
+- **Particles**: Gold dust emanating from 3D element
 
 ### Typography
 
-- **Headline Style**: [Project display font], text-7xl md:text-8xl
+- **Headline Style**: Cinzel Display, text-7xl md:text-8xl
 - **Position**: Centered below 3D element
-- **Effect**: [Accent] gradient text with subtle glow animation
+- **Effect**: Gold gradient text with subtle glow animation
 
 ### Content
 
@@ -78,9 +105,9 @@ Glob(<taskFolder>/design-assets/*)
 
 **Examples**:
 
-- "Where Code Meets Craft"
-- "Development at the Speed of Thought"
-- "Your Codebase, Understood"
+- "Ancient Wisdom for Modern AI"
+- "Where Code Meets Consciousness"
+- "VS Code AI, Enlightened"
 
 **Subheadline**: "[What it does + key differentiator]"
 
@@ -91,7 +118,7 @@ Glob(<taskFolder>/design-assets/*)
 **Primary CTA**:
 
 - Text: "[Action verb] + [Immediate benefit]"
-- Style: Primary button variant (from the design system), 64px height, pulse animation
+- Style: Golden gradient, 64px height, pulse animation
 - Examples: "Install Free", "Begin the Journey", "Unlock Powers"
 
 **Secondary Element**: Scroll indicator with "↓" or animated chevron
@@ -126,7 +153,7 @@ Glob(<taskFolder>/design-assets/*)
 
 - **Container**: Glassmorphism panel (blur 20px, 60% opacity)
 - **Window Chrome**: Gradient header bar with traffic light dots
-- **Border**: Animated [accent] pulse on hover
+- **Border**: Animated gold pulse on hover
 - **Shadow**: Grows as section enters viewport
 
 ### Content
@@ -137,7 +164,7 @@ Glob(<taskFolder>/design-assets/*)
 
 - Pattern: "Watch [Product] [Do Something Impressive]"
 - Examples:
-  - "Watch Your Agent Understand Your Codebase"
+  - "Watch Ptah Understand Your Codebase"
   - "See AI Development, Reimagined"
 
 **Demo Type**: [Choose one]
@@ -178,12 +205,12 @@ Glob(<taskFolder>/design-assets/*)
 
 - **Layout**: Grid (1 col mobile, 2 col tablet, 3 col desktop)
 - **Card Size**: Min-height 400px
-- **Card Style**: Glassmorphism with [accent] border on hover
+- **Card Style**: Glassmorphism with gold border on hover
 - **Gap**: 48px (gap-12)
 
 ### Section Header
 
-**Eyebrow**: "[CATEGORY]" (text-sm, tracking-widest, [accent])
+**Eyebrow**: "[CATEGORY]" (text-sm, tracking-widest, gold)
 **Headline**: "[Benefit-focused section title]"
 
 - Pattern: "Everything You Need to [Achieve Goal]"
@@ -227,8 +254,8 @@ feature:
 ### Card Interactions
 
 - **Hover**: translateY(-8px) + rotate(1deg)
-- **Border**: [Accent] border fades in
-- **Glow**: `box-shadow: 0 0 60px [accent glow token from the design system]`
+- **Border**: Gold border fades in
+- **Glow**: `box-shadow: 0 0 60px rgba(212,175,55,0.3)`
 
 ### Animation
 
@@ -249,7 +276,7 @@ feature:
 ### Visual Design
 - **Layout**: Two cards side-by-side (stack on mobile)
 - **Before Card**: Muted grayscale with subtle red accent
-- **After Card**: Vibrant [accent] glow border
+- **After Card**: Vibrant gold glow border
 - **Connector**: Animated SVG arrow between cards
 
 ### Content Structure
@@ -276,9 +303,9 @@ points:
 
 ```yaml
 card_type: 'after'
-style: '[accent] glow, scale-punch entry, particles'
+style: 'gold glow, scale-punch entry, particles'
 headline: '[The Solution State]'
-icon_style: 'Check icons, [accent] color, animated draw-in'
+icon_style: 'Check icons, gold accent, animated draw-in'
 points:
   - icon: 'check-circle'
     text: '[Specific benefit 1]'
@@ -294,7 +321,7 @@ points:
 ### Transition Arrow
 
 - **Type**: Animated SVG that draws on scroll
-- **Effect**: Glow trail, color transition (muted → [accent])
+- **Effect**: Glow trail, color transition (muted → gold)
 
 ### Animation
 
@@ -302,7 +329,6 @@ points:
 - **After Card**: Scale 0.9→1.0 with punch
 - **Arrow**: Draws as user scrolls past
 
-````
 ````
 
 ---
@@ -360,7 +386,6 @@ testimonials:
 - **Numbers**: Count-up animation
 
 ````
-````
 
 ---
 
@@ -374,7 +399,7 @@ testimonials:
 ### Visual Design
 - **Background**: Gradient overlay or pattern
 - **Typography**: text-7xl headline
-- **Button**: Large (64px height), primary gradient, pulse ring
+- **Button**: Large (64px height), golden gradient, pulse ring
 
 ### Content
 
@@ -394,7 +419,7 @@ testimonials:
 text: "[Strong action verb]"
 style:
   height: "64px"
-  background: "primary gradient (from the design system)"
+  background: "golden gradient"
   effect: "pulse ring behind button"
   hover: "scale 1.08, intensified glow"
   click: "ripple effect"
@@ -403,15 +428,14 @@ style:
 **Secondary Link** (optional):
 
 - Text: "Read the documentation →"
-- Style: Text link, [accent] color, arrow animates on hover
+- Style: Text link, gold color, arrow animates on hover
 
 ### Animation
 
-- **Headline**: [Accent] gradient text with glow
+- **Headline**: Gold gradient text with glow
 - **Button**: Continuous subtle pulse
-- **Divider**: Animated [accent] line that draws in
+- **Divider**: Animated golden line that draws in
 
-````
 ````
 
 ---
@@ -431,7 +455,7 @@ style:
 ### Visual Design
 - **Style**: Minimal, dark background
 - **Hover**: Subtle lift + color shift on icons
-- **Divider**: Thin [accent] line above
+- **Divider**: Thin gold line above
 ````
 
 ---
@@ -447,7 +471,7 @@ When generating landing page content, deliver:
 
 - Libraries reviewed: [list]
 - Tasks analyzed: [list]
-- Design spec reference: [task holding the design spec]
+- Design spec reference: TASK_2026_072
 
 ## Design System Tokens Used
 
@@ -487,7 +511,7 @@ When generating landing page content, deliver:
 
 - [ ] All claims backed by code evidence
 - [ ] All metrics verifiable
-- [ ] Design tokens match the project's design system
+- [ ] Design tokens match system
 - [ ] Animations respect prefers-reduced-motion
 - [ ] Mobile-responsive specifications included
 ```
@@ -518,9 +542,9 @@ When generating landing page content, deliver:
 
 Before generating:
 
-- [ ] Read the task's visual design spec
+- [ ] Read TASK_2026_072 visual design spec
 - [ ] Review design assets in design-assets/
-- [ ] Understand the project's color palette and typography
+- [ ] Understand color palette and typography
 - [ ] Know the animation patterns
 - [ ] Have code evidence ready for claims
 

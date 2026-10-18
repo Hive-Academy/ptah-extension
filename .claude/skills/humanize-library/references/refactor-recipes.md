@@ -167,7 +167,9 @@ native module into a portable core).
 ## Recipe 9: Rename for intent
 **Smell:** names describe type or mechanism (`arr`, `data2`, `handle`, `process`).
 
-**Move:** rename through the language server so every reference updates (an IDE rename, or grep to find every use first). Check dependents before renaming anything exported.
+**Move:** rename through the language server so every reference updates
+(`ptah.ide.actions.rename(file, line, col, newName)`, an IDE rename, or `ptah_lsp_references` /
+grep to find every use first). Check dependents before renaming anything exported.
 
 **Safety:** renames are behavior-preserving by definition — but an exported rename changes the
 public API. Either rename internals only and keep the exported name, or update every dependent in

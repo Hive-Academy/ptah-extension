@@ -398,8 +398,8 @@ PM (architect when no PM) inventories the old code in `parity-inventory.md` befo
 |                                                               |
 |  1. DESIGN SYSTEM (Foundation)                                |
 |     +-- ui-ux-designer creates if missing                     |
-|         +-- Output: the project's design system, in           |
-|                     docs/design-system/                       |
+|         +-- Output: DESIGN-SYSTEM.md, in the                  |
+|                     technical-content-writer skill's own dir  |
 |                                                               |
 |  1.7 DESIGNER -> PROTOTYPE -> GATE 1.7 (APPROVED)              |
 |                                                               |
@@ -416,22 +416,21 @@ PM (architect when no PM) inventories the old code in `parity-inventory.md` befo
 
 Before invoking technical-content-writer for landing pages:
 
-The design system lives in the project, at `docs/design-system/`; a skill
-directory is never its home. Select ONE authoritative document there: the one the project's
-`CLAUDE.md` or `AGENTS.md` names, otherwise the one named for the project or its brand. Never
-combine several design systems.
+`DESIGN-SYSTEM.md` is a sibling of the `technical-content-writer` SKILL.md.
+Resolve it against that skill's own directory (from the Skill tool / plugin
+root); a workspace-relative `.claude/` path is not portable across hosts.
 
 ```
-design_system_file = select_authoritative(Glob(docs/design-system/**/*.md))
+design_system_path = <technical-content-writer skill dir>/DESIGN-SYSTEM.md
 
-if NOT exists(design_system_file):
+if NOT exists(design_system_path):
     -> Invoke ui-ux-designer FIRST
     -> "Create design system for this project"
     -> Wait for completion
     -> Designer creates design-spec.md + prototype/; run Gate 1.7
     -> Then invoke technical-content-writer
 
-if exists(design_system_file):
+if exists(design_system_path):
     -> For added/redesigned UI: designer -> prototype -> Gate 1.7
     -> Then invoke technical-content-writer
     -> Content will use existing design system
@@ -457,13 +456,13 @@ User: "Create a landing page for our extension"
 
 Orchestrator:
   1. Check design system exists
-     select_authoritative(Glob(docs/design-system/**/*.md))
+     Read(<technical-content-writer skill dir>/DESIGN-SYSTEM.md)
 
   2. IF MISSING -> Invoke ui-ux-designer:
      Task("Create design system", subagent_type="ui-ux-designer")
      - Agent loads NICHE-DISCOVERY.md skill
      - Agent guides user through aesthetic discovery
-     - Agent creates the design system in docs/design-system/
+     - Agent creates DESIGN-SYSTEM.md
      - Wait for completion
 
   2.5. Invoke ui-ux-designer for design-spec.md + prototype/ (even if design system exists)
@@ -473,7 +472,7 @@ Orchestrator:
   3. Invoke technical-content-writer:
      Task("Create landing page content", subagent_type="technical-content-writer")
      - Agent loads LANDING-PAGES.md skill
-     - Agent loads the project's design system
+     - Agent loads DESIGN-SYSTEM.md
      - Agent creates design-integrated content
 
   4. Deliver combined output:
@@ -542,7 +541,7 @@ ui-ux-designer --> prototype --> Gate 1.7 --> technical-content-writer --> front
 
 | Agent                    | Output File                                                  | Purpose                           |
 | ------------------------ | ------------------------------------------------------------ | --------------------------------- |
-| ui-ux-designer           | Existing authoritative design-system document in the project | Design tokens, colors, typography |
+| ui-ux-designer           | `DESIGN-SYSTEM.md` in the technical-content-writer skill dir | Design tokens, colors, typography |
 | ui-ux-designer           | `.ptah/specs/TASK_[ID]/design-spec.md` + `prototype/`         | Visual spec + prototype for Gate 1.7        |
 | technical-content-writer | `.ptah/specs/TASK_[ID]/content-specification.md`             | Content with design integration   |
 | technical-content-writer | `docs/content/*.md`                                          | Final content files               |
@@ -554,7 +553,7 @@ ui-ux-designer --> prototype --> Gate 1.7 --> technical-content-writer --> front
 ```markdown
 ## Design Handoff for Content
 
-**Design System**: the project's design system in `docs/design-system/`
+**Design System**: `DESIGN-SYSTEM.md`, in the technical-content-writer skill's own directory
 **Approved Prototype**: `<taskFolder>/prototype/` (Gate 1.7; README.md + screenshots/)
 **Aesthetic**: [Name - e.g., "Sacred Tech"]
 **Key Colors**: [Primary accent, backgrounds]
@@ -563,7 +562,7 @@ ui-ux-designer --> prototype --> Gate 1.7 --> technical-content-writer --> front
 
 Content writer should:
 
-- Reference the project's design system for all visual specs
+- Reference DESIGN-SYSTEM.md for all visual specs
 - Use LANDING-PAGES.md templates with design integration
 - Include animation/effect specifications in content
 ```
@@ -574,7 +573,7 @@ Content writer should:
 ## Content Handoff for Implementation
 
 **Content Spec**: .ptah/specs/TASK\_[ID]/content-specification.md
-**Design System**: the project's design system in `docs/design-system/`
+**Design System**: `DESIGN-SYSTEM.md`, in the technical-content-writer skill's own directory
 **Approved Prototype**: `<taskFolder>/prototype/` (Gate 1.7)
 **Assets Needed**: [List from asset briefs]
 

@@ -48,7 +48,7 @@ verification — a capability that has no code behind it does not get written ab
 - The task folder. Discover what exists before reading; `context.md`,
   `task-description.md` and `design-spec.md` are the usual carriers of the
   brief and the visual direction.
-- The project's own design system in `docs/design-system/`, whenever the
+- The `DESIGN-SYSTEM.md` carried by the technical-content-writer skill, whenever the
   content has a visual dimension. When it exists, use its exact colours, type and spacing
   and reference tokens by name. When it does not, return a dependency on ui-ux-designer to
   the orchestrator rather than inventing a visual specification or invoking another agent

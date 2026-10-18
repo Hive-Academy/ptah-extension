@@ -156,7 +156,7 @@ class ChatStore {
 "From CLI to GUI: How We Built a Visual Interface for Claude"
 
 How [Product] [Achievement]
-"How We Achieved Sub-100ms Message Rendering with a Signal-Based Architecture"
+"How Ptah Achieves Sub-100ms Message Rendering with Signal-Based Architecture"
 
 [Number] [Things] for [Outcome]
 "5 Patterns We Used to Build a Responsive AI Chat Interface"
