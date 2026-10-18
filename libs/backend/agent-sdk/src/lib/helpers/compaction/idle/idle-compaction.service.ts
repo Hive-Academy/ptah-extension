@@ -31,6 +31,7 @@ import type { CompactionCallbackRegistry } from '../../compaction-callback-regis
 import type { CompactionConfigProvider } from '../../compaction-config-provider';
 import type { SdkAdapterEvents } from '../../sdk-adapter-events.service';
 import type { SessionTurnStateRegistry } from '../../session-turn-state.registry';
+import type { SessionStatsOwnerService } from '../../../session-stats/session-stats-owner.service';
 import type { CompactionCoordinator } from '../compaction-coordinator';
 import { evaluateFireGate } from './idle-fire-gate';
 import {
@@ -83,6 +84,7 @@ export class IdleCompactionService implements IdleCompactionSignals {
     events?: SdkAdapterEvents | null,
     workspace?: IWorkspaceProvider | null,
     timing?: IdleCompactionTiming,
+    private readonly statsOwner?: SessionStatsOwnerService | null,
   ) {
     this.timing = timing ?? {
       scheduler: createUnrefScheduler(),
@@ -147,6 +149,7 @@ export class IdleCompactionService implements IdleCompactionSignals {
     let pending: Extract<IdleAttempt, { kind: 'pending' }> | null = null;
     let live = true;
     let releaseSignalFailed = false;
+    let nativeAnthropic = false;
     const steps$ = group.pipe(
       scan(
         (previous: IdleStep, item: KeyedSignal): IdleStep => {
@@ -180,7 +183,11 @@ export class IdleCompactionService implements IdleCompactionSignals {
       ),
       tap((step) => {
         latest = step.state;
+        if (step.signal.type === 'session-bound') {
+          nativeAnthropic = step.signal.nativeAnthropic === true;
+        }
         if (latest.attempt?.kind === 'pending') pending = latest.attempt;
+        this.projectCache(step, nativeAnthropic);
         this.runEffects(step);
       }),
       share(),
@@ -248,6 +255,7 @@ export class IdleCompactionService implements IdleCompactionSignals {
       }),
       finalize(() => {
         live = false;
+        this.clearIdleCompactAt(latest);
         if (releaseSignalFailed)
           safeWarn(this.logger, 'group-failed', latest.sessionId);
         const attempt = latest.attempt;
@@ -267,6 +275,57 @@ export class IdleCompactionService implements IdleCompactionSignals {
     }
     this.keys.delete(key);
     this.currentIds.delete(key);
+  }
+
+  private projectCache(step: IdleStep, nativeAnthropic: boolean): void {
+    const owner = this.statsOwner;
+    const { sessionId, runToken, attempt } = step.state;
+    if (!owner || !runToken) return;
+    try {
+      if (step.signal.type === 'turn-ended') {
+        const request = step.signal.lastRequest;
+        const retained = owner.getCacheTtl(sessionId, runToken);
+        if (!nativeAnthropic) {
+          owner.setCacheEstimate(sessionId, runToken, null, null);
+        } else if (request) {
+          const read = request.cacheReadTokens ?? 0;
+          const write = request.cacheWriteTokens ?? 0;
+          const ttl = write > 0 ? (request.cacheWriteTtl ?? null) : read > 0 ? retained : null;
+          const nextRetained = write > 0 ? ttl : retained;
+          const anchor = request.cacheAnchorAt;
+          const duration = ttl === '1h' ? 3_600_000 : 300_000;
+          const expiresAt = anchor === null || anchor === undefined ? NaN : anchor + duration;
+          const estimate = ttl && anchor !== null && anchor !== undefined &&
+            Number.isFinite(anchor) && anchor >= 0 &&
+            Number.isSafeInteger(expiresAt)
+            ? { ttl, lastRequestAt: anchor, expiresAt }
+            : null;
+          owner.setCacheEstimate(sessionId, runToken, estimate, nextRetained);
+        } else {
+          owner.setCacheEstimate(sessionId, runToken, null, retained);
+        }
+      } else if (step.signal.type === 'session-bound' && !nativeAnthropic) {
+        owner.setCacheEstimate(sessionId, runToken, null, null);
+      }
+      owner.setIdleCompactAt(
+        sessionId,
+        runToken,
+        attempt?.kind === 'pending' ? attempt.fireAt : null,
+      );
+    } catch {
+      // degradation-audit: optional-projection - keep idle state and stream alive if stats projection fails.
+      safeWarn(this.logger, 'signal-failed', sessionId);
+    }
+  }
+
+  private clearIdleCompactAt(state: IdleSessionState): void {
+    if (!this.statsOwner || !state.runToken) return;
+    try {
+      this.statsOwner.setIdleCompactAt(state.sessionId, state.runToken, null);
+    } catch {
+      // degradation-audit: optional-projection - release still completes when stats projection fails.
+      safeWarn(this.logger, 'signal-failed', state.sessionId);
+    }
   }
 
   private runEffects(step: IdleStep): void {
@@ -443,8 +502,8 @@ export class IdleCompactionService implements IdleCompactionSignals {
     }
   }
 
-  sessionBound(sessionId: string, runToken: string, codexProxy: boolean): void {
-    this.enqueue({ type: 'session-bound', sessionId, runToken, codexProxy });
+  sessionBound(sessionId: string, runToken: string, codexProxy: boolean, nativeAnthropic?: boolean): void {
+    this.enqueue({ type: 'session-bound', sessionId, runToken, codexProxy, nativeAnthropic });
   }
   requestStarted(sessionId: string): void {
     this.enqueue({ type: 'request-started', sessionId });
