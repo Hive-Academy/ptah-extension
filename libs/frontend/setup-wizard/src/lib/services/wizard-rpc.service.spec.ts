@@ -34,7 +34,10 @@ describe('WizardRpcService', () => {
         { provide: ModelStateService, useValue: mockModelState },
         {
           provide: TabManagerService,
-          useValue: { findTabByIdAcrossWorkspaces: jest.fn() },
+          useValue: {
+            findTabByIdAcrossWorkspaces: jest.fn(),
+            getWorkspaceTabs: jest.fn().mockReturnValue([]),
+          },
         },
       ],
     });
@@ -97,6 +100,49 @@ describe('WizardRpcService', () => {
       { workspacePath: '/ws', force: true },
       { timeout: 300_000 },
     );
+  });
+
+  it('passes the VS Code active tab override model for all bound starts', async () => {
+    rpcCall.mockResolvedValue(okResult({ accepted: { runId: 'r' } }));
+    const tabs = TestBed.inject(TabManagerService);
+    jest.spyOn(tabs, 'findTabByIdAcrossWorkspaces').mockReturnValue({
+      workspacePath: null,
+      tab: { overrideModel: 'tab-model' },
+    } as ReturnType<TabManagerService['findTabByIdAcrossWorkspaces']>);
+    jest.spyOn(tabs, 'getWorkspaceTabs').mockReturnValue([
+      { id: 'tab' },
+    ] as ReturnType<TabManagerService['getWorkspaceTabs']>);
+    const agentBinding = {
+      tabId: 'tab',
+      workflow: 'setup-agent-generation' as const,
+      workspacePath: '/ws',
+    };
+    const guidanceBinding = {
+      ...agentBinding,
+      workflow: 'setup-project-prompt' as const,
+    };
+    await service.startBoundAgents(agentBinding, ['agent']);
+    await service.startBoundGuidance(guidanceBinding);
+    await service.regenerateBoundGuidance(guidanceBinding);
+    expect(rpcCall).toHaveBeenNthCalledWith(
+      1,
+      'wizard:submit-selection',
+      expect.objectContaining({ model: 'tab-model' }),
+      expect.any(Object),
+    );
+    expect(rpcCall).toHaveBeenNthCalledWith(
+      2,
+      'enhancedPrompts:runWizard',
+      expect.objectContaining({ model: 'tab-model' }),
+      expect.any(Object),
+    );
+    expect(rpcCall).toHaveBeenNthCalledWith(
+      3,
+      'enhancedPrompts:regenerate',
+      expect.objectContaining({ model: 'tab-model' }),
+      expect.any(Object),
+    );
+    expect(tabs.getWorkspaceTabs).toHaveBeenCalledWith('/ws');
   });
 
   describe('launchWizard', () => {

@@ -448,6 +448,76 @@ describe('GenerationWorkflowStore', () => {
     expect(store.rejection()?.reason).toBe('preview-required');
   });
 
+  it('starts from the VS Code active tab set with a null workspace partition', async () => {
+    const startBoundAgents = jest.fn().mockResolvedValue({
+      rejection: { reason: 'preview-required' },
+    });
+    const getWorkspaceTabs = jest.fn().mockReturnValue([{ ...idleTab, id: 'tab' }]);
+    TestBed.configureTestingModule({
+      providers: [
+        GenerationWorkflowStore,
+        {
+          provide: TabManagerService,
+          useValue: {
+            findTabByIdAcrossWorkspaces: () => ({
+              tab: idleTab,
+              workspacePath: null,
+            }),
+            getWorkspaceTabs,
+            isTabStreaming: () => false,
+          },
+        },
+        {
+          provide: WizardRpcService,
+          useValue: {
+            getBoundRunState: jest.fn().mockResolvedValue(null),
+            startBoundAgents,
+          },
+        },
+      ],
+    });
+    const store = TestBed.inject(GenerationWorkflowStore);
+    store.bind(binding);
+    await store.startAgents(['agent']);
+    expect(getWorkspaceTabs).toHaveBeenCalledWith('/ws');
+    expect(startBoundAgents).toHaveBeenCalledWith(binding, ['agent']);
+    expect(store.chatTurnRejection()).toBeNull();
+  });
+
+  it('rejects a tab owned by a different Electron workspace', async () => {
+    const startBoundAgents = jest.fn();
+    const getWorkspaceTabs = jest.fn().mockReturnValue([{ ...idleTab, id: 'tab' }]);
+    TestBed.configureTestingModule({
+      providers: [
+        GenerationWorkflowStore,
+        {
+          provide: TabManagerService,
+          useValue: {
+            findTabByIdAcrossWorkspaces: () => ({
+              tab: idleTab,
+              workspacePath: '/other',
+            }),
+            getWorkspaceTabs,
+            isTabStreaming: () => false,
+          },
+        },
+        {
+          provide: WizardRpcService,
+          useValue: {
+            getBoundRunState: jest.fn().mockResolvedValue(null),
+            startBoundAgents,
+          },
+        },
+      ],
+    });
+    const store = TestBed.inject(GenerationWorkflowStore);
+    store.bind(binding);
+    await store.startAgents(['agent']);
+    expect(startBoundAgents).not.toHaveBeenCalled();
+    expect(getWorkspaceTabs).not.toHaveBeenCalled();
+    expect(store.chatTurnRejection()).toBe('Finish this chat reply first');
+  });
+
   it('preserves an unconfirmed Stop and rereads the exact run', async () => {
     const getBoundRunState = jest.fn().mockResolvedValue(active);
     const cancelBoundRun = jest

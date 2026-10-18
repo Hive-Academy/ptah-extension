@@ -316,6 +316,79 @@ describe('wizard generation tab ownership and recovery', () => {
     expect(lookup.run?.result).toMatchObject({ status: 'failed', success: false });
   });
 
+  it('keeps a bound checkpoint failed until every failed agent is retried successfully', async () => {
+    const h = makeHarness();
+    recordingOrchestrator(h, [
+      outcome('agent-a', 'failed', { error: 'first failure' }),
+      outcome('agent-b', 'failed', { error: 'second failure' }),
+    ]);
+    h.handlers.register();
+    await call(h, 'wizard:preview-generation', {
+      selectedAgentIds: ['agent-a', 'agent-b'],
+      tabBinding: tab,
+    });
+    const submitted = await call<{
+      success: boolean;
+      accepted?: { runId: string };
+    }>(h, 'wizard:submit-selection', {
+      selectedAgentIds: ['agent-a', 'agent-b'],
+      tabBinding: tab,
+    });
+    expect(submitted.accepted?.runId).toBeDefined();
+    await settle();
+
+    const retryBinding = { ...tab, runId: submitted.accepted!.runId };
+    recordingOrchestrator(h, [outcome('agent-b', 'written')]);
+    const firstRetry = await call<{ success: boolean }>(
+      h,
+      'wizard:retry-item',
+      { itemId: 'agent-b', tabBinding: retryBinding },
+    );
+    expect(firstRetry.success).toBe(true);
+    expect(manifestAt(h).agents['agent-a'].status).toBe('failed');
+    expect(manifestAt(h).agents['agent-b'].status).toBe('written');
+    expect(manifestAt(h).lifecycle).toBe('failed');
+    const failedCompletion = completeBroadcasts(h)[1];
+    expect(failedCompletion).toMatchObject({
+      success: false,
+      terminalStatus: 'failed',
+      failedCount: 1,
+      result: { status: 'failed', success: false, counts: { failed: 1 } },
+    });
+    const failedLookup = await h.handlers.getGenerationRunState({
+      tabBinding: tab,
+      runId: retryBinding.runId,
+    });
+    expect(failedLookup.run?.result).toMatchObject({
+      status: 'failed',
+      success: false,
+      counts: { failed: 1 },
+    });
+
+    recordingOrchestrator(h, [outcome('agent-a', 'written')]);
+    const secondRetry = await call<{ success: boolean }>(
+      h,
+      'wizard:retry-item',
+      { itemId: 'agent-a', tabBinding: retryBinding },
+    );
+    expect(secondRetry.success).toBe(true);
+    expect(manifestAt(h).lifecycle).toBe('completed');
+    expect(completeBroadcasts(h)[2]).toMatchObject({
+      success: true,
+      terminalStatus: 'completed',
+      result: { status: 'completed', success: true, counts: { failed: 0 } },
+    });
+    const completedLookup = await h.handlers.getGenerationRunState({
+      tabBinding: tab,
+      runId: retryBinding.runId,
+    });
+    expect(completedLookup.run?.result).toMatchObject({
+      status: 'completed',
+      success: true,
+      counts: { failed: 0 },
+    });
+  });
+
   it('keeps completed propagation when a resumed run writes nothing', async () => {
     const h = makeHarness();
     seedCheckpoint(

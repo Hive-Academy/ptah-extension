@@ -20,6 +20,7 @@ import type {
   EnhancedPromptsCancelResponse,
 } from '@ptah-extension/shared';
 import { AgentSelection } from './setup-wizard-state.service';
+import { findBoundGenerationTab } from './bound-generation-tab';
 
 /**
  * Centralized RPC timeout budget for wizard backend calls. The values
@@ -122,9 +123,7 @@ export class WizardRpcService {
     selectedAgentIds: string[],
     resume = false,
   ): Promise<WizardSubmitSelectionResponse> {
-    const located = this.tabs.findTabByIdAcrossWorkspaces(binding.tabId);
-    const tab =
-      located?.workspacePath === binding.workspacePath ? located.tab : null;
+    const tab = findBoundGenerationTab(this.tabs, binding);
     const result = await this.rpcService.call(
       'wizard:submit-selection',
       {
@@ -152,9 +151,7 @@ export class WizardRpcService {
   async startBoundGuidance(
     binding: SetupGenerationTabBinding,
   ): Promise<EnhancedPromptsRunWizardResponse> {
-    const located = this.tabs.findTabByIdAcrossWorkspaces(binding.tabId);
-    const tab =
-      located?.workspacePath === binding.workspacePath ? located.tab : null;
+    const tab = findBoundGenerationTab(this.tabs, binding);
     const result = await this.rpcService.call(
       'enhancedPrompts:runWizard',
       {
@@ -173,9 +170,7 @@ export class WizardRpcService {
   async regenerateBoundGuidance(
     binding: SetupGenerationTabBinding,
   ): Promise<EnhancedPromptsRunWizardResponse> {
-    const located = this.tabs.findTabByIdAcrossWorkspaces(binding.tabId);
-    const tab =
-      located?.workspacePath === binding.workspacePath ? located.tab : null;
+    const tab = findBoundGenerationTab(this.tabs, binding);
     const result = await this.rpcService.call(
       'enhancedPrompts:regenerate',
       {

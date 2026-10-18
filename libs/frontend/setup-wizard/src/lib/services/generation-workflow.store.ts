@@ -7,6 +7,7 @@ import type {
   SetupGenerationTabBinding,
 } from '@ptah-extension/shared';
 import { WizardRpcService } from './wizard-rpc.service';
+import { findBoundGenerationTab } from './bound-generation-tab';
 
 export type GenerationViewState =
   | 'idle'
@@ -217,9 +218,7 @@ export class GenerationWorkflowStore {
   }
 
   private canStartInChat(binding: SetupGenerationTabBinding): boolean {
-    const located = this.tabs.findTabByIdAcrossWorkspaces(binding.tabId);
-    const tab =
-      located?.workspacePath === binding.workspacePath ? located.tab : null;
+    const tab = findBoundGenerationTab(this.tabs, binding);
     const busy =
       !tab ||
       tab.status === 'streaming' ||

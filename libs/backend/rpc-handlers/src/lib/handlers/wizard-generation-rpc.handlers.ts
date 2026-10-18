@@ -893,7 +893,7 @@ export class WizardGenerationRpcHandlers {
     bound = false,
     previousPropagation?: PreparedGenerationRun['previousPropagation'],
   ): Promise<void> {
-    const lifecycle =
+    let lifecycle =
       settled.abortReason === GENERATION_CANCEL_REASON
         ? 'paused'
         : settled.abortReason !== null
@@ -905,6 +905,30 @@ export class WizardGenerationRpcHandlers {
             : (settled.summary?.lifecycle ?? 'failed');
     let finalizeError: unknown;
     try {
+      if (
+        bound &&
+        settled.abortReason === null &&
+        settled.summary?.lifecycle === 'completed'
+      ) {
+        const checkpoint = await this.checkpoints.loadAt(location);
+        if (!checkpoint)
+          throw new Error('Generation checkpoint missing before settlement');
+        const recordedFailedCount = checkpoint.selectedAgentIds.filter(
+          (agentId) => checkpoint.agents[agentId]?.status === 'failed',
+        ).length;
+        if (recordedFailedCount > 0) {
+          lifecycle = 'failed';
+          settled.payload = {
+            ...settled.payload,
+            success: false,
+            failedCount: Math.max(
+              settled.payload.failedCount,
+              recordedFailedCount,
+            ),
+            errors: settled.payload.errors ?? ['Some agents still failed.'],
+          };
+        }
+      }
       await this.checkpoints.finalize(
         location,
         lifecycle,
@@ -1476,7 +1500,19 @@ export class WizardGenerationRpcHandlers {
         if (settled.failure?.thrown) {
           throw new Error(settled.failure.message);
         }
-        if (settled.payload.success) {
+        if (
+          settled.payload.success ||
+          (retryBinding &&
+            settled.resultDetails?.finalizationFailed !== true &&
+            settled.abortReason === null &&
+            settled.failure === null &&
+            settled.summary?.lifecycle === 'completed' &&
+            settled.summary.outcomes.some(
+              (outcome) =>
+                outcome.agentId === parsed.itemId &&
+                (outcome.status === 'written' || outcome.status === 'unchanged'),
+            ))
+        ) {
           return { success: true };
         }
         const errorMessage =

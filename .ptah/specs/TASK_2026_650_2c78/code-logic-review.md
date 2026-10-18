@@ -1055,3 +1055,48 @@ Scope: uncommitted diff plus `active-workspace-tab-set.ts` and `generation-agent
 
 Score: 8/10. Every finding is fixed; the open items are Moderate or Minor.
 Verdict: APPROVE. Blocking findings: none.
+
+## PR 763 CodeRabbit round 2 review
+
+Scope: uncommitted diff of `wizard-generation-rpc.handlers.ts`, `generation-workflow.store.ts`, `wizard-rpc.service.ts`, plus new `bound-generation-tab.ts`; supervisor and tab-partition code read for context. Nothing executed.
+
+| Finding | Status | Evidence |
+| --- | --- | --- |
+| CR 4308619380: retry success must not finalize the shared checkpoint as completed while another agent is failed | FIXED | `wizard-generation-rpc.handlers.ts:908-931` reloads the merged checkpoint, counts failed selected agents, forces `lifecycle='failed'` and rewrites payload (`success:false`, `failedCount` max, errors fallback) before `finalize` at :932. The broadcast reads the mutated `settled.payload` (`wizard-generation-run.supervisor.ts:296-336`), so the completion push says failed. |
+| Retry RPC still reports success for the retried item | FIXED | Widened condition at `wizard-generation-rpc.handlers.ts:1503-1515` requires bound retry, no finalizationFailed, no abort/failure, summary completed and a written/unchanged outcome for `parsed.itemId`. Non-bound and failed-item retries fall through to the error path as before. |
+| Retry with all failed agents fixed completes | OK | `recordedFailedCount` is 0, lifecycle stays `completed`, payload untouched, `success` true. |
+| First-run bound runs | Unchanged in effect | The new block only fires when `summary.lifecycle==='completed'`. Runs with failures were already `failed` via the existing `failedCount>0` branch. The only addition is an extra checkpoint read that can now throw (see M1). |
+| Tabless, legacy and CLI | Unchanged | Block gated on `bound`. `afterSettledWithoutCheckpoint` path untouched. `apps/ptah-cli` not in the diff. |
+| New `throw 'checkpoint missing before settlement'` | Safe | Thrown inside the try, stored in `finalizeError`, rethrown after propagation (:975). The supervisor catches `onSettled` errors (:301-317), sets `finalizationFailed`, rewrites the payload to failed, and still broadcasts. Run and active-controller cleanup is in `finally`. No unsettled lock, run or tab. |
+| CR 4308619384: VS Code bound tab treated as missing | FIXED for the four call sites | `bound-generation-tab.ts:5-17`. VS Code: the partition returns `workspacePath:null` (`tab-workspace-partition.service.ts:329-338`). The fallback `getWorkspaceTabs(root)` returns `_tabs()` when `isActiveWorkspaceTabSet` matches the configured root (`tab-manager.service.ts:887-896`). Used in `generation-workflow.store.ts:221` and `wizard-rpc.service.ts:126,154,173`. |
+| Electron partitioned path | Unchanged | First equality branch returns before the fallback. |
+| Electron with null partition | Still rejected | `isActiveWorkspaceTabSet` returns false when `!isVSCode`, then the partition lookup does not contain the tab, so the helper returns null. |
+| Other strict `workspacePath ===` bound-tab checks | NOT FIXED, same VS Code bug | See S1. |
+
+### Findings
+
+**S1 (Serious, non-blocking for the two CRs but the same defect class).** Strict `located?.workspacePath === binding.workspacePath` checks remain, and they evaluate false in VS Code (null partition):
+- `generation-run-event-adapter.ts:230-231` (finalize the owned message at terminal): `tab` is null, so it returns without `finalizeCurrentMessage`, leaving the streaming message unfinalized on every VS Code run.
+- `generation-run-event-adapter.ts:255` (`correctFinalizedMessage`): never corrects the message.
+- `generation-run-event-adapter.ts:353` (owned-message fallback in the run match): fallback never matches in VS Code.
+- `generation-handoff.store.ts:103`: after a landed open, `tab` is null, so the outcome is always `manual-recovery` and guidance never auto-starts in VS Code.
+- `agent-selection-list.component.ts:367,376`: blocked-owner label and `ownerInWorkspace` give wrong cosmetic results in VS Code.
+Fix: reuse `findBoundGenerationTab` (or a workspacePath-taking variant) in these sites. Whether they were in scope for the CR is debatable, but the handoff store and adapter are the same "bound tab missing in VS Code" bug and will be hit by the same user.
+
+**M1 (Moderate).** `loadAt` I/O errors in the new block (:913) now abort before `finalize` is attempted, so a transient read failure leaves the checkpoint `running` where `finalize` alone might have succeeded. The run is surfaced as a finalization failure (not silent), so this is acceptable. A narrower fallback (treat read failure as "unknown", still finalize with the computed lifecycle) would be more robust.
+
+**M2 (Minor).** The fallback error text `'Some agents still failed.'` is generic and does not name the agents. Acceptable.
+
+**M3 (Minor).** The helper has no sibling coverage for a binding whose workspace differs from the VS Code root (falls to null, correct by inspection). Specs for the helper paths were added in `wizard-rpc.service.spec.ts` and `generation-workflow.store.spec.ts`.
+
+### Five questions (brief)
+1. Silent failure: none new; the checkpoint-missing path is surfaced via finalizationFailed.
+2. User action: VS Code user hitting terminal events or handoff, see S1.
+3. Wrong data: retry payload `failedCount` is now reconciled against the checkpoint; correct.
+4. Dependency failure: checkpoint read failure, see M1.
+5. Missing: audit of sibling strict checks, see S1.
+
+### Verdict
+Score 8/10. Both CR fixes are correct and safely contained. S1 is a real adjacent defect, and I recommend fixing it in this PR or a tracked follow-up, but it does not invalidate the two requested fixes. Blocking findings: none.
+
+Verdict: APPROVE
