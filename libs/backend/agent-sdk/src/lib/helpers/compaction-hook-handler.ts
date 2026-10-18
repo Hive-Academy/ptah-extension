@@ -40,7 +40,7 @@ import type { CompactionBoundaryGenerationRegistry } from './compaction-boundary
 import type { CompactionCoordinator } from './compaction/compaction-coordinator';
 import type { IContextUsagePort } from './compaction/context-usage.port';
 import type { SubagentBudgetMonitor } from './compaction/subagent-budget-monitor';
-import type { IdleCompactionService } from './compaction/idle/idle-compaction.service';
+import type { IdleCompactionSignals } from './compaction/idle/idle-compaction.types';
 
 /** The session-keyed per-session state PostCompact moves to the new id. */
 type PostCompactRekeyTarget = Pick<IContextUsagePort, 'rekey'>;
@@ -161,7 +161,7 @@ export class CompactionHookHandler {
     @inject(SDK_TOKENS.SDK_SUBAGENT_BUDGET_MONITOR)
     private readonly subagentBudgetMonitor?: SubagentBudgetMonitor,
     @inject(SDK_TOKENS.SDK_IDLE_COMPACTION, { isOptional: true })
-    private readonly idleCompaction?: IdleCompactionService,
+    private readonly idleCompaction?: Pick<IdleCompactionSignals, 'rekey'>,
   ) {}
 
   /**

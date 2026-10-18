@@ -137,7 +137,7 @@ export class ChatSlashCommandRouterService {
                 decision: decision.action,
               },
             );
-            return { success: true, sessionId };
+            return { success: true, sessionId, settled: true };
           }
         } catch (error) {
           this.logger.warn(
@@ -180,7 +180,7 @@ export class ChatSlashCommandRouterService {
                   decision: admission.decision.action,
                 },
               );
-              return { success: true, sessionId };
+              return { success: true, sessionId, settled: true };
             }
             reservationId = admission.reservationId;
           } catch (error) {

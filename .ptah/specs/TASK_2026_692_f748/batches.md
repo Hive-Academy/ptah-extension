@@ -814,6 +814,18 @@ Decisions:
 
 - Command: `npx jest -c apps/ptah-electron/jest.config.ts apps/ptah-electron/src/di/container.smoke.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -15 && npx jest -c apps/ptah-extension-vscode/jest.config.ts apps/ptah-extension-vscode/src/di/container.smoke.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -15`
 
+## Batch 13F: Phase 2 fix round — COMPLETE
+
+- Executor: codex lane (decision #12). Report: `batch-13F-report.md`.
+- Scope: fail-open `SDK_IDLE_COMPACTION` factory (logic Serious), port typing for the facade and
+  hook handler (style Serious), `ChatContinueResult.settled` so a coalesced manual `/compact`
+  settles the tab (logic M2).
+- Orchestrator verification: agent-sdk idle + register smoke + lifecycle + hook handler specs
+  (9 suites, 133 tests), router idle-coalesce spec (10), `message-sender.service.spec.ts` (50);
+  typecheck agent-sdk, rpc-handlers, shared, chat pass.
+- File overlap with Batches 14-17: none (`rpc-chat.types.ts` and `message-sender.service.ts` are
+  not in their file lists).
+
 ## Batch 14: Notice contract and backend stamp — PENDING
 
 - Recommended executor: CLI lane [implementation, TypeScript backend]

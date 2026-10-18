@@ -99,35 +99,40 @@ export class IdleCompactionService implements IdleCompactionSignals {
         mergeMap((group) => this.sessionPipeline(group.key, group)),
       )
       .subscribe({ error: () => safeWarn(this.logger, 'pipeline-failed') });
-    if (callbacks) {
-      this.disposers.push(
-        callbacks.register((data) =>
-          this.enqueue({ type: 'pre-compact', sessionId: data.sessionId }),
-        ),
-      );
-    }
-    if (events) {
-      this.disposers.push(
-        events.onCompactionComplete((event) =>
-          this.enqueue({ type: 'post-compact', sessionId: event.sessionId }),
-        ),
-      );
-    }
-    if (workspace) {
-      const subscription = workspace.onDidChangeConfiguration((event) => {
-        if (
-          ![
-            'ptah.compaction.enabled',
-            'ptah.compaction.idleCompactionEnabled',
-            'ptah.compaction.idleCompactionMinTokens',
-          ].some((key) => event.affectsConfiguration(key))
-        )
-          return;
-        for (const id of this.currentIds.values()) {
-          this.enqueue({ type: 'settings-changed', sessionId: id });
-        }
-      });
-      this.disposers.push(() => subscription.dispose());
+    try {
+      if (callbacks) {
+        this.disposers.push(
+          callbacks.register((data) =>
+            this.enqueue({ type: 'pre-compact', sessionId: data.sessionId }),
+          ),
+        );
+      }
+      if (events) {
+        this.disposers.push(
+          events.onCompactionComplete((event) =>
+            this.enqueue({ type: 'post-compact', sessionId: event.sessionId }),
+          ),
+        );
+      }
+      if (workspace) {
+        const subscription = workspace.onDidChangeConfiguration((event) => {
+          if (
+            ![
+              'ptah.compaction.enabled',
+              'ptah.compaction.idleCompactionEnabled',
+              'ptah.compaction.idleCompactionMinTokens',
+            ].some((key) => event.affectsConfiguration(key))
+          )
+            return;
+          for (const id of this.currentIds.values()) {
+            this.enqueue({ type: 'settings-changed', sessionId: id });
+          }
+        });
+        this.disposers.push(() => subscription.dispose());
+      }
+    } catch (error) {
+      this.dispose();
+      throw error;
     }
   }
 

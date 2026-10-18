@@ -131,7 +131,11 @@ describe('manual /compact router admission', () => {
     expect(coordinator.claimIdle(sessionId, 'idle-1')).toBe('claimed');
     const h = makeHarness(coordinator);
 
-    await expect(h.route()).resolves.toEqual({ success: true, sessionId });
+    await expect(h.route()).resolves.toEqual({
+      success: true,
+      sessionId,
+      settled: true,
+    });
     expect(h.resolveProvider).not.toHaveBeenCalled();
     expect(h.executeSlashCommand).not.toHaveBeenCalled();
   });
@@ -147,7 +151,11 @@ describe('manual /compact router admission', () => {
     expect(coordinator.claimIdle(sessionId, 'idle-1')).toBe('claimed');
     provider.resolve(undefined);
 
-    await expect(result).resolves.toEqual({ success: true, sessionId });
+    await expect(result).resolves.toEqual({
+      success: true,
+      sessionId,
+      settled: true,
+    });
     expect(h.executeSlashCommand).not.toHaveBeenCalled();
   });
 
@@ -155,7 +163,11 @@ describe('manual /compact router admission', () => {
     expect(coordinator.onPreCompact(sessionId, 'auto')).toBe(true);
     const h = makeHarness(coordinator);
 
-    await expect(h.route()).resolves.toEqual({ success: true, sessionId });
+    await expect(h.route()).resolves.toEqual({
+      success: true,
+      sessionId,
+      settled: true,
+    });
     expect(h.executeSlashCommand).not.toHaveBeenCalled();
   });
 

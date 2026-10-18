@@ -775,6 +775,16 @@ export class MessageSenderService {
             result.data?.error ?? result.error ?? 'Failed to continue chat',
         };
       }
+      if (result.data?.settled === true) {
+        this.streamingHandler.removeUserPromptBoundary(
+          activeTabId,
+          userMessage.id,
+        );
+        this.tabManager.markLoaded(activeTabId);
+        this.tabManager.markTabIdle(activeTabId);
+        this.sessionManager.setStatus('loaded');
+        return { success: true };
+      }
       this.sessionManager.setStatus('streaming');
       this.tabManager.markStreaming(activeTabId);
       this.tabManager.markTabStreaming(activeTabId);

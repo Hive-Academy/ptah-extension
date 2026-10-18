@@ -71,8 +71,11 @@ import type { NoActivityWatchdog } from './no-activity-watchdog';
 import type { UsageCostSource } from '../session-stats/session-stats-owner.service';
 import type { HarnessPolicySync } from '../harness/harness-policy-sync';
 import type { CompactionConfigProvider } from './compaction-config-provider';
-import type { IdleCompactionService } from './compaction/idle/idle-compaction.service';
-import { IDLE_COMPACT_ORIGIN } from './compaction/idle/idle-compaction.types';
+import {
+  IDLE_COMPACT_ORIGIN,
+  type IdleBoundaryNotice,
+  type IdleCompactionFacadePort,
+} from './compaction/idle/idle-compaction.types';
 export type { SDKUserMessage, ContentBlock };
 export type {
   SessionRecord,
@@ -418,7 +421,7 @@ export class SessionLifecycleManager {
     @inject(SDK_TOKENS.SDK_SESSION_BUDGET, { isOptional: true })
     private readonly sessionBudget: SessionBudgetService | null = null,
     @inject(SDK_TOKENS.SDK_IDLE_COMPACTION, { isOptional: true })
-    private readonly idleCompaction: IdleCompactionService | null = null,
+    private readonly idleCompaction: IdleCompactionFacadePort | null = null,
   ) {
     this._registry = new SessionRegistry(this.logger);
     this._streamPump = new SessionStreamPump(
@@ -726,12 +729,9 @@ export class SessionLifecycleManager {
     );
   }
 
-  sendIdleCompact(
-    sessionId: SessionId,
-    beforeEnqueue: () => void,
-  ): Promise<void> {
+  sendIdleCompact(sessionId: string, beforeEnqueue: () => void): Promise<void> {
     return this._streamPump.sendMessage(
-      sessionId,
+      sessionId as SessionId,
       '/compact',
       undefined,
       undefined,
@@ -739,7 +739,9 @@ export class SessionLifecycleManager {
     );
   }
 
-  idleCompactionNoticeFor(sessionId: SessionId) {
+  idleCompactionNoticeFor(
+    sessionId: SessionId,
+  ): IdleBoundaryNotice | undefined {
     return this.idleCompaction?.boundaryNoticeFor(sessionId as string);
   }
 

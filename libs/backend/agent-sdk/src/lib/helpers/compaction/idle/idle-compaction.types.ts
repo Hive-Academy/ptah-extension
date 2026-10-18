@@ -250,6 +250,12 @@ export interface IdleCompactionSignals {
   rekey(from: string, to: string): void;
 }
 
+/** The session facade's idle signals and lifecycle operations. */
+export type IdleCompactionFacadePort = IdleCompactionSignals & {
+  boundaryNoticeFor(sessionId: string): IdleBoundaryNotice | undefined;
+  dispose(): void;
+};
+
 export interface IdleCompactSender {
   sendIdleCompact(sessionId: string, beforeEnqueue: () => void): Promise<void>;
 }
