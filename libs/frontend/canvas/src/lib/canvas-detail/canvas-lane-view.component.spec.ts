@@ -222,7 +222,8 @@ describe('CanvasLaneViewComponent', () => {
     expect(panel.classList).toContain('flex-col');
     expect(transcript.classList).toContain('min-h-0');
     expect(transcript.classList).toContain('flex-1');
-    expect(panel.querySelector('.rail-lane-enter')).not.toBeNull();
+    // The empty lane block must not take the transcript's height.
+    expect(panel.querySelector('.rail-lane-enter')?.classList).toContain('hidden');
 
     for (const key of ['cli:a', 'sub:task-tool', 'bg:task-tool']) {
       fixture.componentRef.setInput('laneKey', key);
@@ -231,7 +232,7 @@ describe('CanvasLaneViewComponent', () => {
       expect(host.classList).not.toContain('overflow-hidden');
       expect(panel.classList).not.toContain('flex');
       expect(transcript.classList).toContain('hidden');
-      expect(panel.querySelector('.rail-lane-enter')).not.toBeNull();
+      expect(panel.querySelector('.rail-lane-enter')?.classList).not.toContain('hidden');
     }
     subagents.set(new Map());
     fixture.detectChanges();

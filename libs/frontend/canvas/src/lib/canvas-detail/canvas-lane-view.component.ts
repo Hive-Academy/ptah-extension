@@ -99,7 +99,12 @@ export function effectiveCanvasLaneKind(
         <ptah-canvas-detail-transcript [tabId]="tabId()" [visible]="selectedKind() === 'orchestrator'" [paneFocused]="paneFocused()" [splitDisplayed]="splitDisplayed()" />
       </div>
       @for (block of laneBlocks(); track block.key) {
-        <div class="rail-lane-enter h-full min-h-0 flex flex-col">
+        <!-- Hidden for the orchestrator: an empty full-height block would take the transcript's height. -->
+        <div
+          class="rail-lane-enter h-full min-h-0 flex-col"
+          [class.flex]="selectedKind() !== 'orchestrator'"
+          [class.hidden]="selectedKind() === 'orchestrator'"
+        >
         @switch (selectedKind()) {
           @case ('cli') {
             @if (selectedCli(); as agent) {

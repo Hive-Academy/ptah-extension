@@ -85,7 +85,8 @@ describe('DisplaySheetComponent', () => {
     fixture.detectChanges();
     const host = fixture.nativeElement as HTMLElement;
     expect(host.style.display).not.toBe('none');
-    expect(host.querySelector('[data-testid="display-sheet-bar"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="display-sheet-bar"]')?.getAttribute('aria-label')).toBe('Display, 1 items');
+    expect(host.querySelector('[data-testid="display-sheet-bar"]')?.textContent).toContain('Display · 1');
     fixture.destroy();
   });
 
