@@ -29,6 +29,7 @@ describe('Command Center failure and fallback integration', () => {
     const { fixture, rpc, sender, pulses } = createHarness();
     const page = fixture.componentInstance.page;
     await page.open();
+    page.coordinator.chooseCurrentTab();
     page.voice['active'] = true;
     page.store.setVoiceState('thinking');
     answerTranscription(rpc, { transcript: 'First command' });
@@ -70,6 +71,7 @@ describe('Command Center failure and fallback integration', () => {
     const { fixture, rpc, sender } = createHarness();
     const page = fixture.componentInstance.page;
     await page.open();
+    page.coordinator.chooseCurrentTab();
     page.voice['active'] = true;
     page.store.setVoiceState('thinking');
     rpc.call.mockRejectedValueOnce(new Error('sk-test-123 stt backend down'));
@@ -93,6 +95,7 @@ describe('Command Center failure and fallback integration', () => {
     const { fixture, rpc, sender, pulses } = createHarness();
     const page = fixture.componentInstance.page;
     await page.open();
+    page.coordinator.chooseCurrentTab();
     page.voice['active'] = true;
     answerTranscription(rpc, { transcript: 'Summarize the build' });
     await page.voice['onClip'](clip);
@@ -146,6 +149,8 @@ describe('Command Center failure and fallback integration', () => {
     const { fixture, sender, pulses } = createHarness();
     const page = fixture.componentInstance.page;
     await page.open();
+    page.coordinator.chooseCurrentTab();
+    fixture.detectChanges();
     await page.sendCommand('Run the build');
     expect(page.store.sessionStatus()).toBe('running');
     const sessionId = page.store.sessionId();
@@ -181,6 +186,7 @@ describe('Command Center failure and fallback integration', () => {
     const { fixture, projectionInput, rpc, pulses } = createHarness();
     const page = fixture.componentInstance.page;
     await page.open();
+    page.coordinator.chooseCurrentTab();
     page.voice['active'] = true;
     answerTranscription(rpc, { transcript: 'Status' });
     const rootSessionId = page.store.sessionId() ?? '';
@@ -233,6 +239,7 @@ describe('Command Center failure and fallback integration', () => {
     const { fixture, sender } = createHarness();
     const page = fixture.componentInstance.page;
     await page.open();
+    page.coordinator.chooseCurrentTab();
     sender.send.mockRejectedValueOnce(
       new Error('sk-test-123 raw host failure'),
     );
@@ -251,6 +258,7 @@ describe('Command Center failure and fallback integration', () => {
     const { fixture } = createHarness();
     const page = fixture.componentInstance.page;
     await page.open();
+    page.coordinator.chooseCurrentTab();
     page.canvasUnavailable.set(true);
     fixture.detectChanges();
     expect(
@@ -267,6 +275,7 @@ describe('Command Center failure and fallback integration', () => {
     rpc.call.mockRejectedValueOnce(new Error('sk-test-123 invalid provider'));
     const page = fixture.componentInstance.page;
     await page.open();
+    page.coordinator.chooseCurrentTab();
     expect(page.store.provider()).toEqual({
       transcription: false,
       synthesis: false,

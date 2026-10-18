@@ -32,10 +32,15 @@ describe('CommandCenterSessionCoordinator', () => {
     switchTab: jest.Mock;
     createCommandCenterTab: jest.Mock;
     attachSession: jest.Mock;
+    forceCloseTab: jest.Mock;
     findTabBySessionId: jest.Mock;
     findTabByIdAcrossWorkspaces: jest.Mock;
   };
-  let records: { readActiveTabId: jest.Mock; readLastSession: jest.Mock };
+  let records: {
+    readActiveTabId: jest.Mock;
+    readLastSession: jest.Mock;
+    setActiveTabId: jest.Mock;
+  };
   let rpc: { call: jest.Mock };
   let sender: { send: jest.Mock };
   let chat: { switchSession: jest.Mock; handleQuestionResponse: jest.Mock };
@@ -49,6 +54,7 @@ describe('CommandCenterSessionCoordinator', () => {
       switchTab: jest.fn(),
       createCommandCenterTab: jest.fn(() => rootId),
       attachSession: jest.fn(),
+      forceCloseTab: jest.fn(),
       findTabBySessionId: jest.fn(() => null),
       findTabByIdAcrossWorkspaces: jest.fn((id: string) => ({
         tab: id === rootId ? root : other,
@@ -57,6 +63,7 @@ describe('CommandCenterSessionCoordinator', () => {
     records = {
       readActiveTabId: jest.fn(() => rootId),
       readLastSession: jest.fn(),
+      setActiveTabId: jest.fn(),
     };
     rpc = {
       call: jest.fn(async () => ({
@@ -87,12 +94,49 @@ describe('CommandCenterSessionCoordinator', () => {
 
   afterEach(() => TestBed.resetTestingModule());
 
-  it('reuses only the marked root when another tab has interleaved activity', async () => {
-    expect(await coordinator.openOrResume()).toBe(rootId);
+  it('opens on the start state without selecting the existing tab or saved session', async () => {
+    records.readLastSession.mockReturnValue({ sdkSessionId: sdkId });
+    expect(await coordinator.openStart()).toBeNull();
+    expect(store.markedTabId()).toBeNull();
+    expect(coordinator.currentTabId()).toBe(rootId);
+    expect(coordinator.recordedSessionId()).toBe(sdkId);
+    expect(tabs.switchTab).not.toHaveBeenCalled();
+    expect(chat.switchSession).not.toHaveBeenCalled();
+  });
+
+  it('loads a chosen session through the Command Center restore path', async () => {
+    await coordinator.openStart();
+    expect(
+      await coordinator.chooseSession('33333333-3333-4333-8333-333333333333'),
+    ).toBe(rootId);
+    expect(tabs.createCommandCenterTab).toHaveBeenCalledWith('Command Center');
+    expect(tabs.attachSession).toHaveBeenCalledWith(
+      rootId,
+      '33333333-3333-4333-8333-333333333333',
+    );
+    expect(chat.switchSession).toHaveBeenCalledWith(
+      '33333333-3333-4333-8333-333333333333',
+      { targetTabId: rootId },
+    );
+    expect(store.sessionId()).toBe('33333333-3333-4333-8333-333333333333');
+  });
+
+  it('creates a new session on send from the start state', async () => {
+    await coordinator.openStart();
+    expect(await coordinator.send('objective')).toBe(true);
+    expect(tabs.createCommandCenterTab).toHaveBeenCalledWith('Command Center');
+    expect(sender.send).toHaveBeenCalledWith(
+      'objective',
+      expect.objectContaining({ tabId: rootId }),
+    );
+  });
+
+  it('uses only the chosen root when another tab has interleaved activity', async () => {
+    await coordinator.openStart();
+    expect(await coordinator.chooseSession(sdkId)).toBe(rootId);
     expect(store.markedTabId()).toBe(rootId);
     expect(store.sessionId()).toBe(sdkId);
     expect(tabs.switchTab).toHaveBeenCalledWith(rootId);
-    expect(rpc.call).not.toHaveBeenCalled();
     coordinator.answerQuestion({ id: 'question', answers: {} });
     expect(chat.handleQuestionResponse).toHaveBeenCalledWith(
       expect.anything(),
@@ -100,48 +144,106 @@ describe('CommandCenterSessionCoordinator', () => {
     );
   });
 
-  it('validates and resumes the last recorded SDK session', async () => {
-    records.readActiveTabId.mockReturnValue(undefined);
-    records.readLastSession.mockReturnValue({ sdkSessionId: sdkId });
-    expect(await coordinator.openOrResume()).toBe(rootId);
-    expect(rpc.call).toHaveBeenCalledWith(
-      'session:list',
-      { workspacePath: '/repo' },
-      expect.anything(),
-    );
-    expect(tabs.attachSession).toHaveBeenCalledWith(rootId, sdkId);
-    expect(chat.switchSession).toHaveBeenCalledWith(sdkId, {
-      targetTabId: rootId,
-    });
-  });
-
   it('retries an unfinished marked-tab restore before reporting idle', async () => {
     const unfinished = { ...root, messages: [], hasLiveSession: false };
     tabs.tabs.mockReturnValue([unfinished, other]);
     chat.switchSession.mockRejectedValueOnce(new Error('restore failed'));
 
-    expect(await coordinator.openOrResume()).toBeNull();
+    await coordinator.openStart();
+    expect(await coordinator.chooseSession(sdkId)).toBeNull();
     expect(store.sessionStatus()).toBe('error');
     expect(chat.switchSession).toHaveBeenCalledWith(sdkId, {
       targetTabId: rootId,
     });
 
-    expect(await coordinator.openOrResume()).toBe(rootId);
+    expect(await coordinator.chooseSession(sdkId)).toBe(rootId);
     expect(chat.switchSession).toHaveBeenCalledTimes(2);
     expect(store.sessionStatus()).toBe('idle');
   });
 
   it('resumes an idle marked tab as idle', async () => {
-    expect(await coordinator.openOrResume()).toBe(rootId);
+    await coordinator.openStart();
+    expect(await coordinator.chooseSession(sdkId)).toBe(rootId);
     expect(store.sessionStatus()).toBe('idle');
   });
 
+  it('shows an error state without a workspace', async () => {
+    tabs.activeWorkspacePath = '';
+    await coordinator.openStart();
+    expect(coordinator.listStatus()).toBe('error');
+    expect(store.toast()?.message).toBe(
+      'Open a workspace to use Command Center.',
+    );
+  });
+
+  it('closes a failed new restore and permits retry', async () => {
+    records.readActiveTabId.mockReturnValueOnce(rootId);
+    chat.switchSession.mockRejectedValueOnce(new Error('restore failed'));
+    await coordinator.openStart();
+    expect(await coordinator.chooseSession(otherId)).toBeNull();
+    expect(tabs.forceCloseTab).toHaveBeenCalledWith(rootId);
+    expect(records.setActiveTabId).toHaveBeenCalledWith('/repo', null);
+    expect(await coordinator.chooseSession(otherId)).toBe(rootId);
+    expect(chat.switchSession).toHaveBeenCalledTimes(2);
+  });
+
+  it('ignores a second selection while restore is in flight', async () => {
+    let finish!: () => void;
+    chat.switchSession.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+    );
+    await coordinator.openStart();
+    const first = coordinator.chooseSession(otherId);
+    expect(coordinator.choosing()).toBe(true);
+    expect(await coordinator.chooseSession(sdkId)).toBeNull();
+    expect(tabs.createCommandCenterTab).toHaveBeenCalledTimes(1);
+    finish();
+    await first;
+    expect(coordinator.choosing()).toBe(false);
+  });
+
+  it('paginates All sessions and retries after a failed page', async () => {
+    const page = Array.from({ length: 50 }, (_, i) => ({
+      id: `${i}`,
+      lastActivityAt: i,
+    }));
+    rpc.call
+      .mockResolvedValueOnce({
+        success: true,
+        data: { sessions: page, hasMore: true },
+      })
+      .mockRejectedValueOnce(new Error('timeout'))
+      .mockResolvedValueOnce({
+        success: true,
+        data: { sessions: page, hasMore: true },
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        data: {
+          sessions: [{ id: 'last', lastActivityAt: 51 }],
+          hasMore: false,
+        },
+      });
+    coordinator.showAll.set(true);
+    await coordinator.refreshSessions();
+    expect(coordinator.listStatus()).toBe('error');
+    await coordinator.refreshSessions();
+    expect(coordinator.listStatus()).toBe('ready');
+    expect(coordinator.sessions()).toHaveLength(51);
+    expect(rpc.call).toHaveBeenLastCalledWith(
+      'session:list',
+      expect.objectContaining({ offset: 50 }),
+      expect.anything(),
+    );
+  });
+
   it('refuses to resume an SDK session already open in another tab', async () => {
-    records.readActiveTabId.mockReturnValue(undefined);
-    records.readLastSession.mockReturnValue({ sdkSessionId: sdkId });
     tabs.findTabBySessionId.mockReturnValue(other);
 
-    expect(await coordinator.openOrResume()).toBeNull();
+    await coordinator.openStart();
+    expect(await coordinator.chooseSession(otherId)).toBeNull();
     expect(tabs.switchTab).toHaveBeenCalledWith(otherId);
     expect(tabs.createCommandCenterTab).not.toHaveBeenCalled();
     expect(tabs.attachSession).not.toHaveBeenCalled();
@@ -151,36 +253,33 @@ describe('CommandCenterSessionCoordinator', () => {
     );
   });
 
-  it('creates a new marked tab when there is no prior session', async () => {
-    records.readActiveTabId.mockReturnValue(undefined);
-    expect(await coordinator.openOrResume()).toBe(rootId);
-    expect(tabs.createCommandCenterTab).toHaveBeenCalledWith('Command Center');
-    expect(store.sessionId()).toBeNull();
-  });
+  it('ignores an older session-list response after a newer refresh completes', async () => {
+    let resolveOld!: (value: {
+      success: boolean;
+      data: { sessions: typeof sessions };
+    }) => void;
+    const sessions = [{ id: sdkId, name: 'Old', lastActivityAt: 1 }];
+    rpc.call.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveOld = resolve;
+      }),
+    );
+    rpc.call.mockResolvedValueOnce({
+      success: true,
+      data: { sessions: [{ ...sessions[0], name: 'New' }] },
+    });
 
-  it('preserves the saved session when the list read fails', async () => {
-    records.readActiveTabId.mockReturnValue(undefined);
-    records.readLastSession.mockReturnValue({ sdkSessionId: sdkId });
-    rpc.call.mockResolvedValue({ success: false });
-    expect(await coordinator.openOrResume()).toBeNull();
-    expect(rpc.call).toHaveBeenCalledTimes(3);
-    expect(tabs.createCommandCenterTab).not.toHaveBeenCalled();
-    expect(store.sessionStatus()).toBe('error');
-  });
+    const oldRequest = coordinator.refreshSessions();
+    await coordinator.refreshSessions();
+    resolveOld({ success: true, data: { sessions } });
+    await oldRequest;
 
-  it('preserves the saved session when the successful list has no sessions array', async () => {
-    records.readActiveTabId.mockReturnValue(undefined);
-    records.readLastSession.mockReturnValue({ sdkSessionId: sdkId });
-    rpc.call.mockResolvedValue({ success: true, data: {} });
-
-    expect(await coordinator.openOrResume()).toBeNull();
-    expect(rpc.call).toHaveBeenCalledTimes(3);
-    expect(tabs.createCommandCenterTab).not.toHaveBeenCalled();
-    expect(store.sessionStatus()).toBe('error');
+    expect(coordinator.sessions()[0].name).toBe('New');
+    expect(coordinator.listStatus()).toBe('ready');
   });
 
   it('releases voice and resets meters when starting a new Command Center', async () => {
-    await coordinator.openOrResume();
+    coordinator.newCommandCenter();
     const lock = TestBed.inject(CommandCenterSendLockService);
     coordinator.startVoice();
     store.updateLevels(0.8, 0.8);
@@ -192,7 +291,8 @@ describe('CommandCenterSessionCoordinator', () => {
   });
 
   it('holds voice sends for nonowners and releases on mute and Stop', async () => {
-    await coordinator.openOrResume();
+    await coordinator.openStart();
+    await coordinator.chooseSession(sdkId);
     const lock = TestBed.inject(CommandCenterSendLockService);
     coordinator.startVoice();
     expect(lock.isHeld(rootId)).toBe(true);
@@ -220,7 +320,8 @@ describe('CommandCenterSessionCoordinator', () => {
   });
 
   it('prepends status context only for a status turn', async () => {
-    await coordinator.openOrResume();
+    await coordinator.openStart();
+    await coordinator.chooseSession(sdkId);
     coordinator.setStatusContextProvider(() => 'COMMAND_CENTER_STATUS_CONTEXT');
     await coordinator.send('normal');
     await coordinator.sendStatusTurn('status');
@@ -293,7 +394,8 @@ describe('CommandCenterSessionCoordinator', () => {
   );
 
   it('reports a send rejection with safe text and an error status', async () => {
-    await coordinator.openOrResume();
+    await coordinator.openStart();
+    await coordinator.chooseSession(sdkId);
     sender.send.mockResolvedValueOnce({
       success: false,
       error: 'private path',
@@ -359,15 +461,11 @@ describe('CommandCenterSessionCoordinator', () => {
   });
 
   it('refuses a send if the workspace changes while opening a tab', async () => {
-    let resolveOpen!: (tabId: string) => void;
-    jest.spyOn(coordinator, 'openOrResume').mockReturnValueOnce(
-      new Promise<string>((resolve) => {
-        resolveOpen = resolve;
-      }),
-    );
+    jest.spyOn(coordinator, 'newCommandCenter').mockImplementationOnce(() => {
+      tabs.activeWorkspacePath = '/other';
+      return rootId;
+    });
     const pending = coordinator.send('turn');
-    tabs.activeWorkspacePath = '/other';
-    resolveOpen(rootId);
     expect(await pending).toBe(false);
     expect(sender.send).not.toHaveBeenCalled();
     expect(store.toast()).toEqual({
