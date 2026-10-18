@@ -33,7 +33,7 @@ describe(InspectorSessionStatsComponent.name, () => {
     fixture.componentRef.setInput('stats', { ...stats, cache });
     fixture.detectChanges();
     const tile = root.querySelector('[data-testid="inspector-cache-tile"]');
-    expect(tile?.classList.contains('col-span-2')).toBe(true);
+    expect(root.querySelector('ptah-inspector-cache-tile')?.classList.contains('col-span-2')).toBe(true);
     expect(tile?.textContent).toContain('Cache expires in 60 min');
     fixture.componentRef.setInput('stats', { ...stats, sessionId: 'two', cache: { ttl: '5m', lastRequestAt: 0, expiresAt: 300_000 } });
     fixture.detectChanges();

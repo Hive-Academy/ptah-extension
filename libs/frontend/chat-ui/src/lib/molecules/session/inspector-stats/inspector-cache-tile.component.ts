@@ -9,8 +9,9 @@ const ESTIMATE_TITLE = 'Estimated from the last request. The server can evict ca
 @Component({
   selector: 'ptah-inspector-cache-tile',
   standalone: true,
+  host: { class: 'col-span-2 block min-w-0' },
   template: `
-    <div class="col-span-2 min-w-0 rounded-md border border-surface-border bg-surface-1 p-2.5" role="group"
+    <div class="min-w-0 rounded-md border border-surface-border bg-surface-1 p-2.5" role="group"
       data-testid="inspector-cache-tile" [title]="estimateTitle" [attr.aria-label]="accessibleText()">
       <div class="text-[11px] text-base-content-muted">Prompt cache · {{ cache().ttl }}</div>
       <div class="text-[15px] font-semibold tabular-nums">{{ expiryText() }}</div>
@@ -38,9 +39,15 @@ export class InspectorCacheTileComponent {
       ? null
       : `Idle compaction in ${Math.max(0, Math.ceil((fireAt - now) / 60_000))} min`;
   });
-  protected readonly accessibleText = computed(() =>
-    `Prompt cache ${this.cache().ttl}. ${this.expiryText()}. ${this.idleText() ?? ''} ${ESTIMATE_TITLE}`.trim(),
-  );
+  protected readonly accessibleText = computed(() => {
+    const idle = this.idleText();
+    return [
+      `Prompt cache ${this.cache().ttl}.`,
+      `${this.expiryText()}.`,
+      ...(idle ? [`${idle}.`] : []),
+      ESTIMATE_TITLE,
+    ].join(' ');
+  });
 
   constructor() {
     inject(DestroyRef).onDestroy(this.clock.acquire());
