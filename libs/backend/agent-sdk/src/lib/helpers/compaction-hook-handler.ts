@@ -40,6 +40,7 @@ import type { CompactionBoundaryGenerationRegistry } from './compaction-boundary
 import type { CompactionCoordinator } from './compaction/compaction-coordinator';
 import type { IContextUsagePort } from './compaction/context-usage.port';
 import type { SubagentBudgetMonitor } from './compaction/subagent-budget-monitor';
+import type { IdleCompactionSignals } from './compaction/idle/idle-compaction.types';
 
 /** The session-keyed per-session state PostCompact moves to the new id. */
 type PostCompactRekeyTarget = Pick<IContextUsagePort, 'rekey'>;
@@ -159,6 +160,8 @@ export class CompactionHookHandler {
     private readonly contextUsagePort?: IContextUsagePort,
     @inject(SDK_TOKENS.SDK_SUBAGENT_BUDGET_MONITOR)
     private readonly subagentBudgetMonitor?: SubagentBudgetMonitor,
+    @inject(SDK_TOKENS.SDK_IDLE_COMPACTION, { isOptional: true })
+    private readonly idleCompaction?: Pick<IdleCompactionSignals, 'rekey'>,
   ) {}
 
   /**
@@ -172,6 +175,7 @@ export class CompactionHookHandler {
     > = [
       ['context-usage-port', this.contextUsagePort],
       ['subagent-budget-monitor', this.subagentBudgetMonitor],
+      ['idle-compaction', this.idleCompaction],
     ];
     for (const [name, target] of targets) {
       if (!target) continue;
@@ -526,13 +530,15 @@ export class CompactionHookHandler {
                   input.session_id,
                   null,
                 );
-                if (postFallbackSessionId && postPayloadSessionId) {
+                if (postFallbackSessionId) {
                   this.notifyCoordinator('PostCompact', (coordinator) =>
                     coordinator.onPostCompact(
                       postFallbackSessionId,
-                      postPayloadSessionId,
+                      postPayloadSessionId ?? postFallbackSessionId,
                     ),
                   );
+                }
+                if (postFallbackSessionId && postPayloadSessionId) {
                   this.rekeySessionState(
                     postFallbackSessionId,
                     postPayloadSessionId,

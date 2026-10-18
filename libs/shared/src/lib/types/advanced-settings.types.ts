@@ -175,6 +175,28 @@ export const ADVANCED_SETTINGS: readonly AdvancedSetting[] = [
     default: 3_000_000,
     apply: 'live',
   },
+  {
+    key: 'compaction.idleCompactionEnabled',
+    group: 'context-budgets',
+    kind: 'boolean',
+    label: 'Compact idle chats',
+    help: "Before a long chat's prompt cache expires, Ptah compacts it so your next message costs less.",
+    default: true,
+    apply: 'live',
+  },
+  {
+    key: 'compaction.idleCompactionMinTokens',
+    group: 'context-budgets',
+    kind: 'number',
+    label: 'Compact idle chats from',
+    help: 'Ptah compacts an idle chat once it reaches this size.',
+    unit: 'tokens',
+    min: 100_000,
+    max: 5_000_000,
+    integer: true,
+    default: 200_000,
+    apply: 'live',
+  },
   // Codex agents. Read on each Codex spawn; 0 leaves the key out.
   {
     key: 'agentOrchestration.codexAutoCompactTokens',

@@ -62,6 +62,8 @@ export const KNOWN_CONFIG_KEYS = [
   'compaction.subagentHandoffTokens',
   'compaction.rotationSuggestTokens',
   'compaction.subagentStopWeightedTokens',
+  'compaction.idleCompactionEnabled',
+  'compaction.idleCompactionMinTokens',
   'reasoningEffort',
   'mcpPort',
   'apiUrl',

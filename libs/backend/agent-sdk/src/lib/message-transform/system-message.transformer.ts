@@ -106,10 +106,14 @@ export class SystemMessageTransformer {
             postTokens,
           }
         : undefined;
+    const idleCompaction = helpers.sessionLifecycle.idleCompactionNoticeFor?.(
+      (sdkMessage.session_id ?? resolvedSessionId) as SessionId,
+    );
     const compactionCompleteEvent: CompactionCompleteEvent = {
       id,
       boundaryId,
       ...(measurement && { measurement }),
+      ...(idleCompaction && { idleCompaction }),
       eventType: 'compaction_complete',
       timestamp: Date.now(),
       sessionId: resolvedSessionId,
