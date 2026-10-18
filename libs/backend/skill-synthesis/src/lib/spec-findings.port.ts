@@ -3,8 +3,10 @@
  * of `.ptah/specs`. Implemented by SpecHarvesterService; defaults to a no-op so
  * runtimes without a specs folder (or with the harvester disabled) still work.
  */
+import type { SkillRegistryKind } from './skill-registry.store';
+
 export interface SpecFindingsPort {
-  getRecentFindings(slug: string): Promise<string | null>;
+  getRecentFindings(slug: string, kind?: SkillRegistryKind): Promise<string | null>;
 }
 
 export const SPEC_FINDINGS_TOKEN = Symbol.for('PtahSpecFindings');

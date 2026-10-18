@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { MIGRATIONS } from '@ptah-extension/persistence-sqlite';
-import { mkdtemp, mkdir, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SpecHarvesterService } from './spec-harvester.service';
@@ -133,10 +133,29 @@ describe('SpecHarvesterService', () => {
     expect(await fileExists(join(dir, HARVEST_MARKER_FILE))).toBe(true);
   });
 
-  it('skips specs that already carry a harvest marker', async () => {
+  it('re-harvests a legacy marker to attach an artifact digest', async () => {
     await writeSpec('TASK_2026_002', { harvestedAt: 1 });
     const result = await svc.harvest();
-    expect(result.harvested).toBe(0);
+    expect(result.harvested).toBe(1);
+    expect(store.reconcileSubagentEvent).not.toHaveBeenCalled();
+  });
+
+  it('replaces a grade after a corrected review without repeating the old reconciliation', async () => {
+    const grades = {
+      findAttributions: jest.fn().mockReturnValue([{ kind: 'agent', slug: 'backend-developer', runId: 'run-1', sessionId: 'session-1', attributionKey: 'run:run-1', finalReview: null }]),
+      upsert: jest.fn(), removeAbsent: jest.fn(), hasGradeForTask: jest.fn().mockReturnValue(false),
+    };
+    svc = new SpecHarvesterService(makeLogger() as never, { getWorkspaceRoot: () => root } as never, store as never, grades as never);
+    const dir = await writeSpec('TASK_2026_090', {
+      tasksMd: '## Batch 1: Backend — IN PROGRESS\n\n**Recommended Executor**: backend-developer\n',
+      review: 'Verdict: FAIL\nRun ID: run-1',
+    });
+    await svc.harvest();
+    expect(grades.upsert).toHaveBeenCalledWith(expect.objectContaining({ verdict: 'fail', sourceFile: 'code-logic-review.md' }));
+    await expect(readFile(join(dir, HARVEST_MARKER_FILE), 'utf8')).resolves.toContain('artifactDigest');
+    await writeFile(join(dir, 'code-logic-review.md'), 'Verdict: PASS\nRun ID: run-1', 'utf8');
+    await svc.harvest();
+    expect(grades.upsert).toHaveBeenLastCalledWith(expect.objectContaining({ verdict: 'pass' }));
     expect(store.reconcileSubagentEvent).not.toHaveBeenCalled();
   });
 
