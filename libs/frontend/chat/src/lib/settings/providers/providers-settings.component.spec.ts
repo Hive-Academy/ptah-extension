@@ -80,8 +80,6 @@ class StateStub {
   // Read by the connection drawer's Used-by list.
   readonly memory = signal(ready({ curatorProvider: '' }));
   readonly enhancement = signal(ready({ provider: '', model: '', timeoutMs: 120000 }));
-  readonly lanes = signal(ready({}));
-  readonly judging = signal(ready({ judgeProvider: '' }));
   readonly customEntry = jest.fn(() => null);
   readonly deleteStoredKey = jest.fn(async (_id: string, _context: unknown) => true);
   readonly disconnectCopilot = jest.fn(async (_context: unknown) => true);
@@ -111,7 +109,6 @@ class StateStub {
   readonly refreshConnections = jest.fn(async () => undefined);
   readonly refreshCliAgents = jest.fn(async () => undefined);
   readonly refreshCliModels = jest.fn(async () => undefined);
-  readonly refreshJudging = jest.fn(async () => undefined);
   readonly refreshEnhancement = jest.fn(async () => undefined);
   readonly refreshOrchestration = jest.fn(async () => undefined);
   readonly reviewContext = jest.fn(() => ({ scopeKey: 'workspace', activePath: '/workspace' }));
@@ -307,6 +304,13 @@ describe('ProvidersSettingsComponent', () => {
         state.orchestration.set(ready({ detectedClis: [{ cli: 'codex', installed: true }], disabledClis: ['codex'] })); await render();
         expect(codexCount()).toBe('Used by 1');
         expect(element.querySelector('[data-used-by="codex-cli"]')).toBeNull();
+      });
+
+      it('attributes Enhancement to its selected provider from the enhancement slice', async () => {
+        state.enhancement.set(ready({ provider: 'second', model: '', timeoutMs: 120000 }));
+        state.route.set(ready(route)); await render();
+        await openDrawer('second');
+        expect(element.querySelector('[data-used-by="enhancement"]')?.textContent).toContain('Enhancement');
       });
     });
 

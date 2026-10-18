@@ -851,8 +851,7 @@ export class ProvidersSettingsComponent implements OnInit, OnDestroy {
     [
       this.state.route(),
       this.state.memory(),
-      this.state.lanes(),
-      this.state.judging(),
+      this.state.enhancement(),
       this.state.cliAgents(),
       this.state.orchestration(),
     ].some((section) => section.status === 'error'),

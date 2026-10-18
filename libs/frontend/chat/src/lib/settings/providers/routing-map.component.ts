@@ -4,19 +4,11 @@ import {
   AppStateManager, ProvidersSettingsStateService, type ProvidersEffectiveRoute, type ProvidersOrchestration,
   type ProvidersSettingsSection,
 } from '@ptah-extension/core';
-import type { SkillLaneIdDto } from '@ptah-extension/shared';
 import { RoutingMapNodeComponent, type RoutingNodeState, type RoutingNodeTone } from './routing-map-node.component';
 
 export type RoutingNodeId = 'main-agent' | 'background-roles' | 'cli-agents';
 
 /** Background roles in the order the Orchestration tab lists them (as `connection-usage.ts`). */
-const LANES: readonly { readonly id: SkillLaneIdDto; readonly label: string }[] = [
-  { id: 'archaeologist', label: 'Archaeologist lane' },
-  { id: 'synthesis', label: 'Synthesis lane' },
-  { id: 'judge', label: 'Judge lane' },
-  { id: 'replay', label: 'Replay lane' },
-];
-
 export interface BackgroundRolesPreview {
   /** Roles with a provider of their own, in list order: `{ label, provider }` (provider = connection name). */
   readonly explicit: readonly { readonly label: string; readonly provider: string }[];
@@ -25,17 +17,15 @@ export interface BackgroundRolesPreview {
   readonly total: number;
 }
 
-/** The six background roles, split into explicitly assigned ones and those following the main agent. */
+/** The background roles, split into explicitly assigned ones and those following the main agent. */
 export function backgroundRolesPreview(
   curatorProvider: string,
-  lanes: Readonly<Partial<Record<SkillLaneIdDto, { readonly provider?: string }>>>,
-  judgeProvider: string,
+  enhancementProvider: string,
   nameOf: (providerId: string) => string,
 ): BackgroundRolesPreview {
   const roles = [
     { label: 'Memory curator', provider: curatorProvider },
-    ...LANES.map((lane) => ({ label: lane.label, provider: lanes[lane.id]?.provider ?? '' })),
-    { label: 'Judging & enhancement', provider: judgeProvider },
+    { label: 'Enhancement', provider: enhancementProvider },
   ];
   const explicit = roles.filter((role) => role.provider.trim())
     .map((role) => ({ label: role.label, provider: nameOf(role.provider.trim()) }));
@@ -246,10 +236,10 @@ export class RoutingMapComponent {
   });
 
   protected readonly background = computed(() => {
-    const memory = this.state.memory(), lanes = this.state.lanes(), judging = this.state.judging();
-    const state = sectionState(memory, lanes, judging);
+    const memory = this.state.memory(), enhancement = this.state.enhancement();
+    const state = sectionState(memory, enhancement);
     const preview = state === 'ready'
-      ? backgroundRolesPreview(memory.data?.curatorProvider ?? '', lanes.data ?? {}, judging.data?.judgeProvider ?? '',
+      ? backgroundRolesPreview(memory.data?.curatorProvider ?? '', enhancement.data?.provider ?? '',
         (id) => this.nameOf(id))
       : null;
     return {
@@ -283,7 +273,6 @@ export class RoutingMapComponent {
   /** Re-reads only the background sections that failed. */
   protected retryBackground(): void {
     if (this.state.memory().status === 'error') void this.state.refreshMemory();
-    if (this.state.lanes().status === 'error') void this.state.refreshLanes();
-    if (this.state.judging().status === 'error') void this.state.refreshJudging();
+    if (this.state.enhancement().status === 'error') void this.state.refreshEnhancement();
   }
 }
