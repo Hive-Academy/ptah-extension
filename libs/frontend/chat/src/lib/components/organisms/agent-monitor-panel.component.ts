@@ -48,10 +48,7 @@ import {
 } from 'lucide-angular';
 import { VSCodeService } from '@ptah-extension/core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
-import type {
-  AgentPermissionRequest,
-  SubagentTranscriptMessage,
-} from '@ptah-extension/shared';
+import type { AgentPermissionRequest } from '@ptah-extension/shared';
 import {
   AgentMonitorStore,
   agentVisibleInSession,
@@ -59,12 +56,11 @@ import {
   type MonitoredAgent,
   type SubagentRecord,
 } from '@ptah-extension/chat-streaming';
-import { SubagentTranscriptViewerComponent } from '@ptah-extension/chat-ui';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { PanelResizeService } from '../../services/panel-resize.service';
 import { AgentCardComponent } from '../molecules/agent-card/agent-card.component';
 import { AgentContinueInputComponent } from '../molecules/agent-continue-input/agent-continue-input.component';
-import { SubagentUsageSummaryComponent } from '../molecules/agent-card/subagent-usage-summary.component';
+import { SubagentLaneComponent } from './subagent-lane/subagent-lane.component';
 import {
   groupAgentsByWorkflowRun,
   type WorkflowRunGroup,
@@ -86,7 +82,7 @@ export { groupAgentsByWorkflowRun, type WorkflowRunGroup };
  * workflow agents — CLI `MonitoredAgent`s and SDK `SubagentRecord`s — into one
  * render/selection shape. `key` is the selection key (a MonitoredAgent
  * `agentId` or a SubagentRecord `parentToolUseId`); `kind` drives the detail
- * view (card vs transcript). Satisfies `WorkflowGroupable` structurally, so it
+ * view (card vs subagent lane). Satisfies `WorkflowGroupable` structurally, so it
  * feeds `groupAgentsByWorkflowRun` directly.
  */
 interface WorkflowTileVM {
@@ -190,8 +186,7 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
     LucideAngularModule,
     AgentCardComponent,
     AgentContinueInputComponent,
-    SubagentTranscriptViewerComponent,
-    SubagentUsageSummaryComponent,
+    SubagentLaneComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
@@ -567,34 +562,19 @@ function subagentToTile(r: SubagentRecord): WorkflowTileVM {
           <div #agentScrollContent>
             @if (!showLaneGrid()) {
               @if (selectedWorkflowSubagent(); as sub) {
-                <!-- Workflow subagent detail = its saved transcript. A SubagentRecord
-                 has no MonitoredAgent shape (no card / permissions / continue),
-                 so we render the shared transcript viewer instead. -->
+                <!-- The lane owns the execution tree and saved history. -->
                 <div class="p-1.5">
-                  <ptah-subagent-usage-summary [record]="sub" />
-                  @if (
-                    sub.workflowRunId ||
-                    (sub.agentId && selectedTranscriptSessionId())
-                  ) {
-                    <ptah-subagent-transcript-viewer
-                      [agentName]="
-                        sub.teammateName || sub.description || 'Subagent'
-                      "
-                      [messages]="transcriptMessages()"
-                      [loading]="transcriptLoading()"
-                      [error]="transcriptError()"
-                      (refresh)="reloadTranscript()"
-                      (closed)="deselect()"
-                    />
-                  } @else {
-                    <div
-                      class="flex flex-col items-center justify-center h-32 text-center"
-                    >
-                      <span class="text-sm text-base-content-muted"
-                        >Transcript is not available yet</span
-                      >
-                    </div>
-                  }
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs mb-1"
+                    (click)="deselect()"
+                  >
+                    Back to agents
+                  </button>
+                  <ptah-subagent-lane
+                    [record]="sub"
+                    [sessionId]="selectedSubagentSessionId()"
+                  />
                 </div>
               } @else if (effectiveSelectedAgent(); as agent) {
                 <ng-container
@@ -792,7 +772,7 @@ export class AgentMonitorPanelComponent {
    * appear in workflow subagents, and deduplicated by parentToolUseId.
    * If the currently selected agent is a session subagent that has transitioned to
    * a terminal state (completed, failed, etc.), it is preserved here so its tile
-   * and transcript detail remain visible until the user selects another agent
+   * and subagent lane remain visible until the user selects another agent
    * or clicks clear completed.
    */
   readonly sessionSubagents = computed<SubagentRecord[]>(() => {
@@ -817,15 +797,15 @@ export class AgentMonitorPanelComponent {
           this.strictSessionScope && !sid
             ? false
             : sid === null
-            ? activeSessionId
-              ? agentVisibleInSession(
-                  selectedRec.parentSessionId,
-                  activeSessionId,
-                )
-              : true
-            : this.strictSessionScope
-              ? !!sid && selectedRec.parentSessionId === sid
-              : agentVisibleInSession(selectedRec.parentSessionId, sid);
+              ? activeSessionId
+                ? agentVisibleInSession(
+                    selectedRec.parentSessionId,
+                    activeSessionId,
+                  )
+                : true
+              : this.strictSessionScope
+                ? !!sid && selectedRec.parentSessionId === sid
+                : agentVisibleInSession(selectedRec.parentSessionId, sid);
         if (isVisible) {
           result.push(selectedRec);
           seen.add(selectedId);
@@ -911,7 +891,7 @@ export class AgentMonitorPanelComponent {
 
   /**
    * The selected SubagentRecord (workflow or session-level), when the current selection
-   * key points at one. Drives the transcript detail view (vs the MonitoredAgent card).
+   * key points at one. Drives the subagent lane (vs the MonitoredAgent card).
    */
   readonly selectedWorkflowSubagent = computed<SubagentRecord | null>(() => {
     const key = this.selectedAgentId();
@@ -926,12 +906,11 @@ export class AgentMonitorPanelComponent {
   });
 
   /**
-   * Session to read the selected subagent's transcript from: its own
+   * Session for the selected subagent's lane actions and history: its own
    * `parentSessionId`, else this panel's session, else the active tab's. A
-   * record whose events carried an empty session id would otherwise never
-   * load its transcript.
+   * record whose events carried an empty session id still has a lane.
    */
-  readonly selectedTranscriptSessionId = computed<string | null>(() => {
+  readonly selectedSubagentSessionId = computed<string | null>(() => {
     const sub = this.selectedWorkflowSubagent();
     if (!sub) return null;
     return (
@@ -965,22 +944,6 @@ export class AgentMonitorPanelComponent {
     }
     return agents[0] ?? null;
   });
-
-  // Transcript state for a selected workflow subagent. Loaded on demand via the
-  // store's `subagent:transcript` RPC and fed to the presentational viewer. A
-  // monotonic token guards against out-of-order responses (rapid selection).
-  private readonly _transcriptMessages = signal<
-    readonly SubagentTranscriptMessage[]
-  >([]);
-  private readonly _transcriptLoading = signal(false);
-  private readonly _transcriptError = signal<string | null>(null);
-  readonly transcriptMessages = this._transcriptMessages.asReadonly();
-  readonly transcriptLoading = this._transcriptLoading.asReadonly();
-  readonly transcriptError = this._transcriptError.asReadonly();
-  private _transcriptToken = 0;
-  /** Identity of the last transcript we loaded, so we don't re-fetch on every
-   *  progress-driven SubagentRecord reference change. */
-  private _lastTranscriptKey: string | null = null;
 
   constructor() {
     afterNextRender(() => {
@@ -1103,21 +1066,6 @@ export class AgentMonitorPanelComponent {
       });
     });
 
-    // Load the transcript when the selected workflow subagent's identity
-    // (session + agentId) changes. Keyed so per-progress record churn doesn't
-    // re-fire the RPC.
-    effect(() => {
-      const sub = this.selectedWorkflowSubagent();
-      const sessionId = this.selectedTranscriptSessionId();
-      const key =
-        sub && sub.agentId && sessionId ? `${sessionId}::${sub.agentId}` : null;
-      untracked(() => {
-        if (key === this._lastTranscriptKey) return;
-        this._lastTranscriptKey = key;
-        void this.loadTranscriptFor(sub, sessionId);
-      });
-    });
-
     // Sticky-to-bottom: follow streaming agent output as it grows, the same
     // way the conductor chat tile does. The content wrapper is always present
     // (it brackets both the agent detail and the empty state), so the observer
@@ -1190,7 +1138,7 @@ export class AgentMonitorPanelComponent {
     // Switching/auto-selecting an agent re-follows its latest output.
     this.pinnedToBottom = true;
     // Expand only applies to CLI MonitoredAgents; workflow subagent keys won't
-    // match here and are left untouched (their detail is the transcript view).
+    // match here and are left untouched (their detail is the subagent lane).
     const agent = this.effectiveAgents().find((a) => a.agentId === agentId);
     if (agent && !agent.expanded) {
       this.store.toggleAgentExpanded(agentId);
@@ -1202,57 +1150,12 @@ export class AgentMonitorPanelComponent {
     this.workflowDetailPicked.set(false);
   }
 
-  /** Re-fetch the currently selected workflow subagent's transcript. */
-  reloadTranscript(): void {
-    void this.loadTranscriptFor(
-      this.selectedWorkflowSubagent(),
-      this.selectedTranscriptSessionId(),
-    );
-  }
-
-  /** Close the transcript view — land back on a standalone agent or clear. */
+  /** Leave the workflow detail and return to standalone agents. */
   deselect(): void {
     this.workflowPermissions.onUserNavigation();
     this.workflowDetailPicked.set(false);
     const first = this.standaloneAgents()[0];
     this.selectedAgentId.set(first ? first.agentId : null);
-  }
-
-  /**
-   * Fetch a workflow subagent's saved transcript via the store's
-   * `subagent:transcript` RPC. Reuses the existing store method (same path the
-   * inline bubble / background-agent tray use). A missing agentId/session (no
-   * viewable transcript) clears to the viewer's empty state.
-   */
-  private async loadTranscriptFor(
-    sub: SubagentRecord | null,
-    sessionId: string | null,
-  ): Promise<void> {
-    if (!sub || !sub.agentId || !sessionId) {
-      this._transcriptToken++;
-      this._transcriptMessages.set([]);
-      this._transcriptError.set(null);
-      this._transcriptLoading.set(false);
-      return;
-    }
-    const token = ++this._transcriptToken;
-    this._transcriptLoading.set(true);
-    this._transcriptError.set(null);
-    try {
-      const messages = await this.store.getSubagentTranscript(
-        sessionId,
-        sub.agentId,
-      );
-      if (token !== this._transcriptToken) return;
-      this._transcriptMessages.set(messages);
-    } catch (err: unknown) {
-      if (token !== this._transcriptToken) return;
-      this._transcriptError.set(
-        err instanceof Error ? err.message : 'Failed to load transcript',
-      );
-    } finally {
-      if (token === this._transcriptToken) this._transcriptLoading.set(false);
-    }
   }
 
   onClose(): void {
