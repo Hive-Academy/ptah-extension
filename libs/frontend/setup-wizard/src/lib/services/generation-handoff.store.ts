@@ -37,7 +37,8 @@ export class GenerationHandoffStore {
   }
 
   schedule(agentTabId: string, workspacePath: string): void {
-    this.skip();
+    this.clearTimer();
+    this.pendingValue.set(null);
     const handoff = {
       agentTabId,
       workspacePath,
@@ -49,10 +50,14 @@ export class GenerationHandoffStore {
   }
 
   skip(): void {
-    if (this.timer) clearTimeout(this.timer);
-    this.timer = null;
+    this.clearTimer();
     this.pendingValue.set(null);
     this.outcomeValue.set('skipped');
+  }
+
+  private clearTimer(): void {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
   }
 
   tabClosed(tabId: string): void {
@@ -62,7 +67,8 @@ export class GenerationHandoffStore {
   async startNow(): Promise<void> {
     const pending = this.pendingValue();
     if (!pending) return;
-    this.skip();
+    this.clearTimer();
+    this.pendingValue.set(null);
     if (
       !this.tabs
         .getWorkspaceTabs(pending.workspacePath)
@@ -73,7 +79,9 @@ export class GenerationHandoffStore {
   }
 
   async manualContinue(workspacePath: string): Promise<void> {
-    this.skip();
+    this.clearTimer();
+    this.pendingValue.set(null);
+    this.outcomeValue.set('idle');
     await this.openAndStart(workspacePath, true);
   }
 

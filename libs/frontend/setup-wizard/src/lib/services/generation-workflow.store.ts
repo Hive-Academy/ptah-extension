@@ -143,6 +143,8 @@ export class GenerationWorkflowStore {
       return;
     if (!this.canStartInChat(binding)) return;
     this.stateValue.set('starting');
+    this.rejectionValue.set(null);
+    this.startError.set(null);
     try {
       const response = force
         ? await this.rpc.regenerateBoundGuidance(binding)
@@ -151,8 +153,16 @@ export class GenerationWorkflowStore {
       if (response.accepted) await this.accept(binding, response.accepted);
       else if (response.rejection) this.reject(response.rejection);
       else await this.refresh();
-    } catch {
-      if (this.sameBinding(binding)) await this.refresh();
+    } catch (error: unknown) {
+      if (this.sameBinding(binding)) {
+        if (
+          error instanceof Error &&
+          error.message ===
+            'The selected model is not available for this provider.'
+        )
+          this.startError.set(error.message);
+        await this.refresh();
+      }
     }
   }
 

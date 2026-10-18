@@ -32,16 +32,38 @@ import { GuidanceResultPanelComponent } from './guidance-result-panel.component'
       [snapshot]="guidance.snapshot()"
       (stopRequested)="workflow.stop()"
       (retryRequested)="workflow.startGuidance()"
-      (refreshRequested)="workflow.refresh()"
+      (refreshRequested)="refresh()"
     />
     @if (!workflow.isBound()) {
       <button
         type="button"
         class="btn btn-primary btn-sm"
         (click)="workflow.startGuidance()"
+        [disabled]="workflow.isBound()"
       >
         Generate guidance
       </button>
+    }
+    @if (workflow.rejection(); as rejection) {
+      <p class="alert alert-warning text-sm" role="alert">
+        @if (rejection.reason === 'blocked') {
+          This run is active in another tab.
+        } @else if (rejection.reason === 'workspace-mismatch') {
+          Switch to this workspace before generating guidance.
+        } @else {
+          Project guidance could not start. Try again.
+        }
+      </p>
+    }
+    @if (workflow.chatTurnRejection()) {
+      <p class="alert alert-warning text-sm" role="alert">
+        Finish this chat reply first.
+      </p>
+    }
+    @if (workflow.startError()) {
+      <p class="alert alert-warning text-sm" role="alert">
+        The selected model is not available for this provider.
+      </p>
     }
     @if (
       guidance.run()?.committedState === 'unchanged' && status() === 'completed'
@@ -52,6 +74,7 @@ import { GuidanceResultPanelComponent } from './guidance-result-panel.component'
     }
     <ptah-guidance-result-panel
       [result]="guidance.result()"
+      [runActive]="workflow.isBound()"
       (enabledChanged)="guidance.setEnabled($event)"
       (cacheRequested)="guidance.refreshCommitted()"
       (contentRequested)="guidance.loadContent()"
@@ -84,4 +107,8 @@ export class GenerationGuidancePageComponent {
     }
     return this.guidance.status();
   });
+  refresh(): void {
+    void this.workflow.refresh();
+    void this.guidance.refresh();
+  }
 }

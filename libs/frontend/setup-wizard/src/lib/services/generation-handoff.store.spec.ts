@@ -62,6 +62,49 @@ describe('GenerationHandoffStore', () => {
     expect(store.outcome()).toBe('started');
   });
 
+  it('submits once from Start now and once from a later deadline without a mounted shell', async () => {
+    const open = jest
+      .fn()
+      .mockResolvedValue({ outcome: 'landed', tabId: 'guidance' });
+    const startBoundGuidance = jest
+      .fn()
+      .mockResolvedValue({ accepted: { runId: 'run' } });
+    TestBed.configureTestingModule({
+      providers: [
+        GenerationHandoffStore,
+        {
+          provide: TabManagerService,
+          useValue: {
+            tabs: signal([{ id: 'agent' }]),
+            getWorkspaceTabs: () => [{ id: 'agent' }],
+            findTabByIdAcrossWorkspaces: () => ({
+              workspacePath: '/ws',
+              tab: {
+                status: 'loaded',
+                streamingState: null,
+                queuedContent: null,
+                queuedOptions: null,
+              },
+            }),
+            isTabStreaming: () => false,
+          },
+        },
+        { provide: GenerationWorkflowLauncherService, useValue: { open } },
+        { provide: WizardRpcService, useValue: { startBoundGuidance } },
+      ],
+    });
+    const store = TestBed.inject(GenerationHandoffStore);
+    store.schedule('agent', '/ws');
+    await store.startNow();
+    expect(store.outcome()).toBe('started');
+    await jest.advanceTimersByTimeAsync(5000);
+    expect(startBoundGuidance).toHaveBeenCalledTimes(1);
+    store.schedule('agent', '/ws');
+    await jest.advanceTimersByTimeAsync(5000);
+    expect(startBoundGuidance).toHaveBeenCalledTimes(2);
+    expect(store.outcome()).toBe('started');
+  });
+
   it('keeps the deadline across a tab switch, clears it on reload, and offers manual recovery', async () => {
     const tabs = signal([{ id: 'agent' }]);
     const open = jest.fn().mockResolvedValue({ outcome: 'failed' });

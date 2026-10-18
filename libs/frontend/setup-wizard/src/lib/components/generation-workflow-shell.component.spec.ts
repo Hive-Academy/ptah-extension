@@ -5,6 +5,7 @@ import { BehaviorSubject } from 'rxjs';
 import { convertToParamMap } from '@angular/router';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { GenerationWorkflowLauncherService } from '@ptah-extension/chat-ui';
+import type { SetupGenerationRunState } from '@ptah-extension/shared';
 import { GenerationWorkflowStore } from '../services/generation-workflow.store';
 import { AgentGenerationStore } from '../services/agent-generation.store';
 import { GenerationHandoffStore } from '../services/generation-handoff.store';
@@ -15,6 +16,9 @@ describe('GenerationWorkflowShellComponent', () => {
   it('consumes the launch intent when a guidance tab binds', () => {
     const consumeOrigin = jest.fn().mockReturnValue('independent-start');
     const bindGuidance = jest.fn();
+    const refreshGuidance = jest.fn();
+    const adoptGuidance = jest.fn();
+    const guidanceRun = signal<SetupGenerationRunState | null>(null);
     TestBed.configureTestingModule({
       providers: [
         {
@@ -53,7 +57,7 @@ describe('GenerationWorkflowShellComponent', () => {
           useValue: {
             bind: jest.fn(),
             unbind: jest.fn(),
-            run: signal(null),
+            run: guidanceRun,
             acceptedRun: signal(null),
           },
         },
@@ -64,7 +68,12 @@ describe('GenerationWorkflowShellComponent', () => {
         },
         {
           provide: GuidanceGenerationStore,
-          useValue: { bind: bindGuidance, unbind: jest.fn() },
+          useValue: {
+            bind: bindGuidance,
+            unbind: jest.fn(),
+            refresh: refreshGuidance,
+            adopt: adoptGuidance,
+          },
         },
       ],
     });
@@ -79,6 +88,25 @@ describe('GenerationWorkflowShellComponent', () => {
       workspacePath: '/ws',
       workflow: 'setup-project-prompt',
     });
+    const run = {
+      binding: {
+        tabId: 'guidance',
+        workspacePath: '/ws',
+        workflow: 'setup-project-prompt' as const,
+        runId: 'r1',
+      },
+      status: 'completed' as const,
+      source: {
+        kind: 'workspace-discovery' as const,
+        reason: 'missing' as const,
+      },
+      effectiveProvider: 'unknown',
+      effectiveModel: 'unknown',
+    };
+    guidanceRun.set(run);
+    fixture.detectChanges();
+    expect(adoptGuidance).toHaveBeenCalledTimes(1);
+    expect(refreshGuidance).toHaveBeenCalledTimes(1);
     fixture.destroy();
   });
   it('labels not-attempted propagation without implying denied consent', () => {

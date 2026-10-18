@@ -1,7 +1,6 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import type {
   GenerationContextSource,
-  SetupGenerationAccepted,
   SetupGenerationRunState,
   SetupGenerationTabBinding,
 } from '@ptah-extension/shared';
@@ -49,7 +48,6 @@ export class GuidanceGenerationStore {
   private readonly statusValue = signal<GuidanceRunStatus>('idle');
   private readonly snapshotValue = signal<GuidanceSnapshot | null>(null);
   private readonly resultValue = signal<GuidanceCommittedResult | null>(null);
-  private pendingStop = false;
   private restoring = false;
   readonly binding = this.bindingValue.asReadonly();
   readonly run = this.runValue.asReadonly();
@@ -68,7 +66,6 @@ export class GuidanceGenerationStore {
       old.workspacePath === binding.workspacePath
     )
       return;
-    this.pendingStop = false;
     this.restoring = true;
     this.bindingValue.set(binding);
     this.runValue.set(null);
@@ -80,7 +77,6 @@ export class GuidanceGenerationStore {
   }
 
   unbind(): void {
-    this.pendingStop = false;
     this.restoring = false;
     this.bindingValue.set(null);
     this.runValue.set(null);
@@ -90,42 +86,30 @@ export class GuidanceGenerationStore {
     this.content.set(null);
   }
 
-  async start(): Promise<void> {
-    await this.submit(false);
-  }
-  async retry(): Promise<void> {
-    await this.submit(false);
-  }
-  async regenerate(): Promise<void> {
-    await this.submit(true);
-  }
-
-  private async submit(force: boolean): Promise<void> {
+  adopt(run: SetupGenerationRunState): void {
     const binding = this.bindingValue();
-    if (
-      !binding ||
-      ['starting', 'running', 'cancelling'].includes(this.statusValue())
-    )
-      return;
-    this.statusValue.set('starting');
-    this.restoring = false;
-    this.actionFailed.set(false);
-    try {
-      const response = force
-        ? await this.rpc.regenerateBoundGuidance(binding)
-        : await this.rpc.startBoundGuidance(binding);
-      if (!this.sameBinding(binding)) return;
-      if (response.accepted) this.accept(response.accepted);
-      else if (response.rejection) this.statusValue.set('idle');
-    } catch {
-      // A lost response may still have started a run. The host is authoritative.
+    if (!binding || !this.sameBinding(run.binding)) return;
+    const changedRun = this.snapshotValue()?.runId !== run.binding.runId;
+    const changedStatus = this.runValue()?.status !== run.status;
+    if (changedRun) {
+      this.runValue.set(null);
+      this.snapshotValue.set(null);
+      this.restoring = false;
+      this.statusValue.set('starting');
     }
-    if (this.sameBinding(binding)) await this.refresh();
+    if (changedRun) this.accept(run);
+    this.applyRun(run);
+    if (
+      changedRun ||
+      (changedStatus &&
+        ['completed', 'failed', 'cancelled', 'timed-out'].includes(run.status))
+    )
+      void this.refreshCommitted(binding);
   }
 
-  private accept(accepted: SetupGenerationAccepted): void {
+  private accept(accepted: SetupGenerationRunState): void {
     this.snapshotValue.set({
-      runId: accepted.runId,
+      runId: accepted.binding.runId,
       sourceLabel: sourceLabel(accepted.source),
       provider:
         accepted.effectiveProvider === 'unknown'
@@ -136,31 +120,18 @@ export class GuidanceGenerationStore {
     });
   }
 
-  stop(): void {
-    if (
-      !this.bindingValue() ||
-      !['starting', 'running'].includes(this.statusValue())
-    )
-      return;
-    this.pendingStop = true;
-    this.statusValue.set('cancelling');
-    void this.refresh();
-  }
-
   async refresh(): Promise<void> {
     const binding = this.bindingValue();
     if (!binding) return;
+    const requestedRunId = this.snapshotValue()?.runId;
     let run: SetupGenerationRunState | null = null;
     try {
-      run = await this.rpc.getBoundRunState(
-        binding,
-        this.snapshotValue()?.runId,
-      );
+      run = await this.rpc.getBoundRunState(binding, requestedRunId);
     } catch {
-      if (this.sameBinding(binding))
-        this.statusValue.set(this.pendingStop ? 'stop-unknown' : 'unknown');
+      if (this.sameBinding(binding)) this.statusValue.set('unknown');
     }
     if (!this.sameBinding(binding)) return;
+    if (requestedRunId !== this.snapshotValue()?.runId) return;
     if (
       run &&
       run.binding.tabId === binding.tabId &&
@@ -169,51 +140,30 @@ export class GuidanceGenerationStore {
       (!this.snapshotValue() ||
         run.binding.runId === this.snapshotValue()?.runId)
     ) {
-      this.runValue.set(run);
-      if (!this.snapshotValue())
-        this.accept({
-          runId: run.binding.runId,
-          source: run.source,
-          status: 'starting',
-          effectiveProvider: run.effectiveProvider,
-          effectiveModel: run.effectiveModel,
-        });
-      const terminal = [
-        'completed',
-        'cancelled',
-        'failed',
-        'timed-out',
-      ].includes(run.status);
-      const committed = run.committedState ?? run.result?.committedState;
-      this.statusValue.set(
-        this.restoring && terminal && run.status !== 'cancelled'
-          ? 'idle'
-          : run.status === 'completed' &&
-              committed !== 'committed' &&
-              committed !== 'unchanged'
-            ? 'failed'
-            : run.status,
-      );
-      if (!terminal) this.restoring = false;
-      if (terminal) this.pendingStop = false;
-      if (this.pendingStop && !terminal) {
-        this.pendingStop = false;
-        try {
-          await this.rpc.cancelBoundRun({
-            ...binding,
-            runId: run.binding.runId,
-          });
-        } catch {
-          /* Re-read below; no raw transport error is shown. */
-        }
-        if (this.sameBinding(binding)) await this.refresh();
-      }
-    } else if (this.pendingStop) {
-      this.statusValue.set('stop-unknown');
+      if (this.snapshotValue()?.runId !== run.binding.runId) this.accept(run);
+      this.applyRun(run);
     } else if (!run && this.statusValue() === 'starting') {
       this.statusValue.set('unknown');
     }
     await this.refreshCommitted(binding);
+  }
+
+  private applyRun(run: SetupGenerationRunState): void {
+    this.runValue.set(run);
+    const terminal = ['completed', 'cancelled', 'failed', 'timed-out'].includes(
+      run.status,
+    );
+    const committed = run.committedState ?? run.result?.committedState;
+    this.statusValue.set(
+      this.restoring && terminal && run.status !== 'cancelled'
+        ? 'idle'
+        : run.status === 'completed' &&
+            committed !== 'committed' &&
+            committed !== 'unchanged'
+          ? 'failed'
+          : run.status,
+    );
+    if (!terminal) this.restoring = false;
   }
 
   async refreshCommitted(binding = this.bindingValue()): Promise<void> {
@@ -223,6 +173,11 @@ export class GuidanceGenerationStore {
         binding.workspacePath,
       );
       if (this.sameBinding(binding) && !status.error) {
+        if (
+          this.resultValue()?.generatedAt !==
+          (status.hasGeneratedPrompt ? status.generatedAt : null)
+        )
+          this.content.set(null);
         this.resultValue.set(
           status.hasGeneratedPrompt
             ? {
@@ -242,22 +197,30 @@ export class GuidanceGenerationStore {
   async setEnabled(enabled: boolean): Promise<void> {
     const binding = this.bindingValue();
     if (!binding) return;
+    this.actionFailed.set(false);
     try {
       await this.rpc.toggleEnhancedPrompts(binding.workspacePath, enabled);
       await this.refreshCommitted(binding);
     } catch {
-      if (this.sameBinding(binding)) this.actionFailed.set(true);
+      if (this.sameBinding(binding)) {
+        this.actionFailed.set(true);
+        await this.refreshCommitted(binding);
+      }
     }
   }
 
   async loadContent(): Promise<void> {
     const binding = this.bindingValue();
     if (!binding) return;
+    this.actionFailed.set(false);
     try {
       const content = await this.rpc.getEnhancedPromptContent(
         binding.workspacePath,
       );
-      if (this.sameBinding(binding)) this.content.set(content);
+      if (this.sameBinding(binding)) {
+        this.content.set(content);
+        if (content === null) this.actionFailed.set(true);
+      }
     } catch {
       if (this.sameBinding(binding)) this.actionFailed.set(true);
     }
@@ -266,6 +229,7 @@ export class GuidanceGenerationStore {
   async download(): Promise<void> {
     const binding = this.bindingValue();
     if (!binding) return;
+    this.actionFailed.set(false);
     try {
       const result = await this.rpc.downloadEnhancedPrompt(
         binding.workspacePath,

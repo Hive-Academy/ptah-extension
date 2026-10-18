@@ -30,6 +30,48 @@ const tabProvider = {
 };
 
 describe('GenerationWorkflowStore', () => {
+  it('finds its own guidance run after a lost start response and reports unavailable model safely', async () => {
+    const guidanceBinding = {
+      ...binding,
+      workflow: 'setup-project-prompt' as const,
+    };
+    const ownRun = {
+      ...active,
+      binding: { ...guidanceBinding, runId: 'guidance' },
+    };
+    const getBoundRunState = jest.fn().mockResolvedValue(null);
+    const startBoundGuidance = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('lost response'))
+      .mockRejectedValueOnce(
+        new Error('The selected model is not available for this provider.'),
+      );
+    TestBed.configureTestingModule({
+      providers: [
+        GenerationWorkflowStore,
+        tabProvider,
+        {
+          provide: WizardRpcService,
+          useValue: { getBoundRunState, startBoundGuidance },
+        },
+      ],
+    });
+    const store = TestBed.inject(GenerationWorkflowStore);
+    store.bind(guidanceBinding);
+    await store.startGuidance();
+    expect(getBoundRunState).toHaveBeenCalledWith(guidanceBinding, undefined);
+    expect(store.run()).toBeNull();
+    getBoundRunState.mockResolvedValueOnce(ownRun);
+    await store.refresh();
+    expect(store.run()?.binding.runId).toBe('guidance');
+    store.unbind();
+    getBoundRunState.mockResolvedValue(null);
+    store.bind(guidanceBinding);
+    await store.startGuidance();
+    expect(store.startError()).toBe(
+      'The selected model is not available for this provider.',
+    );
+  });
   it.each([
     ['finalization failure', true, 'failed', true],
     ['other failure', false, 'failed', false],

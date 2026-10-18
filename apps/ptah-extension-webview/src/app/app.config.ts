@@ -37,7 +37,7 @@ import {
 } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 
-/** Restored tabs are available before the active workspace is selected. */
+/** During Electron restore the workspace may activate after initial navigation; the shell revalidates the tab when it does. */
 export function generationRouteTabValidator(
   tabs: Pick<
     TabManagerService,
@@ -52,8 +52,8 @@ export function generationRouteTabValidator(
     return (
       !!located &&
       located.tab.workflow === workflow &&
-      !!tabs.activeWorkspacePath &&
-      located.workspacePath === tabs.activeWorkspacePath
+      (tabs.activeWorkspacePath === null ||
+        located.workspacePath === tabs.activeWorkspacePath)
     );
   };
 }

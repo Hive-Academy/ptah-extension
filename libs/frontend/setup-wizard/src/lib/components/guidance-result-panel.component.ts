@@ -1,3 +1,4 @@
+import { DatePipe } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -9,6 +10,7 @@ import type { GuidanceCommittedResult } from '../services/guidance-generation.st
 @Component({
   selector: 'ptah-guidance-result-panel',
   standalone: true,
+  imports: [DatePipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section
@@ -18,7 +20,12 @@ import type { GuidanceCommittedResult } from '../services/guidance-generation.st
       <h2 id="guidance-result-title" class="font-semibold">Saved guidance</h2>
       @if (result(); as saved) {
         <p class="text-sm">
-          Last saved: {{ saved.generatedAt || 'Date unavailable' }}
+          Last saved:
+          {{
+            saved.generatedAt
+              ? (saved.generatedAt | date: 'medium')
+              : 'Date unavailable'
+          }}
         </p>
         <p class="text-sm text-base-content-muted">
           {{ saved.cacheValid ? 'Cache is current' : 'Cache needs refreshing' }}
@@ -59,6 +66,7 @@ import type { GuidanceCommittedResult } from '../services/guidance-generation.st
           <button
             type="button"
             class="btn btn-primary btn-sm"
+            [disabled]="runActive()"
             (click)="regenerateRequested.emit()"
           >
             Regenerate guidance
@@ -82,6 +90,7 @@ import type { GuidanceCommittedResult } from '../services/guidance-generation.st
   `,
 })
 export class GuidanceResultPanelComponent {
+  readonly runActive = input(false);
   readonly showSkip = input(false);
   readonly result = input<GuidanceCommittedResult | null>(null);
   readonly enabledChanged = output<boolean>();

@@ -35,6 +35,8 @@ import {
         >
           Skip guidance
         </button>
+      } @else if (started()) {
+        <p role="status">Project guidance started.</p>
       } @else {
         <p>
           {{
@@ -92,6 +94,7 @@ import {
   `,
 })
 export class AgentNextStepsComponent {
+  readonly started = input(false);
   readonly pending = input(false);
   readonly remainingSeconds = input(0);
   readonly previewModel = input<string | null>(null);

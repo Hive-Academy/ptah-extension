@@ -44,4 +44,16 @@ describe('AgentNextStepsComponent', () => {
     );
     expect(fixture.nativeElement.textContent).not.toContain('Skip guidance');
   });
+  it('acknowledges a started handoff without inviting another start', () => {
+    TestBed.configureTestingModule({ imports: [AgentNextStepsComponent] });
+    const fixture = TestBed.createComponent(AgentNextStepsComponent);
+    fixture.componentRef.setInput('started', true);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain(
+      'Project guidance started',
+    );
+    expect(fixture.nativeElement.textContent).not.toContain(
+      'Continue to project guidance',
+    );
+  });
 });

@@ -679,3 +679,97 @@ None.
 1. N1 (error-styled message after corrected completion) and N2 (retry count reset on run binding flip), with specs.
 2. N3, N4, N5 (minor).
 3. Carry-over from the Phase 4 review: M1-M5, M9 and m1-m6 remain as recorded in that section; none was in this round's must-fix set.
+
+## Phase 5 review (B08)
+
+Review family: Claude; implementer family: codex.
+Scope: `git diff 5b447dc96..5373c65a2 -- libs/ apps/` (B08A, B08B, B08C), read in full: both stores, the guidance page, run card, result panel, shell, handoff store, next-steps, RPC service diff, handler/supervisor paths. Lane reports treated as claims. No checks re-run; the orchestrator's passing results are taken as given. Passing specs do not cover the two Serious findings because the page spec mocks both stores and the guidance-store spec drives code the UI never calls.
+
+**Verdict: REVISE. Score 5.5/10.** 0 Blocking, 2 Serious, 7 Moderate, 4 Minor.
+
+Separating evidence: the host contract, committed-state gating, tabless compatibility, privacy and the B08C fixes are sound (7 band). The page that ships reads the wrong store for every run after the first, and rejections vanish (below the 6 band).
+
+### Acceptance table
+
+| AC / parity | Status | Evidence |
+| --- | --- | --- |
+| Start without analysis, derived source label, no `analysisDir` | PASS | `guidance-generation.store.ts:36-40` uses only `kind`/`reason` (reason is a closed union, `rpc-setup.types.ts:28`); page renders `guidance.source()` only |
+| Accepted provider/model, unknown hidden | PARTIAL | `guidance-run-card.component.ts:21-27` is right, but the snapshot is stale after any second run (S1) |
+| Success only from committed host state; `unchanged` | PARTIAL | Gate at `guidance-generation.store.ts:187-196` is correct and host `finish()` yields `committed` only on completed (`guidance-generation-run.supervisor.ts:84`). The page reads it only via the stale store (S1); shell sr-only `store.state()` (`generation-workflow-shell.component.ts:54`) reports ungated `completed` (m3) |
+| Stop in a quiet stream cancels the exact run | PASS | `generation-workflow.store.ts:227-283`; page `generation-guidance-page.component.ts:33,81-82`; spec `generation-workflow.store.spec.ts:344-369` |
+| Lost start/stop response reread, own-tab lookup | PASS (workflow store) | `generation-workflow.store.ts:154-156,265-283`; host start idempotent per tab (`enhanced-prompts-rpc.handlers.ts:629-650`). Guidance-store equivalents are dead code (M-g) |
+| Reload neutral status unless cancellation verified | PASS | `guidance-generation.store.ts:188-190`, spec `:101` |
+| Two stores do not disagree | FAIL | S1 |
+| Rejections / busy-chat feedback | FAIL | S2 |
+| Combined continuation (deadline once, same-workspace tab, manual fallback, never chains, Skip keeps agent outcome) | PASS with M-d | `generation-handoff.store.ts:39-120`, shell effect `generation-workflow-shell.component.ts:402-417`; independent guidance has no scheduler |
+| Timer survives page destruction (plan line 97) | PASS | Root store timer `generation-handoff.store.ts:48`; shell has no destroy hook; spec `generation-workflow-shell.component.spec.ts:144-145`, `generation-handoff.store.spec.ts:65` |
+| Tabless compatibility; optional validated regenerate `model` | PASS | `enhanced-prompts-rpc.schema.ts:62` (`min(1).max(200).optional()`), `rpc-setup.types.ts:564`, `wizard-rpc.service.ts:173-193`; bound handler reads `'model' in params`; schema and handler specs added |
+| Privacy: no raw paths, no `[innerHTML]`, no raw host error text | PASS | No `innerHTML` in the new files; saved content interpolated inside `<pre>` (`generation-guidance-page.component.ts:67`) and pinned by the page spec; RPC service throws fixed text only (`wizard-rpc.service.ts:141-146`) |
+| Parity rows 27-34 | PARTIAL | Rows that depend on live status (retry, regenerate result) inherit S1/S2; enabled toggle, cache, content, download exist (M-b, M-c) |
+
+### B08C claims
+
+| Item | Verdict | Evidence |
+| --- | --- | --- |
+| M1 | Real | `generation-workflow.store.ts:77,208` reset `lookupFailures` on bind/accept |
+| M2, M3 | Real | `generation-workflow-shell.component.ts:268-277,418-423` |
+| M4 | Real, pinned | Shell spec `:144-145` |
+| M5 | Real | Shell `:94,109` |
+| M9 | Real, pinned (validator only) | `app.config.ts:55-56`, `webview-routing.spec.ts:226-241`; see M-f |
+| m1 | Real, pinned | `generation-handoff.store.ts:55`, next-steps spec `:34` |
+| m2 | Real, pinned | Adapter `:70-79,130-139`, spec `:271` |
+| m3 | Real, pinned | Shell `:361`, spec `:15` |
+| m4 | Real | `wizard-landing.component.ts:251-264` |
+| m5 | Plausible, not traced | `wizard-generation-rpc.handlers.ts:1088` |
+| N1-N3 | Real, pinned | Adapter `:216-271`, agent store `:105-125`, specs |
+| N4 | Real for agents only; guidance path drops the message (S2) | `generation-workflow.store.ts:115-124`; `submitGuidance` has no equivalent |
+| Audit comments | Correct | All sit on logged or intentionally retried swallows (`wizard-generation-binding.ts:102,216`, `wizard-generation-rpc.handlers.ts:1785`, `generation-workflow.store.ts:292`, adapter `:108`) |
+
+### Blocking
+
+None.
+
+### Serious
+
+**S1. The guidance page's run card, snapshot and post-run status go stale after any run other than the first (two stores disagree).**
+- Files: `libs/frontend/setup-wizard/src/lib/services/guidance-generation.store.ts:155-158,169-170,173-180`; `libs/frontend/setup-wizard/src/lib/components/generation-guidance-page.component.ts:78-86`; `libs/frontend/setup-wizard/src/lib/components/generation-workflow-shell.component.ts:387-390`.
+- Scenario: the UI starts runs only through `GenerationWorkflowStore` (`page:34,41,59`). `GuidanceGenerationStore` never learns the new `runId`: its snapshot is set once (`:173`) and every `refresh()` looks up `snapshot.runId`. The host keeps a single `settled` run, so a lookup of old run X while Y is current returns X, and after Y settles it returns `not-running` (`guidance-generation-run.supervisor.ts:153-179`). Once the workflow store is no longer bound, the page shows `guidance.status()` (`page:85`).
+  - (a) Run fails, user clicks Retry, Y succeeds: card still says "Guidance was not saved" with Retry, while the result panel shows saved guidance.
+  - (b) Page reloaded (restoring, status idle), user clicks Generate, Y completes: card says "No active guidance run" and shows X's provider/model.
+  - (c) Regenerate with a different model: card shows the old provider/model; the "already current" note keys off X's `committedState` (`page:47`).
+- Impact: the user is told the opposite of the committed outcome, which is what the "success only from committed host state" criterion exists to prevent.
+- Fix: one source of truth. Either make the guidance store adopt the workflow store's run (an `adopt(run)` that resets snapshot, `runValue` and `restoring` when `run.binding.runId` changes, called from the shell effect), or have `refresh()` request the workflow store's current `runId`. Keep the committed gate on the path the page reads. Add an integration spec with real `GenerationWorkflowStore` and `GuidanceGenerationStore` over a fake RPC: fail, Retry, success, and regenerate with a new model.
+
+**S2. The guidance page drops start rejections and the busy-chat message, so a click can do nothing visible.**
+- Files: `libs/frontend/setup-wizard/src/lib/components/generation-guidance-page.component.ts:37-45,59`; `libs/frontend/setup-wizard/src/lib/services/generation-workflow.store.ts:144-157,180-184,200`. Rejection UI exists only in the agent branch (`generation-workflow-shell.component.ts:112-131`, `agent-selection-list.component.ts:125-144`).
+- Scenario: Generate or Regenerate while a chat reply is streaming (`canStartInChat` sets `chatTurnRejection`), while another tab holds the guidance reservation (`blocked`), on `workspace-mismatch`, or when the provider/model cannot be resolved ("Guidance provider is unavailable"). The store sets state and signals; the guidance page renders none of them. A thrown start error is swallowed at `:154-156`; the N4 message is set only in `startAgents`.
+- Impact: silent no-op on a primary action; N4 is not delivered for guidance.
+- Fix: render `workflow.rejection()` (fixed text per reason, `ownerTabId` omitted), `chatTurnRejection()` and a guidance `startError` in `ptah-generation-guidance-page`; set `startError` in `submitGuidance`'s catch like `startAgents`. Spec each reason.
+
+### Moderate
+
+- **M-a "Check again" does nothing for the guidance store's own unknown state.** `page:35` calls `workflow.refresh()`, but `unknown` comes from `guidance.status()` (`guidance-generation.store.ts:159-162`), which only refreshes when `store.run()` changes. A failed lookup at bind leaves the card stuck. Fix: wire `refreshRequested` to both stores, or resolve via S1.
+- **M-b `actionFailed` is sticky and the toggle is not reverted.** `guidance-generation.store.ts:238,249,262,275` set it; only `submit()` (unused by the UI) and bind clear it. One failure keeps the alert after later successes. The uncontrolled checkbox (`guidance-result-panel.component.ts:27-33`) stays flipped when `setEnabled` fails. Fix: clear at the start of each action; re-read committed state on failure so `[checked]` is re-asserted.
+- **M-c Stale content view after regenerate.** `content` is cleared only on bind/unbind (`guidance-generation.store.ts:78,90`), so "Saved guidance" keeps previous text after a new commit. Fix: clear when `generatedAt` changes. A `null` from `loadContent` gives no feedback (`:253-260`).
+- **M-d Handoff outcome is wrong while opening.** `startNow`/`manualContinue` call `skip()` (`generation-handoff.store.ts:65,76`), which sets outcome `skipped`, so next-steps says "Project guidance skipped" during the open and RPC. After `started` there is no acknowledgement and the Continue invitation remains (`agent-next-steps.component.ts:39-52`). Fix: split a private `clearTimer()` from user-facing `skip()`; show a started line.
+- **M-e Effect tracks guidance signals and fans out.** `shell:387-390` calls `guidance.refresh()` synchronously inside an `effect`, so its binding and snapshot reads become dependencies; at bind that is two identical concurrent refreshes plus one more when the snapshot is set. Bounded, not a loop. Fix: `untracked(() => void this.guidance.refresh())`.
+- **M-f M9 restore ordering unverified end to end.** The validator now fails closed with no active workspace (`app.config.ts:55`); only the pure function is pinned. If the router restores before the workspace activates on a normal reload, the restored route drops to landing. The docstring at `:40` is now false. Fix: confirm the ordering or re-validate on workspace activation; correct the comment.
+- **M-g Dead duplicate run engine.** `GuidanceGenerationStore.start/retry/regenerate/stop/submit` (`:93-148`) have no non-spec caller. The lost-response and exact-Stop specs (`guidance-generation.store.spec.ts:118,132`) exercise this dead path; the live path is the workflow store. Fix with S1: delete the dead methods or use them, and move the specs to the live path.
+
+### Minor
+
+- m1. Regenerate and Generate are not disabled while a run is bound; the click is a silent early return (`generation-workflow.store.ts:141`).
+- m2. Between workflow terminal state and the guidance store's async refresh the card shows the last `guidance.status()` (running plus Stop) and Stop then no-ops (`stop()` requires `isBound`). Resolved by S1.
+- m3. Shell sr-only live region prints raw `store.state()` (`shell:54`); `completed` is announced without the committed gate.
+- m4. `generatedAt` is printed as a raw ISO string (`guidance-result-panel.component.ts:21`).
+
+### Must-fix before B09
+
+1. S1 — `libs/frontend/setup-wizard/src/lib/services/guidance-generation.store.ts:155-180`, `libs/frontend/setup-wizard/src/lib/components/generation-guidance-page.component.ts:78-86`, shell effect `generation-workflow-shell.component.ts:387-390`: one run source; rebase snapshot/run/restoring when the workflow store's run changes; add the two-real-stores integration spec.
+2. S2 — `libs/frontend/setup-wizard/src/lib/components/generation-guidance-page.component.ts` and `libs/frontend/setup-wizard/src/lib/services/generation-workflow.store.ts:154-156`: render rejection, busy-chat and model-unavailable messages on the guidance page, with specs.
+
+### Defer
+
+M-a through M-g and m1-m4 (M-a and M-g fall out of S1 if done as suggested; M-f needs a workspace-activation ordering check). B08C m6 and N5 stay deferred as recorded by the lane. Regressions worth adding alongside the fixes: guidance rebind mid-run; Start now and deadline firing with the shell unmounted (real handoff store, fake launcher); toggle-failure revert; content refresh after regenerate.
+
+Review family: Claude; implementer family: codex

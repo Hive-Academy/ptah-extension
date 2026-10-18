@@ -5,6 +5,7 @@ import {
   effect,
   inject,
   signal,
+  untracked,
 } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
@@ -51,7 +52,13 @@ import { GenerationStopControlComponent } from './generation-stop-control.compon
         class="flex h-full min-h-0 flex-col"
         aria-label="Generation workflow"
       >
-        <div class="sr-only" role="status">{{ store.state() }}</div>
+        <div class="sr-only" role="status">
+          {{
+            current.workflow === 'setup-project-prompt'
+              ? guidance.status()
+              : store.state()
+          }}
+        </div>
         <div
           class="min-h-0 overflow-y-auto border-b border-base-300 p-3 space-y-3"
         >
@@ -204,6 +211,7 @@ import { GenerationStopControlComponent } from './generation-stop-control.compon
                   store.state() === 'failed'
                 "
                 [skipped]="handoff.outcome() === 'skipped'"
+                [started]="handoff.outcome() === 'started'"
                 (startNow)="handoff.startNow()"
                 (continue)="handoff.manualContinue(current.workspacePath)"
                 (skip)="handoff.skip()"
@@ -386,8 +394,13 @@ export class GenerationWorkflowShellComponent {
     });
     effect(() => {
       const run = this.store.run();
-      if (run?.binding.workflow === 'setup-project-prompt')
-        void this.guidance.refresh();
+      if (run?.binding.workflow === 'setup-project-prompt') {
+        untracked(() => this.guidance.adopt(run));
+        if (
+          ['completed', 'failed', 'cancelled', 'timed-out'].includes(run.status)
+        )
+          untracked(() => void this.guidance.refresh());
+      }
       if (
         run?.binding.workflow === 'setup-agent-generation' &&
         ['completed', 'failed', 'cancelled', 'timed-out'].includes(

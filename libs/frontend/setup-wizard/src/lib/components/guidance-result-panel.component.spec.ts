@@ -20,6 +20,14 @@ describe('GuidanceResultPanelComponent', () => {
     fixture.detectChanges();
     const root = fixture.nativeElement as HTMLElement;
     expect(root.textContent).toContain('Cache needs refreshing');
+    expect(root.textContent).not.toContain('2026-10-18');
+    fixture.componentRef.setInput('runActive', true);
+    fixture.detectChanges();
+    expect(
+      [...root.querySelectorAll('button')].find((button) =>
+        button.textContent?.includes('Regenerate'),
+      )?.disabled,
+    ).toBe(true);
     [...root.querySelectorAll('button')]
       .find((button) => button.textContent?.includes('Refresh cache'))
       ?.click();
