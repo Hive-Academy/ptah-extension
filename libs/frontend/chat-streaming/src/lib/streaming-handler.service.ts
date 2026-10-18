@@ -196,11 +196,15 @@ export class StreamingHandlerService {
     tabId: string;
     queuedContent?: string;
     /** Queue flushes unlocked by an accepted terminal turn_state. */
-    queueFlushes?: ReadonlyArray<{ readonly tabId: string; readonly content: string }>;
+    queueFlushes?: ReadonlyArray<{
+      readonly tabId: string;
+      readonly content: string;
+    }>;
     compactionSessionId?: string;
     compactionComplete?: boolean;
     boundaryId?: string;
     measurement?: CompactionMeasurement;
+    idleCompaction?: { readonly preTokens: number };
     preTokens?: number;
     postTokens?: number;
     durationMs?: number;
@@ -219,14 +223,21 @@ export class StreamingHandlerService {
         // this returns to ChatStore. Returning the queue here lets ChatStore
         // start chat:continue in the same event delivery stack, before Angular
         // can render an idle-only budget banner.
-        const queueFlushes = terminalTargets.flatMap(({ tabId: targetTabId, revision }) => {
-          const tab = this.tabManager.findTabByIdAcrossWorkspaces(targetTabId)?.tab;
-          if (!tab || tab.lastTurnStateRevision !== event.revision || revision === event.revision) {
-            return [];
-          }
-          const content = tab.queuedContent?.trim();
-          return content ? [{ tabId: targetTabId, content }] : [];
-        });
+        const queueFlushes = terminalTargets.flatMap(
+          ({ tabId: targetTabId, revision }) => {
+            const tab =
+              this.tabManager.findTabByIdAcrossWorkspaces(targetTabId)?.tab;
+            if (
+              !tab ||
+              tab.lastTurnStateRevision !== event.revision ||
+              revision === event.revision
+            ) {
+              return [];
+            }
+            const content = tab.queuedContent?.trim();
+            return content ? [{ tabId: targetTabId, content }] : [];
+          },
+        );
         return queueFlushes.length > 0
           ? {
               tabId: queueFlushes[0].tabId,
@@ -348,10 +359,15 @@ export class StreamingHandlerService {
   private terminalTurnTargets(
     event: TurnStateEvent,
     tabId?: string,
-  ): ReadonlyArray<{ readonly tabId: string; readonly revision: number | undefined }> {
+  ): ReadonlyArray<{
+    readonly tabId: string;
+    readonly revision: number | undefined;
+  }> {
     if (tabId) {
       const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
-      return tab ? [{ tabId: tab.id, revision: tab.lastTurnStateRevision }] : [];
+      return tab
+        ? [{ tabId: tab.id, revision: tab.lastTurnStateRevision }]
+        : [];
     }
 
     const sessionId = SessionId.safeParse(event.sessionId);
@@ -363,7 +379,8 @@ export class StreamingHandlerService {
         revision: tab.lastTurnStateRevision,
       }));
     }
-    const background = this.tabManager.findTabBySessionIdAcrossWorkspaces(sessionId)?.tab;
+    const background =
+      this.tabManager.findTabBySessionIdAcrossWorkspaces(sessionId)?.tab;
     return background
       ? [{ tabId: background.id, revision: background.lastTurnStateRevision }]
       : [];
@@ -397,6 +414,7 @@ export class StreamingHandlerService {
     compactionComplete?: boolean;
     boundaryId?: string;
     measurement?: CompactionMeasurement;
+    idleCompaction?: { readonly preTokens: number };
     preTokens?: number;
     postTokens?: number;
     durationMs?: number;
@@ -477,6 +495,7 @@ export class StreamingHandlerService {
         compactionSessionId: event.sessionId,
         boundaryId: result.boundaryId,
         measurement: result.measurement,
+        idleCompaction: result.idleCompaction,
         preTokens: result.preTokens,
         postTokens: result.postTokens,
         durationMs: result.durationMs,
@@ -530,8 +549,7 @@ export class StreamingHandlerService {
     // flush guard would not drop it. Accumulate onto it, then empty the queue
     // below before the direct write: the queued object's old scalars must
     // never drain over this write later.
-    const base =
-      this.batchedUpdate.queuedState(tab.id) ?? tab.streamingState;
+    const base = this.batchedUpdate.queuedState(tab.id) ?? tab.streamingState;
     // This is the background half of the `processEventForTab` ephemeral-state
     // rule: store-only events still run, but their scratch state is not saved.
     const ephemeralState =
