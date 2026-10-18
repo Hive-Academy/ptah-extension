@@ -42,8 +42,8 @@ describe('GuidanceResultPanelComponent', () => {
     expect(
       [...root.querySelectorAll('button')].find((button) =>
         button.textContent?.includes('Regenerate'),
-      )?.disabled,
-    ).toBe(true);
+      ),
+    ).toBeUndefined();
     [...root.querySelectorAll('button')]
       .find((button) => button.textContent?.includes('Refresh cache'))
       ?.click();

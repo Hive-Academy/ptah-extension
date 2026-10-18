@@ -66,14 +66,15 @@ import type { GuidanceCommittedResult } from '../services/guidance-generation.st
           >
             Download
           </button>
-          <button
-            type="button"
-            class="btn btn-primary btn-sm"
-            [disabled]="runActive()"
-            (click)="regenerateRequested.emit()"
-          >
-            Regenerate guidance
-          </button>
+          @if (!runActive()) {
+            <button
+              type="button"
+              class="btn btn-primary btn-sm"
+              (click)="regenerateRequested.emit()"
+            >
+              Regenerate guidance
+            </button>
+          }
         </div>
       } @else {
         <p class="text-sm text-base-content-muted">

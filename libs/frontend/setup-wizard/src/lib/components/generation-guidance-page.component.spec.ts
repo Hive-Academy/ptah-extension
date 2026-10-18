@@ -56,7 +56,7 @@ describe('GenerationGuidancePageComponent', () => {
     saved.set({ generatedAt: null, enabled: true, cacheValid: true });
     expect(primaryLabels()).toEqual(['Regenerate guidance']);
     active.set(true);
-    expect(primaryLabels()).toEqual(['Regenerate guidance']);
+    expect(primaryLabels()).toEqual([]);
   });
   it.each([
     [

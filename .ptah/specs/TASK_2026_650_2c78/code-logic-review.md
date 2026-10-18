@@ -882,3 +882,111 @@ None.
 M1 (inline generation error in the widget), m1 (Hub in-flight guard and Enter double fire), m2 (single workspace source and copy), m4 (card order, for visual review), and the Hub running status line (needs a verified run-state signal exposed below `harness-builder`; update design-spec 2.6 to match what shipped).
 
 Review family: Claude; implementer family: codex
+
+## Phase 6 completion review (B12, P56F)
+
+Verdict: APPROVE. Score: 8/10. Blocking 0, Serious 0, Moderate 2, Minor 3.
+Review family: Claude; implementer family: codex.
+Scope: `git show 3c80790a9` and `git show b0866c243`, whole changed components and stores read, plus callers of `setCurrentStep`, `consumeOrigin` and `origin:`. No wide checks run; the orchestrator's results were taken as given.
+
+### Acceptance table
+
+| AC / parity row | Status | Evidence |
+| --- | --- | --- |
+| B12 Continue sets the combined origin, and only Continue does | PASS | `analysis-results.component.ts:358-364` is the only producer of `analysis-result-continue` among user actions. Hub `setup-hub.component.ts:1446` and widget `setup-status-widget.component.ts:263` send `independent-start`. Landing sends `wizard-landing`, which `generation-workflow-launcher.service.ts:69-71` maps to `independent-start`. The only other producer is the guidance auto-chain `generation-handoff.store.ts:95` (`focus=false`), which is pre-existing and intended. |
+| Origin consumed on the agent tab | PASS | `generation-workflow-launcher.service.ts:66-82` stores the intent and drops it on cancelled or failed. `generation-workflow-shell.component.ts:385-390` consumes it into `combinedTabId`. |
+| Old landing stays a working landing (AC2, rows 6-12) | PASS | `wizard-landing.component.ts:255-268` now catches launcher exceptions and sets `openError`. The `use()` and analyze paths are untouched. |
+| Saved analysis browse/load/hide, rows 24 and 27-35 | PASS | `welcome.component.ts:372-380` and `:426-447` keep the same RPC calls and state setters. Only the error surface changed (log replaced by an alert). The aria label now says "Hide", which matches the behaviour. |
+| Old run resume/cancel (row 30) | PASS | `wizard-analysis-runner.service.ts:141-149` keeps the generation step and pending-to-failed marking. Only the message was made generic. |
+| Four phase results unchanged | PASS | The `analysis-results.component.ts` template diff only adds the alert. |
+| Failure copy safe (AC17) | PASS | The Continue alert, the welcome alerts and the resume message are all fixed strings. `catch {}` discards the exception text. |
+| "Nothing deleted" is correct | PASS | The caller search shows `AgentSelection`, `GenerationProgress`, `PromptEnhancement` and `Completion` rendered by `wizard-view.component.ts:130-141`. `AgentSelection` is still reachable through the stepper (`canJumpToStep('selection')`, `setup-wizard-state.service.ts:399-401`, `wizard-view.component.ts:170-197`) once an analysis plus recommendations exist. `GenerationProgress` is reachable through resume (`wizard-analysis-runner.service.ts:141`). No capability disappeared. |
+| AC18 reload neutral status, both reply orders | PASS | `guidance-generation.store.ts:97-100` clears `restoring` only for an in-session accept or a non-terminal run. `applyRun` (`:153-168`) shows `idle` for a restored terminal run other than `cancelled`. Pinned for both orders in `guidance-generation.store.spec.ts` (`it.each workflow first / guidance first`). |
+| AC18 does not hide a run accepted this session | PASS | `generation-workflow-shell.component.ts:406-411` passes `acceptedRun().runId === run.binding.runId`. The store spec asserts `adopt(run, true)` gives `failed`. A `cancelled` status is already exempt in `applyRun`. A non-terminal run always clears `restoring`. |
+| Controlled toggle revert | PASS | `guidance-result-panel.component.ts:39-42` resets `checked` to the saved value after emitting. On success the `[checked]` binding re-syncs when `saved.enabled` changes. The failure path is pinned by a spec. |
+| Restored-route Back to chat | PASS | The `@else` branch of `generation-workflow-shell.component.ts:250-253` renders only a message and a button. No run, agent or guidance data from another workspace is shown. The spec asserts `navigateToSurface('chat')`. |
+| Widget launch error separate | PASS | `setup-status-widget.component.ts:172` and `:252-272`. `launchError` no longer replaces the status block. |
+| Hub in-flight guard | PASS | `setup-hub.component.ts:1433-1457`. The flag is released in `finally`, and also on the no-workspace early return. |
+| Unreachable model-unavailable branch removed | PASS | `generation-workflow.store.ts:153-159` and the `generation-guidance-page` template. The catch still refreshes, so state is not left stale. |
+
+### Findings
+
+Moderate
+
+1. D11 regression has no direct spec (the check you named). `generation-run-event-adapter.spec.ts:189-217` and `:617-720` prove the adapter clears the generator's own state: `currentMessageId` empty, `status` `loaded`, not streaming, `claudeSessionId` null, and a following generator start admitted. `chat-input.component.spec.ts` (`libs/frontend/chat`) has no generator-related case, and no spec sends a real chat turn through `ChatStore` or the composer on a tab after a generator run. The conclusion that a later chat turn streams and clears follows from the cleared state, but it is inferred. Fix: add one integration spec that finalizes a generator run, then sends a normal message and asserts it streams and finalizes. This can be deferred.
+2. `AnalysisResultsComponent.onContinue` (`analysis-results.component.ts:352-370`) has no in-flight guard, while P56F added one to the Hub and the widget already had `launching`. A double click calls `launcher.open` twice. It is idempotent, because `findWorkflowTab` reuses the tab and the second navigation is the same route, so the harm is only a redundant navigation. It is also inconsistent with the stated Hub fix. Fix: add a `continuing` signal and ignore the click while it is set.
+
+Minor
+
+3. `guidance.adopt(run, acceptedThisSession)` is pinned with `false` only in the shell spec (`generation-workflow-shell.component.spec.ts`, `toHaveBeenCalledWith(run, false)`). The `true` wiring at `generation-workflow-shell.component.ts:406-411` is covered only by the store spec. A shell spec with `acceptedRun` set to the run id would pin the wiring.
+4. The toggle revert (`guidance-result-panel.component.ts:39-42`) snaps the checkbox back at once, so a successful toggle shows the old value until the RPC returns. There is no pending indicator. The success path has no spec. Cosmetic.
+5. A stale launch intent can remain in `launchIntents` when the agent tab is already bound with the same `discoveryKey` and `consumeOrigin` is not called (`generation-workflow-shell.component.ts:380-390`). This is pre-existing and every later `open` overwrites it, so the risk is very low.
+
+### Must-fix
+
+None.
+
+### Defer
+
+- Finding 1: one chat-turn-after-generator integration spec (suggest a follow-up).
+- Finding 2: Continue in-flight guard.
+- Findings 3-5.
+- Removal of the four old presentation components: needs a separate owner to migrate the `WizardViewComponent` cases, the stepper jump and the resume route first, as the B12 report says.
+
+### Five questions (brief)
+
+- Silent failure: none new. The launcher's `failed` outcome and any thrown error surface the alert. `cancelled` is silent by design.
+- Unexpected user action: double-click on Continue (finding 2).
+- Wrong data: a restored terminal `failed` run reads neutral after reload. This is the intended AC18 behaviour, and an in-session run is exempt.
+- Dependency failure: `launcher.open` rejecting is caught in Continue and in the landing. `refreshCommitted` failure sets `actionFailed`.
+- Missing: no direct D11 composer spec (finding 1).
+
+Review family: Claude; implementer family: codex
+
+## V1 review (responsive shell)
+
+Review family: Claude; implementer family: codex.
+Scope: commit aa09eed28 (shell, generation-agent-sidebar, selection list `primary`, guidance page/run card/result panel, shell spec). Read whole files; compared the old shell template (aa09eed28^) with the new sidebar. No tests re-run.
+
+**Verdict: REVISE. Score 6.5/10.** Parity and lifecycle are sound. Two Serious defects sit in the narrow sheet and both involve the preview dialog.
+
+### Check results
+1. Parity: PASS. Run card, Resume card, progress, guidance-missing alert, selection list, rejection, startError, verified results, next steps with countdown, guidance page, errors, stop control, status live region and the unavailable/Back-to-chat state are all present with the same bindings (generation-agent-sidebar.component.ts:37-189). The `now` input feeds the same countdown. The shell keeps unused duplicates (shell lines 221-223, 269-293, 294-300 `propagationConsentLabel`, `remainingSeconds`, `guidancePreviewModel/Provider`, `showNextSteps`; `models`/`providers` injections). That is dead code, so route it to the style reviewer.
+2. Correctness: mostly PASS.
+   - ResizeObserver is created once in `afterNextRender` (shell:357-366) and disconnected in `ngOnDestroy`. Signal writes under OnPush are fine.
+   - Widening while the sheet is open runs the effect at shell:367-369, which sets `sheetOpen` to false, and `inert`/`aria-hidden` are derived from `narrow() && sheetOpen()` (shell:207-208). `inert` cannot stay stuck.
+   - The focus target exists: the peek button is rendered whenever `narrow()` (shell:112).
+   - Stop beside peek calls `store.stop()`, which guards on binding and `isBound()` (store:231-232). It is rendered only under `store.isBound()` (shell:134) and disabled in cancelling/stop-unconfirmed.
+   - Escape is NOT correctly scoped, see S1.
+3. One primary action: PASS. Guidance, no run: Generate is the only primary (guidance page:37-44). Guidance, saved: Regenerate is primary and Generate is hidden (result panel:71). Guidance, failed: Retry is outline, and Generate or Regenerate is the primary. Agents, no run: Generate is primary (`!handoff.pending()`). Agents, pending handoff: Start now is primary and the selection list is outline (next-steps:26). Running: the agent selection list is hidden. Guidance running shows a disabled primary Regenerate (see M1).
+4. Accessibility: PARTIAL. The peek button has aria-expanded and aria-controls, and nothing traps the keyboard because the sheet is a sibling after the peek and Stop in tab order. The sheet itself has no role or label (see M2).
+5. Spec depth: insufficient (see M3).
+
+### Serious
+S1. Escape handler closes the sheet underneath the preview dialog. File: generation-workflow-shell.component.ts:254-260 (host `keydown`), with agent-preview-dialog.component.ts:125-128.
+- Scenario: at a narrow width the user opens the sheet and opens "Review generation targets", then presses Escape.
+- The dialog calls only `preventDefault()` and `dismissed.emit()`. The event keeps bubbling to the shell host.
+- The shell handler does not check `event.defaultPrevented`, so it also closes the sheet and moves focus to the peek button. One Escape dismisses two layers, and the dialog's own focus restore to its opener is overridden.
+- Fix: in `onKeydown`, return early when `event.defaultPrevented`, and for stricter scoping act only when `event.target` is inside `#wizard-sidebar` or is the peek button. Add a spec that dispatches a prevented Escape from inside the sheet and expects the sheet to stay open.
+
+S2. The sheet's entry animation leaves a transform that breaks the `position: fixed` preview dialog. File: shell:58-60 (`animation: ... both`), shell:164-174.
+- `fill-mode: both` keeps `transform: translateX(0)` on `#wizard-sidebar` after the animation ends. A transformed ancestor becomes the containing block for `fixed` descendants.
+- The preview dialog uses `fixed inset-0 z-50` (agent-preview-dialog:18), inside the selection list inside the sheet, which is also `overflow-y-auto`.
+- In narrow mode with `.workflow-sheet-open` applied, the modal overlay is laid out and clipped relative to the scrolling sheet instead of the viewport. If the sheet has scrolled, the mandatory preview step can sit off-screen.
+- I traced this from the CSS and did not run it in a browser, so the visual reviewer should confirm it. Under `prefers-reduced-motion` (`animation: none`) the bug does not occur, which makes it intermittent.
+- Fix: use `animation: ... backwards` (or `none` fill) so no transform remains. Alternatively animate `opacity`, or render the sheet without `overflow-y-auto` and scroll an inner wrapper. Add a computed-style check in the visual pass.
+
+### Moderate / minor
+- M1. shell-hosted Regenerate (result panel:68-76) stays visible as a disabled primary button while a guidance run is active. This is a mild violation of the one-primary rule, so it should go outline or be hidden while running. The guidance tab also shows Stop three ways at narrow width (run card, stop control, peek Stop).
+- M2. `#wizard-sidebar` (shell:164) has no `role="region"` or `aria-label`, and focus does not move into the sheet when it opens. Screen-reader users get an unlabelled disclosure target. Add `role="region" aria-label="Generation workflow details"`.
+- M3. Spec gaps (shell.spec.ts, one new test, guidance workflow only). It sets `hostWidth` directly, so the `afterNextRender` and ResizeObserver path is untested. It does not cover: the wide-resize-while-open clearing (effect at shell:367), Escape from inside the sheet or with a prevented event, the agent workflow rendering through the sidebar, and Stop visibility on the agent tab. There is no spec for `generation-agent-sidebar.component.ts`. The shell spec also uses `NO_ERRORS_SCHEMA` with `imports: []`, so the sidebar is never rendered. Parity for the sidebar is therefore unproven by tests.
+- M4. Errors, `rejection` and `startError` live inside the hidden sheet (shell:184-190). While the sheet is closed they are visible only to the sr-only status. Surface an attention dot or the error text on the peek row. If `binding()` goes null while `sheetOpen` is true, the state persists and the sheet re-opens on rebind. Reset `sheetOpen` when the binding changes.
+- M5. Peek row and header both print the same status text in narrow mode (shell:102-106, 125-129). Visual redundancy only.
+
+### Must-fix
+1. generation-workflow-shell.component.ts:254-260: ignore Escape when `event.defaultPrevented` (and scope it to the sheet or peek button) so the preview dialog's Escape does not also close the sheet (S1).
+2. generation-workflow-shell.component.ts:58-60: remove the lingering transform (`backwards` fill or opacity animation) so the fixed preview dialog is not trapped in the sheet (S2). Confirm visually.
+3. generation-workflow-shell.component.spec.ts: add tests for S1 and resize-while-open, plus one test that renders the agent tab through the real sidebar (M3).
+
+### Defer
+M1, M2 (cheap; do them with the must-fix if convenient), M4, M5, and removal of the dead duplicated computeds and injections in the shell (style review).

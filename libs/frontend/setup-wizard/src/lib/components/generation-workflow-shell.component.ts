@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
+  Injector,
   OnDestroy,
   afterNextRender,
   computed,
@@ -18,10 +19,6 @@ import {
   type SessionStopHandler,
 } from '@ptah-extension/chat';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import {
-  ModelStateService,
-  ProvidersSettingsStateService,
-} from '@ptah-extension/core';
 import { GenerationWorkflowLauncherService } from '@ptah-extension/chat-ui';
 import { SurfaceRouterService } from '@ptah-extension/core';
 import type { SetupGenerationWorkflow } from '@ptah-extension/shared';
@@ -45,7 +42,6 @@ import { GenerationAgentSidebarComponent } from './generation-agent-sidebar.comp
     GenerationAgentSidebarComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { '(keydown)': 'onKeydown($event)' },
   styles: [
     `
       :host {
@@ -56,7 +52,7 @@ import { GenerationAgentSidebarComponent } from './generation-agent-sidebar.comp
         overflow: hidden;
       }
       .workflow-sheet-open {
-        animation: workflow-sheet-in 180ms var(--ptah-ease-soft) both;
+        animation: workflow-sheet-in 180ms var(--ptah-ease-soft) backwards;
       }
       @keyframes workflow-sheet-in {
         from {
@@ -115,7 +111,7 @@ import { GenerationAgentSidebarComponent } from './generation-agent-sidebar.comp
               class="flex min-h-11 min-w-0 flex-1 items-center gap-2 px-4 py-1.5 text-left focus-visible:outline-base-content"
               aria-controls="wizard-sidebar"
               [attr.aria-expanded]="sheetOpen()"
-              (click)="sheetOpen.update((open) => !open)"
+              (click)="toggleSheet()"
             >
               <span class="truncate font-semibold">{{
                 current.workflow === 'setup-project-prompt'
@@ -127,6 +123,11 @@ import { GenerationAgentSidebarComponent } from './generation-agent-sidebar.comp
                   ? guidance.status()
                   : store.state()
               }}</span>
+              @if (needsAttention()) {
+                <span class="badge badge-warning badge-sm shrink-0"
+                  >Needs attention</span
+                >
+              }
               <span class="ml-auto" aria-hidden="true">{{
                 sheetOpen() ? '⌃' : '⌄'
               }}</span>
@@ -162,6 +163,7 @@ import { GenerationAgentSidebarComponent } from './generation-agent-sidebar.comp
         }
         <div class="relative flex min-h-0 flex-1 overflow-hidden">
           <div
+            #sheet
             id="wizard-sidebar"
             class="min-h-0 overflow-y-auto border-l border-base-300 bg-surface-1 p-3 space-y-3"
             [style.width.px]="narrow() ? null : 336"
@@ -171,6 +173,11 @@ import { GenerationAgentSidebarComponent } from './generation-agent-sidebar.comp
             [class.z-20]="narrow()"
             [class.workflow-sheet-open]="narrow() && sheetOpen()"
             [class.hidden]="narrow() && !sheetOpen()"
+            [attr.role]="narrow() ? 'dialog' : null"
+            [attr.aria-modal]="narrow() && sheetOpen() ? 'true' : null"
+            [attr.aria-label]="narrow() ? 'Generation workflow details' : null"
+            [attr.tabindex]="narrow() ? -1 : null"
+            (keydown)="onSheetKeydown($event)"
           >
             @if (current.workflow === 'setup-agent-generation') {
               <ptah-generation-agent-sidebar
@@ -218,13 +225,12 @@ import { GenerationAgentSidebarComponent } from './generation-agent-sidebar.comp
   `,
 })
 export class GenerationWorkflowShellComponent implements OnDestroy {
-  propagationConsentLabel(status: string, consent: string): string {
-    return status === 'not-attempted' ? 'not attempted' : consent;
-  }
   private readonly route = inject(ActivatedRoute);
+  private readonly injector = inject(Injector);
   private readonly host = inject(ElementRef<HTMLElement>);
   private readonly peekButton =
     viewChild<ElementRef<HTMLButtonElement>>('peekButton');
+  private readonly sheet = viewChild<ElementRef<HTMLElement>>('sheet');
   private resizeObserver: ResizeObserver | null = null;
   readonly hostWidth = signal(960);
   readonly narrow = computed(() => this.hostWidth() < 720);
@@ -233,10 +239,6 @@ export class GenerationWorkflowShellComponent implements OnDestroy {
     initialValue: this.route.snapshot.paramMap,
   });
   private readonly tabs = inject(TabManagerService);
-  private readonly models = inject(ModelStateService, { optional: true });
-  private readonly providers = inject(ProvidersSettingsStateService, {
-    optional: true,
-  });
   private readonly launcher = inject(GenerationWorkflowLauncherService);
   private readonly surfaceRouter = inject(SurfaceRouterService);
   backToChat(): void {
@@ -246,12 +248,39 @@ export class GenerationWorkflowShellComponent implements OnDestroy {
   readonly agents = inject(AgentGenerationStore);
   readonly handoff = inject(GenerationHandoffStore);
   readonly guidance = inject(GuidanceGenerationStore);
+  readonly needsAttention = computed(
+    () =>
+      !!this.store.rejection() ||
+      !!this.store.chatTurnRejection() ||
+      !!this.store.startError() ||
+      (this.binding()?.workflow === 'setup-project-prompt'
+        ? this.guidance.actionFailed()
+        : this.agents.error()),
+  );
   readonly workspaceName = computed(
     () =>
       this.binding()?.workspacePath.split(/[\\/]/).filter(Boolean).at(-1) ??
       'Workspace',
   );
-  onKeydown(event: KeyboardEvent): void {
+  toggleSheet(): void {
+    const opening = !this.sheetOpen();
+    this.sheetOpen.set(opening);
+    if (opening) {
+      afterNextRender(
+        () => {
+          if (!this.sheetOpen()) return;
+          const sheet = this.sheet()?.nativeElement;
+          const first = sheet?.querySelector<HTMLElement>(
+            'button:not([disabled]), input:not([disabled]), select:not([disabled])',
+          );
+          (first ?? sheet)?.focus();
+        },
+        { injector: this.injector },
+      );
+    }
+  }
+  onSheetKeydown(event: KeyboardEvent): void {
+    if (event.defaultPrevented) return;
     if (event.key === 'Escape' && this.narrow() && this.sheetOpen()) {
       event.preventDefault();
       this.sheetOpen.set(false);
@@ -266,38 +295,6 @@ export class GenerationWorkflowShellComponent implements OnDestroy {
   private combinedBaselineRevision = 0;
   private discoveredTerminalRunId: string | null = null;
   protected readonly now = signal(Date.now());
-  readonly remainingSeconds = computed(() =>
-    Math.max(
-      0,
-      Math.ceil(
-        ((this.handoff.pending()?.guidanceStartDeadline ?? this.now()) -
-          this.now()) /
-          1000,
-      ),
-    ),
-  );
-  readonly guidancePreviewModel = computed(() => {
-    const pending = this.handoff.pending();
-    if (!pending) return null;
-    this.tabs.tabs();
-    const tab = this.tabs.findWorkflowTab(
-      pending.workspacePath,
-      'setup-project-prompt',
-    );
-    return tab?.overrideModel ?? this.models?.currentModel() ?? null;
-  });
-  readonly guidancePreviewProvider = computed(() =>
-    this.handoff.pending()?.workspacePath === this.tabs.activeWorkspacePath
-      ? (this.providers?.activeProviderId() ?? null)
-      : null,
-  );
-  readonly showNextSteps = computed(() => {
-    const run = this.store.run();
-    return (
-      !!run &&
-      ['completed', 'failed', 'cancelled', 'timed-out'].includes(run.status)
-    );
-  });
   readonly hasVerifiedResults = computed(() => {
     const result = this.store.run()?.result;
     return !!(
@@ -362,6 +359,17 @@ export class GenerationWorkflowShellComponent implements OnDestroy {
           this.hostWidth.set(entry.contentRect.width),
         );
         this.resizeObserver.observe(element);
+      }
+    });
+    let lastBindingKey: string | null = null;
+    effect(() => {
+      const binding = this.binding();
+      const key = binding
+        ? `${binding.workspacePath}\u0000${binding.tabId}\u0000${binding.workflow}`
+        : null;
+      if (key !== lastBindingKey) {
+        lastBindingKey = key;
+        this.sheetOpen.set(false);
       }
     });
     effect(() => {

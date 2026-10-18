@@ -6,21 +6,28 @@ import { convertToParamMap } from '@angular/router';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { GenerationWorkflowLauncherService } from '@ptah-extension/chat-ui';
 import { SurfaceRouterService } from '@ptah-extension/core';
+import { ClaudeRpcService, ModelStateService } from '@ptah-extension/core';
 import type { SetupGenerationRunState } from '@ptah-extension/shared';
 import { GenerationWorkflowStore } from '../services/generation-workflow.store';
 import { AgentGenerationStore } from '../services/agent-generation.store';
 import { GenerationHandoffStore } from '../services/generation-handoff.store';
 import { GuidanceGenerationStore } from '../services/guidance-generation.store';
+import { SetupWizardStateService } from '../services/setup-wizard-state.service';
+import { WizardRpcService } from '../services/wizard-rpc.service';
+import { GenerationAgentSidebarComponent } from './generation-agent-sidebar.component';
 import { GenerationWorkflowShellComponent } from './generation-workflow-shell.component';
 
 describe('GenerationWorkflowShellComponent', () => {
-  it('docks a 336px sidebar beside full-height chat, then opens an inert-chat sheet with Stop at narrow host widths', () => {
-    const active = signal(false);
-    const stop = jest.fn();
+  it('renders agent selection, source, preview, model, checkpoint and countdown through the real sidebar', () => {
     const params = convertToParamMap({
-      tabId: 'guidance',
-      workflow: 'setup-project-prompt',
+      tabId: 'agent',
+      workflow: 'setup-agent-generation',
     });
+    const run = signal<SetupGenerationRunState | null>(null);
+    const pending = signal<{
+      workspacePath: string;
+      guidanceStartDeadline: number;
+    } | null>(null);
     TestBed.configureTestingModule({
       providers: [
         {
@@ -35,8 +42,145 @@ describe('GenerationWorkflowShellComponent', () => {
           useValue: {
             tabs: signal([]),
             activeWorkspacePath$: signal('/ws'),
+            activeWorkspacePath: '/ws',
+            getWorkspaceTabs: () => [
+              { id: 'agent', workflow: 'setup-agent-generation' },
+            ],
+            findWorkflowTab: () => null,
+          },
+        },
+        {
+          provide: GenerationWorkflowLauncherService,
+          useValue: { consumeOrigin: jest.fn() },
+        },
+        {
+          provide: GenerationWorkflowStore,
+          useValue: {
+            bind: jest.fn(),
+            unbind: jest.fn(),
+            run,
+            acceptedRun: () => null,
+            state: () => 'idle',
+            isBound: () => false,
+            rejection: () => null,
+            chatTurnRejection: () => null,
+            startError: () => null,
+            provider: () => null,
+            model: () => null,
+          },
+        },
+        {
+          provide: AgentGenerationStore,
+          useValue: {
+            discover: jest.fn(),
+            checkGuidance: jest.fn(),
+            error: () => false,
+            resumable: () => ({
+              runId: 'saved',
+              agents: [{ agentId: 'planner', status: 'completed' }],
+            }),
+            remainingCounts: () => ({}),
+            retryingIds: () => new Set<string>(),
+            loading: () => false,
+            guidanceStatus: () => 'unknown',
+          },
+        },
+        {
+          provide: GenerationHandoffStore,
+          useValue: {
+            pending,
+            outcome: () => 'idle',
+            schedule: jest.fn(),
+          },
+        },
+        { provide: GuidanceGenerationStore, useValue: { unbind: jest.fn() } },
+        {
+          provide: SetupWizardStateService,
+          useValue: {
+            multiPhaseResult: () => ({}),
+            recommendations: () => [],
+            selectedAgentsMap: () => ({}),
+            communityPacks: () => [],
+          },
+        },
+        { provide: ClaudeRpcService, useValue: { call: jest.fn() } },
+        { provide: WizardRpcService, useValue: {} },
+        {
+          provide: ModelStateService,
+          useValue: {
+            availableModels: () => [],
+            currentModel: () => 'test-model',
+          },
+        },
+      ],
+    });
+    TestBed.overrideComponent(GenerationWorkflowShellComponent, {
+      set: {
+        imports: [GenerationAgentSidebarComponent],
+        schemas: [NO_ERRORS_SCHEMA],
+      },
+    });
+    const fixture = TestBed.createComponent(GenerationWorkflowShellComponent);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.querySelector('ptah-generation-agent-sidebar')).not.toBeNull();
+    expect(root.textContent).toContain('Select agents');
+    expect(root.querySelector('ptah-generation-source-status')).not.toBeNull();
+    expect(root.querySelector('ptah-agent-preview-dialog')).not.toBeNull();
+    expect(root.textContent).toContain('Model for this tab');
+    expect(root.textContent).toContain('Resume saved run');
+    expect(
+      root.querySelector('[aria-label="Saved agent progress"]')?.textContent,
+    ).toContain('planner');
+    run.set({
+      binding: {
+        tabId: 'agent',
+        workspacePath: '/ws',
+        workflow: 'setup-agent-generation',
+        runId: 'done',
+      },
+      status: 'completed',
+      source: { kind: 'workspace-discovery', reason: 'missing' },
+      effectiveProvider: 'unknown',
+      effectiveModel: 'unknown',
+    });
+    pending.set({
+      workspacePath: '/ws',
+      guidanceStartDeadline: Date.now() + 5000,
+    });
+    fixture.detectChanges();
+    expect(root.textContent).toContain('Next steps');
+    expect(root.textContent).toMatch(
+      /Project guidance starts in [0-5] seconds/,
+    );
+    fixture.destroy();
+  });
+  it('docks a 336px sidebar beside full-height chat, then opens an inert-chat sheet with Stop at narrow host widths', () => {
+    const active = signal(false);
+    const stop = jest.fn();
+    const initialParams = convertToParamMap({
+      tabId: 'guidance',
+      workflow: 'setup-project-prompt',
+    });
+    const params = new BehaviorSubject(initialParams);
+    const rejection = signal<{ reason: 'blocked' } | null>(null);
+    TestBed.configureTestingModule({
+      providers: [
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            paramMap: params,
+            snapshot: { paramMap: initialParams },
+          },
+        },
+        {
+          provide: TabManagerService,
+          useValue: {
+            tabs: signal([]),
+            activeWorkspacePath$: signal('/ws'),
             getWorkspaceTabs: () => [
               { id: 'guidance', workflow: 'setup-project-prompt' },
+              { id: 'other', workflow: 'setup-project-prompt' },
             ],
           },
         },
@@ -54,6 +198,9 @@ describe('GenerationWorkflowShellComponent', () => {
             isBound: active,
             run: () => null,
             acceptedRun: () => null,
+            rejection,
+            chatTurnRejection: () => null,
+            startError: () => null,
           },
         },
         { provide: AgentGenerationStore, useValue: { error: () => false } },
@@ -65,6 +212,7 @@ describe('GenerationWorkflowShellComponent', () => {
             unbind: jest.fn(),
             status: () => 'idle',
             run: () => null,
+            actionFailed: () => false,
           },
         },
       ],
@@ -93,6 +241,19 @@ describe('GenerationWorkflowShellComponent', () => {
     expect(sidebar.classList.contains('hidden')).toBe(false);
     expect(chat.hasAttribute('inert')).toBe(true);
     expect(chat.getAttribute('aria-hidden')).toBe('true');
+    expect(sidebar.getAttribute('role')).toBe('dialog');
+    expect(sidebar.getAttribute('aria-modal')).toBe('true');
+    expect(sidebar.contains(document.activeElement)).toBe(true);
+    const prevented = new KeyboardEvent('keydown', {
+      key: 'Escape',
+      bubbles: true,
+      cancelable: true,
+    });
+    prevented.preventDefault();
+    sidebar.dispatchEvent(prevented);
+    fixture.detectChanges();
+    expect(sidebar.classList.contains('hidden')).toBe(false);
+    expect(chat.hasAttribute('inert')).toBe(true);
     active.set(true);
     fixture.detectChanges();
     const stopButton = root.querySelector<HTMLButtonElement>(
@@ -101,12 +262,32 @@ describe('GenerationWorkflowShellComponent', () => {
     expect(stopButton).not.toBeNull();
     stopButton?.click();
     expect(stop).toHaveBeenCalledTimes(1);
-    root.dispatchEvent(
+    sidebar.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
     );
     fixture.detectChanges();
     expect(chat.hasAttribute('inert')).toBe(false);
     expect(document.activeElement).toBe(peek);
+    rejection.set({ reason: 'blocked' });
+    fixture.detectChanges();
+    expect(peek?.textContent).toContain('Needs attention');
+    rejection.set(null);
+    peek?.click();
+    fixture.detectChanges();
+    fixture.componentInstance.hostWidth.set(960);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.sheetOpen()).toBe(false);
+    expect(chat.hasAttribute('inert')).toBe(false);
+    fixture.componentInstance.hostWidth.set(400);
+    fixture.detectChanges();
+    peek?.click();
+    fixture.detectChanges();
+    params.next(
+      convertToParamMap({ tabId: 'other', workflow: 'setup-project-prompt' }),
+    );
+    fixture.detectChanges();
+    expect(fixture.componentInstance.sheetOpen()).toBe(false);
+    expect(chat.hasAttribute('inert')).toBe(false);
     active.set(false);
     fixture.detectChanges();
     expect(root.querySelector('[aria-label="Stop generation"]')).toBeNull();
@@ -216,12 +397,6 @@ describe('GenerationWorkflowShellComponent', () => {
     expect(adoptGuidance).toHaveBeenCalledWith(run, false);
     expect(refreshGuidance).toHaveBeenCalledTimes(1);
     fixture.destroy();
-  });
-  it('labels not-attempted propagation without implying denied consent', () => {
-    const label =
-      GenerationWorkflowShellComponent.prototype.propagationConsentLabel;
-    expect(label('not-attempted', 'not-granted')).toBe('not attempted');
-    expect(label('completed', 'granted')).toBe('granted');
   });
   beforeEach(() =>
     TestBed.configureTestingModule({
@@ -368,7 +543,6 @@ describe('GenerationWorkflowShellComponent', () => {
       guidanceStartDeadline: Date.now() + 5_000,
     });
     fixture.detectChanges();
-    expect(fixture.componentInstance.remainingSeconds()).toBeLessThanOrEqual(5);
     expect(schedule).toHaveBeenCalledWith('tab', '/ws');
     acceptedRun.set({ runId: 'second', revision: 2 });
     run.set({
