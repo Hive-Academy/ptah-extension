@@ -39,6 +39,7 @@ import {
   ExecutionTreeBuilderService,
   PermissionHandlerService,
   StreamingHandlerService,
+  SubagentExecutionStore,
 } from '@ptah-extension/chat-streaming';
 import {
   createEmptyStreamingState,
@@ -366,6 +367,7 @@ describe('StreamRouter (authoritative — Phase 3)', () => {
         { provide: TabManagerService, useValue: tabManager },
         { provide: StreamingHandlerService, useValue: streamingHandler },
         { provide: AgentMonitorStore, useValue: agentMonitorStore },
+        { provide: SubagentExecutionStore, useValue: { clearSession: jest.fn() } },
         { provide: BackgroundAgentStore, useValue: backgroundAgentStore },
         { provide: BatchedUpdateService, useValue: batchedUpdate },
         { provide: ExecutionTreeBuilderService, useValue: treeBuilder },
@@ -1071,6 +1073,7 @@ describe('StreamRouter (authoritative — closedTab effect)', () => {
         { provide: TabManagerService, useValue: tabManager },
         { provide: StreamingHandlerService, useValue: streamingHandler },
         { provide: AgentMonitorStore, useValue: agentMonitorStore },
+        { provide: SubagentExecutionStore, useValue: { clearSession: jest.fn() } },
         { provide: BackgroundAgentStore, useValue: backgroundAgentStore },
         { provide: BatchedUpdateService, useValue: batchedUpdate },
         { provide: ExecutionTreeBuilderService, useValue: treeBuilder },
@@ -1103,6 +1106,7 @@ describe('StreamRouter (authoritative — closedTab effect)', () => {
     expect(agentMonitorStore.forceClearSessionAgents).toHaveBeenCalledWith(
       SESSION_A,
     );
+    expect(TestBed.inject(SubagentExecutionStore).clearSession).toHaveBeenCalledWith(SESSION_A);
     expect(backgroundAgentStore.clearSession).toHaveBeenCalledWith(SESSION_A);
     expect(treeBuilder.clearForSession).toHaveBeenCalledWith(SESSION_A);
     expect(treeBuilder.clearForClosedTab).toHaveBeenCalledWith(
@@ -1288,6 +1292,7 @@ describe('StreamRouter (authoritative — bootstrap migration)', () => {
         { provide: TabManagerService, useValue: tabManager },
         { provide: StreamingHandlerService, useValue: streamingHandler },
         { provide: AgentMonitorStore, useValue: agentMonitorStore },
+        { provide: SubagentExecutionStore, useValue: { clearSession: jest.fn() } },
         { provide: BackgroundAgentStore, useValue: backgroundAgentStore },
         { provide: BatchedUpdateService, useValue: batchedUpdate },
         { provide: ExecutionTreeBuilderService, useValue: treeBuilder },
@@ -1393,6 +1398,7 @@ describe('StreamRouter (TASK_2026_107 Phase 2 — surface routing)', () => {
         { provide: TabManagerService, useValue: tabManager },
         { provide: StreamingHandlerService, useValue: streamingHandler },
         { provide: AgentMonitorStore, useValue: agentMonitorStore },
+        { provide: SubagentExecutionStore, useValue: { clearSession: jest.fn() } },
         { provide: BackgroundAgentStore, useValue: backgroundAgentStore },
         { provide: BatchedUpdateService, useValue: batchedUpdate },
         { provide: ExecutionTreeBuilderService, useValue: treeBuilder },
@@ -1502,6 +1508,7 @@ describe('StreamRouter (TASK_2026_107 Phase 2 — surface routing)', () => {
       expect(agentMonitorStore.clearSessionAgents).toHaveBeenCalledWith(
         SESSION_A,
       );
+      expect(TestBed.inject(SubagentExecutionStore).clearSession).toHaveBeenCalledWith(SESSION_A);
       // Surface adapter unregistered too.
       expect(surfaceRegistry.getAdapter(probe.surfaceId)).toBeNull();
     });

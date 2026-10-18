@@ -12,6 +12,7 @@ import { ExecutionTreeBuilderService } from './execution-tree-builder.service';
 import { HistoryMessageBuilder } from './history-message-builder.service';
 import { SessionManager } from './session-manager.service';
 import { StreamingAccumulatorCore } from './accumulator-core.service';
+import { SubagentExecutionStore } from './subagent-execution.store';
 
 function historyState(): StreamingState {
   const state = TestBed.inject(HistoryMessageBuilder).createPageState();
@@ -60,8 +61,12 @@ describe('HistoryMessageBuilder', () => {
   };
   let monitoredAgents: Map<string, unknown>;
   let backgroundAgents: Map<string, unknown>;
+  let historyEventsSeen: jest.Mock;
+  let onSubagentMessageComplete: jest.Mock;
 
   beforeEach(() => {
+    historyEventsSeen = jest.fn();
+    onSubagentMessageComplete = jest.fn();
     const tree: ExecutionNode = {
       id: 'assistant-tree',
       type: 'message',
@@ -88,6 +93,7 @@ describe('HistoryMessageBuilder', () => {
       onAgentProgress: jest.fn(),
       onAgentStatus: jest.fn(),
       onAgentCompleted: jest.fn(),
+      onSubagentMessageComplete,
       onBackgroundAgentStarted: jest.fn(),
     };
     const backgroundAgentStore = {
@@ -105,6 +111,7 @@ describe('HistoryMessageBuilder', () => {
     TestBed.configureTestingModule({
       providers: [
         HistoryMessageBuilder,
+        { provide: SubagentExecutionStore, useValue: { historyEventsSeen } },
         StreamingAccumulatorCore,
         EventDeduplicationService,
         {
@@ -180,6 +187,35 @@ describe('HistoryMessageBuilder', () => {
     expect(batchedUpdate.scheduleUpdate).not.toHaveBeenCalled();
     expect(monitoredAgents.size).toBe(1);
     expect(backgroundAgents.size).toBe(1);
+  });
+
+  it('keeps subagent history off the restored tree while updating its usage record', () => {
+    const state = builder.createPageState();
+    const parent = {
+      id: 'parent-start', eventType: 'message_start', messageId: 'parent',
+      role: 'assistant', timestamp: 1, source: 'history',
+    } as FlatStreamEventUnion;
+    const child = {
+      id: 'child-start', eventType: 'message_start', messageId: 'child',
+      parentToolUseId: 'task-tool', role: 'assistant', timestamp: 2, source: 'history',
+    } as FlatStreamEventUnion;
+    const childComplete = {
+      id: 'child-complete', eventType: 'message_complete', messageId: 'child',
+      parentToolUseId: 'task-tool', timestamp: 3, source: 'history',
+      tokenUsage: { input: 4, output: 7 },
+    } as FlatStreamEventUnion;
+
+    builder.accumulate(state, [parent, child, childComplete], 'session-1');
+
+    expect([...state.events.keys()]).toEqual(['parent-start']);
+    expect(historyEventsSeen).toHaveBeenCalledTimes(2);
+    expect(historyEventsSeen).toHaveBeenCalledWith(
+      expect.objectContaining({ id: childComplete.id, sessionId: 'session-1' }),
+    );
+    expect(onSubagentMessageComplete).toHaveBeenCalledWith(
+      expect.objectContaining({ tokenUsage: { input: 4, output: 7 } }),
+    );
+    expect(treeBuilder.buildTree).not.toHaveBeenCalled();
   });
 
   it('propagates a throwing event without returning a partial list and releases the scratch key', () => {

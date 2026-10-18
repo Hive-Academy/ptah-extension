@@ -47,6 +47,7 @@ import {
   SessionManager,
   StreamingAccumulatorCore,
   StreamingHandlerService,
+  SubagentExecutionStore,
   type AccumulatorContext,
 } from '@ptah-extension/chat-streaming';
 import type {
@@ -64,6 +65,7 @@ export class StreamRouter {
   private readonly tabManager = inject(TabManagerService);
   private readonly streamingHandler = inject(StreamingHandlerService);
   private readonly agentMonitorStore = inject(AgentMonitorStore);
+  private readonly subagentExecution = inject(SubagentExecutionStore);
   private readonly permissionHandler = inject(PermissionHandlerService);
   private readonly surfaceRegistry = inject(StreamingSurfaceRegistry);
   private readonly claims = inject(WorkflowSessionClaimService);
@@ -291,6 +293,7 @@ export class StreamRouter {
         for (const sid of sessions) {
           this.streamingHandler.cleanupSessionDeduplication(sid);
           this.agentMonitorStore.clearSessionAgents(sid);
+          this.subagentExecution.clearSession(sid);
         }
         this.registry.remove(convId);
       }
@@ -955,6 +958,7 @@ export class StreamRouter {
           !this.sessionShownByOtherTab(sid, evt.tabId)
         ) {
           this.agentMonitorStore.forceClearSessionAgents(sid);
+          this.subagentExecution.clearSession(sid);
           this.backgroundAgentStore.clearSession(sid);
           this.treeBuilder.clearForSession(sid);
         }

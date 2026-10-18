@@ -42,6 +42,7 @@ import {
   type AccumulatorContext,
 } from './accumulator-core.service';
 import { TurnStateApplier } from './turn-state-applier.service';
+import { SubagentExecutionStore } from './subagent-execution.store';
 
 /**
  * The per-turn footer fields of one `session:stats` result, taken from the
@@ -94,6 +95,7 @@ export class StreamingHandlerService {
   private readonly agentMonitorStore = inject(AgentMonitorStore);
   private readonly accumulatorCore = inject(StreamingAccumulatorCore);
   private readonly turnStateApplier = inject(TurnStateApplier);
+  private readonly subagentExecution = inject(SubagentExecutionStore);
 
   /**
    * Clean up deduplication state for a session.
@@ -205,8 +207,9 @@ export class StreamingHandlerService {
     postTokens?: number;
     durationMs?: number;
   } | null {
-    const isReplay = options?.isReplay ?? false;
     try {
+      if (this.subagentExecution.claim(event)) return null;
+      const isReplay = options?.isReplay ?? false;
       // The backend turn state is intercepted BEFORE dedup and before the
       // accumulator: it drives status / spinner / liveness and is never stored
       // in `StreamingState` (TASK_2026_360).
