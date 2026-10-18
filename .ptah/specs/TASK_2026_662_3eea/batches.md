@@ -1,6 +1,6 @@
 # Batches - TASK_2026_662_3eea
 
-Total tasks: 71 | Batches: 71 (+2 operational steps OP-1, OP-2) | Phases: 6 (A-F) | Complete: 3/71
+Total tasks: 71 | Batches: 71 (+2 operational steps OP-1, OP-2) | Phases: 6 (A-F) | Complete: 6/71
 
 Worktree root (prefix every path below with it): `D:\projects\ptah-extension\.claude-worktrees\skill-synthesis-purge\`
 Branch: `refactor/skill-synthesis-purge`. Aliases (same as implementation-plan.md:153):
@@ -234,14 +234,14 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
   telemetry toggle batches switch readers. Old keys are untouched, so runtime behavior is unchanged.
   Failure to write logs the fs error code only, never values; the in-memory copy still applies.
 
-## Batch 3: Invocation event store + 646 seam adapter - PENDING
+## Batch 3: Invocation event store + 646 seam adapter - COMPLETE (75eceaaeb)
 
 - Phase: A | Wave: A-W2 | Executor: CLI lane codex | Depends on: 1 | Tasks: 1
 - Flags: WRITE-PATH (event rows)
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/skill-synthesis --parallel=1`
 - Precondition: G10, the candidate-backed adapter, is present. 0056 is registered.
 
-### Task 3.1: Add `skill-invocation-event.store.ts` beside the candidate store - PENDING
+### Task 3.1: Add `skill-invocation-event.store.ts` beside the candidate store - COMPLETE
 
 - Files: `SS/skill-invocation-event.store.ts` (new) + spec, `SS/di/register.ts`,
   `SS/outcome-seam/skill-telemetry-seam.adapter.ts` + spec.
@@ -252,6 +252,20 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
   Register the store before any consumer uses it.
 - Validation notes: keep the TASK_2026_646 port direction (lane-outcomes depends on the port).
 - Implementation details: the adapter reads through the new store and no longer uses `SkillCandidateStore`.
+
+### Batch 3 verification notes
+
+- Verified on disk: `SS/skill-invocation-event.store.ts` holds event-only prepared SQL; `succeeded`
+  omitted writes NULL, `is_error` comes only from the explicit `isError`. Registered as a singleton in
+  `SS/di/register.ts` before the adapter; the adapter injects it (`Pick<...>` reader shape for an
+  out-of-batch trigger spec) and no longer imports `SkillCandidateStore`. 646 port token unchanged.
+- Checks: skill-synthesis test + typecheck PASS (orchestrator); lint 0 errors, no warnings in batch files.
+- Write-path trace: writer `SkillInvocationEventStore.recordSkillEvent` -> table
+  `skill_invocation_events` (0056 shape: nullable `succeeded`, explicit `is_error`) -> runtime readers
+  `SkillTelemetrySeamAdapter.findSubagentRuns` / `listSkillsForScopes` (resolved via the
+  `LANE_OUTCOME_TOKENS` port) plus the store's dominant-skill and recent-session readers. No production
+  caller of the new writer yet: the live writer is still `SkillCandidateStore.recordSkillEvent`
+  (via `skill-invocation-recorder.ts:48`) into the same table; batch 4 moves capture to the new writer.
 
 ## Batch 4: Nullable three-kind capture - PENDING
 
@@ -391,14 +405,14 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
   in batch 59.
 - Implementation details: none beyond the requirements above.
 
-## Batch 11: Nullable scorecard UI - PENDING
+## Batch 11: Nullable scorecard UI - COMPLETE (6aee6af62)
 
 - Phase: A | Wave: A-W2 | Executor: CLI lane Glm | Depends on: 7 | Tasks: 1
 - Flags: UI
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/skill-synthesis-ui --parallel=1`
 - Precondition: the old tabs remain. The new UI compiles beside them.
 
-### Task 11.1: Scorecard badge, detail and outcome signals render null grades - PENDING
+### Task 11.1: Scorecard badge, detail and outcome signals render null grades - COMPLETE
 
 - Files: `SU/components/clones/scorecard-badge.component.ts` + spec, `scorecard-detail.component.ts` + spec, `agent-outcome-signals.ts` + spec.
 - Plan reference: plan row 11; implementation-plan.md:61 (no causality claim when ungraded).
@@ -406,6 +420,16 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
 - Quality requirements: "No grade" for null. No review markdown is rendered as untrusted HTML.
 - Validation notes: none beyond the requirements above.
 - Implementation details: none beyond the requirements above.
+
+### Batch 11 verification notes
+
+- Verified on disk: badge, detail rows and outcome signals render "No grade" for null, absent or
+  non-finite grades (never 0% or FAILED; no causality claim when ungraded); no `[innerHTML]` use.
+  Fix round 1: `clone-card.component.spec.ts:330,545` expectation 'no data yet' -> 'No grade'
+  (shared label), committed with the batch.
+- Checks: skill-synthesis-ui test + typecheck + lint PASS (orchestrator, after fix). No persisted write.
+- UI flag: Phase A visual before/after screenshots (dark + light, "before" from `271198ced`) are owed at
+  the Phase A review, not per batch.
 
 ## Batch 12: Move `resolveSkillsRoot` to `skills-root.ts` - PENDING
 
@@ -454,7 +478,7 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
 - Validation notes: none beyond the requirements above.
 - Implementation details: none beyond the requirements above.
 
-## Batch 15: Fatal verified-archive preflight (0057 not registered) - PENDING
+## Batch 15: Fatal verified-archive preflight (0057 not registered) - COMPLETE (6bd335a2f)
 
 - Phase: A | Wave: A-W2 | Executor: CLI lane codex | Depends on: 1 | Tasks: 1
 - Flags: WRITE-PATH (owner-only JSONL archive + receipt file)
@@ -462,7 +486,7 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
 - Precondition: G15, older vec catch-up, runs after the regular migrations (`migration-runner.ts`
   `applyAll:136`, `runVecCatchUp:319-349`).
 
-### Task 15.1: Archive and verify before version 57 - PENDING
+### Task 15.1: Archive and verify before version 57 - COMPLETE
 
 - Files: `PS/skill-pipeline-archive.ts` (new) + spec, `PS/migration-runner.ts` + spec.
 - Plan reference: plan row 15; implementation-plan.md:24, 124-129; context D3.
@@ -476,7 +500,22 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
 - Validation notes: the archive function is exported so batch 50's dry-run script can call it on a DB copy.
 - Implementation details: none beyond the requirements above.
 
-**Phase A review due after batch 15: code-logic + style (new public API).**
+### Batch 15 verification notes
+
+- Verified on disk: `PS/skill-pipeline-archive.ts` exports `archiveSkillPipeline(db, archiveRoot?)` and
+  `verifySkillPipelineArchive(receiptPath)`; fixed table list, prepared SQL, `job_runs` limited to the four
+  pipeline job IDs; dirs `0700`, files `0600` (`wx`). `migration-runner.ts` calls `ensureArchive()` before
+  any version >= 57 (and before deferred vec >= 57): vec loaded -> fatal catch-up through 56 first; vec
+  table present but vec unloaded -> throws. Migration registry still ends at 56.
+- Checks: persistence-sqlite test + typecheck PASS (orchestrator); lint 0 errors. Minor (recorded, not
+  fixed): `migration-runner.ts:378` `preserve-caught-error` warning, the new fatal throw has no `cause`.
+- Write-path trace: writer `archiveSkillPipeline` -> `~/.ptah/backups/skill-pipeline/pre-0057-*/`
+  (`<table>.jsonl` + `receipt.json`, owner-only) -> runtime readers: `verifySkillPipelineArchive` (called
+  inside `archiveSkillPipeline` before return; re-hashes and recounts), then `SqliteMigrationRunner`
+  logs `receipt.archivePath` and only then applies >= 57. Later readers: batch 50 dry-run script and
+  OP-1 user confirmation. No runtime effect today because 0057 is unregistered.
+
+**Phase A review due after the last Phase A batch commits (batch 14 in wave run order; 15 landed early in A-W2): code-logic + style (new public API) + visual before/after.**
 
 ---
 
