@@ -313,6 +313,19 @@ describe('formatters', () => {
     ).toBe('50%');
   });
 
+  it('renders No grade for a null or NaN rate instead of a percentage', () => {
+    // `CloneSummary.successRate` is still `number` until the shared DTO
+    // widens; `Object.assign` feeds the formatter the null it must survive
+    // without a cast.
+    const ungraded = Object.assign(clone({ invocationCount: 4 }), {
+      successRate: null,
+    });
+    expect(formatSuccessRate(ungraded)).toBe('No grade');
+    expect(
+      formatSuccessRate(clone({ invocationCount: 4, successRate: Number.NaN })),
+    ).toBe('No grade');
+  });
+
   it('renders a history stamp readably and passes unknown shapes through', () => {
     expect(formatHistoryTimestamp('20260101T093000')).toBe('2026-01-01 09:30');
     expect(formatHistoryTimestamp('not-a-stamp')).toBe('not-a-stamp');

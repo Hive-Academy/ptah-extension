@@ -236,12 +236,27 @@ export function formatHistoryTimestamp(ts: string): string {
   return `${y}-${mo}-${d} ${h}:${mi}`;
 }
 
-/** Success rate as a percentage, or `—` when nothing has been recorded. */
+/**
+ * Success rate as a percentage, or `No grade` when the clone is ungraded.
+ *
+ * `CloneSummary.successRate` is nullable (`number | null`) once grades come
+ * from task reviews rather than optimistic tool success — zero graded runs
+ * means UNGRADED, not 100%. The `typeof` guard is the narrowing test:
+ * `Number.isFinite` accepts `unknown` and narrows nothing, so arithmetic
+ * after it would not compile against the nullable field. A null rate — and
+ * a non-finite number, defensively — renders `No grade` instead of a
+ * fabricated percentage. `null` is still returned when nothing has been
+ * recorded at all, so callers keep hiding the metric there.
+ */
 export function formatSuccessRate(clone: CloneSummary): string | null {
-  if (clone.invocationCount <= 0 || !Number.isFinite(clone.successRate)) {
+  if (clone.invocationCount <= 0) {
     return null;
   }
-  return `${Math.round(clone.successRate * 100)}%`;
+  const rate: number | null = clone.successRate;
+  if (typeof rate !== 'number' || !Number.isFinite(rate)) {
+    return 'No grade';
+  }
+  return `${Math.round(rate * 100)}%`;
 }
 
 function remainingCooldownMs(clone: CloneSummary, now: number): number {
