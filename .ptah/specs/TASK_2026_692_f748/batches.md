@@ -1,6 +1,6 @@
 # Batches - TASK_2026_692_f748
 
-Total tasks: 38 | Batches: 21 | Complete: 12/21 (fix round 8F-8H after the Phase 1 review; bounded correction 8I after the re-review)
+Total tasks: 38 | Batches: 23 incl. fix rounds 8F-8I, 13F, 17F | Complete: 23/23
 
 Worktree (all edits, checks, commits): `D:\projects\ptah-extension\.claude-worktrees\idle-compaction`
 (branch `feat/idle-compaction`, base `7bdc6eed4`). Below, `<W>` means that absolute path; every
@@ -666,7 +666,7 @@ Decisions:
   `session-query-executor.idle-signals.spec.ts:49` and `:66`. Also new: `max-lines` warning on
   the service (756 > 700; base had none) -> carried to the Phase 2 style review.
 
-## Batch 10: Pump veto, facade, token and DI registration (send path live) — COMPLETE
+## Batch 10: Pump veto, facade, token and DI registration (send path live) — COMPLETE (commit 0adfca37b)
 
 - Recommended executor: CLI lane [implementation, TypeScript backend, tsyringe]
 - Execution mode: sequential
@@ -687,13 +687,13 @@ Decisions:
   - (F7) Spec: `pre-compact` arriving before `fire-sent` resolves. Record the outcome. If the
     attempt ends in a timeout warn, leave it for later item L3.
 
-### Task 10.1: Pump `beforeEnqueue` + spec — IMPLEMENTED
+### Task 10.1: Pump `beforeEnqueue` + spec — COMPLETE
 
 - Files: `<W>\libs\backend\agent-sdk\src\lib\helpers\session-lifecycle\session-stream-pump.service.ts`, `<W>\libs\backend\agent-sdk\src\lib\helpers\session-lifecycle\session-stream-pump.service.spec.ts`
 - Plan reference: implementation-plan.md:554-559 (8b)
 - Validation notes: honoured only with `admission: 'require-idle'`; called after the second `assertAdmissible` and before `markActive`/push (`session-stream-pump.service.ts:241-247`); a throw queues nothing and propagates.
 
-### Task 10.2: Token, facade delegates and facade spec — IN_PROGRESS
+### Task 10.2: Token, facade delegates and facade spec — COMPLETE
 
 - Files: `<W>\libs\backend\agent-sdk\src\lib\di\tokens.ts`, `<W>\libs\backend\agent-sdk\src\lib\helpers\session-lifecycle-manager.ts`, `<W>\libs\backend\agent-sdk\src\lib\helpers\session-lifecycle-manager.idle.spec.ts` (CREATE)
 - Plan reference: implementation-plan.md:561-571 (8c), :589 (token)
@@ -710,7 +710,7 @@ Decisions:
   sender's claim is released (sending deadline elapsed) before enqueue -> no enqueue, and the
   sender promise settles (rejects).
 
-### Task 10.3: DI registration — IMPLEMENTED
+### Task 10.3: DI registration — COMPLETE
 
 - File: `<W>\libs\backend\agent-sdk\src\lib\di\register.ts`
 - Plan reference: implementation-plan.md:589-598 (component 9)
@@ -727,8 +727,11 @@ Decisions:
   the service in production (plan 8c); (2) Prettier fails on 4 changed files. F7 judged L3:
   the pump has no await after the push, so `fire-sent` (microtask) always precedes PreCompact
   (CLI hook over IPC); an out-of-order case only holds the claim to `claim-timeout`.
+- Accepted after the fix (commit 0adfca37b): defect (1) is fixed on disk — the manager passes
+  `this.idleCompaction` to `new SessionQueryExecutor(` (`session-lifecycle-manager.ts:432-447`);
+  defect (2) cleared by the lint-staged Prettier hook at commit. Statuses reconciled at Mode 3.
 
-## Batch 11: PostCompact rekey target and CLI smoke assertion — COMPLETE
+## Batch 11: PostCompact rekey target and CLI smoke assertion — COMPLETE (commit eda363706)
 
 - Recommended executor: CLI lane [implementation, TypeScript backend, tsyringe]
 - Execution mode: sequential
@@ -746,13 +749,13 @@ Decisions:
   - (F5) Spec: a held idle claim is released after PostCompact rebinds the coordinator record to
     the new id. If the release goes to the old id and is lost, record it for later item L1.
 
-### Task 11.1: `CompactionHookHandler` idle target + PostCompact fallback id + spec — PENDING
+### Task 11.1: `CompactionHookHandler` idle target + PostCompact fallback id + spec — COMPLETE
 
 - Files: `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction-hook-handler.ts`, `<W>\libs\backend\agent-sdk\src\lib\helpers\compaction-hook-handler.spec.ts`
 - Plan reference: implementation-plan.md:573-582 (8d)
 - Validation notes: optional inject as LAST parameter (2 existing `new CompactionHookHandler(` sites: its spec and `live-usage-tracker.spec.ts`); add `['idle-compaction', this.idleCompaction]` to `rekeySessionState`; call `coordinator.onPostCompact(postFallbackSessionId, postPayloadSessionId ?? postFallbackSessionId)` whenever the fallback id is set; `rekeySessionState` keeps the both-ids condition.
 
-### Task 11.2: CLI smoke assertion — PENDING
+### Task 11.2: CLI smoke assertion — COMPLETE
 
 - File: `<W>\apps\ptah-cli\src\di\container.smoke.spec.ts`
 - Plan reference: implementation-plan.md:600-605
@@ -763,7 +766,7 @@ Decisions:
 
 - Command: `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/helpers/compaction-hook-handler.spec.ts libs/backend/agent-sdk/src/lib/helpers/live-usage-tracker.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -20 && npx nx test ptah-cli --parallel=1 2>&1 | grep -E "Tests:|Test Suites:|FAIL|failed" | tail -15`
 
-## Batch 12: Manual `/compact` admission in the router — COMPLETE
+## Batch 12: Manual `/compact` admission in the router — COMPLETE (commit 90dc77bf4)
 
 - Recommended executor: CLI lane [implementation, TypeScript backend, concurrency]
 - Execution mode: sequential
@@ -781,7 +784,7 @@ Decisions:
 - Import `ManualCompactAdmission` from `@ptah-extension/agent-sdk`. Batch 8F moves it to
   `manual-compact-admission.types.ts`; the public name and shape stay the same.
 
-### Task 12.1: Router fast path + authoritative admission + spec — PENDING
+### Task 12.1: Router fast path + authoritative admission + spec — COMPLETE
 
 - Files: `<W>\libs\backend\rpc-handlers\src\lib\chat\session\chat-slash-command-router.service.ts`, `<W>\libs\backend\rpc-handlers\src\lib\chat\session\chat-slash-command-router.idle-coalesce.spec.ts` (CREATE)
 - Plan reference: implementation-plan.md:651-688 (component 11), D6, D9, D10
@@ -792,7 +795,7 @@ Decisions:
 
 - Command: `npx nx test @ptah-extension/rpc-handlers --parallel=1 2>&1 | grep -E "Tests:|Test Suites:|FAIL|failed" | tail -15 && npx nx typecheck @ptah-extension/rpc-handlers 2>&1 | tail -10`
 
-## Batch 13: Electron and VS Code smoke assertions — COMPLETE
+## Batch 13: Electron and VS Code smoke assertions — COMPLETE (commit 97338b3fa)
 
 - Recommended executor: CLI lane [testing, TypeScript, tsyringe]
 - Execution mode: sequential
@@ -804,7 +807,7 @@ Decisions:
 - Phase: 2 | Phase review: code-logic + style, due after this batch commits (diff from parent of Batch 9's commit to HEAD; include Batch 12's commit even if it landed earlier)
 - ACs: DI guard (component 9)
 
-### Task 13.1: Host smoke assertions — PENDING
+### Task 13.1: Host smoke assertions — COMPLETE
 
 - Files: `<W>\apps\ptah-electron\src\di\container.smoke.spec.ts`, `<W>\apps\ptah-extension-vscode\src\di\container.smoke.spec.ts`
 - Plan reference: implementation-plan.md:600-605
@@ -814,7 +817,7 @@ Decisions:
 
 - Command: `npx jest -c apps/ptah-electron/jest.config.ts apps/ptah-electron/src/di/container.smoke.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -15 && npx jest -c apps/ptah-extension-vscode/jest.config.ts apps/ptah-extension-vscode/src/di/container.smoke.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -15`
 
-## Batch 13F: Phase 2 fix round — COMPLETE
+## Batch 13F: Phase 2 fix round — COMPLETE (commit a8842a8e4; Phase 2 re-review APPROVED, commit ec61276b1)
 
 - Executor: codex lane (decision #12). Report: `batch-13F-report.md`.
 - Scope: fail-open `SDK_IDLE_COMPACTION` factory (logic Serious), port typing for the facade and
@@ -826,7 +829,7 @@ Decisions:
 - File overlap with Batches 14-17: none (`rpc-chat.types.ts` and `message-sender.service.ts` are
   not in their file lists).
 
-## Batch 14: Notice contract and backend stamp — COMPLETE
+## Batch 14: Notice contract and backend stamp — COMPLETE (commit c630b427d)
 
 - Recommended executor: CLI lane [implementation, TypeScript backend]
 - Execution mode: sequential
@@ -854,7 +857,7 @@ Decisions:
 
 - Command: `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/message-transform/system-message.transformer.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -20 && npx nx typecheck @ptah-extension/shared 2>&1 | tail -10 && npx nx typecheck @ptah-extension/agent-sdk 2>&1 | tail -10`
 
-## Batch 15: Marker record and marker component — COMPLETE
+## Batch 15: Marker record and marker component — COMPLETE (commit 22670c58f)
 
 - Recommended executor: CLI lane [implementation, Angular frontend]
 - Execution mode: sequential
@@ -882,7 +885,7 @@ Decisions:
 
 - Command: `npx nx run-many -t test -p @ptah-extension/chat-state @ptah-extension/chat-ui --parallel=1 2>&1 | grep -E "Running target|Tests:|Test Suites:|FAIL|Successfully|failed" | tail -15` (header must say 2 projects)
 
-## Batch 16: Streaming pass-through — COMPLETE
+## Batch 16: Streaming pass-through — COMPLETE (commit 06e6b38f7)
 
 - Recommended executor: CLI lane [implementation, Angular frontend]
 - Execution mode: sequential
@@ -903,7 +906,7 @@ Decisions:
 
 - Command: `npx nx test @ptah-extension/chat-streaming --parallel=1 2>&1 | grep -E "Tests:|Test Suites:|FAIL|failed" | tail -15`
 
-## Batch 17: Chat store, lifecycle and view binding — COMPLETE
+## Batch 17: Chat store, lifecycle and view binding — COMPLETE (commit 6e7d132b3)
 
 - Recommended executor: CLI lane [implementation, Angular frontend]
 - Execution mode: sequential
@@ -925,7 +928,7 @@ Decisions:
 
 - Command: `npx nx test @ptah-extension/chat --parallel=1 2>&1 | grep -E "Tests:|Test Suites:|FAIL|failed" | tail -15 && npx nx typecheck @ptah-extension/chat 2>&1 | tail -10`
 
-## Batch 17F: Phase 3 fix round — COMPLETE
+## Batch 17F: Phase 3 fix round — COMPLETE (commit 2fd53158e; Phase 3 re-review APPROVED: code-review-phase3-rereview.md; visual APPROVED: visual-review.md)
 
 - Executor: codex lane (decision #14). Report: `batch-17F-report.md`.
 - Scope: shared `IdleCompactionNotice` type used at every frontend hop (style S1);

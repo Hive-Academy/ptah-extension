@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_692_f748
-status: in_progress
+status: in_review
 type: FEATURE
 title: Idle compaction for Agent SDK sessions
 description: >-
