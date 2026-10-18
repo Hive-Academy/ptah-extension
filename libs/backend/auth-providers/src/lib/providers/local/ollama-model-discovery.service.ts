@@ -23,12 +23,9 @@ import {
 } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import type { ProviderModelInfo } from '@ptah-extension/shared';
-import { getAnthropicProvider } from '@ptah-extension/shared';
+import { getAnthropicProvider, isCloudTag } from '@ptah-extension/shared';
 import { AUTH_PROVIDERS_TOKENS } from '../../di/tokens';
-import {
-  OllamaCloudMetadataService,
-  isCloudTag,
-} from './ollama-cloud-metadata.service';
+import { OllamaCloudMetadataService } from './ollama-cloud-metadata.service';
 
 /** Ollama /api/version response shape */
 interface OllamaVersionResponse {

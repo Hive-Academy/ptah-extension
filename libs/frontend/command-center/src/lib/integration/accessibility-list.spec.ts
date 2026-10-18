@@ -7,6 +7,7 @@ describe('Command Center accessible page integration', () => {
   it('shows a canvas and a text work list with usable voice and text controls', async () => {
     const { fixture } = createHarness();
     await fixture.componentInstance.page.open();
+    fixture.componentInstance.page.coordinator.chooseCurrentTab();
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('canvas')).not.toBeNull();
     expect(
@@ -27,6 +28,7 @@ describe('Command Center accessible page integration', () => {
     const { fixture } = createHarness();
     const page = fixture.componentInstance.page;
     await page.open();
+    page.coordinator.chooseCurrentTab();
     const start = jest.spyOn(page.voice, 'start').mockResolvedValue(true);
     const mute = jest.spyOn(page.voice, 'mute').mockResolvedValue(undefined);
     const stop = jest.spyOn(page.voice, 'stop').mockResolvedValue(undefined);
@@ -74,6 +76,8 @@ describe('Command Center accessible page integration', () => {
   it('sends a typed command from the labelled text field using form submit', async () => {
     const { fixture, sender } = createHarness();
     await fixture.componentInstance.page.open();
+    fixture.componentInstance.page.coordinator.chooseCurrentTab();
+    fixture.detectChanges();
     const field: HTMLInputElement = fixture.nativeElement.querySelector(
       'ptah-command-session-controls input',
     );
@@ -97,6 +101,7 @@ describe('Command Center accessible page integration', () => {
     const { fixture, projectionInput } = createHarness();
     const page = fixture.componentInstance.page;
     await page.open();
+    page.coordinator.chooseCurrentTab();
     const rootSessionId = page.store.sessionId() ?? '';
     const children = (betaState: 'running' | 'completed') =>
       ['Alpha', 'Beta'].map((name) => ({
@@ -160,6 +165,7 @@ describe('Command Center accessible page integration', () => {
     const { fixture, questions, chat, sender } = createHarness();
     const page = fixture.componentInstance.page;
     await page.open();
+    page.coordinator.chooseCurrentTab();
     questions.set([
       {
         id: 'q1',

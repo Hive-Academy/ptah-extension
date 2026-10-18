@@ -17,7 +17,7 @@ import { LucideAngularModule } from 'lucide-angular';
 import { ChatStore, CompactSessionCardComponent, PreviousSessionsDialogService, RailTranscriptRetentionCoordinator, SessionInspectorStore, SessionOrganizerService, SessionRowActionsService, TabManagerService } from '@ptah-extension/chat';
 import { SessionInspectorComponent } from '@ptah-extension/chat/inspector';
 import { PlanLimitsStore, SURFACE_ACTIVE } from '@ptah-extension/core';
-import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import { AgentMonitorStore, BackgroundAgentStore } from '@ptah-extension/chat-streaming';
 import {
   COMPACT_RAIL_CARD_HEIGHT,
   type CompactRailDensity,
@@ -329,6 +329,10 @@ describe('CanvasRailBoardComponent rendering', () => {
     const width = signal(1400);
     const writeFailed = signal(false);
     const dialogOpen = signal(false);
+    const laneKeys = signal<ReadonlyMap<string, string>>(new Map());
+    const agents = signal<{ agentId: string; parentSessionId: string }[]>([]);
+    const subagents = signal(new Map<string, { parentToolUseId: string; parentSessionId: string }>());
+    const backgroundAgents = signal<{ toolCallId: string; sessionId: string }[]>([]);
     const setRailCollapsed = jest.fn((_: string, value: boolean) =>
       board.update((b) => ({ ...b, railCollapsed: value })),
     );
@@ -363,10 +367,13 @@ describe('CanvasRailBoardComponent rendering', () => {
         { provide: CanvasLayoutService, useValue: { containerWidth: width } },
         { provide: CanvasLayoutPersistenceService, useValue: { writeFailed } },
         { provide: PlanLimitsStore, useValue: { snapshot: () => null } },
-        { provide: AgentMonitorStore, useValue: { agentsOwnedBySession: () => [] } },
+        { provide: AgentMonitorStore, useValue: { agentsOwnedBySession: () => [], agents, subagents } },
+        { provide: BackgroundAgentStore, useValue: { agents: backgroundAgents } },
         {
           provide: CanvasDetailService,
-          useValue: realFocus ? { laneKeyFor: () => null, selectLaneFor: jest.fn() } : {},
+          useValue: realFocus
+            ? { laneKeyFor: () => 'orchestrator', selectLaneFor: jest.fn() }
+            : { laneKeyFor: (id: string) => laneKeys().get(id) ?? 'orchestrator' },
         },
         { provide: ChatStore, useValue: {} },
         { provide: PreviousSessionsDialogService, useValue: { isOpen: dialogOpen, open: jest.fn() } },
@@ -379,7 +386,7 @@ describe('CanvasRailBoardComponent rendering', () => {
           useValue: {
             activeTabId: () => focused(),
             findTabByIdAcrossWorkspaces: (id: string) => ({
-              tab: { title: id },
+              tab: { title: id, claudeSessionId: 'owner' },
             }),
           },
         },
@@ -421,6 +428,10 @@ describe('CanvasRailBoardComponent rendering', () => {
       needsYou,
       board,
       width,
+      laneKeys,
+      agents,
+      subagents,
+      backgroundAgents,
       writeFailed,
       store,
       canStart,
@@ -466,6 +477,38 @@ describe('CanvasRailBoardComponent rendering', () => {
     fixture.componentInstance.openBeside('b');
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelectorAll('[data-testid="canvas-tile"]')).toHaveLength(2);
+  });
+
+  it.each([1600, 760])('%i split clips the orchestrator tile while another lane keeps pane scrolling', (pixels) => {
+    const { fixture, width, laneKeys, agents, backgroundAgents } = mount();
+    width.set(pixels);
+    laneKeys.set(new Map([['b', 'cli:agent']]));
+    agents.set([{ agentId: 'agent', parentSessionId: 'owner' }]);
+    fixture.componentInstance.openBeside('b');
+    fixture.detectChanges();
+
+    const container = fixture.nativeElement.querySelector('[data-testid="rail-pane-container"]');
+    const orchestrator = fixture.nativeElement.querySelector('[data-pane-side="left"]');
+    const cli = fixture.nativeElement.querySelector('[data-pane-side="right"]');
+    expect(container.classList).toContain(pixels === 1600 ? 'overflow-y-hidden' : 'overflow-y-auto');
+    expect(container.classList).toContain(pixels === 1600 ? 'flex-row' : 'flex-col');
+    expect(orchestrator.classList).toContain('overflow-hidden');
+    expect(orchestrator.classList).not.toContain('overflow-y-auto');
+    expect(orchestrator.classList).toContain(pixels === 1600 ? 'min-h-0' : 'min-h-[240px]');
+    expect(cli.classList).toContain('overflow-y-auto');
+    expect(cli.classList).not.toContain('overflow-hidden');
+    expect(orchestrator.querySelector('ptah-canvas-focus-area')?.classList).toContain('min-h-0');
+
+    laneKeys.set(new Map([['a', 'bg:agent']]));
+    backgroundAgents.set([{ toolCallId: 'agent', sessionId: 'owner' }]);
+    fixture.detectChanges();
+    expect(orchestrator.classList).toContain('overflow-y-auto');
+    expect(cli.classList).toContain('overflow-hidden');
+
+    backgroundAgents.set([]);
+    fixture.detectChanges();
+    expect(orchestrator.classList).toContain('overflow-hidden');
+    expect(orchestrator.classList).not.toContain('overflow-y-auto');
   });
 
   it('binds the pane entrance only when a split is displayed', () => {
@@ -842,6 +885,124 @@ describe('CanvasRailBoardComponent rendering', () => {
     removeHost.mockRestore();
   });
 
+  it('releases the press hold and its listeners when the page becomes hidden', () => {
+    const { fixture } = mount();
+    const instance = fixture.componentInstance;
+    const card = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>(
+      '[data-tab-id="a"] .rc-select',
+    )!;
+    const removeDocument = jest.spyOn(document, 'removeEventListener');
+    const removeWindow = jest.spyOn(window, 'removeEventListener');
+    const removeHost = jest.spyOn(fixture.nativeElement as HTMLElement, 'removeEventListener');
+    let hidden = false;
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
+    document.getSelection()?.removeAllRanges();
+    try {
+      card.dispatchEvent(Object.assign(new Event('pointerdown', { bubbles: true }), { pointerId: 3 }));
+      // A visible page keeps the press.
+      document.dispatchEvent(new Event('visibilitychange'));
+      expect(instance.holdTabId()).toBe('a');
+      expect(removeDocument).not.toHaveBeenCalledWith('pointerup', expect.any(Function));
+      hidden = true;
+      document.dispatchEvent(new Event('visibilitychange'));
+      expect(instance.holdTabId()).toBeNull();
+      expect(removeDocument).toHaveBeenCalledWith('pointerup', expect.any(Function));
+      expect(removeDocument).toHaveBeenCalledWith('pointercancel', expect.any(Function));
+      expect(removeDocument).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
+      expect(removeWindow).toHaveBeenCalledWith('blur', expect.any(Function));
+      expect(removeHost).toHaveBeenCalledWith('lostpointercapture', expect.any(Function));
+      // The released pointer is forgotten: a later press starts a fresh hold.
+      hidden = false;
+      card.dispatchEvent(Object.assign(new Event('pointerdown', { bubbles: true }), { pointerId: 4 }));
+      expect(instance.holdTabId()).toBe('a');
+      document.dispatchEvent(Object.assign(new Event('pointerup'), { pointerId: 4 }));
+      expect(instance.holdTabId()).toBeNull();
+    } finally {
+      delete (document as { hidden?: boolean }).hidden;
+    }
+  });
+
+  it('ends the hold only when the last tracked pointer loses capture (FU-14)', () => {
+    const { fixture } = mount();
+    const instance = fixture.componentInstance;
+    const host = fixture.nativeElement as HTMLElement;
+    const card = host.querySelector<HTMLElement>('[data-tab-id="a"] .rc-select')!;
+    const pointer = (type: string, pointerId: number) =>
+      Object.assign(new Event(type, { bubbles: true }), { pointerId });
+    const removeDocument = jest.spyOn(document, 'removeEventListener');
+    document.getSelection()?.removeAllRanges();
+
+    card.dispatchEvent(pointer('pointerdown', 1));
+    card.dispatchEvent(pointer('pointerdown', 2));
+    card.dispatchEvent(pointer('lostpointercapture', 1));
+    expect(instance.holdTabId()).toBe('a');
+    expect(removeDocument).not.toHaveBeenCalledWith('pointerup', expect.any(Function));
+    // An untracked pointer losing capture changes nothing.
+    card.dispatchEvent(pointer('lostpointercapture', 9));
+    expect(instance.holdTabId()).toBe('a');
+    // Pointer 1 is no longer tracked, so its late `pointerup` keeps pointer 2's hold.
+    document.dispatchEvent(pointer('pointerup', 1));
+    expect(instance.holdTabId()).toBe('a');
+    card.dispatchEvent(pointer('lostpointercapture', 2));
+    expect(instance.holdTabId()).toBeNull();
+    expect(removeDocument).toHaveBeenCalledWith('pointerup', expect.any(Function));
+    expect(removeDocument).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
+    removeDocument.mockRestore();
+  });
+
+  it('clears a press hold when the board is hidden and shown again mid-press', () => {
+    const { fixture } = mount();
+    const instance = fixture.componentInstance;
+    const pointer = (type: string, pointerId: number) =>
+      Object.assign(new Event(type, { bubbles: true }), { pointerId });
+    const card = () =>
+      (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>('[data-tab-id="a"] .rc-select')!;
+    document.getSelection()?.removeAllRanges();
+
+    card().dispatchEvent(pointer('pointerdown', 6));
+    expect(instance.holdTabId()).toBe('a');
+    fixture.componentRef.setInput('visible', false);
+    fixture.detectChanges();
+    expect(instance.holdTabId()).toBeNull();
+    fixture.componentRef.setInput('visible', true);
+    fixture.detectChanges();
+    expect(instance.holdTabId()).toBeNull();
+    // The old press is forgotten: its late pointerup changes nothing, and a
+    // new press holds and releases normally.
+    document.dispatchEvent(pointer('pointerup', 6));
+    expect(instance.holdTabId()).toBeNull();
+    card().dispatchEvent(pointer('pointerdown', 7));
+    expect(instance.holdTabId()).toBe('a');
+    document.dispatchEvent(pointer('pointerup', 7));
+    expect(instance.holdTabId()).toBeNull();
+  });
+
+  it('removes document and host listeners and clears the press on destroy', () => {
+    const { fixture } = mount();
+    const instance = fixture.componentInstance;
+    const host = fixture.nativeElement as HTMLElement;
+    const card = host.querySelector<HTMLElement>('[data-tab-id="a"] .rc-select')!;
+    const removeDocument = jest.spyOn(document, 'removeEventListener');
+    const removeWindow = jest.spyOn(window, 'removeEventListener');
+    const removeHost = jest.spyOn(host, 'removeEventListener');
+    document.getSelection()?.removeAllRanges();
+
+    card.dispatchEvent(Object.assign(new Event('pointerdown', { bubbles: true }), { pointerId: 5 }));
+    expect(instance.holdTabId()).toBe('a');
+    fixture.destroy();
+    for (const type of ['selectionchange', 'pointerup', 'pointercancel', 'visibilitychange']) {
+      expect(removeDocument).toHaveBeenCalledWith(type, expect.any(Function));
+    }
+    expect(removeWindow).toHaveBeenCalledWith('blur', expect.any(Function));
+    expect(removeHost).toHaveBeenCalledWith('pointerdown', expect.any(Function));
+    expect(removeHost).toHaveBeenCalledWith('lostpointercapture', expect.any(Function));
+    // The press ends with the board: no card stays held.
+    expect(instance.holdTabId()).toBeNull();
+    removeDocument.mockRestore();
+    removeWindow.mockRestore();
+    removeHost.mockRestore();
+  });
+
   it('focuses the selected lane tab after a lane request', () => {
     const { fixture } = mount();
     fixture.componentInstance.onLanesRequested('b');
@@ -1206,18 +1367,26 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(fixture.componentInstance.announcement()).toBe('Sessions side by side.');
   });
 
-  it.each([1280, 920])('%i stacked keeps two live hosts with 400 px wrappers and vertical scroll', (pixels) => {
+  it.each([1280, 920])('%i stacked gives each pane a floor and scrolls the container when needed', (pixels) => {
     const { fixture, width } = mount();
     fixture.componentInstance.openBeside('b');
     width.set(pixels);
     fixture.detectChanges();
     const container = fixture.nativeElement.querySelector('[data-testid="rail-pane-container"]');
     expect(container.classList.contains('flex-col')).toBe(true);
+    expect(container.classList).toContain('min-h-0');
+    expect(container.classList).toContain('overflow-x-auto');
+    expect(container.classList).toContain('overflow-y-auto');
+    expect(container.classList).not.toContain('overflow-y-hidden');
     const panes = fixture.nativeElement.querySelectorAll('[data-pane-side]');
     expect(panes).toHaveLength(2);
     for (const pane of panes) {
-      expect(pane.classList.contains('min-h-[400px]')).toBe(true);
-      expect(pane.classList.contains('overflow-y-auto')).toBe(true);
+      expect(pane.classList).not.toContain('min-h-0');
+      expect(pane.classList).toContain('flex-1');
+      expect(pane.classList).toContain('overflow-hidden');
+      expect(pane.classList).not.toContain('overflow-y-auto');
+      expect(pane.classList).toContain('min-h-[240px]');
+      expect(pane.classList).not.toContain('min-h-[400px]');
       expect(pane.classList.contains('min-w-[360px]')).toBe(true);
       // NEW-3: Details lives in the pane header; the wrapper adds no control over header or lane tabs.
       expect(pane.querySelector('ptah-canvas-focus-area [aria-label="Open details"]')).not.toBeNull();
@@ -1867,6 +2036,44 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(document.activeElement).toBe(buttons(left)[0]);
   });
 
+  it('Tab focus arriving from outside the board activates the pane it lands in', () => {
+    const { fixture, focused } = mount(true, 3);
+    const instance = fixture.componentInstance;
+    instance.openBeside('b');
+    fixture.detectChanges();
+    instance.swapPanes();
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const before = document.createElement('button');
+    before.textContent = 'Before board';
+    host.parentElement!.insertBefore(before, host);
+    try {
+      expect(instance.activeSide()).toBe('right');
+      before.focus();
+      // The board's Tab handler listens on its host only: a Tab pressed outside
+      // the board keeps the browser's own move.
+      expect(tab(before).defaultPrevented).toBe(false);
+      // The browser then moves focus into the board; landing in the inactive
+      // pane activates it through that pane's focusin.
+      const inactive = paneOf(fixture, 'left') as HTMLElement;
+      buttons(inactive)[0].focus();
+      fixture.detectChanges();
+      expect(document.activeElement).toBe(buttons(inactive)[0]);
+      expect(instance.activeSide()).toBe('left');
+      expect(focused()).toBe('a');
+      expect(instance.otherTabId()).toBe('b');
+      expect(inactive.getAttribute('aria-label')).toBe('Bottom session: a, active');
+      // Focus arriving in the already active pane changes nothing.
+      before.focus();
+      buttons(inactive)[0].focus();
+      fixture.detectChanges();
+      expect(instance.activeSide()).toBe('left');
+      expect(focused()).toBe('a');
+    } finally {
+      before.remove();
+    }
+  });
+
   it('side-by-side swap keeps DOM Tab order (B3)', () => {
     const { fixture, width } = mount(true, 3);
     const instance = fixture.componentInstance;
@@ -1981,7 +2188,8 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(right.classList).not.toContain('border-l');
     for (const pane of [left, right]) {
       expect(pane.classList).toContain('min-w-[360px]');
-      expect(pane.classList).toContain('min-h-[400px]');
+      expect(pane.classList).toContain('min-h-0');
+      expect(pane.classList).not.toContain('min-h-[400px]');
     }
   });
 

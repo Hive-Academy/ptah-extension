@@ -78,7 +78,8 @@ describe('CommandCenterPageController', () => {
     }[]
   >([]);
   const coordinator = {
-    openOrResume: jest.fn(async () => 'root-tab'),
+    openStart: jest.fn(async () => 'root-tab'),
+    refreshSessions: jest.fn(async () => undefined),
     newCommandCenter: jest.fn(() => {
       page.store.setSession('new-tab', null, '/workspace');
       page.store.setSessionStatus('idle');
@@ -523,13 +524,13 @@ describe('CommandCenterPageController', () => {
     page.store.setSession('root-tab', 'session', '/workspace');
     TestBed.tick();
     activeWorkspacePath.set('/other');
-    coordinator.openOrResume.mockImplementationOnce(async () => {
+    coordinator.openStart.mockImplementationOnce(async () => {
       page.store.setSession('other-tab', null, '/other');
       return 'other-tab';
     });
     expect(await page.sendCommand('Hello')).toBe(false);
     expect(coordinator.send).not.toHaveBeenCalled();
-    expect(coordinator.openOrResume).toHaveBeenCalled();
+    expect(coordinator.openStart).toHaveBeenCalled();
     TestBed.tick();
     await Promise.resolve();
     expect(page.store.workspace()).toBe('/other');

@@ -21,6 +21,7 @@ import { CommandWorkListComponent } from './command-work-list.component';
 import { CommandCenterPageController } from './command-center-page.controller';
 import { CommandCenterTribunalTransport } from './command-center-tribunal.transport';
 import { CommandCenterProjectionSource } from './command-center-projection.source';
+import { CommandCenterStartComponent } from './command-center-start.component';
 
 @Component({
   selector: 'ptah-command-center-page',
@@ -35,6 +36,7 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
     CommandSessionControlsComponent,
     CommandVoiceHudComponent,
     CommandWorkListComponent,
+    CommandCenterStartComponent,
   ],
   providers: [
     CommandCenterStore,
@@ -183,199 +185,222 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
         </button>
       </div>
     </header>
-    @if (page.store.pendingInput() || page.shownProposal()) {
-      <button
-        type="button"
-        class="pending-cue mx-4 mt-2 min-h-11 rounded-lg border border-warning bg-base-200 px-3 text-left text-sm font-semibold text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
-        (click)="jumpToPendingCard()"
-      >
-        Question waiting · Show question
-      </button>
-    }
-    <div class="layout">
-      <div class="stage-column relative flex min-h-0 min-w-0 flex-col">
-        @if (!page.canvasUnavailable()) {
-          <main
-            class="stage min-w-0 overflow-hidden rounded-xl border border-base-300 bg-base-200"
-          >
-            <ptah-command-scene
-              #scene
-              [projection]="page.projection()"
-              [selectedId]="page.store.selectedId()"
-              [theme]="page.store.theme()"
-              [voiceState]="page.store.voiceState()"
-              [inputLevel]="page.store.inputLevel()"
-              [outputLevel]="page.store.outputLevel()"
-              (selection)="page.store.select($event)"
-              (hoveredNodeId)="page.hoveredNodeId.set($event)"
-              (canvasUnavailable)="page.canvasUnavailable.set($event)"
-            />
-            <ptah-command-overlay
-              #overlay
-              [projection]="page.projection()"
-              [visibleLabelIds]="visibleLabelIds()"
-              [hoveredNodeId]="page.hoveredNodeId()"
-              [selectedId]="page.store.selectedId()"
-              [reducedMotion]="page.store.reducedMotion()"
-              (focusWorkListRow)="focusWorkRow($event)"
-            />
-            <div class="pointer-events-none absolute left-5 top-5 z-10">
-              <p
-                class="text-xs font-semibold uppercase tracking-widest text-state-need"
-              >
-                Live orchestration
-              </p>
-              <p class="mt-1 text-xs text-base-content-muted">
-                {{ page.shownSessionStatus() }} ·
-                {{ page.projection().nodes.length }} nodes
-              </p>
-            </div>
-            <p
-              class="pointer-events-none absolute right-5 top-5 z-10 text-xs font-semibold tracking-widest text-base-content-muted"
-            >
-              01 / Voice command
-            </p>
-            <p
-              class="pointer-events-none absolute bottom-5 left-5 right-5 z-10 text-xs uppercase tracking-wide text-base-content-muted"
-            >
-              Select a sphere for status
-            </p>
-          </main>
-        }
-        @if (page.store.toast(); as toast) {
-          <div
-            class="page-toast absolute right-4 top-16 z-20 alert max-w-md flex items-start gap-2 border border-base-300 border-l-4 bg-base-100 text-base-content shadow-lg"
-            [class.border-l-error]="toast.tone === 'error'"
-            [class.border-l-warning]="toast.tone === 'warning'"
-            [class.border-l-success]="toast.tone === 'success'"
-            [class.border-l-info]="toast.tone === 'info'"
-            [attr.role]="toast.tone === 'error' ? 'alert' : 'status'"
-          >
-            <span
-              aria-hidden="true"
-              class="font-bold"
-              [class.text-error]="toast.tone === 'error'"
-              [class.text-warning]="toast.tone === 'warning'"
-              [class.text-success]="toast.tone === 'success'"
-              [class.text-info]="toast.tone === 'info'"
-              >{{ toast.tone === 'error' ? '!' : '●' }}</span
-            >
-            <span class="min-w-0 flex-1 text-sm">{{ toast.message }}</span>
-            @if (toast.action === 'retry-speech') {
-              <button
-                type="button"
-                class="btn btn-sm text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
-                (click)="page.retrySpeech()"
-              >
-                Retry speech
-              </button>
-            }
-            @if (toast.action === 'retry-decline') {
-              <button
-                type="button"
-                class="btn btn-sm text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
-                (click)="page.retryInvalidDecline()"
-              >
-                Retry Decline
-              </button>
-            }
-            <button
-              type="button"
-              class="btn btn-ghost btn-sm text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
-              aria-label="Dismiss notification"
-              (click)="dismissToast()"
-            >
-              ×
-            </button>
-          </div>
-        }
-      </div>
+    @if (page.store.toast(); as toast) {
       <div
-        class="dock flex flex-wrap items-center gap-2 rounded-xl border border-base-300 bg-base-200 p-2"
-        aria-label="Command dock"
+        class="page-toast absolute right-4 top-16 z-20 alert max-w-md flex items-start gap-2 border border-base-300 border-l-4 bg-base-100 text-base-content shadow-lg"
+        [class.border-l-error]="toast.tone === 'error'"
+        [class.border-l-warning]="toast.tone === 'warning'"
+        [class.border-l-success]="toast.tone === 'success'"
+        [class.border-l-info]="toast.tone === 'info'"
+        [attr.role]="toast.tone === 'error' ? 'alert' : 'status'"
       >
-        <ptah-command-session-controls
-          class="min-w-0 flex-[1_1_26rem]"
-          [sessionStatus]="page.shownSessionStatus()"
-          (newSession)="page.coordinator.newCommandCenter()"
-          (requestStatus)="requestStatus()"
-          (commandSubmit)="submitCommand($event)"
-        />
-        <ptah-command-voice-hud
-          class="min-w-0 flex-[1_1_24rem]"
-          [voiceState]="page.store.voiceState()"
-          [provider]="page.store.provider()"
-          [muted]="page.store.muted()"
-          [voiceError]="page.store.voiceError()"
-          [inputLevel]="page.store.inputLevel()"
-          [turnAbortable]="page.turnAbortable()"
-          (start)="page.startVoice()"
-          (stop)="page.stopVoice()"
-          (toggleMute)="page.toggleMuteVoice()"
-          (interrupt)="page.interruptSpeech()"
-          (openVoiceSettings)="page.openVoiceSettings()"
-        />
-      </div>
-      <aside class="rail flex flex-col gap-3">
-        @if (page.recordWriteFailure()) {
-          <p role="status" class="rounded-lg border border-warning p-2">
-            The session pointer could not be saved. You can continue using this
-            session.
-          </p>
-        }
-        @if (selectedNode(); as node) {
-          <section
-            class="rounded-xl border border-base-300 bg-base-200 p-4 text-base-content"
-            aria-label="Selected work"
-          >
-            <p
-              class="text-xs font-semibold uppercase tracking-wide text-base-content-muted"
-            >
-              Selected · {{ node.kind === 'root' ? 'Orchestrator' : node.kind }}
-            </p>
-            <h2 class="mt-2 text-lg font-semibold">{{ node.label }}</h2>
-            <p class="mt-1 text-sm text-base-content-muted">
-              {{
-                node.kind === 'root'
-                  ? 'Your command and delegated work live here.'
-                  : 'Delegated work from this session.'
-              }}
-            </p>
-            <span class="badge badge-outline mt-3">{{ node.state }}</span>
-          </section>
-        }
-        <ptah-command-pending-input
-          #pendingCard
-          [pending]="page.store.pendingInput()"
-          [proposal]="page.shownProposal()"
-          [choices]="page.ordinaryChoices()"
-          [timedOut]="page.rosterTimedOut()"
-          [answerResult]="answerResult()"
-          (confirm)="page.confirmProposal($event.proposalId)"
-          (decline)="page.declineProposal($event)"
-          (response)="answerPendingInput($event)"
-        />
-        @if (page.latestReply(); as reply) {
-          <p
-            class="rounded-lg border border-base-300 p-3 text-sm whitespace-pre-wrap"
-          >
-            {{ reply }}
-          </p>
-        }
-        <div
-          class="work-list-region"
-          tabindex="0"
-          role="region"
-          aria-label="Delegated work list"
+        <span
+          aria-hidden="true"
+          class="font-bold"
+          [class.text-error]="toast.tone === 'error'"
+          [class.text-warning]="toast.tone === 'warning'"
+          [class.text-success]="toast.tone === 'success'"
+          [class.text-info]="toast.tone === 'info'"
+          >{{ toast.tone === 'error' ? '!' : '●' }}</span
         >
-          <ptah-command-work-list
-            [projection]="page.projection()"
-            [selectedId]="page.store.selectedId()"
-            (selection)="page.store.select($event)"
+        <span class="min-w-0 flex-1 text-sm">{{ toast.message }}</span>
+        @if (toast.action === 'retry-speech') {
+          <button
+            type="button"
+            class="btn btn-sm text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+            (click)="page.retrySpeech()"
+          >
+            Retry speech
+          </button>
+        }
+        @if (toast.action === 'retry-decline') {
+          <button
+            type="button"
+            class="btn btn-sm text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+            (click)="page.retryInvalidDecline()"
+          >
+            Retry Decline
+          </button>
+        }
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+          aria-label="Dismiss notification"
+          (click)="dismissToast()"
+        >
+          ×
+        </button>
+      </div>
+    }
+    @if (!page.store.markedTabId()) {
+      <ptah-command-center-start
+        [sessions]="page.coordinator.sessions()"
+        [status]="page.coordinator.listStatus()"
+        [expanded]="page.coordinator.showAll()"
+        [choosing]="page.coordinator.choosing()"
+        [currentTabId]="page.coordinator.currentTabId()"
+        [currentSessionId]="page.coordinator.currentSessionId()"
+        [recordedSessionId]="page.coordinator.recordedSessionId()"
+        (selected)="page.coordinator.chooseSession($event)"
+        (current)="page.coordinator.chooseCurrentTab()"
+        (newSession)="page.coordinator.newCommandCenter()"
+        (allSessions)="
+          page.coordinator.showAll()
+            ? page.coordinator.showAll.set(false)
+            : page.coordinator.openAllSessions()
+        "
+        (retry)="page.coordinator.refreshSessions()"
+      />
+    } @else {
+      @if (page.store.pendingInput() || page.shownProposal()) {
+        <button
+          type="button"
+          class="pending-cue mx-4 mt-2 min-h-11 rounded-lg border border-warning bg-base-200 px-3 text-left text-sm font-semibold text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+          (click)="jumpToPendingCard()"
+        >
+          Question waiting · Show question
+        </button>
+      }
+      <div class="layout">
+        <div class="stage-column relative flex min-h-0 min-w-0 flex-col">
+          @if (!page.canvasUnavailable()) {
+            <main
+              class="stage min-w-0 overflow-hidden rounded-xl border border-base-300 bg-base-200"
+            >
+              <ptah-command-scene
+                #scene
+                [projection]="page.projection()"
+                [selectedId]="page.store.selectedId()"
+                [theme]="page.store.theme()"
+                [voiceState]="page.store.voiceState()"
+                [inputLevel]="page.store.inputLevel()"
+                [outputLevel]="page.store.outputLevel()"
+                (selection)="page.store.select($event)"
+                (hoveredNodeId)="page.hoveredNodeId.set($event)"
+                (canvasUnavailable)="page.canvasUnavailable.set($event)"
+              />
+              <ptah-command-overlay
+                #overlay
+                [projection]="page.projection()"
+                [visibleLabelIds]="visibleLabelIds()"
+                [hoveredNodeId]="page.hoveredNodeId()"
+                [selectedId]="page.store.selectedId()"
+                [reducedMotion]="page.store.reducedMotion()"
+                (focusWorkListRow)="focusWorkRow($event)"
+              />
+              <div class="pointer-events-none absolute left-5 top-5 z-10">
+                <p
+                  class="text-xs font-semibold uppercase tracking-widest text-state-need"
+                >
+                  Live orchestration
+                </p>
+                <p class="mt-1 text-xs text-base-content-muted">
+                  {{ page.shownSessionStatus() }} ·
+                  {{ page.projection().nodes.length }} nodes
+                </p>
+              </div>
+              <p
+                class="pointer-events-none absolute right-5 top-5 z-10 text-xs font-semibold tracking-widest text-base-content-muted"
+              >
+                01 / Voice command
+              </p>
+              <p
+                class="pointer-events-none absolute bottom-5 left-5 right-5 z-10 text-xs uppercase tracking-wide text-base-content-muted"
+              >
+                Select a sphere for status
+              </p>
+            </main>
+          }
+        </div>
+        <div
+          class="dock flex flex-wrap items-center gap-2 rounded-xl border border-base-300 bg-base-200 p-2"
+          aria-label="Command dock"
+        >
+          <ptah-command-session-controls
+            class="min-w-0 flex-[1_1_26rem]"
+            [sessionStatus]="page.shownSessionStatus()"
+            (newSession)="page.coordinator.newCommandCenter()"
+            (requestStatus)="requestStatus()"
+            (commandSubmit)="submitCommand($event)"
+          />
+          <ptah-command-voice-hud
+            class="min-w-0 flex-[1_1_24rem]"
+            [voiceState]="page.store.voiceState()"
+            [provider]="page.store.provider()"
+            [muted]="page.store.muted()"
+            [voiceError]="page.store.voiceError()"
+            [inputLevel]="page.store.inputLevel()"
+            [turnAbortable]="page.turnAbortable()"
+            (start)="page.startVoice()"
+            (stop)="page.stopVoice()"
+            (toggleMute)="page.toggleMuteVoice()"
+            (interrupt)="page.interruptSpeech()"
+            (openVoiceSettings)="page.openVoiceSettings()"
           />
         </div>
-      </aside>
-    </div>
+        <aside class="rail flex flex-col gap-3">
+          @if (page.recordWriteFailure()) {
+            <p role="status" class="rounded-lg border border-warning p-2">
+              The session pointer could not be saved. You can continue using
+              this session.
+            </p>
+          }
+          @if (selectedNode(); as node) {
+            <section
+              class="rounded-xl border border-base-300 bg-base-200 p-4 text-base-content"
+              aria-label="Selected work"
+            >
+              <p
+                class="text-xs font-semibold uppercase tracking-wide text-base-content-muted"
+              >
+                Selected ·
+                {{ node.kind === 'root' ? 'Orchestrator' : node.kind }}
+              </p>
+              <h2 class="mt-2 text-lg font-semibold">{{ node.label }}</h2>
+              <p class="mt-1 text-sm text-base-content-muted">
+                {{
+                  node.kind === 'root'
+                    ? 'Your command and delegated work live here.'
+                    : 'Delegated work from this session.'
+                }}
+              </p>
+              <span class="badge badge-outline mt-3">{{ node.state }}</span>
+            </section>
+          }
+          <ptah-command-pending-input
+            #pendingCard
+            [pending]="page.store.pendingInput()"
+            [proposal]="page.shownProposal()"
+            [choices]="page.ordinaryChoices()"
+            [timedOut]="page.rosterTimedOut()"
+            [answerResult]="answerResult()"
+            (confirm)="page.confirmProposal($event.proposalId)"
+            (decline)="page.declineProposal($event)"
+            (response)="answerPendingInput($event)"
+          />
+          @if (page.latestReply(); as reply) {
+            <p
+              class="rounded-lg border border-base-300 p-3 text-sm whitespace-pre-wrap"
+            >
+              {{ reply }}
+            </p>
+          }
+          <div
+            class="work-list-region"
+            tabindex="0"
+            role="region"
+            aria-label="Delegated work list"
+          >
+            <ptah-command-work-list
+              [projection]="page.projection()"
+              [reducedMotion]="page.store.reducedMotion()"
+              [selectedId]="page.store.selectedId()"
+              (selection)="page.store.select($event)"
+            />
+          </div>
+        </aside>
+      </div>
+    }
   `,
 })
 export class CommandCenterPageComponent {
@@ -467,7 +492,11 @@ export class CommandCenterPageComponent {
         this.page.store.workspace() !== this.page.tabs.activeWorkspacePath ||
         !this.page.store.markedTabId()
       ) {
-        if (!(await this.page.open())) return;
+        if (
+          !(await this.page.open()) &&
+          !this.page.coordinator.newCommandCenter()
+        )
+          return;
       }
       if (this.page.store.workspace() !== this.page.tabs.activeWorkspacePath)
         return;

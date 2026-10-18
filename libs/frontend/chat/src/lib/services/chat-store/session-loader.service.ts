@@ -975,6 +975,7 @@ export class SessionLoaderService {
           name: title,
           title,
           streamingState: createEmptyStreamingState(),
+          providerId: session?.providerId,
         });
       }
       this.sessionManager.setNodeMaps(
@@ -1050,11 +1051,19 @@ export class SessionLoaderService {
           name: title,
           title,
           streamingState: createEmptyStreamingState(),
+          providerId: session?.providerId,
         });
         reachedCompactionReset = true;
       }
 
       const events = resumeResult.data?.events;
+      if (resumeResult.success && resumeResult.data?.success) {
+        this.tabManager.setSessionProvider(
+          resolvedTabId,
+          sessionId,
+          resumeResult.data.providerId,
+        );
+      }
       const stats = resumeResult.data?.stats;
       const resumableSubagents = resumeResult.data?.resumableSubagents;
       const cliSessions = resumeResult.data?.cliSessions;

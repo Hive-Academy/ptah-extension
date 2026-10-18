@@ -10,7 +10,10 @@
  * read reactively without having to subscribe through other services.
  */
 
-import type { CompactionMeasurement } from '@ptah-extension/shared';
+import type {
+  CompactionMeasurement,
+  IdleCompactionNotice,
+} from '@ptah-extension/shared';
 import { Injectable, computed, signal } from '@angular/core';
 import { ClaudeSessionId, ConversationId } from './identity/ids';
 
@@ -39,6 +42,7 @@ export interface ConversationRecord {
 export interface CompactionMarkerRecord {
   readonly boundaryId?: string;
   readonly measurement?: CompactionMeasurement;
+  readonly idleCompaction?: IdleCompactionNotice;
   readonly summary: string | null;
   readonly preTokens: number | null;
   readonly postTokens: number | null;
@@ -277,6 +281,7 @@ export class ConversationRegistry {
     fields: {
       boundaryId?: string;
       measurement?: CompactionMeasurement;
+      idleCompaction?: IdleCompactionNotice;
       preTokens: number | null;
       postTokens: number | null;
       durationMs: number | null;
@@ -301,6 +306,9 @@ export class ConversationRegistry {
         summary: prior?.summary ?? null,
         boundaryId: fields.boundaryId,
         measurement,
+        idleCompaction:
+          fields.idleCompaction ??
+          (sameBoundary ? prior?.idleCompaction : undefined),
         preTokens:
           sameBoundary && summaryOnly
             ? (prior?.preTokens ?? null)
@@ -336,6 +344,10 @@ export class ConversationRegistry {
         measurement:
           fields.boundaryId && fields.boundaryId === prior?.boundaryId
             ? prior.measurement
+            : undefined,
+        idleCompaction:
+          fields.boundaryId && fields.boundaryId === prior?.boundaryId
+            ? prior.idleCompaction
             : undefined,
         preTokens: prior?.preTokens ?? null,
         postTokens: prior?.postTokens ?? null,
@@ -380,6 +392,12 @@ export class ConversationRegistry {
           parsed.measurement,
           parsed.boundaryId,
         ),
+        idleCompaction:
+          typeof parsed.idleCompaction?.preTokens === 'number' &&
+          Number.isFinite(parsed.idleCompaction.preTokens) &&
+          parsed.idleCompaction.preTokens >= 0
+            ? { preTokens: parsed.idleCompaction.preTokens }
+            : undefined,
         preTokens: parsed.preTokens ?? null,
         postTokens: parsed.postTokens ?? null,
         durationMs: parsed.durationMs ?? null,
@@ -403,7 +421,12 @@ export class ConversationRegistry {
   ): CompactionMarkerRecord | null {
     const prior = current ?? this.readPersisted(convId);
     if (!prior) return null;
-    const marker = { ...prior, boundaryId: undefined, measurement: undefined };
+    const marker = {
+      ...prior,
+      boundaryId: undefined,
+      measurement: undefined,
+      idleCompaction: undefined,
+    };
     this.writePersisted(convId, marker);
     return marker;
   }

@@ -48,6 +48,8 @@ export interface DisplayDockTabState {
   readonly userClosedTurnKey: string | null;
   /** Display updates held back by a user close; the toggle shows "n new". */
   readonly newCount: number;
+  /** Advances for each published surface that requests a sheet peek. */
+  readonly surfaceRevision: number;
   /** The user closed the dock; agent activity does not reopen it until released. */
   readonly agentsUserClosed: boolean;
   readonly selection: DisplayDockSelection;
@@ -71,6 +73,7 @@ const EMPTY_TAB_STATE: DisplayDockTabState = Object.freeze({
   liveTurnKey: null,
   userClosedTurnKey: null,
   newCount: 0,
+  surfaceRevision: 0,
   agentsUserClosed: false,
   selection: null,
   summaryTurnKey: null,
@@ -349,7 +352,7 @@ export class DisplayDockState implements PtahUiDisplayDock, PtahUiDisplayDockSyn
    */
   requestAutoOpen(tabId: string, turnKey: string, surfaceKey: string): void {
     this.update(tabId, (state) => {
-      const live = { ...state, liveTurnKey: turnKey };
+      const live = { ...state, liveTurnKey: turnKey, surfaceRevision: state.surfaceRevision + 1 };
       if (state.open) {
         return state.pinned
           ? live

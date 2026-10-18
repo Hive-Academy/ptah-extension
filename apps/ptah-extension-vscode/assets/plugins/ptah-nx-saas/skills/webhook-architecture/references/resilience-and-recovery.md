@@ -1,6 +1,6 @@
 # Webhook Resilience and Recovery
 
-Webhooks are fire-and-forget HTTP calls from external services. Network failures, server errors, and duplicate deliveries are expected. This guide covers idempotent handling, failure storage, the always-200 response strategy, and optional retry queues.
+Webhooks are fire-and-forget HTTP calls from external services. Network failures, server errors, and duplicate deliveries are expected. This guide covers idempotent handling, failure storage, acknowledgement, and retry queues.
 
 ## Idempotent Processing
 
@@ -8,7 +8,7 @@ Providers may deliver the same event multiple times. Your handler must produce t
 
 ### Strategy 1: Processed Event Tracking Table
 
-Track every processed event ID in a database table. Check before processing, record after success.
+Track every processed event ID in a database table. Serialize each event's check, mutation, and success record in one database transaction. Domain handlers must also be idempotent for external effects.
 
 ```prisma
 model ProcessedWebhookEvent {
@@ -26,20 +26,18 @@ model ProcessedWebhookEvent {
 async processWebhook(rawBody: Buffer, signature: string): Promise<void> {
   const event = this.verifyAndParse(rawBody, signature);
 
-  // Check BEFORE processing
-  const existing = await this.prisma.processedWebhookEvent.findUnique({
-    where: { eventId: event.id },
-  });
-  if (existing) {
-    this.logger.log(`Skipping duplicate event: ${event.id}`);
-    return;
-  }
+  await this.prisma.$transaction(async (tx) => {
+    // PostgreSQL transaction lock serializes concurrent deliveries of this event.
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${event.id}, 0))`;
+    const existing = await tx.processedWebhookEvent.findUnique({
+      where: { eventId: event.id },
+    });
+    if (existing) return;
 
-  await this.routeEvent(event);
-
-  // Record AFTER successful processing
-  await this.prisma.processedWebhookEvent.create({
-    data: { eventId: event.id, eventType: event.type },
+    await this.routeEvent(event, tx); // Apply database mutations in this transaction.
+    await tx.processedWebhookEvent.create({
+      data: { eventId: event.id, eventType: event.type },
+    });
   });
 }
 ```
@@ -89,7 +87,7 @@ For most SaaS applications, the database table approach is sufficient.
 
 ## Failed Webhook Storage
 
-Store failure details for investigation and retry when a handler throws an error. Never let handler errors reach the HTTP response.
+Store failure details durably for investigation and retry when a handler throws an error. Return a retryable response unless an automatic retry path will redrive the stored failure.
 
 ### Prisma Model
 
@@ -121,8 +119,7 @@ private async storeFailedWebhook(
   eventType: string,
   error: Error,
 ): Promise<void> {
-  try {
-    await this.prisma.failedWebhook.create({
+  await this.prisma.failedWebhook.create({
       data: {
         eventType,
         rawPayload,
@@ -132,13 +129,7 @@ private async storeFailedWebhook(
         retryCount: 0,
         resolved: false,
       },
-    });
-  } catch (storageError) {
-    // Last resort: log to stderr if failure storage itself fails
-    this.logger.error(
-      `CRITICAL: Could not store failed webhook: ${storageError.message}`,
-    );
-  }
+  });
 }
 ```
 
@@ -171,11 +162,11 @@ export class FailedWebhookController {
 }
 ```
 
-## Always-200 Response Pattern
+## Webhook Response Pattern
 
 ### The Rule
 
-Return HTTP 200 for every webhook request regardless of processing outcome. The only exception is signature verification failure (return 401).
+Return HTTP 200 after success, or after durably storing a failure that an automatic retry path will redrive. Otherwise return a retryable response. Reject invalid signatures with 401.
 
 ### Why
 
@@ -189,7 +180,7 @@ Providers retry on non-2xx responses. If your handler returns 500:
 ### Implementation
 
 ```typescript
-// Layer 2: Webhook Service - entire method wrapped in try/catch
+// Layer 2: Webhook Service; automatic retry worker is configured.
 async processWebhook(rawBody: Buffer, signature: string): Promise<void> {
   try {
     const event = this.verifyAndParse(rawBody, signature);
@@ -198,11 +189,12 @@ async processWebhook(rawBody: Buffer, signature: string): Promise<void> {
   } catch (error) {
     this.logger.error(`Webhook failed: ${error.message}`, error.stack);
     await this.storeFailedWebhook(rawBody.toString('utf-8'), 'unknown', error);
-    // Do NOT rethrow
+    await this.scheduleRetry(rawBody, signature);
+    // Only swallow after durable storage and automatic retry scheduling.
   }
 }
 
-// Layer 1: Controller - no try/catch needed, service never throws
+// Layer 1: Controller; storage or scheduling failures propagate as retryable errors.
 @Post('provider-name')
 @HttpCode(200)
 async handleWebhook(@RawBody() rawBody: Buffer, @Headers('x-provider-signature') sig: string) {
@@ -219,7 +211,8 @@ async handleWebhook(@RawBody() rawBody: Buffer, @Headers('x-provider-signature')
 | Signature verification fails | 401                     | Tells provider the secret is misconfigured |
 | Missing required headers     | 200 (`received: false`) | Do not trigger retries                     |
 | Rate limit exceeded          | 429                     | Providers respect rate limits              |
-| All other errors             | 200                     | Store failure internally                   |
+| Handler failure with automatic redrive | 200          | Failure is stored durably and queued       |
+| Handler failure without automatic redrive | 5xx       | Ask provider to retry                      |
 
 ## Retry Queue (Advanced)
 

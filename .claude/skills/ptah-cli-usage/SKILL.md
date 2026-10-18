@@ -198,30 +198,11 @@ exits `3` (`auth_required`).
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `setup.md`              | Install, run first-time setup, understand `ptah init` / `ptah doctor`, the `~/.ptah` data dir, `PTAH_CONFIG_PATH`, env vars, or debug `sdk_init_failed` / Windows spawn problems.                                           |
 | `auth-and-providers.md` | Wire up credentials — `ptah auth`, `ptah provider` (set-key, default, model tiers), `ptah license`, per-vendor recipes, and `ptah settings export` / `import`.                                                              |
-| `jsonrpc.md`            | Speak the wire: schema `0.2`, request / response / notification shapes, `session.ready`, `system.schema.version`, `PTAH_HOST_SCHEMA_VERSION`, exit codes, `ptah_code` error codes, and the spawn / bridge / proxy patterns. |
+| `jsonrpc.md`            | Speak the wire: request / response / notification shapes, `session.ready`, `system.schema.version`, `PTAH_HOST_SCHEMA_VERSION`, exit codes, `ptah_code` error codes, and the spawn / bridge / proxy patterns. |
 | `agent-cli.md`          | Orchestrate rival CLIs — `ptah agent-cli detect / config / models / stop / resume`, the `--cli` selector vocabulary, and where spawn / read / steer live.                                                                   |
 | `harness.md`            | Drive `ptah harness` — init, scan, presets, design-agents, generate-document, chat, and the `doctor` / `remove` filesystem verbs.                                                                                           |
-| `internal-mcp.md`       | Know the built-in `ptah_*` tool surface: 51 tools with every namespace on, the namespace toggles, and what each tool returns.                                                                                               |
-| `mcp-serve.md`          | Serve Ptah to another MCP host — `.mcp.json` wiring, the 7 MVP tools, `--allow-tools`, cost attribution, cancellation and drain.                                                                                            |
-
----
-
-## Quick don'ts
-
-- **Don't** use `ptah` for interactive UI — that's the VS Code extension
-  or the Electron app.
-- **Don't** put a global flag after the subcommand (see above).
-- **Don't** issue concurrent `task.submit` on the same session.
-- **Don't** hardcode a roster of CLI agents. They are DISCOVERED at
-  runtime — `ptah agent-cli detect` from the shell, `ptah_agent_list`
-  from inside an agent.
-- **Don't** pass `--cli glm`. It is a deprecated alias for
-  `--cli ptah-cli`; GLM is a provider, not a binary.
-- **Don't** pass `--ptah-cli-id` with a system CLI; it exits `2`.
-- **Don't** call `agent-cli resume` without a non-empty `--task`; it
-  exits `2`.
-- **Don't** write new scripts against `ptah run` — use
-  `ptah session start --task`.
+| `internal-mcp.md`       | Know the built-in `ptah_*` tool surface: the namespace toggles and what each tool returns.                                                                                                                                  |
+| `mcp-serve.md`          | Serve Ptah to another MCP host — `.mcp.json` wiring, the MVP tool set, `--allow-tools`, cost attribution, cancellation and drain.                                                                                           |
 
 ---
 

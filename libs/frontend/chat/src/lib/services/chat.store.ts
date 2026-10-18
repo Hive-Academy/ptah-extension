@@ -425,6 +425,7 @@ export class ChatStore {
         compactionSessionId: result.compactionSessionId,
         boundaryId: result.boundaryId,
         measurement: result.measurement,
+        idleCompaction: result.idleCompaction,
         preTokens: result.preTokens,
         postTokens: result.postTokens,
         durationMs: result.durationMs,

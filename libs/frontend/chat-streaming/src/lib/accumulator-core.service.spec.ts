@@ -874,6 +874,18 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
   });
 
   describe('compaction lifecycle', () => {
+    it('passes the idle notice only from a matching completion event', () => {
+      const notice = { preTokens: 12345 };
+      const result = core.process(
+        state,
+        compactionComplete({ idleCompaction: notice }),
+        makeCtx(),
+      );
+      expect(result.idleCompaction).toEqual(notice);
+      expect(
+        core.process(state, compactionComplete(), makeCtx()).idleCompaction,
+      ).toBeUndefined();
+    });
     it('compaction_start does NOT mutate state but returns compactionStart=true', () => {
       // Prime with a few events so we can verify state is untouched.
       core.process(state, msgStart(), makeCtx());

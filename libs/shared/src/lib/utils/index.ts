@@ -5,6 +5,10 @@ export * from './json.utils';
 export { WorkspacePathEncoder } from './workspace-path-encoder';
 export { lastPathSegment } from './path-display.utils';
 export { assertNever } from './assert-never';
+export {
+  loggableErrorName,
+  type LoggableErrorName,
+} from './loggable-error-name';
 export { parseWorktreeList } from './git.utils';
 export { NestedRepoRoots, nestedRepoRootOf } from './nested-repo-roots';
 export * from './image-media-type';

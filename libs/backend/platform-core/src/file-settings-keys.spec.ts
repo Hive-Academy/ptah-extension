@@ -277,6 +277,17 @@ describe('isFileBasedSettingKey', () => {
     });
   });
 
+  describe('idle compaction keys (TASK_2026_692)', () => {
+    it.each([
+      ['compaction.idleCompactionEnabled', true],
+      ['compaction.idleCompactionMinTokens', 200_000],
+    ] as const)('registers and defaults %s to %s', (key, expected) => {
+      expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
+      expect(isFileBasedSettingKey(key)).toBe(true);
+      expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe(expected);
+    });
+  });
+
   describe('subagent prompt-cache TTL key (TASK_2026_597 N1)', () => {
     // Written through `agent:setConfig`; unrouted, the write would be dropped
     // while the read still served the default.
@@ -1237,6 +1248,8 @@ describe('isFileBasedSettingKey', () => {
       'compaction.subagentHandoffTokens': 150000,
       'compaction.rotationSuggestTokens': 300000,
       'compaction.subagentStopWeightedTokens': 3000000,
+      'compaction.idleCompactionEnabled': true,
+      'compaction.idleCompactionMinTokens': 200000,
       'agentOrchestration.codexAutoCompactTokens': 120000,
       'agentOrchestration.codexToolOutputTokenLimit': 2500,
       'agentOrchestration.codexWebSearch': true,

@@ -25,45 +25,7 @@ A bounded context from `ddd-architecture` becomes one **set of projects**, not o
 | App shape = Minimal API and the team explicitly wants low ceremony               | Vertical slices (feature-folder)                                                                                                                                                                  |
 | Round 2 "Recommend for me" on architecture, no other signal                      | Clean Architecture -- it is the safer default when bounded contexts genuinely have logic to protect; vertical slices trades that protection for less ceremony, so it should be an explicit choice |
 
-Both are valid; they solve different problems. Clean Architecture optimizes for protecting domain invariants across a long-lived codebase with real business rules. Vertical slices optimizes for shipping speed on features that are mostly request-in, response-out. Do not mix them within one bounded context -- mixing them within one solution (different contexts choosing differently) is fine and often correct.
-
-### Clean Architecture layout (per bounded context)
-
-```
-src/
-  Contoso.Orders.Domain/            # entities, value objects, domain events -- no outward references
-  Contoso.Orders.Application/       # use cases, CQRS handlers, interfaces the domain needs
-  Contoso.Orders.Infrastructure/    # EF Core, external service clients, implementations of Application interfaces
-  Contoso.Orders.Api/               # controllers or minimal API endpoints, DI wiring, the only project with a Main/entry point
-tests/
-  Contoso.Orders.Domain.Tests/
-  Contoso.Orders.Application.Tests/
-  Contoso.Orders.Infrastructure.Tests/
-```
-
-### Vertical slices layout (per bounded context)
-
-```
-src/
-  Contoso.Inventory/
-    Features/
-      AdjustStock/
-        AdjustStockCommand.cs
-        AdjustStockHandler.cs
-        AdjustStockEndpoint.cs
-      GetStockLevel/
-        GetStockLevelQuery.cs
-        GetStockLevelHandler.cs
-        GetStockLevelEndpoint.cs
-    Contoso.Inventory.csproj          # one project per bounded context, not per layer
-tests/
-  Contoso.Inventory.Tests/
-    Features/
-      AdjustStock/
-      GetStockLevel/
-```
-
-See [references/clean-architecture-vs-vertical-slices.md](references/clean-architecture-vs-vertical-slices.md) for the full worked comparison, including where shared kernels and cross-context contracts live in each shape.
+Do not mix the two shapes within one bounded context's projects; different bounded contexts in one solution choosing differently is fine and often correct. The full trade-off comparison, the per-shape project layouts, and where shared kernels and cross-context contracts live in each shape are worked in [references/clean-architecture-vs-vertical-slices.md](references/clean-architecture-vs-vertical-slices.md) -- load it whenever a layout is being derived.
 
 ## Project Naming
 
@@ -95,61 +57,15 @@ Rules that hold regardless of layout:
 3. **Cross-bounded-context references go through a contracts/shared-kernel project, never context-to-context directly.** `Contoso.Orders` referencing `Contoso.Inventory.Domain` directly is the layout smell that means the bounded-context split from `ddd-architecture` was not actually honoured in the code.
 4. **Test projects reference exactly the production project(s) under test**, never a sibling test project.
 
-## Central Package Management (`Directory.Packages.props`)
+## Solution-Root Files
 
-One version per package, declared once at the solution root, referenced by every `.csproj` without a version attribute. This is what stops the drift where three projects in one solution reference three different `Microsoft.Extensions.*` versions.
+Three files at the solution root apply solution-wide via MSBuild's automatic directory-walk import, so each setting is declared once instead of copy-pasted into every `.csproj`:
 
-```xml
-<!-- Directory.Packages.props (solution root) -->
-<Project>
-  <PropertyGroup>
-    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
-  </PropertyGroup>
-  <ItemGroup>
-    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="8.0.8" />
-    <PackageVersion Include="xunit" Version="2.9.0" />
-  </ItemGroup>
-</Project>
-```
+- `Directory.Packages.props` -- Central Package Management: one version per package, declared once, referenced by every `.csproj` without a `Version` attribute.
+- `Directory.Build.props` -- target framework, nullable, and analyzer settings for every project.
+- `global.json` -- pins the .NET SDK the whole solution builds against, so a machine with a newer SDK installed does not silently roll a CI-passing solution onto an untested toolchain.
 
-Individual `.csproj` files then reference packages without a version:
-
-```xml
-<ItemGroup>
-  <PackageReference Include="Microsoft.EntityFrameworkCore" />
-</ItemGroup>
-```
-
-## `Directory.Build.props` (shared settings)
-
-One file at the solution root, MSBuild auto-imports it into every project below. This is where target framework, nullable, and analyzer settings live so they are declared once instead of copy-pasted into every `.csproj`.
-
-```xml
-<!-- Directory.Build.props (solution root) -->
-<Project>
-  <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-  </PropertyGroup>
-</Project>
-```
-
-## `global.json` (SDK pinning)
-
-Pins the .NET SDK version the whole solution builds against, so a machine with a newer SDK installed does not silently roll a CI-passing solution onto an untested toolchain.
-
-```json
-{
-  "sdk": {
-    "version": "8.0.100",
-    "rollForward": "latestFeature"
-  }
-}
-```
-
-See [references/central-package-management.md](references/central-package-management.md) for the full baseline (all three files together, plus what to do when a single package genuinely needs a per-project override).
+The complete baseline for all three files, plus what to do when a single package genuinely needs a per-project override, is in [references/central-package-management.md](references/central-package-management.md) -- load it when writing any of the three.
 
 ## Test Project Placement
 
@@ -159,17 +75,9 @@ See [references/central-package-management.md](references/central-package-manage
 
 ## Handoff boundary
 
-This skill produces: the project list, the layout tree, `Directory.Packages.props`, `Directory.Build.props`, and `global.json`. It hands the project list to `dotnet-template-engine`'s `template-instantiation` skill to actually run `dotnet new` / `dotnet sln add` / `dotnet add reference`, and hands the test project list to `dotnet-test` to scaffold and wire the chosen framework. Never run those commands from within this skill.
+This skill produces: the project list, the layout tree, `Directory.Packages.props`, `Directory.Build.props`, and `global.json`. It hands the project list to `dotnet-template-engine`'s `template-instantiation` skill to actually run `dotnet new` / `dotnet sln add` / `dotnet add reference`, and hands the test project list to `dotnet-test` to scaffold and wire the chosen framework. Never run those commands from within this skill. `nx-dotnet-workspace` may wrap the resulting projects for Nx targets once `ProjectReference` inference is set up; it does not change the layout itself.
 
 ## References
 
-- [references/clean-architecture-vs-vertical-slices.md](references/clean-architecture-vs-vertical-slices.md) -- full comparison, shared-kernel placement, worked example per shape
-- [references/central-package-management.md](references/central-package-management.md) -- complete `Directory.Packages.props` / `Directory.Build.props` / `global.json` baseline and per-project override escape hatch
-
-### Companion skills
-
-- [dotnet-solution-initializer](../dotnet-solution-initializer/SKILL.md) -- invokes this skill in Step a2
-- [nx-dotnet-workspace](../nx-dotnet-workspace/SKILL.md) -- Nx wraps this layout's projects once `ProjectReference` inference is set up; does not change the layout itself
-- `ddd-architecture` (ptah-core plugin) -- supplies the bounded contexts this skill lays out
-- `dotnet-template-engine`, skill `template-instantiation` (dotnet/skills marketplace) -- executes the layout this skill designs
-- `dotnet-test` (dotnet/skills marketplace) -- scaffolds and wires the test projects this skill places
+- [references/clean-architecture-vs-vertical-slices.md](references/clean-architecture-vs-vertical-slices.md) -- full trade-off comparison, shared-kernel placement, worked layout per shape. Load when choosing or deriving a layout.
+- [references/central-package-management.md](references/central-package-management.md) -- complete `Directory.Packages.props` / `Directory.Build.props` / `global.json` baseline and the per-project override escape hatch. Load when writing any solution-root file.

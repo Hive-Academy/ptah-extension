@@ -72,9 +72,22 @@ describe('CommandCenterPageComponent', () => {
     rosterTimedOut: signal(false),
     ordinaryQuestion: signal(null),
     ordinaryChoices: signal<readonly string[]>([]),
-    coordinator: { newCommandCenter: jest.fn(), sendStatusTurn: jest.fn() },
+    coordinator: {
+      newCommandCenter: jest.fn(),
+      sendStatusTurn: jest.fn(),
+      sessions: signal([]),
+      listStatus: signal('ready'),
+      showAll: signal(false),
+      choosing: signal(false),
+      currentTabId: signal(null),
+      currentSessionId: signal(null),
+      recordedSessionId: signal(null),
+      chooseSession: jest.fn(),
+      chooseCurrentTab: jest.fn(),
+      refreshSessions: jest.fn(),
+    },
     tabs: { activeWorkspacePath: '/workspace' },
-    open: jest.fn(async () => 'root-tab'),
+    open: jest.fn(async (): Promise<string | null> => 'root-tab'),
     exit: jest.fn(async () => undefined),
     confirmProposal: jest.fn(async (_id: string) => undefined),
     declineProposal: jest.fn((_id: string) => undefined),
@@ -92,6 +105,7 @@ describe('CommandCenterPageComponent', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    store.setSession('root-tab', null, '/workspace');
     controller.sendCommand.mockResolvedValue(true);
     hoveredNodeId.set(null);
     canvasUnavailable.set(false);
@@ -383,7 +397,7 @@ describe('CommandCenterPageComponent', () => {
       // The toast floats outside the dock flow so it never shifts the input.
       expect(infoAlert.closest('[aria-label="Command dock"]')).toBeNull();
       expect(infoAlert.className).toContain('absolute');
-      expect(infoAlert.closest('.stage-column')).not.toBeNull();
+      expect(infoAlert.closest('.stage-column')).toBeNull();
       expect(infoAlert.closest('header')).toBeNull();
       jest.advanceTimersByTime(5000);
       fixture.detectChanges();
@@ -624,6 +638,41 @@ describe('CommandCenterPageComponent', () => {
     });
     await fixture.componentInstance.requestStatus();
     expect(controller.open).toHaveBeenCalled();
+    expect(controller.coordinator.sendStatusTurn).toHaveBeenCalledWith(
+      'Status',
+    );
+    fixture.destroy();
+  });
+
+  it('shows an error toast on the start view', () => {
+    store.setSession(null, null, '/workspace');
+    store.setToast({
+      message: 'Could not restore the Command Center session.',
+      tone: 'error',
+    });
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelector('ptah-command-center-start'),
+    ).not.toBeNull();
+    expect(
+      fixture.nativeElement.querySelector('.page-toast[role="alert"]')
+        ?.textContent,
+    ).toContain('Could not restore the Command Center session.');
+    fixture.destroy();
+  });
+
+  it('creates a new session for Status from the start view', async () => {
+    store.setSession(null, null, '/workspace');
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    controller.open.mockResolvedValueOnce(null);
+    controller.coordinator.newCommandCenter.mockImplementationOnce(() => {
+      store.setSession('root-tab', null, '/workspace');
+      return 'root-tab';
+    });
+    await fixture.componentInstance.requestStatus();
+    expect(controller.coordinator.newCommandCenter).toHaveBeenCalled();
     expect(controller.coordinator.sendStatusTurn).toHaveBeenCalledWith(
       'Status',
     );

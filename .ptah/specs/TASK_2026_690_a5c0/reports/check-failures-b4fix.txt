@@ -1,0 +1,26 @@
+  ● DisplaySheetComponent › keeps the same panel mounted while collapsed and preserves its inputs on reopen
+    TypeError: Cannot read properties of null (reading 'componentInstance')
+  ● DisplaySheetComponent › routes summary actions and shows the service error or the missing-change message
+    TypeError: Cannot read properties of null (reading 'componentInstance')
+  ● DisplaySheetComponent › restores each tab’s count, selection and pin when returning
+    TypeError: Cannot read properties of null (reading 'componentInstance')
+  ● ChatSessionLayoutComponent › gives full mode the remaining flex height while keeping the composer after the sheet
+    expect(received).toBe(expected) // Object.is equality
+    Expected: "100%"
+    Received: ""
+      110 |     expect(sheet.classList.contains('sheet-full')).toBe(true);
+    > 111 |     expect(getComputedStyle(sheet).flexBasis).toBe('100%');
+      112 |     expect(getComputedStyle(sheet).flexShrink).toBe('1');
+      113 |     expect(layout.lastElementChild).toBe(composer);
+  ● DisplaySheetComponent › keeps the same panel mounted while collapsed and preserves its inputs on reopen
+    TypeError: Cannot read properties of null (reading 'componentInstance')
+  ● DisplaySheetComponent › routes summary actions and shows the service error or the missing-change message
+    TypeError: Cannot read properties of null (reading 'componentInstance')
+  ● DisplaySheetComponent › restores each tab’s count, selection and pin when returning
+    TypeError: Cannot read properties of null (reading 'componentInstance')
+  ● ChatSessionLayoutComponent › gives full mode the remaining flex height while keeping the composer after the sheet
+    expect(received).toBe(expected) // Object.is equality
+    Expected: "100%"
+    Received: ""
+../chat/src/lib/components/organisms/display-sheet/display-sheet.component.ts:53:91 - error TS2345: Argument of type 'Event' is not assignable to parameter of type 'KeyboardEvent'.
+src/lib/components/organisms/display-sheet/display-sheet.component.ts:53:91 - error TS2345: Argument of type 'Event' is not assignable to parameter of type 'KeyboardEvent'.

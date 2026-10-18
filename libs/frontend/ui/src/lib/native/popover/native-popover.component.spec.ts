@@ -1,11 +1,13 @@
 import { Component, signal, ChangeDetectionStrategy } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { Placement } from '@floating-ui/dom';
 import * as FloatingDom from '@floating-ui/dom';
 import {
   NativePopoverComponent,
   POPOVER_POSITION_TIMEOUT_MS,
 } from './native-popover.component';
+import { FloatingUIService } from '../shared';
 
 jest.mock('@floating-ui/dom', () => {
   const actual = jest.requireActual('@floating-ui/dom');
@@ -86,6 +88,35 @@ describe('NativePopoverComponent', () => {
 
   it('should create', () => {
     expect(host).toBeTruthy();
+  });
+
+  it('reposition() recomputes the live position after the next render', () => {
+    const debug = fixture.debugElement.query(
+      By.directive(NativePopoverComponent),
+    );
+    const update = jest.spyOn(debug.injector.get(FloatingUIService), 'update');
+    (debug.componentInstance as NativePopoverComponent).reposition();
+    expect(update).not.toHaveBeenCalled();
+    fixture.detectChanges();
+    expect(update).toHaveBeenCalledTimes(1);
+  });
+
+  it('a reposition() scheduled before close has no effect: update() is a no-op after cleanup', async () => {
+    host.isOpen.set(true);
+    fixture.detectChanges();
+    await flushAll();
+    const debug = fixture.debugElement.query(
+      By.directive(NativePopoverComponent),
+    );
+    const service = debug.injector.get(FloatingUIService);
+    const update = jest.spyOn(service, 'update');
+    const computes = mockedCompute.mock.calls.length;
+    (debug.componentInstance as NativePopoverComponent).reposition();
+    host.isOpen.set(false);
+    fixture.detectChanges();
+    await flushAll();
+    expect(update).toHaveBeenCalled();
+    expect(mockedCompute.mock.calls.length).toBe(computes);
   });
 
   it('should always render the trigger', () => {

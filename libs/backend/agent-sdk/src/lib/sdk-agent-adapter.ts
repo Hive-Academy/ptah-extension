@@ -277,11 +277,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     @inject(SDK_TOKENS.SDK_SESSION_BUDGET)
     private readonly sessionBudget: Pick<
       SessionBudgetService,
-      | 'observe'
-      | 'observeLive'
-      | 'recordCompaction'
-      | 'release'
-      | 'clearAll'
+      'observe' | 'observeLive' | 'recordCompaction' | 'release' | 'clearAll'
     >,
   ) {
     this.callbacks = new SdkAdapterCallbackRegistry();
@@ -1009,6 +1005,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
       sessionToken,
       statsLease.generation,
       config?.tabId,
+      providerProfile?.providerId ?? capacityRoute?.providerId ?? undefined,
     );
 
     if (config.prompt) {
@@ -1313,6 +1310,23 @@ export class SdkAgentAdapter implements IAgentAdapter {
       );
 
       await this.metadataStore.touch(realSessionId);
+      const launchedProviderId = blankToUndefined(
+        providerProfile?.providerId ?? capacityRoute?.providerId ?? undefined,
+      );
+      if (launchedProviderId) {
+        try {
+          await this.metadataStore.updateProvider(
+            realSessionId,
+            launchedProviderId,
+          );
+        } catch (error) {
+          // degradation-audit: reported — provider metadata is best effort during resume.
+          this.logger.error(
+            '[SdkAgentAdapter] Failed to update resumed session provider',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        }
+      }
 
       this.callbacks.emitSessionIdResolved(tabId, realSessionId);
       // ALONGSIDE the single-slot setter above, never instead of it. Fired on
@@ -1399,6 +1413,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
     sessionToken: string,
     statsGeneration: number,
     tabId?: string,
+    providerId?: string,
   ): (tabId: string | undefined, realSessionId: string) => void {
     return async (
       _tabIdFromCallback: string | undefined,
@@ -1439,13 +1454,14 @@ export class SdkAgentAdapter implements IAgentAdapter {
         this.statsOwner.rebind(tabId, realSessionId, statsGeneration);
       }
 
-      // The extra arguments are passed only when the cwd differs, so every
-      // caller with `workspaceId === projectPath` writes exactly today's call.
       if (workingDirectory === workspaceId) {
         await this.metadataStore.create(
           realSessionId,
           workspaceId,
           sessionName,
+          'created',
+          undefined,
+          blankToUndefined(providerId),
         );
       } else {
         await this.metadataStore.create(
@@ -1454,6 +1470,7 @@ export class SdkAgentAdapter implements IAgentAdapter {
           sessionName,
           'created',
           workingDirectory,
+          blankToUndefined(providerId),
         );
       }
 
@@ -1669,6 +1686,20 @@ export class SdkAgentAdapter implements IAgentAdapter {
         },
       },
     );
+    const launchedProviderId = blankToUndefined(
+      providerProfile?.providerId ?? capacityRoute?.providerId ?? undefined,
+    );
+    if (launchedProviderId) {
+      try {
+        await this.metadataStore.updateProvider(sessionId, launchedProviderId);
+      } catch (error) {
+        // degradation-audit: reported — provider metadata is best effort after relaunch.
+        this.logger.error(
+          '[SdkAgentAdapter] Failed to update slash-command session provider',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      }
+    }
     const preparedRun = prepared.run;
     if (preparedRun) {
       this.statsOwner.beginRun(

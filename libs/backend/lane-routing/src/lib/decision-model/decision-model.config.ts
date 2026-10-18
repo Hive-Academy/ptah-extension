@@ -1,26 +1,32 @@
+import { createHmac, randomBytes } from 'node:crypto';
 import type {
   ISecretStorage,
   IStateStorage,
   IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
-import { OLLAMA_PROVIDER_ENTRY } from '@ptah-extension/shared';
-import type { LaneRoutingLogger } from '../lane-routing-logger';
 import {
-  buildProbeUrls,
-  checkVersion,
-  discriminate,
-  errorMessage,
-  isLocalUrl,
-  keyOf,
-  normaliseBaseUrl,
-  toRowState,
-  type ProbeAnswer,
-} from './decision-model.probe';
+  loggableErrorName,
+  OLLAMA_PROVIDER_ENTRY,
+} from '@ptah-extension/shared';
+import type { LaneRoutingLogger } from '../lane-routing-logger';
+import { keyOf, normaliseBaseUrl, toRowState } from './decision-model.probe';
 import { DECISION_MODEL_DETAIL } from './decision-model.detail';
+import {
+  DecisionEndpointProber,
+  type DecisionProbeRequest,
+} from './decision-model.prober';
+import { DecisionModelKeys } from './decision-model.keys';
+import {
+  isBlockedDecisionEndpoint,
+  localityOfSelection,
+  resolveDecisionEndpoint,
+  type DecisionEndpoint,
+  type DecisionEndpointDeps,
+  type DecisionEndpointResolution,
+} from './decision-model.target';
 import {
   DECISION_MODEL_CONFIG_KEY,
   DECISION_MODEL_CONFIG_SECTION,
-  DECISION_MODEL_JEV_SECRET_KEY,
   DECISION_MODEL_PROBE_TIMEOUT_MS,
   DECISION_MODEL_RECHECK_WINDOW_MS,
   DECISION_MODEL_UNSUPPORTED_STORAGE_KEY,
@@ -38,13 +44,11 @@ import {
 import type { StructuredDecisionCompleter } from './structured-decision.port';
 import type { SystemOneFetch } from './system-one.client';
 
-/** Where a System One call goes for the current selection. */
-export interface SystemOneTarget {
-  readonly baseUrl: string;
-  readonly model: string;
-  /** Present only for TypeSafe Jev with a stored key. */
-  readonly apiKey?: string;
-}
+/**
+ * Where a System One call goes for the current selection: the resolved
+ * endpoint (Component 5), with its per-request `timeoutMs` (DC8).
+ */
+export type SystemOneTarget = DecisionEndpoint;
 
 /** Test seams; the DI factory leaves the defaults. */
 export interface DecisionModelConfigSeams {
@@ -55,7 +59,40 @@ export interface DecisionModelConfigSeams {
   readonly probeTimeoutMs?: number;
 }
 
+/** Selections whose row status comes from a probe of the resolved endpoint. */
+type ProbedSelection = Extract<
+  DecisionModelSelection,
+  { kind: 'ollama' | 'ollama-cloud' | 'custom' }
+>;
+
+/** What one status run of a probed selection does: probe, or show a fixed row. */
+type ProbePlan =
+  | { readonly kind: 'probe'; readonly request: DecisionProbeRequest }
+  | { readonly kind: 'row'; readonly row: DecisionModelStatusDto };
+
+/**
+ * What a probe, a re-check or a mark is evidence for. `target` is
+ * `keyOf(selection, baseUrl)`, the persisted mark key. `credential` is a
+ * non-secret fingerprint of the key sent with the probe (`''` without one):
+ * an HMAC under a random per-instance salt, so it is neither the key nor a
+ * reversible or dictionary-checkable form of it, and it never leaves memory.
+ */
+interface ProbeIdentity {
+  readonly target: string;
+  readonly credential: string;
+}
+
+/** The System One call that answered 404/405 (`recheckAfterLiveNotFound`). */
+export interface DecisionLiveCall {
+  /** The selection the call was made for. */
+  readonly selection: DecisionModelSelection;
+  /** The base URL the call went to. */
+  readonly baseUrl: string;
+}
+
 interface ProbeRecord {
+  /** Fingerprint of the key the re-check ran with. */
+  readonly credential: string;
   readonly startedAt: number;
   readonly result: DecisionModelProbeResult;
 }
@@ -69,16 +106,23 @@ interface LastCallFailure {
  * Decision-model setting, credential, locality and status
  * (`LANE_ROUTING_TOKENS.DECISION_MODEL_CONFIG`, plan part A §5).
  *
- * Status of an Ollama selection comes from a two-step probe sharing one
- * 1500 ms budget: `GET /api/version` (>= 0.35.0, 0.40.0 for `laya*`), then
+ * Status of an `ollama`, `ollama-cloud` or `custom` selection comes from a
+ * probe of the resolved endpoint (`DecisionEndpointProber`, built here from
+ * the `fetch` and `probeTimeoutMs` seams) sharing one 1500 ms budget. The
+ * resolver picks the mode: `daemon` checks `GET /api/version` (>= 0.35.0,
+ * 0.40.0 for `laya*`) first; `endpoint` skips it and sends the key. Both then
  * `POST /v1/systemone {}` and the same `POST` to a control path no server
  * serves, compared after normalisation (decision #42). A live 404/405 never
  * marks the endpoint by itself: `recheckAfterLiveNotFound` re-runs the probe,
- * coalesced to one per `(selection, baseUrl)` per 60 s (decision #46).
+ * coalesced to one per `(selection, baseUrl)` per 60 s (decision #46). Probe,
+ * re-check and mark evidence is also bound to a non-secret fingerprint of
+ * the key sent (`ProbeIdentity`), so a key change discards it.
  *
  * The unsupported mark is persisted in global `IStateStorage` under
  * `ptah.decisionModel.unsupported.v1` as `{ selection, baseUrl, detail, at }`
- * and reloaded at construction, so it survives a restart.
+ * and reloaded at construction, so it survives a restart. Its base URL is the
+ * resolved one, so a key change that switches the Ollama Cloud path also
+ * switches the mark key.
  *
  * A plain class, not `@injectable`: `LANE_ROUTING_TOKENS.LOGGER` and the
  * optional `STRUCTURED_DECISION` port have no registration yet, and di-lint
@@ -89,12 +133,24 @@ interface LastCallFailure {
  * `isRegistered(STRUCTURED_DECISION, true)`.
  */
 export class DecisionModelConfig {
-  private readonly fetchImpl: SystemOneFetch;
+  /** Every key the decision model reads or writes (Component 4). */
+  readonly keys: DecisionModelKeys;
+  private readonly prober: DecisionEndpointProber;
   private readonly now: () => number;
-  private readonly probeTimeoutMs: number;
   private mark: DecisionModelUnsupportedMark | null;
+  /**
+   * Key fingerprint the mark is evidence for; `null` while it is unverified.
+   * A mark written this session carries the fingerprint of the key its probe
+   * sent. The fingerprint is never persisted, so a mark loaded from storage
+   * is unverified (see `loadedMarkCredential`): it matches no key until a
+   * probe under the current key writes it again or clears it.
+   */
+  private markCredential: string | null;
+  /** Salt of `credentialFingerprint`; random per instance, never stored. */
+  private readonly fingerprintSalt = randomBytes(32);
   /** In memory only: cleared by a success, a selection change or a restart. */
   private lastCallFailure: LastCallFailure | null = null;
+  /** Last re-check per `ProbeIdentity.target`; a key change misses it. */
   private readonly recentRechecks = new Map<string, ProbeRecord>();
   private readonly inFlightRechecks = new Map<
     string,
@@ -106,8 +162,8 @@ export class DecisionModelConfig {
   constructor(
     /** `PLATFORM_TOKENS.WORKSPACE_PROVIDER` */
     private readonly workspace: IWorkspaceProvider,
-    /** `PLATFORM_TOKENS.SECRET_STORAGE` */
-    private readonly secrets: ISecretStorage,
+    /** `PLATFORM_TOKENS.SECRET_STORAGE`, owned by `keys` */
+    secrets: ISecretStorage,
     /** `PLATFORM_TOKENS.STATE_STORAGE` (global scope) */
     private readonly storage: IStateStorage,
     /** `LANE_ROUTING_TOKENS.LOGGER` */
@@ -116,11 +172,14 @@ export class DecisionModelConfig {
     private readonly structured?: StructuredDecisionCompleter,
     seams: DecisionModelConfigSeams = {},
   ) {
-    this.fetchImpl = seams.fetch ?? fetch;
+    this.keys = new DecisionModelKeys(secrets, logger);
+    this.prober = new DecisionEndpointProber(logger, {
+      fetch: seams.fetch ?? fetch,
+      timeoutMs: seams.probeTimeoutMs ?? DECISION_MODEL_PROBE_TIMEOUT_MS,
+    });
     this.now = seams.now ?? Date.now;
-    this.probeTimeoutMs =
-      seams.probeTimeoutMs ?? DECISION_MODEL_PROBE_TIMEOUT_MS;
     this.mark = this.loadMark();
+    this.markCredential = loadedMarkCredential(this.mark);
   }
 
   // ------------------------------------------------------------ selection
@@ -167,10 +226,7 @@ export class DecisionModelConfig {
     );
     this.lastCallFailure = null;
     this.recentRechecks.clear();
-    if (
-      this.mark &&
-      !this.markMatches(keyOf(selection, this.ollamaBaseUrl()))
-    ) {
+    if (this.mark && !this.markMatches(await this.probeKeyOf(selection))) {
       await this.clearMark('selection changed');
     }
     return selection;
@@ -178,50 +234,24 @@ export class DecisionModelConfig {
 
   // ----------------------------------------------------------- credential
 
-  async hasJevApiKey(): Promise<boolean> {
-    const key = await this.secrets.get(DECISION_MODEL_JEV_SECRET_KEY);
-    return typeof key === 'string' && key.trim().length > 0;
-  }
-
   /**
-   * The stored Jev key (trimmed), or `null` when none is stored. Only for a
-   * caller that must put the previous key back after a failed combined write
-   * (`agent:setConfig`); `setJevApiKey(null)` restores "no key". Never log,
-   * echo or return the value across a process or RPC boundary.
+   * The resolved endpoint for a System One call, or `null` when the
+   * selection does not use System One (`unset`, `structured`) or the
+   * resolver blocks it (a key would cross plain http, D4). Callers already
+   * treat `null` as "no call". A rejected secret read propagates.
+   *
+   * `selection` defaults to the stored one. A caller that already holds a
+   * selection passes it, so the target always belongs to that selection
+   * even when the setting changes while the key is read.
    */
-  async readJevApiKey(): Promise<string | null> {
-    const key = await this.secrets.get(DECISION_MODEL_JEV_SECRET_KEY);
-    const trimmed = key?.trim();
-    return trimmed ? trimmed : null;
-  }
-
-  /** Stores the Jev key; `null` or blank deletes it. The key is never logged or returned. */
-  async setJevApiKey(key: string | null): Promise<void> {
-    const trimmed = key?.trim() ?? '';
-    if (trimmed.length === 0) {
-      await this.secrets.delete(DECISION_MODEL_JEV_SECRET_KEY);
-      return;
-    }
-    await this.secrets.store(DECISION_MODEL_JEV_SECRET_KEY, trimmed);
-  }
-
-  /**
-   * Base URL, model and (Jev) key for a System One call, or `null` when the
-   * selection does not use System One (`unset`, `structured`).
-   */
-  async resolveSystemOneTarget(): Promise<SystemOneTarget | null> {
-    const selection = this.getSelection();
-    if (selection.kind === 'ollama') {
-      return { baseUrl: this.ollamaBaseUrl(), model: selection.model };
-    }
-    if (selection.kind === 'jev') {
-      const key = await this.secrets.get(DECISION_MODEL_JEV_SECRET_KEY);
-      const apiKey = key?.trim();
-      return apiKey
-        ? { baseUrl: JEV_BASE_URL, model: selection.model, apiKey }
-        : { baseUrl: JEV_BASE_URL, model: selection.model };
-    }
-    return null;
+  async resolveSystemOneTarget(
+    selection: DecisionModelSelection = this.getSelection(),
+  ): Promise<SystemOneTarget | null> {
+    const resolution = await resolveDecisionEndpoint(
+      selection,
+      this.endpointDeps(),
+    );
+    return isBlockedDecisionEndpoint(resolution) ? null : resolution;
   }
 
   // ------------------------------------------------------------- locality
@@ -238,26 +268,22 @@ export class DecisionModelConfig {
     return normaliseBaseUrl(OLLAMA_PROVIDER_ENTRY.baseUrl);
   }
 
-  /** Req 1.4: where the request text and lane data go. */
+  /**
+   * Req 1.4: where the request text and lane data go. Sync and key-free
+   * (PD-5), so the status DTO can use it; same rule as the resolver (DC7).
+   */
   localityOf(selection: DecisionModelSelection): DecisionModelLocality | null {
-    switch (selection.kind) {
-      case 'unset':
-        return null;
-      case 'jev':
-        return 'remote';
-      case 'ollama':
-        return isLocalUrl(this.ollamaBaseUrl()) ? 'local' : 'remote';
-      case 'structured':
-        return selection.providerId === 'ollama' &&
-          isLocalUrl(this.ollamaBaseUrl())
-          ? 'local'
-          : 'remote';
-    }
+    return localityOfSelection(selection, {
+      ollamaBaseUrl: () => this.ollamaBaseUrl(),
+    });
   }
 
   // --------------------------------------------------------------- status
 
-  /** Row status. Probes the endpoint for Ollama; makes no paid call for any kind. */
+  /**
+   * Row status. Probes the resolved endpoint for `ollama`, `ollama-cloud`
+   * and `custom`; makes no paid call for any kind.
+   */
   async getStatus(): Promise<DecisionModelStatusDto> {
     return this.statusForCurrent(true);
   }
@@ -278,29 +304,36 @@ export class DecisionModelConfig {
         return this.jevStatus(selection);
       case 'structured':
         return this.structuredStatus(selection);
-      case 'ollama': {
-        const baseUrl = this.ollamaBaseUrl();
-        const startedKey = keyOf(selection, baseUrl);
-        const probe = await this.probe(baseUrl, selection.model);
+      case 'ollama':
+      case 'ollama-cloud':
+      case 'custom': {
+        const plan = await this.probePlan(selection);
+        if (plan.kind === 'row') {
+          return plan.row;
+        }
+        const started = this.identityOf(selection, plan.request);
+        const probe = await this.prober.probe(plan.request);
         return this.applyProbe(
           selection,
-          baseUrl,
+          plan.request,
           probe,
           null,
-          startedKey,
+          started,
           allowRetry,
         );
       }
     }
   }
 
-  /** True when a persisted mark matches the current selection and Ollama base URL. */
-  isMarkedUnsupported(): boolean {
-    const selection = this.getSelection();
-    return (
-      selection.kind === 'ollama' &&
-      this.markMatches(keyOf(selection, this.ollamaBaseUrl()))
-    );
+  /**
+   * True when a verified mark matches the current selection, the base URL
+   * it resolves to now and the key it was written under. A mark loaded from
+   * storage for a selection that can send a key is unverified until a probe
+   * under the current key confirms it. Async: the Ollama Cloud base depends
+   * on whether its key is stored.
+   */
+  async isMarkedUnsupported(): Promise<boolean> {
+    return this.markMatches(await this.currentProbeKey());
   }
 
   /** A successful live call clears the `last call failed` detail. */
@@ -315,19 +348,26 @@ export class DecisionModelConfig {
    * clear instead, so a delayed write cannot be the last persisted value.
    * A persistence failure is logged at warn; the in-memory mark still holds
    * for this session when the key was current at the write.
+   *
+   * `probed` is the base URL and key the probe used: a mark is written only
+   * while the current selection still resolves to that base with that key,
+   * so a probe under an old key cannot mark the endpoint for a new one.
    */
   async markUnsupported(
-    baseUrl: string,
+    probed: Pick<DecisionProbeRequest, 'baseUrl' | 'apiKey'>,
     detail: string,
     selection: DecisionModelSelection,
   ): Promise<void> {
-    const normalised = normaliseBaseUrl(baseUrl);
-    const markKey = keyOf(selection, normalised);
-    if (this.currentProbeKey() !== markKey) {
+    const normalised = normaliseBaseUrl(probed.baseUrl);
+    const identity = this.identityOf(selection, {
+      baseUrl: normalised,
+      apiKey: probed.apiKey,
+    });
+    if (!sameIdentity(await this.currentProbeKey(), identity)) {
       return;
     }
     await this.enqueueMark(async () => {
-      if (this.currentProbeKey() !== markKey) {
+      if (!sameIdentity(await this.currentProbeKey(), identity)) {
         await this.persistMark(undefined);
         return;
       }
@@ -338,6 +378,7 @@ export class DecisionModelConfig {
         at: this.now(),
       };
       this.mark = mark;
+      this.markCredential = identity.credential;
       this.logger.info(
         '[lane-routing] decision model endpoint marked unsupported',
         {
@@ -352,45 +393,69 @@ export class DecisionModelConfig {
   /**
    * Called by the pipeline after a live System One 404/405 (`notFound`).
    * Re-runs the probe (no request text is sent), coalesced to one in-flight
-   * re-check per `(selection, baseUrl)` and at most one per 60 s; a live
-   * 404/405 inside the window reuses the last result.
+   * re-check per `(selection, baseUrl, key fingerprint)` and at most one per
+   * 60 s; a live 404/405 inside the window reuses the last result unless
+   * the key changed since it ran.
    * - `unsupported-endpoint` → the mark is persisted.
    * - `ready` → no mark is written, an existing mark is cleared, and the row
    *   stays `ready` with detail `last call failed: <liveDetail>`.
    * - any other outcome → no mark and no clear; the row shows that state.
+   *
+   * `failed` is the call that answered 404/405. When the current selection
+   * is not the one that call was made for, its detail is stale: nothing is
+   * recorded, probed or marked. The probe goes to the endpoint the
+   * selection resolves to now, in its mode and with its key. When that is
+   * no longer `failed.baseUrl` (the settings or the key changed since the
+   * live call), nothing is probed or marked either.
    */
   async recheckAfterLiveNotFound(
-    baseUrl: string,
+    failed: DecisionLiveCall,
     liveDetail: string,
   ): Promise<DecisionModelStatusDto> {
     const selection = this.getSelection();
-    if (selection.kind !== 'ollama') {
-      // TypeSafe Jev's route is a documented contract
-      // (`research-decision-models.md:155`), and the other kinds do not call
-      // System One, so a live 404/405 there is a model failure: no probe.
-      if (selection.kind === 'jev') {
+    if (keyOf(selection, '') !== keyOf(failed.selection, '')) {
+      this.logger.debug(
+        '[lane-routing] decision model re-check skipped: selection changed since the call',
+        { kind: selection.kind, failedKind: failed.selection.kind },
+      );
+      return this.currentRowWithoutProbe();
+    }
+    switch (selection.kind) {
+      case 'unset':
+      case 'structured':
+        // These kinds do not call System One: nothing to re-check.
+        return this.getStatus();
+      case 'jev':
+        // TypeSafe Jev's route is a documented contract
+        // (`research-decision-models.md:155`), so a live 404/405 there is a
+        // model failure: no probe.
         this.lastCallFailure = {
           key: keyOf(selection, JEV_BASE_URL),
           detail: liveDetail,
         };
+        return this.getStatus();
+      case 'ollama':
+      case 'ollama-cloud':
+      case 'custom': {
+        const plan = await this.probePlan(selection);
+        if (plan.kind === 'row') {
+          return plan.row;
+        }
+        if (plan.request.baseUrl !== normaliseBaseUrl(failed.baseUrl)) {
+          return this.currentRowWithoutProbe();
+        }
+        const started = this.identityOf(selection, plan.request);
+        const probe = await this.coalescedRecheck(started, plan.request);
+        return this.applyProbe(
+          selection,
+          plan.request,
+          probe,
+          liveDetail,
+          started,
+          false,
+        );
       }
-      return this.getStatus();
     }
-    const base = normaliseBaseUrl(baseUrl);
-    const startedKey = keyOf(selection, base);
-    const probe = await this.coalescedRecheck(
-      startedKey,
-      base,
-      selection.model,
-    );
-    return this.applyProbe(
-      selection,
-      base,
-      probe,
-      liveDetail,
-      startedKey,
-      false,
-    );
   }
 
   // ---------------------------------------------------------- internals
@@ -400,11 +465,12 @@ export class DecisionModelConfig {
   ): Promise<DecisionModelStatusDto> {
     let hasKey: boolean;
     try {
-      hasKey = await this.hasJevApiKey();
+      hasKey = await this.keys.has('jev');
     } catch (error: unknown) {
-      // The rejection text is untrusted: logged, never shown in the row.
+      // The rejection text is untrusted (it can echo the key): only its name
+      // is logged, and the row shows fixed text.
       this.logger.warn('[lane-routing] Jev credential lookup failed', {
-        error: errorMessage(error),
+        errorName: loggableErrorName(error),
       });
       return this.dto(
         selection,
@@ -417,13 +483,75 @@ export class DecisionModelConfig {
         selection,
         'no-credential',
         'TypeSafe Jev API key is not set',
+        false,
       );
     }
     return this.dto(
       selection,
       'ready',
       this.lastFailureDetail(keyOf(selection, JEV_BASE_URL)),
+      true,
     );
+  }
+
+  /**
+   * Resolves a probed selection to its probe request (mode, base URL and
+   * key from the resolver), or to the row shown without a probe:
+   * - the credential store rejects → `unreachable`, fixed text;
+   * - a key would cross plain http (D4) → `no-credential`, fixed text.
+   */
+  private async probePlan(selection: ProbedSelection): Promise<ProbePlan> {
+    let resolution: DecisionEndpointResolution;
+    try {
+      resolution = await resolveDecisionEndpoint(
+        selection,
+        this.endpointDeps(),
+      );
+    } catch (error: unknown) {
+      // The rejection text is untrusted (it can echo the key): only its name
+      // is logged, and the row shows fixed text.
+      this.logger.warn('[lane-routing] decision model key lookup failed', {
+        kind: selection.kind,
+        errorName: loggableErrorName(error),
+      });
+      return {
+        kind: 'row',
+        row: this.dto(
+          selection,
+          'unreachable',
+          DECISION_MODEL_DETAIL.credentialStore,
+        ),
+      };
+    }
+    if (isBlockedDecisionEndpoint(resolution)) {
+      if (resolution.reason === 'invalid-base-url') {
+        // The row tells the user. The refused URL is never logged: it may
+        // hold a pasted secret. Debug, since every status read reaches here.
+        this.logger.debug(
+          '[lane-routing] decision model base URL setting is invalid; not calling it',
+          { kind: selection.kind },
+        );
+        return {
+          kind: 'row',
+          row: this.dto(selection, 'unreachable', resolution.detail),
+        };
+      }
+      // A stored key that would cross plain http (D4).
+      return {
+        kind: 'row',
+        row: this.dto(selection, 'no-credential', resolution.detail, true),
+      };
+    }
+    const request = resolution === null ? null : probeRequestOf(resolution);
+    if (request === null) {
+      // The resolver gives every probed kind an endpoint with a probe mode;
+      // this row only keeps the switch total.
+      return {
+        kind: 'row',
+        row: this.dto(selection, 'unreachable', null),
+      };
+    }
+    return { kind: 'probe', request };
   }
 
   private async structuredStatus(
@@ -440,9 +568,10 @@ export class DecisionModelConfig {
     try {
       ready = await this.structured.isReady(selection.providerId);
     } catch (error: unknown) {
+      // Untrusted text (a provider can echo its credential): name only.
       this.logger.warn('[lane-routing] structured provider readiness failed', {
         providerId: selection.providerId,
-        error: errorMessage(error),
+        errorName: loggableErrorName(error),
       });
       return this.dto(
         selection,
@@ -460,40 +589,43 @@ export class DecisionModelConfig {
   }
 
   private async applyProbe(
-    selection: Extract<DecisionModelSelection, { kind: 'ollama' }>,
-    baseUrl: string,
+    selection: ProbedSelection,
+    request: DecisionProbeRequest,
     probe: DecisionModelProbeResult,
     liveDetail: string | null,
-    startedKey: string,
+    started: ProbeIdentity,
     allowRetry: boolean,
   ): Promise<DecisionModelStatusDto> {
-    if (this.currentProbeKey() !== startedKey) {
+    // A result for another selection, base URL or key is stale: discarded.
+    if (!sameIdentity(await this.currentProbeKey(), started)) {
       return allowRetry
         ? this.statusForCurrent(false)
         : this.currentRowWithoutProbe();
     }
-    const key = startedKey;
+    const key = identityKey(started);
+    const keyStored = request.apiKey !== undefined;
     if (probe.outcome === 'unsupported-endpoint') {
       const base = probe.detail ?? 'endpoint does not serve /v1/systemone';
       const detail =
         liveDetail === null ? base : `${base}; last call: ${liveDetail}`;
-      if (!this.markMatches(key)) {
-        await this.markUnsupported(baseUrl, detail, selection);
+      if (!this.markMatches(started)) {
+        await this.markUnsupported(request, detail, selection);
       }
-      if (this.currentProbeKey() !== startedKey) {
+      if (!sameIdentity(await this.currentProbeKey(), started)) {
         return this.currentRowWithoutProbe();
       }
       return this.dto(
         selection,
         'unsupported-endpoint',
         this.mark?.detail ?? detail,
+        keyStored,
       );
     }
     if (probe.outcome === 'ready') {
       if (this.mark) {
         await this.clearMark('probe proved the route');
       }
-      if (this.currentProbeKey() !== startedKey) {
+      if (!sameIdentity(await this.currentProbeKey(), started)) {
         return this.currentRowWithoutProbe();
       }
       if (liveDetail !== null) {
@@ -503,19 +635,32 @@ export class DecisionModelConfig {
         selection,
         'ready',
         this.lastFailureDetail(key) ?? probe.detail,
+        keyStored,
       );
     }
-    return this.dto(selection, toRowState(probe.outcome), probe.detail);
+    return this.dto(
+      selection,
+      toRowState(probe.outcome),
+      probe.detail,
+      keyStored,
+    );
   }
 
+  /**
+   * One in-flight re-check per identity and one per 60 s per target. A
+   * cached result from another key is not reused (and is dropped), so a key
+   * change inside the window probes again with the new key. A result that
+   * lands after the key changed is still discarded by `applyProbe`.
+   */
   private coalescedRecheck(
-    key: string,
-    baseUrl: string,
-    model: string,
+    identity: ProbeIdentity,
+    request: DecisionProbeRequest,
   ): Promise<DecisionModelProbeResult> {
     const startedAt = this.now();
-    const recent = this.recentRechecks.get(key);
-    if (
+    const recent = this.recentRechecks.get(identity.target);
+    if (recent && recent.credential !== identity.credential) {
+      this.recentRechecks.delete(identity.target);
+    } else if (
       recent &&
       startedAt - recent.startedAt < DECISION_MODEL_RECHECK_WINDOW_MS
     ) {
@@ -524,95 +669,26 @@ export class DecisionModelConfig {
       });
       return Promise.resolve(recent.result);
     }
-    const pending = this.inFlightRechecks.get(key);
+    const flightKey = identityKey(identity);
+    const pending = this.inFlightRechecks.get(flightKey);
     if (pending) {
       return pending;
     }
-    const run = this.probe(baseUrl, model)
+    const run = this.prober
+      .probe(request)
       .then((result) => {
-        this.recentRechecks.set(key, { startedAt, result });
+        this.recentRechecks.set(identity.target, {
+          credential: identity.credential,
+          startedAt,
+          result,
+        });
         return result;
       })
       .finally(() => {
-        this.inFlightRechecks.delete(key);
+        this.inFlightRechecks.delete(flightKey);
       });
-    this.inFlightRechecks.set(key, run);
+    this.inFlightRechecks.set(flightKey, run);
     return run;
-  }
-
-  /**
-   * Version check, then the System One and control `POST {}` in parallel,
-   * all under one abort budget. Never rejects.
-   */
-  private async probe(
-    baseUrl: string,
-    model: string,
-  ): Promise<DecisionModelProbeResult> {
-    const urls = buildProbeUrls(baseUrl);
-    if (!urls) {
-      return {
-        outcome: 'unreachable',
-        detail: 'base url is not a valid absolute url',
-      };
-    }
-    const signal = AbortSignal.timeout(this.probeTimeoutMs);
-
-    const version = await this.send(urls.version, { method: 'GET' }, signal);
-    const versionResult = checkVersion(version, model);
-    if (versionResult) {
-      return this.loggedProbe(versionResult);
-    }
-
-    const init = {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: '{}',
-    };
-    const [route, control] = await Promise.all([
-      this.send(urls.route, init, signal),
-      this.send(urls.control, init, signal),
-    ]);
-    return this.loggedProbe(discriminate(route, control));
-  }
-
-  private async send(
-    url: string,
-    init: { method: string; headers?: Record<string, string>; body?: string },
-    signal: AbortSignal,
-  ): Promise<ProbeAnswer> {
-    try {
-      const response = await this.fetchImpl(url, { ...init, signal });
-      const body = await response.text();
-      return { kind: 'answered', status: response.status, body };
-    } catch (error: unknown) {
-      // Classified by the abort signal, never by message (its only source is
-      // the probe budget). The message is untrusted (it can name the host)
-      // and goes to the log only; the row detail is fixed text. The URL is
-      // not logged: a base URL can carry userinfo credentials.
-      const timedOut = signal.aborted;
-      this.logger.warn('[lane-routing] decision model probe request failed', {
-        method: init.method,
-        timedOut,
-        timeoutMs: this.probeTimeoutMs,
-        error: errorMessage(error),
-      });
-      return {
-        kind: 'failed',
-        detail: timedOut
-          ? DECISION_MODEL_DETAIL.timedOut
-          : DECISION_MODEL_DETAIL.unreachable,
-      };
-    }
-  }
-
-  private loggedProbe(
-    result: DecisionModelProbeResult,
-  ): DecisionModelProbeResult {
-    this.logger.debug('[lane-routing] decision model probe', {
-      outcome: result.outcome,
-      detail: result.detail,
-    });
-    return result;
   }
 
   private loadMark(): DecisionModelUnsupportedMark | null {
@@ -623,7 +699,7 @@ export class DecisionModelConfig {
       // degradation-audit: reported - a failed unsupported-mark read starts with no mark so routing can continue
       this.logger.warn(
         '[lane-routing] decision model unsupported mark could not be read',
-        { name: error instanceof Error ? error.name : 'UnknownError' },
+        { errorName: loggableErrorName(error) },
       );
       return null;
     }
@@ -641,10 +717,12 @@ export class DecisionModelConfig {
     return parsed.data;
   }
 
-  private markMatches(key: string): boolean {
+  private markMatches(identity: ProbeIdentity): boolean {
     return (
       this.mark !== null &&
-      keyOf(this.mark.selection, this.mark.baseUrl) === key
+      keyOf(this.mark.selection, this.mark.baseUrl) === identity.target &&
+      this.markCredential !== null &&
+      this.markCredential === identity.credential
     );
   }
 
@@ -667,39 +745,53 @@ export class DecisionModelConfig {
         value === undefined
           ? '[lane-routing] decision model unsupported mark was not cleared in storage'
           : '[lane-routing] decision model unsupported mark was not persisted',
-        { error: errorMessage(error) },
+        { errorName: loggableErrorName(error) },
       );
     }
   }
 
   /**
-   * Row for the selection now, without an Ollama probe. Unmarked Ollama uses
-   * `unreachable`: decision #46 fixes the state set and has no pending state.
+   * Row for the selection now, without a probe. An unmarked probed selection
+   * uses `unreachable`: decision #46 fixes the state set and has no pending
+   * state.
    */
-  private currentRowWithoutProbe(): Promise<DecisionModelStatusDto> {
+  private async currentRowWithoutProbe(): Promise<DecisionModelStatusDto> {
     const selection = this.getSelection();
     switch (selection.kind) {
       case 'unset':
-        return Promise.resolve(this.dto(selection, 'unset', null));
+        return this.dto(selection, 'unset', null);
       case 'jev':
         return this.jevStatus(selection);
       case 'structured':
         return this.structuredStatus(selection);
-      case 'ollama': {
-        const key = keyOf(selection, this.ollamaBaseUrl());
+      case 'ollama':
+      case 'ollama-cloud':
+      case 'custom': {
+        const plan = await this.probePlan(selection);
+        if (plan.kind === 'row') {
+          return plan.row;
+        }
+        const keyStored = plan.request.apiKey !== undefined;
         const mark = this.mark;
-        if (mark !== null && keyOf(mark.selection, mark.baseUrl) === key) {
-          return Promise.resolve(
-            this.dto(selection, 'unsupported-endpoint', mark.detail),
+        if (
+          mark !== null &&
+          this.markMatches(this.identityOf(selection, plan.request))
+        ) {
+          return this.dto(
+            selection,
+            'unsupported-endpoint',
+            mark.detail,
+            keyStored,
           );
         }
-        return Promise.resolve(this.dto(selection, 'unreachable', null));
+        return this.dto(selection, 'unreachable', null, keyStored);
       }
     }
   }
 
   private async clearMark(reason: string): Promise<void> {
     this.mark = null;
+    this.markCredential = null;
     this.logger.info('[lane-routing] decision model unsupported mark cleared', {
       reason,
     });
@@ -712,30 +804,146 @@ export class DecisionModelConfig {
       : null;
   }
 
+  /**
+   * `apiKeyStored` is reported for `jev` and `custom` only (DC13), and only
+   * when the caller read the key; it is never the key itself.
+   */
   private dto(
     selection: DecisionModelSelection,
     state: DecisionModelState,
     detail: string | null,
+    apiKeyStored?: boolean,
   ): DecisionModelStatusDto {
-    return {
+    const row: DecisionModelStatusDto = {
       selection,
       locality: this.localityOf(selection),
-      reportsConfidence:
-        selection.kind === 'ollama' || selection.kind === 'jev',
+      reportsConfidence: reportsConfidence(selection),
       state,
       detail,
     };
+    const keyed = selection.kind === 'jev' || selection.kind === 'custom';
+    return keyed && apiKeyStored !== undefined ? { ...row, apiKeyStored } : row;
   }
 
-  /** Selection plus the base URL that selection would be probed against now. */
-  private currentProbeKey(): string {
-    const selection = this.getSelection();
-    if (selection.kind === 'ollama') {
-      return keyOf(selection, this.ollamaBaseUrl());
+  private endpointDeps(): DecisionEndpointDeps {
+    return {
+      workspace: this.workspace,
+      keys: this.keys,
+      ollamaBaseUrl: () => this.ollamaBaseUrl(),
+    };
+  }
+
+  /** Current selection plus the base URL and key it would be probed with now. */
+  private currentProbeKey(): Promise<ProbeIdentity> {
+    return this.probeKeyOf(this.getSelection());
+  }
+
+  /**
+   * Mark and coalescing identity of a selection: the selection, the base URL
+   * its probe goes to now (the resolved one) and the fingerprint of the key
+   * it would send. A selection that is not probed, or not probed now
+   * (blocked, unreadable key), has an empty base, which matches no probe.
+   */
+  private async probeKeyOf(
+    selection: DecisionModelSelection,
+  ): Promise<ProbeIdentity> {
+    switch (selection.kind) {
+      case 'unset':
+      case 'structured':
+        return { target: keyOf(selection, ''), credential: '' };
+      case 'jev':
+        return { target: keyOf(selection, JEV_BASE_URL), credential: '' };
+      case 'ollama':
+      case 'ollama-cloud':
+      case 'custom': {
+        const plan = await this.probePlan(selection);
+        return plan.kind === 'probe'
+          ? this.identityOf(selection, plan.request)
+          : { target: keyOf(selection, ''), credential: '' };
+      }
     }
-    if (selection.kind === 'jev') {
-      return keyOf(selection, JEV_BASE_URL);
+  }
+
+  private identityOf(
+    selection: DecisionModelSelection,
+    probed: Pick<DecisionProbeRequest, 'baseUrl' | 'apiKey'>,
+  ): ProbeIdentity {
+    return {
+      target: keyOf(selection, probed.baseUrl),
+      credential: this.credentialFingerprint(probed.apiKey),
+    };
+  }
+
+  /**
+   * Non-secret identity of a key: `''` without one, else an HMAC-SHA256 of
+   * the key under this instance's random salt. Used only for equality in
+   * memory; never logged, persisted or sent.
+   */
+  private credentialFingerprint(apiKey: string | undefined): string {
+    if (apiKey === undefined) {
+      return '';
     }
-    return keyOf(selection, '');
+    return createHmac('sha256', this.fingerprintSalt)
+      .update(apiKey)
+      .digest('hex');
+  }
+}
+
+/**
+ * Credential binding of a mark loaded from storage. The persisted mark has
+ * no key identity (the fingerprint salt lives in memory only), so a mark for
+ * a selection that may send a key (`ollama-cloud`, `custom`) is unverified
+ * (`null`) and matches no key until it is probed again under the current
+ * key. A local `ollama` selection never sends a key (`resolveDecisionEndpoint`
+ * passes none), so its mark is evidence for the only credential it can have,
+ * none (`''`), and survives a restart.
+ */
+function loadedMarkCredential(
+  mark: DecisionModelUnsupportedMark | null,
+): string | null {
+  return mark !== null && mark.selection.kind === 'ollama' ? '' : null;
+}
+
+function sameIdentity(a: ProbeIdentity, b: ProbeIdentity): boolean {
+  return a.target === b.target && a.credential === b.credential;
+}
+
+/** Map key of an identity (`keyOf` output never contains a newline). */
+function identityKey(identity: ProbeIdentity): string {
+  return `${identity.target}\n${identity.credential}`;
+}
+
+/** Every System One kind reports a confidence; `structured` and `unset` do not. */
+function reportsConfidence(selection: DecisionModelSelection): boolean {
+  switch (selection.kind) {
+    case 'unset':
+    case 'structured':
+      return false;
+    case 'ollama':
+    case 'ollama-cloud':
+    case 'jev':
+    case 'custom':
+      return true;
+  }
+}
+
+/** The probe request of a resolved endpoint; `null` for `none` (key-presence status). */
+function probeRequestOf(
+  endpoint: DecisionEndpoint,
+): DecisionProbeRequest | null {
+  switch (endpoint.probe) {
+    case 'none':
+      return null;
+    case 'daemon':
+    case 'endpoint': {
+      const request: DecisionProbeRequest = {
+        mode: endpoint.probe,
+        baseUrl: endpoint.baseUrl,
+        model: endpoint.model,
+      };
+      return endpoint.apiKey === undefined
+        ? request
+        : { ...request, apiKey: endpoint.apiKey };
+    }
   }
 }

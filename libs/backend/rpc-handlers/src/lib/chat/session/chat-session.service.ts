@@ -1229,6 +1229,7 @@ export class ChatSessionService {
         : undefined;
       return {
         success: true,
+        ...(metadata?.providerId ? { providerId: metadata.providerId } : {}),
         events: page?.events ?? fullEvents,
         stats,
         ...(budget !== undefined ? { budget } : {}),

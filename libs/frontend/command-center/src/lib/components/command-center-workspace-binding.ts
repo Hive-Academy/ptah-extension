@@ -18,6 +18,7 @@ export function trackWorkspaceBinding(
       message: 'Open a workspace to use Command Center.',
       tone: 'error',
     });
+    void coordinator.refreshSessions();
   };
   const open = (): Promise<string | null> => {
     if (opening) return opening;
@@ -26,16 +27,15 @@ export function trackWorkspaceBinding(
       return Promise.resolve(null);
     }
     const pending = (async (): Promise<string | null> => {
-      let result: string | null;
-      // Always open once; open again only if the workspace changed while opening.
-      do {
-        const before = store.workspace();
-        result = await coordinator.openOrResume();
-        if (!result || store.workspace() === before) break;
-      } while (
-        tabs.activeWorkspacePath &&
-        tabs.activeWorkspacePath !== store.workspace()
-      );
+      let result: string | null = null;
+      let target = tabs.activeWorkspacePath;
+      // Retry only when the active workspace changes during a load.
+      for (let attempt = 0; attempt < 3; attempt++) {
+        result = await coordinator.openStart();
+        const active = tabs.activeWorkspacePath;
+        if (!active || active === target) break;
+        target = active;
+      }
       if (!tabs.activeWorkspacePath) clear();
       return result;
     })();

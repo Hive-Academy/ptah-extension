@@ -613,6 +613,8 @@ export interface TabState {
 
   /** Real Claude CLI session UUID (null if draft) */
   claudeSessionId: SessionId | null;
+  /** Stored canonical provider for the bound session, when known. */
+  providerId?: string;
 
   /**
    * Messaging-gateway attachment link (frontend-only, NOT persisted).

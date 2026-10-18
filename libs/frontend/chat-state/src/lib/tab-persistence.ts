@@ -48,6 +48,7 @@
  * the whole lib rests on, so it is one bug, not two.
  */
 
+import { z } from 'zod';
 import { isWorkflowKind } from '@ptah-extension/chat-types';
 import type {
   SessionStatus,
@@ -253,8 +254,10 @@ export function validCommandCenterOrigin(
  * on the way back in, so neither can arrive from an older blob either.
  */
 export function sanitizeRestoredTab(tab: TabState): TabState {
+  const providerId = z.string().trim().min(1).max(128).safeParse(tab.providerId);
   const sanitized: TabState & { compactHeightUnits?: unknown } = {
     ...tab,
+    providerId: providerId.success ? providerId.data : undefined,
     workflow: isWorkflowKind(tab.workflow) ? tab.workflow : undefined,
     firstMessagePreamble:
       isWorkflowKind(tab.workflow) &&

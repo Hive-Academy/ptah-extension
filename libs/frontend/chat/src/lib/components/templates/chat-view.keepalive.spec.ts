@@ -77,7 +77,7 @@ import { MessageBubbleComponent } from '../organisms/message-bubble.component';
 import { ChatEmptyStateComponent } from '../molecules/setup-plugins/chat-empty-state.component';
 import { TranscriptRetentionService } from '../../services/transcript-retention.service';
 import { RAIL_TRANSCRIPT_RETENTION, SESSION_CONTEXT } from '../../tokens/session-context.token';
-import { ChatViewComponent, RAIL_MIN_CONTENT_WIDTH } from './chat-view.component';
+import { ChatViewComponent } from './chat-view.component';
 import { RailTranscriptRetentionCoordinator } from '../../services/rail-transcript-retention-coordinator.service';
 import { ChatStore } from '../../services/chat.store';
 import {
@@ -88,7 +88,8 @@ import { ActionBannerService } from '../../services/action-banner.service';
 import { SessionHistoryReplayer } from '../../services/chat-store/session-history-replayer.service';
 import { HistoryPagingService } from '../../services/chat-store/history-paging.service';
 import { ChangeSetActionsService } from '../../services/change-set/change-set-actions.service';
-import { DisplayDockComponent } from '../organisms/display-dock/display-dock.component';
+import { DisplaySheetComponent } from '../organisms/display-sheet/display-sheet.component';
+import { DisplayDockState } from '../../services/display-dock/display-dock.state';
 import { SESSION_CARD_ACTIONS, SESSION_VISIBLE } from '../../tokens/session-context.token';
 
 @Component({
@@ -292,6 +293,7 @@ class StubDisplayPanelComponent {
   readonly summary = input<unknown>(null);
   readonly summaryTurnKey = input('');
   readonly selectedKey = input<string | null>(null);
+  readonly scrollToSelectedOnMount = input(false);
   readonly pinned = input(false);
   readonly viewStates = input<unknown>(null);
   readonly actionError = input<string | null>(null);
@@ -347,22 +349,18 @@ interface RailHarness {
 function mountRail(
   options: {
     electron?: boolean;
-    minContentWidth?: number | null;
     deferBehavior?: DeferBlockBehavior;
     contextual?: boolean;
     cardActions?: boolean;
     railRetention?: boolean;
-    provideMinimum?: boolean;
   } = {},
 ): RailHarness {
   const {
     electron = true,
-    minContentWidth = 360,
     deferBehavior = DeferBlockBehavior.Playthrough,
     contextual = false,
     cardActions = false,
     railRetention = true,
-    provideMinimum = true,
   } = options;
   const agents = signal<MonitoredAgent[]>([]);
   const activeTabId = signal<string | null>('tab-1');
@@ -549,7 +547,6 @@ function mountRail(
       { provide: RAIL_TRANSCRIPT_RETENTION, useValue: railRetention },
       { provide: SESSION_CARD_ACTIONS, useValue: cardActions ? { openLane: jest.fn(), openSession: jest.fn() } : null },
       { provide: SESSION_VISIBLE, useValue: null },
-      ...(provideMinimum ? [{ provide: RAIL_MIN_CONTENT_WIDTH, useValue: signal(minContentWidth) }] : []),
       RailTranscriptRetentionCoordinator,
     ],
   });
@@ -557,13 +554,13 @@ function mountRail(
     set: {
       imports: [
         SidebarTabComponent,
-        DisplayDockComponent,
+        DisplaySheetComponent,
         StubAgentMonitorPanelComponent,
       ],
       schemas: [NO_ERRORS_SCHEMA],
     },
   });
-  TestBed.overrideComponent(DisplayDockComponent, {
+  TestBed.overrideComponent(DisplaySheetComponent, {
     remove: { imports: [DisplayPanelComponent] },
     add: {
       imports: [StubDisplayPanelComponent],
@@ -606,11 +603,10 @@ describe('Rail ChatView per-pane display dock', () => {
     else delete (global as Record<string, unknown>)['ResizeObserver'];
   });
 
-  const dock = () => h.fixture.nativeElement.querySelector('ptah-display-dock') as HTMLElement | null;
-  const separator = () => h.fixture.nativeElement.querySelector('[data-testid="display-dock-separator"]') as HTMLElement | null;
-  const toggle = () => h.fixture.nativeElement.querySelector('ptah-sidebar-tab button') as HTMLButtonElement | null;
-  async function openDock(): Promise<void> {
-    toggle()?.click();
+  const sheet = () => h.fixture.nativeElement.querySelector('ptah-display-sheet') as HTMLElement | null;
+  const bar = () => h.fixture.nativeElement.querySelector('[data-testid="display-sheet-bar"]') as HTMLButtonElement | null;
+  async function openSheet(): Promise<void> {
+    bar()?.click();
     for (let round = 0; round < 3; round += 1) {
       h.fixture.detectChanges();
       await h.fixture.whenStable();
@@ -618,62 +614,30 @@ describe('Rail ChatView per-pane display dock', () => {
     h.fixture.detectChanges();
   }
 
-  it('side dock at 804 px and overlay at 644 px with a 360 px minimum', async () => {
+  it('Rail ChatView mounts a session sheet at narrow and wide widths', async () => {
     h = mountRail({ contextual: true });
-    h.emitHostWidth(804);
-    await openDock();
-    expect(separator()).not.toBeNull();
-    expect(dock()?.classList.contains('absolute')).toBe(false);
-    h.emitHostWidth(644);
-    expect(separator()).toBeNull();
-    expect(dock()?.classList.contains('absolute')).toBe(true);
+    h.fixture.debugElement.injector.get(DisplayDockState).setSurfaces('tab-1', {
+      surfaces: [{ key: 'id:a' } as DisplaySurface], statuses: new Map(),
+    });
+    for (const width of [759, 760, 804, 644, 976, 648]) {
+      h.emitHostWidth(width);
+      expect(sheet()).not.toBeNull();
+      expect(bar()?.getAttribute('aria-expanded')).toBe('false');
+    }
+    await openSheet();
+    expect(bar()?.getAttribute('aria-expanded')).toBe('true');
+    expect(sheet()?.querySelector('[data-testid="display-sheet-region"]')).not.toBeNull();
   });
 
-  it('side dock at 976 px (1280 stacked) and overlay at 648 px (920 stacked)', async () => {
+  it('Rail ChatView with coordinator keeps the sheet mounted', async () => {
     h = mountRail({ contextual: true });
-    h.emitHostWidth(976);
-    await openDock();
-    expect(separator()).not.toBeNull();
-    h.emitHostWidth(648);
-    expect(separator()).toBeNull();
-    expect(dock()?.classList.contains('absolute')).toBe(true);
-  });
-
-  it('760/759 px flips with the default 400 px dock', async () => {
-    h = mountRail({ contextual: true });
-    h.emitHostWidth(760);
-    await openDock();
-    expect(separator()?.getAttribute('aria-valuenow')).toBe('400');
-    h.emitHostWidth(759);
-    expect(separator()).toBeNull();
-  });
-
-  it('token absent -> old breakpoint', async () => {
-    h = mountRail({ contextual: true, provideMinimum: false });
-    h.emitHostWidth(644);
-    await openDock();
-    expect(separator()).not.toBeNull();
-    h.emitHostWidth(599);
-    expect(separator()).toBeNull();
-  });
-
-  it('Rail ChatView with coordinator keeps the display dock mounted (HIDE_AGENT_SIDEBAR not provided)', async () => {
-    h = mountRail({ contextual: true });
-    h.emitHostWidth(804);
-    await openDock();
-    expect(h.fixture.debugElement.injector.get(RailTranscriptRetentionCoordinator)).toBeDefined();
-    expect(dock()).not.toBeNull();
-    expect(toggle()).not.toBeNull();
-  });
-
-  it('End at 804 px stays in side mode with its separator', async () => {
-    h = mountRail({ contextual: true });
-    h.emitHostWidth(804);
-    await openDock();
-    separator()?.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+    h.fixture.debugElement.injector.get(DisplayDockState).setSurfaces('tab-1', {
+      surfaces: [{ key: 'id:a' } as DisplaySurface], statuses: new Map(),
+    });
     h.fixture.detectChanges();
-    expect(separator()?.getAttribute('aria-valuenow')).toBe('444');
-    expect(dock()?.classList.contains('absolute')).toBe(false);
+    await openSheet();
+    expect(h.fixture.debugElement.injector.get(RailTranscriptRetentionCoordinator)).toBeDefined();
+    expect(sheet()).not.toBeNull();
   });
 
   it('two ChatViews share one X transcript after active tab swaps in both directions', () => {

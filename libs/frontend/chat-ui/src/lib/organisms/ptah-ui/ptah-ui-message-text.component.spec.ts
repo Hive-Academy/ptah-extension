@@ -169,31 +169,31 @@ describe('PtahUiMessageTextComponent', () => {
         .queryAll(By.directive(PtahUiDisplayChipComponent))
         .map((debug) => debug.componentInstance as PtahUiDisplayChipComponent);
 
-    it('renders a display chip instead of a block, keyed ui:<ordinal>', async () => {
+    it('renders a display target in full inline, keyed ui:<ordinal>', async () => {
       await show('Intro.\n\n' + DISPLAY);
 
       expect(tracks()).toEqual(['md:0', 'ui:0']);
-      expect(blocks()).toHaveLength(0);
+      expect(blocks()).toHaveLength(1);
       expect(chips()).toHaveLength(1);
       expect(chips()[0].ordinal()).toBe(0);
       expect(chips()[0].raw()).toBe(DISPLAY);
       expect(chips()[0].messageId()).toBe('m1');
       expect(chips()[0].nodeId()).toBe('text-1');
-      expect(native().querySelector('ptah-surface-renderer')).toBeNull();
+      expect(native().querySelector('ptah-surface-renderer')).not.toBeNull();
     });
 
-    it('renders a display fence without an id as a chip too (displayId is optional)', async () => {
+    it('renders an anonymous display fence in full', async () => {
       await show('```ptah-ui display\n' + BODY + '```\n');
 
       expect(chips()).toHaveLength(1);
-      expect(blocks()).toHaveLength(0);
+      expect(blocks()).toHaveLength(1);
     });
 
     it('shares one ordinal sequence with inline fences; an absent target stays inline', async () => {
       await show(CLOSED + 'Between.\n\n' + DISPLAY + 'After.\n');
 
       expect(tracks()).toEqual(['md:0', 'ui:0', 'md:1', 'ui:1', 'md:2']);
-      expect(blocks().map((block) => block.ordinal())).toEqual([0]);
+      expect(blocks().map((block) => block.ordinal())).toEqual([0, 1]);
       expect(chips().map((chip) => chip.ordinal())).toEqual([1]);
     });
 

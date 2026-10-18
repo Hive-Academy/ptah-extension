@@ -48,6 +48,7 @@ import { OUTPUT_STYLE_TOKENS } from '@ptah-extension/output-styles';
 import {
   AgentRpcHandlers,
   AuthRpcHandlers,
+  DecisionModelCatalogRpcHandlers,
   SetupRpcHandlers,
   registerSharedRpcHandlers,
   resolveRpcHandlerPlan,
@@ -55,6 +56,7 @@ import {
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 
 import {
+  DECISION_MODEL_CATALOG_TOKEN,
   DECISION_MODEL_CONFIG_TOKEN,
   EXPECTED_RESOLVABLE,
   LANE_MODEL_LISTING_TOKEN,
@@ -135,6 +137,7 @@ function buildMinimalContainer(): DependencyContainer {
     useValue: {
       getWorkspaceFolders: jest.fn(() => []),
       getConfiguration: jest.fn(() => ({ get: jest.fn() })),
+      onDidChangeConfiguration: jest.fn(() => ({ dispose: jest.fn() })),
       onDidChangeWorkspaceFolders: jest.fn(() => ({ dispose: jest.fn() })),
     },
   });
@@ -279,6 +282,8 @@ describe('VS Code DI — structured decision', () => {
       },
     });
     registerSdkServices(c, logger);
+    const idleCompaction = c.resolve(SDK_TOKENS.SDK_IDLE_COMPACTION);
+    expect(c.resolve(SDK_TOKENS.SDK_IDLE_COMPACTION)).toBe(idleCompaction);
     // The real service pulls SdkQueryRunner. The registration under test is
     // the structured-decision token; the query collaborator stays a stub.
     c.register(SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE, {
@@ -365,6 +370,22 @@ describe('VS Code DI — decision model config (TL-59)', () => {
 
     const handlers = c.resolve(AgentRpcHandlers);
     expect(handlers).toBeInstanceOf(AgentRpcHandlers);
+  });
+
+  it('resolves DECISION_MODEL_CATALOG and DecisionModelCatalogRpcHandlers', () => {
+    const c = buildMinimalContainer();
+    registerAgentHandlerFixtures(c);
+    registerLaneRoutingServices(c, c.resolve<Logger>(TOKENS.LOGGER));
+
+    expect(DECISION_MODEL_CATALOG_TOKEN).toBe(
+      LANE_ROUTING_TOKENS.DECISION_MODEL_CATALOG,
+    );
+    const catalog: unknown = c.resolve(DECISION_MODEL_CATALOG_TOKEN);
+    expect(catalog).toBeDefined();
+    expect(c.resolve(DECISION_MODEL_CATALOG_TOKEN)).toBe(catalog);
+
+    const handlers = c.resolve(DecisionModelCatalogRpcHandlers);
+    expect(handlers).toBeInstanceOf(DecisionModelCatalogRpcHandlers);
   });
 });
 

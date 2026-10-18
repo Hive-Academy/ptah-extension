@@ -330,6 +330,9 @@ describe('route decide gate', () => {
       systemOneClientOptions({
         baseUrl: 'http://127.0.0.1:11434',
         model: 'nimble',
+        probe: 'daemon',
+        locality: 'local',
+        timeoutMs: DECISION_REQUEST_TIMEOUT_MS,
       }).timeoutMs,
     ).toBe(DECISION_REQUEST_TIMEOUT_MS);
   });
@@ -790,3 +793,176 @@ function probeHarness(routes: Record<string, FakeRoute>) {
   });
   return { service, source, config, calls };
 }
+
+describe('route decide gate: selection and target come from one snapshot (R1-3)', () => {
+  const CUSTOM_A = {
+    kind: 'custom',
+    baseUrl: 'https://a.example',
+    model: 'model-a',
+  } as const;
+  const CUSTOM_B = {
+    kind: 'custom',
+    baseUrl: 'https://b.example',
+    model: 'model-b',
+  } as const;
+  const SENTINEL = 'sk-r13-sentinel-0c4e';
+
+  function snapshotHarness() {
+    const requests: string[] = [];
+    const workspace = createMockWorkspaceProvider({
+      config: { [SELECTION_KEY]: CUSTOM_A },
+    });
+    const secrets = createMockSecretStorage();
+    const storage = createMockStateStorage();
+    const logger = testLogger();
+    const config = new DecisionModelConfig(
+      workspace,
+      secrets,
+      storage,
+      logger,
+      undefined,
+      {
+        fetch: async (url) => {
+          requests.push(url);
+          return { ok: false, status: 404, text: async () => 'not found' };
+        },
+        now: () => 1_000,
+      },
+    );
+    const seen: SystemOneClientOptions[] = [];
+    const service = new RouteDecideService({
+      config,
+      matrix: neutralMatrix(),
+      rotation: memoryRotation(),
+      logger,
+      listing: listingOf(async () => [
+        { id: 'listed', provenance: 'reported' },
+      ]),
+      seams: {
+        systemOne: (options) => {
+          seen.push(options);
+          return { decide: async () => notFoundReply() };
+        },
+      },
+    });
+    return {
+      config,
+      service,
+      workspace,
+      secrets,
+      storage,
+      logger,
+      seen,
+      requests,
+    };
+  }
+
+  it('a selection change between the two reads cannot pair A with the endpoint of B', async () => {
+    const h = snapshotHarness();
+    jest
+      .spyOn(h.config, 'getSelection')
+      .mockReturnValueOnce(CUSTOM_A)
+      .mockReturnValue(CUSTOM_B);
+    const recheck = jest.spyOn(h.config, 'recheckAfterLiveNotFound');
+
+    await h.service.decide(implement(), candidateSource([...THREE]));
+
+    expect(h.seen).toHaveLength(1);
+    expect(h.seen[0]).toMatchObject({
+      baseUrl: CUSTOM_A.baseUrl,
+      model: CUSTOM_A.model,
+    });
+    expect(recheck).toHaveBeenCalledWith(
+      { selection: CUSTOM_A, baseUrl: CUSTOM_A.baseUrl },
+      LIVE_DETAIL,
+    );
+    // The 404 belongs to A, which is no longer current: no probe, no mark.
+    expect(h.requests).toEqual([]);
+    expect(h.storage.update).not.toHaveBeenCalled();
+  });
+
+  it('a selection saved while the key is read does not change the opened target', async () => {
+    const h = snapshotHarness();
+    // No custom key is stored: the read answers undefined after the save.
+    h.secrets.get.mockImplementationOnce(async () => {
+      await h.workspace.setConfiguration(
+        'ptah',
+        'agentOrchestration.decisionModel',
+        CUSTOM_B,
+      );
+      return undefined;
+    });
+    const recheck = jest.spyOn(h.config, 'recheckAfterLiveNotFound');
+
+    await h.service.decide(implement(), candidateSource([...THREE]));
+
+    expect(h.config.getSelection()).toEqual(CUSTOM_B);
+    expect(h.seen).toHaveLength(1);
+    expect(h.seen[0]).toMatchObject({
+      baseUrl: CUSTOM_A.baseUrl,
+      model: CUSTOM_A.model,
+    });
+    expect(recheck).toHaveBeenCalledWith(
+      { selection: CUSTOM_A, baseUrl: CUSTOM_A.baseUrl },
+      LIVE_DETAIL,
+    );
+    expect(h.requests).toEqual([]);
+    expect(h.storage.update).not.toHaveBeenCalled();
+  });
+
+  it('a key-store rejection naming the key logs a fixed category (R1-1)', async () => {
+    const h = snapshotHarness();
+    const hostile = Object.assign(new Error('rejected'), {
+      code: `Bearer ${SENTINEL}`,
+    });
+    hostile.name = `Authorization: Bearer ${SENTINEL}`;
+    h.secrets.get.mockRejectedValue(hostile);
+
+    await h.service.decide(implement(), candidateSource([...THREE]));
+
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      '[lane-routing] decision model target could not be resolved',
+      { name: 'other' },
+    );
+    expect(JSON.stringify(jest.mocked(h.logger.warn).mock.calls)).not.toContain(
+      SENTINEL,
+    );
+    expect(h.seen).toEqual([]);
+  });
+
+  it('never logs a code, even a real Node code a key could equal', async () => {
+    const h = snapshotHarness();
+    const failure = Object.assign(new Error(`open ${SENTINEL}`), {
+      code: 'EACCES',
+    });
+    h.secrets.get.mockRejectedValue(failure);
+
+    await h.service.decide(implement(), candidateSource([...THREE]));
+
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      '[lane-routing] decision model target could not be resolved',
+      { name: 'Error' },
+    );
+    expect(JSON.stringify(jest.mocked(h.logger.warn).mock.calls)).not.toContain(
+      'EACCES',
+    );
+  });
+
+  it('drops a code shaped like a Node code that is not on the allowlist (R2-1)', async () => {
+    const h = snapshotHarness();
+    const secretShaped = 'ESK4LIVE9X2QZ7';
+    h.secrets.get.mockRejectedValue(
+      Object.assign(new Error('rejected'), { code: secretShaped }),
+    );
+
+    await h.service.decide(implement(), candidateSource([...THREE]));
+
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      '[lane-routing] decision model target could not be resolved',
+      { name: 'Error' },
+    );
+    expect(JSON.stringify(jest.mocked(h.logger.warn).mock.calls)).not.toContain(
+      secretShaped,
+    );
+  });
+});

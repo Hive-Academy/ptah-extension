@@ -227,6 +227,69 @@ describe('CanvasLaneViewComponent', () => {
     );
   });
 
+  it('bounds only the orchestrator host and keeps other lane hosts scrollable', () => {
+    agents.set([
+      {
+        agentId: 'a',
+        parentSessionId: 'owner',
+        permissionQueue: [],
+        expanded: true,
+      },
+    ]);
+    subagents.set(
+      new Map([
+        [
+          'task-tool',
+          {
+            parentToolUseId: 'task-tool',
+            parentSessionId: 'owner',
+            agentId: 'sub',
+            status: 'running',
+          },
+        ],
+      ]),
+    );
+    const fixture = TestBed.createComponent(CanvasLaneViewComponent);
+    fixture.componentRef.setInput('tabId', 'tab');
+    fixture.componentRef.setInput('sessionId', 'owner');
+    fixture.componentRef.setInput('laneKey', 'orchestrator');
+    fixture.detectChanges();
+
+    const host = fixture.nativeElement as HTMLElement;
+    const panel = host.querySelector('[role="tabpanel"]') as HTMLElement;
+    const transcript = panel.querySelector('ptah-canvas-detail-transcript')
+      ?.parentElement as HTMLElement;
+    expect(host.classList).toContain('overflow-hidden');
+    expect(host.classList).not.toContain('overflow-auto');
+    expect(panel.classList).toContain('flex');
+    expect(panel.classList).toContain('flex-col');
+    expect(transcript.classList).toContain('min-h-0');
+    expect(transcript.classList).toContain('flex-1');
+    // The empty lane block must not take the transcript's height.
+    expect(panel.querySelector('.rail-lane-enter')?.classList).toContain(
+      'hidden',
+    );
+
+    for (const key of ['cli:a', 'sub:task-tool', 'bg:task-tool']) {
+      fixture.componentRef.setInput('laneKey', key);
+      fixture.detectChanges();
+      expect(host.classList).toContain('overflow-auto');
+      expect(host.classList).not.toContain('overflow-hidden');
+      expect(panel.classList).not.toContain('flex');
+      expect(transcript.classList).toContain('hidden');
+      expect(panel.querySelector('.rail-lane-enter')?.classList).not.toContain(
+        'hidden',
+      );
+    }
+    subagents.set(new Map());
+    fixture.detectChanges();
+    expect(fixture.componentInstance.selectedKind()).toBe('orchestrator');
+    expect(host.classList).toContain('overflow-hidden');
+    expect(host.classList).not.toContain('overflow-auto');
+    expect(panel.classList).toContain('flex');
+    expect(transcript.classList).not.toContain('hidden');
+  });
+
   it('does not reopen a CLI lane after its user collapses it', () => {
     const agent = {
       agentId: 'a',
@@ -687,9 +750,13 @@ describe('CanvasLaneViewComponent', () => {
           stack.includes('canvas-lane-view.component.ts'),
         ),
       ).toEqual([]);
-      expect(
-        fixture.nativeElement.querySelector('[role="tabpanel"]')?.className,
-      ).toBe('h-full min-h-0');
+      const panel = fixture.nativeElement.querySelector(
+        '[role="tabpanel"]',
+      ) as HTMLElement;
+      expect(panel.classList).toContain('h-full');
+      expect(panel.classList).toContain('min-h-0');
+      expect(panel.classList).toContain('flex');
+      expect(panel.classList).not.toContain('focus-fade');
     } finally {
       requestFrame.mockRestore();
     }

@@ -5,8 +5,6 @@ description: React and Next.js in Nx monorepos. Use when setting up React or Nex
 
 # React NX Patterns
 
-Scalable React/Next.js architecture in Nx monorepos with modern patterns and server components.
-
 ## Core Principle: Libs Over Apps
 
 - **Apps**: Thin Next.js shells that bootstrap libraries. Minimal routing and layout code.
@@ -57,311 +55,6 @@ libs/
     └── config/                  # App-wide config
 ```
 
-## React Component Patterns
-
-### Feature Library (Smart Components)
-
-```typescript
-// libs/user-management/feature/src/pages/user-profile-page.tsx
-// This is a React Server Component by default (Next.js 13+)
-import { UserProfileCard } from '@my-org/user-management/ui';
-import { getUserById } from '@my-org/user-management/data-access';
-
-export default async function UserProfilePage({ params }: { params: { id: string } }) {
-  // Server-side data fetching
-  const user = await getUserById(params.id);
-
-  return (
-    <div>
-      <h1>User Profile</h1>
-      <UserProfileCard user={user} />
-    </div>
-  );
-}
-```
-
-### Feature Library (Client Component Container)
-
-```typescript
-// libs/user-management/feature/src/components/user-list-container.tsx
-'use client';
-
-import { useState } from 'react';
-import { UserCard } from '@my-org/user-management/ui';
-import { useUsers } from '@my-org/user-management/data-access';
-
-export function UserListContainer() {
-  const [filter, setFilter] = useState('');
-  const { data: users, isLoading } = useUsers();
-
-  const filteredUsers = users?.filter((u) => u.name.toLowerCase().includes(filter.toLowerCase()));
-
-  if (isLoading) return <div>Loading...</div>;
-
-  return (
-    <div>
-      <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter users..." />
-
-      {filteredUsers?.map((user) => (
-        <UserCard key={user.id} user={user} />
-      ))}
-    </div>
-  );
-}
-```
-
-### UI Library (Presentational/Dumb Components)
-
-```typescript
-// libs/user-management/ui/src/user-card/user-card.tsx
-import { User } from '@my-org/shared/api-interfaces';
-
-interface UserCardProps {
-  user: User;
-  onEdit?: (userId: string) => void;
-}
-
-export function UserCard({ user, onEdit }: UserCardProps) {
-  return (
-    <div className="user-card">
-      <img src={user.avatarUrl} alt={user.name} />
-      <h3>{user.name}</h3>
-      <p>{user.email}</p>
-      {onEdit && <button onClick={() => onEdit(user.id)}>Edit</button>}
-    </div>
-  );
-}
-```
-
-**Characteristics:**
-
-- No external dependencies (API calls, routing, etc.)
-- Data via props only
-- Events via callback props
-- Highly reusable and testable
-
-## Data-Access Patterns
-
-### Server-Side Data Access (React Server Components)
-
-```typescript
-// libs/user-management/data-access/src/api/get-user.ts
-import 'server-only'; // Ensure this runs on server only
-import { db } from '@my-org/core/database';
-import { cache } from 'react';
-
-// React.cache() deduplicates requests per render
-export const getUserById = cache(async (id: string) => {
-  const user = await db.user.findUnique({ where: { id } });
-
-  if (!user) {
-    throw new Error('User not found');
-  }
-
-  return user;
-});
-
-// Server Actions
-('use server');
-export async function updateUser(id: string, data: UpdateUserDto) {
-  const user = await db.user.update({
-    where: { id },
-    data,
-  });
-
-  revalidatePath(`/users/${id}`);
-  return user;
-}
-```
-
-### Client-Side Data Access (React Client Components)
-
-```typescript
-// libs/user-management/data-access/src/hooks/use-users.ts
-'use client';
-
-import { useQuery } from '@tanstack/react-query';
-import { User } from '@my-org/shared/api-interfaces';
-
-async function fetchUsers(): Promise<User[]> {
-  const res = await fetch('/api/users');
-  if (!res.ok) throw new Error('Failed to fetch users');
-  return res.json();
-}
-
-export function useUsers() {
-  return useQuery({
-    queryKey: ['users'],
-    queryFn: fetchUsers,
-  });
-}
-
-export function useUser(id: string) {
-  return useQuery({
-    queryKey: ['user', id],
-    queryFn: () => fetch(`/api/users/${id}`).then((r) => r.json()),
-  });
-}
-```
-
-### Client State Management (Zustand Example)
-
-```typescript
-// libs/user-management/data-access/src/store/user-store.ts
-'use client';
-
-import { create } from 'zustand';
-import { User } from '@my-org/shared/api-interfaces';
-
-interface UserStore {
-  selectedUserId: string | null;
-  users: User[];
-  setSelectedUserId: (id: string | null) => void;
-  setUsers: (users: User[]) => void;
-}
-
-export const useUserStore = create<UserStore>((set) => ({
-  selectedUserId: null,
-  users: [],
-  setSelectedUserId: (id) => set({ selectedUserId: id }),
-  setUsers: (users) => set({ users }),
-}));
-```
-
-## Module Boundary Rules for React
-
-Configure in `eslint.config.mjs` (flat config):
-
-```js
-import nx from '@nx/eslint-plugin';
-
-export default [
-  {
-    files: ['**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx'],
-    plugins: { '@nx': nx },
-    rules: {
-      '@nx/enforce-module-boundaries': [
-        'error',
-        {
-          depConstraints: [
-            {
-              sourceTag: 'type:feature',
-              onlyDependOnLibsWithTags: ['type:feature', 'type:ui', 'type:data-access', 'type:util', 'type:api-interfaces'],
-            },
-            {
-              sourceTag: 'type:ui',
-              onlyDependOnLibsWithTags: ['type:ui', 'type:util', 'type:api-interfaces'],
-            },
-            {
-              sourceTag: 'type:data-access',
-              onlyDependOnLibsWithTags: ['type:data-access', 'type:util', 'type:api-interfaces'],
-            },
-            {
-              sourceTag: 'type:util',
-              onlyDependOnLibsWithTags: ['type:util'],
-            },
-            {
-              sourceTag: 'type:api-interfaces',
-              onlyDependOnLibsWithTags: ['type:api-interfaces'],
-            },
-            {
-              sourceTag: 'scope:shared',
-              onlyDependOnLibsWithTags: ['scope:shared'],
-            },
-          ],
-        },
-      ],
-    },
-  },
-];
-```
-
-## Workspace Initialization
-
-### Create Nx Workspace with Next.js
-
-```bash
-# Create workspace with Next.js preset
-npx create-nx-workspace@latest my-workspace --preset=next
-
-# Or add Next.js to existing workspace
-npm install -D @nx/next
-nx g @nx/next:app web --style=tailwind --appDir
-```
-
-### Create Domain Library Structure
-
-```bash
-# Feature library (pages, layouts, smart components)
-nx g @nx/next:lib feature --directory=user-management --unitTestRunner=vitest
-
-# UI library (presentational components)
-nx g @nx/react:lib ui --directory=user-management --unitTestRunner=vitest
-
-# Data-access library
-nx g @nx/js:lib data-access --directory=user-management --unitTestRunner=vitest
-
-# Shared libraries
-nx g @nx/react:lib ui --directory=shared --unitTestRunner=vitest
-nx g @nx/js:lib api-interfaces --directory=shared --unitTestRunner=vitest
-nx g @nx/js:lib util --directory=shared --unitTestRunner=vitest
-```
-
-## TypeScript Path Configuration
-
-In `tsconfig.base.json`:
-
-```json
-{
-  "compilerOptions": {
-    "paths": {
-      "@my-org/user-management/feature": ["libs/user-management/feature/src/index.ts"],
-      "@my-org/user-management/ui": ["libs/user-management/ui/src/index.ts"],
-      "@my-org/user-management/data-access": ["libs/user-management/data-access/src/index.ts"],
-      "@my-org/shared/ui": ["libs/shared/ui/src/index.ts"],
-      "@my-org/shared/api-interfaces": ["libs/shared/api-interfaces/src/index.ts"],
-      "@my-org/shared/util": ["libs/shared/util/src/index.ts"]
-    }
-  }
-}
-```
-
-## Tagging Strategy
-
-In each library's `project.json`:
-
-```json
-{
-  "tags": ["scope:user-management", "type:feature", "platform:react"]
-}
-```
-
-**Tag Dimensions:**
-
-- `scope:` - Business domain (user-management, products, shared)
-- `type:` - Library type (feature, ui, data-access, util)
-- `platform:` - Target platform (react, next, shared)
-
-## Next.js 13+ App Router Integration
-
-### Feature Library Exports
-
-```typescript
-// libs/user-management/feature/src/index.ts
-export { default as UserProfilePage } from './pages/user-profile-page';
-export { default as UsersListPage } from './pages/users-list-page';
-export { UserSettingsLayout } from './layouts/user-settings-layout';
-```
-
-### App Router Usage
-
-```typescript
-// apps/web/app/users/[id]/page.tsx
-import { UserProfilePage } from '@my-org/user-management/feature';
-
-export default UserProfilePage;
-```
-
 ## Decision Matrix
 
 | Need                    | Action                                   |
@@ -375,9 +68,31 @@ export default UserProfilePage;
 | Shared types/schemas    | Add to api-interfaces                    |
 | Server Actions          | Add to data-access/api with 'use server' |
 
+## Component and Data-Access Patterns
+
+Server-component pages, client containers, presentational UI components,
+server actions, React Query hooks and Zustand stores are worked end to end in
+the two pattern references below. Load the one that matches the component being
+written; do not re-derive its placement from this entry.
+
+## Module Boundaries
+
+Dependency direction between library types is enforced by
+`@nx/enforce-module-boundaries` over the type and scope tags. Load
+[module-boundaries.md](references/module-boundaries.md) before wiring the
+ESLint rule or choosing a library's tags.
+
 ## References
 
-Load these for detailed implementation guidance:
-
-- [server-components.md](references/server-components.md) - RSC patterns and best practices
-- [client-components.md](references/client-components.md) - Client component patterns
+- [server-components.md](references/server-components.md) - RSC pages and
+  layouts, `React.cache()` deduplication, server actions, app-router exports.
+  Load for any server-rendered feature work.
+- [client-components.md](references/client-components.md) - `'use client'`
+  criteria, presentational component rules, React Query, Zustand, form
+  patterns. Load for interactive components and client state.
+- [module-boundaries.md](references/module-boundaries.md) - the
+  `@nx/enforce-module-boundaries` ESLint config, tag dimensions, `project.json`
+  tags. Load when wiring boundaries or tagging libraries.
+- [workspace-setup.md](references/workspace-setup.md) - `create-nx-workspace`
+  and generator commands, `tsconfig.base.json` paths. Load when creating the
+  workspace or generating libraries.

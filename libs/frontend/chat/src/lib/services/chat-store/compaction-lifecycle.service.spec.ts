@@ -877,6 +877,7 @@ describe('CompactionLifecycleService', () => {
         preTokens: 8000,
         postTokens: 1500,
         durationMs: 1200,
+        idleCompaction: { preTokens: 8000 },
       });
 
       expect(setCompactionMarkerTokensMock).toHaveBeenCalledWith(
@@ -885,6 +886,7 @@ describe('CompactionLifecycleService', () => {
           preTokens: 8000,
           postTokens: 1500,
           durationMs: 1200,
+          idleCompaction: { preTokens: 8000 },
         }),
       );
     });

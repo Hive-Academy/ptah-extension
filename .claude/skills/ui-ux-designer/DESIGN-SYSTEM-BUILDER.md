@@ -22,8 +22,9 @@ Glob(**/tailwind.config.* OR **/theme.config.* OR **/tokens.*)
 Glob(**/theme*.ts OR **/theme*.js OR **/theme*.json)
 
 # Read design system specifications
-Read(docs/design-system/designs-systems.md)
-Read(docs/design-system/README.md)
+# Read the ONE authoritative document: the one CLAUDE.md or AGENTS.md names,
+# otherwise the one named for the project or its brand. Never combine systems.
+Glob(docs/design-system/**/*.md)
 ```
 
 **Extract Design Tokens**:
