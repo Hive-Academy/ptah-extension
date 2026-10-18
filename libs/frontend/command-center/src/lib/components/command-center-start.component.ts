@@ -19,7 +19,7 @@ import type { ChatSessionSummary } from '@ptah-extension/shared';
       <h2 id="start-heading" class="mb-2 text-2xl font-semibold">
         Start Command Center
       </h2>
-      <p class="mb-6 text-sm text-base-content/70">
+      <p class="mb-6 text-sm text-base-content-muted">
         Choose a session or start a new one.
       </p>
       <div class="mb-6 flex flex-wrap gap-2">
@@ -74,7 +74,7 @@ import type { ChatSessionSummary } from '@ptah-extension/shared';
               <span class="badge badge-outline">Command Center</span>
             }
             @if (currentSession(); as session) {
-              <span class="text-sm text-base-content/70">{{
+              <span class="text-sm text-base-content-muted">{{
                 relativeTime(session.lastActivityAt)
               }}</span>
             }
@@ -97,7 +97,7 @@ import type { ChatSessionSummary } from '@ptah-extension/shared';
                 <span class="block truncate font-semibold">{{
                   session.name || 'Untitled session'
                 }}</span>
-                <span class="block text-sm text-base-content/70">{{
+                <span class="block text-sm text-base-content-muted">{{
                   relativeTime(session.lastActivityAt)
                 }}</span>
               </span>
