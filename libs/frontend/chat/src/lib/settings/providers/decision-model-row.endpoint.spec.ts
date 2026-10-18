@@ -397,6 +397,10 @@ describe('DecisionModelRowComponent: Ollama Cloud and custom endpoint (TASK_2026
       await type('decision-base-url', 'ftp://decide.example.com');
       expect(byTestId('decision-base-url-error-slot')).toBe(slot);
       expect(slot?.contains(byTestId('decision-base-url-error'))).toBe(true);
+      // A narrow panel clamps the hint to the reserved lines; the title keeps the full sentence.
+      const hint = byTestId('decision-base-url-error');
+      expect(hint?.className).toContain('line-clamp-2');
+      expect(hint?.getAttribute('title')).toBe(hint?.textContent?.trim());
       await type('decision-base-url', 'https://decide.example.com');
       expect(byTestId('decision-base-url-error-slot')).toBe(slot);
       expect(byTestId('decision-base-url-error')).toBeNull();
