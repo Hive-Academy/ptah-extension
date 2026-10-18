@@ -1,9 +1,9 @@
-import { ChangeDetectionStrategy, Component, ElementRef, Injector, afterNextRender, computed, inject, input, output, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, Injector, afterNextRender, computed, effect, inject, input, output, signal, viewChild } from '@angular/core';
 import { SlicePipe } from '@angular/common';
 import { LucideAngularModule, MessageSquare, Moon, Square } from 'lucide-angular';
-import { AgentMonitorStore, type SubagentRecord } from '@ptah-extension/chat-streaming';
+import { AgentMonitorStore, SubagentExecutionStore, type SubagentRecord } from '@ptah-extension/chat-streaming';
 import { AgentSteerInputComponent, AgentSummaryComponent, agentRunLabel } from '@ptah-extension/chat-ui';
-import type { ExecutionNode, PermissionRequest, PermissionResponse } from '@ptah-extension/shared';
+import type { PermissionRequest, PermissionResponse } from '@ptah-extension/shared';
 import { ExecutionHeaderComponent } from '../../molecules/execution-header/execution-header.component';
 import { SubagentUsageSummaryComponent } from '../../molecules/agent-card/subagent-usage-summary.component';
 import { ExecutionNodeComponent } from '../execution/execution-node.component';
@@ -76,15 +76,30 @@ import { subagentProgressText } from '../../../utils/subagent-progress.utils';
       }
     }
     <div class="space-y-2 pt-2">
-      @if (summaryContent()) {
-        <ptah-agent-summary [content]="summaryContent()!" />
+      @if (finishedSummary(); as content) {
+        <ptah-agent-summary [content]="content" />
+      }
+      @if (entry()?.truncated || entry()?.spilled) {
+        <p class="text-xs text-base-content-muted">Earlier output trimmed — <button type="button" class="btn btn-link btn-xs p-0" (click)="loadFullOutput()">Load full output</button></p>
+      }
+      @if ((entry()?.clipped ?? 0) > 0) {
+        <p class="text-xs text-base-content-muted">Some long outputs were shortened</p>
+      }
+      @if (entry()?.history === 'loading') {
+        <p class="text-xs text-base-content-muted">Loading saved output</p>
+      } @else if (entry()?.history === 'error') {
+        <p class="text-xs text-error">Could not load saved output. <button type="button" class="btn btn-link btn-xs p-0" (click)="retryHistory()">Retry</button></p>
+      } @else if (entry()?.history === 'unresolved') {
+        <p class="text-xs text-base-content-muted">Saved output for this agent could not be linked. <button type="button" class="btn btn-link btn-xs p-0" (click)="retryHistory()">Retry</button></p>
+      } @else if (entry()?.history === 'not-found') {
+        <p class="text-xs text-base-content-muted">No saved output for this agent</p>
       }
       @for (node of nodes(); track node.id) {
         <ptah-execution-node [node]="node" [agentTileMode]="false"
           [getPermissionForTool]="getPermissionForTool()"
           (permissionResponded)="permissionResponded.emit($event)" />
       } @empty {
-        @if (!summaryContent() && !suppressEmpty()) {
+        @if (!finishedSummary() && (!entry() || entry()?.history === 'idle' || entry()?.history === 'loaded')) {
           <p class="text-xs text-base-content-muted">{{ live() ? 'Starting agent' : 'No output recorded' }}</p>
         }
       }
@@ -94,14 +109,13 @@ import { subagentProgressText } from '../../../utils/subagent-progress.utils';
 export class SubagentLaneComponent {
   readonly record = input.required<SubagentRecord>();
   readonly sessionId = input<string | null>(null);
-  readonly nodes = input<readonly ExecutionNode[]>([]);
   readonly summaryContent = input<string | null>(null);
-  readonly suppressEmpty = input(false);
   readonly getPermissionForTool = input<((toolCallId: string) => PermissionRequest | null) | undefined>();
   readonly permissionResponded = output<PermissionResponse>();
 
   protected readonly tray = inject(SessionAgentTrayService);
   private readonly monitor = inject(AgentMonitorStore);
+  private readonly store = inject(SubagentExecutionStore);
   private readonly injector = inject(Injector);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly steerToggle = viewChild<ElementRef<HTMLButtonElement>>('steerToggle');
@@ -114,8 +128,14 @@ export class SubagentLaneComponent {
   protected readonly stopPending = signal(false);
   protected readonly backgroundPending = signal(false);
   protected readonly context = computed(() => this.tray.contextsFor(this.sessionId()).get(this.record().parentToolUseId) ?? null);
+  protected readonly entry = computed(() => this.store.entries().get(this.record().parentToolUseId));
+  protected readonly nodes = computed(() => {
+    this.store.entries();
+    return this.store.treeFor(this.record().parentToolUseId);
+  });
   protected readonly name = computed(() => this.record().teammateName || this.record().agentType || this.record().agentId || 'Sub-agent');
   protected readonly live = computed(() => ['running', 'pending', 'background'].includes(this.record().status));
+  protected readonly finishedSummary = computed(() => this.summaryContent() ?? (!this.live() ? this.record().latestSummary ?? null : null));
   protected readonly label = computed(() => {
     const record = this.record();
     const live = this.live();
@@ -135,6 +155,28 @@ export class SubagentLaneComponent {
     const error = this.monitor.subagentRpcError();
     return error?.parentToolUseId === this.record().parentToolUseId ? error : null;
   });
+
+  constructor() {
+    effect((onCleanup) => {
+      const key = this.record().parentToolUseId;
+      this.store.retain(key);
+      onCleanup(() => this.store.release(key));
+    });
+    effect(() => this.store.syncRecord(this.record()));
+    effect(() => {
+      const key = this.record().parentToolUseId;
+      const entry = this.entry();
+      if (entry && !entry.live && entry.history === 'idle') void this.store.ensureHistory(key);
+    });
+  }
+
+  protected retryHistory(): void {
+    void this.store.ensureHistory(this.record().parentToolUseId);
+  }
+
+  protected loadFullOutput(): void {
+    void this.store.ensureHistory(this.record().parentToolUseId);
+  }
 
   protected toggleSteer(): void {
     if (this.steerOpen()) {

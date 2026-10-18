@@ -8,28 +8,21 @@ import {
   effect,
   inject,
   input,
-  signal,
 } from '@angular/core';
 import {
   AgentCardComponent,
   AgentPermissionResponder,
   ChatStore,
   SubagentLaneComponent,
-  TabManagerService,
   ownedBySession,
   parseLaneKey,
 } from '@ptah-extension/chat';
 import {
   BackgroundAgentStore,
   AgentMonitorStore,
-  ExecutionTreeBuilderService,
 } from '@ptah-extension/chat-streaming';
 import { NgTemplateOutlet } from '@angular/common';
-import {
-  BackgroundAgentStripComponent,
-  SubagentTranscriptViewerComponent,
-} from '@ptah-extension/chat-ui';
-import type { ExecutionNode, SubagentTranscriptMessage } from '@ptah-extension/shared';
+import { BackgroundAgentStripComponent } from '@ptah-extension/chat-ui';
 import { CanvasDetailTranscriptComponent } from './canvas-detail-transcript.component';
 import { CanvasDetailService } from './canvas-detail.service';
 
@@ -39,7 +32,6 @@ import { CanvasDetailService } from './canvas-detail.service';
   imports: [
     AgentCardComponent,
     SubagentLaneComponent,
-    SubagentTranscriptViewerComponent,
     BackgroundAgentStripComponent,
     CanvasDetailTranscriptComponent,
     NgTemplateOutlet,
@@ -142,26 +134,9 @@ import { CanvasDetailService } from './canvas-detail.service';
             <ptah-subagent-lane
               [record]="sub"
               [sessionId]="sessionId()"
-              [nodes]="agentNode()?.children ?? []"
-              [summaryContent]="agentNode()?.summaryContent ?? null"
-              [suppressEmpty]="!agentNode()"
               [getPermissionForTool]="getPermissionForTool"
               (permissionResponded)="chatStore.handlePermissionResponse($event)"
             />
-            @if (!agentNode() && sub.agentId) {
-              <p class="text-xs text-base-content-muted">Live agent unavailable. Showing saved transcript.</p>
-              <ptah-subagent-transcript-viewer
-                [agentName]="sub.teammateName || sub.description || 'Sub-agent'"
-                [messages]="messages()"
-                [loading]="loading()"
-                [error]="error()"
-                (refresh)="loadTranscript(sub.agentId, sub.parentSessionId!)"
-              />
-            } @else if (!agentNode()) {
-              <p class="text-sm text-base-content-muted">
-                Transcript is not available yet
-              </p>
-            }
           </div>
         }
       </ng-template>
@@ -171,8 +146,6 @@ import { CanvasDetailService } from './canvas-detail.service';
 export class CanvasLaneViewComponent {
   readonly monitor = inject(AgentMonitorStore);
   readonly chatStore = inject(ChatStore);
-  private readonly tabs = inject(TabManagerService);
-  private readonly treeBuilder = inject(ExecutionTreeBuilderService);
   private readonly detail = inject(CanvasDetailService);
   private readonly background = inject(BackgroundAgentStore);
   private readonly responder = inject(AgentPermissionResponder);
@@ -229,30 +202,7 @@ export class CanvasLaneViewComponent {
       return kind;
     return 'orchestrator';
   });
-  readonly messages = signal<readonly SubagentTranscriptMessage[]>([]);
-  readonly loading = signal(false);
-  readonly error = signal<string | null>(null);
-  readonly transcriptAgentId = computed(
-    () => this.selectedSubagent()?.agentId ?? null,
-  );
-  readonly transcriptSessionId = computed(
-    () => this.selectedSubagent()?.parentSessionId ?? null,
-  );
-  readonly agentNode = computed((): ExecutionNode | null => {
-    const toolCallId = this.selectedSubagent()?.parentToolUseId;
-    if (!toolCallId) return null;
-    const tab = this.tabs.findTabByIdAcrossWorkspaces(this.tabId())?.tab;
-    if (!tab) return null;
-    const trees = tab.messages.map((message) => message.streamingState).filter((node): node is ExecutionNode => !!node);
-    if (tab.streamingState) trees.push(...this.treeBuilder.buildTree(tab.streamingState, `tab-${this.tabId()}`));
-    for (let index = trees.length - 1; index >= 0; index--) {
-      const found = findAgentNode(trees[index], toolCallId);
-      if (found) return found;
-    }
-    return null;
-  });
   readonly getPermissionForTool = (id: string) => this.chatStore.getPermissionForTool(id);
-  private requestVersion = 0;
 
   constructor() {
     let previousTabId: string | undefined;
@@ -288,68 +238,6 @@ export class CanvasLaneViewComponent {
       if (agent && !agent.expanded)
         this.monitor.toggleAgentExpanded(agent.agentId);
     });
-    effect((onCleanup) => {
-      const id = this.transcriptAgentId();
-      const sessionId = this.transcriptSessionId();
-      if (!id || !sessionId || this.agentNode()) return;
-      const version = ++this.requestVersion;
-      onCleanup(() => {
-        this.requestVersion++;
-      });
-      this.loading.set(true);
-      this.error.set(null);
-      this.messages.set([]);
-      void this.monitor
-        .getSubagentTranscript(sessionId, id)
-        .then((messages) => {
-          if (version === this.requestVersion) this.messages.set(messages);
-        })
-        .catch((error: unknown) => {
-          if (version === this.requestVersion)
-            this.error.set(
-              error instanceof Error
-                ? error.message
-                : 'Failed to load transcript',
-            );
-        })
-        .finally(() => {
-          if (version === this.requestVersion) this.loading.set(false);
-        });
-    });
-  }
-
-  loadTranscript(agentId: string, sessionId: string): void {
-    if (
-      this.agentNode() ||
-      this.transcriptAgentId() !== agentId ||
-      this.transcriptSessionId() !== sessionId
-    )
-      return;
-    const version = ++this.requestVersion;
-    this.loading.set(true);
-    this.error.set(null);
-    void this.monitor
-      .getSubagentTranscript(sessionId, agentId)
-      .then((messages) => {
-        if (
-          version === this.requestVersion &&
-          this.transcriptAgentId() === agentId &&
-          this.transcriptSessionId() === sessionId
-        )
-          this.messages.set(messages);
-      })
-      .catch(
-        (error: unknown) =>
-          version === this.requestVersion &&
-          this.error.set(
-            error instanceof Error
-              ? error.message
-              : 'Failed to load transcript',
-          ),
-      )
-      .finally(() => {
-        if (version === this.requestVersion) this.loading.set(false);
-      });
   }
 
   respond(
@@ -378,14 +266,4 @@ export class CanvasLaneViewComponent {
     event.preventDefault();
     this.back();
   }
-}
-
-function findAgentNode(node: ExecutionNode | null | undefined, id: string): ExecutionNode | null {
-  if (!node) return null;
-  if (node.type === 'agent' && node.toolCallId === id) return node;
-  for (const child of node.children) {
-    const found = findAgentNode(child, id);
-    if (found) return found;
-  }
-  return null;
 }

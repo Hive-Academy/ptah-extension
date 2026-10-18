@@ -1,6 +1,6 @@
 import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import { AgentMonitorStore, type SubagentRecord } from '@ptah-extension/chat-streaming';
+import { AgentMonitorStore, SubagentExecutionStore, type SubagentExecutionEntry, type SubagentRecord } from '@ptah-extension/chat-streaming';
 import { SURFACE_ACTIVE } from '@ptah-extension/core';
 import { provideMarkdown } from 'ngx-markdown';
 import type { TrayAgentContext } from '../../../services/session-agents/session-agent-tray';
@@ -15,6 +15,20 @@ describe('SubagentLaneComponent', () => {
   const steer = jest.fn<Promise<boolean>, [TrayAgentContext, string]>();
   const stop = jest.fn<Promise<void>, [string, string]>();
   const sendToBackground = jest.fn<Promise<boolean>, [string, string]>();
+  const entries = signal<ReadonlyMap<string, SubagentExecutionEntry>>(new Map());
+  const treeFor = jest.fn(() => []);
+  const retain = jest.fn();
+  const release = jest.fn();
+  const syncRecord = jest.fn();
+  const ensureHistory = jest.fn<Promise<void>, [string]>().mockResolvedValue(undefined);
+  function setEntry(changes: Partial<SubagentExecutionEntry> = {}): void {
+    entries.set(new Map([['tool-1', {
+      state: null, finalized: [], sessionId: 'session-123456', live: true,
+      truncated: false, spilled: false, clipped: 0, history: 'idle',
+      generation: 0, lastEventAt: 0, refs: 0, idAlias: new Map(), revision: 0,
+      ...changes,
+    }]]));
+  }
   const base: SubagentRecord = {
     parentToolUseId: 'tool-1', parentSessionId: 'session-123456',
     teammateName: 'Explore', status: 'running', startedAt: 1000,
@@ -48,6 +62,12 @@ describe('SubagentLaneComponent', () => {
     steer.mockReset();
     stop.mockClear();
     sendToBackground.mockClear();
+    treeFor.mockClear();
+    retain.mockClear();
+    release.mockClear();
+    syncRecord.mockClear();
+    ensureHistory.mockClear();
+    setEntry();
     stop.mockResolvedValue(undefined);
     sendToBackground.mockResolvedValue(true);
     TestBed.configureTestingModule({
@@ -56,6 +76,7 @@ describe('SubagentLaneComponent', () => {
         { provide: SURFACE_ACTIVE, useValue: signal(true) },
         provideMarkdown(),
         { provide: AgentMonitorStore, useValue: { tick, subagentRpcError: rpcError, stopAgent: stop, backgroundAgent: sendToBackground, loadSubagentCacheInfo: jest.fn().mockResolvedValue(undefined) } },
+        { provide: SubagentExecutionStore, useValue: { entries, treeFor, retain, release, syncRecord, ensureHistory } },
         { provide: SessionAgentTrayService, useValue: { contextsFor: () => contexts(), steer } },
       ],
     });
@@ -119,11 +140,54 @@ describe('SubagentLaneComponent', () => {
     expect(root.querySelectorAll('ptah-execution-header')).toHaveLength(1);
   });
 
-  it('suppresses the empty message while a transcript fallback is present', () => {
-    const fixture = setup({ ...base, status: 'completed' });
-    fixture.componentRef.setInput('suppressEmpty', true);
-    fixture.detectChanges();
+  it('shows the finished record summary when the parent tree is unavailable', async () => {
+    const fixture = setup({ ...base, status: 'completed', latestSummary: 'Investigation finished' });
+    await fixture.whenStable();
+    expect(fixture.nativeElement.textContent).toContain('Investigation finished');
     expect(fixture.nativeElement.textContent).not.toContain('No output recorded');
+  });
+
+  it('retains the store tree once and releases it on destroy', () => {
+    const fixture = setup();
+    expect(treeFor).toHaveBeenCalledWith('tool-1');
+    expect(retain).toHaveBeenCalledTimes(1);
+    fixture.destroy();
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(release).toHaveBeenCalledWith('tool-1');
+  });
+
+  it.each([
+    ['loading', 'Loading saved output'],
+    ['error', 'Could not load saved output'],
+    ['not-found', 'No saved output for this agent'],
+    ['unresolved', 'Saved output for this agent could not be linked'],
+    ['loaded', 'No output recorded'],
+  ] as const)('shows %s history state', (history, label) => {
+    setEntry({ live: false, history });
+    const fixture = setup({ ...base, status: 'completed' });
+    expect(fixture.nativeElement.textContent).toContain(label);
+    if (history === 'error' || history === 'unresolved') {
+      (fixture.nativeElement.querySelector('button.btn-link') as HTMLButtonElement).click();
+      expect(ensureHistory).toHaveBeenCalledWith('tool-1');
+    }
+  });
+
+  it('loads idle saved output once and offers full output for trimmed trees', () => {
+    setEntry({ live: false, history: 'idle', truncated: true, clipped: 1 });
+    const fixture = setup({ ...base, status: 'completed' });
+    expect(ensureHistory).toHaveBeenCalledTimes(1);
+    expect(fixture.nativeElement.textContent).toContain('Earlier output trimmed');
+    expect(fixture.nativeElement.textContent).toContain('Some long outputs were shortened');
+    (fixture.nativeElement.querySelector('button.btn-link') as HTMLButtonElement).click();
+    expect(ensureHistory).toHaveBeenCalledTimes(2);
+  });
+
+  it('offers full output when the live tree was spilled', () => {
+    setEntry({ live: false, history: 'idle', spilled: true });
+    const fixture = setup({ ...base, status: 'completed' });
+    expect(fixture.nativeElement.textContent).toContain('Earlier output trimmed');
+    (fixture.nativeElement.querySelector('button.btn-link') as HTMLButtonElement).click();
+    expect(ensureHistory).toHaveBeenCalledTimes(2);
   });
 
   it('disables Stop and Background during their requests and ignores repeated clicks', async () => {

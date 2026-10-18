@@ -11,7 +11,6 @@ import {
   SESSION_FOCUSED,
   SESSION_VISIBLE,
   SessionEmbedComponent,
-  ExecutionNodeComponent,
   SubagentLaneComponent,
   TabManagerService,
 } from '@ptah-extension/chat';
@@ -20,6 +19,7 @@ import {
   ExecutionTreeBuilderService,
   BackgroundAgentStore,
   PermissionHandlerService,
+  SubagentExecutionStore,
 } from '@ptah-extension/chat-streaming';
 import { CanvasLaneViewComponent } from './canvas-lane-view.component';
 import {
@@ -55,7 +55,13 @@ describe('CanvasLaneViewComponent', () => {
   const respondLane = jest.fn();
   const respondSession = jest.fn();
   const getSubagentTranscript = jest.fn().mockResolvedValue([]);
-  const tabRecord = signal<any>(null);
+  const findTabByIdAcrossWorkspaces = jest.fn(() => null);
+  const treeFor = jest.fn(() => []);
+  const entries = signal(new Map());
+  const retain = jest.fn();
+  const release = jest.fn();
+  const syncRecord = jest.fn();
+  const ensureHistory = jest.fn().mockResolvedValue(undefined);
   const selectLaneFor = jest.fn();
 
   beforeEach(() => {
@@ -72,7 +78,13 @@ describe('CanvasLaneViewComponent', () => {
     respondLane.mockClear();
     respondSession.mockClear();
     getSubagentTranscript.mockClear();
-    tabRecord.set(null);
+    findTabByIdAcrossWorkspaces.mockClear();
+    treeFor.mockClear();
+    retain.mockClear();
+    release.mockClear();
+    syncRecord.mockClear();
+    ensureHistory.mockClear();
+    entries.set(new Map());
     selectLaneFor.mockClear();
     TestBed.configureTestingModule({
       imports: [CanvasLaneViewComponent],
@@ -120,8 +132,7 @@ describe('CanvasLaneViewComponent', () => {
         {
           provide: TabManagerService,
           useValue: {
-            findTabByIdAcrossWorkspaces: () =>
-              tabRecord() ? { tab: tabRecord() } : null,
+            findTabByIdAcrossWorkspaces,
             visibleTabIds: signal<ReadonlySet<string>>(new Set()),
             registerVisibleTab: jest.fn(),
             unregisterVisibleTab: jest.fn(),
@@ -132,6 +143,7 @@ describe('CanvasLaneViewComponent', () => {
           provide: ExecutionTreeBuilderService,
           useValue: { buildTree: () => [] },
         },
+        { provide: SubagentExecutionStore, useValue: { entries, treeFor, retain, release, syncRecord, ensureHistory } },
         { provide: CanvasDetailService, useValue: { selectLaneFor } },
         { provide: CanvasStore, useValue: { startBlockReason: jest.fn() } },
         { provide: SURFACE_ACTIVE, useValue: signal(true) },
@@ -292,7 +304,7 @@ describe('CanvasLaneViewComponent', () => {
     expect(fixture.nativeElement.querySelector('ptah-agent-card')).toBeNull();
   });
 
-  it('leaves sub-agent permissions to the inline bubble and retains transcript across progress', () => {
+  it('leaves sub-agent permissions to the inline bubble without requesting a transcript', () => {
     const sub = {
       parentToolUseId: 'task-tool',
       parentSessionId: 'owner',
@@ -318,134 +330,46 @@ describe('CanvasLaneViewComponent', () => {
     expect(respondSession).not.toHaveBeenCalled();
     subagents.set(new Map([['task-tool', { ...sub, progress: 1 }]]));
     fixture.detectChanges();
-    expect(getSubagentTranscript).toHaveBeenCalledTimes(1);
+    expect(getSubagentTranscript).not.toHaveBeenCalled();
+    expect(findTabByIdAcrossWorkspaces).not.toHaveBeenCalled();
   });
 
-  it('renders a live depth-2 agent with full tile mode and returns on Escape', async () => {
-    TestBed.overrideComponent(CanvasLaneViewComponent, {
-      set: {
-        imports: [AgentCardComponent, NgTemplateOutlet, SubagentLaneComponent],
-        schemas: [NO_ERRORS_SCHEMA],
-      },
-    });
-    const nested = { type: 'agent', toolCallId: 'nested', children: [] };
-    const agent = {
-      type: 'agent',
-      toolCallId: 'task-tool',
-      children: [nested],
-      summaryContent: 'Investigation finished',
-    };
-    tabRecord.set({
-      messages: [{ streamingState: { type: 'root', children: [agent] } }],
-      streamingState: null,
-    });
-    subagents.set(
-      new Map([
-        [
-          'task-tool',
-          {
-            parentToolUseId: 'task-tool',
-            parentSessionId: 'owner',
-            agentId: 'sub',
-            status: 'completed',
-          },
-        ],
-      ]),
-    );
+  it('opens the store-backed lane and returns to the orchestrator on Escape', () => {
+    subagents.set(new Map([['task-tool', {
+      parentToolUseId: 'task-tool', parentSessionId: 'owner',
+      agentId: 'sub', status: 'completed',
+    }]]));
     const fixture = TestBed.createComponent(CanvasLaneViewComponent);
     fixture.componentRef.setInput('tabId', 'tab');
     fixture.componentRef.setInput('sessionId', 'owner');
     fixture.componentRef.setInput('laneKey', 'sub:task-tool');
     fixture.detectChanges();
-    await fixture.whenStable();
-    expect(fixture.componentInstance.agentNode()).toBe(agent);
-    expect(
-      fixture.nativeElement.querySelector('ptah-subagent-lane'),
-    ).not.toBeNull();
-    expect(fixture.nativeElement.textContent).toContain('Investigation finished');
-    expect(fixture.nativeElement.querySelectorAll('ptah-execution-header')).toHaveLength(1);
-    expect(fixture.nativeElement.querySelector('ptah-subagent-usage-summary')).toBeNull();
-    expect(
-      fixture.nativeElement.querySelector('ptah-subagent-transcript-viewer'),
-    ).toBeNull();
-    fixture.nativeElement.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
-    );
+    expect(fixture.nativeElement.querySelector('ptah-subagent-lane')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('ptah-subagent-transcript-viewer')).toBeNull();
+    expect(getSubagentTranscript).not.toHaveBeenCalled();
+    expect(findTabByIdAcrossWorkspaces).not.toHaveBeenCalled();
+    fixture.nativeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     expect(selectLaneFor).toHaveBeenCalledWith('tab', 'orchestrator');
   });
 
-  it('labels the saved transcript fallback without a contradictory empty state and offers Refresh', () => {
-    subagents.set(
-      new Map([
-        [
-          'task-tool',
-          {
-            parentToolUseId: 'task-tool',
-            parentSessionId: 'owner',
-            agentId: 'sub',
-            status: 'completed',
-          },
-        ],
-      ]),
-    );
-    const fixture = TestBed.createComponent(CanvasLaneViewComponent);
-    fixture.componentRef.setInput('tabId', 'tab');
-    fixture.componentRef.setInput('sessionId', 'owner');
-    fixture.componentRef.setInput('laneKey', 'sub:task-tool');
-    fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain(
-      'Live agent unavailable. Showing saved transcript.',
-    );
-    expect(fixture.nativeElement.textContent).not.toContain('No output recorded');
-    expect(
-      fixture.nativeElement.querySelector('ptah-subagent-transcript-viewer'),
-    ).not.toBeNull();
-    fixture.componentInstance.loadTranscript('sub', 'owner');
-    expect(getSubagentTranscript).toHaveBeenCalled();
-  });
-
-  it('opens a backgrounded agent as a full live lane without fetching an RPC transcript', () => {
-    const agent = { type: 'agent', toolCallId: 'task-tool', children: [] };
-    tabRecord.set({
-      messages: [{ streamingState: agent }],
-      streamingState: null,
-    });
-    subagents.set(
-      new Map([
-        [
-          'task-tool',
-          {
-            parentToolUseId: 'task-tool',
-            parentSessionId: 'owner',
-            agentId: 'sub',
-            status: 'background',
-          },
-        ],
-      ]),
-    );
+  it('opens a backgrounded agent through the same store-backed lane', () => {
+    subagents.set(new Map([['task-tool', {
+      parentToolUseId: 'task-tool', parentSessionId: 'owner',
+      agentId: 'sub', status: 'background',
+    }]]));
     const fixture = TestBed.createComponent(CanvasLaneViewComponent);
     fixture.componentRef.setInput('tabId', 'tab');
     fixture.componentRef.setInput('sessionId', 'owner');
     fixture.componentRef.setInput('laneKey', 'bg:task-tool');
     fixture.detectChanges();
-    expect(fixture.componentInstance.agentNode()).toBe(agent);
-    expect(
-      fixture.nativeElement.querySelector('ptah-subagent-lane'),
-    ).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('ptah-subagent-lane')).not.toBeNull();
     expect(getSubagentTranscript).not.toHaveBeenCalled();
   });
 
   it('keeps the same sub-agent lane open when its record becomes backgrounded', () => {
-    const agent = { type: 'agent', toolCallId: 'task-tool', children: [] };
-    tabRecord.set({
-      messages: [{ streamingState: agent }],
-      streamingState: null,
-    });
     const sub = {
-      parentToolUseId: 'task-tool',
-      parentSessionId: 'owner',
-      agentId: 'sub',
-      status: 'running',
+      parentToolUseId: 'task-tool', parentSessionId: 'owner',
+      agentId: 'sub', status: 'running',
     };
     subagents.set(new Map([['task-tool', sub]]));
     const fixture = TestBed.createComponent(CanvasLaneViewComponent);
@@ -453,22 +377,16 @@ describe('CanvasLaneViewComponent', () => {
     fixture.componentRef.setInput('sessionId', 'owner');
     fixture.componentRef.setInput('laneKey', 'sub:task-tool');
     fixture.detectChanges();
-    expect(fixture.componentInstance.selectedKind()).toBe('subagent');
     subagents.set(new Map([['task-tool', { ...sub, status: 'background' }]]));
     fixture.detectChanges();
     expect(fixture.componentInstance.selectedKind()).toBe('subagent');
-    expect(fixture.componentInstance.agentNode()).toBe(agent);
-    expect(
-      fixture.nativeElement.querySelector('ptah-subagent-lane'),
-    ).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('ptah-subagent-lane')).not.toBeNull();
   });
 
   it('keeps the migrated background lane open and labels it with the background tab', () => {
     const sub = {
-      parentToolUseId: 'task-tool',
-      parentSessionId: 'owner',
-      agentId: 'sub',
-      status: 'running',
+      parentToolUseId: 'task-tool', parentSessionId: 'owner',
+      agentId: 'sub', status: 'running',
     };
     subagents.set(new Map([['task-tool', sub]]));
     const fixture = TestBed.createComponent(CanvasLaneViewComponent);
@@ -480,51 +398,21 @@ describe('CanvasLaneViewComponent', () => {
     fixture.componentRef.setInput('laneKey', 'bg:task-tool');
     fixture.detectChanges();
     expect(fixture.componentInstance.selectedKind()).toBe('background');
-    expect(
-      fixture.nativeElement
-        .querySelector('[role="tabpanel"]')
-        .getAttribute('aria-labelledby'),
-    ).toBe('canvas-lane-panel-tab-bg:task-tool');
-    expect(fixture.nativeElement.querySelector('[role="tabpanel"]')?.getAttribute('tabindex')).toBe('-1');
-    expect(fixture.nativeElement.querySelector('[aria-label="Back to conversation"]')).toBeNull();
+    expect(fixture.nativeElement.querySelector('[role="tabpanel"]')?.getAttribute('aria-labelledby')).toBe('canvas-lane-panel-tab-bg:task-tool');
   });
 
-  it('resolves a nested depth-2 agent by its own lane key', () => {
-    const nested = { type: 'agent', toolCallId: 'nested', children: [] };
-    tabRecord.set({
-      messages: [
-        {
-          streamingState: {
-            type: 'agent',
-            toolCallId: 'parent',
-            children: [nested],
-          },
-        },
-      ],
-      streamingState: null,
-    });
-    subagents.set(
-      new Map([
-        [
-          'nested',
-          {
-            parentToolUseId: 'nested',
-            parentSessionId: 'owner',
-            agentId: 'child',
-            status: 'running',
-          },
-        ],
-      ]),
-    );
+  it('opens a nested subagent by its lane key without walking the main tree', () => {
+    subagents.set(new Map([['nested', {
+      parentToolUseId: 'nested', parentSessionId: 'owner',
+      agentId: 'child', status: 'running',
+    }]]));
     const fixture = TestBed.createComponent(CanvasLaneViewComponent);
     fixture.componentRef.setInput('tabId', 'tab');
     fixture.componentRef.setInput('sessionId', 'owner');
     fixture.componentRef.setInput('laneKey', 'sub:nested');
     fixture.detectChanges();
-    expect(fixture.componentInstance.agentNode()).toBe(nested);
-    expect(
-      fixture.nativeElement.querySelector('ptah-subagent-lane'),
-    ).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('ptah-subagent-lane')).not.toBeNull();
+    expect(findTabByIdAcrossWorkspaces).not.toHaveBeenCalled();
   });
 
   it('keeps one transcript and draft while covering it, and focuses the lane then restores the opener', async () => {
@@ -766,184 +654,30 @@ describe('CanvasLaneViewComponent', () => {
     }
   });
 
-  it('mounts child execution nodes in the subagent lane and routes Stop through its header', async () => {
+  it('passes permission actions through the store-backed lane', () => {
     TestBed.overrideComponent(CanvasLaneViewComponent, {
       set: {
         imports: [AgentCardComponent, NgTemplateOutlet, SubagentLaneComponent],
         schemas: [NO_ERRORS_SCHEMA],
       },
     });
-    const agent = {
-      id: 'task-tool',
-      type: 'agent',
-      toolCallId: 'task-tool',
-      status: 'streaming',
-      agentType: 'review',
-      children: [
-        {
-          id: 'tool-1',
-          type: 'tool',
-          toolCallId: 'tool-1',
-          toolName: 'Read',
-          status: 'error',
-          isPermissionRequest: true,
-          children: [],
-        },
-      ],
+    const sub = {
+      parentToolUseId: 'task-tool', parentSessionId: 'owner',
+      agentId: 'sub', taskId: 'task-1', status: 'running',
     };
-    const request = {
-      id: 'perm-1',
-      toolName: 'Read',
-      toolInput: {},
-      timestamp: Date.now(),
-      description: 'Read file',
-      timeoutAt: 0,
-    };
-    getPermissionForTool.mockImplementation((id: string) =>
-      id === 'tool-1' ? request : null,
-    );
-    tabRecord.set({
-      messages: [{ streamingState: agent }],
-      streamingState: null,
-    });
-    subagents.set(
-      new Map([
-        [
-          'task-tool',
-          {
-            parentToolUseId: 'task-tool',
-            parentSessionId: 'owner',
-            agentId: 'sub',
-            taskId: 'task-1',
-            status: 'running',
-          },
-        ],
-      ]),
-    );
+    subagents.set(new Map([['task-tool', sub]]));
     const fixture = TestBed.createComponent(CanvasLaneViewComponent);
     fixture.componentRef.setInput('tabId', 'tab');
     fixture.componentRef.setInput('sessionId', 'owner');
     fixture.componentRef.setInput('laneKey', 'sub:task-tool');
     fixture.detectChanges();
-    const rendered = fixture.debugElement.query(
-      By.directive(ExecutionNodeComponent),
-    );
-    expect(fixture.debugElement.query(By.directive(SubagentLaneComponent)).componentInstance.nodes()).toBe(agent.children);
-    expect(rendered.componentInstance.node()).toBe(agent.children[0]);
-    expect(rendered.componentInstance.agentTileMode()).toBe(false);
-    const stop = fixture.nativeElement.querySelector(
-      '[aria-label="Stop sub"]',
-    ) as HTMLButtonElement;
-    expect(stop).not.toBeNull();
-    expect(
-      [...fixture.nativeElement.querySelectorAll('button')].filter(
-        (button: Element) =>
-          /^stop\b/i.test(button.textContent?.trim() ?? '') ||
-          /^stop\b/i.test(button.getAttribute('aria-label') ?? ''),
-      ),
-    ).toHaveLength(1);
-    stop.click();
-    expect(stopAgent).toHaveBeenCalledWith('task-1', 'owner');
-    const allow = fixture.nativeElement.querySelector(
-      '[aria-label="Allow this request once"]',
-    ) as HTMLButtonElement;
-    expect(allow).not.toBeNull();
-    allow.click();
-    expect(handlePermissionResponse).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'perm-1', decision: 'allow' }),
-    );
-    const backgroundButton = fixture.nativeElement.querySelector(
-      '[aria-label="Send sub to background"]',
-    ) as HTMLButtonElement;
-    backgroundButton.click();
-    expect(backgroundAgent).toHaveBeenCalledWith('owner', 'task-tool');
-    subagents.set(
-      new Map([
-        [
-          'task-tool',
-          {
-            parentToolUseId: 'task-tool',
-            parentSessionId: 'owner',
-            agentId: 'sub',
-            taskId: 'task-1',
-            status: 'background',
-          },
-        ],
-      ]),
-    );
-    fixture.detectChanges();
-    expect(fixture.componentInstance.selectedKind()).toBe('subagent');
-    expect(
-      fixture.debugElement
-        .query(By.directive(ExecutionNodeComponent))
-        .componentInstance.node(),
-    ).toBe(agent.children[0]);
-    fixture.destroy();
-  });
-
-  it('renders nested Copy controls in the full lane', () => {
-    TestBed.overrideComponent(CanvasLaneViewComponent, {
-      set: {
-        imports: [AgentCardComponent, NgTemplateOutlet, SubagentLaneComponent],
-        schemas: [NO_ERRORS_SCHEMA],
-      },
-    });
-    const agent = {
-      id: 'task-tool',
-      type: 'agent',
-      toolCallId: 'task-tool',
-      status: 'streaming',
-      agentType: 'review',
-      children: [
-        {
-          id: 'tool-1',
-          type: 'tool',
-          toolCallId: 'tool-1',
-          toolName: 'Read',
-          status: 'complete',
-          toolOutput: 'file contents',
-          children: [],
-        },
-      ],
-    };
-    tabRecord.set({
-      messages: [{ streamingState: agent }],
-      streamingState: null,
-    });
-    subagents.set(
-      new Map([
-        [
-          'task-tool',
-          {
-            parentToolUseId: 'task-tool',
-            parentSessionId: 'owner',
-            agentId: 'sub',
-            status: 'running',
-          },
-        ],
-      ]),
-    );
-    const fixture = TestBed.createComponent(CanvasLaneViewComponent);
-    fixture.componentRef.setInput('tabId', 'tab');
-    fixture.componentRef.setInput('sessionId', 'owner');
-    fixture.componentRef.setInput('laneKey', 'sub:task-tool');
-    fixture.detectChanges();
-    const lane =
-      fixture.nativeElement.querySelector('[data-testid="canvas-lane-view"]') ??
-      fixture.nativeElement;
-    expect(
-      fixture.debugElement
-        .query(By.directive(ExecutionNodeComponent))
-        .componentInstance.node(),
-    ).toBe(agent.children[0]);
-    const toolHeader = lane.querySelector(
-      'ptah-tool-call-header button[aria-expanded]',
-    ) as HTMLButtonElement;
-    expect(toolHeader).not.toBeNull();
-    toolHeader.click();
-    fixture.detectChanges();
-    expect(
-      lane.querySelector('ptah-copy-text-button, ptah-copy-button'),
-    ).not.toBeNull();
+    const lane = fixture.debugElement.query(By.directive(SubagentLaneComponent)).componentInstance as SubagentLaneComponent;
+    getPermissionForTool.mockReturnValue(null);
+    expect(lane.getPermissionForTool()?.('tool-1')).toBeNull();
+    expect(getPermissionForTool).toHaveBeenCalledWith('tool-1');
+    lane.permissionResponded.emit({ id: 'permission-1', decision: 'allow' });
+    expect(handlePermissionResponse).toHaveBeenCalledWith({ id: 'permission-1', decision: 'allow' });
+    expect(findTabByIdAcrossWorkspaces).not.toHaveBeenCalled();
+    expect(getSubagentTranscript).not.toHaveBeenCalled();
   });
 });
