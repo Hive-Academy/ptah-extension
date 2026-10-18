@@ -925,6 +925,15 @@ Decisions:
 
 - Command: `npx nx test @ptah-extension/chat --parallel=1 2>&1 | grep -E "Tests:|Test Suites:|FAIL|failed" | tail -15 && npx nx typecheck @ptah-extension/chat 2>&1 | tail -10`
 
+## Batch 17F: Phase 3 fix round — COMPLETE
+
+- Executor: codex lane (decision #14). Report: `batch-17F-report.md`.
+- Scope: shared `IdleCompactionNotice` type used at every frontend hop (style S1);
+  `invalidateMarkerMeasurement` clears the notice (logic M1); spec pins the idle sentence plus the
+  token line, stable label selector (style M1).
+- Orchestrator verification: specs chat-state (46), chat-ui (13), chat-streaming (106), chat
+  (195) pass; typecheck shared, chat-state, chat-ui, chat-streaming, chat, agent-sdk pass.
+
 ## Completion prerequisites (Mode 3)
 
 - Every batch COMPLETE with a commit SHA; Phase 1-3 reviews accepting.

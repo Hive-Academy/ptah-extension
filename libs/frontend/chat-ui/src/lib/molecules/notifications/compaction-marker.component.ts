@@ -1,4 +1,7 @@
-import type { CompactionMeasurement } from '@ptah-extension/shared';
+import type {
+  CompactionMeasurement,
+  IdleCompactionNotice,
+} from '@ptah-extension/shared';
 import { SURFACE_ACTIVE } from '@ptah-extension/core';
 import {
   inject,
@@ -21,7 +24,10 @@ import { MarkdownBlockComponent } from '@ptah-extension/markdown';
       class="inline-flex items-center gap-1.5 my-2 px-2 py-0.5 rounded-full border border-base-300 bg-base-200/40 text-xs text-base-content-muted max-w-full"
     >
       <lucide-angular [img]="ArchiveIcon" class="w-3 h-3 flex-shrink-0" />
-      <span class="font-medium text-base-content-muted">
+      <span
+        data-testid="compaction-marker-label"
+        class="font-medium text-base-content-muted"
+      >
         @if (idleCompaction(); as idle) {
           Compacted while idle to save usage before the prompt cache expired
           (was {{ format(idle.preTokens) }} tokens).
@@ -102,7 +108,7 @@ export class CompactionMarkerComponent {
   readonly summary = input<string | null>(null);
   readonly boundaryId = input<string | undefined>();
   readonly measurement = input<CompactionMeasurement | undefined>();
-  readonly idleCompaction = input<{ preTokens: number } | undefined>();
+  readonly idleCompaction = input<IdleCompactionNotice | undefined>();
   readonly durationMs = input<number | null>(null);
 
   protected readonly ArchiveIcon = Archive;

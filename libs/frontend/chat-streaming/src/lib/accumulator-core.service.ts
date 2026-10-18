@@ -36,6 +36,7 @@
 import { Injectable, inject } from '@angular/core';
 import {
   type CompactionMeasurement,
+  type IdleCompactionNotice,
   ExecutionNode,
   FlatStreamEventUnion,
   MessageStartEvent,
@@ -136,7 +137,7 @@ export interface AccumulatorResult {
    */
   readonly boundaryId?: string;
   readonly measurement?: CompactionMeasurement;
-  readonly idleCompaction?: { readonly preTokens: number };
+  readonly idleCompaction?: IdleCompactionNotice;
   readonly preTokens?: number;
   /** Post-compaction token count, copied off `compaction_complete`. */
   readonly postTokens?: number;

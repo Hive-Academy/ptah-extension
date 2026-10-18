@@ -10,7 +10,10 @@
  * read reactively without having to subscribe through other services.
  */
 
-import type { CompactionMeasurement } from '@ptah-extension/shared';
+import type {
+  CompactionMeasurement,
+  IdleCompactionNotice,
+} from '@ptah-extension/shared';
 import { Injectable, computed, signal } from '@angular/core';
 import { ClaudeSessionId, ConversationId } from './identity/ids';
 
@@ -39,7 +42,7 @@ export interface ConversationRecord {
 export interface CompactionMarkerRecord {
   readonly boundaryId?: string;
   readonly measurement?: CompactionMeasurement;
-  readonly idleCompaction?: { readonly preTokens: number };
+  readonly idleCompaction?: IdleCompactionNotice;
   readonly summary: string | null;
   readonly preTokens: number | null;
   readonly postTokens: number | null;
@@ -278,7 +281,7 @@ export class ConversationRegistry {
     fields: {
       boundaryId?: string;
       measurement?: CompactionMeasurement;
-      idleCompaction?: { preTokens: number };
+      idleCompaction?: IdleCompactionNotice;
       preTokens: number | null;
       postTokens: number | null;
       durationMs: number | null;
@@ -418,7 +421,12 @@ export class ConversationRegistry {
   ): CompactionMarkerRecord | null {
     const prior = current ?? this.readPersisted(convId);
     if (!prior) return null;
-    const marker = { ...prior, boundaryId: undefined, measurement: undefined };
+    const marker = {
+      ...prior,
+      boundaryId: undefined,
+      measurement: undefined,
+      idleCompaction: undefined,
+    };
     this.writePersisted(convId, marker);
     return marker;
   }

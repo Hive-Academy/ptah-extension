@@ -1,6 +1,7 @@
 import { Injectable, NgZone, inject } from '@angular/core';
 import {
   type CompactionMeasurement,
+  type IdleCompactionNotice,
   SessionId,
   type SdkCompactionCompletePayload,
 } from '@ptah-extension/shared';
@@ -360,7 +361,7 @@ export class CompactionLifecycleService {
     compactionSessionId: string;
     boundaryId?: string;
     measurement?: CompactionMeasurement;
-    idleCompaction?: { readonly preTokens: number };
+    idleCompaction?: IdleCompactionNotice;
     preTokens?: number;
     postTokens?: number;
     durationMs?: number;
@@ -753,7 +754,7 @@ export class CompactionLifecycleService {
     result: {
       boundaryId?: string;
       measurement?: CompactionMeasurement;
-      idleCompaction?: { readonly preTokens: number };
+      idleCompaction?: IdleCompactionNotice;
       preTokens?: number;
       postTokens?: number;
       durationMs?: number;

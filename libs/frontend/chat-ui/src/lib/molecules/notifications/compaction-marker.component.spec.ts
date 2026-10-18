@@ -36,7 +36,10 @@ jest.mock('ngx-markdown', () => {
   };
 });
 
-import type { CompactionMeasurement } from '@ptah-extension/shared';
+import type {
+  CompactionMeasurement,
+  IdleCompactionNotice,
+} from '@ptah-extension/shared';
 import { TestBed } from '@angular/core/testing';
 import { CompactionMarkerComponent } from './compaction-marker.component';
 
@@ -53,7 +56,7 @@ describe('CompactionMarkerComponent', () => {
     measurement?: CompactionMeasurement;
     boundaryId?: string;
     durationMs?: number | null;
-    idleCompaction?: { preTokens: number };
+    idleCompaction?: IdleCompactionNotice;
   }) {
     const fixture = TestBed.createComponent(CompactionMarkerComponent);
     fixture.componentRef.setInput('summary', inputs.summary ?? null);
@@ -103,17 +106,37 @@ describe('CompactionMarkerComponent', () => {
   it('always renders the "Context compacted" title', () => {
     const fixture = setup({});
     expect(fixture.nativeElement.textContent).toContain('Context compacted');
-    expect(fixture.nativeElement.textContent).not.toContain('manual');
   });
 
   it('renders the idle notice with formatted tokens and no manual wording', () => {
     const fixture = setup({ idleCompaction: { preTokens: 12345 } });
     const text = fixture.nativeElement.textContent as string;
-    expect(fixture.nativeElement.querySelector('span').textContent.trim()).toBe(
+    expect(
+      fixture.nativeElement
+        .querySelector('[data-testid="compaction-marker-label"]')
+        .textContent.trim(),
+    ).toBe(
       'Compacted while idle to save usage before the prompt cache expired (was 12,345 tokens).',
     );
     expect(text).not.toContain('Context compacted');
     expect(text).not.toContain('manual');
+  });
+
+  it('renders the idle sentence and token reduction together', () => {
+    const fixture = setup({
+      idleCompaction: { preTokens: 12345 },
+      boundaryId: 'A',
+      measurement: {
+        source: 'sdk-compact-metadata',
+        boundaryId: 'A',
+        preTokens: 12345,
+        postTokens: 3000,
+      },
+    });
+    const chip = fixture.nativeElement.querySelector('.inline-flex');
+    expect(chip.textContent.replace(/\s+/g, ' ').trim()).toBe(
+      'Compacted while idle to save usage before the prompt cache expired (was 12,345 tokens). \u00b7 shrank 12,345 \u2192 3,000 tokens',
+    );
   });
 
   it('uses "shrank" only when context tokens decrease', () => {

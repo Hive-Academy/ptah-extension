@@ -285,11 +285,19 @@ export interface CompactionMeasurement {
   readonly postTokens: number;
 }
 
+/**
+ * Set only when the idle compaction handler caused this boundary; absent for
+ * manual and automatic compaction. preTokens is the context size before it.
+ */
+export interface IdleCompactionNotice {
+  readonly preTokens: number;
+}
+
 export interface CompactionCompleteEvent extends FlatStreamEvent {
   readonly boundaryId?: string;
   readonly measurement?: CompactionMeasurement;
   /** Idle compaction notice matched to this SDK boundary. */
-  readonly idleCompaction?: { readonly preTokens: number };
+  readonly idleCompaction?: IdleCompactionNotice;
   readonly eventType: 'compaction_complete';
   /** Whether compaction was triggered manually or automatically */
   readonly trigger: 'manual' | 'auto';

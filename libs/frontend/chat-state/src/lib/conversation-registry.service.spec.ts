@@ -63,6 +63,27 @@ describe('ConversationRegistry — TASK_2026_106 Phase 1', () => {
     expect(registry.compactionMarkerFor(id)?.idleCompaction).toBeUndefined();
   });
 
+  it('clears an idle notice when a later compaction starts and fails', () => {
+    const id = registry.create(sid());
+    registry.setCompactionMarkerTokens(id, {
+      boundaryId: 'A',
+      idleCompaction: { preTokens: 12345 },
+      preTokens: 12345,
+      postTokens: 3000,
+      durationMs: null,
+      completedAt: 1,
+    });
+    registry.markCompactionStart(id);
+    registry.setCompactionState(id, { inFlight: false });
+
+    expect(registry.compactionMarkerFor(id)?.idleCompaction).toBeUndefined();
+    expect(registry.compactionMarkerFor(id)?.boundaryId).toBeUndefined();
+    expect(
+      JSON.parse(localStorage.getItem(`ptah:compaction-marker:${id}`) ?? '{}')
+        .idleCompaction,
+    ).toBeUndefined();
+  });
+
   it.each([NaN, Infinity, -1, '123'])(
     'rejects invalid persisted idle token count: %p',
     (preTokens) => {

@@ -15,6 +15,7 @@
 import { Injectable, inject } from '@angular/core';
 import {
   type CompactionMeasurement,
+  type IdleCompactionNotice,
   ExecutionNode,
   FlatStreamEventUnion,
   ExecutionChatMessage,
@@ -204,7 +205,7 @@ export class StreamingHandlerService {
     compactionComplete?: boolean;
     boundaryId?: string;
     measurement?: CompactionMeasurement;
-    idleCompaction?: { readonly preTokens: number };
+    idleCompaction?: IdleCompactionNotice;
     preTokens?: number;
     postTokens?: number;
     durationMs?: number;
@@ -414,7 +415,7 @@ export class StreamingHandlerService {
     compactionComplete?: boolean;
     boundaryId?: string;
     measurement?: CompactionMeasurement;
-    idleCompaction?: { readonly preTokens: number };
+    idleCompaction?: IdleCompactionNotice;
     preTokens?: number;
     postTokens?: number;
     durationMs?: number;
