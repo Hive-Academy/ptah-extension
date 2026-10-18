@@ -6,11 +6,18 @@ import {
   output,
 } from '@angular/core';
 import type { ChatSessionSummary } from '@ptah-extension/shared';
+import {
+  MonogramTileComponent,
+  ProviderMarkComponent,
+  PROVIDER_BRAND_SLUGS,
+  PROVIDER_MARKS,
+} from '@ptah-extension/ui';
 import { relativeTime } from './command-relative-time';
 
 @Component({
   selector: 'ptah-command-center-start',
   standalone: true,
+  imports: [MonogramTileComponent, ProviderMarkComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section
@@ -91,16 +98,70 @@ import { relativeTime } from './command-relative-time';
             <button
               type="button"
               class="flex min-h-24 w-full items-center gap-3 rounded-xl border border-base-300 bg-base-200 p-4 text-left hover:bg-base-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+              [attr.aria-label]="cardName(session)"
               [disabled]="choosing()"
               (click)="selected.emit(session.id)"
             >
+              @if (knownProvider(session.providerId); as providerId) {
+                <ptah-provider-mark
+                  [providerId]="providerId"
+                  size="sm"
+                  aria-hidden="true"
+                />
+              } @else {
+                <ptah-monogram-tile
+                  [label]="
+                    session.providerId || session.name || 'Untitled session'
+                  "
+                  size="sm"
+                />
+              }
               <span class="min-w-0 flex-1">
                 <span class="block truncate font-semibold">{{
                   session.name || 'Untitled session'
                 }}</span>
-                <span class="block text-sm text-base-content-muted">{{
-                  relativeTime(session.lastActivityAt)
-                }}</span>
+                <span
+                  class="mt-1 flex items-center gap-2 text-sm text-base-content-muted"
+                >
+                  @if (activityBars(session.lastActivityAt); as activeBars) {
+                    <span
+                      class="flex h-5 items-center gap-0.5"
+                      aria-hidden="true"
+                      data-testid="activity-bars"
+                    >
+                      @for (bar of meterBars; track bar) {
+                        <span
+                          class="w-1 rounded-full"
+                          [class.h-2]="bar > activeBars"
+                          [class.h-4]="bar <= activeBars"
+                          [class.bg-base-content]="bar <= activeBars"
+                          [class.bg-base-300]="bar > activeBars"
+                          [attr.data-active]="bar <= activeBars"
+                        ></span>
+                      }
+                    </span>
+                  }
+                  @let age = relativeTime(session.lastActivityAt);
+                  <span>{{
+                    age === 'Unknown' ? 'No recent activity' : 'Updated ' + age
+                  }}</span>
+                </span>
+                <span class="mt-1 block text-xs text-base-content-muted">
+                  {{ session.messageCount }} messages
+                  @let tokens = tokenCount(session);
+                  @if (tokens !== null) {
+                    <span> · {{ tokens }} tokens</span>
+                  }
+                  @if (session.isActive) {
+                    <span> · Active</span>
+                  }
+                  @if (session.livePhase) {
+                    <span> · {{ phaseLabel(session.livePhase) }}</span>
+                  }
+                  @if (session.hasTranscript === false) {
+                    <span> · History unavailable</span>
+                  }
+                </span>
               </span>
               @if (session.id === recordedSessionId()) {
                 <span class="badge badge-outline">Command Center</span>
@@ -113,6 +174,7 @@ import { relativeTime } from './command-relative-time';
   `,
 })
 export class CommandCenterStartComponent {
+  public readonly meterBars = [1, 2, 3, 4, 5, 6] as const;
   public readonly sessions = input.required<readonly ChatSessionSummary[]>();
   public readonly status = input.required<'loading' | 'ready' | 'error'>();
   public readonly expanded = input(false);
@@ -140,5 +202,63 @@ export class CommandCenterStartComponent {
 
   public relativeTime(timestamp: number): string {
     return relativeTime(timestamp, this.now()) ?? 'Unknown';
+  }
+
+  public knownProvider(id: string | undefined): string | null {
+    return id &&
+      (Object.hasOwn(PROVIDER_BRAND_SLUGS, id) ||
+        Object.hasOwn(PROVIDER_MARKS, id))
+      ? id
+      : null;
+  }
+
+  /** Six fixed age bands; the shared clock is the only source of time. */
+  public activityBars(timestamp: number): number | null {
+    if (!Number.isFinite(timestamp) || !Number.isFinite(this.now()))
+      return null;
+    const ageMinutes = Math.max(0, this.now() - timestamp) / 60_000;
+    if (ageMinutes < 1) return 6;
+    if (ageMinutes < 5) return 5;
+    if (ageMinutes < 30) return 4;
+    if (ageMinutes < 120) return 3;
+    if (ageMinutes < 1440) return 2;
+    return 1;
+  }
+
+  public tokenCount(session: ChatSessionSummary): number | null {
+    const usage = session.tokenUsage;
+    if (!usage) return null;
+    const fields = [
+      usage.input,
+      usage.output,
+      usage.cacheRead ?? 0,
+      usage.cacheCreation ?? 0,
+    ];
+    return fields.every((value) => Number.isFinite(value) && value >= 0)
+      ? fields.reduce((sum, value) => sum + value, 0)
+      : null;
+  }
+
+  public phaseLabel(
+    phase: NonNullable<ChatSessionSummary['livePhase']>,
+  ): string {
+    return phase.replace(/-/g, ' ');
+  }
+
+  public cardName(session: ChatSessionSummary): string {
+    const parts = [
+      session.name || 'Untitled session',
+      this.relativeTime(session.lastActivityAt) === 'Unknown'
+        ? 'No recent activity'
+        : `Updated ${this.relativeTime(session.lastActivityAt)}`,
+      `${session.messageCount} messages`,
+    ];
+    const tokens = this.tokenCount(session);
+    if (tokens !== null) parts.push(`${tokens} tokens`);
+    if (session.isActive) parts.push('Active');
+    if (session.livePhase) parts.push(this.phaseLabel(session.livePhase));
+    if (session.hasTranscript === false) parts.push('History unavailable');
+    if (session.id === this.recordedSessionId()) parts.push('Command Center');
+    return parts.join(', ');
   }
 }

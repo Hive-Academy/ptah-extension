@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { sessionContextCue } from '@ptah-extension/chat-ui';
+import type { SessionStatsEntry } from '@ptah-extension/shared';
 import { CommandCenterStore } from '../model/command-center.store';
 import type { ProjectionResult } from '../model/work-projection';
 import type { TribunalRosterProposal } from '../model/tribunal-roster-proposal';
@@ -16,6 +17,8 @@ import { CommandCenterStartComponent } from './command-center-start.component';
 import { CommandWorkListComponent } from './command-work-list.component';
 import { CommandCenterPageComponent } from './command-center-page.component';
 import { CommandCenterPageController } from './command-center-page.controller';
+import { CommandNodeDetailComponent } from './command-node-detail.component';
+import { CommandSessionStatsComponent } from './command-session-stats.component';
 
 @Component({ selector: 'ptah-command-scene', standalone: true, template: '' })
 class SceneStubComponent {
@@ -59,7 +62,22 @@ describe('CommandCenterPageComponent', () => {
   ];
   const projection = signal<ProjectionResult>({ nodes, edges: [] });
   type LiveContext = NonNullable<Parameters<typeof sessionContextCue>[0]>;
-  const tabs = signal<{ id: string; liveModelStats?: LiveContext | null }[]>([]);
+  const tabs = signal<
+    {
+      id: string;
+      liveModelStats?: LiveContext | null;
+      sessionStats?: SessionStatsEntry | null;
+    }[]
+  >([]);
+  const stats: SessionStatsEntry = {
+    sessionId: 'root',
+    model: null,
+    totalCost: 0.2,
+    tokens: { input: 10, output: 2, cacheRead: 0, cacheCreation: 0 },
+    tokenCount: 12,
+    messageCount: 3,
+    status: 'ok',
+  };
   const verifiedContext = (percent: number): LiveContext => ({
     model: 'claude',
     contextKnown: true,
@@ -182,20 +200,104 @@ describe('CommandCenterPageComponent', () => {
     ]);
     const fixture = TestBed.createComponent(CommandCenterPageComponent);
     fixture.detectChanges();
-    const chip = fixture.nativeElement.querySelector('header .badge:last-of-type') as HTMLElement;
+    const chip = fixture.nativeElement.querySelector(
+      'header .badge:last-of-type',
+    ) as HTMLElement;
     expect(chip.textContent).toContain('Context 42%');
     expect(chip.textContent).not.toContain('91%');
     expect(chip.classList.contains('text-base-content-muted')).toBe(true);
     fixture.destroy();
   });
 
-  it('shows unknown context without a zero or warning', () => {
-    tabs.set([{ id: 'root-tab', liveModelStats: {
-      ...verifiedContext(0), contextCapacity: undefined,
-    } }]);
+  it('uses the root snapshot for the stage strip and exact child tab for shared details', () => {
+    tabs.set([
+      { id: 'root-tab', sessionStats: stats },
+      {
+        id: 'child-tab',
+        sessionStats: {
+          ...stats,
+          sessionId: 'child',
+          messageCount: 7,
+          tokenCount: 30,
+        },
+      },
+      { id: 'unrelated', sessionStats: { ...stats, messageCount: 99 } },
+    ]);
+    projection.set({
+      nodes: [
+        nodes[0],
+        { ...nodes[1], tabId: 'child-tab', task: '<b>Work</b>' },
+      ],
+      edges: [],
+    });
+    store.select('child:one');
     const fixture = TestBed.createComponent(CommandCenterPageComponent);
     fixture.detectChanges();
-    const chip = fixture.nativeElement.querySelector('header .badge:last-of-type') as HTMLElement;
+    const strip = fixture.debugElement.query(
+      By.directive(CommandSessionStatsComponent),
+    ).componentInstance as CommandSessionStatsComponent;
+    expect(strip.snapshot()?.sessionId).toBe('root');
+    const rail = fixture.nativeElement.querySelector(
+      '[aria-label="Selected work"]',
+    ) as HTMLElement;
+    expect(rail.querySelector('ptah-command-node-detail')).not.toBeNull();
+    expect(rail.textContent).toContain('7 messages');
+    expect(rail.textContent).not.toContain('99 messages');
+    expect(rail.textContent).toContain('<b>Work</b>');
+    expect(rail.querySelector('b')).toBeNull();
+    const detail = fixture.debugElement.query(
+      By.directive(CommandNodeDetailComponent),
+    ).componentInstance as CommandNodeDetailComponent;
+    expect(detail.childStats()?.tokens).toBe(30);
+    fixture.destroy();
+  });
+
+  it('keeps the provisional marker and omits unloaded zero child messages', () => {
+    tabs.set([
+      { id: 'root-tab', sessionStats: stats },
+      {
+        id: 'child-tab',
+        sessionStats: {
+          ...stats,
+          sessionId: 'child',
+          provisional: true,
+          messageCount: 0,
+          tokenCount: 12_345,
+          totalCost: 0.012345678,
+        },
+      },
+    ]);
+    projection.set({
+      nodes: [nodes[0], { ...nodes[1], tabId: 'child-tab' }],
+      edges: [],
+    });
+    store.select('child:one');
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const rail = fixture.nativeElement.querySelector(
+      '[aria-label="Selected work"]',
+    ) as HTMLElement;
+    expect(rail.textContent).toContain('~12.3k tokens');
+    expect(rail.textContent).toContain('~$0.01');
+    expect(rail.textContent).not.toContain('0 messages');
+    fixture.destroy();
+  });
+
+  it('shows unknown context without a zero or warning', () => {
+    tabs.set([
+      {
+        id: 'root-tab',
+        liveModelStats: {
+          ...verifiedContext(0),
+          contextCapacity: undefined,
+        },
+      },
+    ]);
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const chip = fixture.nativeElement.querySelector(
+      'header .badge:last-of-type',
+    ) as HTMLElement;
     expect(chip.textContent).toContain('Context unknown');
     expect(chip.textContent).not.toContain('0%');
     expect(chip.textContent).not.toContain('Warning');
@@ -207,8 +309,12 @@ describe('CommandCenterPageComponent', () => {
     store.setSession(null, null, '/workspace');
     const fixture = TestBed.createComponent(CommandCenterPageComponent);
     fixture.detectChanges();
-    expect(fixture.nativeElement.querySelector('ptah-command-center-start')).not.toBeNull();
-    expect(fixture.nativeElement.querySelector('header')?.textContent).not.toContain('Context');
+    expect(
+      fixture.nativeElement.querySelector('ptah-command-center-start'),
+    ).not.toBeNull();
+    expect(
+      fixture.nativeElement.querySelector('header')?.textContent,
+    ).not.toContain('Context');
     expect(fixture.nativeElement.querySelector('.stage')).toBeNull();
     fixture.destroy();
   });
@@ -275,7 +381,9 @@ describe('CommandCenterPageComponent', () => {
     tabs.set([{ id: 'root-tab', liveModelStats: verifiedContext(percent) }]);
     const fixture = TestBed.createComponent(CommandCenterPageComponent);
     fixture.detectChanges();
-    const chip = fixture.nativeElement.querySelector('header .badge:last-of-type') as HTMLElement;
+    const chip = fixture.nativeElement.querySelector(
+      'header .badge:last-of-type',
+    ) as HTMLElement;
     expect(chip.textContent).toContain(`Context ${percent}%`);
     expect(chip.textContent?.includes('Warning')).toBe(percent === 70);
     expect(chip.classList.contains('text-state-need')).toBe(percent === 70);
@@ -287,7 +395,12 @@ describe('CommandCenterPageComponent', () => {
       nodes: [
         nodes[0],
         { ...nodes[1], state: 'starting' },
-        { ...nodes[1], id: 'phase:one', kind: 'phase', state: 'awaiting input' },
+        {
+          ...nodes[1],
+          id: 'phase:one',
+          kind: 'phase',
+          state: 'awaiting input',
+        },
         { ...nodes[1], id: 'child:two', state: 'awaiting input' },
         { ...nodes[1], id: 'child:three', state: 'completed' },
       ],
@@ -295,7 +408,9 @@ describe('CommandCenterPageComponent', () => {
     });
     const fixture = TestBed.createComponent(CommandCenterPageComponent);
     fixture.detectChanges();
-    const caption = fixture.nativeElement.querySelector('.stage .left-5.top-5 p:nth-child(2)') as HTMLElement;
+    const caption = fixture.nativeElement.querySelector(
+      '.stage .left-5.top-5 p:nth-child(2)',
+    ) as HTMLElement;
     expect(caption.textContent).toContain('5 nodes');
     expect(caption.textContent).toContain('1 running');
     expect(caption.textContent).toContain('1 waiting');

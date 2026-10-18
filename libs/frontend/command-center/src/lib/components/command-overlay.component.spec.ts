@@ -80,14 +80,44 @@ describe('CommandOverlayComponent', () => {
     expect(labels[1].style.visibility).toBe('hidden');
   });
 
+  it('shows a semantic context ring on the root plate only when verified', () => {
+    const { fixture, labels } = setup();
+    expect(
+      fixture.nativeElement.querySelectorAll('ptah-context-ring'),
+    ).toHaveLength(0);
+    fixture.componentRef.setInput('rootContextPercent', 69);
+    fixture.componentRef.setInput('rootContextTone', 'normal');
+    fixture.detectChanges();
+    expect(
+      labels[0].querySelector('ptah-context-ring svg')?.getAttribute('width'),
+    ).toBe('28');
+    expect(
+      (labels[0].querySelector('ptah-context-ring svg') as SVGElement).style
+        .color,
+    ).toBe('var(--state-ink-done)');
+    expect(labels[1].querySelector('ptah-context-ring')).toBeNull();
+    fixture.componentRef.setInput('rootContextPercent', 70);
+    fixture.componentRef.setInput('rootContextTone', 'warning');
+    fixture.detectChanges();
+    expect(
+      (labels[0].querySelector('ptah-context-ring svg') as SVGElement).style
+        .color,
+    ).toBe('var(--state-ink-need)');
+    fixture.componentRef.setInput('rootContextPercent', null);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('ptah-context-ring')).toBeNull();
+  });
+
   it('keeps state edges and selection visible and uses the shared detail body', () => {
     const { fixture, component, labels } = setup();
     expect(labels[0].classList.contains('border-l-state-run')).toBe(true);
     expect(labels[1].classList.contains('border-l-state-idle')).toBe(true);
     fixture.componentRef.setInput('selectedId', 'a');
     fixture.componentRef.setInput('projection', {
-      nodes: [{ ...nodes[0], task: '<b>Review</b>\nLater', updatedAt: 820_000 },
-        { ...nodes[1], kind: 'phase', parentId: 'a', state: 'completed' }],
+      nodes: [
+        { ...nodes[0], task: '<b>Review</b>\nLater', updatedAt: 820_000 },
+        { ...nodes[1], kind: 'phase', parentId: 'a', state: 'completed' },
+      ],
       edges: [],
     });
     fixture.componentRef.setInput('now', 1_000_000);
@@ -96,7 +126,9 @@ describe('CommandOverlayComponent', () => {
     expect(labels[0].classList.contains('outline')).toBe(true);
     component.pin('a');
     fixture.detectChanges();
-    const card = fixture.nativeElement.querySelector('#command-node-card') as HTMLElement;
+    const card = fixture.nativeElement.querySelector(
+      '#command-node-card',
+    ) as HTMLElement;
     expect(card.querySelector('ptah-command-node-detail')).not.toBeNull();
     expect(card.textContent).toContain('<b>Review</b>');
     expect(card.querySelector('b')).toBeNull();

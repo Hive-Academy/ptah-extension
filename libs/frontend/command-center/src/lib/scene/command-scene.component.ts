@@ -51,8 +51,20 @@ const SCENE_PALETTES: Record<CommandTheme, Record<string, SpritePalette>> = {
 };
 
 const FALLBACK_INKS: Record<CommandTheme, SceneInks> = {
-  dark: { run: '#3b82f6', need: '#f97316', err: '#ef4444', done: '#16a34a', idle: '#9ca3af' },
-  light: { run: '#2a56c6', need: '#8f5200', err: '#b4232a', done: '#13713a', idle: '#6b6570' },
+  dark: {
+    run: '#3b82f6',
+    need: '#f97316',
+    err: '#ef4444',
+    done: '#16a34a',
+    idle: '#9ca3af',
+  },
+  light: {
+    run: '#2a56c6',
+    need: '#8f5200',
+    err: '#b4232a',
+    done: '#13713a',
+    idle: '#6b6570',
+  },
 };
 
 function paletteName(
@@ -125,7 +137,9 @@ export class CommandSceneComponent {
     const fallback = FALLBACK_INKS[theme];
     const read = (name: string, defaultValue: string): string =>
       style.getPropertyValue(`--state-ink-${name}`).trim() || defaultValue;
-    const baseContent = style.getPropertyValue('--bcm').trim() || style.getPropertyValue('--bc').trim();
+    const baseContent =
+      style.getPropertyValue('--bcm').trim() ||
+      style.getPropertyValue('--bc').trim();
     this.inks.set({
       run: read('run', fallback.run),
       need: read('need', fallback.need),
@@ -204,6 +218,7 @@ export class CommandSceneComponent {
         );
         return {
           id: sceneNode.node.id,
+          rim: SCENE_PALETTES[theme][name].rim,
           image: this.cache.get({
             node: sceneNode.node,
             theme,
@@ -214,11 +229,21 @@ export class CommandSceneComponent {
           }),
         };
       });
+      const root = layout.nodes.find((node) => node.kind === 'root');
+      const voiceHalo = root
+        ? this.cache.getVoiceHalo({
+            theme,
+            paletteName: 'gold',
+            palette: SCENE_PALETTES[theme]['gold'],
+            dpr,
+          })
+        : undefined;
       this.cache.prune(new Set(layout.nodes.map((node) => node.node.id)));
       this.zone.runOutsideAngular(() => {
         this.renderer?.setSnapshot({
           layout,
           sprites,
+          voiceHalo,
           labels,
           selectedId,
           hoveredId: this.hoveredId,

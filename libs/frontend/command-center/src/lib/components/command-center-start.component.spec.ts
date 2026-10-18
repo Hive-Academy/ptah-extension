@@ -48,16 +48,104 @@ describe('CommandCenterStartComponent', () => {
 
   it('updates recency from the supplied shared clock', () => {
     const fixture = render();
-    fixture.componentRef.setInput('sessions', [{ ...sessions[0], lastActivityAt: 820_000 }]);
+    fixture.componentRef.setInput('sessions', [
+      { ...sessions[0], lastActivityAt: 820_000 },
+    ]);
     fixture.componentRef.setInput('now', 1_000_000);
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('3m ago');
     fixture.componentRef.setInput('now', 1_060_000);
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('4m ago');
-    fixture.componentRef.setInput('sessions', [{ ...sessions[0], lastActivityAt: 1_065_000 }]);
+    fixture.componentRef.setInput('sessions', [
+      { ...sessions[0], lastActivityAt: 1_065_000 },
+    ]);
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('Just now');
+  });
+
+  it('uses known provider artwork and a monogram for unknown providers', () => {
+    const fixture = render();
+    fixture.componentRef.setInput('sessions', [
+      { ...sessions[0], providerId: 'codex' },
+      { ...sessions[1], providerId: 'custom-provider' },
+    ]);
+    fixture.detectChanges();
+    const cards = fixture.nativeElement.querySelectorAll('.grid button');
+    expect(cards[0].querySelector('ptah-provider-mark')).not.toBeNull();
+    expect(cards[0].querySelector('ptah-monogram-tile')).toBeNull();
+    expect(cards[1].querySelector('ptah-provider-mark')).toBeNull();
+    expect(cards[1].querySelector('ptah-monogram-tile')).not.toBeNull();
+  });
+
+  it('shows six static recency bars by age and omits them for an invalid timestamp', () => {
+    const fixture = render();
+    fixture.componentRef.setInput('now', 2_000_000);
+    fixture.componentRef.setInput('sessions', [
+      { ...sessions[0], lastActivityAt: 2_000_000 },
+      { ...sessions[1], lastActivityAt: 1_820_000 },
+      { ...sessions[2], lastActivityAt: Number.NaN },
+    ]);
+    fixture.detectChanges();
+    const cards = fixture.nativeElement.querySelectorAll('.grid button');
+    const firstBars = cards[0].querySelectorAll(
+      '[data-testid="activity-bars"] > span',
+    );
+    const secondBars = cards[1].querySelectorAll(
+      '[data-testid="activity-bars"] > span',
+    );
+    expect(firstBars).toHaveLength(6);
+    expect(
+      [...firstBars].filter(
+        (bar: HTMLElement) => bar.dataset.active === 'true',
+      ),
+    ).toHaveLength(6);
+    expect(
+      [...secondBars].filter(
+        (bar: HTMLElement) => bar.dataset.active === 'true',
+      ),
+    ).toHaveLength(5);
+    expect(cards[1].textContent).toContain('Updated 3m ago');
+    expect(cards[2].querySelector('[data-testid="activity-bars"]')).toBeNull();
+    expect(cards[2].textContent).toContain('No recent activity');
+    expect(cards[2].getAttribute('aria-label')).toContain('No recent activity');
+    expect(cards[2].textContent).not.toContain('Updated Unknown');
+  });
+
+  it('names each card with visible session figures, state and expiry', () => {
+    const fixture = render();
+    fixture.componentRef.setInput('now', 1_000_000);
+    fixture.componentRef.setInput('sessions', [
+      {
+        ...sessions[0],
+        lastActivityAt: 820_000,
+        messageCount: 12,
+        tokenUsage: { input: 100, output: 40, cacheRead: 10 },
+        isActive: true,
+        livePhase: 'awaiting-background',
+        hasTranscript: false,
+      },
+      {
+        ...sessions[1],
+        tokenUsage: { input: 0, output: 0 },
+        hasTranscript: undefined,
+      },
+      { ...sessions[2], tokenUsage: undefined },
+    ]);
+    fixture.detectChanges();
+    const cards: NodeListOf<HTMLButtonElement> =
+      fixture.nativeElement.querySelectorAll('.grid button');
+    expect(cards[0].getAttribute('aria-label')).toBe(
+      'Session 0, Updated 3m ago, 12 messages, 150 tokens, Active, awaiting background, History unavailable',
+    );
+    expect(cards[0].textContent).toContain('12 messages');
+    expect(cards[0].textContent).toContain('150 tokens');
+    expect(cards[0].textContent).toContain('Active');
+    expect(cards[0].textContent).toContain('awaiting background');
+    expect(cards[1].textContent).toContain('0 tokens');
+    expect(cards[1].textContent).not.toContain('History unavailable');
+    expect(cards[2].getAttribute('aria-label')).not.toContain('tokens');
+    expect(cards[0].querySelectorAll('button')).toHaveLength(0);
   });
 
   it('places Current before recent cards and marks the recorded session', () => {

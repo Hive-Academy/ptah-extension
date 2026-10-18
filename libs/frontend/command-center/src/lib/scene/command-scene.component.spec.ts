@@ -29,6 +29,10 @@ describe('CommandSceneComponent', () => {
     fill: jest.fn(),
     setLineDash: jest.fn(),
     drawImage: jest.fn(),
+    createRadialGradient: jest.fn(() => ({ addColorStop: jest.fn() })),
+    createLinearGradient: jest.fn(() => ({ addColorStop: jest.fn() })),
+    closePath: jest.fn(),
+    scale: jest.fn(),
   });
   const disconnect = jest.fn();
   let getContext: jest.SpyInstance;
@@ -68,12 +72,16 @@ describe('CommandSceneComponent', () => {
     sprite = jest
       .spyOn(SpriteCache.prototype, 'get')
       .mockImplementation(() => document.createElement('canvas'));
+    jest
+      .spyOn(SpriteCache.prototype, 'getVoiceHalo')
+      .mockImplementation(() => document.createElement('canvas'));
     TestBed.configureTestingModule({ imports: [CommandSceneComponent] });
   });
 
   afterEach(() => {
     getContext.mockRestore();
     sprite.mockRestore();
+    jest.restoreAllMocks();
   });
 
   const create = async () => {
@@ -101,36 +109,55 @@ describe('CommandSceneComponent', () => {
 
   it('refreshes inks after same-class data-theme switches and uses base content for idle', async () => {
     let onThemeChange: MutationCallback | undefined;
-    const themeObserver = jest.spyOn(globalThis, 'MutationObserver').mockImplementation((callback) => {
-      onThemeChange = callback;
-      return { observe: jest.fn(), disconnect: jest.fn() } as unknown as MutationObserver;
-    });
+    const themeObserver = jest
+      .spyOn(globalThis, 'MutationObserver')
+      .mockImplementation((callback) => {
+        onThemeChange = callback;
+        return {
+          observe: jest.fn(),
+          disconnect: jest.fn(),
+        } as unknown as MutationObserver;
+      });
     const originalGetComputedStyle = window.getComputedStyle;
     const stageStyle = {
       color: 'rgb(1, 2, 3)',
       getPropertyValue: (name: string) => {
-        if (name === '--state-ink-run') return document.documentElement.dataset['theme'] === 'forest' ? '#abcdef' : '#123456';
+        if (name === '--state-ink-run')
+          return document.documentElement.dataset['theme'] === 'forest'
+            ? '#abcdef'
+            : '#123456';
         if (name === '--bcm') return '50% 0 0';
         return '';
       },
     } as CSSStyleDeclaration;
-    const style = jest.spyOn(window, 'getComputedStyle').mockImplementation((element) =>
-      element.getAttribute('role') === 'group' ? stageStyle : originalGetComputedStyle(element),
-    );
+    const style = jest
+      .spyOn(window, 'getComputedStyle')
+      .mockImplementation((element) =>
+        element.getAttribute('role') === 'group'
+          ? stageStyle
+          : originalGetComputedStyle(element),
+      );
     document.documentElement.dataset['theme'] = 'dark';
     const snapshots = jest.spyOn(CommandSceneRenderer.prototype, 'setSnapshot');
     const fixture = await create();
     fixture.detectChanges();
-    expect(snapshots).toHaveBeenLastCalledWith(expect.objectContaining({
-      inks: expect.objectContaining({ run: '#123456', idle: 'oklch(50% 0 0)' }),
-    }));
+    expect(snapshots).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        inks: expect.objectContaining({
+          run: '#123456',
+          idle: 'oklch(50% 0 0)',
+        }),
+      }),
+    );
     document.documentElement.dataset['theme'] = 'forest';
     onThemeChange?.([], {} as MutationObserver);
     await fixture.whenStable();
     fixture.detectChanges();
-    expect(snapshots).toHaveBeenLastCalledWith(expect.objectContaining({
-      inks: expect.objectContaining({ run: '#abcdef' }),
-    }));
+    expect(snapshots).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        inks: expect.objectContaining({ run: '#abcdef' }),
+      }),
+    );
     fixture.destroy();
     snapshots.mockRestore();
     themeObserver.mockRestore();
@@ -140,7 +167,10 @@ describe('CommandSceneComponent', () => {
 
   it('emits one hover for repeated moves, then null on leaving, without frame emissions', async () => {
     const fixture = await create();
-    const hoverUpdate = jest.spyOn(CommandSceneRenderer.prototype, 'setHoveredId');
+    const hoverUpdate = jest.spyOn(
+      CommandSceneRenderer.prototype,
+      'setHoveredId',
+    );
     const emissions: (string | null)[] = [];
     fixture.componentInstance.hoveredNodeId.subscribe((id) =>
       emissions.push(id),
@@ -185,8 +215,11 @@ describe('CommandSceneComponent', () => {
   it('does not resolve canvas inks during voice or theme class updates', async () => {
     const fixture = await create();
     const styles = jest.spyOn(window, 'getComputedStyle');
-    const stage = (fixture.nativeElement as HTMLElement).querySelector('[role="group"]');
-    const stageReads = () => styles.mock.calls.filter(([element]) => element === stage).length;
+    const stage = (fixture.nativeElement as HTMLElement).querySelector(
+      '[role="group"]',
+    );
+    const stageReads = () =>
+      styles.mock.calls.filter(([element]) => element === stage).length;
     await fixture.whenStable();
     const initialReads = stageReads();
     fixture.componentRef.setInput('theme', 'light');
@@ -203,6 +236,32 @@ describe('CommandSceneComponent', () => {
     expect(stageReads()).toBe(initialReads);
     styles.mockRestore();
     fixture.destroy();
+  });
+
+  it('caps sprite and halo DPR, and updates voice without rebuilding their sprites', async () => {
+    const originalDpr = window.devicePixelRatio;
+    Object.defineProperty(window, 'devicePixelRatio', {
+      configurable: true,
+      value: 3,
+    });
+    const halo = jest.spyOn(SpriteCache.prototype, 'getVoiceHalo');
+    const fixture = await create();
+    expect(sprite).toHaveBeenLastCalledWith(
+      expect.objectContaining({ dpr: 2 }),
+    );
+    expect(halo).toHaveBeenLastCalledWith(expect.objectContaining({ dpr: 2 }));
+    const spritesBefore = sprite.mock.calls.length;
+    const halosBefore = halo.mock.calls.length;
+    fixture.componentRef.setInput('outputLevel', 0.7);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(sprite.mock.calls).toHaveLength(spritesBefore);
+    expect(halo.mock.calls).toHaveLength(halosBefore);
+    fixture.destroy();
+    Object.defineProperty(window, 'devicePixelRatio', {
+      configurable: true,
+      value: originalDpr,
+    });
   });
 
   it('emits selection from the canvas and releases listeners and observer on teardown', async () => {

@@ -4,6 +4,7 @@ import type { SceneLayout, SceneNode } from './scene-layout';
 export interface SceneSprite {
   readonly id: string;
   readonly image: CanvasImageSource;
+  readonly rim?: string;
 }
 
 export interface SceneLabel {
@@ -25,6 +26,7 @@ export interface SceneRenderSnapshot {
   readonly outputLevel: number;
   readonly reducedMotion: boolean;
   readonly theme: 'light' | 'dark';
+  readonly voiceHalo?: CanvasImageSource;
 }
 
 export interface SceneInks {
@@ -61,6 +63,10 @@ export class CommandSceneRenderer {
   >();
   private readonly nodeById = new Map<string, SceneNode>();
   private readonly dots: readonly { x: number; y: number; size: number }[];
+  private readonly links = new Map<string, CanvasGradient>();
+  private linkSignature = '';
+  private backdrop: HTMLCanvasElement | null = null;
+  private backdropSignature = '';
   private meter: HTMLElement | null = null;
   private lastMeterTime = 0;
   private lastFrameTime = 0;
@@ -73,6 +79,8 @@ export class CommandSceneRenderer {
       callback: FrameRequestCallback,
     ) => number = requestAnimationFrame,
     private readonly cancelFrame: (id: number) => void = cancelAnimationFrame,
+    private readonly createCanvas: () => HTMLCanvasElement = () =>
+      document.createElement('canvas'),
   ) {
     this.dots = Array.from({ length: 48 }, (_, index) => ({
       x: ((index * 73) % 97) / 97,
@@ -82,6 +90,8 @@ export class CommandSceneRenderer {
   }
 
   public setSnapshot(snapshot: SceneRenderSnapshot): void {
+    this.prepareBackdrop(snapshot.theme);
+    this.prepareLinks(snapshot);
     this.snapshot = snapshot;
     this.voice = {
       voiceState: snapshot.voiceState,
@@ -168,6 +178,12 @@ export class CommandSceneRenderer {
     this.labelById.clear();
     this.labelStyles.clear();
     this.nodeById.clear();
+    this.links.clear();
+    if (this.backdrop) {
+      this.backdrop.width = 0;
+      this.backdrop.height = 0;
+      this.backdrop = null;
+    }
     if (this.anchor) this.anchor.style.transform = '';
     this.snapshot = null;
   }
@@ -186,27 +202,34 @@ export class CommandSceneRenderer {
         ));
   }
 
-  private readonly draw = (time: number): void => {
-    this.frameId = 0;
-    const snapshot = this.snapshot;
-    if (!snapshot || this.hidden || this.disposed) return;
-    const started = performance.now();
+  private prepareBackdrop(theme: SceneRenderSnapshot['theme']): void {
     const width = this.canvas.clientWidth;
     const height = this.canvas.clientHeight;
-    const context = this.context;
     const dpr = Math.min(
       2,
       Math.max(1, this.canvas.width / Math.max(1, width)),
     );
-    context.setTransform(dpr, 0, 0, dpr, 0, 0);
-    context.clearRect(0, 0, width, height);
-    context.fillStyle = snapshot.theme === 'dark' ? '#9d93ae' : '#625d73';
-    for (const dot of this.dots) {
-      context.globalAlpha = 0.18;
-      context.fillRect(dot.x * width, dot.y * height, dot.size, dot.size);
+    const signature = `${width}|${height}|${dpr}|${theme}`;
+    if (signature === this.backdropSignature) return;
+    if (this.backdrop) {
+      this.backdrop.width = 0;
+      this.backdrop.height = 0;
+      this.backdrop = null;
     }
+    this.backdropSignature = signature;
+    if (width < 1 || height < 1) return;
+    const canvas = this.createCanvas();
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Canvas 2D context unavailable');
+    context.setTransform(dpr, 0, 0, dpr, 0, 0);
+    context.fillStyle = theme === 'dark' ? '#9d93ae' : '#625d73';
+    context.globalAlpha = 0.18;
+    for (const dot of this.dots)
+      context.fillRect(dot.x * width, dot.y * height, dot.size, dot.size);
     context.globalAlpha = 1;
-    context.strokeStyle = snapshot.theme === 'dark' ? '#504b68' : '#aaa1b1';
+    context.strokeStyle = theme === 'dark' ? '#504b68' : '#aaa1b1';
     context.lineWidth = 1;
     for (let orbit = 0; orbit < 3; orbit++) {
       const inner = orbit === 0;
@@ -222,12 +245,76 @@ export class CommandSceneRenderer {
       );
       context.stroke();
     }
+    this.backdrop = canvas;
+  }
+
+  private prepareLinks(snapshot: SceneRenderSnapshot): void {
+    const byId = new Map(
+      snapshot.layout.nodes.map((node) => [node.node.id, node]),
+    );
+    const rims = new Map(
+      snapshot.sprites.map((sprite) => [sprite.id, sprite.rim]),
+    );
+    const signature =
+      snapshot.layout.nodes
+        .map((node) => {
+          const parent = node.node.parentId
+            ? byId.get(node.node.parentId)
+            : null;
+          return parent
+            ? `${node.node.id}:${parent.x},${parent.y},${node.x},${node.y}:${rims.get(parent.node.id)},${rims.get(node.node.id)}`
+            : '';
+        })
+        .join('|') + `|${snapshot.theme}|${this.backdropSignature}`;
+    if (signature === this.linkSignature) return;
+    this.links.clear();
+    for (const node of snapshot.layout.nodes) {
+      const parent = node.node.parentId ? byId.get(node.node.parentId) : null;
+      if (!parent) continue;
+      const gradient = this.context.createLinearGradient(
+        parent.x,
+        parent.y,
+        node.x,
+        node.y,
+      );
+      gradient.addColorStop(
+        0,
+        rims.get(parent.node.id) ||
+          (snapshot.theme === 'dark' ? '#6b6388' : '#aaa1b1'),
+      );
+      gradient.addColorStop(
+        1,
+        rims.get(node.node.id) ||
+          (snapshot.theme === 'dark' ? '#6b6388' : '#aaa1b1'),
+      );
+      this.links.set(node.node.id, gradient);
+    }
+    this.linkSignature = signature;
+  }
+
+  private readonly draw = (time: number): void => {
+    this.frameId = 0;
+    const snapshot = this.snapshot;
+    if (!snapshot || this.hidden || this.disposed) return;
+    const started = performance.now();
+    const width = this.canvas.clientWidth;
+    const height = this.canvas.clientHeight;
+    const context = this.context;
+    const dpr = Math.min(
+      2,
+      Math.max(1, this.canvas.width / Math.max(1, width)),
+    );
+    context.setTransform(dpr, 0, 0, dpr, 0, 0);
+    context.clearRect(0, 0, width, height);
+    if (this.backdrop && this.backdrop.width > 0 && this.backdrop.height > 0)
+      context.drawImage(this.backdrop, 0, 0, width, height);
     context.lineWidth = 1;
     context.strokeStyle = snapshot.theme === 'dark' ? '#6b6388' : '#aaa1b1';
     for (const node of snapshot.layout.nodes) {
       if (!node.node.parentId) continue;
       const parent = this.nodeById.get(node.node.parentId);
       if (!parent) continue;
+      context.strokeStyle = this.links.get(node.node.id) ?? snapshot.inks.idle;
       context.beginPath();
       context.moveTo(parent.x, parent.y);
       context.bezierCurveTo(
@@ -239,6 +326,41 @@ export class CommandSceneRenderer {
         node.y,
       );
       context.stroke();
+      if (node.node.state === 'running' || node.node.state === 'starting') {
+        context.strokeStyle = snapshot.inks.run;
+        context.lineWidth = 2;
+        context.stroke();
+        context.lineWidth = 1;
+      }
+      // Tangent of the cubic at t=0.68, pointing from parent to child.
+      const t = 0.68;
+      const midY = (parent.y + node.y) / 2;
+      const x =
+        (1 - t) ** 3 * parent.x +
+        3 * (1 - t) ** 2 * t * parent.x +
+        3 * (1 - t) * t * t * node.x +
+        t ** 3 * node.x;
+      const y =
+        (1 - t) ** 3 * parent.y +
+        3 * (1 - t) ** 2 * t * midY +
+        3 * (1 - t) * t * t * midY +
+        t ** 3 * node.y;
+      const dx =
+        3 * (1 - t) ** 2 * (parent.x - parent.x) +
+        6 * (1 - t) * t * (node.x - parent.x) +
+        3 * t * t * (node.x - node.x);
+      const dy =
+        3 * (1 - t) ** 2 * (midY - parent.y) + 3 * t * t * (node.y - midY);
+      const length = Math.hypot(dx, dy) || 1;
+      const ux = dx / length;
+      const uy = dy / length;
+      context.fillStyle = snapshot.inks.idle;
+      context.beginPath();
+      context.moveTo(x + ux * 5, y + uy * 5);
+      context.lineTo(x - ux * 4 - uy * 3.5, y - uy * 4 + ux * 3.5);
+      context.lineTo(x - ux * 4 + uy * 3.5, y - uy * 4 - ux * 3.5);
+      context.closePath();
+      context.fill();
     }
     const root = snapshot.layout.nodes.find((node) => node.kind === 'root');
     if (root?.labelRect) {
@@ -246,6 +368,8 @@ export class CommandSceneRenderer {
       const edgeX = Math.max(rect.x, Math.min(root.x, rect.x + rect.width));
       const edgeY = Math.max(rect.y, Math.min(root.y, rect.y + rect.height));
       if (Math.hypot(edgeX - root.x, edgeY - root.y) > root.radius + 24) {
+        context.strokeStyle = snapshot.theme === 'dark' ? '#6b6388' : '#aaa1b1';
+        context.lineWidth = 1;
         context.beginPath();
         context.moveTo(root.x, root.y);
         context.lineTo(edgeX, edgeY);
@@ -281,6 +405,36 @@ export class CommandSceneRenderer {
       }
     }
     for (const node of snapshot.layout.nodes) {
+      if (
+        node.kind === 'root' &&
+        snapshot.voiceHalo &&
+        this.voice.voiceState !== 'idle'
+      ) {
+        const level = Math.max(
+          0,
+          Math.min(
+            1,
+            this.voice.voiceState === 'speaking'
+              ? this.voice.outputLevel
+              : this.voice.inputLevel,
+          ),
+        );
+        const size =
+          (node.radius + 37) *
+          2 *
+          (snapshot.reducedMotion ? 1 : 1 + level * 0.08);
+        context.globalAlpha = snapshot.reducedMotion
+          ? 0.18
+          : 0.12 + level * 0.3;
+        context.drawImage(
+          snapshot.voiceHalo,
+          node.x - size / 2,
+          node.y - size / 2,
+          size,
+          size,
+        );
+        context.globalAlpha = 1;
+      }
       const sprite = this.spriteById.get(node.node.id);
       if (sprite) {
         const paddedSize = node.radius * 2 * 2.2;
@@ -373,7 +527,7 @@ export class CommandSceneRenderer {
         ? snapshot.inks.err
         : state === 'awaiting input'
           ? snapshot.inks.need
-        : state === 'completed'
+          : state === 'completed'
             ? snapshot.inks.done
             : state === 'running' || state === 'starting'
               ? snapshot.inks.run
@@ -490,5 +644,24 @@ export class CommandSceneRenderer {
     );
     context.stroke();
     context.setLineDash([]);
+    if (voice === 'speaking' && !snapshot.reducedMotion) {
+      const level = Math.max(0, Math.min(1, this.voice.outputLevel));
+      context.strokeStyle = snapshot.inks.need;
+      context.lineWidth = 1.5;
+      for (let index = 0; index < 2; index++) {
+        const progress = (time * 0.00045 + index * 0.5) % 1;
+        context.globalAlpha = (1 - progress) * (0.08 + level * 0.18);
+        context.beginPath();
+        context.arc(
+          node.x,
+          node.y,
+          node.radius + 20 + progress * 34,
+          0,
+          Math.PI * 2,
+        );
+        context.stroke();
+      }
+      context.globalAlpha = 1;
+    }
   }
 }

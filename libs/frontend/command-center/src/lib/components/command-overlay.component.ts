@@ -20,11 +20,17 @@ import {
   PROVIDER_MARKS,
 } from '@ptah-extension/ui';
 import { LucideAngularModule } from 'lucide-angular';
+import { ContextRingComponent } from '@ptah-extension/chat-ui';
 import { CommandCenterStore } from '../model/command-center.store';
 import type { ProjectionResult } from '../model/work-projection';
 import type { SceneLabel } from '../scene/command-scene-renderer';
 import { CommandOverlayPositioner } from './command-overlay-positioner';
-import { CommandNodeDetailComponent, type CommandPhaseCount } from './command-node-detail.component';
+import {
+  CommandNodeDetailComponent,
+  type CommandChildStats,
+  type CommandPhaseCount,
+  phaseCountOf,
+} from './command-node-detail.component';
 import { stateBorder, stateColor, stateIcon } from './command-state-icon';
 
 export const COMMAND_OVERLAY_OPEN_DELAY_MS = 150;
@@ -33,7 +39,13 @@ export const COMMAND_OVERLAY_CLOSE_DELAY_MS = 200;
 @Component({
   selector: 'ptah-command-overlay',
   standalone: true,
-  imports: [ProviderMarkComponent, MonogramTileComponent, LucideAngularModule, CommandNodeDetailComponent],
+  imports: [
+    ProviderMarkComponent,
+    MonogramTileComponent,
+    LucideAngularModule,
+    CommandNodeDetailComponent,
+    ContextRingComponent,
+  ],
   providers: [FloatingUIService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -87,6 +99,14 @@ export const COMMAND_OVERLAY_CLOSE_DELAY_MS = 200;
               />
             }
             <span class="min-w-0 truncate">{{ node.label }}</span>
+            @if (node.kind === 'root' && rootContextPercent() !== null) {
+              <ptah-context-ring
+                [percent]="rootContextPercent()!"
+                [size]="28"
+                [tone]="rootContextTone()"
+                aria-hidden="true"
+              />
+            }
           </span>
           <span class="text-[11px] text-base-content-muted">
             @if (providerName(node.providerId); as provider) {
@@ -135,8 +155,14 @@ export const COMMAND_OVERLAY_CLOSE_DELAY_MS = 200;
           (keydown.escape)="onEscape($event)"
         >
           <div class="flex items-start gap-2">
-            <ptah-command-node-detail class="min-w-0 flex-1" [node]="node"
-              [phaseCount]="phaseCount(node.id)" [now]="now()" [reducedMotion]="reducedMotion()" />
+            <ptah-command-node-detail
+              class="min-w-0 flex-1"
+              [node]="node"
+              [phaseCount]="phaseCount(node.id)"
+              [childStats]="childStats()[node.id] ?? null"
+              [now]="now()"
+              [reducedMotion]="reducedMotion()"
+            />
             @if (pinnedNodeId()) {
               <button
                 type="button"
@@ -160,6 +186,11 @@ export class CommandOverlayComponent {
   public readonly hoveredNodeId = input<string | null>(null);
   public readonly selectedId = input<string | null>(null);
   public readonly reducedMotion = input(false);
+  public readonly rootContextPercent = input<number | null>(null);
+  public readonly rootContextTone = input<'normal' | 'warning'>('normal');
+  public readonly childStats = input<
+    Readonly<Record<string, CommandChildStats>>
+  >({});
   public readonly now = input.required<number>();
   public readonly focusWorkListRow = output<string>();
   private readonly _activeNodeId = signal<string | null>(null);
@@ -176,13 +207,7 @@ export class CommandOverlayComponent {
   public readonly stateBorder = stateBorder;
 
   public phaseCount(nodeId: string): CommandPhaseCount | null {
-    const phases = this.projection().nodes.filter((node) =>
-      node.parentId === nodeId && node.kind === 'phase' &&
-      node.label !== 'No phase tracking' && node.label !== 'Phase unavailable',
-    );
-    return phases.length
-      ? { done: phases.filter((phase) => phase.state === 'completed').length, total: phases.length }
-      : null;
+    return phaseCountOf(this.projection().nodes, nodeId);
   }
 
   private readonly floating = inject(FloatingUIService);
