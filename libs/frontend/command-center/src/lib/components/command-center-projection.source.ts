@@ -44,11 +44,10 @@ function tabProvider(tab: TabState | undefined): string | undefined {
   if (liveProvider) return liveProvider;
   const model =
     tab?.liveModelStats?.model || tab?.sessionModel || tab?.overrideModel;
-  if (!model) return undefined;
   const usage = tab?.sessionStats?.modelUsageList?.find(
     (row) => row.model === model,
   );
-  return provider(usage?.contextCapacity?.providerId);
+  return provider(usage?.contextCapacity?.providerId) ?? provider(tab?.providerId);
 }
 
 const RUN_LAUNCH_WINDOW_MS = 2 * 60 * 1000;

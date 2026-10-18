@@ -1691,6 +1691,7 @@ describe('SessionLoaderService', () => {
       const clearPendingUpdates = jest.fn();
       const markSessionActive = jest.fn();
       const setLiveModelStats = jest.fn();
+      const setSessionProvider = jest.fn();
       const applyResumeFailure = jest.fn();
       const markTabIdle = jest.fn();
 
@@ -1713,6 +1714,7 @@ describe('SessionLoaderService', () => {
         markTabIdle,
         applyLoadedSessionStats,
         setLiveModelStats,
+        setSessionProvider,
         markSessionActive,
       } as unknown as TabManagerService;
       const sessionManagerMock = {
@@ -1768,6 +1770,7 @@ describe('SessionLoaderService', () => {
         clearPendingUpdates,
         markSessionActive,
         setLiveModelStats,
+        setSessionProvider,
         applyResumeFailure,
         markTabIdle,
         sessionManagerMock,
@@ -1802,6 +1805,17 @@ describe('SessionLoaderService', () => {
       expect(harness.applyLoadedSessionStats.mock.calls).toEqual([
         [TAB_B, stats, stats.model, budget],
       ]);
+    });
+
+    it('applies the accepted provider even without stats', async () => {
+      const harness = makeTargetedService();
+      rpcCall.mockImplementation(async (method: string) =>
+        method === 'chat:resume'
+          ? { success: true, data: { success: true, providerId: 'openrouter', events: [{ type: 'noop' }] } }
+          : { success: true, data: {} },
+      );
+      await harness.service.switchSession(SESSION);
+      expect(harness.setSessionProvider).toHaveBeenCalledWith(TAB_A, SESSION, 'openrouter');
     });
 
     it('restores history and stats to the second matching tab without opening or activating another tab', async () => {
@@ -2056,6 +2070,8 @@ describe('SessionLoaderService', () => {
               success: true,
               data: {
                 staleSnapshot: true as const,
+                success: true,
+                providerId: 'openrouter',
                 events: [{ type: 'stale-event' }],
                 stats: { totalCost: 99 },
                 cliSessions: [{ agentId: 'stale-agent' }],
@@ -2080,6 +2096,7 @@ describe('SessionLoaderService', () => {
       expect(harness.applyLoadedSessionStats).not.toHaveBeenCalled();
       expect(harness.processStreamEvent).not.toHaveBeenCalled();
       expect(harness.finalizeSessionHistory).not.toHaveBeenCalled();
+      expect(harness.setSessionProvider).not.toHaveBeenCalled();
     });
 
     it('switchSession resolves { staleSnapshot: false } for a verified compaction reload and a normal resume', async () => {

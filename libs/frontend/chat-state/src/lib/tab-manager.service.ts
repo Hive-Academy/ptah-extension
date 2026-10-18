@@ -1534,6 +1534,7 @@ export class TabManagerService {
 
     this.updateTabInternal(tabId, {
       claudeSessionId: null,
+      providerId: undefined,
       name: 'New Chat',
       title: 'New Chat',
       titleOrigin: 'default',
@@ -2742,6 +2743,10 @@ export class TabManagerService {
 
     this.updateTabInternal(tabId, {
       claudeSessionId: newSessionId,
+      providerId:
+        previousSessionId === newSessionId
+          ? this._tabs().find((t) => t.id === tabId)?.providerId
+          : undefined,
       name: title,
       title,
       titleOrigin: 'history',
@@ -2841,6 +2846,7 @@ export class TabManagerService {
       name: string;
       title: string;
       streamingState: StreamingState;
+      providerId?: string;
     },
   ): void {
     const previousSessionId =
@@ -2854,6 +2860,11 @@ export class TabManagerService {
       name: payload.name,
       titleOrigin: 'history',
       claudeSessionId: payload.sessionId,
+      providerId:
+        payload.providerId ??
+        (previousSessionId === payload.sessionId
+          ? this.findTabByIdAcrossWorkspaces(tabId)?.tab.providerId
+          : undefined),
       ...(previousSessionId !== payload.sessionId
         ? { sessionBudget: null, liveBudgetStage: null }
         : {}),
@@ -2867,6 +2878,16 @@ export class TabManagerService {
   }
 
   /** Resume-failure path: drop streamingState, mark `loaded`. */
+  setSessionProvider(
+    tabId: string,
+    sessionId: SessionId,
+    providerId?: string,
+  ): void {
+    if (this.findTabByIdAcrossWorkspaces(tabId)?.tab.claudeSessionId !== sessionId)
+      return;
+    this.updateTabInternal(tabId, { providerId });
+  }
+
   applyResumeFailure(tabId: string): void {
     this.updateTabInternal(tabId, {
       status: 'loaded',
