@@ -1,6 +1,6 @@
 # Batches - TASK_2026_662_3eea
 
-Total tasks: 74 (71 + carry-over tasks 44.2, 65.2, 67.2) | Batches: 71 (+2 operational steps OP-1, OP-2) | Phases: 6 (A-F) | Complete: 15/71 (Phase A 15/15; logic gate APPROVED after one fix round, 8360e7aca; style fixes verified in the round-2 re-review; visual review in progress)
+Total tasks: 74 (71 + carry-over tasks 44.2, 65.2, 67.2) | Batches: 71 (+2 operational steps OP-1, OP-2) | Phases: 6 (A-F) | Complete: 17/71 (Phase A 15/15 CLOSED: logic gate APPROVED after one fix round, 8360e7aca; style fixes verified in the round-2 re-review; visual review APPROVED 8/10. Phase B 2/9: batches 16, 19)
 
 Worktree root (prefix every path below with it): `D:\projects\ptah-extension\.claude-worktrees\skill-synthesis-purge\`
 Branch: `refactor/skill-synthesis-purge`. Aliases (same as implementation-plan.md:153):
@@ -128,7 +128,9 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
 | --- | --- | --- |
 | A-W1 | 1 (PS), 2 (PC), 7 (SU) | - |
 | A-W2 | 3 (SS), 11 (SU), 15 (PS) | 4, 5, 8, 6, 9, 10, 12, 13, 14 |
-| B-W1 | 16 (core; gate core+chat), 19 (SU+dashboard) | 17, then 18 (chat), then 20-24 |
+| B-W1 | 16 (core; gate core+chat), 19 (SU+dashboard) - COMPLETE | - |
+| B-W2 | 17 (chat), 22 (RH+SS; gate also SU) | - |
+| B-W3 | 18 (chat), 20 (SU) | 21, 23, 24 (all SU-gated, in this order) |
 | C-W1 | 26 (webview+SU gate), 30 (ptah-cli), 32 (vscode-core) | 25, 27, 28, 29 |
 | C-W2 | 33 (RH), 35 (TH), 49 (agent-generation) | 34, 36, 37, 38, 39, 40, 41, 42, 43, 44 |
 | C-W3 | 45 (mcp-bench), 50 (scripts), 51 (webview-e2e-harness) | 46, 47, 48 |
@@ -142,7 +144,7 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
 | Phase | Batches | Phase review (after its last batch commits) |
 | --- | --- | --- |
 | A - add beside old | 1-15 | code-logic, plus style (new public API: event store, grade store, skills-root, enhancement keys, archive preflight) |
-| B - switch readers/writers | 16-24 | code-logic, plus visual (Providers, Library, dashboard, pause switch, model editor) |
+| B - switch readers/writers | 16-24 | code-logic, plus visual (Providers, Library, dashboard, pause switch, model editor; added 2026-10-19: dashboard Skills tile telemetry On/Off (O10), Library header pause + telemetry controls (batch 19), Phase A carry-overs Moderate 1 null detail-row pill + Minor 1 neutral verdict dot after batch 24) |
 | C - cut consumers | 25-56 | code-logic, plus visual (Library tab removal in 27, dashboard in 27) |
 | D - delete pipeline source + RPC contract | 57-61 | code-logic, plus visual (Library after SU deletion) |
 | E - remove shared contracts | 62-66 | code-logic, plus visual (Advanced settings rows removed in 65) |
@@ -707,29 +709,48 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
   - Minor findings (recorded only, not fixed): round-1 L/St Minors; round-2 Mi1-Mi6; round-3 N2 (lost
     workspace pre-filter on the task-id-null branch, cost only), N3 (stale grades under pre-fix root
     form), N4 (lane-record and null-root spec coverage).
-- Visual review (batches 7, 11; dark + light, "before" from `271198ced`): IN PROGRESS by the
-  visual-reviewer (`visual/`, `visual-review-phase-a.md`, not yet committed). Phase A is fully closed
-  only when it accepts; it does not block Phase B backend batches.
+- Visual review (batches 7, 11; dark + light, "before" from `271198ced`): `visual-review-phase-a.md`
+  APPROVED 8/10 (Blocking 0, Serious 1, Moderate 2, Minor 1). Evidence: `visual/after/` (dark + light
+  PNGs, `a11y-raw.txt`, `index-raw.txt`, capture scripts). No prototype applies (text/tone change on
+  existing surfaces); before/after screenshots in both themes stand in.
+  - Serious 1 (pre-existing, NOT a Phase A blocker): dark-theme daisyUI `badge-success` (2.64:1) and
+    `badge-error` (3.87:1; light 4.12:1) pills fail WCAG AA 1.4.3 at 10px/9px text
+    (`scorecard-badge.component.ts`, `scorecard-detail.component.ts:118-119`). The classes predate the
+    batches; the new "No grade" pill passes (13.89:1 dark, 14.21:1 light). Named follow-up OUTSIDE this
+    task's batches: "Scorecard pill contrast - dark-theme badge-success/badge-error token pairing".
+  - Moderate 1 (carried to Phase B): the null (`succeeded: null`) detail-row pill
+    (`scorecard-detail.component.ts:185-201`) is not reachable live yet. Re-check its tone and contrast
+    in both themes in the Phase B visual review after batch 24.
+  - Moderate 2 (recorded, not fixed): pill text 10px / 9px, pre-existing sizing.
+  - Minor 1 (recorded, not fixed): card verdict dots have no neutral/ungraded style; nothing to render
+    until null verdicts reach `recentVerdicts` (re-check alongside Moderate 1 after batch 24).
+- **Phase A CLOSED** (logic APPROVED round 3, style fixes verified, visual APPROVED). Records committed
+  in the docs commit after batch 19.
 
 ### Next action:
 
-Run Phase B wave B-W1: batches 16 (core; gate core + chat) and 19 (SU + dashboard) in parallel, one CLI
-lane each (file-disjoint, different Nx projects), scoped checks one at a time. Then 17, 18, 20-24
-sequentially. When the Phase A visual review returns, record its verdict here; a REVISE adds one UI fix
-batch to Phase A.
+Phase B wave B-W1 (16, 19) is COMPLETE. Run wave B-W2 now: batch 17 (CLI lane Glm; chat; gate
+`-p @ptah-extension/chat`) and batch 22 (CLI lane codex; RH + SS; gate
+`-p @ptah-extension/rpc-handlers @ptah-extension/skill-synthesis @ptah-extension/skill-synthesis-ui`) in
+parallel, 2 lanes, file-disjoint, no shared gate project; scoped checks ONE AT A TIME. Batch 22 heads the
+critical path (22 -> 23 -> 24). Batch 20 cannot join B-W2: its SU gate overlaps batch 22's gate.
+Then wave B-W3: batch 18 (chat, after 17) and batch 20 (SU, after 19) in parallel, 2 lanes. Then 21,
+23, 24 sequentially (all SU-gated). After batch 24 commits: Phase B review = code-logic on
+`dc10d73b2..HEAD` (parent of the first Phase B commit 6071e8ccc) plus visual (list in the Phase map row B,
+including O10 tile, Library pause/telemetry controls, Phase A Moderate 1 and Minor 1).
 
 ---
 
 # Phase B - switch readers and writers
 
-## Batch 16: Core Providers - Enhancement slice beside old (R3) - IN_PROGRESS
+## Batch 16: Core Providers - Enhancement slice beside old (R3) - COMPLETE (6071e8ccc)
 
 - Phase: B | Wave: B-W1 | Executor: CLI lane Glm | Depends on: 2 | Tasks: 1
 - Flags: WRITE-PATH (`settings:set skills.enhancement.*`, readBack `settings:get`)
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/core @ptah-extension/chat --parallel=1`
 - Precondition: core has `judging`/`lanes` slices (`providers-settings.types.ts:10,34,39,90`). The batch 2 keys exist.
 
-### Task 16.1: Add an `enhancement` slice; keep `judging`/`lanes` for now - IN_PROGRESS
+### Task 16.1: Add an `enhancement` slice; keep `judging`/`lanes` for now - COMPLETE
 
 - Files: `libs/frontend/core/src/lib/services/providers-settings.types.ts`, `providers-settings-state.service.ts` + spec, `providers-commit.service.ts` + spec.
 - Plan reference: plan row 16; implementation-plan.md:62; round-2 R3.
@@ -739,14 +760,28 @@ batch to Phase A.
 - Validation notes: chat compiles unchanged (the change is additive).
 - Implementation details: none beyond the requirements above.
 
-## Batch 17: Chat Providers rows, assignments and connection usage switch (R3) - PENDING
+### Batch 16 verification - COMPLETE (6071e8ccc)
+
+- Executor: CLI lane codex (report `reports/batch-16-report.md`, incl. fix round 1).
+- On disk: `providers-settings.types.ts` (enhancement key map/state/patch), `providers-settings-state.service.ts`
+  (enhancement section, load + refresh), `providers-commit.service.ts` (per-field `settings:set` +
+  `settings:get` strict readBack). Judging/lanes slices untouched. No stubs or TODOs in the diff.
+- Gate `nx run-many -t test typecheck lint -p core chat --parallel=1`: chat PASS; core failed one spec
+  (judging/lanes captured unloaded before compare). Fix round 1 changed the spec only
+  (`providers-settings-state.service.spec.ts:266-270, 303-307`); spec then 99/99 alone, core typecheck
+  and lint PASS (orchestrator-verified).
+- WRITE-PATH: `skills.enhancement.{provider,model,timeoutMs}` -> `settings:set` -> `settings:get`
+  readBack -> `refreshEnhancement()`; trace in the batch report for Mode 3.
+- Commit: 6071e8ccc `feat(core): batch 16 - providers enhancement slice beside old` (5 files).
+
+## Batch 17: Chat Providers rows, assignments and connection usage switch (R3) - IN_PROGRESS
 
 - Phase: B | Executor: CLI lane Glm | Depends on: 16 | Tasks: 1
 - Flags: UI (Providers > consumer rows), WRITE-PATH (Enhancement provider/model/timeout save)
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/chat --parallel=1`
 - Precondition: the batch 16 slice exists. `rg -n "SkillLane|judgeProvider|enhanceTimeoutMs|lanes\(\)|refreshLanes" libs/frontend/chat/src/lib/settings/providers` lists the current users.
 
-### Task 17.1: Replace "Judging & enhancement" with an Enhancement row; drop the lane rows - PENDING
+### Task 17.1: Replace "Judging & enhancement" with an Enhancement row; drop the lane rows - IN_PROGRESS
 
 - Files: `libs/frontend/chat/src/lib/settings/providers/provider-consumer-rows.ts` + spec, `provider-consumer-assignments.component.ts` + spec, `connection-usage.ts` + spec.
 - Plan reference: plan row 16; implementation-plan.md:22, 62; round-2 R3.
@@ -776,7 +811,7 @@ batch to Phase A.
 - Validation notes: after the batch, `rg -n "SkillLane|refreshLanes|state\.lanes\(\)|judgeProvider" libs/frontend/chat` has zero live hits.
 - Implementation details: none beyond the requirements above.
 
-## Batch 19: Library pause/telemetry round trip + dashboard candidate cut (R5) - IN_PROGRESS
+## Batch 19: Library pause/telemetry round trip + dashboard candidate cut (R5) - COMPLETE (f2f58fdea)
 
 - Phase: B | Wave: B-W1 | Executor: CLI lane Glm | Depends on: 2 | Tasks: 1
 - Flags: UI (Library header, dashboard Thoth status), WRITE-PATH (`skillSynthesis.enabled`, `skills.telemetry.enabled`)
@@ -784,7 +819,7 @@ batch to Phase A.
 - Precondition: the state service calls the old `getSettings`/`updateSettings`.
   `thoth-status.service.ts:325` calls `getSettings` and `:385` calls `listCandidates`.
 
-### Task 19.1: Switch the state service and dashboard to `settings:get`/`set`; remove the candidate count - IN_PROGRESS
+### Task 19.1: Switch the state service and dashboard to `settings:get`/`set`; remove the candidate count - COMPLETE
 
 - Files: `SU/services/skill-synthesis-state.service.ts` + spec, `SU/components/skill-synthesis-tab.component.ts` + spec, `libs/frontend/dashboard/src/lib/services/thoth-status.service.ts` + spec.
 - Plan reference: plan row 17; preserve table "Pause switch" (implementation-plan.md:44); round-2 R5.
@@ -793,6 +828,30 @@ batch to Phase A.
   dashboard no longer calls `listCandidates` or `getSettings` (spec mocks at `:92-340` are updated).
 - Validation notes: after the batch, `rg -n "listCandidates|getSettings" libs/frontend/dashboard` has zero hits.
 - Implementation details: none beyond the requirements above.
+
+### Batch 19 verification - COMPLETE (f2f58fdea)
+
+- Executor: CLI lane Glm started (stopped twice mid-read with partial edits), CLI lane codex took over
+  per agent-lanes section 5 and finished (report `reports/batch-19-report.md`, incl. fix round 1).
+- Scope widened per O11 (same project, spec only): `libs/frontend/dashboard/src/lib/services/thoth-status-pillars.spec.ts`
+  (`pendingCandidates` -> `telemetryEnabled`). 7 files total.
+- On disk: state service `settingsGet`/`settingsSet` helpers (`skill-synthesis-state.service.ts:388-411`),
+  pause and telemetry write then read back, rollback on failure; tab wires the telemetry toggle;
+  dashboard reads `skillSynthesis.enabled` and `skills.telemetry.enabled` via `settings:get`.
+  `rg -n "listCandidates|getSettings" libs/frontend/dashboard` = 0 hits. No stubs/TODOs (only test doubles).
+- O10: the dashboard Skills tile shows telemetry On/Off in place of the removed candidate count; owed in
+  the Phase B visual review.
+- Gate `nx run-many -t test typecheck lint -p skill-synthesis-ui dashboard --parallel=1` PASS after fix
+  round 1 (orchestrator-verified).
+- WRITE-PATH: `skillSynthesis.enabled` and `skills.telemetry.enabled`, one key per write, `settings:set` ->
+  `settings:get` readBack; pause off does not write or gate telemetry (spec-asserted).
+- Lane decision (accepted): the old synthesis settings form calls (`getSettings`/`updateSettings` in the
+  SU state service and tab) are kept. Plan line 119 ("Delete all non-Library polling and synthesis
+  settings UI") assigns that reduction to the Library host reduction = **batch 27** (plan row 24: cut
+  removed-RPC calls in `skill-synthesis-tab.component.ts` + `skill-synthesis-state.service.ts`); the
+  facade methods themselves go in **batch 58** (facade trim, R5 gate). Batch 27's post-cut check must
+  show no `getSettings`/`updateSettings` call left in SU state or tab.
+- Commit: f2f58fdea `refactor(skill-synthesis-ui,dashboard): batch 19 - settings round trip` (7 files).
 
 ## Batch 20: Pause switch uses the migrated state - PENDING
 
@@ -828,13 +887,13 @@ batch to Phase A.
 - Validation notes: none beyond the requirements above.
 - Implementation details: none beyond the requirements above.
 
-## Batch 22: Rate reads switch to `skill_task_grades` - PENDING
+## Batch 22: Rate reads switch to `skill_task_grades` - IN_PROGRESS
 
 - Phase: B | Executor: CLI lane codex | Depends on: 5, 8 | Tasks: 1
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/rpc-handlers @ptah-extension/skill-synthesis @ptah-extension/skill-synthesis-ui --parallel=1`
 - Precondition: G1 finds `this.store` at handler `:1756` and `:2304-2305`.
 
-### Task 22.1: `invocationStats` and `toCloneSummary` read grades - PENDING
+### Task 22.1: `invocationStats` and `toCloneSummary` read grades - IN_PROGRESS
 
 - Files: `RH/handlers/skills-synthesis-rpc.handlers.ts` + spec, `SS/skill-scorecard.service.ts` + spec.
 - Plan reference: plan row 20.
@@ -931,6 +990,9 @@ batch to Phase A.
   the orphan files until batch 57.
 - Validation notes: after the batch, `rg -n "SkillSynthesisLiveService" libs apps --glob '!SU/services/skill-synthesis-live.service*'`
   finds only the orphan SU files that batch 57 deletes.
+  Carried from batch 19 (lane decision, plan line 119): this batch also removes the old synthesis
+  settings form calls; after it, `rg -n "getSettings|updateSettings" SU/services/skill-synthesis-state.service.ts SU/components/skill-synthesis-tab.component.ts`
+  has zero live hits (the pause/telemetry `settings:get`/`settings:set` helpers stay).
 - Implementation details: none beyond the plan row and the finding.
 
 ## Batch 28: Thoth shell fixture - PENDING
@@ -1753,3 +1815,5 @@ D3), but the user must see and confirm the archive before the drop. Do not commi
 | T7 | Add `scripts/export-skill-pipeline-archive.ts` (batch 50) to produce the OP-1 receipt from a DB copy. | run the app boot (archive and drop in one step, no confirmation window) | User decision 3: "export to an archive file first and verify it, then drop". | Yes |
 | T8 | Phase reviewer: Claude `code-logic-reviewer` subagent. | Glm/codex reviewing each other's batches by phase | Every phase mixes codex and Glm implementers. A third family is the only reviewer different from both. grok and opencode are excluded. | Yes |
 | T9 | Batches 1, 2 and 7 are marked IN_PROGRESS together (wave A-W1). | Batch 1 only | They are file-disjoint and in different Nx projects. Their checks still run one at a time. | Yes |
+| T10 | Split the old "then 17, 18, 20-24" into waves B-W2 (17 chat + 22 RH/SS) and B-W3 (18 chat + 20 SU); 17 and 22 marked IN_PROGRESS together. | 17 + 20 first; fully sequential | Wave rule (different Nx projects incl. gate projects): 20 and 22 both gate SU, so they cannot pair; 22 starts the longest chain (22 -> 23 -> 24). | Yes |
+| T11 | Phase A visual Serious 1 (dark `badge-success`/`badge-error` contrast) is a named follow-up outside this task; Moderate 1 and Minor 1 re-checked in the Phase B visual review after batch 24. | add a Phase A UI fix batch | Reviewer marked Serious 1 pre-existing (classes predate batches 7/11) and APPROVED 8/10; the null row is not reachable until batches 22-24. | Yes |
