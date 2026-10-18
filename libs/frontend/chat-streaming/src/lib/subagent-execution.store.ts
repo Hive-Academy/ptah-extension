@@ -1,8 +1,19 @@
-import { Injectable, inject, signal } from '@angular/core';
-import { createEmptyStreamingState, type StreamingState } from '@ptah-extension/chat-types';
+import { Injectable, effect, inject, signal, type Signal } from '@angular/core';
+import {
+  createEmptyStreamingState,
+  type StreamingState,
+} from '@ptah-extension/chat-types';
 import { ClaudeRpcService, LoggingService } from '@ptah-extension/core';
-import type { ExecutionNode, FlatStreamEventUnion, MessageStartEvent, ToolStartEvent } from '@ptah-extension/shared';
-import { StreamingAccumulatorCore, type AccumulatorContext } from './accumulator-core.service';
+import type {
+  ExecutionNode,
+  FlatStreamEventUnion,
+  MessageStartEvent,
+  ToolStartEvent,
+} from '@ptah-extension/shared';
+import {
+  StreamingAccumulatorCore,
+  type AccumulatorContext,
+} from './accumulator-core.service';
 import { AgentMonitorStore, type SubagentRecord } from './agent-monitor.store';
 import { BackgroundAgentStore } from './background-agent.store';
 import { BatchedUpdateService } from './batched-update.service';
@@ -10,17 +21,53 @@ import { EventDeduplicationService } from './event-deduplication.service';
 import { ExecutionTreeBuilderService } from './execution-tree-builder.service';
 import { capFinalizedTree } from './execution-tree-retention';
 import { SessionManager } from './session-manager.service';
+import {
+  mergeSubagentHistory,
+  rewriteSubagentEvent,
+} from './subagent-execution-history-merge';
+import { SubagentExecutionOwnership } from './subagent-execution-ownership';
+import {
+  ENTRY_EVENT_CAP,
+  FINALIZED_ENTRY_CAP,
+  LIVE_EVENT_CAP,
+  liveEventCount,
+  oldestFinalized,
+  oldestLiveSpill,
+} from './subagent-execution-retention';
 
-const ENTRY_CAP = 2000;
-const LIVE_CAP = 10000;
-const FINALIZED_CAP = 20;
-const OWNER_CAP = 4000;
+const HISTORY_EVENT_CAP = 10000;
+const HISTORY_PAGE_CAP = 100;
+const HISTORY_PAGE_BYTES = 256 * 1024;
+const TERMINAL_STATUSES: ReadonlySet<SubagentRecord['status']> = new Set([
+  'completed',
+  'failed',
+  'killed',
+  'stopped',
+]);
 const STORE_ONLY = new Set<string>([
-  'agent_progress', 'agent_status', 'agent_completed',
-  'background_agent_started', 'background_agent_completed', 'background_agent_stopped',
+  'agent_progress',
+  'agent_status',
+  'agent_completed',
+  'background_agent_started',
+  'background_agent_completed',
+  'background_agent_stopped',
 ]);
 
-export type SubagentHistoryState = 'idle' | 'loading' | 'loaded' | 'not-found' | 'unresolved' | 'error';
+export type SubagentHistoryState =
+  'idle' | 'loading' | 'loaded' | 'not-found' | 'unresolved' | 'error';
+
+export interface SubagentExecutionEntryView {
+  readonly state: StreamingState | null;
+  readonly finalized: readonly ExecutionNode[];
+  readonly sessionId?: string;
+  readonly agentId?: string;
+  readonly live: boolean;
+  readonly truncated: boolean;
+  readonly spilled: boolean;
+  readonly clipped: number;
+  readonly history: SubagentHistoryState;
+  readonly historyError?: string;
+}
 
 export interface SubagentExecutionEntry {
   state: StreamingState | null;
@@ -54,29 +101,60 @@ export class SubagentExecutionStore {
   private readonly logger = inject(LoggingService);
 
   private readonly mutableEntries = new Map<string, SubagentExecutionEntry>();
-  readonly entries = signal<ReadonlyMap<string, SubagentExecutionEntry>>(new Map());
-  private readonly messageOwner = new Map<string, string>();
-  private readonly toolOwner = new Map<string, string>();
-  private readonly ownersByEntry = new Map<string, Map<string, 'message' | 'tool'>>();
+  private readonly _entries = signal<
+    ReadonlyMap<string, SubagentExecutionEntry>
+  >(new Map());
+  readonly entries: Signal<ReadonlyMap<string, SubagentExecutionEntryView>> =
+    this._entries.asReadonly();
+  private readonly ownership = new SubagentExecutionOwnership();
   private readonly inFlight = new Map<string, Promise<void>>();
   private readonly overflowWarned = new Set<string>();
-  private readonly continuationStarts = new Map<string, Map<string, MessageStartEvent>>();
-  private readonly continuationTools = new Map<string, Map<string, ToolStartEvent>>();
+  private readonly continuationStarts = new Map<
+    string,
+    Map<string, MessageStartEvent>
+  >();
+  private readonly continuationTools = new Map<
+    string,
+    Map<string, ToolStartEvent>
+  >();
   private readClock = 0;
   private readonly lastRead = new Map<string, number>();
+  private readonly syncedRecords = new Map<string, SubagentRecord>();
+
+  constructor() {
+    effect(() => {
+      const records = this.agentMonitorStore.subagents?.();
+      if (!records) return;
+      for (const [key, record] of records) {
+        if (this.syncedRecords.get(key) === record) continue;
+        this.syncedRecords.set(key, record);
+        this.syncRecord(record);
+      }
+    });
+  }
 
   private publish(entry?: SubagentExecutionEntry): void {
     if (entry) entry.revision++;
-    this.entries.set(new Map(this.mutableEntries));
+    this._entries.set(new Map(this.mutableEntries));
   }
 
   private open(key: string, sessionId?: string): SubagentExecutionEntry {
     let entry = this.mutableEntries.get(key);
     if (!entry) {
       entry = {
-        state: null, finalized: [], sessionId, live: true, truncated: false,
-        spilled: false, clipped: 0, history: 'idle', generation: 0,
-        lastEventAt: 0, refs: 0, idAlias: new Map(), revision: 0,
+        state: null,
+        finalized: [],
+        sessionId,
+        live: true,
+        truncated: false,
+        spilled: false,
+        clipped: 0,
+        history: 'idle',
+        generation: 0,
+        lastEventAt: 0,
+        refs: 0,
+        idAlias: new Map(),
+        revision: 0,
       };
       this.mutableEntries.set(key, entry);
       this.publish(entry);
@@ -91,8 +169,9 @@ export class SubagentExecutionStore {
     const key = record.parentToolUseId;
     const entry = this.open(key, record.parentSessionId);
     if (record.agentId) entry.agentId = record.agentId;
-    if (record.lastEventAt) entry.lastEventAt = Math.max(entry.lastEventAt, record.lastEventAt);
-    if (['completed', 'failed', 'killed', 'stopped'].includes(record.status)) {
+    if (record.lastEventAt)
+      entry.lastEventAt = Math.max(entry.lastEventAt, record.lastEventAt);
+    if (TERMINAL_STATUSES.has(record.status)) {
       this.finalize(key);
     } else {
       entry.live = true;
@@ -100,40 +179,14 @@ export class SubagentExecutionStore {
     }
   }
 
-  private own(key: string, id: string, kind: 'message' | 'tool'): void {
-    const owners = this.ownersByEntry.get(key) ?? new Map<string, 'message' | 'tool'>();
-    this.ownersByEntry.set(key, owners);
-    const composite = `${kind}:${id}`;
-    if (owners.has(composite)) owners.delete(composite);
-    owners.set(composite, kind);
-    (kind === 'message' ? this.messageOwner : this.toolOwner).set(id, key);
-    if (owners.size > OWNER_CAP) {
-      const oldest = owners.keys().next().value;
-      if (oldest) {
-        const oldKind = owners.get(oldest);
-        owners.delete(oldest);
-        const oldId = oldest.slice(oldest.indexOf(':') + 1);
-        (oldKind === 'message' ? this.messageOwner : this.toolOwner).delete(oldId);
-      }
-    }
-  }
-
-  private dropOwners(key: string): void {
-    for (const [composite, kind] of this.ownersByEntry.get(key) ?? []) {
-      const id = composite.slice(composite.indexOf(':') + 1);
-      (kind === 'message' ? this.messageOwner : this.toolOwner).delete(id);
-    }
-    this.ownersByEntry.delete(key);
-  }
-
   /** True when the event belongs to an execution entry and was consumed. */
   claim(event: FlatStreamEventUnion): boolean {
     if (STORE_ONLY.has(event.eventType)) return false;
     let key: string | undefined;
     if (event.eventType === 'message_start' && event.parentToolUseId) {
-      key = this.toolOwner.get(event.parentToolUseId) ?? event.parentToolUseId;
+      key = this.ownership.tool(event.parentToolUseId) ?? event.parentToolUseId;
     } else if (event.eventType === 'agent_start') {
-      key = this.toolOwner.get(event.toolCallId);
+      key = this.ownership.tool(event.toolCallId);
       if (!key) {
         const entry = this.open(event.toolCallId, event.sessionId);
         if (event.agentId) {
@@ -143,72 +196,105 @@ export class SubagentExecutionStore {
         return false;
       }
     } else {
-      key = this.messageOwner.get(event.messageId);
-      if (!key && event.parentToolUseId &&
-        (this.mutableEntries.has(event.parentToolUseId) || this.toolOwner.has(event.parentToolUseId))) {
-        key = this.toolOwner.get(event.parentToolUseId) ?? event.parentToolUseId;
+      key = this.ownership.message(event.messageId);
+      if (
+        !key &&
+        event.parentToolUseId &&
+        (this.mutableEntries.has(event.parentToolUseId) ||
+          this.ownership.tool(event.parentToolUseId))
+      ) {
+        key =
+          this.ownership.tool(event.parentToolUseId) ?? event.parentToolUseId;
       }
     }
-    if (!key) return false;
+    if (!key) return this.ownership.wasEvicted(event.messageId);
     try {
       const entry = this.open(key, event.sessionId);
-      if (event.eventType === 'message_start') this.own(key, event.messageId, 'message');
-      if (event.eventType === 'tool_start') this.own(key, event.toolCallId, 'tool');
+      if (event.eventType === 'message_start')
+        this.ownership.own(key, event.messageId, 'message');
+      if (event.eventType === 'tool_start')
+        this.ownership.own(key, event.toolCallId, 'tool');
       const state = entry.state ?? this.newState();
       entry.state = state;
-      const rewritten = this.rewrite(event, entry.idAlias);
+      const rewritten = rewriteSubagentEvent(event, entry.idAlias);
       this.seedContinuation(key, state, rewritten, entry);
-      const evictsEvent = state.events.size >= ENTRY_CAP && !state.events.has(rewritten.id);
-      const result = this.accumulator.process(state, rewritten, this.context(() => this.publish(entry)));
+      const evictsEvent =
+        state.events.size >= ENTRY_EVENT_CAP && !state.events.has(rewritten.id);
+      const result = this.accumulator.process(
+        state,
+        rewritten,
+        this.context(() => this.publish(entry)),
+      );
       if (result.replacementState) {
-        result.replacementState.eventCap = ENTRY_CAP;
+        result.replacementState.eventCap = ENTRY_EVENT_CAP;
         entry.state = result.replacementState;
       }
       if (evictsEvent && result.stateMutated) entry.truncated = true;
       entry.lastEventAt = Math.max(entry.lastEventAt, event.timestamp);
       entry.live = true;
-      if (event.eventType === 'tool_result' && event.toolCallId === key) this.finalize(key);
       this.enforceLiveCap(key);
       this.publish(entry);
       return true;
     } catch (error) {
-      this.logger.error('SubagentExecutionStore', 'Failed to claim event', error);
-      return false;
+      this.logger.error(
+        'SubagentExecutionStore',
+        'Failed to claim event',
+        error,
+      );
+      const entry = this.mutableEntries.get(key);
+      if (entry) {
+        entry.truncated = true;
+        this.publish(entry);
+      }
+      return true;
     }
-  }
-
-  historyEventsSeen(_event: FlatStreamEventUnion): void {
-    // History replay updates records in its normal path; payload is loaded on demand.
   }
 
   private newState(): StreamingState {
     const state = createEmptyStreamingState();
-    state.eventCap = ENTRY_CAP;
+    state.eventCap = ENTRY_EVENT_CAP;
     return state;
   }
 
   private seedContinuation(
-    key: string, state: StreamingState, event: FlatStreamEventUnion,
+    key: string,
+    state: StreamingState,
+    event: FlatStreamEventUnion,
     entry: SubagentExecutionEntry,
   ): void {
     if (event.eventType === 'message_start') return;
     const start = this.continuationStarts.get(key)?.get(event.messageId);
     if (start && !state.messageEventIds.includes(event.messageId)) {
-      this.accumulator.process(state, start, this.context(() => this.publish(entry)));
+      this.accumulator.process(
+        state,
+        start,
+        this.context(() => this.publish(entry)),
+      );
     }
     if (event.eventType === 'tool_delta' || event.eventType === 'tool_result') {
       const toolStart = this.continuationTools.get(key)?.get(event.toolCallId);
       if (toolStart && !state.toolCallMap.has(event.toolCallId)) {
-        this.accumulator.process(state, toolStart, this.context(() => this.publish(entry)));
+        this.accumulator.process(
+          state,
+          toolStart,
+          this.context(() => this.publish(entry)),
+        );
       }
     }
   }
 
-  private context(onStateChanged?: (state: StreamingState) => void, skipStoreEffects = false): AccumulatorContext {
+  private context(
+    onStateChanged?: (state: StreamingState) => void,
+    skipStoreEffects = false,
+  ): AccumulatorContext {
     return {
-      sessionManager: this.sessionManager, deduplication: this.deduplication,
-      batchedUpdate: this.batchedUpdate, backgroundAgentStore: this.backgroundAgentStore,
-      agentMonitorStore: this.agentMonitorStore, onStateChanged, skipStoreEffects,
+      sessionManager: this.sessionManager,
+      deduplication: this.deduplication,
+      batchedUpdate: this.batchedUpdate,
+      backgroundAgentStore: this.backgroundAgentStore,
+      agentMonitorStore: this.agentMonitorStore,
+      onStateChanged,
+      skipStoreEffects,
     };
   }
 
@@ -216,34 +302,57 @@ export class SubagentExecutionStore {
     const entry = this.mutableEntries.get(key);
     if (!entry) return [];
     this.lastRead.set(key, ++this.readClock);
-    return [...entry.finalized, ...(entry.state
-      ? this.builder.buildTree(entry.state, `subagent-${key}`, { rootParentToolUseId: key })
-      : [])];
+    return [
+      ...entry.finalized,
+      ...(entry.state
+        ? this.builder.buildTree(entry.state, `subagent-${key}`, {
+            rootParentToolUseId: key,
+          })
+        : []),
+    ];
   }
 
   finalize(key: string): void {
     const entry = this.mutableEntries.get(key);
     if (!entry) return;
     if (entry.state) {
-      const starts = this.continuationStarts.get(key) ?? new Map<string, MessageStartEvent>();
-      const tools = this.continuationTools.get(key) ?? new Map<string, ToolStartEvent>();
+      const starts =
+        this.continuationStarts.get(key) ??
+        new Map<string, MessageStartEvent>();
+      const tools =
+        this.continuationTools.get(key) ?? new Map<string, ToolStartEvent>();
       for (const event of entry.state.events.values()) {
-        if (event.eventType === 'message_start') starts.set(event.messageId, event);
+        if (event.eventType === 'message_start')
+          starts.set(event.messageId, event);
         if (event.eventType === 'tool_start') {
           tools.set(event.toolCallId, {
-            id: event.id, eventType: 'tool_start', timestamp: event.timestamp,
-            sessionId: event.sessionId, source: event.source,
-            messageId: event.messageId, parentToolUseId: event.parentToolUseId,
-            toolCallId: event.toolCallId, toolName: event.toolName,
-            isTaskTool: event.isTaskTool, agentType: event.agentType,
+            id: event.id,
+            eventType: 'tool_start',
+            timestamp: event.timestamp,
+            sessionId: event.sessionId,
+            source: event.source,
+            messageId: event.messageId,
+            parentToolUseId: event.parentToolUseId,
+            toolCallId: event.toolCallId,
+            toolName: event.toolName,
+            isTaskTool: event.isTaskTool,
+            agentType: event.agentType,
           });
         }
       }
-      while (starts.size > ENTRY_CAP) starts.delete(starts.keys().next().value!);
-      while (tools.size > ENTRY_CAP) tools.delete(tools.keys().next().value!);
+      while (starts.size > ENTRY_EVENT_CAP)
+        starts.delete(starts.keys().next().value!);
+      while (tools.size > ENTRY_EVENT_CAP)
+        tools.delete(tools.keys().next().value!);
       this.continuationStarts.set(key, starts);
       this.continuationTools.set(key, tools);
-      entry.finalized.push(...this.builder.buildTree(entry.state, `subagent-${key}`, { rootParentToolUseId: key }).map(capFinalizedTree));
+      entry.finalized.push(
+        ...this.builder
+          .buildTree(entry.state, `subagent-${key}`, {
+            rootParentToolUseId: key,
+          })
+          .map(capFinalizedTree),
+      );
       entry.state = null;
       this.builder.clearCache(`subagent-${key}`);
     }
@@ -263,32 +372,47 @@ export class SubagentExecutionStore {
     if (!entry || entry.refs === 0) return;
     entry.refs--;
     if (entry.refs === 0 && entry.history === 'loading') this.abort(entry);
+    if (
+      entry.refs === 0 &&
+      !entry.sessionId &&
+      !entry.state &&
+      entry.finalized.length === 0
+    ) {
+      this.remove(key, entry);
+      return;
+    }
     this.publish(entry);
     this.evictFinalized();
   }
 
   private abort(entry: SubagentExecutionEntry): void {
     entry.generation++;
+    for (const [key, current] of this.mutableEntries) {
+      if (current === entry) this.inFlight.delete(key);
+    }
     if (entry.history === 'loading') entry.history = 'idle';
   }
 
   private evictFinalized(): void {
-    while ([...this.mutableEntries.values()].filter(e => !e.live).length > FINALIZED_CAP) {
-      const candidate = [...this.mutableEntries].filter(([, e]) => !e.live && e.refs === 0)
-        .sort(([a], [b]) => (this.lastRead.get(a) ?? 0) - (this.lastRead.get(b) ?? 0))[0];
+    while (
+      [...this.mutableEntries.values()].filter((e) => !e.live).length >
+      FINALIZED_ENTRY_CAP
+    ) {
+      const candidate = oldestFinalized(this.mutableEntries, this.lastRead);
       if (!candidate) break;
       this.remove(candidate[0], candidate[1]);
     }
   }
 
   private enforceLiveCap(receivingKey: string): void {
-    const count = () => [...this.mutableEntries.values()].reduce((total, entry) => total + (entry.state?.events.size ?? 0), 0);
-    while (count() > LIVE_CAP) {
-      const candidate = [...this.mutableEntries].filter(([key, e]) => key !== receivingKey && e.live && e.refs === 0 && (e.state || !e.spilled))
-        .sort(([, a], [, b]) => a.lastEventAt - b.lastEventAt)[0];
+    while (liveEventCount(this.mutableEntries) > LIVE_EVENT_CAP) {
+      const candidate = oldestLiveSpill(this.mutableEntries, receivingKey);
       if (!candidate) {
         if (!this.overflowWarned.has(receivingKey)) {
-          this.logger.warn('SubagentExecutionStore', `Pinned live events exceed retention budget for ${receivingKey}`);
+          this.logger.warn(
+            'SubagentExecutionStore',
+            `Pinned live events exceed retention budget for ${receivingKey}`,
+          );
           this.overflowWarned.add(receivingKey);
         }
         return;
@@ -306,7 +430,7 @@ export class SubagentExecutionStore {
   private remove(key: string, entry: SubagentExecutionEntry): void {
     this.abort(entry);
     this.mutableEntries.delete(key);
-    this.dropOwners(key);
+    this.ownership.drop(key);
     entry.idAlias.clear();
     this.lastRead.delete(key);
     this.overflowWarned.delete(key);
@@ -318,40 +442,62 @@ export class SubagentExecutionStore {
 
   clearSession(sessionId: string): void {
     for (const [key, entry] of this.mutableEntries) {
-      if (entry.sessionId === sessionId) this.remove(key, entry);
+      if (entry.sessionId === sessionId) {
+        this.remove(key, entry);
+        this.syncedRecords.delete(key);
+      }
     }
   }
 
   async ensureHistory(key: string): Promise<void> {
+    const entry = this.mutableEntries.get(key);
+    if (
+      !entry ||
+      !entry.sessionId ||
+      (entry.history === 'loaded' && !entry.truncated) ||
+      entry.history === 'not-found'
+    )
+      return;
     const active = this.inFlight.get(key);
     if (active) return active;
-    const entry = this.mutableEntries.get(key);
-    if (!entry || !entry.sessionId || entry.history === 'loaded' || entry.history === 'not-found') return;
     entry.history = 'loading';
     entry.historyError = undefined;
     this.publish(entry);
     const generation = entry.generation;
-    const valid = () => this.mutableEntries.get(key) === entry && entry.generation === generation;
+    const valid = () =>
+      this.mutableEntries.get(key) === entry && entry.generation === generation;
     const loading = this.loadHistory(key, entry, valid);
     this.inFlight.set(key, loading);
-    try { await loading; } finally {
+    try {
+      await loading;
+    } finally {
       if (this.inFlight.get(key) === loading) this.inFlight.delete(key);
     }
   }
 
-  private async loadHistory(key: string, entry: SubagentExecutionEntry, valid: () => boolean): Promise<void> {
+  private async loadHistory(
+    key: string,
+    entry: SubagentExecutionEntry,
+    valid: () => boolean,
+  ): Promise<void> {
     const snapshot: FlatStreamEventUnion[] = [];
     let cursor: string | undefined;
     let clipped = 0;
     let truncated = false;
+    const cursors = new Set<string>();
+    let pages = 0;
     try {
       while (valid()) {
         const response = await this.rpc.call('subagent:history-page', {
-          sessionId: entry.sessionId!, toolCallId: key, agentId: entry.agentId,
-          cursor, maxBytes: 256 * 1024,
+          sessionId: entry.sessionId!,
+          toolCallId: key,
+          agentId: entry.agentId,
+          cursor,
+          maxBytes: HISTORY_PAGE_BYTES,
         });
         if (!valid()) return;
-        if (!response.isSuccess()) throw new Error(response.error ?? 'History request failed');
+        if (!response.isSuccess())
+          throw new Error(response.error ?? 'History request failed');
         const page = response.data;
         if (page.agentId) entry.agentId = page.agentId;
         if (page.status !== 'ok') {
@@ -359,15 +505,31 @@ export class SubagentExecutionStore {
           this.publish(entry);
           return;
         }
+        pages++;
+        if (pages > HISTORY_PAGE_CAP)
+          throw new Error('Agent history page limit exceeded');
         snapshot.push(...page.events);
+        if (snapshot.length > HISTORY_EVENT_CAP) {
+          snapshot.splice(0, snapshot.length - HISTORY_EVENT_CAP);
+          truncated = true;
+        }
         clipped += page.clippedEvents;
         truncated ||= page.truncated;
         if (page.done || !page.nextCursor) break;
-        if (page.nextCursor === cursor) throw new Error('Agent history cursor did not advance');
+        if (cursors.has(page.nextCursor))
+          throw new Error('Agent history cursor did not advance');
+        cursors.add(page.nextCursor);
         cursor = page.nextCursor;
       }
       if (!valid()) return;
-      this.merge(key, entry, snapshot);
+      truncated ||= mergeSubagentHistory(
+        key,
+        entry,
+        snapshot,
+        this.accumulator,
+        this.builder,
+        this.context(undefined, true),
+      );
       entry.clipped += clipped;
       entry.truncated ||= truncated;
       entry.history = 'loaded';
@@ -377,61 +539,14 @@ export class SubagentExecutionStore {
     } catch (error) {
       if (!valid()) return;
       entry.history = 'error';
-      entry.historyError = error instanceof Error ? error.message : 'History request failed';
-      this.logger.warn('SubagentExecutionStore', 'History request failed', error);
+      entry.historyError =
+        error instanceof Error ? error.message : 'History request failed';
+      this.logger.warn(
+        'SubagentExecutionStore',
+        'History request failed',
+        error,
+      );
       this.publish(entry);
     }
-  }
-
-  private merge(key: string, entry: SubagentExecutionEntry, snapshot: FlatStreamEventUnion[]): void {
-    const fresh = this.newState();
-    const localDedup = new EventDeduplicationService();
-    const ctx = { ...this.context(undefined, true), deduplication: localDedup };
-    for (const event of snapshot) this.accumulator.process(fresh, event, ctx);
-    const snapshotIds = new Set(snapshot.filter(e => e.eventType === 'message_start').map(e => e.messageId));
-    const snapshotTools = new Map<string, string>();
-    const snapshotBlocks = new Set<string>();
-    for (const event of snapshot) {
-      if (event.eventType === 'tool_start') snapshotTools.set(event.toolCallId, event.messageId);
-      if (['text_delta', 'thinking_delta', 'thinking_start', 'tool_start', 'tool_delta', 'tool_result'].includes(event.eventType)) {
-        snapshotBlocks.add(this.blockIdentity(event));
-      }
-    }
-    const live = entry.state;
-    if (live) {
-      const liveEvents = [...live.events.values()];
-      for (const event of liveEvents) {
-        if (snapshotIds.has(event.messageId)) continue;
-        if (event.eventType === 'tool_start') {
-          const id = snapshotTools.get(event.toolCallId);
-          if (id) entry.idAlias.set(event.messageId, id);
-        }
-      }
-      for (const event of liveEvents) {
-        const mapped = this.rewrite(event, entry.idAlias);
-        const matched = snapshotIds.has(mapped.messageId);
-        if (matched && event.source === 'stream' &&
-          ['message_start', 'text_delta', 'thinking_start', 'thinking_delta', 'tool_start', 'tool_delta', 'tool_result'].includes(event.eventType) &&
-          (event.eventType === 'message_start' || snapshotBlocks.has(this.blockIdentity(mapped)))) continue;
-        this.accumulator.process(fresh, mapped, ctx);
-      }
-      entry.state = fresh;
-    } else if (!entry.live) {
-      entry.finalized = this.builder.buildTree(fresh, `subagent-${key}`, { rootParentToolUseId: key }).map(capFinalizedTree);
-    } else {
-      entry.state = fresh;
-    }
-    this.builder.clearCache(`subagent-${key}`);
-  }
-
-  private blockIdentity(event: FlatStreamEventUnion): string {
-    const kind = event.eventType.startsWith('tool_') ? 'tool'
-      : event.eventType.startsWith('thinking_') ? 'thinking' : 'text';
-    return `${event.messageId}:${kind}:${event.toolCallId ?? event.blockIndex ?? 0}`;
-  }
-
-  private rewrite(event: FlatStreamEventUnion, aliases: ReadonlyMap<string, string>): FlatStreamEventUnion {
-    const messageId = aliases.get(event.messageId);
-    return messageId ? { ...event, messageId } : event;
   }
 }

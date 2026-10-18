@@ -19,7 +19,6 @@ import { EventDeduplicationService } from './event-deduplication.service';
 import { ExecutionTreeBuilderService } from './execution-tree-builder.service';
 import { capFinalizedTree } from './execution-tree-retention';
 import { SessionManager } from './session-manager.service';
-import { SubagentExecutionStore } from './subagent-execution.store';
 import {
   StreamingAccumulatorCore,
   type AccumulatorContext,
@@ -90,6 +89,7 @@ export function extractHistoryTextForMessage(
 
 @Injectable({ providedIn: 'root' })
 export class HistoryMessageBuilder {
+  private readonly replayOwners = new Map<string, Set<string>>();
   private readonly accumulator = inject(StreamingAccumulatorCore);
   private readonly sessionManager = inject(SessionManager);
   private readonly deduplication = inject(EventDeduplicationService);
@@ -97,7 +97,6 @@ export class HistoryMessageBuilder {
   private readonly backgroundAgentStore = inject(BackgroundAgentStore);
   private readonly agentMonitorStore = inject(AgentMonitorStore);
   private readonly treeBuilder = inject(ExecutionTreeBuilderService);
-  private readonly subagentExecution = inject(SubagentExecutionStore);
 
   createPageState(): StreamingState {
     return createEmptyStreamingState();
@@ -131,19 +130,23 @@ export class HistoryMessageBuilder {
 
     let accumulated = state;
     let subagentScratch: StreamingState | undefined;
-    const subagentMessageIds = new Set<string>();
+    const subagentMessageIds =
+      this.replayOwners.get(sessionId) ?? new Set<string>();
+    this.replayOwners.set(sessionId, subagentMessageIds);
     for (const event of events) {
       const scopedEvent = event.sessionId
         ? event
         : ({ ...event, sessionId } as FlatStreamEventUnion);
-      if (scopedEvent.eventType === 'message_start' && scopedEvent.parentToolUseId) {
+      if (scopedEvent.parentToolUseId) {
         subagentMessageIds.add(scopedEvent.messageId);
       }
       if (subagentMessageIds.has(scopedEvent.messageId)) {
-        this.subagentExecution.historyEventsSeen(scopedEvent);
         subagentScratch ??= createEmptyStreamingState();
-        const result = this.accumulator.process(subagentScratch, scopedEvent, context);
-        if (result.replacementState) subagentScratch = result.replacementState;
+        subagentScratch = this.accumulateSubagentEvent(
+          subagentScratch,
+          scopedEvent,
+          context,
+        );
         continue;
       }
       const result = this.accumulator.process(
@@ -154,6 +157,15 @@ export class HistoryMessageBuilder {
       if (result.replacementState) accumulated = result.replacementState;
     }
     return accumulated;
+  }
+
+  private accumulateSubagentEvent(
+    state: StreamingState,
+    event: FlatStreamEventUnion,
+    context: AccumulatorContext,
+  ): StreamingState {
+    const result = this.accumulator.process(state, event, context);
+    return result.replacementState ?? state;
   }
 
   /** Build finalized transcript messages in O(events + root messages). */
@@ -183,8 +195,7 @@ export class HistoryMessageBuilder {
         const treeNode = treeById.get(messageStartEvent.id);
         const completeEvent = boundaries.get(messageId)?.complete;
         let tokens:
-          | { input: number; output: number; cacheHit?: number }
-          | undefined;
+          { input: number; output: number; cacheHit?: number } | undefined;
         let cost: number | null | undefined;
         let duration: number | undefined;
 

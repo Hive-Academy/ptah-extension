@@ -12,7 +12,6 @@ import { ExecutionTreeBuilderService } from './execution-tree-builder.service';
 import { HistoryMessageBuilder } from './history-message-builder.service';
 import { SessionManager } from './session-manager.service';
 import { StreamingAccumulatorCore } from './accumulator-core.service';
-import { SubagentExecutionStore } from './subagent-execution.store';
 
 function historyState(): StreamingState {
   const state = TestBed.inject(HistoryMessageBuilder).createPageState();
@@ -61,11 +60,9 @@ describe('HistoryMessageBuilder', () => {
   };
   let monitoredAgents: Map<string, unknown>;
   let backgroundAgents: Map<string, unknown>;
-  let historyEventsSeen: jest.Mock;
   let onSubagentMessageComplete: jest.Mock;
 
   beforeEach(() => {
-    historyEventsSeen = jest.fn();
     onSubagentMessageComplete = jest.fn();
     const tree: ExecutionNode = {
       id: 'assistant-tree',
@@ -111,7 +108,6 @@ describe('HistoryMessageBuilder', () => {
     TestBed.configureTestingModule({
       providers: [
         HistoryMessageBuilder,
-        { provide: SubagentExecutionStore, useValue: { historyEventsSeen } },
         StreamingAccumulatorCore,
         EventDeduplicationService,
         {
@@ -192,30 +188,67 @@ describe('HistoryMessageBuilder', () => {
   it('keeps subagent history off the restored tree while updating its usage record', () => {
     const state = builder.createPageState();
     const parent = {
-      id: 'parent-start', eventType: 'message_start', messageId: 'parent',
-      role: 'assistant', timestamp: 1, source: 'history',
+      id: 'parent-start',
+      eventType: 'message_start',
+      messageId: 'parent',
+      role: 'assistant',
+      timestamp: 1,
+      source: 'history',
     } as FlatStreamEventUnion;
     const child = {
-      id: 'child-start', eventType: 'message_start', messageId: 'child',
-      parentToolUseId: 'task-tool', role: 'assistant', timestamp: 2, source: 'history',
+      id: 'child-start',
+      eventType: 'message_start',
+      messageId: 'child',
+      parentToolUseId: 'task-tool',
+      role: 'assistant',
+      timestamp: 2,
+      source: 'history',
     } as FlatStreamEventUnion;
     const childComplete = {
-      id: 'child-complete', eventType: 'message_complete', messageId: 'child',
-      parentToolUseId: 'task-tool', timestamp: 3, source: 'history',
+      id: 'child-complete',
+      eventType: 'message_complete',
+      messageId: 'child',
+      parentToolUseId: 'task-tool',
+      timestamp: 3,
+      source: 'history',
       tokenUsage: { input: 4, output: 7 },
     } as FlatStreamEventUnion;
 
     builder.accumulate(state, [parent, child, childComplete], 'session-1');
 
     expect([...state.events.keys()]).toEqual(['parent-start']);
-    expect(historyEventsSeen).toHaveBeenCalledTimes(2);
-    expect(historyEventsSeen).toHaveBeenCalledWith(
-      expect.objectContaining({ id: childComplete.id, sessionId: 'session-1' }),
-    );
     expect(onSubagentMessageComplete).toHaveBeenCalledWith(
       expect.objectContaining({ tokenUsage: { input: 4, output: 7 } }),
     );
     expect(treeBuilder.buildTree).not.toHaveBeenCalled();
+  });
+
+  it('keeps subagent ownership across replay chunks', () => {
+    const state = builder.createPageState();
+    const child = {
+      id: 'child-first',
+      eventType: 'message_start',
+      messageId: 'child-split',
+      parentToolUseId: 'task-tool',
+      role: 'assistant',
+      timestamp: 1,
+      source: 'history',
+    } as FlatStreamEventUnion;
+    const later = {
+      id: 'child-later',
+      eventType: 'text_delta',
+      messageId: 'child-split',
+      blockIndex: 0,
+      delta: 'private',
+      timestamp: 2,
+      source: 'history',
+    } as FlatStreamEventUnion;
+
+    builder.accumulate(state, [child], 'session-split');
+    builder.accumulate(state, [later], 'session-split');
+
+    expect(state.events.size).toBe(0);
+    expect(state.textAccumulators.size).toBe(0);
   });
 
   it('propagates a throwing event without returning a partial list and releases the scratch key', () => {

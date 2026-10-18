@@ -26,7 +26,13 @@
  * the conversation from the registry if no other tab still references it.
  */
 
-import { DestroyRef, Injectable, effect, inject, untracked } from '@angular/core';
+import {
+  DestroyRef,
+  Injectable,
+  effect,
+  inject,
+  untracked,
+} from '@angular/core';
 import {
   ConversationId,
   ConversationRegistry,
@@ -292,8 +298,7 @@ export class StreamRouter {
       if (!tabsRemain && !surfacesRemain) {
         for (const sid of sessions) {
           this.streamingHandler.cleanupSessionDeduplication(sid);
-          this.agentMonitorStore.clearSessionAgents(sid);
-          this.subagentExecution.clearSession(sid);
+          this.clearSessionAgentState(sid);
         }
         this.registry.remove(convId);
       }
@@ -948,6 +953,16 @@ export class StreamRouter {
    * Wrapped in try/catch so a single defect can't wedge the effect runner
    * for subsequent close events.
    */
+  private clearSessionAgentState(sessionId: string, force = false): void {
+    if (force) {
+      this.agentMonitorStore.forceClearSessionAgents(sessionId);
+      this.backgroundAgentStore.clearSession(sessionId);
+    } else {
+      this.agentMonitorStore.clearSessionAgents(sessionId);
+    }
+    this.subagentExecution.clearSession(sessionId);
+  }
+
   private handleTabClosed(evt: ClosedTabEvent): void {
     try {
       if (evt.sessionId) {
@@ -957,9 +972,7 @@ export class StreamRouter {
           (evt.kind === 'close' || evt.kind === 'reset') &&
           !this.sessionShownByOtherTab(sid, evt.tabId)
         ) {
-          this.agentMonitorStore.forceClearSessionAgents(sid);
-          this.subagentExecution.clearSession(sid);
-          this.backgroundAgentStore.clearSession(sid);
+          this.clearSessionAgentState(sid, true);
           this.treeBuilder.clearForSession(sid);
         }
       }
