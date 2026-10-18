@@ -583,6 +583,7 @@ describe('SessionRpcHandlers', () => {
         makeMetadata({
           sessionId: uuidForRow(i),
           name: `Session ${i}`,
+          ...(i === 0 ? { providerId: 'openrouter' } : {}),
           lastActiveAt: 1_700_000_000_000 + i,
         }),
       );
@@ -590,7 +591,7 @@ describe('SessionRpcHandlers', () => {
       h.handlers.register();
 
       const page1 = await call<{
-        sessions: Array<{ id: string; name: string }>;
+        sessions: Array<{ id: string; name: string; providerId?: string }>;
         total: number;
         hasMore: boolean;
       }>(h, 'session:list', {
@@ -603,6 +604,8 @@ describe('SessionRpcHandlers', () => {
       expect(page1.hasMore).toBe(true);
       expect(page1.sessions).toHaveLength(2);
       expect(page1.sessions[0].id).toBe(uuidForRow(0));
+      expect(page1.sessions[0].providerId).toBe('openrouter');
+      expect(page1.sessions[1].providerId).toBeUndefined();
 
       const lastPage = await call<{
         sessions: Array<{ id: string }>;

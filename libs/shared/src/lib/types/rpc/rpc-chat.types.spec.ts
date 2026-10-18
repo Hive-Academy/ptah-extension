@@ -58,6 +58,8 @@ describe('ChatResumeResult', () => {
     expect(hasNoMessagesKey).toBe(true);
     expect(hasEventsKey).toBe(true);
     expect(reply).not.toHaveProperty('messages');
+    const providerReply: ChatResumeResult = { ...reply, providerId: 'openrouter' };
+    expect(providerReply.providerId).toBe('openrouter');
   });
 });
 

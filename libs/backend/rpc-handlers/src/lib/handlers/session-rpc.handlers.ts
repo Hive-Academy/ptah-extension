@@ -479,6 +479,7 @@ export class SessionRpcHandlers {
             return [
               {
                 id,
+                ...(s.providerId ? { providerId: s.providerId } : {}),
                 name: s.name,
                 lastActivityAt: s.lastActiveAt,
                 createdAt: s.createdAt,

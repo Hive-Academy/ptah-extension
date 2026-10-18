@@ -108,6 +108,14 @@ describe('CommandCenterProjectionSource', () => {
   it('returns no provider for an empty usage list', () => {
     expect(inputForTab(restoredTab([])).rootProviderId).toBeUndefined();
   });
+  it('uses persisted provider without a model and keeps live evidence first', () => {
+    const tab = { ...restoredTab([]), sessionModel: undefined, overrideModel: undefined, providerId: 'openrouter' };
+    expect(inputForTab(tab).rootProviderId).toBe('openrouter');
+  });
+  it('keeps live provider evidence ahead of persisted metadata', () => {
+    const tab = { ...restoredTab([]), providerId: 'openrouter' };
+    expect(inputForTab({ ...tab, liveModelStats: { model: 'claude', contextCapacity: { providerId: 'anthropic', tokens: 200000, source: 'provider-catalog', model: 'claude' } } } as TabState).rootProviderId).toBe('anthropic');
+  });
   it('shows a manifest without agents as starting only during its launch window', () => {
     const now = 1_000_000;
     expect(runState([], now - 119_999, now)).toBe('starting');
