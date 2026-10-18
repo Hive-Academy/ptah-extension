@@ -7,15 +7,18 @@ const assistant = (
     ephemeral_1h_input_tokens: number;
     ephemeral_5m_input_tokens: number;
   },
+  cacheRead = 0,
+  model = 'claude',
 ) => ({
   type: 'assistant',
   parent_tool_use_id: null,
   message: {
     id,
+    model,
     usage: {
       input_tokens: 10,
       output_tokens: 2,
-      cache_read_input_tokens: 0,
+      cache_read_input_tokens: cacheRead,
       cache_creation_input_tokens: cacheCreation
         ? cacheCreation.ephemeral_1h_input_tokens +
           cacheCreation.ephemeral_5m_input_tokens
@@ -55,10 +58,13 @@ describe('MainRequestTracker', () => {
         420_000,
       ),
     ).toBe('request-started');
-    expect(tracker.endTurn(421_000)).toEqual({
+    expect(tracker.endTurn(421_000)).toMatchObject({
       requestKey: 'first',
       anchorAt: 0,
       ttl: '1h',
+      cacheAnchorAt: 0,
+      cacheWriteTokens: 20,
+      cacheWriteTtl: '1h',
     });
   });
 
@@ -75,10 +81,12 @@ describe('MainRequestTracker', () => {
     expect(tracker.observe(assistant('second'), 12_000)).toBe(
       'request-started',
     );
-    expect(tracker.endTurn(13_000)).toEqual({
+    expect(tracker.endTurn(13_000)).toMatchObject({
       requestKey: 'second',
       anchorAt: 5_000,
       ttl: 'not-1h',
+      cacheAnchorAt: 5_000,
+      cacheWriteTokens: 0,
     });
   });
 
@@ -115,5 +123,48 @@ describe('MainRequestTracker', () => {
     expect(tracker.observe({ type: 'assistant', message: null }, 2)).toBeNull();
     expect(tracker.observe(null, 3)).toBeNull();
     expect(tracker.endTurn(4)).toBeNull();
+  });
+
+  it('reports the last real request cache read and a mixed write as 5m', () => {
+    const tracker = new MainRequestTracker(100);
+    tracker.observe(assistant('first', { ephemeral_1h_input_tokens: 3, ephemeral_5m_input_tokens: 2 }), 200);
+    tracker.observe({ type: 'user' }, 8_000);
+    tracker.observe(assistant('second', undefined, 8), 10_000);
+    expect(tracker.endTurn(11_000)).toMatchObject({
+      cacheAnchorAt: 3_000,
+      cacheReadTokens: 8,
+      cacheWriteTokens: 0,
+      cacheWriteTtl: null,
+    });
+
+    const mixed = new MainRequestTracker(0);
+    mixed.observe(assistant('mixed', { ephemeral_1h_input_tokens: 3, ephemeral_5m_input_tokens: 2 }), 1);
+    expect(mixed.endTurn(2)).toMatchObject({ cacheWriteTtl: '5m', ttl: 'not-1h' });
+  });
+
+  it('preserves the real cache candidate when a synthetic assistant follows', () => {
+    const tracker = new MainRequestTracker(0);
+    tracker.observe(assistant('real', { ephemeral_1h_input_tokens: 2, ephemeral_5m_input_tokens: 0 }), 1);
+    tracker.observe(assistant('synthetic', undefined, 0, '<synthetic>'), 2);
+    expect(tracker.endTurn(3)).toMatchObject({
+      requestKey: 'synthetic',
+      cacheAnchorAt: 0,
+      cacheWriteTtl: '1h',
+    });
+  });
+
+  it('does not confirm TTL from a positive write without a split', () => {
+    const tracker = new MainRequestTracker(0);
+    tracker.observe({
+      ...assistant('unknown'),
+      message: {
+        ...assistant('unknown').message,
+        usage: {
+          ...assistant('unknown').message.usage,
+          cache_creation_input_tokens: 10,
+        },
+      },
+    }, 1);
+    expect(tracker.endTurn(2)).toMatchObject({ cacheWriteTokens: 10, cacheWriteTtl: null });
   });
 });

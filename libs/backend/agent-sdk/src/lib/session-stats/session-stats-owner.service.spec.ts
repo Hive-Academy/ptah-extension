@@ -1349,10 +1349,12 @@ describe('SessionStatsOwnerService live estimate (TASK_2026_626)', () => {
 
   function recordingWatcher(): OwnerWatcher & {
     agents: number;
+    cacheChanges: number;
     released: Snapshot[];
   } {
     const watcher = {
       agents: 0,
+      cacheChanges: 0,
       released: [] as Snapshot[],
       onAgentRecorded: () => {
         watcher.agents++;
@@ -1360,9 +1362,80 @@ describe('SessionStatsOwnerService live estimate (TASK_2026_626)', () => {
       onReleased: (settled: Snapshot) => {
         watcher.released.push(settled);
       },
+      onCacheChanged: () => {
+        watcher.cacheChanges++;
+      },
     };
     return watcher;
   }
+
+  describe('cache projection', () => {
+    const estimate = { ttl: '1h' as const, lastRequestAt: 100, expiresAt: 3_600_100 };
+
+    it('retains TTL separately and advances revision only on visible changes', () => {
+      const { owner, gen } = liveOwner();
+      const watcher = recordingWatcher();
+      owner.watch(SESSION, gen, watcher);
+      const before = owner.snapshot(SESSION);
+      expect(owner.setCacheEstimate(SESSION, 'run-1', null, '1h')).toBe(false);
+      expect(owner.getCacheTtl(SESSION, 'run-1')).toBe('1h');
+      expect(owner.snapshot(SESSION)).toBe(before);
+      expect(owner.setCacheEstimate(SESSION, 'run-1', estimate, '1h')).toBe(true);
+      expect(owner.snapshot(SESSION)?.cache).toEqual(estimate);
+      expect(owner.setCacheEstimate(SESSION, 'run-1', estimate, '5m')).toBe(false);
+      expect(owner.getCacheTtl(SESSION, 'run-1')).toBe('5m');
+      expect(owner.setIdleCompactAt(SESSION, 'run-1', 500)).toBe(true);
+      expect(owner.snapshot(SESSION)?.cache?.idleCompactAt).toBe(500);
+      expect(owner.setIdleCompactAt(SESSION, 'run-1', 500)).toBe(false);
+      expect(owner.setIdleCompactAt(SESSION, 'run-1', null)).toBe(true);
+      expect(owner.snapshot(SESSION)?.cache?.idleCompactAt).toBeUndefined();
+      expect(owner.setCacheEstimate(SESSION, 'run-1', null, '5m')).toBe(true);
+      expect(owner.snapshot(SESSION)?.cache).toBeUndefined();
+      expect(watcher.cacheChanges).toBe(4);
+    });
+
+    it('fences unknown and replaced runs while preserving state across rekey', () => {
+      const { owner, gen } = liveOwner();
+      expect(owner.setCacheEstimate(SESSION, 'missing', estimate, '1h')).toBe(false);
+      expect(owner.getCacheTtl(SESSION, 'missing')).toBeNull();
+      owner.rebind(SESSION, 'rekeyed', gen);
+      expect(owner.setCacheEstimate('rekeyed', 'run-1', estimate, '1h')).toBe(true);
+      expect(owner.snapshot('rekeyed')?.cache).toEqual(estimate);
+      owner.startNew('rekeyed');
+      expect(owner.setIdleCompactAt('rekeyed', 'run-1', 500)).toBe(false);
+      expect(owner.getCacheTtl('rekeyed', 'run-1')).toBeNull();
+      expect(owner.snapshot('rekeyed')?.cache).toBeUndefined();
+    });
+
+    it('retains cache while prefix loading and includes it after the read', async () => {
+      const owner = new SessionStatsOwnerService();
+      let finishRead: ((value: SessionStatsPrefix) => void) | undefined;
+      const preparation = owner.prepareRun(SESSION, {
+        loadPrefix: () => new Promise<SessionStatsPrefix>((resolve) => { finishRead = resolve; }),
+        loadSavedCostState: async () => null,
+      });
+      const generation = owner.leaseOf(SESSION)?.generation;
+      expect(generation).toBeDefined();
+      expect(owner.beginRun(SESSION, generation ?? -1, 'run-1', null)).toBe(true);
+      expect(owner.setCacheEstimate(SESSION, 'run-1', estimate, '1h')).toBe(true);
+      expect(owner.snapshot(SESSION)).toBeNull();
+      finishRead?.(prefix(1));
+      await preparation;
+      expect(owner.snapshot(SESSION)?.cache).toEqual(estimate);
+    });
+
+    it('keeps expiry in the released final snapshot', () => {
+      const { owner, gen } = liveOwner();
+      const watcher = recordingWatcher();
+      owner.watch(SESSION, gen, watcher);
+      owner.setCacheEstimate(SESSION, 'run-1', estimate, '1h');
+      owner.setIdleCompactAt(SESSION, 'run-1', 500);
+      owner.setIdleCompactAt(SESSION, 'run-1', null);
+      const lease = owner.leaseOf(SESSION);
+      expect(lease && owner.release(lease)).toBe(true);
+      expect(watcher.released[0]?.cache).toEqual(estimate);
+    });
+  });
 
   /** A loader that never settles, so the prefix read stays pending. */
   function pendingLoaders(): RunPreparationLoaders {

@@ -52,6 +52,32 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+type SessionStatsCache = NonNullable<SessionStatsEntry['cache']>;
+
+function isEpoch(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+
+/** Validate the optional projection without affecting session accounting. */
+export function parseSessionStatsCache(value: unknown): SessionStatsCache | null {
+  if (!isPlainObject(value)) return null;
+  const ttl = value['ttl'];
+  const lastRequestAt = value['lastRequestAt'];
+  const expiresAt = value['expiresAt'];
+  const idleCompactAt = value['idleCompactAt'];
+  if (ttl !== '1h' && ttl !== '5m') return null;
+  if (!isEpoch(lastRequestAt) || !isEpoch(expiresAt)) return null;
+  const expected = lastRequestAt + (ttl === '1h' ? 3_600_000 : 300_000);
+  if (!Number.isFinite(expected) || expiresAt < lastRequestAt) return null;
+  if (idleCompactAt !== undefined && !isEpoch(idleCompactAt)) return null;
+  return {
+    ttl,
+    lastRequestAt,
+    expiresAt,
+    ...(idleCompactAt === undefined ? {} : { idleCompactAt }),
+  };
+}
+
 function parseContext(value: unknown): SessionStatsLiveContext | null {
   if (!isPlainObject(value)) return null;
   const model = value['model'];
@@ -111,7 +137,13 @@ export function parseSessionStatsLivePayload(
   if (typeof revision !== 'number' || !Number.isFinite(revision)) return null;
 
   // Envelope checked above; the deep shape is validated by the consumer.
-  const stats = sessionStats as unknown as SessionStatsEntry;
+  const cache = sessionStats['cache'];
+  const parsedCache = cache === undefined ? null : parseSessionStatsCache(cache);
+  const stats = (cache === undefined || parsedCache !== null
+    ? sessionStats
+    : Object.fromEntries(
+        Object.entries(sessionStats).filter(([key]) => key !== 'cache'),
+      )) as Record<string, unknown> & SessionStatsEntry;
   if (provisional !== true) return { sessionId, sessionStats: stats };
 
   const context = parseContext(payload['context']);

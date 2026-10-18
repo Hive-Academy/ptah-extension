@@ -436,6 +436,13 @@ export interface SessionStatsEntry {
    * snapshots published by the same attached backend; never persisted.
    */
   readonly revision?: number;
+  /** Estimated expiry from the last main request with a confirmed cache TTL. */
+  readonly cache?: {
+    readonly ttl: '1h' | '5m';
+    readonly lastRequestAt: number;
+    readonly expiresAt: number;
+    readonly idleCompactAt?: number;
+  };
   /**
    * `true` only on a `session:stats-live` snapshot that includes an in-turn
    * estimate; a later snapshot with a higher revision replaces it. Absent on

@@ -368,9 +368,17 @@ interface RunState {
  * owner call that raised them; a throwing watcher is swallowed and never
  * breaks that call.
  */
+type CacheTtl = NonNullable<SessionStatsEntry['cache']>['ttl'];
+type CacheEstimate = Pick<
+  NonNullable<SessionStatsEntry['cache']>,
+  'ttl' | 'lastRequestAt' | 'expiresAt'
+>;
+
 export interface OwnerWatcher {
   /** A new subagent identity was recorded ({@link SessionStatsOwnerService.recordAgent}). */
   onAgentRecorded(): void;
+  /** The visible cache projection changed. Optional until the publisher is updated. */
+  onCacheChanged?(): void;
   /**
    * The owner was released. `settled` is its final authoritative snapshot
    * (every estimate cleared), or `null` while its prefix read was pending.
@@ -394,6 +402,9 @@ interface OwnerState {
   pending: Promise<SessionStatsPrefix | null> | null;
   /** Runs in preparation order. */
   readonly runs: Map<string, RunState>;
+  cacheTtl: CacheTtl | null;
+  cacheEstimate: CacheEstimate | null;
+  idleCompactAt: number | null;
   /** Canonical subagent ids. */
   readonly agentIds: Set<string>;
   /**
@@ -474,6 +485,49 @@ export class SessionStatsOwnerService {
       state.runs.set(runToken, createRun(candidate));
     }
     return true;
+  }
+
+  getCacheTtl(sessionId: string, runToken: string): CacheTtl | null {
+    const state = this.states.get(sessionId);
+    return state?.runs.has(runToken) ? state.cacheTtl : null;
+  }
+
+  setCacheEstimate(
+    sessionId: string,
+    runToken: string,
+    estimate: CacheEstimate | null,
+    retainedTtl: CacheTtl | null,
+  ): boolean {
+    const state = this.states.get(sessionId);
+    if (!state?.runs.has(runToken)) return false;
+    state.cacheTtl = retainedTtl;
+    const old = state.cacheEstimate;
+    if (
+      old?.ttl === estimate?.ttl &&
+      old?.lastRequestAt === estimate?.lastRequestAt &&
+      old?.expiresAt === estimate?.expiresAt
+    ) return false;
+    state.cacheEstimate = estimate;
+    this.touch(state);
+    notifyWatchers([...state.watchers], (watcher) => watcher.onCacheChanged?.());
+    return true;
+  }
+
+  setIdleCompactAt(
+    sessionId: string,
+    runToken: string,
+    at: number | null,
+  ): boolean {
+    const state = this.states.get(sessionId);
+    if (!state?.runs.has(runToken)) return false;
+    if (state.idleCompactAt === at) return false;
+    const visible = state.cacheEstimate !== null;
+    state.idleCompactAt = at;
+    if (visible) {
+      this.touch(state);
+      notifyWatchers([...state.watchers], (watcher) => watcher.onCacheChanged?.());
+    }
+    return visible;
   }
 
   /**
@@ -773,6 +827,9 @@ export class SessionStatsOwnerService {
       prefixDurationMs,
       pending: null,
       runs: new Map(),
+      cacheTtl: null,
+      cacheEstimate: null,
+      idleCompactAt: null,
       agentIds: new Set(),
       watchers: new Set(),
       revision: 0,
@@ -852,6 +909,12 @@ export class SessionStatsOwnerService {
           ? null
           : state.prefixDurationMs + runDurationMs,
       revision: state.revision,
+      ...(state.cacheEstimate && {
+        cache: Object.freeze({
+          ...state.cacheEstimate,
+          ...(state.idleCompactAt === null ? {} : { idleCompactAt: state.idleCompactAt }),
+        }),
+      }),
       ...(live && { provisional: true }),
     });
     return snapshot;

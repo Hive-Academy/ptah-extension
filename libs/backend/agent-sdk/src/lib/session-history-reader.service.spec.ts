@@ -2204,6 +2204,29 @@ describe('SessionHistoryReaderService — session stats authority (TASK_2026_533
     ).toEqual([null, null, null]);
   });
 
+  it('keeps a live owner cache estimate on resume but not transcript-only stats', async () => {
+    const { stubs, service } = setup([
+      assistantMsg('m1', { input_tokens: 1, output_tokens: 1 }),
+    ]);
+    const cold = await service.readSessionHistory(SESSION, '/workspace');
+    expect(cold.stats?.cache).toBeUndefined();
+
+    const prefixStats = cold.stats;
+    if (!prefixStats) throw new Error('expected transcript stats');
+    const { generation } = await stubs.statsOwner.prepareRun(SESSION, {
+      loadPrefix: async () => ({ stats: prefixStats, subagentIds: [], savedCostState: null }),
+      loadSavedCostState: async () => null,
+    });
+    stubs.statsOwner.beginRun(SESSION, generation, 'run-cache', null);
+    stubs.statsOwner.setCacheEstimate(SESSION, 'run-cache', {
+      ttl: '5m', lastRequestAt: 100, expiresAt: 300_100,
+    }, '5m');
+    const resumed = await service.readSessionHistory(SESSION, '/workspace');
+    expect(resumed.stats?.cache).toEqual({
+      ttl: '5m', lastRequestAt: 100, expiresAt: 300_100,
+    });
+  });
+
   it('answers with the owner snapshot once a run is active, never re-adding a grown transcript', async () => {
     const { stubs, service } = setup([
       assistantMsg('m1', { input_tokens: 100, output_tokens: 10 }),

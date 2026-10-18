@@ -4,7 +4,7 @@
  * Accept/reject table for the envelope the webview trusts before it hands the
  * snapshot to deep validation in chat-state.
  */
-import { MESSAGE_TYPES, parseSessionStatsLivePayload } from '../../../index';
+import { MESSAGE_TYPES, parseSessionStatsCache, parseSessionStatsLivePayload } from '../../../index';
 
 describe('session:stats-live contract', () => {
   const sessionId = 'ffb0b9b0-0000-4000-8000-000000000001';
@@ -37,6 +37,15 @@ describe('session:stats-live contract', () => {
   });
 
   describe('accepts', () => {
+    it.each(['1h', '5m'] as const)('keeps valid %s cache metadata', (ttl) => {
+      const cache = { ttl, lastRequestAt: 100, expiresAt: 300_100, idleCompactAt: 200 };
+      expect(parseSessionStatsCache(cache)).toEqual(cache);
+      expect(parseSessionStatsLivePayload(payload({ sessionStats: stats({ cache }) }))?.sessionStats.cache).toEqual(cache);
+    });
+
+    it('keeps old snapshots without cache', () => {
+      expect(parseSessionStatsLivePayload(payload())?.sessionStats.cache).toBeUndefined();
+    });
     it('a provisional snapshot with a valid context', () => {
       const input = payload();
       const parsed = parseSessionStatsLivePayload(input);
@@ -74,6 +83,19 @@ describe('session:stats-live contract', () => {
   });
 
   describe('rejects', () => {
+    it.each([
+      null, [], 'cache', {},
+      { ttl: '2h', lastRequestAt: 0, expiresAt: 1 },
+      { ttl: '1h', lastRequestAt: Number.NaN, expiresAt: 1 },
+      { ttl: '1h', lastRequestAt: -1, expiresAt: 1 },
+      { ttl: '1h', lastRequestAt: 0, expiresAt: Number.POSITIVE_INFINITY },
+      { ttl: '1h', lastRequestAt: 2, expiresAt: 1 },
+      { ttl: '1h', lastRequestAt: 0, expiresAt: 1, idleCompactAt: 'soon' },
+    ])('drops only malformed cache %p', (cache) => {
+      const parsed = parseSessionStatsLivePayload(payload({ sessionStats: stats({ cache }) }));
+      expect(parsed?.sessionStats).not.toHaveProperty('cache');
+      expect(parsed?.sessionStats.tokens.input).toBe(10);
+    });
     it.each([
       ['provisional: false', { provisional: false }],
       ["provisional: 'yes'", { provisional: 'yes' }],

@@ -27,6 +27,9 @@ export class MainRequestTracker {
   private requestKey: string | null = null;
   private anchorAt = 0;
   private usage: SubagentRequestUsage | undefined;
+  private cacheRequestKey: string | null = null;
+  private cacheAnchorAt: number | null = null;
+  private cacheUsage: SubagentRequestUsage | undefined;
 
   constructor(startAt: number) {
     this.turnStartAt = startAt;
@@ -66,6 +69,21 @@ export class MainRequestTracker {
       if (frame.type === 'assistant') {
         this.usage = readSubagentRequestUsage(frame);
       }
+      const model = frame.type === 'assistant' ? frame.message?.model :
+        isStreamEvent(frame) && frame.event && isMessageStart(frame.event)
+          ? frame.event.message?.model
+          : undefined;
+      if (typeof model === 'string' && model.startsWith('<')) {
+        return started ? 'request-started' : null;
+      }
+      if (key !== this.cacheRequestKey) {
+        this.cacheRequestKey = key;
+        this.cacheAnchorAt = this.anchorAt;
+        this.cacheUsage = undefined;
+      }
+      if (frame.type === 'assistant') {
+        this.cacheUsage = this.usage;
+      }
       return started ? 'request-started' : null;
     } catch {
       // degradation-audit: optional-capability - an unreadable frame only skips
@@ -76,16 +94,29 @@ export class MainRequestTracker {
   }
 
   endTurn(at: number): LastRequestSnapshot | null {
-    const snapshot =
+    const snapshot: LastRequestSnapshot | null =
       this.requestKey === null
         ? null
         : {
             requestKey: this.requestKey,
             anchorAt: this.anchorAt,
             ttl: classifyCacheTtl(this.usage),
+            cacheAnchorAt: this.cacheAnchorAt,
+            cacheReadTokens: this.cacheUsage?.cacheReadTokens ?? 0,
+            cacheWriteTokens: this.cacheUsage?.cacheWriteTokens ?? 0,
+            cacheWriteTtl: this.cacheUsage?.cacheWriteByTtl
+              ? this.cacheUsage.cacheWriteByTtl['5m'] > 0
+                ? '5m'
+                : this.cacheUsage.cacheWriteByTtl['1h'] > 0
+                  ? '1h'
+                  : null
+              : null,
           };
     this.requestKey = null;
     this.usage = undefined;
+    this.cacheRequestKey = null;
+    this.cacheAnchorAt = null;
+    this.cacheUsage = undefined;
     if (Number.isFinite(at)) {
       this.turnStartAt = at;
       this.lastNonRequestFrameAt = at;
