@@ -828,6 +828,124 @@ describe('CanvasRailBoardComponent rendering', () => {
     removeHost.mockRestore();
   });
 
+  it('releases the press hold and its listeners when the page becomes hidden', () => {
+    const { fixture } = mount();
+    const instance = fixture.componentInstance;
+    const card = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>(
+      '[data-tab-id="a"] .rc-select',
+    )!;
+    const removeDocument = jest.spyOn(document, 'removeEventListener');
+    const removeWindow = jest.spyOn(window, 'removeEventListener');
+    const removeHost = jest.spyOn(fixture.nativeElement as HTMLElement, 'removeEventListener');
+    let hidden = false;
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
+    document.getSelection()?.removeAllRanges();
+    try {
+      card.dispatchEvent(Object.assign(new Event('pointerdown', { bubbles: true }), { pointerId: 3 }));
+      // A visible page keeps the press.
+      document.dispatchEvent(new Event('visibilitychange'));
+      expect(instance.holdTabId()).toBe('a');
+      expect(removeDocument).not.toHaveBeenCalledWith('pointerup', expect.any(Function));
+      hidden = true;
+      document.dispatchEvent(new Event('visibilitychange'));
+      expect(instance.holdTabId()).toBeNull();
+      expect(removeDocument).toHaveBeenCalledWith('pointerup', expect.any(Function));
+      expect(removeDocument).toHaveBeenCalledWith('pointercancel', expect.any(Function));
+      expect(removeDocument).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
+      expect(removeWindow).toHaveBeenCalledWith('blur', expect.any(Function));
+      expect(removeHost).toHaveBeenCalledWith('lostpointercapture', expect.any(Function));
+      // The released pointer is forgotten: a later press starts a fresh hold.
+      hidden = false;
+      card.dispatchEvent(Object.assign(new Event('pointerdown', { bubbles: true }), { pointerId: 4 }));
+      expect(instance.holdTabId()).toBe('a');
+      document.dispatchEvent(Object.assign(new Event('pointerup'), { pointerId: 4 }));
+      expect(instance.holdTabId()).toBeNull();
+    } finally {
+      delete (document as { hidden?: boolean }).hidden;
+    }
+  });
+
+  it('ends the hold only when the last tracked pointer loses capture (FU-14)', () => {
+    const { fixture } = mount();
+    const instance = fixture.componentInstance;
+    const host = fixture.nativeElement as HTMLElement;
+    const card = host.querySelector<HTMLElement>('[data-tab-id="a"] .rc-select')!;
+    const pointer = (type: string, pointerId: number) =>
+      Object.assign(new Event(type, { bubbles: true }), { pointerId });
+    const removeDocument = jest.spyOn(document, 'removeEventListener');
+    document.getSelection()?.removeAllRanges();
+
+    card.dispatchEvent(pointer('pointerdown', 1));
+    card.dispatchEvent(pointer('pointerdown', 2));
+    card.dispatchEvent(pointer('lostpointercapture', 1));
+    expect(instance.holdTabId()).toBe('a');
+    expect(removeDocument).not.toHaveBeenCalledWith('pointerup', expect.any(Function));
+    // An untracked pointer losing capture changes nothing.
+    card.dispatchEvent(pointer('lostpointercapture', 9));
+    expect(instance.holdTabId()).toBe('a');
+    // Pointer 1 is no longer tracked, so its late `pointerup` keeps pointer 2's hold.
+    document.dispatchEvent(pointer('pointerup', 1));
+    expect(instance.holdTabId()).toBe('a');
+    card.dispatchEvent(pointer('lostpointercapture', 2));
+    expect(instance.holdTabId()).toBeNull();
+    expect(removeDocument).toHaveBeenCalledWith('pointerup', expect.any(Function));
+    expect(removeDocument).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
+    removeDocument.mockRestore();
+  });
+
+  it('clears a press hold when the board is hidden and shown again mid-press', () => {
+    const { fixture } = mount();
+    const instance = fixture.componentInstance;
+    const pointer = (type: string, pointerId: number) =>
+      Object.assign(new Event(type, { bubbles: true }), { pointerId });
+    const card = () =>
+      (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>('[data-tab-id="a"] .rc-select')!;
+    document.getSelection()?.removeAllRanges();
+
+    card().dispatchEvent(pointer('pointerdown', 6));
+    expect(instance.holdTabId()).toBe('a');
+    fixture.componentRef.setInput('visible', false);
+    fixture.detectChanges();
+    expect(instance.holdTabId()).toBeNull();
+    fixture.componentRef.setInput('visible', true);
+    fixture.detectChanges();
+    expect(instance.holdTabId()).toBeNull();
+    // The old press is forgotten: its late pointerup changes nothing, and a
+    // new press holds and releases normally.
+    document.dispatchEvent(pointer('pointerup', 6));
+    expect(instance.holdTabId()).toBeNull();
+    card().dispatchEvent(pointer('pointerdown', 7));
+    expect(instance.holdTabId()).toBe('a');
+    document.dispatchEvent(pointer('pointerup', 7));
+    expect(instance.holdTabId()).toBeNull();
+  });
+
+  it('removes document and host listeners and clears the press on destroy', () => {
+    const { fixture } = mount();
+    const instance = fixture.componentInstance;
+    const host = fixture.nativeElement as HTMLElement;
+    const card = host.querySelector<HTMLElement>('[data-tab-id="a"] .rc-select')!;
+    const removeDocument = jest.spyOn(document, 'removeEventListener');
+    const removeWindow = jest.spyOn(window, 'removeEventListener');
+    const removeHost = jest.spyOn(host, 'removeEventListener');
+    document.getSelection()?.removeAllRanges();
+
+    card.dispatchEvent(Object.assign(new Event('pointerdown', { bubbles: true }), { pointerId: 5 }));
+    expect(instance.holdTabId()).toBe('a');
+    fixture.destroy();
+    for (const type of ['selectionchange', 'pointerup', 'pointercancel', 'visibilitychange']) {
+      expect(removeDocument).toHaveBeenCalledWith(type, expect.any(Function));
+    }
+    expect(removeWindow).toHaveBeenCalledWith('blur', expect.any(Function));
+    expect(removeHost).toHaveBeenCalledWith('pointerdown', expect.any(Function));
+    expect(removeHost).toHaveBeenCalledWith('lostpointercapture', expect.any(Function));
+    // The press ends with the board: no card stays held.
+    expect(instance.holdTabId()).toBeNull();
+    removeDocument.mockRestore();
+    removeWindow.mockRestore();
+    removeHost.mockRestore();
+  });
+
   it('focuses the selected lane tab after a lane request', () => {
     const { fixture } = mount();
     fixture.componentInstance.onLanesRequested('b');
@@ -1851,6 +1969,44 @@ describe('CanvasRailBoardComponent rendering', () => {
     const topOutside = buttons(right).filter((button) => !button.closest('[role="dialog"]'));
     expect(tab(topOutside[topOutside.length - 1]).defaultPrevented).toBe(true);
     expect(document.activeElement).toBe(buttons(left)[0]);
+  });
+
+  it('Tab focus arriving from outside the board activates the pane it lands in', () => {
+    const { fixture, focused } = mount(true, 3);
+    const instance = fixture.componentInstance;
+    instance.openBeside('b');
+    fixture.detectChanges();
+    instance.swapPanes();
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const before = document.createElement('button');
+    before.textContent = 'Before board';
+    host.parentElement!.insertBefore(before, host);
+    try {
+      expect(instance.activeSide()).toBe('right');
+      before.focus();
+      // The board's Tab handler listens on its host only: a Tab pressed outside
+      // the board keeps the browser's own move.
+      expect(tab(before).defaultPrevented).toBe(false);
+      // The browser then moves focus into the board; landing in the inactive
+      // pane activates it through that pane's focusin.
+      const inactive = paneOf(fixture, 'left') as HTMLElement;
+      buttons(inactive)[0].focus();
+      fixture.detectChanges();
+      expect(document.activeElement).toBe(buttons(inactive)[0]);
+      expect(instance.activeSide()).toBe('left');
+      expect(focused()).toBe('a');
+      expect(instance.otherTabId()).toBe('b');
+      expect(inactive.getAttribute('aria-label')).toBe('Bottom session: a, active');
+      // Focus arriving in the already active pane changes nothing.
+      before.focus();
+      buttons(inactive)[0].focus();
+      fixture.detectChanges();
+      expect(instance.activeSide()).toBe('left');
+      expect(focused()).toBe('a');
+    } finally {
+      before.remove();
+    }
   });
 
   it('side-by-side swap keeps DOM Tab order (B3)', () => {
