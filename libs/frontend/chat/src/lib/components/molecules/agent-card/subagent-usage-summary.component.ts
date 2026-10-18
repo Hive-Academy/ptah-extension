@@ -26,9 +26,9 @@ import {
   type AgentUsageView,
   type SubagentRecord,
 } from '@ptah-extension/chat-streaming';
+import { formatAgentDuration } from '@ptah-extension/chat-ui';
 import {
   NOT_REPORTED,
-  formatDuration,
   formatEstimatedCost,
   formatOptionalTokens,
 } from './stats-bar.utils';
@@ -131,7 +131,9 @@ export class SubagentUsageSummaryComponent {
   protected readonly cacheTitle = computed(() => {
     const view = this.view();
     const idle =
-      view.idleMs === undefined ? 'unknown' : formatDuration(view.idleMs);
+      view.idleMs === undefined
+        ? 'unknown'
+        : (formatAgentDuration(view.idleMs) ?? '<1s');
     return `Prompt cache ${view.cacheState} (TTL ${view.effectiveTtl ?? NOT_REPORTED}, idle ${idle})`;
   });
 
