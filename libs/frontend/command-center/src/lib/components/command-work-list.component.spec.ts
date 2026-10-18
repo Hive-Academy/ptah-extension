@@ -85,6 +85,8 @@ describe('CommandWorkListComponent', () => {
 
   it('renders an unknown provider with a monogram tile', () => {
     const fixture = setup();
+    expect(fixture.componentInstance.knownProvider('pi')).toBe(true);
+    expect(fixture.componentInstance.knownProvider('ptah-cli')).toBe(true);
     expect(
       fixture.nativeElement.querySelectorAll('ptah-monogram-tile').length,
     ).toBe(1);
@@ -137,7 +139,47 @@ describe('CommandWorkListComponent', () => {
       'li button',
     ) as HTMLButtonElement;
     expect(row.textContent).toContain('completed');
-    expect(row.textContent).toContain('✓');
+    expect(row.querySelector('[data-test="work-state-icon"]')).not.toBeNull();
     expect(row.textContent).not.toContain('Unknown');
+  });
+
+  it('shows each state word with its own icon', () => {
+    const fixture = setup();
+    const states = [
+      'completed', 'failed', 'cancelled', 'awaiting input',
+      'running', 'starting', 'queued', 'idle', 'unknown',
+    ] as const;
+    const icons = new Map<string, string>();
+    for (const state of states) {
+      fixture.componentRef.setInput('projection', {
+        nodes: [nodes[0], { ...nodes[1], state }],
+        edges: [],
+      });
+      fixture.detectChanges();
+      const row = fixture.nativeElement.querySelector('li button') as HTMLButtonElement;
+      expect(row.textContent).toContain(state);
+      const icon = row.querySelector('[data-test="work-state-icon"] svg') as SVGElement;
+      expect(icon).not.toBeNull();
+      expect(icon.getAttribute('aria-hidden') ?? icon.parentElement?.getAttribute('aria-hidden')).toBe('true');
+      icons.set(state, icon.innerHTML);
+    }
+    expect(new Set(['completed', 'failed', 'cancelled', 'awaiting input', 'running', 'queued'].map((state) => icons.get(state))).size).toBe(6);
+    expect(icons.get('starting')).toBe(icons.get('running'));
+    expect(icons.get('idle')).toBe(icons.get('queued'));
+    expect(icons.get('unknown')).toBe(icons.get('queued'));
+  });
+
+  it('stops the running icon spin in reduced motion', () => {
+    const fixture = setup();
+    fixture.componentRef.setInput('projection', {
+      nodes: [nodes[0], { ...nodes[1], state: 'running' }],
+      edges: [],
+    });
+    fixture.detectChanges();
+    const icon = fixture.nativeElement.querySelector('[data-test="work-state-icon"]') as HTMLElement;
+    expect(icon.classList.contains('animate-spin')).toBe(true);
+    fixture.componentRef.setInput('reducedMotion', true);
+    fixture.detectChanges();
+    expect(icon.classList.contains('animate-spin')).toBe(false);
   });
 });

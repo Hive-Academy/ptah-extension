@@ -17,11 +17,14 @@ import {
   MonogramTileComponent,
   ProviderMarkComponent,
   PROVIDER_BRAND_SLUGS,
+  PROVIDER_MARKS,
 } from '@ptah-extension/ui';
+import { LucideAngularModule } from 'lucide-angular';
 import { CommandCenterStore } from '../model/command-center.store';
 import type { ProjectionResult } from '../model/work-projection';
 import type { SceneLabel } from '../scene/command-scene-renderer';
 import { CommandOverlayPositioner } from './command-overlay-positioner';
+import { stateColor, stateIcon } from './command-state-icon';
 
 export const COMMAND_OVERLAY_OPEN_DELAY_MS = 150;
 export const COMMAND_OVERLAY_CLOSE_DELAY_MS = 200;
@@ -29,7 +32,7 @@ export const COMMAND_OVERLAY_CLOSE_DELAY_MS = 200;
 @Component({
   selector: 'ptah-command-overlay',
   standalone: true,
-  imports: [ProviderMarkComponent, MonogramTileComponent],
+  imports: [ProviderMarkComponent, MonogramTileComponent, LucideAngularModule],
   providers: [FloatingUIService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -57,6 +60,9 @@ export const COMMAND_OVERLAY_CLOSE_DELAY_MS = 200;
               ? 'true'
               : null
           "
+          [attr.aria-controls]="
+            pinnedNodeId() === node.id ? 'command-node-card' : null
+          "
           (pointerenter)="onLabelEnter(node.id)"
           (pointerleave)="onLabelLeave(node.id)"
           (click)="pin(node.id)"
@@ -64,12 +70,36 @@ export const COMMAND_OVERLAY_CLOSE_DELAY_MS = 200;
           (keydown.space)="onLabelEnterKey($event, node.id)"
           (keydown.escape)="onEscape($event)"
         >
-          <span class="max-w-36 truncate font-semibold">{{ node.label }}</span>
+          <span class="flex max-w-36 min-w-0 items-center gap-1 font-semibold">
+            @if (knownProvider(node.providerId); as providerId) {
+              <ptah-provider-mark [providerId]="providerId" size="sm" />
+            } @else {
+              <ptah-monogram-tile
+                [label]="node.providerId || node.label"
+                size="sm"
+              />
+            }
+            <span class="min-w-0 truncate">{{ node.label }}</span>
+          </span>
           <span class="text-[11px] text-base-content-muted">
             @if (providerName(node.providerId); as provider) {
               {{ provider }} ·
             }
-            {{ node.state }}
+            <span
+              class="inline-flex items-center gap-1"
+              [class]="stateColor(node.state)"
+            >
+              <lucide-angular
+                [img]="stateIcon(node.state)"
+                class="h-3 w-3"
+                aria-hidden="true"
+                [class.animate-spin]="
+                  (node.state === 'running' || node.state === 'starting') &&
+                  !reducedMotion()
+                "
+              />
+              {{ node.state }}
+            </span>
           </span>
         </button>
       }
@@ -112,7 +142,21 @@ export const COMMAND_OVERLAY_CLOSE_DELAY_MS = 200;
                 @if (providerName(node.providerId); as provider) {
                   {{ provider }} ·
                 }
-                {{ node.state }}
+                <span
+                  class="inline-flex items-center gap-1"
+                  [class]="stateColor(node.state)"
+                >
+                  <lucide-angular
+                    [img]="stateIcon(node.state)"
+                    class="h-3 w-3"
+                    aria-hidden="true"
+                    [class.animate-spin]="
+                      (node.state === 'running' || node.state === 'starting') &&
+                      !reducedMotion()
+                    "
+                  />
+                  {{ node.state }}
+                </span>
               </p>
             </div>
             @if (pinnedNodeId()) {
@@ -148,6 +192,8 @@ export class CommandOverlayComponent {
       this.projection().nodes.find((node) => node.id === this.activeNodeId()) ??
       null,
   );
+  public readonly stateIcon = stateIcon;
+  public readonly stateColor = stateColor;
 
   private readonly floating = inject(FloatingUIService);
   private readonly zone = inject(NgZone);
@@ -158,6 +204,7 @@ export class CommandOverlayComponent {
   private readonly cardRef = viewChild<ElementRef<HTMLElement>>('card');
   private readonly bridgeRef = viewChild<ElementRef<HTMLElement>>('bridge');
   private labelHoverId: string | null = null;
+  private dismissedHoverId: string | null = null;
   private cardHover = false;
   private bridgeHover = false;
   private openTimer: ReturnType<typeof setTimeout> | null = null;
@@ -176,6 +223,12 @@ export class CommandOverlayComponent {
   public constructor() {
     effect(() => {
       const hover = this.hoveredNodeId();
+      if (
+        this.dismissedHoverId &&
+        hover !== this.dismissedHoverId &&
+        this.labelHoverId !== this.dismissedHoverId
+      )
+        this.dismissedHoverId = null;
       if (hover && !this.pinnedNodeId()) this.requestOpen(hover);
       else this.scheduleClose();
     });
@@ -183,6 +236,13 @@ export class CommandOverlayComponent {
       const selection = this.store.selectedId();
       const pinned = this.pinnedNodeId();
       if (pinned && selection !== this.selectedBeforePin) this.unpin(false);
+    });
+    effect(() => {
+      const pinned = this.pinnedNodeId();
+      const active = this.activeNodeId();
+      const ids = this.projection().nodes.map((node) => node.id);
+      if (pinned && !ids.includes(pinned)) this.unpin(false);
+      else if (active && !ids.includes(active)) this.close();
     });
     let shownPinnedId: string | null = null;
     effect(() => {
@@ -245,7 +305,11 @@ export class CommandOverlayComponent {
   }
 
   public knownProvider(id: string | null): string | null {
-    return id && Object.hasOwn(PROVIDER_BRAND_SLUGS, id) ? id : null;
+    return id &&
+      (Object.hasOwn(PROVIDER_BRAND_SLUGS, id) ||
+        Object.hasOwn(PROVIDER_MARKS, id))
+      ? id
+      : null;
   }
 
   public providerName(id: string | null): string | null {
@@ -256,6 +320,8 @@ export class CommandOverlayComponent {
   }
 
   public onLabelEnter(id: string): void {
+    if (this.dismissedHoverId && this.dismissedHoverId !== id)
+      this.dismissedHoverId = null;
     this.labelHoverId = id;
     this.cancelClose();
     if (!this.pinnedNodeId()) this.requestOpen(id);
@@ -263,6 +329,8 @@ export class CommandOverlayComponent {
 
   public onLabelLeave(id: string): void {
     if (this.labelHoverId === id) this.labelHoverId = null;
+    if (this.dismissedHoverId === id && this.hoveredNodeId() !== id)
+      this.dismissedHoverId = null;
     this.cancelOpen();
     this.scheduleClose();
   }
@@ -312,9 +380,16 @@ export class CommandOverlayComponent {
   }
 
   public onEscape(event: Event): void {
-    if (!(event instanceof KeyboardEvent) || !this.pinnedNodeId()) return;
+    if (
+      !(event instanceof KeyboardEvent) ||
+      (!this.activeNodeId() && !this.openTimer)
+    )
+      return;
     event.preventDefault();
-    this.unpin(true);
+    this.dismissedHoverId = this.hoveredNodeId() ?? this.labelHoverId;
+    this.cancelOpen();
+    if (this.pinnedNodeId()) this.unpin(true);
+    else this.close();
   }
 
   private unpin(restoreFocus: boolean): void {
@@ -345,6 +420,7 @@ export class CommandOverlayComponent {
   private requestOpen(id: string): void {
     if (
       this.destroyed ||
+      this.dismissedHoverId === id ||
       this.pinnedNodeId() ||
       !this.projection().nodes.some((node) => node.id === id)
     )
