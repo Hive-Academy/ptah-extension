@@ -141,10 +141,8 @@ export class WizardAnalysisRunner {
     this.wizardState.setCurrentStep('generation');
     try {
       await this.wizardRpc.resumeGeneration();
-    } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : 'Failed to resume generation.';
-      console.error('[WizardAnalysisRunner] Resume generation failed:', error);
+    } catch {
+      const message = 'Generation could not be resumed. Try again.';
       // Nothing ran: mark the still-pending items as failed so the
       // generation view reports the truth instead of hanging.
       this.wizardState.setSkillGenerationProgress(

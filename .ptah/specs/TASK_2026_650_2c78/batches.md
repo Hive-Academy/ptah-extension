@@ -249,11 +249,13 @@ Candidate only: unused duplicated old-generation presentation code after the new
 | B07C | 4 | done (new: verified bound agent result facts from the committed checkpoint for push and lookup; tabless unchanged) | codex backend-developer | 805de7457 |
 | B07D | 4 | done (new: verified result panel, one-time launch origin + combined countdown, store monotonic + watchdog, bound Resume, Phase 3 M-items in open handler/launcher/restore validator; muted text token for contrast) | codex frontend-developer | f139d318f |
 | P4 review | 4 | APPROVE 7/10 after 1 revise round (Part A S1-S5, M6 frontend; Part B M7, M8 backend + store/shell; N1-N5 deferred to B08/B09) | Claude code-logic-reviewer; codex fixes | (this commit) |
-| B08 | 5 | pending | codex frontend-developer | — |
-| B09 | 6 | pending | codex frontend-developer | — |
-| B10 | 6 | pending | codex frontend-developer | — |
-| B11 | 6 | pending | codex frontend-developer | — |
-| B12 | 6 | pending | codex frontend-developer | — |
+| B08 | 5 | done in 3 parts (A guidance store/cards/RPC; B guidance page in shell, shared lifecycle, regenerate model; C Phase 4 follow-ups M1-M5, M9, m1-m5, N1-N4, audit sites; m6 and N5 deferred) | codex frontend-developer | ff68c12f2, b7bd7ded8, 5373c65a2 |
+| P5 review | 5 | APPROVE 7.5/10 after 1 revise round (S1 single run source, S2 start feedback, M-a..M-g, m1-m4) | Claude code-logic-reviewer; codex fixes | 70f2bac04 |
+| B09 | 6 | done (running-only status line not shown: no verified run-state signal in the Hub; design-spec 2.6 note) | codex frontend-developer | 90a6b0b39 |
+| B10 | 6 | done (card embeds the widget, which owns the generation actions; first-pass duplicate buttons removed) | codex frontend-developer | b53533535 |
+| B11 | 6 | done | codex frontend-developer | 3096dfbe5 |
+| P6 review | 6 | APPROVE 8/10 (B09-B11, no must-fix); new Moderates from P5/P6 re-review go to P56F | Claude code-logic-reviewer | - |
+| B12 | 6 | done (analysis-result Continue opens the combined flow; old landing starts stay independent; removal option b applied: nothing deleted, all four old generation components still rendered by WizardViewComponent and the old resume path) | codex frontend-developer | (this commit) |
 
 ## Follow-ups from the Phase 2 review
 

@@ -229,7 +229,18 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
                 >Loading previous analyses...</span
               >
             </div>
-          } @else if (savedAnalyses().length > 0) {
+          }
+          @if (analysesError()) {
+            <p role="alert" class="text-sm text-error">
+              Previous analyses could not be loaded.
+            </p>
+          }
+          @if (analysisError()) {
+            <p role="alert" class="text-sm text-error">
+              This analysis could not be loaded.
+            </p>
+          }
+          @if (!isLoadingAnalyses() && savedAnalyses().length > 0) {
             <div class="text-left">
               <div class="divider text-xs text-base-content-muted my-3">
                 OR LOAD PREVIOUS ANALYSIS
@@ -304,7 +315,7 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
                         <button
                           class="btn btn-ghost btn-xs text-error/60 hover:text-error"
                           (click)="onDeleteAnalysis(analysis)"
-                          aria-label="Delete this analysis"
+                          aria-label="Hide this analysis from the list"
                         >
                           <lucide-angular
                             [img]="Trash2Icon"
@@ -343,6 +354,8 @@ export class WelcomeComponent implements OnInit {
   protected readonly isLoadingAnalyses = signal(false);
   protected readonly isLoadingAnalysis = signal(false);
   protected readonly loadingFilename = signal<string | null>(null);
+  protected readonly analysesError = signal(false);
+  protected readonly analysisError = signal(false);
   protected readonly providerSaving = signal(false);
   protected readonly connectedProviders = () =>
     (this.providers.connections().data ?? []).filter(
@@ -356,14 +369,12 @@ export class WelcomeComponent implements OnInit {
 
   private async loadSavedAnalyses(): Promise<void> {
     this.isLoadingAnalyses.set(true);
+    this.analysesError.set(false);
     try {
       const analyses = await this.wizardRpc.listAnalyses();
       this.wizardState.setSavedAnalyses(analyses);
-    } catch (error) {
-      console.warn(
-        '[WelcomeComponent] Failed to load saved analyses:',
-        error instanceof Error ? error.message : String(error),
-      );
+    } catch {
+      this.analysesError.set(true);
     } finally {
       this.isLoadingAnalyses.set(false);
     }
@@ -415,6 +426,7 @@ export class WelcomeComponent implements OnInit {
     analysis: SavedAnalysisMetadata,
   ): Promise<void> {
     this.isLoadingAnalysis.set(true);
+    this.analysisError.set(false);
     this.loadingFilename.set(analysis.filename);
 
     try {
@@ -428,11 +440,8 @@ export class WelcomeComponent implements OnInit {
       this.wizardState.setRecommendations(recommendations);
 
       this.wizardState.setCurrentStep('analysis');
-    } catch (error) {
-      console.error(
-        '[WelcomeComponent] Failed to load analysis:',
-        error instanceof Error ? error.message : String(error),
-      );
+    } catch {
+      this.analysisError.set(true);
     } finally {
       this.isLoadingAnalysis.set(false);
       this.loadingFilename.set(null);

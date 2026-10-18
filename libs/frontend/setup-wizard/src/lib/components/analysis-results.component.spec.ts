@@ -8,6 +8,8 @@ import { AnalysisResultsComponent } from './analysis-results.component';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 import { WizardAnalysisRunner } from '../services/wizard-analysis-runner.service';
 import { SetupGenerationOpenHandler } from '../services/setup-generation-open.handler';
+import { TabManagerService } from '@ptah-extension/chat-state';
+import { GenerationWorkflowLauncherService } from '@ptah-extension/chat-ui';
 
 const mockMultiPhase = {
   isMultiPhase: true,
@@ -63,6 +65,9 @@ const mockGenerationRun: ResumableGenerationRun = {
 };
 
 describe('AnalysisResultsComponent', () => {
+  const open = jest
+    .fn()
+    .mockResolvedValue({ outcome: 'landed', tabId: 'agent-tab' });
   let component: AnalysisResultsComponent;
   let fixture: ComponentFixture<AnalysisResultsComponent>;
   let mockStateService: Partial<SetupWizardStateService>;
@@ -76,6 +81,9 @@ describe('AnalysisResultsComponent', () => {
   >;
 
   beforeEach(async () => {
+    open
+      .mockReset()
+      .mockResolvedValue({ outcome: 'landed', tabId: 'agent-tab' });
     multiPhaseResult = signal<MultiPhaseAnalysisResponse | null>(null);
     resumableGeneration = signal<ResumableGenerationRun | null>(null);
 
@@ -92,6 +100,11 @@ describe('AnalysisResultsComponent', () => {
     await TestBed.configureTestingModule({
       imports: [AnalysisResultsComponent],
       providers: [
+        {
+          provide: TabManagerService,
+          useValue: { activeWorkspacePath: '/workspace' },
+        },
+        { provide: GenerationWorkflowLauncherService, useValue: { open } },
         {
           provide: SetupGenerationOpenHandler,
           useValue: { launchNotice: signal(null) },
@@ -127,7 +140,7 @@ describe('AnalysisResultsComponent', () => {
       expect(text).toContain('phase timed out');
     });
 
-    it('continue advances to the selection step', () => {
+    it('continue opens the combined agent workflow', async () => {
       multiPhaseResult.set(mockMultiPhase);
       fixture.detectChanges();
 
@@ -137,8 +150,39 @@ describe('AnalysisResultsComponent', () => {
         ((b as HTMLButtonElement).textContent ?? '').includes('Yes, Continue'),
       ) as HTMLButtonElement;
       continueButton.click();
+      await fixture.whenStable();
+      expect(open).toHaveBeenCalledWith({
+        workspacePath: '/workspace',
+        workflow: 'setup-agent-generation',
+        origin: 'analysis-result-continue',
+      });
+      expect(mockStateService.setCurrentStep).not.toHaveBeenCalledWith(
+        'selection',
+      );
+    });
 
-      expect(mockStateService.setCurrentStep).toHaveBeenCalledWith('selection');
+    it('shows safe launch failure and stays silent on cancellation', async () => {
+      multiPhaseResult.set(mockMultiPhase);
+      fixture.detectChanges();
+      const button = Array.from<HTMLButtonElement>(
+        fixture.nativeElement.querySelectorAll('button'),
+      ).find((item) =>
+        (item.textContent ?? '').includes('Yes, Continue'),
+      ) as HTMLButtonElement;
+      open.mockResolvedValueOnce({ outcome: 'failed' });
+      button.click();
+      await fixture.whenStable();
+      fixture.detectChanges();
+      expect(fixture.nativeElement.textContent).toContain(
+        'Agent generation could not be opened',
+      );
+      open.mockResolvedValueOnce({ outcome: 'cancelled' });
+      button.click();
+      await fixture.whenStable();
+      fixture.detectChanges();
+      expect(fixture.nativeElement.textContent).not.toContain(
+        'Agent generation could not be opened',
+      );
     });
   });
 
