@@ -36,6 +36,9 @@ export class GenerationWorkflowStore {
   private pendingStop = false;
   private watchdog: ReturnType<typeof setTimeout> | null = null;
   private lookupFailures = 0;
+  readonly acceptedRun = signal<{ runId: string; revision: number } | null>(
+    null,
+  );
   readonly binding = this.bindingValue.asReadonly();
   readonly run = this.runValue.asReadonly();
   readonly state = this.stateValue.asReadonly();
@@ -179,6 +182,10 @@ export class GenerationWorkflowStore {
     binding: SetupGenerationTabBinding,
     accepted: SetupGenerationAccepted,
   ): Promise<void> {
+    this.acceptedRun.update((previous) => ({
+      runId: accepted.runId,
+      revision: (previous?.revision ?? 0) + 1,
+    }));
     this.runValue.set({
       binding: { ...binding, runId: accepted.runId },
       status: 'starting',
@@ -276,7 +283,16 @@ export class GenerationWorkflowStore {
       previous?.binding.runId === run.binding.runId &&
       this.isTerminal(previous.status)
     ) {
-      if (!this.isTerminal(run.status) || previous.result || !run.result)
+      const verifiedCorrection =
+        previous.status === 'failed' &&
+        previous.result?.finalizationFailed === true &&
+        run.status === 'completed' &&
+        run.result?.counts !== undefined &&
+        run.result.agentOutcomes !== undefined;
+      if (
+        !verifiedCorrection &&
+        (!this.isTerminal(run.status) || previous.result || !run.result)
+      )
         return;
     }
     this.runValue.set(run);

@@ -71,7 +71,14 @@ import { GenerationStopControlComponent } from './generation-stop-control.compon
                 [checkpoint]="checkpoint"
                 [remaining]="agents.remainingCounts()"
                 [retrying]="agents.retryingIds()"
-                (retry)="agents.retry($event)"
+                (retry)="
+                  agents.retry(
+                    $event,
+                    store.run()?.binding?.runId === checkpoint.runId
+                      ? store.run()?.binding
+                      : undefined
+                  )
+                "
               />
             }
             @if (agents.guidanceStatus() === 'missing' && !store.isBound()) {
@@ -142,7 +149,12 @@ import { GenerationStopControlComponent } from './generation-stop-control.compon
                   </ul>
                   <p>
                     Propagation: {{ result.propagation.status }}; consent:
-                    {{ result.propagation.consent }}
+                    {{
+                      propagationConsentLabel(
+                        result.propagation.status,
+                        result.propagation.consent
+                      )
+                    }}
                   </p>
                   <p>
                     Guidance used:
@@ -210,6 +222,9 @@ import { GenerationStopControlComponent } from './generation-stop-control.compon
   `,
 })
 export class GenerationWorkflowShellComponent {
+  propagationConsentLabel(status: string, consent: string): string {
+    return status === 'not-attempted' ? 'not attempted' : consent;
+  }
   private readonly route = inject(ActivatedRoute);
   private readonly paramMap = toSignal(this.route.paramMap, {
     initialValue: this.route.snapshot.paramMap,
@@ -224,6 +239,7 @@ export class GenerationWorkflowShellComponent {
   private activeTabId: string | null = null;
   private combinedTabId: string | null = null;
   private scheduledRunId: string | null = null;
+  private combinedBaselineRevision = 0;
   private readonly now = signal(Date.now());
   readonly remainingSeconds = computed(() =>
     Math.max(
@@ -252,28 +268,40 @@ export class GenerationWorkflowShellComponent {
       result.tailoredSections !== undefined
     );
   });
-  readonly binding = computed(() => {
-    this.tabs.tabs();
-    const workspacePath = this.tabs.activeWorkspacePath$();
-    const tabId = this.paramMap().get('tabId');
-    const workflow = this.paramMap().get('workflow');
-    if (
-      !workspacePath ||
-      !tabId ||
-      (workflow !== 'setup-agent-generation' &&
-        workflow !== 'setup-project-prompt')
-    )
-      return null;
-    const tab = this.tabs
-      .getWorkspaceTabs(workspacePath)
-      .find(
-        (candidate) =>
-          candidate.id === tabId && candidate.workflow === workflow,
-      );
-    return tab
-      ? { tabId, workspacePath, workflow: workflow as SetupGenerationWorkflow }
-      : null;
-  });
+  readonly binding = computed(
+    () => {
+      this.tabs.tabs();
+      const workspacePath = this.tabs.activeWorkspacePath$();
+      const tabId = this.paramMap().get('tabId');
+      const workflow = this.paramMap().get('workflow');
+      if (
+        !workspacePath ||
+        !tabId ||
+        (workflow !== 'setup-agent-generation' &&
+          workflow !== 'setup-project-prompt')
+      )
+        return null;
+      const tab = this.tabs
+        .getWorkspaceTabs(workspacePath)
+        .find(
+          (candidate) =>
+            candidate.id === tabId && candidate.workflow === workflow,
+        );
+      return tab
+        ? {
+            tabId,
+            workspacePath,
+            workflow: workflow as SetupGenerationWorkflow,
+          }
+        : null;
+    },
+    {
+      equal: (a, b) =>
+        a?.tabId === b?.tabId &&
+        a?.workflow === b?.workflow &&
+        a?.workspacePath === b?.workspacePath,
+    },
+  );
   readonly startGuard = () =>
     this.store.isBound()
       ? 'Finish or stop generation before sending a message.'
@@ -302,6 +330,8 @@ export class GenerationWorkflowShellComponent {
             'analysis-result-continue'
               ? binding.tabId
               : null;
+          this.combinedBaselineRevision =
+            this.store.acceptedRun()?.revision ?? 0;
           void this.agents.discover();
           void this.agents.checkGuidance(binding.workspacePath);
         }
@@ -314,9 +344,12 @@ export class GenerationWorkflowShellComponent {
     });
     effect(() => {
       const run = this.store.run();
+      const accepted = this.store.acceptedRun();
       if (
         run &&
         run.binding.tabId === this.combinedTabId &&
+        accepted?.runId === run.binding.runId &&
+        accepted.revision > this.combinedBaselineRevision &&
         run.status === 'completed' &&
         this.hasVerifiedResults() &&
         run.binding.runId !== this.scheduledRunId

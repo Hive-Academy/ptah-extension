@@ -1,5 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { ClaudeRpcService, ModelStateService } from '@ptah-extension/core';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import type {
   AgentPackInfoDto,
   AgentRecommendation,
@@ -79,6 +80,7 @@ export interface AgentSelectionResponse {
 export class WizardRpcService {
   private readonly rpcService = inject(ClaudeRpcService);
   private readonly modelState = inject(ModelStateService);
+  private readonly tabs = inject(TabManagerService);
 
   async getBoundRunState(
     binding: SetupGenerationTabBinding,
@@ -120,11 +122,16 @@ export class WizardRpcService {
     selectedAgentIds: string[],
     resume = false,
   ): Promise<WizardSubmitSelectionResponse> {
+    const located = this.tabs.findTabByIdAcrossWorkspaces(binding.tabId);
+    const tab =
+      located?.workspacePath === binding.workspacePath ? located.tab : null;
     const result = await this.rpcService.call(
       'wizard:submit-selection',
       {
         tabBinding: binding,
         selectedAgentIds,
+        model:
+          tab?.overrideModel ?? this.modelState.currentModel() ?? undefined,
         ...(resume ? { resume: true } : {}),
       },
       { timeout: WIZARD_RPC_TIMEOUTS.GENERATION_MS },
@@ -228,10 +235,17 @@ export class WizardRpcService {
    *
    * @param itemId - Identifier of the generation item to retry
    */
-  public async retryGenerationItem(itemId: string): Promise<void> {
-    const result = await this.rpcService.call('wizard:retry-item', { itemId });
-    if (!result.isSuccess()) {
-      throw new Error(result.error || 'Failed to retry generation item');
+  public async retryGenerationItem(
+    itemId: string,
+    tabBinding?: SetupGenerationRunBinding,
+  ): Promise<void> {
+    const result = await this.rpcService.call(
+      'wizard:retry-item',
+      { itemId, ...(tabBinding ? { tabBinding } : {}) },
+      { timeout: WIZARD_RPC_TIMEOUTS.GENERATION_MS },
+    );
+    if (!result.isSuccess() || (tabBinding && !result.data?.success)) {
+      throw new Error('Failed to retry generation item');
     }
   }
 

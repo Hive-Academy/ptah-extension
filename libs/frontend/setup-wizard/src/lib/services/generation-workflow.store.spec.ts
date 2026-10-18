@@ -30,6 +30,63 @@ const tabProvider = {
 };
 
 describe('GenerationWorkflowStore', () => {
+  it.each([
+    ['finalization failure', true, 'failed', true],
+    ['other failure', false, 'failed', false],
+    ['completed terminal', false, 'completed', false],
+  ] as const)(
+    'allows verified lookup correction only for %s',
+    async (_name, finalizationFailed, priorStatus, shouldCorrect) => {
+      const previous = {
+        ...active,
+        status: priorStatus,
+        result: {
+          status: priorStatus,
+          success: priorStatus === 'completed',
+          source: active.source,
+          effectiveProvider: 'unknown',
+          effectiveModel: 'unknown',
+          ...(finalizationFailed ? { finalizationFailed: true } : {}),
+        },
+      };
+      const verified = {
+        ...active,
+        status: 'completed' as const,
+        result: {
+          status: 'completed' as const,
+          success: true,
+          source: active.source,
+          effectiveProvider: 'unknown',
+          effectiveModel: 'unknown',
+          counts: {
+            total: 1,
+            written: 1,
+            unchanged: 0,
+            failed: 0,
+            skipped: 0,
+            rejected: 0,
+          },
+          agentOutcomes: [],
+        },
+      };
+      const getBoundRunState = jest
+        .fn()
+        .mockResolvedValueOnce(previous)
+        .mockResolvedValue(verified);
+      TestBed.configureTestingModule({
+        providers: [
+          GenerationWorkflowStore,
+          tabProvider,
+          { provide: WizardRpcService, useValue: { getBoundRunState } },
+        ],
+      });
+      const store = TestBed.inject(GenerationWorkflowStore);
+      store.bind(binding);
+      await Promise.resolve();
+      await store.refresh();
+      expect(store.run()).toEqual(shouldCorrect ? verified : previous);
+    },
+  );
   it('keeps a terminal result when a stale running read arrives', async () => {
     const terminal = {
       ...active,

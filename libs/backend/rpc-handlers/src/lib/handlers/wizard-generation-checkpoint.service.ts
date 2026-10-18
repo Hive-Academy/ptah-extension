@@ -64,6 +64,8 @@ export interface FreshGenerationRun {
 export interface PreparedGenerationRun {
   location: GenerationCheckpointLocation;
   manifest: GenerationCheckpointManifest;
+  /** Completed propagation from a previous invocation, restored only if no files are written. */
+  previousPropagation?: GenerationCheckpointManifest['propagation'];
   /** Agents the orchestrator must (re)run in this invocation. */
   agentIds: string[];
   /**
@@ -351,8 +353,12 @@ export class GenerationCheckpointService {
       });
     }
 
+    const propagation = manifest.propagation;
+    const resumable = { ...manifest };
+    delete resumable.verifiedResult;
+    delete resumable.propagation;
     const next: GenerationCheckpointManifest = {
-      ...manifest,
+      ...resumable,
       ...(metadata?.tabBinding
         ? {
             tabBinding: metadata.tabBinding,
@@ -387,7 +393,15 @@ export class GenerationCheckpointService {
       remaining: agentIds,
       carriedOver: carriedOver.map((agent) => agent.agentId),
     });
-    return { location, manifest: next, agentIds, carriedOver };
+    return {
+      location,
+      manifest: next,
+      agentIds,
+      carriedOver,
+      ...(propagation?.status === 'completed'
+        ? { previousPropagation: propagation }
+        : {}),
+    };
   }
 
   /**

@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { WizardRpcService } from './wizard-rpc.service';
 import { ClaudeRpcService, ModelStateService } from '@ptah-extension/core';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import { AgentSelection } from './setup-wizard-state.service';
 
 /**
@@ -31,6 +32,10 @@ describe('WizardRpcService', () => {
         WizardRpcService,
         { provide: ClaudeRpcService, useValue: mockRpcService },
         { provide: ModelStateService, useValue: mockModelState },
+        {
+          provide: TabManagerService,
+          useValue: { findTabByIdAcrossWorkspaces: jest.fn() },
+        },
       ],
     });
 
@@ -298,23 +303,77 @@ describe('WizardRpcService', () => {
   });
 
   describe('retryGenerationItem', () => {
+    it('uses the exact bound run for retry and rejects an unsuccessful result', async () => {
+      const tabBinding = {
+        tabId: 'tab',
+        workspacePath: '/ws',
+        workflow: 'setup-agent-generation' as const,
+        runId: 'run',
+      };
+      rpcCall
+        .mockResolvedValueOnce(okResult({ success: true }))
+        .mockResolvedValueOnce(okResult({ success: false }));
+      await service.retryGenerationItem('agent', tabBinding);
+      expect(rpcCall).toHaveBeenCalledWith(
+        'wizard:retry-item',
+        { itemId: 'agent', tabBinding },
+        { timeout: 300_000 },
+      );
+      await expect(
+        service.retryGenerationItem('agent', tabBinding),
+      ).rejects.toThrow('Failed to retry generation item');
+    });
     it('should call wizard:retry-item with the given itemId', async () => {
       rpcCall.mockResolvedValue(okResult());
 
       await service.retryGenerationItem('item-42');
 
-      expect(rpcCall).toHaveBeenCalledWith('wizard:retry-item', {
-        itemId: 'item-42',
-      });
+      expect(rpcCall).toHaveBeenCalledWith(
+        'wizard:retry-item',
+        {
+          itemId: 'item-42',
+        },
+        { timeout: 300_000 },
+      );
     });
 
     it('should throw when RPC fails', async () => {
       rpcCall.mockResolvedValue(errResult('not-found'));
 
       await expect(service.retryGenerationItem('item-42')).rejects.toThrow(
-        'not-found',
+        'Failed to retry generation item',
       );
     });
+  });
+
+  it('sends the tab picker model on bound submit and resume', async () => {
+    const tabBinding = {
+      tabId: 'tab',
+      workspacePath: '/ws',
+      workflow: 'setup-agent-generation' as const,
+    };
+    const tabs = TestBed.inject(TabManagerService);
+    jest
+      .spyOn(tabs, 'findTabByIdAcrossWorkspaces')
+      .mockReturnValue({
+        workspacePath: '/ws',
+        tab: { overrideModel: 'opus' },
+      } as ReturnType<TabManagerService['findTabByIdAcrossWorkspaces']>);
+    rpcCall.mockResolvedValue(okResult({ accepted: { runId: 'run' } }));
+    await service.startBoundAgents(tabBinding, ['a']);
+    await service.startBoundAgents(tabBinding, [], true);
+    expect(rpcCall).toHaveBeenNthCalledWith(
+      1,
+      'wizard:submit-selection',
+      expect.objectContaining({ model: 'opus', selectedAgentIds: ['a'] }),
+      expect.any(Object),
+    );
+    expect(rpcCall).toHaveBeenNthCalledWith(
+      2,
+      'wizard:submit-selection',
+      expect.objectContaining({ model: 'opus', resume: true }),
+      expect.any(Object),
+    );
   });
 
   it('looks up and stops a tab-bound run using its exact identity', async () => {

@@ -6,6 +6,7 @@ import {
   inject,
   input,
   signal,
+  untracked,
 } from '@angular/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { ClaudeRpcService } from '@ptah-extension/core';
@@ -202,12 +203,17 @@ export class AgentSelectionListComponent {
     { key: 'other', label: 'Other' },
   ] as const;
   private previewSequence = 0;
+  private readonly bindingKey = computed(() => {
+    const { tabId, workflow, workspacePath } = this.binding();
+    return `${tabId}\u0000${workflow}\u0000${workspacePath}`;
+  });
 
   constructor() {
     effect(() => {
-      const binding = this.binding();
+      this.bindingKey();
+      const binding = untracked(this.binding);
       if (binding.workflow !== 'setup-agent-generation') return;
-      if (this.catalogMode()) void this.loadCatalog();
+      if (this.catalogMode()) void this.loadCatalog(binding);
       else {
         this.agents.set(this.state.recommendations());
         this.selected.set(
@@ -231,13 +237,15 @@ export class AgentSelectionListComponent {
     );
   }
 
-  protected async loadCatalog(): Promise<void> {
+  protected async loadCatalog(
+    binding: SetupGenerationTabBinding = this.binding(),
+  ): Promise<void> {
     this.loading.set(true);
     this.error.set(false);
     try {
       const result = await this.rpc.call(
         'wizard:recommend-agents',
-        { mode: 'workspace-catalog', tabBinding: this.binding() },
+        { mode: 'workspace-catalog', tabBinding: binding },
         { timeout: 60_000 },
       );
       if (!result.isSuccess() || !result.data)

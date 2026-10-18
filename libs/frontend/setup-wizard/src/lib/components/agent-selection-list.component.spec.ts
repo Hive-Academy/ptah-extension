@@ -61,9 +61,11 @@ describe('AgentSelectionListComponent', () => {
   const chatTurnRejection = signal<string | null>(null);
   let call: jest.Mock;
   let startAgents: jest.Mock;
+  const multiPhaseResult = signal<object | null>(null);
 
   beforeEach(() => {
     rejection.set(null);
+    multiPhaseResult.set(null);
     chatTurnRejection.set(null);
     call = jest.fn().mockImplementation((method: string) =>
       Promise.resolve({
@@ -78,8 +80,9 @@ describe('AgentSelectionListComponent', () => {
         {
           provide: SetupWizardStateService,
           useValue: {
-            multiPhaseResult: signal(null),
-            recommendations: signal([]),
+            multiPhaseResult,
+            recommendations: signal([agent]),
+            selectedAgentsMap: signal({}),
             communityPacks: signal([]),
             setCommunityPacks: jest.fn(),
           },
@@ -103,12 +106,10 @@ describe('AgentSelectionListComponent', () => {
           useValue: {
             tabs: signal([{ id: 'agents-tab', overrideModel: null }]),
             activeWorkspacePath: '/workspace',
-            findTabByIdAcrossWorkspaces: jest
-              .fn()
-              .mockReturnValue({
-                workspacePath: '/workspace',
-                tab: { title: 'Generate agents' },
-              }),
+            findTabByIdAcrossWorkspaces: jest.fn().mockReturnValue({
+              workspacePath: '/workspace',
+              tab: { title: 'Generate agents' },
+            }),
             setOverrideModel: jest.fn(),
           },
         },
@@ -147,6 +148,34 @@ describe('AgentSelectionListComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('Catalog list');
     expect(fixture.nativeElement.textContent).toContain('Frontend Developer');
     expect(fixture.nativeElement.textContent).not.toContain('100%');
+  });
+
+  it('keeps catalog selection and avoids a refetch when binding identity is unchanged', async () => {
+    const fixture = create();
+    await fixture.whenStable();
+    fixture.componentInstance['toggle'](agent.agentId);
+    fixture.componentRef.setInput('binding', { ...binding });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(fixture.componentInstance['selected']().has(agent.agentId)).toBe(
+      true,
+    );
+    expect(
+      call.mock.calls.filter(
+        ([method]) => method === 'wizard:recommend-agents',
+      ),
+    ).toHaveLength(1);
+  });
+
+  it('keeps analysis selection when binding identity is unchanged', async () => {
+    multiPhaseResult.set({});
+    const fixture = create();
+    fixture.componentInstance['toggle'](agent.agentId);
+    fixture.componentRef.setInput('binding', { ...binding });
+    fixture.detectChanges();
+    expect(fixture.componentInstance['selected']().has(agent.agentId)).toBe(
+      true,
+    );
   });
 
   it('re-previews before submit and requires another confirmation for changed definite targets', async () => {

@@ -49,6 +49,16 @@ export class GenerationRunEventAdapter implements MessageHandler {
         this.terminalRunId = null;
         this.terminalPushRunId = null;
       }
+      if (
+        binding &&
+        run &&
+        !this.isTerminal(run.status) &&
+        (this.terminalRunId === runId || this.terminalPushRunId === runId)
+      ) {
+        this.terminalRunId = null;
+        this.terminalPushRunId = null;
+        this.ownedMessages.delete(binding.tabId);
+      }
       if (binding && run && this.isTerminal(run.status))
         this.finish(run.binding, run.status);
       if (binding && run) {

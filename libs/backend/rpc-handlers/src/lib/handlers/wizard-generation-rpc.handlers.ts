@@ -714,6 +714,7 @@ export class WizardGenerationRpcHandlers {
             effectiveWorkspace,
             settled,
             !!tabBinding,
+            prepared.previousPropagation,
           ),
       })
       .catch(async (error: unknown) => {
@@ -840,6 +841,21 @@ export class WizardGenerationRpcHandlers {
       durationMs: 0,
     });
     const manifest = prepared.manifest;
+    if (prepared.previousPropagation) {
+      try {
+        await this.checkpoints.recordPropagation(
+          prepared.location,
+          prepared.previousPropagation,
+        );
+        manifest.propagation = prepared.previousPropagation;
+      } catch (error: unknown) {
+        // degradation-audit: reported - finalization is committed; propagation persistence is supplementary.
+        this.logger.error(
+          'RPC: completed propagation could not be restored',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      }
+    }
     if (manifest.tabBinding) {
       const source = manifest.source ?? {
         kind: 'workspace-discovery' as const,
@@ -875,6 +891,7 @@ export class WizardGenerationRpcHandlers {
     workspaceRoot: string,
     settled: SettledGenerationRun,
     bound = false,
+    previousPropagation?: PreparedGenerationRun['previousPropagation'],
   ): Promise<void> {
     const lifecycle =
       settled.abortReason === GENERATION_CANCEL_REASON
@@ -903,15 +920,32 @@ export class WizardGenerationRpcHandlers {
       if (settled.summary.writtenCount > 0) {
         const propagation = await this.propagateGeneratedAgents(workspaceRoot);
         if (bound) {
-          settled.propagation = propagation;
-          await this.checkpoints.recordPropagation(location, propagation);
+          try {
+            await this.checkpoints.recordPropagation(location, propagation);
+            settled.propagation = propagation;
+          } catch (error: unknown) {
+            // degradation-audit: reported - finalization succeeded; omit unrecorded propagation facts.
+            this.logger.error(
+              'RPC: propagation checkpoint update failed',
+              error instanceof Error ? error : new Error(String(error)),
+            );
+          }
         }
       } else if (bound) {
-        settled.propagation = {
-          consent: 'not-granted',
-          status: 'not-attempted',
+        const propagation = previousPropagation ?? {
+          consent: 'not-granted' as const,
+          status: 'not-attempted' as const,
         };
-        await this.checkpoints.recordPropagation(location, settled.propagation);
+        try {
+          await this.checkpoints.recordPropagation(location, propagation);
+          settled.propagation = propagation;
+        } catch (error: unknown) {
+          // degradation-audit: reported - finalization succeeded; omit unrecorded propagation facts.
+          this.logger.error(
+            'RPC: propagation checkpoint update failed',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        }
       }
     } else {
       this.logger.error(`RPC: ${method} failed`, {
@@ -921,10 +955,18 @@ export class WizardGenerationRpcHandlers {
     }
     if (finalizeError) throw finalizeError;
     if (bound && settled.summary) {
-      const committed = await this.checkpoints.loadAt(location);
-      if (!committed)
-        throw new Error('Generation checkpoint missing after settlement');
-      settled.resultDetails = resultDetailsFromManifest(committed);
+      try {
+        const committed = await this.checkpoints.loadAt(location);
+        if (!committed)
+          throw new Error('Generation checkpoint missing after settlement');
+        settled.resultDetails = resultDetailsFromManifest(committed);
+      } catch (error: unknown) {
+        // degradation-audit: reported - finalization succeeded; the push can omit unreadable facts.
+        this.logger.error(
+          'RPC: finalized generation checkpoint could not be reloaded',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      }
     }
   }
 

@@ -495,3 +495,187 @@ M1 to M7 and the Minor list from the first Phase 3 review remain scheduled for B
 APPROVE with deferrals. Score 7/10. No Blocking or Serious items remain: S1, S2, S3 and N2 are fixed, N1 is closed for the shell-return path, and the remaining gaps (N4, N5) are Moderate edge cases that need an earlier skipped or missed finish and recover through the feature's own entry points.
 
 Fix with the next change to this file (cheap, no new risk): N4. Carry to the B07 brief: N5, plus M1 to M7.
+
+
+## Phase 4 review (B07-B07D)
+
+Scope: `git diff 9ddb2f0b7..f139d318f` (e1d173fa9, de74d39d5, 805de7457, f139d318f), read in full for the stores, adapter, shell, launcher, handoff store, selection list, run/next-steps/preview/packs/landing components, backend binding/checkpoint/handler/supervisor changes and the Zod manifest. Read-only review; no checks re-run. Revise round 1 of 2.
+
+| Metric | Value |
+| --- | --- |
+| Score | 5/10 |
+| Verdict | REVISE |
+| Blocking | 0 |
+| Serious | 5 |
+| Moderate | 9 |
+| Minor | 6 |
+
+Evidence for the score: the backend facts (B07C) are sound (committed-record sourcing, optional Zod fields, push and lookup share `resultDetailsFromManifest`), safe output holds, and the countdown is a single absolute deadline. What separates this from 7: five defects on likely paths (resume transcript silently dropped, model choice ignored, retry on the wrong contract and never reflected, selection reset by input churn, stale-run auto-start). What keeps it above 3: no data loss, no secret leak, no path to a false "nothing written" claim.
+
+### Serious (must fix before B08)
+
+**S1. Bound Resume reuses the run ID, so the adapter drops the whole resumed transcript and never finalizes it**
+- File: `libs/frontend/setup-wizard/src/lib/services/generation-run-event-adapter.ts:47-51,121-122,189` with `libs/backend/rpc-handlers/src/lib/handlers/wizard-generation-binding.ts:331` (accepted `runId = prepared.manifest.runId`; `prepareResume` keeps `manifest.runId`).
+- Scenario: a run ends `failed`/interrupted/`cancelled`/`timed-out`; the store shows it terminal and the effect calls `finish()`, which sets `terminalRunId = R` unconditionally (line 190). The user presses the new bound Resume. `accept()` in the store sets the same run ID R back to `starting`. `activeRunId` is unchanged, so `terminalRunId` is never cleared. Every stream event is rejected at line 121 as "late after terminal"; the second terminal's `finish()` returns at line 189, so the owned message is never finalized and can stay streaming.
+- Impact: the headline recovery feature (B07D gap 4) works on the backend, but the chat tab shows no activity for the resumed run and the transcript message is left open. Parity row 23 (live transcript) fails exactly in the recovery case.
+- Fix: in the effect, when `run.binding.runId` equals `terminalRunId`/`terminalPushRunId` and `!isTerminal(run.status)`, clear both markers (and drop the stale `ownedMessages` entry). Add an adapter spec: terminal R, then `starting` R, event accepted, then terminal R finalizes.
+
+**S2. The tab model picker is never sent to the host; the user's model choice is silently ignored**
+- File: `libs/frontend/setup-wizard/src/lib/services/wizard-rpc.service.ts:118-135` (no `model` param), `generation-workflow.store.ts:99`, `generation-model-picker.component.ts:49-53` ("This is the tab model used by generation and chat."), `wizard-generation-binding.ts:364-388` (host falls back to `tiers.sonnet`).
+- Scenario: the user picks Opus in the picker (it only writes `overrideModel` on the tab) and presses Generate. The RPC carries only `tabBinding` and the agent IDs; the host resolves `requestedModel = undefined` and runs the default tier. The "Run model" line then shows the host's value, which contradicts the control the user just set.
+- Impact: AC19 and parity row 7 (model choice) regress silently; cost and quality differ from what the UI promised.
+- Fix: send `model: tab.overrideModel ?? sessionModel ?? global` in `startBoundAgents` (the backend already validates it and raises `INVALID_PARAMS`), surface that rejection, and add a store/RPC spec asserting the param.
+
+**S3. Per-item Retry uses the tabless `wizard:retry-item` contract and the result is never reflected**
+- File: `wizard-rpc.service.ts:231-236` (`{ itemId }` only), `agent-generation.store.ts:95-116` (no re-discover after success), shell `generation-workflow-shell.component.ts:70-75`; backend `wizard-generation-rpc.handlers.ts:1340-1376` (tabless path uses `this.lastCheckpoint` and `this.lastGenerationOptions ?? {}`).
+- Scenario: a checkpoint from a previous host session (or another run) is shown; Retry on a failed agent runs with process-wide options that are empty after a reload (default model/threshold, no enhanced prompt, no analysis dir) and, with `lastCheckpoint === null`, passes no `onAgentOutcome`, so the outcome is not written to the checkpoint. The UI re-reads nothing, so the row still says `failed` after a successful retry, and the user burns the 3-attempt cap.
+- Impact: rows 25/27 are only nominally met. The bound retry contract (`tabBinding` + `runId`, handler lines 1317-1352) built earlier is unused by the page.
+- Fix: when the page has a bound run, call retry with `{ itemId, tabBinding: {..., runId} }`; call `discover()` (or apply the returned outcome) after every retry/resume attempt; keep the tabless call only for a tabless checkpoint.
+
+**S4. The selection list is reset or refetched whenever the shell's `binding` object is re-created**
+- File: `generation-workflow-shell.component.ts:240-256` (`binding` computed depends on `tabs.tabs()` and returns a new object each time), consumed as `[binding]="current"` (line 93); `agent-selection-list.component.ts:119-131` (effect depends on `binding()`).
+- Scenario: any change to the tab list re-evaluates the computed: choosing a model in the picker (`setOverrideModel` -> `updateTabInternal`), a title update, another tab streaming. In saved-analysis mode the effect re-runs `selected.set(state.selectedAgentsMap)`, discarding the user's toggles and "Select recommended / Deselect all" work; in catalog mode it fires another `wizard:recommend-agents` (60 s timeout) and flips `loading`.
+- Impact: lost selection on a normal action (change model, then Generate), and needless backend work. Found by reading; not reproduced by a run.
+- Fix: give the computed a structural `equal` (compare tabId, workspacePath, workflow), or key the effect on those three strings. Add a component spec that toggles, changes the tab model, and expects the selection to survive.
+
+**S5. A one-time "analysis-result-continue" origin can start a guidance run against a stale, already-completed agent run**
+- File: `libs/frontend/chat-ui/src/lib/services/generation-workflow-launcher.service.ts:51-72` (origin is recorded for an existing tab too), `generation-workflow-shell.component.ts:281-290,296-309`.
+- Scenario: the user generated agents earlier in the "Generate agents" tab (run R completed with verified facts), re-ran analysis, and presses Continue. The launcher reuses the existing tab and records the combined origin. The shell consumes it, `store.bind` looks up R (`completed`, verified), and the effect schedules the five-second deadline. Guidance (a model run) starts although no agent generation happened in this flow.
+- Impact: unrequested paid run after plain navigation; contradicts "after a verified committed agent outcome" in the plan. Skip exists, but a user who looks away loses.
+- Fix: arm the countdown only for a run this shell instance saw leave a non-terminal state (starting/running -> completed), or only when the tab had no terminal run at bind time; also clear `combinedTabId` after the first `schedule` (see M3).
+
+### Moderate
+
+- **M1. Watchdog budget never resets across bindings.** `generation-workflow.store.ts:38,211-213`: `lookupFailures` is reset only on a successful lookup, not in `bind()`/`unbind()`/`accept()`. After three failures in one tab, every later tab or run gets no watchdog and sits in `quiet`. Reset it in `bind`, `unbind` and `accept`.
+- **M2. Countdown flashes a huge number.** `generation-workflow-shell.component.ts:230-240`: `now` is refreshed only by the 250 ms interval after `pending()` is set; until the first tick `remainingSeconds` is 5 plus the time since the component was created, announced via `role=status`. Set `now` when scheduling.
+- **M3. Countdown can re-arm after Skip.** `combinedTabId` stays set for the shell lifetime; `scheduledRunId` only dedups the same run ID (lines 306-315). Skip, then a retry/new run that completes, gives a second five-second auto-start. Clear it after the first `schedule()`.
+- **M4. Leaving the page cancels the countdown, contrary to the plan.** `implementation-plan.md` line 97: "Route destruction or tab switch does not stop the countdown; tab close counts as Skip". The shell's `onDestroy` calls `handoff.skip()` (lines 318-324), and a param change that reuses the component does not cancel at all (inconsistent). Pick one behavior; if the plan stands, remove the destroy skip and rely on `GenerationHandoffStore`'s tab-removal effect. The plan also asks for a "will use" model/provider preview during the countdown; `agent-next-steps` has none (B08).
+- **M5. Stale and double Resume offers.** Shell lines 58-76: the tabless "Resume saved run" card is discovered once at mount, has no `!store.isBound()` guard, and is not hidden after a bound run starts or completes. During a live bound run the user can press it (the host rejects; the user sees a generic error). It also appears next to the bound Resume for the same checkpoint, and a tabless resume of a checkpoint owned by another tab runs without any tab binding (the backend owner check is only in the `tabBinding` branch, handler lines 455-476), so it produces no transcript. Hide the card while bound/terminal, re-discover after Resume, and offer only the bound path for a tab-owned checkpoint.
+- **M6. Retry counters are global and never reset.** `agent-generation.store.ts:17,95-99`: keyed by agent ID in a root singleton, not by workspace/run. Three retries of `x` in any run lock `x` out of Retry in every later run and workspace until reload. Key by run ID or clear in `discover()` when the run changes.
+- **M7. Stale `verifiedResult`/`propagation` after `prepareResume`, and misleading consent text.** `wizard-generation-checkpoint.service.ts:360-377` copies `...manifest`, so a resumed run starts with the previous `verifiedResult` and `propagation`; an interrupted resumed run then returns the old facts (`wizard-generation-binding.ts:162`). Separately, `wizard-generation-rpc.handlers.ts:903-913` records `{consent:'not-granted', status:'not-attempted'}` when a resume writes nothing, overwriting an earlier `completed`/`granted` record, and the panel prints "consent: not-granted" (shell lines 144-146). Reset both fields in `prepareResume`; do not overwrite a completed propagation with `not-attempted`; word the panel as "not attempted".
+- **M8. Push and lookup can disagree after a post-settlement failure, and the monotonic guard prevents repair.** `wizard-generation-rpc.handlers.ts:904,923-927` can throw (`recordPropagation`, `loadAt`) after `finalize` succeeded; the supervisor (`wizard-generation-run.supervisor.ts:299-312`) then pushes `failed` with "finalization failed" and no facts, while the committed checkpoint says `completed` with `verifiedResult:true`. The store keeps the pushed terminal because `previous.result` exists (`generation-workflow.store.ts:271-276`). Catch propagation-recording errors separately (log, omit propagation), and let a lookup with `completed` verified facts replace a `failed` result whose only cause was finalization.
+- **M9. Restore validator accepts any restored tab while no workspace is active.** `apps/ptah-extension-webview/src/app/app.config.ts:44-58`: when `activeWorkspacePath` is falsy it returns true for a tab in any workspace. The shell later renders "unavailable in this workspace" (safe, no cross-workspace data), but the restored route is not revalidated after workspace selection, so the user can be left on that dead page. Re-run the validator when the workspace becomes active, or fall back to the landing route.
+
+### Minor (can wait)
+
+- m1. `agent-next-steps.component.ts`: the manual-recovery "Skip guidance" calls `handoff.skip()` with nothing pending - a no-op button. (B08)
+- m2. `generation-run-event-adapter.ts:33,106-111`: `pendingEvents` is never purged on unbind or tab close (up to 100 raw payloads per tab kept) and overflow drops the newest events silently. Cross-run replay is prevented because replay goes through `matches()`; this is only memory and partial transcript. (B09 cleanup)
+- m3. Launcher `launchIntents` entries for `setup-project-prompt` tabs are never consumed (the shell consumes only for the agent workflow), and entries for tabs that never mount stay until reload. Bounded by tab count; delete on guidance shell bind or key by (tabId, workflow). (B08)
+- m4. `wizard-landing.component.ts` `open()` shows "could not be opened" for `cancelled` (user declined a guard). Treat `cancelled` as no error.
+- m5. `wizard-generation-rpc.handlers.ts:1051` preview warning embeds `harnessRoot` (an absolute path) and the dialog prints `current.warning` raw. Pre-existing, but it contradicts the safe-output rule; send fixed text.
+- m6. Zod `propagation.targets` uses `z.enum(HARNESS_TARGET_IDS)` (`generation-checkpoint.types.ts`): a future change to that id list would make old manifests fail to parse as a whole. Use `z.array(z.string())` and filter on read. Old checkpoints without the new fields parse fine today.
+
+### Parity table (rows 4-27, 35)
+
+| Row | Capability | Reachable where | Status |
+| --- | --- | --- | --- |
+| 4 | Launch from chat setup card | `SetupGenerationOpenHandler` -> launcher; landing card | OK; handler notice shows only on legacy pages |
+| 5 | VS Code panel / Close | legacy path plus tab open | OK |
+| 6 | Wizard step navigation | `wizard-view` stepper kept; landing cards open independent tabs | OK |
+| 7 | Provider and model choice | landing "Provider and model for analysis" (collapsed) + tab picker | PARTIAL: tab model not sent (S2); provider is workspace-scoped per D11 |
+| 8 | Resume unfinished analysis | `scan-progress` runner (`resumableAnalysis`, `ensureStarted`) via landing "Run analysis" | OK (not on the landing itself) |
+| 9 | Four phase files / hand-off | untouched | OK |
+| 10 | Browse/load analyses | landing "Previous analyses" and old Welcome | OK |
+| 11 | Use saved analysis | landing `use()` mirrors Welcome | OK |
+| 12 | Hide saved analysis | landing `hide()` | OK |
+| 13 | Continue / Let Me Adjust | `analysis-results` unchanged + open-handler notice | OK |
+| 14 | Cancel and partial recovery | scan-progress unchanged | OK |
+| 15 | Recommendations / catalog | `agent-selection-list` (catalog mode via `wizard:recommend-agents`) | OK, see S4 |
+| 16 | Select / recommended / deselect | selection list | OK; selection resets (S4) |
+| 17 | Community packs | `community-packs-panel` (lazy browse, install one/all) | OK |
+| 18 | Preview and renewed confirmation | preview dialog + `definiteTargets` compare | OK |
+| 19 | Generate + submit errors | list -> `store.startAgents`; fixed copy | OK; model missing (S2) |
+| 20 | Authorization / freshness | backend; source card | OK |
+| 21 | Self-discovery / templates | backend | OK |
+| 22 | Progress and failure counts | final counts in verified panel; saved-progress list | PARTIAL: no live per-item/overall progress during a bound run (transcript only) |
+| 23 | Live transcript | adapter | PARTIAL: dropped on Resume (S1) |
+| 24 | Cancel / no duplicate completion | Stop control, store, terminal monotonic | OK (M8 caveat) |
+| 25 | Checkpoint / resume / retry | checkpoint offer, bound Resume, Retry | PARTIAL: S1, S3, M5 |
+| 26 | Old-checkpoint offer | first-open tabless offer, read-only `discover` | OK (no start, no overwrite) |
+| 27 | Retry cap / backoff | store: 3 attempts, 1/2/4 s, duplicate guard, remaining | OK in isolation; global counters (M6), result not reflected (S3) |
+| 35 | Prompt failure / retry / skip / continue | next-steps Continue/Skip, manual recovery, handoff `manual-recovery` | OK for hand-off; guidance retry/skip belongs to B08 |
+
+Nothing is unreachable: the old Welcome lives in the collapsed "Analysis and recovery options"; `<details>` keeps it instantiated, it duplicates landing's saved-analysis list, and its provider/model block still works.
+
+### Focus checks
+1. Parity: see table.
+2. Safe output: `source.analysisDir` is not rendered or logged (`generation-source-status`; the `console.debug` in the open handler has no path). The adapter redacts it by exact string match only, so a differently-separated path in generator text passes through (low risk). Bound outcomes carry basenames (`basename(agent.filePath)`) and fixed error text. Unknown provider/model are hidden in store, picker and preview. No `[innerHTML]` introduced. Cancel copy ("Stopping may take a moment. Saved results remain available.", "Verified results unavailable") never claims nothing was written. Open item: m5.
+3. Checkpoint: `discover()` is read-only and `resume()` explicit; resume keeps completed outcomes but reports them as `unchanged` (a resumed run shows "written 0, already current N" for agents written in the earlier attempt; push and lookup agree, but a copy line would help).
+4. Retry: backoff, cap and duplicate guard are correct in `agent-generation.store.ts`; see S3, M6.
+5. Countdown: one `setTimeout` plus a derived absolute deadline, cleaned on skip, tab removal and destroy. The origin Map is consumed once and not persisted. Leak/wrong-tab: keyed by tab ID so the wrong tab cannot consume it; unconsumed entries leak per tab (m3). Start twice: not on re-render (`scheduledRunId`), but yes after Skip plus a later run (M3). Returning to the tab does not restart it (origin consumed, new instance has none) except via S5.
+6. B07C backend: facts come only from the re-loaded committed manifest; marker and propagation are optional Zod fields (old checkpoints parse; `lifecycle==='completed'` also yields facts for old records); tabless payloads are untouched (`settled.resultDetails` is set only when `bound`; `completeWithoutWork` adds facts only inside the `tabBinding` branch); failed-without-payload omits facts (`verifiedResult=false`). Issues: M7, M8, m6.
+7. Store/adapter: terminal monotonicity is correct apart from M8; the watchdog is bounded (3 tries, 1/2/4 s) and released on bind/unbind/terminal apart from M1. The pre-start buffer is keyed by tab and replayed only through `matches()` (workspace, workflow, exact run ID), so buffered events cannot be replayed into another run or tab; S1 is the real adapter defect.
+8. Restore validator: yes, it accepts a tab from another workspace while no workspace is active (M9); the shell re-checks, so nothing from that workspace is shown.
+
+### Test depth
+The short specs (run card, progress, next-steps, errors, stop, source, workflow card) assert rendering and one emit only. Missing regression tests that matter:
+- Adapter: Resume of the same run ID after a terminal (S1); buffer purge and overflow (m2).
+- RPC/store: `model` param sent on bound start (S2); retry sends `tabBinding`+`runId` and the checkpoint is re-read (S3); `lookupFailures` reset across bindings (M1).
+- Selection list: selection survives a tab-list change (S4); catalog fetched once per binding.
+- Shell/launcher: combined origin on an existing tab with a completed run does not schedule (S5); no second schedule after Skip (M3); correct countdown on first render (M2); leaving-the-page behavior (M4).
+- Backend: `prepareResume` clears `verifiedResult`/`propagation` (M7); `recordPropagation` failure does not turn a committed `completed` into a pushed `failed` (M8); manifest parses with and without the new optional fields.
+- Agent store: retry counters scoped per run; a successful retry updates visible status.
+
+### Must-fix before B08
+S1, S2, S3, S4, S5, plus M7 and M8 (cheap, backend-side). M1-M6, M9 and the minors may follow with B08/B09, each with a spec from the list above.
+
+### Decisions
+- Treated the plan's "route destruction does not stop the countdown" (implementation-plan.md line 97) as authoritative over the shipped `onDestroy` skip (M4), because D11 makes the plan the authority; reversible, and the plan can be amended instead if cancel-on-leave is the intended behavior.
+
+## Phase 4 re-review (round 1)
+
+Review family: Claude; implementer family: codex.
+
+Scope: uncommitted working tree on top of f139d318f (`git diff -- libs/`, 18 source and spec files), read against `lane-P4R1A-report.md` and `lane-P4R1B-report.md`. Read-only; no checks re-run (orchestrator reported typecheck, lint and tests green for the six projects).
+
+| Metric | Value |
+| --- | --- |
+| Score | 7/10 |
+| Verdict | APPROVE |
+| Blocking | 0 |
+| Serious | 0 |
+| Moderate | 2 new |
+| Minor | 3 new |
+
+Evidence for the score: all five Serious findings and both must-fix Moderates are closed with a pinned regression spec. The remaining new items are cosmetic or rare-path. Not higher than 7 because the S1 and M8 correction paths leave one visible inconsistency (N1) and the retry cap has an untested reset edge (N2).
+
+### Status of prior findings
+
+| Finding | Status | Evidence file:line | Regression spec |
+| --- | --- | --- | --- |
+| S1 resume transcript dropped | FIXED. Effect clears both terminal markers and the stale owned message when the same runId turns non-terminal. Late non-terminal lookups cannot reopen a finished run because `applyRun` drops them for a terminal same-run state (`generation-workflow.store.ts:281-297`); only `accept()` writes `starting` directly. | `generation-run-event-adapter.ts:48-62` | `generation-run-event-adapter.spec.ts:209,318` |
+| S2 model ignored | FIXED. `overrideModel ?? currentModel()` sent on start and resume; an empty `currentModel()` is falsy and falls to the host default. | `wizard-rpc.service.ts:125-135` | `wizard-rpc.service.spec.ts:349` |
+| S3 retry contract / not reflected | FIXED. Bound retry sends `tabBinding` with `runId`, rejects unsuccessful data, then calls `discover()`. Tabless path kept only when the checkpoint run is not the current bound run. | `wizard-rpc.service.ts:238-251`; `agent-generation.store.ts:99-118`; `generation-workflow-shell.component.ts:70-75` | `wizard-rpc.service.spec.ts:303`; `agent-generation.store.spec.ts:69` |
+| S4 selection reset on binding churn | FIXED. Binding computed has an identity `equal`; list tracks identity only. | `generation-workflow-shell.component.ts:270-294`; `agent-selection-list.component.ts:206-225` | `agent-selection-list.component.spec.ts:153,170` |
+| S5 stale-run auto-start | FIXED. Combined guidance gated on an `acceptedRun` revision recorded in `accept()`. | `generation-workflow.store.ts:39,182-186`; `generation-workflow-shell.component.ts:325-349` | `generation-workflow-shell.component.spec.ts:25` |
+| M6 retry counts across runs | FIXED. Counts reset when the bound run id changes. | `agent-generation.store.ts:23,103-108` | `agent-generation.store.spec.ts:69` |
+| M7 stale facts on resume / misleading consent | FIXED. `prepareResume` drops `verifiedResult` and `propagation`; earlier completed propagation restored only on a zero-write resume; UI says "not attempted". | `wizard-generation-checkpoint.service.ts:356-366,392-399`; `wizard-generation-rpc.handlers.ts:844-858,935-945`; `generation-workflow-shell.component.ts:153,225` | `wizard-generation-checkpoint.service.spec.ts:175`; `wizard-generation-rpc.handlers.spec.ts:286`; shell spec `:14` |
+| M8 post-finalize failures flip a committed run to failed | FIXED. Propagation persistence and committed reload are caught with degradation-audit comments and omit unrecorded facts; a precise `finalizationFailed` marker lets the store accept a verified completed lookup, only for that failure. | `wizard-generation-rpc.handlers.ts:919-975`; `wizard-generation-run.supervisor.ts:302-319`; `generation-workflow.store.ts:285-298`; `rpc-setup.types.ts:66` | `wizard-generation-rpc.handlers.spec.ts:320,352`; `generation-workflow.store.spec.ts:33` |
+
+### Evaluation of the named points
+
+- `retryGenerationItem` fixed message (`wizard-rpc.service.ts:246-250`): correct per the plan (no raw host text in the UI). The only other caller, `generation-progress.component.ts:538-541`, catches and uses its own fixed message, so no caller loses information.
+- `TabManagerService` from `@ptah-extension/chat-state` in `wizard-rpc.service.ts:3,83`: direction is fine; setup-wizard already depends on chat-state (selection list, shell, handoff store, landing). No cycle introduced.
+- Supervisor `finalizationFailed` (`wizard-generation-run.supervisor.ts:302-319`): set only when `onSettled` throws, and all post-finalize steps that previously threw are now caught, so the overwrite of `resultDetails` can only drop facts from a run whose finalize really failed. Acceptable.
+- `AgentGenerationStore.retry` reset: stable for a given checkpoint because the binding argument is derived from the matching checkpoint run id (see N2 for the edge).
+
+### New findings
+
+Moderate
+- N1. After the finalization-failure correction (failed to completed, same runId), the transcript message stays finalized as an error. `finish()` returns early on the already-set `terminalRunId` (`generation-run-event-adapter.ts:199`), so a run the store now reports as completed keeps an error-styled message. Rare path (finalize threw but manifest committed); no data loss. Fix: in the effect, clear `terminalRunId` when status changes between terminal values, or let `finish()` re-finalize on a corrected status. Defer to B08.
+- N2. `retryRunId` flips between `null` and a run id when the shell passes `undefined` (checkpoint run differs from the current bound run) and later a binding (`agent-generation.store.ts:103-108`). Each flip clears all counts, so the 3-attempt cap can be reset by an action that changes which run is bound. No spec covers the flip. Low likelihood; the backend remains the real guard. Defer to B08.
+
+Minor
+- N3. `discover()` failure after a successful retry sets `errorValue(true)` (`agent-generation.store.ts:117-119`) and shows a retry error although the retry succeeded. Separate the two awaits.
+- N4. `startBoundAgents` rejection with `INVALID_PARAMS` for an unavailable model surfaces only as "Start unconfirmed" (`wizard-rpc.service.ts:138-139`); the user gets no model-specific message. Defer.
+- N5. When `finalizationFailed` is set, `settled.resultDetails` is replaced wholesale (`wizard-generation-run.supervisor.ts:319`), discarding any propagation facts already attached. Harmless today; note for B09 if more fields are added.
+
+### Must-fix before commit
+
+None.
+
+### Defer to B08/B09
+
+1. N1 (error-styled message after corrected completion) and N2 (retry count reset on run binding flip), with specs.
+2. N3, N4, N5 (minor).
+3. Carry-over from the Phase 4 review: M1-M5, M9 and m1-m6 remain as recorded in that section; none was in this round's must-fix set.

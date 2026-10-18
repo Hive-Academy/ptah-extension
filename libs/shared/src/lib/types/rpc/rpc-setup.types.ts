@@ -63,6 +63,7 @@ export type SetupGenerationRejection =
     };
 
 export interface SetupGenerationResultFacts {
+  finalizationFailed?: boolean;
   committedState?: 'committed' | 'unchanged' | 'unknown';
   interrupted?: boolean;
   status: SetupGenerationTerminalStatus;

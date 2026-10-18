@@ -1,5 +1,8 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import type { ResumableGenerationRun } from '@ptah-extension/shared';
+import type {
+  ResumableGenerationRun,
+  SetupGenerationRunBinding,
+} from '@ptah-extension/shared';
 import { WizardRpcService } from './wizard-rpc.service';
 
 /** Read-only checkpoint discovery and deliberate, item-scoped recovery actions. */
@@ -17,6 +20,7 @@ export class AgentGenerationStore {
   private readonly retryCounts = signal<Record<string, number>>({});
   private readonly pendingRetries = signal<ReadonlySet<string>>(new Set());
   private discoveryRevision = 0;
+  private retryRunId: string | null = null;
   readonly checkpoint = this.checkpointValue.asReadonly();
   readonly loading = this.loadingValue.asReadonly();
   readonly error = this.errorValue.asReadonly();
@@ -92,7 +96,15 @@ export class AgentGenerationStore {
     return this.pendingRetries().has(itemId);
   }
 
-  async retry(itemId: string): Promise<void> {
+  async retry(
+    itemId: string,
+    binding?: SetupGenerationRunBinding,
+  ): Promise<void> {
+    const runId = binding?.runId ?? null;
+    if (runId !== this.retryRunId) {
+      this.retryRunId = runId;
+      this.retryCounts.set({});
+    }
     if (!itemId || this.remaining(itemId) === 0 || this.retrying(itemId))
       return;
     const attempt = 3 - this.remaining(itemId);
@@ -102,7 +114,8 @@ export class AgentGenerationStore {
       await new Promise<void>((resolve) =>
         setTimeout(resolve, 1000 * 2 ** attempt),
       );
-      await this.rpc.retryGenerationItem(itemId);
+      await this.rpc.retryGenerationItem(itemId, binding);
+      await this.discover();
       this.errorValue.set(false);
     } catch {
       this.errorValue.set(true);

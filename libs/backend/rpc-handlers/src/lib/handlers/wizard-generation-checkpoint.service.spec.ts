@@ -158,5 +158,68 @@ describe('generation checkpoint compatibility', () => {
     expect(parsed.tabBinding).toBeUndefined();
     expect(parsed.agents['agent'].status).toBe('written');
     expect(parsed.input.model).toBe('sonnet');
+    expect(parsed.verifiedResult).toBeUndefined();
+    expect(parsed.propagation).toBeUndefined();
+    expect(
+      GenerationCheckpointManifestSchema.parse({
+        ...old,
+        verifiedResult: true,
+        propagation: { consent: 'granted', status: 'completed' },
+      }),
+    ).toMatchObject({
+      verifiedResult: true,
+      propagation: { consent: 'granted', status: 'completed' },
+    });
+  });
+
+  it('clears prior result facts when preparing a resume', async () => {
+    const writeGenerationManifest = jest
+      .fn()
+      .mockResolvedValue('manifest.json');
+    const child = container.createChildContainer();
+    child.register(AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE, {
+      useValue: { writeGenerationManifest },
+    });
+    const service = new GenerationCheckpointService(
+      Object.create(Logger.prototype) as Logger,
+      child,
+    );
+    const manifest = GenerationCheckpointManifestSchema.parse({
+      version: 1,
+      runId: 'run',
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
+      lifecycle: 'paused',
+      outputDirectory: '/workspace/.claude/agents',
+      selectedAgentIds: ['agent'],
+      input: {},
+      agents: {
+        agent: {
+          agentId: 'agent',
+          filePath: '/workspace/.claude/agents/agent.md',
+          status: 'pending',
+          rejectedSections: 0,
+          tailoredSections: 0,
+        },
+      },
+      verifiedResult: true,
+      propagation: { consent: 'granted', status: 'completed' },
+    });
+    const prepared = await service.prepareResume(
+      { workspaceRoot: '/workspace', analysisDir: null },
+      manifest,
+    );
+    expect(prepared.manifest).not.toHaveProperty('verifiedResult');
+    expect(prepared.manifest).not.toHaveProperty('propagation');
+    expect(prepared.previousPropagation).toEqual({
+      consent: 'granted',
+      status: 'completed',
+    });
+    expect(writeGenerationManifest.mock.calls[0][2]).not.toHaveProperty(
+      'verifiedResult',
+    );
+    expect(writeGenerationManifest.mock.calls[0][2]).not.toHaveProperty(
+      'propagation',
+    );
   });
 });

@@ -206,6 +206,30 @@ describe('GenerationRunEventAdapter', () => {
     expect(tab.queuedContent).toBeNull();
   });
 
+  it('opens and finalizes a new message when a terminal run resumes with the same ID', () => {
+    const { adapter, run, busy, processStreamEvent, finalizeCurrentMessage } =
+      setup();
+    expect(
+      adapter.accept({ tabBinding: binding, kind: 'text', content: 'first' }),
+    ).toBe(true);
+    run.set({ ...activeRun, status: 'failed' });
+    TestBed.flushEffects();
+    busy.set(true);
+    run.set({ ...activeRun, status: 'starting' });
+    TestBed.flushEffects();
+    expect(
+      adapter.accept({ tabBinding: binding, kind: 'text', content: 'resumed' }),
+    ).toBe(true);
+    expect(
+      processStreamEvent.mock.calls.filter(
+        ([event]) => event.eventType === 'message_start',
+      ),
+    ).toHaveLength(2);
+    run.set({ ...activeRun, status: 'completed' });
+    TestBed.flushEffects();
+    expect(finalizeCurrentMessage).toHaveBeenCalledTimes(2);
+  });
+
   it('replaces stale message ownership when a new run starts on the same tab', () => {
     const { adapter, run, processStreamEvent, finalizeCurrentMessage } =
       setup();
@@ -291,6 +315,112 @@ describe('GenerationRunEventAdapter', () => {
 });
 
 describe('GenerationRunEventAdapter with real chat state and streaming', () => {
+  it('streams and finalizes a resumed terminal run under the same run ID', async () => {
+    localStorage.clear();
+    let currentRun: SetupGenerationRunState | null = null;
+    const accepted = {
+      runId: 'same-run',
+      status: 'starting',
+      source: { kind: 'workspace-discovery', reason: 'missing' },
+      effectiveProvider: 'unknown',
+      effectiveModel: 'unknown',
+    };
+    TestBed.configureTestingModule({
+      providers: [
+        TabManagerService,
+        GenerationWorkflowStore,
+        GenerationRunEventAdapter,
+        { provide: SURFACE_ACTIVE, useValue: signal(true) },
+        {
+          provide: ConfirmationDialogService,
+          useValue: { confirm: jest.fn() },
+        },
+        {
+          provide: MODEL_REFRESH_CONTROL,
+          useValue: { refreshModels: jest.fn().mockResolvedValue(undefined) },
+        },
+        {
+          provide: WizardRpcService,
+          useValue: {
+            startBoundAgents: jest.fn().mockImplementation(async () => {
+              if (currentRun)
+                currentRun = {
+                  ...currentRun,
+                  status: 'starting',
+                  interrupted: false,
+                };
+              return { success: true, accepted };
+            }),
+            getBoundRunState: jest
+              .fn()
+              .mockImplementation(async () => currentRun),
+          },
+        },
+      ],
+    });
+    const tabs = TestBed.inject(TabManagerService);
+    tabs.switchWorkspace('/ws');
+    const tabId = tabs.createTab('Generation');
+    tabs.setWorkflow(tabId, 'setup-agent-generation');
+    const binding = {
+      tabId,
+      workspacePath: '/ws',
+      workflow: 'setup-agent-generation' as const,
+      runId: 'same-run',
+    };
+    currentRun = {
+      binding,
+      status: 'running',
+      source: accepted.source,
+      effectiveProvider: 'unknown',
+      effectiveModel: 'unknown',
+    };
+    const store = TestBed.inject(GenerationWorkflowStore);
+    const adapter = TestBed.inject(GenerationRunEventAdapter);
+    const finalize = jest.spyOn(
+      TestBed.inject(MessageFinalizationService),
+      'finalizeCurrentMessage',
+    );
+    store.bind(binding);
+    await store.refresh();
+    TestBed.flushEffects();
+    expect(
+      adapter.accept({ tabBinding: binding, kind: 'text', content: 'first' }),
+    ).toBe(true);
+    const firstMessage =
+      tabs.findTabByIdAcrossWorkspaces(tabId)?.tab.streamingState
+        ?.currentMessageId;
+    currentRun = { ...currentRun, status: 'failed', interrupted: true };
+    await store.refresh();
+    TestBed.flushEffects();
+    expect(store.run()?.status).toBe('failed');
+    expect(finalize).toHaveBeenCalledWith(tabId, true);
+    await Promise.resolve();
+    expect(
+      tabs.findTabByIdAcrossWorkspaces(tabId)?.tab.streamingState
+        ?.currentMessageId,
+    ).toBeFalsy();
+    await store.resumeBoundAgents();
+    TestBed.flushEffects();
+    currentRun = { ...currentRun, status: 'running', interrupted: false };
+    await store.refresh();
+    TestBed.flushEffects();
+    expect(
+      adapter.accept({ tabBinding: binding, kind: 'text', content: 'resumed' }),
+    ).toBe(true);
+    expect(
+      tabs.findTabByIdAcrossWorkspaces(tabId)?.tab.streamingState
+        ?.currentMessageId,
+    ).not.toBe(firstMessage);
+    currentRun = { ...currentRun, status: 'completed' };
+    await store.refresh();
+    TestBed.flushEffects();
+    await Promise.resolve();
+    expect(
+      tabs.findTabByIdAcrossWorkspaces(tabId)?.tab.streamingState
+        ?.currentMessageId,
+    ).toBeFalsy();
+  });
   it('finalizes tab A after a terminal lookup on return without closing tab B', async () => {
     localStorage.clear();
     const runs = new Map<string, SetupGenerationRunState>();

@@ -66,6 +66,63 @@ describe('AgentGenerationStore', () => {
     expect(store.error()).toBe(true);
   });
 
+  it('refreshes a bound checkpoint after success and preserves the attempt count on failure', async () => {
+    const binding = {
+      tabId: 'tab',
+      workspacePath: '/ws',
+      workflow: 'setup-agent-generation' as const,
+      runId: 'run',
+    };
+    const getResumableRun = jest
+      .fn()
+      .mockResolvedValueOnce({
+        generation: {
+          runId: 'run',
+          lifecycle: 'failed',
+          agents: [{ agentId: 'a', status: 'failed' }],
+        },
+      })
+      .mockResolvedValue({
+        generation: {
+          runId: 'run',
+          lifecycle: 'completed',
+          agents: [{ agentId: 'a', status: 'written' }],
+        },
+      });
+    const retryGenerationItem = jest
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('failed'));
+    TestBed.configureTestingModule({
+      providers: [
+        AgentGenerationStore,
+        {
+          provide: WizardRpcService,
+          useValue: { getResumableRun, retryGenerationItem },
+        },
+      ],
+    });
+    const store = TestBed.inject(AgentGenerationStore);
+    await store.discover();
+    const first = store.retry('a', binding);
+    jest.advanceTimersByTime(1000);
+    await first;
+    expect(retryGenerationItem).toHaveBeenCalledWith('a', binding);
+    expect(store.checkpoint()?.agents[0].status).toBe('written');
+    expect(store.remaining('a')).toBe(2);
+    const second = store.retry('a', binding);
+    jest.advanceTimersByTime(2000);
+    await second;
+    expect(store.remaining('a')).toBe(1);
+    expect(store.error()).toBe(true);
+    expect(getResumableRun).toHaveBeenCalledTimes(2);
+    expect(store.checkpoint()?.agents[0].status).toBe('written');
+    const nextRun = store.retry('a', { ...binding, runId: 'next-run' });
+    jest.advanceTimersByTime(1000);
+    await nextRun;
+    expect(store.remaining('a')).toBe(2);
+  });
+
   it('shows guidance-first advice only when status confirms no saved guidance', async () => {
     TestBed.configureTestingModule({
       providers: [

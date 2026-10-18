@@ -108,6 +108,7 @@ export interface SettledGenerationRun {
     | 'rejectedSections'
     | 'tailoredSections'
     | 'propagation'
+    | 'finalizationFailed'
   >;
 }
 
@@ -298,9 +299,11 @@ export class GenerationRunSupervisor {
       };
 
       if (request.onSettled) {
+        let finalizationFailed = false;
         try {
           await request.onSettled(settled);
         } catch (error: unknown) {
+          finalizationFailed = true;
           this.logger.error(
             'Post-settlement step failed',
             error instanceof Error ? error : new Error(String(error)),
@@ -313,6 +316,7 @@ export class GenerationRunSupervisor {
               : settled.payload.errors,
           };
         }
+        if (finalizationFailed) settled.resultDetails = { finalizationFailed };
       }
       if (request.tabBinding) {
         const status = settled.payload.success

@@ -11,6 +11,12 @@ import { GenerationHandoffStore } from '../services/generation-handoff.store';
 import { GenerationWorkflowShellComponent } from './generation-workflow-shell.component';
 
 describe('GenerationWorkflowShellComponent', () => {
+  it('labels not-attempted propagation without implying denied consent', () => {
+    const label =
+      GenerationWorkflowShellComponent.prototype.propagationConsentLabel;
+    expect(label('not-attempted', 'not-granted')).toBe('not attempted');
+    expect(label('completed', 'granted')).toBe('granted');
+  });
   beforeEach(() =>
     TestBed.configureTestingModule({
       providers: [
@@ -23,6 +29,9 @@ describe('GenerationWorkflowShellComponent', () => {
   );
 
   it('schedules combined guidance once after a verified terminal result', () => {
+    const acceptedRun = signal<{ runId: string; revision: number } | null>(
+      null,
+    );
     const run = signal(
       null as null | {
         binding: {
@@ -77,6 +86,7 @@ describe('GenerationWorkflowShellComponent', () => {
             bind: jest.fn(),
             unbind: jest.fn(),
             run,
+            acceptedRun,
             state: () => 'completed',
             isBound: () => false,
           },
@@ -100,6 +110,29 @@ describe('GenerationWorkflowShellComponent', () => {
     });
     const fixture = TestBed.createComponent(GenerationWorkflowShellComponent);
     fixture.detectChanges();
+    const completed = {
+      binding: {
+        tabId: 'tab',
+        workspacePath: '/ws',
+        workflow: 'setup-agent-generation' as const,
+        runId: 'old',
+      },
+      status: 'completed' as const,
+      result: {
+        counts: { total: 1 },
+        agentOutcomes: [] as never[],
+        rejectedSections: 0,
+        tailoredSections: 0,
+        propagation: {
+          status: 'completed' as const,
+          consent: 'granted' as const,
+        },
+      },
+    };
+    run.set(completed);
+    fixture.detectChanges();
+    expect(schedule).not.toHaveBeenCalled();
+    acceptedRun.set({ runId: 'run', revision: 1 });
     run.set({
       binding: {
         tabId: 'tab',
@@ -176,6 +209,7 @@ describe('GenerationWorkflowShellComponent', () => {
             isBound: () => false,
             binding: () => null,
             run: () => null,
+            acceptedRun: () => null,
           },
         },
       ],
@@ -247,6 +281,7 @@ describe('GenerationWorkflowShellComponent', () => {
             state: () => 'quiet',
             isBound: () => bound,
             run: () => null,
+            acceptedRun: () => null,
           },
         },
       ],
@@ -329,6 +364,7 @@ describe('GenerationWorkflowShellComponent', () => {
             state: () => 'idle',
             isBound: () => false,
             run: () => null,
+            acceptedRun: () => null,
           },
         },
       ],

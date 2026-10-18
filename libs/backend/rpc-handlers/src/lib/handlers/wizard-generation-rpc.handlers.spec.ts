@@ -283,6 +283,98 @@ describe('wizard generation tab ownership and recovery', () => {
     expect(completeBroadcasts(h)).toHaveLength(0);
   });
 
+  it('keeps completed propagation when a resumed run writes nothing', async () => {
+    const h = makeHarness();
+    seedCheckpoint(
+      h,
+      { 'agent-a': 'pending' },
+      {
+        tabBinding: tab,
+        propagation: { consent: 'granted', status: 'completed' },
+        verifiedResult: true,
+      },
+    );
+    h.storage.resumable = {
+      slugDir: ANALYSIS_DIR,
+      manifest: null,
+      generation: manifestAt(h, ANALYSIS_DIR),
+    };
+    recordingOrchestrator(h, [outcome('agent-a', 'unchanged')]);
+    h.handlers.register();
+    await call(h, 'wizard:submit-selection', {
+      resume: true,
+      tabBinding: tab,
+      selectedAgentIds: ['agent-a'],
+    });
+    await settle();
+    expect(manifestAt(h, ANALYSIS_DIR).propagation).toEqual({
+      consent: 'granted',
+      status: 'completed',
+    });
+    expect(completeBroadcasts(h)[0].result?.propagation).toEqual({
+      consent: 'granted',
+      status: 'completed',
+    });
+  });
+
+  it('keeps completion when propagation persistence fails after finalize', async () => {
+    const h = makeHarness();
+    recordingOrchestrator(h, [outcome('agent-a', 'written')]);
+    const update = h.storage.updateGenerationManifest.getMockImplementation();
+    if (!update) throw new Error('Missing storage fake');
+    h.storage.updateGenerationManifest.mockImplementation(
+      (
+        ws: string,
+        dir: string | null,
+        patch: (
+          manifest: GenerationCheckpointManifest,
+        ) => GenerationCheckpointManifest,
+      ) => {
+        if (
+          h.storage.manifests.get(manifestKey(ws, dir))?.lifecycle ===
+          'completed'
+        )
+          throw new Error('propagation disk failure');
+        return update(ws, dir, patch);
+      },
+    );
+    await previewAndSubmit(h);
+    await settle();
+    expect(manifestAt(h).lifecycle).toBe('completed');
+    expect(completeBroadcasts(h)[0].terminalStatus).toBe('completed');
+    expect(completeBroadcasts(h)[0].result?.propagation).toBeUndefined();
+    expect(h.logger.error).toHaveBeenCalledWith(
+      'RPC: propagation checkpoint update failed',
+      expect.any(Error),
+    );
+  });
+
+  it('keeps completion without reloaded facts when post-finalize load fails', async () => {
+    const h = makeHarness();
+    recordingOrchestrator(h, [outcome('agent-a', 'written')]);
+    const load = h.storage.loadGenerationManifest.getMockImplementation();
+    if (!load) throw new Error('Missing storage fake');
+    h.storage.loadGenerationManifest.mockImplementation(
+      (ws: string, dir: string | null) => {
+        if (
+          h.storage.manifests.get(manifestKey(ws, dir))?.lifecycle ===
+          'completed'
+        )
+          throw new Error('reload failure');
+        return load(ws, dir);
+      },
+    );
+    await previewAndSubmit(h);
+    await settle();
+    expect(manifestAt(h).verifiedResult).toBe(true);
+    expect(completeBroadcasts(h)[0].terminalStatus).toBe('completed');
+    expect(completeBroadcasts(h)[0].result?.counts).toBeUndefined();
+    expect(h.logger.error).toHaveBeenCalledWith(
+      'RPC: finalized generation checkpoint could not be reloaded',
+      expect.any(Error),
+    );
+  });
+
   it('omits detailed facts for a failed checkpoint without a verified payload', async () => {
     const h = makeHarness();
     seedCheckpoint(
