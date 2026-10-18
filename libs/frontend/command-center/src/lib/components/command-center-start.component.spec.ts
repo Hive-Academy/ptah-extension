@@ -133,7 +133,7 @@ describe('CommandCenterStartComponent', () => {
         tokenUsage: { input: 0, output: 0 },
         hasTranscript: undefined,
       },
-      { ...sessions[2], tokenUsage: undefined },
+      { ...sessions[2], tokenUsage: undefined, messageCount: 0 },
     ]);
     fixture.detectChanges();
     const cards: NodeListOf<HTMLButtonElement> =
@@ -148,6 +148,9 @@ describe('CommandCenterStartComponent', () => {
     expect(cards[1].textContent).toContain('0 tokens');
     expect(cards[1].textContent).not.toContain('History unavailable');
     expect(cards[2].getAttribute('aria-label')).not.toContain('tokens');
+    // session:list reports 0 until the count is warmed; never show "0 messages".
+    expect(cards[2].getAttribute('aria-label')).not.toContain('messages');
+    expect(cards[2].textContent).not.toContain('messages');
     expect(cards[0].querySelectorAll('button')).toHaveLength(0);
   });
 

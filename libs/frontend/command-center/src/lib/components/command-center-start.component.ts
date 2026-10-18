@@ -165,22 +165,12 @@ import { relativeTime } from './command-relative-time';
                     age === 'Unknown' ? 'No recent activity' : 'Updated ' + age
                   }}</span>
                 </span>
-                <span class="mt-1 block text-xs text-base-content-muted">
-                  {{ session.messageCount }} messages
-                  @let tokens = tokenCount(session);
-                  @if (tokens !== null) {
-                    <span> · {{ tokens }} tokens</span>
-                  }
-                  @if (session.isActive) {
-                    <span> · Active</span>
-                  }
-                  @if (session.livePhase) {
-                    <span> · {{ phaseLabel(session.livePhase) }}</span>
-                  }
-                  @if (session.hasTranscript === false) {
-                    <span> · History unavailable</span>
-                  }
-                </span>
+                @let figures = cardFigures(session);
+                @if (figures.length > 0) {
+                  <span class="mt-1 block text-xs text-base-content-muted">
+                    {{ figures.join(' · ') }}
+                  </span>
+                }
               </span>
               @if (session.id === recordedSessionId()) {
                 <span class="badge badge-outline">Command Center</span>
@@ -288,19 +278,27 @@ export class CommandCenterStartComponent {
     return phase.replace(/-/g, ' ');
   }
 
+  /** `session:list` reports 0 messages until the count is warmed, so 0 is hidden. */
+  public cardFigures(session: ChatSessionSummary): string[] {
+    const parts: string[] = [];
+    if (session.messageCount > 0)
+      parts.push(`${session.messageCount} messages`);
+    const tokens = this.tokenCount(session);
+    if (tokens !== null) parts.push(`${tokens} tokens`);
+    if (session.isActive) parts.push('Active');
+    if (session.livePhase) parts.push(this.phaseLabel(session.livePhase));
+    if (session.hasTranscript === false) parts.push('History unavailable');
+    return parts;
+  }
+
   public cardName(session: ChatSessionSummary): string {
     const parts = [
       session.name || 'Untitled session',
       this.relativeTime(session.lastActivityAt) === 'Unknown'
         ? 'No recent activity'
         : `Updated ${this.relativeTime(session.lastActivityAt)}`,
-      `${session.messageCount} messages`,
+      ...this.cardFigures(session),
     ];
-    const tokens = this.tokenCount(session);
-    if (tokens !== null) parts.push(`${tokens} tokens`);
-    if (session.isActive) parts.push('Active');
-    if (session.livePhase) parts.push(this.phaseLabel(session.livePhase));
-    if (session.hasTranscript === false) parts.push('History unavailable');
     if (session.id === this.recordedSessionId()) parts.push('Command Center');
     return parts.join(', ');
   }
