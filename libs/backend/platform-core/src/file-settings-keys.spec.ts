@@ -194,6 +194,29 @@ describe('isFileBasedSettingKey', () => {
     });
   });
 
+  describe('skill enhancement and telemetry settings', () => {
+    const defaults = {
+      'skills.enhancement.provider': '',
+      'skills.enhancement.model': 'inherit',
+      'skills.enhancement.timeoutMs': ENHANCE_TIMEOUT_DEFAULT_MS,
+      'skills.telemetry.enabled': true,
+    } as const;
+
+    it.each(Object.entries(defaults))('routes and defaults %s', (key, value) => {
+      expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
+      expect(isFileBasedSettingKey(key)).toBe(true);
+      expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe(value);
+    });
+
+    it.each([
+      'skillSynthesis.judgeProvider',
+      'skillSynthesis.judgeModel',
+      'skillSynthesis.enhanceTimeoutMs',
+    ])('keeps the old %s route during migration', (key) => {
+      expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
+    });
+  });
+
   describe('memory lifecycle keys (TASK_2026_443)', () => {
     const lifecycleDefaults = {
       'memory.lifecycle.enabled': true,

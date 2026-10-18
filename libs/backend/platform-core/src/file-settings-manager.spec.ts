@@ -359,6 +359,100 @@ describe('PtahFileSettingsManager', () => {
     });
   });
 
+  describe('stored skill settings migration', () => {
+    it('round-trips each new setting through the file store', async () => {
+      const writer = new PtahFileSettingsManager(FILE_BASED_SETTINGS_DEFAULTS);
+      await writer.set('skills.enhancement.provider', 'selected-provider');
+      await writer.set('skills.enhancement.model', 'selected-model');
+      await writer.set('skills.enhancement.timeoutMs', 60000);
+      await writer.set('skills.telemetry.enabled', false);
+
+      const reader = new PtahFileSettingsManager(FILE_BASED_SETTINGS_DEFAULTS);
+      expect(reader.get('skills.enhancement.provider')).toBe('selected-provider');
+      expect(reader.get('skills.enhancement.model')).toBe('selected-model');
+      expect(reader.get('skills.enhancement.timeoutMs')).toBe(60000);
+      expect(reader.get('skills.telemetry.enabled')).toBe(false);
+    });
+
+    it('copies only stored old values and persists the new keys before returning', () => {
+      writeSettingsFile(JSON.stringify({
+        skillSynthesis: {
+          judgeProvider: 'saved-provider',
+          judgeModel: 'saved-model',
+          enhanceTimeoutMs: 45000,
+          triggers: { skillInvocationTelemetry: { enabled: false } },
+        },
+      }));
+
+      const manager = new PtahFileSettingsManager(FILE_BASED_SETTINGS_DEFAULTS);
+      expect(manager.get('skills.enhancement.provider')).toBe('saved-provider');
+      expect(manager.get('skills.enhancement.model')).toBe('saved-model');
+      expect(manager.get('skills.enhancement.timeoutMs')).toBe(45000);
+      expect(manager.get('skills.telemetry.enabled')).toBe(false);
+
+      const saved = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf-8'));
+      expect(saved.skills.enhancement).toEqual({
+        provider: 'saved-provider',
+        model: 'saved-model',
+        timeoutMs: 45000,
+      });
+      expect(saved.skills.telemetry.enabled).toBe(false);
+      expect(saved.skillSynthesis.judgeProvider).toBe('saved-provider');
+
+      const firstWrite = fs.readFileSync(SETTINGS_PATH, 'utf-8');
+      const restarted = new PtahFileSettingsManager(FILE_BASED_SETTINGS_DEFAULTS);
+      expect(restarted.get('skills.enhancement.model')).toBe('saved-model');
+      expect(fs.readFileSync(SETTINGS_PATH, 'utf-8')).toBe(firstWrite);
+    });
+
+    it('preserves each explicit new choice while copying other stored old values', () => {
+      writeSettingsFile(JSON.stringify({
+        skillSynthesis: {
+          judgeProvider: 'old-provider',
+          judgeModel: 'old-model',
+          enhanceTimeoutMs: 45000,
+          triggers: { skillInvocationTelemetry: { enabled: true } },
+        },
+        skills: {
+          enhancement: { provider: '', timeoutMs: 90000 },
+          telemetry: { enabled: false },
+        },
+      }));
+
+      const manager = new PtahFileSettingsManager(FILE_BASED_SETTINGS_DEFAULTS);
+      expect(manager.get('skills.enhancement.provider')).toBe('');
+      expect(manager.get('skills.enhancement.model')).toBe('old-model');
+      expect(manager.get('skills.enhancement.timeoutMs')).toBe(90000);
+      expect(manager.get('skills.telemetry.enabled')).toBe(false);
+
+      const restarted = new PtahFileSettingsManager(FILE_BASED_SETTINGS_DEFAULTS);
+      expect(restarted.get('skills.enhancement.provider')).toBe('');
+      expect(restarted.get('skills.enhancement.timeoutMs')).toBe(90000);
+      expect(restarted.get('skills.telemetry.enabled')).toBe(false);
+    });
+
+    it('does not write defaults when old values were never stored', () => {
+      writeSettingsFile(JSON.stringify({ skillSynthesis: { enabled: false } }));
+      const before = fs.readFileSync(SETTINGS_PATH, 'utf-8');
+
+      const manager = new PtahFileSettingsManager(FILE_BASED_SETTINGS_DEFAULTS);
+      expect(manager.get('skills.enhancement.provider')).toBe('');
+      expect(manager.get('skills.enhancement.model')).toBe('inherit');
+      expect(manager.get('skills.enhancement.timeoutMs')).toBe(120000);
+      expect(manager.get('skills.telemetry.enabled')).toBe(true);
+      expect(fs.readFileSync(SETTINGS_PATH, 'utf-8')).toBe(before);
+    });
+
+    it('does not expose a malformed settings value in the load warning', () => {
+      const secret = 'credential-from-corrupted-json';
+      writeSettingsFile(`{"skillSynthesis":{"judgeModel":"${secret}"`);
+
+      new PtahFileSettingsManager(FILE_BASED_SETTINGS_DEFAULTS);
+      expect(warnSpy).toHaveBeenCalled();
+      expect(JSON.stringify(warnSpy.mock.calls)).not.toContain(secret);
+    });
+  });
+
   // -------------------------------------------------------------------------
   // Corrupted JSON resilience — get() never throws
   // -------------------------------------------------------------------------

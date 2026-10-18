@@ -293,6 +293,10 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'skillSynthesis.judgeModel',
   'skillSynthesis.judgeProvider',
   'skillSynthesis.enhanceTimeoutMs',
+  'skills.enhancement.provider',
+  'skills.enhancement.model',
+  'skills.enhancement.timeoutMs',
+  'skills.telemetry.enabled',
   'skillSynthesis.maxPinnedSkills',
   'skillSynthesis.curatorEnabled',
   'skillSynthesis.curatorIntervalHours',
@@ -485,7 +489,7 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
 
 /**
  * Skill enhancement timeout configuration boundaries and default in milliseconds.
- * Governs `skillSynthesis.enhanceTimeoutMs`.
+ * Governs both the legacy timeout and `skills.enhancement.timeoutMs`.
  */
 export const ENHANCE_TIMEOUT_MIN_MS = 15_000;
 export const ENHANCE_TIMEOUT_MAX_MS = 600_000;
@@ -605,6 +609,10 @@ export const FILE_BASED_SETTINGS_DEFAULTS: Record<string, unknown> = {
   'skillSynthesis.judgeModel': 'inherit',
   'skillSynthesis.judgeProvider': '',
   'skillSynthesis.enhanceTimeoutMs': ENHANCE_TIMEOUT_DEFAULT_MS,
+  'skills.enhancement.provider': '',
+  'skills.enhancement.model': 'inherit',
+  'skills.enhancement.timeoutMs': ENHANCE_TIMEOUT_DEFAULT_MS,
+  'skills.telemetry.enabled': true,
   'skillSynthesis.maxPinnedSkills': 10,
   'skillSynthesis.curatorEnabled': true,
   'skillSynthesis.curatorIntervalHours': 24,

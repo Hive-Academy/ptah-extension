@@ -43,6 +43,17 @@ const CROSS_PROCESS_WATCH_DEBOUNCE_MS = 50;
  * any in-flight write (including the bounded rename retries).
  */
 const STALE_TEMP_FILE_AGE_MS = 10 * 60 * 1000;
+
+/** Only values actually present in settings.json are eligible for migration. */
+const SKILL_SETTINGS_MIGRATIONS = [
+  ['skillSynthesis.judgeProvider', 'skills.enhancement.provider'],
+  ['skillSynthesis.judgeModel', 'skills.enhancement.model'],
+  ['skillSynthesis.enhanceTimeoutMs', 'skills.enhancement.timeoutMs'],
+  [
+    'skillSynthesis.triggers.skillInvocationTelemetry.enabled',
+    'skills.telemetry.enabled',
+  ],
+] as const;
 /**
  * Process-wide counter that keeps each persist()'s temp file name unique. It is
  * shared by every instance: two managers on one file in one process would
@@ -513,16 +524,48 @@ export class PtahFileSettingsManager {
     this.sweepStaleTempFiles();
     try {
       const raw = fs.readFileSync(this.filePath, 'utf-8');
-      const parsed = JSON.parse(raw);
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
       this.settings = flattenObject(parsed);
+
+      let migrated = false;
+      for (const [oldKey, newKey] of SKILL_SETTINGS_MIGRATIONS) {
+        if (
+          Object.prototype.hasOwnProperty.call(this.settings, oldKey) &&
+          !Object.prototype.hasOwnProperty.call(this.settings, newKey)
+        ) {
+          this.settings[newKey] = this.settings[oldKey];
+          migrated = true;
+        }
+      }
+
+      if (migrated) {
+        const tmpPath = `${this.filePath}.${process.pid}.${++persistTempSequence}.tmp`;
+        try {
+          const output = {
+            $schema: parsed['$schema'] ?? 'https://ptah.live/schemas/settings.json',
+            version: parsed['version'] ?? 1,
+            ...unflattenObject(this.settings),
+          };
+          fs.writeFileSync(tmpPath, JSON.stringify(output, null, 2), 'utf-8');
+          fs.renameSync(tmpPath, this.filePath);
+        } catch (error: unknown) {
+          try {
+            fs.rmSync(tmpPath, { force: true });
+          } catch {
+            // The next load sweeps old temporary files.
+          }
+          console.warn(
+            `[PtahFileSettingsManager] Could not migrate settings in ${this.filePath} (${fsErrorCode(error)})`,
+          );
+        }
+      }
     } catch (error: unknown) {
       if (isNodeError(error) && error.code === 'ENOENT') {
         this.settings = {};
         return;
       }
       console.warn(
-        `[PtahFileSettingsManager] Failed to load settings from ${this.filePath}:`,
-        error instanceof Error ? error.message : String(error),
+        `[PtahFileSettingsManager] Failed to load settings from ${this.filePath} (${fsErrorCode(error)})`,
       );
       this.settings = {};
     }
