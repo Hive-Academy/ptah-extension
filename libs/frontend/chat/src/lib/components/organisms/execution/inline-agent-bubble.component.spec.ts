@@ -61,6 +61,7 @@ import {
   AgentMonitorStore,
   BackgroundAgentStore,
   SubagentExecutionStore,
+  SessionManager,
   type SubagentExecutionEntry,
   type SubagentRecord,
 } from '@ptah-extension/chat-streaming';
@@ -84,10 +85,14 @@ function makeNode(overrides: Partial<ExecutionNode> = {}): ExecutionNode {
 
 describe('InlineAgentBubbleComponent — Phase 3', () => {
   const subagentMap = signal<ReadonlyMap<string, SubagentRecord>>(new Map());
-  const executionEntries = signal<ReadonlyMap<string, SubagentExecutionEntry>>(new Map());
+  const executionEntries = signal<ReadonlyMap<string, SubagentExecutionEntry>>(
+    new Map(),
+  );
   const executionTree = signal<ExecutionNode[]>([]);
   const executionMock = {
     entries: executionEntries,
+    entryFor: (key: string) => executionEntries().get(key),
+    revisionFor: () => executionEntries(),
     treeFor: jest.fn(() => executionTree()),
     retain: jest.fn(),
     release: jest.fn(),
@@ -136,11 +141,21 @@ describe('InlineAgentBubbleComponent — Phase 3', () => {
     (bgStoreMock.isBackgroundAgent as jest.Mock).mockReset();
     (bgStoreMock.isBackgroundAgent as jest.Mock).mockReturnValue(false);
     TestBed.resetTestingModule();
-    TestBed.configureTestingModule({ providers: [{ provide: SubagentExecutionStore, useValue: executionMock }] });
+    TestBed.configureTestingModule({
+      providers: [
+        { provide: SubagentExecutionStore, useValue: executionMock },
+        { provide: SessionManager, useValue: { sessionId: () => null } },
+      ],
+    });
   });
 
   it('renders live store children once, counts them and releases its reference', () => {
-    const child = makeNode({ id: 'stored-tool', type: 'tool', toolName: 'Read', children: [] });
+    const child = makeNode({
+      id: 'stored-tool',
+      type: 'tool',
+      toolName: 'Read',
+      children: [],
+    });
     executionTree.set([child]);
     const fixture = TestBed.configureTestingModule({
       providers: [
@@ -148,13 +163,27 @@ describe('InlineAgentBubbleComponent — Phase 3', () => {
         { provide: BackgroundAgentStore, useValue: bgStoreMock },
       ],
     }).createComponent(InlineAgentBubbleComponent);
-    fixture.componentRef.setInput('node', makeNode({ children: [makeNode({ id: 'summary', type: 'text', content: 'old summary' })] }));
+    fixture.componentRef.setInput(
+      'node',
+      makeNode({
+        children: [
+          makeNode({ id: 'summary', type: 'text', content: 'old summary' }),
+        ],
+      }),
+    );
     fixture.detectChanges();
     expect(fixture.componentInstance.displayChildren()).toEqual([child]);
-    expect(fixture.componentInstance.childStats()).toBe('1 tools');
+    expect(fixture.componentInstance.childStats()).toBe('1 tool');
     expect(fixture.nativeElement.textContent).not.toContain('old summary');
-    expect(fixture.nativeElement.querySelector('[data-testid="subagent-transcript-button"]')).toBeNull();
-    expect(executionMock.retain).toHaveBeenCalledWith('toolu_parent_abc');
+    expect(
+      fixture.nativeElement.querySelector(
+        '[data-testid="subagent-transcript-button"]',
+      ),
+    ).toBeNull();
+    expect(executionMock.retain).toHaveBeenCalledWith(
+      'toolu_parent_abc',
+      undefined,
+    );
     fixture.destroy();
     expect(executionMock.release).toHaveBeenCalledWith('toolu_parent_abc');
   });
@@ -168,10 +197,14 @@ describe('InlineAgentBubbleComponent — Phase 3', () => {
     }).createComponent(InlineAgentBubbleComponent);
     fixture.componentRef.setInput('node', makeNode({ status: 'complete' }));
     fixture.detectChanges();
-    const button: HTMLButtonElement = fixture.nativeElement.querySelector('[data-testid="load-agent-output"]');
+    const button: HTMLButtonElement = fixture.nativeElement.querySelector(
+      '[data-testid="load-agent-output"]',
+    );
     expect(button).toBeTruthy();
     button.click();
-    expect(executionMock.ensureHistory).toHaveBeenCalledWith('toolu_parent_abc');
+    expect(executionMock.ensureHistory).toHaveBeenCalledWith(
+      'toolu_parent_abc',
+    );
   });
 
   it('exposes the subagent record matching node().toolCallId', () => {
@@ -296,7 +329,9 @@ describe('InlineAgentBubbleComponent — Phase 3', () => {
       fixture.detectChanges();
       const textarea = (
         fixture.nativeElement as HTMLElement
-      ).querySelector<HTMLTextAreaElement>('[data-testid="subagent-send-textarea"]');
+      ).querySelector<HTMLTextAreaElement>(
+        '[data-testid="subagent-send-textarea"]',
+      );
       expect(textarea).not.toBeNull();
       expect(textarea?.getAttribute('style')).toBe('field-sizing: content;');
 
@@ -492,9 +527,9 @@ describe('InlineAgentBubbleComponent — Phase 3', () => {
       onAgentScroll(): void;
     };
     const onAgentScroll = jest.spyOn(component, 'onAgentScroll');
-    const container = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>(
-      '.agent-collapse-inner > div',
-    );
+    const container = (
+      fixture.nativeElement as HTMLElement
+    ).querySelector<HTMLElement>('.agent-collapse-inner > div');
 
     expect(container).not.toBeNull();
     container?.dispatchEvent(new Event('scroll'));

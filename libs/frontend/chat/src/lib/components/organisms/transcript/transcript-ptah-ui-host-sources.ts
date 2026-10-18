@@ -60,7 +60,7 @@ export function createTranscriptPtahUiHostSources(
   const turnFacts = computed(() =>
     collectTurnAgentFacts(records(), input.activeTrees(), (key) => {
       const store = injector.get(SubagentExecutionStore);
-      store.entries();
+      store.revisionFor(key);
       return store.treeFor(key);
     }),
   );

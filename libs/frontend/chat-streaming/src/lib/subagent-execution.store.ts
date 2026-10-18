@@ -1,4 +1,11 @@
-import { Injectable, effect, inject, signal, type Signal } from '@angular/core';
+import {
+  Injectable,
+  effect,
+  inject,
+  signal,
+  type Signal,
+  type WritableSignal,
+} from '@angular/core';
 import {
   createEmptyStreamingState,
   type StreamingState,
@@ -101,6 +108,8 @@ export class SubagentExecutionStore {
   private readonly logger = inject(LoggingService);
 
   private readonly mutableEntries = new Map<string, SubagentExecutionEntry>();
+  private readonly entryKeys = new WeakMap<SubagentExecutionEntry, string>();
+  private readonly keyRevisions = new Map<string, WritableSignal<number>>();
   private readonly _entries = signal<
     ReadonlyMap<string, SubagentExecutionEntry>
   >(new Map());
@@ -135,7 +144,25 @@ export class SubagentExecutionStore {
 
   private publish(entry?: SubagentExecutionEntry): void {
     if (entry) entry.revision++;
+    if (entry)
+      this.keyRevisions
+        .get(this.entryKeys.get(entry) ?? '')
+        ?.update((value) => value + 1);
     this._entries.set(new Map(this.mutableEntries));
+  }
+
+  revisionFor(key: string): number {
+    let revision = this.keyRevisions.get(key);
+    if (!revision) {
+      revision = signal(0);
+      this.keyRevisions.set(key, revision);
+    }
+    return revision();
+  }
+
+  entryFor(key: string): SubagentExecutionEntryView | undefined {
+    this.revisionFor(key);
+    return this.mutableEntries.get(key);
   }
 
   private open(key: string, sessionId?: string): SubagentExecutionEntry {
@@ -157,6 +184,7 @@ export class SubagentExecutionStore {
         revision: 0,
       };
       this.mutableEntries.set(key, entry);
+      this.entryKeys.set(entry, key);
       this.publish(entry);
     } else if (sessionId && !entry.sessionId) {
       entry.sessionId = sessionId;
@@ -167,6 +195,7 @@ export class SubagentExecutionStore {
 
   syncRecord(record: SubagentRecord): void {
     const key = record.parentToolUseId;
+    this.syncedRecords.set(key, record);
     const entry = this.open(key, record.parentSessionId);
     if (record.agentId) entry.agentId = record.agentId;
     if (record.lastEventAt)
@@ -234,6 +263,10 @@ export class SubagentExecutionStore {
       entry.live = true;
       this.enforceLiveCap(key);
       this.publish(entry);
+      const record =
+        this.syncedRecords.get(key) ??
+        this.agentMonitorStore.subagents?.().get(key);
+      if (record && TERMINAL_STATUSES.has(record.status)) this.finalize(key);
       return true;
     } catch (error) {
       this.logger.error(
@@ -301,7 +334,6 @@ export class SubagentExecutionStore {
   treeFor(key: string): ExecutionNode[] {
     const entry = this.mutableEntries.get(key);
     if (!entry) return [];
-    this.lastRead.set(key, ++this.readClock);
     return [
       ...entry.finalized,
       ...(entry.state
@@ -361,9 +393,15 @@ export class SubagentExecutionStore {
     this.evictFinalized();
   }
 
-  retain(key: string): void {
-    const entry = this.open(key);
+  retain(key: string, sessionId?: string): void {
+    const entry = this.open(key, sessionId);
     entry.refs++;
+    const record =
+      this.syncedRecords.get(key) ??
+      this.agentMonitorStore.subagents?.().get(key);
+    if (record && TERMINAL_STATUSES.has(record.status) && entry.live)
+      this.finalize(key);
+    this.lastRead.set(key, ++this.readClock);
     this.publish(entry);
   }
 
@@ -430,6 +468,7 @@ export class SubagentExecutionStore {
   private remove(key: string, entry: SubagentExecutionEntry): void {
     this.abort(entry);
     this.mutableEntries.delete(key);
+    this.keyRevisions.get(key)?.update((value) => value + 1);
     this.ownership.drop(key);
     entry.idAlias.clear();
     this.lastRead.delete(key);
@@ -451,9 +490,14 @@ export class SubagentExecutionStore {
 
   async ensureHistory(key: string): Promise<void> {
     const entry = this.mutableEntries.get(key);
+    if (!entry) return;
+    if (!entry.sessionId) {
+      entry.history = 'error';
+      entry.historyError = 'Session for this agent is unavailable';
+      this.publish(entry);
+      return;
+    }
     if (
-      !entry ||
-      !entry.sessionId ||
       (entry.history === 'loaded' && !entry.truncated) ||
       entry.history === 'not-found'
     )
@@ -530,8 +574,8 @@ export class SubagentExecutionStore {
         this.builder,
         this.context(undefined, true),
       );
-      entry.clipped += clipped;
-      entry.truncated ||= truncated;
+      entry.clipped = clipped;
+      entry.truncated = truncated;
       entry.history = 'loaded';
       entry.spilled = false;
       this.publish(entry);

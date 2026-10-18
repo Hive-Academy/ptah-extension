@@ -137,7 +137,12 @@ export class HistoryMessageBuilder {
       const scopedEvent = event.sessionId
         ? event
         : ({ ...event, sessionId } as FlatStreamEventUnion);
-      if (scopedEvent.parentToolUseId) {
+      // Root agent_start refers to the parent assistant message. The child
+      // message starts later with its own message id.
+      if (
+        scopedEvent.parentToolUseId &&
+        scopedEvent.eventType !== 'agent_start'
+      ) {
         subagentMessageIds.add(scopedEvent.messageId);
       }
       if (subagentMessageIds.has(scopedEvent.messageId)) {

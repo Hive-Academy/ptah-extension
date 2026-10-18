@@ -14,6 +14,7 @@ import {
   DestroyRef,
   TemplateRef,
   NgZone,
+  untracked,
 } from '@angular/core';
 import {
   LucideAngularModule,
@@ -43,6 +44,7 @@ import {
   AgentMonitorStore,
   BackgroundAgentStore,
   SubagentExecutionStore,
+  SessionManager,
 } from '@ptah-extension/chat-streaming';
 import type {
   ExecutionNode,
@@ -316,7 +318,6 @@ import { ScrollDirtyService } from '../../../services/scroll-dirty.service';
             </button>
           }
 
-
           <!-- Message-agent toggle (collapsed by default).
                The message is relayed to THIS specific subagent: the backend
                dispatcher forwards it via the SDK's SendMessage tool keyed by
@@ -434,7 +435,45 @@ import { ScrollDirtyService } from '../../../services/scroll-dirty.service';
              separate block. This ensures agent text is properly interleaved
              with tool calls in chronological order. -->
             @if (canLoadHistory()) {
-              <button type="button" class="btn btn-ghost btn-xs" (click)="loadHistory()" data-testid="load-agent-output">Load agent output</button>
+              <button
+                type="button"
+                class="btn btn-ghost btn-xs"
+                (click)="loadHistory()"
+                data-testid="load-agent-output"
+              >
+                Load agent output
+              </button>
+            }
+            @if (historyEntry()?.history === 'loading') {
+              <p class="text-xs text-base-content-muted">
+                Loading saved output
+              </p>
+            } @else if (historyEntry()?.history === 'error') {
+              <p class="text-xs text-error">
+                Could not load saved output: {{ historyEntry()?.historyError }}
+                <button
+                  type="button"
+                  class="btn btn-link btn-xs p-0"
+                  (click)="loadHistory()"
+                >
+                  Retry
+                </button>
+              </p>
+            } @else if (historyEntry()?.history === 'unresolved') {
+              <p class="text-xs text-base-content-muted">
+                Saved output for this agent could not be linked.
+                <button
+                  type="button"
+                  class="btn btn-link btn-xs p-0"
+                  (click)="loadHistory()"
+                >
+                  Retry
+                </button>
+              </p>
+            } @else if (historyEntry()?.history === 'not-found') {
+              <p class="text-xs text-base-content-muted">
+                No saved output for this agent
+              </p>
             }
             @if (displayChildren().length > 0) {
               <!--
@@ -477,7 +516,11 @@ import { ScrollDirtyService } from '../../../services/scroll-dirty.service';
                   <span>Starting agent execution</span>
                   <ptah-typing-cursor colorClass="text-base-content-muted" />
                 </div>
-              } @else {
+              } @else if (
+                !historyEntry() ||
+                historyEntry()?.history === 'idle' ||
+                historyEntry()?.history === 'loaded'
+              ) {
                 <div class="text-[10px] text-base-content-muted py-2">
                   No execution data
                 </div>
@@ -594,6 +637,7 @@ export class InlineAgentBubbleComponent {
   private readonly agentMonitorStore = inject(AgentMonitorStore);
   private readonly backgroundAgentStore = inject(BackgroundAgentStore);
   private readonly executionStore = inject(SubagentExecutionStore);
+  private readonly sessionManager = inject(SessionManager);
   private readonly scrollDirty = inject(ScrollDirtyService);
 
   /**
@@ -677,7 +721,15 @@ export class InlineAgentBubbleComponent {
     effect((onCleanup) => {
       const key = this.parentToolUseId();
       if (!key) return;
-      this.executionStore.retain(key);
+      this.executionStore.retain(
+        key,
+        untracked(
+          () =>
+            this.subagentRecord()?.parentSessionId ??
+            this.sessionManager.sessionId() ??
+            undefined,
+        ),
+      );
       onCleanup(() => this.executionStore.release(key));
     });
     effect(() => {
@@ -844,18 +896,26 @@ export class InlineAgentBubbleComponent {
   });
   readonly childStats = computed(() => {
     if (this.storeTree().length === 0 && this.subagentRecord()?.toolUses) {
-      return `${this.subagentRecord()!.toolUses} tools`;
+      const count = this.subagentRecord()!.toolUses!;
+      return `${count} ${count === 1 ? 'tool' : 'tools'}`;
     }
     const children = this.displayChildren();
-    const count = (nodes: readonly ExecutionNode[], type: ExecutionNode['type']): number =>
-      nodes.reduce((total, child) => total + (child.type === type ? 1 : 0) + count(child.children, type), 0);
+    const count = (
+      nodes: readonly ExecutionNode[],
+      type: ExecutionNode['type'],
+    ): number =>
+      nodes.reduce(
+        (total, child) =>
+          total + (child.type === type ? 1 : 0) + count(child.children, type),
+        0,
+      );
     const toolCount = count(children, 'tool');
     const textCount = count(children, 'text');
 
     if (toolCount > 0 && textCount > 0) {
-      return `${toolCount} tools`;
+      return `${toolCount} ${toolCount === 1 ? 'tool' : 'tools'}`;
     } else if (toolCount > 0) {
-      return `${toolCount} tools`;
+      return `${toolCount} ${toolCount === 1 ? 'tool' : 'tools'}`;
     } else if (textCount > 0) {
       return `${textCount} items`;
     }
@@ -868,7 +928,10 @@ export class InlineAgentBubbleComponent {
    * Using computed() ensures Angular tracks changes properly with OnPush
    */
   readonly hasChildren = computed(() => {
-    return this.displayChildren().length > 0 || (this.subagentRecord()?.toolUses ?? 0) > 0;
+    return (
+      this.displayChildren().length > 0 ||
+      (this.subagentRecord()?.toolUses ?? 0) > 0
+    );
   });
 
   /**
@@ -884,13 +947,18 @@ export class InlineAgentBubbleComponent {
    */
   readonly agentDuration = computed(() => {
     const record = this.subagentRecord();
-    const duration = agentRunDurationMs({
-      running: record?.status === 'running' || record?.status === 'pending',
-      startedAt: record?.startedAt,
-      endedAt: record?.completedAt,
-      reportedMs: record?.durationMs ?? this.node().duration,
-    }, Date.now()); // Known limitation: computed duration refreshes only when a signal changes.
-    return duration !== null && formatAgentDuration(duration) !== null ? duration : null;
+    const duration = agentRunDurationMs(
+      {
+        running: record?.status === 'running' || record?.status === 'pending',
+        startedAt: record?.startedAt,
+        endedAt: record?.completedAt,
+        reportedMs: record?.durationMs ?? this.node().duration,
+      },
+      Date.now(),
+    ); // Known limitation: computed duration refreshes only when a signal changes.
+    return duration !== null && formatAgentDuration(duration) !== null
+      ? duration
+      : null;
   });
 
   /**
@@ -911,17 +979,25 @@ export class InlineAgentBubbleComponent {
 
   /** parentToolUseId for the SDK task this bubble represents. */
   readonly parentToolUseId = computed(() => this.node().toolCallId ?? null);
+  readonly historyEntry = computed(() => {
+    const key = this.parentToolUseId();
+    return key ? this.executionStore.entryFor(key) : undefined;
+  });
   readonly storeTree = computed(() => {
-    this.executionStore.entries();
+    this.executionStore.revisionFor(this.parentToolUseId() ?? '');
     const key = this.parentToolUseId();
     return key ? this.executionStore.treeFor(key) : [];
   });
-  readonly displayChildren = computed(() => this.storeTree().length > 0 ? this.storeTree() : this.node().children ?? []);
+  readonly displayChildren = computed(() =>
+    this.storeTree().length > 0
+      ? this.storeTree()
+      : (this.node().children ?? []),
+  );
   readonly canLoadHistory = computed(() => {
     const key = this.parentToolUseId();
     if (!key || this.storeTree().length > 0 || this.isStreaming()) return false;
-    const history = this.executionStore.entries().get(key)?.history;
-    return history !== 'loading' && history !== 'loaded' && history !== 'not-found' && history !== 'unresolved';
+    const history = this.historyEntry()?.history;
+    return history === undefined || history === 'idle';
   });
   protected loadHistory(): void {
     const key = this.parentToolUseId();

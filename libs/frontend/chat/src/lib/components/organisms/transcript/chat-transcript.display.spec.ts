@@ -282,7 +282,12 @@ function configure(options: RenderOptions): void {
   const providers: Provider[] = [
     {
       provide: SubagentExecutionStore,
-      useValue: { entries: signal(new Map()), treeFor: () => [] },
+      useValue: {
+        entries: signal(new Map()),
+        treeFor: () => [],
+        revisionFor: () => 0,
+        entryFor: () => undefined,
+      },
     },
     ...(options.providers ?? []),
   ];

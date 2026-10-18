@@ -74,6 +74,26 @@ function agent(
 
 describe('collectTurnAgentFacts', () => {
   describe('turn attribution (D7)', () => {
+    it('includes nested foreground agents beneath a background-only top-level agent', () => {
+      const turns = collectTurnAgentFacts(
+        [
+          user('u-background', 1),
+          assistant('a-background', 2, [
+            taskTool(
+              'parent',
+              agent('background-parent', 'parent', { isBackground: true }),
+            ),
+          ]),
+        ],
+        [],
+        (key) =>
+          key === 'parent'
+            ? [taskTool('child', agent('nested-child', 'child'))]
+            : [],
+      );
+      expect(turns[0].nodes.map((node) => node.id)).toEqual(['nested-child']);
+      expect(turns[0].spawnToolCallIds).toEqual(['parent', 'child']);
+    });
     it('gives one entry per user message, started at its timestamp', () => {
       const messages = [
         user('u1', 1_000),

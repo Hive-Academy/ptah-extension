@@ -106,9 +106,8 @@ export function collectTurnAgentFacts(
   }
   if (treeFor) {
     for (const turn of turns) {
-      if (turn.nodes.length === 0) continue;
       for (const node of collectNestedAgentNodes(
-        [...turn.seenAgentKeys],
+        [...turn.spawnToolCallIds],
         treeFor,
       )) {
         if (node.toolCallId && turn.seenAgentKeys.has(node.toolCallId))

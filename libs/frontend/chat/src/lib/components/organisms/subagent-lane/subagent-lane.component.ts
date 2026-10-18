@@ -1,9 +1,39 @@
-import { ChangeDetectionStrategy, Component, ElementRef, Injector, afterNextRender, computed, effect, inject, input, output, signal, viewChild } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  Injector,
+  afterNextRender,
+  computed,
+  effect,
+  inject,
+  input,
+  output,
+  signal,
+  untracked,
+  viewChild,
+} from '@angular/core';
 import { SlicePipe } from '@angular/common';
-import { LucideAngularModule, MessageSquare, Moon, Square } from 'lucide-angular';
-import { AgentMonitorStore, SubagentExecutionStore, type SubagentRecord } from '@ptah-extension/chat-streaming';
-import { AgentSteerInputComponent, AgentSummaryComponent, agentRunLabel } from '@ptah-extension/chat-ui';
-import type { PermissionRequest, PermissionResponse } from '@ptah-extension/shared';
+import {
+  LucideAngularModule,
+  MessageSquare,
+  Moon,
+  Square,
+} from 'lucide-angular';
+import {
+  AgentMonitorStore,
+  SubagentExecutionStore,
+  type SubagentRecord,
+} from '@ptah-extension/chat-streaming';
+import {
+  AgentSteerInputComponent,
+  AgentSummaryComponent,
+  agentRunLabel,
+} from '@ptah-extension/chat-ui';
+import type {
+  PermissionRequest,
+  PermissionResponse,
+} from '@ptah-extension/shared';
 import { ExecutionHeaderComponent } from '../../molecules/execution-header/execution-header.component';
 import { SubagentUsageSummaryComponent } from '../../molecules/agent-card/subagent-usage-summary.component';
 import { ExecutionNodeComponent } from '../execution/execution-node.component';
@@ -16,7 +46,15 @@ import { subagentProgressText } from '../../../utils/subagent-progress.utils';
 @Component({
   selector: 'ptah-subagent-lane',
   standalone: true,
-  imports: [SlicePipe, LucideAngularModule, AgentSteerInputComponent, AgentSummaryComponent, ExecutionHeaderComponent, SubagentUsageSummaryComponent, ExecutionNodeComponent],
+  imports: [
+    SlicePipe,
+    LucideAngularModule,
+    AgentSteerInputComponent,
+    AgentSummaryComponent,
+    ExecutionHeaderComponent,
+    SubagentUsageSummaryComponent,
+    ExecutionNodeComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <ptah-execution-header
@@ -32,47 +70,107 @@ import { subagentProgressText } from '../../../utils/subagent-progress.utils';
       @if (context(); as ctx) {
         <div executionHeaderActions class="flex shrink-0 items-center gap-0.5">
           @if (ctx.entry.canBackground) {
-            <button type="button" class="btn btn-ghost btn-xs btn-square"
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs btn-square"
               [attr.aria-label]="'Send ' + name() + ' to background'"
-              [disabled]="backgroundPending()" (click)="onBackground(ctx)">
-              <lucide-angular [img]="MoonIcon" class="h-3 w-3" aria-hidden="true" />
+              [disabled]="backgroundPending()"
+              (click)="onBackground(ctx)"
+            >
+              <lucide-angular
+                [img]="MoonIcon"
+                class="h-3 w-3"
+                aria-hidden="true"
+              />
             </button>
           }
           @if (ctx.entry.stoppable) {
-            <button type="button" class="btn btn-ghost btn-xs btn-square"
-              [attr.aria-label]="'Stop ' + name()" [disabled]="stopPending()" (click)="onStop(ctx)">
-              <lucide-angular [img]="SquareIcon" class="h-3 w-3 text-error" aria-hidden="true" />
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs btn-square"
+              [attr.aria-label]="'Stop ' + name()"
+              [disabled]="stopPending()"
+              (click)="onStop(ctx)"
+            >
+              <lucide-angular
+                [img]="SquareIcon"
+                class="h-3 w-3 text-error"
+                aria-hidden="true"
+              />
             </button>
           }
           @if (ctx.entry.steerable) {
-            <button #steerToggle type="button" class="btn btn-ghost btn-xs btn-square"
-              [attr.aria-label]="'Message ' + name()" [attr.aria-expanded]="steerOpen()"
-              [attr.aria-controls]="'subagent-steer-' + record().parentToolUseId"
-              (click)="toggleSteer()">
-              <lucide-angular [img]="MessageIcon" class="h-3 w-3" aria-hidden="true" />
+            <button
+              #steerToggle
+              type="button"
+              class="btn btn-ghost btn-xs btn-square"
+              [attr.aria-label]="'Message ' + name()"
+              [attr.aria-expanded]="steerOpen()"
+              [attr.aria-controls]="
+                'subagent-steer-' + record().parentToolUseId
+              "
+              (click)="toggleSteer()"
+            >
+              <lucide-angular
+                [img]="MessageIcon"
+                class="h-3 w-3"
+                aria-hidden="true"
+              />
             </button>
           }
         </div>
       }
       <ptah-subagent-usage-summary class="block pt-1.5" [record]="record()" />
       <dl class="space-y-1 py-1">
-        @if (record().usage?.model) { <div><dt class="inline font-medium">Model: </dt><dd class="inline">{{ record().usage?.model }}</dd></div> }
-        @if (record().description) { <div><dt class="inline font-medium">Task: </dt><dd class="inline">{{ record().description }}</dd></div> }
+        @if (record().usage?.model) {
+          <div>
+            <dt class="inline font-medium">Model:</dt>
+            <dd class="ms-1 inline">{{ record().usage?.model }}</dd>
+          </div>
+        }
+        @if (record().description) {
+          <div>
+            <dt class="inline font-medium">Task:</dt>
+            <dd class="ms-1 inline">{{ record().description }}</dd>
+          </div>
+        }
         @if (record().parentSessionId) {
-          <div><dt class="inline font-medium">Parent: </dt><dd class="inline font-mono" [title]="record().parentSessionId">{{ record().parentSessionId | slice: 0 : 8 }}&hellip;</dd></div>
+          <div>
+            <dt class="inline font-medium">Parent:</dt>
+            <dd
+              class="ms-1 inline font-mono"
+              [title]="record().parentSessionId"
+            >
+              {{ record().parentSessionId | slice: 0 : 8 }}&hellip;
+            </dd>
+          </div>
         }
       </dl>
     </ptah-execution-header>
     @if (commandError(); as err) {
-      <p role="alert" class="py-1 text-xs text-error" data-testid="subagent-command-error">{{ err.message }}</p>
+      <p
+        role="alert"
+        class="py-1 text-xs text-error"
+        data-testid="subagent-command-error"
+      >
+        {{ err.message }}
+      </p>
     }
     @if (steerOpen() && context()?.entry?.steerable) {
-      <ptah-agent-steer-input class="block" [id]="'subagent-steer-' + record().parentToolUseId"
-        [steerable]="true" [pending]="steerPending()" (keydown.escape)="closeSteer($event)"
-        [clearOnSubmit]="false" [placeholder]="'Steer ' + name() + '...'"
-        (steer)="onSteer($event)" />
+      <ptah-agent-steer-input
+        class="block"
+        [id]="'subagent-steer-' + record().parentToolUseId"
+        [steerable]="true"
+        [pending]="steerPending()"
+        (keydown.escape)="closeSteer($event)"
+        [clearOnSubmit]="false"
+        [placeholder]="'Steer ' + name() + '...'"
+        (steer)="onSteer($event)"
+      />
       @if (steerFailed()) {
-        <p role="alert" class="py-1 text-xs text-error">Could not send your message. Try again.</p>
+        <p role="alert" class="py-1 text-xs text-error">
+          Could not send your message. Try again.
+        </p>
       }
     }
     <div class="space-y-2 pt-2">
@@ -80,27 +178,68 @@ import { subagentProgressText } from '../../../utils/subagent-progress.utils';
         <ptah-agent-summary [content]="content" />
       }
       @if (entry()?.truncated || entry()?.spilled) {
-        <p class="text-xs text-base-content-muted">Earlier output trimmed — <button type="button" class="btn btn-link btn-xs p-0" (click)="loadFullOutput()">Load full output</button></p>
+        <p class="text-xs text-base-content-muted">
+          Earlier output trimmed —
+          <button
+            type="button"
+            class="btn btn-link btn-xs p-0"
+            (click)="loadFullOutput()"
+          >
+            Load full output
+          </button>
+        </p>
       }
       @if ((entry()?.clipped ?? 0) > 0) {
-        <p class="text-xs text-base-content-muted">Some long outputs were shortened</p>
+        <p class="text-xs text-base-content-muted">
+          Some long outputs were shortened
+        </p>
       }
       @if (entry()?.history === 'loading') {
         <p class="text-xs text-base-content-muted">Loading saved output</p>
       } @else if (entry()?.history === 'error') {
-        <p class="text-xs text-error">Could not load saved output. <button type="button" class="btn btn-link btn-xs p-0" (click)="retryHistory()">Retry</button></p>
+        <p class="text-xs text-error">
+          Could not load saved output.
+          <button
+            type="button"
+            class="btn btn-link btn-xs p-0"
+            (click)="retryHistory()"
+          >
+            Retry
+          </button>
+        </p>
       } @else if (entry()?.history === 'unresolved') {
-        <p class="text-xs text-base-content-muted">Saved output for this agent could not be linked. <button type="button" class="btn btn-link btn-xs p-0" (click)="retryHistory()">Retry</button></p>
+        <p class="text-xs text-base-content-muted">
+          Saved output for this agent could not be linked.
+          <button
+            type="button"
+            class="btn btn-link btn-xs p-0"
+            (click)="retryHistory()"
+          >
+            Retry
+          </button>
+        </p>
       } @else if (entry()?.history === 'not-found') {
-        <p class="text-xs text-base-content-muted">No saved output for this agent</p>
+        <p class="text-xs text-base-content-muted">
+          No saved output for this agent
+        </p>
       }
       @for (node of nodes(); track node.id) {
-        <ptah-execution-node [node]="node" [agentTileMode]="false"
+        <ptah-execution-node
+          [node]="node"
+          [agentTileMode]="false"
           [getPermissionForTool]="getPermissionForTool()"
-          (permissionResponded)="permissionResponded.emit($event)" />
+          (permissionResponded)="permissionResponded.emit($event)"
+        />
       } @empty {
-        @if (!finishedSummary() && (!entry() || entry()?.history === 'idle' || entry()?.history === 'loaded')) {
-          <p class="text-xs text-base-content-muted">{{ live() ? 'Starting agent' : 'No output recorded' }}</p>
+        @if (
+          !finishedSummary() &&
+          (!entry() ||
+            entry()?.history === 'idle' ||
+            entry()?.history === 'loaded')
+        ) {
+          <p class="text-xs text-base-content-muted">
+            {{ live() ? 'Starting agent' : 'No output recorded' }}
+          </p>
         }
       }
     </div>
@@ -110,7 +249,9 @@ export class SubagentLaneComponent {
   readonly record = input.required<SubagentRecord>();
   readonly sessionId = input<string | null>(null);
   readonly summaryContent = input<string | null>(null);
-  readonly getPermissionForTool = input<((toolCallId: string) => PermissionRequest | null) | undefined>();
+  readonly getPermissionForTool = input<
+    ((toolCallId: string) => PermissionRequest | null) | undefined
+  >();
   readonly permissionResponded = output<PermissionResponse>();
 
   protected readonly tray = inject(SessionAgentTrayService);
@@ -118,7 +259,8 @@ export class SubagentLaneComponent {
   private readonly store = inject(SubagentExecutionStore);
   private readonly injector = inject(Injector);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
-  private readonly steerToggle = viewChild<ElementRef<HTMLButtonElement>>('steerToggle');
+  private readonly steerToggle =
+    viewChild<ElementRef<HTMLButtonElement>>('steerToggle');
   protected readonly MoonIcon = Moon;
   protected readonly SquareIcon = Square;
   protected readonly MessageIcon = MessageSquare;
@@ -127,46 +269,90 @@ export class SubagentLaneComponent {
   protected readonly steerFailed = signal(false);
   protected readonly stopPending = signal(false);
   protected readonly backgroundPending = signal(false);
-  protected readonly context = computed(() => this.tray.contextsFor(this.sessionId()).get(this.record().parentToolUseId) ?? null);
-  protected readonly entry = computed(() => this.store.entries().get(this.record().parentToolUseId));
+  protected readonly context = computed(
+    () =>
+      this.tray
+        .contextsFor(this.sessionId())
+        .get(this.record().parentToolUseId) ?? null,
+  );
+  protected readonly key = computed(() => this.record().parentToolUseId);
+  protected readonly entry = computed(() => this.store.entryFor(this.key()));
   protected readonly nodes = computed(() => {
-    this.store.entries();
+    this.store.revisionFor(this.key());
     return this.store.treeFor(this.record().parentToolUseId);
   });
-  protected readonly name = computed(() => this.record().teammateName || this.record().agentType || this.record().agentId || 'Sub-agent');
-  protected readonly live = computed(() => ['running', 'pending', 'background'].includes(this.record().status));
-  protected readonly finishedSummary = computed(() => this.summaryContent() ?? (!this.live() ? this.record().latestSummary ?? null : null));
+  protected readonly name = computed(
+    () =>
+      this.record().teammateName ||
+      this.record().agentType ||
+      this.record().agentId ||
+      'Sub-agent',
+  );
+  protected readonly live = computed(() =>
+    ['running', 'pending', 'background'].includes(this.record().status),
+  );
+  protected readonly finishedSummary = computed(() =>
+    this.nodes().length > 0
+      ? null
+      : (this.summaryContent() ??
+        (!this.live() ? (this.record().latestSummary ?? null) : null)),
+  );
   protected readonly label = computed(() => {
     const record = this.record();
     const live = this.live();
     if (live) this.monitor.tick();
-    return agentRunLabel({ running: live, startedAt: record.startedAt, endedAt: record.completedAt, reportedMs: record.durationMs }, Date.now());
+    return agentRunLabel(
+      {
+        running: live,
+        startedAt: record.startedAt,
+        endedAt: record.completedAt,
+        reportedMs: record.durationMs,
+      },
+      Date.now(),
+    );
   });
-  protected readonly progress = computed(() => subagentProgressText(this.record()));
-  protected readonly summary = computed(() => summarizeExecutionNodes(this.nodes()));
+  protected readonly progress = computed(() =>
+    subagentProgressText(this.record()),
+  );
+  protected readonly summary = computed(() =>
+    summarizeExecutionNodes(this.nodes()),
+  );
   protected readonly meta = computed(() => {
     const record = this.record();
     const meta: string[] = [];
-    if (record.totalTokens !== undefined && Number.isFinite(record.totalTokens) && record.totalTokens > 0) meta.push(`${formatTokens(record.totalTokens)} tokens`);
+    if (
+      record.totalTokens !== undefined &&
+      Number.isFinite(record.totalTokens) &&
+      record.totalTokens > 0
+    )
+      meta.push(`${formatTokens(record.totalTokens)} tokens`);
     if (record.status === 'background') meta.push('Background');
     return meta;
   });
   protected readonly commandError = computed(() => {
     const error = this.monitor.subagentRpcError();
-    return error?.parentToolUseId === this.record().parentToolUseId ? error : null;
+    return error?.parentToolUseId === this.record().parentToolUseId
+      ? error
+      : null;
   });
 
   constructor() {
     effect((onCleanup) => {
-      const key = this.record().parentToolUseId;
-      this.store.retain(key);
+      const key = this.key();
+      this.store.retain(
+        key,
+        untracked(
+          () => this.record().parentSessionId ?? this.sessionId() ?? undefined,
+        ),
+      );
       onCleanup(() => this.store.release(key));
     });
     effect(() => this.store.syncRecord(this.record()));
     effect(() => {
       const key = this.record().parentToolUseId;
       const entry = this.entry();
-      if (entry && !entry.live && entry.history === 'idle') void this.store.ensureHistory(key);
+      if (entry && !entry.live && entry.history === 'idle')
+        void this.store.ensureHistory(key);
     });
   }
 
@@ -184,7 +370,13 @@ export class SubagentLaneComponent {
       return;
     }
     this.steerOpen.set(true);
-    afterNextRender(() => this.host.nativeElement.querySelector<HTMLInputElement>('ptah-agent-steer-input input')?.focus(), { injector: this.injector });
+    afterNextRender(
+      () =>
+        this.host.nativeElement
+          .querySelector<HTMLInputElement>('ptah-agent-steer-input input')
+          ?.focus(),
+      { injector: this.injector },
+    );
   }
 
   protected closeSteer(event: Event): void {

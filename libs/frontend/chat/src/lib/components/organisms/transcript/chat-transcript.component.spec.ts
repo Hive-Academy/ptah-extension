@@ -1224,6 +1224,7 @@ describe('ChatTranscriptComponent — single chat sub-agent view (R9n)', () => {
           provide: SubagentExecutionStore,
           useValue: {
             entries: executionEntries,
+            revisionFor: () => executionEntries(),
             treeFor: (key: string) => nestedTrees().get(key) ?? outputTree(),
           },
         },

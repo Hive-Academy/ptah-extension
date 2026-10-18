@@ -194,6 +194,8 @@ function configure({ isElectron, behavior, preB6 }: Setup): void {
         useValue: {
           entries: signal(new Map()),
           treeFor: jest.fn(() => []),
+          revisionFor: () => 0,
+          entryFor: () => undefined,
           retain: jest.fn(),
           release: jest.fn(),
           ensureHistory: jest.fn(async () => undefined),

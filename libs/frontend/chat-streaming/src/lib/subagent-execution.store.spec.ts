@@ -186,20 +186,14 @@ describe('SubagentExecutionStore', () => {
     ]).toContain('one two');
   });
 
-  it('finalizes once and opens a fresh state for a late event', () => {
+  it('refinalizes a late event after a terminal record', () => {
     store.syncRecord(record('agent-a'));
     store.claim(start('m'));
-    store.finalize('agent-a');
+    store.syncRecord(record('agent-a', 'completed'));
     expect(store.entries().get('agent-a')?.state).toBeNull();
     expect(store.claim(delta('m', 'late', 'late'))).toBe(true);
-    const fresh = store.entries().get('agent-a')?.state;
-    expect(fresh?.events.size).toBe(2); // retained start plus late delta
-    expect(fresh?.messageEventIds).toEqual(['m']);
-    expect([...fresh!.textAccumulators.values()]).toContain('late');
-    store.treeFor('agent-a');
-    expect(builder.buildTree).toHaveBeenCalledWith(fresh, 'subagent-agent-a', {
-      rootParentToolUseId: 'agent-a',
-    });
+    expect(store.entries().get('agent-a')?.state).toBeNull();
+    expect(store.entries().get('agent-a')?.live).toBe(false);
   });
 
   it('evicts the least recently read finalized entry and respects pins', () => {
@@ -211,7 +205,7 @@ describe('SubagentExecutionStore', () => {
       if (n === 1) store.treeFor(key);
     }
     expect(store.entries().has('agent-0')).toBe(true);
-    expect(store.entries().has('agent-2')).toBe(false);
+    expect(store.entries().has('agent-1')).toBe(false);
     store.release('agent-0');
     store.clearSession(sessionId);
     expect(store.entries().size).toBe(0);
@@ -359,12 +353,36 @@ describe('SubagentExecutionStore', () => {
     rpc.call
       .mockResolvedValueOnce({
         ...page([]),
-        data: { ...page([]).data, truncated: true },
+        data: { ...page([]).data, truncated: true, clippedEvents: 3 },
       })
       .mockResolvedValueOnce(page([]));
     await store.ensureHistory('agent-a');
     await store.ensureHistory('agent-a');
     expect(rpc.call).toHaveBeenCalledTimes(2);
+    expect(store.entries().get('agent-a')).toMatchObject({
+      clipped: 0,
+      truncated: false,
+    });
+    await store.ensureHistory('agent-a');
+    expect(rpc.call).toHaveBeenCalledTimes(2);
+  });
+
+  it('reopens an evicted terminal entry with a session for history', async () => {
+    store.syncRecord(record('agent-a', 'completed'));
+    for (let index = 0; index < 21; index++)
+      store.syncRecord(record(`other-${index}`, 'completed'));
+    expect(store.entries().has('agent-a')).toBe(false);
+    store.retain('agent-a', sessionId);
+    rpc.call.mockResolvedValueOnce(page([]));
+    await store.ensureHistory('agent-a');
+    expect(rpc.call).toHaveBeenCalledWith(
+      'subagent:history-page',
+      expect.objectContaining({ sessionId, toolCallId: 'agent-a' }),
+    );
+    expect(store.entries().get('agent-a')).toMatchObject({
+      live: false,
+      history: 'loaded',
+    });
   });
 
   it('claims late events after the owner index evicts their message id', () => {

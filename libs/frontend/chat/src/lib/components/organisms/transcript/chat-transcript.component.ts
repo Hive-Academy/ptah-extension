@@ -723,7 +723,7 @@ export class ChatTranscriptComponent {
   private readonly turnAgentKeys = computed<TurnAgentKeys>(() =>
     turnAgentKeysOf(this.turnMessages(), this.turnContexts(), (key) => {
       const store = this.subagentExecutions;
-      store.entries();
+      store.revisionFor(key);
       return store.treeFor(key);
     }),
   );

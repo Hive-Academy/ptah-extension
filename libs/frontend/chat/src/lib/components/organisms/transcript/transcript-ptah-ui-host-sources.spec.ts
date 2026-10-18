@@ -76,7 +76,11 @@ function setup(messages: readonly ExecutionChatMessage[]) {
     providers: [
       {
         provide: SubagentExecutionStore,
-        useValue: { entries: signal(new Map()), treeFor: () => [] },
+        useValue: {
+          entries: signal(new Map()),
+          revisionFor: () => 0,
+          treeFor: () => [],
+        },
       },
     ],
   });
@@ -116,7 +120,10 @@ describe('createTranscriptPtahUiHostSources', () => {
     const treeFor = jest.fn((key: string) => trees.get(key) ?? []);
     TestBed.configureTestingModule({
       providers: [
-        { provide: SubagentExecutionStore, useValue: { entries, treeFor } },
+        {
+          provide: SubagentExecutionStore,
+          useValue: { entries, revisionFor: () => entries(), treeFor },
+        },
       ],
     });
     const records = [
