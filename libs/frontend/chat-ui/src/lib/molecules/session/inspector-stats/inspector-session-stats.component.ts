@@ -8,6 +8,7 @@ import { CostBadgeComponent } from '../../../atoms/cost-badge.component';
 import { formatCost, formatDuration, formatOptionalTokens, formatTokens } from '../session-stats-format';
 import { costBudgetSuffix, costBudgetText, tokensBudgetSuffix } from '../session-budget-format';
 import { StatsTileExpansionState } from '../plan-limits/stats-tile-expansion.state';
+import { InspectorCacheTileComponent } from './inspector-cache-tile.component';
 import {
   AGENTS_DETAILS, agentCountOf, contextDetailsText, costDetailsText, durationMsOf,
   knownSubtotalOf, tokenDetailsText, type SessionStatsInputs,
@@ -18,7 +19,7 @@ let nextSessionId = 0;
 @Component({
   selector: 'ptah-inspector-session-stats',
   standalone: true,
-  imports: [LucideAngularModule, ContextRingComponent, CostBadgeComponent, NgTemplateOutlet],
+  imports: [LucideAngularModule, ContextRingComponent, CostBadgeComponent, NgTemplateOutlet, InspectorCacheTileComponent],
   template: `
     @let s = stats();
     <section class="p-4" data-testid="inspector-session-stats" [attr.aria-labelledby]="headingId">
@@ -38,6 +39,7 @@ let nextSessionId = 0;
         </p>
       }
       <div class="grid grid-cols-2 gap-2">
+        @if (s.cache; as cache) { <ptah-inspector-cache-tile [cache]="cache" /> }
         <div class="relative col-span-2 rounded-md border border-surface-border bg-surface-1 p-2.5">
           <div class="flex items-center gap-3"
             [attr.role]="s.context.known ? 'progressbar' : null"
