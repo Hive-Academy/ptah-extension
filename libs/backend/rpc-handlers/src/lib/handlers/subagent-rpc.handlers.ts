@@ -10,6 +10,7 @@
  * - subagent:interrupt     — Interrupt the entire session
  * - subagent:background    — Move in-flight foreground task(s) to background
  * - subagent:transcript    — Read a subagent's historical transcript on demand
+ * - subagent:history-page  — Read a bounded page of structured subagent history
  *
  * NOTE: The chat:subagent-resume RPC has been removed.
  * Subagent resumption is now handled via context injection in chat:continue,
@@ -41,10 +42,13 @@ import {
   SubagentCommandResult,
   SubagentTranscriptParams,
   SubagentTranscriptResult,
+  SubagentHistoryPageParams,
+  SubagentHistoryPageResult,
 } from '@ptah-extension/shared';
 import type { RpcMethodName } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
-import type { SubagentMessageDispatcher } from '@ptah-extension/agent-sdk';
+import type { SubagentMessageDispatcher, SessionHistoryReaderService } from '@ptah-extension/agent-sdk';
+import { assembleHistoryPage } from './subagent-history-page';
 import {
   SubagentQuerySchema,
   SubagentSendMessageSchema,
@@ -52,6 +56,7 @@ import {
   SubagentInterruptSchema,
   SubagentBackgroundSchema,
   SubagentTranscriptSchema,
+  SubagentHistoryPageSchema,
 } from './subagent-rpc.schema';
 
 /**
@@ -87,6 +92,7 @@ export class SubagentRpcHandlers {
     'subagent:interrupt',
     'subagent:background',
     'subagent:transcript',
+    'subagent:history-page',
   ] as const satisfies readonly RpcMethodName[];
 
   constructor(
@@ -100,6 +106,8 @@ export class SubagentRpcHandlers {
     private readonly dispatcher: SubagentMessageDispatcher,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspace: IWorkspaceProvider,
+    @inject(SDK_TOKENS.SDK_SESSION_HISTORY_READER)
+    private readonly historyReader: SessionHistoryReaderService,
   ) {}
 
   /**
@@ -112,6 +120,7 @@ export class SubagentRpcHandlers {
     this.registerInterrupt();
     this.registerBackground();
     this.registerTranscript();
+    this.registerHistoryPage();
 
     this.logger.debug('Subagent RPC handlers registered', {
       methods: SubagentRpcHandlers.METHODS,
@@ -378,5 +387,30 @@ export class SubagentRpcHandlers {
       );
       return { messages };
     });
+  }
+
+  private registerHistoryPage(): void {
+    this.rpcHandler.registerMethod<SubagentHistoryPageParams, SubagentHistoryPageResult>(
+      'subagent:history-page', async (params) => {
+        const parsed = SubagentHistoryPageSchema.safeParse(params);
+        if (!parsed.success) throw new RpcUserError('Invalid agent history request', 'INVALID_PARAMS');
+        const { sessionId, toolCallId, agentId, cursor, maxBytes } = parsed.data;
+        const start = cursor === undefined ? 0 : Number(cursor);
+        if (cursor !== undefined && (!/^(0|[1-9][0-9]*)$/.test(cursor) || !Number.isSafeInteger(start))) {
+          throw new RpcUserError('Invalid agent history cursor', 'INVALID_PARAMS');
+        }
+        try {
+          const read = await this.historyReader.readSubagentEvents(sessionId, toolCallId, agentId);
+          if (start > read.events.length) throw new RpcUserError('Invalid agent history cursor', 'INVALID_PARAMS');
+          return assembleHistoryPage(read.events, start, read.status, read.agentId, read.truncated, maxBytes);
+        } catch (error: unknown) {
+          if (error instanceof RpcUserError) throw error;
+          this.logger.error('RPC: subagent:history-page failed', {
+            sessionId, agentId: agentId ?? null, reason: error instanceof Error ? error.name : 'unknown',
+          });
+          throw new RpcUserError('Could not read agent output', 'PERSISTENCE_UNAVAILABLE');
+        }
+      },
+    );
   }
 }

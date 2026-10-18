@@ -87,6 +87,8 @@ import type {
   SubagentCommandResult,
   SubagentTranscriptParams,
   SubagentTranscriptResult,
+  SubagentHistoryPageParams,
+  SubagentHistoryPageResult,
 } from './subagent-registry.types';
 import type { SavedAnalysisMetadata } from './wizard';
 import type { SkillDrainTier } from '../constants/skill-drain.constants';
@@ -1198,6 +1200,10 @@ export interface RpcMethodRegistry {
   'subagent:transcript': {
     params: SubagentTranscriptParams;
     result: SubagentTranscriptResult;
+  };
+  'subagent:history-page': {
+    params: SubagentHistoryPageParams;
+    result: SubagentHistoryPageResult;
   };
   'enhancedPrompts:getStatus': {
     params: EnhancedPromptsGetStatusParams;
@@ -3874,6 +3880,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'subagent:interrupt': true,
   'subagent:background': true,
   'subagent:transcript': true,
+  'subagent:history-page': true,
   'enhancedPrompts:getStatus': true,
   'enhancedPrompts:runWizard': true,
   'enhancedPrompts:setEnabled': true,

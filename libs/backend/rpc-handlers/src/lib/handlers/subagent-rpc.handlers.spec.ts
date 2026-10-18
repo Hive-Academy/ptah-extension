@@ -8,9 +8,10 @@
  *   - subagent:interrupt
  *   - subagent:background
  *   - subagent:transcript
+ *   - subagent:history-page
  *
  * Behavioural contracts:
- *   - Registration: `register()` wires all six methods into the mock RpcHandler.
+ *   - Registration: `register()` wires all seven methods into the mock RpcHandler.
  *   - chat:subagent-query: three query modes (toolCallId, sessionId, all-resumable),
  *     plus SHAPE-ONLY Zod validation. The empty-sessionId rule is the handler's,
  *     not the schema's — see subagent-rpc.schema.ts.
@@ -54,6 +55,7 @@ import {
 } from '@ptah-extension/shared/testing';
 
 import type { SubagentMessageDispatcher } from '@ptah-extension/agent-sdk';
+import type { SessionHistoryReaderService } from '@ptah-extension/agent-sdk';
 import { SubagentRpcHandlers } from './subagent-rpc.handlers';
 
 // ---------------------------------------------------------------------------
@@ -152,6 +154,7 @@ interface Harness {
   sentry: MockSentryService;
   dispatcher: MockDispatcher;
   workspace: { getConfiguration: jest.Mock };
+  historyReader: { readSubagentEvents: jest.Mock };
 }
 
 function makeHarness(): Harness {
@@ -161,6 +164,7 @@ function makeHarness(): Harness {
   const sentry = createMockSentryService();
   const dispatcher = createMockDispatcher();
   const workspace = { getConfiguration: jest.fn().mockReturnValue('auto') };
+  const historyReader = { readSubagentEvents: jest.fn().mockResolvedValue({ status: 'ok', agentId: 'agent-1', events: [], truncated: false }) };
 
   const handlers = new SubagentRpcHandlers(
     logger as unknown as Logger,
@@ -169,6 +173,7 @@ function makeHarness(): Harness {
     sentry as unknown as SentryService,
     dispatcher as unknown as SubagentMessageDispatcher,
     workspace as unknown as IWorkspaceProvider,
+    historyReader as Pick<SessionHistoryReaderService, 'readSubagentEvents'> as SessionHistoryReaderService,
   );
 
   return {
@@ -179,6 +184,7 @@ function makeHarness(): Harness {
     sentry,
     dispatcher,
     workspace,
+    historyReader,
   };
 }
 
@@ -204,7 +210,7 @@ async function call<TResult>(
 
 describe('SubagentRpcHandlers', () => {
   describe('register()', () => {
-    it('registers all six methods', () => {
+    it('registers all seven methods', () => {
       const h = makeHarness();
       h.handlers.register();
 
@@ -215,7 +221,40 @@ describe('SubagentRpcHandlers', () => {
       expect(methods).toContain('subagent:interrupt');
       expect(methods).toContain('subagent:background');
       expect(methods).toContain('subagent:transcript');
-      expect(methods).toHaveLength(6);
+      expect(methods).toContain('subagent:history-page');
+      expect(methods).toHaveLength(7);
+    });
+  });
+
+  describe('subagent:history-page', () => {
+    it('reads a page and preserves status', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+      const page = await call<{ status: string; done: boolean; events: unknown[] }>(h, 'subagent:history-page', { sessionId: 'session-1', toolCallId: 'tool-1' });
+      expect(h.historyReader.readSubagentEvents).toHaveBeenCalledWith('session-1', 'tool-1', undefined);
+      expect(page).toMatchObject({ status: 'ok', done: true, events: [] });
+    });
+
+    it.each(['../', 'bad/id', ''])('rejects unsafe agentId %s before reading', async (agentId) => {
+      const h = makeHarness();
+      h.handlers.register();
+      await expect(call(h, 'subagent:history-page', { sessionId: 'session-1', toolCallId: 'tool-1', agentId })).rejects.toThrow();
+      expect(h.historyReader.readSubagentEvents).not.toHaveBeenCalled();
+    });
+
+    it('maps read failure to a path-free user error and logs identifiers', async () => {
+      const h = makeHarness();
+      h.historyReader.readSubagentEvents.mockRejectedValue(new Error('C:\\secret\\agent.jsonl'));
+      h.handlers.register();
+      await expect(call(h, 'subagent:history-page', { sessionId: 'session-1', toolCallId: 'tool-1' })).rejects.toThrow('Could not read agent output');
+      expect(h.logger.error).toHaveBeenCalled();
+    });
+
+    it('rejects a malformed cursor before reading', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+      await expect(call(h, 'subagent:history-page', { sessionId: 'session-1', toolCallId: 'tool-1', cursor: '../' })).rejects.toThrow();
+      expect(h.historyReader.readSubagentEvents).not.toHaveBeenCalled();
     });
   });
 

@@ -93,3 +93,13 @@ export const SubagentTranscriptSchema = z.object({
 });
 
 export type SubagentTranscriptInput = z.infer<typeof SubagentTranscriptSchema>;
+
+const agentFileId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
+
+export const SubagentHistoryPageSchema = z.object({
+  sessionId: z.string().min(1, 'sessionId is required'),
+  toolCallId: agentFileId,
+  agentId: agentFileId.optional(),
+  cursor: z.string().optional(),
+  maxBytes: z.number().int().min(1024).max(256 * 1024).default(128 * 1024),
+});
