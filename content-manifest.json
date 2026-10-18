@@ -1,8 +1,8 @@
 {
   "$schema": "https://ptah.live/schemas/content-manifest.json",
   "version": "1.0.0",
-  "contentHash": "sha256:bfe1990537742bd01a7fbb8cea6432878d205f738a107678061875aef1d550e8",
-  "generatedAt": "2026-10-16T17:19:49.853Z",
+  "contentHash": "sha256:3766ebb8c90212ae44c98c9e3ca82dab2d0c0ce7e7bb4243e120d83c3bd2da93",
+  "generatedAt": "2026-10-18T15:54:46.613Z",
   "baseUrl": "https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main",
   "plugins": {
     "basePath": "apps/ptah-extension-vscode/assets/plugins",
@@ -74,6 +74,7 @@
       "ptah-core/skills/skill-creator/LICENSE.txt",
       "ptah-core/skills/skill-creator/SKILL.md",
       "ptah-core/skills/skill-creator/references/output-patterns.md",
+      "ptah-core/skills/skill-creator/references/prompt-authoring-rubric.md",
       "ptah-core/skills/skill-creator/references/workflows.md",
       "ptah-core/skills/technical-content-writer/BLOG-POSTS.md",
       "ptah-core/skills/technical-content-writer/CODEBASE-MINING.md",

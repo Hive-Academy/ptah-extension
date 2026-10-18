@@ -19,25 +19,20 @@ roster.
 
 **`--cli` accepts every CLI agent target Ptah has an adapter for:**
 
-| Selector                                                      | Wire `cli` | Notes                                            |
-| ------------------------------------------------------------- | ---------- | ------------------------------------------------ |
-| `codex`, `copilot`, `cursor`, `antigravity`, `opencode`, `pi` | itself     | System CLIs — binaries Ptah spawns.              |
-| `ptah-cli`                                                    | `ptah-cli` | A configured provider, addressed by `ptahCliId`. |
-| `glm`                                                         | `ptah-cli` | **Deprecated alias.** Warns on stderr.           |
+| Selector   | Wire `cli` | Notes                                            |
+| ---------- | ---------- | ------------------------------------------------ |
+| System CLI | itself     | A binary Ptah spawns.                            |
+| `ptah-cli` | `ptah-cli` | A configured provider, addressed by `ptahCliId`. |
+| `glm`      | `ptah-cli` | **Deprecated alias.** Warns on stderr.           |
 
-The set is derived from `SYSTEM_CLI_TYPES`, so read it from there rather
-than from any list written down here — adapters are added between
-releases. A value naming no target emits `task.error` with
+The set of system CLIs is derived from `SYSTEM_CLI_TYPES`, so read it
+from there rather than from any list written down here — adapters are
+added between releases. Ask the machine what it has: `ptah agent-cli
+detect` reports both the system CLIs and the configured providers. A
+selector naming no target emits `task.error` with
 `ptah_code: 'cli_agent_unavailable'` and exits `3` (`AuthRequired`).
 `PTAH_AGENT_CLI_OVERRIDE` is **never** consulted, and there is nothing
 left for it to override.
-
-> **Nothing is blocked.** Earlier versions of this skill said only `glm`
-> was accepted and that `copilot` and `cursor` were unavailable for
-> Windows-spawn reasons. Both claims were false: `CliDetectionService`
-> registers all six system CLIs, Copilot with a dedicated permission
-> bridge. `glm`, the one value that WAS accepted, is the one that could
-> never route.
 
 > **`ptah-cli` is a provider, not a binary — read this before using
 > `resume`.** `--cli ptah-cli` selects an Anthropic-compatible provider
@@ -70,11 +65,10 @@ internal tool surface (`references/internal-mcp.md`) and the
 `mcp-serve` wire (`references/mcp-serve.md`, where the names drop the
 `ptah_` prefix).
 
-`ptah_agent_message` replaces the retired `ptah_agent_steer` — steering
-is only ONE of the four delivery modes it can report back
-(`steer`, `interrupt-resume`, `queue-next-turn`, `unsupported`), and
-which one fires for a given agent is a runtime fact read off
-`ptah_agent_list`, never assumed from the CLI name.
+`ptah_agent_message` reports one of four delivery modes —
+`steer`, `interrupt-resume`, `queue-next-turn`, `unsupported`. Which one
+fires for a given agent is a runtime fact read off `ptah_agent_list`,
+never assumed from the CLI name.
 
 ---
 
@@ -219,21 +213,4 @@ ptah agent-cli resume cli-session-uuid --cli ptah-cli --task "finish the migrati
 
 > **`--task` is required and must be non-empty.**
 > `agent:resumeCliSession` means "resume this session AND give it this
-> work"; its schema rejects `""`. The CLI used to substitute an empty
-> string when `--task` was omitted — never reconstruct that behaviour by
-> passing `--task ""`, which exits `2`.
-
----
-
-## 9. Don'ts
-
-- **Don't** pass `--cli glm`. It is a deprecated alias for
-  `--cli ptah-cli` and prints a deprecation notice on stderr. GLM is a
-  provider reached through the `ptah-cli` agent type, not a binary —
-  there is nothing to install. If `resume` reports `No Ptah CLI agents
-configured`, the user needs a provider in Agent Orchestration settings.
-- **Don't** pass `--ptah-cli-id` with a system CLI. It only applies to
-  `--cli ptah-cli`; anywhere else it exits `2`.
-- **Don't** call `agent-cli resume` without `--task`, or with
-  `--task ""`. It exits `2`.
-- **Don't** rely on `PTAH_AGENT_CLI_OVERRIDE`. It is not consulted.
+> work"; its schema rejects `""`. Passing `--task ""` exits `2`.
