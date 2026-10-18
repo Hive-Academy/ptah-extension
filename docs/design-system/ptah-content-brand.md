@@ -1,8 +1,16 @@
-# Ptah Design System Reference
+# Ptah Content Brand — Design System Reference
 
 ## Purpose
 
-This file defines the visual design system used across all content generation. All content must align with these specifications for consistency.
+This file is the Ptah repository's own content brand: the visual design system
+used across all Ptah content generation. All Ptah content must align with
+these specifications for consistency.
+
+This is a project input, not part of any shipped skill. The
+`technical-content-writer` skill loads the project's own design system (this
+file) when one exists, and stays brand-neutral otherwise. The token library
+below moved here from the shipped skill's bundled `DESIGN-SYSTEM.md`
+(TASK_2026_435 batch 2b) so the skill carries no hardcoded brand.
 
 ---
 
@@ -519,3 +527,39 @@ hero:
     size: large
     animation: bounce-in, delay 1200ms
 ```
+
+---
+
+## Discovery Record
+
+How this aesthetic was discovered. Moved from the `ui-ux-designer` skill so
+the skill stays project-neutral.
+
+### Discovery
+
+```yaml
+niche: 'Developer tools / VS Code extension'
+personality: ['Premium', 'Mystical', 'Technical']
+references:
+  - BlueYard Capital (nano banana aesthetic)
+  - Augmentcode (glassmorphism, code windows)
+  - Antigravity (scroll animations, 3D depth)
+unique_element: 'Egyptian sacred tech / Neo-mystical'
+mood: 'Dark and dramatic'
+```
+
+### Research Process
+
+1. **Screenshots**: Captured hero sections, card styles, animations
+2. **Color extraction**: Used eyedropper to get exact hex values
+3. **Typography identification**: Inspected fonts (Cinzel, Inter)
+4. **Animation analysis**: Recorded scroll behaviors, hover effects
+5. **AI generation**: Used prompts to create custom 3D elements
+
+### Result
+
+- This file (the complete token library, moved from the shipped
+  `technical-content-writer` skill's `DESIGN-SYSTEM.md`)
+- Landing-page section templates live in the `technical-content-writer` skill
+  (`LANDING-PAGES.md`)
+- Each design task holds its own `design-spec.md` in `.ptah/specs/<TASK_FOLDER>/`
