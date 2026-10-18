@@ -1131,3 +1131,60 @@ Specs: VS Code null partition is covered for the adapter (finalize + correction,
 - Score: 8.5/10
 - Verdict: APPROVE
 - Blocking findings: none. S1 is resolved for all five production sites; M1 to M3 are non-blocking.
+
+## PR 763 CodeRabbit round 3 review (grok)
+
+Review family: implementer grok, reviewer Claude
+
+Scope: uncommitted diff over 7becd482e in `wizard-generation-rpc.handlers.ts` and its spec; read `prepareResumedRun`, `registerCancel`, `GenerationCheckpointService.locateResumable`, `AnalysisStorageService.findLatestResumableRun`. No tests run (orchestrator reported typecheck, lint and test green).
+
+### Per-finding table
+
+| Finding | Status | Evidence |
+| --- | --- | --- |
+| 1 Major: unbound resume adopts a tab-bound checkpoint | Closed for the adoption, but introduces a shadowing regression (S1) | Guard at handlers.ts:803-804 returns null when `!metadata?.tabBinding && manifest.tabBinding`. Unbound call sites pass `metadata` undefined (handlers.ts:575-586), so the guard fires for every legacy/CLI resume. Explicit `analysisDir` pointing at a bound manifest is refused (correct). Unbound manifests resume unchanged (spec 2373-2393). Bound checks at 805-821 untouched. |
+| 2 Minor: legacy cancel aborts a tab-bound run | Closed | handlers.ts:1289-1293 skips `runs.abort` when `runs.binding` is set. Unbound run still aborted. Session cancel still runs (1300-1327). The `!currentSession` branch returns `{cancelled:false}` when nothing was aborted (1315-1317), so no false claim. With a session present the response says `cancelled:true`, which is true (the wizard session is cancelled), and `progressSaved` falls back to `saveProgress` (1326). Bound cancel path (1262-1285) unchanged. No run state touched on the skip. |
+| Spec change "keeps a cancelled bound run cancelled..." | Intent preserved | Spec 774-776 now cancels with the run's `tabBinding`; same assertions follow (cancelled true, late completion stays cancelled, 'cancelled' broadcast). The old legacy-aborts-bound behaviour it implicitly relied on is the thing finding 2 removes, and the new test at 788-835 pins the replacement behaviour (bound run keeps running, signal not aborted; unbound aborted with `user_cancelled`). Not hiding a regression. |
+
+### New findings
+
+- S1 (Serious): the refusal hides older unbound checkpoints. `locateResumable` with no `analysisDir` takes only the single newest unfinished run from `findLatestResumableRun` (checkpoint.service.ts:224-229; analysis-storage.service.ts:488-507, sorted by `updatedAt`). If a paused or failed tab-bound checkpoint is newest, the legacy wizard and CLI get `null` and the generic error `No resumable generation run was found for this workspace.` (handlers.ts:515-518), even when an older unbound resumable run exists. This blocks legacy resume until the chat tab finishes or is abandoned, and the message is misleading (a resumable run exists, it is just owned by a tab). The refusal should be a skip: for unbound requests with no `analysisDir`, iterate candidates and take the newest whose generation manifest has no `tabBinding` (add a filter option to `findLatestResumableRun`, or loop in `locateResumable`). Keep the explicit-`analysisDir` refusal. The same applies to the root-level (`slugDir: null`) generation manifest fallback (analysis-storage.service.ts:509-514). The new spec cannot catch this: it stubs `storage.resumable` to return one run directly (spec ~2349-2353), so no ordering with a mixed pair is exercised.
+- M1 (Minor): for an explicit `analysisDir` pointing at a bound checkpoint, the generic "no resumable" message hides the real reason; a distinct message or code (for example "owned by a chat tab") would be clearer.
+- M2 (Minor): spec 2340-2351 has a `seedCheckpoint(...)` call formatted across lines in a way prettier will rewrite; run prettier before commit.
+
+### Answers to the checks
+
+- Legacy wizard and CLI can still resume unbound checkpoints, with or without an analysis directory: yes (guard only rejects manifests carrying `tabBinding`). `apps/ptah-cli` unchanged.
+- Newest bound checkpoint shadowing older unbound ones: yes, see S1; it should skip, not refuse.
+- User-facing error acceptable only for the "nothing exists" case; misleading for the bound-owned case (M1).
+
+### Verdict
+
+- Score: 7/10
+- Verdict: REVISE
+- Blocking findings: 1. S1 at wizard-generation-rpc.handlers.ts:804 together with wizard-generation-checkpoint.service.ts:224-229 and analysis-storage.service.ts:494-516 (refusal instead of skipping bound manifests; add a mixed bound-newer / unbound-older test). Finding 2 is closed with no issues.
+
+
+## PR 763 round 3 re-review (codex revision)
+
+Review family: implementer grok then codex, reviewer Claude
+
+Scope: uncommitted diff over 7becd482e in `analysis-storage.service.ts` (+spec), `wizard-generation-checkpoint.service.ts`, `wizard-generation-rpc.handlers.ts` (+spec). No tests run (orchestrator reports typecheck/lint/test green).
+
+| # | Check | Status | Evidence |
+| --- | --- | --- | --- |
+| 1 | Predicate drops nothing the old unbound lookup resumed; default callers unchanged | PASS with one note | `analysis-storage.service.ts:485-529`: with `accepts` undefined the code path is `return candidate` identical to before. Callers of `findLatestResumableRun`: `setup-rpc.handlers.ts:431` (no predicate), `wizard-generation-checkpoint.service.ts:226` (predicate, unbound only) and `:233` (no predicate, bound path), plus specs. `locateResumable` already did `if (!latest?.generation) return null` (`:235`), so a run with null `generation` was never resumed; the predicate's `!!run.generation` matches that. `lifecycle !== 'completed'` is the exact test the storage method already used (`:505`, `:520`); failed/paused/interrupted stay resumable as before. |
+| 2 | Newest eligible unbound run chosen; bound manifest untouched | PASS | Runs sorted newest-first, loop continues past rejected candidates, then root checkpoint (`:507-528`). Handler spec "resumes an older unbound checkpoint when a newer tab-bound run exists" asserts the bound manifest `toEqual` its pre-state and the older one resumed. Lookup is read-only. |
+| 3 | RpcUserError only for explicit analysisDir; surfaced correctly; CLI safe | PASS | With `analysisDir === null` the predicate excludes bound runs, so the throw at `wizard-generation-rpc.handlers.ts:805-810` is reachable only via an explicit (authorized) `analysisDir`. It propagates through `executeSubmitInWorkspace`'s catch (`if (error instanceof RpcUserError) throw error;`, ~`:385`), `finally` clears `submitReserved` (`:405`), and `rpc-handler.ts:224-236` returns `{success:false, error, errorCode:'INVALID_PARAMS'}`. CLI: `wizard.ts:204-224` never forwards `resume` (params built from selectedAgentIds/threshold/overrides/analysisData/analysisDir/model), and `setup.ts:232` likewise, so neither CLI path reaches `prepareResumedRun` with resume=true; both treat a failed response through existing generic error handling (`callRpc` throws with code; `ack?.success` check). No CLI behavior change. Legacy UI receives a plain `success:false` + message. |
+| 4 | Bound resume and approved legacy-cancel fix unchanged | PASS | Bound call passes `unboundOnly=false` (`!metadata?.tabBinding && analysisDir === null` is false, and bound callers pass `analysisDir` null with metadata, so `findLatestResumableRun(workspaceRoot)` without predicate, `:233`). The mismatch/workspace checks at `:812-829` untouched. Legacy cancel at `:1295-1299` unchanged; the spec adds a bound-stays-running / unbound-aborts test. The `written`/`unchanged` hunk near `:1525` is formatting only. |
+| 5 | Spec coverage | PASS (minor gap) | Storage: newer-bound skipped, older returned (`analysis-storage.service.spec.ts` ~626-662). Handler: newer-bound + older-unbound, explicit refusal with message regex, no-analysisDir bound refused with "no resumable" and manifest/writes untouched, unbound adoption path, and the `toHaveBeenCalledWith(WORKSPACE, expect.any(Function))` update. The fake `findLatestResumableRun` applies the predicate (`:1233-1241`). Gap: no storage test for the root-checkpoint branch with a rejecting predicate or an all-rejected `null`. |
+
+### New findings
+
+1. Minor (behavior shift, arguably improvement). `locateResumable` previously took the single newest resumable run and returned null if it had no generation checkpoint (e.g. a newer unfinished analysis-only run). With the predicate (`wizard-generation-checkpoint.service.ts:226-232`) such a run is now skipped and an older unbound generation run is resumed. This affects only unbound `resume:true` without `analysisDir` (legacy wizard); the CLI never sends it. Recommend no change; note in the PR text.
+2. Minor (coverage). No storage-level test of predicate behavior on the root `generation` checkpoint branch (`analysis-storage.service.ts:518-527`) or of the all-rejected `null` return.
+3. Minor. The predicate duplicates `lifecycle !== 'completed'`, which the storage method already enforces; harmless, but could drift.
+
+Blocking: none. Serious: none.
+
+Score: 8.5/10. Verdict: APPROVE. The earlier blocking defect (a newer bound checkpoint hiding an older resumable unbound run) is fixed with a predicate that preserves default behavior for all other callers.

@@ -791,6 +791,7 @@ export class WizardGenerationRpcHandlers {
     const located = await this.checkpoints.locateResumable(
       workspaceRoot,
       analysisDir,
+      !metadata?.tabBinding && analysisDir === null,
     );
     if (!located) return null;
     if (!this.checkpoints.isTrusted(located.location, located.manifest)) {
@@ -799,6 +800,13 @@ export class WizardGenerationRpcHandlers {
         { runId: located.manifest.runId },
       );
       return null;
+    }
+    // An unbound resume (legacy wizard / CLI) must not adopt a chat-tab run.
+    if (!metadata?.tabBinding && located.manifest.tabBinding) {
+      throw new RpcUserError(
+        'This generation run belongs to a chat tab. Resume it in that tab.',
+        'INVALID_PARAMS',
+      );
     }
     if (
       metadata?.tabBinding &&
@@ -1284,7 +1292,11 @@ export class WizardGenerationRpcHandlers {
           return { cancelled: true, progressSaved: true };
         }
         const saveProgress = parsed.saveProgress ?? true;
-        const abortedRun = this.runs.abort(GENERATION_CANCEL_REASON);
+        // Legacy cancel has no tab id. Abort only an unbound run; a chat-tab
+        // run stays active and this response does not claim it was cancelled.
+        const abortedRun = this.runs.binding
+          ? false
+          : this.runs.abort(GENERATION_CANCEL_REASON);
         this.logger.debug('RPC: wizard:cancel called', {
           saveProgress,
           abortedRun,
@@ -1510,7 +1522,8 @@ export class WizardGenerationRpcHandlers {
             settled.summary.outcomes.some(
               (outcome) =>
                 outcome.agentId === parsed.itemId &&
-                (outcome.status === 'written' || outcome.status === 'unchanged'),
+                (outcome.status === 'written' ||
+                  outcome.status === 'unchanged'),
             ))
         ) {
           return { success: true };

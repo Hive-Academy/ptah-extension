@@ -207,6 +207,7 @@ export class GenerationCheckpointService {
   async locateResumable(
     workspaceRoot: string,
     analysisDir: string | null,
+    unboundOnly = false,
   ): Promise<{
     location: GenerationCheckpointLocation;
     manifest: GenerationCheckpointManifest;
@@ -221,7 +222,15 @@ export class GenerationCheckpointService {
         ? { location: { workspaceRoot, analysisDir }, manifest }
         : null;
     }
-    const latest = await storage.findLatestResumableRun(workspaceRoot);
+    const latest = unboundOnly
+      ? await storage.findLatestResumableRun(
+          workspaceRoot,
+          (run) =>
+            !!run.generation &&
+            run.generation.lifecycle !== 'completed' &&
+            !run.generation.tabBinding,
+        )
+      : await storage.findLatestResumableRun(workspaceRoot);
     if (!latest?.generation) return null;
     return {
       location: { workspaceRoot, analysisDir: latest.slugDir },

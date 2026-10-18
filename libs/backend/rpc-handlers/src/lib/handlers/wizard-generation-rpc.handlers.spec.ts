@@ -300,20 +300,29 @@ describe('wizard generation tab ownership and recovery', () => {
       selectedAgentIds: ['agent-a', 'agent-b'],
       tabBinding: tab,
     });
-    const submitted = await call<{ success: boolean; accepted?: { runId: string } }>(
-      h,
-      'wizard:submit-selection',
-      { selectedAgentIds: ['agent-a', 'agent-b'], tabBinding: tab },
-    );
+    const submitted = await call<{
+      success: boolean;
+      accepted?: { runId: string };
+    }>(h, 'wizard:submit-selection', {
+      selectedAgentIds: ['agent-a', 'agent-b'],
+      tabBinding: tab,
+    });
     expect(submitted.success).toBe(true);
     await settle();
 
     const broadcast = completeBroadcasts(h)[0];
     const lookup = await h.handlers.getGenerationRunState({ tabBinding: tab });
     expect(manifestAt(h).lifecycle).toBe('failed');
-    expect(broadcast).toMatchObject({ success: false, terminalStatus: 'failed', failedCount: 1 });
+    expect(broadcast).toMatchObject({
+      success: false,
+      terminalStatus: 'failed',
+      failedCount: 1,
+    });
     expect(lookup.run?.binding.runId).toBe(submitted.accepted?.runId);
-    expect(lookup.run?.result).toMatchObject({ status: 'failed', success: false });
+    expect(lookup.run?.result).toMatchObject({
+      status: 'failed',
+      success: false,
+    });
   });
 
   it('keeps a bound checkpoint failed until every failed agent is retried successfully', async () => {
@@ -771,11 +780,9 @@ describe('wizard generation tab ownership and recovery', () => {
         }),
     );
     const accepted = await previewAndSubmit(h);
-    const cancelled = await call<{ cancelled: boolean }>(
-      h,
-      'wizard:cancel',
-      {},
-    );
+    const cancelled = await call<{ cancelled: boolean }>(h, 'wizard:cancel', {
+      tabBinding: { ...tab, runId: accepted.accepted?.runId },
+    });
     expect(cancelled.cancelled).toBe(true);
     finish?.(Result.ok(makeSummary([outcome('agent-a', 'written')])));
     await settle();
@@ -785,6 +792,55 @@ describe('wizard generation tab ownership and recovery', () => {
     expect(state.run?.result?.success).toBe(false);
     expect(completeBroadcasts(h)).toHaveLength(1);
     expect(completeBroadcasts(h)[0].terminalStatus).toBe('cancelled');
+  });
+
+  it('legacy cancel leaves a tab-bound run running and still aborts an unbound run', async () => {
+    const bound = makeHarness();
+    let finish: ((value: Result<GenerationSummary, Error>) => void) | undefined;
+    bound.orchestrator.generateAgents.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    await previewAndSubmit(bound);
+    const boundSignal = firstOptions(bound).abortSignal;
+
+    const skipped = await call<{ cancelled: boolean }>(
+      bound,
+      'wizard:cancel',
+      {},
+    );
+
+    expect(skipped).toEqual({ cancelled: false });
+    expect(boundSignal?.aborted).toBe(false);
+    expect(bound.runs.binding?.tabId).toBe(tab.tabId);
+    expect(bound.runs.isActive).toBe(true);
+    finish?.(Result.ok(makeSummary([outcome('agent-a', 'written')])));
+    await settle();
+
+    const unbound = makeHarness();
+    unbound.orchestrator.generateAgents.mockImplementation(
+      () =>
+        new Promise(() => {
+          /* stays active until abort */
+        }),
+    );
+    unbound.handlers.register();
+    await call(unbound, 'wizard:submit-selection', {
+      selectedAgentIds: ['agent-a'],
+    });
+    const unboundSignal = firstOptions(unbound).abortSignal;
+
+    const cancelled = await call<{
+      cancelled: boolean;
+      progressSaved?: boolean;
+    }>(unbound, 'wizard:cancel', {});
+
+    expect(cancelled).toEqual({ cancelled: true, progressSaved: true });
+    expect(unboundSignal?.aborted).toBe(true);
+    expect(String(unboundSignal?.reason)).toBe('user_cancelled');
+    expect(unbound.runs.binding).toBeNull();
   });
 
   it('binds an old checkpoint only on an authorized resume and retains its outcomes and model', async () => {
@@ -1119,6 +1175,7 @@ interface StorageFake {
     manifest: unknown;
     generation: GenerationCheckpointManifest | null;
   } | null;
+  resumableRuns?: NonNullable<StorageFake['resumable']>[];
   resolveAuthorizedAnalysisDir: jest.Mock;
   writeGenerationManifest: jest.Mock;
   loadGenerationManifest: jest.Mock;
@@ -1173,7 +1230,15 @@ function createStorageFake(): StorageFake {
         return next;
       },
     ),
-    findLatestResumableRun: jest.fn(async () => fake.resumable),
+    findLatestResumableRun: jest.fn(
+      async (
+        _workspace: string,
+        accepts?: (run: NonNullable<StorageFake['resumable']>) => boolean,
+      ) =>
+        (fake.resumableRuns ?? (fake.resumable ? [fake.resumable] : [])).find(
+          (run) => !accepts || accepts(run),
+        ) ?? null,
+    ),
     list: jest.fn(async () => []),
     loadManifest: jest.fn(async () => null),
   };
@@ -2289,6 +2354,121 @@ describe('WizardGenerationRpcHandlers', () => {
       expect(h.propagation.propagate).toHaveBeenCalledTimes(1);
     });
 
+    it('refuses a tab-bound checkpoint on an unbound resume and still resumes an unbound one', async () => {
+      const bound = makeHarness();
+      const tabBinding = {
+        tabId: 'tab-one',
+        workflow: 'setup-agent-generation' as const,
+        workspacePath: WORKSPACE,
+      };
+      seedCheckpoint(bound, { 'agent-a': 'failed' }, { tabBinding });
+      const before = structuredClone(manifestAt(bound, ANALYSIS_DIR));
+      bound.storage.resumable = {
+        slugDir: ANALYSIS_DIR,
+        manifest: null,
+        generation: manifestAt(bound, ANALYSIS_DIR),
+      };
+      bound.handlers.register();
+
+      const refused = await call<{ success: boolean; error?: string }>(
+        bound,
+        'wizard:submit-selection',
+        { resume: true },
+      );
+
+      expect(refused.success).toBe(false);
+      expect(refused.error).toMatch(/no resumable generation run/i);
+      expect(bound.orchestrator.generateAgents).not.toHaveBeenCalled();
+      expect(bound.storage.writeGenerationManifest).not.toHaveBeenCalled();
+      expect(manifestAt(bound, ANALYSIS_DIR)).toEqual(before);
+
+      const unbound = makeHarness();
+      seedCheckpoint(unbound, { 'agent-a': 'failed' });
+      unbound.storage.resumable = {
+        slugDir: ANALYSIS_DIR,
+        manifest: null,
+        generation: manifestAt(unbound, ANALYSIS_DIR),
+      };
+      recordingOrchestrator(unbound, [outcome('agent-a', 'written')]);
+      unbound.handlers.register();
+
+      const resumed = await call<{ success: boolean }>(
+        unbound,
+        'wizard:submit-selection',
+        { resume: true },
+      );
+
+      expect(resumed.success).toBe(true);
+      expect(unbound.storage.findLatestResumableRun).toHaveBeenCalledWith(
+        WORKSPACE,
+        expect.any(Function),
+      );
+      expect(firstOptions(unbound).userOverrides).toEqual(['agent-a']);
+      expect(manifestAt(unbound, ANALYSIS_DIR).tabBinding).toBeUndefined();
+    });
+
+    it('resumes an older unbound checkpoint when a newer tab-bound run exists', async () => {
+      const h = makeHarness();
+      const olderDir = `${WORKSPACE}/.ptah/analysis/older`;
+      seedCheckpoint(h, { 'agent-a': 'failed' });
+      const older = structuredClone(manifestAt(h, ANALYSIS_DIR));
+      older.analysisDirectory = olderDir;
+      h.storage.manifests.set(manifestKey(WORKSPACE, olderDir), older);
+      const tabBinding = {
+        tabId: 'tab-one',
+        workflow: 'setup-agent-generation' as const,
+        workspacePath: WORKSPACE,
+      };
+      seedCheckpoint(h, { 'agent-b': 'failed' }, { tabBinding });
+      const boundBefore = structuredClone(manifestAt(h, ANALYSIS_DIR));
+      h.storage.resumableRuns = [
+        { slugDir: ANALYSIS_DIR, manifest: null, generation: boundBefore },
+        { slugDir: olderDir, manifest: null, generation: older },
+      ];
+      recordingOrchestrator(h, [outcome('agent-a', 'written')]);
+      h.handlers.register();
+
+      const resumed = await call<{ success: boolean }>(
+        h,
+        'wizard:submit-selection',
+        { resume: true },
+      );
+
+      expect(resumed.success).toBe(true);
+      expect(firstOptions(h).userOverrides).toEqual(['agent-a']);
+      expect(manifestAt(h, ANALYSIS_DIR)).toEqual(boundBefore);
+      expect(manifestAt(h, olderDir).tabBinding).toBeUndefined();
+    });
+
+    it('explains that an explicit tab-bound checkpoint must resume in its chat tab', async () => {
+      const h = makeHarness();
+      seedCheckpoint(
+        h,
+        { 'agent-a': 'failed' },
+        {
+          tabBinding: {
+            tabId: 'tab-one',
+            workflow: 'setup-agent-generation',
+            workspacePath: WORKSPACE,
+          },
+        },
+      );
+      const before = structuredClone(manifestAt(h, ANALYSIS_DIR));
+      h.handlers.register();
+
+      const refused = await callRaw(h, 'wizard:submit-selection', {
+        resume: true,
+        analysisDir: ANALYSIS_DIR,
+      });
+
+      expect(refused.success).toBe(false);
+      expect(refused.error).toMatch(
+        /belongs to a chat tab.*resume it in that tab/i,
+      );
+      expect(h.orchestrator.generateAgents).not.toHaveBeenCalled();
+      expect(manifestAt(h, ANALYSIS_DIR)).toEqual(before);
+    });
+
     it('discovers the latest resumable checkpoint when no analysisDir is supplied', async () => {
       const h = makeHarness();
       seedCheckpoint(h, { 'agent-a': 'failed' });
@@ -2301,7 +2481,10 @@ describe('WizardGenerationRpcHandlers', () => {
 
       await call(h, 'wizard:submit-selection', { resume: true });
 
-      expect(h.storage.findLatestResumableRun).toHaveBeenCalledWith(WORKSPACE);
+      expect(h.storage.findLatestResumableRun).toHaveBeenCalledWith(
+        WORKSPACE,
+        expect.any(Function),
+      );
       expect(firstOptions(h).userOverrides).toEqual(['agent-a']);
     });
 
