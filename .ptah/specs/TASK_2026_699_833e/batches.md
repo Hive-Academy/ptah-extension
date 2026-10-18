@@ -1,6 +1,6 @@
 # Batches - TASK_2026_699_833e
 
-Total tasks: 10 | Batches: 4 | Complete: 1/4
+Total tasks: 10 | Batches: 4 | Complete: 2/4
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\inspector-side-dock` (branch `feat/inspector-side-dock`).
 All paths below are absolute. `W` = the worktree root above.
@@ -78,7 +78,7 @@ Edge cases:
 - Tile / bare / compact / forced-card views: no tab, no slot — Task 3.1.
 - `status` / `local-usage` cards: no button, chevron, aria-expanded or panel — Task 4.1.
 
-## Batch 1: split-handle atom extensions — COMPLETE (commit: see git log)
+## Batch 1: split-handle atom extensions — COMPLETE (commit 9d5063f43)
 
 - Recommended executor: subagent `frontend-developer`
 - Execution mode: sequential
@@ -133,7 +133,7 @@ Edge cases:
 - No per-batch review: the phase review after Batch 4 covers this batch
 - Edge cases R1 (destroy path) and A2 addressed
 
-## Batch 2: chat inspector services (constants, width store, specs) — IN_PROGRESS
+## Batch 2: chat inspector services (constants, width store, specs) — COMPLETE (commit: see git log)
 
 - Recommended executor: subagent `frontend-developer`
 - Execution mode: sequential
@@ -147,7 +147,7 @@ Edge cases:
   canvas regression `npx jest -c libs/frontend/canvas/jest.config.ts libs/frontend/canvas/src/lib/canvas-rail/canvas-rail-board.component.spec.ts --coverage=false --maxWorkers=2`
   (sequential, never concurrent)
 
-### Task 2.1: Width constants, pure functions, `shellWidth`, `toggle(opener?)` in `InspectorShellController` + barrel — IN_PROGRESS
+### Task 2.1: Width constants, pure functions, `shellWidth`, `toggle(opener?)` in `InspectorShellController` + barrel — COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\inspector-side-dock\libs\frontend\chat\src\lib\services\session-inspector\inspector-shell.controller.ts
@@ -162,7 +162,7 @@ Edge cases:
   all constants from `index.ts`; docked open remembers the opener, docked close via toggle clears it, sheet open
   uses `opener ?? this.opener() ?? active`.
 
-### Task 2.2: Create `InspectorDockWidthStore` — IN_PROGRESS
+### Task 2.2: Create `InspectorDockWidthStore` — COMPLETE
 
 - Depends on: Task 2.1 (constants)
 - File: D:\projects\ptah-extension\.claude-worktrees\inspector-side-dock\libs\frontend\chat\src\lib\services\session-inspector\inspector-dock-width.store.ts
@@ -181,7 +181,7 @@ Edge cases:
   `inject(DestroyRef).onDestroy` removes it; `commit` ignores non-finite, rounds, clamps [300, 560], writes;
   `reset` sets `null` and removes the key.
 
-### Task 2.3: Create `inspector-dock-width.store.spec.ts` and `inspector-shell.controller.spec.ts` — IN_PROGRESS
+### Task 2.3: Create `inspector-dock-width.store.spec.ts` and `inspector-shell.controller.spec.ts` — COMPLETE
 
 - Depends on: Tasks 2.1, 2.2
 - Files:
@@ -197,7 +197,7 @@ Edge cases:
 - Implementation details: stub `ResizeObserver`, `TabManagerService`, `InspectorOpenStateService`,
   `SessionInspectorStore`, `LoggingService`.
 
-### Task 2.4: Create `inspector-open-state.service.spec.ts` — IN_PROGRESS
+### Task 2.4: Create `inspector-open-state.service.spec.ts` — COMPLETE
 
 - File: D:\projects\ptah-extension\.claude-worktrees\inspector-side-dock\libs\frontend\chat\src\lib\services\session-inspector\inspector-open-state.service.spec.ts
 - Plan reference: implementation-plan.md:539-551 (component 6; parity row 27)
@@ -215,7 +215,7 @@ Edge cases:
 - No `console.` in `inspector-dock-width.store.ts`; audit marker present
 - No per-batch review
 
-## Batch 3: chat-view host (Session tab, dock slot + handle, width binding) — PENDING
+## Batch 3: chat-view host (Session tab, dock slot + handle, width binding) — IN_PROGRESS
 
 - Recommended executor: subagent `frontend-developer`
 - Execution mode: sequential
@@ -228,7 +228,7 @@ Edge cases:
 - Scoped verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat --parallel=1`
   (includes `chat-view.keepalive.spec.ts`, `chat-view.session-enter.spec.ts`, agent-lane-panel spec)
 
-### Task 3.1: Mount Session tab, dock slot/handle and width binding in `ChatViewComponent` — PENDING
+### Task 3.1: Mount Session tab, dock slot/handle and width binding in `ChatViewComponent` — IN_PROGRESS
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\inspector-side-dock\libs\frontend\chat\src\lib\components\templates\chat-view.component.html
@@ -243,7 +243,7 @@ Edge cases:
   non-null draft; reset clears draft and calls `widthStore.reset()`; `[aria-controls="inspector"]` stays on the
   header toggle only; no per-frame persistence.
 - Validation notes: R1 — clear `dockDraftWidth` and `dockResizing` whenever the slot condition is false (handle
-  destroyed mid-drag cannot deliver cancel). Batch 1 as built (commit below): on destroy the handle cleans up
+  destroyed mid-drag cannot deliver cancel). Batch 1 as built (commit 9d5063f43): on destroy the handle cleans up
   SILENTLY — it emits no `sizeChange`, no `sizeCancel` and no `draggingChange(false)` (plan line 316 "and destroy
   during a drag" is superseded by R1). Do not rely on any output for the destroy path; the slot-condition
   reset is the only mechanism. `sizeCancel` fires only for Esc, window blur, `pointercancel` and lost capture,
@@ -257,7 +257,7 @@ Edge cases:
   `commitInspectorWidth()`; `resetInspectorWidth()`; `SplitHandleComponent` in `imports`;
   `inspectorMinWidth = INSPECTOR_MIN_WIDTH`.
 
-### Task 3.2: Extend `chat-view.component.spec.ts` and scope selectors in `chat-view.dock.spec.ts` — PENDING
+### Task 3.2: Extend `chat-view.component.spec.ts` and scope selectors in `chat-view.dock.spec.ts` — IN_PROGRESS
 
 - Depends on: Task 3.1
 - Files:
