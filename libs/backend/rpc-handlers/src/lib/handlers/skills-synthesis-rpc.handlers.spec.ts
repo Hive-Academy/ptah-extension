@@ -990,6 +990,17 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
     });
   });
 
+  it('listClones returns a null success rate without invocations', async () => {
+    const { rpcHandler, registry } = buildHandlers();
+    registry.listAll.mockReturnValue([sampleRow]);
+
+    const result = (await rpcHandler.call('skillSynthesis:listClones', {})) as {
+      clones: Array<{ successRate: number | null }>;
+    };
+
+    expect(result.clones[0].successRate).toBeNull();
+  });
+
   it('listClones returns PERSISTENCE_UNAVAILABLE when registry unbound (VS Code)', async () => {
     const logger = makeLogger();
     const rpcHandler = makeRpcHandler();

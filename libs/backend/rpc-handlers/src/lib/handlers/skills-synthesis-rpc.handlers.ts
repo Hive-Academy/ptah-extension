@@ -2302,7 +2302,7 @@ export class SkillsSynthesisRpcHandlers {
     orphaned: boolean,
   ): Promise<CloneSummary> {
     const stats = this.store.getInvocationStats(row.slug);
-    const successRate = stats.total > 0 ? stats.succeeded / stats.total : 0;
+    const successRate = stats.total > 0 ? stats.succeeded / stats.total : null;
     let historyCount = 0;
     try {
       const history = await mirror.listHistory(

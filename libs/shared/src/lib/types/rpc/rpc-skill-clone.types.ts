@@ -22,7 +22,7 @@ export interface CloneSummary {
   cloneStatus: SkillCloneStatus;
   diverged: boolean;
   invocationCount: number;
-  successRate: number;
+  successRate: number | null;
   lastEnhancedAt: number | null;
   historyCount: number;
   pendingSourceHash: string | null;
