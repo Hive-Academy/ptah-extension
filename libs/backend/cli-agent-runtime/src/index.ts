@@ -1,4 +1,9 @@
 export * from './lib/cli-agents';
+export {
+  classifyLaneFailureClass,
+  type LaneFailureClassInput,
+} from './lib/cli-agents/limits/lane-failure-class';
+export { matchesAuthFailure } from './lib/cli-agents/limits/lane-auth-classifier';
 export * from './lib/ptah-cli';
 export * from './lib/mcp-directory';
 export * from './lib/skills-directory';

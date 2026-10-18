@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_679_45ff
-status: backlog
+status: in_review
 type: FEATURE
 title: "Move the session list sidebar into a \"Previous sessions\" modal"
 depends_on: []

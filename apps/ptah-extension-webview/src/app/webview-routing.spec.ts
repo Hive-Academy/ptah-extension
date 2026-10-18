@@ -99,7 +99,7 @@ const JEST_RESOLVABLE_SURFACE_IDS = SURFACE_ROUTE_IDS.filter(
  * loops drive them on the Electron host; the VS Code refusal is pinned by its
  * own describe block, never by dropping them from a loop.
  */
-const ELECTRON_ONLY_SURFACES: readonly string[] = ['apps'];
+const ELECTRON_ONLY_SURFACES: readonly string[] = ['apps', 'command-center'];
 
 /**
  * Pin which host the renderer believes it is running in.
@@ -269,8 +269,8 @@ describe('webview routing composition', () => {
     // 6.70s resolving lazy routes. Allow CI headroom for those real imports
     // without changing the project's timeout or reducing surface coverage.
     //
-    // Driven on the Electron host so the Electron-only surfaces (the last one,
-    // `apps`, included) are really navigated to rather than redirected. The
+    // Driven on the Electron host so the Electron-only surfaces (including the
+    // last one, `command-center`) are really navigated to. The
     // `file:` document of the Electron renderer is also the host that rejects
     // `history.pushState`, so it is the one this property matters most on.
     it('never calls window.history while navigating every surface', async () => {
@@ -282,9 +282,7 @@ describe('webview routing composition', () => {
       }
       await settle();
 
-      // The last surface in SURFACE_ROUTE_IDS; `apps` was appended after
-      // `tasks` by TASK_2026_494.
-      expect(surfaceRouter.currentSurface()).toBe('apps');
+      expect(surfaceRouter.currentSurface()).toBe('command-center');
       for (const [name, spy] of Object.entries(history)) {
         expect(spy).not.toHaveBeenCalled();
         expect(name).toBeTruthy();
@@ -671,12 +669,17 @@ describe('webview routing composition', () => {
 
   describe('Electron-only surfaces (canMatch: electronOnlySurface)', () => {
     let loadApps: jest.SpyInstance;
+    let loadCommandCenter: jest.SpyInstance;
 
     beforeEach(() => {
       // Installed before anything injects the Router, so the Router's copy of
       // the route table carries the spy. The Electron cases below assert it IS
       // called, which is what keeps the "never called" assertions honest.
       loadApps = jest.spyOn(routeFor('apps'), 'loadComponent');
+      loadCommandCenter = jest.spyOn(
+        routeFor('command-center'),
+        'loadComponent',
+      );
       TestBed.inject(MessageRouterService);
       TestBed.inject(AppStateManager);
     });
@@ -695,6 +698,18 @@ describe('webview routing composition', () => {
         expect(TestBed.inject(AppStateManager).currentView()).toBe('chat');
         expect(loadApps).not.toHaveBeenCalled();
         expect(history['pushState']).not.toHaveBeenCalled();
+      });
+
+      it('lands initialView "command-center" on chat without requesting its lazy chunk', async () => {
+        Object.assign(window, {
+          ptahConfig: { initialView: 'command-center' },
+        });
+
+        await bootWithInitialView('command-center');
+
+        expect(TestBed.inject(Router).url).toBe('/chat');
+        expect(TestBed.inject(AppStateManager).currentView()).toBe('chat');
+        expect(loadCommandCenter).not.toHaveBeenCalled();
       });
 
       it('lands SWITCH_VIEW "apps" on chat without loading the chunk', async () => {
@@ -764,6 +779,20 @@ describe('webview routing composition', () => {
         expect(TestBed.inject(Router).url).toBe('/apps');
         expect(TestBed.inject(AppStateManager).currentView()).toBe('apps');
         expect(loadApps).toHaveBeenCalledTimes(1);
+      }, 30_000);
+
+      it('lands initialView "command-center" on its route and requests its lazy chunk', async () => {
+        Object.assign(window, {
+          ptahConfig: { initialView: 'command-center' },
+        });
+
+        await bootWithInitialView('command-center');
+
+        expect(TestBed.inject(Router).url).toBe('/command-center');
+        expect(TestBed.inject(AppStateManager).currentView()).toBe(
+          'command-center',
+        );
+        expect(loadCommandCenter).toHaveBeenCalledTimes(1);
       }, 30_000);
 
       it('lands SWITCH_VIEW "apps" on the apps route', async () => {
@@ -899,14 +928,18 @@ describe('app.routes', () => {
     },
   );
 
-  it.each(['harness-builder', 'setup-hub', 'tribunal', 'tasks', 'apps'])(
-    'defers %s with loadComponent',
-    (path) => {
-      const route = appRoutes.find((candidate) => candidate.path === path);
-      expect(typeof route?.loadComponent).toBe('function');
-      expect(route?.component).toBeUndefined();
-    },
-  );
+  it.each([
+    'harness-builder',
+    'setup-hub',
+    'tribunal',
+    'tasks',
+    'apps',
+    'command-center',
+  ])('defers %s with loadComponent', (path) => {
+    const route = appRoutes.find((candidate) => candidate.path === path);
+    expect(typeof route?.loadComponent).toBe('function');
+    expect(route?.component).toBeUndefined();
+  });
 
   it('defers thoth as a lazily loaded route tree that resolves THOTH_ROUTES', async () => {
     // Pins the `THOTH_ROUTES` barrel export (TASK_2026_524 Batch 4e2): a
@@ -950,13 +983,14 @@ describe('app.routes', () => {
     }
   });
 
-  it('places apps after tasks and before the fallbacks', () => {
+  it('places command-center after apps and before the fallbacks', () => {
     const order = appRoutes.map((route) => route.path);
     expect(order.indexOf('apps')).toBe(order.indexOf('tasks') + 1);
-    expect(order.indexOf('apps')).toBe(appRoutes.length - 3);
+    expect(order.indexOf('command-center')).toBe(order.indexOf('apps') + 1);
+    expect(order.indexOf('command-center')).toBe(appRoutes.length - 3);
   });
 
-  it.each(['harness-builder', 'setup-hub', 'tasks', 'apps'])(
+  it.each(['harness-builder', 'setup-hub', 'tasks', 'apps', 'command-center'])(
     'resolves %s to a real component class',
     async (path) => {
       // Pins the barrel export each `loadComponent` names. A rename would
@@ -1023,6 +1057,7 @@ describe('app.config routing wiring', () => {
     // Otherwise the Router resolves the empty URL before
     // `App.handleInitialView` has read the host's deep link.
     expect(source).toContain('withDisabledInitialNavigation()');
+    expect(source).toContain('withSurfaceViewTransitions()');
     expect(source).toContain('withComponentInputBinding()');
     expect(source).toContain('provideRouter(');
   });

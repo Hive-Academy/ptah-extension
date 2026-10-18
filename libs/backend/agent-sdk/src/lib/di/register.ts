@@ -15,7 +15,12 @@ import {
   instanceCachingFactory,
   Lifecycle,
 } from 'tsyringe';
+import { LANE_ROUTING_TOKENS } from '@ptah-extension/lane-routing';
 import { TOKENS } from '@ptah-extension/vscode-core';
+import {
+  PLATFORM_TOKENS,
+  type IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
 import type {
   BackgroundWorkGovernor,
   Logger,
@@ -92,6 +97,7 @@ import {
   SdkAdapterEvents,
 } from '../helpers';
 import { InternalQueryService } from '../internal-query';
+import { StructuredDecisionAdapter } from '../lane-routing/structured-decision.adapter';
 import { CommitMessageGenerator } from '../commit-message/commit-message-generator.service';
 import { PeerSessionDirectory, PeerSessionMessenger } from '../peer-sessions';
 import { PluginLoaderService } from '../helpers/plugin-loader.service';
@@ -111,8 +117,12 @@ import { MainThreadNoticeQueue } from '../helpers/main-thread-notice-queue';
 import { SubagentNoticeQueue } from '../helpers/subagent-notice-queue';
 import { ToolOutputCapper } from '../helpers/compaction/tool-output-capper';
 import { CompactionCoordinator } from '../helpers/compaction/compaction-coordinator';
+import { IdleCompactionService } from '../helpers/compaction/idle/idle-compaction.service';
+import { createUnrefScheduler } from '../helpers/compaction/idle/unref-scheduler';
 import { ContextUsagePort } from '../helpers/compaction/context-usage.port';
 import { SubagentBudgetMonitor } from '../helpers/compaction/subagent-budget-monitor';
+import { SubagentStopNotices } from '../helpers/compaction/subagent-stop-notices';
+import { SubagentBudgetStopCallbackRegistry } from '../helpers/subagent-budget-stop-callback-registry';
 import { SubagentHandoffFiles } from '../helpers/compaction/subagent-handoff-files';
 import { SubagentHandoffRecords } from '../helpers/compaction/subagent-handoff-record';
 import { SubagentHandoffIndex } from '../helpers/compaction/subagent-handoff-index';
@@ -125,6 +135,48 @@ import { SDK_TOKENS } from './tokens';
 const noOpModelDispatchProvenanceTap: ModelDispatchProvenanceTap = {
   onModelDispatched: () => undefined,
 };
+
+function createIdleCompactionService(
+  c: DependencyContainer,
+  logger: Logger,
+): IdleCompactionService {
+  const workspace = c.isRegistered(PLATFORM_TOKENS.WORKSPACE_PROVIDER, true)
+    ? c.resolve<IWorkspaceProvider>(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    : undefined;
+  const events = c.isRegistered(SDK_TOKENS.SDK_ADAPTER_EVENTS, true)
+    ? c.resolve<SdkAdapterEvents>(SDK_TOKENS.SDK_ADAPTER_EVENTS)
+    : undefined;
+  if (!workspace || !events) {
+    logger.debug('[IdleCompaction] Optional host signals unavailable', {
+      workspace: Boolean(workspace),
+      events: Boolean(events),
+    });
+  }
+  return new IdleCompactionService(
+    logger,
+    c.resolve<CompactionCoordinator>(SDK_TOKENS.SDK_COMPACTION_COORDINATOR),
+    c.resolve<CompactionConfigProvider>(
+      SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER,
+    ),
+    c.resolve<SessionTurnStateRegistry>(
+      SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY,
+    ),
+    {
+      sendIdleCompact: (sessionId, beforeEnqueue) =>
+        c
+          .resolve<SessionLifecycleManager>(
+            SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER,
+          )
+          .sendIdleCompact(sessionId, beforeEnqueue),
+    },
+    c.resolve<CompactionCallbackRegistry>(
+      SDK_TOKENS.SDK_COMPACTION_CALLBACK_REGISTRY,
+    ),
+    events,
+    workspace,
+    { scheduler: createUnrefScheduler(), now: () => Date.now() },
+  );
+}
 
 /**
  * Register all agent-sdk services in DI container
@@ -236,6 +288,12 @@ export function registerSdkServices(
   );
 
   container.register(
+    SDK_TOKENS.SDK_SUBAGENT_STOP_NOTICES,
+    { useClass: SubagentStopNotices },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  container.register(
     SDK_TOKENS.SDK_CLI_DETECTOR,
     { useClass: ClaudeCliDetector },
     { lifecycle: Lifecycle.Singleton },
@@ -262,6 +320,11 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_SUBAGENT_STOP_CALLBACK_REGISTRY,
     { useClass: SubagentStopCallbackRegistry },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  container.register(
+    SDK_TOKENS.SDK_SUBAGENT_BUDGET_STOP_CALLBACK_REGISTRY,
+    { useClass: SubagentBudgetStopCallbackRegistry },
     { lifecycle: Lifecycle.Singleton },
   );
 
@@ -478,6 +541,23 @@ export function registerSdkServices(
     }),
   });
 
+  let idleCompactionFailed = false;
+  container.register(SDK_TOKENS.SDK_IDLE_COMPACTION, {
+    useFactory: instanceCachingFactory((c) => {
+      if (idleCompactionFailed) return undefined;
+      try {
+        return createIdleCompactionService(c, logger);
+      } catch (cause) {
+        idleCompactionFailed = true;
+        logger.error(
+          '[IdleCompaction] Optional service unavailable',
+          cause instanceof Error ? cause : new Error(String(cause)),
+        );
+        return undefined;
+      }
+    }),
+  });
+
   container.register(
     SDK_TOKENS.SDK_CONTEXT_USAGE_PORT,
     { useClass: ContextUsagePort },
@@ -537,6 +617,10 @@ export function registerSdkServices(
         // on main-thread prompts (UserPromptSubmit hook).
         new SubagentHandoffRecords(logger, workspaceOf),
         new SubagentHandoffIndex(logger),
+        c.resolve<SubagentBudgetStopCallbackRegistry>(
+          SDK_TOKENS.SDK_SUBAGENT_BUDGET_STOP_CALLBACK_REGISTRY,
+        ),
+        c.resolve<SubagentStopNotices>(SDK_TOKENS.SDK_SUBAGENT_STOP_NOTICES),
       );
     }),
   });
@@ -732,6 +816,14 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE,
     { useClass: InternalQueryService },
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // Structured decision model (lane-routing port). One registration; every
+  // host that calls registerSdkServices binds the optional port.
+  container.register(
+    LANE_ROUTING_TOKENS.STRUCTURED_DECISION,
+    { useClass: StructuredDecisionAdapter },
     { lifecycle: Lifecycle.Singleton },
   );
 

@@ -1,5 +1,6 @@
 <div
   class="flex-1 chat-scroll-container"
+  [class.ptah-pane-switch-enter]="entering() && workActive()"
   data-testid="chat-transcript-scroller"
   #messageContainer
   #prependAnchor="ptahTranscriptPrependAnchor"
@@ -33,8 +34,8 @@
       </div>
     }
     @for (slot of vm().slots; track slot.id; let i = $index) {
-      <!-- Persistent slot: stays observed while its bubble is unmounted, so a
-           scrolled-away message can be observed back into the render window. -->
+      <!-- Persistent slot: the session entrance marks this wrapper, which stays
+           observed even while its bubble is unmounted. -->
       <div
         class="chat-msg-slot"
         [ptahTranscriptSlot]="slot.id"

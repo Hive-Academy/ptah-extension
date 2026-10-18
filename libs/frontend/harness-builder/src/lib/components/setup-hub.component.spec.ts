@@ -1,8 +1,9 @@
-import { signal } from '@angular/core';
+import { ChangeDetectorRef, signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import {
   AppStateManager,
   ClaudeRpcService,
+  VSCodeService,
   WorkspaceScopeService,
 } from '@ptah-extension/core';
 import { GenerationWorkflowLauncherService } from '@ptah-extension/chat-ui';
@@ -11,11 +12,12 @@ import { HarnessWorkflowRequestService } from '../services/harness-workflow-requ
 
 describe('SetupHubComponent entry handoff', () => {
   let fixture: ComponentFixture<SetupHubComponent>;
+  let host: { isElectron: boolean };
+  let navigate: jest.Mock;
   const runningMode = signal<string | null>(null);
   const resumableMode = signal<string | null>(null);
   const activeWorkspacePath = signal<string | null>('D:/projects/current');
   const openGeneration = jest.fn();
-  const setCurrentView = jest.fn();
   let requests: {
     requestAndNavigate: jest.Mock;
     hasRunningMode: jest.Mock;
@@ -46,13 +48,14 @@ describe('SetupHubComponent entry handoff', () => {
   }
 
   beforeEach(async () => {
+    host = { isElectron: false };
+    navigate = jest.fn();
     runningMode.set(null);
     resumableMode.set(null);
     activeWorkspacePath.set('D:/projects/current');
     openGeneration
       .mockReset()
       .mockResolvedValue({ outcome: 'landed', tabId: 'tab-1' });
-    setCurrentView.mockReset();
     requests = {
       requestAndNavigate: jest.fn().mockResolvedValue('landed'),
       hasRunningMode: jest.fn((mode: string) => runningMode() === mode),
@@ -69,7 +72,8 @@ describe('SetupHubComponent entry handoff', () => {
       imports: [SetupHubComponent],
       providers: [
         { provide: HarnessWorkflowRequestService, useValue: requests },
-        { provide: AppStateManager, useValue: { setCurrentView } },
+        { provide: AppStateManager, useValue: { setCurrentView: navigate } },
+        { provide: VSCodeService, useValue: host },
         { provide: WorkspaceScopeService, useValue: { activeWorkspacePath } },
         {
           provide: GenerationWorkflowLauncherService,
@@ -94,6 +98,65 @@ describe('SetupHubComponent entry handoff', () => {
     fixture.detectChanges();
     await fixture.whenStable();
     fixture.detectChanges();
+  });
+
+  it('shows the Command Center card in Electron and opens its page by click', () => {
+    host.isElectron = true;
+    fixture.componentRef.injector.get(ChangeDetectorRef).markForCheck();
+    fixture.detectChanges();
+
+    const card = element('command-center-card');
+    expect(card.getAttribute('role')).toBe('button');
+    expect(card.getAttribute('aria-label')).toBe('Open Command Center');
+    expect(card.classList.contains('focus-visible:outline-base-content')).toBe(
+      true,
+    );
+    expect(
+      card
+        .querySelector('lucide-angular')
+        ?.classList.contains('text-base-content'),
+    ).toBe(true);
+    expect(
+      card.querySelector('span.btn')?.classList.contains('text-base-content'),
+    ).toBe(true);
+    expect(card.textContent).toContain(
+      'Talk to Ptah by voice and watch your delegated work live.',
+    );
+    card.click();
+    expect(navigate).toHaveBeenCalledWith('command-center');
+  });
+
+  it('opens Command Center with Enter and hides the card in VS Code', () => {
+    host.isElectron = true;
+    fixture.componentRef.injector.get(ChangeDetectorRef).markForCheck();
+    fixture.detectChanges();
+    element('command-center-card').dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter' }),
+    );
+    expect(navigate).toHaveBeenCalledWith('command-center');
+
+    host.isElectron = false;
+    fixture.componentRef.injector.get(ChangeDetectorRef).markForCheck();
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelector(
+        '[data-testid="command-center-card"]',
+      ),
+    ).toBeNull();
+  });
+
+  it('opens Command Center with Space and prevents page scrolling', () => {
+    host.isElectron = true;
+    fixture.componentRef.injector.get(ChangeDetectorRef).markForCheck();
+    fixture.detectChanges();
+    const event = new KeyboardEvent('keydown', {
+      key: ' ',
+      bubbles: true,
+      cancelable: true,
+    });
+    element('command-center-card').dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(navigate).toHaveBeenCalledWith('command-center');
   });
 
   it('hands Configure to the adapter', async () => {
@@ -175,7 +238,7 @@ describe('SetupHubComponent entry handoff', () => {
     fixture.nativeElement
       .querySelector('[aria-label="Open Workspace Analysis setup wizard"]')
       .click();
-    expect(setCurrentView).toHaveBeenCalledWith('setup-wizard');
+    expect(navigate).toHaveBeenCalledWith('setup-wizard');
     expect(openGeneration).not.toHaveBeenCalled();
   });
 

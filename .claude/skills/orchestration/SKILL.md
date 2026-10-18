@@ -27,6 +27,13 @@ correction in agent-lanes §6; any code you change is independently reviewed bef
 2. **Pick depth**: Full (unclear scope), Partial (known requirements), Minimal (one developer or
    reviewer). Two types equally plausible, or none fits → pick the broader flow, log it in
    `decisions.md` and announce it; the user can redirect.
+   If `ptah_route_decide` is listed, call it once here with
+   `{stage:'pre-flight', request:<user request>}`. Use its non-null `taskType.value` and
+   `depth.value`; a null answer falls back to the rules above. Record the result in
+   `decisions.md` (stage, each answer's source/confidence/fallbackCause/modelProposal,
+   overallConfidence, reasons and usage). An explicit user choice in the current turn wins;
+   record the override.
+
 3. **Announce** type, depth and the planned agent sequence. Then proceed.
 
 | Type          | Flow                                                                               |
@@ -77,16 +84,16 @@ and the completion summary list them so the user can audit and overturn any of t
 
 ## Gates (all yours — subagents and lanes cannot reach the user)
 
-| Gate             | When                                                                                                                                                                                            | How                                          |
-| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| 0.1 CLI lanes    | Start; search execution preference with `ptah_memory_search`, then read request, settings and `ptah_agent_list`                                                                                 | Notice, no wait (no-preference default `enabled` when a capable lane is spawnable) |
-| 0 Scope          | Before PM, if the request is ambiguous                                                                                                                                                          | Decision ladder; ask only for scope intent   |
-| 1 Requirements   | After `task-description.md`                                                                                                                                                                     | Per approval mode (below)                    |
-| 1.5 Technical    | Before architect, if several valid approaches                                                                                                                                                   | Decision ladder; ask only if user-reserved   |
-| 1.7 Design       | After `design-spec.md` and `prototype/`, before the next phase of the flow (architect, team-leader, or content writer); mandatory whenever a designer ran or any UI surface is added/redesigned | Per approval mode (below)                    |
-| 2 Architecture   | After `implementation-plan.md`                                                                                                                                                                  | Per approval mode (below)                    |
-| 3 QA selection   | After team-leader completion                                                                                                                                                                    | Notice, agents chosen by rule                |
-| SR Questions     | An agent messaged a question or returned `## Clarifications Needed`                                                                                                                             | Decision ladder, answer back via messaging   |
+| Gate           | When                                                                                                                                                                                            | How                                                                                |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| 0.1 CLI lanes  | Start; search execution preference with `ptah_memory_search`, then read request, settings and `ptah_agent_list`                                                                                 | Notice, no wait (no-preference default `enabled` when a capable lane is spawnable) |
+| 0 Scope        | Before PM, if the request is ambiguous                                                                                                                                                          | Decision ladder; ask only for scope intent                                         |
+| 1 Requirements | After `task-description.md`                                                                                                                                                                     | Per approval mode (below)                                                          |
+| 1.5 Technical  | Before architect, if several valid approaches                                                                                                                                                   | Decision ladder; ask only if user-reserved                                         |
+| 1.7 Design     | After `design-spec.md` and `prototype/`, before the next phase of the flow (architect, team-leader, or content writer); mandatory whenever a designer ran or any UI surface is added/redesigned | Per approval mode (below)                                                          |
+| 2 Architecture | After `implementation-plan.md`                                                                                                                                                                  | Per approval mode (below)                                                          |
+| 3 QA selection | After team-leader completion                                                                                                                                                                    | Notice, agents chosen by rule                                                      |
+| SR Questions   | An agent messaged a question or returned `## Clarifications Needed`                                                                                                                             | Decision ladder, answer back via messaging                                         |
 
 At Gate 0.1, a current explicit instruction wins. For conflicting or stale memory, use the most
 recent unambiguous preference; if still unresolved, ask. With no preference and a spawnable capable
@@ -128,6 +135,18 @@ Templates, skip conditions and rejection handling: [checkpoints.md](references/c
   How to run a lane: the [agent-lanes skill](../agent-lanes/SKILL.md).
 - **Subagent handoffs**: when you re-spawn an agent that Ptah stopped, put the pending handoff
   record path (from the Ptah pointer line or the `subagent-handoff-*.md` stub) in its prompt.
+- **Subagent outcomes**: if `ptah_outcome_report` is listed, call it once after each Agent run with
+  `{kind:'deliverables', target, paths, taskKind, taskId, routingSource}`. Take `target` from that
+  run's Agent result: the Ptah `ptah-run: runId=...` tag gives `{runId}`; otherwise use the
+  result's `agentId` as `{agentId}`. If neither exists, skip the report. Keep the `runId` with
+  each run, including concurrent and repeated runs, and report background runs when their
+  completion arrives. `taskKind` is one of `plan`, `implement`, `review`, `research`, `tests`,
+  `docs`; use the Gate 0.1 row's `taskKind` and `source` when present. `held` and `queued`
+  count as reported; do not repeat the call.
+- **Review verdicts**: if `ptah_outcome_report` is listed, call it after each review verdict
+  with `{kind:'review', target:{runId:<kept reviewed-run id>}, verdict}`. For a lane run
+  without a kept `runId`, use `target:{agentId:<lane agent id>}`. Verdict is `approved`,
+  `rejected` or `revise`. Skip either optional tool silently when it is not listed.
 
 ## Never
 
@@ -179,16 +198,16 @@ Every tool call in any agent or lane resends its whole thread, so cost is reques
 
 ## References — load on demand, never all at once
 
-| Reference                                               | Load when                                                    |
-| ------------------------------------------------------- | ------------------------------------------------------------ |
-| [strategies.md](references/strategies.md)               | Running a strategy's phases                                  |
-| [checkpoints.md](references/checkpoints.md)             | Presenting any gate                                          |
-| [agent-catalog.md](references/agent-catalog.md)         | Choosing or invoking an agent                                |
-| [team-leader-modes.md](references/team-leader-modes.md) | Invoking team-leader or acting on its return                 |
-| [task-tracking.md](references/task-tracking.md)         | Creating or continuing a task folder                         |
-| [lane-assignment.md](references/lane-assignment.md)     | Gate 0.1 enabled lanes, or the user pinned a phase to a lane |
+| Reference                                               | Load when                                                                         |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| [strategies.md](references/strategies.md)               | Running a strategy's phases                                                       |
+| [checkpoints.md](references/checkpoints.md)             | Presenting any gate                                                               |
+| [agent-catalog.md](references/agent-catalog.md)         | Choosing or invoking an agent                                                     |
+| [team-leader-modes.md](references/team-leader-modes.md) | Invoking team-leader or acting on its return                                      |
+| [task-tracking.md](references/task-tracking.md)         | Creating or continuing a task folder                                              |
+| [lane-assignment.md](references/lane-assignment.md)     | Gate 0.1 enabled lanes, or the user pinned a phase to a lane                      |
 | [fleet.md](references/fleet.md)                         | `/orchestrate TASK_A TASK_B ...` or an explicit fleet request; validate IDs first |
-| [git-standards.md](references/git-standards.md)         | Writing a commit or handling a hook failure                  |
+| [git-standards.md](references/git-standards.md)         | Writing a commit or handling a hook failure                                       |
 
 ## Requires
 

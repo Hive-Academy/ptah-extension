@@ -14,7 +14,7 @@ import {
   output,
   signal,
 } from '@angular/core';
-import { InspectorShellController, ProjectSetupCardComponent, RailTranscriptRetentionCoordinator, SessionInspectorStore, TabManagerService, injectSessionStatsSource } from '@ptah-extension/chat';
+import { InspectorShellController, PreviousSessionsDialogService, ProjectSetupCardComponent, RailTranscriptRetentionCoordinator, SessionInspectorStore, TabManagerService, injectSessionStatsSource } from '@ptah-extension/chat';
 import { SessionInspectorComponent } from '@ptah-extension/chat/inspector';
 import { SURFACE_ACTIVE } from '@ptah-extension/core';
 import { StatsTileExpansionState, inspectorToggleDescription, type CompactRailState } from '@ptah-extension/chat-ui';
@@ -25,8 +25,11 @@ import { CanvasLayoutService } from '../canvas-layout.service';
 import { CanvasLayoutPersistenceService } from '../canvas-layout-persistence.service';
 import { CanvasRenderMetricsService } from '../canvas-render-metrics.service';
 import { CanvasDetailService } from '../canvas-detail/canvas-detail.service';
+import { effectiveCanvasLaneKind } from '../canvas-detail/canvas-lane-view.component';
+import { AgentMonitorStore, BackgroundAgentStore } from '@ptah-extension/chat-streaming';
 import { CanvasRailComponent } from './canvas-rail.component';
 import { CanvasFocusAreaComponent } from './canvas-focus-area.component';
+import { LucideAngularModule, PanelRight } from 'lucide-angular';
 import {
   checkRailGeometry,
   railAnchorScrollTop,
@@ -36,7 +39,7 @@ import {
 
 const TABBABLE = 'a[href], button, input, select, textarea, [tabindex], [contenteditable="true"]';
 /** Open layers inside a pane that own their focus: Details dialog, menus, an overlay dock. */
-const PANE_OVERLAYS = '[role="dialog"], [role="menu"], ptah-display-dock.absolute';
+const PANE_OVERLAYS = '[role="dialog"], [role="menu"], ptah-display-sheet [role="region"].full';
 // 272 px Rail + 44 px details control + about 320 px for the session pane.
 const RAIL_AUTO_COLLAPSE_PX = 640;
 
@@ -65,6 +68,7 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
     CanvasFocusAreaComponent,
     SessionInspectorComponent,
     ProjectSetupCardComponent,
+    LucideAngularModule,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [RailTranscriptRetentionCoordinator, InspectorShellController, StatsTileExpansionState],
@@ -78,6 +82,13 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
     '(keydown)': 'onTabKey($event)',
     '(document:keydown.escape)': 'onDocumentEscape($event)',
   },
+  styles: [`
+    @keyframes rail-pane-enter { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: translateX(0); } }
+    @media (prefers-reduced-motion: no-preference) {
+      .rail-pane-enter { animation: rail-pane-enter 180ms var(--ptah-ease-soft) both; }
+      [data-testid="rail-pane-container"]:has(> .rail-pane-enter) { overflow: clip; }
+    }
+  `],
   template: `
     @if (visible()) {
       <div class="relative flex h-full min-h-0 min-w-0">
@@ -95,12 +106,14 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
           [canAdd]="store.canAddTile()"
           [holdTabId]="holdTabId()"
           [surfaceActive]="visible()"
+          [previousSessionsOpen]="previousSessions.isOpen()"
           [splitDisabledReason]="splitDisabledReason()"
           (focusRequested)="focus($event)"
           (collapseToggled)="toggleCollapse()"
           (densityToggled)="toggleDensity()"
           (jumpTo)="jumpTo($event)"
           (newSession)="newSession()"
+          (previousSessionsRequested)="previousSessions.open()"
           (scrolled)="store.setRailScrollTop(workspacePath(), $event)"
           (railState)="onRailState($event)"
           (staleAction)="
@@ -154,17 +167,18 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
             </div>
           </section>
         } @else {
-          <div class="flex min-w-0 flex-1 overflow-x-auto" [class.flex-col]="splitStacked() && splitDisplayed()" [class.flex-row]="!splitStacked() || !splitDisplayed()" [class.gap-1]="splitDisplayed()" [attr.inert]="compactSheetOpen() ? '' : null" data-testid="rail-pane-container">
+          <div class="flex min-h-0 min-w-0 flex-1 overflow-x-auto" [class.overflow-y-auto]="splitStacked() && splitDisplayed()" [class.overflow-y-hidden]="!splitStacked() || !splitDisplayed()" [class.flex-col]="splitStacked() && splitDisplayed()" [class.flex-row]="!splitStacked() || !splitDisplayed()" [class.gap-1]="splitDisplayed()" [attr.inert]="compactSheetOpen() ? '' : null" data-testid="rail-pane-container">
             @for (side of sides; track side) {
               @if (paneTab(side); as id) {
-                <section class="relative overflow-y-auto" data-testid="canvas-tile" [class.min-w-[360px]]="splitDisplayed()" [class.min-h-[400px]]="splitDisplayed()" [class.flex-1]="true"
+                @let orchestratorLane = effectiveLaneKind(id) === 'orchestrator';
+                <section class="relative flex-1" data-testid="canvas-tile" [animate.enter]="splitDisplayed() ? 'rail-pane-enter' : ''" [class.min-w-[360px]]="splitDisplayed()" [class.min-h-0]="!splitDisplayed() || !splitStacked()" [class.min-h-[240px]]="splitDisplayed() && splitStacked()" [class.overflow-hidden]="orchestratorLane" [class.overflow-y-auto]="!orchestratorLane"
                   [class.border-base-content-muted]="splitDisplayed()"
                   [class.border-l]="splitDisplayed() && !splitStacked() && paneNumber(side) === 2"
                   [class.border-t]="splitDisplayed() && splitStacked() && paneNumber(side) === 2"
                   [attr.data-pane-divider]="splitDisplayed() && paneNumber(side) === 2 ? (splitStacked() ? 'horizontal' : 'vertical') : null"
                   [style.order]="visualOrder().indexOf(side)" [attr.data-pane-side]="side" [attr.aria-label]="paneLabel(side, id)" (click)="activatePane(side)" (focusin)="activatePane(side)">
                   <ptah-canvas-focus-area
-                    class="block h-full min-w-0"
+                    class="block h-full min-h-0 min-w-0"
                     [focusedTabId]="id"
                     [paneId]="side"
                     [paneFocused]="activeSide() === side"
@@ -223,12 +237,13 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
           } @else {
             <button
               type="button"
-              class="btn btn-ghost w-11 shrink-0 border-l border-base-content/10"
+              class="btn btn-ghost btn-xs btn-square w-11 shrink-0 border-l border-base-content/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
               aria-label="Open details"
-              aria-expanded="false"
+              title="Session details"
+              [attr.aria-expanded]="detailsOpen()"
               (click)="toggleDetails()"
             >
-              i
+              <lucide-angular [img]="detailsIcon" class="size-4" aria-hidden="true" />
             </button>
           }
         } @else if (!splitDisplayed() && !compactSheet()) {
@@ -239,7 +254,10 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
             [class.w-[296px]]="band() === 'md'"
           >
             @if (focusedId(); as id) {
-              <ptah-session-inspector [tabId]="id" presentation="embedded" [hasLaneSurface]="true" [stats]="stats.inputs()" (laneRequested)="detail.selectLaneFor(id, $event)" />
+              <!-- Every inspector reference is deferred so it stays out of the initial bundle. -->
+              @defer (on idle) {
+                <ptah-session-inspector [tabId]="id" presentation="embedded" [hasLaneSurface]="true" [stats]="stats.inputs()" (laneRequested)="detail.selectLaneFor(id, $event)" />
+              }
             }
           </aside>
         }
@@ -260,15 +278,19 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
   `,
 })
 export class CanvasRailBoardComponent {
+  readonly detailsIcon = PanelRight;
   readonly sides = ['left', 'right'] as const;
   readonly workspacePath = input.required<string>();
   readonly visible = input.required<boolean>();
   /** The footer or empty board asked for the host's named New session popover. */
   readonly newSessionRequested = output<void>();
   readonly store = inject(CanvasStore);
+  readonly previousSessions = inject(PreviousSessionsDialogService);
   readonly layout = inject(CanvasLayoutService);
   readonly persistence = inject(CanvasLayoutPersistenceService);
   readonly detail = inject(CanvasDetailService);
+  private readonly monitor = inject(AgentMonitorStore);
+  private readonly background = inject(BackgroundAgentStore);
   readonly metrics = inject(CanvasRenderMetricsService);
   private readonly tabs = inject(TabManagerService);
   private readonly inspectorStore = inject(SessionInspectorStore);
@@ -288,6 +310,10 @@ export class CanvasRailBoardComponent {
   readonly visualOrder = signal<readonly ('left' | 'right')[]>(['left', 'right']);
   readonly splitDisplayed = computed(() => !!this.otherTabId());
   readonly splitStacked = computed(() => this.layout.containerWidth() < 1440);
+  effectiveLaneKind(tabId: string): 'orchestrator' | 'cli' | 'subagent' | 'background' {
+    const sessionId = this.tabs.findTabByIdAcrossWorkspaces(tabId)?.tab.claudeSessionId ?? null;
+    return effectiveCanvasLaneKind(this.detail.laneKeyFor(tabId), sessionId, this.monitor, this.background);
+  }
   readonly splitDisabledReason = computed(() => this.orderedTiles().length < 2 ? 'Open another session first to split' : null);
   private lastFocusedId: string | null = null;
   private lastOrderedIds: readonly string[] = [];
@@ -360,8 +386,39 @@ export class CanvasRailBoardComponent {
     effect((onCleanup) => {
       if (!this.visible()) return;
       const document = this.host.nativeElement.ownerDocument;
+      const window = document.defaultView;
+      // A press places a caret, and its `selectionchange` fires before
+      // `pointerup`; the press hold must survive it, so `up` re-reads instead.
+      const activePointerIds = new Set<number>();
+      const stopTracking = () => {
+        document.removeEventListener('pointerup', up);
+        document.removeEventListener('pointercancel', up);
+        this.host.nativeElement.removeEventListener('lostpointercapture', lostCapture);
+        window?.removeEventListener('blur', releaseAll);
+        document.removeEventListener('visibilitychange', hidden);
+      };
+      const releaseAll = () => {
+        if (activePointerIds.size === 0) return;
+        activePointerIds.clear();
+        stopTracking();
+        selection();
+      };
+      const hidden = () => {
+        if (document.hidden) releaseAll();
+      };
+      // One pointer losing capture ends only that pointer; the hold ends with
+      // the last tracked pointer, exactly as the last `up` does.
+      const lostCapture = (event: PointerEvent) => up(event);
       const selection = () => {
-        const node = document.getSelection()?.anchorNode;
+        if (activePointerIds.size > 0) return;
+        // Hold only for selected text. A collapsed caret (left by a plain click,
+        // or by a focused field such as the Rename input) is not a selection to
+        // protect; holding on it kept a renamed card's visible title stale.
+        const current = document.getSelection();
+        const node =
+          current && !current.isCollapsed && current.toString()
+            ? current.anchorNode
+            : null;
         const element = node instanceof Element ? node : node?.parentElement;
         this.holdTabId.set(
           element && this.host.nativeElement.contains(element)
@@ -374,16 +431,22 @@ export class CanvasRailBoardComponent {
       const down = (event: PointerEvent) => {
         const target = event.target;
         if (!(target instanceof Element)) return;
+        if (activePointerIds.size === 0) {
+          document.addEventListener('pointerup', up);
+          document.addEventListener('pointercancel', up);
+          this.host.nativeElement.addEventListener('lostpointercapture', lostCapture);
+          window?.addEventListener('blur', releaseAll);
+          document.addEventListener('visibilitychange', hidden);
+        }
+        activePointerIds.add(event.pointerId);
         this.holdTabId.set(
           target.closest<HTMLElement>('[data-rail-card]')?.dataset['tabId'] ??
             null,
         );
-        document.addEventListener('pointerup', up);
-        document.addEventListener('pointercancel', up);
       };
-      const up = () => {
-        document.removeEventListener('pointerup', up);
-        document.removeEventListener('pointercancel', up);
+      const up = (event: PointerEvent) => {
+        if (!activePointerIds.delete(event.pointerId) || activePointerIds.size > 0) return;
+        stopTracking();
         selection();
       };
       document.addEventListener('selectionchange', selection);
@@ -391,8 +454,10 @@ export class CanvasRailBoardComponent {
       onCleanup(() => {
         document.removeEventListener('selectionchange', selection);
         this.host.nativeElement.removeEventListener('pointerdown', down);
-        document.removeEventListener('pointerup', up);
-        document.removeEventListener('pointercancel', up);
+        stopTracking();
+        activePointerIds.clear();
+        // A hide or destroy mid-press ends the press; no card stays held.
+        this.holdTabId.set(null);
       });
     });
     effect(() => {

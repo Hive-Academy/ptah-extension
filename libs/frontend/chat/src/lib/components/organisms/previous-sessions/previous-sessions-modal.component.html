@@ -1,0 +1,287 @@
+<!-- The panel is the dialog (role, aria-modal, name); the outer <dialog> is
+     only the fixed layer, so the name is announced once (design 3.1). It sits
+     at z 990, under the editor and the delete confirm (daisyUI 999). -->
+<dialog
+  class="modal modal-open psm-dialog z-[990] items-center"
+  role="presentation"
+  (keydown)="onDialogKeydown($event)"
+  (pointerdown)="onDialogPointerDown($event)"
+  data-testid="previous-sessions-modal"
+>
+  <div
+    #scrim
+    class="psm-scrim absolute inset-0"
+    aria-hidden="true"
+    (click)="onScrimClick()"
+    data-testid="previous-sessions-scrim"
+  ></div>
+
+  <div
+    #panel
+    id="previous-sessions-dialog"
+    class="psm-panel relative flex flex-col overflow-hidden bg-surface-0 text-base-content w-full h-full rounded-none border-0 elev-3 sm:w-[min(720px,calc(100vw-48px))] sm:h-[min(720px,calc(100dvh-64px))] sm:rounded-xl sm:border sm:border-[color:var(--surface-border-strong)]"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="psm-title"
+    [attr.inert]="nestedLayerOpen() ? '' : null"
+    (keydown)="onPanelKeydown($event)"
+  >
+    <header
+      class="flex-none bg-surface-1 border-b border-surface-border px-4 pb-3"
+      (click)="onHeaderClick($event)"
+      data-testid="previous-sessions-header"
+    >
+      <div class="h-12 -mr-1 flex items-center gap-2">
+        <h2
+          id="psm-title"
+          class="flex flex-1 min-w-0 items-center gap-2 text-sm font-semibold"
+        >
+          <lucide-angular
+            [img]="HistoryIcon"
+            class="w-4 h-4 shrink-0 text-base-content-muted"
+            aria-hidden="true"
+          />
+          <span class="truncate">Previous sessions</span>
+        </h2>
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm btn-square text-base-content-muted hover:text-base-content"
+          aria-label="Close previous sessions"
+          (click)="close()"
+          data-testid="previous-sessions-close"
+        >
+          <lucide-angular [img]="XIcon" class="w-4 h-4" aria-hidden="true" />
+        </button>
+      </div>
+
+      <!-- Rendered directly, no inner @defer: the search field takes focus in
+           the first render (DP-10). -->
+      <ptah-previous-sessions-toolbar
+        [organizationAvailable]="view.organizationAvailable()"
+        [listQuery]="view.listQuery()"
+        [searchQuery]="view.searchQuery()"
+        [dateFrom]="view.dateFrom()"
+        [dateTo]="view.dateTo()"
+        [dateFilterOpen]="view.dateFilterOpen()"
+        [hasActiveFilters]="view.hasActiveFilters()"
+        (queryChange)="view.setListQuery($event)"
+        (searchChange)="view.setSearchQuery($event)"
+        (dateFromChange)="view.setDateFrom($event)"
+        (dateToChange)="view.setDateTo($event)"
+        (dateFilterToggled)="view.toggleDateFilter()"
+        (cleared)="view.clearFilters()"
+      />
+    </header>
+
+    <!-- A failed open, visible as well as announced on the status line
+         (not a second live region). Above the scroll region so it stays in
+         view; cleared on the next open or a query change. -->
+    @if (openError(); as message) {
+      <p
+        class="flex-none mx-2 mt-2 flex items-start gap-2 rounded-md border border-error/30 bg-error/10 px-3 py-2 text-xs text-base-content"
+        data-testid="previous-sessions-open-error"
+      >
+        <lucide-angular
+          [img]="CircleAlertIcon"
+          class="w-3.5 h-3.5 mt-px shrink-0 text-error"
+          aria-hidden="true"
+        />
+        <span class="min-w-0">{{ message }}</span>
+      </p>
+    }
+
+    <!-- The one scroll region: the header never scrolls. -->
+    <div
+      #list
+      class="flex-1 min-h-0 overflow-y-auto overscroll-contain px-2 pb-2 pt-1 [scrollbar-gutter:stable] [scrollbar-width:thin] [scrollbar-color:oklch(var(--bc)/0.28)_transparent]"
+      [attr.aria-busy]="
+        bootStatus.isBooting() || chatStore.isLoadingMoreSessions()
+          ? 'true'
+          : null
+      "
+      data-testid="previous-sessions-list"
+    >
+      <!-- One row. Rendered for every group below; `depth` > 0 only when
+           grouping by parent nests a child under its parent. -->
+      <ng-template #sessionRow let-row>
+        <li
+          ptah-session-list-row
+          [session]="row.session"
+          [depth]="row.depth"
+          [organizationAvailable]="view.organizationAvailable()"
+          [isCurrent]="isCurrent(row.session.id)"
+          [isOpenInTab]="isOpenInTab(row.session.id)"
+          [workflow]="workflowFor(row.session.id)"
+          [editing]="editingSessionId() === row.session.id"
+          [editingName]="editingSessionName()"
+          [renameError]="
+            editingSessionId() === row.session.id ? renameError() : ''
+          "
+          [expiredHint]="expiredTranscriptHint"
+          (opened)="onOpened(row.session)"
+          (organizeRequested)="onOrganize(row.session)"
+          (renameRequested)="onRenameRequested(row.session)"
+          (renameNameChange)="onRenameNameChange($event)"
+          (renameCommitted)="onRenameCommitted(row.session, $event)"
+          (renameCancelled)="onRenameCancelled(row.session)"
+          (deleteRequested)="onDeleteRequested(row.session)"
+        ></li>
+      </ng-template>
+
+      @if (sessionGroups().length > 0) {
+        <ul class="flex flex-col gap-0.5 p-0">
+          @for (group of sessionGroups(); track group.key) {
+            @if (group.label === null) {
+              @for (row of group.rows; track row.session.id) {
+                <ng-container
+                  [ngTemplateOutlet]="sessionRow"
+                  [ngTemplateOutletContext]="{ $implicit: row }"
+                />
+              }
+            } @else {
+              <li class="flex flex-col gap-0.5" data-testid="session-group">
+                <h3
+                  [id]="groupHeaderId(group.key)"
+                  class="sticky -top-1 z-[2] bg-surface-0 px-2.5 pt-2.5 pb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-base-content-muted"
+                >
+                  <span class="truncate">{{ group.label }}</span>
+                  <span class="tabular-nums font-normal">{{
+                    group.rows.length
+                  }}</span>
+                </h3>
+                <ul
+                  class="flex flex-col gap-0.5 p-0"
+                  [attr.aria-labelledby]="groupHeaderId(group.key)"
+                >
+                  @for (row of group.rows; track row.session.id) {
+                    <ng-container
+                      [ngTemplateOutlet]="sessionRow"
+                      [ngTemplateOutletContext]="{ $implicit: row }"
+                    />
+                  }
+                </ul>
+              </li>
+            }
+          }
+        </ul>
+      } @else if (bootStatus.isBooting()) {
+        <!-- The session import has not run yet, so "No sessions yet" would
+             be a lie: skeleton rows say "still arriving" (TASK_2026_380). -->
+        <div
+          class="p-1.5"
+          role="status"
+          aria-label="Loading sessions"
+          data-testid="previous-sessions-loading"
+        >
+          <ptah-skeleton-block
+            [rows]="5"
+            titleWidthClass="w-32"
+            subtitleWidthClass="w-20"
+          />
+        </div>
+      } @else if (dateRangeReversed()) {
+        <!-- From after To matches nothing by definition: say why instead of
+             "No matching sessions" (FU-2). -->
+        <div
+          class="min-h-full grid place-content-center justify-items-center gap-1 p-6 text-center"
+          data-testid="previous-sessions-invalid-range"
+        >
+          <lucide-angular
+            [img]="CalendarXIcon"
+            class="w-8 h-8 mb-2 text-base-content/20"
+            aria-hidden="true"
+          />
+          <span class="text-sm text-base-content-muted">{{
+            invalidRangeMessage
+          }}</span>
+          <span class="text-xs text-base-content-muted"
+            >Pick a To date on or after the From date</span
+          >
+        </div>
+      } @else if (showNoMatch()) {
+        <div
+          class="min-h-full grid place-content-center justify-items-center gap-1 p-6 text-center"
+          data-testid="previous-sessions-no-match"
+        >
+          <lucide-angular
+            [img]="SearchIcon"
+            class="w-8 h-8 mb-2 text-base-content/20"
+            aria-hidden="true"
+          />
+          <span class="text-sm text-base-content-muted"
+            >No matching sessions</span
+          >
+          <span class="text-xs text-base-content-muted"
+            >Try adjusting your search or filters</span
+          >
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm mt-2 h-8 min-h-8 border border-[color:var(--surface-border-strong)] text-xs font-medium text-base-content"
+            (click)="onClearFilters()"
+            data-testid="previous-sessions-clear-filters"
+          >
+            Clear filters
+          </button>
+        </div>
+      } @else {
+        <div
+          class="min-h-full grid place-content-center justify-items-center gap-1 p-6 text-center"
+          data-testid="previous-sessions-empty"
+        >
+          <lucide-angular
+            [img]="MessageSquareIcon"
+            class="w-8 h-8 mb-2 text-base-content/20"
+            aria-hidden="true"
+          />
+          <span class="text-sm text-base-content-muted">No sessions yet</span>
+          <span class="text-xs text-base-content-muted"
+            >Create one to get started</span
+          >
+        </div>
+      }
+
+      @if (canLoadMore()) {
+        <div class="px-1.5 pt-1">
+          <button
+            #loadMoreButton
+            type="button"
+            class="btn btn-ghost btn-sm h-8 min-h-8 w-full gap-1 text-xs font-medium text-base-content-muted hover:text-base-content hover:bg-surface-2 transition-colors duration-200"
+            [disabled]="chatStore.isLoadingMoreSessions()"
+            [attr.aria-busy]="chatStore.isLoadingMoreSessions() ? 'true' : null"
+            (click)="onLoadMore()"
+            data-testid="session-load-more"
+          >
+            @if (chatStore.isLoadingMoreSessions()) {
+              <span
+                class="psm-spinner inline-block w-3.5 h-3.5 rounded-full border-2 border-current border-r-transparent"
+                aria-hidden="true"
+              ></span>
+              Loading...
+            } @else {
+              <lucide-angular
+                [img]="ChevronDownIcon"
+                class="w-3 h-3"
+                aria-hidden="true"
+              />
+              @if (view.hasClientFilters()) {
+                Load more to expand search
+              } @else {
+                Load More
+                <span>({{ remainingSessions() }})</span>
+              }
+            }
+          </button>
+        </div>
+      }
+    </div>
+
+    <div
+      class="sr-only"
+      role="status"
+      aria-live="polite"
+      data-testid="previous-sessions-status"
+    >
+      {{ statusMessage() }}
+    </div>
+  </div>
+</dialog>

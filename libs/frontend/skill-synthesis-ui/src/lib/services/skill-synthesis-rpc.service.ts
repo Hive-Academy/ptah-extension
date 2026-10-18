@@ -41,6 +41,7 @@ import type {
   SkillSynthesisDigestResult,
   SkillSynthesisListQuarantinedAgentsResult,
   SkillSynthesisRestoreQuarantinedAgentResult,
+  AgentOutcomeSignalsResult,
   AgentListCliModelsResult,
   AgentOrchestrationConfig,
   RpcUserErrorCode,
@@ -613,6 +614,28 @@ export class SkillSynthesisRpcService {
       return result.data.scorecards;
     }
     throw new Error(result.error || 'Failed to load scorecards');
+  }
+
+  /**
+   * Batched outcome signals for the Agents tab (Req 9). One call for every
+   * agent-kind slug. A slug absent from `signals` has no records in the
+   * window — the UI treats that as "no data yet". `windowDays` is the
+   * window the handler computed over; `persistent` is false while the
+   * durable store behind the figures is not readable. A failure throws;
+   * the state service then shows "no data yet" rather than a rate.
+   */
+  public async getAgentOutcomeSignals(
+    slugs: string[],
+  ): Promise<AgentOutcomeSignalsResult> {
+    const result = await this.rpcService.call(
+      'agent:outcomeSignals',
+      { slugs },
+      { timeout: SKILL_RPC_TIMEOUTS.LIST_MS },
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data;
+    }
+    throw new Error(result.error || 'Failed to load outcome signals');
   }
 
   /**

@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_653_2931
-status: backlog
+status: cancelled
 type: FEATURE
 title: "Canvas sidebar strip, Details resizer, app cursor audit"
 depends_on:

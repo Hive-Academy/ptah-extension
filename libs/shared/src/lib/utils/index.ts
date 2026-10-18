@@ -5,6 +5,10 @@ export * from './json.utils';
 export { WorkspacePathEncoder } from './workspace-path-encoder';
 export { lastPathSegment } from './path-display.utils';
 export { assertNever } from './assert-never';
+export {
+  loggableErrorName,
+  type LoggableErrorName,
+} from './loggable-error-name';
 export { parseWorktreeList } from './git.utils';
 export { NestedRepoRoots, nestedRepoRootOf } from './nested-repo-roots';
 export * from './image-media-type';
@@ -52,6 +56,11 @@ export {
   type CodexTokenFreshnessInput,
 } from './codex-token-freshness';
 export { NO_WORKSPACE_KEY, normalizeWorkspaceRoot } from './workspace-root-key';
+export {
+  laneFamilyOf,
+  SUBAGENT_FAMILY,
+  type LaneFamilyInput,
+} from './lane-family';
 export { flattenSettingsTree } from './settings-tree.utils';
 export {
   normalizeMcpServerUrl,

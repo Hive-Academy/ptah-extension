@@ -73,6 +73,9 @@ export interface SessionMetadata {
    */
   readonly sessionId: string;
 
+  /** Canonical provider of the latest launched root turn, when known. */
+  readonly providerId?: string;
+
   /**
    * User-friendly session name
    */
@@ -201,6 +204,7 @@ export const SESSION_METADATA_MIGRATION: StateStorageArraySplitPlan = {
   indexSchemaVersion: SESSION_INDEX_SCHEMA_VERSION,
   summaryFields: [
     { sourcePath: ['sessionId'] },
+    { sourcePath: ['providerId'] },
     { sourcePath: ['name'] },
     { sourcePath: ['workspaceId'] },
     { sourcePath: ['createdAt'] },
@@ -639,7 +643,10 @@ export class SessionMetadataStore {
    * Called directly by addCliSession() and other mutations that already enqueue their own writes.
    * Public callers must use save() which wraps this in enqueueWrite().
    */
-  private async _saveInternal(metadata: SessionMetadata): Promise<void> {
+  private async _saveInternal(
+    metadata: SessionMetadata,
+    providerOverride?: string,
+  ): Promise<void> {
     const existing = await this.get(metadata.sessionId);
     const merged: SessionMetadata = {
       ...metadata,
@@ -652,6 +659,8 @@ export class SessionMetadataStore {
       ...(existing?.workingDirectory && !metadata.workingDirectory
         ? { workingDirectory: existing.workingDirectory }
         : {}),
+      ...(existing?.providerId ? { providerId: existing.providerId } : {}),
+      ...(providerOverride ? { providerId: providerOverride } : {}),
       ...(existing?.resumableSdkSubagents &&
       metadata.resumableSdkSubagents === undefined
         ? { resumableSdkSubagents: existing.resumableSdkSubagents }
@@ -1352,6 +1361,7 @@ export class SessionMetadataStore {
     name: string,
     kind: SessionMetadataChangeKind = 'created',
     workingDirectory?: string,
+    providerId?: string,
   ): Promise<SessionMetadata> {
     // Same invariant SessionRegistry.bindRealSessionId enforces on the same
     // value three lines away in SdkAgentAdapter. A record keyed by '' is not a
@@ -1369,8 +1379,15 @@ export class SessionMetadataStore {
       this.logger.info(
         `[SessionMetadataStore] Metadata already exists for ${sessionId}, preserving name "${existing.name}"`,
       );
-      const updated = { ...existing, lastActiveAt: Date.now() };
-      await this.enqueueWrite(() => this._saveInternal(updated));
+      const knownProviderId = blankToUndefined(providerId);
+      const updated = {
+        ...existing,
+        lastActiveAt: Date.now(),
+        ...(knownProviderId ? { providerId: knownProviderId } : {}),
+      };
+      await this.enqueueWrite(() =>
+        this._saveInternal(updated, knownProviderId),
+      );
       this.emitChange('updated', updated.sessionId, updated.workspaceId);
       return updated;
     }
@@ -1385,6 +1402,9 @@ export class SessionMetadataStore {
       lastActiveAt: now,
       totalCost: 0,
       totalTokens: { input: 0, output: 0 },
+      ...(blankToUndefined(providerId)
+        ? { providerId: blankToUndefined(providerId) }
+        : {}),
     };
 
     await this.enqueueWrite(() => this._saveInternal(metadata));
@@ -1394,6 +1414,27 @@ export class SessionMetadataStore {
     this.emitChange(kind, sessionId, workspaceId);
 
     return metadata;
+  }
+
+  /** Serialize a provider change with all other metadata mutations. */
+  async updateProvider(
+    sessionId: string,
+    providerId?: string | null,
+  ): Promise<void> {
+    const knownProviderId = blankToUndefined(providerId ?? undefined);
+    if (!knownProviderId || !blankToUndefined(sessionId)) return;
+    let workspaceId: string | undefined;
+    await this.enqueueWrite(async () => {
+      const existing = await this.get(sessionId);
+      if (!existing) return;
+      if (existing.providerId === knownProviderId) return;
+      workspaceId = existing.workspaceId;
+      await this._saveInternal(
+        { ...existing, providerId: knownProviderId },
+        knownProviderId,
+      );
+    });
+    if (workspaceId) this.emitChange('updated', sessionId, workspaceId);
   }
 
   /**

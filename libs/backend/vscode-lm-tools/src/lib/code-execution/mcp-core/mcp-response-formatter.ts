@@ -1740,10 +1740,15 @@ const NO_AGENTS_TEXT =
   'No agents found. Install one of the supported CLI agents, or configure a Ptah CLI agent (an Anthropic-compatible provider) in Ptah settings.';
 
 function agentListRow(agent: CliDetectionResult): Record<string, string> {
+  // The lane family is stamped by the row builder (SC-5); a row that did not
+  // pass through it carries none, and the caller sees `N/A` rather than a
+  // family the row never had.
+  const familyCell = agent.family ?? 'N/A';
   if (agent.cli === 'ptah-cli') {
     return {
       Agent: agent.ptahCliName ?? 'Unknown',
       Type: 'ptah-cli',
+      Family: familyCell,
       Status: 'available',
       // `messagingMode` is read from the SAME declaration the message
       // router reads (Req 5.2) — never hardcoded here, or the cell would
@@ -1769,6 +1774,7 @@ function agentListRow(agent: CliDetectionResult): Record<string, string> {
   return {
     Agent: agent.cli,
     Type: 'cli',
+    Family: familyCell,
     Status: status,
     Capabilities: `messaging: ${agent.messagingMode}${formatRoleDeliveryCapability(agent)}`,
   };
@@ -1799,7 +1805,7 @@ export function formatAgentList(
         ...rolesBlock,
       ]);
     } else {
-      const headers = ['Agent', 'Type', 'Status', 'Capabilities'];
+      const headers = ['Agent', 'Type', 'Family', 'Status', 'Capabilities'];
       const rows = agents.map((agent) => {
         const row = agentListRow(agent);
         if (limits === undefined) return row;

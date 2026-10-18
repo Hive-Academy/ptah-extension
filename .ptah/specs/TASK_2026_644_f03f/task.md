@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_644_f03f
-status: backlog
+status: done
 type: REFACTORING
 title: Close the lane-first and two-way messaging gaps in the orchestration and tribunal skills
 depends_on: []

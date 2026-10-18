@@ -35,7 +35,10 @@ import {
 } from '@ptah-extension/shared';
 import { ChatStore } from '../../../services/chat.store';
 import { isTabBusyGenerating } from '../../../services/chat-store/message-dispatch.service';
-import { TabManagerService } from '@ptah-extension/chat-state';
+import {
+  CommandCenterSendLockService,
+  TabManagerService,
+} from '@ptah-extension/chat-state';
 import {
   SESSION_CONTEXT,
   SESSION_START_GUARD,
@@ -51,6 +54,7 @@ import {
   AutopilotStateService,
   CommandDiscoveryFacade,
   ClaudeRpcService,
+  AppStateManager,
   VSCodeService,
 } from '@ptah-extension/core';
 import { VoiceInputService } from '../../../services/voice-input.service';
@@ -162,6 +166,14 @@ function folderName(root: string): string {
       (drop)="handleDrop($event)"
     >
       <!-- Image attachment validation error (auto-clears after 4s) -->
+      @if (commandCenterHeld()) {
+        <div role="status" class="text-xs text-base-content-muted px-2 pb-1.5">
+          Command Center voice owns this session. Regular chat sends are held.
+          <button type="button" class="link" (click)="openCommandCenter()">
+            Open Command Center
+          </button>
+        </div>
+      }
       @if (imageAttachmentError()) {
         <div
           class="flex items-center gap-1.5 text-xs text-error px-2 pb-1.5"
@@ -303,9 +315,11 @@ function folderName(root: string): string {
             style="field-sizing: content"
             class="block w-full min-h-[60px] max-h-[calc(8lh+1rem)] overflow-y-auto resize-none bg-transparent border-0 px-3.5 pt-3 pb-1 text-[13px] leading-[1.6] text-base-content placeholder:text-base-content-muted outline-none focus:outline-none focus:ring-0"
             [placeholder]="
-              attachedReadOnly()
-                ? 'Session is attached to messaging — read-only'
-                : 'Ask the orchestrator to plan, build or review...'
+              commandCenterHeld()
+                ? 'Command Center voice owns this session — sends held'
+                : attachedReadOnly()
+                  ? 'Session is attached to messaging — read-only'
+                  : 'Ask the orchestrator to plan, build or review...'
             "
             [value]="currentMessage()"
             [readonly]="attachedReadOnly()"
@@ -506,7 +520,9 @@ function folderName(root: string): string {
                  streaming). Neutral inverse circle, design D1. -->
             <button
               class="inline-flex items-center justify-center h-7 w-7 flex-shrink-0 rounded-full bg-base-content text-base-100 transition-transform enabled:hover:scale-105 enabled:active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
-              [disabled]="!canSend() || attachedReadOnly()"
+              [disabled]="
+                !canSend() || attachedReadOnly() || commandCenterHeld()
+              "
               (click)="handleSend()"
               type="button"
               title="Send message"
@@ -525,7 +541,7 @@ function folderName(root: string): string {
 
       <!-- Status line under the card: MCP, peer send, auth (unchanged) -->
       <div
-        class="flex items-center gap-2 px-1 mt-1.5 min-w-0 w-full max-w-[758px] mx-auto"
+        class="chat-composer-column flex items-center gap-2 px-1 mt-1.5 min-w-0 w-full mx-auto"
       >
         <div class="flex items-center gap-0.5 min-w-0">
           <!-- MCP status (host is display: contents; renders nothing when the
@@ -565,6 +581,10 @@ function folderName(root: string): string {
         container-name: ptah-composer;
       }
 
+      .chat-composer-column {
+        max-width: var(--chat-content-max-width, 758px);
+      }
+
       @container ptah-composer (max-width: 639px) {
         .ptah-composer-workspace-label,
         :host ::ng-deep ptah-effort-selector .ptah-composer-label {
@@ -584,6 +604,8 @@ function folderName(root: string): string {
 export class ChatInputComponent implements OnInit, OnDestroy {
   readonly chatStore = inject(ChatStore);
   readonly tabManager = inject(TabManagerService);
+  private readonly commandCenterSendLock = inject(CommandCenterSendLockService);
+  private readonly appState = inject(AppStateManager);
   private readonly draftStore = inject(ComposerDraftStore);
   private readonly _sessionContext = inject(SESSION_CONTEXT, {
     optional: true,
@@ -767,6 +789,16 @@ export class ChatInputComponent implements OnInit, OnDestroy {
   /** True when this tab's session is attached to a messaging binding. */
   readonly attachedReadOnly = computed(() => this.attachedBinding() != null);
 
+  public readonly commandCenterHeld = computed(() => {
+    this.commandCenterSendLock.state();
+    const tab = this.resolvedTab();
+    return tab != null && this.commandCenterSendLock.isHeld(tab.id);
+  });
+
+  public openCommandCenter(): void {
+    this.appState.setCurrentView('command-center');
+  }
+
   /**
    * Per-tab compaction state. In canvas mode, scoped to this tile's tab
    * (a tile whose SESSION_CONTEXT resolves null shows no overlay); otherwise
@@ -821,7 +853,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
    */
   readonly cardClasses = computed(() => {
     const base =
-      'relative flex flex-col w-full max-w-[758px] mx-auto rounded-xl border bg-surface-1 shadow-[inset_0_1px_0_var(--surface-highlight),var(--elev-shadow)] transition-colors';
+      'chat-composer-column relative flex flex-col w-full mx-auto rounded-xl border bg-surface-1 shadow-[inset_0_1px_0_var(--surface-highlight),var(--elev-shadow)] transition-colors';
     if (
       this.autopilotState.agentPlanMode() ||
       this.autopilotState.permissionLevel() === 'plan'
@@ -1626,7 +1658,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
     if (!this.showSuggestions() && event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       // Read-only while attached to a messaging binding — Enter must not send.
-      if (this.attachedReadOnly()) return;
+      if (this.attachedReadOnly() || this.commandCenterHeld()) return;
       this.handleSend();
     }
   }
@@ -1638,7 +1670,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
   async handleSend(): Promise<void> {
     // Composer is read-only while the session is attached to a messaging
     // binding — block sends; the user must "Resolve back to webview" first.
-    if (this.attachedReadOnly()) return;
+    if (this.attachedReadOnly() || this.commandCenterHeld()) return;
     const content = this.currentMessage().trim();
     const images = this._pastedImages();
     if (!content && images.length === 0) return;

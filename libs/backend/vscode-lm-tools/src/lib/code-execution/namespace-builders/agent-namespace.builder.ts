@@ -32,7 +32,10 @@ import type {
 import {
   FRESHNESS_MS,
   NEAR_LIMIT_PERCENT,
+  OUTCOME_ROUTING_SOURCES,
+  OUTCOME_TASK_KINDS,
   classifyLaneState,
+  laneFamilyOf,
 } from '@ptah-extension/shared';
 
 /**
@@ -193,6 +196,19 @@ function assertEffort(effort: unknown): void {
   }
 }
 
+function assertOutcomeField(
+  field: 'taskKind' | 'routingSource',
+  value: unknown,
+  allowed: readonly string[],
+): void {
+  if (value === undefined) return;
+  if (typeof value !== 'string' || !allowed.includes(value)) {
+    throw new Error(
+      `ptah.agent.spawn: "${field}" must be one of ${allowed.join(', ')}. The agent was not spawned.`,
+    );
+  }
+}
+
 /**
  * Build the agent namespace for ptah.agent.*
  */
@@ -220,6 +236,12 @@ export function buildAgentNamespace(
   return {
     spawn: async (request: UntypedSpawnRequest) => {
       assertEffort(request.effort);
+      assertOutcomeField('taskKind', request.taskKind, OUTCOME_TASK_KINDS);
+      assertOutcomeField(
+        'routingSource',
+        request.routingSource,
+        OUTCOME_ROUTING_SOURCES,
+      );
       if (request.systemPrompt !== undefined) {
         logger.warn(
           'ptah.agent.spawn: "systemPrompt" is not a spawn field and was dropped; ' +
@@ -329,6 +351,8 @@ export function buildAgentNamespace(
             // the completion signal's headline all read this field, and the
             // appended contract is plumbing rather than the task.
             task: request.task,
+            taskKind: request.taskKind,
+            routingSource: request.routingSource,
             cli: 'ptah-cli',
             workingDirectory,
             taskFolder: request.taskFolder,
@@ -475,25 +499,33 @@ export function buildAgentNamespace(
           merged = enabledCliResults;
         }
       }
+      // The row builder is the one place family is computed (TASK_2026_646,
+      // SC-5): every row the list returns groups under the key the outcome
+      // pipeline reports this lane under. Rows a host builds by hand carry
+      // no family until they pass through here.
+      const withFamily: CliDetectionResult[] = merged.map((r) => ({
+        ...r,
+        family: laneFamilyOf(r),
+      }));
       const preferredOrder = getPreferredAgentOrder?.() ?? [];
       if (preferredOrder.length > 0) {
         const rankMap = new Map<string, number>();
         preferredOrder.forEach((entry, idx) => rankMap.set(entry, idx + 1));
         const getIdentifier = (r: CliDetectionResult): string =>
           r.cli === 'ptah-cli' && r.ptahCliId ? r.ptahCliId : r.cli;
-        merged.sort((a, b) => {
+        withFamily.sort((a, b) => {
           const rankA =
             rankMap.get(getIdentifier(a)) ?? Number.MAX_SAFE_INTEGER;
           const rankB =
             rankMap.get(getIdentifier(b)) ?? Number.MAX_SAFE_INTEGER;
           return rankA - rankB;
         });
-        return merged.map((r) => ({
+        return withFamily.map((r) => ({
           ...r,
           preferredRank: rankMap.get(getIdentifier(r)) ?? 0,
         }));
       }
-      return merged.map((r) => ({ ...r, preferredRank: 0 }));
+      return withFamily.map((r) => ({ ...r, preferredRank: 0 }));
     },
 
     limits: async (rows) => {

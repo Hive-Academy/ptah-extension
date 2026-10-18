@@ -95,6 +95,11 @@ export type {
   JsonlProjectionOptions,
   JsonlProjectionResult,
 } from './lib/helpers/history/jsonl-reader.service';
+// The replay's "visible user message" rules, for the session:list counter.
+export {
+  isHiddenTranscriptRecord,
+  isSkillOrMetaText,
+} from './lib/message-transform/message-transform-helpers';
 export * from './lib/types/sdk-types/claude-sdk.types';
 export { SdkPermissionHandler } from './lib/sdk-permission-handler';
 export type {
@@ -139,10 +144,20 @@ export {
   SUBAGENT_DISPATCHER_TOKEN,
 } from './lib/helpers';
 export { CompactionCallbackRegistry } from './lib/helpers';
+export type {
+  ManualCompactAdmission,
+  ManualCompactDecision,
+} from './lib/helpers';
+export {
+  SubagentBudgetStopCallbackRegistry,
+  type SubagentBudgetStopCallback,
+  type SubagentBudgetStopPayload,
+} from './lib/helpers/subagent-budget-stop-callback-registry';
 // The 8th `SdkMessageTransformer` constructor argument. Exported because a
 // consumer that constructs the transformer directly — `auth-providers`' Codex
 // stream-parity spec — cannot reach the internal helpers barrel.
 export { CompactionBoundaryGenerationRegistry } from './lib/helpers';
+export { SubagentStopNotices } from './lib/helpers/compaction/subagent-stop-notices';
 export {
   SessionTurnStateRegistry,
   toTurnStateEvent,

@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_675_b720
-status: backlog
+status: done
 type: BUGFIX
 title: Keep a non-last Task owner in place after turn-end finalization
 depends_on: []

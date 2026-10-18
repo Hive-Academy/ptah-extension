@@ -2,6 +2,7 @@ import {
   ENHANCE_TIMEOUT_DEFAULT_MS,
   ENHANCE_TIMEOUT_MAX_MS,
   ENHANCE_TIMEOUT_MIN_MS,
+  FILE_BASED_OBJECT_SETTINGS_KEYS,
   FILE_BASED_SETTINGS_KEYS,
   FILE_BASED_SETTINGS_DEFAULTS,
   isFileBasedSettingKey,
@@ -276,6 +277,17 @@ describe('isFileBasedSettingKey', () => {
     });
   });
 
+  describe('idle compaction keys (TASK_2026_692)', () => {
+    it.each([
+      ['compaction.idleCompactionEnabled', true],
+      ['compaction.idleCompactionMinTokens', 200_000],
+    ] as const)('registers and defaults %s to %s', (key, expected) => {
+      expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
+      expect(isFileBasedSettingKey(key)).toBe(true);
+      expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe(expected);
+    });
+  });
+
   describe('subagent prompt-cache TTL key (TASK_2026_597 N1)', () => {
     // Written through `agent:setConfig`; unrouted, the write would be dropped
     // while the read still served the default.
@@ -298,6 +310,31 @@ describe('isFileBasedSettingKey', () => {
         appScopable: false,
         supportedTargets: ['global'],
       });
+    });
+  });
+
+  describe('decision-model selection key (TASK_2026_646_136a)', () => {
+    // Written by `DecisionModelConfig.setSelection`. VS Code has no schema for
+    // it, so an unrouted write is rejected there.
+    const key = 'agentOrchestration.decisionModel';
+
+    it('is file-based and defaults to null (read as unset)', () => {
+      expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
+      expect(isFileBasedSettingKey(key)).toBe(true);
+      expect(
+        Object.prototype.hasOwnProperty.call(FILE_BASED_SETTINGS_DEFAULTS, key),
+      ).toBe(true);
+      expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBeNull();
+    });
+
+    it('is stored as a whole object', () => {
+      expect(FILE_BASED_OBJECT_SETTINGS_KEYS.has(key)).toBe(true);
+    });
+
+    it('lists only file-based keys as whole-object keys', () => {
+      for (const objectKey of FILE_BASED_OBJECT_SETTINGS_KEYS) {
+        expect(FILE_BASED_SETTINGS_KEYS.has(objectKey)).toBe(true);
+      }
     });
   });
 
@@ -1211,6 +1248,8 @@ describe('isFileBasedSettingKey', () => {
       'compaction.subagentHandoffTokens': 150000,
       'compaction.rotationSuggestTokens': 300000,
       'compaction.subagentStopWeightedTokens': 3000000,
+      'compaction.idleCompactionEnabled': true,
+      'compaction.idleCompactionMinTokens': 200000,
       'agentOrchestration.codexAutoCompactTokens': 120000,
       'agentOrchestration.codexToolOutputTokenLimit': 2500,
       'agentOrchestration.codexWebSearch': true,

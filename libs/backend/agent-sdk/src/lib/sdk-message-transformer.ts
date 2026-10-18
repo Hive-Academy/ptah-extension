@@ -18,6 +18,7 @@ import type { SessionLifecycleManager } from './helpers/session-lifecycle-manage
 import type { LiveUsageTracker } from './helpers/live-usage-tracker';
 import type { SessionTurnStateRegistry } from './helpers/session-turn-state.registry';
 import type { CompactionBoundaryGenerationRegistry } from './helpers/compaction-boundary-generation-registry';
+import { SubagentStopNotices } from './helpers/compaction/subagent-stop-notices';
 import {
   SDKMessage,
   isResultMessage,
@@ -130,10 +131,13 @@ export class SdkMessageTransformer implements TransformerState {
     private readonly turnState: SessionTurnStateRegistry,
     @inject(SDK_TOKENS.SDK_COMPACTION_BOUNDARY_GENERATION_REGISTRY)
     private readonly compactionBoundaryRegistry: CompactionBoundaryGenerationRegistry,
+    @inject(SDK_TOKENS.SDK_SUBAGENT_STOP_NOTICES)
+    private readonly stopNotices: SubagentStopNotices,
   ) {
     this.helpers = {
       logger: this.logger,
       subagentRegistry: this.subagentRegistry,
+      stopNotices: this.stopNotices,
       modelResolver: this.modelResolver,
       sessionLifecycle: this.sessionLifecycle,
       usageTracker: this.usageTracker,
@@ -157,6 +161,7 @@ export class SdkMessageTransformer implements TransformerState {
       this.usageTracker,
       this.turnState,
       this.compactionBoundaryRegistry,
+      this.stopNotices,
     );
   }
 

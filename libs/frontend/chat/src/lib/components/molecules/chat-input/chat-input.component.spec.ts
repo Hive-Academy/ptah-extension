@@ -70,6 +70,7 @@ import { TabManagerService } from '@ptah-extension/chat-state';
 import { FilePickerService } from '../../../services/file-picker.service';
 import {
   AutopilotStateService,
+  AppStateManager,
   CommandDiscoveryFacade,
   ClaudeRpcService,
   VSCodeService,
@@ -209,6 +210,7 @@ describe('ChatInputComponent', () => {
         { provide: ChatStore, useValue: mockChatStore },
         { provide: TabManagerService, useValue: mockTabManager },
         { provide: AutopilotStateService, useValue: mockAutopilotState },
+        { provide: AppStateManager, useValue: { setCurrentView: jest.fn() } },
         { provide: FilePickerService, useValue: mockFilePicker },
         { provide: CommandDiscoveryFacade, useValue: mockCommandDiscovery },
         { provide: ClaudeRpcService, useValue: mockRpcService },
@@ -788,6 +790,7 @@ describe('ChatInputComponent', () => {
           { provide: ChatStore, useValue: chatStore },
           { provide: TabManagerService, useValue: tabManager },
           { provide: AutopilotStateService, useValue: mockAutopilotState },
+          { provide: AppStateManager, useValue: { setCurrentView: jest.fn() } },
           { provide: FilePickerService, useValue: mockFilePicker },
           { provide: CommandDiscoveryFacade, useValue: mockCommandDiscovery },
           { provide: ClaudeRpcService, useValue: mockRpcService },

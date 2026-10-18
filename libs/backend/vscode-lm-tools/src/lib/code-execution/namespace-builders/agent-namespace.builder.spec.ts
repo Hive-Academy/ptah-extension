@@ -41,6 +41,10 @@ import type {
   SpawnAgentRequest,
   SpawnAgentResult,
 } from '@ptah-extension/shared';
+import {
+  OUTCOME_ROUTING_SOURCES,
+  OUTCOME_TASK_KINDS,
+} from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { PtahAPI } from '../types';
 import {
@@ -184,7 +188,68 @@ describe('buildAgentNamespace — shape', () => {
 // spawn — standard path
 // ---------------------------------------------------------------------------
 
+describe('buildAgentNamespace — outcome metadata validation', () => {
+  it.each(['system', 'ptahCliId'] as const)(
+    'rejects invalid taskKind on %s before spawning and names allowed values',
+    async (branch) => {
+      const { deps, mocks } = makeDeps();
+      const request: SpawnAgentRequest =
+        branch === 'system'
+          ? { task: 'task', cli: 'codex' }
+          : { task: 'task', ptahCliId: 'agent-a' };
+      await expect(
+        buildAgentNamespace(deps).spawn({
+          ...request,
+          taskKind: 'invalid' as SpawnAgentRequest['taskKind'],
+        }),
+      ).rejects.toThrow(
+        new RegExp(`taskKind.*${OUTCOME_TASK_KINDS.join(', ')}`),
+      );
+      expect(mocks.processManager.spawn).not.toHaveBeenCalled();
+      expect(mocks.registry?.spawnAgent).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['system', 'ptahCliId'] as const)(
+    'rejects invalid routingSource on %s before spawning and names allowed values',
+    async (branch) => {
+      const { deps, mocks } = makeDeps();
+      const request: SpawnAgentRequest =
+        branch === 'system'
+          ? { task: 'task', cli: 'codex' }
+          : { task: 'task', ptahCliId: 'agent-a' };
+      await expect(
+        buildAgentNamespace(deps).spawn({
+          ...request,
+          routingSource: 'invalid' as SpawnAgentRequest['routingSource'],
+        }),
+      ).rejects.toThrow(
+        new RegExp(`routingSource.*${OUTCOME_ROUTING_SOURCES.join(', ')}`),
+      );
+      expect(mocks.processManager.spawn).not.toHaveBeenCalled();
+      expect(mocks.registry?.spawnAgent).not.toHaveBeenCalled();
+    },
+  );
+});
+
 describe('buildAgentNamespace — spawn (non-ptahCli)', () => {
+  it('forwards valid taskKind and routingSource through the system CLI branch', async () => {
+    const { deps, mocks } = makeDeps();
+    mocks.processManager.spawn.mockResolvedValue({ agentId: 'a1' });
+    await buildAgentNamespace(deps).spawn({
+      task: 'implement feature',
+      cli: 'codex',
+      taskKind: 'implement',
+      routingSource: 'model',
+    });
+    expect(mocks.processManager.spawn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskKind: 'implement',
+        routingSource: 'model',
+      }),
+    );
+  });
+
   it('delegates to agentProcessManager.spawn and enriches with session/guidance', async () => {
     const { deps, mocks } = makeDeps({
       getActiveSessionId: () => 'tab-1',
@@ -325,6 +390,33 @@ describe('buildAgentNamespace — spawn (non-ptahCli)', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildAgentNamespace — spawn (ptahCliId)', () => {
+  it('forwards taskKind and routingSource to the SDK handle spawn', async () => {
+    const { deps, mocks } = makeDeps();
+    mocks.registry?.spawnAgent.mockResolvedValue({
+      handle: { id: 'h' } as unknown as SdkHandle,
+      agentName: 'MyAgent',
+      setAgentId: jest.fn(),
+    });
+    mocks.processManager.spawnFromSdkHandle.mockResolvedValue({
+      agentId: 'spawned-1',
+    } as SpawnAgentResult);
+
+    await buildAgentNamespace(deps).spawn({
+      task: 'implement feature',
+      ptahCliId: 'agent-a',
+      taskKind: 'implement',
+      routingSource: 'model',
+    });
+
+    expect(mocks.processManager.spawnFromSdkHandle).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        taskKind: 'implement',
+        routingSource: 'model',
+      }),
+    );
+  });
+
   it('throws if ptahCliId is set but no registry is wired', async () => {
     const { deps } = makeDeps({ registry: undefined });
     await expect(
@@ -957,9 +1049,46 @@ describe('buildAgentNamespace — list', () => {
         cli: 'codex',
         installed: true,
         messagingMode: 'queue',
+        family: 'codex',
         preferredRank: 0,
       },
     ]);
+  });
+
+  // SC-5: the row builder is the one place family is computed. A Ptah CLI row
+  // groups under its provider id, then the `ptah-cli:<id>` fallback, then
+  // `ptah-cli`; a system CLI row groups under its cli value.
+  it('stamps every row with its lane family (TASK_2026_646, SC-5)', async () => {
+    const { deps, mocks } = makeDeps();
+    mocks.detection.detectAll.mockResolvedValue([
+      { cli: 'codex', installed: true, messagingMode: 'queue' },
+    ] as CliDetectionResult[]);
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    mocks.registry!.listAgents.mockResolvedValue([
+      {
+        id: 'ptah-alice',
+        name: 'Alice',
+        providerName: 'Z-ai',
+        providerId: 'z-ai',
+        hasApiKey: true,
+        enabled: true,
+      },
+      {
+        id: 'ptah-bob',
+        name: 'Bob',
+        providerName: 'No provider',
+        hasApiKey: true,
+        enabled: true,
+      },
+    ]);
+
+    const list = await buildAgentNamespace(deps).list();
+
+    expect(list.find((r) => r.cli === 'codex')?.family).toBe('codex');
+    expect(list.find((r) => r.ptahCliId === 'ptah-alice')?.family).toBe('z-ai');
+    expect(list.find((r) => r.ptahCliId === 'ptah-bob')?.family).toBe(
+      'ptah-cli:ptah-bob',
+    );
   });
 
   // `spawn` REJECTS an explicit disabled `cli`, so omitting disabled CLIs here
@@ -1195,7 +1324,11 @@ describe('buildAgentNamespace — waitFor', () => {
       cancelled: true,
       waitedMs: 5,
       entries: [
-        { agentId: 'x', state: 'running', info: { ...info, status: 'running' } },
+        {
+          agentId: 'x',
+          state: 'running',
+          info: { ...info, status: 'running' },
+        },
       ],
     });
 
@@ -1224,7 +1357,12 @@ describe('buildAgentNamespace — waitFor', () => {
     let waitSignal: AbortSignal | undefined;
     let waitSettled: Promise<unknown> = Promise.resolve();
     mocks.processManager.waitForAgents.mockImplementation(
-      (_ids: string[], mode: string, _timeout: number, signal?: AbortSignal) => {
+      (
+        _ids: string[],
+        mode: string,
+        _timeout: number,
+        signal?: AbortSignal,
+      ) => {
         waitSignal = signal;
         const settled = new Promise((resolve) => {
           signal?.addEventListener('abort', () =>

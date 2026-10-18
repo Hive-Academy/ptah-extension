@@ -30,6 +30,7 @@ import {
 import { AgentPermissionResponder } from '../../../services/agent-permission-responder';
 import { SessionGitStatsStore } from '../../../services/session-git-stats/session-git-stats.store';
 import {
+  RAIL_TRANSCRIPT_RETENTION,
   SESSION_CARD_ACTIONS,
   SESSION_FORCED_CARD,
 } from '../../../tokens/session-context.token';
@@ -175,6 +176,7 @@ describe(CompactSessionCardComponent.name, () => {
       imports: [CompactSessionCardComponent],
       providers: [
         provideMarkdown(),
+        { provide: RAIL_TRANSCRIPT_RETENTION, useValue: false },
         { provide: PermissionHandlerService, useValue: permissionHandler },
         { provide: TabManagerService, useValue: tabManager },
         { provide: TabSessionBinding, useValue: sessionBinding },
@@ -205,6 +207,36 @@ describe(CompactSessionCardComponent.name, () => {
     fixture.detectChanges();
     return fixture;
   }
+
+  it('omits repeated title and Full view chrome but keeps status and needs-you count in Canvas', () => {
+    TestBed.overrideProvider(RAIL_TRANSCRIPT_RETENTION, { useValue: true });
+    const fixture = render(tab({ viewMode: 'compact', title: 'Review changes', messages: [{
+      id: 'reply-1', role: 'assistant', timestamp: 1,
+      streamingState: {
+        id: 'node-1', type: 'text', status: 'complete',
+        content: 'The changes are ready to review.', children: [], isCollapsed: false,
+      },
+    }] }));
+    fixture.componentRef.setInput('needsYouCount', 2);
+    fixture.detectChanges();
+    const card = fixture.nativeElement.querySelector('[data-testid="compact-session-card"]');
+    expect(card.querySelector('[data-testid="compact-session-title"]')).toBeNull();
+    expect(card.textContent).not.toContain('Full view');
+    expect(card.textContent).toContain('2 needs you');
+    expect(card.querySelector('[data-zone="status"]')?.textContent).toContain('Done');
+    expect(card.querySelector('ptah-compact-session-activity')?.className).not.toContain('[&_[data-zone=status]]:hidden');
+    expect(card.textContent).toContain('The changes are ready to review.');
+  });
+
+  it('keeps the empty card status word in the Canvas host', () => {
+    TestBed.overrideProvider(RAIL_TRANSCRIPT_RETENTION, { useValue: true });
+    const fixture = render(tab({ viewMode: 'compact' }));
+    const card = fixture.nativeElement.querySelector('[data-testid="compact-session-card"]');
+    expect(card.querySelector('[data-testid="compact-session-empty"]')).not.toBeNull();
+    expect(card.querySelector('[data-testid="compact-session-title"]')).toBeNull();
+    expect(card.querySelector('[data-testid="compact-session-empty"] .text-xs.font-semibold')?.textContent).toContain('Waiting');
+    expect(card.textContent).not.toContain('Full view');
+  });
 
   it('binds todo and git states and releases root tracking on destroy', () => {
     gitState.set({ kind: 'known', additions: 4, deletions: 2, partial: false });

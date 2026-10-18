@@ -240,6 +240,61 @@ describe('PtahFileSettingsManager', () => {
       ]);
     });
 
+    // TASK_2026_646_136a. The decision-model selection is an object. Without
+    // the whole-value rule, the reload would flatten it into `.kind` /
+    // `.model` leaves and the key itself would read back as unset.
+    it('round-trips the object-valued decision-model selection whole', async () => {
+      const key = 'agentOrchestration.decisionModel';
+      const selection = { kind: 'ollama', model: 'tev1' };
+      const writer = new PtahFileSettingsManager(FILE_BASED_SETTINGS_DEFAULTS);
+      await writer.set(key, selection);
+
+      const parsed = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf-8')) as {
+        agentOrchestration: Record<string, unknown>;
+      };
+      expect(parsed.agentOrchestration['decisionModel']).toEqual(selection);
+
+      const reader = new PtahFileSettingsManager(FILE_BASED_SETTINGS_DEFAULTS);
+      expect(reader.get(key)).toEqual(selection);
+      expect(reader.get(`${key}.kind`)).toBeUndefined();
+    });
+
+    // TASK_2026_684_a11d. The ollama-cloud and custom selections reuse the
+    // same key (DC2: no new key). The custom selection carries a `baseUrl`
+    // that must stay inside the whole value and never become a leaf key.
+    it.each([
+      { kind: 'ollama-cloud', model: 'clef:27b-cloud' },
+      {
+        kind: 'custom',
+        baseUrl: 'https://decide.example.com/gw',
+        model: 'm1',
+      },
+    ])('round-trips the $kind decision-model selection whole', async (sel) => {
+      const key = 'agentOrchestration.decisionModel';
+      const writer = new PtahFileSettingsManager(FILE_BASED_SETTINGS_DEFAULTS);
+      await writer.set(key, sel);
+
+      const raw = fs.readFileSync(SETTINGS_PATH, 'utf-8');
+      const parsed = JSON.parse(raw) as {
+        agentOrchestration: Record<string, unknown>;
+      };
+      expect(parsed.agentOrchestration['decisionModel']).toEqual(sel);
+      expect(raw).not.toContain(`${key}.baseUrl`);
+      expect(Object.keys(parsed.agentOrchestration)).not.toContain(
+        'decisionModel.baseUrl',
+      );
+
+      const reader = new PtahFileSettingsManager(FILE_BASED_SETTINGS_DEFAULTS);
+      expect(reader.get(key)).toEqual(sel);
+      expect(reader.get(`${key}.kind`)).toBeUndefined();
+      expect(reader.get(`${key}.baseUrl`)).toBeUndefined();
+    });
+
+    it('reads an unset decision-model selection as null', () => {
+      const mgr = new PtahFileSettingsManager(FILE_BASED_SETTINGS_DEFAULTS);
+      expect(mgr.get('agentOrchestration.decisionModel')).toBeNull();
+    });
+
     it('preserves boolean + null tier values', async () => {
       const writer = new PtahFileSettingsManager(FILE_BASED_SETTINGS_DEFAULTS);
       await writer.set('agentOrchestration.copilotAutoApprove', false);

@@ -402,6 +402,10 @@ export class CodeExecutionMCP
               'agentOrchestration.disabledMcpNamespaces',
               [],
             ) ?? [],
+          resolveOutcomeReport: () =>
+            typeof this.apiBuilder.outcomeReportDependencies === 'function'
+              ? this.apiBuilder.outcomeReportDependencies()
+              : undefined,
         }),
     });
 

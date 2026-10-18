@@ -110,6 +110,7 @@ export const ExecutionChatMessageSchema = z.object({
 
 export const ChatSessionSummarySchema = z.object({
   id: z.string(),
+  providerId: z.string().trim().min(1).optional(),
   name: z.string(),
   messageCount: z.number().int().nonnegative(),
   createdAt: z.number(),

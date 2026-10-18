@@ -11,6 +11,11 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { NO_ERRORS_SCHEMA } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
+import { AppStateManager, VSCodeService } from '@ptah-extension/core';
+import { provideSurfaceRouterTesting } from '@ptah-extension/core/testing';
+import { DashboardGridComponent } from './dashboard-grid.component';
 
 const COMPONENTS = join(
   process.cwd(),
@@ -46,5 +51,51 @@ describe('dashboard-grid section order', () => {
     const html = readFileSync(ANALYTICS_TEMPLATE, 'utf8');
 
     expect(html).not.toContain('ptah-provider-account-card');
+  });
+});
+
+describe('dashboard-grid Command Center entry', () => {
+  let host: { isElectron: boolean };
+  let appState: AppStateManager;
+
+  beforeEach(() => {
+    host = { isElectron: false };
+    TestBed.configureTestingModule({
+      imports: [DashboardGridComponent],
+      providers: [
+        ...provideSurfaceRouterTesting(),
+        { provide: VSCodeService, useValue: host },
+      ],
+    });
+    TestBed.overrideComponent(DashboardGridComponent, {
+      set: { imports: [], schemas: [NO_ERRORS_SCHEMA] },
+    });
+    appState = TestBed.inject(AppStateManager);
+  });
+
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('renders in Electron and opens Command Center', () => {
+    host.isElectron = true;
+    const fixture = TestBed.createComponent(DashboardGridComponent);
+    fixture.detectChanges();
+    const entry: HTMLButtonElement | null = fixture.nativeElement.querySelector(
+      '[data-testid="dashboard-command-center"]',
+    );
+    expect(entry).not.toBeNull();
+    expect(entry?.getAttribute('aria-label')).toBe('Open Command Center');
+    const navigate = jest.spyOn(appState, 'setCurrentView');
+    entry?.click();
+    expect(navigate).toHaveBeenCalledWith('command-center');
+  });
+
+  it('does not render in VS Code', () => {
+    const fixture = TestBed.createComponent(DashboardGridComponent);
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelector(
+        '[data-testid="dashboard-command-center"]',
+      ),
+    ).toBeNull();
   });
 });

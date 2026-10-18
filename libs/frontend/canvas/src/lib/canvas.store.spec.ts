@@ -31,6 +31,7 @@ jest.mock('ngx-markdown', () => {
 });
 import { TestBed } from '@angular/core/testing';
 import { TabManagerService } from '@ptah-extension/chat';
+import { SessionId } from '@ptah-extension/shared';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import { CanvasStore, RETAINED_WORKSPACE_CAP } from './canvas.store';
 import { CanvasLayoutPersistenceService } from './canvas-layout-persistence.service';
@@ -282,6 +283,35 @@ describe('CanvasStore', () => {
     expect(store.tiles().filter((tile) => tile.tabId === 'child')).toHaveLength(
       1,
     );
+  });
+
+  it('focuses an already-open session tile at the tile cap instead of reporting the cap (Phase 4 visual M2)', () => {
+    const sessionAt = (i: number) =>
+      SessionId.from(`00000000-0000-4000-8000-${String(i).padStart(12, '0')}`);
+    const ids = Array.from({ length: CanvasStore.MAX_TILES }, (_, i) => `tab-${i}`);
+    hydrate('/ws/a', ids);
+    tabs.set(
+      ids.map((id, i) => ({
+        id,
+        name: id,
+        claudeSessionId: sessionAt(i),
+        status: 'loaded',
+      })),
+    );
+    const tabManager = TestBed.inject(TabManagerService);
+    const openSessionTab = jest.mocked(tabManager.openSessionTab);
+    const switchTab = jest.mocked(tabManager.switchTab);
+
+    // The board is full, but this session already has a tile: focus it.
+    expect(store.addTileFromSession(sessionAt(3))).toBe('tab-3');
+    expect(store.focusedTabId()).toBe('tab-3');
+    expect(switchTab).toHaveBeenCalledWith('tab-3');
+    expect(openSessionTab).not.toHaveBeenCalled();
+    expect(store.tiles()).toHaveLength(CanvasStore.MAX_TILES);
+
+    // A session with no tile still needs a slot, so the cap still refuses it.
+    expect(store.addTileFromSession(sessionAt(999))).toBeNull();
+    expect(openSessionTab).not.toHaveBeenCalled();
   });
 
   it('hydrates exact authoritative ids once before enabling writes', () => {

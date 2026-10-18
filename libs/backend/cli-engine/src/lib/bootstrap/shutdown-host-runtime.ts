@@ -1,8 +1,8 @@
 /**
  * Host-runtime teardown — end the OS-level resources a `ptah` process owns.
  *
- * Three subsystems hold things the operating system will not reclaim for us, or
- * reclaims only late, when the event loop is abandoned:
+ * Four subsystems hold resources or pending writes the operating system will
+ * not reclaim for us, or reclaims only late, when the event loop is abandoned:
  *
  *   1. `AgentProcessManager` — spawned CLI agent subprocesses. They are
  *      children of this process, and `process.exit` orphans anything still
@@ -14,20 +14,26 @@
  *      watch host (TASK_2026_437 C9). The host also exits on its own when this
  *      process's IPC channel closes; disposing here ends it and its timers
  *      deterministically instead of relying on that.
+ *   4. `LANE_OUTCOME_TOKENS.DISPOSER` — the lane-outcomes write drain. An
+ *      agent's exit stages an outcome write, so the drain runs after the
+ *      agents are ended and before Thoth closes SQLite (`with-engine.ts`).
+ *      The drain bounds itself (`startAndRegisterLaneOutcomes`).
  *
  * **Agents first, then proxies.** An agent subprocess speaks to its provider
  * *through* the proxy; ending the proxy first strands a live child on a dead
  * endpoint, where it will either hang or spew connection errors while it is
  * being killed anyway. This is the same order `apps/ptah-electron` uses on
- * `will-quit`. The watcher is independent of both and goes last.
+ * `will-quit`. The outcome drain follows them, and the watcher, independent of
+ * all three, goes last.
  *
  * Each step is guarded by `isRegistered` and wrapped in its own `try/catch`, so
  * a failure in one cannot stop the other and a bootstrap that never registered
- * a subsystem (`mode: 'minimal'` registers neither) pays nothing and warns
- * about nothing.
+ * a subsystem (`mode: 'minimal'` registers none of them) pays nothing and
+ * warns about nothing.
  */
 
 import type { DependencyContainer } from 'tsyringe';
+import { LANE_OUTCOME_TOKENS } from '@ptah-extension/lane-outcomes';
 
 /**
  * `TOKENS.AGENT_PROCESS_MANAGER` from `@ptah-extension/vscode-core`, resolved
@@ -125,6 +131,23 @@ export async function shutdownPtahCliProxies(
 }
 
 /**
+ * Drain pending lane-outcome writes. Never throws, and settles within the
+ * drain's own budget (`startAndRegisterLaneOutcomes` registers a bounded
+ * disposer). No-op when lane outcomes were never started (`mode: 'minimal'`).
+ */
+export async function shutdownLaneOutcomes(
+  container: ContainerLike | undefined,
+): Promise<void> {
+  if (!container) return;
+  await disposeSubsystem(
+    container,
+    LANE_OUTCOME_TOKENS.DISPOSER,
+    'lane outcomes',
+    'dispose',
+  );
+}
+
+/**
  * Stop the workspace watcher and its forked host. Never throws. No-op when the
  * host never registered one.
  */
@@ -141,9 +164,8 @@ export async function shutdownWorkspaceWatcher(
 }
 
 /**
- * The whole host-runtime teardown, in the one order that is safe: agent
- * subprocesses, then the proxies they were speaking through, then the
- * workspace watcher.
+ * The whole host-runtime teardown: agent subprocesses, proxies, lane outcome
+ * drain, then the workspace watcher.
  *
  * Never throws, and never short-circuits — if the agent half rejects, its
  * rejection is absorbed by {@link disposeSubsystem} and the proxy half still
@@ -154,5 +176,6 @@ export async function shutdownHostRuntime(
 ): Promise<void> {
   await shutdownAgentProcesses(container);
   await shutdownPtahCliProxies(container);
+  await shutdownLaneOutcomes(container);
   await shutdownWorkspaceWatcher(container);
 }

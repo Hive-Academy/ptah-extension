@@ -4,8 +4,8 @@ import type { TurnChangeSet } from '@ptah-extension/shared';
 import { test, expect } from '../../support/fixtures';
 import { expectNoBlockingViolationsInBothThemes } from '../../support/axe';
 import {
+  openSessionFromList,
   prepareCanvasWithSessions,
-  sessionRowButton,
   type GeneratedEvent,
   type SessionFixture,
 } from '../../support/perf-session-fixture';
@@ -133,7 +133,7 @@ async function openSession(
   page: Page,
   session: SessionFixture,
 ): Promise<Locator> {
-  await sessionRowButton(page, session.name).click();
+  await openSessionFromList(page, session.name);
   // The session renders in the Rail's focused pane (Rail cards echo the marker
   // too, so the scope is the pane, not the board).
   const tile = page

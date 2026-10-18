@@ -11,16 +11,38 @@
   <ptah-subagent-transcript-overlay />
 }
 
-<!-- Session organization editor (TASK_2026_580), opened from a sidebar row's
-     "Organize" action. Organization hosts only; closed while `null`.
-     Deferred out of the initial bundle: its chunk is prefetched when the
-     browser is idle and the editor is first created on the first open, which
-     runs the same focus-in bookkeeping as any later open. -->
-@if (organizationAvailable()) {
-  @defer (when organizingSession() !== null; prefetch on idle) {
+<!-- Previous sessions modal (TASK_2026_679), opened from the navbar button
+     below (VS Code single layout) or the canvas Rail footer. Deferred out of
+     the initial bundle like the editor; the inner @if creates it per open, so
+     each open starts at the top of the list (DP-2). It stacks under the
+     editor and the confirm dialog. The row below is inert while it is open,
+     so a slow or failed chunk shows a stand-in surface with a reachable Close
+     (D73); the defer state outlives a close, hence the @if in each block. -->
+@defer (when previousSessions.isOpen(); prefetch on idle) {
+  @if (previousSessions.isOpen()) {
+    <ptah-previous-sessions-modal />
+  }
+} @loading (after 150ms) {
+  @if (previousSessions.isOpen()) {
+    <ptah-previous-sessions-load-state state="loading" />
+  }
+} @error {
+  @if (previousSessions.isOpen()) {
+    <ptah-previous-sessions-load-state state="error" />
+  }
+}
+
+<!-- Session organization editor (TASK_2026_580), opened through
+     SessionOrganizerService from a modal row's or a Rail card's "Organize"
+     action. Organization hosts only; closed while `null`. Deferred out of
+     the initial bundle: its chunk is prefetched when the browser is idle and
+     the editor is first created on the first open, which runs the same
+     focus-in bookkeeping as any later open. -->
+@if (organizer.available()) {
+  @defer (when organizer.isOpen(); prefetch on idle) {
     <ptah-session-organization-editor
-      [session]="organizingSession()"
-      (closed)="closeOrganizer()"
+      [session]="organizer.session()"
+      (closed)="organizer.close()"
     />
   }
 }
@@ -29,7 +51,7 @@
   Layout Architecture:
   - Standalone surfaces render ON TOP, through the router outlet below. The
     route table lives in apps/ptah-extension-webview/src/app/app.routes.ts.
-  - Shared chrome (sidebar, header, agent panel) is built on the first visit to
+  - Shared chrome (header, content area) is built on the first visit to
     chat and RETAINED by `*ptahRetainWhile`: on a standalone surface it is
     hidden at once, then detached from the DOM and from change detection, never
     destroyed
@@ -84,477 +106,13 @@
      detaches it in the next pass. The row, the canvas and its component-scoped
      CanvasStore are never destroyed while the shell lives; returning to chat
      re-inserts the same view. The row is not built until the first visit to
-     chat. -->
+     chat. While the previous-sessions modal is open the row is inert: no
+     pointer, focus or assistive-tech access behind the dialog (DP-8). -->
 <div
-  #shellRow
   *ptahRetainWhile="!isStandaloneView()"
   class="flex h-full bg-surface-0"
+  [attr.inert]="previousSessions.isOpen() ? '' : null"
 >
-  <!-- Session Sidebar (toggleable and resizable width, no border — tab
-       provides the one visual edge, so this surface-1 panel does not add
-       another). Open width defaults to 272 px, follows the
-       right-edge resize handle (bottom of the aside) and persists, capped so
-       the main area keeps room (never below the old 224 px; see
-       session-sidebar-width.ts). -->
-  <aside
-    class="relative flex flex-col bg-surface-1 duration-300"
-    [ngClass]="sidebarResizing() ? 'transition-none' : 'transition-[width]'"
-    [style.width.px]="sidebarOpen() ? sidebarWidth() : 0"
-    [class.overflow-hidden]="!sidebarOpen()"
-  >
-    <!-- Sidebar header with Ptah icon -->
-    <div
-      class="p-3 border-b border-surface-border flex items-center justify-center"
-    >
-      <!-- Ptah icon -->
-
-      <img
-        [src]="ptahIconUri"
-        alt="Ptah"
-        class="w-5 h-5 flex-shrink-0 opacity-80"
-        width="20"
-        height="20"
-      />
-    </div>
-
-    <!-- Session search & filter -->
-    <!-- Header left edge = list gutter (`pl-4`, 16px) + row padding
-         (`px-2.5`, 10px) = 26px, so search, Filters, the two selects and
-         Date range share the session title's left edge. -->
-    <div class="pl-[26px] pr-2 pt-3 pb-3 flex flex-col gap-2">
-      @if (organizationAvailable()) {
-        <!-- Organization host: search text, filters, sort and grouping go to
-             the server (TASK_2026_580). The date range below stays local. -->
-        @defer (on immediate; prefetch on idle) {
-          <ptah-session-filter-bar
-            [query]="listQuery()"
-            (queryChange)="onListQueryChange($event)"
-          />
-        }
-      } @else {
-        <!-- Search input (local name filter over the loaded pages) -->
-        <label
-          class="input input-sm rounded-lg h-8 min-h-8 w-full flex items-center gap-1.5 bg-surface-0 border-surface-border"
-        >
-          <lucide-angular
-            [img]="SearchIcon"
-            class="w-3 h-3 text-base-content-muted flex-shrink-0"
-          />
-          <input
-            type="text"
-            class="grow text-xs min-w-0"
-            placeholder="Search sessions..."
-            [ngModel]="searchQuery()"
-            (ngModelChange)="setSearchQuery($event)"
-            aria-label="Search sessions by name"
-            data-testid="session-search-local"
-          />
-          @if (searchQuery()) {
-            <button
-              type="button"
-              class="btn btn-ghost btn-xs btn-circle w-4 h-4 min-h-0 p-0"
-              (click)="setSearchQuery('')"
-              aria-label="Clear search"
-            >
-              <lucide-angular [img]="XIcon" class="w-2.5 h-2.5" />
-            </button>
-          }
-        </label>
-      }
-
-      <!-- Date filter toggle + clear filters row -->
-      <div class="flex items-center gap-1">
-        <button
-          type="button"
-          class="btn btn-ghost btn-sm h-8 min-h-8 gap-1 text-base-content-muted hover:text-base-content flex-1 justify-start px-1"
-          (click)="toggleDateFilter()"
-          aria-label="Toggle date filter"
-        >
-          <lucide-angular [img]="CalendarDaysIcon" class="w-3 h-3" />
-          <span class="text-xs">Date range</span>
-          <lucide-angular
-            [img]="ChevronDownIcon"
-            class="w-2.5 h-2.5 transition-transform duration-200"
-            [class.rotate-180]="dateFilterOpen()"
-          />
-        </button>
-        @if (hasActiveFilters()) {
-          <button
-            type="button"
-            class="btn btn-ghost btn-xs text-xs text-base-content-muted hover:text-error px-1"
-            (click)="clearFilters()"
-            aria-label="Clear all filters"
-          >
-            Clear
-          </button>
-        }
-      </div>
-
-      <!-- Date range inputs (collapsible) -->
-      @if (dateFilterOpen()) {
-        <div class="flex flex-col gap-1 px-0.5 pb-0.5">
-          <label
-            for="session-filter-date-from"
-            class="text-xs text-base-content-muted"
-            >From</label
-          >
-          <input
-            id="session-filter-date-from"
-            type="date"
-            class="input input-sm rounded-lg h-8 min-h-8 w-full bg-surface-0 border-surface-border text-xs"
-            [ngModel]="dateFrom()"
-            (ngModelChange)="setDateFrom($event)"
-          />
-          <label
-            for="session-filter-date-to"
-            class="text-xs text-base-content-muted"
-            >To</label
-          >
-          <input
-            id="session-filter-date-to"
-            type="date"
-            class="input input-sm rounded-lg h-8 min-h-8 w-full bg-surface-0 border-surface-border text-xs"
-            [ngModel]="dateTo()"
-            (ngModelChange)="setDateTo($event)"
-          />
-        </div>
-      }
-    </div>
-
-    <!-- Session list (scrollable) -->
-    <div class="flex-1 overflow-y-auto pl-4 pr-2 py-3 sidebar-scroll">
-      <!-- One sidebar row. Rendered for every group below; `depth` > 0 only
-           when organization nests a child under its parent. -->
-      <ng-template #sessionRow let-session let-depth="depth">
-        <li
-          class="group relative"
-          [class.ml-3]="depth === 1"
-          [class.ml-6]="depth === 2"
-          [class.ml-9]="depth >= 3"
-          [attr.data-depth]="depth > 0 ? depth : null"
-        >
-          @if (editingSessionId() === session.id) {
-            <!-- Inline edit mode -->
-            <div class="flex items-center gap-1 py-1.5 pl-2.5 pr-2 w-full">
-              <input
-                #editSessionInput
-                type="text"
-                class="input input-xs input-bordered rounded-md flex-1 text-[13px] bg-surface-0"
-                maxlength="200"
-                aria-label="Edit session name"
-                [ngModel]="editingSessionName()"
-                (ngModelChange)="editingSessionName.set($event)"
-                (keydown.enter)="saveSessionName($event, session)"
-                (keydown.escape)="cancelEditingSession()"
-                (blur)="saveSessionName($event, session)"
-              />
-            </div>
-          } @else {
-            <button
-              type="button"
-              class="relative block w-full py-1.5 px-2.5 text-left rounded-md transition-[color,background-color,box-shadow] duration-200 hover:bg-surface-2"
-              [class.pr-16]="!organizationAvailable()"
-              [class.sidebar-item-active]="
-                session.id === chatStore.currentSession()?.id
-              "
-              [class.sidebar-item-open-tab]="
-                isSessionOpen(session.id) &&
-                session.id !== chatStore.currentSession()?.id
-              "
-              [attr.aria-current]="
-                session.id === chatStore.currentSession()?.id ? 'true' : null
-              "
-              (click)="onSessionClick(session)"
-            >
-              <!-- Live-phase marker sits in the list gutter (`pl-4` / 16px),
-                   out of flow. `-left-4` matches that gutter, so the 16px host
-                   ends on the button's left edge and neither an idle
-                   (`invisible`) row nor a live row shifts the title. Title,
-                   time and the chips below share the button's `px-2.5` edge. -->
-              @if (organizationAvailable()) {
-                <ptah-session-live-phase-indicator
-                  class="absolute -left-4 top-1/2 z-[1] -translate-y-1/2"
-                  [session]="session"
-                />
-              }
-              <!-- Session name and metadata: the row's main column -->
-              <span class="flex flex-col items-start gap-0.5 min-w-0">
-                <!-- Session name -->
-                @if (depth > 0) {
-                  <span class="sr-only">Child session:</span>
-                }
-                <span
-                  class="font-medium text-[13px] truncate w-full leading-tight"
-                  [class.text-primary]="
-                    session.id === chatStore.currentSession()?.id ||
-                    isSessionOpen(session.id)
-                  "
-                  [class.text-base-content]="session.hasTranscript === false"
-                  [class.opacity-50]="session.hasTranscript === false"
-                  [title]="session.name"
-                >
-                  {{ getSessionDisplayName(session) }}
-                </span>
-                <ptah-workflow-badge
-                  [workflow]="
-                    tabManager.workflowForSession(
-                      session.id,
-                      tabManager.activeWorkspacePath ?? ''
-                    )
-                  "
-                />
-                <!-- Session metadata row -->
-                <span
-                  class="text-[11px] text-base-content-muted flex items-center gap-1.5 w-full leading-tight"
-                  [class.whitespace-nowrap]="organizationAvailable()"
-                  [class.overflow-hidden]="organizationAvailable()"
-                  [class.pr-20]="organizationAvailable()"
-                  data-testid="session-row-meta"
-                >
-                  <span>{{ formatRelativeDate(session.lastActivityAt) }}</span>
-                  @if (session.messageCount > 0) {
-                    <span class="text-base-content-muted"
-                      >{{ session.messageCount }} msgs</span
-                    >
-                  }
-                  @if (session.hasTranscript === false) {
-                    <span
-                      class="text-base-content-muted italic"
-                      [title]="expiredTranscriptHint"
-                      >transcript expired</span
-                    >
-                  }
-                </span>
-              </span>
-            </button>
-            <!-- Action buttons (hover reveal) -->
-            <div
-              class="absolute right-1.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200"
-              [ngClass]="
-                organizationAvailable()
-                  ? 'bottom-1.5'
-                  : 'top-1/2 -translate-y-1/2'
-              "
-            >
-              @if (organizationAvailable() && session.organization) {
-                <button
-                  type="button"
-                  class="btn btn-ghost btn-xs btn-square rounded text-base-content-muted hover:text-primary hover:bg-primary/10"
-                  title="Organize session"
-                  aria-haspopup="dialog"
-                  [attr.aria-label]="
-                    'Organize session: ' + getSessionDisplayName(session)
-                  "
-                  (click)="openOrganizer($event, session)"
-                  data-testid="session-organize"
-                >
-                  <lucide-angular [img]="TagIcon" class="w-3.5 h-3.5" />
-                </button>
-              }
-              <button
-                type="button"
-                class="btn btn-ghost btn-xs btn-square rounded text-base-content-muted hover:text-primary hover:bg-primary/10"
-                title="Rename session"
-                [attr.aria-label]="
-                  'Rename session: ' + getSessionDisplayName(session)
-                "
-                (click)="startEditingSession($event, session)"
-              >
-                <lucide-angular [img]="PencilIcon" class="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                class="btn btn-ghost btn-xs btn-square rounded text-base-content-muted hover:text-error hover:bg-error/10"
-                title="Delete session"
-                [attr.aria-label]="
-                  'Delete session: ' + getSessionDisplayName(session)
-                "
-                (click)="deleteSession($event, session)"
-              >
-                <lucide-angular [img]="Trash2Icon" class="w-3.5 h-3.5" />
-              </button>
-            </div>
-            @if (organizationAvailable()) {
-              <!-- Organization chips sit beside the row button, not inside
-                     it: a list is not phrasing content, and the chips would
-                     otherwise all be read as part of the button's name. The
-                     live-phase indicator is positioned out of flow, so this
-                     line uses the same `pl-2.5` as the button and shares the
-                     title and time edge.
-                     Hover actions anchor to the bottom line; `pr-24` here and
-                     `pr-20` on the metadata line keep the actions off both. -->
-
-              <div class="pl-2.5 pr-24 has-[li]:-mt-1 has-[li]:pb-1.5">
-                <ptah-session-organization-chips [session]="session" />
-              </div>
-            }
-          }
-        </li>
-      </ng-template>
-
-      <ul class="flex flex-col gap-0.5 p-0">
-        @for (group of sessionGroups(); track group.key) {
-          @if (group.label === null) {
-            @for (row of group.rows; track row.session.id) {
-              <ng-container
-                [ngTemplateOutlet]="sessionRow"
-                [ngTemplateOutletContext]="{
-                  $implicit: row.session,
-                  depth: row.depth,
-                }"
-              />
-            }
-          } @else {
-            <li class="flex flex-col gap-0.5" data-testid="session-group">
-              <h3
-                [id]="'session-group-' + group.key"
-                class="pt-2 pb-0.5 pl-2.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-base-content-muted"
-              >
-                <span class="truncate">{{ group.label }}</span>
-                <span class="tabular-nums font-normal">{{
-                  group.rows.length
-                }}</span>
-              </h3>
-              <ul
-                class="flex flex-col gap-0.5 p-0"
-                [attr.aria-labelledby]="'session-group-' + group.key"
-              >
-                @for (row of group.rows; track row.session.id) {
-                  <ng-container
-                    [ngTemplateOutlet]="sessionRow"
-                    [ngTemplateOutletContext]="{
-                      $implicit: row.session,
-                      depth: row.depth,
-                    }"
-                  />
-                }
-              </ul>
-            </li>
-          }
-        } @empty {
-          <!-- While the host is still booting the session import has not run
-               yet, so "No sessions yet" would be a lie. Skeleton rows say
-               "still arriving" instead (TASK_2026_380). -->
-          @if (bootStatus.isBooting()) {
-            <li class="p-1.5" role="presentation">
-              <ptah-skeleton-block
-                [rows]="5"
-                titleWidthClass="w-32"
-                subtitleWidthClass="w-20"
-              />
-            </li>
-          } @else {
-            <li
-              class="flex flex-col items-center justify-center p-6 text-center"
-              role="presentation"
-            >
-              @if (
-                hasServerFilters() ||
-                (hasClientFilters() && chatStore.sessions().length > 0)
-              ) {
-                <lucide-angular
-                  [img]="SearchIcon"
-                  class="w-8 h-8 text-base-content/20 mb-2"
-                />
-                <span class="text-sm text-base-content-muted"
-                  >No matching sessions</span
-                >
-                <span class="text-xs text-base-content-muted mt-1">
-                  Try adjusting your search or filters
-                </span>
-                <button
-                  type="button"
-                  class="btn btn-ghost btn-xs mt-2 text-primary/60 hover:text-primary"
-                  (click)="clearFilters()"
-                >
-                  Clear filters
-                </button>
-              } @else {
-                <lucide-angular
-                  [img]="MessageSquareIcon"
-                  class="w-8 h-8 text-base-content/20 mb-2"
-                />
-                <span class="text-sm text-base-content-muted"
-                  >No sessions yet</span
-                >
-                <span class="text-xs text-base-content-muted mt-1"
-                  >Create one to get started</span
-                >
-              }
-            </li>
-          }
-        }
-      </ul>
-
-      <!-- Load More button (hidden when filters produce zero results) -->
-      @if (
-        chatStore.hasMoreSessions() &&
-        (!hasClientFilters() || filteredSessions().length > 0)
-      ) {
-        <div class="px-1.5 pt-1 pb-1">
-          <button
-            class="btn btn-ghost btn-xs w-full text-base-content-muted hover:text-base-content hover:bg-surface-2 transition-colors duration-200 gap-1"
-            [class.loading]="chatStore.isLoadingMoreSessions()"
-            [disabled]="chatStore.isLoadingMoreSessions()"
-            (click)="chatStore.loadMoreSessions()"
-          >
-            @if (chatStore.isLoadingMoreSessions()) {
-              <span class="loading loading-spinner loading-xs"></span>
-              Loading...
-            } @else {
-              @if (hasClientFilters()) {
-                <lucide-angular [img]="ChevronDownIcon" class="w-3 h-3" />
-                Load more to expand search
-              } @else {
-                <lucide-angular [img]="ChevronDownIcon" class="w-3 h-3" />
-                Load More
-                <span class="text-base-content-muted"
-                  >({{
-                    chatStore.totalSessions() - chatStore.sessions().length
-                  }})</span
-                >
-              }
-            }
-          </button>
-        </div>
-      }
-    </div>
-
-    <!-- Sidebar resize handle — the open sidebar's right edge. Pointer drag
-         (the handle captures the pointer) resizes; the focused handle takes
-         ArrowLeft/ArrowRight (±16 px) and double-click resets to 272 px. -->
-    @if (sidebarOpen()) {
-      <div
-        #sidebarResizeHandle
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize session sidebar"
-        title="Drag to resize; Arrow keys step; double-click resets"
-        tabindex="0"
-        class="absolute top-0 right-0 z-10 h-full w-1 cursor-col-resize touch-none hover:bg-primary/40 focus-visible:bg-primary/40 transition-colors duration-200"
-        [attr.aria-valuemin]="sidebarMinWidth"
-        [attr.aria-valuemax]="sidebarMaxWidth()"
-        [attr.aria-valuenow]="sidebarWidth()"
-        (pointerdown)="onSidebarResizeStart($event)"
-        (pointermove)="onSidebarResizeMove($event)"
-        (pointerup)="onSidebarResizeEnd()"
-        (pointercancel)="onSidebarResizeEnd()"
-        (dblclick)="resetSidebarWidth()"
-        (keydown)="onSidebarResizeKeydown($event)"
-        data-testid="sidebar-resize-handle"
-      ></div>
-    }
-  </aside>
-
-  <!-- Sessions vertical tab (always visible — primary toggle for session panel) -->
-  <ptah-sidebar-tab
-    label="Sessions"
-    side="left"
-    [isOpen]="sidebarOpen()"
-    [size]="isElectron ? 'default' : 'sm'"
-    (toggled)="toggleSidebar()"
-  />
-
   <!-- Main Content -->
   <div class="flex-1 flex flex-col min-w-0">
     <!-- Header: hidden in Electron grid mode (global navbar provides all controls) -->
@@ -773,6 +331,33 @@
             </div>
           </div>
         </ptah-native-popover>
+
+        <!-- Previous sessions (VS Code single layout only; in grid layout the
+             canvas Rail footer carries it, in Electron the canvas Rail too).
+             Secondary muted ink so the gold New stays the one accent. -->
+        @if (!isElectron && layoutMode() === 'single') {
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs gap-1 font-medium text-base-content-muted hover:text-base-content [&[aria-expanded=true]]:bg-surface-3 [&[aria-expanded=true]]:text-base-content"
+            data-testid="navbar-previous-sessions"
+            data-previous-sessions-trigger
+            aria-haspopup="dialog"
+            [attr.aria-expanded]="previousSessions.isOpen()"
+            [attr.aria-controls]="
+              previousSessions.isOpen() ? 'previous-sessions-dialog' : null
+            "
+            aria-label="Previous sessions"
+            title="Previous sessions"
+            (click)="openPreviousSessions()"
+          >
+            <lucide-angular
+              [img]="HistoryIcon"
+              class="w-3.5 h-3.5"
+              aria-hidden="true"
+            />
+            <span class="icon-btn-label text-xs">Previous sessions</span>
+          </button>
+        }
 
         <!-- App-level actions (VS Code only — in Electron these are in the global navbar) -->
         @if (!isElectron) {

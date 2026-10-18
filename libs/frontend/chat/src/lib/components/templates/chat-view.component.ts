@@ -14,7 +14,6 @@ import {
   afterNextRender,
   OnDestroy,
   InjectionToken,
-  Injector,
   Signal,
 } from '@angular/core';
 import { NgComponentOutlet } from '@angular/common';
@@ -28,12 +27,14 @@ import {
 import { ChatTranscriptComponent } from '../organisms/transcript/chat-transcript.component';
 import { ChatEmptyStateComponent } from '../molecules/setup-plugins/chat-empty-state.component';
 import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.component';
-// Referenced only in `imports` and inside `@defer (when panelOpen())`, so the
-// dock and the lazy `chat-ui/display-panel` entry it imports stay out of the
-// eager chunk (decisions #84, #89, #107).
-import { DisplayDockComponent } from '../organisms/display-dock/display-dock.component';
+// Sheet chrome is an allowed eager input. The lazy `chat-ui/display-panel`
+// entry stays out of this chunk because the sheet names that panel only
+// inside its own `@defer` (decisions #84, #89, #107).
+import { DisplaySheetComponent } from '../organisms/display-sheet/display-sheet.component';
+import { DisplaySheetState } from '../organisms/display-sheet/display-sheet.state';
 import { DisplayDockState } from '../../services/display-dock/display-dock.state';
 import { ChatInputComponent } from '../molecules/chat-input/chat-input.component';
+import { ChatSessionLayoutComponent } from './chat-session-layout.component';
 import {
   PermissionBadgeComponent,
   QuestionCardComponent,
@@ -89,6 +90,7 @@ import {
   TabSessionBinding,
   TabId,
   ConfirmationDialogService,
+  commandCenterPersonaFor,
 } from '@ptah-extension/chat-state';
 import { StreamRouter } from '@ptah-extension/chat-routing';
 import {
@@ -171,8 +173,8 @@ const DOCK_MAX_WIDTH_RATIO = 0.75;
 /** How long an inspector `Answer` waits for its question card (plan-part-b §5). */
 const QUESTION_CARD_WAIT_MS = 1000;
 
-/** `is-entering` lifetime; the longest stagger item ends at 620 ms (req 13.1). */
-const ENTER_CLASS_MS = 1000;
+/** Includes the last inspector row's entrance and a small cleanup margin. */
+const ENTER_WINDOW_MS = 400;
 
 /** The first option of a question card, focused when an answer is routed to it. */
 const QUESTION_CARD_FOCUSABLE =
@@ -194,14 +196,16 @@ const VIEW_PANEL_KEY = '';
   // Resize-drag Escape is handled separately by the temporary document listener below.
   host: {
     '(keydown.escape)': 'onEscapeKey($event)',
+    '[class.is-entering]': 'enteringTabId() !== null',
   },
   imports: [
     LucideAngularModule,
     ChatTranscriptComponent,
     ChatEmptyStateComponent,
     AgentMonitorPanelComponent,
-    DisplayDockComponent,
+    DisplaySheetComponent,
     ChatInputComponent,
+    ChatSessionLayoutComponent,
     PermissionBadgeComponent,
     QuestionCardComponent,
     ResumeNotificationBannerComponent,
@@ -227,6 +231,7 @@ const VIEW_PANEL_KEY = '';
     // Open state, width band and sheet focus of this view's inspector.
     InspectorShellController,
     PanelResizeService,
+    DisplaySheetState,
     // One tile-expansion map per session view, released with the view (A3).
     StatsTileExpansionState,
     // Budget banner state belongs to this view's tab and session.
@@ -426,6 +431,7 @@ export class ChatViewComponent implements OnDestroy {
 
   /** The Electron dock store; `null` in VS Code. */
   private readonly displayDock = inject(DisplayDockState, { optional: true });
+  private readonly sheetState = inject(DisplaySheetState);
   /** Electron: the right-side panel is the display dock. */
   protected readonly dockEnabled = this.displayDock !== null;
   /**
@@ -446,7 +452,6 @@ export class ChatViewComponent implements OnDestroy {
   /** The right-side panel (dock or monitor) is open. */
   readonly panelOpen = computed(() => this.panelTab().open);
   /** Raised when the user opens the dock as an overlay: it focuses its close. */
-  protected readonly dockFocusRequest = signal(0);
 
   /** The dock width beside the chat: the user's width or 400 px, clamped. */
   protected readonly dockWidth = computed(() => {
@@ -560,11 +565,7 @@ export class ChatViewComponent implements OnDestroy {
    */
   toggleAgentPanel(): void {
     const key = this.panelKey();
-    const opening = !this.panelState.tab(key).open;
     this.panelState.toggle(key);
-    if (opening && this.dockEnabled && this.isOverlay()) {
-      this.dockFocusRequest.update((request) => request + 1);
-    }
   }
 
   closeAgentPanel(): void {
@@ -607,7 +608,6 @@ export class ChatViewComponent implements OnDestroy {
     } else {
       this.panelResizeService.setCustomWidth(next, host);
     }
-    this.storeDockWidth();
   }
 
   private resizeHandleEl: HTMLElement | null = null;
@@ -636,7 +636,6 @@ export class ChatViewComponent implements OnDestroy {
         newWidth,
         this.hostEl.nativeElement.clientWidth,
       );
-      this.storeDockWidth();
     });
   };
 
@@ -692,12 +691,11 @@ export class ChatViewComponent implements OnDestroy {
   /** Double-click the handle to fall back to the responsive default width. */
   onResizeReset(): void {
     this.panelResizeService.resetWidth();
-    this.storeDockWidth();
   }
 
   ngOnDestroy(): void {
     this.clearAnswerWait();
-    this.clearEnterTimer();
+    if (this.enteringTimer !== null) clearTimeout(this.enteringTimer);
     this._cancelResizeFrame();
     this._cleanupResizeListeners();
     this.resizeObserver?.disconnect();
@@ -717,8 +715,7 @@ export class ChatViewComponent implements OnDestroy {
           startWidth,
           this.hostEl.nativeElement.clientWidth,
         );
-        this.storeDockWidth();
-      });
+          });
     } else {
       this._applyResize();
     }
@@ -925,7 +922,8 @@ export class ChatViewComponent implements OnDestroy {
    */
   protected readonly forcedCard = computed(() => this._forcedCard?.() ?? false);
   protected readonly userCompact = computed(
-    () => !this.forcedCard() && this.resolvedActiveTab()?.viewMode === 'compact',
+    () =>
+      !this.forcedCard() && this.resolvedActiveTab()?.viewMode === 'compact',
   );
   protected readonly showCompactCard = computed(
     () => this.forcedCard() || this.userCompact(),
@@ -1102,10 +1100,7 @@ export class ChatViewComponent implements OnDestroy {
 
   /** Only the full main panel hosts the inspector. */
   protected readonly hostsInspector = computed(
-    () =>
-      !this.bareChrome &&
-      !this._sessionContext &&
-      !this.showCompactCard(),
+    () => !this.bareChrome && !this._sessionContext && !this.showCompactCard(),
   );
 
   /** Agent rows open lanes only where the host has a lane surface. */
@@ -1191,61 +1186,27 @@ export class ChatViewComponent implements OnDestroy {
     ),
   );
 
-  private readonly _injector = inject(Injector);
-  /** Removes `is-entering` after the session-switch stagger; cleared on destroy. */
-  private _enterTimer: ReturnType<typeof setTimeout> | null = null;
+  protected readonly enteringTabId = signal<string | null>(null);
+  private enteringTimer: ReturnType<typeof setTimeout> | null = null;
 
-  /**
-   * Session-switch stagger (design-spec 7.1-7.3), keyed on the tab id: a
-   * view-mode switch or a first session id keeps the tab, so it never
-   * replays. Plays once the new tab's items are rendered.
-   */
-  private wireSessionSwitchStagger(): void {
+  /** A tab edge owns one entrance window; changing its session or mode does not. */
+  private wireSessionEntrance(): void {
     let lastTabId: string | null = null;
     effect(() => {
       const tabId = this.resolvedTabId();
       if (tabId === null || tabId === lastTabId) return;
       lastTabId = tabId;
-      untracked(() =>
-        afterNextRender(() => this.playEnter(tabId), {
-          injector: this._injector,
-        }),
-      );
+      untracked(() => {
+        if (this.enteringTimer !== null) clearTimeout(this.enteringTimer);
+        this.enteringTabId.set(tabId);
+        this.ngZone.runOutsideAngular(() => {
+          this.enteringTimer = setTimeout(() => {
+            this.enteringTimer = null;
+            this.enteringTabId.set(null);
+          }, ENTER_WINDOW_MS);
+        });
+      });
     });
-  }
-
-  /**
-   * One index pass over the shown transcript's mounted `.st-t` items in DOM
-   * order (`--i` = min(k + 1, 8)), then restart `is-entering` on the host.
-   * Only indexed items (`data-st-i`) animate, so an item that mounts later
-   * appears without motion. One query and one timer per switch.
-   */
-  private playEnter(tabId: string): void {
-    const host = this.hostEl.nativeElement;
-    const transcript = Array.from(
-      host.querySelectorAll<HTMLElement>('ptah-chat-transcript[data-tab-id]'),
-    ).find((el) => el.getAttribute('data-tab-id') === tabId);
-    transcript?.querySelectorAll<HTMLElement>('.st-t').forEach((el, k) => {
-      el.style.setProperty('--i', String(Math.min(k + 1, 8)));
-      el.setAttribute('data-st-i', '');
-    });
-    host.classList.remove('is-entering');
-    // Reflow between remove and add restarts every running animation.
-    void host.offsetWidth;
-    host.classList.add('is-entering');
-    this.clearEnterTimer();
-    this.ngZone.runOutsideAngular(() => {
-      this._enterTimer = setTimeout(() => {
-        this._enterTimer = null;
-        host.classList.remove('is-entering');
-      }, ENTER_CLASS_MS);
-    });
-  }
-
-  private clearEnterTimer(): void {
-    if (this._enterTimer === null) return;
-    clearTimeout(this._enterTimer);
-    this._enterTimer = null;
   }
 
   private readonly inspectorShell =
@@ -1412,8 +1373,7 @@ export class ChatViewComponent implements OnDestroy {
     this.observeHostWidth();
     // Tiles never host the inspector, so they start no shell observer.
     if (!this.bareChrome && !this._sessionContext) this.wireInspectorShell();
-    // Every host (main panel, Rail, embeds) plays the session-switch stagger.
-    this.wireSessionSwitchStagger();
+    this.wireSessionEntrance();
 
     // A closed chat tab's dock state is released, whichever path closed it
     // (tab bar, shortcut, canvas, tribunal); the view's own key is never a tab.
@@ -1430,7 +1390,7 @@ export class ChatViewComponent implements OnDestroy {
           if (!current.has(tabId))
             untracked(() => {
               if (!this._tabManager.findTabByIdAcrossWorkspaces(tabId))
-                dock.forgetTab(tabId);
+                { dock.forgetTab(tabId); this.sheetState.forgetTab(tabId); }
             });
         openTabIds = current;
       });
@@ -1512,7 +1472,6 @@ export class ChatViewComponent implements OnDestroy {
       });
     });
 
-    this.syncDockWidthPerTab();
 
     effect(() => {
       const request = this._appState.composerPrefillRequest();
@@ -1550,40 +1509,6 @@ export class ChatViewComponent implements OnDestroy {
         }
       });
     });
-  }
-
-  /**
-   * Electron: the dock width is kept per chat tab (R1.5). A tab switch
-   * restores the tab's width into `PanelResizeService`. Only a user resize
-   * stores a width (`storeDockWidth`): a restore clamped to a narrow host
-   * never overwrites the tab's saved width.
-   */
-  private syncDockWidthPerTab(): void {
-    const dock = this.displayDock;
-    if (dock === null) return;
-    effect(() => {
-      const key = this.panelKey();
-      untracked(() => {
-        const width = dock.tab(key).widthPx;
-        if (width === this.panelResizeService.customWidth()) return;
-        if (width === null) {
-          this.panelResizeService.resetWidth();
-        } else {
-          this.panelResizeService.setCustomWidth(
-            width,
-            this.hostWidth() || window.innerWidth,
-          );
-        }
-      });
-    });
-  }
-
-  /** Stores the current width for this tab after a user resize (R1.5). */
-  private storeDockWidth(): void {
-    this.displayDock?.setWidth(
-      untracked(this.panelKey),
-      this.panelResizeService.customWidth(),
-    );
   }
 
   /**
@@ -1830,11 +1755,16 @@ export class ChatViewComponent implements OnDestroy {
       : (this._tabManager.activeWorkspacePath ?? '');
     const anchorId = this.resolveAnchorId(messageId);
     const anchorHint = this.buildAnchorHint(messageId);
+    const rewindTab = this._tabManager.findTabBySessionId(sessionId);
+    const systemPrompt = rewindTab
+      ? commandCenterPersonaFor(rewindTab)
+      : undefined;
     const dryRun = await this._claudeRpc.rewindFiles(
       sessionId,
       anchorId,
       true,
       anchorHint,
+      systemPrompt,
     );
 
     if (!dryRun.isSuccess()) {
@@ -1915,6 +1845,7 @@ export class ChatViewComponent implements OnDestroy {
         anchorId,
         false,
         anchorHint,
+        systemPrompt,
       );
       if (!commit.isSuccess()) {
         const errMsg = commit.error ?? 'unknown error';

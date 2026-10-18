@@ -18,6 +18,12 @@ import {
   type IOutputChannel,
 } from '@ptah-extension/platform-core';
 import { CLI_AGENT_RUNTIME_TOKENS } from './tokens';
+import {
+  LANE_OUTCOME_TOKENS,
+  type LaneOutcomeRecorder,
+} from '@ptah-extension/lane-outcomes';
+import type { IFileSystemProvider } from '@ptah-extension/platform-core';
+import type { IAgentAdapter } from '@ptah-extension/shared';
 import { CliDetectionService } from '../cli-agents/cli-detection.service';
 import { AgentProcessManager } from '../cli-agents/agent-process-manager.service';
 import { AgentSpawnEnvironment } from '../cli-agents/agent-spawn-environment.service';
@@ -89,7 +95,22 @@ export function registerCliAgentRuntimeServices(
   // `apps/ptah-electron/src/di/phase-2-libraries.ts:183`,
   // `libs/backend/cli-engine/src/lib/container.ts:629`), so nothing can
   // construct the notifier while the adapter is still absent (TASK_2026_515).
-  container.registerSingleton(LaneCompletionNotifier);
+  container.register(LaneCompletionNotifier, {
+    useFactory: instanceCachingFactory(
+      (c) =>
+        new LaneCompletionNotifier(
+          c.resolve<Logger>(TOKENS.LOGGER),
+          c.resolve<IFileSystemProvider>(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER),
+          c.isRegistered(TOKENS.AGENT_ADAPTER, true)
+            ? c.resolve<IAgentAdapter>(TOKENS.AGENT_ADAPTER)
+            : null,
+          () =>
+            c.isRegistered(LANE_OUTCOME_TOKENS.RECORDER, true)
+              ? c.resolve<LaneOutcomeRecorder>(LANE_OUTCOME_TOKENS.RECORDER)
+              : null,
+        ),
+    ),
+  });
   // A cached factory, not a class: the gate's constructor takes the output
   // channel plus spec-only seams the container cannot resolve by type. The
   // process manager below injects it.

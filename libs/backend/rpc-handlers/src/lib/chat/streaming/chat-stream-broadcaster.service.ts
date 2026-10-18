@@ -343,16 +343,19 @@ export class ChatStreamBroadcaster {
         ),
       );
       await flush();
-      const isCorruptedResume = eventCount === 0 && !isUserAbort;
-      if (isCorruptedResume) {
+      const isZeroEventFailure = eventCount === 0 && !isUserAbort;
+      const isFailedStart = isZeroEventFailure && sessionId === tabId;
+      if (isZeroEventFailure) {
         this.logger.warn(
-          `[RPC] Session ${sessionId} failed during resume (0 events), cleaning up dead session. Original error: ${errorMessage}`,
+          isFailedStart
+            ? `[RPC] Session ${sessionId} failed to start (0 events), cleaning up dead session. Original error: ${errorMessage}`
+            : `[RPC] Session ${sessionId} failed during resume (0 events), cleaning up dead session. Original error: ${errorMessage}`,
         );
         try {
           await this.sdkAdapter.endSession(sessionId);
         } catch (cleanupErr) {
           this.logger.warn(
-            `[RPC] Failed to clean up corrupted session ${sessionId}`,
+            `[RPC] Failed to clean up failed session ${sessionId}`,
             cleanupErr instanceof Error
               ? cleanupErr
               : new Error(String(cleanupErr)),
@@ -363,9 +366,11 @@ export class ChatStreamBroadcaster {
         await publishTerminal(MESSAGE_TYPES.CHAT_ERROR, {
           tabId,
           sessionId,
-          error: isCorruptedResume
-            ? 'Session could not be resumed. The conversation data may be corrupted. Please start a new session.'
-            : errorMessage,
+          error: isFailedStart
+            ? `The session could not start: ${errorMessage}`
+            : isZeroEventFailure
+              ? 'Session could not be resumed. The conversation data may be corrupted. Please start a new session.'
+              : errorMessage,
           ...(surfaceMode ? { surfaceMode: true } : {}),
         });
       }

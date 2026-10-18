@@ -125,6 +125,7 @@ describe('DisplayPanelComponent', () => {
     surfaces?: readonly DisplaySurface[];
     summary?: TurnSummaryModel | null;
     selectedKey?: string | null;
+    scrollToSelectedOnMount?: boolean;
     pinned?: boolean;
     viewStates?: ReadonlyMap<string, SurfaceViewState>;
   }): void {
@@ -274,6 +275,17 @@ describe('DisplayPanelComponent', () => {
       expect(queryAll('display-panel-new-dot')).toHaveLength(0);
       expect(selections).toEqual([]);
       expect(scrolled).toEqual([]);
+    });
+
+    it('scrolls an explicitly requested surface on mount without moving focus', () => {
+      const outside = document.createElement('button');
+      document.body.appendChild(outside);
+      outside.focus();
+      set({ surfaces: base, selectedKey: 'id:b', scrollToSelectedOnMount: true });
+      expect(scrolled).toEqual(['id:b']);
+      expect(selections).toEqual([]);
+      expect(document.activeElement).toBe(outside);
+      outside.remove();
     });
 
     it('unpinned: selects and scrolls to the highest updatedSeq, never focusing', () => {

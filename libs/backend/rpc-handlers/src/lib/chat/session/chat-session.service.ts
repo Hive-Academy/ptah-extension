@@ -120,6 +120,7 @@ import { HarnessProposalTurnAttributionService } from '../../harness/config/harn
  * path uses the separate `prompt` positional arg, not this field).
  */
 interface AutoResumePreflight {
+  systemPrompt?: ChatContinueParams['systemPrompt'];
   sessionId: SessionId;
   tabId: string;
   workspacePath?: string;
@@ -1193,6 +1194,7 @@ export class ChatSessionService {
               sessionId,
               tabId: params.tabId,
               workspacePath: resolvedWorkspacePath,
+              systemPrompt: params.systemPrompt,
               ptahUiFence: params.ptahUiFence,
             },
           );
@@ -1227,6 +1229,7 @@ export class ChatSessionService {
         : undefined;
       return {
         success: true,
+        ...(metadata?.providerId ? { providerId: metadata.providerId } : {}),
         events: page?.events ?? fullEvents,
         stats,
         ...(budget !== undefined ? { budget } : {}),
@@ -1416,6 +1419,7 @@ export class ChatSessionService {
     sessionId: SessionId,
     tabId: string,
     workspacePath: string,
+    systemPrompt?: string,
   ): Promise<
     | { alreadyActive: true }
     | { resumed: true }
@@ -1429,6 +1433,7 @@ export class ChatSessionService {
       sessionId,
       tabId,
       workspacePath,
+      systemPrompt,
     });
 
     if ('error' in outcome) {
@@ -1597,6 +1602,7 @@ export class ChatSessionService {
         prompt,
         providerProfile,
         ...outputStyle,
+        ...(params.systemPrompt ? { systemPrompt: params.systemPrompt } : {}),
         ...(params.mcpToolProfile
           ? { mcpToolProfile: params.mcpToolProfile }
           : {}),

@@ -34,6 +34,7 @@ import {
   SURFACE_ACTIVE,
   surfaceActiveFor,
   SurfaceRouterService,
+  withSurfaceViewTransitions,
 } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 
@@ -205,6 +206,8 @@ export const appConfig: ApplicationConfig = {
       appRoutes,
       withComponentInputBinding(),
       withDisabledInitialNavigation(),
+      // Keep the surface transition feature beside the two routing boot features.
+      withSurfaceViewTransitions(),
     ),
     provideVSCodeService(),
     provideMessageRouter(),

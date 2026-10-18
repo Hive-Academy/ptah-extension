@@ -37,6 +37,7 @@ import {
 import {
   TabManagerService,
   isValidSessionStatsSnapshot,
+  commandCenterPersonaFor,
 } from '@ptah-extension/chat-state';
 import {
   SessionHistoryReplayer,
@@ -974,6 +975,7 @@ export class SessionLoaderService {
           name: title,
           title,
           streamingState: createEmptyStreamingState(),
+          providerId: session?.providerId,
         });
       }
       this.sessionManager.setNodeMaps(
@@ -991,6 +993,13 @@ export class SessionLoaderService {
         {
           sessionId,
           tabId: resolvedTabId,
+          ...(opts?.activate === true
+            ? (() => {
+                const tab = this.tabManager.findTabByIdAcrossWorkspaces(resolvedTabId)?.tab;
+                const systemPrompt = tab && commandCenterPersonaFor(tab);
+                return systemPrompt ? { systemPrompt } : {};
+              })()
+            : {}),
           workspacePath,
           historyPage: this.historyPaging.tailRequest(),
           ...(replayClaim && (isResync || opts?.reason === 'compaction')
@@ -1042,11 +1051,19 @@ export class SessionLoaderService {
           name: title,
           title,
           streamingState: createEmptyStreamingState(),
+          providerId: session?.providerId,
         });
         reachedCompactionReset = true;
       }
 
       const events = resumeResult.data?.events;
+      if (resumeResult.success && resumeResult.data?.success) {
+        this.tabManager.setSessionProvider(
+          resolvedTabId,
+          sessionId,
+          resumeResult.data.providerId,
+        );
+      }
       const stats = resumeResult.data?.stats;
       const resumableSubagents = resumeResult.data?.resumableSubagents;
       const cliSessions = resumeResult.data?.cliSessions;

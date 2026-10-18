@@ -210,6 +210,21 @@ export const appRoutes: Routes = [
     loadComponent: () =>
       import('@ptah-extension/mcp-apps-page').then((m) => m.AppsPageComponent),
   },
+  {
+    // Electron-only. The guard refuses VS Code before requesting the lazy chunk.
+    path: 'command-center',
+    canMatch: [electronOnlySurface],
+    providers: [
+      {
+        provide: SURFACE_ACTIVE,
+        useFactory: surfaceActiveFor('command-center'),
+      },
+    ],
+    loadComponent: () =>
+      import('@ptah-extension/command-center').then(
+        (m) => m.CommandCenterPageComponent,
+      ),
+  },
   // An unaddressable URL is the chat surface, not an error page: the host can
   // send an `initialView` this build does not know, and a webview has nowhere
   // to show a 404.

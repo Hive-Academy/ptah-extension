@@ -33,6 +33,7 @@ describe('webview surface ids', () => {
       'tribunal',
       'tasks',
       'apps',
+      'command-center',
     ]);
     expect(new Set(SURFACE_ROUTE_IDS).size).toBe(SURFACE_ROUTE_IDS.length);
   });

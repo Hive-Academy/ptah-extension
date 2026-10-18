@@ -36,6 +36,7 @@
 import { Injectable, inject } from '@angular/core';
 import {
   type CompactionMeasurement,
+  type IdleCompactionNotice,
   ExecutionNode,
   FlatStreamEventUnion,
   MessageStartEvent,
@@ -136,6 +137,7 @@ export interface AccumulatorResult {
    */
   readonly boundaryId?: string;
   readonly measurement?: CompactionMeasurement;
+  readonly idleCompaction?: IdleCompactionNotice;
   readonly preTokens?: number;
   /** Post-compaction token count, copied off `compaction_complete`. */
   readonly postTokens?: number;
@@ -582,6 +584,7 @@ export class StreamingAccumulatorCore {
           compactionComplete: true,
           boundaryId: event.boundaryId,
           measurement: event.measurement,
+          idleCompaction: event.idleCompaction,
           preTokens: event.preTokens,
           postTokens: event.postTokens,
           durationMs: event.durationMs,

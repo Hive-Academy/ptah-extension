@@ -39,6 +39,7 @@ import {
   ClipboardList,
   AppWindow,
   Wrench,
+  Mic,
 } from 'lucide-angular';
 import {
   ElectronLayoutService,
@@ -48,7 +49,6 @@ import {
   NOTIFICATION_FOCUS_ROUTER,
 } from '@ptah-extension/core';
 import { AppShellComponent } from './app-shell.component';
-import { sessionSidebarWidthFromDividerDrag } from './session-sidebar-width';
 import { ElectronWelcomeComponent } from './electron-welcome.component';
 import { GlobalConfigActionsComponent } from '../molecules/global-config-actions.component';
 import { WorkspaceSidebarComponent } from '../organisms/workspace-sidebar.component';
@@ -102,6 +102,24 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
     .no-drag {
       -webkit-app-region: no-drag;
     }
+    .electron-tabs {
+      scrollbar-width: none;
+    }
+    .electron-tabs::-webkit-scrollbar {
+      display: none;
+    }
+    .electron-tabs .tab-label {
+      white-space: nowrap;
+    }
+    @media (max-width: 1023px) {
+      .electron-tabs .tab-label {
+        display: none;
+      }
+      .electron-tabs .tab {
+        min-width: 2.5rem;
+        padding-inline: 0.65rem;
+      }
+    }
   `,
   template: `
     <div class="flex flex-col h-screen w-screen bg-surface-0">
@@ -132,67 +150,88 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
 
         <!-- Navbar tabs (DaisyUI tabs-lifted, fixed navigation) -->
         @if (layout.hasWorkspaceFolders()) {
-          <div role="tablist" class="tabs tabs-lifted electron-tabs no-drag">
+          <div
+            #electronTabs
+            role="tablist"
+            class="tabs tabs-lifted electron-tabs no-drag min-w-0 overflow-x-auto"
+          >
             <button
               role="tab"
-              class="tab gap-1.5 no-drag"
+              class="tab gap-1.5 no-drag whitespace-nowrap"
               [class.tab-active]="appState.currentView() === 'chat'"
               [attr.aria-selected]="appState.currentView() === 'chat'"
               title="Chat"
+              aria-label="Chat"
               (click)="onCanvasTab()"
             >
               <lucide-angular [img]="LayoutGridIcon" class="w-3.5 h-3.5" />
-              Chat
+              <span class="tab-label whitespace-nowrap">Chat</span>
             </button>
             <button
               role="tab"
-              class="tab gap-1.5 no-drag"
+              class="tab gap-1.5 no-drag whitespace-nowrap"
+              [class.tab-active]="appState.currentView() === 'command-center'"
+              [attr.aria-selected]="appState.currentView() === 'command-center'"
+              title="Voice"
+              aria-label="Voice"
+              (click)="openCommandCenter()"
+            >
+              <lucide-angular [img]="MicIcon" class="w-3.5 h-3.5" />
+              <span class="tab-label whitespace-nowrap">Voice</span>
+            </button>
+            <button
+              role="tab"
+              class="tab gap-1.5 no-drag whitespace-nowrap"
               [class.tab-active]="appState.currentView() === 'apps'"
               [attr.aria-selected]="appState.currentView() === 'apps'"
               title="Apps"
+              aria-label="Apps"
               (click)="openApps()"
             >
               <lucide-angular [img]="AppWindowIcon" class="w-3.5 h-3.5" />
-              Apps
+              <span class="tab-label whitespace-nowrap">Apps</span>
             </button>
             <button
               role="tab"
-              class="tab gap-1.5 no-drag"
+              class="tab gap-1.5 no-drag whitespace-nowrap"
               [class.tab-active]="appState.currentView() === 'tasks'"
               [attr.aria-selected]="appState.currentView() === 'tasks'"
               title="Tasks"
+              aria-label="Tasks"
               (click)="openTasks()"
             >
               <lucide-angular [img]="ClipboardListIcon" class="w-3.5 h-3.5" />
-              Tasks
+              <span class="tab-label whitespace-nowrap">Tasks</span>
             </button>
             <button
               role="tab"
-              class="tab gap-1.5 no-drag"
+              class="tab gap-1.5 no-drag whitespace-nowrap"
               [class.tab-active]="appState.currentView() === 'tribunal'"
               [attr.aria-selected]="appState.currentView() === 'tribunal'"
               title="Tribunal"
+              aria-label="Tribunal"
               (click)="openTribunal()"
             >
               <lucide-angular [img]="ScaleIcon" class="w-3.5 h-3.5" />
-              Tribunal
+              <span class="tab-label whitespace-nowrap">Tribunal</span>
             </button>
             <button
               role="tab"
-              class="tab gap-1.5 no-drag"
+              class="tab gap-1.5 no-drag whitespace-nowrap"
               [class.tab-active]="appState.currentView() === 'analytics'"
               [attr.aria-selected]="appState.currentView() === 'analytics'"
               title="Analytics"
+              aria-label="Analytics"
               (click)="openDashboard()"
             >
               <lucide-angular [img]="BarChart3Icon" class="w-3.5 h-3.5" />
-              Analytics
+              <span class="tab-label whitespace-nowrap">Analytics</span>
             </button>
             <!-- Keeps the former config-menu hook: e2e specs and the showcase
                  harness address the Setup hub surface by it. -->
             <button
               role="tab"
-              class="tab gap-1.5 no-drag"
+              class="tab gap-1.5 no-drag whitespace-nowrap"
               data-test="config-menu-item-setup-hub"
               [class.tab-active]="
                 appState.openConfigurationSurface() === 'setup-hub'
@@ -206,10 +245,11 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
                   : null
               "
               title="Setup hub"
+              aria-label="Setup hub"
               (click)="openSetupHub()"
             >
               <lucide-angular [img]="WrenchIcon" class="w-3.5 h-3.5" />
-              Setup hub
+              <span class="tab-label whitespace-nowrap">Setup hub</span>
             </button>
           </div>
         }
@@ -268,9 +308,9 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
         !layout.hasWorkspaceFolders() &&
         appState.openConfigurationSurface() === null
       ) {
-        <ptah-electron-welcome class="flex-1" />
+        <ptah-electron-welcome class="flex-1 ptah-vt-surface" />
       } @else if (!layout.hasWorkspaceFolders()) {
-        <div class="flex-1 min-h-0 overflow-hidden"><router-outlet /></div>
+        <div class="flex-1 min-h-0 overflow-hidden ptah-vt-surface"><router-outlet /></div>
       } @else {
         <!-- 3-Panel Content Area -->
         <div class="flex flex-1 min-h-0 overflow-hidden">
@@ -287,25 +327,12 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
             (toggled)="layout.toggleWorkspaceSidebar()"
           />
 
-          @if (layout.workspaceSidebarVisible()) {
-            <!-- Divider between the workspace sidebar and the sessions
-                 sidebar. It resizes only the sessions sidebar (same clamp and
-                 localStorage key as the sessions pane's own handle). The
-                 workspace sidebar keeps workspaceSidebarWidth. -->
-            <ptah-electron-resize-handle
-              [direction]="'left'"
-              (mousedown)="onSessionsDividerMouseDown($event)"
-              (dragMoved)="onSessionsDividerDrag($event)"
-              (dragEnded)="onSessionsDividerDragEnd()"
-            />
-          }
-
           <!-- Chat panel (reuses entire AppShellComponent) -->
           <div
             #configurationSurfaceHost
             data-test="configuration-surface-host"
             tabindex="-1"
-            class="flex-1 min-h-0 min-w-[400px] overflow-hidden outline-none"
+            class="flex-1 min-h-0 min-w-[400px] overflow-hidden outline-none ptah-vt-surface"
           >
             <ptah-app-shell class="h-full w-full" />
           </div>
@@ -367,6 +394,8 @@ export class ElectronShellComponent {
   protected readonly appState = inject(AppStateManager);
   private readonly surfaceRouter = inject(SurfaceRouterService);
   private readonly injector = inject(Injector);
+  private readonly electronTabs =
+    viewChild<ElementRef<HTMLElement>>('electronTabs');
   // Injected only to instantiate the root singleton eagerly: it ends the backend session of a closed tab.
   private readonly _closedTabSessionEnder = inject(
     ClosedTabSessionEnderService,
@@ -374,49 +403,6 @@ export class ElectronShellComponent {
   private readonly configurationSurfaceHost = viewChild<
     ElementRef<HTMLElement>
   >('configurationSurfaceHost');
-  /** Sessions pane inside the chat column. The divider writes its width. */
-  private readonly sessionsShell = viewChild(AppShellComponent);
-  /**
-   * Pointer X and sessions width when the between-sidebars divider went down.
-   * The handle emits absolute viewport X (workspace-pane coordinates). The
-   * sessions width is the start width plus the delta.
-   */
-  private sessionsDividerAnchor: { pointerX: number; width: number } | null =
-    null;
-
-  /**
-   * Pointer-down on the divider between the workspace and sessions sidebars.
-   * Records the sessions width. The workspace width is not captured.
-   */
-  protected onSessionsDividerMouseDown(event: MouseEvent): void {
-    const shell = this.sessionsShell();
-    if (!shell) return;
-    this.sessionsDividerAnchor = {
-      pointerX: event.clientX,
-      width: shell.sidebarWidth(),
-    };
-    shell.beginExternalSidebarResize();
-  }
-
-  /** Drag: sessions width follows the pointer delta. Workspace width stays. */
-  protected onSessionsDividerDrag(pointerX: number): void {
-    const anchor = this.sessionsDividerAnchor;
-    const shell = this.sessionsShell();
-    if (!anchor || !shell) return;
-    shell.applyExternalSidebarResize(
-      sessionSidebarWidthFromDividerDrag(
-        anchor.width,
-        anchor.pointerX,
-        pointerX,
-      ),
-    );
-  }
-
-  /** Drag end, including Escape restoring the start pointer: persist sessions. */
-  protected onSessionsDividerDragEnd(): void {
-    this.sessionsDividerAnchor = null;
-    this.sessionsShell()?.commitExternalSidebarResize();
-  }
 
   /** Lazily loaded ReviewShellComponent — keeps git-ui out of the initial bundle. */
   readonly dockComponent = signal<Type<unknown> | null>(null);
@@ -437,6 +423,22 @@ export class ElectronShellComponent {
     // layout was removed. Force grid mode so a returning user with a persisted
     // 'single' layoutMode still lands on the canvas.
     this.appState.setLayoutMode('grid');
+
+    effect(() => {
+      this.appState.currentView();
+      this.appState.openConfigurationSurface();
+      const strip = this.electronTabs()?.nativeElement;
+      if (!strip) return;
+      afterNextRender(
+        () => {
+          const active = strip.querySelector<HTMLElement>(
+            '[role="tab"][aria-selected="true"]',
+          );
+          active?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+        },
+        { injector: this.injector },
+      );
+    });
 
     let lastHandledTick = this.appState.configurationSurfaceRemountTick();
     effect(() => {
@@ -492,6 +494,7 @@ export class ElectronShellComponent {
   readonly ClipboardListIcon = ClipboardList;
   readonly AppWindowIcon = AppWindow;
   readonly WrenchIcon = Wrench;
+  readonly MicIcon = Mic;
   readonly ptahIconUri = this.vscodeService.getPtahIconUri();
   readonly isMac = this.vscodeService.config().platform === 'darwin';
 
@@ -514,6 +517,10 @@ export class ElectronShellComponent {
 
   openApps(): void {
     this.appState.setCurrentView('apps');
+  }
+
+  public openCommandCenter(): void {
+    this.appState.setCurrentView('command-center');
   }
 
   openSetupHub(): void {

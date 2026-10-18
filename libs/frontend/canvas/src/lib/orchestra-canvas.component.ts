@@ -54,7 +54,7 @@ const TILE_BOUND_MESSAGE = `The board holds ${MAX_CANVAS_TILES} sessions. Close 
  * New Session button. The dock button, the Rail footer and the zero-tile
  * empty-board trigger all open this same popover.
  *
- * Toolbar removed; session management delegated to shared sidebar in AppShellComponent.
+ * Toolbar removed; the Rail footer opens Previous sessions in canvas mode.
  * Signal bridge effects watch for session requests from AppStateManager and route them
  * to CanvasStore.
  */

@@ -1,6 +1,16 @@
-:host {
-  --ptah-ease-soft: cubic-bezier(0.22, 0.61, 0.36, 1);
-  --ptah-ease-gentle-in: cubic-bezier(0.4, 0, 0.2, 1);
+@keyframes ptahPaneSwitchEnter {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.ptah-pane-switch-enter {
+  animation: ptahPaneSwitchEnter var(--ptah-motion-switch) var(--ptah-ease-soft) backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ptah-pane-switch-enter {
+    animation: none !important;
+  }
 }
 
 /* Custom scrollbar for message container
@@ -27,16 +37,23 @@
   overflow-anchor: auto;
   display: block;
   min-height: 0;
-  height: 100%;
+  flex: 1 1 0%;
   overflow-y: auto;
   overflow-x: hidden;
+  scrollbar-gutter: stable both-edges;
 }
 
 .chat-scroll-content {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  width: 100%;
+  width: calc(100% - 1.5rem);
+  max-width: var(--chat-content-max-width, 758px);
+  margin-inline: auto;
+}
+
+:host ::ng-deep .cs-answer {
+  max-width: 100%;
 }
 
 /* Persistent per-message slot. Carries no padding and no containment of its

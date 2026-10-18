@@ -7,6 +7,7 @@ import {
   signal,
 } from '@angular/core';
 import {
+  CommandCenterVoiceSessionService,
   TabManagerService,
   workspaceLabelFromPath,
   type TerminalTurnPulse,
@@ -122,6 +123,7 @@ export class NotificationLedgerService {
   private readonly tabManager = inject(TabManagerService);
   private readonly permissionHandler = inject(PermissionHandlerService);
   private readonly sound = inject(NotificationSoundService);
+  private readonly voiceSessions = inject(CommandCenterVoiceSessionService);
   private readonly _completionEntries = signal<CompletionNotificationEntry[]>(
     [],
   );
@@ -130,6 +132,7 @@ export class NotificationLedgerService {
   private burstTimer: ReturnType<typeof setTimeout> | null = null;
   private burstCompletionCount = 0;
   private burstAttentionCount = 0;
+  private burstSoundEligibleCount = 0;
 
   readonly completionEntries = this._completionEntries.asReadonly();
   readonly announcement = this._announcement.asReadonly();
@@ -167,8 +170,13 @@ export class NotificationLedgerService {
     effect(() => {
       if (this.tabManager.terminalTurnPulses().length === 0) return;
       for (const pulse of this.tabManager.takeTerminalTurnPulses()) {
+        const soundEligible = !this.voiceSessions.isActive(pulse.tabId);
         if (this.appendCompletion(pulse)) {
-          this.queueBurst(1, pulse.classification === 'error' ? 1 : 0);
+          this.queueBurst(
+            1,
+            pulse.classification === 'error' ? 1 : 0,
+            soundEligible,
+          );
         }
       }
     });
@@ -430,16 +438,24 @@ export class NotificationLedgerService {
     });
   }
 
-  private queueBurst(completions: number, attention: number): void {
+  private queueBurst(
+    completions: number,
+    attention: number,
+    soundEligible = true,
+  ): void {
     this.burstCompletionCount += completions;
     this.burstAttentionCount += attention;
+    if (soundEligible && completions + attention > 0)
+      this.burstSoundEligibleCount++;
     if (this.burstTimer !== null) return;
     this._announcement.set('');
     this.burstTimer = setTimeout(() => {
       const completionCount = this.burstCompletionCount;
       const attentionCount = this.burstAttentionCount;
+      const soundEligibleCount = this.burstSoundEligibleCount;
       this.burstCompletionCount = 0;
       this.burstAttentionCount = 0;
+      this.burstSoundEligibleCount = 0;
       this.burstTimer = null;
       const sessionNoun = completionCount === 1 ? 'session' : 'sessions';
       const completionPhrase =
@@ -449,7 +465,7 @@ export class NotificationLedgerService {
       this._announcement.set(
         [completionPhrase, attentionPhrase].filter(Boolean).join('; '),
       );
-      this.sound.playBurst();
+      if (soundEligibleCount > 0) this.sound.playBurst();
     }, BURST_MS);
   }
 }

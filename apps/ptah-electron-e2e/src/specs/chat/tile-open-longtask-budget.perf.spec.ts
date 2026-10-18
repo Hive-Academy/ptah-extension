@@ -26,9 +26,8 @@ import {
 import {
   diagnosticEventCount,
   makeSessionFixture,
+  openSessionFromList,
   prepareCanvasWithSessions,
-  resolveButtonHandles,
-  sessionRowButton,
   waitForTileMarker,
   type SessionFixture,
 } from '../../support/perf-session-fixture';
@@ -68,7 +67,7 @@ import type { UiDriver } from '../../support/ui-driver';
  * heavy sessions at once.
  *
  * ── How a tile opens on an EXISTING session in this harness ─────────────────
- * The sidebar session list's `onSessionClick` (`app-shell.component.ts`) calls
+ * The Previous sessions modal's open action calls
  * `AppStateManager.requestCanvasSession(sessionId, name)` in grid layout mode
  * (the Electron shell forces grid mode), which `OrchestraCanvasComponent`
  * picks up and turns into `canvasStore.addTileFromSession` +
@@ -131,14 +130,14 @@ import type { UiDriver } from '../../support/ui-driver';
  * app's — it counts any main-thread task over 50 ms, whoever owns it.
  *
  * Fixed by moving everything Playwright-locator-shaped OUTSIDE the timed
- * window: `resolveButtonHandles` resolves the 3 sidebar row `ElementHandle`s
- * with ordinary locators BEFORE the observer is installed, and
- * `openTilesWithinPage` does the click + "did all 3 markers render" wait
+ * window: `openTilesWithinPage` resolves each Previous sessions modal row by
+ * name and does the click + "did all 3 markers render" wait
  * INSIDE one `page.evaluate` call, using a native `HTMLElement.click()` (the
  * same click event Angular's zone-patched listener reacts to) and a
  * `MutationObserver` running entirely in the page — no repeated
  * Node↔renderer round trips, no accessible-name computation, during the
- * window. Any Playwright locator work needed to sanity-check the result
+ * window. The measured window includes opening the Previous sessions modal
+ * for each tile (DP-13). Any Playwright locator work to sanity-check the result
  * happens strictly AFTER the window closes and the observer has already been
  * read. See test-report-b22.md's "Old vs new harness" table for the before/
  * after numbers this produced.
@@ -287,15 +286,16 @@ test.describe('Canvas tile-open long-task budget for a 2,000-event session (TASK
 
     await prepareCanvasWithSessions(ui, sessions);
 
-    // Resolve the 3 sidebar row element handles with ordinary locators BEFORE
-    // the observer is installed — the only Playwright locator work in this
-    // test, and it happens outside the measured window on purpose.
-    const buttonHandles = await resolveButtonHandles(page, sessions);
+    // Start the measured window with the Previous sessions modal closed.
+    await page.keyboard.press('Escape');
+    await expect(
+      page.getByRole('dialog', { name: 'Previous sessions' }),
+    ).toBeHidden();
 
     // Install the long-task observer (and, if enabled, the CDP CPU profiler)
-    // AFTER the canvas/sidebar are settled and BEFORE any tile opens, so
-    // nothing but the 3 resumes (and, per the header comment, no Playwright
-    // locator work) is measured. buffered: true can also report already
+    // AFTER the canvas and modal are settled and BEFORE any tile opens, so
+    // the 3 modal opens and resumes are measured without Playwright locator
+    // work. buffered: true can also report already
     // queued entries; summarizeMeasurement excludes them by windowStartMs.
     await installLongTaskObserver(page);
     // Diagnostic tracing is hard-disabled in the budget-gating test so CDP
@@ -312,11 +312,11 @@ test.describe('Canvas tile-open long-task budget for a 2,000-event session (TASK
       await cdpSession.send('Profiler.start');
     }
 
-    // Click all 3 sidebar rows AND wait for all 3 markers to render, entirely
+    // Open all 3 modal rows AND wait for all 3 markers to render, entirely
     // inside one page.evaluate — no Playwright polling during this window.
     const openResult = await openTilesWithinPage(
       page,
-      buttonHandles,
+      sessions.map((s) => s.name),
       sessions.map((s) => s.marker),
     );
 
@@ -350,10 +350,6 @@ test.describe('Canvas tile-open long-task budget for a 2,000-event session (TASK
           `[AC-11 perf]   ${fn.selfMs}ms  ${fn.functionName}  ${fn.url}`,
         );
       }
-    }
-
-    for (const handle of buttonHandles) {
-      await handle.dispose();
     }
 
     assertUsableMeasurement(openResult, {
@@ -449,13 +445,16 @@ test.describe('Canvas tile-open long-task budget for a 2,000-event session (TASK
       makeSessionFixture(`DIAG_COLD_TILE_${label}`, eventCount),
     );
     await prepareCanvasWithSessions(ui, sessions);
-    const buttonHandles = await resolveButtonHandles(page, sessions);
+    await page.keyboard.press('Escape');
+    await expect(
+      page.getByRole('dialog', { name: 'Previous sessions' }),
+    ).toBeHidden();
     if (RAF_ATTRIBUTION_ENABLED) await installRafAttribution(page);
     await installLongTaskObserver(page);
     const traceCapture = TRACE_ENABLED ? await startTraceCapture(page) : null;
     const openResult = await openTilesWithinPage(
       page,
-      buttonHandles,
+      sessions.map((session) => session.name),
       sessions.map((session) => session.marker),
     );
     const observedEntries = await collectLongTasks(page);
@@ -464,7 +463,6 @@ test.describe('Canvas tile-open long-task budget for a 2,000-event session (TASK
       traceCapture,
       RAF_ATTRIBUTION_ENABLED,
     );
-    for (const handle of buttonHandles) await handle.dispose();
     assertUsableMeasurement(openResult, {
       outputDirectory: PERF_OUT_DIR,
       scenario: `diagnostic-cold-3tile-${eventCount}`,
@@ -523,14 +521,13 @@ test.describe('Canvas tile-open long-task budget for a 2,000-event session (TASK
     // real measurement window opens — isolating steady-state cost for the
     // real tile from cold-start cost. Ordinary locators are fine here, before
     // the window opens.
-    await sessionRowButton(page, warmup.name).click();
+    await openSessionFromList(page, warmup.name);
     await waitForTileMarker(page, warmup.marker);
 
-    const buttonHandles = await resolveButtonHandles(page, [real]);
     if (RAF_ATTRIBUTION_ENABLED) await installRafAttribution(page);
     await installLongTaskObserver(page);
     const traceCapture = TRACE_ENABLED ? await startTraceCapture(page) : null;
-    const openResult = await openTilesWithinPage(page, buttonHandles, [
+    const openResult = await openTilesWithinPage(page, [real.name], [
       real.marker,
     ]);
     const observedEntries = await collectLongTasks(page);
@@ -539,10 +536,6 @@ test.describe('Canvas tile-open long-task budget for a 2,000-event session (TASK
       traceCapture,
       RAF_ATTRIBUTION_ENABLED,
     );
-    for (const handle of buttonHandles) {
-      await handle.dispose();
-    }
-
     assertUsableMeasurement(openResult, {
       outputDirectory: PERF_OUT_DIR,
       scenario: 'warm-1tile',
@@ -604,16 +597,15 @@ test.describe('Canvas tile-open long-task budget for a 2,000-event session (TASK
 
     await prepareCanvasWithSessions(ui, [warmup, ...sessions]);
 
-    await sessionRowButton(page, warmup.name).click();
+    await openSessionFromList(page, warmup.name);
     await waitForTileMarker(page, warmup.marker);
 
-    const buttonHandles = await resolveButtonHandles(page, sessions);
     if (RAF_ATTRIBUTION_ENABLED) await installRafAttribution(page);
     await installLongTaskObserver(page);
     const traceCapture = TRACE_ENABLED ? await startTraceCapture(page) : null;
     const openResult = await openTilesWithinPage(
       page,
-      buttonHandles,
+      sessions.map((s) => s.name),
       sessions.map((s) => s.marker),
     );
     const observedEntries = await collectLongTasks(page);
@@ -622,10 +614,6 @@ test.describe('Canvas tile-open long-task budget for a 2,000-event session (TASK
       traceCapture,
       RAF_ATTRIBUTION_ENABLED,
     );
-    for (const handle of buttonHandles) {
-      await handle.dispose();
-    }
-
     assertUsableMeasurement(openResult, {
       outputDirectory: PERF_OUT_DIR,
       scenario: 'warm-3tile',

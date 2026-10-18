@@ -39,6 +39,8 @@ const MVP_TOOL_NAMES = [
   'agent_list',
   'agent_wait',
   'run_check',
+  'route_decide',
+  'outcome_report',
   'session_submit',
 ] as const;
 
@@ -142,7 +144,7 @@ describe('ptah mcp-serve e2e (Phase 6)', () => {
     );
   });
 
-  it('mcp_tools_list_returns_seven', async () => {
+  it('mcp_tools_list_returns_mvp_catalog', async () => {
     const host = scope.register(
       await spawnPtahMcp({ home: tmp, licenseStatus: 'community' }),
     );

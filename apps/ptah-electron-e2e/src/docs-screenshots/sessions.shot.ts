@@ -1,12 +1,13 @@
 import { test, expect } from './_harness/docs-fixtures';
 import { shoot, freezeMotion } from './_harness/shooter';
+import { openPreviousSessions } from '../support/perf-session-fixture';
 
 /**
  * Session-surface shots (TASK_2026_260).
  *
  * The session list, its search/date filter and the canvas tile strip all read
  * from the profile copy's real session metadata, so these frames show the real
- * sidebar rather than a mocked one.
+ * modal rather than a mocked one.
  */
 test.describe('docs screenshots — sessions', () => {
   test('sessions rail, history filters and the canvas tile strip', async ({
@@ -16,17 +17,19 @@ test.describe('docs screenshots — sessions', () => {
     test.setTimeout(300_000);
     await ui.goto('canvas');
 
-    const search = page.getByPlaceholder('Search sessions...');
+    await openPreviousSessions(page);
+    const dialog = page.getByRole('dialog', { name: 'Previous sessions' });
+    const search = dialog.getByPlaceholder('Search sessions...');
     await expect(search).toBeVisible();
 
-    // The session rail is app-shell's `<aside>` — the search box, the date
-    // filter and the session rows. Cropping to the div that merely *contains*
-    // the input gets the header strip and nothing else.
-    const sessionsRail = page.locator('aside').filter({ has: search }).first();
-    await shoot(page, 'sessions-overview', { crop: sessionsRail });
+    // Crop to the dialog panel so the search, filters and rows are included.
+    const sessionsPanel = page.locator(
+      '[data-testid="previous-sessions-modal"] [role="dialog"]',
+    );
+    await shoot(page, 'sessions-overview', { crop: sessionsPanel });
 
-    // Same rail with the date-range filter open — the history view's controls.
-    const dateFilter = page.locator(
+    // Show the date-range controls in the same panel.
+    const dateFilter = sessionsPanel.locator(
       '[title="Toggle date filter"], [aria-label="Toggle date filter"]',
     );
     if (
@@ -38,7 +41,9 @@ test.describe('docs screenshots — sessions', () => {
       await dateFilter.first().click();
       await page.waitForTimeout(600);
     }
-    await shoot(page, 'sessions-history', { crop: sessionsRail });
+    await shoot(page, 'sessions-history', { crop: sessionsPanel });
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
 
     // Two tiles side by side: the canvas is where multiple sessions are open at
     // once, so it is what "managing sessions" documents. The tile buttons sit
@@ -65,7 +70,9 @@ test.describe('docs screenshots — sessions', () => {
       }
       await page.waitForTimeout(2_500);
     }
-    const tiles = page.locator('[data-testid="canvas-grid"] .grid-stack-item');
+    const tiles = page.locator(
+      '[data-testid="canvas-grid"] [data-testid="canvas-tile"]',
+    );
     console.log(`[docs-shot] canvas tiles: ${await tiles.count()}`);
     await expect(page.locator('[data-testid="canvas-grid"]')).toBeVisible();
     await page.waitForTimeout(1_500);

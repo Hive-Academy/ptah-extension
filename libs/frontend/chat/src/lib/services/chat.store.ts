@@ -30,7 +30,10 @@ import {
   SessionLoaderService,
   type SessionListQuery,
 } from './chat-store/session-loader.service';
-import { SessionHistoryReplayer, type ReplayLiveSeed } from './chat-store/session-history-replayer.service';
+import {
+  SessionHistoryReplayer,
+  type ReplayLiveSeed,
+} from './chat-store/session-history-replayer.service';
 import { ConversationService } from './chat-store/conversation.service';
 import { CompactionLifecycleService } from './chat-store/compaction-lifecycle.service';
 import { MessageDispatchService } from './chat-store/message-dispatch.service';
@@ -219,13 +222,17 @@ export class ChatStore {
 
   async switchSession(
     sessionId: SessionId,
-    opts?: { reason?: 'compaction'; activate?: boolean },
+    opts?: { reason?: 'compaction'; activate?: boolean; targetTabId?: TabId },
   ): Promise<void> {
     await this.sessionLoader.switchSession(sessionId, opts);
   }
 
   /** Rebuild one tab from the canonical resume stream after a v2 tail overflow. */
-  async resyncStream(tabId: string, sessionId: string, liveSeed?: ReplayLiveSeed): Promise<void> {
+  async resyncStream(
+    tabId: string,
+    sessionId: string,
+    liveSeed?: ReplayLiveSeed,
+  ): Promise<void> {
     const parsedTabId = TabId.safeParse(tabId);
     const parsedSessionId = SessionId.safeParse(sessionId);
     if (!parsedTabId || !parsedSessionId) return;
@@ -418,6 +425,7 @@ export class ChatStore {
         compactionSessionId: result.compactionSessionId,
         boundaryId: result.boundaryId,
         measurement: result.measurement,
+        idleCompaction: result.idleCompaction,
         preTokens: result.preTokens,
         postTokens: result.postTokens,
         durationMs: result.durationMs,
@@ -497,15 +505,19 @@ export class ChatStore {
   }
 
   /** User answer to AskUserQuestion. */
-  handleQuestionResponse(response: AskUserQuestionResponse): void {
-    const decidingTabIdRaw = this.tabManager.activeTabId() ?? null;
-    const decidingTabId = decidingTabIdRaw
+  handleQuestionResponse(
+    response: AskUserQuestionResponse,
+    decidingTabId?: string,
+  ): void {
+    const decidingTabIdRaw =
+      decidingTabId ?? this.tabManager.activeTabId() ?? null;
+    const parsedDecidingTabId = decidingTabIdRaw
       ? (TabId.safeParse(decidingTabIdRaw) ?? null)
       : null;
     this.permissionHandler.handleQuestionResponse(response);
     this.streamRouter.cancelPendingQuestionOnOtherTabs(
       response.id,
-      decidingTabId,
+      parsedDecidingTabId,
     );
   }
 

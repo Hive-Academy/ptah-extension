@@ -97,6 +97,7 @@ import type {
   SubagentRegistryService,
 } from '@ptah-extension/vscode-core';
 import type { SubagentPromptCacheTtl } from '@ptah-extension/shared';
+import type { SubagentBudgetStopCallbackRegistry } from '../subagent-budget-stop-callback-registry';
 import type { CompactionConfigProvider } from '../compaction-config-provider';
 import type { SubagentMessageDispatcher } from '../subagent-message-dispatcher';
 import {
@@ -107,6 +108,7 @@ import {
 import {
   handoffMessage,
   nearBudgetWarning,
+  stopNotice,
   type HandoffSubject,
   type HandoffUsage,
   type StopReason,
@@ -121,6 +123,7 @@ import {
   type SubagentHandoffRecords,
 } from './subagent-handoff-record';
 import type { SubagentHandoffIndex } from './subagent-handoff-index';
+import { SubagentStopNotices } from './subagent-stop-notices';
 
 /** The handoff file operations the monitor uses. */
 export type SubagentHandoffFilesPort = Pick<
@@ -398,6 +401,8 @@ export class SubagentBudgetMonitor {
     private readonly handoffFiles: SubagentHandoffFilesPort,
     private readonly records: SubagentHandoffRecordsPort,
     private readonly index: SubagentHandoffIndexPort,
+    private readonly budgetStopCallbacks: SubagentBudgetStopCallbackRegistry,
+    private readonly stopNotices: SubagentStopNotices,
   ) {
     this.delivery = new SubagentHandoffDelivery(logger, dispatcher, (id) => {
       const current = this.currentSessionId(id);
@@ -655,6 +660,7 @@ export class SubagentBudgetMonitor {
     }
     this.sessions.delete(sessionId);
     this.records.forget(new Set([...stale, sessionId]));
+    for (const id of [...stale, sessionId]) this.stopNotices.forgetSession(id);
     this.index.forgetCursor(ownerHash(sessionId));
   }
 
@@ -954,6 +960,17 @@ export class SubagentBudgetMonitor {
     }
 
     let stopFailure: { readonly errorType: string } | undefined;
+    this.stopNotices.record(
+      live.sessionId,
+      taskId,
+      stopNotice(prepared.handoff.subject, {
+        reason,
+        contextTokens: preparedState.contextTokens,
+        weightedUsed: preparedState.weightedUsed,
+        handoffTokens: limits.handoffTokens,
+        stopWeightedTokens: limits.stopWeightedTokens,
+      }),
+    );
     try {
       await this.dispatcher.stopSubagent(live.sessionId, taskId);
     } catch (error: unknown) {
@@ -995,6 +1012,20 @@ export class SubagentBudgetMonitor {
     }
     liveState.stopFired = true;
     liveState.stopped = true;
+    // The signal means Ptah stopped this subagent. A safety stop whose record
+    // was not saved still publishes; only a missing agent id cannot.
+    if (registryRecord?.agentId) {
+      this.budgetStopCallbacks?.notifyAll({
+        agentId: registryRecord.agentId,
+        parentSessionId: sessionId,
+        timestamp: Date.now(),
+      });
+    } else {
+      this.logger.warn(
+        '[SubagentBudgetMonitor] Budget stop succeeded without an agent id; signal not published',
+        { sessionId, toolCallId },
+      );
+    }
     // A completed record is dropped from the registry, so it is never offered for resume.
     if (registryRecord) {
       this.registry.update(toolCallId, {

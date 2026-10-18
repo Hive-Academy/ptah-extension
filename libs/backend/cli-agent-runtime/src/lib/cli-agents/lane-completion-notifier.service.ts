@@ -40,6 +40,9 @@ import {
   type IFileSystemProvider,
 } from '@ptah-extension/platform-core';
 import { SessionId } from '@ptah-extension/shared';
+import type { LaneOutcomeRecorder } from '@ptah-extension/lane-outcomes';
+import { enqueueLaneCompletionOutcome } from './lane-completion-outcome';
+import { buildLaneCompletionEnvelope } from './lane-completion-envelope';
 import type {
   AgentProcessInfo,
   IAgentAdapter,
@@ -98,12 +101,51 @@ function formatDuration(ms: number): string {
 }
 
 /** What the deliverable check needs, for a lane and a session child alike. */
-interface DeliverableTarget {
+export interface DeliverableTarget {
   readonly deliverables: readonly string[];
   readonly taskFolder?: string;
   readonly workingDirectory: string;
   /** Agent or child id, for the log line only. */
   readonly id: string;
+}
+
+/** The notifier's disk rule, shared with outcome reporting. */
+export async function checkLaneDeliverable(
+  fileSystem: IFileSystemProvider,
+  target: DeliverableTarget,
+  entry: string,
+  startedMs: number,
+  onError: (path: string, error: unknown) => void,
+): Promise<LaneDeliverableCheck> {
+  const path = resolveDeliverablePath(target, entry);
+  try {
+    if (!(await fileSystem.exists(path))) return { path, exists: false };
+    const stat = await fileSystem.stat(path);
+    return {
+      path,
+      exists: true,
+      bytes: stat.size,
+      ...(Number.isFinite(startedMs)
+        ? { writtenAfterSpawn: stat.mtime >= startedMs }
+        : {}),
+    };
+  } catch (error: unknown) {
+    onError(path, error);
+    return { path, exists: false };
+  }
+}
+
+function resolveDeliverablePath(
+  target: DeliverableTarget,
+  entry: string,
+): string {
+  if (isAbsolute(entry)) return resolve(entry);
+  const { taskFolder, workingDirectory } = target;
+  if (!taskFolder) return resolve(workingDirectory, entry);
+  const base = isAbsolute(taskFolder)
+    ? taskFolder
+    : resolve(workingDirectory, taskFolder);
+  return resolve(base, entry);
 }
 
 /** One rendered deliverable line: `- {path} — MISSING | EMPTY | N bytes [(NOT written by this run)]`. */
@@ -238,6 +280,7 @@ export function buildSessionChildCompletionEnvelope(
 export interface LaneCompletionContext {
   /** Reports this lane delivered through `ptah_agent_report` before it ended. */
   readonly reportsDelivered: number;
+  readonly authMatched?: boolean;
 }
 
 @injectable()
@@ -266,6 +309,10 @@ export class LaneCompletionNotifier {
      */
     @inject(TOKENS.AGENT_ADAPTER, { isOptional: true })
     private readonly agentAdapter: IAgentAdapter | null = null,
+    private readonly outcomeRecorder: () => Pick<
+      LaneOutcomeRecorder,
+      'recordLaneCompletion'
+    > | null = () => null,
   ) {}
 
   /**
@@ -297,6 +344,14 @@ export class LaneCompletionNotifier {
     this.remember(key);
 
     const signal = await this.buildSignal(info, completedAt, context);
+    enqueueLaneCompletionOutcome(
+      this.outcomeRecorder,
+      this.logger,
+      info,
+      key,
+      signal,
+      context.authMatched ?? false,
+    );
 
     // `safeParse`, not `from`: `parentSessionId` holds the frontend tab id
     // until the real SDK uuid arrives, so a value that is not a session id
@@ -328,7 +383,7 @@ export class LaneCompletionNotifier {
     try {
       await this.agentAdapter.sendMessageToSession(
         parentSessionId,
-        LaneCompletionNotifier.buildEnvelope(signal),
+        buildLaneCompletionEnvelope(signal),
         {
           origin: {
             kind: 'peer',
@@ -561,52 +616,22 @@ export class LaneCompletionNotifier {
     entry: string,
     startedMs: number,
   ): Promise<LaneDeliverableCheck> {
-    const path = this.resolveDeliverablePath(target, entry);
-    try {
-      if (!(await this.fileSystem.exists(path))) {
-        return { path, exists: false };
-      }
-      const stat = await this.fileSystem.stat(path);
-      return {
-        path,
-        exists: true,
-        bytes: stat.size,
-        ...(Number.isFinite(startedMs)
-          ? { writtenAfterSpawn: stat.mtime >= startedMs }
-          : {}),
-      };
-    } catch (error: unknown) {
-      this.logger.warn(
-        '[LaneCompletionNotifier] Could not read a declared deliverable',
-        {
-          agentId: target.id,
-          path,
-          detail: error instanceof Error ? error.message : String(error),
-        },
-      );
-      return { path, exists: false };
-    }
-  }
-
-  /**
-   * A relative deliverable is resolved against `taskFolder` when the lane was
-   * given one, because that is where the spawn prompt told the lane to write.
-   * Otherwise it resolves against the lane's working directory.
-   */
-  private resolveDeliverablePath(
-    target: DeliverableTarget,
-    entry: string,
-  ): string {
-    // `resolve` even for an already-absolute entry: the path is reported to the
-    // orchestrator, and one canonical spelling beats echoing whatever mix of
-    // separators the caller typed.
-    if (isAbsolute(entry)) return resolve(entry);
-    const { taskFolder, workingDirectory } = target;
-    if (!taskFolder) return resolve(workingDirectory, entry);
-    const base = isAbsolute(taskFolder)
-      ? taskFolder
-      : resolve(workingDirectory, taskFolder);
-    return resolve(base, entry);
+    return checkLaneDeliverable(
+      this.fileSystem,
+      target,
+      entry,
+      startedMs,
+      (path, error) => {
+        this.logger.warn(
+          '[LaneCompletionNotifier] Could not read a declared deliverable',
+          {
+            agentId: target.id,
+            path,
+            detail: error instanceof Error ? error.message : String(error),
+          },
+        );
+      },
+    );
   }
 
   /**
@@ -624,91 +649,6 @@ export class LaneCompletionNotifier {
       (check) => check.exists && (check.bytes ?? 0) > 0,
     );
     return allPresent ? 'delivered' : 'no-deliverable';
-  }
-
-  /**
-   * The envelope the orchestrator's model reads. It mirrors the
-   * `<agent-report>` wrapper `AgentReportRouter` builds, so a model meets ONE
-   * mental model for "something arrived from a lane".
-   *
-   * The verdict is stated in words as well as in the attribute, and the
-   * required next action is spelled out for the two verdicts where doing
-   * nothing is the wrong answer.
-   */
-  private static buildEnvelope(signal: LaneCompletionSignal): string {
-    const attrs = [
-      `agent-id="${escapeAttribute(signal.agentId)}"`,
-      `agent="${escapeAttribute(signal.agentLabel)}"`,
-      `cli="${escapeAttribute(signal.cli)}"`,
-      `status="${escapeAttribute(signal.status)}"`,
-      `verdict="${escapeAttribute(signal.verdict)}"`,
-    ].join(' ');
-
-    const lines: string[] = [
-      `Lane ${signal.agentLabel} finished: ${signal.status}` +
-        (signal.exitCode !== undefined
-          ? ` (exit code ${signal.exitCode})`
-          : '') +
-        ` after ${formatDuration(signal.durationMs)}.`,
-      `Task: ${signal.taskHeadline || '(no task headline)'}`,
-    ];
-    if (signal.role) lines.push(`Role: ${signal.role}`);
-    if (signal.taskFolder) lines.push(`Task folder: ${signal.taskFolder}`);
-
-    if (signal.deliverables.length === 0) {
-      lines.push(
-        'Deliverables: none were declared at spawn, so nothing was checked. ' +
-          'Read the lane output before you trust this result, and declare ' +
-          '"deliverables" on the next spawn so the next signal can verify it.',
-      );
-    } else {
-      lines.push('Deliverables:', ...signal.deliverables.map(deliverableLine));
-    }
-
-    lines.push(
-      `Reports sent by this lane before it ended: ${signal.reportsDelivered}.`,
-    );
-    if (signal.cliSessionId) {
-      lines.push(
-        `CLI Session ID: ${signal.cliSessionId} — pass it as ` +
-          'resume_session_id to continue this lane instead of respawning it.',
-      );
-    }
-    lines.push(LaneCompletionNotifier.nextAction(signal));
-
-    return `<agent-lane-completed ${attrs}>\n${lines.join(
-      '\n',
-    )}\n</agent-lane-completed>`;
-  }
-
-  private static nextAction(signal: LaneCompletionSignal): string {
-    switch (signal.verdict) {
-      case 'delivered':
-        return (
-          'Next: read the deliverable files and verify the work yourself. A ' +
-          'lane writing its file is not proof the content is right.'
-        );
-      case 'no-deliverable':
-        return (
-          'Next: this lane exited without writing every deliverable it was ' +
-          'given, so treat the task as NOT done. Read its output with ' +
-          'ptah_agent_read to see how far it got, then resume it with the ' +
-          'missing paths named, or do the work another way. Do not report ' +
-          'this lane as complete.'
-        );
-      case 'failed':
-        return (
-          'Next: the lane did not finish. Read its output with ' +
-          'ptah_agent_read, then resume it when a CLI Session ID is present ' +
-          'or respawn with a smaller task.'
-        );
-      case 'unverified':
-      default:
-        return (
-          'Next: read the lane output and check its claims against the files ' +
-          'and the project tests before you use them.'
-        );
-    }
   }
 
   /**

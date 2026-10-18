@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_676_a876
-status: backlog
+status: done
 type: BUGFIX
 title: Recompute latestTodoWrite in the resync owner live state
 depends_on: []

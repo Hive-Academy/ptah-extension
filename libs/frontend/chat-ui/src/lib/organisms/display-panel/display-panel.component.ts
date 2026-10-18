@@ -264,6 +264,8 @@ export class DisplayPanelComponent {
   readonly summaryTurnKey = input('');
   /** The store's selected strip key (`DISPLAY_PANEL_SUMMARY_KEY` or a surface key). */
   readonly selectedKey = input<string | null>(null);
+  /** A host opening directly on a surface requests one initial strip scroll. */
+  readonly scrollToSelectedOnMount = input(false);
   /** Pinned: a new or updated surface moves neither scroll nor focus (R1.6). */
   readonly pinned = input(false);
   /** The store's per-surface view state, keyed by surface key. */
@@ -298,6 +300,7 @@ export class DisplayPanelComponent {
 
   /** The highest `updatedSeq` already acted on; `null` until the first read. */
   private newestSeq: number | null = null;
+  private previousExternalSelection: string | null | undefined;
 
   protected readonly items = computed((): readonly DisplayPanelItem[] => {
     const items: DisplayPanelItem[] = [];
@@ -330,6 +333,17 @@ export class DisplayPanelComponent {
   });
 
   constructor() {
+    // An inline block can select an existing surface from outside the strip.
+    effect(() => {
+      const key = this.selectedKey();
+      if (
+        key !== null &&
+        (this.previousExternalSelection === undefined
+          ? this.scrollToSelectedOnMount()
+          : key !== this.previousExternalSelection)
+      ) this.scrollIntoView(key);
+      this.previousExternalSelection = key;
+    });
     // R1.6 / decision #79: react to a new highest `updatedSeq`.
     effect(() => {
       const surfaces = this.surfaces();

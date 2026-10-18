@@ -71,6 +71,8 @@ export const SDK_TOKENS = {
    * (TASK_2026_597 A8). Singleton — one record per live session.
    */
   SDK_COMPACTION_COORDINATOR: Symbol.for('SdkCompactionCoordinator'),
+  /** Multi-session idle compaction coordinator, shared by the SDK facade. */
+  SDK_IDLE_COMPACTION: Symbol.for('SdkIdleCompaction'),
   /**
    * `ContextUsagePort`: the single per-turn `getContextUsage` reader, cached
    * per session and turn for the coordinator and the rotation advisor.
@@ -82,6 +84,7 @@ export const SDK_TOKENS = {
    * (TASK_2026_597 A8). Singleton.
    */
   SDK_SUBAGENT_BUDGET_MONITOR: Symbol.for('SdkSubagentBudgetMonitor'),
+  SDK_SUBAGENT_STOP_NOTICES: Symbol.for('SdkSubagentStopNotices'),
 
   SDK_COMPACTION_CALLBACK_REGISTRY: Symbol.for('SdkCompactionCallbackRegistry'),
   SDK_COMPACTION_BOUNDARY_GENERATION_REGISTRY: Symbol.for(
@@ -141,6 +144,9 @@ export const SDK_TOKENS = {
 
   SDK_SUBAGENT_STOP_CALLBACK_REGISTRY: Symbol.for(
     'SdkSubagentStopCallbackRegistry',
+  ),
+  SDK_SUBAGENT_BUDGET_STOP_CALLBACK_REGISTRY: Symbol.for(
+    'SdkSubagentBudgetStopCallbackRegistry',
   ),
   SDK_POST_TOOL_USE_CALLBACK_REGISTRY: Symbol.for(
     'SdkPostToolUseCallbackRegistry',

@@ -125,6 +125,8 @@ export interface ChatStartResult {
 }
 
 export interface ChatContinueParams {
+  /** Per-tab persona for an inactive SDK resume; ignored by an active turn. */
+  systemPrompt?: string;
   /** Message content to send */
   prompt: string;
   /** Session ID to continue (REQUIRED - must be real SDK UUID for resume) */
@@ -167,6 +169,8 @@ export interface ChatContinueParams {
 export interface ChatContinueResult {
   success: boolean;
   sessionId?: SessionId;
+  /** The command completed without starting a stream. */
+  settled?: boolean;
   error?: string;
   /** Structured error code for recoverable failures (e.g. 'AUTH_REQUIRED'). */
   errorCode?: RpcUserErrorCode;
@@ -243,6 +247,8 @@ export interface ChatPendingQuestionsResult {
 
 /** Parameters for chat:resume RPC method */
 export interface ChatResumeParams {
+  /** Per-tab persona for an inactive SDK resume; ignored by an active turn. Applies only with activate: true. */
+  systemPrompt?: string;
   /** Session ID to resume */
   sessionId: SessionId;
   /**
@@ -356,7 +362,7 @@ export interface ChatResumeResult {
   error?: string;
   /** Structured error code for recoverable failures (e.g. 'AUTH_REQUIRED'). */
   errorCode?: RpcUserErrorCode;
-  /** Provider whose auth is required, when errorCode is 'AUTH_REQUIRED'. */
+  /** Stored provider on success; provider needing auth when errorCode is 'AUTH_REQUIRED'. */
   providerId?: string;
 }
 

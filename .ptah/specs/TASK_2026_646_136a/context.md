@@ -37,6 +37,17 @@ Approval: lane-review.
 | grok | cli | installed | unknown (API key, no plan) |
 | Glm | ptah-cli | available (Ollama Cloud, pc-355b645d-35af-4974-84cf-9cf961ea0164) | unknown (no windows reported) |
 
+Refresh (2026-10-15, session 3, user request "mode enabled, Approval: lane-review"): mode `enabled`,
+Approval `lane-review` unchanged. Roster unchanged. Limits: codex confirmed room (Weekly 0%);
+opencode near limit (Go Monthly 91%, weekly 34%); antigravity reader failed; grok and Glm unknown.
+Spawnable lanes: codex, antigravity, opencode (near limit), grok, Glm.
+
+Refresh (2026-10-15 12:27 UTC, session 5): mode `enabled`, Approval `lane-review`. codex Weekly 8%, grok
+Weekly 15%, opencode Monthly 91% (near limit), antigravity out (HTTP 429, #54, reset about 2026-10-18).
+Confirmed limit 12:42 UTC: lane `pc-355b645d-35af-4974-84cf-9cf961ea0164` (Glm, Ollama Cloud, Zhipu family),
+cause HTTP 429 "reached your session usage limit" (Batch 32 resume output), reset unknown. Skip Glm for the
+rest of this session.
+
 ## Scope additions (2026-10-14)
 
 User request, same session:
@@ -119,3 +130,23 @@ which depends on this task.
    (replacesExistingSurface, touchesUiSurface, …), review classifiers and local classifier training are NOT
    in scope; they are a possible later use of the same `/v1/systemone` client. 535 §D/§E bug fixes moved to
    TASK_2026_663_50d4.
+
+## Scope additions 3 (2026-10-15, user direction — supersedes item 1 of Scope additions 2)
+
+User words: "if we decided to leave what we have and fix it so we clear these old broken data for skills, and
+focus on 2 things the one we agreed on which is for lanes evaluations and learnings, but also we leave enhancing
+our subagents and own skills, and delete the broken new skill suggestions (or surgically fix it)".
+Decision #22, #23.
+
+1. **No carve-out home.** Telemetry, verdicts, skill-load counting and the Library stay in
+   `libs/backend/skill-synthesis` and `libs/frontend/skill-synthesis-ui`. The architect designs the read seam
+   from the outcome record (Requirement 5) to those stores through a port, so TASK_2026_662_3eea can delete the
+   pipeline around them without touching this task's code.
+2. **This task implements:** the read seam; invocation telemetry and the spec harvester running independently
+   of `skillSynthesis.enabled` (it stays `false`); the harvester writing review verdicts the outcome record
+   reads; `skillsLoaded` (Scope additions 2, item 2, unchanged).
+3. **Not this task:** the `succeeded` fix, "Enhance now", the Skills/Commands tab figures, deletions and the data
+   drop. They belong to TASK_2026_662_3eea (see its context.md).
+4. **Later, not planned yet:** evidence-driven patches to agents and skills (TASK_2026_659_cec4 Rethink Step 3).
+   They start only after this task has about 30 days of outcome records and an authored skill or agent shows a
+   measurable lift (659 Gate 0). Until then, agents and skills are improved by hand in the Library.

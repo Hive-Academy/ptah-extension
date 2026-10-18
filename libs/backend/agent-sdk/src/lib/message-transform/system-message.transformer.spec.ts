@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { SystemMessageTransformer } from './system-message.transformer';
 import type { TransformerState } from './transformer-state';
 import type { TransformerHelpers } from './transformer-helpers';
+import { SubagentStopNotices } from '../helpers/compaction/subagent-stop-notices';
 
 function makeState(): jest.Mocked<TransformerState> {
   // Backs the announcement-mark mocks with a real Map (id → origin), so
@@ -79,6 +80,7 @@ function makeHelpers(
       peekPendingTeammateName: jest.fn().mockReturnValue(undefined),
       update: jest.fn(),
     },
+    stopNotices: new SubagentStopNotices(),
     modelResolver: { resolveForPricing: jest.fn() },
     sessionLifecycle: {
       getActiveSessionIds: jest.fn().mockReturnValue(activeIds),
@@ -110,6 +112,78 @@ describe('SystemMessageTransformer', () => {
   });
 
   describe('compact_boundary', () => {
+    it('stamps a matched idle notice using the SDK session id', () => {
+      const helpers = makeHelpers(['active-sess']);
+      helpers.sessionLifecycle.idleCompactionNoticeFor = jest
+        .fn()
+        .mockReturnValue({ preTokens: 1200 });
+      const [event] = transformer.transformCompactBoundary(
+        {
+          session_id: 'sdk-sess',
+          compact_metadata: { trigger: 'auto', pre_tokens: 1000 },
+        } as never,
+        state,
+        helpers,
+        'routing-sess' as never,
+      );
+
+      expect(
+        helpers.sessionLifecycle.idleCompactionNoticeFor,
+      ).toHaveBeenCalledWith('sdk-sess');
+      expect(event).toHaveProperty('idleCompaction', { preTokens: 1200 });
+      expect(event).toHaveProperty('sessionId', 'routing-sess');
+    });
+
+    it('omits the idle field when the lifecycle has no matching notice', () => {
+      const helpers = makeHelpers(['active-sess']);
+      helpers.sessionLifecycle.idleCompactionNoticeFor = jest
+        .fn()
+        .mockReturnValue(undefined);
+      const [event] = transformer.transformCompactBoundary(
+        {
+          compact_metadata: { trigger: 'auto', pre_tokens: 1000 },
+        } as never,
+        state,
+        helpers,
+      );
+
+      expect(
+        helpers.sessionLifecycle.idleCompactionNoticeFor,
+      ).toHaveBeenCalledWith('active-sess');
+      expect(event).not.toHaveProperty('idleCompaction');
+    });
+
+    it('omits the idle field with a partial lifecycle fake', () => {
+      const [event] = transformer.transformCompactBoundary(
+        {
+          session_id: 'sdk-sess',
+          compact_metadata: { trigger: 'auto', pre_tokens: 1000 },
+        } as never,
+        state,
+        makeHelpers(),
+      );
+
+      expect(event).not.toHaveProperty('idleCompaction');
+    });
+
+    it('does not stamp a later manual boundary after a PostCompact-only idle path', () => {
+      const helpers = makeHelpers(['sdk-sess']);
+      helpers.sessionLifecycle.idleCompactionNoticeFor = jest
+        .fn()
+        .mockReturnValue(undefined);
+      const [event] = transformer.transformCompactBoundary(
+        {
+          session_id: 'sdk-sess',
+          compact_metadata: { trigger: 'manual', pre_tokens: 1000 },
+        } as never,
+        state,
+        helpers,
+      );
+
+      expect(event).toHaveProperty('eventType', 'compaction_complete');
+      expect(event).not.toHaveProperty('idleCompaction');
+    });
+
     it('emits a measurement only for a complete same-boundary SDK pair', () => {
       for (const [pre, post] of [
         [1000, 600],
@@ -825,6 +899,42 @@ describe('SystemMessageTransformer', () => {
   });
 
   describe('task_notification', () => {
+    it('uses a Ptah notice only for a recorded stopped task', () => {
+      const helpers = makeHelpers();
+      helpers.stopNotices.record(
+        'sess',
+        'task-budget',
+        'Ptah stopped `Explore`: handoff size. The user did not stop it.',
+      );
+      const stopped = {
+        task_id: 'task-budget',
+        tool_use_id: 'tool-budget',
+        status: 'stopped',
+        summary: 'Agent "Explore" was stopped by user',
+      };
+      const budgetEvents = transformer.transformTaskNotification(
+        stopped as never,
+        state,
+        helpers,
+      );
+      expect(budgetEvents[0]).toMatchObject({
+        eventType: 'agent_completed',
+        summary:
+          'Ptah stopped `Explore`: handoff size. The user did not stop it.',
+      });
+      expect(JSON.stringify(budgetEvents)).not.toContain('stopped by user');
+
+      const userEvents = transformer.transformTaskNotification(
+        { ...stopped, task_id: 'task-user', tool_use_id: 'tool-user' } as never,
+        state,
+        helpers,
+      );
+      expect(userEvents[0]).toMatchObject({
+        eventType: 'agent_completed',
+        summary: 'Agent "Explore" was stopped by user',
+      });
+    });
+
     it('cleans up taskId mapping and emits agent_completed', () => {
       state.getTaskParentToolUseId.mockReturnValue('tool-n');
       const helpers = makeHelpers();

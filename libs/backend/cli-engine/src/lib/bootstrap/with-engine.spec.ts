@@ -55,6 +55,7 @@ import {
 } from '@ptah-extension/platform-core';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
+import { LANE_OUTCOME_TOKENS } from '@ptah-extension/lane-outcomes';
 import { createMockLogger } from '@ptah-extension/shared/testing';
 
 // ---------------------------------------------------------------------------
@@ -1294,9 +1295,36 @@ describe('withEngine', () => {
       expect(disposeThothMock).not.toHaveBeenCalled();
     });
 
-    it('disposes Thoth BEFORE the container teardown', async () => {
-      const { bootstrap } = makeFakeBootstrap();
+    it('reaps agents and drains outcomes before Thoth closes SQLite', async () => {
+      const { bootstrap: baseBootstrap } = makeFakeBootstrap();
       const order: string[] = [];
+      const bootstrap: NonNullable<WithEngineOptions['bootstrap']> = (
+        options,
+      ) => {
+        const result = baseBootstrap(options);
+        const fake = result.container as FakeContainer;
+        fake.isRegistered.mockImplementation(
+          (token: symbol) =>
+            token === Symbol.for('AgentProcessManager') ||
+            token === LANE_OUTCOME_TOKENS.DISPOSER,
+        );
+        fake.resolve.mockImplementation((token: symbol) => {
+          if (token === Symbol.for('AgentProcessManager'))
+            return {
+              disposeAll: async () => {
+                order.push('agent reap');
+              },
+            };
+          if (token === LANE_OUTCOME_TOKENS.DISPOSER)
+            return {
+              dispose: async () => {
+                order.push('lane outcomes');
+              },
+            };
+          return fake.__sdkAdapter;
+        });
+        return result;
+      };
       disposeThothMock.mockImplementation(async () => {
         order.push('thoth.dispose');
       });
@@ -1312,7 +1340,12 @@ describe('withEngine', () => {
         },
         async () => undefined,
       );
-      expect(order).toEqual(['thoth.dispose', 'container.dispose']);
+      expect(order).toEqual([
+        'agent reap',
+        'lane outcomes',
+        'thoth.dispose',
+        'container.dispose',
+      ]);
     });
 
     it('disposes Thoth on the throw path and re-throws the original error', async () => {

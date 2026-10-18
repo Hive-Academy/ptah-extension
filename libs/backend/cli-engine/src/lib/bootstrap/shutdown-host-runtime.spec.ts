@@ -13,6 +13,7 @@
  */
 
 import type { DependencyContainer } from 'tsyringe';
+import { LANE_OUTCOME_TOKENS } from '@ptah-extension/lane-outcomes';
 
 import {
   shutdownAgentProcesses,
@@ -268,7 +269,7 @@ describe('shutdownHostRuntime', () => {
       await expect(shutdownHostRuntime(container)).resolves.toBeUndefined();
 
       // Every step was attempted — one failure does not skip the next.
-      expect(container.resolve).toHaveBeenCalledTimes(3);
+      expect(container.resolve).toHaveBeenCalledTimes(4);
     });
   });
 
@@ -301,6 +302,65 @@ describe('shutdownHostRuntime', () => {
         ),
       ).toBe(true);
     });
+  });
+
+  it('awaits lane outcomes and continues shutdown after a disposal failure', async () => {
+    const token = LANE_OUTCOME_TOKENS.DISPOSER;
+    const order: string[] = [];
+    const container = {
+      isRegistered: jest.fn((candidate: symbol) => candidate === token),
+      resolve: jest.fn(() => ({
+        dispose: async () => {
+          order.push('lane outcomes');
+          throw new Error('journal drain failed');
+        },
+      })),
+    } as unknown as DependencyContainer;
+
+    await expect(shutdownHostRuntime(container)).resolves.toBeUndefined();
+    expect(order).toEqual(['lane outcomes']);
+    expect(stderrSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'lane outcomes disposal failed: journal drain failed',
+      ),
+    );
+  });
+
+  it('drains after agent reap and before watcher disposal', async () => {
+    const order: string[] = [];
+    const container = {
+      isRegistered: jest.fn(() => true),
+      resolve: jest.fn((token: symbol) => {
+        if (token === AGENT_PROCESS_MANAGER_TOKEN)
+          return {
+            disposeAll: async () => {
+              order.push('agents');
+            },
+          };
+        if (token === PTAH_CLI_REGISTRY_TOKEN)
+          return {
+            disposeAll: () => {
+              order.push('proxies');
+            },
+          };
+        if (token === LANE_OUTCOME_TOKENS.DISPOSER)
+          return {
+            dispose: async () => {
+              order.push('outcomes');
+            },
+          };
+        if (token === WORKSPACE_WATCHER_TOKEN)
+          return {
+            dispose: () => {
+              order.push('watcher');
+            },
+          };
+        throw new Error(`unexpected token: ${String(token)}`);
+      }),
+    } as Pick<DependencyContainer, 'isRegistered' | 'resolve'>;
+
+    await shutdownHostRuntime(container as DependencyContainer);
+    expect(order).toEqual(['agents', 'proxies', 'outcomes', 'watcher']);
   });
 
   describe('individual halves', () => {

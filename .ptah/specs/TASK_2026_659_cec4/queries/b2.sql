@@ -1,0 +1,12 @@
+SELECT datetime(MIN(started_at)/1000,'unixepoch') first, datetime(MAX(started_at)/1000,'unixepoch') last, COUNT(*) n FROM job_runs WHERE job_id LIKE '@ptah/skills%';
+SELECT job_id, status, COUNT(*) n, ROUND(SUM(ended_at-started_at)/3600000.0,2) wall_h FROM job_runs WHERE job_id LIKE '@ptah/skills%' AND started_at >= strftime('%s','now','-30 day')*1000 GROUP BY 1,2;
+SELECT substr(COALESCE(error_message,''),1,90) e, COUNT(*) n FROM job_runs WHERE job_id='@ptah/skills-backlog-cleanup' AND status='failed' GROUP BY 1;
+SELECT substr(COALESCE(result_summary,''),1,160) s FROM job_runs WHERE job_id='@ptah/skills-drain-weekly';
+SELECT COUNT(*) n FROM skill_candidates WHERE created_at < strftime('%s','2026-08-25')*1000;
+SELECT COUNT(*) n FROM skill_candidates WHERE created_at >= strftime('%s','2026-08-25')*1000;
+SELECT substr(datetime(invoked_at/1000,'unixepoch'),1,7) m, source, COUNT(*) n FROM skill_invocation_events GROUP BY 1,2 ORDER BY 1,2;
+SELECT skill_slug, CASE WHEN invoked_at < strftime('%s','2026-10-02 13:07')*1000 THEN 'before' ELSE 'after' END p, COUNT(*) n, SUM(succeeded) ok, SUM(CASE WHEN reconciled_at IS NOT NULL THEN 1 ELSE 0 END) graded, ROUND(AVG(duration_ms)/1000.0,1) avg_s, ROUND(AVG(tool_count),1) avg_tools, ROUND(AVG(cost_usd),3) avg_cost, ROUND(AVG(output_tokens)) avg_out FROM skill_invocation_events WHERE skill_slug IN ('frontend-developer','team-leader') AND invoked_at >= strftime('%s','2026-09-02')*1000 AND invoked_at < strftime('%s','2026-11-01')*1000 GROUP BY 1,2;
+SELECT skill_slug, COUNT(*) n, SUM(CASE WHEN reconciled_at IS NOT NULL THEN 1 ELSE 0 END) graded, MAX(datetime(reconciled_at/1000,'unixepoch')) last_graded FROM skill_invocation_events WHERE source='subagent' GROUP BY 1 ORDER BY n DESC LIMIT 6;
+SELECT COUNT(*) n, COUNT(DISTINCT session_id) s, ROUND(SUM(cost_usd),2) c FROM skill_invocation_events WHERE source='subagent' AND invoked_at >= strftime('%s','now','-30 day')*1000;
+SELECT COUNT(*) n, SUM(CASE WHEN cost_usd IS NULL THEN 1 ELSE 0 END) null_cost, SUM(CASE WHEN task_id IS NOT NULL THEN 1 ELSE 0 END) with_task, SUM(CASE WHEN duration_ms IS NOT NULL THEN 1 ELSE 0 END) with_dur FROM skill_invocation_events WHERE source='subagent';
+SELECT COUNT(*) n_obs, COUNT(DISTINCT session_id) s, datetime(MIN(captured_at)/1000,'unixepoch') f FROM observation_queue;

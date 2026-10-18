@@ -30,6 +30,14 @@ import {
   type Logger,
 } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  LANE_ROUTING_TOKENS,
+  registerLaneRoutingServices,
+} from '@ptah-extension/lane-routing';
+import {
+  LANE_OUTCOME_TOKENS,
+  registerLaneOutcomeServices,
+} from '@ptah-extension/lane-outcomes';
 import { createMockOutputChannel } from '@ptah-extension/platform-core/testing';
 import {
   SDK_TOKENS,
@@ -37,6 +45,7 @@ import {
   type PostToolUseCallbackRegistry,
 } from '@ptah-extension/agent-sdk';
 import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
+import { registerSkillSynthesisServices } from '@ptah-extension/skill-synthesis';
 import {
   CLI_AGENT_RUNTIME_TOKENS,
   ChildWorktreeProvisioner,
@@ -54,6 +63,8 @@ import { PLUGIN_MARKETPLACE_TOKENS } from '@ptah-extension/plugin-marketplace';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import {
+  AgentRpcHandlers,
+  DecisionModelCatalogRpcHandlers,
   SetupRpcHandlers,
   registerSharedRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
@@ -64,7 +75,28 @@ import {
   registerPlatformCliServices,
 } from '@ptah-extension/platform-cli';
 
-import { EXPECTED_RESOLVABLE } from './expected-resolvable';
+import {
+  DECISION_MODEL_CATALOG_TOKEN,
+  DECISION_MODEL_CONFIG_TOKEN,
+  EXPECTED_RESOLVABLE,
+  LANE_MODEL_LISTING_TOKEN,
+  STRUCTURED_DECISION_TOKEN,
+} from './expected-resolvable';
+
+describe('CLI DI — skill telemetry seam', () => {
+  it('resolves after skill services register', () => {
+    const child = rootContainer.createChildContainer();
+    const logger = { info: jest.fn() } as unknown as Logger;
+    child.registerInstance(PERSISTENCE_TOKENS.SQLITE_CONNECTION, {});
+    child.registerInstance(PERSISTENCE_TOKENS.VEC_STATUS, {});
+    // The seam reads through the owning stores, which inject the host Logger.
+    child.registerInstance(TOKENS.LOGGER, logger);
+    registerSkillSynthesisServices(child, logger);
+    expect(() =>
+      child.resolve(LANE_OUTCOME_TOKENS.SKILL_TELEMETRY_SEAM),
+    ).not.toThrow();
+  });
+});
 
 function buildMinimalContainer(): DependencyContainer {
   const c = rootContainer.createChildContainer();
@@ -116,6 +148,7 @@ function buildMinimalContainer(): DependencyContainer {
       getWorkspaceFolders: jest.fn(() => []),
       getConfiguration: jest.fn(() => ({ get: jest.fn() })),
       onDidChangeWorkspaceFolders: jest.fn(() => ({ dispose: jest.fn() })),
+      onDidChangeConfiguration: jest.fn(() => ({ dispose: jest.fn() })),
     },
   });
   c.register(PLATFORM_TOKENS.SECRET_STORAGE, {
@@ -195,6 +228,260 @@ describe('CLI DI — shared RPC handler resolution', () => {
       instance = c.resolve(token);
     }).not.toThrow();
     expect(instance).toBeDefined();
+  });
+});
+
+/** Stubs the lane-listing constructor deps this container does not bind. */
+function registerLaneModelListingFixtures(c: DependencyContainer): void {
+  if (!c.isRegistered(TOKENS.CLI_DETECTION_SERVICE)) {
+    c.register(TOKENS.CLI_DETECTION_SERVICE, { useValue: {} });
+  }
+  if (!c.isRegistered(AUTH_PROVIDERS_TOKENS.SDK_CODEX_AUTH)) {
+    c.register(AUTH_PROVIDERS_TOKENS.SDK_CODEX_AUTH, { useValue: {} });
+  }
+  if (!c.isRegistered(AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH)) {
+    c.register(AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH, { useValue: {} });
+  }
+  if (!c.isRegistered(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_MODELS)) {
+    c.register(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_MODELS, { useValue: {} });
+  }
+  const persistence = CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_CONFIG_PERSISTENCE;
+  if (!c.isRegistered(persistence)) {
+    c.register(persistence, { useValue: {} });
+  }
+}
+
+describe('CLI DI — lane model listing', () => {
+  it('resolves LANE_MODEL_LISTING as one singleton', () => {
+    const c = buildMinimalContainer();
+    registerLaneModelListingFixtures(c);
+
+    const first: unknown = c.resolve(LANE_MODEL_LISTING_TOKEN);
+
+    expect(first).toBeDefined();
+    expect(c.resolve(LANE_MODEL_LISTING_TOKEN)).toBe(first);
+  });
+});
+
+describe('CLI DI — structured decision', () => {
+  it('resolves STRUCTURED_DECISION as one singleton', () => {
+    const c = buildMinimalContainer();
+    const logger = c.resolve<Logger>(TOKENS.LOGGER);
+    // `registerSdkServices` eagerly builds ConfigWatcher, which subscribes.
+    c.register(TOKENS.CONFIG_MANAGER, {
+      useValue: {
+        get: jest.fn(() => undefined),
+        set: jest.fn(async () => undefined),
+        watch: jest.fn(() => ({ dispose: jest.fn() })),
+      },
+    });
+    c.register(PLATFORM_TOKENS.SECRET_STORAGE, {
+      useValue: {
+        get: jest.fn(async () => undefined),
+        store: jest.fn(async () => undefined),
+        delete: jest.fn(async () => undefined),
+        onDidChange: jest.fn(() => ({ dispose: jest.fn() })),
+      },
+    });
+    registerSdkServices(c, logger);
+    // The real service pulls SdkQueryRunner. The registration under test is
+    // the structured-decision token; the query collaborator stays a stub.
+    c.register(SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE, {
+      useValue: { execute: () => Promise.reject(new Error('unused')) },
+    });
+
+    const first: unknown = c.resolve(STRUCTURED_DECISION_TOKEN);
+
+    expect(first).toBeDefined();
+    expect(c.resolve(STRUCTURED_DECISION_TOKEN)).toBe(first);
+  });
+});
+
+/** Stubs AgentRpcHandlers deps this container does not bind. */
+function registerAgentHandlerFixtures(c: DependencyContainer): void {
+  if (!c.isRegistered(PLATFORM_TOKENS.STATE_STORAGE)) {
+    c.register(PLATFORM_TOKENS.STATE_STORAGE, {
+      useValue: {
+        get: jest.fn(() => undefined),
+        update: jest.fn(async () => undefined),
+        keys: jest.fn(() => []),
+      },
+    });
+  }
+  if (!c.isRegistered(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)) {
+    c.register(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, { useValue: {} });
+  }
+  if (!c.isRegistered(PLATFORM_TOKENS.PLATFORM_INFO)) {
+    c.register(PLATFORM_TOKENS.PLATFORM_INFO, { useValue: {} });
+  }
+  if (!c.isRegistered(CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY)) {
+    c.register(CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY, {
+      useValue: {},
+    });
+  }
+  if (!c.isRegistered(TOKENS.AGENT_PROCESS_MANAGER)) {
+    c.register(TOKENS.AGENT_PROCESS_MANAGER, { useValue: {} });
+  }
+  if (!c.isRegistered(SDK_TOKENS.SDK_SESSION_METADATA_STORE)) {
+    c.register(SDK_TOKENS.SDK_SESSION_METADATA_STORE, { useValue: {} });
+  }
+  registerLaneModelListingFixtures(c);
+}
+
+describe('CLI DI — SDK budget-stop registry', () => {
+  it('resolves the same registry instance on repeated requests', () => {
+    const c = buildMinimalContainer();
+    // `registerSdkServices` eagerly builds ConfigWatcher, which subscribes.
+    c.register(TOKENS.CONFIG_MANAGER, {
+      useValue: {
+        get: jest.fn(() => undefined),
+        set: jest.fn(async () => undefined),
+        watch: jest.fn(() => ({ dispose: jest.fn() })),
+      },
+    });
+    c.register(PLATFORM_TOKENS.SECRET_STORAGE, {
+      useValue: {
+        get: jest.fn(async () => undefined),
+        store: jest.fn(async () => undefined),
+        delete: jest.fn(async () => undefined),
+        onDidChange: jest.fn(() => ({ dispose: jest.fn() })),
+      },
+    });
+    registerSdkServices(c, c.resolve<Logger>(TOKENS.LOGGER));
+    const first = c.resolve(
+      SDK_TOKENS.SDK_SUBAGENT_BUDGET_STOP_CALLBACK_REGISTRY,
+    );
+    expect(
+      c.resolve(SDK_TOKENS.SDK_SUBAGENT_BUDGET_STOP_CALLBACK_REGISTRY),
+    ).toBe(first);
+    const idleCompaction = c.resolve(SDK_TOKENS.SDK_IDLE_COMPACTION);
+    expect(c.resolve(SDK_TOKENS.SDK_IDLE_COMPACTION)).toBe(idleCompaction);
+  });
+});
+
+describe('CLI DI — lane outcomes', () => {
+  it('registers outcomes once before CLI runtime and aliases after both libraries', () => {
+    const setup = fs.readFileSync(
+      path.resolve(
+        __dirname,
+        '../../../../libs/backend/cli-engine/src/lib/container.ts',
+      ),
+      'utf8',
+    );
+    const wiring = fs.readFileSync(
+      path.resolve(
+        __dirname,
+        '../../../../libs/backend/cli-engine/src/lib/lane-outcomes-wiring.ts',
+      ),
+      'utf8',
+    );
+    const routing = setup.indexOf(
+      'registerLaneRoutingServices(container, logger);',
+    );
+    const outcomes = setup.indexOf('wireLaneOutcomes(container, logger);');
+    const runtime = setup.indexOf(
+      'registerCliAgentRuntimeServices(container, logger);',
+    );
+    const register = wiring.indexOf(
+      'registerLaneOutcomeServices(container, logger);',
+    );
+    const reader = wiring.indexOf('useToken: LANE_OUTCOME_TOKENS.READER');
+    const classifier = wiring.indexOf(
+      'useToken: LANE_ROUTING_TOKENS.FAILURE_CLASSIFIER',
+    );
+    expect(wiring.match(/registerLaneOutcomeServices\(/g)).toHaveLength(1);
+    expect(routing).toBeGreaterThan(-1);
+    expect(outcomes).toBeGreaterThan(routing);
+    expect(outcomes).toBeLessThan(runtime);
+    expect(register).toBeGreaterThan(-1);
+    expect(reader).toBeGreaterThan(register);
+    expect(classifier).toBeGreaterThan(register);
+  });
+
+  it('resolves both aliases', () => {
+    const c = buildMinimalContainer();
+    c.register(PLATFORM_TOKENS.STATE_STORAGE, {
+      useValue: {
+        get: jest.fn(() => undefined),
+        update: jest.fn(async () => undefined),
+        keys: jest.fn(() => []),
+      },
+    });
+    const logger = c.resolve<Logger>(TOKENS.LOGGER);
+    registerLaneRoutingServices(c, logger);
+    registerLaneOutcomeServices(c, logger);
+    c.register(LANE_ROUTING_TOKENS.LANE_OUTCOME_READER, {
+      useToken: LANE_OUTCOME_TOKENS.READER,
+    });
+    c.register(LANE_OUTCOME_TOKENS.FAILURE_CLASSIFIER, {
+      useToken: LANE_ROUTING_TOKENS.FAILURE_CLASSIFIER,
+    });
+    expect(c.resolve(LANE_ROUTING_TOKENS.LANE_OUTCOME_READER)).toBe(
+      c.resolve(LANE_OUTCOME_TOKENS.READER),
+    );
+    expect(c.resolve(LANE_OUTCOME_TOKENS.FAILURE_CLASSIFIER)).toBe(
+      c.resolve(LANE_ROUTING_TOKENS.FAILURE_CLASSIFIER),
+    );
+  });
+});
+
+describe('CLI DI — decision model config (TL-59)', () => {
+  it('registers lane routing once, before vscode-lm-tools and the RPC surface', () => {
+    const setup = fs.readFileSync(
+      path.resolve(
+        __dirname,
+        '../../../../libs/backend/cli-engine/src/lib/container.ts',
+      ),
+      'utf8',
+    );
+    const lane = setup.indexOf(
+      'registerLaneRoutingServices(container, logger);',
+    );
+    const lmTools = setup.indexOf(
+      'registerVsCodeLmToolsServices(container, logger);',
+    );
+    const rpc = setup.indexOf(
+      'registerRpcSurface(container, createCliRpcHostProfile(host));',
+    );
+
+    expect(setup.match(/registerLaneRoutingServices\(/g)).toHaveLength(1);
+    expect(lane).toBeGreaterThan(-1);
+    expect(lane).toBeLessThan(lmTools);
+    expect(lmTools).toBeLessThan(rpc);
+  });
+
+  it('resolves DECISION_MODEL_CONFIG and AgentRpcHandlers', () => {
+    const c = buildMinimalContainer();
+    registerAgentHandlerFixtures(c);
+    registerLaneRoutingServices(c, c.resolve<Logger>(TOKENS.LOGGER));
+
+    expect(DECISION_MODEL_CONFIG_TOKEN).toBe(
+      LANE_ROUTING_TOKENS.DECISION_MODEL_CONFIG,
+    );
+    const config: unknown = c.resolve(
+      LANE_ROUTING_TOKENS.DECISION_MODEL_CONFIG,
+    );
+    expect(config).toBeDefined();
+    expect(c.resolve(LANE_ROUTING_TOKENS.DECISION_MODEL_CONFIG)).toBe(config);
+
+    const handlers = c.resolve(AgentRpcHandlers);
+    expect(handlers).toBeInstanceOf(AgentRpcHandlers);
+  });
+
+  it('resolves DECISION_MODEL_CATALOG and DecisionModelCatalogRpcHandlers', () => {
+    const c = buildMinimalContainer();
+    registerAgentHandlerFixtures(c);
+    registerLaneRoutingServices(c, c.resolve<Logger>(TOKENS.LOGGER));
+
+    expect(DECISION_MODEL_CATALOG_TOKEN).toBe(
+      LANE_ROUTING_TOKENS.DECISION_MODEL_CATALOG,
+    );
+    const catalog: unknown = c.resolve(DECISION_MODEL_CATALOG_TOKEN);
+    expect(catalog).toBeDefined();
+    expect(c.resolve(DECISION_MODEL_CATALOG_TOKEN)).toBe(catalog);
+
+    const handlers = c.resolve(DecisionModelCatalogRpcHandlers);
+    expect(handlers).toBeInstanceOf(DecisionModelCatalogRpcHandlers);
   });
 });
 

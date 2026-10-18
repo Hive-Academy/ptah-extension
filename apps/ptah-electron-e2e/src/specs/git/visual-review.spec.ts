@@ -16,8 +16,8 @@ import {
 import { setTheme, type AxeTheme } from '../../support/axe';
 import type { UiDriver } from '../../support/ui-driver';
 import {
+  openSessionFromList,
   prepareCanvasWithSessions,
-  sessionRowButton,
   type SessionFixture,
 } from '../../support/perf-session-fixture';
 
@@ -1069,7 +1069,7 @@ for (const theme of ['dark', 'light'] as const) {
           supportsPaging: false,
         });
         await cap.step('turn-summary-chip', async () => {
-          await sessionRowButton(mainWindow, session.name).click();
+          await openSessionFromList(mainWindow, session.name);
           const chip = mainWindow.locator('[data-testid="chat-turn-summary"]');
           await expect(chip).toBeVisible({ timeout: 30_000 });
           await waitSettled(mainWindow, 800);

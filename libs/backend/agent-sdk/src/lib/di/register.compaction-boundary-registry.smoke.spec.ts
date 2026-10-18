@@ -28,6 +28,7 @@
  */
 
 import 'reflect-metadata';
+import { SubagentStopNotices } from '../helpers/compaction/subagent-stop-notices';
 
 import { container as rootContainer } from 'tsyringe';
 import type { DependencyContainer } from 'tsyringe';
@@ -47,6 +48,8 @@ import {
   InternalQueryService,
   McpServerBackoffService,
   SessionBudgetService,
+  SessionLifecycleManager,
+  CompactionHookHandler,
   // Relative, not `@ptah-extension/agent-sdk`: a project may not import itself
   // by alias (`@nx/enforce-module-boundaries`). This is still the public
   // barrel, so the smoke test proves the same surface.
@@ -83,6 +86,7 @@ function createMockLogger(): Logger {
 
 function buildSmokeContainer(
   governor?: BackgroundWorkGovernor,
+  stubSessionManager = true,
 ): DependencyContainer {
   const c = rootContainer.createChildContainer();
   const logger = createMockLogger();
@@ -179,16 +183,77 @@ function buildSmokeContainer(
   // platform stacks. Stub it after registerSdkServices, same as
   // cli-agent-runtime's smoke spec, to isolate resolution of the transformer
   // and history reader under test — neither exercises session lifecycle here.
-  c.register(SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER, { useValue: {} });
+  if (stubSessionManager) {
+    c.register(SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER, { useValue: {} });
+  }
 
   return c;
 }
+
+describe('registerSdkServices — optional idle compaction', () => {
+  it('caches construction failure and lets both consumers resolve', () => {
+    const c = buildSmokeContainer(undefined, false);
+    const logger = c.resolve<Logger>(TOKENS.LOGGER);
+    const failure = new Error('workspace listener unavailable');
+    const onDidChangeConfiguration = jest.fn(() => {
+      throw failure;
+    });
+    c.register(PLATFORM_TOKENS.WORKSPACE_PROVIDER, {
+      useValue: { onDidChangeConfiguration },
+    });
+
+    expect(c.resolve(SDK_TOKENS.SDK_IDLE_COMPACTION)).toBeUndefined();
+    expect(c.resolve(SDK_TOKENS.SDK_IDLE_COMPACTION)).toBeUndefined();
+    expect(onDidChangeConfiguration).toHaveBeenCalledTimes(1);
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    expect(logger.error).toHaveBeenCalledWith(
+      '[IdleCompaction] Optional service unavailable',
+      failure,
+    );
+    // Keep the consumer's DI chain real while isolating unrelated SDK adapters.
+    for (const token of [
+      SDK_TOKENS.SDK_PERMISSION_HANDLER,
+      SDK_TOKENS.SDK_MODULE_LOADER,
+      SDK_TOKENS.SDK_QUERY_OPTIONS_BUILDER,
+      SDK_TOKENS.SDK_MESSAGE_FACTORY,
+      SDK_TOKENS.SDK_QUERY_RUNNER,
+      SDK_TOKENS.SDK_HARNESS_POLICY_SYNC,
+      SDK_TOKENS.SDK_CONTEXT_USAGE_PORT,
+      SDK_TOKENS.SDK_SUBAGENT_BUDGET_MONITOR,
+      SDK_TOKENS.SDK_SESSION_BUDGET,
+      SDK_TOKENS.SDK_LIVE_USAGE_TRACKER,
+    ]) {
+      c.register(token, { useValue: {} });
+    }
+    const manager = c.resolve<SessionLifecycleManager>(
+      SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER,
+    );
+    expect(manager).toBeInstanceOf(SessionLifecycleManager);
+    expect(
+      c.resolve<CompactionHookHandler>(SDK_TOKENS.SDK_COMPACTION_HOOK_HANDLER),
+    ).toBeInstanceOf(CompactionHookHandler);
+    manager.dispose();
+  });
+});
 
 describe('registerSdkServices — CompactionBoundaryGenerationRegistry DI smoke', () => {
   let container: DependencyContainer;
 
   beforeEach(() => {
     container = buildSmokeContainer();
+  });
+
+  it('resolves the same stop notice store for SDK services', () => {
+    const notices = container.resolve<SubagentStopNotices>(
+      SDK_TOKENS.SDK_SUBAGENT_STOP_NOTICES,
+    );
+    expect(notices).toBeInstanceOf(SubagentStopNotices);
+    expect(container.resolve(SDK_TOKENS.SDK_SUBAGENT_STOP_NOTICES)).toBe(
+      notices,
+    );
+    expect(
+      container.resolve(SDK_TOKENS.SDK_MESSAGE_TRANSFORMER),
+    ).toBeInstanceOf(SdkMessageTransformer);
   });
 
   it('resolves SDK_TOKENS.SDK_COMPACTION_BOUNDARY_GENERATION_REGISTRY', () => {

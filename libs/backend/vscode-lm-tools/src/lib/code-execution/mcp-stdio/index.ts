@@ -11,7 +11,7 @@
  *                                  `session_submit` to a CLI-supplied
  *                                  composite handler.
  *   - {@link registerMcpStdioServices} — DI registration helper.
- *   - {@link buildMcpMvpTools}   — 10-tool MVP catalog with MCP-wire names.
+ *   - {@link buildMcpMvpTools}   — 12-tool MVP catalog with MCP-wire names.
  *   - {@link AgentToolDispatcher} — exported for unit-test reuse.
  *   - {@link ISessionSubmitHandler} / {@link SessionSubmitCancellation} —
  *                                  port the CLI implements to supply the
@@ -52,6 +52,8 @@ export {
   buildMcpAgentListTool,
   buildMcpAgentWaitTool,
   buildMcpRunCheckTool,
+  buildMcpRouteDecideTool,
+  buildMcpOutcomeReportTool,
   buildMcpSessionSubmitTool,
   buildMcpMvpTools,
   type McpMvpToolName,

@@ -39,7 +39,7 @@
  */
 
 import { Injectable, inject, signal } from '@angular/core';
-import { yieldToMacrotask } from '@ptah-extension/core';
+import { LoggingService, yieldToMacrotask } from '@ptah-extension/core';
 import { isTerminalTurnPhase } from '@ptah-extension/shared';
 import type {
   FlatStreamEventUnion,
@@ -138,6 +138,7 @@ export class SessionHistoryReplayer {
   private readonly streamingHandler = inject(StreamingHandlerService);
   private readonly sessionManager = inject(SessionManager);
   private readonly historyMessageBuilder = inject(HistoryMessageBuilder);
+  private readonly logger = inject(LoggingService);
 
   /** History replay chunk size. */
   static readonly REPLAY_CHUNK_SIZE = 250;
@@ -278,7 +279,7 @@ export class SessionHistoryReplayer {
     try {
       filter.retire(!tab || tab.claudeSessionId !== filter.sessionId);
     } catch (error: unknown) {
-      console.warn('[SessionHistoryReplayer] persisted filter retirement failed', error);
+      this.logger.warn('SessionHistoryReplayer', 'persisted filter retirement failed', error);
     }
   }
 
@@ -333,25 +334,70 @@ export class SessionHistoryReplayer {
 
       const seed = this.seeds.get(claim.claim);
       const historyToolIds = this.historyIndexes.get(claim.claim)?.toolIds;
-      const seededSubagent = seed && typeof seed !== 'function' && seed.events.find((event) =>
-        event.eventType === 'agent_start' && event.parentToolUseId &&
-        historyToolIds?.has(event.parentToolUseId));
-      const historyState = seededSubagent
+      const seededSubagents = seed && typeof seed !== 'function'
+        ? seed.events.filter((event) =>
+            event.eventType === 'agent_start' && event.parentToolUseId &&
+            historyToolIds?.has(event.parentToolUseId))
+        : [];
+      const historyState = seededSubagents?.length
         ? this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab.streamingState
         : undefined;
       this.streamingHandler.finalizeSessionHistory(tabId, resumableSubagents);
-      if (seededSubagent && seededSubagent.eventType === 'agent_start') {
-        const parentToolId = seededSubagent.parentToolUseId;
-        const ownerMessageId = events.find((event) =>
-          event.eventType === 'tool_start' && event.toolCallId === parentToolId)?.messageId;
-        const ownerStart = events.find((event) =>
-          event.eventType === 'message_start' && event.messageId === ownerMessageId);
+      if (seededSubagents?.length) {
         const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
-        if (!ownerMessageId || !ownerStart || !historyState ||
-          !tab?.messages.some((message) => message.id === ownerStart.id)) {
-          console.warn('[SessionHistoryReplayer] seeded subagent history owner not found');
+        const tools = new Map(events.filter((event) => event.eventType === 'tool_start')
+          .map((event) => [event.toolCallId, event] as const));
+        const starts = new Map(events.filter((event) => event.eventType === 'message_start')
+          .map((event) => [event.messageId, event] as const));
+        const owners = new Set<string>();
+        for (const seeded of seededSubagents) {
+          if (seeded.eventType !== 'agent_start') continue;
+          let toolId: string | undefined = seeded.parentToolUseId;
+          const visited = new Set<string>();
+          let resolved = false;
+          while (toolId && !visited.has(toolId)) {
+            visited.add(toolId);
+            const start = starts.get(tools.get(toolId)?.messageId ?? '');
+            if (!start) break;
+            if (!start.parentToolUseId) {
+              if (tab?.messages.some((message) => message.id === start.id)) {
+                owners.add(start.messageId);
+                resolved = true;
+              }
+              break;
+            }
+            toolId = start.parentToolUseId;
+          }
+          if (!resolved) this.logger.warn('SessionHistoryReplayer',
+            'seeded subagent history owner not found', { parentToolUseId: seeded.parentToolUseId });
+        }
+        if (historyState && owners.size) {
+          const missingOwnerIds = [...owners].filter((id) => !historyState.messageEventIds.includes(id));
+          for (const id of missingOwnerIds) owners.delete(id);
+          if (!owners.size) this.logger.warn('SessionHistoryReplayer',
+            'seeded subagent history owners missing from message events', { tabId, ownerIds: missingOwnerIds });
+        }
+        if (!owners.size || !historyState || !tab) {
+          if (owners.size) this.logger.warn('SessionHistoryReplayer',
+            'seeded subagent history state not found');
         } else {
-          const messageIds = new Set([ownerMessageId]);
+          const messageIds = new Set(owners);
+          const ownerStarts = new Set([...starts.values()]
+            .filter((start) => owners.has(start.messageId)).map((start) => start.id));
+          const ownerPositions = historyState.messageEventIds
+            .flatMap((id, index) => owners.has(id) ? [index] : []);
+          const firstOwner = Math.min(...ownerPositions);
+          const lastOwner = Math.max(...ownerPositions);
+          for (const id of historyState.messageEventIds.slice(firstOwner + 1, lastOwner)) {
+            const start = starts.get(id);
+            if (start?.role === 'user' && !start.parentToolUseId) messageIds.add(id);
+          }
+          const resyncOwnerPredecessors = new Map<string, string | null>();
+          let predecessor: string | null = null;
+          for (const message of tab.messages) {
+            if (ownerStarts.has(message.id)) resyncOwnerPredecessors.set(message.id, predecessor);
+            else predecessor = message.id;
+          }
           const toolIds = new Set<string>();
           let changed = true;
           while (changed) {
@@ -371,9 +417,27 @@ export class SessionHistoryReplayer {
           }
           const belongs = (key: string): boolean => [...messageIds, ...toolIds].some(
             (id) => key === id || key.startsWith(`${id}-`));
+          const filteredEvents = new Map([...historyState.events]
+            .filter(([, event]) => messageIds.has(event.messageId)));
+          let latestTodo: Extract<(typeof events)[number], { eventType: 'tool_start' }> | undefined;
+          for (const event of filteredEvents.values()) {
+            if (event.eventType === 'tool_start' && event.toolName === 'TodoWrite' &&
+              !event.parentToolUseId && (!latestTodo || event.timestamp >= latestTodo.timestamp)) {
+              latestTodo = event;
+            }
+          }
+          const todoInput = latestTodo && historyState.latestTodoWrite?.toolCallId === latestTodo.toolCallId
+            ? historyState.latestTodoWrite.input : latestTodo?.toolInput;
+          const orderedOwners = historyState.messageEventIds.filter((id) => owners.has(id));
           const liveState = {
             ...historyState,
-            events: new Map([...historyState.events].filter(([, event]) => messageIds.has(event.messageId))),
+            resyncOwnerPredecessors,
+            events: filteredEvents,
+            latestTodoWrite: latestTodo ? {
+              toolCallId: latestTodo.toolCallId,
+              timestamp: latestTodo.timestamp,
+              ...(todoInput && Object.keys(todoInput).length ? { input: todoInput } : {}),
+            } : undefined,
             messageEventIds: historyState.messageEventIds.filter((id) => messageIds.has(id)),
             toolCallMap: new Map([...historyState.toolCallMap]
               .filter(([id]) => toolIds.has(id)).map(([id, ids]): [string, string[]] => [id, [...ids]])),
@@ -384,9 +448,9 @@ export class SessionHistoryReplayer {
               .filter(([key]) => belongs(key)).map(([key, blocks]): [string, (typeof blocks)[number][]] => [key, [...blocks]])),
             eventsByMessage: new Map([...historyState.eventsByMessage]
               .filter(([id]) => messageIds.has(id)).map(([id, entries]): [string, (typeof entries)[number][]] => [id, [...entries]])),
-            currentMessageId: ownerMessageId,
+            currentMessageId: orderedOwners.at(-1) ?? null,
           };
-          this.tabManager.setMessages(tabId, tab.messages.filter((message) => message.id !== ownerStart.id));
+          this.tabManager.setMessages(tabId, tab.messages.filter((message) => !ownerStarts.has(message.id)));
           this.tabManager.setStreamingState(tabId, liveState);
         }
       }

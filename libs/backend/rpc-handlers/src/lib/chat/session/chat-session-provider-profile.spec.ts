@@ -95,6 +95,7 @@ function emptyStream(): AsyncIterable<never> {
 
 interface Harness {
   service: ChatSessionService;
+  metadataGet: jest.Mock;
   resolve: jest.Mock;
   startChatSession: jest.Mock;
   resumeSession: jest.Mock;
@@ -103,6 +104,7 @@ interface Harness {
 
 function makeHarness(resolve: jest.Mock): Harness {
   const noop = jest.fn();
+  const metadataGet = jest.fn().mockResolvedValue(null);
   const startChatSession = jest.fn().mockResolvedValue(emptyStream());
   const resumeSession = jest.fn().mockResolvedValue(emptyStream());
   const executeSlashCommand = jest.fn().mockResolvedValue(emptyStream());
@@ -162,6 +164,11 @@ function makeHarness(resolve: jest.Mock): Harness {
     } as never,
     {
       resolveSessionFolder: jest.fn().mockResolvedValue(OPEN_FOLDER),
+      readForResume: jest.fn().mockResolvedValue({
+        resolvedWorkspacePath: OPEN_FOLDER,
+        events: [],
+        stats: null,
+      }),
     } as never,
     {
       restoreResumableBySession: jest.fn().mockReturnValue(0),
@@ -172,7 +179,7 @@ function makeHarness(resolve: jest.Mock): Harness {
       intercept: jest.fn().mockReturnValue({ action: 'passthrough' }),
     } as never,
     {
-      get: jest.fn().mockResolvedValue(null),
+      get: metadataGet,
       getCliSessionsForRestore: jest.fn().mockResolvedValue([]),
       saveResumeState: jest.fn().mockResolvedValue(undefined),
     } as never,
@@ -219,12 +226,23 @@ function makeHarness(resolve: jest.Mock): Harness {
 
   return {
     service,
+    metadataGet,
     resolve,
     startChatSession,
     resumeSession,
     executeSlashCommand,
   };
 }
+
+describe('chat:resume stored provider', () => {
+  it('returns metadata identity and leaves old sessions unknown', async () => {
+    const h = makeHarness(jest.fn().mockResolvedValue(GLOBAL_SNAPSHOT));
+    h.metadataGet.mockResolvedValueOnce({ providerId: 'openrouter' });
+    const params = { sessionId: SESSION_ID, tabId: TAB_ID, workspacePath: OPEN_FOLDER };
+    expect((await h.service.resumeSession(params)).providerId).toBe('openrouter');
+    expect((await h.service.resumeSession(params)).providerId).toBeUndefined();
+  });
+});
 
 const continueParams = (prompt: string) => ({
   prompt,

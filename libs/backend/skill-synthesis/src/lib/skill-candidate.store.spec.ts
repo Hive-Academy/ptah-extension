@@ -75,6 +75,7 @@ const SQL_0032 = MIGRATIONS.find((m) => m.version === 32)?.sql ?? '';
  * from the migration silently.
  */
 const SQL_0040 = MIGRATIONS.find((m) => m.version === 40)?.sql ?? '';
+const SQL_0055 = MIGRATIONS.find((m) => m.version === 55)?.sql ?? '';
 
 /**
  * `better-sqlite3` ships `transaction()`; `node:sqlite` does not. The store's
@@ -164,6 +165,7 @@ function createInMemoryDb(): SpecDb {
   db.exec(SQL_0037);
   db.exec(SQL_0032);
   db.exec(SQL_0040);
+  db.exec(SQL_0055);
   return db;
 }
 
@@ -605,6 +607,7 @@ describe('SkillCandidateStore', () => {
     };
 
     interface EventRow {
+      run_id: string | null;
       input_tokens: number | null;
       output_tokens: number | null;
       cache_read_tokens: number | null;
@@ -618,7 +621,7 @@ describe('SkillCandidateStore', () => {
     function readEvent(db: SpecDb, slug: string): EventRow {
       return db
         .prepare(
-          `SELECT input_tokens, output_tokens, cache_read_tokens,
+          `SELECT run_id, input_tokens, output_tokens, cache_read_tokens,
                   cache_creation_tokens, cost_usd, duration_ms, tool_count, task_id
            FROM skill_invocation_events WHERE skill_slug = ? LIMIT 1`,
         )
@@ -638,6 +641,7 @@ describe('SkillCandidateStore', () => {
         invokedAt: 1000,
         metrics: fullMetrics,
         taskId: 'TASK_2026_158',
+        runId: 'agent-a',
       });
 
       const row = readEvent(db, 'backend-developer');
@@ -649,6 +653,7 @@ describe('SkillCandidateStore', () => {
       expect(row.duration_ms).toBe(252000);
       expect(row.tool_count).toBe(23);
       expect(row.task_id).toBe('TASK_2026_158');
+      expect(row.run_id).toBe('agent-a');
     });
 
     maybe('writes NULL metric/task columns when they are absent', () => {
@@ -674,6 +679,7 @@ describe('SkillCandidateStore', () => {
       expect(row.duration_ms).toBeNull();
       expect(row.tool_count).toBeNull();
       expect(row.task_id).toBeNull();
+      expect(row.run_id).toBeNull();
       // Existing invocation counting is unaffected by the widened INSERT.
       expect(store.getInvocationStats('caveman').total).toBe(1);
     });

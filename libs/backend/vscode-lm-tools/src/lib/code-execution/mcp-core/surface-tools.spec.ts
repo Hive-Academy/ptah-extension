@@ -30,6 +30,7 @@ import {
   SURFACE_UPDATE_TOOL_NAME,
   buildSurfaceGetStateTool,
   buildSurfaceUpdateTool,
+  flattenOperationUnion,
   formatKiB,
 } from './surface-tools';
 import {
@@ -93,6 +94,57 @@ describe('surface tool definition growth guard', () => {
   it('pins the ceilings to the numbers written above', () => {
     expect(growthCeiling(SURFACE_UPDATE_MEASURED_CHARS)).toBe(73_080);
     expect(growthCeiling(SURFACE_GET_STATE_MEASURED_CHARS)).toBe(2_248);
+  });
+});
+
+describe('flattenOperationUnion', () => {
+  const branch = (
+    op: string,
+    properties: JsonObject,
+    required: string[],
+  ): JsonObject => ({
+    type: 'object',
+    properties: { op: { type: 'string', const: op }, ...properties },
+    required: ['op', ...required],
+    additionalProperties: false,
+  });
+  const schema = flattenOperationUnion(
+    {
+      oneOf: [
+        branch(
+          'a',
+          {
+            shared: { type: 'string' },
+            mixed: { type: 'number' },
+            onlyA: { type: 'string' },
+            optionalA: { type: 'string', description: 'Hint.' },
+          },
+          ['shared', 'mixed', 'onlyA'],
+        ),
+        branch('b', { shared: { type: 'string' }, mixed: { type: 'number' } }, [
+          'shared',
+        ]),
+      ],
+    },
+    'op',
+  );
+  const properties = schema.properties as Record<string, JsonObject>;
+
+  it('moves a field every branch requires into the top-level required list', () => {
+    expect(schema.required).toEqual(['op', 'shared']);
+    expect(properties['shared']).toEqual({ type: 'string' });
+  });
+
+  it('names required, optional and disallowed operations per field', () => {
+    expect(properties['onlyA']['description']).toBe(
+      'Required for op a; not allowed for any other op.',
+    );
+    expect(properties['optionalA']['description']).toBe(
+      'Hint. Optional for op a; not allowed for any other op.',
+    );
+    expect(properties['mixed']['description']).toBe(
+      'Required for op a; optional for op b.',
+    );
   });
 });
 
@@ -203,9 +255,7 @@ describe('ptah_surface_update definition', () => {
 
   it('quotes the literal v2 catalog version (TASK_2026_594 Task 6.2)', () => {
     expect(SURFACE_CATALOG_VERSION).toBe('dashboard-catalog/3');
-    expect(tool.description).toContain(
-      'catalogVersion: "dashboard-catalog/3"',
-    );
+    expect(tool.description).toContain('catalogVersion: "dashboard-catalog/3"');
   });
 
   it('states the staleness, anonymous and delivery-failure rules', () => {

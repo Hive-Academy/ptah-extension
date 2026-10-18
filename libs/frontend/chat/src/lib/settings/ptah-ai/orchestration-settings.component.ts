@@ -21,21 +21,19 @@ import { SubagentCacheTtlSettingComponent } from './subagent-cache-ttl-setting.c
 import { SessionBudgetSettingsComponent } from './session-budget-settings.component';
 import { LaneGuardsSettingsComponent } from './lane-guards-settings.component';
 import { ProviderConsumerAssignmentsComponent } from '../providers/provider-consumer-assignments.component';
-import type { BackgroundConsumerId } from '../providers/provider-consumer-rows';
+import {
+  BACKGROUND_ROLE_IDS,
+  PROVIDER_CONSUMER_IDS,
+  type ProviderConsumerId,
+} from '../providers/provider-consumer-rows';
 import { AdvancedSettingsGroupComponent } from '../advanced/advanced-settings-group.component';
 
-/** Deep-link sections the Orchestration tab owns (plan Component 10). */
+/**
+ * Deep-link sections the Orchestration tab owns (plan Component 10). The Decision model row has no deep link (core's
+ * `PendingSettingsTab.section` names none); `background-models` reaches it.
+ */
 export type OrchestrationSettingsFocusTarget =
-  'background-models' | 'cli-agents' | BackgroundConsumerId;
-
-const BACKGROUND_CONSUMERS: readonly BackgroundConsumerId[] = [
-  'memory-curator',
-  'archaeologist',
-  'synthesis',
-  'judge',
-  'replay',
-  'judging-enhancement',
-];
+  'background-models' | 'cli-agents' | ProviderConsumerId;
 
 const CONTROL =
   'btn btn-outline btn-sm min-h-9 min-w-6 border-base-content-muted bg-base-100 text-base-content hover:bg-base-100 hover:text-base-content hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
@@ -148,8 +146,8 @@ const FOCUS =
             <span
               class="ml-auto hidden min-w-0 truncate text-xs text-base-content-muted sm:block"
               data-testid="background-roles-list"
-              >Memory curator, archaeologist, synthesis, judge, replay,
-              judging</span
+              >Memory curator, archaeologist, synthesis, judge, replay, judging,
+              decision</span
             >
           </summary>
           <section
@@ -250,14 +248,16 @@ export class OrchestrationSettingsComponent implements OnInit {
   protected readonly control = CONTROL;
   protected readonly focusRing = FOCUS;
   protected readonly ChevronIcon = ChevronRight;
-  protected readonly roleCount = BACKGROUND_CONSUMERS.length;
+  protected readonly roleCount = BACKGROUND_ROLE_IDS.length;
   protected readonly saving = computed(
     () => this.state.commit().status === 'saving',
   );
-  protected readonly consumerTarget = computed(() => {
-    const target = this.focusTarget();
-    return BACKGROUND_CONSUMERS.find((id) => id === target) ?? null;
-  });
+  protected readonly consumerTarget = computed<ProviderConsumerId | null>(
+    () => {
+      const target = this.focusTarget();
+      return PROVIDER_CONSUMER_IDS.find((id) => id === target) ?? null;
+    },
+  );
   protected readonly readStates = computed(() => [
     {
       id: 'cli',
@@ -288,7 +288,7 @@ export class OrchestrationSettingsComponent implements OnInit {
   );
   private focusedTarget: OrchestrationSettingsFocusTarget | null = null;
   /** The role whose popover the roles table opened for the current deep link. */
-  private openedRole: BackgroundConsumerId | null = null;
+  private openedRole: ProviderConsumerId | null = null;
 
   constructor() {
     afterRenderEffect(() => {
@@ -312,7 +312,7 @@ export class OrchestrationSettingsComponent implements OnInit {
   }
 
   /** The roles table opened the deep-linked role's popover (it may land before or after the section focus). */
-  protected onRoleOpened(id: BackgroundConsumerId): void {
+  protected onRoleOpened(id: ProviderConsumerId): void {
     this.openedRole = id;
     this.consumeWhenApplied();
   }

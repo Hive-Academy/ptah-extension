@@ -18,6 +18,7 @@
 
 import 'reflect-metadata';
 
+import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { container as rootContainer } from 'tsyringe';
@@ -30,19 +31,37 @@ import {
   type Logger,
 } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import { CLI_AGENT_RUNTIME_TOKENS } from '@ptah-extension/cli-agent-runtime';
+import {
+  LANE_ROUTING_TOKENS,
+  registerLaneRoutingServices,
+} from '@ptah-extension/lane-routing';
+import {
+  KeyValueLaneOutcomeStore,
+  LANE_OUTCOME_TOKENS,
+  registerLaneOutcomeServices,
+} from '@ptah-extension/lane-outcomes';
+import { registerSdkServices, SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import { OUTPUT_STYLE_TOKENS } from '@ptah-extension/output-styles';
 import {
+  AgentRpcHandlers,
   AuthRpcHandlers,
+  DecisionModelCatalogRpcHandlers,
   SetupRpcHandlers,
   registerSharedRpcHandlers,
   resolveRpcHandlerPlan,
 } from '@ptah-extension/rpc-handlers';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 
-import { EXPECTED_RESOLVABLE } from './expected-resolvable';
+import {
+  DECISION_MODEL_CATALOG_TOKEN,
+  DECISION_MODEL_CONFIG_TOKEN,
+  EXPECTED_RESOLVABLE,
+  LANE_MODEL_LISTING_TOKEN,
+  STRUCTURED_DECISION_TOKEN,
+} from './expected-resolvable';
 import {
   EXPECTED_ABSENT_CAPABILITIES,
   EXPECTED_ABSENT_HANDLERS,
@@ -118,6 +137,7 @@ function buildMinimalContainer(): DependencyContainer {
     useValue: {
       getWorkspaceFolders: jest.fn(() => []),
       getConfiguration: jest.fn(() => ({ get: jest.fn() })),
+      onDidChangeConfiguration: jest.fn(() => ({ dispose: jest.fn() })),
       onDidChangeWorkspaceFolders: jest.fn(() => ({ dispose: jest.fn() })),
     },
   });
@@ -178,9 +198,12 @@ function buildMinimalContainer(): DependencyContainer {
   // graph is covered by auth-providers' registration regression test.
   c.registerInstance(SETTINGS_TOKENS.WORKSPACE_SCOPE_RESOLVER, {});
   c.registerInstance(SDK_TOKENS.SDK_AGENT_ADAPTER, {});
-  c.register<Pick<AuthRpcHandlers, 'invalidateAuthStatusCache'>>(AuthRpcHandlers, {
-    useValue: { invalidateAuthStatusCache: jest.fn() },
-  });
+  c.register<Pick<AuthRpcHandlers, 'invalidateAuthStatusCache'>>(
+    AuthRpcHandlers,
+    {
+      useValue: { invalidateAuthStatusCache: jest.fn() },
+    },
+  );
 
   registerSharedRpcHandlers(c);
   return c;
@@ -203,6 +226,223 @@ describe('VS Code DI — shared RPC handler resolution', () => {
       instance = c.resolve(token);
     }).not.toThrow();
     expect(instance).toBeDefined();
+  });
+});
+
+/** Stubs the lane-listing constructor deps this container does not bind. */
+function registerLaneModelListingFixtures(c: DependencyContainer): void {
+  if (!c.isRegistered(TOKENS.CLI_DETECTION_SERVICE)) {
+    c.register(TOKENS.CLI_DETECTION_SERVICE, { useValue: {} });
+  }
+  if (!c.isRegistered(AUTH_PROVIDERS_TOKENS.SDK_CODEX_AUTH)) {
+    c.register(AUTH_PROVIDERS_TOKENS.SDK_CODEX_AUTH, { useValue: {} });
+  }
+  if (!c.isRegistered(AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH)) {
+    c.register(AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH, { useValue: {} });
+  }
+  if (!c.isRegistered(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_MODELS)) {
+    c.register(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_MODELS, { useValue: {} });
+  }
+  const persistence = Symbol.for('SdkPtahCliConfigPersistence');
+  if (!c.isRegistered(persistence)) {
+    c.register(persistence, { useValue: {} });
+  }
+}
+
+describe('VS Code DI — lane model listing', () => {
+  it('resolves LANE_MODEL_LISTING as one singleton', () => {
+    const c = buildMinimalContainer();
+    registerLaneModelListingFixtures(c);
+
+    const first: unknown = c.resolve(LANE_MODEL_LISTING_TOKEN);
+
+    expect(first).toBeDefined();
+    expect(c.resolve(LANE_MODEL_LISTING_TOKEN)).toBe(first);
+  });
+});
+
+describe('VS Code DI — structured decision', () => {
+  it('resolves STRUCTURED_DECISION as one singleton', () => {
+    const c = buildMinimalContainer();
+    const logger = c.resolve<Logger>(TOKENS.LOGGER);
+    // `registerSdkServices` eagerly builds ConfigWatcher, which subscribes.
+    c.register(TOKENS.CONFIG_MANAGER, {
+      useValue: {
+        get: jest.fn(() => undefined),
+        set: jest.fn(async () => undefined),
+        watch: jest.fn(() => ({ dispose: jest.fn() })),
+      },
+    });
+    c.register(PLATFORM_TOKENS.SECRET_STORAGE, {
+      useValue: {
+        get: jest.fn(async () => undefined),
+        store: jest.fn(async () => undefined),
+        delete: jest.fn(async () => undefined),
+        onDidChange: jest.fn(() => ({ dispose: jest.fn() })),
+      },
+    });
+    registerSdkServices(c, logger);
+    const idleCompaction = c.resolve(SDK_TOKENS.SDK_IDLE_COMPACTION);
+    expect(c.resolve(SDK_TOKENS.SDK_IDLE_COMPACTION)).toBe(idleCompaction);
+    // The real service pulls SdkQueryRunner. The registration under test is
+    // the structured-decision token; the query collaborator stays a stub.
+    c.register(SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE, {
+      useValue: { execute: () => Promise.reject(new Error('unused')) },
+    });
+
+    const first: unknown = c.resolve(STRUCTURED_DECISION_TOKEN);
+
+    expect(first).toBeDefined();
+    expect(c.resolve(STRUCTURED_DECISION_TOKEN)).toBe(first);
+  });
+});
+
+/** Stubs AgentRpcHandlers deps this container does not bind. */
+function registerAgentHandlerFixtures(c: DependencyContainer): void {
+  if (!c.isRegistered(PLATFORM_TOKENS.STATE_STORAGE)) {
+    c.register(PLATFORM_TOKENS.STATE_STORAGE, {
+      useValue: {
+        get: jest.fn(() => undefined),
+        update: jest.fn(async () => undefined),
+        keys: jest.fn(() => []),
+      },
+    });
+  }
+  if (!c.isRegistered(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)) {
+    c.register(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, { useValue: {} });
+  }
+  if (!c.isRegistered(PLATFORM_TOKENS.PLATFORM_INFO)) {
+    c.register(PLATFORM_TOKENS.PLATFORM_INFO, { useValue: {} });
+  }
+  if (!c.isRegistered(CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY)) {
+    c.register(CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_REGISTRY, {
+      useValue: {},
+    });
+  }
+  if (!c.isRegistered(TOKENS.AGENT_PROCESS_MANAGER)) {
+    c.register(TOKENS.AGENT_PROCESS_MANAGER, { useValue: {} });
+  }
+  if (!c.isRegistered(SDK_TOKENS.SDK_SESSION_METADATA_STORE)) {
+    c.register(SDK_TOKENS.SDK_SESSION_METADATA_STORE, { useValue: {} });
+  }
+  registerLaneModelListingFixtures(c);
+}
+
+describe('VS Code DI — decision model config (TL-59)', () => {
+  it('registers lane routing once, before vscode-lm-tools and the RPC surface', () => {
+    const phase2 = fs.readFileSync(
+      path.join(__dirname, 'phase-2-libraries.ts'),
+      'utf8',
+    );
+    const lane = phase2.indexOf(
+      'registerLaneRoutingServices(container, logger);',
+    );
+    const lmTools = phase2.indexOf(
+      'registerVsCodeLmToolsServices(container, logger);',
+    );
+
+    expect(phase2.match(/registerLaneRoutingServices\(/g)).toHaveLength(1);
+    expect(lane).toBeGreaterThan(-1);
+    expect(lane).toBeLessThan(lmTools);
+
+    const bootstrap = fs.readFileSync(
+      path.join(__dirname, '../activation/bootstrap.ts'),
+      'utf8',
+    );
+    expect(bootstrap.indexOf('DIContainer.setup(context)')).toBeLessThan(
+      bootstrap.indexOf('registerRpcSurface('),
+    );
+  });
+
+  it('resolves DECISION_MODEL_CONFIG and AgentRpcHandlers', () => {
+    const c = buildMinimalContainer();
+    registerAgentHandlerFixtures(c);
+    registerLaneRoutingServices(c, c.resolve<Logger>(TOKENS.LOGGER));
+
+    expect(DECISION_MODEL_CONFIG_TOKEN).toBe(
+      LANE_ROUTING_TOKENS.DECISION_MODEL_CONFIG,
+    );
+    const config: unknown = c.resolve(
+      LANE_ROUTING_TOKENS.DECISION_MODEL_CONFIG,
+    );
+    expect(config).toBeDefined();
+    expect(c.resolve(LANE_ROUTING_TOKENS.DECISION_MODEL_CONFIG)).toBe(config);
+
+    const handlers = c.resolve(AgentRpcHandlers);
+    expect(handlers).toBeInstanceOf(AgentRpcHandlers);
+  });
+
+  it('resolves DECISION_MODEL_CATALOG and DecisionModelCatalogRpcHandlers', () => {
+    const c = buildMinimalContainer();
+    registerAgentHandlerFixtures(c);
+    registerLaneRoutingServices(c, c.resolve<Logger>(TOKENS.LOGGER));
+
+    expect(DECISION_MODEL_CATALOG_TOKEN).toBe(
+      LANE_ROUTING_TOKENS.DECISION_MODEL_CATALOG,
+    );
+    const catalog: unknown = c.resolve(DECISION_MODEL_CATALOG_TOKEN);
+    expect(catalog).toBeDefined();
+    expect(c.resolve(DECISION_MODEL_CATALOG_TOKEN)).toBe(catalog);
+
+    const handlers = c.resolve(DecisionModelCatalogRpcHandlers);
+    expect(handlers).toBeInstanceOf(DecisionModelCatalogRpcHandlers);
+  });
+});
+
+describe('VS Code DI — lane outcomes', () => {
+  it('registers outcomes once before CLI runtime and aliases after both libraries', () => {
+    const source = fs.readFileSync(
+      path.join(__dirname, 'phase-2-libraries.ts'),
+      'utf8',
+    );
+    const routing = source.indexOf(
+      'registerLaneRoutingServices(container, logger);',
+    );
+    const outcomes = source.indexOf(
+      'registerLaneOutcomeServices(container, logger);',
+    );
+    const runtime = source.indexOf(
+      'registerCliAgentRuntimeServices(container, logger);',
+    );
+    const reader = source.indexOf('useToken: LANE_OUTCOME_TOKENS.READER');
+    const classifier = source.indexOf(
+      'useToken: LANE_ROUTING_TOKENS.FAILURE_CLASSIFIER',
+    );
+    expect(source.match(/registerLaneOutcomeServices\(/g)).toHaveLength(1);
+    expect(routing).toBeGreaterThan(-1);
+    expect(outcomes).toBeGreaterThan(routing);
+    expect(outcomes).toBeLessThan(runtime);
+    expect(reader).toBeGreaterThan(outcomes);
+    expect(classifier).toBeGreaterThan(outcomes);
+  });
+
+  it('resolves both aliases and the durable VS Code store', () => {
+    const c = buildMinimalContainer();
+    const state = {
+      get: jest.fn(() => undefined),
+      update: jest.fn(async () => undefined),
+      keys: jest.fn(() => []),
+    };
+    c.register(PLATFORM_TOKENS.STATE_STORAGE, { useValue: state });
+    const logger = c.resolve<Logger>(TOKENS.LOGGER);
+    registerLaneRoutingServices(c, logger);
+    registerLaneOutcomeServices(c, logger);
+    c.register(LANE_ROUTING_TOKENS.LANE_OUTCOME_READER, {
+      useToken: LANE_OUTCOME_TOKENS.READER,
+    });
+    c.register(LANE_OUTCOME_TOKENS.FAILURE_CLASSIFIER, {
+      useToken: LANE_ROUTING_TOKENS.FAILURE_CLASSIFIER,
+    });
+    expect(c.resolve(LANE_ROUTING_TOKENS.LANE_OUTCOME_READER)).toBe(
+      c.resolve(LANE_OUTCOME_TOKENS.READER),
+    );
+    expect(c.resolve(LANE_OUTCOME_TOKENS.FAILURE_CLASSIFIER)).toBe(
+      c.resolve(LANE_ROUTING_TOKENS.FAILURE_CLASSIFIER),
+    );
+    expect(c.resolve(LANE_OUTCOME_TOKENS.STORE)).toBeInstanceOf(
+      KeyValueLaneOutcomeStore,
+    );
+    expect(state.get).toHaveBeenCalled();
   });
 });
 

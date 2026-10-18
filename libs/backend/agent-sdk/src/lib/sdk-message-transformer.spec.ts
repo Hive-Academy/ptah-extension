@@ -29,6 +29,7 @@ import { SdkMessageTransformer } from './sdk-message-transformer';
 import { LiveUsageTracker } from './helpers/live-usage-tracker';
 import { SessionTurnStateRegistry } from './helpers/session-turn-state.registry';
 import { CompactionBoundaryGenerationRegistry } from './helpers/compaction-boundary-generation-registry';
+import { SubagentStopNotices } from './helpers/compaction/subagent-stop-notices';
 
 // ---------------------------------------------------------------------------
 // Typed mock helpers
@@ -132,6 +133,7 @@ describe('SdkMessageTransformer — compact_boundary (TASK_2026_109)', () => {
       new LiveUsageTracker(),
       new SessionTurnStateRegistry(),
       new CompactionBoundaryGenerationRegistry(),
+      new SubagentStopNotices(),
     );
   }
 
@@ -221,6 +223,7 @@ describe('SdkMessageTransformer — compact_boundary (TASK_2026_109)', () => {
       new LiveUsageTracker(),
       new SessionTurnStateRegistry(),
       boundaryRegistry,
+      new SubagentStopNotices(),
     );
 
     const events = localTransformer.transform(
@@ -280,6 +283,7 @@ describe('SdkMessageTransformer — task_started (Fix 1 + Fix 2)', () => {
       new LiveUsageTracker(),
       new SessionTurnStateRegistry(),
       new CompactionBoundaryGenerationRegistry(),
+      new SubagentStopNotices(),
     );
   }
 
@@ -379,6 +383,65 @@ describe('SdkMessageTransformer — task_started (Fix 1 + Fix 2)', () => {
   });
 });
 
+describe('SdkMessageTransformer — stopped task notices', () => {
+  it.each([
+    {
+      recorded: true,
+      expected: 'Ptah stopped `Explore`: The user did not stop it.',
+    },
+    { recorded: false, expected: 'Agent "Explore" was stopped by user' },
+  ])(
+    'uses the $recorded notice through transform',
+    ({ recorded, expected }) => {
+      const notices = new SubagentStopNotices();
+      if (recorded) {
+        notices.record('sess-stop', 'task-stop', expected);
+      }
+      const transformer = new SdkMessageTransformer(
+        makeLogger(),
+        makeAuthEnv(),
+        makeFullSubagentRegistry() as never,
+        makeModelResolver() as never,
+        makeSessionLifecycle(['sess-stop']) as never,
+        new LiveUsageTracker(),
+        new SessionTurnStateRegistry(),
+        new CompactionBoundaryGenerationRegistry(),
+        notices,
+      );
+
+      transformer.transform(
+        makeTaskStarted({
+          taskId: 'task-stop',
+          toolUseId: 'tool-stop',
+          sessionId: 'sess-stop',
+        }) as never,
+        'sess-stop' as never,
+      );
+      const events = transformer.transform(
+        {
+          type: 'system',
+          subtype: 'task_notification',
+          task_id: 'task-stop',
+          tool_use_id: 'tool-stop',
+          session_id: 'sess-stop',
+          status: 'stopped',
+          summary: 'Agent "Explore" was stopped by user',
+        } as never,
+        'sess-stop' as never,
+      );
+
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            eventType: 'agent_completed',
+            summary: expected,
+          }),
+        ]),
+      );
+    },
+  );
+});
+
 // ---------------------------------------------------------------------------
 // Workflow run correlation (watch-running-workflows backend slice)
 //
@@ -472,6 +535,7 @@ describe('SdkMessageTransformer — workflow run correlation', () => {
       new LiveUsageTracker(),
       new SessionTurnStateRegistry(),
       new CompactionBoundaryGenerationRegistry(),
+      new SubagentStopNotices(),
     );
   }
 
@@ -593,6 +657,7 @@ describe('SdkMessageTransformer — session id falls back to the SDK payload (TA
       new LiveUsageTracker(),
       new SessionTurnStateRegistry(),
       new CompactionBoundaryGenerationRegistry(),
+      new SubagentStopNotices(),
     );
   }
 
@@ -668,6 +733,7 @@ describe('SdkMessageTransformer — per-session isolation (TASK_2026_370)', () =
       new LiveUsageTracker(),
       new SessionTurnStateRegistry(),
       new CompactionBoundaryGenerationRegistry(),
+      new SubagentStopNotices(),
     );
   }
 

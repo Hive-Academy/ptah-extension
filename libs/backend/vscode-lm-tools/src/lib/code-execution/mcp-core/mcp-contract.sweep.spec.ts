@@ -1359,6 +1359,10 @@ const BELOW_OUTLINE_CAP_DRIVERS: Readonly<Record<string, ToolDriver>> = {
  * these, so a new tool can never be skipped silently).
  */
 const CONTROL_TOOL_EXCEPTIONS: Readonly<Record<string, string>> = {
+  ptah_route_decide:
+    'routing service: covered with focused handler and namespace specs; the generic oversized reply fixture cannot fake the injected routing service',
+  ptah_outcome_report:
+    'small recorder acknowledgement: covered with focused runner specs; the generic oversized reply fixture does not apply',
   approval_prompt:
     'control/UI: answers the host permission prompt with an allow/deny decision; it never returns model-facing content to budget',
   ptah_run_check:
@@ -1488,6 +1492,9 @@ const PINNED_BUDGET_OVERRIDES: Readonly<
   // TASK_2026_584 F2: the default 32 KiB transcript tail + the 8,000-char
   // default for the header and held-completion block; tokens at 4 chars/token.
   ptah_session_read: { chars: 40_768, tokens: 10_192 },
+  // TASK_2026_646: a 100-phase (schema maximum) route result; tokens at
+  // 2.5 chars/token, because score-heavy roster JSON is token-dense (N-1).
+  ptah_route_decide: { chars: 64_000, tokens: 25_600 },
   // The surface catalog's `maxStateReadBytes` (548 KiB); tokens at 4 chars/token.
   ptah_surface_get_state: { chars: 561_152, tokens: 140_288 },
 };
@@ -1517,6 +1524,8 @@ const PINNED_PREFORMATTED_TOOLS: ReadonlySet<string> = new Set([
   'ptah_session_read',
   'ptah_session_stop',
   'ptah_session_handoff',
+  'ptah_route_decide',
+  'ptah_outcome_report',
   'ptah_task_list',
 ]);
 
@@ -1913,7 +1922,7 @@ describe('coverage matrix — served tools across host, caller and transport (de
     // drops the 3 Apps-only tools (TASK_2026_595). +3: agent_wait,
     // run_check and HTTP-only run_check_wait. +1: ptah_session_handoff,
     // always-on (TASK_2026_655).
-    expect(namesPerCaller[0]).toHaveLength(63);
+    expect(namesPerCaller[0]).toHaveLength(65);
   });
 
   it('HTTP coding without IDE capabilities serves 59 tools, identically across caller kinds, minus exactly the 3 IDE-gated tools', async () => {
@@ -1939,7 +1948,7 @@ describe('coverage matrix — served tools across host, caller and transport (de
     }
     // 63 in total minus the 3 IDE-gated tools; see the note above
     // (TASK_2026_655: +1, ptah_session_handoff).
-    expect(namesPerCaller[0]).toHaveLength(60);
+    expect(namesPerCaller[0]).toHaveLength(62);
     for (const ideOnly of [
       'ptah_lsp_references',
       'ptah_lsp_definitions',
@@ -1978,7 +1987,7 @@ describe('coverage matrix — served tools across host, caller and transport (de
           ),
         );
         // TASK_2026_655: +1, ptah_session_handoff (always-on).
-        expect(apps).toHaveLength(hasIDECapabilities ? 66 : 63);
+        expect(apps).toHaveLength(hasIDECapabilities ? 68 : 65);
         expect(apps.filter((name) => !APPS_ONLY_TOOL_NAMES.has(name))).toEqual(
           coding,
         );
@@ -2015,7 +2024,7 @@ describe('coverage matrix — served tools across host, caller and transport (de
     },
   );
 
-  it('the stdio MCP server advertises exactly its 10 documented tool names', () => {
+  it('the stdio MCP server advertises exactly its 12 documented tool names', () => {
     expect([...MCP_MVP_TOOL_NAMES]).toEqual([
       'agent_spawn',
       'agent_status',
@@ -2026,12 +2035,14 @@ describe('coverage matrix — served tools across host, caller and transport (de
       'agent_list',
       'agent_wait',
       'run_check',
+      'route_decide',
+      'outcome_report',
       'session_submit',
     ]);
-    // `AgentToolDispatcher` owns 9 of the 10; `session_submit` is dispatched
+    // `AgentToolDispatcher` owns 11 of the 12; `session_submit` is dispatched
     // elsewhere (a composite harness trigger, not this contract's concern —
     // see the stdio describe block below).
-    expect(AgentToolDispatcher.TOOL_NAMES).toHaveLength(9);
+    expect(AgentToolDispatcher.TOOL_NAMES).toHaveLength(11);
     expect(AgentToolDispatcher.TOOL_NAMES).not.toContain('session_submit');
   });
 });
@@ -2421,6 +2432,8 @@ describe('MCP dispatcher contract sweep (TASK_2026_559 Batch 21, Task 21.1)', ()
       ptah_session_stop: 313,
       // TASK_2026_655, measured 2026-10-14: 685 chars; ceil(685 * 1.1) + 10.
       ptah_session_handoff: 764,
+      ptah_route_decide: 1_000,
+      ptah_outcome_report: 1_000,
       // TASK_2026_597 Batch 34, measured 2026-10-04: 498 and 491 chars.
       ptah_agent_wait: 548,
       ptah_run_check: 540,
@@ -3021,7 +3034,7 @@ describe('stdio MCP server tools (TASK_2026_559 Batch 21 r2: real served-catalog
     };
   }
 
-  it('the real served catalog is exactly the 10 documented tool names', () => {
+  it('the real served catalog is exactly the 12 documented tool names', () => {
     const service = buildService({});
     const res = service.handleToolsList(callRequest('list'));
     const names = (res.result as { tools: Array<{ name: string }> }).tools.map(
@@ -3037,6 +3050,8 @@ describe('stdio MCP server tools (TASK_2026_559 Batch 21 r2: real served-catalog
       'agent_list',
       'agent_wait',
       'run_check',
+      'route_decide',
+      'outcome_report',
       'session_submit',
     ]);
   });

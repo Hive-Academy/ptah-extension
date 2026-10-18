@@ -62,6 +62,8 @@ export {
   type SubagentResumeAdviceInput,
 } from './compaction/subagent-resume-advice';
 export { CompactionCallbackRegistry } from './compaction-callback-registry';
+export type { ManualCompactAdmission } from './compaction/manual-compact-admission.types';
+export type { ManualCompactDecision } from './compaction/compaction-state.types';
 export { CompactionBoundaryGenerationRegistry } from './compaction-boundary-generation-registry';
 export {
   SessionTurnStateRegistry,

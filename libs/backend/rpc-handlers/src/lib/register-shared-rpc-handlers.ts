@@ -13,6 +13,8 @@
 import type { DependencyContainer } from 'tsyringe';
 
 import {
+  AgentOutcomeRpcHandlers,
+  DecisionModelCatalogRpcHandlers,
   SetupRpcHandlers,
   WizardGenerationRpcHandlers,
   EnhancedPromptsRpcHandlers,
@@ -21,8 +23,10 @@ import {
   GitChangeSetRpcHandlers,
   PlanLimitsBroadcaster,
 } from './handlers';
+import { LANE_ROUTING_TOKENS } from '@ptah-extension/lane-routing';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { CliModelListService } from './services/cli-model-list.service';
+import { LaneModelListingAdapter } from './services/lane-model-listing.adapter';
 import { PlanLimitsSnapshotService } from './services/plan-limits-snapshot.service';
 import { ConnectionCheckRecorder } from './utils/connection-check-recorder';
 import { TurnChangeSetRecorder } from './chat/change-set/turn-change-set-recorder.service';
@@ -42,7 +46,10 @@ import { GenerationRunSupervisor } from './handlers/wizard-generation-run.superv
  * WORKSPACE_PROVIDER, SENTRY_SERVICE, PLATFORM_COMMANDS,
  * SDK_ENHANCED_PROMPTS_SERVICE, LICENSE_SERVICE, SAVE_DIALOG_PROVIDER,
  * WORKSPACE_STATE_STORAGE and PLATFORM_TOKENS.DI_CONTAINER) have been
- * registered.
+ * registered. The lane model listing adapter also needs
+ * AUTH_SECRETS_SERVICE, AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_MODELS and
+ * CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_CONFIG_PERSISTENCE. Every host
+ * registers those before this function runs.
  *
  * Note: this does NOT eagerly resolve the two listeners. Both require
  * `TOKENS.WEBVIEW_MANAGER`, which is registered at different points in each
@@ -57,6 +64,10 @@ export function registerSharedRpcHandlers(
   container.registerSingleton(CliModelListService);
   container.registerSingleton(GuidanceGenerationRunSupervisor);
   container.registerSingleton(GenerationRunSupervisor);
+  container.registerSingleton(
+    LANE_ROUTING_TOKENS.LANE_MODEL_LISTING,
+    LaneModelListingAdapter,
+  );
   container.registerSingleton(SetupRpcHandlers);
   container.registerSingleton(WizardGenerationRpcHandlers);
   container.registerSingleton(EnhancedPromptsRpcHandlers);
@@ -73,6 +84,12 @@ export function registerSharedRpcHandlers(
   // `provider:getPlanLimits` (whose last scope it remembers) and the push.
   container.registerSingleton(PlanLimitsSnapshotService);
   container.registerSingleton(PlanLimitsBroadcaster);
+  // Outcome signals (TASK_2026_646 B7). The reader token is not injected:
+  // hosts register it in a later batch, and this class resolves it per call.
+  container.registerSingleton(AgentOutcomeRpcHandlers);
+  // Decision-model picker (TASK_2026_684, C10). The catalog is registered by
+  // `registerLaneRoutingServices`; it makes no request until a call.
+  container.registerSingleton(DecisionModelCatalogRpcHandlers);
 }
 
 /**

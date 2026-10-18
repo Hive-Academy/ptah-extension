@@ -49,7 +49,8 @@ import {
  *
  * Appending every new message after the existing ones moved the part of the
  * turn that ran BEFORE the prompt below it the moment the turn settled.
- * Without an anchor this is the plain append. Existing assistant ids are not
+ * Without an anchor ordinary turns append. A repaired resync owner uses its
+ * recorded frozen predecessor in either branch. Existing assistant ids are not
  * anchors: a reused state can still hold an earlier turn's root, and anchoring
  * on it would pull a later idle-sent prompt below this turn.
  */
@@ -77,20 +78,38 @@ function placeFinalizedTrees(
     if (isPrompt) firstAnchor ??= message;
     rootOrder.push(message);
   }
-  if (!firstAnchor) return [...existing, ...newMessages];
-
-  const anchorIndex = existing.indexOf(firstAnchor);
-  const placed = existing.slice(0, anchorIndex);
-  const placedIds = new Set(placed.map((m) => m.id));
-  // A new message whose node matched no root still belongs to this turn;
-  // appending it is better than losing it.
-  for (const message of [...rootOrder, ...newMessages]) {
-    if (placedIds.has(message.id)) continue;
-    placed.push(message);
-    placedIds.add(message.id);
+  let placed: ExecutionChatMessage[];
+  if (!firstAnchor) {
+    placed = [...existing, ...newMessages];
+  } else {
+    const anchorIndex = existing.indexOf(firstAnchor);
+    placed = existing.slice(0, anchorIndex);
+    const placedIds = new Set(placed.map((m) => m.id));
+    // A new message whose node matched no root still belongs to this turn.
+    for (const message of [...rootOrder, ...newMessages]) {
+      if (placedIds.has(message.id)) continue;
+      placed.push(message);
+      placedIds.add(message.id);
+    }
+    for (const message of existing.slice(anchorIndex)) {
+      if (!placedIds.has(message.id)) placed.push(message);
+    }
   }
-  for (const message of existing.slice(anchorIndex)) {
-    if (!placedIds.has(message.id)) placed.push(message);
+  const insertedOwners = new Set<string>();
+  for (const message of newMessages) {
+    const predecessor = state.resyncOwnerPredecessors?.get(message.id);
+    if (predecessor === undefined) continue;
+    const currentIndex = placed.findIndex((candidate) => candidate.id === message.id);
+    if (currentIndex < 0) continue;
+    const predecessorIndex = predecessor === null ? -1
+      : placed.findIndex((candidate) => candidate.id === predecessor);
+    if (predecessor !== null && predecessorIndex < 0) continue;
+    placed.splice(currentIndex, 1);
+    let insertionIndex = predecessor === null ? 0
+      : placed.findIndex((candidate) => candidate.id === predecessor) + 1;
+    while (placed[insertionIndex] && insertedOwners.has(placed[insertionIndex].id)) insertionIndex++;
+    placed.splice(insertionIndex, 0, message);
+    insertedOwners.add(message.id);
   }
   return placed;
 }
@@ -331,6 +350,12 @@ export class MessageFinalizationService {
    */
   deepCopyStreamingState(state: StreamingState): StreamingState {
     return {
+      resyncOwnerPredecessors: state.resyncOwnerPredecessors
+        ? new Map(state.resyncOwnerPredecessors) : undefined,
+      latestTodoWrite: state.latestTodoWrite
+        ? { ...state.latestTodoWrite, input: state.latestTodoWrite.input
+          ? { ...state.latestTodoWrite.input } : undefined }
+        : undefined,
       events: new Map(state.events),
       messageEventIds: [...state.messageEventIds],
       toolCallMap: new Map(

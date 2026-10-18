@@ -142,6 +142,9 @@ function buildTestContainer(): DependencyContainer {
   c.register(SDK_TOKENS.SDK_TOOL_OUTPUT_CAPPER, {
     useValue: { cap: jest.fn() },
   });
+  c.register(TOKENS.SUBAGENT_REGISTRY_SERVICE, {
+    useValue: { get: jest.fn() },
+  });
   c.register(
     SDK_TOKENS.SDK_POST_TOOL_USE_HOOK_HANDLER,
     {

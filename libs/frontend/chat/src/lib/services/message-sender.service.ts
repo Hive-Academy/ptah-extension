@@ -41,6 +41,8 @@ import {
   TabId,
   TabManagerService,
   TabSessionBinding,
+  CommandCenterSendLockService,
+  commandCenterPersonaFor,
 } from '@ptah-extension/chat-state';
 import {
   SessionManager,
@@ -93,6 +95,14 @@ export class MessageSenderService {
   private readonly tabSessionBinding = inject(TabSessionBinding);
   private readonly authState = inject(AuthStateService);
   private readonly ultracode = inject(UltracodeStateService);
+  private readonly sendLock = inject(CommandCenterSendLockService);
+
+  private isHeld(
+    options?: SendMessageOptions & { ownerToken?: string },
+  ): boolean {
+    const tabId = options?.tabId ?? this.tabManager.activeTabId();
+    return tabId != null && this.sendLock.isHeld(tabId, options?.ownerToken);
+  }
 
   /**
    * Surface an inline re-auth banner when a chat RPC failed because the
@@ -316,8 +326,10 @@ export class MessageSenderService {
    */
   async send(
     content: string,
-    options?: SendMessageOptions,
+    options?: SendMessageOptions & { ownerToken?: string },
   ): Promise<SendOutcome> {
+    if (this.isHeld(options))
+      return { success: false, error: 'Message held by Command Center' };
     const validation = this.validator.validate(content);
     if (!validation.valid) {
       console.warn(
@@ -366,8 +378,10 @@ export class MessageSenderService {
    */
   private async startNewConversation(
     content: string,
-    options?: SendMessageOptions,
+    options?: SendMessageOptions & { ownerToken?: string },
   ): Promise<SendOutcome> {
+    if (this.isHeld(options))
+      return { success: false, error: 'Message held by Command Center' };
     const files = options?.files;
     const images = options?.images;
     const effort = options?.effort;
@@ -398,6 +412,8 @@ export class MessageSenderService {
       const activeTab =
         this.tabManager.findTabByIdAcrossWorkspaces(activeTabId)?.tab ??
         this.tabManager.activeTab();
+      if (this.isHeld(options))
+        return { success: false, error: 'Message held by Command Center' };
       const sessionId =
         this.headSessionForTab(activeTab?.id) ?? this.generateId();
       // Give THIS conversation a clean node-map slate — scoped to its own
@@ -443,6 +459,7 @@ export class MessageSenderService {
         effort,
         activeTab?.overrideEffort,
       );
+      const systemPrompt = activeTab && commandCenterPersonaFor(activeTab);
       const abortSignal = this.wireAbortDispatch(activeTabId);
       const result = await this.claudeRpcService.call(
         'chat:start',
@@ -460,6 +477,7 @@ export class MessageSenderService {
             ...(files ? { files } : {}),
             ...(images && images.length > 0 ? { images } : {}),
             ...(effectiveEffort ? { effort: effectiveEffort } : {}),
+            ...(systemPrompt ? { systemPrompt } : {}),
           },
         },
         { signal: abortSignal },
@@ -533,8 +551,10 @@ export class MessageSenderService {
   private async continueConversation(
     content: string,
     sessionId: SessionId,
-    options?: SendMessageOptions,
+    options?: SendMessageOptions & { ownerToken?: string },
   ): Promise<SendOutcome> {
+    if (this.isHeld(options))
+      return { success: false, error: 'Message held by Command Center' };
     const activeTabId = options?.tabId ?? this.tabManager.activeTabId();
     const abortSignal = activeTabId
       ? this.wireAbortDispatch(activeTabId)
@@ -573,8 +593,10 @@ export class MessageSenderService {
   async continueExistingSessionForQueueFlush(
     content: string,
     sessionId: SessionId,
-    options?: SendMessageOptions,
+    options?: SendMessageOptions & { ownerToken?: string },
   ): Promise<SendOutcome> {
+    if (this.isHeld(options))
+      return { success: false, error: 'Message held by Command Center' };
     const activeTabId = options?.tabId ?? this.tabManager.activeTabId();
     const abortSignal = activeTabId
       ? this.tabManager.getAbortSignal(activeTabId)
@@ -599,7 +621,7 @@ export class MessageSenderService {
   private async runContinueConversation(
     content: string,
     sessionId: SessionId,
-    options: SendMessageOptions | undefined,
+    options: (SendMessageOptions & { ownerToken?: string }) | undefined,
     abortSignal: AbortSignal | undefined,
     dropBubbleOnFailure = false,
   ): Promise<SendOutcome> {
@@ -685,6 +707,8 @@ export class MessageSenderService {
       const activeTab =
         this.tabManager.findTabByIdAcrossWorkspaces(activeTabId)?.tab ??
         this.tabManager.activeTab();
+      if (this.isHeld(options))
+        return { success: false, error: 'Message held by Command Center' };
       this.sessionManager.setStatus('resuming');
       this.tabManager.markResuming(activeTabId);
       const userMessage = createExecutionChatMessage({
@@ -708,6 +732,7 @@ export class MessageSenderService {
         effort,
         activeTab?.overrideEffort,
       );
+      const systemPrompt = activeTab && commandCenterPersonaFor(activeTab);
       const result = await this.claudeRpcService.call(
         'chat:continue',
         {
@@ -715,6 +740,7 @@ export class MessageSenderService {
           sessionId,
           tabId: activeTabId, // For event routing
           name: activeTab?.name, // Send session name (support late naming)
+          ...(systemPrompt ? { systemPrompt } : {}),
           ...(resolvedWorkspacePath
             ? { workspacePath: resolvedWorkspacePath }
             : {}),
@@ -748,6 +774,16 @@ export class MessageSenderService {
           error:
             result.data?.error ?? result.error ?? 'Failed to continue chat',
         };
+      }
+      if (result.data?.settled === true) {
+        this.streamingHandler.removeUserPromptBoundary(
+          activeTabId,
+          userMessage.id,
+        );
+        this.tabManager.markLoaded(activeTabId);
+        this.tabManager.markTabIdle(activeTabId);
+        this.sessionManager.setStatus('loaded');
+        return { success: true };
       }
       this.sessionManager.setStatus('streaming');
       this.tabManager.markStreaming(activeTabId);

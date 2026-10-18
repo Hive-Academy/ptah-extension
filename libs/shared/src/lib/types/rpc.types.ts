@@ -43,10 +43,24 @@ export * from './rpc/rpc-capability.types';
 
 export * from './rpc/rpc-lane-plan-limits.types';
 
+export * from './rpc/rpc-lane-outcome.types';
+
+export * from './rpc/rpc-decision-model-catalog.types';
+
 import type {
   AgentGetLanePlanLimitsParams,
   AgentGetLanePlanLimitsResult,
 } from './rpc/rpc-lane-plan-limits.types';
+
+import type {
+  AgentOutcomeSignalsParams,
+  AgentOutcomeSignalsResult,
+} from './rpc/rpc-lane-outcome.types';
+
+import type {
+  AgentListDecisionModelsParams,
+  AgentListDecisionModelsResult,
+} from './rpc/rpc-decision-model-catalog.types';
 
 import type {
   CapabilitiesGetEffectiveParams,
@@ -129,6 +143,8 @@ import type {
   SessionStatusResponse,
   SessionSetOrganizationParams,
   SessionSetOrganizationResult,
+  SessionGetOrganizationParams,
+  SessionGetOrganizationResult,
   SessionLinkTaskParams,
   SessionLinkTaskResult,
   SessionUnlinkTaskParams,
@@ -832,6 +848,10 @@ export interface RpcMethodRegistry {
     params: SessionSetOrganizationParams;
     result: SessionSetOrganizationResult;
   };
+  'session:getOrganization': {
+    params: SessionGetOrganizationParams;
+    result: SessionGetOrganizationResult;
+  };
   'session:linkTask': {
     params: SessionLinkTaskParams;
     result: SessionLinkTaskResult;
@@ -1400,6 +1420,22 @@ export interface RpcMethodRegistry {
   'agent:getLanePlanLimits': {
     params: AgentGetLanePlanLimitsParams;
     result: AgentGetLanePlanLimitsResult;
+  };
+  /**
+   * Per-slug outcome signals for the Agents tab (TASK_2026_646, Req 9.1).
+   * Read-only; ids, counts and ratios only, no text or identity.
+   */
+  'agent:outcomeSignals': {
+    params: AgentOutcomeSignalsParams;
+    result: AgentOutcomeSignalsResult;
+  };
+  /**
+   * Decision-capable models of one host, for the decision-model picker
+   * (TASK_2026_684, Requirement 4). Every host; ids and counts only.
+   */
+  'agent:listDecisionModels': {
+    params: AgentListDecisionModelsParams;
+    result: AgentListDecisionModelsResult;
   };
   'ptahCli:list': {
     params: PtahCliListParams;
@@ -3780,6 +3816,7 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'session:rewindFiles': true,
   'session:status': true,
   'session:setOrganization': true,
+  'session:getOrganization': true,
   'session:linkTask': true,
   'session:unlinkTask': true,
   'session:addPrLink': true,
@@ -3906,6 +3943,8 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   // the registry entry plus this allow-map entry are the whole of
   // dual-registration. Capability-gated to Electron in RPC_HANDLER_MANIFEST.
   'agent:getLanePlanLimits': true,
+  'agent:outcomeSignals': true,
+  'agent:listDecisionModels': true,
   'ptahCli:list': true,
   'ptahCli:create': true,
   'ptahCli:update': true,

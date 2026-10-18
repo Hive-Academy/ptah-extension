@@ -46,6 +46,8 @@ import type {
   IWorkspaceProvider,
   IStateStorage,
 } from '@ptah-extension/platform-core';
+import { createMockSecretStorage } from '@ptah-extension/platform-core/testing';
+import { DecisionModelKeys } from '@ptah-extension/lane-routing';
 import type {
   CliDetectionService,
   AgentProcessManager,
@@ -156,6 +158,23 @@ function makeHarness(): Harness {
     } as unknown as IAuthSecretsService,
     { exists: jest.fn().mockResolvedValue(true) } as never,
     { type: 'electron', extensionPath: '/ptah-app' } as never,
+    {
+      getStatus: () =>
+        Promise.resolve({
+          selection: { kind: 'unset' as const },
+          locality: null,
+          reportsConfidence: false,
+          state: 'unset' as const,
+          detail: null,
+        }),
+      getSelection: () => ({ kind: 'unset' as const }),
+      localityOf: () => null,
+      setSelection: () => Promise.resolve({ kind: 'unset' as const }),
+      keys: new DecisionModelKeys(
+        createMockSecretStorage(),
+        createMockLogger(),
+      ),
+    },
   );
   handlers.register();
 

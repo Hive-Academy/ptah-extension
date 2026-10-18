@@ -1,11 +1,14 @@
-import { Injectable, inject } from '@angular/core';
+import { DestroyRef, Injectable, inject } from '@angular/core';
 import { AuthStateService } from '@ptah-extension/core';
 import {
   createExecutionChatMessage,
   MessageId,
   type PermissionRequest,
 } from '@ptah-extension/shared';
-import { TabManagerService } from '@ptah-extension/chat-state';
+import {
+  CommandCenterSendLockService,
+  TabManagerService,
+} from '@ptah-extension/chat-state';
 import {
   MessageSenderService,
   type SendOutcome,
@@ -120,6 +123,33 @@ export class MessageDispatchService {
   private readonly messageSender = inject(MessageSenderService);
   private readonly conversation = inject(ConversationService);
   private readonly permissionHandler = inject(PermissionHandlerService);
+  private readonly sendLock = inject(CommandCenterSendLockService);
+  private readonly destroyRef = inject(DestroyRef);
+
+  constructor() {
+    let destroyed = false;
+    const unsubscribe = this.sendLock.onRelease((rootTabId) => {
+      queueMicrotask(() => {
+        if (destroyed || this.sendLock.isHeld(rootTabId)) return;
+        const tab = this.tabManager.findTabByIdAcrossWorkspaces(rootTabId)?.tab;
+        if (
+          !tab?.queuedContent?.trim() ||
+          isTabBusyGenerating({
+            status: tab.status,
+            streamingState: tab.streamingState,
+            isStreamingTab: this.tabManager.isTabStreaming(rootTabId),
+          })
+        ) {
+          return;
+        }
+        void this.sendQueuedMessage(rootTabId, tab.queuedContent);
+      });
+    });
+    this.destroyRef.onDestroy(() => {
+      destroyed = true;
+      unsubscribe();
+    });
+  }
 
   /**
    * SDK-native slash commands whose output is only correct on a first-party
@@ -150,7 +180,7 @@ export class MessageDispatchService {
    */
   async sendOrQueueMessage(
     content: string,
-    options?: SendMessageOptions,
+    options?: SendMessageOptions & { ownerToken?: string },
   ): Promise<SendOutcome> {
     if (this.isBlockedSlashCommand(content)) {
       this.showBlockedCommandWarning(content, options?.tabId);
@@ -182,11 +212,17 @@ export class MessageDispatchService {
         resolvedTabId != null && this.tabManager.isTabStreaming(resolvedTabId),
     });
 
-    if (isStreaming) {
+    if (
+      isStreaming ||
+      (resolvedTabId != null &&
+        this.sendLock.isHeld(resolvedTabId, options?.ownerToken))
+    ) {
       // The message steers ITS tab's turn, so only that tab's pending prompts
       // are answered with it. The queue is global: denying every request would
       // reject another session's prompt with this tab's text as the reason.
-      for (const perm of this.permissionHandler.permissionRequests()) {
+      for (const perm of isStreaming
+        ? this.permissionHandler.permissionRequests()
+        : []) {
         if (!this.isPermissionForTab(perm, resolvedTabId, dispatchTab)) {
           continue;
         }
@@ -221,12 +257,18 @@ export class MessageDispatchService {
    * @param tabId - Tab to send the queued message for
    * @param content - Message content to send
    */
-  async sendQueuedMessage(tabId: string, content: string): Promise<void> {
+  async sendQueuedMessage(
+    tabId: string,
+    content: string,
+    options?: { ownerToken?: string },
+  ): Promise<void> {
+    if (this.sendLock.isHeld(tabId, options?.ownerToken)) return;
     let queuedOptions: SendMessageOptions | undefined;
     let queuedContent = content;
     let delivered = false;
     try {
-      const tab = this.tabManager.tabs().find((t) => t.id === tabId);
+      const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
+      if (this.sendLock.isHeld(tabId, options?.ownerToken)) return;
       const sessionId = tab?.claudeSessionId;
       if (!sessionId) {
         // A queue flush only fires on turn-end, and a completed turn must have
@@ -249,7 +291,7 @@ export class MessageDispatchService {
         await this.messageSender.continueExistingSessionForQueueFlush(
           queuedContent,
           sessionId,
-          { ...queuedOptions, tabId },
+          { ...queuedOptions, tabId, ownerToken: options?.ownerToken },
         );
       if (outcome && !outcome.success) {
         this.restoreQueuedMessage(tabId, queuedContent, queuedOptions);

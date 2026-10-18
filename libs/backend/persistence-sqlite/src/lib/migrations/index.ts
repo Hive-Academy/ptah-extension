@@ -79,6 +79,8 @@ import { sql as sql0050SessionOrganization } from './0050_session_organization';
 import { sql as sql0051SkillLifecycle } from './0051_skill_lifecycle';
 import { sql as sql0052MemoryBootScanFailures } from './0052_memory_boot_scan_failures';
 import { sql as sql0053MemoryBootScanFailureGeneration } from './0053_memory_boot_scan_failure_generation';
+import { sql as sql0054LaneOutcomeRecords } from './0054_lane_outcome_records';
+import { sql as sql0055SkillInvocationRunId } from './0055_skill_invocation_run_id';
 import type { SqliteDatabase } from '../sqlite-connection.service';
 
 export interface Migration {
@@ -388,5 +390,15 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 53,
     name: '0053_memory_boot_scan_failure_generation',
     sql: sql0053MemoryBootScanFailureGeneration,
+  },
+  {
+    version: 54,
+    name: '0054_lane_outcome_records',
+    sql: sql0054LaneOutcomeRecords,
+  },
+  {
+    version: 55,
+    name: '0055_skill_invocation_run_id',
+    sql: sql0055SkillInvocationRunId,
   },
 ];

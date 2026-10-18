@@ -4,8 +4,8 @@ import { test, expect } from '../../support/fixtures';
 import {
   makeSessionFixture,
   makeSparsePagingSessionFixture,
+  openSessionFromList,
   prepareCanvasWithSessions,
-  sessionRowButton,
   type SessionFixture,
 } from '../../support/perf-session-fixture';
 
@@ -38,8 +38,8 @@ async function openSession(
   ui: TestUi,
   session: SessionFixture,
 ): Promise<Locator> {
-  await sessionRowButton(ui.page, session.name).click();
-  // A session opened from the sidebar renders in the Rail's focused pane. Rail
+  await openSessionFromList(ui.page, session.name);
+  // A session opened from the modal renders in the Rail's focused pane. Rail
   // cards echo the marker in their preview line, so the scope must be the pane.
   const tile = ui.page
     .locator('ptah-canvas-focus-area')

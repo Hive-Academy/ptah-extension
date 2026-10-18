@@ -960,6 +960,7 @@ export class PtahCliRegistry {
       // Inventing one (e.g. from a process scan) would be guessing at which
       // `claude.exe` on the machine is ours.
       const handle: SdkHandle = {
+        providerId: agentConfig.providerId,
         abort: abortController,
         done: turn1Done,
         onOutput: (callback) => {

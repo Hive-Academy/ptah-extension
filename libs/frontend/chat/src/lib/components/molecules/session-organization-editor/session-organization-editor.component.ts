@@ -64,6 +64,7 @@ import {
   SESSION_PRIORITY_LABELS,
   SESSION_STATUS_LABELS,
 } from '../../atoms/session-organization-chips/session-organization-labels';
+import { wrapTabWithin } from '../../../utils/focus-wrap.utils';
 
 /** Longest PR URL the host accepts (`SessionAddPrLinkParams`). */
 const MAX_PR_URL_LENGTH = 2048;
@@ -110,9 +111,10 @@ let nextId = 0;
         aria-modal="true"
         [attr.aria-labelledby]="titleId"
         (keydown.escape)="onEscape($event)"
+        (keydown)="wrapTab(modalBox, $event)"
         data-testid="session-organization-editor"
       >
-        <div class="modal-box max-w-md p-4 text-sm text-base-content">
+        <div #modalBox class="modal-box max-w-md p-4 text-sm text-base-content">
           <div
             class="flex items-center justify-between gap-2 pb-2 border-b border-base-300"
           >
@@ -530,10 +532,12 @@ export class SessionOrganizationEditorComponent {
 
   private readonly closeButton =
     viewChild<ElementRef<HTMLButtonElement>>('closeButton');
+  /** Keeps Tab inside `.modal-box`: the layer below is inert while this is open (R3). */
+  protected readonly wrapTab = wrapTabWithin;
   private readonly sessionId = computed(() => this.session()?.id ?? null);
   private destroyed = false;
   private detectionRequested = false;
-  /** Focus to restore when the dialog closes. */
+  /** Focus to restore when the dialog closes; kept until the restore runs. */
   private returnFocus: HTMLElement | null = null;
 
   constructor() {
@@ -574,6 +578,8 @@ export class SessionOrganizationEditorComponent {
 
   protected onEscape(event: Event): void {
     event.preventDefault();
+    // A document-level Escape listener (canvas) must not also fire (R4).
+    event.stopPropagation();
     this.close();
   }
 
@@ -765,7 +771,18 @@ export class SessionOrganizationEditorComponent {
       });
       return;
     }
-    if (this.returnFocus?.isConnected) this.returnFocus.focus();
-    this.returnFocus = null;
+    const target = this.returnFocus;
+    if (!target) return;
+    // After the close renders, so the opener's container is no longer inert
+    // (R2). Gone or still inert: focus is not moved; the owner's fallback runs.
+    // Reopened before the close rendered: skip, and keep the opener for later.
+    afterNextRender(
+      () => {
+        if (this.sessionId()) return;
+        this.returnFocus = null;
+        if (target.isConnected && !target.closest('[inert]')) target.focus();
+      },
+      { injector: this.injector },
+    );
   }
 }
