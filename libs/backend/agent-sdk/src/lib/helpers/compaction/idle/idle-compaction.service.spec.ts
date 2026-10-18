@@ -196,6 +196,66 @@ describe('IdleCompactionService', () => {
     h.coordinator.dispose();
   });
 
+  it('keeps the cache estimate when a turn ends without a main request', () => {
+    const owner = new SessionStatsOwnerService();
+    const lease = owner.startNew('s');
+    owner.beginRun('s', lease.generation, 'run', null);
+    const h = harness(undefined, owner);
+    h.service.sessionBound('s', 'run', false, true);
+    h.service.turnEnded('s', 'write', {
+      ...request, cacheAnchorAt: 1_000, cacheWriteTokens: 12, cacheWriteTtl: '1h',
+    });
+    const before = owner.snapshot('s')?.cache;
+    h.service.turnEnded('s', 'no-request', null);
+    expect(owner.snapshot('s')?.cache).toEqual(before);
+    h.service.dispose();
+    h.coordinator.dispose();
+  });
+
+  it('clears the cache estimate at a compact boundary and retains the confirmed TTL', () => {
+    const owner = new SessionStatsOwnerService();
+    const lease = owner.startNew('s');
+    owner.beginRun('s', lease.generation, 'run', null);
+    const h = harness(undefined, owner);
+    h.service.sessionBound('s', 'run', false, true);
+    h.service.turnEnded('s', 'write', {
+      ...request, cacheAnchorAt: 1_000, cacheWriteTokens: 12, cacheWriteTtl: '1h',
+    });
+    expect(owner.snapshot('s')?.cache).toBeDefined();
+    h.service.compactBoundary('s', 250_000);
+    expect(owner.snapshot('s')?.cache).toBeUndefined();
+    expect(owner.getCacheTtl('s', 'run')).toBe('1h');
+    h.service.turnEnded('s', 'read', {
+      ...request, cacheAnchorAt: 2_000, cacheReadTokens: 8,
+    });
+    expect(owner.snapshot('s')?.cache?.expiresAt).toBe(3_602_000);
+    h.postCompact();
+    expect(owner.snapshot('s')?.cache).toBeUndefined();
+    expect(owner.getCacheTtl('s', 'run')).toBe('1h');
+    h.service.dispose();
+    h.coordinator.dispose();
+  });
+
+  it('logs failed cache and idle projections once at debug level without payloads', () => {
+    const owner = new SessionStatsOwnerService();
+    const lease = owner.startNew('s');
+    owner.beginRun('s', lease.generation, 'run', null);
+    const h = harness(undefined, owner);
+    h.service.sessionBound('s', 'run', false, true);
+    owner.startNew('s');
+    h.service.turnEnded('s', 'stale-1', {
+      ...request, cacheAnchorAt: 1_000, cacheWriteTokens: 12, cacheWriteTtl: '1h',
+    });
+    h.service.turnEnded('s', 'stale-2', {
+      ...request, cacheAnchorAt: 2_000, cacheWriteTokens: 12, cacheWriteTtl: '1h',
+    });
+    expect(h.debug).toHaveBeenCalledWith('[IdleCompactionService] Cache estimate projection was not applied');
+    expect(h.debug).toHaveBeenCalledWith('[IdleCompactionService] Idle deadline projection was not applied');
+    expect(h.debug).toHaveBeenCalledTimes(2);
+    h.service.dispose();
+    h.coordinator.dispose();
+  });
+
   it('hides proxy cache evidence and fences a replaced owner', () => {
     const owner = new SessionStatsOwnerService();
     const lease = owner.startNew('s');

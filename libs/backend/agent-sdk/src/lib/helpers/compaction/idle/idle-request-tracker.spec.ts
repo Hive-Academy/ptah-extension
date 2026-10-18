@@ -62,9 +62,21 @@ describe('MainRequestTracker', () => {
       requestKey: 'first',
       anchorAt: 0,
       ttl: '1h',
-      cacheAnchorAt: 0,
+      cacheAnchorAt: 415_000,
       cacheWriteTokens: 20,
       cacheWriteTtl: '1h',
+    });
+  });
+
+  it('anchors the first cache request of turn two near its frame after a long gap', () => {
+    const tracker = new MainRequestTracker(0);
+    tracker.observe(assistant('first'), 100);
+    tracker.endTurn(1_000);
+    tracker.observe(assistant('second', undefined, 8), 1_000_000);
+    expect(tracker.endTurn(1_001_000)).toMatchObject({
+      anchorAt: 1_000,
+      cacheAnchorAt: 995_000,
+      cacheReadTokens: 8,
     });
   });
 

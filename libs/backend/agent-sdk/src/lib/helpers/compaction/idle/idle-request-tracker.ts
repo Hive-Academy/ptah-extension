@@ -57,6 +57,7 @@ export class MainRequestTracker {
         this.lastNonRequestFrameAt = at;
         return null;
       }
+      const firstOfTurn = this.requestKey === null;
       const started = key !== this.requestKey;
       if (started) {
         this.requestKey = key;
@@ -78,7 +79,9 @@ export class MainRequestTracker {
       }
       if (key !== this.cacheRequestKey) {
         this.cacheRequestKey = key;
-        this.cacheAnchorAt = this.anchorAt;
+        this.cacheAnchorAt = firstOfTurn
+          ? Math.max(this.anchorAt, at - IDLE_ANCHOR_SKEW_MS)
+          : this.anchorAt;
         this.cacheUsage = undefined;
       }
       if (frame.type === 'assistant') {

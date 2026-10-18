@@ -1435,6 +1435,20 @@ describe('SessionStatsOwnerService live estimate (TASK_2026_626)', () => {
       expect(lease && owner.release(lease)).toBe(true);
       expect(watcher.released[0]?.cache).toEqual(estimate);
     });
+
+    it('removes the pending idle deadline before publishing the released snapshot', () => {
+      const { owner, gen } = liveOwner();
+      const watcher = recordingWatcher();
+      owner.watch(SESSION, gen, watcher);
+      owner.setCacheEstimate(SESSION, 'run-1', estimate, '1h');
+      owner.setIdleCompactAt(SESSION, 'run-1', 500);
+      const before = owner.snapshot(SESSION);
+      const lease = owner.leaseOf(SESSION);
+
+      expect(lease && owner.release(lease)).toBe(true);
+      expect(watcher.released[0]?.cache).toEqual(estimate);
+      expect(watcher.released[0]?.revision).toBeGreaterThan(before?.revision ?? Infinity);
+    });
   });
 
   /** A loader that never settles, so the prefix read stays pending. */

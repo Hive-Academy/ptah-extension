@@ -68,8 +68,8 @@ export function parseSessionStatsCache(value: unknown): SessionStatsCache | null
   if (ttl !== '1h' && ttl !== '5m') return null;
   if (!isEpoch(lastRequestAt) || !isEpoch(expiresAt)) return null;
   const expected = lastRequestAt + (ttl === '1h' ? 3_600_000 : 300_000);
-  if (!Number.isFinite(expected) || expiresAt < lastRequestAt) return null;
-  if (idleCompactAt !== undefined && !isEpoch(idleCompactAt)) return null;
+  if (!Number.isFinite(expected) || expiresAt !== expected) return null;
+  if (idleCompactAt !== undefined && (!isEpoch(idleCompactAt) || idleCompactAt < lastRequestAt)) return null;
   return {
     ttl,
     lastRequestAt,

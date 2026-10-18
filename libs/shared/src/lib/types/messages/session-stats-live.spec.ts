@@ -38,7 +38,7 @@ describe('session:stats-live contract', () => {
 
   describe('accepts', () => {
     it.each(['1h', '5m'] as const)('keeps valid %s cache metadata', (ttl) => {
-      const cache = { ttl, lastRequestAt: 100, expiresAt: 300_100, idleCompactAt: 200 };
+      const cache = { ttl, lastRequestAt: 100, expiresAt: ttl === '1h' ? 3_600_100 : 300_100, idleCompactAt: 200 };
       expect(parseSessionStatsCache(cache)).toEqual(cache);
       expect(parseSessionStatsLivePayload(payload({ sessionStats: stats({ cache }) }))?.sessionStats.cache).toEqual(cache);
     });
@@ -90,6 +90,9 @@ describe('session:stats-live contract', () => {
       { ttl: '1h', lastRequestAt: -1, expiresAt: 1 },
       { ttl: '1h', lastRequestAt: 0, expiresAt: Number.POSITIVE_INFINITY },
       { ttl: '1h', lastRequestAt: 2, expiresAt: 1 },
+      { ttl: '1h', lastRequestAt: 100, expiresAt: 300_100 },
+      { ttl: '5m', lastRequestAt: 100, expiresAt: 300_101 },
+      { ttl: '5m', lastRequestAt: 100, expiresAt: 300_100, idleCompactAt: 99 },
       { ttl: '1h', lastRequestAt: 0, expiresAt: 1, idleCompactAt: 'soon' },
     ])('drops only malformed cache %p', (cache) => {
       const parsed = parseSessionStatsLivePayload(payload({ sessionStats: stats({ cache }) }));

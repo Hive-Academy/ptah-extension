@@ -772,6 +772,10 @@ export class SessionStatsOwnerService {
             cleared = true;
           }
         }
+        if (state.idleCompactAt !== null) {
+          state.idleCompactAt = null;
+          cleared ||= state.cacheEstimate !== null;
+        }
         if (cleared) this.touch(state);
         settled = this.publish(key, state);
       }
