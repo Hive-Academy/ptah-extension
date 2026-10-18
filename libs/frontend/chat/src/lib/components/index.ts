@@ -144,6 +144,7 @@ export {
  */
 export { generateAgentColor } from '@ptah-extension/chat-ui';
 export * from './organisms/execution/execution-node.component';
+export * from './organisms/subagent-lane/subagent-lane.component';
 export * from './organisms/execution/inline-agent-bubble.component';
 export * from './organisms/execution/agent-execution.component';
 export * from './organisms/message-bubble.component';

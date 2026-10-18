@@ -14,8 +14,7 @@ import {
   AgentCardComponent,
   AgentPermissionResponder,
   ChatStore,
-  ExecutionNodeComponent,
-  SubagentUsageSummaryComponent,
+  SubagentLaneComponent,
   TabManagerService,
   ownedBySession,
   parseLaneKey,
@@ -39,8 +38,7 @@ import { CanvasDetailService } from './canvas-detail.service';
   standalone: true,
   imports: [
     AgentCardComponent,
-    ExecutionNodeComponent,
-    SubagentUsageSummaryComponent,
+    SubagentLaneComponent,
     SubagentTranscriptViewerComponent,
     BackgroundAgentStripComponent,
     CanvasDetailTranscriptComponent,
@@ -141,15 +139,14 @@ import { CanvasDetailService } from './canvas-detail.service';
       <ng-template #subagentLane>
         @if (selectedSubagent(); as sub) {
           <div class="space-y-2 px-3 pt-2">
-            <ptah-subagent-usage-summary [record]="sub" />
-            @if (agentNode(); as node) {
-              <ptah-execution-node
-                [node]="node"
-                [agentTileMode]="false"
-                [getPermissionForTool]="getPermissionForTool"
-                (permissionResponded)="chatStore.handlePermissionResponse($event)"
-              />
-            } @else if (sub.agentId) {
+            <ptah-subagent-lane
+              [record]="sub"
+              [sessionId]="sessionId()"
+              [nodes]="agentNode()?.children ?? []"
+              [getPermissionForTool]="getPermissionForTool"
+              (permissionResponded)="chatStore.handlePermissionResponse($event)"
+            />
+            @if (!agentNode() && sub.agentId) {
               <p class="text-xs text-base-content-muted">Live agent unavailable. Showing saved transcript.</p>
               <ptah-subagent-transcript-viewer
                 [agentName]="sub.teammateName || sub.description || 'Sub-agent'"
@@ -158,7 +155,7 @@ import { CanvasDetailService } from './canvas-detail.service';
                 [error]="error()"
                 (refresh)="loadTranscript(sub.agentId, sub.parentSessionId!)"
               />
-            } @else {
+            } @else if (!agentNode()) {
               <p class="text-sm text-base-content-muted">
                 Transcript is not available yet
               </p>

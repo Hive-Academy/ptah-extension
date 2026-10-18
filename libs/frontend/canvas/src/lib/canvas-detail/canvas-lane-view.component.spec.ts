@@ -12,6 +12,7 @@ import {
   SESSION_VISIBLE,
   SessionEmbedComponent,
   ExecutionNodeComponent,
+  SubagentLaneComponent,
   TabManagerService,
 } from '@ptah-extension/chat';
 import {
@@ -86,6 +87,7 @@ describe('CanvasLaneViewComponent', () => {
             toggleAgentExpanded,
             getSubagentTranscript,
             subagentRpcError: signal(null),
+            tick: signal(0),
             backgroundAgent,
             sendMessageToAgent,
           },
@@ -350,8 +352,9 @@ describe('CanvasLaneViewComponent', () => {
     fixture.detectChanges();
     expect(fixture.componentInstance.agentNode()).toBe(agent);
     expect(
-      fixture.nativeElement.querySelector('ptah-execution-node'),
+      fixture.nativeElement.querySelector('ptah-subagent-lane'),
     ).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('ptah-subagent-usage-summary')).toBeNull();
     expect(
       fixture.nativeElement.querySelector('ptah-subagent-transcript-viewer'),
     ).toBeNull();
@@ -416,7 +419,7 @@ describe('CanvasLaneViewComponent', () => {
     fixture.detectChanges();
     expect(fixture.componentInstance.agentNode()).toBe(agent);
     expect(
-      fixture.nativeElement.querySelector('ptah-execution-node'),
+      fixture.nativeElement.querySelector('ptah-subagent-lane'),
     ).not.toBeNull();
     expect(getSubagentTranscript).not.toHaveBeenCalled();
   });
@@ -445,7 +448,7 @@ describe('CanvasLaneViewComponent', () => {
     expect(fixture.componentInstance.selectedKind()).toBe('subagent');
     expect(fixture.componentInstance.agentNode()).toBe(agent);
     expect(
-      fixture.nativeElement.querySelector('ptah-execution-node'),
+      fixture.nativeElement.querySelector('ptah-subagent-lane'),
     ).not.toBeNull();
   });
 
@@ -509,7 +512,7 @@ describe('CanvasLaneViewComponent', () => {
     fixture.detectChanges();
     expect(fixture.componentInstance.agentNode()).toBe(nested);
     expect(
-      fixture.nativeElement.querySelector('ptah-execution-node'),
+      fixture.nativeElement.querySelector('ptah-subagent-lane'),
     ).not.toBeNull();
   });
 
@@ -752,10 +755,10 @@ describe('CanvasLaneViewComponent', () => {
     }
   });
 
-  it('mounts the real execution node in full mode and routes Stop through its inline bubble', async () => {
+  it('mounts child execution nodes in the subagent lane and routes Stop through its header', async () => {
     TestBed.overrideComponent(CanvasLaneViewComponent, {
       set: {
-        imports: [AgentCardComponent, NgTemplateOutlet, ExecutionNodeComponent],
+        imports: [AgentCardComponent, NgTemplateOutlet, SubagentLaneComponent],
         schemas: [NO_ERRORS_SCHEMA],
       },
     });
@@ -814,10 +817,11 @@ describe('CanvasLaneViewComponent', () => {
     const rendered = fixture.debugElement.query(
       By.directive(ExecutionNodeComponent),
     );
-    expect(rendered.componentInstance.node()).toBe(agent);
+    expect(fixture.debugElement.query(By.directive(SubagentLaneComponent)).componentInstance.nodes()).toBe(agent.children);
+    expect(rendered.componentInstance.node()).toBe(agent.children[0]);
     expect(rendered.componentInstance.agentTileMode()).toBe(false);
     const stop = fixture.nativeElement.querySelector(
-      '[data-testid="subagent-stop-button"]',
+      '[aria-label="Stop sub"]',
     ) as HTMLButtonElement;
     expect(stop).not.toBeNull();
     expect(
@@ -829,28 +833,6 @@ describe('CanvasLaneViewComponent', () => {
     ).toHaveLength(1);
     stop.click();
     expect(stopAgent).toHaveBeenCalledWith('task-1', 'owner');
-    (
-      fixture.nativeElement.querySelector(
-        '[data-testid="subagent-send-toggle"]',
-      ) as HTMLButtonElement
-    ).click();
-    fixture.detectChanges();
-    const message = fixture.nativeElement.querySelector(
-      '[data-testid="subagent-send-textarea"]',
-    ) as HTMLTextAreaElement;
-    message.value = 'Please check the tests';
-    message.dispatchEvent(new Event('input', { bubbles: true }));
-    fixture.detectChanges();
-    (
-      fixture.nativeElement.querySelector(
-        '[data-testid="subagent-send-submit"]',
-      ) as HTMLButtonElement
-    ).click();
-    expect(sendMessageToAgent).toHaveBeenCalledWith(
-      'task-tool',
-      'Please check the tests',
-      'owner',
-    );
     const allow = fixture.nativeElement.querySelector(
       '[aria-label="Allow this request once"]',
     ) as HTMLButtonElement;
@@ -860,7 +842,7 @@ describe('CanvasLaneViewComponent', () => {
       expect.objectContaining({ id: 'perm-1', decision: 'allow' }),
     );
     const backgroundButton = fixture.nativeElement.querySelector(
-      '[data-testid="subagent-background-button"]',
+      '[aria-label="Send sub to background"]',
     ) as HTMLButtonElement;
     backgroundButton.click();
     expect(backgroundAgent).toHaveBeenCalledWith('owner', 'task-tool');
@@ -884,14 +866,14 @@ describe('CanvasLaneViewComponent', () => {
       fixture.debugElement
         .query(By.directive(ExecutionNodeComponent))
         .componentInstance.node(),
-    ).toBe(agent);
+    ).toBe(agent.children[0]);
     fixture.destroy();
   });
 
   it('renders nested Copy controls in the full lane', () => {
     TestBed.overrideComponent(CanvasLaneViewComponent, {
       set: {
-        imports: [AgentCardComponent, NgTemplateOutlet, ExecutionNodeComponent],
+        imports: [AgentCardComponent, NgTemplateOutlet, SubagentLaneComponent],
         schemas: [NO_ERRORS_SCHEMA],
       },
     });
@@ -942,7 +924,7 @@ describe('CanvasLaneViewComponent', () => {
       fixture.debugElement
         .query(By.directive(ExecutionNodeComponent))
         .componentInstance.node(),
-    ).toBe(agent);
+    ).toBe(agent.children[0]);
     const toolHeader = lane.querySelector(
       'ptah-tool-call-header button[aria-expanded]',
     ) as HTMLButtonElement;
