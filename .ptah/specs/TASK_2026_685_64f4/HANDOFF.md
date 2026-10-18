@@ -1,135 +1,162 @@
-# Handoff — TASK_2026_685_64f4 (agent message unification), plus 690 / MCP card PR state
+# Handoff — TASK_2026_685_64f4 (agent message unification), session 2
+
+Written 2026-10-18 by the orchestrator session that continued from the session-1 handoff
+(commit b434ffbd5). Read this first, then `batches.md` and `implementation-plan.md` in this folder.
 
 ## 0. Goal
 
 Make sub-agent and CLI-agent lanes render their messages the same way as the main agent (one
-execution header, one execution stream per agent), per `implementation-plan.md` Phase A (A1-A4) and
-Phase B (B1-B7, includes TASK_2026_633). Ship it as PR #751 once every batch in `batches.md` is
-implemented, checked, reviewed, and screenshot-verified. All lanes and subagents of the previous
-session have finished; nothing is running.
+execution header, one execution stream per agent), per `implementation-plan.md` Phase A (A1-A4)
+and Phase B (B1-B7, includes TASK_2026_633). Ship it as PR #751 once every batch in `batches.md`
+is implemented, checked, reviewed, and screenshot-verified.
 
-Key files: `batches.md` (per-batch files, specs, check commands, risks), `implementation-plan.md`
-(components 1-10, Decisions, Clarifications), `reports/` (batch reports and reviews),
-`reports/code-logic-review-A4-B3a.md` (latest review).
-
-Written 2026-10-18 by the orchestrator session that ran 683 / 690 / 685. Read this first, then
-`batches.md` (the batch plan) and `implementation-plan.md` (the spec).
+Worktree: `D:\projects\ptah-extension\.claude-worktrees\lane-execution-stream`, branch
+`feat/lane-execution-stream`, PR #751 (draft), base `main`.
 
 ## 1. PR and branch state
 
 | PR | Branch / worktree | State |
 | --- | --- | --- |
-| #748 (683 motion) | merged into main (merge commit 0d918ae4c) | done. Its worktree `.claude-worktrees/nav-session-motion` can be removed when the user says so. |
-| #750 MCP sidebar card | `feat/sidebar-mcp-card`, `.claude-worktrees/sidebar-mcp-card`, base `main` | Ready. Last commit d20da66e0 fixes the 2 CodeRabbit comments (in-flight-only `recovering` set, provider name refreshed per notice change). Pushed. User merges after CI is green and resolves the 2 threads. |
-| #752 690 chat layout | `feat/chat-layout-display-sheet`, `.claude-worktrees/chat-layout-display-sheet`, base `feat/sidebar-mcp-card` | Ready for review (out of draft). Visual review APPROVED 8/10 after fix 543c127db (`visual-review.md`). Contains the CodeRabbit #748 route-sync fix 4c1fdd406. After #750 merges, GitHub retargets it to main; no rebase needed. |
-| #751 685 | `feat/lane-execution-stream`, `.claude-worktrees/lane-execution-stream`, base `main` | Draft. Pushed up to 73e6fa944. Uncommitted work in the worktree (section 2). Leaves draft only when all batches through B6b are done and verified. |
+| #750 MCP sidebar card | merged by the user (merge 68227b71d). Worktree `sidebar-mcp-card` and local branch removed (junction removed first). | done |
+| #752 690 chat layout | merged into #750's branch, so it is in main. Worktree `.claude-worktrees/chat-layout-display-sheet` still exists. | done; worktree removable when the user says so |
+| #748 683 motion | merged. Worktree `.claude-worktrees/nav-session-motion` still exists. | done; removable when the user says so |
+| #761 CodeRabbit follow-ups of #750 | `fix/coderabbit-750-followups`, `.claude-worktrees/coderabbit-750-followups` (has a node_modules junction), commits 47db90f95 + 2f14eb3cf | open, ready for review. Chat test 4404 pass, typecheck + lint pass. |
+| #751 685 | `feat/lane-execution-stream` | draft, pushed up to f40dfa8ba. One fix lane may leave uncommitted files (section 3). |
 
-No local-only branches. Local-only work: the uncommitted 685 files below.
+#750 extra history (for the PR record): the webview initial budget was raised to 4 MB
+(fd876cc0c) before the real cause was found; the eager-closure fix 6a4aab658 (display sheet
+value-imported `DISPLAY_PANEL_SUMMARY_KEY`, pulling the display panel + declarative-dashboard
+into main.js) probably makes the budget raise unnecessary. The user may want the budget back at
+3.75 MB — ask, do not change on your own.
 
-690 open items (not blocking, report to user only): sheet peek shows its own body scroller above the
-transcript (by design); sheet spans the full lane width while the composer is 758 px centred; model
-menu does not close on Escape; side-by-side / stacked / sub-agent lane fill not verified at runtime
-(no session had a sub-agent lane).
+No local-only branches. Delete-on-cleanup rule: remove a worktree's `node_modules` junction first
+with `cmd /c rmdir <worktree>\node_modules`, then `git worktree remove --force`.
 
-## 2. 685 progress
+## 2. 685 progress (commits this session, all pushed)
 
-Committed on #751 (rebased on main after #748):
-- A2, A1, A3 (earlier), A4b 5a12850a4, A4 1cda7cbf1, B1 2d1910965, B2a f8cc7fa24, B3a af584ec9c,
-  docs 73e6fa944.
+- 3330e805f B2a fix, baa2cb740 A4/B3a fix (+ my spec fixes: SURFACE_ACTIVE, provideMarkdown,
+  whenStable, real SubagentLaneComponent import), ecae2eeab B2b `subagent:history-page`.
+- aa1d41dd9 B2b fix (content-anchored `v1.` cursor, HISTORY_CURSOR_STALE, oversized placeholder).
+- 138292c6f B3b `SubagentExecutionStore`; 963ed8227 B4 claim seams.
+- 1a79a9a66 B-backend style fix (typed history errors, exhaustive kind list, window helper,
+  non-advancing cursor guard).
+- 4e4198193 B5a lane + canvas lane view on the store; a5ac376f5 B5b bubble + tile on the store.
+- 6205bae6b B-store fix round (syncRecord effect, ensureHistory abort, truncated reload, store split
+  into `subagent-execution-{ownership,retention,history-merge}.ts`).
+- 479009c5b chat spec fallout after B4 (execution-node.ptah-ui mock; R-F4 resync spec asserts
+  store ownership).
+- 8894470c8 B5b.4 nested agent chips rebuilt from the store trees (USER DECISION on Risk 12),
+  including the `$agents` Ptah UI source and turn keys.
+- e12dcc246 B5c agent monitor panel renders `ptah-subagent-lane`.
+- docs: 5bdc03121, eb91cfbd9, 117ac4f9b, e98b5cd17, 149dc7a30, f40dfa8ba (reports + reviews).
 
-Code-logic review of A4..B3a: `reports/code-logic-review-A4-B3a.md`, CHANGES REQUESTED 7/10, no
-Blocking, 4 Moderate. This is the ONE allowed fix round (cap). Fix lanes finished, NOT yet checked or
-committed:
-- B2a fix (`reports/batch-B2a-fix.md`): deterministic replay ids/timestamps, interleaved same-id
-  message envelopes, validation errors kept distinct in `readSubagentEvents`, tail slice aligned to a
-  message boundary. Files: agent-sdk `session-replay.service(.spec).ts`,
-  `session-history-reader.service(.spec).ts`.
-- A4/B3a fix (`reports/batch-A4-B3a-fix.md`): finished sub-agent summary restored in the lane;
-  `skipStoreEffects` guards every global store side effect and `registerAgent`; "No output recorded"
-  only when empty; steer toggle aria-controls/focus/Escape; Stop/Background double-click guard. Files:
-  canvas `canvas-lane-view.component(.spec).ts`, chat `subagent-lane.component(.spec).ts`,
-  chat-streaming `accumulator-core.service(.spec).ts`. The lane mentioned 3 possibly pre-existing mock
-  typing errors in `accumulator-core.service.spec.ts` — typecheck decides.
+Reviews (all in `reports/`):
+- fix round A4/B3a + B2a: APPROVED 8/10 (`code-logic-review-fix-round-B2b.md` part 1).
+- B2b: 6.5 -> fix -> APPROVED 8/10 (`code-logic-review-B2b-fix.md`, minor m-D open: a running agent
+  with >10 000 events can get HISTORY_CURSOR_STALE).
+- B-backend style: CHANGES REQUESTED 7/10 -> fixed in 1a79a9a66 (not re-reviewed).
+- B-store logic 6/10 + style 5/10 -> fix 6205bae6b -> re-review NEEDS_REVISION 5/10 with
+  BLOCKING B1 + N1-N3 (`code-logic-review-B-store-fix.md`).
+- B-render part 1 (B5a, B5b, B5b.4, fallout): NEEDS_REVISION 7/10, M1-M5
+  (`code-logic-review-B-render-1.md`).
+- B5c: not reviewed yet (B-render part 2).
 
-B2b done by its lane, NOT yet checked or committed (`reports/batch-B2b.md`): `subagent:history-page`
-in `libs/shared/src/lib/types/rpc.types.ts`, schema `subagent-rpc.schema.ts`, handler
-`subagent-rpc.handlers(.spec).ts`, pure module `subagent-history-page(.spec).ts` (rpc-handlers). The
-lane changed NO DI guard specs, claiming existing registration covers the new method — verify with the
-guard specs (section 3 step 2).
+## 3. In progress at handoff
 
-Check run on the uncommitted state (finished before handoff):
-`npx nx run-many -t typecheck,lint,test -p @ptah-extension/shared @ptah-extension/agent-sdk
-@ptah-extension/rpc-handlers @ptah-extension/chat-streaming @ptah-extension/chat
-@ptah-extension/canvas --parallel=1`, log at `D:\projects\ptah-extension\.ptah\tmp\685-batch2-checks.log`.
-Result: 16/18 targets pass (typecheck + lint pass in all 6 projects; tests pass in shared, agent-sdk,
-rpc-handlers, chat-streaming). TWO spec failures, both from the A4/B3a fix round:
+USER DECISION: one combined, final fix round for the B-store re-review (B1, N1-N3) and B-render
+part 1 (M1-M5). Codex lane `aae3d55d-8b96-46a6-b9d8-72640548bd4e`, deliverable
+`reports/batch-B-store-render-fix.md`. Brief priority: B1 (history replay drops the parent message
+after a Task call: `history-message-builder.service.ts` ~:139-141 must exempt the root
+`agent_start` like the live path), N1/M2 (bubble retains without session id -> dead Load button),
+M1 (lane retain effect keyed on a computed), N3, N2, M3 (bubble history states), M4 (`$agents`
+nested under background agents), M5 (recompute cost), minors. See section 6 for the lane result
+when it arrived.
 
-1. `chat:test` — `libs/frontend/chat/src/lib/components/organisms/subagent-lane/subagent-lane.component.spec.ts`,
-   "renders a finished agent summary without an empty message or duplicate agent header":
-   `NG0201: No provider found for InjectionToken SURFACE_ACTIVE` — the lane now renders
-   `AgentSummaryComponent`, which does `inject(SURFACE_ACTIVE)` (agent-summary.component.ts:120). The
-   spec's TestBed lacks `{ provide: SURFACE_ACTIVE, useValue: signal(true) }` (from
-   `@ptah-extension/core`). Also confirm production: every host that renders `ptah-subagent-lane`
-   (canvas lane view, and later the agent monitor panel in B5c) must have SURFACE_ACTIVE provided —
-   if one does not, inject it with `{ optional: true }` in the component instead.
-2. `canvas:test` — `libs/frontend/canvas/src/lib/canvas-detail/canvas-lane-view.component.spec.ts:358`,
-   "renders a live depth-2 agent with full tile mode and returns on Escape": expects text
-   "Investigation finished" (the finished sub-agent summary), got "". Likely the same summary path
-   (a missing provider, a deferred/`@defer` block not rendered in the test, or the summary input
-   not wired from `agentNode().summaryContent`). Read `reports/batch-A4-B3a-fix.md` finding 1.
+After this round there are NO further fix rounds for B-store / B-render part 1: one re-review of
+the fix diff, then report any remaining defect to the user and let the user decide.
 
-Fix both (small: do it directly or resume the A4/B3a fix lane, CLI session
-01a14f8d-8a66-79b0-8083-68d98f90c473 — it may start fresh if its context is too large; give the full
-brief), then rerun `-t test -p @ptah-extension/chat @ptah-extension/canvas --parallel=1`.
+## 4. Next steps (in order)
 
-## 3. Next steps (in order)
-
-1. Fix the two spec failures in section 2 and rerun the chat + canvas tests until green.
-2. B2b guard specs, one at a time:
+1. Read section 6. If the fix lane left uncommitted files: format them
+   (`npx prettier --write <changed .ts files>`), then run, one at a time:
+   `npx nx run-many -t test -p @ptah-extension/chat-streaming @ptah-extension/chat @ptah-extension/canvas --parallel=1`
+   (confirm "Running target test for 3 projects"), then `-t typecheck`, then `-t lint`.
+   Spec-only fallout is fixed directly (pattern seen often: a spec that resets TestBed and loses
+   the `SubagentExecutionStore` mock -> real store -> NG0201 MODEL_REFRESH_CONTROL; add the mock
+   `{ entries: signal(new Map()), treeFor: () => [] }`).
+   Commit: `fix(chat-streaming,chat): ...` (+ reports as `docs(task-specs)`), push in background.
+2. One Claude `code-logic-reviewer` re-review of that fix diff (B1, N1-N3, B-render M1-M5), plus
+   B-render part 2 = first review of B5c (e12dcc246). Report remaining defects to the user.
+3. Screenshots (B-render step + Phase A step; batches.md :546-548 and the old handoff list):
+   running / finished / restored-after-Load sub-agent lane; main chat bubble live and restored with
+   Load; agent monitor panel workflow sub-agent; A1 inspector rows / tab chip / hover card, A3 CLI
+   lane, A4 sub-agent lane ("before" images in the `docs-lane-header-proof` worktree). Dark + light,
+   1440 + 760. Use the `visual-reviewer` subagent.
+   Electron slot: free at handoff (662 and 650 closed their apps; 650 will announce a short
+   re-check). Announce `Electron: 685 launching` to the peers first (ListAgents: sessions
+   ptah-ptah-extension-task-650-setup-wizar-…, ptah-ptah-extension-setting-clean-up-ski-… and the
+   687 / 679 sessions), send `Electron: free` after. Dev build in this worktree:
+   `npx nx run ptah-electron:build-dev`, then `npx nx run ptah-electron:copy-renderer-dev`; skip
+   `rebuild-native`. Launch `node apps/ptah-electron/scripts/launch.js --remote-debugging-port=9370`
+   in the background; CDP via Playwright `connectOverCDP`, never `browser.close()`, use
+   `page.setViewportSize`.
+4. Removal phase (batches.md :552-672): B7a -> B7b ∥ B7c -> B6a -> B6b, one Claude code-logic
+   review for the phase (removal completeness + DI guard specs). B6a/B6b remove the
+   `subagent:transcript` RPC: run the DI guard specs after B6a:
    - `npx jest -c libs/shared/jest.config.ts libs/shared/src/lib/types/rpc/host-source-registry.contract.spec.ts --coverage=false --maxWorkers=2`
    - `npx jest -c apps/ptah-extension-vscode/jest.config.ts apps/ptah-extension-vscode/src/di/rpc-surface.spec.ts apps/ptah-extension-vscode/src/di/surface-composition.spec.ts apps/ptah-extension-vscode/src/di/container.smoke.spec.ts --coverage=false --maxWorkers=2`
-   - same three specs under `apps/ptah-electron`
+   - the same three under `apps/ptah-electron`
    - `npx jest -c libs/backend/cli-engine/jest.config.cjs libs/backend/cli-engine/src/lib/surface-composition.spec.ts --coverage=false --maxWorkers=2`
-3. Commit in the foreground, separately: `fix(agent-sdk): ...` (B2a fix), `fix(chat,canvas,chat-streaming): ...`
-   (A4/B3a fix), `feat(shared,rpc-handlers): ...` (B2b), then the reports as `docs(task-specs)`.
-4. Re-review ONLY the fix-round diff (cap reached: if it finds defects, report them and stop for the
-   user — do not start another fix round). Claude `code-logic-reviewer`, different family from codex.
-   Also review B2b (first review for that batch).
-5. Continue `batches.md`: B3b (store, needs B2b) → B4 → B5a ∥ B5b → B5c → B7a → B7b ∥ B7c → B6a → B6b.
-   One Claude code-logic review per phase. B5b.3 checks nested-agent chips (Risk 12): if they are
-   lost, ask the user (recommended: rebuild nested chips from the store tree).
-6. Screenshots (needs Electron + a fresh dev build of this worktree): Phase A step (A1 inspector rows /
-   tab chip / hover card, A3 CLI lane, A4 sub-agent lane; "before" images live in the
-   `docs-lane-header-proof` worktree), and the B5c step (running / finished / restored sub-agent lane,
-   main chat bubble live and restored, agent monitor panel), dark + light, 1440 + 760. Use the
-   visual-reviewer subagent.
-7. When B6b is done and verified: push, update the #751 body (summary per batch, test plan, review
-   verdicts), `gh pr ready 751`.
+   B7b removes `canViewTranscript: false` in canvas-lane-view (kept on purpose until then).
+5. When B6b is verified: push, update the #751 body (summary per batch, test plan, review
+   verdicts, the user decisions below), then `gh pr ready 751`.
 
-## 4. Electron slot (shared with peer sessions)
+## 5. Decisions made with the user this session
 
-Queue at handoff: TASK_2026_693 (679 follow-ups session) holds it on port 9361; we are next. Wait
-for its "Electron: free", then announce `Electron: 685 launching` to the peer sessions (use
-ListAgents to find them; the 687 command-center and 679 session-list sessions), and send
-`Electron: free` after. Dev build: in this worktree `npx nx run ptah-electron:build-dev` then
-`npx nx run ptah-electron:copy-renderer-dev`; skip `rebuild-native` (shared node_modules junction,
-EBUSY when another app has better_sqlite3.node loaded). Launch:
-`node apps/ptah-electron/scripts/launch.js --remote-debugging-port=9370` in the background. CDP via
-Playwright `connectOverCDP`; never `browser.close()`; use `page.setViewportSize`.
+- #750: raise the budget to 4 MB (done), then a proper eager-closure fix (done, 6a4aab658).
+- Risk 12: nested agent chips are rebuilt from the store trees (B5b.4, done).
+- B-store cap: one combined extra fix round with B-render (running at handoff), then report only.
+- CodeRabbit follow-ups of #750 go to their own PR (#761).
 
-## 5. Binding user rules
+## 6. Fix lane result
 
-- CLAUDE.md memory-safe checks: scoped `-p`, `--parallel=1`, Jest `--maxWorkers=2`, one heavy check at
-  a time (a `git push` pre-push gate counts as heavy), never `--maxWorkers` on typecheck; no
-  build/serve/e2e except the dev-app runs needed for screenshots.
-- Implementers are codex CLI lanes (`ptah_agent_list` first, load the agent-lanes skill); reviewers
-  are Claude subagents. Lanes never commit and never run checks. Lane briefs repeat the
-  "Rules for every lane brief" section of batches.md. Max 3 lanes; file-disjoint only.
-- Never commit while a lane is editing the same worktree (lint-staged hides unstaged changes).
+The lane finished and reported (report: `reports/batch-B-store-render-fix.md`). Its changes are
+UNCOMMITTED and UNCHECKED in the worktree (no test/typecheck/lint ran; not Prettier-formatted).
+Files changed by the lane:
+- libs/frontend/chat-streaming/src/lib/history-message-builder.service.ts (+ .spec.ts)
+- libs/frontend/chat-streaming/src/lib/subagent-execution.store.ts (+ .spec.ts)
+- libs/frontend/chat/src/lib/components/organisms/subagent-lane/subagent-lane.component.ts (+ .spec.ts)
+- libs/frontend/chat/src/lib/components/organisms/execution/inline-agent-bubble.component.ts (+ .spec.ts)
+- libs/frontend/chat/src/lib/components/organisms/execution/subagent-tile.component.ts (+ .spec.ts)
+- libs/frontend/chat/src/lib/components/organisms/transcript/transcript-agent-facts.ts (+ .spec.ts)
+- libs/frontend/chat/src/lib/components/organisms/transcript/transcript-ptah-ui-host-sources.ts (+ .spec.ts)
+- libs/frontend/chat/src/lib/components/organisms/transcript/chat-transcript.component.ts (+ .spec.ts)
+- reports/batch-B-store-render-fix.md
+
+Lane claims: B1, N1-N3, M1-M5 and the UI minors fixed with specs. Residuals it names: nested chips
+still need the parent entry resident/loaded; a per-key revision avoids unrelated publishes, but an
+update of a referenced key still recomputes all turn facts; the active-session bubble fallback can
+differ for background tabs without a monitor record. Verify all of this (section 4 step 1), then
+the re-review (step 2) decides.
+
+Start with `git status --short` and `git diff --stat` in the worktree to see the lane's state.
+
+## 7. Binding user rules
+
+- CLAUDE.md memory-safe checks: scoped `-p`, `--parallel=1`, Jest `--maxWorkers=2`, one heavy check
+  at a time (a `git push` pre-push gate counts), never `--maxWorkers` on typecheck; no
+  build/serve/e2e except the dev-app runs for screenshots.
+- Implementers are codex CLI lanes (`ptah_agent_list` first, load the agent-lanes skill; grok is at
+  98% weekly until 2026-10-20, Glm is the fallback); reviewers are Claude subagents. Lanes never
+  commit and never run checks; briefs repeat "Rules for every lane brief" in batches.md. Max 3
+  lanes, file-disjoint. `ptah_agent_spawn` rejects `taskKind`.
+- Never commit while a lane edits the same worktree. Do not push while a lane edits (the pre-push
+  validate-deps build reads the working tree).
 - Commit in the foreground; push (+ gh pr) as one background command. Commits end with
   `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`; PR bodies end with
   `🤖 Generated with [Claude Code](https://claude.com/claude-code)`. Scopes from `.commitlintrc.json`.
   Never bare `git stash`.
+- Lint-staged does not run Prettier on these files: run `npx prettier --write` on changed files
+  before committing.
 - Ask the user only about removals, scope changes or irreversible actions.
 - End each turn with what is done, what is left, and every local-only branch.
-- No orphaned local branches: push and open/update a PR for verified work.
