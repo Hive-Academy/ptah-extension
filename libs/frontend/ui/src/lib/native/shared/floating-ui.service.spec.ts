@@ -113,6 +113,123 @@ describe('FloatingUIService', () => {
       expect(opts.middleware.length).toBe(3);
     });
 
+    it('applies only the latest auto-update compute, so a late older one cannot move a grown panel back', async () => {
+      mockedCompute.mockResolvedValueOnce({ x: 0, y: 732 });
+      await service.position(reference, floating);
+      const update = mockedAutoUpdate.mock.calls[0][2] as () => void;
+      let resolveOlder: (point: { x: number; y: number }) => void = () =>
+        undefined;
+      mockedCompute.mockImplementationOnce(
+        () => new Promise((resolve) => (resolveOlder = resolve)),
+      );
+      mockedCompute.mockResolvedValueOnce({ x: 0, y: 404 });
+      update(); // measured while the panel was small: resolves last
+      update(); // measured after it grew
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(floating.style.top).toBe('404px');
+      resolveOlder({ x: 0, y: 732 });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(floating.style.top).toBe('404px');
+    });
+
+    describe('a rejected auto-update compute', () => {
+      const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+      let errorSpy: jest.SpyInstance;
+      beforeEach(() => {
+        errorSpy = jest
+          .spyOn(console, 'error')
+          .mockImplementation(() => undefined);
+      });
+      afterEach(() => errorSpy.mockRestore());
+
+      async function open(): Promise<() => void> {
+        mockedCompute.mockResolvedValueOnce({ x: 0, y: 732 });
+        await service.position(reference, floating);
+        return mockedAutoUpdate.mock.calls[0][2] as () => void;
+      }
+
+      it('gets one fresh compute after an older success, and that result applies', async () => {
+        const update = await open();
+        let resolveOlder: (point: { x: number; y: number }) => void = () =>
+          undefined;
+        mockedCompute
+          .mockImplementationOnce(
+            () => new Promise((resolve) => (resolveOlder = resolve)),
+          )
+          .mockRejectedValueOnce(new Error('layout gone'))
+          .mockResolvedValueOnce({ x: 0, y: 404 });
+        update(); // older: resolves late with the small-panel point
+        update(); // newest: rejects
+        await tick();
+        resolveOlder({ x: 0, y: 500 });
+        await tick();
+        expect(mockedCompute).toHaveBeenCalledTimes(4);
+        expect(floating.style.top).toBe('404px');
+        expect(errorSpy).toHaveBeenCalledTimes(1);
+      });
+
+      it('stops after a second failure: no loop, the position is left as is', async () => {
+        const update = await open();
+        mockedCompute.mockRejectedValue(new Error('layout gone'));
+        update();
+        await tick();
+        await tick();
+        expect(mockedCompute).toHaveBeenCalledTimes(3);
+        expect(floating.style.top).toBe('732px');
+        expect(errorSpy).toHaveBeenCalledTimes(2);
+      });
+
+      it('writes nothing when cleanup() runs during the retry', async () => {
+        const update = await open();
+        let resolveRetry: (point: { x: number; y: number }) => void = () =>
+          undefined;
+        mockedCompute
+          .mockRejectedValueOnce(new Error('layout gone'))
+          .mockImplementationOnce(
+            () => new Promise((resolve) => (resolveRetry = resolve)),
+          );
+        update();
+        await tick();
+        expect(mockedCompute).toHaveBeenCalledTimes(3);
+        service.cleanup();
+        resolveRetry({ x: 0, y: 404 });
+        await tick();
+        expect(floating.style.top).toBe('732px');
+      });
+
+      it('writes nothing when the popover reopens during the retry', async () => {
+        const update = await open();
+        let resolveRetry: (point: { x: number; y: number }) => void = () =>
+          undefined;
+        mockedCompute
+          .mockRejectedValueOnce(new Error('layout gone'))
+          .mockImplementationOnce(
+            () => new Promise((resolve) => (resolveRetry = resolve)),
+          )
+          .mockResolvedValueOnce({ x: 0, y: 600 });
+        update();
+        await tick();
+        await service.position(reference, floating);
+        expect(floating.style.top).toBe('600px');
+        resolveRetry({ x: 0, y: 404 });
+        await tick();
+        expect(floating.style.top).toBe('600px');
+      });
+    });
+
+    it('update() recomputes the live position, and does nothing after cleanup()', async () => {
+      mockedCompute.mockResolvedValueOnce({ x: 0, y: 732 });
+      await service.position(reference, floating);
+      mockedCompute.mockResolvedValueOnce({ x: 0, y: 404 });
+      service.update();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(floating.style.top).toBe('404px');
+      service.cleanup();
+      const calls = mockedCompute.mock.calls.length;
+      service.update();
+      expect(mockedCompute.mock.calls.length).toBe(calls);
+    });
+
     it('should apply computed position styles to the floating element', async () => {
       mockedCompute.mockResolvedValueOnce({ x: 42, y: 84 });
 

@@ -25,7 +25,7 @@
  * }
  * ```
  */
-import { Injectable, inject, DestroyRef } from '@angular/core';
+import { Injectable, inject, DestroyRef, isDevMode } from '@angular/core';
 import {
   computePosition,
   flip,
@@ -104,6 +104,17 @@ export class FloatingUIService {
   private requestToken = 0;
 
   /**
+   * Numbers each auto-update compute. computePosition is async and a flip
+   * re-run makes one compute take longer than another, so an older compute
+   * (measured before the panel grew) could resolve after a newer one and put
+   * the panel back where the smaller size fitted. Only the latest applies.
+   */
+  private updateSeq = 0;
+
+  /** Re-runs the live auto-update compute; null while nothing is positioned. */
+  private updateFn: (() => void) | null = null;
+
+  /**
    * Flag to track if the service has been destroyed.
    * Used to prevent position updates after component destruction.
    */
@@ -175,11 +186,36 @@ export class FloatingUIService {
     // request's cleanup handle.
     if (!this.isCurrent(request)) return;
     this.applyPosition(floatingEl, x, y);
-    this.cleanupFn = autoUpdate(referenceEl, floatingEl, async () => {
-      const result = await computePosition(referenceEl, floatingEl, config);
-      if (!this.isCurrent(request)) return;
-      this.applyPosition(floatingEl, result.x, result.y);
-    });
+    // A rejected latest compute would leave the panel where an older one put
+    // it (the guard drops that older result): it gets one fresh compute, never
+    // a loop, and a second failure leaves the position as it is.
+    const update = async (retried = false): Promise<void> => {
+      const seq = ++this.updateSeq;
+      const live = () => this.isCurrent(request) && seq === this.updateSeq;
+      try {
+        const result = await computePosition(referenceEl, floatingEl, config);
+        if (live()) this.applyPosition(floatingEl, result.x, result.y);
+      } catch (error: unknown) {
+        if (!live()) return;
+        if (isDevMode()) {
+          console.error(
+            `FloatingUIService: auto-update compute rejected${retried ? ' again; position left as is' : '; retrying once'}:`,
+            error,
+          );
+        }
+        if (!retried) await update(true);
+      }
+    };
+    this.updateFn = () => void update();
+    this.cleanupFn = autoUpdate(referenceEl, floatingEl, this.updateFn);
+  }
+
+  /**
+   * Recomputes the live position now (flip, shift) — for a caller whose panel
+   * content just changed size. No-op when nothing is positioned.
+   */
+  update(): void {
+    this.updateFn?.();
   }
 
   private isCurrent(request: number): boolean {
@@ -207,6 +243,7 @@ export class FloatingUIService {
    */
   cleanup(): void {
     this.requestToken++;
+    this.updateFn = null;
     if (this.cleanupFn) {
       this.cleanupFn();
       this.cleanupFn = null;

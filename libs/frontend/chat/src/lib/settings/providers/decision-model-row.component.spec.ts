@@ -694,6 +694,17 @@ describe('DecisionModelRowComponent', () => {
       return event;
     };
 
+    it('repositions the popover when the kind changes, so a grown editor re-flips or re-shifts at once', async () => {
+      await create();
+      await open();
+      const popover = fixture.debugElement.query(
+        By.directive(NativePopoverComponent),
+      ).componentInstance as NativePopoverComponent;
+      const reposition = jest.spyOn(popover, 'reposition');
+      await pickKind('custom');
+      expect(reposition).toHaveBeenCalledTimes(1);
+    });
+
     it('is a modal dialog capped to the viewport, with a fixed kind picker and a scrolling body', async () => {
       await create();
       await open();

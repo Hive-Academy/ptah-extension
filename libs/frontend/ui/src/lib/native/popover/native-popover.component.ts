@@ -43,6 +43,8 @@ import {
   effect,
   isDevMode,
   OnDestroy,
+  afterNextRender,
+  Injector,
 } from '@angular/core';
 import { Placement } from '@floating-ui/dom';
 import { DEFAULT_OVERLAY_OFFSET, FloatingUIService } from '../shared';
@@ -118,6 +120,7 @@ type PositionOutcome = 'positioned' | 'failed' | 'timed out';
 })
 export class NativePopoverComponent implements OnDestroy {
   private readonly floatingUI = inject(FloatingUIService);
+  private readonly injector = inject(Injector);
 
   /**
    * Whether the popover is open.
@@ -275,6 +278,17 @@ export class NativePopoverComponent implements OnDestroy {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  /**
+   * Repositions the open panel (flip, shift) after the next render, for a
+   * parent whose projected content just changed size (it may grow past the
+   * side it was placed on).
+   */
+  reposition(): void {
+    afterNextRender(() => this.floatingUI.update(), {
+      injector: this.injector,
+    });
   }
 
   /**

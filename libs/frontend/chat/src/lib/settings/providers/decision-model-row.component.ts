@@ -138,6 +138,7 @@ type WriteResult = { ok: true } | { ok: false; message: string };
       } @else {
         <div class="mt-auto min-w-0 space-y-1.5">
           <ptah-native-popover
+            #editorPopover
             class="consumer-cell-popover block w-full min-w-0"
             [isOpen]="editing()"
             placement="bottom-start"
@@ -179,8 +180,7 @@ type WriteResult = { ok: true } | { ok: false; message: string };
               />
             </button>
             @if (editing()) {
-              <!-- Capped to the room beside the cell (decisionEditorMaxHeight); only the body scrolls, unless the
-                   window is too short for the fixed chrome: then the body keeps 4rem and the whole editor scrolls. -->
+              <!-- Capped by decisionEditorMaxHeight; the body scrolls (the whole editor in a short window). -->
               <div
                 #editor
                 content
@@ -195,7 +195,7 @@ type WriteResult = { ok: true } | { ok: false; message: string };
                 <button
                   type="button"
                   [class]="
-                    'btn btn-ghost btn-xs btn-square absolute right-3 top-3 z-10 min-h-6 ' +
+                    'btn btn-ghost btn-xs btn-square absolute right-3 top-1.5 z-10 min-h-6 ' +
                     focusRing
                   "
                   aria-label="Close"
@@ -215,7 +215,7 @@ type WriteResult = { ok: true } | { ok: false; message: string };
                   id="decision-model-kind"
                   [class]="selectClass"
                   [disabled]="busy() || disabled()"
-                  (change)="onKind($event)"
+                  (change)="onKind($event); editorPopover.reposition()"
                   data-testid="decision-kind"
                 >
                   @for (option of kinds; track option.value) {
