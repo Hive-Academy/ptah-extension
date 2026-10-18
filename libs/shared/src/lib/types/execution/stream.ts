@@ -288,6 +288,8 @@ export interface CompactionMeasurement {
 export interface CompactionCompleteEvent extends FlatStreamEvent {
   readonly boundaryId?: string;
   readonly measurement?: CompactionMeasurement;
+  /** Idle compaction notice matched to this SDK boundary. */
+  readonly idleCompaction?: { readonly preTokens: number };
   readonly eventType: 'compaction_complete';
   /** Whether compaction was triggered manually or automatically */
   readonly trigger: 'manual' | 'auto';
