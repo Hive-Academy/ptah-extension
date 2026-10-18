@@ -90,6 +90,28 @@ describe('DisplaySheetComponent', () => {
     fixture.destroy();
   });
 
+  it('includes the new-item count in the bar name only when it is above zero', () => {
+    const fixture = TestBed.createComponent(DisplaySheetComponent);
+    fixture.componentRef.setInput('tabId', 'tab-1');
+    const dock = TestBed.inject(DisplayDockState);
+    dock.setLiveTurn('tab-1', 'turn-1');
+    dock.setSurfaces('tab-1', { surfaces: [surface], statuses: new Map() });
+    fixture.detectChanges();
+    const bar = () => (fixture.nativeElement as HTMLElement).querySelector('[data-testid="display-sheet-bar"]');
+    expect(dock.tab('tab-1').newCount).toBe(0);
+    expect(bar()?.getAttribute('aria-label')).toBe('Display, 1 items');
+    expect(bar()?.querySelector('.badge')).toBeNull();
+
+    dock.open('tab-1');
+    dock.close('tab-1');
+    dock.requestAutoOpen('tab-1', 'turn-1', 'id:a');
+    dock.requestAutoOpen('tab-1', 'turn-1', 'id:b');
+    fixture.detectChanges();
+    expect(dock.tab('tab-1').newCount).toBe(2);
+    expect(bar()?.getAttribute('aria-label')).toBe('Display, 1 items, 2 new');
+    fixture.destroy();
+  });
+
   it('shows the bar when explicitly opened without content', () => {
     const fixture = TestBed.createComponent(DisplaySheetComponent);
     fixture.componentRef.setInput('tabId', 'tab-1');
