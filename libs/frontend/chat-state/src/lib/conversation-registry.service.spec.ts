@@ -20,6 +20,61 @@ describe('ConversationRegistry — TASK_2026_106 Phase 1', () => {
     registry = TestBed.inject(ConversationRegistry);
   });
 
+  it('persists an idle notice, validates it on reload, and clears it at a new boundary', () => {
+    const id = registry.create(sid());
+    registry.setCompactionMarkerTokens(id, {
+      boundaryId: 'A',
+      idleCompaction: { preTokens: 12345 },
+      preTokens: 12345,
+      postTokens: 600,
+      durationMs: null,
+      completedAt: 1,
+    });
+    expect(registry.compactionMarkerFor(id)?.idleCompaction).toEqual({
+      preTokens: 12345,
+    });
+    expect(
+      JSON.parse(localStorage.getItem(`ptah:compaction-marker:${id}`) ?? '{}')
+        .idleCompaction,
+    ).toEqual({ preTokens: 12345 });
+    const reloadedId = registry.create();
+    localStorage.setItem(
+      `ptah:compaction-marker:${reloadedId}`,
+      localStorage.getItem(`ptah:compaction-marker:${id}`) ?? '{}',
+    );
+    expect(registry.compactionMarkerFor(reloadedId)?.idleCompaction).toEqual({
+      preTokens: 12345,
+    });
+    registry.setCompactionMarkerSummary(id, {
+      summary: 'recap',
+      boundaryId: 'A',
+      completedAt: 1,
+    });
+    expect(registry.compactionMarkerFor(id)?.idleCompaction).toEqual({
+      preTokens: 12345,
+    });
+    registry.setCompactionMarkerTokens(id, {
+      boundaryId: 'B',
+      preTokens: null,
+      postTokens: null,
+      durationMs: null,
+      completedAt: 2,
+    });
+    expect(registry.compactionMarkerFor(id)?.idleCompaction).toBeUndefined();
+  });
+
+  it.each([NaN, Infinity, -1, '123'])(
+    'rejects invalid persisted idle token count: %p',
+    (preTokens) => {
+      const id = registry.create();
+      localStorage.setItem(
+        `ptah:compaction-marker:${id}`,
+        JSON.stringify({ idleCompaction: { preTokens } }),
+      );
+      expect(registry.compactionMarkerFor(id)?.idleCompaction).toBeUndefined();
+    },
+  );
+
   it('does not carry a measurement across compaction boundaries', () => {
     const id = registry.create(sid());
     const measurement = {

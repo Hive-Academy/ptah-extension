@@ -21,7 +21,14 @@ import { MarkdownBlockComponent } from '@ptah-extension/markdown';
       class="inline-flex items-center gap-1.5 my-2 px-2 py-0.5 rounded-full border border-base-300 bg-base-200/40 text-xs text-base-content-muted max-w-full"
     >
       <lucide-angular [img]="ArchiveIcon" class="w-3 h-3 flex-shrink-0" />
-      <span class="font-medium text-base-content-muted">Context compacted</span>
+      <span class="font-medium text-base-content-muted">
+        @if (idleCompaction(); as idle) {
+          Compacted while idle to save usage before the prompt cache expired
+          (was {{ format(idle.preTokens) }} tokens).
+        } @else {
+          Context compacted
+        }
+      </span>
       @if (tokenLine(); as line) {
         <span class="opacity-60 truncate">· {{ line }}</span>
       }
@@ -95,6 +102,7 @@ export class CompactionMarkerComponent {
   readonly summary = input<string | null>(null);
   readonly boundaryId = input<string | undefined>();
   readonly measurement = input<CompactionMeasurement | undefined>();
+  readonly idleCompaction = input<{ preTokens: number } | undefined>();
   readonly durationMs = input<number | null>(null);
 
   protected readonly ArchiveIcon = Archive;
@@ -130,7 +138,7 @@ export class CompactionMarkerComponent {
     this._isOpen.set(false);
   }
 
-  private format(value: number): string {
+  protected format(value: number): string {
     return value.toLocaleString();
   }
 

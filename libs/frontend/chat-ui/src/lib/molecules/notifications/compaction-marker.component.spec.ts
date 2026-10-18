@@ -53,12 +53,14 @@ describe('CompactionMarkerComponent', () => {
     measurement?: CompactionMeasurement;
     boundaryId?: string;
     durationMs?: number | null;
+    idleCompaction?: { preTokens: number };
   }) {
     const fixture = TestBed.createComponent(CompactionMarkerComponent);
     fixture.componentRef.setInput('summary', inputs.summary ?? null);
     fixture.componentRef.setInput('durationMs', inputs.durationMs ?? null);
     fixture.componentRef.setInput('measurement', inputs.measurement);
     fixture.componentRef.setInput('boundaryId', inputs.boundaryId);
+    fixture.componentRef.setInput('idleCompaction', inputs.idleCompaction);
     fixture.detectChanges();
     return fixture;
   }
@@ -101,6 +103,17 @@ describe('CompactionMarkerComponent', () => {
   it('always renders the "Context compacted" title', () => {
     const fixture = setup({});
     expect(fixture.nativeElement.textContent).toContain('Context compacted');
+    expect(fixture.nativeElement.textContent).not.toContain('manual');
+  });
+
+  it('renders the idle notice with formatted tokens and no manual wording', () => {
+    const fixture = setup({ idleCompaction: { preTokens: 12345 } });
+    const text = fixture.nativeElement.textContent as string;
+    expect(fixture.nativeElement.querySelector('span').textContent.trim()).toBe(
+      'Compacted while idle to save usage before the prompt cache expired (was 12,345 tokens).',
+    );
+    expect(text).not.toContain('Context compacted');
+    expect(text).not.toContain('manual');
   });
 
   it('uses "shrank" only when context tokens decrease', () => {
