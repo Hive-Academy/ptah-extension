@@ -36,7 +36,8 @@ import * as fs from 'fs/promises';
 import * as nodeFs from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import { findWorkflowAgentTranscript } from './helpers/workflow-transcript-reader';
-import { SessionHistoryReaderService } from './session-history-reader.service';
+import { SessionHistoryReaderService, SubagentHistoryValidationError,
+  retainSubagentEventsTail, SUBAGENT_EVENTS_TAIL_LIMIT } from './session-history-reader.service';
 import { JsonlReaderService } from './helpers/history/jsonl-reader.service';
 import type { SessionReplayService } from './helpers/history/session-replay.service';
 import { HistoryEventFactory } from './helpers/history/history-event-factory';
@@ -234,7 +235,7 @@ describe('SessionHistoryReaderService', () => {
     it('starts a truncated tail at a message boundary', async () => {
       const { stubs, service } = setup();
       const factory = new HistoryEventFactory();
-      const events = Array.from({ length: 10_002 }, (_, index) => {
+      const events = Array.from({ length: SUBAGENT_EVENTS_TAIL_LIMIT + 2 }, (_, index) => {
         const messageId = `message-${Math.floor(index / 3)}`;
         if (index % 3 === 0) {
           return factory.createAgentMessageStart('session', messageId, index, index, 'task');
@@ -252,6 +253,15 @@ describe('SessionHistoryReaderService', () => {
       expect(result.events[0].eventType).toBe('message_start');
     });
 
+    it('retains a single oversized message and leaves short histories intact', () => {
+      const factory = new HistoryEventFactory();
+      const start = factory.createAgentMessageStart('session', 'message', 0, 0, 'task');
+      const events = [start, ...Array.from({ length: SUBAGENT_EVENTS_TAIL_LIMIT }, (_, index) =>
+        factory.createAgentTextDelta('session', 'message', String(index), 0, index + 1, index + 1, 'task'))];
+      expect(retainSubagentEventsTail(events)).toEqual({ events, truncated: true });
+      expect(retainSubagentEventsTail([start])).toEqual({ events: [start], truncated: false });
+    });
+
     it('reports an oversized JSONL read without leaking the path', async () => {
       const { stubs, service } = setup();
       stubs.jsonlReader.readJsonlMessages.mockRejectedValue(new Error('/secret/path is too large'));
@@ -262,16 +272,27 @@ describe('SessionHistoryReaderService', () => {
     it('rejects an unsafe agent id before joining a file path', async () => {
       const { stubs, service } = setup();
       await expect(service.readSubagentEvents('session', 'task', '../escape'))
-        .rejects.toThrow('Invalid agent id');
+        .rejects.toBeInstanceOf(SubagentHistoryValidationError);
       expect(stubs.jsonlReader.listSessionsDirectories).not.toHaveBeenCalled();
     });
 
-    it('keeps a correlated agent id validation error distinct from read failures', async () => {
+    it.each([
+      ['../session', 'task', undefined],
+      ['session', '../task', undefined],
+      ['session', 'task', '../agent'],
+    ])('types invalid history request identifiers', async (sessionId, toolCallId, agentId) => {
+      const { stubs, service } = setup();
+      await expect(service.readSubagentEvents(sessionId, toolCallId, agentId))
+        .rejects.toBeInstanceOf(SubagentHistoryValidationError);
+      expect(stubs.jsonlReader.listSessionsDirectories).not.toHaveBeenCalled();
+    });
+
+    it('treats an invalid correlated id as a read failure', async () => {
       const { stubs, service } = setup();
       stubs.replayService.correlateAgentId.mockReturnValue('agent-../escape');
       await expect(service.readSubagentEvents('session', 'task'))
-        .rejects.toThrow('Invalid agent id');
-      expect(stubs.logger.warn).not.toHaveBeenCalled();
+        .rejects.toThrow('Subagent history could not be read');
+      expect(stubs.logger.warn).toHaveBeenCalled();
     });
   });
 

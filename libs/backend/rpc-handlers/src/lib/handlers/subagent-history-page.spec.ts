@@ -70,6 +70,28 @@ describe('subagent history clipping and paging', () => {
     expect(page.nextCursor).toBe(historyCursor(event));
   });
 
+  it('uses a valid text event when oversized lifecycle events cannot keep their fields', () => {
+    const numericPayload = Array.from({ length: 60_000 }, (_, index) => index);
+    const base = { id: 'large', messageId: 'message', timestamp: 1, numericPayload };
+    const events: FlatStreamEventUnion[] = [
+      { ...base, eventType: 'agent_start', toolCallId: 'tool', agentType: 'general' },
+      { ...base, eventType: 'agent_progress', parentToolUseId: 'tool', taskId: 'task',
+        description: 'Working', totalTokens: 1, toolUses: 1, durationMs: 1 },
+      { ...base, eventType: 'background_agent_started', toolCallId: 'tool', agentType: 'general' },
+      { ...base, eventType: 'compaction_start', trigger: 'auto', preTokens: 1 },
+      { ...base, eventType: 'turn_state', phase: 'idle', revision: 1,
+        backgroundTasks: [], sessionCrons: [], terminalReason: null },
+    ];
+    for (const event of events) {
+      const clipped = clipHistoryEvent(event);
+      expect(clipped.clipped).toBe(true);
+      expect(clipped.event).toMatchObject({ eventType: 'text_delta', id: event.id,
+        messageId: event.messageId, delta: 'Content too large to display', blockIndex: 0 });
+      expect(size(clipped.event)).toBeLessThanOrEqual(MAX_HISTORY_EVENT_BYTES);
+      expect(historyCursor(clipped.event)).not.toBe(historyCursor(event));
+    }
+  });
+
   it('cuts back a page when the encoded anchor grows beyond the reservation', () => {
     const events = [textEvent('a'.repeat(100), 'first'), textEvent('b', 'x'.repeat(310)), textEvent('c', 'third')];
     const page = assembleHistoryPage(events, 0, 'ok', 'agent-1', false, 1024);

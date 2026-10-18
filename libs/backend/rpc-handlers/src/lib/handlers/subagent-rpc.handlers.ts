@@ -46,7 +46,7 @@ import {
   SubagentHistoryPageResult,
 } from '@ptah-extension/shared';
 import type { RpcMethodName } from '@ptah-extension/shared';
-import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import { SDK_TOKENS, SubagentHistoryValidationError } from '@ptah-extension/agent-sdk';
 import type { SubagentMessageDispatcher, SessionHistoryReaderService } from '@ptah-extension/agent-sdk';
 import { assembleHistoryPage, parseHistoryCursor } from './subagent-history-page';
 import {
@@ -405,10 +405,14 @@ export class SubagentRpcHandlers {
           const position = anchor ? read.events.findIndex(event => event.id === anchor[0] && event.eventType === anchor[1]) : -1;
           if (anchor && position < 0) throw new RpcUserError('Agent history cursor expired; restart from the first page', 'HISTORY_CURSOR_STALE');
           const start = position + 1;
-          return assembleHistoryPage(read.events, start, read.status, read.agentId, read.truncated, maxBytes);
+           const page = assembleHistoryPage(read.events, start, read.status, read.agentId, read.truncated, maxBytes);
+           if (!page.done && page.nextCursor === cursor) {
+             throw new RpcUserError('Agent history cursor did not advance', 'HISTORY_CURSOR_STALE');
+           }
+           return page;
         } catch (error: unknown) {
           if (error instanceof RpcUserError) throw error;
-          if (error instanceof Error && /^(Invalid agent id|Invalid tool call id|Invalid sessionId format:)/.test(error.message)) {
+           if (error instanceof SubagentHistoryValidationError) {
             throw new RpcUserError('Invalid agent history request', 'INVALID_PARAMS');
           }
           this.logger.error('RPC: subagent:history-page failed', {

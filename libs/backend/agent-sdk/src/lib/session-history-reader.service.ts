@@ -119,6 +119,32 @@ export interface SubagentEventsReadResult {
   readonly truncated: boolean;
 }
 
+export class SubagentHistoryValidationError extends SdkError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SubagentHistoryValidationError';
+  }
+}
+
+export const SUBAGENT_EVENTS_TAIL_LIMIT = 10_000;
+
+export function retainSubagentEventsTail(events: FlatStreamEventUnion[]): Pick<SubagentEventsReadResult, 'events' | 'truncated'> {
+  const truncated = events.length > SUBAGENT_EVENTS_TAIL_LIMIT;
+  if (!truncated) return { events, truncated };
+  let start = events.length - SUBAGENT_EVENTS_TAIL_LIMIT;
+  // Retain complete message groups at the tail boundary.
+  let lastStart = -1;
+  for (let index = events.length - 1; index >= 0; index--) {
+    if (events[index].eventType === 'message_start') {
+      lastStart = index;
+      break;
+    }
+  }
+  while (start < events.length && events[start].eventType !== 'message_start') start++;
+  if (start === events.length) start = lastStart;
+  return { events: events.slice(start), truncated };
+}
+
 type SessionEventData = {
   readonly events: FlatStreamEventUnion[];
   readonly mainMessages: SessionHistoryMessage[];
@@ -143,12 +169,12 @@ export class SessionHistoryReaderService {
     toolCallId: string,
     agentId?: string,
   ): Promise<SubagentEventsReadResult> {
-    this.validateSessionId(sessionId);
+    if (!this.isValidSessionId(sessionId)) throw new SubagentHistoryValidationError('Invalid sessionId format');
     if (!toolCallId || !this.AGENT_ID_PATTERN.test(toolCallId)) {
-      throw new SdkError('Invalid tool call id');
+      throw new SubagentHistoryValidationError('Invalid tool call id');
     }
     if (agentId !== undefined && !this.AGENT_ID_PATTERN.test(agentId)) {
-      throw new SdkError('Invalid agent id');
+      throw new SubagentHistoryValidationError('Invalid agent id');
     }
     const dirs = await this.jsonlReader.listSessionsDirectories();
     if (!dirs) throw new SdkError('Subagent history is unavailable');
@@ -194,28 +220,13 @@ export class SessionHistoryReaderService {
           const messages = await this.jsonlReader.readJsonlMessages(candidate);
           if (candidate === candidates[1] && messages[0]?.sessionId !== sessionId) continue;
           const events = this.replayService.replayAgentToStreamEvents(sessionId, toolCallId, messages);
-          const truncated = events.length > 10_000;
-          let start = truncated ? events.length - 10_000 : 0;
-          if (truncated) {
-            // Keep complete message groups at the tail boundary. A single message
-            // larger than the cap stays intact when no later start exists.
-            let lastStart = -1;
-            for (let index = events.length - 1; index >= 0; index--) {
-              if (events[index].eventType === 'message_start') {
-                lastStart = index;
-                break;
-              }
-            }
-            while (start < events.length && events[start].eventType !== 'message_start') start++;
-            if (start === events.length) start = lastStart;
-          }
-          return { status: 'ok', agentId: resolvedId, events: events.slice(start), truncated };
+          return { status: 'ok', agentId: resolvedId, ...retainSubagentEventsTail(events) };
         }
         return { status: 'not-found', agentId: resolvedId, events: [], truncated: false };
       }
       return { status: agentId ? 'not-found' : 'unresolved', agentId: agentId ?? null, events: [], truncated: false };
     } catch (error: unknown) {
-      if (error instanceof SdkError && error.message === 'Invalid agent id') throw error;
+      if (error instanceof SubagentHistoryValidationError) throw error;
       this.logger.warn('[SessionHistoryReader] Subagent history read failed', {
         reason: error instanceof Error ? error.name : 'unknown',
       });

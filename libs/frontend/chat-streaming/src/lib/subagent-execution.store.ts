@@ -363,6 +363,7 @@ export class SubagentExecutionStore {
         clipped += page.clippedEvents;
         truncated ||= page.truncated;
         if (page.done || !page.nextCursor) break;
+        if (page.nextCursor === cursor) throw new Error('Agent history cursor did not advance');
         cursor = page.nextCursor;
       }
       if (!valid()) return;

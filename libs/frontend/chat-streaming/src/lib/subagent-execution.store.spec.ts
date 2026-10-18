@@ -213,4 +213,15 @@ describe('SubagentExecutionStore', () => {
     expect(store.entries().get('agent-a')?.history).toBe('loaded');
     expect(store.entries().get('agent-a')?.state?.events.size).toBe(0);
   });
+
+  it('stops paging and records an error when a cursor repeats', async () => {
+    store.syncRecord(record('agent-a'));
+    rpc.call.mockResolvedValue(page([], 'same'));
+    await store.ensureHistory('agent-a');
+    expect(rpc.call).toHaveBeenCalledTimes(2);
+    expect(store.entries().get('agent-a')).toMatchObject({
+      history: 'error', historyError: 'Agent history cursor did not advance',
+    });
+    expect(logger.warn).toHaveBeenCalled();
+  });
 });

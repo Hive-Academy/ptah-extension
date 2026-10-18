@@ -56,6 +56,7 @@ import {
 
 import type { SubagentMessageDispatcher } from '@ptah-extension/agent-sdk';
 import type { SessionHistoryReaderService } from '@ptah-extension/agent-sdk';
+import { SubagentHistoryValidationError } from '@ptah-extension/agent-sdk';
 import { SubagentRpcHandlers } from './subagent-rpc.handlers';
 import { historyCursor } from './subagent-history-page';
 
@@ -315,11 +316,31 @@ describe('SubagentRpcHandlers', () => {
 
     it('maps a reader validation error to INVALID_PARAMS', async () => {
       const h = makeHarness();
-      h.historyReader.readSubagentEvents.mockRejectedValue(new Error('Invalid agent id'));
+      h.historyReader.readSubagentEvents.mockRejectedValue(new SubagentHistoryValidationError('Invalid agent id'));
       h.handlers.register();
       const response = await h.rpcHandler.handleMessage({ method: 'subagent:history-page',
         params: { sessionId: 'session-1', toolCallId: 'tool-1' }, correlationId: 'invalid-reader' });
       expect(response).toMatchObject({ success: false, errorCode: 'INVALID_PARAMS' });
+    });
+
+    it('does not classify an unrelated error by its message', async () => {
+      const h = makeHarness();
+      h.historyReader.readSubagentEvents.mockRejectedValue(new Error('Invalid agent id'));
+      h.handlers.register();
+      const response = await h.rpcHandler.handleMessage({ method: 'subagent:history-page',
+        params: { sessionId: 'session-1', toolCallId: 'tool-1' }, correlationId: 'untyped-error' });
+      expect(response).toMatchObject({ success: false, errorCode: 'PERSISTENCE_UNAVAILABLE' });
+    });
+
+    it('rejects a page that repeats the request cursor', async () => {
+      const h = makeHarness();
+      const first = event('duplicate');
+      h.historyReader.readSubagentEvents.mockResolvedValue(read([first, first, event('later')]));
+      h.handlers.register();
+      const response = await h.rpcHandler.handleMessage({ method: 'subagent:history-page',
+        params: { sessionId: 'session-1', toolCallId: 'tool-1', cursor: historyCursor(first), maxBytes: 1024 },
+        correlationId: 'repeated-cursor' });
+      expect(response).toMatchObject({ success: false, errorCode: 'HISTORY_CURSOR_STALE' });
     });
   });
 

@@ -5,16 +5,21 @@ export const MAX_RPC_RESPONSE_BYTES = 256 * 1024;
 export const HISTORY_PAGE_MAX_EVENTS = 2000;
 const encoder = new TextEncoder();
 const bytes = (value: unknown): number => encoder.encode(JSON.stringify(value)).length;
-const eventTypes = new Set<FlatStreamEventUnion['eventType']>([
-  'message_start', 'text_delta', 'thinking_start', 'thinking_delta', 'tool_start', 'tool_delta',
-  'tool_result', 'agent_start', 'message_complete', 'message_delta', 'signature_delta',
-  'compaction_start', 'compaction_complete', 'background_agent_started',
-  'background_agent_completed', 'background_agent_stopped', 'agent_progress', 'agent_status',
-  'agent_completed', 'turn_state',
-]);
+const eventTypes: Record<FlatStreamEventUnion['eventType'], true> = {
+  message_start: true, text_delta: true, thinking_start: true, thinking_delta: true,
+  tool_start: true, tool_delta: true, tool_result: true, agent_start: true,
+  message_complete: true, message_delta: true, signature_delta: true,
+  compaction_start: true, compaction_complete: true, background_agent_started: true,
+  background_agent_completed: true, background_agent_stopped: true,
+  agent_progress: true, agent_status: true, agent_completed: true, turn_state: true,
+};
+
+function isEventType(value: string): value is FlatStreamEventUnion['eventType'] {
+  return Object.prototype.hasOwnProperty.call(eventTypes, value);
+}
 
 /** A versioned, canonical token for the last event delivered to the caller. */
-export function historyCursor(event: FlatStreamEventUnion): string {
+export function historyCursor(event: Pick<FlatStreamEventUnion, 'id' | 'eventType'>): string {
   return `v1.${Buffer.from(JSON.stringify([event.id, event.eventType]), 'utf8').toString('base64url')}`;
 }
 
@@ -23,9 +28,9 @@ export function parseHistoryCursor(cursor: string): readonly [string, FlatStream
   try {
     const payload: unknown = JSON.parse(Buffer.from(cursor.slice(3), 'base64url').toString('utf8'));
     if (!Array.isArray(payload) || payload.length !== 2 || typeof payload[0] !== 'string' ||
-      payload[0].length === 0 || typeof payload[1] !== 'string' || !eventTypes.has(payload[1] as FlatStreamEventUnion['eventType'])) return null;
-    const identity = payload as [string, FlatStreamEventUnion['eventType']];
-    return historyCursor({ id: identity[0], eventType: identity[1] } as FlatStreamEventUnion) === cursor ? identity : null;
+      payload[0].length === 0 || typeof payload[1] !== 'string' || !isEventType(payload[1])) return null;
+    const identity: readonly [string, FlatStreamEventUnion['eventType']] = [payload[0], payload[1]];
+    return historyCursor({ id: identity[0], eventType: identity[1] }) === cursor ? identity : null;
   } catch {
     return null;
   }
@@ -62,16 +67,24 @@ function largestStringPath(value: unknown, prefix: (string | number)[] = []): (s
 function getPath(value: unknown, path: (string | number)[]): unknown {
   let current: unknown = value;
   for (const key of path) {
-    if (current === null || typeof current !== 'object') return undefined;
-    current = (current as Record<string, unknown>)[String(key)];
+    if (!isRecord(current)) return undefined;
+    current = current[String(key)];
   }
   return current;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object';
+}
+
 function replacePath<T extends object>(value: T, path: (string | number)[], replacement: string): T {
-  const copy = JSON.parse(JSON.stringify(value)) as T & Record<string, unknown>;
-  let target: Record<string, unknown> = copy;
-  for (const key of path.slice(0, -1)) target = target[String(key)] as Record<string, unknown>;
+  const copy = structuredClone(value);
+  let target: unknown = copy;
+  for (const key of path.slice(0, -1)) {
+    if (!isRecord(target)) return copy;
+    target = target[String(key)];
+  }
+  if (!isRecord(target)) return copy;
   target[String(path[path.length - 1])] = replacement;
   return copy;
 }
@@ -127,15 +140,19 @@ export function clipHistoryEvent(event: FlatStreamEventUnion): { event: FlatStre
       ...(event.toolCallId !== undefined ? { toolCallId: event.toolCallId } : {}) };
     const notice = 'Content too large to display';
     switch (event.eventType) {
-      case 'text_delta': case 'thinking_delta': case 'tool_delta':
-        result = { ...common, eventType: event.eventType, delta: notice } as FlatStreamEventUnion;
+      case 'text_delta': case 'thinking_delta':
+        result = { ...common, eventType: event.eventType, blockIndex: event.blockIndex, delta: notice };
+        break;
+      case 'tool_delta':
+        result = { ...common, eventType: 'tool_delta', toolCallId: event.toolCallId, delta: notice };
         break;
       case 'tool_start':
-        result = { ...common, eventType: 'tool_start', toolName: notice, isTaskTool: event.isTaskTool,
-          toolInput: { clipped: notice } } as FlatStreamEventUnion;
+        result = { ...common, eventType: 'tool_start', toolCallId: event.toolCallId,
+          toolName: notice, isTaskTool: event.isTaskTool, toolInput: { clipped: notice } };
         break;
       case 'tool_result':
-        result = { ...common, eventType: 'tool_result', isError: event.isError, output: notice } as FlatStreamEventUnion;
+        result = { ...common, eventType: 'tool_result', toolCallId: event.toolCallId,
+          isError: event.isError, output: notice };
         break;
       case 'message_start':
         result = { ...common, eventType: 'message_start', role: event.role, inboundPeer: { label: notice } };
@@ -144,7 +161,9 @@ export function clipHistoryEvent(event: FlatStreamEventUnion): { event: FlatStre
         result = { ...common, eventType: 'message_complete', stopReason: notice };
         break;
       default:
-        result = { ...common, eventType: event.eventType, notice } as FlatStreamEventUnion;
+        // A text delta is accepted by the accumulator even when the source kind
+        // has required fields too large to retain. Keep its identity for paging.
+        result = { ...common, eventType: 'text_delta', blockIndex: event.blockIndex ?? 0, delta: notice };
         break;
     }
     clipped = true;
