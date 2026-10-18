@@ -362,3 +362,23 @@ export default function UserPage({ params }: { params: { id: string } }) {
   );
 }
 ```
+
+## App Router Integration
+
+### Feature Library Exports
+
+```typescript
+// libs/user-management/feature/src/index.ts
+export { default as UserProfilePage } from './pages/user-profile-page';
+export { default as UsersListPage } from './pages/users-list-page';
+export { UserSettingsLayout } from './layouts/user-settings-layout';
+```
+
+### App Router Usage
+
+```typescript
+// apps/web/app/users/[id]/page.tsx
+import { UserProfilePage } from '@my-org/user-management/feature';
+
+export default UserProfilePage;
+```

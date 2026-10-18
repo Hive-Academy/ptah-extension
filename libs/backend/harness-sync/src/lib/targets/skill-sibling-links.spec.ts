@@ -26,7 +26,7 @@ const PLUGINS_ROOT = join(
   'assets',
   'plugins',
 );
-const GUARDED_PLUGINS = ['ptah-core'];
+const GUARDED_PLUGINS = listDirs(PLUGINS_ROOT);
 
 interface SkillDir {
   plugin: string;
@@ -87,22 +87,54 @@ interface CrossSkillLink {
   from: SkillDir;
   file: string;
   link: string;
-  resolved: string;
+  siblingSlug: string;
+  siblingDir: string | null;
+  fileInSibling: string;
+}
+
+/**
+ * Links are written against the flat installed layout, where every shipped
+ * skill sits at <skills dir>/<slug> regardless of which plugin ships it.
+ * A sibling slug therefore resolves first against the linking skill's own
+ * plugin, then against every other guarded plugin.
+ */
+function shippedSkillDir(plugin: string, slug: string): string | null {
+  for (const candidate of [
+    plugin,
+    ...GUARDED_PLUGINS.filter((other) => other !== plugin),
+  ]) {
+    const dir = join(PLUGINS_ROOT, candidate, 'skills', slug);
+    if (existsSync(join(dir, 'SKILL.md'))) return dir;
+  }
+  return null;
 }
 
 function crossSkillLinks(): CrossSkillLink[] {
   return skillDirs().flatMap((skill) =>
     markdownFiles(skill.dir).flatMap((file) =>
       relativeLinks(readFileSync(file, 'utf8'))
-        .map((link) => ({
-          from: skill,
-          file,
-          link,
-          resolved: resolve(dirname(file), link),
-        }))
-        .filter(({ resolved: target }) =>
-          toPosix(relative(skill.dir, target)).startsWith('..'),
-        ),
+        .filter((link) =>
+          toPosix(
+            relative(skill.dir, resolve(dirname(file), link)),
+          ).startsWith('..'),
+        )
+        .map((link) => {
+          const flatRel = toPosix(
+            relative(
+              join(PLUGINS_ROOT, skill.plugin, 'skills'),
+              resolve(dirname(file), link),
+            ),
+          );
+          const [siblingSlug, ...rest] = flatRel.split('/');
+          return {
+            from: skill,
+            file,
+            link,
+            siblingSlug,
+            siblingDir: shippedSkillDir(skill.plugin, siblingSlug),
+            fileInSibling: rest.join('/'),
+          };
+        }),
     ),
   );
 }
@@ -112,15 +144,16 @@ describe('skills that link a sibling skill declare it', () => {
     const fromSlugs = new Set(crossSkillLinks().map((l) => l.from.slug));
     expect(fromSlugs.has('orchestration')).toBe(true);
     expect(fromSlugs.has('tribunal')).toBe(true);
+    expect(fromSlugs.has('dotnet-solution-initializer')).toBe(true);
+    expect(fromSlugs.has('saas-workspace-initializer')).toBe(true);
   });
 
-  it('every cross-skill link lands on an existing file in a sibling of the same plugin', () => {
+  it('every cross-skill link lands on an existing file in a shipped sibling skill', () => {
     const offenders = crossSkillLinks()
-      .filter(({ from, resolved: target }) => {
-        const skillsRoot = join(PLUGINS_ROOT, from.plugin, 'skills');
-        const rel = toPosix(relative(skillsRoot, target));
-        return rel.startsWith('..') || !existsSync(target);
-      })
+      .filter(
+        ({ siblingDir, fileInSibling }) =>
+          siblingDir === null || !existsSync(join(siblingDir, fileInSibling)),
+      )
       .map(
         ({ file, link }) => `${toPosix(relative(REPO_ROOT, file))} → ${link}`,
       );
@@ -129,13 +162,11 @@ describe('skills that link a sibling skill declare it', () => {
 
   it('every linked sibling is listed under the linking skill’s ## Requires', () => {
     const offenders = crossSkillLinks()
-      .filter(({ from, resolved: target }) => {
-        const skillsRoot = join(PLUGINS_ROOT, from.plugin, 'skills');
-        const sibling = toPosix(relative(skillsRoot, target)).split('/')[0];
+      .filter(({ from, siblingSlug }) => {
         const requires = declaredRequires(
           readFileSync(join(from.dir, 'SKILL.md'), 'utf8'),
         );
-        return !requires.includes(sibling);
+        return !requires.includes(siblingSlug);
       })
       .map(
         ({ file, link }) => `${toPosix(relative(REPO_ROOT, file))} → ${link}`,
@@ -143,14 +174,11 @@ describe('skills that link a sibling skill declare it', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('every ## Requires entry names a sibling skill in the same plugin', () => {
+  it('every ## Requires entry names a sibling skill shipped by a guarded plugin', () => {
     const offenders = skillDirs().flatMap((skill) =>
       declaredRequires(readFileSync(join(skill.dir, 'SKILL.md'), 'utf8'))
         .filter(
-          (slug) =>
-            !existsSync(
-              join(PLUGINS_ROOT, skill.plugin, 'skills', slug, 'SKILL.md'),
-            ),
+          (slug) => shippedSkillDir(skill.plugin, slug) === null,
         )
         .map((slug) => `${skill.plugin}/${skill.slug} requires ${slug}`),
     );
