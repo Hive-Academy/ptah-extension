@@ -37,6 +37,7 @@ import {
   type SessionBudgetState,
 } from '@ptah-extension/shared';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
+import { isActiveWorkspaceTabSet } from './active-workspace-tab-set';
 import { CommandCenterRecordsService } from './command-center-records';
 import { CommandCenterSendLockService } from './command-center-send-lock.service';
 import { MODEL_REFRESH_CONTROL } from './model-refresh-control';
@@ -264,6 +265,17 @@ export class TabManagerService {
   private readonly modelRefresh = inject(MODEL_REFRESH_CONTROL);
   private readonly destroyRef = inject(DestroyRef);
   private readonly ngZone = inject(NgZone);
+  private get configuredWorkspaceRoot(): string | undefined {
+    return (window as Window & { ptahConfig?: { workspaceRoot?: string } })
+      .ptahConfig?.workspaceRoot;
+  }
+
+  private get isVSCode(): boolean {
+    return (
+      (window as Window & { ptahConfig?: { isVSCode?: boolean } }).ptahConfig
+        ?.isVSCode === true
+    );
+  }
 
   // ============================================================================
   // PRIVATE STATE SIGNALS
@@ -873,6 +885,15 @@ export class TabManagerService {
    * Returns the tab array for the given workspace, or empty array if not found.
    */
   getWorkspaceTabs(workspacePath: string): TabState[] {
+    if (
+      isActiveWorkspaceTabSet(
+        workspacePath,
+        this.activeWorkspacePath,
+        this.configuredWorkspaceRoot,
+        this.isVSCode,
+      )
+    )
+      return this._tabs();
     return this.workspacePartition.getWorkspaceTabs(
       workspacePath,
       this._tabs(),
@@ -1008,8 +1029,19 @@ export class TabManagerService {
     if (!workspacePath || !isWorkflowKind(workflow) || !title.trim())
       return null;
     if (this.findWorkflowTab(workspacePath, workflow)) return null;
-    if (workspacePath === this.activeWorkspacePath) {
-      const id = this.createTab(title, 'default', false);
+    if (
+      isActiveWorkspaceTabSet(
+        workspacePath,
+        this.activeWorkspacePath,
+        this.configuredWorkspaceRoot,
+        this.isVSCode,
+      )
+    ) {
+      const id = this.createTab(
+        title,
+        'default',
+        this.activeWorkspacePath === null,
+      );
       this.setWorkflow(id, workflow);
       return id;
     }
@@ -2939,7 +2971,9 @@ export class TabManagerService {
     sessionId: SessionId,
     providerId?: string,
   ): void {
-    if (this.findTabByIdAcrossWorkspaces(tabId)?.tab.claudeSessionId !== sessionId)
+    if (
+      this.findTabByIdAcrossWorkspaces(tabId)?.tab.claudeSessionId !== sessionId
+    )
       return;
     this.updateTabInternal(tabId, { providerId });
   }

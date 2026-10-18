@@ -1022,3 +1022,36 @@ No blocking or serious findings.
 Score: 8/10. All 8 items are verified fixed by reading. The remaining gaps are accessibility polish and the unverifiable jsdom-only animation containing-block claim.
 
 Verdict: APPROVE.
+
+## PR 763 CodeRabbit fix review
+
+Scope: uncommitted diff plus `active-workspace-tab-set.ts` and `generation-agent-sidebar.component.spec.ts`. I read the full touched regions of the service, handlers, supervisor, binding mapping, stores, sidebar, tab manager and the e2e spec. I ran no checks.
+
+| Finding | Verdict | Evidence |
+| --- | --- | --- |
+| 4308395701 reservation kept until terminal state | Correct and complete | `enhanced-prompts.service.ts:779` skips the release only when `bound` is set. The supervisor `finally` at `enhanced-prompts-rpc.handlers.ts:826` runs after `finish` and the broadcast on success, failure and throw. Errors before ownership transfer are caught at `:679-686`, which release the reservation. `executeBoundGuidance` is an async function launched with `void`, so it cannot throw synchronously past that catch. Cancel aborts the controller, the service returns, and the supervisor releases. The lock timer and grace timer (`service.ts:325-352`) are not cleared by the skipped release, so a hang still force-releases. A late supervisor release after a force release is a no-op because `boundReservation` no longer matches. Unbound callers keep the old release. The regression spec (`enhanced-prompts-rpc.handlers.spec.ts` ~1013) covers the post-run status-read window. |
+| 4308395717 partial-failure lifecycle | Correct, scoped to bound runs | `wizard-generation-rpc.handlers.ts:901-905` maps `completed` with `failedCount > 0` to `failed`, only when `bound`. The checkpoint finalize, the run-state RPC (`wizard-generation-binding.ts:121-135`, `failed` becomes status `failed` and `success: status === 'completed'`) and the supervisor payload (`wizard-generation-run.supervisor.ts:173` and `:321`, `success` requires zero failures) now agree. Legacy and tabless runs still pass `bound=false` (`:711-718`, `:1466-1473`), and apps/ptah-cli is untouched. `payload.failedCount` includes carried-over agents, which are never `failed`, so the mapping is not skewed. |
+| 4308395721 VS Code null partition | Correct | `active-workspace-tab-set.ts:1-16`. A non-null partition keeps strict equality, so Electron partitioned paths are unchanged. A null partition is accepted only when `isVSCode` is true and the path matches the configured root. Electron has `isVSCode` false, so a null partition there is still rejected. Normalization handles backslashes, trailing slashes and Windows drive-letter case. POSIX stays case-sensitive, which is correct. The status widget falls back to `''` (the `VSCodeService` default), so `trim()` cannot throw. The launcher (`:53`, `:89`), open handler and widget all use the one helper. |
+| 4308395724 resume through the bound path | Correct | `generation-agent-sidebar.component.ts:49-50` calls `store.resumeCheckpoint()` and disables the button while `isBound()`. `generation-workflow.store.ts:170-193` sends `startBoundAgents(binding, [], true)` and handles accepted, rejection and failure. The guard `runValue() !== null || isBound()` fits the button's `@if (!store.run())`. `AgentGenerationStore.resume()` is untouched for the old wizard. |
+| 4308395726 stale rejection | Correct | `rejectionValue.set(null)` at each start path (`store.ts:105`, `:147`, `:187`) and in `accept` (`:243`). |
+| 4308395734 runless 'quiet' forever | Correct for the reported case | An explicit `success === false` goes to `failStart` (`store.ts:115`, `:157`, `:193`). When lookups are exhausted and no run was ever accepted, `refresh` calls `failStart` (`:276-283`). A real in-flight run whose start response was lost is still found by the tab-keyed lookup, and the 1s/2s/4s retry watchdog is kept. |
+| e2e `wizard-dom.spec.ts` | Will work | `wizard-view.component.ts:116-122` renders `ptah-welcome` inside a closed `<details>`, so the click on the summary text is needed before `toBeVisible` and before `wizard-next-btn` (`welcome.component.ts:212`). The phrase appears in only one place, so there is no strict-mode ambiguity. Both tests expand the details. |
+
+### New findings
+
+1. Moderate - `generation-workflow.store.ts:236-246` (`accept`). When the post-accept `safeLookup` returns null, the state is set to `quiet` and no watchdog is scheduled. If `refresh` later reaches `lookupFailures >= 3` with a non-null `lastRun`, it also stays `quiet` and schedules nothing (`:270-286`). The tab then depends on stream events to leave `quiet`. This predates the diff, but lane B's claim that "accepted runs retain their lookup watchdog" is only true for `refresh` entered from a failed start. If the terminal push is lost, the tab sticks. Suggest scheduling one `refresh` from `accept` when the lookup is null.
+2. Minor - `generation-workflow.store.ts:206-219` (`failStart`). The exact-string allowlist is brittle: if the backend wording changes, users silently get the generic message. It is safe, because unknown text never leaks. Prefer a typed error code in the response.
+3. Minor - `tab-manager.service.ts:1040-1044`. `createTab(..., activate = activeWorkspacePath === null)` activates the new workflow tab immediately in VS Code, while the partitioned path does not. If the surface navigation then fails, the launcher returns `failed` (`launcher.service.ts:87-92`) but the user's active tab has already switched and the new tab is orphaned. Create it inactive and let the launcher's `switchTab` activate it, as in the partitioned case. If activation is required for a reason I could not find, document it.
+4. Minor - `tab-manager.service.ts:268-278` reads `window.ptahConfig` while the other callers use `VSCodeService.config()`. This is consistent with the existing direct read at `:729`. `updateWorkspaceRoot` is only called by Electron (`electron-layout.service.ts:545`, `:607`), so the two sources agree in VS Code. It is a duplicated source of truth, not a bug.
+5. Minor - after a reload, a partial failure now maps to `failed` and not `interrupted`. The run card's resume (`resumeBoundAgents`) needs `interrupted`, and the "Resume saved run" button needs `!store.run()`. So the only recovery is the per-agent retry in the progress list. No capability is removed, because the retry exists. Confirm this is the intended product behavior.
+
+### Answers to the specific checks
+
+1. No permanent lock was found on any bound exit path (success, failure, throw, cancel, timeout grace, pre-supervisor errors).
+2. Persisted checkpoint, completion payload and run-state RPC agree. Tabless, legacy and CLI behavior is unchanged.
+3. The `resumeCheckpoint` guard is sound. The `failStart` allowlist is brittle but safe. The watchdog still protects a lost start response. The new `quiet` stuck path is finding 1 and predates the diff.
+4. The helper is correct in VS Code and harmless in Electron (null partition still rejected). Only the activation inconsistency (finding 3) remains.
+5. The e2e locators match.
+
+Score: 8/10. Every finding is fixed; the open items are Moderate or Minor.
+Verdict: APPROVE. Blocking findings: none.

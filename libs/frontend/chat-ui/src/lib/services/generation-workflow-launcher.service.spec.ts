@@ -1,17 +1,18 @@
 import { TestBed } from '@angular/core/testing';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { SurfaceRouterService } from '@ptah-extension/core';
+import { SurfaceRouterService, VSCodeService } from '@ptah-extension/core';
 import { GenerationWorkflowLauncherService } from './generation-workflow-launcher.service';
 
 describe('GenerationWorkflowLauncherService', () => {
   const tabs = {
-    activeWorkspacePath: '/ws',
+    activeWorkspacePath: '/ws' as string | null,
     findWorkflowTab: jest.fn(),
     getWorkspaceTabs: jest.fn(),
     createWorkflowTabForWorkspace: jest.fn(),
     switchTab: jest.fn(),
   };
   const router = { navigateToSurface: jest.fn() };
+  const vscode = { config: () => ({ workspaceRoot: '/ws', isVSCode: true }) };
   let launcher: GenerationWorkflowLauncherService;
 
   beforeEach(() => {
@@ -25,6 +26,7 @@ describe('GenerationWorkflowLauncherService', () => {
         GenerationWorkflowLauncherService,
         { provide: TabManagerService, useValue: tabs },
         { provide: SurfaceRouterService, useValue: router },
+        { provide: VSCodeService, useValue: vscode },
       ],
     });
     launcher = TestBed.inject(GenerationWorkflowLauncherService);
@@ -95,6 +97,27 @@ describe('GenerationWorkflowLauncherService', () => {
     });
     expect(tabs.switchTab).not.toHaveBeenCalled();
     expect(launcher.consumeOrigin('new-tab')).toBeNull();
+    tabs.activeWorkspacePath = '/ws';
+  });
+
+  it('opens a VS Code root in the unpartitioned tab set', async () => {
+    tabs.activeWorkspacePath = null;
+    await expect(
+      launcher.open({ ...request, workspacePath: '/ws/' }),
+    ).resolves.toEqual({
+      outcome: 'landed',
+      tabId: 'new-tab',
+    });
+    expect(tabs.switchTab).toHaveBeenCalledWith('new-tab');
+    tabs.activeWorkspacePath = '/ws';
+  });
+
+  it('rejects another root while the panel is unpartitioned', async () => {
+    tabs.activeWorkspacePath = null;
+    await expect(
+      launcher.open({ ...request, workspacePath: '/other' }),
+    ).resolves.toEqual({ outcome: 'failed' });
+    expect(tabs.createWorkflowTabForWorkspace).not.toHaveBeenCalled();
     tabs.activeWorkspacePath = '/ws';
   });
 });

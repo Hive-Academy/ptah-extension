@@ -775,7 +775,8 @@ export class EnhancedPromptsService {
     } finally {
       timeoutSignal?.removeEventListener('abort', abortRun);
       bound?.signal.removeEventListener('abort', abortRun);
-      this.releaseGenerationLock(owner);
+      // The bound supervisor releases its reservation after terminal delivery.
+      if (!bound) this.releaseGenerationLock(owner);
     }
   }
 

@@ -2,6 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { GenerationWorkflowLauncherService } from '@ptah-extension/chat-ui';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import { VSCodeService } from '@ptah-extension/core';
 import { SetupGenerationOpenHandler } from './setup-generation-open.handler';
 
 describe('SetupGenerationOpenHandler', () => {
@@ -15,6 +16,12 @@ describe('SetupGenerationOpenHandler', () => {
           useValue: { activeWorkspacePath: '/ws' },
         },
         { provide: GenerationWorkflowLauncherService, useValue: { open } },
+        {
+          provide: VSCodeService,
+          useValue: {
+            config: () => ({ workspaceRoot: '/ws', isVSCode: false }),
+          },
+        },
       ],
     });
     const handler = TestBed.inject(SetupGenerationOpenHandler);
@@ -50,6 +57,12 @@ describe('SetupGenerationOpenHandler', () => {
           useValue: { activeWorkspacePath: '/ws' },
         },
         { provide: GenerationWorkflowLauncherService, useValue: { open } },
+        {
+          provide: VSCodeService,
+          useValue: {
+            config: () => ({ workspaceRoot: '/ws', isVSCode: false }),
+          },
+        },
       ],
     });
     const handler = TestBed.inject(SetupGenerationOpenHandler);
@@ -63,5 +76,38 @@ describe('SetupGenerationOpenHandler', () => {
     });
     await Promise.resolve();
     expect(handler.launchNotice()).toContain('Try Continue again');
+  });
+
+  it('accepts the VS Code root push but ignores a different root', () => {
+    const open = jest.fn().mockResolvedValue({ outcome: 'landed', tabId: 't' });
+    TestBed.configureTestingModule({
+      providers: [
+        SetupGenerationOpenHandler,
+        { provide: TabManagerService, useValue: { activeWorkspacePath: null } },
+        { provide: GenerationWorkflowLauncherService, useValue: { open } },
+        {
+          provide: VSCodeService,
+          useValue: {
+            config: () => ({ workspaceRoot: 'C:\\ws', isVSCode: true }),
+          },
+        },
+      ],
+    });
+    const handler = TestBed.inject(SetupGenerationOpenHandler);
+    const payload = {
+      workspacePath: 'c:/ws/',
+      workflow: 'setup-agent-generation',
+      origin: 'independent-start',
+    };
+    handler.handleMessage({
+      type: MESSAGE_TYPES.SETUP_GENERATION_OPEN,
+      payload,
+    });
+    expect(open).toHaveBeenCalledWith(payload);
+    handler.handleMessage({
+      type: MESSAGE_TYPES.SETUP_GENERATION_OPEN,
+      payload: { ...payload, workspacePath: 'c:/other' },
+    });
+    expect(open).toHaveBeenCalledTimes(1);
   });
 });

@@ -5,8 +5,11 @@ import {
   inject,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { ClaudeRpcService } from '@ptah-extension/core';
-import { TabManagerService } from '@ptah-extension/chat-state';
+import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
+import {
+  TabManagerService,
+  isActiveWorkspaceTabSet,
+} from '@ptah-extension/chat-state';
 
 import {
   SetupGenerationWorkflow,
@@ -159,6 +162,7 @@ export type SetupStatus = SetupStatusGetResponse;
   ],
 })
 export class SetupStatusWidgetComponent implements OnInit {
+  private readonly vscode = inject(VSCodeService);
   private readonly rpcService = inject(ClaudeRpcService);
   private readonly tabs = inject(TabManagerService);
   private readonly generationLauncher = inject(
@@ -255,8 +259,14 @@ export class SetupStatusWidgetComponent implements OnInit {
     this.launchError.set(null);
 
     try {
-      const workspacePath = this.tabs.activeWorkspacePath;
-      const result = workspacePath
+      const workspacePath =
+        this.tabs.activeWorkspacePath ?? this.vscode.config().workspaceRoot;
+      const result = isActiveWorkspaceTabSet(
+        workspacePath,
+        this.tabs.activeWorkspacePath,
+        this.vscode.config().workspaceRoot,
+        this.vscode.config().isVSCode,
+      )
         ? await this.generationLauncher.open({
             workspacePath,
             workflow,

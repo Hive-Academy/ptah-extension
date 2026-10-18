@@ -19,6 +19,7 @@ export {
   type TerminalTurnClassification,
 } from './lib/tab-manager.service';
 export { WorkflowSessionIndexService } from './lib/workflow-session-index.service';
+export { isActiveWorkspaceTabSet } from './lib/active-workspace-tab-set';
 export {
   TabWorkspacePartitionService,
   type WorkspaceTabSet,

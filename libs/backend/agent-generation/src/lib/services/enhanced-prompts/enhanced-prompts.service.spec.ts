@@ -595,7 +595,7 @@ describe('EnhancedPromptsService', () => {
       );
     }
 
-    it('reserves the sole service lock before a bound start and releases it after execution', async () => {
+    it('keeps the bound reservation after execution until its caller releases it', async () => {
       primeSuccessfulSdk();
       const reservation = service.acquireBoundGeneration();
       expect(reservation).not.toBeNull();
@@ -625,6 +625,9 @@ describe('EnhancedPromptsService', () => {
         { reservation: reservation!, signal: controller.signal, route },
       );
       expect(result.success).toBe(true);
+      expect(service.generationInProgress).toBe(true);
+      expect(service.acquireBoundGeneration()).toBeNull();
+      service.releaseBoundGeneration(reservation!);
       expect(service.generationInProgress).toBe(false);
       expect(mocks.freshness.getStatus).not.toHaveBeenCalled();
       expect(mocks.workspaceLlm.resolveForPath).toHaveBeenCalledWith(
@@ -669,6 +672,7 @@ describe('EnhancedPromptsService', () => {
       controller.abort();
       releaseHash('hash');
       expect((await pending).success).toBe(false);
+      service.releaseBoundGeneration(reservation!);
       expect(
         mocks.analysisStorage.writeEnhancedPromptTrace,
       ).not.toHaveBeenCalled();
@@ -706,6 +710,7 @@ describe('EnhancedPromptsService', () => {
       controller.abort();
       releaseStream({ structuredOutput: { ok: true } });
       expect((await pending).success).toBe(false);
+      service.releaseBoundGeneration(reservation!);
       expect(
         mocks.analysisStorage.writeEnhancedPromptTrace,
       ).not.toHaveBeenCalled();

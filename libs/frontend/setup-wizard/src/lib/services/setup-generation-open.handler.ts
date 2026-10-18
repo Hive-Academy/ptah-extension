@@ -1,7 +1,10 @@
 import { Injectable, inject, signal } from '@angular/core';
-import { TabManagerService } from '@ptah-extension/chat-state';
+import {
+  TabManagerService,
+  isActiveWorkspaceTabSet,
+} from '@ptah-extension/chat-state';
 import { GenerationWorkflowLauncherService } from '@ptah-extension/chat-ui';
-import type { MessageHandler } from '@ptah-extension/core';
+import { VSCodeService, type MessageHandler } from '@ptah-extension/core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import type { SetupGenerationOpenPayload } from '@ptah-extension/shared';
 
@@ -9,6 +12,7 @@ import type { SetupGenerationOpenPayload } from '@ptah-extension/shared';
 export class SetupGenerationOpenHandler implements MessageHandler {
   private readonly tabs = inject(TabManagerService);
   private readonly launcher = inject(GenerationWorkflowLauncherService);
+  private readonly vscode = inject(VSCodeService);
   readonly launchNotice = signal<string | null>(null);
   readonly handledMessageTypes = [MESSAGE_TYPES.SETUP_GENERATION_OPEN] as const;
 
@@ -18,7 +22,14 @@ export class SetupGenerationOpenHandler implements MessageHandler {
       !this.isPayload(message.payload)
     )
       return;
-    if (message.payload.workspacePath !== this.tabs.activeWorkspacePath) {
+    if (
+      !isActiveWorkspaceTabSet(
+        message.payload.workspacePath,
+        this.tabs.activeWorkspacePath,
+        this.vscode.config().workspaceRoot,
+        this.vscode.config().isVSCode,
+      )
+    ) {
       console.debug(
         '[SetupGenerationOpenHandler] Ignored a generation open for another workspace',
       );

@@ -898,7 +898,11 @@ export class WizardGenerationRpcHandlers {
         ? 'paused'
         : settled.abortReason !== null
           ? 'timed-out'
-          : (settled.summary?.lifecycle ?? 'failed');
+          : bound &&
+              settled.summary?.lifecycle === 'completed' &&
+              settled.payload.failedCount > 0
+            ? 'failed'
+            : (settled.summary?.lifecycle ?? 'failed');
     let finalizeError: unknown;
     try {
       await this.checkpoints.finalize(

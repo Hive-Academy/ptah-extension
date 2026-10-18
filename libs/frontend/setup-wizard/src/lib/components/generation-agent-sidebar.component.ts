@@ -46,8 +46,8 @@ type AgentBinding = {
           <button
             type="button"
             class="btn btn-outline btn-sm"
-            [disabled]="agents.loading()"
-            (click)="agents.resume()"
+            [disabled]="agents.loading() || store.isBound()"
+            (click)="store.resumeCheckpoint()"
           >
             Resume saved run
           </button>

@@ -1,6 +1,10 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { ClaudeRpcService, SurfaceRouterService } from '@ptah-extension/core';
+import {
+  ClaudeRpcService,
+  SurfaceRouterService,
+  VSCodeService,
+} from '@ptah-extension/core';
 import type { SetupGenerationWorkflow } from '@ptah-extension/shared';
 import { GenerationWorkflowLauncherService } from '../../services/generation-workflow-launcher.service';
 import { SetupStatusWidgetComponent } from './setup-status-widget.component';
@@ -8,7 +12,7 @@ import { SetupStatusWidgetComponent } from './setup-status-widget.component';
 describe('SetupStatusWidgetComponent', () => {
   const owners = new Map<SetupGenerationWorkflow, string>();
   const tabs = {
-    activeWorkspacePath: '/workspace',
+    activeWorkspacePath: '/workspace' as string | null,
     findWorkflowTab: jest.fn(
       (path: string, workflow: SetupGenerationWorkflow) =>
         path === '/workspace' && owners.has(workflow)
@@ -68,6 +72,12 @@ describe('SetupStatusWidgetComponent', () => {
         { provide: ClaudeRpcService, useValue: rpc },
         { provide: TabManagerService, useValue: tabs },
         { provide: SurfaceRouterService, useValue: router },
+        {
+          provide: VSCodeService,
+          useValue: {
+            config: () => ({ workspaceRoot: '/workspace', isVSCode: true }),
+          },
+        },
       ],
     });
     launcher = TestBed.inject(GenerationWorkflowLauncherService);
@@ -112,6 +122,18 @@ describe('SetupStatusWidgetComponent', () => {
     expect(tabs.switchTab).toHaveBeenLastCalledWith(
       'setup-agent-generation-tab',
     );
+  });
+
+  it('launches from the VS Code root when tabs are unpartitioned', async () => {
+    tabs.activeWorkspacePath = null;
+    await click('Generate agents');
+    expect(tabs.createWorkflowTabForWorkspace).toHaveBeenCalledWith(
+      '/workspace',
+      'setup-agent-generation',
+      expect.any(String),
+      undefined,
+    );
+    expect(tabs.switchTab).toHaveBeenCalled();
   });
 
   it('keeps agent and guidance owners separate', async () => {

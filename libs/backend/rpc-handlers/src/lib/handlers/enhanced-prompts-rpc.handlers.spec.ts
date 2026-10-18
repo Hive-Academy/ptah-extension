@@ -1010,6 +1010,51 @@ describe('EnhancedPromptsRpcHandlers', () => {
   // -------------------------------------------------------------------------
 
   describe('enhancedPrompts:regenerate', () => {
+    it('blocks another tab during the post-run status read, then settles and broadcasts the first run', async () => {
+      const broadcaster: WebviewBroadcaster = {
+        broadcastMessage: jest.fn().mockResolvedValue(undefined),
+      };
+      const h = makeHarness({ broadcaster });
+      const reservation = {};
+      let held = false;
+      h.enhancedPrompts.acquireBoundGeneration.mockImplementation(() => {
+        if (held) return null;
+        held = true;
+        return reservation;
+      });
+      h.enhancedPrompts.releaseBoundGeneration.mockImplementation((owner) => {
+        if (owner === reservation) held = false;
+      });
+      let finishStatus: (value: Awaited<ReturnType<EnhancedPromptsService['getStatus']>>) => void = () => undefined;
+      h.enhancedPrompts.regenerate.mockImplementation(
+        () => new Promise((resolve) => {
+          finishStatus = (status) => resolve({ success: true, status });
+        }),
+      );
+      h.handlers.register();
+      const firstBinding = {
+        tabId: 'first-tab',
+        workflow: 'setup-project-prompt' as const,
+        workspacePath: WORKSPACE,
+      };
+      const first = await call<{ accepted?: { runId: string } }>(h, 'enhancedPrompts:regenerate', {
+        workspacePath: WORKSPACE,
+        tabBinding: firstBinding,
+      });
+      expect(first.accepted?.runId).toBeTruthy();
+      const second = await call<{ success: boolean; rejection?: { reason: string } }>(h, 'enhancedPrompts:regenerate', {
+        workspacePath: WORKSPACE,
+        tabBinding: { ...firstBinding, tabId: 'second-tab' },
+      });
+      expect(second).toMatchObject({ success: false, rejection: { reason: 'blocked' } });
+      expect(h.enhancedPrompts.regenerate).toHaveBeenCalledTimes(1);
+      finishStatus({ enabled: true, hasGeneratedPrompt: true, generatedAt: '2026-01-01T00:00:00Z', detectedStack: null, cacheValid: true });
+      await new Promise((resolve) => setImmediate(resolve));
+      expect((await h.handlers.getGuidanceRunState({ tabBinding: firstBinding, runId: first.accepted?.runId })).run?.status).toBe('completed');
+      expect(held).toBe(false);
+      expect((broadcaster.broadcastMessage as jest.Mock).mock.calls.some(([, event]) => event.tabBinding?.runId === first.accepted?.runId && event.lifecycle === 'completed')).toBe(true);
+    });
+
     it('passes the bound guidance model to provider resolution', async () => {
       const h = makeHarness();
       h.enhancedPrompts.regenerate.mockImplementation(

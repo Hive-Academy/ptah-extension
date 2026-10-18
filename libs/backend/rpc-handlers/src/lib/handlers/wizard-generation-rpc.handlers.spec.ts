@@ -289,6 +289,33 @@ describe('wizard generation tab ownership and recovery', () => {
     expect(completeBroadcasts(h)).toHaveLength(0);
   });
 
+  it('persists a failed bound lifecycle when one agent succeeds and another fails', async () => {
+    const h = makeHarness();
+    recordingOrchestrator(h, [
+      outcome('agent-a', 'written'),
+      outcome('agent-b', 'failed', { error: 'template missing' }),
+    ]);
+    h.handlers.register();
+    await call(h, 'wizard:preview-generation', {
+      selectedAgentIds: ['agent-a', 'agent-b'],
+      tabBinding: tab,
+    });
+    const submitted = await call<{ success: boolean; accepted?: { runId: string } }>(
+      h,
+      'wizard:submit-selection',
+      { selectedAgentIds: ['agent-a', 'agent-b'], tabBinding: tab },
+    );
+    expect(submitted.success).toBe(true);
+    await settle();
+
+    const broadcast = completeBroadcasts(h)[0];
+    const lookup = await h.handlers.getGenerationRunState({ tabBinding: tab });
+    expect(manifestAt(h).lifecycle).toBe('failed');
+    expect(broadcast).toMatchObject({ success: false, terminalStatus: 'failed', failedCount: 1 });
+    expect(lookup.run?.binding.runId).toBe(submitted.accepted?.runId);
+    expect(lookup.run?.result).toMatchObject({ status: 'failed', success: false });
+  });
+
   it('keeps completed propagation when a resumed run writes nothing', async () => {
     const h = makeHarness();
     seedCheckpoint(

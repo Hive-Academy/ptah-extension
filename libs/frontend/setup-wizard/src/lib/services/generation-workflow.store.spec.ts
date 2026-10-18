@@ -250,6 +250,108 @@ describe('GenerationWorkflowStore', () => {
       ownerTabId: 'owner',
     });
   });
+
+  it('resumes a saved checkpoint with this tab binding when no run is loaded', async () => {
+    const startBoundAgents = jest.fn().mockResolvedValue({
+      success: true,
+      accepted: {
+        runId: 'saved',
+        source: active.source,
+        effectiveProvider: 'unknown',
+        effectiveModel: 'unknown',
+      },
+    });
+    TestBed.configureTestingModule({
+      providers: [
+        GenerationWorkflowStore,
+        tabProvider,
+        { provide: WizardRpcService, useValue: {
+          getBoundRunState: jest.fn().mockResolvedValue(null),
+          startBoundAgents,
+        } },
+      ],
+    });
+    const store = TestBed.inject(GenerationWorkflowStore);
+    store.bind(binding);
+    await store.resumeCheckpoint();
+    expect(startBoundAgents).toHaveBeenCalledWith(binding, [], true);
+    expect(store.run()?.binding.runId).toBe('saved');
+    expect(store.rejection()).toBeNull();
+    store.unbind();
+  });
+
+  it('clears a previous rejection on a new start and on acceptance', async () => {
+    const startBoundAgents = jest.fn()
+      .mockResolvedValueOnce({ rejection: { reason: 'preview-required' } })
+      .mockResolvedValueOnce({ success: true, accepted: {
+        runId: 'run', source: active.source,
+        effectiveProvider: 'unknown', effectiveModel: 'unknown',
+      } });
+    TestBed.configureTestingModule({ providers: [
+      GenerationWorkflowStore, tabProvider,
+      { provide: WizardRpcService, useValue: {
+        getBoundRunState: jest.fn().mockResolvedValue(null), startBoundAgents,
+      } },
+    ] });
+    const store = TestBed.inject(GenerationWorkflowStore);
+    store.bind(binding);
+    await store.startAgents(['agent']);
+    expect(store.rejection()?.reason).toBe('preview-required');
+    const second = store.startAgents(['agent']);
+    expect(store.rejection()).toBeNull();
+    await second;
+    expect(store.run()?.binding.runId).toBe('run');
+    expect(store.rejection()).toBeNull();
+    store.unbind();
+  });
+
+  it.each(['agents', 'guidance', 'resume'] as const)(
+    'releases the tab immediately for an explicit %s start failure', async (kind) => {
+      const selectedBinding = kind === 'guidance'
+        ? { ...binding, workflow: 'setup-project-prompt' as const }
+        : binding;
+      const error = 'Agent generation could not start. Please retry.';
+      const response = { success: false, error };
+      TestBed.configureTestingModule({ providers: [
+        GenerationWorkflowStore, tabProvider,
+        { provide: WizardRpcService, useValue: {
+          getBoundRunState: jest.fn().mockResolvedValue(null),
+          startBoundAgents: jest.fn().mockResolvedValue(response),
+          startBoundGuidance: jest.fn().mockResolvedValue(response),
+        } },
+      ] });
+      const store = TestBed.inject(GenerationWorkflowStore);
+      store.bind(selectedBinding);
+      if (kind === 'agents') await store.startAgents(['agent']);
+      else if (kind === 'guidance') await store.startGuidance();
+      else await store.resumeCheckpoint();
+      expect(store.state()).toBe('idle');
+      expect(store.isBound()).toBe(false);
+      expect(store.startError()).toBe(error);
+      store.unbind();
+    },
+  );
+
+  it('releases a runless tab after unconfirmed start lookups are exhausted', async () => {
+    jest.useFakeTimers();
+    TestBed.configureTestingModule({ providers: [
+      GenerationWorkflowStore, tabProvider,
+      { provide: WizardRpcService, useValue: {
+        getBoundRunState: jest.fn().mockResolvedValue(null),
+        startBoundAgents: jest.fn().mockRejectedValue(new Error('Start unconfirmed')),
+      } },
+    ] });
+    const store = TestBed.inject(GenerationWorkflowStore);
+    store.bind(binding);
+    await store.startAgents(['agent']);
+    await jest.advanceTimersByTimeAsync(7000);
+    expect(store.state()).toBe('idle');
+    expect(store.isBound()).toBe(false);
+    expect(store.startError()).toBe('Generation could not be started. Try again.');
+    expect(jest.getTimerCount()).toBe(0);
+    store.unbind();
+    jest.useRealTimers();
+  });
   it('queues Stop until exact accepted or looked-up run ID and hides unknown model', async () => {
     const getBoundRunState = jest
       .fn()

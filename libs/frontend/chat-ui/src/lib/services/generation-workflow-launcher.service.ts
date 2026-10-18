@@ -1,7 +1,11 @@
 import { Injectable, inject } from '@angular/core';
-import { TabManagerService } from '@ptah-extension/chat-state';
+import {
+  TabManagerService,
+  isActiveWorkspaceTabSet,
+} from '@ptah-extension/chat-state';
 import {
   SurfaceRouterService,
+  VSCodeService,
   surfaceNavigationLanded,
 } from '@ptah-extension/core';
 import type { SetupGenerationWorkflow } from '@ptah-extension/shared';
@@ -21,6 +25,7 @@ export type GenerationWorkflowOpenResult =
 export class GenerationWorkflowLauncherService {
   private readonly tabs = inject(TabManagerService);
   private readonly router = inject(SurfaceRouterService);
+  private readonly vscode = inject(VSCodeService);
   private readonly launchIntents = new Map<
     string,
     'analysis-result-continue' | 'independent-start'
@@ -45,7 +50,7 @@ export class GenerationWorkflowLauncherService {
     ) {
       return { outcome: 'failed' };
     }
-    if (focus && workspacePath !== this.tabs.activeWorkspacePath) {
+    if (focus && !this.isActiveWorkspace(workspacePath)) {
       return { outcome: 'failed' };
     }
     const existing = this.tabs.findWorkflowTab(workspacePath, workflow);
@@ -81,12 +86,21 @@ export class GenerationWorkflowLauncherService {
     }
     if (
       !surfaceNavigationLanded(outcome) ||
-      workspacePath !== this.tabs.activeWorkspacePath
+      !this.isActiveWorkspace(workspacePath)
     ) {
       this.launchIntents.delete(tabId);
       return { outcome: 'failed' };
     }
     this.tabs.switchTab(tabId);
     return { outcome: 'landed', tabId };
+  }
+
+  private isActiveWorkspace(workspacePath: string): boolean {
+    return isActiveWorkspaceTabSet(
+      workspacePath,
+      this.tabs.activeWorkspacePath,
+      this.vscode.config().workspaceRoot,
+      this.vscode.config().isVSCode,
+    );
   }
 }

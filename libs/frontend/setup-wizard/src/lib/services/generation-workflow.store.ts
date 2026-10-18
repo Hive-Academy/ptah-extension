@@ -102,6 +102,7 @@ export class GenerationWorkflowStore {
       return;
     if (!this.canStartInChat(binding)) return;
     this.stateValue.set('starting');
+    this.rejectionValue.set(null);
     this.startError.set(null);
     try {
       const response = await this.rpc.startBoundAgents(
@@ -111,6 +112,7 @@ export class GenerationWorkflowStore {
       if (!this.sameBinding(binding)) return;
       if (response.accepted) await this.accept(binding, response.accepted);
       else if (response.rejection) this.reject(response.rejection);
+      else if (response.success === false) this.failStart(response.error);
       else await this.refresh();
     } catch (error: unknown) {
       if (this.sameBinding(binding)) {
@@ -152,6 +154,7 @@ export class GenerationWorkflowStore {
       if (!this.sameBinding(binding)) return;
       if (response.accepted) await this.accept(binding, response.accepted);
       else if (response.rejection) this.reject(response.rejection);
+      else if (response.success === false) this.failStart(response.error);
       else await this.refresh();
     } catch {
       if (this.sameBinding(binding)) {
@@ -161,20 +164,33 @@ export class GenerationWorkflowStore {
   }
 
   async resumeBoundAgents(): Promise<void> {
+    await this.resumeAgents(true);
+  }
+
+  async resumeCheckpoint(): Promise<void> {
+    await this.resumeAgents(false);
+  }
+
+  private async resumeAgents(requireInterruptedRun: boolean): Promise<void> {
     const binding = this.bindingValue();
     if (
       !binding ||
       binding.workflow !== 'setup-agent-generation' ||
-      !this.runValue()?.interrupted
+      (requireInterruptedRun
+        ? !this.runValue()?.interrupted
+        : this.runValue() !== null || this.isBound())
     )
       return;
     if (!this.canStartInChat(binding)) return;
     this.stateValue.set('starting');
+    this.rejectionValue.set(null);
+    this.startError.set(null);
     try {
       const response = await this.rpc.startBoundAgents(binding, [], true);
       if (!this.sameBinding(binding)) return;
       if (response.accepted) await this.accept(binding, response.accepted);
       else if (response.rejection) this.reject(response.rejection);
+      else if (response.success === false) this.failStart(response.error);
       else await this.refresh();
     } catch {
       if (this.sameBinding(binding)) await this.refresh();
@@ -185,6 +201,19 @@ export class GenerationWorkflowStore {
     this.pendingStop = false;
     this.rejectionValue.set(rejection);
     this.stateValue.set('idle');
+  }
+
+  private failStart(error?: string): void {
+    this.pendingStop = false;
+    this.clearWatchdog();
+    this.lookupFailures = 0;
+    this.stateValue.set('idle');
+    this.startError.set(
+      error === 'No agents selected. Please select at least one agent.' ||
+        error === 'Agent generation could not start. Please retry.'
+        ? error
+        : (this.startError() ?? 'Generation could not be started. Try again.'),
+    );
   }
 
   private canStartInChat(binding: SetupGenerationTabBinding): boolean {
@@ -210,6 +239,7 @@ export class GenerationWorkflowStore {
     accepted: SetupGenerationAccepted,
   ): Promise<void> {
     this.lookupFailures = 0;
+    this.rejectionValue.set(null);
     this.acceptedRun.update((previous) => ({
       runId: accepted.runId,
       revision: (previous?.revision ?? 0) + 1,
@@ -247,6 +277,9 @@ export class GenerationWorkflowStore {
         const delay = 1000 * 2 ** this.lookupFailures++;
         this.clearWatchdog();
         this.watchdog = setTimeout(() => void this.refresh(), delay);
+      } else if (!lastRun && this.stateValue() !== 'idle') {
+        this.failStart();
+        return;
       }
       this.stateValue.set(
         this.pendingStop
