@@ -33,22 +33,8 @@ Turns automated UI walkthroughs into polished marketing MP4s. It is **two halves
 1. **Author a scene** — a `*.scene.ts` (Playwright walkthrough using the `Director`) + a `scripts/<scene>.json` (ordered narration lines). See `reference/scene-authoring.md`.
 2. **Capture** — run the showcase Playwright project → writes `dist/apps/<e2e>/recordings/<scene>/{raw.webm, beats.json, shots.json}`.
 3. **Narrate** — `npm run narrate` (ElevenLabs) → `wav/NNNN.wav` + `durations.json` (drives audio-locked pacing).
-4. **Render** — `node apps/ptah-video-studio/scripts/render-all.mjs --scene <slug>` → `out/<scene>.mp4`.
+4. **Render** — `node apps/ptah-video-studio/scripts/render-all.mjs --scene <slug>` (omit `--scene` to render all scenes; `--out-res 1080p` for higher-resolution output, details in `reference/brand-and-runtime.md`) → `dist/apps/ptah-electron-e2e/recordings/<scene>/out/<scene>.mp4`. The raw un-styled capture is `raw.webm` in the same folder.
 5. **Preview/iterate** — `cd apps/ptah-video-studio && npm run studio` opens Remotion Studio to scrub the camera frame-by-frame without a full render.
-
-## Quick commands
-
-```bash
-# Render one scene / all scenes
-node apps/ptah-video-studio/scripts/render-all.mjs --scene dashboard-tour
-node apps/ptah-video-studio/scripts/render-all.mjs
-# Higher-res output (supersamples from the capture)
-node apps/ptah-video-studio/scripts/render-all.mjs --scene X --out-res 1080p
-# Interactive preview
-cd apps/ptah-video-studio && npm run studio
-```
-
-Videos land at `dist/apps/ptah-electron-e2e/recordings/<scene>/out/<scene>.mp4`; the raw un-styled capture is `raw.webm` in the same folder.
 
 ## Camera behavior (the part people tweak most)
 

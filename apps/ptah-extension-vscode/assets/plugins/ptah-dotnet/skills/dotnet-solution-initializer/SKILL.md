@@ -7,12 +7,6 @@ description: Bootstraps a new .NET workspace — discovery, a phased roadmap and
 
 Two-stage bootstrap for .NET workspaces, specializing the same Stage A contract [`saas-workspace-initializer`](../saas-workspace-initializer/SKILL.md) uses for the Node/TypeScript stack: mandatory discovery, domain + layout design, a written roadmap, a foundation-only scaffold, then a hard stop. This skill owns discovery, domain modelling, solution/project layout, and the Nx decision. It never runs `dotnet new`, `dotnet test`, or any MSBuild/NuGet/EF command itself -- those are Microsoft's `dotnet/skills` plugins, invoked by name.
 
-## Trigger Keywords
-
-- "new .NET project", "start .NET", "create .NET solution", "bootstrap .NET"
-- ".NET workspace", "ASP.NET Core project", "Blazor project"
-- "initialize .NET workspace", "scaffold .NET solution"
-
 ## Division of labour
 
 - **This skill owns**: discovery, bounded-context naming (via `ddd-architecture`), solution/project layout (via [`dotnet-solution-architect`](../dotnet-solution-architect/SKILL.md)), the `.ptah/roadmap.md` contract, and the Nx-or-not decision (via [`nx-dotnet-workspace`](../nx-dotnet-workspace/SKILL.md)).
@@ -45,7 +39,7 @@ If the seed prompt already contains an intake block (product, users, constraints
 
 ### Round 1 — Business (identical to the shared contract)
 
-Ask exactly the five questions from [`saas-workspace-initializer` Step a, Round 1](../saas-workspace-initializer/SKILL.md#step-a-discovery--mandatory-two-round-askuserquestion): what is being built, who the customer is, core jobs-to-be-done/candidate domains, MVP scope, and monetization. Nothing about Round 1 changes for .NET -- the business questions are stack-agnostic by design, which is the whole point of stating them once in the shared contract instead of here.
+Ask exactly the five questions from [`saas-workspace-initializer` Step a, Round 1](../saas-workspace-initializer/SKILL.md#step-a-discovery--mandatory-two-round-askuserquestion): what is being built, who the customer is, core jobs-to-be-done/candidate domains, MVP scope, and monetization. Nothing about Round 1 changes for .NET -- the business questions are stack-agnostic by design.
 
 Do not start Round 2 until every Round 1 question is answered.
 
@@ -153,26 +147,3 @@ After the handoff block, the session is done. Do not:
 - Run Microsoft's execution skills (`dotnet-test`, `dotnet-data`, `dotnet-aspnetcore`, `dotnet-blazor`, `dotnet-msbuild`, `dotnet-nuget`) yourself instead of handing off -- that duplicates work they already do correctly and drifts from their maintained behaviour.
 
 If the user pushes for "just one more thing" in the same session, decline and point them at `/orchestrate <slug>` in a fresh chat.
-
-## References
-
-### Shared Stage A contract
-
-- [saas-workspace-initializer](../saas-workspace-initializer/SKILL.md) -- the canonical Stage A contract (discovery protocol, roadmap format, stop-after-foundation rule) this skill specializes. Round 1 discovery questions and the roadmap schema are defined there, not duplicated here.
-- [roadmap-format.md](../saas-workspace-initializer/references/roadmap-format.md) -- `.ptah/roadmap.md` schema, shared across every Stage A initializer.
-
-### Companion skills (this plugin)
-
-- [dotnet-solution-architect](../dotnet-solution-architect/SKILL.md) -- solution/project layout, Clean Architecture vs vertical slices, CPM, `ProjectReference` rules
-- [nx-dotnet-workspace](../nx-dotnet-workspace/SKILL.md) -- the Nx-or-not decision and `@nx/dotnet` mechanics
-
-### External skills
-
-- `ddd-architecture` (ptah-core plugin) -- bounded contexts/aggregates in Step a2
-- `orchestration` (ptah-core plugin) -- runs each Stage B roadmap item
-- `dotnet-template-engine`, skill `template-instantiation` (dotnet/skills marketplace) -- `dotnet new` scaffolding
-- `dotnet-test` (dotnet/skills marketplace) -- test project setup and running
-- `dotnet-data` (dotnet/skills marketplace) -- EF Core and data access
-- `dotnet-aspnetcore` (dotnet/skills marketplace) -- ASP.NET Core / Web API / minimal API
-- `dotnet-blazor` (dotnet/skills marketplace) -- Blazor
-- `dotnet-msbuild`, `dotnet-nuget` (dotnet/skills marketplace) -- build and package mechanics, invoked as needed

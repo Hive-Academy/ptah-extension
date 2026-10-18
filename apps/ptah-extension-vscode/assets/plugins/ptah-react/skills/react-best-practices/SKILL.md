@@ -5,18 +5,6 @@ description: React and Next.js performance rules. Use when writing, reviewing or
 
 # React Best Practices
 
-Comprehensive performance optimization guide for React and Next.js applications. Contains 57 rules across 8 categories, prioritized by impact to guide automated refactoring and code generation.
-
-## When to Apply
-
-Reference these guidelines when:
-
-- Writing new React components or Next.js pages
-- Implementing data fetching (client or server-side)
-- Reviewing code for performance issues
-- Refactoring existing React/Next.js code
-- Optimizing bundle size or load times
-
 ## Rule Categories by Priority
 
 | Priority | Category                  | Impact      | Prefix       |
@@ -117,20 +105,5 @@ Reference these guidelines when:
 
 The quick reference above is the index. Every rule has its own file under
 `rules/`, named for the rule id — read the ones that apply to the code in front
-of you, not the whole set:
-
-```
-rules/async-parallel.md
-rules/bundle-barrel-imports.md
-```
-
-Each rule file contains:
-
-- Brief explanation of why it matters
-- Incorrect code example with explanation
-- Correct code example with explanation
-- Additional context and references
-
-`rules/` is the complete guide. There is no compiled all-in-one document, by
-design: loading 57 rules to apply two of them costs context that is better
-spent on the user's code.
+of you, not the whole set. Each file carries the rationale, an incorrect and a
+correct example, and further context. There is no compiled all-in-one document.
