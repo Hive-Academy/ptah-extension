@@ -99,6 +99,7 @@ export const SKILL_SYNTHESIS_TOKENS = {
   SKILL_INVOCATION_RECORDER: Symbol.for('PtahSkillInvocationRecorder'),
   /** SkillRegistryStore — SQLite catalog of cloned skills/agents/commands. */
   SKILL_REGISTRY_STORE: Symbol.for('PtahSkillRegistryStore'),
+  SKILL_TASK_GRADE_STORE: Symbol.for('PtahSkillTaskGradeStore'),
   /** SkillMdMigrationStateStore — per-root marker for the SKILL.md content migration (`0041`). */
   SKILL_MD_MIGRATION_STATE_STORE: Symbol.for('PtahSkillMdMigrationStateStore'),
   /** SkillRegistryCatalogService — sidecar→skill_registry enrichment sync. */
