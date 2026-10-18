@@ -137,12 +137,16 @@ export class LiveSessionStatsPublisher {
   private readonly usageById = new Map<string, MessageUsage>();
   /** The usage map changed since the last flush. */
   private dirty = false;
+  /** A visible owner cache change still needs a live publication. */
+  private cacheDirty = false;
   private sessionId: SessionId | null = null;
   private detachWatcher: (() => void) | null = null;
   private timer: { readonly handle: unknown } | null = null;
   private lastPublishAt: number | null = null;
   /** Revision and kind of the last payload, so an unchanged one is not resent. */
   private lastEmitted: { revision: number; provisional: boolean } | null = null;
+  /** Latest revision successfully handed to the result callback. */
+  private resultPublishedRevision = -1;
   /** A provisional snapshot was emitted and no authoritative one followed. */
   private estimateShown = false;
   /** Between {@link onResult} and {@link settle}. */
@@ -171,6 +175,7 @@ export class LiveSessionStatsPublisher {
     this.detach();
     const detach = this.options.statsOwner.watch(sessionId, generation, {
       onAgentRecorded: () => this.onAgentRecorded(),
+      onCacheChanged: () => this.onCacheChanged(),
       onReleased: (settled) => this.onOwnerReleased(settled),
     });
     if (detach === null) {
@@ -215,22 +220,31 @@ export class LiveSessionStatsPublisher {
     this.settling = true;
   }
 
+  /** Record only a result snapshot that its callback actually accepted. */
+  noteResultPublished(snapshot: SessionStatsEntry): void {
+    this.resultPublishedRevision = Math.max(
+      this.resultPublishedRevision,
+      snapshot.revision ?? -1,
+    );
+  }
+
   /**
-   * End of a result branch, on every exit: when an estimate was shown since
-   * the last boundary, emit the authoritative snapshot once. Nothing when
-   * none was shown.
+   * End of a result branch, on every exit: settle a shown estimate or a cache
+   * revision that the result callback did not publish.
    */
   settle(): void {
     if (this.inert) return;
     this.settling = false;
-    if (this.released || this.disposed || !this.estimateShown) return;
-    this.emitAuthoritative(this.authoritativeSnapshot());
+    if (this.released || this.disposed) return;
+    if (this.estimateShown || this.cacheDirty) {
+      this.emitAuthoritative(this.authoritativeSnapshot());
+    }
   }
 
   /**
    * Stream end (the transformer's `finally`). Cancels the timer, detaches the
    * watcher and, unless the owner's release already settled, clears the
-   * estimate and emits the authoritative snapshot when one was shown.
+   * estimate and emits any pending authoritative cache or estimate snapshot.
    * Idempotent.
    */
   dispose(): void {
@@ -245,7 +259,7 @@ export class LiveSessionStatsPublisher {
       // Cleared even when nothing was shown: a stream that ended without a
       // result must not strand its estimate on the owner.
       this.clearEstimate();
-      if (this.estimateShown) {
+      if (this.estimateShown || this.cacheDirty) {
         this.emitAuthoritative(this.authoritativeSnapshot());
       }
     } catch (error: unknown) {
@@ -272,6 +286,18 @@ export class LiveSessionStatsPublisher {
       this.arm(delay);
     } catch (error: unknown) {
       this.warnOnce('agent', 'Live stats agent signal failed', error);
+    }
+  }
+
+  /** Owner cache signals may arrive during a result branch. */
+  private onCacheChanged(): void {
+    try {
+      if (this.released || this.disposed) return;
+      this.cacheDirty = true;
+      this.requestFlush();
+    } catch (error: unknown) {
+      // degradation-audit: observer - cache signals cannot interrupt owner writes
+      this.warnOnce('cache', 'Live stats cache signal failed', error);
     }
   }
 
@@ -418,16 +444,20 @@ export class LiveSessionStatsPublisher {
       this.lastEmitted.revision === snapshot.revision &&
       this.lastEmitted.provisional === provisional
     ) {
+      this.cacheDirty = false;
       return;
     }
     // Context rides only on a provisional snapshot: an authoritative one must
     // never replace the context the result path derived from `modelUsage`.
     const context = provisional ? this.mainContext() : null;
-    this.emit({
+    const cacheWasDirty = this.cacheDirty;
+    this.cacheDirty = false;
+    const emitted = this.emit({
       sessionId: this.sessionId,
       sessionStats: snapshot,
       ...(context !== null && { context }),
     });
+    if (!emitted && cacheWasDirty) this.cacheDirty = true;
     if (provisional) this.estimateShown = true;
   }
 
@@ -468,8 +498,20 @@ export class LiveSessionStatsPublisher {
     const sessionId = this.sessionId;
     const shown = this.estimateShown;
     this.estimateShown = false;
-    if (shown && snapshot !== null && sessionId !== null) {
-      this.emit({ sessionId, sessionStats: snapshot });
+    if (snapshot === null || sessionId === null) return;
+    const revision = snapshot.revision ?? -1;
+    const cacheIsNewer =
+      this.cacheDirty &&
+      revision > (this.lastEmitted?.revision ?? -1) &&
+      revision > this.resultPublishedRevision;
+    if (shown || cacheIsNewer) {
+      const cacheWasDirty = this.cacheDirty;
+      this.cacheDirty = false;
+      if (!this.emit({ sessionId, sessionStats: snapshot }) && cacheWasDirty) {
+        this.cacheDirty = true;
+      }
+    } else if (this.cacheDirty) {
+      this.cacheDirty = false;
     }
   }
 
@@ -549,22 +591,24 @@ export class LiveSessionStatsPublisher {
   }
 
   /** Hand one payload to the callback; a sync or async failure is logged. */
-  private emit(payload: SessionStatsLivePayload): void {
+  private emit(payload: SessionStatsLivePayload): boolean {
     const callback = this.options.onLiveStats;
-    if (!callback) return;
-    this.lastEmitted = {
-      revision: payload.sessionStats.revision ?? -1,
-      provisional: payload.sessionStats.provisional === true,
-    };
+    if (!callback) return false;
     try {
       const result: unknown = callback(payload);
+      this.lastEmitted = {
+        revision: payload.sessionStats.revision ?? -1,
+        provisional: payload.sessionStats.provisional === true,
+      };
       if (isThenable(result)) {
         result.then(undefined, (error: unknown) =>
           this.warnOnce('callback', 'onLiveStats callback failed', error),
         );
       }
+      return true;
     } catch (error: unknown) {
       this.warnOnce('callback', 'onLiveStats callback failed', error);
+      return false;
     }
   }
 

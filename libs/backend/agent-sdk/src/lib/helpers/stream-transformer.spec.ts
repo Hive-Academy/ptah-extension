@@ -3241,6 +3241,48 @@ describe('StreamTransformer — onMessage / onStreamEnd (TASK_2026_614 D.11)', (
       session_id: 'sess-1',
     }) as unknown as SDKMessage;
 
+  it.each(['normal', 'error', 'abort'] as const)(
+    'calls the guarded pre-dispose hook before onStreamEnd on %s teardown',
+    async (outcome) => {
+      const { transformer, logger } = makeHarness();
+      const beforeLiveStatsDispose = jest.fn(() => {
+        throw new TypeError('release failed');
+      });
+      const onStreamEnd = jest.fn();
+      const failure = new Error(outcome);
+      if (outcome === 'abort') failure.name = 'AbortError';
+      const sdkQuery: AsyncIterable<SDKMessage> = {
+        async *[Symbol.asyncIterator]() {
+          yield compactingStatus();
+          if (outcome !== 'normal') throw failure;
+        },
+      };
+      const run = drain(
+        transformer.transform({
+          sdkQuery,
+          sessionId: 'sess-1' as SessionId,
+          initialModel: MODEL,
+          beforeLiveStatsDispose,
+          onStreamEnd,
+        }),
+      );
+      if (outcome === 'normal') {
+        await expect(run).resolves.toBeUndefined();
+      } else {
+        await expect(run).rejects.toBe(failure);
+      }
+      expect(beforeLiveStatsDispose).toHaveBeenCalledTimes(1);
+      expect(onStreamEnd).toHaveBeenCalledTimes(1);
+      expect(beforeLiveStatsDispose.mock.invocationCallOrder[0]).toBeLessThan(
+        onStreamEnd.mock.invocationCallOrder[0],
+      );
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[StreamTransformer] beforeLiveStatsDispose callback failed; teardown continues',
+        expect.objectContaining({ error: 'TypeError' }),
+      );
+    },
+  );
+
   it('hands every SDK message to onMessage in order, after the watchdog sees it', async () => {
     const { transformer } = makeHarness();
     const watchdog = makeFakeWatchdog();
