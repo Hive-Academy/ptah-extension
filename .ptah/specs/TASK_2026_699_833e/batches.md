@@ -1,6 +1,6 @@
 # Batches - TASK_2026_699_833e
 
-Total tasks: 10 | Batches: 4 | Complete: 3/4
+Total tasks: 10 | Batches: 4 | Complete: 4/4
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\inspector-side-dock` (branch `feat/inspector-side-dock`).
 All paths below are absolute. `W` = the worktree root above.
@@ -215,7 +215,7 @@ Edge cases:
 - No `console.` in `inspector-dock-width.store.ts`; audit marker present
 - No per-batch review
 
-## Batch 3: chat-view host (Session tab, dock slot + handle, width binding) — COMPLETE (commit: see git log)
+## Batch 3: chat-view host (Session tab, dock slot + handle, width binding) — COMPLETE (commit 431e7cf75)
 
 - Recommended executor: subagent `frontend-developer`
 - Execution mode: sequential
@@ -298,7 +298,7 @@ Edge cases:
 - Peer-owned files (`chat-transcript.*`, `message-bubble.*`, `chat-input.component.ts`): no change in
   `git diff main...HEAD` nor in the working tree.
 
-## Batch 4: PLAN LIMITS card (`variant="inspector"`) — PENDING
+## Batch 4: PLAN LIMITS card (`variant="inspector"`) — COMPLETE (commit: see git log)
 
 - Recommended executor: subagent `frontend-developer`
 - Execution mode: sequential
@@ -313,7 +313,7 @@ Edge cases:
 - Scoped verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat-ui --parallel=1`
   (includes `session-stats-summary.component.spec.ts`)
 
-### Task 4.1: Card template for the inspector variant + `planCardClass` — PENDING
+### Task 4.1: Card template for the inspector variant + `planCardClass` — COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\inspector-side-dock\libs\frontend\chat-ui\src\lib\molecules\session\plan-limits\plan-limit-tile.component.ts
@@ -331,7 +331,7 @@ Edge cases:
 - Implementation details: `@if (variant() === 'inspector') { card } @else { strip }`; optional `ng-template`s
   for card-only fragments; exported `planCardClass(tone)` reusing module-private `ROW_ACCENT`.
 
-### Task 4.2: Extend `plan-limit-tile.component.spec.ts` with an inspector describe block — PENDING
+### Task 4.2: Extend `plan-limit-tile.component.spec.ts` with an inspector describe block — COMPLETE
 
 - Depends on: Task 4.1
 - File: D:\projects\ptah-extension\.claude-worktrees\inspector-side-dock\libs\frontend\chat-ui\src\lib\molecules\session\plan-limits\plan-limit-tile.component.spec.ts
@@ -346,3 +346,15 @@ Edge cases:
 - All 3 files changed with real implementations
 - `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat-ui --parallel=1` passes
 - After commit: phase review due → return NEEDS REVIEW for the combined diff (parent of Batch 1 commit..HEAD)
+
+### Batch 4 verification notes (team-leader)
+
+- Strip branch: HEAD template body vs the new `@else` branch with 2 leading spaces removed — 122 lines
+  each, `diff` empty (byte-identical apart from the indent).
+- Unknown 5-hour window (kind `window`, no percent): renders a `<button>` face with `aria-expanded`,
+  chevron and sibling panel, no progressbar; asserted in the inspector spec (decision 8).
+- `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat-ui --parallel=1` passed (re-run by
+  team-leader).
+- Process note: the executor ran one read-only `git diff --stat`; no effect on the tree.
+- Measured overflow (`scrollWidth <= clientWidth` at dock 300/560 and the 760 sheet) is a visual-review
+  QA item (D-I), not covered by Jest.

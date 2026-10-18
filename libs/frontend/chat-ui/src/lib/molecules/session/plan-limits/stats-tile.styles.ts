@@ -57,6 +57,16 @@ export function planRowClass(tone: StatsTileTone): string {
   return `${ROW_FACE} ${ROW_ACCENT[tone]}`;
 }
 
+/**
+ * Session plan card in the inspector (TASK_2026_699 design §3): a bordered
+ * container with the tone accent on its left edge. It holds the face (a
+ * disclosure button, or a plain `div` for non-expandable kinds) and the
+ * detail panel, so it carries no padding, hover or focus of its own.
+ */
+export function planCardClass(tone: StatsTileTone): string {
+  return `block w-full relative overflow-hidden rounded-md border border-surface-border bg-surface-1 border-l-2 ${ROW_ACCENT[tone]}`;
+}
+
 /** Lane row: dashed accent; a neutral lane keeps a visible dash. */
 export function laneRowClass(tone: StatsTileTone): string {
   const accent =
