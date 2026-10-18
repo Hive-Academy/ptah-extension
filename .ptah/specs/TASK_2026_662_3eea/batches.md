@@ -1,6 +1,6 @@
 # Batches - TASK_2026_662_3eea
 
-Total tasks: 71 | Batches: 71 (+2 operational steps OP-1, OP-2) | Phases: 6 (A-F) | Complete: 13/71
+Total tasks: 71 | Batches: 71 (+2 operational steps OP-1, OP-2) | Phases: 6 (A-F) | Complete: 15/71 (Phase A 15/15; phase review due)
 
 Worktree root (prefix every path below with it): `D:\projects\ptah-extension\.claude-worktrees\skill-synthesis-purge\`
 Branch: `refactor/skill-synthesis-purge`. Aliases (same as implementation-plan.md:153):
@@ -580,13 +580,13 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
   typing the stub as `jest.Mocked<Pick<UserLayerMirrorService, 'mirrorAll'>>`; spec then 2/2 PASS.
 - Checks (orchestrator): combined test + typecheck green after fix-1; lint PASS. No persisted write.
 
-## Batch 13: Keep the foreground-activity tracker live - PENDING
+## Batch 13: Keep the foreground-activity tracker live - COMPLETE (e5ea784a1)
 
 - Phase: A | Executor: CLI lane codex | Depends on: 12 | Tasks: 1
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/skill-synthesis --parallel=1`
 - Precondition: `TH/memory-retention-job.ts:112-124` resolves the tracker.
 
-### Task 13.1: Isolate the tracker and its token from the queue pipeline - PENDING
+### Task 13.1: Isolate the tracker and its token from the queue pipeline - COMPLETE
 
 - Files: `SS/queue/foreground-activity.tracker.ts` + spec, `SS/di/register.ts`, `libs/backend/skill-synthesis/src/index.ts`.
 - Plan reference: plan row 13; implementation-plan.md:49.
@@ -595,13 +595,21 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
 - Validation notes: none beyond the requirements above.
 - Implementation details: none beyond the requirements above.
 
-## Batch 14: Keep the session-verdict read store - PENDING
+### Batch 13 verification notes
+
+- Report: reports/batch-13-report.md. Committed by the orchestrator as e5ea784a1.
+- Orchestrator correction: `foreground-activity.tracker.spec.ts:17` types the logger mock as
+  `as unknown as Logger` (project spec convention, e.g. `SS/di/register.spec.ts:36`); the lane's
+  `as Logger` failed TS2352.
+- Checks (orchestrator): skill-synthesis test + typecheck + lint PASS. No persisted write.
+
+## Batch 14: Keep the session-verdict read store - COMPLETE (de2e0e7d2)
 
 - Phase: A | Executor: CLI lane codex | Depends on: 3 | Tasks: 1
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/skill-synthesis --parallel=1`
 - Precondition: the archaeology writer remains (deleted in batch 61).
 
-### Task 14.1: Make the verdict store independent of the archaeologist - PENDING
+### Task 14.1: Make the verdict store independent of the archaeologist - COMPLETE
 
 - Files: `SS/archaeology/session-verdict.store.ts` + spec, `SS/archaeology/session-verdict.types.ts` + spec, `SS/outcome-seam/skill-telemetry-seam.adapter.ts`, `SS/di/register.ts`.
 - Plan reference: plan row 14; implementation-plan.md:7, 17.
@@ -610,6 +618,19 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
   run/session/task plus the workspace.
 - Validation notes: none beyond the requirements above.
 - Implementation details: none beyond the requirements above.
+
+### Batch 14 verification notes
+
+- Report: reports/batch-14-report.md.
+- Verified on disk: `session-verdict.store.ts` imports only tsyringe, zod, vscode-core,
+  persistence-sqlite and `./session-verdict.types` (no archaeologist). DI registers the store
+  on its own (SQLite + Logger); the seam adapter depends on `Pick<..., 'evidenceClassForSessions'>`.
+- New `positiveEvidenceForRun(join)` returns null unless run, session, task and workspace are
+  all nonempty and match `lane_outcome_records` exactly, joined to `skill_session_verdicts` on
+  session + workspace, non-degraded. `isPositiveEvidenceClass` excludes `unverified`,
+  `no-correction` and null. Specs cover each mismatched key, the empty workspace and unverified.
+- Read-only: no persisted write. The `sessionEvidence` port is unchanged (consumer cut is later).
+- Checks (orchestrator): skill-synthesis test + typecheck + lint PASS.
 
 ## Batch 15: Fatal verified-archive preflight (0057 not registered) - COMPLETE (6bd335a2f)
 
