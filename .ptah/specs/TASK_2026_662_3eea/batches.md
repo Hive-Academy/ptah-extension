@@ -1,6 +1,6 @@
 # Batches - TASK_2026_662_3eea
 
-Total tasks: 74 (71 + carry-over tasks 44.2, 65.2, 67.2) | Batches: 71 (+2 operational steps OP-1, OP-2) | Phases: 6 (A-F) | Complete: 17/71 (Phase A 15/15 CLOSED: logic gate APPROVED after one fix round, 8360e7aca; style fixes verified in the round-2 re-review; visual review APPROVED 8/10. Phase B 2/9: batches 16, 19)
+Total tasks: 75 (71 + carry-over tasks 44.2, 65.2, 67.2, 53.2) | Batches: 71 (+2 operational steps OP-1, OP-2) | Phases: 6 (A-F) | Complete: 19/71 (Phase A 15/15 CLOSED: logic gate APPROVED after one fix round, 8360e7aca; style fixes verified in the round-2 re-review; visual review APPROVED 8/10. Phase B 4/9: batches 16, 17, 19, 22)
 
 Worktree root (prefix every path below with it): `D:\projects\ptah-extension\.claude-worktrees\skill-synthesis-purge\`
 Branch: `refactor/skill-synthesis-purge`. Aliases (same as implementation-plan.md:153):
@@ -144,7 +144,7 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
 | Phase | Batches | Phase review (after its last batch commits) |
 | --- | --- | --- |
 | A - add beside old | 1-15 | code-logic, plus style (new public API: event store, grade store, skills-root, enhancement keys, archive preflight) |
-| B - switch readers/writers | 16-24 | code-logic, plus visual (Providers, Library, dashboard, pause switch, model editor; added 2026-10-19: dashboard Skills tile telemetry On/Off (O10), Library header pause + telemetry controls (batch 19), Phase A carry-overs Moderate 1 null detail-row pill + Minor 1 neutral verdict dot after batch 24) |
+| B - switch readers/writers | 16-24 | code-logic, plus visual (Providers, Library, dashboard, pause switch, model editor; added 2026-10-19: dashboard Skills tile telemetry On/Off (O10), Library header pause + telemetry controls (batch 19), Phase A carry-overs Moderate 1 null detail-row pill + Minor 1 neutral verdict dot after batch 24; added after batch 17: Providers consumer assignments Enhancement row (provider, model, timeout + Undo) replacing "Judging & enhancement" and the lane rows, and the Orchestration background-roles summary "Memory curator, enhancement, decision" (3 roles)) |
 | C - cut consumers | 25-56 | code-logic, plus visual (Library tab removal in 27, dashboard in 27) |
 | D - delete pipeline source + RPC contract | 57-61 | code-logic, plus visual (Library after SU deletion) |
 | E - remove shared contracts | 62-66 | code-logic, plus visual (Advanced settings rows removed in 65) |
@@ -729,13 +729,12 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
 
 ### Next action:
 
-Phase B wave B-W1 (16, 19) is COMPLETE. Run wave B-W2 now: batch 17 (CLI lane Glm; chat; gate
-`-p @ptah-extension/chat`) and batch 22 (CLI lane codex; RH + SS; gate
-`-p @ptah-extension/rpc-handlers @ptah-extension/skill-synthesis @ptah-extension/skill-synthesis-ui`) in
-parallel, 2 lanes, file-disjoint, no shared gate project; scoped checks ONE AT A TIME. Batch 22 heads the
-critical path (22 -> 23 -> 24). Batch 20 cannot join B-W2: its SU gate overlaps batch 22's gate.
-Then wave B-W3: batch 18 (chat, after 17) and batch 20 (SU, after 19) in parallel, 2 lanes. Then 21,
-23, 24 sequentially (all SU-gated). After batch 24 commits: Phase B review = code-logic on
+Phase B waves B-W1 (16, 19) and B-W2 (17 f2e072e0a, 22 e632e109d) are COMPLETE. Run wave B-W3 now:
+batch 18 (chat, after 17; gate `-p @ptah-extension/chat`; also drops the lane section ids at
+`routing-map.component.ts:14-17`, not the core union) and batch 20 (SU, after 19; gate
+`-p @ptah-extension/skill-synthesis-ui`) in parallel, 2 lanes, file-disjoint, no shared gate project;
+scoped checks ONE AT A TIME. Prefer codex for Glm-planned batches while Glm keeps stopping. Then 21,
+23, 24 sequentially (all SU-gated; 22 -> 23 -> 24 is the critical path). After batch 24 commits: Phase B review = code-logic on
 `dc10d73b2..HEAD` (parent of the first Phase B commit 6071e8ccc) plus visual (list in the Phase map row B,
 including O10 tile, Library pause/telemetry controls, Phase A Moderate 1 and Minor 1).
 
@@ -774,14 +773,14 @@ including O10 tile, Library pause/telemetry controls, Phase A Moderate 1 and Min
   readBack -> `refreshEnhancement()`; trace in the batch report for Mode 3.
 - Commit: 6071e8ccc `feat(core): batch 16 - providers enhancement slice beside old` (5 files).
 
-## Batch 17: Chat Providers rows, assignments and connection usage switch (R3) - IN_PROGRESS
+## Batch 17: Chat Providers rows, assignments and connection usage switch (R3) - COMPLETE (f2e072e0a)
 
-- Phase: B | Executor: CLI lane Glm | Depends on: 16 | Tasks: 1
+- Phase: B | Wave: B-W2 | Executor: CLI lane Glm (planned; codex ran it) | Depends on: 16 | Tasks: 1
 - Flags: UI (Providers > consumer rows), WRITE-PATH (Enhancement provider/model/timeout save)
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/chat --parallel=1`
 - Precondition: the batch 16 slice exists. `rg -n "SkillLane|judgeProvider|enhanceTimeoutMs|lanes\(\)|refreshLanes" libs/frontend/chat/src/lib/settings/providers` lists the current users.
 
-### Task 17.1: Replace "Judging & enhancement" with an Enhancement row; drop the lane rows - IN_PROGRESS
+### Task 17.1: Replace "Judging & enhancement" with an Enhancement row; drop the lane rows - COMPLETE
 
 - Files: `libs/frontend/chat/src/lib/settings/providers/provider-consumer-rows.ts` + spec, `provider-consumer-assignments.component.ts` + spec, `connection-usage.ts` + spec.
 - Plan reference: plan row 16; implementation-plan.md:22, 62; round-2 R3.
@@ -792,7 +791,37 @@ including O10 tile, Library pause/telemetry controls, Phase A Moderate 1 and Min
 - Validation notes: after the batch, the grep above has zero live hits in these six files.
 - Implementation details: none beyond the requirements above.
 
-## Batch 18: Chat routing map and Providers page drop lanes; advanced spec fixture (R3, R5) - PENDING
+### Batch 17 verification - COMPLETE (f2e072e0a)
+
+- Executor: CLI lane codex (Glm skipped after its two stops in batch 19); report
+  `reports/batch-17-report.md`, incl. fix rounds 1-3.
+- Scope widened per O13/O13a (type-change consumers; batch 18 runs after 17, batch 16 core is
+  committed, so no concurrent owner). 15 files total:
+  - planned: `chat/.../providers/provider-consumer-rows.ts`, `provider-consumer-assignments.component.ts`,
+    `connection-usage.ts`, each + spec;
+  - widened: `chat/.../providers/connection-drawer/overview-tab.component.ts` + spec;
+    `chat/.../providers/providers-settings.component.ts` + spec (only the `connectionUsage` call; the
+    lanes section stays for batch 18); `chat/.../settings/settings.component.ts` + spec (focus-target
+    set and predicate); `chat/.../settings/ptah-ai/orchestration-settings.component.ts` + spec
+    (background-roles summary now "Memory curator, enhancement, decision", 3 roles);
+    `libs/frontend/core/src/lib/services/app-state.service.ts` (`enhancement` added to
+    `PendingSettingsTab.section`).
+- Legacy `PendingSettingsTab` ids kept (O13a: removed only where nothing uses them):
+  `archaeologist`, `synthesis`, `judge`, `replay` (live in `routing-map.component.ts:14-17` and
+  `providers-commit.service.ts:151-154`) and `judging-enhancement` (e2e fixtures
+  `webview-e2e-harness/.../thoth/skills-lane-pickers.e2e.spec.ts:114`,
+  `apps/ptah-electron-e2e/src/specs/thoth/skills.spec.ts:121`). The chat focus-target set already
+  excludes all five. Removal is Task 53.2 (decision T12).
+- On disk: the batch-17 grep has 0 hits in its six files; no TODO/PLACEHOLDER/STUB in the diff.
+- Gate `nx run-many -t test typecheck lint -p core chat --parallel=1` PASS after fix round 3
+  (orchestrator-verified; not re-run here, RAM rule).
+- WRITE-PATH: Enhancement provider/model/timeout -> batch 16 enhancement patch -> core
+  `settings:set skills.enhancement.*` -> `settings:get` readBack -> `enhancement()`; empty model
+  normalised to `inherit` (same as `providers-commit.service.ts:134-148`). Trace in the batch report.
+- UI: Enhancement row and the background-roles summary are on the Phase B visual list (Phase map row B).
+- Commit: f2e072e0a `refactor(core,chat): batch 17 - providers enhancement row` (15 files).
+
+## Batch 18: Chat routing map and Providers page drop lanes; advanced spec fixture (R3, R5) - IN_PROGRESS
 
 - Phase: B | Executor: CLI lane Glm | Depends on: 17 | Tasks: 1
 - Flags: UI (Providers routing map)
@@ -800,7 +829,7 @@ including O10 tile, Library pause/telemetry controls, Phase A Moderate 1 and Min
 - Precondition: batch 17 is done. `providers-settings.component.ts:831-856` and
   `routing-map.component.ts:7-286` still read the lanes.
 
-### Task 18.1: Remove the lanes section; Enhancement uses the new provider key - PENDING
+### Task 18.1: Remove the lanes section; Enhancement uses the new provider key - IN_PROGRESS
 
 - Files: `libs/frontend/chat/src/lib/settings/providers/routing-map.component.ts` + spec,
   `providers-settings.component.ts` + spec, `libs/frontend/chat/src/lib/settings/advanced/advanced-settings-group.component.spec.ts`.
@@ -809,6 +838,9 @@ including O10 tile, Library pause/telemetry controls, Phase A Moderate 1 and Min
 - Quality requirements: the routing map shows no dead lanes section and calls no lane RPC. The advanced
   spec (`:343-355`) moves to a key that survives batch 65.
 - Validation notes: after the batch, `rg -n "SkillLane|refreshLanes|state\.lanes\(\)|judgeProvider" libs/frontend/chat` has zero live hits.
+  Added after batch 17 (T12): the lane `PendingSettingsTab` section ids at `routing-map.component.ts:14-17`
+  (`archaeologist`, `synthesis`, `judge`, `replay`) go with the lanes section; do NOT edit the core union
+  (`app-state.service.ts`) here, Task 53.2 owns it.
 - Implementation details: none beyond the requirements above.
 
 ## Batch 19: Library pause/telemetry round trip + dashboard candidate cut (R5) - COMPLETE (f2f58fdea)
@@ -853,14 +885,14 @@ including O10 tile, Library pause/telemetry controls, Phase A Moderate 1 and Min
   show no `getSettings`/`updateSettings` call left in SU state or tab.
 - Commit: f2f58fdea `refactor(skill-synthesis-ui,dashboard): batch 19 - settings round trip` (7 files).
 
-## Batch 20: Pause switch uses the migrated state - PENDING
+## Batch 20: Pause switch uses the migrated state - IN_PROGRESS
 
 - Phase: B | Executor: CLI lane Glm | Depends on: 19 | Tasks: 1
 - Flags: UI, WRITE-PATH (`skillSynthesis.enabled`)
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/skill-synthesis-ui --parallel=1`
 - Precondition: the batch 19 readBack exists.
 
-### Task 20.1: Keep the switch working through the new state API - PENDING
+### Task 20.1: Keep the switch working through the new state API - IN_PROGRESS
 
 - Files: `SU/components/skills-pause-switch.component.ts` + spec.
 - Plan reference: plan row 18.
@@ -887,13 +919,13 @@ including O10 tile, Library pause/telemetry controls, Phase A Moderate 1 and Min
 - Validation notes: none beyond the requirements above.
 - Implementation details: none beyond the requirements above.
 
-## Batch 22: Rate reads switch to `skill_task_grades` - IN_PROGRESS
+## Batch 22: Rate reads switch to `skill_task_grades` - COMPLETE (e632e109d)
 
-- Phase: B | Executor: CLI lane codex | Depends on: 5, 8 | Tasks: 1
+- Phase: B | Wave: B-W2 | Executor: CLI lane codex | Depends on: 5, 8 | Tasks: 1
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/rpc-handlers @ptah-extension/skill-synthesis @ptah-extension/skill-synthesis-ui --parallel=1`
 - Precondition: G1 finds `this.store` at handler `:1756` and `:2304-2305`.
 
-### Task 22.1: `invocationStats` and `toCloneSummary` read grades - IN_PROGRESS
+### Task 22.1: `invocationStats` and `toCloneSummary` read grades - COMPLETE
 
 - Files: `RH/handlers/skills-synthesis-rpc.handlers.ts` + spec, `SS/skill-scorecard.service.ts` + spec.
 - Plan reference: plan row 20.
@@ -902,6 +934,24 @@ including O10 tile, Library pause/telemetry controls, Phase A Moderate 1 and Min
   graded tasks, and `distinctContexts` stays telemetry.
 - Validation notes: after the batch, these two methods have no candidate-store read.
 - Implementation details: none beyond the requirements above.
+
+### Batch 22 verification - COMPLETE (e632e109d)
+
+- Executor: CLI lane codex; report `reports/batch-22-report.md`, incl. fix round 1.
+- Scope widened per O12 (same project SS): `SS/skill-invocation-event.store.ts` + spec. 6 files total:
+  `RH/handlers/skills-synthesis-rpc.handlers.ts` + spec, `SS/skill-scorecard.service.ts` + spec,
+  `SS/skill-invocation-event.store.ts` + spec.
+- On disk: read path `skill_task_grades` -> `SkillTaskGradeStore.getAggregates` ->
+  `SkillScorecardService.getInvocationStats` -> RPC graded `total`/`succeeded`/`failed` and nullable
+  `successRate`; telemetry `skill_invocation_events` -> `SkillInvocationEventStore.getUsageStats`
+  (Zod `SkillUsageStatsRowSchema`) -> `distinctContexts` / clone `invocationCount`. Neither method reads
+  the candidate store. No TODO/PLACEHOLDER/STUB in the diff. No DI edit needed (event store already a
+  singleton at `SS/di/register.ts:79`).
+- O12: with the optional scorecard absent, both methods degrade (zero graded counts, `successRate: null`)
+  instead of throwing, so one missing service no longer fails the whole Library list.
+- Gate `nx run-many -t test typecheck lint -p rpc-handlers skill-synthesis skill-synthesis-ui
+  --parallel=1` PASS after fix round 1 (orchestrator-verified; not re-run here, RAM rule).
+- Commit: e632e109d `refactor(skill-synthesis,rpc-handlers): batch 22 - rates read grades` (6 files).
 
 ## Batch 23: Formatter drops the `invocationCount` gate - PENDING
 
@@ -955,6 +1005,9 @@ including O10 tile, Library pause/telemetry controls, Phase A Moderate 1 and Min
 - Quality requirements: none beyond the finding.
 - Validation notes: no `skillSynthesis:getLanes`/`setLanes` call remains. After the batch,
   `rg -n "SkillLane|judgeProvider|judgeModel|enhanceTimeoutMs|Lanes" libs/frontend/core` has zero live hits.
+  Added after batch 17 (T12): the lane section ids at `providers-commit.service.ts:151-154` go with the
+  lanes slice; the `PendingSettingsTab` union itself stays for Task 53.2 (e2e fixtures still use
+  `judging-enhancement` until batches 51/52).
 - Implementation details: none beyond the finding.
 
 ## Batch 26: Webview cuts the live push provider - PENDING
@@ -1419,8 +1472,8 @@ including O10 tile, Library pause/telemetry controls, Phase A Moderate 1 and Min
 
 ## Batch 53: Tray home + TUI lifecycle fixtures - PENDING
 
-- Phase: C | Executor: CLI lane Glm | Depends on: 52 | Tasks: 1
-- Verification: `npx nx run-many -t typecheck -p ptah-electron-e2e ptah-tui --parallel=1`
+- Phase: C | Executor: CLI lane Glm | Depends on: 52 (Task 53.2 also 18, 25, 51) | Tasks: 2
+- Verification: `npx nx run-many -t typecheck -p ptah-electron-e2e ptah-tui @ptah-extension/core --parallel=1` (core added for Task 53.2)
 - Precondition: G9.
 
 ### Task 53.1: Remove the pipeline paths - PENDING
@@ -1431,6 +1484,19 @@ including O10 tile, Library pause/telemetry controls, Phase A Moderate 1 and Min
 - Quality requirements: none beyond the plan row.
 - Validation notes: none beyond the plan row.
 - Implementation details: none beyond the plan row.
+
+### Task 53.2: Remove the legacy `PendingSettingsTab` section ids (carry-over from batch 17, T12) - PENDING
+
+- Depends on: batches 18, 25, 51, 52 (their last users go there).
+- File: `libs/frontend/core/src/lib/services/app-state.service.ts` (`PendingSettingsTab.section`, `:127-143`).
+- Plan reference: decisions O13a; batch 17 verification.
+- Quality requirements: remove `judging-enhancement`, `archaeologist`, `synthesis`, `judge`, `replay`
+  from the union; keep `enhancement`.
+- Validation notes: before the edit, `rg -n "judging-enhancement|'archaeologist'|'synthesis'|'judge'" libs/frontend apps/ptah-electron-e2e`
+  has no hit that types against `PendingSettingsTab` (unrelated `'replay'` uses in `libs/web/members`
+  and `libs/api/community` are a different union). Gate for this batch adds core typecheck:
+  `npx nx run-many -t typecheck -p ptah-electron-e2e ptah-tui @ptah-extension/core --parallel=1`.
+- Implementation details: union member deletion only.
 
 ## Batch 54: Docs - Library and success rewrite - PENDING
 
@@ -1817,3 +1883,4 @@ D3), but the user must see and confirm the archive before the drop. Do not commi
 | T9 | Batches 1, 2 and 7 are marked IN_PROGRESS together (wave A-W1). | Batch 1 only | They are file-disjoint and in different Nx projects. Their checks still run one at a time. | Yes |
 | T10 | Split the old "then 17, 18, 20-24" into waves B-W2 (17 chat + 22 RH/SS) and B-W3 (18 chat + 20 SU); 17 and 22 marked IN_PROGRESS together. | 17 + 20 first; fully sequential | Wave rule (different Nx projects incl. gate projects): 20 and 22 both gate SU, so they cannot pair; 22 starts the longest chain (22 -> 23 -> 24). | Yes |
 | T11 | Phase A visual Serious 1 (dark `badge-success`/`badge-error` contrast) is a named follow-up outside this task; Moderate 1 and Minor 1 re-checked in the Phase B visual review after batch 24. | add a Phase A UI fix batch | Reviewer marked Serious 1 pre-existing (classes predate batches 7/11) and APPROVED 8/10; the null row is not reachable until batches 22-24. | Yes |
+| T12 | Legacy `PendingSettingsTab` ids kept by batch 17 are removed in a new Task 53.2 (core union), after their users go: routing map (18), providers commit service (25), e2e fixtures (51, 52). | remove in 18; remove in 25; leave as a follow-up | O13a kept them because `routing-map.component.ts:14-17`, `providers-commit.service.ts:151-154`, `skills-lane-pickers.e2e.spec.ts:114` and `ptah-electron-e2e/.../skills.spec.ts:121` still use them; 53 is the first batch after 51 and 52 (via 52) and is Phase C, so the Phase C review covers it. | Yes |
