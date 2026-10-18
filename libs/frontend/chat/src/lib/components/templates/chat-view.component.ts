@@ -3,6 +3,7 @@ import {
   inject,
   signal,
   computed,
+  linkedSignal,
   viewChild,
   ChangeDetectionStrategy,
   DestroyRef,
@@ -41,6 +42,7 @@ import {
   CompactionNotificationComponent,
   CompactionMarkerComponent,
   SidebarTabComponent,
+  SplitHandleComponent,
   StatsTileExpansionState,
   PTAH_UI_DISPLAY_DOCK,
   PTAH_UI_DISPLAY_DOCK_SYNC,
@@ -57,8 +59,12 @@ import { SessionHeaderComponent } from '../molecules/session-header/session-head
 // Referenced only in `imports` and inside `@defer (on immediate)`.
 import { SessionInspectorComponent } from '../organisms/session-inspector/session-inspector.component';
 import {
+  INSPECTOR_MIN_WIDTH,
+  InspectorDockWidthStore,
   InspectorShellController,
   SessionInspectorStore,
+  inspectorDockWidth,
+  inspectorMaxWidthFor,
 } from '../../services/session-inspector';
 import { injectSessionStatsSource } from '../../services/session-stats/session-stats-source';
 import { SESSION_EMBED_CHROME } from '../../tokens/session-embed-chrome.token';
@@ -215,6 +221,7 @@ const VIEW_PANEL_KEY = '';
     CompactionNotificationComponent,
     CompactionMarkerComponent,
     SidebarTabComponent,
+    SplitHandleComponent,
     CompactSessionCardComponent,
     AgentOriginBannerComponent,
     SessionHeaderComponent,
@@ -477,7 +484,11 @@ export class ChatViewComponent implements OnDestroy {
     Math.min(DOCK_MIN_WIDTH, this.dockMaxWidth() ?? DOCK_MIN_WIDTH),
   );
 
-  private readonly agentSidebarTab = viewChild(SidebarTabComponent);
+  /** The Agents tab only; the Session tab is a second `ptah-sidebar-tab`. */
+  private readonly agentSidebarTab = viewChild<string, ElementRef<HTMLElement>>(
+    'agentsTab',
+    { read: ElementRef },
+  );
   private restoreAgentSidebarTabFocus = false;
 
   /**
@@ -1148,6 +1159,91 @@ export class ChatViewComponent implements OnDestroy {
     ),
   );
 
+  // Session tab and docked width (design-spec §1-2). The stored preference is
+  // shared by every chat view; the draft is this view's live drag only.
+
+  private readonly _dockWidthStore = inject(InspectorDockWidthStore);
+  private readonly sessionTab = viewChild<string, ElementRef<HTMLElement>>(
+    'sessionTab',
+    { read: ElementRef },
+  );
+
+  /** The Session tab's dot mirrors the header dot: `sel` info, else warning. */
+  protected readonly inspectorTabBadge = computed<'warning' | 'info' | null>(
+    () => {
+      const dot = this.inspectorDot();
+      if (dot === null) return null;
+      return dot === 'sel' ? 'info' : 'warning';
+    },
+  );
+
+  /** The docked inspector, its resize handle and its inline width render. */
+  protected readonly dockSlotShown = computed(
+    () =>
+      this.hostsInspector() &&
+      this.shell.isOpen() &&
+      this.shell.tab() !== null &&
+      !this.shell.isModal(),
+  );
+
+  /**
+   * Width while a drag or key step is in flight; never persisted. It resets
+   * whenever the slot appears or goes: a handle destroyed mid-drag reports
+   * nothing, so a stale draft must not survive into the next docked render.
+   */
+  protected readonly dockDraftWidth = linkedSignal<boolean, number | null>({
+    source: this.dockSlotShown,
+    computation: () => null,
+  });
+  /** Turns the dock's entrance animation off while the handle drags. */
+  protected readonly dockResizing = linkedSignal<boolean, boolean>({
+    source: this.dockSlotShown,
+    computation: () => false,
+  });
+
+  protected readonly inspectorMinWidth = INSPECTOR_MIN_WIDTH;
+  /** Rendered dock width: draft, else preference, clamped to the shell. */
+  protected readonly inspectorWidth = computed(() =>
+    inspectorDockWidth(
+      this.dockDraftWidth() ?? this._dockWidthStore.preference(),
+      this.shell.shellWidth(),
+    ),
+  );
+  protected readonly inspectorMaxWidth = computed(() =>
+    inspectorMaxWidthFor(this.shell.shellWidth()),
+  );
+
+  /** The Session tab is the opener, so closing returns focus to it. */
+  protected toggleInspectorFromTab(): void {
+    const button =
+      this.sessionTab()?.nativeElement.querySelector<HTMLElement>('button') ??
+      null;
+    this.shell.toggle(button);
+  }
+
+  /**
+   * Drag end or key step. Persists only a draft that differs from what
+   * renders now, so a click without movement at a shell-clamped width never
+   * overwrites a wider stored preference.
+   */
+  protected commitInspectorWidth(): void {
+    const draft = this.dockDraftWidth();
+    this.dockDraftWidth.set(null);
+    if (draft === null) return;
+    const rendered = inspectorDockWidth(
+      this._dockWidthStore.preference(),
+      this.shell.shellWidth(),
+    );
+    if (Math.round(draft) === rendered) return;
+    this._dockWidthStore.commit(draft);
+  }
+
+  /** Double-click: forget the preference, back to the shell's default. */
+  protected resetInspectorWidth(): void {
+    this.dockDraftWidth.set(null);
+    this._dockWidthStore.reset();
+  }
+
   protected readonly limitCue = computed(
     () => this.stats.inputs()?.limitSummary ?? null,
   );
@@ -1401,9 +1497,7 @@ export class ChatViewComponent implements OnDestroy {
       const sidebarTab = this.agentSidebarTab();
       if (this.restoreAgentSidebarTabFocus && !panelOpen && sidebarTab) {
         const button =
-          this.hostEl.nativeElement.querySelector<HTMLButtonElement>(
-            'ptah-sidebar-tab button',
-          );
+          sidebarTab.nativeElement.querySelector<HTMLButtonElement>('button');
         if (!button) return;
         button.focus();
         this.restoreAgentSidebarTabFocus = false;

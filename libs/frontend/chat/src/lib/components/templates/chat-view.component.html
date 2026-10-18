@@ -1,5 +1,5 @@
 <!-- Shell: its container width sets the inspector band (docked / sheet). -->
-<div #inspectorShell class="cs-shell flex h-full w-full relative">
+<div #inspectorShell class="cs-shell flex h-full flex-1 min-w-0 relative">
   <!-- Main chat content; inert behind the open inspector sheet. -->
   <div
     class="flex-1 flex flex-col min-w-0 min-h-0 relative"
@@ -282,6 +282,27 @@
 
   <!-- "This session" inspector: full main panel only. Docked >= 960 px, else a modal sheet over a
        scrim. The sections load as a lazy chunk. -->
+  @if (dockSlotShown()) {
+    <!-- 0 px slot: the grip overlays the dock's leading edge and adds no
+         layout width, so the dock max stays shell width - 624 px. -->
+    <div class="cs-dock-slot">
+      <ptah-split-handle
+        class="cs-dock-handle"
+        orientation="vertical"
+        appearance="grip"
+        label="Resize session details"
+        [inverted]="true"
+        [size]="inspectorWidth()"
+        [min]="inspectorMinWidth"
+        [max]="inspectorMaxWidth()"
+        (sizeChange)="dockDraftWidth.set($event)"
+        (sizeCommit)="commitInspectorWidth()"
+        (sizeCancel)="dockDraftWidth.set(null)"
+        (sizeReset)="resetInspectorWidth()"
+        (draggingChange)="dockResizing.set($event)"
+      />
+    </div>
+  }
   @if (hostsInspector() && shell.isOpen() && shell.tab(); as inspectorTab) {
     @if (shell.isModal()) {
       <div
@@ -297,6 +318,8 @@
         class="cs-inspector"
         [class.cs-inspector--sheet]="shell.isModal()"
         [class.cs-inspector--full]="shell.isModal() && shell.band() === 'full-sheet'"
+        [class.cs-inspector--resizing]="dockResizing()"
+        [style.width.px]="shell.isModal() ? null : inspectorWidth()"
         [tabId]="inspectorTab.tabId"
         [presentation]="shell.isModal() ? 'sheet' : 'docked'"
         [hasLaneSurface]="hasLaneSurface"
@@ -310,6 +333,8 @@
       <div
         class="cs-inspector"
         [class.cs-inspector--sheet]="shell.isModal()"
+        [class.cs-inspector--resizing]="dockResizing()"
+        [style.width.px]="shell.isModal() ? null : inspectorWidth()"
         aria-hidden="true"
       ></div>
     }
@@ -319,6 +344,7 @@
     <!-- Agents vertical toggle tab (per-session). In overlay mode, hide when open to give chat 100% width. -->
     @if (!isOverlay() || !panelOpen()) {
       <ptah-sidebar-tab
+        #agentsTab
         label="Agents"
         side="right"
         [isOpen]="panelOpen()"
@@ -334,6 +360,7 @@
         class="flex items-center justify-center cursor-col-resize px-1 flex-shrink-0 z-10 group touch-none"
         role="separator"
         aria-orientation="vertical"
+        data-testid="agent-resize-handle"
         title="Drag to resize · double-click to reset"
         (pointerdown)="onResizeStart($event)"
         (dblclick)="onResizeReset()"
@@ -354,3 +381,20 @@
     />
   }
 </div>
+
+<!-- Session tab: outside the shell, so its 32 px never count toward the band
+     and it stays visible in the sheet band (inert while the sheet is open).
+     The header toggle keeps aria-controls="inspector". -->
+@if (hostsInspector() && shell.tab()) {
+  <ptah-sidebar-tab
+    #sessionTab
+    data-inspector-tab
+    label="Session"
+    side="right"
+    [isOpen]="shell.isOpen()"
+    [badgeType]="inspectorTabBadge()"
+    [attr.inert]="shell.isModal() ? '' : null"
+    [class.opacity-50]="shell.isModal()"
+    (toggled)="toggleInspectorFromTab()"
+  />
+}

@@ -1,5 +1,6 @@
+/* Row: the shell, then the Session tab as the last child (design-spec D2). */
 :host {
-  display: block;
+  display: flex;
   height: 100%;
   position: relative;
 }
@@ -23,6 +24,29 @@
   border-left: 1px solid var(--surface-border);
   background: oklch(var(--b1));
   animation: csInspectorIn 220ms var(--ptah-ease-soft) both;
+}
+
+/* Width comes from the inline binding while docked; no entrance replay while
+   the handle drags. */
+.cs-inspector--resizing {
+  animation: none;
+}
+
+/* 0 px flex item between the main column and the dock (design-spec D7). */
+.cs-dock-slot {
+  position: relative;
+  z-index: 10;
+  width: 0;
+  flex-shrink: 0;
+}
+
+/* 12 px hit area entirely over the dock's border and leading padding, so it
+   never covers the transcript scrollbar (design-spec rev 3, item 1). */
+.cs-dock-handle {
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  width: 12px;
 }
 
 .cs-inspector--sheet {

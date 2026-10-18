@@ -1,6 +1,6 @@
 # Batches - TASK_2026_699_833e
 
-Total tasks: 10 | Batches: 4 | Complete: 2/4
+Total tasks: 10 | Batches: 4 | Complete: 3/4
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\inspector-side-dock` (branch `feat/inspector-side-dock`).
 All paths below are absolute. `W` = the worktree root above.
@@ -133,7 +133,7 @@ Edge cases:
 - No per-batch review: the phase review after Batch 4 covers this batch
 - Edge cases R1 (destroy path) and A2 addressed
 
-## Batch 2: chat inspector services (constants, width store, specs) — COMPLETE (commit: see git log)
+## Batch 2: chat inspector services (constants, width store, specs) — COMPLETE (commit 309cb2bca)
 
 - Recommended executor: subagent `frontend-developer`
 - Execution mode: sequential
@@ -215,7 +215,7 @@ Edge cases:
 - No `console.` in `inspector-dock-width.store.ts`; audit marker present
 - No per-batch review
 
-## Batch 3: chat-view host (Session tab, dock slot + handle, width binding) — IN_PROGRESS
+## Batch 3: chat-view host (Session tab, dock slot + handle, width binding) — COMPLETE (commit: see git log)
 
 - Recommended executor: subagent `frontend-developer`
 - Execution mode: sequential
@@ -228,7 +228,7 @@ Edge cases:
 - Scoped verification: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat --parallel=1`
   (includes `chat-view.keepalive.spec.ts`, `chat-view.session-enter.spec.ts`, agent-lane-panel spec)
 
-### Task 3.1: Mount Session tab, dock slot/handle and width binding in `ChatViewComponent` — IN_PROGRESS
+### Task 3.1: Mount Session tab, dock slot/handle and width binding in `ChatViewComponent` — COMPLETE
 
 - Files:
   - D:\projects\ptah-extension\.claude-worktrees\inspector-side-dock\libs\frontend\chat\src\lib\components\templates\chat-view.component.html
@@ -257,7 +257,7 @@ Edge cases:
   `commitInspectorWidth()`; `resetInspectorWidth()`; `SplitHandleComponent` in `imports`;
   `inspectorMinWidth = INSPECTOR_MIN_WIDTH`.
 
-### Task 3.2: Extend `chat-view.component.spec.ts` and scope selectors in `chat-view.dock.spec.ts` — IN_PROGRESS
+### Task 3.2: Extend `chat-view.component.spec.ts` and scope selectors in `chat-view.dock.spec.ts` — COMPLETE
 
 - Depends on: Task 3.1
 - Files:
@@ -281,6 +281,22 @@ Edge cases:
 - `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat --parallel=1` passes
 - `git diff --name-only` shows no peer-owned file
 - No per-batch review
+
+### Batch 3 verification notes (team-leader)
+
+- Accepted deviations: computeds named `inspectorWidth` / `inspectorMaxWidth` (plan: `dockWidth` /
+  `dockMaxWidth`) because `chat-view.component.ts` already has `dockWidth`/`dockMaxWidth`/`dockMinWidth`
+  for the Display dock; template ref `#sessionTab` (plan: `#inspectorTab`) because `as inspectorTab` is
+  the inspector `@if` alias. `chat-view.dock.spec.ts` unchanged (its selectors still pass); the agent
+  separator got `data-testid="agent-resize-handle"`. R1 via `linkedSignal` reset on `dockSlotShown`.
+- Scoped check re-run by team-leader: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat
+  --parallel=1 --skip-nx-cache` → success. `chat-view.component.spec.ts` alone: 103/103, 0 NG0953.
+- NG0101 baseline: the spec in the main checkout (main 34095a98e; chat-view template files identical
+  to base 7267c1f4c) logs the same 15 `NG0101 ApplicationRef.tick is called recursively` lines, 85/85
+  pass. The worktree run logs 15 too, so they pre-exist (plan-limits wiring block). Later task, not
+  fixed here.
+- Peer-owned files (`chat-transcript.*`, `message-bubble.*`, `chat-input.component.ts`): no change in
+  `git diff main...HEAD` nor in the working tree.
 
 ## Batch 4: PLAN LIMITS card (`variant="inspector"`) — PENDING
 
