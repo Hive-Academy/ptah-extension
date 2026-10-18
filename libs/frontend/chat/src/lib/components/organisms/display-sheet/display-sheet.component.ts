@@ -44,7 +44,7 @@ const ACTION_FAILED_TEXT = 'The review action failed.';
       <div class="flex h-9 items-center gap-1 px-2">
         <button #bar type="button" class="btn btn-ghost btn-sm min-w-0 flex-1 justify-start focus-visible:outline focus-visible:outline-2"
           [attr.aria-expanded]="state().open" [attr.aria-controls]="regionId()"
-          [attr.aria-label]="'Display, ' + itemCount() + ' items'"
+          [attr.aria-label]="barLabel()"
           (click)="toggle()" (keydown)="onBarKeydown($event)" data-testid="display-sheet-bar">
           Display · {{ itemCount() }}
           @if (state().newCount > 0) { <span class="badge badge-primary badge-xs" [attr.aria-label]="state().newCount + ' new items'">{{ state().newCount }}</span> }
@@ -85,6 +85,17 @@ export class DisplaySheetComponent {
   protected readonly mode = computed(() => this.sheet.mode(this.tabId()));
   protected readonly summary = computed(() => this.dock.summaryFor(this.tabId()));
   protected readonly itemCount = computed(() => this.state().surfaces.length + this.state().summaries.size);
+  /**
+   * The bar's accessible name. `aria-label` replaces the visible "Display · N"
+   * and the badge, so a non-zero `newCount` has to be part of this string.
+   * Zero stays "Display, N items" — the badge is absent, and appending "0 new"
+   * would announce a count the sighted UI does not show.
+   */
+  protected readonly barLabel = computed(() => {
+    const items = `Display, ${this.itemCount()} items`;
+    const fresh = this.state().newCount;
+    return fresh > 0 ? `${items}, ${fresh} new` : items;
+  });
   protected readonly visible = computed(() => this.state().open || this.itemCount() > 0);
   protected readonly summaryTurnKey = computed(() => this.dock.summaryKeyFor(this.tabId()));
   protected readonly regionId = computed(() => `display-sheet-${this.tabId().replace(/[^a-zA-Z0-9_-]/g, '-')}`);
