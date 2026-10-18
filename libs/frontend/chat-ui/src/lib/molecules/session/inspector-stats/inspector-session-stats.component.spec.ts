@@ -34,10 +34,10 @@ describe(InspectorSessionStatsComponent.name, () => {
     fixture.detectChanges();
     const tile = root.querySelector('[data-testid="inspector-cache-tile"]');
     expect(root.querySelector('ptah-inspector-cache-tile')?.classList.contains('col-span-2')).toBe(true);
-    expect(tile?.textContent).toContain('Cache expires in 60 min');
+    expect(tile?.textContent).toContain('1:00:00');
     fixture.componentRef.setInput('stats', { ...stats, sessionId: 'two', cache: { ttl: '5m', lastRequestAt: 0, expiresAt: 300_000 } });
     fixture.detectChanges();
-    expect(root.textContent).toContain('Cache expires in 5 min');
+    expect(root.textContent).toContain('05:00');
     fixture.componentRef.setInput('stats', stats);
     fixture.detectChanges();
     expect(root.querySelector('[data-testid="inspector-cache-tile"]')).toBeNull();
@@ -81,3 +81,4 @@ describe(InspectorSessionStatsComponent.name, () => {
     expect(value.classList.contains('font-semibold')).toBe(true);
   });
 });
+
