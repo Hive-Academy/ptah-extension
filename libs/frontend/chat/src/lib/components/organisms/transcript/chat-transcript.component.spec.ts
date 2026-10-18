@@ -77,7 +77,10 @@ import {
   type PermissionRequest,
 } from '@ptah-extension/shared';
 import { SubagentTileComponent } from '../execution/subagent-tile.component';
-import { SubagentExecutionStore, type SubagentExecutionEntry } from '@ptah-extension/chat-streaming';
+import {
+  SubagentExecutionStore,
+  type SubagentExecutionEntry,
+} from '@ptah-extension/chat-streaming';
 import { SessionAgentRosterService } from '../../../services/session-agents/session-agent-roster.service';
 import type { SessionAgent } from '../../../services/session-agents/session-agent-roster';
 import { SingleChatSubagentViewComponent } from './single-chat-subagent-view.component';
@@ -472,9 +475,9 @@ describe('ChatTranscriptComponent — render window', () => {
   it('defaults to the focused margin without a SESSION_FOCUSED provider', () => {
     const h = makeWindowedHarness();
 
-    expect(
-      FakeIntersectionObserver.instances.at(-1)?.options?.rootMargin,
-    ).toBe(`${RENDER_WINDOW_MARGIN_PX}px 0px`);
+    expect(FakeIntersectionObserver.instances.at(-1)?.options?.rootMargin).toBe(
+      `${RENDER_WINDOW_MARGIN_PX}px 0px`,
+    );
   });
 
   it('shrinks the render margin for an unfocused tile and widens it on refocus', () => {
@@ -496,16 +499,16 @@ describe('ChatTranscriptComponent — render window', () => {
     );
     h.fixture.detectChanges();
 
-    expect(
-      FakeIntersectionObserver.instances.at(-1)?.options?.rootMargin,
-    ).toBe(`${UNFOCUSED_RENDER_WINDOW_MARGIN_PX}px 0px`);
+    expect(FakeIntersectionObserver.instances.at(-1)?.options?.rootMargin).toBe(
+      `${UNFOCUSED_RENDER_WINDOW_MARGIN_PX}px 0px`,
+    );
 
     focused.set(true);
     h.fixture.detectChanges();
 
-    expect(
-      FakeIntersectionObserver.instances.at(-1)?.options?.rootMargin,
-    ).toBe(`${RENDER_WINDOW_MARGIN_PX}px 0px`);
+    expect(FakeIntersectionObserver.instances.at(-1)?.options?.rootMargin).toBe(
+      `${RENDER_WINDOW_MARGIN_PX}px 0px`,
+    );
   });
 
   it('mounts a bubble for a message the observer brings into the window', () => {
@@ -854,13 +857,15 @@ describe('ChatTranscriptComponent — per-message presentation records (Phase 3)
       unchangedTree,
     ]);
     h.fixture.detectChanges();
-    const recordsBeforeDelta = h.bubbleComponents().map(
-      (bubble) => bubble.message,
-    );
+    const recordsBeforeDelta = h
+      .bubbleComponents()
+      .map((bubble) => bubble.message);
 
     const allMessages = jest.spyOn(h.component, 'allMessages');
     const finalizedMessageIds = jest.spyOn(
-      h.component as unknown as { finalizedMessageIds: () => ReadonlySet<string> },
+      h.component as unknown as {
+        finalizedMessageIds: () => ReadonlySet<string>;
+      },
       'finalizedMessageIds',
     );
     const renderWindow = h.fixture.debugElement.injector.get(
@@ -1022,7 +1027,11 @@ describe('ChatTranscriptComponent — one buildTree per published tab snapshot',
   selector: 'ptah-single-chat-subagent-view',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `@for (child of output(); track child.id) { <span data-testid="stored-agent-output">{{ child.content || child.toolName }}</span> }`,
+  template: `@for (child of output(); track child.id) {
+    <span data-testid="stored-agent-output">{{
+      child.content || child.toolName
+    }}</span>
+  }`,
 })
 class SubagentViewStub {
   readonly node = input.required<ExecutionNode>();
@@ -1181,7 +1190,10 @@ describe('ChatTranscriptComponent — single chat sub-agent view (R9n)', () => {
   let messagesSig: WritableSignal<readonly ExecutionChatMessage[]>;
   let sessionSig: WritableSignal<string | null>;
   const outputTree = signal<ExecutionNode[]>([]);
-  const executionEntries = signal<ReadonlyMap<string, SubagentExecutionEntry>>(new Map());
+  const nestedTrees = signal<ReadonlyMap<string, ExecutionNode[]>>(new Map());
+  const executionEntries = signal<ReadonlyMap<string, SubagentExecutionEntry>>(
+    new Map(),
+  );
 
   function configure(options: { realTiles?: boolean } = {}): void {
     messagesSig = signal<readonly ExecutionChatMessage[]>([
@@ -1206,8 +1218,17 @@ describe('ChatTranscriptComponent — single chat sub-agent view (R9n)', () => {
       },
     ]);
     configureTranscriptTestBed({ tabs, buildTree: jest.fn(() => []) });
-    TestBed.configureTestingModule({ providers: [{ provide: SubagentExecutionStore,
-      useValue: { entries: executionEntries, treeFor: () => outputTree() } }] });
+    TestBed.configureTestingModule({
+      providers: [
+        {
+          provide: SubagentExecutionStore,
+          useValue: {
+            entries: executionEntries,
+            treeFor: (key: string) => nestedTrees().get(key) ?? outputTree(),
+          },
+        },
+      ],
+    });
     TestBed.overrideComponent(ChatTranscriptComponent, {
       remove: {
         imports: [
@@ -1235,11 +1256,11 @@ describe('ChatTranscriptComponent — single chat sub-agent view (R9n)', () => {
       component: element.componentInstance as ChatTranscriptComponent,
       scroller: scroller.nativeElement as HTMLElement,
       /** What any descendant (a tile) resolves for SESSION_CARD_ACTIONS. */
-      descendantActions: () => scroller.injector.get(SESSION_CARD_ACTIONS, null),
+      descendantActions: () =>
+        scroller.injector.get(SESSION_CARD_ACTIONS, null),
       view: (): SubagentViewStub | null =>
         (element.query(By.directive(SubagentViewStub))?.componentInstance as
-          | SubagentViewStub
-          | undefined) ?? null,
+          SubagentViewStub | undefined) ?? null,
       notice: () =>
         (
           element.nativeElement.querySelector(
@@ -1251,6 +1272,7 @@ describe('ChatTranscriptComponent — single chat sub-agent view (R9n)', () => {
 
   beforeEach(() => {
     outputTree.set([]);
+    nestedTrees.set(new Map());
     executionEntries.set(new Map());
     rafSpy = jest
       .spyOn(window, 'requestAnimationFrame')
@@ -1275,43 +1297,139 @@ describe('ChatTranscriptComponent — single chat sub-agent view (R9n)', () => {
       .queryAll(By.directive(TranscriptMessageBubbleStub))
       .map((b) => b.componentInstance as TranscriptMessageBubbleStub);
     expect(bubbles.length).toBe(2);
-    expect(bubbles.every((bubble) => bubble.agentTileMode === true)).toBe(
-      true,
-    );
+    expect(bubbles.every((bubble) => bubble.agentTileMode === true)).toBe(true);
   });
 
   it('passes a top-level agent chip to its turn after agent children leave the parent tree', () => {
     configure();
     const agent: SessionAgent = {
-      key: 'sub:agent-1', kind: 'subagent', name: 'reviewer', cliId: null,
-      agentType: 'reviewer', status: 'running', startedAt: null, endedAt: null,
-      activity: null, openRequestIds: [],
+      key: 'sub:agent-1',
+      kind: 'subagent',
+      name: 'reviewer',
+      cliId: null,
+      agentType: 'reviewer',
+      status: 'running',
+      startedAt: null,
+      endedAt: null,
+      activity: null,
+      openRequestIds: [],
     };
-    TestBed.overrideProvider(SessionAgentRosterService, { useValue: { roster: () => [agent] } });
+    TestBed.overrideProvider(SessionAgentRosterService, {
+      useValue: { roster: () => [agent] },
+    });
     const fixture = mountHost(SingleChatHost);
-    const assistant = fixture.debugElement.queryAll(By.directive(TranscriptMessageBubbleStub))
+    const assistant = fixture.debugElement
+      .queryAll(By.directive(TranscriptMessageBubbleStub))
       .map((item) => item.componentInstance as TranscriptMessageBubbleStub)
       .find((bubble) => bubble.message.role === 'assistant');
     expect(assistant?.agents.map((item) => item.key)).toContain('sub:agent-1');
   });
 
+  it('adds a nested agent chip from the store and opens its in-place view', () => {
+    configure();
+    const parent: SessionAgent = {
+      key: 'sub:agent-1',
+      kind: 'subagent',
+      name: 'reviewer',
+      cliId: null,
+      agentType: 'reviewer',
+      status: 'running',
+      startedAt: null,
+      endedAt: null,
+      activity: null,
+      openRequestIds: [],
+    };
+    const child: SessionAgent = {
+      ...parent,
+      key: 'sub:agent-2',
+      name: 'nested reviewer',
+    };
+    TestBed.overrideProvider(SessionAgentRosterService, {
+      useValue: { roster: () => [parent, child] },
+    });
+    const fixture = mountHost(SingleChatHost);
+    const assistant = () =>
+      fixture.debugElement
+        .queryAll(By.directive(TranscriptMessageBubbleStub))
+        .map((item) => item.componentInstance as TranscriptMessageBubbleStub)
+        .find((bubble) => bubble.message.role === 'assistant');
+    expect(assistant()?.agents.map((item) => item.key)).toEqual([
+      'sub:agent-1',
+    ]);
+
+    const nested = createExecutionNode({
+      id: 'nested-agent',
+      type: 'agent',
+      status: 'streaming',
+      toolCallId: 'agent-2',
+      agentType: 'reviewer',
+    });
+    nestedTrees.set(
+      new Map([
+        ['agent-1', [nested]],
+        [
+          'agent-2',
+          [
+            createExecutionNode({
+              id: 'nested-output',
+              type: 'text',
+              status: 'complete',
+              content: 'Nested output',
+            }),
+          ],
+        ],
+      ]),
+    );
+    executionEntries.set(new Map());
+    fixture.detectChanges();
+
+    expect(assistant()?.agents.map((item) => item.key)).toEqual([
+      'sub:agent-1',
+      'sub:agent-2',
+    ]);
+    assistant()?.laneRequested.emit('sub:agent-2');
+    fixture.detectChanges();
+    expect(transcriptOf(fixture).view()?.node().id).toBe('nested-agent');
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="stored-agent-output"]')
+        ?.textContent,
+    ).toContain('Nested output');
+  });
+
   it('keeps a top-level agent tile without an agent-start record and opens output arriving after parent completion', () => {
     configure({ realTiles: true });
     const fixture = mountHost(SingleChatTileHost);
-    const tile: HTMLElement = fixture.nativeElement.querySelector('[data-testid="subagent-tile"]');
+    const tile: HTMLElement = fixture.nativeElement.querySelector(
+      '[data-testid="subagent-tile"]',
+    );
     expect(tile).toBeTruthy();
     expect(tile.textContent).toContain('reviewer');
-    const open: HTMLButtonElement = tile.querySelector('[data-testid="subagent-open"]')!;
+    const open: HTMLButtonElement = tile.querySelector(
+      '[data-testid="subagent-open"]',
+    )!;
     open.click();
     fixture.detectChanges();
     const view = transcriptOf(fixture).view();
     expect(view?.node().toolCallId).toBe('agent-1');
-    expect(fixture.nativeElement.querySelector('[data-testid="stored-agent-output"]')).toBeNull();
-    outputTree.set([createExecutionNode({ id: 'late-output', type: 'text', status: 'complete', content: 'Arrived after chat complete' })]);
+    expect(
+      fixture.nativeElement.querySelector(
+        '[data-testid="stored-agent-output"]',
+      ),
+    ).toBeNull();
+    outputTree.set([
+      createExecutionNode({
+        id: 'late-output',
+        type: 'text',
+        status: 'complete',
+        content: 'Arrived after chat complete',
+      }),
+    ]);
     executionEntries.set(new Map());
     fixture.detectChanges();
-    expect(fixture.nativeElement.querySelector('[data-testid="stored-agent-output"]').textContent)
-      .toContain('Arrived after chat complete');
+    expect(
+      fixture.nativeElement.querySelector('[data-testid="stored-agent-output"]')
+        .textContent,
+    ).toContain('Arrived after chat complete');
   });
 
   it('tile -> live full view in place -> Back restores scroll, focus and the draft', () => {
@@ -1559,9 +1677,7 @@ describe('ChatTranscriptComponent — single chat sub-agent view (R9n)', () => {
     // answer path are covered in single-chat-subagent-view.component.spec.
     const node = t.view()?.node();
     expect(node?.toolCallId).toBe('agent-1');
-    expect(node?.children.map((child) => child.toolCallId)).toEqual([
-      'tool-p',
-    ]);
+    expect(node?.children.map((child) => child.toolCallId)).toEqual(['tool-p']);
 
     t.view()?.back.emit();
     fixture.detectChanges();

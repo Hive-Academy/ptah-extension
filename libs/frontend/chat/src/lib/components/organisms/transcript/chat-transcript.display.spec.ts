@@ -59,6 +59,7 @@ import { By } from '@angular/platform-browser';
 import {
   AgentMonitorStore,
   ExecutionTreeBuilderService,
+  SubagentExecutionStore,
 } from '@ptah-extension/chat-streaming';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import {
@@ -278,7 +279,13 @@ function configure(options: RenderOptions): void {
     changeSets: options.changeSets,
     settledThrough: options.settledThrough,
   });
-  const providers: Provider[] = [...(options.providers ?? [])];
+  const providers: Provider[] = [
+    {
+      provide: SubagentExecutionStore,
+      useValue: { entries: signal(new Map()), treeFor: () => [] },
+    },
+    ...(options.providers ?? []),
+  ];
   if (options.withDock !== false) {
     providers.push(DisplayDockState, {
       provide: PTAH_UI_DISPLAY_DOCK_SYNC,
@@ -471,7 +478,10 @@ describe('ChatTranscriptComponent display wiring (TASK_2026_623 Task 24.1)', () 
       expect(summaries.get('u1')?.changeSet).toBe(TURN_1_CHANGE_SET);
       expect(summaries.get('u1')?.model.files?.value).toBe(2);
 
-      const open = query(fixture, 'turn-summary-chip-open') as HTMLButtonElement;
+      const open = query(
+        fixture,
+        'turn-summary-chip-open',
+      ) as HTMLButtonElement;
       expect(open.disabled).toBe(false);
       expect(fixture.nativeElement.textContent).not.toContain(
         'Display panel unavailable',
@@ -681,7 +691,11 @@ describe('ChatTranscriptComponent display wiring (TASK_2026_623 Task 24.1)', () 
   describe('display candidates (decision #94)', () => {
     it('a content-only streaming write that opens a display fence adds a live candidate', async () => {
       let tree = messageTree('s1', 200, [textNode('s1-text', 'Working on it')]);
-      const tabs = signal([tab(TAB, [makeTranscriptMessage('u1', 'user', 100)], 'streaming', { revision: 0 })]);
+      const tabs = signal([
+        tab(TAB, [makeTranscriptMessage('u1', 'user', 100)], 'streaming', {
+          revision: 0,
+        }),
+      ]);
       configure({
         tabs,
         buildTree: jest.fn(() => [tree]),
@@ -704,13 +718,21 @@ describe('ChatTranscriptComponent display wiring (TASK_2026_623 Task 24.1)', () 
           'Working on it\n```ptah-ui display stats\nstats\n  Files | 2\n',
         ),
       ]);
-      tabs.set([tab(TAB, [makeTranscriptMessage('u1', 'user', 100)], 'streaming', { revision: 1 })]);
+      tabs.set([
+        tab(TAB, [makeTranscriptMessage('u1', 'user', 100)], 'streaming', {
+          revision: 1,
+        }),
+      ]);
       await settle(fixture);
 
       expect(store.structureFor(TAB)()).toBe(structure);
-      const sync = fixture.debugElement.query(By.directive(DisplaySurfaceSyncStub));
+      const sync = fixture.debugElement.query(
+        By.directive(DisplaySurfaceSyncStub),
+      );
       expect(sync).not.toBeNull();
-      const candidates = (sync.componentInstance as DisplaySurfaceSyncStub).candidates();
+      const candidates = (
+        sync.componentInstance as DisplaySurfaceSyncStub
+      ).candidates();
       expect(candidates).toHaveLength(1);
       expect(candidates[0]).toMatchObject({
         blockKey: 's1:s1-text',
@@ -895,7 +917,10 @@ describe('ChatTranscriptComponent display wiring (TASK_2026_623 Task 24.1)', () 
       '```ptah-ui display lanes\nstats\n  Lanes | $limits.lanes\n```\n';
 
     it('VS Code renders a $limits fence as an ordinary code block and never reads lane limits', async () => {
-      mockRpcCall.mockResolvedValue({ success: true, data: { changeSets: [] } });
+      mockRpcCall.mockResolvedValue({
+        success: true,
+        data: { changeSets: [] },
+      });
       const rpc = { call: jest.fn() };
       TestBed.configureTestingModule({
         imports: [ChatTranscriptComponent],
