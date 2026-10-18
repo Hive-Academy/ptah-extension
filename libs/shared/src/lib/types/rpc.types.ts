@@ -85,8 +85,6 @@ import type {
   SubagentBackgroundParams,
   SubagentBackgroundResult,
   SubagentCommandResult,
-  SubagentTranscriptParams,
-  SubagentTranscriptResult,
   SubagentHistoryPageParams,
   SubagentHistoryPageResult,
 } from './subagent-registry.types';
@@ -1196,10 +1194,6 @@ export interface RpcMethodRegistry {
   'subagent:background': {
     params: SubagentBackgroundParams;
     result: SubagentBackgroundResult;
-  };
-  'subagent:transcript': {
-    params: SubagentTranscriptParams;
-    result: SubagentTranscriptResult;
   };
   'subagent:history-page': {
     params: SubagentHistoryPageParams;
@@ -3879,7 +3873,6 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'subagent:stop': true,
   'subagent:interrupt': true,
   'subagent:background': true,
-  'subagent:transcript': true,
   'subagent:history-page': true,
   'enhancedPrompts:getStatus': true,
   'enhancedPrompts:runWizard': true,

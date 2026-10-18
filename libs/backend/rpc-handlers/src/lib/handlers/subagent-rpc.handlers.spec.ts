@@ -7,11 +7,10 @@
  *   - subagent:stop
  *   - subagent:interrupt
  *   - subagent:background
- *   - subagent:transcript
  *   - subagent:history-page
  *
  * Behavioural contracts:
- *   - Registration: `register()` wires all seven methods into the mock RpcHandler.
+ *   - Registration: `register()` wires all six methods into the mock RpcHandler.
  *   - chat:subagent-query: three query modes (toolCallId, sessionId, all-resumable),
  *     plus SHAPE-ONLY Zod validation. The empty-sessionId rule is the handler's,
  *     not the schema's — see subagent-rpc.schema.ts.
@@ -19,11 +18,6 @@
  *   - subagent:stop: delegates to dispatcher.stopSubagent; validates params.
  *   - subagent:interrupt: delegates to dispatcher.interruptSession; validates params.
  *   - subagent:background: delegates to dispatcher.backgroundTask; validates params.
- *   - subagent:transcript: validates params (INVALID_PARAMS on bad input) and
- *     delegates to dispatcher.getSubagentTranscript, wrapping its result in
- *     { messages }. The SDK read + normalization live in the dispatcher
- *     (agent-sdk owns the ESM-only SDK dep) and are covered by
- *     subagent-message-dispatcher.spec.ts.
  *   - Failure posture: registry errors return { subagents: [] } and capture to Sentry.
  *     Dispatcher errors propagate as RPC failures (not silently swallowed).
  *
@@ -48,7 +42,12 @@ import {
   type MockSentryService,
 } from '@ptah-extension/vscode-core/testing';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
-import type { FlatStreamEventUnion, SubagentCacheInfo, SubagentHistoryPageResult, SubagentRecord } from '@ptah-extension/shared';
+import type {
+  FlatStreamEventUnion,
+  SubagentCacheInfo,
+  SubagentHistoryPageResult,
+  SubagentRecord,
+} from '@ptah-extension/shared';
 import {
   createMockLogger,
   type MockLogger,
@@ -82,11 +81,7 @@ function createMockSubagentRegistry(): MockSubagentRegistry {
 type MockDispatcher = jest.Mocked<
   Pick<
     SubagentMessageDispatcher,
-    | 'sendToSubagent'
-    | 'stopSubagent'
-    | 'interruptSession'
-    | 'backgroundTask'
-    | 'getSubagentTranscript'
+    'sendToSubagent' | 'stopSubagent' | 'interruptSession' | 'backgroundTask'
   >
 >;
 
@@ -96,7 +91,6 @@ function createMockDispatcher(): MockDispatcher {
     stopSubagent: jest.fn().mockResolvedValue(undefined),
     interruptSession: jest.fn().mockResolvedValue(undefined),
     backgroundTask: jest.fn().mockResolvedValue(true),
-    getSubagentTranscript: jest.fn().mockResolvedValue([]),
   };
 }
 
@@ -166,7 +160,16 @@ function makeHarness(): Harness {
   const sentry = createMockSentryService();
   const dispatcher = createMockDispatcher();
   const workspace = { getConfiguration: jest.fn().mockReturnValue('auto') };
-  const historyReader = { readSubagentEvents: jest.fn().mockResolvedValue({ status: 'ok', agentId: 'agent-1', events: [], truncated: false }) };
+  const historyReader = {
+    readSubagentEvents: jest
+      .fn()
+      .mockResolvedValue({
+        status: 'ok',
+        agentId: 'agent-1',
+        events: [],
+        truncated: false,
+      }),
+  };
 
   const handlers = new SubagentRpcHandlers(
     logger as unknown as Logger,
@@ -175,7 +178,10 @@ function makeHarness(): Harness {
     sentry as unknown as SentryService,
     dispatcher as unknown as SubagentMessageDispatcher,
     workspace as unknown as IWorkspaceProvider,
-    historyReader as Pick<SessionHistoryReaderService, 'readSubagentEvents'> as SessionHistoryReaderService,
+    historyReader as Pick<
+      SessionHistoryReaderService,
+      'readSubagentEvents'
+    > as SessionHistoryReaderService,
   );
 
   return {
@@ -212,7 +218,7 @@ async function call<TResult>(
 
 describe('SubagentRpcHandlers', () => {
   describe('register()', () => {
-    it('registers all seven methods', () => {
+    it('registers all six methods', () => {
       const h = makeHarness();
       h.handlers.register();
 
@@ -222,38 +228,77 @@ describe('SubagentRpcHandlers', () => {
       expect(methods).toContain('subagent:stop');
       expect(methods).toContain('subagent:interrupt');
       expect(methods).toContain('subagent:background');
-      expect(methods).toContain('subagent:transcript');
       expect(methods).toContain('subagent:history-page');
-      expect(methods).toHaveLength(7);
+      expect(methods).toHaveLength(6);
     });
   });
 
   describe('subagent:history-page', () => {
-    const event = (id: string, delta = 'x'.repeat(650)): FlatStreamEventUnion => ({
-      eventType: 'text_delta', id, messageId: 'message', timestamp: 1, blockIndex: 0, delta,
+    const event = (
+      id: string,
+      delta = 'x'.repeat(650),
+    ): FlatStreamEventUnion => ({
+      eventType: 'text_delta',
+      id,
+      messageId: 'message',
+      timestamp: 1,
+      blockIndex: 0,
+      delta,
     });
-    const read = (events: FlatStreamEventUnion[]) => ({ status: 'ok', agentId: 'agent-1', events, truncated: false });
+    const read = (events: FlatStreamEventUnion[]) => ({
+      status: 'ok',
+      agentId: 'agent-1',
+      events,
+      truncated: false,
+    });
 
     it('reads a page and preserves status', async () => {
       const h = makeHarness();
       h.handlers.register();
-      const page = await call<{ status: string; done: boolean; events: unknown[] }>(h, 'subagent:history-page', { sessionId: 'session-1', toolCallId: 'tool-1' });
-      expect(h.historyReader.readSubagentEvents).toHaveBeenCalledWith('session-1', 'tool-1', undefined);
+      const page = await call<{
+        status: string;
+        done: boolean;
+        events: unknown[];
+      }>(h, 'subagent:history-page', {
+        sessionId: 'session-1',
+        toolCallId: 'tool-1',
+      });
+      expect(h.historyReader.readSubagentEvents).toHaveBeenCalledWith(
+        'session-1',
+        'tool-1',
+        undefined,
+      );
       expect(page).toMatchObject({ status: 'ok', done: true, events: [] });
     });
 
-    it.each(['../', 'bad/id', ''])('rejects unsafe agentId %s before reading', async (agentId) => {
-      const h = makeHarness();
-      h.handlers.register();
-      await expect(call(h, 'subagent:history-page', { sessionId: 'session-1', toolCallId: 'tool-1', agentId })).rejects.toThrow();
-      expect(h.historyReader.readSubagentEvents).not.toHaveBeenCalled();
-    });
+    it.each(['../', 'bad/id', ''])(
+      'rejects unsafe agentId %s before reading',
+      async (agentId) => {
+        const h = makeHarness();
+        h.handlers.register();
+        await expect(
+          call(h, 'subagent:history-page', {
+            sessionId: 'session-1',
+            toolCallId: 'tool-1',
+            agentId,
+          }),
+        ).rejects.toThrow();
+        expect(h.historyReader.readSubagentEvents).not.toHaveBeenCalled();
+      },
+    );
 
     it('maps read failure to a path-free user error and logs identifiers', async () => {
       const h = makeHarness();
-      h.historyReader.readSubagentEvents.mockRejectedValue(new Error('C:\\secret\\agent.jsonl'));
+      h.historyReader.readSubagentEvents.mockRejectedValue(
+        new Error('C:\\secret\\agent.jsonl'),
+      );
       h.handlers.register();
-      await expect(call(h, 'subagent:history-page', { sessionId: 'session-1', toolCallId: 'tool-1' })).rejects.toThrow('Could not read agent output');
+      await expect(
+        call(h, 'subagent:history-page', {
+          sessionId: 'session-1',
+          toolCallId: 'tool-1',
+        }),
+      ).rejects.toThrow('Could not read agent output');
       expect(h.logger.error).toHaveBeenCalled();
     });
 
@@ -261,9 +306,15 @@ describe('SubagentRpcHandlers', () => {
       const h = makeHarness();
       h.handlers.register();
       for (const cursor of ['../', '1', 'v1.e2hhY2tlZCIsImJvZ3VzIl0']) {
-        const response = await h.rpcHandler.handleMessage({ method: 'subagent:history-page',
-          params: { sessionId: 'session-1', toolCallId: 'tool-1', cursor }, correlationId: 'malformed' });
-        expect(response).toMatchObject({ success: false, errorCode: 'INVALID_PARAMS' });
+        const response = await h.rpcHandler.handleMessage({
+          method: 'subagent:history-page',
+          params: { sessionId: 'session-1', toolCallId: 'tool-1', cursor },
+          correlationId: 'malformed',
+        });
+        expect(response).toMatchObject({
+          success: false,
+          errorCode: 'INVALID_PARAMS',
+        });
       }
       expect(h.historyReader.readSubagentEvents).not.toHaveBeenCalled();
     });
@@ -272,75 +323,167 @@ describe('SubagentRpcHandlers', () => {
       const h = makeHarness();
       const first = event('first');
       const second = event('second');
-      h.historyReader.readSubagentEvents.mockResolvedValueOnce(read([first, second]))
+      h.historyReader.readSubagentEvents
+        .mockResolvedValueOnce(read([first, second]))
         .mockResolvedValueOnce(read([first, second, event('appended')]));
       h.handlers.register();
-      const params = { sessionId: 'session-1', toolCallId: 'tool-1', maxBytes: 1024 };
-      const page1 = await call<SubagentHistoryPageResult>(h, 'subagent:history-page', params);
+      const params = {
+        sessionId: 'session-1',
+        toolCallId: 'tool-1',
+        maxBytes: 1024,
+      };
+      const page1 = await call<SubagentHistoryPageResult>(
+        h,
+        'subagent:history-page',
+        params,
+      );
       expect(page1.nextCursor).toBe(historyCursor(first));
-      const page2 = await call<SubagentHistoryPageResult>(h, 'subagent:history-page', { ...params, cursor: page1.nextCursor });
+      const page2 = await call<SubagentHistoryPageResult>(
+        h,
+        'subagent:history-page',
+        { ...params, cursor: page1.nextCursor },
+      );
       expect(page2.events[0].id).toBe('second');
     });
 
     it('resumes after a stable anchor when a same-id continuation replaces a completion', async () => {
       const h = makeHarness();
       const first = event('first');
-      const completion = { eventType: 'message_complete', id: 'old-complete', messageId: 'message', timestamp: 2 } as const;
-      h.historyReader.readSubagentEvents.mockResolvedValueOnce(read([first, completion]))
-        .mockResolvedValueOnce(read([first, event('continuation'), { ...completion, id: 'new-complete' }]));
+      const completion = {
+        eventType: 'message_complete',
+        id: 'old-complete',
+        messageId: 'message',
+        timestamp: 2,
+      } as const;
+      h.historyReader.readSubagentEvents
+        .mockResolvedValueOnce(read([first, completion]))
+        .mockResolvedValueOnce(
+          read([
+            first,
+            event('continuation'),
+            { ...completion, id: 'new-complete' },
+          ]),
+        );
       h.handlers.register();
-      const params = { sessionId: 'session-1', toolCallId: 'tool-1', maxBytes: 1024 };
-      const page1 = await call<SubagentHistoryPageResult>(h, 'subagent:history-page', params);
-      const page2 = await call<SubagentHistoryPageResult>(h, 'subagent:history-page', { ...params, cursor: page1.nextCursor });
+      const params = {
+        sessionId: 'session-1',
+        toolCallId: 'tool-1',
+        maxBytes: 1024,
+      };
+      const page1 = await call<SubagentHistoryPageResult>(
+        h,
+        'subagent:history-page',
+        params,
+      );
+      const page2 = await call<SubagentHistoryPageResult>(
+        h,
+        'subagent:history-page',
+        { ...params, cursor: page1.nextCursor },
+      );
       expect(page2.events[0].id).toBe('continuation');
     });
 
     it('returns HISTORY_CURSOR_STALE when the anchor disappears', async () => {
       const h = makeHarness();
-      h.historyReader.readSubagentEvents.mockResolvedValue(read([event('other')]));
+      h.historyReader.readSubagentEvents.mockResolvedValue(
+        read([event('other')]),
+      );
       h.handlers.register();
-      const response = await h.rpcHandler.handleMessage({ method: 'subagent:history-page',
-        params: { sessionId: 'session-1', toolCallId: 'tool-1', cursor: historyCursor(event('pruned')) },
-        correlationId: 'stale-anchor' });
-      expect(response).toMatchObject({ success: false, errorCode: 'HISTORY_CURSOR_STALE' });
+      const response = await h.rpcHandler.handleMessage({
+        method: 'subagent:history-page',
+        params: {
+          sessionId: 'session-1',
+          toolCallId: 'tool-1',
+          cursor: historyCursor(event('pruned')),
+        },
+        correlationId: 'stale-anchor',
+      });
+      expect(response).toMatchObject({
+        success: false,
+        errorCode: 'HISTORY_CURSOR_STALE',
+      });
     });
 
     it('returns not-found when the transcript is pruned between pages', async () => {
       const h = makeHarness();
-      h.historyReader.readSubagentEvents.mockResolvedValue({ status: 'not-found', agentId: 'agent-1', events: [], truncated: false });
+      h.historyReader.readSubagentEvents.mockResolvedValue({
+        status: 'not-found',
+        agentId: 'agent-1',
+        events: [],
+        truncated: false,
+      });
       h.handlers.register();
-      const page = await call<SubagentHistoryPageResult>(h, 'subagent:history-page', {
-        sessionId: 'session-1', toolCallId: 'tool-1', cursor: historyCursor(event('first')) });
-      expect(page).toMatchObject({ status: 'not-found', events: [], done: true });
+      const page = await call<SubagentHistoryPageResult>(
+        h,
+        'subagent:history-page',
+        {
+          sessionId: 'session-1',
+          toolCallId: 'tool-1',
+          cursor: historyCursor(event('first')),
+        },
+      );
+      expect(page).toMatchObject({
+        status: 'not-found',
+        events: [],
+        done: true,
+      });
     });
 
     it('maps a reader validation error to INVALID_PARAMS', async () => {
       const h = makeHarness();
-      h.historyReader.readSubagentEvents.mockRejectedValue(new SubagentHistoryValidationError('Invalid agent id'));
+      h.historyReader.readSubagentEvents.mockRejectedValue(
+        new SubagentHistoryValidationError('Invalid agent id'),
+      );
       h.handlers.register();
-      const response = await h.rpcHandler.handleMessage({ method: 'subagent:history-page',
-        params: { sessionId: 'session-1', toolCallId: 'tool-1' }, correlationId: 'invalid-reader' });
-      expect(response).toMatchObject({ success: false, errorCode: 'INVALID_PARAMS' });
+      const response = await h.rpcHandler.handleMessage({
+        method: 'subagent:history-page',
+        params: { sessionId: 'session-1', toolCallId: 'tool-1' },
+        correlationId: 'invalid-reader',
+      });
+      expect(response).toMatchObject({
+        success: false,
+        errorCode: 'INVALID_PARAMS',
+      });
     });
 
     it('does not classify an unrelated error by its message', async () => {
       const h = makeHarness();
-      h.historyReader.readSubagentEvents.mockRejectedValue(new Error('Invalid agent id'));
+      h.historyReader.readSubagentEvents.mockRejectedValue(
+        new Error('Invalid agent id'),
+      );
       h.handlers.register();
-      const response = await h.rpcHandler.handleMessage({ method: 'subagent:history-page',
-        params: { sessionId: 'session-1', toolCallId: 'tool-1' }, correlationId: 'untyped-error' });
-      expect(response).toMatchObject({ success: false, errorCode: 'PERSISTENCE_UNAVAILABLE' });
+      const response = await h.rpcHandler.handleMessage({
+        method: 'subagent:history-page',
+        params: { sessionId: 'session-1', toolCallId: 'tool-1' },
+        correlationId: 'untyped-error',
+      });
+      expect(response).toMatchObject({
+        success: false,
+        errorCode: 'PERSISTENCE_UNAVAILABLE',
+      });
     });
 
     it('rejects a page that repeats the request cursor', async () => {
       const h = makeHarness();
       const first = event('duplicate');
-      h.historyReader.readSubagentEvents.mockResolvedValue(read([first, first, event('later')]));
+      h.historyReader.readSubagentEvents.mockResolvedValue(
+        read([first, first, event('later')]),
+      );
       h.handlers.register();
-      const response = await h.rpcHandler.handleMessage({ method: 'subagent:history-page',
-        params: { sessionId: 'session-1', toolCallId: 'tool-1', cursor: historyCursor(first), maxBytes: 1024 },
-        correlationId: 'repeated-cursor' });
-      expect(response).toMatchObject({ success: false, errorCode: 'HISTORY_CURSOR_STALE' });
+      const response = await h.rpcHandler.handleMessage({
+        method: 'subagent:history-page',
+        params: {
+          sessionId: 'session-1',
+          toolCallId: 'tool-1',
+          cursor: historyCursor(first),
+          maxBytes: 1024,
+        },
+        correlationId: 'repeated-cursor',
+      });
+      expect(response).toMatchObject({
+        success: false,
+        errorCode: 'HISTORY_CURSOR_STALE',
+      });
     });
   });
 
@@ -849,96 +992,6 @@ describe('SubagentRpcHandlers', () => {
       await expect(
         call(h, 'subagent:background', { sessionId: 'sess-abc' }),
       ).rejects.toThrow();
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // subagent:transcript
-  // -------------------------------------------------------------------------
-
-  // The SDK read + transcript normalization live in
-  // SubagentMessageDispatcher.getSubagentTranscript (agent-sdk owns the ESM-only
-  // SDK dep); those behaviors are covered by subagent-message-dispatcher.spec.ts.
-  // Here we only assert the handler validates params and delegates.
-  describe('subagent:transcript', () => {
-    it('delegates to the dispatcher and wraps its messages in the result', async () => {
-      const h = makeHarness();
-      h.handlers.register();
-      const canned = [
-        {
-          role: 'user' as const,
-          text: 'hello agent',
-          timestamp: '2026-01-01T00:00:00.000Z',
-        },
-        { role: 'assistant' as const, text: 'part one\npart two' },
-      ];
-      h.dispatcher.getSubagentTranscript.mockResolvedValueOnce(canned);
-
-      const result = await call<{ messages: unknown[] }>(
-        h,
-        'subagent:transcript',
-        { sessionId: 'sess-abc', agentId: 'short-1' },
-      );
-
-      expect(result.messages).toEqual(canned);
-      expect(h.dispatcher.getSubagentTranscript).toHaveBeenCalledWith(
-        'sess-abc',
-        'short-1',
-        { limit: undefined, offset: undefined },
-      );
-    });
-
-    it('passes limit/offset through to the dispatcher', async () => {
-      const h = makeHarness();
-      h.handlers.register();
-      h.dispatcher.getSubagentTranscript.mockResolvedValueOnce([]);
-
-      await call(h, 'subagent:transcript', {
-        sessionId: 'sess-abc',
-        agentId: 'short-1',
-        limit: 50,
-        offset: 10,
-      });
-
-      expect(h.dispatcher.getSubagentTranscript).toHaveBeenCalledWith(
-        'sess-abc',
-        'short-1',
-        { limit: 50, offset: 10 },
-      );
-    });
-
-    it('rejects with INVALID_PARAMS when sessionId is missing', async () => {
-      const h = makeHarness();
-      h.handlers.register();
-
-      await expect(
-        call(h, 'subagent:transcript', { agentId: 'short-1' }),
-      ).rejects.toThrow();
-      expect(h.dispatcher.getSubagentTranscript).not.toHaveBeenCalled();
-    });
-
-    it('rejects with INVALID_PARAMS when agentId is missing', async () => {
-      const h = makeHarness();
-      h.handlers.register();
-
-      await expect(
-        call(h, 'subagent:transcript', { sessionId: 'sess-abc' }),
-      ).rejects.toThrow();
-      expect(h.dispatcher.getSubagentTranscript).not.toHaveBeenCalled();
-    });
-
-    it('rejects with INVALID_PARAMS when limit exceeds the 500 cap', async () => {
-      const h = makeHarness();
-      h.handlers.register();
-
-      await expect(
-        call(h, 'subagent:transcript', {
-          sessionId: 'sess-abc',
-          agentId: 'short-1',
-          limit: 501,
-        }),
-      ).rejects.toThrow();
-      expect(h.dispatcher.getSubagentTranscript).not.toHaveBeenCalled();
     });
   });
 });

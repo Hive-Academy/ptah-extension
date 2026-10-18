@@ -9,7 +9,6 @@
  * - subagent:stop          — Stop a specific subagent by taskId
  * - subagent:interrupt     — Interrupt the entire session
  * - subagent:background    — Move in-flight foreground task(s) to background
- * - subagent:transcript    — Read a subagent's historical transcript on demand
  * - subagent:history-page  — Read a bounded page of structured subagent history
  *
  * NOTE: The chat:subagent-resume RPC has been removed.
@@ -40,22 +39,28 @@ import {
   SubagentBackgroundParams,
   SubagentBackgroundResult,
   SubagentCommandResult,
-  SubagentTranscriptParams,
-  SubagentTranscriptResult,
   SubagentHistoryPageParams,
   SubagentHistoryPageResult,
 } from '@ptah-extension/shared';
 import type { RpcMethodName } from '@ptah-extension/shared';
-import { SDK_TOKENS, SubagentHistoryValidationError } from '@ptah-extension/agent-sdk';
-import type { SubagentMessageDispatcher, SessionHistoryReaderService } from '@ptah-extension/agent-sdk';
-import { assembleHistoryPage, parseHistoryCursor } from './subagent-history-page';
+import {
+  SDK_TOKENS,
+  SubagentHistoryValidationError,
+} from '@ptah-extension/agent-sdk';
+import type {
+  SubagentMessageDispatcher,
+  SessionHistoryReaderService,
+} from '@ptah-extension/agent-sdk';
+import {
+  assembleHistoryPage,
+  parseHistoryCursor,
+} from './subagent-history-page';
 import {
   SubagentQuerySchema,
   SubagentSendMessageSchema,
   SubagentStopSchema,
   SubagentInterruptSchema,
   SubagentBackgroundSchema,
-  SubagentTranscriptSchema,
   SubagentHistoryPageSchema,
 } from './subagent-rpc.schema';
 
@@ -79,8 +84,6 @@ import {
  * // Frontend: Push in-flight foreground task(s) to the background
  * const { backgrounded } = await rpcService.call('subagent:background', { sessionId, toolUseId });
  *
- * // Frontend: Read a subagent's full transcript on demand
- * const { messages } = await rpcService.call('subagent:transcript', { sessionId, agentId });
  * ```
  */
 @injectable()
@@ -91,7 +94,6 @@ export class SubagentRpcHandlers {
     'subagent:stop',
     'subagent:interrupt',
     'subagent:background',
-    'subagent:transcript',
     'subagent:history-page',
   ] as const satisfies readonly RpcMethodName[];
 
@@ -119,7 +121,6 @@ export class SubagentRpcHandlers {
     this.registerStop();
     this.registerInterrupt();
     this.registerBackground();
-    this.registerTranscript();
     this.registerHistoryPage();
 
     this.logger.debug('Subagent RPC handlers registered', {
@@ -346,81 +347,85 @@ export class SubagentRpcHandlers {
     });
   }
 
-  /**
-   * subagent:transcript — Read a subagent's full historical transcript.
-   *
-   * Delegates the SDK read + normalization to
-   * {@link SubagentMessageDispatcher.getSubagentTranscript} (agent-sdk owns the
-   * ESM-only SDK dependency). This handler only validates params and shapes the
-   * RPC result.
-   *
-   * Defensive: the dispatcher returns `[]` on missing export / not-found / read
-   * failure, so this never throws for a missing transcript (mirrors
-   * registerSubagentQuery).
-   */
-  private registerTranscript(): void {
+  private registerHistoryPage(): void {
     this.rpcHandler.registerMethod<
-      SubagentTranscriptParams,
-      SubagentTranscriptResult
-    >('subagent:transcript', async (params) => {
-      const parsed = SubagentTranscriptSchema.safeParse(params);
-      if (!parsed.success) {
+      SubagentHistoryPageParams,
+      SubagentHistoryPageResult
+    >('subagent:history-page', async (params) => {
+      const parsed = SubagentHistoryPageSchema.safeParse(params);
+      if (!parsed.success)
         throw new RpcUserError(
-          `subagent:transcript: invalid params — ${parsed.error.message}`,
+          'Invalid agent history request',
+          'INVALID_PARAMS',
+        );
+      const { sessionId, toolCallId, agentId, cursor, maxBytes } = parsed.data;
+      const anchor = cursor === undefined ? null : parseHistoryCursor(cursor);
+      if (cursor !== undefined && !anchor) {
+        throw new RpcUserError(
+          'Invalid agent history cursor',
           'INVALID_PARAMS',
         );
       }
-
-      const { sessionId, agentId, limit, offset } = parsed.data;
-
-      this.logger.debug('RPC: subagent:transcript called', {
-        sessionId,
-        agentId,
-        limit,
-        offset,
-      });
-
-      const messages = await this.dispatcher.getSubagentTranscript(
-        sessionId,
-        agentId,
-        { limit, offset },
-      );
-      return { messages };
+      try {
+        const read = await this.historyReader.readSubagentEvents(
+          sessionId,
+          toolCallId,
+          agentId,
+        );
+        if (read.status !== 'ok')
+          return assembleHistoryPage(
+            [],
+            0,
+            read.status,
+            read.agentId,
+            read.truncated,
+            maxBytes,
+          );
+        const position = anchor
+          ? read.events.findIndex(
+              (event) =>
+                event.id === anchor[0] && event.eventType === anchor[1],
+            )
+          : -1;
+        if (anchor && position < 0)
+          throw new RpcUserError(
+            'Agent history cursor expired; restart from the first page',
+            'HISTORY_CURSOR_STALE',
+          );
+        const start = position + 1;
+        const page = assembleHistoryPage(
+          read.events,
+          start,
+          read.status,
+          read.agentId,
+          read.truncated,
+          maxBytes,
+        );
+        if (!page.done && page.nextCursor === cursor) {
+          throw new RpcUserError(
+            'Agent history cursor did not advance',
+            'HISTORY_CURSOR_STALE',
+          );
+        }
+        return page;
+      } catch (error: unknown) {
+        if (error instanceof RpcUserError) throw error;
+        if (error instanceof SubagentHistoryValidationError) {
+          throw new RpcUserError(
+            'Invalid agent history request',
+            'INVALID_PARAMS',
+          );
+        }
+        this.logger.error('RPC: subagent:history-page failed', {
+          sessionId,
+          agentId: agentId ?? null,
+          reason: error instanceof Error ? error.name : 'unknown',
+        });
+        throw new RpcUserError(
+          'Could not read agent output',
+          'PERSISTENCE_UNAVAILABLE',
+        );
+      }
     });
-  }
-
-  private registerHistoryPage(): void {
-    this.rpcHandler.registerMethod<SubagentHistoryPageParams, SubagentHistoryPageResult>(
-      'subagent:history-page', async (params) => {
-        const parsed = SubagentHistoryPageSchema.safeParse(params);
-        if (!parsed.success) throw new RpcUserError('Invalid agent history request', 'INVALID_PARAMS');
-        const { sessionId, toolCallId, agentId, cursor, maxBytes } = parsed.data;
-        const anchor = cursor === undefined ? null : parseHistoryCursor(cursor);
-        if (cursor !== undefined && !anchor) {
-          throw new RpcUserError('Invalid agent history cursor', 'INVALID_PARAMS');
-        }
-        try {
-          const read = await this.historyReader.readSubagentEvents(sessionId, toolCallId, agentId);
-          if (read.status !== 'ok') return assembleHistoryPage([], 0, read.status, read.agentId, read.truncated, maxBytes);
-          const position = anchor ? read.events.findIndex(event => event.id === anchor[0] && event.eventType === anchor[1]) : -1;
-          if (anchor && position < 0) throw new RpcUserError('Agent history cursor expired; restart from the first page', 'HISTORY_CURSOR_STALE');
-          const start = position + 1;
-           const page = assembleHistoryPage(read.events, start, read.status, read.agentId, read.truncated, maxBytes);
-           if (!page.done && page.nextCursor === cursor) {
-             throw new RpcUserError('Agent history cursor did not advance', 'HISTORY_CURSOR_STALE');
-           }
-           return page;
-        } catch (error: unknown) {
-          if (error instanceof RpcUserError) throw error;
-           if (error instanceof SubagentHistoryValidationError) {
-            throw new RpcUserError('Invalid agent history request', 'INVALID_PARAMS');
-          }
-          this.logger.error('RPC: subagent:history-page failed', {
-            sessionId, agentId: agentId ?? null, reason: error instanceof Error ? error.name : 'unknown',
-          });
-          throw new RpcUserError('Could not read agent output', 'PERSISTENCE_UNAVAILABLE');
-        }
-      },
-    );
   }
 }
