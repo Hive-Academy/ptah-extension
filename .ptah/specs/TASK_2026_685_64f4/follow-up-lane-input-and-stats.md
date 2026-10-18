@@ -31,3 +31,11 @@ USER DECISION 2026-10-18: do this as a new task on its own branch after #751 mer
   component effects), Minors m1-m5.
 - `reports/visual-review-final.md`: D1 tile `0 tools`, D2 restored lane loses header facts, D4
   restored main-chat agent has no Load control, D5 silent history paths.
+
+## 4. Gap found while fixing the task-337 e2e spec
+
+- The old inline agent card showed the `agent:summary-chunk` text (parent
+  `StreamingState.agentSummaryAccumulators`). The store-backed lane does not: its live peek reads
+  `SubagentRecord.latestSummary`, which only `agent_progress` writes, and its `summaryContent` input
+  is not bound by the canvas lane view. The e2e spec now asserts the `agent_progress` path. Decide
+  whether the lane should also show the summary-chunk stream.
