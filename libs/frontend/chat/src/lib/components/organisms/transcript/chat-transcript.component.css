@@ -1,10 +1,17 @@
 @keyframes ptahPaneSwitchEnter {
-  from { opacity: 0; transform: translateY(12px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .ptah-pane-switch-enter {
-  animation: ptahPaneSwitchEnter var(--ptah-motion-switch) var(--ptah-ease-soft) backwards;
+  animation: ptahPaneSwitchEnter var(--ptah-motion-switch) var(--ptah-ease-soft)
+    backwards;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -18,7 +25,6 @@
    falls back to Anubis theme (Electron desktop) via global styles.css */
 :host ::ng-deep .overflow-y-auto,
 .chat-scroll-container {
-  scrollbar-width: thin;
   scrollbar-color: var(
       --vscode-scrollbarSlider-background,
       oklch(var(--bc) / 0.2)
@@ -27,6 +33,7 @@
 }
 
 :host ::ng-deep .overflow-y-auto {
+  scrollbar-width: thin;
   overflow-anchor: none;
 }
 
@@ -75,7 +82,7 @@
 /* Webkit fallback */
 :host ::ng-deep .overflow-y-auto::-webkit-scrollbar,
 .chat-scroll-container::-webkit-scrollbar {
-  width: 8px;
+  width: var(--chat-scrollbar-gutter, 8px);
 }
 
 :host ::ng-deep .overflow-y-auto::-webkit-scrollbar-track,

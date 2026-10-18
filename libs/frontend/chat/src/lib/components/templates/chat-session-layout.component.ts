@@ -14,9 +14,12 @@ import { ChangeDetectionStrategy, Component } from '@angular/core';
   styles: `
     :host {
       --chat-content-max-width: 758px;
+      --chat-scrollbar-gutter: 8px;
     }
 
-    :host(.hidden) { display: none; }
+    :host(.hidden) {
+      display: none;
+    }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

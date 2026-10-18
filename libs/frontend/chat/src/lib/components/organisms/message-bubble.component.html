@@ -44,7 +44,9 @@
                   <ptah-execution-node
                     [node]="child"
                     [isStreaming]="isStreaming()"
-                    [textClosed]="child.id !== lastChildId() && child.type === 'text'"
+                    [textClosed]="
+                      child.id !== lastChildId() && child.type === 'text'
+                    "
                     [isFinalizing]="isFinalizing()"
                     [getPermissionForTool]="getPermissionForTool"
                     [agentTileMode]="agentTileMode()"
@@ -92,15 +94,27 @@
       <div class="cs-answer max-w-[600px] text-[13px] leading-[1.6]">
         @if (mermaidFallbackText(); as text) {
           @defer (on immediate) {
-            <ptah-mermaid-message-text [text]="text" [finalized]="true" [active]="surfaceActive()" />
+            <ptah-mermaid-message-text
+              [text]="text"
+              [finalized]="true"
+              [active]="surfaceActive()"
+            />
           } @placeholder {
-            <markdown [data]="text | surfaceMarkdown: surfaceActive()" class="prose prose-sm max-w-none" />
+            <markdown
+              [data]="text | surfaceMarkdown: surfaceActive()"
+              class="prose prose-sm max-w-none"
+            />
           } @error {
-            <markdown [data]="text | surfaceMarkdown: surfaceActive()" class="prose prose-sm max-w-none" />
+            <markdown
+              [data]="text | surfaceMarkdown: surfaceActive()"
+              class="prose prose-sm max-w-none"
+            />
           }
         } @else {
           <markdown
-            [data]="message().rawContent || '' | surfaceMarkdown: surfaceActive()"
+            [data]="
+              message().rawContent || '' | surfaceMarkdown: surfaceActive()
+            "
             class="prose prose-sm max-w-none"
           />
         }
@@ -131,14 +145,21 @@
             [attr.aria-controls]="panelId()"
             (click)="toggleActivity()"
           >
-            <lucide-angular [img]="ActivityIcon" class="h-4 w-4" aria-hidden="true" />
+            <lucide-angular
+              [img]="ActivityIcon"
+              class="h-4 w-4"
+              aria-hidden="true"
+            />
           </button>
         }
       </div>
       @if (activityOpen() && canShowActivity()) {
         @if (turn(); as activityTurn) {
           @defer (when activityOpen()) {
-            <ptah-turn-activity-panel [turn]="activityTurn" [panelId]="panelId()" />
+            <ptah-turn-activity-panel
+              [turn]="activityTurn"
+              [panelId]="panelId()"
+            />
           } @placeholder {
             <div [id]="panelId()"></div>
           } @loading {
@@ -157,11 +178,13 @@
     }
   </article>
 } @else {
-  <!-- User message (right-aligned) -->
+  <!-- User message fills the shared chat column. -->
   <article aria-label="You" class="block">
     <div class="chat chat-end group">
       <!-- Header -->
-      <div class="chat-header text-xs text-base-content-muted mb-1">
+      <div
+        class="chat-header justify-self-end text-xs text-base-content-muted mb-1"
+      >
         <time
           class="mr-2 opacity-60"
           [attr.datetime]="formatDateTime(message().timestamp)"
@@ -185,7 +208,7 @@
            left border + the icon above) so the two are distinguishable without
            relying on colour alone. -->
       <div
-        class="chat-bubble surface-1 text-base-content max-w-[85%] md:max-w-[90%] lg:max-w-[85%]"
+        class="chat-bubble cs-user-bubble surface-1 text-base-content"
         [class.surface-2]="!!inboundPeerLabel()"
         [class.border-l-4]="!!inboundPeerLabel()"
         [class.border-secondary]="!!inboundPeerLabel()"
@@ -250,7 +273,10 @@
                   class="badge badge-sm bg-base-content/10 text-base-content gap-1 py-2.5 border-0"
                   [title]="filePath"
                 >
-                  <lucide-angular [img]="getFileIcon(filePath)" class="w-3 h-3" />
+                  <lucide-angular
+                    [img]="getFileIcon(filePath)"
+                    class="w-3 h-3"
+                  />
                   <span class="text-xs max-w-[120px] truncate">{{
                     getFileName(filePath)
                   }}</span>
