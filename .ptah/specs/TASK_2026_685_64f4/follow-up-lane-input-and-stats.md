@@ -29,7 +29,7 @@ USER DECISION 2026-10-18: do this as a new task on its own branch after #751 mer
 - `reports/code-logic-review-final-fix-and-b5c.md`: Major 1 (bubble history states never render,
   OnPush + same mutable entry), Major 2 (`retain()` tracks `agentMonitorStore.subagents()` inside
   component effects), Minors m1-m5.
-- `reports/visual-review-final.md`: D1 tile `0 tools`, D2 restored lane loses header facts, D4
+- `reports/visual-review-final.md`: D2 restored lane loses header facts, D4
   restored main-chat agent has no Load control, D5 silent history paths.
 
 ## 4. Gap found while fixing the task-337 e2e spec

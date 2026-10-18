@@ -12,14 +12,26 @@ header, one execution stream per agent, one `SubagentExecutionStore`). Phases A 
 
 ## 1. State: all implementation is done
 
-| PR                                 | Branch / worktree                                                                  | State                                                                                                                                                      |
-| ---------------------------------- | ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| #751 685                           | `feat/lane-execution-stream`, `.claude-worktrees/lane-execution-stream`            | **Ready for review** (not draft). Body updated (batches, review verdicts, user decisions, test plan). All batches done. Waits for the user's review/merge. |
-| #767 chat column width             | `fix/chat-column-alignment`, `.claude-worktrees/chat-column-alignment` (from main) | **Open.** Commits 0d5cee102, fe460a4f4. Waits for the user's review/merge.                                                                                 |
-| #761 CodeRabbit follow-ups of #750 | `fix/coderabbit-750-followups`, `.claude-worktrees/coderabbit-750-followups`       | **Merged by the user.** Worktree still exists (has a node_modules junction); remove only when the user says so.                                            |
-| #752 / #748                        | worktrees `chat-layout-display-sheet`, `nav-session-motion`                        | Removed this session (user approved; junctions removed first; merged branches deleted).                                                                    |
+| PR                                 | Branch / worktree                                                            | State                                                                                                                                                      |
+| ---------------------------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| #751 685                           | `feat/lane-execution-stream`, `.claude-worktrees/lane-execution-stream`      | **Ready for review** (not draft). Body updated (batches, review verdicts, user decisions, test plan). All batches done. Waits for the user's review/merge. |
+| #767 chat column width             | (removed)                                                                    | **Merged by the user.** Worktree, junction and local branch removed.                                                                                       |
+| #761 CodeRabbit follow-ups of #750 | `fix/coderabbit-750-followups`, `.claude-worktrees/coderabbit-750-followups` | **Merged by the user.** Worktree still exists (has a node_modules junction); remove only when the user says so.                                            |
+| #752 / #748                        | worktrees `chat-layout-display-sheet`, `nav-session-motion`                  | Removed this session (user approved; junctions removed first; merged branches deleted).                                                                    |
 
 No local-only branches. No running lanes or subagents from this session.
+
+**CI on #751 is all green at 95f21c3fe** (18 pass, 3 skipped; merge state BLOCKED only for review).
+CI fixes after the session-3 handoff (codex lanes, verified by the orchestrator):
+
+- a2e768eb8 degradation-audit: `reported` suppression on two history catch sites (no baseline raise).
+- ff8e21ddf, 7e86d14b4 e2e `task-337`: follows `ptah-subagent-lane`; identity on the tile, summary via
+  `agent_progress` in the disclosure peek, tool count in the disclosure meta.
+- 95f21c3fe product fix: `treeFor` built the selected sub-agent root at depth 0, so `collectTools`
+  dropped parent-linked tools (lane tool row empty, tile `0 tools` = visual D1). Now nested depth +
+  regression spec.
+- Gap recorded (not fixed): the lane does not show `agent:summary-chunk` text
+  (`follow-up-lane-input-and-stats.md` section 4).
 
 ## 2. Commits this session (#751, all pushed; last 0364cd6d9 + docs up to c862fef03)
 
@@ -47,7 +59,7 @@ No local-only branches. No running lanes or subagents from this session.
 - `code-logic-review-removals.md`: APPROVED 9/10, 3 Minor (stale doc comment
   `background-agent-strip.component.ts:139`; dead `TrayAgentContext.agentId`
   `session-agent-tray.ts:28`; harmless negative assertion `inline-agent-bubble.component.spec.ts:180`).
-- `visual-review-final.md`: NEEDS_REVISION 6/10 (D1 tile `0 tools`; D2 restored lane loses header facts;
+- `visual-review-final.md`: NEEDS_REVISION 6/10 (D1 tile `0 tools` FIXED in 95f21c3fe; D2 restored lane loses header facts;
   D3 `out N` low contrast in light; D4-D6 moderate). Agent monitor panel and A3 CLI lane not captured.
 - `visual-review-removals.md`: canvas lane heights OK; strip/inspector row menus not captured (need a
   running agent; by source only Steer / Send to background / Stop remain); chat column defects fixed by #767.
