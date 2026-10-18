@@ -6,11 +6,16 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { ClaudeRpcService } from '@ptah-extension/core';
+import { TabManagerService } from '@ptah-extension/chat-state';
 
-import { SetupStatusGetResponse } from '@ptah-extension/shared';
+import {
+  SetupGenerationWorkflow,
+  SetupStatusGetResponse,
+} from '@ptah-extension/shared';
 import { LucideAngularModule, XCircle, FolderOpen } from 'lucide-angular';
 
 import { SkeletonBlockComponent } from '../../atoms/skeleton-block.component';
+import { GenerationWorkflowLauncherService } from '../../services/generation-workflow-launcher.service';
 
 /**
  * SetupStatus type - Agent configuration status information
@@ -66,7 +71,7 @@ export type SetupStatus = SetupStatusGetResponse;
         </div>
       } @else if (error()) {
         <!-- Compact error state -->
-        <div class="flex items-center gap-2 text-error">
+        <div class="flex items-center gap-2 text-error" role="alert">
           <lucide-angular [img]="XCircleIcon" class="shrink-0 w-4 h-4" />
           <span class="text-xs flex-1 truncate">{{ error() }}</span>
           <button
@@ -119,6 +124,24 @@ export type SetupStatus = SetupStatusGetResponse;
             }
           </button>
         </div>
+        <div class="mt-2 flex flex-wrap gap-1">
+          <button
+            class="btn btn-xs btn-outline"
+            [disabled]="launching()"
+            (click)="launchGeneration('setup-agent-generation')"
+            type="button"
+          >
+            Generate agents
+          </button>
+          <button
+            class="btn btn-xs btn-outline"
+            [disabled]="launching()"
+            (click)="launchGeneration('setup-project-prompt')"
+            type="button"
+          >
+            Project guidance
+          </button>
+        </div>
       }
     </div>
   `,
@@ -132,6 +155,10 @@ export type SetupStatus = SetupStatusGetResponse;
 })
 export class SetupStatusWidgetComponent implements OnInit {
   private readonly rpcService = inject(ClaudeRpcService);
+  private readonly tabs = inject(TabManagerService);
+  private readonly generationLauncher = inject(
+    GenerationWorkflowLauncherService,
+  );
   protected readonly XCircleIcon = XCircle;
   protected readonly FolderOpenIcon = FolderOpen;
   readonly status = signal<SetupStatus | null>(null);
@@ -211,6 +238,30 @@ export class SetupStatusWidgetComponent implements OnInit {
       const errorMessage =
         err instanceof Error ? err.message : 'Failed to launch wizard';
       this.error.set(errorMessage);
+    } finally {
+      this.launching.set(false);
+    }
+  }
+
+  async launchGeneration(workflow: SetupGenerationWorkflow): Promise<void> {
+    if (this.launching()) return;
+    this.launching.set(true);
+    this.error.set(null);
+
+    try {
+      const workspacePath = this.tabs.activeWorkspacePath;
+      const result = workspacePath
+        ? await this.generationLauncher.open({
+            workspacePath,
+            workflow,
+            origin: 'independent-start',
+          })
+        : { outcome: 'failed' as const };
+      if (result.outcome === 'failed') {
+        this.error.set('Could not open generation. Please try again.');
+      }
+    } catch {
+      this.error.set('Could not open generation. Please try again.');
     } finally {
       this.launching.set(false);
     }
