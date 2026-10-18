@@ -69,13 +69,15 @@ describe('migration 0055_skill_invocation_run_id — registry and static SQL', (
     expect(MIGRATIONS.filter((m) => m.version === 55)).toEqual([
       { version: 55, name: '0055_skill_invocation_run_id', sql },
     ]);
-    expect(MIGRATIONS.slice(-2).map((m) => m.version)).toEqual([54, 55]);
+    const position = MIGRATIONS.findIndex((m) => m.version === 55);
+    expect(MIGRATIONS.slice(position - 1, position + 1).map((m) => m.version))
+      .toEqual([54, 55]);
     expect(sql).not.toContain('${');
     expect(sql).not.toMatch(/\b(DELETE|UPDATE|INSERT|DROP TABLE)\b/i);
   });
 
   it('keeps the bundled-version ratchet current', () => {
-    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(55);
+    expect(Math.max(...MIGRATIONS.map((m) => m.version))).toBe(56);
   });
 });
 
