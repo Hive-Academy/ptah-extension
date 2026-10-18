@@ -1,6 +1,6 @@
 # Batches - TASK_2026_662_3eea
 
-Total tasks: 71 | Batches: 71 (+2 operational steps OP-1, OP-2) | Phases: 6 (A-F) | Complete: 6/71
+Total tasks: 71 | Batches: 71 (+2 operational steps OP-1, OP-2) | Phases: 6 (A-F) | Complete: 8/71
 
 Worktree root (prefix every path below with it): `D:\projects\ptah-extension\.claude-worktrees\skill-synthesis-purge\`
 Branch: `refactor/skill-synthesis-purge`. Aliases (same as implementation-plan.md:153):
@@ -267,7 +267,7 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
   caller of the new writer yet: the live writer is still `SkillCandidateStore.recordSkillEvent`
   (via `skill-invocation-recorder.ts:48`) into the same table; batch 4 moves capture to the new writer.
 
-## Batch 4: Nullable three-kind capture - PENDING
+## Batch 4: Nullable three-kind capture - COMPLETE (70fe69067)
 
 - Phase: A | Executor: CLI lane codex | Depends on: 1, 3 | Tasks: 1
 - Flags: WRITE-PATH (event rows: `succeeded` NULL, `source='slash-command'`)
@@ -275,7 +275,7 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
 - Precondition: the trigger hard-codes success (`triggers/skill-trigger.service.ts:510,675`). The 0056
   migration and the event store exist.
 
-### Task 4.1: Write NULL grades and an explicit error flag - PENDING
+### Task 4.1: Write NULL grades and an explicit error flag - COMPLETE
 
 - Files: `SS/skill-invocation-recorder.ts` + spec, `SS/triggers/skill-trigger.service.ts` + spec,
   `SS/subagent-metrics-extractor.ts` + spec.
@@ -287,7 +287,31 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
 - Implementation details: write through the event store and leave the enqueue calls in place (they are
   cut in batch 44).
 
-## Batch 5: Task-grade store + scorecard as sole rate source - PENDING
+### Batch 4 verification notes
+
+- Verified on disk: `SS/skill-invocation-recorder.ts` injects `SkillInvocationEventStore` (no
+  `SkillCandidateStore`), writes `succeeded: null`, forwards explicit `isError`, accepts
+  `slash-command`, and prefixes dedup keys with `source`. The trigger maps SubagentStop to `isError:
+  false`, Skill/Task PostToolUse to `!payload.success`, `slash_command` expansions to `slash-command`,
+  other expansions (MCP prompts) to `prompt-expansion`. Enqueue calls untouched.
+- Grade-bug test present: `skill-invocation-recorder.spec.ts:113-128` ("records %s with isError=%s and
+  no grade") asserts a successful `tool-use` call stores `succeeded: null`; the trigger spec asserts
+  persisted subagent rows have NULL `succeeded`.
+- `SS/subagent-metrics-extractor.ts` + spec: no edit needed (no observed success/failure in transcript
+  metrics; the PostToolUse callback carries the error signal).
+- Decision O1 (decisions.md): ownership widened to `SS/skill-lifecycle.reachability.integration.spec.ts`
+  (spec only), updated to the new write path (`isError: false`, NULL grade via the event store); no
+  duplicated candidate-store write.
+- Checks: skill-synthesis test + typecheck + lint PASS (orchestrator, both batches applied).
+- Write-path trace: `SkillTriggerService` (SubagentStop, PostToolUse, UserPromptExpansion callbacks)
+  -> `SkillInvocationRecorder.recordSkillEvent` -> `SkillInvocationEventStore.recordSkillEvent` ->
+  `skill_invocation_events` (`succeeded` NULL, `is_error` explicit, `source` in tool-use | slash-command
+  | prompt-expansion | subagent). Runtime readers: `SkillTelemetrySeamAdapter` (646 port), and in Phase
+  A still `SkillCandidateStore`/`SkillScorecardService` usage aggregates; no reader now derives a rate
+  from `succeeded` on new rows (batch 5 moves rates to `skill_task_grades`). `source` is the kind
+  discriminator (0056 adds no `subject_kind` to events).
+
+## Batch 5: Task-grade store + scorecard as sole rate source - COMPLETE (7df51a3f6)
 
 - Phase: A | Executor: CLI lane codex | Depends on: 1, 3 | Tasks: 1
 - Flags: WRITE-PATH (new `skill_task_grades` rows; table created in this batch's store bootstrap or in
@@ -296,7 +320,7 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/skill-synthesis --parallel=1`
 - Precondition: G1, the old rate sites, remain. The new store is additive.
 
-### Task 5.1: Add `skill-task-grade.store.ts`; the scorecard reads only it - PENDING
+### Task 5.1: Add `skill-task-grade.store.ts`; the scorecard reads only it - COMPLETE
 
 - Files: `SS/skill-task-grade.store.ts` (new) + spec, `SS/di/register.ts`, `SS/skill-scorecard.service.ts` + spec.
 - Plan reference: plan row 5; implementation-plan.md:29, 102-109.
@@ -305,6 +329,24 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
   are distinguished. Reads are indexed aggregates, with no per-render scan.
 - Validation notes: a corrected review replaces the earlier grade without double-counting it.
 - Implementation details: a grade projection keyed by task, subject kind and subject id.
+
+### Batch 5 verification notes
+
+- Verified on disk: `SS/skill-task-grade.store.ts` has a prepared UPSERT on the 0056 primary key
+  `(task_id, subject_kind, subject_slug, attribution_key)`, per-subject aggregates and `listRecent`
+  reading `INDEXED BY idx_skill_task_grades_subject`; `successRate` is NULL when `graded = 0`. Token
+  `SKILL_TASK_GRADE_STORE` in `SS/di/tokens.ts`, registered in `SS/di/register.ts`.
+  `SS/skill-scorecard.service.ts` injects it and takes every rate and verdict from it; usage and token
+  metrics still come from `SkillCandidateStore`.
+- No new migration: the table and index come from 0056 (batch 1), so the STOP condition did not apply.
+- Correction test present: `skill-task-grade.store.spec.ts:41-49` ("replaces a corrected review without
+  adding a denominator") upserts pass then fail for the same key and asserts `graded: 1, passed: 0`.
+  Subject isolation and NULL rate covered at :28-39.
+- Checks: skill-synthesis test + typecheck + lint PASS (orchestrator, both batches applied).
+- Write-path trace: writer `SkillTaskGradeStore.upsert` -> `skill_task_grades` (rows today only from
+  the 0056 historical backfill; no runtime caller yet, batch 6 wires the spec harvester). Runtime readers:
+  `SkillScorecardService` via `getAggregates` (scorecard and win rates) and `listRecent` (recent and
+  detail verdicts), each scoped by `(subject_kind, subject_slug)`.
 
 ## Batch 6: Review-derived grades in the spec harvester - PENDING
 
