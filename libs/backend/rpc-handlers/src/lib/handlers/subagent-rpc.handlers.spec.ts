@@ -48,7 +48,7 @@ import {
   type MockSentryService,
 } from '@ptah-extension/vscode-core/testing';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
-import type { SubagentCacheInfo, SubagentRecord } from '@ptah-extension/shared';
+import type { FlatStreamEventUnion, SubagentCacheInfo, SubagentHistoryPageResult, SubagentRecord } from '@ptah-extension/shared';
 import {
   createMockLogger,
   type MockLogger,
@@ -57,6 +57,7 @@ import {
 import type { SubagentMessageDispatcher } from '@ptah-extension/agent-sdk';
 import type { SessionHistoryReaderService } from '@ptah-extension/agent-sdk';
 import { SubagentRpcHandlers } from './subagent-rpc.handlers';
+import { historyCursor } from './subagent-history-page';
 
 // ---------------------------------------------------------------------------
 // Narrow mock surfaces — only what the handler actually touches.
@@ -227,6 +228,11 @@ describe('SubagentRpcHandlers', () => {
   });
 
   describe('subagent:history-page', () => {
+    const event = (id: string, delta = 'x'.repeat(650)): FlatStreamEventUnion => ({
+      eventType: 'text_delta', id, messageId: 'message', timestamp: 1, blockIndex: 0, delta,
+    });
+    const read = (events: FlatStreamEventUnion[]) => ({ status: 'ok', agentId: 'agent-1', events, truncated: false });
+
     it('reads a page and preserves status', async () => {
       const h = makeHarness();
       h.handlers.register();
@@ -253,8 +259,67 @@ describe('SubagentRpcHandlers', () => {
     it('rejects a malformed cursor before reading', async () => {
       const h = makeHarness();
       h.handlers.register();
-      await expect(call(h, 'subagent:history-page', { sessionId: 'session-1', toolCallId: 'tool-1', cursor: '../' })).rejects.toThrow();
+      for (const cursor of ['../', '1', 'v1.e2hhY2tlZCIsImJvZ3VzIl0']) {
+        const response = await h.rpcHandler.handleMessage({ method: 'subagent:history-page',
+          params: { sessionId: 'session-1', toolCallId: 'tool-1', cursor }, correlationId: 'malformed' });
+        expect(response).toMatchObject({ success: false, errorCode: 'INVALID_PARAMS' });
+      }
       expect(h.historyReader.readSubagentEvents).not.toHaveBeenCalled();
+    });
+
+    it('resumes after the same event when history grows between calls', async () => {
+      const h = makeHarness();
+      const first = event('first');
+      const second = event('second');
+      h.historyReader.readSubagentEvents.mockResolvedValueOnce(read([first, second]))
+        .mockResolvedValueOnce(read([first, second, event('appended')]));
+      h.handlers.register();
+      const params = { sessionId: 'session-1', toolCallId: 'tool-1', maxBytes: 1024 };
+      const page1 = await call<SubagentHistoryPageResult>(h, 'subagent:history-page', params);
+      expect(page1.nextCursor).toBe(historyCursor(first));
+      const page2 = await call<SubagentHistoryPageResult>(h, 'subagent:history-page', { ...params, cursor: page1.nextCursor });
+      expect(page2.events[0].id).toBe('second');
+    });
+
+    it('resumes after a stable anchor when a same-id continuation replaces a completion', async () => {
+      const h = makeHarness();
+      const first = event('first');
+      const completion = { eventType: 'message_complete', id: 'old-complete', messageId: 'message', timestamp: 2 } as const;
+      h.historyReader.readSubagentEvents.mockResolvedValueOnce(read([first, completion]))
+        .mockResolvedValueOnce(read([first, event('continuation'), { ...completion, id: 'new-complete' }]));
+      h.handlers.register();
+      const params = { sessionId: 'session-1', toolCallId: 'tool-1', maxBytes: 1024 };
+      const page1 = await call<SubagentHistoryPageResult>(h, 'subagent:history-page', params);
+      const page2 = await call<SubagentHistoryPageResult>(h, 'subagent:history-page', { ...params, cursor: page1.nextCursor });
+      expect(page2.events[0].id).toBe('continuation');
+    });
+
+    it('returns HISTORY_CURSOR_STALE when the anchor disappears', async () => {
+      const h = makeHarness();
+      h.historyReader.readSubagentEvents.mockResolvedValue(read([event('other')]));
+      h.handlers.register();
+      const response = await h.rpcHandler.handleMessage({ method: 'subagent:history-page',
+        params: { sessionId: 'session-1', toolCallId: 'tool-1', cursor: historyCursor(event('pruned')) },
+        correlationId: 'stale-anchor' });
+      expect(response).toMatchObject({ success: false, errorCode: 'HISTORY_CURSOR_STALE' });
+    });
+
+    it('returns not-found when the transcript is pruned between pages', async () => {
+      const h = makeHarness();
+      h.historyReader.readSubagentEvents.mockResolvedValue({ status: 'not-found', agentId: 'agent-1', events: [], truncated: false });
+      h.handlers.register();
+      const page = await call<SubagentHistoryPageResult>(h, 'subagent:history-page', {
+        sessionId: 'session-1', toolCallId: 'tool-1', cursor: historyCursor(event('first')) });
+      expect(page).toMatchObject({ status: 'not-found', events: [], done: true });
+    });
+
+    it('maps a reader validation error to INVALID_PARAMS', async () => {
+      const h = makeHarness();
+      h.historyReader.readSubagentEvents.mockRejectedValue(new Error('Invalid agent id'));
+      h.handlers.register();
+      const response = await h.rpcHandler.handleMessage({ method: 'subagent:history-page',
+        params: { sessionId: 'session-1', toolCallId: 'tool-1' }, correlationId: 'invalid-reader' });
+      expect(response).toMatchObject({ success: false, errorCode: 'INVALID_PARAMS' });
     });
   });
 

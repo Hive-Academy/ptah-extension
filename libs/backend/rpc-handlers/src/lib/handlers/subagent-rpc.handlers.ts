@@ -48,7 +48,7 @@ import {
 import type { RpcMethodName } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import type { SubagentMessageDispatcher, SessionHistoryReaderService } from '@ptah-extension/agent-sdk';
-import { assembleHistoryPage } from './subagent-history-page';
+import { assembleHistoryPage, parseHistoryCursor } from './subagent-history-page';
 import {
   SubagentQuerySchema,
   SubagentSendMessageSchema,
@@ -395,16 +395,22 @@ export class SubagentRpcHandlers {
         const parsed = SubagentHistoryPageSchema.safeParse(params);
         if (!parsed.success) throw new RpcUserError('Invalid agent history request', 'INVALID_PARAMS');
         const { sessionId, toolCallId, agentId, cursor, maxBytes } = parsed.data;
-        const start = cursor === undefined ? 0 : Number(cursor);
-        if (cursor !== undefined && (!/^(0|[1-9][0-9]*)$/.test(cursor) || !Number.isSafeInteger(start))) {
+        const anchor = cursor === undefined ? null : parseHistoryCursor(cursor);
+        if (cursor !== undefined && !anchor) {
           throw new RpcUserError('Invalid agent history cursor', 'INVALID_PARAMS');
         }
         try {
           const read = await this.historyReader.readSubagentEvents(sessionId, toolCallId, agentId);
-          if (start > read.events.length) throw new RpcUserError('Invalid agent history cursor', 'INVALID_PARAMS');
+          if (read.status !== 'ok') return assembleHistoryPage([], 0, read.status, read.agentId, read.truncated, maxBytes);
+          const position = anchor ? read.events.findIndex(event => event.id === anchor[0] && event.eventType === anchor[1]) : -1;
+          if (anchor && position < 0) throw new RpcUserError('Agent history cursor expired; restart from the first page', 'HISTORY_CURSOR_STALE');
+          const start = position + 1;
           return assembleHistoryPage(read.events, start, read.status, read.agentId, read.truncated, maxBytes);
         } catch (error: unknown) {
           if (error instanceof RpcUserError) throw error;
+          if (error instanceof Error && /^(Invalid agent id|Invalid tool call id|Invalid sessionId format:)/.test(error.message)) {
+            throw new RpcUserError('Invalid agent history request', 'INVALID_PARAMS');
+          }
           this.logger.error('RPC: subagent:history-page failed', {
             sessionId, agentId: agentId ?? null, reason: error instanceof Error ? error.name : 'unknown',
           });

@@ -97,7 +97,7 @@ export type SubagentTranscriptInput = z.infer<typeof SubagentTranscriptSchema>;
 const agentFileId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 
 export const SubagentHistoryPageSchema = z.object({
-  sessionId: z.string().min(1, 'sessionId is required'),
+  sessionId: z.string().regex(/^[A-Za-z0-9_-]+$/, 'Invalid sessionId format'),
   toolCallId: agentFileId,
   agentId: agentFileId.optional(),
   cursor: z.string().optional(),

@@ -5,6 +5,31 @@ export const MAX_RPC_RESPONSE_BYTES = 256 * 1024;
 export const HISTORY_PAGE_MAX_EVENTS = 2000;
 const encoder = new TextEncoder();
 const bytes = (value: unknown): number => encoder.encode(JSON.stringify(value)).length;
+const eventTypes = new Set<FlatStreamEventUnion['eventType']>([
+  'message_start', 'text_delta', 'thinking_start', 'thinking_delta', 'tool_start', 'tool_delta',
+  'tool_result', 'agent_start', 'message_complete', 'message_delta', 'signature_delta',
+  'compaction_start', 'compaction_complete', 'background_agent_started',
+  'background_agent_completed', 'background_agent_stopped', 'agent_progress', 'agent_status',
+  'agent_completed', 'turn_state',
+]);
+
+/** A versioned, canonical token for the last event delivered to the caller. */
+export function historyCursor(event: FlatStreamEventUnion): string {
+  return `v1.${Buffer.from(JSON.stringify([event.id, event.eventType]), 'utf8').toString('base64url')}`;
+}
+
+export function parseHistoryCursor(cursor: string): readonly [string, FlatStreamEventUnion['eventType']] | null {
+  if (!/^v1\.[A-Za-z0-9_-]{1,4096}$/.test(cursor)) return null;
+  try {
+    const payload: unknown = JSON.parse(Buffer.from(cursor.slice(3), 'base64url').toString('utf8'));
+    if (!Array.isArray(payload) || payload.length !== 2 || typeof payload[0] !== 'string' ||
+      payload[0].length === 0 || typeof payload[1] !== 'string' || !eventTypes.has(payload[1] as FlatStreamEventUnion['eventType'])) return null;
+    const identity = payload as [string, FlatStreamEventUnion['eventType']];
+    return historyCursor({ id: identity[0], eventType: identity[1] } as FlatStreamEventUnion) === cursor ? identity : null;
+  } catch {
+    return null;
+  }
+}
 
 function marker(omitted: number): string {
   return `… [${omitted} characters omitted]`;
@@ -93,13 +118,43 @@ export function clipHistoryEvent(event: FlatStreamEventUnion): { event: FlatStre
     else result = replacePath(result, path, marker(original.length));
     clipped = true;
   }
-  if (bytes(result) > MAX_HISTORY_EVENT_BYTES) throw new Error('Agent history event exceeds RPC budget');
+  if (bytes(result) > MAX_HISTORY_EVENT_BYTES) {
+    const common = { id: event.id, eventType: event.eventType, messageId: event.messageId,
+      timestamp: event.timestamp,
+      ...(event.sessionId !== undefined ? { sessionId: event.sessionId } : {}),
+      ...(event.parentToolUseId !== undefined ? { parentToolUseId: event.parentToolUseId } : {}),
+      ...(event.blockIndex !== undefined ? { blockIndex: event.blockIndex } : {}),
+      ...(event.toolCallId !== undefined ? { toolCallId: event.toolCallId } : {}) };
+    const notice = 'Content too large to display';
+    switch (event.eventType) {
+      case 'text_delta': case 'thinking_delta': case 'tool_delta':
+        result = { ...common, eventType: event.eventType, delta: notice } as FlatStreamEventUnion;
+        break;
+      case 'tool_start':
+        result = { ...common, eventType: 'tool_start', toolName: notice, isTaskTool: event.isTaskTool,
+          toolInput: { clipped: notice } } as FlatStreamEventUnion;
+        break;
+      case 'tool_result':
+        result = { ...common, eventType: 'tool_result', isError: event.isError, output: notice } as FlatStreamEventUnion;
+        break;
+      case 'message_start':
+        result = { ...common, eventType: 'message_start', role: event.role, inboundPeer: { label: notice } };
+        break;
+      case 'message_complete':
+        result = { ...common, eventType: 'message_complete', stopReason: notice };
+        break;
+      default:
+        result = { ...common, eventType: event.eventType, notice } as FlatStreamEventUnion;
+        break;
+    }
+    clipped = true;
+  }
   return { event: result, clipped };
 }
 
 export function historyPageBytes(result: SubagentHistoryPageResult, correlationId = 'x'.repeat(64)): number {
   return bytes({ success: true, data: { ...result, agentId: result.agentId?.padEnd(128, 'x') ?? null,
-    nextCursor: 'x'.repeat(32) }, correlationId: correlationId.padEnd(64, 'x') });
+    nextCursor: result.nextCursor?.padEnd(32, 'x') ?? 'x'.repeat(32) }, correlationId: correlationId.padEnd(64, 'x') });
 }
 
 /** Assemble a page using the full RPC envelope, including cursor and correlation reservations. */
@@ -109,7 +164,7 @@ export function assembleHistoryPage(
 ): SubagentHistoryPageResult {
   const rpcBytes = Math.min(maxBytes, MAX_RPC_RESPONSE_BYTES);
   const base = (events: FlatStreamEventUnion[], end: number, clippedEvents: number): SubagentHistoryPageResult => ({
-    status, agentId, events, nextCursor: end < source.length ? String(end) : null,
+    status, agentId, events, nextCursor: end < source.length && end > 0 ? historyCursor(source[end - 1]) : null,
     done: end >= source.length, truncated, clippedEvents,
   });
   const envelopeBytes = historyPageBytes(base([], start, 0));

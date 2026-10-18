@@ -1,5 +1,5 @@
 import type { FlatStreamEventUnion } from '@ptah-extension/shared';
-import { assembleHistoryPage, clipHistoryEvent, historyPageBytes, MAX_HISTORY_EVENT_BYTES, MAX_RPC_RESPONSE_BYTES } from './subagent-history-page';
+import { assembleHistoryPage, clipHistoryEvent, historyCursor, historyPageBytes, MAX_HISTORY_EVENT_BYTES, MAX_RPC_RESPONSE_BYTES } from './subagent-history-page';
 
 const encoder = new TextEncoder();
 const size = (value: unknown) => encoder.encode(JSON.stringify(value)).length;
@@ -27,7 +27,7 @@ describe('subagent history clipping and paging', () => {
     expect(size(clipped.event)).toBeLessThanOrEqual(MAX_HISTORY_EVENT_BYTES);
     const page = assembleHistoryPage([event, textEvent('next', 'two')], 0, 'ok', 'agent-1', false, 1024);
     expect(page.events).toHaveLength(1);
-    expect(page.nextCursor).toBe('1');
+    expect(page.nextCursor).toBe(historyCursor(event));
     expect(page.clippedEvents).toBe(1);
     expect(historyPageBytes(page)).toBeLessThanOrEqual(MAX_RPC_RESPONSE_BYTES);
     expect(assembleHistoryPage([event, textEvent('next', 'two')], 1, 'ok', 'agent-1', false, 1024).done).toBe(true);
@@ -46,6 +46,36 @@ describe('subagent history clipping and paging', () => {
     expect(page.nextCursor).not.toBeNull();
     expect(historyPageBytes(page, 'a'.repeat(36))).toBeLessThanOrEqual(MAX_RPC_RESPONSE_BYTES);
     expect(historyPageBytes(page, 'a'.repeat(64))).toBeLessThanOrEqual(MAX_RPC_RESPONSE_BYTES);
+  });
+
+  it('replaces an unclippable event with a visible placeholder of the same identity', () => {
+    const event = { ...textEvent('small'), numericPayload: Array.from({ length: 60_000 }, (_, index) => index) };
+    const clipped = clipHistoryEvent(event);
+    expect(clipped).toMatchObject({ clipped: true, event: {
+      eventType: 'text_delta', id: event.id, messageId: event.messageId,
+      delta: 'Content too large to display',
+    } });
+    expect(size(clipped.event)).toBeLessThanOrEqual(MAX_HISTORY_EVENT_BYTES);
+    expect(clipped.event).not.toHaveProperty('sessionId');
+    expect(clipped.event).not.toHaveProperty('parentToolUseId');
+    expect(clipped.event).not.toHaveProperty('toolCallId');
+    const later = textEvent('x'.repeat(4000), 'later');
+    const singlePage = { status: 'ok' as const, agentId: 'agent-1', events: [clipped.event],
+      nextCursor: historyCursor(event), done: false, truncated: false, clippedEvents: 1 };
+    const maxBytes = Math.max(1024, historyPageBytes(singlePage) + Math.floor(size(later) / 2));
+    expect(historyPageBytes({ ...singlePage, events: [clipped.event, later] })).toBeGreaterThan(maxBytes);
+    const page = assembleHistoryPage([event, later], 0, 'ok', 'agent-1', false, maxBytes);
+    expect(page.events).toHaveLength(1);
+    expect(page.events[0]).toEqual(clipped.event);
+    expect(page.nextCursor).toBe(historyCursor(event));
+  });
+
+  it('cuts back a page when the encoded anchor grows beyond the reservation', () => {
+    const events = [textEvent('a'.repeat(100), 'first'), textEvent('b', 'x'.repeat(310)), textEvent('c', 'third')];
+    const page = assembleHistoryPage(events, 0, 'ok', 'agent-1', false, 1024);
+    expect(page.events).toHaveLength(1);
+    expect(page.nextCursor).toBe(historyCursor(events[0]));
+    expect(historyPageBytes(page)).toBeLessThanOrEqual(1024);
   });
 
   it('returns distinct empty statuses and a terminal cursor', () => {
