@@ -1,19 +1,6 @@
 /**
- * EnhancePreviewDrawerComponent — review-before-write for "Enhance now".
- *
- * The old flow ran `skillSynthesis:enhanceNow`, which generated, judged AND
- * wrote in one shot; the user only learned what changed from a toast. This
- * drawer sits between: `skillSynthesis:previewEnhancement` produces a candidate
- * body plus the judge's score and reasoning, the diff is rendered with Monaco,
- * and nothing touches disk until Apply is pressed
- * (`skillSynthesis:applyProposal`).
- *
- * Purely presentational — the parent owns both RPC calls.
- *
- * `proposed === false` is a first-class state, not an error: the judge can
- * reject a candidate, in which case the reason is shown and the diff is still
- * rendered when both bodies are known, but Apply is unavailable because there
- * is no `proposalId` to commit.
+ * Review an enhancement draft and save its exact body on explicit user action.
+ * The source hash guards against overwriting a clone changed since preview.
  */
 import {
   ChangeDetectionStrategy,
@@ -68,15 +55,20 @@ import { LazyDiffViewComponent } from './lazy-diff-view.component';
               <span class="loading loading-spinner loading-sm"></span>
               Generating and judging a proposal — nothing is written yet.
             </div>
-          } @else if (error(); as message) {
+          } @else if (error() && !preview()) {
             <div
               role="alert"
               class="alert alert-error py-2 text-sm"
               data-testid="preview-error"
             >
-              <span>{{ message }}</span>
+              <span>{{ error() }}</span>
             </div>
           } @else if (preview(); as p) {
+            @if (error(); as saveMessage) {
+              <div role="alert" class="alert alert-error py-2 text-sm" data-testid="preview-save-error">
+                {{ saveMessage }}
+              </div>
+            }
             <div class="flex flex-wrap items-center gap-2">
               @if (p.proposed) {
                 <span
@@ -133,8 +125,8 @@ import { LazyDiffViewComponent } from './lazy-diff-view.component';
                 >
                   <ptah-lazy-diff-view
                     [label]="c.slug"
-                    [original]="p.currentBody ?? ''"
-                    [modified]="p.proposedBody ?? ''"
+                    [original]="p.draft?.before ?? p.currentBody ?? ''"
+                    [modified]="p.draft?.after ?? p.proposedBody ?? ''"
                   />
                 </div>
               </div>
@@ -156,7 +148,7 @@ import { LazyDiffViewComponent } from './lazy-diff-view.component';
           class="flex items-center justify-between gap-2 border-t border-base-300 px-4 py-3"
         >
           <span class="text-[11px] text-base-content-muted">
-            Nothing is written until you press Apply.
+            Nothing is written until you press Save.
           </span>
           <span class="flex items-center gap-2">
             <button
@@ -171,12 +163,12 @@ import { LazyDiffViewComponent } from './lazy-diff-view.component';
             <button
               type="button"
               class="btn btn-primary btn-sm"
-              data-testid="preview-apply-btn"
-              [disabled]="proposalId() === null || applying()"
-              [title]="applyTitle()"
-              (click)="onApply()"
+              data-testid="preview-save-btn"
+              [disabled]="!canSave() || applying()"
+              [title]="saveTitle()"
+              (click)="onSave()"
             >
-              {{ applying() ? 'Applying…' : 'Apply' }}
+              {{ applying() ? 'Saving...' : 'Save' }}
             </button>
           </span>
         </div>
@@ -193,13 +185,13 @@ export class EnhancePreviewDrawerComponent {
   public readonly applying = input<boolean>(false);
   public readonly error = input<string | null>(null);
 
-  /** Emits the proposal id to commit. */
-  public readonly apply = output<string>();
+  /** The reviewed body and its source revision; the parent performs the save. */
+  public readonly save = output<{ body: string; expectedSourceHash: string }>();
   /** Close without writing anything. */
   public readonly discard = output<void>();
 
-  protected readonly proposalId = computed(
-    () => this.preview()?.proposalId ?? null,
+  protected readonly canSave = computed(() =>
+    this.preview()?.proposed === true && this.preview()?.draft != null,
   );
 
   protected readonly drawerLabel = computed(() => {
@@ -217,21 +209,22 @@ export class EnhancePreviewDrawerComponent {
     const p = this.preview();
     if (!p) return false;
     return (
-      typeof p.currentBody === 'string' &&
-      typeof p.proposedBody === 'string' &&
-      p.proposedBody.length > 0
+      typeof (p.draft?.before ?? p.currentBody) === 'string' &&
+      typeof (p.draft?.after ?? p.proposedBody) === 'string' &&
+      (p.draft?.after ?? p.proposedBody ?? '').length > 0
     );
   });
 
-  protected readonly applyTitle = computed(() =>
-    this.proposalId() === null
-      ? 'No applicable proposal — nothing to write.'
+  protected readonly saveTitle = computed(() =>
+    !this.canSave()
+      ? 'No draft to save.'
       : 'Write the proposed body and snapshot the current one to history.',
   );
 
-  protected onApply(): void {
-    const id = this.proposalId();
-    if (id === null) return;
-    this.apply.emit(id);
+  protected onSave(): void {
+    const preview = this.preview();
+    const draft = preview?.draft;
+    if (!preview?.proposed || !draft || this.applying()) return;
+    this.save.emit({ body: draft.after, expectedSourceHash: draft.sourceHash });
   }
 }

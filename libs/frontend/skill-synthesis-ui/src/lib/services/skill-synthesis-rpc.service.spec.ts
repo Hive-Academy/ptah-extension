@@ -541,9 +541,39 @@ describe('SkillSynthesisRpcService', () => {
     expect(rpcCall).toHaveBeenCalledWith(
       'skillSynthesis:getAgentModels',
       {},
-      expect.objectContaining({ timeout: expect.any(Number) }),
+      { timeout: 20_000 },
     );
     expect(result).toBe(payload);
+  });
+
+  it('accepts a model list that arrives after ten seconds', async () => {
+    jest.useFakeTimers();
+    try {
+      const payload = { workspaceRoot: '/ws', machine: null, workspace: null };
+      rpcCall.mockImplementation(() => new Promise((resolve) => {
+        setTimeout(() => resolve(okResult(payload)), 15_500);
+      }));
+      const pending = service.getAgentModels();
+      await jest.advanceTimersByTimeAsync(15_500);
+      await expect(pending).resolves.toBe(payload);
+      expect(rpcCall).toHaveBeenCalledWith(
+        'skillSynthesis:getAgentModels', {}, { timeout: 20_000 },
+      );
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('passes a draft source hash to the explicit clone save', async () => {
+    const payload = { kind: 'agent', slug: 'reviewer', historyTs: 'saved' };
+    rpcCall.mockResolvedValue(okResult(payload));
+    await expect(service.saveCloneBody('agent', 'reviewer', 'new body', 'sha256:abc'))
+      .resolves.toBe(payload);
+    expect(rpcCall).toHaveBeenCalledWith(
+      'skillSynthesis:saveCloneBody',
+      { kind: 'agent', slug: 'reviewer', body: 'new body', expectedSourceHash: 'sha256:abc' },
+      { timeout: 20_000 },
+    );
   });
 
   it('getAgentModels() throws the RPC error', async () => {
@@ -571,7 +601,7 @@ describe('SkillSynthesisRpcService', () => {
     expect(rpcCall).toHaveBeenCalledWith(
       'skillSynthesis:setAgentModel',
       params,
-      expect.objectContaining({ timeout: expect.any(Number) }),
+      { timeout: 20_000 },
     );
     expect(outcome).toEqual({ ok: true, result: data });
   });

@@ -10,6 +10,8 @@ import type {
   HarnessTargetHealth,
   SkillSynthesisGetScorecardDetailResult,
   SkillSynthesisListQuarantinedAgentsResult,
+  SkillSynthesisPreviewEnhancementResult,
+  SkillSynthesisRebaseCloneResult,
   SkillSynthesisSaveCloneBodyResult,
 } from '@ptah-extension/shared';
 
@@ -143,7 +145,7 @@ function saveResult(
 
 function makeRpcStub() {
   return {
-    previewEnhancement: jest.fn(async () => ({
+    previewEnhancement: jest.fn(async (): Promise<SkillSynthesisPreviewEnhancementResult> => ({
       proposed: true,
       skipReason: null,
       currentBody: '# before',
@@ -151,6 +153,14 @@ function makeRpcStub() {
       judgeScore: 8,
       judgeReason: 'Tighter trigger phrasing.',
       proposalId: 'prop-1',
+      draft: {
+        before: '# before',
+        after: '# after',
+        diff: 'diff',
+        evidence: { trajectory: '', findings: '', scorecard: '' },
+        model: 'test',
+        sourceHash: `sha256:${'a'.repeat(64)}`,
+      },
     })),
     applyProposal: jest.fn(async () => ({
       applied: true,
@@ -166,7 +176,7 @@ function makeRpcStub() {
       revertedFrom: '20260101T000000',
       newHistoryTs: '20260102T000000',
     })),
-    rebaseClone: jest.fn(async () => ({
+    rebaseClone: jest.fn(async (_kind: string, _slug: string): Promise<SkillSynthesisRebaseCloneResult> => ({
       kind: 'skill' as const,
       slug: 'deep-research',
       sourceHash: 'sha256:abc',
@@ -558,6 +568,7 @@ describe('SkillClonesViewComponent — enhancement preview', () => {
       'deep-research',
     );
     expect(rpc.applyProposal).not.toHaveBeenCalled();
+    expect(rpc.saveCloneBody).not.toHaveBeenCalled();
     expect(q('preview-judge-score')?.textContent).toContain('8');
     expect(q('preview-judge-reason')?.textContent).toContain(
       'Tighter trigger phrasing.',
@@ -565,21 +576,41 @@ describe('SkillClonesViewComponent — enhancement preview', () => {
     expect(q('preview-diff')).toBeTruthy();
   });
 
-  it('applies only on Apply, then refreshes the list', async () => {
+  it('saves only on Save with the draft source hash, then refreshes the list', async () => {
     const state = makeStateStub([clone()]);
     const rpc = makeRpcStub();
     const { click, q } = setup({ state, rpc });
 
     await click('clones-enhance-btn');
-    await click('preview-apply-btn');
+    await click('preview-save-btn');
 
-    expect(rpc.applyProposal).toHaveBeenCalledWith(
+    expect(rpc.saveCloneBody).toHaveBeenCalledWith(
       'skill',
       'deep-research',
-      'prop-1',
+      '# after',
+      `sha256:${'a'.repeat(64)}`,
     );
+    expect(rpc.applyProposal).not.toHaveBeenCalled();
     expect(state.refreshClones).toHaveBeenCalledTimes(2);
-    expect(q('preview-apply-btn')).toBeNull();
+    expect(q('preview-save-btn')).toBeNull();
+  });
+
+  it('keeps the reviewed draft open and shows a stale refusal', async () => {
+    const state = makeStateStub([clone()]);
+    const rpc = makeRpcStub();
+    rpc.saveCloneBody.mockRejectedValueOnce(
+      new Error('This clone changed since the draft was created. Preview it again before saving.'),
+    );
+    const { click, q } = setup({ state, rpc });
+
+    await click('clones-enhance-btn');
+    await click('preview-save-btn');
+
+    expect(q('preview-save-error')?.textContent).toContain('Preview it again');
+    expect(q('preview-diff')).toBeTruthy();
+    expect(q('preview-save-btn')).toBeTruthy();
+    expect(state.refreshClones).toHaveBeenCalledTimes(1);
+    expect(rpc.applyProposal).not.toHaveBeenCalled();
   });
 
   it('discards without writing anything', async () => {
@@ -590,11 +621,11 @@ describe('SkillClonesViewComponent — enhancement preview', () => {
     await click('clones-enhance-btn');
     await click('preview-discard-btn');
 
-    expect(rpc.applyProposal).not.toHaveBeenCalled();
-    expect(q('preview-apply-btn')).toBeNull();
+    expect(rpc.saveCloneBody).not.toHaveBeenCalled();
+    expect(q('preview-save-btn')).toBeNull();
   });
 
-  it('disables Apply and surfaces the reason when nothing was proposed', async () => {
+  it('disables Save and surfaces the reason when nothing was proposed', async () => {
     const state = makeStateStub([clone()]);
     const rpc = makeRpcStub();
     rpc.previewEnhancement.mockResolvedValueOnce({
@@ -610,7 +641,7 @@ describe('SkillClonesViewComponent — enhancement preview', () => {
 
     await click('clones-enhance-btn');
 
-    expect(q<HTMLButtonElement>('preview-apply-btn')?.disabled).toBe(true);
+    expect(q<HTMLButtonElement>('preview-save-btn')?.disabled).toBe(true);
     expect(q('preview-skip-reason')?.textContent).toContain(
       'below the acceptance threshold',
     );
@@ -942,11 +973,11 @@ describe('SkillClonesViewComponent — bulk rebase', () => {
   it('locks every control that could start a conflicting write while running', async () => {
     const state = makeStateStub(bulkFixture());
     const rpc = makeRpcStub();
-    let release: (() => void) | null = null;
+    const gate: { release?: () => void } = {};
     rpc.rebaseClone.mockImplementation(
       () =>
         new Promise((resolve) => {
-          release = () =>
+          gate.release = () =>
             resolve({
               kind: 'skill' as const,
               slug: 'alpha',
@@ -967,7 +998,7 @@ describe('SkillClonesViewComponent — bulk rebase', () => {
     expect(q<HTMLButtonElement>('clones-refresh')?.disabled).toBe(true);
     expect(q('clones-bulk-rebase-btn')?.textContent).toContain('Rebasing 1 of');
 
-    release?.();
+    gate.release?.();
     await fixture.whenStable();
     fixture.detectChanges();
   });

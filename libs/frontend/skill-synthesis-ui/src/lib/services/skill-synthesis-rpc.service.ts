@@ -108,6 +108,9 @@ const SKILL_RPC_TIMEOUTS = {
   SHORT_MS: 8_000,
   PROMOTE_MS: 20_000,
   SETTINGS_MS: 8_000,
+  // getAgentModels/setAgentModel may await the server's 15 s model-list budget
+  // (skills-synthesis-rpc.handlers.ts); leave 5 s for transport and saving.
+  AGENT_MODELS_MS: 20_000,
   CURATOR_MS: 90_000,
   ENHANCE_MS: 90_000,
   DIGEST_MS: 20_000,
@@ -569,10 +572,11 @@ export class SkillSynthesisRpcService {
     kind: SkillCloneKind,
     slug: string,
     body: string,
+    expectedSourceHash?: string,
   ): Promise<SkillSynthesisSaveCloneBodyResult> {
     const result = await this.rpcService.call(
       'skillSynthesis:saveCloneBody',
-      { kind, slug, body },
+      { kind, slug, body, ...(expectedSourceHash ? { expectedSourceHash } : {}) },
       { timeout: SKILL_RPC_TIMEOUTS.PROMOTE_MS },
     );
     if (result.isSuccess() && result.data) {
@@ -711,7 +715,7 @@ export class SkillSynthesisRpcService {
     const result = await this.rpcService.call(
       'skillSynthesis:getAgentModels',
       {},
-      { timeout: SKILL_RPC_TIMEOUTS.LIST_MS },
+      { timeout: SKILL_RPC_TIMEOUTS.AGENT_MODELS_MS },
     );
     if (result.isSuccess() && result.data) {
       return result.data;
@@ -726,7 +730,7 @@ export class SkillSynthesisRpcService {
     const result = await this.rpcService.call(
       'skillSynthesis:setAgentModel',
       params,
-      { timeout: SKILL_RPC_TIMEOUTS.SETTINGS_MS },
+      { timeout: SKILL_RPC_TIMEOUTS.AGENT_MODELS_MS },
     );
     if (result.isSuccess() && result.data) {
       return { ok: true, result: result.data };
