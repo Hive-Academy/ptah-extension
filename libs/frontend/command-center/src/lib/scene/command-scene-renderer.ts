@@ -548,6 +548,29 @@ export class CommandSceneRenderer {
     );
     context.stroke();
     context.setLineDash([]);
+    if (state === 'running' && node.node.startedAt !== undefined) {
+      const elapsed = Math.min(
+        1,
+        Math.max(
+          0,
+          Math.max(0, performance.timeOrigin + time - node.node.startedAt) /
+            300_000,
+        ),
+      );
+      if (elapsed > 0) {
+        context.strokeStyle = snapshot.inks.run;
+        context.lineWidth = 1.5;
+        context.beginPath();
+        context.arc(
+          node.x,
+          node.y,
+          node.radius + 10,
+          -Math.PI / 2,
+          -Math.PI / 2 + Math.PI * 2 * elapsed,
+        );
+        context.stroke();
+      }
+    }
     if (state === 'awaiting input') {
       context.fillStyle = snapshot.inks.need;
       context.beginPath();

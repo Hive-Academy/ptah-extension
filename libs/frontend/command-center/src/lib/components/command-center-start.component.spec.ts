@@ -1,5 +1,8 @@
 import { TestBed } from '@angular/core/testing';
-import type { ChatSessionSummary } from '@ptah-extension/shared';
+import type {
+  ChatSessionSummary,
+  SessionStatsEntry,
+} from '@ptah-extension/shared';
 import { SessionId } from '@ptah-extension/shared';
 import { CommandCenterStartComponent } from './command-center-start.component';
 
@@ -97,12 +100,12 @@ describe('CommandCenterStartComponent', () => {
     expect(firstBars).toHaveLength(6);
     expect(
       [...firstBars].filter(
-        (bar: HTMLElement) => bar.dataset.active === 'true',
+        (bar: HTMLElement) => bar.dataset['active'] === 'true',
       ),
     ).toHaveLength(6);
     expect(
       [...secondBars].filter(
-        (bar: HTMLElement) => bar.dataset.active === 'true',
+        (bar: HTMLElement) => bar.dataset['active'] === 'true',
       ),
     ).toHaveLength(5);
     expect(cards[1].textContent).toContain('Updated 3m ago');
@@ -159,6 +162,47 @@ describe('CommandCenterStartComponent', () => {
     expect(fixture.nativeElement.querySelectorAll('.grid button')).toHaveLength(
       4,
     );
+  });
+
+  it('shows only the current row live figures and keeps unknown values unavailable', () => {
+    const fixture = render();
+    fixture.componentRef.setInput('currentTabId', 'tab');
+    fixture.componentRef.setInput('currentSessionId', sessions[0].id);
+    fixture.detectChanges();
+    const current = (
+      fixture.nativeElement.querySelector('.badge-primary') as HTMLElement
+    ).closest('button') as HTMLButtonElement;
+    expect(current.querySelector('[data-testid="current-figures"]')).toBeNull();
+    fixture.componentRef.setInput('currentStats', {
+      sessionId: 'current',
+      model: null,
+      totalCost: 0.2,
+      tokens: { input: 10, output: 2, cacheRead: 0, cacheCreation: 0 },
+      tokenCount: 12,
+      messageCount: 3,
+      status: 'ok',
+      provisional: true,
+    } satisfies SessionStatsEntry);
+    fixture.detectChanges();
+    expect(
+      current.querySelector('[data-testid="current-figures"]')?.textContent,
+    ).toContain('~$0.20');
+    expect(
+      current.querySelector('[data-testid="current-figures"]')?.textContent,
+    ).toContain('~12');
+    expect(
+      fixture.nativeElement.querySelector('.grid')?.textContent,
+    ).not.toContain('$0.20');
+    fixture.componentRef.setInput('currentStats', {
+      sessionId: 'current',
+      model: null,
+      totalCost: null,
+      tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 },
+      messageCount: 0,
+      status: 'ok',
+    } satisfies SessionStatsEntry);
+    fixture.detectChanges();
+    expect(current.querySelector('[data-testid="current-figures"]')).toBeNull();
   });
 
   it('shows loading, empty, and error states with Retry', () => {

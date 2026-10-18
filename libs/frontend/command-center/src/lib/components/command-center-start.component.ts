@@ -5,7 +5,15 @@ import {
   input,
   output,
 } from '@angular/core';
-import type { ChatSessionSummary } from '@ptah-extension/shared';
+import {
+  formatCost,
+  formatTokens,
+  knownSubtotalOf,
+} from '@ptah-extension/chat-ui';
+import type {
+  ChatSessionSummary,
+  SessionStatsEntry,
+} from '@ptah-extension/shared';
 import {
   MonogramTileComponent,
   ProviderMarkComponent,
@@ -73,9 +81,20 @@ import { relativeTime } from './command-relative-time';
             (click)="current.emit()"
           >
             <span class="badge badge-primary">Current</span>
-            <span class="min-w-0 flex-1 truncate font-semibold">{{
-              currentSession()?.name || 'Command Center'
-            }}</span>
+            <span class="min-w-0 flex-1">
+              <span class="block truncate font-semibold">{{
+                currentSession()?.name || 'Command Center'
+              }}</span>
+              @if (hasCurrentFigures()) {
+                <span
+                  class="mt-1 block text-xs text-base-content-muted"
+                  data-testid="current-figures"
+                >
+                  Cost <strong>{{ currentCost() }}</strong> · Tokens
+                  <strong>{{ currentTokens() }}</strong>
+                </span>
+              }
+            </span>
             @if (
               currentSessionId() && currentSessionId() === recordedSessionId()
             ) {
@@ -180,6 +199,7 @@ export class CommandCenterStartComponent {
   public readonly expanded = input(false);
   public readonly choosing = input(false);
   public readonly currentTabId = input<string | null>(null);
+  public readonly currentStats = input<SessionStatsEntry | null>(null);
   public readonly currentSessionId = input<string | null>(null);
   public readonly now = input.required<number>();
   public readonly recordedSessionId = input<string | null>(null);
@@ -191,6 +211,29 @@ export class CommandCenterStartComponent {
   public readonly currentSession = computed(() =>
     this.sessions().find((session) => session.id === this.currentSessionId()),
   );
+  public readonly hasCurrentFigures = computed(() => {
+    const snapshot = this.currentStats();
+    return (
+      (typeof snapshot?.totalCost === 'number' &&
+        Number.isFinite(snapshot.totalCost)) ||
+      knownSubtotalOf(snapshot) !== null ||
+      (typeof snapshot?.tokenCount === 'number' &&
+        Number.isFinite(snapshot.tokenCount))
+    );
+  });
+  public readonly currentCost = computed(() => {
+    const snapshot = this.currentStats();
+    const subtotal = knownSubtotalOf(snapshot);
+    const value = snapshot?.totalCost ?? subtotal?.value ?? null;
+    return `${snapshot?.provisional && value !== null ? '~' : ''}${formatCost(value)}${subtotal ? ' known subtotal' : ''}`;
+  });
+  public readonly currentTokens = computed(() => {
+    const snapshot = this.currentStats();
+    const value = snapshot?.tokenCount;
+    return typeof value === 'number' && Number.isFinite(value)
+      ? `${snapshot?.provisional ? '~' : ''}${formatTokens(value)}`
+      : '—';
+  });
   public readonly visibleSessions = computed(() => {
     const others = this.sessions().filter(
       (session) => session.id !== this.currentSessionId(),

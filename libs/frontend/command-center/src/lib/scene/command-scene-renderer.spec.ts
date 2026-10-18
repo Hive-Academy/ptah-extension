@@ -378,6 +378,66 @@ describe('CommandSceneRenderer', () => {
     renderer.destroy();
   });
 
+  it('draws a static elapsed arc for a timed running lane and clamps it at five minutes', () => {
+    const frameTime = 1_000;
+    const epochTime = performance.timeOrigin + frameTime;
+    const timed = (state: CommandWorkNode['state'], startedAt?: number) => {
+      const data = snapshot(state);
+      return {
+        ...data,
+        reducedMotion: true,
+        layout: {
+          ...data.layout,
+          nodes: data.layout.nodes.map((node, index) =>
+            index === 1
+              ? {
+                  ...node,
+                  node: { ...node.node, kind: 'lane' as const, startedAt },
+                }
+              : node,
+          ),
+        },
+      };
+    };
+    renderer.setSnapshot(timed('running', epochTime - 150_000));
+    callback(frameTime);
+    expect(context.arc).toHaveBeenCalledWith(
+      210,
+      120,
+      30,
+      -Math.PI / 2,
+      Math.PI / 2,
+    );
+    expect(frame).toHaveBeenCalledTimes(1);
+
+    context.arc.mockClear();
+    renderer.setSnapshot(timed('running', epochTime - 600_000));
+    callback(frameTime);
+    expect(context.arc).toHaveBeenCalledWith(
+      210,
+      120,
+      30,
+      -Math.PI / 2,
+      -Math.PI / 2 + Math.PI * 2,
+    );
+    expect(frame).toHaveBeenCalledTimes(2);
+
+    context.arc.mockClear();
+    renderer.setSnapshot(timed('running', epochTime + 10_000));
+    callback(frameTime);
+    expect(context.arc.mock.calls.some((call) => call[2] === 30)).toBe(false);
+    context.arc.mockClear();
+    renderer.setSnapshot(timed('completed', epochTime - 150_000));
+    callback(frameTime);
+    expect(context.arc.mock.calls.some((call) => call[2] === 30)).toBe(false);
+    context.arc.mockClear();
+    renderer.setSnapshot(timed('running'));
+    callback(frameTime);
+    expect(context.arc.mock.calls.some((call) => call[2] === 30)).toBe(false);
+    expect(frame).toHaveBeenCalledTimes(5);
+    renderer.destroy();
+  });
+
   it('uses resolved inks for status arcs, glyphs, and the voice ring', () => {
     const strokes: string[] = [];
     const fills: string[] = [];

@@ -27,10 +27,12 @@ export interface OwnedAgent {
   readonly displayName?: string;
   readonly task?: string;
   readonly runId?: string;
+  readonly startedAt?: number;
   readonly updatedAt?: number;
 }
 /** Keep scene plates legible; the full task remains available at its source. */
 export const WORK_LABEL_MAX_LENGTH = 28;
+const START_CLOCK_SKEW_MS = 30_000;
 
 function agentLabel(agent: OwnedAgent): string {
   const provider = agent.providerId?.trim();
@@ -51,10 +53,12 @@ export interface OwnedRun {
   readonly runId: string;
   readonly rootSessionId: string;
   readonly phase: PhaseDerivationInput;
+  readonly laneStartedAt?: ReadonlyMap<string, number>;
   readonly state: CommandWorkState;
   readonly updatedAt?: number;
 }
 export interface ProjectionInput {
+  readonly now?: number;
   readonly rootTabId: string;
   readonly rootSessionId: string;
   readonly rootTabStatus?: string;
@@ -87,6 +91,20 @@ export function rootWorkState(
 
 /** The only ownership source is the root's recursive session ancestry. */
 export function projectOwnedWork(input: ProjectionInput): ProjectionResult {
+  const now = input.now ?? Date.now();
+  const validStart = (startedAt: number | undefined): number | undefined =>
+    startedAt !== undefined &&
+    Number.isFinite(startedAt) &&
+    startedAt > 0 &&
+    startedAt <= now + START_CLOCK_SKEW_MS
+      ? startedAt
+      : undefined;
+  const startField = (
+    startedAt: number | undefined,
+  ): { startedAt?: number } => {
+    const valid = validStart(startedAt);
+    return valid === undefined ? {} : { startedAt: valid };
+  };
   const rootId = `root:${input.rootTabId}`;
   const nodes: CommandWorkNode[] = [
     {
@@ -187,7 +205,8 @@ export function projectOwnedWork(input: ProjectionInput): ProjectionResult {
       updatedAt: run.updatedAt,
     });
     for (const lane of run.phase.laneBindings.lanes) {
-      const status = run.phase.laneBindings.bound.get(lane.laneId)?.status;
+      const boundAgent = run.phase.laneBindings.bound.get(lane.laneId);
+      const status = boundAgent?.status;
       const state: CommandWorkState = status
         ? workStateForStatus(status)
         : 'queued';
@@ -200,6 +219,9 @@ export function projectOwnedWork(input: ProjectionInput): ProjectionResult {
           : lane.displayName,
         providerId: lane.cli,
         state,
+        ...startField(
+          boundAgent ? run.laneStartedAt?.get(lane.laneId) : undefined,
+        ),
       });
     }
     const phase = derivePhase(run.phase);
@@ -263,6 +285,7 @@ export function projectOwnedWork(input: ProjectionInput): ProjectionResult {
       label: agentLabel(agent),
       providerId: agent.providerId ?? null,
       state: agent.state,
+      ...startField(agent.startedAt),
       updatedAt: agent.updatedAt,
       task: agent.task,
     });

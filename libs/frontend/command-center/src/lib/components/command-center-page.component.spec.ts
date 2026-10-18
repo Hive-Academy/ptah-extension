@@ -14,6 +14,7 @@ import { CommandOverlayComponent } from './command-overlay.component';
 import { CommandPendingInputComponent } from './command-pending-input.component';
 import { CommandSessionControlsComponent } from './command-session-controls.component';
 import { CommandCenterStartComponent } from './command-center-start.component';
+import { CommandVoiceHudComponent } from './command-voice-hud.component';
 import { CommandWorkListComponent } from './command-work-list.component';
 import { CommandCenterPageComponent } from './command-center-page.component';
 import { CommandCenterPageController } from './command-center-page.controller';
@@ -124,7 +125,7 @@ describe('CommandCenterPageComponent', () => {
       listStatus: signal('ready'),
       showAll: signal(false),
       choosing: signal(false),
-      currentTabId: signal(null),
+      currentTabId: signal<string | null>(null),
       currentSessionId: signal(null),
       recordedSessionId: signal(null),
       chooseSession: jest.fn(),
@@ -152,6 +153,7 @@ describe('CommandCenterPageComponent', () => {
     jest.clearAllMocks();
     store.setSession('root-tab', null, '/workspace');
     tabs.set([]);
+    controller.coordinator.currentTabId.set(null);
     projection.set({ nodes, edges: [] });
     controller.sendCommand.mockResolvedValue(true);
     hoveredNodeId.set(null);
@@ -330,6 +332,50 @@ describe('CommandCenterPageComponent', () => {
     now.set(31_000);
     fixture.detectChanges();
     expect(start.now()).toBe(31_000);
+    fixture.destroy();
+  });
+
+  it('passes the current tab snapshot to the start row without borrowing another tab', () => {
+    store.setSession(null, null, '/workspace');
+    tabs.set([{ id: 'other-tab', sessionStats: stats }, { id: 'current-tab' }]);
+    controller.coordinator.currentTabId.set('current-tab');
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const start = fixture.debugElement.query(
+      By.directive(CommandCenterStartComponent),
+    ).componentInstance as CommandCenterStartComponent;
+    expect(start.currentStats()).toBeNull();
+    tabs.set([
+      { id: 'other-tab', sessionStats: stats },
+      {
+        id: 'current-tab',
+        sessionStats: { ...stats, sessionId: 'current', totalCost: 0.4 },
+      },
+    ]);
+    fixture.detectChanges();
+    expect(start.currentStats()?.sessionId).toBe('current');
+    expect(start.currentStats()?.totalCost).toBe(0.4);
+    controller.coordinator.currentTabId.set(null);
+    fixture.detectChanges();
+    expect(start.currentStats()).toBeNull();
+    fixture.destroy();
+  });
+
+  it('passes the existing output level signal to the voice HUD', () => {
+    store.setVoiceState('speaking');
+    store.resetLevels();
+    store.updateLevels(0, 0.7);
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const hud = fixture.debugElement.query(
+      By.directive(CommandVoiceHudComponent),
+    ).componentInstance as CommandVoiceHudComponent;
+    expect(hud.outputLevel()).toBe(0.7);
+    expect(
+      fixture.nativeElement
+        .querySelector('[role="meter"][aria-label="Speaker"]')
+        ?.getAttribute('aria-valuenow'),
+    ).toBe('70');
     fixture.destroy();
   });
 

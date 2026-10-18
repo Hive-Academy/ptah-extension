@@ -60,4 +60,27 @@ describe('CommandNodeDetailComponent', () => {
     expect(text).not.toContain('0 messages');
     expect(text).not.toContain('0.012345678');
   });
+
+  it('shows elapsed time from the shared clock only for a running timed node', () => {
+    TestBed.configureTestingModule({ imports: [CommandNodeDetailComponent] });
+    const fixture = TestBed.createComponent(CommandNodeDetailComponent);
+    fixture.componentRef.setInput('node', { ...node, startedAt: 850_000 });
+    fixture.componentRef.setInput('now', 1_000_000);
+    fixture.detectChanges();
+    const text = () => (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text()).toContain('Running for 2m 30s');
+    fixture.componentRef.setInput('now', 1_030_000);
+    fixture.detectChanges();
+    expect(text()).toContain('Running for 3m 0s');
+    fixture.componentRef.setInput('node', { ...node, startedAt: 1_040_000 });
+    fixture.detectChanges();
+    expect(text()).toContain('Running for 0ms');
+    fixture.componentRef.setInput('node', {
+      ...node,
+      state: 'completed',
+      startedAt: 850_000,
+    });
+    fixture.detectChanges();
+    expect(text()).not.toContain('Running for');
+  });
 });

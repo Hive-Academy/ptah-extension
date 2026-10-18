@@ -264,6 +264,7 @@ import { CommandSessionStatsComponent } from './command-session-stats.component'
         [expanded]="page.coordinator.showAll()"
         [choosing]="page.coordinator.choosing()"
         [currentTabId]="page.coordinator.currentTabId()"
+        [currentStats]="currentStats()"
         [currentSessionId]="page.coordinator.currentSessionId()"
         [recordedSessionId]="page.coordinator.recordedSessionId()"
         (selected)="page.coordinator.chooseSession($event)"
@@ -371,6 +372,7 @@ import { CommandSessionStatsComponent } from './command-session-stats.component'
             [muted]="page.store.muted()"
             [voiceError]="page.store.voiceError()"
             [inputLevel]="page.store.inputLevel()"
+            [outputLevel]="page.store.outputLevel()"
             [turnAbortable]="page.turnAbortable()"
             (start)="page.startVoice()"
             (stop)="page.stopVoice()"
@@ -448,6 +450,13 @@ import { CommandSessionStatsComponent } from './command-session-stats.component'
 })
 export class CommandCenterPageComponent {
   public readonly page = inject(CommandCenterPageController);
+  public readonly currentStats = computed(
+    () =>
+      this.page.tabs
+        .tabs()
+        .find((tab) => tab.id === this.page.coordinator.currentTabId())
+        ?.sessionStats ?? null,
+  );
   public readonly rootStats = computed(
     () =>
       this.page.tabs

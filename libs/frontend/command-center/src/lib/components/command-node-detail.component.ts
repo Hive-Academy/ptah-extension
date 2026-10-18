@@ -4,7 +4,11 @@ import {
   computed,
   input,
 } from '@angular/core';
-import { formatCost, formatTokens } from '@ptah-extension/chat-ui';
+import {
+  formatCost,
+  formatDuration,
+  formatTokens,
+} from '@ptah-extension/chat-ui';
 import {
   MonogramTileComponent,
   ProviderMarkComponent,
@@ -85,6 +89,11 @@ export interface CommandChildStats {
           />
           {{ node().state }}
         </p>
+        @if (runningDuration(); as duration) {
+          <p class="text-xs text-base-content-muted">
+            Running for {{ duration }}
+          </p>
+        }
         @if (phaseCount(); as phase) {
           <p class="text-xs text-base-content-muted">
             Phase {{ phase.done }} / {{ phase.total }}
@@ -138,6 +147,12 @@ export class CommandNodeDetailComponent {
   public readonly stateColor = stateColor;
   public readonly formatCost = formatCost;
   public readonly formatTokens = formatTokens;
+  public readonly runningDuration = computed(() => {
+    const node = this.node();
+    return node.state === 'running' && node.startedAt !== undefined
+      ? formatDuration(Math.max(0, this.now() - node.startedAt))
+      : null;
+  });
   public readonly knownProvider = computed(() => {
     const id = this.node().providerId;
     return (

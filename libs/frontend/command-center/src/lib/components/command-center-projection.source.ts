@@ -40,14 +40,18 @@ function cliProvider(
 }
 
 function tabProvider(tab: TabState | undefined): string | undefined {
-  const liveProvider = provider(tab?.liveModelStats?.contextCapacity?.providerId);
+  const liveProvider = provider(
+    tab?.liveModelStats?.contextCapacity?.providerId,
+  );
   if (liveProvider) return liveProvider;
   const model =
     tab?.liveModelStats?.model || tab?.sessionModel || tab?.overrideModel;
   const usage = tab?.sessionStats?.modelUsageList?.find(
     (row) => row.model === model,
   );
-  return provider(usage?.contextCapacity?.providerId) ?? provider(tab?.providerId);
+  return (
+    provider(usage?.contextCapacity?.providerId) ?? provider(tab?.providerId)
+  );
 }
 
 const RUN_LAUNCH_WINDOW_MS = 2 * 60 * 1000;
@@ -158,6 +162,7 @@ export class CommandCenterProjectionSource {
         displayName: agent.displayName,
         task: agent.task,
         runId: agent.workflowRunId,
+        startedAt: agent.startedAt,
         updatedAt: agent.completedAt ?? agent.startedAt,
       }));
     const sdk = [...this.monitor.subagents().values()]
@@ -186,6 +191,7 @@ export class CommandCenterProjectionSource {
               .filter((agent) => agent.workflowRunId === manifest.runId);
             const claimed = new Set<string>();
             const bound = new Map<string, (typeof runAgents)[number] | null>();
+            const laneStartedAt = new Map<string, number>();
             const lanes: VendorLane[] = manifest.lanes.map((lane) => {
               const family = lane.laneId.replace(/#\d+$/, '');
               const agent = runAgents.find(
@@ -196,6 +202,7 @@ export class CommandCenterProjectionSource {
                   (!lane.role || candidate.role === lane.role),
               );
               if (agent) claimed.add(agent.agentId);
+              if (agent) laneStartedAt.set(lane.laneId, agent.startedAt);
               bound.set(lane.laneId, agent ?? null);
               return {
                 laneId: lane.laneId,
@@ -223,6 +230,7 @@ export class CommandCenterProjectionSource {
               runId: manifest.runId,
               rootSessionId: root.sessionId,
               phase,
+              laneStartedAt,
               state: runState(runAgents, manifest.startedAt, now),
               updatedAt: manifest.startedAt,
             };
@@ -231,6 +239,7 @@ export class CommandCenterProjectionSource {
     return {
       rootTabId: root.tabId,
       rootSessionId: root.sessionId,
+      now,
       rootTabStatus: rootTab?.status,
       rootQuestionPending: this.chat
         .questionRequests()
