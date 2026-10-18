@@ -522,7 +522,7 @@ export class SkillTriggerService {
         slug: payload.agentType,
         sessionId: payload.parentSessionId || payload.subagentSessionId,
         workspaceRoot: payload.workspaceRoot,
-        succeeded: true,
+        isError: false,
         invokedAt: payload.timestamp,
         source: 'subagent',
         runId: payload.agentId,
@@ -591,7 +591,7 @@ export class SkillTriggerService {
             slug,
             sessionId: payload.sessionId,
             workspaceRoot: payload.workspaceRoot,
-            succeeded: payload.success,
+            isError: !payload.success,
             invokedAt: payload.timestamp,
             source: 'tool-use',
           });
@@ -608,7 +608,7 @@ export class SkillTriggerService {
             slug,
             sessionId: payload.sessionId,
             workspaceRoot: payload.workspaceRoot,
-            succeeded: payload.success,
+            isError: !payload.success,
             invokedAt: payload.timestamp,
             source: 'subagent',
           });
@@ -688,9 +688,9 @@ export class SkillTriggerService {
       slug: payload.skillSlug,
       sessionId: payload.sessionId,
       workspaceRoot: payload.workspaceRoot,
-      succeeded: true,
+      isError: false,
       invokedAt: payload.timestamp,
-      source: 'prompt-expansion',
+      source: payload.expansionType === 'slash_command' ? 'slash-command' : 'prompt-expansion',
     });
   }
 
@@ -698,9 +698,9 @@ export class SkillTriggerService {
     slug: string;
     sessionId: string;
     workspaceRoot: string;
-    succeeded: boolean;
+    isError: boolean;
     invokedAt: number;
-    source: 'tool-use' | 'prompt-expansion' | 'subagent';
+    source: 'tool-use' | 'slash-command' | 'prompt-expansion' | 'subagent';
     runId?: string;
     /**
      * Subagent transcript path (SubagentStop only). When present, per-invocation
@@ -749,7 +749,7 @@ export class SkillTriggerService {
         sessionId: input.sessionId,
         workspaceRoot: input.workspaceRoot,
         contextId,
-        succeeded: input.succeeded,
+        isError: input.isError,
         invokedAt: input.invokedAt,
         source: input.source,
         metrics,

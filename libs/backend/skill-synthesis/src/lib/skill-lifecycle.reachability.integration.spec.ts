@@ -54,6 +54,7 @@ import type { SkillQueueStore } from './queue/skill-queue.store';
 import { SKILL_QUEUE_PAYLOAD_KEYS } from './queue/skill-queue.types';
 import type { SkillCandidateStore } from './skill-candidate.store';
 import type { SkillCuratorService } from './skill-curator.service';
+import { SkillInvocationEventStore } from './skill-invocation-event.store';
 import type { SkillInvocationRecorder } from './skill-invocation-recorder';
 import type { SkillRegistryStore } from './skill-registry.store';
 import type { SkillSuggestionStore } from './skill-suggestion.store';
@@ -146,6 +147,7 @@ describeWithDatabase('skill lifecycle production reachability', () => {
   let purgeState: SkillBacklogPurgeStateStore;
   let queue: SkillQueueStore;
   let drain: SkillDrainService;
+  let eventStore: SkillInvocationEventStore;
   let recorder: SkillInvocationRecorder;
   let tempRoot = '';
   let workspaceRoot = '';
@@ -400,6 +402,7 @@ describeWithDatabase('skill lifecycle production reachability', () => {
     recorder = child.resolve<SkillInvocationRecorder>(
       SKILL_SYNTHESIS_TOKENS.SKILL_INVOCATION_RECORDER,
     );
+    eventStore = child.resolve(SkillInvocationEventStore);
 
     // Migrate first so the seed lands before `start()`; `start()` then finds
     // the connection open and skips its own `openAndMigrate`.
@@ -552,7 +555,7 @@ describeWithDatabase('skill lifecycle production reachability', () => {
   );
 
   it(
-    '3. acceptSuggestion promotes at the collision-suffixed slug, raises Promoted/Active and counts invocations by that slug (A4)',
+    '3. acceptSuggestion promotes at the collision-suffixed slug, raises Promoted/Active and records invocations by that slug (A4)',
     async () => {
       expect(umbrellaId).not.toBe('');
       const baseSlug = umbrellaDraft.name;
@@ -585,23 +588,62 @@ describeWithDatabase('skill lifecycle production reachability', () => {
       const invokedSlug = frontmatterName(result.filePath);
       expect(invokedSlug).toBe(suffixedSlug);
 
+      const eventWrite = jest.spyOn(eventStore, 'recordSkillEvent');
       const event = (slug: string, sessionId: string) =>
         recorder.recordSkillEvent({
           slug,
           sessionId,
           workspaceRoot,
           contextId: null,
-          succeeded: true,
+          isError: false,
           invokedAt: Date.now(),
           source: 'tool-use',
         });
       event(invokedSlug ?? '', 'sess-suffixed-use');
       event(baseSlug, 'sess-base-use');
 
-      expect(store.getStats().invocations).toBe(after.invocations + 1);
-      const shown = store.listInvocationEvents(promoted?.id as CandidateId, 10);
-      expect(shown).toHaveLength(1);
-      expect(shown[0]).toMatchObject({ sessionId: 'sess-suffixed-use' });
+      expect(eventWrite).toHaveBeenCalledTimes(2);
+      expect(eventWrite).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          skillSlug: suffixedSlug,
+          sessionId: 'sess-suffixed-use',
+          source: 'tool-use',
+          succeeded: null,
+          isError: false,
+        }),
+      );
+      expect(eventStore.getRecentSessionsForSlug(suffixedSlug)).toContain(
+        'sess-suffixed-use',
+      );
+      const written = db.prepare(
+        `SELECT skill_slug, session_id, source, succeeded, is_error
+         FROM skill_invocation_events
+         WHERE session_id IN (?, ?)
+         ORDER BY session_id`,
+      ).all('sess-base-use', 'sess-suffixed-use') as Array<{
+        skill_slug: string;
+        session_id: string;
+        source: string;
+        succeeded: number | null;
+        is_error: number;
+      }>;
+      expect(written).toEqual([
+        {
+          skill_slug: baseSlug,
+          session_id: 'sess-base-use',
+          source: 'tool-use',
+          succeeded: null,
+          is_error: 0,
+        },
+        {
+          skill_slug: suffixedSlug,
+          session_id: 'sess-suffixed-use',
+          source: 'tool-use',
+          succeeded: null,
+          is_error: 0,
+        },
+      ]);
     },
     PROOF_TIMEOUT_MS,
   );

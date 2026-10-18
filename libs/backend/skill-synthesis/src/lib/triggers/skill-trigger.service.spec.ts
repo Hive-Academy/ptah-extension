@@ -33,6 +33,7 @@ import type {
 import { CuratorRateLimitService } from '@ptah-extension/agent-sdk';
 import { SkillTriggerService } from './skill-trigger.service';
 import { SkillCandidateStore } from '../skill-candidate.store';
+import { SkillInvocationEventStore } from '../skill-invocation-event.store';
 import { SkillInvocationRecorder as RealSkillInvocationRecorder } from '../skill-invocation-recorder';
 import { SkillTelemetrySeamAdapter } from '../outcome-seam/skill-telemetry-seam.adapter';
 import { SessionVerdictStore } from '../archaeology/session-verdict.store';
@@ -826,7 +827,7 @@ describe('SkillTriggerService — subagent-stop trigger', () => {
       expect.objectContaining({
         slug: 'backend-developer',
         sessionId: 'parent-1',
-        succeeded: true,
+        isError: false,
         invokedAt: 1000,
         source: 'subagent',
         runId: 'agent-1',
@@ -882,7 +883,7 @@ describe('SkillTriggerService — subagent-stop trigger', () => {
         slug: 'backend-developer',
         sessionId: 'parent-1',
         source: 'subagent',
-        succeeded: true,
+        isError: false,
         invokedAt: 1000,
         metrics: null,
         taskId: null,
@@ -1337,7 +1338,7 @@ describe('SkillTriggerService — Skill invocation telemetry', () => {
       expect.objectContaining({
         slug: 'deep-research',
         sessionId: 's1',
-        succeeded: true,
+        isError: false,
         invokedAt: 1000,
         source: 'tool-use',
         runId: null,
@@ -1361,7 +1362,7 @@ describe('SkillTriggerService — Skill invocation telemetry', () => {
     );
   });
 
-  it('Skill tool with success:false records succeeded false', async () => {
+  it('Skill tool error sets isError without assigning a grade', async () => {
     const { service, postToolUse, recorder } = buildService();
     service.start();
     postToolUse.fire(
@@ -1375,7 +1376,7 @@ describe('SkillTriggerService — Skill invocation telemetry', () => {
     );
     await flush();
     expect(recorder.recordSkillEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ slug: 'deep-research', succeeded: false }),
+      expect.objectContaining({ slug: 'deep-research', isError: true }),
     );
   });
 
@@ -1447,7 +1448,7 @@ describe('SkillTriggerService — Skill invocation telemetry', () => {
     expect(recorder.recordSkillEvent).not.toHaveBeenCalled();
   });
 
-  it('UserPromptExpansion records slug from payload with source prompt-expansion', async () => {
+  it('UserPromptExpansion records slash commands with their own source', async () => {
     const { service, expansion, recorder } = buildService();
     service.start();
     expansion.fire({
@@ -1463,10 +1464,27 @@ describe('SkillTriggerService — Skill invocation telemetry', () => {
       expect.objectContaining({
         slug: 'my-task',
         sessionId: 's1',
-        succeeded: true,
-        source: 'prompt-expansion',
+        isError: false,
+        source: 'slash-command',
         runId: null,
       }),
+    );
+  });
+
+  it('keeps MCP prompt expansions unclassified', async () => {
+    const { service, expansion, recorder } = buildService();
+    service.start();
+    expansion.fire({
+      skillSlug: 'my-task',
+      expansionType: 'mcp_prompt',
+      commandArgs: '',
+      sessionId: 's1',
+      workspaceRoot: '/ws',
+      timestamp: 2000,
+    });
+    await flush();
+    expect(recorder.recordSkillEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ source: 'prompt-expansion', isError: false }),
     );
   });
 
@@ -1522,7 +1540,7 @@ describe('SkillTriggerService — Skill invocation telemetry', () => {
       expect.objectContaining({
         slug: 'senior-tester',
         sessionId: 's1',
-        succeeded: true,
+        isError: false,
         invokedAt: 3000,
         source: 'subagent',
       }),
@@ -1960,7 +1978,7 @@ describe('SkillTriggerService — the skills master switch (B-P)', () => {
       expect.objectContaining({ source: 'tool-use', runId: null }),
     );
     expect(h.recorder.recordSkillEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ source: 'prompt-expansion', runId: null }),
+      expect.objectContaining({ source: 'slash-command', runId: null }),
     );
     expect(h.recorder.recordSkillEvent).toHaveBeenCalledWith(
       expect.objectContaining({ source: 'subagent', runId: 'agent-1' }),
@@ -1983,12 +2001,14 @@ describe('SkillTriggerService — run telemetry integration', () => {
         id TEXT PRIMARY KEY, skill_slug TEXT NOT NULL, session_id TEXT NOT NULL,
         context_id TEXT, source TEXT NOT NULL, succeeded INTEGER NOT NULL,
         is_error INTEGER NOT NULL, invoked_at INTEGER NOT NULL,
+        reconciled_at INTEGER,
         input_tokens INTEGER, output_tokens INTEGER, cache_read_tokens INTEGER,
         cache_creation_tokens INTEGER, cost_usd REAL, duration_ms INTEGER,
         tool_count INTEGER, task_id TEXT, workspace_root TEXT,
         verdict_source TEXT
       );`);
         db.exec(MIGRATIONS.find((m) => m.version === 55)?.sql ?? '');
+        db.exec(MIGRATIONS.find((m) => m.version === 56)?.sql ?? '');
         const connection = Object.create(
           SqliteConnectionService.prototype,
         ) as SqliteConnectionService;
@@ -1998,7 +2018,10 @@ describe('SkillTriggerService — run telemetry integration', () => {
           connection,
           {} as never,
         );
-        const recorder = new RealSkillInvocationRecorder(makeLogger(), store);
+        const recorder = new RealSkillInvocationRecorder(
+          makeLogger(),
+          new SkillInvocationEventStore(makeLogger(), connection),
+        );
         const extractor = {
           extract: jest.fn(async (transcriptPath: string) => ({
             metrics: {
@@ -2033,9 +2056,13 @@ describe('SkillTriggerService — run telemetry integration', () => {
         );
         await flushMicrotasks();
         const rows = db
-          .prepare('SELECT run_id FROM skill_invocation_events ORDER BY run_id')
-          .all() as Array<{ run_id: string }>;
+          .prepare('SELECT run_id, succeeded, is_error FROM skill_invocation_events ORDER BY run_id')
+          .all() as Array<{ run_id: string; succeeded: number | null; is_error: number }>;
         expect(rows.map((row) => row.run_id)).toEqual(['run-a', 'run-b']);
+        expect(rows.map((row) => [row.succeeded, row.is_error])).toEqual([
+          [null, 0],
+          [null, 0],
+        ]);
         const seam = new SkillTelemetrySeamAdapter(
           store,
           new SessionVerdictStore(makeLogger(), connection),
