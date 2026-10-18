@@ -95,6 +95,11 @@ export type {
   JsonlProjectionOptions,
   JsonlProjectionResult,
 } from './lib/helpers/history/jsonl-reader.service';
+// The replay's "visible user message" rules, for the session:list counter.
+export {
+  isHiddenTranscriptRecord,
+  isSkillOrMetaText,
+} from './lib/message-transform/message-transform-helpers';
 export * from './lib/types/sdk-types/claude-sdk.types';
 export { SdkPermissionHandler } from './lib/sdk-permission-handler';
 export type {
@@ -139,6 +144,10 @@ export {
   SUBAGENT_DISPATCHER_TOKEN,
 } from './lib/helpers';
 export { CompactionCallbackRegistry } from './lib/helpers';
+export type {
+  ManualCompactAdmission,
+  ManualCompactDecision,
+} from './lib/helpers';
 export {
   SubagentBudgetStopCallbackRegistry,
   type SubagentBudgetStopCallback,

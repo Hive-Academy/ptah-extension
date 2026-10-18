@@ -45,3 +45,14 @@ export const STRUCTURED_DECISION_TOKEN = Symbol.for(
 export const DECISION_MODEL_CONFIG_TOKEN = Symbol.for(
   'LaneRoutingDecisionModelConfig',
 );
+
+/**
+ * Lib-owned catalog registered by `registerLaneRoutingServices`
+ * (TASK_2026_684 Batch 13). Same symbol as
+ * `LANE_ROUTING_TOKENS.DECISION_MODEL_CATALOG`. Kept out of
+ * `EXPECTED_RESOLVABLE` because that list is handler classes and the smoke
+ * title reads `.name`.
+ */
+export const DECISION_MODEL_CATALOG_TOKEN = Symbol.for(
+  'LaneRoutingDecisionModelCatalog',
+);

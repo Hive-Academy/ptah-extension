@@ -113,6 +113,7 @@ export interface CompactionBoundaryTokens {
 /** Decision for a manual `/compact` the user typed. */
 export type ManualCompactDecision =
   | { readonly action: 'send' }
+  | { readonly action: 'coalesced' }
   | { readonly action: 'deduped'; readonly message: string };
 
 /** Opaque timer handle returned by {@link CompactionTimers.setTimeout}. */

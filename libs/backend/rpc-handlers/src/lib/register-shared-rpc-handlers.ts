@@ -14,6 +14,7 @@ import type { DependencyContainer } from 'tsyringe';
 
 import {
   AgentOutcomeRpcHandlers,
+  DecisionModelCatalogRpcHandlers,
   SetupRpcHandlers,
   WizardGenerationRpcHandlers,
   EnhancedPromptsRpcHandlers,
@@ -82,6 +83,9 @@ export function registerSharedRpcHandlers(
   // Outcome signals (TASK_2026_646 B7). The reader token is not injected:
   // hosts register it in a later batch, and this class resolves it per call.
   container.registerSingleton(AgentOutcomeRpcHandlers);
+  // Decision-model picker (TASK_2026_684, C10). The catalog is registered by
+  // `registerLaneRoutingServices`; it makes no request until a call.
+  container.registerSingleton(DecisionModelCatalogRpcHandlers);
 }
 
 /**

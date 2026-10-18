@@ -393,6 +393,7 @@ import { CommandCenterStartComponent } from './command-center-start.component';
           >
             <ptah-command-work-list
               [projection]="page.projection()"
+              [reducedMotion]="page.store.reducedMotion()"
               [selectedId]="page.store.selectedId()"
               (selection)="page.store.select($event)"
             />

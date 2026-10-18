@@ -17,7 +17,12 @@ import {
   RouteDecideArgsSchema,
   type RouteDecideArgs,
 } from './contracts/route-decide-args.schema';
+import {
+  loggableErrorName,
+  type LoggableErrorName,
+} from '@ptah-extension/shared';
 import type { DecisionModelConfig } from './decision-model/decision-model.config';
+import type { DecisionModelKind } from './decision-model/decision-model.types';
 import type { StructuredDecisionCompleter } from './decision-model/structured-decision.port';
 import {
   SystemOneClient,
@@ -290,7 +295,7 @@ export class RouteDecideService {
     if (caller.kind !== 'system-one' || !outcome.sent) return;
     if (outcome.notFoundDetail !== null) {
       await this.deps.config.recheckAfterLiveNotFound(
-        caller.target.baseUrl,
+        { selection: caller.selection, baseUrl: caller.target.baseUrl },
         outcome.notFoundDetail,
       );
       return;
@@ -347,12 +352,20 @@ export class RouteDecideService {
       };
     }
     try {
-      const target = await this.deps.config.resolveSystemOneTarget();
+      // Resolved from the selection read above, not re-read: a setting that
+      // changes during the key read cannot pair this selection (provider,
+      // 404 re-check identity) with another selection's endpoint.
+      const target = await this.deps.config.resolveSystemOneTarget(selection);
       if (target === null) return { kind: 'blocked', cause: 'unreachable' };
       if (selection.kind === 'jev' && target.apiKey === undefined) {
         return { kind: 'blocked', cause: 'auth' };
       }
-      return { kind: 'system-one', target, provider: selection.kind };
+      return {
+        kind: 'system-one',
+        selection,
+        target,
+        provider: systemOneProvider(selection.kind),
+      };
     } catch (error: unknown) {
       this.deps.logger.warn(
         '[lane-routing] decision model target could not be resolved',
@@ -407,6 +420,24 @@ function openSystemOneFrom(
   return new SystemOneClient(options, { logger });
 }
 
+/**
+ * The option-limit provider of a System One selection (DC9): every kind
+ * that talks to an Ollama-compatible `/v1/systemone` uses the Ollama limit;
+ * only TypeSafe Jev has its own.
+ */
+function systemOneProvider(
+  kind: Exclude<DecisionModelKind, 'unset' | 'structured'>,
+): 'ollama' | 'jev' {
+  switch (kind) {
+    case 'jev':
+      return 'jev';
+    case 'ollama':
+    case 'ollama-cloud':
+    case 'custom':
+      return 'ollama';
+  }
+}
+
 function schemaError(
   prefix: string,
   error: {
@@ -424,14 +455,12 @@ function schemaError(
   return new Error(`${prefix} at ${path}: ${first?.message ?? 'invalid'}`);
 }
 
-function errorFacts(error: unknown): {
-  readonly name: string;
-  readonly code?: string;
-} {
-  const name = error instanceof Error ? error.name : 'UnknownError';
-  if (typeof error === 'object' && error !== null && 'code' in error) {
-    const code = error['code'];
-    if (typeof code === 'string') return { name, code };
-  }
-  return { name };
+/**
+ * Log facts of a rejection from the key store, the target resolver or the
+ * rotation store. Its `name` and `code` are set by that dependency and can
+ * carry a key (a key can even equal a real Node code), so only the fixed
+ * `loggableErrorName` category is logged and the code is never read.
+ */
+function errorFacts(error: unknown): { readonly name: LoggableErrorName } {
+  return { name: loggableErrorName(error) };
 }

@@ -11,6 +11,8 @@ export const LANE_ROUTING_TOKENS = {
   ROUTE_DECIDE_SERVICE: Symbol.for('LaneRoutingRouteDecideService'),
   /** Lib-owned decision-model configuration. */
   DECISION_MODEL_CONFIG: Symbol.for('LaneRoutingDecisionModelConfig'),
+  /** Lib-owned decision-model catalog (picker listing only). */
+  DECISION_MODEL_CATALOG: Symbol.for('LaneRoutingDecisionModelCatalog'),
   /** Optional port. Implemented outside this library. */
   LANE_MODEL_LISTING: Symbol.for('LaneRoutingLaneModelListing'),
   /** Optional port. Implemented outside this library. */

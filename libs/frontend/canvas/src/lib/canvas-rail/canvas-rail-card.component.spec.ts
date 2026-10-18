@@ -556,8 +556,16 @@ describe('CanvasRailCardComponent', () => {
     fixture.detectChanges();
     const panel = host.querySelector<HTMLElement>('[role="dialog"]')!;
     expect(panel.classList).toContain('w-72');
+    // FU-12: never wider than the viewport minus the 8 px shift padding per side,
+    // and placed below the trigger so shift can move it along x into view.
+    expect(panel.classList).toContain('max-w-[calc(100vw-1rem)]');
     expect(panel.classList).toContain('p-4');
     expect(panel.closest('ptah-native-popover')?.className).toContain('[&>.popover-panel]:p-0');
+    const renamePopover = fixture.debugElement
+      .queryAll(By.directive(NativePopoverComponent))
+      .map((node) => node.componentInstance as NativePopoverComponent)
+      .find((popover) => popover.isOpen());
+    expect(renamePopover?.placement()).toBe('bottom-end');
     expect(panel.querySelector('h3')?.classList).toContain('text-base-content-muted');
     expect(panel.querySelector('input')?.classList).toContain('input-sm');
     // One 2 px ring over the 1 px border in the theme-measured focus ink

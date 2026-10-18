@@ -18,11 +18,12 @@ import {
 import { LucideAngularModule, FolderOpen, FolderPlus, X } from 'lucide-angular';
 import { ElectronLayoutService } from '@ptah-extension/core';
 import { SessionLivenessRegistry } from '@ptah-extension/chat-state';
+import { McpServersCardComponent } from '../molecules/mcp-servers-card.component';
 
 @Component({
   selector: 'ptah-workspace-sidebar',
   standalone: true,
-  imports: [LucideAngularModule],
+  imports: [LucideAngularModule, McpServersCardComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     :host {
@@ -118,6 +119,9 @@ import { SessionLivenessRegistry } from '@ptah-extension/chat-state';
           <lucide-angular [img]="FolderPlusIcon" class="w-4 h-4" />
           <span class="text-xs">Add Folder</span>
         </button>
+      </div>
+      <div class="px-3 pb-3">
+        <ptah-mcp-servers-card />
       </div>
     </div>
   `,

@@ -351,4 +351,72 @@ describe('CommandOverlayComponent', () => {
     expect(card.classList.contains('transition-opacity')).toBe(false);
     expect(card.getAttribute('role')).toBe('region');
   });
+
+  it('releases a pin when its node leaves the projection', () => {
+    const { component, fixture } = setup();
+    component.pin('b');
+    fixture.detectChanges();
+    fixture.componentRef.setInput('projection', {
+      nodes: [nodes[0]],
+      edges: [],
+    });
+    fixture.detectChanges();
+    expect(component.pinnedNodeId()).toBeNull();
+    expect(component.activeNodeId()).toBeNull();
+    expect(cleanup).toHaveBeenCalled();
+  });
+
+  it('closes a hover preview with Escape until its hover ends', () => {
+    const { component, fixture, labels } = setup();
+    component.onLabelEnter('a');
+    advance(COMMAND_OVERLAY_OPEN_DELAY_MS);
+    fixture.detectChanges();
+    expect(component.activeNodeId()).toBe('a');
+    labels[0].dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+    );
+    fixture.detectChanges();
+    advance(COMMAND_OVERLAY_OPEN_DELAY_MS);
+    expect(component.activeNodeId()).toBeNull();
+    component.onLabelLeave('a');
+    component.onLabelEnter('a');
+    advance(COMMAND_OVERLAY_OPEN_DELAY_MS);
+    expect(component.activeNodeId()).toBe('a');
+  });
+
+  it('cancels a pending hover preview when Escape is pressed during the open delay', () => {
+    const { component, fixture, labels } = setup();
+    component.onLabelEnter('a');
+    labels[0].dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+    );
+    advance(COMMAND_OVERLAY_OPEN_DELAY_MS);
+    fixture.detectChanges();
+    expect(component.activeNodeId()).toBeNull();
+    component.onLabelLeave('a');
+    component.onLabelEnter('a');
+    advance(COMMAND_OVERLAY_OPEN_DELAY_MS);
+    expect(component.activeNodeId()).toBe('a');
+  });
+
+  it('keeps the provider mark outside the truncated label', () => {
+    const { labels } = setup();
+    const mark = labels[0].querySelector('ptah-provider-mark');
+    const label = labels[0].querySelector('.truncate');
+    expect(mark).not.toBeNull();
+    expect(label?.textContent).toContain('Alpha');
+    expect(label?.contains(mark)).toBe(false);
+    expect(label?.classList.contains('min-w-0')).toBe(true);
+  });
+
+  it('links an expanded plate to its pinned card', () => {
+    const { component, fixture, labels } = setup();
+    component.pin('a');
+    fixture.detectChanges();
+    expect(labels[0].getAttribute('aria-expanded')).toBe('true');
+    expect(labels[0].getAttribute('aria-controls')).toBe('command-node-card');
+    expect(
+      fixture.nativeElement.querySelector('#command-node-card'),
+    ).not.toBeNull();
+  });
 });

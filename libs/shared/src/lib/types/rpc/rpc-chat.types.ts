@@ -169,6 +169,8 @@ export interface ChatContinueParams {
 export interface ChatContinueResult {
   success: boolean;
   sessionId?: SessionId;
+  /** The command completed without starting a stream. */
+  settled?: boolean;
   error?: string;
   /** Structured error code for recoverable failures (e.g. 'AUTH_REQUIRED'). */
   errorCode?: RpcUserErrorCode;

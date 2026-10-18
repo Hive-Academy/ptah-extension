@@ -1,11 +1,13 @@
 import { Injectable, inject } from '@angular/core';
 import { ChatStore } from '@ptah-extension/chat';
+import { CLI_PROVIDER_MARK_IDS } from '@ptah-extension/chat-ui';
 import {
   CommandCenterRecordsService,
   TabManagerService,
 } from '@ptah-extension/chat-state';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
-import { PROVIDER_BRAND_SLUGS } from '@ptah-extension/ui';
+import type { TabState } from '@ptah-extension/chat-types';
+import { PROVIDER_BRAND_SLUGS, PROVIDER_MARKS } from '@ptah-extension/ui';
 import type {
   PhaseDerivationInput,
   VendorLane,
@@ -15,7 +17,38 @@ import { workStateForStatus } from '../model/work-state';
 import type { ProjectionInput } from '../model/work-projection';
 
 function provider(id: string | null | undefined): string | undefined {
-  return id && Object.hasOwn(PROVIDER_BRAND_SLUGS, id) ? id : undefined;
+  return id &&
+    (Object.hasOwn(PROVIDER_BRAND_SLUGS, id) ||
+      Object.hasOwn(PROVIDER_MARKS, id))
+    ? id
+    : undefined;
+}
+
+function cliProvider(
+  cli: string,
+  ptahCliId?: string | null,
+): string | undefined {
+  const id = cli === 'ptah-cli' ? ptahCliId : cli;
+  return (
+    provider(id) ??
+    provider(
+      Object.hasOwn(CLI_PROVIDER_MARK_IDS, cli)
+        ? CLI_PROVIDER_MARK_IDS[cli as keyof typeof CLI_PROVIDER_MARK_IDS]
+        : undefined,
+    )
+  );
+}
+
+function tabProvider(tab: TabState | undefined): string | undefined {
+  const liveProvider = provider(tab?.liveModelStats?.contextCapacity?.providerId);
+  if (liveProvider) return liveProvider;
+  const model =
+    tab?.liveModelStats?.model || tab?.sessionModel || tab?.overrideModel;
+  if (!model) return undefined;
+  const usage = tab?.sessionStats?.modelUsageList?.find(
+    (row) => row.model === model,
+  );
+  return provider(usage?.contextCapacity?.providerId);
 }
 
 const RUN_LAUNCH_WINDOW_MS = 2 * 60 * 1000;
@@ -98,7 +131,7 @@ export class CommandCenterProjectionSource {
             ? root.sessionId
             : (tab.agentOrigin?.parentTabId ?? root.sessionId)),
         name: tab.name,
-        providerId: provider(tab.liveModelStats?.contextCapacity?.providerId),
+        providerId: tabProvider(tab),
         state: workStateForStatus(tab.status),
         updatedAt: tab.lastActivityAt,
       }));
@@ -122,7 +155,7 @@ export class CommandCenterProjectionSource {
         kind: 'cli' as const,
         parentSessionId: agent.parentSessionId ?? root.sessionId,
         state: workStateForStatus(agent.status),
-        providerId: provider(agent.ptahCliId ?? agent.cli),
+        providerId: cliProvider(agent.cli, agent.ptahCliId),
         displayName: agent.displayName,
         task: agent.task,
         runId: agent.workflowRunId,
@@ -172,7 +205,9 @@ export class CommandCenterProjectionSource {
                 displayName: agent?.displayName ?? lane.laneId,
                 cli: agent?.cli ?? 'ptah-cli',
                 agentId: agent?.agentId,
-                providerId: provider(agent?.ptahCliId ?? agent?.cli),
+                providerId: agent
+                  ? cliProvider(agent.cli, agent.ptahCliId)
+                  : cliProvider(family),
               };
             });
             const phase: PhaseDerivationInput = {
@@ -205,9 +240,7 @@ export class CommandCenterProjectionSource {
             request.tabId === root.tabId ||
             request.sessionId === root.sessionId,
         ),
-      rootProviderId: provider(
-        rootTab?.liveModelStats?.contextCapacity?.providerId,
-      ),
+      rootProviderId: tabProvider(rootTab),
       children,
       persistedChildren,
       agents: [...cli, ...sdk],
