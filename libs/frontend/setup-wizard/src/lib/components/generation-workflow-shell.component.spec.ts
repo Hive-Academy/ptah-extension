@@ -5,6 +5,7 @@ import { BehaviorSubject } from 'rxjs';
 import { convertToParamMap } from '@angular/router';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { GenerationWorkflowLauncherService } from '@ptah-extension/chat-ui';
+import { SurfaceRouterService } from '@ptah-extension/core';
 import type { SetupGenerationRunState } from '@ptah-extension/shared';
 import { GenerationWorkflowStore } from '../services/generation-workflow.store';
 import { AgentGenerationStore } from '../services/agent-generation.store';
@@ -13,6 +14,14 @@ import { GuidanceGenerationStore } from '../services/guidance-generation.store';
 import { GenerationWorkflowShellComponent } from './generation-workflow-shell.component';
 
 describe('GenerationWorkflowShellComponent', () => {
+  const navigateToSurface = jest.fn().mockResolvedValue('navigated');
+  beforeEach(() =>
+    TestBed.configureTestingModule({
+      providers: [
+        { provide: SurfaceRouterService, useValue: { navigateToSurface } },
+      ],
+    }),
+  );
   it('consumes the launch intent when a guidance tab binds', () => {
     const consumeOrigin = jest.fn().mockReturnValue('independent-start');
     const bindGuidance = jest.fn();
@@ -106,6 +115,7 @@ describe('GenerationWorkflowShellComponent', () => {
     guidanceRun.set(run);
     fixture.detectChanges();
     expect(adoptGuidance).toHaveBeenCalledTimes(1);
+    expect(adoptGuidance).toHaveBeenCalledWith(run, false);
     expect(refreshGuidance).toHaveBeenCalledTimes(1);
     fixture.destroy();
   });
@@ -273,6 +283,7 @@ describe('GenerationWorkflowShellComponent', () => {
     expect(skip).not.toHaveBeenCalled();
   });
   it('rejects a tab with a mismatched workflow before embedding chat', () => {
+    navigateToSurface.mockClear();
     TestBed.configureTestingModule({
       providers: [
         {
@@ -338,6 +349,12 @@ describe('GenerationWorkflowShellComponent', () => {
     expect(
       fixture.nativeElement.querySelector('ptah-session-embed'),
     ).toBeNull();
+    const back = [
+      ...(fixture.nativeElement as HTMLElement).querySelectorAll('button'),
+    ].find((button) => button.textContent?.includes('Back to chat'));
+    expect(back).toBeDefined();
+    back?.click();
+    expect(navigateToSurface).toHaveBeenCalledWith('chat');
   });
 
   it('binds only the current workspace and wires quiet Stop and guarded Send', () => {

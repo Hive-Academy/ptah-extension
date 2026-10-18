@@ -773,3 +773,112 @@ None.
 M-a through M-g and m1-m4 (M-a and M-g fall out of S1 if done as suggested; M-f needs a workspace-activation ordering check). B08C m6 and N5 stay deferred as recorded by the lane. Regressions worth adding alongside the fixes: guidance rebind mid-run; Start now and deadline firing with the shell unmounted (real handoff store, fake launcher); toggle-failure revert; content refresh after regenerate.
 
 Review family: Claude; implementer family: codex
+
+## Phase 5 re-review (round 1)
+
+Review family: Claude; implementer family: codex.
+Scope: `git show 70f2bac04`; read in full: `guidance-generation.store.ts`, `generation-workflow.store.ts`, `generation-guidance-page.component.ts`, the shell effects and template head, `generation-handoff.store.ts`, `agent-next-steps.component.ts`, `guidance-result-panel.component.ts`, `app.config.ts` validator and its two callers in `libs/frontend/core/src/lib/routing/`, the host guidance start handler (`enhanced-prompts-rpc.handlers.ts:600-700`) and the new specs. No checks re-run (orchestrator results taken as given). Passing specs do not pin two of the new Moderate findings below, because the reload scenario is only tested on the guidance store alone and the toggle revert only at store level.
+
+**Verdict: APPROVE. Score 7.5/10.** 0 Blocking, 0 Serious, 4 Moderate (new or residual), 3 Minor. S1 and S2 are fixed on the paths users take. Separating evidence from 8: a reload now bypasses the "neutral status" rule (N1), a failed toggle can leave the checkbox visually flipped (N2), and the model-unavailable copy is unreachable for guidance (N3). Separating evidence from 6: the two-store disagreement is gone and there is a real two-store integration spec.
+
+### Finding table
+
+| Finding | Status | Evidence | Spec |
+| --- | --- | --- | --- |
+| S1 two stores disagree | FIXED | Shell effect `generation-workflow-shell.component.ts:395-403` calls `guidance.adopt(run)` (untracked) on every workflow run change; `guidance-generation.store.ts:80-98` resets snapshot/run/restoring when `snapshot.runId` differs; `refresh()` is guarded by `requestedRunId` (`:111-135`). Dead `start/retry/regenerate/stop/submit` removed | `generation-guidance-page.component.spec.ts:124` (real stores: fail, Retry, success with new provider/model, rebind) and `guidance-generation.store.spec.ts:64`. Caveat: that spec calls `adopt` by hand and the shell spec only pins `adopt`/`refresh` calls with mocks (`generation-workflow-shell.component.spec.ts:16-110`), so the shell-to-store hop is covered by two halves, not end to end |
+| S2 start feedback | FIXED (generic); PARTIAL for model-unavailable | Page renders `rejection()`, `chatTurnRejection()`, `startError()` with fixed text and no `ownerTabId` (`generation-guidance-page.component.ts:47-67`); store clears and sets them (`generation-workflow.store.ts:145-166`). Host provider failure arrives as `rejection: not-running` and shows "could not start" (`enhanced-prompts-rpc.handlers.ts:690-695`). See N3 | `generation-guidance-page.component.spec.ts:13-60` (it.each, asserts no `private`), `generation-workflow.store.spec.ts` lost-response/unavailable-model test |
+| M-a Check again | FIXED | `page.refresh()` calls both stores (`generation-guidance-page.component.ts:120-123`) | page spec asserts both called once |
+| M-b sticky error / toggle not reverted | PARTIAL | Alert clears at the start of each action and `setEnabled` rereads committed state (`guidance-generation.store.ts:197-243`). The DOM checkbox is still uncontrolled: after a failed toggle the re-read yields the same `enabled`, so `[checked]` does not change and Angular does not rewrite the user-flipped property (`guidance-result-panel.component.ts:32-36`). See N2 | store spec `:143` only |
+| M-c stale content | FIXED | content cleared when `generatedAt` changes (`guidance-generation.store.ts:177-181`); `null` content raises the alert (`:219-221`) | store spec `:143` |
+| M-d handoff outcome | FIXED | private `clearTimer()` vs user `skip()` (`generation-handoff.store.ts:37-60`); `startNow`/`manualContinue` no longer set `skipped`; `started` line (`agent-next-steps.component.ts:38-39`, shell `:214`). Timer is held by the root store, so it survives shell destruction; `startNow` clears the timer and pending before awaiting, so the deadline and a click cannot both submit | `generation-handoff.store.spec.ts` new test: Start now then later deadline, 1 then 2 calls, no shell |
+| M-e effect fan-out | FIXED | `untracked` around adopt/refresh (`shell:398,402`); no loop: the effect reads only `store.run()` and guidance writes never touch the workflow store | shell spec `:105-109` |
+| M-f restore ordering | PARTIAL | Validator accepts a located tab while `activeWorkspacePath === null` (`app.config.ts:52-56`), docstring corrected, spec updated (`webview-routing.spec.ts:226-240`). Safety verified: the shell binds only from the active workspace's own tab list (`shell:318-351`), otherwise `store.unbind()`/`guidance.unbind()` and the template shows "This generation tab is unavailable in this workspace" (`shell:249`); no cross-workspace data renders. It does not leave the route (N4) | validator pure-function spec; shell spec `:275,337` covers mismatch |
+| M-g dead engine | FIXED | methods gone from `guidance-generation.store.ts`; specs moved to adopt | store spec |
+| m1 Generate during a run | FIXED | Generate hidden while bound, Regenerate `[disabled]="runActive()"` (`page:34-42`, `guidance-result-panel.component.ts:69`); the `[disabled]` on the first is redundant | page spec |
+| m2 stale card between terminal and refresh | FIXED | adopt applies the terminal status synchronously (`guidance-generation.store.ts:80-98`) | page spec |
+| m3 sr-only raw state | FIXED | uses `guidance.status()` for the guidance workflow (`shell:55-59`) | none specific |
+| m4 raw ISO | FIXED | `date:'medium'` (`guidance-result-panel.component.ts:23-26`). Minor risk: `DatePipe` throws on an unparseable string, so a hand-edited `generatedAt` would break the panel render; the host writes ISO | panel spec |
+
+### New findings
+
+**Moderate**
+
+- **N1. A reload no longer shows the neutral status for a restored terminal run.** `guidance-generation.store.ts:80-98`: `adopt` sets `restoring = false` whenever the run id differs from the snapshot. After a webview reload both stores call `getBoundRunState` for the bound tab (workflow `bind` first, `shell:367`; guidance `bind` second, `:370`). The workflow reply normally lands first, its terminal run reaches the effect, `adopt` sees a new run id, clears `restoring`, and the card shows `failed`/`completed`/`timed-out` from the previous session. Plan line 207 and AC18 require neutral wording after reload unless a run record verifies cancellation. Success stays committed-gated, so nothing false is shown; this is a requirement miss whose outcome depends on message order (if the guidance reply wins, the snapshot matches and neutral is kept). The store spec at `:106` passes because it never calls `adopt`. Fix: in `adopt`, keep `restoring` unless the run is non-terminal or `workflow.acceptedRun()?.runId === run.binding.runId` (pass a flag from the shell), and add a spec binding both real stores over a fake RPC that returns a settled `failed` run.
+- **N2. Failed-toggle revert does not reach the DOM (completes M-b).** `guidance-result-panel.component.ts:32-36` with `guidance-generation.store.ts:197-210`. Toggle off, RPC rejects, alert appears, store re-reads `enabled: true`, the binding value is unchanged so the checkbox stays unchecked while saved state is enabled. Fix: set `enabledToggle.checked = saved.enabled` from an `effect` on `result()` after a failure, or re-render the control with a key signal. Add a component spec with a rejecting `setEnabled`.
+- **N3. Model-unavailable message is unreachable for guidance.** `wizard-rpc.service.ts:158-176` throws only `Start unconfirmed` for `startBoundGuidance`; the host catches `RpcUserError('The selected model is unavailable...')` inside the start `try` and returns `rejection: not-running` with a provider message (`enhanced-prompts-rpc.handlers.ts:690-695`, `wizard-generation-binding.ts:387`). The page's `startError` branch (`page:60-64`) can only fire for a message the real service never throws for guidance, and the workflow-store spec mocks that throw. Users see "Project guidance could not start. Try again.", which is safe but suggests a retry that cannot succeed. Fix: map the guidance model error as `startBoundAgents` does (host must return it distinguishably) or drop the dead branch and record the decision.
+- **N4. A restored route that the active workspace does not own becomes a dead end rather than a redirect.** `app.config.ts:52-56` passes the validator only while the workspace is null; once a different workspace activates nothing re-runs it for the current URL, so the user stays on the "unavailable in this workspace" alert (`shell:249`) with no action. Safe (no data shown) but the expectation that the shell "leaves the route" is not met. There is also a one-frame flash of the same alert while the workspace is still null on a normal reload. Fix: add a link to the landing in the unavailable block, or navigate away when `binding()` is null and the workspace is non-null.
+
+**Minor**
+
+- m-a. No in-flight indicator between handoff `startNow` and `started`: `outcome` is `idle` while `openAndStart` awaits, so "Continue to project guidance" is live and a second click re-runs `openAndStart` (`generation-handoff.store.ts:67-110`). Host start is idempotent per tab, so no duplicate run; add a `starting` outcome.
+- m-b. `chatTurnRejection` stays set after the chat reply finishes until the next click (`generation-workflow.store.ts:210`); same as the agent branch.
+- m-c. Orchestrator's lint fix (static `import type` of `SetupGenerationRunState`, `generation-workflow-shell.component.spec.ts:8`) is correct and changes no behaviour.
+
+### Answers to the specific questions
+
+- `adopt(run)` vs shell effect: a run-id change resets snapshot, run, restoring and status (`:86-92`); no loop (the effect reads only `store.run()`, writes are untracked and one-way); after `unbind`/rebind `adopt` ignores a run whose binding does not match (`:81-82`), so no stale run survives a rebind; late `refresh()` replies for an older run are dropped by the `requestedRunId` check (`:116-117`). The one gap is N1.
+- M-f: verified safe; see table and N4.
+- M-d: verified; the deadline and a click cannot both submit; `schedule` no longer reports `skipped`; the timer lives in the root store.
+
+### Must-fix
+
+None.
+
+### Defer
+
+N1 (reload neutral status; do it on the next touch of the guidance store, it is a plan requirement), N2, N3, N4, m-a, m-b, DatePipe hardening. Regressions worth adding: shell plus two real stores reload spec, rejecting-toggle component spec.
+
+Review family: Claude; implementer family: codex
+
+## Phase 6 review (B09-B11)
+
+Review family: Claude; implementer family: codex.
+Scope: `git show 90a6b0b39` (`setup-hub.component.ts` around the diff), `git show 3096dfbe5` (`setup-status-widget.component.ts`), `git show b53533535` (spec only; `project-setup-card.component.ts` read in full), plus `generation-workflow-launcher.service.ts` in full, `WorkspaceScopeService`, design-spec 2.6, parity rows 1-2 and AC1/2/12/15/17. Lane reports treated as claims. No checks re-run.
+
+**Verdict: APPROVE. Score 8/10.** 0 Blocking, 0 Serious, 1 Moderate, 4 Minor. Above 7: the launcher is used with the right workflow and active workspace everywhere, tab reuse is delegated to the launcher's synchronous `findWorkflowTab` (`generation-workflow-launcher.service.ts:60-72`), copy is fixed text, cancelled is silent, no raw error reaches the UI. Below 9: inconsistent workspace source and copy between B09 and B11, no in-flight guard in the Hub, and the widget's failure state replaces its own content.
+
+### Checks
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Right workflow and active workspace | PASS | Hub `openGeneration` passes `workflow` from the static action list and `workspaceScope.activeWorkspacePath()`; widget `launchGeneration` passes `tabs.activeWorkspacePath`. The launcher re-checks `workspacePath !== tabs.activeWorkspacePath` before and after navigation and returns `failed` (`launcher:56-58,86-92`), so a wrong-workspace tab cannot open |
+| Second click focuses same-workspace tab | PASS | launcher reuses `existing?.id` (`:62-71`); neither caller adds a second path. Component specs mock the launcher, so reuse itself relies on the B04 launcher spec |
+| Failure copy safe | PASS | Hub: "Generation could not be opened. Try again." and "Open a workspace to start generation."; widget: "Could not open generation. Please try again." No caught error text is shown |
+| Cancelled silent | PASS | Hub shows nothing for `cancelled` (only `failed` or a throw set copy, `landed` clears); widget errors only on `failed` |
+| Missing workspace | PASS, inconsistent | Hub shows a specific message; widget shows the generic failure. Different sources: `WorkspaceScopeService.activeWorkspacePath` (`core/.../workspace-scope.service.ts:68`) vs `TabManagerService.activeWorkspacePath` (`chat-state/.../tab-manager.service.ts:860`). A momentary disagreement ends in the launcher's `failed` and the generic copy, never in a wrong tab |
+| Independent starts never set combined origin | PASS | both callers pass `origin: 'independent-start'`; the launcher maps anything other than `analysis-result-continue` to `independent-start` (`:76-80`) |
+| Analysis entry unchanged | PASS | the Hub diff touches no analysis card markup or handler; the widget's analysis button and `launching` flow are untouched |
+| No `chat-ui -> chat` | PASS | the widget imports `chat-state` and the in-library launcher only; the card in `chat` imports `chat-ui` (allowed direction). Orchestrator lint is clean |
+| B10 | PASS | The card has no generation buttons of its own; it embeds `ptah-setup-status-widget` (`project-setup-card.component.ts:108`), so B11 covers both surfaces. The spec asserts exactly one button per workflow and the launcher call shape; skills warning and marketplace retained. The spec begins with a BOM (route to style review) |
+| Hub deviation (no running-only status line) | CONFIRMED as honest, gap recorded | design-spec 2.6 promises a "Running" line and an "Open running tab" label like the New Project card, but that card reads `workflowRequest.hasRunningMode(...)` (`setup-hub.component.ts:1359`) and no equivalent verified signal exists for generation inside `harness-builder` (run state lives in `setup-wizard`'s workflow store; tab existence does not prove a run). Showing "Running" from tab existence would present an unverified state. AC1/AC15 are met by second-click focus. Keep the deviation; update design-spec 2.6 or log it as a deferred enhancement |
+
+### Findings
+
+**Moderate**
+
+- **M1. Widget failure replaces the whole status body.** `setup-status-widget.component.ts` `launchGeneration` sets the shared `error` signal, which switches the template to the compact error branch (`:72-84`) and hides the status summary and both generation buttons; its only action is "Retry", which calls `fetchStatus()` and does not retry the launch. A launcher `failed` (for example a workspace race) wipes the card until the user presses Retry, and the copy reads as a status failure. Not data loss and not misleading about the outcome. Fix: a separate `generationError` signal rendered inline under the buttons (as the Hub does), leaving `error` for status loading; spec that the buttons remain after a failed launch.
+
+**Minor**
+
+- m1. The Hub has no in-flight guard (`openGeneration`), unlike the widget's `launching()`. The card is `role="button"` with `(click)` and `(keydown.enter)` and contains a native `<button>` with no handler, so Enter on the inner button fires keydown (bubbles) then click (bubbles) and calls the launcher twice. The launcher is safe (the second call finds the tab created synchronously; the first navigation may resolve `cancelled`, which is silent), but add a pending flag. The pattern was copied from the existing cards.
+- m2. Missing-workspace copy differs between B09 and B11, and they use different workspace sources. Use `TabManagerService.activeWorkspacePath` (the launcher's own source) in both with one message.
+- m3. Hub `generationError` is not cleared on `cancelled`, so an earlier failure persists after a later superseded click; it clears on `landed` and by dismiss. Harmless.
+- m4. The generation cards are rendered before the Workspace Analysis card (`@for` placed first), while the design review says the Hub keeps its own order untouched. A visual-review call; not blocking.
+
+### Five logic questions (Phase 6)
+
+1. Silent failure: none found; every non-landed outcome except `cancelled` produces copy; `cancelled` silence is by design.
+2. Unexpected user action: Enter on the Hub card's inner button double-invokes (m1); a launcher `failed` hides the widget content (M1).
+3. Wrong answer from input: path-format differences between the two workspace services end in a safe `failed`, never a wrong tab.
+4. Dependency failure: a thrown launcher call is caught on both surfaces; the widget resets `launching` in `finally`.
+5. Missing: a verified running or open-tab indicator on the Hub (recorded deviation); one shared missing-workspace copy.
+
+### Must-fix
+
+None.
+
+### Defer
+
+M1 (inline generation error in the widget), m1 (Hub in-flight guard and Enter double fire), m2 (single workspace source and copy), m4 (card order, for visual review), and the Hub running status line (needs a verified run-state signal exposed below `harness-builder`; update design-spec 2.6 to match what shipped).
+
+Review family: Claude; implementer family: codex

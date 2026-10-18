@@ -30,7 +30,7 @@ const tabProvider = {
 };
 
 describe('GenerationWorkflowStore', () => {
-  it('finds its own guidance run after a lost start response and reports unavailable model safely', async () => {
+  it('finds its own guidance run after a lost start response without claiming a model cause', async () => {
     const guidanceBinding = {
       ...binding,
       workflow: 'setup-project-prompt' as const,
@@ -68,9 +68,7 @@ describe('GenerationWorkflowStore', () => {
     getBoundRunState.mockResolvedValue(null);
     store.bind(guidanceBinding);
     await store.startGuidance();
-    expect(store.startError()).toBe(
-      'The selected model is not available for this provider.',
-    );
+    expect(store.startError()).toBeNull();
   });
   it.each([
     ['finalization failure', true, 'failed', true],

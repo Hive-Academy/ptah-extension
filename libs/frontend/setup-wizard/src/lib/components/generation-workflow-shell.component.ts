@@ -19,6 +19,7 @@ import {
   ProvidersSettingsStateService,
 } from '@ptah-extension/core';
 import { GenerationWorkflowLauncherService } from '@ptah-extension/chat-ui';
+import { SurfaceRouterService } from '@ptah-extension/core';
 import type { SetupGenerationWorkflow } from '@ptah-extension/shared';
 import { GenerationWorkflowStore } from '../services/generation-workflow.store';
 import { AgentGenerationStore } from '../services/agent-generation.store';
@@ -247,6 +248,9 @@ import { GenerationStopControlComponent } from './generation-stop-control.compon
       </section>
     } @else {
       <p role="alert">This generation tab is unavailable in this workspace.</p>
+      <button type="button" class="btn btn-ghost btn-sm" (click)="backToChat()">
+        Back to chat
+      </button>
     }
   `,
 })
@@ -264,6 +268,10 @@ export class GenerationWorkflowShellComponent {
     optional: true,
   });
   private readonly launcher = inject(GenerationWorkflowLauncherService);
+  private readonly surfaceRouter = inject(SurfaceRouterService);
+  backToChat(): void {
+    void this.surfaceRouter.navigateToSurface('chat');
+  }
   readonly store = inject(GenerationWorkflowStore);
   readonly agents = inject(AgentGenerationStore);
   readonly handoff = inject(GenerationHandoffStore);
@@ -395,7 +403,12 @@ export class GenerationWorkflowShellComponent {
     effect(() => {
       const run = this.store.run();
       if (run?.binding.workflow === 'setup-project-prompt') {
-        untracked(() => this.guidance.adopt(run));
+        untracked(() =>
+          this.guidance.adopt(
+            run,
+            this.store.acceptedRun()?.runId === run.binding.runId,
+          ),
+        );
         if (
           ['completed', 'failed', 'cancelled', 'timed-out'].includes(run.status)
         )

@@ -17,7 +17,6 @@ describe('GenerationGuidancePageComponent', () => {
     ],
     [{ reason: 'workspace-mismatch' }, null, null, 'Switch to this workspace'],
     [null, 'private host text', null, 'Finish this chat reply first.'],
-    [null, null, 'private host text', 'The selected model is not available'],
   ])(
     'shows safe guidance feedback for %p',
     (rejection, busy, error, expected) => {
@@ -121,6 +120,45 @@ describe('GenerationGuidancePageComponent', () => {
     expect(root.textContent).toContain('Project guidance saved');
   });
 
+  it('uses generic guidance rejection copy when the host cannot identify a model failure', () => {
+    TestBed.configureTestingModule({
+      imports: [GenerationGuidancePageComponent],
+      providers: [
+        {
+          provide: GenerationWorkflowStore,
+          useValue: {
+            state: () => 'idle',
+            isBound: () => false,
+            rejection: () => ({ reason: 'not-running' }),
+            chatTurnRejection: () => null,
+            startError: () => 'private model error',
+            startGuidance: jest.fn(),
+            refresh: jest.fn(),
+          },
+        },
+        {
+          provide: GuidanceGenerationStore,
+          useValue: {
+            status: () => 'idle',
+            source: () => null,
+            snapshot: () => null,
+            result: () => null,
+            run: () => null,
+            content: () => null,
+            actionFailed: () => false,
+          },
+        },
+      ],
+    });
+    const fixture = TestBed.createComponent(GenerationGuidancePageComponent);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain(
+      'Project guidance could not start',
+    );
+    expect(fixture.nativeElement.textContent).not.toContain('selected model');
+    expect(fixture.nativeElement.textContent).not.toContain('private');
+  });
+
   it('follows the latest workflow run through failure, Retry, and a new run after reload', async () => {
     const binding = {
       tabId: 'own',
@@ -161,14 +199,12 @@ describe('GenerationGuidancePageComponent', () => {
           },
         };
       }),
-      getEnhancedPromptsStatus: jest
-        .fn()
-        .mockResolvedValue({
-          hasGeneratedPrompt: true,
-          generatedAt: '2026-10-18',
-          enabled: true,
-          cacheValid: true,
-        }),
+      getEnhancedPromptsStatus: jest.fn().mockResolvedValue({
+        hasGeneratedPrompt: true,
+        generatedAt: '2026-10-18',
+        enabled: true,
+        cacheValid: true,
+      }),
     };
     TestBed.configureTestingModule({
       imports: [GenerationGuidancePageComponent],
@@ -199,20 +235,20 @@ describe('GenerationGuidancePageComponent', () => {
     workflow.bind(binding);
     guidance.bind(binding);
     await workflow.startGuidance();
-    if (workflow.run()) guidance.adopt(workflow.run()!);
+    if (workflow.run()) guidance.adopt(workflow.run()!, true);
     current = makeRun('first', 'failed', 'anthropic', 'old');
     await workflow.refresh();
-    guidance.adopt(workflow.run()!);
+    guidance.adopt(workflow.run()!, true);
     fixture.detectChanges();
     expect((fixture.nativeElement as HTMLElement).textContent).toContain(
       'Guidance was not saved',
     );
     next = makeRun('second', 'running', 'openai', 'new');
     await workflow.startGuidance();
-    guidance.adopt(workflow.run()!);
+    guidance.adopt(workflow.run()!, true);
     current = makeRun('second', 'completed', 'openai', 'new', 'committed');
     await workflow.refresh();
-    guidance.adopt(workflow.run()!);
+    guidance.adopt(workflow.run()!, true);
     fixture.detectChanges();
     expect((fixture.nativeElement as HTMLElement).textContent).toContain(
       'Project guidance saved',
@@ -228,7 +264,7 @@ describe('GenerationGuidancePageComponent', () => {
     guidance.bind(binding);
     next = makeRun('third', 'running', 'anthropic', 'fresh');
     await workflow.startGuidance();
-    guidance.adopt(workflow.run()!);
+    guidance.adopt(workflow.run()!, true);
     fixture.detectChanges();
     expect((fixture.nativeElement as HTMLElement).textContent).toContain(
       'fresh',

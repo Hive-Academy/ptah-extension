@@ -36,7 +36,10 @@ import type { GuidanceCommittedResult } from '../services/guidance-generation.st
             type="checkbox"
             class="toggle toggle-primary"
             [checked]="saved.enabled"
-            (change)="enabledChanged.emit(enabledToggle.checked)"
+            (change)="
+              enabledChanged.emit(enabledToggle.checked);
+              enabledToggle.checked = saved.enabled
+            "
             aria-label="Enable project guidance"
           />
           <span>Use project guidance</span>

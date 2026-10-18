@@ -120,6 +120,20 @@ describe('GuidanceGenerationStore', () => {
     expect(store.status()).toBe('cancelled');
   });
 
+  it.each(['workflow first', 'guidance first'])(
+    'keeps a restored failed run neutral when %s replies',
+    async (order) => {
+      rpc.getBoundRunState.mockResolvedValue(run('failed'));
+      store.bind(binding);
+      if (order === 'workflow first') store.adopt(run('failed'));
+      await store.refresh();
+      if (order === 'guidance first') store.adopt(run('failed'));
+      expect(store.status()).toBe('idle');
+      store.adopt(run('failed'), true);
+      expect(store.status()).toBe('failed');
+    },
+  );
+
   it('loads only the committed metadata and supports enabled/content/download actions', async () => {
     rpc.getEnhancedPromptsStatus.mockResolvedValue({
       hasGeneratedPrompt: true,

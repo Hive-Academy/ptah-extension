@@ -142,6 +142,11 @@ export type SetupStatus = SetupStatusGetResponse;
             Project guidance
           </button>
         </div>
+        @if (launchError()) {
+          <p class="mt-2 text-xs text-error" role="alert">
+            {{ launchError() }}
+          </p>
+        }
       }
     </div>
   `,
@@ -164,6 +169,7 @@ export class SetupStatusWidgetComponent implements OnInit {
   readonly status = signal<SetupStatus | null>(null);
   readonly isLoading = signal<boolean>(false);
   readonly error = signal<string | null>(null);
+  readonly launchError = signal<string | null>(null);
   readonly launching = signal<boolean>(false);
   /** True when the backend reports no workspace folder is open. */
   readonly workspaceNotOpen = signal<boolean>(false);
@@ -246,7 +252,7 @@ export class SetupStatusWidgetComponent implements OnInit {
   async launchGeneration(workflow: SetupGenerationWorkflow): Promise<void> {
     if (this.launching()) return;
     this.launching.set(true);
-    this.error.set(null);
+    this.launchError.set(null);
 
     try {
       const workspacePath = this.tabs.activeWorkspacePath;
@@ -258,10 +264,10 @@ export class SetupStatusWidgetComponent implements OnInit {
           })
         : { outcome: 'failed' as const };
       if (result.outcome === 'failed') {
-        this.error.set('Could not open generation. Please try again.');
+        this.launchError.set('Could not open generation. Please try again.');
       }
     } catch {
-      this.error.set('Could not open generation. Please try again.');
+      this.launchError.set('Could not open generation. Please try again.');
     } finally {
       this.launching.set(false);
     }

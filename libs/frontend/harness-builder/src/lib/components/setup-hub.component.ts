@@ -1250,6 +1250,7 @@ export class SetupHubComponent implements OnInit {
     GenerationWorkflowLauncherService,
   );
   readonly generationError = signal<string | null>(null);
+  readonly generationLaunching = signal(false);
   protected readonly generationActions: ReadonlyArray<{
     workflow: SetupGenerationWorkflow;
     title: string;
@@ -1430,9 +1431,12 @@ export class SetupHubComponent implements OnInit {
   }
 
   async openGeneration(workflow: SetupGenerationWorkflow): Promise<void> {
+    if (this.generationLaunching()) return;
+    this.generationLaunching.set(true);
     const workspacePath = this.workspaceScope.activeWorkspacePath();
     if (!workspacePath) {
       this.generationError.set('Open a workspace to start generation.');
+      this.generationLaunching.set(false);
       return;
     }
     try {
@@ -1448,6 +1452,8 @@ export class SetupHubComponent implements OnInit {
       }
     } catch {
       this.generationError.set('Generation could not be opened. Try again.');
+    } finally {
+      this.generationLaunching.set(false);
     }
   }
 

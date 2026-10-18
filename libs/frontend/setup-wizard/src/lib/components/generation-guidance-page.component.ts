@@ -60,11 +60,6 @@ import { GuidanceResultPanelComponent } from './guidance-result-panel.component'
         Finish this chat reply first.
       </p>
     }
-    @if (workflow.startError()) {
-      <p class="alert alert-warning text-sm" role="alert">
-        The selected model is not available for this provider.
-      </p>
-    }
     @if (
       guidance.run()?.committedState === 'unchanged' && status() === 'completed'
     ) {

@@ -132,6 +132,23 @@ describe('SetupHubComponent entry handoff', () => {
     );
   });
 
+  it('ignores a second generation activation while the first launch is pending', async () => {
+    let finish!: (value: { outcome: 'landed'; tabId: string }) => void;
+    openGeneration.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    const card = element('setup-agent-generation');
+    card.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }),
+    );
+    card.click();
+    expect(openGeneration).toHaveBeenCalledTimes(1);
+    finish({ outcome: 'landed', tabId: 'tab-1' });
+    await fixture.whenStable();
+  });
+
   it('shows safe copy for a failed launcher result', async () => {
     openGeneration.mockResolvedValueOnce({ outcome: 'failed' });
     click('setup-project-prompt');

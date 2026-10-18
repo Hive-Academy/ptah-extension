@@ -129,6 +129,11 @@ describe('SetupStatusWidgetComponent', () => {
     expect(fixture.nativeElement.textContent).toContain(
       'Could not open generation. Please try again.',
     );
+    expect(fixture.componentInstance.error()).toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('Claude Agents');
+    expect(
+      (fixture.nativeElement as HTMLElement).querySelectorAll('button').length,
+    ).toBeGreaterThanOrEqual(3);
   });
 
   it('does not show an error after cancellation', async () => {

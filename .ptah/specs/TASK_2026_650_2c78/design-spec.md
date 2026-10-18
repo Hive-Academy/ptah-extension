@@ -281,6 +281,8 @@ Component contract the design needs from the host (architect decides transport):
 
 The Hub home is **not redesigned** (649 D10 and D12). The two new starts are cards cloned from the Workspace Analysis card recipe (icon tile, `h2 text-lg font-bold`, `text-sm text-base-content-muted`, one outline `btn btn-sm w-full` with chevron) so the existing grid reflows: "Generate Agents" and "Generate Project Guidance". A running generator shows the same "Running" status line the New Project card already has and the button reads "Open running tab". No new banner, dialog or layout. Labels and wiring only. `hub.html` is a **content and wiring illustration**, not a pixel-accurate Hub, not a Hub redesign and not a new grid rule (its markup is an excerpt, as its own banner says): the real Hub keeps its existing card grid and Workspace Analysis card (`libs/frontend/harness-builder/src/lib/components/setup-hub.component.ts:322-390`), and the architect clones that markup for the two new cards.
 
+> **Implementation note (B09, 2026-10-18):** the "Running" status line and the "Open running tab" label are not shown. `harness-builder` has no verified run-state signal, and a label derived only from tab existence would call an idle tab running. A second click still focuses the existing tab through the launcher. Accepted in the Phase 6 review; revisit when a verified run-state signal reaches the Hub.
+
 ### 2.7 Responsive behavior (the 649 bands, measured on the host width)
 
 | Host width | Sidebar | Header | Chat |

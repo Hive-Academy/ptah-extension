@@ -2,6 +2,22 @@ import { TestBed } from '@angular/core/testing';
 import { GuidanceResultPanelComponent } from './guidance-result-panel.component';
 
 describe('GuidanceResultPanelComponent', () => {
+  it('returns the checkbox to the saved value while a toggle fails', () => {
+    TestBed.configureTestingModule({ imports: [GuidanceResultPanelComponent] });
+    const fixture = TestBed.createComponent(GuidanceResultPanelComponent);
+    const saved = { generatedAt: null, enabled: true, cacheValid: true };
+    fixture.componentRef.setInput('result', saved);
+    const emit = jest.spyOn(fixture.componentInstance.enabledChanged, 'emit');
+    fixture.detectChanges();
+    const checkbox = (fixture.nativeElement as HTMLElement).querySelector(
+      'input',
+    );
+    if (!checkbox) throw new Error('Missing guidance toggle');
+    checkbox.click();
+    fixture.detectChanges();
+    expect(emit).toHaveBeenCalledWith(false);
+    expect(checkbox.checked).toBe(true);
+  });
   it('shows committed metadata and emits actions without changing agent outcome', () => {
     TestBed.configureTestingModule({ imports: [GuidanceResultPanelComponent] });
     const fixture = TestBed.createComponent(GuidanceResultPanelComponent);

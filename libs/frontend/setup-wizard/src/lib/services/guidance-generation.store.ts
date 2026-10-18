@@ -86,7 +86,7 @@ export class GuidanceGenerationStore {
     this.content.set(null);
   }
 
-  adopt(run: SetupGenerationRunState): void {
+  adopt(run: SetupGenerationRunState, acceptedThisSession = false): void {
     const binding = this.bindingValue();
     if (!binding || !this.sameBinding(run.binding)) return;
     const changedRun = this.snapshotValue()?.runId !== run.binding.runId;
@@ -94,9 +94,10 @@ export class GuidanceGenerationStore {
     if (changedRun) {
       this.runValue.set(null);
       this.snapshotValue.set(null);
-      this.restoring = false;
       this.statusValue.set('starting');
     }
+    if (acceptedThisSession || !this.isTerminal(run.status))
+      this.restoring = false;
     if (changedRun) this.accept(run);
     this.applyRun(run);
     if (
@@ -164,6 +165,10 @@ export class GuidanceGenerationStore {
           : run.status,
     );
     if (!terminal) this.restoring = false;
+  }
+
+  private isTerminal(status: SetupGenerationRunState['status']): boolean {
+    return ['completed', 'cancelled', 'failed', 'timed-out'].includes(status);
   }
 
   async refreshCommitted(binding = this.bindingValue()): Promise<void> {
