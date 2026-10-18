@@ -110,6 +110,38 @@ describe('SessionReplayService', () => {
     return { blockOwners: new Map(), syntheticToolResults: new Set() };
   }
 
+  it('replays missing SDK ids and timestamps identically across reads', () => {
+    const messages: SessionHistoryMessage[] = [{
+      ...a({
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'answer' },
+          { type: 'tool_use', name: 'Read', input: {} },
+        ],
+      }),
+      timestamp: 'not-a-timestamp',
+      uuid: 'fixed-line',
+    }];
+    const first = service.replayAgentToStreamEvents('s', 'task', messages);
+    const second = service.replayAgentToStreamEvents('s', 'task', messages);
+    expect(second).toEqual(first);
+    expect(first[0].messageId).toBe('agent_msg_task_0_fixed-line');
+  });
+
+  it('keeps one message envelope across skipped lines with the same SDK id', () => {
+    const messages: SessionHistoryMessage[] = [
+      a({ role: 'assistant', id: 'api-one', content: [{ type: 'text', text: 'first' }] }),
+      u({ role: 'user', content: 'interleaved result' }),
+      a({ role: 'assistant', id: 'api-one', content: [{ type: 'text', text: 'second' }] }),
+    ];
+    const events = service.replayAgentToStreamEvents('s', 'task', messages);
+    expect(eventTypes(events)).toEqual([
+      'message_start', 'text_delta', 'text_delta', 'message_complete',
+    ]);
+    expect(events.filter((event) => event.eventType === 'text_delta').map((event) => event.blockIndex))
+      .toEqual([0, 1]);
+  });
+
   it('records main blocks without changing the uncollected event output', () => {
     const message = {
       ...a({

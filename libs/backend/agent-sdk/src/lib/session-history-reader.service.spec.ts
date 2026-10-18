@@ -231,17 +231,25 @@ describe('SessionHistoryReaderService', () => {
       });
     });
 
-    it('keeps the newest 10,000 events and reports truncation', async () => {
+    it('starts a truncated tail at a message boundary', async () => {
       const { stubs, service } = setup();
       const factory = new HistoryEventFactory();
-      const events = Array.from({ length: 10_001 }, (_, index) =>
-        factory.createAgentTextDelta('session', 'message', String(index), index, index, index, 'task'),
-      );
+      const events = Array.from({ length: 10_002 }, (_, index) => {
+        const messageId = `message-${Math.floor(index / 3)}`;
+        if (index % 3 === 0) {
+          return factory.createAgentMessageStart('session', messageId, index, index, 'task');
+        }
+        if (index % 3 === 1) {
+          return factory.createAgentTextDelta('session', messageId, String(index), 0, index, index, 'task');
+        }
+        return factory.createAgentMessageComplete('session', messageId, index, index, 'task');
+      });
       stubs.replayService.replayAgentToStreamEvents.mockReturnValue(events);
       const result = await service.readSubagentEvents('session', 'task', 'a');
       expect(result.truncated).toBe(true);
-      expect(result.events).toHaveLength(10_000);
-      expect(result.events[0]).toBe(events[1]);
+      expect(result.events).toHaveLength(9_999);
+      expect(result.events[0]).toBe(events[3]);
+      expect(result.events[0].eventType).toBe('message_start');
     });
 
     it('reports an oversized JSONL read without leaking the path', async () => {
@@ -256,6 +264,14 @@ describe('SessionHistoryReaderService', () => {
       await expect(service.readSubagentEvents('session', 'task', '../escape'))
         .rejects.toThrow('Invalid agent id');
       expect(stubs.jsonlReader.listSessionsDirectories).not.toHaveBeenCalled();
+    });
+
+    it('keeps a correlated agent id validation error distinct from read failures', async () => {
+      const { stubs, service } = setup();
+      stubs.replayService.correlateAgentId.mockReturnValue('agent-../escape');
+      await expect(service.readSubagentEvents('session', 'task'))
+        .rejects.toThrow('Invalid agent id');
+      expect(stubs.logger.warn).not.toHaveBeenCalled();
     });
   });
 

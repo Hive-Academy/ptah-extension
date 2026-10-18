@@ -492,7 +492,8 @@ export class SessionReplayService {
     toolCallId: string,
     messages: SessionHistoryMessage[],
   ): FlatStreamEventUnion[] {
-    return this.processAgentMessages(sessionId, toolCallId, messages, Date.now(), undefined, true);
+    // Preserve-mode fallbacks must remain stable between page requests.
+    return this.processAgentMessages(sessionId, toolCallId, messages, 0, undefined, true);
   }
 
   /**
@@ -539,8 +540,8 @@ export class SessionReplayService {
           ? jsonlTimestamp
           : parentTimestamp + sequence++ * 0.0001;
       const continued = preserveJsonlIdentity && !!msg.message.id && msg.message.id === previousId;
-      const agentMessageId = preserveJsonlIdentity && msg.message.id
-        ? msg.message.id
+      const agentMessageId = preserveJsonlIdentity
+        ? (msg.message.id ?? `agent_msg_${parentToolUseId}_${messageIndex}_${msg.uuid ?? 'line'}`)
         : `agent_msg_${parentToolUseId}_${eventIndex}_${Math.floor(parentTimestamp)}`;
       let blockIndex = continued ? runningBlockIndex : 0;
       if (!continued) {
@@ -575,7 +576,9 @@ export class SessionReplayService {
         } else if (block.type === 'tool_use') {
           if (preserveJsonlIdentity) blockIndex++;
           const toolResult = block.id ? toolResults.get(block.id) : undefined;
-          const toolCallId = block.id || this.eventFactory.generateId();
+          const toolCallId = block.id || (preserveJsonlIdentity
+            ? `agent_tool_${parentToolUseId}_${messageIndex}_${eventIndex}`
+            : this.eventFactory.generateId());
 
           events.push(
             this.eventFactory.createAgentToolStart(
@@ -650,8 +653,15 @@ export class SessionReplayService {
       }
       runningBlockIndex = blockIndex;
       previousId = msg.message.id ?? null;
-      const next = messages[messageIndex + 1];
-      const continues = preserveJsonlIdentity && !!previousId && next?.type === 'assistant' && next.message?.id === previousId;
+      let next: SessionHistoryMessage | undefined;
+      for (let nextIndex = messageIndex + 1; nextIndex < messages.length; nextIndex++) {
+        const candidate = messages[nextIndex];
+        if (candidate.type === 'assistant' && Array.isArray(candidate.message?.content)) {
+          next = candidate;
+          break;
+        }
+      }
+      const continues = preserveJsonlIdentity && !!previousId && next?.message?.id === previousId;
       if (!continues) {
         events.push(this.eventFactory.createAgentMessageComplete(
           sessionId, agentMessageId, eventIndex++, eventTime(), parentToolUseId, agentMessageUsage,
