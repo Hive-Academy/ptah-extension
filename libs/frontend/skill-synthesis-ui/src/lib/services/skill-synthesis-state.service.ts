@@ -1,4 +1,5 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
+import { ClaudeRpcService } from '@ptah-extension/core';
 import type {
   SkillSuggestionDetail,
   SkillSuggestionSummary,
@@ -49,6 +50,17 @@ export const SKILLS_PAUSED_NOTICE =
 const SKILLS_SWITCH_WRITE_ERROR =
   'Could not change the Skills switch. It shows the saved setting.';
 const SKILLS_SWITCH_READ_ERROR = 'Could not read whether Skills is paused.';
+const TELEMETRY_SWITCH_WRITE_ERROR =
+  'Could not change the telemetry switch. It shows the saved setting.';
+const TELEMETRY_SWITCH_READ_ERROR = 'Could not read the telemetry setting.';
+
+/**
+ * The two file-based settings keys this service round-trips on
+ * (platform-core file-settings-keys.ts). Independent keys: writing one never
+ * changes the other's stored value.
+ */
+const SKILLS_ENABLED_KEY = 'skillSynthesis.enabled';
+const SKILLS_TELEMETRY_KEY = 'skills.telemetry.enabled';
 
 /** Status filter values for the candidates table. */
 export type SkillStatusFilter = 'all' | 'pending' | 'promoted' | 'rejected';
@@ -92,6 +104,7 @@ function statusFilterToBackend(
 })
 export class SkillSynthesisStateService {
   private readonly rpc = inject(SkillSynthesisRpcService);
+  private readonly settingsRpc = inject(ClaudeRpcService);
 
   public readonly candidates = signal<SkillSynthesisCandidateSummary[]>([]);
   public readonly statusFilter = signal<SkillStatusFilter>('all');
@@ -372,20 +385,47 @@ export class SkillSynthesisStateService {
   public readonly skillsSwitchError = this._skillsSwitchError.asReadonly();
 
   /**
-   * Re-read `skillSynthesis.enabled` (tab shown, window focus, page visible).
-   * Skipped while a write is in flight; a read that a newer read or write
-   * overtook is dropped. Never touches the Settings form, so a focus re-read
-   * cannot discard unsaved form edits.
+   * Read one file-based setting through `settings:get`. Throws when the RPC or
+   * the host read failed, so the caller keeps its last committed value.
+   */
+  private async readSettingValue(key: string): Promise<unknown> {
+    const result = await this.settingsRpc.call('settings:get', { key });
+    const payload = result.data;
+    if (!result.isSuccess() || !payload?.success) {
+      throw new Error(
+        result.error || payload?.error || `settings:get failed for ${key}`,
+      );
+    }
+    return payload.value;
+  }
+
+  /**
+   * Write one file-based setting through `settings:set`. Throws when the RPC
+   * or the host write failed, so the caller can roll back.
+   */
+  private async writeSettingValue(key: string, value: unknown): Promise<void> {
+    const result = await this.settingsRpc.call('settings:set', { key, value });
+    const payload = result.data;
+    if (!result.isSuccess() || !payload?.success) {
+      throw new Error(
+        result.error || payload?.error || `settings:set failed for ${key}`,
+      );
+    }
+  }
+
+  /**
+   * Re-read `skillSynthesis.enabled` through `settings:get` (tab shown,
+   * window focus, page visible). Skipped while a write is in flight; a read
+   * that a newer read or write overtook is dropped. Never touches the
+   * Settings form, so a focus re-read cannot discard unsaved form edits.
    */
   public async refreshSkillsEnabled(): Promise<void> {
     if (this._skillsSwitchSaving()) return;
     const seq = ++this.switchSeq;
     try {
-      const s = await this.rpc.getSettings();
+      const value = await this.readSettingValue(SKILLS_ENABLED_KEY);
       if (seq === this.switchSeq) {
-        this._skillsEnabled.set(
-          typeof s.enabled === 'boolean' ? s.enabled : null,
-        );
+        this._skillsEnabled.set(typeof value === 'boolean' ? value : null);
         if (this._skillsSwitchError() === SKILLS_SWITCH_READ_ERROR) {
           this._skillsSwitchError.set(null);
         }
@@ -399,10 +439,11 @@ export class SkillSynthesisStateService {
   }
 
   /**
-   * Turn Skills on or off with `updateSettings({ enabled })` alone (no other
-   * key, so the curator is not restarted). Optimistic: the switch moves at
-   * once and rolls back to the committed value on failure, which is then
-   * re-read from the host.
+   * Turn Skills on or off by writing only the `skillSynthesis.enabled` key
+   * (no other key, so the curator is not restarted). Optimistic: the switch
+   * moves at once, the committed value becomes what the host read back
+   * (`settings:get` after the write), and a failure rolls back to the
+   * committed value, which is then re-read from the host.
    */
   public async setSkillsEnabled(enabled: boolean): Promise<void> {
     if (this._skillsSwitchSaving()) return;
@@ -412,9 +453,10 @@ export class SkillSynthesisStateService {
     this._skillsSwitchError.set(null);
     let failed = false;
     try {
-      await this.rpc.updateSettings({ enabled });
+      await this.writeSettingValue(SKILLS_ENABLED_KEY, enabled);
+      const stored = await this.readSettingValue(SKILLS_ENABLED_KEY);
       ++this.switchSeq;
-      this._skillsEnabled.set(enabled);
+      this._skillsEnabled.set(typeof stored === 'boolean' ? stored : null);
     } catch {
       // Shown under the switch; the committed value is re-read below.
       failed = true;
@@ -433,6 +475,80 @@ export class SkillSynthesisStateService {
   public markSkillsPaused(): void {
     ++this.switchSeq;
     this._skillsEnabled.set(false);
+  }
+
+  // --- Skill telemetry switch (`skills.telemetry.enabled`, plan 3.7) --------
+  //
+  // Independent of the Skills master switch above: the two settings keys are
+  // separate (file-settings-keys.ts), so pausing Skills never turns telemetry
+  // off and turning telemetry off never pauses Skills. The dashboard Skills
+  // tile reads the same key for its On/Off value.
+
+  private readonly _telemetryEnabled = signal<boolean | null>(null);
+  private readonly _telemetryPending = signal<boolean | null>(null);
+  private readonly _telemetrySaving = signal<boolean>(false);
+  private readonly _telemetryError = signal<string | null>(null);
+  private telemetrySeq = 0;
+
+  /** The host's committed value; `null` until first read. */
+  public readonly telemetryEnabledCommitted =
+    this._telemetryEnabled.asReadonly();
+  /** What the toggle shows: the pending write, else the committed value. */
+  public readonly telemetryEnabled = computed<boolean | null>(
+    () => this._telemetryPending() ?? this._telemetryEnabled(),
+  );
+  public readonly telemetrySaving = this._telemetrySaving.asReadonly();
+  public readonly telemetryError = this._telemetryError.asReadonly();
+
+  /**
+   * Re-read `skills.telemetry.enabled` through `settings:get`. Skipped while
+   * a write is in flight; a read that a newer read or write overtook is
+   * dropped.
+   */
+  public async refreshTelemetryEnabled(): Promise<void> {
+    if (this._telemetrySaving()) return;
+    const seq = ++this.telemetrySeq;
+    try {
+      const value = await this.readSettingValue(SKILLS_TELEMETRY_KEY);
+      if (seq === this.telemetrySeq) {
+        this._telemetryEnabled.set(typeof value === 'boolean' ? value : null);
+        if (this._telemetryError() === TELEMETRY_SWITCH_READ_ERROR) {
+          this._telemetryError.set(null);
+        }
+      }
+    } catch {
+      if (seq === this.telemetrySeq) {
+        this._telemetryError.set(TELEMETRY_SWITCH_READ_ERROR);
+      }
+    }
+  }
+
+  /**
+   * Turn telemetry on or off by writing only the `skills.telemetry.enabled`
+   * key. Optimistic like the Skills switch: the toggle moves at once, the
+   * committed value becomes what the host read back, and a failure rolls back
+   * to the committed value, which is then re-read from the host.
+   */
+  public async setTelemetryEnabled(enabled: boolean): Promise<void> {
+    if (this._telemetrySaving()) return;
+    ++this.telemetrySeq;
+    this._telemetrySaving.set(true);
+    this._telemetryPending.set(enabled);
+    this._telemetryError.set(null);
+    let failed = false;
+    try {
+      await this.writeSettingValue(SKILLS_TELEMETRY_KEY, enabled);
+      const stored = await this.readSettingValue(SKILLS_TELEMETRY_KEY);
+      ++this.telemetrySeq;
+      this._telemetryEnabled.set(typeof stored === 'boolean' ? stored : null);
+    } catch {
+      failed = true;
+      this._telemetryError.set(TELEMETRY_SWITCH_WRITE_ERROR);
+    } finally {
+      this._telemetryPending.set(null);
+      this._telemetrySaving.set(false);
+    }
+    if (failed) await this.refreshTelemetryEnabled();
   }
 
   /** Load settings from the backend into the settings signal. */

@@ -109,7 +109,7 @@ function makeDiagnosticsStub(
     startPolling: jest.fn(),
     stopPolling: jest.fn(),
     analyzeNow: jest.fn(async () => undefined),
-    setTriggers: jest.fn(async () => undefined),
+    setTriggers: jest.fn(async (_triggers: Record<string, unknown>) => undefined),
   };
 }
 
@@ -231,6 +231,11 @@ interface StubState {
   readonly refreshSkillsEnabled: jest.Mock<Promise<void>, []>;
   readonly setSkillsEnabled: jest.Mock<Promise<void>, [boolean]>;
   readonly markSkillsPaused: jest.Mock<void, []>;
+  readonly telemetryEnabled: ReturnType<typeof signal<boolean | null>>;
+  readonly telemetrySaving: ReturnType<typeof signal<boolean>>;
+  readonly telemetryError: ReturnType<typeof signal<string | null>>;
+  readonly refreshTelemetryEnabled: jest.Mock<Promise<void>, []>;
+  readonly setTelemetryEnabled: jest.Mock<Promise<void>, [boolean]>;
 }
 
 function makeStub(
@@ -256,6 +261,11 @@ function makeStub(
     refreshSkillsEnabled: jest.fn(async () => undefined),
     setSkillsEnabled: jest.fn(async (_enabled: boolean) => undefined),
     markSkillsPaused: jest.fn(() => skillsEnabledCommitted.set(false)),
+    telemetryEnabled: signal<boolean | null>(true),
+    telemetrySaving: signal(false),
+    telemetryError: signal<string | null>(null),
+    refreshTelemetryEnabled: jest.fn(async () => undefined),
+    setTelemetryEnabled: jest.fn(async (_enabled: boolean) => undefined),
     drainRuns: signal<SkillSynthesisDrainRun[]>(queueValue.runs ?? []),
     queueItems,
     stageSpend: signal<SkillSynthesisStageSpend[]>(queueValue.stageSpend ?? []),
@@ -294,26 +304,54 @@ function makeStub(
     error: signal<string | null>(null),
     refreshCandidates: jest.fn(async () => undefined),
     loadStats: jest.fn(async () => undefined),
-    setStatusFilter: jest.fn(async () => undefined),
-    selectCandidate: jest.fn(async () => undefined),
-    promote: jest.fn(async () => null),
-    reject: jest.fn(async () => undefined),
-    rejectBulk: jest.fn(async () => 0),
-    promoteBulk: jest.fn(async () => null),
-    rejectByPattern: jest.fn(async () => null),
+    setStatusFilter: jest.fn(async (_filter: 'all' | 'pending' | 'promoted' | 'rejected') => undefined),
+    selectCandidate: jest.fn(async (_id: string | null) => undefined),
+    promote: jest.fn(async (_id: string, _reason: string | undefined): Promise<SkillSynthesisPromoteResult | null> => null),
+    reject: jest.fn(async (_id: string, _reason: string | undefined) => undefined),
+    rejectBulk: jest.fn(async (_ids: string[], _reason: string | undefined) => 0),
+    promoteBulk: jest.fn(async (_ids: string[]): Promise<SkillSynthesisPromoteBulkResult | null> => null),
+    rejectByPattern: jest.fn(async (_pattern: string, _reason: string | undefined): Promise<SkillSynthesisRejectByPatternResult | null> => null),
     specs: signal<unknown[]>([]),
     specsLoading: signal<boolean>(false),
     staleSpecCount: computed(() => 0),
     refreshSpecs: jest.fn(async () => undefined),
     harvestSpecs: jest.fn(async () => undefined),
-    clearStaleSpecs: jest.fn(async () => 0),
+    clearStaleSpecs: jest.fn(async (_options: unknown) => 0),
     candidateDetail: signal<unknown>(null),
     candidateDetailLoading: signal<boolean>(false),
-    loadCandidateDetail: jest.fn(async () => undefined),
+    loadCandidateDetail: jest.fn(async (_id: string | null) => undefined),
   };
 }
 
 describe('SkillSynthesisTabComponent', () => {
+  it('loads telemetry and toggles it independently of the Skills pause state', () => {
+    const stub = makeStub();
+    TestBed.configureTestingModule({
+      imports: [SkillSynthesisTabComponent],
+      providers: [
+        { provide: SkillSynthesisStateService, useValue: stub },
+        { provide: SkillDiagnosticsStateService, useValue: makeDiagnosticsStub() },
+        { provide: VSCodeService, useValue: vscodeServiceStub(true) },
+        { provide: TabManagerService, useValue: tabManagerStub },
+      ],
+    });
+    const fixture = TestBed.createComponent(SkillSynthesisTabComponent);
+    fixture.detectChanges();
+    expect(stub.refreshTelemetryEnabled).toHaveBeenCalledTimes(1);
+
+    const toggle = (fixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>(
+      '[data-testid="skills-telemetry-toggle"]',
+    );
+    expect(toggle).not.toBeNull();
+    stub.skillsEnabledCommitted.set(false);
+    fixture.detectChanges();
+    expect(toggle?.disabled).toBe(false);
+    toggle!.checked = false;
+    toggle!.dispatchEvent(new Event('change'));
+    expect(stub.setTelemetryEnabled).toHaveBeenCalledWith(false);
+    expect(stub.setSkillsEnabled).not.toHaveBeenCalled();
+  });
+
   it('renders the four status filter chips and refreshes candidates on init', () => {
     const stub = makeStub();
     const diag = makeDiagnosticsStub();
@@ -529,7 +567,7 @@ describe('SkillSynthesisTabComponent', () => {
         accepted: 3,
       },
       recentEvents: [
-        { kind: 'ineligible', timestamp: Date.now(), sessionId: 'a' },
+        { id: 'event-a', kind: 'ineligible', timestamp: Date.now(), sessionId: 'a' },
       ],
     });
 
@@ -622,6 +660,7 @@ describe('SkillSynthesisTabComponent', () => {
     const stub = makeStub([
       {
         id: 'cand-1',
+        workspaceRoot: null,
         name: 'refactor-tests',
         description: 'Refactor jest configs into a shared preset',
         status: 'candidate',

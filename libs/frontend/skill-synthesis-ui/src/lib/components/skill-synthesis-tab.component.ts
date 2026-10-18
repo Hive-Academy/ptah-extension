@@ -171,6 +171,35 @@ interface ActionDialogState {
 
         <ptah-skills-pause-switch (pausedChange)="pausedChange.emit($event)" />
 
+        <section
+          class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-base-300 bg-base-200/40 px-4 py-3"
+          aria-labelledby="skills-telemetry-label"
+          data-testid="skills-telemetry-switch"
+        >
+          <div>
+            <label id="skills-telemetry-label" for="skills-telemetry-toggle" class="text-sm font-semibold">
+              Skill telemetry
+            </label>
+            <p id="skills-telemetry-help" class="text-xs text-base-content-muted">
+              Records skill use even while Skills is paused.
+            </p>
+          </div>
+          <input
+            id="skills-telemetry-toggle"
+            type="checkbox"
+            role="switch"
+            class="toggle toggle-sm toggle-primary"
+            [checked]="telemetryEnabled() === true"
+            [disabled]="telemetrySaving() || telemetryEnabled() === null"
+            aria-describedby="skills-telemetry-help"
+            (change)="onToggleTelemetry($event)"
+            data-testid="skills-telemetry-toggle"
+          />
+          @if (telemetryError(); as message) {
+            <p class="basis-full text-xs text-error" role="alert">{{ message }}</p>
+          }
+        </section>
+
         <ptah-skill-stats-strip [stats]="stats()" />
 
         <div
@@ -774,6 +803,17 @@ export class SkillSynthesisTabComponent implements OnInit {
   protected readonly skillsPaused = this.state.skillsPaused;
   protected readonly pausedReason = SKILLS_PAUSED_REASON;
 
+  protected readonly telemetryEnabled = this.state.telemetryEnabled;
+  protected readonly telemetrySaving = this.state.telemetrySaving;
+  protected readonly telemetryError = this.state.telemetryError;
+
+  protected onToggleTelemetry(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const wanted = input.checked;
+    input.checked = this.telemetryEnabled() === true;
+    void this.state.setTelemetryEnabled(wanted);
+  }
+
   /** Live background-activity label (curator pass / embedding backfill). */
   protected readonly activity = this.live.activity;
 
@@ -987,6 +1027,7 @@ export class SkillSynthesisTabComponent implements OnInit {
     void this.state.refreshDigest({ allowRewrite: false });
     void this.state.refreshSpecs();
     void this.loadSettings();
+    void this.state.refreshTelemetryEnabled();
   }
 
   protected setSubView(view: SkillSubView): void {

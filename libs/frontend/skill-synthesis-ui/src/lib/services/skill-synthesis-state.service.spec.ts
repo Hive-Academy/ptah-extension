@@ -1,4 +1,5 @@
 import { TestBed } from '@angular/core/testing';
+import { ClaudeRpcService } from '@ptah-extension/core';
 import type {
   SkillSuggestionSummary,
   SkillSynthesisDrainRun,
@@ -511,119 +512,92 @@ describe('SkillSynthesisStateService — weekly digest', () => {
   });
 });
 
-describe('SkillSynthesisStateService — Skills pause switch', () => {
-  function deferred<T>(): {
-    promise: Promise<T>;
-    resolve: (value: T) => void;
-  } {
-    let resolve!: (value: T) => void;
-    const promise = new Promise<T>((res) => {
-      resolve = res;
+describe('SkillSynthesisStateService - file settings switches', () => {
+  function setup(skills = true, telemetry = true) {
+    const values = new Map<string, boolean>([
+      ['skillSynthesis.enabled', skills],
+      ['skills.telemetry.enabled', telemetry],
+    ]);
+    const call = jest.fn(async (method: string, params: { key: string; value?: boolean }) => {
+      if (method === 'settings:set') values.set(params.key, params.value!);
+      return {
+        isSuccess: () => true,
+        data: method === 'settings:get'
+          ? { success: true, value: values.get(params.key) }
+          : { success: true },
+      };
     });
-    return { promise, resolve };
-  }
-
-  function setup(enabled = true) {
-    const rpc = {
-      getSettings: jest.fn(async () => ({ enabled })),
-      updateSettings: jest.fn(async () => undefined),
-    };
     TestBed.configureTestingModule({
-      providers: [{ provide: SkillSynthesisRpcService, useValue: rpc }],
+      providers: [
+        { provide: SkillSynthesisRpcService, useValue: {} },
+        { provide: ClaudeRpcService, useValue: { call } },
+      ],
     });
-    const svc = TestBed.inject(SkillSynthesisStateService);
-    return { svc, rpc };
+    return { svc: TestBed.inject(SkillSynthesisStateService), call, values };
   }
 
-  it('reads skillSynthesis.enabled through getSettings; unknown until then', async () => {
-    const { svc } = setup(false);
+  it('loads pause and telemetry independently', async () => {
+    const { svc, call } = setup(false, true);
     expect(svc.skillsEnabled()).toBeNull();
-    expect(svc.skillsPaused()).toBe(false);
-
+    expect(svc.telemetryEnabled()).toBeNull();
     await svc.refreshSkillsEnabled();
-
-    expect(svc.skillsEnabledCommitted()).toBe(false);
+    await svc.refreshTelemetryEnabled();
+    expect(call).toHaveBeenCalledWith('settings:get', { key: 'skillSynthesis.enabled' });
+    expect(call).toHaveBeenCalledWith('settings:get', { key: 'skills.telemetry.enabled' });
     expect(svc.skillsPaused()).toBe(true);
+    expect(svc.telemetryEnabledCommitted()).toBe(true);
   });
 
-  it('writes only { enabled } so the curator is not restarted', async () => {
-    const { svc, rpc } = setup();
-    await svc.refreshSkillsEnabled();
+  it.each([
+    ['skillSynthesis.enabled', 'setSkillsEnabled', 'skillsEnabledCommitted'],
+    ['skills.telemetry.enabled', 'setTelemetryEnabled', 'telemetryEnabledCommitted'],
+  ] as const)('writes %s then commits its readBack', async (key, setter, committed) => {
+    const { svc, call, values } = setup();
+    await svc[setter](false);
+    expect(call.mock.calls.map(([method, payload]) => [method, payload.key])).toEqual([
+      ['settings:set', key], ['settings:get', key],
+    ]);
+    expect(svc[committed]()).toBe(false);
+    expect(values.get(key)).toBe(false);
+  });
 
+  it('pausing Skills leaves telemetry enabled and untouched', async () => {
+    const { svc, call, values } = setup();
+    await svc.refreshTelemetryEnabled();
+    call.mockClear();
     await svc.setSkillsEnabled(false);
-
-    expect(rpc.updateSettings).toHaveBeenCalledTimes(1);
-    expect(rpc.updateSettings).toHaveBeenCalledWith({ enabled: false });
-    expect(svc.skillsEnabledCommitted()).toBe(false);
     expect(svc.skillsPaused()).toBe(true);
+    expect(svc.telemetryEnabledCommitted()).toBe(true);
+    expect(values.get('skills.telemetry.enabled')).toBe(true);
+    expect(call.mock.calls.every(([, payload]) => payload.key === 'skillSynthesis.enabled')).toBe(true);
   });
 
-  it('moves the switch at once and keeps the committed value until the write lands', async () => {
-    const { svc, rpc } = setup();
-    await svc.refreshSkillsEnabled();
-    const write = deferred<undefined>();
-    rpc.updateSettings.mockReturnValue(write.promise);
-
-    const pending = svc.setSkillsEnabled(false);
-    expect(svc.skillsEnabled()).toBe(false);
-    expect(svc.skillsSwitchSaving()).toBe(true);
+  it('uses the host readBack even when it differs from the requested value', async () => {
+    const { svc, call } = setup(true, true);
+    call.mockImplementationOnce(async () => ({
+      isSuccess: () => true, data: { success: true },
+    }));
+    await svc.setSkillsEnabled(false);
     expect(svc.skillsEnabledCommitted()).toBe(true);
-
-    write.resolve(undefined);
-    await pending;
-    expect(svc.skillsSwitchSaving()).toBe(false);
-    expect(svc.skillsEnabledCommitted()).toBe(false);
-  });
-
-  it('rolls back and re-reads the host value when the write fails', async () => {
-    const { svc, rpc } = setup();
-    await svc.refreshSkillsEnabled();
-    rpc.getSettings.mockClear();
-    rpc.updateSettings.mockRejectedValue(new Error('disk full'));
-
-    await svc.setSkillsEnabled(false);
-
-    expect(svc.skillsEnabled()).toBe(true);
     expect(svc.skillsPaused()).toBe(false);
-    expect(svc.skillsSwitchError()).toBe(
-      'Could not change the Skills switch. It shows the saved setting.',
-    );
-    expect(rpc.getSettings).toHaveBeenCalledTimes(1);
   });
 
-  it('drops a read that a write overtook (stale-GET guard)', async () => {
-    const { svc, rpc } = setup();
-    const staleRead = deferred<{ enabled: boolean }>();
-    rpc.getSettings.mockReturnValueOnce(staleRead.promise);
-
-    const read = svc.refreshSkillsEnabled(); // will answer "on"
-    await svc.setSkillsEnabled(false);
-    staleRead.resolve({ enabled: true });
-    await read;
-
-    expect(svc.skillsEnabledCommitted()).toBe(false);
+  it('rolls back a failed telemetry write and re-reads the host', async () => {
+    const { svc, call } = setup();
+    await svc.refreshTelemetryEnabled();
+    call.mockImplementationOnce(async () => ({
+      isSuccess: () => true, data: { success: false },
+    }));
+    await svc.setTelemetryEnabled(false);
+    expect(svc.telemetryEnabled()).toBe(true);
+    expect(svc.telemetryError()).toBe('Could not change the telemetry switch. It shows the saved setting.');
+    expect(call).toHaveBeenLastCalledWith('settings:get', { key: 'skills.telemetry.enabled' });
   });
 
-  it('does not read while a write is in flight', async () => {
-    const { svc, rpc } = setup();
-    const write = deferred<undefined>();
-    rpc.updateSettings.mockReturnValue(write.promise);
-
-    const pending = svc.setSkillsEnabled(false);
-    await svc.refreshSkillsEnabled();
-    expect(rpc.getSettings).not.toHaveBeenCalled();
-
-    write.resolve(undefined);
-    await pending;
-  });
-
-  it('markSkillsPaused() shows the paused state after a PAUSED refusal', async () => {
+  it('marks Skills paused after a PAUSED refusal', async () => {
     const { svc } = setup();
     await svc.refreshSkillsEnabled();
-
     svc.markSkillsPaused();
-
     expect(svc.skillsPaused()).toBe(true);
-    expect(svc.skillsEnabledCommitted()).toBe(false);
   });
 });
