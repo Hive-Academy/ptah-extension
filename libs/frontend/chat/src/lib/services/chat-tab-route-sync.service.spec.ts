@@ -456,6 +456,57 @@ describe('ChatTabRouteSync', () => {
       },
     );
 
+    it.each(['cancel', 'error'] as const)(
+      'reconciles an idle correction superseded by a navigation that ends in %s',
+      async (outcome) => {
+        setUp([TAB_A, TAB_B], TAB_A);
+        await router.navigateByUrl(`/chat/${TAB_A}`);
+        await settle();
+        router.resetConfig(router.config.map((route) => route.path === 'settings'
+          ? { ...route, canActivate: [() => outcome === 'cancel' ? false : Promise.reject(new Error('guard failed'))] }
+          : route));
+        const navigate = jest.spyOn(TestBed.inject(SurfaceRouterService), 'navigateToSurface');
+
+        // The idle correction to B starts in this turn; settings supersedes it.
+        tabManager.activeTabId.set(TAB_B);
+        TestBed.tick();
+        expect(navigate).toHaveBeenCalledWith('chat', [TAB_B], { replaceUrl: true });
+        if (outcome === 'cancel') {
+          expect(await router.navigateByUrl('/settings')).toBe(false);
+        } else {
+          await expect(router.navigateByUrl('/settings')).rejects.toThrow('guard failed');
+        }
+        await settle();
+
+        expect(router.url).toBe(`/chat/${TAB_B}`);
+        expect(tabManager.activeTabId()).toBe(TAB_B);
+        expect(navigate).toHaveBeenCalledTimes(2);
+      },
+    );
+
+    it('does not re-issue an idle correction its own guard cancels', async () => {
+      setUp([TAB_A, TAB_B], TAB_A);
+      await router.navigateByUrl(`/chat/${TAB_A}`);
+      await settle();
+      router.resetConfig(router.config.map((route) => route.path === 'chat'
+        ? {
+          ...route,
+          children: route.children?.map((child) => child.path === ':tabId'
+            ? { ...child, canActivate: [() => false] }
+            : child),
+        }
+        : route));
+      const navigate = jest.spyOn(TestBed.inject(SurfaceRouterService), 'navigateToSurface');
+
+      tabManager.activeTabId.set(TAB_B);
+      TestBed.tick();
+      await settle();
+      await settle();
+
+      expect(navigate).toHaveBeenCalledTimes(1);
+      expect(router.url).toBe(`/chat/${TAB_A}`);
+    });
+
     it('retries a dropped correction after the pending surface clears in the next microtask', async () => {
       setUp([TAB_A], TAB_A);
       await router.navigateByUrl('/settings');
