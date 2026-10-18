@@ -151,7 +151,9 @@ import { GenerationSourceStatusComponent } from './generation-source-status.comp
       }
       <button
         type="button"
-        class="btn btn-primary btn-sm w-full"
+        class="btn btn-sm w-full"
+        [class.btn-primary]="primary()"
+        [class.btn-outline]="!primary()"
         [disabled]="
           !selected().size || store.isBound() || loading() || previewOpen()
         "
@@ -174,6 +176,7 @@ import { GenerationSourceStatusComponent } from './generation-source-status.comp
 })
 export class AgentSelectionListComponent {
   readonly binding = input.required<SetupGenerationTabBinding>();
+  readonly primary = input(true);
   protected readonly store = inject(GenerationWorkflowStore);
   private readonly state = inject(SetupWizardStateService);
   private readonly rpc = inject(ClaudeRpcService);

@@ -255,7 +255,17 @@ Candidate only: unused duplicated old-generation presentation code after the new
 | B10 | 6 | done (card embeds the widget, which owns the generation actions; first-pass duplicate buttons removed) | codex frontend-developer | b53533535 |
 | B11 | 6 | done | codex frontend-developer | 3096dfbe5 |
 | P6 review | 6 | APPROVE 8/10 (B09-B11, no must-fix); new Moderates from P5/P6 re-review go to P56F | Claude code-logic-reviewer | - |
-| B12 | 6 | done (analysis-result Continue opens the combined flow; old landing starts stay independent; removal option b applied: nothing deleted, all four old generation components still rendered by WizardViewComponent and the old resume path) | codex frontend-developer | (this commit) |
+| B12 | 6 | done (analysis-result Continue opens the combined flow; old landing starts stay independent; removal option b applied: nothing deleted, all four old generation components still rendered by WizardViewComponent and the old resume path) | codex frontend-developer | 3c80790a9 |
+| P6 completion review | 6 | APPROVE 8/10 (B12, P56F; no must-fix) | Claude code-logic-reviewer | - |
+
+## Phase 7 gate record (2026-10-18)
+
+- Protected callers: `git diff <merge-base>..HEAD` shows no change in the Settings drawer (+spec), `apps/ptah-cli` prompts/setup/wizard (+specs) and router, or `libs/frontend/webview-e2e-harness`.
+- Typecheck + lint, 15 projects, `--parallel=1`: pass.
+- Focused regression specs (per-project configs, `--maxWorkers=2`): chat (drawer + chat-input) 111, ptah-cli prompts/setup/wizard 33, setup-wizard run event adapter 16, vscode rpc-surface 3, electron surface-composition 4 - all pass.
+- Degradation audit: setup-wizard 1/1, rpc-handlers 1/1 (pre-existing base site), chat-ui 12/14, chat 11/11.
+- Review families: implementer codex for every shipping batch; reviewer Claude code-logic-reviewer for Phases 2-6.
+- Open (deferred, recorded in code-logic-review.md): D11 has no end-to-end spec that sends a normal chat turn after a generator run (adapter and chat-input specs cover the cleared tab state); m6 and N5; Continue has no in-flight guard; design-spec 2.6 Hub running line not shown (B09 note).
 
 ## Follow-ups from the Phase 2 review
 

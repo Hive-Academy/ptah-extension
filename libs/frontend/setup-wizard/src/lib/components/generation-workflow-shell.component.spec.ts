@@ -1,6 +1,6 @@
 ﻿import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute } from '@angular/router';
-import { signal } from '@angular/core';
+import { NO_ERRORS_SCHEMA, signal } from '@angular/core';
 import { BehaviorSubject } from 'rxjs';
 import { convertToParamMap } from '@angular/router';
 import { TabManagerService } from '@ptah-extension/chat-state';
@@ -14,6 +14,104 @@ import { GuidanceGenerationStore } from '../services/guidance-generation.store';
 import { GenerationWorkflowShellComponent } from './generation-workflow-shell.component';
 
 describe('GenerationWorkflowShellComponent', () => {
+  it('docks a 336px sidebar beside full-height chat, then opens an inert-chat sheet with Stop at narrow host widths', () => {
+    const active = signal(false);
+    const stop = jest.fn();
+    const params = convertToParamMap({
+      tabId: 'guidance',
+      workflow: 'setup-project-prompt',
+    });
+    TestBed.configureTestingModule({
+      providers: [
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            paramMap: new BehaviorSubject(params),
+            snapshot: { paramMap: params },
+          },
+        },
+        {
+          provide: TabManagerService,
+          useValue: {
+            tabs: signal([]),
+            activeWorkspacePath$: signal('/ws'),
+            getWorkspaceTabs: () => [
+              { id: 'guidance', workflow: 'setup-project-prompt' },
+            ],
+          },
+        },
+        {
+          provide: GenerationWorkflowLauncherService,
+          useValue: { consumeOrigin: jest.fn() },
+        },
+        {
+          provide: GenerationWorkflowStore,
+          useValue: {
+            bind: jest.fn(),
+            unbind: jest.fn(),
+            stop,
+            state: () => (active() ? 'running' : 'idle'),
+            isBound: active,
+            run: () => null,
+            acceptedRun: () => null,
+          },
+        },
+        { provide: AgentGenerationStore, useValue: { error: () => false } },
+        { provide: GenerationHandoffStore, useValue: { pending: () => null } },
+        {
+          provide: GuidanceGenerationStore,
+          useValue: {
+            bind: jest.fn(),
+            unbind: jest.fn(),
+            status: () => 'idle',
+            run: () => null,
+          },
+        },
+      ],
+    });
+    TestBed.overrideComponent(GenerationWorkflowShellComponent, {
+      set: { imports: [], schemas: [NO_ERRORS_SCHEMA] },
+    });
+    const fixture = TestBed.createComponent(GenerationWorkflowShellComponent);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    const sidebar = root.querySelector('#wizard-sidebar') as HTMLElement;
+    const chat = root.querySelector('ptah-session-embed') as HTMLElement;
+    expect(sidebar.style.width).toBe('336px');
+    expect(chat.classList.contains('flex-1')).toBe(true);
+    expect(root.querySelector('[aria-controls="wizard-sidebar"]')).toBeNull();
+    fixture.componentInstance.hostWidth.set(400);
+    fixture.detectChanges();
+    const peek = root.querySelector<HTMLButtonElement>(
+      '[aria-controls="wizard-sidebar"]',
+    );
+    expect(peek).not.toBeNull();
+    expect(sidebar.classList.contains('hidden')).toBe(true);
+    expect(chat.hasAttribute('inert')).toBe(false);
+    peek?.click();
+    fixture.detectChanges();
+    expect(sidebar.classList.contains('hidden')).toBe(false);
+    expect(chat.hasAttribute('inert')).toBe(true);
+    expect(chat.getAttribute('aria-hidden')).toBe('true');
+    active.set(true);
+    fixture.detectChanges();
+    const stopButton = root.querySelector<HTMLButtonElement>(
+      '[aria-label="Stop generation"]',
+    );
+    expect(stopButton).not.toBeNull();
+    stopButton?.click();
+    expect(stop).toHaveBeenCalledTimes(1);
+    root.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+    );
+    fixture.detectChanges();
+    expect(chat.hasAttribute('inert')).toBe(false);
+    expect(document.activeElement).toBe(peek);
+    active.set(false);
+    fixture.detectChanges();
+    expect(root.querySelector('[aria-label="Stop generation"]')).toBeNull();
+    fixture.destroy();
+  });
   const navigateToSurface = jest.fn().mockResolvedValue('navigated');
   beforeEach(() =>
     TestBed.configureTestingModule({

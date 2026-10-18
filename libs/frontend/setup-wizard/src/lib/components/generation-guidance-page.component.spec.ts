@@ -8,6 +8,56 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
 import { GenerationGuidancePageComponent } from './generation-guidance-page.component';
 
 describe('GenerationGuidancePageComponent', () => {
+  it('shows one primary action for empty, saved, and active states', () => {
+    const saved = signal<{
+      generatedAt: string | null;
+      enabled: boolean;
+      cacheValid: boolean;
+    } | null>(null);
+    const active = signal(false);
+    TestBed.configureTestingModule({
+      imports: [GenerationGuidancePageComponent],
+      providers: [
+        {
+          provide: GenerationWorkflowStore,
+          useValue: {
+            state: () => (active() ? 'running' : 'idle'),
+            isBound: active,
+            rejection: () => null,
+            chatTurnRejection: () => null,
+            startGuidance: jest.fn(),
+            regenerateGuidance: jest.fn(),
+          },
+        },
+        {
+          provide: GuidanceGenerationStore,
+          useValue: {
+            status: () => 'idle',
+            source: () => null,
+            snapshot: () => null,
+            result: saved,
+            run: () => null,
+            content: () => null,
+            actionFailed: () => false,
+          },
+        },
+      ],
+    });
+    const fixture = TestBed.createComponent(GenerationGuidancePageComponent);
+    const primaryLabels = () => {
+      fixture.detectChanges();
+      return [
+        ...(fixture.nativeElement as HTMLElement).querySelectorAll(
+          '.btn-primary',
+        ),
+      ].map((button) => button.textContent?.trim());
+    };
+    expect(primaryLabels()).toEqual(['Generate guidance']);
+    saved.set({ generatedAt: null, enabled: true, cacheValid: true });
+    expect(primaryLabels()).toEqual(['Regenerate guidance']);
+    active.set(true);
+    expect(primaryLabels()).toEqual(['Regenerate guidance']);
+  });
   it.each([
     [
       { reason: 'blocked', ownerTabId: 'private-tab' },

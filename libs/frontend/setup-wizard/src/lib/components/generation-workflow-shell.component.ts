@@ -1,11 +1,15 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
+  OnDestroy,
+  afterNextRender,
   computed,
   effect,
   inject,
   signal,
   untracked,
+  viewChild,
 } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
@@ -26,27 +30,49 @@ import { AgentGenerationStore } from '../services/agent-generation.store';
 import { GenerationHandoffStore } from '../services/generation-handoff.store';
 import { GuidanceGenerationStore } from '../services/guidance-generation.store';
 import { GenerationGuidancePageComponent } from './generation-guidance-page.component';
-import { AgentSelectionListComponent } from './agent-selection-list.component';
-import { AgentRunCardComponent } from './agent-run-card.component';
-import { AgentGenerationProgressComponent } from './agent-generation-progress.component';
-import { AgentNextStepsComponent } from './agent-next-steps.component';
 import { GenerationErrorsComponent } from './generation-errors.component';
 import { GenerationStopControlComponent } from './generation-stop-control.component';
+import { GenerationAgentSidebarComponent } from './generation-agent-sidebar.component';
 
 @Component({
   selector: 'ptah-generation-workflow-shell',
   standalone: true,
   imports: [
     SessionEmbedComponent,
-    AgentSelectionListComponent,
-    AgentRunCardComponent,
-    AgentGenerationProgressComponent,
-    AgentNextStepsComponent,
     GenerationErrorsComponent,
     GenerationStopControlComponent,
     GenerationGuidancePageComponent,
+    GenerationAgentSidebarComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { '(keydown)': 'onKeydown($event)' },
+  styles: [
+    `
+      :host {
+        display: block;
+        width: 100%;
+        height: 100%;
+        min-height: 0;
+        overflow: hidden;
+      }
+      .workflow-sheet-open {
+        animation: workflow-sheet-in 180ms var(--ptah-ease-soft) both;
+      }
+      @keyframes workflow-sheet-in {
+        from {
+          transform: translateX(100%);
+        }
+        to {
+          transform: translateX(0);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .workflow-sheet-open {
+          animation: none;
+        }
+      }
+    `,
+  ],
   template: `
     @if (binding(); as current) {
       <section
@@ -60,191 +86,128 @@ import { GenerationStopControlComponent } from './generation-stop-control.compon
               : store.state()
           }}
         </div>
-        <div
-          class="min-h-0 overflow-y-auto border-b border-base-300 p-3 space-y-3"
+        <header
+          class="flex shrink-0 items-center gap-2 border-b border-base-300 bg-surface-1 px-4 py-2 text-sm"
         >
-          @if (current.workflow === 'setup-agent-generation') {
-            <ptah-agent-run-card
-              [state]="store.state()"
-              [run]="store.run()"
-              (resumeRequested)="store.resumeBoundAgents()"
+          <span class="font-semibold">{{
+            current.workflow === 'setup-project-prompt'
+              ? 'Project guidance'
+              : 'Agent generation'
+          }}</span>
+          <span
+            class="rounded border border-base-300 px-2 py-0.5 text-xs text-base-content-muted"
+            aria-label="Workspace"
+            >{{ workspaceName() }}</span
+          >
+          <span class="ml-auto text-xs text-base-content-muted">{{
+            current.workflow === 'setup-project-prompt'
+              ? guidance.status()
+              : store.state()
+          }}</span>
+        </header>
+        @if (narrow()) {
+          <div
+            class="flex shrink-0 items-stretch border-b border-base-300 bg-surface-1"
+          >
+            <button
+              #peekButton
+              type="button"
+              class="flex min-h-11 min-w-0 flex-1 items-center gap-2 px-4 py-1.5 text-left focus-visible:outline-base-content"
+              aria-controls="wizard-sidebar"
+              [attr.aria-expanded]="sheetOpen()"
+              (click)="sheetOpen.update((open) => !open)"
+            >
+              <span class="truncate font-semibold">{{
+                current.workflow === 'setup-project-prompt'
+                  ? 'Project guidance'
+                  : 'Agent generation'
+              }}</span>
+              <span class="truncate text-xs text-base-content-muted">{{
+                current.workflow === 'setup-project-prompt'
+                  ? guidance.status()
+                  : store.state()
+              }}</span>
+              <span class="ml-auto" aria-hidden="true">{{
+                sheetOpen() ? '⌃' : '⌄'
+              }}</span>
+            </button>
+            @if (store.isBound()) {
+              <button
+                type="button"
+                class="btn btn-square btn-sm m-1 shrink-0 border-base-content text-state-err"
+                [attr.aria-label]="
+                  store.state() === 'cancelling'
+                    ? 'Stopping generation'
+                    : store.state() === 'stop-unconfirmed'
+                      ? 'Checking generation'
+                      : 'Stop generation'
+                "
+                [attr.aria-disabled]="
+                  store.state() === 'cancelling' ||
+                  store.state() === 'stop-unconfirmed'
+                    ? true
+                    : null
+                "
+                [attr.aria-busy]="store.state() === 'cancelling' ? true : null"
+                [disabled]="
+                  store.state() === 'cancelling' ||
+                  store.state() === 'stop-unconfirmed'
+                "
+                (click)="store.stop()"
+              >
+                {{ store.state() === 'cancelling' ? '◌' : '■' }}
+              </button>
+            }
+          </div>
+        }
+        <div class="relative flex min-h-0 flex-1 overflow-hidden">
+          <div
+            id="wizard-sidebar"
+            class="min-h-0 overflow-y-auto border-l border-base-300 bg-surface-1 p-3 space-y-3"
+            [style.width.px]="narrow() ? null : 336"
+            [class.shrink-0]="!narrow()"
+            [class.absolute]="narrow()"
+            [class.inset-0]="narrow()"
+            [class.z-20]="narrow()"
+            [class.workflow-sheet-open]="narrow() && sheetOpen()"
+            [class.hidden]="narrow() && !sheetOpen()"
+          >
+            @if (current.workflow === 'setup-agent-generation') {
+              <ptah-generation-agent-sidebar
+                [binding]="current"
+                [now]="now()"
+              />
+            }
+            @if (current.workflow === 'setup-project-prompt') {
+              <ptah-generation-guidance-page />
+            }
+            <ptah-generation-errors
+              [errors]="
+                agents.error()
+                  ? ['The action could not be completed. Try again.']
+                  : []
+              "
             />
-            @if (agents.resumable(); as checkpoint) {
-              @if (!store.run()) {
-                <div class="alert alert-info block">
-                  <p>
-                    Saved agent run available. Resume keeps completed agents.
-                  </p>
-                  <button
-                    type="button"
-                    class="btn btn-outline btn-sm"
-                    [disabled]="agents.loading()"
-                    (click)="agents.resume()"
-                  >
-                    Resume saved run
-                  </button>
-                </div>
-              }
-              <ptah-agent-generation-progress
-                [checkpoint]="checkpoint"
-                [remaining]="agents.remainingCounts()"
-                [retrying]="agents.retryingIds()"
-                (retry)="
-                  agents.retry(
-                    $event,
-                    store.run()?.binding?.runId === checkpoint.runId
-                      ? store.run()?.binding
-                      : undefined
-                  )
-                "
-              />
-            }
-            @if (agents.guidanceStatus() === 'missing' && !store.isBound()) {
-              <div class="alert alert-info block text-sm">
-                <p>
-                  No saved project guidance is available. Generate guidance
-                  first if you want these agents to use it.
-                </p>
-                <button
-                  type="button"
-                  class="btn btn-outline btn-sm"
-                  (click)="handoff.manualContinue(current.workspacePath)"
-                >
-                  Generate guidance first
-                </button>
-              </div>
-            }
-            @if (!store.isBound()) {
-              <ptah-agent-selection-list [binding]="current" />
-            }
-            @if (store.rejection(); as rejection) {
-              <div class="alert alert-warning text-sm" role="alert">
-                @if (rejection.reason === 'blocked') {
-                  This run is active in another tab{{
-                    rejection.ownerTabId
-                      ? ' (' + rejection.ownerTabId + ')'
-                      : ''
-                  }}.
-                } @else if (rejection.reason === 'preview-required') {
-                  Review the generation preview before resuming.
-                } @else {
-                  The saved run could not be resumed.
-                }
-              </div>
-            }
-            @if (store.startError(); as startError) {
-              <p class="alert alert-warning text-sm" role="alert">
-                {{ startError }}
+            <ptah-generation-stop-control
+              [active]="store.isBound()"
+              (stopRequested)="store.stop()"
+            />
+            @if (store.isBound()) {
+              <p class="text-sm" role="status">
+                Finish or stop generation before sending a message.
               </p>
             }
-            @if (store.run()?.result; as result) {
-              @if (
-                result.counts &&
-                result.agentOutcomes &&
-                result.rejectedSections !== undefined &&
-                result.tailoredSections !== undefined &&
-                result.propagation
-              ) {
-                <section
-                  class="rounded-lg border border-base-300 bg-base-200 p-4 text-sm"
-                  aria-label="Verified agent results"
-                >
-                  <h2 class="font-semibold">Generated agents</h2>
-                  <p>
-                    {{ result.counts.total }} selected ·
-                    {{ result.counts.written }} written ·
-                    {{ result.counts.unchanged }} already current ·
-                    {{ result.counts.failed }} failed ·
-                    {{ result.counts.skipped }} skipped ·
-                    {{ result.counts.rejected }} rejected
-                  </p>
-                  <p>
-                    {{ result.rejectedSections }} sections rejected ·
-                    {{ result.tailoredSections }} sections tailored
-                  </p>
-                  <ul class="list-disc pl-5">
-                    @for (agent of result.agentOutcomes; track agent.agentId) {
-                      <li>
-                        {{ agent.fileName || agent.agentId }}:
-                        {{ agent.status }}
-                      </li>
-                    }
-                  </ul>
-                  <p>
-                    Propagation: {{ result.propagation.status }}; consent:
-                    {{
-                      propagationConsentLabel(
-                        result.propagation.status,
-                        result.propagation.consent
-                      )
-                    }}
-                  </p>
-                  <p>
-                    Guidance used:
-                    {{
-                      result.enhancedPromptsUsed === undefined
-                        ? 'unavailable'
-                        : result.enhancedPromptsUsed
-                          ? 'yes'
-                          : 'no'
-                    }}
-                  </p>
-                </section>
-              } @else {
-                <p role="status">
-                  Verified results unavailable. Continue or skip manually.
-                </p>
-              }
-            } @else if (showNextSteps()) {
-              <p role="status">
-                Verified results unavailable. Continue or skip manually.
-              </p>
-            }
-            @if (showNextSteps()) {
-              <ptah-agent-next-steps
-                [pending]="!!handoff.pending()"
-                [remainingSeconds]="remainingSeconds()"
-                [previewModel]="guidancePreviewModel()"
-                [previewProvider]="guidancePreviewProvider()"
-                [manualRecovery]="
-                  handoff.outcome() === 'manual-recovery' ||
-                  !hasVerifiedResults() ||
-                  store.state() === 'failed'
-                "
-                [skipped]="handoff.outcome() === 'skipped'"
-                [started]="handoff.outcome() === 'started'"
-                (startNow)="handoff.startNow()"
-                (continue)="handoff.manualContinue(current.workspacePath)"
-                (skip)="handoff.skip()"
-              />
-            }
-          }
-          @if (current.workflow === 'setup-project-prompt') {
-            <ptah-generation-guidance-page />
-          }
-          <ptah-generation-errors
-            [errors]="
-              agents.error()
-                ? ['The action could not be completed. Try again.']
-                : []
-            "
+          </div>
+          <ptah-session-embed
+            class="order-first block min-h-0 min-w-0 flex-1"
+            [tabId]="current.tabId"
+            chrome="bare"
+            [startGuard]="startGuard"
+            [stopHandler]="stopHandler"
+            [attr.inert]="narrow() && sheetOpen() ? '' : null"
+            [attr.aria-hidden]="narrow() && sheetOpen() ? true : null"
           />
-          <ptah-generation-stop-control
-            [active]="store.isBound()"
-            (stopRequested)="store.stop()"
-          />
-          @if (store.isBound()) {
-            <p class="text-sm" role="status">
-              Finish or stop generation before sending a message.
-            </p>
-          }
         </div>
-        <ptah-session-embed
-          class="min-h-0 flex-1"
-          [tabId]="current.tabId"
-          [startGuard]="startGuard"
-          [stopHandler]="stopHandler"
-        />
       </section>
     } @else {
       <p role="alert">This generation tab is unavailable in this workspace.</p>
@@ -254,11 +217,18 @@ import { GenerationStopControlComponent } from './generation-stop-control.compon
     }
   `,
 })
-export class GenerationWorkflowShellComponent {
+export class GenerationWorkflowShellComponent implements OnDestroy {
   propagationConsentLabel(status: string, consent: string): string {
     return status === 'not-attempted' ? 'not attempted' : consent;
   }
   private readonly route = inject(ActivatedRoute);
+  private readonly host = inject(ElementRef<HTMLElement>);
+  private readonly peekButton =
+    viewChild<ElementRef<HTMLButtonElement>>('peekButton');
+  private resizeObserver: ResizeObserver | null = null;
+  readonly hostWidth = signal(960);
+  readonly narrow = computed(() => this.hostWidth() < 720);
+  readonly sheetOpen = signal(false);
   private readonly paramMap = toSignal(this.route.paramMap, {
     initialValue: this.route.snapshot.paramMap,
   });
@@ -276,11 +246,26 @@ export class GenerationWorkflowShellComponent {
   readonly agents = inject(AgentGenerationStore);
   readonly handoff = inject(GenerationHandoffStore);
   readonly guidance = inject(GuidanceGenerationStore);
+  readonly workspaceName = computed(
+    () =>
+      this.binding()?.workspacePath.split(/[\\/]/).filter(Boolean).at(-1) ??
+      'Workspace',
+  );
+  onKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Escape' && this.narrow() && this.sheetOpen()) {
+      event.preventDefault();
+      this.sheetOpen.set(false);
+      this.peekButton()?.nativeElement.focus();
+    }
+  }
+  ngOnDestroy(): void {
+    this.resizeObserver?.disconnect();
+  }
   private discoveryKey = '';
   private combinedTabId: string | null = null;
   private combinedBaselineRevision = 0;
   private discoveredTerminalRunId: string | null = null;
-  private readonly now = signal(Date.now());
+  protected readonly now = signal(Date.now());
   readonly remainingSeconds = computed(() =>
     Math.max(
       0,
@@ -369,6 +354,19 @@ export class GenerationWorkflowShellComponent {
   };
 
   constructor() {
+    afterNextRender(() => {
+      const element = this.host.nativeElement;
+      this.hostWidth.set(element.getBoundingClientRect().width || 960);
+      if (typeof ResizeObserver !== 'undefined') {
+        this.resizeObserver = new ResizeObserver(([entry]) =>
+          this.hostWidth.set(entry.contentRect.width),
+        );
+        this.resizeObserver.observe(element);
+      }
+    });
+    effect(() => {
+      if (!this.narrow() && this.sheetOpen()) this.sheetOpen.set(false);
+    });
     effect(() => {
       const binding = this.binding();
       if (binding) {

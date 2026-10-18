@@ -34,7 +34,7 @@ import { GuidanceResultPanelComponent } from './guidance-result-panel.component'
       (retryRequested)="workflow.startGuidance()"
       (refreshRequested)="refresh()"
     />
-    @if (!workflow.isBound()) {
+    @if (!workflow.isBound() && !guidance.result()) {
       <button
         type="button"
         class="btn btn-primary btn-sm"

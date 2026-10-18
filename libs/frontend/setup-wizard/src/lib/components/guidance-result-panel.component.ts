@@ -34,7 +34,7 @@ import type { GuidanceCommittedResult } from '../services/guidance-generation.st
           <input
             #enabledToggle
             type="checkbox"
-            class="toggle toggle-primary"
+            class="toggle toggle-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
             [checked]="saved.enabled"
             (change)="
               enabledChanged.emit(enabledToggle.checked);

@@ -80,7 +80,7 @@ import type {
       @if (status() === 'failed' || status() === 'timed-out') {
         <button
           type="button"
-          class="btn btn-primary btn-sm"
+          class="btn btn-outline btn-sm"
           (click)="retryRequested.emit()"
         >
           Retry
