@@ -1,6 +1,6 @@
 # Batches - TASK_2026_662_3eea
 
-Total tasks: 71 | Batches: 71 (+2 operational steps OP-1, OP-2) | Phases: 6 (A-F) | Complete: 11/71
+Total tasks: 71 | Batches: 71 (+2 operational steps OP-1, OP-2) | Phases: 6 (A-F) | Complete: 13/71
 
 Worktree root (prefix every path below with it): `D:\projects\ptah-extension\.claude-worktrees\skill-synthesis-purge\`
 Branch: `refactor/skill-synthesis-purge`. Aliases (same as implementation-plan.md:153):
@@ -480,14 +480,14 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
 - Checks: skill-synthesis test + typecheck + lint PASS; after the O3 revert
   `skill-enhancer.service.spec.ts` 85/85 PASS and eslint 0 errors on that file (orchestrator).
 
-## Batch 10: Manual draft preview; explicit save - PENDING
+## Batch 10: Manual draft preview; explicit save - COMPLETE (3c474c1bc)
 
 - Phase: A | Executor: CLI lane codex | Depends on: 9 | Tasks: 1
 - Flags: WRITE-PATH (save goes only through `saveCloneBody`: user-layer file + history snapshot)
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/rpc-handlers @ptah-extension/skill-synthesis --parallel=1`
 - Precondition: preview still calls `synthesis.readSettings` (RH handler `:1169`).
 
-### Task 10.1: Generation never writes a clone - PENDING
+### Task 10.1: Generation never writes a clone - COMPLETE
 
 - Files: `RH/handlers/skills-synthesis-rpc.handlers.ts` + spec, `SS/skill-enhancer.service.ts` + spec, `SS/types.ts`.
 - Plan reference: plan row 10; implementation-plan.md:21, 61.
@@ -498,6 +498,33 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
 - Validation notes: `enhanceNow` and `applyProposal` are not called by preview. Their method removal is
   in batch 59.
 - Implementation details: none beyond the requirements above.
+
+### Batch 10 verification notes
+
+- Scope widened (decisions.md O5, O6): `libs/shared/src/lib/types/rpc/rpc-skill-clone.types.ts`
+  (additive optional `draft` on the preview result, optional `expectedSourceHash` on save params),
+  `RH/handlers/skills-synthesis-rpc.schema.ts` (optional `sha256:<64 hex>`), and the save API of
+  `libs/backend/agent-generation/src/lib/services/user-layer/user-layer-mirror.service.ts` + spec.
+  Ran concurrently with batch 12 under one combined check (O4).
+- Verified on disk: `generateProposal` builds an in-memory `EnhancementDraft` (before/after,
+  evidence capped at 1600/1600/scorecard chars, bounded diff, model, sha256 of the exact body read);
+  preview calls neither `enhanceNow` nor `applyProposal` and writes no file (proposal cache is
+  in-memory only). Provider failure returns `skipReason: 'provider-unreachable'`, no draft, no write.
+  Generation warn logs drop the raw provider error (consistent with O3).
+- Write-path trace (save): RPC `saveCloneBody` -> zod schema validates optional hash ->
+  handler forwards it only when present -> `UserLayerMirrorService.saveCloneBody` takes
+  `withSlugLock(kind, slug)` -> clone-missing check -> (hash present) read current
+  `SKILL.md` / `<slug>.md`, compare sha256; mismatch returns `stale-source` with `written: false`,
+  `historyTs: null` BEFORE `snapshotDirToHistory`/`snapshotFileToHistory` and before
+  `writeTextAtomic` -> handler throws `RpcUserError(INVALID_PARAMS)` "preview again". On match or
+  absent hash: snapshot prior body to `.history` then atomic write (unchanged path). Readers:
+  `readCloneBody` (`getClone` RPC), `listHistory`, and the enhancer's `readBody` (same utf8 bytes
+  the next preview hashes). No settings or DB key written. Absent hash is byte-for-byte the old path.
+- Specs: mirror spec asserts stale skill and flat-file saves leave the file and `listHistory`
+  unchanged; matching hash saves and snapshots the original; absent hash unchanged. Handler spec
+  covers hash pass-through, stale refusal, preview no-write, provider failure unsaved.
+- Checks (orchestrator, O4): `nx run-many -t test typecheck -p rpc-handlers skill-synthesis shared
+  agent-generation` green for batch 10 files; lint PASS on the same 4 projects.
 
 ## Batch 11: Nullable scorecard UI - COMPLETE (6aee6af62)
 
@@ -525,14 +552,14 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
 - UI flag: Phase A visual before/after screenshots (dark + light, "before" from `271198ced`) are owed at
   the Phase A review, not per batch.
 
-## Batch 12: Move `resolveSkillsRoot` to `skills-root.ts` - PENDING
+## Batch 12: Move `resolveSkillsRoot` to `skills-root.ts` - COMPLETE (29d1305fb)
 
 - Phase: A | Executor: CLI lane codex | Depends on: none (sequential after 10) | Tasks: 1
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/skill-synthesis @ptah-extension/rpc-handlers --parallel=1`
 - Precondition: `skill-md-generator.ts` remains (until batch 61). Importers use the package index:
   VS Code/Electron `plugin-activation.ts`, `harness-fs.service.ts:37` and CE `harness-boot.ts:48`.
 
-### Task 12.1: Keep the configured shipped-skill root - PENDING
+### Task 12.1: Keep the configured shipped-skill root - COMPLETE
 
 - Files: `SS/skills-root.ts` (new) + spec, `SS/skill-md-generator.ts`, `libs/backend/skill-synthesis/src/index.ts`, `RH/harness/io/harness-fs.service.ts` + spec.
 - Plan reference: plan row 12; the shipped-skills row in the preserve table (implementation-plan.md:46).
@@ -540,6 +567,18 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
 - Quality requirements: `skillSynthesis.skillsRoot` is honored, and an alternate root delivers.
 - Validation notes: the generator re-exports or imports from the new file until it is deleted.
 - Implementation details: none beyond the requirements above.
+
+### Batch 12 verification notes
+
+- Ran concurrently with batch 10 under one combined check (decisions.md O4).
+- Verified on disk: `SS/skills-root.ts` holds `resolveSkillsRoot`, `SKILLS_ROOT_SECTION`,
+  `SKILLS_ROOT_KEY` unchanged in behaviour (default `~/.ptah/skills`, trimmed override, fail-soft).
+  The index exports them from `skills-root.ts`; `skill-md-generator.ts` imports and re-exports them
+  until batch 61 (its roots spec imports from there). Host importers use the package index.
+- `harness-fs.service.ts` change is a doc comment only; the new spec checks default and alternate
+  roots reach `mirrorAll`. Fix round 1 (reports/batch-12-fix-1-report.md) fixed the spec's TS2352 by
+  typing the stub as `jest.Mocked<Pick<UserLayerMirrorService, 'mirrorAll'>>`; spec then 2/2 PASS.
+- Checks (orchestrator): combined test + typecheck green after fix-1; lint PASS. No persisted write.
 
 ## Batch 13: Keep the foreground-activity tracker live - PENDING
 
