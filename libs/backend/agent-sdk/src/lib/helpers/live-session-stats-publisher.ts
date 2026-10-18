@@ -296,7 +296,7 @@ export class LiveSessionStatsPublisher {
       this.cacheDirty = true;
       this.requestFlush();
     } catch (error: unknown) {
-      // degradation-audit: observer - cache signals cannot interrupt owner writes
+      // degradation-audit: reported - cache signals cannot interrupt owner writes
       this.warnOnce('cache', 'Live stats cache signal failed', error);
     }
   }
@@ -609,6 +609,7 @@ export class LiveSessionStatsPublisher {
       }
       return true;
     } catch (error: unknown) {
+      // degradation-audit: reported - logged once; false keeps the cache change pending for a retry.
       this.warnOnce('callback', 'onLiveStats callback failed', error);
       return false;
     }

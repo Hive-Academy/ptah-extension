@@ -69,13 +69,9 @@ export function parseSessionStatsCache(value: unknown): SessionStatsCache | null
   if (!isEpoch(lastRequestAt) || !isEpoch(expiresAt)) return null;
   const expected = lastRequestAt + (ttl === '1h' ? 3_600_000 : 300_000);
   if (!Number.isFinite(expected) || expiresAt !== expected) return null;
-  if (idleCompactAt !== undefined && (!isEpoch(idleCompactAt) || idleCompactAt < lastRequestAt)) return null;
-  return {
-    ttl,
-    lastRequestAt,
-    expiresAt,
-    ...(idleCompactAt === undefined ? {} : { idleCompactAt }),
-  };
+  if (idleCompactAt === undefined) return { ttl, lastRequestAt, expiresAt };
+  if (!isEpoch(idleCompactAt) || idleCompactAt < lastRequestAt) return null;
+  return { ttl, lastRequestAt, expiresAt, idleCompactAt };
 }
 
 function parseContext(value: unknown): SessionStatsLiveContext | null {

@@ -314,7 +314,7 @@ export class IdleCompactionService implements IdleCompactionSignals {
         attempt?.kind === 'pending' ? attempt.fireAt : null,
       );
     } catch {
-      // degradation-audit: optional-projection - keep idle state and stream alive if stats projection fails.
+      // degradation-audit: optional-capability - keep idle state and stream alive if stats projection fails.
       safeWarn(this.logger, 'signal-failed', sessionId);
     }
   }
@@ -324,7 +324,7 @@ export class IdleCompactionService implements IdleCompactionSignals {
     try {
       this.statsOwner.setIdleCompactAt(state.sessionId, state.runToken, null);
     } catch {
-      // degradation-audit: optional-projection - release still completes when stats projection fails.
+      // degradation-audit: optional-capability - release still completes when stats projection fails.
       safeWarn(this.logger, 'signal-failed', state.sessionId);
     }
   }
