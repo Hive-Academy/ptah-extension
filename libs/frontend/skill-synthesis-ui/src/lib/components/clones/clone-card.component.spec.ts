@@ -327,7 +327,7 @@ describe('CloneCardComponent', () => {
 
     render(clone({ kind: 'agent', slug: 'planner' }));
     expect(q('scorecard-badge')).toBeTruthy();
-    expect(q('scorecard-success')?.textContent?.trim()).toBe('no data yet');
+    expect(q('scorecard-success')?.textContent?.trim()).toBe('No grade');
   });
 
   // ── Outcome signals (Req 9) ──────────────────────────────────────────────
@@ -542,7 +542,7 @@ describe('CloneCardComponent', () => {
       '80% (4/5)',
     );
     expect(q('scorecard-badge')).toBeTruthy();
-    expect(q('scorecard-success')?.textContent?.trim()).toBe('no data yet');
+    expect(q('scorecard-success')?.textContent?.trim()).toBe('No grade');
   });
 
   it('shows different signals for two agents and ignores a mismatched slug', () => {
