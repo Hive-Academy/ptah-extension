@@ -12,6 +12,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { SqliteMigrationRunner } from './migration-runner';
+import * as skillPipelineArchive from './skill-pipeline-archive';
 import type { Migration } from './migrations';
 import { run as run0009AutoVacuum } from './migrations/0009_auto_vacuum';
 import { FakeSqliteDatabase } from './testing/fake-sqlite-database';
@@ -36,6 +37,25 @@ const FIXTURE_MIGRATIONS: readonly Migration[] = [
 ];
 
 describe('SqliteMigrationRunner', () => {
+  it('keeps version 56 behavior unchanged and requires a verified archive before 57', async () => {
+    const archive = jest.spyOn(skillPipelineArchive, 'archiveSkillPipeline')
+      .mockImplementation(() => { throw new Error('archive verification failed'); });
+    try {
+      const db = new FakeSqliteDatabase();
+      const runner = new SqliteMigrationRunner(db, createMockLogger());
+      await runner.applyAll([{ version: 56, name: '0056', sql: 'CREATE TABLE t56 (id INTEGER);' }]);
+      expect(archive).not.toHaveBeenCalled();
+      await expect(runner.applyAll([
+        { version: 56, name: '0056', sql: 'CREATE TABLE t56 (id INTEGER);' },
+        { version: 57, name: '0057', sql: 'CREATE TABLE t57 (id INTEGER);' },
+      ])).rejects.toThrow('archive verification failed');
+      expect(db.tables.has('t57')).toBe(false);
+      expect(runner.readAppliedVersions().has(57)).toBe(false);
+    } finally {
+      archive.mockRestore();
+    }
+  });
+
   it('applies all migrations on a fresh DB', async () => {
     const db = new FakeSqliteDatabase();
     const runner = new SqliteMigrationRunner(db, createMockLogger());

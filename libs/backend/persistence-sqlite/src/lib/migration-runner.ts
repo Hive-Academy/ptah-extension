@@ -20,6 +20,7 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import type { Migration } from './migrations';
 import type { SqliteDatabase } from './sqlite-connection.service';
 import { KEEP_BY_KIND, type IBackupService } from './backup.service';
+import { archiveSkillPipeline } from './skill-pipeline-archive';
 
 /** Result of an `applyAll` run — useful for telemetry. */
 export interface MigrationRunResult {
@@ -109,6 +110,22 @@ export class SqliteMigrationRunner {
       ? new Set(this.readPendingVecVersions())
       : new Set<number>();
 
+    let archiveVerified = false;
+    const ensureArchive = (): void => {
+      if (archiveVerified) return;
+      if (vecLoaded) {
+        this.runVecCatchUp(sorted, appliedNow, 56, true);
+      } else if (this.db.prepare("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?")
+        .get('skill_candidates_vec') !== undefined) {
+        throw new Error('SqliteMigrationRunner: skill_candidates_vec exists but sqlite-vec is unavailable; archive preflight failed');
+      }
+      const receipt = archiveSkillPipeline(this.db);
+      this.logger.info('[persistence-sqlite] verified skill pipeline archive', {
+        archivePath: receipt.archivePath,
+      });
+      archiveVerified = true;
+    };
+
     for (const migration of sorted) {
       if (applied.has(migration.version)) {
         skippedNow.push(migration.version);
@@ -118,6 +135,7 @@ export class SqliteMigrationRunner {
         skippedNow.push(migration.version);
         continue;
       }
+      if (migration.version >= 57) ensureArchive();
       const isPureVec =
         migration.requiresVec === true && migration.sql === undefined;
       if (isPureVec && !vecLoaded) {
@@ -133,6 +151,9 @@ export class SqliteMigrationRunner {
     }
 
     if (vecLoaded) {
+      if (this.readPendingVecVersions().some((version) => version >= 57)) {
+        ensureArchive();
+      }
       this.runVecCatchUp(sorted, appliedNow);
     }
 
@@ -319,8 +340,10 @@ export class SqliteMigrationRunner {
   private runVecCatchUp(
     sorted: readonly Migration[],
     appliedNow: number[],
+    maxVersion = Number.POSITIVE_INFINITY,
+    fatal = false,
   ): void {
-    const pending = this.readPendingVecVersions();
+    const pending = this.readPendingVecVersions().filter((version) => version <= maxVersion);
     if (pending.length === 0) return;
     const byVersion = new Map(sorted.map((m) => [m.version, m]));
     const recordedApplied = this.readAppliedVersions();
@@ -351,6 +374,9 @@ export class SqliteMigrationRunner {
         this.db.exec('COMMIT');
       } catch (err: unknown) {
         this.db.exec('ROLLBACK');
+        if (fatal) {
+          throw new Error(`SqliteMigrationRunner: vec catch-up ${version} failed before archive: ${stringifyError(err)}`);
+        }
         this.logger.warn(
           `[persistence-sqlite] vec catch-up for migration ${version} (${migration.name}) failed; left deferred, vector search stays disabled until next boot: ` +
             stringifyError(err),
