@@ -28,16 +28,23 @@ import type {
 } from '@ptah-extension/vscode-core';
 import { createMockRpcHandler } from '@ptah-extension/vscode-core/testing';
 import { createMockLogger } from '@ptah-extension/shared/testing';
-import type { AgentOrchestrationConfig } from '@ptah-extension/shared';
-import type {
-  DecisionModelLocality,
-  DecisionModelSelection,
-  DecisionModelStatusDto,
+import {
+  DECISION_MODEL_CUSTOM_KEY_MAY_HAVE_CHANGED,
+  DECISION_MODEL_KEY_MAY_HAVE_CHANGED,
+  type AgentOrchestrationConfig,
+} from '@ptah-extension/shared';
+import {
+  DecisionModelKeys,
+  type DecisionKeySlot,
+  type DecisionModelLocality,
+  type DecisionModelSelection,
+  type DecisionModelStatusDto,
 } from '@ptah-extension/lane-routing';
 import type {
   IStateStorage,
   IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
+import { createMockSecretStorage } from '@ptah-extension/platform-core/testing';
 import { SettingsPersistError } from '@ptah-extension/platform-core';
 import type {
   AgentProcessManager,
@@ -98,8 +105,25 @@ interface DecisionModelDouble {
   getSelection: jest.Mock<DecisionModelSelection, []>;
   localityOf: jest.Mock<DecisionModelLocality | null, [DecisionModelSelection]>;
   setSelection: jest.Mock<Promise<DecisionModelSelection>, [unknown]>;
-  setJevApiKey: jest.Mock<Promise<void>, [string | null]>;
-  readJevApiKey: jest.Mock<Promise<string | null>, []>;
+  /**
+   * Every write to the Jev slot, in order: `keys.set('jev', k)` and
+   * `keys.restore('jev', s)`.
+   */
+  writeJevKey: jest.Mock<Promise<void>, [string | null]>;
+  /** `keys.snapshot('jev')` */
+  snapshotJevKey: jest.Mock<Promise<string | null>, []>;
+  /**
+   * Every write to the custom slot, in order: `keys.set('custom', k, o)` and
+   * `keys.restore('custom', s)`. The origin of a `set` goes to
+   * {@link customKeyOrigin}.
+   */
+  writeCustomKey: jest.Mock<Promise<void>, [string | null]>;
+  /** The origin argument of each `keys.set('custom', ...)`. */
+  customKeyOrigin: jest.Mock<void, [string | undefined]>;
+  /** `keys.snapshot('custom')` */
+  snapshotCustomKey: jest.Mock<Promise<string | null>, []>;
+  /** `keys.has('custom', origin)`: a stored key bound to that origin. */
+  hasCustomKey: jest.Mock<Promise<boolean>, [string | undefined]>;
 }
 
 function decisionModelDouble(
@@ -115,11 +139,59 @@ function decisionModelDouble(
     setSelection: jest.fn((_input: unknown): Promise<DecisionModelSelection> =>
       Promise.resolve({ kind: 'unset' as const }),
     ),
-    setJevApiKey: jest.fn((_key: string | null): Promise<void> =>
+    writeJevKey: jest.fn((_key: string | null): Promise<void> =>
       Promise.resolve(),
     ),
-    readJevApiKey: jest.fn((): Promise<string | null> => Promise.resolve(null)),
+    snapshotJevKey: jest.fn((): Promise<string | null> =>
+      Promise.resolve(null),
+    ),
+    writeCustomKey: jest.fn((_key: string | null): Promise<void> =>
+      Promise.resolve(),
+    ),
+    customKeyOrigin: jest.fn(),
+    snapshotCustomKey: jest.fn((): Promise<string | null> =>
+      Promise.resolve(null),
+    ),
+    hasCustomKey: jest.fn((_origin: string | undefined): Promise<boolean> =>
+      Promise.resolve(false),
+    ),
   };
+}
+
+/**
+ * A real `DecisionModelKeys` whose slot calls go to the double. Any other
+ * method (the Ollama Cloud read, `get`) keeps the in-memory store.
+ */
+function keysDouble(double: DecisionModelDouble): DecisionModelKeys {
+  const keys = new DecisionModelKeys(
+    createMockSecretStorage(),
+    createMockLogger(),
+  );
+  jest.spyOn(keys, 'set').mockImplementation((slot, key, origin) => {
+    if (slot === 'jev') return double.writeJevKey(key);
+    double.customKeyOrigin(origin);
+    return double.writeCustomKey(key);
+  });
+  jest
+    .spyOn(keys, 'restore')
+    .mockImplementation((slot, snapshot) =>
+      slot === 'jev'
+        ? double.writeJevKey(snapshot)
+        : double.writeCustomKey(snapshot),
+    );
+  jest
+    .spyOn(keys, 'snapshot')
+    .mockImplementation((slot) =>
+      slot === 'jev' ? double.snapshotJevKey() : double.snapshotCustomKey(),
+    );
+  jest
+    .spyOn(keys, 'has')
+    .mockImplementation((slot, origin) =>
+      slot === 'custom'
+        ? double.hasCustomKey(origin)
+        : Promise.reject(new Error('unexpected Jev key presence read')),
+    );
+  return keys;
 }
 
 /** Lets every queued promise callback run before the test continues. */
@@ -183,8 +255,7 @@ function makeHarness(status: DecisionModelStatusDto = UNSET_STATUS) {
       localityOf: (selection: DecisionModelSelection) =>
         decisionModel.localityOf(selection),
       setSelection: (input: unknown) => decisionModel.setSelection(input),
-      setJevApiKey: (key: string | null) => decisionModel.setJevApiKey(key),
-      readJevApiKey: () => decisionModel.readJevApiKey(),
+      keys: keysDouble(decisionModel),
     },
   );
   handlers.register();
@@ -303,7 +374,7 @@ describe('agent:getConfig decision model status failure (P4 S-1)', () => {
       failure,
     );
     expect(h.decisionModel.setSelection).not.toHaveBeenCalled();
-    expect(h.decisionModel.setJevApiKey).not.toHaveBeenCalled();
+    expect(h.decisionModel.writeJevKey).not.toHaveBeenCalled();
   });
 
   it('reports a structured selection without confidence when getStatus rejects', async () => {
@@ -396,7 +467,7 @@ describe('agent:setConfig decision model', () => {
     });
     expect(h.decisionModel.setSelection).toHaveBeenCalledTimes(1);
     expect(h.decisionModel.setSelection).toHaveBeenCalledWith(selection);
-    expect(h.decisionModel.setJevApiKey).not.toHaveBeenCalled();
+    expect(h.decisionModel.writeJevKey).not.toHaveBeenCalled();
     expect(h.workspace.setConfiguration).not.toHaveBeenCalled();
     expect(h.settings.size).toBe(0);
   });
@@ -407,8 +478,8 @@ describe('agent:setConfig decision model', () => {
     expect(
       await h.setConfig({ decisionModelJevApiKey: `  ${secret}  ` }),
     ).toEqual({ success: true });
-    expect(h.decisionModel.setJevApiKey).toHaveBeenCalledTimes(1);
-    expect(h.decisionModel.setJevApiKey).toHaveBeenCalledWith(`  ${secret}  `);
+    expect(h.decisionModel.writeJevKey).toHaveBeenCalledTimes(1);
+    expect(h.decisionModel.writeJevKey).toHaveBeenCalledWith(`  ${secret}  `);
     expect(h.decisionModel.setSelection).not.toHaveBeenCalled();
 
     const config = await h.getConfig();
@@ -425,7 +496,7 @@ describe('agent:setConfig decision model', () => {
     expect(await h.setConfig({ decisionModelJevApiKey: '' })).toEqual({
       success: true,
     });
-    expect(h.decisionModel.setJevApiKey).toHaveBeenCalledWith('');
+    expect(h.decisionModel.writeJevKey).toHaveBeenCalledWith('');
   });
 
   it('refuses a non-string Jev key before any write', async () => {
@@ -440,7 +511,7 @@ describe('agent:setConfig decision model', () => {
       error: 'Unsupported decisionModelJevApiKey value',
     });
     expect(h.decisionModel.setSelection).not.toHaveBeenCalled();
-    expect(h.decisionModel.setJevApiKey).not.toHaveBeenCalled();
+    expect(h.decisionModel.writeJevKey).not.toHaveBeenCalled();
     expect(h.settings.size).toBe(0);
   });
 
@@ -456,7 +527,7 @@ describe('agent:setConfig decision model', () => {
     });
     expect(h.settings.size).toBe(0);
     expect(h.decisionModel.setSelection).not.toHaveBeenCalled();
-    expect(h.decisionModel.setJevApiKey).not.toHaveBeenCalled();
+    expect(h.decisionModel.writeJevKey).not.toHaveBeenCalled();
   });
 
   it('writes no Jev key when the selection sent with it is invalid (P4 defect 1)', async () => {
@@ -471,8 +542,8 @@ describe('agent:setConfig decision model', () => {
       success: false,
       error: 'Unsupported decisionModel value',
     });
-    expect(h.decisionModel.readJevApiKey).not.toHaveBeenCalled();
-    expect(h.decisionModel.setJevApiKey).not.toHaveBeenCalled();
+    expect(h.decisionModel.snapshotJevKey).not.toHaveBeenCalled();
+    expect(h.decisionModel.writeJevKey).not.toHaveBeenCalled();
     expect(h.decisionModel.setSelection).not.toHaveBeenCalled();
     expect(h.settings.size).toBe(0);
     expect(JSON.stringify(result)).not.toContain(secret);
@@ -507,177 +578,6 @@ describe('agent:setConfig decision model', () => {
     expect(h.settings.size).toBe(0);
   });
 
-  it('writes the Jev key before the selection (P4 S-2)', async () => {
-    const h = makeHarness();
-    expect(
-      await h.setConfig({
-        decisionModel: { kind: 'jev' },
-        decisionModelJevApiKey: 'jev-secret-value-9f3a',
-      }),
-    ).toEqual({ success: true });
-    const [keyOrder] = h.decisionModel.setJevApiKey.mock.invocationCallOrder;
-    const [selectionOrder] =
-      h.decisionModel.setSelection.mock.invocationCallOrder;
-    expect(keyOrder).toBeLessThan(selectionOrder);
-  });
-
-  it('does not write the selection when the Jev key write fails (P4 S-2)', async () => {
-    const h = makeHarness();
-    const secret = 'jev-secret-value-9f3a';
-    h.decisionModel.setJevApiKey.mockRejectedValue(
-      new Error(`secret store refused ${secret}`),
-    );
-    const result = await h.setConfig({
-      decisionModel: { kind: 'jev' },
-      decisionModelJevApiKey: secret,
-      piModel: 'openai/gpt-4o',
-    });
-    expect(result).toEqual({
-      success: false,
-      error: 'Could not save the orchestration settings.',
-    });
-    expect(h.decisionModel.setJevApiKey).toHaveBeenCalledTimes(1);
-    expect(h.decisionModel.setSelection).not.toHaveBeenCalled();
-    expect(h.settings.size).toBe(0);
-    expect(JSON.stringify(result)).not.toContain(secret);
-    expect(JSON.stringify(h.logger.error.mock.calls)).not.toContain(secret);
-  });
-
-  it('restores the previous key when the selection write fails after the key was stored (P4 defect 1)', async () => {
-    const h = makeHarness();
-    const previous = 'jev-previous-key-11aa';
-    const secret = 'jev-secret-value-9f3a';
-    h.decisionModel.readJevApiKey.mockResolvedValue(previous);
-    h.decisionModel.setSelection.mockRejectedValue(
-      new SettingsPersistError('EIO'),
-    );
-    const result = await h.setConfig({
-      decisionModel: { kind: 'jev' },
-      decisionModelJevApiKey: secret,
-      piModel: 'openai/gpt-4o',
-    });
-    expect(result).toEqual({
-      success: false,
-      error: 'Settings could not be saved to disk (EIO)',
-    });
-    expect(h.decisionModel.setJevApiKey.mock.calls).toEqual([
-      [secret],
-      [previous],
-    ]);
-    const [readOrder] = h.decisionModel.readJevApiKey.mock.invocationCallOrder;
-    const [keyOrder] = h.decisionModel.setJevApiKey.mock.invocationCallOrder;
-    expect(readOrder).toBeLessThan(keyOrder);
-    expect(h.decisionModel.setSelection).toHaveBeenCalledTimes(1);
-    expect(h.settings.size).toBe(0);
-    const logged = JSON.stringify([
-      h.logger.error.mock.calls,
-      h.logger.debug.mock.calls,
-    ]);
-    expect(logged).not.toContain(secret);
-    expect(logged).not.toContain(previous);
-  });
-
-  it('deletes the new key on rollback when no key was stored before (P4 defect 1)', async () => {
-    const h = makeHarness();
-    h.decisionModel.readJevApiKey.mockResolvedValue(null);
-    h.decisionModel.setSelection.mockRejectedValue(
-      new SettingsPersistError('EIO'),
-    );
-    const result = await h.setConfig({
-      decisionModel: { kind: 'jev' },
-      decisionModelJevApiKey: 'jev-secret-value-9f3a',
-    });
-    expect(result.success).toBe(false);
-    expect(h.decisionModel.setJevApiKey.mock.calls).toEqual([
-      ['jev-secret-value-9f3a'],
-      [null],
-    ]);
-  });
-
-  it('says the key may have changed when the rollback also fails (P4 defect 1)', async () => {
-    const h = makeHarness();
-    const previous = 'jev-previous-key-11aa';
-    const secret = 'jev-secret-value-9f3a';
-    h.decisionModel.readJevApiKey.mockResolvedValue(previous);
-    h.decisionModel.setSelection.mockRejectedValue(
-      new SettingsPersistError('EIO'),
-    );
-    h.decisionModel.setJevApiKey
-      .mockResolvedValueOnce(undefined)
-      .mockRejectedValueOnce(new Error(`secret store refused ${previous}`));
-    const result = await h.setConfig({
-      decisionModel: { kind: 'jev' },
-      decisionModelJevApiKey: secret,
-      piModel: 'openai/gpt-4o',
-    });
-    expect(result).toEqual({
-      success: false,
-      error:
-        'Could not save the decision model. The TypeSafe Jev API key may have changed.',
-    });
-    expect(h.decisionModel.setJevApiKey).toHaveBeenCalledTimes(2);
-    expect(h.settings.size).toBe(0);
-    expect(h.logger.error).toHaveBeenCalledWith(
-      'RPC: agent:setConfig could not restore the previous decision model key',
-      { selectionErrorType: 'SettingsPersistError', restoreErrorType: 'Error' },
-    );
-    const logged = JSON.stringify(h.logger.error.mock.calls);
-    expect(logged).not.toContain(secret);
-    expect(logged).not.toContain(previous);
-  });
-
-  it('writes nothing when the previous key cannot be read (P4 defect 1)', async () => {
-    const h = makeHarness();
-    h.decisionModel.readJevApiKey.mockRejectedValue(new Error('locked'));
-    const result = await h.setConfig({
-      decisionModel: { kind: 'jev' },
-      decisionModelJevApiKey: 'jev-secret-value-9f3a',
-      piModel: 'openai/gpt-4o',
-    });
-    expect(result).toEqual({
-      success: false,
-      error: 'Could not save the orchestration settings.',
-    });
-    expect(h.decisionModel.setJevApiKey).not.toHaveBeenCalled();
-    expect(h.decisionModel.setSelection).not.toHaveBeenCalled();
-    expect(h.settings.size).toBe(0);
-  });
-
-  it('reports success and keeps the new key when the selection was stored before its write rejected (41f)', async () => {
-    const h = makeHarness();
-    const previous = 'jev-previous-key-11aa';
-    const secret = 'jev-secret-value-9f3a';
-    h.decisionModel.readJevApiKey.mockResolvedValue(previous);
-    h.decisionModel.getSelection.mockReturnValue({
-      kind: 'jev',
-      model: 'jev-1.13.0',
-    });
-    h.decisionModel.setSelection.mockRejectedValue(
-      new Error(`mark store refused ${secret}`),
-    );
-    const result = await h.setConfig({
-      decisionModel: { kind: 'jev' },
-      decisionModelJevApiKey: secret,
-      piModel: 'openai/gpt-4o',
-    });
-    // Both fields hold the requested values, so the save took effect and
-    // the rest of the request is written too.
-    expect(result).toEqual({ success: true });
-    expect(h.decisionModel.setJevApiKey.mock.calls).toEqual([[secret]]);
-    expect(h.logger.warn).toHaveBeenCalledWith(
-      'RPC: agent:setConfig decision model selection was stored before its write failed; keeping the new key',
-      { selectionErrorType: 'Error' },
-    );
-    expect(h.settings.size).toBe(1);
-    const logged = JSON.stringify([
-      h.logger.error.mock.calls,
-      h.logger.warn.mock.calls,
-      h.logger.debug.mock.calls,
-    ]);
-    expect(logged).not.toContain(secret);
-    expect(logged).not.toContain(previous);
-  });
-
   it('reports success for a selection-only save whose selection was stored before its write rejected (41h)', async () => {
     const h = makeHarness();
     const selection = { kind: 'ollama' as const, model: 'tev1' };
@@ -694,8 +594,8 @@ describe('agent:setConfig decision model', () => {
     // rest of the request is written too.
     expect(result).toEqual({ success: true });
     expect(h.decisionModel.setSelection).toHaveBeenCalledTimes(1);
-    expect(h.decisionModel.readJevApiKey).not.toHaveBeenCalled();
-    expect(h.decisionModel.setJevApiKey).not.toHaveBeenCalled();
+    expect(h.decisionModel.snapshotJevKey).not.toHaveBeenCalled();
+    expect(h.decisionModel.writeJevKey).not.toHaveBeenCalled();
     expect(h.logger.warn).toHaveBeenCalledWith(
       'RPC: agent:setConfig decision model selection was stored before its write failed',
       { selectionErrorType: 'Error' },
@@ -718,41 +618,12 @@ describe('agent:setConfig decision model', () => {
       error: 'Settings could not be saved to disk (EIO)',
     });
     expect(h.decisionModel.setSelection).toHaveBeenCalledTimes(1);
-    expect(h.decisionModel.setJevApiKey).not.toHaveBeenCalled();
+    expect(h.decisionModel.writeJevKey).not.toHaveBeenCalled();
     expect(h.logger.warn).not.toHaveBeenCalledWith(
       'RPC: agent:setConfig decision model selection was stored before its write failed',
       expect.anything(),
     );
     expect(h.settings.size).toBe(0);
-  });
-
-  it('restores the previous key when the stored selection cannot be read after a failed write (41f)', async () => {
-    const h = makeHarness();
-    const previous = 'jev-previous-key-11aa';
-    const secret = 'jev-secret-value-9f3a';
-    h.decisionModel.readJevApiKey.mockResolvedValue(previous);
-    h.decisionModel.getSelection.mockImplementation(() => {
-      throw new Error('settings unreadable');
-    });
-    h.decisionModel.setSelection.mockRejectedValue(
-      new SettingsPersistError('EIO'),
-    );
-    const result = await h.setConfig({
-      decisionModel: { kind: 'jev' },
-      decisionModelJevApiKey: secret,
-    });
-    expect(result).toEqual({
-      success: false,
-      error: 'Settings could not be saved to disk (EIO)',
-    });
-    expect(h.decisionModel.setJevApiKey.mock.calls).toEqual([
-      [secret],
-      [previous],
-    ]);
-    expect(h.logger.warn).toHaveBeenCalledWith(
-      'RPC: agent:setConfig could not read the decision model selection after a failed write; restoring the previous key',
-      { errorType: 'Error' },
-    );
   });
 
   it('runs overlapping decision-model saves one at a time, so a rollback never replaces a newer key (41f, review defect 2)', async () => {
@@ -761,10 +632,10 @@ describe('agent:setConfig decision model', () => {
     const k1 = 'jev-key-k1-1111';
     const k2 = 'jev-key-k2-2222';
     let storedKey: string | null = k0;
-    h.decisionModel.readJevApiKey.mockImplementation(() =>
+    h.decisionModel.snapshotJevKey.mockImplementation(() =>
       Promise.resolve(storedKey),
     );
-    h.decisionModel.setJevApiKey.mockImplementation((key: string | null) => {
+    h.decisionModel.writeJevKey.mockImplementation((key: string | null) => {
       storedKey = key;
       return Promise.resolve();
     });
@@ -793,8 +664,8 @@ describe('agent:setConfig decision model', () => {
     });
     await flushAsync();
     // B waits behind A: no key read or write of its own yet.
-    expect(h.decisionModel.readJevApiKey).toHaveBeenCalledTimes(1);
-    expect(h.decisionModel.setJevApiKey.mock.calls).toEqual([[k1]]);
+    expect(h.decisionModel.snapshotJevKey).toHaveBeenCalledTimes(1);
+    expect(h.decisionModel.writeJevKey.mock.calls).toEqual([[k1]]);
     expect(h.decisionModel.setSelection).toHaveBeenCalledTimes(1);
 
     rejectA(new SettingsPersistError('EIO'));
@@ -805,7 +676,7 @@ describe('agent:setConfig decision model', () => {
       error: 'Settings could not be saved to disk (EIO)',
     });
     expect(resultB).toEqual({ success: true });
-    expect(h.decisionModel.setJevApiKey.mock.calls).toEqual([[k1], [k0], [k2]]);
+    expect(h.decisionModel.writeJevKey.mock.calls).toEqual([[k1], [k0], [k2]]);
     expect(storedKey).toBe(k2);
     expect(h.decisionModel.setSelection).toHaveBeenCalledTimes(2);
   });
@@ -840,24 +711,307 @@ describe('agent:setConfig decision model', () => {
     );
   });
 
-  it('reads no previous key when only the key is sent', async () => {
-    const h = makeHarness();
-    expect(
-      await h.setConfig({ decisionModelJevApiKey: 'jev-secret-value-9f3a' }),
-    ).toEqual({ success: true });
-    expect(h.decisionModel.readJevApiKey).not.toHaveBeenCalled();
-    expect(h.decisionModel.setJevApiKey).toHaveBeenCalledTimes(1);
-  });
-
   it('does not call the decision-model service when those fields are omitted', async () => {
     const h = makeHarness();
     expect(await h.setConfig({ piModel: 'openai/gpt-4o' })).toEqual({
       success: true,
     });
     expect(h.decisionModel.setSelection).not.toHaveBeenCalled();
-    expect(h.decisionModel.setJevApiKey).not.toHaveBeenCalled();
+    expect(h.decisionModel.writeJevKey).not.toHaveBeenCalled();
+    expect(h.decisionModel.writeCustomKey).not.toHaveBeenCalled();
     expect(h.settings.get('ptah.agentOrchestration.piModel')).toBe(
       'openai/gpt-4o',
     );
   });
 });
+
+/**
+ * One row per key field of `agent:setConfig` (2.5: the rollback rules hold
+ * for the custom-endpoint key exactly as for the Jev key).
+ */
+interface KeyFieldCase {
+  readonly label: string;
+  readonly field: 'decisionModelJevApiKey' | 'decisionModelCustomApiKey';
+  readonly slot: DecisionKeySlot;
+  /** The selection the request sends with the key. */
+  readonly selection: Record<string, unknown>;
+  /** The same selection after the schema parsed it. */
+  readonly stored: DecisionModelSelection;
+  readonly secret: string;
+  /** The opaque snapshot of the slot before the request. */
+  readonly previous: string;
+  readonly mayHaveChanged: string;
+  /** The origin the new key is bound to (`undefined` for Jev). */
+  readonly origin: string | undefined;
+}
+
+const CUSTOM_ENDPOINT = {
+  kind: 'custom' as const,
+  baseUrl: 'https://gateway.example/gw',
+  model: 'laya-1',
+};
+
+const KEY_FIELD_CASES: readonly KeyFieldCase[] = [
+  {
+    label: 'Jev',
+    field: 'decisionModelJevApiKey',
+    slot: 'jev',
+    selection: { kind: 'jev' },
+    stored: { kind: 'jev', model: 'jev-1.13.0' },
+    secret: 'jev-secret-value-9f3a',
+    previous: 'jev-previous-key-11aa',
+    mayHaveChanged: DECISION_MODEL_KEY_MAY_HAVE_CHANGED,
+    origin: undefined,
+  },
+  {
+    label: 'custom endpoint',
+    field: 'decisionModelCustomApiKey',
+    slot: 'custom',
+    selection: { ...CUSTOM_ENDPOINT },
+    stored: CUSTOM_ENDPOINT,
+    secret: 'custom-secret-value-7b1c',
+    previous:
+      '{"origin":"https://gateway.example","key":"custom-previous-key-22bb"}',
+    mayHaveChanged: DECISION_MODEL_CUSTOM_KEY_MAY_HAVE_CHANGED,
+    origin: CUSTOM_ENDPOINT.baseUrl,
+  },
+];
+
+/** The write and snapshot mocks of one slot. */
+function slotMocks(double: DecisionModelDouble, slot: DecisionKeySlot) {
+  return slot === 'jev'
+    ? { write: double.writeJevKey, snapshot: double.snapshotJevKey }
+    : { write: double.writeCustomKey, snapshot: double.snapshotCustomKey };
+}
+
+describe.each(KEY_FIELD_CASES)(
+  'agent:setConfig decision model rollback: $label key (2.5)',
+  (c) => {
+    it('writes the key before the selection (P4 S-2)', async () => {
+      const h = makeHarness();
+      const slot = slotMocks(h.decisionModel, c.slot);
+      expect(
+        await h.setConfig({ decisionModel: c.selection, [c.field]: c.secret }),
+      ).toEqual({ success: true });
+      const [keyOrder] = slot.write.mock.invocationCallOrder;
+      const [selectionOrder] =
+        h.decisionModel.setSelection.mock.invocationCallOrder;
+      expect(keyOrder).toBeLessThan(selectionOrder);
+      if (c.slot === 'custom') {
+        expect(h.decisionModel.customKeyOrigin).toHaveBeenCalledWith(c.origin);
+      }
+    });
+
+    it('does not write the selection and restores the slot when the key write fails (P4 S-2, phase 3 L1)', async () => {
+      const h = makeHarness();
+      const slot = slotMocks(h.decisionModel, c.slot);
+      slot.snapshot.mockResolvedValue(c.previous);
+      slot.write.mockRejectedValueOnce(
+        new Error(`secret store refused ${c.secret}`),
+      );
+      const result = await h.setConfig({
+        decisionModel: c.selection,
+        [c.field]: c.secret,
+        piModel: 'openai/gpt-4o',
+      });
+      expect(result).toEqual({
+        success: false,
+        error: 'Could not save the orchestration settings.',
+      });
+      // The rejected write may have persisted, so the snapshot is put back.
+      expect(slot.write.mock.calls).toEqual([[c.secret], [c.previous]]);
+      expect(h.decisionModel.setSelection).not.toHaveBeenCalled();
+      expect(h.settings.size).toBe(0);
+      expect(JSON.stringify(result)).not.toContain(c.secret);
+      expect(JSON.stringify(h.logger.error.mock.calls)).not.toContain(c.secret);
+    });
+
+    it('restores the previous key when the selection write fails after the key was stored (P4 defect 1)', async () => {
+      const h = makeHarness();
+      const slot = slotMocks(h.decisionModel, c.slot);
+      slot.snapshot.mockResolvedValue(c.previous);
+      h.decisionModel.setSelection.mockRejectedValue(
+        new SettingsPersistError('EIO'),
+      );
+      const result = await h.setConfig({
+        decisionModel: c.selection,
+        [c.field]: c.secret,
+        piModel: 'openai/gpt-4o',
+      });
+      expect(result).toEqual({
+        success: false,
+        error: 'Settings could not be saved to disk (EIO)',
+      });
+      expect(slot.write.mock.calls).toEqual([[c.secret], [c.previous]]);
+      const [readOrder] = slot.snapshot.mock.invocationCallOrder;
+      const [keyOrder] = slot.write.mock.invocationCallOrder;
+      expect(readOrder).toBeLessThan(keyOrder);
+      expect(h.decisionModel.setSelection).toHaveBeenCalledTimes(1);
+      expect(h.settings.size).toBe(0);
+      const logged = JSON.stringify([
+        h.logger.error.mock.calls,
+        h.logger.warn.mock.calls,
+        h.logger.debug.mock.calls,
+      ]);
+      expect(logged).not.toContain(c.secret);
+      expect(logged).not.toContain(c.previous);
+    });
+
+    it('deletes the new key on rollback when no key was stored before (P4 defect 1)', async () => {
+      const h = makeHarness();
+      const slot = slotMocks(h.decisionModel, c.slot);
+      slot.snapshot.mockResolvedValue(null);
+      h.decisionModel.setSelection.mockRejectedValue(
+        new SettingsPersistError('EIO'),
+      );
+      const result = await h.setConfig({
+        decisionModel: c.selection,
+        [c.field]: c.secret,
+      });
+      expect(result.success).toBe(false);
+      expect(slot.write.mock.calls).toEqual([[c.secret], [null]]);
+    });
+
+    it('says the key may have changed when the rollback also fails (P4 defect 1)', async () => {
+      const h = makeHarness();
+      const slot = slotMocks(h.decisionModel, c.slot);
+      slot.snapshot.mockResolvedValue(c.previous);
+      h.decisionModel.setSelection.mockRejectedValue(
+        new SettingsPersistError('EIO'),
+      );
+      slot.write
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error(`secret store refused ${c.previous}`));
+      const result = await h.setConfig({
+        decisionModel: c.selection,
+        [c.field]: c.secret,
+        piModel: 'openai/gpt-4o',
+      });
+      expect(result).toEqual({ success: false, error: c.mayHaveChanged });
+      expect(slot.write).toHaveBeenCalledTimes(2);
+      expect(h.settings.size).toBe(0);
+      expect(h.logger.error).toHaveBeenCalledWith(
+        'RPC: agent:setConfig could not restore the previous decision model key',
+        {
+          slot: c.slot,
+          // A custom error class name is not a fixed category.
+          selectionErrorType: 'other',
+          restoreErrorType: 'Error',
+        },
+      );
+      const logged = JSON.stringify(h.logger.error.mock.calls);
+      expect(logged).not.toContain(c.secret);
+      expect(logged).not.toContain(c.previous);
+    });
+
+    it('writes nothing when the previous key cannot be read (P4 defect 1)', async () => {
+      const h = makeHarness();
+      const slot = slotMocks(h.decisionModel, c.slot);
+      slot.snapshot.mockRejectedValue(new Error('locked'));
+      const result = await h.setConfig({
+        decisionModel: c.selection,
+        [c.field]: c.secret,
+        piModel: 'openai/gpt-4o',
+      });
+      expect(result).toEqual({
+        success: false,
+        error: 'Could not save the orchestration settings.',
+      });
+      expect(slot.write).not.toHaveBeenCalled();
+      expect(h.decisionModel.setSelection).not.toHaveBeenCalled();
+      expect(h.settings.size).toBe(0);
+    });
+
+    it('reports success and keeps the new key when the selection was stored before its write rejected (41f)', async () => {
+      const h = makeHarness();
+      const slot = slotMocks(h.decisionModel, c.slot);
+      slot.snapshot.mockResolvedValue(c.previous);
+      h.decisionModel.getSelection.mockReturnValue(c.stored);
+      h.decisionModel.setSelection.mockRejectedValue(
+        new Error(`mark store refused ${c.secret}`),
+      );
+      const result = await h.setConfig({
+        decisionModel: c.selection,
+        [c.field]: c.secret,
+        piModel: 'openai/gpt-4o',
+      });
+      // Both fields hold the requested values, so the save took effect and
+      // the rest of the request is written too.
+      expect(result).toEqual({ success: true });
+      expect(slot.write.mock.calls).toEqual([[c.secret]]);
+      expect(h.logger.warn).toHaveBeenCalledWith(
+        'RPC: agent:setConfig decision model selection was stored before its write failed; keeping the new key',
+        { selectionErrorType: 'Error' },
+      );
+      expect(h.settings.size).toBe(1);
+      const logged = JSON.stringify([
+        h.logger.error.mock.calls,
+        h.logger.warn.mock.calls,
+        h.logger.debug.mock.calls,
+      ]);
+      expect(logged).not.toContain(c.secret);
+      expect(logged).not.toContain(c.previous);
+    });
+
+    it('restores the previous key when the stored selection cannot be read after a failed write (41f)', async () => {
+      const h = makeHarness();
+      const slot = slotMocks(h.decisionModel, c.slot);
+      slot.snapshot.mockResolvedValue(c.previous);
+      h.decisionModel.getSelection.mockImplementation(() => {
+        throw new Error('settings unreadable');
+      });
+      h.decisionModel.setSelection.mockRejectedValue(
+        new SettingsPersistError('EIO'),
+      );
+      const result = await h.setConfig({
+        decisionModel: c.selection,
+        [c.field]: c.secret,
+      });
+      expect(result).toEqual({
+        success: false,
+        error: 'Settings could not be saved to disk (EIO)',
+      });
+      expect(slot.write.mock.calls).toEqual([[c.secret], [c.previous]]);
+      expect(h.logger.warn).toHaveBeenCalledWith(
+        'RPC: agent:setConfig could not read the decision model selection after a failed write; restoring the previous key',
+        { errorType: 'Error' },
+      );
+    });
+
+    it('snapshots the slot before a key-only write and writes no selection', async () => {
+      const h = makeHarness();
+      const slot = slotMocks(h.decisionModel, c.slot);
+      // A custom key binds to the saved custom endpoint (DC10).
+      h.decisionModel.getSelection.mockReturnValue(c.stored);
+      expect(await h.setConfig({ [c.field]: c.secret })).toEqual({
+        success: true,
+      });
+      expect(slot.snapshot).toHaveBeenCalledTimes(1);
+      expect(slot.write.mock.calls).toEqual([[c.secret]]);
+      expect(h.decisionModel.setSelection).not.toHaveBeenCalled();
+      if (c.slot === 'custom') {
+        expect(h.decisionModel.customKeyOrigin).toHaveBeenCalledWith(c.origin);
+      }
+    });
+
+    it('says the key may have changed when a key-only write and its restore both fail (phase 3 L1)', async () => {
+      const h = makeHarness();
+      const slot = slotMocks(h.decisionModel, c.slot);
+      h.decisionModel.getSelection.mockReturnValue(c.stored);
+      slot.snapshot.mockResolvedValue(c.previous);
+      slot.write
+        .mockRejectedValueOnce(new Error(`secret store refused ${c.secret}`))
+        .mockRejectedValueOnce(new Error(`secret store refused ${c.previous}`));
+      const result = await h.setConfig({ [c.field]: c.secret });
+      expect(result).toEqual({ success: false, error: c.mayHaveChanged });
+      expect(slot.write.mock.calls).toEqual([[c.secret], [c.previous]]);
+      expect(h.logger.error).toHaveBeenCalledWith(
+        'RPC: agent:setConfig could not restore the previous decision model key',
+        { slot: c.slot, keyErrorType: 'Error', restoreErrorType: 'Error' },
+      );
+      const logged = JSON.stringify(h.logger.error.mock.calls);
+      expect(logged).not.toContain(c.secret);
+      expect(logged).not.toContain(c.previous);
+    });
+  },
+);

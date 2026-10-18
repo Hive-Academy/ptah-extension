@@ -21,62 +21,73 @@ import {
 } from '@ptah-extension/ui';
 import { ClaudeRpcService, LoggingService } from '@ptah-extension/core';
 import {
-  DECISION_MODEL_KEY_MAY_HAVE_CHANGED,
   type AgentSetConfigParams,
   type DecisionModelStatusDto,
 } from '@ptah-extension/shared';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
 import {
   DECISION_KIND_OPTIONS,
-  JEV_DEFAULT_MODEL,
   buildDecisionRow,
   decisionDraftForKind,
   decisionDraftFrom,
   decisionModelInput,
+  decisionModelLabel,
+  decisionModelPlaceholder,
+  endpointFieldError,
+  hostSaveSentence,
   parseDecisionModelStatus,
   sameDecisionSelection,
+  storedKeyBoundTo,
+  storedKeyKnown,
+  type DecisionEndpointField,
   type DecisionModelDraft,
-  type DecisionModelKind,
-} from './provider-consumer-rows';
+} from './decision-model-row.view';
+import {
+  DECISION_ACTION,
+  DECISION_FOCUS,
+  DECISION_INPUT,
+  DECISION_INPUT_INVALID,
+  DECISION_KEY_TEXT,
+  DECISION_LABEL,
+  DECISION_SELECT,
+  DecisionModelKeyFieldComponent,
+  type DecisionKeyedKind,
+} from './decision-model-key-field.component';
+import {
+  IDLE_SUGGESTIONS,
+  decisionModelHelp,
+  hasDecisionSuggestions,
+  loadDecisionSuggestions,
+  type DecisionSuggestions,
+} from './decision-model-suggestions';
+import { DecisionModelBaseUrlFieldComponent } from './decision-model-row.base-url-field.component';
+import {
+  decisionEditorMaxHeight,
+  wrapEditorTab,
+} from './decision-model-row.popover';
 
-const FOCUS =
-  'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content';
-const ACTION = `btn btn-ghost btn-xs h-6 min-h-6 px-1.5 text-[11px] font-medium text-base-content underline underline-offset-2 ${FOCUS}`;
-const CELL = `flex w-full min-w-0 items-center gap-1 whitespace-nowrap rounded px-1 text-left text-xs text-base-content hover:bg-base-200 hover:underline ${FOCUS}`;
-/**
- * The anubis-light `.input` / `.select` rule in styles.css sets the border to base-300 (1.21:1) and the placeholder to
- * 50% base-content (3.28:1) at (0,2,0), which beats a plain utility; so both are forced, as the Advanced settings
- * error border is. `base-content-muted` is >= 5.01:1 on base-100/200/300 in both eager themes (base-content-muted.spec.ts).
- */
-const CONTROL_INK = '!border-base-content-muted';
-const SELECT = `select select-bordered select-sm min-h-8 w-full ${CONTROL_INK} bg-base-100 text-xs text-base-content ${FOCUS}`;
-const INPUT = `input input-bordered input-sm min-h-8 w-full min-w-0 ${CONTROL_INK} bg-base-100 font-mono text-xs text-base-content placeholder:!text-base-content-muted ${FOCUS}`;
-const LABEL = 'block text-xs font-semibold text-base-content-muted';
+const CELL = `flex w-full min-w-0 items-center gap-1 whitespace-nowrap rounded px-1 text-left text-xs text-base-content hover:bg-base-200 hover:underline ${DECISION_FOCUS}`;
 const RPC_TIMEOUT_MS = 5_000;
 const SAVE_FAILED =
   'Could not save the decision model. The saved choice is unchanged.';
-const KEY_REMOVE_FAILED = 'Could not remove the TypeSafe Jev API key.';
 
 type WriteResult = { ok: true } | { ok: false; message: string };
 
-/** Model-name suggestions for the draft's server; `idle` when the kind has no list source (Unset, Jev). */
-interface Suggestions {
-  readonly status: 'idle' | 'loading' | 'ready' | 'error';
-  readonly ids: readonly string[];
-}
-
 /**
- * The Decision model row of Background Model Roles (TASK_2026_646 Req 1, plan part A §11). It reads and writes only
- * through `agent:getConfig` / `agent:setConfig` (`decisionModel`, write-only `decisionModelJevApiKey`), and saves
- * through `SettingsSaveFeedbackService.saveGeneric` like the other Settings writes outside the Providers state.
- * - The kind picker offers exactly Unset | Ollama decision model | TypeSafe Jev | Structured-output model. Unset
- *   saves at once; the other kinds save with Save once their required fields are filled.
- * - Ollama's model is free text; its suggestions come from the page's `PROVIDER_MODELS_LOADER` for `ollama` (the
- *   catalogue the provider picker uses), never a list fixed in code (Req 1.2). A structured-output model is one of
- *   the configured providers (`providers`) and a model of its catalogue. The catalogue carries no structured-output
- *   flag (`ProviderModelInfo`), so the list is unfiltered and the help text says the model must support it.
- * - The Jev key field is a password input that is never prefilled; a stored key is never shown. Removing the key is
- *   its own button, so an empty field never deletes it; it is hidden while the host reports that no key is stored.
+ * The Decision model row of Background Model Roles (TASK_2026_646 Req 1; TASK_2026_684 C13). It reads and writes only
+ * through `agent:getConfig` / `agent:setConfig` (`decisionModel`, write-only `decisionModelJevApiKey` and
+ * `decisionModelCustomApiKey`), and saves through `SettingsSaveFeedbackService.saveGeneric` like the other Settings
+ * writes outside the Providers state.
+ * - Kinds: Unset | Ollama decision model | Ollama Cloud | TypeSafe Jev | Custom endpoint | Structured-output model.
+ *   Unset saves at once; the other kinds save with Save once their required fields are filled and valid.
+ * - Ollama and Ollama Cloud models are free text; their suggestions list only decision-capable models
+ *   (`agent:listDecisionModels`), with a notice when that filter could not be fully applied. Nothing is ever
+ *   preselected. A structured-output model lists its provider's catalogue unfiltered (it has no structured-output flag).
+ * - Ollama Cloud has no key field: it uses the Ollama Cloud provider key, set up through the provider wizard.
+ * - The custom endpoint takes a base URL, a model and an optional key. Field hints mirror the host's URL rule and
+ *   D4 (a key needs https unless the endpoint is on this machine); the host stays the authority on save.
+ * - The key field (Jev, custom) is a password input that is never prefilled; a stored key is never shown. Removing the
+ *   key is its own button, so an empty field never deletes it; it shows only while the host reports a stored key.
  * - A status read that fails shows "not reachable" and never blocks saving. So does an `unset` selection the host
  *   reports as `unreachable` (it could not read the stored selection): that save offers no Undo, so it can never
  *   write `unset` over the real stored choice. Host `detail` is plain text. Logs carry fixed text and an error type.
@@ -84,9 +95,19 @@ interface Suggestions {
 @Component({
   selector: 'ptah-decision-model-row',
   standalone: true,
-  imports: [LucideAngularModule, NativePopoverComponent, ProviderMarkComponent],
+  imports: [
+    LucideAngularModule,
+    NativePopoverComponent,
+    ProviderMarkComponent,
+    DecisionModelKeyFieldComponent,
+    DecisionModelBaseUrlFieldComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { class: 'block min-w-0' },
+  // Angular owns (and removes) this listener with the component.
+  host: {
+    class: 'block min-w-0',
+    '(window:resize)': 'editing() && fitEditor()',
+  },
   template: `
     <article
       data-testid="consumer-row-decision"
@@ -123,6 +144,8 @@ interface Suggestions {
             [hasBackdrop]="true"
             backdropClass="transparent"
             (closed)="close()"
+            (opened)="editorRef()?.nativeElement?.focus()"
+            (keydown)="onEditorKeydown($event)"
           >
             <button
               #cell
@@ -155,11 +178,17 @@ interface Suggestions {
               />
             </button>
             @if (editing()) {
+              <!-- Height capped to the room beside the cell (decisionEditorMaxHeight); the heading, close, kind
+                   picker and Save footer stay fixed and only the body scrolls, so the editor always fits. -->
               <div
+                #editor
                 content
                 role="dialog"
+                aria-modal="true"
+                tabindex="-1"
                 aria-label="Choose the decision model"
-                class="relative w-[27rem] max-w-[calc(100vw-2rem)] space-y-2 whitespace-normal p-2 text-left text-xs"
+                class="relative flex w-[27rem] max-w-[calc(100vw-2rem)] flex-col gap-2 whitespace-normal p-2 text-left text-xs"
+                [style.max-height.px]="editorMaxHeight()"
                 data-testid="consumer-editor-decision"
               >
                 <button
@@ -197,114 +226,132 @@ interface Suggestions {
                     </option>
                   }
                 </select>
-                @if (draft().kind === 'structured') {
-                  <label for="decision-model-provider" [class]="label"
-                    >Provider</label
-                  >
-                  <select
-                    id="decision-model-provider"
-                    [class]="selectClass"
-                    [disabled]="busy() || disabled()"
-                    (change)="onProvider($event)"
-                    data-testid="decision-provider"
-                  >
-                    <option value="" [selected]="draft().providerId === ''">
-                      Choose a provider
-                    </option>
-                    @for (provider of providers(); track provider.id) {
-                      <option
-                        [value]="provider.id"
-                        [selected]="draft().providerId === provider.id"
-                      >
-                        {{ provider.name }}
-                      </option>
-                    }
-                  </select>
-                  @if (providers().length === 0) {
+                <div
+                  class="-mx-2 min-h-0 space-y-2 overflow-y-auto px-2 py-1"
+                  data-testid="decision-editor-body"
+                >
+                  @if (draft().kind === 'ollama-cloud') {
                     <p
-                      class="text-xs text-base-content"
-                      data-testid="decision-no-providers"
+                      class="text-xs text-base-content-muted"
+                      data-testid="decision-cloud-help"
                     >
-                      No provider is configured. Set one up on Providers first.
+                      Uses your Ollama Cloud provider key and calls ollama.com
+                      directly. Without a key, requests go through your
+                      signed-in local Ollama. Chat and routing share one Ollama
+                      Cloud plan.
                     </p>
-                  }
-                }
-                @if (draft().kind !== 'unset') {
-                  <label for="decision-model-model" [class]="label">{{
-                    modelLabel()
-                  }}</label>
-                  <input
-                    id="decision-model-model"
-                    type="text"
-                    list="decision-model-suggestions"
-                    [class]="inputClass"
-                    autocomplete="off"
-                    spellcheck="false"
-                    aria-describedby="decision-model-model-help"
-                    [placeholder]="
-                      draft().kind === 'jev' ? jevDefaultModel : ''
-                    "
-                    [value]="draft().model"
-                    [disabled]="busy() || disabled()"
-                    (input)="onModel($event)"
-                    (keydown.enter)="save()"
-                    data-testid="decision-model"
-                  />
-                  <datalist id="decision-model-suggestions">
-                    @for (id of suggestions().ids; track id) {
-                      <option [value]="id"></option>
-                    }
-                  </datalist>
-                  <p
-                    id="decision-model-model-help"
-                    class="text-xs text-base-content-muted"
-                    data-testid="decision-model-help"
-                  >
-                    {{ modelHelp() }}
-                  </p>
-                }
-                @if (draft().kind === 'jev') {
-                  <label for="decision-model-jev-key" [class]="label"
-                    >TypeSafe Jev API key</label
-                  >
-                  <input
-                    #jevKeyField
-                    id="decision-model-jev-key"
-                    type="password"
-                    [class]="inputClass"
-                    autocomplete="new-password"
-                    spellcheck="false"
-                    aria-describedby="decision-model-jev-key-help"
-                    placeholder="Enter a new key to store it"
-                    [value]="jevKey()"
-                    [disabled]="busy() || disabled()"
-                    (input)="onKey($event)"
-                    data-testid="decision-jev-key"
-                  />
-                  <p
-                    id="decision-model-jev-key-help"
-                    class="text-xs text-base-content-muted"
-                  >
-                    Stored in this machine's secret storage. A stored key is
-                    never shown here.
-                  </p>
-                  @if (keyMayBeStored()) {
                     <button
                       type="button"
                       [class]="action"
-                      [disabled]="busy() || disabled()"
-                      (click)="removeJevKey()"
-                      data-testid="decision-jev-key-remove"
+                      (click)="setUpOllamaCloud()"
+                      data-testid="decision-cloud-setup"
                     >
-                      Remove stored key
+                      Set up Ollama Cloud
                     </button>
                   }
-                }
+                  @if (draft().kind === 'structured') {
+                    <label for="decision-model-provider" [class]="label"
+                      >Provider</label
+                    >
+                    <select
+                      id="decision-model-provider"
+                      [class]="selectClass"
+                      [disabled]="busy() || disabled()"
+                      (change)="onProvider($event)"
+                      data-testid="decision-provider"
+                    >
+                      <option value="" [selected]="draft().providerId === ''">
+                        Choose a provider
+                      </option>
+                      @for (provider of providers(); track provider.id) {
+                        <option
+                          [value]="provider.id"
+                          [selected]="draft().providerId === provider.id"
+                        >
+                          {{ provider.name }}
+                        </option>
+                      }
+                    </select>
+                    @if (providers().length === 0) {
+                      <p
+                        class="text-xs text-base-content"
+                        data-testid="decision-no-providers"
+                      >
+                        No provider is configured. Set one up on Providers
+                        first.
+                      </p>
+                    }
+                  }
+                  @if (draft().kind === 'custom') {
+                    <ptah-decision-model-base-url-field
+                      [value]="draft().baseUrl"
+                      [error]="fieldError('baseUrl')"
+                      [disabled]="busy() || disabled()"
+                      (valueChange)="onBaseUrl($event)"
+                      (submitted)="save()"
+                    />
+                  }
+                  @if (draft().kind !== 'unset') {
+                    <label for="decision-model-model" [class]="label">{{
+                      modelLabel()
+                    }}</label>
+                    <input
+                      id="decision-model-model"
+                      type="text"
+                      list="decision-model-suggestions"
+                      [class]="
+                        fieldError('model') ? invalidInputClass : inputClass
+                      "
+                      autocomplete="off"
+                      spellcheck="false"
+                      [attr.aria-invalid]="fieldError('model') ? 'true' : null"
+                      [attr.aria-describedby]="describedBy('model')"
+                      [placeholder]="modelPlaceholder()"
+                      [value]="draft().model"
+                      [disabled]="busy() || disabled()"
+                      (input)="onField('model', $event)"
+                      (keydown.enter)="save()"
+                      data-testid="decision-model"
+                    />
+                    <datalist id="decision-model-suggestions">
+                      @for (id of suggestions().ids; track id) {
+                        <option [value]="id"></option>
+                      }
+                    </datalist>
+                    <p
+                      id="decision-model-model-help"
+                      class="text-xs text-base-content-muted"
+                      data-testid="decision-model-help"
+                    >
+                      {{ modelHelp() }}
+                    </p>
+                    @if (fieldError('model'); as message) {
+                      <p
+                        id="decision-model-model-error"
+                        role="alert"
+                        class="text-xs text-error"
+                        data-testid="decision-model-error"
+                      >
+                        {{ message }}
+                      </p>
+                    }
+                  }
+                  @if (keyedKind(); as keyKind) {
+                    <ptah-decision-model-key-field
+                      [label]="keyText[keyKind].label"
+                      [value]="apiKey()"
+                      [disabled]="busy() || disabled()"
+                      [showRemove]="keyMayBeStored()"
+                      (valueChange)="apiKey.set($event)"
+                      (remove)="removeKey()"
+                    />
+                  }
+                </div>
                 @if (draft().kind !== 'unset') {
                   <button
                     type="button"
                     [class]="
-                      'btn btn-primary btn-sm min-h-8 disabled:border-base-content-muted disabled:bg-base-200 disabled:text-base-content-muted ' +
+                      'btn btn-primary btn-sm min-h-8 self-start disabled:border-base-content-muted disabled:bg-base-200 disabled:text-base-content-muted ' +
                       focusRing
                     "
                     [disabled]="!canSave()"
@@ -398,14 +445,15 @@ export class DecisionModelRowComponent implements OnInit {
 
   protected readonly ChevronIcon = ChevronDown;
   protected readonly CloseIcon = X;
-  protected readonly focusRing = FOCUS;
-  protected readonly action = ACTION;
+  protected readonly focusRing = DECISION_FOCUS;
+  protected readonly action = DECISION_ACTION;
   protected readonly cellClass = CELL;
-  protected readonly selectClass = SELECT;
-  protected readonly inputClass = INPUT;
-  protected readonly label = LABEL;
+  protected readonly selectClass = DECISION_SELECT;
+  protected readonly inputClass = DECISION_INPUT;
+  protected readonly invalidInputClass = DECISION_INPUT_INVALID;
+  protected readonly label = DECISION_LABEL;
   protected readonly kinds = DECISION_KIND_OPTIONS;
-  protected readonly jevDefaultModel = JEV_DEFAULT_MODEL;
+  protected readonly keyText = DECISION_KEY_TEXT;
 
   readonly disabled = input<boolean>(false);
   /** The configured provider connections a structured-output model can run on. */
@@ -419,83 +467,105 @@ export class DecisionModelRowComponent implements OnInit {
   protected readonly draft = signal<DecisionModelDraft>(
     decisionDraftFrom(null),
   );
-  /** The key being typed; never filled from the host. */
-  protected readonly jevKey = signal('');
-  protected readonly suggestions = signal<Suggestions>({
-    status: 'idle',
-    ids: [],
-  });
+  /** The key being typed for the draft's kind (Jev or custom); never filled from the host, never logged. */
+  protected readonly apiKey = signal('');
+  protected readonly suggestions =
+    signal<DecisionSuggestions>(IDLE_SUGGESTIONS);
   private suggestionRequest = 0;
-  /** Set after this row removed the key; a later key save or a host status that knows the key wins. */
-  private readonly keyRemoved = signal(false);
+  /** The editor's height cap in px (`fitEditor`), set before it opens so the popover positions the capped size. */
+  protected readonly editorMaxHeight = signal<number | null>(null);
 
   private readonly cellRef = viewChild<ElementRef<HTMLButtonElement>>('cell');
-  private readonly jevKeyRef =
-    viewChild<ElementRef<HTMLInputElement>>('jevKeyField');
+  /** The popover focuses its panel on open; `(opened)` moves focus on to this dialog so AT lands on its role. */
+  protected readonly editorRef = viewChild<ElementRef<HTMLElement>>('editor');
+  private readonly keyFieldRef = viewChild(DecisionModelKeyFieldComponent);
 
   /** Save triggers wait while any save runs (D3). */
   protected readonly busy = this.feedback.saving;
   protected readonly row = computed(() => buildDecisionRow(this.status()));
   protected readonly markProviderId = computed(() => {
     const selection = this.status()?.selection;
-    if (selection?.kind === 'ollama') return 'ollama';
+    if (selection?.kind === 'ollama' || selection?.kind === 'ollama-cloud')
+      return selection.kind;
     return selection?.kind === 'structured' ? selection.providerId : '';
   });
   private readonly pendingInput = computed(() =>
     decisionModelInput(this.draft()),
   );
+  /** The draft's kind when its key is entered in this row. */
+  protected readonly keyedKind = computed((): DecisionKeyedKind | null => {
+    const kind = this.draft().kind;
+    return kind === 'jev' || kind === 'custom' ? kind : null;
+  });
+  private readonly keyTyped = computed(
+    () => this.keyedKind() !== null && this.apiKey().trim() !== '',
+  );
+  /** The host's knowledge of the draft kind's stored key (`storedKeyKnown`); `null` when unknown. */
+  private readonly keyStoredKnown = computed(() =>
+    storedKeyKnown(this.keyedKind(), this.status()),
+  );
+  /**
+   * Whether "Remove stored key" is offered: only while the host reports a stored key for the saved selection of the
+   * draft's kind. The host reports `apiKeyStored` for the saved kind only, so an unknown key offers no delete (P4 4).
+   */
+  protected readonly keyMayBeStored = computed(
+    () => this.keyStoredKnown() === true,
+  );
+  /** The first invalid custom endpoint field (D4 counts a typed key, or a stored key bound to the draft's origin). */
+  private readonly endpointError = computed(() =>
+    endpointFieldError(
+      this.draft(),
+      this.keyTyped() ||
+        (this.keyStoredKnown() === true &&
+          storedKeyBoundTo(this.draft().baseUrl, this.status()?.selection)),
+    ),
+  );
   protected readonly canSave = computed(() => {
     const selection = this.pendingInput();
     if (!selection || this.busy() || this.disabled()) return false;
-    const keyTyped = selection.kind === 'jev' && this.jevKey().trim() !== '';
+    if (this.endpointError()) return false;
     return (
-      keyTyped ||
+      this.keyTyped() ||
       !sameDecisionSelection(selection, this.status()?.selection ?? null)
     );
   });
-  protected readonly modelLabel = computed(() => {
-    const kind = this.draft().kind;
-    if (kind === 'jev') return 'Jev model (optional)';
-    return kind === 'ollama' ? 'Ollama model' : 'Model with structured output';
-  });
-  protected readonly modelHelp = computed(() => {
-    const { kind, providerId } = this.draft();
-    const { status, ids } = this.suggestions();
-    if (kind === 'jev') return `Empty uses ${JEV_DEFAULT_MODEL}.`;
-    if (kind === 'structured' && !providerId)
-      return 'Choose a provider to list its models.';
-    if (status === 'loading') return 'Loading model suggestions…';
-    if (status === 'error') return 'Could not list models. Type a model name.';
-    if (ids.length === 0) return 'No model suggestions. Type a model name.';
-    return kind === 'ollama'
-      ? 'Suggestions come from your Ollama endpoint. Any model name it serves works.'
-      : "Suggestions list this provider's models. Pick one that supports structured output (JSON schema); not every listed model does.";
-  });
-  /**
-   * Whether "Remove stored key" is offered. The status knows the key only for a saved Jev selection (`ready` = stored,
-   * `no-credential` = none); otherwise it is unknown and the button stays, unless this row has just removed the key.
-   */
-  protected readonly keyMayBeStored = computed(() => {
-    const status = this.status();
-    if (status?.selection.kind === 'jev') {
-      if (status.state === 'ready') return true;
-      if (status.state === 'no-credential') return false;
-    }
-    return !this.keyRemoved();
-  });
+  protected readonly modelLabel = computed(() =>
+    decisionModelLabel(this.draft().kind),
+  );
+  protected readonly modelPlaceholder = computed(() =>
+    decisionModelPlaceholder(this.draft().kind),
+  );
+  protected readonly modelHelp = computed(() =>
+    decisionModelHelp(this.draft(), this.suggestions()),
+  );
   /** The editor footer: only claims an Undo the next save will really offer (see `save`). */
   protected readonly footer = computed(() => {
     const base =
       'Unset saves at once and sends no decision request. Other choices save with Save.';
     if (!this.status())
       return `${base} The saved choice could not be read, so a save offers no Undo.`;
-    return this.draft().kind === 'jev'
+    return this.keyedKind()
       ? `${base} Undo puts the previous choice back; a key change has no Undo.`
       : `${base} Undo puts the previous choice back.`;
   });
 
   ngOnInit(): void {
     void this.reload();
+  }
+
+  /**
+   * The inline hint of a custom endpoint field, or `null`. A field that is still empty shows none: Save is disabled
+   * until it is filled, and a hint before any typing would only be noise.
+   */
+  protected fieldError(field: DecisionEndpointField): string | null {
+    const error = this.endpointError();
+    if (!error || error.field !== field) return null;
+    return this.draft()[field].trim() ? error.message : null;
+  }
+
+  protected describedBy(field: DecisionEndpointField): string {
+    const id = `decision-model-${field === 'baseUrl' ? 'base-url' : 'model'}`;
+    return this.fieldError(field) ? `${id}-help ${id}-error` : `${id}-help`;
   }
 
   /**
@@ -532,7 +602,8 @@ export class DecisionModelRowComponent implements OnInit {
     // While a save runs the cell is only aria-disabled (it keeps focus): the click is refused here (D3).
     if (this.busy()) return;
     this.draft.set(decisionDraftFrom(this.status()?.selection ?? null));
-    this.jevKey.set('');
+    this.apiKey.set('');
+    this.fitEditor();
     this.editing.set(true);
     void this.refreshSuggestions();
   }
@@ -541,14 +612,31 @@ export class DecisionModelRowComponent implements OnInit {
   protected close(): void {
     if (!this.editing()) return;
     this.editing.set(false);
-    this.jevKey.set('');
+    this.apiKey.set('');
     afterNextRender(() => this.cellRef()?.nativeElement.focus(), {
       injector: this.injector,
     });
   }
 
+  /** Caps the editor to the room beside the cell (on open and on window resize). */
+  protected fitEditor(): void {
+    const cell = this.cellRef()?.nativeElement;
+    const view = cell?.ownerDocument.defaultView;
+    if (!cell || !view) return;
+    this.editorMaxHeight.set(
+      decisionEditorMaxHeight(cell.getBoundingClientRect(), view.innerHeight),
+    );
+  }
+
+  /** Tab stays inside the open editor; Escape is the popover's own close. */
+  protected onEditorKeydown(event: KeyboardEvent): void {
+    const editor = this.editorRef()?.nativeElement;
+    if (this.editing() && editor) wrapEditorTab(event, editor);
+  }
+
   protected onKind(event: Event): void {
-    const value = (event.target as HTMLSelectElement).value;
+    if (!(event.target instanceof HTMLSelectElement)) return;
+    const value = event.target.value;
     const kind = DECISION_KIND_OPTIONS.find(
       (option) => option.value === value,
     )?.value;
@@ -556,39 +644,52 @@ export class DecisionModelRowComponent implements OnInit {
     this.draft.set(
       decisionDraftForKind(kind, this.status()?.selection ?? null),
     );
-    if (kind !== 'jev') this.jevKey.set('');
+    // A key typed for one kind is never sent for another.
+    this.apiKey.set('');
     void this.refreshSuggestions();
     if (kind === 'unset') void this.save();
   }
 
   protected onProvider(event: Event): void {
-    const providerId = (event.target as HTMLSelectElement).value;
+    if (!(event.target instanceof HTMLSelectElement)) return;
+    const providerId = event.target.value;
     this.draft.update((draft) => ({ ...draft, providerId, model: '' }));
     void this.refreshSuggestions();
   }
 
-  protected onModel(event: Event): void {
-    const model = (event.target as HTMLInputElement).value;
-    this.draft.update((draft) => ({ ...draft, model }));
+  /** A typed base URL or model; suggestions never write here (no preselection). */
+  protected onField(field: DecisionEndpointField, event: Event): void {
+    if (!(event.target instanceof HTMLInputElement)) return;
+    const value = event.target.value;
+    this.draft.update((draft) => ({ ...draft, [field]: value }));
   }
 
-  protected onKey(event: Event): void {
-    this.jevKey.set((event.target as HTMLInputElement).value);
+  protected onBaseUrl(baseUrl: string): void {
+    this.draft.update((draft) => ({ ...draft, baseUrl }));
+  }
+
+  /** Ollama Cloud's key is the provider key (D1): the provider wizard sets it up, not this row. */
+  protected setUpOllamaCloud(): void {
+    this.close();
+    this.setupProviderRequested.emit('ollama-cloud');
   }
 
   /**
-   * Saves the draft with Undo. A typed Jev key goes in the same write (trimmed; blank is never sent, so it cannot
-   * delete the stored key) and that save offers no Undo: a key cannot be put back. With no status read (`status`
-   * is `null`, including an unread selection) there is no Undo either: the previous choice is not known.
+   * Saves the draft with Undo. A typed Jev or custom endpoint key goes in the same write (trimmed; blank is never
+   * sent, so it cannot delete the stored key) and that save offers no Undo: a key cannot be put back. With no status
+   * read (`status` is `null`, including an unread selection) there is no Undo either: the previous choice is unknown.
    */
   protected async save(): Promise<void> {
     const selection = this.pendingInput();
     if (!selection || !this.canSave()) return;
-    const key = selection.kind === 'jev' ? this.jevKey().trim() : '';
+    const keyKind = this.keyedKind();
+    const key = keyKind ? this.apiKey().trim() : '';
     const previous = this.status()?.selection ?? null;
-    const params: AgentSetConfigParams = key
-      ? { decisionModel: selection, decisionModelJevApiKey: key }
-      : { decisionModel: selection };
+    const params: AgentSetConfigParams = !key
+      ? { decisionModel: selection }
+      : keyKind === 'jev'
+        ? { decisionModel: selection, decisionModelJevApiKey: key }
+        : { decisionModel: selection, decisionModelCustomApiKey: key };
     const result = await this.feedback.saveGeneric({
       label: 'decision model',
       write: () => this.write(params, SAVE_FAILED),
@@ -598,33 +699,35 @@ export class DecisionModelRowComponent implements OnInit {
           : null,
     });
     if (result !== 'saved') return;
-    this.jevKey.set('');
-    if (key) this.keyRemoved.set(false);
+    this.apiKey.set('');
   }
 
   /**
-   * The explicit delete: `decisionModelJevApiKey: ''` removes the stored key (no Undo). The button then goes away,
-   * so focus moves to the key field.
+   * The explicit delete: `''` for the draft kind's key field removes the stored key (no Undo). The button then goes
+   * away, so focus moves to the key field.
    */
-  protected async removeJevKey(): Promise<void> {
-    if (this.busy() || this.disabled()) return;
-    this.jevKey.set('');
+  protected async removeKey(): Promise<void> {
+    const kind = this.keyedKind();
+    if (!kind || this.busy() || this.disabled()) return;
+    this.apiKey.set('');
+    const params: AgentSetConfigParams =
+      kind === 'jev'
+        ? { decisionModelJevApiKey: '' }
+        : { decisionModelCustomApiKey: '' };
     const result = await this.feedback.saveGeneric({
-      label: 'removal of the TypeSafe Jev API key',
-      write: () =>
-        this.write({ decisionModelJevApiKey: '' }, KEY_REMOVE_FAILED),
+      label: DECISION_KEY_TEXT[kind].removal,
+      write: () => this.write(params, DECISION_KEY_TEXT[kind].removeFailed),
       undo: null,
     });
     if (result !== 'saved') return;
-    this.keyRemoved.set(true);
-    afterNextRender(() => this.jevKeyRef()?.nativeElement.focus(), {
+    afterNextRender(() => this.keyFieldRef()?.focus(), {
       injector: this.injector,
     });
   }
 
   /**
    * One `agent:setConfig` write, then a status re-read; a failed re-read shows "not reachable", not a failed save.
-   * The toast carries a fixed sentence, never host text (the Settings save convention).
+   * The toast carries a fixed sentence: the row's own, or one of the host's fixed shared constants (DC12).
    */
   private async write(
     params: AgentSetConfigParams,
@@ -634,18 +737,13 @@ export class DecisionModelRowComponent implements OnInit {
       const result = await this.rpc.call('agent:setConfig', params, {
         timeout: RPC_TIMEOUT_MS,
       });
-      if (!result.isSuccess() || !result.data.success) {
-        // The one host sentence the row repeats: a fixed shared constant that
-        // corrects "unchanged" when the key rollback failed (P4 defect 1).
-        const keyMayHaveChanged =
-          result.isSuccess() &&
-          result.data.error === DECISION_MODEL_KEY_MAY_HAVE_CHANGED;
-        return {
-          ok: false,
-          message: keyMayHaveChanged
-            ? DECISION_MODEL_KEY_MAY_HAVE_CHANGED
-            : failed,
-        };
+      // The RPC boundary is untrusted at runtime: only a literal `success: true` confirms the write.
+      if (!result.isSuccess() || result.data.success !== true) {
+        const hostError =
+          result.isSuccess() && result.data.success === false
+            ? result.data.error
+            : undefined;
+        return { ok: false, message: hostSaveSentence(hostError) ?? failed };
       }
     } catch (error: unknown) {
       this.logger.warn('DecisionModelRow', 'agent:setConfig failed', {
@@ -657,42 +755,31 @@ export class DecisionModelRowComponent implements OnInit {
     return { ok: true };
   }
 
-  /** Loads the suggestions for the draft's server; a newer request wins. */
+  /** Loads the suggestions for the draft's kind; a newer request wins. Never writes `draft.model` (no preselection). */
   private async refreshSuggestions(): Promise<void> {
     const request = ++this.suggestionRequest;
     const { kind, providerId } = this.draft();
-    const source = suggestionSource(kind, providerId);
-    if (!source) {
-      this.suggestions.set({ status: 'idle', ids: [] });
+    if (!hasDecisionSuggestions(kind, providerId)) {
+      this.suggestions.set(IDLE_SUGGESTIONS);
       return;
     }
-    this.suggestions.set({ status: 'loading', ids: [] });
+    this.suggestions.set({ status: 'loading', ids: [], filter: null });
     try {
-      // Unfiltered: the catalogue has no structured-output flag, and tool use is not what the adapter needs.
-      const result = await this.loader.listModels(source);
-      if (request === this.suggestionRequest) {
-        this.suggestions.set({
-          status: result.error ? 'error' : 'ready',
-          ids: result.models.map((model) => model.id),
-        });
-      }
+      const next = await loadDecisionSuggestions(
+        kind,
+        providerId,
+        this.rpc,
+        this.loader,
+      );
+      if (request === this.suggestionRequest) this.suggestions.set(next);
     } catch (error: unknown) {
       this.logger.warn('DecisionModelRow', 'model suggestions failed', {
         errorType: errorTypeOf(error),
       });
       if (request === this.suggestionRequest)
-        this.suggestions.set({ status: 'error', ids: [] });
+        this.suggestions.set({ status: 'error', ids: [], filter: null });
     }
   }
-}
-
-/** The provider whose catalogue suggests model names: Ollama for the Ollama kind, the chosen one for structured. */
-function suggestionSource(
-  kind: DecisionModelKind,
-  providerId: string,
-): string | null {
-  if (kind === 'ollama') return 'ollama';
-  return kind === 'structured' && providerId ? providerId : null;
 }
 
 /**

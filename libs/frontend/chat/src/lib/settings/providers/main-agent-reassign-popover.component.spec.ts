@@ -141,6 +141,24 @@ describe('MainAgentReassignPopoverComponent', () => {
     expect(document.querySelector('[data-testid="main-agent-popover"] input[type="radio"]')).toBeNull();
   });
 
+  it('caps its height at the larger free side of the trigger, so a flipped panel cannot run off the top', () => {
+    // Trigger at y 406 in a 768 px viewport: 362 px below, 406 px above. The cap is taken from the trigger (406 less
+    // the 8 px offset and 8 px margin; jsdom lays out no panel padding), not from the panel's own top edge, which
+    // Floating UI moves above the trigger when the panel flips.
+    const trigger = document.querySelector<HTMLElement>('ptah-main-agent-reassign-popover .popover-trigger');
+    expect(trigger).not.toBeNull();
+    jest.spyOn(trigger as HTMLElement, 'getBoundingClientRect').mockReturnValue({ top: 406, bottom: 406 } as DOMRect);
+    const height = window.innerHeight;
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 768 });
+    try {
+      window.dispatchEvent(new Event('resize'));
+      fixture.detectChanges();
+      expect(query('main-agent-popover')?.style.maxHeight).toBe('390px');
+    } finally {
+      Object.defineProperty(window, 'innerHeight', { configurable: true, value: height });
+    }
+  });
+
   describe('explicit save: the choices are a draft', () => {
     it('(a) provider, model, effort and Save-to choices write nothing before Save', async () => {
       choose('main-agent-provider', 'second');

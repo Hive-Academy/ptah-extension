@@ -9,6 +9,7 @@ import {
 } from '@ptah-extension/shared';
 
 import type { SystemOneTarget } from '../decision-model/decision-model.config';
+import type { DecisionModelSelection } from '../decision-model/decision-model.types';
 import type { DecisionOption } from '../decision-model/decision-payload';
 import type { RouteDecideArgs } from '../contracts/route-decide-args.schema';
 import type { GatheredCall } from './gather';
@@ -57,6 +58,8 @@ export type OpenedCaller =
   | { readonly kind: 'blocked'; readonly cause: FallbackCause }
   | {
       readonly kind: 'system-one';
+      /** The selection the target was resolved for (404 re-check identity). */
+      readonly selection: DecisionModelSelection;
       readonly target: SystemOneTarget;
       readonly provider: 'ollama' | 'jev';
     }

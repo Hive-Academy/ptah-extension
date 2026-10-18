@@ -21,6 +21,7 @@ import {
 } from '@ptah-extension/platform-core';
 import type { LaneOutcomeReader } from '@ptah-extension/shared';
 
+import { DecisionModelCatalog } from '../decision-model/decision-model.catalog';
 import { DecisionModelConfig } from '../decision-model/decision-model.config';
 import type { StructuredDecisionCompleter } from '../decision-model/structured-decision.port';
 import { DecisionModelFailureClassifier } from '../failure-class/decision-model-failure-classifier';
@@ -95,6 +96,20 @@ export function registerLaneRoutingServices(
         structured,
       );
     }),
+  });
+
+  // The catalog reads the base URL on each `list` call; building it makes no
+  // network request.
+  container.register(LANE_ROUTING_TOKENS.DECISION_MODEL_CATALOG, {
+    useFactory: instanceCachingFactory(
+      (c) =>
+        new DecisionModelCatalog(
+          c.resolve<DecisionModelConfig>(
+            LANE_ROUTING_TOKENS.DECISION_MODEL_CONFIG,
+          ),
+          c.resolve<LaneRoutingLogger>(LANE_ROUTING_TOKENS.LOGGER),
+        ),
+    ),
   });
 
   container.register(LANE_ROUTING_TOKENS.ROUTE_DECIDE_SERVICE, {

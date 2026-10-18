@@ -8,7 +8,11 @@
  */
 import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import { PROVIDER_MODELS_LOADER } from '@ptah-extension/ui';
+import { By } from '@angular/platform-browser';
+import {
+  NativePopoverComponent,
+  PROVIDER_MODELS_LOADER,
+} from '@ptah-extension/ui';
 import {
   ClaudeRpcService,
   LoggingService,
@@ -105,11 +109,19 @@ describe('DecisionModelRowComponent', () => {
 
   beforeEach(() => {
     setConfigResult = { success: true };
-    call = jest.fn(async (method: string) =>
-      method === 'agent:getConfig'
-        ? rpcSuccess({ decisionModel: current } as AgentOrchestrationConfig)
-        : rpcSuccess(setConfigResult),
-    );
+    call = jest.fn(async (method: string) => {
+      if (method === 'agent:getConfig')
+        return rpcSuccess({
+          decisionModel: current,
+        } as AgentOrchestrationConfig);
+      if (method === 'agent:listDecisionModels')
+        return rpcSuccess({
+          models: ['tev1', 'laya'],
+          filter: 'applied',
+          undetermined: 0,
+        });
+      return rpcSuccess(setConfigResult);
+    });
     listModels = jest.fn(async (providerId?: string) => ({
       models:
         providerId === 'ollama'
@@ -276,7 +288,7 @@ describe('DecisionModelRowComponent', () => {
   });
 
   describe('the kind picker (Req 1.2)', () => {
-    it('offers exactly the four kinds with Unset selected by default, and no fields for Unset', async () => {
+    it('offers every kind with Unset selected by default, and no fields for Unset', async () => {
       await create();
       await open();
       const options = Array.from(
@@ -285,7 +297,9 @@ describe('DecisionModelRowComponent', () => {
       expect(options.map((option) => option.textContent?.trim())).toEqual([
         'Unset',
         'Ollama decision model',
+        'Ollama Cloud',
         'TypeSafe Jev',
+        'Custom endpoint (/v1/systemone)',
         'Structured-output model',
       ]);
       expect(byTestId<HTMLSelectElement>('decision-kind')?.value).toBe('unset');
@@ -296,11 +310,16 @@ describe('DecisionModelRowComponent', () => {
       ).not.toBeNull();
     });
 
-    it('Ollama: a free-text model with suggestions from the Ollama catalogue, saved as typed', async () => {
+    it('Ollama: a free-text model with decision-capable suggestions from agent:listDecisionModels, saved as typed', async () => {
       await create();
       await open();
       await pickKind('ollama');
-      expect(listModels).toHaveBeenCalledWith('ollama');
+      expect(call).toHaveBeenCalledWith(
+        'agent:listDecisionModels',
+        { source: 'ollama' },
+        { timeout: 5000 },
+      );
+      expect(listModels).not.toHaveBeenCalled();
       const suggestions = Array.from(
         host().querySelectorAll('#decision-model-suggestions option'),
       ).map((o) => o.getAttribute('value'));
@@ -387,13 +406,13 @@ describe('DecisionModelRowComponent', () => {
         }),
       );
       await open();
-      const key = byTestId<HTMLInputElement>('decision-jev-key');
+      const key = byTestId<HTMLInputElement>('decision-api-key');
       expect(key?.type).toBe('password');
       expect(key?.value).toBe('');
       expect(byTestId<HTMLInputElement>('decision-model')?.value).toBe(
         'jev-1.13.0',
       );
-      await type('decision-jev-key', ' sk-secret ');
+      await type('decision-api-key', ' sk-secret ');
       await save();
       expect(setConfigCalls()).toEqual([
         {
@@ -401,7 +420,7 @@ describe('DecisionModelRowComponent', () => {
           decisionModelJevApiKey: 'sk-secret',
         },
       ]);
-      expect(byTestId<HTMLInputElement>('decision-jev-key')?.value).toBe('');
+      expect(byTestId<HTMLInputElement>('decision-api-key')?.value).toBe('');
       expect(host().textContent).not.toContain('sk-secret');
       expect(feedback.toast()?.canUndo).toBe(false);
     });
@@ -410,7 +429,7 @@ describe('DecisionModelRowComponent', () => {
       await create();
       await open();
       await pickKind('jev');
-      await type('decision-jev-key', '   ');
+      await type('decision-api-key', '   ');
       await save();
       expect(setConfigCalls()).toEqual([{ decisionModel: { kind: 'jev' } }]);
     });
@@ -424,9 +443,9 @@ describe('DecisionModelRowComponent', () => {
         }),
       );
       await open();
-      await type('decision-jev-key', '');
+      await type('decision-api-key', '');
       expect(setConfigCalls()).toEqual([]);
-      byTestId<HTMLButtonElement>('decision-jev-key-remove')?.click();
+      byTestId<HTMLButtonElement>('decision-api-key-remove')?.click();
       await flush();
       expect(setConfigCalls()).toEqual([{ decisionModelJevApiKey: '' }]);
     });
@@ -440,14 +459,14 @@ describe('DecisionModelRowComponent', () => {
         }),
       );
       await open();
-      expect(byTestId('decision-jev-key')).not.toBeNull();
-      expect(byTestId('decision-jev-key-remove')).toBeNull();
+      expect(byTestId('decision-api-key')).not.toBeNull();
+      expect(byTestId('decision-api-key-remove')).toBeNull();
       expect(text('decision-footer')).toBe(
         'Unset saves at once and sends no decision request. Other choices save with Save. Undo puts the previous choice back; a key change has no Undo.',
       );
     });
 
-    it('offers Remove stored key while the key state is unknown, then hides it once removed and focuses the key field', async () => {
+    it('offers no Remove stored key while the host cannot say a key is stored, e.g. a fresh profile (P4 visual 4)', async () => {
       await create(
         status({
           selection: { kind: 'ollama', model: 'tev1' },
@@ -457,13 +476,28 @@ describe('DecisionModelRowComponent', () => {
       );
       await open();
       await pickKind('jev');
-      expect(byTestId('decision-jev-key-remove')).not.toBeNull();
-      byTestId<HTMLButtonElement>('decision-jev-key-remove')?.click();
+      expect(byTestId('decision-api-key')).not.toBeNull();
+      expect(byTestId('decision-api-key-remove')).toBeNull();
+      await type('decision-api-key', 'sk-typed-not-saved');
+      expect(byTestId('decision-api-key-remove')).toBeNull();
+    });
+
+    it('offers Remove stored key while the host reports one, then hides it once removed and focuses the key field', async () => {
+      const jev = {
+        selection: { kind: 'jev', model: 'jev-1.13.0' },
+        locality: 'remote',
+        state: 'ready',
+      } as const;
+      await create(status({ ...jev, apiKeyStored: true }));
+      await open();
+      expect(byTestId('decision-api-key-remove')).not.toBeNull();
+      current = status({ ...jev, state: 'no-credential', apiKeyStored: false });
+      byTestId<HTMLButtonElement>('decision-api-key-remove')?.click();
       await flush();
       expect(setConfigCalls()).toEqual([{ decisionModelJevApiKey: '' }]);
       expect(feedback.toast()?.canUndo).toBe(false);
-      expect(byTestId('decision-jev-key-remove')).toBeNull();
-      expect(document.activeElement).toBe(byTestId('decision-jev-key'));
+      expect(byTestId('decision-api-key-remove')).toBeNull();
+      expect(document.activeElement).toBe(byTestId('decision-api-key'));
     });
   });
 
@@ -490,7 +524,7 @@ describe('DecisionModelRowComponent', () => {
     await create();
     await open();
     await pickKind('jev');
-    await type('decision-jev-key', 'sk-new');
+    await type('decision-api-key', 'sk-new');
     await save();
     expect(feedback.toast()).toEqual({
       tone: 'alert',
@@ -591,11 +625,11 @@ describe('DecisionModelRowComponent', () => {
     });
 
     it('a model listing that throws, or rejects with a non-Error', async () => {
-      listModels.mockImplementationOnce(async () => {
-        throw new Error(SECRET);
-      });
       await create();
       await open();
+      call.mockImplementationOnce(async () => {
+        throw new Error(SECRET);
+      });
       await pickKind('ollama');
       expect(warn).toHaveBeenCalledWith(
         'DecisionModelRow',
@@ -603,11 +637,18 @@ describe('DecisionModelRowComponent', () => {
         { errorType: 'Error' },
       );
       expect(text('decision-model-help')).toBe(
-        'Could not list models. Type a model name.',
+        'Could not check decision support. Type a model name.',
       );
       listModels.mockImplementationOnce(() => Promise.reject(SECRET));
-      await pickKind('jev');
-      await pickKind('ollama');
+      await pickKind('structured');
+      const provider = byTestId<HTMLSelectElement>('decision-provider');
+      if (!provider) throw new Error('provider picker missing');
+      provider.value = 'anthropic';
+      provider.dispatchEvent(new Event('change'));
+      await flush();
+      expect(text('decision-model-help')).toBe(
+        'Could not list models. Type a model name.',
+      );
       expect(warn).toHaveBeenLastCalledWith(
         'DecisionModelRow',
         'model suggestions failed',
@@ -621,9 +662,9 @@ describe('DecisionModelRowComponent', () => {
     await create();
     await open();
     await pickKind('jev');
-    for (const id of ['decision-kind', 'decision-model', 'decision-jev-key'])
+    for (const id of ['decision-kind', 'decision-model', 'decision-api-key'])
       expect(byTestId(id)?.className).toContain('!border-base-content-muted');
-    for (const id of ['decision-model', 'decision-jev-key'])
+    for (const id of ['decision-model', 'decision-api-key'])
       expect(byTestId(id)?.className).toContain(
         'placeholder:!text-base-content-muted',
       );
@@ -639,5 +680,136 @@ describe('DecisionModelRowComponent', () => {
     await flush();
     expect(byTestId('consumer-editor-decision')).toBeNull();
     expect(document.activeElement).toBe(byTestId('consumer-edit-decision'));
+  });
+
+  describe('the editor popover (P4 visual 1, 2, 5)', () => {
+    const tab = (target: HTMLElement, shiftKey = false): KeyboardEvent => {
+      const event = new KeyboardEvent('keydown', {
+        key: 'Tab',
+        shiftKey,
+        bubbles: true,
+        cancelable: true,
+      });
+      target.dispatchEvent(event);
+      return event;
+    };
+
+    it('is a modal dialog capped to the viewport, with a fixed kind picker and a scrolling body', async () => {
+      await create();
+      await open();
+      const editor = byTestId('consumer-editor-decision');
+      expect(editor?.getAttribute('aria-modal')).toBe('true');
+      expect(editor?.style.maxHeight).toMatch(/^\d+px$/);
+      const body = byTestId('decision-editor-body');
+      expect(body?.className).toContain('overflow-y-auto');
+      expect(body?.contains(byTestId('decision-kind'))).toBe(false);
+      expect(body?.contains(byTestId('decision-footer'))).toBe(false);
+    });
+
+    it('keeps Save and its footer text in a fixed footer after the scrolling body (P4 re-review 8)', async () => {
+      await create();
+      await open();
+      await pickKind('ollama');
+      const editor = byTestId('consumer-editor-decision');
+      const body = byTestId('decision-editor-body');
+      const save = byTestId('decision-save');
+      const footer = byTestId('decision-footer');
+      if (!editor || !body || !save || !footer)
+        throw new Error('editor parts missing');
+      // Direct children of the flex-column dialog, outside the only scroll container (min-h-0 body).
+      for (const part of [save, footer]) {
+        expect(part.parentElement).toBe(editor);
+        expect(body.contains(part)).toBe(false);
+        expect(
+          body.compareDocumentPosition(part) & Node.DOCUMENT_POSITION_FOLLOWING,
+        ).toBeTruthy();
+      }
+      expect(editor.className).toContain('flex-col');
+      expect(body.className).toContain('min-h-0');
+    });
+
+    it('puts the footer Save last in the Tab wrap: Tab on Save goes to Close, Shift+Tab on Close to Save', async () => {
+      await create();
+      await open();
+      await pickKind('ollama');
+      const model = byTestId<HTMLInputElement>('decision-model');
+      if (!model) throw new Error('model field missing');
+      model.value = 'clef:27b';
+      model.dispatchEvent(new Event('input'));
+      await flush();
+      const save = byTestId<HTMLButtonElement>('decision-save');
+      const close = byTestId<HTMLButtonElement>('consumer-close-decision');
+      if (!save || !close) throw new Error('editor controls missing');
+      expect(save.disabled).toBe(false);
+      expect(tab(model).defaultPrevented).toBe(false);
+      expect(tab(save).defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(close);
+      expect(tab(close, true).defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(save);
+    });
+
+    it('keeps Tab inside the editor: the last control wraps to Close, Shift+Tab on Close wraps back', async () => {
+      await create();
+      await open();
+      await pickKind('ollama');
+      const close = byTestId<HTMLButtonElement>('consumer-close-decision');
+      const model = byTestId<HTMLInputElement>('decision-model');
+      if (!close || !model) throw new Error('editor controls missing');
+      // Save is disabled with an empty model, so the model field is the last stop.
+      const forward = tab(model);
+      expect(forward.defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(close);
+      const back = tab(close, true);
+      expect(back.defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(model);
+      const inside = tab(byTestId<HTMLSelectElement>('decision-kind') ?? close);
+      expect(inside.defaultPrevented).toBe(false);
+    });
+
+    it('moves focus into the dialog once the popover opens, and Shift+Tab there wraps to the last control', async () => {
+      await create();
+      await open();
+      const editor = byTestId('consumer-editor-decision');
+      if (!editor) throw new Error('editor missing');
+      expect(editor.getAttribute('tabindex')).toBe('-1');
+      // The popover focuses its own panel, then reports `opened`; the row hands focus on to the dialog.
+      editor.parentElement?.focus();
+      fixture.debugElement
+        .query(By.directive(NativePopoverComponent))
+        .componentInstance.opened.emit();
+      expect(document.activeElement).toBe(editor);
+      const back = tab(editor, true);
+      expect(back.defaultPrevented).toBe(true);
+      // Unset: the kind picker is the last enabled control.
+      expect(document.activeElement).toBe(byTestId('decision-kind'));
+    });
+
+    it('closes on Escape from the focused dialog and returns focus to the cell', async () => {
+      await create();
+      await open();
+      const editor = byTestId('consumer-editor-decision');
+      fixture.debugElement
+        .query(By.directive(NativePopoverComponent))
+        .componentInstance.opened.emit();
+      editor?.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+      );
+      await flush();
+      expect(byTestId('consumer-editor-decision')).toBeNull();
+      expect(document.activeElement).toBe(byTestId('consumer-edit-decision'));
+    });
+
+    it('shows a model placeholder for Ollama Cloud and the custom endpoint, never a value (D3)', async () => {
+      await create();
+      await open();
+      await pickKind('ollama-cloud');
+      const model = (): HTMLInputElement | null =>
+        byTestId<HTMLInputElement>('decision-model');
+      expect(model()?.placeholder).toBe('e.g. clef:27b-cloud');
+      expect(model()?.value).toBe('');
+      await pickKind('custom');
+      expect(model()?.placeholder).toBe('model id');
+      expect(model()?.value).toBe('');
+    });
   });
 });

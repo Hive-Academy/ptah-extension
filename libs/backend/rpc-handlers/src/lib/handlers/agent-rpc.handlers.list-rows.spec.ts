@@ -35,6 +35,8 @@ import type {
   IWorkspaceProvider,
   IStateStorage,
 } from '@ptah-extension/platform-core';
+import { createMockSecretStorage } from '@ptah-extension/platform-core/testing';
+import { DecisionModelKeys } from '@ptah-extension/lane-routing';
 import {
   PTAH_CLI_ROLE_DELIVERY,
   type CliDetectionService,
@@ -111,8 +113,10 @@ function makeHarness(): Harness {
       getSelection: () => ({ kind: 'unset' as const }),
       localityOf: () => null,
       setSelection: () => Promise.resolve({ kind: 'unset' as const }),
-      setJevApiKey: () => Promise.resolve(),
-      readJevApiKey: () => Promise.resolve(null),
+      keys: new DecisionModelKeys(
+        createMockSecretStorage(),
+        createMockLogger(),
+      ),
     },
   );
   handlers.register();

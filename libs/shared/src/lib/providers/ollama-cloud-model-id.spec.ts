@@ -1,5 +1,4 @@
-import 'reflect-metadata';
-import { isCloudTag, toCloudId } from './ollama-cloud-metadata.service';
+import { isCloudTag, toCloudId } from './ollama-cloud-model-id';
 
 describe('isCloudTag', () => {
   it.each([

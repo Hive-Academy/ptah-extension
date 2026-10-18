@@ -64,6 +64,7 @@ import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import {
   AgentRpcHandlers,
+  DecisionModelCatalogRpcHandlers,
   SetupRpcHandlers,
   registerSharedRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
@@ -75,6 +76,7 @@ import {
 } from '@ptah-extension/platform-cli';
 
 import {
+  DECISION_MODEL_CATALOG_TOKEN,
   DECISION_MODEL_CONFIG_TOKEN,
   EXPECTED_RESOLVABLE,
   LANE_MODEL_LISTING_TOKEN,
@@ -461,6 +463,22 @@ describe('CLI DI — decision model config (TL-59)', () => {
 
     const handlers = c.resolve(AgentRpcHandlers);
     expect(handlers).toBeInstanceOf(AgentRpcHandlers);
+  });
+
+  it('resolves DECISION_MODEL_CATALOG and DecisionModelCatalogRpcHandlers', () => {
+    const c = buildMinimalContainer();
+    registerAgentHandlerFixtures(c);
+    registerLaneRoutingServices(c, c.resolve<Logger>(TOKENS.LOGGER));
+
+    expect(DECISION_MODEL_CATALOG_TOKEN).toBe(
+      LANE_ROUTING_TOKENS.DECISION_MODEL_CATALOG,
+    );
+    const catalog: unknown = c.resolve(DECISION_MODEL_CATALOG_TOKEN);
+    expect(catalog).toBeDefined();
+    expect(c.resolve(DECISION_MODEL_CATALOG_TOKEN)).toBe(catalog);
+
+    const handlers = c.resolve(DecisionModelCatalogRpcHandlers);
+    expect(handlers).toBeInstanceOf(DecisionModelCatalogRpcHandlers);
   });
 });
 

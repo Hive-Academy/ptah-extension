@@ -14,8 +14,6 @@ export {
 export { OllamaModelDiscoveryService } from './ollama-model-discovery.service';
 export {
   OllamaCloudMetadataService,
-  isCloudTag,
-  toCloudId,
   type OllamaCloudTag,
 } from './ollama-cloud-metadata.service';
 export {
