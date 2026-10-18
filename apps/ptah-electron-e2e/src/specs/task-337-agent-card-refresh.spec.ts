@@ -39,16 +39,17 @@ import { test, expect } from '../support/fixtures';
  * - each nested tool from a sub-`message_start` carrying
  *   `parentToolUseId` plus its own `tool_start`.
  *
- * The tool-count observable is the card's own header badge, `childStats()`
- * (`inline-agent-bubble.component.ts`), which renders `"<n> tools"` once the
- * agent is no longer streaming.
+ * The card is the store-backed sub-agent lane (`subagent-lane.component.ts`,
+ * TASK_2026_685). The summary is its header peek (`latestSummary`), and the
+ * tool-count observable is its disclosure row, which renders `"1 tool"` /
+ * `"<n> tools"`.
  *
  * ## Falsifiability
  *
  * Every assertion is paired with its negation: after the second summary delta
  * the card must show the NEW text AND no longer show only the old marker
- * alone; after the second nested tool the badge must read `2 tools` and must
- * NOT still read `1 tools`. A card served from a stale cached node fails the
+ * alone; after the second nested tool the row must read `2 tools` and must
+ * NOT still read `1 tool`. A card served from a stale cached node fails the
  * second half of each pair while passing the first.
  */
 
@@ -61,7 +62,7 @@ const FOCUSED_SESSION = 'ptah-canvas-focus-area';
 // agent card (`ptah-inline-agent-bubble`) lives in the sub-agent lane the tile opens.
 const AGENT_TILE = 'ptah-subagent-tile';
 const AGENT_TILE_OPEN = '[data-testid="subagent-open"]';
-const AGENT_CARD = 'ptah-inline-agent-bubble';
+const AGENT_CARD = 'ptah-subagent-lane';
 
 const SUMMARY_ONE = 'PTAH_E2E_SUMMARY_FIRST';
 const SUMMARY_TWO = 'PTAH_E2E_SUMMARY_SECOND';
@@ -261,7 +262,7 @@ test.describe('Agent card follows its summary and tool count (TASK_2026_337)', (
       toolResult(sessionId, rootMessageId, taskToolCallId, t0 + 5),
     );
 
-    await expect(card).toContainText('1 tools');
+    await expect(card).toContainText('1 tool');
 
     // Add a SECOND nested tool. Nothing else about the agent moves: same
     // status, same description, same (absent) stats.
@@ -277,6 +278,6 @@ test.describe('Agent card follows its summary and tool count (TASK_2026_337)', (
     );
 
     await expect(card).toContainText('2 tools');
-    await expect(card).not.toContainText('1 tools');
+    await expect(card).not.toContainText('1 tool');
   });
 });
