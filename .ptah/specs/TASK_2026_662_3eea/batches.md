@@ -1,6 +1,6 @@
 # Batches - TASK_2026_662_3eea
 
-Total tasks: 75 (71 + carry-over tasks 44.2, 65.2, 67.2, 53.2) | Batches: 71 (+2 operational steps OP-1, OP-2) | Phases: 6 (A-F) | Complete: 21/71 (Phase A 15/15 CLOSED: logic gate APPROVED after one fix round, 8360e7aca; style fixes verified in the round-2 re-review; visual review APPROVED 8/10. Phase B 6/9: batches 16, 17, 18, 19, 20, 22; next 21 -> 23 -> 24, sequential, SU-gated)
+Total tasks: 75 (71 + carry-over tasks 44.2, 65.2, 67.2, 53.2) | Batches: 71 (+2 operational steps OP-1, OP-2) | Phases: 6 (A-F) | Complete: 22/71 (Phase A 15/15 CLOSED: logic gate APPROVED after one fix round, 8360e7aca; style fixes verified in the round-2 re-review; visual review APPROVED 8/10. Phase B 7/9: batches 16-22; next 23 -> 24, sequential, SU-gated)
 
 Worktree root (prefix every path below with it): `D:\projects\ptah-extension\.claude-worktrees\skill-synthesis-purge\`
 Branch: `refactor/skill-synthesis-purge`. Aliases (same as implementation-plan.md:153):
@@ -144,7 +144,7 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
 | Phase | Batches | Phase review (after its last batch commits) |
 | --- | --- | --- |
 | A - add beside old | 1-15 | code-logic, plus style (new public API: event store, grade store, skills-root, enhancement keys, archive preflight) |
-| B - switch readers/writers | 16-24 | code-logic, plus visual (Providers, Library, dashboard, pause switch, model editor; added 2026-10-19: dashboard Skills tile telemetry On/Off (O10), Library header pause + telemetry controls (batch 19), Phase A carry-overs Moderate 1 null detail-row pill + Minor 1 neutral verdict dot after batch 24; added after batch 17: Providers consumer assignments Enhancement row (provider, model, timeout + Undo) replacing "Judging & enhancement" and the lane rows, and the Orchestration background-roles summary "Memory curator, enhancement, decision" (3 roles); added after batches 18 and 20: the routing map Background roles node (2 roles: Memory curator, Enhancement; was 6) and the pause switch showing the committed host value while a write is pending, disabled in flight, error alert on failure) |
+| B - switch readers/writers | 16-24 | code-logic, plus visual (Providers, Library, dashboard, pause switch, model editor; added 2026-10-19: dashboard Skills tile telemetry On/Off (O10), Library header pause + telemetry controls (batch 19), Phase A carry-overs Moderate 1 null detail-row pill + Minor 1 neutral verdict dot after batch 24; added after batch 17: Providers consumer assignments Enhancement row (provider, model, timeout + Undo) replacing "Judging & enhancement" and the lane rows, and the Orchestration background-roles summary "Memory curator, enhancement, decision" (3 roles); added after batches 18 and 20: the routing map Background roles node (2 roles: Memory curator, Enhancement; was 6) and the pause switch showing the committed host value while a write is pending, disabled in flight, error alert on failure; added after batch 21: agent model editor slow list (loading held past 10 s, up to the 20 s UI timeout) and unavailable list (loading cleared, unavailable message), and the enhance preview drawer showing the draft with Save enabled only when a draft exists, the save-in-flight state, and the stale-refusal message with the draft kept open) |
 | C - cut consumers | 25-56 | code-logic, plus visual (Library tab removal in 27, dashboard in 27) |
 | D - delete pipeline source + RPC contract | 57-61 | code-logic, plus visual (Library after SU deletion) |
 | E - remove shared contracts | 62-66 | code-logic, plus visual (Advanced settings rows removed in 65) |
@@ -729,14 +729,26 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
 
 ### Next action:
 
-Phase B waves B-W1 (16, 19) and B-W2 (17 f2e072e0a, 22 e632e109d) are COMPLETE. Run wave B-W3 now:
-batch 18 (chat, after 17; gate `-p @ptah-extension/chat`; also drops the lane section ids at
-`routing-map.component.ts:14-17`, not the core union) and batch 20 (SU, after 19; gate
-`-p @ptah-extension/skill-synthesis-ui`) in parallel, 2 lanes, file-disjoint, no shared gate project;
-scoped checks ONE AT A TIME. Prefer codex for Glm-planned batches while Glm keeps stopping. Then 21,
-23, 24 sequentially (all SU-gated; 22 -> 23 -> 24 is the critical path). After batch 24 commits: Phase B review = code-logic on
-`dc10d73b2..HEAD` (parent of the first Phase B commit 6071e8ccc) plus visual (list in the Phase map row B,
-including O10 tile, Library pause/telemetry controls, Phase A Moderate 1 and Minor 1).
+Phase B batches 16-22 are COMPLETE (21 = 917be31f2). Run batch 23 now (IN_PROGRESS), then batch 24,
+sequentially, one lane each, both gated on `-p @ptah-extension/skill-synthesis-ui` (scoped checks one at
+a time).
+
+- Batch 23 - Formatter drops the `invocationCount` gate. Files:
+  `libs/frontend/skill-synthesis-ui/src/lib/components/clones/clone-action-gating.ts` + its spec.
+  Requirement (plan row 21): the success-rate formatter formats from the graded value alone; remove the
+  `invocationCount <= 0` guard (precondition: present at `clone-action-gating.ts:241`); a null graded
+  value stays "no grade", never 0 %. Depends on 22 (producer reads `skill_task_grades`; `successRate`
+  may be `null`). Flags: UI. Gate:
+  `npx nx run-many -t test typecheck lint -p @ptah-extension/skill-synthesis-ui --parallel=1`.
+- Batch 24 - Three-kind nullable grade display: `skill-clones-view.component.ts` + spec,
+  `clone-card.component.ts` + spec, `clone-detail-drawer.component.ts` + spec (plan row 22; preserve rows
+  "Library tabs" and "Scorecard", implementation-plan.md:47-48). Same gate. Note: batch 21 last edited
+  `skill-clones-view.component.ts` (O14 save handler at `:813-838`); keep it.
+
+After batch 24 commits: Phase B review = code-logic on `dc10d73b2..HEAD` (parent of the first Phase B
+commit 6071e8ccc) plus visual (list in the Phase map row B, including O10 tile, Library pause/telemetry
+controls, the model editor slow/unavailable states and the enhance preview drawer from batch 21, and
+Phase A Moderate 1 and Minor 1).
 
 ---
 
@@ -944,7 +956,7 @@ including O10 tile, Library pause/telemetry controls, Phase A Moderate 1 and Min
 - UI: pause switch is on the Phase B visual list (Phase map row B).
 - Commit: 221127d6a `refactor(skill-synthesis-ui): batch 20 - pause switch reads committed` (2 files).
 
-## Batch 21: Model timeout fix + manual draft drawer - IN_PROGRESS
+## Batch 21: Model timeout fix + manual draft drawer - COMPLETE (917be31f2)
 
 - Phase: B | Executor: CLI lane Glm | Depends on: 10, 20 | Tasks: 1
 - Flags: UI (agent model editor, enhance preview drawer), WRITE-PATH (`setAgentModel`, explicit `saveCloneBody`)
@@ -952,7 +964,7 @@ including O10 tile, Library pause/telemetry controls, Phase A Moderate 1 and Min
 - Precondition: the UI allows 10 s for the read and 8 s for save against a 15 s server budget
   (`skill-synthesis-rpc.service.ts:88-107,710-737`).
 
-### Task 21.1: UI timeout greater than 15 s plus margin; draft, then explicit save - IN_PROGRESS
+### Task 21.1: UI timeout greater than 15 s plus margin; draft, then explicit save - COMPLETE
 
 - Files: `SU/services/skill-synthesis-rpc.service.ts` + spec, `SU/components/clones/agent-models.store.ts`, `agent-model-editor.component.ts` + spec, `enhance-preview-drawer.component.ts`.
 - Plan reference: plan row 19; implementation-plan.md:20, 61, 63.
@@ -961,6 +973,39 @@ including O10 tile, Library pause/telemetry controls, Phase A Moderate 1 and Min
   old facade methods (trimmed in batch 58).
 - Validation notes: none beyond the requirements above.
 - Implementation details: none beyond the requirements above.
+
+### Batch 21 verification - COMPLETE (917be31f2)
+
+- Executor: CLI lane (report `reports/batch-21-report.md`, incl. fix round 1).
+- Scope widened per O14 (same project and gate): `SU/components/clones/skill-clones-view.component.ts`
+  + spec; new `enhance-preview-drawer.component.spec.ts` (fix round 1 moved the drawer cases out of
+  the RPC service spec). 7 files committed.
+- `agent-models.store.ts` and `agent-model-editor.component.ts` are unchanged (`git diff` empty): the
+  lane found the existing workspace ticket + revision guard (`agent-models.store.ts:144-174`) and the
+  editor's unavailable/refusal states already meet the requirements, and added regressions in
+  `agent-model-editor.component.spec.ts` (unavailable list clears loading; stale workspace reply
+  ignored).
+- On disk: `SKILL_RPC_TIMEOUTS.AGENT_MODELS_MS: 20_000` (`skill-synthesis-rpc.service.ts:113`), used
+  by `getAgentModels` and `setAgentModel` (`:718`, `:733`); 15 s server budget + 5 s margin. Drawer
+  emits `save` with `{ body: draft.after, expectedSourceHash: draft.sourceHash }` only on explicit Save
+  (`enhance-preview-drawer.component.ts:189,228`); parent checks the hash matches the open preview,
+  calls `rpc.saveCloneBody(kind, slug, body, expectedSourceHash)` (`skill-clones-view.component.ts:813-825`),
+  refreshes and closes on success, keeps the draft and shows the stale message on refusal. No drawer
+  path calls `applyProposal`; the facade stays for batch 58. No TODO/stub/skip markers.
+- Fix round 1: restored the unrelated `listCandidates({ status: 'pending' })` test call
+  (`skill-synthesis-rpc.service.spec.ts:47`); the lane reported a TS2322 diagnostic on it, but the
+  orchestrator-verified gate (typecheck included) passes, so it is recorded only. `listCandidates`
+  itself is removed later with the RPC contraction (batch 59 / facade trim batch 58).
+- Gate `nx run-many -t test typecheck lint -p @ptah-extension/skill-synthesis-ui --parallel=1` PASS
+  after fix round 1 (orchestrator-verified).
+- WRITE-PATH: (1) model editor -> `setAgentModel` (timeout only changed; key, payload and reader
+  unchanged). (2) drawer Save -> parent -> `saveCloneBody` with `expectedSourceHash` -> backend hash
+  guard (batch 10) -> clone body file; preview itself writes nothing. Stale refusal writes nothing.
+- UI: agent model editor (slow/unavailable list) and enhance preview drawer (draft, Save, stale
+  message) added to the Phase B visual list (Phase map row B).
+- Batch 24 also edits `skill-clones-view.component.ts` + spec; it runs after 23, sequential, so no
+  concurrent owner.
+- Commit: 917be31f2 `refactor(skill-synthesis-ui): batch 21 - model timeout and draft save` (7 files).
 
 ## Batch 22: Rate reads switch to `skill_task_grades` - COMPLETE (e632e109d)
 
@@ -996,14 +1041,14 @@ including O10 tile, Library pause/telemetry controls, Phase A Moderate 1 and Min
   --parallel=1` PASS after fix round 1 (orchestrator-verified; not re-run here, RAM rule).
 - Commit: e632e109d `refactor(skill-synthesis,rpc-handlers): batch 22 - rates read grades` (6 files).
 
-## Batch 23: Formatter drops the `invocationCount` gate - PENDING
+## Batch 23: Formatter drops the `invocationCount` gate - IN_PROGRESS
 
 - Phase: B | Executor: CLI lane Glm | Depends on: 22 | Tasks: 1
 - Flags: UI
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/skill-synthesis-ui --parallel=1`
 - Precondition: the `invocationCount <= 0` guard at `clone-action-gating.ts:241`.
 
-### Task 23.1: Format from the graded value alone - PENDING
+### Task 23.1: Format from the graded value alone - IN_PROGRESS
 
 - Files: `SU/components/clones/clone-action-gating.ts` + spec.
 - Plan reference: plan row 21.
