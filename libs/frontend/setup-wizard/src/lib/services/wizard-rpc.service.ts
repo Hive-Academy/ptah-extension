@@ -144,13 +144,38 @@ export class WizardRpcService {
   async startBoundGuidance(
     binding: SetupGenerationTabBinding,
   ): Promise<EnhancedPromptsRunWizardResponse> {
+    const located = this.tabs.findTabByIdAcrossWorkspaces(binding.tabId);
+    const tab =
+      located?.workspacePath === binding.workspacePath ? located.tab : null;
     const result = await this.rpcService.call(
       'enhancedPrompts:runWizard',
-      { workspacePath: binding.workspacePath, tabBinding: binding },
+      {
+        workspacePath: binding.workspacePath,
+        tabBinding: binding,
+        model:
+          tab?.overrideModel ?? this.modelState.currentModel() ?? undefined,
+      },
       { timeout: WIZARD_RPC_TIMEOUTS.GENERATION_MS },
     );
     if (!result.isSuccess() || !result.data)
       throw new Error('Start unconfirmed');
+    return result.data;
+  }
+
+  async regenerateBoundGuidance(
+    binding: SetupGenerationTabBinding,
+  ): Promise<EnhancedPromptsRunWizardResponse> {
+    const result = await this.rpcService.call(
+      'enhancedPrompts:regenerate',
+      {
+        workspacePath: binding.workspacePath,
+        tabBinding: binding,
+        force: true,
+      },
+      { timeout: WIZARD_RPC_TIMEOUTS.GENERATION_MS },
+    );
+    if (!result.isSuccess() || !result.data)
+      throw new Error('Regeneration unconfirmed');
     return result.data;
   }
 

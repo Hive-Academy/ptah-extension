@@ -60,6 +60,44 @@ describe('WizardRpcService', () => {
     error,
   });
 
+  it('uses the bound guidance tab model and preserves tabless Settings calls', async () => {
+    rpcCall.mockResolvedValue(okResult({ accepted: { runId: 'r' } }));
+    const binding = {
+      tabId: 'guidance',
+      workflow: 'setup-project-prompt' as const,
+      workspacePath: '/ws',
+    };
+    const tabs = TestBed.inject(TabManagerService);
+    jest.spyOn(tabs, 'findTabByIdAcrossWorkspaces').mockReturnValue({
+      workspacePath: '/ws',
+      tab: { overrideModel: 'tab-model' },
+    } as ReturnType<TabManagerService['findTabByIdAcrossWorkspaces']>);
+    await service.startBoundGuidance(binding);
+    expect(rpcCall).toHaveBeenCalledWith(
+      'enhancedPrompts:runWizard',
+      { workspacePath: '/ws', tabBinding: binding, model: 'tab-model' },
+      { timeout: 300_000 },
+    );
+    rpcCall.mockClear();
+    await service.regenerateBoundGuidance(binding);
+    expect(rpcCall).toHaveBeenCalledWith(
+      'enhancedPrompts:regenerate',
+      {
+        workspacePath: '/ws',
+        tabBinding: binding,
+        force: true,
+      },
+      { timeout: 300_000 },
+    );
+    rpcCall.mockClear();
+    await service.regenerateEnhancedPrompts('/ws');
+    expect(rpcCall).toHaveBeenCalledWith(
+      'enhancedPrompts:regenerate',
+      { workspacePath: '/ws', force: true },
+      { timeout: 300_000 },
+    );
+  });
+
   describe('launchWizard', () => {
     it('should call setup-wizard:launch RPC method', async () => {
       rpcCall.mockResolvedValue(okResult());
@@ -353,12 +391,10 @@ describe('WizardRpcService', () => {
       workflow: 'setup-agent-generation' as const,
     };
     const tabs = TestBed.inject(TabManagerService);
-    jest
-      .spyOn(tabs, 'findTabByIdAcrossWorkspaces')
-      .mockReturnValue({
-        workspacePath: '/ws',
-        tab: { overrideModel: 'opus' },
-      } as ReturnType<TabManagerService['findTabByIdAcrossWorkspaces']>);
+    jest.spyOn(tabs, 'findTabByIdAcrossWorkspaces').mockReturnValue({
+      workspacePath: '/ws',
+      tab: { overrideModel: 'opus' },
+    } as ReturnType<TabManagerService['findTabByIdAcrossWorkspaces']>);
     rpcCall.mockResolvedValue(okResult({ accepted: { runId: 'run' } }));
     await service.startBoundAgents(tabBinding, ['a']);
     await service.startBoundAgents(tabBinding, [], true);
