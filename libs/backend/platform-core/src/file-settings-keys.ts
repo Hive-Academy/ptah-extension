@@ -223,6 +223,9 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   'compaction.subagentHandoffTokens',
   'compaction.rotationSuggestTokens',
   'compaction.subagentStopWeightedTokens',
+  // Idle compaction settings (TASK_2026_692).
+  'compaction.idleCompactionEnabled',
+  'compaction.idleCompactionMinTokens',
   // Machine scope: { "<agent-slug>" | "*": { claude?, codex?, copilot?, cursor?, opencode?: string } }.
   // Workspace override: workspace.<hash>.agentGeneration.models,
   // already routed by SCOPED_SETTING_PREFIX_PATTERN.

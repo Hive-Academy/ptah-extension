@@ -137,6 +137,7 @@ function buildMinimalContainer(): DependencyContainer {
     useValue: {
       getWorkspaceFolders: jest.fn(() => []),
       getConfiguration: jest.fn(() => ({ get: jest.fn() })),
+      onDidChangeConfiguration: jest.fn(() => ({ dispose: jest.fn() })),
       onDidChangeWorkspaceFolders: jest.fn(() => ({ dispose: jest.fn() })),
     },
   });
@@ -281,6 +282,8 @@ describe('VS Code DI — structured decision', () => {
       },
     });
     registerSdkServices(c, logger);
+    const idleCompaction = c.resolve(SDK_TOKENS.SDK_IDLE_COMPACTION);
+    expect(c.resolve(SDK_TOKENS.SDK_IDLE_COMPACTION)).toBe(idleCompaction);
     // The real service pulls SdkQueryRunner. The registration under test is
     // the structured-decision token; the query collaborator stays a stub.
     c.register(SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE, {

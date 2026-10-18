@@ -125,6 +125,30 @@ describe('InlineAgentBubbleComponent — Phase 3', () => {
     TestBed.resetTestingModule();
   });
 
+  it('uses the inline scroll limit by default and fills the lane when requested', () => {
+    TestBed.configureTestingModule({
+      providers: [
+        { provide: AgentMonitorStore, useValue: storeMock },
+        { provide: BackgroundAgentStore, useValue: bgStoreMock },
+      ],
+    });
+    const fixture = TestBed.createComponent(InlineAgentBubbleComponent);
+    fixture.componentRef.setInput('node', makeNode());
+    fixture.detectChanges();
+    const content = fixture.nativeElement.querySelector('.agent-collapse-inner > div') as HTMLElement;
+    expect(content.classList.contains('max-h-80')).toBe(true);
+    fixture.componentRef.setInput('fillHeight', true);
+    fixture.detectChanges();
+    expect(content.classList.contains('max-h-80')).toBe(false);
+    expect(content.classList.contains('flex-1')).toBe(true);
+    const root = fixture.nativeElement.querySelector('.surface-1') as HTMLElement;
+    fixture.componentInstance.isCollapsed.set(true);
+    fixture.detectChanges();
+    expect(root.classList.contains('flex-1')).toBe(false);
+    expect((fixture.nativeElement as HTMLElement).classList.contains('fill-height-expanded')).toBe(false);
+    fixture.destroy();
+  });
+
   it('exposes the subagent record matching node().toolCallId', () => {
     const cmp = build(makeNode());
     const rec: SubagentRecord = {

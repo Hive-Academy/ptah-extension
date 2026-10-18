@@ -138,10 +138,12 @@ type WriteResult = { ok: true } | { ok: false; message: string };
       } @else {
         <div class="mt-auto min-w-0 space-y-1.5">
           <ptah-native-popover
+            #editorPopover
             class="consumer-cell-popover block w-full min-w-0"
             [isOpen]="editing()"
             placement="bottom-start"
             [hasBackdrop]="true"
+            [keepInViewport]="true"
             backdropClass="transparent"
             (closed)="close()"
             (opened)="editorRef()?.nativeElement?.focus()"
@@ -178,8 +180,7 @@ type WriteResult = { ok: true } | { ok: false; message: string };
               />
             </button>
             @if (editing()) {
-              <!-- Height capped to the room beside the cell (decisionEditorMaxHeight); the heading, close, kind
-                   picker and Save footer stay fixed and only the body scrolls, so the editor always fits. -->
+              <!-- Capped by decisionEditorMaxHeight; the body scrolls (the whole editor in a short window). -->
               <div
                 #editor
                 content
@@ -187,14 +188,14 @@ type WriteResult = { ok: true } | { ok: false; message: string };
                 aria-modal="true"
                 tabindex="-1"
                 aria-label="Choose the decision model"
-                class="relative flex w-[27rem] max-w-[calc(100vw-2rem)] flex-col gap-2 whitespace-normal p-2 text-left text-xs"
+                class="relative flex w-[27rem] max-w-[calc(100vw-2rem)] flex-col gap-2 overflow-y-auto whitespace-normal p-2 text-left text-xs"
                 [style.max-height.px]="editorMaxHeight()"
                 data-testid="consumer-editor-decision"
               >
                 <button
                   type="button"
                   [class]="
-                    'btn btn-ghost btn-xs btn-square absolute right-3 top-3 z-10 min-h-6 ' +
+                    'btn btn-ghost btn-xs btn-square absolute right-3 top-1.5 z-10 min-h-6 ' +
                     focusRing
                   "
                   aria-label="Close"
@@ -214,7 +215,7 @@ type WriteResult = { ok: true } | { ok: false; message: string };
                   id="decision-model-kind"
                   [class]="selectClass"
                   [disabled]="busy() || disabled()"
-                  (change)="onKind($event)"
+                  (change)="onKind($event); editorPopover.reposition()"
                   data-testid="decision-kind"
                 >
                   @for (option of kinds; track option.value) {
@@ -227,7 +228,7 @@ type WriteResult = { ok: true } | { ok: false; message: string };
                   }
                 </select>
                 <div
-                  class="-mx-2 min-h-0 space-y-2 overflow-y-auto px-2 py-1"
+                  class="-mx-2 min-h-16 space-y-2 overflow-y-auto px-2 py-1"
                   data-testid="decision-editor-body"
                 >
                   @if (draft().kind === 'ollama-cloud') {

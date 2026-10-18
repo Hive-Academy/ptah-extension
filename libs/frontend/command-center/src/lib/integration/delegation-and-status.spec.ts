@@ -9,6 +9,7 @@ describe('Command Center delegation and status integration', () => {
     const { fixture, sender } = createHarness();
     const page = fixture.componentInstance.page;
     await page.open();
+    page.coordinator.chooseCurrentTab();
     await page.sendCommand('Delegate the fix to a CLI lane');
     expect(sender.send).toHaveBeenCalledTimes(1);
     expect(page.store.sessionStatus()).toBe('running');
@@ -19,6 +20,7 @@ describe('Command Center delegation and status integration', () => {
     const { fixture, sender } = createHarness();
     const page = fixture.componentInstance.page;
     await page.open();
+    page.coordinator.chooseCurrentTab();
     fixture.detectChanges();
     await page.coordinator.sendStatusTurn('Status');
     expect(sender.send.mock.calls.at(-1)?.[0]).toContain('Status');
@@ -32,6 +34,7 @@ describe('Command Center delegation and status integration', () => {
     const { fixture, projectionInput, tabs } = createHarness();
     const page = fixture.componentInstance.page;
     await page.open();
+    page.coordinator.chooseCurrentTab();
     tabs.update((items) =>
       items.map((tab, index) =>
         index === 0 ? { ...tab, status: 'streaming' as const } : tab,
@@ -78,6 +81,7 @@ describe('Command Center delegation and status integration', () => {
     const { fixture, projectionInput } = createHarness();
     const page = fixture.componentInstance.page;
     await page.open();
+    page.coordinator.chooseCurrentTab();
     const rootSessionId = page.store.sessionId() ?? '';
     const rootNodeId = `root:${page.store.markedTabId()}`;
     projectionInput.update((input) => ({
@@ -157,6 +161,7 @@ describe('Command Center delegation and status integration', () => {
     const { fixture, projectionInput, rpc, pulses } = createHarness();
     const page = fixture.componentInstance.page;
     await page.open();
+    page.coordinator.chooseCurrentTab();
     page.voice['active'] = true;
     rpc.call.mockImplementation(async (method: string) => ({
       success: method === 'voice:transcribe',
@@ -229,6 +234,7 @@ describe('Command Center delegation and status integration', () => {
     });
     const page = fixture.componentInstance.page;
     await page.open();
+    page.coordinator.chooseCurrentTab();
     const runId = 'run-1';
     records.readRunManifests.mockReturnValue([
       {

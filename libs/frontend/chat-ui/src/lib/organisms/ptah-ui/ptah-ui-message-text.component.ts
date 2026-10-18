@@ -3,6 +3,7 @@ import {
   Component,
   computed,
   input,
+  output,
 } from '@angular/core';
 import { MarkdownModule } from 'ngx-markdown';
 import { SurfaceMarkdownPipe } from '@ptah-extension/markdown';
@@ -28,6 +29,8 @@ type PtahUiTextPart =
       readonly track: string;
       readonly ordinal: number;
       readonly raw: string;
+      readonly body: string;
+      readonly displayId: string | null;
     }
   | { readonly kind: 'mermaid'; readonly track: string; readonly source: string };
 
@@ -43,10 +46,8 @@ type PtahUiTextPart =
  * streams after it, and an open fence stays inside the trailing markdown part
  * as an ordinary code block until its closing line arrives.
  *
- * A closed `ptah-ui display [id]` fence (`target === 'display'`; an absent
- * `target` is inline) renders `ptah-ui-display-chip` instead of a block,
- * under the same `ui:<ordinal>` key (TASK_2026_623, component 4). The chip
- * never runs the pipeline; the display panel owns the surface.
+ * Display-target fences use the same inline renderer and retain a compact
+ * status/action affordance for the current collection.
  */
 @Component({
   selector: 'ptah-ui-message-text',
@@ -75,12 +76,24 @@ type PtahUiTextPart =
           [snapshot]="snapshot()"
         />
       } @else if (part.kind === 'display') {
+        <ptah-ui-block
+          [raw]="part.raw"
+          [body]="part.body"
+          [displayId]="part.displayId"
+          [ordinal]="part.ordinal"
+          [messageId]="messageId()"
+          [nodeId]="nodeId()"
+          [orderKey]="orderKey()"
+          [active]="active()"
+          [snapshot]="snapshot()"
+        />
         <ptah-ui-display-chip
           [raw]="part.raw"
           [ordinal]="part.ordinal"
           [messageId]="messageId()"
           [nodeId]="nodeId()"
           [active]="active()"
+          (openInDisplayRequested)="openInDisplayRequested.emit($event)"
         />
       } @else {
         <ptah-mermaid-diagram [source]="part.source" />
@@ -98,6 +111,8 @@ export class PtahUiMessageTextComponent {
   readonly active = input(true);
   readonly snapshot = input<TurnSourceSnapshot | null>(null);
   readonly finalized = input(false);
+  /** Surface key for the sheet to select; harmless when no host binds it. */
+  readonly openInDisplayRequested = output<string>();
 
   protected readonly parts = computed((): readonly PtahUiTextPart[] => {
     let markdownIndex = 0;
@@ -120,6 +135,8 @@ export class PtahUiMessageTextComponent {
             track: `ui:${segment.ordinal}`,
             ordinal: segment.ordinal,
             raw: segment.raw,
+            body: segment.body,
+            displayId: segment.displayId ?? null,
           },
         ];
       }

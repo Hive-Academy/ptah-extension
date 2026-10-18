@@ -14,13 +14,15 @@
  * (one the current state has no transition for) are ignored and reported as
  * `false` to the caller.
  *
- * - Dedupe: a manual `/compact` while TRIGGERED or COMPACTING is not resent;
- *   the caller shows {@link COMPACTION_ALREADY_RUNNING_MESSAGE}.
+ * - Admission: an idle claim coalesces manual `/compact`; a manual reservation
+ *   prevents an idle claim until the send is settled. An acting open state
+ *   dedupes only until PostCompact, even if the boundary arrives later.
  * - Rebind: PostCompact may report a different `session_id`; the session's
  *   record moves to it, open dwell timer included.
  * - Dwell: an open compaction (TRIGGERED or COMPACTING) that sees no
  *   `compact_boundary` within {@link COMPACTION_MAX_DWELL_MS} goes to BACKOFF.
- * - OBSERVE_ONLY: never acts, never changes state, never dedupes.
+ * - OBSERVE_ONLY: never acts, never changes state or dedupes by state;
+ *   idle claims and manual reservations still apply.
  *
  * Every state change is emitted to subscribers after it is committed. A
  * subscriber that throws does not undo the change or stop the other
@@ -64,6 +66,9 @@ interface SessionRecord {
   sessionId: string;
   state: CompactionState;
   dwellTimer: CompactionTimerHandle | undefined;
+  idleClaimId: string | undefined;
+  manualReservationId: string | undefined;
+  postCompactSeen: boolean;
 }
 
 /** True when the class may be acted on (not Codex proxy, E2 passed). */
@@ -88,6 +93,7 @@ export class CompactionCoordinator {
   private readonly onListenerError: CompactionListenerErrorHandler;
   private readonly sessions = new Map<string, SessionRecord>();
   private readonly listeners = new Set<CompactionStateListener>();
+  private nextReservationId = 1;
   private disposed = false;
 
   /**
@@ -117,7 +123,14 @@ export class CompactionCoordinator {
     const state = canAct(sessionClass)
       ? CompactionState.IDLE
       : CompactionState.OBSERVE_ONLY;
-    this.sessions.set(sessionId, { sessionId, state, dwellTimer: undefined });
+    this.sessions.set(sessionId, {
+      sessionId,
+      state,
+      dwellTimer: undefined,
+      idleClaimId: undefined,
+      manualReservationId: undefined,
+      postCompactSeen: false,
+    });
     return state;
   }
 
@@ -132,6 +145,32 @@ export class CompactionCoordinator {
   /** Current state, or `undefined` for an unknown session. */
   getState(sessionId: string): CompactionState | undefined {
     return this.sessions.get(sessionId)?.state;
+  }
+
+  /** Claim the idle send before enqueue; manual admission is ordered against it. */
+  claimIdle(
+    sessionId: string,
+    claimId: string,
+  ): 'claimed' | 'unknown' | 'open' | 'held' | 'manual-reserved' {
+    const record = this.sessions.get(sessionId);
+    if (!record) return 'unknown';
+    if (isOpen(record.state)) return 'open';
+    if (record.idleClaimId !== undefined) return 'held';
+    if (record.manualReservationId !== undefined) return 'manual-reserved';
+    record.idleClaimId = claimId;
+    return 'claimed';
+  }
+
+  /** Release only the matching idle send. */
+  releaseIdleClaim(sessionId: string, claimId: string): boolean {
+    const record = this.sessions.get(sessionId);
+    if (!record || record.idleClaimId !== claimId) return false;
+    record.idleClaimId = undefined;
+    return true;
+  }
+
+  getIdleClaim(sessionId: string): string | undefined {
+    return this.sessions.get(sessionId)?.idleClaimId;
   }
 
   /** Subscribe to state changes. Returns the unsubscribe function. */
@@ -228,10 +267,11 @@ export class CompactionCoordinator {
    * under the new id is replaced. Returns `true` when a rebind happened.
    */
   onPostCompact(sessionId: string, postCompactSessionId: string): boolean {
+    const record = this.sessions.get(sessionId);
+    if (record && isOpen(record.state)) record.postCompactSeen = true;
     if (!postCompactSessionId || postCompactSessionId === sessionId) {
       return false;
     }
-    const record = this.sessions.get(sessionId);
     if (!record) return false;
     this.unregister(postCompactSessionId);
     this.sessions.delete(sessionId);
@@ -241,15 +281,35 @@ export class CompactionCoordinator {
   }
 
   /**
-   * Decide what to do with a manual `/compact`: dedupe while a compaction is
-   * open (TRIGGERED or COMPACTING), send otherwise.
+   * Decide what to do with a manual `/compact` without changing admission state.
    */
   requestManualCompact(sessionId: string): ManualCompactDecision {
-    const state = this.sessions.get(sessionId)?.state;
-    if (state !== undefined && isOpen(state)) {
+    const record = this.sessions.get(sessionId);
+    if (record?.idleClaimId !== undefined) return { action: 'coalesced' };
+    if (record && isOpen(record.state) && !record.postCompactSeen) {
       return { action: 'deduped', message: COMPACTION_ALREADY_RUNNING_MESSAGE };
     }
     return { action: 'send' };
+  }
+
+  /** Reserve a manual send synchronously with the final admission decision. */
+  admitManualCompact(sessionId: string): {
+    decision: ManualCompactDecision;
+    reservationId?: string;
+  } {
+    const decision = this.requestManualCompact(sessionId);
+    const record = this.sessions.get(sessionId);
+    if (decision.action !== 'send' || !record) return { decision };
+    const reservationId = String(this.nextReservationId++);
+    record.manualReservationId = reservationId;
+    return { decision, reservationId };
+  }
+
+  releaseManualReservation(sessionId: string, reservationId: string): boolean {
+    const record = this.sessions.get(sessionId);
+    if (!record || record.manualReservationId !== reservationId) return false;
+    record.manualReservationId = undefined;
+    return true;
   }
 
   /** Clear every timer, session and subscriber. Synchronous and idempotent. */
@@ -301,6 +361,7 @@ export class CompactionCoordinator {
   ): void {
     const from = record.state;
     record.state = to;
+    if (isOpen(to) !== isOpen(from)) record.postCompactSeen = false;
     const change: CompactionStateChange = {
       sessionId: record.sessionId,
       from,

@@ -694,6 +694,17 @@ describe('DecisionModelRowComponent', () => {
       return event;
     };
 
+    it('repositions the popover when the kind changes, so a grown editor re-flips or re-shifts at once', async () => {
+      await create();
+      await open();
+      const popover = fixture.debugElement.query(
+        By.directive(NativePopoverComponent),
+      ).componentInstance as NativePopoverComponent;
+      const reposition = jest.spyOn(popover, 'reposition');
+      await pickKind('custom');
+      expect(reposition).toHaveBeenCalledTimes(1);
+    });
+
     it('is a modal dialog capped to the viewport, with a fixed kind picker and a scrolling body', async () => {
       await create();
       await open();
@@ -702,6 +713,16 @@ describe('DecisionModelRowComponent', () => {
       expect(editor?.style.maxHeight).toMatch(/^\d+px$/);
       const body = byTestId('decision-editor-body');
       expect(body?.className).toContain('overflow-y-auto');
+      // Short-window fallback: the body keeps 4rem and the whole editor scrolls, so Save stays reachable.
+      expect(body?.className).toContain('min-h-16');
+      expect(editor?.className).toContain('overflow-y-auto');
+      // Opted into vertical shift, so a floored editor is pulled back inside a short viewport.
+      const popover = fixture.debugElement.query(
+        By.directive(NativePopoverComponent),
+      );
+      expect(
+        (popover.componentInstance as NativePopoverComponent).keepInViewport(),
+      ).toBe(true);
       expect(body?.contains(byTestId('decision-kind'))).toBe(false);
       expect(body?.contains(byTestId('decision-footer'))).toBe(false);
     });
@@ -716,7 +737,7 @@ describe('DecisionModelRowComponent', () => {
       const footer = byTestId('decision-footer');
       if (!editor || !body || !save || !footer)
         throw new Error('editor parts missing');
-      // Direct children of the flex-column dialog, outside the only scroll container (min-h-0 body).
+      // Direct children of the flex-column dialog, outside the body that scrolls (and shrinks to 4rem) first.
       for (const part of [save, footer]) {
         expect(part.parentElement).toBe(editor);
         expect(body.contains(part)).toBe(false);
@@ -725,7 +746,7 @@ describe('DecisionModelRowComponent', () => {
         ).toBeTruthy();
       }
       expect(editor.className).toContain('flex-col');
-      expect(body.className).toContain('min-h-0');
+      expect(body.className).toContain('min-h-16');
     });
 
     it('puts the footer Save last in the Tab wrap: Tab on Save goes to Close, Shift+Tab on Close to Save', async () => {

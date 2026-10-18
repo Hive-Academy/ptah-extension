@@ -4,7 +4,7 @@ import {
   ProvidersSettingsStateService, VSCodeService, type ProvidersEffectiveRoute, type ProvidersSettingsCommit, type ProvidersSettingsSection,
 } from '@ptah-extension/core';
 import { By } from '@angular/platform-browser';
-import { PROVIDER_MODELS_LOADER, ProviderModelSearchFieldComponent } from '@ptah-extension/ui';
+import { NativePopoverComponent, PROVIDER_MODELS_LOADER, ProviderModelSearchFieldComponent } from '@ptah-extension/ui';
 import type { ProviderListModelsResult, SettingScope } from '@ptah-extension/shared';
 import { MainAgentReassignPopoverComponent, type MainAgentFocus } from './main-agent-reassign-popover.component';
 import { SettingsSaveFeedbackService } from '../feedback/settings-save-feedback.service';
@@ -115,7 +115,8 @@ describe('MainAgentReassignPopoverComponent', () => {
 
   it('is one column: every label above its control, a 3 x 2 effort grid, a Save / Cancel footer', () => {
     expect(query('main-agent-popover')?.getAttribute('role')).toBe('dialog');
-    expect(query('main-agent-popover')?.className).not.toContain('overflow-y-auto');
+    // The dialog's own overflow-y-auto is only the short-window fallback; the body is the scroll area at normal sizes.
+    expect(query('main-agent-popover-body')?.className).toContain('overflow-y-auto');
     expect(query('main-agent-popover-body')?.className).toContain('grid-cols-1');
     expect(document.getElementById('main-agent-popover-title')?.textContent?.trim()).toBe('Reassign main agent');
     expect(query('main-agent-provider')?.tagName).toBe('SELECT');
@@ -154,6 +155,51 @@ describe('MainAgentReassignPopoverComponent', () => {
       window.dispatchEvent(new Event('resize'));
       fixture.detectChanges();
       expect(query('main-agent-popover')?.style.maxHeight).toBe('390px');
+    } finally {
+      Object.defineProperty(window, 'innerHeight', { configurable: true, value: height });
+    }
+  });
+
+  it('never caps above the free side in a short window; the body keeps 4rem and the panel scrolls whole', () => {
+    // Trigger at y 160 in a 320 px viewport: 160 px each side less 16 px reserve. The old 160 px floor overflowed.
+    const trigger = document.querySelector<HTMLElement>('ptah-main-agent-reassign-popover .popover-trigger');
+    expect(trigger).not.toBeNull();
+    jest.spyOn(trigger as HTMLElement, 'getBoundingClientRect').mockReturnValue({ top: 160, bottom: 160 } as DOMRect);
+    const height = window.innerHeight;
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 320 });
+    try {
+      window.dispatchEvent(new Event('resize'));
+      fixture.detectChanges();
+      expect(query('main-agent-popover')?.style.maxHeight).toBe('144px');
+      expect(query('main-agent-popover')?.className).toContain('overflow-y-auto');
+      expect(query('main-agent-popover-body')?.className).toContain('min-h-16');
+      // Opted into vertical shift, so a floored panel is pulled back inside the viewport.
+      const popover = fixture.debugElement.query(By.directive(NativePopoverComponent));
+      expect((popover.componentInstance as NativePopoverComponent).keepInViewport()).toBe(true);
+    } finally {
+      Object.defineProperty(window, 'innerHeight', { configurable: true, value: height });
+    }
+  });
+
+  it.each([
+    // Tall trigger, 16 px each side: room 0 (each side less the 16 px reserve).
+    ['zero room', 16, 284, 300, '120px'],
+    ['negative room', 10, 290, 300, '120px'],
+    ['non-finite geometry', NaN, NaN, 768, '120px'],
+    ['a non-finite viewport', 406, 406, Infinity, '120px'],
+    // The whole panel must fit inside 8 px edges: 32 - 16 = 16 (jsdom lays out no panel padding).
+    ['a 32 px viewport', 16, 16, 32, '16px'],
+    ['a 10 px viewport', 5, 5, 10, '1px'],
+  ])('keeps a usable floor clamped to the viewport for %s, never 0 or NaN', (_case, top, bottom, viewport, cap) => {
+    const trigger = document.querySelector<HTMLElement>('ptah-main-agent-reassign-popover .popover-trigger');
+    expect(trigger).not.toBeNull();
+    jest.spyOn(trigger as HTMLElement, 'getBoundingClientRect').mockReturnValue({ top, bottom } as DOMRect);
+    const height = window.innerHeight;
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: viewport });
+    try {
+      window.dispatchEvent(new Event('resize'));
+      fixture.detectChanges();
+      expect(query('main-agent-popover')?.style.maxHeight).toBe(cap);
     } finally {
       Object.defineProperty(window, 'innerHeight', { configurable: true, value: height });
     }

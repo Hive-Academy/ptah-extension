@@ -358,6 +358,54 @@ describe('MessageSenderService', () => {
       expect(recordBoundary).toHaveBeenCalledWith('tab-1', userMessage);
     });
 
+    it('leaves a settled continue idle without starting a stream', async () => {
+      tabsSignal.set([makeTab({ id: 'tab-1', claudeSessionId: 'sess-X' })]);
+      rpcCall.mockImplementation((method: string): Promise<unknown> => {
+        if (method === 'session:validate') {
+          return Promise.resolve({ success: true, data: { exists: true } });
+        }
+        return Promise.resolve({
+          success: true,
+          data: { success: true, settled: true },
+        });
+      });
+
+      await expect(service.send('/compact')).resolves.toEqual({
+        success: true,
+      });
+
+      expect(tabsSignal()[0].status).toBe('loaded');
+      expect(streamingTabIds.has('tab-1')).toBe(false);
+      expect(tabManager.markStreaming).not.toHaveBeenCalled();
+      expect(tabManager.markTabStreaming).not.toHaveBeenCalled();
+      expect(tabManager.markTabIdle).toHaveBeenCalledWith('tab-1');
+      expect(sessionManager.setStatus).toHaveBeenLastCalledWith('loaded');
+      expect(removeBoundary).toHaveBeenCalledWith(
+        'tab-1',
+        tabsSignal()[0].messages.at(-1)?.id,
+      );
+    });
+
+    it('starts streaming for a normal successful continue', async () => {
+      tabsSignal.set([makeTab({ id: 'tab-1', claudeSessionId: 'sess-X' })]);
+      rpcCall.mockImplementation((method: string): Promise<unknown> => {
+        if (method === 'session:validate') {
+          return Promise.resolve({ success: true, data: { exists: true } });
+        }
+        return Promise.resolve({ success: true, data: { success: true } });
+      });
+
+      await expect(service.send('hello again')).resolves.toEqual({
+        success: true,
+      });
+
+      expect(tabsSignal()[0].status).toBe('streaming');
+      expect(streamingTabIds.has('tab-1')).toBe(true);
+      expect(tabManager.markTabStreaming).toHaveBeenCalledWith('tab-1');
+      expect(sessionManager.setStatus).toHaveBeenLastCalledWith('streaming');
+      expect(removeBoundary).not.toHaveBeenCalled();
+    });
+
     describe('a continue whose prompt never reaches the backend', () => {
       /** `chat:continue` resolves to `continueResult`, or rejects with it. */
       const failContinue = (continueResult: unknown, reject = false): void => {

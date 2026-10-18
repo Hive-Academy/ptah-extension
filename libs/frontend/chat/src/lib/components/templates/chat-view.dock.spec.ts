@@ -3,10 +3,7 @@
  *
  * Renders the production template with the dock real and its two heavy
  * children stubbed (the lazy display panel and the agent monitor), so the
- * ChatView wiring is what is tested: the store providers (decisions #59, #60,
- * #108), the toggle and separator (R1.4, R1.5), overlay and focus (R1.2,
- * R1.7), one right-side panel (R1.3), per-tab state (R1.1, R1.9) and the
- * agent auto-open rule moved onto the store (decision #100).
+ * ChatView wiring is tested with the session sheet and per-tab state.
  */
 
 import {
@@ -98,7 +95,7 @@ import { SessionHistoryReplayer } from '../../services/chat-store/session-histor
 import { HistoryPagingService } from '../../services/chat-store/history-paging.service';
 import { DisplayDockState } from '../../services/display-dock/display-dock.state';
 import { ChangeSetActionsService } from '../../services/change-set/change-set-actions.service';
-import { DisplayDockComponent } from '../organisms/display-dock/display-dock.component';
+import { DisplaySheetComponent } from '../organisms/display-sheet/display-sheet.component';
 import {
   HIDE_AGENT_SIDEBAR,
   RAIL_TRANSCRIPT_RETENTION,
@@ -117,6 +114,7 @@ class StubDisplayPanelComponent {
   readonly summary = input<unknown>(null);
   readonly summaryTurnKey = input('');
   readonly selectedKey = input<string | null>(null);
+  readonly scrollToSelectedOnMount = input(false);
   readonly pinned = input(false);
   readonly viewStates = input<unknown>(null);
   readonly actionError = input<string | null>(null);
@@ -399,13 +397,13 @@ function mount(
     set: {
       imports: [
         SidebarTabComponent,
-        DisplayDockComponent,
+        DisplaySheetComponent,
         StubAgentMonitorPanelComponent,
       ],
       schemas: [NO_ERRORS_SCHEMA],
     },
   });
-  TestBed.overrideComponent(DisplayDockComponent, {
+  TestBed.overrideComponent(DisplaySheetComponent, {
     remove: { imports: [DisplayPanelComponent] },
     add: {
       imports: [StubDisplayPanelComponent],
@@ -456,11 +454,9 @@ describe('ChatViewComponent - Display dock (Task 25.2)', () => {
   const store = (): DisplayDockState =>
     h.fixture.debugElement.injector.get(DisplayDockState);
   const toggle = (): HTMLButtonElement | null =>
-    native().querySelector('ptah-sidebar-tab button');
+    native().querySelector('[data-testid="display-sheet-bar"]');
   const dockEl = (): HTMLElement | null =>
-    native().querySelector('ptah-display-dock');
-  const separator = (): HTMLElement | null =>
-    native().querySelector('[data-testid="display-dock-separator"]');
+    native().querySelector('ptah-display-sheet');
   /** Change detection plus the deferred dock block, a few rounds. */
   async function settle(): Promise<void> {
     for (let round = 0; round < 3; round += 1) {
@@ -515,8 +511,10 @@ describe('ChatViewComponent - Display dock (Task 25.2)', () => {
       const injector = h.fixture.debugElement.injector;
       expect(injector.get(DisplayDockState, null, { optional: true })).toBeNull();
       expect(injector.get(PTAH_UI_DISPLAY_DOCK, null, { optional: true })).toBeNull();
-      expect(toggle()?.getAttribute('aria-label')).toBe('Toggle Agents panel');
-      await clickToggle();
+      expect(native().querySelector('ptah-sidebar-tab button')?.getAttribute('aria-label')).toBe('Toggle Agents panel');
+      expect(toggle()).toBeNull();
+      native().querySelector<HTMLButtonElement>('ptah-sidebar-tab button')?.click();
+      await settle();
       expect(dockEl()).toBeNull();
       expect(native().querySelector('ptah-agent-monitor-panel')).not.toBeNull();
     });
@@ -546,8 +544,8 @@ describe('ChatViewComponent - Display dock (Task 25.2)', () => {
       store().setSurfaces('tab-1', { surfaces: [updated], statuses: new Map() });
       await settle();
       expect(panel.componentInstance.surfaces()).toEqual([updated]);
-      expect(native().querySelector('ptah-display-dock [role="tablist"]')).toBeNull();
-      expect(native().querySelector('ptah-display-dock ptah-agent-monitor-panel')).toBeNull();
+      expect(native().querySelector('ptah-display-sheet [role="tablist"]')).toBeNull();
+      expect(native().querySelector('ptah-display-sheet ptah-agent-monitor-panel')).toBeNull();
     });
 
     it('running agents and monitor chip requests never open the Electron display dock', async () => {
@@ -561,159 +559,37 @@ describe('ChatViewComponent - Display dock (Task 25.2)', () => {
     });
   });
 
-  describe('toggle (R1.4, R1.8)', () => {
-    it('opens and closes the dock and names its new content', async () => {
+  describe('peek bar', () => {
+    it('opens and collapses the sheet with aria-expanded', async () => {
       h = mount();
-      h.emitHostWidth(1280);
-      expect(toggle()?.getAttribute('aria-label')).toBe('Toggle Display panel');
-      expect(toggle()?.getAttribute('aria-expanded')).toBe('false');
-      expect(dockEl()).toBeNull();
-
-      await clickToggle();
-      expect(toggle()?.getAttribute('aria-expanded')).toBe('true');
-      expect(dockEl()?.classList.contains('hidden')).toBe(false);
-
-      await clickToggle();
-      expect(toggle()?.getAttribute('aria-expanded')).toBe('false');
-      expect(dockEl()?.classList.contains('hidden')).toBe(true);
-
-      // A display in the turn the user closed the dock in counts as new.
-      store().setLiveTurn('tab-1', 'turn-1');
-      store().open('tab-1');
-      store().close('tab-1');
-      store().requestAutoOpen('tab-1', 'turn-1', 'id:a');
+      store().setSurfaces('tab-1', { surfaces: [surface('id:chart')], statuses: new Map() });
       await settle();
-      expect(toggle()?.getAttribute('aria-label')).toBe(
-        'Toggle Display panel, 1 new',
-      );
-    });
-
-    it('is keyboard reachable: a button with aria-expanded', () => {
-      h = mount();
-      const button = toggle() as HTMLButtonElement;
-      expect(button.tagName).toBe('BUTTON');
-      expect(button.tabIndex).toBe(0);
-      expect(button.hasAttribute('aria-expanded')).toBe(true);
+      const bar = toggle() as HTMLButtonElement;
+      expect(bar.tagName).toBe('BUTTON');
+      expect(bar.tabIndex).toBe(0);
+      expect(bar.getAttribute('aria-expanded')).toBe('false');
+      await clickToggle();
+      expect(bar.getAttribute('aria-expanded')).toBe('true');
+      expect(native().querySelector('[data-testid="display-sheet-region"]')).not.toBeNull();
+      await clickToggle();
+      expect(bar.getAttribute('aria-expanded')).toBe('false');
+      expect((native().querySelector('[data-testid="display-sheet-region"]') as HTMLElement).hidden).toBe(true);
     });
   });
 
-  describe('separator (R1.5, design assertions 10-11)', () => {
-    it('exposes its value and moves by 16 px, Home/End and Enter, clamped', async () => {
-      h = mount();
-      h.emitHostWidth(1280);
-      await clickToggle();
-      const sep = separator() as HTMLElement;
-      expect(sep.getAttribute('aria-valuemin')).toBe('300');
-      expect(sep.getAttribute('aria-valuemax')).toBe('960');
-      expect(sep.getAttribute('aria-valuenow')).toBe('400');
-      expect(sep.getAttribute('aria-valuetext')).toBe('Panel width 400 pixels');
-      expect(sep.tabIndex).toBe(0);
-
-      const press = (key: string): void => {
-        sep.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
-        h.fixture.detectChanges();
-      };
-      press('ArrowLeft');
-      expect(sep.getAttribute('aria-valuenow')).toBe('416');
-      expect(dockEl()?.style.width).toBe('416px');
-      press('ArrowRight');
-      press('ArrowRight');
-      expect(sep.getAttribute('aria-valuenow')).toBe('384');
-      press('Home');
-      expect(sep.getAttribute('aria-valuenow')).toBe('300');
-      press('ArrowRight');
-      expect(sep.getAttribute('aria-valuenow')).toBe('300');
-      press('End');
-      expect(sep.getAttribute('aria-valuenow')).toBe('960');
-      press('ArrowLeft');
-      expect(sep.getAttribute('aria-valuenow')).toBe('960');
-      press('Enter');
-      expect(sep.getAttribute('aria-valuenow')).toBe('400');
-      expect(sep.getAttribute('aria-valuetext')).toBe('Panel width 400 pixels');
-
-      press('Home');
-      sep.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
-      h.fixture.detectChanges();
-      expect(sep.getAttribute('aria-valuenow')).toBe('400');
-    });
-
-    it('keeps the width per tab and restores it on a tab switch', async () => {
-      h = mount();
-      h.emitHostWidth(1280);
-      await clickToggle();
-      separator()?.dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'Home', bubbles: true }),
-      );
-      h.fixture.detectChanges();
-      expect(store().tab('tab-1').widthPx).toBe(300);
-
-      h.activeTabId.set('tab-2');
-      await settle();
-      expect(store().tab('tab-2').widthPx).toBeNull();
-      store().open('tab-2');
-      await settle();
-      expect(separator()?.getAttribute('aria-valuenow')).toBe('400');
-
-      h.activeTabId.set('tab-1');
-      await settle();
-      expect(separator()?.getAttribute('aria-valuenow')).toBe('300');
-      expect(store().tab('tab-2').widthPx).toBeNull();
-    });
-
-    it('a restore clamped to a narrower host keeps the saved width', async () => {
-      h = mount();
-      h.emitHostWidth(1280);
-      await clickToggle();
-      separator()?.dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'End', bubbles: true }),
-      );
-      h.fixture.detectChanges();
-      expect(store().tab('tab-1').widthPx).toBe(960);
-
-      h.activeTabId.set('tab-2');
-      await settle();
-      h.emitHostWidth(800);
-      h.activeTabId.set('tab-1');
-      await settle();
-      expect(separator()?.getAttribute('aria-valuenow')).toBe('600');
-      expect(store().tab('tab-1').widthPx).toBe(960);
-    });
-  });
-
-  describe('R1.3: one right-side panel', () => {
-    it('renders one display region beside the chat at its resized width', async () => {
-      h = mount();
-      h.emitHostWidth(1280);
-      await clickToggle();
-      store().setSurfaces('tab-1', { surfaces: [surface('id:a')], statuses: new Map() });
-      separator()?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
-      await settle();
-      expect(native().querySelectorAll('ptah-display-dock')).toHaveLength(1);
-      expect(native().querySelectorAll('ptah-display-dock [role="region"]')).toHaveLength(1);
-      expect(native().querySelector('ptah-display-dock ptah-agent-monitor-panel')).toBeNull();
-      expect(dockEl()?.style.width).toBe('300px');
-      expect(dockEl()?.classList.contains('absolute')).toBe(false);
-    });
-
-    it('below the breakpoint the dock is the single overlay; Escape closes and returns focus', async () => {
-      h = mount();
-      h.emitHostWidth(500);
-      await clickToggle();
-      expect(dockEl()?.classList.contains('absolute')).toBe(true);
-      expect(toggle()).toBeNull();
-      expect(separator()).toBeNull();
-      const close = native().querySelector(
-        '[data-testid="display-dock-close"]',
-      ) as HTMLButtonElement;
-      expect(document.activeElement).toBe(close);
-
-      close.dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
-      );
-      await settle();
-      expect(store().tab('tab-1').open).toBe(false);
-      expect(document.activeElement).toBe(toggle());
-    });
+  it('sheet region opens above the composer and Escape restores bar focus', async () => {
+    h = mount();
+    store().setSurfaces('tab-1', { surfaces: [surface('id:chart')], statuses: new Map() });
+    await settle();
+    const bar = toggle() as HTMLButtonElement;
+    await clickToggle();
+    expect(native().querySelectorAll('ptah-display-sheet')).toHaveLength(1);
+    expect(native().querySelector('[data-testid="display-sheet-region"]')).not.toBeNull();
+    expect(native().querySelector('ptah-display-sheet ptah-agent-monitor-panel')).toBeNull();
+    bar.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await settle();
+    expect(store().tab('tab-1').open).toBe(false);
+    expect(document.activeElement).toBe(bar);
   });
 
   it('auto-open does not move focus (R1.7)', async () => {
@@ -724,7 +600,7 @@ describe('ChatViewComponent - Display dock (Task 25.2)', () => {
     outside.focus();
     store().requestAutoOpen('tab-1', 'turn-1', 'id:a');
     await settle();
-    expect(dockEl()?.classList.contains('hidden')).toBe(false);
+    expect(native().querySelector('[data-testid="display-sheet-region"]')).not.toBeNull();
     expect(document.activeElement).toBe(outside);
     outside.remove();
   });
@@ -732,32 +608,37 @@ describe('ChatViewComponent - Display dock (Task 25.2)', () => {
   it('a tab switch shows that tab and never auto-opens (R1.1, R1.9)', async () => {
     h = mount();
     h.emitHostWidth(1280);
+    store().setSurfaces('tab-1', { surfaces: [surface('id:chart')], statuses: new Map() });
+    await settle();
     await clickToggle();
     expect(store().tab('tab-1').open).toBe(true);
 
     h.activeTabId.set('tab-2');
     await settle();
-    expect(toggle()?.getAttribute('aria-expanded')).toBe('false');
-    expect(dockEl()?.classList.contains('hidden')).toBe(true);
+    expect(dockEl()?.style.display).toBe('none');
+    expect((native().querySelector('[data-testid="display-sheet-region"]') as HTMLElement).hidden).toBe(true);
     expect(store().tab('tab-2').open).toBe(false);
 
     h.activeTabId.set('tab-1');
     await settle();
-    expect(dockEl()?.classList.contains('hidden')).toBe(false);
+    expect(dockEl()?.style.display).not.toBe('none');
+    expect(native().querySelector('[data-testid="display-sheet-region"]')).not.toBeNull();
   });
 
-  it('dock chunk failure shows an alert without an agent monitor', async () => {
+  it('sheet chunk failure shows an alert without an agent monitor', async () => {
     h = mount({ deferBehavior: DeferBlockBehavior.Manual });
     h.emitHostWidth(1280);
+    store().setSurfaces('tab-1', { surfaces: [surface('id:chart')], statuses: new Map() });
+    await settle();
     await clickToggle();
     const [dockBlock] = await h.fixture.getDeferBlocks();
     await dockBlock.render(DeferBlockState.Error);
     await settle();
-    expect(native().querySelector('[data-testid="display-dock-load-failed"]')?.textContent).toContain('Display panel failed to load');
+    expect(native().querySelector('[role="alert"]')?.textContent).toContain('Display failed to load');
     expect(native().querySelector('ptah-agent-monitor-panel')).toBeNull();
   });
 
-  it('Rail host agent activity never opens the display dock', async () => {
+  it('Rail host agent activity never opens the display sheet', async () => {
     h = mount({ contextual: true, railRetention: true });
     h.agents.set([{ ...agent('running'), parentSessionId: 'session-1' }]);
     await settle();
@@ -777,7 +658,6 @@ describe('ChatViewComponent - Display dock (Task 25.2)', () => {
     expect(first.active).toBe(true);
     store().open('tab-1');
     store().setPinned('tab-1', true);
-    store().setWidth('tab-1', 520);
     h.contextTabId.set('tab-2');
     await settle();
     expect(transcripts()).toHaveLength(2);
@@ -792,8 +672,7 @@ describe('ChatViewComponent - Display dock (Task 25.2)', () => {
     expect((transcripts()[1] as HTMLElement & { active: boolean }).active).toBe(false);
     expect(store().tab('tab-1').open).toBe(true);
     expect(store().tab('tab-1').pinned).toBe(true);
-    expect(store().tab('tab-1').widthPx).toBe(520);
-    expect(separator()?.getAttribute('aria-valuenow')).toBe('520');
+    expect(toggle()?.getAttribute('aria-expanded')).toBe('true');
   });
 
   it('contextual ChatView without Rail token renders exactly one transcript', async () => {
@@ -826,7 +705,7 @@ describe('ChatViewComponent - Display dock (Task 25.2)', () => {
     expect(store().tab('tab-1').open).toBe(false);
   });
 
-  it('a fenced ptah-ui display [id] opens in the single chat view dock and updates in place', async () => {
+  it('a fenced ptah-ui display [id] opens in the single chat view sheet and updates in place', async () => {
     h = mount();
     const first = surface('id:chart');
     store().setLiveTurn('tab-1', 'turn-1');
@@ -845,7 +724,7 @@ describe('ChatViewComponent - Display dock (Task 25.2)', () => {
     expect(store().tab('tab-1').surfaces).toHaveLength(1);
     expect(h.fixture.debugElement.query(By.directive(StubDisplayPanelComponent)).componentInstance).toBe(panel.componentInstance);
     expect(panel.componentInstance.surfaces()).toEqual([updated]);
-    expect(native().querySelectorAll('ptah-display-dock')).toHaveLength(1);
+    expect(native().querySelectorAll('ptah-display-sheet')).toHaveLength(1);
   });
 
 });
