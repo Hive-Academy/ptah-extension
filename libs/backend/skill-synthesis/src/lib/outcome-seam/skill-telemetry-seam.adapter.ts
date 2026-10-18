@@ -30,7 +30,7 @@ export class SkillTelemetrySeamAdapter implements SkillTelemetrySeam {
       'findSubagentRuns' | 'listSkillsForScopes'
     >,
     @inject(SessionVerdictStore)
-    private readonly verdicts: SessionVerdictStore,
+    private readonly verdicts: Pick<SessionVerdictStore, 'evidenceClassForSessions'>,
   ) {}
 
   async subagentRuns(

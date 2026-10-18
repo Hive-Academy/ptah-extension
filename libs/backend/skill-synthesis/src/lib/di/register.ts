@@ -109,12 +109,13 @@ export function registerSkillSynthesisServices(
   container.registerSingleton(SubagentMetricsExtractor);
   container.registerSingleton(SkillScorecardService);
   container.registerSingleton(SkillQueueStore);
+  // The historical verdict read store resolves from SQLite and Logger alone.
+  container.registerSingleton(SessionVerdictStore);
   container.registerSingleton(SkillBudgetStore);
   container.registerSingleton(SkillDrainService);
   container.registerSingleton(SkillStageHandlersService);
   container.registerSingleton(LaneResolverService);
   container.registerSingleton(LaneRunnerService);
-  container.registerSingleton(SessionVerdictStore);
   container.registerSingleton(SessionArchaeologistService);
   container.registerSingleton(ReplayValidatorService);
   container.registerSingleton(TriggerEvalService);
