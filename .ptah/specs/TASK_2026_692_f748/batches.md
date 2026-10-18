@@ -854,7 +854,7 @@ Decisions:
 
 - Command: `npx jest -c libs/backend/agent-sdk/jest.config.ts libs/backend/agent-sdk/src/lib/message-transform/system-message.transformer.spec.ts --coverage=false --maxWorkers=2 2>&1 | tail -20 && npx nx typecheck @ptah-extension/shared 2>&1 | tail -10 && npx nx typecheck @ptah-extension/agent-sdk 2>&1 | tail -10`
 
-## Batch 15: Marker record and marker component — PENDING
+## Batch 15: Marker record and marker component — COMPLETE
 
 - Recommended executor: CLI lane [implementation, Angular frontend]
 - Execution mode: sequential
@@ -866,13 +866,13 @@ Decisions:
 - Phase: 3 | Phase review: deferred to Batch 17
 - ACs: 6.1, 6.2, 6.3
 
-### Task 15.1: `ConversationRegistry` marker field + spec — PENDING
+### Task 15.1: `ConversationRegistry` marker field + spec — COMPLETE
 
 - Files: `<W>\libs\frontend\chat-state\src\lib\conversation-registry.service.ts`, `<W>\libs\frontend\chat-state\src\lib\conversation-registry.service.spec.ts`
 - Plan reference: implementation-plan.md:703-706
 - Validation notes: `idleCompaction` on `CompactionMarkerRecord`, persisted; `readPersisted` validates finite >= 0; dropped when a new boundary has none.
 
-### Task 15.2: `CompactionMarkerComponent` idle sentence + spec — PENDING
+### Task 15.2: `CompactionMarkerComponent` idle sentence + spec — COMPLETE
 
 - Files: `<W>\libs\frontend\chat-ui\src\lib\molecules\notifications\compaction-marker.component.ts`, `<W>\libs\frontend\chat-ui\src\lib\molecules\notifications\compaction-marker.component.spec.ts`
 - Plan reference: implementation-plan.md:690-723 (component 12)
@@ -882,7 +882,7 @@ Decisions:
 
 - Command: `npx nx run-many -t test -p @ptah-extension/chat-state @ptah-extension/chat-ui --parallel=1 2>&1 | grep -E "Running target|Tests:|Test Suites:|FAIL|Successfully|failed" | tail -15` (header must say 2 projects)
 
-## Batch 16: Streaming pass-through — PENDING
+## Batch 16: Streaming pass-through — COMPLETE
 
 - Recommended executor: CLI lane [implementation, Angular frontend]
 - Execution mode: sequential
@@ -894,7 +894,7 @@ Decisions:
 - Phase: 3 | Phase review: deferred to Batch 17
 - ACs: 6.1 (forwarding)
 
-### Task 16.1: Accumulator result + streaming-handler forwarding + spec — PENDING
+### Task 16.1: Accumulator result + streaming-handler forwarding + spec — COMPLETE
 
 - Files: `<W>\libs\frontend\chat-streaming\src\lib\accumulator-core.service.ts`, `<W>\libs\frontend\chat-streaming\src\lib\accumulator-core.service.spec.ts`, `<W>\libs\frontend\chat-streaming\src\lib\streaming-handler.service.ts`
 - Plan reference: implementation-plan.md:702-704
@@ -903,7 +903,7 @@ Decisions:
 
 - Command: `npx nx test @ptah-extension/chat-streaming --parallel=1 2>&1 | grep -E "Tests:|Test Suites:|FAIL|failed" | tail -15`
 
-## Batch 17: Chat store, lifecycle and view binding — PENDING
+## Batch 17: Chat store, lifecycle and view binding — COMPLETE
 
 - Recommended executor: CLI lane [implementation, Angular frontend]
 - Execution mode: sequential
@@ -915,7 +915,7 @@ Decisions:
 - Phase: 3 | Phase review: code-logic + visual, due after this batch commits (diff from parent of Batch 14's commit to HEAD). Visual: before (base `7bdc6eed4`) / after screenshots, dark + light, of the idle marker and Settings > Advanced > Context budgets rows.
 - ACs: 6.1, 6.3, 5.1 (rendered rows)
 
-### Task 17.1: `chat.store` -> `CompactionLifecycleService` -> registry; `chat-view` binding + spec — PENDING
+### Task 17.1: `chat.store` -> `CompactionLifecycleService` -> registry; `chat-view` binding + spec — COMPLETE
 
 - Files: `<W>\libs\frontend\chat\src\lib\services\chat.store.ts`, `<W>\libs\frontend\chat\src\lib\services\chat-store\compaction-lifecycle.service.ts`, `<W>\libs\frontend\chat\src\lib\services\chat-store\compaction-lifecycle.service.spec.ts`, `<W>\libs\frontend\chat\src\lib\components\templates\chat-view.component.html`
 - Plan reference: implementation-plan.md:702-707
