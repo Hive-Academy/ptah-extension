@@ -42,6 +42,7 @@ export {
   type SessionState,
 } from './lib/session-manager.service';
 export { ExecutionTreeBuilderService } from './lib/execution-tree-builder.service';
+export { SubagentExecutionStore, type SubagentExecutionEntry, type SubagentHistoryState } from './lib/subagent-execution.store';
 export {
   BackgroundAgentStore,
   type BackgroundAgentEntry,
