@@ -1,6 +1,6 @@
 # Batches - TASK_2026_684_a11d
 
-Total tasks: 45 | Batches: 23 (Batch 0 gate + 22 implementation batches) | Complete: 22/23 (Batch 21 code reviewed; waits for the user re-run of the updated live spec)
+Total tasks: 45 | Batches: 23 (Batch 0 gate + 22 implementation batches) | Complete: 23/23
 
 ## Execution precondition (read first)
 
@@ -993,7 +993,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
 - Phase 5 is complete: return NEEDS REVIEW (code-logic) for the combined diff of Batches 18-20.
 - Then the user runs step U1 (below) before Batch 21 starts.
 
-## Batch 21: Remote timeout calibration and live-result fixes (C16) — AWAITING U1 RE-RUN (spec fixed, reviews: batch-21-code-logic-review.md, batch-21-re-review.md, batch-21-re-review-2.md APPROVED)
+## Batch 21: Remote timeout calibration and live-result fixes (C16) — COMPLETE (U1 run 2: 8/8 PASS; reviews: batch-21-code-logic-review.md, batch-21-re-review.md, batch-21-re-review-2.md APPROVED)
 
 - Recommended executor: Task 21.1 orchestrator (records numbers the user shared; no agent handles
   the key); Tasks 21.2 and 21.3 CLI lane, backend-developer profile (non-codex)
@@ -1007,13 +1007,13 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
   (measurement); code-logic (codex) if any Task 21.3 fix applies
 - Criteria: 5.1, 5.2, 5.3, 6.10, and 6.4/6.5/6.7 results
 
-### Task 21.1: Record the live result in `test-report.md` — PENDING
+### Task 21.1: Record the live result in `test-report.md` — COMPLETE
 
 - File: `test-report.md` in the task folder (orchestrator or senior-tester writes it from the
   user's shared output: the `DECISION_LIVE_LATENCY` line, the accepted id form, pass/fail per case)
 - Quality requirements: cold, warm p50 and p95 (5.1); the accepted hosted id (6.10); the margin, when 5.3 applies.
 
-### Task 21.2: Apply the timeout formula — PENDING
+### Task 21.2: Apply the timeout formula — COMPLETE (cold 1518, p95 977: keep 3000)
 
 - Depends on: Task 21.1
 - File: MODIFY `W\libs\backend\lane-routing\src\lib\routing-constants.ts` (only if 5.2 applies)
@@ -1023,7 +1023,7 @@ Material findings: none. No design, decision, batch scope or acceptance criterio
   in this batch header. If the formula gives more than 8000, keep 8000, record that cold calls fall
   back, and open a follow-up. Local stays 3000.
 
-### Task 21.3: Conditional fixes from the live result (A1, A2, A4) — PENDING
+### Task 21.3: Conditional fixes from the live result (A1, A2, A4) — NOT NEEDED (all true)
 
 - Applies only if U1 shows: A1 false (strip the suffix on the direct path in
   `decision-model.target.ts`, plus a spec case); A2 false (endpoint-mode status reads key presence,
