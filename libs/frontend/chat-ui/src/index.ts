@@ -42,7 +42,6 @@ export {
   type BackgroundAgentSteerRequest,
 } from './lib/molecules/background-agent-strip.component';
 export { AgentSteerInputComponent } from './lib/molecules/agent-steer-input.component';
-export { SubagentTranscriptViewerComponent } from './lib/molecules/subagent-transcript-viewer.component';
 export { QuestionCardComponent } from './lib/molecules/question-card.component';
 export { ThinkingBlockComponent } from './lib/molecules/thinking-block.component';
 export { AutopilotPopoverComponent } from './lib/molecules/chat-input/autopilot-popover.component';
@@ -175,7 +174,11 @@ export {
   orchestratorStatusWord,
   subagentStatusWord,
 } from './lib/atoms/agent-avatar/agent-status';
-export { formatAgentDuration, agentRunDurationMs, agentRunLabel } from './lib/atoms/agent-avatar/agent-duration';
+export {
+  formatAgentDuration,
+  agentRunDurationMs,
+  agentRunLabel,
+} from './lib/atoms/agent-avatar/agent-duration';
 export {
   CLI_PROVIDER_MARK_IDS,
   cliMarkFor,
@@ -189,6 +192,15 @@ export { formatTokenCount } from './lib/atoms/token-badge.component';
 export { ContextRingComponent } from './lib/atoms/context-ring.component';
 export { InspectorSessionStatsComponent } from './lib/molecules/session/inspector-stats/inspector-session-stats.component';
 export { InspectorLimitsLanesComponent } from './lib/molecules/session/inspector-stats/inspector-limits-lanes.component';
-export { sessionContextCue, type SessionStatsInputs, type SessionContextCue } from './lib/molecules/session/session-stats-view';
-export { sessionLimitSummary, inspectorToggleDescription, limitAwareDot, type SessionLimitSummary } from './lib/molecules/session/plan-limits/session-limit-summary';
+export {
+  sessionContextCue,
+  type SessionStatsInputs,
+  type SessionContextCue,
+} from './lib/molecules/session/session-stats-view';
+export {
+  sessionLimitSummary,
+  inspectorToggleDescription,
+  limitAwareDot,
+  type SessionLimitSummary,
+} from './lib/molecules/session/plan-limits/session-limit-summary';
 export { backgroundAgentPopulation } from './lib/molecules/background-agent-population';

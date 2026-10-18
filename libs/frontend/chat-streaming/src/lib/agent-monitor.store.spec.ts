@@ -84,18 +84,31 @@ describe('AgentMonitorStore', () => {
     const olderId = AgentId.create();
     const invalidId = AgentId.create();
     const ref: CliSessionReference = {
-      cliSessionId: 'cli-session', cli: 'codex', agentId: restoredId,
-      task: 'Review', startedAt: '2026-10-17T10:00:00.000Z',
-      completedAt: '2026-10-17T10:00:05.000Z', status: 'completed',
+      cliSessionId: 'cli-session',
+      cli: 'codex',
+      agentId: restoredId,
+      task: 'Review',
+      startedAt: '2026-10-17T10:00:00.000Z',
+      completedAt: '2026-10-17T10:00:05.000Z',
+      status: 'completed',
     };
-    store.loadCliSessions([
-      ref,
-      { ...ref, agentId: olderId, completedAt: undefined },
-      { ...ref, agentId: invalidId, completedAt: 'invalid' },
-    ], 'session-1');
-    expect(store.agents().find((agent) => agent.agentId === restoredId)?.completedAt).toBe(Date.parse(ref.completedAt!));
-    expect(store.agents().find((agent) => agent.agentId === olderId)?.completedAt).toBeUndefined();
-    expect(store.agents().find((agent) => agent.agentId === invalidId)?.completedAt).toBeUndefined();
+    store.loadCliSessions(
+      [
+        ref,
+        { ...ref, agentId: olderId, completedAt: undefined },
+        { ...ref, agentId: invalidId, completedAt: 'invalid' },
+      ],
+      'session-1',
+    );
+    expect(
+      store.agents().find((agent) => agent.agentId === restoredId)?.completedAt,
+    ).toBe(Date.parse(ref.completedAt!));
+    expect(
+      store.agents().find((agent) => agent.agentId === olderId)?.completedAt,
+    ).toBeUndefined();
+    expect(
+      store.agents().find((agent) => agent.agentId === invalidId)?.completedAt,
+    ).toBeUndefined();
   });
 
   function spawnAgent(
@@ -806,8 +819,7 @@ describe('AgentMonitorStore', () => {
       // agentId (the SDK short-hex id) is ONLY carried by agent_start — the
       // sibling events never repeat it, so onAgentProgress/onAgentStatus/
       // onAgentCompleted must preserve the existing value (`agentId: existing?.agentId`)
-      // rather than clobbering it with undefined. This is the id required to
-      // read the subagent's transcript via subagent:transcript.
+      // rather than clobbering it with undefined.
       store.onAgentStart(startEvent({ agentId: 'short-abc123' }));
       expect(store.subagents().get(PARENT)?.agentId).toBe('short-abc123');
 
@@ -854,7 +866,9 @@ describe('AgentMonitorStore', () => {
         store.onAgentStart(startEvent());
         store.onTaskToolResult(PARENT, false);
         expect(store.subagents().get(PARENT)?.status).toBe('completed');
-        expect(store.subagents().get(PARENT)?.completedAt).toEqual(expect.any(Number));
+        expect(store.subagents().get(PARENT)?.completedAt).toEqual(
+          expect.any(Number),
+        );
       });
 
       it('transitions running → failed when the tool_result is an error', () => {
@@ -2620,7 +2634,7 @@ describe('AgentMonitorStore', () => {
       expect(agent?.streamRevision).toBe(2);
     });
 
-    it('merges the first queued prose segment into the card\'s last one, as a single delta did', () => {
+    it("merges the first queued prose segment into the card's last one, as a single delta did", () => {
       spawnAgent('c2');
       store.onAgentOutput({
         agentId: 'c2',
@@ -2790,9 +2804,11 @@ describe('AgentMonitorStore', () => {
         expect(find('h1')?.segments.length).toBeGreaterThan(0);
 
         runFrame();
-        expect(find('h1')?.segments.map((s) => s.content).join('')).toBe(
-          chunk.repeat(10),
-        );
+        expect(
+          find('h1')
+            ?.segments.map((s) => s.content)
+            .join(''),
+        ).toBe(chunk.repeat(10));
       });
     });
   });

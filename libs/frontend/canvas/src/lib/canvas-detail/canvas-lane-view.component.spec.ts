@@ -54,7 +54,6 @@ describe('CanvasLaneViewComponent', () => {
   const toggleAgentExpanded = jest.fn();
   const respondLane = jest.fn();
   const respondSession = jest.fn();
-  const getSubagentTranscript = jest.fn().mockResolvedValue([]);
   const findTabByIdAcrossWorkspaces = jest.fn(() => null);
   const treeFor = jest.fn(() => []);
   const entries = signal(new Map());
@@ -77,7 +76,6 @@ describe('CanvasLaneViewComponent', () => {
     toggleAgentExpanded.mockClear();
     respondLane.mockClear();
     respondSession.mockClear();
-    getSubagentTranscript.mockClear();
     findTabByIdAcrossWorkspaces.mockClear();
     treeFor.mockClear();
     retain.mockClear();
@@ -97,7 +95,6 @@ describe('CanvasLaneViewComponent', () => {
             subagents,
             stopAgent,
             toggleAgentExpanded,
-            getSubagentTranscript,
             subagentRpcError: signal(null),
             tick: signal(0),
             backgroundAgent,
@@ -342,7 +339,6 @@ describe('CanvasLaneViewComponent', () => {
     expect(respondSession).not.toHaveBeenCalled();
     subagents.set(new Map([['task-tool', { ...sub, progress: 1 }]]));
     fixture.detectChanges();
-    expect(getSubagentTranscript).not.toHaveBeenCalled();
     expect(findTabByIdAcrossWorkspaces).not.toHaveBeenCalled();
   });
 
@@ -368,10 +364,6 @@ describe('CanvasLaneViewComponent', () => {
     expect(
       fixture.nativeElement.querySelector('ptah-subagent-lane'),
     ).not.toBeNull();
-    expect(
-      fixture.nativeElement.querySelector('ptah-subagent-transcript-viewer'),
-    ).toBeNull();
-    expect(getSubagentTranscript).not.toHaveBeenCalled();
     expect(findTabByIdAcrossWorkspaces).not.toHaveBeenCalled();
     fixture.nativeElement.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
@@ -401,7 +393,6 @@ describe('CanvasLaneViewComponent', () => {
     expect(
       fixture.nativeElement.querySelector('ptah-subagent-lane'),
     ).not.toBeNull();
-    expect(getSubagentTranscript).not.toHaveBeenCalled();
   });
 
   it('keeps the same sub-agent lane open when its record becomes backgrounded', () => {
@@ -764,6 +755,5 @@ describe('CanvasLaneViewComponent', () => {
       decision: 'allow',
     });
     expect(findTabByIdAcrossWorkspaces).not.toHaveBeenCalled();
-    expect(getSubagentTranscript).not.toHaveBeenCalled();
   });
 });

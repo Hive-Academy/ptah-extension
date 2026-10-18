@@ -516,7 +516,6 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
   let activeTabAgentsSig: ReturnType<typeof signal<MonitoredAgent[]>>;
   let sessionSubagentsForSessionMock: jest.Mock;
   let workflowSubagentsForSessionMock: jest.Mock;
-  let getSubagentTranscriptMock: jest.Mock;
   let allSubagentsMap: Map<string, SubagentRecord>;
   let getSubagentMock: jest.Mock;
   let loadSubagentCacheInfoMock: jest.Mock;
@@ -528,7 +527,6 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
     activeTabAgentsSig = signal<MonitoredAgent[]>([]);
     sessionSubagentsForSessionMock = jest.fn(() => []);
     workflowSubagentsForSessionMock = jest.fn(() => []);
-    getSubagentTranscriptMock = jest.fn().mockResolvedValue([]);
     allSubagentsMap = new Map<string, SubagentRecord>();
     getSubagentMock = jest.fn((id: string) => {
       return (
@@ -560,7 +558,6 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
             toggleAgentExpanded: jest.fn(),
             tick: signal(0),
             getSubagent: getSubagentMock,
-            getSubagentTranscript: getSubagentTranscriptMock,
             loadSubagentCacheInfo: loadSubagentCacheInfoMock,
           },
         },
@@ -701,7 +698,6 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
     expect(lane.record().teammateName).toBe('Worker 1');
     expect(lane.record().status).toBe('running');
     expect(lane.sessionId()).toBe('sess_1');
-    expect(getSubagentTranscriptMock).not.toHaveBeenCalled();
   });
 
   it('shows the usage summary only once a subagent row is opened, and loads its cache info then', () => {
@@ -817,7 +813,6 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
       .componentInstance as SubagentLaneStub;
     expect(lane.record().parentToolUseId).toBe('toolu_task_no_id');
     expect(lane.sessionId()).toBeNull();
-    expect(getSubagentTranscriptMock).not.toHaveBeenCalled();
   });
 
   function selectTile(
@@ -865,7 +860,6 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
     expect(
       fixture.nativeElement.querySelector('ptah-subagent-usage-summary'),
     ).toBeTruthy();
-    expect(getSubagentTranscriptMock).not.toHaveBeenCalled();
   });
 
   it('falls back to the active tab session when the record has no parentSessionId', () => {
@@ -890,7 +884,6 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
     const lane = fixture.debugElement.query(By.directive(SubagentLaneStub))
       .componentInstance as SubagentLaneStub;
     expect(lane.sessionId()).toBe('sess_active');
-    expect(getSubagentTranscriptMock).not.toHaveBeenCalled();
   });
 
   it('ensures a record is never shown twice even if present in workflow and session subagents', () => {

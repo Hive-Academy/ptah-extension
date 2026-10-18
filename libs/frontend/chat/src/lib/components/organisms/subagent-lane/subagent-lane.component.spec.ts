@@ -82,7 +82,6 @@ describe('SubagentLaneComponent', () => {
         canBackground: flags.canBackground ?? false,
         stoppable: flags.stoppable ?? false,
         steerable: flags.steerable ?? false,
-        canViewTranscript: false,
       },
       taskId: 'task-1',
       sessionId: 'session-123456',
