@@ -1,6 +1,6 @@
 # Batches - TASK_2026_662_3eea
 
-Total tasks: 71 | Batches: 71 (+2 operational steps OP-1, OP-2) | Phases: 6 (A-F) | Complete: 8/71
+Total tasks: 71 | Batches: 71 (+2 operational steps OP-1, OP-2) | Phases: 6 (A-F) | Complete: 11/71
 
 Worktree root (prefix every path below with it): `D:\projects\ptah-extension\.claude-worktrees\skill-synthesis-purge\`
 Branch: `refactor/skill-synthesis-purge`. Aliases (same as implementation-plan.md:153):
@@ -348,14 +348,14 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
   `SkillScorecardService` via `getAggregates` (scorecard and win rates) and `listRecent` (recent and
   detail verdicts), each scoped by `(subject_kind, subject_slug)`.
 
-## Batch 6: Review-derived grades in the spec harvester - PENDING
+## Batch 6: Review-derived grades in the spec harvester - COMPLETE (baebe0c30)
 
 - Phase: A | Executor: CLI lane codex | Depends on: 5 | Tasks: 1
 - Flags: WRITE-PATH (grade rows; versioned `.harvested.json` marker in task folders)
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/skill-synthesis --parallel=1`
 - Precondition: the old candidate harvester remains. The grade store from batch 5 exists.
 
-### Task 6.1: Parse judge rounds and reviews; re-harvest on digest change - PENDING
+### Task 6.1: Parse judge rounds and reviews; re-harvest on digest change - COMPLETE
 
 - Files: `SS/spec-extractor.ts` + spec, `SS/spec-harvester.service.ts` + spec, `SS/spec-findings.port.ts`,
   `SS/skill-task-grade.store.ts`.
@@ -368,6 +368,29 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
   grade, with a bounded diagnostic.
 - Implementation details: the marker carries a version and an artifact digest. Findings still feed the
   enhancer port.
+
+### Batch 6 verification notes
+
+- Verified on disk: `spec-extractor.ts` bounded, root-validated reads with explicit verdict parsing and an
+  artifact digest; `spec-harvester.service.ts` `MARKER_VERSION = 2` (:83), digest skip (:112),
+  `writeGrades` (:148) with precedence batch > lane `final_review` > review, conflicting verdicts give
+  no grade with a bounded diagnostic (slug truncated, no review text); `SkillTaskGradeStore` gains
+  `findAttributions`, `removeAbsent`, `hasGradeForTask`; port takes an optional subject kind. Legacy
+  candidate reconciliation still runs on the first harvest (old path kept for Phase A). Report:
+  reports/batch-6-report.md.
+- Checks: skill-synthesis test + typecheck + lint PASS (orchestrator).
+- Write-path trace 1 (grade rows): `SpecHarvesterService.harvest` -> `writeGrades` ->
+  `SkillTaskGradeStore.upsert` keyed by `(task_id, subject_kind, subject_slug, attribution_key)`
+  in `skill_task_grades` (0056, batch 1); `removeAbsent` deletes rows for the task/workspace no longer
+  supported by corrected evidence. Readers: `SkillScorecardService` via `getAggregates` (rate = wins /
+  graded, NULL at zero graded) and `listRecent`; `SpecHarvesterService.getRecentFindings` via
+  `hasGradeForTask` feeding `SpecFindingsPort` for the enhancer. Correction replaces, never adds a
+  denominator (UPSERT on the same key).
+- Write-path trace 2 (`.harvested.json`): `writeMarker` writes `{taskId, harvestedAt, reconciledCount,
+  version: 2, artifactDigest}` via a `wx` temp file + `rename` in the task folder. Reader: `readMarker`
+  (lstat, 4 KiB cap, realpath containment, shape validation; an unparseable or legacy marker reads as
+  version 0) in `harvest`, `listSpecs` and `clearStaleSpecs`. A legacy marker or a changed digest
+  triggers re-harvest; same version and digest skips. No settings or env side effects.
 
 ## Batch 7: Nullable success-rate formatter guard - COMPLETE (3984309d2)
 
@@ -394,14 +417,14 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
   number. Checks: skill-synthesis-ui test + typecheck + eslint PASS (orchestrator). No persisted write.
 - UI flag: the visual before/after capture is owed at the Phase A review, not per batch.
 
-## Batch 8: Widen `CloneSummary.successRate` to nullable - PENDING
+## Batch 8: Widen `CloneSummary.successRate` to nullable - COMPLETE (31db66e38)
 
 - Phase: A | Executor: CLI lane codex | Depends on: 5, 7 | Tasks: 1
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/rpc-handlers @ptah-extension/shared @ptah-extension/skill-synthesis-ui --parallel=1`
 - Precondition: the null guard from batch 7 is present. `rg -n "CloneSummary|successRate" libs apps` finds
   consumers only in SS, SU, RH and shared (the `workspace-intelligence` fixture string is unrelated).
 
-### Task 8.1: Widen the shared DTO and update the handler together - PENDING
+### Task 8.1: Widen the shared DTO and update the handler together - COMPLETE
 
 - Files: `libs/shared/src/lib/types/rpc/rpc-skill-clone.types.ts` + spec, `RH/handlers/skills-synthesis-rpc.handlers.ts` + spec.
 - Plan reference: plan row 8.
@@ -410,14 +433,23 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
 - Validation notes: no other DTO changes.
 - Implementation details: none beyond the widening.
 
-## Batch 9: Enhancer reads migrated keys directly - PENDING
+### Batch 8 verification notes
+
+- Verified on disk: `rpc-skill-clone.types.ts:25` `successRate: number | null`; handler
+  `skills-synthesis-rpc.handlers.ts:2305` returns `null` when `stats.total === 0` (measured zero kept);
+  spec case at `skills-synthesis-rpc.handlers.spec.ts:993-1002`. No shared spec change (type-only
+  widening). No other DTO changed. Report: reports/batch-8-report.md.
+- Checks: rpc-handlers test + typecheck + lint PASS; shared + skill-synthesis-ui test + typecheck PASS
+  (orchestrator).
+
+## Batch 9: Enhancer reads migrated keys directly - COMPLETE (528d34c29)
 
 - Phase: A | Executor: CLI lane codex | Depends on: 2, 3 | Tasks: 1
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/skill-synthesis --parallel=1`
 - Precondition: the old `judgeProvider`/`judgeModel` reader (`skill-enhancer.service.ts:797-814`) remains.
   The batch 2 keys exist.
 
-### Task 9.1: Settings via `IWorkspaceProvider`; cut the candidate and judge injects - PENDING
+### Task 9.1: Settings via `IWorkspaceProvider`; cut the candidate and judge injects - COMPLETE
 
 - Files: `SS/skill-enhancer.service.ts` + spec, `SS/skill-registry-catalog.service.ts` + spec, `SS/trajectory-extractor.ts` + spec.
 - Plan reference: plan row 9; implementation-plan.md:62.
@@ -427,6 +459,26 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
 - Validation notes: the existing abort/timeout path (`:883-933`) is kept.
 - Implementation details: remove the `SkillCandidateStore` and `SkillJudgeService` injections only where
   the replacement is live.
+
+### Batch 9 verification notes
+
+- Verified on disk: `skill-enhancer.service.ts` reads `skills.enhancement.provider`, `.model`
+  (default `inherit`) and `.timeoutMs` (typeof-number guard, clamped) through
+  `workspaceProvider.getConfiguration`; the abort/timeout path is unchanged. Public call signatures kept;
+  only the private `generateCandidate` drops its unused `settings` argument.
+- Pause gate: `isEligible` and `generateProposal` read `skillSynthesis.enabled` and stop only on an
+  explicit `false` (new skip reason `paused`), matching plan :44 (manual enhancement pause key) and the
+  :135 write-path row (enhancer guard; telemetry and harvest bypass the pause). Read-only, no write.
+- Catalog and trajectory files unchanged - accepted against plan row 9 (implementation-plan.md:169):
+  the row cuts injects only where the replacement is live. `SkillCandidateStore` and `SkillJudgeService`
+  stay in the enhancer (eligibility, usage counts, recent sessions, proposal judging still call them),
+  `SkillCandidateStore` stays in the catalog (`syncFromClones` links candidate IDs), and
+  `TrajectoryExtractor` has neither inject. The cut moves to batch 44.
+- Fix round 1 (reports/batch-9-fix-1-report.md) asked to log the auth error message; the orchestrator
+  REVERTED it (decisions.md O3). `skill-enhancer.service.ts:853` keeps `catch {` with a comment: auth
+  errors can quote credentials. The warn still logs slug and provider; spec asserts no `error` field.
+- Checks: skill-synthesis test + typecheck + lint PASS; after the O3 revert
+  `skill-enhancer.service.spec.ts` 85/85 PASS and eslint 0 errors on that file (orchestrator).
 
 ## Batch 10: Manual draft preview; explicit save - PENDING
 
