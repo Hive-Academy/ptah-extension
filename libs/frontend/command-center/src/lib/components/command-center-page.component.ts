@@ -370,6 +370,7 @@ import { CommandCenterProjectionSource } from './command-center-projection.sourc
         >
           <ptah-command-work-list
             [projection]="page.projection()"
+            [reducedMotion]="page.store.reducedMotion()"
             [selectedId]="page.store.selectedId()"
             (selection)="page.store.select($event)"
           />

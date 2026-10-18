@@ -13,14 +13,17 @@ import {
   MonogramTileComponent,
   ProviderMarkComponent,
   PROVIDER_BRAND_SLUGS,
+  PROVIDER_MARKS,
 } from '@ptah-extension/ui';
+import { LucideAngularModule } from 'lucide-angular';
 import type { CommandWorkNode } from '../model/command-center.store';
 import type { ProjectionResult } from '../model/work-projection';
+import { stateColor, stateIcon } from './command-state-icon';
 
 @Component({
   selector: 'ptah-command-work-list',
   standalone: true,
-  imports: [ProviderMarkComponent, MonogramTileComponent],
+  imports: [ProviderMarkComponent, MonogramTileComponent, LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section
@@ -64,15 +67,25 @@ import type { ProjectionResult } from '../model/work-projection';
                   @if (providerName(node.providerId); as provider) {
                     {{ provider }} ·
                   }
-                  {{ node.state }}
+                  <span
+                    class="inline-flex items-center gap-1"
+                    [class]="stateColor(node.state)"
+                  >
+                    <lucide-angular
+                      [img]="stateIcon(node.state)"
+                      class="h-3 w-3"
+                      aria-hidden="true"
+                      data-test="work-state-icon"
+                      [class.animate-spin]="
+                        (node.state === 'running' ||
+                          node.state === 'starting') &&
+                        !reducedMotion()
+                      "
+                    />
+                    {{ node.state }}
+                  </span>
                 </span>
               </span>
-              <span
-                aria-hidden="true"
-                data-test="work-state-icon"
-                class="text-base-content-muted"
-                >{{ statusIcon(node) }}</span
-              >
             </button>
           </li>
         } @empty {
@@ -92,6 +105,9 @@ export class CommandWorkListComponent {
     this.projection().nodes.filter((node) => node.kind !== 'root'),
   );
   public readonly selectedId = input<string | null>(null);
+  public readonly reducedMotion = input(false);
+  public readonly stateIcon = stateIcon;
+  public readonly stateColor = stateColor;
   public readonly selection = output<string>();
   public readonly announcement = signal('');
   public readonly activeIndex = signal(0);
@@ -130,7 +146,11 @@ export class CommandWorkListComponent {
   }
 
   public knownProvider(id: string | null): boolean {
-    return id !== null && Object.hasOwn(PROVIDER_BRAND_SLUGS, id);
+    return (
+      id !== null &&
+      (Object.hasOwn(PROVIDER_BRAND_SLUGS, id) ||
+        Object.hasOwn(PROVIDER_MARKS, id))
+    );
   }
 
   public providerName(id: string | null): string | null {
@@ -138,23 +158,6 @@ export class CommandWorkListComponent {
     return id
       .replace(/[-_]+/g, ' ')
       .replace(/\b\w/g, (letter) => letter.toUpperCase());
-  }
-
-  public statusIcon(node: CommandWorkNode): string {
-    switch (node.state) {
-      case 'completed':
-        return '✓';
-      case 'failed':
-        return '×';
-      case 'awaiting input':
-        return '◆';
-      case 'cancelled':
-        return '╱';
-      case 'running':
-        return '◔';
-      default:
-        return '◌';
-    }
   }
 
   public select(node: CommandWorkNode, index: number): void {
