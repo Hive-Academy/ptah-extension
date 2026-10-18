@@ -61,6 +61,8 @@ import { AgentMonitorStore } from './agent-monitor.store';
  * per call so the core itself stays free of consumer-specific dependencies.
  */
 export interface AccumulatorContext {
+  /** Keep event accumulation while suppressing tab-level agent store updates. */
+  readonly skipStoreEffects?: boolean;
   readonly sessionManager: SessionManager;
   readonly deduplication: EventDeduplicationService;
   readonly batchedUpdate: BatchedUpdateService;
@@ -446,12 +448,19 @@ export class StreamingAccumulatorCore {
         // already-registered background case (isBackgroundAgent) AND the
         // same-event placeholder marker so no ordering race can prematurely
         // terminalise a background agent.
-        if (agentMonitorStore.getSubagent(event.toolCallId)) {
+        if (
+          !ctx.skipStoreEffects &&
+          agentMonitorStore.getSubagent(event.toolCallId)
+        ) {
           const backgrounded =
             backgroundAgentStore.isBackgroundAgent(event.toolCallId) ||
             isBackgroundedToolResult(event.output);
           if (!backgrounded) {
-            agentMonitorStore.onTaskToolResult(event.toolCallId, event.isError, event.timestamp);
+            agentMonitorStore.onTaskToolResult(
+              event.toolCallId,
+              event.isError,
+              event.timestamp,
+            );
           }
         }
 
@@ -494,8 +503,10 @@ export class StreamingAccumulatorCore {
           startTime: event.timestamp,
           isCollapsed: false,
         };
-        ctx.onAgentStart?.(event);
-        agentMonitorStore.onAgentStart(event);
+        if (!ctx.skipStoreEffects) {
+          ctx.onAgentStart?.(event);
+          agentMonitorStore.onAgentStart(event);
+        }
 
         const pendingDeltas = sessionManager.registerAgent(
           event.toolCallId,
@@ -534,7 +545,7 @@ export class StreamingAccumulatorCore {
         state.currentTokenUsage = event.tokenUsage || null;
         // A subagent's own message: its usage and activity time feed the
         // agent monitor's per-subagent usage and cache state.
-        if (event.parentToolUseId) {
+        if (event.parentToolUseId && !ctx.skipStoreEffects) {
           agentMonitorStore.onSubagentMessageComplete(event);
         }
 

@@ -279,6 +279,7 @@ export class ExecutionTreeBuilderService {
   buildTree(
     streamingState: StreamingState,
     cacheKey = 'default',
+    options?: { rootParentToolUseId?: string },
   ): ExecutionNode[] {
     const cached = this.treeCache.get(cacheKey);
     const indexes = this.resolveIndexes(streamingState, cached);
@@ -289,6 +290,7 @@ export class ExecutionTreeBuilderService {
         cacheKey,
         cached,
         indexes,
+        options,
       );
     } finally {
       this.activeIndexes = null;
@@ -301,6 +303,7 @@ export class ExecutionTreeBuilderService {
     cacheKey: string,
     cached: TreeCacheEntry | undefined,
     indexes: StreamingIndexes,
+    options?: { rootParentToolUseId?: string },
   ): ExecutionNode[] {
     const digests = computeTreeDigests(streamingState, indexes);
     const digestByRoot = digests.digestByRoot;
@@ -316,7 +319,13 @@ export class ExecutionTreeBuilderService {
         streamingState,
         messageId,
       );
-      if (msgStartEvent?.parentToolUseId) continue;
+      if (options?.rootParentToolUseId !== undefined) {
+        if (msgStartEvent?.parentToolUseId !== options.rootParentToolUseId) {
+          continue;
+        }
+      } else if (msgStartEvent?.parentToolUseId) {
+        continue;
+      }
       rootOrder.push(messageId);
       startByRoot.set(messageId, msgStartEvent);
     }

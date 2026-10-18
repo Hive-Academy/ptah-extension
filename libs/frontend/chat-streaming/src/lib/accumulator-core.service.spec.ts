@@ -975,6 +975,41 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
     });
   });
 
+  describe('skipStoreEffects', () => {
+    it('retains agent events and registration without notifying the agent monitor or hook', () => {
+      const onAgentStart = jest.fn();
+      const onStateChanged = jest.fn();
+      const result = core.process(
+        state,
+        agentStart(),
+        makeCtx({ skipStoreEffects: true, onAgentStart, onStateChanged }),
+      );
+
+      expect(result.stateMutated).toBe(true);
+      expect(state.events.has('evt-agent-start')).toBe(true);
+      expect(sessionManager.registerAgent).toHaveBeenCalledTimes(1);
+      expect(onStateChanged).toHaveBeenCalledWith(state);
+      expect(onAgentStart).not.toHaveBeenCalled();
+      expect(agentMonitorStore.onAgentStart).not.toHaveBeenCalled();
+    });
+
+    it('does not read or update the agent monitor for a Task result or subagent completion', () => {
+      const ctx = makeCtx({ skipStoreEffects: true });
+      core.process(state, toolResult(), ctx);
+      core.process(
+        state,
+        messageComplete({ parentToolUseId: 'tool-1' }),
+        ctx,
+      );
+
+      expect(state.events.has('evt-tool-result')).toBe(true);
+      expect(state.events.has('evt-msg-complete')).toBe(true);
+      expect(agentMonitorStore.getSubagent).not.toHaveBeenCalled();
+      expect(agentMonitorStore.onTaskToolResult).not.toHaveBeenCalled();
+      expect(agentMonitorStore.onSubagentMessageComplete).not.toHaveBeenCalled();
+    });
+  });
+
   // ---- Foreground completion via Task tool_result ------------------------
 
   describe('tool_result drives foreground subagent completion', () => {
