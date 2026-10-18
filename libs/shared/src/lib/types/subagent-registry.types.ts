@@ -7,6 +7,7 @@
  */
 
 import type { SubagentPromptCacheTtl } from './rpc/rpc-agents.types';
+import type { FlatStreamEventUnion } from './execution/stream-background';
 
 /**
  * Subagent lifecycle status
@@ -294,4 +295,24 @@ export interface SubagentTranscriptParams {
 export interface SubagentTranscriptResult {
   /** Normalized transcript messages in chronological order. */
   readonly messages: SubagentTranscriptMessage[];
+}
+
+/** Request a bounded page of structured SDK subagent history. */
+export interface SubagentHistoryPageParams {
+  readonly sessionId: string;
+  readonly toolCallId: string;
+  readonly agentId?: string;
+  readonly cursor?: string;
+  readonly maxBytes?: number;
+}
+
+/** Structured history page returned by `subagent:history-page`. */
+export interface SubagentHistoryPageResult {
+  readonly status: 'ok' | 'not-found' | 'unresolved';
+  readonly agentId: string | null;
+  readonly events: FlatStreamEventUnion[];
+  readonly nextCursor: string | null;
+  readonly done: boolean;
+  readonly truncated: boolean;
+  readonly clippedEvents: number;
 }

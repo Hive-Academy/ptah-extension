@@ -476,6 +476,25 @@ export class SessionReplayService {
     return events;
   }
 
+  /** Resolve the SDK agent file associated with one parent Task tool use. */
+  correlateAgentId(
+    toolCallId: string,
+    mainMessages: SessionHistoryMessage[],
+    agentSessions: AgentSessionData[],
+  ): string | null {
+    const tasks = this.correlationService.extractTaskToolUses(mainMessages);
+    const agents = this.correlationService.buildAgentDataMap(agentSessions);
+    return this.correlationService.correlateAgentsToTasks(tasks, agents).get(toolCallId) ?? null;
+  }
+
+  replayAgentToStreamEvents(
+    sessionId: string,
+    toolCallId: string,
+    messages: SessionHistoryMessage[],
+  ): FlatStreamEventUnion[] {
+    return this.processAgentMessages(sessionId, toolCallId, messages, Date.now(), undefined, true);
+  }
+
   /**
    * Process agent session messages and convert to nested events.
    *
@@ -499,36 +518,46 @@ export class SessionReplayService {
     messages: SessionHistoryMessage[],
     parentTimestamp: number,
     collector?: HistoryReplayCollector,
+    preserveJsonlIdentity = false,
   ): FlatStreamEventUnion[] {
     const events: FlatStreamEventUnion[] = [];
     let eventIndex = 0;
     let sequence = 0;
     const toolResults = this.correlationService.extractAllToolResults(messages);
+    let previousId: string | null = null;
+    let runningBlockIndex = 0;
 
-    for (const msg of messages) {
+    for (let messageIndex = 0; messageIndex < messages.length; messageIndex++) {
+      const msg = messages[messageIndex];
       if (msg.type !== 'assistant' || !msg.message?.content) continue;
 
       const content = msg.message.content;
       if (!Array.isArray(content)) continue;
-      const agentMessageId = `agent_msg_${parentToolUseId}_${eventIndex}_${Math.floor(
-        parentTimestamp,
-      )}`;
-      const messageTimestamp = parentTimestamp + sequence++ * 0.0001;
-      let blockIndex = 0;
-      events.push(
-        this.eventFactory.createAgentMessageStart(
-          sessionId,
-          agentMessageId,
-          eventIndex++,
-          messageTimestamp,
-          parentToolUseId,
-        ),
-      );
+      const jsonlTimestamp = msg.timestamp ? Date.parse(msg.timestamp) : NaN;
+      const eventTime = (): number =>
+        preserveJsonlIdentity && Number.isFinite(jsonlTimestamp)
+          ? jsonlTimestamp
+          : parentTimestamp + sequence++ * 0.0001;
+      const continued = preserveJsonlIdentity && !!msg.message.id && msg.message.id === previousId;
+      const agentMessageId = preserveJsonlIdentity && msg.message.id
+        ? msg.message.id
+        : `agent_msg_${parentToolUseId}_${eventIndex}_${Math.floor(parentTimestamp)}`;
+      let blockIndex = continued ? runningBlockIndex : 0;
+      if (!continued) {
+        events.push(this.eventFactory.createAgentMessageStart(
+          sessionId, agentMessageId, eventIndex++, eventTime(), parentToolUseId,
+        ));
+      }
 
       for (const block of content as ContentBlock[]) {
-        const eventTimestamp = parentTimestamp + sequence++ * 0.0001;
+        const eventTimestamp = eventTime();
 
-        if (block.type === 'text' && block.text) {
+        if (block.type === 'thinking' && block.thinking) {
+          events.push(this.eventFactory.createAgentThinkingDelta(
+            sessionId, agentMessageId, block.thinking, blockIndex++, eventIndex++, eventTimestamp, parentToolUseId,
+          ));
+          if (msg.message.id) collector?.blockOwners.set(events[events.length - 1], msg.message.id);
+        } else if (block.type === 'text' && block.text) {
           events.push(
             this.eventFactory.createAgentTextDelta(
               sessionId,
@@ -544,6 +573,7 @@ export class SessionReplayService {
             collector?.blockOwners.set(events[events.length - 1], msg.message.id);
           }
         } else if (block.type === 'tool_use') {
+          if (preserveJsonlIdentity) blockIndex++;
           const toolResult = block.id ? toolResults.get(block.id) : undefined;
           const toolCallId = block.id || this.eventFactory.generateId();
 
@@ -564,7 +594,7 @@ export class SessionReplayService {
           }
 
           if (toolResult) {
-            const resultTimestamp = parentTimestamp + sequence++ * 0.0001;
+            const resultTimestamp = eventTime();
             events.push(
               this.eventFactory.createAgentToolResult(
                 sessionId,
@@ -578,6 +608,15 @@ export class SessionReplayService {
               ),
             );
           }
+        } else if (preserveJsonlIdentity && block.type === 'tool_result' && block.tool_use_id) {
+          blockIndex++;
+          const output = typeof block.content === 'string'
+            ? block.content
+            : JSON.stringify(block.content ?? '');
+          events.push(this.eventFactory.createAgentToolResult(
+            sessionId, agentMessageId, block.tool_use_id, output,
+            block.is_error ?? false, eventIndex++, eventTimestamp, parentToolUseId,
+          ));
         }
       }
 
@@ -609,17 +648,15 @@ export class SessionReplayService {
           };
         }
       }
-      const completeTimestamp = parentTimestamp + sequence++ * 0.0001;
-      events.push(
-        this.eventFactory.createAgentMessageComplete(
-          sessionId,
-          agentMessageId,
-          eventIndex++,
-          completeTimestamp,
-          parentToolUseId,
-          agentMessageUsage, // Pass usage data for per-message stats
-        ),
-      );
+      runningBlockIndex = blockIndex;
+      previousId = msg.message.id ?? null;
+      const next = messages[messageIndex + 1];
+      const continues = preserveJsonlIdentity && !!previousId && next?.type === 'assistant' && next.message?.id === previousId;
+      if (!continues) {
+        events.push(this.eventFactory.createAgentMessageComplete(
+          sessionId, agentMessageId, eventIndex++, eventTime(), parentToolUseId, agentMessageUsage,
+        ));
+      }
     }
 
     return events;

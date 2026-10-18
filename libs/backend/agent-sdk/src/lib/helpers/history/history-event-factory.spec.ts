@@ -28,6 +28,20 @@ describe('HistoryEventFactory', () => {
     factory = new HistoryEventFactory();
   });
 
+  it('creates an agent-scoped thinking delta with its block position', () => {
+    expect(factory.createAgentThinkingDelta('session', 'message', 'reason', 2, 3, 1000, 'task'))
+      .toMatchObject({
+        eventType: 'thinking_delta',
+        sessionId: 'session',
+        messageId: 'message',
+        parentToolUseId: 'task',
+        blockIndex: 2,
+        delta: 'reason',
+        timestamp: 1000,
+        source: 'history',
+      });
+  });
+
   // -------------------------------------------------------------------------
   // Message events
   // -------------------------------------------------------------------------

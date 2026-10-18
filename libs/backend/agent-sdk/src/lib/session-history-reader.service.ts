@@ -23,6 +23,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import * as path from 'path';
+import * as fs from 'node:fs/promises';
 import type {
   FlatStreamEventUnion,
   AuthEnv,
@@ -68,6 +69,7 @@ import type {
   SessionReplayService,
 } from './helpers/history/session-replay.service';
 import type { HistoryEventFactory } from './helpers/history/history-event-factory';
+import { findWorkflowAgentTranscript } from './helpers/workflow-transcript-reader';
 import {
   SessionHistoryReadTiming,
   type HistoryReadStopwatch,
@@ -110,6 +112,13 @@ export interface TranscriptWindowOptions {
   readonly signal?: AbortSignal;
 }
 
+export interface SubagentEventsReadResult {
+  readonly status: 'ok' | 'not-found' | 'unresolved';
+  readonly agentId: string | null;
+  readonly events: FlatStreamEventUnion[];
+  readonly truncated: boolean;
+}
+
 type SessionEventData = {
   readonly events: FlatStreamEventUnion[];
   readonly mainMessages: SessionHistoryMessage[];
@@ -126,6 +135,78 @@ export class SessionHistoryReaderService {
    * This prevents path traversal attacks (e.g., "../../../etc/passwd").
    */
   private readonly SESSION_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
+  private readonly AGENT_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
+
+  /** Read a single agent's structured JSONL history, retaining the newest events. */
+  async readSubagentEvents(
+    sessionId: string,
+    toolCallId: string,
+    agentId?: string,
+  ): Promise<SubagentEventsReadResult> {
+    this.validateSessionId(sessionId);
+    if (!toolCallId || !this.AGENT_ID_PATTERN.test(toolCallId)) {
+      throw new SdkError('Invalid tool call id');
+    }
+    if (agentId !== undefined && !this.AGENT_ID_PATTERN.test(agentId)) {
+      throw new SdkError('Invalid agent id');
+    }
+    const dirs = await this.jsonlReader.listSessionsDirectories();
+    if (!dirs) throw new SdkError('Subagent history is unavailable');
+
+    try {
+      for (const sessionsDir of dirs) {
+        const mainFile = path.join(sessionsDir, `${sessionId}.jsonl`);
+        const nestedDir = path.join(sessionsDir, sessionId, 'subagents');
+        try {
+          await fs.access(mainFile);
+        } catch (error: unknown) {
+          if (isMissingFileError(error)) continue;
+          throw error;
+        }
+        let resolvedId = agentId;
+        if (!resolvedId) {
+          let mainMessages: SessionHistoryMessage[];
+          try {
+            mainMessages = await this.jsonlReader.readJsonlMessages(mainFile);
+          } catch (error: unknown) {
+            if (isMissingFileError(error)) continue;
+            throw error;
+          }
+          const agents = await this.jsonlReader.loadAgentSessions(sessionsDir, sessionId);
+          const correlated = this.replayService.correlateAgentId(toolCallId, mainMessages, agents);
+          if (!correlated) continue;
+          resolvedId = correlated.startsWith('agent-') ? correlated.slice(6) : correlated;
+        }
+        if (!this.AGENT_ID_PATTERN.test(resolvedId)) {
+          throw new SdkError('Invalid agent id');
+        }
+        const fileName = `agent-${resolvedId}.jsonl`;
+        const candidates = [path.join(nestedDir, fileName), path.join(sessionsDir, fileName)];
+        const workflowFile = await findWorkflowAgentTranscript(sessionId, resolvedId);
+        if (workflowFile) candidates.push(workflowFile);
+        for (const candidate of candidates) {
+          try {
+            await fs.access(candidate);
+          } catch (error: unknown) {
+            if (isMissingFileError(error)) continue;
+            throw error;
+          }
+          const messages = await this.jsonlReader.readJsonlMessages(candidate);
+          if (candidate === candidates[1] && messages[0]?.sessionId !== sessionId) continue;
+          const events = this.replayService.replayAgentToStreamEvents(sessionId, toolCallId, messages);
+          const truncated = events.length > 10_000;
+          return { status: 'ok', agentId: resolvedId, events: truncated ? events.slice(-10_000) : events, truncated };
+        }
+        return { status: 'not-found', agentId: resolvedId, events: [], truncated: false };
+      }
+      return { status: agentId ? 'not-found' : 'unresolved', agentId: agentId ?? null, events: [], truncated: false };
+    } catch (error: unknown) {
+      this.logger.warn('[SessionHistoryReader] Subagent history read failed', {
+        reason: error instanceof Error ? error.name : 'unknown',
+      });
+      throw new SdkError('Subagent history could not be read');
+    }
+  }
 
   private readonly readTiming: SessionHistoryReadTiming;
 

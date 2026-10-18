@@ -24,11 +24,18 @@
 import 'reflect-metadata';
 import { Readable } from 'node:stream';
 
-jest.mock('fs/promises', () => ({ stat: jest.fn() }));
+// Jest resolves both specifiers to one module, so each factory carries both functions.
+jest.mock('fs/promises', () => ({ stat: jest.fn(), access: jest.fn() }));
 jest.mock('node:fs', () => ({ createReadStream: jest.fn() }));
+jest.mock('node:fs/promises', () => ({ stat: jest.fn(), access: jest.fn() }));
+jest.mock('./helpers/workflow-transcript-reader', () => ({
+  findWorkflowAgentTranscript: jest.fn(),
+}));
 
 import * as fs from 'fs/promises';
+import * as nodeFs from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
+import { findWorkflowAgentTranscript } from './helpers/workflow-transcript-reader';
 import { SessionHistoryReaderService } from './session-history-reader.service';
 import { JsonlReaderService } from './helpers/history/jsonl-reader.service';
 import type { SessionReplayService } from './helpers/history/session-replay.service';
@@ -83,13 +90,14 @@ interface Stubs {
     Pick<
       JsonlReaderService,
       | 'findSessionsDirectory'
+      | 'listSessionsDirectories'
       | 'readJsonlMessages'
       | 'loadAgentSessions'
       | 'projectJsonlLines'
     >
   >;
   replayService: jest.Mocked<
-    Pick<SessionReplayService, 'replayToStreamEvents'>
+    Pick<SessionReplayService, 'replayToStreamEvents' | 'correlateAgentId' | 'replayAgentToStreamEvents'>
   >;
   modelResolver: jest.Mocked<
     Pick<
@@ -112,12 +120,15 @@ function makeStubs(): Stubs {
   return {
     jsonlReader: {
       findSessionsDirectory: jest.fn(),
+      listSessionsDirectories: jest.fn(),
       readJsonlMessages: jest.fn(),
       loadAgentSessions: jest.fn(),
       projectJsonlLines: jest.fn(),
     },
     replayService: {
       replayToStreamEvents: jest.fn().mockReturnValue([]),
+      correlateAgentId: jest.fn().mockReturnValue(null),
+      replayAgentToStreamEvents: jest.fn().mockReturnValue([]),
     },
     modelResolver: {
       resolveForPricing: jest.fn((m: string) => m || 'unknown'),
@@ -157,6 +168,97 @@ function makeService(stubs: Stubs): SessionHistoryReaderService {
 }
 
 describe('SessionHistoryReaderService', () => {
+  describe('readSubagentEvents', () => {
+    const access = nodeFs.access as jest.MockedFunction<typeof nodeFs.access>;
+    const workflow = findWorkflowAgentTranscript as jest.MockedFunction<typeof findWorkflowAgentTranscript>;
+
+    beforeEach(() => {
+      access.mockReset().mockResolvedValue(undefined);
+      workflow.mockReset().mockResolvedValue(null);
+    });
+
+    function setup() {
+      const stubs = makeStubs();
+      stubs.jsonlReader.listSessionsDirectories.mockResolvedValue(['/sessions']);
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        { type: 'assistant', sessionId: 'session', message: { role: 'assistant', content: [] } },
+      ]);
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+      return { stubs, service: makeService(stubs) };
+    }
+
+    it.each(['nested', 'flat', 'workflow'] as const)('reads the %s location', async (location) => {
+      const { stubs, service } = setup();
+      workflow.mockResolvedValue(location === 'workflow' ? '/workflow/agent-a.jsonl' : null);
+      access.mockImplementation(async (file) => {
+        const name = String(file).replaceAll('\\', '/');
+        if (name.endsWith('session.jsonl')) return;
+        if (location === 'nested' && name.endsWith('subagents/agent-a.jsonl')) return;
+        if (location === 'flat' && name.endsWith('/sessions/agent-a.jsonl')) return;
+        if (location === 'workflow' && name === '/workflow/agent-a.jsonl') return;
+        throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+      });
+      expect(await service.readSubagentEvents('session', 'task', 'a')).toMatchObject({
+        status: 'ok', agentId: 'a', truncated: false,
+      });
+      expect(stubs.replayService.replayAgentToStreamEvents).toHaveBeenCalled();
+    });
+
+    it('returns not-found for a known agent without a file', async () => {
+      const { service } = setup();
+      access.mockImplementation(async (file) => {
+        if (String(file).replaceAll('\\', '/').endsWith('session.jsonl')) return;
+        throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+      });
+      await expect(service.readSubagentEvents('session', 'task', 'a')).resolves.toMatchObject({
+        status: 'not-found', agentId: 'a', events: [],
+      });
+    });
+
+    it('resolves a missing agent id through parent Task correlation', async () => {
+      const { stubs, service } = setup();
+      stubs.replayService.correlateAgentId.mockReturnValue('agent-a');
+      expect(await service.readSubagentEvents('session', 'task')).toMatchObject({
+        status: 'ok', agentId: 'a',
+      });
+      expect(stubs.replayService.correlateAgentId).toHaveBeenCalledWith('task', expect.any(Array), []);
+    });
+
+    it('returns unresolved when correlation finds no agent', async () => {
+      const { service } = setup();
+      await expect(service.readSubagentEvents('session', 'task')).resolves.toMatchObject({
+        status: 'unresolved', agentId: null, events: [],
+      });
+    });
+
+    it('keeps the newest 10,000 events and reports truncation', async () => {
+      const { stubs, service } = setup();
+      const factory = new HistoryEventFactory();
+      const events = Array.from({ length: 10_001 }, (_, index) =>
+        factory.createAgentTextDelta('session', 'message', String(index), index, index, index, 'task'),
+      );
+      stubs.replayService.replayAgentToStreamEvents.mockReturnValue(events);
+      const result = await service.readSubagentEvents('session', 'task', 'a');
+      expect(result.truncated).toBe(true);
+      expect(result.events).toHaveLength(10_000);
+      expect(result.events[0]).toBe(events[1]);
+    });
+
+    it('reports an oversized JSONL read without leaking the path', async () => {
+      const { stubs, service } = setup();
+      stubs.jsonlReader.readJsonlMessages.mockRejectedValue(new Error('/secret/path is too large'));
+      await expect(service.readSubagentEvents('session', 'task', 'a'))
+        .rejects.toThrow('Subagent history could not be read');
+    });
+
+    it('rejects an unsafe agent id before joining a file path', async () => {
+      const { stubs, service } = setup();
+      await expect(service.readSubagentEvents('session', 'task', '../escape'))
+        .rejects.toThrow('Invalid agent id');
+      expect(stubs.jsonlReader.listSessionsDirectories).not.toHaveBeenCalled();
+    });
+  });
+
   describe('readSessionHistory', () => {
     it('returns collector metadata only on a successful opted-in read', async () => {
       const stubs = makeStubs();
