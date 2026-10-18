@@ -24,3 +24,8 @@ Orchestra Canvas Rail board. Starts after TASK_2026_629 merges.
 
 The TASK_2026_629 R9 regression fixes (Rail name popover, Displays panel, Agents section, Grid lane memory, Rail
 pointer/hover).
+
+## Cancelled (2026-10-17)
+
+Cancelled by the user. The session sidebar work is now handled in another session, which moves the
+session sidebar into a modal. Do not start this task.

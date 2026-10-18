@@ -225,6 +225,18 @@ describe('MessageFinalizationService', () => {
       expect(copy.currentTokenUsage).toEqual(original.currentTokenUsage);
     });
 
+    it('retains an isolated latest TodoWrite marker after its event is evicted', () => {
+      const original = makeStreamingState({
+        latestTodoWrite: { toolCallId: 'toolu_todo', timestamp: 42, input: { todos: ['one'] } },
+      });
+
+      const copy = service.deepCopyStreamingState(original);
+
+      expect(copy.latestTodoWrite).toEqual(original.latestTodoWrite);
+      expect(copy.latestTodoWrite).not.toBe(original.latestTodoWrite);
+      expect(copy.latestTodoWrite?.input).not.toBe(original.latestTodoWrite?.input);
+    });
+
     it('preserves null for absent optional fields', () => {
       const original = makeStreamingState({
         pendingStats: null,

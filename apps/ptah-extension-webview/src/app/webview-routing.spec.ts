@@ -1035,6 +1035,7 @@ describe('app.config routing wiring', () => {
     // Otherwise the Router resolves the empty URL before
     // `App.handleInitialView` has read the host's deep link.
     expect(source).toContain('withDisabledInitialNavigation()');
+    expect(source).toContain('withSurfaceViewTransitions()');
     expect(source).toContain('withComponentInputBinding()');
     expect(source).toContain('provideRouter(');
   });

@@ -29,6 +29,9 @@ export class TranscriptSlotDirective {
   private readonly renderWindow = inject(TranscriptRenderWindow);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
+  /** Persistent wrapper measured and marked by the session entrance. */
+  readonly element = this.host.nativeElement;
+
   /** Id of the message this slot holds. */
   readonly messageId = input.required<string>({ alias: 'ptahTranscriptSlot' });
 

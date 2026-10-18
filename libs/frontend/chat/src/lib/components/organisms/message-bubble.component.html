@@ -11,7 +11,6 @@
   >
     @if (disclosureLabel(); as label) {
       <ptah-turn-disclosure-row
-        class="st-t"
         [open]="logExpanded()"
         [label]="label.text"
         [live]="label.live"
@@ -68,7 +67,7 @@
 
       @if (parts.answer.length > 0) {
         <div
-          class="cs-answer st-t max-w-[600px] text-[13px] leading-[1.6]"
+          class="cs-answer max-w-[600px] text-[13px] leading-[1.6]"
           [class.pt-4]="hasLog() || disclosureLabel() !== null"
         >
           @for (child of parts.answer; track child.id; let last = $last) {
@@ -90,7 +89,7 @@
       }
     } @else {
       <!-- No tree (raw, system or error text): the raw text is the answer. -->
-      <div class="cs-answer st-t max-w-[600px] text-[13px] leading-[1.6]">
+      <div class="cs-answer max-w-[600px] text-[13px] leading-[1.6]">
         @if (mermaidFallbackText(); as text) {
           @defer (on immediate) {
             <ptah-mermaid-message-text [text]="text" [finalized]="true" [active]="surfaceActive()" />
@@ -113,14 +112,13 @@
 
     @if (showChips()) {
       <ptah-turn-agent-chips
-        class="st-t"
         [agents]="agents()"
         (laneRequested)="laneRequested.emit($event)"
       />
     }
 
     @if (showActions()) {
-      <div class="st-t mt-2 -ml-1.5 flex gap-0.5" data-testid="turn-action-row">
+      <div class="mt-2 -ml-1.5 flex gap-0.5" data-testid="turn-action-row">
         <ptah-copy-button [message]="message()" [turnActionSize]="true" />
         @if (canShowActivity()) {
           <button
@@ -160,7 +158,7 @@
   </article>
 } @else {
   <!-- User message (right-aligned) -->
-  <article aria-label="You" class="st-t block">
+  <article aria-label="You" class="block">
     <div class="chat chat-end group">
       <!-- Header -->
       <div class="chat-header text-xs text-base-content-muted mb-1">

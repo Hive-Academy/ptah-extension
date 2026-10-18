@@ -308,9 +308,9 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
         !layout.hasWorkspaceFolders() &&
         appState.openConfigurationSurface() === null
       ) {
-        <ptah-electron-welcome class="flex-1" />
+        <ptah-electron-welcome class="flex-1 ptah-vt-surface" />
       } @else if (!layout.hasWorkspaceFolders()) {
-        <div class="flex-1 min-h-0 overflow-hidden"><router-outlet /></div>
+        <div class="flex-1 min-h-0 overflow-hidden ptah-vt-surface"><router-outlet /></div>
       } @else {
         <!-- 3-Panel Content Area -->
         <div class="flex flex-1 min-h-0 overflow-hidden">
@@ -332,7 +332,7 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
             #configurationSurfaceHost
             data-test="configuration-surface-host"
             tabindex="-1"
-            class="flex-1 min-h-0 min-w-[400px] overflow-hidden outline-none"
+            class="flex-1 min-h-0 min-w-[400px] overflow-hidden outline-none ptah-vt-surface"
           >
             <ptah-app-shell class="h-full w-full" />
           </div>
