@@ -71,6 +71,10 @@ export function registerSkillSynthesisServices(
   logger: Logger,
 ): void {
   logger.info('[skill-synthesis] registering services');
+  container.registerSingleton(ForegroundActivityTracker);
+  container.register(SKILL_SYNTHESIS_TOKENS.FOREGROUND_ACTIVITY_TRACKER, {
+    useToken: ForegroundActivityTracker,
+  });
   container.registerSingleton(SkillCandidateStore);
   container.registerSingleton(SkillInvocationEventStore);
   container.registerSingleton(SkillTelemetrySeamAdapter);
@@ -106,7 +110,6 @@ export function registerSkillSynthesisServices(
   container.registerSingleton(SkillScorecardService);
   container.registerSingleton(SkillQueueStore);
   container.registerSingleton(SkillBudgetStore);
-  container.registerSingleton(ForegroundActivityTracker);
   container.registerSingleton(SkillDrainService);
   container.registerSingleton(SkillStageHandlersService);
   container.registerSingleton(LaneResolverService);
@@ -200,9 +203,6 @@ export function registerSkillSynthesisServices(
   });
   container.register(SKILL_SYNTHESIS_TOKENS.SKILL_BUDGET_STORE, {
     useToken: SkillBudgetStore,
-  });
-  container.register(SKILL_SYNTHESIS_TOKENS.FOREGROUND_ACTIVITY_TRACKER, {
-    useToken: ForegroundActivityTracker,
   });
   // A value, not a class registration: the back-offs are plain state with no
   // injected collaborators, and the drain, the lane runner and the enhancer
