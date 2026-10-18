@@ -150,6 +150,7 @@ If the user pushes for "just one more thing" in the same session, decline and po
 
 ## Requires
 
+- `ddd-architecture` (ptah-core plugin) — Step a2 uses it to name bounded contexts. If unavailable, tell the user to enable ptah-core before Step a2.
 - `saas-workspace-initializer` (ptah-nx-saas plugin) — the shared Stage A contract this skill specializes: Round 1 business questions, the roadmap schema, the handoff shape. If it is not installed, tell the user to enable it; do not paraphrase the contract from memory.
 - `dotnet-solution-architect` — the solution/project layout in Step a2 and the CPM/build-props output in Step c. If it is not installed, tell the user to enable it before Step a2.
 - `nx-dotnet-workspace` — the Nx-or-not recommendation and the concrete `nx add @nx/dotnet` steps. If it is not installed, tell the user to enable it; do not re-derive its decision logic here.

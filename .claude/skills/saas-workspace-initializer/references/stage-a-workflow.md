@@ -24,13 +24,13 @@ Do not start Round 2 until every Round 1 question is answered.
 2. **API** — NestJS / Other / Recommend for me
 3. **DB/ORM** — Prisma + ZenStack / Other / Recommend for me
 4. **Auth shape** — Built-in JWT / External provider (Clerk, Auth0, WorkOS, Cognito, Supabase Auth, etc.) / SSO/SAML required from day one / Recommend for me
-5. **Tenancy** — Single-tenant / Multi-tenant, shared DB with row-level isolation / Multi-tenant, schema per tenant / Multi-tenant, database per tenant / Recommend for me
+5. **Tenancy** — Single-tenant / Multi-tenant, shared DB with row-level isolation / Multi-tenant, dedicated schema or database (ask which next) / Recommend for me
 
-When the user picks "Recommend for me," name the default from Step c's tables and give a one-sentence rationale before moving on. Discovery answers override every default in this skill — the Step c defaults apply only when the user asks for a recommendation.
+When the user picks "Recommend for me," choose Angular, NestJS, Prisma + ZenStack for multi-tenant (Prisma otherwise), and built-in JWT unless SSO or an external provider was requested. Recommend shared-DB multi-tenancy for B2B SaaS and single-tenancy for B2C or internal tools; ask if the customer model is unclear. Name each choice with a one-sentence rationale before moving on. Discovery answers override these defaults.
 
 ### Conditional (ask only when relevant)
 
-6. **Billing model** (only if monetization = Yes): freemium, trial-to-paid, usage-based, seat-based, or hybrid
+6. **Billing model** (only if monetization = Yes): freemium / trial-to-paid / usage-based, seat-based, or hybrid (ask which next) / undecided
 7. **Compliance** (only if user mentions enterprise/health/finance): GDPR, SOC2, HIPAA, PCI
 8. **Inbound integrations** (only if user mentions external services): which webhooks land on day one
 9. **Deployment target** (only if user has a fixed target): Docker/K8s, serverless, PaaS

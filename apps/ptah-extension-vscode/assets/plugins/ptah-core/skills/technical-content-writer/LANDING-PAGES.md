@@ -35,13 +35,13 @@ Read(libs/*/CLAUDE.md)
 
 # 2. Find the story
 Grep("<feature>", .ptah/specs/registry.md)
-Read(.ptah/specs/TASK_XXXX/context.md)
+Read(<taskFolder>/context.md)
 
 # 3. Check design specs
-Glob(.ptah/specs/TASK_*/design-spec.md)
+Read(<taskFolder>/design-spec.md)
 
 # 4. Review design assets
-Glob(.ptah/specs/TASK_*/design-assets/*)
+Glob(<taskFolder>/design-assets/*)
 ```
 
 ---

@@ -89,7 +89,7 @@ By design, `@nx/dotnet` ships only `init` and `ci-workflow` generators. There is
 
 ## Experimental status
 
-`@nx/dotnet` is officially marked **EXPERIMENTAL** ([nrwl/nx#35837](https://github.com/nrwl/nx/issues/35837)). Say this plainly when recommending it -- "experimental" here means the rough edges above (configuration-scoped `dependsOn`, publish cache correctness, undocumented targets) are known and open, not hypothetical. Offer `@nx/dotnet`, never force it.
+`@nx/dotnet` was experimental in Nx 22 and earlier and is generally available from Nx 23. The rough edges above (configuration-scoped `dependsOn`, publish cache correctness, undocumented targets) may still matter. Offer `@nx/dotnet`, never force it.
 
 ## `@nx-dotnet/core` is archived — never recommend it
 

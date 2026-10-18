@@ -61,5 +61,5 @@ In each library's `project.json`:
 **Tag Dimensions:**
 
 - `scope:` - Business domain (user-management, products, shared)
-- `type:` - Library type (feature, ui, data-access, util)
+- `type:` - Library type (feature, ui, data-access, util, api-interfaces)
 - `platform:` - Target platform (react, next, shared)

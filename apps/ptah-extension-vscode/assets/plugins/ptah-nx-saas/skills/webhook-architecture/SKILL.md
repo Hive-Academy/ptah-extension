@@ -9,7 +9,7 @@ description: 'Three-layer NestJS design for inbound webhooks. Use when adding a 
 
 - Implement each inbound provider webhook in its Stage B domain module. Keep HTTP extraction, verification/routing, and domain handling in separate layers.
 - Preserve the raw request bytes for signature verification. Verify before parsing or dispatching an event.
-- Deduplicate provider event IDs before applying domain mutations. Catch and persist handler failures in the webhook service, then acknowledge with 200 so provider retries do not duplicate processing; consult the recovery guide for exceptions.
+- Deduplicate provider event IDs before applying domain mutations. Durably persist handler failures in the webhook service. Acknowledge with 200 only when an automatic retry path will redrive the stored failure; otherwise return a retryable response. Consult the recovery guide for manual-retry and queue options.
 - Keep provider-specific event mapping in the webhook service; route each event type to one domain handler method, which owns its business changes.
 
 ## Load by task

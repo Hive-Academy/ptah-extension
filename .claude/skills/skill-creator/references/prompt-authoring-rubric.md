@@ -67,8 +67,8 @@ route and still teach after the trim.
 
 ## Audit procedure
 
-1. Measure: `wc -c` on SKILL.md (trigger-time cost) and on the whole
-   skill directory.
+1. Measure the frontmatter description separately as trigger-time cost;
+   sum the byte sizes of all skill files for total skill size.
 2. Count the rules that break silently. More than five: the extras move
    to references. Fewer than three: the body may be under-specified.
 3. Walk every section against rules 2–9 and mark each finding with its

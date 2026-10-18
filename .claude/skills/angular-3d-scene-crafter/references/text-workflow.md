@@ -88,13 +88,13 @@ Configure materials based on aesthetic. See [best-practices.md](best-practices.m
 **Emissive wireframe (neon):**
 
 ```typescript
-[wireframe] = 'true'[emissive] = "'#00ffff'"[emissiveIntensity] = '2'[color] = "'#00ffff'";
+[wireframe]="true" [emissive]="'#00ffff'" [emissiveIntensity]="2" [color]="'#00ffff'"
 ```
 
 **Glass/transparent:**
 
 ```typescript
-[transmission] = '0.9'[thickness] = '0.5'[ior] = '1.4'[clearcoat] = '1.0'[clearcoatRoughness] = '0.0'[roughness] = '0.0';
+[transmission]="0.9" [thickness]="0.5" [ior]="1.4" [clearcoat]="1.0" [clearcoatRoughness]="0.0" [roughness]="0.0"
 ```
 
 **PBR with environment:**
@@ -109,7 +109,7 @@ Configure materials based on aesthetic. See [best-practices.md](best-practices.m
 **Iridescent (soap bubble):**
 
 ```typescript
-[transmission] = '0.9'[iridescence] = '1.0'[iridescenceIOR] = '1.3'[iridescenceThicknessMin] = '100'[iridescenceThicknessMax] = '400';
+[transmission]="0.9" [iridescence]="1.0" [iridescenceIOR]="1.3" [iridescenceThicknessMin]="100" [iridescenceThicknessMax]="400"
 ```
 
 #### D. Lighting Setup

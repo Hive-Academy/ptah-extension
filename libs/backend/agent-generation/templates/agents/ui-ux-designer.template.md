@@ -101,7 +101,7 @@ recommendation, and record both the criterion applied and the pairs measured.
 
 | Deliverable                | Destination                                              |
 | -------------------------- | -------------------------------------------------------- |
-| Design system              | `docs/design-system/design-system.md` in the project |
+| Design system              | Existing authoritative document in `docs/design-system/`; otherwise `docs/design-system/design-system.md` |
 | Visual specification       | `.ptah/specs/<TASK_FOLDER>/design-spec.md`               |
 | Asset inventory and briefs | `.ptah/specs/<TASK_FOLDER>/design-assets-inventory.md`   |
 | Developer handoff          | `.ptah/specs/<TASK_FOLDER>/design-handoff.md`            |

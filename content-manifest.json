@@ -1,8 +1,8 @@
 {
   "$schema": "https://ptah.live/schemas/content-manifest.json",
   "version": "1.0.0",
-  "contentHash": "sha256:01a983701dd87a310d41a543250dc2291d172b3c26caf1ebaeaefd1c11a18d9b",
-  "generatedAt": "2026-10-18T17:44:14.806Z",
+  "contentHash": "sha256:2b7656a8172ec2311fcf5c8a9560f4885d7baafbf07a9ff8cde4a9da55504899",
+  "generatedAt": "2026-10-18T18:10:48.055Z",
   "baseUrl": "https://raw.githubusercontent.com/Hive-Academy/ptah-extension/main",
   "plugins": {
     "basePath": "apps/ptah-extension-vscode/assets/plugins",

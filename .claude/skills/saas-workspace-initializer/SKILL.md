@@ -43,5 +43,6 @@ After handoff, do not implement feature libraries, pre-create future task stubs,
 
 ## Requires
 
+- `ddd-architecture` (ptah-core plugin) — Stage A uses it to name bounded contexts before the roadmap. If unavailable, tell the user to enable ptah-core before Step a2.
 - `dotnet-solution-initializer` (ptah-dotnet plugin) — the .NET sibling that reuses this skill's Stage A contract and roadmap schema; `references/roadmap-format.md` keeps the schema stack-agnostic because of it. If it is not installed, the shared contract here still stands on its own.
 - `nx-workspace-architect` — the Nx lib layout `references/stage-a-workflow.md` invokes with the discovery answers before the roadmap is written. If it is not installed, tell the user to enable it before scaffolding the foundation.

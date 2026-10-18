@@ -2,7 +2,7 @@
 
 Load when organizing a domain layer into libraries. This is the Nx `libs/[domain]` layout for a NestJS domain, application, and infrastructure split with a feature edge (Angular or otherwise).
 
-```
+```text
 libs/
 ├── [domain]/
 │   ├── domain/                 # Core domain logic
