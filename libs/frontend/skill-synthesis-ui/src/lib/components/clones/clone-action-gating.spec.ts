@@ -306,21 +306,25 @@ describe('formatters', () => {
     ).toBe('authored');
   });
 
-  it('returns null for success rate when nothing has been recorded', () => {
-    expect(formatSuccessRate(clone({ invocationCount: 0 }))).toBeNull();
+  it('formats a graded rate independently of invocation count', () => {
+    expect(
+      formatSuccessRate(clone({ invocationCount: 0, successRate: 0.75 })),
+    ).toBe('75%');
+    expect(formatSuccessRate(clone({ invocationCount: 0, successRate: 0 }))).toBe(
+      '0%',
+    );
     expect(
       formatSuccessRate(clone({ invocationCount: 4, successRate: 0.5 })),
     ).toBe('50%');
   });
 
   it('renders No grade for a null or NaN rate instead of a percentage', () => {
-    // `CloneSummary.successRate` is still `number` until the shared DTO
-    // widens; `Object.assign` feeds the formatter the null it must survive
-    // without a cast.
-    const ungraded = Object.assign(clone({ invocationCount: 4 }), {
-      successRate: null,
-    });
-    expect(formatSuccessRate(ungraded)).toBe('No grade');
+    expect(
+      formatSuccessRate(clone({ invocationCount: 0, successRate: null })),
+    ).toBe('No grade');
+    expect(
+      formatSuccessRate(clone({ invocationCount: 4, successRate: null })),
+    ).toBe('No grade');
     expect(
       formatSuccessRate(clone({ invocationCount: 4, successRate: Number.NaN })),
     ).toBe('No grade');
