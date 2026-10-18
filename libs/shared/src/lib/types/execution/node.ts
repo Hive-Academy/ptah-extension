@@ -229,6 +229,8 @@ export interface ExecutionNode {
 export interface ChatSessionSummary {
   /** Session identifier */
   readonly id: SessionId;
+  /** Stored canonical provider of the latest root turn, when known. */
+  readonly providerId?: string;
   /** Session display name */
   readonly name: string;
   /** Number of messages in session */
