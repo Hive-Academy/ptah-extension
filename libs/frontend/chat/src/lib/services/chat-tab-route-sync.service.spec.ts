@@ -12,7 +12,7 @@
 import { PlatformLocation } from '@angular/common';
 import { signal, type WritableSignal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { NavigationCancel, NavigationEnd, NavigationStart, Router } from '@angular/router';
+import { NavigationCancel, NavigationEnd, NavigationStart, Router, type CanActivateFn } from '@angular/router';
 import {
   SurfaceRouterService,
   SurfaceTransitionTracker,
@@ -483,6 +483,77 @@ describe('ChatTabRouteSync', () => {
         expect(navigate).toHaveBeenCalledTimes(2);
       },
     );
+
+    it.each(['cancel', 'error'] as const)(
+      'reconciles an idle correction superseded by the same tab with a different query that ends in %s',
+      async (outcome) => {
+        setUp([TAB_A, TAB_B], TAB_A);
+        await router.navigateByUrl(`/chat/${TAB_A}`);
+        await settle();
+        const refuseMarkedQuery: CanActivateFn = (route) => {
+          if (!route.queryParamMap.has('panel')) return true;
+          return outcome === 'cancel' ? false : Promise.reject(new Error('guard failed'));
+        };
+        router.resetConfig(router.config.map((route) => route.path === 'chat'
+          ? {
+            ...route,
+            children: route.children?.map((child) => child.path === ':tabId'
+              ? { ...child, canActivate: [refuseMarkedQuery] }
+              : child),
+          }
+          : route));
+        const navigate = jest.spyOn(TestBed.inject(SurfaceRouterService), 'navigateToSurface');
+
+        // The idle correction to B starts in this turn; the same tab with a
+        // query supersedes it, then that navigation is cancelled or fails.
+        tabManager.activeTabId.set(TAB_B);
+        TestBed.tick();
+        expect(navigate).toHaveBeenCalledWith('chat', [TAB_B], { replaceUrl: true });
+        const target = `/chat/${TAB_B}?panel=1`;
+        if (outcome === 'cancel') {
+          expect(await router.navigateByUrl(target)).toBe(false);
+        } else {
+          await expect(router.navigateByUrl(target)).rejects.toThrow('guard failed');
+        }
+        await settle();
+
+        expect(router.url).toBe(`/chat/${TAB_B}`);
+        expect(tabManager.activeTabId()).toBe(TAB_B);
+        expect(navigate).toHaveBeenCalledTimes(2);
+      },
+    );
+
+    it('does not treat a second navigation to the correction URL as superseding', async () => {
+      setUp([TAB_A, TAB_B], TAB_A);
+      await router.navigateByUrl(`/chat/${TAB_A}`);
+      await settle();
+      router.resetConfig(router.config.map((route) => route.path === 'chat'
+        ? {
+          ...route,
+          children: route.children?.map((child) => child.path === ':tabId'
+            ? { ...child, canActivate: [() => false] }
+            : child),
+        }
+        : route));
+      const navigate = jest.spyOn(TestBed.inject(SurfaceRouterService), 'navigateToSurface');
+      const starts: string[] = [];
+      router.events.subscribe((event) => {
+        if (event instanceof NavigationStart) starts.push(event.url);
+      });
+
+      // The correction's own start is this same URL. Cancelling the second
+      // start must not reconcile: an identical URL is not a supersession.
+      tabManager.activeTabId.set(TAB_B);
+      TestBed.tick();
+      expect(navigate).toHaveBeenCalledWith('chat', [TAB_B], { replaceUrl: true });
+      expect(await router.navigateByUrl(`/chat/${TAB_B}`)).toBe(false);
+      await settle();
+      await settle();
+
+      expect(starts.filter((url) => url === `/chat/${TAB_B}`).length).toBeGreaterThanOrEqual(2);
+      expect(navigate).toHaveBeenCalledTimes(1);
+      expect(router.url).toBe(`/chat/${TAB_A}`);
+    });
 
     it('does not re-issue an idle correction its own guard cancels', async () => {
       setUp([TAB_A, TAB_B], TAB_A);
