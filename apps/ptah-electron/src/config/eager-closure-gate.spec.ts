@@ -88,7 +88,6 @@ describe('eager-closure bundle gate', () => {
     'libs/shared/src/mcp-apps-contracts/ptah-ui-agents-source.ts',
     'libs/frontend/chat-ui/src/display-panel.ts',
     'libs/frontend/chat-ui/src/lib/organisms/display-panel/display-panel.component.ts',
-    'libs/frontend/chat/src/lib/components/organisms/display-dock/display-dock.component.ts',
   ])('fails closed when eager main.js lists %s', (input) => {
     expect(() =>
       eagerClosureGate.assertNoForbiddenEager(
@@ -129,6 +128,8 @@ describe('eager-closure bundle gate', () => {
     'libs/frontend/chat/src/lib/components/organisms/transcript/transcript-turn-summaries.ts',
     'libs/frontend/chat/src/lib/components/organisms/transcript/transcript-turn-recap-loader.ts',
     'libs/frontend/chat/src/lib/services/display-dock/display-dock.state.ts',
+    'libs/frontend/chat/src/lib/components/organisms/display-sheet/display-sheet.state.ts',
+    'libs/frontend/chat/src/lib/components/organisms/display-sheet/display-sheet.component.ts',
     'libs/frontend/chat-ui/src/lib/services/ptah-ui-host-sources.ts',
     'libs/frontend/chat-ui/src/lib/services/ptah-ui-display-dock.ts',
     'libs/frontend/chat-ui/src/lib/atoms/copy-text-button.component.ts',
