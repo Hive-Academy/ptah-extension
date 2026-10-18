@@ -97,7 +97,7 @@ describe('CloneCardComponent', () => {
     render(
       clone({
         invocationCount: 0,
-        successRate: 0,
+        successRate: null,
         lastEnhancedAt: null,
         historyCount: 0,
       }),
@@ -108,6 +108,31 @@ describe('CloneCardComponent', () => {
     expect(q('clone-metric-success')).toBeNull();
     expect(q('clone-metric-last-enhanced')).toBeNull();
     expect(q('clone-metric-history')).toBeNull();
+  });
+
+  describe.each(['skill', 'agent', 'command'] as const)('%s grade display', (kind) => {
+    it('keeps the one-sentence empty state when unused and ungraded', () => {
+      render(clone({ kind, invocationCount: 0, successRate: null, historyCount: 0 }));
+      expect(q('clone-card-unused')?.textContent).toContain('Never invoked yet');
+      expect(q('clone-card-metrics')).toBeNull();
+    });
+
+    it('shows use and a neutral No grade when used without a grade', () => {
+      render(clone({ kind, invocationCount: 3, successRate: null, historyCount: 0 }));
+      expect(q('clone-metric-invocations')?.textContent?.trim()).toBe('3');
+      expect(q('clone-metric-success')?.textContent?.trim()).toBe('No grade');
+      expect(q('clone-metric-success')?.classList).toContain('text-base-content-muted');
+      expect(q('clone-metric-success')?.classList).not.toContain('text-warning');
+      expect(q('clone-card-unused')).toBeNull();
+    });
+
+    it.each([[0.75, '75%'], [0, '0%']] as const)(
+      'shows graded rate %s as %s',
+      (successRate, expected) => {
+        render(clone({ kind, invocationCount: 3, successRate, historyCount: 0 }));
+        expect(q('clone-metric-success')?.textContent?.trim()).toBe(expected);
+      },
+    );
   });
 
   it('renders only the metrics that carry data', () => {
@@ -503,7 +528,7 @@ describe('CloneCardComponent', () => {
     expect(q('clone-metric-outcome-delivered')).toBeNull();
   });
 
-  it('drops Success on an agent card and says no data yet when nothing was recorded', () => {
+  it('shows task grade and outcome context on an agent card', () => {
     render(
       clone({
         kind: 'agent',
@@ -514,7 +539,7 @@ describe('CloneCardComponent', () => {
         historyCount: 0,
       }),
     );
-    expect(q('clone-metric-success')).toBeNull();
+    expect(q('clone-metric-success')?.textContent?.trim()).toBe('100%');
     expect(q('clone-metric-invocations')?.textContent?.trim()).toBe('7');
     expect(q('clone-metric-outcome-empty')?.textContent?.trim()).toBe(
       'no data yet',
@@ -534,7 +559,7 @@ describe('CloneCardComponent', () => {
       }),
       { outcomeSignals: signals(), outcomeWindowDays: 30 },
     );
-    expect(q('clone-metric-success')).toBeNull();
+    expect(q('clone-metric-success')?.textContent?.trim()).toBe('100%');
     expect(q('clone-metric-invocations')?.textContent?.trim()).toBe('7');
     expect(q('clone-metric-last-enhanced')?.textContent?.trim()).toBe('3h ago');
     expect(q('clone-metric-history')?.textContent?.trim()).toBe('3 snapshots');
@@ -556,7 +581,7 @@ describe('CloneCardComponent', () => {
     expect(q('clone-metric-outcome-failure')?.textContent?.trim()).toBe(
       'timeout',
     );
-    expect(q('clone-metric-success')).toBeNull();
+    expect(q('clone-metric-success')?.textContent?.trim()).toBe('100%');
 
     render(clone({ kind: 'agent', slug: 'reviewer', successRate: 1 }), {
       outcomeSignals: signals({
@@ -577,7 +602,7 @@ describe('CloneCardComponent', () => {
     );
     expect(q('clone-metric-outcome-revise')).toBeNull();
     expect(q('clone-metric-outcome-failure')?.textContent?.trim()).toBe('auth');
-    expect(q('clone-metric-success')).toBeNull();
+    expect(q('clone-metric-success')?.textContent?.trim()).toBe('100%');
 
     render(clone({ kind: 'agent', slug: 'planner', successRate: 1 }), {
       outcomeSignals: signals({ slug: 'reviewer' }),

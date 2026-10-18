@@ -433,6 +433,26 @@ describe('SkillClonesViewComponent — kind tabs', () => {
 });
 
 describe('SkillClonesViewComponent — detail drawer', () => {
+  it.each([
+    ['skill', 0],
+    ['agent', 1],
+    ['command', 2],
+  ] as const)('keeps %s card and drawer use and grade in sync', (kind, tabIndex) => {
+    const entry = clone({ kind, slug: `${kind}-entry`, invocationCount: 3, successRate: null });
+    const state = makeStateStub([entry]);
+    const { el, selectTab, openFirstCard } = setup({ state });
+    selectTab(tabIndex);
+
+    const card = el().querySelector('ptah-clone-card');
+    expect(card?.querySelector('[data-testid="clone-metric-invocations"]')?.textContent?.trim()).toBe('3');
+    expect(card?.querySelector('[data-testid="clone-metric-success"]')?.textContent?.trim()).toBe('No grade');
+
+    openFirstCard();
+    const drawer = el().querySelector('ptah-clone-detail-drawer');
+    expect(drawer?.querySelector('[data-testid="clone-metric-invocations"]')?.textContent?.trim()).toBe('3');
+    expect(drawer?.querySelector('[data-testid="clone-metric-success"]')?.textContent?.trim()).toBe('No grade');
+  });
+
   it('opens the drawer and lazily loads detail when a card is activated', () => {
     const state = makeStateStub([clone()]);
     const { fixture, el } = setup({ state });
