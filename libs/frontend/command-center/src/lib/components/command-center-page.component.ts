@@ -510,7 +510,7 @@ export class CommandCenterPageComponent {
     let waiting = 0;
     for (const node of this.page.projection().nodes) {
       if (node.kind === 'root' || node.kind === 'phase') continue;
-      if (node.state === 'running' || node.state === 'starting') running++;
+      if (node.state === 'running') running++;
       if (node.state === 'awaiting input') waiting++;
     }
     return { running, waiting };

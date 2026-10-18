@@ -93,7 +93,9 @@ import { stateBorder, stateColor, stateIcon } from './command-state-icon';
                   </span>
                 </span>
                 @if (freshness(node.updatedAt); as age) {
-                  <span class="block text-xs text-base-content-muted">Updated {{ age }}</span>
+                  <span class="block text-xs text-base-content-muted"
+                    >Updated {{ age }}</span
+                  >
                 }
               </span>
             </button>
@@ -107,9 +109,16 @@ import { stateBorder, stateColor, stateIcon } from './command-state-icon';
       </ul>
       @if (overflowCompleted() || overflowOther()) {
         <p class="mt-2 text-xs text-base-content-muted">
-          @if (overflowCompleted()) { +{{ overflowCompleted() }} completed }
-          @if (overflowCompleted() && overflowOther()) { · }
-          @if (overflowOther()) { +{{ overflowOther() }} more }
+          Off canvas:
+          @if (overflowCompleted()) {
+            {{ overflowCompleted() }} completed
+          }
+          @if (overflowCompleted() && overflowOther()) {
+            ·
+          }
+          @if (overflowOther()) {
+            {{ overflowOther() }} other
+          }
         </p>
       }
     </section>

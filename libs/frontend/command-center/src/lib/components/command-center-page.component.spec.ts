@@ -436,7 +436,7 @@ describe('CommandCenterPageComponent', () => {
     fixture.destroy();
   });
 
-  it('counts running, starting and awaiting-input nodes in the scene caption', () => {
+  it('counts running and awaiting-input nodes, not starting ones, in the scene caption', () => {
     projection.set({
       nodes: [
         nodes[0],
@@ -448,7 +448,7 @@ describe('CommandCenterPageComponent', () => {
           state: 'awaiting input',
         },
         { ...nodes[1], id: 'child:two', state: 'awaiting input' },
-        { ...nodes[1], id: 'child:three', state: 'completed' },
+        { ...nodes[1], id: 'child:three', state: 'running' },
       ],
       edges: [],
     });

@@ -41,20 +41,25 @@ describe('CommandWorkListComponent', () => {
   it('shows clock-driven freshness and scene overflow counts with a visible state edge', () => {
     const fixture = setup();
     fixture.componentRef.setInput('projection', {
-      nodes: [nodes[0], { ...nodes[1], updatedAt: 820_000 }], edges: [],
+      nodes: [nodes[0], { ...nodes[1], updatedAt: 820_000 }],
+      edges: [],
     });
     fixture.componentRef.setInput('now', 1_000_000);
     fixture.componentRef.setInput('overflowCompleted', 2);
     fixture.componentRef.setInput('overflowOther', 3);
     fixture.componentRef.setInput('selectedId', nodes[1].id);
     fixture.detectChanges();
-    const row = fixture.nativeElement.querySelector('li button') as HTMLButtonElement;
+    const row = fixture.nativeElement.querySelector(
+      'li button',
+    ) as HTMLButtonElement;
     expect(row.textContent).toContain('Updated 3m ago');
     expect(row.classList.contains('border-l-state-idle')).toBe(true);
     expect(row.classList.contains('ring-warning')).toBe(true);
     expect(row.classList.contains('outline')).toBe(true);
     expect(row.getAttribute('aria-current')).toBe('true');
-    expect(fixture.nativeElement.textContent).toMatch(/\+2 completed\s*·\s*\+3 more/);
+    expect(fixture.nativeElement.textContent).toMatch(
+      /Off canvas:\s*2 completed\s*·\s*3 other/,
+    );
     fixture.componentRef.setInput('now', 1_060_000);
     fixture.detectChanges();
     expect(row.textContent).toContain('Updated 4m ago');
@@ -63,7 +68,8 @@ describe('CommandWorkListComponent', () => {
   it('omits invalid freshness and zero overflow', () => {
     const fixture = setup();
     fixture.componentRef.setInput('projection', {
-      nodes: [nodes[0], { ...nodes[1], updatedAt: Number.NaN }], edges: [],
+      nodes: [nodes[0], { ...nodes[1], updatedAt: Number.NaN }],
+      edges: [],
     });
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).not.toContain('Updated');
@@ -179,8 +185,15 @@ describe('CommandWorkListComponent', () => {
   it('shows each state word with its own icon', () => {
     const fixture = setup();
     const states = [
-      'completed', 'failed', 'cancelled', 'awaiting input',
-      'running', 'starting', 'queued', 'idle', 'unknown',
+      'completed',
+      'failed',
+      'cancelled',
+      'awaiting input',
+      'running',
+      'starting',
+      'queued',
+      'idle',
+      'unknown',
     ] as const;
     const icons = new Map<string, string>();
     for (const state of states) {
@@ -189,19 +202,43 @@ describe('CommandWorkListComponent', () => {
         edges: [],
       });
       fixture.detectChanges();
-      const row = fixture.nativeElement.querySelector('li button') as HTMLButtonElement;
+      const row = fixture.nativeElement.querySelector(
+        'li button',
+      ) as HTMLButtonElement;
       expect(row.textContent).toContain(state);
-      const edge = state === 'completed' ? 'done'
-        : state === 'failed' ? 'err'
-        : state === 'awaiting input' ? 'need'
-        : state === 'running' || state === 'starting' ? 'run' : 'idle';
+      const edge =
+        state === 'completed'
+          ? 'done'
+          : state === 'failed'
+            ? 'err'
+            : state === 'awaiting input'
+              ? 'need'
+              : state === 'running' || state === 'starting'
+                ? 'run'
+                : 'idle';
       expect(row.classList.contains(`border-l-state-${edge}`)).toBe(true);
-      const icon = row.querySelector('[data-test="work-state-icon"] svg') as SVGElement;
+      const icon = row.querySelector(
+        '[data-test="work-state-icon"] svg',
+      ) as SVGElement;
       expect(icon).not.toBeNull();
-      expect(icon.getAttribute('aria-hidden') ?? icon.parentElement?.getAttribute('aria-hidden')).toBe('true');
+      expect(
+        icon.getAttribute('aria-hidden') ??
+          icon.parentElement?.getAttribute('aria-hidden'),
+      ).toBe('true');
       icons.set(state, icon.innerHTML);
     }
-    expect(new Set(['completed', 'failed', 'cancelled', 'awaiting input', 'running', 'queued'].map((state) => icons.get(state))).size).toBe(6);
+    expect(
+      new Set(
+        [
+          'completed',
+          'failed',
+          'cancelled',
+          'awaiting input',
+          'running',
+          'queued',
+        ].map((state) => icons.get(state)),
+      ).size,
+    ).toBe(6);
     expect(icons.get('starting')).toBe(icons.get('running'));
     expect(icons.get('idle')).toBe(icons.get('queued'));
     expect(icons.get('unknown')).toBe(icons.get('queued'));
@@ -214,7 +251,9 @@ describe('CommandWorkListComponent', () => {
       edges: [],
     });
     fixture.detectChanges();
-    const icon = fixture.nativeElement.querySelector('[data-test="work-state-icon"]') as HTMLElement;
+    const icon = fixture.nativeElement.querySelector(
+      '[data-test="work-state-icon"]',
+    ) as HTMLElement;
     expect(icon.classList.contains('animate-spin')).toBe(true);
     fixture.componentRef.setInput('reducedMotion', true);
     fixture.detectChanges();
