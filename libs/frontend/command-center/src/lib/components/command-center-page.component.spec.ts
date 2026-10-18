@@ -4,6 +4,8 @@ import { By } from '@angular/platform-browser';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { TabManagerService } from '@ptah-extension/chat-state';
+import { sessionContextCue } from '@ptah-extension/chat-ui';
+import type { SessionStatsEntry } from '@ptah-extension/shared';
 import { CommandCenterStore } from '../model/command-center.store';
 import type { ProjectionResult } from '../model/work-projection';
 import type { TribunalRosterProposal } from '../model/tribunal-roster-proposal';
@@ -11,12 +13,24 @@ import { CommandSceneComponent } from '../scene/command-scene.component';
 import { CommandOverlayComponent } from './command-overlay.component';
 import { CommandPendingInputComponent } from './command-pending-input.component';
 import { CommandSessionControlsComponent } from './command-session-controls.component';
+import { CommandCenterStartComponent } from './command-center-start.component';
+import { CommandVoiceHudComponent } from './command-voice-hud.component';
 import { CommandWorkListComponent } from './command-work-list.component';
 import { CommandCenterPageComponent } from './command-center-page.component';
 import { CommandCenterPageController } from './command-center-page.controller';
+import { CommandNodeDetailComponent } from './command-node-detail.component';
+import { CommandSessionStatsComponent } from './command-session-stats.component';
 
 @Component({ selector: 'ptah-command-scene', standalone: true, template: '' })
 class SceneStubComponent {
+  public readonly setOverlayLabels = jest.fn();
+  public readonly setCardAnchor = jest.fn();
+  public readonly layout = signal({
+    nodes: [],
+    overflowCompleted: 0,
+    overflowOther: 0,
+    overflowChip: null,
+  });
   public readonly projection = input.required<ProjectionResult>();
   public readonly selectedId = input<string | null>(null);
   public readonly theme = input('dark');
@@ -48,8 +62,39 @@ describe('CommandCenterPageComponent', () => {
     },
   ];
   const projection = signal<ProjectionResult>({ nodes, edges: [] });
+  type LiveContext = NonNullable<Parameters<typeof sessionContextCue>[0]>;
+  const tabs = signal<
+    {
+      id: string;
+      liveModelStats?: LiveContext | null;
+      sessionStats?: SessionStatsEntry | null;
+    }[]
+  >([]);
+  const stats: SessionStatsEntry = {
+    sessionId: 'root',
+    model: null,
+    totalCost: 0.2,
+    tokens: { input: 10, output: 2, cacheRead: 0, cacheCreation: 0 },
+    tokenCount: 12,
+    messageCount: 3,
+    status: 'ok',
+  };
+  const verifiedContext = (percent: number): LiveContext => ({
+    model: 'claude',
+    contextKnown: true,
+    contextCapacity: {
+      tokens: 200_000,
+      source: 'sdk-native',
+      providerId: null,
+      model: 'claude',
+    },
+    contextUsed: percent * 2_000,
+    contextWindow: 200_000,
+    contextPercent: percent,
+  });
   const hoveredNodeId = signal<string | null>(null);
   const canvasUnavailable = signal(false);
+  const now = signal(1_000);
   const pendingProposal = signal<TribunalRosterProposal | null>(null);
   const recordWriteFailure = signal<{
     workspacePath: string;
@@ -61,6 +106,7 @@ describe('CommandCenterPageComponent', () => {
     projection,
     hoveredNodeId,
     canvasUnavailable,
+    now,
     pendingProposal,
     shownProposal: computed(() =>
       store.pendingInput()?.kind === 'approval' ? null : pendingProposal(),
@@ -79,14 +125,14 @@ describe('CommandCenterPageComponent', () => {
       listStatus: signal('ready'),
       showAll: signal(false),
       choosing: signal(false),
-      currentTabId: signal(null),
+      currentTabId: signal<string | null>(null),
       currentSessionId: signal(null),
       recordedSessionId: signal(null),
       chooseSession: jest.fn(),
       chooseCurrentTab: jest.fn(),
       refreshSessions: jest.fn(),
     },
-    tabs: { activeWorkspacePath: '/workspace' },
+    tabs: { activeWorkspacePath: '/workspace', tabs },
     open: jest.fn(async (): Promise<string | null> => 'root-tab'),
     exit: jest.fn(async () => undefined),
     confirmProposal: jest.fn(async (_id: string) => undefined),
@@ -106,9 +152,13 @@ describe('CommandCenterPageComponent', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     store.setSession('root-tab', null, '/workspace');
+    tabs.set([]);
+    controller.coordinator.currentTabId.set(null);
+    projection.set({ nodes, edges: [] });
     controller.sendCommand.mockResolvedValue(true);
     hoveredNodeId.set(null);
     canvasUnavailable.set(false);
+    now.set(1_000);
     pendingProposal.set(null);
     store.setPendingInput(null);
     store.setVoiceError(null);
@@ -143,6 +193,279 @@ describe('CommandCenterPageComponent', () => {
         ],
       },
     });
+  });
+
+  it('shows verified context from the marked root tab only', () => {
+    tabs.set([
+      { id: 'other-tab', liveModelStats: verifiedContext(91) },
+      { id: 'root-tab', liveModelStats: verifiedContext(42) },
+    ]);
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const chip = fixture.nativeElement.querySelector(
+      'header .badge:last-of-type',
+    ) as HTMLElement;
+    expect(chip.textContent).toContain('Context 42%');
+    expect(chip.textContent).not.toContain('91%');
+    expect(chip.classList.contains('text-base-content-muted')).toBe(true);
+    fixture.destroy();
+  });
+
+  it('uses the root snapshot for the stage strip and exact child tab for shared details', () => {
+    tabs.set([
+      { id: 'root-tab', sessionStats: stats },
+      {
+        id: 'child-tab',
+        sessionStats: {
+          ...stats,
+          sessionId: 'child',
+          messageCount: 7,
+          tokenCount: 30,
+        },
+      },
+      { id: 'unrelated', sessionStats: { ...stats, messageCount: 99 } },
+    ]);
+    projection.set({
+      nodes: [
+        nodes[0],
+        { ...nodes[1], tabId: 'child-tab', task: '<b>Work</b>' },
+      ],
+      edges: [],
+    });
+    store.select('child:one');
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const strip = fixture.debugElement.query(
+      By.directive(CommandSessionStatsComponent),
+    ).componentInstance as CommandSessionStatsComponent;
+    expect(strip.snapshot()?.sessionId).toBe('root');
+    const rail = fixture.nativeElement.querySelector(
+      '[aria-label="Selected work"]',
+    ) as HTMLElement;
+    expect(rail.querySelector('ptah-command-node-detail')).not.toBeNull();
+    expect(rail.textContent).toContain('7 messages');
+    expect(rail.textContent).not.toContain('99 messages');
+    expect(rail.textContent).toContain('<b>Work</b>');
+    expect(rail.querySelector('b')).toBeNull();
+    const detail = fixture.debugElement.query(
+      By.directive(CommandNodeDetailComponent),
+    ).componentInstance as CommandNodeDetailComponent;
+    expect(detail.childStats()?.tokens).toBe(30);
+    fixture.destroy();
+  });
+
+  it('keeps the provisional marker and omits unloaded zero child messages', () => {
+    tabs.set([
+      { id: 'root-tab', sessionStats: stats },
+      {
+        id: 'child-tab',
+        sessionStats: {
+          ...stats,
+          sessionId: 'child',
+          provisional: true,
+          messageCount: 0,
+          tokenCount: 12_345,
+          totalCost: 0.012345678,
+        },
+      },
+    ]);
+    projection.set({
+      nodes: [nodes[0], { ...nodes[1], tabId: 'child-tab' }],
+      edges: [],
+    });
+    store.select('child:one');
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const rail = fixture.nativeElement.querySelector(
+      '[aria-label="Selected work"]',
+    ) as HTMLElement;
+    expect(rail.textContent).toContain('~12.3k tokens');
+    expect(rail.textContent).toContain('~$0.01');
+    expect(rail.textContent).not.toContain('0 messages');
+    fixture.destroy();
+  });
+
+  it('shows unknown context without a zero or warning', () => {
+    tabs.set([
+      {
+        id: 'root-tab',
+        liveModelStats: {
+          ...verifiedContext(0),
+          contextCapacity: undefined,
+        },
+      },
+    ]);
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const chip = fixture.nativeElement.querySelector(
+      'header .badge:last-of-type',
+    ) as HTMLElement;
+    expect(chip.textContent).toContain('Context unknown');
+    expect(chip.textContent).not.toContain('0%');
+    expect(chip.textContent).not.toContain('Warning');
+    fixture.destroy();
+  });
+
+  it('keeps the context chip and stage counts out of the start view', () => {
+    tabs.set([{ id: 'root-tab', liveModelStats: verifiedContext(42) }]);
+    store.setSession(null, null, '/workspace');
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelector('ptah-command-center-start'),
+    ).not.toBeNull();
+    expect(
+      fixture.nativeElement.querySelector('header')?.textContent,
+    ).not.toContain('Context');
+    expect(fixture.nativeElement.querySelector('.stage')).toBeNull();
+    fixture.destroy();
+  });
+
+  it('passes the controller clock to the start view', () => {
+    store.setSession(null, null, '/workspace');
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const start = fixture.debugElement.query(
+      By.directive(CommandCenterStartComponent),
+    ).componentInstance as CommandCenterStartComponent;
+    expect(start.now()).toBe(1_000);
+    now.set(31_000);
+    fixture.detectChanges();
+    expect(start.now()).toBe(31_000);
+    fixture.destroy();
+  });
+
+  it('passes the current tab snapshot to the start row without borrowing another tab', () => {
+    store.setSession(null, null, '/workspace');
+    tabs.set([{ id: 'other-tab', sessionStats: stats }, { id: 'current-tab' }]);
+    controller.coordinator.currentTabId.set('current-tab');
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const start = fixture.debugElement.query(
+      By.directive(CommandCenterStartComponent),
+    ).componentInstance as CommandCenterStartComponent;
+    expect(start.currentStats()).toBeNull();
+    tabs.set([
+      { id: 'other-tab', sessionStats: stats },
+      {
+        id: 'current-tab',
+        sessionStats: { ...stats, sessionId: 'current', totalCost: 0.4 },
+      },
+    ]);
+    fixture.detectChanges();
+    expect(start.currentStats()?.sessionId).toBe('current');
+    expect(start.currentStats()?.totalCost).toBe(0.4);
+    controller.coordinator.currentTabId.set(null);
+    fixture.detectChanges();
+    expect(start.currentStats()).toBeNull();
+    fixture.destroy();
+  });
+
+  it('passes the existing output level signal to the voice HUD', () => {
+    store.setVoiceState('speaking');
+    store.resetLevels();
+    store.updateLevels(0, 0.7);
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const hud = fixture.debugElement.query(
+      By.directive(CommandVoiceHudComponent),
+    ).componentInstance as CommandVoiceHudComponent;
+    expect(hud.outputLevel()).toBe(0.7);
+    expect(
+      fixture.nativeElement
+        .querySelector('[role="meter"][aria-label="Speaker"]')
+        ?.getAttribute('aria-valuenow'),
+    ).toBe('70');
+    fixture.destroy();
+  });
+
+  it('passes the controller clock to the overlay and work list', () => {
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const overlay = fixture.debugElement.query(
+      By.directive(CommandOverlayComponent),
+    ).componentInstance as CommandOverlayComponent;
+    const list = fixture.debugElement.query(
+      By.directive(CommandWorkListComponent),
+    ).componentInstance as CommandWorkListComponent;
+    expect(overlay.now()).toBe(1_000);
+    expect(list.now()).toBe(1_000);
+    now.set(31_000);
+    fixture.detectChanges();
+    expect(overlay.now()).toBe(31_000);
+    expect(list.now()).toBe(31_000);
+    fixture.destroy();
+  });
+
+  it('passes scene overflow counts to the work list and clears them without a scene', () => {
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const scene = fixture.debugElement.query(By.directive(SceneStubComponent))
+      .componentInstance as SceneStubComponent;
+    const list = fixture.debugElement.query(
+      By.directive(CommandWorkListComponent),
+    ).componentInstance as CommandWorkListComponent;
+    expect(list.overflowCompleted()).toBe(0);
+    expect(list.overflowOther()).toBe(0);
+    scene.layout.set({
+      nodes: [],
+      overflowCompleted: 3,
+      overflowOther: 2,
+      overflowChip: null,
+    });
+    fixture.detectChanges();
+    expect(list.overflowCompleted()).toBe(3);
+    expect(list.overflowOther()).toBe(2);
+    scene.canvasUnavailable.emit(true);
+    fixture.detectChanges();
+    expect(list.overflowCompleted()).toBe(0);
+    expect(list.overflowOther()).toBe(0);
+    fixture.destroy();
+  });
+
+  it.each([69, 70])('warns at 70 percent, checking %i percent', (percent) => {
+    tabs.set([{ id: 'root-tab', liveModelStats: verifiedContext(percent) }]);
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const chip = fixture.nativeElement.querySelector(
+      'header .badge:last-of-type',
+    ) as HTMLElement;
+    expect(chip.textContent).toContain(`Context ${percent}%`);
+    expect(chip.textContent?.includes('Warning')).toBe(percent === 70);
+    expect(chip.classList.contains('text-state-need')).toBe(percent === 70);
+    fixture.destroy();
+  });
+
+  it('counts running and awaiting-input nodes, not starting ones, in the scene caption', () => {
+    projection.set({
+      nodes: [
+        nodes[0],
+        { ...nodes[1], state: 'starting' },
+        {
+          ...nodes[1],
+          id: 'phase:one',
+          kind: 'phase',
+          state: 'awaiting input',
+        },
+        { ...nodes[1], id: 'child:two', state: 'awaiting input' },
+        { ...nodes[1], id: 'child:three', state: 'running' },
+      ],
+      edges: [],
+    });
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const caption = fixture.nativeElement.querySelector(
+      '.stage .left-5.top-5 p:nth-child(2)',
+    ) as HTMLElement;
+    expect(caption.textContent).toContain('5 nodes');
+    expect(caption.textContent).toContain('1 running');
+    expect(caption.textContent).toContain('1 waiting');
+    projection.set({ nodes: [{ ...nodes[0], state: 'completed' }], edges: [] });
+    fixture.detectChanges();
+    expect(caption.textContent).toContain('1 nodes');
+    expect(caption.textContent).not.toContain('running');
+    expect(caption.textContent).not.toContain('waiting');
+    fixture.destroy();
   });
 
   it.each([

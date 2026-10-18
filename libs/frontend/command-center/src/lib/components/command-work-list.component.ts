@@ -18,7 +18,8 @@ import {
 import { LucideAngularModule } from 'lucide-angular';
 import type { CommandWorkNode } from '../model/command-center.store';
 import type { ProjectionResult } from '../model/work-projection';
-import { stateColor, stateIcon } from './command-state-icon';
+import { relativeTime } from './command-relative-time';
+import { stateBorder, stateColor, stateIcon } from './command-state-icon';
 
 @Component({
   selector: 'ptah-command-work-list',
@@ -41,8 +42,14 @@ import { stateColor, stateIcon } from './command-state-icon';
           <li>
             <button
               type="button"
-              class="flex min-h-11 w-full items-center gap-3 rounded-lg border border-transparent px-2 py-2 text-left hover:bg-base-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+              class="flex min-h-11 w-full items-center gap-3 rounded-lg border border-transparent border-l-4 px-2 py-2 text-left hover:bg-base-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+              [class]="stateBorder(node.state)"
               [class.border-warning]="selectedId() === node.id"
+              [class.ring-2]="selectedId() === node.id"
+              [class.ring-warning]="selectedId() === node.id"
+              [class.outline]="selectedId() === node.id"
+              [class.outline-2]="selectedId() === node.id"
+              [class.outline-warning]="selectedId() === node.id"
               [attr.aria-current]="selectedId() === node.id ? 'true' : null"
               [attr.tabindex]="index === clampedActiveIndex() ? 0 : -1"
               (click)="select(node, index)"
@@ -85,6 +92,11 @@ import { stateColor, stateIcon } from './command-state-icon';
                     {{ node.state }}
                   </span>
                 </span>
+                @if (freshness(node.updatedAt); as age) {
+                  <span class="block text-xs text-base-content-muted"
+                    >Updated {{ age }}</span
+                  >
+                }
               </span>
             </button>
           </li>
@@ -95,6 +107,20 @@ import { stateColor, stateIcon } from './command-state-icon';
           </li>
         }
       </ul>
+      @if (overflowCompleted() || overflowOther()) {
+        <p class="mt-2 text-xs text-base-content-muted">
+          Off canvas:
+          @if (overflowCompleted()) {
+            {{ overflowCompleted() }} completed
+          }
+          @if (overflowCompleted() && overflowOther()) {
+            ·
+          }
+          @if (overflowOther()) {
+            {{ overflowOther() }} other
+          }
+        </p>
+      }
     </section>
   `,
 })
@@ -106,8 +132,15 @@ export class CommandWorkListComponent {
   );
   public readonly selectedId = input<string | null>(null);
   public readonly reducedMotion = input(false);
+  public readonly now = input.required<number>();
+  public readonly overflowCompleted = input(0);
+  public readonly overflowOther = input(0);
   public readonly stateIcon = stateIcon;
   public readonly stateColor = stateColor;
+  public readonly stateBorder = stateBorder;
+  public freshness(timestamp: number | undefined): string | null {
+    return relativeTime(timestamp, this.now());
+  }
   public readonly selection = output<string>();
   public readonly announcement = signal('');
   public readonly activeIndex = signal(0);

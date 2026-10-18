@@ -14,6 +14,37 @@ describe('CommandVoiceHudComponent', () => {
     return fixture;
   }
 
+  it('shows a clamped five-bar Speaker meter only while speaking', () => {
+    const fixture = render();
+    const speaker = () =>
+      fixture.nativeElement.querySelector(
+        '[role="meter"][aria-label="Speaker"]',
+      ) as HTMLElement | null;
+    expect(speaker()).toBeNull();
+    fixture.componentRef.setInput('voiceState', 'speaking');
+    fixture.componentRef.setInput('outputLevel', 0.6);
+    fixture.detectChanges();
+    expect(speaker()?.getAttribute('aria-valuemin')).toBe('0');
+    expect(speaker()?.getAttribute('aria-valuemax')).toBe('100');
+    expect(speaker()?.getAttribute('aria-valuenow')).toBe('60');
+    expect(speaker()?.getAttribute('aria-valuetext')).toBe('Speaker level 60%');
+    expect(
+      (fixture.nativeElement as HTMLElement)
+        .querySelector('[role="meter"][aria-label="Microphone level"]')
+        ?.getAttribute('aria-valuetext'),
+    ).toBe('Microphone level 0%');
+    expect(speaker()?.querySelectorAll('span')).toHaveLength(5);
+    fixture.componentRef.setInput('outputLevel', 2);
+    fixture.detectChanges();
+    expect(speaker()?.getAttribute('aria-valuenow')).toBe('100');
+    fixture.componentRef.setInput('outputLevel', -1);
+    fixture.detectChanges();
+    expect(speaker()?.getAttribute('aria-valuenow')).toBe('0');
+    fixture.componentRef.setInput('voiceState', 'listening');
+    fixture.detectChanges();
+    expect(speaker()).toBeNull();
+  });
+
   it('offers an enabled mic retry for a typed capture failure', () => {
     const fixture = render();
     const start = jest.fn();

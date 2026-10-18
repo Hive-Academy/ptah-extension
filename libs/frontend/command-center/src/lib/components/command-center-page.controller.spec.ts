@@ -340,6 +340,7 @@ describe('CommandCenterPageController', () => {
     expect(rootId).toBe('root:root-tab');
     const fixture = TestBed.createComponent(CommandOverlayComponent);
     fixture.componentRef.setInput('projection', page.projection());
+    fixture.componentRef.setInput('now', page.now());
     fixture.detectChanges();
     fixture.componentInstance.pin('root:root-tab');
     fixture.detectChanges();
