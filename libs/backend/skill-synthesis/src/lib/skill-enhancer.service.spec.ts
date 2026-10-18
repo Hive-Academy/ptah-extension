@@ -1409,6 +1409,18 @@ describe('SkillEnhancerService — preview-before-apply', () => {
     expect(result.judgeScore).toBe(8);
     expect(result.judgeReason).toBe('judge-verdict');
     expect(result.kind).toBe('skill');
+    expect(result.draft).toMatchObject({
+      before: expect.stringContaining('Body'),
+      after: IMPROVED,
+      sourceHash: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+      model: expect.any(String),
+      diff: expect.stringContaining('+Improved body'),
+      evidence: {
+        trajectory: expect.any(String),
+        findings: expect.any(String),
+        scorecard: expect.any(String),
+      },
+    });
   });
 
   it('generateProposal writes NOTHING to disk and does not mutate the registry', async () => {
@@ -1420,6 +1432,35 @@ describe('SkillEnhancerService — preview-before-apply', () => {
     expect(h.mirror.revert).not.toHaveBeenCalled();
     expect(h.registry.markEnhanced).not.toHaveBeenCalled();
     expect(h.repropagation.repropagate).not.toHaveBeenCalled();
+  });
+
+  it('provider failure returns a draft skip and leaves the clone untouched', async () => {
+    const authResolver = {
+      resolve: jest.fn().mockRejectedValue(new Error('provider unavailable')),
+    };
+    const h = makeHarness({
+      judgeDecision: PASS,
+      candidateText: IMPROVED,
+      authResolver,
+      configSeed: { 'skills.enhancement.provider': 'deepseek' },
+    });
+
+    const result = await h.svc.generateProposal(
+      'deep-research',
+      makeSettings(),
+      { manual: true, userInitiated: true },
+    );
+
+    expect(result).toMatchObject({
+      proposed: false,
+      proposalId: null,
+      skipReason: 'provider-unreachable',
+    });
+    expect(result.draft).toBeUndefined();
+    expect(h.mirror.writeEnhancedSkill).not.toHaveBeenCalled();
+    expect(h.mirror.writeEnhancedFileClone).not.toHaveBeenCalled();
+    expect(h.registry.markEnhanced).not.toHaveBeenCalled();
+    expect(h.judge.judge).not.toHaveBeenCalled();
   });
 
   it('generateProposal(kind=agent) still writes nothing', async () => {

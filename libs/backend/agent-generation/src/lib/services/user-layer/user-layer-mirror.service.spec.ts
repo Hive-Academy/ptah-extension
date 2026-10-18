@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, writeFile, readFile, rm, stat } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -705,7 +706,7 @@ describe('UserLayerMirrorService.rebaseClone / keepClone', () => {
    * saved with whatever upstream now holds.
    */
   describe('saveCloneBody', () => {
-    it('writes the body, snapshots first, and touches ONLY currentContentHash (skill)', async () => {
+    it('keeps the existing body and history save behavior when the hash is absent (skill)', async () => {
       await seedAndMirrorSkill('plugin-a', 'deep-research', '# v1 upstream');
       const roots = service.getUserLayerRoots();
       const cloneDir = join(roots.skills, 'deep-research');
@@ -809,6 +810,69 @@ describe('UserLayerMirrorService.rebaseClone / keepClone', () => {
       expect(after.pendingSourceHash).toBe(before.pendingSourceHash);
       expect(after.lastEnhancedAt).toBe(before.lastEnhancedAt);
       expect(after.currentContentHash).toBe(await computeSourceHash(cloneFile));
+    });
+
+    it('refuses a stale skill body without writing a file or history snapshot', async () => {
+      const original = '# v1 upstream';
+      await seedAndMirrorSkill('plugin-a', 'deep-research', original);
+      const cloneSkill = join(service.getUserLayerRoots().skills, 'deep-research', 'SKILL.md');
+      const expectedSourceHash = `sha256:${createHash('sha256').update(original).digest('hex')}`;
+      await writeFile(cloneSkill, '# changed after draft', 'utf8');
+      const historyBefore = await service.listHistory('skill', 'deep-research');
+
+      const result = await service.saveCloneBody({
+        kind: 'skill',
+        slug: 'deep-research',
+        body: '# draft replacement',
+        expectedSourceHash,
+      });
+
+      expect(result).toMatchObject({ written: false, reason: 'stale-source', historyTs: null });
+      expect(await readFile(cloneSkill, 'utf8')).toBe('# changed after draft');
+      expect(await service.listHistory('skill', 'deep-research')).toEqual(historyBefore);
+    });
+
+    it('saves a skill and snapshots its prior body when the hash matches', async () => {
+      const original = '# v1 upstream';
+      await seedAndMirrorSkill('plugin-a', 'deep-research', original);
+      const cloneSkill = join(service.getUserLayerRoots().skills, 'deep-research', 'SKILL.md');
+      const expectedSourceHash = `sha256:${createHash('sha256').update(original).digest('hex')}`;
+      const historyBefore = await service.listHistory('skill', 'deep-research');
+
+      const result = await service.saveCloneBody({
+        kind: 'skill',
+        slug: 'deep-research',
+        body: '# draft replacement',
+        expectedSourceHash,
+      });
+
+      expect(result.written).toBe(true);
+      expect(await readFile(cloneSkill, 'utf8')).toBe('# draft replacement');
+      const historyAfter = await service.listHistory('skill', 'deep-research');
+      expect(historyAfter).toHaveLength(historyBefore.length + 1);
+      const snapshot = historyAfter.find((entry) => entry.ts === result.historyTs);
+      expect(snapshot).toBeDefined();
+      expect(await readFile(join(snapshot!.path, 'SKILL.md'), 'utf8')).toBe(original);
+    });
+
+    it('refuses a stale flat-file body without writing a file or history snapshot', async () => {
+      const original = '# review v1';
+      await seedAndMirrorCommand('plugin-a', 'review', original);
+      const cloneFile = join(service.getUserLayerRoots().commands, 'review.md');
+      const expectedSourceHash = `sha256:${createHash('sha256').update(original).digest('hex')}`;
+      await writeFile(cloneFile, '# changed after draft', 'utf8');
+      const historyBefore = await service.listHistory('command', 'review');
+
+      const result = await service.saveCloneBody({
+        kind: 'command',
+        slug: 'review',
+        body: '# draft replacement',
+        expectedSourceHash,
+      });
+
+      expect(result).toMatchObject({ written: false, reason: 'stale-source', historyTs: null });
+      expect(await readFile(cloneFile, 'utf8')).toBe('# changed after draft');
+      expect(await service.listHistory('command', 'review')).toEqual(historyBefore);
     });
 
     it('returns written:false and creates NOTHING when the clone is absent', async () => {

@@ -1,7 +1,8 @@
 import { injectable, inject } from 'tsyringe';
 import { homedir } from 'os';
 import { join, basename, isAbsolute } from 'path';
-import { mkdir, readdir, stat } from 'fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdir, readdir, readFile, stat } from 'fs/promises';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 import {
   USER_LAYER_AGENTS_DIR_NAME,
@@ -187,6 +188,8 @@ export interface SaveCloneBodyArgs extends WorkspaceScopedArgs {
   slug: string;
   /** Full replacement body. Not a patch — the clone file is overwritten. */
   body: string;
+  /** Hash of the exact user-layer body seen when the draft was generated. */
+  expectedSourceHash?: string;
 }
 
 export interface SaveCloneBodyResult {
@@ -195,7 +198,7 @@ export interface SaveCloneBodyResult {
   /** Snapshot stamp; `null` only when `written` is false. */
   historyTs: string | null;
   written: boolean;
-  /** `'clone-missing'` when the target file/dir is not on disk. */
+  /** `'clone-missing'` or `'stale-source'` when no write occurred. */
   reason: string | null;
   /**
    * `true` when the body IS on disk but a post-write bookkeeping step (the
@@ -662,10 +665,21 @@ export class UserLayerMirrorService {
     return this.withSlugLock(args.kind, args.slug, async () => {
       const roots = this.getUserLayerRoots(args.workspaceRoot);
       if (args.kind === 'skill') {
-        return this.saveDirCloneBody(args.slug, args.body, roots.skills);
+        return this.saveDirCloneBody(
+          args.slug,
+          args.body,
+          roots.skills,
+          args.expectedSourceHash,
+        );
       }
       const root = args.kind === 'agent' ? roots.agents : roots.commands;
-      return this.saveFileCloneBody(args.kind, args.slug, args.body, root);
+      return this.saveFileCloneBody(
+        args.kind,
+        args.slug,
+        args.body,
+        root,
+        args.expectedSourceHash,
+      );
     });
   }
 
@@ -673,6 +687,7 @@ export class UserLayerMirrorService {
     slug: string,
     body: string,
     skillsRoot: string,
+    expectedSourceHash?: string,
   ): Promise<SaveCloneBodyResult> {
     const cloneDir = join(skillsRoot, slug);
     const skillFile = join(cloneDir, 'SKILL.md');
@@ -689,6 +704,22 @@ export class UserLayerMirrorService {
         metadataIncomplete: false,
         reconcileProtected: false,
       };
+    }
+
+    if (expectedSourceHash !== undefined) {
+      const currentBody = await readFile(skillFile, 'utf8');
+      const currentHash = `sha256:${createHash('sha256').update(currentBody).digest('hex')}`;
+      if (currentHash !== expectedSourceHash) {
+        return {
+          kind: 'skill',
+          slug,
+          historyTs: null,
+          written: false,
+          reason: 'stale-source',
+          metadataIncomplete: false,
+          reconcileProtected: false,
+        };
+      }
     }
 
     const historyTs = basename(await this.snapshotDirToHistory(cloneDir));
@@ -752,6 +783,7 @@ export class UserLayerMirrorService {
     slug: string,
     body: string,
     rootDir: string,
+    expectedSourceHash?: string,
   ): Promise<SaveCloneBodyResult> {
     const cloneFile = join(rootDir, `${slug}.md`);
     const sidecarPath = join(rootDir, `${slug}${ORIGIN_SIDECAR_SUFFIX}`);
@@ -768,6 +800,22 @@ export class UserLayerMirrorService {
         metadataIncomplete: false,
         reconcileProtected: false,
       };
+    }
+
+    if (expectedSourceHash !== undefined) {
+      const currentBody = await readFile(cloneFile, 'utf8');
+      const currentHash = `sha256:${createHash('sha256').update(currentBody).digest('hex')}`;
+      if (currentHash !== expectedSourceHash) {
+        return {
+          kind,
+          slug,
+          historyTs: null,
+          written: false,
+          reason: 'stale-source',
+          metadataIncomplete: false,
+          reconcileProtected: false,
+        };
+      }
     }
 
     const historyTs = basename(

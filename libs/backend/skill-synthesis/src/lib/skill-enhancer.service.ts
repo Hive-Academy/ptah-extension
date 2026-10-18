@@ -1,6 +1,6 @@
 import * as os from 'node:os';
 import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
@@ -35,6 +35,7 @@ import type {
   SkillCandidateRow,
   SkillSynthesisSettings,
   CandidateId,
+  EnhancementDraft,
 } from './types';
 import { unjudgedVerdictFields, unmeasuredGateFields } from './types';
 import {
@@ -197,6 +198,7 @@ export interface GenerateProposalResult {
   judgeScore: number | null;
   judgeReason: string | null;
   proposalId: string | null;
+  draft?: EnhancementDraft;
   skipReason?: EnhanceSkipReason;
 }
 
@@ -421,6 +423,10 @@ export class SkillEnhancerService {
       // fallback) for skills/commands or when no graded/metric data exists.
       const scorecardBlock =
         kind === 'agent' ? this.buildAgentScorecardBlock(slug) : null;
+      const draftContext: {
+        model?: string;
+        evidence?: EnhancementDraft['evidence'];
+      } = {};
       const candidateBody = await this.generateCandidate(
         slug,
         currentBody,
@@ -430,6 +436,7 @@ export class SkillEnhancerService {
         // A user action (an RPC) skips the governor; the curator daemon's
         // automatic pass must yield to it (C14).
         skillQueryLane(options),
+        draftContext,
       );
       if (candidateBody === PROVIDER_UNREACHABLE) {
         return { ...base, currentBody, skipReason: 'provider-unreachable' };
@@ -449,6 +456,19 @@ export class SkillEnhancerService {
         return { ...base, currentBody, skipReason: 'no-change' };
       }
 
+      const draft: EnhancementDraft = {
+        before: currentBody,
+        after: candidateBody,
+        sourceHash: `sha256:${createHash('sha256').update(currentBody).digest('hex')}`,
+        evidence: draftContext.evidence ?? {
+          trajectory: '',
+          findings: '',
+          scorecard: '',
+        },
+        diff: this.draftDiff(currentBody, candidateBody),
+        model: draftContext.model ?? '',
+      };
+
       const decision = await this.judge.judge(
         this.synthRow(slug, currentBody),
         candidateBody,
@@ -462,6 +482,7 @@ export class SkillEnhancerService {
         ...base,
         currentBody,
         proposedBody: candidateBody,
+        draft,
         judgeScore: decision.score,
         judgeReason: decision.reason,
       };
@@ -536,11 +557,10 @@ export class SkillEnhancerService {
       this.cacheProposal(proposal);
 
       return { ...judged, proposed: true, proposalId: proposal.proposalId };
-    } catch (error: unknown) {
+    } catch {
       this.logger.warn('[skill-enhancer] proposal generation failed', {
         slug,
         kind,
-        error: error instanceof Error ? error.message : String(error),
       });
       return { ...base, skipReason: 'error' };
     }
@@ -794,6 +814,10 @@ export class SkillEnhancerService {
     kind: SkillRegistryKind,
     scorecardBlock: string | null,
     lane: string,
+    draftContext?: {
+      model?: string;
+      evidence?: EnhancementDraft['evidence'];
+    },
   ): Promise<string | null | typeof PROVIDER_UNREACHABLE> {
     if (!this.internalQuery) return null;
     const backoff = this.networkBackoffs?.for(ACTIVE_PROVIDER_KEY) ?? null;
@@ -804,6 +828,13 @@ export class SkillEnhancerService {
     const stats = this.candidates.getInvocationStats(slug);
     const trajectorySignal = await this.collectTrajectorySignal(slug, cwd);
     const specFindings = await this.collectSpecFindings(slug);
+    if (draftContext) {
+      draftContext.evidence = {
+        trajectory: trajectorySignal.slice(0, 1600),
+        findings: specFindings.slice(0, 1600),
+        scorecard: (scorecardBlock ?? '').slice(0, MAX_SCORECARD_CHARS),
+      };
+    }
     const configuredTimeout = this.workspaceProvider.getConfiguration<number>(
       'ptah',
       'skills.enhancement.timeoutMs',
@@ -841,6 +872,7 @@ export class SkillEnhancerService {
       'inherit',
       this.workspaceProvider,
     );
+    if (draftContext) draftContext.model = model;
 
     let authOverride: LaneAuthOverride | undefined;
     if (enhancementProvider && this.authResolver) {
@@ -949,7 +981,6 @@ export class SkillEnhancerService {
       }
       this.logger.warn('[skill-enhancer] candidate generation failed', {
         slug,
-        error: error instanceof Error ? error.message : String(error),
       });
       return null;
     } finally {
@@ -1200,6 +1231,29 @@ export class SkillEnhancerService {
   private stripCodeFence(text: string): string {
     const fence = /^```(?:markdown|md)?\s*\n([\s\S]*?)\n```$/.exec(text.trim());
     return fence ? fence[1] : text;
+  }
+
+  private draftDiff(before: string, after: string): string {
+    const oldLines = before.split('\n');
+    const newLines = after.split('\n');
+    let prefix = 0;
+    while (
+      prefix < oldLines.length &&
+      prefix < newLines.length &&
+      oldLines[prefix] === newLines[prefix]
+    ) prefix++;
+    let suffix = 0;
+    while (
+      suffix < oldLines.length - prefix &&
+      suffix < newLines.length - prefix &&
+      oldLines[oldLines.length - 1 - suffix] ===
+        newLines[newLines.length - 1 - suffix]
+    ) suffix++;
+    const removed = oldLines.slice(prefix, oldLines.length - suffix)
+      .join('\n').slice(0, 4000).split('\n').map((line) => `-${line}`);
+    const added = newLines.slice(prefix, newLines.length - suffix)
+      .join('\n').slice(0, 4000).split('\n').map((line) => `+${line}`);
+    return [`@@ -${prefix + 1} +${prefix + 1} @@`, ...removed, ...added].join('\n');
   }
 }
 

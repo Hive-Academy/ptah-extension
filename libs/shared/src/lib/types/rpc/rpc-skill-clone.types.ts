@@ -121,6 +121,15 @@ export interface SkillSynthesisPreviewEnhancementResult {
   judgeScore: number | null;
   judgeReason: string | null;
   proposalId: string | null;
+  /** In-memory review data. Null when generation produced no candidate. */
+  draft?: {
+    before: string;
+    after: string;
+    diff: string;
+    evidence: { trajectory: string; findings: string; scorecard: string };
+    model: string;
+    sourceHash: string;
+  } | null;
 }
 
 export interface SkillSynthesisApplyProposalParams {
@@ -188,6 +197,8 @@ export interface SkillSynthesisSaveCloneBodyParams {
   slug: string;
   /** Full replacement body. Not a patch — the file is overwritten. */
   body: string;
+  /** Optional Phase A revision guard over the current user-layer body. */
+  expectedSourceHash?: string;
 }
 export interface SkillSynthesisSaveCloneBodyResult {
   kind: SkillCloneKind;

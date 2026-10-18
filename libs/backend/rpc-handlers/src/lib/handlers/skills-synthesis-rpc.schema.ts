@@ -480,6 +480,10 @@ export const SkillSaveCloneBodyParamsSchema = z.object({
     .min(1)
     .max(MAX_CLONE_BODY_CHARS)
     .refine((b) => b.trim().length > 0, 'body must not be blank'),
+  expectedSourceHash: z
+    .string()
+    .regex(/^sha256:[0-9a-f]{64}$/)
+    .optional(),
 });
 
 export const SkillKeepCloneParamsSchema = z.object({

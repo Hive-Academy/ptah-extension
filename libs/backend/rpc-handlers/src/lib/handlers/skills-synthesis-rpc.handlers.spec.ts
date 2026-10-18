@@ -1364,7 +1364,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
   });
 
   describe('saveCloneBody', () => {
-    it('delegates to the mirror with exactly kind, slug, body and workspaceRoot', async () => {
+    it('keeps the existing save behavior when expectedSourceHash is absent', async () => {
       const { rpcHandler, registry, mirror } = buildHandlers();
       registry.getBySlug.mockReturnValue(sampleRow);
       mirror.saveCloneBody.mockResolvedValue({
@@ -1395,6 +1395,44 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
         historyTs: '1700000000001',
         metadataIncomplete: false,
         reconcileProtected: true,
+      });
+    });
+
+    it.each([true, false])('passes the hash to the mirror and maps its result (stale=%s)', async (stale) => {
+      const expectedSourceHash = `sha256:${'a'.repeat(64)}`;
+      const { rpcHandler, registry, mirror } = buildHandlers();
+      registry.getBySlug.mockReturnValue(sampleRow);
+      mirror.saveCloneBody.mockResolvedValue({
+        kind: 'skill',
+        slug: 'deep-research',
+        historyTs: stale ? null : '1700000000001',
+        written: !stale,
+        reason: stale ? 'stale-source' : null,
+        metadataIncomplete: false,
+        reconcileProtected: !stale,
+      });
+      const save = rpcHandler.call('skillSynthesis:saveCloneBody', {
+        kind: 'skill',
+        slug: 'deep-research',
+        body: 'AFTER',
+        expectedSourceHash,
+      });
+      if (stale) {
+        await expect(save).rejects.toMatchObject({
+          errorCode: 'INVALID_PARAMS',
+          message: expect.stringContaining('changed since the draft'),
+        });
+      } else {
+        await expect(save).resolves.toMatchObject({
+          historyTs: '1700000000001',
+        });
+      }
+      expect(mirror.saveCloneBody).toHaveBeenCalledWith({
+        kind: 'skill',
+        slug: 'deep-research',
+        body: 'AFTER',
+        workspaceRoot: '/workspace/project',
+        expectedSourceHash,
       });
     });
 
@@ -3509,6 +3547,14 @@ describe('SkillsSynthesisRpcHandlers — previewEnhancement / applyProposal', ()
       judgeScore: 8,
       judgeReason: 'judge-verdict',
       proposalId: PROPOSAL_ID,
+      draft: {
+        before: 'OLD',
+        after: 'NEW',
+        diff: '@@ -1 +1 @@\n-OLD\n+NEW',
+        evidence: { trajectory: '', findings: '', scorecard: '' },
+        model: 'claude-haiku-4-5-20251001',
+        sourceHash: 'sha256:abc',
+      },
     });
 
     const result = await rpcHandler.call('skillSynthesis:previewEnhancement', {
@@ -3529,11 +3575,19 @@ describe('SkillsSynthesisRpcHandlers — previewEnhancement / applyProposal', ()
       judgeScore: 8,
       judgeReason: 'judge-verdict',
       proposalId: PROPOSAL_ID,
+      draft: {
+        before: 'OLD',
+        after: 'NEW',
+        diff: '@@ -1 +1 @@\n-OLD\n+NEW',
+        evidence: { trajectory: '', findings: '', scorecard: '' },
+        model: 'claude-haiku-4-5-20251001',
+        sourceHash: 'sha256:abc',
+      },
     });
   });
 
   it('previewEnhancement never reaches the write path', async () => {
-    const { rpcHandler, registry, enhancer } = buildHandlers();
+    const { rpcHandler, registry, enhancer, mirror } = buildHandlers();
     registry.getBySlug.mockReturnValue(cloneRow);
 
     await rpcHandler.call('skillSynthesis:previewEnhancement', {
@@ -3542,6 +3596,36 @@ describe('SkillsSynthesisRpcHandlers — previewEnhancement / applyProposal', ()
     });
 
     expect(enhancer.enhance).not.toHaveBeenCalled();
+    expect(enhancer.applyProposal).not.toHaveBeenCalled();
+    expect(mirror.saveCloneBody).not.toHaveBeenCalled();
+  });
+
+  it('previewEnhancement returns a provider skip without saving', async () => {
+    const { rpcHandler, registry, enhancer, mirror } = buildHandlers();
+    registry.getBySlug.mockReturnValue(cloneRow);
+    enhancer.generateProposal.mockResolvedValue({
+      proposed: false,
+      slug: 'deep-research',
+      kind: 'skill',
+      currentBody: 'OLD',
+      proposedBody: null,
+      judgeScore: null,
+      judgeReason: null,
+      proposalId: null,
+      skipReason: 'provider-unreachable',
+    });
+
+    const result = await rpcHandler.call('skillSynthesis:previewEnhancement', {
+      kind: 'skill',
+      slug: 'deep-research',
+    });
+
+    expect(result).toMatchObject({
+      proposed: false,
+      proposalId: null,
+      skipReason: 'provider-unreachable',
+    });
+    expect(mirror.saveCloneBody).not.toHaveBeenCalled();
     expect(enhancer.applyProposal).not.toHaveBeenCalled();
   });
 

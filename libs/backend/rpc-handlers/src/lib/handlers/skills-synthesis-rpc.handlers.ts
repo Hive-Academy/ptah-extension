@@ -1140,9 +1140,8 @@ export class SkillsSynthesisRpcHandlers {
   }
 
   /**
-   * Read-only half of enhancement: generate + judge a candidate and return it
-   * for review. Writes nothing. The returned `proposalId` is redeemed by
-   * `skillSynthesis:applyProposal`.
+   * Generate a review draft without writing a clone. A user edit is saved
+   * separately through `saveCloneBody` with the draft's source hash.
    */
   private registerPreviewEnhancement(): void {
     this.rpcHandler.registerMethod<
@@ -1183,6 +1182,7 @@ export class SkillsSynthesisRpcHandlers {
           judgeScore: result.judgeScore,
           judgeReason: result.judgeReason,
           proposalId: result.proposalId,
+          draft: result.draft ?? null,
         };
       } catch (error: unknown) {
         if (error instanceof RpcUserError) throw error;
@@ -1460,7 +1460,16 @@ export class SkillsSynthesisRpcHandlers {
           slug: parsed.slug,
           body: parsed.body,
           workspaceRoot: this.agentScope(),
+          ...(parsed.expectedSourceHash === undefined
+            ? {}
+            : { expectedSourceHash: parsed.expectedSourceHash }),
         });
+        if (result.reason === 'stale-source') {
+          throw new RpcUserError(
+            'This clone changed since the draft was created. Preview it again before saving.',
+            'INVALID_PARAMS',
+          );
+        }
         if (!result.written || result.historyTs === null) {
           throw new RpcUserError(
             `No cloned ${parsed.kind} found for slug "${parsed.slug}".`,
