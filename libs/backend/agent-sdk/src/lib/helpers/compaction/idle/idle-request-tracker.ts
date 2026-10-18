@@ -57,7 +57,7 @@ export class MainRequestTracker {
         this.lastNonRequestFrameAt = at;
         return null;
       }
-      const firstOfTurn = this.requestKey === null;
+      const firstOfTurn = this.cacheRequestKey === null;
       const started = key !== this.requestKey;
       if (started) {
         this.requestKey = key;

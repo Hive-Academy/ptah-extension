@@ -70,8 +70,6 @@ export class IdleCompactionService implements IdleCompactionSignals {
   private readonly queue: IdleSignal[] = [];
   private draining = false;
   private disposed = false;
-  private cacheProjectionMissLogged = false;
-  private idleProjectionMissLogged = false;
   private readonly stream: Subscription;
   private readonly disposers: Array<() => void> = [];
   private readonly timing: IdleCompactionTiming;
@@ -284,21 +282,11 @@ export class IdleCompactionService implements IdleCompactionSignals {
     const { sessionId, runToken, attempt } = step.state;
     if (!owner || !runToken) return;
     try {
-      const setEstimate = (
-        estimate: Parameters<SessionStatsOwnerService['setCacheEstimate']>[2],
-        retainedTtl: Parameters<SessionStatsOwnerService['setCacheEstimate']>[3],
-      ) => {
-        if (!owner.setCacheEstimate(sessionId, runToken, estimate, retainedTtl) &&
-          !this.cacheProjectionMissLogged) {
-          this.cacheProjectionMissLogged = true;
-          this.logger.debug('[IdleCompactionService] Cache estimate projection was not applied');
-        }
-      };
       if (step.signal.type === 'turn-ended') {
         const request = step.signal.lastRequest;
         const retained = owner.getCacheTtl(sessionId, runToken);
         if (!nativeAnthropic) {
-          setEstimate(null, null);
+          owner.setCacheEstimate(sessionId, runToken, null, null);
         } else if (request) {
           const read = request.cacheReadTokens ?? 0;
           const write = request.cacheWriteTokens ?? 0;
@@ -312,22 +300,19 @@ export class IdleCompactionService implements IdleCompactionSignals {
             Number.isSafeInteger(expiresAt)
             ? { ttl, lastRequestAt: anchor, expiresAt }
             : null;
-          setEstimate(estimate, nextRetained);
+          owner.setCacheEstimate(sessionId, runToken, estimate, nextRetained);
         }
       } else if (step.signal.type === 'session-bound' && !nativeAnthropic) {
-        setEstimate(null, null);
+        owner.setCacheEstimate(sessionId, runToken, null, null);
       } else if (step.signal.type === 'compact-boundary' ||
         step.signal.type === 'post-compact') {
-        setEstimate(null, owner.getCacheTtl(sessionId, runToken));
+        owner.setCacheEstimate(sessionId, runToken, null, owner.getCacheTtl(sessionId, runToken));
       }
-      if (!owner.setIdleCompactAt(
+      owner.setIdleCompactAt(
         sessionId,
         runToken,
         attempt?.kind === 'pending' ? attempt.fireAt : null,
-      ) && !this.idleProjectionMissLogged) {
-        this.idleProjectionMissLogged = true;
-        this.logger.debug('[IdleCompactionService] Idle deadline projection was not applied');
-      }
+      );
     } catch {
       // degradation-audit: optional-projection - keep idle state and stream alive if stats projection fails.
       safeWarn(this.logger, 'signal-failed', sessionId);
@@ -337,11 +322,7 @@ export class IdleCompactionService implements IdleCompactionSignals {
   private clearIdleCompactAt(state: IdleSessionState): void {
     if (!this.statsOwner || !state.runToken) return;
     try {
-      if (!this.statsOwner.setIdleCompactAt(state.sessionId, state.runToken, null) &&
-        !this.idleProjectionMissLogged) {
-        this.idleProjectionMissLogged = true;
-        this.logger.debug('[IdleCompactionService] Idle deadline projection was not applied');
-      }
+      this.statsOwner.setIdleCompactAt(state.sessionId, state.runToken, null);
     } catch {
       // degradation-audit: optional-projection - release still completes when stats projection fails.
       safeWarn(this.logger, 'signal-failed', state.sessionId);

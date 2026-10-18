@@ -236,7 +236,7 @@ describe('IdleCompactionService', () => {
     h.coordinator.dispose();
   });
 
-  it('logs failed cache and idle projections once at debug level without payloads', () => {
+  it('does not log stale cache and idle projections as failures', () => {
     const owner = new SessionStatsOwnerService();
     const lease = owner.startNew('s');
     owner.beginRun('s', lease.generation, 'run', null);
@@ -249,9 +249,7 @@ describe('IdleCompactionService', () => {
     h.service.turnEnded('s', 'stale-2', {
       ...request, cacheAnchorAt: 2_000, cacheWriteTokens: 12, cacheWriteTtl: '1h',
     });
-    expect(h.debug).toHaveBeenCalledWith('[IdleCompactionService] Cache estimate projection was not applied');
-    expect(h.debug).toHaveBeenCalledWith('[IdleCompactionService] Idle deadline projection was not applied');
-    expect(h.debug).toHaveBeenCalledTimes(2);
+    expect(h.debug).not.toHaveBeenCalled();
     h.service.dispose();
     h.coordinator.dispose();
   });

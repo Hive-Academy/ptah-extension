@@ -80,6 +80,21 @@ describe('MainRequestTracker', () => {
     });
   });
 
+  it('anchors the first real request after a synthetic frame near its frame', () => {
+    const tracker = new MainRequestTracker(0);
+    tracker.observe(assistant('previous'), 100);
+    tracker.endTurn(1_000);
+    tracker.observe(assistant('synthetic', undefined, 0, '<synthetic>'), 1_001);
+    tracker.observe(assistant('real', undefined, 8), 1_000_000);
+
+    expect(tracker.endTurn(1_001_000)).toMatchObject({
+      requestKey: 'real',
+      anchorAt: 1_000,
+      cacheAnchorAt: 995_000,
+      cacheReadTokens: 8,
+    });
+  });
+
   it('takes the last request, even when an earlier request wrote 1h cache', () => {
     const tracker = new MainRequestTracker(0);
     tracker.observe(

@@ -468,6 +468,33 @@ describe('LiveSessionStatsPublisher', () => {
   });
 
   describe('owner release', () => {
+    it('publishes the cleared idle deadline when no provisional estimate was shown', () => {
+      const { publisher, owner, payloads, clock, onLiveStats, lease } = setup();
+      publisher.setSessionKey(SESSION);
+      setCache(owner);
+      owner.setIdleCompactAt(SESSION, RUN, 2000);
+      clock.advance(LIVE_STATS_INTERVAL_MS);
+      expect(payloads).toHaveLength(2);
+      expect(last(payloads).sessionStats.cache?.idleCompactAt).toBe(2000);
+      expect(last(payloads).sessionStats).not.toHaveProperty('provisional');
+
+      expect(owner.release(lease)).toBe(true);
+
+      expect(onLiveStats).toHaveBeenCalledTimes(3);
+      expect(last(payloads).sessionStats.cache).not.toHaveProperty('idleCompactAt');
+    });
+
+    it('does not republish an unchanged cache on release', () => {
+      const { publisher, owner, onLiveStats, lease } = setup();
+      publisher.setSessionKey(SESSION);
+      setCache(owner);
+      expect(onLiveStats).toHaveBeenCalledTimes(1);
+
+      expect(owner.release(lease)).toBe(true);
+
+      expect(onLiveStats).toHaveBeenCalledTimes(1);
+    });
+
     it('settles synchronously once, then nothing reaches the callback', () => {
       const { publisher, owner, payloads, clock, estimateRevision } =
         withShownEstimate();

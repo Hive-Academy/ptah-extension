@@ -144,7 +144,7 @@ export class LiveSessionStatsPublisher {
   private timer: { readonly handle: unknown } | null = null;
   private lastPublishAt: number | null = null;
   /** Revision and kind of the last payload, so an unchanged one is not resent. */
-  private lastEmitted: { revision: number; provisional: boolean } | null = null;
+  private lastEmitted: { revision: number; provisional: boolean; cache: boolean } | null = null;
   /** Latest revision successfully handed to the result callback. */
   private resultPublishedRevision = -1;
   /** A provisional snapshot was emitted and no authoritative one followed. */
@@ -316,7 +316,7 @@ export class LiveSessionStatsPublisher {
       this.dirty = false;
       if (this.released || this.disposed) return;
       this.released = true;
-      this.emitAuthoritative(settled);
+      this.emitAuthoritative(settled, true);
     } catch (error: unknown) {
       this.warnOnce('release', 'Live stats settle at release failed', error);
     }
@@ -494,14 +494,15 @@ export class LiveSessionStatsPublisher {
    * when an estimate is showing, then mark none as showing in every case, so
    * exactly one authoritative payload follows whichever path settles first.
    */
-  private emitAuthoritative(snapshot: SessionStatsEntry | null): void {
+  private emitAuthoritative(snapshot: SessionStatsEntry | null, released = false): void {
     const sessionId = this.sessionId;
     const shown = this.estimateShown;
     this.estimateShown = false;
     if (snapshot === null || sessionId === null) return;
     const revision = snapshot.revision ?? -1;
     const cacheIsNewer =
-      this.cacheDirty &&
+      (this.cacheDirty ||
+        (released && (snapshot.cache !== undefined || this.lastEmitted?.cache === true))) &&
       revision > (this.lastEmitted?.revision ?? -1) &&
       revision > this.resultPublishedRevision;
     if (shown || cacheIsNewer) {
@@ -599,6 +600,7 @@ export class LiveSessionStatsPublisher {
       this.lastEmitted = {
         revision: payload.sessionStats.revision ?? -1,
         provisional: payload.sessionStats.provisional === true,
+        cache: payload.sessionStats.cache !== undefined,
       };
       if (isThenable(result)) {
         result.then(undefined, (error: unknown) =>
