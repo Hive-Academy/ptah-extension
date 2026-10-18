@@ -13,6 +13,7 @@ import {
   Component,
   input,
   output,
+  signal,
   type TemplateRef,
 } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
@@ -49,7 +50,10 @@ import {
 } from './execution-node.component';
 import { InlineAgentBubbleComponent } from './inline-agent-bubble.component';
 import { SubagentTileComponent } from './subagent-tile.component';
-import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import {
+  AgentMonitorStore,
+  SubagentExecutionStore,
+} from '@ptah-extension/chat-streaming';
 import * as fenceLine from './ptah-ui-fence-line';
 
 const BODY = 'title Release checklist\nstats\n  Reviewers | 2\n  Risk | low\n';
@@ -185,6 +189,16 @@ function configure({ isElectron, behavior, preB6 }: Setup): void {
       { provide: FILE_LINK_OPENER, useValue: { open: jest.fn() } },
       { provide: ChatStore, useValue: chatStoreStub },
       { provide: AgentMonitorStore, useValue: { subagents: () => new Map() } },
+      {
+        provide: SubagentExecutionStore,
+        useValue: {
+          entries: signal(new Map()),
+          treeFor: jest.fn(() => []),
+          retain: jest.fn(),
+          release: jest.fn(),
+          ensureHistory: jest.fn(async () => undefined),
+        },
+      },
     ],
     deferBlockBehavior: behavior ?? DeferBlockBehavior.Playthrough,
   });
@@ -577,29 +591,59 @@ describe('MessageBubbleComponent + ExecutionNodeComponent — VS Code regression
 });
 
 describe('execution agent tile mode', () => {
-  const agent = (id: string): ExecutionNode => node({
-    id: `agent:${id}`, type: 'agent', toolCallId: id, agentType: 'Explore', children: [],
-  });
+  const agent = (id: string): ExecutionNode =>
+    node({
+      id: `agent:${id}`,
+      type: 'agent',
+      toolCallId: id,
+      agentType: 'Explore',
+      children: [],
+    });
 
   it('keeps other hosts inline by default', async () => {
     configure({ isElectron: false });
     const fixture = await renderNode(messageOf(agent('one')), null);
-    expect(fixture.debugElement.queryAll(By.directive(InlineAgentBubbleStubComponent))).toHaveLength(1);
-    expect(fixture.debugElement.queryAll(By.directive(SubagentTileComponent))).toHaveLength(0);
+    expect(
+      fixture.debugElement.queryAll(
+        By.directive(InlineAgentBubbleStubComponent),
+      ),
+    ).toHaveLength(1);
+    expect(
+      fixture.debugElement.queryAll(By.directive(SubagentTileComponent)),
+    ).toHaveLength(0);
   });
 
   it('propagates tile mode through message, tool and SendMessage recursion', async () => {
     configure({ isElectron: false });
     const fixture = TestBed.createComponent(ExecutionNodeComponent);
-    fixture.componentRef.setInput('node', messageOf(
-      agent('direct'),
-      node({ id: 'tool', type: 'tool', toolName: 'Read', children: [agent('under-tool')] }),
-      node({ id: 'send', type: 'tool', toolName: 'SendMessage', children: [agent('under-send')] }),
-    ));
+    fixture.componentRef.setInput(
+      'node',
+      messageOf(
+        agent('direct'),
+        node({
+          id: 'tool',
+          type: 'tool',
+          toolName: 'Read',
+          children: [agent('under-tool')],
+        }),
+        node({
+          id: 'send',
+          type: 'tool',
+          toolName: 'SendMessage',
+          children: [agent('under-send')],
+        }),
+      ),
+    );
     fixture.componentRef.setInput('agentTileMode', true);
     await settle(fixture);
-    expect(fixture.debugElement.queryAll(By.directive(SubagentTileComponent))).toHaveLength(3);
-    expect(fixture.debugElement.queryAll(By.directive(InlineAgentBubbleStubComponent))).toHaveLength(0);
+    expect(
+      fixture.debugElement.queryAll(By.directive(SubagentTileComponent)),
+    ).toHaveLength(3);
+    expect(
+      fixture.debugElement.queryAll(
+        By.directive(InlineAgentBubbleStubComponent),
+      ),
+    ).toHaveLength(0);
   });
 
   it('does not replay the tile fade while finalizing', async () => {
@@ -609,7 +653,13 @@ describe('execution agent tile mode', () => {
     fixture.componentRef.setInput('agentTileMode', true);
     fixture.componentRef.setInput('isFinalizing', true);
     await settle(fixture);
-    expect(fixture.debugElement.queryAll(By.directive(SubagentTileComponent))).toHaveLength(1);
-    expect(fixture.nativeElement.querySelector('ptah-subagent-tile').parentElement.classList.contains('exec-fade-in')).toBe(false);
+    expect(
+      fixture.debugElement.queryAll(By.directive(SubagentTileComponent)),
+    ).toHaveLength(1);
+    expect(
+      fixture.nativeElement
+        .querySelector('ptah-subagent-tile')
+        .parentElement.classList.contains('exec-fade-in'),
+    ).toBe(false);
   });
 });
