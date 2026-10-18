@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
 import { Bot, Check, CircleX, LoaderCircle, ArrowUpRight, ShieldAlert, LucideAngularModule } from 'lucide-angular';
 import type { ExecutionNode, PermissionRequest } from '@ptah-extension/shared';
-import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import { AgentMonitorStore, SubagentExecutionStore } from '@ptah-extension/chat-streaming';
 import { formatAgentElapsed } from '@ptah-extension/chat-ui';
 import { SESSION_CARD_ACTIONS } from '../../../tokens/session-context.token';
 import { laneKey } from '../../molecules/compact-session/compact-lane-rows';
@@ -46,6 +46,7 @@ export class SubagentTileComponent {
   readonly node = input.required<ExecutionNode>();
   readonly getPermissionForTool = input<((toolCallId: string) => PermissionRequest | null) | undefined>();
   private readonly monitor = inject(AgentMonitorStore, { optional: true });
+  private readonly executions = inject(SubagentExecutionStore);
   private readonly actions = inject(SESSION_CARD_ACTIONS, { optional: true });
 
   protected readonly BotIcon = Bot;
@@ -60,7 +61,28 @@ export class SubagentTileComponent {
     return id ? this.monitor?.subagents().get(id) : undefined;
   });
   protected readonly name = computed(() => this.record()?.teammateName || this.node().agentType || this.node().agentDescription || 'Subagent');
-  protected readonly activity = computed(() => this.record()?.latestSummary || this.record()?.lastToolName || this.node().summaryContent || this.node().agentDescription || this.node().content);
+  protected readonly tree = computed(() => {
+    this.executions.entries();
+    const key = this.node().toolCallId;
+    return key ? this.executions.treeFor(key) : [];
+  });
+  protected readonly activity = computed(() => {
+    const tree = this.tree();
+    if (tree.length > 0) {
+      const latest = (nodes: readonly ExecutionNode[]): string | undefined => {
+        for (let index = nodes.length - 1; index >= 0; index--) {
+          const node = nodes[index];
+          const child = latest(node.children);
+          if (child) return child;
+          if (node.type === 'tool' && node.toolName) return node.toolName;
+          if (node.type === 'text' && node.content) return node.content;
+        }
+        return undefined;
+      };
+      return latest(tree);
+    }
+    return this.record()?.lastToolName || this.record()?.latestSummary || this.node().summaryContent || this.node().agentDescription || this.node().content;
+  });
   protected readonly status = computed(() => {
     const recordStatus = this.record()?.status;
     if (recordStatus === 'failed') return 'error';
@@ -75,7 +97,8 @@ export class SubagentTileComponent {
   protected readonly statusLabel = computed(() => ({ running: 'Running', background: 'In background', completed: 'Completed', error: 'Failed', stopped: 'Stopped' })[this.status()]);
   protected readonly toolCount = computed(() => {
     const count = (nodes: readonly ExecutionNode[]): number => nodes.reduce((total, child) => total + (child.type === 'tool' ? 1 : 0) + count(child.children), 0);
-    return count(this.node().children);
+    const tree = this.tree();
+    return tree.length > 0 ? count(tree) : this.record()?.toolUses ?? count(this.node().children);
   });
   protected readonly duration = computed(() => formatAgentElapsed(this.record()?.durationMs ?? this.node().duration ?? (this.node().startTime && this.node().endTime ? this.node().endTime! - this.node().startTime! : undefined)));
   protected readonly pendingPermission = computed(() => this.findPendingPermission());

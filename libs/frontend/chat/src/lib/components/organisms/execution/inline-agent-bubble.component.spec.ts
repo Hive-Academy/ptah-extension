@@ -60,6 +60,8 @@ import { InlineAgentBubbleComponent } from './inline-agent-bubble.component';
 import {
   AgentMonitorStore,
   BackgroundAgentStore,
+  SubagentExecutionStore,
+  type SubagentExecutionEntry,
   type SubagentRecord,
 } from '@ptah-extension/chat-streaming';
 import type { ExecutionNode } from '@ptah-extension/shared';
@@ -82,6 +84,15 @@ function makeNode(overrides: Partial<ExecutionNode> = {}): ExecutionNode {
 
 describe('InlineAgentBubbleComponent — Phase 3', () => {
   const subagentMap = signal<ReadonlyMap<string, SubagentRecord>>(new Map());
+  const executionEntries = signal<ReadonlyMap<string, SubagentExecutionEntry>>(new Map());
+  const executionTree = signal<ExecutionNode[]>([]);
+  const executionMock = {
+    entries: executionEntries,
+    treeFor: jest.fn(() => executionTree()),
+    retain: jest.fn(),
+    release: jest.fn(),
+    ensureHistory: jest.fn(async () => undefined),
+  };
 
   const storeMock = {
     subagents: subagentMap.asReadonly(),
@@ -117,12 +128,50 @@ describe('InlineAgentBubbleComponent — Phase 3', () => {
   }
 
   beforeEach(() => {
+    executionTree.set([]);
+    executionEntries.set(new Map());
     subagentMap.set(new Map());
     (storeMock.sendMessageToAgent as jest.Mock).mockClear();
     (storeMock.stopAgent as jest.Mock).mockClear();
     (bgStoreMock.isBackgroundAgent as jest.Mock).mockReset();
     (bgStoreMock.isBackgroundAgent as jest.Mock).mockReturnValue(false);
     TestBed.resetTestingModule();
+    TestBed.configureTestingModule({ providers: [{ provide: SubagentExecutionStore, useValue: executionMock }] });
+  });
+
+  it('renders live store children once, counts them and releases its reference', () => {
+    const child = makeNode({ id: 'stored-tool', type: 'tool', toolName: 'Read', children: [] });
+    executionTree.set([child]);
+    const fixture = TestBed.configureTestingModule({
+      providers: [
+        { provide: AgentMonitorStore, useValue: storeMock },
+        { provide: BackgroundAgentStore, useValue: bgStoreMock },
+      ],
+    }).createComponent(InlineAgentBubbleComponent);
+    fixture.componentRef.setInput('node', makeNode({ children: [makeNode({ id: 'summary', type: 'text', content: 'old summary' })] }));
+    fixture.detectChanges();
+    expect(fixture.componentInstance.displayChildren()).toEqual([child]);
+    expect(fixture.componentInstance.childStats()).toBe('1 tools');
+    expect(fixture.nativeElement.textContent).not.toContain('old summary');
+    expect(fixture.nativeElement.querySelector('[data-testid="subagent-transcript-button"]')).toBeNull();
+    expect(executionMock.retain).toHaveBeenCalledWith('toolu_parent_abc');
+    fixture.destroy();
+    expect(executionMock.release).toHaveBeenCalledWith('toolu_parent_abc');
+  });
+
+  it('loads restored output only when requested', () => {
+    const fixture = TestBed.configureTestingModule({
+      providers: [
+        { provide: AgentMonitorStore, useValue: storeMock },
+        { provide: BackgroundAgentStore, useValue: bgStoreMock },
+      ],
+    }).createComponent(InlineAgentBubbleComponent);
+    fixture.componentRef.setInput('node', makeNode({ status: 'complete' }));
+    fixture.detectChanges();
+    const button: HTMLButtonElement = fixture.nativeElement.querySelector('[data-testid="load-agent-output"]');
+    expect(button).toBeTruthy();
+    button.click();
+    expect(executionMock.ensureHistory).toHaveBeenCalledWith('toolu_parent_abc');
   });
 
   it('exposes the subagent record matching node().toolCallId', () => {

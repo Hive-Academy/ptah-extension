@@ -2,6 +2,19 @@ import type { ExecutionNode } from '@ptah-extension/shared';
 import { extractMessageSummary, summarizeExecutionNodes } from './message-summary.utils';
 
 describe('summarizeExecutionNodes', () => {
+  it('counts only parent tools and files when agent children are absent', () => {
+    const parent = text('parent');
+    const task: ExecutionNode = {
+      ...text('task'), type: 'tool', toolName: 'Task',
+      toolInput: { description: 'Delegate' }, children: [],
+    };
+    const write: ExecutionNode = {
+      ...text('write'), type: 'tool', toolName: 'Write',
+      toolInput: { file_path: 'parent.ts' }, children: [],
+    };
+    expect(summarizeExecutionNodes([{ ...parent, children: [task, write] }]))
+      .toEqual({ toolCount: 2, filesChanged: 1 });
+  });
   it('counts nested tools and distinct file paths across roots', () => {
     const tool = (id: string, file: string): ExecutionNode => ({
       id, type: 'tool', status: 'complete', content: '', isCollapsed: false,

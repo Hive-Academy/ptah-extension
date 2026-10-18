@@ -77,6 +77,9 @@ import {
   type PermissionRequest,
 } from '@ptah-extension/shared';
 import { SubagentTileComponent } from '../execution/subagent-tile.component';
+import { SubagentExecutionStore, type SubagentExecutionEntry } from '@ptah-extension/chat-streaming';
+import { SessionAgentRosterService } from '../../../services/session-agents/session-agent-roster.service';
+import type { SessionAgent } from '../../../services/session-agents/session-agent-roster';
 import { SingleChatSubagentViewComponent } from './single-chat-subagent-view.component';
 import {
   configureTranscriptTestBed,
@@ -1019,12 +1022,18 @@ describe('ChatTranscriptComponent — one buildTree per published tab snapshot',
   selector: 'ptah-single-chat-subagent-view',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  template: '',
+  template: `@for (child of output(); track child.id) { <span data-testid="stored-agent-output">{{ child.content || child.toolName }}</span> }`,
 })
 class SubagentViewStub {
   readonly node = input.required<ExecutionNode>();
   readonly isStreaming = input<boolean>(false);
   readonly back = output<void>();
+  private readonly executions = inject(SubagentExecutionStore);
+  protected readonly output = computed(() => {
+    this.executions.entries();
+    const key = this.node().toolCallId;
+    return key ? this.executions.treeFor(key) : [];
+  });
 }
 
 /** Pending permissions by tool call id, read by the real tiles below. */
@@ -1171,6 +1180,8 @@ describe('ChatTranscriptComponent — single chat sub-agent view (R9n)', () => {
   let rafSpy: jest.SpyInstance;
   let messagesSig: WritableSignal<readonly ExecutionChatMessage[]>;
   let sessionSig: WritableSignal<string | null>;
+  const outputTree = signal<ExecutionNode[]>([]);
+  const executionEntries = signal<ReadonlyMap<string, SubagentExecutionEntry>>(new Map());
 
   function configure(options: { realTiles?: boolean } = {}): void {
     messagesSig = signal<readonly ExecutionChatMessage[]>([
@@ -1195,6 +1206,8 @@ describe('ChatTranscriptComponent — single chat sub-agent view (R9n)', () => {
       },
     ]);
     configureTranscriptTestBed({ tabs, buildTree: jest.fn(() => []) });
+    TestBed.configureTestingModule({ providers: [{ provide: SubagentExecutionStore,
+      useValue: { entries: executionEntries, treeFor: () => outputTree() } }] });
     TestBed.overrideComponent(ChatTranscriptComponent, {
       remove: {
         imports: [
@@ -1237,6 +1250,8 @@ describe('ChatTranscriptComponent — single chat sub-agent view (R9n)', () => {
   }
 
   beforeEach(() => {
+    outputTree.set([]);
+    executionEntries.set(new Map());
     rafSpy = jest
       .spyOn(window, 'requestAnimationFrame')
       .mockImplementation((cb: FrameRequestCallback) => {
@@ -1263,6 +1278,40 @@ describe('ChatTranscriptComponent — single chat sub-agent view (R9n)', () => {
     expect(bubbles.every((bubble) => bubble.agentTileMode === true)).toBe(
       true,
     );
+  });
+
+  it('passes a top-level agent chip to its turn after agent children leave the parent tree', () => {
+    configure();
+    const agent: SessionAgent = {
+      key: 'sub:agent-1', kind: 'subagent', name: 'reviewer', cliId: null,
+      agentType: 'reviewer', status: 'running', startedAt: null, endedAt: null,
+      activity: null, openRequestIds: [],
+    };
+    TestBed.overrideProvider(SessionAgentRosterService, { useValue: { roster: () => [agent] } });
+    const fixture = mountHost(SingleChatHost);
+    const assistant = fixture.debugElement.queryAll(By.directive(TranscriptMessageBubbleStub))
+      .map((item) => item.componentInstance as TranscriptMessageBubbleStub)
+      .find((bubble) => bubble.message.role === 'assistant');
+    expect(assistant?.agents.map((item) => item.key)).toContain('sub:agent-1');
+  });
+
+  it('keeps a top-level agent tile without an agent-start record and opens output arriving after parent completion', () => {
+    configure({ realTiles: true });
+    const fixture = mountHost(SingleChatTileHost);
+    const tile: HTMLElement = fixture.nativeElement.querySelector('[data-testid="subagent-tile"]');
+    expect(tile).toBeTruthy();
+    expect(tile.textContent).toContain('reviewer');
+    const open: HTMLButtonElement = tile.querySelector('[data-testid="subagent-open"]')!;
+    open.click();
+    fixture.detectChanges();
+    const view = transcriptOf(fixture).view();
+    expect(view?.node().toolCallId).toBe('agent-1');
+    expect(fixture.nativeElement.querySelector('[data-testid="stored-agent-output"]')).toBeNull();
+    outputTree.set([createExecutionNode({ id: 'late-output', type: 'text', status: 'complete', content: 'Arrived after chat complete' })]);
+    executionEntries.set(new Map());
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[data-testid="stored-agent-output"]').textContent)
+      .toContain('Arrived after chat complete');
   });
 
   it('tile -> live full view in place -> Back restores scroll, focus and the draft', () => {

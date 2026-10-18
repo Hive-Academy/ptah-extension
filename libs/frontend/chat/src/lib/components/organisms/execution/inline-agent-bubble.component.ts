@@ -27,7 +27,6 @@ import {
   Send,
   CheckCircle2,
   XCircle,
-  ScrollText,
 } from 'lucide-angular';
 import {
   TypingCursorComponent,
@@ -43,6 +42,7 @@ import {
 import {
   AgentMonitorStore,
   BackgroundAgentStore,
+  SubagentExecutionStore,
 } from '@ptah-extension/chat-streaming';
 import type {
   ExecutionNode,
@@ -51,7 +51,6 @@ import type {
 } from '@ptah-extension/shared';
 import { NgClass, NgTemplateOutlet } from '@angular/common';
 import { ScrollDirtyService } from '../../../services/scroll-dirty.service';
-import { SubagentTranscriptViewerService } from '../../../services/subagent-transcript-viewer.service';
 
 /**
  * InlineAgentBubbleComponent - Unified agent rendering for both streaming and replay
@@ -317,22 +316,6 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
             </button>
           }
 
-          <!-- View full transcript: on-demand read of the agent's complete
-               saved conversation (distinct from the live inline tree). Shows
-               whenever the SDK agentId + owning session are known — including
-               after the agent has finished (historical backfill). -->
-          @if (canViewTranscript()) {
-            <button
-              type="button"
-              class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content-muted hover:text-primary"
-              (click)="onViewTranscript($event)"
-              data-testid="subagent-transcript-button"
-              title="View full transcript"
-              aria-label="View agent transcript"
-            >
-              <lucide-angular [img]="ScrollTextIcon" class="w-3 h-3" />
-            </button>
-          }
 
           <!-- Message-agent toggle (collapsed by default).
                The message is relayed to THIS specific subagent: the backend
@@ -450,7 +433,10 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
             <!-- summaryContent is rendered as a text child node instead of a
              separate block. This ensures agent text is properly interleaved
              with tool calls in chronological order. -->
-            @if (hasChildren()) {
+            @if (canLoadHistory()) {
+              <button type="button" class="btn btn-ghost btn-xs" (click)="loadHistory()" data-testid="load-agent-output">Load agent output</button>
+            }
+            @if (displayChildren().length > 0) {
               <!--
               Recursive child rendering is delegated to a parent-supplied
               TemplateRef to break the file-import cycle between this component
@@ -458,7 +444,7 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
               itself) provides the template via the nodeTemplate input; we just
               stamp it once per child.
             -->
-              @for (child of node().children; track child.id) {
+              @for (child of displayChildren(); track child.id) {
                 <ng-container
                   [ngTemplateOutlet]="nodeTemplate() ?? null"
                   [ngTemplateOutletContext]="{ $implicit: child }"
@@ -607,7 +593,7 @@ export class InlineAgentBubbleComponent {
   private readonly ngZone = inject(NgZone);
   private readonly agentMonitorStore = inject(AgentMonitorStore);
   private readonly backgroundAgentStore = inject(BackgroundAgentStore);
-  private readonly transcriptViewer = inject(SubagentTranscriptViewerService);
+  private readonly executionStore = inject(SubagentExecutionStore);
   private readonly scrollDirty = inject(ScrollDirtyService);
 
   /**
@@ -685,10 +671,15 @@ export class InlineAgentBubbleComponent {
   readonly SendIcon = Send;
   readonly CheckIcon = CheckCircle2;
   readonly XIcon = XCircle;
-  readonly ScrollTextIcon = ScrollText;
   readonly isCollapsed = signal(false);
 
   constructor() {
+    effect((onCleanup) => {
+      const key = this.parentToolUseId();
+      if (!key) return;
+      this.executionStore.retain(key);
+      onCleanup(() => this.executionStore.release(key));
+    });
     effect(() => {
       if (this.isBackground()) {
         this.isCollapsed.set(true);
@@ -852,9 +843,14 @@ export class InlineAgentBubbleComponent {
     return agentType.charAt(0).toUpperCase();
   });
   readonly childStats = computed(() => {
-    const children = this.node().children ?? [];
-    const toolCount = children.filter((c) => c.type === 'tool').length;
-    const textCount = children.filter((c) => c.type === 'text').length;
+    if (this.storeTree().length === 0 && this.subagentRecord()?.toolUses) {
+      return `${this.subagentRecord()!.toolUses} tools`;
+    }
+    const children = this.displayChildren();
+    const count = (nodes: readonly ExecutionNode[], type: ExecutionNode['type']): number =>
+      nodes.reduce((total, child) => total + (child.type === type ? 1 : 0) + count(child.children, type), 0);
+    const toolCount = count(children, 'tool');
+    const textCount = count(children, 'text');
 
     if (toolCount > 0 && textCount > 0) {
       return `${toolCount} tools`;
@@ -872,7 +868,7 @@ export class InlineAgentBubbleComponent {
    * Using computed() ensures Angular tracks changes properly with OnPush
    */
   readonly hasChildren = computed(() => {
-    return (this.node().children?.length ?? 0) > 0;
+    return this.displayChildren().length > 0 || (this.subagentRecord()?.toolUses ?? 0) > 0;
   });
 
   /**
@@ -915,6 +911,22 @@ export class InlineAgentBubbleComponent {
 
   /** parentToolUseId for the SDK task this bubble represents. */
   readonly parentToolUseId = computed(() => this.node().toolCallId ?? null);
+  readonly storeTree = computed(() => {
+    this.executionStore.entries();
+    const key = this.parentToolUseId();
+    return key ? this.executionStore.treeFor(key) : [];
+  });
+  readonly displayChildren = computed(() => this.storeTree().length > 0 ? this.storeTree() : this.node().children ?? []);
+  readonly canLoadHistory = computed(() => {
+    const key = this.parentToolUseId();
+    if (!key || this.storeTree().length > 0 || this.isStreaming()) return false;
+    const history = this.executionStore.entries().get(key)?.history;
+    return history !== 'loading' && history !== 'loaded' && history !== 'not-found' && history !== 'unresolved';
+  });
+  protected loadHistory(): void {
+    const key = this.parentToolUseId();
+    if (key) void this.executionStore.ensureHistory(key);
+  }
 
   /** Reactive lookup of the subagent record from AgentMonitorStore. */
   readonly subagentRecord = computed(() => {
@@ -964,32 +976,6 @@ export class InlineAgentBubbleComponent {
     const rec = this.subagentRecord();
     return !!rec && rec.status === 'running';
   });
-
-  /**
-   * Whether the "View transcript" affordance should show. Requires both the SDK
-   * `agentId` and the owning session id on the record — the two inputs the
-   * `subagent:transcript` RPC needs. Available even after the agent finishes
-   * (records are retained), which is exactly the historical-view case.
-   */
-  readonly canViewTranscript = computed(() => {
-    const rec = this.subagentRecord();
-    return !!rec?.agentId && !!rec?.parentSessionId;
-  });
-
-  /** Open the on-demand transcript viewer for this agent. */
-  protected onViewTranscript(event: Event): void {
-    event.stopPropagation();
-    const rec = this.subagentRecord();
-    if (!rec?.agentId || !rec.parentSessionId) return;
-    void this.transcriptViewer.openFor(
-      rec.teammateName ??
-        this.node().agentType ??
-        rec.description ??
-        'Subagent',
-      rec.parentSessionId,
-      rec.agentId,
-    );
-  }
 
   /**
    * Send-to-background applies to running FOREGROUND subagents only. Gated
