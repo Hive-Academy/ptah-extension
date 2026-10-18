@@ -143,6 +143,8 @@ import { CanvasDetailService } from './canvas-detail.service';
               [record]="sub"
               [sessionId]="sessionId()"
               [nodes]="agentNode()?.children ?? []"
+              [summaryContent]="agentNode()?.summaryContent ?? null"
+              [suppressEmpty]="!agentNode()"
               [getPermissionForTool]="getPermissionForTool"
               (permissionResponded)="chatStore.handlePermissionResponse($event)"
             />

@@ -508,23 +508,25 @@ export class StreamingAccumulatorCore {
           agentMonitorStore.onAgentStart(event);
         }
 
-        const pendingDeltas = sessionManager.registerAgent(
-          event.toolCallId,
-          preliminaryAgentNode,
-          event.sessionId,
-        );
-
-        if (pendingDeltas.length > 0) {
-          const summaryContent = pendingDeltas.join('');
-          const updatedNode: ExecutionNode = {
-            ...preliminaryAgentNode,
-            summaryContent,
-          };
-          sessionManager.registerAgent(
+        if (!ctx.skipStoreEffects) {
+          const pendingDeltas = sessionManager.registerAgent(
             event.toolCallId,
-            updatedNode,
+            preliminaryAgentNode,
             event.sessionId,
           );
+
+          if (pendingDeltas.length > 0) {
+            const summaryContent = pendingDeltas.join('');
+            const updatedNode: ExecutionNode = {
+              ...preliminaryAgentNode,
+              summaryContent,
+            };
+            sessionManager.registerAgent(
+              event.toolCallId,
+              updatedNode,
+              event.sessionId,
+            );
+          }
         }
 
         ctx.onStateChanged?.(state);
@@ -601,25 +603,27 @@ export class StreamingAccumulatorCore {
       }
 
       case 'background_agent_started':
-        backgroundAgentStore.onStarted(event);
-        // The only event that carries the agentId parsed from the background
-        // placeholder; the monitor's record needs it to load the transcript.
-        agentMonitorStore.onBackgroundAgentStarted(event);
+        if (!ctx.skipStoreEffects) {
+          backgroundAgentStore.onStarted(event);
+          // The only event that carries the agentId parsed from the background
+          // placeholder; the monitor's record needs it to load the transcript.
+          agentMonitorStore.onBackgroundAgentStarted(event);
+        }
         return this.mutated(event.eventType);
       case 'background_agent_completed':
-        backgroundAgentStore.onCompleted(event);
+        if (!ctx.skipStoreEffects) backgroundAgentStore.onCompleted(event);
         return this.mutated(event.eventType);
       case 'background_agent_stopped':
-        backgroundAgentStore.onStopped(event);
+        if (!ctx.skipStoreEffects) backgroundAgentStore.onStopped(event);
         return this.mutated(event.eventType);
       case 'agent_progress':
-        agentMonitorStore.onAgentProgress(event);
+        if (!ctx.skipStoreEffects) agentMonitorStore.onAgentProgress(event);
         return this.mutated(event.eventType);
       case 'agent_status':
-        agentMonitorStore.onAgentStatus(event);
+        if (!ctx.skipStoreEffects) agentMonitorStore.onAgentStatus(event);
         return this.mutated(event.eventType);
       case 'agent_completed':
-        agentMonitorStore.onAgentCompleted(event);
+        if (!ctx.skipStoreEffects) agentMonitorStore.onAgentCompleted(event);
         return this.mutated(event.eventType);
 
       case 'turn_state':

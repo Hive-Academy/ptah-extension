@@ -321,12 +321,19 @@ describe('CanvasLaneViewComponent', () => {
     expect(getSubagentTranscript).toHaveBeenCalledTimes(1);
   });
 
-  it('renders a live depth-2 agent with full tile mode and returns on Escape', () => {
+  it('renders a live depth-2 agent with full tile mode and returns on Escape', async () => {
+    TestBed.overrideComponent(CanvasLaneViewComponent, {
+      set: {
+        imports: [AgentCardComponent, NgTemplateOutlet, SubagentLaneComponent],
+        schemas: [NO_ERRORS_SCHEMA],
+      },
+    });
     const nested = { type: 'agent', toolCallId: 'nested', children: [] };
     const agent = {
       type: 'agent',
       toolCallId: 'task-tool',
       children: [nested],
+      summaryContent: 'Investigation finished',
     };
     tabRecord.set({
       messages: [{ streamingState: { type: 'root', children: [agent] } }],
@@ -340,7 +347,7 @@ describe('CanvasLaneViewComponent', () => {
             parentToolUseId: 'task-tool',
             parentSessionId: 'owner',
             agentId: 'sub',
-            status: 'running',
+            status: 'completed',
           },
         ],
       ]),
@@ -350,10 +357,13 @@ describe('CanvasLaneViewComponent', () => {
     fixture.componentRef.setInput('sessionId', 'owner');
     fixture.componentRef.setInput('laneKey', 'sub:task-tool');
     fixture.detectChanges();
+    await fixture.whenStable();
     expect(fixture.componentInstance.agentNode()).toBe(agent);
     expect(
       fixture.nativeElement.querySelector('ptah-subagent-lane'),
     ).not.toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('Investigation finished');
+    expect(fixture.nativeElement.querySelectorAll('ptah-execution-header')).toHaveLength(1);
     expect(fixture.nativeElement.querySelector('ptah-subagent-usage-summary')).toBeNull();
     expect(
       fixture.nativeElement.querySelector('ptah-subagent-transcript-viewer'),
@@ -364,7 +374,7 @@ describe('CanvasLaneViewComponent', () => {
     expect(selectLaneFor).toHaveBeenCalledWith('tab', 'orchestrator');
   });
 
-  it('labels the saved transcript fallback and offers Refresh without a live node', () => {
+  it('labels the saved transcript fallback without a contradictory empty state and offers Refresh', () => {
     subagents.set(
       new Map([
         [
@@ -373,7 +383,7 @@ describe('CanvasLaneViewComponent', () => {
             parentToolUseId: 'task-tool',
             parentSessionId: 'owner',
             agentId: 'sub',
-            status: 'running',
+            status: 'completed',
           },
         ],
       ]),
@@ -386,6 +396,7 @@ describe('CanvasLaneViewComponent', () => {
     expect(fixture.nativeElement.textContent).toContain(
       'Live agent unavailable. Showing saved transcript.',
     );
+    expect(fixture.nativeElement.textContent).not.toContain('No output recorded');
     expect(
       fixture.nativeElement.querySelector('ptah-subagent-transcript-viewer'),
     ).not.toBeNull();

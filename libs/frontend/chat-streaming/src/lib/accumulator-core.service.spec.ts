@@ -976,7 +976,7 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
   });
 
   describe('skipStoreEffects', () => {
-    it('retains agent events and registration without notifying the agent monitor or hook', () => {
+    it('retains agent events without registering or notifying the agent monitor or hook', () => {
       const onAgentStart = jest.fn();
       const onStateChanged = jest.fn();
       const result = core.process(
@@ -987,10 +987,40 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
 
       expect(result.stateMutated).toBe(true);
       expect(state.events.has('evt-agent-start')).toBe(true);
-      expect(sessionManager.registerAgent).toHaveBeenCalledTimes(1);
+      expect(sessionManager.registerAgent).not.toHaveBeenCalled();
       expect(onStateChanged).toHaveBeenCalledWith(state);
       expect(onAgentStart).not.toHaveBeenCalled();
       expect(agentMonitorStore.onAgentStart).not.toHaveBeenCalled();
+    });
+
+    it('does not drain live pending deltas during a replay', () => {
+      sessionManager.registerAgent.mockReturnValueOnce(['live pending delta']);
+      core.process(state, agentStart(), makeCtx({ skipStoreEffects: true }));
+      expect(sessionManager.registerAgent).not.toHaveBeenCalled();
+    });
+
+    it('leaves background and agent lifecycle stores untouched during replay', () => {
+      const ctx = makeCtx({ skipStoreEffects: true });
+      const lifecycleEvents: FlatStreamEventUnion[] = [
+        bgAgentStarted(), bgAgentCompleted(), bgAgentStopped(),
+        { id: 'progress', eventType: 'agent_progress', timestamp: 15, sessionId: SESSION_ID, messageId: MESSAGE_ID,
+          parentToolUseId: 'toolu_agent_1', taskId: 'task-1', description: 'Working',
+          totalTokens: 10, toolUses: 1, durationMs: 100 },
+        { id: 'status', eventType: 'agent_status', timestamp: 16, sessionId: SESSION_ID, messageId: MESSAGE_ID,
+          parentToolUseId: 'toolu_agent_1', taskId: 'task-1', status: 'running' },
+        { id: 'completed', eventType: 'agent_completed', timestamp: 17, sessionId: SESSION_ID, messageId: MESSAGE_ID,
+          parentToolUseId: 'toolu_agent_1', taskId: 'task-1', status: 'completed',
+          summary: 'Done', outputFile: '' },
+      ];
+      for (const event of lifecycleEvents) core.process(state, event, ctx);
+      expect(backgroundAgentStore.onStarted).not.toHaveBeenCalled();
+      expect(backgroundAgentStore.onCompleted).not.toHaveBeenCalled();
+      expect(backgroundAgentStore.onStopped).not.toHaveBeenCalled();
+      expect(agentMonitorStore.onBackgroundAgentStarted).not.toHaveBeenCalled();
+      expect(agentMonitorStore.onAgentProgress).not.toHaveBeenCalled();
+      expect(agentMonitorStore.onAgentStatus).not.toHaveBeenCalled();
+      expect(agentMonitorStore.onAgentCompleted).not.toHaveBeenCalled();
+      expect(sessionManager.registerAgent).not.toHaveBeenCalled();
     });
 
     it('does not read or update the agent monitor for a Task result or subagent completion', () => {

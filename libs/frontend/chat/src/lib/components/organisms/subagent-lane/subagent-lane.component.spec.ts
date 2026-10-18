@@ -1,6 +1,8 @@
 import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import { AgentMonitorStore, type SubagentRecord, type SubagentRpcError } from '@ptah-extension/chat-streaming';
+import { AgentMonitorStore, type SubagentRecord } from '@ptah-extension/chat-streaming';
+import { SURFACE_ACTIVE } from '@ptah-extension/core';
+import { provideMarkdown } from 'ngx-markdown';
 import type { TrayAgentContext } from '../../../services/session-agents/session-agent-tray';
 import { SessionAgentTrayService } from '../../../services/session-agents/session-agent-tray.service';
 import { SubagentUsageSummaryComponent } from '../../molecules/agent-card/subagent-usage-summary.component';
@@ -8,11 +10,11 @@ import { SubagentLaneComponent } from './subagent-lane.component';
 
 describe('SubagentLaneComponent', () => {
   const contexts = signal<ReadonlyMap<string, TrayAgentContext>>(new Map());
-  const rpcError = signal<SubagentRpcError | null>(null);
+  const rpcError = signal<ReturnType<AgentMonitorStore['subagentRpcError']>>(null);
   const tick = signal(0);
   const steer = jest.fn<Promise<boolean>, [TrayAgentContext, string]>();
-  const stop = jest.fn();
-  const sendToBackground = jest.fn();
+  const stop = jest.fn<Promise<void>, [string, string]>();
+  const sendToBackground = jest.fn<Promise<boolean>, [string, string]>();
   const base: SubagentRecord = {
     parentToolUseId: 'tool-1', parentSessionId: 'session-123456',
     teammateName: 'Explore', status: 'running', startedAt: 1000,
@@ -46,11 +48,15 @@ describe('SubagentLaneComponent', () => {
     steer.mockReset();
     stop.mockClear();
     sendToBackground.mockClear();
+    stop.mockResolvedValue(undefined);
+    sendToBackground.mockResolvedValue(true);
     TestBed.configureTestingModule({
       imports: [SubagentLaneComponent],
       providers: [
-        { provide: AgentMonitorStore, useValue: { tick, subagentRpcError: rpcError, loadSubagentCacheInfo: jest.fn().mockResolvedValue(undefined) } },
-        { provide: SessionAgentTrayService, useValue: { contextsFor: () => contexts(), steer, stop, sendToBackground } },
+        { provide: SURFACE_ACTIVE, useValue: signal(true) },
+        provideMarkdown(),
+        { provide: AgentMonitorStore, useValue: { tick, subagentRpcError: rpcError, stopAgent: stop, backgroundAgent: sendToBackground, loadSubagentCacheInfo: jest.fn().mockResolvedValue(undefined) } },
+        { provide: SessionAgentTrayService, useValue: { contextsFor: () => contexts(), steer } },
       ],
     });
     TestBed.overrideComponent(SubagentUsageSummaryComponent, {
@@ -85,8 +91,8 @@ describe('SubagentLaneComponent', () => {
     root.querySelector<HTMLButtonElement>('[aria-label="Stop Explore"]')!.click();
     root.querySelector<HTMLButtonElement>('[aria-label="Message Explore"]')!.click();
     fixture.detectChanges();
-    expect(sendToBackground).toHaveBeenCalledWith(ctx);
-    expect(stop).toHaveBeenCalledWith(ctx);
+    expect(sendToBackground).toHaveBeenCalledWith('session-123456', 'tool-1');
+    expect(stop).toHaveBeenCalledWith('task-1', 'session-123456');
     expect(root.querySelector('ptah-agent-steer-input')).not.toBeNull();
     contexts.set(new Map([['tool-1', context({ steerable: true })]]));
     fixture.detectChanges();
@@ -100,6 +106,51 @@ describe('SubagentLaneComponent', () => {
     expect(root.querySelector('[executionHeaderActions]')).toBeNull();
     expect(root.querySelector('[data-test="turn-disclosure-row"]')?.getAttribute('aria-label')).not.toContain('tokens');
     expect(root.textContent).toContain('No output recorded');
+  });
+
+  it('renders a finished agent summary without an empty message or duplicate agent header', async () => {
+    const fixture = setup({ ...base, status: 'completed' });
+    fixture.componentRef.setInput('summaryContent', 'Completed the investigation');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const root: HTMLElement = fixture.nativeElement;
+    expect(root.textContent).toContain('Completed the investigation');
+    expect(root.textContent).not.toContain('No output recorded');
+    expect(root.querySelectorAll('ptah-execution-header')).toHaveLength(1);
+  });
+
+  it('suppresses the empty message while a transcript fallback is present', () => {
+    const fixture = setup({ ...base, status: 'completed' });
+    fixture.componentRef.setInput('suppressEmpty', true);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).not.toContain('No output recorded');
+  });
+
+  it('disables Stop and Background during their requests and ignores repeated clicks', async () => {
+    let finishStop!: () => void;
+    let finishBackground!: (value: boolean) => void;
+    stop.mockImplementation(() => new Promise<void>((resolve) => { finishStop = resolve; }));
+    sendToBackground.mockImplementation(() => new Promise<boolean>((resolve) => { finishBackground = resolve; }));
+    contexts.set(new Map([['tool-1', context({ stoppable: true, canBackground: true })]]));
+    const fixture = setup();
+    const root: HTMLElement = fixture.nativeElement;
+    const stopButton = root.querySelector<HTMLButtonElement>('[aria-label="Stop Explore"]')!;
+    const backgroundButton = root.querySelector<HTMLButtonElement>('[aria-label="Send Explore to background"]')!;
+    stopButton.click();
+    backgroundButton.click();
+    fixture.detectChanges();
+    expect(stopButton.disabled).toBe(true);
+    expect(backgroundButton.disabled).toBe(true);
+    stopButton.click();
+    backgroundButton.click();
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(sendToBackground).toHaveBeenCalledTimes(1);
+    finishStop();
+    finishBackground(true);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(stopButton.disabled).toBe(false);
+    expect(backgroundButton.disabled).toBe(false);
   });
 
   it('shows background state and the latest progress in a live row', () => {
@@ -132,6 +183,28 @@ describe('SubagentLaneComponent', () => {
     await fixture.whenStable();
     fixture.detectChanges();
     expect(root.querySelector('ptah-agent-steer-input')).toBeNull();
+  });
+
+  it('links the steer toggle to its input and restores focus on Escape', async () => {
+    contexts.set(new Map([['tool-1', context({ steerable: true })]]));
+    const fixture = setup();
+    const root: HTMLElement = fixture.nativeElement;
+    document.body.appendChild(root);
+    try {
+      const toggle = root.querySelector<HTMLButtonElement>('[aria-label="Message Explore"]')!;
+      expect(toggle.getAttribute('aria-controls')).toBe('subagent-steer-tool-1');
+      toggle.click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      const input = root.querySelector<HTMLInputElement>('#subagent-steer-tool-1 input')!;
+      expect(document.activeElement).toBe(input);
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      fixture.detectChanges();
+      expect(root.querySelector('ptah-agent-steer-input')).toBeNull();
+      expect(document.activeElement).toBe(toggle);
+    } finally {
+      root.remove();
+    }
   });
 
   it('shows only this agent’s RPC error', () => {
