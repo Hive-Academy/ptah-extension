@@ -35,7 +35,7 @@ Run the lanes per [agent-lanes](../../agent-lanes/SKILL.md) §4. Tag each answer
 
 ### Step 3 — Round 2: anonymized cross-critique
 
-Build per-panelist packets (vendor-panel.md §3): each `Pk` sees the **other** answers as `Answer A / Answer B / …`, names stripped. Round 2+ reuses each live lane. Send its packet with `ptah_agent_message` and branch on the returned `mode` ([agent-lanes §7](../../agent-lanes/SKILL.md#7-talk-to-a-live-lane)). The lane answers with `ptah_agent_report`. If `mode` is `unsupported` or the lane has ended, resume it per [agent-lanes §5](../../agent-lanes/SKILL.md#5-recover). Respawn only when that resume is unavailable.
+Build per-panelist packets (vendor-panel.md §3): each `Pk` sees the **other** answers as `Answer A / Answer B / …`, names stripped. Re-spawn each panelist:
 
 ```
 Here are anonymized answers from other experts to the same question:
@@ -80,7 +80,7 @@ Attribute substantive claims to the panelist(s) who made them. If the panel conv
 
 ## Guidance
 
-- **One round is usually enough.** Add a second critique round only when Round 2 revealed a genuine, unresolved split worth one more pass. Reuse the live lanes the same way as Step 3. Tell the user it costs another full panel of calls.
+- **One round is usually enough.** Add a second critique round only when Round 2 revealed a genuine, unresolved split worth one more pass. Tell the user it costs another full panel of calls.
 - **Keep questions decision-shaped.** Council shines on "X vs Y", "is this sound?", "what am I missing?" — not on open-ended generation.
 - **Dropped panelists** (failed twice) are noted in the Panel section; the verdict proceeds with the survivors.
 - **Never let a single loud vendor dominate** the synthesis — weigh evidence, not verbosity.
