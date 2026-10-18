@@ -110,6 +110,7 @@ describe('AgentSelectionListComponent', () => {
               workspacePath: '/workspace',
               tab: { title: 'Generate agents' },
             }),
+            getWorkspaceTabs: jest.fn().mockReturnValue([]),
             setOverrideModel: jest.fn(),
           },
         },
@@ -204,6 +205,27 @@ describe('AgentSelectionListComponent', () => {
     expect(fixture.componentInstance['previewOpen']()).toBe(true);
     rejection.set({ reason: 'blocked', ownerTabId: 'agents-tab' });
     fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Open running tab');
+  });
+
+  it('shows the VS Code null-partition owner title and open action', async () => {
+    const fixture = create();
+    await fixture.whenStable();
+    const tabs = TestBed.inject(TabManagerService);
+    jest.spyOn(tabs, 'findTabByIdAcrossWorkspaces').mockReturnValue({
+      workspacePath: null,
+      tab: { title: 'Running agent tab' },
+    } as ReturnType<TabManagerService['findTabByIdAcrossWorkspaces']>);
+    jest
+      .spyOn(tabs, 'getWorkspaceTabs')
+      .mockReturnValue([{ id: 'agents-tab' }] as ReturnType<
+        TabManagerService['getWorkspaceTabs']
+      >);
+    rejection.set({ reason: 'blocked', ownerTabId: 'agents-tab' });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain(
+      'Running agent tab owns this run.',
+    );
     expect(fixture.nativeElement.textContent).toContain('Open running tab');
   });
 

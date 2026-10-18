@@ -34,11 +34,13 @@ const activeRun = {
 };
 
 describe('GenerationRunEventAdapter', () => {
-  const setup = () => {
+  const setup = (workspacePath: string | null = '/ws') => {
     const run = signal<typeof activeRun | null>(activeRun);
     const bound = signal<typeof binding | null>(binding);
     const busy = signal(true);
     const tab = {
+      id: 'tab',
+      workflow: 'setup-agent-generation',
       claudeSessionId: 'real-chat-session',
       lastTurnStateRevision: 42,
       queuedContent: null,
@@ -67,12 +69,13 @@ describe('GenerationRunEventAdapter', () => {
       busy.set(false);
     });
     const refresh = jest.fn();
+    const getBoundRunState = jest.fn().mockResolvedValue(null);
     TestBed.configureTestingModule({
       providers: [
         GenerationRunEventAdapter,
         {
           provide: WizardRpcService,
-          useValue: { getBoundRunState: jest.fn().mockResolvedValue(null) },
+          useValue: { getBoundRunState },
         },
         {
           provide: GenerationWorkflowStore,
@@ -87,7 +90,8 @@ describe('GenerationRunEventAdapter', () => {
           provide: TabManagerService,
           useValue: {
             tabs: signal([{ id: 'tab' }]),
-            findTabByIdAcrossWorkspaces: () => ({ tab, workspacePath: '/ws' }),
+            findTabByIdAcrossWorkspaces: () => ({ tab, workspacePath }),
+            getWorkspaceTabs: () => [tab],
             setMessages: (_tabId: string, messages: ExecutionChatMessage[]) => {
               tab.messages = messages;
             },
@@ -112,6 +116,7 @@ describe('GenerationRunEventAdapter', () => {
       processStreamEvent,
       finalizeCurrentMessage,
       refresh,
+      getBoundRunState,
     };
   };
 
@@ -266,6 +271,60 @@ describe('GenerationRunEventAdapter', () => {
     run.set({ ...activeRun, status: 'completed' });
     TestBed.flushEffects();
     expect(tab.messages[0].streamingState?.status).toBe('complete');
+  });
+
+  it('finalizes and corrects a VS Code null-partition message', () => {
+    const { adapter, run, tab, processStreamEvent, finalizeCurrentMessage } =
+      setup(null);
+    expect(
+      adapter.accept({ tabBinding: binding, kind: 'text', content: 'result' }),
+    ).toBe(true);
+    const messageId =
+      processStreamEvent.mock.calls[0][0].messageId ?? 'missing';
+    run.set({ ...activeRun, status: 'failed' });
+    TestBed.flushEffects();
+    expect(finalizeCurrentMessage).toHaveBeenCalledWith('tab', true);
+    tab.messages = [
+      createExecutionChatMessage({
+        id: messageId,
+        role: 'assistant',
+        streamingState: {
+          id: messageId,
+          type: 'message',
+          status: 'interrupted',
+          content: 'result',
+          children: [],
+          isCollapsed: false,
+        },
+      }),
+    ];
+    run.set({ ...activeRun, status: 'completed' });
+    TestBed.flushEffects();
+    expect(tab.messages[0].streamingState?.status).toBe('complete');
+  });
+
+  it('accepts an owned terminal push from a VS Code null-partition tab', () => {
+    const { adapter, bound, getBoundRunState } = setup(null);
+    expect(
+      adapter.accept({ tabBinding: binding, kind: 'text', content: 'result' }),
+    ).toBe(true);
+    bound.set(null);
+    TestBed.flushEffects();
+    adapter.handleMessage({
+      type: 'setup-wizard:generation-complete',
+      payload: { tabBinding: binding },
+    });
+    expect(getBoundRunState).toHaveBeenCalledWith(binding, binding.runId);
+  });
+
+  it('does not finalize a tab in another Electron workspace', () => {
+    const { adapter, run, finalizeCurrentMessage } = setup('/other');
+    expect(
+      adapter.accept({ tabBinding: binding, kind: 'text', content: 'result' }),
+    ).toBe(true);
+    run.set({ ...activeRun, status: 'failed' });
+    TestBed.flushEffects();
+    expect(finalizeCurrentMessage).not.toHaveBeenCalled();
   });
 
   it('purges buffered activity when the workflow unbinds', () => {

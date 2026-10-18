@@ -2,6 +2,7 @@ import { Injectable, effect, inject, signal } from '@angular/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { GenerationWorkflowLauncherService } from '@ptah-extension/chat-ui';
 import { WizardRpcService } from './wizard-rpc.service';
+import { findBoundGenerationTab } from './bound-generation-tab';
 
 export interface GuidanceHandoff {
   agentTabId: string;
@@ -99,8 +100,10 @@ export class GenerationHandoffStore {
       this.outcomeValue.set('manual-recovery');
       return;
     }
-    const located = this.tabs.findTabByIdAcrossWorkspaces(opened.tabId);
-    const tab = located?.workspacePath === workspacePath ? located.tab : null;
+    const tab = findBoundGenerationTab(this.tabs, {
+      tabId: opened.tabId,
+      workspacePath,
+    });
     if (
       !tab ||
       tab.status === 'streaming' ||

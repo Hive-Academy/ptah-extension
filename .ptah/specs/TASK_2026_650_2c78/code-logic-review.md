@@ -1100,3 +1100,34 @@ Fix: reuse `findBoundGenerationTab` (or a workspacePath-taking variant) in these
 Score 8/10. Both CR fixes are correct and safely contained. S1 is a real adjacent defect, and I recommend fixing it in this PR or a tracked follow-up, but it does not invalidate the two requested fixes. Blocking findings: none.
 
 Verdict: APPROVE
+
+## PR 763 S1 re-review
+
+Scope: uncommitted diff on 0ec32793f in libs/frontend/setup-wizard (7 files), read in full with the helper, `getWorkspaceTabs` (tab-manager.service.ts:887) and `isActiveWorkspaceTabSet` (chat-state/src/lib/active-workspace-tab-set.ts:2). No tests were run by me.
+
+Helper semantics (bound-generation-tab.ts:11-18): exact partition match is accepted; a `null` partition is accepted only when `getWorkspaceTabs(binding.workspacePath)` contains the tab id. `isActiveWorkspaceTabSet` returns the active set only if the path equals the active workspace, or (VS Code only, no active workspace) equals the configured root. So VS Code null + configured root: accepted. VS Code null + other path: falls to the partition lookup, which will not hold the tab: rejected. Electron null: `!isVSCode` returns false, partition lookup: rejected. Electron partitioned path: exact match as before.
+
+| Site | Status | Notes |
+| --- | --- | --- |
+| generation-run-event-adapter.ts:229 (finalize) | OK | Same `binding` shape; VS Code null accepted, Electron wrong-partition rejected. |
+| generation-run-event-adapter.ts:253 (correction) | OK | Early `return` on `!tab` equals the old mismatch return. |
+| generation-run-event-adapter.ts:345-355 (owned-terminal match) | OK with one nit | `tabId && workspacePath` guard keeps "absent path means no tab lookup". See M1. |
+| generation-handoff.store.ts:103 | OK | `workspacePath` is the scheduled string; same helper contract. |
+| agent-selection-list.component.ts:366 `ownerInWorkspace` | OK | `!!` of the tab; VS Code null owner now in-workspace. |
+| agent-selection-list.component.ts:376 `ownerLabel` | OK | `tab?.title || 'Another tab'` preserves the fallback. |
+
+Remaining instances of the bug class: grep of `workspacePath ===/!==` in libs/frontend/setup-wizard and libs/frontend/chat-ui finds only binding-to-binding comparisons (generation-run-event-adapter.ts:112,320,334; generation-workflow.store.ts:72,338,387; guidance-generation.store.ts:66,139,252; generation-workflow-shell.component.ts:339; generation-agent-sidebar.component.ts:224 compares to `activeWorkspacePath`, not a lookup) and an unrelated cache key (compact-session-summary-cache.ts:99). None compares a `findTabByIdAcrossWorkspaces` result. Outside the requested scope, libs/frontend/canvas/src/lib/orchestra-canvas.component.ts:518-521 uses the same strict pattern (`lookup?.workspacePath === target.workspacePath`); it is not part of this PR's files and is noted only as a follow-up.
+
+Specs: VS Code null partition is covered for the adapter (finalize + correction, terminal push), the handoff store and the selection list. The Electron regression ("another Electron workspace", workspacePath `/other`) is covered for the adapter only.
+
+### New findings
+
+- M1 (Moderate, generation-run-event-adapter.ts:343-355): semantic drift. Before, a candidate with `tabId` but no `workspacePath` was rejected (`'/ws'|null !== undefined`). Now the lookup is skipped, `tab` is null and `tab?.workflow === binding.workflow` is `undefined === undefined`, so a candidate that also lacks `workflow` but has the right `tabId` and `runId` is accepted. Needs a malformed push that already knows the owned runId; low exploitability. Fix: `&& !!tab && tab.workflow === binding.workflow`.
+- M2 (Minor, specs): no test asserts that a `null` partition is rejected in Electron or for a non-root path in VS Code. The specs' `getWorkspaceTabs` mocks ignore the path argument (adapter spec `getWorkspaceTabs: () => [tab]`), so the helper's second condition is never negatively exercised. Add a case with `getWorkspaceTabs: () => []` and `workspacePath: null`.
+- M3 (Minor, hygiene): the diff adds unformatted spec lines (long `expect(...)` lines in the adapter and selection-list specs); lint passed per orchestrator, run prettier on them before commit if lint-staged does not.
+
+### Verdict
+
+- Score: 8.5/10
+- Verdict: APPROVE
+- Blocking findings: none. S1 is resolved for all five production sites; M1 to M3 are non-blocking.

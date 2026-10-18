@@ -105,6 +105,55 @@ describe('GenerationHandoffStore', () => {
     expect(store.outcome()).toBe('started');
   });
 
+  it('starts guidance after landing in the VS Code null-partition tab set', async () => {
+    const guidanceTab = {
+      id: 'guidance',
+      status: 'loaded',
+      streamingState: null,
+      queuedContent: null,
+      queuedOptions: null,
+    };
+    const startBoundGuidance = jest.fn().mockResolvedValue({
+      accepted: { runId: 'run' },
+    });
+    TestBed.configureTestingModule({
+      providers: [
+        GenerationHandoffStore,
+        {
+          provide: TabManagerService,
+          useValue: {
+            tabs: signal([{ id: 'agent' }]),
+            getWorkspaceTabs: () => [{ id: 'agent' }, guidanceTab],
+            findTabByIdAcrossWorkspaces: () => ({
+              workspacePath: null,
+              tab: guidanceTab,
+            }),
+            isTabStreaming: () => false,
+          },
+        },
+        {
+          provide: GenerationWorkflowLauncherService,
+          useValue: {
+            open: jest.fn().mockResolvedValue({
+              outcome: 'landed',
+              tabId: 'guidance',
+            }),
+          },
+        },
+        { provide: WizardRpcService, useValue: { startBoundGuidance } },
+      ],
+    });
+    const store = TestBed.inject(GenerationHandoffStore);
+    store.schedule('agent', '/ws');
+    await store.startNow();
+    expect(startBoundGuidance).toHaveBeenCalledWith({
+      workspacePath: '/ws',
+      tabId: 'guidance',
+      workflow: 'setup-project-prompt',
+    });
+    expect(store.outcome()).toBe('started');
+  });
+
   it('keeps the deadline across a tab switch, clears it on reload, and offers manual recovery', async () => {
     const tabs = signal([{ id: 'agent' }]);
     const open = jest.fn().mockResolvedValue({ outcome: 'failed' });

@@ -18,6 +18,7 @@ import type {
 } from '@ptah-extension/shared';
 import { GenerationWorkflowStore } from '../services/generation-workflow.store';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
+import { findBoundGenerationTab } from '../services/bound-generation-tab';
 import { AgentPreviewDialogComponent } from './agent-preview-dialog.component';
 import { CommunityPacksPanelComponent } from './community-packs-panel.component';
 import { GenerationModelPickerComponent } from './generation-model-picker.component';
@@ -362,20 +363,21 @@ export class AgentSelectionListComponent {
   protected ownerInWorkspace(): boolean {
     const rejection = this.store.rejection();
     if (rejection?.reason !== 'blocked' || !rejection.ownerTabId) return false;
-    return (
-      this.tabs.findTabByIdAcrossWorkspaces(rejection.ownerTabId)
-        ?.workspacePath === this.binding().workspacePath
-    );
+    return !!findBoundGenerationTab(this.tabs, {
+      tabId: rejection.ownerTabId,
+      workspacePath: this.binding().workspacePath,
+    });
   }
 
   protected ownerLabel(): string {
     const rejection = this.store.rejection();
     if (rejection?.reason !== 'blocked' || !rejection.ownerTabId)
       return 'Another tab';
-    const located = this.tabs.findTabByIdAcrossWorkspaces(rejection.ownerTabId);
-    return located?.workspacePath === this.binding().workspacePath
-      ? located.tab.title || 'Another tab'
-      : 'Another tab';
+    const tab = findBoundGenerationTab(this.tabs, {
+      tabId: rejection.ownerTabId,
+      workspacePath: this.binding().workspacePath,
+    });
+    return tab?.title || 'Another tab';
   }
 
   protected async openOwner(): Promise<void> {

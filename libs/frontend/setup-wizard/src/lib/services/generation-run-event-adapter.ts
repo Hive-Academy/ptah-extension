@@ -13,6 +13,7 @@ import type {
 } from '@ptah-extension/shared';
 import { GenerationWorkflowStore } from './generation-workflow.store';
 import { WizardRpcService } from './wizard-rpc.service';
+import { findBoundGenerationTab } from './bound-generation-tab';
 
 /** One routed bridge from generator pushes into the ordinary chat transcript. */
 @Injectable({ providedIn: 'root' })
@@ -225,9 +226,7 @@ export class GenerationRunEventAdapter implements MessageHandler {
     if (!owned || owned.runId !== binding.runId) return;
     this.ownedMessages.delete(binding.tabId);
     this.batchedUpdate.flushSync(binding.tabId);
-    const located = this.tabs.findTabByIdAcrossWorkspaces(binding.tabId);
-    const tab =
-      located?.workspacePath === binding.workspacePath ? located.tab : null;
+    const tab = findBoundGenerationTab(this.tabs, binding);
     if (
       !tab ||
       tab.streamingState?.currentMessageId !== owned.messageId ||
@@ -251,9 +250,9 @@ export class GenerationRunEventAdapter implements MessageHandler {
     const prior = this.finalized.get(binding.tabId);
     if (!prior || prior.runId !== binding.runId || prior.status === 'completed')
       return;
-    const located = this.tabs.findTabByIdAcrossWorkspaces(binding.tabId);
-    if (located?.workspacePath !== binding.workspacePath) return;
-    const messages = located.tab.messages;
+    const tab = findBoundGenerationTab(this.tabs, binding);
+    if (!tab) return;
+    const messages = tab.messages;
     if (!messages.some((message) => message.id === prior.messageId)) return;
     const complete = (node: ExecutionNode): ExecutionNode => ({
       ...node,
@@ -343,15 +342,19 @@ export class GenerationRunEventAdapter implements MessageHandler {
     if (!candidate || typeof candidate !== 'object') return false;
     const binding = candidate as Partial<SetupGenerationRunBinding>;
     const owned = binding.tabId ? this.ownedMessages.get(binding.tabId) : null;
-    const located = binding.tabId
-      ? this.tabs.findTabByIdAcrossWorkspaces(binding.tabId)
-      : null;
+    const tab =
+      binding.tabId && binding.workspacePath
+        ? findBoundGenerationTab(this.tabs, {
+            tabId: binding.tabId,
+            workspacePath: binding.workspacePath,
+          })
+        : null;
     return (
       this.matches(candidate) ||
       (!!owned &&
         owned.runId === binding.runId &&
-        located?.workspacePath === binding.workspacePath &&
-        located?.tab.workflow === binding.workflow)
+        !!tab &&
+        tab.workflow === binding.workflow)
     );
   }
 
