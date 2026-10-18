@@ -24,6 +24,7 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import { createMockLogger } from '@ptah-extension/shared/testing';
 
 import {
+  MAX_QUEUED_WARMS,
   SessionMessageCounter,
   WARM_DEADLINE_MS,
   type SessionTranscriptRef,
@@ -135,6 +136,20 @@ describe('SessionMessageCounter', () => {
     await flush();
     expect(reader).toHaveBeenCalledTimes(1);
     expect(counter.peekAndWarm([ref(1)]).get('session-1')).toBe(2);
+  });
+
+  it('drops queue overflow from the tail so the top rows of a page warm', async () => {
+    const { counter, reader } = makeCounter(countsTwo);
+    const page = Array.from({ length: MAX_QUEUED_WARMS + 6 }, (_, i) => ref(i));
+
+    counter.peekAndWarm(page);
+    await flush();
+
+    const warmed = reader.mock.calls.map(([filePath]) => filePath);
+    expect(warmed).toHaveLength(MAX_QUEUED_WARMS);
+    expect(warmed).toContain(ref(0).filePath);
+    expect(warmed).not.toContain(ref(MAX_QUEUED_WARMS).filePath);
+    expect(counter.peekAndWarm([ref(0)]).get('session-0')).toBe(2);
   });
 
   it('calls onChanged once per call, after all of its warms, only on change', async () => {

@@ -38,8 +38,8 @@ const WARM_CONCURRENCY = 4;
 /** A warm (stat + stream) that has not settled by then gives up its slot. */
 export const WARM_DEADLINE_MS = 5_000;
 
-/** Queued, not yet started warms; the oldest are released beyond this. */
-const MAX_QUEUED_WARMS = 64;
+/** Queued, not yet started warms; the newest are released beyond this. */
+export const MAX_QUEUED_WARMS = 64;
 
 /** Remembered counts, evicted least-recently-used. Entries are tiny. */
 const COUNT_CACHE_MAX_ENTRIES = 512;
@@ -223,10 +223,11 @@ export class SessionMessageCounter {
         batch.pending++;
       }
     }
-    // Only the newest pages are worth warming; older queued paths are
-    // released and are queued again if a later list shows them.
+    // Drop the overflow from the tail, so earlier queued jobs and the top
+    // rows of this page keep their warm. A dropped path is released and is
+    // queued again if a later list shows it.
     while (this.queue.length > MAX_QUEUED_WARMS) {
-      const dropped = this.queue.shift();
+      const dropped = this.queue.pop();
       if (!dropped) break;
       this.warming.delete(dropped.transcript.filePath);
       this.settle(dropped, false);

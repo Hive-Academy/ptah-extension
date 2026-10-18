@@ -41,3 +41,6 @@ Source: `TASK_2026_679_45ff/decisions.md` D97 (also D90, D95). PR #745 merged as
   with 69+ cold rows (`session-loader.service.ts:524-533` reloads `max(10, offset)` rows) repeats the same
   order, so those rows keep `messageCount: 0`. Fix: keep the top rows of the page, drop the tail, and skip
   rows whose cache entry is fresh. Evidence: `reviews/code-rereview-2.md`.
+  - Partly fixed for the PR #754 CodeRabbit comment: the overflow now drops from the tail (`pop()`), so
+    earlier jobs and the top 64 rows of a page warm. Remaining limit: rows after row 64 of a large reload
+    can still wait for a later list. Skipping rows with a fresh cache entry would close it.
