@@ -61,18 +61,21 @@ jest.mock('fs/promises', () => ({
   ...jest.requireActual('fs/promises'),
   access: jest.fn(),
   readdir: jest.fn(),
+  stat: jest.fn(),
   unlink: jest.fn(),
   rmdir: jest.fn(),
 }));
 
 const mockAccess = fs.access as jest.MockedFunction<typeof fs.access>;
 const mockReaddir = fs.readdir as jest.MockedFunction<typeof fs.readdir>;
+const mockStat = fs.stat as jest.MockedFunction<typeof fs.stat>;
 const mockUnlink = fs.unlink as jest.MockedFunction<typeof fs.unlink>;
 const mockRmdir = fs.rmdir as jest.MockedFunction<typeof fs.rmdir>;
 
 beforeEach(() => {
   mockAccess.mockReset().mockRejectedValue(new Error('ENOENT'));
   mockReaddir.mockReset().mockRejectedValue(new Error('ENOENT'));
+  mockStat.mockReset().mockRejectedValue(new Error('ENOENT'));
   mockUnlink.mockReset().mockResolvedValue(undefined);
   mockRmdir.mockReset().mockResolvedValue(undefined);
 });
@@ -102,6 +105,7 @@ import {
   type MockWorkspaceProvider,
 } from '@ptah-extension/platform-core/testing';
 import type {
+  JsonlReaderService,
   SessionMetadataStore,
   SessionStatsReaderService,
   SessionStatsReadEntry,
@@ -116,6 +120,7 @@ import type {
   SessionId,
   SessionTurnState,
 } from '@ptah-extension/shared';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import {
   createMockLogger,
   type MockLogger,
@@ -314,6 +319,24 @@ interface Harness {
   mcpStatus: MockMcpStatus;
   sessionTitle: { retitle: jest.Mock };
   turnChangeSets: { remove: jest.Mock<Promise<void>, [string]> };
+  jsonlReader: MockJsonlReader;
+}
+
+type MockJsonlReader = jest.Mocked<
+  Pick<JsonlReaderService, 'projectJsonlLines'>
+>;
+
+/** Feeds `lines` to the visitor, as `projectJsonlLines` does for a file. */
+function createMockJsonlReader(lines: string[] = []): MockJsonlReader {
+  return {
+    projectJsonlLines: jest.fn<
+      ReturnType<JsonlReaderService['projectJsonlLines']>,
+      Parameters<JsonlReaderService['projectJsonlLines']>
+    >(async (_filePath, visit) => {
+      lines.forEach((line) => visit(line));
+      return { lines: lines.length, yields: 0 };
+    }),
+  };
 }
 
 /** The `SessionOrganizationService` surface `session:list` reads. */
@@ -331,6 +354,8 @@ function makeHarness(
     organization?: FakeOrganization;
     taskIndex?: FakeTaskIndex;
     agentProcessManager?: { restoreAgents: jest.Mock };
+    transcriptLines?: string[];
+    webviewManager?: { broadcastMessage: jest.Mock };
   } = {},
 ): Harness {
   const logger = createMockLogger();
@@ -356,6 +381,7 @@ function makeHarness(
   const turnChangeSets = {
     remove: jest.fn<Promise<void>, [string]>().mockResolvedValue(undefined),
   };
+  const jsonlReader = createMockJsonlReader(opts.transcriptLines);
 
   const handlers = new SessionRpcHandlers(
     logger as unknown as Logger,
@@ -372,9 +398,11 @@ function makeHarness(
     mcpStatus as never,
     sessionTitle as never,
     turnChangeSets as never,
+    jsonlReader as never,
     (opts.agentProcessManager ?? null) as never,
     (opts.organization ?? null) as SessionOrganizationService | null,
     (opts.taskIndex ?? null) as TaskIndexService | null,
+    (opts.webviewManager ?? null) as never,
   );
 
   return {
@@ -392,6 +420,7 @@ function makeHarness(
     mcpStatus,
     sessionTitle,
     turnChangeSets,
+    jsonlReader,
   };
 }
 
@@ -858,6 +887,238 @@ describe('SessionRpcHandlers', () => {
         }>(h, 'session:list', { workspacePath: WORKSPACE });
 
         expect(result.sessions[0].hasTranscript).toBeUndefined();
+      });
+
+      describe('messageCount (FU-13)', () => {
+        const line = (record: Record<string, unknown>): string =>
+          JSON.stringify(record);
+        const userPrompt = (text: string) =>
+          line({ type: 'user', message: { role: 'user', content: text } });
+        const assistant = (text: string) =>
+          line({
+            type: 'assistant',
+            message: {
+              role: 'assistant',
+              content: [{ type: 'text', text }],
+            },
+          });
+        const fileStats = {
+          isFile: () => true,
+          size: 4_096,
+          mtimeMs: 1_700_000_000_000,
+        };
+
+        /** Let the background warm (stat, stream, cache write) settle. */
+        const settleWarm = async (): Promise<void> => {
+          for (let i = 0; i < 5; i++) {
+            await new Promise<void>((resolve) => setImmediate(resolve));
+          }
+        };
+        type ListResult = {
+          sessions: Array<{
+            id: string;
+            messageCount: number;
+            hasTranscript?: boolean;
+          }>;
+        };
+        const countOf = (result: ListResult, id: string) =>
+          result.sessions.find((s) => s.id === id)?.messageCount;
+
+        it('returns a cold page at once with 0 and never waits for the reader', async () => {
+          const h = makeHarness();
+          const id = uuidForRow(83);
+          h.metadataStore.getForWorkspace.mockResolvedValue([
+            makeMetadata({ sessionId: id }),
+          ]);
+          stubProjectsDir([id]);
+          mockStat.mockResolvedValue(fileStats as never);
+          // A transcript read that never finishes must not hold the list.
+          h.jsonlReader.projectJsonlLines.mockImplementation(
+            () => new Promise(() => undefined),
+          );
+          h.handlers.register();
+
+          const result = await call<ListResult>(h, 'session:list', {
+            workspacePath: WORKSPACE,
+          });
+
+          expect(countOf(result, id)).toBe(0);
+          expect(result.sessions[0].hasTranscript).toBe(true);
+          await settleWarm();
+          expect(h.jsonlReader.projectJsonlLines).toHaveBeenCalledTimes(1);
+        });
+
+        it('shows the visible prompts and replies on the list after the warm', async () => {
+          // What a loaded chat shows: each visible prompt is one message and
+          // each run of assistant records between prompts is one reply.
+          const h = makeHarness({
+            transcriptLines: [
+              userPrompt('before compaction'),
+              assistant('dropped by the compaction boundary'),
+              line({ type: 'system', subtype: 'compact_boundary' }),
+              userPrompt('first prompt'),
+              assistant('thinking'),
+              line({
+                type: 'user',
+                message: {
+                  role: 'user',
+                  content: [{ type: 'tool_result', tool_use_id: 't1' }],
+                },
+              }),
+              assistant('same reply after the tool result'),
+              line({
+                type: 'user',
+                isMeta: true,
+                message: { role: 'user', content: 'meta' },
+              }),
+              line({
+                type: 'user',
+                message: {
+                  role: 'user',
+                  content: '<command-name>/clear</command-name>',
+                },
+              }),
+              '{not json',
+              userPrompt('second prompt'),
+              assistant('second reply'),
+            ],
+          });
+          const liveId = uuidForRow(80);
+          const prunedId = uuidForRow(81);
+          h.metadataStore.getForWorkspace.mockResolvedValue([
+            makeMetadata({ sessionId: liveId }),
+            makeMetadata({ sessionId: prunedId }),
+          ]);
+          stubProjectsDir([liveId]);
+          mockStat.mockResolvedValue(fileStats as never);
+          h.handlers.register();
+
+          const cold = await call<ListResult>(h, 'session:list', {
+            workspacePath: WORKSPACE,
+          });
+          expect(countOf(cold, liveId)).toBe(0);
+          await settleWarm();
+
+          const warm = await call<ListResult>(h, 'session:list', {
+            workspacePath: WORKSPACE,
+          });
+          expect(countOf(warm, liveId)).toBe(4);
+          expect(countOf(warm, prunedId)).toBe(0);
+          expect(h.jsonlReader.projectJsonlLines).toHaveBeenCalledTimes(1);
+          expect(h.jsonlReader.projectJsonlLines).toHaveBeenCalledWith(
+            path.join(PROJECTS_DIR, ESCAPED_WORKSPACE_DIR, `${liveId}.jsonl`),
+            expect.any(Function),
+            expect.objectContaining({
+              byteLength: fileStats.size,
+              signal: expect.any(AbortSignal),
+            }),
+          );
+
+          // An unchanged file (same size and mtime) is not read again.
+          await settleWarm();
+          const again = await call<ListResult>(h, 'session:list', {
+            workspacePath: WORKSPACE,
+          });
+          expect(countOf(again, liveId)).toBe(4);
+          await settleWarm();
+          expect(h.jsonlReader.projectJsonlLines).toHaveBeenCalledTimes(1);
+        });
+
+        it('pushes one session:metadataChanged per page warm that changed a count, none when unchanged', async () => {
+          // The open list refreshes itself: the webview answers this push with
+          // one loadSessions() that keeps its loaded pages.
+          const webviewManager = {
+            broadcastMessage: jest.fn().mockResolvedValue(undefined),
+          };
+          const h = makeHarness({
+            webviewManager,
+            transcriptLines: [userPrompt('hi'), assistant('hello')],
+          });
+          const firstId = uuidForRow(84);
+          const secondId = uuidForRow(85);
+          h.metadataStore.getForWorkspace.mockResolvedValue([
+            makeMetadata({ sessionId: firstId }),
+            makeMetadata({ sessionId: secondId }),
+          ]);
+          stubProjectsDir([firstId, secondId]);
+          mockStat.mockResolvedValue(fileStats as never);
+          h.handlers.register();
+
+          await call<ListResult>(h, 'session:list', { workspacePath: WORKSPACE });
+          expect(webviewManager.broadcastMessage).not.toHaveBeenCalled();
+          await settleWarm();
+
+          // Two rows changed, one coalesced push.
+          expect(webviewManager.broadcastMessage).toHaveBeenCalledTimes(1);
+          expect(webviewManager.broadcastMessage).toHaveBeenCalledWith(
+            MESSAGE_TYPES.SESSION_METADATA_CHANGED,
+            {
+              kind: 'updated',
+              sessionId: expect.stringMatching(
+                new RegExp(`^(${firstId}|${secondId})$`),
+              ),
+              workspaceId: WORKSPACE,
+            },
+          );
+
+          // The refresh that push triggers finds nothing new: no second push.
+          const refreshed = await call<ListResult>(h, 'session:list', {
+            workspacePath: WORKSPACE,
+          });
+          expect(countOf(refreshed, firstId)).toBe(2);
+          expect(countOf(refreshed, secondId)).toBe(2);
+          await settleWarm();
+          expect(webviewManager.broadcastMessage).toHaveBeenCalledTimes(1);
+        });
+
+        it('does not push when a warm leaves every count at 0', async () => {
+          const webviewManager = {
+            broadcastMessage: jest.fn().mockResolvedValue(undefined),
+          };
+          const h = makeHarness({ webviewManager, transcriptLines: [] });
+          const id = uuidForRow(86);
+          h.metadataStore.getForWorkspace.mockResolvedValue([
+            makeMetadata({ sessionId: id }),
+          ]);
+          stubProjectsDir([id]);
+          mockStat.mockResolvedValue(fileStats as never);
+          h.handlers.register();
+
+          await call<ListResult>(h, 'session:list', { workspacePath: WORKSPACE });
+          await settleWarm();
+
+          expect(h.jsonlReader.projectJsonlLines).toHaveBeenCalledTimes(1);
+          expect(webviewManager.broadcastMessage).not.toHaveBeenCalled();
+        });
+
+        it('keeps messageCount 0 when the transcript cannot be read', async () => {
+          const h = makeHarness({ transcriptLines: [userPrompt('hello')] });
+          const id = uuidForRow(82);
+          h.metadataStore.getForWorkspace.mockResolvedValue([
+            makeMetadata({ sessionId: id }),
+          ]);
+          stubProjectsDir([id]);
+          mockStat.mockResolvedValue(fileStats as never);
+          h.jsonlReader.projectJsonlLines.mockRejectedValue(
+            new Error('EACCES'),
+          );
+          h.handlers.register();
+
+          await call<ListResult>(h, 'session:list', { workspacePath: WORKSPACE });
+          await settleWarm();
+          const response = await callRaw(h, 'session:list', {
+            workspacePath: WORKSPACE,
+          });
+
+          expect(response.success).toBe(true);
+          const { sessions } = response.data as ListResult;
+          expect(sessions[0].messageCount).toBe(0);
+          expect(sessions[0].hasTranscript).toBe(true);
+          expect(h.logger.debug).toHaveBeenCalledWith(
+            'RPC: session:list could not count transcript messages',
+            { sessionId: id, error: 'EACCES' },
+          );
+        });
       });
 
       it('omits hasTranscript when the sessions directory read throws', async () => {
