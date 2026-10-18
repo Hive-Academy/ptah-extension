@@ -581,6 +581,8 @@ export class SubagentExecutionStore {
       this.publish(entry);
       this.enforceLiveCap(key);
     } catch (error) {
+      // degradation-audit: reported - a superseded request returns early;
+      // a current one records history 'error' and logs the failure below.
       if (!valid()) return;
       entry.history = 'error';
       entry.historyError =
