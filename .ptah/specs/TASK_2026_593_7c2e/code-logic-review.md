@@ -343,3 +343,204 @@ Review family: reviewer anthropic, implementer codex. Static read only; no test,
 No assertion was weakened in the specs read. Reasons N1-N5 do not introduce stale state, timer leaks, a non-resetting backoff, missed aborted reasons, raw error text, or an undrained or double pending-open.
 
 Verdict: APPROVED
+
+## Phase B review
+
+Review family: reviewer anthropic (Sonnet 5.5), implementer codex lanes (one orchestrator edit). Scope: uncommitted Phase B tree, read in full for the coordinator, ports, three adapters, ingress, RPC handler/schema, DI attach sites and B3c resolution hooks. Nothing was executed (no nx/jest/tsc); spec findings are by reading.
+
+Score: 6/10. Verdict: REVISE. Blocking 0, Serious 3, Moderate 10, Minor 5.
+
+### Five questions (Phase B)
+
+1. Silent failure: MCP approval requests are claimed by the coordinator but dropped without a notice (S1); `notifications.failureHostEnabled` can be turned on and nothing ever fires (S2); an Electron click is lost after the window closes (M2/M3).
+2. Unexpected user action: clicking a stale VS Code notification does nothing instead of revealing the session and saying "Already answered" (M1); clicking a grouped Electron toast opens only the first member (M5).
+3. Wrong-answer input: a request with no metadata record in a multi-workspace Electron app gets the active workspace's id (M6); surfaceMode requests never carry `surfaceKind`, so host Open is always disabled (M7).
+4. Dependency failure: coordinator/observer/host errors are swallowed and logged by name only (good); a DI resolution failure of the coordinator aborts boot on all three hosts (M9).
+5. Missing: no producer for failure notices, no MCP wiring, no race test for resolve-during-title-lookup.
+
+### Checks that passed (evidence)
+
+- Privacy: `SafeHostAttentionNotice` is whitelist-typed (host-attention-notifications.interface.ts:11-32); the coordinator builds it only from fixed labels, a truncated title (host-attention-coordinator.ts:226-230) and hashed ids; all logs use `errorName` only (:232). The canary spec asserts it. The title in host text is plan-mandated (decision #21, plan section 3) and overrides the older AC text at task-description:99.
+- Race: `resolve` deletes the generation, and `issueRequest` re-checks `generations.get(key)` before `pending.set` and again in `presentIfCurrent` (coordinator.ts:176,203), so a lookup finishing after resolve cannot resurrect a notice. Request gate (`hostEnabled`, default true) and failure gate (`failureHostEnabled`, default false) are separate (:214).
+- Write path (item 3): settings UI -> `settings:set` (guarded by `isFileBasedSettingKey`, settings-rpc.handlers.ts:172-194) -> `workspaceProvider.setConfiguration('ptah', key, v)` -> `PtahFileSettingsManager.set`. The coordinator reads `getConfiguration('ptah', key, default)`, which routes to the same manager in Electron (electron-workspace-provider.ts:95), VS Code (vscode-workspace-provider.ts:80) and CLI (cli-workspace-provider.ts:84). Keys are in `FILE_BASED_SETTINGS_KEYS` (file-settings-keys.ts:478-479). Same key, scope and boolean format on all hosts. Residual: `enabled !== true` treats a non-boolean as off (m1).
+- Ingress: VS Code `sendMessage` and `broadcastMessage` each observe once before delivery; broadcast uses the private `sendToWebview`, so no double observe; the observer call is wrapped in try/catch. CLI adapter is the same. Electron observes before the IPC send and is zero-view safe. The census spec is real but regex-based and scans only `libs/backend` (host-attention-ingress.spec.ts:13-50).
+- Producer resolution (item 5): SDK permission resolves on response/abort/timeout/dispose/session cleanup/undelivered, because every path calls the wrapped `pending.resolve` (sdk-permission-handler.ts:1253-1257, 1281-1290, 1306, 1347, 1373); ask-user resolves on answer/abort/idle-timeout/dispose through the registry (ask-user-question.service.ts:171-228); the Copilot lane wraps `resolvePermission` and `cleanup` (agent-events.ts:300-325; the bridge blocks until one of those, so there is no timer gap). Generation = `payload.timestamp` in every producer and in the coordinator.
+- RPC (item 6): params `{}` strict matches the renderer call (handler service :107); the result reuses `AttentionNoticeSchema`; `INVALID_PARAMS` exists in the code union; the `attention:` prefix is allowlisted (rpc-handler.ts:45). `occurredAt = generation` is request time in ms, acceptable. The renderer compares key+generation+target fields exactly as the host emits them.
+- DI (item 7): coordinator deps are all registered before the attach point on each host (VS Code phase-2 after `registerSdkServices`, CLI container.ts:683-690 after storage at :499, Electron bootstrap after WEBVIEW_MANAGER). No cycle found. Electron no-teardown is acceptable: process-lifetime singleton, the OS clears toasts on quit.
+- The CLI no-op adapter passes the shared contract (`noOp` branches in run-host-attention-contract.ts).
+
+### Findings
+
+**Serious**
+
+S1. MCP approval path is inert end to end. `protocol-dispatcher.ts:1030-1038` does not pass `hostAttention`, so the B3c resolve hook in approval-prompt.handler.ts:65-72 never exists in production (known gap confirmed). In addition `createRequest` builds a request with no sessionId/tabId (permission-prompt.service.ts:107-114), so `issueRequest` returns at host-attention-coordinator.ts:158 after `claim()` already stored the generation: no host notice, no snapshot row, and a permanent `generations` entry. `removePendingResolver` (permission-prompt.service.ts:159) has no production caller, so it adds no further leak. Fix: pass the coordinator into the dispatcher deps; decide how MCP requests get a target (workspace root plus a synthetic session) or have the coordinator skip claiming them and document them as in-app only; add a dispatcher-level spec; extend the census to assert the resolve wiring.
+
+S2. Failure host path has no producer. `presentFailure` (coordinator.ts:123) has zero callers outside its spec, so `notifications.failureHostEnabled` (advanced-settings.types.ts:513) is a shipped toggle that does nothing; the AC 22 host half is unmet. If a later phase owns it, hide or label the setting until then. Also `c:` generations are never released (claim at :188 only), so each distinct condition leaks one map entry for the process lifetime.
+
+S3. Unbounded and stuck coordinator state. `generations` and `pending` shrink only via `resolve`; a request whose issue bails early (:158) or a producer without a resolve hook (S1) leaves entries, and for `pending` a permanent snapshot row the renderer re-projects on every reveal. Fix: delete the generation when `issueRequest` bails, add a TTL sweep for entries older than the longest permission timeout, release failure keys after presentation.
+
+**Moderate**
+
+M1. VS Code stale click is a silent no-op (vscode-host-attention-notifications.ts:62-65). The AC and plan section 4 require reveal plus "Already answered". Because the host returns before routing, the renderer's own "Already answered" path (openIfPending) is never reached.
+M2. Electron `onRendererReady` registers `once('did-finish-load')` on `getMainWindow()?` (bootstrap.ts attention block). With a null window (macOS closed window) nothing is registered but `waitingForRenderer` stays true forever (electron-host-attention-notifications.ts:84-88), so no later click can queue. `did-finish-load` also fires before Angular registers its message handler, so a route sent then can be dropped.
+M3. Electron `open` after the window was destroyed does nothing: `revealWindow` no-ops on a null window and nothing recreates it. Same root as M2; fix together (resolve the window at click time, reset `waitingForRenderer` on failure).
+M4. Electron `sendMessage`/`broadcastMessage` call the observer without try/catch (webview-manager-adapter.ts:61,99), unlike VS Code and CLI; the contract says observer errors must not break delivery.
+M5. Burst grouping is not a summary. Electron members share the first notice's handle and body (electron-host-attention-notifications.ts:52-57), so later requests are invisible natively and a click opens only the first target; VS Code has no grouping at all. AC 26 and the plan want one grouped summary.
+M6. The workspace target falls back to `getWorkspaceRoot()` when no metadata record exists (coordinator.ts:151). In Electron with several workspaces this can mis-target; prefer a null target (renderer shows "Target unavailable") over a wrong one.
+M7. `surfaceKind` is never populated (coordinator.ts:160-164) but the renderer routes surfaceMode only by `surfaceKind` (handler service upsertProjection), so host rows for surfaceMode requests are always disabled; AC:72 expects focus when the owner is known.
+M8. The snapshot is all-or-nothing: one notice failing `AttentionNoticeSchema` (id regex/length) makes `parse` throw and the whole snapshot unavailable (attention-rpc.handlers.ts:60). Validate per notice and skip with a count-only log.
+M9. Coordinator resolution at boot is unguarded and fatal: VS Code phase-2-libraries.ts:182-184, CLI container.ts:685, Electron bootstrap.ts (catch rethrows). A notification wiring fault should degrade, not abort activation.
+M10 (specs). The coordinator spec has no lane-permission case (`metadata.getAll` stubbed to `[]`), no resolve-during-lookup race and no `c:` hashing assertion beyond the prefix; the Electron bootstrap and CLI container attach are untested; the census scans `libs/backend` only and does not check resolve wiring.
+
+**Minor**
+
+m1. `enabled !== true` (coordinator.ts:215) silently disables on a non-boolean stored value (for example a hand-edited string).
+m2. The title is not stripped of control characters/newlines before the native body (coordinator.ts:226-230); 80 code points can exceed the shared schema's 120 UTF-16 slice and cut a surrogate pair.
+m3. VS Code eligibility ignores window focus/minimize: a visible but unfocused Ptah sidebar suppresses the notice (matches the AC text, flagged as a product risk).
+m4. VS Code `queueAttentionOpen` posts to the sidebar and every panel, so the renderer may process the same route twice (angular-webview.provider.ts:68-77); harmless because `openIfPending` is guarded.
+m5. Snapshot failure is a plain `Error` (attention-rpc.handlers.ts:70) rather than a coded error; acceptable because it is not user-facing.
+
+### Fix list (at most 3 file-disjoint lanes)
+
+Lane 1, agent-sdk + vscode-lm-tools (S1, S2 key release, S3, M6, M7, M10 coordinator cases, m1, m2): host-attention-coordinator.ts and spec, protocol-dispatcher.ts, approval-prompt.handler.ts and spec, permission-prompt.service.ts if needed.
+Lane 2, host adapters and boot (M1, M2, M3, M4, M5, M9, m4): electron-host-attention-notifications.ts and spec, vscode-host-attention-notifications.ts and spec, webview-manager-adapter.ts, bootstrap.ts, phase-2-libraries.ts, cli-engine container.ts, angular-webview.provider.ts.
+Lane 3, rpc-handlers + settings (M8, S2 UI decision): attention-rpc.handlers.ts and spec, advanced-settings.types.ts (hide or label `failureHostEnabled` until a producer exists) with its two guard specs.
+
+## Re-review after Phase B fix round
+
+Reviewer: anthropic (Sonnet 5.5). Read in full: host-attention-coordinator.ts, the VS Code and Electron host adapters, the three boot attach sites, attention-rpc.handlers.ts, the sdk-message-transformer.ts hunks, the dispatcher and permission-prompt hunks, and the F1-F3 reports. Nothing executed. Score 7/10. Verdict: REVISE (0 Blocking, 2 Serious, 4 Moderate, 3 Minor), one short round 2.
+
+### Status of Phase B findings
+
+| Finding | Status | Evidence |
+| --- | --- | --- |
+| S1 MCP inert | FIXED by decision (in-app only); resolver plumbing left as dead code | coordinator.ts:102-103 skips owner-less requests before `claim`, so no generation leaks. Resolver is wired (protocol-dispatcher.ts:1036, http-mcp-server.service.ts:310, permission-prompt.service.ts:162) but can never match a key |
+| S2 failure producer | PARTIAL: SDK turn producer exists; CLI lane producer absent; SDK predicate wrong (N1, N2) | sdk-message-transformer.ts:327-337; agent-process-manager.service.ts:2332-2350 untouched |
+| S3 unbounded state | FIXED | coordinator.ts:173-188 (256 cap, 2h lazy TTL, `drop` resolves host). SDK timeouts are 60 s to 10 min (sdk-permission-handler.ts:90,115; ask-user service :29), so a 2h TTL never expires a live SDK request |
+| M1 stale VS Code click | FIXED | vscode-host-attention-notifications.ts:67-74 |
+| M2 / M3 Electron readiness, destroyed window | PARTIAL | bootstrap.ts:250-255 returns false on a null window and the adapter clears `waitingForRenderer` (adapter:121-135); still `once('did-finish-load')`, which can fire before Angular listens (N5) |
+| M4 Electron observer try/catch | FIXED | webview-manager-adapter.ts:62,104 |
+| M5 burst summary | FIXED on Electron; VS Code accepted (c) | electron adapter:58-83 replaces the handle, click picks newest live member; VS Code earlier messages cannot be retracted (:49-60) |
+| M6 wrong workspace | FIXED, but silent (N3) | coordinator.ts:217-222 |
+| M7 `surfaceKind` | DEFERRED to A8 (decision #36 calls this "M10"; the review's M10 is the spec item) | n/a |
+| M8 per-notice snapshot | FIXED | attention-rpc.handlers.ts:47-78: invalid notices dropped, count-only log, coded failure |
+| M9 boot isolation | FIXED, logged by error name (not silent); unverified, no specs | phase-2-libraries.ts:182-189, container.ts:684-696, bootstrap.ts:459-465 |
+| M10 specs | PARTIAL | coordinator, adapter, RPC specs and a census resolve check added; boot attach-failure specs and a failure-reason matrix spec missing |
+| m1 non-boolean setting, m2 title sanitising | FIXED | coordinator.ts:277, 284-293 |
+| m3 unfocused sidebar | ACCEPTED (plan section 4) | n/a |
+| Open routing to one webview, coded snapshot error | FIXED | F2 and F3 reports; handlers.ts:77 |
+
+### Judgement of lane decisions
+
+- (a) MCP approvals in-app only: ACCEPTED. task-description.md names chat permission, question and lane permission as pending requests (:11, :70, :82-84); MCP approval is not an AC item and has no session or tab, so no honest Open target exists. Record it in decisions.md as a known limit: an MCP approval raised while Ptah is in the background gets no OS notice.
+- (b) Drop on missing metadata: ACCEPTED in principle (a wrong workspace is worse than none), but the drop is silent (N3).
+- (c) VS Code burst not retractable: ACCEPTED. Cost is stacked messages in the notification center; each still routes to the newest live member, stale ones say "Already answered".
+
+### New findings
+
+**Serious**
+
+N1. The session failure predicate disagrees with the AC. sdk-message-transformer.ts:332-335 fires for `phase === 'failed' || (terminalReason && terminalReason !== 'completed')`. That includes `background_requested`, `hook_stopped`, `stop_hook_prevented`, `tool_deferred`, `tool_deferred_unavailable` and `max_turns`, which task-description.md:72 lists as non-failures; only `aborted_*` is excluded. With `failureHostEnabled` on, a normal background-task or deferred-tool turn yields "Session failed". The renderer also requires `classification === 'error'` (chat-failed-turn-attention.service.ts:23-24), so host and bell disagree. Fix: allowlist the AC's failure reasons (`api_error`, `model_error`, `image_error`, `budget_exhausted`, `blocking_limit`, `rapid_refill_breaker`, `prompt_too_long`, `turn_setup_failed`, `malformed_tool_use_exhausted`, `structured_output_retry_exhausted`) plus `phase === 'failed'`; put it in a pure function next to the coordinator and cover it with a table spec.
+
+N2. The CLI lane failure host notice has no producer (agent-process-manager.service.ts:2332-2350). task-description.md:86 requires it when the setting is on, and decision #36 promised a producer. Fix: inject the coordinator optionally into AgentProcessManager and call `presentFailure('lane:<agentId>', Date.now(), 'lane', target)` on the failed-exit branch, deriving the target from the parent session metadata (same `cliSessions` lookup); if none is resolvable, skip with a count-only debug log. If the owner defers it, record that in decisions.md and relabel the setting instead.
+
+**Moderate**
+
+N3. Silent drops. coordinator.ts:219-222 returns with no log when metadata is missing (first permission of a fresh session, or tab-only requests where `metadata.get(tabId)` cannot resolve), and presentSessionFailure returns silently at :153. Add a fixed count-only log line.
+N4. No spec for boot attach failure on any host (F2 not-done confirmed), none for the failure-reason table (N1), and none for the release-vs-present race at coordinator.ts:149-152.
+N5. Electron `did-finish-load` (bootstrap.ts:253) and `isRendererReady` (:246-249) signal page load, not Angular handler registration, so a queued route can still be dropped on cold start. A listener attached to a window destroyed before load never fires and leaves `waitingForRenderer` true (adapter:121-135). Use the renderer's existing ready handshake or resend via the snapshot call, and re-arm on `closed`.
+N6. SDK session close never releases the `c:turn:` key (F1 confirmed). Bounded: the native toast stays until the next turn, the 2h TTL or the 256 cap. The cap evicts the oldest key regardless of kind (coordinator.ts:178-182) and can drop a live request's snapshot row, though that needs more than 256 concurrent keys. Evict failure keys first.
+
+**Minor**
+
+N7. issueFailure catch (coordinator.ts:261-263) does not `drop(key)`, unlike issueRequest, so a failed title read keeps the generation until TTL.
+N8. The Electron summary body count goes stale when a member resolves while others share the handle (adapter:158 refuses to close, text is not updated).
+N9. The MCP resolver plumbing in three files is dead; remove it or annotate it as intentionally inert so nobody assumes MCP is covered.
+
+### Verdict
+
+REVISE, small. Privacy, race, TTL and release mechanics are sound: lazy TTL runs on observe and snapshot, eviction resolves the host presentation, the release-version guard handles release during the metadata await, aborted reasons are excluded, snapshot validation is per notice, boot isolation logs by name. What remains is the over-broad failure predicate (N1) and the missing lane producer (N2).
+
+### Revise round 2 fix list (two file-disjoint lanes)
+
+Lane 1, agent-sdk and cli-agent-runtime: N1 (reason allowlist function in host-attention-coordinator.ts used from sdk-message-transformer.ts, table spec in host-attention-coordinator.spec.ts), N2 (agent-process-manager.service.ts, its spec, optional coordinator inject), N3 logs, N7, N6 (evict failure keys first in `prune`).
+Lane 2, hosts, boot and mcp plumbing: N4 boot attach-failure specs (apps/ptah-electron bootstrap, vscode phase-2-libraries, cli-engine container), N5 Electron readiness (bootstrap.ts, electron-host-attention-notifications.ts and spec), N8, N9 (http-mcp-server.service.ts, protocol-dispatcher.ts, permission-prompt.service.ts, approval-prompt.handler.ts and specs).
+
+## Final re-review after revise round 2
+
+Reviewer: anthropic (Sonnet 5.5). Read in full: host-attention-coordinator.ts, electron-host-attention-notifications.ts, bootstrap.ts:184-305 (readiness handshake and attach helper), the sdk-message-transformer.ts and agent-process-manager.service.ts hunks (including handleExit :2316-2364), the chat failure service and spec diff, the three orchestrator edits, and the vscode-lm-tools diff. Nothing executed. Score 8/10. Verdict: APPROVED (0 Blocking, 0 Serious, 2 Moderate, 3 Minor); commit as is and report the items below.
+
+### Status of N1-N9
+
+| Finding | Status | Evidence |
+| --- | --- | --- |
+| N1 failure predicate | FIXED | coordinator.ts:38-47 allowlist is exactly the ten AC reasons (task-description.md:72); the transformer calls it at sdk-message-transformer.ts:330-335 with `phase === 'failed'`. `SdkTerminalReason` (sdk-hook.types.ts:66-85) has 19 members; the other nine, including `aborted_*`, `max_turns`, `completed`, are excluded. Spec uses `satisfies Record<SdkTerminalReason, boolean>`, so a new member breaks the type check. Chat renderer uses the same ten (chat-failed-turn-attention.service.ts:5-11, :32), so host and bell agree |
+| N2 lane producer | FIXED | agent-process-manager.service.ts:2353 only inside `status === 'running'` and `code !== 0`; stop and timeout set status earlier, so a user-stopped lane never reaches it (spec :1570-1575). Owner comes from `info.parentSessionId` plus that session's metadata (coordinator.ts:178-195); missing owner drops with a fixed debug line. Trailing `isOptional` inject (:335-336) leaves the six other `new AgentProcessManager(...)` specs valid and an unregistered token resolves to undefined |
+| N3 silent drops | FIXED | coordinator.ts:166, 180, 186, 256 fixed debug lines, no ids |
+| N4 boot attach specs | FIXED | `attachElectronHostAttention` (bootstrap.ts:237-247) is called at the same boot point (:503) and logs by error name; VS Code and CLI helpers follow the same shape. Specs cover the helpers, not the full boot functions (accepted) |
+| N5 Electron readiness | FIXED | Readiness is the first `attention:getSnapshot` RPC from the current WebContents (bootstrap.ts:221-230). It is valid because the handler is registered via MESSAGE_HANDLERS before its constructor microtask calls `reconcile()` (chat-attention-host-message-handler.service.ts:60). Channel and shape match the bridge ('rpc' channel, `rpc:call`, payload.method). `did-start-loading` clears readiness (:217). One pending route, generation re-checked at send (adapter :129, :141); no lost or duplicated route; destroyed window returns false from `onReady` and clears the flag (:149) |
+| N6 eviction | FIXED | coordinator.ts:213-218 evicts the oldest `c:` key before any request key |
+| N7 failure drop | FIXED | coordinator.ts:298-300 drops on a gated-off or failed present, so a later enable retries |
+| N8 burst count | FIXED | adapter :100-108 closes the shared handle and re-shows with the remaining count; the last member returns to the single body |
+| N9 MCP plumbing | FIXED | No `hostAttention` or resolver references remain under vscode-lm-tools/src; http-mcp-server.service.ts and protocol-dispatcher.ts show no net diff. Ownerless MCP is skipped at coordinator.ts:115 |
+
+### Orchestrator edits
+
+1. vscode-host-attention-notifications.ts:75 `.then(undefined, handler)` is correct for a `Thenable`; :81 `.catch` is on `broadcastMessage`, which returns a real Promise, so it type-checks.
+2. The chat failure filter now matches the AC allowlist; the extended spec cases (five non-failure reasons) all fall through to `continue`. By reading, it compiles and passes.
+3. host-attention-ingress.spec.ts: exempting only the MCP file path (relative to libs/backend) from the host-release regex is narrow and correct. The remaining four emissions still need `hostAttention?.resolve(attentionRequestKey(` in their file.
+
+### Specs that cannot compile or pass by reading
+
+None found. The new approval-prompt and dispatcher specs use existing module-scope helpers (`createPermissionService`, `buildDeps`, `makeRequest`); only their indentation is off.
+
+### Remaining defects (non-blocking)
+
+- Moderate: electron-host-attention-notifications.ts:100-108. Resolving one member of a shared burst handle re-shows a native toast without re-checking `isEligible()`, so answering one of two requests in a focused window can pop a fresh OS toast. Fix: call `isEligible()` before `showHandle` and only close when not eligible.
+- Moderate: sdk-message-transformer.ts:327-335. The result branch has no `isReplayMessage` guard, unlike the user branch (:243). If the SDK replays a failed result on resume, a stale "Session failed" host notice could fire. Not shown to occur; confirm in a resume smoke test.
+- Minor: approval-prompt.handler.ts:67-69 wraps `resolve` in a no-op arrow; pass `resolve` directly.
+- Minor: coordinator.ts:178-182 lane failure with no `parentSessionId` is dropped with a debug line only. Accepted (a wrong workspace is worse than none), but the setting then silently misses such lanes.
+- Minor: session-close still does not release the `c:turn:` key (bounded by the 2h TTL and 256 cap); already accepted in L1's decisions.
+
+### Verdict
+
+APPROVED. The failure-reason table is exhaustive against `SdkTerminalReason`, the user-stopped lane is not a failure, the optional inject is safe, the renderer-ready ordering holds, and the MCP removal left no residue. Commit Phase B as is and carry the two Moderate items into the follow-up list.
+
+## Phase B post-check correction review
+
+Scope: only the post-check correction (decisions.md #38 production edits and the Codex spec and test-container edits in phase-B-check-fix-report.md). Read-only; no checks were run by me, and I rely on the report's per-suite `Tests:` lines for pass status.
+
+| Metric | Value |
+| --- | --- |
+| Score | 9/10 |
+| Verdict | APPROVED |
+| Blocking / Serious / Moderate | 0 / 0 / 2 minor |
+
+### 1. Orchestrator production edits
+
+- `resolve()` null narrowing, `electron-host-attention-notifications.ts:100-115`: behaviour is identical. Before, a null `entry.handle` made `shared` null and the `else` branch ran `close(entry)`. Now a null `oldHandle` gives `shared = []`, the `if (oldHandle && shared.length)` is false, and the same `else` runs. With a non-null handle the filter, the handle nulling, the `burstHandle` reset, the `close` and the `showHandle` re-show are unchanged, and `oldHandle` is captured before the loop nulls `member.handle`, as before. No defect.
+- Suppression comments. All four are honest.
+  - `electron-host-attention-notifications.ts:44` (`isEligible` catch): optional OS notification over the in-app bell. It calls `warnOnce` (line 180), so the error is logged but only once per instance, and returns `false`, meaning "do not show". No required path is hidden.
+  - `host-attention-coordinator.ts:~319` (`presentIfCurrent` catch): the error goes through `logHostError('present', ...)`, which logs the error name only (no path or secret). It returns `false`, and the in-app request is emitted independently by the webview manager. Honest.
+  - `host-attention-coordinator.ts:~330` (`no-control-regex` disable): the regex deliberately strips control characters from titles, and the disable carries a reason. Honest.
+  - `libs/backend/cli-engine/src/lib/container.ts:~290` (`attachCliHostAttention`): the failure is warned (name only) and `undefined` is returned, which the signature documents as "nothing to dispose". The CLI is not a required consumer of the notification channel. Honest.
+
+### 2. Codex spec and test-container edits
+
+- `host-attention-ingress.spec.ts:40` scanner (untracked, so I read it whole): the narrowing is legitimate.
+  - It skips the coordinator file, which only compares message types (`host-attention-coordinator.ts:81,94-95`; no `sendMessage`).
+  - It skips a `messageType:` log field. The only such site is `sdk-permission-handler.ts:983`, inside `logger.info`; the real emission is elsewhere in that file.
+  - The strict, sorted `emissions` equality list (5 entries) remains, along with the no-BATCH assertion, the `webviewManager` receiver check and the `hostAttention?.resolve(attentionRequestKey(` check. Nothing was widened to hide a violation.
+- Added or changed assertions: none removed or loosened. The `sdk-permission-handler.spec.ts` diff is additive (new resolution tests, `request!['x']` bracket access, a `hostAttention` argument). The rpc-allowlist test is additive. I found no `.skip`, `xit`, `@ts-ignore` or new `as any` in tracked diff hunks. The `as unknown as` hits I saw sit in lines that already existed (for example `ask-user-question.service.spec.ts:40,70`, `register.compaction-boundary-registry.smoke.spec.ts:84`); the added diff lines contain none.
+- DI smoke containers (`container.smoke.spec.ts:123` in ptah-electron, `register.compaction-boundary-registry.smoke.spec.ts:95`, `register.agent-process-manager.smoke.spec.ts:47`, `register-shared-rpc-handlers.activation.spec.ts:89`): each registers only the platform port `HOST_ATTENTION_NOTIFICATIONS` as a stub. That port is bound per host in the real platform registration, so stubbing it in a test container is correct. `HOST_ATTENTION_COORDINATOR_TOKEN` is resolved through the real `registerSdkServices` in the new Electron test (`container.smoke.spec.ts:90-103`), including a singleton identity check, so a missing production registration would still fail. Not a mask.
+
+### Minor findings
+
+1. `host-attention-ingress.spec.ts:40`: the coordinator exemption is by file-name suffix (`endsWith('host-attention-coordinator.ts')`), so any future file with that name would be exempt. Low risk; a full relative path would be tighter.
+2. `host-attention-ingress.spec.ts` `hostAttention?.resolve` check is per file, not per emission (pre-existing weakness). A second unreleased emission in the same file would pass.
+
+### Unverified
+
+`apps/ptah-electron/src/services/git-watcher.real-git.spec.ts` stalled and has no `Tests:` line (report lines 30, 44-46). Nothing in this change touches it, so I judge it environmental, but it is still unverified and should be confirmed in a later run.
+
+Verdict: APPROVED, 9/10.
