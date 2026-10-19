@@ -534,7 +534,6 @@ export const BASELINE_MESSAGE_TYPES: readonly string[] = [
   'setup-wizard:complete',
   'setup-wizard:open-agents-folder',
   'setup-wizard:scan-progress',
-  'skillSynthesis:event',
   'state:clear',
   'state:load',
   'state:loaded',

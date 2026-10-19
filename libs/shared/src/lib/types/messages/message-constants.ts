@@ -269,8 +269,6 @@ export const MESSAGE_TYPES = {
   VEC_STATUS_CHANGED: 'db:vecStatusChanged',
   /** Backend → Frontend: embedder readiness/progress/error changed (Electron only). */
   EMBEDDER_STATUS_CHANGED: 'embedder:statusChanged',
-  /** Backend → Frontend: a skill-synthesis pipeline event fired (analyze/curator/backfill). */
-  SKILL_SYNTHESIS_EVENT: 'skillSynthesis:event',
   /**
    * Backend → Frontend: one back-office activity item for the passive ticker
    * (TASK_2026_380).

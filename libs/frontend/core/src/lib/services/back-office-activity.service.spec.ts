@@ -504,7 +504,7 @@ describe('BackOfficeActivityService', () => {
 
   it('ignores a message type it does not declare', () => {
     send(service, 'chat:messageChunk', { summary: 'nope' });
-    send(service, 'skillSynthesis:event', {
+    send(service, 'retired:event', {
       event: { kind: 'curator-pass-start', timestamp: 1 },
     });
 
