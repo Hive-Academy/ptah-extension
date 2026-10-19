@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_699_833e
-status: in_progress
+status: in_review
 type: FEATURE
 title: Make the session inspector a resizable side dock
 depends_on: []

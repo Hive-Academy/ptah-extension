@@ -1,6 +1,6 @@
 # Batches - TASK_2026_699_833e
 
-Total tasks: 10 | Batches: 4 | Complete: 4/4
+Total tasks: 10 | Batches: 4 | Complete: 4/4 | Mode 3: TASK COMPLETE (see Completion)
 
 Worktree: `D:\projects\ptah-extension\.claude-worktrees\inspector-side-dock` (branch `feat/inspector-side-dock`).
 All paths below are absolute. `W` = the worktree root above.
@@ -474,3 +474,74 @@ Edge cases:
 - Re-review: `code-logic-rereview-2.md` REVISE 7/10, Serious fixed, one Moderate (R2-M1). Under the
   one-fix-round rule that Moderate is recorded, not fixed; the re-review cap (decision 21) is used,
   so the phase is closed with R2-M1 as a named later task.
+
+## Completion (Mode 3) — COMPLETE (code HEAD c0a523197)
+
+- Verdict: TASK COMPLETE with named follow-ups. Every batch and fix round above is COMPLETE and
+  carries a commit SHA; all 10 SHAs (9d5063f43, 309cb2bca, 431e7cf75, 5fc888d16, 069902dea,
+  82b79b348, 6e28fe6a2, 2ac83d78e, abf44d146, c0a523197) are ancestors of HEAD. All 21 changed
+  source files under `libs/` exist on disk (`git diff --name-only main...HEAD -- libs`).
+- Scoped checks after the last code commit (c0a523197): `typecheck,test,lint` green for
+  `@ptah-extension/chat-ui`, `@ptah-extension/chat`, `@ptah-extension/canvas` (3 projects).
+- Reviews (implementer claude, reviewer codex, different family): code-logic REVISE 6/10 ->
+  rereview REVISE 6/10 -> rereview-2 REVISE 7/10 with Serious fixed and one Moderate left
+  (R2-M1, decision 22, cap of decision 21 used); code-style APPROVED; visual REVISE ->
+  visual-recheck APPROVED 8/10 (decision 23). The phase is closed under the fix-round rule:
+  no Blocking or Serious open.
+
+### Acceptance criteria (task-description rev 3, mapped to the canvas host by plan rev 4)
+
+| AC | Result | Evidence |
+| -- | ------ | -------- |
+| 1 Stats tab, toggle, `aria-expanded`, badge, focus return | Met in the canvas single-focus dock (tab on the dock's inner edge, decision 13). AC 1.7 "no tab in a canvas tile" is superseded by decision 16 (the canvas board is the host) | board spec; visual-review.md, visual-recheck.md |
+| 2 Grip separator, drag, keys, Esc cancel, dblclick reset, cursor | Met | split-handle spec; visual-recheck.md section 4 (Esc, reset, clamp) |
+| 3 Clamp 300-560, floor, persistence, invalid values | Met. AC 3.2 floor amended 624 -> 360 (decision 18); AC 3.6 scope amended (decision 10) | `inspector-dock-width.spec.ts`, `inspector-dock-width.store.spec.ts`; recheck clamp 560/300 at 1200 |
+| 4 Defaults 336/400/448, wider at 1440 | Met: 1440 -> dock 400 | visual-recheck.md section 4 |
+| 5 Narrow widths keep sheet / modal | Met by spec: compact sheet below 400 px and split overlay unchanged. Not reachable in the Electron window (800 px minimum) | board spec `:858-913`; visual-recheck.md section 2 |
+| 6 Visual evidence dark + light | Met: rev 4 `screenshots/rev4/{dark,light}-1440-lg-open.png`, `-760-sm-open.png`, `-760-sm-closed.png`, `-1440-lg-plan-limits.png`; recheck set in `screenshots/recheck/` (16 files). Cards at 760 from round 1 (`screenshots/*-cards-*.png`); the card component did not change in rev 4 | visual-review.md:88, visual-recheck.md |
+| 7 PLAN LIMITS cards | Met (inspector variant, unchanged since batch 4) | `plan-limit-tile.component.spec.ts`; round 1 screenshots |
+
+Gaps (none blocking, all named in `pr-body.md`): V-F1 composer toolbar overlap at <= 360 px
+(decision 20, peer-owned `chat-input.component.ts`); R2-M1 0 px hidden board resets the dock
+choice (decision 22); R-1 transient stale dock after a split close (decision 23); V-F3 compact
+sheet at 420-440 px / 760 px tile 308 px; Minors (V4 long-label truncation, readout over the Model
+label, extra width helpers in the barrel, overlapping drag cursors, light-theme open indicator
+contrast). Plan Limits cards were not re-verified with live usage data in rev 4 (no plan-limit
+owner in the profile); the component is unchanged since round 1.
+
+### Parity (parity-inventory.md + plan rev 4 parity table)
+
+- `## Proposed Removals`: None, so no removal needs approval.
+- Old canvas surface at base (plan rev 4 parity table, 16 rows from `canvas-rail-board.component.ts`
+  on main): every row is kept or unchanged except the empty aside on a 0-tile board (D-7,
+  deliberately removed, pinned by an explicit 0-tile spec) and the fixed widths 296/320/360,
+  replaced by the persisted width (wider at every band).
+- parity-inventory.md rows for chat-view: chat-view and `inspector-shell.controller.ts` have no
+  diff against main (rev 4 revert), so those capabilities are unchanged. Plan-limit-tile rows
+  (`data-tile-id`, detail panel, `strip` variant) are kept, covered by the tile spec.
+
+### Write-path trace
+
+- One new write: `InspectorDockWidthStore` writes `localStorage['ptah.inspector-dock-width.v1']`
+  (integer string) on drag end / key step; removes it on reset. The only reader is the same store
+  (`getItem` + `storage` event, same key), which clamps and falls back to the band default. No
+  host setting, RPC or environment variable is written. The 15 s RPC timeout is a read path only.
+
+### Validation risk / resolution
+
+| Risk | Resolution |
+| ---- | ---------- |
+| R1 tile can shrink to 360 px | Accepted (decision 18); V-F1 composer overlap follows (decision 20) |
+| R2 Stats tab next to the Git tab | Visual review: no Serious finding |
+| R3 TASK_705 merge order | Chat-view and shell controller have no diff; merge this PR before `refactor/remove-single-layout` |
+| R4 rail class drift vs `railWidthPx` | Parity spec in `canvas-rail.component.spec.ts` |
+| R5 board spec harness imports | Specs green (120/120 executor run) |
+| R6 screenshots retaken from the canvas | `screenshots/rev4/` and `screenshots/recheck/` |
+
+### Decisions (team-leader, Mode 3)
+
+- task.md `status:` -> `in_review`: code and reviews are done; the PR is not yet opened.
+  Options: `done` (rejected, no PR or merge yet) or `in_review`. Reversible.
+- Force-add the 8 rev 4 screenshots that `visual-review.md` cites as prototype and AC 6 evidence
+  (1440 lg open, 760 sm open / closed, 1440 plan limits, dark + light), plus all 16 recheck
+  screenshots. The other 63 rev 4 supporting zooms stay local (6.2 MB). Reversible.
