@@ -41,3 +41,7 @@ Electron check dark + light at 1440x900, 900 and 700 -> PR.
   bypassed the frame cap) -> one orchestrator bounded correction -> APPROVED.
 - Checks: typecheck, lint 0/0, 553/553 tests, alpha guard 11/11, degradation audit 291 (main
   baseline, not raised), ptah-extension-webview typecheck pass.
+- Electron check (port 9334): logo on the root sphere in dark and light, one faint orbit track
+  with no delegated work, glow visible. Measured at 1440x900: header 60, stage 1036x676
+  (was 980x624), dock 82, rail 296. 700px stacks stage, dock, rail. Flowing links not shown
+  (needs delegated work, which needs paid turns). Screenshots in `visual-check/`.
