@@ -35,7 +35,7 @@ interface AskUserQuestionPayload {
   tabId?: string;
 }
 
-function makeHandler(): {
+function makeHandler(hostAttention?: { resolve(key: string, generation: number): void }): {
   handler: SdkPermissionHandler;
   logger: MockLogger;
   sent: SentMessage[];
@@ -72,10 +72,48 @@ function makeHandler(): {
     webviewManager as unknown as ConstructorParameters<
       typeof SdkPermissionHandler
     >[2],
+    undefined,
+    hostAttention,
   );
 
   return { handler, logger, sent };
 }
+
+describe('SdkPermissionHandler host attention resolution', () => {
+  it('resolves a lane answer from another surface with the lane key', async () => {
+    const hostAttention = { resolve: jest.fn() };
+    const { handler, sent } = makeHandler(hostAttention);
+    const pending = handler.createCallback(asSessionId('11111111-2222-4333-8444-555555555555'), () => 'agent-1')(
+      'Bash', { command: 'ls' }, { signal: new AbortController().signal, toolUseID: 'lane-attention', requestId: 'lane-attention' },
+    );
+    await flushMicrotasks();
+    const request = sent.find((message) => message.type === MESSAGE_TYPES.AGENT_MONITOR_PERMISSION_REQUEST)?.payload;
+    expect(request).toBeDefined();
+    handler.handleResponse(request!['requestId'] as string, { id: request!['requestId'] as string, decision: 'allow' });
+    await pending;
+    expect(hostAttention.resolve).toHaveBeenCalledTimes(1);
+    expect(hostAttention.resolve).toHaveBeenCalledWith(`lane-permission:${request!['requestId']}`, request!['timestamp']);
+  });
+  it.each(['response', 'abort', 'cleanup'] as const)('resolves a permission on %s once', async (settlement) => {
+    const hostAttention = { resolve: jest.fn() };
+    const { handler, sent } = makeHandler(hostAttention);
+    const controller = new AbortController();
+    const pending = handler.createCallback(asSessionId('11111111-2222-4333-8444-555555555555'))(
+      'Bash', { command: 'ls' }, { signal: controller.signal, toolUseID: 'host-attention', requestId: 'host-attention' },
+    );
+    await flushMicrotasks();
+    const request = sent.find((message) => message.type === MESSAGE_TYPES.PERMISSION_REQUEST)?.payload;
+    expect(request).toBeDefined();
+    if (settlement === 'response') handler.handleResponse(request!['id'] as string, { id: request!['id'] as string, decision: 'allow' });
+    if (settlement === 'abort') controller.abort();
+    if (settlement === 'cleanup') handler.cleanupPendingPermissions();
+    await pending;
+    expect(hostAttention.resolve).toHaveBeenCalledTimes(1);
+    expect(hostAttention.resolve).toHaveBeenCalledWith(`permission:${request!['id']}`, request!['timestamp']);
+    handler.handleResponse(request!['id'] as string, { id: request!['id'] as string, decision: 'deny' });
+    expect(hostAttention.resolve).toHaveBeenCalledTimes(1);
+  });
+});
 
 async function flushMicrotasks(): Promise<void> {
   await Promise.resolve();

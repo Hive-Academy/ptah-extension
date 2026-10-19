@@ -38,6 +38,15 @@ import { RPC_METHOD_NAMES } from '@ptah-extension/shared';
 import { RPC_HANDLER_MANIFEST, assertManifestInvariants } from './host-profile';
 
 describe('RPC handler manifest', () => {
+  it('assigns the attention snapshot to its library handler', () => {
+    const owners = RPC_HANDLER_MANIFEST.filter((entry) =>
+      (entry.methods as readonly string[]).includes('attention:getSnapshot'),
+    );
+    expect(owners).toHaveLength(1);
+    expect(owners[0].key).toBe('attention');
+    expect('handler' in owners[0]).toBe(true);
+    expect(ALLOWED_METHOD_PREFIXES).toContain('attention:');
+  });
   it('publishes all bound generation methods', () => {
     const methods = RPC_HANDLER_MANIFEST.flatMap((entry) => entry.methods);
     expect(methods).toEqual(

@@ -6,7 +6,9 @@ import {
   TabId,
   type AskUserQuestionRequest,
   type QuestionItem,
+  attentionRequestKey,
 } from '@ptah-extension/shared';
+import type { HostAttentionCoordinator } from './host-attention-coordinator';
 import type { PermissionResult } from '../types/sdk-types/claude-sdk.types';
 import { generateRequestId } from './permission-description';
 import { PendingResponseRegistry } from './pending-response-registry';
@@ -34,6 +36,7 @@ export class AskUserQuestionService {
       AskUserQuestionResponse,
       AskUserQuestionRequest
     >,
+    private readonly hostAttention?: Pick<HostAttentionCoordinator, 'resolve'>,
   ) {}
 
   async handleAskUserQuestion(
@@ -166,9 +169,12 @@ export class AskUserQuestionService {
     const requestId = request.id;
     const questions = request.questions;
     const resolvedTabId = request.tabId;
+    const resolveHostAttention = () =>
+      this.hostAttention?.resolve(attentionRequestKey('question', requestId), request.timestamp);
 
     return new Promise<AskUserQuestionResponse | null>((resolve) => {
       if (signal?.aborted) {
+        resolveHostAttention();
         this.registry.clear(requestId);
         resolve(null);
         return;
@@ -189,6 +195,7 @@ export class AskUserQuestionService {
             },
           );
           this.registry.clear(requestId);
+          resolveHostAttention();
           signal?.removeEventListener('abort', onAbort);
           this.webviewManager
             .sendMessage(
@@ -207,6 +214,7 @@ export class AskUserQuestionService {
       }
 
       const onAbort = () => {
+        resolveHostAttention();
         this.registry.clear(requestId);
         resolve(null);
       };
@@ -215,6 +223,7 @@ export class AskUserQuestionService {
       this.registry.register(requestId, {
         resolve: (response) => {
           signal?.removeEventListener('abort', onAbort);
+          resolveHostAttention();
           resolve(response);
         },
         sessionId,

@@ -41,6 +41,7 @@ export {
   GitRpcHandlers,
   WorkspaceRpcHandlers,
   SettingsRpcHandlers,
+  AttentionRpcHandlers,
   MemoryRpcHandlers,
   MemRpcHandlers,
   CorpusRpcHandlers,

@@ -157,12 +157,12 @@ export class PermissionPromptService {
    * @returns true if the entry was found and removed, false if not found
    */
   removePendingResolver(id: string): boolean {
-    const existed = this.pendingRequests.has(id);
-    if (existed) {
+    const pending = this.pendingRequests.get(id);
+    if (pending) {
       this.pendingRequests.delete(id);
       this.logger.debug('Pending resolver removed (cleanup)', { id });
     }
-    return existed;
+    return pending !== undefined;
   }
 
   /**
