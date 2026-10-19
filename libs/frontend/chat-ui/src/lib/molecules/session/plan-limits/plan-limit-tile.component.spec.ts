@@ -434,10 +434,12 @@ describe('PlanLimitTileComponent (variant="inspector")', () => {
       'border-surface-border',
       'bg-surface-1',
       'border-l-2',
-      'border-warning',
+      'border-l-warning',
     ]) {
       expect(card.classList).toContain(cls);
     }
+    // Left-edge accent only: no second all-edge border colour on the card.
+    expect(card.classList).not.toContain('border-warning');
     expect(card.className).not.toContain('min-h-[56px]');
     expect(card.className).not.toContain('pr-5');
   });
@@ -687,8 +689,8 @@ describe('PlanLimitTileComponent (variant="inspector")', () => {
   it('uses semantic colour only for the card accent and the bar fill, never text', () => {
     const root = render(windowTile({ tone: 'error' }));
 
-    expect(byTestId(root, 'plan-limit-card').className).toContain(
-      'border-error',
+    expect(byTestId(root, 'plan-limit-card').classList).toContain(
+      'border-l-error',
     );
     expect(byTestId(root, 'plan-limit-progress-fill').className).toContain(
       'bg-error',

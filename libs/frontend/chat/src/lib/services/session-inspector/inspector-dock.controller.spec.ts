@@ -108,6 +108,19 @@ describe('InspectorDockController', () => {
     expect(preference()).toBe(560);
   });
 
+  it('commits the host-clamped draft when the host shrinks mid-drag', () => {
+    create();
+    dock.preview(500);
+    expect(dock.width()).toBe(500);
+    availableWidth.set(760);
+    expect(dock.maxWidth()).toBe(400);
+    expect(dock.width()).toBe(400);
+    dock.commit();
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(commit).toHaveBeenCalledWith(400);
+    expect(preference()).toBe(400);
+  });
+
   it('floors a fractional max so width never exceeds it (AC 3.2)', () => {
     create();
     preference.set(560);

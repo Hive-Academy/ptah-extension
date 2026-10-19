@@ -78,20 +78,21 @@ export class InspectorDockController {
   }
 
   /**
-   * Drag end or key step. Persists only a draft that differs from what
-   * renders now, so a click without movement at a host-clamped width never
-   * overwrites a wider stored preference.
+   * Drag end or key step. The draft is clamped to the current host width
+   * first, so a host that shrank mid-drag stores the width that rendered,
+   * not the raw pointer position. Persists only a clamped draft that differs
+   * from what the preference renders now, so a click without movement at a
+   * host-clamped width never overwrites a wider stored preference.
    */
   commit(): void {
     const draft = this.draft();
     this.draft.set(null);
     if (draft === null) return;
-    const rendered = inspectorDockWidth(
-      this.widthStore.preference(),
-      this.availableWidth(),
-    );
-    if (Math.round(draft) === rendered) return;
-    this.widthStore.commit(draft);
+    const available = this.availableWidth();
+    const clamped = inspectorDockWidth(draft, available);
+    const rendered = inspectorDockWidth(this.widthStore.preference(), available);
+    if (clamped === rendered) return;
+    this.widthStore.commit(clamped);
   }
 
   /** Double-click: forget the preference, back to the host's default. */
