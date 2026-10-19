@@ -613,6 +613,33 @@ describe('SubagentExecutionStore', () => {
     expect(store.entries().get('agent-a')?.history).toBe('loaded');
   });
 
+  it('drops a history load in flight when the record moves the agent to another session', async () => {
+    store.retain('agent-a', 'stale-session');
+    let resolve!: (value: ReturnType<typeof page>) => void;
+    rpc.call.mockImplementationOnce(
+      () =>
+        new Promise<ReturnType<typeof page>>((r) => {
+          resolve = r;
+        }),
+    );
+    const stale = store.ensureHistory('agent-a');
+    store.syncRecord(record('agent-a', 'completed'));
+    expect(store.entries().get('agent-a')).toMatchObject({
+      sessionId,
+      history: 'idle',
+    });
+    resolve(page([start('m', 'agent-a', 'stale')]));
+    await stale;
+    expect(store.entries().get('agent-a')?.history).toBe('idle');
+    rpc.call.mockResolvedValueOnce(page([]));
+    await store.ensureHistory('agent-a');
+    expect(rpc.call).toHaveBeenLastCalledWith(
+      'subagent:history-page',
+      expect.objectContaining({ sessionId, cursor: undefined }),
+    );
+    expect(store.entries().get('agent-a')?.history).toBe('loaded');
+  });
+
   it('keeps a not-found history sticky when the record names the same session', async () => {
     store.syncRecord(record('agent-a'));
     rpc.call.mockResolvedValueOnce({

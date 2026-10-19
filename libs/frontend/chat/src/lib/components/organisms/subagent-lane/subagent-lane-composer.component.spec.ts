@@ -96,6 +96,15 @@ describe('SubagentLaneComposerComponent', () => {
     );
   });
 
+  it('never sends a live agent without a steerable context to the main chat', () => {
+    const fixture = setup({ ...record, status: 'running' }, context(false));
+    expect(fixture.componentInstance.mode()).toBe('unavailable');
+    expect(
+      byId(fixture, 'subagent-composer-unavailable')?.textContent,
+    ).toContain('This agent cannot take messages right now');
+    expect(root(fixture).querySelector('input')).toBeNull();
+  });
+
   it('falls back to the lane session for the follow-up', () => {
     const fixture = setup(
       { ...record, parentSessionId: undefined },

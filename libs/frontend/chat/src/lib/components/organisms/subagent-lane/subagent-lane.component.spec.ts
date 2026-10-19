@@ -230,6 +230,10 @@ describe('SubagentLaneComponent', () => {
   it.each(['running', 'completed'] as const)(
     'shows the composer for a %s agent',
     (status) => {
+      // A live agent takes input only through a steerable tray context.
+      if (status === 'running') {
+        contexts.set(new Map([['tool-1', context({ steerable: true })]]));
+      }
       const fixture = setup({ ...base, status });
       const composer = fixture.nativeElement.querySelector(
         'ptah-subagent-lane-composer',

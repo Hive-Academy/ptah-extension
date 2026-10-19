@@ -42,7 +42,7 @@ const FOLLOW_UP_FAILED = 'Could not send the follow-up. Try again.';
         class="border-t border-base-content/10 px-2.5 py-1.5 text-xs text-base-content-muted"
         data-testid="subagent-composer-unavailable"
       >
-        This agent's session is not open
+        {{ unavailableText() }}
       </p>
     } @else {
       <ptah-agent-steer-input
@@ -117,10 +117,21 @@ export class SubagentLaneComposerComponent {
       record.teammateName || record.agentType || record.agentId || 'sub-agent'
     );
   });
+  /** Still active, so the text must steer it, never go to the main chat. */
+  private readonly live = computed(() => {
+    const status = this.record().status;
+    return status === 'running' || status === 'pending' || status === 'paused';
+  });
   readonly mode = computed<SubagentComposerMode>(() => {
     if (this.context()?.entry.steerable) return 'steer';
+    if (this.live()) return 'unavailable';
     return this.owningSession() ? 'follow-up' : 'unavailable';
   });
+  protected readonly unavailableText = computed(() =>
+    this.live()
+      ? 'This agent cannot take messages right now'
+      : "This agent's session is not open",
+  );
   protected readonly placeholder = computed(() =>
     this.mode() === 'steer'
       ? `Message ${this.name()}…`

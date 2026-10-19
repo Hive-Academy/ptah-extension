@@ -51,4 +51,19 @@ describe('subagentFollowUpPrompt', () => {
       'Continue the Explore sub-agent (agent id b2) with this message from me:\n\ngo on',
     );
   });
+
+  it('puts the task on one short line without double quotes', () => {
+    const prompt = subagentFollowUpPrompt(
+      {
+        ...base,
+        agentType: 'Explore',
+        taskDescription: `Map the "repo"\n\n  now ${'x'.repeat(300)}`,
+      },
+      'go on',
+    );
+    const task = /worked on "([^"]*)"/.exec(prompt)?.[1] ?? '';
+    expect(task.startsWith("Map the 'repo' now x")).toBe(true);
+    expect(task).toHaveLength(200);
+    expect(task.endsWith('…')).toBe(true);
+  });
 });

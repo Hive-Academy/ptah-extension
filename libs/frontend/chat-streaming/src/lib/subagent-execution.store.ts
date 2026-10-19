@@ -252,6 +252,9 @@ export class SubagentExecutionStore {
   ): void {
     if (!sessionId || entry.sessionId === sessionId) return;
     entry.sessionId = sessionId;
+    // A load in flight pages the old session; drop it so the next load
+    // starts over in the new one.
+    if (entry.history === 'loading') this.abort(entry);
     if (RETRYABLE_HISTORY.has(entry.history)) {
       entry.history = 'idle';
       entry.historyError = undefined;
