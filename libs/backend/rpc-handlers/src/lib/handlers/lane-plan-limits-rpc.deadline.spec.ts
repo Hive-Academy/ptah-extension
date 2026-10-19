@@ -373,6 +373,68 @@ describe(`${METHOD} against the renderer's RPC deadline`, () => {
       { errorName: 'Error' },
     );
   });
+
+  it('swallows a logger failure in the late-rejection observer, so no unhandled rejection escapes', async () => {
+    // The observer reports a late rejection through the injected logger, and
+    // the logger itself can throw: the output channel rethrows write
+    // failures (vscode-core output-manager). A throwing observer would leak
+    // the observer promise's own rejection — nobody is left to see it after
+    // this read already answered — so the log call is guarded.
+    const logger = createLogger();
+    logger.debug.mockImplementation(() => {
+      throw new Error('output channel write failed');
+    });
+    const limits = makeDeadlineHonoringLimits();
+    const api = {
+      agent: {
+        list: (): Promise<readonly CliDetectionResult[]> =>
+          new Promise((_, reject) => {
+            setTimeout(
+              () => reject(new Error('late list failure')),
+              HANDLER_BUDGET_MS + 1_000,
+            );
+          }),
+        limits,
+      },
+    } as unknown as PtahAPI;
+    const handler = registerHandler(api, logger);
+
+    // Node reports an unhandled rejection only at a tick checkpoint after
+    // the microtask queue drains. Probe the event directly instead of
+    // inferring its absence from the test completing.
+    const unhandled: unknown[] = [];
+    const recordUnhandled = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    process.on('unhandledRejection', recordUnhandled);
+
+    let failure: unknown;
+    handler({}).catch((error: unknown) => {
+      failure = error;
+    });
+    await jest.advanceTimersByTimeAsync(HANDLER_BUDGET_MS + 1_000);
+    // The fake clock owns the tick queue too, so flush through it: every
+    // awaited async advance settles over the real event loop (the fake
+    // clock keeps the original timers for its own scheduling), which is
+    // where Node delivers an unhandled rejection to the probe.
+    for (let flush = 0; flush < 5; flush += 1) {
+      await jest.advanceTimersByTimeAsync(0);
+    }
+
+    try {
+      // The read itself still answered with the fixed unavailable text.
+      expect(failure).toBeInstanceOf(Error);
+      expect((failure as Error).message).toBe(UNAVAILABLE);
+      expect(limits).not.toHaveBeenCalled();
+      // The observer ran and the logger threw inside it, so the guarded
+      // path was exercised, not skipped.
+      expect(logger.debug).toHaveBeenCalledTimes(1);
+      // No rejection escaped the side branch.
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.removeListener('unhandledRejection', recordUnhandled);
+    }
+  });
 });
 
 // The formatter must render a timed-out lane row for the partial result; this

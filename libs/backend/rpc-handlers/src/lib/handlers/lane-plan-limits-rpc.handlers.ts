@@ -153,7 +153,10 @@ export class LanePlanLimitsRpcHandlers {
    * rejection is logged before it is dropped (debug, by error name only,
    * the same boundary as every other failure in this file), so a swallowed
    * failure stays observable and cannot surface as an unhandled rejection
-   * after this read already answered.
+   * after this read already answered. The log call is guarded too: the
+   * logger itself can throw (the output channel rethrows write
+   * failures), and a throwing observer would leak the very unhandled
+   * rejection this side branch exists to prevent.
    */
   private async bounded<T>(
     step: Promise<T>,
@@ -161,9 +164,13 @@ export class LanePlanLimitsRpcHandlers {
     stage: string,
   ): Promise<T> {
     void step.catch((error: unknown) => {
-      this.logger.debug(`[lanePlanLimits] ${METHOD} ${stage} step rejected`, {
-        errorName: errorName(error),
-      });
+      try {
+        this.logger.debug(`[lanePlanLimits] ${METHOD} ${stage} step rejected`, {
+          errorName: errorName(error),
+        });
+      } catch {
+        // degradation-audit: optional-capability — the logger itself failed; nothing else can observe this late rejection.
+      }
     });
     const remainingMs = LANE_PLAN_LIMITS_RPC_BUDGET_MS - (Date.now() - startedAt);
     if (remainingMs <= 0) {
