@@ -22,7 +22,10 @@ import * as fsPromises from 'fs/promises';
 import * as path from 'path';
 import { homedir } from 'os';
 import { SettingsPersistError } from './file-settings-errors';
-import { FILE_BASED_OBJECT_SETTINGS_KEYS } from './file-settings-keys';
+import {
+  FILE_BASED_OBJECT_SETTINGS_KEYS,
+  SKILL_SETTINGS_MIGRATIONS,
+} from './file-settings-keys';
 
 export interface FileSettingsDefaults {
   [key: string]: unknown;
@@ -44,16 +47,6 @@ const CROSS_PROCESS_WATCH_DEBOUNCE_MS = 50;
  */
 const STALE_TEMP_FILE_AGE_MS = 10 * 60 * 1000;
 
-/** Only values actually present in settings.json are eligible for migration. */
-const SKILL_SETTINGS_MIGRATIONS = [
-  ['skillSynthesis.judgeProvider', 'skills.enhancement.provider'],
-  ['skillSynthesis.judgeModel', 'skills.enhancement.model'],
-  ['skillSynthesis.enhanceTimeoutMs', 'skills.enhancement.timeoutMs'],
-  [
-    'skillSynthesis.triggers.skillInvocationTelemetry.enabled',
-    'skills.telemetry.enabled',
-  ],
-] as const;
 /**
  * Process-wide counter that keeps each persist()'s temp file name unique. It is
  * shared by every instance: two managers on one file in one process would

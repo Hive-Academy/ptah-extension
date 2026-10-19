@@ -33,9 +33,9 @@ const booleanSettings = ADVANCED_SETTINGS.filter(
 );
 
 describe('ADVANCED_SETTINGS table', () => {
-  it('describes the 27 surfaced keys, each once', () => {
+  it('describes the 21 surfaced keys, each once', () => {
     const keys = ADVANCED_SETTINGS.map((setting) => setting.key);
-    expect(keys).toHaveLength(27);
+    expect(keys).toHaveLength(21);
     expect(new Set(keys).size).toBe(keys.length);
   });
 
@@ -97,12 +97,6 @@ describe('ADVANCED_SETTINGS table', () => {
     ['memory.lifecycle.archiveAfterDays', 7, 365, true],
     ['memory.lifecycle.deleteAfterDays', 7, 730, true],
     ['memory.lifecycle.maxPerWorkspace', 1_000, 1_000_000, true],
-    ['skillSynthesis.retirement.dormantAfterDays', 1, 3_650, true],
-    ['skillSynthesis.retirement.retireAfterDormantDays', 1, 3_650, true],
-    ['skillSynthesis.replayValidation.minConfidence', 0, 1, false],
-    ['skillSynthesis.judgePanel.disagreementThreshold', 0, 9, false],
-    ['skillSynthesis.triggers.bootScanDelayMs', 0, 3_600_000, true],
-    ['skillSynthesis.triggers.bootScanIdleBackoffMs', 0, 3_600_000, true],
     ['cron.maxConcurrentJobs', 1, 16, true],
     ['cron.catchupWindowMs', 0, 86_400_000, true],
     ['harness.preflightTimeoutMs', 100, 60_000, true],
@@ -176,34 +170,6 @@ describe('validateAdvancedSettingValue', () => {
       expect(result).toEqual({
         ok: false,
         error: 'Use a whole number from 1,000 to 100,000,000 weighted tokens.',
-      });
-    });
-
-    it('accepts a fraction for a decimal setting and words the error without a unit', () => {
-      const minConfidence = numberSetting(
-        'skillSynthesis.replayValidation.minConfidence',
-      );
-      expect(validateAdvancedSettingValue(minConfidence, 0.75)).toEqual({
-        ok: true,
-        value: 0.75,
-      });
-      expect(validateAdvancedSettingValue(minConfidence, 1.01)).toEqual({
-        ok: false,
-        error: 'Use a number from 0 to 1.',
-      });
-    });
-
-    it('refuses a disagreement threshold above the judge score range', () => {
-      const threshold = numberSetting(
-        'skillSynthesis.judgePanel.disagreementThreshold',
-      );
-      expect(validateAdvancedSettingValue(threshold, 9)).toEqual({
-        ok: true,
-        value: 9,
-      });
-      expect(validateAdvancedSettingValue(threshold, 9.5)).toEqual({
-        ok: false,
-        error: 'Use a number from 0 to 9 points.',
       });
     });
 

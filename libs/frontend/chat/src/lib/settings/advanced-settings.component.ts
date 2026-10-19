@@ -216,7 +216,7 @@ interface ImportOutcome {
                 >Fine-tuning</span
               >
               <span class="text-xs text-base-content-muted"
-                >Upkeep and timing values for memory, skills, scheduled jobs and
+                >Upkeep and timing values for memory, scheduled jobs and
                 the workspace harness. The defaults suit most people.</span
               >
             </span>
@@ -226,7 +226,6 @@ interface ImportOutcome {
           >
             @defer (on viewport) {
               <ptah-advanced-settings-group groupId="memory-upkeep" />
-              <ptah-advanced-settings-group groupId="skill-upkeep" />
               <ptah-advanced-settings-group groupId="scheduled-jobs" />
               <ptah-advanced-settings-group groupId="workspace-harness" />
             } @placeholder {
