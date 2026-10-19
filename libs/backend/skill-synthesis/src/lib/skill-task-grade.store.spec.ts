@@ -138,13 +138,13 @@ maybe('SkillTaskGradeStore', () => {
       store.upsert(grade);
       store.upsert({ ...grade, subjectSlug: 'manual', attributionKey: 'event:2', evidenceSource: 'review' });
       store.upsert({ ...grade, subjectSlug: 'backfill', attributionKey: 'event:3', evidenceSource: 'spec:legacy' });
-      store.removeAbsent(grade.taskId, '/workspace', []);
+      expect(store.removeAbsent(grade.taskId, '/workspace', [])).toBe(1);
       expect(store.listRecent('agent', 'writer', 5, '/workspace')).toHaveLength(1); // spec: evidence is kept
       expect(store.listRecent('agent', 'manual', 5, '/workspace')).toHaveLength(0);
       expect(store.listRecent('agent', 'backfill', 5, '/workspace')).toHaveLength(1);
       store.upsert(grade);
       store.upsert({ ...grade, subjectSlug: 'manual', attributionKey: 'event:2', evidenceSource: 'review' });
-      store.removeAbsent(grade.taskId, '/workspace', ['agent:other:event:3']);
+      expect(store.removeAbsent(grade.taskId, '/workspace', ['agent:other:event:3'])).toBe(1);
       expect(store.listRecent('agent', 'writer', 5, '/workspace')).toHaveLength(1);
       expect(store.listRecent('agent', 'manual', 5, '/workspace')).toHaveLength(0);
     } finally { db.close(); }

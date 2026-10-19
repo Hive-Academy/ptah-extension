@@ -79,6 +79,13 @@ const skillStateStub = {
   telemetryError: signal<string | null>(null),
   refreshTelemetryEnabled: (): Promise<void> => Promise.resolve(),
   setTelemetryEnabled: (_enabled: boolean): Promise<void> => Promise.resolve(),
+  // The Library tab's spec control (U5).
+  specs: signal<readonly unknown[]>([]),
+  specsLoading: signal(false),
+  staleSpecCount: signal(0),
+  refreshSpecs: (): Promise<void> => Promise.resolve(),
+  harvestSpecs: (): Promise<void> => Promise.resolve(),
+  clearStaleSpecs: (): Promise<number> => Promise.resolve(0),
 };
 
 /**

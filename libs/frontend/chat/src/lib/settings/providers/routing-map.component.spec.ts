@@ -54,12 +54,12 @@ class HostComponent {
 }
 
 describe('routing map derivations', () => {
-  it('backgroundRolesPreview splits the roles into explicit ones (with connection names) and followers', () => {
+  it('backgroundRolesPreview counts Decision and names explicit providers', () => {
     const preview = backgroundRolesPreview('openai-codex', 'moonshot',
       (id) => ({ 'openai-codex': 'OpenAI Codex', moonshot: 'Moonshot (Kimi)' })[id] ?? id);
     expect(preview).toEqual({
       explicit: [{ label: 'Memory curator', provider: 'OpenAI Codex' }, { label: 'Enhancement', provider: 'Moonshot (Kimi)' }],
-      following: 0, total: 2,
+      defaulted: ['Decision'], total: 3,
     });
   });
 
@@ -184,21 +184,21 @@ describe('RoutingMapComponent', () => {
   });
 
   describe('Background Roles node', () => {
-    it('previews the two explicit roles with their connection', () => {
+    it('previews the two explicit roles and default Decision', () => {
       const rows = Array.from(node('background-roles').querySelectorAll('li'))
         .map((row) => Array.from(row.querySelectorAll('span')).map((span) => span.textContent?.trim()));
-      expect(rows).toEqual([['Memory curator', 'OpenAI Codex'], ['Enhancement', 'Moonshot (Kimi)']]);
-      expect(within('background-roles', 'routing-node-status')?.textContent?.trim()).toBe('2 roles');
-      expect(within('background-roles', 'routing-node-footer')?.textContent?.trim()).toBe('2 set · 0 following');
+      expect(rows).toEqual([['Memory curator', 'OpenAI Codex'], ['Enhancement', 'Moonshot (Kimi)'], ['Decision', 'Default']]);
+      expect(within('background-roles', 'routing-node-status')?.textContent?.trim()).toBe('3 roles');
+      expect(within('background-roles', 'routing-node-footer')?.textContent?.trim()).toBe('2 set · 1 default');
     });
 
-    it('shows when Enhancement follows the main agent', () => {
+    it('shows Enhancement and Decision as defaulted when Enhancement has no provider', () => {
       state.enhancement.set(ready({ provider: '' }));
       fixture.detectChanges();
-      expect(within('background-roles', 'routing-background-following')?.textContent).toContain('1 role');
+      expect(node('background-roles').querySelectorAll('[data-testid="routing-background-default"]')).toHaveLength(2);
       const rows = Array.from(node('background-roles').querySelectorAll('li'))
         .map((row) => Array.from(row.querySelectorAll('span')).map((span) => span.textContent?.trim()));
-      expect(rows).toEqual([['Memory curator', 'OpenAI Codex'], ['1 role', 'Follows main agent']]);
+      expect(rows).toEqual([['Memory curator', 'OpenAI Codex'], ['Enhancement', 'Default'], ['Decision', 'Default']]);
     });
 
     it('Inspect opens Agent Orchestration at the background models', () => {

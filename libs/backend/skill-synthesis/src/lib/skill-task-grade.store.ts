@@ -169,7 +169,7 @@ export class SkillTaskGradeStore {
     return groupGradeAttributions(rows);
   }
 
-  removeAbsent(taskId: string, workspaceRoot: string, keys: readonly string[]): void {
+  removeAbsent(taskId: string, workspaceRoot: string, keys: readonly string[]): number {
     // An empty keep-list means all current attributions were skipped; remove stale non-spec grades.
     const normalizedRoot = normalizeWorkspaceRoot(workspaceRoot);
     const rows = this.db.prepare(`SELECT subject_kind, subject_slug, attribution_key FROM skill_task_grades
@@ -179,8 +179,10 @@ export class SkillTaskGradeStore {
     const remove = this.db.prepare(`DELETE FROM skill_task_grades
       WHERE task_id = ? AND workspace_root = ? AND subject_kind = ? AND subject_slug = ? AND attribution_key = ?
         AND evidence_source NOT LIKE 'spec:%'`);
+    let removed = 0;
     for (const row of rows) if (!keep.has(`${row.subject_kind}:${row.subject_slug}:${row.attribution_key}`))
-      remove.run(taskId, normalizedRoot, row.subject_kind, row.subject_slug, row.attribution_key);
+      removed += remove.run(taskId, normalizedRoot, row.subject_kind, row.subject_slug, row.attribution_key).changes;
+    return removed;
   }
 
   hasGradeForTask(taskId: string, slug: string, kind?: SkillRegistryKind): boolean {

@@ -147,7 +147,7 @@ describe('SpecHarvesterService', () => {
   it('replaces a grade after a corrected review without repeating the old reconciliation', async () => {
     const grades = {
       findAttributions: jest.fn().mockReturnValue([{ kind: 'agent', slug: 'backend-developer', runId: 'run-1', sessionId: 'session-1', attributionKey: 'run:run-1', finalReview: null }]),
-      upsert: jest.fn(), removeAbsent: jest.fn(), hasGradeForTask: jest.fn().mockReturnValue(false),
+      upsert: jest.fn(), removeAbsent: jest.fn().mockReturnValue(0), hasGradeForTask: jest.fn().mockReturnValue(false),
     };
     svc = new SpecHarvesterService(makeLogger() as never, { getWorkspaceRoot: () => root } as never, store as never, grades as never);
     const dir = await writeSpec('TASK_2026_090', {
@@ -169,7 +169,7 @@ describe('SpecHarvesterService', () => {
         kind: 'agent', slug: 'backend-developer', runId: 'run-1',
         sessionId: 'session-1', attributionKey: 'run:run-1', finalReview: null,
       }]),
-      upsert: jest.fn(), removeAbsent: jest.fn(), hasGradeForTask: jest.fn(),
+      upsert: jest.fn(), removeAbsent: jest.fn().mockReturnValue(0), hasGradeForTask: jest.fn(),
     };
     const logger = makeLogger();
     svc = new SpecHarvesterService(logger as never, { getWorkspaceRoot: () => root } as never, store as never, grades as never);
@@ -201,10 +201,14 @@ describe('SpecHarvesterService', () => {
     });
     await writeFile(join(reviewDir, 'code-style-review.md'), 'Verdict: PASS', 'utf8');
     const priorWrites = grades.upsert.mock.calls.length;
+    grades.removeAbsent.mockReturnValueOnce(2);
     await svc.harvest();
     expect(grades.upsert).toHaveBeenCalledTimes(priorWrites);
     expect(logger.warn).toHaveBeenCalledWith('[spec-harvester] conflicting review verdicts', expect.objectContaining({ taskId: 'TASK_2026_095' }));
     expect(grades.removeAbsent).toHaveBeenCalledWith('TASK_2026_095', normalizeWorkspaceRoot(root), []);
+    expect(logger.info).toHaveBeenCalledWith('[spec-harvester] pruned stale grades', {
+      taskId: 'TASK_2026_095', removed: 2, kept: 0,
+    });
   });
 
   it('passes the canonical workspace root to grade attribution and writes', async () => {
@@ -213,7 +217,7 @@ describe('SpecHarvesterService', () => {
         kind: 'agent', slug: 'backend-developer', runId: 'run-1',
         sessionId: 'session-1', attributionKey: 'run:run-1', finalReview: 'approved',
       }]),
-      upsert: jest.fn(), removeAbsent: jest.fn(), hasGradeForTask: jest.fn(),
+      upsert: jest.fn(), removeAbsent: jest.fn().mockReturnValue(0), hasGradeForTask: jest.fn(),
     };
     svc = new SpecHarvesterService(makeLogger() as never, { getWorkspaceRoot: () => root } as never, store as never, grades as never);
     await writeSpec('TASK_2026_093');
@@ -230,7 +234,7 @@ describe('SpecHarvesterService', () => {
   it('warns once when a batched spec has no grade attributions and still marks it harvested', async () => {
     const grades = {
       findAttributions: jest.fn().mockReturnValue([]),
-      upsert: jest.fn(), removeAbsent: jest.fn(), hasGradeForTask: jest.fn(),
+      upsert: jest.fn(), removeAbsent: jest.fn().mockReturnValue(0), hasGradeForTask: jest.fn(),
     };
     const logger = makeLogger();
     svc = new SpecHarvesterService(logger as never, { getWorkspaceRoot: () => root } as never, store as never, grades as never);
@@ -252,7 +256,7 @@ describe('SpecHarvesterService', () => {
     };
     const grades = {
       findAttributions: jest.fn().mockReturnValue([attribution]),
-      upsert: jest.fn(), removeAbsent: jest.fn(), hasGradeForTask: jest.fn(),
+      upsert: jest.fn(), removeAbsent: jest.fn().mockReturnValue(0), hasGradeForTask: jest.fn(),
     };
     if (failure === 'attribution') grades.findAttributions.mockImplementationOnce(() => { throw new Error('unavailable'); });
     else grades.upsert.mockImplementationOnce(() => { throw new Error('unavailable'); });
@@ -272,7 +276,7 @@ describe('SpecHarvesterService', () => {
         sessionId: 'session-1', attributionKey: 'run:run-1', finalReview: 'approved',
       }]),
       upsert: jest.fn(() => { throw new Error('unavailable'); }),
-      removeAbsent: jest.fn(), hasGradeForTask: jest.fn(),
+      removeAbsent: jest.fn().mockReturnValue(0), hasGradeForTask: jest.fn(),
     };
     const logger = makeLogger();
     svc = new SpecHarvesterService(logger as never, { getWorkspaceRoot: () => root } as never, store as never, grades as never);

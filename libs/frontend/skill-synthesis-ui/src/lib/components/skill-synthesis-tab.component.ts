@@ -13,6 +13,7 @@ import { LucideAngularModule, Sparkles } from 'lucide-angular';
 
 import { SkillSynthesisStateService } from '../services/skill-synthesis-state.service';
 import { SkillClonesViewComponent } from './clones/skill-clones-view.component';
+import { SkillSpecsControlComponent } from './skill-specs-control.component';
 import { SkillsPauseSwitchComponent } from './skills-pause-switch.component';
 
 @Component({
@@ -22,6 +23,7 @@ import { SkillsPauseSwitchComponent } from './skills-pause-switch.component';
   imports: [
     LucideAngularModule,
     SkillClonesViewComponent,
+    SkillSpecsControlComponent,
     SkillsPauseSwitchComponent,
   ],
   template: `
@@ -108,6 +110,7 @@ import { SkillsPauseSwitchComponent } from './skills-pause-switch.component';
           [skillsPaused]="skillsPaused()"
           (pausedRefusal)="onPausedRefusal()"
         />
+        <ptah-skill-specs-control />
       </div>
     }
   `,

@@ -197,9 +197,15 @@ export class SpecHarvesterService implements SpecFindingsPort {
         this.grades.upsert(grade);
         keep.push(`${grade.subjectKind}:${grade.subjectSlug}:${grade.attributionKey}`);
       }
-      this.grades.removeAbsent(spec.taskId, workspaceRoot, keep);
+      const removed = this.grades.removeAbsent(spec.taskId, workspaceRoot, keep);
+      if (removed > 0) {
+        this.logger.info('[spec-harvester] pruned stale grades', {
+          taskId: spec.taskId, removed, kept: keep.length,
+        });
+      }
       return true;
     } catch (error: unknown) {
+      // degradation-audit: reported - logged at warn; the digest is retried on the next harvest.
       this.logger.warn('[spec-harvester] grade write unavailable', {
         taskId: spec.taskId, reason: error instanceof Error ? error.name : 'unknown',
       });
@@ -329,7 +335,9 @@ export class SpecHarvesterService implements SpecFindingsPort {
     root: string,
     options: { warnOnSkipped?: boolean } = {},
   ): Promise<HarvestedSpec[]> {
+    // degradation-audit: optional-capability - a workspace without .ptah/specs has no specs to read.
     const actualRoot = await realpath(root).catch(() => null);
+    // degradation-audit: optional-capability - an unresolvable workspace root means no specs to read.
     const actualWorkspace = await realpath(join(root, '..', '..')).catch(() => null);
     if (!actualRoot || !actualWorkspace) return [];
     const rootWithinWorkspace = relative(actualWorkspace, actualRoot);

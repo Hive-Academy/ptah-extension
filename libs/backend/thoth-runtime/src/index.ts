@@ -11,6 +11,10 @@
  */
 export { bootThothRuntime } from './lib/boot-thoth-runtime';
 export { startThothCron } from './lib/start-thoth-cron';
+export {
+  RETIRED_SKILL_PIPELINE_JOB_IDS,
+  disableRetiredSkillPipelineJobs,
+} from './lib/retired-skill-jobs';
 // The ONE memory retention job spec and its per-run handler, shared with
 // `cli-engine`.
 export {

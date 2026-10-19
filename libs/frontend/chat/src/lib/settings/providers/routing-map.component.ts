@@ -5,6 +5,7 @@ import {
   type ProvidersSettingsSection,
 } from '@ptah-extension/core';
 import { RoutingMapNodeComponent, type RoutingNodeState, type RoutingNodeTone } from './routing-map-node.component';
+import { BACKGROUND_ROLE_IDS } from './provider-consumer-rows';
 
 export type RoutingNodeId = 'main-agent' | 'background-roles' | 'cli-agents';
 
@@ -12,12 +13,12 @@ export type RoutingNodeId = 'main-agent' | 'background-roles' | 'cli-agents';
 export interface BackgroundRolesPreview {
   /** Roles with a provider of their own, in list order: `{ label, provider }` (provider = connection name). */
   readonly explicit: readonly { readonly label: string; readonly provider: string }[];
-  /** Roles with no provider of their own: they follow the main agent. */
-  readonly following: number;
+  /** Roles without an explicit provider in this settings state. */
+  readonly defaulted: readonly string[];
   readonly total: number;
 }
 
-/** The background roles, split into explicitly assigned ones and those following the main agent. */
+/** The background roles, split into explicitly assigned and defaulted roles. */
 export function backgroundRolesPreview(
   curatorProvider: string,
   enhancementProvider: string,
@@ -26,10 +27,11 @@ export function backgroundRolesPreview(
   const roles = [
     { label: 'Memory curator', provider: curatorProvider },
     { label: 'Enhancement', provider: enhancementProvider },
+    { label: 'Decision', provider: '' },
   ];
   const explicit = roles.filter((role) => role.provider.trim())
     .map((role) => ({ label: role.label, provider: nameOf(role.provider.trim()) }));
-  return { explicit, following: roles.length - explicit.length, total: roles.length };
+  return { explicit, defaulted: roles.filter((role) => !role.provider.trim()).map((role) => role.label), total: BACKGROUND_ROLE_IDS.length };
 }
 
 export interface CliAgentsPreview {
@@ -146,16 +148,16 @@ function sectionState(...sections: readonly ProvidersSettingsSection<unknown>[])
           (retryRequested)="retryBackground()">
           @if (background().preview; as preview) {
             <ul class="space-y-1">
-              @for (role of preview.explicit.slice(0, 2); track role.label) {
+              @for (role of preview.explicit; track role.label) {
                 <li class="flex items-baseline justify-between gap-2">
                   <span>{{ role.label }}</span>
                   <span class="min-w-0 break-words text-right font-mono text-[11px] text-base-content-muted">{{ role.provider }}</span>
                 </li>
               }
-              @if (preview.following) {
-                <li class="flex items-baseline justify-between gap-2" data-testid="routing-background-following">
-                  <span>{{ preview.following }} {{ preview.following === 1 ? 'role' : 'roles' }}</span>
-                  <span class="text-[11px] text-base-content-muted">{{ preview.following === 1 ? 'Follows' : 'Follow' }} main agent</span>
+              @for (label of preview.defaulted; track label) {
+                <li class="flex items-baseline justify-between gap-2" data-testid="routing-background-default">
+                  <span>{{ label }}</span>
+                  <span class="text-[11px] text-base-content-muted">Default</span>
                 </li>
               }
             </ul>
@@ -243,7 +245,7 @@ export class RoutingMapComponent {
       state, preview,
       tone: (preview?.explicit.length ? 'info' : 'neutral') as RoutingNodeTone,
       status: preview ? `${preview.total} roles` : 'Loading',
-      footer: preview ? `${preview.explicit.length} set · ${preview.following} following` : '',
+      footer: preview ? `${preview.explicit.length} set · ${preview.defaulted.length} default` : '',
     };
   });
 

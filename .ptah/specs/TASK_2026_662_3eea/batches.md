@@ -1823,7 +1823,8 @@ pipeline tokens (batch 59) before SS registrations are removed (batch 60).
 - Plan reference: plan row 24 (G2); decisions O25a; `reports/batch-27-report.md`.
 - Quality requirements: remove `refreshSuggestions`/`listSuggestions` (state `:571`), `refreshCandidates`,
   `loadStats`, `refreshDigest` and every other candidate/suggestion/diagnostics call and the signals only
-  they feed. Keep the pause and telemetry `settings:get`/`settings:set` helpers and whatever the Library
+  they feed. Keep (U5, O35d) `specs`, `specsLoading`, `staleSpecCount`, `refreshSpecs`, `harvestSpecs`,
+  `clearStaleSpecs` (used by `skill-specs-control`). Keep the pause and telemetry `settings:get`/`settings:set` helpers and whatever the Library
   view, pause switch and dashboard still read. Shared-contract rule and O20: before removing a public
   method or signal, `rg -n "SkillSynthesisStateService" libs apps --glob "*.spec.ts"` (batch 27 found
   skill-synthesis-ui, thoth-shell, ptah-electron-e2e); every live hit is either in this batch's gate or
@@ -1856,6 +1857,8 @@ pipeline tokens (batch 59) before SS registrations are removed (batch 60).
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/rpc-handlers @ptah-extension/shared @ptah-extension/skill-synthesis-ui @ptah-extension/dashboard @ptah-extension/core @ptah-extension/chat ptah-extension-vscode ptah-electron @ptah-extension/cli-engine ptah-cli --parallel=1`
 - Precondition: the host surface specs are manifest-relative (40-42). Retained methods are reworked (43).
   The frontend facade is trimmed (58). `rg` for the removal-set names in `libs/frontend apps` is zero.
+- Keep (U5, O35d): `skillSynthesis:listSpecs`, `skillSynthesis:harvestSpecs`, `skillSynthesis:clearStaleSpecs` and their
+  RPC facade methods; the restored `skill-specs-control` component calls them.
 - Added by O31a: `previewEnhancement` still calls `this.synthesis.readSettings()`. When the synthesis injection goes,
   give the enhancer a settings source that reads the retained keys (it uses only `minJudgeScore`,
   `skill-enhancer.service.ts:415`); no silent catch, no `skillSynthesis.*` key that batch 65 removes.
@@ -1951,6 +1954,8 @@ pipeline tokens (batch 59) before SS registrations are removed (batch 60).
 - Phase: E | Executor: CLI lane codex | Depends on: 25, 59 | Tasks: 1
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/shared @ptah-extension/core @ptah-extension/chat @ptah-extension/skill-synthesis-ui @ptah-extension/rpc-handlers --parallel=1`
 - Precondition: `rg -n "SkillLane(Id|Tier|s)?Dto" libs apps tools` finds only `rpc-curator-diagnostics.types.ts`.
+- Add (U7, O35c): remove the `trayKeepalive` field from the settings DTO (`libs/shared/src/lib/types/rpc.types.ts:~3038`)
+  and its schema (`skills-synthesis-rpc.schema.ts:~151` + spec) if the DTO survives batch 59.
 
 ### Task 63.1: Remove `SkillLane*Dto` and other pipeline-only DTOs with zero importers - PENDING
 
@@ -1983,6 +1988,8 @@ pipeline tokens (batch 59) before SS registrations are removed (batch 60).
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/platform-core @ptah-extension/shared @ptah-extension/rpc-handlers @ptah-extension/chat @ptah-extension/core --parallel=1`
 - Precondition: G11 the new reader and migration are active. G7 is removed (batch 33). The RH settings
   specs moved (batch 34). The chat advanced spec moved (batch 18). Core is cut (batch 25).
+- Add (U7, O35c): `skillSynthesis.trayKeepalive` is in the removal set (`file-settings-keys.ts:~339,~654` + spec); the
+  Electron reader was removed in the Phase C fix round.
 
 ### Task 65.1: Remove 32 lane keys + 47 explicit keys; keep `skillSynthesis.enabled` and `skillSynthesis.skillsRoot` - PENDING
 

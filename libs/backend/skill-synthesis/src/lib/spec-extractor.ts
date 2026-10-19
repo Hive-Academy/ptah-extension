@@ -94,6 +94,7 @@ export function parseReviewVerdict(file: string, content: string, digest: string
   let taskId: string | null = null;
   if (file.endsWith('.json')) {
     let value: unknown;
+    // degradation-audit: optional-capability - a malformed review JSON yields no verdict for that file.
     try { value = JSON.parse(content); } catch { return null; }
     if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
     const data: Record<string, unknown> = value as Record<string, unknown>;
@@ -207,7 +208,9 @@ async function fileExists(path: string): Promise<boolean> {
 export async function extractSpec(dir: string, specsRoot = dirname(dir)): Promise<HarvestedSpec | null> {
   const taskId = basename(dir);
   if (!/^TASK_[A-Za-z0-9_-]+$/.test(taskId)) return null;
+  // degradation-audit: optional-capability - a missing specs root means no spec to harvest.
   const root = await realpath(specsRoot).catch(() => null);
+  // degradation-audit: optional-capability - a missing task folder means no spec to harvest.
   const actual = await realpath(dir).catch(() => null);
   if (!root || !actual) return null;
   const inside = relative(root, actual);
@@ -216,12 +219,14 @@ export async function extractSpec(dir: string, specsRoot = dirname(dir)): Promis
   const digest = createHash('sha256');
   const safeRead = async (file: string): Promise<string | null> => {
     const path = join(dir, file);
+    // degradation-audit: optional-capability - an absent artifact is normal; the caller skips it.
     const target = await realpath(path).catch(() => null);
     if (!target) return null;
     if (relative(actual, target).startsWith('..') || isAbsolute(relative(actual, target))) {
       diagnostics.push(`${file}: path outside task folder`);
       return null;
     }
+    // degradation-audit: reported - an unreadable artifact is recorded in the spec diagnostics.
     const info = await stat(path).catch(() => null);
     if (!info?.isFile() || info.size > MAX_ARTIFACT_BYTES) { diagnostics.push(`${file}: unreadable or oversized`); return null; }
     const content = await readFileSafe(path);

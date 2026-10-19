@@ -5,8 +5,8 @@ import { openConfigSurface } from './_harness/config-menu';
 
 /**
  * Visual tour of the Skills Library and its pause and telemetry controls.
- * The existing voiceover script describes retired pipeline views, so this
- * scene uses captions and visual holds until that script can be updated.
+ * The six voiceover lines follow the Library, controls, entries, and closing
+ * beats shown here.
  * All steps are read-only; switches and Library actions are never clicked.
  */
 async function goToSkills(page: Page, director: Director): Promise<Locator> {

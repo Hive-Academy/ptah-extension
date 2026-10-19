@@ -55,6 +55,10 @@ describe('SkillSynthesisTabComponent', () => {
             refreshTelemetryEnabled,
             setTelemetryEnabled,
             markSkillsPaused,
+            specs: signal([]),
+            specsLoading: signal(false),
+            staleSpecCount: signal(0),
+            refreshSpecs: jest.fn(async () => undefined),
           },
         },
         {
@@ -84,9 +88,10 @@ describe('SkillSynthesisTabComponent', () => {
     };
   }
 
-  it('shows only the Library and preserves both switches on desktop', () => {
+  it('shows the Library and specs control and preserves both switches on desktop', () => {
     const { root, refreshTelemetryEnabled } = mount();
     expect(root.querySelector('ptah-skill-clones-view')).not.toBeNull();
+    expect(root.querySelector('[data-testid="skills-specs-control"]')).not.toBeNull();
     expect(root.querySelector('ptah-skills-pause-switch')).not.toBeNull();
     expect(root.querySelector('[data-testid="skills-telemetry-toggle"]')).not.toBeNull();
     expect(root.querySelector('[role="tablist"]')).toBeNull();

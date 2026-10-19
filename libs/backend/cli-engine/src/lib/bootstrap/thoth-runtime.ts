@@ -25,6 +25,7 @@ import {
 import {
   MEMORY_RETENTION_JOB,
   createMemoryRetentionHandler,
+  disableRetiredSkillPipelineJobs,
 } from '@ptah-extension/thoth-runtime';
 import {
   CRON_TOKENS,
@@ -355,6 +356,24 @@ async function startCron(
     const cronScheduler = container.resolve<CronScheduler>(
       CRON_TOKENS.CRON_SCHEDULER,
     );
+    if (container.isRegistered(CRON_TOKENS.CRON_JOB_STORE)) {
+      try {
+        const result = disableRetiredSkillPipelineJobs(
+          container.resolve<IJobStore>(CRON_TOKENS.CRON_JOB_STORE),
+        );
+        if (result.disabled > 0) {
+          logger.info('[CLI Thoth] Disabled retired skill pipeline jobs', { count: result.disabled });
+        }
+        if (result.failed.length > 0) {
+          logger.warn('[CLI Thoth] Failed to disable retired skill pipeline jobs', { ids: result.failed });
+        }
+      } catch (error: unknown) {
+        // degradation-audit: reported - cron still starts; the failed retirement is warned.
+        logger.warn('[CLI Thoth] Retired skill pipeline job disable failed (non-fatal)', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
     await cronScheduler.start({
       enabled: enabled ?? true,
       maxConcurrentJobs: maxConcurrentJobs ?? 3,

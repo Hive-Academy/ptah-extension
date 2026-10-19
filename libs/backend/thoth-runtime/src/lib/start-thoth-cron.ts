@@ -29,6 +29,7 @@ import {
   withActivityEmit,
   type ActivityEmitter,
 } from './activity-emitter';
+import { disableRetiredSkillPipelineJobs } from './retired-skill-jobs';
 
 /** Cron handler name for the out-of-process database integrity check. */
 const INTEGRITY_HANDLER_NAME = 'db:integrity';
@@ -380,6 +381,25 @@ export async function startThothCron(
             retentionErr instanceof Error
               ? retentionErr.message
               : String(retentionErr),
+          );
+        }
+      }
+      if (container.isRegistered(CRON_TOKENS.CRON_JOB_STORE)) {
+        try {
+          const result = disableRetiredSkillPipelineJobs(
+            container.resolve<IJobStore>(CRON_TOKENS.CRON_JOB_STORE),
+          );
+          if (result.disabled > 0) {
+            console.log(`${logPrefix} Disabled ${result.disabled} retired skill pipeline jobs`);
+          }
+          if (result.failed.length > 0) {
+            console.warn(`${logPrefix} Failed to disable retired skill pipeline jobs:`, result.failed);
+          }
+        } catch (error: unknown) {
+          // degradation-audit: reported - cron still starts; the failed retirement is warned.
+          console.warn(
+            `${logPrefix} Retired skill pipeline job disable failed (non-fatal):`,
+            error instanceof Error ? error.message : String(error),
           );
         }
       }

@@ -40,14 +40,3 @@ export function createIsolatedPtahHome(): IsolatedPtahHome {
     },
   };
 }
-
-/**
- * Compatibility export for the tray spec until that obsolete spec is removed.
- * The retired keepalive setting must no longer be written to settings.json.
- */
-export function seedTrayKeepalive(
-  _home: string,
-  _trayKeepalive: boolean | undefined,
-): void {
-  // Kept only to satisfy the existing import; there is no setting to seed.
-}

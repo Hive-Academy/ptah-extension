@@ -1,4 +1,5 @@
 export { SkillSynthesisTabComponent } from './lib/components/skill-synthesis-tab.component';
+export { SkillSpecsControlComponent } from './lib/components/skill-specs-control.component';
 export { SkillStatsStripComponent } from './lib/components/skill-stats-strip.component';
 export { SkillPipelineStatusComponent } from './lib/components/skill-pipeline-status.component';
 export { SkillDigestPanelComponent } from './lib/components/skill-digest-panel.component';

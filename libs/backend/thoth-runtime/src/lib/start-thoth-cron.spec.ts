@@ -114,6 +114,26 @@ describe('startThothCron', () => {
     });
   });
 
+  it('disables retired jobs before starting the scheduler', async () => {
+    const scheduler = { start: jest.fn().mockResolvedValue(undefined) };
+    const jobStore = {
+      get: jest.fn().mockReturnValue({ enabled: true }),
+      update: jest.fn(),
+    };
+    const container = makeContainer([
+      [CRON_TOKENS.CRON_SCHEDULER, scheduler],
+      [CRON_TOKENS.CRON_JOB_STORE, jobStore],
+      [PLATFORM_TOKENS.WORKSPACE_PROVIDER, makeWorkspaceProvider()],
+    ]);
+
+    await startThothCron(container, refsWithSqlite());
+
+    expect(jobStore.update).toHaveBeenCalledTimes(4);
+    expect(jobStore.update.mock.invocationCallOrder[3]).toBeLessThan(
+      scheduler.start.mock.invocationCallOrder[0],
+    );
+  });
+
   it('registers the daily backup handler and upserts the @ptah/daily-backup job', async () => {
     const handlers = new Map<string, () => Promise<{ summary: string }>>();
     const handlerRegistry = {
@@ -124,7 +144,7 @@ describe('startThothCron', () => {
         },
       ),
     };
-    const jobStore = { upsert: jest.fn() };
+    const jobStore = { upsert: jest.fn(), get: jest.fn().mockReturnValue(null), update: jest.fn() };
     const backupService = {
       backup: jest.fn().mockResolvedValue('/backups/daily.db'),
       rotate: jest.fn(),
@@ -289,7 +309,7 @@ describe('startThothCron', () => {
           handlers.set(name, fn);
         }),
       };
-      const jobStore = { upsert: jest.fn() };
+      const jobStore = { upsert: jest.fn(), get: jest.fn().mockReturnValue(null), update: jest.fn() };
       const integrity = {
         isDue: jest.fn(() => true),
         dispatchIfDue: jest.fn().mockResolvedValue(undefined),
@@ -632,7 +652,7 @@ describe('startThothCron', () => {
           handlers.set(name, fn);
         }),
       };
-      const jobStore = { upsert: jest.fn() };
+      const jobStore = { upsert: jest.fn(), get: jest.fn().mockReturnValue(null), update: jest.fn() };
       const retention = {
         run: jest.fn().mockResolvedValue({
           status: 'completed',
