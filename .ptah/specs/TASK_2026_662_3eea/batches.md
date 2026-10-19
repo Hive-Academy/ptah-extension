@@ -1353,14 +1353,14 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
 - Validation notes: the handler methods still exist (until batch 59). Only these specs go.
 - Implementation details: none beyond the plan row.
 
-## Batch 34: RH settings-spec fixtures move to retained keys (R5) - PENDING
+## Batch 34: RH settings-spec fixtures move to retained keys (R5) - COMPLETE (5af82793e)
 
 - Phase: C | Executor: CLI lane codex | Depends on: 33 | Tasks: 1
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/rpc-handlers --parallel=1`
 - Precondition: `settings-rpc.handlers.spec.ts:393,446` uses `skillSynthesis.replayValidation.minConfidence`
   and `judgePanel.disagreementThreshold`. `config-scope-rpc.handlers.spec.ts:243` uses `skillSynthesis.judgeModel`.
 
-### Task 34.1: Keep the scope/validation coverage on keys that survive batch 65 - PENDING
+### Task 34.1: Keep the scope/validation coverage on keys that survive batch 65 - COMPLETE
 
 - Files: `RH/handlers/settings-rpc.handlers.spec.ts`, `RH/handlers/config-scope-rpc.handlers.spec.ts`.
 - Plan reference: round-2 R5.
@@ -1386,14 +1386,14 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
 - Validation notes: `memory-retention-job.spec.ts` covers the active and idle intervals.
 - Implementation details: none beyond the plan row.
 
-## Batch 36: CLI engine boot cut - PENDING
+## Batch 36: CLI engine boot cut - COMPLETE (2e60c07d0; O29a, O29c)
 
 - Phase: C | Executor: CLI lane codex | Depends on: 31, 35 | Tasks: 1
 - Flags: EXCEPTION (8 files, consumer-only, one project)
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/cli-engine @ptah-extension/thoth-runtime --parallel=1`
 - Precondition: G3. CE imports `SKILL_DRAIN_JOBS` and cleanup.
 
-### Task 36.1: Remove the drain/cleanup/synthesis imports; keep repropagation and the root - PENDING
+### Task 36.1: Remove the drain/cleanup/synthesis imports; keep repropagation and the root - COMPLETE
 
 - Files: `CE/bootstrap/thoth-runtime.ts` + spec, `CE/bootstrap/thoth-runtime-edge.spec.ts`, `CE/thoth/register-thoth-libraries.ts` + spec, `CE/thoth/cli-skill-repropagation.ts` + spec, `CE/bootstrap/harness-boot.ts`.
 - Plan reference: plan row 32.
@@ -1402,13 +1402,13 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
 - Validation notes: none beyond the plan row.
 - Implementation details: none beyond the plan row.
 
-## Batch 37: Thoth runtime pipeline job definitions - PENDING
+## Batch 37: Thoth runtime pipeline job definitions - COMPLETE (b8877bfe6)
 
 - Phase: C | Executor: CLI lane codex | Depends on: 36 | Tasks: 1
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/thoth-runtime @ptah-extension/cli-engine --parallel=1`
 - Precondition: the CE caller (batch 36) and the TH cron (batch 35) are cut. `rg SKILL_DRAIN_JOBS|skill-drain-jobs apps` finds no importer.
 
-### Task 37.1: Delete the four pipeline jobs and their exports; keep the memory jobs - PENDING
+### Task 37.1: Delete the four pipeline jobs and their exports; keep the memory jobs - COMPLETE
 
 - Files: `TH/skill-drain-jobs.ts` (delete), `TH/skill-backlog-cleanup-job.ts` + spec (delete), `libs/backend/thoth-runtime/src/index.ts`.
 - Plan reference: plan row 33.
@@ -1417,14 +1417,14 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
 - Validation notes: none beyond the plan row.
 - Implementation details: none beyond the plan row.
 
-## Batch 38: Electron activation cut - PENDING
+## Batch 38: Electron activation cut - COMPLETE (b7eb75628; O30)
 
 - Phase: C | Executor: CLI lane codex | Depends on: 31, 36 | Tasks: 1
 - Flags: EXCEPTION (10 files, consumer-only, one project)
 - Verification: `npx nx run-many -t test typecheck -p ptah-electron --parallel=1`
 - Precondition: G14. Electron still folds candidates (`plugin-activation.ts` reads `skill_candidates`).
 
-### Task 38.1: Remove the pipeline imports and keepalive; keep the shipped root and repropagation - PENDING
+### Task 38.1: Remove the pipeline imports and keepalive; keep the shipped root and repropagation - COMPLETE
 
 - Files: `apps/ptah-electron/src/activation/plugin-activation.ts` + spec, `wire-runtime.ts` + spec, `boot-coordinator.ts`, `boot-order.spec.ts`, `apps/ptah-electron/src/main.ts`, `apps/ptah-electron/src/services/tray/tray.service.ts`, `skill-repropagation.ts` + spec (paths per plan row 34).
   Added by O28b: `apps/ptah-electron/src/activation/shutdown.ts:230` and `boot-heavy-services.ts:189` (stop reading
@@ -1606,13 +1606,13 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
 - Validation notes: after the batch, `rg -n "funnel|judge-agreement|judge-corpus|judge-lane-tap|registerSkillSynthesisServices|SkillJudgeService|SkillMdGenerator" tools/mcp-bench/src` has no live hit, except the comment-only `rubric-ground-truth.ts:8` (update the comment) and the snapshot-audits funnel kind owned by batch 47.
 - Implementation details: none beyond the plan rows and the finding.
 
-## Batch 47: mcp-bench snapshot audits and candidate diff use archive fixtures - PENDING
+## Batch 47: mcp-bench snapshot audits and candidate diff use archive fixtures - COMPLETE (98ee61f78; O29b; funnel kind kept for the backlog audit)
 
 - Phase: C | Executor: CLI lane codex | Depends on: 15, 46 | Tasks: 1
 - Verification: `npx nx run-many -t test typecheck -p mcp-bench --parallel=1`
 - Precondition: G12 has live candidate SQL in `snapshot-audits.suite.ts`(+spec) and `data/candidate-row-diff.ts`(+spec). The archive format is from batch 15.
 
-### Task 47.1: Repoint the surviving historical comparisons - PENDING
+### Task 47.1: Repoint the surviving historical comparisons - COMPLETE
 
 - Files: `MB/suites/audits/snapshot-audits.suite.ts` + spec, `MB/data/candidate-row-diff.ts` + spec, plus `MB/memory-skills-suite-kinds.ts` + spec IF the `funnel` kind (`:212,632`; audit `:725`) is retired here.
 - Plan reference: plan row 42.
@@ -1622,13 +1622,13 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
   kind. State the decision.
 - Implementation details: none beyond the plan row.
 
-## Batch 48: mcp-bench rubric sampler - PENDING
+## Batch 48: mcp-bench rubric sampler - COMPLETE (89974fee8)
 
 - Phase: C | Executor: CLI lane codex | Depends on: 47 | Tasks: 1
 - Verification: `npx nx run-many -t test typecheck -p mcp-bench --parallel=1`
 - Precondition: G12 the sampler queries candidates and holds the approved promoted slug.
 
-### Task 48.1: Fix the path, remove the promoted slug, repoint to the archive fixture - PENDING
+### Task 48.1: Fix the path, remove the promoted slug, repoint to the archive fixture - COMPLETE
 
 - Files: `MB/labelling/select-rubric-sample.ts` (+ `select-rubric-sample.spec.ts` if affected).
 - Plan reference: plan row 44.
