@@ -9,7 +9,6 @@ import type {
   SkillSynthesisPromoteBulkResult,
   SkillSynthesisPromoteResult,
   SkillSynthesisRejectByPatternResult,
-  SkillSynthesisSettingsDto,
   SkillSynthesisStatsResult,
   SkillSynthesisSpecSummary,
   SkillSynthesisCandidateDetail,
@@ -119,7 +118,6 @@ export class SkillSynthesisStateService {
   public readonly selectedCandidateId = signal<string | null>(null);
   public readonly invocations = signal<SkillSynthesisInvocationEntry[]>([]);
   public readonly stats = signal<SkillSynthesisStatsResult | null>(null);
-  public readonly settings = signal<SkillSynthesisSettingsDto | null>(null);
   public readonly loading = signal<boolean>(false);
   public readonly error = signal<string | null>(null);
 
@@ -549,16 +547,6 @@ export class SkillSynthesisStateService {
       this._telemetrySaving.set(false);
     }
     if (failed) await this.refreshTelemetryEnabled();
-  }
-
-  /** Load settings from the backend into the settings signal. */
-  public async loadSettings(): Promise<void> {
-    try {
-      const s = await this.rpc.getSettings();
-      this.settings.set(s);
-    } catch (err) {
-      this.error.set(this.toMessage(err));
-    }
   }
 
   /** Update the status filter and reload the list. */
