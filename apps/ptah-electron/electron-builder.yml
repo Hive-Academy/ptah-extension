@@ -165,6 +165,22 @@ win:
     - '!**/node_modules/@img/sharp-libvips-darwin-*/**'
     - '!**/node_modules/@img/sharp-libvips-linux*/**'
 
+# Microsoft Store (MSIX/appx) - Store-only, selected with `--win appx`.
+# Never sign the appx: Microsoft re-signs the package after certification.
+# Identity values come from Partner Center > Product identity (case-sensitive,
+# public manifest data). Tiles come from assets/appx (see
+# scripts/generate-appx-assets.mjs). electron-builder adds runFullTrust itself.
+appx:
+  identityName: PtahOrchestra.Ptah
+  publisher: CN=4E52CB56-1E00-4214-9A22-F65A54BFF522
+  publisherDisplayName: Ptah Orchestra
+  applicationId: Ptah
+  displayName: Ptah
+  backgroundColor: transparent
+  languages:
+    - en-US
+  artifactName: ${productName}-${version}-store.${ext}
+
 linux:
   category: Development
   target:
