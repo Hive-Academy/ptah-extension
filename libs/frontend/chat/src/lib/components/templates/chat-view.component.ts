@@ -1461,8 +1461,30 @@ export class ChatViewComponent implements OnDestroy {
 
       if (result.isSuccess()) {
         const newSessionId = result.data.newSessionId;
-        this._appState.requestCanvasSession(newSessionId, 'Branch');
-        this.showActionInfo('Branch created.');
+        // `false` covers the tile cap, the canvas not draining in time, and a
+        // failed load: the fork exists on disk either way.
+        // The canvas drains the request BEFORE it awaits the session load, so
+        // app-state's 5 s timer cannot settle a hung load. Bound the wait so
+        // `_actionInFlight` always clears; a timeout means the canvas took the
+        // request and the tile exists. A late outcome after the timeout is
+        // ignored (the race has already settled).
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const opened = await Promise.race([
+          this._appState.requestCanvasSession(newSessionId, 'Branch'),
+          new Promise<'timeout'>((resolve) => {
+            timer = setTimeout(
+              () => resolve('timeout'),
+              ChatViewComponent.BRANCH_OPEN_TIMEOUT_MS,
+            );
+          }),
+        ]).finally(() => clearTimeout(timer));
+        if (opened === false) {
+          this.showActionError(
+            'Branch created, but it did not open. Open it from Previous sessions.',
+          );
+        } else {
+          this.showActionInfo('Branch created.');
+        }
       } else {
         this.showActionError(
           `Branch failed: ${result.error ?? 'Unknown error'}`,
@@ -1717,6 +1739,9 @@ export class ChatViewComponent implements OnDestroy {
 
   private static readonly MESSAGE_ID_NOT_FOUND_FALLBACK_PHRASE =
     'not found in session history';
+
+  /** Upper bound on waiting for a branch's canvas tile to report its load. */
+  private static readonly BRANCH_OPEN_TIMEOUT_MS = 10_000;
 
   private isHardRewindFailure(errMsg: string): boolean {
     return (

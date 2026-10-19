@@ -1752,17 +1752,28 @@ describe('AppStateManager', () => {
 
     it('requestCanvasTab queues tab-adoption requests in FIFO order and takeCanvasTabRequests empties the queue (F-D3)', () => {
       const service = createService();
-      service.requestCanvasTab('tab-7', '/ws/a', 'TASK_2026_200');
-      service.requestCanvasTab('tab-8', null);
+      void service.requestCanvasTab('tab-7', '/ws/a', 'TASK_2026_200');
+      void service.requestCanvasTab('tab-8', null);
+      const resolve = expect.any(Function);
 
       expect(service.canvasTabRequests()).toEqual([
-        { tabId: 'tab-7', workspacePath: '/ws/a', name: 'TASK_2026_200' },
-        { tabId: 'tab-8', workspacePath: null },
+        {
+          tabId: 'tab-7',
+          workspacePath: '/ws/a',
+          name: 'TASK_2026_200',
+          resolve,
+        },
+        { tabId: 'tab-8', workspacePath: null, resolve },
       ]);
 
       expect(service.takeCanvasTabRequests()).toEqual([
-        { tabId: 'tab-7', workspacePath: '/ws/a', name: 'TASK_2026_200' },
-        { tabId: 'tab-8', workspacePath: null },
+        {
+          tabId: 'tab-7',
+          workspacePath: '/ws/a',
+          name: 'TASK_2026_200',
+          resolve,
+        },
+        { tabId: 'tab-8', workspacePath: null, resolve },
       ]);
       expect(service.canvasTabRequests()).toEqual([]);
       expect(service.takeCanvasTabRequests()).toEqual([]);
@@ -1770,8 +1781,9 @@ describe('AppStateManager', () => {
 
     it('requestCanvasTab records focus: false only when asked (agent-child adoption)', () => {
       const service = createService();
-      service.requestCanvasTab('tab-9', '/ws/a', 'Child', false);
-      service.requestCanvasTab('tab-10', '/ws/a', 'Launch');
+      void service.requestCanvasTab('tab-9', '/ws/a', 'Child', false);
+      void service.requestCanvasTab('tab-10', '/ws/a', 'Launch');
+      const resolve = expect.any(Function);
 
       expect(service.canvasTabRequests()).toEqual([
         {
@@ -1779,9 +1791,37 @@ describe('AppStateManager', () => {
           workspacePath: '/ws/a',
           name: 'Child',
           focus: false,
+          resolve,
         },
-        { tabId: 'tab-10', workspacePath: '/ws/a', name: 'Launch' },
+        { tabId: 'tab-10', workspacePath: '/ws/a', name: 'Launch', resolve },
       ]);
+    });
+
+    it('requestCanvasTab settles its promise once, with the value the canvas reports', async () => {
+      const service = createService();
+      const adopted = service.requestCanvasTab('tab-11', '/ws/a');
+      const refused = service.requestCanvasTab('tab-12', '/ws/a');
+      const [adoptReq, refuseReq] = service.takeCanvasTabRequests();
+
+      adoptReq.resolve?.(true);
+      adoptReq.resolve?.(false);
+      refuseReq.resolve?.(false);
+      refuseReq.resolve?.(true);
+
+      await expect(adopted).resolves.toBe(true);
+      await expect(refused).resolves.toBe(false);
+    });
+
+    it('requestCanvasTab has no removal timeout: an unconsumed request stays queued', () => {
+      jest.useFakeTimers();
+      try {
+        const service = createService();
+        void service.requestCanvasTab('tab-13', '/ws/a');
+        jest.advanceTimersByTime(60_000);
+        expect(service.canvasTabRequests()).toHaveLength(1);
+      } finally {
+        jest.useRealTimers();
+      }
     });
 
     it('requestChatPrompt sets the request and clearChatPromptRequest nulls it (D.1)', () => {

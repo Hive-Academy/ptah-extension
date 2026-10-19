@@ -3,6 +3,15 @@ import { AppStateManager, type ChatPromptRequest } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { BoardTaskLinkCaptureService } from './board-task-link-capture.service';
 
+/** How long the bridge waits for the canvas to report the tile outcome. */
+const CANVAS_TILE_TIMEOUT_MS = 5000;
+
+const CANVAS_FULL_ERROR =
+  'The canvas is full. Close a session and try again.';
+
+const WORKSPACE_CHANGED_ERROR =
+  'The workspace changed before the session opened. It stays in the previous workspace.';
+
 /**
  * TaskPromptBridgeService — consumes {@link AppStateManager.chatPromptRequest}.
  *
@@ -19,13 +28,15 @@ import { BoardTaskLinkCaptureService } from './board-task-link-capture.service';
  *     {@link AppStateManager.requestCanvasTab} so an ALREADY-mounted canvas
  *     adopts the new tab as a tile (F-D3) — a fresh mount is covered by the
  *     canvas's own `restoreCanvasTilesFromTabs`, and `adoptTab` dedups the
- *     overlap,
+ *     overlap — and waits (bounded) for the canvas to report the outcome;
+ *     a refusal (tile cap) closes the new tab and resolves a failure,
  *  3. prefills the freshly created tab's composer so the user can review and
  *     edit the prompt before sending it,
  *  4. settles `request.resolve` and clears the bridge signal.
  *
  * When the request carries a `taskId`, the new tab is registered with
- * {@link BoardTaskLinkCaptureService} right after it is created.
+ * {@link BoardTaskLinkCaptureService} once the bridge keeps it (before the
+ * prefill).
  *
  * Worktree isolation remains agent-managed (F-D1): the prefilled orchestrate
  * prompt carries the directive so the agent can isolate its implementation
@@ -58,11 +69,6 @@ export class TaskPromptBridgeService {
     try {
       const name = this.deriveSessionName(request);
       const tabId = this.tabManager.createTab(name);
-      // A board start links the session to its task once the first send
-      // resolves the real session id (TASK_2026_580).
-      if (request.taskId) {
-        this.boardTaskLinkCapture.expect(tabId, request.taskId);
-      }
       // Navigate to chat FIRST so the canvas mounts and adopts the freshly
       // created tab as a tile before its stream starts.
       this.appState.setCurrentView('chat');
@@ -75,11 +81,37 @@ export class TaskPromptBridgeService {
       // one at creation time), so a canvas that mounts only later — after a
       // workspace switch — drops it instead of tiling this tab into another
       // workspace's grid.
-      this.appState.requestCanvasTab(
-        tabId,
-        this.tabManager.activeWorkspacePath,
-        name,
+      const workspacePath = this.tabManager.activeWorkspacePath;
+      const tiled = await this.awaitCanvasTile(
+        this.appState.requestCanvasTab(tabId, workspacePath, name),
       );
+      if (
+        tiled === false &&
+        this.tabManager.activeWorkspacePath !== workspacePath
+      ) {
+        // The canvas dropped the request because the workspace changed during
+        // the wait. `closeTab` only searches the active workspace, so the tab
+        // stays (empty, unprefilled) in the workspace it was created in.
+        outcome = { success: false, error: WORKSPACE_CHANGED_ERROR };
+        return;
+      }
+      if (tiled === false) {
+        // Same workspace: the canvas refused the tile (cap reached): a prefill
+        // would land on a surface nobody mounted. Close the empty tab and
+        // report the failure instead.
+        await this.tabManager.closeTab(tabId);
+        outcome = { success: false, error: CANVAS_FULL_ERROR };
+        return;
+      }
+      // `tiled` is true, or `'timeout'`: the canvas did not drain the request
+      // in time (not mounted yet). The request stays queued and is adopted on
+      // mount, so keep the prefill and report success.
+      // A board start links the session to its task once the first send
+      // resolves the real session id (TASK_2026_580). Registered only once the
+      // tab is kept, so a refused launch leaves no pending pair behind.
+      if (request.taskId) {
+        this.boardTaskLinkCapture.expect(tabId, request.taskId);
+      }
       // The prefill is scoped to this tab's tile (its SESSION_CONTEXT).
       this.appState.requestComposerPrefill(request.prompt, tabId);
     } catch (error: unknown) {
@@ -89,8 +121,28 @@ export class TaskPromptBridgeService {
       };
     } finally {
       request.resolve?.(outcome);
-      this.appState.clearChatPromptRequest();
+      // A launch that arrived during the canvas wait replaced this request in
+      // the single-slot signal and was skipped by the guard: keep it and run
+      // it now instead of clearing it unanswered.
+      const next = this.appState.chatPromptRequest();
+      if (next === request) this.appState.clearChatPromptRequest();
       this.processing = false;
+      if (next && next !== request) void this.consume(next);
+    }
+  }
+
+  /** Race the canvas adoption outcome against {@link CANVAS_TILE_TIMEOUT_MS}. */
+  private async awaitCanvasTile(
+    adoption: Promise<boolean>,
+  ): Promise<boolean | 'timeout'> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<'timeout'>((resolve) => {
+      timer = setTimeout(() => resolve('timeout'), CANVAS_TILE_TIMEOUT_MS);
+    });
+    try {
+      return await Promise.race([adoption, timeout]);
+    } finally {
+      clearTimeout(timer);
     }
   }
 

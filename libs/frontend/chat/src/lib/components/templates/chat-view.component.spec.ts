@@ -1353,6 +1353,55 @@ describe('ChatViewComponent — branch (fork) flow', () => {
     expect(h.openSessionTabMock).not.toHaveBeenCalled();
     expect(h.switchSessionMock).not.toHaveBeenCalled();
     expect(h.showInfoMock).toHaveBeenCalledWith('Branch created.', null);
+    expect(h.showErrorMock).not.toHaveBeenCalled();
+  });
+
+  it('reports a created branch that could not open as a tile (canvas full / timeout)', async () => {
+    const h = makeHarness();
+    h.forkSessionMock.mockResolvedValueOnce(
+      rpcOk({ newSessionId: 'branch-session-uuid-2' }),
+    );
+    h.requestCanvasSessionMock.mockResolvedValueOnce(false);
+
+    await h.component.onBranchRequested('msg-branch-full');
+
+    expect(h.requestCanvasSessionMock).toHaveBeenCalledWith(
+      'branch-session-uuid-2',
+      'Branch',
+    );
+    expect(h.showInfoMock).not.toHaveBeenCalled();
+    expect(h.showErrorMock).toHaveBeenCalledWith(
+      'Branch created, but it did not open. Open it from Previous sessions.',
+      null,
+    );
+  });
+
+  it('bounds a hung tile load: clears the in-flight guard and reports the branch as created', async () => {
+    jest.useFakeTimers();
+    try {
+      const h = makeHarness();
+      h.forkSessionMock.mockResolvedValueOnce(
+        rpcOk({ newSessionId: 'branch-session-uuid-3' }),
+      );
+      h.requestCanvasSessionMock.mockReturnValueOnce(
+        new Promise<boolean>(() => undefined),
+      );
+
+      const done = h.component.onBranchRequested('msg-branch-hung');
+      await jest.advanceTimersByTimeAsync(10_000);
+      await done;
+
+      expect(h.showInfoMock).toHaveBeenCalledWith('Branch created.', null);
+      expect(h.showErrorMock).not.toHaveBeenCalled();
+      // In-flight cleared: a second request for the same message runs again.
+      h.forkSessionMock.mockResolvedValueOnce(
+        rpcOk({ newSessionId: 'branch-session-uuid-4' }),
+      );
+      await h.component.onBranchRequested('msg-branch-hung');
+      expect(h.forkSessionMock).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('surfaces a failed fork and opens no tile', async () => {

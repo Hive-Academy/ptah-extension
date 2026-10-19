@@ -214,9 +214,9 @@ export interface CanvasFocusRequest {
 }
 
 /**
- * Request to adopt an existing chat tab as a canvas tile (F-D3). Fire-and-forget
- * (no resolver): the canvas effect dedups and respects the tile cap, and a
- * request queued while the canvas is not mounted waits until it mounts.
+ * Request to adopt an existing chat tab as a canvas tile (F-D3). The canvas
+ * effect dedups and respects the tile cap, and a request queued while the
+ * canvas is not mounted waits until it mounts (no removal timeout).
  *
  * `workspacePath` is the partition the tab belongs to (null: the single tab
  * set, VS Code panel), captured at REQUEST time; the canvas drops a request
@@ -234,6 +234,15 @@ export interface CanvasTabRequest {
   workspacePath: string | null;
   name?: string;
   focus?: boolean;
+  /**
+   * Internal: settle-once resolver wired by
+   * {@link AppStateManager.requestCanvasTab}. The canvas effect settles it
+   * `true` when the tab is (or already was) a tile, and `false` when the tile
+   * cap refuses it or the request is dropped for a workspace mismatch.
+   * Optional so callers / tests that fabricate the request shape still
+   * type-check.
+   */
+  resolve?: (adopted: boolean) => void;
 }
 
 /**
@@ -1290,29 +1299,44 @@ export class AppStateManager implements MessageHandler {
 
   /**
    * Queue a request that the canvas adopts an already-existing tab as a tile
-   * (no new tab/session created). Fire-and-forget: the canvas effect calls
+   * (no new tab/session created). The canvas effect calls
    * `CanvasStore.adoptTab` (dedups, respects `MAX_TILES`) and focuses it unless
    * `focus` is `false`, and drops a request whose `workspacePath` is no longer
    * the canvas's active workspace. FIFO: a burst cannot overwrite an earlier
    * request before the canvas effect drains the queue. When the canvas isn't
    * mounted (e.g. a standalone route is showing) nothing consumes
-   * the queue yet — requests wait until the canvas mounts.
+   * the queue yet — requests wait until the canvas mounts, so the returned
+   * promise stays pending until then (no removal timeout here; a caller that
+   * needs a bound races its own timer).
+   *
+   * @returns Resolves `true` once the tab is a tile, `false` when the canvas
+   * refused it (tile cap) or dropped it (workspace mismatch). Callers that do
+   * not need the outcome may ignore it.
    */
   requestCanvasTab(
     tabId: string,
     workspacePath: string | null,
     name?: string,
     focus?: boolean,
-  ): void {
-    this._canvasTabRequests.update((requests) => [
-      ...requests,
-      {
-        tabId,
-        workspacePath,
-        ...(name ? { name } : {}),
-        ...(focus === false ? { focus } : {}),
-      },
-    ]);
+  ): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      const settle = (adopted: boolean): void => {
+        if (settled) return;
+        settled = true;
+        resolve(adopted);
+      };
+      this._canvasTabRequests.update((requests) => [
+        ...requests,
+        {
+          tabId,
+          workspacePath,
+          ...(name ? { name } : {}),
+          ...(focus === false ? { focus } : {}),
+          resolve: settle,
+        },
+      ]);
+    });
   }
 
   /**

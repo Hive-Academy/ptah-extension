@@ -447,9 +447,10 @@ describe('OrchestraCanvasComponent workspace effects', () => {
   it('canvasTabRequests effect adopts the tab as a tile, focuses it, and drains the queue (F-D3)', () => {
     (canvasStoreMock.adoptTab as jest.Mock).mockReturnValue('tab-77');
     const fixture = mount();
+    const resolve = jest.fn();
 
     canvasTabRequests$.set([
-      { tabId: 'tab-77', workspacePath: null, name: 'TASK_2026_300' },
+      { tabId: 'tab-77', workspacePath: null, name: 'TASK_2026_300', resolve },
     ]);
     flush();
     fixture.detectChanges();
@@ -457,13 +458,15 @@ describe('OrchestraCanvasComponent workspace effects', () => {
     expect(canvasStoreMock.adoptTab).toHaveBeenCalledWith('tab-77');
     expect(canvasStoreMock.focusTile).toHaveBeenCalledWith('tab-77');
     expect(canvasTabRequests$()).toEqual([]);
+    expect(resolve).toHaveBeenCalledWith(true);
   });
 
   it('canvasTabRequests effect does NOT focus when adoptTab returns null (tile cap hit)', () => {
     (canvasStoreMock.adoptTab as jest.Mock).mockReturnValue(null);
     const fixture = mount();
+    const resolve = jest.fn();
 
-    canvasTabRequests$.set([{ tabId: 'tab-88', workspacePath: null }]);
+    canvasTabRequests$.set([{ tabId: 'tab-88', workspacePath: null, resolve }]);
     flush();
     fixture.detectChanges();
 
@@ -471,6 +474,37 @@ describe('OrchestraCanvasComponent workspace effects', () => {
     expect(canvasStoreMock.focusTile).not.toHaveBeenCalled();
     // Still drained so a stale request never re-fires.
     expect(canvasTabRequests$()).toEqual([]);
+    // The refusal is reported so the caller can skip its prefill.
+    expect(resolve).toHaveBeenCalledWith(false);
+  });
+
+  it('settles true when adoptTab returns null at the cap but the tab is already a tile', () => {
+    (canvasStoreMock.adoptTab as jest.Mock).mockReturnValue(null);
+    (
+      canvasStoreMock.tiles as WritableSignal<
+        Array<{
+          tabId: string;
+          order: number;
+          width: { kind: 'auto'; weight: number };
+          rowBreakBefore: boolean;
+        }>
+      >
+    ).set([
+      {
+        tabId: 'tab-89',
+        order: 0,
+        width: { kind: 'auto', weight: 1 },
+        rowBreakBefore: false,
+      },
+    ]);
+    const fixture = mount();
+    const resolve = jest.fn();
+
+    canvasTabRequests$.set([{ tabId: 'tab-89', workspacePath: null, resolve }]);
+    flush();
+    fixture.detectChanges();
+
+    expect(resolve).toHaveBeenCalledWith(true);
   });
 
   // TASK_2026_612: agent-child adoption while the canvas layout is active.
@@ -507,8 +541,11 @@ describe('OrchestraCanvasComponent workspace effects', () => {
       '/ws/b',
     );
     const fixture = mount();
+    const resolve = jest.fn();
 
-    canvasTabRequests$.set([{ tabId: 'tab-a', workspacePath: '/ws/a' }]);
+    canvasTabRequests$.set([
+      { tabId: 'tab-a', workspacePath: '/ws/a', resolve },
+    ]);
     flush();
     fixture.detectChanges();
 
@@ -516,6 +553,7 @@ describe('OrchestraCanvasComponent workspace effects', () => {
     expect(canvasStoreMock.focusTile).not.toHaveBeenCalled();
     // Dropped, not kept: the queue is still fully drained.
     expect(canvasTabRequests$()).toEqual([]);
+    expect(resolve).toHaveBeenCalledWith(false);
   });
 
   it('adopts exactly one tile for a same-workspace request', () => {

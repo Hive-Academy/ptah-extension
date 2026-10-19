@@ -18,22 +18,24 @@ describe('TaskPromptBridgeService', () => {
   let requestCanvasTab: jest.Mock;
   let requestComposerPrefill: jest.Mock;
   let createTab: jest.Mock;
+  let closeTab: jest.Mock;
   let activeWorkspacePath: string | null;
   let expectLink: jest.Mock;
 
   const flush = async (): Promise<void> => {
     TestBed.flushEffects();
-    await Promise.resolve();
-    await Promise.resolve();
+    // consume() awaits the canvas outcome (a race) and possibly closeTab.
+    for (let i = 0; i < 10; i++) await Promise.resolve();
   };
 
   beforeEach(() => {
     request.set(null);
     setCurrentView = jest.fn();
     clearChatPromptRequest = jest.fn(() => request.set(null));
-    requestCanvasTab = jest.fn();
+    requestCanvasTab = jest.fn(() => Promise.resolve(true));
     requestComposerPrefill = jest.fn();
     createTab = jest.fn(() => 'tab-1');
+    closeTab = jest.fn(() => Promise.resolve());
     activeWorkspacePath = null;
     expectLink = jest.fn();
 
@@ -54,6 +56,7 @@ describe('TaskPromptBridgeService', () => {
           provide: TabManagerService,
           useValue: {
             createTab,
+            closeTab,
             get activeWorkspacePath() {
               return activeWorkspacePath;
             },
@@ -85,6 +88,7 @@ describe('TaskPromptBridgeService', () => {
       'tab-1',
     );
     expect(resolve).toHaveBeenCalledWith({ success: true });
+    expect(closeTab).not.toHaveBeenCalled();
     expect(clearChatPromptRequest).toHaveBeenCalled();
   });
 
@@ -178,6 +182,105 @@ describe('TaskPromptBridgeService', () => {
     await flush();
 
     expect(expectLink).not.toHaveBeenCalled();
+  });
+
+  it('at the tile cap: does not prefill, closes the new tab, skips the link capture and resolves failure', async () => {
+    requestCanvasTab.mockReturnValueOnce(Promise.resolve(false));
+    createTab.mockReturnValueOnce('tab-refused');
+    const resolve = jest.fn();
+    request.set({
+      prompt: '/orchestrate TASK_2026_705',
+      taskId: 'TASK_2026_705',
+      resolve,
+    });
+
+    await flush();
+
+    expect(requestComposerPrefill).not.toHaveBeenCalled();
+    expect(closeTab).toHaveBeenCalledWith('tab-refused');
+    expect(expectLink).not.toHaveBeenCalled();
+    expect(resolve).toHaveBeenCalledWith({
+      success: false,
+      error: 'The canvas is full. Close a session and try again.',
+    });
+    expect(clearChatPromptRequest).toHaveBeenCalled();
+  });
+
+  it('workspace changed during the wait: keeps the tab, no prefill, no link, resolves a workspace-changed failure', async () => {
+    activeWorkspacePath = '/ws/a';
+    requestCanvasTab.mockImplementationOnce(() => {
+      // The user switches workspace before the canvas drains the request,
+      // so the canvas drops it.
+      activeWorkspacePath = '/ws/b';
+      return Promise.resolve(false);
+    });
+    const resolve = jest.fn();
+    request.set({
+      prompt: '/orchestrate TASK_2026_707',
+      taskId: 'TASK_2026_707',
+      resolve,
+    });
+
+    await flush();
+
+    expect(requestCanvasTab).toHaveBeenCalledWith(
+      'tab-1',
+      '/ws/a',
+      '/orchestrate TASK_2026_707',
+    );
+    expect(closeTab).not.toHaveBeenCalled();
+    expect(requestComposerPrefill).not.toHaveBeenCalled();
+    expect(expectLink).not.toHaveBeenCalled();
+    expect(resolve).toHaveBeenCalledWith({
+      success: false,
+      error:
+        'The workspace changed before the session opened. It stays in the previous workspace.',
+    });
+  });
+
+  it('when the canvas does not drain within 5 s: keeps the tab, prefills and resolves success', async () => {
+    jest.useFakeTimers();
+    try {
+      requestCanvasTab.mockReturnValueOnce(new Promise<boolean>(() => undefined));
+      const resolve = jest.fn();
+      request.set({ prompt: '/orchestrate TASK_2026_706', resolve });
+
+      TestBed.flushEffects();
+      await jest.advanceTimersByTimeAsync(5000);
+
+      expect(closeTab).not.toHaveBeenCalled();
+      expect(requestComposerPrefill).toHaveBeenCalledWith(
+        '/orchestrate TASK_2026_706',
+        'tab-1',
+      );
+      expect(resolve).toHaveBeenCalledWith({ success: true });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('runs a launch that arrives during the canvas wait instead of clearing it unanswered', async () => {
+    let settleFirst: (tiled: boolean) => void = () => undefined;
+    requestCanvasTab.mockReturnValueOnce(
+      new Promise<boolean>((resolve) => (settleFirst = resolve)),
+    );
+    createTab.mockReturnValueOnce('tab-1').mockReturnValueOnce('tab-2');
+    const first = jest.fn();
+    const second = jest.fn();
+    request.set({ prompt: 'first', sessionName: 'first', resolve: first });
+    await flush();
+
+    request.set({ prompt: 'second', sessionName: 'second', resolve: second });
+    await flush();
+    expect(createTab).toHaveBeenCalledTimes(1);
+
+    settleFirst(true);
+    await flush();
+
+    expect(first).toHaveBeenCalledWith({ success: true });
+    expect(second).toHaveBeenCalledWith({ success: true });
+    expect(requestComposerPrefill).toHaveBeenCalledWith('second', 'tab-2');
+    expect(request()).toBeNull();
   });
 
   it('ignores a null request (no tab, no prefill)', async () => {
