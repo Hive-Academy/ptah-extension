@@ -65,6 +65,9 @@ export interface SkillCloneInvocationStats {
   succeeded: number;
   failed: number;
   distinctContexts: number;
+  graded: number;
+  passed: number;
+  successRate: number | null;
 }
 
 export type SkillSynthesisListClonesParams = Record<string, never>;
@@ -199,6 +202,8 @@ export interface SkillSynthesisSaveCloneBodyParams {
   body: string;
   /** Optional Phase A revision guard over the current user-layer body. */
   expectedSourceHash?: string;
+  /** Marks an explicit enhancement save for registry and harness refresh. */
+  origin?: 'enhancement';
 }
 export interface SkillSynthesisSaveCloneBodyResult {
   kind: SkillCloneKind;
@@ -231,6 +236,7 @@ export interface SkillSynthesisSaveCloneBodyResult {
 
 export interface SkillSynthesisInvocationStatsParams {
   slug: string;
+  kind?: SkillCloneKind;
 }
 export interface SkillSynthesisInvocationStatsResult {
   slug: string;

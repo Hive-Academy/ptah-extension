@@ -738,6 +738,7 @@ describe('UserLayerMirrorService.rebaseClone / keepClone', () => {
       expect(result.reason).toBeNull();
       expect(result.historyTs).not.toBeNull();
       expect(result.metadataIncomplete).toBe(false);
+      expect(result.currentContentHash).toBe(await computeSourceHash(cloneDir));
       // The clone HAS a sidecar, so the next reconcile sees
       // `liveCloneHash !== sourceHash` and marks it diverged instead of
       // fast-forwarding. This write is protected.
@@ -792,6 +793,7 @@ describe('UserLayerMirrorService.rebaseClone / keepClone', () => {
 
       expect(result.written).toBe(true);
       expect(result.metadataIncomplete).toBe(false);
+      expect(result.currentContentHash).toBe(await computeSourceHash(cloneFile));
       expect(result.reconcileProtected).toBe(true);
       expect(await readFile(cloneFile, 'utf8')).toBe('# the user typed this');
 
@@ -827,7 +829,7 @@ describe('UserLayerMirrorService.rebaseClone / keepClone', () => {
         expectedSourceHash,
       });
 
-      expect(result).toMatchObject({ written: false, reason: 'stale-source', historyTs: null });
+      expect(result).toMatchObject({ written: false, reason: 'stale-source', historyTs: null, currentContentHash: null });
       expect(await readFile(cloneSkill, 'utf8')).toBe('# changed after draft');
       expect(await service.listHistory('skill', 'deep-research')).toEqual(historyBefore);
     });
@@ -870,7 +872,7 @@ describe('UserLayerMirrorService.rebaseClone / keepClone', () => {
         expectedSourceHash,
       });
 
-      expect(result).toMatchObject({ written: false, reason: 'stale-source', historyTs: null });
+      expect(result).toMatchObject({ written: false, reason: 'stale-source', historyTs: null, currentContentHash: null });
       expect(await readFile(cloneFile, 'utf8')).toBe('# changed after draft');
       expect(await service.listHistory('command', 'review')).toEqual(historyBefore);
     });
@@ -888,6 +890,7 @@ describe('UserLayerMirrorService.rebaseClone / keepClone', () => {
       expect(result.written).toBe(false);
       expect(result.reason).toBe('clone-missing');
       expect(result.historyTs).toBeNull();
+      expect(result.currentContentHash).toBeNull();
       expect(await fileExists(cloneDir)).toBe(false);
       expect(await fileExists(join(cloneDir, 'SKILL.md'))).toBe(false);
     });
@@ -903,6 +906,7 @@ describe('UserLayerMirrorService.rebaseClone / keepClone', () => {
 
       expect(result.written).toBe(false);
       expect(result.reason).toBe('clone-missing');
+      expect(result.currentContentHash).toBeNull();
       expect(await fileExists(join(roots.commands, 'never-cloned.md'))).toBe(
         false,
       );
@@ -936,6 +940,7 @@ describe('UserLayerMirrorService.rebaseClone / keepClone', () => {
       // in user-layer-save-reconcile.spec.ts.
       expect(result.reconcileProtected).toBe(false);
       expect(result.metadataIncomplete).toBe(false);
+      expect(result.currentContentHash).toBe(await computeSourceHash(cloneDir));
     });
 
     it('writes a sidecar-less flat-file clone without minting a sidecar', async () => {
@@ -957,6 +962,7 @@ describe('UserLayerMirrorService.rebaseClone / keepClone', () => {
       ).toBe(false);
       expect(result.reconcileProtected).toBe(false);
       expect(result.metadataIncomplete).toBe(false);
+      expect(result.currentContentHash).toBe(await computeSourceHash(cloneFile));
     });
 
     /**
@@ -991,6 +997,7 @@ describe('UserLayerMirrorService.rebaseClone / keepClone', () => {
         expect(result.written).toBe(true);
         expect(result.reason).toBeNull();
         expect(result.metadataIncomplete).toBe(true);
+        expect(result.currentContentHash).toBe(await computeSourceHash(cloneDir));
         // Nothing was learned about the sidecar, so the conservative answer.
         expect(result.reconcileProtected).toBe(false);
 
@@ -1022,6 +1029,7 @@ describe('UserLayerMirrorService.rebaseClone / keepClone', () => {
 
         expect(result.written).toBe(true);
         expect(result.metadataIncomplete).toBe(true);
+        expect(result.currentContentHash).toBe(await computeSourceHash(cloneFile));
         expect(result.reconcileProtected).toBe(false);
         expect(result.historyTs).not.toBeNull();
         expect(await readFile(cloneFile, 'utf8')).toBe('# the user typed this');

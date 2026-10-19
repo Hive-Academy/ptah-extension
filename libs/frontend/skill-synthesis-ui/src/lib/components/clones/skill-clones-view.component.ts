@@ -822,7 +822,7 @@ export class SkillClonesViewComponent implements OnInit {
     this.previewApplying.set(true);
     this.previewError.set(null);
     try {
-      await this.rpc.saveCloneBody(c.kind, c.slug, draft.body, draft.expectedSourceHash);
+      await this.rpc.saveCloneBody(c.kind, c.slug, draft.body, draft.expectedSourceHash, 'enhancement');
       if (this.previewClone() !== c || this.previewResult() !== preview) return;
       this.showToast(`Enhanced "${c.slug}".`, 'success');
       this.closePreview();

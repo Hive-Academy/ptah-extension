@@ -11,6 +11,7 @@
  */
 import * as fs from 'node:fs';
 import { join, resolve, sep } from 'node:path';
+import { homedir } from 'node:os';
 import {
   inject,
   injectable,
@@ -27,6 +28,7 @@ import {
 } from '@ptah-extension/platform-core';
 import {
   SKILL_SYNTHESIS_TOKENS,
+  SKILL_REPROPAGATION_TOKEN,
   USER_LAYER_MIRROR_SERVICE_TOKEN,
   MIN_INVOCATIONS_TO_ENHANCE,
   ENHANCE_COOLDOWN_MS,
@@ -53,6 +55,7 @@ import {
   type SkillSuggestionRow,
   type SpecHarvesterService,
   type SkillScorecardService,
+  type SkillRepropagationPort,
   type SkillQueueStore,
   type SkillQueueRow,
   type SkillBudgetStore,
@@ -422,6 +425,8 @@ export class SkillsSynthesisRpcHandlers {
     // those two methods instead of a failure to build the whole class.
     @inject(PLATFORM_TOKENS.DI_CONTAINER, { isOptional: true })
     private readonly runtimeContainer: DependencyContainer | null,
+    @inject(SKILL_REPROPAGATION_TOKEN, { isOptional: true })
+    private readonly repropagation: SkillRepropagationPort | null,
   ) {}
 
   register(): void {
@@ -1489,6 +1494,44 @@ export class SkillsSynthesisRpcHandlers {
             'INVALID_PARAMS',
           );
         }
+        let enhancementMetadataIncomplete = false;
+        if (parsed.origin === 'enhancement') {
+          if (result.currentContentHash === null) {
+            enhancementMetadataIncomplete = true;
+            this.logger.warn('[skill-synthesis] enhancement registry update skipped: clone hash unavailable', {
+              kind,
+              slug: parsed.slug,
+            });
+          } else {
+            try {
+              registry.markEnhanced(kind, parsed.slug, Date.now(), result.currentContentHash);
+            } catch (error: unknown) {
+              enhancementMetadataIncomplete = true;
+              this.logger.warn('[skill-synthesis] enhancement registry update failed', {
+                kind,
+                slug: parsed.slug,
+                error,
+              });
+            }
+          }
+          if (this.repropagation) {
+            try {
+              await this.repropagation.repropagate(
+                kind,
+                parsed.slug,
+                this.agentScope() ?? homedir(),
+                { userInitiated: true },
+              );
+            } catch (error: unknown) {
+              enhancementMetadataIncomplete = true;
+              this.logger.warn('[skill-synthesis] enhancement re-propagation failed', {
+                kind,
+                slug: parsed.slug,
+                error,
+              });
+            }
+          }
+        }
         // `metadataIncomplete` is NOT an error branch. The body is committed;
         // mapping it to an RpcUserError would tell the user their save failed
         // while their edit sits on disk. It travels on the result so the
@@ -1503,14 +1546,14 @@ export class SkillsSynthesisRpcHandlers {
           kind: result.kind,
           slug: result.slug,
           historyTs: result.historyTs,
-          metadataIncomplete: result.metadataIncomplete,
+          metadataIncomplete: result.metadataIncomplete || enhancementMetadataIncomplete,
           reconcileProtected: result.reconcileProtected,
         });
         return {
           kind: result.kind as SkillCloneKind,
           slug: result.slug,
           historyTs: result.historyTs,
-          metadataIncomplete: result.metadataIncomplete,
+          metadataIncomplete: result.metadataIncomplete || enhancementMetadataIncomplete,
           reconcileProtected: result.reconcileProtected,
         };
       } catch (error: unknown) {
@@ -1775,14 +1818,17 @@ export class SkillsSynthesisRpcHandlers {
         'skillSynthesis:invocationStats',
       );
       try {
-        const graded = this.scorecard?.getInvocationStats('skill', parsed.slug);
+        const graded = this.scorecard?.getInvocationStats(parsed.kind, parsed.slug);
         return {
           slug: parsed.slug,
           stats: {
-            total: graded?.total ?? 0,
+            total: graded?.invocationCount ?? 0,
             succeeded: graded?.succeeded ?? 0,
             failed: graded?.failed ?? 0,
             distinctContexts: graded?.distinctContexts ?? 0,
+            graded: graded?.total ?? 0,
+            passed: graded?.succeeded ?? 0,
+            successRate: graded?.successRate ?? null,
           },
         };
       } catch (error: unknown) {
@@ -2331,7 +2377,16 @@ export class SkillsSynthesisRpcHandlers {
     mirror: UserLayerMirrorService,
     orphaned: boolean,
   ): Promise<CloneSummary> {
-    const stats = this.scorecard?.getInvocationStats(row.kind, row.slug);
+    let stats: ReturnType<SkillScorecardService['getInvocationStats']> | undefined;
+    try {
+      stats = this.scorecard?.getInvocationStats(row.kind, row.slug);
+    } catch (error: unknown) {
+      this.logger.warn('[skill-synthesis] clone invocation stats unavailable', {
+        kind: row.kind,
+        slug: row.slug,
+        error,
+      });
+    }
     const successRate = stats?.successRate ?? null;
     let historyCount = 0;
     try {

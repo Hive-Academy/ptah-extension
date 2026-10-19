@@ -609,6 +609,7 @@ describe('SkillClonesViewComponent — enhancement preview', () => {
       'deep-research',
       '# after',
       `sha256:${'a'.repeat(64)}`,
+      'enhancement',
     );
     expect(rpc.applyProposal).not.toHaveBeenCalled();
     expect(state.refreshClones).toHaveBeenCalledTimes(2);

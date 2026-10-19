@@ -1094,6 +1094,12 @@ export class SkillTriggerService {
   }
 
   private readSkillInvocationTelemetryEnabled(): boolean {
+    const current = this.workspace.getConfiguration<boolean | undefined>(
+      'ptah',
+      'skills.telemetry.enabled',
+      undefined,
+    );
+    if (typeof current === 'boolean') return current;
     const v = this.workspace.getConfiguration<boolean>(
       SKILL_TRIGGER_SECTION,
       SKILL_TRIGGER_KEYS.skillInvocationTelemetry.enabled,

@@ -1448,6 +1448,25 @@ describe('SkillTriggerService — Skill invocation telemetry', () => {
     expect(recorder.recordSkillEvent).not.toHaveBeenCalled();
   });
 
+  it('reads the Library telemetry key first and lets false override the old true key', async () => {
+    const workspace = makeWorkspace({
+      'skills.telemetry.enabled': false,
+      'skillSynthesis.triggers.skillInvocationTelemetry.enabled': true,
+    });
+    const { service, postToolUse, recorder } = buildService({ workspace });
+    service.start();
+    postToolUse.fire(postToolUsePayload({
+      toolName: 'Skill',
+      toolInput: { command: 'deep-research' },
+      timestamp: 1000,
+    }));
+    await flush();
+    expect(workspace.getConfiguration).toHaveBeenCalledWith(
+      'ptah', 'skills.telemetry.enabled', undefined,
+    );
+    expect(recorder.recordSkillEvent).not.toHaveBeenCalled();
+  });
+
   it('UserPromptExpansion records slash commands with their own source', async () => {
     const { service, expansion, recorder } = buildService();
     service.start();

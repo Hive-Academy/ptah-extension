@@ -485,6 +485,7 @@ export const SkillSaveCloneBodyParamsSchema = z.object({
     // formatSourceHash(body) in platform-core produces this exact shape.
     .regex(/^sha256:[0-9a-f]{64}$/)
     .optional(),
+  origin: z.literal('enhancement').optional(),
 });
 
 export const SkillKeepCloneParamsSchema = z.object({
@@ -494,6 +495,7 @@ export const SkillKeepCloneParamsSchema = z.object({
 
 export const SkillInvocationStatsParamsSchema = z.object({
   slug: SlugSchema,
+  kind: SkillCloneKindSchema.optional().default('skill'),
 });
 
 /** The quarantine listing reads the open workspace; it takes no input. */

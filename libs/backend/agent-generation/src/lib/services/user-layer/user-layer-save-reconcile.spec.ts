@@ -369,6 +369,7 @@ describe('saveCloneBody + reconcile (R3.8)', () => {
       historyTs: null,
       written: false,
       reason: 'clone-missing',
+      currentContentHash: null,
       metadataIncomplete: false,
       reconcileProtected: false,
     });

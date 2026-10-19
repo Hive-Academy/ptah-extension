@@ -18,6 +18,7 @@ import {
 } from '@ptah-extension/vscode-core';
 import {
   SKILL_SYNTHESIS_TOKENS,
+  SKILL_REPROPAGATION_TOKEN,
   USER_LAYER_MIRROR_SERVICE_TOKEN,
   ProposalNotFoundError,
   SKILL_LANE_IDS,
@@ -174,6 +175,7 @@ function makeRegistry() {
     getBySlug: jest.fn().mockReturnValue(null),
     setDiverged: jest.fn(),
     setPending: jest.fn(),
+    markEnhanced: jest.fn(),
   };
 }
 
@@ -308,6 +310,7 @@ function buildHandlers(workspaceFolders: string[] = ['/workspace/project'], with
   const mirror = makeMirror();
   const contentDownload = makeContentDownload();
   const scorecard = makeScorecard();
+  const repropagation = { repropagate: jest.fn().mockResolvedValue(undefined) };
   const queueStore = makeQueueStore();
   const workspaceProvider: MockWorkspaceProvider = createMockWorkspaceProvider({
     folders: workspaceFolders,
@@ -345,6 +348,7 @@ function buildHandlers(workspaceFolders: string[] = ['/workspace/project'], with
     makeBudgetStore(),
   );
   child.registerInstance(PLATFORM_TOKENS.WORKSPACE_PROVIDER, workspaceProvider);
+  child.registerInstance(SKILL_REPROPAGATION_TOKEN, repropagation);
   child.register(SkillsSynthesisRpcHandlers, {
     useClass: SkillsSynthesisRpcHandlers,
   });
@@ -367,6 +371,7 @@ function buildHandlers(workspaceFolders: string[] = ['/workspace/project'], with
     queueStore,
     workspaceProvider,
     logger,
+    repropagation,
   };
 }
 
@@ -1017,6 +1022,27 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
     expect(store.getInvocationStats).not.toHaveBeenCalled();
   });
 
+  it('keeps every clone when one invocation lookup throws', async () => {
+    const { rpcHandler, registry, scorecard, logger } = buildHandlers();
+    registry.listAll.mockReturnValue([sampleRow, { ...sampleRow, slug: 'other' }]);
+    const failure = new Error('telemetry unavailable');
+    scorecard.getInvocationStats.mockImplementation((_kind: string, slug: string) => {
+      if (slug === 'deep-research') throw failure;
+      return { total: 1, succeeded: 1, failed: 0, distinctContexts: 1,
+        invocationCount: 3, successRate: 1 };
+    });
+    const result = await rpcHandler.call('skillSynthesis:listClones', {}) as {
+      clones: Array<{ slug: string; invocationCount: number; successRate: number | null }>;
+    };
+    expect(result.clones).toHaveLength(2);
+    expect(result.clones[0]).toMatchObject({ invocationCount: 0, successRate: null });
+    expect(result.clones[1]).toMatchObject({ invocationCount: 3, successRate: 1 });
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[skill-synthesis] clone invocation stats unavailable',
+      expect.objectContaining({ slug: 'deep-research', error: failure }),
+    );
+  });
+
   it('listClones keeps rows available when the optional scorecard is absent', async () => {
     const { rpcHandler, registry, store, scorecard } = buildHandlers(['/workspace/project'], false);
     registry.listAll.mockReturnValue([sampleRow]);
@@ -1435,7 +1461,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
 
   describe('saveCloneBody', () => {
     it('keeps the existing save behavior when expectedSourceHash is absent', async () => {
-      const { rpcHandler, registry, mirror } = buildHandlers();
+      const { rpcHandler, registry, mirror, repropagation } = buildHandlers();
       registry.getBySlug.mockReturnValue(sampleRow);
       mirror.saveCloneBody.mockResolvedValue({
         kind: 'skill',
@@ -1443,6 +1469,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
         historyTs: '1700000000001',
         written: true,
         reason: null,
+        currentContentHash: 'sha256:saved',
         metadataIncomplete: false,
         reconcileProtected: true,
       });
@@ -1466,6 +1493,62 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
         metadataIncomplete: false,
         reconcileProtected: true,
       });
+      expect(registry.markEnhanced).not.toHaveBeenCalled();
+      expect(repropagation.repropagate).not.toHaveBeenCalled();
+    });
+
+    it('stamps and repropagates a committed enhancement save', async () => {
+      const { rpcHandler, registry, mirror, repropagation } = buildHandlers();
+      registry.getBySlug.mockReturnValue(sampleRow);
+      const savedHash = `sha256:${'b'.repeat(64)}`;
+      mirror.saveCloneBody.mockResolvedValue({ kind: 'skill', slug: 'deep-research',
+        historyTs: '1700000000001', written: true, reason: null,
+        currentContentHash: savedHash, metadataIncomplete: false, reconcileProtected: true });
+      const result = await rpcHandler.call('skillSynthesis:saveCloneBody', {
+        kind: 'skill', slug: 'deep-research', body: '# enhanced', origin: 'enhancement',
+        expectedSourceHash: `sha256:${'a'.repeat(64)}`,
+      });
+      expect(result).toMatchObject({ metadataIncomplete: false });
+      expect(registry.markEnhanced).toHaveBeenCalledWith(
+        'skill', 'deep-research', expect.any(Number), savedHash,
+      );
+      expect(repropagation.repropagate).toHaveBeenCalledWith(
+        'skill', 'deep-research', '/workspace/project', { userInitiated: true },
+      );
+    });
+
+    it('skips the enhancement stamp and flags incomplete metadata when no hash is returned', async () => {
+      const { rpcHandler, registry, mirror, repropagation } = buildHandlers();
+      registry.getBySlug.mockReturnValue(sampleRow);
+      mirror.saveCloneBody.mockResolvedValue({
+        kind: 'skill', slug: 'deep-research', historyTs: '1700000000001',
+        written: true, reason: null, currentContentHash: null,
+        metadataIncomplete: false, reconcileProtected: true,
+      });
+
+      const result = await rpcHandler.call('skillSynthesis:saveCloneBody', {
+        kind: 'skill', slug: 'deep-research', body: '# enhanced', origin: 'enhancement',
+      });
+
+      expect(result).toMatchObject({ metadataIncomplete: true });
+      expect(registry.markEnhanced).not.toHaveBeenCalled();
+      expect(repropagation.repropagate).toHaveBeenCalledWith(
+        'skill', 'deep-research', '/workspace/project', { userInitiated: true },
+      );
+    });
+
+    it('does not stamp or repropagate a stale enhancement draft', async () => {
+      const { rpcHandler, registry, mirror, repropagation } = buildHandlers();
+      registry.getBySlug.mockReturnValue(sampleRow);
+      mirror.saveCloneBody.mockResolvedValue({ kind: 'skill', slug: 'deep-research',
+        historyTs: null, written: false, reason: 'stale-source',
+        currentContentHash: null, metadataIncomplete: false, reconcileProtected: true });
+      await expect(rpcHandler.call('skillSynthesis:saveCloneBody', {
+        kind: 'skill', slug: 'deep-research', body: '# enhanced', origin: 'enhancement',
+        expectedSourceHash: `sha256:${'a'.repeat(64)}`,
+      })).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+      expect(registry.markEnhanced).not.toHaveBeenCalled();
+      expect(repropagation.repropagate).not.toHaveBeenCalled();
     });
 
     it.each([true, false])('passes the hash to the mirror and maps its result (stale=%s)', async (stale) => {
@@ -1478,6 +1561,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
         historyTs: stale ? null : '1700000000001',
         written: !stale,
         reason: stale ? 'stale-source' : null,
+        currentContentHash: stale ? null : 'sha256:saved',
         metadataIncomplete: false,
         reconcileProtected: !stale,
       });
@@ -1520,6 +1604,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
         historyTs: '1700000000001',
         written: true,
         reason: null,
+        currentContentHash: null,
         metadataIncomplete: true,
         reconcileProtected: false,
       });
@@ -1554,6 +1639,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
         historyTs: '1700000000002',
         written: true,
         reason: null,
+        currentContentHash: 'sha256:saved',
         metadataIncomplete: false,
         reconcileProtected: false,
       });
@@ -1590,6 +1676,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
         historyTs: '1700000000001',
         written: true,
         reason: null,
+        currentContentHash: 'sha256:saved',
         metadataIncomplete: false,
         reconcileProtected: true,
       });
@@ -1644,6 +1731,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
         historyTs: null,
         written: false,
         reason: 'clone-missing',
+        currentContentHash: null,
         metadataIncomplete: false,
         reconcileProtected: false,
       });
@@ -2000,11 +2088,13 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
     expect(store.getInvocationStats).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       slug: 'deep-research',
-      stats: { total: 5, succeeded: 3, failed: 2, distinctContexts: 2 },
+      stats: { total: 9, succeeded: 3, failed: 2, distinctContexts: 2,
+        graded: 5, passed: 3, successRate: 0.6 },
     });
     expect(result).toEqual({
       slug: 'deep-research',
-      stats: { total: 5, succeeded: 3, failed: 2, distinctContexts: 2 },
+      stats: { total: 9, succeeded: 3, failed: 2, distinctContexts: 2,
+        graded: 5, passed: 3, successRate: 0.6 },
     });
   });
 
@@ -2019,9 +2109,19 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
       slug: 'deep-research',
     })).toEqual({
       slug: 'deep-research',
-      stats: { total: 0, succeeded: 0, failed: 0, distinctContexts: 2 },
+      stats: { total: 9, succeeded: 0, failed: 0, distinctContexts: 2,
+        graded: 0, passed: 0, successRate: null },
     });
     expect(store.getInvocationStats).not.toHaveBeenCalled();
+  });
+
+  it('invocationStats accepts an agent kind', async () => {
+    const { rpcHandler, scorecard } = buildHandlers();
+    const result = await rpcHandler.call('skillSynthesis:invocationStats', {
+      slug: 'reviewer', kind: 'agent',
+    });
+    expect(scorecard.getInvocationStats).toHaveBeenCalledWith('agent', 'reviewer');
+    expect(result).toMatchObject({ stats: { total: 0, graded: 0, successRate: null } });
   });
 
   it('invocationStats returns zeros when the optional scorecard is absent', async () => {
@@ -2031,7 +2131,8 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
       slug: 'deep-research',
     })).toEqual({
       slug: 'deep-research',
-      stats: { total: 0, succeeded: 0, failed: 0, distinctContexts: 0 },
+      stats: { total: 0, succeeded: 0, failed: 0, distinctContexts: 0,
+        graded: 0, passed: 0, successRate: null },
     });
     expect(scorecard.getInvocationStats).not.toHaveBeenCalled();
     expect(store.getInvocationStats).not.toHaveBeenCalled();

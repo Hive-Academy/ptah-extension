@@ -573,10 +573,17 @@ export class SkillSynthesisRpcService {
     slug: string,
     body: string,
     expectedSourceHash?: string,
+    origin?: 'enhancement',
   ): Promise<SkillSynthesisSaveCloneBodyResult> {
     const result = await this.rpcService.call(
       'skillSynthesis:saveCloneBody',
-      { kind, slug, body, ...(expectedSourceHash ? { expectedSourceHash } : {}) },
+      {
+        kind,
+        slug,
+        body,
+        ...(expectedSourceHash ? { expectedSourceHash } : {}),
+        ...(origin ? { origin } : {}),
+      },
       { timeout: SKILL_RPC_TIMEOUTS.PROMOTE_MS },
     );
     if (result.isSuccess() && result.data) {
@@ -585,13 +592,14 @@ export class SkillSynthesisRpcService {
     throw new Error(result.error || 'Failed to save clone body');
   }
 
-  /** Fetch slug-keyed invocation stats from the events table. */
+  /** Fetch per-kind telemetry counts and task grades. */
   public async invocationStats(
     slug: string,
+    kind: SkillCloneKind = 'skill',
   ): Promise<SkillCloneInvocationStats> {
     const result = await this.rpcService.call(
       'skillSynthesis:invocationStats',
-      { slug },
+      { slug, kind },
       { timeout: SKILL_RPC_TIMEOUTS.SHORT_MS },
     );
     if (result.isSuccess() && result.data) {

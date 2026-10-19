@@ -523,6 +523,18 @@ export const SCOPED_SETTING_KEYS: Record<
     appScopable: false,
     supportedTargets: ['global'],
   },
+  'skills.enhancement.provider': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
+  'skills.enhancement.model': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
+  'skills.enhancement.timeoutMs': {
+    appScopable: false,
+    supportedTargets: ['global'],
+  },
 };
 
 /**

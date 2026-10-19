@@ -1378,6 +1378,39 @@ describe('ProvidersSettingsStateService', () => {
     expect(service.writeScopes('authMethod')).toEqual(['global', 'app']);
   });
 
+  it('requests global provenance for every enhancement setting', async () => {
+    const keys = [
+      'skills.enhancement.provider',
+      'skills.enhancement.model',
+      'skills.enhancement.timeoutMs',
+    ] as const;
+    handlers.set('config:getScopes', async (params) => {
+      const { keys: requested } = params as { keys: string[] };
+      return success({
+        activePath: '/workspace',
+        entries: keys
+          .filter((key) => requested.includes(key))
+          .map((key) => entry(key, { supportedTargets: ['global'] })),
+      });
+    });
+
+    await service.refreshScopes();
+
+    const requestedKeys = call.mock.calls
+      .filter(([method]) => method === 'config:getScopes')
+      .flatMap(([, params]) => (params as { keys: string[] }).keys);
+    for (const key of keys) {
+      expect(requestedKeys).toContain(key);
+      expect(service.scopeEntry(key)).toMatchObject({
+        key,
+        scope: 'global',
+        supportedTargets: ['global'],
+      });
+      expect(service.writeScopes(key)).toEqual(['global']);
+    }
+    expect(service.groupScope(keys.slice(0, 2))).toBe('global');
+  });
+
   // Batch 27b: every host writes and reads its own App layer (`app.vscode.*` in VS Code,
   // `app.electron.*` in the desktop app; backend `resolveAppPrefix`), so `writeScopes` passes the
   // host's `app` target through in both hosts. Only the label differs, and the chat components own it.

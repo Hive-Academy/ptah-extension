@@ -200,6 +200,8 @@ export interface SaveCloneBodyResult {
   written: boolean;
   /** `'clone-missing'` or `'stale-source'` when no write occurred. */
   reason: string | null;
+  /** Post-write content hash, or `null` when no write occurred or re-hashing failed. */
+  currentContentHash: string | null;
   /**
    * `true` when the body IS on disk but a post-write bookkeeping step (the
    * content re-hash, or the sidecar read/write that carries it) failed.
@@ -701,6 +703,7 @@ export class UserLayerMirrorService {
         historyTs: null,
         written: false,
         reason: 'clone-missing',
+        currentContentHash: null,
         metadataIncomplete: false,
         reconcileProtected: false,
       };
@@ -713,6 +716,7 @@ export class UserLayerMirrorService {
         historyTs: null,
         written: false,
         reason: 'stale-source',
+        currentContentHash: null,
         metadataIncomplete: false,
         reconcileProtected: false,
       };
@@ -748,19 +752,22 @@ export class UserLayerMirrorService {
   private async refreshSavedSidecarDir(
     cloneDir: string,
     slug: string,
-  ): Promise<{ metadataIncomplete: boolean; reconcileProtected: boolean }> {
+  ): Promise<
+    Pick<SaveCloneBodyResult, 'currentContentHash' | 'metadataIncomplete' | 'reconcileProtected'>
+  > {
     let reconcileProtected = false;
+    let currentContentHash: string | null = null;
     try {
-      const currentContentHash = await computeSourceHash(cloneDir);
+      currentContentHash = await computeSourceHash(cloneDir);
       const existing = await readSidecar(cloneDir);
       if (!existing) {
-        return { metadataIncomplete: false, reconcileProtected: false };
+        return { currentContentHash, metadataIncomplete: false, reconcileProtected: false };
       }
       // The sidecar exists, so the divergence rule already protects the body
       // regardless of whether the hash write below lands.
       reconcileProtected = true;
       await writeSidecarAtomic(cloneDir, { ...existing, currentContentHash });
-      return { metadataIncomplete: false, reconcileProtected };
+      return { currentContentHash, metadataIncomplete: false, reconcileProtected };
     } catch (error: unknown) {
       this.logger.warn(
         '[UserLayerMirror] clone body saved but sidecar bookkeeping failed',
@@ -770,7 +777,7 @@ export class UserLayerMirrorService {
           error: error instanceof Error ? error.message : String(error),
         },
       );
-      return { metadataIncomplete: true, reconcileProtected };
+      return { currentContentHash, metadataIncomplete: true, reconcileProtected };
     }
   }
 
@@ -793,6 +800,7 @@ export class UserLayerMirrorService {
         historyTs: null,
         written: false,
         reason: 'clone-missing',
+        currentContentHash: null,
         metadataIncomplete: false,
         reconcileProtected: false,
       };
@@ -805,6 +813,7 @@ export class UserLayerMirrorService {
         historyTs: null,
         written: false,
         reason: 'stale-source',
+        currentContentHash: null,
         metadataIncomplete: false,
         reconcileProtected: false,
       };
@@ -841,20 +850,23 @@ export class UserLayerMirrorService {
     slug: string,
     cloneFile: string,
     sidecarPath: string,
-  ): Promise<{ metadataIncomplete: boolean; reconcileProtected: boolean }> {
+  ): Promise<
+    Pick<SaveCloneBodyResult, 'currentContentHash' | 'metadataIncomplete' | 'reconcileProtected'>
+  > {
     let reconcileProtected = false;
+    let currentContentHash: string | null = null;
     try {
-      const currentContentHash = await computeSourceHash(cloneFile);
+      currentContentHash = await computeSourceHash(cloneFile);
       const existing = await readSidecarAt(sidecarPath);
       if (!existing) {
-        return { metadataIncomplete: false, reconcileProtected: false };
+        return { currentContentHash, metadataIncomplete: false, reconcileProtected: false };
       }
       reconcileProtected = true;
       await writeSidecarAtomicAt(sidecarPath, {
         ...existing,
         currentContentHash,
       });
-      return { metadataIncomplete: false, reconcileProtected };
+      return { currentContentHash, metadataIncomplete: false, reconcileProtected };
     } catch (error: unknown) {
       this.logger.warn(
         '[UserLayerMirror] clone body saved but sidecar bookkeeping failed',
@@ -864,7 +876,7 @@ export class UserLayerMirrorService {
           error: error instanceof Error ? error.message : String(error),
         },
       );
-      return { metadataIncomplete: true, reconcileProtected };
+      return { currentContentHash, metadataIncomplete: true, reconcileProtected };
     }
   }
 

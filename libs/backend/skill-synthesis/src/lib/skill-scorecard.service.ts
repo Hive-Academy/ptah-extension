@@ -43,6 +43,7 @@ export class SkillScorecardService {
     private readonly grades: SkillTaskGradeStore,
     @inject(SPEC_FINDINGS_TOKEN, { isOptional: true })
     private readonly findings: SpecFindingsPort | null,
+    @inject(SkillInvocationEventStore)
     private readonly events: SkillInvocationEventStore,
   ) {}
 

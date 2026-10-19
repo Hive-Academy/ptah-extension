@@ -576,6 +576,16 @@ describe('SkillSynthesisRpcService', () => {
     );
   });
 
+  it('passes enhancement origin only for an explicit enhancement save', async () => {
+    rpcCall.mockResolvedValue(okResult({ kind: 'skill', slug: 'draft', historyTs: 'saved' }));
+    await service.saveCloneBody('skill', 'draft', '# enhanced', undefined, 'enhancement');
+    expect(rpcCall).toHaveBeenCalledWith(
+      'skillSynthesis:saveCloneBody',
+      { kind: 'skill', slug: 'draft', body: '# enhanced', origin: 'enhancement' },
+      { timeout: 20_000 },
+    );
+  });
+
   it('getAgentModels() throws the RPC error', async () => {
     rpcCall.mockResolvedValue(errResult('no agent model settings'));
 

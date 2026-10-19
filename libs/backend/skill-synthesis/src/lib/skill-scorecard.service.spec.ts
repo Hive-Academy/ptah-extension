@@ -1,4 +1,8 @@
 import 'reflect-metadata';
+import { container } from 'tsyringe';
+import { TOKENS } from '@ptah-extension/vscode-core';
+import { SKILL_SYNTHESIS_TOKENS } from './di/tokens';
+import { SkillInvocationEventStore } from './skill-invocation-event.store';
 import { SkillScorecardService } from './skill-scorecard.service';
 import type { SkillTaskGrade } from './skill-task-grade.store';
 import type { ScorecardAggregate } from './types';
@@ -37,6 +41,22 @@ function makeService() {
 }
 
 describe('SkillScorecardService', () => {
+  it('resolves the event store from tsyringe when bundled metadata is absent', () => {
+    const child = container.createChildContainer();
+    const events = { getUsageStats: jest.fn(() => ({ invocationCount: 4, distinctContexts: 2 })) };
+    child.registerInstance(TOKENS.LOGGER, logger);
+    child.registerInstance(SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE, {});
+    child.registerInstance(SKILL_SYNTHESIS_TOKENS.SKILL_TASK_GRADE_STORE, {
+      getAggregates: jest.fn(() => new Map()),
+    });
+    child.registerInstance(SkillInvocationEventStore, events as never);
+    const service = child.resolve(SkillScorecardService);
+    expect(service.getInvocationStats('skill', 'deep-research')).toMatchObject({
+      invocationCount: 4,
+      distinctContexts: 2,
+    });
+    expect(events.getUsageStats).toHaveBeenCalledWith('deep-research');
+  });
   it('uses only task grades for the scorecard rate and recent verdicts', () => {
     const { service, grades } = makeService();
     const card = service.getScorecards(['agent-a'])['agent-a'];
