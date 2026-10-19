@@ -52,7 +52,10 @@ import { AgentOriginBannerComponent } from '../molecules/agent-origin-banner/age
 import { SessionInspectorStore } from '../../services/session-inspector';
 import { injectSessionStatsSource } from '../../services/session-stats/session-stats-source';
 import { ChatStore } from '../../services/chat.store';
-import { ActionBannerService } from '../../services/action-banner.service';
+import {
+  ActionBannerService,
+  type ActionBannerState,
+} from '../../services/action-banner.service';
 import { SessionBudgetActionsService } from '../../services/session-budget-actions.service';
 import { TranscriptRetentionService } from '../../services/transcript-retention.service';
 import { SessionLoaderService } from '../../services/chat-store/session-loader.service';
@@ -338,11 +341,20 @@ export class ChatViewComponent implements OnDestroy {
       : null;
   });
 
+  /**
+   * Bumped by every action banner this view shows, so a late outcome (a
+   * branch tile that finishes loading after its timeout) can tell whether a
+   * newer action has spoken since and stay quiet instead of replacing it.
+   */
+  private _actionBannerGeneration = 0;
+
   private showActionError(message: string, tabId: string | null = null): void {
+    this._actionBannerGeneration++;
     this.actionBanner.showError(message, tabId);
   }
 
   private showActionInfo(message: string, tabId: string | null = null): void {
+    this._actionBannerGeneration++;
     this.actionBanner.showInfo(message, tabId);
   }
 
@@ -350,6 +362,7 @@ export class ChatViewComponent implements OnDestroy {
     message: string,
     tabId: string | null = null,
   ): void {
+    this._actionBannerGeneration++;
     this.actionBanner.showWarning(message, tabId);
   }
 
@@ -1441,6 +1454,8 @@ export class ChatViewComponent implements OnDestroy {
    * new canvas tile via `AppStateManager.requestCanvasSession()`.
    */
   async onBranchRequested(messageId: string): Promise<void> {
+    // The tab this branch was started from; a late failure is scoped to it.
+    const originTabId = this.resolvedTabId();
     const sessionId = this.resolvedSessionId();
     if (!sessionId) {
       this.showActionError('No active session to branch from.');
@@ -1465,12 +1480,16 @@ export class ChatViewComponent implements OnDestroy {
         // failed load: the fork exists on disk either way.
         // The canvas drains the request BEFORE it awaits the session load, so
         // app-state's 5 s timer cannot settle a hung load. Bound the wait so
-        // `_actionInFlight` always clears; a timeout means the canvas took the
-        // request and the tile exists. A late outcome after the timeout is
-        // ignored (the race has already settled).
+        // `_actionInFlight` always clears. On a timeout the load is still
+        // running and can still fail, so report the branch as still opening
+        // and let the original promise report a late failure.
+        const opening = this._appState.requestCanvasSession(
+          newSessionId,
+          'Branch',
+        );
         let timer: ReturnType<typeof setTimeout> | undefined;
         const opened = await Promise.race([
-          this._appState.requestCanvasSession(newSessionId, 'Branch'),
+          opening,
           new Promise<'timeout'>((resolve) => {
             timer = setTimeout(
               () => resolve('timeout'),
@@ -1478,12 +1497,33 @@ export class ChatViewComponent implements OnDestroy {
             );
           }),
         ]).finally(() => clearTimeout(timer));
-        if (opened === false) {
-          this.showActionError(
-            'Branch created, but it did not open. Open it from Previous sessions.',
-          );
-        } else {
+        if (opened === 'timeout') {
+          this.showActionInfo('Branch created. It is still opening.');
+          // A late `true` needs no notice. A late `false` or rejection means
+          // the tile never opened: report it on the originating tab, unless a
+          // newer banner has been shown since. The trailing catch keeps a
+          // throwing handler from becoming an unhandled rejection.
+          const pending = {
+            generation: this._actionBannerGeneration,
+            banner: this.actionBanner.banner(),
+          };
+          opening
+            .then(
+              (lateOpened) => {
+                if (!lateOpened) this.showLateBranchError(originTabId, pending);
+              },
+              () => this.showLateBranchError(originTabId, pending),
+            )
+            .catch((error: unknown) => {
+              console.warn(
+                '[ChatView] Failed to report a late branch outcome:',
+                error,
+              );
+            });
+        } else if (opened) {
           this.showActionInfo('Branch created.');
+        } else {
+          this.showBranchNotOpenedError();
         }
       } else {
         this.showActionError(
@@ -1495,6 +1535,28 @@ export class ChatViewComponent implements OnDestroy {
       next.delete(messageId);
       this._actionInFlight.set(next);
     }
+  }
+
+  private showBranchNotOpenedError(tabId: string | null = null): void {
+    this.showActionError(
+      'Branch created, but it did not open. Open it from Previous sessions.',
+      tabId,
+    );
+  }
+
+  /**
+   * Late branch failure (after the open timeout). Suppressed when this view
+   * has shown a newer banner, or when the shared banner slot now holds a
+   * banner from another action (another tile), so it never replaces it.
+   */
+  private showLateBranchError(
+    tabId: string | null,
+    pending: { generation: number; banner: ActionBannerState | null },
+  ): void {
+    if (this._actionBannerGeneration !== pending.generation) return;
+    const current = this.actionBanner.banner();
+    if (current !== null && current !== pending.banner) return;
+    this.showBranchNotOpenedError(tabId);
   }
 
   async onRewindRequested(messageId: string): Promise<void> {
