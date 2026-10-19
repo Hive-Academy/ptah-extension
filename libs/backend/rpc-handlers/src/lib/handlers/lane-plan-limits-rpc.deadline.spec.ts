@@ -101,13 +101,13 @@ function timedOutLane(row: CliDetectionResult, now: number): AgentLimit {
 
 type Registered = (params: unknown) => Promise<AgentGetLanePlanLimitsResult>;
 
-function createLogger(): Logger {
+function createLogger(): Logger & { debug: jest.Mock } {
   return {
     info: jest.fn(),
     warn: jest.fn(),
     error: jest.fn(),
     debug: jest.fn(),
-  } as unknown as Logger;
+  } as unknown as Logger & { debug: jest.Mock };
 }
 
 /** A `PtahAPI` whose `agent.limits` emulates `LaneLimitLookupService.lookup`. */
@@ -183,7 +183,10 @@ function makeDeadlineHonoringLimits(): jest.Mock {
   );
 }
 
-function registerHandler(api: PtahAPI): Registered {
+function registerHandler(
+  api: PtahAPI,
+  logger: Logger = createLogger(),
+): Registered {
   const registered = new Map<string, Registered>();
   const rpcHandler = {
     registerMethod: (method: string, handler: Registered) => {
@@ -196,7 +199,7 @@ function registerHandler(api: PtahAPI): Registered {
   } as unknown as RpcHandler;
   const builder = { build: () => api } as unknown as PtahAPIBuilder;
   new LanePlanLimitsRpcHandlers(
-    createLogger(),
+    logger,
     rpcHandler,
     builder,
   ).register();
@@ -330,6 +333,45 @@ describe(`${METHOD} against the renderer's RPC deadline`, () => {
     expect(failure).toBeInstanceOf(Error);
     expect((failure as Error).message).toBe(UNAVAILABLE);
     expect(limits).not.toHaveBeenCalled();
+  });
+
+  it('logs a late list rejection by error name, so the swallowed failure stays observable', async () => {
+    // The list misses the budget, the read answers with the fixed text, and
+    // the losing step rejects after the race was decided: the side-branch
+    // catch is the only observer of what that step died of.
+    const logger = createLogger();
+    const limits = makeDeadlineHonoringLimits();
+    const api = {
+      agent: {
+        list: (): Promise<readonly CliDetectionResult[]> =>
+          new Promise((_, reject) => {
+            setTimeout(
+              () => reject(new Error('late list failure')),
+              HANDLER_BUDGET_MS + 1_000,
+            );
+          }),
+        limits,
+      },
+    } as unknown as PtahAPI;
+    const handler = registerHandler(api, logger);
+
+    let failure: unknown;
+    handler({}).catch((error: unknown) => {
+      failure = error;
+    });
+    await jest.advanceTimersByTimeAsync(HANDLER_BUDGET_MS + 1_000);
+
+    // The read itself answered with the fixed unavailable text at the budget.
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toBe(UNAVAILABLE);
+    expect(limits).not.toHaveBeenCalled();
+    // The late rejection was logged once — debug, error name only — never
+    // leaked by message and never left as an unhandled rejection.
+    expect(logger.debug).toHaveBeenCalledTimes(1);
+    expect(logger.debug).toHaveBeenCalledWith(
+      `[lanePlanLimits] ${METHOD} lane list step rejected`,
+      { errorName: 'Error' },
+    );
   });
 });
 

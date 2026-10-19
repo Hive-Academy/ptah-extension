@@ -150,15 +150,21 @@ export class LanePlanLimitsRpcHandlers {
    * Races one blocking step against the remaining budget. The losing step
    * keeps running behind the race — cold detection deduplicates its
    * in-flight promise, so the next read reuses that work — and its late
-   * rejection is swallowed here so it cannot surface as an unhandled
-   * rejection after this read already answered.
+   * rejection is logged before it is dropped (debug, by error name only,
+   * the same boundary as every other failure in this file), so a swallowed
+   * failure stays observable and cannot surface as an unhandled rejection
+   * after this read already answered.
    */
   private async bounded<T>(
     step: Promise<T>,
     startedAt: number,
     stage: string,
   ): Promise<T> {
-    void step.catch(() => undefined);
+    void step.catch((error: unknown) => {
+      this.logger.debug(`[lanePlanLimits] ${METHOD} ${stage} step rejected`, {
+        errorName: errorName(error),
+      });
+    });
     const remainingMs = LANE_PLAN_LIMITS_RPC_BUDGET_MS - (Date.now() - startedAt);
     if (remainingMs <= 0) {
       throw new Error(`${stage} missed the RPC budget`);
