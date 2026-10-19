@@ -433,13 +433,11 @@ export class HarnessBuilderViewComponent implements OnDestroy {
       }
       if (this.initKey !== `${root}:${tabId}`) {
         this.initKey = `${root}:${tabId}`;
-        if (this.appState.layoutMode() === 'grid') {
-          this.appState.requestCanvasTab(
-            tabId,
-            this.pinnedWorkspaceRoot(),
-            this.mode() === 'new-project' ? 'New Project' : 'AI Team Builder',
-          );
-        }
+        this.appState.requestCanvasTab(
+          tabId,
+          this.pinnedWorkspaceRoot(),
+          this.mode() === 'new-project' ? 'New Project' : 'AI Team Builder',
+        );
         this.state.bindTab(this.pinnedWorkspaceRoot(), tabId);
         this.draftNotice.set(
           this.records.readDraft(root, this.mode())?.tabId === tabId,

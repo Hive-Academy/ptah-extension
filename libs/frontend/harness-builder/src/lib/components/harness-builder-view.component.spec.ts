@@ -93,7 +93,6 @@ const closeTab = jest.fn(async (id: string) =>
 );
 const bind = jest.fn(async () => undefined);
 const navigate = jest.fn(async () => 'landed');
-const layoutMode = signal<'single' | 'grid'>('single');
 const canvasRequest = jest.fn();
 const writeDraft = jest.fn(() => true);
 const abort = jest.fn(async () => ({ success: true, data: { success: true } }));
@@ -152,7 +151,7 @@ async function render() {
       },
       {
         provide: AppStateManager,
-        useValue: { layoutMode, requestCanvasTab: canvasRequest },
+        useValue: { requestCanvasTab: canvasRequest },
       },
       { provide: ClaudeRpcService, useValue: { call: abort } },
       { provide: HarnessRpcService, useValue: { initialize } },
@@ -232,7 +231,6 @@ describe('HarnessBuilderViewComponent shared session host', () => {
     ]);
     pendingIntent.set(null);
     entryErrors.set({});
-    layoutMode.set('single');
     closeTab.mockClear();
     bind.mockClear();
     navigate.mockClear();
@@ -323,8 +321,7 @@ describe('HarnessBuilderViewComponent shared session host', () => {
     );
   });
 
-  it('queues the pinned tab for canvas adoption in grid mode', async () => {
-    layoutMode.set('grid');
+  it('always queues the pinned tab for canvas adoption', async () => {
     await render();
     expect(canvasRequest).toHaveBeenCalledWith(
       'tab-a',

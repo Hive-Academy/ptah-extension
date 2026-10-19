@@ -102,13 +102,10 @@ export interface ConfigurationSurfacesState {
   readonly perSurface: ConfigurationSurfaceSlots;
 }
 
-/** Layout mode for the chat view content area: single tab or canvas grid */
-export type LayoutMode = 'single' | 'grid';
-
 /**
  * `localStorage` key used to persist the "Thoth first-run hint dismissed"
- * flag. Same persistence layer as `ptah-layout-mode` — kept as a module
- * constant so tests can reference it without duplicating the literal.
+ * flag. Kept as a module constant so tests can reference it without
+ * duplicating the literal.
  */
 export const THOTH_FIRST_RUN_DISMISSED_KEY = 'ptah-thoth-first-run-dismissed';
 
@@ -218,8 +215,8 @@ export interface CanvasFocusRequest {
 
 /**
  * Request to adopt an existing chat tab as a canvas tile (F-D3). Fire-and-forget
- * (no resolver): the canvas effect dedups and respects the tile cap, and nothing
- * consumes it in single layout, so it is a harmless no-op there.
+ * (no resolver): the canvas effect dedups and respects the tile cap, and a
+ * request queued while the canvas is not mounted waits until it mounts.
  *
  * `workspacePath` is the partition the tab belongs to (null: the single tab
  * set, VS Code panel), captured at REQUEST time; the canvas drops a request
@@ -243,8 +240,8 @@ export interface CanvasTabRequest {
  * Request to open an EXISTING session in the chat surface — e.g. "Open
  * session" on a Tasks-board task. Kept in `core` so `tasks-ui` never imports
  * `chat` (same signal-bridge inversion as {@link ChatPromptRequest}); the
- * chat lib's `SessionOpenBridgeService` consumes it and routes it through
- * the canvas (grid) or `switchSession` (single).
+ * chat lib's `SessionOpenBridgeService` consumes it and opens the session
+ * as a canvas tile.
  */
 export interface SessionOpenRequest {
   readonly sessionId: SessionId;
@@ -391,21 +388,10 @@ export class AppStateManager implements MessageHandler {
   private readonly _workspaceInfo = signal<WorkspaceInfo | null>(null);
   private readonly _isConnected = signal(true);
   /**
-   * Deliberately NOT workspace-partitioned. Workspace switching only exists in
-   * Electron (`ElectronLayoutService` gates every entry point on `isElectron`,
-   * and the VS Code webview is single-root), and Electron pins this to `'grid'`
-   * unconditionally in `ElectronShellComponent`'s constructor — its single-chat
-   * layout was removed, and the toggle that would flip it is inside the
-   * `@if (!isElectron)` branch of the app-shell template. So the value cannot
-   * differ between two workspaces on any reachable path, and a partition map
-   * here would be state that never varies.
-   */
-  private readonly _layoutMode = signal<LayoutMode>('grid');
-  /**
    * Deliberately NOT workspace-partitioned. The four configuration surfaces
    * (thoth, setup-hub, marketplace, settings) apply regardless of which
-   * workspace is active, so their open state is one global fact — the same
-   * reasoning as _layoutMode above. The constructor effect writes openSurface
+   * workspace is active, so their open state is one global fact. The
+   * constructor effect writes openSurface
    * unconditionally from the Router's surface; slice stamping refuses these
    * ids (see openViewInActiveSlice); switchWorkspace leaves them on screen
    * and bumps _configurationSurfaceRemountTick so the Electron shell
@@ -444,7 +430,7 @@ export class AppStateManager implements MessageHandler {
     [],
   );
   private _canvasFocusRequestId = 0;
-  /** Signal bridge: request to create a new session as a canvas tile (from "New Session" in grid mode) */
+  /** Signal bridge: request to create a new session as a canvas tile (from "New Session") */
   private readonly _newCanvasSessionRequest = signal<string | null>(null);
   /**
    * Signal bridge: requests to adopt an EXISTING tab as a canvas tile without
@@ -494,7 +480,7 @@ export class AppStateManager implements MessageHandler {
   /**
    * Whether the user has dismissed the Thoth first-run hint.
    * Persisted to `localStorage` under {@link THOTH_FIRST_RUN_DISMISSED_KEY}
-   * (same pattern as `ptah-layout-mode`) so a reload preserves the dismissed
+   * so a reload preserves the dismissed
    * state and the tooltip never reappears after the user closes it once.
    */
   private readonly _thothFirstRunDismissed = signal<boolean>(false);
@@ -640,16 +626,12 @@ export class AppStateManager implements MessageHandler {
   }
 
   /**
-   * Normalize backward-compat view values. 'orchestra-canvas' was previously a view;
-   * it's now a layout mode. Map it to 'chat' + grid layout so every entry point
-   * behaves consistently (no blank shell).
+   * Normalize backward-compat view values. 'orchestra-canvas' was previously a
+   * view; the canvas now IS the chat surface, so map it to 'chat' and every
+   * entry point behaves consistently (no blank shell).
    */
   private normalizeView(view: ViewType): ViewType {
-    if (view === 'orchestra-canvas') {
-      this._layoutMode.set('grid');
-      return 'chat';
-    }
-    return view;
+    return view === 'orchestra-canvas' ? 'chat' : view;
   }
 
   /**
@@ -671,8 +653,6 @@ export class AppStateManager implements MessageHandler {
   readonly openViews = computed(() =>
     Array.from(this.activeViewSlice().openViews),
   );
-  /** Current layout mode: 'single' (tab view) or 'grid' (canvas view) */
-  readonly layoutMode = this._layoutMode.asReadonly();
   /** Global configuration-surface state — NOT workspace-partitioned. */
   readonly configurationSurfaces = this._configurationSurfaces.asReadonly();
   /** The configuration surface currently open, or null when none is. */
@@ -773,13 +753,6 @@ export class AppStateManager implements MessageHandler {
       });
     }
 
-    const savedLayoutMode = localStorage.getItem(
-      'ptah-layout-mode',
-    ) as LayoutMode | null;
-    if (savedLayoutMode === 'single' || savedLayoutMode === 'grid') {
-      this._layoutMode.set(savedLayoutMode);
-    }
-
     const newValue = localStorage.getItem(THOTH_FIRST_RUN_DISMISSED_KEY);
     if (newValue === null) {
       const legacyValue = localStorage.getItem(
@@ -804,8 +777,8 @@ export class AppStateManager implements MessageHandler {
    * There is no allow-list here: {@link isSurfaceRouteId} reads the same id
    * list the route table is built from. The only special case is the legacy
    * `orchestra-canvas` value, which {@link normalizeView} maps onto the chat
-   * surface AND forces grid layout for — dropping that would land a host that
-   * still sends it on single-chat instead of the canvas.
+   * surface (the canvas) — dropping that would land a host that still sends
+   * it on the default-surface fallback with an "Unknown initialView" warning.
    */
   normalizeInitialView(raw: string | undefined): ViewType {
     const candidate =
@@ -1203,19 +1176,6 @@ export class AppStateManager implements MessageHandler {
     };
   }
 
-  /** Set the layout mode and persist to localStorage */
-  setLayoutMode(mode: LayoutMode): void {
-    this._layoutMode.set(mode);
-
-    localStorage.setItem('ptah-layout-mode', mode);
-  }
-
-  /** Toggle between 'single' and 'grid' layout modes */
-  toggleLayoutMode(): void {
-    const next = this._layoutMode() === 'grid' ? 'single' : 'grid';
-    this.setLayoutMode(next);
-  }
-
   /**
    * Request that the canvas opens/focuses a tile for the given session.
    *
@@ -1335,7 +1295,7 @@ export class AppStateManager implements MessageHandler {
    * `focus` is `false`, and drops a request whose `workspacePath` is no longer
    * the canvas's active workspace. FIFO: a burst cannot overwrite an earlier
    * request before the canvas effect drains the queue. When the canvas isn't
-   * mounted (single layout, or grid layout on another view) nothing consumes
+   * mounted (e.g. a standalone route is showing) nothing consumes
    * the queue yet — requests wait until the canvas mounts.
    */
   requestCanvasTab(

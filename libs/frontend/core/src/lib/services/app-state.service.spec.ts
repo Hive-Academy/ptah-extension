@@ -1,14 +1,14 @@
 /**
  * AppStateManager specs — global webview state (view, workspace, connection,
- * layout mode, canvas-session signal bridge).
+ * canvas-session signal bridge).
  *
  * Coverage:
- *   - Constructor `initializeState` reads `window.ptahConfig` (workspace) and
- *     `localStorage` (layout mode). It deliberately does NOT read
- *     `initialView` any more — that is navigation, and `App.handleInitialView`
- *     owns it (TASK_2026_524).
+ *   - Constructor `initializeState` reads `window.ptahConfig` (workspace). It
+ *     deliberately does NOT read `initialView` any more — that is navigation,
+ *     and `App.handleInitialView` owns it (TASK_2026_524). A stale
+ *     `ptah-layout-mode` in `localStorage` is ignored (TASK_2026_705).
  *   - `normalizeInitialView` validates a host-supplied `initialView` against
- *     the route ids and maps legacy 'orchestra-canvas' → 'chat' + grid layout.
+ *     the route ids and maps legacy 'orchestra-canvas' → 'chat'.
  *   - `setCurrentView` / `closeView` / `openSettingsTab` delegate to the
  *     Router, mutate the `openViews` set and respect the `canSwitchViews`
  *     guard.
@@ -18,7 +18,6 @@
  *     mutations.
  *   - `handleInitialData` / `handleError` aggregated updates.
  *   - `getStateSnapshot` returns a synchronous snapshot.
- *   - Layout mode persistence (setLayoutMode writes localStorage; toggle flips).
  *   - Per-workspace view partitioning: `switchWorkspace` /
  *     `removeWorkspaceState` swap and drop `currentView` + `openViews` slices,
  *     and the bootstrap sentinel slice migrates onto the first real workspace
@@ -63,7 +62,6 @@ import {
   THOTH_FIRST_RUN_DISMISSED_KEY,
   type AppState,
   type CanvasSessionRequest,
-  type LayoutMode,
   type ViewType,
 } from './app-state.service';
 import {
@@ -80,7 +78,6 @@ interface AppStoreState {
   workspaceInfo: WorkspaceInfo | null;
   isConnected: boolean;
   openViews: readonly ViewType[];
-  layoutMode: LayoutMode;
   canvasSessionRequests: readonly CanvasSessionRequest[];
   newCanvasSessionRequest: string | null;
   canSwitchViews: boolean;
@@ -100,7 +97,6 @@ function setupGlobals(
   options: {
     ptahConfig?: PtahTestWindow['ptahConfig'];
     initialView?: ViewType;
-    savedLayoutMode?: LayoutMode;
   } = {},
 ): void {
   const ptahWindow = window as unknown as PtahTestWindow;
@@ -109,9 +105,6 @@ function setupGlobals(
   }
   if (options.initialView !== undefined) {
     ptahWindow.initialView = options.initialView;
-  }
-  if (options.savedLayoutMode !== undefined) {
-    localStorage.setItem('ptah-layout-mode', options.savedLayoutMode);
   }
 }
 
@@ -153,13 +146,12 @@ describe('AppStateManager', () => {
   });
 
   describe('initializeState from window.ptahConfig', () => {
-    it('defaults to view="chat", layoutMode="grid" when no globals are injected', () => {
+    it('defaults to view="chat" when no globals are injected', () => {
       const service = createService();
       const harness = makeSignalStoreHarness<AppStoreState>(service);
 
       expect(harness.read()).toMatchObject({
         currentView: 'chat',
-        layoutMode: 'grid',
         workspaceInfo: null,
       });
     });
@@ -203,10 +195,16 @@ describe('AppStateManager', () => {
       expect(service.workspaceInfo()).toBeNull();
     });
 
-    it('restores layoutMode from localStorage', () => {
-      setupGlobals({ savedLayoutMode: 'single' });
+    it('ignores a stale "single" ptah-layout-mode and lands on the canvas (chat)', () => {
+      // Regression (TASK_2026_705): the single-chat layout is gone. A value
+      // persisted by an older build must not resurrect a layout model or move
+      // the user off the canvas.
+      localStorage.setItem('ptah-layout-mode', 'single');
+
       const service = createService();
-      expect(service.layoutMode()).toBe('single');
+
+      expect(service.currentView()).toBe('chat');
+      expect('layoutMode' in service).toBe(false);
     });
   });
 
@@ -226,20 +224,10 @@ describe('AppStateManager', () => {
       expect(createService().normalizeInitialView(view)).toBe(view);
     });
 
-    it('normalises legacy "orchestra-canvas" → "chat" + grid layout', () => {
+    it('normalises legacy "orchestra-canvas" → "chat"', () => {
       const service = createService();
 
       expect(service.normalizeInitialView('orchestra-canvas')).toBe('chat');
-      expect(service.layoutMode()).toBe('grid');
-    });
-
-    it('orchestra-canvas overrides a saved "single" layout → grid', () => {
-      setupGlobals({ savedLayoutMode: 'single' });
-      const service = createService();
-
-      service.normalizeInitialView('orchestra-canvas');
-
-      expect(service.layoutMode()).toBe('grid');
     });
 
     it.each([
@@ -657,24 +645,6 @@ describe('AppStateManager', () => {
     });
   });
 
-  describe('layout mode', () => {
-    it('setLayoutMode updates the signal and persists to localStorage', () => {
-      const service = createService();
-      service.setLayoutMode('single');
-      expect(service.layoutMode()).toBe('single');
-      expect(localStorage.getItem('ptah-layout-mode')).toBe('single');
-    });
-
-    it('toggleLayoutMode flips between grid and single', () => {
-      const service = createService();
-      expect(service.layoutMode()).toBe('grid');
-      service.toggleLayoutMode();
-      expect(service.layoutMode()).toBe('single');
-      service.toggleLayoutMode();
-      expect(service.layoutMode()).toBe('grid');
-    });
-  });
-
   describe('per-workspace view partitioning (TASK_2026_195)', () => {
     it.each(['pending', 'settled'] as const)(
       'keeps a %s boot-restored builder route when the first workspace activates',
@@ -999,18 +969,6 @@ describe('AppStateManager', () => {
 
         expect(service.currentView()).toBe('chat');
       });
-    });
-
-    it('leaves layoutMode global — Electron pins it to grid and VS Code never switches workspaces', async () => {
-      const service = createService();
-      service.switchWorkspace('/ws/a');
-      await settle();
-      service.setLayoutMode('single');
-
-      service.switchWorkspace('/ws/b');
-      await settle();
-
-      expect(service.layoutMode()).toBe('single');
     });
   });
 
