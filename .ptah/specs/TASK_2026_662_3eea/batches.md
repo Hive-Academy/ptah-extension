@@ -1450,7 +1450,7 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
 - Validation notes: none beyond the plan row.
 - Implementation details: none beyond the plan row.
 
-## Batch 40: VS Code DI + manifest-relative surface specs - PENDING
+## Batch 40: VS Code DI + manifest-relative surface specs - COMPLETE (8110946a8; O32b)
 
 - Phase: C | Executor: CLI lane codex | Depends on: 32 | Tasks: 1
 - Flags: EXCEPTION (consumer-only, one project)
@@ -1458,7 +1458,7 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
 - Precondition: G6 `VSCODE_EXPECTED_ABSENT_METHODS:120-128`. `rpc-surface.spec.ts:211-212` asserts
   `registered + excluded === RPC_METHOD_NAMES.length`.
 
-### Task 40.1: Remove the pipeline DI expectations; make the absent list intersect the live METHODS - PENDING
+### Task 40.1: Remove the pipeline DI expectations; make the absent list intersect the live METHODS - COMPLETE
 
 - Files: `apps/ptah-extension-vscode/src/activation/plugin-activation.ts` + spec, `apps/ptah-extension-vscode/src/di/expected-resolvable.ts`, `container.smoke.spec.ts`, `rpc-surface.spec.ts`, `surface-composition.spec.ts`.
 - Plan reference: plan row 36; round-2 R1 (the spec part only).
@@ -1467,13 +1467,13 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
 - Validation notes: none beyond the plan row.
 - Implementation details: none beyond the plan row.
 
-## Batch 41: Electron DI + manifest-relative surface specs - PENDING
+## Batch 41: Electron DI + manifest-relative surface specs - COMPLETE (1c4642ba0; O32b)
 
 - Phase: C | Executor: CLI lane codex | Depends on: 39 | Tasks: 1
 - Verification: `npx nx run-many -t test typecheck -p ptah-electron --parallel=1`
 - Precondition: G6/G8.
 
-### Task 41.1: Same as Task 40.1, for Electron; keep the Library registration - PENDING
+### Task 41.1: Same as Task 40.1, for Electron; keep the Library registration - COMPLETE
 
 - Files: `apps/ptah-electron/src/di/phase-2-libraries.ts`, `expected-resolvable.ts`, `container.smoke.spec.ts`, `rpc-surface.spec.ts`, `surface-composition.spec.ts`.
 - Plan reference: plan row 37.
@@ -1482,13 +1482,13 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
 - Validation notes: none beyond the plan row.
 - Implementation details: none beyond the plan row.
 
-## Batch 42: CLI engine / CLI DI + manifest-relative surface specs - PENDING
+## Batch 42: CLI engine / CLI DI + manifest-relative surface specs - COMPLETE (8e8c51a2c; O33c)
 
 - Phase: C | Executor: CLI lane codex | Depends on: 30, 37 | Tasks: 1
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/cli-engine ptah-cli --parallel=1`
 - Precondition: G6/G8. The router was already edited in batch 30.
 
-### Task 42.1: Same as Task 40.1, for the CLI - PENDING
+### Task 42.1: Same as Task 40.1, for the CLI - COMPLETE
 
 - Files: `CE/container.ts`, `CE/surface-composition.spec.ts`, `CE/rpc/rpc-surface.spec.ts`, `apps/ptah-cli/src/di/container.smoke.spec.ts`, `apps/ptah-cli/src/cli/router.ts`.
 - Plan reference: plan row 38.
@@ -1515,7 +1515,7 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
 - Validation notes: no retained method reads the candidate store, the synthesis service or the queue store.
 - Implementation details: none beyond the plan row and the finding.
 
-## Batch 44: Skill-synthesis trigger, catalog and enhancer cut - IN_PROGRESS
+## Batch 44: Skill-synthesis trigger, catalog and enhancer cut - COMPLETE (0f13015e9, bec208f1c, 81752ea54)
 
 - Phase: C | Executor: CLI lane codex | Depends on: 4, 9, 10, 35 | Tasks: 3 (44.1, 44.2, 44.3)
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/skill-synthesis --parallel=1`
@@ -1534,7 +1534,7 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
 - Validation notes: none beyond the plan row.
 - Implementation details: none beyond the plan row.
 
-### Task 44.2: Phase A review carry-overs (harvest and grade store) - PENDING
+### Task 44.2: Phase A review carry-overs (harvest and grade store) - COMPLETE (bec208f1c; O32a)
 
 - Files: `SS/spec-extractor.ts` + spec, `SS/spec-harvester.service.ts` + spec,
   `SS/skill-task-grade.store.ts` + spec.
@@ -1549,7 +1549,7 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
 - Validation notes: file cap - 44.1 already owns 6 files, so run 44.2 as its own lane after 44.1 with the
   same verification command.
 
-### Task 44.3: Per-workspace grades, store and scorecard side (U2) - PENDING
+### Task 44.3: Per-workspace grades, store and scorecard side (U2) - COMPLETE (81752ea54; handler side moved here, O33a)
 
 - Files: `SS/skill-task-grade.store.ts` + spec, `SS/skill-scorecard.service.ts` + spec.
 - Source: decision U2 (user, 2026-10-19): a Library agent's success rate uses only task reviews from
@@ -1637,14 +1637,14 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
 - Validation notes: none beyond the plan row.
 - Implementation details: none beyond the plan row.
 
-## Batch 49: Stop the bulk-seed snapshots - PENDING
+## Batch 49: Stop the bulk-seed snapshots - COMPLETE (9cc842ed4; O33b)
 
 - Phase: C | Wave: C-W2 | Executor: CLI lane codex | Depends on: none in C | Tasks: 1
 - Flags: WRITE-PATH (`~/.ptah/user/**/.history/` snapshot writes stop on the seed/fast-forward path)
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/agent-generation --parallel=1`
 - Precondition: the mirror snapshots unchanged clones on fast-forward (`user-layer-mirror.service.ts:1459-1468,1520-1529`).
 
-### Task 49.1: Snapshot only edits, rebase, restore and revert - PENDING
+### Task 49.1: Snapshot only edits, rebase, restore and revert - COMPLETE
 
 - Files: `libs/backend/agent-generation/src/lib/services/user-layer/user-layer-mirror.service.ts` + spec, `user-layer-fs-ops.ts`, `user-layer-enhance.spec.ts`.
 - Plan reference: plan row 45 (snapshot part ONLY; the promoted-slug retirement is batch 70); implementation-plan.md:23.
@@ -1860,6 +1860,9 @@ pipeline tokens (batch 59) before SS registrations are removed (batch 60).
   `skill-enhancer.service.ts:415`); no silent catch, no `skillSynthesis.*` key that batch 65 removes.
 
 ### Task 59.1: Remove the obsolete methods from the handler, the registry, the baseline and the schema in one commit - PENDING
+
+- O33a (2026-10-19): the U2 handler side (pass the active root to the scorecard) already landed in 81752ea54;
+  this task no longer owns it.
 
 - Files: `RH/handlers/skills-synthesis-rpc.handlers.ts` + spec, `RH/handlers/skills-synthesis-rpc.schema.ts` + spec, `libs/shared/src/lib/types/rpc.types.ts`, `libs/shared/src/lib/types/rpc/host-source-registry.baseline.ts`.
 - Plan reference: plan rows 39 (obsolete part) and 59; RPC removal set (implementation-plan.md:59); round-2 R1.
