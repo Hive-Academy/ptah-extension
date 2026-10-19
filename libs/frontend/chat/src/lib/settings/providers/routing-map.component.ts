@@ -152,9 +152,6 @@ function sectionState(...sections: readonly ProvidersSettingsSection<unknown>[])
                   <span class="min-w-0 break-words text-right font-mono text-[11px] text-base-content-muted">{{ role.provider }}</span>
                 </li>
               }
-              @if (preview.explicit.length > 2) {
-                <li class="text-base-content-muted" data-testid="routing-background-more">{{ preview.explicit.length - 2 }} more set</li>
-              }
               @if (preview.following) {
                 <li class="flex items-baseline justify-between gap-2" data-testid="routing-background-following">
                   <span>{{ preview.following }} {{ preview.following === 1 ? 'role' : 'roles' }}</span>

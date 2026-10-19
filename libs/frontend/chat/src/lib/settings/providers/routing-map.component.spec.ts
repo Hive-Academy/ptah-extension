@@ -196,7 +196,9 @@ describe('RoutingMapComponent', () => {
       state.enhancement.set(ready({ provider: '' }));
       fixture.detectChanges();
       expect(within('background-roles', 'routing-background-following')?.textContent).toContain('1 role');
-      expect(within('background-roles', 'routing-background-more')).toBeNull();
+      const rows = Array.from(node('background-roles').querySelectorAll('li'))
+        .map((row) => Array.from(row.querySelectorAll('span')).map((span) => span.textContent?.trim()));
+      expect(rows).toEqual([['Memory curator', 'OpenAI Codex'], ['1 role', 'Follows main agent']]);
     });
 
     it('Inspect opens Agent Orchestration at the background models', () => {
