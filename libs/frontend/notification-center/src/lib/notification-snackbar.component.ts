@@ -169,7 +169,7 @@ export class NotificationSnackbarComponent {
   protected dismiss(key: string): void {
     this.hovered.delete(key);
     this.focused.delete(key);
-    this.paused.delete(key);
+    if (this.paused.delete(key)) this.notifications.resumeSnackbar(key);
     this.notifications.dismissPresentation(key);
   }
 

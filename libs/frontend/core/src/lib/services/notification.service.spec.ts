@@ -59,6 +59,15 @@ describe('NotificationService', () => {
     expect(service.snackbars()).toHaveLength(1);
   });
 
+  it('keeps a dismissed chat presentation when a host source updates', () => {
+    const chat = request('shared', { presentationKey: 'chat-version' });
+    service.upsert(chat);
+    service.dismissPresentation(chat.key);
+    service.upsert({ ...chat, source: 'host', presentationKey: 'host-version' });
+    expect(service.snackbars()).toHaveLength(0);
+    expect(service.needsYou()[0]).toBe(chat);
+  });
+
   it('keeps an equal-by-value action snapshot without replacing or rescheduling a notice', () => {
     const item = failure('unchanged');
     service.upsert(item);

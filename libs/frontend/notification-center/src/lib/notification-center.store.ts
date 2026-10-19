@@ -3,6 +3,7 @@ import {
   ATTENTION_ACTION_DISPATCHER,
   NOTIFICATION_FOCUS_ROUTER,
   NotificationService,
+  LoggingService,
   type AttentionItem,
   type NotificationFocusResult,
 } from '@ptah-extension/core';
@@ -11,6 +12,7 @@ import {
 @Injectable()
 export class NotificationCenterStore {
   private readonly notifications = inject(NotificationService);
+  private readonly logger = inject(LoggingService);
   private readonly dispatcher = inject(ATTENTION_ACTION_DISPATCHER, { optional: true });
   private readonly focusRouter = inject(NOTIFICATION_FOCUS_ROUTER, { optional: true });
   private readonly panelOpen = signal(false);
@@ -108,6 +110,11 @@ export class NotificationCenterStore {
       if (actionId.toLowerCase() === 'open') {
         return (await this.focus(item)).success;
       }
+      return false;
+    } catch (error: unknown) {
+      // degradation-audit: reported - log the failed action and show a fixed row status.
+      this.logger.error('NotificationCenterStore', 'Action unavailable', error);
+      this.statuses.update(current => new Map(current).set(request, 'Action unavailable'));
       return false;
     } finally {
       this.submitting.update(current => new Set([...current].filter(key => key !== request)));

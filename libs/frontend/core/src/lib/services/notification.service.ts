@@ -79,24 +79,34 @@ export class NotificationService {
     const presented = perSource.get('chat') ?? perSource.get('host') ?? item;
     const prior = this.entries().find(entry => entry.key === item.key);
     const newLifecycle = !prior;
+    const presentationChanged = prior?.presentationKey !== presented.presentationKey;
+    let stateChanged = false;
     if (newLifecycle) {
+      stateChanged = this.dismissed.has(item.key) || this.hiddenRecent.has(item.key) || this.clocks.has(item.key) || this.individuallyPaused.has(item.key);
       this.dismissed.delete(item.key);
       this.hiddenRecent.delete(item.key);
       this.clocks.delete(item.key);
       this.individuallyPaused.delete(item.key);
-    } else if (prior?.presentationKey !== item.presentationKey) {
-      this.dismissed.delete(item.key);
+    } else if (presentationChanged) {
+      stateChanged = this.dismissed.delete(item.key);
     }
     if (!REQUEST_KINDS.has(item.kind) && !this.clocks.has(item.key) &&
-        (newLifecycle || prior?.presentationKey !== item.presentationKey)) {
+        (newLifecycle || presentationChanged)) {
       const duration = item.kind === 'failure' ? 8000 : item.kind === 'warning' ? 10000 : 6000;
       this.clocks.set(item.key, { remainingMs: duration, startedAt: Date.now(), paused: this.allPaused });
+      stateChanged = true;
     }
     if (prior && [...new Set([...Object.keys(prior), ...Object.keys(presented)])].every(field => field === 'actions'
       ? presented.actions.length === prior.actions.length && presented.actions.every((action, index) =>
         action.id === prior.actions[index].id && action.label === prior.actions[index].label &&
         action.disabledReason === prior.actions[index].disabledReason)
-      : Object.is(presented[field as keyof AttentionItem], prior[field as keyof AttentionItem]))) return;
+      : Object.is(presented[field as keyof AttentionItem], prior[field as keyof AttentionItem]))) {
+      if (stateChanged) {
+        this.touch();
+        this.scheduleExpiry();
+      }
+      return;
+    }
     const next = prior
       ? this.entries().map(entry => entry.key === item.key ? presented : entry)
       : [...this.entries(), presented];

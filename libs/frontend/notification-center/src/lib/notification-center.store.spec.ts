@@ -11,6 +11,7 @@ import {
   ATTENTION_ACTION_DISPATCHER,
   NOTIFICATION_FOCUS_ROUTER,
   NotificationService,
+  LoggingService,
   type AttentionItem,
 } from '@ptah-extension/core';
 import { NotificationCenterStore } from './notification-center.store';
@@ -34,15 +35,18 @@ describe('NotificationCenterStore', () => {
   let store: NotificationCenterStore;
   const dispatch = jest.fn<Promise<boolean>, [string, number, string]>();
   const focus = jest.fn();
+  const logError = jest.fn();
 
   beforeEach(() => {
     jest.useFakeTimers();
     dispatch.mockReset().mockResolvedValue(true);
     focus.mockReset().mockResolvedValue({ success: true, outcome: 'focused' });
+    logError.mockReset();
     TestBed.configureTestingModule({ providers: [
       NotificationCenterStore,
       { provide: ATTENTION_ACTION_DISPATCHER, useValue: { dispatch } },
       { provide: NOTIFICATION_FOCUS_ROUTER, useValue: { focus } },
+      { provide: LoggingService, useValue: { error: logError } },
     ] });
     notifications = TestBed.inject(NotificationService);
     store = TestBed.inject(NotificationCenterStore);
@@ -90,6 +94,16 @@ describe('NotificationCenterStore', () => {
     await expect(first).resolves.toBe(true);
     notifications.resolve(lane.key, lane.generation);
     await expect(store.activate(lane, 'allow')).resolves.toBe(false);
+  });
+
+  it('returns false and reports an unavailable action when dispatch rejects', async () => {
+    notifications.upsert(lane);
+    const failure = new Error('private detail');
+    dispatch.mockRejectedValueOnce(failure);
+    await expect(store.activate(lane, 'allow')).resolves.toBe(false);
+    expect(store.status(lane)).toBe('Action unavailable');
+    expect(store.isSubmitting(lane)).toBe(false);
+    expect(logError).toHaveBeenCalledWith('NotificationCenterStore', 'Action unavailable', failure);
   });
 
   it('retains the shell focus router', async () => {
