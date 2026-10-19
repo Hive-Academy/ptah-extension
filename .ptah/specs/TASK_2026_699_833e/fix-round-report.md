@@ -84,3 +84,35 @@ No edits to `chat-transcript.*`, `message-bubble.*`, `chat-input.component.ts` o
 ## Out-of-scope observations
 
 - None new.
+
+## Bounded correction (decision 21)
+
+Fixes the single Serious finding in `code-logic-rereview.md`: when one resize goes from md (1200 px) straight below 400 px, the open dock was lost and no compact sheet opened.
+
+### Mechanism
+
+- The compact-crossing effect (`canvas-rail-board.component.ts:577-590`) now keeps a plain closure variable, `dockWasOpen`. On every run with a non-zero width, it saves the previous value as `dockOpenBefore` and then reads `dockOpen()` again.
+- The effect tracks `dockOpen()`, so it re-runs on every toggle, close and handoff, and `dockWasOpen` always holds the open state from the previous run. On a resize that crosses both sm/md and 400 px, the `linkedSignal` band reset has already cleared `dockOpen()`. `dockOpenBefore` still holds the state from before that resize.
+- `handOffInspector(compact, dockWasOpen)` (`:961-978`) checks the passed pre-resize state (`compact && dockWasOpen`) instead of `this.dockOpen()`. The sheet-to-dock branch is unchanged.
+- D-3 still holds for crossings that do not cross 400 px. Take a band-only resize such as 1200 to 760: the effect re-runs because the width changed, so it records the reset value `false`. A later 760 to 390 resize then hands off a closed dock, so no sheet opens.
+- A hidden board (0 px) returns before the record step, so a hide and show across the threshold uses the last visible state.
+
+### Lines changed
+
+- `libs/frontend/canvas/src/lib/canvas-rail/canvas-rail-board.component.ts`: +10/-4 (effect at 577-590, signature and condition at 961/966).
+- `libs/frontend/canvas/src/lib/canvas-rail/canvas-rail-board.component.spec.ts`: +33 (one new test at 913).
+
+### Test added
+
+- `one resize from md to below 400 px hands the open dock to the compact sheet, and back`:
+  - The dock is open at 1200 px. One resize to 390 px gives: `dockOpen` false, `detailsOpen` true, no dock, the sheet present with focus inside it, then focus on the sheet's `[data-inspector-close]` once the deferred block renders.
+  - One resize back to 1200 px gives: `detailsOpen` false, `dockOpen` true, no sheet, the dock present, then focus on the dock's `[data-inspector-close]` once the deferred block renders.
+
+### Verification
+
+- `npx jest -c libs/frontend/canvas/jest.config.ts libs/frontend/canvas/src/lib/canvas-rail/canvas-rail-board.component.spec.ts --coverage=false --maxWorkers=1` gave `Test Suites: 1 passed, 1 total` / `Tests: 120 passed, 120 total` (119 before, plus 1 new).
+- Not run, per the brief: typecheck, lint, and a run of the new test against the old code to show it fails there.
+
+### Decisions
+
+- **Snapshot in the effect rather than inside the `linkedSignal` computation.** The other option was to capture `previous.value` as a side effect inside the computation. That would keep a stale value from an earlier band-only reset, which breaks D-3. A local variable in the effect is current on every run, and the change can be reverted.

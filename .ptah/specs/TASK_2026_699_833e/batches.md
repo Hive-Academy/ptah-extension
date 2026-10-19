@@ -453,3 +453,24 @@ Edge cases:
 - Due: the one re-review, scoped to the fix commit (code-logic, family different from the
   implementer), plus a visual re-check of V-F2 (dock body renders promptly, skeleton in dark +
   light) and the compact handoff.
+
+## Rev 4 bounded correction (decision 21) — COMPLETE (commit c0a523197)
+
+- Trigger: `code-logic-rereview.md` REVISE 6/10 on abf44d146 (0 / 1 / 0): one resize from md
+  (1200 px) straight below 400 px closed the open dock and opened no compact sheet. Decision 21:
+  the user allowed one bounded correction plus one scoped codex re-review.
+- Executor report: `fix-round-report.md` section "Bounded correction (decision 21)".
+
+| # | Finding | Status | Verified on disk |
+| - | ------- | ------ | ---------------- |
+| R1 | Serious: md-to-compact direct resize loses the open inspector | COMPLETE | `canvas-rail-board.component.ts` crossing effect keeps `dockWasOpen` from the previous non-zero-width run and passes `dockOpenBefore` to `handOffInspector(compact, dockWasOpen)`; new spec `one resize from md to below 400 px hands the open dock to the compact sheet, and back` (1200→390→1200 with focus assertions) |
+| R2-M1 | Moderate: 0 px hidden render resets the dock choice (760→0→760, 1200→0→1200) | DEFERRED (decision 22) | pre-existing in rev 4 (`linkedSignal` at `canvas-rail-board.component.ts:386-395`); no config break or data loss, so a named later task listed in the PR body |
+
+- Scoped checks: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat-ui
+  @ptah-extension/chat @ptah-extension/canvas --parallel=1` passed for 3 projects (orchestrator run;
+  not re-run by team-leader). Executor jest run: 120/120.
+- No TODO/PLACEHOLDER/STUB markers and no focused/skipped tests in the diff. HANDOFF.md and
+  `.electron-userdata/` not staged.
+- Re-review: `code-logic-rereview-2.md` REVISE 7/10, Serious fixed, one Moderate (R2-M1). Under the
+  one-fix-round rule that Moderate is recorded, not fixed; the re-review cap (decision 21) is used,
+  so the phase is closed with R2-M1 as a named later task.
