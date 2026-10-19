@@ -459,6 +459,34 @@ describe.each([true, false])(
       expect(chips(host)).toEqual(['in src/', '*.ts']);
     });
 
+    it('names a search path by its last segment, with the full path as the chip title', () => {
+      const path = 'D:\\projects\\specs\\TASK_1\\code-logic-review.md';
+      const host = render({
+        toolName: 'Grep',
+        toolInput: {
+          pattern: 'Serious|Verdict',
+          path,
+          output_mode: 'content',
+          head_limit: 15,
+          '-n': true,
+        },
+      });
+
+      expect(chips(host)).toEqual([
+        'in code-logic-review.md',
+        'lines',
+        'first 15',
+      ]);
+      expect(
+        host.querySelector('[data-testid="tool-chip"]')?.getAttribute('title'),
+      ).toBe(path);
+      expect(
+        host
+          .querySelectorAll('[data-testid="tool-chip"]')[1]
+          ?.hasAttribute('title'),
+      ).toBe(false);
+    });
+
     it('shows TodoWrite progress as the primary text', () => {
       const host = render({
         toolName: 'TodoWrite',

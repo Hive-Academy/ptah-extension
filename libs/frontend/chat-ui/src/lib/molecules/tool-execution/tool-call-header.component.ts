@@ -161,8 +161,9 @@ import { toolStatusPresentation } from '../../utils/tool-status.utils';
           @for (chip of chips(); track $index) {
             <span
               class="badge badge-ghost badge-sm h-5 px-1.5 font-mono text-[11px] text-base-content-muted flex-shrink-0 max-w-full truncate"
+              [attr.title]="chip.title ?? null"
               data-testid="tool-chip"
-              >{{ chip }}</span
+              >{{ chip.label }}</span
             >
           }
 
