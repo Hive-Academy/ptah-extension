@@ -1435,13 +1435,13 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
 - Validation notes: none beyond the plan row.
 - Implementation details: none beyond the plan row.
 
-## Batch 39: Electron IPC window-availability spec - PENDING
+## Batch 39: Electron IPC window-availability spec - COMPLETE (5d0bb0173)
 
 - Phase: C | Executor: CLI lane codex | Depends on: 38 | Tasks: 1
 - Verification: `npx nx run-many -t test typecheck -p ptah-electron --parallel=1`
 - Precondition: G13.
 
-### Task 39.1: Remove the skill push fixture - PENDING
+### Task 39.1: Remove the skill push fixture - COMPLETE
 
 - Files: `apps/ptah-electron/src/ipc/ipc-bridge.window-availability.spec.ts`.
 - Plan reference: plan row 35.
@@ -1497,14 +1497,14 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
 - Validation notes: none beyond the plan row.
 - Implementation details: none beyond the plan row.
 
-## Batch 43: RH handler retained-method rework, `METHODS` unchanged (R1 split) - PENDING
+## Batch 43: RH handler retained-method rework, `METHODS` unchanged (R1 split) - COMPLETE (519bf9a7d; O31a)
 
 - Phase: C | Executor: CLI lane codex | Depends on: 10, 22, 34 | Tasks: 1
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/rpc-handlers --parallel=1`
 - Precondition: G1 the retained `this.synthesis.readSettings` (`:1169` if still present) and the
   `SKILL_SYNTHESIS_EVENT` push (`:800`). `METHODS` still lists every registry name.
 
-### Task 43.1: Retained methods use only the grade/settings/registry ports; remove the push - PENDING
+### Task 43.1: Retained methods use only the grade/settings/registry ports; remove the push - COMPLETE (preview settings read moved to batch 59, O31a)
 
 - Files: `RH/handlers/skills-synthesis-rpc.handlers.ts` + spec.
 - Plan reference: plan row 39 (retained-method part only); round-2 R1.
@@ -1515,13 +1515,13 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
 - Validation notes: no retained method reads the candidate store, the synthesis service or the queue store.
 - Implementation details: none beyond the plan row and the finding.
 
-## Batch 44: Skill-synthesis trigger, catalog and enhancer cut - PENDING
+## Batch 44: Skill-synthesis trigger, catalog and enhancer cut - IN_PROGRESS
 
 - Phase: C | Executor: CLI lane codex | Depends on: 4, 9, 10, 35 | Tasks: 3 (44.1, 44.2, 44.3)
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/skill-synthesis --parallel=1`
 - Precondition: G10.
 
-### Task 44.1: Remove the candidate/enqueue/auto-apply calls; keep telemetry, harvest and manual generation - PENDING
+### Task 44.1: Remove the candidate/enqueue/auto-apply calls; keep telemetry, harvest and manual generation - COMPLETE (0f13015e9; O31b)
 
 - Files: `SS/triggers/skill-trigger.service.ts` + spec, `SS/skill-registry-catalog.service.ts` + spec, `SS/skill-enhancer.service.ts` + spec.
 - Plan reference: plan row 40; implementation-plan.md:15.
@@ -1855,6 +1855,9 @@ pipeline tokens (batch 59) before SS registrations are removed (batch 60).
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/rpc-handlers @ptah-extension/shared @ptah-extension/skill-synthesis-ui @ptah-extension/dashboard @ptah-extension/core @ptah-extension/chat ptah-extension-vscode ptah-electron @ptah-extension/cli-engine ptah-cli --parallel=1`
 - Precondition: the host surface specs are manifest-relative (40-42). Retained methods are reworked (43).
   The frontend facade is trimmed (58). `rg` for the removal-set names in `libs/frontend apps` is zero.
+- Added by O31a: `previewEnhancement` still calls `this.synthesis.readSettings()`. When the synthesis injection goes,
+  give the enhancer a settings source that reads the retained keys (it uses only `minJudgeScore`,
+  `skill-enhancer.service.ts:415`); no silent catch, no `skillSynthesis.*` key that batch 65 removes.
 
 ### Task 59.1: Remove the obsolete methods from the handler, the registry, the baseline and the schema in one commit - PENDING
 
