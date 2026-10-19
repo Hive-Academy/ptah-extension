@@ -65,55 +65,7 @@ const modelRefreshStub = {
  * even in non-Electron tests where it renders only the placeholder.
  */
 const skillStateStub = {
-  candidates: signal([]),
-  invocations: signal([]),
-  stats: signal(null),
-  statusFilter: signal('all'),
-  selectedCandidateId: signal(null),
-  selectedCandidate: signal(null),
-  loading: signal(false),
-  error: signal(null),
-  suggestions: signal([]),
-  suggestionsLoading: signal(false),
-  suggestionDetail: signal(null),
-  suggestionDetailLoading: signal(false),
-  candidateDetail: signal(null),
-  candidateDetailLoading: signal(false),
-  pendingSuggestionCount: signal(0),
-  specs: signal([]),
-  specsLoading: signal(false),
-  staleSpecCount: signal(0),
-  settings: signal(null),
-  queueItems: signal([]),
-  drainRuns: signal([]),
-  stageSpend: signal([]),
-  queueLoading: signal(false),
-  queuedAttemptTotal: signal(0),
-  digestItems: signal([]),
-  digestLoading: signal(false),
-  refreshCandidates: () => Promise.resolve(),
-  refreshSuggestions: () => Promise.resolve(),
-  refreshSpecs: () => Promise.resolve(),
-  refreshQueue: () => Promise.resolve(),
-  refreshDigest: () => Promise.resolve(),
-  harvestSpecs: () => Promise.resolve(),
-  clearStaleSpecs: () => Promise.resolve(),
-  loadStats: () => Promise.resolve(),
-  loadSettings: () => Promise.resolve(),
-  loadCandidateDetail: () => Promise.resolve(),
-  loadSuggestionDetail: () => Promise.resolve(),
-  clearSuggestionDetail: () => undefined,
-  updateSuggestion: () => Promise.resolve(),
-  setStatusFilter: () => Promise.resolve(),
-  selectCandidate: () => Promise.resolve(),
-  promote: () => Promise.resolve(),
-  promoteBulk: () => Promise.resolve(0),
-  reject: () => Promise.resolve(),
-  rejectBulk: () => Promise.resolve(0),
-  rejectByPattern: () => Promise.resolve(0),
-  accept: () => Promise.resolve(),
-  dismiss: () => Promise.resolve(),
-  // The Skills master switch the tab header renders.
+  // The Library tab's pause switch and telemetry controls.
   skillsEnabled: signal(true),
   skillsEnabledCommitted: signal(true),
   skillsPaused: signal(false),
@@ -127,7 +79,7 @@ const skillStateStub = {
   telemetryError: signal<string | null>(null),
   refreshTelemetryEnabled: (): Promise<void> => Promise.resolve(),
   setTelemetryEnabled: (_enabled: boolean): Promise<void> => Promise.resolve(),
-} as unknown as SkillSynthesisStateService;
+};
 
 /**
  * The Memory tab header renders the Memory master switch, which reads
@@ -534,11 +486,7 @@ describe('ThothShellComponent', () => {
     const text = fixture.nativeElement.textContent ?? '';
     expect(text).toContain('Ptah desktop');
 
-    // Filter chips for the live skills UI must not render in placeholder mode.
-    const skillFilterTabs = (
-      fixture.nativeElement as HTMLElement
-    ).querySelectorAll('[aria-label="Status filter"] [role="tab"]');
-    expect(skillFilterTabs.length).toBe(0);
+    expect(text).toContain('Skills Library');
   });
 
   /**
@@ -549,7 +497,6 @@ describe('ThothShellComponent', () => {
   describe('tile refresh (real ThothStatusService)', () => {
     interface FakeSkillsBackend {
       root: string | null;
-      readonly pendingByRoot: Record<string, string[]>;
     }
 
     let backend: FakeSkillsBackend;
@@ -567,8 +514,6 @@ describe('ThothShellComponent', () => {
     >;
     let telemetryByRoot: Record<string, boolean>;
     let memoryDiagnosticsRpc: ReturnType<typeof memoryDiagnosticsRpcStub>;
-
-    const allRows = (): string[] => Object.values(backend.pendingByRoot).flat();
 
     const telemetryReads = () =>
       settingsGet.mock.calls.filter(
@@ -592,24 +537,10 @@ describe('ThothShellComponent', () => {
       workspaceInfo = signal<{ path: string } | null>({ path: '/ws-a' });
       backend = {
         root: '/ws-a',
-        pendingByRoot: {
-          '/ws-a': ['a1', 'a2', 'a3'],
-          '/ws-b': ['b1', 'b2', 'b3', 'b4', 'b5'],
-        },
       };
       telemetryByRoot = { '/ws-a': true, '/ws-b': true };
 
-      listCandidates = jest.fn(
-        async (params: { scope?: 'workspace' | 'all' } = {}) => {
-          // Mirrors `listScope`: 'all' is every row; otherwise the backend's
-          // own root, falling back to every row when it has none.
-          const rows =
-            params.scope === 'all' || backend.root === null
-              ? allRows()
-              : (backend.pendingByRoot[backend.root] ?? []);
-          return rows.map((id) => ({ id }));
-        },
-      );
+      listCandidates = jest.fn(async () => []);
 
       getSettings = jest.fn(async () => ({ enabled: true }));
       settingsGet = jest.fn(async (_method: string, params: { key: string }) => ({
@@ -721,6 +652,7 @@ describe('ThothShellComponent', () => {
         expect(method).toBe('settings:get');
         expect(params).toEqual({ key: 'skills.telemetry.enabled' });
       }
+      expect(listCandidates).not.toHaveBeenCalled();
     });
 
     it('does not refetch when the active tab is clicked again', async () => {
@@ -775,8 +707,6 @@ describe('ThothShellComponent', () => {
         await flushAsync();
         fixture.detectChanges();
         expect(pausedBadge(el, 'skills')).toBeNull();
-        const statsCalls = listCandidates.mock.calls.length;
-
         getSettings.mockResolvedValue({ enabled: false });
         activeTabSignal.set('skills');
         fixture.detectChanges();
@@ -788,8 +718,8 @@ describe('ThothShellComponent', () => {
         fixture.detectChanges();
 
         expect(pausedBadge(el, 'skills')?.textContent?.trim()).toBe('Paused');
-        // Only the flags were re-read, not every pillar.
-        expect(listCandidates.mock.calls).toHaveLength(statsCalls);
+        // Only the flags were re-read; candidate fetching remains retired.
+        expect(listCandidates).not.toHaveBeenCalled();
       });
 
       it('re-reads the pause flags when the window regains focus, and stops after destroy', async () => {
