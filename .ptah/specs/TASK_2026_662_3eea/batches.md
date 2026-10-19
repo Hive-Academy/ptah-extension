@@ -1795,7 +1795,7 @@ Order change versus the plan (R1): the frontend deletion and the facade trim com
 RPC contract batch, then the SS register cut and the SS deletion. The handler must stop injecting the
 pipeline tokens (batch 59) before SS registrations are removed (batch 60).
 
-## Batch 57: SU obsolete subtree deletion - PENDING
+## Batch 57: SU obsolete subtree deletion - COMPLETE
 
 - Phase: D | Executor: CLI lane Glm | Depends on: 27, 28, 51, 52 (52 added for Task 57.2's e2e fake) | Tasks: 2 (57.1, 57.2 added by O25a)
 - Flags: UI (Library is the only view), EXCEPTION (deletion-only, SU/lib)
