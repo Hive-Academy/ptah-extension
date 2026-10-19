@@ -380,6 +380,38 @@ describe('MessageBubbleComponent — branch/rewind action buttons', () => {
     expect(activityPanel()).toBeNull();
   });
 
+  it('renders the report control in the action row of a settled assistant turn', () => {
+    setSettledTurn(
+      createExecutionChatMessage({
+        id: 'msg-assistant-report',
+        role: 'assistant',
+        rawContent: 'response',
+      }),
+    );
+
+    const report = fixture.nativeElement.querySelector(
+      '[data-testid="turn-action-row"] [data-testid="report-response-button"]',
+    ) as HTMLAnchorElement | null;
+    expect(report).not.toBeNull();
+    expect(report?.getAttribute('href')).toMatch(/^mailto:help@ptah\.live\?/);
+  });
+
+  it('does NOT render the report control for user messages', () => {
+    setMessage(
+      createExecutionChatMessage({
+        id: 'msg-user-report',
+        role: 'user',
+        rawContent: 'hello',
+      }),
+    );
+
+    expect(
+      fixture.nativeElement.querySelector(
+        '[data-testid="report-response-button"]',
+      ),
+    ).toBeNull();
+  });
+
   it('emits branchRequested with the message id when the branch button is clicked', () => {
     setMessage(
       createExecutionChatMessage({

@@ -7,10 +7,8 @@ import {
 } from '@angular/core';
 import { Clipboard } from '@angular/cdk/clipboard';
 import { LucideAngularModule, Copy, Check } from 'lucide-angular';
-import type {
-  ExecutionChatMessage,
-  ExecutionNode,
-} from '@ptah-extension/shared';
+import type { ExecutionChatMessage } from '@ptah-extension/shared';
+import { extractMessageText } from './message-text';
 
 /**
  * CopyButtonComponent - Reusable copy button for chat messages
@@ -65,13 +63,7 @@ export class CopyButtonComponent {
    * For assistant messages, extracts text from the streamingState execution tree
    */
   protected copyMessage(): void {
-    const msg = this.message();
-    let content = '';
-    if (msg.role === 'assistant' && msg.streamingState) {
-      content = this.extractTextFromNode(msg.streamingState);
-    } else {
-      content = msg.rawContent || '';
-    }
+    const content = extractMessageText(this.message());
 
     if (!content) {
       console.warn('No content to copy');
@@ -87,24 +79,5 @@ export class CopyButtonComponent {
     } else {
       console.warn('Failed to copy to clipboard');
     }
-  }
-
-  /**
-   * Recursively extract text content from an ExecutionNode tree
-   * Collects content from 'text' and 'message' type nodes
-   */
-  private extractTextFromNode(node: ExecutionNode): string {
-    const parts: string[] = [];
-    if (node.content && (node.type === 'text' || node.type === 'message')) {
-      parts.push(node.content);
-    }
-    for (const child of node.children) {
-      const childContent = this.extractTextFromNode(child);
-      if (childContent) {
-        parts.push(childContent);
-      }
-    }
-
-    return parts.join('\n\n');
   }
 }
