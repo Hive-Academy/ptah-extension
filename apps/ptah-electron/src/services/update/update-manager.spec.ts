@@ -24,17 +24,22 @@ jest.mock('electron', () => ({
 }));
 jest.mock('../../config/build-identity', () => ({
   isLocalProductionBuild: jest.fn(() => false),
+  isMicrosoftStoreBuild: jest.fn(() => false),
 }));
 
 import { app, net } from 'electron';
 import { UpdateManager } from './update-manager';
 import type { UpdateLifecycleState } from '@ptah-extension/shared';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
-import { isLocalProductionBuild } from '../../config/build-identity';
+import {
+  isLocalProductionBuild,
+  isMicrosoftStoreBuild,
+} from '../../config/build-identity';
 
 const getVersion = app.getVersion as jest.Mock;
 const netFetch = net.fetch as unknown as jest.Mock;
 const localProductionBuild = isLocalProductionBuild as jest.Mock;
+const microsoftStoreBuild = isMicrosoftStoreBuild as jest.Mock;
 
 // Mirrors the private constants in update-manager.ts.
 const INITIAL_CHECK_DELAY_MS = 10_000;
@@ -177,6 +182,7 @@ function setPlatform(value: NodeJS.Platform) {
 
 beforeEach(() => {
   localProductionBuild.mockReturnValue(false);
+  microsoftStoreBuild.mockReturnValue(false);
   getVersion.mockReturnValue('0.1.48');
   setPlatform('win32');
   delete process.env['NODE_ENV'];
@@ -201,6 +207,32 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('UpdateManager', () => {
+  describe('Microsoft Store gate', () => {
+    it('does not schedule automatic checks', async () => {
+      microsoftStoreBuild.mockReturnValue(true);
+      const { manager, logger } = createUpdateManager();
+
+      await manager.start();
+
+      expect(manager.getCheckInterval()).toBeNull();
+      expect(netFetch).not.toHaveBeenCalled();
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.stringContaining('Microsoft Store'),
+      );
+    });
+
+    it('does not run a manual check', async () => {
+      microsoftStoreBuild.mockReturnValue(true);
+      const { manager, webviewManager } = createUpdateManager();
+
+      await manager.triggerCheck();
+
+      expect(netFetch).not.toHaveBeenCalled();
+      expect(webviewManager.broadcastMessage).not.toHaveBeenCalled();
+      expect(manager.getCurrentState()).toEqual({ state: 'idle' });
+    });
+  });
+
   describe('local-production gate', () => {
     it('does not schedule automatic checks', async () => {
       localProductionBuild.mockReturnValue(true);
