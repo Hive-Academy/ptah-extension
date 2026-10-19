@@ -94,10 +94,31 @@ maybe('SkillTaskGradeStore', () => {
       store.upsert(grade);
       store.upsert({ ...grade, subjectKind: 'skill' });
       store.upsert({ ...grade, subjectKind: 'command', verdict: 'fail' });
-      expect(store.getAggregates('agent', ['writer', 'missing']).get('writer')).toEqual({ graded: 1, passed: 1, successRate: 1 });
-      expect(store.getAggregates('skill', ['writer']).get('writer')?.successRate).toBe(1);
-      expect(store.getAggregates('command', ['writer']).get('writer')?.successRate).toBe(0);
-      expect(store.getAggregates('agent', ['missing']).get('missing')).toEqual({ graded: 0, passed: 0, successRate: null });
+      expect(store.getAggregates('agent', ['writer', 'missing'], '/workspace').get('writer')).toEqual({ graded: 1, passed: 1, successRate: 1 });
+      expect(store.getAggregates('skill', ['writer'], '/workspace').get('writer')?.successRate).toBe(1);
+      expect(store.getAggregates('command', ['writer'], '/workspace').get('writer')?.successRate).toBe(0);
+      expect(store.getAggregates('agent', ['missing'], '/workspace').get('missing')).toEqual({ graded: 0, passed: 0, successRate: null });
+    } finally { db.close(); }
+  });
+
+  it('isolates the same slug by normalized workspace root, including recent verdicts', () => {
+    const { db, store } = setup();
+    try {
+      const firstRoot = join(process.cwd(), 'first');
+      const secondRoot = join(process.cwd(), 'second');
+      store.upsert({ ...grade, workspaceRoot: `${firstRoot}${sep}` });
+      store.upsert({ ...grade, taskId: 'TASK_2026_002', attributionKey: 'run:2',
+        workspaceRoot: secondRoot, verdict: 'fail', gradedAt: 2 });
+      expect(store.getAggregates('agent', ['writer'], firstRoot).get('writer'))
+        .toEqual({ graded: 1, passed: 1, successRate: 1 });
+      expect(store.getAggregates('agent', ['writer'], `${secondRoot}${sep}`).get('writer'))
+        .toEqual({ graded: 1, passed: 0, successRate: 0 });
+      expect(store.listRecent('agent', 'writer', 5, firstRoot)).toMatchObject([{ verdict: 'pass' }]);
+      expect(store.listRecent('agent', 'writer', 5, secondRoot)).toMatchObject([{ verdict: 'fail' }]);
+      expect(store.getAggregates('agent', ['writer'], join(process.cwd(), 'none')).get('writer'))
+        .toEqual({ graded: 0, passed: 0, successRate: null });
+      expect(store.getAggregates('agent', ['writer'], null).get('writer')?.successRate).toBeNull();
+      expect(store.listRecent('agent', 'writer', 5, null)).toEqual([]);
     } finally { db.close(); }
   });
 
@@ -106,8 +127,8 @@ maybe('SkillTaskGradeStore', () => {
     try {
       store.upsert(grade);
       store.upsert({ ...grade, verdict: 'fail', sourceDigest: 'digest-b', gradedAt: 2 });
-      expect(store.getAggregates('agent', ['writer']).get('writer')).toEqual({ graded: 1, passed: 0, successRate: 0 });
-      expect(store.listRecent('agent', 'writer', 5)).toMatchObject([{ verdict: 'fail', sourceDigest: 'digest-b', gradedAt: 2 }]);
+      expect(store.getAggregates('agent', ['writer'], '/workspace').get('writer')).toEqual({ graded: 1, passed: 0, successRate: 0 });
+      expect(store.listRecent('agent', 'writer', 5, '/workspace')).toMatchObject([{ verdict: 'fail', sourceDigest: 'digest-b', gradedAt: 2 }]);
     } finally { db.close(); }
   });
 
@@ -118,14 +139,14 @@ maybe('SkillTaskGradeStore', () => {
       store.upsert({ ...grade, subjectSlug: 'manual', attributionKey: 'event:2', evidenceSource: 'review' });
       store.upsert({ ...grade, subjectSlug: 'backfill', attributionKey: 'event:3', evidenceSource: 'spec:legacy' });
       store.removeAbsent(grade.taskId, '/workspace', []);
-      expect(store.listRecent('agent', 'writer', 5)).toHaveLength(1); // spec: evidence is kept
-      expect(store.listRecent('agent', 'manual', 5)).toHaveLength(0);
-      expect(store.listRecent('agent', 'backfill', 5)).toHaveLength(1);
+      expect(store.listRecent('agent', 'writer', 5, '/workspace')).toHaveLength(1); // spec: evidence is kept
+      expect(store.listRecent('agent', 'manual', 5, '/workspace')).toHaveLength(0);
+      expect(store.listRecent('agent', 'backfill', 5, '/workspace')).toHaveLength(1);
       store.upsert(grade);
       store.upsert({ ...grade, subjectSlug: 'manual', attributionKey: 'event:2', evidenceSource: 'review' });
       store.removeAbsent(grade.taskId, '/workspace', ['agent:other:event:3']);
-      expect(store.listRecent('agent', 'writer', 5)).toHaveLength(1);
-      expect(store.listRecent('agent', 'manual', 5)).toHaveLength(0);
+      expect(store.listRecent('agent', 'writer', 5, '/workspace')).toHaveLength(1);
+      expect(store.listRecent('agent', 'manual', 5, '/workspace')).toHaveLength(0);
     } finally { db.close(); }
   });
 
@@ -134,7 +155,7 @@ maybe('SkillTaskGradeStore', () => {
     try {
       store.upsert(grade);
       db.prepare('UPDATE skill_task_grades SET verdict = ? WHERE task_id = ?').run('invalid-verdict', grade.taskId);
-      expect(() => store.listRecent('agent', 'writer', 5)).toThrow('Invalid task grade row');
+      expect(() => store.listRecent('agent', 'writer', 5, '/workspace')).toThrow('Invalid task grade row');
       expect(logger.warn).toHaveBeenCalledWith('[skill-synthesis] invalid task grade row');
     } finally { db.close(); }
   });

@@ -945,7 +945,7 @@ export class SkillEnhancerService {
   private buildAgentScorecardBlock(slug: string): string | null {
     if (!this.scorecard) return null;
     try {
-      const card = this.scorecard.getScorecards([slug])[slug];
+      const card = this.scorecard.getScorecards([slug], this.resolveAgentScope() ?? null)[slug];
       if (!card || !this.hasScorecardData(card)) return null;
       return this.formatScorecardBlock(card).slice(0, MAX_SCORECARD_CHARS);
     } catch (error: unknown) {

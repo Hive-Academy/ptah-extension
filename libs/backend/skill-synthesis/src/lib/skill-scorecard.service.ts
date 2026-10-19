@@ -48,7 +48,7 @@ export class SkillScorecardService {
   ) {}
 
   /** Graded task counts and rate, with distinct contexts from invocation telemetry. */
-  getInvocationStats(kind: SkillRegistryKind, slug: string): {
+  getInvocationStats(kind: SkillRegistryKind, slug: string, workspaceRoot: string | null): {
     total: number;
     succeeded: number;
     failed: number;
@@ -56,7 +56,7 @@ export class SkillScorecardService {
     invocationCount: number;
     successRate: number | null;
   } {
-    const grade = this.grades.getAggregates(kind, [slug]).get(slug);
+    const grade = this.grades.getAggregates(kind, [slug], workspaceRoot ?? null).get(slug);
     const total = grade?.graded ?? 0;
     const succeeded = grade?.passed ?? 0;
     const contextRow = this.events.getUsageStats(slug);
@@ -74,16 +74,16 @@ export class SkillScorecardService {
    * Batched scorecards for every visible agent-clone slug. One aggregate pass;
    * a slug is only hit with a verdict query when it has graded events.
    */
-  getScorecards(slugs: readonly string[]): Record<string, AgentScorecard> {
+  getScorecards(slugs: readonly string[], workspaceRoot: string | null): Record<string, AgentScorecard> {
     const scorecards: Record<string, AgentScorecard> = {};
     if (slugs.length === 0) return scorecards;
     try {
       const aggregates = this.store.getScorecardAggregates(slugs);
-      const grades = this.grades.getAggregates('agent', slugs);
+      const grades = this.grades.getAggregates('agent', slugs, workspaceRoot ?? null);
       for (const [slug, aggregate] of aggregates) {
         const grade = grades.get(slug) ?? { graded: 0, passed: 0, successRate: null };
         const recentVerdicts =
-          grade.graded > 0 ? this.buildRecentVerdicts(slug) : [];
+          grade.graded > 0 ? this.buildRecentVerdicts(slug, workspaceRoot ?? null) : [];
         scorecards[slug] = this.toScorecard(aggregate, grade, recentVerdicts);
       }
       return scorecards;
@@ -105,14 +105,14 @@ export class SkillScorecardService {
    * Per-slug task-grade rate. Null means no grade; zero means graded failure.
    * Invocation counts still come from telemetry. Store failure returns unmeasured.
    */
-  getWinRates(slugs: readonly string[]): Record<string, SkillWinRate> {
+  getWinRates(slugs: readonly string[], workspaceRoot: string | null): Record<string, SkillWinRate> {
     const rates: Record<string, SkillWinRate> = {};
     if (slugs.length === 0) return rates;
     for (const slug of slugs) {
       rates[slug] = unmeasuredWinRate(slug);
     }
     try {
-      const grades = this.grades.getAggregates('agent', slugs);
+      const grades = this.grades.getAggregates('agent', slugs, workspaceRoot ?? null);
       const aggregates = this.store.getScorecardAggregates(slugs);
       for (const slug of slugs) {
         const grade = grades.get(slug);
@@ -141,6 +141,7 @@ export class SkillScorecardService {
    */
   async getScorecardDetail(
     slug: string,
+    workspaceRoot: string | null,
     limit?: number,
   ): Promise<SkillSynthesisGetScorecardDetailResult> {
     if (!slug) {
@@ -149,7 +150,7 @@ export class SkillScorecardService {
     const effectiveLimit = this.clampDetailLimit(limit);
     let rows: ScorecardInvocationRow[] = [];
     try {
-      rows = this.grades.listRecent('agent', slug, effectiveLimit)
+      rows = this.grades.listRecent('agent', slug, effectiveLimit, workspaceRoot ?? null)
         .map((r) => this.toInvocationRow(r));
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
@@ -164,9 +165,9 @@ export class SkillScorecardService {
     return { slug, rows, findingsExcerpt };
   }
 
-  private buildRecentVerdicts(slug: string): AgentScorecard['recentVerdicts'] {
+  private buildRecentVerdicts(slug: string, workspaceRoot: string | null): AgentScorecard['recentVerdicts'] {
     return this.grades
-      .listRecent('agent', slug, MAX_RECENT_VERDICTS)
+      .listRecent('agent', slug, MAX_RECENT_VERDICTS, workspaceRoot)
       .map((r) => ({
         taskId: r.taskId,
         succeeded: r.verdict === 'pass',

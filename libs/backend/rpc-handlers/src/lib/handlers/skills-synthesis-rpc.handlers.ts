@@ -1817,7 +1817,7 @@ export class SkillsSynthesisRpcHandlers {
         'skillSynthesis:invocationStats',
       );
       try {
-        const graded = this.scorecard?.getInvocationStats(parsed.kind, parsed.slug);
+        const graded = this.scorecard?.getInvocationStats(parsed.kind, parsed.slug, this.agentScope() ?? null);
         return {
           slug: parsed.slug,
           stats: {
@@ -1862,8 +1862,9 @@ export class SkillsSynthesisRpcHandlers {
         // is a value the aggregate query has no room for (B4.3's own header).
         // Merging them here is what makes the number reachable by a UI at all
         // — B4.3 left it as a backend-only signal.
-        const scorecards = this.scorecard.getScorecards(parsed.slugs);
-        const winRates = this.scorecard.getWinRates(parsed.slugs);
+        const workspaceRoot = this.agentScope() ?? null;
+        const scorecards = this.scorecard.getScorecards(parsed.slugs, workspaceRoot);
+        const winRates = this.scorecard.getWinRates(parsed.slugs, workspaceRoot);
         const merged: Record<string, AgentScorecard> = {};
         for (const [slug, card] of Object.entries(scorecards)) {
           const measured = winRates[slug];
@@ -1902,6 +1903,7 @@ export class SkillsSynthesisRpcHandlers {
         }
         return await this.scorecard.getScorecardDetail(
           parsed.slug,
+          this.agentScope() ?? null,
           parsed.limit,
         );
       } catch (error: unknown) {
@@ -2378,7 +2380,7 @@ export class SkillsSynthesisRpcHandlers {
   ): Promise<CloneSummary> {
     let stats: ReturnType<SkillScorecardService['getInvocationStats']> | undefined;
     try {
-      stats = this.scorecard?.getInvocationStats(row.kind, row.slug);
+      stats = this.scorecard?.getInvocationStats(row.kind, row.slug, this.agentScope() ?? null);
     } catch (error: unknown) {
       this.logger.warn('[skill-synthesis] clone invocation stats unavailable', {
         kind: row.kind,

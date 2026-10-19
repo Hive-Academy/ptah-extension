@@ -467,6 +467,10 @@ describe('SkillEnhancerService â€” preview-before-apply', () => {
       makeSettings(),
       { kind: 'agent' },
     );
+
+    expect(h.scorecard.getScorecards).toHaveBeenCalledWith(
+      ['deep-research'], '/home/u/project',
+    );
     await h.svc.applyProposal(
       'agent',
       'deep-research',

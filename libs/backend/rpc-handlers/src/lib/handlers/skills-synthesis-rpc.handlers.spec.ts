@@ -789,7 +789,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
       enhanceMinInvocations: 5,
       enhanceCooldownUntil: 1700000000000 + 24 * 60 * 60 * 1000,
     });
-    expect(scorecard.getInvocationStats).toHaveBeenCalledWith('skill', 'deep-research');
+    expect(scorecard.getInvocationStats).toHaveBeenCalledWith('skill', 'deep-research', '/workspace/project');
     expect(store.getInvocationStats).not.toHaveBeenCalled();
   });
 
@@ -879,7 +879,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
         clones: Array<{ successRate: number | null }>;
       };
 
-      expect(scorecard.getInvocationStats).toHaveBeenCalledWith(kind, 'deep-research');
+      expect(scorecard.getInvocationStats).toHaveBeenCalledWith(kind, 'deep-research', '/workspace/project');
       expect(result.clones[0].successRate).toBe(0.5);
       expect(store.getInvocationStats).not.toHaveBeenCalled();
     },
@@ -1872,7 +1872,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
       slug: 'deep-research',
     });
 
-    expect(scorecard.getInvocationStats).toHaveBeenCalledWith('skill', 'deep-research');
+    expect(scorecard.getInvocationStats).toHaveBeenCalledWith('skill', 'deep-research', '/workspace/project');
     expect(store.getInvocationStats).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       slug: 'deep-research',
@@ -1908,7 +1908,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
     const result = await rpcHandler.call('skillSynthesis:invocationStats', {
       slug: 'reviewer', kind: 'agent',
     });
-    expect(scorecard.getInvocationStats).toHaveBeenCalledWith('agent', 'reviewer');
+    expect(scorecard.getInvocationStats).toHaveBeenCalledWith('agent', 'reviewer', '/workspace/project');
     expect(result).toMatchObject({ stats: { total: 0, graded: 0, successRate: null } });
   });
 
@@ -1948,8 +1948,23 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:getScorecards', () => {
       slugs: ['backend-developer'],
     })) as { scorecards: Record<string, { totalInvocations: number }> };
 
-    expect(scorecard.getScorecards).toHaveBeenCalledWith(['backend-developer']);
+    expect(scorecard.getScorecards).toHaveBeenCalledWith(['backend-developer'], '/workspace/project');
     expect(result.scorecards['backend-developer'].totalInvocations).toBe(12);
+  });
+
+  it('passes the active workspace root to both scorecard reads', async () => {
+    const { rpcHandler, scorecard } = buildHandlers(['/workspace/active']);
+
+    await rpcHandler.call('skillSynthesis:getScorecards', {
+      slugs: ['backend-developer'],
+    });
+
+    expect(scorecard.getScorecards).toHaveBeenCalledWith(
+      ['backend-developer'], '/workspace/active',
+    );
+    expect(scorecard.getWinRates).toHaveBeenCalledWith(
+      ['backend-developer'], '/workspace/active',
+    );
   });
 
   it('returns a typed empty scorecard for a no-data slug', async () => {
@@ -2015,7 +2030,7 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:getScorecards', () => {
       'measured-loser',
       'never-settled',
       'no-events-at-all',
-    ]);
+    ], '/workspace/project');
   });
 
   it('returns {} scorecards when the scorecard service is unbound', async () => {
@@ -2132,6 +2147,7 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:getScorecardDetail', () 
 
     expect(scorecard.getScorecardDetail).toHaveBeenCalledWith(
       'backend-developer',
+      '/workspace/project',
       10,
     );
     expect(result.rows).toHaveLength(1);

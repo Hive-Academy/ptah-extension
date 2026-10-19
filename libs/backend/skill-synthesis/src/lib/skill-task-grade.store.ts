@@ -125,7 +125,8 @@ export class SkillTaskGradeStore {
       findings_ref = excluded.findings_ref`).run(
       grade.taskId, grade.subjectKind, grade.subjectSlug, grade.attributionKey,
       grade.runId, grade.verdict, grade.sourceFile, grade.sourceDigest,
-      grade.evidenceSource, grade.workspaceRoot, grade.gradedAt, grade.findingsRef,
+      grade.evidenceSource, grade.workspaceRoot === null ? null : normalizeWorkspaceRoot(grade.workspaceRoot),
+      grade.gradedAt, grade.findingsRef,
     );
   }
 
@@ -170,15 +171,16 @@ export class SkillTaskGradeStore {
 
   removeAbsent(taskId: string, workspaceRoot: string, keys: readonly string[]): void {
     // An empty keep-list means all current attributions were skipped; remove stale non-spec grades.
+    const normalizedRoot = normalizeWorkspaceRoot(workspaceRoot);
     const rows = this.db.prepare(`SELECT subject_kind, subject_slug, attribution_key FROM skill_task_grades
-      WHERE task_id = ? AND workspace_root = ? AND evidence_source NOT LIKE 'spec:%'`).all(taskId, workspaceRoot)
+      WHERE task_id = ? AND workspace_root = ? AND evidence_source NOT LIKE 'spec:%'`).all(taskId, normalizedRoot)
       .map((row) => this.parseRow(PruneRowSchema, row));
     const keep = new Set(keys);
     const remove = this.db.prepare(`DELETE FROM skill_task_grades
       WHERE task_id = ? AND workspace_root = ? AND subject_kind = ? AND subject_slug = ? AND attribution_key = ?
         AND evidence_source NOT LIKE 'spec:%'`);
     for (const row of rows) if (!keep.has(`${row.subject_kind}:${row.subject_slug}:${row.attribution_key}`))
-      remove.run(taskId, workspaceRoot, row.subject_kind, row.subject_slug, row.attribution_key);
+      remove.run(taskId, normalizedRoot, row.subject_kind, row.subject_slug, row.attribution_key);
   }
 
   hasGradeForTask(taskId: string, slug: string, kind?: SkillRegistryKind): boolean {
@@ -188,14 +190,15 @@ export class SkillTaskGradeStore {
     return row !== undefined;
   }
 
-  getAggregates(kind: SkillRegistryKind, slugs: readonly string[]): Map<string, SkillTaskGradeAggregate> {
+  getAggregates(kind: SkillRegistryKind, slugs: readonly string[], workspaceRoot: string | null): Map<string, SkillTaskGradeAggregate> {
     const result = new Map<string, SkillTaskGradeAggregate>();
+    const normalizedRoot = workspaceRoot ? normalizeWorkspaceRoot(workspaceRoot) : null;
     const stmt = this.db.prepare(`SELECT COUNT(*) AS graded,
       COALESCE(SUM(CASE WHEN verdict = 'pass' THEN 1 ELSE 0 END), 0) AS passed
       FROM skill_task_grades INDEXED BY idx_skill_task_grades_subject
-      WHERE subject_kind = ? AND subject_slug = ?`);
+      WHERE subject_kind = ? AND subject_slug = ? AND workspace_root = ?`);
     for (const slug of slugs) {
-      const row = this.parseRow(AggregateRowSchema, stmt.get(kind, slug));
+      const row = this.parseRow(AggregateRowSchema, stmt.get(kind, slug, normalizedRoot));
       result.set(slug, {
         graded: row.graded,
         passed: row.passed,
@@ -205,11 +208,12 @@ export class SkillTaskGradeStore {
     return result;
   }
 
-  listRecent(kind: SkillRegistryKind, slug: string, limit: number): SkillTaskGrade[] {
+  listRecent(kind: SkillRegistryKind, slug: string, limit: number, workspaceRoot: string | null): SkillTaskGrade[] {
+    const normalizedRoot = workspaceRoot ? normalizeWorkspaceRoot(workspaceRoot) : null;
     const rows = this.db.prepare(`SELECT * FROM skill_task_grades
       INDEXED BY idx_skill_task_grades_subject
-      WHERE subject_kind = ? AND subject_slug = ?
-      ORDER BY graded_at DESC LIMIT ?`).all(kind, slug, limit)
+      WHERE subject_kind = ? AND subject_slug = ? AND workspace_root = ?
+      ORDER BY graded_at DESC LIMIT ?`).all(kind, slug, normalizedRoot, limit)
       .map((row) => this.parseRow(GradeRowSchema, row));
     return rows.map((row) => ({
       taskId: row.task_id,
