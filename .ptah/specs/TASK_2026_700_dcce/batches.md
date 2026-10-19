@@ -7,7 +7,7 @@ Decisions D1-D9 in `decisions.md` are binding (D9: no Open tab; D7: dock slot = 
 
 | Phase | Batches | Parallel? | Status |
 | --- | --- | --- | --- |
-| C rail | C1, C2 | yes (file-disjoint) | pending |
+| C rail | C1, C2 | yes (file-disjoint) | done (review NEEDS_FIXES -> 1 fix round -> checks pass) |
 | D canvas | D1, then D2 + D3 | D2 and D3 parallel after D1 | pending |
 | B dock | B1 | - | pending |
 | A page | A1, then A2a, then A2b | strictly sequential | pending |
