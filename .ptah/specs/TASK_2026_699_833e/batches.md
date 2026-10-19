@@ -359,7 +359,7 @@ Edge cases:
 - Measured overflow (`scrollWidth <= clientWidth` at dock 300/560 and the 760 sheet) is a visual-review
   QA item (D-I), not covered by Jest.
 
-## Fix round (phase review fixes + decision 13) — COMPLETE (commit: SHA_PENDING)
+## Fix round (phase review fixes + decision 13) — COMPLETE (commit 069902dea)
 
 - Trigger: `code-style-review.md` REJECTED (1 Blocking, 1 Serious, 1 Moderate) and
   `code-logic-review.md` REJECTED (1 Moderate, 1 Minor); decision 13 (Stats tab move) joins the round.
