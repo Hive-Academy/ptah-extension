@@ -814,8 +814,7 @@ export class SkillsSynthesisRpcHandlers {
             prefilterRejected: snapshot.eligibilityHistogram.prefilterRejected,
             accepted: snapshot.eligibilityHistogram.accepted,
           },
-          // Newest-first, as `getSnapshot` returns it. Same mapper as the live
-          // SKILL_SYNTHESIS_EVENT push, so an id carries one payload on both paths.
+          // Newest-first, as `getSnapshot` returns it.
           recentEvents: snapshot.recentEvents.map(toSkillSynthesisEventWire),
           triggers: {
             idleMs: snapshot.triggers.idleMs,
