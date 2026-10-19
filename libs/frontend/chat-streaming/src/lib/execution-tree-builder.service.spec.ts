@@ -437,6 +437,129 @@ describe('ExecutionTreeBuilderService — incremental rebuild', () => {
     expect(findByType(after, 'text')?.content).toBe('submore');
   });
 
+  it('keys a hook-fallback agent node by the Task tool id, not the hook UUID', () => {
+    feed(messageStart('msg-root', 'assistant'));
+    feed({
+      ...toolStart('msg-root', 'toolu_task'),
+      toolName: 'Task',
+      isTaskTool: true,
+    } as ToolStartEvent);
+    feed(
+      toolDelta(
+        'msg-root',
+        'toolu_task',
+        JSON.stringify({ subagent_type: 'code-style-reviewer' }),
+      ),
+    );
+    // A hook agent_start carries no parentToolUseId, and its own toolCallId
+    // is a hook UUID. Only the subagent_type fallback can match it to the
+    // Task tool (PR #751 review 4309313434).
+    feed({
+      id: 'evt-hook-agent-start',
+      eventType: 'agent_start',
+      timestamp: nextTimestamp(),
+      sessionId: SESSION_ID,
+      source: 'stream',
+      messageId: 'msg-root',
+      toolCallId: 'hook-8f2c-agent-start',
+      agentType: 'code-style-reviewer',
+      agentDescription: 'Review the diff',
+      agentId: 'agent-hook',
+    } as FlatStreamEventUnion);
+
+    const tree = builder.buildTree(state, 'k');
+    const agent = findByType(tree, 'agent');
+    expect(agent).toBeDefined();
+    // The inline bubble keys SubagentExecutionStore and the monitor by the
+    // Task tool_use id, so the agent node must carry it — not the hook UUID.
+    expect(agent?.toolCallId).toBe('toolu_task');
+  });
+
+  it('selects subagent roots by parent tool and invalidates their digest on a delta', () => {
+    feed(messageStart('msg-main', 'assistant'));
+    feed(textDelta('msg-main', 0, 'main'));
+    feed({
+      ...messageStart('msg-agent', 'assistant'),
+      parentToolUseId: 'toolu_agent',
+    } as MessageStartEvent);
+    feed(textDelta('msg-agent', 0, 'first'));
+    feed(toolStart('msg-agent', 'toolu_nested'));
+    feed({
+      id: 'evt-agent-nested',
+      eventType: 'agent_start',
+      timestamp: nextTimestamp(),
+      sessionId: SESSION_ID,
+      source: 'stream',
+      messageId: 'msg-agent',
+      parentToolUseId: 'toolu_nested',
+      toolCallId: 'toolu_nested',
+      agentType: 'general-purpose',
+      agentDescription: 'Nested work',
+      agentId: 'agent-nested',
+    } as FlatStreamEventUnion);
+    feed({
+      ...messageStart('msg-nested', 'assistant'),
+      parentToolUseId: 'toolu_nested',
+    } as MessageStartEvent);
+    feed(textDelta('msg-nested', 0, 'nested'));
+
+    expect(builder.buildTree(state, 'default-roots')).toHaveLength(1);
+    const before = builder.buildTree(state, 'agent-roots', {
+      rootParentToolUseId: 'toolu_agent',
+    });
+    expect(before).toHaveLength(1);
+    expect(findByType(before, 'text')?.content).toBe('first');
+    expect(findByType(before, 'agent')?.toolCallId).toBe('toolu_nested');
+
+    feed(textDelta('msg-agent', 1, ' second'));
+    const after = builder.buildTree(state, 'agent-roots', {
+      rootParentToolUseId: 'toolu_agent',
+    });
+    expect(after).not.toBe(before);
+    expect(findByType(after, 'text')?.content).toBe('first second');
+
+    feed(textDelta('msg-nested', 1, ' work'));
+    const afterNested = builder.buildTree(state, 'agent-roots', {
+      rootParentToolUseId: 'toolu_agent',
+    });
+    expect(afterNested[0]).not.toBe(after[0]);
+    expect(afterNested).toHaveLength(1);
+    const nestedAgent = findByType(afterNested, 'agent');
+    expect(findByType(nestedAgent?.children ?? [], 'text')?.content).toBe(
+      'nested work',
+    );
+  });
+
+  it('keeps parent-linked tool calls in a subagent execution root', () => {
+    feed({
+      ...messageStart('msg-agent', 'assistant'),
+      parentToolUseId: 'toolu_task',
+    });
+    feed({
+      ...toolStart('msg-agent', 'toolu_read'),
+      parentToolUseId: 'toolu_task',
+    });
+
+    const before = builder.buildTree(state, 'subagent-tools', {
+      rootParentToolUseId: 'toolu_task',
+    });
+    expect(before).toHaveLength(1);
+    expect(
+      before[0].children.filter((node) => node.type === 'tool'),
+    ).toHaveLength(1);
+
+    feed({
+      ...toolStart('msg-agent', 'toolu_grep'),
+      parentToolUseId: 'toolu_task',
+    });
+    const after = builder.buildTree(state, 'subagent-tools', {
+      rootParentToolUseId: 'toolu_task',
+    });
+    expect(
+      after[0].children.filter((node) => node.type === 'tool'),
+    ).toHaveLength(2);
+  });
+
   it('drops an evicted message from messageEventIds when the cap bites', () => {
     const warn = jest
       .spyOn(console, 'warn')

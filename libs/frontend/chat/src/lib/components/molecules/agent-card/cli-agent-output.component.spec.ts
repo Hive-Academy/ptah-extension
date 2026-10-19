@@ -80,13 +80,19 @@ describe('unified CLI agent output', () => {
       segments: [{ type: 'info', content: 'Usage: 10 input', usage: { inputTokens: 10, outputTokens: 2 } }],
     }), 'flat');
     const el = fixture.nativeElement as HTMLElement;
-    expect(el.querySelector('[aria-label="Lane usage"]')).not.toBeNull();
+    const row = el.querySelector<HTMLButtonElement>('[data-test="turn-disclosure-row"]')!;
+    const detailsId = row.getAttribute('aria-controls')!;
+    expect(row.getAttribute('aria-expanded')).toBe('false');
+    expect(el.querySelector('[aria-label="Lane usage"]')).toBeNull();
     expect(el.querySelector('[aria-label="Collapse Worker Alpha"]')).toBeNull();
     expect(el.textContent).not.toContain('Worker Alpha');
     expect(el.textContent).not.toContain('Reported total:');
     expect(el.textContent).not.toContain('↑');
-    const details = el.querySelector('details');
-    expect(details?.hasAttribute('open')).toBe(false);
+    row.click();
+    fixture.detectChanges();
+    const details = el.querySelector<HTMLElement>(`[id="${detailsId}"][role="region"]`);
+    expect(row.getAttribute('aria-expanded')).toBe('true');
+    expect(details?.querySelector('[aria-label="Lane usage"]')).not.toBeNull();
     expect(details?.textContent).toContain('session-123');
     expect(details?.textContent).toContain('Inspect files');
   });
@@ -164,7 +170,7 @@ describe('unified CLI agent output', () => {
           durationMs: 3500,
         },
       },
-      expected: ['claude-sonnet-4.5', '↑ 1.0k', '↓ 500', '$0.0025', '3.5s'],
+      expected: ['claude-sonnet-4.5', '↑ 1.0k', '↓ 500', '$0.0025', '3s'],
     },
     {
       cli: 'antigravity',
@@ -345,7 +351,7 @@ describe('unified CLI agent output', () => {
     ).textContent;
     expect(text).toContain('Reported total: 11.9k tokens');
     expect(text).toContain('$0.0000');
-    expect(text).toContain('0ms');
+    expect(text).not.toContain('0ms');
     expect(text).not.toContain('↑');
     expect(text).not.toContain('↓');
   });

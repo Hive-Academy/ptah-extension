@@ -33,7 +33,6 @@ import { ConfirmationDialogComponent } from '../molecules/confirmation-dialog.co
 import { SessionOrganizationEditorComponent } from '../molecules/session-organization-editor/session-organization-editor.component';
 import { PreviousSessionsModalComponent } from '../organisms/previous-sessions/previous-sessions-modal.component';
 import { PreviousSessionsLoadStateComponent } from '../organisms/previous-sessions/previous-sessions-load-state.component';
-import { SubagentTranscriptOverlayComponent } from '../organisms/subagent-transcript-overlay.component';
 import {
   SkeletonBlockComponent,
   ThemeToggleComponent,
@@ -45,7 +44,6 @@ import {
   ConfirmationDialogService,
   TabManagerService,
 } from '@ptah-extension/chat-state';
-import { SubagentTranscriptViewerService } from '../../services/subagent-transcript-viewer.service';
 import { PreviousSessionsDialogService } from '../../services/session-list/previous-sessions-dialog.service';
 import { SessionOrganizerService } from '../../services/session-list/session-organizer.service';
 import {
@@ -119,7 +117,6 @@ import type { TitleOrigin } from '@ptah-extension/chat-types';
     NgComponentOutlet,
     TabBarComponent,
     ConfirmationDialogComponent,
-    SubagentTranscriptOverlayComponent,
     ThemeToggleComponent,
     LucideAngularModule,
     FormsModule,
@@ -156,8 +153,6 @@ export class AppShellComponent {
   private readonly authState = inject(AuthStateService);
   /** Read by the template to create the deferred dialog on first open. */
   protected readonly confirmDialog = inject(ConfirmationDialogService);
-  /** Read by the template to create the deferred overlay on first open. */
-  protected readonly transcriptViewer = inject(SubagentTranscriptViewerService);
   /**
    * Read by the template: creates the deferred modal per open, makes the
    * shell row inert while it is open, and drives the navbar button.

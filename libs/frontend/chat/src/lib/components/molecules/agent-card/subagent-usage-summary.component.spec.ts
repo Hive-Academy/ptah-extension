@@ -149,7 +149,17 @@ describe('SubagentUsageSummaryComponent', () => {
     ) as HTMLElement;
     expect(badge.textContent?.trim()).toBe('warm');
     expect(badge.classList).toContain('badge-success');
-    expect(badge.title).toBe('Prompt cache warm (TTL 5m, idle 30.0s)');
+    expect(badge.title).toBe('Prompt cache warm (TTL 5m, idle 30s)');
+    expect(badge.getAttribute('aria-label')).toBe(badge.title);
+  });
+
+  it('labels sub-second idle time explicitly', () => {
+    jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    setup(record({ cacheTtl: '5m', lastEventAt: 1_000_000 - 500 }));
+    const badge = fixture.nativeElement.querySelector(
+      '[data-testid="subagent-cache-badge"]',
+    ) as HTMLElement;
+    expect(badge.title).toBe('Prompt cache warm (TTL 5m, idle <1s)');
     expect(badge.getAttribute('aria-label')).toBe(badge.title);
   });
 

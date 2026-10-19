@@ -1,5 +1,7 @@
 import { computed, signal } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
 import type { LiveModelStatsPayload } from '@ptah-extension/chat-state';
+import { SubagentExecutionStore } from '@ptah-extension/chat-streaming';
 import {
   createExecutionChatMessage,
   createExecutionNode,
@@ -70,19 +72,33 @@ function stats(contextCapacity?: ContextCapacity): LiveModelStatsPayload {
 
 /** Slots whose records are signals, like the stream presentation store's. */
 function setup(messages: readonly ExecutionChatMessage[]) {
+  TestBed.configureTestingModule({
+    providers: [
+      {
+        provide: SubagentExecutionStore,
+        useValue: {
+          entries: signal(new Map()),
+          revisionFor: () => 0,
+          treeFor: () => [],
+        },
+      },
+    ],
+  });
   const records = messages.map((message) => signal(message));
   const slots = signal<readonly TranscriptHostSourceSlot[]>(
     records.map((record) => ({ record })),
   );
   const liveModelStats = signal<LiveModelStatsPayload | null>(null);
   const activeTrees = signal<readonly ExecutionNode[]>([]);
-  const sources = createTranscriptPtahUiHostSources({
-    tabId: signal('tab-1'),
-    sessionId: signal<string | null>('session-1'),
-    slots,
-    activeTrees,
-    liveModelStats,
-  });
+  const sources = TestBed.runInInjectionContext(() =>
+    createTranscriptPtahUiHostSources({
+      tabId: signal('tab-1'),
+      sessionId: signal<string | null>('session-1'),
+      slots,
+      activeTrees,
+      liveModelStats,
+    }),
+  );
   return { sources, records, slots, activeTrees, liveModelStats };
 }
 
@@ -96,6 +112,53 @@ const MESSAGES = [
 ];
 
 describe('createTranscriptPtahUiHostSources', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('reacts to nested store agents and keeps them in the parent turn', () => {
+    const entries = signal<ReadonlyMap<string, unknown>>(new Map());
+    const trees = new Map<string, ExecutionNode[]>();
+    const treeFor = jest.fn((key: string) => trees.get(key) ?? []);
+    TestBed.configureTestingModule({
+      providers: [
+        {
+          provide: SubagentExecutionStore,
+          useValue: { entries, revisionFor: () => entries(), treeFor },
+        },
+      ],
+    });
+    const records = [
+      signal(user('u1', 1_000)),
+      signal(assistant('a1', 1_100, 'first', ['parent'])),
+      signal(user('u2', 2_000)),
+      signal(assistant('a2', 2_100, 'second', ['other'])),
+    ];
+    const sources = TestBed.runInInjectionContext(() =>
+      createTranscriptPtahUiHostSources({
+        tabId: signal('tab-1'),
+        sessionId: signal<string | null>('session-1'),
+        slots: signal(records.map((record) => ({ record }))),
+        activeTrees: signal<readonly ExecutionNode[]>([]),
+        liveModelStats: signal<LiveModelStatsPayload | null>(null),
+      }),
+    );
+    expect(
+      sources.turnFacts().map((turn) => turn.nodes.map((node) => node.id)),
+    ).toEqual([['parent'], ['other']]);
+
+    trees.set('call-parent', [
+      createExecutionNode({
+        id: 'nested',
+        type: 'agent',
+        status: 'streaming',
+        toolCallId: 'call-nested',
+      }),
+    ]);
+    entries.set(new Map([['call-parent', {}]]));
+    expect(
+      sources.turnFacts().map((turn) => turn.nodes.map((node) => node.id)),
+    ).toEqual([['parent', 'nested'], ['other']]);
+    expect(treeFor).toHaveBeenCalledWith('call-parent');
+  });
   it('includes a live tree absent from the assistant record', () => {
     const { sources, activeTrees } = setup([user('u1', 1_000)]);
     activeTrees.set([
@@ -202,7 +265,7 @@ describe('createTranscriptPtahUiHostSources', () => {
       expect(sources.capacities()).toEqual([]);
     });
 
-    it("is [liveModelStats.contextCapacity] when the tab has one", () => {
+    it('is [liveModelStats.contextCapacity] when the tab has one', () => {
       const { sources, liveModelStats } = setup(MESSAGES);
       liveModelStats.set(stats(CAPACITY));
       expect(sources.capacities()).toEqual([CAPACITY]);

@@ -43,6 +43,12 @@ export {
 } from './lib/session-manager.service';
 export { ExecutionTreeBuilderService } from './lib/execution-tree-builder.service';
 export {
+  SubagentExecutionStore,
+  type SubagentExecutionEntry,
+  type SubagentExecutionEntryView,
+  type SubagentHistoryState,
+} from './lib/subagent-execution.store';
+export {
   BackgroundAgentStore,
   type BackgroundAgentEntry,
 } from './lib/background-agent.store';

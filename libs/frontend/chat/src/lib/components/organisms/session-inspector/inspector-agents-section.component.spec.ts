@@ -4,7 +4,7 @@ import { ModelStateService } from '@ptah-extension/core';
 import { SessionAgentTrayService } from '../../../services/session-agents/session-agent-tray.service';
 import type { SessionAgent } from '../../../services/session-agents/session-agent-roster';
 import { InspectorAgentsSectionComponent } from './inspector-agents-section.component';
-import { formatElapsed } from '../../molecules/agent-card/agent-card.utils';
+import { agentRunLabel, formatAgentDuration } from '@ptah-extension/chat-ui';
 
 function agent(usageTotals?: SessionAgent['usageTotals']): SessionAgent {
   return {
@@ -98,7 +98,14 @@ describe('inspector CLI usage badges', () => {
     expect(el.querySelector('ptah-token-badge')?.textContent).toContain('65 tokens');
     expect(el.querySelector('[title="Reported or estimated cost"]')?.textContent).toContain('~$0.01 est.');
     expect(el.textContent).not.toContain('≥');
-    expect(el.querySelector('[title="Elapsed duration"]')?.textContent).toContain(formatElapsed(65_000));
-    expect(el.querySelector('[data-agent-key]')?.getAttribute('aria-label')).toContain(formatElapsed(65_000));
+    expect(el.querySelector('[title="Elapsed duration"]')?.textContent).toContain(formatAgentDuration(65_000));
+    expect(el.querySelector('[data-agent-key]')?.getAttribute('aria-label')).toContain(formatAgentDuration(65_000));
+  });
+
+  it('restored CLI lane without end time shows Worked, not lane age', () => {
+    const el = render({ ...agent(), startedAt: 1_000, endedAt: null });
+    expect(el.querySelector('[title="Elapsed duration"]')).toBeNull();
+    expect(agentRunLabel({ running: false, startedAt: 1_000 }, 1_000_000)).toBe('Worked');
+    expect(el.querySelector('[data-agent-key]')?.getAttribute('aria-label')).not.toContain('999s');
   });
 });

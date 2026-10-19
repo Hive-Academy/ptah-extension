@@ -10,13 +10,12 @@ import { By } from '@angular/platform-browser';
 import {
   AgentMonitorStore,
   type MonitoredAgent,
+  type SubagentRecord,
 } from '@ptah-extension/chat-streaming';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { VSCodeService } from '@ptah-extension/core';
-import {
-  SplitHandleComponent,
-  SubagentTranscriptViewerComponent,
-} from '@ptah-extension/chat-ui';
+import { SplitHandleComponent } from '@ptah-extension/chat-ui';
+import { SubagentLaneComponent } from '../subagent-lane/subagent-lane.component';
 import { AgentMonitorPanelComponent } from '../agent-monitor-panel.component';
 import { AgentCardComponent } from '../../molecules/agent-card/agent-card.component';
 import { AgentContinueInputComponent } from '../../molecules/agent-continue-input/agent-continue-input.component';
@@ -44,18 +43,14 @@ class ContinueStub {
   readonly agent = input.required<MonitoredAgent>();
 }
 @Component({
-  selector: 'ptah-subagent-transcript-viewer',
+  selector: 'ptah-subagent-lane',
   standalone: true,
   template: '',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-class TranscriptStub {
-  readonly agentName = input('');
-  readonly messages = input<readonly unknown[]>([]);
-  readonly loading = input(false);
-  readonly error = input<string | null>(null);
-  readonly refresh = output<void>();
-  readonly closed = output<void>();
+class SubagentLaneStub {
+  readonly record = input.required<SubagentRecord>();
+  readonly sessionId = input<string | null>(null);
 }
 
 function agent(id: string, startedAt = 1): MonitoredAgent {
@@ -155,10 +150,10 @@ describe('agent panel lanes', () => {
         imports: [
           AgentCardComponent,
           AgentContinueInputComponent,
-          SubagentTranscriptViewerComponent,
+          SubagentLaneComponent,
         ],
       },
-      add: { imports: [CardStub, ContinueStub, TranscriptStub] },
+      add: { imports: [CardStub, ContinueStub, SubagentLaneStub] },
     });
   });
 
@@ -540,7 +535,7 @@ describe('agent panel lanes', () => {
     expect(fixture.componentInstance.selectedAgentId()).toBe('first');
   });
 
-  it.each(['standalone', 'closed transcript'])(
+  it.each(['standalone', 'closed subagent lane'])(
     'preserves a later user choice (%s) until a new workflow request arrives',
     (choice) => {
       const standalone = [agent('a'), agent('b')];
@@ -560,9 +555,14 @@ describe('agent panel lanes', () => {
       } else {
         fixture.componentInstance.selectAgent('sub');
         fixture.detectChanges();
-        fixture.debugElement
-          .query(By.directive(TranscriptStub))
-          .componentInstance.closed.emit();
+        expect(
+          fixture.debugElement.query(By.directive(SubagentLaneStub)),
+        ).not.toBeNull();
+        (
+          fixture.nativeElement.querySelector(
+            'button.btn-ghost.btn-xs.mb-1',
+          ) as HTMLButtonElement
+        ).click();
       }
       fixture.detectChanges();
       pendingPermissions.set([{ ...first }, { ...second }]);
@@ -694,7 +694,7 @@ describe('agent panel lanes', () => {
     ).toBeGreaterThanOrEqual(239.999);
   });
 
-  it('returns from a full-body workflow transcript to the same columns', () => {
+  it('returns from a full-body workflow subagent lane to the same columns', () => {
     const fixture = create();
     const panel = fixture.componentInstance;
     const grid = panel.laneGrid();
@@ -702,11 +702,17 @@ describe('agent panel lanes', () => {
     fixture.detectChanges();
     expect(panel.showLaneGrid()).toBe(false);
     expect(
-      fixture.nativeElement.querySelector('ptah-subagent-transcript-viewer'),
+      fixture.nativeElement.querySelector('ptah-subagent-lane'),
     ).not.toBeNull();
-    fixture.debugElement
-      .query(By.directive(TranscriptStub))
-      .componentInstance.closed.emit();
+    const lane = fixture.debugElement.query(By.directive(SubagentLaneStub))
+      .componentInstance as SubagentLaneStub;
+    expect(lane.record().parentToolUseId).toBe('sub');
+    expect(lane.sessionId()).toBe('session');
+    (
+      fixture.nativeElement.querySelector(
+        'button.btn-ghost.btn-xs.mb-1',
+      ) as HTMLButtonElement
+    ).click();
     fixture.detectChanges();
     expect(panel.showLaneGrid()).toBe(true);
     expect(panel.laneGrid()).toBe(grid);

@@ -275,16 +275,16 @@ function makeHarness(
     Array<{
       id: string;
       claudeSessionId: string | null;
-       hasLiveSession: boolean;
-       viewMode: TabViewMode;
+      hasLiveSession: boolean;
+      viewMode: TabViewMode;
       olderHistoryCursor?: string | null;
     }>
   >([
     {
       id: 'tab-abc',
       claudeSessionId: sessionId,
-       hasLiveSession: sessionIsActive,
-       viewMode: activeTabViewMode,
+      hasLiveSession: sessionIsActive,
+      viewMode: activeTabViewMode,
       olderHistoryCursor: 'older-cursor',
     },
   ]);
@@ -425,7 +425,6 @@ function makeHarness(
     clearCompletedInSession: jest.fn(),
     clearPermission: jest.fn(),
     closePanel: jest.fn(),
-    getSubagentTranscript: jest.fn(),
     toggleAgentExpanded: jest.fn(),
     tick: signal(0),
     cliOutputDemand: signal<readonly { sessionId: string; agentId: string }[]>(
@@ -636,7 +635,10 @@ describe('ChatViewComponent — inspector Answer focus', () => {
     jest.clearAllMocks();
   });
 
-  function addQuestionCard(h: ReturnType<typeof makeHarness>, requestId: string) {
+  function addQuestionCard(
+    h: ReturnType<typeof makeHarness>,
+    requestId: string,
+  ) {
     const card = document.createElement('ptah-question-card');
     card.setAttribute('data-request-id', requestId);
     const option = document.createElement('button');
@@ -648,7 +650,10 @@ describe('ChatViewComponent — inspector Answer focus', () => {
   it('focuses the first option when the card is already present', () => {
     const h = makeHarness();
     const focus = addQuestionCard(h, 'question-now');
-    const miss = jest.spyOn(TestBed.inject(SessionInspectorStore), 'reportAnswerMiss');
+    const miss = jest.spyOn(
+      TestBed.inject(SessionInspectorStore),
+      'reportAnswerMiss',
+    );
 
     h.component['focusQuestionCard']('question-now');
 
@@ -658,7 +663,10 @@ describe('ChatViewComponent — inspector Answer focus', () => {
 
   it('focuses the first option when the card appears during the wait', () => {
     const h = makeHarness();
-    const miss = jest.spyOn(TestBed.inject(SessionInspectorStore), 'reportAnswerMiss');
+    const miss = jest.spyOn(
+      TestBed.inject(SessionInspectorStore),
+      'reportAnswerMiss',
+    );
 
     h.component['focusQuestionCard']('question-late');
     jest.advanceTimersByTime(500);
@@ -671,7 +679,10 @@ describe('ChatViewComponent — inspector Answer focus', () => {
 
   it('reports a miss when no card appears by the end of the wait', () => {
     const h = makeHarness();
-    const miss = jest.spyOn(TestBed.inject(SessionInspectorStore), 'reportAnswerMiss');
+    const miss = jest.spyOn(
+      TestBed.inject(SessionInspectorStore),
+      'reportAnswerMiss',
+    );
 
     h.component['focusQuestionCard']('question-missing');
     jest.advanceTimersByTime(1000);
@@ -2449,21 +2460,33 @@ describe('ChatViewComponent — compact card gate (forced only)', () => {
     const tab = signal({ ...h.activeTabMock() });
     h.activeTabMock.mockImplementation(() => tab());
     h.fixture.detectChanges();
-    const transcript = h.fixture.nativeElement.querySelector('ptah-chat-transcript');
+    const transcript = h.fixture.nativeElement.querySelector(
+      'ptah-chat-transcript',
+    );
     const composer = h.fixture.nativeElement.querySelector('ptah-chat-input');
     expect(transcript).not.toBeNull();
     expect(composer).not.toBeNull();
 
     tab.set({ ...tab(), viewMode: 'compact' });
     h.fixture.detectChanges();
-    expect(h.fixture.nativeElement.querySelector('ptah-chat-transcript')).toBe(transcript);
-    expect(h.fixture.nativeElement.querySelector('ptah-chat-input')).toBe(composer);
-    expect(h.fixture.nativeElement.querySelector('[inert].hidden')).not.toBeNull();
+    expect(h.fixture.nativeElement.querySelector('ptah-chat-transcript')).toBe(
+      transcript,
+    );
+    expect(h.fixture.nativeElement.querySelector('ptah-chat-input')).toBe(
+      composer,
+    );
+    expect(
+      h.fixture.nativeElement.querySelector('[inert].hidden'),
+    ).not.toBeNull();
 
     tab.set({ ...tab(), viewMode: 'full' });
     h.fixture.detectChanges();
-    expect(h.fixture.nativeElement.querySelector('ptah-chat-transcript')).toBe(transcript);
-    expect(h.fixture.nativeElement.querySelector('ptah-chat-input')).toBe(composer);
+    expect(h.fixture.nativeElement.querySelector('ptah-chat-transcript')).toBe(
+      transcript,
+    );
+    expect(h.fixture.nativeElement.querySelector('ptah-chat-input')).toBe(
+      composer,
+    );
     expect(h.fixture.nativeElement.querySelector('[inert].hidden')).toBeNull();
   });
 
@@ -2471,9 +2494,13 @@ describe('ChatViewComponent — compact card gate (forced only)', () => {
     const h = makeHarness({ renderCompactTemplate: true, inspectorOpen: true });
     const tab = signal({ ...h.activeTabMock() });
     h.activeTabMock.mockImplementation(() => tab());
-    h.findTabByIdAcrossWorkspacesMock.mockImplementation(() => ({ tab: tab() }));
+    h.findTabByIdAcrossWorkspacesMock.mockImplementation(() => ({
+      tab: tab(),
+    }));
     h.fixture.detectChanges();
-    expect(h.fixture.nativeElement.querySelector('.cs-inspector')).not.toBeNull();
+    expect(
+      h.fixture.nativeElement.querySelector('.cs-inspector'),
+    ).not.toBeNull();
 
     tab.set({ ...tab(), viewMode: 'compact' });
     h.fixture.detectChanges();
@@ -2481,7 +2508,9 @@ describe('ChatViewComponent — compact card gate (forced only)', () => {
 
     tab.set({ ...tab(), viewMode: 'full' });
     h.fixture.detectChanges();
-    expect(h.fixture.nativeElement.querySelector('.cs-inspector')).not.toBeNull();
+    expect(
+      h.fixture.nativeElement.querySelector('.cs-inspector'),
+    ).not.toBeNull();
   });
 
   it('expands a user compact tab once', () => {
@@ -2504,9 +2533,7 @@ describe('ChatViewComponent — compact card gate (forced only)', () => {
       isElectron: true,
     });
     fixture.detectChanges();
-    expect(
-      fixture.nativeElement.querySelector('ptah-sidebar-tab'),
-    ).toBeNull();
+    expect(fixture.nativeElement.querySelector('ptah-sidebar-tab')).toBeNull();
   });
 
   it('hides the display dock when card mode is forced', () => {

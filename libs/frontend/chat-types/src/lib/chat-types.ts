@@ -62,6 +62,8 @@ export interface NodeMaps {
  * Stores all streaming events as flat list with lookup maps for performance.
  */
 export interface StreamingState {
+  /** Per-state FIFO event limit; defaults to STREAMING_EVENT_CAP. */
+  eventCap?: number;
   /** Frozen row preceding each resynced owner, keyed by the owner's start event id. */
   readonly resyncOwnerPredecessors?: ReadonlyMap<string, string | null>;
   /**
@@ -279,7 +281,8 @@ export function setStreamingEventCapped(
     replaceInMessageBucket(state, event, previous);
     return;
   }
-  if (state.events.size >= STREAMING_EVENT_CAP) {
+  const eventCap = state.eventCap ?? STREAMING_EVENT_CAP;
+  if (state.events.size >= eventCap) {
     const oldestKey = state.events.keys().next().value;
     if (oldestKey !== undefined) {
       const evicted = state.events.get(oldestKey);
@@ -294,7 +297,7 @@ export function setStreamingEventCapped(
       if (!__streamingCapWarned) {
         __streamingCapWarned = true;
         console.warn(
-          `[chat-types] StreamingState.events reached cap of ${STREAMING_EVENT_CAP}; evicting oldest events FIFO.`,
+          `[chat-types] StreamingState.events reached cap of ${eventCap}; evicting oldest events FIFO.`,
         );
       }
     }
