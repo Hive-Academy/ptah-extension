@@ -1705,13 +1705,13 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
   assertions or retire the spec; the file is already in this task's list. Typecheck only, never run e2e.
 - Implementation details: none beyond the plan row.
 
-## Batch 53: Tray home + TUI lifecycle fixtures - PENDING
+## Batch 53: Tray home + TUI lifecycle fixtures - COMPLETE (7ed99d787)
 
 - Phase: C | Executor: CLI lane Glm | Depends on: 52 (Task 53.2 also 18, 25, 51) | Tasks: 2
 - Verification: `npx nx run-many -t typecheck -p ptah-electron-e2e ptah-tui @ptah-extension/core --parallel=1` (core added for Task 53.2)
 - Precondition: G9.
 
-### Task 53.1: Remove the pipeline paths - PENDING
+### Task 53.1: Remove the pipeline paths - COMPLETE
 
 - Files: `apps/ptah-electron-e2e/src/specs/support/tray-home.ts`, `apps/ptah-tui/src/lib/thoth-lifecycle.spec.ts`.
   Added by O28b: `apps/ptah-tui/src/lib/thoth-lifecycle.ts:86` (stop reading `ThothRuntimeRefs.skillSynthesis`).
@@ -1722,7 +1722,7 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
 - Validation notes: none beyond the plan row.
 - Implementation details: none beyond the plan row.
 
-### Task 53.2: Remove the legacy `PendingSettingsTab` section ids (carry-over from batch 17, T12) - PENDING
+### Task 53.2: Remove the legacy `PendingSettingsTab` section ids (carry-over from batch 17, T12) - COMPLETE
 
 - Depends on: batches 18, 25, 51, 52 (their last users go there).
 - File: `libs/frontend/core/src/lib/services/app-state.service.ts` (`PendingSettingsTab.section`, `:127-143`).
@@ -1750,13 +1750,13 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
 - Validation notes: none beyond the plan row.
 - Implementation details: none beyond the plan row.
 
-## Batch 55: Docs - settings, Skills tab, anatomy, navigation - PENDING
+## Batch 55: Docs - settings, Skills tab, anatomy, navigation - COMPLETE (70a9f147b; sidebar edit only in astro.config.mjs)
 
 - Phase: C | Executor: CLI lane Glm | Depends on: 54 | Tasks: 1
 - Verification: `npx prettier --check apps/ptah-docs/src/content/docs/skill-synthesis apps/ptah-docs/astro.config.mjs`
 - Precondition: G9.
 
-### Task 55.1: Navigation and settings rewrite - PENDING
+### Task 55.1: Navigation and settings rewrite - COMPLETE
 
 - Files: `apps/ptah-docs/src/content/docs/skill-synthesis/{settings,the-skills-tab,skill-md-anatomy}.md*`, `apps/ptah-docs/astro.config.mjs`.
 - Plan reference: plan row 52.
@@ -1765,13 +1765,13 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
 - Validation notes: none beyond the plan row.
 - Implementation details: none beyond the plan row.
 
-## Batch 56: Docs - skills, file locations, index - PENDING
+## Batch 56: Docs - skills, file locations, index - COMPLETE (167ae5000)
 
 - Phase: C | Executor: CLI lane Glm | Depends on: 55 | Tasks: 1
 - Verification: `npx prettier --check apps/ptah-docs/src/content/docs/mcp-and-skills/skills.md apps/ptah-docs/src/content/docs/reference/file-locations.md apps/ptah-docs/src/content/docs/index.mdx apps/ptah-docs/src/content/docs/cli/commands.md`
 - Precondition: G9.
 
-### Task 56.1: Archive and location rewrite - PENDING
+### Task 56.1: Archive and location rewrite - COMPLETE
 
 - Files: `apps/ptah-docs/src/content/docs/mcp-and-skills/skills.md`, `reference/file-locations.md`, `index.mdx`,
   `cli/commands.md` (added by O23).
