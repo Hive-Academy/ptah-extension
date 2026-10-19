@@ -151,9 +151,11 @@ export class SplitHandleComponent {
   protected readonly readoutClass = computed(() => {
     const vertical = this.orientation() === 'vertical';
     const inverted = this.inverted();
+    // Mid-handle, just past the 32 px grip (half is 16 px, so 20 px clears
+    // it): a top/left anchor sat over the docked pane's title row.
     const anchor = vertical
-      ? `top-2 ${inverted ? 'left-0' : 'right-0'}`
-      : `left-2 ${inverted ? 'top-0' : 'bottom-0'}`;
+      ? `top-1/2 mt-5 ${inverted ? 'left-0' : 'right-0'}`
+      : `left-1/2 ml-5 ${inverted ? 'top-0' : 'bottom-0'}`;
     const visibility = this.dragging()
       ? 'block'
       : 'hidden group-focus-visible:block';

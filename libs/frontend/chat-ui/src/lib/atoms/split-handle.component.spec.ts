@@ -490,6 +490,10 @@ describe('SplitHandleComponent', () => {
       expect(readout.classList).toContain('hidden');
       expect(readout.classList).toContain('group-focus-visible:block');
       expect(readout.classList).toContain('tabular-nums');
+      // Mid-handle below the grip, not over the docked pane's title row.
+      expect(readout.classList).toContain('top-1/2');
+      expect(readout.classList).toContain('mt-5');
+      expect(readout.classList).not.toContain('top-2');
     });
 
     it('shares one separator element across appearances', () => {
