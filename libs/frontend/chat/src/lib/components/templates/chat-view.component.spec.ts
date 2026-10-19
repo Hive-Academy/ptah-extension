@@ -1376,7 +1376,7 @@ describe('ChatViewComponent — branch (fork) flow', () => {
     );
   });
 
-  it('bounds a hung tile load: clears the in-flight guard and reports the branch as created', async () => {
+  it('bounds a hung tile load: clears the in-flight guard and reports the branch as still opening', async () => {
     jest.useFakeTimers();
     try {
       const h = makeHarness();
@@ -1391,7 +1391,11 @@ describe('ChatViewComponent — branch (fork) flow', () => {
       await jest.advanceTimersByTimeAsync(10_000);
       await done;
 
-      expect(h.showInfoMock).toHaveBeenCalledWith('Branch created.', null);
+      expect(h.showInfoMock).toHaveBeenCalledWith(
+        'Branch created. It is still opening.',
+        null,
+      );
+      expect(h.showInfoMock).not.toHaveBeenCalledWith('Branch created.', null);
       expect(h.showErrorMock).not.toHaveBeenCalled();
       // In-flight cleared: a second request for the same message runs again.
       h.forkSessionMock.mockResolvedValueOnce(
@@ -1399,6 +1403,142 @@ describe('ChatViewComponent — branch (fork) flow', () => {
       );
       await h.component.onBranchRequested('msg-branch-hung');
       expect(h.forkSessionMock).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('after the timeout, a late failed load shows the did-not-open error', async () => {
+    jest.useFakeTimers();
+    try {
+      const h = makeHarness();
+      h.forkSessionMock.mockResolvedValueOnce(
+        rpcOk({ newSessionId: 'branch-session-uuid-5' }),
+      );
+      let settleLate: (opened: boolean) => void = () => undefined;
+      h.requestCanvasSessionMock.mockReturnValueOnce(
+        new Promise<boolean>((resolve) => (settleLate = resolve)),
+      );
+
+      const done = h.component.onBranchRequested('msg-branch-late-fail');
+      await jest.advanceTimersByTimeAsync(10_000);
+      await done;
+      expect(h.showErrorMock).not.toHaveBeenCalled();
+
+      settleLate(false);
+      await jest.advanceTimersByTimeAsync(0);
+
+      expect(h.showInfoMock).toHaveBeenCalledWith(
+        'Branch created. It is still opening.',
+        null,
+      );
+      // Scoped to the originating tab, not the global banner.
+      expect(h.showErrorMock).toHaveBeenCalledWith(
+        'Branch created, but it did not open. Open it from Previous sessions.',
+        'tab-abc',
+      );
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('after the timeout, a late rejected load shows the error scoped to the originating tab', async () => {
+    jest.useFakeTimers();
+    try {
+      const h = makeHarness({ useRealBanner: true });
+      h.forkSessionMock.mockResolvedValueOnce(
+        rpcOk({ newSessionId: 'branch-session-uuid-7' }),
+      );
+      let rejectLate: (error: Error) => void = () => undefined;
+      h.requestCanvasSessionMock.mockReturnValueOnce(
+        new Promise<boolean>((_resolve, reject) => (rejectLate = reject)),
+      );
+
+      const done = h.component.onBranchRequested('msg-branch-late-reject');
+      await jest.advanceTimersByTimeAsync(10_000);
+      await done;
+      expect(h.realActionBanner.banner()).toEqual({
+        kind: 'info',
+        message: 'Branch created. It is still opening.',
+        tabId: null,
+      });
+
+      rejectLate(new Error('session load failed'));
+      await jest.advanceTimersByTimeAsync(0);
+
+      expect(h.realActionBanner.banner()).toEqual({
+        kind: 'error',
+        message:
+          'Branch created, but it did not open. Open it from Previous sessions.',
+        tabId: 'tab-abc',
+      });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('after the timeout, a newer action banner is not replaced by a late failure', async () => {
+    jest.useFakeTimers();
+    try {
+      const h = makeHarness({ useRealBanner: true });
+      h.forkSessionMock
+        .mockResolvedValueOnce(rpcOk({ newSessionId: 'branch-session-uuid-8' }))
+        .mockResolvedValueOnce(rpcOk({ newSessionId: 'branch-session-uuid-9' }));
+      let settleLate: (opened: boolean) => void = () => undefined;
+      h.requestCanvasSessionMock
+        .mockReturnValueOnce(
+          new Promise<boolean>((resolve) => (settleLate = resolve)),
+        )
+        .mockResolvedValueOnce(true);
+
+      const done = h.component.onBranchRequested('msg-branch-old');
+      await jest.advanceTimersByTimeAsync(10_000);
+      await done;
+
+      // A newer action completes and shows its own banner.
+      await h.component.onBranchRequested('msg-branch-new');
+      const newer = h.realActionBanner.banner();
+      expect(newer).toEqual({
+        kind: 'info',
+        message: 'Branch created.',
+        tabId: null,
+      });
+
+      settleLate(false);
+      await jest.advanceTimersByTimeAsync(0);
+
+      expect(h.realActionBanner.banner()).toBe(newer);
+      expect(h.component.actionError()).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('after the timeout, a late successful load shows only the still-opening notice', async () => {
+    jest.useFakeTimers();
+    try {
+      const h = makeHarness();
+      h.forkSessionMock.mockResolvedValueOnce(
+        rpcOk({ newSessionId: 'branch-session-uuid-6' }),
+      );
+      let settleLate: (opened: boolean) => void = () => undefined;
+      h.requestCanvasSessionMock.mockReturnValueOnce(
+        new Promise<boolean>((resolve) => (settleLate = resolve)),
+      );
+
+      const done = h.component.onBranchRequested('msg-branch-late-ok');
+      await jest.advanceTimersByTimeAsync(10_000);
+      await done;
+
+      settleLate(true);
+      await jest.advanceTimersByTimeAsync(0);
+
+      expect(h.showInfoMock).toHaveBeenCalledTimes(1);
+      expect(h.showInfoMock).toHaveBeenCalledWith(
+        'Branch created. It is still opening.',
+        null,
+      );
+      expect(h.showErrorMock).not.toHaveBeenCalled();
     } finally {
       jest.useRealTimers();
     }

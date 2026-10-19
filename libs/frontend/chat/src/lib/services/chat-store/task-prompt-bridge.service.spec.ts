@@ -105,6 +105,8 @@ describe('TaskPromptBridgeService', () => {
       'tab-1',
       null,
       'TASK_2026_300',
+      undefined,
+      { timeoutMs: 5000 },
     );
   });
 
@@ -121,6 +123,8 @@ describe('TaskPromptBridgeService', () => {
       'tab-1',
       '/ws/a',
       'TASK_2026_304',
+      undefined,
+      { timeoutMs: 5000 },
     );
   });
 
@@ -201,7 +205,8 @@ describe('TaskPromptBridgeService', () => {
     expect(expectLink).not.toHaveBeenCalled();
     expect(resolve).toHaveBeenCalledWith({
       success: false,
-      error: 'The canvas is full. Close a session and try again.',
+      error: 
+        'The session did not open on the canvas. If the canvas is full, close a session and try again.',
     });
     expect(clearChatPromptRequest).toHaveBeenCalled();
   });
@@ -227,6 +232,8 @@ describe('TaskPromptBridgeService', () => {
       'tab-1',
       '/ws/a',
       '/orchestrate TASK_2026_707',
+      undefined,
+      { timeoutMs: 5000 },
     );
     expect(closeTab).not.toHaveBeenCalled();
     expect(requestComposerPrefill).not.toHaveBeenCalled();
@@ -238,22 +245,46 @@ describe('TaskPromptBridgeService', () => {
     });
   });
 
-  it('when the canvas does not drain within 5 s: keeps the tab, prefills and resolves success', async () => {
+  it('when the canvas does not drain within 5 s: no prefill, closes the tab and resolves failure', async () => {
     jest.useFakeTimers();
     try {
-      requestCanvasTab.mockReturnValueOnce(new Promise<boolean>(() => undefined));
+      // AppStateManager removes the undrained request at `timeoutMs` and
+      // settles false; the fake mirrors that contract.
+      requestCanvasTab.mockImplementationOnce(
+        (
+          _tabId: string,
+          _workspacePath: string | null,
+          _name?: string,
+          _focus?: boolean,
+          options?: { timeoutMs?: number },
+        ) =>
+          new Promise<boolean>((resolve) =>
+            setTimeout(() => resolve(false), options?.timeoutMs),
+          ),
+      );
+      createTab.mockReturnValueOnce('tab-undrained');
       const resolve = jest.fn();
-      request.set({ prompt: '/orchestrate TASK_2026_706', resolve });
+      request.set({
+        prompt: '/orchestrate TASK_2026_706',
+        taskId: 'TASK_2026_706',
+        resolve,
+      });
 
       TestBed.flushEffects();
-      await jest.advanceTimersByTimeAsync(5000);
+      await jest.advanceTimersByTimeAsync(4999);
+      expect(resolve).not.toHaveBeenCalled();
 
-      expect(closeTab).not.toHaveBeenCalled();
-      expect(requestComposerPrefill).toHaveBeenCalledWith(
-        '/orchestrate TASK_2026_706',
-        'tab-1',
-      );
-      expect(resolve).toHaveBeenCalledWith({ success: true });
+      await jest.advanceTimersByTimeAsync(1);
+
+      expect(requestComposerPrefill).not.toHaveBeenCalled();
+      expect(expectLink).not.toHaveBeenCalled();
+      expect(closeTab).toHaveBeenCalledWith('tab-undrained');
+      expect(resolve).toHaveBeenCalledWith({
+        success: false,
+        error:
+          'The session did not open on the canvas. If the canvas is full, close a session and try again.',
+      });
+      expect(clearChatPromptRequest).toHaveBeenCalled();
     } finally {
       jest.useRealTimers();
     }

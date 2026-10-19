@@ -507,6 +507,40 @@ describe('OrchestraCanvasComponent workspace effects', () => {
     expect(resolve).toHaveBeenCalledWith(true);
   });
 
+  it('settles a request whose adoptTab throws as false and still adopts the next request', () => {
+    const consoleError = jest
+      .spyOn(console, 'error')
+      .mockImplementation(() => undefined);
+    try {
+      (canvasStoreMock.adoptTab as jest.Mock)
+        .mockImplementationOnce(() => {
+          throw new Error('adopt failed');
+        })
+        .mockReturnValueOnce('tab-91');
+      const fixture = mount();
+      const failedResolve = jest.fn();
+      const nextResolve = jest.fn();
+
+      canvasTabRequests$.set([
+        { tabId: 'tab-90', workspacePath: null, resolve: failedResolve },
+        { tabId: 'tab-91', workspacePath: null, resolve: nextResolve },
+      ]);
+      flush();
+      fixture.detectChanges();
+
+      expect(failedResolve).toHaveBeenCalledWith(false);
+      expect(canvasStoreMock.adoptTab).toHaveBeenCalledWith('tab-91');
+      expect(canvasStoreMock.focusTile).toHaveBeenCalledWith('tab-91');
+      expect(nextResolve).toHaveBeenCalledWith(true);
+      expect(consoleError).toHaveBeenCalledWith(
+        '[OrchestraCanvas] Failed to adopt queued tab tile',
+        'adopt failed',
+      );
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   // TASK_2026_612: agent-child adoption while the canvas layout is active.
   // A burst — late adoption of several children in one chat:agent-sessions
   // result — must tile every child in one drain, and `focus: false` must

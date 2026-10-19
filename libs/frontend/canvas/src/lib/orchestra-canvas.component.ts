@@ -463,9 +463,20 @@ export class OrchestraCanvasComponent implements OnDestroy {
           req.resolve?.(false);
           continue;
         }
-        const adopted = this.canvasStore.adoptTab(req.tabId);
-        if (adopted && req.focus !== false) {
-          this.canvasStore.focusTile(req.tabId);
+        // The queue is already emptied, so the app-state removal timer can no
+        // longer settle these requests: each one is settled here even when
+        // adoption or focus throws, and the loop continues with the rest.
+        let adopted: string | null = null;
+        try {
+          adopted = this.canvasStore.adoptTab(req.tabId);
+          if (adopted && req.focus !== false) {
+            this.canvasStore.focusTile(req.tabId);
+          }
+        } catch (error: unknown) {
+          console.error(
+            '[OrchestraCanvas] Failed to adopt queued tab tile',
+            error instanceof Error ? error.message : error,
+          );
         }
         req.resolve?.(
           adopted !== null ||

@@ -1824,6 +1824,79 @@ describe('AppStateManager', () => {
       }
     });
 
+    it('requestCanvasTab with timeoutMs removes the still-queued request and settles false', async () => {
+      jest.useFakeTimers();
+      try {
+        const service = createService();
+        void service.requestCanvasTab('tab-14', '/ws/a');
+        const bounded = service.requestCanvasTab(
+          'tab-15',
+          '/ws/a',
+          'Bounded',
+          undefined,
+          { timeoutMs: 5000 },
+        );
+        let boundedResult: boolean | undefined;
+        void bounded.then((result) => (boundedResult = result));
+
+        jest.advanceTimersByTime(4999);
+        await Promise.resolve();
+        expect(boundedResult).toBeUndefined();
+        expect(service.canvasTabRequests()).toHaveLength(2);
+
+        jest.advanceTimersByTime(1);
+        await expect(bounded).resolves.toBe(false);
+        // Only the exact timed-out request is removed; the other still waits.
+        expect(service.canvasTabRequests()).toEqual([
+          { tabId: 'tab-14', workspacePath: '/ws/a', resolve: expect.any(Function) },
+        ]);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('requestCanvasTab with timeoutMs keeps the outcome of a request the canvas already drained', async () => {
+      jest.useFakeTimers();
+      try {
+        const service = createService();
+        const bounded = service.requestCanvasTab(
+          'tab-16',
+          '/ws/a',
+          undefined,
+          undefined,
+          { timeoutMs: 5000 },
+        );
+        const [drained] = service.takeCanvasTabRequests();
+        drained.resolve?.(true);
+
+        jest.advanceTimersByTime(10_000);
+        await expect(bounded).resolves.toBe(true);
+        expect(service.canvasTabRequests()).toEqual([]);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('requestCanvasTab without timeoutMs keeps waiting for the canvas past any bound', async () => {
+      jest.useFakeTimers();
+      try {
+        const service = createService();
+        const pending = service.requestCanvasTab('tab-17', '/ws/a');
+        let result: boolean | undefined;
+        void pending.then((value) => (result = value));
+
+        jest.advanceTimersByTime(60_000);
+        await Promise.resolve();
+        expect(result).toBeUndefined();
+
+        const [late] = service.takeCanvasTabRequests();
+        late.resolve?.(true);
+        await expect(pending).resolves.toBe(true);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
     it('requestChatPrompt sets the request and clearChatPromptRequest nulls it (D.1)', () => {
       const service = createService();
       const resolve = jest.fn();

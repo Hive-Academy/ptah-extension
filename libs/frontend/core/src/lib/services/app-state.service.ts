@@ -1305,37 +1305,57 @@ export class AppStateManager implements MessageHandler {
    * the canvas's active workspace. FIFO: a burst cannot overwrite an earlier
    * request before the canvas effect drains the queue. When the canvas isn't
    * mounted (e.g. a standalone route is showing) nothing consumes
-   * the queue yet — requests wait until the canvas mounts, so the returned
-   * promise stays pending until then (no removal timeout here; a caller that
-   * needs a bound races its own timer).
+   * the queue yet — by default requests wait until the canvas mounts, so the
+   * returned promise stays pending until then.
+   *
+   * `options.timeoutMs` bounds that wait the same way
+   * {@link requestCanvasSession} does: if the request is still queued when the
+   * timer fires, that exact request is removed (so it can never be adopted
+   * later) and the promise settles `false`. A request the canvas already
+   * drained is untouched — the drain settles it synchronously.
    *
    * @returns Resolves `true` once the tab is a tile, `false` when the canvas
-   * refused it (tile cap) or dropped it (workspace mismatch). Callers that do
-   * not need the outcome may ignore it.
+   * refused it (tile cap), dropped it (workspace mismatch) or did not drain it
+   * before `options.timeoutMs`. Callers that do not need the outcome may
+   * ignore it.
    */
   requestCanvasTab(
     tabId: string,
     workspacePath: string | null,
     name?: string,
     focus?: boolean,
+    options?: { timeoutMs?: number },
   ): Promise<boolean> {
     return new Promise<boolean>((resolve) => {
       let settled = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
       const settle = (adopted: boolean): void => {
         if (settled) return;
         settled = true;
+        clearTimeout(timer);
         resolve(adopted);
       };
-      this._canvasTabRequests.update((requests) => [
-        ...requests,
-        {
-          tabId,
-          workspacePath,
-          ...(name ? { name } : {}),
-          ...(focus === false ? { focus } : {}),
-          resolve: settle,
-        },
-      ]);
+      const request: CanvasTabRequest = {
+        tabId,
+        workspacePath,
+        ...(name ? { name } : {}),
+        ...(focus === false ? { focus } : {}),
+        resolve: settle,
+      };
+      if (options?.timeoutMs !== undefined) {
+        timer = setTimeout(() => {
+          let removedWhileWaiting = false;
+          this._canvasTabRequests.update((requests) => {
+            const remaining = requests.filter(
+              (candidate) => candidate !== request,
+            );
+            removedWhileWaiting = remaining.length !== requests.length;
+            return removedWhileWaiting ? remaining : requests;
+          });
+          if (removedWhileWaiting) settle(false);
+        }, options.timeoutMs);
+      }
+      this._canvasTabRequests.update((requests) => [...requests, request]);
     });
   }
 
