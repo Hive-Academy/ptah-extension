@@ -66,23 +66,25 @@ describe('registerSkillSynthesisServices', () => {
     for (const key of retained) {
       expect(container.isRegistered(SKILL_SYNTHESIS_TOKENS[key])).toBe(true);
     }
-    expect(container.isRegistered(SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE)).toBe(false);
-    expect(container.isRegistered(SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE)).toBe(false);
-    expect(container.isRegistered(SKILL_SYNTHESIS_TOKENS.SKILL_BUDGET_STORE)).toBe(false);
-    expect(container.isRegistered(SKILL_SYNTHESIS_TOKENS.SKILL_QUEUE_STORE)).toBe(false);
+    expect(
+      container.isRegistered(Symbol.for('PtahSkillSynthesisService')),
+    ).toBe(false);
+    expect(container.isRegistered(Symbol.for('PtahSkillCandidateStore'))).toBe(
+      false,
+    );
+    expect(
+      container.isRegistered(Symbol.for('PtahSkillSynthesisBudgetStore')),
+    ).toBe(false);
+    expect(
+      container.isRegistered(Symbol.for('PtahSkillSynthesisQueueStore')),
+    ).toBe(false);
   });
 
-  it('gives the queue and budget stores globally unique token descriptions', () => {
+  it('gives the retained tokens globally unique descriptions', () => {
     const descriptions = Object.values(SKILL_SYNTHESIS_TOKENS).map(
       (t) => t.description,
     );
     expect(new Set(descriptions).size).toBe(descriptions.length);
-    expect(SKILL_SYNTHESIS_TOKENS.SKILL_QUEUE_STORE.description).toBe(
-      'PtahSkillSynthesisQueueStore',
-    );
-    expect(SKILL_SYNTHESIS_TOKENS.SKILL_BUDGET_STORE.description).toBe(
-      'PtahSkillSynthesisBudgetStore',
-    );
   });
 
   it('gives the lane resolver its planned description', () => {

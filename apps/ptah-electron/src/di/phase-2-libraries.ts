@@ -392,8 +392,7 @@ export function registerPhase2Libraries(
     );
   }
   startAndRegisterLaneOutcomes(container, logger);
-  // Library RPC handlers still inject SKILL_SYNTHESIS_SERVICE, and the skill
-  // trigger and telemetry seam also resolve from this registration.
+  // Register the skill trigger and telemetry seam for library RPC handlers.
   registerSkillSynthesisServices(container, logger);
   registerTaskSpecsServices(container, logger);
   // Warm the index at activation (TASK_2026_179 step 11) so `.ptah/specs/
