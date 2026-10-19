@@ -7,6 +7,7 @@ import type {
   PermissionResponse,
 } from '../permission.types';
 import type { FlatStreamEventUnion } from '../execution';
+import type { SetupGenerationWorkflow } from '../rpc/rpc-setup.types';
 
 import type {
   ChatAgentActivityPayload,
@@ -195,6 +196,13 @@ export interface AuthLoginOutputPayload {
   readonly provider: string;
   readonly stream: 'stdout' | 'stderr';
   readonly line: string;
+}
+
+/** Host push to the main webview for a generation workflow. */
+export interface SetupGenerationOpenPayload {
+  workspacePath: string;
+  workflow: SetupGenerationWorkflow;
+  origin: 'analysis-result-continue' | 'independent-start';
 }
 
 /** Payload for MESSAGE_TYPES.HARNESS_OPEN_WORKFLOW ('harness:open-workflow'). */
@@ -432,6 +440,7 @@ export interface MessagePayloadMap {
   'auth:deviceCode': AuthDeviceCodePayload;
   'auth:loginOutput': AuthLoginOutputPayload;
   'harness:open-workflow': HarnessOpenWorkflowPayload;
+  'setup-generation:open': SetupGenerationOpenPayload;
   'harness:config-proposed': HarnessConfigProposedPayload;
   'dashboard:spec-proposed': DashboardSpecProposedPayload;
   'surface:updated': SurfaceUpdatedPayload;

@@ -32,6 +32,7 @@ function monogram(label: string): string {
 /** Prepared once per changed node snapshot, never assembled in the render loop. */
 export class SpriteCache {
   private readonly sprites = new Map<string, HTMLCanvasElement>();
+  private readonly voiceHalos = new Map<string, HTMLCanvasElement>();
   private readonly nodeKeys = new Map<
     string,
     {
@@ -57,13 +58,29 @@ export class SpriteCache {
       [...this.nodeKeys.values()].map((entry) => entry.key),
     );
     for (const key of this.sprites.keys()) {
-      if (!liveKeys.has(key)) this.sprites.delete(key);
+      if (!liveKeys.has(key)) {
+        const canvas = this.sprites.get(key);
+        if (canvas) {
+          canvas.width = 0;
+          canvas.height = 0;
+        }
+        this.sprites.delete(key);
+      }
     }
   }
 
   public get(request: SpriteRequest): HTMLCanvasElement {
     if (this.theme !== request.theme) {
+      for (const canvas of this.sprites.values()) {
+        canvas.width = 0;
+        canvas.height = 0;
+      }
+      for (const canvas of this.voiceHalos.values()) {
+        canvas.width = 0;
+        canvas.height = 0;
+      }
       this.sprites.clear();
+      this.voiceHalos.clear();
       this.nodeKeys.clear();
       this.theme = request.theme;
     }
@@ -224,6 +241,41 @@ export class SpriteCache {
       context.fillText(fallback, center, center + 1);
     }
     this.sprites.set(key, canvas);
+    return canvas;
+  }
+
+  /** Static soft halo; live microphone and speaker levels affect only the blit. */
+  public getVoiceHalo(
+    request: Pick<SpriteRequest, 'theme' | 'paletteName' | 'palette' | 'dpr'>,
+  ): HTMLCanvasElement {
+    const dpr = Math.max(1, Math.min(2, request.dpr));
+    const key = [
+      request.theme,
+      request.paletteName,
+      request.palette.rim,
+      dpr,
+    ].join('|');
+    const cached = this.voiceHalos.get(key);
+    if (cached) return cached;
+    for (const canvas of this.voiceHalos.values()) {
+      canvas.width = 0;
+      canvas.height = 0;
+    }
+    this.voiceHalos.clear();
+    const canvas = this.createCanvas();
+    canvas.width = Math.ceil(192 * dpr);
+    canvas.height = Math.ceil(192 * dpr);
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Canvas 2D context unavailable');
+    context.scale(dpr, dpr);
+    const glow = context.createRadialGradient(96, 96, 37, 96, 96, 96);
+    glow.addColorStop(0, 'transparent');
+    glow.addColorStop(0.49, request.palette.rim);
+    glow.addColorStop(1, 'transparent');
+    context.globalAlpha = 0.28;
+    context.fillStyle = glow;
+    context.fillRect(0, 0, 192, 192);
+    this.voiceHalos.set(key, canvas);
     return canvas;
   }
 }

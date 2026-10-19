@@ -60,14 +60,17 @@ describe('HistoryMessageBuilder', () => {
   };
   let monitoredAgents: Map<string, unknown>;
   let backgroundAgents: Map<string, unknown>;
+  let onSubagentMessageComplete: jest.Mock;
 
   beforeEach(() => {
+    onSubagentMessageComplete = jest.fn();
     const tree: ExecutionNode = {
       id: 'assistant-tree',
       type: 'message',
       status: 'complete',
       content: 'answer',
       children: [],
+      isCollapsed: false,
     };
     treeBuilder = {
       buildTree: jest.fn().mockReturnValue([tree]),
@@ -88,6 +91,7 @@ describe('HistoryMessageBuilder', () => {
       onAgentProgress: jest.fn(),
       onAgentStatus: jest.fn(),
       onAgentCompleted: jest.fn(),
+      onSubagentMessageComplete,
       onBackgroundAgentStarted: jest.fn(),
     };
     const backgroundAgentStore = {
@@ -180,6 +184,152 @@ describe('HistoryMessageBuilder', () => {
     expect(batchedUpdate.scheduleUpdate).not.toHaveBeenCalled();
     expect(monitoredAgents.size).toBe(1);
     expect(backgroundAgents.size).toBe(1);
+  });
+
+  it('keeps subagent history off the restored tree while updating its usage record', () => {
+    const state = builder.createPageState();
+    const parent = {
+      id: 'parent-start',
+      eventType: 'message_start',
+      messageId: 'parent',
+      role: 'assistant',
+      timestamp: 1,
+      source: 'history',
+    } as FlatStreamEventUnion;
+    const child = {
+      id: 'child-start',
+      eventType: 'message_start',
+      messageId: 'child',
+      parentToolUseId: 'task-tool',
+      role: 'assistant',
+      timestamp: 2,
+      source: 'history',
+    } as FlatStreamEventUnion;
+    const childComplete = {
+      id: 'child-complete',
+      eventType: 'message_complete',
+      messageId: 'child',
+      parentToolUseId: 'task-tool',
+      timestamp: 3,
+      source: 'history',
+      tokenUsage: { input: 4, output: 7 },
+    } as FlatStreamEventUnion;
+
+    builder.accumulate(state, [parent, child, childComplete], 'session-1');
+
+    expect([...state.events.keys()]).toEqual(['parent-start']);
+    expect(onSubagentMessageComplete).toHaveBeenCalledWith(
+      expect.objectContaining({ tokenUsage: { input: 4, output: 7 } }),
+    );
+    expect(treeBuilder.buildTree).not.toHaveBeenCalled();
+  });
+
+  it('keeps subagent ownership across replay chunks', () => {
+    const state = builder.createPageState();
+    const child = {
+      id: 'child-first',
+      eventType: 'message_start',
+      messageId: 'child-split',
+      parentToolUseId: 'task-tool',
+      role: 'assistant',
+      timestamp: 1,
+      source: 'history',
+    } as FlatStreamEventUnion;
+    const later = {
+      id: 'child-later',
+      eventType: 'text_delta',
+      messageId: 'child-split',
+      blockIndex: 0,
+      delta: 'private',
+      timestamp: 2,
+      source: 'history',
+    } as FlatStreamEventUnion;
+
+    builder.accumulate(state, [child], 'session-split');
+    builder.accumulate(state, [later], 'session-split');
+
+    expect(state.events.size).toBe(0);
+    expect(state.textAccumulators.size).toBe(0);
+  });
+
+  it('keeps a parent message with a root agent start across replay pages', () => {
+    const state = builder.createPageState();
+    const event = (
+      id: string,
+      eventType: FlatStreamEventUnion['eventType'],
+      messageId: string,
+      extra: Record<string, unknown> = {},
+    ): FlatStreamEventUnion =>
+      ({
+        id,
+        eventType,
+        messageId,
+        timestamp: 1,
+        source: 'history',
+        ...extra,
+      }) as FlatStreamEventUnion;
+
+    builder.accumulate(
+      state,
+      [
+        event('parent-start', 'message_start', 'parent', { role: 'assistant' }),
+        event('parent-text', 'text_delta', 'parent', {
+          blockIndex: 0,
+          delta: 'before',
+        }),
+        event('task-start', 'tool_start', 'parent', {
+          toolCallId: 'task-tool',
+          toolName: 'Task',
+          isTaskTool: true,
+        }),
+        event('root-agent', 'agent_start', 'parent', {
+          toolCallId: 'task-tool',
+          parentToolUseId: 'task-tool',
+          agentId: 'child-agent',
+        }),
+      ],
+      'session-root-agent',
+    );
+    builder.accumulate(
+      state,
+      [
+        event('parallel-tool', 'tool_start', 'parent', {
+          toolCallId: 'parallel-tool',
+          toolName: 'Read',
+        }),
+        event('parent-later', 'text_delta', 'parent', {
+          blockIndex: 1,
+          delta: 'after',
+        }),
+        event('parent-complete', 'message_complete', 'parent'),
+        event('child-start', 'message_start', 'child', {
+          role: 'assistant',
+          parentToolUseId: 'task-tool',
+        }),
+      ],
+      'session-root-agent',
+    );
+    builder.accumulate(
+      state,
+      [
+        event('child-text', 'text_delta', 'child', {
+          blockIndex: 0,
+          delta: 'private',
+        }),
+      ],
+      'session-root-agent',
+    );
+
+    expect([...state.events.keys()]).toEqual([
+      'parent-start',
+      'parent-text',
+      'task-start',
+      'root-agent',
+      'parallel-tool',
+      'parent-later',
+      'parent-complete',
+    ]);
+    expect(state.textAccumulators.has('child')).toBe(false);
   });
 
   it('propagates a throwing event without returning a partial list and releases the scratch key', () => {

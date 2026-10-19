@@ -1,3 +1,4 @@
+import 'reflect-metadata';
 import { VirtualTimeScheduler } from 'rxjs';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
@@ -6,6 +7,7 @@ import type { CompactionCallbackRegistry } from '../../compaction-callback-regis
 import type { CompactionConfigProvider } from '../../compaction-config-provider';
 import type { SdkAdapterEvents } from '../../sdk-adapter-events.service';
 import type { SessionTurnStateRegistry } from '../../session-turn-state.registry';
+import { SessionStatsOwnerService } from '../../../session-stats/session-stats-owner.service';
 import { CompactionCoordinator } from '../compaction-coordinator';
 import {
   COMPACTION_MAX_DWELL_MS,
@@ -22,7 +24,7 @@ import { IdleCompactionService } from './idle-compaction.service';
 const DUE = IDLE_CACHE_TTL_MS * 0.9;
 const request = { requestKey: 'request-1', anchorAt: 0, ttl: '1h' as const };
 
-function harness(send?: IdleCompactSender['sendIdleCompact']) {
+function harness(send?: IdleCompactSender['sendIdleCompact'], owner?: SessionStatsOwnerService) {
   let now = 0;
   const scheduler = new VirtualTimeScheduler();
   scheduler.maxFrames = 0;
@@ -100,6 +102,7 @@ function harness(send?: IdleCompactSender['sendIdleCompact']) {
     events,
     workspace,
     { scheduler, now: () => now },
+    owner,
   );
   const arm = (id = 's') => {
     service.sessionBound(id, 'run', false);
@@ -156,6 +159,142 @@ const settle = async () => {
 };
 
 describe('IdleCompactionService', () => {
+  it('projects confirmed writes, retained reads and the pending attempt, then clears the attempt on release', () => {
+    const owner = new SessionStatsOwnerService();
+    const lease = owner.startNew('s');
+    owner.beginRun('s', lease.generation, 'run', null);
+    const h = harness(undefined, owner);
+    h.service.sessionBound('s', 'run', false, true);
+    h.service.turnEnded('s', 'write', {
+      ...request, cacheAnchorAt: 1_000, cacheWriteTokens: 12, cacheWriteTtl: '1h',
+    });
+    expect(owner.snapshot('s')?.cache).toEqual({
+      ttl: '1h', lastRequestAt: 1_000, expiresAt: 3_601_000,
+    });
+    h.service.turnContext('s', 'write', 250_000);
+    expect(owner.snapshot('s')?.cache?.idleCompactAt).toBe(DUE);
+    h.service.input('s');
+    expect(owner.snapshot('s')?.cache?.idleCompactAt).toBeUndefined();
+    h.service.turnEnded('s', 'read', {
+      ...request, cacheAnchorAt: 2_000, cacheReadTokens: 8,
+    });
+    expect(owner.snapshot('s')?.cache).toEqual({
+      ttl: '1h', lastRequestAt: 2_000, expiresAt: 3_602_000,
+    });
+    h.service.turnEnded('s', 'ambiguous', {
+      ...request, cacheAnchorAt: 3_000, cacheWriteTokens: 3,
+    });
+    expect(owner.snapshot('s')?.cache).toBeUndefined();
+    expect(owner.getCacheTtl('s', 'run')).toBeNull();
+    h.service.turnEnded('s', 'five', {
+      ...request, cacheAnchorAt: 4_000, cacheWriteTokens: 1, cacheWriteTtl: '5m',
+    });
+    expect(owner.snapshot('s')?.cache?.expiresAt).toBe(304_000);
+    h.service.sessionReleased('s');
+    expect(owner.snapshot('s')?.cache?.idleCompactAt).toBeUndefined();
+    h.service.dispose();
+    h.coordinator.dispose();
+  });
+
+  it('keeps the cache estimate when a turn ends without a main request', () => {
+    const owner = new SessionStatsOwnerService();
+    const lease = owner.startNew('s');
+    owner.beginRun('s', lease.generation, 'run', null);
+    const h = harness(undefined, owner);
+    h.service.sessionBound('s', 'run', false, true);
+    h.service.turnEnded('s', 'write', {
+      ...request, cacheAnchorAt: 1_000, cacheWriteTokens: 12, cacheWriteTtl: '1h',
+    });
+    const before = owner.snapshot('s')?.cache;
+    h.service.turnEnded('s', 'no-request', null);
+    expect(owner.snapshot('s')?.cache).toEqual(before);
+    h.service.dispose();
+    h.coordinator.dispose();
+  });
+
+  it('keeps the cache estimate when the turn saw only a synthetic request', () => {
+    const owner = new SessionStatsOwnerService();
+    const lease = owner.startNew('s');
+    owner.beginRun('s', lease.generation, 'run', null);
+    const h = harness(undefined, owner);
+    h.service.sessionBound('s', 'run', false, true);
+    h.service.turnEnded('s', 'write', {
+      ...request, cacheAnchorAt: 1_000, cacheWriteTokens: 12, cacheWriteTtl: '1h',
+    });
+    const before = owner.snapshot('s')?.cache;
+    h.service.turnEnded('s', 'synthetic', { ...request, cacheAnchorAt: null });
+    expect(owner.snapshot('s')?.cache).toEqual(before);
+    h.service.dispose();
+    h.coordinator.dispose();
+  });
+
+  it('clears the cache estimate at a compact boundary and retains the confirmed TTL', () => {
+    const owner = new SessionStatsOwnerService();
+    const lease = owner.startNew('s');
+    owner.beginRun('s', lease.generation, 'run', null);
+    const h = harness(undefined, owner);
+    h.service.sessionBound('s', 'run', false, true);
+    h.service.turnEnded('s', 'write', {
+      ...request, cacheAnchorAt: 1_000, cacheWriteTokens: 12, cacheWriteTtl: '1h',
+    });
+    expect(owner.snapshot('s')?.cache).toBeDefined();
+    h.service.compactBoundary('s', 250_000);
+    expect(owner.snapshot('s')?.cache).toBeUndefined();
+    expect(owner.getCacheTtl('s', 'run')).toBe('1h');
+    h.service.turnEnded('s', 'read', {
+      ...request, cacheAnchorAt: 2_000, cacheReadTokens: 8,
+    });
+    expect(owner.snapshot('s')?.cache?.expiresAt).toBe(3_602_000);
+    h.postCompact();
+    expect(owner.snapshot('s')?.cache).toBeUndefined();
+    expect(owner.getCacheTtl('s', 'run')).toBe('1h');
+    h.service.dispose();
+    h.coordinator.dispose();
+  });
+
+  it('does not log stale cache and idle projections as failures', () => {
+    const owner = new SessionStatsOwnerService();
+    const lease = owner.startNew('s');
+    owner.beginRun('s', lease.generation, 'run', null);
+    const h = harness(undefined, owner);
+    h.service.sessionBound('s', 'run', false, true);
+    owner.startNew('s');
+    h.service.turnEnded('s', 'stale-1', {
+      ...request, cacheAnchorAt: 1_000, cacheWriteTokens: 12, cacheWriteTtl: '1h',
+    });
+    h.service.turnEnded('s', 'stale-2', {
+      ...request, cacheAnchorAt: 2_000, cacheWriteTokens: 12, cacheWriteTtl: '1h',
+    });
+    expect(h.debug).not.toHaveBeenCalled();
+    h.service.dispose();
+    h.coordinator.dispose();
+  });
+
+  it('hides proxy cache evidence and fences a replaced owner', () => {
+    const owner = new SessionStatsOwnerService();
+    const lease = owner.startNew('s');
+    owner.beginRun('s', lease.generation, 'run', null);
+    const h = harness(undefined, owner);
+    h.service.sessionBound('s', 'run', false, false);
+    h.service.turnEnded('s', 'proxy', {
+      ...request, cacheAnchorAt: 1_000, cacheWriteTokens: 2, cacheWriteTtl: '1h',
+    });
+    expect(owner.snapshot('s')?.cache).toBeUndefined();
+    h.service.sessionBound('s', 'run', false, true);
+    h.service.turnEnded('s', 'native', {
+      ...request, cacheAnchorAt: 2_000, cacheWriteTokens: 2, cacheWriteTtl: '1h',
+    });
+    expect(owner.snapshot('s')?.cache?.lastRequestAt).toBe(2_000);
+    owner.startNew('s');
+    h.service.turnEnded('s', 'stale', {
+      ...request, cacheAnchorAt: 3_000, cacheWriteTokens: 2, cacheWriteTtl: '1h',
+    });
+    expect(owner.snapshot('s')?.cache).toBeUndefined();
+    h.service.sessionReleased('s');
+    h.service.dispose();
+    h.coordinator.dispose();
+  });
+
   it('arms, fires once at the due time, and claims before a require-idle coordinator send', async () => {
     const h = harness();
     h.arm();

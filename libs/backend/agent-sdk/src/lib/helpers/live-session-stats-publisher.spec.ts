@@ -180,6 +180,15 @@ function rowOf(payload: SessionStatsLivePayload, model: string) {
   return payload.sessionStats.modelUsageList?.find((m) => m.model === model);
 }
 
+function setCache(owner: SessionStatsOwnerService): void {
+  owner.setCacheEstimate(
+    SESSION,
+    RUN,
+    { ttl: '5m', lastRequestAt: 1000, expiresAt: 301000 },
+    '5m',
+  );
+}
+
 /** A bound publisher that already showed one estimate. */
 function withShownEstimate(context: MainContextReading | null = null) {
   const harness = setup({ context });
@@ -299,6 +308,50 @@ describe('LiveSessionStatsPublisher', () => {
   });
 
   describe('result boundary', () => {
+    it('publishes cache changes while idle without changing token totals', () => {
+      const { publisher, owner, payloads, clock } = setup();
+      publisher.setSessionKey(SESSION);
+      setCache(owner);
+
+      expect(payloads).toHaveLength(1);
+      expect(last(payloads).sessionStats.cache?.expiresAt).toBe(301000);
+      expect(last(payloads).sessionStats).not.toHaveProperty('provisional');
+      const tokens = last(payloads).sessionStats.tokenCount;
+
+      owner.setIdleCompactAt(SESSION, RUN, 2000);
+      expect(clock.pending).toBe(1);
+      clock.advance(LIVE_STATS_INTERVAL_MS);
+      expect(last(payloads).sessionStats.cache?.idleCompactAt).toBe(2000);
+      expect(last(payloads).sessionStats.tokenCount).toEqual(tokens);
+    });
+
+    it('defers a cache-only change during settling until settle', () => {
+      const { publisher, owner, payloads, clock } = setup();
+      publisher.setSessionKey(SESSION);
+      publisher.onResult();
+      setCache(owner);
+      expect(payloads).toHaveLength(0);
+      expect(clock.pending).toBe(0);
+
+      publisher.settle();
+      expect(payloads).toHaveLength(1);
+      expect(last(payloads).sessionStats.cache?.expiresAt).toBe(301000);
+      publisher.settle();
+      expect(payloads).toHaveLength(1);
+    });
+
+    it('does not repeat a cache revision already published by the result callback', () => {
+      const { publisher, owner, payloads } = setup();
+      publisher.setSessionKey(SESSION);
+      publisher.onResult();
+      setCache(owner);
+      const snapshot = owner.snapshot(SESSION);
+      expect(snapshot).not.toBeNull();
+      if (!snapshot) throw new Error('missing owner snapshot');
+      publisher.noteResultPublished(snapshot);
+      publisher.settle();
+      expect(payloads).toHaveLength(0);
+    });
     it('onResult cancels the pending flush and clears the run estimate', () => {
       const { publisher, owner, onLiveStats, clock } = setup();
       const clear = jest.spyOn(owner, 'clearProvisional');
@@ -415,6 +468,33 @@ describe('LiveSessionStatsPublisher', () => {
   });
 
   describe('owner release', () => {
+    it('publishes the cleared idle deadline when no provisional estimate was shown', () => {
+      const { publisher, owner, payloads, clock, onLiveStats, lease } = setup();
+      publisher.setSessionKey(SESSION);
+      setCache(owner);
+      owner.setIdleCompactAt(SESSION, RUN, 2000);
+      clock.advance(LIVE_STATS_INTERVAL_MS);
+      expect(payloads).toHaveLength(2);
+      expect(last(payloads).sessionStats.cache?.idleCompactAt).toBe(2000);
+      expect(last(payloads).sessionStats).not.toHaveProperty('provisional');
+
+      expect(owner.release(lease)).toBe(true);
+
+      expect(onLiveStats).toHaveBeenCalledTimes(3);
+      expect(last(payloads).sessionStats.cache).not.toHaveProperty('idleCompactAt');
+    });
+
+    it('does not republish an unchanged cache on release', () => {
+      const { publisher, owner, onLiveStats, lease } = setup();
+      publisher.setSessionKey(SESSION);
+      setCache(owner);
+      expect(onLiveStats).toHaveBeenCalledTimes(1);
+
+      expect(owner.release(lease)).toBe(true);
+
+      expect(onLiveStats).toHaveBeenCalledTimes(1);
+    });
+
     it('settles synchronously once, then nothing reaches the callback', () => {
       const { publisher, owner, payloads, clock, estimateRevision } =
         withShownEstimate();
@@ -551,6 +631,17 @@ describe('LiveSessionStatsPublisher', () => {
   });
 
   describe('dispose', () => {
+    it('flushes a pending cache change before detaching', () => {
+      const { publisher, owner, payloads, clock } = setup();
+      publisher.setSessionKey(SESSION);
+      setCache(owner);
+      owner.setIdleCompactAt(SESSION, RUN, 2000);
+      expect(clock.pending).toBe(1);
+
+      publisher.dispose();
+      expect(clock.pending).toBe(0);
+      expect(last(payloads).sessionStats.cache?.idleCompactAt).toBe(2000);
+    });
     it('settles a shown estimate and detaches the watcher', () => {
       const { publisher, owner, payloads, clock, estimateRevision } =
         withShownEstimate();
@@ -604,6 +695,21 @@ describe('LiveSessionStatsPublisher', () => {
   });
 
   describe('failures and inert modes', () => {
+    it('keeps a failed cache revision available for a later publication', () => {
+      let calls = 0;
+      const { publisher, owner, payloads, logger, clock } = setup({
+        callback: () => {
+          if (++calls === 1) throw new Error('callback');
+        },
+      });
+      publisher.setSessionKey(SESSION);
+      setCache(owner);
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+      owner.setIdleCompactAt(SESSION, RUN, 2000);
+      clock.advance(LIVE_STATS_INTERVAL_MS);
+      expect(last(payloads).sessionStats.cache?.idleCompactAt).toBe(2000);
+      expect(payloads).toHaveLength(2);
+    });
     it('a throwing callback does not stop the next publish', () => {
       let calls = 0;
       const { publisher, onLiveStats, clock, logger } = setup({

@@ -5,7 +5,6 @@ import {
   BackgroundAgentStore,
 } from '@ptah-extension/chat-streaming';
 import { parseLaneKey } from '../../components/molecules/compact-session/compact-lane-rows';
-import { SubagentTranscriptViewerService } from '../subagent-transcript-viewer.service';
 import type { SessionAgent } from './session-agent-roster';
 import {
   agentModelsByKey,
@@ -31,7 +30,6 @@ export class SessionAgentTrayService {
   private readonly monitor = inject(AgentMonitorStore);
   private readonly background = inject(BackgroundAgentStore);
   private readonly tabManager = inject(TabManagerService);
-  private readonly transcriptViewer = inject(SubagentTranscriptViewerService);
 
   /** Tray contexts of the agents visible from `sessionId`, keyed by `toolCallId`; `null` -> empty. */
   contextsFor(sessionId: string | null): ReadonlyMap<string, TrayAgentContext> {
@@ -82,7 +80,11 @@ export class SessionAgentTrayService {
 
   async steer(ctx: TrayAgentContext, text: string): Promise<boolean> {
     try {
-      return await this.monitor.sendMessageToAgent(ctx.entry.id, text, ctx.sessionId);
+      return await this.monitor.sendMessageToAgent(
+        ctx.entry.id,
+        text,
+        ctx.sessionId,
+      );
     } catch {
       return false;
     }
@@ -95,15 +97,5 @@ export class SessionAgentTrayService {
   sendToBackground(ctx: TrayAgentContext): void {
     if (!ctx.sessionId) return;
     void this.monitor.backgroundAgent(ctx.sessionId, ctx.entry.id);
-  }
-
-  /** Open the on-demand transcript viewer for the agent. */
-  viewTranscript(ctx: TrayAgentContext): void {
-    if (!ctx.agentId || !ctx.sessionId) return;
-    void this.transcriptViewer.openFor(
-      ctx.entry.name,
-      ctx.sessionId,
-      ctx.agentId,
-    );
   }
 }

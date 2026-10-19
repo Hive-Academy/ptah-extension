@@ -364,7 +364,9 @@ describe('WizardAnalysisRunner', () => {
       const items = skillItems();
       const byId = new Map(items.map((item) => [item.id, item]));
       expect(byId.get('backend-developer')?.status).toBe('error');
-      expect(byId.get('backend-developer')?.errorMessage).toBe('no checkpoint');
+      expect(byId.get('backend-developer')?.errorMessage).toBe(
+        'Generation could not be resumed. Try again.',
+      );
       // Already-terminal items keep their state.
       expect(byId.get('frontend-developer')?.status).toBe('complete');
     });

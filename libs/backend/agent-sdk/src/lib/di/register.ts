@@ -175,6 +175,7 @@ function createIdleCompactionService(
     events,
     workspace,
     { scheduler: createUnrefScheduler(), now: () => Date.now() },
+    c.resolve<SessionStatsOwnerService>(SDK_TOKENS.SDK_SESSION_STATS_OWNER),
   );
 }
 

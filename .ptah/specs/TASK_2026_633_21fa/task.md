@@ -1,11 +1,11 @@
 ---
 id: TASK_2026_633_21fa
-status: backlog
+status: in_review
 type: BUGFIX
 title: Keep background sub-agent output live after the parent turn for the canvas lane tabs
 depends_on: []
 created: "2026-10-12T18:53:17.242Z"
-updated: "2026-10-12T18:53:17.242Z"
+updated: "2026-10-19T00:14:13.000Z"
 description: "Data path the TASK_2026_629 Sub-agents and Background lane tabs need: toolCallId-to-agentId reconciliation, text and tools after the parent turn ends, bounded retention and history backfill. Carried over from TASK_2026_410."
 executor: backend-developer
 estimate: L

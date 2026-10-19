@@ -60,7 +60,6 @@ import { SessionDisplayUtils } from '../../services/session-display-utils.servic
 import { SessionListViewStore } from '../../services/session-list/session-list-view.store';
 import { SessionRowActionsService } from '../../services/session-list/session-row-actions.service';
 import { KeyboardShortcutsService } from '../../services/keyboard-shortcuts.service';
-import { SubagentTranscriptViewerService } from '../../services/subagent-transcript-viewer.service';
 import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-ender.service';
 import { AgentFollowUpQueueService } from '../../services/agent-follow-up-queue.service';
 import { PreviousSessionsDialogService } from '../../services/session-list/previous-sessions-dialog.service';
@@ -194,10 +193,6 @@ describe('AppShellComponent — previous sessions (TASK_2026_679)', () => {
         {
           provide: ConfirmationDialogService,
           useValue: { isOpen: signal(false) },
-        },
-        {
-          provide: SubagentTranscriptViewerService,
-          useValue: { open: signal(false) },
         },
         { provide: SessionOrganizerService, useValue: organizer },
         // Created eagerly by the shell; covered by their own specs.
@@ -465,10 +460,10 @@ describe('AppShellComponent — previous sessions (TASK_2026_679)', () => {
       ),
     );
 
-    /** The Previous sessions block: the third @defer in the template. */
+    /** The Previous sessions block: the second @defer in the template. */
     async function previousSessionsBlock(): Promise<DeferBlockFixture> {
       const blocks = await fixture.getDeferBlocks();
-      const block = blocks[2];
+      const block = blocks[1];
       if (!block) throw new Error('previous sessions @defer missing');
       return block;
     }

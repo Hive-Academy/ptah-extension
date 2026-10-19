@@ -4,13 +4,6 @@
   <ptah-confirmation-dialog />
 }
 
-<!-- Global on-demand subagent transcript viewer (single host; driven by the
-     root SubagentTranscriptViewerService, opened from the inline agent bubble
-     and the background-agent tray). Deferred like the dialog above. -->
-@defer (when transcriptViewer.open(); prefetch on idle) {
-  <ptah-subagent-transcript-overlay />
-}
-
 <!-- Previous sessions modal (TASK_2026_679), opened from the navbar button
      below (VS Code single layout) or the canvas Rail footer. Deferred out of
      the initial bundle like the editor; the inner @if creates it per open, so

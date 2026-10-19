@@ -34,23 +34,6 @@ export function formatEstimatedCost(
   return `~$${costUsd.toFixed(2)} est.`;
 }
 
-/**
- * Format a duration in milliseconds for display.
- * Returns "250ms", "2.3s", or "1m 5s" depending on magnitude.
- */
-export function formatDuration(ms: number): string {
-  if (ms < 1000) {
-    return `${ms}ms`;
-  }
-  const seconds = ms / 1000;
-  if (seconds < 60) {
-    return `${seconds.toFixed(1)}s`;
-  }
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = Math.round(seconds % 60);
-  return `${minutes}m ${remainingSeconds}s`;
-}
-
 export function isUsageSegment(segment: CliOutputSegment): boolean {
   return segment.type === 'info' && segment.usage !== undefined;
 }

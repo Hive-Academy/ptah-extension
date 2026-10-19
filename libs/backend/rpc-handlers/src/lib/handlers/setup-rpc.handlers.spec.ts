@@ -881,6 +881,67 @@ describe('SetupRpcHandlers', () => {
   // -------------------------------------------------------------------------
 
   describe('wizard:recommend-agents', () => {
+    it('returns the static catalog for an explicit unbound request', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+      const result = await call<
+        Array<{
+          agentId: string;
+          category: string;
+          relevanceScore: number;
+          matchedCriteria: string[];
+        }>
+      >(h, 'wizard:recommend-agents', { mode: 'workspace-catalog' });
+      expect(result.map((agent) => agent.agentId)).toEqual(
+        expect.arrayContaining([
+          'project-manager',
+          'backend-developer',
+          'senior-tester',
+        ]),
+      );
+      expect(result.map((agent) => agent.category)).toEqual(
+        expect.arrayContaining(['planning', 'development', 'qa']),
+      );
+      expect(result.every((agent) => agent.relevanceScore === 100)).toBe(true);
+      expect(
+        result.every(
+          (agent) =>
+            agent.matchedCriteria.join(',') ===
+            'Workspace catalog,All agents available',
+        ),
+      ).toBe(true);
+    });
+
+    it('returns INVALID_PARAMS for a malformed catalog request', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+      const response = await callRaw(h, 'wizard:recommend-agents', {
+        mode: 'workspace-catalog',
+        tabBinding: {
+          tabId: '',
+          workflow: 'setup-agent-generation',
+          workspacePath: '/workspace',
+        },
+      });
+      expect(response.success).toBe(false);
+      expect(response.error).toMatch(/Invalid catalog request/);
+      expect(response.errorCode).toBe('INVALID_PARAMS');
+    });
+
+    it('rejects a catalog request bound to another workspace', async () => {
+      const h = makeHarness();
+      h.handlers.register();
+      const response = await callRaw(h, 'wizard:recommend-agents', {
+        mode: 'workspace-catalog',
+        tabBinding: {
+          tabId: 'foreign-tab',
+          workflow: 'setup-agent-generation',
+          workspacePath: '/foreign/workspace',
+        },
+      });
+      expect(response.success).toBe(false);
+      expect(response.data).toBeUndefined();
+    });
     it('throws when input is missing', async () => {
       const h = makeHarness();
       h.handlers.register();
@@ -899,6 +960,7 @@ describe('SetupRpcHandlers', () => {
           agentId: string;
           recommended: boolean;
           relevanceScore: number;
+          matchedCriteria: string[];
         }>
       >(h, 'wizard:recommend-agents', { isMultiPhase: true });
 
@@ -906,6 +968,13 @@ describe('SetupRpcHandlers', () => {
       // opt-in specialists (video-director), which are offered but not preselected.
       expect(result.length).toBeGreaterThanOrEqual(15);
       expect(result.every((r) => r.relevanceScore === 100)).toBe(true);
+      expect(
+        result.every(
+          (r) =>
+            r.matchedCriteria.join(',') ===
+            'Deep codebase analysis,All agents recommended',
+        ),
+      ).toBe(true);
       expect(
         result.every((r) =>
           r.agentId === 'video-director' ? !r.recommended : r.recommended,

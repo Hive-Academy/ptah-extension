@@ -36,6 +36,12 @@ export class SceneStubComponent {
   public readonly selection = output<string>();
   public readonly hoveredNodeId = output<string | null>();
   public readonly canvasUnavailable = output<boolean>();
+  public readonly layout = signal({
+    // Integration tests exercise the work list; empty scene nodes keep the overlay hidden.
+    nodes: [],
+    overflowCompleted: 0,
+    overflowOther: 0,
+  });
 }
 
 export function createHarness(

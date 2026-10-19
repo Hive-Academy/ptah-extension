@@ -83,13 +83,17 @@ export const SubagentBackgroundSchema = z.object({
 
 export type SubagentBackgroundInput = z.infer<typeof SubagentBackgroundSchema>;
 
-export const SubagentTranscriptSchema = z.object({
-  sessionId: z.string().min(1, 'sessionId is required'),
-  agentId: z.string().min(1, 'agentId is required'),
-  // Cap the page size so one call can't pull an unbounded transcript into
-  // memory / over the wire (matches the paginated sibling schemas' convention).
-  limit: z.number().int().positive().max(500).optional(),
-  offset: z.number().int().nonnegative().optional(),
-});
+const agentFileId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 
-export type SubagentTranscriptInput = z.infer<typeof SubagentTranscriptSchema>;
+export const SubagentHistoryPageSchema = z.object({
+  sessionId: z.string().regex(/^[A-Za-z0-9_-]+$/, 'Invalid sessionId format'),
+  toolCallId: agentFileId,
+  agentId: agentFileId.optional(),
+  cursor: z.string().optional(),
+  maxBytes: z
+    .number()
+    .int()
+    .min(1024)
+    .max(256 * 1024)
+    .default(128 * 1024),
+});

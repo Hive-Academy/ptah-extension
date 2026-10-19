@@ -106,7 +106,7 @@ describe('CompletionComponent', () => {
       expect(text).toContain('(0)');
     });
 
-    it('should count only completed agent items', () => {
+    it('counts only agents verified by the completion payload', () => {
       skillGenerationProgress.set([
         {
           id: '1',
@@ -127,6 +127,7 @@ describe('CompletionComponent', () => {
           status: 'complete',
         },
       ]);
+      completionData.set(completion({ agents: [outcome()] }));
       fixture.detectChanges();
 
       expect(component['agentCount']()).toBe(1);
@@ -134,7 +135,7 @@ describe('CompletionComponent', () => {
       expect(text).toContain('(1)');
     });
 
-    it('should render a tile per completed agent', () => {
+    it('renders a tile per verified outcome', () => {
       skillGenerationProgress.set([
         {
           id: '1',
@@ -149,6 +150,14 @@ describe('CompletionComponent', () => {
           status: 'complete',
         },
       ]);
+      completionData.set(
+        completion({
+          agents: [
+            outcome(),
+            outcome({ agentId: 'qa-tester', filePath: '/ws/qa-tester.md' }),
+          ],
+        }),
+      );
       fixture.detectChanges();
 
       const tiles = fixture.nativeElement.querySelectorAll(
@@ -386,7 +395,7 @@ describe('CompletionComponent', () => {
       ).toBeFalsy();
     });
 
-    it('falls back to completed streamed items when no payload arrived', () => {
+    it('does not claim completion from streamed items when no payload arrived', () => {
       skillGenerationProgress.set([
         {
           id: 'frontend-developer',
@@ -398,8 +407,7 @@ describe('CompletionComponent', () => {
       fixture.detectChanges();
 
       const tiles = fixture.nativeElement.querySelectorAll('[data-status]');
-      expect(tiles.length).toBe(1);
-      expect(tiles[0].getAttribute('data-status')).toBe('written');
+      expect(tiles.length).toBe(0);
     });
 
     it('shows the rejected-section count when validation rejected sections', () => {

@@ -185,6 +185,15 @@ function hasContentBlock(
  * the context-usage port for one reading. Every call is fail-open: a
  * coordinator or port failure writes one warn line and the turn goes on.
  */
+type RouteAwareIdleSignals = IdleCompactionSignals & {
+  sessionBound(
+    sessionId: string,
+    runToken: string,
+    codexProxy: boolean,
+    nativeAnthropic?: boolean,
+  ): void;
+};
+
 class CompactionSessionTap {
   private sessionId: string | null = null;
   private readonly trackedIds = new Set<string>();
@@ -210,7 +219,8 @@ class CompactionSessionTap {
      */
     private readonly runOwners: Map<string, number>,
     private readonly subagentMonitor: SubagentBudgetSink | null = null,
-    private readonly idle: IdleCompactionSignals | null = null,
+    private readonly idle: RouteAwareIdleSignals | null = null,
+    private readonly nativeAnthropic = false,
   ) {}
 
   attachQuery(query: Query): void {
@@ -457,7 +467,12 @@ class CompactionSessionTap {
       );
     });
     this.guardIdle('session-bound', (idle) =>
-      idle.sessionBound(id, this.runToken, this.sessionClass.codexProxy),
+      idle.sessionBound(
+        id,
+        this.runToken,
+        this.sessionClass.codexProxy,
+        this.nativeAnthropic,
+      ),
     );
   }
 
@@ -508,7 +523,7 @@ class CompactionSessionTap {
 
   private guardIdle(
     event: string,
-    fn: (idle: IdleCompactionSignals) => void,
+    fn: (idle: RouteAwareIdleSignals) => void,
   ): void {
     if (!this.idle) return;
     try {
@@ -681,6 +696,7 @@ export class SessionQueryExecutor {
       this.runOwners,
       this.subagentBudgetMonitor,
       this.idle,
+      rec.capacityRoute?.kind === 'native',
     );
     abortController.signal.addEventListener(
       'abort',
@@ -917,6 +933,7 @@ export class SessionQueryExecutor {
         // listener above stays for a run whose stream never reached the
         // transformer; release() is idempotent, so both paths are safe.
         onMessage: (message: SDKMessage) => compactionTap.observe(message),
+        beforeLiveStatsDispose: () => compactionTap.release(),
         onStreamEnd: () => compactionTap.release(),
         sessionToken: rec.token,
         usageCostSource: rec.usageCostSource,

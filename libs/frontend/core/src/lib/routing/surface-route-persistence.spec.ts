@@ -27,6 +27,7 @@ import { provideSurfaceRouterTesting, surfaceTestRoutes } from '../../testing';
 import { VSCodeService, type WebviewConfig } from '../services/vscode.service';
 import { SurfaceRoutePersistence } from './surface-route-persistence';
 import { SurfaceRouterService } from './surface-router.service';
+import { GENERATION_ROUTE_TAB_VALIDATOR } from './surface-routes';
 
 /** The webview API the host injects, recording what is written. */
 class FakeVsCodeApi {
@@ -76,13 +77,22 @@ interface Setup {
 }
 
 /** `api` absent means no host: `VSCodeService.isConnected()` is false. */
-function setup(api?: FakeVsCodeApi, panelId: string | undefined = ''): Setup {
+function setup(
+  api?: FakeVsCodeApi,
+  panelId: string | undefined = '',
+  validator?: (tabId: string, workflow: string) => boolean,
+): Setup {
   if (api) {
     hostWindow().vscode = api;
     hostWindow().ptahConfig = config(panelId);
   }
   TestBed.configureTestingModule({
-    providers: [...provideSurfaceRouterTesting()],
+    providers: [
+      ...provideSurfaceRouterTesting(),
+      ...(validator
+        ? [{ provide: GENERATION_ROUTE_TAB_VALIDATOR, useValue: validator }]
+        : []),
+    ],
   });
   return {
     persistence: TestBed.inject(SurfaceRoutePersistence),
@@ -91,6 +101,30 @@ function setup(api?: FakeVsCodeApi, panelId: string | undefined = ''): Setup {
 }
 
 describe('SurfaceRoutePersistence', () => {
+  it('keeps the last route when a generation tab no longer belongs to the workspace', async () => {
+    const api = new FakeVsCodeApi();
+    const { persistence, surfaceRouter } = setup(api, '', () => false);
+    const router = TestBed.inject(Router);
+    router.resetConfig(
+      surfaceTestRoutes().map((route) =>
+        route.path === 'setup-wizard'
+          ? {
+              ...route,
+              children: [{ path: 'generation/:workflow/:tabId', children: [] }],
+            }
+          : route,
+      ),
+    );
+    persistence.start(null);
+    await surfaceRouter.navigateToSurface('settings');
+    await surfaceRouter.navigateToSurface('setup-wizard', [
+      'generation',
+      'setup-agent-generation',
+      'stale-tab',
+    ]);
+    expect(api.writes).toHaveLength(1);
+    expect(parseWebviewRouteState(api.state)?.route).toBe('/settings');
+  });
   afterEach(() => {
     TestBed.resetTestingModule();
     jest.restoreAllMocks();

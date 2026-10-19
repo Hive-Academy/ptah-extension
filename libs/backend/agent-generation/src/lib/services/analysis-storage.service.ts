@@ -479,10 +479,12 @@ export class AnalysisStorageService {
   /**
    * Find the latest run that a resume can continue: an analysis whose
    * lifecycle is not `completed`, or a generation checkpoint that is not
-   * `completed`. Read-only: nothing on disk is changed.
+   * `completed`. An optional predicate skips candidates while keeping the
+   * newest eligible run. Read-only: nothing on disk is changed.
    */
   async findLatestResumableRun(
     workspacePath: string,
+    accepts?: (run: ResumableRun) => boolean,
   ): Promise<ResumableRun | null> {
     const runs = await this.listValidRuns(workspacePath);
     runs.sort(
@@ -502,7 +504,12 @@ export class AnalysisStorageService {
       const generationUnfinished =
         generation !== null && generation.lifecycle !== 'completed';
       if (analysisUnfinished || generationUnfinished) {
-        return { slugDir: run.slugDir, manifest: run.manifest, generation };
+        const candidate = {
+          slugDir: run.slugDir,
+          manifest: run.manifest,
+          generation,
+        };
+        if (!accepts || accepts(candidate)) return candidate;
       }
     }
 
@@ -511,7 +518,12 @@ export class AnalysisStorageService {
       null,
     );
     if (rootGeneration && rootGeneration.lifecycle !== 'completed') {
-      return { slugDir: null, manifest: null, generation: rootGeneration };
+      const candidate = {
+        slugDir: null,
+        manifest: null,
+        generation: rootGeneration,
+      };
+      if (!accepts || accepts(candidate)) return candidate;
     }
     return null;
   }

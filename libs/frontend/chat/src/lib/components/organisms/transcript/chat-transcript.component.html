@@ -51,7 +51,7 @@
           @let turn = turnContexts().get(slot.id) ?? null;
           @let turnLive = turn !== null && liveTurnIds().has(turn.turnId);
           <ptah-message-bubble
-            class="block px-2 pb-3"
+            class="block pb-3"
             [message]="slot.record()"
             [agentTileMode]="true"
             [ptahUiOrderKey]="ptahUiOrderKeys().get(slot.id) ?? 0"
@@ -65,7 +65,9 @@
             [turnLive]="turnLive"
             [now]="turnLive ? liveNow() : 0"
             [needsYouCount]="turnLive ? needsYouCount() : 0"
-            [agents]="turn ? (turnAgents().get(turn.turnId) ?? noAgents) : noAgents"
+            [agents]="
+              turn ? (turnAgents().get(turn.turnId) ?? noAgents) : noAgents
+            "
             (branchRequested)="branchRequested.emit($event)"
             (rewindRequested)="rewindRequested.emit($event)"
             (logToggled)="onLogToggled($event)"
@@ -100,8 +102,7 @@
              adds no per-item observer and keeps the card chunk lazy. -->
         @defer (when changeSets.length > 0) {
           @for (changeSet of changeSets; track changeSetKey(changeSet)) {
-            <!-- pl-11 lines the card up with the assistant bubble column
-                 (px-2 + 24 px avatar + 12 px chat column gap). -->
+            <!-- Keep the change-set card inset from the main turn content. -->
             <div class="pl-11 pr-2 pb-3" data-testid="chat-change-set">
               <ptah-change-set-card
                 [changeSet]="changeSet"

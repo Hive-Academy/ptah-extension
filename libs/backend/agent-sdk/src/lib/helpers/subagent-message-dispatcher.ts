@@ -29,46 +29,17 @@ import {
   RpcUserError,
   type SubagentRegistryService,
 } from '@ptah-extension/vscode-core';
-import type { SubagentTranscriptMessage } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
 import type {
   Query,
   SDKUserMessage,
   SessionLifecycleManager,
 } from './session-lifecycle-manager';
-import {
-  findWorkflowAgentTranscript,
-  readWorkflowAgentTranscript,
-} from './workflow-transcript-reader';
 
 /** DI token for SubagentMessageDispatcher */
 export const SUBAGENT_DISPATCHER_TOKEN = Symbol.for(
   'SubagentMessageDispatcher',
 );
-
-/**
- * Minimal shape of the SDK's `getSubagentMessages` export, narrowed here to
- * avoid an ESM `resolution-mode` static import (the SDK is ESM-only and loaded
- * via dynamic `import()`, matching SessionForkService).
- */
-interface SubagentTranscriptSdkModule {
-  getSubagentMessages?: (
-    sessionId: string,
-    agentId: string,
-    options?: { dir?: string; limit?: number; offset?: number },
-  ) => Promise<RawSubagentSessionMessage[]>;
-}
-
-/**
- * Subset of the SDK's `SessionMessage` used for normalization. `message` is the
- * raw Anthropic message payload (`{ role, content }`); `timestamp` is read
- * defensively since the SDK's declared type omits it.
- */
-interface RawSubagentSessionMessage {
-  type: 'user' | 'assistant' | 'system';
-  message: unknown;
-  timestamp?: string;
-}
 
 /**
  * Per-session serialisation lock — prevents races when multiple pushes
@@ -408,130 +379,5 @@ export class SubagentMessageDispatcher {
         'SESSION_ENDED',
       );
     }
-  }
-
-  /**
-   * Read a subagent's full historical transcript and normalize it to the
-   * UI-friendly {@link SubagentTranscriptMessage} shape.
-   *
-   * Backed by the SDK's `getSubagentMessages(sessionId, agentId, { limit,
-   * offset })`, which parses the subagent's JSONL transcript into chronological
-   * user/assistant messages. `dir` is intentionally omitted so the SDK searches
-   * all projects. The SDK is ESM-only, so it is loaded via dynamic `import()`
-   * (matching SessionForkService) — which is why this read lives here in
-   * agent-sdk rather than in the rpc-handlers boundary.
-   *
-   * Defensive: returns `[]` on missing SDK export / not-found / read failure
-   * rather than throwing, so the RPC boundary can surface "no transcript yet".
-   */
-  async getSubagentTranscript(
-    sessionId: string,
-    agentId: string,
-    options?: { limit?: number; offset?: number },
-  ): Promise<SubagentTranscriptMessage[]> {
-    try {
-      const sdkModule =
-        (await import('@anthropic-ai/claude-agent-sdk')) as SubagentTranscriptSdkModule;
-      const getSubagentMessages = sdkModule.getSubagentMessages;
-      if (typeof getSubagentMessages !== 'function') {
-        this.logger.warn(
-          '[SubagentMessageDispatcher] getSubagentMessages export unavailable',
-          { exportType: typeof getSubagentMessages },
-        );
-        return [];
-      }
-
-      const raw = await getSubagentMessages(sessionId, agentId, {
-        limit: options?.limit,
-        offset: options?.offset,
-      });
-      if (raw.length > 0) {
-        return this.normalizeTranscript(raw);
-      }
-
-      // The SDK read covers `<session>/subagents/agent-<id>.jsonl` only. An
-      // agent spawned by a `Workflow` run lives one level deeper, under
-      // `subagents/workflows/<runId>/`, and the SDK answers `[]` for it — the
-      // same answer as "not written yet". Look there before reporting empty.
-      const workflowFile = await findWorkflowAgentTranscript(
-        sessionId,
-        agentId,
-      );
-      if (!workflowFile) return [];
-      return this.normalizeTranscript(
-        await readWorkflowAgentTranscript(workflowFile, options),
-      );
-    } catch (error: unknown) {
-      this.logger.warn('[SubagentMessageDispatcher] transcript read failed', {
-        sessionId,
-        agentId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return [];
-    }
-  }
-
-  /**
-   * Normalize the SDK's `SessionMessage[]` down to the UI-friendly
-   * {@link SubagentTranscriptMessage} shape: keep user/assistant turns, drop
-   * system turns and tool noise, and concatenate text content blocks. Messages
-   * with no rendered text are omitted so the viewer only sees meaningful turns.
-   */
-  private normalizeTranscript(
-    raw: RawSubagentSessionMessage[],
-  ): SubagentTranscriptMessage[] {
-    const messages: SubagentTranscriptMessage[] = [];
-
-    for (const item of raw) {
-      if (item.type !== 'user' && item.type !== 'assistant') {
-        continue;
-      }
-
-      const text = this.renderMessageText(item.message);
-      if (!text.trim()) {
-        continue;
-      }
-
-      const timestamp =
-        typeof item.timestamp === 'string' ? item.timestamp : undefined;
-
-      messages.push({
-        role: item.type,
-        text,
-        ...(timestamp ? { timestamp } : {}),
-      });
-    }
-
-    return messages;
-  }
-
-  /**
-   * Extract and concatenate the text content from a raw Anthropic message
-   * payload. String content is used verbatim; array content keeps only `text`
-   * blocks (tool_use / tool_result / thinking noise is dropped).
-   */
-  private renderMessageText(message: unknown): string {
-    const content = (message as { content?: unknown } | undefined)?.content;
-
-    if (typeof content === 'string') {
-      return content;
-    }
-
-    if (Array.isArray(content)) {
-      return content
-        .filter(
-          (block): block is { type: 'text'; text: string } =>
-            typeof block === 'object' &&
-            block !== null &&
-            'type' in block &&
-            (block as { type: unknown }).type === 'text' &&
-            'text' in block &&
-            typeof (block as { text: unknown }).text === 'string',
-        )
-        .map((block) => block.text)
-        .join('\n');
-    }
-
-    return '';
   }
 }

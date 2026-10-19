@@ -33,8 +33,31 @@ import {
   AGENT_FEEDBACK_SENDER,
   SURFACE_ACTIVE,
   surfaceActiveFor,
+  SurfaceRouterService,
   withSurfaceViewTransitions,
 } from '@ptah-extension/core';
+import { TabManagerService } from '@ptah-extension/chat-state';
+
+/** During Electron restore the workspace may activate after initial navigation; the shell revalidates the tab when it does. */
+export function generationRouteTabValidator(
+  tabs: Pick<
+    TabManagerService,
+    'findTabByIdAcrossWorkspaces' | 'activeWorkspacePath'
+  >,
+) {
+  return (
+    tabId: string,
+    workflow: 'setup-agent-generation' | 'setup-project-prompt',
+  ): boolean => {
+    const located = tabs.findTabByIdAcrossWorkspaces(tabId);
+    return (
+      !!located &&
+      located.tab.workflow === workflow &&
+      (tabs.activeWorkspacePath === null ||
+        located.workspacePath === tabs.activeWorkspacePath)
+    );
+  };
+}
 import { appRoutes } from './app.routes';
 import { SurfaceUpdateInbox } from '@ptah-extension/chat-routing';
 import {
@@ -68,6 +91,8 @@ import { WorkspaceIndexingService } from '@ptah-extension/workspace-indexing';
 import {
   provideWizardInternalState,
   SetupWizardStateService,
+  SetupGenerationOpenHandler,
+  GenerationRunEventAdapter,
 } from '@ptah-extension/setup-wizard';
 import {
   FileContentChangesService,
@@ -186,6 +211,23 @@ export const appConfig: ApplicationConfig = {
     ),
     provideVSCodeService(),
     provideMessageRouter(),
+    {
+      provide: SurfaceRouterService.generationRouteTabValidatorToken,
+      useFactory: () => {
+        const tabs = inject(TabManagerService);
+        return generationRouteTabValidator(tabs);
+      },
+    },
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: SetupGenerationOpenHandler,
+      multi: true,
+    },
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: GenerationRunEventAdapter,
+      multi: true,
+    },
     { provide: MESSAGE_HANDLERS, useExisting: VSCodeService, multi: true },
     { provide: MESSAGE_HANDLERS, useExisting: ClaudeRpcService, multi: true },
     {

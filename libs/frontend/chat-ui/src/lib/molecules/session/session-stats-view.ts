@@ -8,6 +8,7 @@ import { formatTokens } from './session-stats-format';
 export interface SessionStatsInputs {
   readonly sessionId: string | null;
   readonly snapshot: SessionStatsEntry | null;
+  readonly cache?: NonNullable<SessionStatsEntry['cache']> | null;
   readonly liveModelStats: LiveModelStats | null;
   readonly compactionCount: number;
   readonly limits: StatsLimitViewModel | null;

@@ -623,6 +623,45 @@ describe('AnalysisStorageService', () => {
   });
 
   describe('findLatestResumableRun', () => {
+    it('skips a newer bound generation when filtering for unbound checkpoints', async () => {
+      const olderDir = join(ANALYSIS_ROOT, 'older');
+      const newerDir = join(ANALYSIS_ROOT, 'newer');
+      await service.writeManifest(
+        olderDir,
+        manifestV4({ slug: 'older', updatedAt: '2026-08-29T00:00:00.000Z' }),
+      );
+      await service.writeManifest(
+        newerDir,
+        manifestV4({ slug: 'newer', updatedAt: '2026-08-31T00:00:00.000Z' }),
+      );
+      await service.writeGenerationManifest(
+        WORKSPACE,
+        olderDir,
+        generationManifest({ lifecycle: 'paused' }),
+      );
+      await service.writeGenerationManifest(
+        WORKSPACE,
+        newerDir,
+        generationManifest({
+          lifecycle: 'paused',
+          tabBinding: {
+            tabId: 'tab-one',
+            workflow: 'setup-agent-generation',
+            workspacePath: WORKSPACE,
+          },
+        }),
+      );
+
+      const run = await service.findLatestResumableRun(
+        WORKSPACE,
+        (candidate) =>
+          !!candidate.generation && !candidate.generation.tabBinding,
+      );
+
+      expect(run?.slugDir).toBe(olderDir);
+      expect(run?.generation?.tabBinding).toBeUndefined();
+    });
+
     it('returns the latest unfinished analysis with its generation checkpoint', async () => {
       const olderDir = join(ANALYSIS_ROOT, 'older');
       const newerDir = join(ANALYSIS_ROOT, 'newer');

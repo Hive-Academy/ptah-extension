@@ -69,8 +69,12 @@ export type {
 export { SessionImporterService } from './lib/session-importer.service';
 export {
   SessionHistoryReaderService,
+  SubagentHistoryValidationError,
+  SUBAGENT_EVENTS_TAIL_LIMIT,
+  retainSubagentEventsTail,
   MESSAGE_ID_NOT_FOUND_PHRASE,
 } from './lib/session-history-reader.service';
+export type { SubagentEventsReadResult } from './lib/session-history-reader.service';
 
 export {
   SessionStatsReaderService,

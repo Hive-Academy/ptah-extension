@@ -119,7 +119,17 @@ interface Harness {
   fail(error: Error): Promise<unknown>;
 }
 
-function start({ live = true }: { live?: boolean } = {}): Harness {
+function start({
+  live = true,
+  afterResultStats,
+  beforeLiveStatsDispose,
+  onTurnEnd,
+}: {
+  live?: boolean;
+  afterResultStats?: (owner: SessionStatsOwnerService) => void;
+  beforeLiveStatsDispose?: (owner: SessionStatsOwnerService) => void;
+  onTurnEnd?: (owner: SessionStatsOwnerService) => void;
+} = {}): Harness {
   const logger = makeLogger();
   const messageTransformer = {
     createIsolated: () => ({ transform: jest.fn(() => []) }),
@@ -168,6 +178,7 @@ function start({ live = true }: { live?: boolean } = {}): Harness {
       owner.rebind(TAB, realSessionId, generation),
     onResultStats: (stats) => {
       results.push(stats);
+      afterResultStats?.(owner);
     },
     ...(live && {
       onLiveStats: (payload: SessionStatsLivePayload) => {
@@ -175,6 +186,10 @@ function start({ live = true }: { live?: boolean } = {}): Harness {
       },
     }),
     onStreamEnd,
+    ...(onTurnEnd && { onTurnEnd: () => onTurnEnd(owner) }),
+    ...(beforeLiveStatsDispose && {
+      beforeLiveStatsDispose: () => beforeLiveStatsDispose(owner),
+    }),
   });
   const done = (async () => {
     for await (const event of iterable) void event;
@@ -385,6 +400,65 @@ describe('StreamTransformer — live session stats', () => {
     jest.useRealTimers();
   });
 
+  it('publishes a cache revision raised inside the result callback after that result', async () => {
+    const h = start({
+      afterResultStats: (owner) => {
+        owner.setIdleCompactAt(SESSION, RUN, 2000);
+      },
+    });
+    await h.feed(init());
+    const lease = h.owner.leaseOf(SESSION);
+    if (!lease) throw new Error('missing owner lease');
+    h.owner.beginRun(SESSION, lease.generation, RUN, null);
+    h.owner.setCacheEstimate(
+      SESSION,
+      RUN,
+      { ttl: '5m', lastRequestAt: 1000, expiresAt: 301000 },
+      '5m',
+    );
+    const before = h.live.length;
+
+    await h.feed(result({ modelUsage: { [SONNET]: { input: 2, output: 1 } } }));
+
+    expect(h.results).toHaveLength(1);
+    expect(h.live).toHaveLength(before + 1);
+    expect(last(h.live).sessionStats.cache?.idleCompactAt).toBe(2000);
+    expect(revisionOf(last(h.live))).toBeGreaterThan(
+      h.results[0]?.sessionStats?.revision ?? -1,
+    );
+    await h.end();
+  });
+
+  it('publishes the final idle clear before the live watcher detaches', async () => {
+    const h = start({
+      beforeLiveStatsDispose: (owner) => {
+        owner.setIdleCompactAt(SESSION, RUN, null);
+      },
+    });
+    await h.feed(init());
+    const lease = h.owner.leaseOf(SESSION);
+    if (!lease) throw new Error('missing owner lease');
+    h.owner.beginRun(SESSION, lease.generation, RUN, null);
+    h.owner.setCacheEstimate(
+      SESSION,
+      RUN,
+      { ttl: '5m', lastRequestAt: 1000, expiresAt: 301000 },
+      '5m',
+    );
+    h.owner.setIdleCompactAt(SESSION, RUN, 2000);
+    const before = h.live.length;
+
+    await h.end();
+
+    expect(h.live).toHaveLength(before + 1);
+    expect(last(h.live).sessionStats.cache).toEqual({
+      ttl: '5m',
+      lastRequestAt: 1000,
+      expiresAt: 301000,
+    });
+    expect(h.onStreamEnd).toHaveBeenCalledTimes(1);
+  });
+
   it('publishes a provisional snapshot that sums main-loop and subagent frames, deduped per message id', async () => {
     const h = start();
     await h.feed(init());
@@ -463,6 +537,39 @@ describe('StreamTransformer — live session stats', () => {
   const accepted = result({
     modelUsage: { [SONNET]: { input: 100, output: 50 } },
     usage: { input: 100, output: 50 },
+  });
+
+  it.each([
+    ['empty usage', false],
+    ['duplicate', true],
+  ])('flushes cache after a %s result skips its callback', async (_name, duplicate) => {
+    let changeOnTurnEnd = false;
+    const h = start({
+      onTurnEnd: (owner) => {
+        if (changeOnTurnEnd) owner.setIdleCompactAt(SESSION, RUN, 2000);
+      },
+    });
+    await h.feed(init());
+    const lease = h.owner.leaseOf(SESSION);
+    if (!lease) throw new Error('missing owner lease');
+    h.owner.beginRun(SESSION, lease.generation, RUN, null);
+    h.owner.setCacheEstimate(
+      SESSION,
+      RUN,
+      { ttl: '5m', lastRequestAt: 1000, expiresAt: 301000 },
+      '5m',
+    );
+    if (duplicate) await h.feed(accepted);
+    const resultsBefore = h.results.length;
+    const liveBefore = h.live.length;
+    changeOnTurnEnd = true;
+
+    await h.feed(duplicate ? accepted : result({ usage: { input: 0, output: 0 } }));
+
+    expect(h.results).toHaveLength(resultsBefore);
+    expect(h.live).toHaveLength(liveBefore + 1);
+    expect(last(h.live).sessionStats.cache?.idleCompactAt).toBe(2000);
+    await h.end();
   });
 
   /**

@@ -23,8 +23,7 @@ export interface TrayAgentContext {
    */
   readonly sessionId?: string;
   /**
-   * SDK short-hex agent id, when known. Required (with `sessionId`) to open the
-   * on-demand transcript viewer via `subagent:transcript`.
+   * SDK short-hex agent id, when known.
    */
   readonly agentId?: string;
   /** Latest model the agent's subagent record named; `null` when unknown. */
@@ -174,7 +173,6 @@ export function fromSubagent(rec: SubagentRecord): TrayAgentContext {
       steerable: true,
       stoppable: !!rec.taskId,
       canBackground: true,
-      canViewTranscript: !!rec.agentId && !!rec.parentSessionId,
     },
     taskId: rec.taskId,
     sessionId: rec.parentSessionId,
@@ -231,7 +229,6 @@ export function fromBackground(
       steerable: isRunning,
       stoppable: isRunning && !!taskId,
       canBackground: false,
-      canViewTranscript: bg.hasRealAgentId && !!bg.sessionId,
     },
     taskId,
     sessionId: bg.sessionId,

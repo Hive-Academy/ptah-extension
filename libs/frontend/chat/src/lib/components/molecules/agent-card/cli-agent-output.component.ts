@@ -15,6 +15,7 @@ import type {
 } from '@ptah-extension/shared';
 import {
   AgentCardOutputComponent,
+  formatAgentDuration,
   type RenderSegment,
   type StderrSegment,
 } from '@ptah-extension/chat-ui';
@@ -24,7 +25,6 @@ import {
   extractCliAgentStats,
   isUsageSegment,
   formatTokens,
-  formatDuration,
 } from './stats-bar.utils';
 
 @Component({
@@ -68,7 +68,7 @@ import {
               {{ '$' + stats.costUsd.toFixed(4) }}
             </span>
           }
-          @if (stats.durationMs !== undefined) {
+          @if (stats.durationMs !== undefined && fmtDuration(stats.durationMs)) {
             <span class="text-[9px] font-mono text-base-content-muted ml-auto">
               {{ fmtDuration(stats.durationMs) }}
             </span>
@@ -232,6 +232,6 @@ export class CliAgentOutputComponent {
 
   /** Format duration for template use */
   fmtDuration(ms: number): string {
-    return formatDuration(ms);
+    return formatAgentDuration(ms) ?? '';
   }
 }

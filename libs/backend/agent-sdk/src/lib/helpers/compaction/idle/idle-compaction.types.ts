@@ -25,6 +25,10 @@ export interface LastRequestSnapshot {
   readonly requestKey: string;
   readonly anchorAt: number;
   readonly ttl: CacheTtlClass;
+  readonly cacheAnchorAt?: number | null;
+  readonly cacheReadTokens?: number;
+  readonly cacheWriteTokens?: number;
+  readonly cacheWriteTtl?: '1h' | '5m' | null;
 }
 
 export type IdleRateLimitStatus = SDKRateLimitInfo['status'];
@@ -35,6 +39,7 @@ export type IdleSignal =
       readonly sessionId: string;
       readonly runToken: string;
       readonly codexProxy: boolean;
+      readonly nativeAnthropic?: boolean;
     }
   | { readonly type: 'request-started'; readonly sessionId: string }
   | {

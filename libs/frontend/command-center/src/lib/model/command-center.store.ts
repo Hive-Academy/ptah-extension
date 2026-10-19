@@ -31,7 +31,10 @@ export interface CommandWorkNode {
   readonly label: string;
   readonly providerId: string | null;
   readonly state: CommandWorkState;
+  readonly startedAt?: number;
   readonly updatedAt?: number;
+  readonly task?: string;
+  readonly tabId?: string;
 }
 
 export interface CommandWorkEdge {

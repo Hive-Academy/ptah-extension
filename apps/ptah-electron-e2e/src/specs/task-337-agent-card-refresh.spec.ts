@@ -32,23 +32,23 @@ import { test, expect } from '../support/fixtures';
  * - the agent card itself from a `Task` `tool_start` plus a parent-linked
  *   `agent_start` (shapes copied from
  *   `chat-execution-tree/src/lib/builders/builders.spec.ts`),
- * - the summary from `agent:summary-chunk`
- *   (`MESSAGE_TYPES.AGENT_SUMMARY_CHUNK`), the only writer of
- *   `StreamingState.agentSummaryAccumulators`
- *   (`chat-lifecycle.service.ts` `handleAgentSummaryChunk`),
+ * - the summary from `agent:summary-chunk` (which appends to the parent
+ *   `StreamingState.agentSummaryAccumulators`) together with `agent_progress`
+ *   (which updates the lane's `SubagentRecord.latestSummary` peek),
  * - each nested tool from a sub-`message_start` carrying
  *   `parentToolUseId` plus its own `tool_start`.
  *
- * The tool-count observable is the card's own header badge, `childStats()`
- * (`inline-agent-bubble.component.ts`), which renders `"<n> tools"` once the
- * agent is no longer streaming.
+ * The card is the store-backed sub-agent lane (`subagent-lane.component.ts`,
+ * TASK_2026_685). The summary is its header peek (`latestSummary`), and the
+ * tool-count observable is its disclosure row, which renders `"1 tool"` /
+ * `"<n> tools"`.
  *
  * ## Falsifiability
  *
  * Every assertion is paired with its negation: after the second summary delta
  * the card must show the NEW text AND no longer show only the old marker
- * alone; after the second nested tool the badge must read `2 tools` and must
- * NOT still read `1 tools`. A card served from a stale cached node fails the
+ * alone; after the second nested tool the row must read `2 tools` and must
+ * NOT still read `1 tool`. A card served from a stale cached node fails the
  * second half of each pair while passing the first.
  */
 
@@ -57,15 +57,16 @@ const AGENT_SUMMARY_CHUNK = 'agent:summary-chunk';
 // The pane's accessible name carries the session title (`Focused session: <title>`),
 // so match the focus area itself, not an exact label.
 const FOCUSED_SESSION = 'ptah-canvas-focus-area';
-// The Rail transcript renders an agent as a compact tile (`agentTileMode`); the full
-// agent card (`ptah-inline-agent-bubble`) lives in the sub-agent lane the tile opens.
+// The Rail transcript renders an agent as a compact tile (`agentTileMode`);
+// opening it shows the store-backed sub-agent lane.
 const AGENT_TILE = 'ptah-subagent-tile';
 const AGENT_TILE_OPEN = '[data-testid="subagent-open"]';
-const AGENT_CARD = 'ptah-inline-agent-bubble';
+const AGENT_CARD = 'ptah-subagent-lane';
 
 const SUMMARY_ONE = 'PTAH_E2E_SUMMARY_FIRST';
 const SUMMARY_TWO = 'PTAH_E2E_SUMMARY_SECOND';
 const AGENT_TYPE = 'researcher-expert';
+const AGENT_DESCRIPTION = 'Investigate the reuse key';
 
 function chunk(sessionId: string, event: Record<string, unknown>) {
   return { type: CHAT_CHUNK, payload: { sessionId, event } };
@@ -106,7 +107,7 @@ function taskToolStart(
     toolName: 'Task',
     isTaskTool: true,
     agentType: AGENT_TYPE,
-    agentDescription: 'Investigate the reuse key',
+    agentDescription: AGENT_DESCRIPTION,
   });
 }
 
@@ -127,7 +128,7 @@ function agentStart(
     parentToolUseId: toolCallId,
     toolCallId,
     agentType: AGENT_TYPE,
-    agentDescription: 'Investigate the reuse key',
+    agentDescription: AGENT_DESCRIPTION,
     agentId,
   });
 }
@@ -186,6 +187,32 @@ function summaryChunk(
   };
 }
 
+function agentProgress(
+  sessionId: string,
+  messageId: string,
+  toolCallId: string,
+  agentId: string,
+  summary: string,
+  timestamp: number,
+) {
+  return chunk(sessionId, {
+    id: randomUUID(),
+    eventType: 'agent_progress',
+    timestamp,
+    sessionId,
+    source: 'complete',
+    messageId,
+    parentToolUseId: toolCallId,
+    taskId: 'task-e2e-337',
+    agentId,
+    description: AGENT_DESCRIPTION,
+    summary,
+    totalTokens: 0,
+    toolUses: 0,
+    durationMs: 0,
+  });
+}
+
 test.describe('Agent card follows its summary and tool count (TASK_2026_337)', () => {
   test('a summary delta and an added nested tool each re-render the card, with nothing else about the agent changing', async ({
     ui,
@@ -221,31 +248,52 @@ test.describe('Agent card follows its summary and tool count (TASK_2026_337)', (
     await tile.locator(AGENT_TILE_OPEN).click();
 
     await expect(card).toHaveCount(1);
-    await expect(card).toContainText(AGENT_TYPE);
+    const peek = card.locator('[data-test="turn-disclosure-peek"]');
+    const meta = card.locator('[data-test="turn-disclosure-meta"]');
+    await expect(peek).toContainText(AGENT_DESCRIPTION);
 
     // --- Summary: first delta ------------------------------------------
     await ui.pushEvent(
       summaryChunk(sessionId, taskToolCallId, agentId, `${SUMMARY_ONE} `),
     );
-    await expect(card).toContainText(SUMMARY_ONE);
-    await expect(card).not.toContainText(SUMMARY_TWO);
+    await ui.pushEvent(
+      agentProgress(
+        sessionId,
+        rootMessageId,
+        taskToolCallId,
+        agentId,
+        `${SUMMARY_ONE} `,
+        t0 + 3,
+      ),
+    );
+    await expect(peek).toContainText(SUMMARY_ONE);
+    await expect(peek).not.toContainText(SUMMARY_TWO);
 
     // --- Summary: second delta. Cost, duration, model, tokenUsage and the
-    // agent's status are all untouched by an `agent:summary-chunk`, so this is
-    // exactly the "only the summary moved" case.
+    // agent's status stay visually unchanged as the rolling summary updates.
     await ui.pushEvent(
       summaryChunk(sessionId, taskToolCallId, agentId, `${SUMMARY_TWO} `),
     );
-    await expect(card).toContainText(SUMMARY_TWO);
+    await ui.pushEvent(
+      agentProgress(
+        sessionId,
+        rootMessageId,
+        taskToolCallId,
+        agentId,
+        `${SUMMARY_ONE} ${SUMMARY_TWO} `,
+        t0 + 4,
+      ),
+    );
+    await expect(peek).toContainText(SUMMARY_TWO);
     // Deltas append, so the first marker must still be there — a card that
     // replaced rather than appended would be a different defect.
-    await expect(card).toContainText(SUMMARY_ONE);
+    await expect(peek).toContainText(SUMMARY_ONE);
 
     // --- Tool count -----------------------------------------------------
-    // One nested tool, then close the Task tool so the agent leaves
-    // `streaming` and the header badge (childStats) renders.
+    // One nested tool, then close the Task tool so the lane's disclosure
+    // row shows the finalized tool count.
     await ui.pushEvent(
-      messageStart(sessionId, agentMessageId, t0 + 3, taskToolCallId),
+      messageStart(sessionId, agentMessageId, t0 + 5, taskToolCallId),
     );
     await ui.pushEvent(
       nestedToolStart(
@@ -254,14 +302,14 @@ test.describe('Agent card follows its summary and tool count (TASK_2026_337)', (
         taskToolCallId,
         'toolu_e2e_child_1',
         'Read',
-        t0 + 4,
+        t0 + 6,
       ),
     );
     await ui.pushEvent(
-      toolResult(sessionId, rootMessageId, taskToolCallId, t0 + 5),
+      toolResult(sessionId, rootMessageId, taskToolCallId, t0 + 7),
     );
 
-    await expect(card).toContainText('1 tools');
+    await expect(meta).toContainText('1 tool');
 
     // Add a SECOND nested tool. Nothing else about the agent moves: same
     // status, same description, same (absent) stats.
@@ -272,11 +320,11 @@ test.describe('Agent card follows its summary and tool count (TASK_2026_337)', (
         taskToolCallId,
         'toolu_e2e_child_2',
         'Grep',
-        t0 + 6,
+        t0 + 8,
       ),
     );
 
-    await expect(card).toContainText('2 tools');
-    await expect(card).not.toContainText('1 tools');
+    await expect(meta).toContainText('2 tools');
+    await expect(meta).not.toContainText('1 tool');
   });
 });

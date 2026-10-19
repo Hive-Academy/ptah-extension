@@ -357,6 +357,28 @@ export class HistoryEventFactory {
     };
   }
 
+  createAgentThinkingDelta(
+    sessionId: string,
+    messageId: string,
+    thinking: string,
+    blockIndex: number,
+    index: number,
+    timestamp: number,
+    parentToolUseId: string,
+  ): ThinkingDeltaEvent {
+    return {
+      eventType: 'thinking_delta',
+      id: `evt_agent_${parentToolUseId}_${index}_${Math.floor(timestamp)}`,
+      sessionId,
+      messageId,
+      parentToolUseId,
+      blockIndex,
+      delta: thinking,
+      timestamp,
+      source: 'history',
+    };
+  }
+
   /**
    * Create a tool_start event for agent-scoped tool calls.
    *

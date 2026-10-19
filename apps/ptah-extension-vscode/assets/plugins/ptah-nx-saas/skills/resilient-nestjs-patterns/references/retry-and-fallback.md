@@ -14,13 +14,13 @@ export interface RetryOptions {
   maxAttempts?: number; // Default: 3
   baseDelayMs?: number; // Default: 1000. Actual: baseDelay * 2^(attempt-1)
   maxDelayMs?: number; // Default: 30000
-  isRetryable?: (error: unknown) => boolean; // Default: all errors
+  isRetryable: (error: unknown) => boolean; // Explicit transient-error predicate
   logger?: Logger;
   operationName?: string;
 }
 
-export async function withRetry<T>(operation: () => Promise<T>, options: RetryOptions = {}): Promise<T> {
-  const { maxAttempts = 3, baseDelayMs = 1000, maxDelayMs = 30000, isRetryable = () => true, logger, operationName = 'operation' } = options;
+export async function withRetry<T>(operation: () => Promise<T>, options: RetryOptions): Promise<T> {
+  const { maxAttempts = 3, baseDelayMs = 1000, maxDelayMs = 30000, isRetryable, logger, operationName = 'operation' } = options;
 
   let lastError: unknown;
 
@@ -213,19 +213,19 @@ export class ResilientPaymentService implements OnModuleInit {
 describe('withRetry', () => {
   it('should succeed on first attempt', async () => {
     const op = jest.fn().mockResolvedValue('ok');
-    expect(await withRetry(op)).toBe('ok');
+    expect(await withRetry(op, { isRetryable: isRetryableHttpError })).toBe('ok');
     expect(op).toHaveBeenCalledTimes(1);
   });
 
   it('should retry and succeed on second attempt', async () => {
-    const op = jest.fn().mockRejectedValueOnce(new Error('fail')).mockResolvedValue('ok');
-    expect(await withRetry(op, { baseDelayMs: 1 })).toBe('ok');
+    const op = jest.fn().mockRejectedValueOnce(Object.assign(new Error('fail'), { status: 503 })).mockResolvedValue('ok');
+    expect(await withRetry(op, { baseDelayMs: 1, isRetryable: isRetryableHttpError })).toBe('ok');
     expect(op).toHaveBeenCalledTimes(2);
   });
 
   it('should throw after max attempts', async () => {
-    const op = jest.fn().mockRejectedValue(new Error('fail'));
-    await expect(withRetry(op, { maxAttempts: 3, baseDelayMs: 1 })).rejects.toThrow('fail');
+    const op = jest.fn().mockRejectedValue(Object.assign(new Error('fail'), { status: 503 }));
+    await expect(withRetry(op, { maxAttempts: 3, baseDelayMs: 1, isRetryable: isRetryableHttpError })).rejects.toThrow('fail');
     expect(op).toHaveBeenCalledTimes(3);
   });
 

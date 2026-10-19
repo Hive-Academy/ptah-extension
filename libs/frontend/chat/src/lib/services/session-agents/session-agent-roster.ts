@@ -71,7 +71,7 @@ export function orchestratorAgent(
 }
 
 /** The last non-empty line of the newest output segment, trimmed. */
-function cliActivity(agent: MonitoredAgent): string | null {
+export function cliActivity(agent: MonitoredAgent): string | null {
   for (let segmentIndex = agent.segments.length - 1; segmentIndex >= 0; segmentIndex--) {
     const segment = agent.segments[segmentIndex];
     if (isUsageSegment(segment)) continue;
@@ -141,8 +141,8 @@ export function buildSessionAgentRoster(
       cliId: null,
       agentType: agent.agentType ?? null,
       status: subagentStatusWord(agent.status, openRequestIds.length > 0),
-      startedAt: null,
-      endedAt: null,
+      startedAt: agent.startedAt ?? null,
+      endedAt: agent.completedAt ?? null,
       activity: agent.lastToolName ?? null,
       openRequestIds,
     };

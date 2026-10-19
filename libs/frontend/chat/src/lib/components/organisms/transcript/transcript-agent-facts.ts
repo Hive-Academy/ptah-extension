@@ -8,6 +8,34 @@ import {
 import type { TurnAgentFacts } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 
 type AgentNodeFact = TurnAgentFacts['nodes'][number];
+export type AgentTreeFor = (key: string) => readonly ExecutionNode[];
+
+/** Walk each agent's own tree in order, including descendants' store trees. */
+export function collectNestedAgentNodes(
+  agentKeys: readonly string[],
+  treeFor: AgentTreeFor,
+): readonly ExecutionNode[] {
+  if (agentKeys.length === 0) return [];
+  const visitedKeys = new Set<string>();
+  const visitedNodes = new Set<ExecutionNode>();
+  const nested: ExecutionNode[] = [];
+  const visitKey = (key: string): void => {
+    if (visitedKeys.has(key)) return;
+    visitedKeys.add(key);
+    for (const root of treeFor(key)) visitNode(root);
+  };
+  const visitNode = (node: ExecutionNode): void => {
+    if (visitedNodes.has(node)) return;
+    visitedNodes.add(node);
+    if (node.type === 'agent') {
+      nested.push(node);
+      if (node.toolCallId) visitKey(node.toolCallId);
+    }
+    for (const child of node.children ?? []) visitNode(child);
+  };
+  for (const key of agentKeys) visitKey(key);
+  return nested;
+}
 
 /**
  * The `$agents` facts of every transcript turn (TASK_2026_623, D6-D8,
@@ -44,6 +72,7 @@ type AgentNodeFact = TurnAgentFacts['nodes'][number];
 export function collectTurnAgentFacts(
   messages: readonly ExecutionChatMessage[],
   activeTrees: readonly ExecutionNode[] = [],
+  treeFor?: AgentTreeFor,
 ): readonly TurnAgentFacts[] {
   const turns: TurnBuilder[] = [];
   const recordedTreeIds = new Set<string>();
@@ -53,6 +82,8 @@ export function collectTurnAgentFacts(
         startedAt: message.timestamp,
         nodes: [],
         spawnToolCallIds: new Set<string>(),
+        seenAgentKeys: new Set<string>(),
+        seenAgentIds: new Set<string>(),
       });
       continue;
     }
@@ -73,6 +104,23 @@ export function collectTurnAgentFacts(
       if (!recordedTreeIds.has(tree.id)) collectTree(tree, activeTurn);
     }
   }
+  if (treeFor) {
+    for (const turn of turns) {
+      for (const node of collectNestedAgentNodes(
+        [...turn.spawnToolCallIds],
+        treeFor,
+      )) {
+        if (node.toolCallId && turn.seenAgentKeys.has(node.toolCallId))
+          continue;
+        if (!node.toolCallId && turn.seenAgentIds.has(node.id)) continue;
+        if (node.toolCallId) turn.seenAgentKeys.add(node.toolCallId);
+        turn.seenAgentIds.add(node.id);
+        if (node.type !== 'agent' || node.isBackground === true) continue;
+        turn.nodes.push(agentNodeFact(node));
+        if (node.toolCallId) turn.spawnToolCallIds.add(node.toolCallId);
+      }
+    }
+  }
   return turns.map((turn) => ({
     startedAt: turn.startedAt,
     nodes: turn.nodes,
@@ -85,6 +133,8 @@ interface TurnBuilder {
   readonly startedAt: number;
   readonly nodes: AgentNodeFact[];
   readonly spawnToolCallIds: Set<string>;
+  readonly seenAgentKeys: Set<string>;
+  readonly seenAgentIds: Set<string>;
 }
 
 function collectTree(root: ExecutionNode, turn: TurnBuilder): void {
@@ -98,7 +148,14 @@ function collectTree(root: ExecutionNode, turn: TurnBuilder): void {
       turn.spawnToolCallIds.add(node.toolCallId);
     }
     if (node.type === 'agent' && node.isBackground !== true) {
-      turn.nodes.push(agentNodeFact(node));
+      if (
+        (!node.toolCallId || !turn.seenAgentKeys.has(node.toolCallId)) &&
+        !turn.seenAgentIds.has(node.id)
+      ) {
+        turn.nodes.push(agentNodeFact(node));
+        if (node.toolCallId) turn.seenAgentKeys.add(node.toolCallId);
+        turn.seenAgentIds.add(node.id);
+      }
     }
     for (const child of node.children) visit(child);
   };

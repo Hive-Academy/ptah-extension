@@ -74,6 +74,26 @@ function agent(
 
 describe('collectTurnAgentFacts', () => {
   describe('turn attribution (D7)', () => {
+    it('includes nested foreground agents beneath a background-only top-level agent', () => {
+      const turns = collectTurnAgentFacts(
+        [
+          user('u-background', 1),
+          assistant('a-background', 2, [
+            taskTool(
+              'parent',
+              agent('background-parent', 'parent', { isBackground: true }),
+            ),
+          ]),
+        ],
+        [],
+        (key) =>
+          key === 'parent'
+            ? [taskTool('child', agent('nested-child', 'child'))]
+            : [],
+      );
+      expect(turns[0].nodes.map((node) => node.id)).toEqual(['nested-child']);
+      expect(turns[0].spawnToolCallIds).toEqual(['parent', 'child']);
+    });
     it('gives one entry per user message, started at its timestamp', () => {
       const messages = [
         user('u1', 1_000),
@@ -117,7 +137,14 @@ describe('collectTurnAgentFacts', () => {
       });
 
       const turns = collectTurnAgentFacts(
-        [user('u1', 1_000), createExecutionChatMessage({ id: 'a1', role: 'assistant', timestamp: 1_100 })],
+        [
+          user('u1', 1_000),
+          createExecutionChatMessage({
+            id: 'a1',
+            role: 'assistant',
+            timestamp: 1_100,
+          }),
+        ],
         [activeTree],
       );
 
@@ -377,5 +404,89 @@ describe('collectTurnAgentFacts', () => {
       { startedAt: 9_000, nodes: [], spawnToolCallIds: [] },
     ]);
     expect(first[0].nodes.map((n) => n.id)).toEqual(['n1']);
+  });
+
+  describe('sub-agent store trees', () => {
+    const messages = [
+      user('u1', 1_000),
+      assistant('a1', 1_100, [taskTool('parent', agent('top', 'parent'))]),
+    ];
+
+    it('adds nested and nested-of-nested agents to their parent turn in order', () => {
+      const trees = new Map<string, ExecutionNode[]>([
+        ['parent', [taskTool('child', agent('nested', 'child'))]],
+        ['child', [taskTool('grandchild', agent('deep', 'grandchild'))]],
+      ]);
+      const turns = collectTurnAgentFacts(
+        messages,
+        [],
+        (key) => trees.get(key) ?? [],
+      );
+
+      expect(turns[0].nodes.map((node) => node.id)).toEqual([
+        'top',
+        'nested',
+        'deep',
+      ]);
+      expect(turns[0].spawnToolCallIds).toEqual([
+        'parent',
+        'child',
+        'grandchild',
+      ]);
+    });
+
+    it('keeps the top-level fact when a store tree repeats its key', () => {
+      const turns = collectTurnAgentFacts(messages, [], (key) =>
+        key === 'parent'
+          ? [
+              agent('store-copy', 'parent'),
+              agent('nested', 'child'),
+              agent('duplicate', 'child'),
+            ]
+          : [],
+      );
+      expect(turns[0].nodes.map((node) => node.id)).toEqual(['top', 'nested']);
+    });
+
+    it('keeps the first top-level fact for a repeated key', () => {
+      const turns = collectTurnAgentFacts(
+        [
+          user('u1', 1_000),
+          assistant('a1', 1_100, [
+            agent('first', 'parent'),
+            agent('second', 'parent'),
+          ]),
+        ],
+        [],
+        () => [],
+      );
+      expect(turns[0].nodes.map((node) => node.id)).toEqual(['first']);
+    });
+
+    it('guards against agent-key cycles', () => {
+      const treeFor = jest.fn((key: string): ExecutionNode[] =>
+        key === 'parent'
+          ? [agent('nested', 'child')]
+          : [agent('back', 'parent')],
+      );
+      const turns = collectTurnAgentFacts(messages, [], treeFor);
+      expect(turns[0].nodes.map((node) => node.id)).toEqual(['top', 'nested']);
+      expect(treeFor).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps the top-level fact when the store has no entry', () => {
+      const turns = collectTurnAgentFacts(messages, [], () => []);
+      expect(turns[0].nodes.map((node) => node.id)).toEqual(['top']);
+    });
+
+    it('does not read the store for a turn without agents', () => {
+      const treeFor = jest.fn(() => []);
+      collectTurnAgentFacts(
+        [user('empty', 1), assistant('plain', 2, [])],
+        [],
+        treeFor,
+      );
+      expect(treeFor).not.toHaveBeenCalled();
+    });
   });
 });

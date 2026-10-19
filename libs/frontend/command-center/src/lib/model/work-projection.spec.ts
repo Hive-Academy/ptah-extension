@@ -81,6 +81,9 @@ describe('projectOwnedWork', () => {
     expect(result.nodes.find((node) => node.id === 'cli:named')?.label).toBe(
       'Architecture review',
     );
+    expect(result.nodes.find((node) => node.id === 'cli:named')?.task).toBe(
+      'Ignored task',
+    );
     const taskLabel = result.nodes.find(
       (node) => node.id === 'sdk:root:task',
     )?.label;
@@ -120,6 +123,12 @@ describe('projectOwnedWork', () => {
       'child:grandchild',
       'cli:a',
     ]);
+    expect(
+      result.nodes.find((node) => node.id === 'child:child-sdk')?.tabId,
+    ).toBe('temporary');
+    expect(
+      result.nodes.find((node) => node.id === 'child:grandchild')?.tabId,
+    ).toBeUndefined();
     expect(result.edges).toContainEqual({
       fromId: 'child:child-sdk',
       toId: 'child:grandchild',
@@ -309,6 +318,119 @@ describe('projectOwnedWork', () => {
     expect(result.edges.some((edge) => edge.toId === 'cli:agent-a')).toBe(
       false,
     );
+  });
+
+  it('accepts one clock tick of skew and rejects invalid start epochs', () => {
+    const lanes: VendorLane[] = [
+      'valid',
+      'fresh',
+      'future',
+      'zero',
+      'negative',
+      'invalid',
+      'missing',
+    ].map((laneId) => ({
+      laneId,
+      family: 'codex',
+      displayName: laneId,
+      cli: 'codex',
+    }));
+    const bound = new Map(
+      lanes.map((lane) => [
+        lane.laneId,
+        { task: lane.laneId, status: 'running' as const },
+      ]),
+    );
+    const nodes = projectOwnedWork({
+      ...base,
+      now: 1_000,
+      agents: [
+        {
+          agentId: 'valid',
+          kind: 'cli',
+          parentSessionId: 'root',
+          state: 'running',
+          startedAt: 500,
+        },
+        {
+          agentId: 'fresh',
+          kind: 'cli',
+          parentSessionId: 'root',
+          state: 'running',
+          startedAt: 31_000,
+        },
+        {
+          agentId: 'future',
+          kind: 'cli',
+          parentSessionId: 'root',
+          state: 'running',
+          startedAt: 31_001,
+        },
+        {
+          agentId: 'zero',
+          kind: 'cli',
+          parentSessionId: 'root',
+          state: 'running',
+          startedAt: 0,
+        },
+        {
+          agentId: 'negative',
+          kind: 'cli',
+          parentSessionId: 'root',
+          state: 'running',
+          startedAt: -1,
+        },
+        {
+          agentId: 'invalid',
+          kind: 'cli',
+          parentSessionId: 'root',
+          state: 'running',
+          startedAt: Number.NaN,
+        },
+      ],
+      runs: [
+        {
+          runId: 'run',
+          rootSessionId: 'root',
+          state: 'running',
+          updatedAt: 100,
+          phase: phase('council', lanes, bound),
+          laneStartedAt: new Map([
+            ['valid', 500],
+            ['fresh', 31_000],
+            ['future', 31_001],
+            ['zero', 0],
+            ['negative', -1],
+            ['invalid', Number.POSITIVE_INFINITY],
+          ]),
+        },
+      ],
+    }).nodes;
+    expect(nodes.find((node) => node.id === 'lane:run:valid')?.startedAt).toBe(
+      500,
+    );
+    expect(nodes.find((node) => node.id === 'cli:valid')?.startedAt).toBe(500);
+    expect(nodes.find((node) => node.id === 'lane:run:fresh')?.startedAt).toBe(
+      31_000,
+    );
+    expect(nodes.find((node) => node.id === 'cli:fresh')?.startedAt).toBe(
+      31_000,
+    );
+    for (const id of [
+      'lane:run:future',
+      'lane:run:zero',
+      'lane:run:negative',
+      'lane:run:invalid',
+      'lane:run:missing',
+      'cli:future',
+      'cli:zero',
+      'cli:negative',
+      'cli:invalid',
+      'tribunal:run',
+    ])
+      expect(nodes.find((node) => node.id === id)).not.toHaveProperty(
+        'startedAt',
+      );
   });
 
   it('keeps Relay phases and adds a lane with an optional role', () => {

@@ -26,6 +26,19 @@ function routeFor(path: string): Route {
   return route;
 }
 
+describe('generation workflow route', () => {
+  it('keeps the legacy wizard and a separate parameterized generation route', () => {
+    const route = routeFor('setup-wizard/generation/:workflow/:tabId');
+    expect(routeFor('setup-wizard').component).toBeDefined();
+    expect(route.component).toBeDefined();
+    expect(route.providers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ provide: SURFACE_ACTIVE }),
+      ]),
+    );
+  });
+});
+
 describe('harness builder route', () => {
   afterEach(() => TestBed.resetTestingModule());
 
