@@ -556,8 +556,8 @@ export class SubagentExecutionStore {
   async ensureHistory(key: string): Promise<void> {
     const entry = this.mutableEntries.get(key);
     if (!entry) {
-      // degradation-audit: reported - callers retain() before loading, so a
-      // missing entry is misuse; it is logged and there is nothing to load.
+      // Callers retain() before loading, so a missing entry is misuse; it is
+      // logged and there is nothing to load.
       this.logger.warn(
         'SubagentExecutionStore',
         `ensureHistory called for unknown agent ${key}`,
