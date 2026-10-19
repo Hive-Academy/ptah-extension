@@ -4,7 +4,7 @@ import type { ElectronApplication } from '@playwright/test';
 import type { RpcBridge, RpcCallEnvelope } from './rpc-bridge';
 
 /**
- * Resolves the absolute path to the shared SQLite DB the running Electron app
+ * Resolves the absolute path to the SQLite DB the running Electron app
  * writes to. Mirrors `apps/ptah-electron/src/di/phase-2-libraries.ts`:
  *
  *   const isDev = process.env['NODE_ENV'] === 'development';
@@ -157,3 +157,4 @@ export async function waitForInvocation(
     await app.evaluate(() => new Promise<void>((r) => setTimeout(r, 500)));
   }
 }
+
