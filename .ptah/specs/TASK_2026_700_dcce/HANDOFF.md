@@ -1,143 +1,151 @@
 # HANDOFF - TASK_2026_700_dcce Align the Voice page with the 678 prototype and app style
 
-Written 2026-10-19 at the end of an orchestrator session (the user asked to wrap up at 43.8M
-tokens). Session name for peers: `ptah-ptah-extension-task-697-voice-page-6627570000xs42qjcizfr0b`.
+Written 2026-10-19 at the end of an orchestrator session (user asked to wrap up). Replaces the
+previous handoff.
 
 ## Goal
 
-The user finds the live Command Center Voice page "detached, very few icons, not following our
-designs". They chose **"Match prototype + app style"**: bring the page to the look of the approved
-TASK_2026_678 prototype (`.ptah/specs/TASK_2026_678_9083/prototype/command-center.html`) and align
-it with the Chat and Tribunal pages. The user said of the rendered prototype states in
-`C:/Users/abdal/AppData/Local/Temp/cc697/proto/` (dark-idle, dark-speaking, dark-approval,
-light-speaking, light-24-nodes): **"something like that is awesome"**. Those PNGs are the target
-look. A designer updates the prototype for the real app first; **the user approves it (Gate 1.7)
-before any code**.
+Bring the Ptah Command Center Voice page (`libs/frontend/command-center`) to the user-approved
+design (Gate 1.7): the look of the TASK_2026_678 prototype, aligned with the Chat and Tribunal
+pages, plus display-only child sessions. Target look: `prototype/screenshots/*.png` in this task
+folder (19 captures, dark and light).
 
 ## Where
 
 - Worktree: `D:/projects/ptah-extension/.claude-worktrees/voice-prototype-align`, branch
-  `feat/voice-prototype-align`, from `origin/main` `34095a98e` (contains PR #766). It has a
-  `node_modules` junction to the main checkout (remove it with `cmd //c rmdir` before
-  `git worktree remove`).
-- Task folder: `.ptah/specs/TASK_2026_700_dcce/` in that worktree (task created with
-  `ptah_task_create`, moved from the main checkout, `status: in_progress`).
-- Nothing is committed. The branch is local only and has no remote yet.
+  `feat/voice-prototype-align`, tracks `origin/feat/voice-prototype-align`. It has a
+  `node_modules` junction to the main checkout (remove it with `cmd //c rmdir node_modules`
+  before `git worktree remove`).
+- Task folder: `.ptah/specs/TASK_2026_700_dcce/` in that worktree.
+- **No PR yet.** Open it after Phase A (see next steps).
 
-## Done in this task
+## Done
 
-| Step | Result | File |
+| Commit | Content | Pushed |
 | --- | --- | --- |
-| Context + Gate 0.1 | Recorded request, target look, rules, approval mode (`user` for Gate 1.7) | `context.md` |
-| Parity inventory (codex lane, software-architect, inventory-only) | 39 capabilities of the current page with file:line, signals and tests; all `keep`, none remove-proposed | `parity-inventory.md` |
-| Design (codex lane, ui-ux-designer) | Design spec with 39-row parity map, tokens, icon table, scene grammar, contrast, deviations; prototype updated from 678 with a start view, stats chips, context ring on the Ptah plate, speaker meter, Status button; 15 screenshots; helper scripts | `design-spec.md`, `prototype/command-center.html`, `prototype/README.md`, `prototype/screenshots/*.png`, `prototype/{build-prototype,capture-screenshots,check-contrast}.js` |
-| Cross-side design review (Anthropic `ui-ux-designer` subagent) | **REVISE**: 2 Blocking (900px dock overlap, stats strip covers nodes), 4 Serious (current session duplicated in recent cards, invented "CC-2048" label, "Recorded" badge on every card, invented "History unavailable? Retry" banner), 5 Moderate (Completed/Idle card states without data, rail strings without source, unknown provider label rule, unmeasured plate/10px label contrast, list clipping/rail blank space), 3 Minor (new lucide icons need registering, Preview/Demo controls in captures, light Approve contrast) | `design-spec-review.md` |
+| `e1dcf8a98` docs(task-specs) | Approved design: parity inventory, design spec, prototype, 19 screenshots, design reviews r0/r1/r2, revisions 1/2 | yes |
+| `af151362c` docs(task-specs) | Implementation plan, plan reviews (r0 REVISE, r1 APPROVED), plan-revision-1, batches.md, decisions D7-D9 | yes |
+| `5bd6dec9e` feat(command-center) | Phase C: selected-work card (C1), nested delegated rail + pending cards (C2), review + fix round; checks pass (509 tests) | yes |
 
-## In progress at handoff
+Gates passed: Gate 1.7 design (user APPROVED), Gate 2 plan (`implementation-plan-review-r1.md`
+APPROVED, lane-review mode).
 
-- **Revision round 1 of 2** - codex lane `ef6cffd2-896f-4505-9fc8-bd95cd60aa23` (fresh lane with a
-  handoff brief; the old designer session `01a1513f-7746-7143-966a-e8e1a31c94ce` was too large to
-  resume). Task: fix all 14 findings in `design-spec.md`, `prototype/command-center.html`,
-  `prototype/README.md`, re-capture screenshots (add a 480px capture), and write
-  `design-revision-1.md` (one row per finding). A context message is queued as its second turn
-  (points it to `context.md`, `parity-inventory.md`, the target PNGs and its helper scripts).
-  See "Status at end of session" below for its final state.
+## In progress at handoff - Phase D (Canvas scene + overlay plates)
 
-## Open problems and decisions
+- D1 (`scene/scene-layout.ts`), D2 (scene component, renderer, new `scene/command-scene-decoration.ts`)
+  and D3 (`components/command-overlay.component.*`, new `.css`) are implemented, NOT committed.
+- Phase D review `code-logic-review-phase-d.md`: NEEDS_FIXES 6/10 (3 Serious layout defects,
+  renderer 736 lines > 700, two wrong overlay tests, 5 recommended items).
+- Fix lane `de40f5d6-9ea2-40b0-9b13-39cbf6d12573` (codex) is the one and only Phase D fix round.
+  Deliverable `batch-D-fix-report.md`. See "Status at end of session" below for its final state.
 
-- Revise cap: at most 2 author/reviewer rounds. After round 1, re-review with a fresh Anthropic
-  subagent writing `design-spec-review-r1.md`. If still REVISE after round 2, go to the user with
-  the open items.
-- Gate 1.7 approval mode is **user**: show the screenshots (dark + light: start, idle, speaking,
-  approval, question, 24-nodes, narrow 900/480, tribunal-confirm) and wait for `APPROVED`.
-- Data honesty rule from the review: show only what the app has (`ChatSessionSummary` in
-  `libs/shared/src/lib/types/execution/node.ts`: providerId, name, messageCount (0 = not counted
-  yet, hide), createdAt, lastActivityAt, tokenUsage, isActive, hasTranscript, livePhase).
-- No `decisions.md` yet; create it at the architect step and log every decision.
+## Remaining phases (from `batches.md`)
+
+| Phase | Batches | Note |
+| --- | --- | --- |
+| D canvas | D1, D2, D3 | implemented; fix round, then commit |
+| B dock | B1 | single lane; D7: the prototype "Resume last" slot renders the existing Start new action |
+| A page | A1, then A2a, then A2b | strictly sequential; A2b passes `reservedTop` to the scene and owns `command-center-page.component.spec.ts` (N2: rewrite the rail-scroller test at lines 527-545) |
+
+Per phase: codex lanes implement -> orchestrator runs the checks -> Anthropic
+`code-logic-reviewer` subagent -> at most one codex fix round -> commit (scope `command-center`).
+
+## Decisions (full list in `decisions.md`)
+
+- D3 is superseded by **D9**: NO "Open tab" feature. Child sessions are display only (sphere,
+  second silver ring when live, dashed dimmed "CS" sphere when persisted, plate, tether to owned
+  work, rail rows with GitBranch glyph, selected card with real fields). User's reason: the Voice
+  page keeps the user away from CLI tools; execution surfaces only questions and permissions.
+- D4: M1 context ring orange only at >= 70% (same as header chip); M3 Crucible plate clears its
+  sphere at 900px; M4 tether + anchored owned-lane plate + child glyph.
+- D7: dock "Resume last" slot = existing Start new (no new resume action). Tell the user at the
+  final visual check that this label differs from the approved screenshot.
+- D8: degradation audit 294, injected Logger, GSAP allowed are user/project rules.
+- Item 8 of the Phase C review ("Delegated engineering work" subtitle) kept: approved design copy.
+
+## Open problems
+
+- The Phase D fix result must be verified by the orchestrator (checks below), then committed.
+- `ptah_get_diagnostics` reports 29 errors in sibling spec files when lanes scope it; Nx
+  typecheck passes, so treat those as tool noise unless typecheck fails.
+- `ptah_agent_list` can time out and show every lane as unknown; call it again until codex shows
+  confirmed room before any spawn.
 
 ## Standing user rules
 
-- Orchestration + agent-lanes skills. Implement with codex CLI lanes (`ptah_agent_list` before
-  every spawn, never an AT LIMIT lane). Parallel lanes run no nx/jest; a single lane may run
-  scoped checks. Review shipping code with an Anthropic `code-logic-reviewer` subagent, one codex
-  fix round per phase. Document gates use a cross-side reviewer (Anthropic subagent for codex
-  authors).
-- Memory-safe checks only: `--parallel=1`, Jest `--maxWorkers=2`, one heavy check at a time, never
+- Orchestration + agent-lanes skills. Codex CLI lanes implement (`ptah_agent_list` before every
+  spawn; never an AT LIMIT lane; grok is AT LIMIT until 2026-10-20 17:40 UTC). Parallel lanes run
+  no nx/jest; a single lane may run scoped checks. Anthropic `code-logic-reviewer` subagent per
+  phase, one codex fix round per phase. Document gates use an Anthropic cross-side reviewer.
+- Memory-safe checks only: `--parallel=1`, Jest `--maxWorkers=2`, one heavy check at a time
+  (including the pre-push hook: do not run checks while a push is in flight), never
   workspace-wide; no build/serve/e2e except the Electron visual check.
-- Run `apps/ptah-extension-webview/src/app/no-alpha-base-content.spec.ts` for every template
-  change. Never `text-base-content/NN`. Degradation audit must stay at 294.
-- Keep Canvas 2D radial layout and motion; no 3D libraries; lucide icons and GSAP allowed.
-- Commit in the foreground with hooks (never `--no-verify`); scope `command-center` (plus
-  `chat-ui` etc. if touched), `task-specs` for docs; read `.commitlintrc.json`. Push +
-  `gh pr create` in the background. No local-only branches at the end.
+- Run the no-alpha-base-content spec for every template change. Never `text-base-content/NN`.
+  Degradation audit must stay at 294.
+- Canvas 2D only; no 3D libraries; lucide icons and GSAP allowed.
+- Commit in the foreground with hooks; scope `command-center` (code) / `task-specs` (docs); read
+  `.commitlintrc.json`. Push (+ `gh pr create`) in the background. No local-only branches.
 - Electron: port 9334 only. Announce "Electron: <session> launching, port 9334" to every peer
-  (ListAgents) first, send "Electron: free" after. Kill only your own PID tree. Build:
-  `NX_DAEMON=false npx nx build-dev ptah-electron --parallel=1` then `copy-renderer-dev`, launch
-  `NODE_ENV=development ./node_modules/electron/dist/electron.exe --remote-debugging-port=9334
-  --use-fake-ui-for-media-stream --use-fake-device-for-media-stream dist/apps/ptah-electron/main.mjs`.
-  Screenshot script: `C:/Users/abdal/AppData/Local/Temp/cc697/shot.js` (`node shot.js <prefix>
-  start|scene`). Use the "Current" Command Center card; real delegated work needs paid turns -
-  ask the user first.
+  (ListAgents) first; send "Electron: free" after. Wait if a peer runs Electron with the user's
+  normal profile. Build: `NX_DAEMON=false npx nx build-dev ptah-electron --parallel=1` then
+  `copy-renderer-dev`; launch `NODE_ENV=development ./node_modules/electron/dist/electron.exe
+  --remote-debugging-port=9334 --use-fake-ui-for-media-stream --use-fake-device-for-media-stream
+  dist/apps/ptah-electron/main.mjs`. Screenshot script:
+  `C:/Users/abdal/AppData/Local/Temp/cc697/shot.js` (`node shot.js <prefix> start|scene`). Real
+  delegated work needs paid turns - ask the user first.
 
 ## Key files
 
-- Task: `.ptah/specs/TASK_2026_700_dcce/{context,parity-inventory,design-spec,design-spec-review}.md`,
-  `prototype/`.
-- Base design: `.ptah/specs/TASK_2026_678_9083/{design-spec.md,prototype/command-center.html}`.
-- Previous polish (merged, PR #766): `.ptah/specs/TASK_2026_697_bae4/`.
-- Code: `libs/frontend/command-center/src/lib/` - `components/command-center-page.component.ts`
-  (+ `.controller.ts`), `command-center-start.component.ts`, `command-overlay.component.ts`,
+- Task docs: `context.md`, `decisions.md`, `design-spec.md`, `implementation-plan.md`,
+  `batches.md`, `parity-inventory.md`, reviews `design-spec-review-r2.md`,
+  `implementation-plan-review-r1.md`, `code-logic-review-phase-{c,d}.md`, batch reports
+  `batch-*-report.md`, `prototype/`.
+- Code (under `libs/frontend/command-center/src/lib/`): `components/command-center-page.component.ts`
+  (+ controller), `command-center-start.component.ts`, `command-overlay.component.ts`,
   `command-node-detail.component.ts`, `command-work-list.component.ts`,
-  `command-session-stats.component.ts`, `command-voice-hud.component.ts`,
-  `scene/command-scene.component.ts`, `scene/command-scene-renderer.ts`, `scene/sprite-cache.ts`,
-  `scene/scene-layout.ts`; tokens `apps/ptah-extension-webview/tailwind.config.js`.
+  `command-pending-input.component.ts`, `command-session-stats.component.ts`,
+  `command-voice-hud.component.ts`, `command-session-controls.component.ts`,
+  `scene/command-scene.component.ts`, `scene/command-scene-renderer.ts`,
+  `scene/command-scene-decoration.ts`, `scene/scene-layout.ts`, `scene/sprite-cache.ts`,
+  `model/work-projection.ts`.
 
 ## Exact next steps
 
-1. Read this file, `context.md`, `design-spec-review.md` and (if written) `design-revision-1.md`.
-2. Check lane `ef6cffd2-896f-4505-9fc8-bd95cd60aa23` once with `ptah_agent_status`. If it is still
-   running, wait for its completion signal. If it failed or did not write `design-revision-1.md`,
-   spawn a fresh codex `ui-ux-designer` lane with the same revision brief (all 14 findings in
-   `design-spec-review.md`, deliverables `design-spec.md`, `prototype/command-center.html`,
-   `prototype/README.md`, `design-revision-1.md`, re-captured screenshots incl. 480px).
-3. Look at the new screenshots yourself (`prototype/screenshots/`).
-4. Re-review with a fresh Anthropic `ui-ux-designer` subagent -> `design-spec-review-r1.md`
-   (verify each finding; same checks as round 0). Round 2 only if REVISE; then the user.
-5. **Gate 1.7**: show the user the dark + light screenshots and the deviations list; wait for
-   `APPROVED`. Do not write code before that.
-6. After approval: architect (codex `software-architect` lane) writes `implementation-plan.md`
-   with file-disjoint phases and batches (header/surroundings, dock bar, rail/list, start view,
-   canvas scene grammar: gold ring, dotted halo, plate under sphere, edge glow); cross-side
-   review by an Anthropic subagent (Gate 2, lane-review notice). Then codex lanes implement per
-   phase; one Anthropic `code-logic-reviewer` review + one codex fix round per phase; commit
-   per phase.
-7. Verify each phase in the worktree, one check at a time:
+1. Read this file, `decisions.md`, `batches.md` and `code-logic-review-phase-d.md`.
+2. If lane `de40f5d6-...` has not ended, wait for its completion signal (`ptah_agent_wait`), then
+   read `batch-D-fix-report.md`.
+3. Verify Phase D yourself, one check at a time:
    ```bash
    cd /d/projects/ptah-extension/.claude-worktrees/voice-prototype-align
    npx nx typecheck command-center --parallel=1 --output-style=static 2>&1 | grep -E "error TS|Successfully ran|failed"
-   npx nx lint command-center --parallel=1 --output-style=static 2>&1 | grep -E "✖|warning|Successfully ran|failed"
-   npx nx test command-center --parallel=1 --output-style=static -- --maxWorkers=2 2>&1 | grep -E "Tests:|Test Suites:|FAIL"
+   npx nx lint command-center --parallel=1 --output-style=static 2>&1 | grep -E "error|warning|problems|Successfully ran|failed"
+   npx nx test command-center --parallel=1 --output-style=static --maxWorkers=2 2>&1 | grep -E "Tests:|Test Suites:|FAIL"
    npx jest -c apps/ptah-extension-webview/jest.config.ts apps/ptah-extension-webview/src/app/no-alpha-base-content.spec.ts --coverage=false --maxWorkers=2 2>&1 | grep Tests:
    npx ts-node --transpile-only tools/degradation-audit/check-degradation.ts | tail -1   # must stay 294
    ```
-   For several projects use `npx nx run-many -t test -p A B --parallel=1` (never positional).
-8. Electron before/after visual check (dark + light) compared with the approved prototype; push
-   + PR (background); fix CI and CodeRabbit comments; then ask the user about removing the
-   worktree after merge.
+   All must pass with 0 lint errors/warnings. If a defect remains after the one fix round, make
+   one bounded correction and have it reviewed, or report it to the user (revise cap).
+4. Commit Phase D in the foreground (`feat(command-center): ...`, add the D batch/fix reports and
+   the review), mark Phase D done in `batches.md`, push in the background.
+5. Phase B: one codex lane for B1 (brief from `implementation-plan.md` "Phase B" + batches.md
+   addenda + D7), checks, Anthropic review, one fix round, commit.
+6. Phase A: A1, then A2a (mechanical extraction), then A2b (wiring, `reservedTop`, page spec
+   N2 rewrite, `toggleTheme()` test), each a single lane with checks; Anthropic review of the
+   phase, one fix round, commit.
+7. Electron visual check (dark + light) against `prototype/screenshots/`, following the Electron
+   rules above; show the user the before/after screenshots, including the D7 label difference.
+8. Push and `gh pr create` in the background (title under 70 chars, `## Summary` + `## Test
+   plan`, end with the Claude Code attribution line). Fix CI and CodeRabbit comments. Ask the
+   user before removing the worktree after merge.
 
 ## Status at end of session
 
-- Revision lane `ef6cffd2-896f-4505-9fc8-bd95cd60aa23` **completed** (exit 0, both turns, verdict
-  delivered). It wrote `design-revision-1.md` (14 rows, one per review finding, none marked open),
-  updated `design-spec.md`, `prototype/command-center.html`, `prototype/README.md`, and
-  re-captured 17 screenshots in `prototype/screenshots/` (adds `dark-480.png`, `light-480.png`).
-- The lane's report claims all 14 findings are resolved and that composed plate, rail and Approve
-  contrast pairs pass 4.5:1 in both themes. It also added helper scripts: `revise-spec.js` (task
-  folder root), `prototype/revise-prototype.js`, `prototype/check-revision-contrast.js`. Decide
-  whether to keep these scripts before the docs commit.
-- The orchestrator has NOT yet looked at the revised screenshots or verified the fixes.
-- Revision lane CLI Session ID: `01a15147-2bda-7da2-8fbc-f170ea837e0a` (pass it as
-  `resume_session_id` for revision round 2; if the resume falls back to a fresh lane, give it
-  the full brief again).
-- No subagent or lane is running. Nothing is committed.
-- So step 2 of "Exact next steps" is done; continue at step 3.
+- Phase D fix lane `de40f5d6-9ea2-40b0-9b13-39cbf6d12573` **completed** (exit 0, verdict
+  delivered). It wrote `batch-D-fix-report.md` and claims all 11 items are fixed (6 must-fix,
+  5 recommended), with a new `scene/command-scene-status.ts` (renderer split). Its own checks:
+  typecheck pass, lint 0 errors / 0 warnings, 527/527 tests (45 suites), alpha guard 11/11.
+- The orchestrator has NOT re-run the checks after the fix and has NOT committed Phase D
+  (user asked to wrap up). Phase D changes are uncommitted in the worktree. Start at step 3.
+- Fix lane CLI Session ID: `01a15231-90a4-7b60-a698-9180e92ce4e4` (resume only for a bounded
+  correction; the phase fix round is used up).
+- No subagent or lane is running. Last pushed commit: `5bd6dec9e`.

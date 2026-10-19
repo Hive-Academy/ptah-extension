@@ -101,7 +101,8 @@ function paletteName(
       <div class="pointer-events-none absolute inset-0">
         @if (layout().overflowChip; as chip) {
           <span
-            class="absolute right-5 top-12 max-w-[90%] rounded-full bg-base-200 px-2 py-1 text-xs text-base-content"
+            class="absolute right-5 max-w-[90%] rounded-full bg-base-200 px-2 py-1 text-xs text-base-content"
+            [style.top.px]="reservedTop() + 16"
             >{{ chip.text }}</span
           >
         }
@@ -113,6 +114,7 @@ export class CommandSceneComponent {
   public readonly projection = input.required<ProjectionResult>();
   public readonly selectedId = input<string | null>(null);
   public readonly theme = input<CommandTheme>('dark');
+  public readonly reservedTop = input<number>(72);
   public readonly voiceState = input<CommandVoiceState>('idle');
   public readonly inputLevel = input(0);
   public readonly outputLevel = input(0);
@@ -174,6 +176,21 @@ export class CommandSceneComponent {
     overflowChip: null,
   });
 
+  private readonly sceneViewport = computed(() => {
+    const viewport = this.viewport();
+    const top = Math.min(viewport.height, Math.max(0, this.reservedTop() + 10));
+    const bottom = Math.max(top, viewport.height - 62);
+    return {
+      ...viewport,
+      sceneRect: {
+        x: 0,
+        y: top,
+        width: viewport.width,
+        height: bottom - top,
+      },
+    };
+  });
+
   private readonly measuredLayout = computed(() => {
     const labels = this.overlayLabels();
     const measured = new Map(
@@ -184,7 +201,7 @@ export class CommandSceneComponent {
     );
     return layoutScene(
       this.projection(),
-      this.viewport(),
+      this.sceneViewport(),
       (nodeId, text) => {
         const size = measured.get(nodeId);
         return size?.width && size.height
@@ -200,6 +217,10 @@ export class CommandSceneComponent {
 
   public constructor() {
     afterNextRender(() => this.initialize());
+    effect(() => {
+      this.theme();
+      if (this.ready()) this.resolveInks();
+    });
     effect(() => {
       if (!this.ready()) return;
       const selectedId = this.selectedId();
@@ -242,6 +263,7 @@ export class CommandSceneComponent {
       this.zone.runOutsideAngular(() => {
         this.renderer?.setSnapshot({
           layout,
+          sceneRect: this.sceneViewport().sceneRect,
           sprites,
           voiceHalo,
           labels,
@@ -328,20 +350,22 @@ export class CommandSceneComponent {
     const stage = this.stageRef().nativeElement;
     this.zone.runOutsideAngular(() => {
       this.renderer = new CommandSceneRenderer(canvas, context);
-      this.observer = new ResizeObserver((entries) => {
-        if (entries.some((entry) => entry.target === stage)) this.resize();
-        if (entries.some((entry) => entry.target !== stage)) {
-          const labels = this.overlayLabels().map((label) => ({
-            ...label,
-            width: label.element.offsetWidth,
-            height: label.element.offsetHeight,
-          }));
-          this.zone.run(() => this.setOverlayLabels(labels));
-        }
-      });
-      this.observer.observe(stage);
-      for (const label of this.overlayLabels())
-        this.observer.observe(label.element);
+      if (typeof ResizeObserver !== 'undefined') {
+        this.observer = new ResizeObserver((entries) => {
+          if (entries.some((entry) => entry.target === stage)) this.resize();
+          if (entries.some((entry) => entry.target !== stage)) {
+            const labels = this.overlayLabels().map((label) => ({
+              ...label,
+              width: label.element.offsetWidth,
+              height: label.element.offsetHeight,
+            }));
+            this.zone.run(() => this.setOverlayLabels(labels));
+          }
+        });
+        this.observer.observe(stage);
+        for (const label of this.overlayLabels())
+          this.observer.observe(label.element);
+      }
       document.addEventListener('visibilitychange', this.onVisibility);
       this.media = window.matchMedia('(prefers-reduced-motion: reduce)');
       this.media.addEventListener('change', this.onMotion);

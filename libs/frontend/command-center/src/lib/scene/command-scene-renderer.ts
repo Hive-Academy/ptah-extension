@@ -1,5 +1,12 @@
 import type { CommandVoiceState } from '../model/command-center.store';
-import type { SceneLayout, SceneNode } from './scene-layout';
+import {
+  CHILD_ORBIT_RADIUS,
+  type SceneLayout,
+  type SceneNode,
+  type SceneRect,
+} from './scene-layout';
+import { drawSceneDecoration } from './command-scene-decoration';
+import { drawStatus, drawVoiceRing } from './command-scene-status';
 
 export interface SceneSprite {
   readonly id: string;
@@ -16,6 +23,7 @@ export interface SceneLabel {
 
 export interface SceneRenderSnapshot {
   readonly layout: SceneLayout;
+  readonly sceneRect?: SceneRect;
   readonly sprites: readonly SceneSprite[];
   readonly labels: readonly SceneLabel[];
   readonly selectedId: string | null;
@@ -42,6 +50,12 @@ export type SceneVoiceSnapshot = Pick<
   'voiceState' | 'inputLevel' | 'outputLevel'
 >;
 
+/** Graphic ink for child rings, orbits and ownership tethers. */
+export const CHILD_SILVER_INK = {
+  dark: '#898ba5',
+  light: '#777a91',
+} as const;
+
 export class CommandSceneRenderer {
   private snapshot: SceneRenderSnapshot | null = null;
   private voice: SceneVoiceSnapshot = {
@@ -62,7 +76,7 @@ export class CommandSceneRenderer {
     { display: string; transform: string }
   >();
   private readonly nodeById = new Map<string, SceneNode>();
-  private readonly dots: readonly { x: number; y: number; size: number }[];
+  private readonly tetheredIds = new Set<string>();
   private readonly links = new Map<string, CanvasGradient>();
   private linkSignature = '';
   private backdrop: HTMLCanvasElement | null = null;
@@ -81,16 +95,10 @@ export class CommandSceneRenderer {
     private readonly cancelFrame: (id: number) => void = cancelAnimationFrame,
     private readonly createCanvas: () => HTMLCanvasElement = () =>
       document.createElement('canvas'),
-  ) {
-    this.dots = Array.from({ length: 48 }, (_, index) => ({
-      x: ((index * 73) % 97) / 97,
-      y: ((index * 41) % 89) / 89,
-      size: index % 5 === 0 ? 1.5 : 0.8,
-    }));
-  }
+  ) {}
 
   public setSnapshot(snapshot: SceneRenderSnapshot): void {
-    this.prepareBackdrop(snapshot.theme);
+    this.prepareBackdrop(snapshot);
     this.prepareLinks(snapshot);
     this.snapshot = snapshot;
     this.voice = {
@@ -102,6 +110,9 @@ export class CommandSceneRenderer {
     this.labelById.clear();
     this.labelStyles.clear();
     this.nodeById.clear();
+    this.tetheredIds.clear();
+    for (const tether of snapshot.layout.tethers ?? [])
+      this.tetheredIds.add(tether.fromId);
     for (const sprite of snapshot.sprites)
       this.spriteById.set(sprite.id, sprite.image);
     for (const label of snapshot.labels) this.labelById.set(label.id, label);
@@ -202,14 +213,20 @@ export class CommandSceneRenderer {
         ));
   }
 
-  private prepareBackdrop(theme: SceneRenderSnapshot['theme']): void {
+  private prepareBackdrop(snapshot: SceneRenderSnapshot): void {
     const width = this.canvas.clientWidth;
     const height = this.canvas.clientHeight;
     const dpr = Math.min(
       2,
       Math.max(1, this.canvas.width / Math.max(1, width)),
     );
-    const signature = `${width}|${height}|${dpr}|${theme}`;
+    const sceneRect = snapshot.sceneRect ?? {
+      x: 0,
+      y: 0,
+      width,
+      height,
+    };
+    const signature = `${width}|${height}|${dpr}|${snapshot.theme}|${sceneRect.x},${sceneRect.y},${sceneRect.width},${sceneRect.height}`;
     if (signature === this.backdropSignature) return;
     if (this.backdrop) {
       this.backdrop.width = 0;
@@ -224,27 +241,7 @@ export class CommandSceneRenderer {
     const context = canvas.getContext('2d');
     if (!context) throw new Error('Canvas 2D context unavailable');
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
-    context.fillStyle = theme === 'dark' ? '#9d93ae' : '#625d73';
-    context.globalAlpha = 0.18;
-    for (const dot of this.dots)
-      context.fillRect(dot.x * width, dot.y * height, dot.size, dot.size);
-    context.globalAlpha = 1;
-    context.strokeStyle = theme === 'dark' ? '#504b68' : '#aaa1b1';
-    context.lineWidth = 1;
-    for (let orbit = 0; orbit < 3; orbit++) {
-      const inner = orbit === 0;
-      context.beginPath();
-      context.ellipse(
-        width * 0.5,
-        height * 0.485,
-        width * (inner ? 0.235 : orbit === 1 ? 0.405 : 0.425),
-        height * (inner ? 0.225 : orbit === 1 ? 0.365 : 0.385),
-        0,
-        0,
-        Math.PI * 2,
-      );
-      context.stroke();
-    }
+    drawSceneDecoration(context, width, height, snapshot.theme, sceneRect);
     this.backdrop = canvas;
   }
 
@@ -310,8 +307,11 @@ export class CommandSceneRenderer {
       context.drawImage(this.backdrop, 0, 0, width, height);
     context.lineWidth = 1;
     context.strokeStyle = snapshot.theme === 'dark' ? '#6b6388' : '#aaa1b1';
+    const tethers = snapshot.layout.tethers ?? [];
+    const silver = CHILD_SILVER_INK[snapshot.theme];
     for (const node of snapshot.layout.nodes) {
       if (!node.node.parentId) continue;
+      if (this.tetheredIds.has(node.node.id)) continue;
       const parent = this.nodeById.get(node.node.parentId);
       if (!parent) continue;
       context.strokeStyle = this.links.get(node.node.id) ?? snapshot.inks.idle;
@@ -361,6 +361,30 @@ export class CommandSceneRenderer {
       context.lineTo(x - ux * 4 + uy * 3.5, y - uy * 4 - ux * 3.5);
       context.closePath();
       context.fill();
+    }
+    context.strokeStyle = silver;
+    context.lineWidth = 1;
+    for (const tether of tethers) {
+      context.beginPath();
+      context.moveTo(tether.fromX, tether.fromY);
+      context.lineTo(tether.toX, tether.toY);
+      context.stroke();
+    }
+    for (const node of snapshot.layout.nodes) {
+      if (
+        node.node.kind !== 'child' ||
+        !tethers.some((tether) => tether.toId === node.node.id)
+      )
+        continue;
+      context.strokeStyle = silver;
+      context.globalAlpha = 0.5;
+      context.lineWidth = 1;
+      context.setLineDash([2, 6]);
+      context.beginPath();
+      context.arc(node.x, node.y, CHILD_ORBIT_RADIUS, 0, Math.PI * 2);
+      context.stroke();
+      context.setLineDash([]);
+      context.globalAlpha = 1;
     }
     const root = snapshot.layout.nodes.find((node) => node.kind === 'root');
     if (root?.labelRect) {
@@ -436,8 +460,13 @@ export class CommandSceneRenderer {
         context.globalAlpha = 1;
       }
       const sprite = this.spriteById.get(node.node.id);
+      const persistedChild =
+        node.node.kind === 'child' &&
+        !node.node.tabId &&
+        node.node.state === 'unknown';
       if (sprite) {
         const paddedSize = node.radius * 2 * 2.2;
+        if (persistedChild) context.globalAlpha = 0.52;
         context.drawImage(
           sprite,
           node.x - paddedSize / 2,
@@ -445,9 +474,41 @@ export class CommandSceneRenderer {
           paddedSize,
           paddedSize,
         );
+        context.globalAlpha = 1;
       }
-      this.drawStatus(node, time, snapshot);
-      if (node.kind === 'root') this.drawVoiceRing(node, time, snapshot);
+      if (node.kind === 'root') {
+        context.strokeStyle = snapshot.theme === 'dark' ? '#f7deaa' : '#8f5b13';
+        context.lineWidth = 1.5;
+        context.beginPath();
+        context.arc(node.x, node.y, node.radius + 8, 0, Math.PI * 2);
+        context.stroke();
+        if (this.voice.voiceState !== 'idle') {
+          context.setLineDash([1, 6]);
+          context.beginPath();
+          context.arc(node.x, node.y, node.radius + 24, 0, Math.PI * 2);
+          context.stroke();
+          context.setLineDash([]);
+        }
+      }
+      drawStatus(context, node, time, snapshot);
+      if (node.node.kind === 'child') {
+        context.strokeStyle = silver;
+        context.lineWidth = 1;
+        context.setLineDash(persistedChild ? [3, 5] : []);
+        context.beginPath();
+        context.arc(node.x, node.y, node.radius + 13, 0, Math.PI * 2);
+        context.stroke();
+        context.setLineDash([]);
+        if (persistedChild) {
+          context.fillStyle = silver;
+          context.font = '600 11px sans-serif';
+          context.textAlign = 'center';
+          context.textBaseline = 'middle';
+          context.fillText('CS', node.x, node.y);
+        }
+      }
+      if (node.kind === 'root')
+        drawVoiceRing(context, this.voice, node, time, snapshot);
       if (snapshot.selectedId === node.node.id) {
         context.strokeStyle = snapshot.theme === 'dark' ? '#f4efe3' : '#554a45';
         context.lineWidth = 1.5;
@@ -513,178 +574,4 @@ export class CommandSceneRenderer {
     this.lastFrameTime = time;
     if (this.active) this.invalidate();
   };
-
-  private drawStatus(
-    node: SceneNode,
-    time: number,
-    snapshot: SceneRenderSnapshot,
-  ): void {
-    if (node.kind === 'root') return;
-    const context = this.context;
-    const state = node.node.state;
-    context.strokeStyle =
-      state === 'failed'
-        ? snapshot.inks.err
-        : state === 'awaiting input'
-          ? snapshot.inks.need
-          : state === 'completed'
-            ? snapshot.inks.done
-            : state === 'running' || state === 'starting'
-              ? snapshot.inks.run
-              : snapshot.inks.idle;
-    context.lineWidth = 2.5;
-    if (state === 'queued') context.setLineDash([3, 6]);
-    context.beginPath();
-    const angle =
-      state === 'running' && !snapshot.reducedMotion
-        ? time * 0.0017
-        : -Math.PI / 2;
-    context.arc(
-      node.x,
-      node.y,
-      node.radius + 6,
-      angle,
-      angle + (state === 'running' ? 2.25 : Math.PI * 2),
-    );
-    context.stroke();
-    context.setLineDash([]);
-    if (state === 'running' && node.node.startedAt !== undefined) {
-      const elapsed = Math.min(
-        1,
-        Math.max(
-          0,
-          Math.max(0, performance.timeOrigin + time - node.node.startedAt) /
-            300_000,
-        ),
-      );
-      if (elapsed > 0) {
-        context.strokeStyle = snapshot.inks.run;
-        context.lineWidth = 1.5;
-        context.beginPath();
-        context.arc(
-          node.x,
-          node.y,
-          node.radius + 10,
-          -Math.PI / 2,
-          -Math.PI / 2 + Math.PI * 2 * elapsed,
-        );
-        context.stroke();
-      }
-    }
-    if (state === 'awaiting input') {
-      context.fillStyle = snapshot.inks.need;
-      context.beginPath();
-      context.moveTo(node.x + node.radius + 12, node.y - 5);
-      context.lineTo(node.x + node.radius + 18, node.y);
-      context.lineTo(node.x + node.radius + 12, node.y + 5);
-      context.lineTo(node.x + node.radius + 6, node.y);
-      context.fill();
-    } else if (
-      state === 'completed' ||
-      state === 'failed' ||
-      state === 'cancelled'
-    ) {
-      const x = node.x + node.radius + 8;
-      const y = node.y;
-      context.beginPath();
-      if (state === 'completed') {
-        context.moveTo(x - 5, y);
-        context.lineTo(x - 1, y + 4);
-        context.lineTo(x + 6, y - 5);
-      } else if (state === 'failed') {
-        context.moveTo(x - 5, y - 5);
-        context.lineTo(x + 5, y + 5);
-        context.moveTo(x + 5, y - 5);
-        context.lineTo(x - 5, y + 5);
-      } else {
-        context.moveTo(x - 5, y + 5);
-        context.lineTo(x + 5, y - 5);
-      }
-      context.stroke();
-    }
-    if (node.kind === 'tribunal' && node.phases.length) {
-      const done = node.phases.filter(
-        (phase) => phase.state === 'completed',
-      ).length;
-      context.lineWidth = 3;
-      context.beginPath();
-      context.arc(
-        node.x,
-        node.y,
-        node.radius + 12,
-        -Math.PI / 2,
-        -Math.PI / 2 + (Math.PI * 2 * done) / node.phases.length,
-      );
-      context.stroke();
-    }
-  }
-
-  private drawVoiceRing(
-    node: SceneNode,
-    time: number,
-    snapshot: SceneRenderSnapshot,
-  ): void {
-    const context = this.context;
-    const voice = this.voice.voiceState;
-    context.strokeStyle =
-      voice === 'error'
-        ? snapshot.inks.err
-        : voice === 'muted' || voice === 'stopped'
-          ? snapshot.inks.idle
-          : voice === 'listening'
-            ? snapshot.inks.done
-            : voice === 'thinking'
-              ? snapshot.inks.run
-              : voice === 'speaking'
-                ? snapshot.inks.need
-                : snapshot.inks.idle;
-    context.lineWidth = 3;
-    context.setLineDash(
-      voice === 'muted'
-        ? [6, 8]
-        : voice === 'speaking' || voice === 'error'
-          ? [17, 7]
-          : [],
-    );
-    const pulse = snapshot.reducedMotion
-      ? 0
-      : voice === 'listening'
-        ? Math.max(0, Math.min(1, this.voice.inputLevel)) * 4
-        : voice === 'speaking'
-          ? Math.max(0, Math.min(1, this.voice.outputLevel)) * 4
-          : 0;
-    const angle =
-      voice === 'thinking' && !snapshot.reducedMotion
-        ? time * 0.0017
-        : -Math.PI / 2;
-    context.beginPath();
-    context.arc(
-      node.x,
-      node.y,
-      node.radius + 16 + pulse,
-      angle,
-      angle + (voice === 'thinking' ? 2.25 : Math.PI * 2),
-    );
-    context.stroke();
-    context.setLineDash([]);
-    if (voice === 'speaking' && !snapshot.reducedMotion) {
-      const level = Math.max(0, Math.min(1, this.voice.outputLevel));
-      context.strokeStyle = snapshot.inks.need;
-      context.lineWidth = 1.5;
-      for (let index = 0; index < 2; index++) {
-        const progress = (time * 0.00045 + index * 0.5) % 1;
-        context.globalAlpha = (1 - progress) * (0.08 + level * 0.18);
-        context.beginPath();
-        context.arc(
-          node.x,
-          node.y,
-          node.radius + 20 + progress * 34,
-          0,
-          Math.PI * 2,
-        );
-        context.stroke();
-      }
-      context.globalAlpha = 1;
-    }
-  }
 }

@@ -68,8 +68,9 @@ describe('CommandSceneRenderer', () => {
     closePath: jest.fn(),
     setLineDash: jest.fn(),
     drawImage: jest.fn(),
-    createRadialGradient: jest.fn(),
+    createRadialGradient: jest.fn(() => ({ addColorStop: jest.fn() })),
     createLinearGradient: jest.fn(() => ({ addColorStop: jest.fn() })),
+    fillText: jest.fn(),
   });
   const canvas = document.createElement('canvas');
   Object.defineProperty(canvas, 'clientWidth', {
@@ -92,6 +93,7 @@ describe('CommandSceneRenderer', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    context.drawImage.mockReset();
     frame.mockImplementation((next) => {
       callback = next;
       return 1;
@@ -232,7 +234,7 @@ describe('CommandSceneRenderer', () => {
     expect(frame).toHaveBeenCalledTimes(1);
     callback(1000);
     expect(context.drawImage).toHaveBeenCalledTimes(3);
-    expect(context.createRadialGradient).not.toHaveBeenCalled();
+    expect(context.createRadialGradient).toHaveBeenCalledTimes(1);
     expect(data.labels[0].element.style.transform).toBe(
       'translate3d(80px,120px,0)',
     );
@@ -335,6 +337,81 @@ describe('CommandSceneRenderer', () => {
     renderer.setSnapshot(snapshot());
     expect(renderer.hitTest(210, 120)).toBe(child.id);
     expect(renderer.hitTest(5, 5)).toBeNull();
+    renderer.destroy();
+  });
+
+  it('draws a live child silver ring and a tether ending at its sphere', () => {
+    const data = snapshot();
+    const childSession: CommandWorkNode = {
+      id: 'child:one',
+      kind: 'child',
+      parentId: root.id,
+      label: 'Release review',
+      providerId: 'codex',
+      tabId: 'tab:one',
+      state: 'running',
+    };
+    renderer.setSnapshot({
+      ...data,
+      layout: {
+        ...data.layout,
+        nodes: [
+          data.layout.nodes[0],
+          { ...data.layout.nodes[1], node: childSession, radius: 29 },
+          {
+            ...data.layout.nodes[1],
+            node: { ...child, parentId: childSession.id },
+            x: 255,
+            y: 145,
+          },
+        ],
+        tethers: [{
+          fromId: child.id,
+          toId: childSession.id,
+          fromX: 255,
+          fromY: 145,
+          toX: 210,
+          toY: 120,
+        }],
+      },
+    });
+    callback(1000);
+    expect(context.moveTo).toHaveBeenCalledWith(255, 145);
+    expect(context.lineTo).toHaveBeenCalledWith(210, 120);
+    expect(context.arc).toHaveBeenCalledWith(210, 120, 42, 0, Math.PI * 2);
+    expect(context.setLineDash).not.toHaveBeenCalledWith([3, 5]);
+    expect(renderer.hitTest(210, 120)).toBe(childSession.id);
+    renderer.destroy();
+  });
+
+  it('dims a persisted unknown child and draws its dashed ring and CS monogram', () => {
+    const data = snapshot();
+    let childOpacity = 1;
+    context.drawImage.mockImplementation((_image: CanvasImageSource, x: number) => {
+      if (x === 210 - 29 * 2.2) childOpacity = context.globalAlpha;
+    });
+    renderer.setSnapshot({
+      ...data,
+      layout: {
+        ...data.layout,
+        nodes: data.layout.nodes.map((node, index) => index === 1 ? {
+          ...node,
+          radius: 29,
+          node: {
+            ...node.node,
+            kind: 'child' as const,
+            tabId: undefined,
+            state: 'unknown' as const,
+          },
+        } : node),
+      },
+    });
+    callback(1000);
+    expect(context.arc).toHaveBeenCalledWith(210, 120, 42, 0, Math.PI * 2);
+    expect(context.setLineDash).toHaveBeenCalledWith([3, 5]);
+    expect(context.fillText).toHaveBeenCalledWith('CS', 210, 120);
+    expect(childOpacity).toBeLessThan(1);
+    expect(renderer.hitTest(210, 120)).toBe(child.id);
     renderer.destroy();
   });
 
@@ -512,6 +589,30 @@ describe('CommandSceneRenderer', () => {
     renderer.destroy();
   });
 
+  it('rebuilds the cached orbital field when the reserved scene rectangle changes', () => {
+    const data = snapshot();
+    renderer.setSnapshot({
+      ...data,
+      sceneRect: { x: 0, y: 82, width: 320, height: 96 },
+    });
+    expect(createBackdrop).toHaveBeenCalledTimes(1);
+    renderer.setSnapshot({
+      ...data,
+      sceneRect: { x: 0, y: 154, width: 320, height: 24 },
+    });
+    expect(createBackdrop).toHaveBeenCalledTimes(2);
+    expect(context.ellipse).toHaveBeenCalledWith(
+      160,
+      166,
+      expect.any(Number),
+      expect.any(Number),
+      0,
+      0,
+      Math.PI * 2,
+    );
+    renderer.destroy();
+  });
+
   it('draws the delegation chevron with opaque idle ink and an active state stroke', () => {
     const fills: Array<{ ink: string; alpha: number }> = [];
     const strokes: Array<{ ink: string; width: number }> = [];
@@ -545,13 +646,7 @@ describe('CommandSceneRenderer', () => {
     });
     callback(1000);
     expect(context.drawImage).toHaveBeenCalledTimes(4);
-    expect(context.arc).not.toHaveBeenCalledWith(
-      100,
-      80,
-      expect.any(Number),
-      0,
-      Math.PI * 2,
-    );
+    expect(context.arc).toHaveBeenCalledWith(100, 80, 54, 0, Math.PI * 2);
     expect(frame).toHaveBeenCalledTimes(1);
     renderer.destroy();
   });
