@@ -253,6 +253,27 @@ describe('compact-session-summary', () => {
     );
   });
 
+  it("uses an agent's last text child as its result, not the task description", () => {
+    const agent = node({
+      id: 'agent',
+      type: 'agent',
+      agentId: 'a1',
+      agentType: 'Explore',
+      content: 'Map the repo',
+      agentDescription: 'Map the repo',
+      children: [
+        node({ id: 't1', content: 'Looking around.' }),
+        node({ id: 'tool', type: 'tool', toolName: 'Read' }),
+        node({ id: 't2', content: 'Found the logger.' }),
+        node({ id: 't3', content: '  ' }),
+      ],
+    });
+
+    const summary = summarizeFinalized([message(agent)], context());
+
+    expect(summary.content.text).toBe('Found the logger.');
+  });
+
   it.each([
     ['completed', 'Finished'],
     ['aborted_tools', 'Stopped'],

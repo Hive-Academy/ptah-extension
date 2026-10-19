@@ -386,16 +386,19 @@ function collectFinalizedNode(
 ): void {
   const timestamp = node.endTime ?? node.startTime ?? 0;
   if (node.type === 'agent') {
-    // An agent's direct/summary text is represented by the agent item itself.
-    // Children still contribute tools and nested agents, but direct text nodes
-    // must not duplicate that prose. Children go first: the agent finished
-    // after them, so a completed agent answers its children's failures.
+    // The agent item carries the agent's prose: its last direct text child
+    // (`content` is the task description). Children still contribute tools
+    // and nested agents, but direct text nodes must not duplicate that prose.
+    // Children go first: the agent finished after them, so a completed agent
+    // answers its children's failures.
+    let lastText: string | undefined;
     for (const child of node.children) {
       if (child.type !== 'text')
         collectFinalizedNode(child, target, workspacePath);
+      else if (child.content?.trim()) lastText = child.content;
     }
     const failed = node.status === 'error';
-    const text = node.content || node.agentDescription;
+    const text = lastText || node.content || node.agentDescription;
     target.push({
       id: `agent:${node.agentId ?? node.toolCallId ?? node.id}`,
       kind: 'agent',

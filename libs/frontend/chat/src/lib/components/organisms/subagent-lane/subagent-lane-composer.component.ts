@@ -120,7 +120,12 @@ export class SubagentLaneComposerComponent {
   /** Still active, so the text must steer it, never go to the main chat. */
   private readonly live = computed(() => {
     const status = this.record().status;
-    return status === 'running' || status === 'pending' || status === 'paused';
+    return (
+      status === 'running' ||
+      status === 'pending' ||
+      status === 'paused' ||
+      status === 'background'
+    );
   });
   readonly mode = computed<SubagentComposerMode>(() => {
     if (this.context()?.entry.steerable) return 'steer';
