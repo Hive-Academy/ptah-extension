@@ -1,4 +1,4 @@
-﻿import 'reflect-metadata';
+import 'reflect-metadata';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type {
   IFileSystemProvider,
