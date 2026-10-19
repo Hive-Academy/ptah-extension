@@ -19,6 +19,71 @@ import {
 
 import { CliWebviewManagerAdapter } from './cli-webview-manager-adapter';
 
+describe('CliWebviewManagerAdapter attention ingress', () => {
+  it('observes a send before delivery even with zero views', async () => {
+    const adapter = new CliWebviewManagerAdapter();
+    const order: string[] = [];
+    const payload = { id: 'request-1' };
+    const observe = jest.fn(() => order.push('observe'));
+    adapter.setAttentionObserver({ observe });
+    adapter.on(MESSAGE_TYPES.PERMISSION_REQUEST, () => order.push('deliver'));
+
+    expect(adapter.getActiveWebviews()).toEqual([]);
+    await adapter.sendMessage('missing-view', MESSAGE_TYPES.PERMISSION_REQUEST, payload);
+
+    expect(observe).toHaveBeenCalledTimes(1);
+    expect(observe).toHaveBeenCalledWith(MESSAGE_TYPES.PERMISSION_REQUEST, payload);
+    expect(order).toEqual(['observe', 'deliver']);
+  });
+
+  it('observes a broadcast once before every listener receives it', async () => {
+    const adapter = new CliWebviewManagerAdapter();
+    const order: string[] = [];
+    const observe = jest.fn(() => order.push('observe'));
+    adapter.setAttentionObserver({ observe });
+    adapter.on(MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST, () => order.push('first'));
+    adapter.on(MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST, () => order.push('second'));
+
+    await adapter.broadcastMessage(MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST, {});
+
+    expect(observe).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(['observe', 'first', 'second']);
+  });
+
+  it('detaches only the matching observer registration', async () => {
+    const adapter = new CliWebviewManagerAdapter();
+    const first = jest.fn();
+    const second = jest.fn();
+    const oldRegistration = adapter.setAttentionObserver({ observe: first });
+    const currentRegistration = adapter.setAttentionObserver({ observe: second });
+    oldRegistration.dispose();
+    await adapter.broadcastMessage(MESSAGE_TYPES.PERMISSION_REQUEST, {});
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledTimes(1);
+    currentRegistration.dispose();
+    await adapter.broadcastMessage(MESSAGE_TYPES.PERMISSION_REQUEST, {});
+    expect(second).toHaveBeenCalledTimes(1);
+  });
+
+  it('logs only the error name and still delivers when observation fails', async () => {
+    const adapter = new CliWebviewManagerAdapter();
+    const error = jest.fn();
+    const deliver = jest.fn();
+    adapter.setAttentionObserver(
+      { observe: () => { throw new TypeError('private request text'); } },
+      { error },
+    );
+    adapter.on(MESSAGE_TYPES.PERMISSION_REQUEST, deliver);
+
+    await adapter.sendMessage('view', MESSAGE_TYPES.PERMISSION_REQUEST, {});
+
+    expect(deliver).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalledWith(
+      '[CliWebviewManagerAdapter] Attention observer failed: TypeError',
+    );
+  });
+});
+
 describe('CliWebviewManagerAdapter — batch unwrapping', () => {
   it('emits each inner message of a batch under its own type', async () => {
     const adapter = new CliWebviewManagerAdapter();

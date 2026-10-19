@@ -1,4 +1,6 @@
 export { registerPlatformVscodeServices } from './registration';
+export { VscodePtahViewVisibility } from './implementations/ptah-view-visibility';
+export { VscodeHostAttentionNotifications } from './implementations/vscode-host-attention-notifications';
 export { registerVscodeSettings } from './settings/vscode-settings-registration';
 export { createAgentModelSettingsGetter } from './settings/agent-model-settings-getter';
 export {

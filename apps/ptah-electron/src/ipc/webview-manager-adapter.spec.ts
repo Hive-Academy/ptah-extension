@@ -16,7 +16,42 @@ import {
 } from '@ptah-extension/vscode-lm-tools';
 
 import type { IpcBridge } from './ipc-bridge';
+import type { Logger } from '@ptah-extension/vscode-core';
 import { ElectronWebviewManagerAdapter } from './webview-manager-adapter';
+
+describe('Electron attention ingress', () => {
+  it('observes before zero-view delivery and once for broadcast', async () => {
+    const sendToRenderer = jest.fn(() => false);
+    const adapter = makeAdapter({ hasLiveRenderer: () => false, sendToRenderer });
+    const events: string[] = [];
+    const registration = adapter.setAttentionObserver({
+      observe: (type) => { events.push(type); expect(sendToRenderer).not.toHaveBeenCalled(); },
+    });
+    expect(await adapter.sendMessage('ptah.main', 'permission', {})).toBe(false);
+    expect(events).toEqual(['permission']);
+    sendToRenderer.mockClear();
+    await adapter.broadcastMessage('question', {});
+    expect(events).toEqual(['permission', 'question']);
+    expect(sendToRenderer).toHaveBeenCalledTimes(1);
+    registration.dispose();
+    await adapter.broadcastMessage('after-dispose', {});
+    expect(events).toEqual(['permission', 'question']);
+  });
+
+  it('continues delivery when the observer throws and logs only the error name', async () => {
+    const sendToRenderer = jest.fn(() => true);
+    const logger = { warn: jest.fn() } as Pick<Logger, 'warn'>;
+    const adapter = new ElectronWebviewManagerAdapter(
+      Object.assign(Object.create(null) as IpcBridge, { hasLiveRenderer: () => true, sendToRenderer }),
+      logger as Logger,
+    );
+    adapter.setAttentionObserver({ observe: () => { throw new TypeError('private detail'); } });
+    await expect(adapter.sendMessage('ptah.main', 'permission', {})).resolves.toBe(true);
+    await adapter.broadcastMessage('question', {});
+    expect(sendToRenderer).toHaveBeenCalledTimes(2);
+    expect(logger.warn).toHaveBeenCalledWith('Host attention observe failed: TypeError');
+  });
+});
 
 /**
  * The slice of IpcBridge the adapter touches. Cast into IpcBridge in the
