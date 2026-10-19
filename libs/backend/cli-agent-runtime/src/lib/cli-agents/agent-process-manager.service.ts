@@ -1880,6 +1880,8 @@ export class AgentProcessManager {
       throw new AgentContinueError('unknown', errorMessage);
     }
 
+    this.hostAttention?.releaseLaneFailure(agentId);
+
     outcome.done.then(
       (exitCode) => {
         this.handleExit(agentId, exitCode, null);

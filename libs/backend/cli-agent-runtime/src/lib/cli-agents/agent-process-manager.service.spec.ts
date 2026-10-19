@@ -466,6 +466,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
   let getMcpPort: jest.Mock<number | null, []>;
   let hostAttention: HostAttentionCoordinator;
   let presentLaneFailure: jest.Mock;
+  let releaseLaneFailure: jest.Mock;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -481,8 +482,10 @@ describe('AgentProcessManager - SDK Execution Path', () => {
     reasoningEffortGet = jest.fn(() => '');
     getMcpPort = jest.fn<number | null, []>(() => null);
     presentLaneFailure = jest.fn(async () => undefined);
+    releaseLaneFailure = jest.fn();
     hostAttention = Object.create(null) as HostAttentionCoordinator;
     hostAttention.presentLaneFailure = presentLaneFailure;
+    hostAttention.releaseLaneFailure = releaseLaneFailure;
     ({
       manager,
       outputBuffer,
@@ -2806,6 +2809,8 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       expect(manager.getStatus(agentId)).toHaveProperty('status', 'completed');
 
       await manager.continueConversation(agentId, 'follow-up message');
+
+      expect(releaseLaneFailure).toHaveBeenCalledWith(agentId);
 
       expect(continuableControls.continueCallCount()).toBe(1);
       expect(continuableControls.continueMessages).toEqual([
