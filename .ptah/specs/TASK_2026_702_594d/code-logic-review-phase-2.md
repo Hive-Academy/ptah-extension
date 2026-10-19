@@ -95,3 +95,34 @@ Empty versus populated branch choice is correct everywhere I traced: `canvas.spe
 - Confidence: HIGH on S1-S3 (verified by grep and by reading the HEAD diff), MEDIUM-HIGH on S4 (traced by reading the effect and the absence of `refresh` callers).
 - Top risk: the focus-steal effect (S3) plus two e2e specs that cannot pass as written (S1, S2).
 - Fix round for the lane: S1, S2, S3, S4 required; M5 (the stub) rides along; M1-M4 recommended in the same pass since they touch the same two files.
+
+## Re-review after fix round
+
+Static read only (no nx/jest/tsc/e2e run, per instruction). Verdict: **APPROVED** (one Moderate residual, M2 write-failure, accepted as a documented limit with a minimal change stated below).
+
+| Finding | Status | Evidence |
+| --- | --- | --- |
+| S1 `canvas-interactive` | FIXED | `orchestra-canvas.component.ts:103` on the `flex-1 min-h-0` board wrapper (not viewport/grid); single occurrence in apps/libs besides `startup-tti.spec.ts:58`. Spec `orchestra-canvas.component.spec.ts:862-864` asserts presence and that it contains `ptah-canvas-rail-board`. |
+| S2 e2e headings | FIXED | Both waits use `A fresh space to work` (`canvas.spec.ts:71`, `hunk-revert-top-layer.spec.ts:193`); matches `<h1>` at `canvas-rail-board.component.ts:160` inside the `aria-labelledby` main. Old string no longer exists under apps/libs. |
+| S3 focus steal | FIXED | `closeSessionPopover` (no focus) used by the tile-bound effect (`orchestra-canvas.component.ts:389`); `handleCancelSession` focuses only if `wasOpen` (`:582-586`). Spec (`.spec.ts:373-386`) opens, cancels, focuses composer, flips `canAddTile`, asserts focus unchanged; it would fail against the old unconditional focus. |
+| S4 / M4 recent reload | FIXED | `canvas-rail-board.component.ts:439-443`: `visible && isEmpty` guard, `load` inside `untracked`. Spec `:1139` covers 1->0, 0->1->0 (load called 2x) and rail instance identity. |
+| M1 | FIXED | `recent-sessions.store.ts`: same-workspace reload keeps rows/confirmed, workspace change clears; stale-request guard retained. |
+| M2 | PARTIAL (see below) | Blocked-create repeats now bump `noticeRevision` (`orchestra-canvas.component.ts:547`); spec at `.spec.ts:391` proves dismissed-then-repeated re-shows with a new key. |
+| M3 | FIXED | One `ptah-canvas-rail` outside the tile branches, empty `<main>` uses `order-first` (`canvas-rail-board.component.ts:109-143`); keyboard-order spec and instance-identity spec present. Populated keyboard order unchanged (rail before pane). |
+| M5 | FIXED | Stub and expectation say Open Library (`board.spec.ts:~1136`). |
+| Phase 1 N1 Aurora | FIXED | See below. |
+| Phase 1 N3 popover no-anchor spec | FIXED | `native-popover.component.spec.ts:128` added (not re-derived in depth). |
+| Minor m1-m3 | Deferred with stated reasons | Acceptable; m1 and m2 are Phase 3 / orchestrator a11y pass items. |
+
+### N1 Aurora check
+`.lights::after` is `inset: 0 -50%` (layer = 2x host width, left edge at -0.5W) and moves `translateX(-20%)` to `+20%` of its own width (+/-0.4W). Extremes: layer spans [-0.9W, 1.1W] and [-0.1W, 1.9W]; both cover [0, W], so no exposed edge at either end. `ease-in-out infinite alternate` has no restart jump and zero velocity at the turnarounds. `animation: none` under reduced motion and `:host(.paused)` `animation-play-state: paused` are intact (`aurora-effect.component.ts:62-76`). Spec edits add assertions (inset, animation shorthand, both keyframes) and remove none; the only replaced expectation is the old `-25%` inset.
+
+### M2 judgment
+Plan text: "dismissal masks only that instance and resets on relevant board entry, workspace change or source refresh even if condition remains". Resets are wired via the `source` effect (`orchestra-canvas.component.ts:268-283`: workspace, surfaceActive, `writeFailed`, read-only, `headerMessage`). The one uncovered case: a second failed write while `writeFailed` is already true changes none of those inputs, so a dismissed write-failure notice stays hidden even though a new save failed. Layout changes still do not persist in that case, but the user was told once and dismissed it, and the data is not lost for the session; this is a Moderate, not Serious, residual. It does not block approval.
+Exact minimal change if wanted: in `canvas-layout-persistence.service.ts` add `private readonly _writeFailureCount = signal(0)` with a readonly accessor, `update(n => n + 1)` in the failure branch next to `_writeFailed.set(true)` (`:331`), and append `this.layoutPersistence.writeFailureCount()` to the `source` array at `orchestra-canvas.component.ts:272-280`. Plus one spec in the shell spec.
+
+### New defects introduced by the fixes
+- **Minor** `canvas-rail-board.component.ts:439-443`: the effect reads `orderedTiles()` and so re-fires on any identity change of that array while the board stays empty (e.g. a recomputed `[]`), reloading recent sessions without a 1->0 transition. Harmless (store dedupes via request sequence and retains rows) but a wasted RPC pair; derive a `computed(() => orderedTiles().length === 0)` (boolean, equality-deduped) and read that in the effect to make it truly once-per-entry.
+- **Minor** `handleCreateSession` (`orchestra-canvas.component.ts:~565`) still focuses the anchor after creation before `board.sessionCreated` moves focus to the new tile; pre-existing ordering, ends on the tile, so not a regression.
+
+No Blocking or Serious defects found. Residual uncertainty: type checks and all specs unrun by me; diagnostics were unavailable per the fix report.
