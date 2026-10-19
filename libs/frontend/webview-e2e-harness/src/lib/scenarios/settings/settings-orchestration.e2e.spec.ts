@@ -3,9 +3,8 @@
  * carry-forward (finding 3) for the two CLI-matrix modals: focus moves into the dialog on open, stays inside it on Tab,
  * and returns to the opener (the "Add Ptah CLI Instance" button / Glm's Tiers) after Esc, a backdrop click and a
  * submit. Batch 36 adds the tab's validation-note scenes (batches.md Task 36.1): a matrix cell pick, on/off, the full
- * tier object, the Copilot sign-in gate, the roles collapsed by default, the `judge` deep link, the role's provider
- * setup link, and the preferred-order popover. Batch 36c adds the "More actions" menu bounds and the repeated `judge`
- * deep link. Batch 36d adds the Cursor key scenes (opt-in key store, `settings-cursor-key.fixtures.ts`).
+ * tier object, the Copilot sign-in gate, the roles collapsed by default, and the preferred-order popover. Batch 36c adds the "More actions" menu
+ * bounds. Batch 36d adds the Cursor key scenes (opt-in key store, `settings-cursor-key.fixtures.ts`).
  *
  * Runs against the real `ptah-extension-webview` build in both hosts. Each scene boots fresh, so the fixture state
  * starts from the BRIEF baseline and every RPC a scene asserts was sent by that scene's own clicks.
@@ -15,12 +14,10 @@ import { test, expect } from '../../test-fixtures';
 import {
   bootSettings,
   getFixtureState,
-  SKILL_LANES_FIXTURE,
   waitForSettled,
 } from './settings.fixtures';
 import {
   expectCall,
-  openCardDrawer,
   orchestrationTab,
   providersTab,
   visibleEnabled,
@@ -358,54 +355,12 @@ for (const host of HOSTS) {
       ).toBeVisible();
       await expect(
         page.locator('[data-testid="background-roles-summary"]'),
-      ).toContainText('7 roles');
+      ).toContainText('3 roles');
       await expect(page.locator('[data-testid="consumer-table"]')).toBeHidden();
       // Leaving the tab and coming back keeps them closed.
       await providersTab(page);
       await orchestrationTab(page);
       await expect(rolesDetails(page)).not.toHaveAttribute('open');
-    });
-
-    test('a role\'s "Set up {provider}" (setupProviderRequested) lands on Providers with the setup wizard open', async ({
-      page,
-    }) => {
-      await page.locator('[data-testid="background-roles-summary"]').click();
-      await expect(rolesDetails(page)).toHaveAttribute('open', '');
-      await page.locator('[data-testid="consumer-edit-judge"]').click();
-      const popover = page.locator('[data-testid="consumer-editor-judge"]');
-      await expect(popover).toBeVisible();
-      const before = getFixtureState(page).calls.length;
-      // Ollama Cloud is unreachable in the fixture route: the choice is blocked, nothing is written.
-      await popover
-        .locator('[data-testid="provider-model-picker-provider"]')
-        .selectOption('ollama-cloud');
-      const alert = popover.locator('[data-testid="readiness-alert-judge"]');
-      await expect(alert).toHaveAttribute('role', 'alert');
-      await expect(
-        alert.locator('[data-testid="readiness-message-judge"]'),
-      ).toContainText('Not saved.');
-      expect(
-        getFixtureState(page)
-          .calls.slice(before)
-          .some((call) => call.method === 'skillSynthesis:setLanes'),
-      ).toBe(false);
-      await popover.locator('[data-testid="readiness-setup-judge"]').click();
-      await expect(
-        page.getByRole('button', { name: 'Providers', exact: true }),
-      ).toHaveClass(/tab-active/);
-      await expect(page.locator('[data-testid="wizard-body"]')).toBeVisible();
-      await expect(
-        page.locator(
-          '[data-testid="wizard-step-provider"] input[type="radio"]:checked',
-        ),
-      ).toHaveCount(1);
-      await page.locator('[data-testid="wizard-cancel"]').click();
-      const discard = page.locator('[data-testid="wizard-discard-confirm"]');
-      await discard
-        .waitFor({ state: 'visible', timeout: 2000 })
-        .then(() => discard.click())
-        .catch(() => undefined);
-      await expect(page.locator('[data-testid="wizard-body"]')).toHaveCount(0);
     });
 
     test("More actions (visual re-check N1): the open menu's items sit inside the panel box and the viewport", async ({
@@ -538,48 +493,6 @@ for (const host of HOSTS) {
       await expectClosedToOpener(page, modal);
     });
 
-    test('deep link judge (a drawer\'s "Follows main agent →"): the roles open with the Judge lane popover', async ({
-      page,
-      fixtureServer,
-    }) => {
-      // Judge lane follows the main agent here, so Claude (Subscription)'s drawer lists it with the deep link.
-      const lanes = {
-        ...SKILL_LANES_FIXTURE.lanes,
-        judge: { ...SKILL_LANES_FIXTURE.lanes.judge, provider: '', model: '' },
-      };
-      await bootSettings(page, fixtureServer.url, host, 'anubis', {
-        'skillSynthesis:getLanes': { lanes },
-      });
-      await waitForSettled(page);
-      await providersTab(page);
-      await openCardDrawer(page, 'Claude (Subscription)');
-      const link = page.locator(
-        '[data-used-by="judge"] [data-testid="connection-follows-main"]',
-      );
-      await visibleEnabled(link);
-      await link.click();
-      await expect(
-        page.getByRole('button', { name: 'Agent Orchestration', exact: true }),
-      ).toHaveClass(/tab-active/);
-      await expect(rolesDetails(page)).toHaveAttribute('open', '');
-      const popover = page.locator('[data-testid="consumer-editor-judge"]');
-      await expect(popover).toBeVisible();
-      await visibleEnabled(
-        popover.locator('[data-testid="provider-model-picker-provider"]'),
-      );
-      await expect(
-        page.locator('[data-testid="consumer-summary-judge"]'),
-      ).toHaveText('Follows main agent → Claude (Subscription)');
-      // Esc closes the popover and focus lands on the Judge lane's cell (a deep-linked popover had no opener).
-      await popover
-        .locator('[data-testid="provider-model-picker-provider"]')
-        .focus();
-      await page.keyboard.press('Escape');
-      await expect(popover).toHaveCount(0);
-      await expect(
-        page.locator('[data-testid="consumer-edit-judge"]'),
-      ).toBeFocused();
-    });
 
     test('Cursor key (Batch 36d.b): save, then remove; the row returns to the collapsed Uninstalled group and focus lands on its toggle', async ({
       page,
@@ -701,50 +614,5 @@ for (const host of HOSTS) {
       await expect(trigger).toBeFocused();
     });
 
-    test('repeated deep link judge (Gate V 36 M-1): the same role deep-linked again after Esc opens its popover again', async ({
-      page,
-      fixtureServer,
-    }) => {
-      const lanes = {
-        ...SKILL_LANES_FIXTURE.lanes,
-        judge: { ...SKILL_LANES_FIXTURE.lanes.judge, provider: '', model: '' },
-      };
-      await bootSettings(page, fixtureServer.url, host, 'anubis', {
-        'skillSynthesis:getLanes': { lanes },
-      });
-      await waitForSettled(page);
-      const popover = page.locator('[data-testid="consumer-editor-judge"]');
-      // The only routes that raise a role deep link live on Providers (the drawer's "Follows main agent →"); no
-      // Orchestration control raises one, so the repeat goes through that route twice. Jest pins the in-tab repeat.
-      for (const pass of [1, 2]) {
-        await providersTab(page);
-        await openCardDrawer(page, 'Claude (Subscription)');
-        const link = page.locator(
-          '[data-used-by="judge"] [data-testid="connection-follows-main"]',
-        );
-        await visibleEnabled(link);
-        await link.click();
-        await expect(
-          page.getByRole('button', {
-            name: 'Agent Orchestration',
-            exact: true,
-          }),
-          `pass ${pass}`,
-        ).toHaveClass(/tab-active/);
-        await expect(rolesDetails(page), `pass ${pass}`).toHaveAttribute(
-          'open',
-          '',
-        );
-        await expect(popover, `pass ${pass}: the popover opens`).toBeVisible();
-        await popover
-          .locator('[data-testid="provider-model-picker-provider"]')
-          .focus();
-        await page.keyboard.press('Escape');
-        await expect(popover, `pass ${pass}: Esc closes it`).toHaveCount(0);
-        await expect(
-          page.locator('[data-testid="consumer-edit-judge"]'),
-        ).toBeFocused();
-      }
-    });
   });
 }

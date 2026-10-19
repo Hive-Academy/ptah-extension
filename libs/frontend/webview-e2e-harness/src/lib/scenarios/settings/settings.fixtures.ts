@@ -266,45 +266,7 @@ export const MEMORY_TRIGGERS_FIXTURE = {
   },
 };
 
-/** `skillSynthesis:getLanes` — archaeologist/synthesis/judge/replay (BRIEF:60-62). */
-export const SKILL_LANES_FIXTURE = {
-  lanes: {
-    archaeologist: {
-      id: 'archaeologist',
-      provider: '',
-      model: '',
-      defaultTier: 'haiku',
-      structuredOutput: 'parse',
-      retrievalDepth: 'none',
-    },
-    synthesis: {
-      id: 'synthesis',
-      provider: '',
-      model: '',
-      defaultTier: 'sonnet',
-      structuredOutput: 'parse',
-      retrievalDepth: 'none',
-    },
-    judge: {
-      id: 'judge',
-      provider: 'moonshot',
-      model: 'kimi-k2.5',
-      defaultTier: 'sonnet',
-      structuredOutput: 'parse',
-      retrievalDepth: 'none',
-    },
-    replay: {
-      id: 'replay',
-      provider: '',
-      model: '',
-      defaultTier: 'haiku',
-      structuredOutput: 'parse',
-      retrievalDepth: 'none',
-    },
-  },
-};
-
-/** `skillSynthesis:getSettings` — judging & enhancement lane (BRIEF:62). */
+/** `skillSynthesis:getSettings` — retained enhancement settings. */
 export const SKILL_SYNTHESIS_SETTINGS_FIXTURE = {
   settings: {
     enabled: true,
@@ -317,10 +279,6 @@ export const SKILL_SYNTHESIS_SETTINGS_FIXTURE = {
     dedupClusterThreshold: 0.85,
     prefilterMinEdits: 2,
     prefilterMinToolUses: 1,
-    judgeEnabled: true,
-    minJudgeScore: 0.7,
-    judgeModel: 'inherit',
-    judgeProvider: '',
     enhanceTimeoutMs: {
       value: 120000,
       default: 120000,
@@ -751,7 +709,6 @@ function statefulSettingsFixtures(
     'config:model-get': () => ({ model: state.model }),
     'config:effort-get': () => ({ effort: state.effort }),
     'memory:getTriggers': MEMORY_TRIGGERS_FIXTURE,
-    'skillSynthesis:getLanes': SKILL_LANES_FIXTURE,
     'skillSynthesis:getSettings': SKILL_SYNTHESIS_SETTINGS_FIXTURE,
     'ptahCli:list': () => ({ agents: state.ptahCliAgents }),
     'ptahCli:testConnection': (params: unknown) => {
@@ -803,10 +760,6 @@ function statefulSettingsFixtures(
     },
     'memory:setTriggers': (params: unknown) => {
       record(state, 'memory:setTriggers', params);
-      return { success: true };
-    },
-    'skillSynthesis:setLanes': (params: unknown) => {
-      record(state, 'skillSynthesis:setLanes', params);
       return { success: true };
     },
     'skillSynthesis:updateSettings': (params: unknown) => {

@@ -20,9 +20,8 @@
  * summary is.
  *
  * Uses the REAL `ptah-extension-webview` Angular bundle, following the
- * pattern (and the `isElectron: true` `ptahConfig` justification) in
- * `../thoth/skills-lane-pickers.e2e.spec.ts` — read its file doc comment
- * before changing that flag. This spec does not navigate into the Thoth
+ * pattern for the Electron host (`isElectron: true` in `ptahConfig`).
+ * This spec does not navigate into the Thoth
  * tab; the shell chrome it asserts on is mounted as soon as the workspace
  * gate clears, independent of which tab is active.
  */
@@ -42,7 +41,7 @@ const RPC_FIXTURES: Record<string, unknown> = {
   'workspace:switch': { success: true },
 };
 
-/** Copied from the sibling thoth scenario — see its file doc comment. */
+/** Respond to workspace RPCs during shell boot. */
 async function installRpcAutoResponder(
   page: Page,
   fixtures: Record<string, unknown>,
@@ -110,7 +109,7 @@ async function installRpcAutoResponder(
   }, JSON.stringify(fixtures));
 }
 
-/** Same worker-scoping rule as the sibling thoth scenario: file-scope opt-in. */
+/** Use the app bundle for this shell scenario. */
 test.use({ useAppBuild: true });
 
 test.describe('webview > thoth > activity ticker', () => {
