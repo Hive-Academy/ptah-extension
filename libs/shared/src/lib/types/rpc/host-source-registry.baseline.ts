@@ -431,7 +431,6 @@ export const BASELINE_MESSAGE_TYPES: readonly string[] = [
   'agent-monitor:permission-request',
   'agent-monitor:permission-response',
   'agent-monitor:spawned',
-  'agent:summary-chunk',
   'agentSession:opened',
   'analytics:getData',
   'analytics:trackEvent',

@@ -57,6 +57,28 @@ export function planRowClass(tone: StatsTileTone): string {
   return `${ROW_FACE} ${ROW_ACCENT[tone]}`;
 }
 
+/**
+ * Card accents set the left edge only, so they never compete with the card's
+ * all-edge `border-surface-border`; the tones match `ROW_ACCENT`. Full
+ * literals so Tailwind can see each class.
+ */
+const CARD_ACCENT: Readonly<Record<StatsTileTone, string>> = {
+  error: 'border-l-error',
+  warning: 'border-l-warning',
+  info: 'border-l-info',
+  neutral: 'border-l-transparent',
+};
+
+/**
+ * Session plan card in the inspector (TASK_2026_699 design §3): a bordered
+ * container with the tone accent on its left edge. It holds the face (a
+ * disclosure button, or a plain `div` for non-expandable kinds) and the
+ * detail panel, so it carries no padding, hover or focus of its own.
+ */
+export function planCardClass(tone: StatsTileTone): string {
+  return `block w-full relative overflow-hidden rounded-md border border-surface-border bg-surface-1 border-l-2 ${CARD_ACCENT[tone]}`;
+}
+
 /** Lane row: dashed accent; a neutral lane keeps a visible dash. */
 export function laneRowClass(tone: StatsTileTone): string {
   const accent =

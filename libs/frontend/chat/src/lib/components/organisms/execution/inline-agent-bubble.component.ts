@@ -440,9 +440,8 @@ import { ScrollDirtyService } from '../../../services/scroll-dirty.service';
             [class.max-h-80]="!fillHeight()"
             [class.flex-1]="fillHeight()" [class.min-h-0]="fillHeight()"
           >
-            <!-- summaryContent is rendered as a text child node instead of a
-             separate block. This ensures agent text is properly interleaved
-             with tool calls in chronological order. -->
+            <!-- Agent text arrives as text child nodes, so it stays
+             interleaved with tool calls in chronological order. -->
             @if (canLoadHistory()) {
               <button
                 type="button"

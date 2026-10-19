@@ -41,24 +41,6 @@ function makeToolStart(
   } as unknown as FlatStreamEventUnion;
 }
 
-function makeAgentStart(
-  id: string,
-  messageId: string,
-  agentId: string,
-): FlatStreamEventUnion {
-  return {
-    id,
-    eventType: 'agent_start',
-    timestamp: 0,
-    sessionId: 's',
-    source: 'stream',
-    messageId,
-    toolCallId: 'tool-a',
-    agentType: 'Explore',
-    agentId,
-  } as unknown as FlatStreamEventUnion;
-}
-
 describe('setStreamingEventCapped — cascade-clean on FIFO eviction (Batch B)', () => {
   let warnSpy: jest.SpyInstance;
 
@@ -108,23 +90,6 @@ describe('setStreamingEventCapped — cascade-clean on FIFO eviction (Batch B)',
     expect(state.events.has('tool-victim')).toBe(false);
     expect(state.toolCallMap.has('tc-victim')).toBe(false);
     expect(state.toolInputAccumulators.has('tc-victim-input')).toBe(false);
-  });
-
-  it('cascade-clean removes agentContentBlocksMap and agentSummaryAccumulators for evicted agent_start', () => {
-    const state = createEmptyStreamingState();
-    const victim = makeAgentStart('agent-victim', 'm0', 'agent-X');
-    setStreamingEventCapped(state, victim);
-    state.agentContentBlocksMap.set('agent-X', [{ type: 'text', text: 'x' }]);
-    state.agentSummaryAccumulators.set('agent-X', 'sum');
-
-    for (let i = 1; i < STREAMING_EVENT_CAP; i++) {
-      setStreamingEventCapped(state, makeTextDelta(`pad-${i}`, `mp-${i}`));
-    }
-    setStreamingEventCapped(state, makeTextDelta('trail', 'm-trail'));
-
-    expect(state.events.has('agent-victim')).toBe(false);
-    expect(state.agentContentBlocksMap.has('agent-X')).toBe(false);
-    expect(state.agentSummaryAccumulators.has('agent-X')).toBe(false);
   });
 
   it('updating an existing event id is in-place; no eviction occurs', () => {

@@ -14,8 +14,8 @@ import type {
   PtahUiLimitsInput,
 } from '@ptah-extension/shared/mcp-apps-contracts/surface';
 
-/** Bound on one `agent:getLanePlanLimits` read (plan component 4a). */
-export const LANE_PLAN_LIMITS_TIMEOUT_MS = 10_000;
+/** 15 s exceeds the slowest lane deadline, SLOW_LIMIT_LOOKUP_DEADLINE_MS (12 s). */
+export const LANE_PLAN_LIMITS_TIMEOUT_MS = 15_000;
 
 const PENDING: PtahUiLimitsInput = { kind: 'pending' };
 const UNAVAILABLE: PtahUiLimitsInput = { kind: 'unavailable' };

@@ -6,25 +6,15 @@ import { test, expect } from '../support/fixtures';
  * re-render, even though cost, duration, model, tokenUsage and status all stay
  * put.
  *
- * ## What the fix changed, and what this spec can honestly claim
+ * ## What this spec pins
  *
- * The fix widened `fingerprintNode`
- * (`libs/frontend/chat-streaming/src/lib/execution-tree-builder.service.ts`)
- * to fold `node.summaryContent` and `node.toolCount`. Read against the current
- * builders, NO producer writes either field onto an agent node:
- * `buildAgentNode` (`chat-execution-tree/src/lib/builders/agent-node.fn.ts`)
- * renders the summary as a `-summary-text` CHILD node and takes its stats from
- * `AgentStatsService.aggregateAgentStats`, which returns only `agentModel`,
- * `tokenUsage`, `cost` and `duration`. So the two new folds are DEFENSIVE
- * today and cannot be exercised through the running app — that part is
- * reported as not-observable.
- *
- * What IS observable, and what this spec pins, is the user-visible behaviour
- * the task exists to protect: the rendered agent card must follow its summary
- * text and its tool count. That currently holds through two other mechanisms —
- * the summary folds into `computeGlobalEpoch` via `agentSummaryAccumulators`
- * total length, and both summary and tools change the node's CHILDREN, whose
- * fingerprints the parent folds. A regression in either would show up here.
+ * The user-visible behaviour the task exists to protect: the rendered agent
+ * card must follow its summary text and its tool count. The summary reaches
+ * the card through `agent_progress` (the lane's `SubagentRecord.latestSummary`
+ * peek); the tools change the node's CHILDREN, whose fingerprints the parent
+ * folds. A stale cached node would show up here. (`agent:summary-chunk`, which
+ * this spec used to emit as well, was removed in TASK_2026_703: no host sends
+ * it, and sub-agent text arrives as forwarded sub-agent messages.)
  *
  * ## Method
  *
@@ -32,9 +22,8 @@ import { test, expect } from '../support/fixtures';
  * - the agent card itself from a `Task` `tool_start` plus a parent-linked
  *   `agent_start` (shapes copied from
  *   `chat-execution-tree/src/lib/builders/builders.spec.ts`),
- * - the summary from `agent:summary-chunk` (which appends to the parent
- *   `StreamingState.agentSummaryAccumulators`) together with `agent_progress`
- *   (which updates the lane's `SubagentRecord.latestSummary` peek),
+ * - the summary from `agent_progress` (which updates the lane's
+ *   `SubagentRecord.latestSummary` peek),
  * - each nested tool from a sub-`message_start` carrying
  *   `parentToolUseId` plus its own `tool_start`.
  *
@@ -53,7 +42,6 @@ import { test, expect } from '../support/fixtures';
  */
 
 const CHAT_CHUNK = 'chat:chunk';
-const AGENT_SUMMARY_CHUNK = 'agent:summary-chunk';
 // The pane's accessible name carries the session title (`Focused session: <title>`),
 // so match the focus area itself, not an exact label.
 const FOCUSED_SESSION = 'ptah-canvas-focus-area';
@@ -175,18 +163,6 @@ function toolResult(
   });
 }
 
-function summaryChunk(
-  sessionId: string,
-  toolUseId: string,
-  agentId: string,
-  summaryDelta: string,
-) {
-  return {
-    type: AGENT_SUMMARY_CHUNK,
-    payload: { sessionId, toolUseId, agentId, summaryDelta },
-  };
-}
-
 function agentProgress(
   sessionId: string,
   messageId: string,
@@ -254,9 +230,6 @@ test.describe('Agent card follows its summary and tool count (TASK_2026_337)', (
 
     // --- Summary: first delta ------------------------------------------
     await ui.pushEvent(
-      summaryChunk(sessionId, taskToolCallId, agentId, `${SUMMARY_ONE} `),
-    );
-    await ui.pushEvent(
       agentProgress(
         sessionId,
         rootMessageId,
@@ -271,9 +244,6 @@ test.describe('Agent card follows its summary and tool count (TASK_2026_337)', (
 
     // --- Summary: second delta. Cost, duration, model, tokenUsage and the
     // agent's status stay visually unchanged as the rolling summary updates.
-    await ui.pushEvent(
-      summaryChunk(sessionId, taskToolCallId, agentId, `${SUMMARY_TWO} `),
-    );
     await ui.pushEvent(
       agentProgress(
         sessionId,

@@ -21,30 +21,33 @@ import {
   PROVIDER_MARKS,
 } from '@ptah-extension/ui';
 import { relativeTime } from './command-relative-time';
+import { History, Plus, Play, LucideAngularModule } from 'lucide-angular';
 
 @Component({
   selector: 'ptah-command-center-start',
   standalone: true,
-  imports: [MonogramTileComponent, ProviderMarkComponent],
+  imports: [MonogramTileComponent, ProviderMarkComponent, LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section
-      class="mx-auto w-full max-w-3xl p-4 text-base-content"
+      class="mx-auto w-full max-w-6xl px-4 py-8 text-base-content sm:px-6 lg:px-8"
       aria-labelledby="start-heading"
     >
-      <h2 id="start-heading" class="mb-2 text-2xl font-semibold">
+      <p class="mb-2 font-mono text-xs uppercase tracking-widest text-secondary-focus">Ptah / Engineering</p>
+      <h2 id="start-heading" class="mb-2 font-serif text-[28px] font-semibold">
         Start Command Center
       </h2>
       <p class="mb-6 text-sm text-base-content-muted">
         Choose a session or start a new one.
       </p>
-      <div class="mb-6 flex flex-wrap gap-2">
+      <div class="mb-8 flex flex-wrap gap-2">
         <button
           type="button"
           class="btn btn-primary min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
           [disabled]="choosing()"
           (click)="newSession.emit()"
         >
+          <lucide-angular [img]="plusIcon" class="mr-1 size-4" aria-hidden="true" />
           New session
         </button>
         <button
@@ -53,6 +56,7 @@ import { relativeTime } from './command-relative-time';
           [disabled]="choosing()"
           (click)="allSessions.emit()"
         >
+          <lucide-angular [img]="historyIcon" class="mr-1 size-4" aria-hidden="true" />
           {{ expanded() ? 'Recent sessions' : 'All sessions' }}
         </button>
       </div>
@@ -73,14 +77,18 @@ import { relativeTime } from './command-relative-time';
           </button>
         </div>
       } @else {
+        <div class="grid gap-5 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+        <div>
+        <h3 class="mb-3 font-mono text-xs uppercase tracking-widest text-base-content-muted">Current session</h3>
         @if (currentTabId()) {
           <button
             type="button"
-            class="mb-3 flex w-full items-center gap-3 rounded-xl border border-primary bg-base-200 p-4 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+            class="mb-3 flex w-full flex-wrap items-center gap-3 rounded-xl border border-primary bg-base-200 p-5 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
             [disabled]="choosing()"
             (click)="current.emit()"
           >
             <span class="badge badge-primary">Current</span>
+            <lucide-angular [img]="playIcon" class="size-4" aria-hidden="true" />
             <span class="min-w-0 flex-1">
               <span class="block truncate font-semibold">{{
                 currentSession()?.name || 'Command Center'
@@ -93,6 +101,9 @@ import { relativeTime } from './command-relative-time';
                   Cost <strong>{{ currentCost() }}</strong> · Tokens
                   <strong>{{ currentTokens() }}</strong>
                 </span>
+              }
+              @if (currentStats()?.messageCount; as messages) {
+                <span class="mt-1 block text-xs text-base-content-muted">{{ messages }} messages</span>
               }
             </span>
             @if (
@@ -107,12 +118,15 @@ import { relativeTime } from './command-relative-time';
             }
           </button>
         }
-        @if (visibleSessions().length === 0 && !currentTabId()) {
+        </div>
+        <div>
+        <h3 class="mb-3 font-mono text-xs uppercase tracking-widest text-base-content-muted">Recent sessions</h3>
+        @if (visibleSessions().length === 0) {
           <p class="rounded-xl border border-base-300 bg-base-200 p-6">
             No previous sessions
           </p>
         }
-        <div class="grid gap-3 sm:grid-cols-2">
+        <div class="grid gap-3 min-[600px]:grid-cols-2" data-testid="recent-grid">
           @for (session of visibleSessions(); track session.id) {
             <button
               type="button"
@@ -142,24 +156,6 @@ import { relativeTime } from './command-relative-time';
                 <span
                   class="mt-1 flex items-center gap-2 text-sm text-base-content-muted"
                 >
-                  @if (activityBars(session.lastActivityAt); as activeBars) {
-                    <span
-                      class="flex h-5 items-center gap-0.5"
-                      aria-hidden="true"
-                      data-testid="activity-bars"
-                    >
-                      @for (bar of meterBars; track bar) {
-                        <span
-                          class="w-1 rounded-full"
-                          [class.h-2]="bar > activeBars"
-                          [class.h-4]="bar <= activeBars"
-                          [class.bg-base-content]="bar <= activeBars"
-                          [class.bg-base-300]="bar > activeBars"
-                          [attr.data-active]="bar <= activeBars"
-                        ></span>
-                      }
-                    </span>
-                  }
                   @let age = relativeTime(session.lastActivityAt);
                   <span>{{
                     age === 'Unknown' ? 'No recent activity' : 'Updated ' + age
@@ -178,12 +174,16 @@ import { relativeTime } from './command-relative-time';
             </button>
           }
         </div>
+        </div>
+        </div>
       }
     </section>
   `,
 })
 export class CommandCenterStartComponent {
-  public readonly meterBars = [1, 2, 3, 4, 5, 6] as const;
+  public readonly plusIcon = Plus;
+  public readonly historyIcon = History;
+  public readonly playIcon = Play;
   public readonly sessions = input.required<readonly ChatSessionSummary[]>();
   public readonly status = input.required<'loading' | 'ready' | 'error'>();
   public readonly expanded = input(false);
@@ -243,19 +243,6 @@ export class CommandCenterStartComponent {
         Object.hasOwn(PROVIDER_MARKS, id))
       ? id
       : null;
-  }
-
-  /** Six fixed age bands; the shared clock is the only source of time. */
-  public activityBars(timestamp: number): number | null {
-    if (!Number.isFinite(timestamp) || !Number.isFinite(this.now()))
-      return null;
-    const ageMinutes = Math.max(0, this.now() - timestamp) / 60_000;
-    if (ageMinutes < 1) return 6;
-    if (ageMinutes < 5) return 5;
-    if (ageMinutes < 30) return 4;
-    if (ageMinutes < 120) return 3;
-    if (ageMinutes < 1440) return 2;
-    return 1;
   }
 
   public tokenCount(session: ChatSessionSummary): number | null {

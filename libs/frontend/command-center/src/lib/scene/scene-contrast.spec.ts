@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { CHILD_SILVER_INK } from './command-scene-renderer';
 
 const { wcagContrast } = require('culori/require');
 const config = require(join(
@@ -19,4 +20,12 @@ describe.each(['anubis', 'anubis-light'])('%s scene state inks', (themeName) => 
       expect(wcagContrast(ink, theme['base-200'])).toBeGreaterThanOrEqual(3);
     },
   );
+
+  it('keeps the child ring and ownership tether above 3:1 on the stage', () => {
+    const theme = themes[themeName];
+    const silver = themeName === 'anubis'
+      ? CHILD_SILVER_INK.dark
+      : CHILD_SILVER_INK.light;
+    expect(wcagContrast(silver, theme['base-200'])).toBeGreaterThanOrEqual(3);
+  });
 });

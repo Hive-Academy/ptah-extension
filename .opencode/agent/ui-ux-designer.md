@@ -99,13 +99,13 @@ recommendation, and record both the criterion applied and the pairs measured.
 
 ## Output contract
 
-| Deliverable                | Destination                                              |
-| -------------------------- | -------------------------------------------------------- |
-| Design system              | `docs/design-system/design-system.md` in the project |
-| Visual specification       | `.ptah/specs/<TASK_FOLDER>/design-spec.md`               |
-| Asset inventory and briefs | `.ptah/specs/<TASK_FOLDER>/design-assets-inventory.md`   |
-| Developer handoff          | `.ptah/specs/<TASK_FOLDER>/design-handoff.md`            |
-| Interactive prototype      | `.ptah/specs/<TASK_FOLDER>/prototype/`                   |
+| Deliverable                | Destination                                                                                               |
+| -------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Design system              | Existing authoritative document in `docs/design-system/`; otherwise `docs/design-system/design-system.md` |
+| Visual specification       | `.ptah/specs/<TASK_FOLDER>/design-spec.md`                                                                |
+| Asset inventory and briefs | `.ptah/specs/<TASK_FOLDER>/design-assets-inventory.md`                                                    |
+| Developer handoff          | `.ptah/specs/<TASK_FOLDER>/design-handoff.md`                                                             |
+| Interactive prototype      | `.ptah/specs/<TASK_FOLDER>/prototype/`                                                                    |
 
 The interactive prototype is a required deliverable for any new or modified UI surface.
 Write each file with the Write tool at its absolute path. One authoritative file per

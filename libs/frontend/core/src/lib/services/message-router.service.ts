@@ -69,16 +69,13 @@ interface InboundMessage {
 const LISTENER_OPTIONS: AddEventListenerOptions = { capture: true };
 
 /**
- * These are the only inbound message types proven safe to dispatch outside
- * Angular. Both flow through ChatMessageHandler into signal-backed stream
+ * The only inbound message types proven safe to dispatch outside Angular.
+ * `chat:chunk` flows through ChatMessageHandler into signal-backed stream
  * state; Angular 22 schedules views that consume those signals independently
  * of Zone stabilization. Keep this deliberately small: unknown/new types
  * default to the Zone until their handler contract has been audited.
  */
-const SIGNAL_ONLY_STREAM_TYPES = new Set<string>([
-  MESSAGE_TYPES.CHAT_CHUNK,
-  MESSAGE_TYPES.AGENT_SUMMARY_CHUNK,
-]);
+const SIGNAL_ONLY_STREAM_TYPES = new Set<string>([MESSAGE_TYPES.CHAT_CHUNK]);
 
 /** `payload.events` of a well-formed BATCH envelope, or `null`. */
 function batchEvents(message: { payload?: unknown }): unknown[] | null {

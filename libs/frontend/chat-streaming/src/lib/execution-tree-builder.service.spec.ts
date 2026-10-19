@@ -1217,44 +1217,6 @@ describe('ExecutionTreeBuilderService — incremental rebuild', () => {
         expect(agentNodeFor(tree, 'toolu_b')).toBe(agentB);
       }
     });
-
-    it('an agent summary chunk invalidates only the owning root', () => {
-      seedTwoAgents();
-      const before = expectEquivalent({ ...state });
-      expect(before).toHaveLength(2);
-
-      // `ChatLifecycleService` appends the chunk in place and publishes a
-      // shallow copy: no streaming event, no message revision.
-      const builds = spyOnMessageBuilds();
-      state.agentSummaryAccumulators.set('agent-a', 'found the bug');
-      const after = builder.buildTree({ ...state }, INCREMENTAL_KEY);
-      const built = builds.mock.calls.map(([messageId]) => messageId);
-      expect(expectEquivalent({ ...state })).toBe(after);
-
-      expect(built).toContain('msg-a');
-      expect(built).not.toContain('msg-b');
-      expect(after[1]).toBe(before[1]);
-      expect(after[0]).not.toBe(before[0]);
-      expect(
-        agentNodeFor(after, 'toolu_a')?.children.map((c) => c.content),
-      ).toContain('found the bug');
-    });
-
-    it('an unattributed agent summary still invalidates (global fallback)', () => {
-      seedTwoAgents();
-      expectEquivalent({ ...state });
-
-      // No agent_start and no tool carries this id, so no root can be shown
-      // to own it: every root is handed back to the builder.
-      const builds = spyOnMessageBuilds();
-      state.agentSummaryAccumulators.set('agent-unknown', 'orphan summary');
-      builder.buildTree({ ...state }, INCREMENTAL_KEY);
-      const built = builds.mock.calls.map(([messageId]) => messageId);
-
-      expect(built).toContain('msg-a');
-      expect(built).toContain('msg-b');
-      expectEquivalent({ ...state });
-    });
   });
 
   /**
@@ -1265,8 +1227,8 @@ describe('ExecutionTreeBuilderService — incremental rebuild', () => {
    * while the node keeps rendering the old value — so what it folds, and what
    * it deliberately does not, is a contract rather than an implementation
    * detail. Exercised directly because no builder in this repo populates
-   * `summaryContent` / `toolCount` on a node today: they arrive on persisted
-   * and restored trees, which is precisely why "today's producers move them
+   * `toolCount` on a node today: it arrives on persisted
+   * and restored trees, which is precisely why "today's producers move it
    * alongside cost" is not an invariant worth relying on.
    */
   describe('fingerprintNode — what the per-node reuse key folds', () => {
@@ -1301,19 +1263,6 @@ describe('ExecutionTreeBuilderService — incremental rebuild', () => {
         isCollapsed: false,
         ...overrides,
       }) as ExecutionNode;
-
-    it('separates two cards that differ only in summaryContent', () => {
-      // The agent file watcher appends to `agentSummaryAccumulators`, keyed by
-      // agentId — it moves no cost, no duration and no token total.
-      expect(fingerprintOf(agentCard({ summaryContent: undefined }))).not.toBe(
-        fingerprintOf(agentCard({ summaryContent: 'reading the router' })),
-      );
-      expect(
-        fingerprintOf(agentCard({ summaryContent: 'reading the router' })),
-      ).not.toBe(
-        fingerprintOf(agentCard({ summaryContent: 'reading the builder' })),
-      );
-    });
 
     it('separates two cards that differ only in toolCount', () => {
       expect(fingerprintOf(agentCard({ toolCount: undefined }))).not.toBe(

@@ -21,6 +21,7 @@ export { SidebarTabComponent } from './lib/atoms/sidebar-tab.component';
 export { SkeletonBlockComponent } from './lib/atoms/skeleton-block.component';
 export {
   SplitHandleComponent,
+  type SplitHandleAppearance,
   type SplitHandleOrientation,
 } from './lib/atoms/split-handle.component';
 export { StatusBadgeComponent } from './lib/atoms/status-badge.component';
@@ -37,6 +38,14 @@ export type {
   StderrSegment,
 } from './lib/molecules/agent-card/agent-card.types';
 export { AgentSummaryComponent } from './lib/molecules/agent-summary.component';
+export { LaneResultCardComponent } from './lib/molecules/lane-result/lane-result-card.component';
+export {
+  parseLaneResult,
+  type LaneResult,
+  type LaneResultFile,
+  type LaneResultFolder,
+  type LaneVerdictTone,
+} from './lib/utils/lane-result.utils';
 export { ActivityTickerComponent } from './lib/molecules/activity-ticker/activity-ticker.component';
 export { BootProgressComponent } from './lib/molecules/boot-progress/boot-progress.component';
 export {
@@ -47,6 +56,10 @@ export {
   type BackgroundAgentSteerRequest,
 } from './lib/molecules/background-agent-strip.component';
 export { AgentSteerInputComponent } from './lib/molecules/agent-steer-input.component';
+export {
+  AgentLaneStatsComponent,
+  type AgentLaneStatsView,
+} from './lib/molecules/agent-lane-stats/agent-lane-stats.component';
 export { QuestionCardComponent } from './lib/molecules/question-card.component';
 export { ThinkingBlockComponent } from './lib/molecules/thinking-block.component';
 export { AutopilotPopoverComponent } from './lib/molecules/chat-input/autopilot-popover.component';

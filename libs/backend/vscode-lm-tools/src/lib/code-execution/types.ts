@@ -16,6 +16,7 @@ import type {
 import type {
   AgentReportDelivery,
   AgentReportInput,
+  LaneLimitLookupOptions,
   LaneLimitResult,
   AgentWaitMode,
   AgentWaitResult,
@@ -318,9 +319,17 @@ export interface AgentNamespace {
    */
   spawn: (request: SpawnAgentRequest) => Promise<SpawnAgentResult>;
 
-  /** Optional plan-limit enrichment for agent tool transports. */
+  /**
+   * Optional plan-limit enrichment for agent tool transports.
+   *
+   * `options` lets a caller bound the lookup inside its own RPC deadline
+   * (TASK_2026_704): without it a cold Codex or Antigravity lane holds the
+   * lookup for the lookup service's own 12 s slow-lane budget, which outlives
+   * every webview caller. Callers that pass nothing keep that budget.
+   */
   limits?: (
     rows: readonly CliDetectionResult[],
+    options?: LaneLimitLookupOptions,
   ) => Promise<readonly LaneLimitResult<CliDetectionResult>[] | undefined>;
 
   /**

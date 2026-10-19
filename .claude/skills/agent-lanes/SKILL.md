@@ -8,6 +8,7 @@ description: 'Contract for spawning, resuming and messaging background CLI agent
 A **lane** is one background agent started with `ptah_agent_spawn`: an installed system CLI or a
 configured ptah-cli provider. This skill is the one place lane mechanics are written. Workflows
 (orchestration, tribunal) decide _what_ a lane does; this decides _how_ to run it.
+Skill and workflow authors: write and trim prompts against the [prompt-authoring rubric](../skill-creator/references/prompt-authoring-rubric.md) in `skill-creator`.
 
 ## 1. Discover
 
@@ -296,3 +297,8 @@ CLI; use a child session when the work needs the full chat runtime, slash comman
   `<agent-report … cli="ptah-session">`, the same envelope a lane's report uses.
 
 Settings, limits and the full tool reference: the "Agent Sessions" page in the Ptah docs.
+
+## Requires
+
+- `skill-creator` — the prompt-authoring rubric this skill points authors to. If it is not
+  installed, tell the user to enable it; do not improvise a rubric.

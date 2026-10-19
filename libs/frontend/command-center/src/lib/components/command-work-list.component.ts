@@ -1,4 +1,6 @@
 import {
+  afterEveryRender,
+  AfterViewInit,
   ChangeDetectionStrategy,
   Component,
   computed,
@@ -6,6 +8,7 @@ import {
   ElementRef,
   inject,
   input,
+  OnDestroy,
   output,
   signal,
 } from '@angular/core';
@@ -15,7 +18,7 @@ import {
   PROVIDER_BRAND_SLUGS,
   PROVIDER_MARKS,
 } from '@ptah-extension/ui';
-import { LucideAngularModule } from 'lucide-angular';
+import { GitBranch, LucideAngularModule } from 'lucide-angular';
 import type { CommandWorkNode } from '../model/command-center.store';
 import type { ProjectionResult } from '../model/work-projection';
 import { relativeTime } from './command-relative-time';
@@ -28,21 +31,23 @@ import { stateBorder, stateColor, stateIcon } from './command-state-icon';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section
-      class="flex min-h-0 flex-col rounded-xl border border-base-300 bg-base-200 p-3"
+      class="flex min-h-0 flex-1 flex-col rounded-xl border border-base-300 bg-base-200 p-2"
       aria-label="Delegated work"
     >
-      <h2 class="mb-2 font-semibold">
+      <h2 class="mb-1 text-sm font-semibold">
         Delegated work · {{ delegatedNodes().length }}
       </h2>
       <p class="sr-only" aria-live="polite" aria-atomic="true">
         {{ announcement() }}
       </p>
-      <ul class="max-h-full overflow-y-auto" aria-label="Delegated work items">
-        @for (node of delegatedNodes(); track node.id; let index = $index) {
+      <div class="relative min-h-0 flex-1">
+      <ul class="h-full overflow-y-auto" aria-label="Delegated work items" (scroll)="updateScrollPosition()">
+        @for (row of rows(); track row.node.id; let index = $index) {
+          @let node = row.node;
           <li>
             <button
               type="button"
-              class="flex min-h-11 w-full items-center gap-3 rounded-lg border border-transparent border-l-4 px-2 py-2 text-left hover:bg-base-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+              class="flex min-h-10 w-full items-center gap-2 rounded-lg border border-transparent border-l-4 px-2 py-1 text-left hover:bg-base-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
               [class]="stateBorder(node.state)"
               [class.border-warning]="selectedId() === node.id"
               [class.ring-2]="selectedId() === node.id"
@@ -52,8 +57,9 @@ import { stateBorder, stateColor, stateIcon } from './command-state-icon';
               [class.outline-warning]="selectedId() === node.id"
               [attr.aria-current]="selectedId() === node.id ? 'true' : null"
               [attr.tabindex]="index === clampedActiveIndex() ? 0 : -1"
-              (click)="select(node, index)"
-              (keydown)="onKeydown($event, index, node)"
+              [style.padding-inline-start.px]="8 + row.depth * 16"
+              (click)="select(node)"
+              (keydown)="onKeydown($event, node)"
             >
               @if (knownProvider(node.providerId)) {
                 <ptah-provider-mark
@@ -66,11 +72,14 @@ import { stateBorder, stateColor, stateIcon } from './command-state-icon';
                   size="sm"
                 />
               }
+              @if (node.kind === 'child') {
+                <lucide-angular [img]="GitBranch" class="h-3.5 w-3.5 shrink-0 text-base-content" aria-hidden="true" data-test="child-kind-icon" />
+              }
               <span class="min-w-0 flex-1">
-                <span class="block truncate text-sm font-semibold">{{
+                <span class="block truncate text-xs font-semibold">{{
                   node.label
                 }}</span>
-                <span class="block text-xs text-base-content-muted">
+                <span class="block text-[11px] text-base-content-muted">
                   @if (providerName(node.providerId); as provider) {
                     {{ provider }} ·
                   }
@@ -93,7 +102,7 @@ import { stateBorder, stateColor, stateIcon } from './command-state-icon';
                   </span>
                 </span>
                 @if (freshness(node.updatedAt); as age) {
-                  <span class="block text-xs text-base-content-muted"
+                  <span class="block text-[11px] text-base-content-muted"
                     >Updated {{ age }}</span
                   >
                 }
@@ -101,14 +110,19 @@ import { stateBorder, stateColor, stateIcon } from './command-state-icon';
             </button>
           </li>
         } @empty {
-          <li class="p-3 text-sm">
+          <li class="p-2 text-xs">
             No delegated work yet. Try “Ptah, review the release plan” or “run a
             Crucible on this change.”
           </li>
         }
       </ul>
+      @if (isClipped() && !atEnd()) {
+        <div class="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-base-200 to-transparent" aria-hidden="true" data-test="work-list-fade"></div>
+        <span class="pointer-events-none absolute bottom-0 right-2 rounded bg-base-200 px-1 font-mono text-[11px] text-base-content-muted" aria-hidden="true" data-test="work-list-scroll-cue">Scroll list ↓</span>
+      }
+      </div>
       @if (overflowCompleted() || overflowOther()) {
-        <p class="mt-2 text-xs text-base-content-muted">
+        <p class="mt-1 text-[11px] text-base-content-muted">
           Off canvas:
           @if (overflowCompleted()) {
             {{ overflowCompleted() }} completed
@@ -124,12 +138,37 @@ import { stateBorder, stateColor, stateIcon } from './command-state-icon';
     </section>
   `,
 })
-export class CommandWorkListComponent {
+export class CommandWorkListComponent implements AfterViewInit, OnDestroy {
   private readonly element: ElementRef<HTMLElement> = inject(ElementRef);
   public readonly projection = input.required<ProjectionResult>();
-  public readonly delegatedNodes = computed(() =>
-    this.projection().nodes.filter((node) => node.kind !== 'root'),
-  );
+  public readonly GitBranch = GitBranch;
+  public readonly rows = computed(() => {
+    const nodes = this.projection().nodes.filter((node) => node.kind !== 'root');
+    const byParent = new Map<string, CommandWorkNode[]>();
+    const ids = new Set(nodes.map((node) => node.id));
+    for (const node of nodes) {
+      const parent = node.parentId && ids.has(node.parentId) ? node.parentId : '';
+      const siblings = byParent.get(parent) ?? [];
+      siblings.push(node);
+      byParent.set(parent, siblings);
+    }
+    const rows: { node: CommandWorkNode; depth: number }[] = [];
+    const visited = new Set<string>();
+    const visit = (node: CommandWorkNode, depth: number): void => {
+      if (visited.has(node.id)) return;
+      visited.add(node.id);
+      rows.push({ node, depth: Math.min(depth, 3) });
+      for (const child of byParent.get(node.id) ?? []) visit(child, depth + 1);
+    };
+    for (const node of byParent.get('') ?? []) visit(node, 0);
+    for (const node of nodes) visit(node, 0);
+    return rows;
+  });
+  public readonly delegatedNodes = computed(() => this.rows().map((row) => row.node));
+  public readonly isClipped = signal(false);
+  public readonly atEnd = signal(false);
+  private scrollObserver: ResizeObserver | null = null;
+  private lastClippingRows: ReturnType<CommandWorkListComponent['rows']> | null = null;
   public readonly selectedId = input<string | null>(null);
   public readonly reducedMotion = input(false);
   public readonly now = input.required<number>();
@@ -143,13 +182,13 @@ export class CommandWorkListComponent {
   }
   public readonly selection = output<string>();
   public readonly announcement = signal('');
-  public readonly activeIndex = signal(0);
+  public readonly activeId = signal<string | null>(null);
   /** Page focus requests use projection indices, including the root. */
   public focusRow(index: number): void {
     const id = this.projection().nodes[index]?.id;
     const rowIndex = this.delegatedNodes().findIndex((node) => node.id === id);
     if (rowIndex < 0) return;
-    this.activeIndex.set(rowIndex);
+    this.activeId.set(id ?? null);
     const rows =
       this.element.nativeElement.querySelectorAll<HTMLButtonElement>(
         'ul button',
@@ -157,12 +196,44 @@ export class CommandWorkListComponent {
     rows[rowIndex]?.focus();
   }
   public readonly clampedActiveIndex = computed(() => {
-    const count = this.delegatedNodes().length;
-    return count ? Math.min(Math.max(this.activeIndex(), 0), count - 1) : -1;
+    const rows = this.rows();
+    if (!rows.length) return -1;
+    const index = rows.findIndex((row) => row.node.id === this.activeId());
+    return index < 0 ? 0 : index;
   });
   private previousStates = new Map<string, string>();
 
+  public ngAfterViewInit(): void {
+    const list = this.element.nativeElement.querySelector('ul');
+    if (!list || typeof ResizeObserver === 'undefined') return;
+    this.scrollObserver = new ResizeObserver(() => this.updateClipping());
+    this.scrollObserver.observe(list);
+  }
+
+  public ngOnDestroy(): void {
+    this.scrollObserver?.disconnect();
+  }
+
+  public updateClipping(): void {
+    const list = this.element.nativeElement.querySelector('ul');
+    if (!list) return;
+    this.isClipped.set(list.scrollHeight > list.clientHeight);
+    this.atEnd.set(list.scrollTop + list.clientHeight >= list.scrollHeight - 1);
+  }
+
+  public updateScrollPosition(): void {
+    const list = this.element.nativeElement.querySelector('ul');
+    if (!list) return;
+    this.atEnd.set(list.scrollTop + list.clientHeight >= list.scrollHeight - 1);
+  }
+
   public constructor() {
+    afterEveryRender(() => {
+      const rows = this.rows();
+      if (rows === this.lastClippingRows) return;
+      this.lastClippingRows = rows;
+      this.updateClipping();
+    });
     effect(() => {
       const nodes = this.delegatedNodes();
       const changed = nodes.filter(
@@ -193,20 +264,19 @@ export class CommandWorkListComponent {
       .replace(/\b\w/g, (letter) => letter.toUpperCase());
   }
 
-  public select(node: CommandWorkNode, index: number): void {
-    this.activeIndex.set(index);
+  public select(node: CommandWorkNode): void {
+    this.activeId.set(node.id);
     this.selection.emit(node.id);
   }
 
   public onKeydown(
     event: KeyboardEvent,
-    index: number,
     node: CommandWorkNode,
   ): void {
     const count = this.delegatedNodes().length;
     if (event.key === 'Enter') {
       event.preventDefault();
-      this.select(node, index);
+      this.select(node);
       return;
     }
     if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
@@ -217,7 +287,7 @@ export class CommandWorkListComponent {
         (event.key === 'ArrowDown' ? 1 : -1) +
         count) %
       count;
-    this.activeIndex.set(next);
+    this.activeId.set(this.rows()[next].node.id);
     const list = (event.currentTarget as HTMLElement).closest('ul');
     list?.querySelectorAll<HTMLButtonElement>('button')[next]?.focus();
   }

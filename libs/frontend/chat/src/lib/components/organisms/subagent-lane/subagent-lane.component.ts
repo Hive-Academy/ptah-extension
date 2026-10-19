@@ -1,9 +1,6 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  ElementRef,
-  Injector,
-  afterNextRender,
   computed,
   effect,
   inject,
@@ -11,22 +8,16 @@ import {
   output,
   signal,
   untracked,
-  viewChild,
 } from '@angular/core';
 import { SlicePipe } from '@angular/common';
-import {
-  LucideAngularModule,
-  MessageSquare,
-  Moon,
-  Square,
-} from 'lucide-angular';
+import { LucideAngularModule, Moon, Square } from 'lucide-angular';
 import {
   AgentMonitorStore,
   SubagentExecutionStore,
   type SubagentRecord,
 } from '@ptah-extension/chat-streaming';
 import {
-  AgentSteerInputComponent,
+  AgentLaneStatsComponent,
   AgentSummaryComponent,
   agentRunLabel,
 } from '@ptah-extension/chat-ui';
@@ -35,13 +26,13 @@ import type {
   PermissionResponse,
 } from '@ptah-extension/shared';
 import { ExecutionHeaderComponent } from '../../molecules/execution-header/execution-header.component';
-import { SubagentUsageSummaryComponent } from '../../molecules/agent-card/subagent-usage-summary.component';
 import { ExecutionNodeComponent } from '../execution/execution-node.component';
 import { SessionAgentTrayService } from '../../../services/session-agents/session-agent-tray.service';
 import type { TrayAgentContext } from '../../../services/session-agents/session-agent-tray';
-import { formatTokens } from '../../molecules/agent-card/stats-bar.utils';
 import { summarizeExecutionNodes } from '../../../utils/message-summary.utils';
 import { subagentProgressText } from '../../../utils/subagent-progress.utils';
+import { subagentLaneStats } from '../../../utils/lane-stats.adapters';
+import { SubagentLaneComposerComponent } from './subagent-lane-composer.component';
 
 @Component({
   selector: 'ptah-subagent-lane',
@@ -49,11 +40,11 @@ import { subagentProgressText } from '../../../utils/subagent-progress.utils';
   imports: [
     SlicePipe,
     LucideAngularModule,
-    AgentSteerInputComponent,
+    AgentLaneStatsComponent,
     AgentSummaryComponent,
     ExecutionHeaderComponent,
-    SubagentUsageSummaryComponent,
     ExecutionNodeComponent,
+    SubagentLaneComposerComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -99,39 +90,13 @@ import { subagentProgressText } from '../../../utils/subagent-progress.utils';
               />
             </button>
           }
-          @if (ctx.entry.steerable) {
-            <button
-              #steerToggle
-              type="button"
-              class="btn btn-ghost btn-xs btn-square"
-              [attr.aria-label]="'Message ' + name()"
-              [attr.aria-expanded]="steerOpen()"
-              [attr.aria-controls]="
-                'subagent-steer-' + record().parentToolUseId
-              "
-              (click)="toggleSteer()"
-            >
-              <lucide-angular
-                [img]="MessageIcon"
-                class="h-3 w-3"
-                aria-hidden="true"
-              />
-            </button>
-          }
         </div>
       }
-      <ptah-subagent-usage-summary class="block pt-1.5" [record]="record()" />
       <dl class="space-y-1 py-1">
-        @if (record().usage?.model) {
-          <div>
-            <dt class="inline font-medium">Model:</dt>
-            <dd class="ms-1 inline">{{ record().usage?.model }}</dd>
-          </div>
-        }
-        @if (record().description) {
+        @if (record().taskDescription) {
           <div>
             <dt class="inline font-medium">Task:</dt>
-            <dd class="ms-1 inline">{{ record().description }}</dd>
+            <dd class="ms-1 inline">{{ record().taskDescription }}</dd>
           </div>
         }
         @if (record().parentSessionId) {
@@ -147,6 +112,8 @@ import { subagentProgressText } from '../../../utils/subagent-progress.utils';
         }
       </dl>
     </ptah-execution-header>
+    <!-- Outside the collapsible details, so it is always visible. -->
+    <ptah-agent-lane-stats class="block" [stats]="stats()" />
     @if (commandError(); as err) {
       <p
         role="alert"
@@ -155,23 +122,6 @@ import { subagentProgressText } from '../../../utils/subagent-progress.utils';
       >
         {{ err.message }}
       </p>
-    }
-    @if (steerOpen() && context()?.entry?.steerable) {
-      <ptah-agent-steer-input
-        class="block"
-        [id]="'subagent-steer-' + record().parentToolUseId"
-        [steerable]="true"
-        [pending]="steerPending()"
-        (keydown.escape)="closeSteer($event)"
-        [clearOnSubmit]="false"
-        [placeholder]="'Steer ' + name() + '...'"
-        (steer)="onSteer($event)"
-      />
-      @if (steerFailed()) {
-        <p role="alert" class="py-1 text-xs text-error">
-          Could not send your message. Try again.
-        </p>
-      }
     }
     <div class="space-y-2 pt-2">
       @if (finishedSummary(); as content) {
@@ -251,12 +201,17 @@ import { subagentProgressText } from '../../../utils/subagent-progress.utils';
         }
       }
     </div>
+    <ptah-subagent-lane-composer
+      class="mt-2"
+      [record]="record()"
+      [context]="context()"
+      [sessionId]="sessionId()"
+    />
   `,
 })
 export class SubagentLaneComponent {
   readonly record = input.required<SubagentRecord>();
   readonly sessionId = input<string | null>(null);
-  readonly summaryContent = input<string | null>(null);
   readonly getPermissionForTool = input<
     ((toolCallId: string) => PermissionRequest | null) | undefined
   >();
@@ -265,16 +220,8 @@ export class SubagentLaneComponent {
   protected readonly tray = inject(SessionAgentTrayService);
   private readonly monitor = inject(AgentMonitorStore);
   private readonly store = inject(SubagentExecutionStore);
-  private readonly injector = inject(Injector);
-  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
-  private readonly steerToggle =
-    viewChild<ElementRef<HTMLButtonElement>>('steerToggle');
   protected readonly MoonIcon = Moon;
   protected readonly SquareIcon = Square;
-  protected readonly MessageIcon = MessageSquare;
-  protected readonly steerOpen = signal(false);
-  protected readonly steerPending = signal(false);
-  protected readonly steerFailed = signal(false);
   protected readonly stopPending = signal(false);
   protected readonly backgroundPending = signal(false);
   protected readonly context = computed(
@@ -300,10 +247,9 @@ export class SubagentLaneComponent {
     ['running', 'pending', 'background'].includes(this.record().status),
   );
   protected readonly finishedSummary = computed(() =>
-    this.nodes().length > 0
+    this.nodes().length > 0 || this.live()
       ? null
-      : (this.summaryContent() ??
-        (!this.live() ? (this.record().latestSummary ?? null) : null)),
+      : (this.record().latestSummary ?? null),
   );
   protected readonly label = computed(() => {
     const record = this.record();
@@ -325,17 +271,16 @@ export class SubagentLaneComponent {
   protected readonly summary = computed(() =>
     summarizeExecutionNodes(this.nodes()),
   );
-  protected readonly meta = computed(() => {
+  /** Tokens live in the stats bar; the header meta keeps the run mode only. */
+  protected readonly meta = computed(() =>
+    this.record().status === 'background' ? ['Background'] : [],
+  );
+  protected readonly stats = computed(() => {
     const record = this.record();
-    const meta: string[] = [];
-    if (
-      record.totalTokens !== undefined &&
-      Number.isFinite(record.totalTokens) &&
-      record.totalTokens > 0
-    )
-      meta.push(`${formatTokens(record.totalTokens)} tokens`);
-    if (record.status === 'background') meta.push('Background');
-    return meta;
+    // The shared monitor tick (1s while agents run) keeps warm/cold current
+    // without a timer per lane.
+    if (this.live()) this.monitor.tick();
+    return subagentLaneStats(record, Date.now());
   });
   protected readonly commandError = computed(() => {
     const error = this.monitor.subagentRpcError();
@@ -357,6 +302,15 @@ export class SubagentLaneComponent {
     });
     effect(() => this.store.syncRecord(this.record()));
     effect(() => {
+      const key = this.key();
+      untracked(() => {
+        // A lane reused for another agent must not carry its pending flags.
+        this.stopPending.set(false);
+        this.backgroundPending.set(false);
+        void this.loadCacheInfo(key);
+      });
+    });
+    effect(() => {
       const key = this.record().parentToolUseId;
       const entry = this.entry();
       if (entry && !entry.live && entry.history === 'idle')
@@ -372,25 +326,18 @@ export class SubagentLaneComponent {
     void this.store.ensureHistory(this.record().parentToolUseId);
   }
 
-  protected toggleSteer(): void {
-    if (this.steerOpen()) {
-      this.steerOpen.set(false);
-      return;
+  /** The prompt-cache TTL comes only from `chat:subagent-query`, once per key. */
+  private async loadCacheInfo(key: string): Promise<void> {
+    try {
+      await this.monitor.loadSubagentCacheInfo(key);
+    } catch (err: unknown) {
+      // The store already reports an RPC failure result; a thrown transport
+      // error lands here. Either way the cache chip stays hidden.
+      console.warn(
+        '[SubagentLane] cache info load failed:',
+        err instanceof Error ? err.message : err,
+      );
     }
-    this.steerOpen.set(true);
-    afterNextRender(
-      () =>
-        this.host.nativeElement
-          .querySelector<HTMLInputElement>('ptah-agent-steer-input input')
-          ?.focus(),
-      { injector: this.injector },
-    );
-  }
-
-  protected closeSteer(event: Event): void {
-    event.stopPropagation();
-    this.steerOpen.set(false);
-    this.steerToggle()?.nativeElement.focus();
   }
 
   protected async onStop(ctx: TrayAgentContext): Promise<void> {
@@ -410,19 +357,6 @@ export class SubagentLaneComponent {
       await this.monitor.backgroundAgent(ctx.sessionId, ctx.entry.id);
     } finally {
       this.backgroundPending.set(false);
-    }
-  }
-
-  protected async onSteer(text: string): Promise<void> {
-    const context = this.context();
-    if (!context || !context.entry.steerable) return;
-    this.steerFailed.set(false);
-    this.steerPending.set(true);
-    try {
-      if (await this.tray.steer(context, text)) this.steerOpen.set(false);
-      else this.steerFailed.set(true);
-    } finally {
-      this.steerPending.set(false);
     }
   }
 }

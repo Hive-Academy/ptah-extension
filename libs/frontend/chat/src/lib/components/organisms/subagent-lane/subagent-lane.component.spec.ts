@@ -6,11 +6,11 @@ import {
   type SubagentExecutionEntry,
   type SubagentRecord,
 } from '@ptah-extension/chat-streaming';
-import { SURFACE_ACTIVE } from '@ptah-extension/core';
+import { ModelStateService, SURFACE_ACTIVE } from '@ptah-extension/core';
 import { provideMarkdown } from 'ngx-markdown';
 import type { TrayAgentContext } from '../../../services/session-agents/session-agent-tray';
 import { SessionAgentTrayService } from '../../../services/session-agents/session-agent-tray.service';
-import { SubagentUsageSummaryComponent } from '../../molecules/agent-card/subagent-usage-summary.component';
+import { ChatAgentFeedbackSender } from '../../../services/agent-feedback/chat-agent-feedback-sender.service';
 import { SubagentLaneComponent } from './subagent-lane.component';
 
 describe('SubagentLaneComponent', () => {
@@ -28,6 +28,10 @@ describe('SubagentLaneComponent', () => {
   const retain = jest.fn();
   const release = jest.fn();
   const syncRecord = jest.fn();
+  const loadSubagentCacheInfo = jest
+    .fn<Promise<void>, [string]>()
+    .mockResolvedValue(undefined);
+  const sendFeedback = jest.fn().mockResolvedValue({ sent: true });
   const ensureHistory = jest
     .fn<Promise<void>, [string]>()
     .mockResolvedValue(undefined);
@@ -110,6 +114,8 @@ describe('SubagentLaneComponent', () => {
     release.mockClear();
     syncRecord.mockClear();
     ensureHistory.mockClear();
+    loadSubagentCacheInfo.mockClear();
+    sendFeedback.mockClear();
     setEntry();
     stop.mockResolvedValue(undefined);
     sendToBackground.mockResolvedValue(true);
@@ -125,7 +131,7 @@ describe('SubagentLaneComponent', () => {
             subagentRpcError: rpcError,
             stopAgent: stop,
             backgroundAgent: sendToBackground,
-            loadSubagentCacheInfo: jest.fn().mockResolvedValue(undefined),
+            loadSubagentCacheInfo,
           },
         },
         {
@@ -145,16 +151,23 @@ describe('SubagentLaneComponent', () => {
           provide: SessionAgentTrayService,
           useValue: { contextsFor: () => contexts(), steer },
         },
+        {
+          provide: ChatAgentFeedbackSender,
+          useValue: { send: sendFeedback },
+        },
+        {
+          provide: ModelStateService,
+          useValue: { availableModels: signal([]) },
+        },
       ],
-    });
-    TestBed.overrideComponent(SubagentUsageSummaryComponent, {
-      set: { template: '<span>Usage summary</span>' },
     });
   });
 
-  it('uses the shared header, fallback counts, and details facts', () => {
+  it('uses the shared header, an always-visible stats bar, and details facts', () => {
     const fixture = setup({
       ...base,
+      taskDescription: 'Map the repository',
+      description: 'Reading files',
       totalTokens: 1200,
       usage: { input: 1000, output: 200, model: 'claude-sonnet' },
     });
@@ -163,20 +176,73 @@ describe('SubagentLaneComponent', () => {
       '[data-test="turn-disclosure-row"]',
     )!;
     expect(row.getAttribute('aria-label')).toContain('4 tools');
-    expect(row.getAttribute('aria-label')).toContain('1.2k tokens');
+    // Tokens moved from the header meta into the stats bar.
+    expect(row.getAttribute('aria-label')).not.toContain('tokens');
     expect(
       root.querySelector('ptah-execution-header')?.getAttribute('data-kind'),
     ).toBe('subagent');
     expect(root.textContent).toContain('Starting agent');
-    expect(root.querySelector('ptah-subagent-usage-summary')).toBeNull();
+    // Collapsed header, stats still shown.
+    expect(root.querySelector('#subagent-lane-details-tool-1')).toBeNull();
+    const stats = root.querySelector('ptah-agent-lane-stats');
+    expect(
+      stats?.querySelector('[data-testid="lane-stats-tokens"]')?.textContent,
+    ).toContain('1.2k');
+    expect(
+      stats?.querySelector('[data-testid="lane-stats-model"]')?.textContent,
+    ).toContain('claude-sonnet');
     row.click();
     fixture.detectChanges();
     const details = root.querySelector('#subagent-lane-details-tool-1')!;
-    expect(details.textContent).toContain('Usage summary');
-    expect(details.textContent).toMatch(/Model:\s*claude-sonnet/);
-    expect(details.textContent).toMatch(/Task:\s*Inspect files/);
+    expect(details.textContent).not.toContain('Model:');
+    expect(details.textContent).toMatch(/Task:\s*Map the repository/);
+    expect(details.textContent).not.toContain('Reading files');
     expect(details.textContent).toMatch(/Parent:\s*session-/);
   });
+
+  it('hides the Task row when the start carried no task', () => {
+    const fixture = setup({ ...base, description: 'Reading files' });
+    const root: HTMLElement = fixture.nativeElement;
+    root
+      .querySelector<HTMLButtonElement>('[data-test="turn-disclosure-row"]')!
+      .click();
+    fixture.detectChanges();
+    expect(
+      root.querySelector('#subagent-lane-details-tool-1')?.textContent,
+    ).not.toContain('Task:');
+  });
+
+  it('loads the cache info once per agent key', () => {
+    const fixture = setup();
+    fixture.componentRef.setInput('record', { ...base, toolUses: 5 });
+    fixture.detectChanges();
+    expect(loadSubagentCacheInfo).toHaveBeenCalledTimes(1);
+    expect(loadSubagentCacheInfo).toHaveBeenCalledWith('tool-1');
+    fixture.componentRef.setInput('record', {
+      ...base,
+      parentToolUseId: 'tool-2',
+    });
+    fixture.detectChanges();
+    expect(loadSubagentCacheInfo).toHaveBeenCalledTimes(2);
+    expect(loadSubagentCacheInfo).toHaveBeenLastCalledWith('tool-2');
+  });
+
+  it.each(['running', 'completed'] as const)(
+    'shows the composer for a %s agent',
+    (status) => {
+      // A live agent takes input only through a steerable tray context.
+      if (status === 'running') {
+        contexts.set(new Map([['tool-1', context({ steerable: true })]]));
+      }
+      const fixture = setup({ ...base, status });
+      const composer = fixture.nativeElement.querySelector(
+        'ptah-subagent-lane-composer',
+      );
+      expect(
+        composer?.querySelector('ptah-agent-steer-input input'),
+      ).not.toBeNull();
+    },
+  );
 
   it('offers only the actions allowed by the tray context', () => {
     const ctx = context({
@@ -195,13 +261,10 @@ describe('SubagentLaneComponent', () => {
     root
       .querySelector<HTMLButtonElement>('[aria-label="Stop Explore"]')!
       .click();
-    root
-      .querySelector<HTMLButtonElement>('[aria-label="Message Explore"]')!
-      .click();
     fixture.detectChanges();
     expect(sendToBackground).toHaveBeenCalledWith('session-123456', 'tool-1');
     expect(stop).toHaveBeenCalledWith('task-1', 'session-123456');
-    expect(root.querySelector('ptah-agent-steer-input')).not.toBeNull();
+    expect(root.querySelector('[aria-label="Message Explore"]')).toBeNull();
     contexts.set(new Map([['tool-1', context({ steerable: true })]]));
     fixture.detectChanges();
     expect(root.querySelector('[aria-label="Stop Explore"]')).toBeNull();
@@ -220,20 +283,6 @@ describe('SubagentLaneComponent', () => {
         ?.getAttribute('aria-label'),
     ).not.toContain('tokens');
     expect(root.textContent).toContain('No output recorded');
-  });
-
-  it('renders a finished agent summary without an empty message or duplicate agent header', async () => {
-    const fixture = setup({ ...base, status: 'completed' });
-    fixture.componentRef.setInput(
-      'summaryContent',
-      'Completed the investigation',
-    );
-    fixture.detectChanges();
-    await fixture.whenStable();
-    const root: HTMLElement = fixture.nativeElement;
-    expect(root.textContent).toContain('Completed the investigation');
-    expect(root.textContent).not.toContain('No output recorded');
-    expect(root.querySelectorAll('ptah-execution-header')).toHaveLength(1);
   });
 
   it('shows the finished record summary when the parent tree is unavailable', async () => {
@@ -381,15 +430,11 @@ describe('SubagentLaneComponent', () => {
     expect(label).not.toContain('Reviewing tests');
   });
 
-  it('keeps the draft after a failed steer and closes it after success', async () => {
+  it('keeps the draft after a failed steer and clears it after success', async () => {
     contexts.set(new Map([['tool-1', context({ steerable: true })]]));
     steer.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
     const fixture = setup();
     const root: HTMLElement = fixture.nativeElement;
-    root
-      .querySelector<HTMLButtonElement>('[aria-label="Message Explore"]')!
-      .click();
-    fixture.detectChanges();
     const field = root.querySelector<HTMLInputElement>(
       'ptah-agent-steer-input input',
     )!;
@@ -415,37 +460,11 @@ describe('SubagentLaneComponent', () => {
       .click();
     await fixture.whenStable();
     fixture.detectChanges();
-    expect(root.querySelector('ptah-agent-steer-input')).toBeNull();
-  });
-
-  it('links the steer toggle to its input and restores focus on Escape', async () => {
-    contexts.set(new Map([['tool-1', context({ steerable: true })]]));
-    const fixture = setup();
-    const root: HTMLElement = fixture.nativeElement;
-    document.body.appendChild(root);
-    try {
-      const toggle = root.querySelector<HTMLButtonElement>(
-        '[aria-label="Message Explore"]',
-      )!;
-      expect(toggle.getAttribute('aria-controls')).toBe(
-        'subagent-steer-tool-1',
-      );
-      toggle.click();
-      fixture.detectChanges();
-      await fixture.whenStable();
-      const input = root.querySelector<HTMLInputElement>(
-        '#subagent-steer-tool-1 input',
-      )!;
-      expect(document.activeElement).toBe(input);
-      input.dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
-      );
-      fixture.detectChanges();
-      expect(root.querySelector('ptah-agent-steer-input')).toBeNull();
-      expect(document.activeElement).toBe(toggle);
-    } finally {
-      root.remove();
-    }
+    expect(
+      root.querySelector<HTMLInputElement>('ptah-agent-steer-input input')
+        ?.value,
+    ).toBe('');
+    expect(root.textContent).not.toContain('Could not send your message');
   });
 
   it('shows only this agent’s RPC error', () => {
