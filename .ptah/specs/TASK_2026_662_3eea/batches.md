@@ -1885,7 +1885,7 @@ pipeline tokens (batch 59) before SS registrations are removed (batch 60).
 - Implementation details: 6 files across 2 projects. This is the minimum atomic set: splitting it
   re-creates the R1 boot throw.
 
-## Batch 60: SS register/index prelude - PENDING
+## Batch 60: SS register/index prelude - COMPLETE (partial: 4 holds per O40)
 
 - Phase: D | Executor: CLI lane codex | Depends on: 44, 46, 59 | Tasks: 1
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/skill-synthesis @ptah-extension/rpc-handlers @ptah-extension/thoth-runtime ptah-extension-vscode ptah-electron ptah-cli mcp-bench --parallel=1`
