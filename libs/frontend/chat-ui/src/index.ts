@@ -11,7 +11,6 @@ export {
  *   - Atoms: smallest reusable building blocks
  *   - Molecules: composed UI pieces
  */
-export { AwaitingBackgroundIndicatorComponent } from './lib/atoms/awaiting-background-indicator/awaiting-background-indicator.component';
 export { CopyButtonComponent } from './lib/atoms/copy-button.component';
 export { CostBadgeComponent } from './lib/atoms/cost-badge.component';
 export { DurationBadgeComponent } from './lib/atoms/duration-badge.component';
@@ -104,7 +103,6 @@ export type {
   StatsLimitViewModelInput,
 } from './lib/molecules/session/plan-limits/stats-limit-view-model.types';
 export { StatsTileExpansionState } from './lib/molecules/session/plan-limits/stats-tile-expansion.state';
-export { TabItemComponent } from './lib/molecules/session/tab-item.component';
 export { McpDirectoryBrowserComponent } from './lib/molecules/setup-plugins/mcp-directory-browser.component';
 export {
   groupInstalledServers,

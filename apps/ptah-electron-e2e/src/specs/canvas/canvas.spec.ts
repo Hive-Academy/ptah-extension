@@ -53,7 +53,7 @@ async function openSplit(page: Page): Promise<void> {
 }
 
 test.describe('Canvas Rail', () => {
-  test('Electron opens the Rail board after a persisted single-view preference', async ({ ui }) => {
+  test('Electron ignores a stale ptah-layout-mode value and opens the Rail board', async ({ ui }) => {
     const page = ui.page;
     await page.evaluate(() => localStorage.setItem('ptah-layout-mode', 'single'));
     await ui.prepare();
