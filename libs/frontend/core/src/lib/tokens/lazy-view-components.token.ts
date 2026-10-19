@@ -29,14 +29,14 @@ import { InjectionToken, Type } from '@angular/core';
  *
  * **Deliberately EAGER — do not convert this to a lazy loader.** It was
  * deferred during TASK_2026_187 and reverted on measured evidence: the canvas
- * is the launch surface in Electron (`ElectronShellComponent` calls
- * `setLayoutMode('grid')` unconditionally in its constructor), so deferring it
+ * is the launch surface (the chat surface is the canvas), so deferring it
  * cost 50-70 ms of startup TTI on every launch with no path on which it helped.
  *
  * It is also **not** a route, and that is deliberate (TASK_2026_524 batch 1):
- * the canvas and the single-chat view are both kept mounted and toggled with
- * `[class.hidden]` so `CanvasStore` and the gridstack instance survive
- * navigation. Replacing that with a `RouteReuseStrategy` is batch 3.
+ * `AppShellComponent` retains the canvas with `*ptahRetainWhile` (detached on
+ * a standalone surface, never destroyed) so `CanvasStore` and the gridstack
+ * instance survive navigation. Replacing that with a `RouteReuseStrategy` is
+ * batch 3.
  */
 export const ORCHESTRA_CANVAS_COMPONENT = new InjectionToken<Type<unknown>>(
   'ORCHESTRA_CANVAS_COMPONENT',

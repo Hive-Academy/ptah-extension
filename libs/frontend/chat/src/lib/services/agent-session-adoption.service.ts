@@ -303,8 +303,8 @@ export class AgentSessionAdoptionService {
    * (`sessionHandoff:opened`, TASK_2026_655). Push-only: a handoff tab this
    * webview missed is reachable from the sidebar like any chat. Never throws.
    *
-   * The canvas tile takes focus exactly when the tab bar did: the tab manager
-   * focuses the new tab only when the source was the active tab.
+   * The canvas tile takes focus exactly when the tab manager focuses the new
+   * tab, which it does only when the source was the active tab.
    */
   adoptHandoff(descriptor: SessionHandoffOpenedPayload): void {
     try {
@@ -324,16 +324,14 @@ export class AgentSessionAdoptionService {
   }
 
   /**
-   * While the Orchestra Canvas layout is active, ask it to adopt the child tab
-   * as a tile (TASK_2026_612). Same signal bridge the Tasks-board launch uses
+   * Ask the Orchestra Canvas to adopt the child tab as a tile
+   * (TASK_2026_612). Same signal bridge the Tasks-board launch uses
    * (F-D3): the canvas is already mounted and hydrated, so nothing else would
    * tile a tab that appears after first-visit hydration. The canvas's
    * `adoptTab` dedups, so re-adoption (e.g. `chat:agent-sessions` on webview
    * bootstrap) never doubles a tile a fresh mount already restored. A child
-   * asks with `focus: false` — a child opening must not steal the active tab,
-   * on the canvas exactly like in the tab bar; a handoff tab asks with the
-   * focus the tab bar gave it. In single layout the queue is never consumed,
-   * so the tab-bar behavior is unchanged.
+   * asks with `focus: false` — a child opening must not steal the focused
+   * tile; a handoff tab asks with the focus its adoption gave it.
    *
    * Only the partition the canvas is showing can host the tile:
    * `adoptTab` appends to the canvas's ACTIVE workspace grid, so a child is
@@ -351,7 +349,6 @@ export class AgentSessionAdoptionService {
     label: string,
     focus: boolean,
   ): void {
-    if (this.appState.layoutMode() !== 'grid') return;
     const landed = this.tabManager.findTabByIdAcrossWorkspaces(tabId);
     // `findTabByIdAcrossWorkspaces` reports the ACTIVE partition's path for a
     // tab in the active set (non-null whenever a workspace is active), so

@@ -74,7 +74,6 @@ describe('ElectronShellComponent configuration gate', () => {
     openConfigurationSurface: signal<ConfigurationSurfaceId | null>(null),
     configurationSurfaceRemountTick: signal(0),
     thothFirstRunDismissed: signal(true),
-    setLayoutMode: jest.fn(),
     setCurrentView: jest.fn(),
     dismissThothFirstRun: jest.fn(),
   };
@@ -127,7 +126,6 @@ describe('ElectronShellComponent configuration gate', () => {
     appStateStub.currentView.set('chat');
     appStateStub.openConfigurationSurface.set(null);
     appStateStub.configurationSurfaceRemountTick.set(0);
-    appStateStub.setLayoutMode.mockReset();
     appStateStub.setCurrentView.mockReset();
     pendingSurface.set(null);
     surfaceRouterStub.remountActiveSurface.mockReset();

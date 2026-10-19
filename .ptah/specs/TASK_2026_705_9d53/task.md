@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_705_9d53
-status: backlog
+status: in_review
 type: REFACTORING
 title: Remove the single-chat layout and ptah-tab-bar from all hosts
 depends_on: []

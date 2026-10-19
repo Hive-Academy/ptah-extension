@@ -42,35 +42,23 @@ export class SessionRowActionsService {
   private readonly organizer = inject(SessionOrganizerService);
 
   /**
-   * Open a session in the current layout: grid asks the canvas to open or
-   * focus its tile, single switches to the session's tab.
+   * Open a session: asks the canvas to open or focus its tile.
    *
-   * Grid resolves `'failed'` when the canvas drops the request (invalid id,
-   * or not taken within its timeout). Single awaits the switch, history load
-   * included: it resolves `'opened'` once that settles and `'failed'` (logged)
-   * when it rejects, which is how `ChatStore.switchSession` reports failure.
+   * Resolves `'failed'` (logged) when the canvas drops the request (invalid
+   * id, tile cap, or not taken within its timeout).
    */
   async openSession(
     session: Pick<ChatSessionSummary, 'id' | 'name'>,
   ): Promise<SessionOpenResult> {
-    if (this.appState.layoutMode() === 'grid') {
-      const opened = await this.appState.requestCanvasSession(
-        session.id,
-        session.name,
-      );
-      if (opened) return 'opened';
-      this.logger.warn(LOG_CONTEXT, 'Canvas did not open the session', {
-        sessionId: session.id,
-      });
-      return 'failed';
-    }
-    try {
-      await this.chatStore.switchSession(session.id);
-      return 'opened';
-    } catch (error) {
-      this.logger.error(LOG_CONTEXT, 'Failed to open session', error);
-      return 'failed';
-    }
+    const opened = await this.appState.requestCanvasSession(
+      session.id,
+      session.name,
+    );
+    if (opened) return 'opened';
+    this.logger.warn(LOG_CONTEXT, 'Canvas did not open the session', {
+      sessionId: session.id,
+    });
+    return 'failed';
   }
 
   /**

@@ -70,10 +70,7 @@ import {
   toStatsLimitLaneRun,
   type SessionStatsSource,
 } from '../../services/session-stats/session-stats-source';
-import {
-  InspectorOpenStateService,
-  SessionInspectorStore,
-} from '../../services/session-inspector';
+import { SessionInspectorStore } from '../../services/session-inspector';
 import { ChatStore } from '../../services/chat.store';
 import { ActionBannerService } from '../../services/action-banner.service';
 import { SessionHistoryReplayer } from '../../services/chat-store/session-history-replayer.service';
@@ -190,8 +187,6 @@ function makeHarness(
     activeTabViewMode?: TabViewMode;
     /** When set, provide a tile-local signal that forces the compact card. */
     forcedCard?: boolean;
-    /** Start with the docked inspector open. */
-    inspectorOpen?: boolean;
     startGuard?: () => string | null;
     isElectron?: boolean;
   } = {},
@@ -208,7 +203,6 @@ function makeHarness(
     renderCompactTemplate = false,
     activeTabViewMode = 'full',
     forcedCard,
-    inspectorOpen = false,
     startGuard,
     isElectron = false,
   } = opts;
@@ -440,7 +434,6 @@ function makeHarness(
     dragging: signal(false),
   } as unknown as PanelResizeService;
 
-  const layoutModeSig = signal<'single' | 'grid'>('single');
   const requestCanvasSessionMock = jest
     .fn<Promise<boolean>, [string, string?]>()
     .mockResolvedValue(true);
@@ -448,7 +441,6 @@ function makeHarness(
   const requestComposerPrefillMock = jest.fn();
   const appStateStub = {
     currentView: signal('chat'),
-    layoutMode: layoutModeSig.asReadonly(),
     composerPrefillRequest: signal({
       seq: 0,
       text: '',
@@ -512,19 +504,12 @@ function makeHarness(
       { provide: TabSessionBinding, useValue: tabSessionBindingStub },
       { provide: AuthStateService, useValue: authStateStub },
       { provide: PlanLimitsStore, useValue: planLimitsStub },
-      // The inspector stays closed here: no deferred inspector chunk renders.
       {
         provide: SessionInspectorStore,
         useValue: {
-          // The session header and the toggle dot read the needs-you count.
+          // The compact card reads the needs-you count.
           modelFor: jest.fn(() => signal({ needsYouCount: 0 })),
-          reportAnswerMiss: jest.fn(),
-          clearAnswerMiss: jest.fn(),
         },
-      },
-      {
-        provide: InspectorOpenStateService,
-        useValue: { dockedOpen: () => inspectorOpen, setDocked: jest.fn() },
       },
       ...(startGuard
         ? [{ provide: SESSION_START_GUARD, useValue: startGuard }]
@@ -594,7 +579,6 @@ function makeHarness(
     upsertSessionSummaryMock,
     removeSessionFromListMock,
     requestCanvasSessionMock,
-    layoutModeSig,
     showErrorMock,
     showInfoMock,
     showWarningMock,
@@ -625,71 +609,6 @@ function makeHarness(
     requestComposerPrefillMock,
   };
 }
-
-describe('ChatViewComponent — inspector Answer focus', () => {
-  beforeEach(() => jest.useFakeTimers());
-
-  afterEach(() => {
-    jest.useRealTimers();
-    TestBed.resetTestingModule();
-    jest.clearAllMocks();
-  });
-
-  function addQuestionCard(
-    h: ReturnType<typeof makeHarness>,
-    requestId: string,
-  ) {
-    const card = document.createElement('ptah-question-card');
-    card.setAttribute('data-request-id', requestId);
-    const option = document.createElement('button');
-    card.appendChild(option);
-    h.fixture.nativeElement.appendChild(card);
-    return jest.spyOn(option, 'focus');
-  }
-
-  it('focuses the first option when the card is already present', () => {
-    const h = makeHarness();
-    const focus = addQuestionCard(h, 'question-now');
-    const miss = jest.spyOn(
-      TestBed.inject(SessionInspectorStore),
-      'reportAnswerMiss',
-    );
-
-    h.component['focusQuestionCard']('question-now');
-
-    expect(focus).toHaveBeenCalledTimes(1);
-    expect(miss).not.toHaveBeenCalled();
-  });
-
-  it('focuses the first option when the card appears during the wait', () => {
-    const h = makeHarness();
-    const miss = jest.spyOn(
-      TestBed.inject(SessionInspectorStore),
-      'reportAnswerMiss',
-    );
-
-    h.component['focusQuestionCard']('question-late');
-    jest.advanceTimersByTime(500);
-    const focus = addQuestionCard(h, 'question-late');
-    jest.advanceTimersByTime(500);
-
-    expect(focus).toHaveBeenCalledTimes(1);
-    expect(miss).not.toHaveBeenCalled();
-  });
-
-  it('reports a miss when no card appears by the end of the wait', () => {
-    const h = makeHarness();
-    const miss = jest.spyOn(
-      TestBed.inject(SessionInspectorStore),
-      'reportAnswerMiss',
-    );
-
-    h.component['focusQuestionCard']('question-missing');
-    jest.advanceTimersByTime(1000);
-
-    expect(miss).toHaveBeenCalledWith('question-missing');
-  });
-});
 
 describe('ChatViewComponent — older history orchestration', () => {
   afterEach(() => {
@@ -1346,10 +1265,9 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
     expect(h.showInfoMock).not.toHaveBeenCalled();
   });
 
-  it('canvas-grid mode → rebinds the originating tile in place + switchSession(activate); never opens a second tile via requestCanvasSession', async () => {
+  it('rebinds the originating tile in place + switchSession(activate); never opens a second tile via requestCanvasSession', async () => {
     const h = makeHarness();
     primeHappyPath(h);
-    h.layoutModeSig.set('grid');
 
     await h.component.onRewindRequested('msg-canvas');
 
@@ -1373,7 +1291,6 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
   it('C4/UICS-012 — switchSession(activate) throws → swapFailed, error shown, no delete-original', async () => {
     const h = makeHarness();
     primeHappyPath(h);
-    h.layoutModeSig.set('grid');
     h.switchSessionMock.mockRejectedValueOnce(new Error('resume boom'));
     h.confirmWithCheckboxesMock.mockResolvedValueOnce({
       confirmed: true,
@@ -1412,6 +1329,92 @@ describe('ChatViewComponent — attemptRewindV2 (fork-and-switch)', () => {
       null,
     );
     expect(h.showInfoMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('ChatViewComponent — branch (fork) flow', () => {
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    jest.clearAllMocks();
+  });
+
+  it('opens the forked session as a canvas tile titled "Branch"', async () => {
+    const h = makeHarness();
+    h.forkSessionMock.mockResolvedValueOnce(
+      rpcOk({ newSessionId: 'branch-session-uuid-1' }),
+    );
+
+    await h.component.onBranchRequested('msg-branch');
+
+    expect(h.requestCanvasSessionMock).toHaveBeenCalledWith(
+      'branch-session-uuid-1',
+      'Branch',
+    );
+    expect(h.openSessionTabMock).not.toHaveBeenCalled();
+    expect(h.switchSessionMock).not.toHaveBeenCalled();
+    expect(h.showInfoMock).toHaveBeenCalledWith('Branch created.', null);
+    expect(h.showErrorMock).not.toHaveBeenCalled();
+  });
+
+  it('reports a created branch that could not open as a tile (canvas full / timeout)', async () => {
+    const h = makeHarness();
+    h.forkSessionMock.mockResolvedValueOnce(
+      rpcOk({ newSessionId: 'branch-session-uuid-2' }),
+    );
+    h.requestCanvasSessionMock.mockResolvedValueOnce(false);
+
+    await h.component.onBranchRequested('msg-branch-full');
+
+    expect(h.requestCanvasSessionMock).toHaveBeenCalledWith(
+      'branch-session-uuid-2',
+      'Branch',
+    );
+    expect(h.showInfoMock).not.toHaveBeenCalled();
+    expect(h.showErrorMock).toHaveBeenCalledWith(
+      'Branch created, but it did not open. Open it from Previous sessions.',
+      null,
+    );
+  });
+
+  it('bounds a hung tile load: clears the in-flight guard and reports the branch as created', async () => {
+    jest.useFakeTimers();
+    try {
+      const h = makeHarness();
+      h.forkSessionMock.mockResolvedValueOnce(
+        rpcOk({ newSessionId: 'branch-session-uuid-3' }),
+      );
+      h.requestCanvasSessionMock.mockReturnValueOnce(
+        new Promise<boolean>(() => undefined),
+      );
+
+      const done = h.component.onBranchRequested('msg-branch-hung');
+      await jest.advanceTimersByTimeAsync(10_000);
+      await done;
+
+      expect(h.showInfoMock).toHaveBeenCalledWith('Branch created.', null);
+      expect(h.showErrorMock).not.toHaveBeenCalled();
+      // In-flight cleared: a second request for the same message runs again.
+      h.forkSessionMock.mockResolvedValueOnce(
+        rpcOk({ newSessionId: 'branch-session-uuid-4' }),
+      );
+      await h.component.onBranchRequested('msg-branch-hung');
+      expect(h.forkSessionMock).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('surfaces a failed fork and opens no tile', async () => {
+    const h = makeHarness();
+    h.forkSessionMock.mockResolvedValueOnce(rpcFail('SDK fork failed'));
+
+    await h.component.onBranchRequested('msg-branch-fail');
+
+    expect(h.requestCanvasSessionMock).not.toHaveBeenCalled();
+    expect(h.showErrorMock).toHaveBeenCalledWith(
+      'Branch failed: SDK fork failed',
+      null,
+    );
   });
 });
 
@@ -1545,14 +1548,9 @@ describe('ChatViewComponent — mainPanelShowing() / SESSION_VISIBLE gating', ()
     jest.clearAllMocks();
   });
 
-  it('main panel: true outside grid layout, false in grid layout', () => {
+  it('a view with no session context renders its transcript live', () => {
     const h = makeHarness();
-    // Default single layout → main panel renders its transcript live.
     expect(h.component.mainPanelShowing()).toBe(true);
-
-    // Grid layout → tiles own the live render; the hidden main panel must not.
-    h.layoutModeSig.set('grid');
-    expect(h.component.mainPanelShowing()).toBe(false);
   });
 
   it('tile mode: reflects the injected SESSION_VISIBLE signal', () => {
@@ -1563,7 +1561,7 @@ describe('ChatViewComponent — mainPanelShowing() / SESSION_VISIBLE gating', ()
     // Hidden tile → frozen (not showing).
     expect(h.component.mainPanelShowing()).toBe(false);
 
-    // Becomes visible → shows, independent of the global layout mode.
+    // Becomes visible → shows.
     h.sessionVisibleSig!.set(true);
     expect(h.component.mainPanelShowing()).toBe(true);
   });
@@ -2490,29 +2488,6 @@ describe('ChatViewComponent — compact card gate (forced only)', () => {
     expect(h.fixture.nativeElement.querySelector('[inert].hidden')).toBeNull();
   });
 
-  it('removes the open inspector in compact mode and restores it in full mode', () => {
-    const h = makeHarness({ renderCompactTemplate: true, inspectorOpen: true });
-    const tab = signal({ ...h.activeTabMock() });
-    h.activeTabMock.mockImplementation(() => tab());
-    h.findTabByIdAcrossWorkspacesMock.mockImplementation(() => ({
-      tab: tab(),
-    }));
-    h.fixture.detectChanges();
-    expect(
-      h.fixture.nativeElement.querySelector('.cs-inspector'),
-    ).not.toBeNull();
-
-    tab.set({ ...tab(), viewMode: 'compact' });
-    h.fixture.detectChanges();
-    expect(h.fixture.nativeElement.querySelector('.cs-inspector')).toBeNull();
-
-    tab.set({ ...tab(), viewMode: 'full' });
-    h.fixture.detectChanges();
-    expect(
-      h.fixture.nativeElement.querySelector('.cs-inspector'),
-    ).not.toBeNull();
-  });
-
   it('expands a user compact tab once', () => {
     const h = makeHarness({ activeTabViewMode: 'compact' });
     h.component.expandToFullView();
@@ -2564,10 +2539,6 @@ describe('ChatViewComponent — compact card gate (forced only)', () => {
       fixture.nativeElement.querySelector('ptah-chat-transcript'),
     ).toBeNull();
     expect(fixture.nativeElement.querySelector('ptah-sidebar-tab')).toBeNull();
-    // A forced card hosts no inspector, so it has no session header.
-    expect(
-      fixture.nativeElement.querySelector('ptah-session-header'),
-    ).toBeNull();
 
     forcedCardSig!.set(false);
     fixture.detectChanges();

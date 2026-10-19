@@ -2,9 +2,9 @@
  * AppShellComponent hosts the previous-sessions modal instead of a session
  * sidebar (TASK_2026_679, plan component 10).
  *
- * Covered here: no sidebar chrome is left (Req 7.1); the navbar "Previous
- * sessions" button sits right after `New` in VS Code single layout only
- * (Req 1.3, F-1) and opens the modal by click, Enter and Space (Req 1.7); the
+ * Covered here: no sidebar chrome is left (Req 7.1); the VS Code shell shows
+ * the navbar and the canvas container only, with no tab bar, layout toggle,
+ * navbar Previous sessions button or main chat view (TASK_2026_705); the
  * shell row is inert while the modal is open (DP-8); the modal is created per
  * open; it closes without a focus restore when a standalone surface replaces
  * the chat view (DP-9); the organization editor renders what
@@ -15,8 +15,12 @@
  * component left as an unknown element (`NO_ERRORS_SCHEMA`, imports reduced to
  * the retained-row directive), so no chat transcript, canvas or RPC bridge is
  * mounted. `PreviousSessionsDialogService` is the real root service, so the
- * open state, the opener and the focus restore are real. The fixture uses
- * `autoDetectChanges()` (D54): in the app the shell view is attached to
+ * open state, the opener and the focus restore are real. The modal's only
+ * opener is the canvas Rail footer button, which lives inside the canvas in
+ * the retained row; the canvas is not mounted here, so a stand-in trigger
+ * button is placed in the canvas container and the modal is opened through
+ * `PreviousSessionsDialogService.open()` with that button focused. The fixture
+ * uses `autoDetectChanges()` (D54): in the app the shell view is attached to
  * `ApplicationRef`, so the restore runs after the render that drops `inert`.
  */
 import { existsSync, readFileSync } from 'node:fs';
@@ -70,7 +74,8 @@ const SHELL_TEMPLATE = join(
   'libs/frontend/chat/src/lib/components/templates/app-shell.component.html',
 );
 
-const BUTTON = '[data-testid="navbar-previous-sessions"]';
+/** The canvas content container (bare `ptahSurfaceActive`). */
+const CANVAS_CONTAINER = '[ptahSurfaceActive]';
 const MODAL = 'ptah-previous-sessions-modal';
 const EDITOR = 'ptah-session-organization-editor';
 /** Any accessible name for a sessions panel or session sidebar control. */
@@ -78,7 +83,6 @@ const SESSION_PANEL_NAME = /sessions? (panel|sidebar)/i;
 
 interface Host {
   readonly isElectron: boolean;
-  readonly layout: 'single' | 'grid';
 }
 
 interface OrganizerStub {
@@ -92,7 +96,7 @@ describe('AppShellComponent — previous sessions (TASK_2026_679)', () => {
   let fixture: ComponentFixture<AppShellComponent>;
   let page: HTMLElement;
   let currentView: WritableSignal<string>;
-  let layoutMode: WritableSignal<'single' | 'grid'>;
+  let requestNewCanvasSession: jest.Mock<void, [string]>;
   let organizer: OrganizerStub;
 
   /**
@@ -104,7 +108,7 @@ describe('AppShellComponent — previous sessions (TASK_2026_679)', () => {
     { manualDefer = false, realModal = false } = {},
   ): void {
     currentView = signal('chat');
-    layoutMode = signal(host.layout);
+    requestNewCanvasSession = jest.fn<void, [string]>();
     organizer = {
       available: signal(false),
       isOpen: signal(false),
@@ -121,12 +125,10 @@ describe('AppShellComponent — previous sessions (TASK_2026_679)', () => {
           provide: AppStateManager,
           useValue: {
             currentView,
-            layoutMode,
             thothFirstRunDismissed: signal(true),
             setCurrentView: jest.fn(),
             dismissThothFirstRun: jest.fn(),
-            toggleLayoutMode: jest.fn(),
-            requestNewCanvasSession: jest.fn(),
+            requestNewCanvasSession,
           },
         },
         {
@@ -239,8 +241,36 @@ describe('AppShellComponent — previous sessions (TASK_2026_679)', () => {
 
   const dialog = (): PreviousSessionsDialogService =>
     TestBed.inject(PreviousSessionsDialogService);
-  const button = (): HTMLButtonElement | null =>
-    page.querySelector<HTMLButtonElement>(BUTTON);
+  /**
+   * Stand-in for the canvas Rail footer "Previous sessions" button: a trigger
+   * inside the canvas container, so it sits in the retained row like the
+   * real one. Created once per mount.
+   */
+  function railTrigger(): HTMLButtonElement {
+    const existing = page.querySelector<HTMLButtonElement>(
+      '[data-testid="rail-previous-sessions"]',
+    );
+    if (existing) return existing;
+    const container = page.querySelector(CANVAS_CONTAINER);
+    if (!container) throw new Error('canvas container missing');
+    const trigger = document.createElement('button');
+    trigger.type = 'button';
+    trigger.setAttribute('data-testid', 'rail-previous-sessions');
+    trigger.setAttribute('data-previous-sessions-trigger', '');
+    trigger.textContent = 'Previous sessions';
+    container.appendChild(trigger);
+    return trigger;
+  }
+
+  /** Focus the Rail stand-in and open the modal the way its click does. */
+  async function openFromRail(): Promise<HTMLButtonElement> {
+    const trigger = railTrigger();
+    trigger.focus();
+    dialog().open();
+    await settle();
+    return trigger;
+  }
+
   /** The retained shell row: the navbar's row ancestor. */
   const shellRow = (): HTMLElement | null =>
     page.querySelector<HTMLElement>('.navbar')?.closest('.bg-surface-0') ??
@@ -254,7 +284,7 @@ describe('AppShellComponent — previous sessions (TASK_2026_679)', () => {
   });
 
   describe('sidebar removal (Req 7.1)', () => {
-    beforeEach(() => mount({ isElectron: false, layout: 'single' }));
+    beforeEach(() => mount({ isElectron: false }));
 
     it('renders no session sidebar, sessions tab or resize handle', () => {
       expect(page.querySelector('aside')).toBeNull();
@@ -277,154 +307,111 @@ describe('AppShellComponent — previous sessions (TASK_2026_679)', () => {
     });
   });
 
-  describe('navbar button placement (Req 1.3, F-1)', () => {
-    it('sits directly after New in VS Code single layout', () => {
-      mount({ isElectron: false, layout: 'single' });
-      const previous = button();
-      expect(previous).not.toBeNull();
-      const popover = page.querySelector('ptah-native-popover');
-      expect(
-        popover?.querySelector('[aria-label="New Session"]'),
-      ).not.toBeNull();
-      expect(popover?.nextElementSibling).toBe(previous);
+  describe('VS Code shell (TASK_2026_705)', () => {
+    beforeEach(() => mount({ isElectron: false }));
+
+    it('shows the navbar and the canvas container only', () => {
+      const navbar = page.querySelector<HTMLElement>('.navbar');
+      expect(navbar).not.toBeNull();
+      expect(navbar?.classList).not.toContain('hidden');
+      const container = page.querySelector<HTMLElement>(CANVAS_CONTAINER);
+      expect(container).not.toBeNull();
+      expect(container?.closest('.hidden')).toBeNull();
+      // ORCHESTRA_CANVAS_COMPONENT is unbound here, so the spinner fallback is
+      // the only content.
+      expect(container?.querySelector('.loading-spinner')).not.toBeNull();
+      expect(page.querySelectorAll(CANVAS_CONTAINER)).toHaveLength(1);
     });
 
-    it('is a native dialog trigger named "Previous sessions"', () => {
-      mount({ isElectron: false, layout: 'single' });
-      const previous = button();
-      expect(previous?.tagName).toBe('BUTTON');
-      expect(previous?.type).toBe('button');
-      expect(previous?.getAttribute('aria-label')).toBe('Previous sessions');
-      expect(previous?.getAttribute('title')).toBe('Previous sessions');
-      expect(previous?.getAttribute('aria-haspopup')).toBe('dialog');
-      expect(previous?.getAttribute('aria-expanded')).toBe('false');
-      expect(previous?.hasAttribute('aria-controls')).toBe(false);
-      expect(previous?.hasAttribute('data-previous-sessions-trigger')).toBe(
-        true,
+    it('renders no tab bar, layout toggle, navbar Previous sessions or main chat view', () => {
+      // Element tag names, upper-cased as the HTML DOM reports them.
+      const tags = Array.from(page.querySelectorAll('*'), (el) => el.tagName);
+      expect(tags).not.toContain('PTAH-TAB-BAR');
+      expect(tags).not.toContain('PTAH-CHAT-VIEW');
+      // The removed Canvas layout toggle was labelled after the canvas grid.
+      expect(page.querySelector('[aria-label*="canvas grid" i]')).toBeNull();
+      expect(
+        page.querySelector('[data-testid="navbar-previous-sessions"]'),
+      ).toBeNull();
+      expect(
+        page.querySelector('.navbar [aria-label="Previous sessions"]'),
+      ).toBeNull();
+    });
+
+    it('labels the header "Orchestra Canvas"', () => {
+      const navbar = page.querySelector<HTMLElement>('.navbar');
+      const labels = Array.from(
+        navbar?.querySelectorAll('span') ?? [],
+        (span) => span.textContent?.trim(),
       );
-      expect(
-        previous?.querySelector('lucide-angular')?.getAttribute('aria-hidden'),
-      ).toBe('true');
-      expect(
-        previous?.querySelector('span.icon-btn-label')?.textContent?.trim(),
-      ).toBe('Previous sessions');
+      expect(labels).toContain('Orchestra Canvas');
     });
 
-    it('is absent in VS Code grid layout (the Rail footer carries it)', () => {
-      mount({ isElectron: false, layout: 'grid' });
-      expect(button()).toBeNull();
-      // New stays in the navbar in grid layout (F-1).
-      expect(page.querySelector('[aria-label="New Session"]')).not.toBeNull();
-    });
-
-    it('leaves the navbar when the layout switches to grid', async () => {
-      mount({ isElectron: false, layout: 'single' });
-      expect(button()).not.toBeNull();
-      layoutMode.set('grid');
+    it('creates a new session as a canvas tile', async () => {
+      const create = Array.from(
+        page.querySelectorAll<HTMLButtonElement>('ptah-native-popover button'),
+      ).find((element) => element.textContent?.trim() === 'Create');
+      if (!create) throw new Error('Create button missing');
+      create.click();
       await settle();
-      expect(button()).toBeNull();
-    });
-
-    it('is absent in Electron', () => {
-      mount({ isElectron: true, layout: 'single' });
-      expect(button()).toBeNull();
+      expect(requestNewCanvasSession).toHaveBeenCalledTimes(1);
+      expect(requestNewCanvasSession).toHaveBeenCalledWith(
+        expect.stringMatching(/\S/),
+      );
     });
   });
 
-  describe('opening (Req 1.7)', () => {
-    beforeEach(() => mount({ isElectron: false, layout: 'single' }));
+  describe('Electron shell', () => {
+    beforeEach(() => mount({ isElectron: true }));
 
-    it('opens the modal on click', async () => {
-      const open = jest.spyOn(dialog(), 'open');
-      button()?.click();
-      await settle();
-      expect(open).toHaveBeenCalledTimes(1);
-      expect(dialog().isOpen()).toBe(true);
+    it('hides the header and keeps the canvas container visible', () => {
+      expect(page.querySelector('.navbar')?.classList).toContain('hidden');
+      const container = page.querySelector<HTMLElement>(CANVAS_CONTAINER);
+      expect(container).not.toBeNull();
+      expect(container?.closest('.hidden')).toBeNull();
     });
-
-    it.each([
-      ['Enter', 'keydown'],
-      [' ', 'keyup'],
-    ])(
-      'leaves %p to the native button activation, which opens the modal',
-      async (key, type) => {
-        const previous = button();
-        if (!previous) throw new Error('navbar button missing');
-        previous.focus();
-        const event = new KeyboardEvent(type, {
-          key,
-          bubbles: true,
-          cancelable: true,
-        });
-        previous.dispatchEvent(event);
-        // Nothing on the path cancels the key, and the control is an enabled
-        // native button, so the browser turns the key into a click.
-        expect(event.defaultPrevented).toBe(false);
-        expect(previous.disabled).toBe(false);
-        const open = jest.spyOn(dialog(), 'open');
-        previous.click();
-        await settle();
-        expect(open).toHaveBeenCalledTimes(1);
-        expect(dialog().isOpen()).toBe(true);
-      },
-    );
   });
 
   describe('while open', () => {
-    beforeEach(() => mount({ isElectron: false, layout: 'single' }));
-
-    async function openFromButton(): Promise<HTMLButtonElement> {
-      const previous = button();
-      if (!previous) throw new Error('navbar button missing');
-      previous.focus();
-      previous.click();
-      await settle();
-      return previous;
-    }
+    beforeEach(() => mount({ isElectron: false }));
 
     it('creates the modal and makes the shell row inert (DP-8)', async () => {
       expect(page.querySelector(MODAL)).toBeNull();
       expect(shellRow()?.hasAttribute('inert')).toBe(false);
 
-      const previous = await openFromButton();
+      const trigger = await openFromRail();
 
       expect(page.querySelector(MODAL)).not.toBeNull();
       // The modal is outside the inert row.
       expect(page.querySelector(MODAL)?.closest('[inert]')).toBeNull();
       expect(shellRow()?.hasAttribute('inert')).toBe(true);
-      expect(previous.closest('[inert]')).toBe(shellRow());
-      expect(previous.getAttribute('aria-expanded')).toBe('true');
-      expect(previous.getAttribute('aria-controls')).toBe(
-        'previous-sessions-dialog',
-      );
+      expect(trigger.closest('[inert]')).toBe(shellRow());
     });
 
-    it('destroys the modal on close, drops inert and returns focus to the button', async () => {
-      const previous = await openFromButton();
+    it('destroys the modal on close, drops inert and returns focus to the Rail trigger', async () => {
+      const trigger = await openFromRail();
 
       dialog().close();
       await settle();
 
       expect(page.querySelector(MODAL)).toBeNull();
       expect(shellRow()?.hasAttribute('inert')).toBe(false);
-      expect(previous.getAttribute('aria-expanded')).toBe('false');
-      expect(previous.hasAttribute('aria-controls')).toBe(false);
-      expect(document.activeElement).toBe(previous);
+      expect(document.activeElement).toBe(trigger);
     });
 
     it('creates a fresh modal on every open (DP-2)', async () => {
-      await openFromButton();
+      await openFromRail();
       const first = page.querySelector(MODAL);
       dialog().close();
       await settle();
-      await openFromButton();
+      await openFromRail();
       const second = page.querySelector(MODAL);
       expect(second).not.toBeNull();
       expect(second).not.toBe(first);
     });
 
     it('closes without a focus restore when a standalone surface replaces chat (DP-9)', async () => {
-      await openFromButton();
+      await openFromRail();
       const close = jest.spyOn(dialog(), 'close');
       const elsewhere = document.createElement('button');
       document.body.appendChild(elsewhere);
@@ -454,10 +441,7 @@ describe('AppShellComponent — previous sessions (TASK_2026_679)', () => {
     const CLOSE = '[data-testid="previous-sessions-load-close"]';
 
     beforeEach(() =>
-      mount(
-        { isElectron: false, layout: 'single' },
-        { manualDefer: true, realModal: true },
-      ),
+      mount({ isElectron: false }, { manualDefer: true, realModal: true }),
     );
 
     /** The Previous sessions block: the second @defer in the template. */
@@ -466,15 +450,6 @@ describe('AppShellComponent — previous sessions (TASK_2026_679)', () => {
       const block = blocks[1];
       if (!block) throw new Error('previous sessions @defer missing');
       return block;
-    }
-
-    async function openFromButton(): Promise<HTMLButtonElement> {
-      const previous = button();
-      if (!previous) throw new Error('navbar button missing');
-      previous.focus();
-      previous.click();
-      await settle();
-      return previous;
     }
 
     async function showState(
@@ -490,7 +465,7 @@ describe('AppShellComponent — previous sessions (TASK_2026_679)', () => {
       page.querySelector<HTMLButtonElement>(CLOSE);
 
     it('hands focus from Loading Close to the Complete modal search', async () => {
-      await openFromButton();
+      await openFromRail();
       await showState(DeferBlockState.Loading);
       expect(document.activeElement).toBe(closeButton());
 
@@ -506,7 +481,7 @@ describe('AppShellComponent — previous sessions (TASK_2026_679)', () => {
     });
 
     it('does not focus a Loading Close destroyed before its first render callback', async () => {
-      await openFromButton();
+      await openFromRail();
       const abandoned = TestBed.createComponent(
         PreviousSessionsLoadStateComponent,
       );
@@ -531,7 +506,7 @@ describe('AppShellComponent — previous sessions (TASK_2026_679)', () => {
     ] as const)(
       'renders a named dialog outside the inert row with focus on Close (%s)',
       async (_name, state, message) => {
-        await openFromButton();
+        await openFromRail();
         await showState(state);
 
         const panel = surface()?.querySelector<HTMLElement>('[role="dialog"]');
@@ -565,9 +540,9 @@ describe('AppShellComponent — previous sessions (TASK_2026_679)', () => {
       ['Loading', DeferBlockState.Loading],
       ['Error', DeferBlockState.Error],
     ] as const)(
-      'Close closes, drops inert and returns focus to the navbar trigger (%s)',
+      'Close closes, drops inert and returns focus to the Rail trigger (%s)',
       async (_name, state) => {
-        const previous = await openFromButton();
+        const previous = await openFromRail();
         await showState(state);
 
         closeButton()?.click();
@@ -581,7 +556,7 @@ describe('AppShellComponent — previous sessions (TASK_2026_679)', () => {
     );
 
     it('Escape closes and does not propagate', async () => {
-      const previous = await openFromButton();
+      const previous = await openFromRail();
       await showState(DeferBlockState.Error);
       const outside = jest.fn();
       document.addEventListener('keydown', outside);
@@ -603,7 +578,7 @@ describe('AppShellComponent — previous sessions (TASK_2026_679)', () => {
     });
 
     it('keeps Tab on the Close button', async () => {
-      await openFromButton();
+      await openFromRail();
       await showState(DeferBlockState.Loading);
       const event = new KeyboardEvent('keydown', {
         key: 'Tab',
@@ -632,7 +607,7 @@ describe('AppShellComponent — previous sessions (TASK_2026_679)', () => {
       name: 'Build release',
     } as ChatSessionSummary;
 
-    beforeEach(() => mount({ isElectron: false, layout: 'single' }));
+    beforeEach(() => mount({ isElectron: false }));
 
     it('renders nothing on hosts without organization', async () => {
       organizer.isOpen.set(true);
