@@ -206,6 +206,19 @@ export class ExecutionTreeBuilderService {
   private activeAgentBuild: ActiveAgentBuild | null = null;
 
   /**
+   * Re-keyed `agent_start` copies for hook fallback matches (PR #751 review
+   * 4309313434). A hook event's own `toolCallId` is a hook UUID, but the agent
+   * node built for a Task tool must carry the Task tool's id — consumers
+   * (`InlineAgentBubbleComponent`) key `SubagentExecutionStore` and monitor
+   * lookups by it. Cached per source event so the memoized build still sees
+   * a stable event identity (`hit.agentStart === agentStart`).
+   */
+  private readonly rekeyedAgentStarts = new WeakMap<
+    AgentStartEvent,
+    { toolCallId: string; event: AgentStartEvent }
+  >();
+
+  /**
    * BuilderDeps wired with closures back into this service. Each callback
    * forwards to the matching pure function with `this.deps` re-injected so
    * builders can recurse without importing each other at module level.
@@ -240,7 +253,13 @@ export class ExecutionTreeBuilderService {
       toolCallId: string,
       state: StreamingState,
       depth: number,
-    ) => this.buildAgentNodeMemoized(agentStart, toolCallId, state, depth),
+    ) =>
+      this.buildAgentNodeMemoized(
+        this.agentStartForTool(agentStart, toolCallId),
+        toolCallId,
+        state,
+        depth,
+      ),
     buildInterleavedChildren: (
       agentId: string,
       baseTimestamp: number,
@@ -711,6 +730,25 @@ export class ExecutionTreeBuilderService {
     build.memo.set(slot, entry);
     build.built.push(entry);
     return node;
+  }
+
+  /**
+   * The `agent_start` event to build an agent node with, keyed to the Task
+   * tool it is built for. The built node stores the event's `toolCallId`, so
+   * a hook fallback match (whose own id is a hook UUID, not a `toolu_*` id)
+   * must carry the Task tool's id for `SubagentExecutionStore` and monitor
+   * lookups to find the claimed execution.
+   */
+  private agentStartForTool(
+    agentStart: AgentStartEvent,
+    toolCallId: string,
+  ): AgentStartEvent {
+    if (agentStart.toolCallId === toolCallId) return agentStart;
+    const cached = this.rekeyedAgentStarts.get(agentStart);
+    if (cached && cached.toolCallId === toolCallId) return cached.event;
+    const rekeyed: AgentStartEvent = { ...agentStart, toolCallId };
+    this.rekeyedAgentStarts.set(agentStart, { toolCallId, event: rekeyed });
+    return rekeyed;
   }
 
   /**

@@ -789,8 +789,30 @@ describe('AgentMonitorStore', () => {
 
       store.onAgentCompleted(completedEvent({ timestamp: 7 }));
       expect(store.getSubagent(PARENT)?.completedAt).toBe(7);
+      // A repeated terminal agent_status must not move the first completion
+      // time (PR #751 review 4309313408).
       store.onAgentStatus(statusEvent({ status: 'completed', timestamp: 8 }));
-      expect(store.getSubagent(PARENT)?.completedAt).toBe(8);
+      expect(store.getSubagent(PARENT)?.completedAt).toBe(7);
+    });
+
+    it('keeps the first completion time across repeated terminal agent_status events', () => {
+      store.onAgentStart(startEvent());
+      store.onAgentStatus(statusEvent({ status: 'completed', timestamp: 4 }));
+      expect(store.getSubagent(PARENT)?.completedAt).toBe(4);
+      store.onAgentStatus(
+        statusEvent({ id: 's-2', status: 'completed', timestamp: 9 }),
+      );
+      expect(store.getSubagent(PARENT)?.completedAt).toBe(4);
+      store.onAgentStatus(
+        statusEvent({
+          id: 's-3',
+          status: 'failed',
+          errorMessage: 'late failure',
+          timestamp: 11,
+        }),
+      );
+      expect(store.getSubagent(PARENT)?.completedAt).toBe(4);
+      expect(store.getSubagent(PARENT)?.errorMessage).toBe('late failure');
     });
 
     it('agent_completed sets terminal status, outputFile and final stats', () => {

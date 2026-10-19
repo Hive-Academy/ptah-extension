@@ -437,6 +437,44 @@ describe('ExecutionTreeBuilderService — incremental rebuild', () => {
     expect(findByType(after, 'text')?.content).toBe('submore');
   });
 
+  it('keys a hook-fallback agent node by the Task tool id, not the hook UUID', () => {
+    feed(messageStart('msg-root', 'assistant'));
+    feed({
+      ...toolStart('msg-root', 'toolu_task'),
+      toolName: 'Task',
+      isTaskTool: true,
+    } as ToolStartEvent);
+    feed(
+      toolDelta(
+        'msg-root',
+        'toolu_task',
+        JSON.stringify({ subagent_type: 'code-style-reviewer' }),
+      ),
+    );
+    // A hook agent_start carries no parentToolUseId, and its own toolCallId
+    // is a hook UUID. Only the subagent_type fallback can match it to the
+    // Task tool (PR #751 review 4309313434).
+    feed({
+      id: 'evt-hook-agent-start',
+      eventType: 'agent_start',
+      timestamp: nextTimestamp(),
+      sessionId: SESSION_ID,
+      source: 'stream',
+      messageId: 'msg-root',
+      toolCallId: 'hook-8f2c-agent-start',
+      agentType: 'code-style-reviewer',
+      agentDescription: 'Review the diff',
+      agentId: 'agent-hook',
+    } as FlatStreamEventUnion);
+
+    const tree = builder.buildTree(state, 'k');
+    const agent = findByType(tree, 'agent');
+    expect(agent).toBeDefined();
+    // The inline bubble keys SubagentExecutionStore and the monitor by the
+    // Task tool_use id, so the agent node must carry it — not the hook UUID.
+    expect(agent?.toolCallId).toBe('toolu_task');
+  });
+
   it('selects subagent roots by parent tool and invalidates their digest on a delta', () => {
     feed(messageStart('msg-main', 'assistant'));
     feed(textDelta('msg-main', 0, 'main'));

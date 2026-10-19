@@ -179,14 +179,22 @@ import { subagentProgressText } from '../../../utils/subagent-progress.utils';
       }
       @if (entry()?.truncated || entry()?.spilled) {
         <p class="text-xs text-base-content-muted">
-          Earlier output trimmed —
-          <button
-            type="button"
-            class="btn btn-link btn-xs p-0"
-            (click)="loadFullOutput()"
-          >
-            Load full output
-          </button>
+          Earlier output trimmed
+          <!-- A loaded history that is still truncated stays truncated — the
+             same capped history comes back on every fetch — so the button
+             must go away once the load settles (PR #751 review 4309313437). -->
+          @if (
+            entry()?.history !== 'loaded' && entry()?.history !== 'loading'
+          ) {
+            —
+            <button
+              type="button"
+              class="btn btn-link btn-xs p-0"
+              (click)="loadFullOutput()"
+            >
+              Load full output
+            </button>
+          }
         </p>
       }
       @if ((entry()?.clipped ?? 0) > 0) {

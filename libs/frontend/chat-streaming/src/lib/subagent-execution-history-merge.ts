@@ -48,7 +48,25 @@ export function mergeSubagentHistory(
   const fresh = createEmptyStreamingState();
   fresh.eventCap = ENTRY_EVENT_CAP;
   const ctx = { ...context, deduplication: new EventDeduplicationService() };
-  for (const event of snapshot) accumulator.process(fresh, event, ctx);
+  // Truncation is reported only for a REAL eviction: a processed event that
+  // was absent, was inserted into `fresh.events`, and found the state already
+  // at its cap. `stateMutated` alone is not evidence — store-only event types
+  // mutate monitor state without ever entering `fresh.events` (PR #751
+  // review 4309313437).
+  let evicted = false;
+  const apply = (event: FlatStreamEventUnion): void => {
+    const wasPresent = fresh.events.has(event.id);
+    const atCap = fresh.events.size >= ENTRY_EVENT_CAP;
+    const result = accumulator.process(fresh, event, ctx);
+    if (
+      atCap &&
+      !wasPresent &&
+      result.stateMutated &&
+      fresh.events.has(event.id)
+    )
+      evicted = true;
+  };
+  for (const event of snapshot) apply(event);
 
   const snapshotIds = new Set(
     snapshot
@@ -86,7 +104,7 @@ export function mergeSubagentHistory(
       ) {
         continue;
       }
-      accumulator.process(fresh, mapped, ctx);
+      apply(mapped);
     }
     entry.state = fresh;
   } else if (!entry.live) {
@@ -99,5 +117,5 @@ export function mergeSubagentHistory(
     entry.state = fresh;
   }
   builder.clearCache(`subagent-${key}`);
-  return fresh.events.size < snapshot.length;
+  return evicted;
 }

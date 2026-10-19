@@ -3,6 +3,7 @@ import {
   effect,
   inject,
   signal,
+  untracked,
   type Signal,
   type WritableSignal,
 } from '@angular/core';
@@ -110,6 +111,15 @@ export class SubagentExecutionStore {
   private readonly mutableEntries = new Map<string, SubagentExecutionEntry>();
   private readonly entryKeys = new WeakMap<SubagentExecutionEntry, string>();
   private readonly keyRevisions = new Map<string, WritableSignal<number>>();
+  /** Snapshot handed out per key; rebuilt whenever the entry revises. */
+  private readonly entryViews = new Map<
+    string,
+    {
+      entry: SubagentExecutionEntry;
+      revision: number;
+      view: SubagentExecutionEntryView;
+    }
+  >();
   private readonly _entries = signal<
     ReadonlyMap<string, SubagentExecutionEntry>
   >(new Map());
@@ -160,9 +170,23 @@ export class SubagentExecutionStore {
     return revision();
   }
 
+  /**
+   * Snapshot view of one entry. A `computed` consumer compares results with
+   * `Object.is`, so the same mutable reference never notifies its dependents
+   * (history error/Retry states stopped rendering — PR #751). A fresh object
+   * per revision fixes that; the per-revision cache keeps the identity stable
+   * between publishes so an unchanged revision re-reads as equal.
+   */
   entryFor(key: string): SubagentExecutionEntryView | undefined {
     this.revisionFor(key);
-    return this.mutableEntries.get(key);
+    const entry = this.mutableEntries.get(key);
+    if (!entry) return undefined;
+    const cached = this.entryViews.get(key);
+    if (cached && cached.entry === entry && cached.revision === entry.revision)
+      return cached.view;
+    const view: SubagentExecutionEntryView = { ...entry };
+    this.entryViews.set(key, { entry, revision: entry.revision, view });
+    return view;
   }
 
   private open(key: string, sessionId?: string): SubagentExecutionEntry {
@@ -394,15 +418,22 @@ export class SubagentExecutionStore {
   }
 
   retain(key: string, sessionId?: string): void {
-    const entry = this.open(key, sessionId);
-    entry.refs++;
-    const record =
-      this.syncedRecords.get(key) ??
-      this.agentMonitorStore.subagents?.().get(key);
-    if (record && TERMINAL_STATUSES.has(record.status) && entry.live)
-      this.finalize(key);
-    this.lastRead.set(key, ++this.readClock);
-    this.publish(entry);
+    // The lane and the inline bubble call this from an `effect`. Tracked
+    // reads here — the monitor's subagent map, or the tree build reached
+    // through `finalize` — would re-run that effect on every monitor or
+    // background change, and its cleanup `release` aborts an in-flight
+    // history load.
+    untracked(() => {
+      const entry = this.open(key, sessionId);
+      entry.refs++;
+      const record =
+        this.syncedRecords.get(key) ??
+        this.agentMonitorStore.subagents?.().get(key);
+      if (record && TERMINAL_STATUSES.has(record.status) && entry.live)
+        this.finalize(key);
+      this.lastRead.set(key, ++this.readClock);
+      this.publish(entry);
+    });
   }
 
   release(key: string): void {
@@ -468,6 +499,7 @@ export class SubagentExecutionStore {
   private remove(key: string, entry: SubagentExecutionEntry): void {
     this.abort(entry);
     this.mutableEntries.delete(key);
+    this.entryViews.delete(key);
     this.keyRevisions.get(key)?.update((value) => value + 1);
     this.ownership.drop(key);
     entry.idAlias.clear();

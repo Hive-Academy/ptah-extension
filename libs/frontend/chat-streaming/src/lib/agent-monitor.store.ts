@@ -2181,7 +2181,7 @@ export class AgentMonitorStore implements OnDestroy {
           event.status === 'completed' ||
           event.status === 'failed' ||
           event.status === 'killed'
-            ? event.timestamp
+            ? (existing?.completedAt ?? event.timestamp)
             : undefined,
         errorMessage: event.errorMessage ?? existing?.errorMessage,
         outputFile: existing?.outputFile,

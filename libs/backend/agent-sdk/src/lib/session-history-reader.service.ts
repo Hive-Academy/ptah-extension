@@ -128,21 +128,28 @@ export class SubagentHistoryValidationError extends SdkError {
 
 export const SUBAGENT_EVENTS_TAIL_LIMIT = 10_000;
 
-export function retainSubagentEventsTail(events: FlatStreamEventUnion[]): Pick<SubagentEventsReadResult, 'events' | 'truncated'> {
+export function retainSubagentEventsTail(
+  events: FlatStreamEventUnion[],
+): Pick<SubagentEventsReadResult, 'events' | 'truncated'> {
   const truncated = events.length > SUBAGENT_EVENTS_TAIL_LIMIT;
   if (!truncated) return { events, truncated };
-  let start = events.length - SUBAGENT_EVENTS_TAIL_LIMIT;
+  const boundary = events.length - SUBAGENT_EVENTS_TAIL_LIMIT;
   // Retain complete message groups at the tail boundary.
-  let lastStart = -1;
-  for (let index = events.length - 1; index >= 0; index--) {
-    if (events[index].eventType === 'message_start') {
-      lastStart = index;
-      break;
-    }
-  }
-  while (start < events.length && events[start].eventType !== 'message_start') start++;
-  if (start === events.length) start = lastStart;
-  return { events: events.slice(start), truncated };
+  let start = boundary;
+  while (start < events.length && events[start].eventType !== 'message_start')
+    start++;
+  if (start < events.length) return { events: events.slice(start), truncated };
+  // No message_start inside the window: the last message alone is larger than
+  // the limit. Keep the limit, and keep that message well-formed by putting
+  // its message_start before its newest LIMIT - 1 events.
+  let lastStart = boundary - 1;
+  while (lastStart >= 0 && events[lastStart].eventType !== 'message_start')
+    lastStart--;
+  if (lastStart < 0) return { events: events.slice(boundary), truncated };
+  return {
+    events: [events[lastStart], ...events.slice(boundary + 1)],
+    truncated,
+  };
 }
 
 type SessionEventData = {
@@ -169,7 +176,8 @@ export class SessionHistoryReaderService {
     toolCallId: string,
     agentId?: string,
   ): Promise<SubagentEventsReadResult> {
-    if (!this.isValidSessionId(sessionId)) throw new SubagentHistoryValidationError('Invalid sessionId format');
+    if (!this.isValidSessionId(sessionId))
+      throw new SubagentHistoryValidationError('Invalid sessionId format');
     if (!toolCallId || !this.AGENT_ID_PATTERN.test(toolCallId)) {
       throw new SubagentHistoryValidationError('Invalid tool call id');
     }
@@ -198,17 +206,32 @@ export class SessionHistoryReaderService {
             if (isMissingFileError(error)) continue;
             throw error;
           }
-          const agents = await this.jsonlReader.loadAgentSessions(sessionsDir, sessionId);
-          const correlated = this.replayService.correlateAgentId(toolCallId, mainMessages, agents);
+          const agents = await this.jsonlReader.loadAgentSessions(
+            sessionsDir,
+            sessionId,
+          );
+          const correlated = this.replayService.correlateAgentId(
+            toolCallId,
+            mainMessages,
+            agents,
+          );
           if (!correlated) continue;
-          resolvedId = correlated.startsWith('agent-') ? correlated.slice(6) : correlated;
+          resolvedId = correlated.startsWith('agent-')
+            ? correlated.slice(6)
+            : correlated;
         }
         if (!this.AGENT_ID_PATTERN.test(resolvedId)) {
           throw new SdkError('Invalid agent id');
         }
         const fileName = `agent-${resolvedId}.jsonl`;
-        const candidates = [path.join(nestedDir, fileName), path.join(sessionsDir, fileName)];
-        const workflowFile = await findWorkflowAgentTranscript(sessionId, resolvedId);
+        const candidates = [
+          path.join(nestedDir, fileName),
+          path.join(sessionsDir, fileName),
+        ];
+        const workflowFile = await findWorkflowAgentTranscript(
+          sessionId,
+          resolvedId,
+        );
         if (workflowFile) candidates.push(workflowFile);
         for (const candidate of candidates) {
           try {
@@ -218,13 +241,35 @@ export class SessionHistoryReaderService {
             throw error;
           }
           const messages = await this.jsonlReader.readJsonlMessages(candidate);
-          if (candidate === candidates[1] && messages[0]?.sessionId !== sessionId) continue;
-          const events = this.replayService.replayAgentToStreamEvents(sessionId, toolCallId, messages);
-          return { status: 'ok', agentId: resolvedId, ...retainSubagentEventsTail(events) };
+          if (
+            candidate === candidates[1] &&
+            messages[0]?.sessionId !== sessionId
+          )
+            continue;
+          const events = this.replayService.replayAgentToStreamEvents(
+            sessionId,
+            toolCallId,
+            messages,
+          );
+          return {
+            status: 'ok',
+            agentId: resolvedId,
+            ...retainSubagentEventsTail(events),
+          };
         }
-        return { status: 'not-found', agentId: resolvedId, events: [], truncated: false };
+        return {
+          status: 'not-found',
+          agentId: resolvedId,
+          events: [],
+          truncated: false,
+        };
       }
-      return { status: agentId ? 'not-found' : 'unresolved', agentId: agentId ?? null, events: [], truncated: false };
+      return {
+        status: agentId ? 'not-found' : 'unresolved',
+        agentId: agentId ?? null,
+        events: [],
+        truncated: false,
+      };
     } catch (error: unknown) {
       if (error instanceof SubagentHistoryValidationError) throw error;
       this.logger.warn('[SessionHistoryReader] Subagent history read failed', {
@@ -300,7 +345,10 @@ export class SessionHistoryReaderService {
   async readSessionHistory(
     sessionId: string,
     workspacePath: string,
-    options?: { checkCompactionBoundary?: boolean; includeBlockOwners?: boolean },
+    options?: {
+      checkCompactionBoundary?: boolean;
+      includeBlockOwners?: boolean;
+    },
   ): Promise<{
     events: FlatStreamEventUnion[];
     /**
@@ -315,9 +363,10 @@ export class SessionHistoryReaderService {
     syntheticToolResults?: Set<FlatStreamEventUnion>;
   }> {
     const checkCompactionBoundary = options?.checkCompactionBoundary ?? false;
-    const collector: HistoryReplayCollector | undefined = options?.includeBlockOwners
-      ? { blockOwners: new Map(), syntheticToolResults: new Set() }
-      : undefined;
+    const collector: HistoryReplayCollector | undefined =
+      options?.includeBlockOwners
+        ? { blockOwners: new Map(), syntheticToolResults: new Set() }
+        : undefined;
     let expectation: PendingExpectation | undefined;
     let staleSnapshot: true | undefined;
     // Slow-read attribution (TASK_2026_437 C13) — see session-history-read-timing.ts.

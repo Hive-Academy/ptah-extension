@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { signal } from '@angular/core';
+import { effect, signal } from '@angular/core';
 import type {
   FlatStreamEventUnion,
   MessageStartEvent,
@@ -123,6 +123,45 @@ describe('SubagentExecutionStore', () => {
     subagents.set(new Map([['agent-a', completed]]));
     TestBed.flushEffects();
     expect(store.entries().get('agent-a')?.live).toBe(false);
+  });
+
+  it('entryFor hands out a fresh view object per revision', () => {
+    store.claim(start('m'));
+    const before = store.entryFor('agent-a');
+    expect(before).toBeDefined();
+    // No publish between reads: the same revision, the same view object.
+    expect(store.entryFor('agent-a')).toBe(before);
+    store.claim(delta('m', 'tail', 'd1'));
+    const after = store.entryFor('agent-a');
+    // A computed consumer compares with Object.is, so a revision must
+    // produce a new reference or the template never re-renders.
+    expect(after).not.toBe(before);
+    expect(after?.state).toBe(before?.state);
+    expect(store.entryFor('agent-a')).toBe(after);
+  });
+
+  it('retain runs untracked, so a calling effect ignores monitor updates', () => {
+    const runs: number[] = [];
+    const marker = signal(0);
+    TestBed.runInInjectionContext(() => {
+      effect((onCleanup) => {
+        marker();
+        runs.push(runs.length);
+        store.retain('agent-a');
+        onCleanup(() => store.release('agent-a'));
+      });
+    });
+    TestBed.flushEffects();
+    expect(runs).toHaveLength(1);
+    // Before PR #751 review 4309313453, retain read the subagent map
+    // tracked, so this update re-ran the effect and its cleanup released
+    // the entry (aborting an in-flight history load).
+    subagents.set(new Map([['agent-b', record('agent-b')]]));
+    TestBed.flushEffects();
+    expect(runs).toHaveLength(1);
+    marker.set(1);
+    TestBed.flushEffects();
+    expect(runs).toHaveLength(2);
   });
 
   it('keeps root agent starts in the tab and claims owned and nested events', () => {
@@ -346,6 +385,34 @@ describe('SubagentExecutionStore', () => {
     expect(rpc.call).toHaveBeenCalledTimes(2);
     expect(store.entries().get('agent-a')?.history).toBe('idle');
     expect(store.entries().get('agent-a')?.state).toBeNull();
+  });
+
+  it('does not mark a history truncated for store-only events', async () => {
+    store.syncRecord(record('agent-a'));
+    rpc.call.mockResolvedValueOnce(
+      page([
+        start('m-h', 'agent-a'),
+        delta('m-h', 'saved', 'd-h', 'history'),
+        {
+          id: 'p-h',
+          eventType: 'agent_progress',
+          timestamp: 3,
+          sessionId,
+          messageId: 'm-h',
+          parentToolUseId: 'agent-a',
+          taskId: 'task',
+          description: 'Working',
+          totalTokens: 0,
+          toolUses: 0,
+          durationMs: 0,
+        },
+      ]),
+    );
+    await store.ensureHistory('agent-a');
+    expect(store.entries().get('agent-a')).toMatchObject({
+      history: 'loaded',
+      truncated: false,
+    });
   });
 
   it('reloads a loaded truncated entry on demand', async () => {
