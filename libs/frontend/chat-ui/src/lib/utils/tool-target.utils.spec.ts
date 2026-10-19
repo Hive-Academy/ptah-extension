@@ -148,9 +148,31 @@ describe('tool-target.utils', () => {
       [
         'Grep',
         { pattern: 'x', path: 'src/', glob: '*.ts', '-i': true },
-        ['in src/', '*.ts', '-i'],
+        ['in src/', '*.ts', 'ignore case'],
         ['path', 'glob', '-i'],
       ],
+      [
+        'Grep',
+        {
+          pattern: 'x',
+          output_mode: 'content',
+          head_limit: 15,
+          offset: 5,
+          '-n': true,
+          '-C': 3,
+          '-A': 1,
+          '-B': 2,
+        },
+        ['lines', 'first 15', 'skip 5', '±3 lines', '+1 after', '+2 before'],
+        ['output_mode', 'head_limit', 'offset', '-n', '-C', '-A', '-B'],
+      ],
+      [
+        'Grep',
+        { pattern: 'x', output_mode: 'files_with_matches', '-i': false },
+        [],
+        ['output_mode', '-i'],
+      ],
+      ['Grep', { pattern: 'x', output_mode: 'count' }, ['counts'], ['output_mode']],
       [
         'Agent',
         { description: 'd', prompt: 'p', subagent_type: 'frontend-developer' },
@@ -159,8 +181,27 @@ describe('tool-target.utils', () => {
       ],
       ['mcp__x__tool', { name: 'n'.repeat(50), id: 'abc' }, [], []],
       ['MysteryTool', undefined, [], []],
-    ] as const)('%s %j -> chips %j', (toolName, input, chips, keys) => {
-      expect(describeToolChips(toolName, input)).toEqual({ chips, keys });
+    ] as const)('%s %j -> chips %j', (toolName, input, labels, keys) => {
+      const result = describeToolChips(toolName, input);
+      expect(result.chips.map((chip) => chip.label)).toEqual(labels);
+      expect(result.keys).toEqual(keys);
+    });
+
+    it.each([
+      ['D:\\projects\\specs\\review.md', 'in review.md'],
+      ['/repo/libs/chat/', 'in chat/'],
+      ['src', 'in src'],
+    ])('names the search path %s by its last segment', (path, label) => {
+      expect(describeToolChips('Glob', { pattern: '*', path }).chips).toEqual([
+        { label, title: path },
+      ]);
+    });
+
+    it('shows no chip for an empty search path', () => {
+      expect(describeToolChips('Grep', { pattern: 'x', path: '' })).toEqual({
+        chips: [],
+        keys: ['path'],
+      });
     });
 
     it('consumes __parseError, which the header warning shows', () => {
