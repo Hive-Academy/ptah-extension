@@ -76,6 +76,28 @@ describe('parseLaneResult', () => {
     );
   });
 
+  it('keeps a " - " inside a backtick-quoted path', () => {
+    const file = parseLaneResult('WROTE: `notes/my - draft.md` - APPROVED')
+      ?.files[0];
+    expect(file?.path).toBe('notes/my - draft.md');
+    expect(file?.name).toBe('my - draft.md');
+    expect(file?.verdict).toBe('APPROVED');
+    expect(file?.tone).toBe('approved');
+  });
+
+  it('reads a backtick-quoted path with no verdict', () => {
+    const file = parseLaneResult('WROTE: `a/b - c.md`')?.files[0];
+    expect(file?.path).toBe('a/b - c.md');
+    expect(file?.verdict).toBe('');
+  });
+
+  it('leaves an indented-code WROTE line in the text', () => {
+    expect(
+      parseLaneResult('Reply like this:\n\n    WROTE: example.ts — APPROVED'),
+    ).toBeNull();
+    expect(parseLaneResult('Example:\n\n\tWROTE: example.ts')).toBeNull();
+  });
+
   it('takes a "Reported" line directly before the WROTE lines', () => {
     const result = parseLaneResult(
       [

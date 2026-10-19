@@ -47,6 +47,12 @@ const WROTE_PREFIX = /^WROTE:\s+/;
 const DASH_SEPARATOR = /\s+[—–]\s+/;
 /** An ASCII hyphen separator; the first one after the prefix wins. */
 const HYPHEN_SEPARATOR = /\s+-\s+/;
+/** A backtick-quoted path; a separator inside the quotes belongs to the path. */
+const QUOTED_PATH = /^`([^`]+)`/;
+/** The separator after a quoted path, when there is a verdict. */
+const LEADING_SEPARATOR = /^\s*(?:[—–]|-)\s*/;
+/** A markdown indented-code line: four spaces or a tab. */
+const INDENTED_CODE = /^(?: {4}|\t)/;
 const REPORTED_PREFIX = /^Reported to the spawning session:\s*/i;
 const FENCE_LINE = /^(`{3,}|~{3,})\s*([\w-]*)\s*$/;
 
@@ -60,6 +66,8 @@ export function parseLaneResult(text: string): LaneResult | null {
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i].trim();
     if (line === '') continue;
+    // An indented-code line is an example the lane quoted, not a result.
+    if (INDENTED_CODE.test(lines[i])) break;
     const file = parseWroteLine(line);
     if (!file) break;
     files.unshift(file);
@@ -80,6 +88,21 @@ export function parseLaneResult(text: string): LaneResult | null {
 function parseWroteLine(line: string): LaneResultFile | null {
   if (!WROTE_PREFIX.test(line)) return null;
   const rest = line.replace(WROTE_PREFIX, '');
+  const quoted = QUOTED_PATH.exec(rest);
+  if (quoted) {
+    const path = quoted[1].trim();
+    if (!path) return null;
+    const verdict = rest
+      .slice(quoted[0].length)
+      .replace(LEADING_SEPARATOR, '')
+      .trim();
+    return {
+      path,
+      name: lastSegment(path),
+      verdict,
+      tone: verdictTone(verdict),
+    };
+  }
   const separator = DASH_SEPARATOR.exec(rest) ?? HYPHEN_SEPARATOR.exec(rest);
   const rawPath = separator ? rest.slice(0, separator.index) : rest;
   const verdict = separator
