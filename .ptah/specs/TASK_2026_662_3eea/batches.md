@@ -1,6 +1,6 @@
 # Batches - TASK_2026_662_3eea
 
-Total tasks: 78 (72 + carry-over tasks 44.2, 65.2, 67.2, 53.2, 25.2, 44.3) | Batches: 72 (71 + fix-round batch 24a; +2 operational steps OP-1, OP-2) | Phases: 6 (A-F) | Complete: 28/72 (Phase C wave 1 in progress: 26, 30, 32 COMPLETE. Phase A 15/15 CLOSED: logic gate APPROVED after one fix round, 8360e7aca; style fixes verified in the round-2 re-review; visual review APPROVED 8/10. Phase B 10/10 CLOSED: batches 16-24 + 24a; fix round 82001de93, 24a ce95da1bf; code-logic APPROVED 8.5/10 round 2, visual APPROVED round 3)
+Total tasks: 79 (72 + carry-over tasks 44.2, 65.2, 67.2, 53.2, 25.2, 44.3, 57.2) | Batches: 72 (71 + fix-round batch 24a; +2 operational steps OP-1, OP-2) | Phases: 6 (A-F) | Complete: 30/72 (Phase C wave 1 in progress: 26, 30, 31, 32 COMPLETE; 27 COMPLETE with G2 deferred to batch 57 (O25a); Task 25.1 STOPPED, rerun per O24. Phase A 15/15 CLOSED: logic gate APPROVED after one fix round, 8360e7aca; style fixes verified in the round-2 re-review; visual review APPROVED 8/10. Phase B 10/10 CLOSED: batches 16-24 + 24a; fix round 82001de93, 24a ce95da1bf; code-logic APPROVED 8.5/10 round 2, visual APPROVED round 3)
 
 Worktree root (prefix every path below with it): `D:\projects\ptah-extension\.claude-worktrees\skill-synthesis-purge\`
 Branch: `refactor/skill-synthesis-purge`. Aliases (same as implementation-plan.md:153):
@@ -734,10 +734,13 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
 
 ### Next action:
 
-Phase B is CLOSED (see "Phase B review and fix round" at the end of Phase B). Start Phase C wave 1
-(C-W1): batches 26 (webview + SU gate), 30 (ptah-cli), 32 (vscode-core) in parallel, at most 3 lanes,
-scoped checks one at a time; then 25 (Task 25.1, then Task 25.2 as its own lane), 27, 28, 29 in order.
-Apply the O20 shared-fake gate rule (Batch defaults) to each brief before spawning.
+Rerun Task 25.1 (per O24), then Task 25.2, batch 28, batch 29, then the remaining Phase C waves.
+
+Phase C wave 1 is committed: 26 (65dab6e26), 30 (81f2533ca), 31 (65fec79e9), 32 (2629b316c), and 27
+(65c1d6654, G2 deferred to Task 57.2 per O25a). Task 25.1 stopped with no edit; rerun it on a CLI lane
+`Glm` with the chat caller added (O24) and the widened two-command gate in the Batch 25 header, run one
+after the other. Then Task 25.2 as its own lane, then 28 and 29 in order. Apply the O20 shared-fake gate
+rule (Batch defaults) to each brief before spawning. Phase C review is still due after batch 56.
 
 ---
 
@@ -1139,15 +1142,30 @@ Apply the O20 shared-fake gate rule (Batch defaults) to each brief before spawni
 
 # Phase C - cut consumers
 
-## Batch 25: Core Providers removes lanes/judging slices (R3) - PENDING
+## Batch 25: Core Providers removes lanes/judging slices (R3) - IN_PROGRESS
 
 - Phase: C | Executor: CLI lane Glm | Depends on: 16, 17, 18 | Tasks: 2 (25.1, 25.2)
-- Verification: `npx nx run-many -t test typecheck -p @ptah-extension/core @ptah-extension/chat --parallel=1`
+- Verification (Task 25.1, widened by O24/O20; run the two commands one after the other, never together):
+  `npx nx run-many -t test typecheck -p @ptah-extension/core @ptah-extension/chat @ptah-extension/memory-curator-ui @ptah-extension/setup-wizard --parallel=1`
+  then `npx nx run-many -t typecheck -p @ptah-extension/webview-e2e-harness --parallel=1` (the harness has
+  a typecheck target only; never run e2e). Task 25.2 keeps
+  `npx nx run-many -t test typecheck -p @ptah-extension/core @ptah-extension/chat --parallel=1`.
 - Precondition: chat no longer reads `lanes`/`judging` (the grep after batch 18 is zero).
+- Status 2026-10-19: first Task 25.1 run STOPPED before editing on a shared-contract hit (no file
+  changed). Report: `reports/batch-25-1-report.md`. Decision O24 widens Task 25.1 to the chat caller.
 
-### Task 25.1: Delete the lanes/judging slices, the `SkillLane*Dto` imports and the old judge/timeout keys from core - PENDING
+### Task 25.1: Delete the lanes/judging slices, the `SkillLane*Dto` imports and the old judge/timeout keys from core - IN_PROGRESS (rerun per O24)
 
-- Files: `libs/frontend/core/src/lib/services/providers-settings.types.ts`, `providers-settings-state.service.ts` + spec, `providers-commit.service.ts` + spec.
+- Files: `libs/frontend/core/src/lib/services/providers-settings.types.ts`, `providers-settings-state.service.ts` + spec, `providers-commit.service.ts` + spec;
+  added by O24: `libs/frontend/chat/src/lib/settings/ptah-ai/orchestration-settings.component.ts` + spec
+  (7 files across 2 projects: O24 keeps the writer and its only caller in one gate; the chat edit is a
+  one-call switch plus its fake and assertion).
+- O24 order: first switch `orchestration-settings.component.ts:164` `(timeoutSaved)="state.refreshJudging()"`
+  to `state.refreshEnhancement()` (already in core), and its spec fake (`:118`) and assertion (`:488`);
+  then remove the judging and lanes slices, their refresh methods and calls, the `SkillLane*Dto`
+  imports, the old judge/timeout keys and the lane section ids. Keep the `enhancement` slice, the
+  `skills.enhancement.provider/model/timeoutMs` keys and the S3 scope tests. After the batch,
+  `rg -n "refreshJudging" libs apps tools` has zero hits.
 - Plan reference: round-2 R3.
 - Pattern to follow: none beyond the finding.
 - Quality requirements: none beyond the finding.
@@ -1190,7 +1208,20 @@ Apply the O20 shared-fake gate rule (Batch defaults) to each brief before spawni
 - Validation notes: none beyond the plan row.
 - Implementation details: none beyond the plan row.
 
-## Batch 27: Library becomes the sole view; `/services` entry fix (R6) - PENDING
+## Batch 27: Library becomes the sole view; `/services` entry fix (R6) - COMPLETE (65c1d6654; partial, G2 deferred to batch 57 per O25a)
+
+- Verified 2026-10-19: gate PASS (`skill-synthesis-ui`, `thoth-shell`, `dashboard`, 3 projects). Five
+  files changed (tab component + spec, state service, `src/index.ts`, `src/services.ts`); the state spec
+  needed no edit. The Skills tab hosts the Library view, pause and telemetry switches, the diverged
+  deep link and the VS Code notice; the Recommended/Sessions/Activity/Settings subviews, the
+  candidate stat strip (O25c, plan row 24), curator/diagnostics controls and the old settings form are
+  gone. `rg 'getSettings|updateSettings'` on the state service and parent = 0 hits. The
+  `SkillSynthesisLiveService` barrel and `/services` exports are removed.
+- Deferred (O25a): G2 is still nonzero. `listSuggestions` (state `:571`) and the other candidate calls
+  stay because the orphan `suggestions/skill-suggestions-view.component.ts` and
+  `skill-synthesis-live.service.ts` are compiled by `tsconfig.lib.json` (`src/**/*.ts`) and use them.
+  Batch 57 Task 57.2 owns the cut. O25b: the Electron e2e assertion in
+  `message-handlers-eager.spec.ts:6,32,61,79` goes to batch 52. Report: `reports/batch-27-report.md`.
 
 - Phase: C | Executor: CLI lane Glm | Depends on: 19, 26 | Tasks: 1
 - Flags: UI (Recommended/Sessions/Activity tabs removed), EXCEPTION (dead-import removal inside skill-synthesis-ui)
@@ -1198,7 +1229,7 @@ Apply the O20 shared-fake gate rule (Batch defaults) to each brief before spawni
 - Precondition: G2 state `:463-581` and the parent still import orphan features. `src/services.ts:19`
   exports `SkillSynthesisLiveService`. The webview importer is cut (batch 26).
 
-### Task 27.1: Cut the orphan tab imports and removed-RPC calls; drop the live export - PENDING
+### Task 27.1: Cut the orphan tab imports and removed-RPC calls; drop the live export - COMPLETE (orphan state-API cut moved to Task 57.2)
 
 - Files: `SU/components/skill-synthesis-tab.component.ts` + spec, `SU/services/skill-synthesis-state.service.ts` + spec,
   `libs/frontend/skill-synthesis-ui/src/index.ts`, `libs/frontend/skill-synthesis-ui/src/services.ts`.
@@ -1247,8 +1278,8 @@ Apply the O20 shared-fake gate rule (Batch defaults) to each brief before spawni
 
 - Verified 2026-10-19: gate PASS on the committed tree. Shared-contract greps for the four named exports
   hit only the deleted files; `rg -F './commands/skill-synthesis.js' apps libs tools` = 0 hits. `skill`
-  and `skills` commands kept. Open gap (no owning batch): `apps/ptah-docs/src/content/docs/cli/commands.md:186`
-  still lists `ptah skill-synthesis`. Report: `reports/batch-30-report.md`.
+  and `skills` commands kept. Docs gap `apps/ptah-docs/src/content/docs/cli/commands.md:186`
+  (still lists `ptah skill-synthesis`) is owned by Task 56.1 per O23. Report: `reports/batch-30-report.md`.
 
 - Phase: C | Wave: C-W1 | Executor: CLI lane codex | Depends on: none in C | Tasks: 1
 - Verification: `npx nx run-many -t test typecheck -p ptah-cli --parallel=1`
@@ -1263,13 +1294,23 @@ Apply the O20 shared-fake gate rule (Batch defaults) to each brief before spawni
 - Validation notes: none beyond the plan row.
 - Implementation details: none beyond the plan row.
 
-## Batch 31: Electron IPC and CE host-profile exposure - PENDING
+## Batch 31: Electron IPC and CE host-profile exposure - COMPLETE (65fec79e9)
+
+- Verified 2026-10-19: gate PASS (`ptah-electron`, `cli-engine`, 2 projects). One file changed: the
+  `ipc-bridge.ts` window-availability comment no longer names the `skillSynthesis:event` boot push or
+  `SkillSynthesisLiveService`; the bridge had no method-specific dispatch entries. The listed
+  `apps/ptah-electron/src/ipc/rpc-host-profile.ts` and `cli-host-profile.spec.ts` do not exist; the real
+  files (`apps/ptah-electron/src/rpc-host-profile.ts:28`, `CE/rpc/cli-host-profile.ts:28`,
+  `CE/rpc/rpc-surface.spec.ts:79`) keep `skillSynthesis: true` and the namespace assertion because the
+  retained Library RPCs need them. No exported symbol removed. Left for their owners:
+  `ipc-bridge.window-availability.spec.ts:5,58` (batch 35) and the central baseline entries
+  (batches 40/41, 59). Report: `reports/batch-31-report.md`.
 
 - Phase: C | Executor: CLI lane codex | Depends on: 30 | Tasks: 1
 - Verification: `npx nx run-many -t test typecheck -p ptah-electron @ptah-extension/cli-engine --parallel=1`
 - Precondition: G14 the IPC host exposure lists obsolete methods.
 
-### Task 31.1: Remove the dead method exposure - PENDING
+### Task 31.1: Remove the dead method exposure - COMPLETE
 
 - Files: `apps/ptah-electron/src/ipc/ipc-bridge.ts`, `apps/ptah-electron/src/ipc/rpc-host-profile.ts`, `CE/rpc/cli-host-profile.ts` + spec.
 - Plan reference: plan row 28.
@@ -1657,7 +1698,9 @@ Apply the O20 shared-fake gate rule (Batch defaults) to each brief before spawni
 - Plan reference: plan row 49.
 - Pattern to follow: none beyond the plan row.
 - Quality requirements: none beyond the plan row.
-- Validation notes: none beyond the plan row.
+- Validation notes: added by O25b (2026-10-19): `thoth/message-handlers-eager.spec.ts:6,32,61,79` still
+  asserts the removed `SkillSynthesisLiveService` push (detached in batches 26/27). Remove those
+  assertions or retire the spec; the file is already in this task's list. Typecheck only, never run e2e.
 - Implementation details: none beyond the plan row.
 
 ## Batch 53: Tray home + TUI lifecycle fixtures - PENDING
@@ -1721,16 +1764,21 @@ Apply the O20 shared-fake gate rule (Batch defaults) to each brief before spawni
 ## Batch 56: Docs - skills, file locations, index - PENDING
 
 - Phase: C | Executor: CLI lane Glm | Depends on: 55 | Tasks: 1
-- Verification: `npx prettier --check apps/ptah-docs/src/content/docs/mcp-and-skills/skills.md apps/ptah-docs/src/content/docs/reference/file-locations.md apps/ptah-docs/src/content/docs/index.mdx`
+- Verification: `npx prettier --check apps/ptah-docs/src/content/docs/mcp-and-skills/skills.md apps/ptah-docs/src/content/docs/reference/file-locations.md apps/ptah-docs/src/content/docs/index.mdx apps/ptah-docs/src/content/docs/cli/commands.md`
 - Precondition: G9.
 
 ### Task 56.1: Archive and location rewrite - PENDING
 
-- Files: `apps/ptah-docs/src/content/docs/mcp-and-skills/skills.md`, `reference/file-locations.md`, `index.mdx`.
-- Plan reference: plan row 53.
+- Files: `apps/ptah-docs/src/content/docs/mcp-and-skills/skills.md`, `reference/file-locations.md`, `index.mdx`,
+  `cli/commands.md` (added by O23).
+- Plan reference: plan row 53; O23 for `cli/commands.md`.
 - Pattern to follow: none beyond the plan row.
 - Quality requirements: none beyond the plan row.
-- Validation notes: none beyond the plan row.
+- Validation notes: added by O23 (2026-10-19): `cli/commands.md:186` still lists `ptah skill-synthesis`
+  (list/get/promote/reject/invocations/stats), removed in batch 30 (81f2533ca). Delete that entry; keep
+  the `skill` and `skills` commands. O23 names "the Phase F docs batch"; the docs batches that edit the
+  Astro CLI/skills pages are 54-56 in Phase C (wave C-W4), and 56 is the one that edits
+  `mcp-and-skills/skills.md`, so it owns the file (4 files, under the cap). Docs-only.
 - Implementation details: none beyond the plan row.
 
 **Phase C review due after batch 56: code-logic + visual.**
@@ -1745,7 +1793,7 @@ pipeline tokens (batch 59) before SS registrations are removed (batch 60).
 
 ## Batch 57: SU obsolete subtree deletion - PENDING
 
-- Phase: D | Executor: CLI lane Glm | Depends on: 27, 28, 51 | Tasks: 1
+- Phase: D | Executor: CLI lane Glm | Depends on: 27, 28, 51, 52 (52 added for Task 57.2's e2e fake) | Tasks: 2 (57.1, 57.2 added by O25a)
 - Flags: UI (Library is the only view), EXCEPTION (deletion-only, SU/lib)
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/skill-synthesis-ui @ptah-extension/thoth-shell ptah-extension-webview @ptah-extension/dashboard --parallel=1`
 - Precondition: before deleting, `rg` over apps/libs/tools finds no importer of the selected files outside the selected set (R6 fixed in batch 27).
@@ -1759,8 +1807,28 @@ pipeline tokens (batch 59) before SS registrations are removed (batch 60).
 - Plan reference: plan row 56.
 - Pattern to follow: none beyond the plan row.
 - Quality requirements: keep the Library components, state, RPC facade, scorecards and pause switch.
-- Validation notes: no other file is edited.
+- Validation notes: no other file is edited by Task 57.1 except the `SkillSuggestionsViewComponent`
+  export line in `libs/frontend/skill-synthesis-ui/src/index.ts`, which goes with its file. The manifest
+  includes `components/suggestions/skill-suggestions-view.component.ts` + spec (O25a).
 - Implementation details: none beyond the plan row.
+
+### Task 57.2: Remove the orphan candidate state API (moved from batch 27 by O25a) - PENDING
+
+- Depends on: Task 57.1 (the orphan suggestions view and live service are deleted first).
+- Files: `SU/services/skill-synthesis-state.service.ts` + spec.
+- Plan reference: plan row 24 (G2); decisions O25a; `reports/batch-27-report.md`.
+- Quality requirements: remove `refreshSuggestions`/`listSuggestions` (state `:571`), `refreshCandidates`,
+  `loadStats`, `refreshDigest` and every other candidate/suggestion/diagnostics call and the signals only
+  they feed. Keep the pause and telemetry `settings:get`/`settings:set` helpers and whatever the Library
+  view, pause switch and dashboard still read. Shared-contract rule and O20: before removing a public
+  method or signal, `rg -n "SkillSynthesisStateService" libs apps --glob "*.spec.ts"` (batch 27 found
+  skill-synthesis-ui, thoth-shell, ptah-electron-e2e); every live hit is either in this batch's gate or
+  already cut (thoth-shell by batch 28, electron-e2e by batch 52), otherwise STOP.
+- Validation notes: after the batch, G2
+  `rg -n 'refreshSuggestions|listSuggestions|skill-diagnostics-rpc.service|skill-synthesis-live.service' libs/frontend/skill-synthesis-ui/src/lib`
+  has zero live hits. The RPC facade methods stay for batch 58.
+- File count: Task 57.1 is deletion-only (EXCEPTION); Task 57.2 adds 2 edited files in the same project
+  and the same gate.
 
 ## Batch 58: SU facade trim (R5 gate) - PENDING
 
