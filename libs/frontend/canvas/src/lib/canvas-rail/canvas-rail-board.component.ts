@@ -321,8 +321,9 @@ export class CanvasRailBoardComponent {
   private readonly parentActive = inject(SURFACE_ACTIVE, { optional: true }) ?? signal(true);
   /**
    * This board is the active workspace's AND the canvas surface is on screen.
-   * Single-chat mode keeps the canvas mounted but hidden, so `visible()` alone
-   * would let a focus repair call `switchTab` behind the user's back (C1).
+   * A standalone route keeps the canvas mounted but hidden (`*ptahRetainWhile`),
+   * so `visible()` alone would let a focus repair call `switchTab` behind the
+   * user's back (C1).
    */
   readonly surfaceActive = computed(() => this.visible() && this.parentActive());
   readonly announcement = signal('');

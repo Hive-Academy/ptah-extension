@@ -80,10 +80,7 @@ import { RAIL_TRANSCRIPT_RETENTION, SESSION_CONTEXT } from '../../tokens/session
 import { ChatViewComponent } from './chat-view.component';
 import { RailTranscriptRetentionCoordinator } from '../../services/rail-transcript-retention-coordinator.service';
 import { ChatStore } from '../../services/chat.store';
-import {
-  InspectorOpenStateService,
-  SessionInspectorStore,
-} from '../../services/session-inspector';
+import { SessionInspectorStore } from '../../services/session-inspector';
 import { ActionBannerService } from '../../services/action-banner.service';
 import { SessionHistoryReplayer } from '../../services/chat-store/session-history-replayer.service';
 import { HistoryPagingService } from '../../services/chat-store/history-paging.service';
@@ -480,7 +477,6 @@ function mountRail(
         provide: AppStateManager,
         useValue: {
           currentView: signal('chat'),
-          layoutMode: signal('single').asReadonly(),
           composerPrefillRequest: signal({
             seq: 0,
             text: '',
@@ -510,19 +506,12 @@ function mountRail(
           clearAuthRequiredBanner: jest.fn(),
         },
       },
-      // The inspector stays closed here: no deferred inspector chunk renders.
       {
         provide: SessionInspectorStore,
         useValue: {
-          // The session header and the toggle dot read the needs-you count.
+          // The compact card reads the needs-you count.
           modelFor: jest.fn(() => signal({ needsYouCount: 0 })),
-          reportAnswerMiss: jest.fn(),
-          clearAnswerMiss: jest.fn(),
         },
-      },
-      {
-        provide: InspectorOpenStateService,
-        useValue: { dockedOpen: () => false, setDocked: jest.fn() },
       },
       {
         provide: PlanLimitsStore,
