@@ -108,7 +108,7 @@ describe('PtahUiLaneLimitsSource', () => {
       {},
       { timeout: LANE_PLAN_LIMITS_TIMEOUT_MS },
     );
-    expect(LANE_PLAN_LIMITS_TIMEOUT_MS).toBe(10_000);
+    expect(LANE_PLAN_LIMITS_TIMEOUT_MS).toBe(15_000);
     expect(limits()).toEqual({ kind: 'available', ...FIXTURE });
     const value = limits();
     if (value.kind !== 'available') throw new Error('not available');

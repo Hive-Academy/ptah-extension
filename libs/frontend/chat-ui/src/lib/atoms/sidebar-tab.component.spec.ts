@@ -42,6 +42,26 @@ describe('SidebarTabComponent', () => {
     ).toBeGreaterThan(0);
   });
 
+  it('keeps the open label on base-content, not text-primary (WCAG 1.4.3)', () => {
+    const fixture = render({ isOpen: true, side: 'left' });
+    const label: HTMLElement =
+      fixture.nativeElement.querySelector('.tab-label');
+    expect(label.classList).toContain('text-base-content');
+    expect(label.classList).not.toContain('text-primary');
+
+    fixture.componentRef.setInput('isOpen', false);
+    fixture.detectChanges();
+    expect(label.classList).toContain('text-base-content-muted');
+    expect(label.classList).not.toContain('text-base-content');
+  });
+
+  it('insets the focus outline so the slot cannot clip it', () => {
+    const fixture = render({ isOpen: false, side: 'left' });
+    const button: HTMLButtonElement =
+      fixture.nativeElement.querySelector('button');
+    expect(button.classList).toContain('focus-visible:-outline-offset-2');
+  });
+
   it('uses sm width class when size=sm', () => {
     const fixture = render({ isOpen: false, side: 'right', size: 'sm' });
     const button = fixture.nativeElement.querySelector('button');

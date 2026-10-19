@@ -7,7 +7,11 @@
  *
  * - Left tabs: text reads bottom-to-top (transform: rotate(180deg))
  * - Right tabs: text reads top-to-bottom (default writing-mode)
- * - Active indicator line on the sidebar-facing edge when open
+ * - Active indicator line on the sidebar-facing edge when open; the open
+ *   label is full `base-content` (`text-primary` failed 4.5:1 on the tab in
+ *   both anubis themes), the closed label is `base-content-muted`
+ * - Focus outline is inset (`-outline-offset-2`) so a slot or a neighbouring
+ *   panel cannot clip it
  * - Optional badge dot for status indicators (warning/info/neutral)
  * - Optional "n new" text badge (`newCount`), also in the accessible name
  * - `aria-expanded` follows `isOpen`
@@ -49,7 +53,8 @@ import {
       type="button"
       class="group relative flex items-center justify-center h-full
              bg-base-200/60 hover:bg-base-300/80
-             transition-colors duration-200 cursor-pointer"
+             transition-colors duration-200 cursor-pointer
+             focus-visible:-outline-offset-2"
       [class.w-8]="size() === 'default'"
       [class.w-6]="size() === 'sm'"
       [class.border-l]="side() === 'right'"
@@ -75,7 +80,7 @@ import {
                text-[10px] font-semibold select-none transition-colors duration-200"
         [class.tab-label--flip]="side() === 'left'"
         [class.tab-label--sm]="size() === 'sm'"
-        [class.text-primary]="isOpen()"
+        [class.text-base-content]="isOpen()"
         [class.text-base-content-muted]="!isOpen()"
         [class.group-hover:text-base-content]="!isOpen()"
       >
