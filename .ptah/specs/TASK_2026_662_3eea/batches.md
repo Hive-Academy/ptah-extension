@@ -1,6 +1,6 @@
 # Batches - TASK_2026_662_3eea
 
-Total tasks: 78 (72 + carry-over tasks 44.2, 65.2, 67.2, 53.2, 25.2, 44.3) | Batches: 72 (71 + fix-round batch 24a; +2 operational steps OP-1, OP-2) | Phases: 6 (A-F) | Complete: 25/72 (Phase A 15/15 CLOSED: logic gate APPROVED after one fix round, 8360e7aca; style fixes verified in the round-2 re-review; visual review APPROVED 8/10. Phase B 10/10 CLOSED: batches 16-24 + 24a; fix round 82001de93, 24a ce95da1bf; code-logic APPROVED 8.5/10 round 2, visual APPROVED round 3)
+Total tasks: 78 (72 + carry-over tasks 44.2, 65.2, 67.2, 53.2, 25.2, 44.3) | Batches: 72 (71 + fix-round batch 24a; +2 operational steps OP-1, OP-2) | Phases: 6 (A-F) | Complete: 28/72 (Phase C wave 1 in progress: 26, 30, 32 COMPLETE. Phase A 15/15 CLOSED: logic gate APPROVED after one fix round, 8360e7aca; style fixes verified in the round-2 re-review; visual review APPROVED 8/10. Phase B 10/10 CLOSED: batches 16-24 + 24a; fix round 82001de93, 24a ce95da1bf; code-logic APPROVED 8.5/10 round 2, visual APPROVED round 3)
 
 Worktree root (prefix every path below with it): `D:\projects\ptah-extension\.claude-worktrees\skill-synthesis-purge\`
 Branch: `refactor/skill-synthesis-purge`. Aliases (same as implementation-plan.md:153):
@@ -1170,13 +1170,18 @@ Apply the O20 shared-fake gate rule (Batch defaults) to each brief before spawni
   the same verification command (it already gates `@ptah-extension/chat`). Phase C visual review
   re-checks the routing map Background roles node.
 
-## Batch 26: Webview cuts the live push provider - PENDING
+## Batch 26: Webview cuts the live push provider - COMPLETE (65dab6e26)
+
+- Verified 2026-10-19: gate PASS on the committed tree. Post-cut
+  `rg 'SkillSynthesisLiveService|skillSynthesis:event' apps/ptah-extension-webview` = 0 hits. No exported
+  symbol removed (provider usage only). Shared `SKILL_SYNTHESIS_EVENT` kept for batch 64. Report:
+  `reports/batch-26-report.md`.
 
 - Phase: C | Wave: C-W1 | Executor: CLI lane Glm | Depends on: 24 | Tasks: 1
 - Verification: `npx nx run-many -t test typecheck -p ptah-extension-webview @ptah-extension/skill-synthesis-ui --parallel=1`
 - Precondition: G4 `thoth-message-routing.spec.ts:174`. `app.config.ts:82` imports the live service from `/services`.
 
-### Task 26.1: Remove the MESSAGE_HANDLERS provider and its routing assertion - PENDING
+### Task 26.1: Remove the MESSAGE_HANDLERS provider and its routing assertion - COMPLETE
 
 - Files: `apps/ptah-extension-webview/src/app/app.config.ts`, `apps/ptah-extension-webview/src/app/thoth-message-routing.spec.ts`.
 - Plan reference: plan row 23.
@@ -1238,13 +1243,18 @@ Apply the O20 shared-fake gate rule (Batch defaults) to each brief before spawni
 - Validation notes: none beyond the plan row.
 - Implementation details: none beyond the plan row.
 
-## Batch 30: CLI candidate commands - PENDING
+## Batch 30: CLI candidate commands - COMPLETE (81f2533ca)
+
+- Verified 2026-10-19: gate PASS on the committed tree. Shared-contract greps for the four named exports
+  hit only the deleted files; `rg -F './commands/skill-synthesis.js' apps libs tools` = 0 hits. `skill`
+  and `skills` commands kept. Open gap (no owning batch): `apps/ptah-docs/src/content/docs/cli/commands.md:186`
+  still lists `ptah skill-synthesis`. Report: `reports/batch-30-report.md`.
 
 - Phase: C | Wave: C-W1 | Executor: CLI lane codex | Depends on: none in C | Tasks: 1
 - Verification: `npx nx run-many -t test typecheck -p ptah-cli --parallel=1`
 - Precondition: G14 the CLI candidate commands and router exist.
 
-### Task 30.1: Remove the commands, their specs and the e2e spec (never run e2e) - PENDING
+### Task 30.1: Remove the commands, their specs and the e2e spec (never run e2e) - COMPLETE
 
 - Files: `apps/ptah-cli/src/cli/commands/skill-synthesis.ts`, `skill-synthesis.spec.ts`, `skill-synthesis-extended.spec.ts` (delete), `apps/ptah-cli/src/cli/router.ts`, `apps/ptah-cli/tests/e2e/skill-synthesis.e2e.spec.ts` (delete).
 - Plan reference: plan row 27.
@@ -1268,13 +1278,17 @@ Apply the O20 shared-fake gate rule (Batch defaults) to each brief before spawni
 - Validation notes: none beyond the plan row.
 - Implementation details: none beyond the plan row.
 
-## Batch 32: vscode-core RPC comments - PENDING
+## Batch 32: vscode-core RPC comments - COMPLETE (2629b316c)
+
+- Verified 2026-10-19: gate PASS on the committed tree. One comment changed (`rpc-handler.ts:82`);
+  the file had no pipeline dispatch entries. `rg 'listCandidates|getCandidate' libs/backend/vscode-core`
+  = 0 hits. `skillSynthesis:` prefix kept. Report: `reports/batch-32-report.md`.
 
 - Phase: C | Wave: C-W1 | Executor: CLI lane codex | Depends on: none in C | Tasks: 1
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/vscode-core --parallel=1`
 - Precondition: G6.
 
-### Task 32.1: Remove the obsolete method comments and dispatch only; keep the namespace - PENDING
+### Task 32.1: Remove the obsolete method comments and dispatch only; keep the namespace - COMPLETE
 
 - Files: `libs/backend/vscode-core/src/messaging/rpc-handler.ts`.
 - Plan reference: plan row 29.
