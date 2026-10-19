@@ -1,4 +1,4 @@
-﻿# Batch 33 report
+# Batch 33 report
 
 ## Files deleted and tests removed
 

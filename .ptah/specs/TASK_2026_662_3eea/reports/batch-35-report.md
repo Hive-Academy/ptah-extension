@@ -1,4 +1,4 @@
-﻿# Batch 35 report
+# Batch 35 report
 
 ## Files changed
 

@@ -1,4 +1,4 @@
-﻿# Batch 37 report
+# Batch 37 report
 
 ## Pre-delete reference search
 

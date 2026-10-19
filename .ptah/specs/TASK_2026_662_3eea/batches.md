@@ -1653,14 +1653,14 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
 - Validation notes: none beyond the plan row.
 - Implementation details: none beyond the plan row.
 
-## Batch 50: Snapshot prune + archive dry-run scripts - PENDING
+## Batch 50: Snapshot prune + archive dry-run scripts - PARTIAL (2fc7c3987; export done, prune parked for OP-2, O34a)
 
 - Phase: C | Wave: C-W3 | Executor: CLI lane codex | Depends on: 15, 49 | Tasks: 1
 - Flags: WRITE-PATH (prune deletes history files only in apply mode; the archive dry-run writes an archive to a temp path from a DB copy)
 - Verification: `npx jest -c scripts/jest.config.ts scripts/prune-skill-history.spec.ts scripts/export-skill-pipeline-archive.spec.ts --coverage=false --maxWorkers=2`
 - Precondition: the provenance guard (batch 49) and the archive function (batch 15) exist.
 
-### Task 50.1: Prune with a dry-run manifest; archive dry-run for OP-1 - PENDING
+### Task 50.1: Prune with a dry-run manifest; archive dry-run for OP-1 - PARTIAL (prune draft in `drafts/`)
 
 - Files: `scripts/prune-skill-history.ts` + spec, `scripts/export-skill-pipeline-archive.ts` (new) + spec.
 - Plan reference: plan row 46; implementation-plan.md:124-129; context.md 2026-10-18 decision 3.
@@ -1688,13 +1688,13 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
 - Validation notes: none beyond the plan row.
 - Implementation details: none beyond the plan row.
 
-## Batch 52: Electron e2e fixtures (typecheck only) - PENDING
+## Batch 52: Electron e2e fixtures (typecheck only) - COMPLETE (63d403ef9; O34c)
 
 - Phase: C | Wave: C-W4 | Executor: CLI lane Glm | Depends on: 38 | Tasks: 1
 - Verification: `npx nx run-many -t typecheck -p ptah-electron-e2e --parallel=1`
 - Precondition: G9.
 
-### Task 52.1: Remove the pipeline fixtures; never run e2e - PENDING
+### Task 52.1: Remove the pipeline fixtures; never run e2e - COMPLETE
 
 - Files: `apps/ptah-electron-e2e/src/specs/thoth/{skills,skill-telemetry,message-handlers-eager}.spec.ts`, `dashboard/dashboard.spec.ts`, `support/{fixtures,skill-telemetry-db}.ts`.
 - Plan reference: plan row 49.
@@ -1715,6 +1715,7 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
 
 - Files: `apps/ptah-electron-e2e/src/specs/support/tray-home.ts`, `apps/ptah-tui/src/lib/thoth-lifecycle.spec.ts`.
   Added by O28b: `apps/ptah-tui/src/lib/thoth-lifecycle.ts:86` (stop reading `ThothRuntimeRefs.skillSynthesis`).
+  Added by O34c: `apps/ptah-electron-e2e/src/showcase/skills-tour.scene.ts` (still describes the removed Recommended view).
 - Plan reference: plan row 50.
 - Pattern to follow: none beyond the plan row.
 - Quality requirements: none beyond the plan row.
@@ -1734,13 +1735,13 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
   `npx nx run-many -t typecheck -p ptah-electron-e2e ptah-tui @ptah-extension/core --parallel=1`.
 - Implementation details: union member deletion only.
 
-## Batch 54: Docs - Library and success rewrite - PENDING
+## Batch 54: Docs - Library and success rewrite - COMPLETE (8b47a798c; O34d)
 
 - Phase: C | Wave: C-W4 | Executor: CLI lane Glm | Depends on: 24 | Tasks: 1
 - Verification: `npx prettier --check apps/ptah-docs/src/content/docs/skill-synthesis apps/ptah-docs/astro.config.mjs`
 - Precondition: G9.
 
-### Task 54.1: Rewrite the docs to the kept behavior only - PENDING
+### Task 54.1: Rewrite the docs to the kept behavior only - COMPLETE
 
 - Files: `apps/ptah-docs/src/content/docs/skill-synthesis/{index,how-it-works,background-learning,reviewing-candidates}.md*`.
 - Plan reference: plan row 51.
@@ -2036,6 +2037,9 @@ D3), but the user must see and confirm the archive before the drop. Do not commi
 - Flags: WRITE-PATH (archive file location, receipt)
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/persistence-sqlite --parallel=1`
 - Precondition: G12 no live SQL readers of the doomed tables outside the doomed SS files (deleted in 61)
+- Added by O34b: fix the batch 15 archive writer (`persistence-sqlite/src/lib/skill-pipeline-archive.ts`) before any
+  0057 drop: include the pipeline jobs' `scheduled_jobs` rows, and serialise Buffer values (vector blobs) as base64
+  with a reader that round-trips them; update the export script spec and the mcp-bench archive reader to match.
   and the immutable migrations.
 
 ### Task 67.1: Wire the archive into the connection service and db path - PENDING

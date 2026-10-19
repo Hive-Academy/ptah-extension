@@ -1,4 +1,4 @@
-﻿# Batch 22 report
+# Batch 22 report
 
 ## Changed files
 

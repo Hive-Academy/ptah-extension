@@ -1,4 +1,4 @@
-﻿# Task 25.2 report
+# Task 25.2 report
 
 Removed the unreachable `routing-background-more` conditional and list item from the Background roles routing map template. Replaced its absence assertion with an exact two-row assertion that checks the assigned Memory curator role and the following Enhancement role, leaving no extra `+N more` row.
 
