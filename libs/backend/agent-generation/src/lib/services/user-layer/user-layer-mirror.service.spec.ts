@@ -160,6 +160,48 @@ describe('UserLayerMirrorService.mirrorAll', () => {
     expect(second.skipped).toBe(1);
   });
 
+  it('does not grow history during repeated seeds and upstream-only fast-forwards', async () => {
+    const pluginPath = await seedPluginSkill(
+      'plugin-a',
+      'deep-research',
+      '# skill v1',
+    );
+    const commandSource = join(pluginPath, 'commands', 'review.md');
+    await mkdir(join(pluginPath, 'commands'), { recursive: true });
+    await writeFile(commandSource, '# command v1', 'utf8');
+    const sources = {
+      pluginPaths: [pluginPath],
+      synthesizedSkillsRoot: synthRoot,
+    };
+
+    await service.mirrorAll(sources);
+    await service.mirrorAll(sources);
+    expect(await service.listHistory('skill', 'deep-research')).toEqual([]);
+    expect(await service.listHistory('command', 'review')).toEqual([]);
+
+    for (const version of [2, 3]) {
+      await writeFile(
+        join(pluginPath, 'skills', 'deep-research', 'SKILL.md'),
+        `# skill v${version}`,
+        'utf8',
+      );
+      await writeFile(commandSource, `# command v${version}`, 'utf8');
+      const result = await service.reconcile(sources);
+      expect(result.fastForwarded).toBe(2);
+      await service.mirrorAll(sources);
+      expect(await service.listHistory('skill', 'deep-research')).toEqual([]);
+      expect(await service.listHistory('command', 'review')).toEqual([]);
+    }
+
+    const roots = service.getUserLayerRoots();
+    expect(
+      await readFile(join(roots.skills, 'deep-research', 'SKILL.md'), 'utf8'),
+    ).toBe('# skill v3');
+    expect(await readFile(join(roots.commands, 'review.md'), 'utf8')).toBe(
+      '# command v3',
+    );
+  });
+
   it('does not clobber a user-edited clone on re-run', async () => {
     const pluginPath = await seedPluginSkill(
       'plugin-a',

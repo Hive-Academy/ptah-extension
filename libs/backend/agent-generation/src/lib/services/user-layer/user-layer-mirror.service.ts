@@ -1524,7 +1524,6 @@ export class UserLayerMirrorService {
 
       const liveCloneHash = await computeSourceHash(cloneDir);
       if (liveCloneHash === sidecar.sourceHash) {
-        await this.snapshotDirToHistory(cloneDir);
         await this.clearCloneTrackedContent(cloneDir);
         await this.copyTree(sourceDir, cloneDir);
         await this.refreshSidecarDir(cloneDir, sidecar, liveSourceHash);
@@ -1586,7 +1585,6 @@ export class UserLayerMirrorService {
 
       const liveCloneHash = await computeSourceHash(cloneFile);
       if (liveCloneHash === sidecar.sourceHash) {
-        await this.snapshotFileToHistory(rootDir, slug, cloneFile);
         await this.copyFileAtomic(sourceFile, cloneFile);
         await this.refreshSidecarAt(sidecarPath, sidecar, liveSourceHash);
         result.fastForwarded += 1;
