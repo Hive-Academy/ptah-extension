@@ -177,7 +177,6 @@ export class SubagentTileComponent {
     return (
       this.record()?.latestSummary ||
       this.record()?.lastToolName ||
-      this.node().summaryContent ||
       this.node().agentDescription ||
       this.node().content
     );

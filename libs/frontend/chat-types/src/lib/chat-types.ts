@@ -32,21 +32,6 @@ export interface SendMessageOptions {
 }
 
 /**
- * Content block from agent JSONL file - preserves interleaved structure.
- * Mirrors the backend AgentContentBlock type for frontend usage.
- */
-export interface AgentContentBlock {
-  /** Block type - text for narrative, tool_ref for tool position marker */
-  type: 'text' | 'tool_ref';
-  /** Text content (only for type: 'text') */
-  text?: string;
-  /** Tool use ID for correlation with SDK events (only for type: 'tool_ref') */
-  toolUseId?: string;
-  /** Tool name (only for type: 'tool_ref') */
-  toolName?: string;
-}
-
-/**
  * Maps for tracking execution nodes during session operations.
  * Shared between session loading and streaming to maintain node references.
  */
@@ -91,22 +76,6 @@ export interface StreamingState {
 
   /** Accumulated tool input for input-json-delta events, keyed by tool call ID */
   toolInputAccumulators: Map<string, string>;
-
-  /**
-   * Accumulated agent summary content from real-time file watcher.
-   * Keyed by toolCallId (agent's tool use ID).
-   * Updated via AGENT_SUMMARY_CHUNK events from backend.
-   * @deprecated Use agentContentBlocksMap for proper interleaving
-   */
-  agentSummaryAccumulators: Map<string, string>;
-
-  /**
-   * Structured content blocks from agent file watcher.
-   * Preserves the interleaved structure of text and tool_use blocks.
-   * Keyed by agentId (stable across hook and complete events).
-   * Frontend uses this to interleave text nodes between tool nodes.
-   */
-  agentContentBlocksMap: Map<string, AgentContentBlock[]>;
 
   /** Current message ID being built during streaming */
   currentMessageId: string | null;
@@ -187,8 +156,6 @@ export function createEmptyStreamingState(): StreamingState {
     toolCallMap: new Map(),
     textAccumulators: new Map(),
     toolInputAccumulators: new Map(),
-    agentSummaryAccumulators: new Map(),
-    agentContentBlocksMap: new Map(),
     currentMessageId: null,
     currentTokenUsage: null,
     eventsByMessage: new Map(),
@@ -226,7 +193,7 @@ let __streamingCapWarned = false;
  *   in production; subsequent evictions are silent to avoid log spam.
  * - On eviction, dependent collections are cascade-cleaned so the evicted
  *   eventId never lingers in `eventsByMessage`, `toolCallMap`,
- *   `textAccumulators`, `agentContentBlocksMap`, `messageEventIds` or
+ *   `textAccumulators`, `messageEventIds` or
  *   `messageRevisions`. Empty parent keys are dropped. O(1) amortized: every
  *   cleanup operation indexes into a Map by the known relation key, no full
  *   scans (the one `indexOf` is over root message ids, not events).
@@ -489,14 +456,6 @@ function cascadeCleanForEvictedEvent(
       } else {
         state.toolCallMap.set(toolCallId, remaining);
       }
-    }
-  }
-
-  if (evicted.eventType === 'agent_start') {
-    const agentId = (evicted as { agentId?: string }).agentId;
-    if (agentId) {
-      state.agentContentBlocksMap.delete(agentId);
-      state.agentSummaryAccumulators.delete(agentId);
     }
   }
 }

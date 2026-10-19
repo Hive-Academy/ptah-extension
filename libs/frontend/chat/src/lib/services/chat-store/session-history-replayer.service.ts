@@ -53,7 +53,10 @@ import {
   StreamingHandlerService,
 } from '@ptah-extension/chat-streaming';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { PersistedContentFilter, type BlockSignature } from './persisted-content-filter';
+import {
+  PersistedContentFilter,
+  type BlockSignature,
+} from './persisted-content-filter';
 import { patchHistoryToolResult } from './history-tool-result-patch';
 import type { ToolResultEvent } from '@ptah-extension/shared';
 
@@ -92,7 +95,10 @@ interface BufferedLiveEvent {
 
 interface HistoryIndex {
   readonly history: Map<string, BlockSignature[]>;
-  readonly toolResults: Map<string, { output: unknown; isError: boolean; synthetic: boolean }>;
+  readonly toolResults: Map<
+    string,
+    { output: unknown; isError: boolean; synthetic: boolean }
+  >;
   readonly toolIds: Set<string>;
 }
 
@@ -172,7 +178,10 @@ export class SessionHistoryReplayer {
   private readonly filterInputs = new Map<number, PersistedFilterInputs>();
   private readonly historyIndexes = new Map<number, HistoryIndex>();
   private readonly persistedFilters = new Map<string, PersistedContentFilter>();
-  private readonly filterToolIds = new WeakMap<PersistedContentFilter, ReadonlySet<string>>();
+  private readonly filterToolIds = new WeakMap<
+    PersistedContentFilter,
+    ReadonlySet<string>
+  >();
   private readonly terminalFilters = new WeakSet<PersistedContentFilter>();
   private arrivalCounter = 0;
 
@@ -187,7 +196,11 @@ export class SessionHistoryReplayer {
    * the state the new resume is about to install, and its fence hold passes to
    * this claim.
    */
-  claim(tabId: string, sessionId: SessionId, liveSeed?: ReplayLiveSeed | (() => void)): ReplayClaim {
+  claim(
+    tabId: string,
+    sessionId: SessionId,
+    liveSeed?: ReplayLiveSeed | (() => void),
+  ): ReplayClaim {
     if (this.claims.has(tabId)) {
       this.streamingHandler.clearPendingUpdates(tabId);
       const previous = this.claims.get(tabId);
@@ -240,7 +253,11 @@ export class SessionHistoryReplayer {
 
   /** Hold a session fence while a resync waits for another load to finish. */
   reserveFence(sessionId: SessionId): FenceReservation {
-    const reservation = { sessionId, claim: ++this.claimCounter, released: false };
+    const reservation = {
+      sessionId,
+      claim: ++this.claimCounter,
+      released: false,
+    };
     const fence = this.getOrCreateFence(sessionId);
     fence.holders.add(reservation.claim);
     if (fence.overflowed) this.overflowedHolders.add(reservation.claim);
@@ -266,7 +283,10 @@ export class SessionHistoryReplayer {
   }
 
   /** Attach verified history ownership and the snapshot prefix boundary to a claim. */
-  setPersistedFilterInputs(claim: ReplayClaim, inputs: PersistedFilterInputs): void {
+  setPersistedFilterInputs(
+    claim: ReplayClaim,
+    inputs: PersistedFilterInputs,
+  ): void {
     if (this.isCurrent(claim)) this.filterInputs.set(claim.claim, inputs);
   }
 
@@ -279,7 +299,11 @@ export class SessionHistoryReplayer {
     try {
       filter.retire(!tab || tab.claudeSessionId !== filter.sessionId);
     } catch (error: unknown) {
-      this.logger.warn('SessionHistoryReplayer', 'persisted filter retirement failed', error);
+      this.logger.warn(
+        'SessionHistoryReplayer',
+        'persisted filter retirement failed',
+        error,
+      );
     }
   }
 
@@ -302,7 +326,11 @@ export class SessionHistoryReplayer {
     const { tabId } = claim;
     const chunkSize = SessionHistoryReplayer.REPLAY_CHUNK_SIZE;
     const chunked = events.length > chunkSize;
-    const index: HistoryIndex = { history: new Map(), toolResults: new Map(), toolIds: new Set() };
+    const index: HistoryIndex = {
+      history: new Map(),
+      toolResults: new Map(),
+      toolIds: new Set(),
+    };
     this.historyIndexes.set(claim.claim, index);
     this.markReplayStarted(claim);
     const admission = this.acquireReplayAdmission(tabId);
@@ -317,12 +345,10 @@ export class SessionHistoryReplayer {
         const end = Math.min(start + chunkSize, events.length);
         for (let index = start; index < end; index++) {
           const event = events[index];
-          this.streamingHandler.processStreamEvent(
-            event,
-            tabId,
-            sessionId,
-            { isReplay: true, fanOut: false },
-          );
+          this.streamingHandler.processStreamEvent(event, tabId, sessionId, {
+            isReplay: true,
+            fanOut: false,
+          });
           this.indexHistoryEvent(claim, event);
         }
         if (!chunked) continue;
@@ -334,21 +360,31 @@ export class SessionHistoryReplayer {
 
       const seed = this.seeds.get(claim.claim);
       const historyToolIds = this.historyIndexes.get(claim.claim)?.toolIds;
-      const seededSubagents = seed && typeof seed !== 'function'
-        ? seed.events.filter((event) =>
-            event.eventType === 'agent_start' && event.parentToolUseId &&
-            historyToolIds?.has(event.parentToolUseId))
-        : [];
+      const seededSubagents =
+        seed && typeof seed !== 'function'
+          ? seed.events.filter(
+              (event) =>
+                event.eventType === 'agent_start' &&
+                event.parentToolUseId &&
+                historyToolIds?.has(event.parentToolUseId),
+            )
+          : [];
       const historyState = seededSubagents?.length
         ? this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab.streamingState
         : undefined;
       this.streamingHandler.finalizeSessionHistory(tabId, resumableSubagents);
       if (seededSubagents?.length) {
         const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
-        const tools = new Map(events.filter((event) => event.eventType === 'tool_start')
-          .map((event) => [event.toolCallId, event] as const));
-        const starts = new Map(events.filter((event) => event.eventType === 'message_start')
-          .map((event) => [event.messageId, event] as const));
+        const tools = new Map(
+          events
+            .filter((event) => event.eventType === 'tool_start')
+            .map((event) => [event.toolCallId, event] as const),
+        );
+        const starts = new Map(
+          events
+            .filter((event) => event.eventType === 'message_start')
+            .map((event) => [event.messageId, event] as const),
+        );
         const owners = new Set<string>();
         for (const seeded of seededSubagents) {
           if (seeded.eventType !== 'agent_start') continue;
@@ -368,34 +404,56 @@ export class SessionHistoryReplayer {
             }
             toolId = start.parentToolUseId;
           }
-          if (!resolved) this.logger.warn('SessionHistoryReplayer',
-            'seeded subagent history owner not found', { parentToolUseId: seeded.parentToolUseId });
+          if (!resolved)
+            this.logger.warn(
+              'SessionHistoryReplayer',
+              'seeded subagent history owner not found',
+              { parentToolUseId: seeded.parentToolUseId },
+            );
         }
         if (historyState && owners.size) {
-          const missingOwnerIds = [...owners].filter((id) => !historyState.messageEventIds.includes(id));
+          const missingOwnerIds = [...owners].filter(
+            (id) => !historyState.messageEventIds.includes(id),
+          );
           for (const id of missingOwnerIds) owners.delete(id);
-          if (!owners.size) this.logger.warn('SessionHistoryReplayer',
-            'seeded subagent history owners missing from message events', { tabId, ownerIds: missingOwnerIds });
+          if (!owners.size)
+            this.logger.warn(
+              'SessionHistoryReplayer',
+              'seeded subagent history owners missing from message events',
+              { tabId, ownerIds: missingOwnerIds },
+            );
         }
         if (!owners.size || !historyState || !tab) {
-          if (owners.size) this.logger.warn('SessionHistoryReplayer',
-            'seeded subagent history state not found');
+          if (owners.size)
+            this.logger.warn(
+              'SessionHistoryReplayer',
+              'seeded subagent history state not found',
+            );
         } else {
           const messageIds = new Set(owners);
-          const ownerStarts = new Set([...starts.values()]
-            .filter((start) => owners.has(start.messageId)).map((start) => start.id));
-          const ownerPositions = historyState.messageEventIds
-            .flatMap((id, index) => owners.has(id) ? [index] : []);
+          const ownerStarts = new Set(
+            [...starts.values()]
+              .filter((start) => owners.has(start.messageId))
+              .map((start) => start.id),
+          );
+          const ownerPositions = historyState.messageEventIds.flatMap(
+            (id, index) => (owners.has(id) ? [index] : []),
+          );
           const firstOwner = Math.min(...ownerPositions);
           const lastOwner = Math.max(...ownerPositions);
-          for (const id of historyState.messageEventIds.slice(firstOwner + 1, lastOwner)) {
+          for (const id of historyState.messageEventIds.slice(
+            firstOwner + 1,
+            lastOwner,
+          )) {
             const start = starts.get(id);
-            if (start?.role === 'user' && !start.parentToolUseId) messageIds.add(id);
+            if (start?.role === 'user' && !start.parentToolUseId)
+              messageIds.add(id);
           }
           const resyncOwnerPredecessors = new Map<string, string | null>();
           let predecessor: string | null = null;
           for (const message of tab.messages) {
-            if (ownerStarts.has(message.id)) resyncOwnerPredecessors.set(message.id, predecessor);
+            if (ownerStarts.has(message.id))
+              resyncOwnerPredecessors.set(message.id, predecessor);
             else predecessor = message.id;
           }
           const toolIds = new Set<string>();
@@ -403,54 +461,100 @@ export class SessionHistoryReplayer {
           while (changed) {
             changed = false;
             for (const event of events) {
-              if (event.eventType === 'tool_start' && messageIds.has(event.messageId) &&
-                !toolIds.has(event.toolCallId)) {
+              if (
+                event.eventType === 'tool_start' &&
+                messageIds.has(event.messageId) &&
+                !toolIds.has(event.toolCallId)
+              ) {
                 toolIds.add(event.toolCallId);
                 changed = true;
               }
-              if (event.eventType === 'message_start' && event.parentToolUseId &&
-                toolIds.has(event.parentToolUseId) && !messageIds.has(event.messageId)) {
+              if (
+                event.eventType === 'message_start' &&
+                event.parentToolUseId &&
+                toolIds.has(event.parentToolUseId) &&
+                !messageIds.has(event.messageId)
+              ) {
                 messageIds.add(event.messageId);
                 changed = true;
               }
             }
           }
-          const belongs = (key: string): boolean => [...messageIds, ...toolIds].some(
-            (id) => key === id || key.startsWith(`${id}-`));
-          const filteredEvents = new Map([...historyState.events]
-            .filter(([, event]) => messageIds.has(event.messageId)));
-          let latestTodo: Extract<(typeof events)[number], { eventType: 'tool_start' }> | undefined;
+          const belongs = (key: string): boolean =>
+            [...messageIds, ...toolIds].some(
+              (id) => key === id || key.startsWith(`${id}-`),
+            );
+          const filteredEvents = new Map(
+            [...historyState.events].filter(([, event]) =>
+              messageIds.has(event.messageId),
+            ),
+          );
+          let latestTodo:
+            | Extract<(typeof events)[number], { eventType: 'tool_start' }>
+            | undefined;
           for (const event of filteredEvents.values()) {
-            if (event.eventType === 'tool_start' && event.toolName === 'TodoWrite' &&
-              !event.parentToolUseId && (!latestTodo || event.timestamp >= latestTodo.timestamp)) {
+            if (
+              event.eventType === 'tool_start' &&
+              event.toolName === 'TodoWrite' &&
+              !event.parentToolUseId &&
+              (!latestTodo || event.timestamp >= latestTodo.timestamp)
+            ) {
               latestTodo = event;
             }
           }
-          const todoInput = latestTodo && historyState.latestTodoWrite?.toolCallId === latestTodo.toolCallId
-            ? historyState.latestTodoWrite.input : latestTodo?.toolInput;
-          const orderedOwners = historyState.messageEventIds.filter((id) => owners.has(id));
+          const todoInput =
+            latestTodo &&
+            historyState.latestTodoWrite?.toolCallId === latestTodo.toolCallId
+              ? historyState.latestTodoWrite.input
+              : latestTodo?.toolInput;
+          const orderedOwners = historyState.messageEventIds.filter((id) =>
+            owners.has(id),
+          );
           const liveState = {
             ...historyState,
             resyncOwnerPredecessors,
             events: filteredEvents,
-            latestTodoWrite: latestTodo ? {
-              toolCallId: latestTodo.toolCallId,
-              timestamp: latestTodo.timestamp,
-              ...(todoInput && Object.keys(todoInput).length ? { input: todoInput } : {}),
-            } : undefined,
-            messageEventIds: historyState.messageEventIds.filter((id) => messageIds.has(id)),
-            toolCallMap: new Map([...historyState.toolCallMap]
-              .filter(([id]) => toolIds.has(id)).map(([id, ids]): [string, string[]] => [id, [...ids]])),
-            textAccumulators: new Map([...historyState.textAccumulators].filter(([key]) => belongs(key))),
-            toolInputAccumulators: new Map([...historyState.toolInputAccumulators].filter(([key]) => belongs(key))),
-            agentSummaryAccumulators: new Map([...historyState.agentSummaryAccumulators].filter(([key]) => belongs(key))),
-            agentContentBlocksMap: new Map([...historyState.agentContentBlocksMap]
-              .filter(([key]) => belongs(key)).map(([key, blocks]): [string, (typeof blocks)[number][]] => [key, [...blocks]])),
-            eventsByMessage: new Map([...historyState.eventsByMessage]
-              .filter(([id]) => messageIds.has(id)).map(([id, entries]): [string, (typeof entries)[number][]] => [id, [...entries]])),
+            latestTodoWrite: latestTodo
+              ? {
+                  toolCallId: latestTodo.toolCallId,
+                  timestamp: latestTodo.timestamp,
+                  ...(todoInput && Object.keys(todoInput).length
+                    ? { input: todoInput }
+                    : {}),
+                }
+              : undefined,
+            messageEventIds: historyState.messageEventIds.filter((id) =>
+              messageIds.has(id),
+            ),
+            toolCallMap: new Map(
+              [...historyState.toolCallMap]
+                .filter(([id]) => toolIds.has(id))
+                .map(([id, ids]): [string, string[]] => [id, [...ids]]),
+            ),
+            textAccumulators: new Map(
+              [...historyState.textAccumulators].filter(([key]) =>
+                belongs(key),
+              ),
+            ),
+            toolInputAccumulators: new Map(
+              [...historyState.toolInputAccumulators].filter(([key]) =>
+                belongs(key),
+              ),
+            ),
+            eventsByMessage: new Map(
+              [...historyState.eventsByMessage]
+                .filter(([id]) => messageIds.has(id))
+                .map(([id, entries]): [string, (typeof entries)[number][]] => [
+                  id,
+                  [...entries],
+                ]),
+            ),
             currentMessageId: orderedOwners.at(-1) ?? null,
           };
-          this.tabManager.setMessages(tabId, tab.messages.filter((message) => !ownerStarts.has(message.id)));
+          this.tabManager.setMessages(
+            tabId,
+            tab.messages.filter((message) => !ownerStarts.has(message.id)),
+          );
           this.tabManager.setStreamingState(tabId, liveState);
         }
       }
@@ -462,16 +566,22 @@ export class SessionHistoryReplayer {
     }
   }
 
-  private indexHistoryEvent(claim: ReplayClaim, event: FlatStreamEventUnion): void {
+  private indexHistoryEvent(
+    claim: ReplayClaim,
+    event: FlatStreamEventUnion,
+  ): void {
     const index = this.historyIndexes.get(claim.claim);
     if (!index) return;
     const inputs = this.filterInputs.get(claim.claim);
     const owner = inputs?.ownerByEvent?.get(event);
     if (owner) {
       let signature: BlockSignature | undefined;
-      if (event.eventType === 'text_delta') signature = { kind: 'text', value: event.delta };
-      else if (event.eventType === 'thinking_delta') signature = { kind: 'thinking', value: event.delta };
-      else if (event.eventType === 'tool_start') signature = { kind: 'tool', value: event.toolCallId };
+      if (event.eventType === 'text_delta')
+        signature = { kind: 'text', value: event.delta };
+      else if (event.eventType === 'thinking_delta')
+        signature = { kind: 'thinking', value: event.delta };
+      else if (event.eventType === 'tool_start')
+        signature = { kind: 'tool', value: event.toolCallId };
       if (signature) {
         const blocks = index.history.get(owner) ?? [];
         blocks.push(signature);
@@ -483,7 +593,10 @@ export class SessionHistoryReplayer {
       index.toolResults.set(event.toolCallId, {
         output: event.output,
         isError: event.isError,
-        synthetic: inputs?.syntheticResults === null || inputs?.syntheticResults === undefined || inputs.syntheticResults.has(event),
+        synthetic:
+          inputs?.syntheticResults === null ||
+          inputs?.syntheticResults === undefined ||
+          inputs.syntheticResults.has(event),
       });
     }
   }
@@ -717,7 +830,8 @@ export class SessionHistoryReplayer {
     deliver: (excludeTabIds?: ReadonlySet<string>) => void,
   ): boolean {
     const fence = this.findFence(event, tabId, sessionId);
-    if (!fence || fence.overflowed) return this.deliverAfterClose(event, sessionId, deliver);
+    if (!fence || fence.overflowed)
+      return this.deliverAfterClose(event, sessionId, deliver);
     if (
       fence.buffered.length >= SessionHistoryReplayer.LIVE_EVENT_FENCE_LIMIT
     ) {
@@ -743,7 +857,10 @@ export class SessionHistoryReplayer {
     sessionId: string | undefined,
     deliver: (excludeTabIds?: ReadonlySet<string>) => void,
   ): boolean {
-    const { excluded, consulted } = this.exclusions(event, sessionId ?? event.sessionId);
+    const { excluded, consulted } = this.exclusions(
+      event,
+      sessionId ?? event.sessionId,
+    );
     if (!consulted) return false;
     if (excluded.size > 0) deliver(excluded);
     else deliver();
@@ -793,20 +910,30 @@ export class SessionHistoryReplayer {
   }
 
   /** Drop `claim`'s hold, if its tab's hold is still this claim's. */
-  private closeFence(claim: ReplayClaim): readonly FlatStreamEventUnion[] | undefined {
+  private closeFence(
+    claim: ReplayClaim,
+  ): readonly FlatStreamEventUnion[] | undefined {
     const held = this.heldFences.get(claim.tabId);
     if (!held || held.claim !== claim.claim) return;
     const seed = this.seeds.get(claim.claim);
-    const needsBoundTab = seed !== undefined || this.filterInputs.has(claim.claim);
-    const tab = needsBoundTab ? this.tabManager.findTabByIdAcrossWorkspaces(claim.tabId)?.tab : undefined;
-    const valid = this.isCurrent(claim) && (!needsBoundTab || tab?.claudeSessionId === held.sessionId);
+    const needsBoundTab =
+      seed !== undefined || this.filterInputs.has(claim.claim);
+    const tab = needsBoundTab
+      ? this.tabManager.findTabByIdAcrossWorkspaces(claim.tabId)?.tab
+      : undefined;
+    const valid =
+      this.isCurrent(claim) &&
+      (!needsBoundTab || tab?.claudeSessionId === held.sessionId);
     let filterRegistrationFailed = false;
     try {
       if (valid && !this.overflowedHolders.has(claim.claim)) {
         try {
           this.registerPersistedFilter(claim, held.sessionId);
         } catch (error: unknown) {
-          console.warn('[SessionHistoryReplayer] persisted filter registration failed', error);
+          console.warn(
+            '[SessionHistoryReplayer] persisted filter registration failed',
+            error,
+          );
           this.retirePersistedFilter(claim.tabId);
           filterRegistrationFailed = true;
         }
@@ -823,18 +950,27 @@ export class SessionHistoryReplayer {
             let filter = this.persistedFilters.get(claim.tabId);
             const kept: FlatStreamEventUnion[] = [];
             for (const event of seed.events) {
-              if (!filter || !seed.liveSeedBlocks || !event.messageId ||
+              if (
+                !filter ||
+                !seed.liveSeedBlocks ||
+                !event.messageId ||
                 !Object.hasOwn(seed.liveSeedBlocks, event.messageId) ||
-                event.eventType === 'tool_result' || event.eventType === 'turn_state' ||
-                event.eventType.startsWith('compaction_') || event.eventType.startsWith('background_') ||
-                (event.eventType === 'message_start' && event.role === 'user')) {
+                event.eventType === 'tool_result' ||
+                event.eventType === 'turn_state' ||
+                event.eventType.startsWith('compaction_') ||
+                event.eventType.startsWith('background_') ||
+                (event.eventType === 'message_start' && event.role === 'user')
+              ) {
                 kept.push(event);
                 continue;
               }
               try {
                 if (filter.decide(event) === 'keep') kept.push(event);
               } catch (error: unknown) {
-                console.warn('[SessionHistoryReplayer] persisted filter failed; delivering seed', error);
+                console.warn(
+                  '[SessionHistoryReplayer] persisted filter failed; delivering seed',
+                  error,
+                );
                 this.retirePersistedFilter(claim.tabId);
                 filter = undefined;
                 kept.push(event);
@@ -844,7 +980,10 @@ export class SessionHistoryReplayer {
             return kept;
           }
         } catch (error: unknown) {
-          console.error('[SessionHistoryReplayer] live seed failed to apply', error);
+          console.error(
+            '[SessionHistoryReplayer] live seed failed to apply',
+            error,
+          );
         }
       }
     } finally {
@@ -857,45 +996,90 @@ export class SessionHistoryReplayer {
   private registerPersistedFilter(claim: ReplayClaim, sessionId: string): void {
     for (const [tabId, filter] of this.persistedFilters) {
       const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
-      if (!tab || tab.claudeSessionId !== filter.sessionId) this.retirePersistedFilter(tabId);
+      if (!tab || tab.claudeSessionId !== filter.sessionId)
+        this.retirePersistedFilter(tabId);
     }
     const inputs = this.filterInputs.get(claim.claim);
     const index = this.historyIndexes.get(claim.claim);
-    if (!inputs || !index ||
-      (index.history.size === 0 && index.toolIds.size === 0 && inputs.prefixMark === null)) return;
+    if (
+      !inputs ||
+      !index ||
+      (index.history.size === 0 &&
+        index.toolIds.size === 0 &&
+        inputs.prefixMark === null)
+    )
+      return;
     const seed = this.seeds.get(claim.claim);
     const seedEvents = seed && typeof seed !== 'function' ? seed.events : [];
-    if (seed && typeof seed !== 'function' && seedEvents.length === 0 &&
-      Object.keys(seed.liveSeedBlocks ?? {}).length === 0 && index.history.size === 0 &&
-      index.toolIds.size === 0) return;
-    const lastTurnState = [...seedEvents].reverse().find((event) => event.eventType === 'turn_state');
-    if (lastTurnState?.eventType === 'turn_state' && isTerminalTurnPhase(lastTurnState.phase)) return;
+    if (
+      seed &&
+      typeof seed !== 'function' &&
+      seedEvents.length === 0 &&
+      Object.keys(seed.liveSeedBlocks ?? {}).length === 0 &&
+      index.history.size === 0 &&
+      index.toolIds.size === 0
+    )
+      return;
+    const lastTurnState = [...seedEvents]
+      .reverse()
+      .find((event) => event.eventType === 'turn_state');
+    if (
+      lastTurnState?.eventType === 'turn_state' &&
+      isTerminalTurnPhase(lastTurnState.phase)
+    )
+      return;
     const seedMessageIds = new Set<string>();
     const seedBlockKeys = new Set<string>();
     for (const event of seedEvents) {
-      if (event.eventType === 'message_start') seedMessageIds.add(event.messageId);
-      if (event.eventType === 'text_delta' || event.eventType === 'thinking_delta' ||
-        event.eventType === 'thinking_start' || event.eventType === 'signature_delta') {
-        seedBlockKeys.add(`${event.messageId}|${event.eventType === 'text_delta' ? 'text' : 'thinking'}|${event.blockIndex}`);
-      } else if (event.eventType === 'tool_start' || event.eventType === 'tool_delta') {
+      if (event.eventType === 'message_start')
+        seedMessageIds.add(event.messageId);
+      if (
+        event.eventType === 'text_delta' ||
+        event.eventType === 'thinking_delta' ||
+        event.eventType === 'thinking_start' ||
+        event.eventType === 'signature_delta'
+      ) {
+        seedBlockKeys.add(
+          `${event.messageId}|${event.eventType === 'text_delta' ? 'text' : 'thinking'}|${event.blockIndex}`,
+        );
+      } else if (
+        event.eventType === 'tool_start' ||
+        event.eventType === 'tool_delta'
+      ) {
         seedBlockKeys.add(`${event.messageId}|tool|${event.toolCallId}`);
       }
     }
-    const seedStartK = new Map<string, number>(seed && typeof seed !== 'function'
-      ? Object.entries(seed.liveSeedBlocks ?? {}) : []);
+    const seedStartK = new Map<string, number>(
+      seed && typeof seed !== 'function'
+        ? Object.entries(seed.liveSeedBlocks ?? {})
+        : [],
+    );
     const tabId = claim.tabId;
     const filter = new PersistedContentFilter({
-      tabId, sessionId, history: index.history, historyToolResults: index.toolResults,
-      historyToolIds: index.toolIds, prefixMark: inputs.prefixMark, seedMessageIds,
-      seedStartK, seedBlockKeys,
-      deliverToTab: (event) => this.streamingHandler.processStreamEvent(event, tabId, sessionId, { fanOut: false }),
-      reconcileHistoryToolResult: (event) => this.reconcileHistoryToolResult(tabId, event),
+      tabId,
+      sessionId,
+      history: index.history,
+      historyToolResults: index.toolResults,
+      historyToolIds: index.toolIds,
+      prefixMark: inputs.prefixMark,
+      seedMessageIds,
+      seedStartK,
+      seedBlockKeys,
+      deliverToTab: (event) =>
+        this.streamingHandler.processStreamEvent(event, tabId, sessionId, {
+          fanOut: false,
+        }),
+      reconcileHistoryToolResult: (event) =>
+        this.reconcileHistoryToolResult(tabId, event),
     });
     this.filterToolIds.set(filter, index.toolIds);
     this.persistedFilters.set(tabId, filter);
   }
 
-  private reconcileHistoryToolResult(tabId: string, event: ToolResultEvent): boolean {
+  private reconcileHistoryToolResult(
+    tabId: string,
+    event: ToolResultEvent,
+  ): boolean {
     const tab = this.tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
     if (!tab) return false;
     const patched = patchHistoryToolResult(tab.messages, event);
@@ -903,8 +1087,16 @@ export class SessionHistoryReplayer {
       const hasNode = (node: ExecutionNode): boolean =>
         (node.type === 'tool' && node.toolCallId === event.toolCallId) ||
         node.children.some(hasNode);
-      if (tab.messages.some((message) => message.streamingState && hasNode(message.streamingState))) return true;
-      console.warn('[SessionHistoryReplayer] history tool result could not be reconciled');
+      if (
+        tab.messages.some(
+          (message) =>
+            message.streamingState && hasNode(message.streamingState),
+        )
+      )
+        return true;
+      console.warn(
+        '[SessionHistoryReplayer] history tool result could not be reconciled',
+      );
       return false;
     }
     this.tabManager.setMessages(tabId, [...patched]);
@@ -923,10 +1115,16 @@ export class SessionHistoryReplayer {
       const next = this.fences.get(held.sessionId);
       if (next && next !== fence) {
         const remaining = fence.buffered.slice(index + 1);
-        if (remaining.length + next.buffered.length > SessionHistoryReplayer.LIVE_EVENT_FENCE_LIMIT) {
+        if (
+          remaining.length + next.buffered.length >
+          SessionHistoryReplayer.LIVE_EVENT_FENCE_LIMIT
+        ) {
           next.overflowed = true;
           for (const holder of next.holders) this.overflowedHolders.add(holder);
-          this.deliverAll([...remaining, ...next.buffered.splice(0)], held.sessionId);
+          this.deliverAll(
+            [...remaining, ...next.buffered.splice(0)],
+            held.sessionId,
+          );
         } else {
           next.buffered.unshift(...remaining);
         }
@@ -936,24 +1134,38 @@ export class SessionHistoryReplayer {
   }
 
   /** One throwing delivery must not strand the events queued behind it. */
-  private deliverAll(deliveries: ReadonlyArray<BufferedLiveEvent>, sessionId: string): void {
+  private deliverAll(
+    deliveries: ReadonlyArray<BufferedLiveEvent>,
+    sessionId: string,
+  ): void {
     for (const entry of deliveries) this.deliverOne(entry, sessionId);
   }
 
-  private deliverOne(entry: BufferedLiveEvent, sessionId: string | undefined): void {
-      try {
-        const { excluded } = this.exclusions(entry.event, sessionId, entry.arrival);
-        if (excluded.size > 0) entry.deliver(excluded);
-        else entry.deliver();
-      } catch (error: unknown) {
-        console.error(
-          '[SessionHistoryReplayer] buffered live event failed to apply',
-          error,
-        );
-      }
+  private deliverOne(
+    entry: BufferedLiveEvent,
+    sessionId: string | undefined,
+  ): void {
+    try {
+      const { excluded } = this.exclusions(
+        entry.event,
+        sessionId,
+        entry.arrival,
+      );
+      if (excluded.size > 0) entry.deliver(excluded);
+      else entry.deliver();
+    } catch (error: unknown) {
+      console.error(
+        '[SessionHistoryReplayer] buffered live event failed to apply',
+        error,
+      );
+    }
   }
 
-  private exclusions(event: FlatStreamEventUnion, sessionId: string | undefined, arrival?: number): { excluded: Set<string>; consulted: boolean } {
+  private exclusions(
+    event: FlatStreamEventUnion,
+    sessionId: string | undefined,
+    arrival?: number,
+  ): { excluded: Set<string>; consulted: boolean } {
     const excluded = new Set<string>();
     let consulted = false;
     for (const [tabId, filter] of this.persistedFilters) {
@@ -963,21 +1175,29 @@ export class SessionHistoryReplayer {
         this.retirePersistedFilter(tabId);
         continue;
       }
-      if (this.terminalFilters.has(filter) &&
+      if (
+        this.terminalFilters.has(filter) &&
         (event.eventType !== 'tool_result' ||
-          !this.filterToolIds.get(filter)?.has(event.toolCallId))) continue;
+          !this.filterToolIds.get(filter)?.has(event.toolCallId))
+      )
+        continue;
       consulted = true;
       let decision: ReturnType<PersistedContentFilter['decide']>;
       try {
         decision = filter.decide(event, arrival);
       } catch (error: unknown) {
-        console.warn('[SessionHistoryReplayer] persisted filter failed; delivering live event', error);
+        console.warn(
+          '[SessionHistoryReplayer] persisted filter failed; delivering live event',
+          error,
+        );
         this.retirePersistedFilter(tabId);
         continue;
       }
       if (decision !== 'keep') excluded.add(tabId);
-      if (event.eventType === 'compaction_complete' ||
-        (event.eventType === 'turn_state' && isTerminalTurnPhase(event.phase))) {
+      if (
+        event.eventType === 'compaction_complete' ||
+        (event.eventType === 'turn_state' && isTerminalTurnPhase(event.phase))
+      ) {
         this.terminalFilters.add(filter);
       }
     }

@@ -353,22 +353,6 @@ export class ChatStore {
     this.compaction.clearCompactionStateForTab(tabId);
   }
 
-  /** Route an agent-summary chunk to the correct tab. Delegates to ChatLifecycleService. */
-  handleAgentSummaryChunk(payload: {
-    toolUseId: string;
-    summaryDelta: string;
-    agentId: string;
-    sessionId: string;
-    contentBlocks?: Array<{
-      type: 'text' | 'tool_ref';
-      text?: string;
-      toolUseId?: string;
-      toolName?: string;
-    }>;
-  }): void {
-    this.lifecycle.handleAgentSummaryChunk(payload);
-  }
-
   async abortCurrentMessage(): Promise<void> {
     return this.conversation.abortCurrentMessage();
   }

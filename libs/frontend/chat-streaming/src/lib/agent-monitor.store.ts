@@ -555,6 +555,12 @@ export interface SubagentRecord {
   agentType?: string;
   /** Latest description from progress/status events */
   description?: string;
+  /**
+   * The task the agent was started with (`AgentStartEvent.agentDescription`).
+   * Only `agent_start` writes it; progress and status events, which overwrite
+   * `description` with the latest activity, carry it unchanged.
+   */
+  taskDescription?: string;
   /** AI-generated rolling summary from progress events (most recent) */
   latestSummary?: string;
   /** Most recent tool name reported by progress events */
@@ -2023,6 +2029,7 @@ export class AgentMonitorStore implements OnDestroy {
         teammateName: event.teammateName ?? existing?.teammateName,
         agentType: event.agentType || existing?.agentType,
         description: event.agentDescription ?? existing?.description,
+        taskDescription: event.agentDescription ?? existing?.taskDescription,
         latestSummary: existing?.latestSummary,
         lastToolName: existing?.lastToolName,
         status:
@@ -2129,6 +2136,7 @@ export class AgentMonitorStore implements OnDestroy {
         teammateName: existing?.teammateName,
         agentType: existing?.agentType,
         description: event.description ?? existing?.description,
+        taskDescription: existing?.taskDescription,
         latestSummary: event.summary ?? existing?.latestSummary,
         lastToolName: event.lastToolName ?? existing?.lastToolName,
         status: existing?.status ?? 'running',
@@ -2170,6 +2178,7 @@ export class AgentMonitorStore implements OnDestroy {
         teammateName: existing?.teammateName,
         agentType: existing?.agentType,
         description: event.description ?? existing?.description,
+        taskDescription: existing?.taskDescription,
         latestSummary: existing?.latestSummary,
         lastToolName: existing?.lastToolName,
         status: event.status,
@@ -2211,6 +2220,7 @@ export class AgentMonitorStore implements OnDestroy {
         teammateName: existing?.teammateName,
         agentType: existing?.agentType,
         description: existing?.description,
+        taskDescription: existing?.taskDescription,
         latestSummary: event.summary ?? existing?.latestSummary,
         lastToolName: existing?.lastToolName,
         status: event.status,

@@ -354,7 +354,6 @@ describe('collectTurnAgentFacts', () => {
         content: SENTINEL,
         agentPrompt: SENTINEL,
         agentDescription: SENTINEL,
-        summaryContent: SENTINEL,
         error: SENTINEL,
         toolInput: { prompt: SENTINEL },
         toolOutput: SENTINEL,

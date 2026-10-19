@@ -466,6 +466,74 @@ describe('AgentMonitorStore', () => {
     });
   });
 
+  describe('subagent taskDescription', () => {
+    const base = {
+      parentToolUseId: 'toolu_task',
+      taskId: 't-task',
+      sessionId: 'sess-1',
+      timestamp: 1,
+    };
+
+    it.each(['stream', 'history'] as const)(
+      'keeps the %s agent_start description while progress overwrites description',
+      (source) => {
+        store.onAgentStart({
+          ...base,
+          eventType: 'agent_start',
+          id: 'a',
+          toolCallId: 'toolu_task',
+          agentType: 'Explore',
+          agentDescription: 'Map the store reducers',
+          source,
+        } as AgentStartEvent);
+        store.onAgentProgress({
+          ...base,
+          eventType: 'agent_progress',
+          id: 'p',
+          description: 'Reading agent-monitor.store.ts',
+          totalTokens: 10,
+          toolUses: 1,
+          durationMs: 5,
+        } as AgentProgressEvent);
+        expect(store.getSubagent('toolu_task')).toMatchObject({
+          description: 'Reading agent-monitor.store.ts',
+          taskDescription: 'Map the store reducers',
+        });
+        store.onAgentStatus({
+          ...base,
+          eventType: 'agent_status',
+          id: 's',
+          status: 'running',
+          description: 'Still reading',
+        } as AgentStatusEvent);
+        store.onAgentCompleted({
+          ...base,
+          eventType: 'agent_completed',
+          id: 'c',
+          status: 'completed',
+          summary: 'ok',
+        } as AgentCompletedEvent);
+        expect(store.getSubagent('toolu_task')).toMatchObject({
+          description: 'Still reading',
+          taskDescription: 'Map the store reducers',
+        });
+      },
+    );
+
+    it('leaves taskDescription unset when the start carries no description', () => {
+      store.onAgentProgress({
+        ...base,
+        eventType: 'agent_progress',
+        id: 'p',
+        description: 'Progress only',
+        totalTokens: 1,
+        toolUses: 0,
+        durationMs: 1,
+      } as AgentProgressEvent);
+      expect(store.getSubagent('toolu_task')?.taskDescription).toBeUndefined();
+    });
+  });
+
   describe('onBackgroundAgentStarted (identity merge)', () => {
     const T = 'toolu_bg_named';
     const S = 'sess-bg';

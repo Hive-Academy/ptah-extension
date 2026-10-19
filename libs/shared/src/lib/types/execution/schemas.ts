@@ -67,7 +67,6 @@ export const ExecutionNodeSchema: z.ZodType<ExecutionNode> = z.lazy(() =>
     agentModel: z.string().optional(),
     agentDescription: z.string().optional(),
     agentPrompt: z.string().optional(),
-    summaryContent: z.string().optional(),
     startTime: z.number().optional(),
     endTime: z.number().optional(),
     duration: z.number().optional(),

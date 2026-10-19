@@ -77,37 +77,7 @@ export function buildAgentNode(
       effectiveAgentId = bestHookMatch.agentId;
     }
   }
-  const contentBlocks = effectiveAgentId
-    ? state.agentContentBlocksMap.get(effectiveAgentId) || []
-    : [];
-  const summaryContent = effectiveAgentId
-    ? state.agentSummaryAccumulators.get(effectiveAgentId) || undefined
-    : undefined;
   const stableAgentId = `agent:${toolCallId}`;
-
-  let finalChildren: ExecutionNode[];
-
-  if (contentBlocks.length > 0) {
-    finalChildren = buildInterleavedChildren(
-      stableAgentId,
-      agentStart.timestamp,
-      contentBlocks,
-      agentChildren,
-    );
-  } else if (summaryContent && summaryContent.trim()) {
-    finalChildren = [...agentChildren];
-    const summaryTextNode = createExecutionNode({
-      id: `${stableAgentId}-summary-text`,
-      type: 'text',
-      status: 'complete',
-      content: summaryContent,
-      children: [],
-      startTime: agentStart.timestamp,
-    });
-    finalChildren.unshift(summaryTextNode);
-  } else {
-    finalChildren = [...agentChildren];
-  }
   const stats = deps.agentStats.aggregateAgentStats(toolCallId, state, indexes);
   const hasTaskToolResult = indexes.toolResultByCallId.has(toolCallId);
 
@@ -118,7 +88,7 @@ export function buildAgentNode(
     type: 'agent',
     status: hasTaskToolResult ? 'complete' : 'streaming',
     content: agentStart.agentDescription || '',
-    children: finalChildren,
+    children: [...agentChildren],
     startTime: agentStart.timestamp,
     agentType: agentStart.agentType,
     agentDescription: agentStart.agentDescription,
@@ -128,64 +98,4 @@ export function buildAgentNode(
     model: stats.agentModel,
     ...(isBackground ? { isBackground: true } : {}),
   });
-}
-
-/**
- * Build interleaved children from structured content blocks.
- * Content blocks preserve original order: [text, tool_ref, text, tool_ref, ...]
- */
-export function buildInterleavedChildren(
-  agentId: string,
-  baseTimestamp: number,
-  contentBlocks: Array<{
-    type: 'text' | 'tool_ref';
-    text?: string;
-    toolUseId?: string;
-    toolName?: string;
-  }>,
-  toolChildren: ExecutionNode[],
-): ExecutionNode[] {
-  const result: ExecutionNode[] = [];
-  let textIndex = 0;
-
-  const toolMap = new Map<string, ExecutionNode>();
-  for (const tool of toolChildren) {
-    if (tool.toolCallId) {
-      toolMap.set(tool.toolCallId, tool);
-    }
-  }
-
-  const addedToolIds = new Set<string>();
-
-  for (const block of contentBlocks) {
-    if (block.type === 'text' && block.text) {
-      const textNode = createExecutionNode({
-        id: `${agentId}-text-${textIndex++}`,
-        type: 'text',
-        status: 'complete',
-        content: block.text,
-        children: [],
-        startTime: baseTimestamp + textIndex,
-      });
-      result.push(textNode);
-    } else if (block.type === 'tool_ref' && block.toolUseId) {
-      const toolNode = toolMap.get(block.toolUseId);
-      if (toolNode) {
-        result.push(toolNode);
-        addedToolIds.add(block.toolUseId);
-      } else {
-        console.debug(
-          '[ExecutionTreeBuilder] tool_ref not found in toolChildren:',
-          { toolUseId: block.toolUseId, toolName: block.toolName },
-        );
-      }
-    }
-  }
-  for (const tool of toolChildren) {
-    if (tool.toolCallId && !addedToolIds.has(tool.toolCallId)) {
-      result.push(tool);
-    }
-  }
-
-  return result;
 }
