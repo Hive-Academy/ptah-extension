@@ -13,6 +13,8 @@ export {
  */
 export { AwaitingBackgroundIndicatorComponent } from './lib/atoms/awaiting-background-indicator/awaiting-background-indicator.component';
 export { CopyButtonComponent } from './lib/atoms/copy-button.component';
+export { ReportResponseButtonComponent } from './lib/atoms/report-response-button.component';
+export { extractMessageText } from './lib/atoms/message-text';
 export { CostBadgeComponent } from './lib/atoms/cost-badge.component';
 export { DurationBadgeComponent } from './lib/atoms/duration-badge.component';
 export { ElectronResizeHandleComponent } from './lib/atoms/electron-resize-handle.component';
