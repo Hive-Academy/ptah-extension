@@ -19,6 +19,8 @@ describe('CommandDockComponent', () => {
     expect(dock.getAttribute('role')).toBe('group');
     expect(dock.querySelectorAll('ptah-command-voice-hud')).toHaveLength(1);
     expect(dock.querySelectorAll('ptah-command-session-controls')).toHaveLength(1);
+    expect(dock.querySelector('.session-support')).not.toBeNull();
+    expect(dock.querySelector('.command-entry .session-support')).toBeNull();
     const styles = commandDockStyles;
     const [desktop, narrowAndMobile] = styles.split('@container (max-width: 1100px)');
     const [narrow, mobileAndMotion] = narrowAndMobile.split('@container (max-width: 720px)');
@@ -29,18 +31,22 @@ describe('CommandDockComponent', () => {
     expect(desktop).toContain('.command-entry { grid-row: 1; grid-column: 3;');
     expect(desktop).toContain('.session-actions > button:first-child { grid-row: 1; grid-column: 4;');
     expect(desktop).toContain('.session-new { grid-row: 1; grid-column: 5;');
-    expect(desktop).toContain('.voice-recovery { grid-column: 1 / -1; grid-row: 2;');
+    expect(desktop).toContain('.session-support { grid-column: 1 / -1; grid-row: 2;');
+    expect(desktop).toContain('.voice-recovery { grid-column: 1 / -1; grid-row: 3;');
 
     expect(narrow).toContain('.voice-identity { grid-row: 1; grid-column: 1 / -1;');
     expect(narrow).toContain('.voice-actions { grid-row: 2; grid-column: 1;');
     expect(narrow).toContain('.session-actions > button:first-child { grid-row: 2; grid-column: 2;');
     expect(narrow).toContain('.session-new { grid-row: 2; grid-column: 3;');
     expect(narrow).toContain('.command-entry { grid-row: 3; grid-column: 1 / -1;');
+    expect(narrow).toContain('.session-support { grid-row: 4;');
+    expect(narrow).toContain('.voice-recovery { grid-row: 5;');
 
     expect(mobile).toContain('.command-dock { grid-template-columns: minmax(0, 1fr) auto;');
     expect(mobile).toContain('.session-new { grid-row: 4; grid-column: 1 / -1; width: 100%;');
     expect(mobile).toContain('.command-entry { grid-row: 3;');
-    expect(mobile).toContain('.voice-recovery { grid-row: 5;');
+    expect(mobile).toContain('.session-support { grid-row: 5;');
+    expect(mobile).toContain('.voice-recovery { grid-row: 6;');
   });
 
   it('forwards Start new, Status, send and all voice outputs', () => {

@@ -153,6 +153,8 @@ describe('CommandVoiceHudComponent', () => {
     expect(start.disabled).toBe(false);
     expect(muteButton.disabled).toBe(true);
     expect(stop.disabled).toBe(false);
+    expect(muteButton.className).toContain('btn-outline');
+    expect(stop.className).toContain('btn-outline');
     muteButton.click();
     expect(mute).not.toHaveBeenCalled();
   });

@@ -50,9 +50,9 @@ import type { CommandProviderReadiness, CommandVoiceError, CommandVoiceState } f
             }
           </div>
         }
-        <button type="button" class="btn btn-ghost min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+        <button type="button" class="btn btn-sm btn-outline min-h-11 disabled:border-base-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
           [disabled]="!canMute()" (click)="toggleMute.emit()">{{ muted() ? 'Unmute' : 'Mute' }}</button>
-        <button type="button" class="btn btn-ghost min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+        <button type="button" class="btn btn-sm btn-outline min-h-11 disabled:border-base-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
           [disabled]="!canStopTurn()" (click)="stop.emit()">Stop</button>
         @if (voiceState() === 'speaking') {
           <button type="button" class="btn btn-ghost min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"

@@ -536,10 +536,24 @@ describe('CommandCenterPageComponent', () => {
     );
     const rail = styles.match(/\.rail[^{}]*\{([^}]*)\}/)?.[1];
     const workList = styles.match(/^\.work-list-region\s*\{([^}]*)\}/m)?.[1];
+    const workListHost = styles.match(/^\.work-list-region > ptah-command-work-list\s*\{([^}]*)\}/m)?.[1];
+    const narrow = styles.split('@container (max-width: 720px)')[1];
+    expect(rail).toContain('display: flex');
+    expect(rail).toContain('flex-direction: column');
     expect(rail).toContain('overflow-y: auto');
+    expect(workList).toContain('display: flex');
+    expect(workList).toContain('flex-direction: column');
     expect(workList).toContain('flex: 1 1 auto');
     expect(workList).toContain('min-height: 7rem');
     expect(workList).toContain('overflow-y: auto');
+    expect(workListHost).toContain('display: flex');
+    expect(workListHost).toContain('flex: 1 1 auto');
+    expect(workListHost).toContain('min-height: 0');
+    expect(narrow).toContain('.layout { display: flex; flex: none; flex-direction: column; }');
+    expect(narrow).toContain('.stage-column, .dock, .rail { flex: none; width: 100%; }');
+    expect(narrow).toContain('.stage { min-height: 500px; }');
+    expect(narrow).toContain('.work-list-region { display: block; flex: none; max-height: 24rem; }');
+    expect(narrow).toContain('.work-list-region > ptah-command-work-list { display: block; min-height: auto; }');
     fixture.destroy();
   });
 
@@ -555,6 +569,11 @@ describe('CommandCenterPageComponent', () => {
     expect(css).toContain('336px');
     expect(css).toContain('padding: 16px 22px 22px');
     expect(css).toContain('row-gap: 14px');
+    expect(css).toContain('flex: 1 1 auto; min-height: 0');
+    expect(css).toContain('grid-template-rows: minmax(600px, 1fr) auto');
+    expect(css).toContain('grid-template-rows: minmax(570px, 1fr) auto');
+    expect(css).toContain('grid-template-rows: minmax(500px, 1fr) auto');
+    expect(css).not.toContain('100vh');
     expect(css).toContain('@container (min-width: 1100px)');
     expect(css).toContain('height: 72px');
     expect(css).toContain('@container (max-width: 1000px)');

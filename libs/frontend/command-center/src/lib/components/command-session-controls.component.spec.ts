@@ -23,6 +23,12 @@ describe('CommandSessionControlsComponent', () => {
     expect(input.parentElement?.className).toContain('min-w-[15rem]');
     expect(input.parentElement?.className).toContain('flex-[1_1_15rem]');
     expect(input.className).toContain('focus-visible:outline-base-content');
+    const support = fixture.nativeElement.querySelector('.session-support') as HTMLElement;
+    expect(support.parentElement?.className).toContain('session-controls');
+    expect(support.querySelector('[aria-live="polite"]')?.textContent?.trim()).toBe('Command Center · idle');
+    const help = support.querySelector('p[title]') as HTMLParagraphElement;
+    expect(help.className).toContain('truncate');
+    expect(help.title).toBe('To start a Tribunal, say an explicit move word: Council, Forge, Race, Relay, or Crucible. Ambiguous speech goes to Ptah chat.');
     input.value = '  Review release  ';
     input.dispatchEvent(new Event('input'));
     fixture.detectChanges();

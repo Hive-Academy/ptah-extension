@@ -28,8 +28,10 @@ import type { CommandSessionStatus } from '../model/command-center.store';
             <lucide-angular [img]="Send" class="h-5 w-5" aria-hidden="true" />
           </button>
         </form>
-        <p class="mt-2 text-xs text-base-content-muted" aria-live="polite">Command Center · {{ sessionStatus() }}</p>
-        <p class="mt-1 text-xs text-base-content-muted">
+      </div>
+      <div class="session-support flex min-w-0 items-center gap-3 text-xs text-base-content-muted">
+        <p class="shrink-0" aria-live="polite">Command Center · {{ sessionStatus() }}</p>
+        <p class="min-w-0 truncate" title="To start a Tribunal, say an explicit move word: Council, Forge, Race, Relay, or Crucible. Ambiguous speech goes to Ptah chat.">
           To start a Tribunal, say an explicit move word: Council, Forge, Race,
           Relay, or Crucible. Ambiguous speech goes to Ptah chat.
         </p>
