@@ -1,15 +1,14 @@
 /**
  * B2 (TASK_2026_315) — what happens to a push with no renderer to push to.
  *
- * At a clean boot exactly two messages reach `sendToRenderer` before the
- * `BrowserWindow` exists — `skillSynthesis:event` (the boot-scan stats event)
- * and `harness:healthChanged` (the `reason: activation` reconcile). Both were
- * dropped with a bare `Cannot send to renderer: no window available` that
- * named neither the message nor whether losing it mattered.
+ * Background pushes can reach `sendToRenderer` before the `BrowserWindow`
+ * exists. Activity and harness health events exercise that path here. A push
+ * without a window used to be dropped with a bare
+ * `Cannot send to renderer: no window available` that named neither the
+ * message nor whether losing it mattered.
  *
- * The decision was DROP, not queue: both are edge-triggered notifications over
- * pull-backed state, and replaying a boot snapshot into a renderer that has
- * already pulled — or has since reloaded — is worse than losing it. See the
+ * The decision was DROP, not queue: replaying a stale background notification
+ * into a renderer that has since loaded or reloaded can mislead it. See the
  * docblock on `IpcBridge.resolveWindow` for the full reasoning.
  *
  * These tests pin the two halves of that decision that could silently rot:
@@ -53,9 +52,9 @@ import type { DependencyContainer } from 'tsyringe';
 import { IpcBridge } from './ipc-bridge';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 
-/** The two message types actually observed dropping at boot. */
-const BOOT_DROPPED_TYPES = [
-  MESSAGE_TYPES.SKILL_SYNTHESIS_EVENT,
+/** Background push types used to exercise a missing boot window. */
+const BACKGROUND_PUSH_TYPES = [
+  MESSAGE_TYPES.ACTIVITY_EVENT,
   MESSAGE_TYPES.HARNESS_HEALTH_CHANGED,
 ] as const;
 
@@ -95,7 +94,7 @@ describe('IpcBridge — pushes that arrive before the renderer', () => {
     jest.restoreAllMocks();
   });
 
-  it.each(BOOT_DROPPED_TYPES)(
+  it.each(BACKGROUND_PUSH_TYPES)(
     'reports %s at debug — not warn — when no window has ever existed',
     (type) => {
       const bridge = new IpcBridge(makeContainer(), () => null);
@@ -104,8 +103,7 @@ describe('IpcBridge — pushes that arrive before the renderer', () => {
 
       expect(warn).not.toHaveBeenCalled();
       expect(debug).toHaveBeenCalledTimes(1);
-      // The type must be named. Identifying these two events originally
-      // required attaching a stack trace precisely because it was not.
+      // The dropped type must be named so the diagnostic identifies the push.
       expect(debug.mock.calls[0]).toContain(type);
 
       bridge.dispose();
