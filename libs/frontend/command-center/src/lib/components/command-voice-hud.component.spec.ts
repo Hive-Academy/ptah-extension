@@ -21,6 +21,7 @@ describe('CommandVoiceHudComponent', () => {
         '[role="meter"][aria-label="Speaker"]',
       ) as HTMLElement | null;
     expect(speaker()).toBeNull();
+    expect(fixture.nativeElement.querySelector('[data-dock-waveform]')).toBeNull();
     fixture.componentRef.setInput('voiceState', 'speaking');
     fixture.componentRef.setInput('outputLevel', 0.6);
     fixture.detectChanges();
@@ -28,6 +29,7 @@ describe('CommandVoiceHudComponent', () => {
     expect(speaker()?.getAttribute('aria-valuemax')).toBe('100');
     expect(speaker()?.getAttribute('aria-valuenow')).toBe('60');
     expect(speaker()?.getAttribute('aria-valuetext')).toBe('Speaker level 60%');
+    expect(fixture.nativeElement.querySelector('[data-dock-waveform]')).not.toBeNull();
     expect(
       (fixture.nativeElement as HTMLElement)
         .querySelector('[role="meter"][aria-label="Microphone level"]')
@@ -43,6 +45,28 @@ describe('CommandVoiceHudComponent', () => {
     fixture.componentRef.setInput('voiceState', 'listening');
     fixture.detectChanges();
     expect(speaker()).toBeNull();
+    expect(fixture.nativeElement.querySelector('[data-dock-waveform]')).toBeNull();
+  });
+
+  it('clamps the numeric microphone meter and retains mute, stop and interrupt', () => {
+    const fixture = render();
+    const mute = jest.fn();
+    const stop = jest.fn();
+    const interrupt = jest.fn();
+    fixture.componentInstance.toggleMute.subscribe(mute);
+    fixture.componentInstance.stop.subscribe(stop);
+    fixture.componentInstance.interrupt.subscribe(interrupt);
+    fixture.componentRef.setInput('voiceState', 'speaking');
+    fixture.componentRef.setInput('inputLevel', 2);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.querySelector('[role="meter"][aria-label="Microphone level"]')?.getAttribute('aria-valuenow')).toBe('100');
+    [...root.querySelectorAll('button')].find(button => button.textContent?.trim() === 'Mute')?.click();
+    [...root.querySelectorAll('button')].find(button => button.textContent?.trim() === 'Stop')?.click();
+    [...root.querySelectorAll('button')].find(button => button.textContent?.trim() === 'Interrupt speech')?.click();
+    expect(mute).toHaveBeenCalledTimes(1);
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(interrupt).toHaveBeenCalledTimes(1);
   });
 
   it('offers an enabled mic retry for a typed capture failure', () => {

@@ -56,4 +56,24 @@ describe('CommandSessionControlsComponent', () => {
     controls.clearDraft('first');
     expect(controls.draft()).toBe('first and more');
   });
+
+  it('keeps a failed send draft and blocks empty submission', () => {
+    TestBed.configureTestingModule({ imports: [CommandSessionControlsComponent] });
+    const fixture = TestBed.createComponent(CommandSessionControlsComponent);
+    fixture.componentRef.setInput('sessionStatus', 'idle');
+    const submit = jest.fn();
+    fixture.componentInstance.commandSubmit.subscribe(submit);
+    fixture.detectChanges();
+    const form = fixture.nativeElement.querySelector('form') as HTMLFormElement;
+    form.dispatchEvent(new Event('submit', { cancelable: true }));
+    expect(submit).not.toHaveBeenCalled();
+    const input = fixture.nativeElement.querySelector('#command-text') as HTMLInputElement;
+    input.value = '  retry this  ';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    form.dispatchEvent(new Event('submit', { cancelable: true }));
+    expect(submit).toHaveBeenCalledWith('retry this');
+    expect(fixture.componentInstance.draft()).toBe('  retry this  ');
+    expect(input.value).toBe('  retry this  ');
+  });
 });
