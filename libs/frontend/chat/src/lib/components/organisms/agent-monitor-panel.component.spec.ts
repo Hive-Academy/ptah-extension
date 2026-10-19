@@ -27,7 +27,6 @@ import { VSCodeService } from '@ptah-extension/core';
 import { PanelResizeService } from '../../services/panel-resize.service';
 import { AgentMonitorPanelComponent } from './agent-monitor-panel.component';
 import { SubagentLaneComponent } from './subagent-lane/subagent-lane.component';
-import { SubagentUsageSummaryComponent } from '../molecules/agent-card/subagent-usage-summary.component';
 import { groupAgentsByWorkflowRun } from './agent-monitor-panel.grouping';
 
 /** Minimal MonitoredAgent factory — the grouping only reads a few fields. */
@@ -169,8 +168,7 @@ function subagent(overrides: Partial<SubagentRecord>): SubagentRecord {
 @Component({
   selector: 'ptah-subagent-lane',
   standalone: true,
-  imports: [SubagentUsageSummaryComponent],
-  template: '<ptah-subagent-usage-summary [record]="record()" />',
+  template: '',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 class SubagentLaneStub {
@@ -700,7 +698,7 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
     expect(lane.sessionId()).toBe('sess_1');
   });
 
-  it('shows the usage summary only once a subagent row is opened, and loads its cache info then', () => {
+  it('shows the subagent lane only once a subagent row is opened', () => {
     activeSessionSubagentsSig.set([
       subagent({
         parentToolUseId: 'toolu_task_1',
@@ -710,9 +708,8 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
     ]);
     const fixture = createPanel(null);
     expect(
-      fixture.nativeElement.querySelector('ptah-subagent-usage-summary'),
+      fixture.debugElement.query(By.directive(SubagentLaneStub)),
     ).toBeNull();
-    expect(loadSubagentCacheInfoMock).not.toHaveBeenCalled();
 
     (
       fixture.nativeElement.querySelector(
@@ -721,10 +718,9 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
     ).click();
     fixture.detectChanges();
 
-    expect(
-      fixture.nativeElement.querySelector('ptah-subagent-usage-summary'),
-    ).toBeTruthy();
-    expect(loadSubagentCacheInfoMock).toHaveBeenCalledWith('toolu_task_1');
+    const lane = fixture.debugElement.query(By.directive(SubagentLaneStub))
+      .componentInstance as SubagentLaneStub;
+    expect(lane.record().parentToolUseId).toBe('toolu_task_1');
   });
 
   it('does not auto-select session subagents when a CLI agent is selected', () => {
@@ -857,9 +853,6 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
         totalTokens: 120,
       }),
     );
-    expect(
-      fixture.nativeElement.querySelector('ptah-subagent-usage-summary'),
-    ).toBeTruthy();
   });
 
   it('falls back to the active tab session when the record has no parentSessionId', () => {

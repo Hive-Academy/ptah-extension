@@ -236,7 +236,7 @@ describe('compact-session-summary', () => {
       type: 'agent',
       agentId: 'a1',
       agentType: 'Explore',
-      summaryContent: 'One summary',
+      content: 'One summary',
       children: [
         summaryChild,
         node({ id: 'nested-tool', type: 'tool', toolName: 'Read' }),
@@ -731,7 +731,7 @@ describe('compact-session-summary', () => {
       type: 'agent',
       agentId: 'a1',
       agentType: 'Explore',
-      summaryContent: 'Found the logger.',
+      content: 'Found the logger.',
       endTime: 3,
       children: [
         toolNode({
@@ -758,7 +758,7 @@ describe('compact-session-summary', () => {
       agentId: 'a1',
       agentType: 'Explore',
       status: 'error',
-      summaryContent: '## Failed\n\n' + 'x'.repeat(2000),
+      content: '## Failed\n\n' + 'x'.repeat(2000),
     });
 
     const summary = summarizeFinalized([message(agent)], context());

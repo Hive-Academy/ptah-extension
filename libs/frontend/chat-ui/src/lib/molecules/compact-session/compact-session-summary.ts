@@ -395,7 +395,7 @@ function collectFinalizedNode(
         collectFinalizedNode(child, target, workspacePath);
     }
     const failed = node.status === 'error';
-    const text = node.summaryContent || node.content || node.agentDescription;
+    const text = node.content || node.agentDescription;
     target.push({
       id: `agent:${node.agentId ?? node.toolCallId ?? node.id}`,
       kind: 'agent',

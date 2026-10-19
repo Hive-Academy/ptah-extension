@@ -511,24 +511,11 @@ export class StreamingAccumulatorCore {
         }
 
         if (!ctx.skipStoreEffects) {
-          const pendingDeltas = sessionManager.registerAgent(
+          sessionManager.registerAgent(
             event.toolCallId,
             preliminaryAgentNode,
             event.sessionId,
           );
-
-          if (pendingDeltas.length > 0) {
-            const summaryContent = pendingDeltas.join('');
-            const updatedNode: ExecutionNode = {
-              ...preliminaryAgentNode,
-              summaryContent,
-            };
-            sessionManager.registerAgent(
-              event.toolCallId,
-              updatedNode,
-              event.sessionId,
-            );
-          }
         }
 
         ctx.onStateChanged?.(state);

@@ -342,38 +342,7 @@ function tryBuildPlaceholderAgent(
   }
 
   const placeholderAgentId = hookAgentStart?.agentId;
-  const placeholderContentBlocks = placeholderAgentId
-    ? state.agentContentBlocksMap.get(placeholderAgentId) || []
-    : [];
-
-  const placeholderSummaryContent = placeholderAgentId
-    ? state.agentSummaryAccumulators.get(placeholderAgentId) || undefined
-    : state.agentSummaryAccumulators.get(toolStart.toolCallId) || undefined;
   const stableAgentId = `agent:${toolStart.toolCallId}`;
-
-  let finalPlaceholderChildren: ExecutionNode[];
-
-  if (placeholderContentBlocks.length > 0) {
-    finalPlaceholderChildren = deps.buildInterleavedChildren(
-      stableAgentId,
-      toolStart.timestamp,
-      placeholderContentBlocks,
-      agentChildren,
-    );
-  } else if (placeholderSummaryContent && placeholderSummaryContent.trim()) {
-    finalPlaceholderChildren = [...agentChildren];
-    const summaryTextNode = createExecutionNode({
-      id: `${stableAgentId}-summary-text`,
-      type: 'text',
-      status: 'complete',
-      content: placeholderSummaryContent,
-      children: [],
-      startTime: toolStart.timestamp,
-    });
-    finalPlaceholderChildren.unshift(summaryTextNode);
-  } else {
-    finalPlaceholderChildren = [...agentChildren];
-  }
   const placeholderStats = deps.agentStats.aggregateAgentStats(
     toolStart.toolCallId,
     state,
@@ -389,7 +358,7 @@ function tryBuildPlaceholderAgent(
     type: 'agent',
     status: 'streaming',
     content: agentDescription,
-    children: finalPlaceholderChildren,
+    children: [...agentChildren],
     startTime: toolStart.timestamp,
     agentType,
     agentDescription,

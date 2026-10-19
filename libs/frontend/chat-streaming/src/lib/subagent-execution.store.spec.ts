@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { effect, signal } from '@angular/core';
+import { computed, effect, signal } from '@angular/core';
 import type {
   FlatStreamEventUnion,
   MessageStartEvent,
@@ -581,5 +581,55 @@ describe('SubagentExecutionStore', () => {
       historyError: 'Agent history cursor did not advance',
     });
     expect(logger.warn).toHaveBeenCalled();
+  });
+  it('drops a removed key revision and still notifies a reader of the reopened key', () => {
+    const view = computed(() => store.entryFor('agent-a'));
+    store.claim(start('m'));
+    expect(view()).toBeDefined();
+    store.clearSession(sessionId);
+    expect(view()).toBeUndefined();
+    store.claim(start('m2'));
+    // The reader subscribed to the fresh revision signal on its last read,
+    // so the reopened entry still reaches it.
+    expect(view()).toBeDefined();
+  });
+
+  it('adopts the record session and retries a not-found history from another session', async () => {
+    store.retain('agent-a', 'stale-session');
+    rpc.call.mockResolvedValueOnce({
+      isSuccess: () => true,
+      data: { ...page([]).data, status: 'not-found' },
+    });
+    await store.ensureHistory('agent-a');
+    expect(store.entries().get('agent-a')?.history).toBe('not-found');
+    store.syncRecord(record('agent-a', 'completed'));
+    expect(store.entries().get('agent-a')).toMatchObject({
+      sessionId,
+      history: 'idle',
+      historyError: undefined,
+    });
+    rpc.call.mockResolvedValueOnce(page([]));
+    await store.ensureHistory('agent-a');
+    expect(store.entries().get('agent-a')?.history).toBe('loaded');
+  });
+
+  it('keeps a not-found history sticky when the record names the same session', async () => {
+    store.syncRecord(record('agent-a'));
+    rpc.call.mockResolvedValueOnce({
+      isSuccess: () => true,
+      data: { ...page([]).data, status: 'not-found' },
+    });
+    await store.ensureHistory('agent-a');
+    store.syncRecord(record('agent-a', 'completed'));
+    expect(store.entries().get('agent-a')?.history).toBe('not-found');
+  });
+
+  it('warns and returns when history is requested for an unknown agent', async () => {
+    await expect(store.ensureHistory('missing')).resolves.toBeUndefined();
+    expect(logger.warn).toHaveBeenCalledWith(
+      'SubagentExecutionStore',
+      expect.stringContaining('missing'),
+    );
+    expect(rpc.call).not.toHaveBeenCalled();
   });
 });

@@ -170,7 +170,9 @@ describe('IpcBridge — streaming-event batching (Batch D)', () => {
   it('passes a coordinator-created BATCH through without recursively queueing it', () => {
     bridge.sendToRenderer({
       type: MESSAGE_TYPES.BATCH,
-      payload: { events: [{ type: MESSAGE_TYPES.CHAT_CHUNK, payload: { i: 1 } }] },
+      payload: {
+        events: [{ type: MESSAGE_TYPES.CHAT_CHUNK, payload: { i: 1 } }],
+      },
     });
 
     expect(win.sent).toHaveLength(1);
@@ -237,7 +239,7 @@ describe('IpcBridge — streaming-event batching (Batch D)', () => {
 
   it('(e) dispose() flushes pending stream events', () => {
     bridge.sendToRenderer({
-      type: MESSAGE_TYPES.AGENT_SUMMARY_CHUNK,
+      type: MESSAGE_TYPES.CHAT_THINKING,
       payload: { i: 1 },
     });
 
@@ -254,7 +256,6 @@ describe('IpcBridge — streaming-event batching (Batch D)', () => {
       MESSAGE_TYPES.CHAT_CHUNK,
       MESSAGE_TYPES.CHAT_THINKING,
       MESSAGE_TYPES.CHAT_TOOL_PROGRESS,
-      MESSAGE_TYPES.AGENT_SUMMARY_CHUNK,
       MESSAGE_TYPES.SETUP_WIZARD_ANALYSIS_STREAM,
       MESSAGE_TYPES.SETUP_WIZARD_SCAN_PROGRESS,
       MESSAGE_TYPES.INDEXING_PROGRESS,

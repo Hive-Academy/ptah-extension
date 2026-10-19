@@ -15,22 +15,26 @@ import type {
   PermissionRequest,
   PermissionResponse,
 } from '@ptah-extension/shared';
+import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import { ChatStore } from '../../../services/chat.store';
 import { ExecutionNodeComponent } from '../execution/execution-node.component';
+import { SubagentLaneComponent } from '../subagent-lane/subagent-lane.component';
 
 /**
  * Single chat view: one sub-agent opened in place over its transcript.
  *
- * Renders the LIVE agent node the transcript resolves from its own execution
- * trees (no RPC, no parallel tree), with tile mode off, so nested agents,
- * tools, results and pending permissions render in full and stay answerable
- * through the same `ChatStore` path the transcript bubbles use. Back is the
- * only way out; the transcript restores its scroll and focus.
+ * With a monitor record for the agent it renders the store-backed
+ * `ptah-subagent-lane` (stats bar and always-visible message input), the same
+ * lane the canvas shows. Without one it renders the LIVE agent node the
+ * transcript resolves from its own execution trees, with tile mode off. Either
+ * way pending permissions stay answerable through the same `ChatStore` path
+ * the transcript bubbles use. Back is the only way out; the transcript
+ * restores its scroll and focus.
  */
 @Component({
   selector: 'ptah-single-chat-subagent-view',
   standalone: true,
-  imports: [LucideAngularModule, ExecutionNodeComponent],
+  imports: [LucideAngularModule, ExecutionNodeComponent, SubagentLaneComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     class: 'flex flex-col min-h-0 bg-base-100',
@@ -76,19 +80,30 @@ import { ExecutionNodeComponent } from '../execution/execution-node.component';
         class="flex-1 min-h-0 overflow-y-auto px-2 py-2"
         data-testid="subagent-view-body"
       >
-        <ptah-execution-node
-          [node]="node()"
-          [isStreaming]="isStreaming()"
-          [agentTileMode]="false"
-          [getPermissionForTool]="getPermissionForTool"
-          (permissionResponded)="onPermissionResponse($event)"
-        />
+        @if (record(); as rec) {
+          <ptah-subagent-lane
+            class="block"
+            [record]="rec"
+            [sessionId]="rec.parentSessionId ?? null"
+            [getPermissionForTool]="getPermissionForTool"
+            (permissionResponded)="onPermissionResponse($event)"
+          />
+        } @else {
+          <ptah-execution-node
+            [node]="node()"
+            [isStreaming]="isStreaming()"
+            [agentTileMode]="false"
+            [getPermissionForTool]="getPermissionForTool"
+            (permissionResponded)="onPermissionResponse($event)"
+          />
+        }
       </div>
     </section>
   `,
 })
 export class SingleChatSubagentViewComponent {
   private readonly chatStore = inject(ChatStore);
+  private readonly monitor = inject(AgentMonitorStore);
 
   /**
    * Live agent node. The transcript closes the view when the node is gone,
@@ -104,6 +119,11 @@ export class SingleChatSubagentViewComponent {
 
   private readonly backButton =
     viewChild.required<ElementRef<HTMLButtonElement>>('backButton');
+
+  /** The monitor record keyed by the agent's Task tool call, when known. */
+  protected readonly record = computed(
+    () => this.monitor.subagents().get(this.node().toolCallId ?? '') ?? null,
+  );
 
   protected readonly name = computed(() => {
     const agent = this.node();

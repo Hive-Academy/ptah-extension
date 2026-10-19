@@ -53,7 +53,6 @@ export {
 } from '@ptah-extension/chat-ui';
 export * from './molecules/agent-card/agent-card.component';
 export * from './molecules/execution-header/execution-header.component';
-export { SubagentUsageSummaryComponent } from './molecules/agent-card/subagent-usage-summary.component';
 export * from './molecules/agent-continue-input/agent-continue-input.component';
 /**
  * @deprecated Re-exported from @ptah-extension/chat-ui. Import directly from

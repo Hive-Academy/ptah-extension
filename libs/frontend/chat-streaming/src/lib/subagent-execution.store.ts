@@ -64,6 +64,13 @@ const STORE_ONLY = new Set<string>([
 export type SubagentHistoryState =
   'idle' | 'loading' | 'loaded' | 'not-found' | 'unresolved' | 'error';
 
+/** History outcomes that a change of owning session makes worth retrying. */
+const RETRYABLE_HISTORY: ReadonlySet<SubagentHistoryState> = new Set([
+  'not-found',
+  'error',
+  'unresolved',
+]);
+
 export interface SubagentExecutionEntryView {
   readonly state: StreamingState | null;
   readonly finalized: readonly ExecutionNode[];
@@ -221,6 +228,7 @@ export class SubagentExecutionStore {
     const key = record.parentToolUseId;
     this.syncedRecords.set(key, record);
     const entry = this.open(key, record.parentSessionId);
+    this.adoptRecordSession(entry, record.parentSessionId);
     if (record.agentId) entry.agentId = record.agentId;
     if (record.lastEventAt)
       entry.lastEventAt = Math.max(entry.lastEventAt, record.lastEventAt);
@@ -230,6 +238,25 @@ export class SubagentExecutionStore {
       entry.live = true;
       this.publish(entry);
     }
+  }
+
+  /**
+   * The monitor record's owning session is authoritative over the one an
+   * earlier caller pinned (the bubble fallback can open with the wrong tab).
+   * A history result for the old session says nothing about the new one, so a
+   * failed or not-found load returns to 'idle' and the next load retries.
+   */
+  private adoptRecordSession(
+    entry: SubagentExecutionEntry,
+    sessionId: string | undefined,
+  ): void {
+    if (!sessionId || entry.sessionId === sessionId) return;
+    entry.sessionId = sessionId;
+    if (RETRYABLE_HISTORY.has(entry.history)) {
+      entry.history = 'idle';
+      entry.historyError = undefined;
+    }
+    this.publish(entry);
   }
 
   /** True when the event belongs to an execution entry and was consumed. */
@@ -500,7 +527,10 @@ export class SubagentExecutionStore {
     this.abort(entry);
     this.mutableEntries.delete(key);
     this.entryViews.delete(key);
+    // Bump first so current consumers re-read; their next revisionFor(key)
+    // subscribes to a fresh signal, so dropping this one leaks nothing.
     this.keyRevisions.get(key)?.update((value) => value + 1);
+    this.keyRevisions.delete(key);
     this.ownership.drop(key);
     entry.idAlias.clear();
     this.lastRead.delete(key);
@@ -522,7 +552,15 @@ export class SubagentExecutionStore {
 
   async ensureHistory(key: string): Promise<void> {
     const entry = this.mutableEntries.get(key);
-    if (!entry) return;
+    if (!entry) {
+      // degradation-audit: reported - callers retain() before loading, so a
+      // missing entry is misuse; it is logged and there is nothing to load.
+      this.logger.warn(
+        'SubagentExecutionStore',
+        `ensureHistory called for unknown agent ${key}`,
+      );
+      return;
+    }
     if (!entry.sessionId) {
       entry.history = 'error';
       entry.historyError = 'Session for this agent is unavailable';

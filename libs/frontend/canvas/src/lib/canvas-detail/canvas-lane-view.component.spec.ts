@@ -208,6 +208,49 @@ describe('CanvasLaneViewComponent', () => {
     expect(toggleAgentExpanded).not.toHaveBeenCalledWith('b');
   });
 
+  it('renders the continue input under a CLI lane, but not under a sub-agent lane', () => {
+    agents.set([
+      {
+        agentId: 'a',
+        parentSessionId: 'owner',
+        cli: 'Codex',
+        status: 'completed',
+        cliSessionId: 'cli-1',
+        expanded: true,
+        permissionQueue: [],
+      },
+    ]);
+    subagents.set(
+      new Map([
+        [
+          'task-tool',
+          {
+            parentToolUseId: 'task-tool',
+            parentSessionId: 'owner',
+            status: 'completed',
+          },
+        ],
+      ]),
+    );
+    const fixture = TestBed.createComponent(CanvasLaneViewComponent);
+    fixture.componentRef.setInput('tabId', 'tab');
+    fixture.componentRef.setInput('sessionId', 'owner');
+    fixture.componentRef.setInput('laneKey', 'cli:a');
+    fixture.detectChanges();
+    const card = fixture.nativeElement.querySelector('ptah-agent-card');
+    const input = fixture.nativeElement.querySelector(
+      'ptah-agent-continue-input',
+    );
+    expect(input).not.toBeNull();
+    // Below the card, inside the same lane column.
+    expect(card?.nextElementSibling).toBe(input);
+    fixture.componentRef.setInput('laneKey', 'sub:task-tool');
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelector('ptah-agent-continue-input'),
+    ).toBeNull();
+  });
+
   it('keeps the lane subtree for unrelated input changes and replaces it on lane switch', () => {
     const fixture = TestBed.createComponent(CanvasLaneViewComponent);
     fixture.componentRef.setInput('tabId', 'tab');

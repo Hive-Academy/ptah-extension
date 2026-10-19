@@ -11,6 +11,7 @@ import {
 } from '@angular/core';
 import {
   AgentCardComponent,
+  AgentContinueInputComponent,
   AgentPermissionResponder,
   ChatStore,
   SubagentLaneComponent,
@@ -67,6 +68,7 @@ export function effectiveCanvasLaneKind(
   standalone: true,
   imports: [
     AgentCardComponent,
+    AgentContinueInputComponent,
     SubagentLaneComponent,
     BackgroundAgentStripComponent,
     CanvasDetailTranscriptComponent,
@@ -171,6 +173,12 @@ export function effectiveCanvasLaneKind(
                     (toggleExpanded)="
                       monitor.toggleAgentExpanded(agent.agentId)
                     "
+                  />
+                  <!-- Hides itself when the agent cannot continue; queues
+                       while it runs (AgentFollowUpQueueService). -->
+                  <ptah-agent-continue-input
+                    class="flex-shrink-0"
+                    [agent]="agent"
                   />
                 </div>
               }
