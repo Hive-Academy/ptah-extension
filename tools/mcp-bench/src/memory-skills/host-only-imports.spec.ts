@@ -35,10 +35,6 @@ const HOST_ONLY_MODULES = new Set([
   // Batch 21 host adapter: value-imports the skill-synthesis barrel; wired
   // only by the host entry.
   'suites/skills/judge-agreement-ports.ts',
-  // Batch 23 host suites: they call the product's skill writer and trigger
-  // scoring through the skill-synthesis barrel; wired only by the host entry.
-  'suites/skills/namer-and-trigger.suite.ts',
-  'suites/skills/trigger-human-eval.ts',
   // Batch 22 host adapters: value-import the skill-synthesis and agent-sdk
   // barrels; wired only by the host entry.
   'suites/skills/funnel-host-port.ts',

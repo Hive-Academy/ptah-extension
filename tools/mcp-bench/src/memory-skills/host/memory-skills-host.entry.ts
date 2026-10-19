@@ -47,7 +47,6 @@ import { hostFunnelPorts } from '../suites/skills/funnel-host-port';
 import { createFunnelSuites } from '../suites/skills/funnel.suite';
 import { resolveJudgeServices } from '../suites/skills/judge-agreement-ports';
 import { createJudgeAgreementSuites } from '../suites/skills/judge-agreement.suite';
-import { NAMER_AND_TRIGGER_SUITES } from '../suites/skills/namer-and-trigger.suite';
 import {
   runMemorySkillsHost,
   type MemorySkillsHostSuite,
@@ -65,7 +64,6 @@ const HOST_SUITES: readonly MemorySkillsHostSuite[] = [
   ...createUpdateSuites({ resolvePorts: resolveMergeUpdatePorts }),
   ...READ_SIDE_SUITES,
   SCOPE_WRITE_SUITE,
-  ...NAMER_AND_TRIGGER_SUITES,
   // `placement: 'last'`: they age every row in the DB (`suite-placement.ts`).
   ...createRetentionSuites({ portOf: hostRetentionPort }),
   // Local only (R-M1a): they read a snapshot copy the plan seeds into the home.
