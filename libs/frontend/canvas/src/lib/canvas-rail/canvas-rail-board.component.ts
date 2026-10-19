@@ -575,12 +575,18 @@ export class CanvasRailBoardComponent {
       if (failed && this.visible()) this.announce('Layout changes could not be saved.');
     });
     let wasCompact = this.compactSheet();
+    let dockWasOpen = this.dockOpen();
     effect(() => {
       const compact = this.compactSheet();
       // A hidden board measures 0 px; that is not a resize across the threshold.
-      if (compact === wasCompact || this.layout.containerWidth() === 0) return;
+      if (this.layout.containerWidth() === 0) return;
+      // One resize can cross sm/md and 400 px at once; the band reset (D-3) has
+      // then already closed `dockOpen`, so hand off the state from the last run.
+      const dockOpenBefore = dockWasOpen;
+      dockWasOpen = this.dockOpen();
+      if (compact === wasCompact) return;
       wasCompact = compact;
-      untracked(() => this.handOffInspector(compact));
+      untracked(() => this.handOffInspector(compact, dockOpenBefore));
     });
     let previousBand = this.band();
     effect(() => {
@@ -952,12 +958,12 @@ export class CanvasRailBoardComponent {
    * so an open inspector moves to the destination surface, the source closes,
    * and focus follows. In split both use `detailsOpen`; only focus moves.
    */
-  private handOffInspector(compact: boolean): void {
+  private handOffInspector(compact: boolean, dockWasOpen: boolean): void {
     if (this.splitDisplayed()) {
       if (this.detailsOpen()) this.focusDetailsShell();
       return;
     }
-    if (compact && this.dockOpen()) {
+    if (compact && dockWasOpen) {
       this.dockOpen.set(false);
       this.detailsFocusReturn = false;
       this.detailsOpen.set(true);

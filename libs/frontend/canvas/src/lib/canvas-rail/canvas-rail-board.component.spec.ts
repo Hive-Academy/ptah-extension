@@ -910,6 +910,39 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(document.activeElement).toBe(dock?.querySelector('[data-inspector-close]'));
   });
 
+  it('one resize from md to below 400 px hands the open dock to the compact sheet, and back', async () => {
+    const { fixture, width } = mount();
+    width.set(1200);
+    fixture.detectChanges();
+    const board = fixture.componentInstance;
+    expect(board.dockOpen()).toBe(true);
+    width.set(390);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(board.dockOpen()).toBe(false);
+    expect(board.detailsOpen()).toBe(true);
+    expect(fixture.nativeElement.querySelector('[data-inspector-dock]')).toBeNull();
+    const sheet = fixture.nativeElement.querySelector<HTMLElement>('[data-compact-sheet]');
+    expect(sheet).not.toBeNull();
+    expect(sheet?.contains(document.activeElement)).toBe(true);
+    await completeDeferBlocks(fixture);
+    fixture.detectChanges();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(document.activeElement).toBe(sheet?.querySelector('[data-inspector-close]'));
+    width.set(1200);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(board.detailsOpen()).toBe(false);
+    expect(board.dockOpen()).toBe(true);
+    expect(fixture.nativeElement.querySelector('[data-compact-sheet]')).toBeNull();
+    const dock = fixture.nativeElement.querySelector<HTMLElement>('[data-inspector-dock]');
+    expect(dock).not.toBeNull();
+    await completeDeferBlocks(fixture);
+    fixture.detectChanges();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(document.activeElement).toBe(dock?.querySelector('[data-inspector-close]'));
+  });
+
   it('keeps a closed dock closed while the band moves between md and wider', () => {
     const { fixture, width } = mount();
     fixture.componentInstance.toggleDetails();
