@@ -41,7 +41,6 @@ import {
   CompactionNotificationComponent,
   CompactionMarkerComponent,
   SidebarTabComponent,
-  SplitHandleComponent,
   StatsTileExpansionState,
   PTAH_UI_DISPLAY_DOCK,
   PTAH_UI_DISPLAY_DOCK_SYNC,
@@ -58,8 +57,6 @@ import { SessionHeaderComponent } from '../molecules/session-header/session-head
 // Referenced only in `imports` and inside `@defer (on immediate)`.
 import { SessionInspectorComponent } from '../organisms/session-inspector/session-inspector.component';
 import {
-  INSPECTOR_TAB_WIDTH,
-  InspectorDockController,
   InspectorShellController,
   SessionInspectorStore,
 } from '../../services/session-inspector';
@@ -218,7 +215,6 @@ const VIEW_PANEL_KEY = '';
     CompactionNotificationComponent,
     CompactionMarkerComponent,
     SidebarTabComponent,
-    SplitHandleComponent,
     CompactSessionCardComponent,
     AgentOriginBannerComponent,
     SessionHeaderComponent,
@@ -234,7 +230,6 @@ const VIEW_PANEL_KEY = '';
     TranscriptRetentionService,
     // Open state, width band and sheet focus of this view's inspector.
     InspectorShellController,
-    InspectorDockController,
     PanelResizeService,
     DisplaySheetState,
     // One tile-expansion map per session view, released with the view (A3).
@@ -482,11 +477,7 @@ export class ChatViewComponent implements OnDestroy {
     Math.min(DOCK_MIN_WIDTH, this.dockMaxWidth() ?? DOCK_MIN_WIDTH),
   );
 
-  /** The Agents tab only; the Stats tab is a second `ptah-sidebar-tab`. */
-  private readonly agentSidebarTab = viewChild<string, ElementRef<HTMLElement>>(
-    'agentsTab',
-    { read: ElementRef },
-  );
+  private readonly agentSidebarTab = viewChild(SidebarTabComponent);
   private restoreAgentSidebarTabFocus = false;
 
   /**
@@ -990,7 +981,6 @@ export class ChatViewComponent implements OnDestroy {
     this.shell.bindTab(() =>
       this.hostsInspector() ? this.resolvedTabId() : null,
     );
-    this.dock.bindHosted(() => this.hostsInspector());
     let previousSessionId: string | null | undefined;
     effect(() => {
       const sessionId = this.resolvedSessionId();
@@ -1007,7 +997,6 @@ export class ChatViewComponent implements OnDestroy {
         shell,
         () => host.querySelector<HTMLElement>('[aria-controls="inspector"]'),
         () => host.querySelector<HTMLElement>('h1[tabindex="-1"]'),
-        INSPECTOR_TAB_WIDTH,
       );
     });
   }
@@ -1157,18 +1146,6 @@ export class ChatViewComponent implements OnDestroy {
       this.shell.isOpen(),
       this.stats.inputs()?.limitSummary ?? null,
     ),
-  );
-
-  /** Docked width, drag draft and commit policy (design-spec §1-2). */
-  protected readonly dock = inject(InspectorDockController);
-
-  /** The Stats tab's dot mirrors the header dot: `sel` info, else warning. */
-  protected readonly inspectorTabBadge = computed<'warning' | 'info' | null>(
-    () => {
-      const dot = this.inspectorDot();
-      if (dot === null) return null;
-      return dot === 'sel' ? 'info' : 'warning';
-    },
   );
 
   protected readonly limitCue = computed(
@@ -1424,7 +1401,9 @@ export class ChatViewComponent implements OnDestroy {
       const sidebarTab = this.agentSidebarTab();
       if (this.restoreAgentSidebarTabFocus && !panelOpen && sidebarTab) {
         const button =
-          sidebarTab.nativeElement.querySelector<HTMLButtonElement>('button');
+          this.hostEl.nativeElement.querySelector<HTMLButtonElement>(
+            'ptah-sidebar-tab button',
+          );
         if (!button) return;
         button.focus();
         this.restoreAgentSidebarTabFocus = false;
@@ -1492,6 +1471,7 @@ export class ChatViewComponent implements OnDestroy {
         this.panelState.releaseAgentsUserClose(key);
       });
     });
+
 
     effect(() => {
       const request = this._appState.composerPrefillRequest();
@@ -1566,7 +1546,6 @@ export class ChatViewComponent implements OnDestroy {
   cancelQueue(): void {
     const tabId = this.resolvedTabId() ?? undefined;
     this.chatStore.clearQueuedContent(tabId);
-
   }
 
   /**

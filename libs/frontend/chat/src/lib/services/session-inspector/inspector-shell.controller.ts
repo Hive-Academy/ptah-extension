@@ -3,7 +3,6 @@ import {
   DestroyRef,
   Injectable,
   Injector,
-  type Signal,
   afterNextRender,
   computed,
   effect,
@@ -24,23 +23,6 @@ export type InspectorBand = 'docked' | 'sheet' | 'full-sheet';
 export const INSPECTOR_DOCKED_MIN_WIDTH = 960;
 /** Shell width (px) below which the overlay sheet takes the full width. */
 export const INSPECTOR_SHEET_MIN_WIDTH = 640;
-
-/** Narrowest docked inspector width (px); matches the Git dock `min-w-[300px]`. */
-export const INSPECTOR_MIN_WIDTH = 300;
-/** Widest docked inspector width (px). */
-export const INSPECTOR_MAX_WIDTH = 560;
-/** Width (px) the main column keeps beside the docked inspector (960 - 336). */
-export const INSPECTOR_MAIN_MIN_WIDTH = 624;
-/** Shell width (px) from which the default docked width is the large tier. */
-export const INSPECTOR_LARGE_SHELL_MIN_WIDTH = 1100;
-/** Shell width (px) from which the default docked width is the wide tier. */
-export const INSPECTOR_WIDE_SHELL_MIN_WIDTH = 1500;
-/** Default docked width (px) below `INSPECTOR_LARGE_SHELL_MIN_WIDTH`. */
-export const INSPECTOR_DEFAULT_WIDTH = 336;
-/** Default docked width (px) from `INSPECTOR_LARGE_SHELL_MIN_WIDTH`. */
-export const INSPECTOR_LARGE_DEFAULT_WIDTH = 400;
-/** Default docked width (px) from `INSPECTOR_WIDE_SHELL_MIN_WIDTH`. */
-export const INSPECTOR_WIDE_DEFAULT_WIDTH = 448;
 
 /**
  * Attribute the inspector's `Close session details` button carries, so the
@@ -65,59 +47,6 @@ export function inspectorBandFor(width: number): InspectorBand {
   if (width >= INSPECTOR_DOCKED_MIN_WIDTH) return 'docked';
   if (width >= INSPECTOR_SHEET_MIN_WIDTH) return 'sheet';
   return 'full-sheet';
-}
-
-/**
- * Widest docked inspector for a shell `shellWidth` px wide: the main column
- * keeps `INSPECTOR_MAIN_MIN_WIDTH`, within [MIN, MAX]. Whole px, rounded
- * down, so a subpixel shell never takes the main column below its floor. An
- * unmeasured shell (0 or non-finite) allows `INSPECTOR_MAX_WIDTH`.
- */
-export function inspectorMaxWidthFor(shellWidth: number): number {
-  if (!(shellWidth > 0) || !Number.isFinite(shellWidth)) {
-    return INSPECTOR_MAX_WIDTH;
-  }
-  return Math.max(
-    INSPECTOR_MIN_WIDTH,
-    Math.min(
-      INSPECTOR_MAX_WIDTH,
-      Math.floor(shellWidth - INSPECTOR_MAIN_MIN_WIDTH),
-    ),
-  );
-}
-
-/**
- * Default docked width for a shell `shellWidth` px wide. An unmeasured shell
- * (0 or non-finite) gets the narrow tier.
- */
-export function inspectorDefaultWidthFor(shellWidth: number): number {
-  if (!Number.isFinite(shellWidth)) return INSPECTOR_DEFAULT_WIDTH;
-  if (shellWidth < INSPECTOR_LARGE_SHELL_MIN_WIDTH) {
-    return INSPECTOR_DEFAULT_WIDTH;
-  }
-  if (shellWidth < INSPECTOR_WIDE_SHELL_MIN_WIDTH) {
-    return INSPECTOR_LARGE_DEFAULT_WIDTH;
-  }
-  return INSPECTOR_WIDE_DEFAULT_WIDTH;
-}
-
-/**
- * Rendered docked width: `preference` (else the shell's default) rounded and
- * clamped to [MIN, `inspectorMaxWidthFor(shellWidth)`]. A non-finite
- * preference falls back to the default. The clamp is for rendering only and
- * is never written back to the stored preference.
- */
-export function inspectorDockWidth(
-  preference: number | null,
-  shellWidth: number,
-): number {
-  const wanted =
-    preference !== null && Number.isFinite(preference)
-      ? preference
-      : inspectorDefaultWidthFor(shellWidth);
-  // Round first: the integer max then bounds the rendered width.
-  const max = inspectorMaxWidthFor(shellWidth);
-  return Math.min(max, Math.max(INSPECTOR_MIN_WIDTH, Math.round(wanted)));
 }
 
 /** The tab facts the open rule reads. */
@@ -171,10 +100,8 @@ export class InspectorShellController {
   private readonly tabIdSource = signal<() => string | null>(() => null);
   private readonly bandState = signal<InspectorBand>('docked');
   private readonly sheetOpen = signal(false);
-  private readonly shellWidthState = signal(0);
 
   private observer: ResizeObserver | null = null;
-  private reservedWidth = 0;
   private shell: HTMLElement | null = null;
   private opener: () => HTMLElement | null = () => null;
   private title: () => HTMLElement | null = () => null;
@@ -184,12 +111,6 @@ export class InspectorShellController {
 
   /** `docked` >= 960 px, `sheet` 640-959 px, `full-sheet` < 640 px. */
   readonly band = this.bandState.asReadonly();
-
-  /**
-   * Last measured shell width (px) less the `reservedWidth` given to
-   * `attach`; 0 until the shell is measured.
-   */
-  readonly shellWidth: Signal<number> = this.shellWidthState.asReadonly();
 
   /** The bound tab, or `null` when there is none or it no longer exists. */
   readonly tab = computed<InspectorTabContext | null>(
@@ -268,25 +189,18 @@ export class InspectorShellController {
   /**
    * Observe `shell` for the width band. `opener` is the header toggle and
    * `title` the session-title `h1[tabindex=-1]`, the focus fallbacks of
-   * `closeInsp`. `reservedWidth` px of the shell belong to neither the main
-   * column nor the inspector (ChatView's Stats tab) and never count toward
-   * the band or the dock maximum. Re-attaching moves the one observer to the
-   * new shell.
+   * `closeInsp`. Re-attaching moves the one observer to the new shell.
    */
   attach(
     shell: HTMLElement,
     opener: () => HTMLElement | null,
     title: () => HTMLElement | null,
-    reservedWidth = 0,
   ): void {
     if (this.destroyed) return;
     this.shell = shell;
     this.opener = opener;
     this.title = title;
-    this.reservedWidth = reservedWidth;
     if (typeof ResizeObserver === 'undefined') {
-      const width = shell.getBoundingClientRect().width - reservedWidth;
-      if (width > 0) this.shellWidthState.set(width);
       this.applyBand('docked');
       return;
     }
@@ -299,19 +213,11 @@ export class InspectorShellController {
     this.observer.observe(shell);
   }
 
-  /**
-   * Open or close the inspector. `opener` is the control the user activated
-   * (e.g. the Stats tab); `closeInsp('opener')` returns focus to it. Without
-   * one, the attached header toggle (then the focused element) is the opener.
-   */
-  toggle(opener: HTMLElement | null = null): void {
+  toggle(): void {
     const tab = this.tab();
     if (!tab) return;
     if (this.band() === 'docked') {
-      const open = !this.isOpen();
-      // Closing through the toggle keeps focus on the activated control.
-      this.rememberedOpener = open ? opener : null;
-      this.openState.setDocked(tab.tabId, tab.mode, open);
+      this.openState.setDocked(tab.tabId, tab.mode, !this.isOpen());
       return;
     }
     if (this.sheetOpen()) {
@@ -320,9 +226,7 @@ export class InspectorShellController {
     }
     const active = this.document.activeElement;
     this.rememberedOpener =
-      opener ??
-      this.opener() ??
-      (active instanceof HTMLElement ? active : null);
+      this.opener() ?? (active instanceof HTMLElement ? active : null);
     this.sheetOpen.set(true);
     this.pendingCloseFocus = true;
     afterNextRender(() => this.focusCloseButton(), {
@@ -405,11 +309,9 @@ export class InspectorShellController {
     }
   }
 
-  private applyWidth(measured: number): void {
+  private applyWidth(width: number): void {
     // A detached or hidden shell measures 0: keep the last real band.
-    if (!(measured > 0)) return;
-    const width = Math.max(0, measured - this.reservedWidth);
-    this.shellWidthState.set(width);
+    if (!(width > 0)) return;
     this.applyBand(inspectorBandFor(width));
   }
 

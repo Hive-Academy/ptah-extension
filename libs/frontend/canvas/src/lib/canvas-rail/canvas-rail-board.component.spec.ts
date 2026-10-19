@@ -13,13 +13,14 @@ import {
 } from '@angular/core';
 import { DeferBlockState, TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import { LucideAngularModule } from 'lucide-angular';
-import { ChatStore, CompactSessionCardComponent, PreviousSessionsDialogService, RailTranscriptRetentionCoordinator, SessionInspectorStore, SessionOrganizerService, SessionRowActionsService, TabManagerService } from '@ptah-extension/chat';
+import { ChatStore, CompactSessionCardComponent, inspectorDockWidth, inspectorMaxWidthFor, PreviousSessionsDialogService, RailTranscriptRetentionCoordinator, SessionInspectorStore, SessionOrganizerService, SessionRowActionsService, TabManagerService } from '@ptah-extension/chat';
 import { SessionInspectorComponent } from '@ptah-extension/chat/inspector';
 import { PlanLimitsStore, SURFACE_ACTIVE } from '@ptah-extension/core';
 import { AgentMonitorStore, BackgroundAgentStore } from '@ptah-extension/chat-streaming';
 import {
   COMPACT_RAIL_CARD_HEIGHT,
+  SidebarTabComponent,
+  SplitHandleComponent,
   type CompactRailDensity,
   type CompactRailState,
 } from '@ptah-extension/chat-ui';
@@ -288,8 +289,15 @@ describe('CanvasRailBoardComponent actions', () => {
   );
 });
 
+/** `InspectorDockWidthStore` key; the real root store persists the dock width here. */
+const DOCK_WIDTH_KEY = 'ptah.inspector-dock-width.v1';
+
 describe('CanvasRailBoardComponent rendering', () => {
-  afterEach(() => jest.restoreAllMocks());
+  beforeEach(() => localStorage.removeItem(DOCK_WIDTH_KEY));
+  afterEach(() => {
+    jest.restoreAllMocks();
+    localStorage.removeItem(DOCK_WIDTH_KEY);
+  });
 
   function mount(
     visible = true,
@@ -399,7 +407,8 @@ describe('CanvasRailBoardComponent rendering', () => {
           realFocus ? CanvasFocusAreaComponent : FocusStub,
           InspectorStub,
           ProjectSetupStub,
-          LucideAngularModule,
+          SidebarTabComponent,
+          SplitHandleComponent,
         ],
       },
     });
@@ -695,28 +704,211 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(store.setRailCollapsed).not.toHaveBeenCalled();
   });
 
-  it('keeps a full details column at the medium width band', () => {
+  /** The single-focus dock, its separator and the Stats tab button, or null. */
+  function dockParts(host: TestHost) {
+    return {
+      tab: host.querySelector<HTMLButtonElement>('[data-stats-tab] button') as HTMLButtonElement | null,
+      separator: host.querySelector<HTMLElement>('[role="separator"][aria-label="Resize session details"]') as HTMLElement | null,
+      aside: host.querySelector<HTMLElement>('aside:not([data-dock])') as HTMLElement | null,
+    };
+  }
+
+  it('lg: the Stats tab is expanded and the dock renders the default width with the floor max', () => {
+    const { fixture } = mount();
+    const { tab, separator, aside } = dockParts(fixture.nativeElement);
+    expect(tab?.getAttribute('aria-expanded')).toBe('true');
+    expect(tab?.getAttribute('aria-label')).toContain('Stats');
+    expect(aside?.style.width).toBe(`${inspectorDockWidth(null, 1400 - 304 - 32)}px`);
+    expect(aside?.style.width).toBe('336px');
+    expect(separator?.getAttribute('aria-valuemax')).toBe(`${inspectorMaxWidthFor(1064)}`);
+    expect(separator?.getAttribute('aria-valuemax')).toBe('560');
+    expect(separator?.getAttribute('aria-valuemin')).toBe('300');
+    expect(separator?.getAttribute('aria-orientation')).toBe('vertical');
+  });
+
+  it('md: the dock is open at the default width beside the Stats tab, with no Open details control', () => {
     const { fixture, width } = mount();
     width.set(1200);
     fixture.detectChanges();
-    expect(
-      fixture.nativeElement.querySelector('aside.w-\\[296px\\]'),
-    ).toBeTruthy();
-    expect(
-      fixture.nativeElement.querySelector('[aria-label="Open details"]'),
-    ).toBeNull();
+    const { tab, separator, aside } = dockParts(fixture.nativeElement);
+    expect(tab?.getAttribute('aria-expanded')).toBe('true');
+    expect(aside?.style.width).toBe('336px');
+    expect(separator?.getAttribute('aria-valuemax')).toBe('520');
+    expect(fixture.nativeElement.querySelector('[aria-label="Open details"]')).toBeNull();
   });
 
-  it('uses a labelled lucide button for the small-band details strip', () => {
+  it('sm: the dock starts closed behind a collapsed Stats tab, with no aside and no 44 px strip', () => {
     const { fixture, width } = mount();
     width.set(760);
     fixture.detectChanges();
-    const opener: HTMLButtonElement | null = fixture.nativeElement.querySelector('button.w-11[aria-label="Open details"]');
-    expect(opener).not.toBeNull();
-    expect(opener?.title).toBe('Session details');
-    expect(opener?.getAttribute('aria-expanded')).toBe('false');
-    expect(opener?.querySelector('svg.lucide')).not.toBeNull();
-    expect(opener?.classList).toContain('focus-visible:outline-base-content');
+    const { tab, separator, aside } = dockParts(fixture.nativeElement);
+    expect(tab?.getAttribute('aria-expanded')).toBe('false');
+    expect(separator).toBeNull();
+    expect(aside).toBeNull();
+    expect(fixture.nativeElement.querySelector('button.w-11')).toBeNull();
+    expect(fixture.nativeElement.querySelector('[aria-label="Open details"]')).toBeNull();
+  });
+
+  it('the Stats tab toggles the dock at md+ and carries the needs-you badge only while closed', () => {
+    const { fixture, needsYou } = mount();
+    needsYou.set({ a: 2 });
+    fixture.detectChanges();
+    const tabAtom = () =>
+      fixture.debugElement.query(By.directive(SidebarTabComponent)).componentInstance as SidebarTabComponent;
+    expect(tabAtom().badgeType()).toBeNull();
+    dockParts(fixture.nativeElement).tab?.click();
+    fixture.detectChanges();
+    let parts = dockParts(fixture.nativeElement);
+    expect(parts.tab?.getAttribute('aria-expanded')).toBe('false');
+    expect(parts.aside).toBeNull();
+    expect(parts.separator).toBeNull();
+    expect(tabAtom().badgeType()).toBe('warning');
+    needsYou.set({});
+    fixture.detectChanges();
+    expect(tabAtom().badgeType()).toBeNull();
+    parts.tab?.click();
+    fixture.detectChanges();
+    parts = dockParts(fixture.nativeElement);
+    expect(parts.tab?.getAttribute('aria-expanded')).toBe('true');
+    expect(parts.aside).not.toBeNull();
+  });
+
+  it('a key step persists the width, a remount restores it, and a narrow board clamps only the render', () => {
+    let { fixture, width } = mount();
+    dockParts(fixture.nativeElement).separator?.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }),
+    );
+    fixture.detectChanges();
+    expect(dockParts(fixture.nativeElement).aside?.style.width).toBe('352px');
+    expect(localStorage.getItem(DOCK_WIDTH_KEY)).toBe('352');
+    fixture.destroy();
+    TestBed.resetTestingModule();
+    ({ fixture, width } = mount());
+    expect(dockParts(fixture.nativeElement).aside?.style.width).toBe('352px');
+    width.set(760);
+    fixture.detectChanges();
+    dockParts(fixture.nativeElement).tab?.click();
+    fixture.detectChanges();
+    // sm 760 with the dock open: the rail auto-collapses to 56, 672 px are shared, max 312.
+    expect(dockParts(fixture.nativeElement).aside?.style.width).toBe('312px');
+    expect(localStorage.getItem(DOCK_WIDTH_KEY)).toBe('352');
+    width.set(1400);
+    fixture.detectChanges();
+    expect(dockParts(fixture.nativeElement).aside?.style.width).toBe('352px');
+  });
+
+  it('double-click resets to the default and forgets the width; Escape mid-drag keeps the stored width', () => {
+    const { fixture } = mount();
+    const parts = () => dockParts(fixture.nativeElement);
+    parts().separator?.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowLeft', shiftKey: true, bubbles: true, cancelable: true }),
+    );
+    fixture.detectChanges();
+    expect(localStorage.getItem(DOCK_WIDTH_KEY)).toBe('384');
+    const down = new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, clientX: 500 });
+    Object.defineProperty(down, 'pointerId', { value: 1 });
+    parts().separator?.dispatchEvent(down);
+    fixture.detectChanges();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    fixture.detectChanges();
+    expect(parts().aside?.style.width).toBe('384px');
+    expect(localStorage.getItem(DOCK_WIDTH_KEY)).toBe('384');
+    parts().separator?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    fixture.detectChanges();
+    expect(parts().aside?.style.width).toBe('336px');
+    expect(localStorage.getItem(DOCK_WIDTH_KEY)).toBeNull();
+  });
+
+  it('the inspector close shuts the dock and returns focus to the Stats tab', async () => {
+    const { fixture } = mount();
+    await completeDeferBlocks(fixture);
+    fixture.detectChanges();
+    const close = fixture.nativeElement.querySelector<HTMLButtonElement>(
+      'aside:not([data-dock]) [data-inspector-close]',
+    ) as HTMLButtonElement | null;
+    expect(close).not.toBeNull();
+    close?.focus();
+    close?.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const { tab, aside } = dockParts(fixture.nativeElement);
+    expect(aside).toBeNull();
+    expect(tab?.getAttribute('aria-expanded')).toBe('false');
+    expect(document.activeElement).toBe(tab);
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
+  it('crossing md to sm closes the dock and sm to md opens it again', () => {
+    const { fixture, width } = mount();
+    width.set(1200);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.dockOpen()).toBe(true);
+    width.set(760);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.dockOpen()).toBe(false);
+    expect(dockParts(fixture.nativeElement).aside).toBeNull();
+    width.set(1200);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.dockOpen()).toBe(true);
+    expect(dockParts(fixture.nativeElement).aside).not.toBeNull();
+  });
+
+  it('keeps a closed dock closed while the band moves between md and wider', () => {
+    const { fixture, width } = mount();
+    fixture.componentInstance.toggleDetails();
+    fixture.detectChanges();
+    width.set(1200);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.dockOpen()).toBe(false);
+    width.set(1800);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.dockOpen()).toBe(false);
+  });
+
+  it.each([
+    // [board width, valuemax]: lg 1064 px shared, md 880, sm 672 (rail auto-collapsed), sm 552.
+    [1400, 560],
+    [1200, 520],
+    [760, 312],
+    [640, 300],
+  ])('single-focus floor (row 18): at %p px the separator max is %p', (boardWidth, max) => {
+    const { fixture, width } = mount();
+    width.set(boardWidth);
+    fixture.detectChanges();
+    if (!fixture.componentInstance.dockOpen()) {
+      fixture.componentInstance.toggleDetails();
+      fixture.detectChanges();
+    }
+    const separator = dockParts(fixture.nativeElement).separator;
+    expect(separator?.getAttribute('aria-valuemax')).toBe(`${max}`);
+    separator?.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true }));
+    fixture.detectChanges();
+    expect(dockParts(fixture.nativeElement).aside?.style.width).toBe(`${max}px`);
+    const tile = fixture.nativeElement.querySelector<HTMLElement>('[data-testid="canvas-tile"]') as HTMLElement | null;
+    expect(tile?.classList.contains('min-w-[360px]')).toBe(false);
+  });
+
+  it('0 tiles: renders no Stats tab, no separator and no dock aside (D-7)', () => {
+    const { fixture } = mount(true, 0);
+    const { tab, separator } = dockParts(fixture.nativeElement);
+    expect(fixture.nativeElement.querySelector('[data-stats-tab]')).toBeNull();
+    expect(tab).toBeNull();
+    expect(separator).toBeNull();
+    expect(fixture.nativeElement.querySelector('aside')).toBeNull();
+    expect(fixture.nativeElement.querySelector('[data-testid="canvas-rail-empty-board"]')).not.toBeNull();
+  });
+
+  it('split and the compact sheet show no Stats tab and no separator', () => {
+    const { fixture, width } = mount();
+    fixture.componentInstance.openBeside('b');
+    fixture.detectChanges();
+    expect(dockParts(fixture.nativeElement).tab).toBeNull();
+    expect(dockParts(fixture.nativeElement).separator).toBeNull();
+    fixture.componentInstance.closeSplit();
+    width.set(380);
+    fixture.detectChanges();
+    expect(dockParts(fixture.nativeElement).tab).toBeNull();
+    expect(dockParts(fixture.nativeElement).separator).toBeNull();
   });
 
   it('announces needs and error transitions after the initial state', () => {

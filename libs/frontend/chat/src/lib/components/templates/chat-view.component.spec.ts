@@ -71,8 +71,6 @@ import {
   type SessionStatsSource,
 } from '../../services/session-stats/session-stats-source';
 import {
-  INSPECTOR_TAB_WIDTH,
-  InspectorDockWidthStore,
   InspectorOpenStateService,
   SessionInspectorStore,
 } from '../../services/session-inspector';
@@ -115,13 +113,7 @@ import {
   SESSION_START_GUARD,
 } from '../../tokens/session-context.token';
 import { RpcResult } from '@ptah-extension/core';
-import {
-  SidebarTabComponent,
-  SplitHandleComponent,
-} from '@ptah-extension/chat-ui';
-import { By } from '@angular/platform-browser';
-import { SESSION_EMBED_CHROME } from '../../tokens/session-embed-chrome.token';
-import { INSPECTOR_DOCK_WIDTH_STORAGE_KEY } from '../../services/session-inspector/inspector-dock-width.store';
+import { SidebarTabComponent } from '@ptah-extension/chat-ui';
 import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.component';
 import type { SessionBudgetState } from '@ptah-extension/shared';
 
@@ -200,14 +192,6 @@ function makeHarness(
     forcedCard?: boolean;
     /** Start with the docked inspector open. */
     inspectorOpen?: boolean;
-    /**
-     * Render the production template with the Stats tab, the split handle
-     * and the agent panel real (everything else unknown via
-     * `NO_ERRORS_SCHEMA`), so the inspector dock wiring can be exercised.
-     */
-    renderInspectorTemplate?: boolean;
-    /** Provide `SESSION_EMBED_CHROME` (a host with its own session chrome). */
-    embedChrome?: 'bare';
     startGuard?: () => string | null;
     isElectron?: boolean;
   } = {},
@@ -225,13 +209,9 @@ function makeHarness(
     activeTabViewMode = 'full',
     forcedCard,
     inspectorOpen = false,
-    renderInspectorTemplate = false,
-    embedChrome,
     startGuard,
     isElectron = false,
   } = opts;
-  // The docked open choice, reactive so a toggle re-renders.
-  const dockedOpenSig = signal(inspectorOpen);
   const sessionVisibleSig =
     sessionVisible === undefined ? null : signal<boolean>(sessionVisible);
   const forcedCardSig =
@@ -544,16 +524,8 @@ function makeHarness(
       },
       {
         provide: InspectorOpenStateService,
-        useValue: {
-          dockedOpen: () => dockedOpenSig(),
-          setDocked: jest.fn((_tabId: string, _mode: string, open: boolean) =>
-            dockedOpenSig.set(open),
-          ),
-        },
+        useValue: { dockedOpen: () => inspectorOpen, setDocked: jest.fn() },
       },
-      ...(embedChrome
-        ? [{ provide: SESSION_EMBED_CHROME, useValue: embedChrome }]
-        : []),
       ...(startGuard
         ? [{ provide: SESSION_START_GUARD, useValue: startGuard }]
         : []),
@@ -592,19 +564,6 @@ function makeHarness(
     TestBed.overrideComponent(ChatViewComponent, {
       set: {
         imports: [],
-        schemas: [NO_ERRORS_SCHEMA],
-      },
-    });
-  }
-
-  if (renderInspectorTemplate) {
-    TestBed.overrideComponent(ChatViewComponent, {
-      set: {
-        imports: [
-          AgentMonitorPanelComponent,
-          SidebarTabComponent,
-          SplitHandleComponent,
-        ],
         schemas: [NO_ERRORS_SCHEMA],
       },
     });
@@ -664,7 +623,6 @@ function makeHarness(
     removeResumableSubagentMock,
     requestCanvasTabMock,
     requestComposerPrefillMock,
-    dockedOpenSig,
   };
 }
 
@@ -2287,23 +2245,17 @@ describe('agent panel narrow overlay mode', () => {
     return h.fixture.nativeElement.querySelector('ptah-agent-monitor-panel');
   }
 
-  // Scoped to the Agents controls: the Stats tab is another
-  // `ptah-sidebar-tab` and the dock handle another separator.
   function sidebarTab(): HTMLElement | null {
-    return h.fixture.nativeElement.querySelector(
-      'ptah-sidebar-tab:not([data-inspector-tab])',
-    );
+    return h.fixture.nativeElement.querySelector('ptah-sidebar-tab');
   }
 
   function resizeHandle(): HTMLElement | null {
-    return h.fixture.nativeElement.querySelector(
-      '[data-testid="agent-resize-handle"]',
-    );
+    return h.fixture.nativeElement.querySelector('[role="separator"]');
   }
 
   function openPanelFromSidebar(): void {
     const button = h.fixture.nativeElement.querySelector(
-      'ptah-sidebar-tab:not([data-inspector-tab]) button',
+      'ptah-sidebar-tab button',
     ) as HTMLButtonElement;
     button.click();
     h.fixture.detectChanges();
@@ -2371,9 +2323,7 @@ describe('agent panel narrow overlay mode', () => {
     expect(sidebarTab()).not.toBeNull();
     expect(resizeHandle()).toBeNull();
     expect(
-      h.fixture.nativeElement.querySelector(
-        'ptah-sidebar-tab:not([data-inspector-tab]) button',
-      ),
+      h.fixture.nativeElement.querySelector('ptah-sidebar-tab button'),
     ).toBe(document.activeElement);
 
     h.agentsSig.set([
@@ -2741,509 +2691,5 @@ describe('ChatViewComponent — session budget banner wiring', () => {
     view.onBudgetDismiss();
 
     expect(view.budgetDismissedStage()).toBe('handoff');
-  });
-});
-
-// Stats tab, docked width and resize handle (TASK_2026_699 Batch 3, fix
-// round decision 13). The shell width reaches the controller through a fake
-// ResizeObserver on `.cs-shell`; the stored width is the real
-// `InspectorDockWidthStore`.
-describe('ChatViewComponent — Stats tab and inspector dock', () => {
-  const KEY = INSPECTOR_DOCK_WIDTH_STORAGE_KEY;
-  let h: ReturnType<typeof makeHarness> | undefined;
-  let observers: FakeResizeObserver[] = [];
-  let originalResizeObserver: typeof ResizeObserver | undefined;
-  let offsetParentSpy: jest.SpyInstance | undefined;
-
-  class FakeResizeObserver {
-    readonly targets = new Set<Element>();
-    constructor(readonly callback: ResizeObserverCallback) {
-      observers.push(this);
-    }
-    observe(target: Element): void {
-      this.targets.add(target);
-    }
-    unobserve(target: Element): void {
-      this.targets.delete(target);
-    }
-    disconnect(): void {
-      this.targets.clear();
-    }
-  }
-
-  beforeEach(() => {
-    observers = [];
-    localStorage.clear();
-    originalResizeObserver = global.ResizeObserver;
-    global.ResizeObserver =
-      FakeResizeObserver as unknown as typeof ResizeObserver;
-    // jsdom has no layout; the focus routine only moves focus to rendered
-    // elements, so report every element as rendered.
-    offsetParentSpy = jest
-      .spyOn(HTMLElement.prototype, 'offsetParent', 'get')
-      .mockReturnValue(document.body);
-  });
-
-  afterEach(() => {
-    h?.fixture.destroy();
-    h = undefined;
-    if (originalResizeObserver) {
-      global.ResizeObserver = originalResizeObserver;
-    } else {
-      delete (global as Record<string, unknown>)['ResizeObserver'];
-    }
-    offsetParentSpy?.mockRestore();
-    TestBed.resetTestingModule();
-    jest.restoreAllMocks();
-    localStorage.clear();
-  });
-
-  /** Harness with the bound tab resolvable; not yet rendered. */
-  function setup(
-    opts: Parameters<typeof makeHarness>[0] = {},
-    tabExtra: Record<string, unknown> = {},
-  ): ReturnType<typeof makeHarness> {
-    const harness = makeHarness({ renderInspectorTemplate: true, ...opts });
-    const tab = { ...harness.activeTabMock(), ...tabExtra };
-    harness.findTabByIdAcrossWorkspacesMock.mockImplementation(() => ({
-      tab,
-      workspacePath: '/ws',
-    }));
-    // Read by the real agent panel's lane link for a non-empty session id.
-    Object.assign(harness.tabManagerStub, {
-      findTabBySessionIdAcrossWorkspaces: jest.fn(() => null),
-    });
-    h = harness;
-    return harness;
-  }
-
-  function create(
-    opts: Parameters<typeof makeHarness>[0] = {},
-    tabExtra: Record<string, unknown> = {},
-  ): ReturnType<typeof makeHarness> {
-    const harness = setup(opts, tabExtra);
-    detect();
-    return harness;
-  }
-
-  function native(): HTMLElement {
-    return h!.fixture.nativeElement as HTMLElement;
-  }
-
-  // `afterNextRender` work (shell attach, focus restore) runs on an app tick.
-  function detect(): void {
-    h!.fixture.detectChanges();
-    TestBed.tick();
-  }
-
-  function emitWidth(target: Element, width: number): void {
-    const matching = observers.filter((o) => o.targets.has(target));
-    expect(matching.length).toBeGreaterThan(0);
-    for (const observer of matching) {
-      observer.callback(
-        [{ contentRect: { width }, target } as unknown as ResizeObserverEntry],
-        observer as unknown as ResizeObserver,
-      );
-    }
-    detect();
-  }
-
-  /** `width` = main column + dock; the measured shell also holds the tab. */
-  function emitShellWidth(width: number): void {
-    emitWidth(
-      native().querySelector('.cs-shell')!,
-      width + INSPECTOR_TAB_WIDTH,
-    );
-  }
-
-  function sessionTab(): HTMLElement | null {
-    return native().querySelector('ptah-sidebar-tab[data-inspector-tab]');
-  }
-
-  function sessionTabButton(): HTMLButtonElement {
-    return native().querySelector(
-      'ptah-sidebar-tab[data-inspector-tab] button',
-    ) as HTMLButtonElement;
-  }
-
-  function agentsTabButton(): HTMLButtonElement {
-    return native().querySelector(
-      'ptah-sidebar-tab:not([data-inspector-tab]) button',
-    ) as HTMLButtonElement;
-  }
-
-  function header(): (HTMLElement & { inspectorOpen?: boolean }) | null {
-    return native().querySelector('ptah-session-header');
-  }
-
-  function separator(): HTMLElement | null {
-    return native().querySelector('ptah-split-handle [role="separator"]');
-  }
-
-  function handle(): SplitHandleComponent {
-    const debug = h!.fixture.debugElement.query(
-      By.directive(SplitHandleComponent),
-    );
-    expect(debug).not.toBeNull();
-    return debug.componentInstance as SplitHandleComponent;
-  }
-
-  function dock(): HTMLElement | null {
-    return native().querySelector('.cs-inspector');
-  }
-
-  function store(): InspectorDockWidthStore {
-    return TestBed.inject(InspectorDockWidthStore);
-  }
-
-  function dispatchStorage(newValue: string | null): void {
-    window.dispatchEvent(
-      new StorageEvent('storage', {
-        key: KEY,
-        newValue,
-        storageArea: localStorage,
-      }),
-    );
-    detect();
-  }
-
-  it('renders the Stats tab inside the shell after the main column and keeps tab and header in sync (AC 1.1, 1.2, 1.5)', () => {
-    create();
-    const tab = sessionTab();
-    expect(tab).not.toBeNull();
-    const slot = tab!.parentElement!;
-    expect(slot.classList.contains('cs-stats-tab-slot')).toBe(true);
-    expect(slot.parentElement!.classList.contains('cs-shell')).toBe(true);
-    // Closed: the tab is the right edge of the chat column.
-    expect(slot.previousElementSibling?.hasAttribute('inert')).toBe(false);
-    expect(
-      slot.nextElementSibling?.classList.contains('cs-inspector') ?? false,
-    ).toBe(false);
-    expect(sessionTabButton().getAttribute('aria-expanded')).toBe('false');
-    expect(sessionTabButton().getAttribute('title')).toBe('Show Stats');
-    expect(sessionTabButton().getAttribute('aria-label')).toBe(
-      'Toggle Stats panel',
-    );
-    expect(sessionTabButton().textContent?.trim()).toBe('Stats');
-    // The header toggle alone controls the inspector region.
-    expect(sessionTabButton().hasAttribute('aria-controls')).toBe(false);
-    expect(dock()).toBeNull();
-
-    sessionTabButton().click();
-    detect();
-    expect(sessionTabButton().getAttribute('aria-expanded')).toBe('true');
-    expect(header()?.inspectorOpen).toBe(true);
-    expect(dock()).not.toBeNull();
-    // Open: the tab sits immediately left of the dock's leading edge, and
-    // its active line (side="left": the right edge) faces the dock.
-    expect(slot.nextElementSibling?.classList.contains('cs-dock-slot')).toBe(
-      true,
-    );
-    expect(sessionTabButton().classList.contains('border-r')).toBe(true);
-    expect(
-      sessionTabButton().querySelector('.bg-primary.right-0'),
-    ).not.toBeNull();
-
-    sessionTabButton().click();
-    detect();
-    expect(sessionTabButton().getAttribute('aria-expanded')).toBe('false');
-    expect(header()?.inspectorOpen).toBe(false);
-    expect(dock()).toBeNull();
-  });
-
-  it('renders no Stats tab and no handle in compact, forced-card, tile and bare views (AC 1.7)', () => {
-    const views: Array<Parameters<typeof makeHarness>[0]> = [
-      { activeTabViewMode: 'compact' },
-      { forcedCard: true },
-      { sessionContextTabId: 'tab-abc' },
-      { embedChrome: 'bare' },
-    ];
-    for (const view of views) {
-      create({ inspectorOpen: true, ...view });
-      expect(sessionTab()).toBeNull();
-      expect(native().querySelector('ptah-split-handle')).toBeNull();
-      expect(native().querySelector('.cs-dock-slot')).toBeNull();
-      h!.fixture.destroy();
-      h = undefined;
-      TestBed.resetTestingModule();
-    }
-  });
-
-  it('mirrors the header dot on the tab badge (AC 1.8)', () => {
-    setup();
-    (
-      TestBed.inject(SessionInspectorStore).modelFor as jest.Mock
-    ).mockImplementation(() => signal({ needsYouCount: 2 }));
-    detect();
-    expect(sessionTabButton().querySelector('.bg-warning')).not.toBeNull();
-
-    // Open: no dot anywhere.
-    sessionTabButton().click();
-    detect();
-    expect(sessionTabButton().querySelector('.bg-warning')).toBeNull();
-    expect(sessionTabButton().querySelector('.bg-info')).toBeNull();
-  });
-
-  it('shows the info dot for a workflow tab (sel)', () => {
-    create({}, { workflow: 'tribunal' });
-    expect(sessionTabButton().querySelector('.bg-info')).not.toBeNull();
-    expect(sessionTabButton().querySelector('.bg-warning')).toBeNull();
-  });
-
-  it('renders the separator with the 336 default and the effective max (AC 2.1)', () => {
-    create({ inspectorOpen: true });
-    emitShellWidth(1000);
-    const sep = separator()!;
-    expect(sep.getAttribute('aria-label')).toBe('Resize session details');
-    expect(sep.getAttribute('aria-orientation')).toBe('vertical');
-    expect(sep.getAttribute('aria-valuenow')).toBe('336');
-    expect(sep.getAttribute('aria-valuemin')).toBe('300');
-    expect(sep.getAttribute('aria-valuemax')).toBe('376');
-    expect(dock()!.style.width).toBe('336px');
-    // The handle sits in a 0 px slot inside the shell, before the dock.
-    expect(sep.closest('.cs-dock-slot')).not.toBeNull();
-    expect(sep.closest('.cs-shell')).not.toBeNull();
-  });
-
-  it('renders a seeded 480 preference at a 1124 px shell', () => {
-    localStorage.setItem(KEY, '480');
-    create({ inspectorOpen: true });
-    emitShellWidth(1124);
-    expect(separator()!.getAttribute('aria-valuenow')).toBe('480');
-    expect(separator()!.getAttribute('aria-valuemax')).toBe('500');
-    expect(dock()!.style.width).toBe('480px');
-  });
-
-  it('grows the dock by one ArrowLeft step and persists it (AC 2.3, 3.4)', () => {
-    localStorage.setItem(KEY, '480');
-    create({ inspectorOpen: true });
-    emitShellWidth(1124);
-    separator()!.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }),
-    );
-    detect();
-    expect(localStorage.getItem(KEY)).toBe('496');
-    expect(store().preference()).toBe(496);
-    expect(dock()!.style.width).toBe('496px');
-    expect(separator()!.getAttribute('aria-valuenow')).toBe('496');
-  });
-
-  it('resets to the default on double-click and removes the key (AC 2.5)', () => {
-    localStorage.setItem(KEY, '480');
-    create({ inspectorOpen: true });
-    emitShellWidth(1124);
-    separator()!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
-    detect();
-    expect(localStorage.getItem(KEY)).toBeNull();
-    expect(store().preference()).toBeNull();
-    expect(dock()!.style.width).toBe('400px');
-  });
-
-  it('floors a fractional shell max so the chat column keeps 624 px (AC 3.2)', () => {
-    localStorage.setItem(KEY, '560');
-    create({ inspectorOpen: true });
-    emitShellWidth(960.5);
-    expect(dock()!.style.width).toBe('336px');
-    expect(separator()!.getAttribute('aria-valuenow')).toBe('336');
-    expect(separator()!.getAttribute('aria-valuemax')).toBe('336');
-    expect(store().preference()).toBe(560);
-  });
-
-  it('never counts the Stats tab toward the band or the dock max', () => {
-    create({ inspectorOpen: true });
-    const shellEl = native().querySelector('.cs-shell')!;
-    // 991 px measured = 959 px for main column + dock: the sheet band.
-    emitWidth(shellEl, 991);
-    expect(native().querySelector('ptah-split-handle')).toBeNull();
-    // 992 px measured = 960 px: docked, max 960 - 624.
-    emitWidth(shellEl, 992);
-    expect(separator()!.getAttribute('aria-valuemax')).toBe('336');
-    expect(dock()!.style.width).toBe('336px');
-  });
-
-  it('keeps the wider stored preference when a drag is cancelled (AC 2.4, 3.3)', () => {
-    localStorage.setItem(KEY, '560');
-    create({ inspectorOpen: true });
-    emitShellWidth(960);
-    expect(separator()!.getAttribute('aria-valuenow')).toBe('336');
-    expect(dock()!.style.width).toBe('336px');
-
-    handle().sizeChange.emit(320);
-    detect();
-    expect(dock()!.style.width).toBe('320px');
-
-    handle().sizeChange.emit(336);
-    handle().sizeCancel.emit();
-    detect();
-    expect(localStorage.getItem(KEY)).toBe('560');
-    expect(store().preference()).toBe(560);
-    expect(dock()!.style.width).toBe('336px');
-
-    emitShellWidth(1500);
-    expect(dock()!.style.width).toBe('560px');
-  });
-
-  it('writes nothing for a click without movement at a shell-clamped width', () => {
-    localStorage.setItem(KEY, '560');
-    create({ inspectorOpen: true });
-    emitShellWidth(960);
-    const setItem = jest.spyOn(Storage.prototype, 'setItem');
-
-    handle().sizeChange.emit(336);
-    handle().sizeCommit.emit();
-    detect();
-
-    expect(setItem).not.toHaveBeenCalled();
-    expect(localStorage.getItem(KEY)).toBe('560');
-    expect(store().preference()).toBe(560);
-  });
-
-  it('restores a committed width in a new chat view over the same storage (AC 3.4, 3.6)', () => {
-    create({ inspectorOpen: true });
-    emitShellWidth(1124);
-    handle().sizeChange.emit(480);
-    handle().sizeCommit.emit();
-    detect();
-    expect(localStorage.getItem(KEY)).toBe('480');
-
-    h!.fixture.destroy();
-    h = undefined;
-    TestBed.resetTestingModule();
-    observers = [];
-
-    create({ inspectorOpen: true });
-    emitShellWidth(1124);
-    expect(dock()!.style.width).toBe('480px');
-  });
-
-  it('follows a width stored by another document when no drag is in progress', () => {
-    create({ inspectorOpen: true });
-    emitShellWidth(1500);
-    expect(dock()!.style.width).toBe('448px');
-
-    dispatchStorage('520');
-    expect(dock()!.style.width).toBe('520px');
-  });
-
-  it('keeps the drag width over a live sync, then renders the synced width on cancel (R8)', () => {
-    create({ inspectorOpen: true });
-    emitShellWidth(1500);
-    const setItem = jest.spyOn(Storage.prototype, 'setItem');
-
-    handle().sizeChange.emit(400);
-    detect();
-    expect(dock()!.style.width).toBe('400px');
-
-    dispatchStorage('520');
-    expect(dock()!.style.width).toBe('400px');
-    expect(store().preference()).toBe(520);
-
-    handle().sizeChange.emit(448);
-    handle().sizeCancel.emit();
-    detect();
-    expect(dock()!.style.width).toBe('520px');
-    // No per-frame persistence, and the cancel writes nothing.
-    expect(setItem).not.toHaveBeenCalled();
-    expect(localStorage.getItem(KEY)).toBeNull();
-  });
-
-  it('turns the dock entrance animation off only while dragging', () => {
-    create({ inspectorOpen: true });
-    emitShellWidth(1500);
-    expect(dock()!.classList.contains('cs-inspector--resizing')).toBe(false);
-
-    handle().draggingChange.emit(true);
-    detect();
-    expect(dock()!.classList.contains('cs-inspector--resizing')).toBe(true);
-
-    handle().draggingChange.emit(false);
-    detect();
-    expect(dock()!.classList.contains('cs-inspector--resizing')).toBe(false);
-  });
-
-  it('drops a stale draft when the handle is destroyed mid-drag (R1)', () => {
-    create({ inspectorOpen: true });
-    emitShellWidth(1500);
-    handle().draggingChange.emit(true);
-    handle().sizeChange.emit(400);
-    detect();
-    expect(dock()!.style.width).toBe('400px');
-
-    // Into the sheet band: the slot and its handle go away without a cancel.
-    emitShellWidth(800);
-    expect(native().querySelector('ptah-split-handle')).toBeNull();
-
-    emitShellWidth(1500);
-    expect(dock()!.style.width).toBe('448px');
-    expect(dock()!.classList.contains('cs-inspector--resizing')).toBe(false);
-    expect(separator()!.getAttribute('aria-valuenow')).toBe('448');
-    expect(localStorage.getItem(KEY)).toBeNull();
-  });
-
-  it('keeps the tab visible but inert in the sheet band, with no handle and no inline width (AC 1.3, 1.4, 2.7, 5.1)', () => {
-    create();
-    emitShellWidth(800);
-    expect(sessionTab()).not.toBeNull();
-    expect(sessionTab()!.hasAttribute('inert')).toBe(false);
-    expect(sessionTab()!.classList.contains('opacity-50')).toBe(false);
-
-    sessionTabButton().click();
-    detect();
-    expect(sessionTab()!.hasAttribute('inert')).toBe(true);
-    expect(sessionTab()!.classList.contains('opacity-50')).toBe(true);
-    // Floats immediately left of the sheet, above the scrim.
-    expect(sessionTab()!.classList.contains('cs-stats-tab--sheet')).toBe(true);
-    expect(sessionTab()!.classList.contains('cs-stats-tab--full')).toBe(false);
-    expect(native().querySelector('ptah-split-handle')).toBeNull();
-    expect(dock()).not.toBeNull();
-    expect(dock()!.classList.contains('cs-inspector--sheet')).toBe(true);
-    expect(dock()!.style.width).toBe('');
-  });
-
-  it('pins the tab to the shell start over the full-width sheet', () => {
-    create();
-    emitShellWidth(500);
-    sessionTabButton().click();
-    detect();
-    expect(dock()!.classList.contains('cs-inspector--sheet')).toBe(true);
-    expect(sessionTab()!.classList.contains('cs-stats-tab--sheet')).toBe(true);
-    expect(sessionTab()!.classList.contains('cs-stats-tab--full')).toBe(true);
-    expect(sessionTab()!.hasAttribute('inert')).toBe(true);
-  });
-
-  it('returns focus to the Stats tab after a docked close from the inspector (AC 1.6)', async () => {
-    create();
-    emitShellWidth(1500);
-    sessionTabButton().focus();
-    sessionTabButton().click();
-    detect();
-    await h!.fixture.whenStable();
-    detect();
-    separator()!.focus();
-    expect(document.activeElement).toBe(separator());
-
-    const inspector = native().querySelector('ptah-session-inspector');
-    expect(inspector).not.toBeNull();
-    inspector!.dispatchEvent(new CustomEvent('closeRequested'));
-    detect();
-
-    expect(dock()).toBeNull();
-    expect(document.activeElement).toBe(sessionTabButton());
-  });
-
-  it('restores focus to the Agents tab, not the Stats tab, after the agent overlay closes', () => {
-    create({ sessionId: '' });
-    emitWidth(native(), 500);
-    expect(sessionTab()).not.toBeNull();
-
-    agentsTabButton().click();
-    detect();
-    document.activeElement?.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
-    );
-    detect();
-
-    expect(document.activeElement).toBe(agentsTabButton());
-    expect(document.activeElement).not.toBe(sessionTabButton());
   });
 });

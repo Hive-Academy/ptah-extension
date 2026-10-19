@@ -3,7 +3,7 @@ import { LoggingService } from '@ptah-extension/core';
 import {
   INSPECTOR_MAX_WIDTH,
   INSPECTOR_MIN_WIDTH,
-} from './inspector-shell.controller';
+} from './inspector-dock-width';
 
 /** `localStorage` key of the docked inspector width; value is an integer string. */
 export const INSPECTOR_DOCK_WIDTH_STORAGE_KEY = 'ptah.inspector-dock-width.v1';

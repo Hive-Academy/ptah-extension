@@ -3,6 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import type { CompactRailDensity, CompactRailState } from '@ptah-extension/chat-ui';
 import type { CanvasTile } from '../canvas.store';
+import { railWidthPx } from '../canvas-board-mode';
 import { DEFAULT_TILE_WIDTH } from '../canvas-layout-intent';
 import { RUNNING_CAP_MESSAGE } from '../canvas-running-cap';
 import {
@@ -250,5 +251,21 @@ describe('CanvasRailComponent', () => {
     visible(1).dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
     expect(focus).toHaveBeenCalledWith('c');
     expect(document.activeElement).toBe(visible(2));
+  });
+  it.each([
+    [false, 'xl'],
+    [false, 'lg'],
+    [false, 'md'],
+    [false, 'sm'],
+    [true, 'lg'],
+    [true, 'sm'],
+  ] as const)('renders the width railWidthPx gives (collapsed %p, band %p)', (collapsed, band) => {
+    const fixture = mount([tile('a', 1)]);
+    fixture.componentRef.setInput('collapsed', collapsed);
+    fixture.componentRef.setInput('band', band);
+    fixture.detectChanges();
+    const aside = (fixture.nativeElement as HTMLElement).querySelector('aside[aria-label="Sessions"]')!;
+    const widths = [...aside.classList].filter((name) => /^w-\[\d+px\]$/.test(name));
+    expect(widths).toEqual([`w-[${railWidthPx(collapsed, band)}px]`]);
   });
 });
