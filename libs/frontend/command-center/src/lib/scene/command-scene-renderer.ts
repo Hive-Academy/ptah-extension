@@ -5,7 +5,7 @@ import {
   type SceneNode,
   type SceneRect,
 } from './scene-layout';
-import { drawSceneDecoration } from './command-scene-decoration';
+import { drawRootGlow, drawSceneDecoration } from './command-scene-decoration';
 import { drawStatus, drawVoiceRing } from './command-scene-status';
 
 export interface SceneSprite {
@@ -51,6 +51,13 @@ export type SceneVoiceSnapshot = Pick<
 >;
 
 /** Graphic ink for child rings, orbits and ownership tethers. */
+/** Voice states that animate the root every frame; others use the ambient frame cap. */
+const LIVE_VOICE_STATES: ReadonlySet<CommandVoiceState> = new Set([
+  'listening',
+  'thinking',
+  'speaking',
+]);
+
 export const CHILD_SILVER_INK = {
   dark: '#898ba5',
   light: '#777a91',
@@ -67,6 +74,9 @@ export class CommandSceneRenderer {
   private hidden = false;
   private disposed = false;
   private active = false;
+  private live = false;
+  private needsPaint = true;
+  private lastPaintTime = Number.NEGATIVE_INFINITY;
   private anchor: HTMLElement | null = null;
   private anchorNodeId: string | null = null;
   private readonly spriteById = new Map<string, CanvasImageSource>();
@@ -164,6 +174,7 @@ export class CommandSceneRenderer {
   }
 
   public invalidate(): void {
+    this.needsPaint = true;
     if (!this.hidden && !this.disposed && this.snapshot && !this.frameId)
       this.frameId = this.requestFrame(this.draw);
   }
@@ -201,16 +212,17 @@ export class CommandSceneRenderer {
 
   private recomputeActive(): void {
     const snapshot = this.snapshot;
-    this.active =
+    this.live =
       !!snapshot &&
-      !snapshot.reducedMotion &&
-      (this.voice.voiceState === 'listening' ||
-        this.voice.voiceState === 'thinking' ||
-        this.voice.voiceState === 'speaking' ||
+      (LIVE_VOICE_STATES.has(this.voice.voiceState) ||
         snapshot.layout.nodes.some(
           (node) =>
             node.node.state === 'running' || node.node.state === 'starting',
         ));
+    this.active =
+      !!snapshot &&
+      !snapshot.reducedMotion &&
+      (snapshot.layout.nodes.length > 1 || this.live);
   }
 
   private prepareBackdrop(snapshot: SceneRenderSnapshot): void {
@@ -226,7 +238,8 @@ export class CommandSceneRenderer {
       width,
       height,
     };
-    const signature = `${width}|${height}|${dpr}|${snapshot.theme}|${sceneRect.x},${sceneRect.y},${sceneRect.width},${sceneRect.height}`;
+    const orbitCount = snapshot.layout.orbitCount;
+    const signature = `${width}|${height}|${dpr}|${snapshot.theme}|${sceneRect.x},${sceneRect.y},${sceneRect.width},${sceneRect.height}|${orbitCount > 8 ? 2 : orbitCount > 0 ? 1 : 0}`;
     if (signature === this.backdropSignature) return;
     if (this.backdrop) {
       this.backdrop.width = 0;
@@ -241,7 +254,14 @@ export class CommandSceneRenderer {
     const context = canvas.getContext('2d');
     if (!context) throw new Error('Canvas 2D context unavailable');
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
-    drawSceneDecoration(context, width, height, snapshot.theme, sceneRect);
+    drawSceneDecoration(
+      context,
+      width,
+      height,
+      snapshot.theme,
+      sceneRect,
+      orbitCount,
+    );
     this.backdrop = canvas;
   }
 
@@ -293,6 +313,17 @@ export class CommandSceneRenderer {
     this.frameId = 0;
     const snapshot = this.snapshot;
     if (!snapshot || this.hidden || this.disposed) return;
+    if (
+      this.active &&
+      !this.live &&
+      !this.needsPaint &&
+      time - this.lastPaintTime < 33
+    ) {
+      this.frameId = this.requestFrame(this.draw);
+      return;
+    }
+    this.needsPaint = false;
+    this.lastPaintTime = time;
     const started = performance.now();
     const width = this.canvas.clientWidth;
     const height = this.canvas.clientHeight;
@@ -309,6 +340,9 @@ export class CommandSceneRenderer {
     context.strokeStyle = snapshot.theme === 'dark' ? '#6b6388' : '#aaa1b1';
     const tethers = snapshot.layout.tethers ?? [];
     const silver = CHILD_SILVER_INK[snapshot.theme];
+    const dashOffset = snapshot.reducedMotion ? 0 : -time * 0.012;
+    context.setLineDash([3, 7]);
+    context.lineDashOffset = dashOffset;
     for (const node of snapshot.layout.nodes) {
       if (!node.node.parentId) continue;
       if (this.tetheredIds.has(node.node.id)) continue;
@@ -366,11 +400,25 @@ export class CommandSceneRenderer {
     context.lineWidth = 1;
     for (const tether of tethers) {
       context.beginPath();
-      context.moveTo(tether.fromX, tether.fromY);
-      context.lineTo(tether.toX, tether.toY);
+      context.moveTo(tether.toX, tether.toY);
+      context.lineTo(tether.fromX, tether.fromY);
       context.stroke();
     }
+    context.setLineDash([]);
+    context.lineDashOffset = 0;
     for (const node of snapshot.layout.nodes) {
+      if (node.kind === 'root') {
+        const level = Math.max(this.voice.inputLevel, this.voice.outputLevel);
+        drawRootGlow(
+          context,
+          node.x,
+          node.y,
+          node.radius,
+          level,
+          snapshot.theme,
+          snapshot.reducedMotion,
+        );
+      }
       if (
         node.node.kind !== 'child' ||
         !tethers.some((tether) => tether.toId === node.node.id)
@@ -572,6 +620,6 @@ export class CommandSceneRenderer {
       this.lastMeterTime = time;
     }
     this.lastFrameTime = time;
-    if (this.active) this.invalidate();
+    if (this.active) this.frameId = this.requestFrame(this.draw);
   };
 }

@@ -566,9 +566,10 @@ describe('CommandCenterPageComponent', () => {
       expect.arrayContaining([expect.stringContaining('stage-column'), expect.stringContaining('dock'), expect.stringContaining('rail')]),
     );
     expect(css).toContain('grid-template-areas: \'stage rail\' \'dock rail\'');
-    expect(css).toContain('336px');
-    expect(css).toContain('padding: 16px 22px 22px');
-    expect(css).toContain('row-gap: 14px');
+    expect(css).toContain('296px');
+    expect(css).toContain('padding: 16px');
+    expect(css).toContain('column-gap: 12px');
+    expect(css).toContain('row-gap: 10px');
     expect(css).toContain('flex: 1 1 auto; min-height: 0');
     expect(css).toContain('grid-template-rows: minmax(600px, 1fr) auto');
     expect(css).toContain('grid-template-rows: minmax(570px, 1fr) auto');
@@ -577,7 +578,7 @@ describe('CommandCenterPageComponent', () => {
     expect(css).toContain('@container (min-width: 1100px)');
     expect(css).toContain('height: 72px');
     expect(css).toContain('@container (max-width: 1000px)');
-    expect(css).toContain('260px');
+    expect(css).toContain('240px');
     expect(css).toContain('570px');
     expect(css).toContain('@container (max-width: 720px)');
     expect(css).toContain('flex-direction: column');

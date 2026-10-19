@@ -58,17 +58,17 @@ export interface CommandChildStats {
   template: `
     <div class="min-w-0">
       <h2
-        class="break-words font-display text-[28px] font-medium leading-tight text-base-content"
+        class="break-words font-display text-2xl font-medium leading-tight text-base-content"
       >
         {{ node().label }}
       </h2>
       @if (subtitle(); as description) {
-        <p class="mt-1 text-[13px] leading-5 text-base-content-muted">
+        <p class="mt-1 text-xs leading-4 text-base-content-muted">
           {{ description }}
         </p>
       }
       <span
-        class="mt-4 inline-flex items-center gap-2 rounded-md border border-base-300 bg-base-100 px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-widest text-base-content"
+        class="mt-3 inline-flex items-center gap-2 rounded-md border border-base-300 bg-base-100 px-2 py-1 font-mono text-[11px] font-bold uppercase tracking-widest text-base-content"
       >
         <lucide-angular
           [img]="stateIcon(node().state)"
@@ -83,7 +83,7 @@ export interface CommandChildStats {
         {{ node().state }}
       </span>
       <div
-        class="mt-4 space-y-1 break-words font-mono text-[11px] leading-[1.7] text-base-content-muted"
+        class="mt-3 space-y-1 break-words font-mono text-[11px] leading-[1.6] text-base-content-muted"
       >
         @if (visibleProvider(); as provider) {
           <p class="flex items-center gap-1.5">

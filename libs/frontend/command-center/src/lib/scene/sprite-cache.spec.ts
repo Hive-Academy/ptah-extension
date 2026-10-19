@@ -1,4 +1,76 @@
 import { SpriteCache } from './sprite-cache';
+import type { CommandWorkNode } from '../model/command-center.store';
+
+describe('SpriteCache root logo', () => {
+  it('uses the P fallback, then redraws the clipped logo after image load', () => {
+    const image = document.createElement('img');
+    const imageConstructor = jest
+      .spyOn(globalThis, 'Image')
+      .mockImplementation(() => image);
+    const context = Object.assign({} as CanvasRenderingContext2D, {
+      scale: jest.fn(),
+      createRadialGradient: jest.fn(() => ({ addColorStop: jest.fn() })),
+      beginPath: jest.fn(),
+      arc: jest.fn(),
+      fill: jest.fn(),
+      stroke: jest.fn(),
+      ellipse: jest.fn(),
+      fillText: jest.fn(),
+      save: jest.fn(),
+      restore: jest.fn(),
+      clip: jest.fn(),
+      drawImage: jest.fn(),
+    });
+    const createCanvas = jest.fn(() => {
+      const canvas = document.createElement('canvas');
+      jest.spyOn(canvas, 'getContext').mockReturnValue(context);
+      return canvas;
+    });
+    const ready = jest.fn();
+    const cache = new SpriteCache(createCanvas, 'ptah.svg', ready);
+    const node: CommandWorkNode = {
+      id: 'root',
+      kind: 'root',
+      parentId: null,
+      label: 'Ptah',
+      providerId: null,
+      state: 'completed',
+    };
+    const request = {
+      node,
+      theme: 'dark' as const,
+      paletteName: 'gold',
+      palette: { lit: '#fff', mid: '#aaa', dark: '#333', rim: '#fdc' },
+      size: 60,
+      dpr: 1,
+    };
+    const fallback = cache.get(request);
+    expect(context.fillText).toHaveBeenCalledWith(
+      'P',
+      expect.any(Number),
+      expect.any(Number),
+    );
+    expect(cache.get(request)).toBe(fallback);
+    image.onload?.(new Event('load'));
+    expect(ready).toHaveBeenCalledTimes(1);
+    const logo = cache.get(request);
+    expect(logo).not.toBe(fallback);
+    expect(context.clip).toHaveBeenCalled();
+    expect(context.drawImage).toHaveBeenCalledWith(
+      image,
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+    );
+    expect(createCanvas).toHaveBeenCalledTimes(2);
+    image.onerror?.(new Event('error'));
+    const afterError = cache.get(request);
+    expect(afterError).toBe(fallback);
+    expect(context.fillText).toHaveBeenCalledTimes(1);
+    imageConstructor.mockRestore();
+  });
+});
 
 describe('SpriteCache voice halo', () => {
   it('reuses a theme, palette, and DPR sprite across live levels', () => {

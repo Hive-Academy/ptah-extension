@@ -186,7 +186,7 @@
             (interrupt)="page.interruptSpeech()"
             (openVoiceSettings)="page.openVoiceSettings()"
           />
-        <aside class="rail flex flex-col gap-3">
+        <aside class="rail flex flex-col gap-2">
           @if (page.recordWriteFailure()) {
             <p role="status" class="rounded-lg border border-warning p-2">
               The session pointer could not be saved. You can continue using
@@ -195,7 +195,7 @@
           }
           @if (selectedNode(); as node) {
             <section
-              class="rounded-xl border border-base-300 bg-base-200 p-4 text-base-content"
+              class="rounded-xl border border-base-300 bg-base-200 p-3 text-base-content"
               aria-label="Selected work"
             >
               <p
@@ -227,7 +227,7 @@
           />
           @if (page.latestReply(); as reply) {
             <p
-              class="rounded-lg border border-base-300 p-3 text-sm whitespace-pre-wrap"
+              class="rounded-lg border border-base-300 p-2 text-xs whitespace-pre-wrap"
             >
               {{ reply }}
             </p>

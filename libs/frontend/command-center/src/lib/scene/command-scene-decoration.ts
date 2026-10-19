@@ -13,6 +13,7 @@ export function drawSceneDecoration(
   height: number,
   theme: 'light' | 'dark',
   sceneRect: SceneRect,
+  orbitCount: number,
 ): void {
   const cx = sceneRect.x + sceneRect.width / 2;
   const cy = sceneRect.y + sceneRect.height / 2;
@@ -36,15 +37,50 @@ export function drawSceneDecoration(
     context.fillRect(dot.x * width, dot.y * height, dot.size, dot.size);
   context.globalAlpha = 1;
   context.strokeStyle = theme === 'dark' ? '#504b68' : '#aaa1b1';
+  context.globalAlpha = orbitCount === 0 ? 0.24 : 0.38;
   context.lineWidth = 1;
-  const axes = [
-    orbitRadii(sceneRect, true, true),
-    orbitRadii(sceneRect, false, false),
-    orbitRadii(sceneRect, true, false),
-  ];
+  const axes =
+    orbitCount > 8
+      ? [orbitRadii(sceneRect, true, true), orbitRadii(sceneRect, true, false)]
+      : [orbitRadii(sceneRect, false, false)];
   for (const { rx, ry } of axes) {
     context.beginPath();
     context.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
     context.stroke();
   }
+  context.globalAlpha = 1;
+}
+
+/** A soft field behind the root sprite, sized by the live voice level. */
+export function drawRootGlow(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  rootRadius: number,
+  level: number,
+  theme: 'light' | 'dark',
+  reducedMotion: boolean,
+): void {
+  const safeLevel = Number.isFinite(level) ? Math.max(0, Math.min(1, level)) : 0;
+  const radius =
+    rootRadius *
+    1.9 *
+    (reducedMotion ? 1 : 1 + safeLevel * 0.25);
+  const glow = context.createRadialGradient(
+    x,
+    y,
+    rootRadius * 0.55,
+    x,
+    y,
+    radius,
+  );
+  glow.addColorStop(
+    0,
+    theme === 'dark' ? 'rgba(238,178,77,0.3)' : 'rgba(211,140,42,0.22)',
+  );
+  glow.addColorStop(1, 'rgba(238,178,77,0)');
+  context.fillStyle = glow;
+  context.beginPath();
+  context.arc(x, y, radius, 0, Math.PI * 2);
+  context.fill();
 }

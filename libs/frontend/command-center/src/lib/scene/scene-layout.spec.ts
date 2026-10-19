@@ -168,6 +168,7 @@ describe('layoutScene', () => {
       (entry) => entry.node.id === grandchild.id,
     );
     const laneSphere = result.nodes.find((entry) => entry.node.id === lane.id);
+    expect(result.orbitCount).toBe(1);
     expect(
       Math.hypot(
         (grandchildSphere?.x ?? 0) - (parentSphere?.x ?? 0),

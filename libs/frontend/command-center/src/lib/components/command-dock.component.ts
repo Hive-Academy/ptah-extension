@@ -7,7 +7,7 @@ export const commandDockStyles = `
     .command-dock {
       display: grid;
       grid-template-columns: minmax(170px, 1fr) auto minmax(180px, 1.5fr) auto auto;
-      gap: 8px 12px;
+      gap: 4px 8px;
       align-items: center;
       min-width: 0;
     }
@@ -56,7 +56,7 @@ export const commandDockStyles = `
   changeDetection: ChangeDetectionStrategy.OnPush,
   encapsulation: ViewEncapsulation.None,
   template: `
-    <div class="command-dock rounded-xl border border-base-300 bg-base-200 p-3 text-base-content" role="group" aria-label="Command dock" data-dock-layout="responsive">
+    <div class="command-dock rounded-xl border border-base-300 bg-base-200 p-2 text-base-content" role="group" aria-label="Command dock" data-dock-layout="responsive">
       <ptah-command-voice-hud
         [voiceState]="voiceState()" [provider]="provider()" [muted]="muted()"
         [voiceError]="voiceError()" [inputLevel]="inputLevel()" [outputLevel]="outputLevel()"

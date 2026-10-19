@@ -31,10 +31,10 @@ import { stateBorder, stateColor, stateIcon } from './command-state-icon';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section
-      class="flex min-h-0 flex-1 flex-col rounded-xl border border-base-300 bg-base-200 p-3"
+      class="flex min-h-0 flex-1 flex-col rounded-xl border border-base-300 bg-base-200 p-2"
       aria-label="Delegated work"
     >
-      <h2 class="mb-2 font-semibold">
+      <h2 class="mb-1 text-sm font-semibold">
         Delegated work · {{ delegatedNodes().length }}
       </h2>
       <p class="sr-only" aria-live="polite" aria-atomic="true">
@@ -47,7 +47,7 @@ import { stateBorder, stateColor, stateIcon } from './command-state-icon';
           <li>
             <button
               type="button"
-              class="flex min-h-11 w-full items-center gap-3 rounded-lg border border-transparent border-l-4 px-2 py-2 text-left hover:bg-base-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+              class="flex min-h-10 w-full items-center gap-2 rounded-lg border border-transparent border-l-4 px-2 py-1 text-left hover:bg-base-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
               [class]="stateBorder(node.state)"
               [class.border-warning]="selectedId() === node.id"
               [class.ring-2]="selectedId() === node.id"
@@ -76,10 +76,10 @@ import { stateBorder, stateColor, stateIcon } from './command-state-icon';
                 <lucide-angular [img]="GitBranch" class="h-3.5 w-3.5 shrink-0 text-base-content" aria-hidden="true" data-test="child-kind-icon" />
               }
               <span class="min-w-0 flex-1">
-                <span class="block truncate text-sm font-semibold">{{
+                <span class="block truncate text-xs font-semibold">{{
                   node.label
                 }}</span>
-                <span class="block text-xs text-base-content-muted">
+                <span class="block text-[11px] text-base-content-muted">
                   @if (providerName(node.providerId); as provider) {
                     {{ provider }} ·
                   }
@@ -102,7 +102,7 @@ import { stateBorder, stateColor, stateIcon } from './command-state-icon';
                   </span>
                 </span>
                 @if (freshness(node.updatedAt); as age) {
-                  <span class="block text-xs text-base-content-muted"
+                  <span class="block text-[11px] text-base-content-muted"
                     >Updated {{ age }}</span
                   >
                 }
@@ -110,7 +110,7 @@ import { stateBorder, stateColor, stateIcon } from './command-state-icon';
             </button>
           </li>
         } @empty {
-          <li class="p-3 text-sm">
+          <li class="p-2 text-xs">
             No delegated work yet. Try “Ptah, review the release plan” or “run a
             Crucible on this change.”
           </li>
@@ -118,11 +118,11 @@ import { stateBorder, stateColor, stateIcon } from './command-state-icon';
       </ul>
       @if (isClipped() && !atEnd()) {
         <div class="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-base-200 to-transparent" aria-hidden="true" data-test="work-list-fade"></div>
-        <span class="pointer-events-none absolute bottom-0 right-2 rounded bg-base-200 px-1 font-mono text-[10px] text-base-content-muted" aria-hidden="true" data-test="work-list-scroll-cue">Scroll list ↓</span>
+        <span class="pointer-events-none absolute bottom-0 right-2 rounded bg-base-200 px-1 font-mono text-[11px] text-base-content-muted" aria-hidden="true" data-test="work-list-scroll-cue">Scroll list ↓</span>
       }
       </div>
       @if (overflowCompleted() || overflowOther()) {
-        <p class="mt-2 text-xs text-base-content-muted">
+        <p class="mt-1 text-[11px] text-base-content-muted">
           Off canvas:
           @if (overflowCompleted()) {
             {{ overflowCompleted() }} completed
