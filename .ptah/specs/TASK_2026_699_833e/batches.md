@@ -298,7 +298,7 @@ Edge cases:
 - Peer-owned files (`chat-transcript.*`, `message-bubble.*`, `chat-input.component.ts`): no change in
   `git diff main...HEAD` nor in the working tree.
 
-## Batch 4: PLAN LIMITS card (`variant="inspector"`) — COMPLETE (commit: see git log)
+## Batch 4: PLAN LIMITS card (`variant="inspector"`) — COMPLETE (commit 5fc888d16)
 
 - Recommended executor: subagent `frontend-developer`
 - Execution mode: sequential
@@ -358,3 +358,26 @@ Edge cases:
 - Process note: the executor ran one read-only `git diff --stat`; no effect on the tree.
 - Measured overflow (`scrollWidth <= clientWidth` at dock 300/560 and the 760 sheet) is a visual-review
   QA item (D-I), not covered by Jest.
+
+## Fix round (phase review fixes + decision 13) — COMPLETE (commit: SHA_PENDING)
+
+- Trigger: `code-style-review.md` REJECTED (1 Blocking, 1 Serious, 1 Moderate) and
+  `code-logic-review.md` REJECTED (1 Moderate, 1 Minor); decision 13 (Stats tab move) joins the round.
+- Executor report: `fix-round-report.md`. Re-review: the one re-review, scoped to this commit.
+
+| # | Finding | Status | Verified on disk |
+| - | ------- | ------ | ---------------- |
+| F1 | Style Blocking: `SplitHandleAppearance` missing from barrel | COMPLETE | `chat-ui/src/index.ts:19` |
+| F2 | Style Serious: dock orchestration in ChatView | COMPLETE | new `inspector-dock.controller.ts` (127 lines, no stubs) + spec; ChatView 2135 -> 2062 lines |
+| F3 | Style Moderate: duplicated separator branches | COMPLETE | single `role="separator"` + `separatorClass()` in `split-handle.component.ts` |
+| F4 | Logic Moderate: fractional max breaks 624 px floor / ARIA | COMPLETE | `inspectorMaxWidthFor` floors; `inspectorDockWidth` rounds before clamp (`inspector-shell.controller.ts:80-120`) |
+| F5 | Logic Minor: body inline styles cleared | COMPLETE (fixed although Minor) | prior `userSelect`/`cursor` saved and restored in `split-handle.component.ts` |
+| F6 | Decision 13: "Stats" tab on dock's inner edge | COMPLETE | tab inside shell; `attach(..., INSPECTOR_TAB_WIDTH)` reserves 32 px so band/max/floor are unchanged |
+
+- Scoped checks: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat-ui @ptah-extension/chat
+  --parallel=1 --skip-nx-cache` passed for 2 projects (orchestrator run; not re-run by team-leader).
+- Peer-owned files (`chat-transcript.*`, `message-bubble.*`, `chat-input.component.ts`): unchanged.
+- Team-leader note: `applyWidth` subtracts `reservedWidth` after the `measured > 0` guard, so a shell
+  measuring exactly 32 px records width 0 (band `full-sheet`); harmless, recorded only.
+- Next: re-review of this commit (code-logic + code-style, new public API `InspectorDockController`,
+  `INSPECTOR_TAB_WIDTH`, `SplitHandleAppearance`), plus visual review for the moved Stats tab.

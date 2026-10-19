@@ -280,9 +280,34 @@
     }
   </div>
 
+  <!-- Stats tab (decision 13): between the main column and the dock, so its
+       active line (side="left": right edge) faces the dock. Its slot is the
+       shell's reserved width (INSPECTOR_TAB_WIDTH), never part of the band or
+       the dock max. Over the open sheet the tab floats just left of it, above
+       the scrim, inert; the slot keeps its place so nothing reflows. The
+       header toggle keeps aria-controls="inspector". -->
+  @if (hostsInspector() && shell.tab()) {
+    <div #statsTabSlot class="cs-stats-tab-slot">
+      <ptah-sidebar-tab
+        data-inspector-tab
+        label="Stats"
+        side="left"
+        [isOpen]="shell.isOpen()"
+        [badgeType]="inspectorTabBadge()"
+        [attr.inert]="shell.isModal() ? '' : null"
+        [class.opacity-50]="shell.isModal()"
+        [class.cs-stats-tab--sheet]="shell.isModal()"
+        [class.cs-stats-tab--full]="
+          shell.isModal() && shell.band() === 'full-sheet'
+        "
+        (toggled)="dock.toggleFromTab(statsTabSlot)"
+      />
+    </div>
+  }
+
   <!-- "This session" inspector: full main panel only. Docked >= 960 px, else a modal sheet over a
        scrim. The sections load as a lazy chunk. -->
-  @if (dockSlotShown()) {
+  @if (dock.slotShown()) {
     <!-- 0 px slot: the grip overlays the dock's leading edge and adds no
          layout width, so the dock max stays shell width - 624 px. -->
     <div class="cs-dock-slot">
@@ -292,14 +317,14 @@
         appearance="grip"
         label="Resize session details"
         [inverted]="true"
-        [size]="inspectorWidth()"
-        [min]="inspectorMinWidth"
-        [max]="inspectorMaxWidth()"
-        (sizeChange)="dockDraftWidth.set($event)"
-        (sizeCommit)="commitInspectorWidth()"
-        (sizeCancel)="dockDraftWidth.set(null)"
-        (sizeReset)="resetInspectorWidth()"
-        (draggingChange)="dockResizing.set($event)"
+        [size]="dock.width()"
+        [min]="dock.minWidth"
+        [max]="dock.maxWidth()"
+        (sizeChange)="dock.preview($event)"
+        (sizeCommit)="dock.commit()"
+        (sizeCancel)="dock.cancel()"
+        (sizeReset)="dock.reset()"
+        (draggingChange)="dock.setResizing($event)"
       />
     </div>
   }
@@ -318,8 +343,8 @@
         class="cs-inspector"
         [class.cs-inspector--sheet]="shell.isModal()"
         [class.cs-inspector--full]="shell.isModal() && shell.band() === 'full-sheet'"
-        [class.cs-inspector--resizing]="dockResizing()"
-        [style.width.px]="shell.isModal() ? null : inspectorWidth()"
+        [class.cs-inspector--resizing]="dock.resizing()"
+        [style.width.px]="shell.isModal() ? null : dock.width()"
         [tabId]="inspectorTab.tabId"
         [presentation]="shell.isModal() ? 'sheet' : 'docked'"
         [hasLaneSurface]="hasLaneSurface"
@@ -333,8 +358,8 @@
       <div
         class="cs-inspector"
         [class.cs-inspector--sheet]="shell.isModal()"
-        [class.cs-inspector--resizing]="dockResizing()"
-        [style.width.px]="shell.isModal() ? null : inspectorWidth()"
+        [class.cs-inspector--resizing]="dock.resizing()"
+        [style.width.px]="shell.isModal() ? null : dock.width()"
         aria-hidden="true"
       ></div>
     }
@@ -381,20 +406,3 @@
     />
   }
 </div>
-
-<!-- Session tab: outside the shell, so its 32 px never count toward the band
-     and it stays visible in the sheet band (inert while the sheet is open).
-     The header toggle keeps aria-controls="inspector". -->
-@if (hostsInspector() && shell.tab()) {
-  <ptah-sidebar-tab
-    #sessionTab
-    data-inspector-tab
-    label="Session"
-    side="right"
-    [isOpen]="shell.isOpen()"
-    [badgeType]="inspectorTabBadge()"
-    [attr.inert]="shell.isModal() ? '' : null"
-    [class.opacity-50]="shell.isModal()"
-    (toggled)="toggleInspectorFromTab()"
-  />
-}

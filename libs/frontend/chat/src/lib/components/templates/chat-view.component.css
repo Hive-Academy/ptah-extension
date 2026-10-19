@@ -1,4 +1,4 @@
-/* Row: the shell, then the Session tab as the last child (design-spec D2). */
+/* Row: the shell, which holds the Stats tab between main column and dock. */
 :host {
   display: flex;
   height: 100%;
@@ -58,9 +58,31 @@
   box-shadow: var(--elev-shadow-raised);
 }
 
+/* The Stats tab keeps its 32 px at the shell's left edge over the full sheet. */
 .cs-inspector--full {
-  width: 100%;
+  width: calc(100% - 32px);
   border-left: 0;
+}
+
+/* Stats tab slot: 32 px = INSPECTOR_TAB_WIDTH, the shell's reserved width.
+   It keeps its place while the tab floats over the open sheet. */
+.cs-stats-tab-slot {
+  display: flex;
+  flex-shrink: 0;
+  width: 32px;
+}
+
+/* Open sheet: the tab sits immediately left of it, above the scrim. */
+.cs-stats-tab--sheet {
+  position: absolute;
+  inset-block: 0;
+  right: 336px;
+  z-index: 30;
+}
+
+.cs-stats-tab--full {
+  right: auto;
+  left: 0;
 }
 
 /* Pointer-only; covers the whole shell (header included) under the sheet. */

@@ -67,6 +67,12 @@ function pointerEvent(
   return event as PointerEvent;
 }
 
+/** The line separator's class string before the shared-separator change. */
+const LINE_SEPARATOR_CLASSES =
+  'group flex h-full w-full touch-none items-center justify-center outline-none focus-visible:bg-primary/20 cursor-col-resize'
+    .split(' ')
+    .sort();
+
 describe('SplitHandleComponent', () => {
   let fixture: ComponentFixture<HostComponent>;
   let host: HostComponent;
@@ -252,6 +258,24 @@ describe('SplitHandleComponent', () => {
       expect(document.body.style.userSelect).toBe('');
     });
 
+    it('restores body styles that were set before the drag', () => {
+      document.body.style.cursor = 'wait';
+      document.body.style.userSelect = 'text';
+      startDrag(100);
+      expect(document.body.style.cursor).toBe('col-resize');
+      expect(document.body.style.userSelect).toBe('none');
+      document.dispatchEvent(pointerEvent('pointerup', { clientX: 100 }));
+      expect(document.body.style.cursor).toBe('wait');
+      expect(document.body.style.userSelect).toBe('text');
+
+      startDrag(100);
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+      );
+      expect(document.body.style.cursor).toBe('wait');
+      expect(document.body.style.userSelect).toBe('text');
+    });
+
     it('uses the row-resize cursor for a horizontal handle', () => {
       host.orientation.set('horizontal');
       render();
@@ -404,9 +428,9 @@ describe('SplitHandleComponent', () => {
       // class `w-1` (it stops at the dot). Pinned so `line` stays unchanged.
       const el = handleHost();
       expect([...el.classList]).toEqual(['block', 'shrink-0', 'w-1', 'h-full']);
-      expect(separator().className).toBe(
-        'group flex h-full w-full touch-none items-center justify-center outline-none focus-visible:bg-primary/20 cursor-col-resize',
-      );
+      // The separator's `[class]` binding orders classes itself; the set is
+      // the original line class string, unchanged.
+      expect([...separator().classList].sort()).toEqual(LINE_SEPARATOR_CLASSES);
       const line = separator().firstElementChild as HTMLElement;
       expect(line.className).toBe(
         'rounded-full bg-base-content/15 transition-colors group-hover:bg-primary/60 group-active:bg-primary h-full w-px',
@@ -466,6 +490,21 @@ describe('SplitHandleComponent', () => {
       expect(readout.classList).toContain('hidden');
       expect(readout.classList).toContain('group-focus-visible:block');
       expect(readout.classList).toContain('tabular-nums');
+    });
+
+    it('shares one separator element across appearances', () => {
+      const lineSeparator = separator();
+      host.appearance.set('grip');
+      render();
+      expect(separator()).toBe(lineSeparator);
+      expect(
+        fixture.nativeElement.querySelectorAll('[role="separator"]'),
+      ).toHaveLength(1);
+
+      host.appearance.set('line');
+      render();
+      expect(separator()).toBe(lineSeparator);
+      expect([...separator().classList].sort()).toEqual(LINE_SEPARATOR_CLASSES);
     });
 
     it('shows the dragging state in grip mode', () => {

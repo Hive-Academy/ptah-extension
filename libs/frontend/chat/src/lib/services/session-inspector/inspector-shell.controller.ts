@@ -69,8 +69,9 @@ export function inspectorBandFor(width: number): InspectorBand {
 
 /**
  * Widest docked inspector for a shell `shellWidth` px wide: the main column
- * keeps `INSPECTOR_MAIN_MIN_WIDTH`, within [MIN, MAX]. An unmeasured shell
- * (0 or non-finite) allows `INSPECTOR_MAX_WIDTH`.
+ * keeps `INSPECTOR_MAIN_MIN_WIDTH`, within [MIN, MAX]. Whole px, rounded
+ * down, so a subpixel shell never takes the main column below its floor. An
+ * unmeasured shell (0 or non-finite) allows `INSPECTOR_MAX_WIDTH`.
  */
 export function inspectorMaxWidthFor(shellWidth: number): number {
   if (!(shellWidth > 0) || !Number.isFinite(shellWidth)) {
@@ -78,7 +79,10 @@ export function inspectorMaxWidthFor(shellWidth: number): number {
   }
   return Math.max(
     INSPECTOR_MIN_WIDTH,
-    Math.min(INSPECTOR_MAX_WIDTH, shellWidth - INSPECTOR_MAIN_MIN_WIDTH),
+    Math.min(
+      INSPECTOR_MAX_WIDTH,
+      Math.floor(shellWidth - INSPECTOR_MAIN_MIN_WIDTH),
+    ),
   );
 }
 
@@ -111,8 +115,9 @@ export function inspectorDockWidth(
     preference !== null && Number.isFinite(preference)
       ? preference
       : inspectorDefaultWidthFor(shellWidth);
+  // Round first: the integer max then bounds the rendered width.
   const max = inspectorMaxWidthFor(shellWidth);
-  return Math.round(Math.min(max, Math.max(INSPECTOR_MIN_WIDTH, wanted)));
+  return Math.min(max, Math.max(INSPECTOR_MIN_WIDTH, Math.round(wanted)));
 }
 
 /** The tab facts the open rule reads. */
@@ -169,6 +174,7 @@ export class InspectorShellController {
   private readonly shellWidthState = signal(0);
 
   private observer: ResizeObserver | null = null;
+  private reservedWidth = 0;
   private shell: HTMLElement | null = null;
   private opener: () => HTMLElement | null = () => null;
   private title: () => HTMLElement | null = () => null;
@@ -179,7 +185,10 @@ export class InspectorShellController {
   /** `docked` >= 960 px, `sheet` 640-959 px, `full-sheet` < 640 px. */
   readonly band = this.bandState.asReadonly();
 
-  /** Last measured shell width (px); 0 until the shell is measured. */
+  /**
+   * Last measured shell width (px) less the `reservedWidth` given to
+   * `attach`; 0 until the shell is measured.
+   */
   readonly shellWidth: Signal<number> = this.shellWidthState.asReadonly();
 
   /** The bound tab, or `null` when there is none or it no longer exists. */
@@ -259,19 +268,24 @@ export class InspectorShellController {
   /**
    * Observe `shell` for the width band. `opener` is the header toggle and
    * `title` the session-title `h1[tabindex=-1]`, the focus fallbacks of
-   * `closeInsp`. Re-attaching moves the one observer to the new shell.
+   * `closeInsp`. `reservedWidth` px of the shell belong to neither the main
+   * column nor the inspector (ChatView's Stats tab) and never count toward
+   * the band or the dock maximum. Re-attaching moves the one observer to the
+   * new shell.
    */
   attach(
     shell: HTMLElement,
     opener: () => HTMLElement | null,
     title: () => HTMLElement | null,
+    reservedWidth = 0,
   ): void {
     if (this.destroyed) return;
     this.shell = shell;
     this.opener = opener;
     this.title = title;
+    this.reservedWidth = reservedWidth;
     if (typeof ResizeObserver === 'undefined') {
-      const width = shell.getBoundingClientRect().width;
+      const width = shell.getBoundingClientRect().width - reservedWidth;
       if (width > 0) this.shellWidthState.set(width);
       this.applyBand('docked');
       return;
@@ -287,7 +301,7 @@ export class InspectorShellController {
 
   /**
    * Open or close the inspector. `opener` is the control the user activated
-   * (e.g. a Session tab); `closeInsp('opener')` returns focus to it. Without
+   * (e.g. the Stats tab); `closeInsp('opener')` returns focus to it. Without
    * one, the attached header toggle (then the focused element) is the opener.
    */
   toggle(opener: HTMLElement | null = null): void {
@@ -391,9 +405,10 @@ export class InspectorShellController {
     }
   }
 
-  private applyWidth(width: number): void {
+  private applyWidth(measured: number): void {
     // A detached or hidden shell measures 0: keep the last real band.
-    if (!(width > 0)) return;
+    if (!(measured > 0)) return;
+    const width = Math.max(0, measured - this.reservedWidth);
     this.shellWidthState.set(width);
     this.applyBand(inspectorBandFor(width));
   }

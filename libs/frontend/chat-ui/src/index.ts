@@ -16,6 +16,7 @@ export { SidebarTabComponent } from './lib/atoms/sidebar-tab.component';
 export { SkeletonBlockComponent } from './lib/atoms/skeleton-block.component';
 export {
   SplitHandleComponent,
+  type SplitHandleAppearance,
   type SplitHandleOrientation,
 } from './lib/atoms/split-handle.component';
 export { StatusBadgeComponent } from './lib/atoms/status-badge.component';

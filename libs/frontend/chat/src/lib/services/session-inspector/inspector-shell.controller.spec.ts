@@ -165,6 +165,23 @@ describe('InspectorShellController', () => {
       expect(controller.shellWidth()).toBe(1500);
     });
 
+    it('subtracts the reserved width from every measurement', () => {
+      setup(1124);
+      controller.attach(
+        shell,
+        () => headerToggle,
+        () => title,
+        32,
+      );
+      expect(controller.shellWidth()).toBe(1092);
+      emitWidth(992);
+      expect(controller.shellWidth()).toBe(960);
+      expect(controller.band()).toBe('docked');
+      emitWidth(991);
+      expect(controller.shellWidth()).toBe(959);
+      expect(controller.band()).toBe('sheet');
+    });
+
     it('stays 0 for an unmeasured shell', () => {
       setup(0);
       expect(controller.shellWidth()).toBe(0);
@@ -190,7 +207,11 @@ describe('InspectorShellController', () => {
       });
       const fresh = TestBed.inject(InspectorShellController);
       shellRectWidth = 1300;
-      fresh.attach(shell, () => null, () => null);
+      fresh.attach(
+        shell,
+        () => null,
+        () => null,
+      );
       expect(fresh.shellWidth()).toBe(1300);
       expect(fresh.band()).toBe('docked');
     });
@@ -339,7 +360,7 @@ describe('InspectorShellController', () => {
 
     beforeEach(() => {
       setup(1200, { viewMode: 'compact' });
-      tabButton = markVisible(button('Session'));
+      tabButton = markVisible(button('Stats'));
       document.body.append(tabButton);
     });
 
@@ -414,7 +435,9 @@ describe('InspectorShellController', () => {
       [Number.NaN, INSPECTOR_MAX_WIDTH],
       [800, INSPECTOR_MIN_WIDTH],
       [960, 336],
+      [960.5, 336],
       [1124, 500],
+      [1124.9, 500],
       [1440, INSPECTOR_MAX_WIDTH],
     ])('inspectorMaxWidthFor(%p) = %p', (shellWidth, expected) => {
       expect(inspectorMaxWidthFor(shellWidth)).toBe(expected);
@@ -443,6 +466,8 @@ describe('InspectorShellController', () => {
       [900, 0, 560],
       [100, 1124, 300],
       [420.6, 1600, 421],
+      [560, 960.5, 336],
+      [499.6, 1124.9, 500],
       [Number.NaN, 1124, 400],
       [Number.POSITIVE_INFINITY, 1124, 400],
     ])(

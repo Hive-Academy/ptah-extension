@@ -3,7 +3,6 @@ import {
   inject,
   signal,
   computed,
-  linkedSignal,
   viewChild,
   ChangeDetectionStrategy,
   DestroyRef,
@@ -59,12 +58,10 @@ import { SessionHeaderComponent } from '../molecules/session-header/session-head
 // Referenced only in `imports` and inside `@defer (on immediate)`.
 import { SessionInspectorComponent } from '../organisms/session-inspector/session-inspector.component';
 import {
-  INSPECTOR_MIN_WIDTH,
-  InspectorDockWidthStore,
+  INSPECTOR_TAB_WIDTH,
+  InspectorDockController,
   InspectorShellController,
   SessionInspectorStore,
-  inspectorDockWidth,
-  inspectorMaxWidthFor,
 } from '../../services/session-inspector';
 import { injectSessionStatsSource } from '../../services/session-stats/session-stats-source';
 import { SESSION_EMBED_CHROME } from '../../tokens/session-embed-chrome.token';
@@ -237,6 +234,7 @@ const VIEW_PANEL_KEY = '';
     TranscriptRetentionService,
     // Open state, width band and sheet focus of this view's inspector.
     InspectorShellController,
+    InspectorDockController,
     PanelResizeService,
     DisplaySheetState,
     // One tile-expansion map per session view, released with the view (A3).
@@ -484,7 +482,7 @@ export class ChatViewComponent implements OnDestroy {
     Math.min(DOCK_MIN_WIDTH, this.dockMaxWidth() ?? DOCK_MIN_WIDTH),
   );
 
-  /** The Agents tab only; the Session tab is a second `ptah-sidebar-tab`. */
+  /** The Agents tab only; the Stats tab is a second `ptah-sidebar-tab`. */
   private readonly agentSidebarTab = viewChild<string, ElementRef<HTMLElement>>(
     'agentsTab',
     { read: ElementRef },
@@ -992,6 +990,7 @@ export class ChatViewComponent implements OnDestroy {
     this.shell.bindTab(() =>
       this.hostsInspector() ? this.resolvedTabId() : null,
     );
+    this.dock.bindHosted(() => this.hostsInspector());
     let previousSessionId: string | null | undefined;
     effect(() => {
       const sessionId = this.resolvedSessionId();
@@ -1008,6 +1007,7 @@ export class ChatViewComponent implements OnDestroy {
         shell,
         () => host.querySelector<HTMLElement>('[aria-controls="inspector"]'),
         () => host.querySelector<HTMLElement>('h1[tabindex="-1"]'),
+        INSPECTOR_TAB_WIDTH,
       );
     });
   }
@@ -1159,16 +1159,10 @@ export class ChatViewComponent implements OnDestroy {
     ),
   );
 
-  // Session tab and docked width (design-spec §1-2). The stored preference is
-  // shared by every chat view; the draft is this view's live drag only.
+  /** Docked width, drag draft and commit policy (design-spec §1-2). */
+  protected readonly dock = inject(InspectorDockController);
 
-  private readonly _dockWidthStore = inject(InspectorDockWidthStore);
-  private readonly sessionTab = viewChild<string, ElementRef<HTMLElement>>(
-    'sessionTab',
-    { read: ElementRef },
-  );
-
-  /** The Session tab's dot mirrors the header dot: `sel` info, else warning. */
+  /** The Stats tab's dot mirrors the header dot: `sel` info, else warning. */
   protected readonly inspectorTabBadge = computed<'warning' | 'info' | null>(
     () => {
       const dot = this.inspectorDot();
@@ -1176,73 +1170,6 @@ export class ChatViewComponent implements OnDestroy {
       return dot === 'sel' ? 'info' : 'warning';
     },
   );
-
-  /** The docked inspector, its resize handle and its inline width render. */
-  protected readonly dockSlotShown = computed(
-    () =>
-      this.hostsInspector() &&
-      this.shell.isOpen() &&
-      this.shell.tab() !== null &&
-      !this.shell.isModal(),
-  );
-
-  /**
-   * Width while a drag or key step is in flight; never persisted. It resets
-   * whenever the slot appears or goes: a handle destroyed mid-drag reports
-   * nothing, so a stale draft must not survive into the next docked render.
-   */
-  protected readonly dockDraftWidth = linkedSignal<boolean, number | null>({
-    source: this.dockSlotShown,
-    computation: () => null,
-  });
-  /** Turns the dock's entrance animation off while the handle drags. */
-  protected readonly dockResizing = linkedSignal<boolean, boolean>({
-    source: this.dockSlotShown,
-    computation: () => false,
-  });
-
-  protected readonly inspectorMinWidth = INSPECTOR_MIN_WIDTH;
-  /** Rendered dock width: draft, else preference, clamped to the shell. */
-  protected readonly inspectorWidth = computed(() =>
-    inspectorDockWidth(
-      this.dockDraftWidth() ?? this._dockWidthStore.preference(),
-      this.shell.shellWidth(),
-    ),
-  );
-  protected readonly inspectorMaxWidth = computed(() =>
-    inspectorMaxWidthFor(this.shell.shellWidth()),
-  );
-
-  /** The Session tab is the opener, so closing returns focus to it. */
-  protected toggleInspectorFromTab(): void {
-    const button =
-      this.sessionTab()?.nativeElement.querySelector<HTMLElement>('button') ??
-      null;
-    this.shell.toggle(button);
-  }
-
-  /**
-   * Drag end or key step. Persists only a draft that differs from what
-   * renders now, so a click without movement at a shell-clamped width never
-   * overwrites a wider stored preference.
-   */
-  protected commitInspectorWidth(): void {
-    const draft = this.dockDraftWidth();
-    this.dockDraftWidth.set(null);
-    if (draft === null) return;
-    const rendered = inspectorDockWidth(
-      this._dockWidthStore.preference(),
-      this.shell.shellWidth(),
-    );
-    if (Math.round(draft) === rendered) return;
-    this._dockWidthStore.commit(draft);
-  }
-
-  /** Double-click: forget the preference, back to the shell's default. */
-  protected resetInspectorWidth(): void {
-    this.dockDraftWidth.set(null);
-    this._dockWidthStore.reset();
-  }
 
   protected readonly limitCue = computed(
     () => this.stats.inputs()?.limitSummary ?? null,
@@ -1566,7 +1493,6 @@ export class ChatViewComponent implements OnDestroy {
       });
     });
 
-
     effect(() => {
       const request = this._appState.composerPrefillRequest();
       if (request.seq === 0) return;
@@ -1640,6 +1566,7 @@ export class ChatViewComponent implements OnDestroy {
   cancelQueue(): void {
     const tabId = this.resolvedTabId() ?? undefined;
     this.chatStore.clearQueuedContent(tabId);
+
   }
 
   /**

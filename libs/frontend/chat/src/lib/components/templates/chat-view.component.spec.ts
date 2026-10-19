@@ -71,6 +71,7 @@ import {
   type SessionStatsSource,
 } from '../../services/session-stats/session-stats-source';
 import {
+  INSPECTOR_TAB_WIDTH,
   InspectorDockWidthStore,
   InspectorOpenStateService,
   SessionInspectorStore,
@@ -200,7 +201,7 @@ function makeHarness(
     /** Start with the docked inspector open. */
     inspectorOpen?: boolean;
     /**
-     * Render the production template with the Session tab, the split handle
+     * Render the production template with the Stats tab, the split handle
      * and the agent panel real (everything else unknown via
      * `NO_ERRORS_SCHEMA`), so the inspector dock wiring can be exercised.
      */
@@ -2275,7 +2276,7 @@ describe('agent panel narrow overlay mode', () => {
     return h.fixture.nativeElement.querySelector('ptah-agent-monitor-panel');
   }
 
-  // Scoped to the Agents controls: the Session tab is another
+  // Scoped to the Agents controls: the Stats tab is another
   // `ptah-sidebar-tab` and the dock handle another separator.
   function sidebarTab(): HTMLElement | null {
     return h.fixture.nativeElement.querySelector(
@@ -2716,10 +2717,11 @@ describe('ChatViewComponent — session budget banner wiring', () => {
   });
 });
 
-// Session tab, docked width and resize handle (TASK_2026_699 Batch 3). The
-// shell width reaches the controller through a fake ResizeObserver on
-// `.cs-shell`; the stored width is the real `InspectorDockWidthStore`.
-describe('ChatViewComponent — Session tab and inspector dock', () => {
+// Stats tab, docked width and resize handle (TASK_2026_699 Batch 3, fix
+// round decision 13). The shell width reaches the controller through a fake
+// ResizeObserver on `.cs-shell`; the stored width is the real
+// `InspectorDockWidthStore`.
+describe('ChatViewComponent — Stats tab and inspector dock', () => {
   const KEY = INSPECTOR_DOCK_WIDTH_STORAGE_KEY;
   let h: ReturnType<typeof makeHarness> | undefined;
   let observers: FakeResizeObserver[] = [];
@@ -2819,8 +2821,12 @@ describe('ChatViewComponent — Session tab and inspector dock', () => {
     detect();
   }
 
+  /** `width` = main column + dock; the measured shell also holds the tab. */
   function emitShellWidth(width: number): void {
-    emitWidth(native().querySelector('.cs-shell')!, width);
+    emitWidth(
+      native().querySelector('.cs-shell')!,
+      width + INSPECTOR_TAB_WIDTH,
+    );
   }
 
   function sessionTab(): HTMLElement | null {
@@ -2874,14 +2880,24 @@ describe('ChatViewComponent — Session tab and inspector dock', () => {
     detect();
   }
 
-  it('renders the Session tab as the host last child and keeps tab and header in sync (AC 1.1, 1.2, 1.5)', () => {
+  it('renders the Stats tab inside the shell after the main column and keeps tab and header in sync (AC 1.1, 1.2, 1.5)', () => {
     create();
     const tab = sessionTab();
     expect(tab).not.toBeNull();
-    expect(native().lastElementChild).toBe(tab);
-    expect(tab!.closest('.cs-shell')).toBeNull();
+    const slot = tab!.parentElement!;
+    expect(slot.classList.contains('cs-stats-tab-slot')).toBe(true);
+    expect(slot.parentElement!.classList.contains('cs-shell')).toBe(true);
+    // Closed: the tab is the right edge of the chat column.
+    expect(slot.previousElementSibling?.hasAttribute('inert')).toBe(false);
+    expect(
+      slot.nextElementSibling?.classList.contains('cs-inspector') ?? false,
+    ).toBe(false);
     expect(sessionTabButton().getAttribute('aria-expanded')).toBe('false');
-    expect(sessionTabButton().getAttribute('title')).toBe('Show Session');
+    expect(sessionTabButton().getAttribute('title')).toBe('Show Stats');
+    expect(sessionTabButton().getAttribute('aria-label')).toBe(
+      'Toggle Stats panel',
+    );
+    expect(sessionTabButton().textContent?.trim()).toBe('Stats');
     // The header toggle alone controls the inspector region.
     expect(sessionTabButton().hasAttribute('aria-controls')).toBe(false);
     expect(dock()).toBeNull();
@@ -2891,6 +2907,15 @@ describe('ChatViewComponent — Session tab and inspector dock', () => {
     expect(sessionTabButton().getAttribute('aria-expanded')).toBe('true');
     expect(header()?.inspectorOpen).toBe(true);
     expect(dock()).not.toBeNull();
+    // Open: the tab sits immediately left of the dock's leading edge, and
+    // its active line (side="left": the right edge) faces the dock.
+    expect(slot.nextElementSibling?.classList.contains('cs-dock-slot')).toBe(
+      true,
+    );
+    expect(sessionTabButton().classList.contains('border-r')).toBe(true);
+    expect(
+      sessionTabButton().querySelector('.bg-primary.right-0'),
+    ).not.toBeNull();
 
     sessionTabButton().click();
     detect();
@@ -2899,7 +2924,7 @@ describe('ChatViewComponent — Session tab and inspector dock', () => {
     expect(dock()).toBeNull();
   });
 
-  it('renders no Session tab and no handle in compact, forced-card, tile and bare views (AC 1.7)', () => {
+  it('renders no Stats tab and no handle in compact, forced-card, tile and bare views (AC 1.7)', () => {
     const views: Array<Parameters<typeof makeHarness>[0]> = [
       { activeTabViewMode: 'compact' },
       { forcedCard: true },
@@ -2985,6 +3010,28 @@ describe('ChatViewComponent — Session tab and inspector dock', () => {
     expect(localStorage.getItem(KEY)).toBeNull();
     expect(store().preference()).toBeNull();
     expect(dock()!.style.width).toBe('400px');
+  });
+
+  it('floors a fractional shell max so the chat column keeps 624 px (AC 3.2)', () => {
+    localStorage.setItem(KEY, '560');
+    create({ inspectorOpen: true });
+    emitShellWidth(960.5);
+    expect(dock()!.style.width).toBe('336px');
+    expect(separator()!.getAttribute('aria-valuenow')).toBe('336');
+    expect(separator()!.getAttribute('aria-valuemax')).toBe('336');
+    expect(store().preference()).toBe(560);
+  });
+
+  it('never counts the Stats tab toward the band or the dock max', () => {
+    create({ inspectorOpen: true });
+    const shellEl = native().querySelector('.cs-shell')!;
+    // 991 px measured = 959 px for main column + dock: the sheet band.
+    emitWidth(shellEl, 991);
+    expect(native().querySelector('ptah-split-handle')).toBeNull();
+    // 992 px measured = 960 px: docked, max 960 - 624.
+    emitWidth(shellEl, 992);
+    expect(separator()!.getAttribute('aria-valuemax')).toBe('336');
+    expect(dock()!.style.width).toBe('336px');
   });
 
   it('keeps the wider stored preference when a drag is cancelled (AC 2.4, 3.3)', () => {
@@ -3117,13 +3164,27 @@ describe('ChatViewComponent — Session tab and inspector dock', () => {
     detect();
     expect(sessionTab()!.hasAttribute('inert')).toBe(true);
     expect(sessionTab()!.classList.contains('opacity-50')).toBe(true);
+    // Floats immediately left of the sheet, above the scrim.
+    expect(sessionTab()!.classList.contains('cs-stats-tab--sheet')).toBe(true);
+    expect(sessionTab()!.classList.contains('cs-stats-tab--full')).toBe(false);
     expect(native().querySelector('ptah-split-handle')).toBeNull();
     expect(dock()).not.toBeNull();
     expect(dock()!.classList.contains('cs-inspector--sheet')).toBe(true);
     expect(dock()!.style.width).toBe('');
   });
 
-  it('returns focus to the Session tab after a docked close from the inspector (AC 1.6)', async () => {
+  it('pins the tab to the shell start over the full-width sheet', () => {
+    create();
+    emitShellWidth(500);
+    sessionTabButton().click();
+    detect();
+    expect(dock()!.classList.contains('cs-inspector--sheet')).toBe(true);
+    expect(sessionTab()!.classList.contains('cs-stats-tab--sheet')).toBe(true);
+    expect(sessionTab()!.classList.contains('cs-stats-tab--full')).toBe(true);
+    expect(sessionTab()!.hasAttribute('inert')).toBe(true);
+  });
+
+  it('returns focus to the Stats tab after a docked close from the inspector (AC 1.6)', async () => {
     create();
     emitShellWidth(1500);
     sessionTabButton().focus();
@@ -3143,7 +3204,7 @@ describe('ChatViewComponent — Session tab and inspector dock', () => {
     expect(document.activeElement).toBe(sessionTabButton());
   });
 
-  it('restores focus to the Agents tab, not the Session tab, after the agent overlay closes', () => {
+  it('restores focus to the Agents tab, not the Stats tab, after the agent overlay closes', () => {
     create({ sessionId: '' });
     emitWidth(native(), 500);
     expect(sessionTab()).not.toBeNull();

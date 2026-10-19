@@ -21,6 +21,10 @@ export { SessionInspectorStore } from './session-inspector.store';
 export { InspectorOpenStateService } from './inspector-open-state.service';
 export { InspectorDockWidthStore } from './inspector-dock-width.store';
 export {
+  INSPECTOR_TAB_WIDTH,
+  InspectorDockController,
+} from './inspector-dock.controller';
+export {
   HIDE_SESSION_DETAILS_LABEL,
   INSPECTOR_CLOSE_ATTR,
   INSPECTOR_DEFAULT_WIDTH,

@@ -16,8 +16,12 @@ export type SplitHandleAppearance = 'line' | 'grip';
 const KEYBOARD_STEP = 16;
 const SHIFT_STEP_FACTOR = 3;
 
-const GRIP_SEPARATOR_BASE =
-  'group relative flex h-full w-full touch-none items-center justify-center outline-none transition-colors duration-150 motion-reduce:transition-none focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-1 focus-visible:outline-base-content';
+const SEPARATOR_BASE =
+  'group flex h-full w-full touch-none items-center justify-center outline-none';
+
+/** Grip-only separator classes, on top of `SEPARATOR_BASE`. */
+const GRIP_SEPARATOR_EXTRA =
+  'relative transition-colors duration-150 motion-reduce:transition-none focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-1 focus-visible:outline-base-content';
 
 /**
  * Drag handle between two panes. It owns no layout state: the parent keeps
@@ -41,24 +45,22 @@ const GRIP_SEPARATOR_BASE =
   selector: 'ptah-split-handle',
   standalone: true,
   template: `
-    @if (appearance() === 'grip') {
-      <div
-        [class]="gripSeparatorClass()"
-        [class.cursor-col-resize]="orientation() === 'vertical'"
-        [class.cursor-row-resize]="orientation() === 'horizontal'"
-        role="separator"
-        tabindex="0"
-        [attr.aria-orientation]="orientation()"
-        [attr.aria-label]="label()"
-        [attr.aria-valuenow]="roundedSize()"
-        [attr.aria-valuemin]="min()"
-        [attr.aria-valuemax]="max()"
-        title="Drag to resize · double-click to reset"
-        (pointerdown)="onPointerDown($event)"
-        (lostpointercapture)="onLostPointerCapture($event)"
-        (keydown)="onKeydown($event)"
-        (dblclick)="sizeReset.emit()"
-      >
+    <div
+      [class]="separatorClass()"
+      role="separator"
+      tabindex="0"
+      [attr.aria-orientation]="orientation()"
+      [attr.aria-label]="label()"
+      [attr.aria-valuenow]="roundedSize()"
+      [attr.aria-valuemin]="min()"
+      [attr.aria-valuemax]="max()"
+      title="Drag to resize · double-click to reset"
+      (pointerdown)="onPointerDown($event)"
+      (lostpointercapture)="onLostPointerCapture($event)"
+      (keydown)="onKeydown($event)"
+      (dblclick)="sizeReset.emit()"
+    >
+      @if (appearance() === 'grip') {
         <span [class]="gripLineClass()" data-testid="split-handle-line"></span>
         <span [class]="gripClass()" data-testid="split-handle-grip"></span>
         <span
@@ -67,25 +69,7 @@ const GRIP_SEPARATOR_BASE =
           data-testid="split-handle-readout"
           >{{ roundedSize() }} px</span
         >
-      </div>
-    } @else {
-      <div
-        class="group flex h-full w-full touch-none items-center justify-center outline-none focus-visible:bg-primary/20"
-        [class.cursor-col-resize]="orientation() === 'vertical'"
-        [class.cursor-row-resize]="orientation() === 'horizontal'"
-        role="separator"
-        tabindex="0"
-        [attr.aria-orientation]="orientation()"
-        [attr.aria-label]="label()"
-        [attr.aria-valuenow]="roundedSize()"
-        [attr.aria-valuemin]="min()"
-        [attr.aria-valuemax]="max()"
-        title="Drag to resize · double-click to reset"
-        (pointerdown)="onPointerDown($event)"
-        (lostpointercapture)="onLostPointerCapture($event)"
-        (keydown)="onKeydown($event)"
-        (dblclick)="sizeReset.emit()"
-      >
+      } @else {
         <div
           class="rounded-full bg-base-content/15 transition-colors group-hover:bg-primary/60 group-active:bg-primary"
           [class.h-full]="orientation() === 'vertical'"
@@ -93,8 +77,8 @@ const GRIP_SEPARATOR_BASE =
           [class.w-full]="orientation() === 'horizontal'"
           [class.h-px]="orientation() === 'horizontal'"
         ></div>
-      </div>
-    }
+      }
+    </div>
   `,
   host: {
     class: 'block shrink-0',
@@ -127,14 +111,23 @@ export class SplitHandleComponent {
   protected readonly roundedSize = computed(() => Math.round(this.size()));
   protected readonly dragging = signal(false);
 
-  protected readonly gripSeparatorClass = computed(
-    () =>
-      `${GRIP_SEPARATOR_BASE} ${
-        this.dragging()
-          ? 'bg-primary/20'
-          : 'focus-visible:bg-base-content/[0.08]'
-      }`,
-  );
+  /**
+   * Classes of the one separator both appearances share. `line` keeps its
+   * original class string; `grip` adds its outline, tone and transition.
+   */
+  protected readonly separatorClass = computed(() => {
+    const cursor =
+      this.orientation() === 'vertical'
+        ? 'cursor-col-resize'
+        : 'cursor-row-resize';
+    if (this.appearance() !== 'grip') {
+      return `${SEPARATOR_BASE} focus-visible:bg-primary/20 ${cursor}`;
+    }
+    const tone = this.dragging()
+      ? 'bg-primary/20'
+      : 'focus-visible:bg-base-content/[0.08]';
+    return `${SEPARATOR_BASE} ${GRIP_SEPARATOR_EXTRA} ${tone} ${cursor}`;
+  });
 
   protected readonly gripLineClass = computed(() => {
     const vertical = this.orientation() === 'vertical';
@@ -174,6 +167,8 @@ export class SplitHandleComponent {
   private startSize = 0;
   private pendingPos = 0;
   private frame: number | null = null;
+  /** Body inline styles from before the drag, restored when it ends. */
+  private bodyStyleBefore: { userSelect: string; cursor: string } | null = null;
 
   private readonly pointerMove = (event: PointerEvent): void => {
     if (event.pointerId !== this.pointerId) return;
@@ -224,8 +219,10 @@ export class SplitHandleComponent {
     } catch {
       // Pointer capture is an optimization; document listeners remain authoritative.
     }
-    document.body.style.userSelect = 'none';
-    document.body.style.cursor =
+    const body = document.body.style;
+    this.bodyStyleBefore = { userSelect: body.userSelect, cursor: body.cursor };
+    body.userSelect = 'none';
+    body.cursor =
       this.orientation() === 'vertical' ? 'col-resize' : 'row-resize';
     document.addEventListener('pointermove', this.pointerMove);
     document.addEventListener('pointerup', this.pointerUp);
@@ -305,8 +302,12 @@ export class SplitHandleComponent {
     document.removeEventListener('keydown', this.documentKeydown);
     window.removeEventListener('blur', this.windowBlur);
     if (pointerId === null) return;
-    document.body.style.userSelect = '';
-    document.body.style.cursor = '';
+    // Restore what the body had before this drag, not '' (another owner may
+    // still hold a cursor or selection style).
+    const before = this.bodyStyleBefore;
+    this.bodyStyleBefore = null;
+    document.body.style.userSelect = before?.userSelect ?? '';
+    document.body.style.cursor = before?.cursor ?? '';
     try {
       const separator = this.element.nativeElement.querySelector(
         '[role="separator"]',
