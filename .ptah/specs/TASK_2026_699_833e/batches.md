@@ -426,3 +426,30 @@ Edge cases:
   exception), code-style review (new public API: `inspector-dock-width.ts` exports, changed
   `InspectorDockController` contract), and visual review of the canvas dock (dark + light), which
   also covers the open V1-V3 re-check.
+
+## Rev 4 fix round (L1 + V-F2) — COMPLETE (commit abf44d146)
+
+- Trigger: `code-logic-review.md` REVISE on 2ac83d78e (L1: open inspector lost across the 400 px
+  compact boundary; reviewer family codex, implementer claude); `code-style-review.md` APPROVED;
+  `visual-review.md` REVISE (V-F1 Serious composer overlap, V-F2 Moderate placeholder delay).
+  Decision 20 sends V-F1 to a follow-up for the owner of `chat-input.component.ts`; V-F3 and
+  Minors recorded, not fixed (fix-round rule).
+- Executor report: `fix-round-report.md`.
+
+| # | Finding | Status | Verified on disk |
+| - | ------- | ------ | ---------------- |
+| L1 | Logic: inspector + focus not handed off across compact threshold | COMPLETE | `canvas-rail-board.component.ts` crossing effect (skips `containerWidth() === 0`), `handOffInspector`, `focusDock`, `focusDetailsShell`; observer released in `toggleDetails`/`closeDock`; 2 new specs cover both directions |
+| V-F2 | Visual Moderate: inspector body empty 4.5-6.5 s (`on idle` starved) | COMPLETE | all three `@defer` blocks use `when <open signal>`; skeleton placeholder with `role="status"` replaces `aria-hidden` text |
+| V-F1 | Visual Serious: composer toolbar overlap at 360 px floor | DEFERRED (decision 20) | follow-up for peer-owned `chat-input.component.ts` |
+| V-F3 | Visual: compact sheet not reached at 420-440 px | RECORDED, not fixed | fix-round rule |
+
+- Spec change: `mount()` uses `DeferBlockBehavior.Manual` (eager trigger otherwise moved the board's
+  `afterRenderEffect` out of the synchronous `detectChanges`); test-only, recorded in the report.
+- Scoped checks: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat-ui
+  @ptah-extension/chat @ptah-extension/canvas --parallel=1` passed for 3 projects (orchestrator run;
+  not re-run by team-leader). Executor jest run: 119/119.
+- No TODO/PLACEHOLDER/STUB markers and no focused/skipped tests in the diff. Peer-owned files and
+  `.electron-userdata/` not staged.
+- Due: the one re-review, scoped to the fix commit (code-logic, family different from the
+  implementer), plus a visual re-check of V-F2 (dock body renders promptly, skeleton in dark +
+  light) and the compact handoff.
