@@ -1142,7 +1142,7 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
 
 # Phase C - cut consumers
 
-## Batch 25: Core Providers removes lanes/judging slices (R3) - IN_PROGRESS
+## Batch 25: Core Providers removes lanes/judging slices (R3) - COMPLETE (dfec43265, cb196c7dc)
 
 - Phase: C | Executor: CLI lane Glm | Depends on: 16, 17, 18 | Tasks: 2 (25.1, 25.2)
 - Verification (Task 25.1, widened by O24/O20; run the two commands one after the other, never together):
@@ -1154,7 +1154,7 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
 - Status 2026-10-19: first Task 25.1 run STOPPED before editing on a shared-contract hit (no file
   changed). Report: `reports/batch-25-1-report.md`. Decision O24 widens Task 25.1 to the chat caller.
 
-### Task 25.1: Delete the lanes/judging slices, the `SkillLane*Dto` imports and the old judge/timeout keys from core - IN_PROGRESS (rerun per O24)
+### Task 25.1: Delete the lanes/judging slices, the `SkillLane*Dto` imports and the old judge/timeout keys from core - COMPLETE (dfec43265; rerun per O24, report `reports/batch-25-1-rerun-report.md`)
 
 - Files: `libs/frontend/core/src/lib/services/providers-settings.types.ts`, `providers-settings-state.service.ts` + spec, `providers-commit.service.ts` + spec;
   added by O24: `libs/frontend/chat/src/lib/settings/ptah-ai/orchestration-settings.component.ts` + spec
@@ -1176,7 +1176,7 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
   `judging-enhancement` until batches 51/52).
 - Implementation details: none beyond the finding.
 
-### Task 25.2: Remove the unreachable `routing-background-more` branch (U3) - PENDING
+### Task 25.2: Remove the unreachable `routing-background-more` branch (U3) - COMPLETE (cb196c7dc)
 
 - Files: `libs/frontend/chat/src/lib/settings/providers/routing-map.component.ts` + spec.
 - Source: decision U3 (user approved, 2026-10-19); batch 18 proposed removal.
@@ -1244,13 +1244,13 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
   has zero live hits (the pause/telemetry `settings:get`/`settings:set` helpers stay).
 - Implementation details: none beyond the plan row and the finding.
 
-## Batch 28: Thoth shell fixture - PENDING
+## Batch 28: Thoth shell fixture - COMPLETE (63c90f2d1)
 
 - Phase: C | Executor: CLI lane Glm | Depends on: 27 | Tasks: 1
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/thoth-shell --parallel=1`
 - Precondition: the `refreshSuggestions` stub at `thoth-shell.component.spec.ts:94`.
 
-### Task 28.1: Update the Library fixture - PENDING
+### Task 28.1: Update the Library fixture - COMPLETE
 
 - Files: `libs/frontend/thoth-shell/src/lib/components/thoth-shell.component.spec.ts`.
 - Plan reference: plan row 25.
@@ -1259,13 +1259,13 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
 - Validation notes: none beyond the plan row.
 - Implementation details: none beyond the plan row.
 
-## Batch 29: Core back-office activity drops the skill push branch - PENDING
+## Batch 29: Core back-office activity drops the skill push branch - COMPLETE (788f75a97)
 
 - Phase: C | Executor: CLI lane Glm | Depends on: 25 | Tasks: 1
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/core --parallel=1`
 - Precondition: G13 `back-office-activity.service.ts:111,177`.
 
-### Task 29.1: Remove the branch and its fixtures - PENDING
+### Task 29.1: Remove the branch and its fixtures - COMPLETE
 
 - Files: `libs/frontend/core/src/lib/services/back-office-activity.service.ts` + spec.
 - Plan reference: plan row 26.
@@ -1338,13 +1338,13 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
 - Validation notes: none beyond the plan row.
 - Implementation details: none beyond the plan row.
 
-## Batch 33: RH obsolete specs + lane-key parity block - PENDING
+## Batch 33: RH obsolete specs + lane-key parity block - COMPLETE (5810714fc; O28a)
 
 - Phase: C | Wave: C-W2 | Executor: CLI lane codex | Depends on: 22 | Tasks: 1
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/rpc-handlers --parallel=1`
 - Precondition: G7 `handlers.spec.ts:2192-2219`.
 
-### Task 33.1: Delete the queue, digest and activity-feed specs; remove the parity block - PENDING
+### Task 33.1: Delete the queue, digest and activity-feed specs; remove the parity block - COMPLETE
 
 - Files: `RH/handlers/skills-synthesis-rpc.handlers.spec.ts`, `skills-synthesis-rpc.schema.spec.ts`, `skills-synthesis-rpc.queue.spec.ts` (delete), `skills-synthesis-rpc.digest.spec.ts` (delete), `skills-synthesis-rpc.activity-feed.integration.spec.ts` (delete), `RH/host-profile/host-profile.ts`.
 - Plan reference: plan row 30.
@@ -1370,14 +1370,14 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
   instead of deleting the assertion.
 - Implementation details: none beyond the finding.
 
-## Batch 35: Thoth runtime boot and cron cut - PENDING
+## Batch 35: Thoth runtime boot and cron cut - COMPLETE (8a314287a; O28b)
 
 - Phase: C | Wave: C-W2 | Executor: CLI lane codex | Depends on: 6, 13 | Tasks: 1
 - Flags: EXCEPTION (7 files, consumer-only, one project)
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/thoth-runtime --parallel=1`
 - Precondition: G3. The tracker and harvester are present.
 
-### Task 35.1: Remove the synthesis boot/scheduling callers; keep trigger, harvester and memory tracker - PENDING
+### Task 35.1: Remove the synthesis boot/scheduling callers; keep trigger, harvester and memory tracker - COMPLETE
 
 - Files: `TH/boot-thoth-runtime.ts` + spec, `TH/types.ts`, `TH/memory-retention-job.ts` + spec, `TH/start-thoth-cron.ts` + spec.
 - Plan reference: plan row 31.
@@ -1427,6 +1427,8 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
 ### Task 38.1: Remove the pipeline imports and keepalive; keep the shipped root and repropagation - PENDING
 
 - Files: `apps/ptah-electron/src/activation/plugin-activation.ts` + spec, `wire-runtime.ts` + spec, `boot-coordinator.ts`, `boot-order.spec.ts`, `apps/ptah-electron/src/main.ts`, `apps/ptah-electron/src/services/tray/tray.service.ts`, `skill-repropagation.ts` + spec (paths per plan row 34).
+  Added by O28b: `apps/ptah-electron/src/activation/shutdown.ts:230` and `boot-heavy-services.ts:189` (stop reading
+  `ThothRuntimeRefs.skillSynthesis`; keep `onSkillTriggerStarted` at `boot-heavy-services.ts:173`).
 - Plan reference: plan row 34.
 - Pattern to follow: none beyond the plan row.
 - Quality requirements: none beyond the plan row.
@@ -1559,7 +1561,7 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
 - Validation notes: runs after 44.2 (both edit the grade store), own lane, same verification command.
   The RPC handler side lands in Task 59.1.
 
-## Batch 45: mcp-bench namer/trigger family deletion (R4) - PENDING
+## Batch 45: mcp-bench namer/trigger family deletion (R4) - COMPLETE (de0886cac; O26)
 
 - Phase: C | Wave: C-W3 | Executor: CLI lane codex | Depends on: none in C | Tasks: 1
 - Flags: EXCEPTION (deletion + dead-import removal, mcp-bench only)
@@ -1567,7 +1569,7 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
 - Precondition: G5. The importers are verified: `host-only-imports.spec.ts:40-41`,
   `ground-truth/committed-u4-labels.spec.ts:15-18,37` and `host/memory-skills-host.entry.ts:50,68`.
 
-### Task 45.1: Delete the trigger-eval and namer suites with every importer - PENDING
+### Task 45.1: Delete the trigger-eval and namer suites with every importer - COMPLETE (committed-u4-labels.spec.ts kept; trigger schema moved to label-schemas.ts)
 
 - Files: delete `MB/suites/skills/trigger-human-eval.ts`, `namer-and-trigger.suite.ts`, `namer-and-trigger.suite.spec.ts` and `namer-collisions.ts`. Edit `MB/host/memory-skills-host.entry.ts` and `MB/host-only-imports.spec.ts`. Edit or delete `MB/ground-truth/committed-u4-labels.spec.ts`; `MB/ground-truth/label-schemas.ts:481` is comment-only.
 - Plan reference: plan row 41; D2; round-2 R4.
@@ -1577,7 +1579,7 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
 - Validation notes: after the batch, `rg -n "trigger-human-eval|namer-and-trigger|namer-collisions|TRIGGER_EVAL_PANEL|NAMER_AND_TRIGGER" tools/mcp-bench` has zero live hits.
 - Implementation details: none beyond the plan row and the finding.
 
-## Batch 46: mcp-bench funnel and judge-agreement family deletion (R4) - PENDING
+## Batch 46: mcp-bench funnel and judge-agreement family deletion (R4) - COMPLETE (0f890f5a6; funnel kind kept for batch 47; O28c)
 
 - Phase: C | Executor: CLI lane codex | Depends on: 45 | Tasks: 1
 - Flags: EXCEPTION (deletion + dead-import removal, mcp-bench only)
@@ -1586,7 +1588,7 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
   `funnel-host-graph.ts:394-454`). The judge suite measures `SkillJudgeService`. `judge-lane-tap.ts` and
   `judge-corpus.ts` are imported only by `judge-agreement*`.
 
-### Task 46.1: Delete the funnel and judge-agreement suites with their helpers and importers; keep the lane doubles - PENDING
+### Task 46.1: Delete the funnel and judge-agreement suites with their helpers and importers; keep the lane doubles - COMPLETE
 
 - Files: delete these in `MB/suites/skills/`: `funnel.suite.ts` + spec, `funnel-backlog.ts`,
   `funnel-di.test-support.ts`, `funnel-fixture.ts`, `funnel-host-graph.ts`, `funnel-host-port.ts`,
@@ -1670,14 +1672,14 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
 - Validation notes: the archive dry-run is the evidence the user confirms at OP-1.
 - Implementation details: none beyond the requirements above.
 
-## Batch 51: Webview e2e harness fixtures (typecheck only) - PENDING
+## Batch 51: Webview e2e harness fixtures (typecheck only) - COMPLETE (54fe49b84; O27 bounded correction)
 
 - Phase: C | Wave: C-W3 | Executor: CLI lane Glm | Depends on: 25 | Tasks: 1
 - Flags: EXCEPTION (fixture-only removal, one project)
 - Verification: `npx nx run-many -t typecheck -p @ptah-extension/webview-e2e-harness --parallel=1`
 - Precondition: G9. The lane pickers and `skillSynthesis:listCandidates` strings are present.
 
-### Task 51.1: Remove the deleted-tab and lane fixtures; never run e2e - PENDING
+### Task 51.1: Remove the deleted-tab and lane fixtures; never run e2e - COMPLETE
 
 - Files: `libs/frontend/webview-e2e-harness/src/lib/scenarios/thoth/{skills-lane-pickers,thoth-feed-visual,activity-ticker}.e2e.spec.ts`, `scenarios/settings/{settings.fixtures.ts,settings-orchestration.e2e.spec.ts,settings-reachability.table.ts}`.
 - Plan reference: plan row 48.
@@ -1712,6 +1714,7 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
 ### Task 53.1: Remove the pipeline paths - PENDING
 
 - Files: `apps/ptah-electron-e2e/src/specs/support/tray-home.ts`, `apps/ptah-tui/src/lib/thoth-lifecycle.spec.ts`.
+  Added by O28b: `apps/ptah-tui/src/lib/thoth-lifecycle.ts:86` (stop reading `ThothRuntimeRefs.skillSynthesis`).
 - Plan reference: plan row 50.
 - Pattern to follow: none beyond the plan row.
 - Quality requirements: none beyond the plan row.
@@ -1895,6 +1898,8 @@ pipeline tokens (batch 59) before SS registrations are removed (batch 60).
 - Flags: EXCEPTION (deletion-only, SS/lib)
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/skill-synthesis @ptah-extension/rpc-handlers @ptah-extension/thoth-runtime mcp-bench --parallel=1`
 - Precondition: before deleting, `rg` over apps/libs/tools finds no external importer of the selected files.
+- Added by O28b: remove `ThothRuntimeRefs.skillSynthesis` from `TH/types.ts` (and its initializer) once batches 36, 38 and 53.1
+  cut its readers; `rg -n "refs.skillSynthesis|skillSynthesis:" libs/backend/thoth-runtime apps` decides.
 
 ### Task 61.1: Delete the approved pipeline-only files and their specs - PENDING
 
