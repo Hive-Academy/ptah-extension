@@ -115,7 +115,7 @@ class StateStub {
   >(ready({}));
   readonly open = jest.fn(async () => undefined);
   readonly refresh = jest.fn(async () => undefined);
-  readonly refreshJudging = jest.fn(async () => undefined);
+  readonly refreshEnhancement = jest.fn(async () => undefined);
   readonly refreshCliAgents = jest.fn(async () => undefined);
   readonly refreshCliModels = jest.fn(async () => undefined);
   readonly refreshOrchestration = jest.fn(async () => undefined);
@@ -485,7 +485,7 @@ describe('OrchestrationSettingsComponent', () => {
       providerId: 'moonshot',
     });
     expect(state.refresh).toHaveBeenCalledTimes(1);
-    expect(state.refreshJudging).toHaveBeenCalledTimes(1);
+    expect(state.refreshEnhancement).toHaveBeenCalledTimes(1);
   });
 
   it('disables the assignments while a save is in flight', async () => {

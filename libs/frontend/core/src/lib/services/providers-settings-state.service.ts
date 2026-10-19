@@ -52,7 +52,6 @@ import type {
   ProvidersEffectiveRoute,
   ProvidersEnhancementSettings,
   ProvidersExternalAuthAction,
-  ProvidersJudgingSettings,
   ProvidersMainSources,
   ProvidersCliTest,
   ProvidersCustomEntry,
@@ -67,8 +66,6 @@ import { WorkspaceScopeService } from './workspace-scope.service';
 export type {
   ProvidersSettingsSection,
   ProvidersEffectiveRoute,
-  ProvidersJudgingSettings,
-  ProvidersJudgingPatch,
   ProvidersEnhancementSettings,
   ProvidersEnhancementPatch,
   ProvidersEditContext,
@@ -126,10 +123,6 @@ export class ProvidersSettingsStateService {
     createSectionStore<RpcMethodResult<'memory:getTriggers'>['triggers']>();
   private readonly enhancementStore =
     createSectionStore<ProvidersEnhancementSettings>();
-  private readonly lanesStore =
-    createSectionStore<RpcMethodResult<'skillSynthesis:getLanes'>['lanes']>();
-  private readonly judgingStore =
-    createSectionStore<ProvidersJudgingSettings>();
   private readonly cliStore =
     createSectionStore<RpcMethodResult<'ptahCli:list'>['agents']>();
   private readonly orchestrationStore =
@@ -155,8 +148,6 @@ export class ProvidersSettingsStateService {
   readonly effort = this.freshEffortView(this.effortStore, this.effortRevision);
   readonly memory = this.view(this.memoryStore);
   readonly enhancement = this.view(this.enhancementStore);
-  readonly lanes = this.view(this.lanesStore);
-  readonly judging = this.view(this.judgingStore);
   readonly cliAgents = this.view(this.cliStore);
   readonly orchestration = this.view(this.orchestrationStore);
   /** Last explicit CLI re-detection (`redetectClis`); `loading` while it runs. */
@@ -223,8 +214,6 @@ export class ProvidersSettingsStateService {
       this.refreshEffort(),
       this.refreshMemory(),
       this.refreshEnhancement(),
-      this.refreshLanes(),
-      this.refreshJudging(),
       this.refreshCliAgents(),
       this.refreshCliModels(),
       this.refreshOrchestration(),
@@ -688,25 +677,6 @@ export class ProvidersSettingsStateService {
       return { provider, model: model === 'inherit' ? '' : model, timeoutMs };
     });
   }
-  async refreshLanes(): Promise<void> {
-    await this.read(
-      this.lanesStore,
-      async () => (await this.require('skillSynthesis:getLanes', {})).lanes,
-    );
-  }
-  async refreshJudging(): Promise<void> {
-    await this.read(this.judgingStore, async () => {
-      const { judgeProvider, judgeModel, enhanceTimeoutMs } = (
-        await this.require('skillSynthesis:getSettings', {})
-      ).settings;
-      return {
-        judgeProvider,
-        enhanceTimeoutMs,
-        // model-resolver.ts:171 recognizes 'inherit'; the picker uses ''.
-        judgeModel: judgeModel === 'inherit' ? '' : judgeModel,
-      };
-    });
-  }
   async refreshCliAgents(): Promise<void> {
     await this.read(
       this.cliStore,
@@ -997,8 +967,6 @@ export class ProvidersSettingsStateService {
         this.effort(),
         this.memory(),
         this.enhancement(),
-        this.lanes(),
-        this.judging(),
         this.cliAgents(),
         this.cliModels(),
         this.orchestration(),

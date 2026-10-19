@@ -7,9 +7,6 @@ import type {
   RpcMethodResult,
   ScopedSettingEntry,
   SettingScope,
-  SkillLaneIdDto,
-  SkillSynthesisSettingsDto,
-  SkillSynthesisSettingsWriteDto,
 } from '@ptah-extension/shared';
 
 /**
@@ -28,16 +25,6 @@ export interface ProvidersSettingsSection<T> {
 export type ProvidersEffectiveRoute = Omit<
   AuthGetEffectiveRouteResult,
   'storedAuthMethodDiagnostic'
->;
-export type ProvidersJudgingSettings = Pick<
-  SkillSynthesisSettingsDto,
-  'judgeProvider' | 'judgeModel' | 'enhanceTimeoutMs'
->;
-export type ProvidersJudgingPatch = Partial<
-  Pick<
-    SkillSynthesisSettingsWriteDto,
-    'judgeProvider' | 'judgeModel' | 'enhanceTimeoutMs'
-  >
 >;
 export const PROVIDERS_ENHANCEMENT_KEYS = {
   provider: 'skills.enhancement.provider',
@@ -99,10 +86,6 @@ export interface ProvidersSettingsPatch {
   readonly effort?: RpcMethodParams<'config:effort-set'>;
   readonly memory?: { curatorProvider?: string; curatorModel?: string };
   readonly enhancement?: ProvidersEnhancementPatch;
-  readonly lanes?: Partial<
-    Record<SkillLaneIdDto, { provider?: string; model?: string }>
-  >;
-  readonly judging?: ProvidersJudgingPatch;
   readonly orchestration?: Partial<
     Pick<
       RpcMethodParams<'agent:setConfig'>,

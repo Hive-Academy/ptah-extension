@@ -161,7 +161,7 @@ const FOCUS =
               (setupProviderRequested)="openProviderSetup($event)"
               (deepLinkOpened)="onRoleOpened($event)"
               (assignmentSaved)="state.refresh()"
-              (timeoutSaved)="state.refreshJudging()"
+              (timeoutSaved)="state.refreshEnhancement()"
             />
           </section>
         </details>

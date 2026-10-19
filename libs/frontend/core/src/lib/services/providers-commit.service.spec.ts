@@ -400,25 +400,6 @@ describe('ProvidersCommitService', () => {
       expect(call.mock.calls.some(([method]) => method.startsWith('skillSynthesis:'))).toBe(false);
     });
 
-    it('builds one operation per patch field and writes through the host', async () => {
-      const operations = service.operations({
-        judging: { judgeModel: '  ' },
-        memory: { curatorModel: 'm' },
-      });
-      expect(operations.map((operation) => operation.fields)).toEqual([
-        ['memory.curatorModel'],
-        ['skillSynthesis.judgeModel'],
-      ]);
-      call.mockImplementation(async () => success({ updated: true }));
-      await operations[1].write();
-      // The picker's blank model is the resolver's 'inherit'.
-      expect(call).toHaveBeenCalledWith(
-        'skillSynthesis:updateSettings',
-        { settings: { judgeModel: 'inherit' } },
-        undefined,
-      );
-    });
-
     it('never names a CLI credential value, only its field', () => {
       const [operation] = service.operations({
         cli: [

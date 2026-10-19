@@ -147,62 +147,6 @@ export class ProvidersCommitService {
         },
       });
     }
-    for (const lane of [
-      'archaeologist',
-      'synthesis',
-      'judge',
-      'replay',
-    ] as const) {
-      for (const field of ['provider', 'model'] as const) {
-        const value = patch.lanes?.[lane]?.[field];
-        if (value !== undefined)
-          operations.push({
-            fields: [`skillSynthesis.${lane}.${field}`],
-            write: async () => {
-              await this.require('skillSynthesis:setLanes', {
-                lanes: { [lane]: { [field]: value } },
-              });
-              return true;
-            },
-            readBack: async () =>
-              (await this.require('skillSynthesis:getLanes', {})).lanes[lane][
-                field
-              ] === value,
-          });
-      }
-    }
-    for (const field of [
-      'judgeProvider',
-      'judgeModel',
-      'enhanceTimeoutMs',
-    ] as const) {
-      const requested = patch.judging?.[field];
-      if (requested === undefined) continue;
-      // model-resolver.ts:171 recognizes only 'inherit', not the picker's ''.
-      const value =
-        field === 'judgeModel' && typeof requested === 'string'
-          ? requested.trim() || 'inherit'
-          : requested;
-      operations.push({
-        fields: [`skillSynthesis.${field}`],
-        write: async () => {
-          const settings = { [field]: value };
-          return (
-            await this.require('skillSynthesis:updateSettings', { settings })
-          ).updated;
-        },
-        readBack: async () => {
-          const settings = (
-            await this.require('skillSynthesis:getSettings', {})
-          ).settings;
-          return (
-            (field === 'enhanceTimeoutMs'
-              ? settings.enhanceTimeoutMs.value
-              : settings[field]) === value
-          );
-        },
-      });
-    }
     for (const field of [
       'codexModel',
       'copilotModel',
