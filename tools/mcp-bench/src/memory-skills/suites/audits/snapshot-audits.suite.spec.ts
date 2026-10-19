@@ -1,9 +1,7 @@
 /**
  * Batch 20.2 spec for `mem.liveness.audit` and `skill.backlog.audit`. Every
- * case reads a SMALL SYNTHETIC SQLite database built in a temp directory from
- * the product's own migrations (`MIGRATIONS`, static SQL and `run` steps, no
- * vec), so the audit SQL is checked against the real schema. The private
- * snapshot is never opened here.
+ * case uses a small synthetic SQLite snapshot for liveness and a synthetic
+ * pre-0057 receipt plus JSONL files for backlog. Private data is never opened.
  */
 import 'reflect-metadata';
 jest.mock('vscode', () => ({}), { virtual: true });
@@ -15,6 +13,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -37,7 +36,7 @@ import {
   runLivenessAudit,
   snapshotAuditOptionsSchema,
 } from './snapshot-audits.suite';
-import type { ReadonlySqlite } from '../../data/candidate-row-diff';
+import { ARCHIVE_TABLES, readArchiveTable, type ReadonlySqlite } from '../../data/candidate-row-diff';
 
 interface Db {
   exec(sql: string): void;
@@ -93,40 +92,43 @@ function insertMemory(db: Db, id: string, sessionId: string | null): void {
   ).run(id, sessionId, AS_OF - 10 * DAY, AS_OF - 10 * DAY, AS_OF - 10 * DAY);
 }
 
-function insertQueueRow(
-  db: Db,
+function queueRow(
   id: string,
   stage: string,
   status: string,
   enqueuedAt: number,
   finishedAt: number | null,
-): void {
-  db.prepare(
-    `INSERT INTO skill_synthesis_queue (id, session_id, workspace_root, source, stage, status, enqueued_at, finished_at)
-     VALUES (?, ?, '/ws', 'synthetic', ?, ?, ?, ?)`,
-  ).run(id, `session-${id}`, stage, status, enqueuedAt, finishedAt);
+): Record<string, unknown> {
+  return { id, stage, status, enqueued_at: enqueuedAt, finished_at: finishedAt };
 }
 
-function insertCandidate(
-  db: Db,
+function candidateRow(
   id: string,
   status: 'candidate' | 'promoted' | 'rejected',
   judgeStatus: string | null,
   rejectedReason: string | null,
-): void {
-  db.prepare(
-    `INSERT INTO skill_candidates (id, name, description, body_path, source_session_ids,
-       trajectory_hash, status, created_at, rejected_reason, judge_status)
-     VALUES (?, ?, 'synthetic', '/x/SKILL.md', '[]', ?, ?, ?, ?, ?)`,
-  ).run(
-    id,
-    `skill-${id}`,
-    `hash-${id}`,
-    status,
-    AS_OF - 40 * DAY,
-    rejectedReason,
-    judgeStatus,
-  );
+): Record<string, unknown> {
+  return { id, name: `skill-${id}`, status, created_at: AS_OF - 40 * DAY,
+    rejected_reason: rejectedReason, judge_status: judgeStatus, body_path: '/x/SKILL.md' };
+}
+
+function createArchive(directory: string, queue: Record<string, unknown>[], candidates: Record<string, unknown>[]): void {
+  mkdirSync(directory, { recursive: true });
+  const tables = [
+    { table: 'skill_candidates', rows: candidates },
+    { table: 'skill_synthesis_queue', rows: queue },
+  ].map(({ table, rows }) => {
+    const file = `${table}.jsonl`;
+    const contents = rows.map((row) => JSON.stringify(row)).join('\n') + (rows.length ? '\n' : '');
+    writeFileSync(join(directory, file), contents);
+    return { table, present: true, file, rows: rows.length,
+      sha256: createHash('sha256').update(contents).digest('hex') };
+  });
+  writeFileSync(join(directory, 'receipt.json'), JSON.stringify({
+    archivePath: directory,
+    tables: ARCHIVE_TABLES.map((table) => tables.find((entry) => entry.table === table) ??
+      { table, present: false, file: null, rows: 0, sha256: null }),
+  }));
 }
 
 /**
@@ -154,61 +156,26 @@ function buildWorld(path: string): void {
     insertMemory(db, 'm-b', 'B');
     insertMemory(db, 'm-none', null);
 
-    insertQueueRow(db, 'p1', 'prefilter', 'queued', AS_OF - 1 * DAY, null);
-    insertQueueRow(db, 'p2', 'prefilter', 'queued', AS_OF - 20 * DAY, null);
-    insertQueueRow(db, 'p3', 'prefilter', 'queued', AS_OF - 30 * DAY, null);
-    insertQueueRow(
-      db,
-      'p4',
-      'prefilter',
-      'done',
-      AS_OF - 2 * DAY,
-      AS_OF - 1 * DAY,
-    );
-    insertQueueRow(
-      db,
-      'p5',
-      'prefilter',
-      'done',
-      AS_OF - 9 * DAY,
-      AS_OF - 8 * DAY,
-    );
-    insertQueueRow(
-      db,
-      'p6',
-      'prefilter',
-      'skipped',
-      AS_OF - 10 * DAY,
-      AS_OF - 9 * DAY,
-    );
-    insertQueueRow(
-      db,
-      'a1',
-      'archaeology',
-      'done',
-      AS_OF - 40 * DAY,
-      AS_OF - 3 * DAY,
-    );
-
-    insertCandidate(db, 'c1', 'candidate', 'scored', null);
-    insertCandidate(
-      db,
-      'c2',
-      'rejected',
-      null,
-      'backlog-cleanup: no transcript found for any session',
-    );
-    insertCandidate(
-      db,
-      'c3',
-      'rejected',
-      null,
-      'backlog-cleanup: transcript unreadable and no verdict',
-    );
-    insertCandidate(db, 'c4', 'rejected', null, 'manual');
   } finally {
     db.close();
   }
+}
+
+function buildArchive(directory: string): void {
+  createArchive(directory, [
+    queueRow('p1', 'prefilter', 'queued', AS_OF - DAY, null),
+    queueRow('p2', 'prefilter', 'queued', AS_OF - 20 * DAY, null),
+    queueRow('p3', 'prefilter', 'queued', AS_OF - 30 * DAY, null),
+    queueRow('p4', 'prefilter', 'done', AS_OF - 2 * DAY, AS_OF - DAY),
+    queueRow('p5', 'prefilter', 'done', AS_OF - 9 * DAY, AS_OF - 8 * DAY),
+    queueRow('p6', 'prefilter', 'skipped', AS_OF - 10 * DAY, AS_OF - 9 * DAY),
+    queueRow('a1', 'archaeology', 'done', AS_OF - 40 * DAY, AS_OF - 3 * DAY),
+  ], [
+    candidateRow('c1', 'candidate', 'scored', null),
+    candidateRow('c2', 'rejected', null, 'backlog-cleanup: no transcript found for any session'),
+    candidateRow('c3', 'rejected', null, 'backlog-cleanup: transcript unreadable and no verdict'),
+    candidateRow('c4', 'rejected', null, 'manual'),
+  ]);
 }
 
 function withDb<T>(path: string, read: (db: ReadonlySqlite) => T): T {
@@ -255,6 +222,7 @@ describe('snapshot audits (synthetic SQLite)', () => {
     mkdirSync(join(home, 'snapshots'), { recursive: true });
     file = join(home, 'snapshots', 'synthetic.sqlite');
     buildWorld(file);
+    buildArchive(join(home, 'snapshots', 'pre-0057'));
     sha = sha256(file);
   });
 
@@ -351,14 +319,16 @@ describe('snapshot audits (synthetic SQLite)', () => {
     expect(result.verdict).toBe('pass');
   });
 
-  it('reads per-stage age, weekly net slope and candidate shares', () => {
+  it('reads per-stage age, weekly net slope and candidate shares', async () => {
+    const receipt = join(home, 'snapshots', 'pre-0057', 'receipt.json');
+    const queue = (await readArchiveTable(receipt, 'skill_synthesis_queue')).rows;
+    const candidates = (await readArchiveTable(receipt, 'skill_candidates')).rows;
     // Default "as of": the newest queue/candidate timestamp (p1 enqueued, p4 finished).
     expect(
-      withDb(file, (db) => readBacklog(db, { slopeWeeks: 2 })).asOfMs,
+      readBacklog({ queue, candidates }, { slopeWeeks: 2 }).asOfMs,
     ).toBe(AS_OF - DAY);
-    const reading = withDb(file, (db) =>
-      readBacklog(db, { asOf: new Date(AS_OF).toISOString(), slopeWeeks: 2 }),
-    );
+    const reading = readBacklog({ queue, candidates },
+      { asOf: new Date(AS_OF).toISOString(), slopeWeeks: 2 });
     expect(reading.asOfMs).toBe(AS_OF);
     const prefilter = reading.stages.find((s) => s.stage === 'prefilter');
     expect(prefilter).toEqual({
@@ -447,9 +417,10 @@ describe('snapshot audits (synthetic SQLite)', () => {
   it('audits a previous release snapshot copy as the previous-release baseline', async () => {
     const previous = join(home, 'snapshots', 'previous.sqlite');
     const db = migratedDb(previous);
-    insertQueueRow(db, 'q1', 'prefilter', 'queued', AS_OF - 3 * DAY, null);
     insertObservation(db, 'P', AS_OF - 3 * DAY, null);
     db.close();
+    createArchive(join(home, 'snapshots', 'previous-archive'),
+      [queueRow('q1', 'prefilter', 'queued', AS_OF - 3 * DAY, null)], []);
     const ref = {
       file: 'snapshots/previous.sqlite',
       sha256: sha256(previous),
@@ -460,13 +431,13 @@ describe('snapshot audits (synthetic SQLite)', () => {
       options: options({
         slopeWeeks: 2,
         asOf: new Date(AS_OF).toISOString(),
-        previousSnapshot: ref,
+        previousArchive: { file: 'snapshots/previous-archive/receipt.json', label: '0.9.0' },
       }),
     });
     const prior = backlog.result.baselines.find(
       (b) => b.id === 'previous-release',
     );
-    expect(prior?.label).toBe('previous release snapshot 0.9.0');
+    expect(prior?.label).toBe('previous release archive 0.9.0');
     expect(prior?.metrics['prefilter.queued']).toBe(1);
     expect(
       backlog.result.deltas['previous-release']?.['prefilter.queued'],

@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { createReadStream, existsSync } from 'node:fs';
-import { mkdir, readdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { dirname, join, resolve } from 'node:path';
+import { z } from 'zod';
 import {
   FROZEN_CANDIDATES_NAME,
   compareCodePoints,
@@ -101,7 +102,7 @@ export interface CandidateRow {
 }
 
 export interface CandidateRowDiff {
-  snapshotSha256: string;
+  archiveSha256: string;
   copyDir: string;
   rows: number;
   dirs: number;
@@ -120,10 +121,10 @@ export interface CandidateRowDiff {
 export interface CandidateRowDiffOptions {
   /** Bench data root. Default: 619's `resolveBenchDataDir()`. */
   benchDataDir?: string;
-  snapshotFile?: string;
+  archiveReceiptFile?: string;
   candidatesName?: string;
-  /** `null` skips the frozen-hash pin (specs pass synthetic snapshots). */
-  expectedSnapshotSha256?: string | null;
+  /** Optional pin for the archived candidate JSONL. */
+  expectedArchiveSha256?: string;
   /** Overrides for 619's bench-data rules (specs only). */
   benchDataRules?: BenchDataRules;
 }
@@ -134,29 +135,71 @@ export interface CandidateRowDiffResult {
   reportPath: string;
 }
 
-/** Reads every `skill_candidates` row (id, name, status, body_path). */
-export function readCandidateRows(db: ReadonlySqlite): CandidateRow[] {
-  return db
-    .prepare(
-      'SELECT id, name, status, body_path FROM skill_candidates ORDER BY name',
-    )
-    .all()
-    .map((raw) => {
-      const row = raw as Record<string, unknown>;
-      return {
-        id: String(row['id']),
-        name: String(row['name']),
-        status: String(row['status']),
-        bodyPath: String(row['body_path']),
-      };
-    });
+const archiveReceiptSchema = z.object({
+  archivePath: z.string(),
+  tables: z.array(z.object({
+    table: z.string(),
+    present: z.boolean(),
+    file: z.string().nullable(),
+    rows: z.number().int().nonnegative(),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/).nullable(),
+  })),
+});
+export const ARCHIVE_TABLES = [
+  'skill_candidates', 'skill_suggestions', 'skill_synthesis_queue',
+  'skill_synthesis_budget', 'skill_invocations',
+  'skill_synthesis_workspace_cursor', 'skill_candidates_vec', 'job_runs',
+] as const;
+
+/** Read a batch-15 JSONL table only after checking its receipt and digest. */
+export async function readArchiveTable(
+  receiptPath: string,
+  table: string,
+): Promise<{ rows: Record<string, unknown>[]; sha256: string }> {
+  const receipt = archiveReceiptSchema.parse(JSON.parse(await readFile(receiptPath, 'utf8')));
+  if (resolve(receipt.archivePath) !== dirname(resolve(receiptPath))) {
+    throw new Error('Archive receipt path does not match its directory');
+  }
+  if (receipt.tables.length !== ARCHIVE_TABLES.length ||
+    receipt.tables.some((entry, index) => entry.table !== ARCHIVE_TABLES[index] ||
+      (!entry.present && (entry.file !== null || entry.rows !== 0 || entry.sha256 !== null)))) {
+    throw new Error('Archive receipt table list is invalid');
+  }
+  const entry = receipt.tables.find((item) => item.table === table);
+  if (!entry?.present || entry.file !== `${table}.jsonl` || entry.sha256 === null) {
+    throw new Error(`Archive table is absent or invalid: ${table}`);
+  }
+  const filePath = join(receipt.archivePath, entry.file);
+  const contents = await readFile(filePath, 'utf8');
+  const digest = createHash('sha256').update(contents).digest('hex');
+  if (digest !== entry.sha256 || (contents.length > 0 && !contents.endsWith('\n'))) {
+    throw new Error(`Archive verification failed: ${table}`);
+  }
+  const lines = contents.length === 0 ? [] : contents.trimEnd().split('\n');
+  if (lines.length !== entry.rows) throw new Error(`Archive row count changed: ${table}`);
+  return { rows: lines.map((line) => z.record(z.string(), z.unknown()).parse(JSON.parse(line))), sha256: digest };
+}
+
+const candidateArchiveRowSchema = z.object({
+  id: z.string(), name: z.string(), status: z.string(), body_path: z.string(),
+});
+
+export async function readCandidateRows(receiptPath: string): Promise<{ rows: CandidateRow[]; sha256: string }> {
+  const archive = await readArchiveTable(receiptPath, 'skill_candidates');
+  return {
+    sha256: archive.sha256,
+    rows: archive.rows.map((raw) => {
+      const row = candidateArchiveRowSchema.parse(raw);
+      return { id: row.id, name: row.name, status: row.status, bodyPath: row.body_path };
+    }).sort((a, b) => compareCodePoints(a.name, b.name)),
+  };
 }
 
 /** Pure diff of the copy's dirs against the candidate rows. */
 export function diffCandidateRows(
   rows: readonly CandidateRow[],
   dirs: ReadonlyMap<string, boolean>,
-  meta: { snapshotSha256: string; copyDir: string },
+  meta: { archiveSha256: string; copyDir: string },
 ): CandidateRowDiff {
   const rowNames = new Set(rows.map((r) => r.name));
   const rowsWithoutDir: CandidateRowDiff['rowsWithoutDir'] = [];
@@ -184,7 +227,7 @@ export function diffCandidateRows(
     .filter((d) => !rowNames.has(d))
     .sort(compareCodePoints);
   return {
-    snapshotSha256: meta.snapshotSha256,
+    archiveSha256: meta.archiveSha256,
     copyDir: meta.copyDir,
     rows: rows.length,
     dirs: dirs.size,
@@ -198,7 +241,7 @@ export function diffCandidateRows(
 }
 
 /**
- * Diffs the frozen candidate copy against the snapshot's `skill_candidates`
+ * Diffs the frozen candidate copy against archived `skill_candidates`
  * rows and writes the full report under `<benchDataDir>/reports/` only.
  */
 export async function runCandidateRowDiff(
@@ -208,22 +251,17 @@ export async function runCandidateRowDiff(
     options.benchDataDir,
     options.benchDataRules,
   );
-  const snapshotFile = options.snapshotFile ?? FROZEN_SNAPSHOT_FILE;
+  const archiveReceiptFile = options.archiveReceiptFile ?? 'pre-0057/receipt.json';
   const candidatesName = options.candidatesName ?? FROZEN_CANDIDATES_NAME;
-  const snapshotPath = join(benchDataDir, 'snapshots', snapshotFile);
+  const receiptPath = join(benchDataDir, 'snapshots', archiveReceiptFile);
   const copyDir = join(benchDataDir, 'snapshots', candidatesName);
-  const expected =
-    options.expectedSnapshotSha256 === undefined
-      ? FROZEN_SNAPSHOT_SHA256
-      : options.expectedSnapshotSha256;
 
   const dirs = await readCandidateDirs(copyDir);
-  const { result: rows, sha256: snapshotSha256 } = await withReadonlySnapshot(
-    snapshotPath,
-    readCandidateRows,
-    expected,
-  );
-  const diff = diffCandidateRows(rows, dirs, { snapshotSha256, copyDir });
+  const { rows, sha256: archiveSha256 } = await readCandidateRows(receiptPath);
+  if (options.expectedArchiveSha256 !== undefined && archiveSha256 !== options.expectedArchiveSha256) {
+    throw new Error('Archive sha256 is not the pinned value');
+  }
+  const diff = diffCandidateRows(rows, dirs, { archiveSha256, copyDir });
   const reportDir = join(benchDataDir, 'reports');
   await mkdir(reportDir, { recursive: true });
   const reportPath = join(
