@@ -1,6 +1,6 @@
 # Batches - TASK_2026_662_3eea
 
-Total tasks: 75 (71 + carry-over tasks 44.2, 65.2, 67.2, 53.2) | Batches: 71 (+2 operational steps OP-1, OP-2) | Phases: 6 (A-F) | Complete: 24/71 (Phase A 15/15 CLOSED: logic gate APPROVED after one fix round, 8360e7aca; style fixes verified in the round-2 re-review; visual review APPROVED 8/10. Phase B 9/9: batches 16-24 committed; Phase B review (code-logic + visual) due)
+Total tasks: 78 (72 + carry-over tasks 44.2, 65.2, 67.2, 53.2, 25.2, 44.3) | Batches: 72 (71 + fix-round batch 24a; +2 operational steps OP-1, OP-2) | Phases: 6 (A-F) | Complete: 25/72 (Phase A 15/15 CLOSED: logic gate APPROVED after one fix round, 8360e7aca; style fixes verified in the round-2 re-review; visual review APPROVED 8/10. Phase B 10/10 CLOSED: batches 16-24 + 24a; fix round 82001de93, 24a ce95da1bf; code-logic APPROVED 8.5/10 round 2, visual APPROVED round 3)
 
 Worktree root (prefix every path below with it): `D:\projects\ptah-extension\.claude-worktrees\skill-synthesis-purge\`
 Branch: `refactor/skill-synthesis-purge`. Aliases (same as implementation-plan.md:153):
@@ -40,6 +40,11 @@ Batch numbers here are NOT the plan's numbers; each batch names the plan row(s) 
   archive files). Mode 3 traces it to its runtime reader.
   **EXCEPTION** = exceeds the 6-file cap under the allowed deletion-only or dead-import-removal exception,
   inside ONE project.
+- Shared-fake gate rule (O20, learned in the Phase B fix round): a batch that changes the API of a
+  shared state service (signals, methods) must gate every project whose specs fake that service, not
+  only the owning project. Find them with `rg -n "<ServiceName>" libs apps --glob "*.spec.ts"` before
+  the batch starts and add each hit's project to its verification command. Batch 19 changed
+  `SkillSynthesisStateService` without gating `thoth-shell`, and its stale fake broke 7 tests later.
 
 ## Plan validation
 
@@ -144,7 +149,7 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
 | Phase | Batches | Phase review (after its last batch commits) |
 | --- | --- | --- |
 | A - add beside old | 1-15 | code-logic, plus style (new public API: event store, grade store, skills-root, enhancement keys, archive preflight) |
-| B - switch readers/writers | 16-24 | code-logic, plus visual (Providers, Library, dashboard, pause switch, model editor; added 2026-10-19: dashboard Skills tile telemetry On/Off (O10), Library header pause + telemetry controls (batch 19), Phase A carry-overs Moderate 1 null detail-row pill + Minor 1 neutral verdict dot after batch 24; added after batch 17: Providers consumer assignments Enhancement row (provider, model, timeout + Undo) replacing "Judging & enhancement" and the lane rows, and the Orchestration background-roles summary "Memory curator, enhancement, decision" (3 roles); added after batches 18 and 20: the routing map Background roles node (2 roles: Memory curator, Enhancement; was 6) and the pause switch showing the committed host value while a write is pending, disabled in flight, error alert on failure; added after batch 21: agent model editor slow list (loading held past 10 s, up to the 20 s UI timeout) and unavailable list (loading cleared, unavailable message), and the enhance preview drawer showing the draft with Save enabled only when a draft exists, the save-in-flight state, and the stale-refusal message with the draft kept open) |
+| B - switch readers/writers | 16-24, 24a (fix round) | APPROVED (code-logic r2 8.5/10, visual r3). Review list: code-logic, plus visual (Providers, Library, dashboard, pause switch, model editor; added 2026-10-19: dashboard Skills tile telemetry On/Off (O10), Library header pause + telemetry controls (batch 19), Phase A carry-overs Moderate 1 null detail-row pill + Minor 1 neutral verdict dot after batch 24; added after batch 17: Providers consumer assignments Enhancement row (provider, model, timeout + Undo) replacing "Judging & enhancement" and the lane rows, and the Orchestration background-roles summary "Memory curator, enhancement, decision" (3 roles); added after batches 18 and 20: the routing map Background roles node (2 roles: Memory curator, Enhancement; was 6) and the pause switch showing the committed host value while a write is pending, disabled in flight, error alert on failure; added after batch 21: agent model editor slow list (loading held past 10 s, up to the 20 s UI timeout) and unavailable list (loading cleared, unavailable message), and the enhance preview drawer showing the draft with Save enabled only when a draft exists, the save-in-flight state, and the stale-refusal message with the draft kept open) |
 | C - cut consumers | 25-56 | code-logic, plus visual (Library tab removal in 27, dashboard in 27) |
 | D - delete pipeline source + RPC contract | 57-61 | code-logic, plus visual (Library after SU deletion) |
 | E - remove shared contracts | 62-66 | code-logic, plus visual (Advanced settings rows removed in 65) |
@@ -729,17 +734,10 @@ run ONE AT A TIME. Batches not listed in a wave run sequentially in id order.
 
 ### Next action:
 
-Phase B batches 16-24 are COMPLETE (23 = 691777d85, 24 = 7e64882c2). Run the Phase B review now; no
-Phase C batch starts until it accepts.
-
-- Code-logic review on `dc10d73b2..HEAD` (parent of the first Phase B commit 6071e8ccc), reviewer from
-  a different family than the implementing lanes.
-- Visual review per the Phase map row B list: O10 dashboard Skills tile, Library pause/telemetry
-  controls, Providers Enhancement row and background-roles summary, routing map Background roles node,
-  pause switch pending/error states, model editor slow/unavailable states, enhance preview drawer
-  (batch 21), and Phase A Moderate 1 (null detail-row pill) and Minor 1 (neutral verdict dot), now
-  checkable after batch 24, plus the batch 24 three-kind card/drawer grade display.
-- Then re-invoke team-leader Mode 2 step 6 with both review paths and verdicts.
+Phase B is CLOSED (see "Phase B review and fix round" at the end of Phase B). Start Phase C wave 1
+(C-W1): batches 26 (webview + SU gate), 30 (ptah-cli), 32 (vscode-core) in parallel, at most 3 lanes,
+scoped checks one at a time; then 25 (Task 25.1, then Task 25.2 as its own lane), 27, 28, 29 in order.
+Apply the O20 shared-fake gate rule (Batch defaults) to each brief before spawning.
 
 ---
 
@@ -1078,7 +1076,64 @@ Phase C batch starts until it accepts.
 - Gate (O15, combined for both batches, orchestrator-run, not re-run here):
   `nx run-many -t test typecheck lint -p @ptah-extension/skill-synthesis-ui --parallel=1` PASS.
 
-**Phase B review due now: code-logic on `dc10d73b2..HEAD` + visual (Phase map row B).**
+## Batch 24a: Full-width Thoth panels + auto-fit stat tiles (O16, O22) - COMPLETE (ce95da1bf)
+
+- Phase: B (fix round) | Executor: CLI lanes B (shell width) and E (tile grids); reports
+  `reports/phase-b-fix-b-report.md`, `reports/phase-b-fix-e-report.md` | Source: user request (O16),
+  visual re-check r2 Serious 1 + Moderate 2 (O22, one cause: viewport breakpoints on the tile grids).
+- Flags: UI.
+- On disk: `thoth-shell.component.ts:222` panel wrapper drops `mx-auto max-w-5xl`, uses
+  `w-full px-3 py-6 sm:px-4 lg:py-8`; the memory, skill, gateway and cron stat strips use
+  container-based auto-fit grids. New specs `memory-stats-strip.component.spec.ts`,
+  `skill-stats-strip.component.spec.ts`; gateway and cron specs updated; the shell spec asserts no
+  `max-w-` on the panel wrapper.
+- Gates (orchestrator-run): thoth-shell PASS after lane D; memory-curator-ui, skill-synthesis-ui,
+  messaging-gateway-ui, cron-scheduler-ui PASS after lane E.
+- Visual: before `visual/thoth-width/before/`, after `visual/thoth-width/after/` and
+  `visual/thoth-width/tiles/`; `visual-review-phase-b-r3.md` APPROVED (PNGs on disk only, U4).
+- Commit: ce95da1bf `feat(thoth-shell,skill-synthesis-ui): batch 24a - full-width panels` (10 files).
+  The whole `thoth-shell.component.spec.ts` is in this commit: its lane D fakes and O21 assertion
+  updates share hunks with the 24a width assertion, so commit 82001de93 alone leaves the thoth-shell
+  spec on its old fakes; the pair is green.
+
+## Phase B review and fix round - COMPLETE (82001de93, ce95da1bf)
+
+- Combined diff reviewed: `dc10d73b2..829600e7f` (batches 16-24).
+- Review family: reviewer Claude (`code-logic-reviewer`, `visual-reviewer` subagents, a third family);
+  implementers codex and Glm lanes. Different-family rule met.
+- Code-logic: `code-logic-review-phase-b.md` REVISE 6/10 -> fix round -> `code-logic-review-phase-b-r2.md`
+  APPROVED 8.5/10 (scoped to the fixes).
+- Visual: `visual-review-phase-b.md` REVISE 5/10 -> `visual-review-phase-b-r2.md` REVISE 7/10 (all 4
+  items PASS; 5th tile clipped at 1280) -> `visual-review-phase-b-r3.md` APPROVED. Evidence text and
+  capture scripts in `visual/phase-b/`, `visual/phase-b-r2/`, `visual/thoth-width/`; PNGs git-ignored
+  (U4).
+- Fixed (decisions O17-O21; lanes A-E, reports `reports/phase-b-fix-{a,b,c,d,e}-report.md`): code S1
+  (telemetry reader switched to `skills.telemetry.enabled`, old key only as fallback while the new key
+  is absent - O17), S2 (an enhancement save, `origin: 'enhancement'`, stamps the committed-clone hash
+  and repropagates with `userInitiated: true`), S3 (incl. the three `skills.enhancement.*` entries in `SCOPED_SETTING_KEYS`,
+  `rpc-auth.types.ts`), S4 + M2 (`invocationStats` keeps `total`, adds graded fields and optional
+  `kind`; one failed stats read degrades one card - O18), visual Serious 1 root cause (`@inject` on
+  the scorecard `events` parameter - O18), lane C content-hash correction (agent-generation mirror),
+  lane D thoth-shell spec fakes + O21 stale-assertion updates, batch 24a (O16, O22).
+- Gates (orchestrator-run, not re-run here): test + typecheck + lint PASS for skill-synthesis,
+  rpc-handlers, shared, skill-synthesis-ui, core, agent-generation; thoth-shell PASS after lane D;
+  memory-curator-ui, skill-synthesis-ui, messaging-gateway-ui, cron-scheduler-ui PASS after lane E.
+- Commits: 82001de93 `fix(skill-synthesis,rpc-handlers,shared): phase b review fix round` (17 files);
+  ce95da1bf batch 24a (10 files).
+- Carried into later batches: O17 fallback removal -> Batch 44 (Task 44.1); the three
+  `skills.enhancement.*` `SCOPED_SETTING_KEYS` entries must survive Batch 65; U2 per-workspace grades
+  -> Batches 44 (Task 44.3) and 59 (Task 59.1); U3 `routing-background-more` removal -> Task 25.2.
+
+### Phase B follow-ups (named, not fixed)
+
+- Visual Serious 2 and 3 (pre-existing daisyUI badge / Thoth tile contrast; same root as Phase A
+  Serious 1) -> the named follow-up "Scorecard pill contrast - dark-theme badge-success/badge-error
+  token pairing", outside this task's batches.
+- Code M1, M3 (= r2-M3, `getUsageStats` slug-only), M4, M5 (`code-logic-review-phase-b.md`).
+- r2-M1: `invocationStats` `total` (telemetry uses) vs `succeeded`/`failed` (graded) do not sum.
+- r2-M2: silent skip when the repropagation port is unbound.
+- Visual Moderate 1-7 (`visual-review-phase-b.md`), incl. the r2 Moderate 1 stat-tile lag.
+- All Minor findings from both code reviews and all three visual reviews (recorded only).
 
 ---
 
@@ -1086,7 +1141,7 @@ Phase C batch starts until it accepts.
 
 ## Batch 25: Core Providers removes lanes/judging slices (R3) - PENDING
 
-- Phase: C | Executor: CLI lane Glm | Depends on: 16, 17, 18 | Tasks: 1
+- Phase: C | Executor: CLI lane Glm | Depends on: 16, 17, 18 | Tasks: 2 (25.1, 25.2)
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/core @ptah-extension/chat --parallel=1`
 - Precondition: chat no longer reads `lanes`/`judging` (the grep after batch 18 is zero).
 
@@ -1102,6 +1157,18 @@ Phase C batch starts until it accepts.
   lanes slice; the `PendingSettingsTab` union itself stays for Task 53.2 (e2e fixtures still use
   `judging-enhancement` until batches 51/52).
 - Implementation details: none beyond the finding.
+
+### Task 25.2: Remove the unreachable `routing-background-more` branch (U3) - PENDING
+
+- Files: `libs/frontend/chat/src/lib/settings/providers/routing-map.component.ts` + spec.
+- Source: decision U3 (user approved, 2026-10-19); batch 18 proposed removal.
+- Quality requirements: delete the `routing-background-more` template branch
+  (`routing-map.component.ts:~156`), which cannot render with 2 roles and `.slice(0, 2)`, and any
+  member used only by it. Replace the spec assertion at `:199` (branch absent) with one that pins the
+  2-role node without the branch.
+- Validation notes: file cap - 25.1 already owns 5 files, so run 25.2 as its own lane after 25.1 with
+  the same verification command (it already gates `@ptah-extension/chat`). Phase C visual review
+  re-checks the routing map Background roles node.
 
 ## Batch 26: Webview cuts the live push provider - PENDING
 
@@ -1393,7 +1460,7 @@ Phase C batch starts until it accepts.
 
 ## Batch 44: Skill-synthesis trigger, catalog and enhancer cut - PENDING
 
-- Phase: C | Executor: CLI lane codex | Depends on: 4, 9, 10, 35 | Tasks: 1
+- Phase: C | Executor: CLI lane codex | Depends on: 4, 9, 10, 35 | Tasks: 3 (44.1, 44.2, 44.3)
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/skill-synthesis --parallel=1`
 - Precondition: G10.
 
@@ -1402,7 +1469,11 @@ Phase C batch starts until it accepts.
 - Files: `SS/triggers/skill-trigger.service.ts` + spec, `SS/skill-registry-catalog.service.ts` + spec, `SS/skill-enhancer.service.ts` + spec.
 - Plan reference: plan row 40; implementation-plan.md:15.
 - Pattern to follow: none beyond the plan row.
-- Quality requirements: no boot scan, idle hook or analysis enqueue remains.
+- Quality requirements: no boot scan, idle hook or analysis enqueue remains. Added at the Phase B
+  fix round (O17): remove the old-key fallback in `readSkillInvocationTelemetryEnabled`
+  (`skill-trigger.service.ts`, reads `skillSynthesis.triggers.skillInvocationTelemetry.enabled` only
+  while `skills.telemetry.enabled` is absent); the reader uses `skills.telemetry.enabled` alone and its
+  spec drops the fallback case.
 - Validation notes: none beyond the plan row.
 - Implementation details: none beyond the plan row.
 
@@ -1420,6 +1491,18 @@ Phase C batch starts until it accepts.
   prune the stale grade per key or record the accepted behaviour in a comment and spec.
 - Validation notes: file cap - 44.1 already owns 6 files, so run 44.2 as its own lane after 44.1 with the
   same verification command.
+
+### Task 44.3: Per-workspace grades, store and scorecard side (U2) - PENDING
+
+- Files: `SS/skill-task-grade.store.ts` + spec, `SS/skill-scorecard.service.ts` + spec.
+- Source: decision U2 (user, 2026-10-19): a Library agent's success rate uses only task reviews from
+  the current workspace.
+- Quality requirements: `getAggregates` (`skill-task-grade.store.ts:187-192`, today filters only
+  `subject_kind` + `subject_slug`) takes a workspace root and filters by it, in the same normalised
+  root form the writer stores; the scorecard service takes the root and passes it through. No grade
+  in this workspace stays null ("No grade"), never 0 %. Spec with grades in two workspaces.
+- Validation notes: runs after 44.2 (both edit the grade store), own lane, same verification command.
+  The RPC handler side lands in Task 59.1.
 
 ## Batch 45: mcp-bench namer/trigger family deletion (R4) - PENDING
 
@@ -1698,7 +1781,9 @@ pipeline tokens (batch 59) before SS registrations are removed (batch 60).
   `RPC_METHOD_ENTRIES`/method-map entries, the baseline names and the schema entries, all together.
   Keep the `skillSynthesis:` prefix and the clone, history, quarantine, agent-model, task-spec,
   scorecard and preview methods. `applyProposal` goes only if explicit save is the sole apply path
-  (batch 10).
+  (batch 10). U2 (user decision): the retained scorecard / clone-list handlers pass the current
+  workspace root to the scorecard so success rates use only that workspace's task reviews (store side
+  in Task 44.3); add a handler spec for it.
 - Validation notes: `rpc-allowlist.spec.ts:42` (`assertManifestInvariants(RPC_METHOD_NAMES)`) passes in
   the RH tests. Each host `rpc-surface.spec.ts` passes. `host-source-registry.contract.spec.ts` (shared)
   passes.
@@ -1810,7 +1895,10 @@ pipeline tokens (batch 59) before SS registrations are removed (batch 60).
 - Files: `PC/file-settings-keys.ts` + spec, `libs/shared/src/lib/types/advanced-settings.types.ts` + spec, `libs/shared/src/lib/types/rpc/rpc-auth.types.ts` (per-key scope metadata `:482-522`).
 - Plan reference: plan row 61; settings inventory (implementation-plan.md:61-79); round-2 R5.
 - Pattern to follow: none beyond the plan row and the finding.
-- Quality requirements: exactly 79 removed, counted in the report.
+- Quality requirements: exactly 79 removed, counted in the report. Keep the three
+  `skills.enhancement.{provider,model,timeoutMs}` entries in `SCOPED_SETTING_KEYS`
+  (`rpc-auth.types.ts`, added in the Phase B fix round 82001de93 for review S3); only the old
+  `skillSynthesis.*` entries go.
 - Validation notes: `rg -n "skillSynthesis\.(?!enabled|skillsRoot)" libs apps --pcre2` has live hits only
   in immutable migrations, docs, and the memory-curator comments (`memory-retention-config.ts:103`,
   `memory-trigger-config.ts:88`).
