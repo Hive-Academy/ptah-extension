@@ -22,7 +22,6 @@ import {
 import { LaneRunnerService } from './lanes/lane-runner.service';
 import {
   assistantText,
-  makeBudgetStub,
   makeLogger,
   makeQueryStub,
   makeResolverStub,
@@ -114,7 +113,6 @@ function makeJudge(scripts: StreamMessage[][]) {
   const runner = new LaneRunnerService(
     logger,
     makeResolverStub(resolvedLane('judge')).service,
-    makeBudgetStub().store,
     query.query,
     null,
   );
@@ -127,7 +125,6 @@ function makeThrowingJudge() {
   const runner = new LaneRunnerService(
     logger,
     makeThrowingResolverStub(new Error('network error')),
-    makeBudgetStub().store,
     makeQueryStub([[]]).query,
     null,
   );
@@ -140,7 +137,6 @@ function makeHostlessJudge() {
   const runner = new LaneRunnerService(
     logger,
     makeResolverStub(resolvedLane('judge')).service,
-    makeBudgetStub().store,
     null,
     null,
   );

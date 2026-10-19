@@ -4,7 +4,6 @@ export {
   SKILLS_ROOT_KEY,
   SKILLS_ROOT_SECTION,
 } from './lib/skills-root';
-export { SkillSynthesisService } from './lib/skill-synthesis.service';
 export {
   TrajectoryExtractor,
   type ExtractedTrajectory,

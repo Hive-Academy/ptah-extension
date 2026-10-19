@@ -30,19 +30,17 @@ const grade: SkillTaskGrade = {
 };
 
 function makeService() {
-  const store = {
-    getScorecardAggregates: jest.fn(() => new Map([['agent-a', aggregate('agent-a')]])),
-  };
   const grades = {
     getAggregates: jest.fn((_kind: string, _slugs: readonly string[], _root: string | null): Map<string, SkillTaskGradeAggregate> =>
       new Map([['agent-a', { graded: 1, passed: 0, successRate: 0 }]])),
     listRecent: jest.fn((_kind: string, _slug: string, _limit: number, _root: string | null) => [grade]),
   };
   const events = {
+    getScorecardAggregates: jest.fn(() => new Map([['agent-a', aggregate('agent-a')]])),
     getUsageStats: jest.fn(() => ({ invocationCount: 4, distinctContexts: 2 })),
   };
-  const service = new SkillScorecardService(logger as never, store as never, grades as never, null, events as never);
-  return { service, store, grades, events };
+  const service = new SkillScorecardService(logger as never, grades as never, null, events as never);
+  return { service, grades, events };
 }
 
 describe('SkillScorecardService', () => {
@@ -50,7 +48,6 @@ describe('SkillScorecardService', () => {
     const child = container.createChildContainer();
     const events = { getUsageStats: jest.fn(() => ({ invocationCount: 4, distinctContexts: 2 })) };
     child.registerInstance(TOKENS.LOGGER, logger);
-    child.registerInstance(SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE, {});
     child.registerInstance(SKILL_SYNTHESIS_TOKENS.SKILL_TASK_GRADE_STORE, {
       getAggregates: jest.fn(() => new Map()),
     });
@@ -99,7 +96,7 @@ describe('SkillScorecardService', () => {
   });
 
   it('counts graded tasks while preserving invocation telemetry contexts', () => {
-    const { service, grades, store, events } = makeService();
+    const { service, grades, events } = makeService();
     grades.getAggregates.mockReturnValue(new Map([['agent-a', { graded: 5, passed: 3, successRate: 0.6 }]]));
 
     expect(service.getInvocationStats('agent', 'agent-a', workspaceRoot)).toEqual({
@@ -108,18 +105,18 @@ describe('SkillScorecardService', () => {
     });
     expect(grades.getAggregates).toHaveBeenCalledWith('agent', ['agent-a'], workspaceRoot);
     expect(events.getUsageStats).toHaveBeenCalledWith('agent-a');
-    expect(store.getScorecardAggregates).not.toHaveBeenCalled();
+    expect(events.getScorecardAggregates).not.toHaveBeenCalled();
   });
 
   it('returns a null rate with zero grades despite invocation telemetry', () => {
-    const { service, grades, store } = makeService();
+    const { service, grades, events } = makeService();
     grades.getAggregates.mockReturnValue(new Map());
 
     expect(service.getInvocationStats('skill', 'agent-a', workspaceRoot)).toEqual({
       total: 0, succeeded: 0, failed: 0, distinctContexts: 2,
       invocationCount: 4, successRate: null,
     });
-    expect(store.getScorecardAggregates).not.toHaveBeenCalled();
+    expect(events.getScorecardAggregates).not.toHaveBeenCalled();
   });
 
   it('passes the workspace through every grade read and leaves an absent root ungraded', async () => {

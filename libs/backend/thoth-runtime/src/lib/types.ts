@@ -3,10 +3,7 @@ import type {
   MemoryCuratorService,
   MemoryTriggerService,
 } from '@ptah-extension/memory-curator';
-import type {
-  SkillSynthesisService,
-  SkillTriggerService,
-} from '@ptah-extension/skill-synthesis';
+import type { SkillTriggerService } from '@ptah-extension/skill-synthesis';
 import type { CronScheduler } from '@ptah-extension/cron-scheduler';
 
 /**
@@ -92,8 +89,6 @@ export interface ThothRuntimeRefs {
    * stopped BEFORE the memory curator in the LIFO teardown chain.
    */
   memoryTrigger: MemoryTriggerService | null;
-  /** Synthesis handle retained for host teardown and CLI lifecycle consumers. */
-  skillSynthesis: SkillSynthesisService | null;
   /**
    * Skill trigger service handle for orderly shutdown. Null when absent or
    * when `start()` failed.
@@ -124,7 +119,6 @@ export function emptyThothRuntimeRefs(): ThothRuntimeRefs {
     sqliteConnection: null,
     memoryCurator: null,
     memoryTrigger: null,
-    skillSynthesis: null,
     skillTrigger: null,
     cronScheduler: null,
     symbolWatcher: null,

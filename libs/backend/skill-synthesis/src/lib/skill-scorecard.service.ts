@@ -12,10 +12,6 @@ import type {
   SkillSynthesisGetScorecardDetailResult,
 } from '@ptah-extension/shared';
 import { SKILL_SYNTHESIS_TOKENS } from './di/tokens';
-import {
-  SkillCandidateStore,
-  type SkillWinRate,
-} from './skill-candidate.store';
 import { SkillTaskGradeStore, type SkillTaskGradeAggregate } from './skill-task-grade.store';
 import { SkillInvocationEventStore } from './skill-invocation-event.store';
 import {
@@ -24,6 +20,14 @@ import {
 } from './spec-findings.port';
 import type { ScorecardAggregate } from './types';
 import type { SkillRegistryKind } from './skill-registry.store';
+
+interface SkillWinRate {
+  readonly slug: string;
+  readonly invocations: number;
+  readonly wins: number;
+  readonly unknown: number;
+  readonly winRate: number | null;
+}
 
 /** Recent-verdict cap surfaced on each card (D9). */
 const MAX_RECENT_VERDICTS = 5;
@@ -37,9 +41,7 @@ const MAX_FINDINGS_CHARS = 4000;
 export class SkillScorecardService {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE)
-    private readonly store: SkillCandidateStore,
-    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_TASK_GRADE_STORE)
+        @inject(SKILL_SYNTHESIS_TOKENS.SKILL_TASK_GRADE_STORE)
     private readonly grades: SkillTaskGradeStore,
     @inject(SPEC_FINDINGS_TOKEN, { isOptional: true })
     private readonly findings: SpecFindingsPort | null,
@@ -78,7 +80,7 @@ export class SkillScorecardService {
     const scorecards: Record<string, AgentScorecard> = {};
     if (slugs.length === 0) return scorecards;
     try {
-      const aggregates = this.store.getScorecardAggregates(slugs);
+      const aggregates = this.events.getScorecardAggregates(slugs);
       const grades = this.grades.getAggregates('agent', slugs, workspaceRoot ?? null);
       for (const [slug, aggregate] of aggregates) {
         const grade = grades.get(slug) ?? { graded: 0, passed: 0, successRate: null };
@@ -113,7 +115,7 @@ export class SkillScorecardService {
     }
     try {
       const grades = this.grades.getAggregates('agent', slugs, workspaceRoot ?? null);
-      const aggregates = this.store.getScorecardAggregates(slugs);
+      const aggregates = this.events.getScorecardAggregates(slugs);
       for (const slug of slugs) {
         const grade = grades.get(slug);
         const total = aggregates.get(slug)?.total ?? 0;

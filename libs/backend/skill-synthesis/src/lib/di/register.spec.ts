@@ -47,7 +47,6 @@ describe('registerSkillSynthesisServices', () => {
 
     const retained = [
       'FOREGROUND_ACTIVITY_TRACKER',
-      'SKILL_CANDIDATE_STORE',
       'SKILL_JUDGE_SERVICE',
       'SKILL_TRIGGER_SERVICE',
       'SKILL_INVOCATION_RECORDER',
@@ -59,8 +58,6 @@ describe('registerSkillSynthesisServices', () => {
       'SPEC_HARVESTER_SERVICE',
       'SUBAGENT_METRICS_EXTRACTOR',
       'SKILL_SCORECARD_SERVICE',
-      'SKILL_QUEUE_STORE',
-      'SKILL_BUDGET_STORE',
       'NETWORK_BACKOFF',
       'LANE_RESOLVER_SERVICE',
       'LANE_RUNNER_SERVICE',
@@ -70,6 +67,9 @@ describe('registerSkillSynthesisServices', () => {
       expect(container.isRegistered(SKILL_SYNTHESIS_TOKENS[key])).toBe(true);
     }
     expect(container.isRegistered(SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE)).toBe(false);
+    expect(container.isRegistered(SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE)).toBe(false);
+    expect(container.isRegistered(SKILL_SYNTHESIS_TOKENS.SKILL_BUDGET_STORE)).toBe(false);
+    expect(container.isRegistered(SKILL_SYNTHESIS_TOKENS.SKILL_QUEUE_STORE)).toBe(false);
   });
 
   it('gives the queue and budget stores globally unique token descriptions', () => {

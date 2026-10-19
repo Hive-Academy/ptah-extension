@@ -19,7 +19,6 @@ import {
 } from '@ptah-extension/memory-curator';
 import {
   SKILL_SYNTHESIS_TOKENS,
-  type SkillSynthesisService,
   type SkillTriggerService,
 } from '@ptah-extension/skill-synthesis';
 import {
@@ -62,8 +61,6 @@ export interface ThothRefs {
   sqliteConnection: SqliteConnectionService | null;
   memoryCurator: MemoryCuratorService | null;
   memoryTrigger: MemoryTriggerService | null;
-  /** Legacy compatibility for existing callers; CLI boot no longer populates it. */
-  skillSynthesis?: SkillSynthesisService | null;
   skillTrigger: SkillTriggerService | null;
   cronScheduler: CronScheduler | null;
   gateway: GatewayService | null;

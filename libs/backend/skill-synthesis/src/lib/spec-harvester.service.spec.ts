@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import { normalizeWorkspaceRoot } from '@ptah-extension/platform-core';
 import { SpecHarvesterService } from './spec-harvester.service';
-import { SkillCandidateStore } from './skill-candidate.store';
+import { SkillInvocationEventStore } from './skill-invocation-event.store';
 import { HARVEST_MARKER_FILE } from './spec-extractor';
 
 const COMPLETED_TASKS_MD = `## Batch 1: Backend — COMPLETE
@@ -383,7 +383,7 @@ describe('SpecHarvesterService', () => {
 // ─── Real-store harvest reconciliation provenance (Task 3.1) ─────────────────
 //
 // The mock-store tests above prove the harvester THREADS taskId + provenance.
-// These tests wire a REAL SkillCandidateStore against a temp better-sqlite3 DB
+// These tests wire a REAL SkillInvocationEventStore against a temp better-sqlite3 DB
 // so we can observe what the store actually STAMPS end-to-end: `spec:` on an
 // exact (slug, task_id) hit vs `spec-window:` on the legacy NULL-task_id
 // window fallback, plus `.harvested.json` + `reconciled_at` idempotency.
@@ -452,19 +452,9 @@ function createEventsDb(): BetterSqliteDb {
   return db;
 }
 
-function makeRealStore(db: BetterSqliteDb): SkillCandidateStore {
+function makeRealStore(db: BetterSqliteDb): SkillInvocationEventStore {
   const connection = { db, vecExtensionLoaded: false, isOpen: true };
-  const vecStatus = {
-    available: false,
-    getStatus: () => ({ available: false }),
-    on: () => ({ dispose: () => undefined }),
-    refresh: () => undefined,
-  };
-  return new SkillCandidateStore(
-    makeLogger() as never,
-    connection as never,
-    vecStatus as never,
-  );
+  return new SkillInvocationEventStore(makeLogger() as never, connection as never);
 }
 
 /** Write a COMPLETE/backend + FAILED/frontend spec folder (unharvested). */
@@ -500,7 +490,7 @@ function rowByTask(
 }
 
 function recordSubagentRun(
-  store: SkillCandidateStore,
+  store: SkillInvocationEventStore,
   slug: string,
   invokedAt: number,
   taskId: string | null,
@@ -521,7 +511,7 @@ describe('SpecHarvesterService — real-store reconciliation provenance', () => 
   let root: string;
   let specsRoot: string;
   let db: BetterSqliteDb;
-  let store: SkillCandidateStore;
+  let store: SkillInvocationEventStore;
   let svc: SpecHarvesterService;
 
   beforeEach(async () => {

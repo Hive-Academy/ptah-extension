@@ -1902,7 +1902,7 @@ pipeline tokens (batch 59) before SS registrations are removed (batch 60).
 - Validation notes: none beyond the plan row.
 - Implementation details: none beyond the plan row.
 
-## Batch 61: SS pipeline subtree deletion - PENDING
+## Batch 61: SS pipeline subtree deletion - COMPLETE (+ Task 61.0 per O40)
 
 - Phase: D | Executor: CLI lane codex | Depends on: 60 | Tasks: 1
 - Flags: EXCEPTION (deletion-only, SS/lib)

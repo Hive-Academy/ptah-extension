@@ -13,7 +13,7 @@
  * folders — same executor slug, overlapping file-mtime windows, distinct
  * task ids — in a SINGLE `harvest()` pass. That is the exact real-world shape
  * of R4.3 (two concurrent orchestrated tasks delegating to the same agent) and
- * the scenario this file adds, wired through the real `SkillCandidateStore`
+ * the scenario this file adds, wired through the real `SkillInvocationEventStore`
  * against a real (in-memory) SQLite connection — no mocks on the store side.
  */
 import 'reflect-metadata';
@@ -22,7 +22,7 @@ import { mkdtemp, mkdir, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SpecHarvesterService } from './spec-harvester.service';
-import { SkillCandidateStore } from './skill-candidate.store';
+import { SkillInvocationEventStore } from './skill-invocation-event.store';
 
 interface BetterSqliteDb {
   exec(sql: string): void;
@@ -94,19 +94,9 @@ function createEventsDb(): BetterSqliteDb {
   return db;
 }
 
-function makeRealStore(db: BetterSqliteDb): SkillCandidateStore {
+function makeRealStore(db: BetterSqliteDb): SkillInvocationEventStore {
   const connection = { db, vecExtensionLoaded: false, isOpen: true };
-  const vecStatus = {
-    available: false,
-    getStatus: () => ({ available: false }),
-    on: () => ({ dispose: () => undefined }),
-    refresh: () => undefined,
-  };
-  return new SkillCandidateStore(
-    makeLogger() as never,
-    connection as never,
-    vecStatus as never,
-  );
+  return new SkillInvocationEventStore(makeLogger() as never, connection as never);
 }
 
 interface VerdictRow {
@@ -130,7 +120,7 @@ function rowByTask(
 }
 
 function recordSubagentRun(
-  store: SkillCandidateStore,
+  store: SkillInvocationEventStore,
   slug: string,
   invokedAt: number,
   taskId: string | null,
@@ -191,7 +181,7 @@ describe('SpecHarvesterService — end-to-end concurrent-task attribution (R4.3)
   let root: string;
   let specsRoot: string;
   let db: BetterSqliteDb;
-  let store: SkillCandidateStore;
+  let store: SkillInvocationEventStore;
   let svc: SpecHarvesterService;
 
   beforeEach(async () => {

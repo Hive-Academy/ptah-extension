@@ -95,7 +95,7 @@ export interface PersistenceReadiness {
  * Field names are load-bearing: `main.ts`'s `will-quit` chain reads them
  * directly and its ORDER is the LIFO disposal contract.
  */
-export interface BootRefs extends Omit<ThothRuntimeRefs, 'skillSynthesis'> {
+export interface BootRefs extends ThothRuntimeRefs {
   /**
    * Event-loop lag monitor + CPU profile capture. Armed first in the
    * pre-window phase and disposed LAST, so lag warnings keep coming during a

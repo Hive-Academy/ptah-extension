@@ -3,7 +3,6 @@ import type { DependencyContainer } from 'tsyringe';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { LANE_OUTCOME_TOKENS } from '@ptah-extension/lane-outcomes';
 import { SkillTelemetrySeamAdapter } from '../outcome-seam/skill-telemetry-seam.adapter';
-import { SkillCandidateStore } from '../skill-candidate.store';
 import { SkillInvocationEventStore } from '../skill-invocation-event.store';
 import { TrajectoryExtractor } from '../trajectory-extractor';
 import { SkillJudgeService } from '../skill-judge.service';
@@ -21,8 +20,6 @@ import {
 import { SpecHarvesterService } from '../spec-harvester.service';
 import { SubagentMetricsExtractor } from '../subagent-metrics-extractor';
 import { SkillScorecardService } from '../skill-scorecard.service';
-import { SkillQueueStore } from '../queue/skill-queue.store';
-import { SkillBudgetStore } from '../queue/skill-budget.store';
 import { ForegroundActivityTracker } from '../queue/foreground-activity.tracker';
 import { LaneResolverService } from '../lanes/lane-resolver.service';
 import { LaneRunnerService } from '../lanes/lane-runner.service';
@@ -40,7 +37,6 @@ export function registerSkillSynthesisServices(
   container.register(SKILL_SYNTHESIS_TOKENS.FOREGROUND_ACTIVITY_TRACKER, {
     useToken: ForegroundActivityTracker,
   });
-  container.registerSingleton(SkillCandidateStore);
   container.registerSingleton(SkillInvocationEventStore);
   container.registerSingleton(SkillTelemetrySeamAdapter);
   container.register(LANE_OUTCOME_TOKENS.SKILL_TELEMETRY_SEAM, {
@@ -57,14 +53,9 @@ export function registerSkillSynthesisServices(
   container.registerSingleton(SpecHarvesterService);
   container.registerSingleton(SubagentMetricsExtractor);
   container.registerSingleton(SkillScorecardService);
-  container.registerSingleton(SkillQueueStore);
   container.registerSingleton(SessionVerdictStore);
-  container.registerSingleton(SkillBudgetStore);
   container.registerSingleton(LaneResolverService);
   container.registerSingleton(LaneRunnerService);
-  container.register(SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE, {
-    useToken: SkillCandidateStore,
-  });
   container.register(SKILL_SYNTHESIS_TOKENS.SKILL_JUDGE_SERVICE, {
     useToken: SkillJudgeService,
   });
@@ -97,12 +88,6 @@ export function registerSkillSynthesisServices(
   });
   container.register(SKILL_SYNTHESIS_TOKENS.SKILL_SCORECARD_SERVICE, {
     useToken: SkillScorecardService,
-  });
-  container.register(SKILL_SYNTHESIS_TOKENS.SKILL_QUEUE_STORE, {
-    useToken: SkillQueueStore,
-  });
-  container.register(SKILL_SYNTHESIS_TOKENS.SKILL_BUDGET_STORE, {
-    useToken: SkillBudgetStore,
   });
   // The lane runner and enhancer share provider back-off state.
   container.register(SKILL_SYNTHESIS_TOKENS.NETWORK_BACKOFF, {

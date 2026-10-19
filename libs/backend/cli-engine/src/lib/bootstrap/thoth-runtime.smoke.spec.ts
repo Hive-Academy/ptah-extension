@@ -80,9 +80,6 @@ describe('Thoth interim smoke — oneshot activate + clean dispose', () => {
       memoryTrigger: {
         stop: jest.fn(() => order.push('memoryTrigger.stop')),
       } as never,
-      skillSynthesis: {
-        stop: jest.fn(() => order.push('skillSynthesis.stop')),
-      } as never,
       skillTrigger: {
         stop: jest.fn(() => order.push('skillTrigger.stop')),
       } as never,
@@ -126,7 +123,6 @@ describe('Thoth interim smoke — oneshot activate + clean dispose', () => {
       } as never,
       memoryCurator: null,
       memoryTrigger: null,
-      skillSynthesis: null,
       skillTrigger: null,
       cronScheduler: null,
       gateway: {
@@ -149,7 +145,6 @@ describe('Thoth interim smoke — oneshot activate + clean dispose', () => {
       sqliteConnection: null,
       memoryCurator: null,
       memoryTrigger: null,
-      skillSynthesis: null,
       skillTrigger: null,
       cronScheduler: null,
       gateway: null,

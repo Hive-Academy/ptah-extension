@@ -426,7 +426,6 @@ describe('bootThothRuntime', () => {
 
     expect(skillTrigger.start).toHaveBeenCalledTimes(1);
     expect(refs.skillTrigger).toBe(skillTrigger);
-    expect(refs.skillSynthesis).toBeNull();
     expect(onSkillTriggerStarted).toHaveBeenCalledWith(skillTrigger);
   });
 
@@ -632,7 +631,6 @@ describe('bootThothRuntime', () => {
       sqliteConnection: null,
       memoryCurator: null,
       memoryTrigger: null,
-      skillSynthesis: null,
       skillTrigger: null,
       cronScheduler: null,
       symbolWatcher: null,

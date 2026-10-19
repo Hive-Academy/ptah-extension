@@ -12,7 +12,7 @@
  *  3. listSpecs() / clearStaleSpecs() — classify and prune harvested specs.
  *
  * Reads the workspace `.ptah/specs` folder and writes legacy reconciliation
- * through SkillCandidateStore and review grades through SkillTaskGradeStore.
+ * through SkillInvocationEventStore and review grades through SkillTaskGradeStore.
  */
 import {
   mkdir,
@@ -35,7 +35,7 @@ import {
 } from '@ptah-extension/platform-core';
 import { CARRIER_FILE } from '@ptah-extension/shared';
 import { SKILL_SYNTHESIS_TOKENS } from './di/tokens';
-import { SkillCandidateStore } from './skill-candidate.store';
+import { SkillInvocationEventStore } from './skill-invocation-event.store';
 import { SkillTaskGradeStore, type GradeAttribution, type SkillTaskGrade } from './skill-task-grade.store';
 import {
   extractSpec,
@@ -90,8 +90,8 @@ export class SpecHarvesterService implements SpecFindingsPort {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
-    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE)
-    private readonly store: SkillCandidateStore,
+    @inject(SkillInvocationEventStore)
+    private readonly events: SkillInvocationEventStore,
     @inject(SKILL_SYNTHESIS_TOKENS.SKILL_TASK_GRADE_STORE)
     private readonly grades?: SkillTaskGradeStore,
   ) {}
@@ -117,7 +117,7 @@ export class SpecHarvesterService implements SpecFindingsPort {
       }
       let count = 0;
       for (const batch of marker ? [] : spec.batches) {
-        const did = this.store.reconcileSubagentEvent({
+        const did = this.events.reconcileSubagentEvent({
           slug: batch.slug,
           taskId: spec.taskId,
           succeeded: batch.status === 'COMPLETE',
