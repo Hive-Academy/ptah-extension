@@ -100,7 +100,7 @@ export function verifySkillPipelineArchive(receiptPath: string): SkillPipelineAr
   }
   for (let index = 0; index < TABLES.length; index++) {
     const entry = value.tables[index];
-    if (entry.table !== TABLES[index]) throw new Error('Skill pipeline archive table list is invalid');
+    if (entry === undefined || entry.table !== TABLES[index]) throw new Error('Skill pipeline archive table list is invalid');
     if (!entry.present) {
       if (entry.file !== null || entry.sha256 !== null || entry.rows !== 0) throw new Error(`Invalid absent table receipt: ${entry.table}`);
       continue;
@@ -130,7 +130,7 @@ function inspectFile(filePath: string): { sha256: string; rows: number; endsWith
       for (let index = 0; index < length; index++) {
         if (buffer[index] === 10) rows++;
       }
-      lastByte = buffer[length - 1];
+      lastByte = buffer.readUInt8(length - 1);
       bytes += length;
     }
   } finally {
