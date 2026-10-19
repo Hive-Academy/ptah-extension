@@ -14,4 +14,6 @@
 | 11 | Gate 2 | implementation-plan.md rev 3 passed by codex APPROVED (lane-review mode, round 3); posted as notice | implementation-plan-review.md rev 3 | cross-side reviewer |
 | 12 | Execution | Implementation by Claude frontend-developer subagents (frontend memory); phase code-logic review by codex (different family) | memory agent-lane-review-workflow | memory |
 | 13 | Fix round | Scope add: the inspector open/close tab is renamed "Stats" and moves to the left (inner) edge of the dock, between the chat column and the dock; the dock stays on the right. Joins the fix round | User message 2026-10-19 + AskUserQuestion answer "Left edge of the dock" | user |
+| 14 | Visual review | Fix Serious (open Stats label contrast) + 2 cheap Moderate (tab focus ring inset, readout covers dock title); record the long-label truncation only | visual-review.md; fix-round rule | orchestrator rule |
+| 15 | Console errors | `agent:getLanePlanLimits` renderer timeout 10 s → 15 s joins this PR (SMALL, frontend-only, by codex); NG0956 goes to new task TASK_2026_704_8918 (emitter unidentified) | console-errors-triage.md; user asked "file a task or if easy fix in the current PR" | evidence + user request |
 | 4 | Setup | Worktree feat/inspector-side-dock; node_modules junction to main checkout | CLAUDE.md worktree rule; memory worktree-node-modules-junction | project rule |
