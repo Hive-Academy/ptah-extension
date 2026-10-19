@@ -17,11 +17,11 @@ import type { SkillSynthesisStatsResult } from '@ptah-extension/shared';
   template: `
     @if (stats(); as s) {
       <div
-        class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5"
+        class="grid grid-cols-[repeat(auto-fit,minmax(9.5rem,1fr))] gap-3"
         aria-label="Skill synthesis statistics"
       >
-        <div class="surface-2 rounded-xl">
-          <div class="stat p-4">
+        <div class="surface-2 min-w-0 overflow-hidden rounded-xl">
+          <div class="stat min-w-0 overflow-hidden p-4">
             <div class="stat-figure text-info">
               <lucide-angular
                 [img]="FlaskConicalIcon"
@@ -29,7 +29,7 @@ import type { SkillSynthesisStatsResult } from '@ptah-extension/shared';
                 aria-hidden="true"
               />
             </div>
-            <div class="stat-title text-base-content-muted">Candidates</div>
+            <div class="stat-title min-w-0 whitespace-normal text-base-content-muted">Candidates</div>
             <div
               class="stat-value text-2xl text-info"
               data-testid="skills-stat-candidates"
@@ -39,8 +39,8 @@ import type { SkillSynthesisStatsResult } from '@ptah-extension/shared';
           </div>
         </div>
 
-        <div class="surface-2 rounded-xl">
-          <div class="stat p-4">
+        <div class="surface-2 min-w-0 overflow-hidden rounded-xl">
+          <div class="stat min-w-0 overflow-hidden p-4">
             <div class="stat-figure text-success">
               <lucide-angular
                 [img]="CircleCheckIcon"
@@ -48,7 +48,7 @@ import type { SkillSynthesisStatsResult } from '@ptah-extension/shared';
                 aria-hidden="true"
               />
             </div>
-            <div class="stat-title text-base-content-muted">Promoted</div>
+            <div class="stat-title min-w-0 whitespace-normal text-base-content-muted">Promoted</div>
             <div
               class="stat-value text-2xl text-success"
               data-testid="skills-stat-promoted"
@@ -58,8 +58,8 @@ import type { SkillSynthesisStatsResult } from '@ptah-extension/shared';
           </div>
         </div>
 
-        <div class="surface-2 rounded-xl">
-          <div class="stat p-4">
+        <div class="surface-2 min-w-0 overflow-hidden rounded-xl">
+          <div class="stat min-w-0 overflow-hidden p-4">
             <div class="stat-figure text-error">
               <lucide-angular
                 [img]="CircleXIcon"
@@ -67,15 +67,15 @@ import type { SkillSynthesisStatsResult } from '@ptah-extension/shared';
                 aria-hidden="true"
               />
             </div>
-            <div class="stat-title text-base-content-muted">Rejected</div>
+            <div class="stat-title min-w-0 whitespace-normal text-base-content-muted">Rejected</div>
             <div class="stat-value text-2xl text-error">
               {{ s.totalRejected }}
             </div>
           </div>
         </div>
 
-        <div class="surface-2 rounded-xl">
-          <div class="stat p-4">
+        <div class="surface-2 min-w-0 overflow-hidden rounded-xl">
+          <div class="stat min-w-0 overflow-hidden p-4">
             <div class="stat-figure text-secondary">
               <lucide-angular
                 [img]="SparklesIcon"
@@ -83,15 +83,15 @@ import type { SkillSynthesisStatsResult } from '@ptah-extension/shared';
                 aria-hidden="true"
               />
             </div>
-            <div class="stat-title text-base-content-muted">Active skills</div>
+            <div class="stat-title min-w-0 whitespace-normal text-base-content-muted">Active skills</div>
             <div class="stat-value text-2xl text-secondary">
               {{ s.activeSkills }}
             </div>
           </div>
         </div>
 
-        <div class="surface-2 rounded-xl">
-          <div class="stat p-4">
+        <div class="surface-2 min-w-0 overflow-hidden rounded-xl">
+          <div class="stat min-w-0 overflow-hidden p-4">
             <div class="stat-figure text-primary">
               <lucide-angular
                 [img]="PlayIcon"
@@ -99,7 +99,7 @@ import type { SkillSynthesisStatsResult } from '@ptah-extension/shared';
                 aria-hidden="true"
               />
             </div>
-            <div class="stat-title text-base-content-muted">Invocations</div>
+            <div class="stat-title min-w-0 whitespace-normal text-base-content-muted">Invocations</div>
             <div class="stat-value text-2xl text-primary">
               {{ s.totalInvocations }}
             </div>
@@ -108,13 +108,13 @@ import type { SkillSynthesisStatsResult } from '@ptah-extension/shared';
       </div>
     } @else {
       <div
-        class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5"
+        class="grid grid-cols-[repeat(auto-fit,minmax(9.5rem,1fr))] gap-3"
         aria-label="Skill synthesis statistics"
         aria-busy="true"
       >
         @for (i of skeletonSlots; track i) {
-          <div class="surface-2 rounded-xl">
-            <div class="stat gap-2 p-4">
+          <div class="surface-2 min-w-0 overflow-hidden rounded-xl">
+            <div class="stat min-w-0 overflow-hidden gap-2 p-4">
               <div class="skeleton h-4 w-20"></div>
               <div class="skeleton h-7 w-12"></div>
             </div>

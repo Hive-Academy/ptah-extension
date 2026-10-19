@@ -24,11 +24,11 @@ export interface MemoryStatCounts {
   template: `
     @let c = counts();
     <div
-      class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5"
+      class="grid grid-cols-[repeat(auto-fit,minmax(9.5rem,1fr))] gap-3"
       aria-label="Memory tier statistics"
     >
-      <div class="surface-2 rounded-xl">
-        <div class="stat p-4">
+      <div class="surface-2 min-w-0 overflow-hidden rounded-xl">
+        <div class="stat min-w-0 overflow-hidden p-4">
           <div class="stat-figure text-primary">
             <lucide-angular
               [img]="BrainIcon"
@@ -36,7 +36,7 @@ export interface MemoryStatCounts {
               aria-hidden="true"
             />
           </div>
-          <div class="stat-title text-base-content-muted">Core</div>
+          <div class="stat-title min-w-0 whitespace-normal text-base-content-muted">Core</div>
           <div
             class="stat-value text-2xl text-primary tabular-nums"
             data-testid="memory-stat-core"
@@ -46,8 +46,8 @@ export interface MemoryStatCounts {
         </div>
       </div>
 
-      <div class="surface-2 rounded-xl">
-        <div class="stat p-4">
+      <div class="surface-2 min-w-0 overflow-hidden rounded-xl">
+        <div class="stat min-w-0 overflow-hidden p-4">
           <div class="stat-figure text-info">
             <lucide-angular
               [img]="DatabaseIcon"
@@ -55,7 +55,7 @@ export interface MemoryStatCounts {
               aria-hidden="true"
             />
           </div>
-          <div class="stat-title text-base-content-muted">Recall</div>
+          <div class="stat-title min-w-0 whitespace-normal text-base-content-muted">Recall</div>
           <div
             class="stat-value text-2xl text-info tabular-nums"
             data-testid="memory-stat-recall"
@@ -65,8 +65,8 @@ export interface MemoryStatCounts {
         </div>
       </div>
 
-      <div class="surface-2 rounded-xl">
-        <div class="stat p-4">
+      <div class="surface-2 min-w-0 overflow-hidden rounded-xl">
+        <div class="stat min-w-0 overflow-hidden p-4">
           <div class="stat-figure text-base-content-muted">
             <lucide-angular
               [img]="ArchiveIcon"
@@ -74,7 +74,7 @@ export interface MemoryStatCounts {
               aria-hidden="true"
             />
           </div>
-          <div class="stat-title text-base-content-muted">Archival</div>
+          <div class="stat-title min-w-0 whitespace-normal text-base-content-muted">Archival</div>
           <div
             class="stat-value text-2xl text-base-content-muted tabular-nums"
             data-testid="memory-stat-archival"
@@ -85,10 +85,10 @@ export interface MemoryStatCounts {
       </div>
 
       <div
-        class="surface-2 rounded-xl"
+        class="surface-2 min-w-0 overflow-hidden rounded-xl"
         title="Indexed code symbols (functions, classes, methods) — shown separately from curated memory"
       >
-        <div class="stat p-4">
+        <div class="stat min-w-0 overflow-hidden p-4">
           <div class="stat-figure text-secondary">
             <lucide-angular
               [img]="CodeIcon"
@@ -96,7 +96,7 @@ export interface MemoryStatCounts {
               aria-hidden="true"
             />
           </div>
-          <div class="stat-title text-base-content-muted">Code index</div>
+          <div class="stat-title min-w-0 whitespace-normal text-base-content-muted">Code index</div>
           <div
             class="stat-value text-2xl text-secondary tabular-nums"
             data-testid="memory-stat-code-index"
@@ -106,8 +106,8 @@ export interface MemoryStatCounts {
         </div>
       </div>
 
-      <div class="surface-2 rounded-xl">
-        <div class="stat p-4">
+      <div class="surface-2 min-w-0 overflow-hidden rounded-xl">
+        <div class="stat min-w-0 overflow-hidden p-4">
           <div class="stat-figure text-base-content-muted">
             <lucide-angular
               [img]="ClockIcon"
@@ -115,8 +115,8 @@ export interface MemoryStatCounts {
               aria-hidden="true"
             />
           </div>
-          <div class="stat-title text-base-content-muted">Last curated</div>
-          <div class="stat-value text-sm font-medium text-base-content-muted">
+          <div class="stat-title min-w-0 whitespace-normal text-base-content-muted">Last curated</div>
+          <div class="stat-value min-w-0 break-words text-sm font-medium text-base-content-muted">
             {{ lastCuratedLabel() }}
           </div>
         </div>
