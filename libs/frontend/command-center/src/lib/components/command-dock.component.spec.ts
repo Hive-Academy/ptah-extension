@@ -20,8 +20,8 @@ describe('CommandDockComponent', () => {
     expect(dock.querySelectorAll('ptah-command-voice-hud')).toHaveLength(1);
     expect(dock.querySelectorAll('ptah-command-session-controls')).toHaveLength(1);
     const styles = commandDockStyles;
-    const [desktop, narrowAndMobile] = styles.split('@media (max-width: 1100px)');
-    const [narrow, mobileAndMotion] = narrowAndMobile.split('@media (max-width: 720px)');
+    const [desktop, narrowAndMobile] = styles.split('@container (max-width: 1100px)');
+    const [narrow, mobileAndMotion] = narrowAndMobile.split('@container (max-width: 720px)');
     const [mobile] = mobileAndMotion.split('@media (prefers-reduced-motion: reduce)');
 
     expect(desktop).toContain('.voice-identity { grid-row: 1; grid-column: 1;');

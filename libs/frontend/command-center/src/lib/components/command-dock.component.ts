@@ -23,7 +23,7 @@ export const commandDockStyles = `
     .command-dock .command-entry { grid-row: 1; grid-column: 3; min-width: 0; }
     .command-dock .command-entry form { width: 100%; min-width: 0; }
     .command-dock .voice-recovery { grid-column: 1 / -1; grid-row: 2; }
-    @media (max-width: 1100px) {
+    @container (max-width: 1100px) {
       .command-dock { grid-template-columns: minmax(0, 1fr) auto auto; }
       .command-dock .voice-identity { grid-row: 1; grid-column: 1 / -1; }
       .command-dock .voice-actions { grid-row: 2; grid-column: 1; }
@@ -32,7 +32,7 @@ export const commandDockStyles = `
       .command-dock .command-entry { grid-row: 3; grid-column: 1 / -1; }
       .command-dock .voice-recovery { grid-row: 4; }
     }
-    @media (max-width: 720px) {
+    @container (max-width: 720px) {
       .command-dock { grid-template-columns: minmax(0, 1fr) auto; }
       .command-dock .voice-actions { grid-column: 1; }
       .command-dock .session-actions > button:first-child { grid-column: 2; }
