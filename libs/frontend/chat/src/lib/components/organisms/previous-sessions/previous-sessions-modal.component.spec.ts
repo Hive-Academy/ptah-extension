@@ -105,7 +105,6 @@ interface StoreStub {
   setListQuery: jest.Mock;
   removeSessionFromList: jest.Mock;
   loadMoreSessions: jest.Mock;
-  switchSession: jest.Mock;
   updateSessionName: jest.Mock;
   clearCurrentSession: jest.Mock;
 }
@@ -126,7 +125,6 @@ function createStore(): StoreStub {
       sessions.update((list) => (list ?? []).filter((s) => s.id !== id)),
     ),
     loadMoreSessions: jest.fn().mockResolvedValue(undefined),
-    switchSession: jest.fn().mockResolvedValue(undefined),
     updateSessionName: jest.fn(),
     clearCurrentSession: jest.fn(),
   };
@@ -177,7 +175,6 @@ describe('PreviousSessionsModalComponent', () => {
   let store: StoreStub;
   let fixture: ComponentFixture<ModalTestHostComponent>;
   let page: HTMLElement;
-  const layoutMode = signal<'single' | 'grid'>('single');
   const isBooting = signal(false);
   const requestCanvasSession = jest.fn();
   const workflowForSession = jest.fn();
@@ -190,7 +187,6 @@ describe('PreviousSessionsModalComponent', () => {
 
   beforeEach(() => {
     store = createStore();
-    layoutMode.set('single');
     isBooting.set(false);
     requestCanvasSession.mockReset().mockResolvedValue(true);
     workflowForSession.mockReset().mockReturnValue(null);
@@ -217,7 +213,7 @@ describe('PreviousSessionsModalComponent', () => {
         { provide: BootStatusService, useValue: { isBooting } },
         {
           provide: AppStateManager,
-          useValue: { layoutMode, requestCanvasSession },
+          useValue: { requestCanvasSession },
         },
         {
           provide: TabManagerService,
@@ -709,7 +705,7 @@ describe('PreviousSessionsModalComponent', () => {
       render();
     }
 
-    /** A grid open whose canvas answer the test gives. */
+    /** An open whose canvas answer the test gives. */
     function deferCanvas(): (opened: boolean) => void {
       let answer: (opened: boolean) => void = () => undefined;
       requestCanvasSession.mockReturnValueOnce(
@@ -718,29 +714,16 @@ describe('PreviousSessionsModalComponent', () => {
       return answer;
     }
 
-    it('opens the session in the grid and closes (D-1)', async () => {
-      layoutMode.set('grid');
+    it('opens the session on the canvas and closes (D-1)', async () => {
       await open([session('a', 'Alpha')]);
       action('a', 'open').click();
       await drain();
 
       expect(requestCanvasSession).toHaveBeenCalledWith('a', 'Alpha');
-      expect(store.switchSession).not.toHaveBeenCalled();
-      expect(isOpen()).toBe(false);
-    });
-
-    it('switches the tab in single layout and closes (D-1)', async () => {
-      await open([session('a', 'Alpha')]);
-      action('a', 'open').click();
-      await drain();
-
-      expect(store.switchSession).toHaveBeenCalledWith('a');
-      expect(requestCanvasSession).not.toHaveBeenCalled();
       expect(isOpen()).toBe(false);
     });
 
     it('stays open and says so when the canvas does not open the session', async () => {
-      layoutMode.set('grid');
       await open([session('a', 'Alpha')]);
       const close = jest.spyOn(
         TestBed.inject(PreviousSessionsDialogService),
@@ -770,7 +753,6 @@ describe('PreviousSessionsModalComponent', () => {
     });
 
     it('clears the failed-open notice on the next open attempt (FU-9)', async () => {
-      layoutMode.set('grid');
       await open([session('a', 'Alpha')]);
       requestCanvasSession.mockResolvedValueOnce(false);
       action('a', 'open').click();
@@ -787,7 +769,6 @@ describe('PreviousSessionsModalComponent', () => {
     });
 
     it('clears the failed-open notice when the query changes (FU-9)', async () => {
-      layoutMode.set('grid');
       await open([session('a', 'Alpha'), session('b', 'Beta')]);
       requestCanvasSession.mockResolvedValueOnce(false);
       action('a', 'open').click();
@@ -801,7 +782,6 @@ describe('PreviousSessionsModalComponent', () => {
     });
 
     it('returns focus to the row after a failed open when focus left the panel', async () => {
-      layoutMode.set('grid');
       await open([session('a', 'Alpha'), session('b', 'Beta')]);
       const answer = deferCanvas();
       action('b', 'open').click();
@@ -815,38 +795,7 @@ describe('PreviousSessionsModalComponent', () => {
       expect(document.activeElement).toBe(action('b', 'open'));
     });
 
-    it('stays open with the notice when the single-layout switch fails (FU-9)', async () => {
-      await open([session('a', 'Alpha')]);
-      store.switchSession.mockRejectedValueOnce(new Error('load failed'));
-      action('a', 'open').click();
-      await drain();
-      render();
-
-      expect(store.switchSession).toHaveBeenCalledWith('a');
-      expect(isOpen()).toBe(true);
-      expect(openError()?.textContent?.trim()).toBe(
-        `Couldn't open "Alpha". Try again.`,
-      );
-      expect(status()).toBe(`Couldn't open "Alpha". Try again.`);
-    });
-
-    it('closes only after the single-layout switch settles', async () => {
-      await open([session('a', 'Alpha')]);
-      let finishSwitch: () => void = () => undefined;
-      store.switchSession.mockReturnValueOnce(
-        new Promise<void>((resolve) => (finishSwitch = resolve)),
-      );
-      action('a', 'open').click();
-      await drain();
-      expect(isOpen()).toBe(true);
-
-      finishSwitch();
-      await drain();
-      expect(isOpen()).toBe(false);
-    });
-
     it('announces a late open failure without the row once the query changed', async () => {
-      layoutMode.set('grid');
       await open([session('a', 'Alpha'), session('b', 'Beta')]);
       const answer = deferCanvas();
       action('a', 'open').click();
@@ -867,7 +816,6 @@ describe('PreviousSessionsModalComponent', () => {
     });
 
     it('ignores a second open while the first is pending', async () => {
-      layoutMode.set('grid');
       await open([session('a', 'Alpha'), session('b', 'Beta')]);
       const answer = deferCanvas();
       action('a', 'open').click();
@@ -884,7 +832,6 @@ describe('PreviousSessionsModalComponent', () => {
     });
 
     it('does nothing with an open result that arrives after the modal closed', async () => {
-      layoutMode.set('grid');
       await open([session('a', 'Alpha')]);
       const answer = deferCanvas();
       action('a', 'open').click();

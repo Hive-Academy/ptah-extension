@@ -89,6 +89,7 @@ export function extractHistoryTextForMessage(
 
 @Injectable({ providedIn: 'root' })
 export class HistoryMessageBuilder {
+  private readonly replayOwners = new Map<string, Set<string>>();
   private readonly accumulator = inject(StreamingAccumulatorCore);
   private readonly sessionManager = inject(SessionManager);
   private readonly deduplication = inject(EventDeduplicationService);
@@ -128,10 +129,31 @@ export class HistoryMessageBuilder {
     };
 
     let accumulated = state;
+    let subagentScratch: StreamingState | undefined;
+    const subagentMessageIds =
+      this.replayOwners.get(sessionId) ?? new Set<string>();
+    this.replayOwners.set(sessionId, subagentMessageIds);
     for (const event of events) {
       const scopedEvent = event.sessionId
         ? event
         : ({ ...event, sessionId } as FlatStreamEventUnion);
+      // Root agent_start refers to the parent assistant message. The child
+      // message starts later with its own message id.
+      if (
+        scopedEvent.parentToolUseId &&
+        scopedEvent.eventType !== 'agent_start'
+      ) {
+        subagentMessageIds.add(scopedEvent.messageId);
+      }
+      if (subagentMessageIds.has(scopedEvent.messageId)) {
+        subagentScratch ??= createEmptyStreamingState();
+        subagentScratch = this.accumulateSubagentEvent(
+          subagentScratch,
+          scopedEvent,
+          context,
+        );
+        continue;
+      }
       const result = this.accumulator.process(
         accumulated,
         scopedEvent,
@@ -140,6 +162,15 @@ export class HistoryMessageBuilder {
       if (result.replacementState) accumulated = result.replacementState;
     }
     return accumulated;
+  }
+
+  private accumulateSubagentEvent(
+    state: StreamingState,
+    event: FlatStreamEventUnion,
+    context: AccumulatorContext,
+  ): StreamingState {
+    const result = this.accumulator.process(state, event, context);
+    return result.replacementState ?? state;
   }
 
   /** Build finalized transcript messages in O(events + root messages). */
@@ -169,8 +200,7 @@ export class HistoryMessageBuilder {
         const treeNode = treeById.get(messageStartEvent.id);
         const completeEvent = boundaries.get(messageId)?.complete;
         let tokens:
-          | { input: number; output: number; cacheHit?: number }
-          | undefined;
+          { input: number; output: number; cacheHit?: number } | undefined;
         let cost: number | null | undefined;
         let duration: number | undefined;
 

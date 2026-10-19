@@ -4,6 +4,23 @@ import { TabManagerService } from '@ptah-extension/chat-state';
 import { BoardTaskLinkCaptureService } from './board-task-link-capture.service';
 
 /**
+ * How long the canvas may take to drain the tile request. Past it the request
+ * is removed from the queue (it can never be adopted later) and settles false.
+ */
+const CANVAS_TILE_TIMEOUT_MS = 5000;
+
+/**
+ * Same-workspace failure: the canvas refused the tile (cap) or did not drain
+ * the request in time. The outcome is one boolean, so the message holds for
+ * both.
+ */
+const CANVAS_NOT_OPENED_ERROR =
+  'The session did not open on the canvas. If the canvas is full, close a session and try again.';
+
+const WORKSPACE_CHANGED_ERROR =
+  'The workspace changed before the session opened. It stays in the previous workspace.';
+
+/**
  * TaskPromptBridgeService — consumes {@link AppStateManager.chatPromptRequest}.
  *
  * The standalone Tasks board (`@ptah-extension/tasks-ui`) launches an
@@ -15,17 +32,20 @@ import { BoardTaskLinkCaptureService } from './board-task-link-capture.service';
  *
  * On each request it:
  *  1. creates + activates a fresh tab,
- *  2. navigates to the chat surface; in grid layout it also fires
+ *  2. navigates to the chat surface and fires
  *     {@link AppStateManager.requestCanvasTab} so an ALREADY-mounted canvas
  *     adopts the new tab as a tile (F-D3) — a fresh mount is covered by the
  *     canvas's own `restoreCanvasTilesFromTabs`, and `adoptTab` dedups the
- *     overlap; single layout has no canvas so the request is skipped,
+ *     overlap — and waits for the outcome; the request carries a 5 s removal
+ *     timeout, so a refusal (tile cap) or a request the canvas did not drain
+ *     in time closes the new tab and resolves a failure,
  *  3. prefills the freshly created tab's composer so the user can review and
  *     edit the prompt before sending it,
  *  4. settles `request.resolve` and clears the bridge signal.
  *
  * When the request carries a `taskId`, the new tab is registered with
- * {@link BoardTaskLinkCaptureService} right after it is created.
+ * {@link BoardTaskLinkCaptureService} once the bridge keeps it (before the
+ * prefill).
  *
  * Worktree isolation remains agent-managed (F-D1): the prefilled orchestrate
  * prompt carries the directive so the agent can isolate its implementation
@@ -58,38 +78,52 @@ export class TaskPromptBridgeService {
     try {
       const name = this.deriveSessionName(request);
       const tabId = this.tabManager.createTab(name);
-      // A board start links the session to its task once the first send
-      // resolves the real session id (TASK_2026_580).
-      if (request.taskId) {
-        this.boardTaskLinkCapture.expect(tabId, request.taskId);
-      }
-      // Navigate to chat FIRST so a grid-layout canvas mounts and adopts the
-      // freshly created tab as a tile before its stream starts.
+      // Navigate to chat FIRST so the canvas mounts and adopts the freshly
+      // created tab as a tile before its stream starts.
       this.appState.setCurrentView('chat');
-      // In grid layout, ALSO ask the canvas to adopt this tab as a tile (F-D3).
+      // ALSO ask the canvas to adopt this tab as a tile (F-D3).
       // `restoreCanvasTilesFromTabs` covers a FRESH canvas mount, but when the
       // canvas is already mounted (no remount / no workspace switch) nothing
       // adopts a newly-created tab — this bridge closes that gap. The canvas
-      // effect's `adoptTab` dedups, so a double-adopt on a fresh mount is safe;
-      // single layout has no canvas mounted, so we skip the request there.
+      // effect's `adoptTab` dedups, so a double-adopt on a fresh mount is safe.
       // The request carries the workspace the fresh tab lives in (the active
       // one at creation time), so a canvas that mounts only later — after a
       // workspace switch — drops it instead of tiling this tab into another
       // workspace's grid.
-      const gridLayout = this.appState.layoutMode() === 'grid';
-      if (gridLayout) {
-        this.appState.requestCanvasTab(
-          tabId,
-          this.tabManager.activeWorkspacePath,
-          name,
-        );
-      }
-      // Only canvas tiles have SESSION_CONTEXT. In single layout, null scopes
-      // the request to the main panel, which is already showing this active tab.
-      this.appState.requestComposerPrefill(
-        request.prompt,
-        gridLayout ? tabId : null,
+      const workspacePath = this.tabManager.activeWorkspacePath;
+      // Bounded: a request the canvas has not drained within the timeout is
+      // removed from the queue and settles false, so a late cap refusal can
+      // never follow a prefill.
+      const tiled = await this.appState.requestCanvasTab(
+        tabId,
+        workspacePath,
+        name,
+        undefined,
+        { timeoutMs: CANVAS_TILE_TIMEOUT_MS },
       );
+      if (!tiled && this.tabManager.activeWorkspacePath !== workspacePath) {
+        // The canvas dropped the request because the workspace changed during
+        // the wait. `closeTab` only searches the active workspace, so the tab
+        // stays (empty, unprefilled) in the workspace it was created in.
+        outcome = { success: false, error: WORKSPACE_CHANGED_ERROR };
+        return;
+      }
+      if (!tiled) {
+        // Same workspace: the canvas refused the tile (cap reached) or did not
+        // drain the request in time. A prefill would land on a tab with no
+        // tile, so close the empty tab and report the failure instead.
+        await this.tabManager.closeTab(tabId);
+        outcome = { success: false, error: CANVAS_NOT_OPENED_ERROR };
+        return;
+      }
+      // A board start links the session to its task once the first send
+      // resolves the real session id (TASK_2026_580). Registered only once the
+      // tab is kept, so a refused launch leaves no pending pair behind.
+      if (request.taskId) {
+        this.boardTaskLinkCapture.expect(tabId, request.taskId);
+      }
+      // The prefill is scoped to this tab's tile (its SESSION_CONTEXT).
+      this.appState.requestComposerPrefill(request.prompt, tabId);
     } catch (error: unknown) {
       outcome = {
         success: false,
@@ -97,8 +131,13 @@ export class TaskPromptBridgeService {
       };
     } finally {
       request.resolve?.(outcome);
-      this.appState.clearChatPromptRequest();
+      // A launch that arrived during the canvas wait replaced this request in
+      // the single-slot signal and was skipped by the guard: keep it and run
+      // it now instead of clearing it unanswered.
+      const next = this.appState.chatPromptRequest();
+      if (next === request) this.appState.clearChatPromptRequest();
       this.processing = false;
+      if (next && next !== request) void this.consume(next);
     }
   }
 

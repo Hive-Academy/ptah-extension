@@ -4,15 +4,8 @@
   <ptah-confirmation-dialog />
 }
 
-<!-- Global on-demand subagent transcript viewer (single host; driven by the
-     root SubagentTranscriptViewerService, opened from the inline agent bubble
-     and the background-agent tray). Deferred like the dialog above. -->
-@defer (when transcriptViewer.open(); prefetch on idle) {
-  <ptah-subagent-transcript-overlay />
-}
-
-<!-- Previous sessions modal (TASK_2026_679), opened from the navbar button
-     below (VS Code single layout) or the canvas Rail footer. Deferred out of
+<!-- Previous sessions modal (TASK_2026_679), opened from the canvas Rail
+     footer through PreviousSessionsDialogService. Deferred out of
      the initial bundle like the editor; the inner @if creates it per open, so
      each open starts at the top of the list (DP-2). It stacks under the
      editor and the confirm dialog. The row below is inert while it is open,
@@ -58,7 +51,7 @@
   - Canvas state persists across standalone navigation (the canvas lives inside
     the retained row, so its instance and `CanvasStore` survive — see the
     content area at the bottom of this file)
-  - Content area switches between canvas grid and single chat via layoutMode signal
+  - The content area is the orchestra canvas; the header shows only in VS Code
 -->
 
 <!--
@@ -119,10 +112,10 @@
 >
   <!-- Main Content -->
   <div class="flex-1 flex flex-col min-w-0">
-    <!-- Header: hidden in Electron grid mode (global navbar provides all controls) -->
+    <!-- Header: hidden in Electron (global navbar provides all controls) -->
     <div
       class="navbar bg-surface-1 border-b border-surface-border min-h-[40px] px-2 gap-2"
-      [class.hidden]="isElectron && layoutMode() === 'grid'"
+      [class.hidden]="isElectron"
     >
       <!-- Dashboard (gold accent, VS Code only — Electron has it in global navbar) -->
       @if (!isElectron) {
@@ -216,32 +209,14 @@
           <lucide-angular [img]="StoreIcon" class="w-4 h-4" />
           <span class="icon-btn-label text-xs">Marketplace</span>
         </button>
+      }
 
-        <!-- Layout toggle button (replaces old Canvas navigation button) -->
-        <button
-          class="btn btn-ghost btn-xs gap-1"
-          [class.btn-active]="layoutMode() === 'grid'"
-          aria-label="Toggle canvas grid / single chat"
-          title="Toggle canvas grid / single chat"
-          (click)="toggleLayoutMode()"
+      <!-- Surface label -->
+      <div class="flex-1 min-w-0 flex items-center">
+        <span class="text-xs text-base-content-muted font-medium"
+          >Orchestra Canvas</span
         >
-          <lucide-angular [img]="LayoutGridIcon" class="w-4 h-4" />
-          <span class="icon-btn-label text-xs">Canvas</span>
-        </button>
-      }
-
-      <!-- Tab bar (single mode only) / Canvas label (grid mode) -->
-      @if (layoutMode() === 'single') {
-        <div class="flex-1 min-w-0">
-          <ptah-tab-bar />
-        </div>
-      } @else {
-        <div class="flex-1 min-w-0 flex items-center">
-          <span class="text-xs text-base-content-muted font-medium"
-            >Orchestra Canvas</span
-          >
-        </div>
-      }
+      </div>
 
       <!-- Header actions -->
       <div class="flex gap-0.5 items-center">
@@ -336,33 +311,6 @@
           </div>
         </ptah-native-popover>
 
-        <!-- Previous sessions (VS Code single layout only; in grid layout the
-             canvas Rail footer carries it, in Electron the canvas Rail too).
-             Secondary muted ink so the gold New stays the one accent. -->
-        @if (!isElectron && layoutMode() === 'single') {
-          <button
-            type="button"
-            class="btn btn-ghost btn-xs gap-1 font-medium text-base-content-muted hover:text-base-content [&[aria-expanded=true]]:bg-surface-3 [&[aria-expanded=true]]:text-base-content"
-            data-testid="navbar-previous-sessions"
-            data-previous-sessions-trigger
-            aria-haspopup="dialog"
-            [attr.aria-expanded]="previousSessions.isOpen()"
-            [attr.aria-controls]="
-              previousSessions.isOpen() ? 'previous-sessions-dialog' : null
-            "
-            aria-label="Previous sessions"
-            title="Previous sessions"
-            (click)="openPreviousSessions()"
-          >
-            <lucide-angular
-              [img]="HistoryIcon"
-              class="w-3.5 h-3.5"
-              aria-hidden="true"
-            />
-            <span class="icon-btn-label text-xs">Previous sessions</span>
-          </button>
-        }
-
         <!-- App-level actions (VS Code only — in Electron these are in the global navbar) -->
         @if (!isElectron) {
           <!-- Divider between Session and App group -->
@@ -386,16 +334,12 @@
       </div>
     </div>
 
-    <!-- Content area: both layout modes are always rendered, toggled via CSS hidden.
-         This preserves canvas tile state (CanvasStore is scoped per component instance)
-         across layout toggles. Leaving chat for a standalone surface is handled by
-         the `*ptahRetainWhile` row above, not by this toggle. -->
+    <!-- Content area: the orchestra canvas, the only chat surface. Its tile
+         state (CanvasStore is scoped per component instance) survives leaving
+         chat because the `*ptahRetainWhile` row above hides and detaches it on
+         a standalone surface instead of destroying it. -->
     <div class="flex-1 overflow-hidden">
-      <div
-        class="h-full"
-        ptahSurfaceActive="canvas"
-        [class.hidden]="layoutMode() !== 'grid'"
-      >
+      <div class="h-full" ptahSurfaceActive>
         @if (orchestraCanvasComponent) {
           <ng-container *ngComponentOutlet="orchestraCanvasComponent" />
         } @else if (bootStatus.isBooting()) {
@@ -419,13 +363,6 @@
             <span class="loading loading-spinner loading-md"></span>
           </div>
         }
-      </div>
-      <div
-        class="h-full"
-        ptahSurfaceActive="chat"
-        [class.hidden]="layoutMode() !== 'single'"
-      >
-        <ptah-chat-view />
       </div>
     </div>
   </div>

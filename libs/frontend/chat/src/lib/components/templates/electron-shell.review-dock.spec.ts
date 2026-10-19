@@ -104,7 +104,6 @@ describe('ElectronShellComponent review dock', () => {
     currentView: signal('chat'),
     openConfigurationSurface: signal<ConfigurationSurfaceId | null>(null),
     configurationSurfaceRemountTick: signal(0),
-    setLayoutMode: jest.fn(),
     setCurrentView: jest.fn(),
   };
 

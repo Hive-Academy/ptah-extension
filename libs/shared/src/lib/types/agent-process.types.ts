@@ -510,6 +510,8 @@ export interface CliSessionReference {
   readonly task: string;
   /** ISO timestamp when the session started */
   readonly startedAt: string;
+  /** ISO timestamp when the CLI run finished. Absent in older sessions. */
+  readonly completedAt?: string;
   /** Final agent status */
   readonly status: AgentStatus;
   /** Persisted raw stdout output (capped at 100KB). Absent in older sessions. */

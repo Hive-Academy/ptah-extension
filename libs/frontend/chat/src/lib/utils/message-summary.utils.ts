@@ -105,6 +105,15 @@ function walkNode(
   }
 }
 
+/** Count tools and distinct file paths across lane execution roots. */
+export function summarizeExecutionNodes(
+  nodes: readonly ExecutionNode[],
+): Pick<MessageSummary, 'toolCount' | 'filesChanged'> {
+  const state = { rawText: '', files: new Set<string>(), toolCount: 0 };
+  for (const node of nodes) walkNode(node, state);
+  return { toolCount: state.toolCount, filesChanged: state.files.size };
+}
+
 /**
  * Extract summary metadata from an ExecutionNode tree.
  * Walks the tree recursively to find text content and count tools/files.

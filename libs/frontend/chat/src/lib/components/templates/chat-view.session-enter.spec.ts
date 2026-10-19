@@ -103,7 +103,7 @@ function mount(): {
       { provide: SessionHistoryReplayer, useValue: { isReplaying: () => false, retirePersistedFilter: jest.fn() } },
       { provide: HistoryPagingService, useValue: { loadOlder: jest.fn(), loadingTabIds: signal<ReadonlySet<string>>(new Set()).asReadonly() } },
       { provide: AgentMonitorStore, useValue: { agents: signal([]).asReadonly(), agentsForSession: () => [], agentsOwnedBySession: () => [], panelOpenRequest: signal({ seq: 0, tabId: null }).asReadonly(), cliOutputDemand: signal([]).asReadonly(), tick: signal(0) } },
-      { provide: AppStateManager, useValue: { currentView: signal('chat'), layoutMode: signal('single').asReadonly(), composerPrefillRequest: signal({ seq: 0, text: '', tabId: null }).asReadonly() } },
+      { provide: AppStateManager, useValue: { currentView: signal('chat'), composerPrefillRequest: signal({ seq: 0, text: '', tabId: null }).asReadonly() } },
       { provide: ExecutionTreeBuilderService, useValue: { clearForTab: jest.fn() } },
       { provide: ConversationRegistry, useValue: { getIsCompacting: () => false, compactingConversationIds: signal(new Set<string>()) } },
       { provide: TabSessionBinding, useValue: { getConversationId: () => null } },

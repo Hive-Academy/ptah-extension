@@ -18,6 +18,8 @@ You don't apply generic design patterns. You:
 3. **Systematize** findings into design tokens
 4. **Generate** production-ready specifications
 
+Before designing, investigate the project's existing design system — never assume there is none. [DESIGN-SYSTEM-BUILDER.md](DESIGN-SYSTEM-BUILDER.md) Phase 0 defines the discovery protocol.
+
 ## Skill Components
 
 For detailed patterns and workflows, see:
@@ -34,112 +36,36 @@ For detailed patterns and workflows, see:
 
 ## Quick Start Workflow
 
-### Phase 1: Aesthetic Discovery (10-15 min)
+Work the four phases in order; each phase's home file carries the full method:
 
-```markdown
-## Aesthetic Discovery Questions
-
-1. **Industry/Niche**: What domain is your product in?
-   - Developer tools / SaaS / E-commerce / Creative / Enterprise / Other
-
-2. **Personality**: What 3 adjectives describe your brand?
-   - Examples: Modern, Trustworthy, Playful, Premium, Technical, Approachable
-
-3. **Reference Sites**: What 2-3 websites do you admire visually?
-   - We'll analyze these for patterns
-
-4. **Mood**: Light and airy OR Dark and dramatic?
-
-5. **Unique Element**: Any specific theme or metaphor?
-   - Examples: "Egyptian sacred tech", "Nano-scale science", "Space exploration"
-```
-
-### Phase 2: Reference Analysis
-
-```bash
-# Analyze user-provided references
-WebFetch(user_reference_url_1, "Extract: colors, typography, spacing, animations, unique patterns")
-WebFetch(user_reference_url_2, "Extract: visual hierarchy, component styles, effects")
-
-# Search for similar aesthetics
-WebSearch("[niche] website design inspiration 2025")
-```
-
-### Phase 3: Design System Generation
-
-Based on discovery, generate:
-
-```yaml
-design_system:
-  name: '[Brand] Design System'
-  aesthetic: '[Discovered aesthetic name]'
-
-  colors:
-    backgrounds: [extracted from references]
-    text: [with contrast ratios]
-    accents: [primary, secondary]
-    effects: [glows, gradients]
-
-  typography:
-    display: [font family for headlines]
-    body: [font family for text]
-    mono: [font family for code]
-    scale: [sizes with line heights]
-
-  effects:
-    shadows: [elevation system]
-    animations: [motion patterns]
-    3d_elements: [if applicable]
-
-  components:
-    buttons: [variants]
-    cards: [variants]
-    sections: [layout patterns]
-```
-
-### Phase 4: Asset Generation Workflow
-
-```markdown
-## Asset Generation Plan
-
-1. **Logo/Icon**: [Description for AI image generator]
-2. **Hero Visual**: [3D scene or illustration brief]
-3. **Section Graphics**: [Background patterns, dividers]
-4. **Component Assets**: [Icons, illustrations]
-
-## Recommended Tools
-
-- Canva: Marketing assets, social graphics
-- Midjourney/DALL-E: Hero illustrations, abstract visuals
-- Three.js: 3D backgrounds, interactive elements
-- Figma: UI mockups, component libraries
-```
+1. **Aesthetic discovery** — ask the discovery questions (niche, personality,
+   references, mood, unique element) per [NICHE-DISCOVERY.md](NICHE-DISCOVERY.md).
+2. **Reference analysis** — analyze the user's reference sites with
+   WebFetch/WebSearch; extract exact colors, typography and effects from the
+   references instead of guessing.
+3. **Design system generation** — turn the discovered aesthetic into tokens
+   (colors, typography, effects, components) per
+   [DESIGN-SYSTEM-BUILDER.md](DESIGN-SYSTEM-BUILDER.md).
+4. **Asset generation** — discover what image tooling is actually available
+   before promising any asset, then write asset briefs per
+   [ASSET-GENERATION.md](ASSET-GENERATION.md).
 
 ---
 
 ## Prototype for User Confirmation
 
-The UI/UX designer **owns building an interactive, clickable prototype** for user confirmation before any implementation code is written.
+The UI/UX designer **owns building an interactive, clickable prototype** for user confirmation before any implementation code is written. A design specification must never reach implementation without passing **Gate 1.7**: an approving cross-side review when CLI lanes are installed and enabled, or the user's explicit **`APPROVED`** otherwise (orchestration `checkpoints.md` § Approval mode).
 
-### Why the Designer Owns the Prototype
-A lane-written design specification must never reach implementation without passing Gate 1.7: an approving cross-side review when CLI lanes are installed and enabled, or the user's `APPROVED` otherwise. The designer creates a self-contained static prototype that becomes the single visual source of truth across design, implementation, and visual review.
+Deliver `<taskFolder>/prototype/` — self-contained static `index.html`, `README.md`, `screenshots/` and `assets/` — covering populated, empty, loading, error, dark theme, light theme, narrow width (≈400px real browser viewport), embedded sidebar width and wide width.
 
-### Prototype Deliverable
-For any screen, landing page, or UI surface, deliver `<taskFolder>/prototype/`:
-- `index.html`: Self-contained static HTML (one file per screen or in-page navigation), plain JavaScript allowed. Zero build step to view, zero backend, never imported by the application.
-- `README.md`: Instructions to open, screen/state list, interactive features, a `## Deviations` section for asset fallbacks and departures from project tokens, a `## Project rules applied` list (each `[project-rule]` + its source file or doc; or none), a `## Lane-introduced constraints` list (only `[lane-proposed]` rules; or none), and parity cross-references to `parity-inventory.md`.
-- `screenshots/`: Static screenshots of the prototype across themes and viewports, captured via `ptah_browser_screenshot` when available.
-- `assets/`: Local copies of the CSS/JS the prototype links.
+Rules that break silently:
 
-### Prototyping Rules
-- **Component & token reuse**: Always use the project's real design tokens and component library from its configuration (e.g. Tailwind + daisyUI). Generate CSS covering the prototype's HTML at authoring time and place it in `prototype/assets/`, linking it relatively so viewing works offline without a build. The app's production CSS is not sufficient because it purges unused classes. A CDN build is a fallback only, disclosed in `README.md` under `## Deviations`; follow [PROTOTYPING.md](PROTOTYPING.md) for asset generation. Prefer existing components over custom markup.
-- **Never ban project components wholesale**: Do not ban components like badges, tooltips, or primary buttons. Solve accessibility via tokens and contrast tuning. Any proposed ban requires empirical evidence and explicit user approval.
-- **Status is not a button**: Status indicators and secondary information are hints, badges, or tooltips — never action buttons.
-- **One primary action per surface**: Ensure exactly one prominent primary action per surface; secondary actions use ghost/outline variants.
-- **State coverage**: Explicitly provide populated, empty, loading, error, dark theme, light theme, narrow width (actual ≈400px browser viewport), embedded sidebar width (container toggle), and wide width. The embedded-width check does not replace the narrow viewport check.
+- **Component & token reuse**: use the project's real design tokens and component library; generate local CSS covering the prototype's HTML at authoring time (the app's production CSS purges unused classes).
+- **Never ban project components wholesale**: solve accessibility via tokens and contrast tuning; any ban requires empirical evidence and explicit user approval.
+- **Status is not a button**: status and secondary information are hints, badges or tooltips — never action buttons.
+- **One primary action per surface**: secondary actions use ghost/outline variants.
 
-### Iteration & Orchestration Gate 1.7
-Iterate and refine the prototype until Gate 1.7 passes — the cross-side reviewer's APPROVED in `lane-review` mode, or the user's explicit **`APPROVED`** in `user` mode or on escalation (orchestration `checkpoints.md` § Approval mode). Frontend implementation only begins after this gate passes. See [PROTOTYPING.md](PROTOTYPING.md) for full layout patterns and templates.
+[PROTOTYPING.md](PROTOTYPING.md) carries the folder layout, HTML skeleton, state checklist, screenshot capture, README template and the Gate 1.7 iteration loop. Iterate until the gate passes; frontend implementation only begins after it does.
 
 ---
 
@@ -161,10 +87,9 @@ When completing design work, deliver:
 
 [Full design system and visual design specification]
 
-- Save design system to: `DESIGN-SYSTEM.md` inside the `technical-content-writer` skill's own
-  directory (its sibling files live there). Locate that directory via the Skill
-  tool / plugin root — never write to a workspace-relative `.claude/` path,
-  which differs per host and install method.
+- Save the design system to the project's own design-system location (for
+  example `docs/design-system/design-system.md`), next to the project's
+  existing design docs there — never inside a shipped skill's directory.
 - Save design specification to: `.ptah/specs/<TASK_FOLDER>/design-spec.md`
 
 ### 3. Asset Generation Briefs
@@ -188,61 +113,4 @@ When completing design work, deliver:
 
 ## Integration with Content Writer
 
-After creating a design system, update:
-
-Both files below are siblings of the `technical-content-writer` SKILL.md. Resolve
-them against that skill's own directory, which you get from the Skill tool /
-plugin root — a workspace-relative `.claude/` path is not portable across hosts.
-
-```bash
-# Save design system for content generation
-Write(<technical-content-writer skill dir>/DESIGN-SYSTEM.md)
-
-# Reference in landing page generation
-Read(<technical-content-writer skill dir>/LANDING-PAGES.md)
-```
-
-This ensures all generated content follows your visual identity.
-
----
-
-## Example: How Ptah's Design System Was Created
-
-### Discovery
-
-```yaml
-niche: 'Developer tools / VS Code extension'
-personality: ['Premium', 'Mystical', 'Technical']
-references:
-  - BlueYard Capital (nano banana aesthetic)
-  - Augmentcode (glassmorphism, code windows)
-  - Antigravity (scroll animations, 3D depth)
-unique_element: 'Egyptian sacred tech / Neo-mystical'
-mood: 'Dark and dramatic'
-```
-
-### Research Process
-
-1. **Screenshots**: Captured hero sections, card styles, animations
-2. **Color extraction**: Used eyedropper to get exact hex values
-3. **Typography identification**: Inspected fonts (Cinzel, Inter)
-4. **Animation analysis**: Recorded scroll behaviors, hover effects
-5. **AI generation**: Used prompts to create custom 3D elements
-
-### Result
-
-- DESIGN-SYSTEM.md with complete token library
-- LANDING-PAGES.md with section templates
-- Task folder with design-spec.md
-
-
----
-
-## Pro Tips
-
-1. **Start with feeling, not specs**: Ask "how should it feel?" before colors
-2. **3 references minimum**: One is copying, three reveals patterns
-3. **Extract, don't guess**: Use actual hex values from references
-4. **Name your aesthetic**: "Egyptian sacred tech" is memorable and guides decisions
-5. **Test contrast ratios**: Beautiful isn't useful if unreadable
-6. **Document everything**: Future you will thank present you
+After creating a design system, save it in the project (see Output Format). The `technical-content-writer` skill loads the project's own design system when generating landing pages and other visual content, so a project's design system must live in the project — a shipped skill's directory is never its home. This ensures all generated content follows your visual identity.

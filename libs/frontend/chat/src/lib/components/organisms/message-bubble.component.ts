@@ -56,6 +56,7 @@ import {
   type TurnContext,
   type TurnElapsedLabel,
 } from '../../utils/turn-facts.utils';
+import { toUserMessageMarkdown } from '../../utils/user-message-markdown.utils';
 import { TurnDisclosureRowComponent } from '../molecules/turn/turn-disclosure-row.component';
 import { TurnActivityPanelComponent } from '../molecules/turn/turn-activity-panel.component';
 import { TurnLiveLineComponent } from '../molecules/turn/turn-live-line.component';
@@ -406,13 +407,15 @@ export class MessageBubbleComponent {
    * The backend wraps attachment instructions in <system-reminder> XML
    * so the frontend can hide them from the user bubble while keeping
    * them visible to the LLM. Matches the stripping pattern used in
-   * CodeOutputComponent and ToolInputDisplayComponent.
+   * CodeOutputComponent and ToolInputDisplayComponent. The rest is typed
+   * text, so `toUserMessageMarkdown` keeps its tags, backslashes and line
+   * breaks literal before it reaches the markdown renderer.
    */
   readonly userDisplayContent = computed(() => {
     const raw = this.message().rawContent || '';
-    return raw
-      .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
-      .trim();
+    return toUserMessageMarkdown(
+      raw.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim(),
+    );
   });
 
   /**

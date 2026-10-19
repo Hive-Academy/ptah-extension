@@ -660,6 +660,21 @@ describe('CodeOutputComponent — inner code-block chrome (full markdown preset)
       );
       const host = await render(output);
 
+      // Up to three plain-text lines render as a wrapped note with no header;
+      // the shared stylesheet keeps it in the code font.
+      if (count <= 3) {
+        expect(
+          host.querySelector('.tool-output-markdown .code-block-note')
+            ?.textContent,
+        ).toContain('row 0');
+        expect(
+          host.querySelector('.tool-output-markdown .code-block-header'),
+        ).toBeNull();
+        expect(source).toMatch(
+          /\.tool-output-markdown \.code-block-note \{[^}]*font-family: 'JetBrains Mono'/,
+        );
+        return;
+      }
       expect(
         host.querySelector('.tool-output-markdown .code-block-header'),
       ).not.toBeNull();

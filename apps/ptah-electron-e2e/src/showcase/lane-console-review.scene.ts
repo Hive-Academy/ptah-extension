@@ -40,18 +40,10 @@ async function visible(locator: Locator): Promise<boolean> {
 // Local copies of the canvas-orchestra navigation/create/send/cleanup patterns.
 // The shell keeps one canvas per workspace mounted but hidden, so every
 // canvas-level locator is narrowed to the visible (active-workspace) copy.
-async function goToCanvas(page: Page, director: Director): Promise<void> {
+async function goToCanvas(page: Page): Promise<void> {
   const grid = page
     .locator('[data-testid="canvas-grid"]')
     .locator('visible=true');
-  if (!(await visible(grid))) {
-    await director.click(
-      page.getByRole('button', {
-        name: 'Toggle canvas grid / single chat',
-        exact: true,
-      }),
-    );
-  }
   await grid.waitFor({ state: 'visible', timeout: 30_000 });
 }
 
@@ -233,7 +225,7 @@ test('PR #580 — live resizable lane console review (TASK_2026_534)', async ({
   }
 
   await beat(1, 'Create the lane-review session', async () => {
-    await goToCanvas(page, director);
+    await goToCanvas(page);
     await closeStale(page, director);
     await createTile(page, director);
     await tile.waitFor({ state: 'visible', timeout: 30_000 });

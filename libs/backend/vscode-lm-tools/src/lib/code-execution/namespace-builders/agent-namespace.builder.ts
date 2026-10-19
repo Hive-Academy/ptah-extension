@@ -528,10 +528,10 @@ export function buildAgentNamespace(
       return withFamily.map((r) => ({ ...r, preferredRank: 0 }));
     },
 
-    limits: async (rows) => {
+    limits: async (rows, options) => {
       if (!getLaneLimits) return undefined;
       try {
-        return await getLaneLimits(rows);
+        return await getLaneLimits(rows, options);
       } catch {
         // Limit lookup is enrichment only. Preserve each lane's ownership
         // boundary and make a failed lookup explicitly unknown.

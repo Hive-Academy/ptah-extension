@@ -1,11 +1,11 @@
 ---
 id: TASK_2026_679_45ff
-status: in_review
+status: done
 type: FEATURE
 title: "Move the session list sidebar into a \"Previous sessions\" modal"
 depends_on: []
 created: "2026-10-15T12:28:54.320Z"
-updated: "2026-10-15T12:28:54.320Z"
+updated: "2026-10-19T00:14:13.000Z"
 description: "Convert the old session list sidebar (search, filters, sort, grouping, date range, session rows) into a modal opened by a new \"Previous sessions\" button under the New session button."
 executor: frontend-developer
 estimate: M

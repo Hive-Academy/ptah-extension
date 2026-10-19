@@ -266,7 +266,7 @@ export class ChatStreamBroadcaster {
         if (backPressure !== undefined) {
           await backPressure;
         }
-        if (event.eventType === 'message_start') {
+        if (event.eventType === 'message_start' && !event.parentToolUseId) {
           turnCompleteSent = false;
         }
         if (event.eventType === 'background_agent_started') {
@@ -281,7 +281,11 @@ export class ChatStreamBroadcaster {
           }
         }
 
-        if (event.eventType === 'message_complete' && !turnCompleteSent) {
+        if (
+          event.eventType === 'message_complete' &&
+          !event.parentToolUseId &&
+          !turnCompleteSent
+        ) {
           turnCompleteSent = true;
           // A turn boundary is the one place the buffer MUST NOT wait for its
           // timer: `chat:complete` closes the turn in the UI, so it arriving

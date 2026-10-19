@@ -14,7 +14,6 @@ import {
   type SubagentRecord,
 } from '@ptah-extension/chat-streaming';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { SubagentTranscriptViewerService } from '../subagent-transcript-viewer.service';
 import { SessionAgentTrayService } from './session-agent-tray.service';
 
 /** A resolved session scope: every record below is unattributed, so visible. */
@@ -67,10 +66,6 @@ describe('SessionAgentTrayService — entry mapping', () => {
         {
           provide: TabManagerService,
           useValue: { findTabBySessionId: jest.fn(), switchTab: jest.fn() },
-        },
-        {
-          provide: SubagentTranscriptViewerService,
-          useValue: { openFor: jest.fn() },
         },
       ],
     });

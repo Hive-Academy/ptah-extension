@@ -37,6 +37,7 @@ class SceneStubComponent {
   public readonly voiceState = input('idle');
   public readonly inputLevel = input(0);
   public readonly outputLevel = input(0);
+  public readonly reservedTop = input(72);
   public readonly selection = output<string>();
   public readonly hoveredNodeId = output<string | null>();
   public readonly canvasUnavailable = output<boolean>();
@@ -115,6 +116,8 @@ describe('CommandCenterPageComponent', () => {
     latestReply: signal<string | null>(null),
     turnAbortable: signal(false),
     shownSessionStatus: computed(() => store.sessionStatus()),
+    darkMode: signal(true),
+    toggleTheme: jest.fn(),
     rosterTimedOut: signal(false),
     ordinaryQuestion: signal(null),
     ordinaryChoices: signal<readonly string[]>([]),
@@ -207,7 +210,7 @@ describe('CommandCenterPageComponent', () => {
     ) as HTMLElement;
     expect(chip.textContent).toContain('Context 42%');
     expect(chip.textContent).not.toContain('91%');
-    expect(chip.classList.contains('text-base-content-muted')).toBe(true);
+    expect(chip.classList.contains('text-state-need')).toBe(false);
     fixture.destroy();
   });
 
@@ -455,7 +458,7 @@ describe('CommandCenterPageComponent', () => {
     const fixture = TestBed.createComponent(CommandCenterPageComponent);
     fixture.detectChanges();
     const caption = fixture.nativeElement.querySelector(
-      '.stage .left-5.top-5 p:nth-child(2)',
+      '.stage .stats-band .stage-caption p:nth-child(2)',
     ) as HTMLElement;
     expect(caption.textContent).toContain('5 nodes');
     expect(caption.textContent).toContain('1 running');
@@ -524,24 +527,182 @@ describe('CommandCenterPageComponent', () => {
     fixture.destroy();
   });
 
-  it('keeps the two-column rail bounded as the single scroller', () => {
+  it('fills the rail remainder with the delegated-work scroller', () => {
     const fixture = TestBed.createComponent(CommandCenterPageComponent);
     fixture.detectChanges();
     const styles = readFileSync(
-      join(__dirname, 'command-center-page.component.ts'),
+      join(__dirname, 'command-center-page.component.css'),
       'utf8',
     );
     const rail = styles.match(/\.rail[^{}]*\{([^}]*)\}/)?.[1];
-    const workList = styles.match(/\.work-list-region[^{}]*\{([^}]*)\}/)?.[1];
-    expect(rail).toContain(
-      'max-height: clamp(420px, calc(100vh - 280px), 620px)',
-    );
+    const workList = styles.match(/^\.work-list-region\s*\{([^}]*)\}/m)?.[1];
+    const workListHost = styles.match(/^\.work-list-region > ptah-command-work-list\s*\{([^}]*)\}/m)?.[1];
+    const narrow = styles.split('@container (max-width: 720px)')[1];
+    expect(rail).toContain('display: flex');
+    expect(rail).toContain('flex-direction: column');
     expect(rail).toContain('overflow-y: auto');
-    expect(rail).not.toContain('overscroll-behavior: contain');
-    expect(rail).not.toContain('overflow: hidden');
-    expect(workList).toContain('flex: none');
-    expect(workList).not.toMatch(/overflow-y:\s*auto/);
+    expect(workList).toContain('display: flex');
+    expect(workList).toContain('flex-direction: column');
+    expect(workList).toContain('flex: 1 1 auto');
+    expect(workList).toContain('min-height: 7rem');
+    expect(workList).toContain('overflow-y: auto');
+    expect(workListHost).toContain('display: flex');
+    expect(workListHost).toContain('flex: 1 1 auto');
+    expect(workListHost).toContain('min-height: 0');
+    expect(narrow).toContain('.layout { display: flex; flex: none; flex-direction: column; }');
+    expect(narrow).toContain('.stage-column, .dock, .rail { flex: none; width: 100%; }');
+    expect(narrow).toContain('.stage { min-height: 500px; }');
+    expect(narrow).toContain('.work-list-region { display: block; flex: none; max-height: 24rem; }');
+    expect(narrow).toContain('.work-list-region > ptah-command-work-list { display: block; min-height: auto; }');
     fixture.destroy();
+  });
+
+  it('keeps the approved deck structure and responsive band sizes', () => {
+    const css = readFileSync(join(__dirname, 'command-center-page.component.css'), 'utf8');
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const layout = fixture.nativeElement.querySelector('.layout') as HTMLElement;
+    expect([...layout.children].map((child) => child.className)).toEqual(
+      expect.arrayContaining([expect.stringContaining('stage-column'), expect.stringContaining('dock'), expect.stringContaining('rail')]),
+    );
+    expect(css).toContain('grid-template-areas: \'stage rail\' \'dock rail\'');
+    expect(css).toContain('296px');
+    expect(css).toContain('padding: 16px');
+    expect(css).toContain('column-gap: 12px');
+    expect(css).toContain('row-gap: 10px');
+    expect(css).toContain('flex: 1 1 auto; min-height: 0');
+    expect(css).toContain('grid-template-rows: minmax(600px, 1fr) auto');
+    expect(css).toContain('grid-template-rows: minmax(570px, 1fr) auto');
+    expect(css).toContain('grid-template-rows: minmax(500px, 1fr) auto');
+    expect(css).not.toContain('100vh');
+    expect(css).toContain('@container (min-width: 1100px)');
+    expect(css).toContain('height: 72px');
+    expect(css).toContain('@container (max-width: 1000px)');
+    expect(css).toContain('240px');
+    expect(css).toContain('570px');
+    expect(css).toContain('@container (max-width: 720px)');
+    expect(css).toContain('flex-direction: column');
+    expect(css).toContain('@container (max-width: 480px)');
+    expect(css).toContain('height: 154px');
+    expect(css).toContain('min-height: 500px');
+    fixture.destroy();
+  });
+
+  it('measures the opaque stats band border box and releases its observer', async () => {
+    const original = Object.getOwnPropertyDescriptor(globalThis, 'ResizeObserver');
+    let notify: ResizeObserverCallback | undefined;
+    const observe = jest.fn();
+    const disconnect = jest.fn();
+    class BandObserver {
+      private isBand = false;
+      public constructor(private readonly callback: ResizeObserverCallback) {}
+      public observe = (target: Element) => {
+        if (target.classList.contains('stats-band')) {
+          this.isBand = true;
+          notify = this.callback;
+          observe(target);
+        }
+      };
+      public disconnect = () => { if (this.isBand) disconnect(); };
+    }
+    Object.defineProperty(globalThis, 'ResizeObserver', { configurable: true, value: BandObserver });
+    try {
+      const fixture = TestBed.createComponent(CommandCenterPageComponent);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      const scene = fixture.debugElement.query(By.directive(SceneStubComponent)).componentInstance as SceneStubComponent;
+      expect(observe).toHaveBeenCalledTimes(1);
+      const band = fixture.nativeElement.querySelector('.stats-band') as HTMLElement;
+      notify?.([{
+        target: band,
+        borderBoxSize: [{ blockSize: 144, inlineSize: 300 }],
+        contentRect: { height: 111 },
+      } as ResizeObserverEntry], {} as ResizeObserver);
+      fixture.detectChanges();
+      expect(scene.reservedTop()).toBe(144);
+      fixture.destroy();
+      expect(disconnect).toHaveBeenCalledTimes(1);
+    } finally {
+      if (original) Object.defineProperty(globalThis, 'ResizeObserver', original);
+      else Reflect.deleteProperty(globalThis, 'ResizeObserver');
+    }
+  });
+
+  it('observes a recreated stats band with the same observer', async () => {
+    const original = Object.getOwnPropertyDescriptor(globalThis, 'ResizeObserver');
+    let notify: ResizeObserverCallback | undefined;
+    const observe = jest.fn();
+    const unobserve = jest.fn();
+    const disconnect = jest.fn();
+    const bandObservers = new Set<BandObserver>();
+    class BandObserver {
+      private isBand = false;
+      public constructor(private readonly callback: ResizeObserverCallback) {}
+      public observe = (target: Element) => {
+        observe(target);
+        if (target.classList.contains('stats-band')) {
+          this.isBand = true;
+          bandObservers.add(this);
+          notify = this.callback;
+        }
+      };
+      public unobserve = unobserve;
+      public disconnect = () => { if (this.isBand) disconnect(); };
+    }
+    Object.defineProperty(globalThis, 'ResizeObserver', { configurable: true, value: BandObserver });
+    try {
+      const fixture = TestBed.createComponent(CommandCenterPageComponent);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      const firstBand = fixture.nativeElement.querySelector('.stats-band') as HTMLElement;
+      expect(observe).toHaveBeenCalledWith(firstBand);
+      notify?.([{
+        target: firstBand,
+        borderBoxSize: [{ blockSize: 144, inlineSize: 300 }],
+        contentRect: { height: 111 },
+      } as ResizeObserverEntry], {} as ResizeObserver);
+      fixture.detectChanges();
+      expect(fixture.componentInstance.statsBandHeight()).toBe(144);
+      store.setSession(null, null, '/workspace');
+      fixture.detectChanges();
+      await fixture.whenStable();
+      expect(unobserve).toHaveBeenCalledWith(firstBand);
+      store.setSession('root-tab', null, '/workspace');
+      fixture.detectChanges();
+      await fixture.whenStable();
+      const nextBand = fixture.nativeElement.querySelector('.stats-band') as HTMLElement;
+      expect(nextBand).not.toBe(firstBand);
+      expect(observe).toHaveBeenCalledWith(nextBand);
+      expect(bandObservers.size).toBe(1);
+      notify?.([{
+        target: nextBand,
+        borderBoxSize: [{ blockSize: 72, inlineSize: 300 }],
+        contentRect: { height: 39 },
+      } as ResizeObserverEntry], {} as ResizeObserver);
+      fixture.detectChanges();
+      const scene = fixture.debugElement.query(By.directive(SceneStubComponent)).componentInstance as SceneStubComponent;
+      expect(scene.reservedTop()).toBe(72);
+      fixture.destroy();
+      expect(disconnect).toHaveBeenCalledTimes(1);
+    } finally {
+      if (original) Object.defineProperty(globalThis, 'ResizeObserver', original);
+      else Reflect.deleteProperty(globalThis, 'ResizeObserver');
+    }
+  });
+
+  it('renders without ResizeObserver support', () => {
+    const original = Object.getOwnPropertyDescriptor(globalThis, 'ResizeObserver');
+    Object.defineProperty(globalThis, 'ResizeObserver', { configurable: true, value: undefined });
+    try {
+      const fixture = TestBed.createComponent(CommandCenterPageComponent);
+      fixture.detectChanges();
+      const scene = fixture.debugElement.query(By.directive(SceneStubComponent)).componentInstance as SceneStubComponent;
+      expect(scene.reservedTop()).toBe(72);
+      fixture.destroy();
+    } finally {
+      if (original) Object.defineProperty(globalThis, 'ResizeObserver', original);
+      else Reflect.deleteProperty(globalThis, 'ResizeObserver');
+    }
   });
 
   it('scrolls a newly pending card into view once per identity', async () => {
@@ -679,7 +840,7 @@ describe('CommandCenterPageComponent', () => {
       '[aria-label="Command dock"]',
     ) as HTMLElement;
     expect(dock.className).toContain('dock');
-    expect(dock.parentElement?.className).toContain('layout');
+    expect(dock.parentElement?.parentElement?.className).toContain('layout');
     const rail = fixture.nativeElement.querySelector('.rail') as HTMLElement;
     expect(
       dock.compareDocumentPosition(rail) & Node.DOCUMENT_POSITION_FOLLOWING,

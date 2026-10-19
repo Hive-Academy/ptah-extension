@@ -10,32 +10,7 @@ import { SessionLoaderService } from './session-loader.service';
 import { CompactionLifecycleService } from './compaction-lifecycle.service';
 import { ConversationService } from './conversation.service';
 import { SessionLivenessReconcilerService } from './session-liveness-reconciler.service';
-import {
-  AgentContentBlock,
-  StreamingState,
-  TabState,
-} from '@ptah-extension/chat-types';
-import { BatchedUpdateService } from '@ptah-extension/chat-streaming';
-
-/**
- * Append one summary chunk to an agent's accumulators in place. The block
- * array is extended, not copied: a per-chunk `[...current, ...next]` made a
- * long-running agent's blocks quadratic. No reader keys on that array's
- * identity — the tree cache keys on its length.
- */
-function appendAgentSummary(
-  state: StreamingState,
-  agentId: string,
-  summaryDelta: string,
-  contentBlocks: readonly AgentContentBlock[] | undefined,
-): void {
-  const currentSummary = state.agentSummaryAccumulators.get(agentId) ?? '';
-  state.agentSummaryAccumulators.set(agentId, currentSummary + summaryDelta);
-  if (!contentBlocks || contentBlocks.length === 0) return;
-  const blocks = state.agentContentBlocksMap.get(agentId);
-  if (blocks) blocks.push(...contentBlocks);
-  else state.agentContentBlocksMap.set(agentId, [...contentBlocks]);
-}
+import { TabState } from '@ptah-extension/chat-types';
 
 /**
  * ChatLifecycleService - Cross-cutting reactive lifecycle work.
@@ -45,7 +20,6 @@ function appendAgentSummary(
  *   restoreCliSessionsForActiveTab, loadAuthStatus, fetchLicenseStatus)
  *   after services are ready; flips ChatStore._servicesReady via callback
  * - License status fetch with 3-attempt linear backoff
- * - handleAgentSummaryChunk: route agent JSONL chunks to per-tab streaming state
  * - handleSessionIdResolved: replace placeholder tab IDs with real SDK UUIDs
  * - handleChatError: 3-tier tab routing, error presentation + queue drop only
  *   (the ordered `turn_state` owns finalization / status / spinner)
@@ -59,7 +33,6 @@ export class ChatLifecycleService {
   private readonly authState = inject(AuthStateService);
   private readonly vscodeService = inject(VSCodeService);
   private readonly tabManager = inject(TabManagerService);
-  private readonly batchedUpdate = inject(BatchedUpdateService);
   private readonly sessionLoader = inject(SessionLoaderService);
   private readonly compactionLifecycle = inject(CompactionLifecycleService);
   private readonly conversation = inject(ConversationService);
@@ -148,94 +121,6 @@ export class ChatLifecycleService {
         }
       }
     }
-  }
-
-  /**
-   * Handle agent summary chunk from backend file watcher
-   *
-   * This is called when the AgentSessionWatcherService detects new content
-   * in an agent's JSONL file during streaming. The summary content is
-   * stored in StreamingState.agentSummaryAccumulators for the tree builder
-   * to read at render time.
-   *
-   * Stores in StreamingState instead of sessionManager. The
-   * ExecutionTreeBuilderService reads from StreamingState, not
-   * sessionManager, so summary content must be stored in StreamingState for
-   * the UI to render it.
-   *
-   * Uses agentId (not toolUseId) as the lookup key because:
-   * - Hook fires with UUID-format toolUseId (e.g., "b4139c0d-...")
-   * - Complete message arrives with Anthropic format toolCallId (e.g., "toolu_012W...")
-   * - These don't match, but agentId (e.g., "adcecb2") is stable across both
-   *
-   * Also stores structured content blocks for proper interleaving.
-   *
-   * @param payload - Contains toolUseId, summaryDelta, agentId, and optionally contentBlocks
-   */
-  handleAgentSummaryChunk(payload: {
-    toolUseId: string;
-    summaryDelta: string;
-    agentId: string;
-    sessionId: string;
-    contentBlocks?: Array<{
-      type: 'text' | 'tool_ref';
-      text?: string;
-      toolUseId?: string;
-      toolName?: string;
-    }>;
-  }): void {
-    const { toolUseId, summaryDelta, agentId, sessionId, contentBlocks } =
-      payload;
-    // Nothing to append: scheduling would only republish an unchanged state.
-    if (!summaryDelta && !contentBlocks?.length) return;
-    const targetTabs = this.tabManager.findTabsBySessionId(
-      SessionId.from(sessionId),
-    );
-    const tabsWithStreaming = targetTabs.filter((t) => t.streamingState);
-    if (tabsWithStreaming.length > 0) {
-      for (const tab of tabsWithStreaming) {
-        // Mutate the state already queued for this tab when there is one:
-        // `scheduleUpdate` replaces the queued entry wholesale, so scheduling
-        // the tab's last-published `streamingState` instead would overwrite
-        // newer streaming events still waiting for their frame. With nothing
-        // queued, the tab's own state is the newest there is.
-        const state =
-          this.batchedUpdate.queuedState(tab.id) ?? tab.streamingState;
-        if (!state) continue;
-        appendAgentSummary(state, agentId, summaryDelta, contentBlocks);
-        // One publish per frame, deferred while the tab cannot be seen.
-        this.batchedUpdate.scheduleUpdate(tab.id, state);
-      }
-      return;
-    }
-
-    // `findTabsBySessionId` resolves active-workspace tabs only. When the
-    // owning session is streaming in a BACKGROUND workspace its summary deltas
-    // would be silently dropped — resolve the owner across workspaces and write
-    // through the workspace-aware `setStreamingState` (which routes background
-    // tabs to the partition update path). This stays a direct write: that
-    // partition is written directly by the background stream path too, so a
-    // deferred batched entry could later drain an older snapshot over it.
-    // A state queued before the tab left the active workspace may be newer
-    // than the partition copy and shares its event Maps (the flush guard would
-    // not drop it), so it is the base; the queue is then emptied so its
-    // scalars cannot drain over a later background write.
-    const background =
-      this.tabManager.findTabBySessionIdAcrossWorkspaces(sessionId)?.tab;
-    const backgroundState = background
-      ? (this.batchedUpdate.queuedState(background.id) ??
-        background.streamingState)
-      : null;
-    if (!background || !backgroundState) {
-      console.warn(
-        '[ChatStore] No tab with streamingState for summary chunk:',
-        { toolUseId, agentId, sessionId },
-      );
-      return;
-    }
-    appendAgentSummary(backgroundState, agentId, summaryDelta, contentBlocks);
-    this.batchedUpdate.clearPendingUpdates(background.id);
-    this.tabManager.setStreamingState(background.id, { ...backgroundState });
   }
 
   /**
