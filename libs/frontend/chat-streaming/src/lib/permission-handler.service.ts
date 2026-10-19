@@ -428,7 +428,12 @@ export class PermissionHandlerService {
    *
    * Extracted from chat.store.ts:1344-1364
    */
-  handlePermissionResponse(response: PermissionResponse, tabId?: string): void {
+  handlePermissionResponse(response: PermissionResponse, tabId?: string): boolean {
+    if (!this._permissionRequests().some(request => request.id === response.id)) return false;
+    this.vscodeService.postMessage({
+      type: MESSAGE_TYPES.SDK_PERMISSION_RESPONSE,
+      response,
+    });
     if (response.decision === 'deny') {
       const originalRequest = this._permissionRequests().find(
         (r) => r.id === response.id,
@@ -461,10 +466,7 @@ export class PermissionHandlerService {
       this._surfaceOnlyPrompts.delete(response.id);
       this.bumpRoutingTargetRevision();
     }
-    this.vscodeService.postMessage({
-      type: MESSAGE_TYPES.SDK_PERMISSION_RESPONSE,
-      response,
-    });
+    return true;
   }
 
   /**
@@ -565,6 +567,11 @@ export class PermissionHandlerService {
    * @param response The user's answers to the questions
    */
   handleQuestionResponse(response: AskUserQuestionResponse): void {
+    if (!this._questionRequests().some(request => request.id === response.id)) return;
+    this.vscodeService.postMessage({
+      type: MESSAGE_TYPES.ASK_USER_QUESTION_RESPONSE,
+      payload: response,
+    });
     this._questionRequests.update((requests) =>
       requests.filter((r) => r.id !== response.id),
     );
@@ -572,10 +579,6 @@ export class PermissionHandlerService {
     if (this._questionTargetTabs.delete(response.id)) {
       this.bumpRoutingTargetRevision();
     }
-    this.vscodeService.postMessage({
-      type: MESSAGE_TYPES.ASK_USER_QUESTION_RESPONSE,
-      payload: response,
-    });
   }
 
   /**

@@ -1,5 +1,13 @@
 export * from './message-type';
 export * from './message-constants';
+export * from './attention';
+export * from './attention-identity';
+export {
+  AttentionChangedPayloadSchema,
+  AttentionOpenTargetPayloadSchema,
+  AttentionNoticeSchema,
+  AttentionTargetSchema,
+} from './schemas';
 export * from './chat';
 export * from './agent';
 export * from './system';

@@ -1,4 +1,5 @@
-import { inject, Injectable, InjectionToken, signal } from '@angular/core';
+import { DestroyRef, effect, inject, Injectable, InjectionToken, signal, untracked } from '@angular/core';
+import { NotificationService } from '@ptah-extension/core';
 
 const MUTE_KEY = 'ptah:notification-center:sound-muted:v1';
 const COOLDOWN_MS = 2000;
@@ -15,13 +16,26 @@ export const NOTIFICATION_AUDIO_ENABLED = new InjectionToken<boolean>(
 @Injectable({ providedIn: 'root' })
 export class NotificationSoundService {
   private readonly enabled = inject(NOTIFICATION_AUDIO_ENABLED);
+  private readonly notifications = inject(NotificationService);
+  private readonly destroyRef = inject(DestroyRef);
   private context: AudioContext | null = null;
   private gestureObserved = false;
+  private cueInvocation = false;
+  private lastCueSequence: number;
   private lastPlayedAt = Number.NEGATIVE_INFINITY;
   private readonly _muted = signal(this.readMutePreference());
   readonly muted = this._muted.asReadonly();
 
   constructor() {
+    this.lastCueSequence = this.notifications.soundCue()?.sequence ?? 0;
+    effect(() => {
+      const cue = this.notifications.soundCue();
+      if (cue && cue.sequence !== this.lastCueSequence) {
+        this.lastCueSequence = cue.sequence;
+        this.cueInvocation = true;
+        try { untracked(() => this.playBurst()); } finally { this.cueInvocation = false; }
+      }
+    });
     if (!this.enabled || typeof window === 'undefined') return;
     const observeGesture = (event: Event): void => {
       if (!event.isTrusted) return;
@@ -31,6 +45,10 @@ export class NotificationSoundService {
     };
     window.addEventListener('pointerdown', observeGesture);
     window.addEventListener('keydown', observeGesture);
+    this.destroyRef.onDestroy(() => {
+      window.removeEventListener('pointerdown', observeGesture);
+      window.removeEventListener('keydown', observeGesture);
+    });
   }
 
   setMuted(muted: boolean): void {
@@ -51,11 +69,8 @@ export class NotificationSoundService {
     if (this.context.state === 'suspended') {
       try {
         await this.context.resume();
-      } catch (error: unknown) {
-        console.debug(
-          '[NotificationSound] Audio context resume was rejected',
-          error instanceof Error ? error.message : error,
-        );
+      } catch {
+        // Visual and assistive notifications remain available if audio is blocked.
       }
     }
   }
@@ -63,6 +78,7 @@ export class NotificationSoundService {
   playBurst(now = Date.now()): boolean {
     const context = this.context;
     if (
+      !this.cueInvocation ||
       !this.enabled ||
       this._muted() ||
       !context ||

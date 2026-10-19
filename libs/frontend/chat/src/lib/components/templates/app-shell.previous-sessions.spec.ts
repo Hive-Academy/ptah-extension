@@ -50,7 +50,6 @@ import {
   ConfirmationDialogService,
   TabManagerService,
 } from '@ptah-extension/chat-state';
-import { NotificationLedgerService } from '@ptah-extension/notification-center';
 import type { ChatSessionSummary } from '@ptah-extension/shared';
 import { AppShellComponent } from './app-shell.component';
 import { PreviousSessionsLoadStateComponent } from '../organisms/previous-sessions/previous-sessions-load-state.component';
@@ -203,7 +202,6 @@ describe('AppShellComponent — previous sessions (TASK_2026_679)', () => {
         // Created eagerly by the shell; covered by their own specs.
         { provide: KeyboardShortcutsService, useValue: {} },
         { provide: ClosedTabSessionEnderService, useValue: {} },
-        { provide: NotificationLedgerService, useValue: {} },
         { provide: AgentFollowUpQueueService, useValue: {} },
         { provide: ThemeService, useValue: {} },
       ],

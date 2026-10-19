@@ -138,6 +138,10 @@ import type { SkillSynthesisEventWire } from '../rpc/rpc-curator-diagnostics.typ
 import type { GitStatusUpdatePayload } from './git-status';
 import type { GitTurnChangeSetPayload } from '../rpc/rpc-change-set.types';
 import type { GitOperationOutputPayload } from '../rpc/rpc-git.types';
+import type {
+  AttentionChangedPayload,
+  AttentionOpenTargetPayload,
+} from './attention';
 
 /**
  * Payload for MESSAGE_TYPES.FILE_CONTENT_CHANGED ('file:content-changed').
@@ -321,6 +325,8 @@ export interface SessionOrganizationChangedPayload {
  * Type mapping for message payloads - eliminates 'any' types
  */
 export interface MessagePayloadMap {
+  'attention:changed': AttentionChangedPayload;
+  'attention:openTarget': AttentionOpenTargetPayload;
   'chat:streamSnapshot': ChatStreamSnapshotPayload;
   'chat:sendMessage': ChatSendMessagePayload;
   'chat:messageChunk': ChatMessageChunkPayload;

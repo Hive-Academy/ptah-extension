@@ -98,6 +98,10 @@
      bell. -->
 @if (!isElectron) {
   <ptah-notification-announcer />
+  <ptah-notification-snackbar
+    [panelOpen]="notificationPanelOpen()"
+    (openNotifications)="openNotifications()"
+  />
 }
 
 <!-- 2. Shared chrome — retained, not re-created, across standalone surfaces.
@@ -367,7 +371,7 @@
           <!-- Theme toggle -->
           <ptah-theme-toggle />
 
-          <ptah-notification-center />
+          <ptah-notification-center #notificationCenter />
 
           <button
             class="btn btn-ghost btn-xs gap-1"
