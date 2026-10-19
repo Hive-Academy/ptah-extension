@@ -32,7 +32,6 @@ import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
 import {
   SKILL_SYNTHESIS_TOKENS,
   resolveSkillsRoot,
-  type SkillCandidateStore,
   type SkillRegistryCatalogService,
   type SkillRegistryStore,
 } from '@ptah-extension/skill-synthesis';
@@ -135,7 +134,7 @@ const HARNESS_PROPAGATION_USER_LAYER_REASON = 'harness-propagation';
  * - `content-download-complete` — the post-network re-mirror at boot. Nobody
  *   awaits it for a reply, and it lands exactly when a first turn is most
  *   likely to be generating.
- * - `skill-repropagation` — a skill, agent or command the synthesis pipeline
+ * - `skill-repropagation` — a skill, agent or command that changed
  *   changed on its own schedule (FU-17b). The curator pass awaits it, but no
  *   person does. The same change made by a click (`promote`, `enhanceNow`,
  *   `applyProposal`, `revertEnhancement`) refreshes as `harness-propagation`.
@@ -373,7 +372,7 @@ export async function mirrorUserLayer(
 /**
  * Electron-only enrichment: walk the user layer (the sidecars the mirror
  * already wrote) and upsert each clone into the SQLite skill_registry catalog,
- * linking synth rows to skill_candidates by name. Pure read-of-sidecars +
+ * updating the skill registry from sidecars. Pure read-of-sidecars +
  * upsert; never mirrors the filesystem itself. Non-fatal on failure. Must run
  * AFTER mirrorUserLayer so the sidecars exist.
  */
@@ -582,36 +581,6 @@ function isSqliteOpen(container: DependencyContainer): boolean {
     // probe; false means "no usable database", which is the same answer an
     // unregistered connection gives and sends callers down the degraded path.
     return false;
-  }
-}
-
-/**
- * Slugs of promoted skills currently marked dormant by the residency budget.
- * Folded into the reconciler's disabledSkillIds channel so dormant skills are
- * not copied into .claude/skills/ and therefore no longer occupy the model's
- * prompt budget. The candidate store is Electron-only (Thoth) and resolved
- * optionally so this no-ops cleanly when skill-synthesis is absent.
- */
-export function readDormantSkillSlugs(
-  container: DependencyContainer,
-): string[] {
-  try {
-    if (!container.isRegistered(SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE)) {
-      return [];
-    }
-    const store = container.resolve<SkillCandidateStore>(
-      SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE,
-    );
-    return store.listDormantPromotedSlugs();
-  } catch (error) {
-    // degradation-audit: optional-capability - the skill-candidate store is
-    // Electron/Thoth-only and optional; an empty list means no slug is folded
-    // into disabledSkillIds, so every promoted skill stays propagated.
-    console.warn(
-      '[Ptah Electron] Failed to read dormant skill slugs (non-fatal):',
-      error instanceof Error ? error.message : String(error),
-    );
-    return [];
   }
 }
 

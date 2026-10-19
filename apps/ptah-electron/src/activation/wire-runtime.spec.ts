@@ -243,6 +243,7 @@ function buildTestContainer(): DependencyContainer {
     },
   });
 
+  // SkillTriggerService still injects the synthesis service until batch 44.
   c.register(SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE, {
     useValue: {
       start: jest.fn().mockResolvedValue(undefined),

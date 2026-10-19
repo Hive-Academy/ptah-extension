@@ -275,7 +275,6 @@ const EXPECTED_LIFO_ORDER: readonly string[] = [
   'symbolWatcher',
   'statusBridgeDisposables',
   'skillTrigger',
-  'skillSynthesis',
   'cronScheduler',
   'memoryTrigger',
   'memoryCurator',
@@ -344,9 +343,6 @@ function makeFullRefs(order: string[]): BootRefs {
   refs.skillTrigger = {
     stop: record('skillTrigger'),
   } as unknown as BootRefs['skillTrigger'];
-  refs.skillSynthesis = {
-    stop: record('skillSynthesis'),
-  } as unknown as BootRefs['skillSynthesis'];
   refs.cronScheduler = {
     stop: record('cronScheduler'),
   } as unknown as BootRefs['cronScheduler'];

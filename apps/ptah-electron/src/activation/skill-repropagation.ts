@@ -17,7 +17,7 @@ import {
 export const SKILL_REPROPAGATION_USER_LAYER_REASON = 'skill-repropagation';
 
 /**
- * Push a skill, command or agent the synthesis pipeline just changed out to
+ * Push a skill, command or agent a caller changed out to
  * every harness surface, in this host, now.
  *
  * All three kinds travel the SAME road since TASK_2026_278 Batch 2. They used

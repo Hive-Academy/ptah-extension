@@ -10,8 +10,7 @@
  * names which switch is paused.
  *
  * Keep-alive is optional: `skillSynthesis.trayKeepalive` (ships `false`) lets
- * the app keep running with no windows open so the synthesis drain can keep
- * draining. With it off, closing the last window quits exactly as it did
+ * the app keep running with no windows open. With it off, closing the last window quits exactly as it did
  * before the tray existed. With it on, the user has **no window and no
  * dock/taskbar entry**, so the tray is the only remaining way to terminate the
  * process.
@@ -37,8 +36,8 @@
  * ## The pause checkboxes write the MASTER switches, and only those
  *
  * Each checkbox writes exactly one key through `IWorkspaceProvider`:
- * `skillSynthesis.enabled` is the drain's FIRST gate (`skill-drain.service.ts`,
- * gate 1), and `memory.enabled` is the memory master. Neither write touches a
+ * `skillSynthesis.enabled` is the skills switch, and
+ * `memory.enabled` is the memory master. Neither write touches a
  * trigger sub-switch, so resuming restores whatever the user had configured.
  * Both keys are file-routed, so the write lands in `~/.ptah/settings.json` and
  * also pauses any other Ptah process sharing that file.
@@ -88,7 +87,7 @@ export const PTAH_CONFIG_SECTION = 'ptah';
  */
 export const TRAY_KEEPALIVE_KEY = 'skillSynthesis.trayKeepalive';
 
-/** The skills master switch — the drain's first gate. */
+/** The skills master switch. */
 export const SKILL_SYNTHESIS_ENABLED_KEY = 'skillSynthesis.enabled';
 
 /** The memory master switch. */
