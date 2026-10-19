@@ -170,12 +170,31 @@ const LANG_DISPLAY_NAMES: Record<string, string> = {
   txt: 'Plain Text',
 };
 
+/** Fence languages that mean "no code, just text". */
+const PLAIN_TEXT_LANGS = new Set(['', 'text', 'plaintext', 'txt']);
+
+/** A plain-text fence of at most this many lines reads as a note. */
+const PLAIN_NOTE_MAX_LINES = 3;
+
+/**
+ * A short fence with no code language is prose an agent fenced (a report
+ * line, a summary): it renders as a wrapped note, not a scrolling code box.
+ */
+function isPlainTextNote(lang: string, lineCount: number): boolean {
+  return (
+    PLAIN_TEXT_LANGS.has(lang.trim().toLowerCase()) &&
+    lineCount <= PLAIN_NOTE_MAX_LINES
+  );
+}
+
 /**
  * Code Block Header Extension
  *
  * Replaces the old collapsible-only code extension.
  * Every fenced code block gets a header bar with language badge.
  * Long blocks (15+ lines) also get a <details> collapse wrapper.
+ * A short plain-text block (`isPlainTextNote`) is a wrapped note instead:
+ * no header, escaped text, `white-space: pre-wrap`.
  */
 function createCodeBlockHeaderExtension(): MarkedExtension {
   return {
@@ -185,6 +204,10 @@ function createCodeBlockHeaderExtension(): MarkedExtension {
         const lang = token.lang || '';
         const lineCount = text.split('\n').length;
         const escapedCode = escapeHtml(text);
+
+        if (isPlainTextNote(lang, lineCount)) {
+          return `<div class="code-block-note">${escapedCode}</div>\n`;
+        }
 
         const displayLang = lang
           ? LANG_DISPLAY_NAMES[lang.toLowerCase()] || lang

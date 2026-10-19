@@ -1527,6 +1527,18 @@ Optimized for VS Code sidebar (200-600px)
   color: oklch(var(--bc) / 0.5);
 }
 
+/* --- Short plain-text fence: a wrapped note, not a scrolling code box --- */
+.code-block-note {
+  margin: 0.6em 0;
+  padding: 0.5em 0.75em;
+  border: 1px solid oklch(var(--bc) / 0.08);
+  border-radius: 0.5rem;
+  background-color: oklch(var(--b3) / 0.3);
+  color: oklch(var(--bc) / 0.85);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* --- Decorative Divider (hr replacement) --- */
 .prose-divider {
   position: relative;
