@@ -97,8 +97,9 @@ describe('SkillSynthesisStateService - file settings switches', () => {
 describe('SkillSynthesisStateService - orchestration specs', () => {
   function setup() {
     const listSpecs = jest.fn().mockResolvedValue([
-      { status: 'harvested' },
-      { status: 'completed' },
+      { taskId: 'fresh', status: 'harvested', batchCount: 1, harvestedAt: 1, ageDays: 0 },
+      { taskId: 'stale', status: 'harvested', batchCount: 1, harvestedAt: 1, ageDays: 8 },
+      { taskId: 'active', status: 'active', batchCount: 1, harvestedAt: null, ageDays: 8 },
     ]);
     const harvestSpecs = jest.fn().mockResolvedValue({});
     const clearStaleSpecs = jest.fn().mockResolvedValue({ cleared: 1 });
@@ -119,11 +120,11 @@ describe('SkillSynthesisStateService - orchestration specs', () => {
     };
   }
 
-  it('loads specs and counts harvested entries', async () => {
+  it('counts only harvested specs past the retention period', async () => {
     const { svc, listSpecs } = setup();
     await svc.refreshSpecs();
     expect(listSpecs).toHaveBeenCalledTimes(1);
-    expect(svc.specs()).toHaveLength(2);
+    expect(svc.specs()).toHaveLength(3);
     expect(svc.staleSpecCount()).toBe(1);
     expect(svc.specsLoading()).toBe(false);
   });
@@ -133,7 +134,7 @@ describe('SkillSynthesisStateService - orchestration specs', () => {
     await svc.harvestSpecs();
     expect(harvestSpecs).toHaveBeenCalledTimes(1);
     expect(listSpecs).toHaveBeenCalledTimes(1);
-    expect(svc.specs()).toHaveLength(2);
+    expect(svc.specs()).toHaveLength(3);
   });
 
   it('archives stale specs and refreshes the spec list', async () => {

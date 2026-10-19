@@ -1835,7 +1835,7 @@ pipeline tokens (batch 59) before SS registrations are removed (batch 60).
 - File count: Task 57.1 is deletion-only (EXCEPTION); Task 57.2 adds 2 edited files in the same project
   and the same gate.
 
-## Batch 58: SU facade trim (R5 gate) - PENDING
+## Batch 58: SU facade trim (R5 gate) - COMPLETE (+ Task 58.2 per O37)
 
 - Phase: D | Executor: CLI lane Glm | Depends on: 19, 57 | Tasks: 1
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/skill-synthesis-ui @ptah-extension/dashboard --parallel=1`

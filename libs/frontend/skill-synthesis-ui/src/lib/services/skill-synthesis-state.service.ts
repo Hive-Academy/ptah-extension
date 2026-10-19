@@ -18,6 +18,8 @@ const TELEMETRY_SWITCH_READ_ERROR = 'Could not read the telemetry setting.';
 
 const SKILLS_ENABLED_KEY = 'skillSynthesis.enabled';
 const SKILLS_TELEMETRY_KEY = 'skills.telemetry.enabled';
+/** Mirrors the backend default in spec-harvester.service.ts. */
+const STALE_SPEC_RETENTION_DAYS = 7;
 
 /** State for the Library's switches and orchestration spec controls. */
 @Injectable({ providedIn: 'root' })
@@ -29,7 +31,11 @@ export class SkillSynthesisStateService {
   public readonly specsLoading = signal<boolean>(false);
   public readonly error = signal<string | null>(null);
   public readonly staleSpecCount = computed(
-    () => this.specs().filter((spec) => spec.status === 'harvested').length,
+    () => this.specs().filter(
+      (spec) => spec.status === 'harvested'
+        && spec.ageDays !== null
+        && spec.ageDays >= STALE_SPEC_RETENTION_DAYS,
+    ).length,
   );
 
   // --- Skills master switch (`skillSynthesis.enabled`, plan 3.7) -----------
