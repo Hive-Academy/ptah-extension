@@ -11,7 +11,7 @@ import {
   signal,
   type WritableSignal,
 } from '@angular/core';
-import { DeferBlockState, TestBed, type ComponentFixture } from '@angular/core/testing';
+import { DeferBlockBehavior, DeferBlockState, TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { ChatStore, CompactSessionCardComponent, inspectorDockWidth, inspectorMaxWidthFor, PreviousSessionsDialogService, RailTranscriptRetentionCoordinator, SessionInspectorStore, SessionOrganizerService, SessionRowActionsService, TabManagerService } from '@ptah-extension/chat';
 import { SessionInspectorComponent } from '@ptah-extension/chat/inspector';
@@ -192,7 +192,7 @@ class InspectorStub {
   readonly closeRequested = output<void>();
 }
 
-/** Session details load in a lazy `@defer (on idle)` chunk; render them now. */
+/** Session details load in a lazy `@defer` chunk once opened; render them now. */
 async function completeDeferBlocks(fixture: Pick<ComponentFixture<unknown>, 'getDeferBlocks'>): Promise<void> {
   for (const block of await fixture.getDeferBlocks()) {
     await block.render(DeferBlockState.Complete);
@@ -369,6 +369,8 @@ describe('CanvasRailBoardComponent rendering', () => {
     };
     TestBed.configureTestingModule({
       imports: [CanvasRailBoardComponent],
+      // The inspector blocks load as soon as they open; specs step them with `completeDeferBlocks`.
+      deferBlockBehavior: DeferBlockBehavior.Manual,
       providers: [
         CanvasRenderMetricsService,
         { provide: CanvasStore, useValue: store },
@@ -851,6 +853,61 @@ describe('CanvasRailBoardComponent rendering', () => {
     fixture.detectChanges();
     expect(fixture.componentInstance.dockOpen()).toBe(true);
     expect(dockParts(fixture.nativeElement).aside).not.toBeNull();
+  });
+
+  it('crossing below 400 px with the dock open hands it to the compact sheet and moves focus there', async () => {
+    const { fixture, width } = mount();
+    width.set(760);
+    fixture.detectChanges();
+    fixture.componentInstance.toggleDetails();
+    fixture.detectChanges();
+    expect(dockParts(fixture.nativeElement).aside).not.toBeNull();
+    width.set(390);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const board = fixture.componentInstance;
+    expect(board.dockOpen()).toBe(false);
+    expect(board.detailsOpen()).toBe(true);
+    expect(fixture.nativeElement.querySelector('[data-inspector-dock]')).toBeNull();
+    const sheet = fixture.nativeElement.querySelector<HTMLElement>('[data-compact-sheet]');
+    expect(sheet).not.toBeNull();
+    expect(sheet?.contains(document.activeElement)).toBe(true);
+    await completeDeferBlocks(fixture);
+    fixture.detectChanges();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(document.activeElement).toBe(sheet?.querySelector('[data-inspector-close]'));
+  });
+
+  it('crossing above 400 px with the compact sheet open hands it to the dock and moves focus there', async () => {
+    const { fixture, width } = mount();
+    width.set(390);
+    fixture.detectChanges();
+    fixture.componentInstance.openSplitDetails('left');
+    fixture.detectChanges();
+    await completeDeferBlocks(fixture);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[data-compact-sheet]')).not.toBeNull();
+    width.set(760);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const board = fixture.componentInstance;
+    expect(board.detailsOpen()).toBe(false);
+    expect(board.dockOpen()).toBe(true);
+    expect(fixture.nativeElement.querySelector('[data-compact-sheet]')).toBeNull();
+    const dock = fixture.nativeElement.querySelector<HTMLElement>('[data-inspector-dock]');
+    expect(dock).not.toBeNull();
+    const { tab } = dockParts(fixture.nativeElement);
+    expect(tab?.getAttribute('aria-expanded')).toBe('true');
+    // Before the deferred inspector loads, the dock shows a skeleton and focus waits on its toggle.
+    for (const block of await fixture.getDeferBlocks()) await block.render(DeferBlockState.Placeholder);
+    fixture.detectChanges();
+    expect(dock?.querySelector('[data-inspector-skeleton]')).not.toBeNull();
+    expect(document.activeElement).toBe(tab);
+    await completeDeferBlocks(fixture);
+    fixture.detectChanges();
+    // MutationObserver focus handoff runs after the deferred view is inserted.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(document.activeElement).toBe(dock?.querySelector('[data-inspector-close]'));
   });
 
   it('keeps a closed dock closed while the band moves between md and wider', () => {

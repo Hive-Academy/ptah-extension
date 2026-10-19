@@ -14,6 +14,7 @@ import {
   linkedSignal,
   output,
   signal,
+  untracked,
 } from '@angular/core';
 import { INSPECTOR_TAB_WIDTH, InspectorDockController, InspectorShellController, PreviousSessionsDialogService, ProjectSetupCardComponent, RailTranscriptRetentionCoordinator, SessionInspectorStore, TabManagerService, injectSessionStatsSource } from '@ptah-extension/chat';
 import { SessionInspectorComponent } from '@ptah-extension/chat/inspector';
@@ -200,10 +201,14 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
                   />
                   @if (splitDisplayed() && detailsOpen() && activeSide() === side && !compactSheet()) {
                     <aside class="absolute inset-y-0 right-0 z-20 w-[min(360px,100%)] overflow-auto border-l border-base-content/10 bg-base-100 shadow-xl" role="dialog" aria-label="Session details" tabindex="-1" (keydown.escape)="closeSplitDetails($event)">
-                      @defer (on idle) {
+                      @defer (when detailsOpen()) {
                         <ptah-session-inspector [tabId]="id" presentation="embedded" [hasLaneSurface]="true" [stats]="stats.inputs()" (laneRequested)="detail.selectLaneFor(id, $event)" (closeRequested)="closeSplitDetails()" />
                       } @placeholder {
-                        <div class="p-4 text-sm font-semibold" aria-hidden="true">Session details</div>
+                        <div class="flex flex-col gap-2 p-4" role="status" aria-label="Loading session details" data-inspector-skeleton>
+                          <div class="skeleton h-4 w-32"></div>
+                          <div class="skeleton h-3 w-full"></div>
+                          <div class="skeleton h-3 w-3/4"></div>
+                        </div>
                       }
                     </aside>
                   }
@@ -243,10 +248,12 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
               </div>
               <aside
                 class="flex h-full shrink-0 flex-col border-l border-base-content/10 bg-base-100"
+                data-inspector-dock
                 [style.width.px]="dock.width()"
               >
-                <!-- Every inspector reference is deferred so it stays out of the initial bundle. -->
-                @defer (on idle) {
+                <!-- Every inspector reference is deferred so it stays out of the initial bundle;
+                     the chunk loads as soon as the dock opens, not when the page goes idle. -->
+                @defer (when dockOpen()) {
                   <ptah-session-inspector
                     class="min-h-0 flex-1 overflow-auto"
                     [tabId]="id"
@@ -257,8 +264,10 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
                     (closeRequested)="closeDock()"
                   />
                 } @placeholder {
-                  <div class="min-h-0 flex-1 p-4 text-sm font-semibold" aria-hidden="true">
-                    Session details
+                  <div class="flex min-h-0 flex-1 flex-col gap-2 p-4" role="status" aria-label="Loading session details" data-inspector-skeleton>
+                    <div class="skeleton h-4 w-32"></div>
+                    <div class="skeleton h-3 w-full"></div>
+                    <div class="skeleton h-3 w-3/4"></div>
                   </div>
                 }
               </aside>
@@ -268,10 +277,14 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
         @if (compactSheetOpen()) {
           @if (focusedId(); as id) {
              <div class="fixed inset-0 z-50 overflow-y-auto bg-base-100" role="dialog" aria-modal="true" aria-label="Session details" tabindex="-1" data-compact-sheet (keydown)="onSheetKeydown($event)">
-              @defer (on idle) {
+              @defer (when compactSheetOpen()) {
                  <ptah-session-inspector [tabId]="id" presentation="sheet" [hasLaneSurface]="true" [stats]="stats.inputs()" (laneRequested)="openLaneFromCompactSheet(id, $event)" (closeRequested)="closeCompactSheet()" />
               } @placeholder {
-                <div class="p-4 text-sm font-semibold" aria-hidden="true">Session details</div>
+                <div class="flex flex-col gap-2 p-4" role="status" aria-label="Loading session details" data-inspector-skeleton>
+                  <div class="skeleton h-4 w-32"></div>
+                  <div class="skeleton h-3 w-full"></div>
+                  <div class="skeleton h-3 w-3/4"></div>
+                </div>
               }
             </div>
           }
@@ -561,6 +574,14 @@ export class CanvasRailBoardComponent {
       const failed = this.persistence.writeFailed();
       if (failed && this.visible()) this.announce('Layout changes could not be saved.');
     });
+    let wasCompact = this.compactSheet();
+    effect(() => {
+      const compact = this.compactSheet();
+      // A hidden board measures 0 px; that is not a resize across the threshold.
+      if (compact === wasCompact || this.layout.containerWidth() === 0) return;
+      wasCompact = compact;
+      untracked(() => this.handOffInspector(compact));
+    });
     let previousBand = this.band();
     effect(() => {
       const band = this.band();
@@ -778,6 +799,11 @@ export class CanvasRailBoardComponent {
     this.activatePane(side);
     this.detailsFocusReturn = true;
     this.detailsOpen.set(true);
+    this.focusDetailsShell();
+  }
+
+  /** After the next render, focus the open overlay or sheet, then its close once the inspector loads. */
+  private focusDetailsShell(): void {
     this.stopDetailsFocusObserver();
     afterNextRender(() => {
       const shell = this.host.nativeElement.querySelector<HTMLElement>(
@@ -906,17 +932,68 @@ export class CanvasRailBoardComponent {
   }
   /** The Stats tab opens or closes the single-focus dock. */
   toggleDetails(): void {
+    this.stopDetailsFocusObserver();
     this.dockOpen.update((open) => !open);
     this.anchor();
   }
   /** The inspector's own close: shut the dock and return focus to the Stats tab. */
   closeDock(): void {
+    this.stopDetailsFocusObserver();
     this.dockOpen.set(false);
     this.anchor();
     afterNextRender(
       () => this.host.nativeElement.querySelector<HTMLElement>('[data-stats-tab] button')?.focus(),
       { injector: this.injector },
     );
+  }
+  /**
+   * The board crossed the 400 px compact threshold. In single focus the dock
+   * (`dockOpen`) and the compact sheet (`detailsOpen`) are separate surfaces,
+   * so an open inspector moves to the destination surface, the source closes,
+   * and focus follows. In split both use `detailsOpen`; only focus moves.
+   */
+  private handOffInspector(compact: boolean): void {
+    if (this.splitDisplayed()) {
+      if (this.detailsOpen()) this.focusDetailsShell();
+      return;
+    }
+    if (compact && this.dockOpen()) {
+      this.dockOpen.set(false);
+      this.detailsFocusReturn = false;
+      this.detailsOpen.set(true);
+      this.focusDetailsShell();
+    } else if (!compact && this.detailsOpen()) {
+      this.stopDetailsFocusObserver();
+      this.detailsOpen.set(false);
+      this.detailsFocusReturn = false;
+      this.dockOpen.set(true);
+      afterNextRender(() => this.focusDock(), { injector: this.injector });
+    }
+  }
+
+  /**
+   * Focus the dock's close control; until the deferred inspector has one,
+   * hold focus on the Stats tab and move it in once the close appears.
+   */
+  private focusDock(): void {
+    this.stopDetailsFocusObserver();
+    const root = this.host.nativeElement;
+    const dock = root.querySelector<HTMLElement>('[data-inspector-dock]');
+    const tab = root.querySelector<HTMLElement>('[data-stats-tab] button');
+    const close = dock?.querySelector<HTMLElement>('[data-inspector-close]');
+    if (close || !dock) {
+      (close ?? tab)?.focus();
+      return;
+    }
+    tab?.focus();
+    this.detailsFocusObserver = new MutationObserver(() => {
+      const loaded = dock.querySelector<HTMLElement>('[data-inspector-close]');
+      if (!loaded) return;
+      // Only move focus the user has not moved elsewhere meanwhile.
+      if (this.dockSlotShown() && root.ownerDocument.activeElement === tab) loaded.focus();
+      this.stopDetailsFocusObserver();
+    });
+    this.detailsFocusObserver.observe(dock, { childList: true, subtree: true });
   }
   /**
    * Footer and zero-tile empty-board "New session": ask the host to open its
