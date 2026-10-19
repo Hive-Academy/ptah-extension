@@ -17,8 +17,8 @@ import { CommandCenterSessionCoordinator } from '../model/session-coordinator';
 import { CommandSceneComponent } from '../scene/command-scene.component';
 import { CommandOverlayComponent } from './command-overlay.component';
 import { CommandPendingInputComponent } from './command-pending-input.component';
-import { CommandSessionControlsComponent } from './command-session-controls.component';
-import { CommandVoiceHudComponent } from './command-voice-hud.component';
+import { CommandDockComponent } from './command-dock.component';
+import { CommandCenterHeaderComponent } from './command-center-header.component';
 import { CommandWorkListComponent } from './command-work-list.component';
 import { CommandCenterPageController } from './command-center-page.controller';
 import { CommandCenterTribunalTransport } from './command-center-tribunal.transport';
@@ -42,8 +42,8 @@ import { CommandSessionStatsComponent } from './command-session-stats.component'
     CommandSceneComponent,
     CommandOverlayComponent,
     CommandPendingInputComponent,
-    CommandSessionControlsComponent,
-    CommandVoiceHudComponent,
+    CommandDockComponent,
+    CommandCenterHeaderComponent,
     CommandWorkListComponent,
     CommandCenterStartComponent,
     CommandNodeDetailComponent,
@@ -57,396 +57,8 @@ import { CommandSessionStatsComponent } from './command-session-stats.component'
     CommandCenterPageController,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  styles: [
-    `
-      :host {
-        container-type: inline-size;
-      }
-      .layout {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) 336px;
-        grid-template-areas:
-          'stage rail'
-          'dock dock';
-        grid-template-rows: clamp(420px, calc(100vh - 280px), 620px) auto;
-        flex: 0 0 auto;
-        gap: 16px;
-        padding: 16px;
-      }
-      .stage-column {
-        grid-area: stage;
-        min-height: 0;
-      }
-      .dock {
-        grid-area: dock;
-      }
-      .stage {
-        position: relative;
-        flex: 1 1 auto;
-        min-height: 420px;
-      }
-      .rail {
-        grid-area: rail;
-        min-width: 0;
-        min-height: 0;
-        max-height: clamp(420px, calc(100vh - 280px), 620px);
-        overflow-y: auto;
-      }
-      .work-list-region {
-        min-height: 0;
-        flex: none;
-      }
-      .work-list-region:focus-visible {
-        outline: 2px solid currentColor;
-        outline-offset: -2px;
-      }
-      .pending-cue {
-        display: none;
-      }
-      @container (width >= 1280px) {
-        .dock {
-          flex-wrap: nowrap;
-        }
-      }
-      @container (width < 720px) {
-        .pending-cue {
-          display: block;
-        }
-        .layout {
-          display: flex;
-          flex-direction: column;
-        }
-        .dock:has(ptah-command-voice-hud [role='status']) {
-          order: -1;
-        }
-        .rail {
-          max-height: none;
-          overflow: visible;
-        }
-        .work-list-region {
-          flex: none;
-          max-height: 24rem;
-          overflow-y: auto;
-          overscroll-behavior: contain;
-        }
-        .stage {
-          flex: none;
-          min-height: 460px;
-        }
-      }
-      @container (width < 480px) {
-        .stage {
-          min-height: 360px;
-        }
-      }
-    `,
-  ],
-  template: `
-    <header
-      class="flex min-h-[72px] shrink-0 flex-wrap items-center justify-between gap-3 border-b border-base-300 px-4 py-2 text-base-content"
-    >
-      <div>
-        <p
-          class="text-xs font-semibold uppercase tracking-widest text-state-need"
-        >
-          Ptah / Engineering
-        </p>
-        <h1 class="text-xl font-semibold">Command Center</h1>
-      </div>
-      <div class="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
-        @if (page.store.voiceError()?.kind === 'mic-denied') {
-          <div
-            class="flex items-center gap-2 rounded-lg border border-error px-2 text-sm text-base-content"
-          >
-            <span>Microphone access blocked</span>
-            <button
-              type="button"
-              class="btn btn-ghost min-h-11 underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
-              (click)="page.openVoiceSettings()"
-            >
-              Open Voice settings
-            </button>
-          </div>
-        }
-        <button
-          type="button"
-          class="inline-flex min-h-11 min-w-0 max-w-full items-center gap-2 rounded-full border border-base-300 bg-base-200 px-3 font-mono text-[11px] font-semibold text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
-          [title]="voiceChipAriaLabel()"
-          [attr.aria-label]="voiceChipAriaLabel()"
-          (click)="page.openVoiceSettings()"
-        >
-          <span
-            class="size-2 shrink-0 rounded-full"
-            [class.bg-success]="voiceChipReady()"
-            [class.bg-warning]="!voiceChipReady()"
-            aria-hidden="true"
-          ></span>
-          <span class="min-w-0 truncate">{{ voiceChipText() }}</span>
-        </button>
-        <span class="badge badge-outline min-h-8 !text-xs" role="status"
-          >Session {{ page.store.sessionId()?.slice(0, 8) ?? 'new' }} ·
-          {{ page.shownSessionStatus() }}</span
-        >
-        @if (page.store.markedTabId()) {
-          <span
-            class="badge badge-outline min-h-8 !text-xs"
-            [class.text-base-content-muted]="!contextWarning()"
-            [class.text-state-need]="contextWarning()"
-            [class.border-state-need]="contextWarning()"
-          >
-            Context {{ contextCue().known ? contextCue().label : 'unknown' }}
-            @if (contextWarning()) {
-              <span>· Warning</span>
-            }
-          </span>
-        }
-        <button
-          type="button"
-          class="btn btn-ghost min-h-11 border border-base-content text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
-          (click)="page.openVoiceSettings()"
-        >
-          Voice settings
-        </button>
-      </div>
-    </header>
-    @if (page.store.toast(); as toast) {
-      <div
-        class="page-toast absolute right-4 top-16 z-20 alert max-w-md flex items-start gap-2 border border-base-300 border-l-4 bg-base-100 text-base-content shadow-lg"
-        [class.border-l-error]="toast.tone === 'error'"
-        [class.border-l-warning]="toast.tone === 'warning'"
-        [class.border-l-success]="toast.tone === 'success'"
-        [class.border-l-info]="toast.tone === 'info'"
-        [attr.role]="toast.tone === 'error' ? 'alert' : 'status'"
-      >
-        <span
-          aria-hidden="true"
-          class="font-bold"
-          [class.text-error]="toast.tone === 'error'"
-          [class.text-warning]="toast.tone === 'warning'"
-          [class.text-success]="toast.tone === 'success'"
-          [class.text-info]="toast.tone === 'info'"
-          >{{ toast.tone === 'error' ? '!' : '●' }}</span
-        >
-        <span class="min-w-0 flex-1 text-sm">{{ toast.message }}</span>
-        @if (toast.action === 'retry-speech') {
-          <button
-            type="button"
-            class="btn btn-sm text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
-            (click)="page.retrySpeech()"
-          >
-            Retry speech
-          </button>
-        }
-        @if (toast.action === 'retry-decline') {
-          <button
-            type="button"
-            class="btn btn-sm text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
-            (click)="page.retryInvalidDecline()"
-          >
-            Retry Decline
-          </button>
-        }
-        <button
-          type="button"
-          class="btn btn-ghost btn-sm text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
-          aria-label="Dismiss notification"
-          (click)="dismissToast()"
-        >
-          ×
-        </button>
-      </div>
-    }
-    @if (!page.store.markedTabId()) {
-      <ptah-command-center-start
-        [now]="page.now()"
-        [sessions]="page.coordinator.sessions()"
-        [status]="page.coordinator.listStatus()"
-        [expanded]="page.coordinator.showAll()"
-        [choosing]="page.coordinator.choosing()"
-        [currentTabId]="page.coordinator.currentTabId()"
-        [currentStats]="currentStats()"
-        [currentSessionId]="page.coordinator.currentSessionId()"
-        [recordedSessionId]="page.coordinator.recordedSessionId()"
-        (selected)="page.coordinator.chooseSession($event)"
-        (current)="page.coordinator.chooseCurrentTab()"
-        (newSession)="page.coordinator.newCommandCenter()"
-        (allSessions)="
-          page.coordinator.showAll()
-            ? page.coordinator.showAll.set(false)
-            : page.coordinator.openAllSessions()
-        "
-        (retry)="page.coordinator.refreshSessions()"
-      />
-    } @else {
-      @if (page.store.pendingInput() || page.shownProposal()) {
-        <button
-          type="button"
-          class="pending-cue mx-4 mt-2 min-h-11 rounded-lg border border-warning bg-base-200 px-3 text-left text-sm font-semibold text-base-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
-          (click)="jumpToPendingCard()"
-        >
-          Question waiting · Show question
-        </button>
-      }
-      <div class="layout">
-        <div class="stage-column relative flex min-h-0 min-w-0 flex-col">
-          @if (!page.canvasUnavailable()) {
-            <main
-              class="stage min-w-0 overflow-hidden rounded-xl border border-base-300 bg-base-200"
-            >
-              <ptah-command-scene
-                #scene
-                [projection]="page.projection()"
-                [selectedId]="page.store.selectedId()"
-                [theme]="page.store.theme()"
-                [voiceState]="page.store.voiceState()"
-                [inputLevel]="page.store.inputLevel()"
-                [outputLevel]="page.store.outputLevel()"
-                (selection)="page.store.select($event)"
-                (hoveredNodeId)="page.hoveredNodeId.set($event)"
-                (canvasUnavailable)="page.canvasUnavailable.set($event)"
-              />
-              <ptah-command-overlay
-                #overlay
-                [now]="page.now()"
-                [projection]="page.projection()"
-                [visibleLabelIds]="visibleLabelIds()"
-                [hoveredNodeId]="page.hoveredNodeId()"
-                [selectedId]="page.store.selectedId()"
-                [reducedMotion]="page.store.reducedMotion()"
-                [rootContextPercent]="
-                  contextCue().known ? contextCue().percent : null
-                "
-                [rootContextTone]="contextWarning() ? 'warning' : 'normal'"
-                [childStats]="childStats()"
-                (focusWorkListRow)="focusWorkRow($event)"
-              />
-              <div class="pointer-events-none absolute left-5 top-5 z-10">
-                <p
-                  class="text-xs font-semibold uppercase tracking-widest text-state-need"
-                >
-                  Live orchestration
-                </p>
-                <p class="mt-1 text-xs text-base-content-muted">
-                  {{ page.shownSessionStatus() }} ·
-                  {{ page.projection().nodes.length }} nodes
-                  @if (stageCounts().running) {
-                    · {{ stageCounts().running }} running
-                  }
-                  @if (stageCounts().waiting) {
-                    · {{ stageCounts().waiting }} waiting
-                  }
-                </p>
-                <ptah-command-session-stats
-                  class="mt-2 block"
-                  [snapshot]="rootStats()"
-                />
-              </div>
-              <p
-                class="pointer-events-none absolute right-5 top-5 z-10 text-xs font-semibold tracking-widest text-base-content-muted"
-              >
-                01 / Voice command
-              </p>
-              <p
-                class="pointer-events-none absolute bottom-5 left-5 right-5 z-10 text-xs uppercase tracking-wide text-base-content-muted"
-              >
-                Select a sphere for status
-              </p>
-            </main>
-          }
-        </div>
-        <div
-          class="dock flex flex-wrap items-center gap-2 rounded-xl border border-base-300 bg-base-200 p-2"
-          aria-label="Command dock"
-        >
-          <ptah-command-session-controls
-            class="min-w-0 flex-[1_1_26rem]"
-            [sessionStatus]="page.shownSessionStatus()"
-            (newSession)="page.coordinator.newCommandCenter()"
-            (requestStatus)="requestStatus()"
-            (commandSubmit)="submitCommand($event)"
-          />
-          <ptah-command-voice-hud
-            class="min-w-0 flex-[1_1_24rem]"
-            [voiceState]="page.store.voiceState()"
-            [provider]="page.store.provider()"
-            [muted]="page.store.muted()"
-            [voiceError]="page.store.voiceError()"
-            [inputLevel]="page.store.inputLevel()"
-            [outputLevel]="page.store.outputLevel()"
-            [turnAbortable]="page.turnAbortable()"
-            (start)="page.startVoice()"
-            (stop)="page.stopVoice()"
-            (toggleMute)="page.toggleMuteVoice()"
-            (interrupt)="page.interruptSpeech()"
-            (openVoiceSettings)="page.openVoiceSettings()"
-          />
-        </div>
-        <aside class="rail flex flex-col gap-3">
-          @if (page.recordWriteFailure()) {
-            <p role="status" class="rounded-lg border border-warning p-2">
-              The session pointer could not be saved. You can continue using
-              this session.
-            </p>
-          }
-          @if (selectedNode(); as node) {
-            <section
-              class="rounded-xl border border-base-300 bg-base-200 p-4 text-base-content"
-              aria-label="Selected work"
-            >
-              <p
-                class="text-xs font-semibold uppercase tracking-wide text-base-content-muted"
-              >
-                Selected ·
-                {{ node.kind === 'root' ? 'Orchestrator' : node.kind }}
-              </p>
-              <ptah-command-node-detail
-                class="mt-2 block"
-                [node]="node"
-                [phaseCount]="phaseCount(node.id)"
-                [childStats]="childStats()[node.id] ?? null"
-                [now]="page.now()"
-                [reducedMotion]="page.store.reducedMotion()"
-              />
-            </section>
-          }
-          <ptah-command-pending-input
-            #pendingCard
-            [pending]="page.store.pendingInput()"
-            [proposal]="page.shownProposal()"
-            [choices]="page.ordinaryChoices()"
-            [timedOut]="page.rosterTimedOut()"
-            [answerResult]="answerResult()"
-            (confirm)="page.confirmProposal($event.proposalId)"
-            (decline)="page.declineProposal($event)"
-            (response)="answerPendingInput($event)"
-          />
-          @if (page.latestReply(); as reply) {
-            <p
-              class="rounded-lg border border-base-300 p-3 text-sm whitespace-pre-wrap"
-            >
-              {{ reply }}
-            </p>
-          }
-          <div
-            class="work-list-region"
-            tabindex="0"
-            role="region"
-            aria-label="Delegated work list"
-          >
-            <ptah-command-work-list
-              [now]="page.now()"
-              [overflowCompleted]="overflow().completed"
-              [overflowOther]="overflow().other"
-              [projection]="page.projection()"
-              [reducedMotion]="page.store.reducedMotion()"
-              [selectedId]="page.store.selectedId()"
-              (selection)="page.store.select($event)"
-            />
-          </div>
-        </aside>
-      </div>
-    }
-  `,
+  templateUrl: './command-center-page.component.html',
+  styleUrl: './command-center-page.component.css',
 })
 export class CommandCenterPageComponent {
   public readonly page = inject(CommandCenterPageController);
@@ -562,7 +174,11 @@ export class CommandCenterPageComponent {
     completed: this.scene()?.layout().overflowCompleted ?? 0,
     other: this.scene()?.layout().overflowOther ?? 0,
   }));
-  private readonly controls = viewChild(CommandSessionControlsComponent);
+  private readonly dock = viewChild(CommandDockComponent);
+  private readonly statsBand = viewChild<ElementRef<HTMLElement>>('statsBand');
+  public readonly statsBandHeight = signal(72);
+  private bandObserver: ResizeObserver | null = null;
+  private observedBand: HTMLElement | null = null;
   private submitting = false;
   public readonly visibleLabelIds = computed(
     () =>
@@ -588,7 +204,7 @@ export class CommandCenterPageComponent {
     if (this.submitting) return;
     this.submitting = true;
     try {
-      if (await this.page.sendCommand(text)) this.controls()?.clearDraft(text);
+      if (await this.page.sendCommand(text)) this.dock()?.clearDraft(text);
     } catch {
       // degradation-audit: reported — a thrown send gets the fixed-text toast; the draft stays for a retry
       this.page.store.setToast({
@@ -641,13 +257,32 @@ export class CommandCenterPageComponent {
       });
     });
     this.destroyRef.onDestroy(() => {
+      this.bandObserver?.disconnect();
       this.overlay()?.closeCard();
       void this.page.exit();
     });
     afterEveryRender(() => {
+      this.observeStatsBand();
       this.measureOverlay();
       this.scrollToNewPendingCard();
     });
+  }
+
+  private observeStatsBand(): void {
+    const band = this.statsBand()?.nativeElement ?? null;
+    if (band === this.observedBand || typeof ResizeObserver === 'undefined') return;
+    if (!this.bandObserver) {
+      this.bandObserver = new ResizeObserver((entries) => {
+        const entry = entries.find((candidate) => candidate.target === this.observedBand);
+        if (!entry) return;
+        const height = entry.borderBoxSize?.[0]?.blockSize ??
+          (entry.target instanceof HTMLElement ? entry.target.getBoundingClientRect().height : 0);
+        if (height > 0 && Number.isFinite(height)) this.statsBandHeight.set(height);
+      });
+    }
+    if (this.observedBand) this.bandObserver.unobserve(this.observedBand);
+    this.observedBand = band;
+    if (band) this.bandObserver.observe(band);
   }
 
   private scrollToNewPendingCard(): void {

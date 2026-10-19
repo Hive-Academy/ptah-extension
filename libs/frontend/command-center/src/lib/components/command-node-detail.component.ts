@@ -56,82 +56,101 @@ export interface CommandChildStats {
   imports: [MonogramTileComponent, ProviderMarkComponent, LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="flex min-w-0 items-start gap-2">
-      @if (knownProvider()) {
-        <ptah-provider-mark [providerId]="node().providerId ?? ''" size="sm" />
-      } @else {
-        <ptah-monogram-tile
-          [label]="node().providerId || node().label"
-          size="sm"
-        />
+    <div class="min-w-0">
+      <h2
+        class="break-words font-display text-[28px] font-medium leading-tight text-base-content"
+      >
+        {{ node().label }}
+      </h2>
+      @if (subtitle(); as description) {
+        <p class="mt-1 text-[13px] leading-5 text-base-content-muted">
+          {{ description }}
+        </p>
       }
-      <div class="min-w-0 flex-1">
-        <p class="truncate text-sm font-semibold">{{ node().label }}</p>
-        @if (taskPreview(); as task) {
-          <p
-            class="mt-1 line-clamp-2 break-words text-xs text-base-content-muted"
-          >
-            {{ task }}
+      <span
+        class="mt-4 inline-flex items-center gap-2 rounded-md border border-base-300 bg-base-100 px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-widest text-base-content"
+      >
+        <lucide-angular
+          [img]="stateIcon(node().state)"
+          class="h-3 w-3"
+          [class]="stateColor(node().state)"
+          aria-hidden="true"
+          [class.animate-spin]="
+            (node().state === 'running' || node().state === 'starting') &&
+            !reducedMotion()
+          "
+        />
+        {{ node().state }}
+      </span>
+      <div
+        class="mt-4 space-y-1 break-words font-mono text-[11px] leading-[1.7] text-base-content-muted"
+      >
+        @if (visibleProvider(); as provider) {
+          <p class="flex items-center gap-1.5">
+            @if (knownProvider()) {
+              <ptah-provider-mark
+                [providerId]="provider"
+                size="sm"
+                aria-hidden="true"
+              />
+            } @else {
+              <ptah-monogram-tile [label]="provider" size="sm" />
+            }
+            <span
+              >Provider:
+              <span class="text-base-content">{{ providerName() }}</span></span
+            >
           </p>
         }
-        <p
-          class="mt-1 inline-flex items-center gap-1 text-xs"
-          [class]="stateColor(node().state)"
-        >
-          <lucide-angular
-            [img]="stateIcon(node().state)"
-            class="h-3 w-3"
-            aria-hidden="true"
-            [class.animate-spin]="
-              (node().state === 'running' || node().state === 'starting') &&
-              !reducedMotion()
-            "
-          />
-          {{ node().state }}
-        </p>
+        @if (taskPreview(); as task) {
+          <p class="line-clamp-2">Task: {{ task }}</p>
+        }
         @if (runningDuration(); as duration) {
-          <p class="text-xs text-base-content-muted">
-            Running for {{ duration }}
-          </p>
+          <p>Running for {{ duration }}</p>
         }
         @if (phaseCount(); as phase) {
-          <p class="text-xs text-base-content-muted">
-            Phase {{ phase.done }} / {{ phase.total }}
-          </p>
+          <p>Phase {{ phase.done }} / {{ phase.total }}</p>
         }
         @if (freshness(); as age) {
-          <p class="text-xs text-base-content-muted">Updated {{ age }}</p>
+          <p>Updated {{ age }}</p>
         }
         @if (childStats(); as stats) {
-          <p class="text-xs text-base-content-muted">
-            @if (stats.messages !== undefined) {
-              <span>{{ stats.messages }} messages </span>
-            }
-            @if (stats.tokens !== undefined) {
-              <span>
-                @if (stats.provisional) {
-                  <span class="sr-only">estimated </span>
-                }
-                {{
-                  (stats.provisional ? '~' : '') + formatTokens(stats.tokens)
-                }}
-                tokens
-              </span>
-            }
-            @if (stats.active !== undefined) {
-              <span>{{ stats.active }} active </span>
-            }
-            @if (stats.costUsd !== undefined) {
-              <span>
-                @if (stats.provisional) {
-                  <span class="sr-only">estimated </span>
-                }
-                {{
-                  (stats.provisional ? '~' : '') + formatCost(stats.costUsd)
-                }}</span
-              >
-            }
-          </p>
+          @if (
+            stats.messages !== undefined ||
+            stats.tokens !== undefined ||
+            stats.active !== undefined ||
+            stats.costUsd !== undefined
+          ) {
+            <p class="flex flex-wrap gap-x-2 gap-y-0.5">
+              @if (stats.messages !== undefined) {
+                <span>{{ stats.messages }} messages</span>
+              }
+              @if (stats.tokens !== undefined) {
+                <span>
+                  @if (stats.provisional) {
+                    <span class="sr-only">estimated </span>
+                  }
+                  {{
+                    (stats.provisional ? '~' : '') + formatTokens(stats.tokens)
+                  }}
+                  tokens
+                </span>
+              }
+              @if (stats.active !== undefined) {
+                <span>{{ stats.active }} active</span>
+              }
+              @if (stats.costUsd !== undefined) {
+                <span>
+                  @if (stats.provisional) {
+                    <span class="sr-only">estimated </span>
+                  }
+                  {{
+                    (stats.provisional ? '~' : '') + formatCost(stats.costUsd)
+                  }}
+                </span>
+              }
+            </p>
+          }
         }
       </div>
     </div>
@@ -161,12 +180,40 @@ export class CommandNodeDetailComponent {
         Object.hasOwn(PROVIDER_MARKS, id))
     );
   });
+  public readonly visibleProvider = computed(() => {
+    const id = this.node().providerId;
+    return id && id.toLowerCase() !== 'unknown' ? id : null;
+  });
+  public readonly providerName = computed(() => {
+    const id = this.node().providerId;
+    return id && this.knownProvider()
+      ? id
+          .replace(/[-_]+/g, ' ')
+          .replace(/\b\w/g, (letter) => letter.toUpperCase())
+      : id;
+  });
+  public readonly subtitle = computed(() => {
+    switch (this.node().kind) {
+      case 'root':
+        return null;
+      case 'child':
+        return 'Ptah agent child session';
+      case 'tribunal':
+        return 'Tribunal group';
+      case 'phase':
+        return 'Work phase';
+      default:
+        return 'Delegated engineering work';
+    }
+  });
   public readonly taskPreview = computed(() => {
     const firstLine = this.node()
       .task?.split(/\r?\n/)
       .find((line) => line.trim())
       ?.trim();
-    return firstLine ? firstLine.slice(0, 160) : null;
+    return firstLine && firstLine !== this.subtitle()
+      ? firstLine.slice(0, 160)
+      : null;
   });
   public readonly freshness = computed(() =>
     relativeTime(this.node().updatedAt, this.now()),

@@ -83,4 +83,112 @@ describe('CommandNodeDetailComponent', () => {
     fixture.detectChanges();
     expect(text()).not.toContain('Running for');
   });
+
+  it('shows a root task as escaped text beneath its heading', () => {
+    TestBed.configureTestingModule({ imports: [CommandNodeDetailComponent] });
+    const fixture = TestBed.createComponent(CommandNodeDetailComponent);
+    fixture.componentRef.setInput('node', {
+      ...node,
+      id: 'root:1',
+      kind: 'root',
+      parentId: null,
+      label: 'Ptah',
+      providerId: null,
+      task: '<b>x</b>\nSecond line',
+      state: 'idle',
+      updatedAt: undefined,
+    });
+    fixture.componentRef.setInput('now', 1_000_000);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelector('h2')?.textContent?.trim()).toBe('Ptah');
+    expect(host.textContent).toContain('idle');
+    expect(host.textContent).toContain('Task: <b>x</b>');
+    expect(host.querySelector('b')).toBeNull();
+    expect(host.textContent).not.toContain('Second line');
+    expect(host.textContent).not.toContain('Delegated engineering work');
+    expect(host.textContent).not.toContain('Provider:');
+  });
+
+  it('shows a live child with its provider, freshness and supplied figures', () => {
+    TestBed.configureTestingModule({ imports: [CommandNodeDetailComponent] });
+    const fixture = TestBed.createComponent(CommandNodeDetailComponent);
+    fixture.componentRef.setInput('node', {
+      ...node,
+      kind: 'child',
+      label: 'Release review',
+      tabId: 'child-tab',
+      task: 'Ptah agent child session',
+    });
+    fixture.componentRef.setInput('now', 1_000_000);
+    fixture.componentRef.setInput('childStats', {
+      messages: 7,
+      tokens: 12_345,
+      costUsd: 0.42,
+    });
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelector('h2')?.textContent?.trim()).toBe(
+      'Release review',
+    );
+    expect(host.textContent).toContain('Ptah agent child session');
+    expect(host.textContent).toContain('Provider: Codex');
+    expect(host.querySelector('ptah-provider-mark')).not.toBeNull();
+    expect(host.textContent).not.toContain('Task:');
+    expect(host.textContent).toContain('Updated 3m ago');
+    expect(host.textContent).toContain('7 messages');
+    expect(host.textContent).toContain('12.3k tokens');
+    expect(host.textContent).toContain('$0.42');
+    expect(host.textContent).not.toContain('tab available');
+  });
+
+  it('keeps an unknown provider id raw with a decorative monogram', () => {
+    TestBed.configureTestingModule({ imports: [CommandNodeDetailComponent] });
+    const fixture = TestBed.createComponent(CommandNodeDetailComponent);
+    fixture.componentRef.setInput('node', {
+      ...node,
+      kind: 'child',
+      label: 'Saved child',
+      providerId: 'custom_agent-7',
+      state: 'unknown',
+      task: undefined,
+      updatedAt: undefined,
+    });
+    fixture.componentRef.setInput('now', 1_000_000);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.textContent).toContain('Provider: custom_agent-7');
+    expect(
+      host.querySelector('ptah-monogram-tile')?.getAttribute('aria-hidden'),
+    ).toBe('true');
+    expect(host.querySelector('ptah-provider-mark')).toBeNull();
+    fixture.componentRef.setInput('node', { ...node, providerId: 'unknown' });
+    fixture.detectChanges();
+    expect(host.textContent).not.toContain('Provider:');
+  });
+
+  it('keeps persisted child detail static and omits unavailable fields', () => {
+    TestBed.configureTestingModule({ imports: [CommandNodeDetailComponent] });
+    const fixture = TestBed.createComponent(CommandNodeDetailComponent);
+    fixture.componentRef.setInput('node', {
+      ...node,
+      kind: 'child',
+      label: 'Saved child',
+      providerId: null,
+      state: 'unknown',
+      task: undefined,
+      updatedAt: undefined,
+    });
+    fixture.componentRef.setInput('now', 1_000_000);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.textContent).toContain('Ptah agent child session');
+    expect(host.textContent).toContain('unknown');
+    expect(host.textContent).not.toContain('Provider:');
+    expect(host.textContent).not.toMatch(
+      /messages|tokens|\$|Updated|Running for|Phase|Task:|tab/i,
+    );
+    expect(host.querySelector('button, a, input, [tabindex]')).toBeNull();
+    expect(host.querySelector('h2')).not.toBeNull();
+  });
 });

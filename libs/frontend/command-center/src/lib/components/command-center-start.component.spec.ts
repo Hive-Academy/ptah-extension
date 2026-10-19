@@ -35,16 +35,16 @@ describe('CommandCenterStartComponent', () => {
     const select = jest.fn();
     fixture.componentInstance.allSessions.subscribe(all);
     fixture.componentInstance.selected.subscribe(select);
-    expect(fixture.nativeElement.querySelectorAll('.grid button')).toHaveLength(
+    expect(fixture.nativeElement.querySelectorAll('[data-testid="recent-grid"] button')).toHaveLength(
       5,
     );
     fixture.nativeElement.querySelectorAll('button')[1].click();
     expect(all).toHaveBeenCalledTimes(1);
-    fixture.nativeElement.querySelector('.grid button').click();
+    fixture.nativeElement.querySelector('[data-testid="recent-grid"] button').click();
     expect(select).toHaveBeenCalledWith(sessions[0].id);
     fixture.componentRef.setInput('expanded', true);
     fixture.detectChanges();
-    expect(fixture.nativeElement.querySelectorAll('.grid button')).toHaveLength(
+    expect(fixture.nativeElement.querySelectorAll('[data-testid="recent-grid"] button')).toHaveLength(
       7,
     );
   });
@@ -74,14 +74,14 @@ describe('CommandCenterStartComponent', () => {
       { ...sessions[1], providerId: 'custom-provider' },
     ]);
     fixture.detectChanges();
-    const cards = fixture.nativeElement.querySelectorAll('.grid button');
+    const cards = fixture.nativeElement.querySelectorAll('[data-testid="recent-grid"] button');
     expect(cards[0].querySelector('ptah-provider-mark')).not.toBeNull();
     expect(cards[0].querySelector('ptah-monogram-tile')).toBeNull();
     expect(cards[1].querySelector('ptah-provider-mark')).toBeNull();
     expect(cards[1].querySelector('ptah-monogram-tile')).not.toBeNull();
   });
 
-  it('shows six static recency bars by age and omits them for an invalid timestamp', () => {
+  it('shows valid relative time and omits decorative age bars', () => {
     const fixture = render();
     fixture.componentRef.setInput('now', 2_000_000);
     fixture.componentRef.setInput('sessions', [
@@ -90,26 +90,9 @@ describe('CommandCenterStartComponent', () => {
       { ...sessions[2], lastActivityAt: Number.NaN },
     ]);
     fixture.detectChanges();
-    const cards = fixture.nativeElement.querySelectorAll('.grid button');
-    const firstBars = cards[0].querySelectorAll(
-      '[data-testid="activity-bars"] > span',
-    );
-    const secondBars = cards[1].querySelectorAll(
-      '[data-testid="activity-bars"] > span',
-    );
-    expect(firstBars).toHaveLength(6);
-    expect(
-      [...firstBars].filter(
-        (bar: HTMLElement) => bar.dataset['active'] === 'true',
-      ),
-    ).toHaveLength(6);
-    expect(
-      [...secondBars].filter(
-        (bar: HTMLElement) => bar.dataset['active'] === 'true',
-      ),
-    ).toHaveLength(5);
+    const cards = fixture.nativeElement.querySelectorAll('[data-testid="recent-grid"] button');
+    expect(fixture.nativeElement.querySelector('[data-testid="activity-bars"]')).toBeNull();
     expect(cards[1].textContent).toContain('Updated 3m ago');
-    expect(cards[2].querySelector('[data-testid="activity-bars"]')).toBeNull();
     expect(cards[2].textContent).toContain('No recent activity');
     expect(cards[2].getAttribute('aria-label')).toContain('No recent activity');
     expect(cards[2].textContent).not.toContain('Updated Unknown');
@@ -137,7 +120,7 @@ describe('CommandCenterStartComponent', () => {
     ]);
     fixture.detectChanges();
     const cards: NodeListOf<HTMLButtonElement> =
-      fixture.nativeElement.querySelectorAll('.grid button');
+      fixture.nativeElement.querySelectorAll('[data-testid="recent-grid"] button');
     expect(cards[0].getAttribute('aria-label')).toBe(
       'Session 0, Updated 3m ago, 12 messages, 150 tokens, Active, awaiting background, History unavailable',
     );
@@ -162,7 +145,7 @@ describe('CommandCenterStartComponent', () => {
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('Current');
     expect(fixture.nativeElement.textContent).toContain('Command Center');
-    expect(fixture.nativeElement.querySelectorAll('.grid button')).toHaveLength(
+    expect(fixture.nativeElement.querySelectorAll('[data-testid="recent-grid"] button')).toHaveLength(
       4,
     );
   });
@@ -194,7 +177,7 @@ describe('CommandCenterStartComponent', () => {
       current.querySelector('[data-testid="current-figures"]')?.textContent,
     ).toContain('~12');
     expect(
-      fixture.nativeElement.querySelector('.grid')?.textContent,
+      fixture.nativeElement.querySelector('[data-testid="recent-grid"]')?.textContent,
     ).not.toContain('$0.20');
     fixture.componentRef.setInput('currentStats', {
       sessionId: 'current',
@@ -239,3 +222,5 @@ describe('CommandCenterStartComponent', () => {
     ).toBe(true);
   });
 });
+
+

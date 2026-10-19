@@ -10,27 +10,44 @@ import {
 } from '@angular/core';
 import type { CommandPendingInput } from '../model/command-center.store';
 import type { TribunalRosterProposal } from '../model/tribunal-roster-proposal';
+import {
+  LucideAngularModule,
+  MessageCircleQuestion,
+  Shield,
+  ShieldAlert,
+} from 'lucide-angular';
 
 @Component({
   selector: 'ptah-command-pending-input',
   standalone: true,
+  imports: [LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
+    <p class="sr-only" aria-live="assertive" aria-atomic="true">
+      {{ pending() ? 'Action required: ' + pending()!.title : '' }}
+    </p>
     @if (pending(); as request) {
       <section
-        class="rounded-xl border border-state-need bg-base-200 p-3 text-base-content"
+        class="rounded-2xl border border-state-need bg-base-200 p-4 text-base-content shadow-lg"
         aria-labelledby="pending-title"
       >
-        <p
-          class="text-xs font-semibold uppercase tracking-wide text-state-need"
-        >
-          Action required · {{ request.kind }}
-        </p>
-        <h2 id="pending-title" class="mt-2 font-semibold">
+        <div class="flex items-center gap-2 text-state-need">
+          <lucide-angular
+            [img]="proposal() ? Shield : request.kind === 'approval' ? ShieldAlert : MessageCircleQuestion"
+            class="h-4 w-4 shrink-0"
+            aria-hidden="true"
+            data-test="pending-kind-icon"
+          />
+          <p class="font-mono text-xs font-semibold uppercase tracking-wide">
+            Action required · {{ proposal() ? 'Tribunal' : request.kind }}
+          </p>
+        </div>
+        <h2 id="pending-title" class="mt-2 font-semibold leading-snug">
           {{ request.title }}
         </h2>
+        <p class="mt-1 text-xs text-base-content-muted">For this session</p>
         <p
-          class="mt-2 max-h-[96px] overflow-y-auto whitespace-pre-wrap text-sm"
+          class="mt-2 max-h-[96px] overflow-y-auto whitespace-pre-wrap text-sm text-base-content-muted"
         >
           {{ request.description }}
         </p>
@@ -74,17 +91,20 @@ import type { TribunalRosterProposal } from '../model/tribunal-roster-proposal';
               </button>
             </div>
           } @else {
-            <p class="mt-3 font-semibold text-error" role="status">
+            <p id="invalid-tribunal-proposal" class="mt-3 font-semibold text-error" role="status">
               Invalid Tribunal proposal. It cannot be confirmed.
             </p>
-            <button
-              type="button"
-              class="btn btn-outline mt-3 min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
-              [disabled]="declinedIds().has(roster.proposalId)"
-              (click)="declineRoster(roster.proposalId)"
-            >
-              Decline
-            </button>
+            <div class="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                class="btn btn-outline min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+                [disabled]="declinedIds().has(roster.proposalId)"
+                (click)="declineRoster(roster.proposalId)"
+              >
+                Decline
+              </button>
+              <button type="button" class="btn btn-warning min-h-11" aria-describedby="invalid-tribunal-proposal" disabled>Confirm Tribunal</button>
+            </div>
           }
         } @else {
           @if (request.kind === 'question') {
@@ -189,6 +209,9 @@ import type { TribunalRosterProposal } from '../model/tribunal-roster-proposal';
   `,
 })
 export class CommandPendingInputComponent {
+  public readonly Shield = Shield;
+  public readonly ShieldAlert = ShieldAlert;
+  public readonly MessageCircleQuestion = MessageCircleQuestion;
   public readonly pending = input<CommandPendingInput | null>(null);
   public readonly proposal = input<TribunalRosterProposal | null>(null);
   public readonly choices = input<readonly string[]>([]);

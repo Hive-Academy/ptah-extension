@@ -35,6 +35,7 @@ describe('CommandSceneComponent', () => {
     scale: jest.fn(),
   });
   const disconnect = jest.fn();
+  const motionRemove = jest.fn();
   let getContext: jest.SpyInstance;
   let sprite: jest.SpyInstance;
 
@@ -63,7 +64,7 @@ describe('CommandSceneComponent', () => {
       value: jest.fn(() => ({
         matches: false,
         addEventListener: jest.fn(),
-        removeEventListener: jest.fn(),
+        removeEventListener: motionRemove,
       })),
     });
     getContext = jest
@@ -84,14 +85,68 @@ describe('CommandSceneComponent', () => {
     jest.restoreAllMocks();
   });
 
-  const create = async () => {
+  const create = async (reservedTop = 72) => {
     const fixture = TestBed.createComponent(CommandSceneComponent);
     fixture.componentRef.setInput('projection', projection);
+    fixture.componentRef.setInput('reservedTop', reservedTop);
     fixture.detectChanges();
     await fixture.whenStable();
     fixture.detectChanges();
     return fixture;
   };
+
+  it('uses the supplied stage band height once for the bounded scene', async () => {
+    const snapshots = jest.spyOn(CommandSceneRenderer.prototype, 'setSnapshot');
+    const fixture = await create(144);
+    expect(snapshots).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        sceneRect: { x: 0, y: 154, width: 800, height: 384 },
+      }),
+    );
+    expect(fixture.componentInstance.layout().nodes[0]).toEqual(
+      expect.objectContaining({ x: 400, y: 346 }),
+    );
+    fixture.componentRef.setInput('reservedTop', 154);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(snapshots).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        sceneRect: { x: 0, y: 164, width: 800, height: 374 },
+      }),
+    );
+    fixture.destroy();
+  });
+
+  it('initializes and tears down when ResizeObserver is unavailable', async () => {
+    const observer = globalThis.ResizeObserver;
+    Object.defineProperty(globalThis, 'ResizeObserver', {
+      configurable: true,
+      value: undefined,
+    });
+    const themeDisconnect = jest.spyOn(
+      MutationObserver.prototype,
+      'disconnect',
+    );
+    const documentRemove = jest.spyOn(document, 'removeEventListener');
+    const fixture = await create(72);
+    const canvas = fixture.nativeElement.querySelector(
+      'canvas',
+    ) as HTMLCanvasElement;
+    const remove = jest.spyOn(canvas, 'removeEventListener');
+    fixture.destroy();
+    expect(disconnect).not.toHaveBeenCalled();
+    expect(themeDisconnect).toHaveBeenCalled();
+    expect(motionRemove).toHaveBeenCalledWith('change', expect.any(Function));
+    expect(documentRemove).toHaveBeenCalledWith(
+      'visibilitychange',
+      expect.any(Function),
+    );
+    expect(remove).toHaveBeenCalledWith('click', expect.any(Function));
+    Object.defineProperty(globalThis, 'ResizeObserver', {
+      configurable: true,
+      value: observer,
+    });
+  });
 
   it('positions the overflow pill below the page caption', async () => {
     const fixture = await create();
@@ -103,7 +158,7 @@ describe('CommandSceneComponent', () => {
     const chip = Array.from(
       (fixture.nativeElement as HTMLElement).querySelectorAll('span'),
     ).find((element) => element.textContent?.includes('+2 more'));
-    expect(chip?.className).toContain('top-12');
+    expect(chip?.style.top).toBe('88px');
     expect(chip?.className).toContain('right-5');
   });
 
@@ -212,7 +267,7 @@ describe('CommandSceneComponent', () => {
     fixture.destroy();
   });
 
-  it('does not resolve canvas inks during voice or theme class updates', async () => {
+  it('resolves canvas inks for theme changes without rereading them for voice updates', async () => {
     const fixture = await create();
     const styles = jest.spyOn(window, 'getComputedStyle');
     const stage = (fixture.nativeElement as HTMLElement).querySelector(
@@ -225,15 +280,16 @@ describe('CommandSceneComponent', () => {
     fixture.componentRef.setInput('theme', 'light');
     fixture.detectChanges();
     await fixture.whenStable();
-    expect(stageReads()).toBe(initialReads);
+    expect(stageReads()).toBeGreaterThan(initialReads);
+    const lightReads = stageReads();
     fixture.componentRef.setInput('inputLevel', 0.5);
     fixture.detectChanges();
     await fixture.whenStable();
-    expect(stageReads()).toBe(initialReads);
+    expect(stageReads()).toBe(lightReads);
     fixture.componentRef.setInput('theme', 'dark');
     fixture.detectChanges();
     await fixture.whenStable();
-    expect(stageReads()).toBe(initialReads);
+    expect(stageReads()).toBeGreaterThan(lightReads);
     styles.mockRestore();
     fixture.destroy();
   });
