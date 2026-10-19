@@ -1,5 +1,5 @@
 :host { display: flex; flex-direction: column; min-height: 0; container-type: inline-size; }
-.layout { display: grid; flex: 1 1 auto; min-height: 0; grid-template-columns: minmax(0, 1fr) 336px; grid-template-rows: minmax(600px, 1fr) auto; grid-template-areas: 'stage rail' 'dock rail'; column-gap: 16px; row-gap: 14px; padding: 16px 22px 22px; min-width: 0; }
+.layout { display: grid; flex: 1 1 auto; min-height: 0; grid-template-columns: minmax(0, 1fr) 296px; grid-template-rows: minmax(600px, 1fr) auto; grid-template-areas: 'stage rail' 'dock rail'; column-gap: 12px; row-gap: 10px; padding: 16px; min-width: 0; }
 .stage-column { grid-area: stage; min-width: 0; min-height: 0; }
 .stage { position: relative; display: block; width: 100%; height: 100%; min-height: 600px; border-radius: 16px; isolation: isolate; }
 .dock { grid-area: dock; align-self: start; }
@@ -13,6 +13,6 @@
 .stage-stats { min-width: 0; }
 .pending-cue { display: none; }
 @container (min-width: 1100px) { .stats-band { height: 72px; flex-direction: row; align-items: center; justify-content: space-between; } .stage-caption { flex: 0 0 auto; } .stage-stats { flex: 1 1 auto; max-width: 620px; } }
-@container (max-width: 1000px) { .layout { grid-template-columns: minmax(0, 1fr) 260px; grid-template-rows: minmax(570px, 1fr) auto; } .stage { min-height: 570px; } }
+@container (max-width: 1000px) { .layout { grid-template-columns: minmax(0, 1fr) 240px; grid-template-rows: minmax(570px, 1fr) auto; } .stage { min-height: 570px; } }
 @container (max-width: 720px) { .layout { display: flex; flex: none; flex-direction: column; } .stage-column, .dock, .rail { flex: none; width: 100%; } .stage { min-height: 500px; } .rail { overflow: visible; } .work-list-region { display: block; flex: none; max-height: 24rem; } .work-list-region > ptah-command-work-list { display: block; min-height: auto; } .pending-cue { display: block; } }
 @container (max-width: 480px) { .layout { grid-template-rows: minmax(500px, 1fr) auto; } .stage { min-height: 500px; } .stats-band { height: 154px; } }

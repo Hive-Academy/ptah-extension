@@ -21,11 +21,15 @@ describe('CommandDockComponent', () => {
     expect(dock.querySelectorAll('ptah-command-session-controls')).toHaveLength(1);
     expect(dock.querySelector('.session-support')).not.toBeNull();
     expect(dock.querySelector('.command-entry .session-support')).toBeNull();
+    expect(dock.classList.contains('p-2')).toBe(true);
+    expect(dock.querySelector('.voice-identity button')?.classList.contains('h-10')).toBe(true);
+    expect(dock.querySelector('.session-support')?.classList.contains('text-[11px]')).toBe(true);
     const styles = commandDockStyles;
     const [desktop, narrowAndMobile] = styles.split('@container (max-width: 1100px)');
     const [narrow, mobileAndMotion] = narrowAndMobile.split('@container (max-width: 720px)');
     const [mobile] = mobileAndMotion.split('@media (prefers-reduced-motion: reduce)');
 
+    expect(desktop).toContain('gap: 4px 8px');
     expect(desktop).toContain('.voice-identity { grid-row: 1; grid-column: 1;');
     expect(desktop).toContain('.voice-actions { grid-row: 1; grid-column: 2;');
     expect(desktop).toContain('.command-entry { grid-row: 1; grid-column: 3;');

@@ -95,6 +95,38 @@ describe('CommandSceneComponent', () => {
     return fixture;
   };
 
+  it('pauses off-screen painting and resumes when the canvas intersects', async () => {
+    const original = globalThis.IntersectionObserver;
+    let onIntersection: IntersectionObserverCallback = () => undefined;
+    const intersectionDisconnect = jest.fn();
+    Object.defineProperty(globalThis, 'IntersectionObserver', {
+      configurable: true,
+      value: class {
+        public observe = jest.fn();
+        public disconnect = intersectionDisconnect;
+        public constructor(callback: IntersectionObserverCallback) {
+          onIntersection = callback;
+        }
+      },
+    });
+    try {
+      const hidden = jest.spyOn(CommandSceneRenderer.prototype, 'setHidden');
+      const fixture = await create();
+      const canvas = fixture.nativeElement.querySelector('canvas') as HTMLCanvasElement;
+      onIntersection([{ target: canvas, isIntersecting: false } as IntersectionObserverEntry], {} as IntersectionObserver);
+      expect(hidden).toHaveBeenLastCalledWith(true);
+      onIntersection([{ target: canvas, isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver);
+      expect(hidden).toHaveBeenLastCalledWith(false);
+      fixture.destroy();
+      expect(intersectionDisconnect).toHaveBeenCalledTimes(1);
+    } finally {
+      Object.defineProperty(globalThis, 'IntersectionObserver', {
+        configurable: true,
+        value: original,
+      });
+    }
+  });
+
   it('uses the supplied stage band height once for the bounded scene', async () => {
     const snapshots = jest.spyOn(CommandSceneRenderer.prototype, 'setSnapshot');
     const fixture = await create(144);

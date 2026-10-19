@@ -10,18 +10,18 @@ import type { CommandProviderReadiness, CommandVoiceError, CommandVoiceState } f
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="voice-hud text-base-content" aria-label="Voice controls">
-      <div class="voice-identity flex min-w-0 items-center gap-3">
+      <div class="voice-identity flex min-w-0 items-center gap-2">
         <button type="button"
-          class="grid h-14 w-14 shrink-0 place-items-center rounded-xl border border-warning bg-base-100 text-warning shadow-sm transition-colors hover:bg-warning hover:text-warning-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content disabled:border-base-300 disabled:text-base-content-muted"
+          class="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-warning bg-base-100 text-warning shadow-sm transition-colors hover:bg-warning hover:text-warning-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content disabled:border-base-300 disabled:text-base-content-muted"
           [attr.aria-label]="listening() ? 'Stop listening' : 'Start voice'"
           [attr.aria-pressed]="listening()"
           [disabled]="!listening() && !canStart()"
           (click)="listening() ? stop.emit() : start.emit()">
-          <lucide-angular [img]="Mic" class="h-6 w-6" aria-hidden="true" />
+          <lucide-angular [img]="Mic" class="h-5 w-5" aria-hidden="true" />
         </button>
         <div class="min-w-0 flex-1">
           <div class="flex min-w-0 items-center gap-2">
-            <p class="truncate text-sm font-semibold">{{ title() }}</p>
+            <p class="truncate text-xs font-semibold">{{ title() }}</p>
             @if (voiceState() === 'speaking') {
               <span class="speaking-wave flex h-6 shrink-0 items-center gap-1" data-dock-waveform aria-hidden="true">
                 @for (bar of speakerBars; track bar) {
@@ -30,10 +30,10 @@ import type { CommandProviderReadiness, CommandVoiceError, CommandVoiceState } f
               </span>
             }
           </div>
-          <p class="text-xs text-base-content-muted">{{ subtitle() }}</p>
+          <p class="text-[11px] text-base-content-muted">{{ subtitle() }}</p>
         </div>
       </div>
-      <div class="voice-actions flex flex-wrap items-center gap-2">
+      <div class="voice-actions flex flex-wrap items-center gap-1">
         <div class="flex h-8 items-center gap-1" role="meter" aria-label="Microphone level"
           aria-valuemin="0" aria-valuemax="100" [attr.aria-valuenow]="levelPercent()"
           [attr.aria-valuetext]="'Microphone level ' + levelPercent() + '%'">
@@ -50,28 +50,28 @@ import type { CommandProviderReadiness, CommandVoiceError, CommandVoiceState } f
             }
           </div>
         }
-        <button type="button" class="btn btn-sm btn-outline min-h-11 disabled:border-base-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+        <button type="button" class="btn btn-sm btn-outline min-h-10 disabled:border-base-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
           [disabled]="!canMute()" (click)="toggleMute.emit()">{{ muted() ? 'Unmute' : 'Mute' }}</button>
-        <button type="button" class="btn btn-sm btn-outline min-h-11 disabled:border-base-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+        <button type="button" class="btn btn-sm btn-outline min-h-10 disabled:border-base-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
           [disabled]="!canStopTurn()" (click)="stop.emit()">Stop</button>
         @if (voiceState() === 'speaking') {
-          <button type="button" class="btn btn-ghost min-h-11 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+          <button type="button" class="btn btn-ghost btn-sm min-h-10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
             (click)="interrupt.emit()">Interrupt speech</button>
         }
       </div>
       @if (voiceError(); as error) {
-        <div class="voice-recovery mt-2 flex flex-wrap items-center gap-2 text-sm" role="status">
+        <div class="voice-recovery mt-1 flex flex-wrap items-center gap-2 text-xs" role="status">
           <span>{{ error.message }}</span>
           @if (error.kind === 'mic-denied') {
-            <button type="button" class="btn btn-ghost min-h-11 text-base-content underline" (click)="openVoiceSettings.emit()">Open Voice settings</button>
+            <button type="button" class="btn btn-ghost btn-sm min-h-10 text-base-content underline" (click)="openVoiceSettings.emit()">Open Voice settings</button>
           } @else if (error.kind === 'mic-unavailable' || error.kind === 'worklet') {
-            <button type="button" class="btn btn-ghost min-h-11 border border-base-content text-base-content underline" (click)="start.emit()">Retry microphone</button>
+            <button type="button" class="btn btn-ghost btn-sm min-h-10 border border-base-content text-base-content underline" (click)="start.emit()">Retry microphone</button>
           }
         </div>
       } @else if (!provider().transcription || !provider().synthesis) {
-        <div class="voice-recovery mt-2 flex flex-wrap items-center gap-2 text-sm" role="status">
+        <div class="voice-recovery mt-1 flex flex-wrap items-center gap-2 text-xs" role="status">
           <span>A voice provider is missing.</span>
-          <button type="button" class="btn btn-ghost min-h-11 text-base-content underline" (click)="openVoiceSettings.emit()">Open Voice settings</button>
+          <button type="button" class="btn btn-ghost btn-sm min-h-10 text-base-content underline" (click)="openVoiceSettings.emit()">Open Voice settings</button>
         </div>
       }
     </section>

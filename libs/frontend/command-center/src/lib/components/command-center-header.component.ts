@@ -7,34 +7,34 @@ import { AudioLines, CircleGauge, LucideAngularModule, Moon, Settings, Sparkles,
   imports: [LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <header class="flex min-h-[78px] flex-wrap items-center justify-between gap-3 border-b border-base-300 bg-base-100 px-4 py-2 text-base-content lg:px-[22px]">
-      <div class="flex min-w-0 items-center gap-3">
-        <span class="flex size-10 shrink-0 items-center justify-center rounded-lg border border-secondary text-secondary-focus" aria-hidden="true"><lucide-angular [img]="sparklesIcon" class="size-5" /></span>
+    <header class="flex min-h-[60px] flex-wrap items-center justify-between gap-2 border-b border-base-300 bg-base-100 px-4 py-1 text-base-content">
+      <div class="flex min-w-0 items-center gap-2">
+        <span class="flex size-8 shrink-0 items-center justify-center rounded-lg border border-secondary text-secondary-focus" aria-hidden="true"><lucide-angular [img]="sparklesIcon" class="size-4" /></span>
         <div class="min-w-0">
           <p class="font-mono text-[10px] uppercase tracking-widest text-secondary-focus">Ptah / Engineering</p>
-          <h1 class="whitespace-nowrap font-serif text-xl font-semibold">Command Center</h1>
+          <h1 class="whitespace-nowrap font-serif text-lg font-semibold">Command Center</h1>
         </div>
       </div>
-      <div class="flex min-w-0 flex-wrap items-center gap-2">
+      <div class="flex min-w-0 flex-wrap items-center gap-1">
         @if (micError()) {
-          <span role="alert" class="text-sm text-error">Microphone access blocked</span>
-          <button type="button" class="btn btn-ghost min-h-11 underline" (click)="voiceSettings.emit()">Open Voice settings</button>
+          <span role="alert" class="text-xs text-error">Microphone access blocked</span>
+          <button type="button" class="btn btn-ghost btn-sm underline" (click)="voiceSettings.emit()">Open Voice settings</button>
         }
-        <button type="button" class="btn btn-ghost min-h-11 max-w-full gap-2 border border-base-300 bg-base-200 font-mono text-xs" [attr.aria-label]="voiceAriaStatus()" [title]="voiceAriaStatus()" (click)="voiceSettings.emit()">
+        <button type="button" class="btn btn-ghost btn-sm max-w-full gap-1 border border-base-300 bg-base-200 font-mono text-xs" [attr.aria-label]="voiceAriaStatus()" [title]="voiceAriaStatus()" (click)="voiceSettings.emit()">
           <lucide-angular [img]="audioIcon" class="size-4" aria-hidden="true" />
           <span class="size-2 rounded-full" [class.bg-success]="voiceReady()" [class.bg-warning]="!voiceReady()" aria-hidden="true"></span>
           <span class="truncate">{{ voiceProviderText() }}</span>
         </button>
-        <span class="badge badge-outline min-h-8 font-mono text-xs">Session {{ shortSessionId() }}</span>
-        <span class="badge badge-outline min-h-8 font-mono text-xs" role="status">{{ sessionStatus() }}</span>
+        <span class="badge badge-outline badge-sm font-mono text-xs">Session {{ shortSessionId() }}</span>
+        <span class="badge badge-outline badge-sm font-mono text-xs" role="status">{{ sessionStatus() }}</span>
         @if (showContext()) {
-          <span class="badge badge-outline min-h-8 gap-1 font-mono text-xs" [class.text-state-need]="contextWarning()" [class.border-state-need]="contextWarning()">
+          <span class="badge badge-outline badge-sm gap-1 font-mono text-xs" [class.text-state-need]="contextWarning()" [class.border-state-need]="contextWarning()">
             <lucide-angular [img]="gaugeIcon" class="size-3" aria-hidden="true" /> Context {{ contextLabel() }}
             @if (contextWarning()) { <span>· Warning</span> }
           </span>
         }
-        <button type="button" class="btn btn-ghost min-h-11 border border-base-300" (click)="voiceSettings.emit()"><lucide-angular [img]="settingsIcon" class="mr-1 size-4" aria-hidden="true" />Voice settings</button>
-        <button type="button" class="btn btn-ghost min-h-11 min-w-11 border border-base-300" [attr.aria-label]="darkMode() ? 'Switch to light theme' : 'Switch to dark theme'" (click)="themeToggle.emit()"><lucide-angular [img]="darkMode() ? sunIcon : moonIcon" class="size-4" aria-hidden="true" /></button>
+        <button type="button" class="btn btn-ghost btn-sm border border-base-300" (click)="voiceSettings.emit()"><lucide-angular [img]="settingsIcon" class="mr-1 size-4" aria-hidden="true" />Voice settings</button>
+        <button type="button" class="btn btn-ghost btn-sm border border-base-300" [attr.aria-label]="darkMode() ? 'Switch to light theme' : 'Switch to dark theme'" (click)="themeToggle.emit()"><lucide-angular [img]="darkMode() ? sunIcon : moonIcon" class="size-4" aria-hidden="true" /></button>
       </div>
     </header>
   `,

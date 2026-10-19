@@ -28,6 +28,7 @@ export interface SceneNode {
 
 export interface SceneLayout {
   readonly nodes: readonly SceneNode[];
+  readonly orbitCount: number;
   /** Ownership links terminate at the owning child sphere. */
   readonly tethers?: readonly SceneTether[];
   readonly overflowCompleted: number;
@@ -100,6 +101,7 @@ export function layoutScene(
   if (!root)
     return {
       nodes: [],
+      orbitCount: 0,
       overflowCompleted: 0,
       overflowOther: 0,
       overflowChip: null,
@@ -569,6 +571,7 @@ export function layoutScene(
     : [];
   return {
     nodes,
+    orbitCount: orbitNodes.length,
     ...(rect ? { tethers } : {}),
     overflowCompleted,
     overflowOther,
