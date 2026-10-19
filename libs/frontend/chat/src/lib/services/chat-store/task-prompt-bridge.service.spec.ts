@@ -1,23 +1,18 @@
 /**
  * TaskPromptBridgeService — consumes the AppStateManager `chatPromptRequest`
  * signal bridge: creates a tab, navigates to chat, requests canvas-tile
- * adoption in grid layout, prefills the composer, then settles `resolve` and
- * clears the request.
+ * adoption, prefills the composer, then settles `resolve` and clears the
+ * request.
  */
-import { signal, type WritableSignal } from '@angular/core';
+import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import {
-  AppStateManager,
-  type ChatPromptRequest,
-  type LayoutMode,
-} from '@ptah-extension/core';
+import { AppStateManager, type ChatPromptRequest } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { TaskPromptBridgeService } from './task-prompt-bridge.service';
 import { BoardTaskLinkCaptureService } from './board-task-link-capture.service';
 
 describe('TaskPromptBridgeService', () => {
   const request = signal<ChatPromptRequest | null>(null);
-  let layoutMode: WritableSignal<LayoutMode>;
   let setCurrentView: jest.Mock;
   let clearChatPromptRequest: jest.Mock;
   let requestCanvasTab: jest.Mock;
@@ -34,7 +29,6 @@ describe('TaskPromptBridgeService', () => {
 
   beforeEach(() => {
     request.set(null);
-    layoutMode = signal<LayoutMode>('single');
     setCurrentView = jest.fn();
     clearChatPromptRequest = jest.fn(() => request.set(null));
     requestCanvasTab = jest.fn();
@@ -50,7 +44,6 @@ describe('TaskPromptBridgeService', () => {
           provide: AppStateManager,
           useValue: {
             chatPromptRequest: request.asReadonly(),
-            layoutMode: layoutMode.asReadonly(),
             setCurrentView,
             clearChatPromptRequest,
             requestCanvasTab,
@@ -89,16 +82,13 @@ describe('TaskPromptBridgeService', () => {
     expect(setCurrentView).toHaveBeenCalledWith('chat');
     expect(requestComposerPrefill).toHaveBeenCalledWith(
       '/orchestrate TASK_2026_200',
-      null,
+      'tab-1',
     );
     expect(resolve).toHaveBeenCalledWith({ success: true });
     expect(clearChatPromptRequest).toHaveBeenCalled();
-    // Single layout (default): no canvas mounted → no tile-adoption request.
-    expect(requestCanvasTab).not.toHaveBeenCalled();
   });
 
-  it('requests canvas tile adoption for the created tab in grid layout (F-D3)', async () => {
-    layoutMode.set('grid');
+  it('requests canvas tile adoption for the created tab (F-D3)', async () => {
     request.set({
       prompt: '/orchestrate TASK_2026_300',
       sessionName: 'TASK_2026_300',
@@ -115,7 +105,6 @@ describe('TaskPromptBridgeService', () => {
   });
 
   it('carries the active workspace path on the canvas tile request (stale-drop support)', async () => {
-    layoutMode.set('grid');
     activeWorkspacePath = '/ws/a';
     request.set({
       prompt: '/orchestrate TASK_2026_304',
@@ -131,32 +120,16 @@ describe('TaskPromptBridgeService', () => {
     );
   });
 
-  it.each([
-    { layout: 'single' as const, expectedTabId: null },
-    { layout: 'grid' as const, expectedTabId: 'tab-task-target' },
-  ])(
-    'targets the composer prefill correctly in $layout layout',
-    async ({ layout, expectedTabId }) => {
-      layoutMode.set(layout);
-      createTab.mockReturnValueOnce('tab-task-target');
-      request.set({ prompt: '/orchestrate TASK_2026_302' });
-
-      await flush();
-
-      expect(requestComposerPrefill).toHaveBeenCalledWith(
-        '/orchestrate TASK_2026_302',
-        expectedTabId,
-      );
-    },
-  );
-
-  it('does NOT request canvas tile adoption in single layout', async () => {
-    layoutMode.set('single');
-    request.set({ prompt: '/orchestrate TASK_2026_301' });
+  it('scopes the composer prefill to the created tab', async () => {
+    createTab.mockReturnValueOnce('tab-task-target');
+    request.set({ prompt: '/orchestrate TASK_2026_302' });
 
     await flush();
 
-    expect(requestCanvasTab).not.toHaveBeenCalled();
+    expect(requestComposerPrefill).toHaveBeenCalledWith(
+      '/orchestrate TASK_2026_302',
+      'tab-task-target',
+    );
   });
 
   it('derives a session name from the prompt when none is supplied', async () => {

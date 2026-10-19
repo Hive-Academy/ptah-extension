@@ -65,7 +65,6 @@ describe('ElectronShellComponent Apps tab', () => {
     openConfigurationSurface: signal<ConfigurationSurfaceId | null>(null),
     configurationSurfaceRemountTick: signal(0),
     thothFirstRunDismissed: signal(true),
-    setLayoutMode: jest.fn(),
     setCurrentView: jest.fn(),
     dismissThothFirstRun: jest.fn(),
   };
@@ -95,7 +94,6 @@ describe('ElectronShellComponent Apps tab', () => {
     appStateStub.currentView.set('chat');
     appStateStub.openConfigurationSurface.set(null);
     appStateStub.configurationSurfaceRemountTick.set(0);
-    appStateStub.setLayoutMode.mockReset();
     appStateStub.setCurrentView.mockReset();
     surfaceRouterStub.remountActiveSurface.mockReset();
     await TestBed.configureTestingModule({
@@ -128,7 +126,6 @@ describe('ElectronShellComponent Apps tab', () => {
     fixture = TestBed.createComponent(ElectronShellComponent);
     fixture.detectChanges();
     // The constructor forces grid mode; only clicks are under test below.
-    appStateStub.setLayoutMode.mockReset();
     appStateStub.setCurrentView.mockReset();
   });
 
@@ -183,7 +180,6 @@ describe('ElectronShellComponent Apps tab', () => {
     appsTab()!.click();
     expect(appStateStub.setCurrentView).toHaveBeenCalledTimes(1);
     expect(appStateStub.setCurrentView).toHaveBeenCalledWith('apps');
-    expect(appStateStub.setLayoutMode).not.toHaveBeenCalled();
   });
 
   it('binds aria-selected and tab-active to currentView() === "apps"', () => {

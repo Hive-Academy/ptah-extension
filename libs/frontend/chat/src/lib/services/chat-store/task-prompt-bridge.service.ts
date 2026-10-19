@@ -15,11 +15,11 @@ import { BoardTaskLinkCaptureService } from './board-task-link-capture.service';
  *
  * On each request it:
  *  1. creates + activates a fresh tab,
- *  2. navigates to the chat surface; in grid layout it also fires
+ *  2. navigates to the chat surface and fires
  *     {@link AppStateManager.requestCanvasTab} so an ALREADY-mounted canvas
  *     adopts the new tab as a tile (F-D3) — a fresh mount is covered by the
  *     canvas's own `restoreCanvasTilesFromTabs`, and `adoptTab` dedups the
- *     overlap; single layout has no canvas so the request is skipped,
+ *     overlap,
  *  3. prefills the freshly created tab's composer so the user can review and
  *     edit the prompt before sending it,
  *  4. settles `request.resolve` and clears the bridge signal.
@@ -63,33 +63,25 @@ export class TaskPromptBridgeService {
       if (request.taskId) {
         this.boardTaskLinkCapture.expect(tabId, request.taskId);
       }
-      // Navigate to chat FIRST so a grid-layout canvas mounts and adopts the
-      // freshly created tab as a tile before its stream starts.
+      // Navigate to chat FIRST so the canvas mounts and adopts the freshly
+      // created tab as a tile before its stream starts.
       this.appState.setCurrentView('chat');
-      // In grid layout, ALSO ask the canvas to adopt this tab as a tile (F-D3).
+      // ALSO ask the canvas to adopt this tab as a tile (F-D3).
       // `restoreCanvasTilesFromTabs` covers a FRESH canvas mount, but when the
       // canvas is already mounted (no remount / no workspace switch) nothing
       // adopts a newly-created tab — this bridge closes that gap. The canvas
-      // effect's `adoptTab` dedups, so a double-adopt on a fresh mount is safe;
-      // single layout has no canvas mounted, so we skip the request there.
+      // effect's `adoptTab` dedups, so a double-adopt on a fresh mount is safe.
       // The request carries the workspace the fresh tab lives in (the active
       // one at creation time), so a canvas that mounts only later — after a
       // workspace switch — drops it instead of tiling this tab into another
       // workspace's grid.
-      const gridLayout = this.appState.layoutMode() === 'grid';
-      if (gridLayout) {
-        this.appState.requestCanvasTab(
-          tabId,
-          this.tabManager.activeWorkspacePath,
-          name,
-        );
-      }
-      // Only canvas tiles have SESSION_CONTEXT. In single layout, null scopes
-      // the request to the main panel, which is already showing this active tab.
-      this.appState.requestComposerPrefill(
-        request.prompt,
-        gridLayout ? tabId : null,
+      this.appState.requestCanvasTab(
+        tabId,
+        this.tabManager.activeWorkspacePath,
+        name,
       );
+      // The prefill is scoped to this tab's tile (its SESSION_CONTEXT).
+      this.appState.requestComposerPrefill(request.prompt, tabId);
     } catch (error: unknown) {
       outcome = {
         success: false,

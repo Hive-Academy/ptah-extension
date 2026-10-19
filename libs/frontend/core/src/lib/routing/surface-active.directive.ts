@@ -1,8 +1,10 @@
-import { Directive, computed, inject, input } from '@angular/core';
-import { AppStateManager } from '../services/app-state.service';
+import { Directive, inject } from '@angular/core';
 import { SURFACE_ACTIVE, surfaceActiveFor } from './surface-active';
 
-/** Element injector boundary for the two always-mounted, non-outlet trees. */
+/**
+ * Element injector boundary for the always-mounted, non-outlet canvas tree.
+ * The tree is active while the settled route is the chat surface.
+ */
 @Directive({
   selector: '[ptahSurfaceActive]',
   standalone: true,
@@ -14,15 +16,5 @@ import { SURFACE_ACTIVE, surfaceActiveFor } from './surface-active';
   ],
 })
 export class SurfaceActiveDirective {
-  readonly surface = input.required<'chat' | 'canvas'>({
-    alias: 'ptahSurfaceActive',
-  });
-  private readonly chatAddressed = surfaceActiveFor('chat')();
-  private readonly appState = inject(AppStateManager);
-  readonly active = computed(
-    () =>
-      this.chatAddressed() &&
-      this.appState.layoutMode() ===
-        (this.surface() === 'canvas' ? 'grid' : 'single'),
-  );
+  readonly active = surfaceActiveFor('chat')();
 }
