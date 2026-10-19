@@ -157,6 +157,10 @@ mac:
     - '!**/node_modules/@img/sharp-libvips-win32-*/**'
     - '!**/node_modules/@img/sharp-libvips-linux*/**'
 
+# Windows default target stays nsis for LOCAL packaging only (`package` and
+# `package-local-production` produce a testable installer). Windows is NOT
+# distributed as NSIS: CI (publish-electron.yml) builds `--win --dir` and then
+# `--win appx --prepackaged`, and the CLI target overrides this list.
 win:
   target:
     - nsis
