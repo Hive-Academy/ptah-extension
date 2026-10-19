@@ -46,6 +46,12 @@ describe('ProjectSetupCardComponent', () => {
     count.set(1); skillsReady.set(true); agentsReady.set(false); fixture.detectChanges();
     expect(host().textContent).toContain('1 of 2 ready');
     expect(host().textContent).toContain('Project scan');
+    expect(host().textContent).toContain('Before you begin');
+    expect(host().textContent).toContain('Setup tools');
+    expect(host().querySelector('[role="group"][aria-label="Setup tools"]')).not.toBeNull();
+    expect(host().querySelectorAll('lucide-angular')).toHaveLength(3);
+    expect(button('Run setup')?.className).toContain('btn-outline');
+    expect(host().querySelector('.btn-primary')).toBeNull();
     expect(host().textContent).not.toContain('1 of 3');
   });
 
@@ -53,9 +59,11 @@ describe('ProjectSetupCardComponent', () => {
     allReady.set(true); count.set(2); fixture.detectChanges();
     expect(host().textContent).toContain('Ready');
     expect(host().textContent).not.toContain('Project scan');
-    for (const label of ['Open Library', 'Run setup', 'Generate agents', 'Project guidance']) expect(button(label)).toBeDefined();
-    button('Open Library')?.click(); button('Run setup')?.click(); button('Generate agents')?.click(); button('Project guidance')?.click();
-    expect(appState.openMarketplace).toHaveBeenCalledWith({ page: 'skills', source: 'ptah-plugins' });
+    for (const label of ['Run setup', 'Generate agents', 'Project guidance']) expect(button(label)).toBeDefined();
+    expect(button('Open Library')).toBeUndefined();
+    expect(button('Run setup')?.className).toContain('btn-outline');
+    expect(host().querySelector('.btn-primary')).toBeNull();
+    button('Run setup')?.click(); button('Generate agents')?.click(); button('Project guidance')?.click();
     expect(setup.launchWizard).toHaveBeenCalledTimes(1);
     expect(setup.launchGeneration).toHaveBeenCalledWith('setup-agent-generation');
     expect(setup.launchGeneration).toHaveBeenCalledWith('setup-project-prompt');

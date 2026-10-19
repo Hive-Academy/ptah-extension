@@ -592,6 +592,12 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(inspector.componentInstance.tabId()).toBe('a');
   });
 
+  it('does not reserve an inspector column when the board has no focused session', () => {
+    const { fixture } = mount(true, 0);
+    expect(fixture.nativeElement.querySelector('[data-testid="canvas-rail-empty-board"]')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('[data-testid="canvas-wide-inspector"]')).toBeNull();
+  });
+
   it('synchronizes pane, rail and Details after external removal of the focused tile', async () => {
     const { fixture, focused, tiles } = mount(true, 3);
     focused.set('b');
@@ -1121,7 +1127,7 @@ describe('CanvasRailBoardComponent rendering', () => {
     const trigger = fixture.nativeElement.querySelector<HTMLButtonElement>(
       '[data-testid="canvas-rail-empty-board"] button',
     );
-    expect(trigger.textContent?.trim()).toBe('New session');
+    expect(trigger.textContent?.replace(/\s+/g, ' ').trim()).toBe('+ New session');
     expect(trigger.getAttribute('data-testid')).toBe('canvas-hero-new-session');
     expect(fixture.nativeElement.querySelector('main')!.classList).toContain('order-first');
     expect(trigger.getAttribute('aria-disabled')).toBeNull();
@@ -1193,6 +1199,44 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(openSession).toHaveBeenCalledWith(expect.objectContaining({ id: '0' }));
     expect(fixture.nativeElement.querySelector('[aria-live="polite"]')?.textContent).toContain('Unable to open session');
     expect(fixture.nativeElement.querySelectorAll('[aria-label^="Open Session"]')).toHaveLength(3);
+  });
+
+  it('shows recent titles on two lines and relative activity with an absolute tooltip', () => {
+    const { fixture, recent } = mount(true, 0);
+    recent.set([{ id: 'recent', name: 'Refactor the session settings and setup flow', lastActivityAt: Date.now() - 2 * 60 * 60_000 }]);
+    fixture.detectChanges();
+    const card = fixture.nativeElement.querySelector<HTMLButtonElement>('[aria-label^="Open Refactor"]')!;
+    expect(card.querySelector('span')?.className).toContain('line-clamp-2');
+    expect(card.querySelector('span')?.classList.contains('block')).toBe(false);
+    expect(card.textContent).toMatch(/2h ago|Yesterday/);
+    expect(card.getAttribute('aria-label')).toMatch(/2h ago|Yesterday/);
+    expect(card.querySelectorAll('span')[1].getAttribute('title')).toBeTruthy();
+  });
+
+  it('formats yesterday and older dates, and leaves missing activity blank', () => {
+    const { fixture } = mount(true, 0);
+    const board = fixture.componentInstance;
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    expect(board.recentActivity(yesterday.getTime())).toBe('Yesterday');
+    const older = new Date();
+    older.setDate(older.getDate() - 8);
+    expect(board.recentActivity(older.getTime())).toBe(
+      new Intl.DateTimeFormat(undefined, {
+        month: 'short', day: 'numeric',
+        year: older.getFullYear() === new Date().getFullYear() ? undefined : 'numeric',
+      }).format(older),
+    );
+    const future = new Date();
+    future.setDate(future.getDate() + 1);
+    expect(board.recentActivity(future.getTime())).toBe(
+      new Intl.DateTimeFormat(undefined, {
+        month: 'short', day: 'numeric',
+        year: future.getFullYear() === new Date().getFullYear() ? undefined : 'numeric',
+      }).format(future),
+    );
+    expect(board.recentActivity(null)).toBe('');
+    expect(board.recentActivity(undefined)).toBe('');
   });
 
   it('keeps the populated rail before the pane in keyboard order and notice in flow', () => {

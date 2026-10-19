@@ -131,23 +131,27 @@ const TILE_BOUND_MESSAGE = `The board holds ${MAX_CANVAS_TILES} sessions. Close 
               content
               class="surface-3 p-4 w-72 rounded-xl"
               data-testid="canvas-new-session-popover"
+              role="dialog"
+              aria-labelledby="canvas-new-session-title"
+              aria-describedby="canvas-new-session-help"
             >
-              <h3 class="text-sm font-semibold mb-3 text-base-content-muted">
-                New Session
+              <h3 id="canvas-new-session-title" class="text-sm font-semibold text-base-content">
+                New session
               </h3>
+              <p id="canvas-new-session-help" class="mb-3 text-xs text-base-content-muted">Give this session a name, or use the default.</p>
+              <label for="canvas-session-name" class="mb-1 block text-xs font-medium text-base-content">Session name (optional)</label>
               <input
                 #sessionNameInputRef
+                id="canvas-session-name"
                 type="text"
                 class="input input-sm input-bordered w-full mb-3 bg-base-100 border-base-content/10 focus:border-primary"
-                placeholder="Enter session name (optional)"
-                aria-label="Session name"
+                placeholder="New session"
                 [(ngModel)]="sessionNameInput"
                 (keydown.enter)="
                   handleCreateSession();
                   $event.preventDefault();
                   $event.stopPropagation()
                 "
-                (keydown.escape)="handleCancelSession()"
               />
               <div class="flex gap-2">
                 <button
@@ -232,6 +236,12 @@ export class OrchestraCanvasComponent implements OnDestroy {
 
   protected readonly sessionPopoverOpen = signal(false);
   protected readonly sessionPopoverAnchor = signal<HTMLElement | null>(null);
+  private readonly onSessionAnchorEscape = (event: KeyboardEvent): void => {
+    if (event.key !== 'Escape' || !this.sessionPopoverOpen()) return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.handleCancelSession();
+  };
   private readonly dismissedNoticeKey = signal<string | null>(null);
   private readonly noticeRevision = signal(0);
   protected readonly boardNotice = computed<CanvasBoardNotice | null>(() => {
@@ -549,7 +559,9 @@ export class OrchestraCanvasComponent implements OnDestroy {
       this.headerMessage.set(blocked);
       return;
     }
+    this.sessionPopoverAnchor()?.removeEventListener('keydown', this.onSessionAnchorEscape);
     this.sessionPopoverAnchor.set(anchor);
+    anchor.addEventListener('keydown', this.onSessionAnchorEscape);
     this.sessionNameInput.set('');
     this.sessionPopoverOpen.set(true);
   }
@@ -567,8 +579,7 @@ export class OrchestraCanvasComponent implements OnDestroy {
       : this.canvasStore.addTile(
           this.sessionNameInput().trim() || defaultSessionName(),
         );
-    this.sessionPopoverOpen.set(false);
-    this.sessionNameInput.set('');
+    this.closeSessionPopover();
     this.sessionPopoverAnchor()?.focus();
     if (!tabId) {
       this.headerMessage.set(blocked ?? TILE_BOUND_MESSAGE);
@@ -587,6 +598,7 @@ export class OrchestraCanvasComponent implements OnDestroy {
   }
 
   private closeSessionPopover(): void {
+    this.sessionPopoverAnchor()?.removeEventListener('keydown', this.onSessionAnchorEscape);
     this.sessionPopoverOpen.set(false);
     this.sessionNameInput.set('');
   }
@@ -599,6 +611,7 @@ export class OrchestraCanvasComponent implements OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.sessionPopoverAnchor()?.removeEventListener('keydown', this.onSessionAnchorEscape);
     this.unsubscribeTabClosed?.();
     this.unsubscribeTabClosed = null;
     this.layoutPersistence.flush();

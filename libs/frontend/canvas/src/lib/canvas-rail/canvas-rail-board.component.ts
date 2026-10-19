@@ -160,7 +160,7 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
                 A fresh space to work
               </h1>
               <p class="mt-2 text-[13px] text-base-content">
-                Start a session and make something great.
+                 Start a session to explore, build, and make progress.
               </p>
               <button
                 type="button"
@@ -173,7 +173,7 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
                 "
                 (click)="emptyBoardNewSession($event)"
               >
-                New session
+                 <span aria-hidden="true">+</span> New session
               </button>
               @if (newSessionBlockReason(); as reason) {
                 <p
@@ -191,9 +191,9 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
                     <h2 id="canvas-recent-heading" class="mb-3 text-sm font-semibold">Recent sessions</h2>
                     <div class="grid grid-cols-3 gap-[9px] max-[850px]:grid-cols-1">
                       @for (session of recentSessions.sessions().slice(0, 3); track session.id) {
-                        <button type="button" class="surface-3 min-h-[84px] min-w-0 rounded-xl p-3 text-left hover:bg-surface-2 focus-visible:outline focus-visible:outline-2" [attr.aria-label]="'Open ' + (session.name || 'Untitled session')" (click)="openRecentSession(session)">
-                          <span class="block truncate text-xs font-semibold">{{ session.name || 'Untitled session' }}</span>
-                          <span class="mt-2 block text-xs text-base-content-muted">{{ session.lastActivityAt | date:'mediumDate' }}</span>
+                        <button type="button" class="surface-3 min-h-[84px] min-w-0 rounded-xl p-3 text-left hover:bg-surface-2 focus-visible:outline focus-visible:outline-2" [attr.aria-label]="'Open ' + (session.name || 'Untitled session') + (recentActivity(session.lastActivityAt) ? ', ' + recentActivity(session.lastActivityAt) : '')" (click)="openRecentSession(session)">
+                           <span class="line-clamp-2 text-xs font-semibold">{{ session.name || 'Untitled session' }}</span>
+                           <span class="mt-2 block text-xs text-base-content-muted" [attr.title]="session.lastActivityAt === null || session.lastActivityAt === undefined ? null :(session.lastActivityAt | date:'medium')">{{ recentActivity(session.lastActivityAt) }}</span>
                         </button>
                       }
                     </div>
@@ -258,7 +258,7 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
             </div>
           }
         </ng-template>
-        @if (!splitDisplayed() && band() === 'sm' && !compactSheet()) {
+        @if (!splitDisplayed() && band() === 'sm' && !compactSheet() && focusedId()) {
           @if (detailsOpen()) {
             <aside
               class="flex h-full w-[288px] shrink-0 flex-col border-l border-base-content/10 bg-base-100"
@@ -293,9 +293,10 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
               <lucide-angular [img]="detailsIcon" class="size-4" aria-hidden="true" />
             </button>
           }
-        } @else if (!splitDisplayed() && !compactSheet()) {
+        } @else if (!splitDisplayed() && !compactSheet() && focusedId()) {
           <aside
             class="h-full shrink-0 overflow-auto border-l border-base-content/10 bg-base-100 [&_[data-inspector-close]]:hidden"
+            data-testid="canvas-wide-inspector"
             [class.w-[360px]]="band() === 'xl'"
             [class.w-[320px]]="band() === 'lg'"
             [class.w-[296px]]="band() === 'md'"
@@ -325,6 +326,19 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
   `,
 })
 export class CanvasRailBoardComponent {
+  recentActivity(timestamp: number | null | undefined): string {
+    if (timestamp == null) return '';
+    const date = new Date(timestamp);
+    if (Number.isNaN(date.getTime())) return '';
+    const now = new Date();
+    const elapsed = now.getTime() - timestamp;
+    if (elapsed >= 0 && elapsed < 60 * 60_000) return `${Math.max(1, Math.floor(elapsed / 60_000))}m ago`;
+    if (date.toDateString() === now.toDateString() && elapsed >= 0) return `${Math.floor(elapsed / 3_600_000)}h ago`;
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    if (date.toDateString() === yesterday.toDateString()) return 'Yesterday';
+    return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: date.getFullYear() === now.getFullYear() ? undefined : 'numeric' }).format(date);
+  }
   readonly detailsIcon = PanelRight;
   readonly sparklesIcon = Sparkles;
   readonly alertIcon = TriangleAlert;

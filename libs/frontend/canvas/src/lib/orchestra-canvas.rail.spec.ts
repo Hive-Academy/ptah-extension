@@ -298,7 +298,7 @@ describe('OrchestraCanvasComponent Rail integration', () => {
       ),
     ].find((button) => button.textContent?.trim() === 'Create');
   const typeName = async (value: string) => {
-    const field = find<HTMLInputElement>('input[aria-label="Session name"]');
+    const field = find<HTMLInputElement>('input#canvas-session-name');
     if (!field) throw new Error('Session name input is not rendered');
     field.value = value;
     field.dispatchEvent(new Event('input'));
@@ -340,7 +340,8 @@ describe('OrchestraCanvasComponent Rail integration', () => {
     fixture.detectChanges();
     expect(popoverOpen()).toBe(true);
     expect(popovers()[0]?.anchor()).toBe(footerButton());
-    expect(find('input[aria-label="Session name"]')).not.toBeNull();
+    expect(find('label[for="canvas-session-name"]')?.textContent).toContain('Session name (optional)');
+    expect(find('input#canvas-session-name')?.hasAttribute('aria-label')).toBe(false);
     expect(addTile).not.toHaveBeenCalled();
     expect(popovers()).toHaveLength(1);
   });
@@ -358,6 +359,24 @@ describe('OrchestraCanvasComponent Rail integration', () => {
     expect(popoverOpen()).toBe(true);
     expect(popovers()[0]?.anchor()).toBe(trigger);
     expect(addTile).not.toHaveBeenCalled();
+  });
+
+  it('closes the new-session popover once when Escape is pressed on its external anchor', () => {
+    tiles.set([]);
+    fixture.detectChanges();
+    const trigger = find<HTMLButtonElement>('[data-testid="canvas-rail-empty-board"] button')!;
+    trigger.click();
+    fixture.detectChanges();
+    expect(popoverOpen()).toBe(true);
+    const focus = jest.spyOn(trigger, 'focus');
+    trigger.focus();
+    focus.mockClear();
+    trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    fixture.detectChanges();
+    expect(popoverOpen()).toBe(false);
+    expect(focus).toHaveBeenCalledTimes(1);
+    trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(focus).toHaveBeenCalledTimes(1);
   });
 
   it('keeps a typed name, then focuses and anchors the new Rail tile', async () => {
@@ -472,7 +491,7 @@ describe('OrchestraCanvasComponent Rail integration', () => {
     fixture.detectChanges();
     await fixture.whenStable();
     expect(
-      find<HTMLInputElement>('input[aria-label="Session name"]')?.value,
+      find<HTMLInputElement>('input#canvas-session-name')?.value,
     ).toBe('');
   });
 
@@ -482,14 +501,14 @@ describe('OrchestraCanvasComponent Rail integration', () => {
     footer?.focus();
     footer?.click();
     fixture.detectChanges();
-    find<HTMLInputElement>('input[aria-label="Session name"]')?.focus();
+    find<HTMLInputElement>('input#canvas-session-name')?.focus();
     popovers()[0]?.closed.emit();
     fixture.detectChanges();
     expect(document.activeElement).toBe(footer);
 
     footer?.click();
     fixture.detectChanges();
-    find<HTMLInputElement>('input[aria-label="Session name"]')?.focus();
+    find<HTMLInputElement>('input#canvas-session-name')?.focus();
     addTile.mockReturnValue(null);
     createButton()?.click();
     fixture.detectChanges();
@@ -518,7 +537,7 @@ describe('OrchestraCanvasComponent Rail integration', () => {
     expect(popovers()).toHaveLength(1);
     expect(popoverOpen()).toBe(false);
     expect(
-      find<HTMLInputElement>('input[aria-label="Session name"]')?.value,
+      find<HTMLInputElement>('input#canvas-session-name')?.value,
     ).toBe('');
     expect(addTile).not.toHaveBeenCalled();
   });

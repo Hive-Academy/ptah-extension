@@ -277,6 +277,17 @@ describe('NativePopoverComponent', () => {
       expect(host.closedCount).toBe(1);
     });
 
+    it('closes on Escape while focus remains on the trigger', () => {
+      host.isOpen.set(true);
+      fixture.detectChanges();
+      const trigger = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('#trigger-btn')!;
+      trigger.focus();
+      trigger.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
+      expect(host.closedCount).toBe(1);
+    });
+
     it('should NOT emit closed on Escape when popover is not open', () => {
       const popoverEl = (fixture.nativeElement as HTMLElement).querySelector(
         'ptah-native-popover',
