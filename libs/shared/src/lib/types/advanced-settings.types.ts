@@ -26,7 +26,8 @@ export type AdvancedSettingGroupId =
   | 'memory-upkeep'
   | 'skill-upkeep'
   | 'scheduled-jobs'
-  | 'workspace-harness';
+  | 'workspace-harness'
+  | 'notifications';
 
 /**
  * When a saved value takes effect.
@@ -118,6 +119,11 @@ export const ADVANCED_SETTING_GROUPS: readonly AdvancedSettingGroup[] = [
     id: 'workspace-harness',
     title: 'Workspace harness',
     description: 'How Ptah checks and maintains the workspace harness files.',
+  },
+  {
+    id: 'notifications',
+    title: 'Notifications',
+    description: 'When Ptah sends notifications through the host.',
   },
 ];
 
@@ -492,6 +498,24 @@ export const ADVANCED_SETTINGS: readonly AdvancedSetting[] = [
     label: 'Manage .gitignore',
     help: "Lets Ptah keep its generated harness files listed in the workspace's .gitignore.",
     default: true,
+    apply: 'live',
+  },
+  {
+    key: 'notifications.hostEnabled',
+    group: 'notifications',
+    kind: 'boolean',
+    label: 'Host notifications',
+    help: 'Shows OS or VS Code notifications for requests that need your attention.',
+    default: true,
+    apply: 'live',
+  },
+  {
+    key: 'notifications.failureHostEnabled',
+    group: 'notifications',
+    kind: 'boolean',
+    label: 'Failure notifications',
+    help: 'Shows OS or VS Code notifications when a task fails.',
+    default: false,
     apply: 'live',
   },
 ];
