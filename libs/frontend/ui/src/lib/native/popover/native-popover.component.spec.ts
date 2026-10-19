@@ -125,6 +125,20 @@ describe('NativePopoverComponent', () => {
     expect(host.openedCount).toBe(1);
   });
 
+  it('shows and focuses an unpositioned panel when no anchor is connected', async () => {
+    const trigger = (fixture.nativeElement as HTMLElement).querySelector('.popover-trigger')!;
+    trigger.remove();
+    host.anchor.set(document.createElement('button'));
+    host.isOpen.set(true);
+    fixture.detectChanges();
+    await flushAll();
+    const panel = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>('.popover-panel')!;
+    expect(panel.style.visibility).toBe('visible');
+    expect(document.activeElement).toBe(panel);
+    expect(host.openedCount).toBe(1);
+    expect(mockedCompute).not.toHaveBeenCalled();
+  });
+
   it('reposition() recomputes the live position after the next render', () => {
     const debug = fixture.debugElement.query(
       By.directive(NativePopoverComponent),

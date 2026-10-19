@@ -56,13 +56,13 @@ import {
     .lights::after {
       content: '';
       position: absolute;
-      inset: 0 -25%;
+      inset: 0 -50%;
       background-image: var(--aurora-stripe), var(--aurora-colors);
       background-size: 200%, 100%;
       /* Blend and blur are fixed on this layer; only its transform moves. */
       filter: blur(10px);
       mix-blend-mode: screen;
-      animation: aurora-shift 60s linear infinite;
+      animation: aurora-shift 60s ease-in-out infinite alternate;
       animation-play-state: running;
     }
     :host-context([data-theme='anubis-light']) .lights { opacity: .33; }
@@ -76,8 +76,8 @@ import {
       .lights::after { animation: none; }
     }
     @keyframes aurora-shift {
-      from { transform: translateX(-25%); }
-      to { transform: translateX(25%); }
+      from { transform: translateX(-20%); }
+      to { transform: translateX(20%); }
     }
   `],
 })

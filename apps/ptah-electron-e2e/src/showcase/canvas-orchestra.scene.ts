@@ -68,16 +68,11 @@ async function createTile(
   director: Director,
   name: string,
 ): Promise<void> {
-  // The "add tile" affordance depends on whether the canvas is empty: the FAB
-  // ("Add new session tile") when tiles exist, the empty-state CTA otherwise.
-  const fab = page.locator('[title="Add new session tile"]').first();
-  if (await fab.isVisible().catch(() => false)) {
-    await director.click(fab);
-  } else {
-    await director.click(
-      page.getByRole('button', { name: 'Create new session' }).first(),
-    );
-  }
+  // The empty-board hero creates the first session; the Rail footer creates
+  // sessions once tiles exist.
+  const hero = page.locator('[data-testid="canvas-hero-new-session"]').first();
+  const footerButton = page.locator('[data-testid="canvas-footer-new-session"]').first();
+  await director.click((await hero.isVisible().catch(() => false)) ? hero : footerButton);
 
   const nameInput = page.locator('input[placeholder*="session name" i]').last();
   await director.type(nameInput, name);

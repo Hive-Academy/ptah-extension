@@ -38,14 +38,15 @@ the chat header.
 
 ## Adding a tile
 
-Click **Add new session tile** in the canvas toolbar. You can give the session a
-name, or leave the field empty and let Ptah name it.
+On an empty board, click **New session** in the main canvas. Once a tile exists,
+click **New session** in the rail footer. You can give the session a name, or
+leave the field empty and let Ptah name it.
 
 You can also promote an existing session onto the canvas. A session already open
 as a tab becomes a tile without losing its history.
 
 :::note[Twenty is the cap]
-The **Add** control switches off at twenty tiles. The canvas keeps a maximum of
+The **New session** buttons switch off at twenty tiles. The canvas keeps a maximum of
 three columns, so tiles past the third wrap into a new row and the grid grows
 downward. Each tile stays wide enough to host a usable chat surface, but a tall
 canvas means more scrolling.

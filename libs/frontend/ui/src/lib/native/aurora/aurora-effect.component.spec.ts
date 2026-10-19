@@ -55,7 +55,10 @@ describe('AuroraEffectComponent', () => {
     expect(css).toContain('prefers-reduced-motion: reduce');
     expect(css).toContain('animation: none');
     expect(css).toContain('transform: translateX');
-    expect(css).toContain('inset: 0 -25%');
+    expect(css).toContain('inset: 0 -50%');
+    expect(css).toContain('animation: aurora-shift 60s ease-in-out infinite alternate');
+    expect(css).toContain('from { transform: translateX(-20%); }');
+    expect(css).toContain('to { transform: translateX(20%); }');
     expect(css).toContain(':host(.brand) { height: 100%; z-index: -1; }');
   });
 

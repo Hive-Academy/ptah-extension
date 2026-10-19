@@ -116,6 +116,7 @@ export {
 export { ownedBySession } from './session-agents/owned-by-session';
 export * from './session-inspector';
 export { SessionListViewStore } from './session-list/session-list-view.store';
+export { RecentSessionsStore } from './session-list/recent-sessions.store';
 export { PreviousSessionsDialogService } from './session-list/previous-sessions-dialog.service';
 export { SessionOrganizerService } from './session-list/session-organizer.service';
 export {

@@ -13,8 +13,10 @@ import {
   input,
   output,
   signal,
+  untracked,
 } from '@angular/core';
-import { InspectorShellController, PreviousSessionsDialogService, ProjectSetupCardComponent, RailTranscriptRetentionCoordinator, SessionInspectorStore, TabManagerService, injectSessionStatsSource } from '@ptah-extension/chat';
+import { DatePipe, NgTemplateOutlet } from '@angular/common';
+import { InspectorShellController, PreviousSessionsDialogService, ProjectSetupCardComponent, RailTranscriptRetentionCoordinator, RecentSessionsStore, SessionInspectorStore, SessionRowActionsService, TabManagerService, injectSessionStatsSource } from '@ptah-extension/chat';
 import { SessionInspectorComponent } from '@ptah-extension/chat/inspector';
 import { SURFACE_ACTIVE } from '@ptah-extension/core';
 import { StatsTileExpansionState, inspectorToggleDescription, type CompactRailState } from '@ptah-extension/chat-ui';
@@ -29,7 +31,9 @@ import { effectiveCanvasLaneKind } from '../canvas-detail/canvas-lane-view.compo
 import { AgentMonitorStore, BackgroundAgentStore } from '@ptah-extension/chat-streaming';
 import { CanvasRailComponent } from './canvas-rail.component';
 import { CanvasFocusAreaComponent } from './canvas-focus-area.component';
-import { LucideAngularModule, PanelRight } from 'lucide-angular';
+import { LucideAngularModule, PanelRight, Sparkles, TriangleAlert, X } from 'lucide-angular';
+import { AuroraEffectComponent } from '@ptah-extension/ui';
+import type { ChatSessionSummary } from '@ptah-extension/shared';
 import {
   checkRailGeometry,
   railAnchorScrollTop,
@@ -42,6 +46,13 @@ const TABBABLE = 'a[href], button, input, select, textarea, [tabindex], [content
 const PANE_OVERLAYS = '[role="dialog"], [role="menu"], ptah-display-sheet [role="region"].full';
 // 272 px Rail + 44 px details control + about 320 px for the session pane.
 const RAIL_AUTO_COLLAPSE_PX = 640;
+
+/** One current board condition, stamped by the shell so a refreshed source can reappear. */
+export interface CanvasBoardNotice {
+  readonly kind: 'write-failure' | 'read-only' | 'cap';
+  readonly text: string;
+  readonly key: string;
+}
 
 function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
   if (element.tabIndex < 0 || (element as HTMLButtonElement).disabled) return false;
@@ -68,6 +79,9 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
     CanvasFocusAreaComponent,
     SessionInspectorComponent,
     ProjectSetupCardComponent,
+    AuroraEffectComponent,
+    NgTemplateOutlet,
+    DatePipe,
     LucideAngularModule,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -112,7 +126,7 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
           (collapseToggled)="toggleCollapse()"
           (densityToggled)="toggleDensity()"
           (jumpTo)="jumpTo($event)"
-          (newSession)="newSession()"
+          (newSession)="newSession($event)"
           (previousSessionsRequested)="previousSessions.open()"
           (scrolled)="store.setRailScrollTop(workspacePath(), $event)"
           (railState)="onRailState($event)"
@@ -125,33 +139,39 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
           (moveDownRequested)="move($event, 1)"
         />
         @if (orderedTiles().length === 0) {
-          <section
-            class="flex min-h-0 min-w-0 flex-1 flex-col items-center overflow-y-auto p-6 text-center"
+          <main
+            class="relative order-first flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto"
             data-testid="canvas-rail-empty-board"
             aria-labelledby="canvas-rail-empty-board-title"
           >
-            <!-- my-auto centres the content while it fits; taller content scrolls instead of clipping. -->
-            <div
-              class="my-auto flex w-full flex-col items-center gap-3"
+            <ptah-aurora-effect variant="board" [visible]="surfaceActive()" />
+            <div class="relative z-10 mx-auto w-full max-w-[780px] px-6 pb-[70px] pt-[58px] max-[850px]:px-5 max-[850px]:pt-6"
               data-testid="canvas-rail-empty-board-content"
             >
-              <h2
+              @if (notice()) {
+                <ng-container [ngTemplateOutlet]="noticeTemplate" />
+              }
+              <div class="mx-auto flex min-h-[251px] flex-col items-center justify-center text-center">
+              <span class="mb-4 flex size-[45px] items-center justify-center rounded-xl border border-[color:var(--surface-border-strong)] bg-surface-3 text-secondary" aria-hidden="true"><lucide-angular [img]="sparklesIcon" class="size-6" /></span>
+              <h1
                 id="canvas-rail-empty-board-title"
-                class="text-sm font-semibold text-base-content"
+                class="font-display text-[29px] font-semibold text-base-content"
               >
-                No sessions on this board
-              </h2>
-              <p class="max-w-xs text-xs text-base-content-muted">
-                Start a session to see it here.
+                A fresh space to work
+              </h1>
+              <p class="mt-2 text-[13px] text-base-content">
+                Start a session and make something great.
               </p>
               <button
                 type="button"
-                class="btn btn-primary btn-sm"
+                data-testid="canvas-hero-new-session"
+                class="btn btn-primary mt-5 min-w-[153px]"
                 [attr.aria-disabled]="newSessionBlockReason() ? 'true' : null"
+                [attr.title]="newSessionBlockReason()"
                 [attr.aria-describedby]="
                   newSessionBlockReason() ? 'canvas-rail-empty-board-reason' : null
                 "
-                (click)="emptyBoardNewSession()"
+                (click)="emptyBoardNewSession($event)"
               >
                 New session
               </button>
@@ -163,10 +183,28 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
                   {{ reason }}
                 </p>
               }
-              <ptah-project-setup-card class="w-full max-w-md mt-4" />
+              </div>
+              <div class="mx-auto w-full max-w-[588px]">
+                <ptah-project-setup-card class="block w-full" />
+                @if (recentSessions.confirmed() && recentSessions.sessions().length) {
+                  <section class="mt-6" aria-labelledby="canvas-recent-heading">
+                    <h2 id="canvas-recent-heading" class="mb-3 text-sm font-semibold">Recent sessions</h2>
+                    <div class="grid grid-cols-3 gap-[9px] max-[850px]:grid-cols-1">
+                      @for (session of recentSessions.sessions().slice(0, 3); track session.id) {
+                        <button type="button" class="surface-3 min-h-[84px] min-w-0 rounded-xl p-3 text-left hover:bg-surface-2 focus-visible:outline focus-visible:outline-2" [attr.aria-label]="'Open ' + (session.name || 'Untitled session')" (click)="openRecentSession(session)">
+                          <span class="block truncate text-xs font-semibold">{{ session.name || 'Untitled session' }}</span>
+                          <span class="mt-2 block text-xs text-base-content-muted">{{ session.lastActivityAt | date:'mediumDate' }}</span>
+                        </button>
+                      }
+                    </div>
+                  </section>
+                }
+              </div>
             </div>
-          </section>
+          </main>
         } @else {
+          <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
+          @if (notice()) { <div class="mx-auto w-full max-w-[780px] shrink-0 p-4"><ng-container [ngTemplateOutlet]="noticeTemplate" /></div> }
           <div class="flex min-h-0 min-w-0 flex-1 overflow-x-auto" [class.overflow-y-auto]="splitStacked() && splitDisplayed()" [class.overflow-y-hidden]="!splitStacked() || !splitDisplayed()" [class.flex-col]="splitStacked() && splitDisplayed()" [class.flex-row]="!splitStacked() || !splitDisplayed()" [class.gap-1]="splitDisplayed()" [attr.inert]="compactSheetOpen() ? '' : null" data-testid="rail-pane-container">
             @for (side of sides; track side) {
               @if (paneTab(side); as id) {
@@ -210,7 +248,16 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
               }
             }
           </div>
+          </div>
         }
+        <ng-template #noticeTemplate>
+          @if (notice(); as currentNotice) {
+            <div class="surface-3 mx-auto flex min-h-12 w-full items-center gap-3 rounded-lg border border-warning px-3 py-2.5 text-sm text-base-content" [class.max-w-[588px]]="orderedTiles().length === 0" [attr.role]="currentNotice.kind === 'cap' ? 'status' : 'alert'" data-testid="canvas-board-notice">
+              <lucide-angular [img]="alertIcon" class="size-4 shrink-0" aria-hidden="true" /><span class="flex-1">{{ currentNotice.text }}</span>
+              <button type="button" class="btn btn-ghost btn-xs" aria-label="Dismiss notice" (click)="noticeDismissed.emit(currentNotice.key)"><lucide-angular [img]="closeIcon" class="size-3.5" aria-hidden="true" /></button>
+            </div>
+          }
+        </ng-template>
         @if (!splitDisplayed() && band() === 'sm' && !compactSheet()) {
           @if (detailsOpen()) {
             <aside
@@ -279,11 +326,18 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
 })
 export class CanvasRailBoardComponent {
   readonly detailsIcon = PanelRight;
+  readonly sparklesIcon = Sparkles;
+  readonly alertIcon = TriangleAlert;
+  readonly closeIcon = X;
   readonly sides = ['left', 'right'] as const;
   readonly workspacePath = input.required<string>();
   readonly visible = input.required<boolean>();
+  readonly notice = input<CanvasBoardNotice | null>(null);
+  readonly noticeDismissed = output<string>();
   /** The footer or empty board asked for the host's named New session popover. */
-  readonly newSessionRequested = output<void>();
+  readonly newSessionRequested = output<HTMLElement>();
+  readonly recentSessions = inject(RecentSessionsStore);
+  private readonly sessionActions = inject(SessionRowActionsService);
   readonly store = inject(CanvasStore);
   readonly previousSessions = inject(PreviousSessionsDialogService);
   readonly layout = inject(CanvasLayoutService);
@@ -341,6 +395,7 @@ export class CanvasRailBoardComponent {
       (a, b) => a.order - b.order,
     ),
   );
+  readonly isEmptyBoard = computed(() => this.orderedTiles().length === 0);
   readonly focusedId = computed(() => {
     const tiles = this.orderedTiles();
     const id = this.store.focusedTabIdFor(this.workspacePath());
@@ -382,6 +437,12 @@ export class CanvasRailBoardComponent {
   private restoredScroll = false;
 
   constructor() {
+    effect(() => {
+      const isEmpty = this.isEmptyBoard();
+      const visible = this.visible();
+      const workspacePath = this.workspacePath();
+      if (visible && isEmpty) untracked(() => void this.recentSessions.load(workspacePath));
+    });
     this.destroyRef.onDestroy(() => this.stopDetailsFocusObserver());
     effect((onCleanup) => {
       if (!this.visible()) return;
@@ -878,8 +939,8 @@ export class CanvasRailBoardComponent {
    * one named popover. The board never creates a session itself; the host
    * stays the final cap gate and announces a refusal in its dock status line.
    */
-  newSession(): void {
-    this.newSessionRequested.emit();
+  newSession(element: HTMLElement): void {
+    this.newSessionRequested.emit(element);
   }
   /**
    * The empty-board trigger stays focusable while `aria-disabled`, so its
@@ -887,9 +948,17 @@ export class CanvasRailBoardComponent {
    * button turns Enter and Space into this click, so the guard covers the
    * keyboard too.
    */
-  emptyBoardNewSession(): void {
+  emptyBoardNewSession(event: MouseEvent): void {
     if (this.newSessionBlockReason()) return;
-    this.newSession();
+    if (event.currentTarget instanceof HTMLElement) this.newSession(event.currentTarget);
+  }
+  async openRecentSession(session: ChatSessionSummary): Promise<void> {
+    try {
+      if (await this.sessionActions.openSession(session) === 'opened') return;
+    } catch {
+      // Keep the card and give the same safe announcement as a failed result.
+    }
+    this.announce('Unable to open session. Try again.');
   }
   /** Called by the host after its popover added `id` to this board. */
   sessionCreated(id: string): void {

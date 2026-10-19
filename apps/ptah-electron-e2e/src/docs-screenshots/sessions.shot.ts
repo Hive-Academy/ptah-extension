@@ -51,12 +51,12 @@ test.describe('docs screenshots — sessions', () => {
     // check otherwise waits out the whole timeout on a never-still element.
     await freezeMotion(page);
     for (let i = 0; i < 2; i++) {
-      // First pass: the empty-state CTA. After a tile exists the CTA is gone
-      // and the floating "+" is the only way to add another.
+      // First pass: the empty-board hero. After a tile exists, use the
+      // Rail footer New session button.
       const add =
         i === 0
-          ? page.getByRole('button', { name: 'New Session' }).first()
-          : page.locator('[title="Add new session tile"]').first();
+          ? page.locator('[data-testid="canvas-hero-new-session"]').first()
+          : page.locator('[data-testid="canvas-footer-new-session"]').first();
       if (!(await add.isVisible().catch(() => false))) break;
       await add.click({ force: true });
       const create = page.getByRole('button', { name: 'Create', exact: true });
