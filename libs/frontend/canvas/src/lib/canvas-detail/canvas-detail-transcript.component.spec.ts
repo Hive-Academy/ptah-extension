@@ -253,7 +253,6 @@ describe('CanvasDetailTranscriptComponent visibility', () => {
           provide: AppStateManager,
           useValue: {
             currentView: signal('chat'),
-            layoutMode: signal('single'),
             composerPrefillRequest: signal({ seq: 0, text: '', tabId: null }),
           },
         },

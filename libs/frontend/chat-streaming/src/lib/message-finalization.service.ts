@@ -99,15 +99,25 @@ function placeFinalizedTrees(
   for (const message of newMessages) {
     const predecessor = state.resyncOwnerPredecessors?.get(message.id);
     if (predecessor === undefined) continue;
-    const currentIndex = placed.findIndex((candidate) => candidate.id === message.id);
+    const currentIndex = placed.findIndex(
+      (candidate) => candidate.id === message.id,
+    );
     if (currentIndex < 0) continue;
-    const predecessorIndex = predecessor === null ? -1
-      : placed.findIndex((candidate) => candidate.id === predecessor);
+    const predecessorIndex =
+      predecessor === null
+        ? -1
+        : placed.findIndex((candidate) => candidate.id === predecessor);
     if (predecessor !== null && predecessorIndex < 0) continue;
     placed.splice(currentIndex, 1);
-    let insertionIndex = predecessor === null ? 0
-      : placed.findIndex((candidate) => candidate.id === predecessor) + 1;
-    while (placed[insertionIndex] && insertedOwners.has(placed[insertionIndex].id)) insertionIndex++;
+    let insertionIndex =
+      predecessor === null
+        ? 0
+        : placed.findIndex((candidate) => candidate.id === predecessor) + 1;
+    while (
+      placed[insertionIndex] &&
+      insertedOwners.has(placed[insertionIndex].id)
+    )
+      insertionIndex++;
     placed.splice(insertionIndex, 0, message);
     insertedOwners.add(message.id);
   }
@@ -190,8 +200,7 @@ export class MessageFinalizationService {
     ) as MessageCompleteEvent | undefined;
     const pendingStats = stateCopy.pendingStats;
     let tokens:
-      | { input: number; output: number; cacheHit?: number }
-      | undefined;
+      { input: number; output: number; cacheHit?: number } | undefined;
     let cost: number | null | undefined;
     let duration: number | undefined;
 
@@ -351,10 +360,15 @@ export class MessageFinalizationService {
   deepCopyStreamingState(state: StreamingState): StreamingState {
     return {
       resyncOwnerPredecessors: state.resyncOwnerPredecessors
-        ? new Map(state.resyncOwnerPredecessors) : undefined,
+        ? new Map(state.resyncOwnerPredecessors)
+        : undefined,
       latestTodoWrite: state.latestTodoWrite
-        ? { ...state.latestTodoWrite, input: state.latestTodoWrite.input
-          ? { ...state.latestTodoWrite.input } : undefined }
+        ? {
+            ...state.latestTodoWrite,
+            input: state.latestTodoWrite.input
+              ? { ...state.latestTodoWrite.input }
+              : undefined,
+          }
         : undefined,
       events: new Map(state.events),
       messageEventIds: [...state.messageEventIds],
@@ -363,10 +377,6 @@ export class MessageFinalizationService {
       ),
       textAccumulators: new Map(state.textAccumulators),
       toolInputAccumulators: new Map(state.toolInputAccumulators),
-      agentSummaryAccumulators: new Map(state.agentSummaryAccumulators),
-      agentContentBlocksMap: new Map(
-        [...state.agentContentBlocksMap.entries()].map(([k, v]) => [k, [...v]]),
-      ),
       currentMessageId: state.currentMessageId,
       currentTokenUsage: state.currentTokenUsage
         ? { ...state.currentTokenUsage }

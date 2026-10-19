@@ -11,17 +11,18 @@ import {
   effect,
   inject,
   input,
+  linkedSignal,
   output,
   signal,
   untracked,
 } from '@angular/core';
 import { DatePipe, NgTemplateOutlet } from '@angular/common';
-import { InspectorShellController, PreviousSessionsDialogService, ProjectSetupCardComponent, RailTranscriptRetentionCoordinator, RecentSessionsStore, SessionInspectorStore, SessionRowActionsService, TabManagerService, injectSessionStatsSource } from '@ptah-extension/chat';
+import { INSPECTOR_TAB_WIDTH, InspectorDockController, InspectorShellController, PreviousSessionsDialogService, ProjectSetupCardComponent, RailTranscriptRetentionCoordinator, RecentSessionsStore, SessionInspectorStore, SessionRowActionsService, TabManagerService, injectSessionStatsSource } from '@ptah-extension/chat';
 import { SessionInspectorComponent } from '@ptah-extension/chat/inspector';
 import { SURFACE_ACTIVE } from '@ptah-extension/core';
-import { StatsTileExpansionState, inspectorToggleDescription, type CompactRailState } from '@ptah-extension/chat-ui';
+import { SidebarTabComponent, SplitHandleComponent, StatsTileExpansionState, inspectorToggleDescription, type CompactRailState } from '@ptah-extension/chat-ui';
 import { CanvasStore } from '../canvas.store';
-import { railWidthBand } from '../canvas-board-mode';
+import { railWidthBand, railWidthPx } from '../canvas-board-mode';
 import { RUNNING_CAP_MESSAGE } from '../canvas-running-cap';
 import { CanvasLayoutService } from '../canvas-layout.service';
 import { CanvasLayoutPersistenceService } from '../canvas-layout-persistence.service';
@@ -31,7 +32,7 @@ import { effectiveCanvasLaneKind } from '../canvas-detail/canvas-lane-view.compo
 import { AgentMonitorStore, BackgroundAgentStore } from '@ptah-extension/chat-streaming';
 import { CanvasRailComponent } from './canvas-rail.component';
 import { CanvasFocusAreaComponent } from './canvas-focus-area.component';
-import { LucideAngularModule, PanelRight, Sparkles, TriangleAlert, X } from 'lucide-angular';
+import { LucideAngularModule, Sparkles, TriangleAlert, X } from 'lucide-angular';
 import { AuroraEffectComponent } from '@ptah-extension/ui';
 import type { ChatSessionSummary } from '@ptah-extension/shared';
 import {
@@ -44,7 +45,7 @@ import {
 const TABBABLE = 'a[href], button, input, select, textarea, [tabindex], [contenteditable="true"]';
 /** Open layers inside a pane that own their focus: Details dialog, menus, an overlay dock. */
 const PANE_OVERLAYS = '[role="dialog"], [role="menu"], ptah-display-sheet [role="region"].full';
-// 272 px Rail + 44 px details control + about 320 px for the session pane.
+// 272 px Rail + 32 px Stats tab + about 336 px for the session pane.
 const RAIL_AUTO_COLLAPSE_PX = 640;
 
 /** One current board condition, stamped by the shell so a refreshed source can reappear. */
@@ -83,9 +84,11 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
     NgTemplateOutlet,
     DatePipe,
     LucideAngularModule,
+    SidebarTabComponent,
+    SplitHandleComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  providers: [RailTranscriptRetentionCoordinator, InspectorShellController, StatsTileExpansionState],
+  providers: [RailTranscriptRetentionCoordinator, InspectorShellController, InspectorDockController, StatsTileExpansionState],
   host: {
     class: 'block h-full min-h-0',
     '[style.display]': 'visible() ? null : "none"',
@@ -237,10 +240,14 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
                   />
                   @if (splitDisplayed() && detailsOpen() && activeSide() === side && !compactSheet()) {
                     <aside class="absolute inset-y-0 right-0 z-20 w-[min(360px,100%)] overflow-auto border-l border-base-content/10 bg-base-100 shadow-xl" role="dialog" aria-label="Session details" tabindex="-1" (keydown.escape)="closeSplitDetails($event)">
-                      @defer (on idle) {
+                      @defer (when detailsOpen()) {
                         <ptah-session-inspector [tabId]="id" presentation="embedded" [hasLaneSurface]="true" [stats]="stats.inputs()" (laneRequested)="detail.selectLaneFor(id, $event)" (closeRequested)="closeSplitDetails()" />
                       } @placeholder {
-                        <div class="p-4 text-sm font-semibold" aria-hidden="true">Session details</div>
+                        <div class="flex flex-col gap-2 p-4" role="status" aria-label="Loading session details" data-inspector-skeleton>
+                          <div class="skeleton h-4 w-32"></div>
+                          <div class="skeleton h-3 w-full"></div>
+                          <div class="skeleton h-3 w-3/4"></div>
+                        </div>
                       }
                     </aside>
                   }
@@ -258,13 +265,43 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
             </div>
           }
         </ng-template>
-        @if (!splitDisplayed() && band() === 'sm' && !compactSheet() && focusedId()) {
-          @if (detailsOpen()) {
-            <aside
-              class="flex h-full w-[288px] shrink-0 flex-col border-l border-base-content/10 bg-base-100"
-            >
-              @if (focusedId(); as id) {
-                @defer (on idle) {
+        @if (dockShown()) {
+          @if (focusedId(); as id) {
+            <!-- Stats tab (decision 13): its active line (side="left": right edge) faces the dock. -->
+            <ptah-sidebar-tab
+              data-stats-tab
+              label="Stats"
+              side="left"
+              [isOpen]="dockOpen()"
+              [badgeType]="statsTabBadge()"
+              (toggled)="toggleDetails()"
+            />
+            @if (dockSlotShown()) {
+              <!-- 0 px slot: the grip overlays the dock's leading edge and adds no layout width. -->
+              <div class="relative z-10 w-0 shrink-0">
+                <ptah-split-handle
+                  class="absolute inset-y-0 left-0 w-3"
+                  orientation="vertical"
+                  appearance="grip"
+                  label="Resize session details"
+                  [inverted]="true"
+                  [size]="dock.width()"
+                  [min]="dock.minWidth"
+                  [max]="dock.maxWidth()"
+                  (sizeChange)="dock.preview($event)"
+                  (sizeCommit)="dock.commit()"
+                  (sizeCancel)="dock.cancel()"
+                  (sizeReset)="dock.reset()"
+                />
+              </div>
+              <aside
+                class="flex h-full shrink-0 flex-col border-l border-base-content/10 bg-base-100"
+                data-inspector-dock
+                [style.width.px]="dock.width()"
+              >
+                <!-- Every inspector reference is deferred so it stays out of the initial bundle;
+                     the chunk loads as soon as the dock opens, not when the page goes idle. -->
+                @defer (when dockOpen()) {
                   <ptah-session-inspector
                     class="min-h-0 flex-1 overflow-auto"
                     [tabId]="id"
@@ -272,50 +309,30 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
                     [hasLaneSurface]="true"
                     [stats]="stats.inputs()"
                     (laneRequested)="detail.selectLaneFor(id, $event)"
-                    (closeRequested)="toggleDetails()"
+                    (closeRequested)="closeDock()"
                   />
                 } @placeholder {
-                  <div class="min-h-0 flex-1 p-4 text-sm font-semibold" aria-hidden="true">
-                    Session details
+                  <div class="flex min-h-0 flex-1 flex-col gap-2 p-4" role="status" aria-label="Loading session details" data-inspector-skeleton>
+                    <div class="skeleton h-4 w-32"></div>
+                    <div class="skeleton h-3 w-full"></div>
+                    <div class="skeleton h-3 w-3/4"></div>
                   </div>
                 }
-              }
-            </aside>
-          } @else {
-            <button
-              type="button"
-              class="btn btn-ghost btn-xs btn-square w-11 shrink-0 border-l border-base-content/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
-              aria-label="Open details"
-              title="Session details"
-              [attr.aria-expanded]="detailsOpen()"
-              (click)="toggleDetails()"
-            >
-              <lucide-angular [img]="detailsIcon" class="size-4" aria-hidden="true" />
-            </button>
-          }
-        } @else if (!splitDisplayed() && !compactSheet() && focusedId()) {
-          <aside
-            class="h-full shrink-0 overflow-auto border-l border-base-content/10 bg-base-100 [&_[data-inspector-close]]:hidden"
-            data-testid="canvas-wide-inspector"
-            [class.w-[360px]]="band() === 'xl'"
-            [class.w-[320px]]="band() === 'lg'"
-            [class.w-[296px]]="band() === 'md'"
-          >
-            @if (focusedId(); as id) {
-              <!-- Every inspector reference is deferred so it stays out of the initial bundle. -->
-              @defer (on idle) {
-                <ptah-session-inspector [tabId]="id" presentation="embedded" [hasLaneSurface]="true" [stats]="stats.inputs()" (laneRequested)="detail.selectLaneFor(id, $event)" />
-              }
+              </aside>
             }
-          </aside>
+          }
         }
         @if (compactSheetOpen()) {
           @if (focusedId(); as id) {
              <div class="fixed inset-0 z-50 overflow-y-auto bg-base-100" role="dialog" aria-modal="true" aria-label="Session details" tabindex="-1" data-compact-sheet (keydown)="onSheetKeydown($event)">
-              @defer (on idle) {
+              @defer (when compactSheetOpen()) {
                  <ptah-session-inspector [tabId]="id" presentation="sheet" [hasLaneSurface]="true" [stats]="stats.inputs()" (laneRequested)="openLaneFromCompactSheet(id, $event)" (closeRequested)="closeCompactSheet()" />
               } @placeholder {
-                <div class="p-4 text-sm font-semibold" aria-hidden="true">Session details</div>
+                <div class="flex flex-col gap-2 p-4" role="status" aria-label="Loading session details" data-inspector-skeleton>
+                  <div class="skeleton h-4 w-32"></div>
+                  <div class="skeleton h-3 w-full"></div>
+                  <div class="skeleton h-3 w-3/4"></div>
+                </div>
               }
             </div>
           }
@@ -339,7 +356,6 @@ export class CanvasRailBoardComponent {
     if (date.toDateString() === yesterday.toDateString()) return 'Yesterday';
     return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: date.getFullYear() === now.getFullYear() ? undefined : 'numeric' }).format(date);
   }
-  readonly detailsIcon = PanelRight;
   readonly sparklesIcon = Sparkles;
   readonly alertIcon = TriangleAlert;
   readonly closeIcon = X;
@@ -362,6 +378,8 @@ export class CanvasRailBoardComponent {
   readonly metrics = inject(CanvasRenderMetricsService);
   private readonly tabs = inject(TabManagerService);
   private readonly inspectorStore = inject(SessionInspectorStore);
+  /** Width of the single-focus dock (draft, persisted preference, clamp). */
+  readonly dock = inject(InspectorDockController);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
   private readonly destroyRef = inject(DestroyRef);
@@ -389,8 +407,9 @@ export class CanvasRailBoardComponent {
   private readonly parentActive = inject(SURFACE_ACTIVE, { optional: true }) ?? signal(true);
   /**
    * This board is the active workspace's AND the canvas surface is on screen.
-   * Single-chat mode keeps the canvas mounted but hidden, so `visible()` alone
-   * would let a focus repair call `switchTab` behind the user's back (C1).
+   * A standalone route keeps the canvas mounted but hidden (`*ptahRetainWhile`),
+   * so `visible()` alone would let a focus repair call `switchTab` behind the
+   * user's back (C1).
    */
   readonly surfaceActive = computed(() => this.visible() && this.parentActive());
   readonly announcement = signal('');
@@ -435,6 +454,35 @@ export class CanvasRailBoardComponent {
       : '';
   });
   readonly band = computed(() => railWidthBand(this.layout.containerWidth()));
+  /**
+   * Single-focus dock open state, per board and in memory (rev 4 D-3): open
+   * at md and wider, closed at sm, reset only when crossing sm and md.
+   */
+  private readonly dockOpenByDefault = computed(() => this.band() !== 'sm');
+  readonly dockOpen = linkedSignal({
+    source: this.dockOpenByDefault,
+    computation: (openByDefault: boolean) => openByDefault,
+  });
+  /** The Stats tab renders: single focus with a focused tile, not the compact sheet. */
+  readonly dockShown = computed(
+    () => !this.splitDisplayed() && !this.compactSheet() && this.focusedId() !== null,
+  );
+  readonly dockSlotShown = computed(() => this.dockShown() && this.dockOpen());
+  /** Width (px) the single-focus tile and the dock share: board less rail and Stats tab. */
+  readonly dockAvailableWidth = computed(() =>
+    Math.max(
+      0,
+      this.layout.containerWidth() -
+        railWidthPx(this.effectiveCollapsed(), this.band()) -
+        INSPECTOR_TAB_WIDTH,
+    ),
+  );
+  /** The closed Stats tab carries the same `need` cue as the header Details toggle. */
+  readonly statsTabBadge = computed<'warning' | null>(() => {
+    const id = this.focusedId();
+    if (this.dockOpen() || id === null) return null;
+    return this.inspectorStore.modelFor(id)().needsYouCount > 0 ? 'warning' : null;
+  });
   readonly newSessionBlockReason = computed(() =>
     this.store.canStartRunningSession() ? null : RUNNING_CAP_MESSAGE,
   );
@@ -442,7 +490,7 @@ export class CanvasRailBoardComponent {
   readonly autoCollapsed = computed(
     () =>
       (this.layout.containerWidth() > 0 && this.layout.containerWidth() < RAIL_AUTO_COLLAPSE_PX) ||
-      (!this.splitDisplayed() && this.band() === 'sm' && this.detailsOpen()),
+      (!this.splitDisplayed() && this.band() === 'sm' && this.dockOpen()),
   );
   readonly effectiveCollapsed = computed(
     () => this.board().railCollapsed || this.autoCollapsed(),
@@ -457,6 +505,7 @@ export class CanvasRailBoardComponent {
       const workspacePath = this.workspacePath();
       if (visible && isEmpty) untracked(() => void this.recentSessions.load(workspacePath));
     });
+    this.dock.bind(() => this.dockSlotShown(), () => this.dockAvailableWidth());
     this.destroyRef.onDestroy(() => this.stopDetailsFocusObserver());
     effect((onCleanup) => {
       if (!this.visible()) return;
@@ -600,6 +649,20 @@ export class CanvasRailBoardComponent {
     effect(() => {
       const failed = this.persistence.writeFailed();
       if (failed && this.visible()) this.announce('Layout changes could not be saved.');
+    });
+    let wasCompact = this.compactSheet();
+    let dockWasOpen = this.dockOpen();
+    effect(() => {
+      const compact = this.compactSheet();
+      // A hidden board measures 0 px; that is not a resize across the threshold.
+      if (this.layout.containerWidth() === 0) return;
+      // One resize can cross sm/md and 400 px at once; the band reset (D-3) has
+      // then already closed `dockOpen`, so hand off the state from the last run.
+      const dockOpenBefore = dockWasOpen;
+      dockWasOpen = this.dockOpen();
+      if (compact === wasCompact) return;
+      wasCompact = compact;
+      untracked(() => this.handOffInspector(compact, dockOpenBefore));
     });
     let previousBand = this.band();
     effect(() => {
@@ -818,6 +881,11 @@ export class CanvasRailBoardComponent {
     this.activatePane(side);
     this.detailsFocusReturn = true;
     this.detailsOpen.set(true);
+    this.focusDetailsShell();
+  }
+
+  /** After the next render, focus the open overlay or sheet, then its close once the inspector loads. */
+  private focusDetailsShell(): void {
     this.stopDetailsFocusObserver();
     afterNextRender(() => {
       const shell = this.host.nativeElement.querySelector<HTMLElement>(
@@ -944,9 +1012,70 @@ export class CanvasRailBoardComponent {
     );
     this.anchor();
   }
+  /** The Stats tab opens or closes the single-focus dock. */
   toggleDetails(): void {
-    this.detailsOpen.update((open) => !open);
+    this.stopDetailsFocusObserver();
+    this.dockOpen.update((open) => !open);
     this.anchor();
+  }
+  /** The inspector's own close: shut the dock and return focus to the Stats tab. */
+  closeDock(): void {
+    this.stopDetailsFocusObserver();
+    this.dockOpen.set(false);
+    this.anchor();
+    afterNextRender(
+      () => this.host.nativeElement.querySelector<HTMLElement>('[data-stats-tab] button')?.focus(),
+      { injector: this.injector },
+    );
+  }
+  /**
+   * The board crossed the 400 px compact threshold. In single focus the dock
+   * (`dockOpen`) and the compact sheet (`detailsOpen`) are separate surfaces,
+   * so an open inspector moves to the destination surface, the source closes,
+   * and focus follows. In split both use `detailsOpen`; only focus moves.
+   */
+  private handOffInspector(compact: boolean, dockWasOpen: boolean): void {
+    if (this.splitDisplayed()) {
+      if (this.detailsOpen()) this.focusDetailsShell();
+      return;
+    }
+    if (compact && dockWasOpen) {
+      this.dockOpen.set(false);
+      this.detailsFocusReturn = false;
+      this.detailsOpen.set(true);
+      this.focusDetailsShell();
+    } else if (!compact && this.detailsOpen()) {
+      this.stopDetailsFocusObserver();
+      this.detailsOpen.set(false);
+      this.detailsFocusReturn = false;
+      this.dockOpen.set(true);
+      afterNextRender(() => this.focusDock(), { injector: this.injector });
+    }
+  }
+
+  /**
+   * Focus the dock's close control; until the deferred inspector has one,
+   * hold focus on the Stats tab and move it in once the close appears.
+   */
+  private focusDock(): void {
+    this.stopDetailsFocusObserver();
+    const root = this.host.nativeElement;
+    const dock = root.querySelector<HTMLElement>('[data-inspector-dock]');
+    const tab = root.querySelector<HTMLElement>('[data-stats-tab] button');
+    const close = dock?.querySelector<HTMLElement>('[data-inspector-close]');
+    if (close || !dock) {
+      (close ?? tab)?.focus();
+      return;
+    }
+    tab?.focus();
+    this.detailsFocusObserver = new MutationObserver(() => {
+      const loaded = dock.querySelector<HTMLElement>('[data-inspector-close]');
+      if (!loaded) return;
+      // Only move focus the user has not moved elsewhere meanwhile.
+      if (this.dockSlotShown() && root.ownerDocument.activeElement === tab) loaded.focus();
+      this.stopDetailsFocusObserver();
+    });
+    this.detailsFocusObserver.observe(dock, { childList: true, subtree: true });
   }
   /**
    * Footer and zero-tile empty-board "New session": ask the host to open its

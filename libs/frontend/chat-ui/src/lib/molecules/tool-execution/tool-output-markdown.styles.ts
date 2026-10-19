@@ -8,7 +8,10 @@
  * margin and overflow: hidden. Inside a height-limited block those bars and
  * the margin took most of the box, so the first code row started inside the
  * fade and the block looked empty. They are hidden (the block's own row is the
- * one language label) and the wrappers flattened. The containment root the
+ * one language label) and the wrappers flattened. A short plain-text fence
+ * renders as a `.code-block-note` (prose in chat); in a tool body it keeps
+ * the code font and padding, so short output looks like long output. The
+ * containment root the
  * pipe adds (.ptah-markdown-root) carries an inline overflow-x: auto, which
  * made it a second scroll container; its overflow is lifted here (its contain
  * and isolation stay), so the enclosing block is the only scroller.
@@ -51,6 +54,16 @@ export const TOOL_OUTPUT_MARKDOWN_STYLES = `
     overflow-wrap: anywhere;
   }
   :host ::ng-deep .tool-output-markdown code {
+    font-size: 11px;
+    line-height: 1.4;
+  }
+  :host ::ng-deep .tool-output-markdown .code-block-note {
+    margin: 0;
+    padding: 0.5rem;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
     font-size: 11px;
     line-height: 1.4;
   }

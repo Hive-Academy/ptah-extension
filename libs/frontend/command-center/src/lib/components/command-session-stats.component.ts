@@ -13,45 +13,61 @@ import {
   knownSubtotalOf,
 } from '@ptah-extension/chat-ui';
 import type { SessionStatsEntry } from '@ptah-extension/shared';
+import { Bot, Clock3, Coins, Hash, LucideAngularModule } from 'lucide-angular';
 
 @Component({
   selector: 'ptah-command-session-stats',
   standalone: true,
+  imports: [LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
-      class="flex flex-wrap gap-x-3 gap-y-1 text-xs text-base-content"
+      class="grid grid-cols-2 gap-3 text-xs text-base-content lg:grid-cols-4"
       aria-label="Session statistics"
     >
-      <span
-        >Cost
-        <strong>
+      @if (hasCost()) {
+      <span class="flex items-center gap-2"><lucide-angular [img]="coinsIcon" class="size-4" aria-hidden="true" /> Cost
+        <strong class="font-mono">
           @if (snapshot()?.provisional) {
             <span class="sr-only">estimated </span>
           }
           {{ cost() }}</strong
-        ></span
-      >
-      <span
-        >Tokens
-        <strong>
+        ></span>
+      }
+      @if (hasTokens()) {
+      <span class="flex items-center gap-2"><lucide-angular [img]="hashIcon" class="size-4" aria-hidden="true" /> Tokens
+        <strong class="font-mono">
           @if (snapshot()?.provisional) {
             <span class="sr-only">estimated </span>
           }
           {{ tokens() }}</strong
-        ></span
-      >
-      <span
-        >Agents <strong>{{ agents() }}</strong></span
-      >
-      <span
-        >Duration <strong>{{ duration() }}</strong></span
-      >
+        ></span>
+      }
+      @if (hasAgents()) {
+      <span class="flex items-center gap-2"><lucide-angular [img]="botIcon" class="size-4" aria-hidden="true" /> Agents <strong class="font-mono">{{ agents() }}</strong></span>
+      }
+      @if (hasDuration()) {
+      <span class="flex items-center gap-2"><lucide-angular [img]="clockIcon" class="size-4" aria-hidden="true" /> Duration <strong class="font-mono">{{ duration() }}</strong></span>
+      }
     </div>
   `,
 })
 export class CommandSessionStatsComponent {
+  public readonly coinsIcon = Coins;
+  public readonly hashIcon = Hash;
+  public readonly botIcon = Bot;
+  public readonly clockIcon = Clock3;
   public readonly snapshot = input<SessionStatsEntry | null>(null);
+  public readonly hasCost = computed(() => {
+    const s = this.snapshot();
+    return (typeof s?.totalCost === 'number' && Number.isFinite(s.totalCost)) || knownSubtotalOf(s) !== null;
+  });
+  public readonly hasTokens = computed(() => {
+    const value = this.snapshot()?.tokenCount;
+    return typeof value === 'number' && Number.isFinite(value);
+  });
+  public readonly hasAgents = computed(() => agentCountOf(this.snapshot()) !== null);
+  public readonly hasDuration = computed(() => durationMsOf(this.snapshot()) !== null);
   public readonly cost = computed(() => {
     const s = this.snapshot();
     const subtotal = knownSubtotalOf(s);

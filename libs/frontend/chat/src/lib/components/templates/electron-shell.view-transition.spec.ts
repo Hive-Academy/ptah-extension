@@ -60,7 +60,6 @@ describe('ElectronShellComponent view-transition surface', () => {
     openConfigurationSurface: signal<string | null>(null),
     configurationSurfaceRemountTick: signal(0),
     thothFirstRunDismissed: signal(true),
-    setLayoutMode: jest.fn(),
     setCurrentView: jest.fn(),
   };
 

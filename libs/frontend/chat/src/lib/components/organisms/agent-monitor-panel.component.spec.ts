@@ -12,14 +12,21 @@ import type {
   MonitoredAgent,
   SubagentRecord,
 } from '@ptah-extension/chat-streaming';
-import { signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  input,
+  signal,
+} from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { provideSurfaceActiveTesting } from '@ptah-extension/core/testing';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { VSCodeService } from '@ptah-extension/core';
 import { PanelResizeService } from '../../services/panel-resize.service';
 import { AgentMonitorPanelComponent } from './agent-monitor-panel.component';
+import { SubagentLaneComponent } from './subagent-lane/subagent-lane.component';
 import { groupAgentsByWorkflowRun } from './agent-monitor-panel.grouping';
 
 /** Minimal MonitoredAgent factory — the grouping only reads a few fields. */
@@ -156,6 +163,17 @@ function subagent(overrides: Partial<SubagentRecord>): SubagentRecord {
     status: 'running',
     ...overrides,
   } as SubagentRecord;
+}
+
+@Component({
+  selector: 'ptah-subagent-lane',
+  standalone: true,
+  template: '',
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+class SubagentLaneStub {
+  readonly record = input.required<SubagentRecord>();
+  readonly sessionId = input<string | null>(null);
 }
 
 describe('groupAgentsByWorkflowRun — SubagentRecords', () => {
@@ -496,7 +514,6 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
   let activeTabAgentsSig: ReturnType<typeof signal<MonitoredAgent[]>>;
   let sessionSubagentsForSessionMock: jest.Mock;
   let workflowSubagentsForSessionMock: jest.Mock;
-  let getSubagentTranscriptMock: jest.Mock;
   let allSubagentsMap: Map<string, SubagentRecord>;
   let getSubagentMock: jest.Mock;
   let loadSubagentCacheInfoMock: jest.Mock;
@@ -508,7 +525,6 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
     activeTabAgentsSig = signal<MonitoredAgent[]>([]);
     sessionSubagentsForSessionMock = jest.fn(() => []);
     workflowSubagentsForSessionMock = jest.fn(() => []);
-    getSubagentTranscriptMock = jest.fn().mockResolvedValue([]);
     allSubagentsMap = new Map<string, SubagentRecord>();
     getSubagentMock = jest.fn((id: string) => {
       return (
@@ -530,6 +546,8 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
             activeSessionSubagents: activeSessionSubagentsSig,
             sessionSubagentsForSession: sessionSubagentsForSessionMock,
             activeTabAgents: activeTabAgentsSig,
+            agents: activeTabAgentsSig,
+            agentsById: signal(new Map()),
             pendingPermissions: signal([]),
             panelOpen: signal(true),
             closePanel: jest.fn(),
@@ -538,7 +556,6 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
             toggleAgentExpanded: jest.fn(),
             tick: signal(0),
             getSubagent: getSubagentMock,
-            getSubagentTranscript: getSubagentTranscriptMock,
             loadSubagentCacheInfo: loadSubagentCacheInfoMock,
           },
         },
@@ -564,6 +581,9 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
           },
         },
       ],
+    }).overrideComponent(AgentMonitorPanelComponent, {
+      remove: { imports: [SubagentLaneComponent] },
+      add: { imports: [SubagentLaneStub] },
     });
   });
 
@@ -611,7 +631,9 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
   });
 
   it('reflects selector-provided session subagents in the panel list and count', () => {
-    activeTabAgentsSig.set([agent({ agentId: 'cli_1', displayName: 'CLI Agent' })]);
+    activeTabAgentsSig.set([
+      agent({ agentId: 'cli_1', displayName: 'CLI Agent' }),
+    ]);
     activeSessionSubagentsSig.set([
       subagent({
         parentToolUseId: 'toolu_background',
@@ -637,7 +659,7 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
     expect(fixture.nativeElement.textContent).toContain('No agents');
   });
 
-  it('renders a tile for the session subagent and displays transcript viewer on selection', () => {
+  it('renders a tile and lane for the selected session subagent', () => {
     activeSessionSubagentsSig.set([
       subagent({
         parentToolUseId: 'toolu_task_1',
@@ -668,14 +690,15 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
       fixture.componentInstance.selectedWorkflowSubagent()?.teammateName,
     ).toBe('Worker 1');
 
-    // Transcript viewer should be rendered for the selected subagent
-    const transcriptViewer = fixture.nativeElement.querySelector(
-      'ptah-subagent-transcript-viewer',
-    );
-    expect(transcriptViewer).toBeTruthy();
+    const lane = fixture.debugElement.query(By.directive(SubagentLaneStub))
+      .componentInstance as SubagentLaneStub;
+    expect(lane.record().parentToolUseId).toBe('toolu_task_1');
+    expect(lane.record().teammateName).toBe('Worker 1');
+    expect(lane.record().status).toBe('running');
+    expect(lane.sessionId()).toBe('sess_1');
   });
 
-  it('shows the usage summary only once a subagent row is opened, and loads its cache info then', () => {
+  it('shows the subagent lane only once a subagent row is opened', () => {
     activeSessionSubagentsSig.set([
       subagent({
         parentToolUseId: 'toolu_task_1',
@@ -685,9 +708,8 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
     ]);
     const fixture = createPanel(null);
     expect(
-      fixture.nativeElement.querySelector('ptah-subagent-usage-summary'),
+      fixture.debugElement.query(By.directive(SubagentLaneStub)),
     ).toBeNull();
-    expect(loadSubagentCacheInfoMock).not.toHaveBeenCalled();
 
     (
       fixture.nativeElement.querySelector(
@@ -696,10 +718,9 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
     ).click();
     fixture.detectChanges();
 
-    expect(
-      fixture.nativeElement.querySelector('ptah-subagent-usage-summary'),
-    ).toBeTruthy();
-    expect(loadSubagentCacheInfoMock).toHaveBeenCalledWith('toolu_task_1');
+    const lane = fixture.debugElement.query(By.directive(SubagentLaneStub))
+      .componentInstance as SubagentLaneStub;
+    expect(lane.record().parentToolUseId).toBe('toolu_task_1');
   });
 
   it('does not auto-select session subagents when a CLI agent is selected', () => {
@@ -755,7 +776,7 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
       'completed',
     );
     expect(
-      fixture.nativeElement.querySelector('ptah-subagent-transcript-viewer'),
+      fixture.nativeElement.querySelector('ptah-subagent-lane'),
     ).toBeTruthy();
 
     // Clicking clear completed deselects and removes it
@@ -766,7 +787,7 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
     expect(fixture.componentInstance.sessionSubagents()).toHaveLength(0);
   });
 
-  it('renders fallback empty-state message when subagent has no agentId or parentSessionId', () => {
+  it('renders a pending subagent lane before agent identity is known', () => {
     activeSessionSubagentsSig.set([
       subagent({
         parentToolUseId: 'toolu_task_no_id',
@@ -777,23 +798,17 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
       }),
     ]);
     const fixture = createPanel(null);
-
-    // Select the subagent
-    const tile = fixture.nativeElement.querySelector(
-      'button[title="Pending Agent"]',
-    ) as HTMLButtonElement;
-    tile.click();
+    (
+      fixture.nativeElement.querySelector(
+        'button[title="Pending Agent"]',
+      ) as HTMLButtonElement
+    ).click();
     fixture.detectChanges();
 
-    expect(fixture.componentInstance.selectedAgentId()).toBe(
-      'toolu_task_no_id',
-    );
-    expect(
-      fixture.nativeElement.querySelector('ptah-subagent-transcript-viewer'),
-    ).toBeNull();
-    expect(fixture.nativeElement.textContent).toContain(
-      'Transcript is not available yet',
-    );
+    const lane = fixture.debugElement.query(By.directive(SubagentLaneStub))
+      .componentInstance as SubagentLaneStub;
+    expect(lane.record().parentToolUseId).toBe('toolu_task_no_id');
+    expect(lane.sessionId()).toBeNull();
   });
 
   function selectTile(
@@ -808,29 +823,36 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
     fixture.detectChanges();
   }
 
-  it('renders the transcript viewer and loads the transcript once for a background subagent whose agentId came from background_agent_started', () => {
-    activeSessionSubagentsSig.set([
-      subagent({
-        parentToolUseId: 'toolu_bg_named',
+  it('passes the background subagent record and session to its lane without transcript RPC', () => {
+    const record = subagent({
+      parentToolUseId: 'toolu_bg_named',
+      teammateName: 'reviewer-pr2',
+      status: 'running',
+      agentId: 'a1b2c3',
+      parentSessionId: 'sess_bg',
+      startedAt: 100,
+      completedAt: 200,
+      toolUses: 3,
+      totalTokens: 120,
+    });
+    activeSessionSubagentsSig.set([record]);
+    const fixture = createPanel(null);
+    selectTile(fixture, 'reviewer-pr2');
+
+    const lane = fixture.debugElement.query(By.directive(SubagentLaneStub))
+      .componentInstance as SubagentLaneStub;
+    expect(lane.record()).toBe(record);
+    expect(lane.sessionId()).toBe('sess_bg');
+    expect(lane.record()).toEqual(
+      expect.objectContaining({
         teammateName: 'reviewer-pr2',
         status: 'running',
-        agentId: 'a1b2c3',
-        parentSessionId: 'sess_bg',
+        startedAt: 100,
+        completedAt: 200,
+        toolUses: 3,
+        totalTokens: 120,
       }),
-    ]);
-    const fixture = createPanel(null);
-
-    selectTile(fixture, 'reviewer-pr2');
-    fixture.detectChanges();
-
-    expect(
-      fixture.nativeElement.querySelector('ptah-subagent-transcript-viewer'),
-    ).toBeTruthy();
-    expect(fixture.nativeElement.textContent).not.toContain(
-      'Transcript is not available yet',
     );
-    expect(getSubagentTranscriptMock).toHaveBeenCalledTimes(1);
-    expect(getSubagentTranscriptMock).toHaveBeenCalledWith('sess_bg', 'a1b2c3');
   });
 
   it('falls back to the active tab session when the record has no parentSessionId', () => {
@@ -852,14 +874,9 @@ describe('AgentMonitorPanelComponent — session subagents', () => {
 
     selectTile(fixture, 'No Session');
 
-    expect(
-      fixture.nativeElement.querySelector('ptah-subagent-transcript-viewer'),
-    ).toBeTruthy();
-    expect(getSubagentTranscriptMock).toHaveBeenCalledTimes(1);
-    expect(getSubagentTranscriptMock).toHaveBeenCalledWith(
-      'sess_active',
-      'd4e5f6',
-    );
+    const lane = fixture.debugElement.query(By.directive(SubagentLaneStub))
+      .componentInstance as SubagentLaneStub;
+    expect(lane.sessionId()).toBe('sess_active');
   });
 
   it('ensures a record is never shown twice even if present in workflow and session subagents', () => {

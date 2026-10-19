@@ -38,10 +38,16 @@ export interface ToolTarget {
   readonly keys: readonly string[];
 }
 
+/** One header chip: short text, and the full value for a tooltip when cut. */
+export interface ToolChip {
+  readonly label: string;
+  readonly title?: string;
+}
+
 /** Short facts from a call's input shown as header chips, and their keys. */
 export interface ToolChips {
   /** `background`, `60 min`, `lines 1-60`, `in src/`, `84 lines`. */
-  readonly chips: readonly string[];
+  readonly chips: readonly ToolChip[];
   /** Input keys the chips present; the body's argument list skips them. */
   readonly keys: readonly string[];
 }
@@ -154,7 +160,9 @@ const ENUM_CHIP_MAX_CHARS = 40;
  * The header chips of a call (shared rule: booleans, numbers and short enums
  * become chips; everything else stays in the body). A true boolean shows its
  * key, a false one nothing; `timeout` gets a unit; a Read range reads
- * `lines 1-60`; a search `path` reads `in src/`; Write adds its line count.
+ * `lines 1-60`; Write adds its line count. A search reads in words: its
+ * `path` is `in <last segment>` (full path in the tooltip), `head_limit 15`
+ * is `first 15`, and default flags (`-n`, `files_with_matches`) are hidden.
  * `__parseError` is consumed because the header's warning shows it.
  */
 export function describeToolChips(
@@ -162,21 +170,25 @@ export function describeToolChips(
   toolInput: Readonly<Record<string, unknown>> | undefined,
 ): ToolChips {
   if (!toolInput) return { chips: [], keys: [] };
-  const chips: string[] = [];
+  const chips: ToolChip[] = [];
   const keys: string[] = [];
-  const take = (key: string, chip?: string): void => {
+  const take = (key: string, chip?: ToolChip): void => {
     keys.push(key);
     if (chip) chips.push(chip);
   };
 
-  for (const [key, chip] of readRangeChips(toolInput)) take(key, chip);
+  for (const [key, label] of readRangeChips(toolInput)) {
+    take(key, label ? { label } : undefined);
+  }
   const lineChip = writeLineChip(toolInput);
-  if (lineChip) chips.push(lineChip);
+  if (lineChip) chips.push({ label: lineChip });
 
   const isSearch = isGrepToolInput(toolInput) || isGlobToolInput(toolInput);
   for (const [key, value] of Object.entries(toolInput)) {
     if (keys.includes(key)) continue;
-    const entry = chipForEntry(key, value, isSearch);
+    const entry = isSearch
+      ? (searchChipForEntry(key, value) ?? chipForEntry(key, value))
+      : chipForEntry(key, value);
     if (entry.consumed) take(key, entry.chip);
   }
   return { chips, keys };
@@ -185,7 +197,69 @@ export function describeToolChips(
 /** Whether an input entry is presented in the header, and its chip if any. */
 interface ChipEntry {
   readonly consumed: boolean;
-  readonly chip?: string;
+  readonly chip?: ToolChip;
+}
+
+/** Grep `output_mode` in words; the default `files_with_matches` shows nothing. */
+const SEARCH_MODE_LABELS: Readonly<Record<string, string | undefined>> = {
+  content: 'lines',
+  count: 'counts',
+  files_with_matches: undefined,
+};
+
+/** Grep/Glob inputs that read better in words; null hands off to `chipForEntry`. */
+function searchChipForEntry(key: string, value: unknown): ChipEntry | null {
+  if (key === 'path' && typeof value === 'string') {
+    const label = lastPathSegment(value);
+    return {
+      consumed: true,
+      chip: label ? { label: `in ${label}`, title: value } : undefined,
+    };
+  }
+  if (key === 'output_mode' && typeof value === 'string') {
+    if (!(value in SEARCH_MODE_LABELS)) return null;
+    const label = SEARCH_MODE_LABELS[value];
+    return { consumed: true, chip: label ? { label } : undefined };
+  }
+  if (typeof value === 'number') {
+    const label = searchNumberLabel(key, value);
+    return label === null ? null : { consumed: true, chip: { label } };
+  }
+  if (typeof value === 'boolean') {
+    if (key === '-n') return { consumed: true };
+    if (key === '-i') {
+      return { consumed: true, chip: value ? { label: 'ignore case' } : undefined };
+    }
+  }
+  return null;
+}
+
+/** `head_limit 15` -> `first 15`, `-C 3` -> `±3 lines`; null for other keys. */
+function searchNumberLabel(key: string, value: number): string | null {
+  switch (key) {
+    case 'head_limit':
+      return `first ${value}`;
+    case 'offset':
+      return `skip ${value}`;
+    case '-A':
+      return `+${value} after`;
+    case '-B':
+      return `+${value} before`;
+    case '-C':
+    case 'context':
+      return `±${value} lines`;
+    default:
+      return null;
+  }
+}
+
+/** `D:\a\b\file.md` -> `file.md`, `src/lib/` -> `lib/`; a trailing slash stays. */
+function lastPathSegment(path: string): string {
+  const parts = path.split(/[\\/]/);
+  const trailing = parts.length > 1 && parts.at(-1) === '';
+  const segments = parts.filter(Boolean);
+  const last = segments.at(-1) ?? '';
+  return trailing && last ? `${last}/` : last;
 }
 
 const NOT_CONSUMED: ChipEntry = { consumed: false };
@@ -219,20 +293,17 @@ function writeLineChip(
 }
 
 /** The header chip for one input entry (the rule in `describeToolChips`). */
-function chipForEntry(
-  key: string,
-  value: unknown,
-  isSearch: boolean,
-): ChipEntry {
+function chipForEntry(key: string, value: unknown): ChipEntry {
   if (key === '__parseError') return { consumed: true };
   if (typeof value === 'boolean') {
-    return { consumed: true, chip: booleanChip(key, value) };
+    const label = booleanChip(key, value);
+    return { consumed: true, chip: label ? { label } : undefined };
   }
   if (typeof value === 'number') {
-    const chip = key === 'timeout' ? formatTimeout(value) : `${key} ${value}`;
-    return { consumed: true, chip };
+    const label = key === 'timeout' ? formatTimeout(value) : `${key} ${value}`;
+    return { consumed: true, chip: { label } };
   }
-  if (typeof value === 'string') return stringChip(key, value, isSearch);
+  if (typeof value === 'string') return stringChip(key, value);
   return NOT_CONSUMED;
 }
 
@@ -242,13 +313,10 @@ function booleanChip(key: string, value: boolean): string | undefined {
   return key === 'run_in_background' ? 'background' : key;
 }
 
-/** A search `path` reads `in src/`; a short enum value is shown as-is. */
-function stringChip(key: string, value: string, isSearch: boolean): ChipEntry {
-  if (isSearch && key === 'path') {
-    return { consumed: true, chip: value ? `in ${value}` : undefined };
-  }
+/** A short enum value is shown as-is. */
+function stringChip(key: string, value: string): ChipEntry {
   if (ENUM_CHIP_KEYS.has(key) && value.length <= ENUM_CHIP_MAX_CHARS) {
-    return { consumed: true, chip: value };
+    return { consumed: true, chip: { label: value } };
   }
   return NOT_CONSUMED;
 }

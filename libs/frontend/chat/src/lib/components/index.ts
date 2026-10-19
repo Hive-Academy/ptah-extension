@@ -52,7 +52,7 @@ export {
   ThinkingBlockComponent,
 } from '@ptah-extension/chat-ui';
 export * from './molecules/agent-card/agent-card.component';
-export { SubagentUsageSummaryComponent } from './molecules/agent-card/subagent-usage-summary.component';
+export * from './molecules/execution-header/execution-header.component';
 export * from './molecules/agent-continue-input/agent-continue-input.component';
 /**
  * @deprecated Re-exported from @ptah-extension/chat-ui. Import directly from
@@ -103,7 +103,6 @@ export { AutopilotPopoverComponent } from '@ptah-extension/chat-ui';
 export {
   SessionCostSummaryComponent,
   SessionStatsSummaryComponent,
-  TabItemComponent,
 } from '@ptah-extension/chat-ui';
 /**
  * @deprecated Re-exported from @ptah-extension/chat-ui. Import directly from
@@ -142,6 +141,7 @@ export {
  */
 export { generateAgentColor } from '@ptah-extension/chat-ui';
 export * from './organisms/execution/execution-node.component';
+export * from './organisms/subagent-lane/subagent-lane.component';
 export * from './organisms/execution/inline-agent-bubble.component';
 export * from './organisms/execution/agent-execution.component';
 export * from './organisms/message-bubble.component';

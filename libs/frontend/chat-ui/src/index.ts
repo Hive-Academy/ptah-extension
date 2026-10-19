@@ -11,7 +11,6 @@ export {
  *   - Atoms: smallest reusable building blocks
  *   - Molecules: composed UI pieces
  */
-export { AwaitingBackgroundIndicatorComponent } from './lib/atoms/awaiting-background-indicator/awaiting-background-indicator.component';
 export { CopyButtonComponent } from './lib/atoms/copy-button.component';
 export { CostBadgeComponent } from './lib/atoms/cost-badge.component';
 export { DurationBadgeComponent } from './lib/atoms/duration-badge.component';
@@ -22,6 +21,7 @@ export { SidebarTabComponent } from './lib/atoms/sidebar-tab.component';
 export { SkeletonBlockComponent } from './lib/atoms/skeleton-block.component';
 export {
   SplitHandleComponent,
+  type SplitHandleAppearance,
   type SplitHandleOrientation,
 } from './lib/atoms/split-handle.component';
 export { StatusBadgeComponent } from './lib/atoms/status-badge.component';
@@ -38,6 +38,14 @@ export type {
   StderrSegment,
 } from './lib/molecules/agent-card/agent-card.types';
 export { AgentSummaryComponent } from './lib/molecules/agent-summary.component';
+export { LaneResultCardComponent } from './lib/molecules/lane-result/lane-result-card.component';
+export {
+  parseLaneResult,
+  type LaneResult,
+  type LaneResultFile,
+  type LaneResultFolder,
+  type LaneVerdictTone,
+} from './lib/utils/lane-result.utils';
 export { BootProgressComponent } from './lib/molecules/boot-progress/boot-progress.component';
 export {
   BackgroundAgentStripComponent,
@@ -47,7 +55,10 @@ export {
   type BackgroundAgentSteerRequest,
 } from './lib/molecules/background-agent-strip.component';
 export { AgentSteerInputComponent } from './lib/molecules/agent-steer-input.component';
-export { SubagentTranscriptViewerComponent } from './lib/molecules/subagent-transcript-viewer.component';
+export {
+  AgentLaneStatsComponent,
+  type AgentLaneStatsView,
+} from './lib/molecules/agent-lane-stats/agent-lane-stats.component';
 export { QuestionCardComponent } from './lib/molecules/question-card.component';
 export { ThinkingBlockComponent } from './lib/molecules/thinking-block.component';
 export { AutopilotPopoverComponent } from './lib/molecules/chat-input/autopilot-popover.component';
@@ -104,7 +115,6 @@ export type {
   StatsLimitViewModelInput,
 } from './lib/molecules/session/plan-limits/stats-limit-view-model.types';
 export { StatsTileExpansionState } from './lib/molecules/session/plan-limits/stats-tile-expansion.state';
-export { TabItemComponent } from './lib/molecules/session/tab-item.component';
 export { McpDirectoryBrowserComponent } from './lib/molecules/setup-plugins/mcp-directory-browser.component';
 export {
   groupInstalledServers,
@@ -180,7 +190,11 @@ export {
   orchestratorStatusWord,
   subagentStatusWord,
 } from './lib/atoms/agent-avatar/agent-status';
-export { formatAgentDuration } from './lib/atoms/agent-avatar/agent-duration';
+export {
+  formatAgentDuration,
+  agentRunDurationMs,
+  agentRunLabel,
+} from './lib/atoms/agent-avatar/agent-duration';
 export {
   CLI_PROVIDER_MARK_IDS,
   cliMarkFor,

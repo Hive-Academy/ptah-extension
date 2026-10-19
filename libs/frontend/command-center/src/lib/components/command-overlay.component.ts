@@ -19,9 +19,19 @@ import {
   PROVIDER_BRAND_SLUGS,
   PROVIDER_MARKS,
 } from '@ptah-extension/ui';
-import { LucideAngularModule } from 'lucide-angular';
+import {
+  Bot,
+  CircleDot,
+  GitBranch,
+  LucideAngularModule,
+  Shield,
+  Sparkles,
+  Terminal,
+} from 'lucide-angular';
+import type { LucideIconData } from 'lucide-angular';
 import { ContextRingComponent } from '@ptah-extension/chat-ui';
 import { CommandCenterStore } from '../model/command-center.store';
+import type { CommandWorkNode } from '../model/command-center.store';
 import type { ProjectionResult } from '../model/work-projection';
 import type { SceneLabel } from '../scene/command-scene-renderer';
 import { CommandOverlayPositioner } from './command-overlay-positioner';
@@ -48,13 +58,16 @@ export const COMMAND_OVERLAY_CLOSE_DELAY_MS = 200;
   ],
   providers: [FloatingUIService],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  styleUrl: './command-overlay.component.css',
   template: `
     <div class="pointer-events-none absolute inset-0">
       @for (node of projection().nodes; track node.id) {
         <button
           type="button"
-          class="pointer-events-auto absolute left-0 top-0 flex min-h-11 min-w-11 flex-col items-center justify-center rounded-lg border border-base-300 border-l-4 bg-base-100/95 px-2 text-xs text-base-content shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
+          class="command-plate pointer-events-auto absolute left-0 top-0 flex min-h-11 min-w-11 flex-col items-center justify-center rounded-lg border border-base-300 border-l-4 bg-base-100/95 px-2 text-xs text-base-content shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-base-content"
           [class]="stateBorder(node.state)"
+          [class.plate-root]="node.kind === 'root'"
+          [class.plate-child]="node.kind === 'child'"
           [class.border-warning]="selectedId() === node.id"
           [class.ring-2]="selectedId() === node.id"
           [class.ring-warning]="selectedId() === node.id"
@@ -67,7 +80,8 @@ export const COMMAND_OVERLAY_CLOSE_DELAY_MS = 200;
               : 'hidden'
           "
           [attr.data-node-id]="node.id"
-          [attr.aria-label]="node.label + ', ' + node.state"
+          [attr.data-kind]="node.kind"
+          [attr.aria-label]="plateAriaLabel(node)"
           [attr.aria-pressed]="selectedId() === node.id"
           [attr.aria-describedby]="
             activeNodeId() === node.id && !pinnedNodeId()
@@ -89,45 +103,82 @@ export const COMMAND_OVERLAY_CLOSE_DELAY_MS = 200;
           (keydown.space)="onLabelEnterKey($event, node.id)"
           (keydown.escape)="onEscape($event)"
         >
-          <span class="flex max-w-36 min-w-0 items-center gap-1 font-semibold">
+          <span
+            class="plate-title flex max-w-36 min-w-0 items-center gap-1 font-semibold"
+          >
+            <lucide-angular
+              [img]="kindIcon(node)"
+              class="plate-kind-icon h-3 w-3 shrink-0"
+              [class.plate-child-icon]="node.kind === 'child'"
+              aria-hidden="true"
+            />
             @if (knownProvider(node.providerId); as providerId) {
-              <ptah-provider-mark [providerId]="providerId" size="sm" />
-            } @else {
+              @if (node.kind !== 'root') {
+                <ptah-provider-mark [providerId]="providerId" size="sm" />
+              }
+            } @else if (node.kind !== 'root') {
               <ptah-monogram-tile
-                [label]="node.providerId || node.label"
+                [label]="
+                  node.providerId && node.providerId !== 'unknown'
+                    ? node.providerId
+                    : node.kind === 'child'
+                      ? 'CS'
+                      : node.label
+                "
                 size="sm"
               />
             }
             <span class="min-w-0 truncate">{{ node.label }}</span>
-            @if (node.kind === 'root' && rootContextPercent() !== null) {
-              <ptah-context-ring
-                [percent]="rootContextPercent()!"
-                [size]="28"
-                [tone]="rootContextTone()"
-                aria-hidden="true"
-              />
-            }
           </span>
-          <span class="text-[11px] text-base-content-muted">
-            @if (providerName(node.providerId); as provider) {
-              {{ provider }} ·
-            }
-            <span
-              class="inline-flex items-center gap-1"
-              [class]="stateColor(node.state)"
+          @if (node.kind === 'root') {
+            <span class="plate-role">HEAD OF ENGINEERING</span>
+            <span class="sr-only"
+              >{{ providerLabel(node.providerId) }} · {{ node.state }}</span
             >
+            <span class="plate-context">
               <lucide-angular
                 [img]="stateIcon(node.state)"
                 class="h-3 w-3"
-                aria-hidden="true"
+                [class]="stateColor(node.state)"
                 [class.animate-spin]="
                   (node.state === 'running' || node.state === 'starting') &&
                   !reducedMotion()
                 "
+                aria-hidden="true"
               />
-              {{ node.state }}
+              @if (rootContextPercent() !== null) {
+                <ptah-context-ring
+                  [percent]="rootContextPercent()!"
+                  [size]="28"
+                  [tone]="rootContextTone()"
+                  aria-hidden="true"
+                />
+                <span>Context {{ rootContextPercent() }}%</span>
+              } @else {
+                <span>Context unknown</span>
+              }
             </span>
-          </span>
+          } @else {
+            <span class="plate-meta text-[11px] text-base-content-muted">
+              <span>{{ providerLabel(node.providerId) }}</span>
+              <span aria-hidden="true"> · </span>
+              <span
+                class="plate-state inline-flex items-center gap-1"
+                [class]="stateColor(node.state)"
+              >
+                <lucide-angular
+                  [img]="stateIcon(node.state)"
+                  class="h-3 w-3"
+                  aria-hidden="true"
+                  [class.animate-spin]="
+                    (node.state === 'running' || node.state === 'starting') &&
+                    !reducedMotion()
+                  "
+                />
+                {{ node.state }}
+              </span>
+            </span>
+          }
         </button>
       }
       <span
@@ -205,6 +256,18 @@ export class CommandOverlayComponent {
   public readonly stateIcon = stateIcon;
   public readonly stateColor = stateColor;
   public readonly stateBorder = stateBorder;
+  public readonly kindIcons = {
+    root: Sparkles,
+    child: GitBranch,
+    agent: Bot,
+    tribunal: Shield,
+    lane: Terminal,
+    phase: CircleDot,
+  } satisfies Record<CommandWorkNode['kind'], LucideIconData>;
+
+  public kindIcon(node: CommandWorkNode): LucideIconData {
+    return this.kindIcons[node.kind];
+  }
 
   public phaseCount(nodeId: string): CommandPhaseCount | null {
     return phaseCountOf(this.projection().nodes, nodeId);
@@ -327,11 +390,17 @@ export class CommandOverlayComponent {
       : null;
   }
 
-  public providerName(id: string | null): string | null {
-    if (!id || id.toLowerCase() === 'unknown') return null;
+  public providerLabel(id: string | null): string {
+    if (!id || id.toLowerCase() === 'unknown') return 'Provider unknown';
+    if (!this.knownProvider(id)) return id;
     return id
       .replace(/[-_]+/g, ' ')
       .replace(/\b\w/g, (letter) => letter.toUpperCase());
+  }
+
+  public plateAriaLabel(node: CommandWorkNode): string {
+    const context = node.kind === 'root' ? this.rootContextPercent() : null;
+    return `${node.label}, ${this.providerLabel(node.providerId)}, ${node.state}${context === null ? '' : `, Context ${context}%`}`;
   }
 
   public onLabelEnter(id: string): void {

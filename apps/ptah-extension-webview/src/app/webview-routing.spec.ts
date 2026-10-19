@@ -336,15 +336,13 @@ describe('webview routing composition', () => {
       expect(TestBed.inject(AppStateManager).currentView()).toBe('chat');
     });
 
-    it('still maps the legacy "orchestra-canvas" value onto chat + grid', async () => {
+    it('still maps the legacy "orchestra-canvas" value onto chat', async () => {
       const appState = TestBed.inject(AppStateManager);
-      appState.setLayoutMode('single');
 
       post('orchestra-canvas');
       await settle();
 
       expect(appState.currentView()).toBe('chat');
-      expect(appState.layoutMode()).toBe('grid');
     });
 
     it.each(['command-builder', 'context-tree', 'not-a-view', undefined])(

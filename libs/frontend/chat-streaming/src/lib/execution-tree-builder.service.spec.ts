@@ -437,6 +437,129 @@ describe('ExecutionTreeBuilderService — incremental rebuild', () => {
     expect(findByType(after, 'text')?.content).toBe('submore');
   });
 
+  it('keys a hook-fallback agent node by the Task tool id, not the hook UUID', () => {
+    feed(messageStart('msg-root', 'assistant'));
+    feed({
+      ...toolStart('msg-root', 'toolu_task'),
+      toolName: 'Task',
+      isTaskTool: true,
+    } as ToolStartEvent);
+    feed(
+      toolDelta(
+        'msg-root',
+        'toolu_task',
+        JSON.stringify({ subagent_type: 'code-style-reviewer' }),
+      ),
+    );
+    // A hook agent_start carries no parentToolUseId, and its own toolCallId
+    // is a hook UUID. Only the subagent_type fallback can match it to the
+    // Task tool (PR #751 review 4309313434).
+    feed({
+      id: 'evt-hook-agent-start',
+      eventType: 'agent_start',
+      timestamp: nextTimestamp(),
+      sessionId: SESSION_ID,
+      source: 'stream',
+      messageId: 'msg-root',
+      toolCallId: 'hook-8f2c-agent-start',
+      agentType: 'code-style-reviewer',
+      agentDescription: 'Review the diff',
+      agentId: 'agent-hook',
+    } as FlatStreamEventUnion);
+
+    const tree = builder.buildTree(state, 'k');
+    const agent = findByType(tree, 'agent');
+    expect(agent).toBeDefined();
+    // The inline bubble keys SubagentExecutionStore and the monitor by the
+    // Task tool_use id, so the agent node must carry it — not the hook UUID.
+    expect(agent?.toolCallId).toBe('toolu_task');
+  });
+
+  it('selects subagent roots by parent tool and invalidates their digest on a delta', () => {
+    feed(messageStart('msg-main', 'assistant'));
+    feed(textDelta('msg-main', 0, 'main'));
+    feed({
+      ...messageStart('msg-agent', 'assistant'),
+      parentToolUseId: 'toolu_agent',
+    } as MessageStartEvent);
+    feed(textDelta('msg-agent', 0, 'first'));
+    feed(toolStart('msg-agent', 'toolu_nested'));
+    feed({
+      id: 'evt-agent-nested',
+      eventType: 'agent_start',
+      timestamp: nextTimestamp(),
+      sessionId: SESSION_ID,
+      source: 'stream',
+      messageId: 'msg-agent',
+      parentToolUseId: 'toolu_nested',
+      toolCallId: 'toolu_nested',
+      agentType: 'general-purpose',
+      agentDescription: 'Nested work',
+      agentId: 'agent-nested',
+    } as FlatStreamEventUnion);
+    feed({
+      ...messageStart('msg-nested', 'assistant'),
+      parentToolUseId: 'toolu_nested',
+    } as MessageStartEvent);
+    feed(textDelta('msg-nested', 0, 'nested'));
+
+    expect(builder.buildTree(state, 'default-roots')).toHaveLength(1);
+    const before = builder.buildTree(state, 'agent-roots', {
+      rootParentToolUseId: 'toolu_agent',
+    });
+    expect(before).toHaveLength(1);
+    expect(findByType(before, 'text')?.content).toBe('first');
+    expect(findByType(before, 'agent')?.toolCallId).toBe('toolu_nested');
+
+    feed(textDelta('msg-agent', 1, ' second'));
+    const after = builder.buildTree(state, 'agent-roots', {
+      rootParentToolUseId: 'toolu_agent',
+    });
+    expect(after).not.toBe(before);
+    expect(findByType(after, 'text')?.content).toBe('first second');
+
+    feed(textDelta('msg-nested', 1, ' work'));
+    const afterNested = builder.buildTree(state, 'agent-roots', {
+      rootParentToolUseId: 'toolu_agent',
+    });
+    expect(afterNested[0]).not.toBe(after[0]);
+    expect(afterNested).toHaveLength(1);
+    const nestedAgent = findByType(afterNested, 'agent');
+    expect(findByType(nestedAgent?.children ?? [], 'text')?.content).toBe(
+      'nested work',
+    );
+  });
+
+  it('keeps parent-linked tool calls in a subagent execution root', () => {
+    feed({
+      ...messageStart('msg-agent', 'assistant'),
+      parentToolUseId: 'toolu_task',
+    });
+    feed({
+      ...toolStart('msg-agent', 'toolu_read'),
+      parentToolUseId: 'toolu_task',
+    });
+
+    const before = builder.buildTree(state, 'subagent-tools', {
+      rootParentToolUseId: 'toolu_task',
+    });
+    expect(before).toHaveLength(1);
+    expect(
+      before[0].children.filter((node) => node.type === 'tool'),
+    ).toHaveLength(1);
+
+    feed({
+      ...toolStart('msg-agent', 'toolu_grep'),
+      parentToolUseId: 'toolu_task',
+    });
+    const after = builder.buildTree(state, 'subagent-tools', {
+      rootParentToolUseId: 'toolu_task',
+    });
+    expect(
+      after[0].children.filter((node) => node.type === 'tool'),
+    ).toHaveLength(2);
+  });
+
   it('drops an evicted message from messageEventIds when the cap bites', () => {
     const warn = jest
       .spyOn(console, 'warn')
@@ -1094,44 +1217,6 @@ describe('ExecutionTreeBuilderService — incremental rebuild', () => {
         expect(agentNodeFor(tree, 'toolu_b')).toBe(agentB);
       }
     });
-
-    it('an agent summary chunk invalidates only the owning root', () => {
-      seedTwoAgents();
-      const before = expectEquivalent({ ...state });
-      expect(before).toHaveLength(2);
-
-      // `ChatLifecycleService` appends the chunk in place and publishes a
-      // shallow copy: no streaming event, no message revision.
-      const builds = spyOnMessageBuilds();
-      state.agentSummaryAccumulators.set('agent-a', 'found the bug');
-      const after = builder.buildTree({ ...state }, INCREMENTAL_KEY);
-      const built = builds.mock.calls.map(([messageId]) => messageId);
-      expect(expectEquivalent({ ...state })).toBe(after);
-
-      expect(built).toContain('msg-a');
-      expect(built).not.toContain('msg-b');
-      expect(after[1]).toBe(before[1]);
-      expect(after[0]).not.toBe(before[0]);
-      expect(
-        agentNodeFor(after, 'toolu_a')?.children.map((c) => c.content),
-      ).toContain('found the bug');
-    });
-
-    it('an unattributed agent summary still invalidates (global fallback)', () => {
-      seedTwoAgents();
-      expectEquivalent({ ...state });
-
-      // No agent_start and no tool carries this id, so no root can be shown
-      // to own it: every root is handed back to the builder.
-      const builds = spyOnMessageBuilds();
-      state.agentSummaryAccumulators.set('agent-unknown', 'orphan summary');
-      builder.buildTree({ ...state }, INCREMENTAL_KEY);
-      const built = builds.mock.calls.map(([messageId]) => messageId);
-
-      expect(built).toContain('msg-a');
-      expect(built).toContain('msg-b');
-      expectEquivalent({ ...state });
-    });
   });
 
   /**
@@ -1142,8 +1227,8 @@ describe('ExecutionTreeBuilderService — incremental rebuild', () => {
    * while the node keeps rendering the old value — so what it folds, and what
    * it deliberately does not, is a contract rather than an implementation
    * detail. Exercised directly because no builder in this repo populates
-   * `summaryContent` / `toolCount` on a node today: they arrive on persisted
-   * and restored trees, which is precisely why "today's producers move them
+   * `toolCount` on a node today: it arrives on persisted
+   * and restored trees, which is precisely why "today's producers move it
    * alongside cost" is not an invariant worth relying on.
    */
   describe('fingerprintNode — what the per-node reuse key folds', () => {
@@ -1178,19 +1263,6 @@ describe('ExecutionTreeBuilderService — incremental rebuild', () => {
         isCollapsed: false,
         ...overrides,
       }) as ExecutionNode;
-
-    it('separates two cards that differ only in summaryContent', () => {
-      // The agent file watcher appends to `agentSummaryAccumulators`, keyed by
-      // agentId — it moves no cost, no duration and no token total.
-      expect(fingerprintOf(agentCard({ summaryContent: undefined }))).not.toBe(
-        fingerprintOf(agentCard({ summaryContent: 'reading the router' })),
-      );
-      expect(
-        fingerprintOf(agentCard({ summaryContent: 'reading the router' })),
-      ).not.toBe(
-        fingerprintOf(agentCard({ summaryContent: 'reading the builder' })),
-      );
-    });
 
     it('separates two cards that differ only in toolCount', () => {
       expect(fingerprintOf(agentCard({ toolCount: undefined }))).not.toBe(

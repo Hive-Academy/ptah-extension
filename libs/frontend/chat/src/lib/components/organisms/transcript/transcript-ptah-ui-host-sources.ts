@@ -1,6 +1,7 @@
-import { computed, type Signal } from '@angular/core';
+import { computed, inject, Injector, type Signal } from '@angular/core';
 import type { PtahUiHostSources } from '@ptah-extension/chat-ui';
 import type { LiveModelStatsPayload } from '@ptah-extension/chat-state';
+import { SubagentExecutionStore } from '@ptah-extension/chat-streaming';
 import type {
   ContextCapacity,
   ExecutionChatMessage,
@@ -49,14 +50,19 @@ const NO_CAPACITIES: readonly ContextCapacity[] = Object.freeze([]);
  * - `capacities`: `[liveModelStats.contextCapacity]` when the tab has one,
  *   `[]` otherwise (decision #54). `$agents` reads only this list.
  *
- * Pure signal wiring: no injection context, no module-level state.
+ * Construct in an injection context (the transcript display feed does this).
  */
 export function createTranscriptPtahUiHostSources(
   input: TranscriptPtahUiHostSourcesInput,
 ): PtahUiHostSources {
+  const injector = inject(Injector);
   const records = computed(() => input.slots().map((slot) => slot.record()));
   const turnFacts = computed(() =>
-    collectTurnAgentFacts(records(), input.activeTrees()),
+    collectTurnAgentFacts(records(), input.activeTrees(), (key) => {
+      const store = injector.get(SubagentExecutionStore);
+      store.revisionFor(key);
+      return store.treeFor(key);
+    }),
   );
   const turnIndexByMessage = computed(() => turnIndexes(records()));
   const contextCapacity = computed(

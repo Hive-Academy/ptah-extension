@@ -30,7 +30,6 @@ import type {
   CliSessionReference,
   MessageCompleteEvent,
   SubagentPromptCacheTtl,
-  SubagentTranscriptMessage,
   AgentFailureKind,
   LaneStopReason,
   CliUsageTotals,
@@ -536,9 +535,7 @@ export interface SubagentRecord {
   /**
    * Short SDK agent identifier (e.g. `"adcecb2"`), captured from `agent_start`
    * (`AgentStartEvent.agentId`). Distinct from `taskId` (steer/stop routing) and
-   * from `parentToolUseId` (the Task tool_use id / primary key). This is the id
-   * required to read the agent's full historical transcript via the
-   * `subagent:transcript` RPC — see {@link AgentMonitorStore.getSubagentTranscript}.
+   * from `parentToolUseId` (the Task tool_use id / primary key).
    * Only `agent_start` carries it, so it is set there and preserved (never
    * downgraded to undefined) across later progress/status/completed merges.
    */
@@ -558,6 +555,12 @@ export interface SubagentRecord {
   agentType?: string;
   /** Latest description from progress/status events */
   description?: string;
+  /**
+   * The task the agent was started with (`AgentStartEvent.agentDescription`).
+   * Only `agent_start` writes it; progress and status events, which overwrite
+   * `description` with the latest activity, carry it unchanged.
+   */
+  taskDescription?: string;
   /** AI-generated rolling summary from progress events (most recent) */
   latestSummary?: string;
   /** Most recent tool name reported by progress events */
@@ -578,6 +581,10 @@ export interface SubagentRecord {
   toolUses?: number;
   /** Elapsed/total duration (last reported) */
   durationMs?: number;
+  /** Epoch milliseconds of the first observed lifecycle event. */
+  startedAt?: number;
+  /** Epoch milliseconds of terminal completion. */
+  completedAt?: number;
   /** Error text if status is 'failed' */
   errorMessage?: string;
   /** Final output file path if completed */
@@ -1695,6 +1702,8 @@ export class AgentMonitorStore implements OnDestroy {
         if (existingIds.has(ref.agentId)) continue;
 
         const ts = new Date(ref.startedAt).getTime();
+        const completedAt =
+          ref.completedAt === undefined ? NaN : Date.parse(ref.completedAt);
         const restoredEvents = ref.streamEvents ? [...ref.streamEvents] : [];
         // A resumed session's persisted events come from the backend's 50 000
         // budget, so they must meet the live card's cap on the way in.
@@ -1711,6 +1720,7 @@ export class AgentMonitorStore implements OnDestroy {
           task: ref.task,
           status: ref.status,
           startedAt: Number.isNaN(ts) ? Date.now() : ts,
+          completedAt: Number.isNaN(completedAt) ? undefined : completedAt,
           // Persisted stdout is kept to 100 KB by the backend, twice the live
           // card's budget. Capping it here rather than on the next delta means
           // a restored card states its truncation from the moment it appears.
@@ -2019,6 +2029,7 @@ export class AgentMonitorStore implements OnDestroy {
         teammateName: event.teammateName ?? existing?.teammateName,
         agentType: event.agentType || existing?.agentType,
         description: event.agentDescription ?? existing?.description,
+        taskDescription: event.agentDescription ?? existing?.taskDescription,
         latestSummary: existing?.latestSummary,
         lastToolName: existing?.lastToolName,
         status:
@@ -2030,6 +2041,13 @@ export class AgentMonitorStore implements OnDestroy {
         totalTokens: existing?.totalTokens,
         toolUses: existing?.toolUses,
         durationMs: existing?.durationMs,
+        startedAt: existing?.startedAt ?? event.timestamp,
+        completedAt:
+          existing?.status &&
+          existing.status !== 'pending' &&
+          existing.status !== 'running'
+            ? existing.completedAt
+            : undefined,
         errorMessage: existing?.errorMessage,
         outputFile: existing?.outputFile,
         parentSessionId:
@@ -2118,12 +2136,20 @@ export class AgentMonitorStore implements OnDestroy {
         teammateName: existing?.teammateName,
         agentType: existing?.agentType,
         description: event.description ?? existing?.description,
+        taskDescription: existing?.taskDescription,
         latestSummary: event.summary ?? existing?.latestSummary,
         lastToolName: event.lastToolName ?? existing?.lastToolName,
         status: existing?.status ?? 'running',
         totalTokens: event.totalTokens,
         toolUses: event.toolUses,
         durationMs: event.durationMs,
+        startedAt: existing?.startedAt ?? event.timestamp,
+        completedAt:
+          existing?.status &&
+          existing.status !== 'pending' &&
+          existing.status !== 'running'
+            ? existing.completedAt
+            : undefined,
         errorMessage: existing?.errorMessage,
         outputFile: existing?.outputFile,
         parentSessionId:
@@ -2152,12 +2178,20 @@ export class AgentMonitorStore implements OnDestroy {
         teammateName: existing?.teammateName,
         agentType: existing?.agentType,
         description: event.description ?? existing?.description,
+        taskDescription: existing?.taskDescription,
         latestSummary: existing?.latestSummary,
         lastToolName: existing?.lastToolName,
         status: event.status,
         totalTokens: existing?.totalTokens,
         toolUses: existing?.toolUses,
         durationMs: existing?.durationMs,
+        startedAt: existing?.startedAt ?? event.timestamp,
+        completedAt:
+          event.status === 'completed' ||
+          event.status === 'failed' ||
+          event.status === 'killed'
+            ? (existing?.completedAt ?? event.timestamp)
+            : undefined,
         errorMessage: event.errorMessage ?? existing?.errorMessage,
         outputFile: existing?.outputFile,
         parentSessionId:
@@ -2186,12 +2220,15 @@ export class AgentMonitorStore implements OnDestroy {
         teammateName: existing?.teammateName,
         agentType: existing?.agentType,
         description: existing?.description,
+        taskDescription: existing?.taskDescription,
         latestSummary: event.summary ?? existing?.latestSummary,
         lastToolName: existing?.lastToolName,
         status: event.status,
         totalTokens: event.totalTokens ?? existing?.totalTokens,
         toolUses: event.toolUses ?? existing?.toolUses,
         durationMs: event.durationMs ?? existing?.durationMs,
+        startedAt: existing?.startedAt ?? event.timestamp,
+        completedAt: event.timestamp,
         errorMessage: existing?.errorMessage,
         outputFile: event.outputFile ?? existing?.outputFile,
         parentSessionId:
@@ -2412,7 +2449,11 @@ export class AgentMonitorStore implements OnDestroy {
    * mid-run-backgrounded agent receives an early "running in the background"
    * tool_result while it keeps working, which must not terminalise it.
    */
-  onTaskToolResult(toolCallId: string, isError: boolean): void {
+  onTaskToolResult(
+    toolCallId: string,
+    isError: boolean,
+    timestamp?: number,
+  ): void {
     this._subagents.update((map) => {
       const existing = map.get(toolCallId);
       if (!existing) return map;
@@ -2423,6 +2464,10 @@ export class AgentMonitorStore implements OnDestroy {
       next.set(toolCallId, {
         ...existing,
         status: isError ? 'failed' : 'completed',
+        completedAt:
+          timestamp !== undefined && Number.isFinite(timestamp)
+            ? timestamp
+            : Date.now(),
       });
       return next;
     });
@@ -2476,48 +2521,6 @@ export class AgentMonitorStore implements OnDestroy {
     }
     this._subagentRpcError.set(null);
     return true;
-  }
-
-  /**
-   * Read a subagent's full historical transcript on demand via the
-   * `subagent:transcript` RPC. Unlike the live execution tree (fed by streamed
-   * `forwardSubagentText` deltas), this returns the agent's COMPLETE saved
-   * conversation — usable after the agent has finished or to backfill output
-   * that was never streamed into the current tree.
-   *
-   * `agentId` is the SDK short-hex id (see `SubagentRecord.agentId`), NOT the
-   * Task `parentToolUseId`. `sessionId` is the OWNING parent session
-   * (`SubagentRecord.parentSessionId` / `BackgroundAgentEntry.sessionId`).
-   *
-   * Mirrors the RPC-call / error-handling shape of {@link sendMessageToAgent}:
-   * on `!result.isSuccess()` it returns `[]` rather than throwing. A missing or
-   * not-yet-flushed transcript ALSO comes back as `{ messages: [] }` from the
-   * backend (never a not-found error), so callers must treat an empty array as
-   * "no transcript yet", not as a failure. The shared `subagentRpcError`
-   * channel is deliberately NOT touched here — it is keyed by
-   * `parentToolUseId` for steer/stop/background toasts, and a read-only
-   * transcript fetch (agentId-scoped) is surfaced through the viewer's own
-   * empty/error state instead.
-   */
-  async getSubagentTranscript(
-    sessionId: string,
-    agentId: string,
-    opts?: { limit?: number; offset?: number },
-  ): Promise<SubagentTranscriptMessage[]> {
-    const result = await this.rpc.call('subagent:transcript', {
-      sessionId,
-      agentId,
-      limit: opts?.limit,
-      offset: opts?.offset,
-    });
-    if (!result.isSuccess()) {
-      console.warn(
-        '[AgentMonitorStore] subagent:transcript failed:',
-        result.error ?? 'Unknown error',
-      );
-      return [];
-    }
-    return result.data.messages;
   }
 
   /**

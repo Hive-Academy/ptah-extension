@@ -21,9 +21,9 @@
  * - **`content` is NOT capped.** For `text` and `thinking` nodes that is the
  *   assistant's prose — the thing the transcript exists to show, and the thing
  *   the user re-reads. Capping it would trade the product for the bytes.
- * - `agentPrompt` and `summaryContent` are not capped either. They are smaller,
- *   and their render path was not audited when this was written. Deferred on
- *   purpose rather than left as a silent gap.
+ * - `agentPrompt` is not capped either. It is smaller, and its render path
+ *   was not audited when this was written. Deferred on purpose rather than
+ *   left as a silent gap.
  *
  * ## Why the slice geometry differs from `capBuffer`
  *
