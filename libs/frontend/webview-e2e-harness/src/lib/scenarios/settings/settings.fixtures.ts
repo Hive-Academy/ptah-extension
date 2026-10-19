@@ -266,28 +266,6 @@ export const MEMORY_TRIGGERS_FIXTURE = {
   },
 };
 
-/** `skillSynthesis:getSettings` — retained enhancement settings. */
-export const SKILL_SYNTHESIS_SETTINGS_FIXTURE = {
-  settings: {
-    enabled: true,
-    successesToPromote: 3,
-    dedupCosineThreshold: 0.92,
-    maxActiveSkills: 40,
-    candidatesDir: '.ptah/skill-candidates',
-    evictionDecayRate: 0.1,
-    generalizationContextThreshold: 3,
-    dedupClusterThreshold: 0.85,
-    prefilterMinEdits: 2,
-    prefilterMinToolUses: 1,
-    enhanceTimeoutMs: {
-      value: 120000,
-      default: 120000,
-      min: 30000,
-      max: 600000,
-    },
-  },
-};
-
 /** `config:model-get` / `config:effort-get` — main agent (BRIEF:47-49). */
 export const MODEL_GET_FIXTURE = { model: '' };
 export const EFFORT_GET_FIXTURE = { effort: 'medium' as const };
@@ -709,7 +687,6 @@ function statefulSettingsFixtures(
     'config:model-get': () => ({ model: state.model }),
     'config:effort-get': () => ({ effort: state.effort }),
     'memory:getTriggers': MEMORY_TRIGGERS_FIXTURE,
-    'skillSynthesis:getSettings': SKILL_SYNTHESIS_SETTINGS_FIXTURE,
     'ptahCli:list': () => ({ agents: state.ptahCliAgents }),
     'ptahCli:testConnection': (params: unknown) => {
       record(state, 'ptahCli:testConnection', params);
@@ -761,10 +738,6 @@ function statefulSettingsFixtures(
     'memory:setTriggers': (params: unknown) => {
       record(state, 'memory:setTriggers', params);
       return { success: true };
-    },
-    'skillSynthesis:updateSettings': (params: unknown) => {
-      record(state, 'skillSynthesis:updateSettings', params);
-      return { updated: true };
     },
     'ptahCli:create': (params: unknown) => {
       record(state, 'ptahCli:create', params);

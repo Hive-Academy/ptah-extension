@@ -1850,7 +1850,7 @@ pipeline tokens (batch 59) before SS registrations are removed (batch 60).
 - Validation notes: `rg -n "skillSynthesis:(listCandidates|getCandidate|promote|reject|invocations|stats|getSettings|updateSettings|pin|unpin|runCurator|diagnostics|analyzeNow|setTriggers|getTriggers|setLanes|getLanes|listSuggestions|acceptSuggestion|dismissSuggestion|getSuggestion|updateSuggestion|rejectBulk|promoteBulk|rejectByPattern|queue|digest|enhanceNow|applyProposal)'" libs/frontend apps` finds zero live hits.
 - Implementation details: none beyond the plan row.
 
-## Batch 59: Atomic RPC contract contraction (R1) - PENDING
+## Batch 59: Atomic RPC contract contraction (R1) - COMPLETE (+ Task 59.0 TUI per O38)
 
 - Phase: D | Executor: CLI lane codex | Depends on: 33, 40, 41, 42, 43, 58 | Tasks: 1
 - Flags: heavy gate (10 projects); no other check may run concurrently

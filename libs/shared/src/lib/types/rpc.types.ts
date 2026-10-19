@@ -1983,74 +1983,6 @@ export interface RpcMethodRegistry {
     params: CorpusSuggestParams;
     result: CorpusSuggestResult;
   };
-  'skillSynthesis:listCandidates': {
-    params: SkillSynthesisListCandidatesParams;
-    result: SkillSynthesisListCandidatesResult;
-  };
-  'skillSynthesis:getCandidate': {
-    params: SkillSynthesisGetCandidateParams;
-    result: SkillSynthesisGetCandidateResult;
-  };
-  'skillSynthesis:promote': {
-    params: SkillSynthesisPromoteParams;
-    result: SkillSynthesisPromoteResult;
-  };
-  'skillSynthesis:reject': {
-    params: SkillSynthesisRejectParams;
-    result: SkillSynthesisRejectResult;
-  };
-  'skillSynthesis:invocations': {
-    params: SkillSynthesisInvocationsParams;
-    result: SkillSynthesisInvocationsResult;
-  };
-  'skillSynthesis:stats': {
-    params: SkillSynthesisStatsParams;
-    result: SkillSynthesisStatsResult;
-  };
-  'skillSynthesis:getSettings': {
-    params: SkillSynthesisGetSettingsParams;
-    result: SkillSynthesisGetSettingsResult;
-  };
-  'skillSynthesis:updateSettings': {
-    params: SkillSynthesisUpdateSettingsParams;
-    result: SkillSynthesisUpdateSettingsResult;
-  };
-  'skillSynthesis:pin': {
-    params: SkillSynthesisPinParams;
-    result: SkillSynthesisPinResult;
-  };
-  'skillSynthesis:unpin': {
-    params: SkillSynthesisUnpinParams;
-    result: SkillSynthesisUnpinResult;
-  };
-  'skillSynthesis:runCurator': {
-    params: SkillSynthesisRunCuratorParams;
-    result: SkillSynthesisRunCuratorResult;
-  };
-  'skillSynthesis:diagnostics': {
-    params: SkillDiagnosticsParams;
-    result: SkillDiagnosticsResult;
-  };
-  'skillSynthesis:analyzeNow': {
-    params: SkillAnalyzeNowParams;
-    result: SkillAnalyzeNowResult;
-  };
-  'skillSynthesis:setTriggers': {
-    params: SkillSetTriggersParams;
-    result: SkillSetTriggersResult;
-  };
-  'skillSynthesis:getTriggers': {
-    params: SkillGetTriggersParams;
-    result: SkillGetTriggersResult;
-  };
-  'skillSynthesis:setLanes': {
-    params: SkillSetLanesParams;
-    result: SkillSetLanesResult;
-  };
-  'skillSynthesis:getLanes': {
-    params: SkillGetLanesParams;
-    result: SkillGetLanesResult;
-  };
   'skillSynthesis:listClones': {
     params: SkillSynthesisListClonesParams;
     result: SkillSynthesisListClonesResult;
@@ -2058,10 +1990,6 @@ export interface RpcMethodRegistry {
   'skillSynthesis:getClone': {
     params: SkillSynthesisGetCloneParams;
     result: SkillSynthesisGetCloneResult;
-  };
-  'skillSynthesis:enhanceNow': {
-    params: SkillSynthesisEnhanceNowParams;
-    result: SkillSynthesisEnhanceNowResult;
   };
   'skillSynthesis:previewEnhancement': {
     params: SkillSynthesisPreviewEnhancementParams;
@@ -2119,38 +2047,6 @@ export interface RpcMethodRegistry {
     params: SkillSynthesisGetScorecardDetailParams;
     result: SkillSynthesisGetScorecardDetailResult;
   };
-  'skillSynthesis:listSuggestions': {
-    params: SkillSynthesisListSuggestionsParams;
-    result: SkillSynthesisListSuggestionsResult;
-  };
-  'skillSynthesis:acceptSuggestion': {
-    params: SkillSynthesisAcceptSuggestionParams;
-    result: SkillSynthesisAcceptSuggestionResult;
-  };
-  'skillSynthesis:dismissSuggestion': {
-    params: SkillSynthesisDismissSuggestionParams;
-    result: SkillSynthesisDismissSuggestionResult;
-  };
-  'skillSynthesis:getSuggestion': {
-    params: SkillSynthesisGetSuggestionParams;
-    result: SkillSynthesisGetSuggestionResult;
-  };
-  'skillSynthesis:updateSuggestion': {
-    params: SkillSynthesisUpdateSuggestionParams;
-    result: SkillSynthesisUpdateSuggestionResult;
-  };
-  'skillSynthesis:rejectBulk': {
-    params: SkillSynthesisRejectBulkParams;
-    result: SkillSynthesisRejectBulkResult;
-  };
-  'skillSynthesis:promoteBulk': {
-    params: SkillSynthesisPromoteBulkParams;
-    result: SkillSynthesisPromoteBulkResult;
-  };
-  'skillSynthesis:rejectByPattern': {
-    params: SkillSynthesisRejectByPatternParams;
-    result: SkillSynthesisRejectByPatternResult;
-  };
   'skillSynthesis:listSpecs': {
     params: SkillSynthesisListSpecsParams;
     result: SkillSynthesisListSpecsResult;
@@ -2162,14 +2058,6 @@ export interface RpcMethodRegistry {
   'skillSynthesis:clearStaleSpecs': {
     params: SkillSynthesisClearStaleSpecsParams;
     result: SkillSynthesisClearStaleSpecsResult;
-  };
-  'skillSynthesis:queue': {
-    params: SkillSynthesisQueueParams;
-    result: SkillSynthesisQueueResult;
-  };
-  'skillSynthesis:digest': {
-    params: SkillSynthesisDigestParams;
-    result: SkillSynthesisDigestResult;
   };
   'cron:list': { params: CronListParams; result: CronListResult };
   'cron:get': { params: CronGetParams; result: CronGetResult };
@@ -4073,31 +3961,10 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'corpus:delete': true,
   'corpus:suggest': true,
 
-  'skillSynthesis:listCandidates': true,
-  'skillSynthesis:getCandidate': true,
-  'skillSynthesis:promote': true,
-  'skillSynthesis:reject': true,
-  'skillSynthesis:invocations': true,
-  'skillSynthesis:stats': true,
-  'skillSynthesis:getSettings': true,
-  'skillSynthesis:updateSettings': true,
-  'skillSynthesis:pin': true,
-  'skillSynthesis:unpin': true,
-  'skillSynthesis:runCurator': true,
-  'skillSynthesis:diagnostics': true,
-  'skillSynthesis:analyzeNow': true,
-  'skillSynthesis:setTriggers': true,
-  'skillSynthesis:getTriggers': true,
-  // TASK_2026_180 Phase 1. `skillSynthesis:` is ALREADY in
-  // `ALLOWED_METHOD_PREFIXES`, so only the compile-time half of
-  // dual-registration applies to these two: the registry entry above and this
-  // allow-map entry. Adding a runtime-guard entry per METHOD would be wrong —
-  // the guard is per PREFIX.
-  'skillSynthesis:setLanes': true,
-  'skillSynthesis:getLanes': true,
+  // The runtime guard accepts the skillSynthesis prefix; this map lists its
+  // retained methods individually for the compile-time contract.
   'skillSynthesis:listClones': true,
   'skillSynthesis:getClone': true,
-  'skillSynthesis:enhanceNow': true,
   'skillSynthesis:previewEnhancement': true,
   'skillSynthesis:applyProposal': true,
   'skillSynthesis:getHistoryBody': true,
@@ -4112,24 +3979,9 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'skillSynthesis:invocationStats': true,
   'skillSynthesis:getScorecards': true,
   'skillSynthesis:getScorecardDetail': true,
-  'skillSynthesis:listSuggestions': true,
-  'skillSynthesis:acceptSuggestion': true,
-  'skillSynthesis:dismissSuggestion': true,
-  'skillSynthesis:getSuggestion': true,
-  'skillSynthesis:updateSuggestion': true,
-  'skillSynthesis:rejectBulk': true,
-  'skillSynthesis:promoteBulk': true,
-  'skillSynthesis:rejectByPattern': true,
   'skillSynthesis:listSpecs': true,
   'skillSynthesis:harvestSpecs': true,
   'skillSynthesis:clearStaleSpecs': true,
-  'skillSynthesis:queue': true,
-  // TASK_2026_180 Phase 4 (correction C11). `skillSynthesis:` is ALREADY in
-  // `ALLOWED_METHOD_PREFIXES`, and that guard is per PREFIX — so the registry
-  // entry above plus this allow-map entry are the WHOLE of dual-registration
-  // for a new method in an existing namespace.
-  'skillSynthesis:digest': true,
-
   'cron:list': true,
   'cron:get': true,
   'cron:create': true,

@@ -115,67 +115,33 @@ const EXPECTED_ABSENT_METHOD_NAMES: readonly string[] = [
   'memory:unpin',
   // The whole `skillSynthesis:*` namespace requires the `skillSynthesis`
   // capability (manifest.ts `requires: ['skillSynthesis']`), which
-  // `createVscodeRpcHostProfile` never turns on: the queue, candidate store and
-  // budget ledger are all better-sqlite3-backed, so this host serves none of it.
-  'skillSynthesis:acceptSuggestion',
-  'skillSynthesis:analyzeNow',
+  // `createVscodeRpcHostProfile` never turns on, so this host serves none of it.
   'skillSynthesis:applyProposal',
   'skillSynthesis:clearStaleSpecs',
-  'skillSynthesis:diagnostics',
-  // Weekly gap digest — reads the SQLite candidate/invocation tables.
-  'skillSynthesis:digest',
-  'skillSynthesis:dismissSuggestion',
-  'skillSynthesis:enhanceNow',
   // Per-agent model editor (TASK_2026_609) — served only to the desktop
   // Thoth Library Agents tab, like the rest of the namespace.
   'skillSynthesis:getAgentModels',
-  'skillSynthesis:getCandidate',
   'skillSynthesis:getClone',
   'skillSynthesis:getHistoryBody',
-  // Lane config read — lanes only exist to route the background drain, which
-  // this host does not run.
-  'skillSynthesis:getLanes',
   'skillSynthesis:getScorecardDetail',
   'skillSynthesis:getScorecards',
-  'skillSynthesis:getSettings',
-  'skillSynthesis:getSuggestion',
-  'skillSynthesis:getTriggers',
   'skillSynthesis:harvestSpecs',
   'skillSynthesis:invocationStats',
-  'skillSynthesis:invocations',
   'skillSynthesis:keepClone',
-  'skillSynthesis:listCandidates',
   'skillSynthesis:listClones',
   // Quarantined-agent listing (TASK_2026_609) — desktop Agents tab only.
   'skillSynthesis:listQuarantinedAgents',
   'skillSynthesis:listSpecs',
-  'skillSynthesis:listSuggestions',
-  'skillSynthesis:pin',
   'skillSynthesis:previewEnhancement',
-  'skillSynthesis:promote',
-  'skillSynthesis:promoteBulk',
-  // Durable synthesis-queue inspection — the queue table is SQLite-only.
-  'skillSynthesis:queue',
   'skillSynthesis:rebaseClone',
-  'skillSynthesis:reject',
-  'skillSynthesis:rejectBulk',
-  'skillSynthesis:rejectByPattern',
   // Quarantine restore — counterpart of `listQuarantinedAgents`, same reason.
   'skillSynthesis:restoreQuarantinedAgent',
   'skillSynthesis:revertEnhancement',
-  'skillSynthesis:runCurator',
   // Clone body save — writes into `~/.ptah/user` through
   // `UserLayerMirrorService`, which this host does not bind.
   'skillSynthesis:saveCloneBody',
   // Per-agent model write — counterpart of `getAgentModels`, same reason.
   'skillSynthesis:setAgentModel',
-  // Lane config write — counterpart of `getLanes`, same reason.
-  'skillSynthesis:setLanes',
-  'skillSynthesis:setTriggers',
-  'skillSynthesis:stats',
-  'skillSynthesis:unpin',
-  'skillSynthesis:updateSettings',
-  'skillSynthesis:updateSuggestion',
   'update:check-now',
   'update:get-state',
   'update:mark-downloaded',
