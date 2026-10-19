@@ -407,3 +407,22 @@ Edge cases:
   other task folders do. `.electron-userdata/` (private Electron profile) is not staged.
 - Open: the screenshots predate V1-V3. Visual re-check scoped to V1-V3 (open Stats label contrast
   in dark + light, tab focus ring, drag readout position) is still due before Mode 3.
+
+## Rev 4 commit (retarget dock to the canvas rail board) — COMPLETE (commit 2ac83d78e)
+
+- Plan: `implementation-plan-rev4.md` (review: `implementation-plan-rev4-review.md`); decisions 16
+  (wrong host) and 18 (360 px single-focus tile floor). Executor report:
+  `rev4-implementation-report.md`.
+- Verified on disk: the dock lives in `canvas-rail-board.component.ts` (single-focus aside); pure
+  width math in new `inspector-dock-width.ts` + spec; `InspectorDockController` decoupled;
+  `git diff main` on `chat-view.component.*` and `inspector-shell.controller.ts` is empty
+  (reverted to main); obsolete `inspector-open-state.service.spec.ts` and
+  `inspector-shell.controller.spec.ts` deleted. No TODO/PLACEHOLDER/STUB markers in new code.
+- Scoped checks: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat-ui
+  @ptah-extension/chat @ptah-extension/canvas --parallel=1 --skip-nx-cache` passed for 3
+  projects (orchestrator run; not re-run by team-leader).
+- `.electron-userdata/` (private Electron profile) is not staged.
+- Due: code-logic re-review of 2ac83d78e (implementer family differs from reviewer, or record the
+  exception), code-style review (new public API: `inspector-dock-width.ts` exports, changed
+  `InspectorDockController` contract), and visual review of the canvas dock (dark + light), which
+  also covers the open V1-V3 re-check.

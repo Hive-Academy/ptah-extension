@@ -1,134 +1,118 @@
-# HANDOFF — TASK_2026_699_833e: session inspector as a resizable side dock
+# HANDOFF — TASK_2026_699_833e (inspector Stats dock) + TASK_2026_705_9d53 (remove single layout)
 
-Written 2026-10-19 at session wrap-up (token budget). No lane or subagent is running.
+Written 2026-10-19 at session wrap-up (token budget). No subagent or CLI lane is running.
+This document covers BOTH tasks. TASK_2026_705_9d53 has a short pointer HANDOFF.md to this file.
 
 ## Goal
 
-Exact user request is in `context.md` (same folder). Summary:
+The user wants a PR for each of these tasks (user message: "wrap all of these together and make PRs for the fixes"):
 
-1. The session inspector ("This session" panel) becomes a resizable side dock. A vertical
-   `ptah-sidebar-tab` ("Session"), the same as the Workspaces and Git rails, opens and closes it.
-2. A drag resize handle (`ptah-split-handle` with a new `inverted` input) sets the width. The width
-   persists and is clamped (300–560 px, chat column floor 624 px). The default is wider on large
-   screens: 336 / 400 / 448 px at the 1100 / 1500 px breakpoints.
-3. Narrow widths keep the current sheet/modal presentation.
-4. Added later by the user: each PLAN LIMITS window becomes a card. Its center item (status text or
-   progress bar, reset text, source badge) gets its own full-width row. This change applies only to
-   the inspector `variant="inspector"`; the `strip` variant stays the same.
-5. Evidence required: Electron screenshots, dark + light, at 1440 and 760.
+1. **PR 1 — TASK_2026_699_833e**, branch `feat/inspector-side-dock`. The "This session" inspector
+   becomes a resizable side dock in the **Electron canvas**. A vertical `ptah-sidebar-tab` labelled
+   **"Stats"** on the dock's LEFT (inner) edge opens and closes it (decision 13). The dock has a grip resize
+   handle and a persisted width of 300-560 px. The single-focus tile floor is 360 px (decision 18).
+   The defaults are 336/400/448 px. The PR also contains the Plan Limits cards (inspector variant), the
+   chat-ui split-handle and sidebar-tab fixes, and the lane plan limits RPC timeout of 15 s.
+2. **PR 2 — TASK_2026_705_9d53**, branch `refactor/remove-single-layout`. Delete `ptah-tab-bar` and
+   the `'single'` LayoutMode in every host, including the VS Code Canvas/single toggle. A stored
+   `'single'` maps to `'grid'`. The user approved these removals (decisions 2, 4, 5, 6 in the 705 folder).
+
+Separate filed task (no work in this session's PRs): **TASK_2026_704_8918** (NG0956 warning and
+the remaining `agent:getLanePlanLimits` timeout at startup). It is in the main checkout:
+`D:\projects\ptah-extension\.ptah\specs\TASK_2026_704_8918\context.md`.
+
+## Key history (read decisions.md rows 13-19 in this folder)
+
+- Batches 1-3 put the dock in `chat-view.component`. That component hosts the inspector only in the
+  'single' layout. The Electron canvas renders "This session" in
+  `libs/frontend/canvas/src/lib/canvas-rail/canvas-rail-board.component.ts`. The first visual review
+  forced the single layout, so it did not catch the error. The user found it (decision 16).
+- Plan rev 4 (`implementation-plan-rev4.md`) retargets the dock to the canvas board and reverts
+  chat-view to main. Gate 2 APPROVED by codex after 1 revise round (decision 19).
+- main (15fe6031a) was merged into the branch: clean merge `17b523b2e` (decision 17).
 
 ## Locations
 
-- Worktree: `D:\projects\ptah-extension\.claude-worktrees\inspector-side-dock`
-  (branch `feat/inspector-side-dock`, from `main` at `7267c1f4c`). `node_modules` is a junction to
-  the main checkout.
-- Task folder: `D:\projects\ptah-extension\.claude-worktrees\inspector-side-dock\.ptah\specs\TASK_2026_699_833e`
-- The main checkout `D:\projects\ptah-extension` stays on `main`. Do not edit it.
+| Item | Path |
+|---|---|
+| Worktree PR 1 | `D:\projects\ptah-extension\.claude-worktrees\inspector-side-dock` (branch `feat/inspector-side-dock`, local only) |
+| Task folder PR 1 | `...\inspector-side-dock\.ptah\specs\TASK_2026_699_833e` |
+| Worktree PR 2 | `D:\projects\ptah-extension\.claude-worktrees\remove-single-layout` (branch `refactor/remove-single-layout` from main 15fe6031a, local only, no commits) |
+| Task folder PR 2 | `...\remove-single-layout\.ptah\specs\TASK_2026_705_9d53` (untracked) |
+
+Both worktrees have `node_modules` as a junction to the main checkout. The main checkout stays on `main`.
 
 ## Done
 
-| Phase | Result | Artifact |
-|---|---|---|
-| Requirements (PM) | Gate 1 APPROVED by codex (rev 2; AC 3.6 amended in rev 3 per decision 10) | `task-description.md`, `parity-inventory.md`, `task-description-review.md` |
-| Design | Gate 1.7 APPROVED by the user (rev 3) | `design-spec.md`, `prototype/` (index.html, README.md, 4 screenshots), `design-spec-review.md` |
-| Plan | Gate 2 APPROVED by codex (rev 3) | `implementation-plan.md`, `implementation-plan-review.md` |
-| Decomposition | 4 batches, 10 tasks, all COMPLETE | `batches.md`, `batch-{1..4}-report.md` |
+### PR 1 (feat/inspector-side-dock) — commits, not pushed
+- `9d5063f43`, `309cb2bca`, `431e7cf75`, `5fc888d16`: batches 1-4 (batches 2-3 = chat-view dock, now reverted by rev 4)
+- `069902dea` + `69a49a585`: phase-review fix round + Stats tab move (codex re-review APPROVED: logic 8/10, style 9/10)
+- `82b79b348`: visual fixes (open Stats label contrast 13.7:1 light / 14.2:1 dark, inset focus ring, readout position)
+- `6e28fe6a2`: `LANE_PLAN_LIMITS_TIMEOUT_MS` 10 s → 15 s (does not remove the startup timeout completely, see TASK_2026_704_8918)
+- `52a811674`: batches.md docs
+- `17b523b2e`: merge of main
 
-Commits on `feat/inspector-side-dock` (not pushed, no PR yet):
+### PR 1 — rev 4 implementation: DONE, NOT COMMITTED
+The frontend-developer subagent implemented all of plan rev 4. Report: `rev4-implementation-report.md`.
+Its scoped check passed: `typecheck,test,lint` for 3 projects, 9/9 tasks, no cache. The
+orchestrator did NOT re-run the check. Uncommitted changes:
+- canvas: `canvas-board-mode.ts`, `canvas-rail/canvas-rail-board.component.{ts,spec.ts}`, `canvas-rail/canvas-rail.component.spec.ts`
+- chat: `chat-view.component.{ts,html,css,spec.ts}` and `inspector-shell.controller.ts` reverted to main
+  (the report says the diff is empty); deleted `inspector-open-state.service.spec.ts`, `inspector-shell.controller.spec.ts`
+  (branch-only specs); edited `session-inspector/{index.ts, inspector-dock-width.store.ts, inspector-dock.controller.{ts,spec.ts}}`;
+  new `inspector-dock-width.ts` + `inspector-dock-width.spec.ts`
+- task docs: `decisions.md` (rows 16-19), `implementation-plan-rev4.md`, `implementation-plan-rev4-review.md`, `rev4-implementation-report.md`, this file
 
-- `9d5063f43` feat(chat-ui): batch 1 - split handle grip, inverted and cancel
-- `309cb2bca` feat(chat): batch 2 - inspector dock width store and controller
-- `431e7cf75` feat(chat): batch 3 - session tab and resizable inspector dock
-- `5fc888d16` feat(chat-ui): batch 4 - inspector plan limit card layout
+Deviations (in the report): the dock open state uses `linkedSignal`, which resets only when the
+board crosses between sm and md. Prettier was not run on the canvas board files, because main does
+not format them. The pre-commit hook WILL reformat them, so expect a large diff in that commit.
 
-Uncommitted in the worktree: `batches.md` (Batch 4 SHA on its header), `code-style-review.md`,
-`code-logic-review.md`, this `HANDOFF.md`. Commit them with the fix round.
-
-Scoped checks passed after each batch (team-leader re-ran them):
-`npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat-ui --parallel=1` and the same for
-`@ptah-extension/chat`.
-
-## In progress: phase review (fix round not started)
-
-Both reviews are codex (a different family from the Claude implementers) over `9d5063f43^..5fc888d16`.
-
-**`code-logic-review.md` — REJECTED 6/10 (0 Blocking, 0 Serious, 1 Moderate, 1 Minor).** The
-reviewer's scoped Nx tests for chat-ui and chat passed. It did not run measured overflow or screenshot QA.
-
-1. Moderate, **fix it** (it breaks AC 3.2 and ARIA): `inspectorMaxWidthFor` returns a fractional
-   maximum (`inspector-shell.controller.ts:75-82`). `inspectorDockWidth` then rounds up
-   (`:106-115`). Example: shell 960.5 + preference 560 → dock 337, max 336.5, chat 623.5, and
-   `aria-valuenow > aria-valuemax` (`chat-view.component.html:295-297,322`). Fix: floor the
-   effective max to an integer before you clamp, render and bind ARIA. Add a fractional-width test.
-2. Minor (record it; fix only if cheap): `split-handle.component.ts:227-229,307-309` clears
-   `document.body.style.cursor/userSelect` to empty instead of restoring the previous values.
-
-**`code-style-review.md` — REJECTED 5/10 (1 Blocking, 1 Serious, 1 Moderate)**
-
-1. Blocking: export `type SplitHandleAppearance` from `libs/frontend/chat-ui/src/index.ts:17-20`.
-2. Serious: move the dock block `chat-view.component.ts:1162-1245` (persistence binding, draft
-   width, width computation, tab-opener lookup, commit policy, reset) into a small
-   controller/store next to `libs/frontend/chat/src/lib/services/session-inspector/inspector-shell.controller.ts`.
-   Keep the view as a binding surface. The file grew from 2041 to 2135 lines.
-3. Moderate: `split-handle.component.ts:44-95` duplicates the separator element in the grip and
-   line branches. Use one separator with shared bindings, and branch only the visual children and
-   classes. The default `line` render must not change (R4). Per the fix-round rule, Moderate is
-   optional. It is cheap and lowers the a11y risk, so fixing it is recommended.
-
-Fix-round rule (orchestration): one fix round, fix Blocking + Serious (+ the logic Moderate above),
-then one re-review by codex scoped to the fix commits.
-
-## Not started
-
-- **Visual review** (`visual-review.md`, `screenshots/`) by the `visual-reviewer` subagent in the
-  Electron dev app. Required: 4 screenshots (dark/light × 1440/760) compared to `prototype/`, plus
-  Plan Limits cards at a 300 px dock, a 560 px dock (shell ≥ 1184 px) and the 760 sheet, with
-  measured `scrollWidth <= clientWidth` per card (11 shots in total, plan QA item 5).
-  **The Electron dev app is shared:** other sessions announce "Electron: <task> launching" and
-  "Electron: free". After wrap-up, session 662 sent "Electron: free" (port 9390 closed). Another session can take it
-again, so check for new peer messages before you launch. Before you
-  launch, send "Electron: 699 launching, port <n>" to peers, and send "Electron: free" after.
-- Team-leader Mode 3 (completion: parity-inventory row-by-row, write-path trace) and Gate 3.
-- Push and PR. **Branch `feat/inspector-side-dock` is local-only.**
+### PR 2 (refactor/remove-single-layout) — plan stage
+- `context.md`, `decisions.md` (rows 1-7), `parity-inventory.md` (59 rows), `implementation-plan.md` (9 components, 4 sequential batches).
+- Gate 2: codex round 1 REVISE → architect revised → codex re-review **REVISE**. F1-F6 are closed. **F7 is open**: the plan
+  requires an app-state spec that writes `ptah-layout-mode`, but its zero-reference sweep allows that key only in
+  e2e `canvas.spec.ts`. Fix: allow the key in the app-state migration spec (the spec that proves a stored
+  `'single'` maps to `'grid'`). This is revise round 2 of 2 (the last one).
 
 ## Open problems and decisions
 
-- `decisions.md` rows 1–12 hold all decisions. Notable ones:
-  - Row 5: the open/closed state stays per tab in memory.
-  - Row 6: Electron screenshots only; component tests cover VS Code.
-  - Row 8: an unknown-usage 5-hour window is expandable.
-  - Row 10: the width is install-wide in Electron and per view type in VS Code.
-  - Row 12: Claude subagents implement; codex reviews (user memory: frontend → Claude writes, lanes review).
-- Later tasks recorded in `batches.md` notes:
-  - The existing `[class.w-1.5]` host binding in the split handle renders 4 px (not fixed per R4).
-  - 15 NG0101 warnings in the chat-view spec, which also exist on main.
-- Peer branch `fix/chat-column-alignment` (session 685) owns `chat-transcript.component.css/html`,
-  `message-bubble.component.css/html` and `chat-input.component.ts`. Do not edit them.
-
-## Key files
-
-- `libs/frontend/chat-ui/src/lib/atoms/split-handle.component.ts` (+ `.spec.ts`)
-- `libs/frontend/chat-ui/src/index.ts`
-- `libs/frontend/chat-ui/src/lib/molecules/session/plan-limits/plan-limit-tile.component.ts` (+ spec), `stats-tile.styles.ts`
-- `libs/frontend/chat/src/lib/components/templates/chat-view.component.{ts,html,css,spec.ts}`
-- `libs/frontend/chat/src/lib/services/session-inspector/{inspector-shell.controller.ts, inspector-dock-width.store.ts, index.ts}` (+ specs)
+- `.ptah/specs/TASK_2026_699_833e/.electron-userdata/` is a private Electron profile. It is NOT git-ignored
+  (`.gitignore:139` `!.ptah/specs/**`). **Never stage it.** Delete it before the PR, or leave it untracked.
+- 699 Minor finding (recorded, not fixed): overlapping drags can restore the wrong body cursor.
+- 699 Minor finding: the long plan-window label truncates at 300/336 px (hover title only).
+- 699 Minor finding: the 2 px primary "open" indicator line on the sidebar tab is about 1.2:1 in the light theme.
+- 705 remove-proposed, OUT of PR 2 (not asked yet; list them in the PR body as follow-ups):
+  - row 103: chat-view's fallbacks when there is no `SESSION_CONTEXT`
+  - the `SESSION_WORKFLOW_ADDONS` token and `workflowAddonsFor` (no provider and no consumer after PR 2)
+- Peer branch rule (still valid): do not edit `chat-transcript.*`, `message-bubble.*`, `chat-input.component.ts`.
+- Shared Electron: before a launch, send "Electron: 699 launching" to the peer sessions (ListAgents), and send "Electron: free" after.
 
 ## Exact next steps
 
-1. Fix round (Claude `frontend-developer` subagent, working directory = worktree). Brief: style
-   findings 1–3 and logic finding 1 (logic finding 2 optional), with the file:line references above.
-   No `any`, no `console.*`, Angular signals/`input()`/`output()`/`inject()`.
-2. Verify, one check at a time, with tailed output:
-   `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat-ui @ptah-extension/chat --parallel=1`
-   and confirm that the header says "Running target ... for 2 projects". Never run workspace-wide,
-   build, serve, e2e or package. Use Jest `--maxWorkers=2`.
-3. Team-leader Mode 2 with the fix report + both review paths. It commits in the foreground
-   (`.commitlintrc.json`: subject ≤ 72, body lines ≤ 100). End the message with
+### PR 1 (TASK_2026_699_833e), worktree inspector-side-dock
+1. Verify rev 4 yourself (one heavy check at a time, output filtered). Use the real project names from
+   each `project.json`, and confirm that the header says 3 projects:
+   `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat-ui @ptah-extension/chat @ptah-extension/canvas --parallel=1 --skip-nx-cache 2>&1 | grep -E "Running target|Successfully|Failed|failed|✕|●" | head -30`
+2. Team-leader Mode 2: commit rev 4 in the FOREGROUND. Stage specific paths only, never `.electron-userdata/`.
+   Read `.commitlintrc.json` first (subject ≤ 72, body ≤ 100). End the message with
    `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
-4. Codex re-review (`ptah_agent_list` first; codex had room), scoped to the fix commits. Overwrite
-   `code-logic-review.md` / `code-style-review.md`.
-5. Visual review in Electron after "Electron: free" (see above). Show the screenshots to the user.
-6. Team-leader Mode 3, then Gate 3. Then push and open a PR in one background command:
-   `git push -u origin feat/inspector-side-dock && gh pr create ...` (Summary + Test plan; end the
-   body with "🤖 Generated with [Claude Code](https://claude.com/claude-code)"). Report the PR link.
-   Do not merge to main.
+3. codex code review (different family) of the rev 4 commit → overwrite `code-logic-review.md` (+ `code-style-review.md`, because there is new public API).
+   Run `ptah_agent_list` first (codex had room, Weekly 40%; grok was AT LIMIT until 2026-10-20 17:40 UTC). One fix round only.
+4. Visual review in the **canvas layout, with NO layout override** and the user's normal data if possible.
+   Build: `npx nx build-dev ptah-electron` then `npx nx copy-renderer-dev ptah-electron` (the renderer is NOT part of build-dev).
+   Launch: `node apps/ptah-electron/scripts/launch.js` (from the worktree). Take dark + light screenshots at 1440 and 760.
+   Show the dock in the md/lg/xl bands, the Stats tab open and closed, the drag grip, and the compact sheet. Compare to `prototype/`, and show the screenshots to the user.
+5. Team-leader Mode 3, then Gate 3. Then push and open the PR in ONE background command:
+   `git push -u origin feat/inspector-side-dock && gh pr create --base main --title "..." --body "..."`
+   (## Summary + ## Test plan. End the body with "🤖 Generated with [Claude Code](https://claude.com/claude-code)").
+
+### PR 2 (TASK_2026_705_9d53), worktree remove-single-layout
+1. Fix F7 in `implementation-plan.md` (architect subagent, or a bounded edit). Then a codex re-review of F7 only. This is the last revise round. If it is still REVISE, go to the user.
+2. A frontend-developer subagent implements the 4 sequential batches (`chat-view.component.ts` belongs to one batch only).
+3. Scoped checks for the projects that the plan lists (`-p`, `--parallel=1`, Jest `--maxWorkers=2`).
+4. Team-leader commit, then a codex code review, then before/after screenshots of the VS Code webview and Electron
+   (no surface is added, so before/after screenshots are enough).
+5. Push and open the PR in one background command, then report the link. Merge order: PR 1 first is recommended.
+   PR 2 deletes the chat-view inspector host that PR 1 reverts to main, so the two PRs touch the same files only in the main state.
+
+Never merge to main. Never run workspace-wide checks, serve, e2e or package targets.
