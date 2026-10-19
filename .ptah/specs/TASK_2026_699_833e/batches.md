@@ -381,3 +381,29 @@ Edge cases:
   measuring exactly 32 px records width 0 (band `full-sheet`); harmless, recorded only.
 - Next: re-review of this commit (code-logic + code-style, new public API `InspectorDockController`,
   `INSPECTOR_TAB_WIDTH`, `SplitHandleAppearance`), plus visual review for the moved Stats tab.
+
+## Visual fix round (visual review + decision 15 timeout) — COMPLETE (commits 82b79b348, 6e28fe6a2)
+
+- Trigger: `visual-review.md` REVISE (1 Serious, Moderates); decision 14 scopes the round to the
+  Serious plus 2 cheap Moderates, long-label truncation recorded only. Decision 15 adds the
+  `agent:getLanePlanLimits` renderer timeout (`console-errors-triage.md`); NG0956 goes to
+  TASK_2026_704_8918.
+- Re-reviews of the fix round commit 069902dea: `code-logic-review.md` APPROVED,
+  `code-style-review.md` APPROVED (both committed in 82b79b348).
+- Executor reports: `visual-fix-report.md`, `timeout-fix-report.md`.
+
+| # | Finding | Status | Verified on disk | Commit |
+| - | ------- | ------ | ---------------- | ------ |
+| V1 | Serious: open tab label `text-primary` 1.2:1 light / 3.4:1 dark | COMPLETE | `sidebar-tab.component.ts` open label `text-base-content`; spec asserts it | 82b79b348 |
+| V2 | Moderate: tab focus ring clipped by slot | COMPLETE | `focus-visible:-outline-offset-2` on the button; spec asserts it | 82b79b348 |
+| V3 | Moderate: drag readout covers dock title | COMPLETE | `readoutClass` anchors `top-1/2 mt-5` / `left-1/2 ml-5`; spec asserts it | 82b79b348 |
+| V4 | Minor: long label truncation | RECORDED, not fixed | fix-round rule (decision 14) | — |
+| T1 | Renderer timeout 10 s below backend 12 s deadline | COMPLETE | `LANE_PLAN_LIMITS_TIMEOUT_MS = 15_000`; `SLOW_LIMIT_LOOKUP_DEADLINE_MS = 12_000` in `libs/shared/src/lib/utils/plan-limits/evidence-precedence.ts:23` | 6e28fe6a2 |
+
+- Scoped checks: `npx nx run-many -t typecheck,test,lint -p @ptah-extension/chat-ui @ptah-extension/chat
+  --parallel=1 --skip-nx-cache` passed for 2 projects (orchestrator run; not re-run by team-leader).
+- Peer-owned files (`chat-transcript.*`, `message-bubble.*`, `chat-input.component.ts`): unchanged.
+- Screenshots: `screenshots/*.png` match the `.ptah/specs/**/*.png` ignore rule; force-added, as
+  other task folders do. `.electron-userdata/` (private Electron profile) is not staged.
+- Open: the screenshots predate V1-V3. Visual re-check scoped to V1-V3 (open Stats label contrast
+  in dark + light, tab focus ring, drag readout position) is still due before Mode 3.
