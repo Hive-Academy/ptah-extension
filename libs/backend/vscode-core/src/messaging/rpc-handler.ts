@@ -79,7 +79,7 @@ export const ALLOWED_METHOD_PREFIXES = [
   'memory:', // Memory curator (list, search, get, pin, unpin, forget, rebuildIndex, stats)
   'mem:', // Progressive disclosure memory search (searchIndex, timeline, getObservations)
   'corpus:', // Knowledge corpus (list, get, build, prime, query, reprime, rebuild, delete)
-  'skillSynthesis:', // Skills synthesis pipeline (listCandidates, getCandidate, promote, reject, invocations, stats)
+  'skillSynthesis:', // Skills Library (listClones, getClone, saveCloneBody, invocationStats, scorecards, models, telemetry)
   'db:', // DB health + reset — maintenance commands
   'embedder:', // Embedder status + retry (lazy ONNX download recovery)
   'subagent:', // Bidirectional subagent messaging (send-message, stop, interrupt)
