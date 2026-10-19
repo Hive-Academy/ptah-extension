@@ -132,6 +132,8 @@ export function registerThothLibraries(
   ensureMemoryContractFallbacks(container, logger);
 
   try {
+    // RPC handlers still require the shared registration, including its
+    // Library stores, trigger, harvester, and foreground activity tracker.
     registerSkillSynthesisServices(container, logger);
     container.registerInstance(
       SKILL_REPROPAGATION_TOKEN,
