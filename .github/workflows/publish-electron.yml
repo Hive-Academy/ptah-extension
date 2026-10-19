@@ -31,6 +31,18 @@
 # SAC blocking is ever actually reported. macOS and Linux builds are unsigned —
 # macOS signing requires an Apple Developer account.
 #
+# Microsoft Store (MSIX): every Windows run (dry-run included) also packs an
+# UNSIGNED Store package (*-store.appx) from the verified win-unpacked tree and
+# uploads it as artifact ptah-msstore-<version>. Microsoft re-signs it after
+# certification, so it is never signed here. Identity values are committed in
+# apps/ptah-electron/electron-builder.yml (appx block). In publish mode only, the
+# `store` job submits it with the msstore CLI, after the GitHub Release. It needs
+# repository variables MSSTORE_TENANT_ID, MSSTORE_CLIENT_ID, MSSTORE_SELLER_ID,
+# MSSTORE_PRODUCT_ID and secret MSSTORE_CLIENT_SECRET; if any is missing the job
+# only prints a notice. Runs upload a draft (no-commit) by default; only a dispatch
+# with store-submission=commit submits for certification. The first Store
+# submission is done manually in Partner Center.
+#
 # COST MODEL — eSigner Cloud Signing is metered per SIGNATURE, not per request,
 # and there is NO free monthly allowance. Verified against the SSL.com monthly
 # invoices: July 2026 = 262 signed hashes -> $262.00, June 2026 = 663 -> $663.00,
@@ -51,14 +63,24 @@ on:
   workflow_dispatch:
     inputs:
       bump:
-        description: 'Version bump type'
+        description: 'Version bump type (none = release the committed version unchanged)'
         required: true
         type: choice
         options:
           - patch
           - minor
           - major
+          - none
         default: patch
+      store-submission:
+        description: 'Microsoft Store: commit the submission, upload as draft only, or skip. Ignored in dry-run.'
+        required: false
+        type: choice
+        options:
+          - no-commit
+          - commit
+          - skip
+        default: no-commit
       dry-run:
         description: 'Build, package and verify on all three OSes; no signing, tag, bump PR or release'
         required: false
@@ -142,10 +164,29 @@ jobs:
             }
             const [major, minor, patch] = parts;
             const bump = '${BUMP_TYPE}';
-            if (bump === 'major') console.log(\`\${major+1}.0.0\`);
+            if (bump === 'none') console.log(\`\${major}.\${minor}.\${patch}\`);
+            else if (bump === 'major') console.log(\`\${major+1}.0.0\`);
             else if (bump === 'minor') console.log(\`\${major}.\${minor+1}.0\`);
             else console.log(\`\${major}.\${minor}.\${patch+1}\`);
           ")
+
+          # Store-valid, monotonic version guard (all modes): integer segments,
+          # major >= 1, each segment <= 65535, and strictly greater than every
+          # existing electron-v* tag (the Store only accepts increasing versions).
+          NEW_VERSION="$NEW_VERSION" node -e "
+            const v = process.env.NEW_VERSION;
+            const seg = v.split('.');
+            const fail = (m) => { console.error('::error::Version ' + v + ' rejected: ' + m); process.exit(1); };
+            if (seg.length !== 3 || !seg.every((s) => /^[0-9]+\$/.test(s))) fail('must be X.Y.Z integers');
+            const n = seg.map(Number);
+            if (n[0] < 1) fail('major must be >= 1 (Microsoft Store rule)');
+            if (n.some((x) => x > 65535)) fail('each segment must be <= 65535 (Microsoft Store rule)');
+            const tags = require('child_process').execSync('git tag -l \"electron-v*\"', { encoding: 'utf8' })
+              .split('\n').map((t) => t.trim().replace(/^electron-v/, '')).filter((t) => /^[0-9]+\.[0-9]+\.[0-9]+\$/.test(t));
+            const cmp = (a, b) => { const x = a.split('.').map(Number), y = b.split('.').map(Number); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] - y[i]; return 0; };
+            const higher = tags.find((t) => cmp(t, v) >= 0);
+            if (higher) fail('must be strictly greater than existing tag electron-v' + higher);
+          "
 
           node -e "
             const fs = require('fs');
@@ -336,6 +377,12 @@ jobs:
       #   production dependency not found  parent=monaco-editor
       #     dependency=dompurify version=3.2.7
       # because it does not read npm `overrides`. Re-run the prune (idempotent).
+      # Same order as the local package target: reconcile the declared
+      # onnxruntime-node version before packing so verify-packed-onnx.js below
+      # guards the CI artifacts too.
+      - name: Reconcile onnxruntime-node declared version (pre-pack)
+        run: node apps/ptah-electron/scripts/patch-transformers-onnx-dep.js
+
       - name: Prune renderer-only deps from the packaged manifest (pre-pack)
         run: node apps/ptah-electron/scripts/prune-dist-deps.js
 
@@ -376,6 +423,10 @@ jobs:
         if: runner.os != 'Windows'
         run: node apps/ptah-electron/scripts/verify-packed-wasm.js
 
+      - name: Verify packed onnxruntime-node (macOS/Linux)
+        if: runner.os != 'Windows'
+        run: node apps/ptah-electron/scripts/verify-packed-onnx.js
+
       # ---- Windows packaging + signing (split into 3 phases) ----------------
       # Phase 1: build win-unpacked ONLY (--dir). No NSIS yet. The win-unpacked
       # tree is real on-disk files we can sign before the installer wraps them.
@@ -401,6 +452,10 @@ jobs:
       - name: Verify packed tree-sitter WASM (win-unpacked, pre-sign)
         if: runner.os == 'Windows'
         run: node apps/ptah-electron/scripts/verify-packed-wasm.js
+
+      - name: Verify packed onnxruntime-node (win-unpacked, pre-sign)
+        if: runner.os == 'Windows'
+        run: node apps/ptah-electron/scripts/verify-packed-onnx.js
 
       # Phase 2a: stage ONLY the main app executable (Ptah.exe) for signing.
       # We deliberately do NOT sign every internal .dll/.node: eSigner bills
@@ -669,12 +724,57 @@ jobs:
           environment_name: PROD
           malware_block: false
 
+      # ---- Microsoft Store package (unsigned; every Windows run) -------------
+      - name: Check Store tile assets
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          foreach ($n in 'StoreLogo','Square44x44Logo','Square150x150Logo','Wide310x150Logo') {
+            $p = "dist/apps/ptah-electron/assets/appx/$n.png"
+            if (-not (Test-Path $p)) { throw "Missing Store tile: $p (run apps/ptah-electron/scripts/generate-appx-assets.mjs)" }
+          }
+
+      # Packs the already-verified win-unpacked tree as an appx. NEVER sign it:
+      # Microsoft re-signs after certification. Assumption: --prepackaged works
+      # with the appx target. Fallback if it does not: drop --prepackaged (full
+      # repack from dist/apps/ptah-electron) and re-run the three verify-packed-*
+      # scripts after it.
+      - name: Package Microsoft Store MSIX (appx, unsigned, from win-unpacked)
+        if: runner.os == 'Windows'
+        run: npx electron-builder --config electron-builder.yml --project dist/apps/ptah-electron --publish never --win appx --prepackaged "${{ github.workspace }}/dist/release/win-unpacked"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Find Store package
+        if: runner.os == 'Windows'
+        id: find-appx
+        shell: pwsh
+        run: |
+          $appx = @(Get-ChildItem -Path "dist\release" -Filter "*-store.appx")
+          if ($appx.Count -ne 1) { throw "Expected exactly one *-store.appx in dist\release, found $($appx.Count)" }
+          $item = $appx[0]
+          Write-Host "Found Store package: $($item.FullName)"
+          "appx_path=$($item.FullName)" >> $env:GITHUB_OUTPUT
+          "appx_name=$($item.Name)" >> $env:GITHUB_OUTPUT
+          "Store package: $($item.Name) ($([math]::Round($item.Length / 1MB, 1)) MB)" >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload Store package
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ptah-msstore-${{ needs.prepare.outputs.version }}
+          path: ${{ steps.find-appx.outputs.appx_path }}
+          if-no-files-found: error
+          retention-days: ${{ needs.prepare.outputs.release_mode == 'publish' && 30 || 5 }}
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: electron-${{ matrix.os }}
           path: |
             dist/release/
+            !dist/release/*.appx
+            !dist/release/__appx-*/
             !dist/release/win-unpacked/
             !dist/release/linux-unpacked/
             !dist/release/mac/
@@ -725,16 +825,20 @@ jobs:
             pkg.version = '${VERSION}';
             fs.writeFileSync('apps/ptah-electron/package.json', JSON.stringify(pkg, null, 2) + '\n');
           "
-          git add apps/ptah-electron/package.json
-          git commit --no-verify -m "chore(release): electron v${VERSION}"
-          git push origin "$BRANCH"
+          if git diff --quiet -- apps/ptah-electron/package.json; then
+            echo "::notice::package.json already at v${VERSION} on main; skipping bump commit and PR (tag pushed)."
+          else
+            git add apps/ptah-electron/package.json
+            git commit --no-verify -m "chore(release): electron v${VERSION}"
+            git push origin "$BRANCH"
 
-          # Create PR to main
-          gh pr create \
-            --base main \
-            --head "$BRANCH" \
-            --title "chore(release): electron v${VERSION}" \
-            --body "Auto-generated version bump after publishing Electron Desktop v${VERSION}."
+            # Create PR to main
+            gh pr create \
+              --base main \
+              --head "$BRANCH" \
+              --title "chore(release): electron v${VERSION}" \
+              --body "Auto-generated version bump after publishing Electron Desktop v${VERSION}."
+          fi
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -770,3 +874,100 @@ jobs:
             artifacts/**/*.AppImage
             artifacts/**/*.deb
             artifacts/**/latest*.yml
+
+  # Microsoft Store submission (publish only). Runs after the GitHub Release so
+  # both channels share one version; a Store failure is re-runnable on its own
+  # and never blocks the release. Certification takes days, so this job only
+  # submits and reports the current status once.
+  store:
+    needs: [prepare, build, release]
+    if: needs.prepare.outputs.release_mode == 'publish' && (github.event.inputs.store-submission || 'no-commit') != 'skip'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      # Push-triggered runs have no inputs and upload a draft only; 'commit'
+      # happens only when a dispatch selects it.
+      STORE_MODE: ${{ github.event.inputs.store-submission || 'no-commit' }}
+    steps:
+      - name: Refuse unless publishing
+        shell: bash
+        env:
+          RELEASE_MODE: ${{ needs.prepare.outputs.release_mode }}
+        run: |
+          if [ "$RELEASE_MODE" != "publish" ]; then
+            echo "::error::Refusing Store submission in mode: $RELEASE_MODE"
+            exit 1
+          fi
+
+      - name: Check Store configuration
+        id: cfg
+        shell: pwsh
+        env:
+          MSSTORE_CLIENT_SECRET: ${{ secrets.MSSTORE_CLIENT_SECRET }}
+          MSSTORE_TENANT_ID: ${{ vars.MSSTORE_TENANT_ID }}
+          MSSTORE_CLIENT_ID: ${{ vars.MSSTORE_CLIENT_ID }}
+          MSSTORE_SELLER_ID: ${{ vars.MSSTORE_SELLER_ID }}
+          MSSTORE_PRODUCT_ID: ${{ vars.MSSTORE_PRODUCT_ID }}
+        run: |
+          $missing = @()
+          foreach ($n in 'MSSTORE_CLIENT_SECRET','MSSTORE_TENANT_ID','MSSTORE_CLIENT_ID','MSSTORE_SELLER_ID','MSSTORE_PRODUCT_ID') {
+            if ([string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($n))) { $missing += $n }
+          }
+          if ($missing.Count -gt 0) {
+            Write-Host "::notice::Microsoft Store submission skipped: missing $($missing -join ', '). The MSIX is in artifact ptah-msstore-${{ needs.prepare.outputs.version }}."
+            "configured=false" >> $env:GITHUB_OUTPUT
+          } else {
+            "configured=true" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Download Store package
+        if: steps.cfg.outputs.configured == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: ptah-msstore-${{ needs.prepare.outputs.version }}
+          path: store-pkg
+
+      - name: Set up msstore CLI
+        if: steps.cfg.outputs.configured == 'true'
+        uses: microsoft/microsoft-store-apppublisher@v1.1
+
+      - name: Configure msstore
+        if: steps.cfg.outputs.configured == 'true'
+        shell: pwsh
+        env:
+          MSSTORE_CLIENT_SECRET: ${{ secrets.MSSTORE_CLIENT_SECRET }}
+          MSSTORE_TENANT_ID: ${{ vars.MSSTORE_TENANT_ID }}
+          MSSTORE_CLIENT_ID: ${{ vars.MSSTORE_CLIENT_ID }}
+          MSSTORE_SELLER_ID: ${{ vars.MSSTORE_SELLER_ID }}
+        run: |
+          msstore reconfigure --tenantId "$env:MSSTORE_TENANT_ID" --sellerId "$env:MSSTORE_SELLER_ID" --clientId "$env:MSSTORE_CLIENT_ID" --clientSecret "$env:MSSTORE_CLIENT_SECRET"
+          if ($LASTEXITCODE -ne 0) { throw "msstore reconfigure failed" }
+
+      # Assumption: msstore publish accepts an .appx path for an MSIX product;
+      # confirmed by the first real submission.
+      - name: Submit to Microsoft Store
+        if: steps.cfg.outputs.configured == 'true'
+        shell: pwsh
+        env:
+          MSSTORE_PRODUCT_ID: ${{ vars.MSSTORE_PRODUCT_ID }}
+        run: |
+          $appx = @(Get-ChildItem -Path store-pkg -Filter "*.appx" -Recurse)
+          if ($appx.Count -ne 1) { throw "Expected exactly one .appx in store-pkg, found $($appx.Count)" }
+          $publishArgs = @('publish', $appx[0].FullName, '-id', $env:MSSTORE_PRODUCT_ID)
+          if ($env:STORE_MODE -eq 'no-commit') { $publishArgs += '--noCommit' }
+          "Microsoft Store submission mode: $env:STORE_MODE ($($appx[0].Name))" >> $env:GITHUB_STEP_SUMMARY
+          & msstore @publishArgs
+          if ($LASTEXITCODE -ne 0) { throw "msstore publish failed" }
+
+      - name: Submission status
+        if: steps.cfg.outputs.configured == 'true' && env.STORE_MODE == 'commit'
+        continue-on-error: true
+        shell: pwsh
+        env:
+          MSSTORE_PRODUCT_ID: ${{ vars.MSSTORE_PRODUCT_ID }}
+        run: |
+          $out = (msstore submission status $env:MSSTORE_PRODUCT_ID | Out-String)
+          "### Store submission status" >> $env:GITHUB_STEP_SUMMARY
+          $out >> $env:GITHUB_STEP_SUMMARY
