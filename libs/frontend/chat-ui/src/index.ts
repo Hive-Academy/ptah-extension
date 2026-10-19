@@ -116,7 +116,7 @@ export { removeInstalledGroup } from './lib/molecules/setup-plugins/installed-mc
 export { MARKETPLACE_RPC_TIMEOUTS } from './lib/molecules/setup-plugins/marketplace-rpc-timeouts';
 export { PluginCatalogPanelComponent } from './lib/molecules/setup-plugins/plugin-catalog-panel.component';
 export { PromptSuggestionsComponent } from './lib/molecules/setup-plugins/prompt-suggestions.component';
-export { SetupStatusWidgetComponent } from './lib/molecules/setup-plugins/setup-status-widget.component';
+export { SetupStatusStore } from './lib/molecules/setup-plugins/setup-status.store';
 export { SkillShBrowserComponent } from './lib/molecules/setup-plugins/skill-sh-browser.component';
 export { CodeOutputComponent } from './lib/molecules/tool-execution/code-output.component';
 export { fenceCodeBlock } from './lib/molecules/tool-execution/code-fence';

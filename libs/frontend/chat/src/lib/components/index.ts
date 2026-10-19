@@ -120,7 +120,6 @@ export { CompactionNotificationComponent } from '@ptah-extension/chat-ui';
  * @ptah-extension/chat-ui in new code.
  */
 export {
-  SetupStatusWidgetComponent,
   PromptSuggestionsComponent,
   SkillShBrowserComponent,
   McpDirectoryBrowserComponent,

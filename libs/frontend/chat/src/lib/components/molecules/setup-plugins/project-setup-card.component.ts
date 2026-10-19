@@ -1,154 +1,61 @@
-import {
-  Component,
-  ChangeDetectionStrategy,
-  OnInit,
-  computed,
-  inject,
-} from '@angular/core';
-import { LucideAngularModule, ScanSearch, AlertTriangle } from 'lucide-angular';
-import { SetupStatusWidgetComponent } from '@ptah-extension/chat-ui';
+import { ChangeDetectionStrategy, Component, inject, OnDestroy, OnInit } from '@angular/core';
+import { SetupStatusStore } from '@ptah-extension/chat-ui';
 import { AppStateManager, PluginCatalogService } from '@ptah-extension/core';
 
-/**
- * ProjectSetupCardComponent - The "Skills Not Configured" warning and the
- * Intelligent Project Setup card.
- *
- * Shown only on the "no session open" screens: the Orchestra Canvas with no
- * tiles, and the single-chat view before its first tab exists. An empty
- * session tile does not show it — it shows prompt suggestions only.
- *
- * `chat` must not import `@ptah-extension/marketplace`, so the warning's
- * button addresses the Marketplace page through `AppStateManager.openMarketplace`.
- *
- * Inks are the per-theme measured tokens, not the raw hues: `text-primary`, an
- * outline primary button and `text-warning` measured 1.32-2.33:1 on the cream
- * anubis-light card and 3.16-3.49:1 in anubis. `state-need` is the legible
- * warning ink (5.53 / 6.43:1), the title is base-content, and the button and
- * icon tile are primary fills with primary-content ink (6.99 / 4.82:1).
- */
+/** Shared Get ready surface for canvas and single-chat. */
 @Component({
   selector: 'ptah-project-setup-card',
-  imports: [SetupStatusWidgetComponent, LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="space-y-5">
-      <!-- Warning if skills not configured -->
-      @if (!hasConfiguredSkills()) {
-        <div
-          class="border border-base-300 rounded-md bg-base-200/50 p-3 flex items-start gap-2 text-left"
-        >
-          <lucide-angular
-            [img]="AlertTriangleIcon"
-            class="w-4 h-4 text-state-need shrink-0 mt-0.5"
-            aria-hidden="true"
-          />
-          <div class="flex-1">
-            <h4 class="text-xs font-semibold text-state-need mb-1">
-              Skills Not Configured
-            </h4>
-            <p class="text-xs text-base-content-muted leading-relaxed mb-2">
-              The Intelligent Project Setup uses your configured skills to
-              provide better recommendations. It's recommended to configure your
-              Ptah Skills first for optimal results.
-            </p>
-            <button
-              class="btn btn-xs btn-primary"
-              (click)="openMarketplaceSkills()"
-              type="button"
-            >
-              Open Marketplace Skills
-            </button>
-          </div>
+    <section class="surface-3 rounded-lg border border-base-300 p-4 text-left" aria-labelledby="get-ready-title">
+      @if (setup.allReady()) {
+        <div class="flex flex-wrap items-center gap-2">
+          <h2 id="get-ready-title" class="text-sm font-semibold text-base-content flex-1">Ready</h2>
+          <button type="button" class="btn btn-xs btn-outline" (click)="openLibrary()">Open Library</button>
+          <button type="button" class="btn btn-xs btn-primary" [disabled]="setup.launching()" (click)="setup.launchWizard()">@if (setup.launching()) { <span class="loading loading-spinner loading-xs" aria-hidden="true"></span> } Run setup</button>
+          <button type="button" class="btn btn-xs btn-outline" [disabled]="setup.launching()" (click)="setup.launchGeneration('setup-agent-generation')">Generate agents</button>
+          <button type="button" class="btn btn-xs btn-outline" [disabled]="setup.launching()" (click)="setup.launchGeneration('setup-project-prompt')">Project guidance</button>
         </div>
+      } @else {
+        <div class="flex flex-wrap items-start gap-2">
+          <div class="flex-1 min-w-0"><h2 id="get-ready-title" class="text-sm font-semibold text-base-content">Get ready</h2><p class="text-xs text-base-content-muted">Understand your project and prepare your tools.</p></div>
+          <span class="badge badge-ghost text-base-content" aria-live="polite">@if (setup.readyCount() === null) { {{ setup.workspaceNotOpen() ? 'Open a folder to check' : setup.isLoading() || !catalog.isLoaded() && !catalog.error() ? 'Checking readiness' : 'Readiness unavailable' }} } @else { {{ setup.readyCount() }} of 2 ready }</span>
+        </div>
+        <div class="mt-3 divide-y divide-base-300">
+          <div class="py-2 flex flex-wrap items-center gap-2"><span class="flex-1 min-w-0 text-xs text-base-content"><strong>Skills</strong><br><span class="text-base-content-muted">@if (setup.skillsReady() === null) { {{ catalog.error() ? 'Readiness unavailable' : 'Checking' }} } @else if (setup.skillsReady()) { Ready } @else { No skills enabled }</span></span><button type="button" class="btn btn-xs btn-outline" (click)="openLibrary()">Open Library</button></div>
+          <div class="py-2 flex flex-wrap items-center gap-2"><span class="flex-1 min-w-0 text-xs text-base-content"><strong>Agents</strong><br><span class="text-base-content-muted">@if (setup.agentsReady() === null) { {{ setup.workspaceNotOpen() ? 'Open a folder to check' : setup.isLoading() ? 'Checking' : 'Readiness unavailable' }} } @else if (setup.agentsReady()) { {{ setup.status()?.agentCount }} {{ setup.status()?.agentCount === 1 ? 'agent' : 'agents' }} configured } @else { Not configured }</span></span><button type="button" class="btn btn-xs btn-outline" [disabled]="setup.launching() || setup.workspaceNotOpen()" (click)="setup.launchWizard()">@if (setup.launching()) { <span class="loading loading-spinner loading-xs" aria-hidden="true"></span> } {{ setup.agentsReady() ? 'Update' : 'Configure' }}</button></div>
+          <div class="py-2 flex flex-wrap items-center gap-2"><span class="flex-1 min-w-0 text-xs text-base-content"><strong>Project scan</strong><br><span class="text-base-content-muted">Detect frameworks and prepare your project.</span></span><button type="button" class="btn btn-xs btn-primary" [disabled]="setup.launching() || setup.workspaceNotOpen()" (click)="setup.launchWizard()">@if (setup.launching()) { <span class="loading loading-spinner loading-xs" aria-hidden="true"></span> } Run setup</button></div>
+        </div>
+        <div class="mt-2 flex flex-wrap gap-2" aria-label="Setup tools"><button type="button" class="btn btn-xs btn-outline" [disabled]="setup.launching() || setup.workspaceNotOpen()" (click)="setup.launchGeneration('setup-agent-generation')">Generate agents</button><button type="button" class="btn btn-xs btn-outline" [disabled]="setup.launching() || setup.workspaceNotOpen()" (click)="setup.launchGeneration('setup-project-prompt')">Project guidance</button></div>
+        @if (setup.workspaceNotOpen()) { <div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-base-content-muted"><span>Open a folder to configure agents</span><button type="button" class="btn btn-xs btn-outline" (click)="setup.openFolder()">Open Folder</button></div> }
+        @if (setup.error() || catalog.error()) { <div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-error" role="alert"><span>Could not check setup. Please try again.</span><button type="button" class="btn btn-xs btn-outline" (click)="setup.retry()">Retry</button></div> }
+        @if (setup.folderError()) { <p class="mt-2 text-xs text-error" role="alert">{{ setup.folderError() }}</p> }
       }
-
-      <!-- Smart Setup CTA Card - Glass Panel -->
-      <div
-        class="glass-panel glass-panel-divine rounded-xl overflow-hidden transition-all duration-300 hover:shadow-lg text-left"
-      >
-        <div class="p-4">
-          <!-- Header with Scanner Icon -->
-          <div class="flex items-start gap-3 mb-3">
-            <div
-              class="flex items-center justify-center w-10 h-10 rounded-lg bg-primary text-primary-content shrink-0 agent-working"
-            >
-              <lucide-angular
-                [img]="ScanSearchIcon"
-                class="w-5 h-5 md:w-6 md:h-6"
-                aria-hidden="true"
-              />
-            </div>
-            <div class="flex-1">
-              <h3
-                class="text-sm md:text-base font-semibold text-base-content mb-0.5"
-              >
-                Intelligent Project Setup
-              </h3>
-              <p class="text-xs text-base-content-muted leading-relaxed">
-                MCP-powered scanning analyzes your workspace, detects
-                frameworks, and configures optimal AI agents automatically.
-              </p>
-            </div>
-          </div>
-
-          <!-- Feature Badges using DaisyUI -->
-          <div class="flex flex-wrap gap-1.5 mb-3">
-            <span class="badge badge-sm badge-ghost gap-1">
-              <span class="text-[10px]">⚡</span> Auto-detect
-            </span>
-            <span class="badge badge-sm badge-ghost gap-1">
-              <span class="text-[10px]">🔗</span> VS Code AI
-            </span>
-            <span class="badge badge-sm badge-ghost gap-1">
-              <span class="text-[10px]">🛠️</span> MCP Server
-            </span>
-          </div>
-
-          <!-- Setup Status Widget Integration -->
-          <ptah-setup-status-widget />
-        </div>
-      </div>
-    </div>
+      @if (setup.launchError()) { <p class="mt-2 text-xs text-error" role="alert">{{ setup.launchError() }}</p> }
+    </section>
   `,
-  styles: [
-    `
-      :host {
-        display: block;
-      }
-    `,
-  ],
+  styles: [`
+    :host { display: block; container-type: inline-size; }
+    @container (max-width: 360px) {
+      section { padding: 14px 12px; }
+      section > div > button, section > div > div > button { width: 100%; }
+      .badge { margin-top: 4px; }
+    }
+  `],
 })
-export class ProjectSetupCardComponent implements OnInit {
+export class ProjectSetupCardComponent implements OnInit, OnDestroy {
+  readonly setup = inject(SetupStatusStore);
+  readonly catalog = inject(PluginCatalogService);
   private readonly appState = inject(AppStateManager);
-  /** The same shared catalog the setup widget reads (TASK_2026_345). */
-  private readonly catalog = inject(PluginCatalogService);
-
-  /** Lucide icon references for template binding */
-  protected readonly ScanSearchIcon = ScanSearch;
-  protected readonly AlertTriangleIcon = AlertTriangle;
-
-  /**
-   * Whether skills are configured (used for the "not configured" warning).
-   *
-   * The warning is deliberately SUPPRESSED until the catalog has been read:
-   * `hasEnabledPlugins` is false on an empty store, and flashing "you have no
-   * skills" at a user who has plenty is worse than showing nothing for one
-   * round trip.
-   */
-  protected readonly hasConfiguredSkills = computed(
-    () => !this.catalog.isLoaded() || this.catalog.hasEnabledPlugins(),
-  );
-
-  /**
-   * Read the catalog once so the warning above can evaluate. It is a no-op
-   * when another consumer of the shared catalog already loaded it.
-   */
+  private readonly onVisible = () => { if (!document.hidden) void this.setup.refresh(); };
   ngOnInit(): void {
-    void this.catalog.ensureLoaded();
+    void this.setup.refresh();
+    document.addEventListener('visibilitychange', this.onVisible);
+    window.addEventListener('focus', this.onVisible);
   }
-
-  /** Open the Marketplace on the Ptah plugins skill source. */
-  protected openMarketplaceSkills(): void {
-    this.appState.openMarketplace({ page: 'skills', source: 'ptah-plugins' });
+  ngOnDestroy(): void {
+    document.removeEventListener('visibilitychange', this.onVisible);
+    window.removeEventListener('focus', this.onVisible);
   }
+  openLibrary(): void { this.appState.openMarketplace({ page: 'skills', source: 'ptah-plugins' }); }
 }

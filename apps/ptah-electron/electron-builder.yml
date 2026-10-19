@@ -119,6 +119,9 @@ extraResources:
   # minified renderer bundle strips the comment header that also carries them.
   - from: 'brand-icons-notices.txt'
     to: 'brand-icons-notices.txt'
+  # Omnedia ngx-aurora MIT notice copied by build-main's assets.
+  - from: 'aurora-notices.txt'
+    to: 'aurora-notices.txt'
 
 icon: assets/icons/icon.png
 

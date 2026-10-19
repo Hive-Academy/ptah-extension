@@ -26,6 +26,7 @@ jest.mock('@floating-ui/dom', () => {
     <ptah-native-popover
       [isOpen]="isOpen()"
       [placement]="placement()"
+      [anchor]="anchor()"
       [offset]="offsetValue()"
       [hasBackdrop]="hasBackdrop()"
       [backdropClass]="backdropClass()"
@@ -43,6 +44,7 @@ jest.mock('@floating-ui/dom', () => {
 class HostComponent {
   isOpen = signal(false);
   placement = signal<Placement>('bottom');
+  anchor = signal<HTMLElement | null>(null);
   offsetValue = signal(8);
   hasBackdrop = signal(true);
   backdropClass = signal<'transparent' | 'dark'>('dark');
@@ -88,6 +90,39 @@ describe('NativePopoverComponent', () => {
 
   it('should create', () => {
     expect(host).toBeTruthy();
+  });
+
+  it('positions from the projected trigger by default', async () => {
+    host.isOpen.set(true);
+    fixture.detectChanges();
+    await flushAll();
+    const trigger = (fixture.nativeElement as HTMLElement).querySelector('.popover-trigger');
+    expect(mockedCompute.mock.calls[0][0]).toBe(trigger);
+  });
+
+  it('positions from an external anchor when supplied', async () => {
+    const external = document.createElement('button');
+    document.body.appendChild(external);
+    try {
+      host.anchor.set(external);
+      host.isOpen.set(true);
+      fixture.detectChanges();
+      await flushAll();
+      expect(mockedCompute.mock.calls[0][0]).toBe(external);
+    } finally {
+      external.remove();
+    }
+  });
+
+  it('falls back to the projected trigger when an external anchor is detached', async () => {
+    const detached = document.createElement('button');
+    host.anchor.set(detached);
+    host.isOpen.set(true);
+    fixture.detectChanges();
+    await flushAll();
+    const trigger = (fixture.nativeElement as HTMLElement).querySelector('.popover-trigger');
+    expect(mockedCompute.mock.calls[0][0]).toBe(trigger);
+    expect(host.openedCount).toBe(1);
   });
 
   it('reposition() recomputes the live position after the next render', () => {
