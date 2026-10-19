@@ -240,7 +240,7 @@ describe('ConfigScopeRpcHandlers — clear invalidates the running SDK (pin 7)',
     const harness = createHarness();
     const clear = await clearHandler(harness);
 
-    const result = await clear({ key: 'skillSynthesis.judgeModel' });
+    const result = await clear({ key: 'skills.enhancement.model' });
 
     expect(result).toEqual({ success: true, cleared: [], resolvesFrom: 'global' });
     expect(harness.scopeResolver.clearOverride).not.toHaveBeenCalled();
