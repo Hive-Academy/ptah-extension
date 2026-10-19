@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { join, sep } from 'node:path';
 import { MIGRATIONS } from '@ptah-extension/persistence-sqlite';
 import { resolveOpener, type TestDatabase } from './queue/queue-db.test-support';
-import { SkillTaskGradeStore, type SkillTaskGrade } from './skill-task-grade.store';
+import { groupGradeAttributions, SkillTaskGradeStore, type SkillTaskGrade } from './skill-task-grade.store';
 
 const opener = resolveOpener();
 const maybe = opener ? describe : describe.skip;
@@ -38,6 +38,28 @@ const grade: SkillTaskGrade = {
   sourceDigest: 'digest-a', evidenceSource: 'spec:TASK_2026_001',
   workspaceRoot: '/workspace', gradedAt: 1, findingsRef: null,
 };
+
+describe('groupGradeAttributions', () => {
+  const row = (runId: string | null, sessionId: string | null, key: string) => ({
+    kind: 'agent' as const, slug: 'writer', run_id: runId, session_id: sessionId,
+    attribution_key: key, final_review: null, workspace_root: '/workspace',
+  });
+
+  it('keeps one attribution for duplicate facts from the same run and session', () => {
+    expect(groupGradeAttributions([row('run-1', 'session-1', 'run:run-1'), row('run-1', 'session-1', 'run:run-1')]))
+      .toEqual([{ kind: 'agent', slug: 'writer', runId: 'run-1', sessionId: 'session-1', attributionKey: 'run:run-1', finalReview: null }]);
+  });
+
+  it('drops ambiguous keys while retaining independent keys', () => {
+    expect(groupGradeAttributions([
+      row('run-1', 'session-1', 'run:run-1'),
+      row('run-1', 'session-2', 'run:run-1'),
+      row(null, 'session-3', 'event:1'),
+      row(null, 'session-3', 'event:1'),
+      row('run-2', 'session-4', 'run:run-2'),
+    ])).toEqual([{ kind: 'agent', slug: 'writer', runId: 'run-2', sessionId: 'session-4', attributionKey: 'run:run-2', finalReview: null }]);
+  });
+});
 
 maybe('SkillTaskGradeStore', () => {
   it('matches trailing-separator roots and excludes a different workspace', () => {
@@ -89,13 +111,18 @@ maybe('SkillTaskGradeStore', () => {
     } finally { db.close(); }
   });
 
-  it('preserves spec backfill and skips pruning when no attributions were found', () => {
+  it('prunes stale non-spec grades when every attribution is skipped and preserves spec backfill', () => {
     const { db, store } = setup();
     try {
       store.upsert(grade);
       store.upsert({ ...grade, subjectSlug: 'manual', attributionKey: 'event:2', evidenceSource: 'review' });
+      store.upsert({ ...grade, subjectSlug: 'backfill', attributionKey: 'event:3', evidenceSource: 'spec:legacy' });
       store.removeAbsent(grade.taskId, '/workspace', []);
-      expect(store.listRecent('agent', 'manual', 5)).toHaveLength(1);
+      expect(store.listRecent('agent', 'writer', 5)).toHaveLength(1); // spec: evidence is kept
+      expect(store.listRecent('agent', 'manual', 5)).toHaveLength(0);
+      expect(store.listRecent('agent', 'backfill', 5)).toHaveLength(1);
+      store.upsert(grade);
+      store.upsert({ ...grade, subjectSlug: 'manual', attributionKey: 'event:2', evidenceSource: 'review' });
       store.removeAbsent(grade.taskId, '/workspace', ['agent:other:event:3']);
       expect(store.listRecent('agent', 'writer', 5)).toHaveLength(1);
       expect(store.listRecent('agent', 'manual', 5)).toHaveLength(0);

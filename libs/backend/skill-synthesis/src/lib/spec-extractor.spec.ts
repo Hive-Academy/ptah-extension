@@ -59,6 +59,7 @@ describe('spec-extractor pure parsers', () => {
       ['code-style-review.md', 'Verdict: REJECTED', 'fail'],
       ['code-style-review.md', 'Verdict: NEEDS REVISION', 'fail'],
       ['code-style-review.md', 'Verdict: NEEDS-REVISION', 'fail'],
+      ['code-style-review.md', 'Recommendation: APPROVE with minor changes', 'pass'],
       ['code-style-review.md', 'Verdict: APPROVED\nStatus: draft notes', 'pass'],
       ['code-logic-review.md', '## Verdict\n\nAPPROVED\n', 'pass'],
     ] as const;

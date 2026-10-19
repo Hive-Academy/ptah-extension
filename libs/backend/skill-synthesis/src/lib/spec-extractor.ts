@@ -105,7 +105,7 @@ export function parseReviewVerdict(file: string, content: string, digest: string
     const rawBatch = data['batch'] ?? data['batchNumber'];
     batch = typeof rawBatch === 'number' && Number.isSafeInteger(rawBatch) ? rawBatch : null;
   } else {
-    const fields = [...content.matchAll(/^\s*(?:[-*]\s*)?(?:#{1,6}\s*)?(?:\*\*)?(?:final\s+)?(?:verdict|review status|status|recommendation)(?:\*\*)?\s*:\s*([a-z_]+(?:[ -][a-z_]+)*)\b/gim)];
+    const fields = [...content.matchAll(/^\s*(?:[-*]\s*)?(?:#{1,6}\s*)?(?:\*\*)?(?:final\s+)?(?:verdict|review status|status|recommendation)(?:\*\*)?\s*:\s*([a-z_]+(?:[ -]revision)?)\b/gim)];
     for (let i = fields.length - 1; i >= 0 && verdict === null; i--) {
       verdict = terminalVerdict(fields[i]?.[1]);
     }

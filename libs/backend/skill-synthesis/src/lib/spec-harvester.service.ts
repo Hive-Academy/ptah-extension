@@ -85,6 +85,7 @@ const MARKER_VERSION = 2;
 
 @injectable()
 export class SpecHarvesterService implements SpecFindingsPort {
+  private readonly gradeFailures = new Map<string, { digest: string; attempts: number }>();
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
@@ -130,7 +131,18 @@ export class SpecHarvesterService implements SpecFindingsPort {
           reconciled += 1;
         }
       }
-      if (this.grades && !this.writeGrades(spec, root, now)) continue;
+      if (this.grades) {
+        const failure = this.gradeFailures.get(spec.dir);
+        if (failure?.digest === spec.artifactDigest && failure.attempts >= 3) continue;
+        if (!this.writeGrades(spec, root, now)) {
+          this.gradeFailures.set(spec.dir, {
+            digest: spec.artifactDigest,
+            attempts: failure?.digest === spec.artifactDigest ? failure.attempts + 1 : 1,
+          });
+          continue;
+        }
+        this.gradeFailures.delete(spec.dir);
+      }
       await this.writeMarker(spec, now, count);
       harvested += 1;
     }

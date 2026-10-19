@@ -204,6 +204,7 @@ describe('SpecHarvesterService', () => {
     await svc.harvest();
     expect(grades.upsert).toHaveBeenCalledTimes(priorWrites);
     expect(logger.warn).toHaveBeenCalledWith('[spec-harvester] conflicting review verdicts', expect.objectContaining({ taskId: 'TASK_2026_095' }));
+    expect(grades.removeAbsent).toHaveBeenCalledWith('TASK_2026_095', normalizeWorkspaceRoot(root), []);
   });
 
   it('passes the canonical workspace root to grade attribution and writes', async () => {
@@ -262,6 +263,26 @@ describe('SpecHarvesterService', () => {
     expect((await svc.harvest()).harvested).toBe(1);
     expect(grades.upsert).toHaveBeenCalledWith(expect.objectContaining({ taskId: 'TASK_2026_094' }));
     expect(await fileExists(join(dir, HARVEST_MARKER_FILE))).toBe(true);
+  });
+
+  it('caps persistent grade-write attempts and warnings for an unchanged spec', async () => {
+    const grades = {
+      findAttributions: jest.fn().mockReturnValue([{
+        kind: 'agent', slug: 'backend-developer', runId: 'run-1',
+        sessionId: 'session-1', attributionKey: 'run:run-1', finalReview: 'approved',
+      }]),
+      upsert: jest.fn(() => { throw new Error('unavailable'); }),
+      removeAbsent: jest.fn(), hasGradeForTask: jest.fn(),
+    };
+    const logger = makeLogger();
+    svc = new SpecHarvesterService(logger as never, { getWorkspaceRoot: () => root } as never, store as never, grades as never);
+    const dir = await writeSpec('TASK_2026_097');
+    for (let attempt = 0; attempt < 5; attempt++) {
+      expect((await svc.harvest()).harvested).toBe(0);
+    }
+    expect(grades.upsert).toHaveBeenCalledTimes(3);
+    expect(logger.warn.mock.calls.filter(([message]) => message === '[spec-harvester] grade write unavailable')).toHaveLength(3);
+    expect(await fileExists(join(dir, HARVEST_MARKER_FILE))).toBe(false);
   });
 
   // ─── Task 3.1: taskId + provenance threading (harvest → store) ─────────────

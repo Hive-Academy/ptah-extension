@@ -51,6 +51,22 @@ const AttributionRowSchema = z.object({
 });
 type RawAttribution = z.infer<typeof AttributionRowSchema>;
 
+export function groupGradeAttributions(rows: readonly RawAttribution[]): GradeAttribution[] {
+  const grouped = new Map<string, RawAttribution | null>();
+  for (const row of rows) {
+    const key = `${row.kind}:${row.slug}:${row.attribution_key}`;
+    if (!grouped.has(key)) grouped.set(key, row);
+    else {
+      const previous = grouped.get(key);
+      if (!previous || !row.run_id || previous.session_id !== row.session_id) grouped.set(key, null);
+    }
+  }
+  return [...grouped.values()].filter((row): row is RawAttribution => row !== null).map((row) => ({
+    kind: row.kind, slug: row.slug, runId: row.run_id, sessionId: row.session_id,
+    attributionKey: row.attribution_key, finalReview: row.final_review,
+  }));
+}
+
 const AggregateRowSchema = z.object({ graded: z.number(), passed: z.number() });
 const PruneRowSchema = z.object({
   subject_kind: KindSchema,
@@ -149,23 +165,11 @@ export class SkillTaskGradeStore {
     for (const row of laneRows) {
       if (!rows.some((event) => event.kind === row.kind && event.slug === row.slug && event.run_id === row.run_id)) rows.push(row);
     }
-    const grouped = new Map<string, RawAttribution | null>();
-    for (const row of rows) {
-      const key = `${row.kind}:${row.slug}:${row.attribution_key}`;
-      if (!grouped.has(key)) grouped.set(key, row);
-      else {
-        const previous = grouped.get(key);
-        if (!previous || !row.run_id || previous.session_id !== row.session_id) grouped.set(key, null);
-      }
-    }
-    return [...grouped.values()].filter((row): row is RawAttribution => row !== null).map((row) => ({
-      kind: row.kind, slug: row.slug, runId: row.run_id, sessionId: row.session_id,
-      attributionKey: row.attribution_key, finalReview: row.final_review,
-    }));
+    return groupGradeAttributions(rows);
   }
 
   removeAbsent(taskId: string, workspaceRoot: string, keys: readonly string[]): void {
-    if (keys.length === 0) return;
+    // An empty keep-list means all current attributions were skipped; remove stale non-spec grades.
     const rows = this.db.prepare(`SELECT subject_kind, subject_slug, attribution_key FROM skill_task_grades
       WHERE task_id = ? AND workspace_root = ? AND evidence_source NOT LIKE 'spec:%'`).all(taskId, workspaceRoot)
       .map((row) => this.parseRow(PruneRowSchema, row));
