@@ -34,7 +34,7 @@ import {
   ENHANCE_COOLDOWN_MS,
   ProposalNotFoundError,
   resolveSkillsRoot,
-  type SkillSynthesisSettings,
+  MANUAL_PREVIEW_JUDGE_SETTINGS,
   type SkillEnhancerService,
   type SkillRegistryStore,
   type SkillRegistryRow,
@@ -146,9 +146,6 @@ const UNSUPPORTED_AGENT_MODEL_PROVIDERS: readonly AgentModelProvider[] = [];
  * values classify `unverifiable` rather than the editor hanging.
  */
 const AGENT_MODEL_LIST_TIMEOUT_MS = 15_000;
-
-// Shipped default of retired skillSynthesis.minJudgeScore (platform-core/src/file-settings-keys.ts:608).
-const PREVIEW_MIN_JUDGE_SCORE = 6.0;
 
 @injectable()
 export class SkillsSynthesisRpcHandlers {
@@ -337,17 +334,18 @@ export class SkillsSynthesisRpcHandlers {
             'INVALID_PARAMS',
           );
         }
-        const settings = {
-          minJudgeScore: PREVIEW_MIN_JUDGE_SCORE,
-        } as SkillSynthesisSettings;
         // manual: a user-initiated preview bypasses the auto-enhance cooldown
         // and invocation floor.
-        const result = await enhancer.generateProposal(parsed.slug, settings, {
-          manual: true,
-          kind,
-          // Skips the background-work governor (C14, Batch 16b).
-          userInitiated: true,
-        });
+        const result = await enhancer.generateProposal(
+          parsed.slug,
+          MANUAL_PREVIEW_JUDGE_SETTINGS,
+          {
+            manual: true,
+            kind,
+            // Skips the background-work governor (C14, Batch 16b).
+            userInitiated: true,
+          },
+        );
         return {
           proposed: result.proposed,
           skipReason: result.skipReason ?? null,

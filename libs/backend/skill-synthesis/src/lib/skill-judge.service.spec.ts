@@ -16,6 +16,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
   JUDGE_REASONS,
+  MANUAL_PREVIEW_JUDGE_SETTINGS,
   SkillJudgeService,
   type JudgeDecision,
 } from './skill-judge.service';
@@ -145,6 +146,20 @@ function makeHostlessJudge() {
 
 describe('SkillJudgeService', () => {
   describe('scored verdicts', () => {
+    it('runs the judge with the manual preview settings (B1 regression)', async () => {
+      const { svc, query } = makeJudge([
+        [resultMessage({ structured_output: flatScorecard(7) })],
+      ]);
+      const result = await svc.judge(
+        fakeCandidate(),
+        'body',
+        MANUAL_PREVIEW_JUDGE_SETTINGS,
+      );
+      expect(query.calls).toHaveLength(1);
+      expect(result.status).toBe('scored');
+      expect(typeof result.score).toBe('number');
+    });
+
     it('averages the five criteria from a structured answer', async () => {
       const { svc } = makeJudge([
         [resultMessage({ structured_output: flatScorecard(7) })],

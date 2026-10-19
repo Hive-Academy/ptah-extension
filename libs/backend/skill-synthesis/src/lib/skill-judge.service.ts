@@ -44,6 +44,19 @@ import type { JudgeCriterionScores, JudgeStatus } from './types';
 import { SKILL_SYNTHESIS_TOKENS } from './di/tokens';
 import type { LaneRun, LaneRunnerService } from './lanes/lane-runner.service';
 
+/** Settings required by the judge gate and its callers. */
+export type JudgeGateSettings = Pick<
+  SkillSynthesisSettings,
+  'judgeEnabled' | 'minJudgeScore'
+>;
+
+// Shipped defaults of the retired skillSynthesis.judgeEnabled / minJudgeScore keys
+// (platform-core/src/file-settings-keys.ts), used by the manual enhancement preview.
+export const MANUAL_PREVIEW_JUDGE_SETTINGS: Readonly<JudgeGateSettings> = {
+  judgeEnabled: true,
+  minJudgeScore: 6.0,
+};
+
 /**
  * The five criteria of a `scored` verdict, every one of them populated.
  *
@@ -157,7 +170,7 @@ export class SkillJudgeService {
   async judge(
     candidate: SkillCandidateRow,
     body: string,
-    settings: SkillSynthesisSettings,
+    settings: JudgeGateSettings,
     context?: string,
     lens?: string,
     origin?: QueryOrigin,

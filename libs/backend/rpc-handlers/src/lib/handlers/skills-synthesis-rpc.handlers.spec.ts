@@ -1650,7 +1650,7 @@ describe('SkillsSynthesisRpcHandlers — previewEnhancement / applyProposal', ()
 
     expect(enhancer.generateProposal).toHaveBeenCalledWith(
       'deep-research',
-      { minJudgeScore: 6 },
+      { judgeEnabled: true, minJudgeScore: 6 },
       { manual: true, kind: 'skill', userInitiated: true },
     );
     expect(result).toEqual({

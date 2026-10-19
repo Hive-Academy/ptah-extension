@@ -34,7 +34,6 @@ import {
 } from './lanes/provider-network-backoffs';
 import type {
   SkillCandidateRow,
-  SkillSynthesisSettings,
   CandidateId,
   EnhancementDraft,
 } from './types';
@@ -48,7 +47,7 @@ import {
   SkillRegistryStore,
   type SkillRegistryKind,
 } from './skill-registry.store';
-import { SkillJudgeService } from './skill-judge.service';
+import { SkillJudgeService, type JudgeGateSettings } from './skill-judge.service';
 import { PROVIDER_AUTH_RESOLVER_TOKEN } from './di/tokens';
 import type { ILaneAuthResolver } from './lanes/lane-auth-resolver.port';
 import type { LaneAuthOverride } from './lanes/lane.types';
@@ -274,7 +273,7 @@ export class SkillEnhancerService {
   /** Automatic enhancement is retired; callers retain this compatibility seam. */
   isEligible(
     _slug: string,
-    _settings: SkillSynthesisSettings,
+    _settings: JudgeGateSettings,
     _kind: SkillRegistryKind = 'skill',
   ): boolean {
     return false;
@@ -291,7 +290,7 @@ export class SkillEnhancerService {
    */
   async generateProposal(
     slug: string,
-    settings: SkillSynthesisSettings,
+    settings: JudgeGateSettings,
     options: EnhanceOptions = {},
   ): Promise<GenerateProposalResult> {
     const kind: SkillRegistryKind = options.kind ?? 'skill';
@@ -542,7 +541,7 @@ export class SkillEnhancerService {
    */
   async enhance(
     slug: string,
-    settings: SkillSynthesisSettings,
+    settings: JudgeGateSettings,
     options: EnhanceOptions = {},
   ): Promise<EnhanceResult> {
     const kind: SkillRegistryKind = options.kind ?? 'skill';

@@ -124,6 +124,10 @@ export {
   type ProposalRejectionCode,
 } from './lib/skill-enhancer.service';
 export {
+  MANUAL_PREVIEW_JUDGE_SETTINGS,
+  type JudgeGateSettings,
+} from './lib/skill-judge.service';
+export {
   SKILL_REPROPAGATION_TOKEN,
   type SkillRepropagationPort,
   type SkillRepropagationKind,
