@@ -31,6 +31,10 @@ const GITHUB_RELEASES_URL =
 
 const ELECTRON_TAG_PREFIX = 'electron-v';
 
+/** Store listing (product 9N80K3HFX0JT); the download target on Windows from v2.0.0. */
+export const MICROSOFT_STORE_URL =
+  'https://apps.microsoft.com/detail/9N80K3HFX0JT';
+
 /** 4-hour periodic check interval in milliseconds. */
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
@@ -378,6 +382,10 @@ export class UpdateManager implements IAppUpdater {
       return n.endsWith('.appimage') || n.endsWith('.deb');
     };
     const asset = assets.find((a) => matches(a.name));
+    if (!asset && platform === 'win32') {
+      // From v2.0.0 Windows ships only through the Microsoft Store.
+      return MICROSOFT_STORE_URL;
+    }
     return asset?.browser_download_url ?? null;
   }
 

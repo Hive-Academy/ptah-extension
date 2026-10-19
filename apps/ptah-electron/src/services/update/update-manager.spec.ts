@@ -28,7 +28,7 @@ jest.mock('../../config/build-identity', () => ({
 }));
 
 import { app, net } from 'electron';
-import { UpdateManager } from './update-manager';
+import { MICROSOFT_STORE_URL, UpdateManager } from './update-manager';
 import type { UpdateLifecycleState } from '@ptah-extension/shared';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import {
@@ -369,7 +369,29 @@ describe('UpdateManager', () => {
       );
     });
 
+    it('points win32 to the Microsoft Store when the release has no .exe', async () => {
+      setPlatform('win32');
+      mockFetchReleases([
+        release('2.0.0', {
+          assets: [
+            {
+              name: 'Ptah-2.0.0.dmg',
+              browser_download_url: 'https://dl.example/2.0.0.dmg',
+            },
+          ],
+        }),
+      ]);
+      const { manager, webviewManager } = createUpdateManager();
+
+      await manager.checkViaGitHub();
+
+      expect(availablePayload(webviewManager)?.downloadUrl).toBe(
+        MICROSOFT_STORE_URL,
+      );
+    });
+
     it('downloadUrl is null (falls back to releaseUrl) when no platform asset matches', async () => {
+      setPlatform('linux');
       mockFetchReleases([
         release('0.1.49', {
           assets: [

@@ -570,6 +570,13 @@ jobs:
           tag_name: ${{ needs.prepare.outputs.tag }}
           name: Ptah Desktop v${{ needs.prepare.outputs.version }}
           draft: false
+          # Old Windows installs show this body in their update dialog; it is
+          # their only route to the Store build. Generated notes follow it.
+          body: |
+            > **Windows users:** from v2.0.0, Ptah for Windows installs and updates only through the
+            > [Microsoft Store](https://apps.microsoft.com/detail/9N80K3HFX0JT). There is no `.exe` in
+            > this release. Uninstall the old Ptah first, then install Ptah from the Store. Your data in
+            > `~/.ptah` stays.
           generate_release_notes: true
           files: |
             artifacts/**/*.dmg
