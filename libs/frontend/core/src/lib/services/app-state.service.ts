@@ -136,12 +136,7 @@ export interface PendingSettingsTab {
     | 'cli-agents'
     | 'more-providers'
     | 'memory-curator'
-    | 'enhancement'
-    | 'archaeologist'
-    | 'synthesis'
-    | 'judge'
-    | 'replay'
-    | 'judging-enhancement';
+    | 'enhancement';
 }
 
 /**
