@@ -45,6 +45,24 @@ const METHOD = 'agent:getLanePlanLimits';
 /** Fixed caller-facing text; no internal diagnostic crosses the boundary. */
 const UNAVAILABLE = 'Lane plan limits are unavailable on this host';
 
+/**
+ * One end-to-end budget for the whole read, inside the caller's RPC deadline
+ * (TASK_2026_704).
+ *
+ * The webview gives this method 10 s (`LANE_PLAN_LIMITS_TIMEOUT_MS`,
+ * ptah-ui-lane-limits.source.ts). The clock starts at handler entry and covers
+ * every step that can block: the cold CLI detection and registry listing
+ * behind `agent.list()`, the lane lookup, and response formatting. Without
+ * it, detection before the lookup was not bounded at all, and a cold Codex or
+ * Antigravity lane is allowed 12 s of its own (`SLOW_LIMIT_LOOKUP_DEADLINE_MS`)
+ * while the lookup waits for the slowest lane — so a backend-budget-legal
+ * read always answered after the renderer had logged a timeout and dropped
+ * the reply. A step that misses the budget answers with the fixed
+ * "unavailable" text or a 'timeout' row — never a late reply. The margin
+ * covers formatting and IPC.
+ */
+const LANE_PLAN_LIMITS_RPC_BUDGET_MS = 8_000;
+
 @injectable()
 export class LanePlanLimitsRpcHandlers {
   static readonly METHODS = [
@@ -87,7 +105,10 @@ export class LanePlanLimitsRpcHandlers {
       );
     }
 
-    const limits = await this.lookup();
+    // The budget clock starts at handler entry, so the cold detection behind
+    // `list()` and the lookup share one end-to-end deadline.
+    const startedAt = Date.now();
+    const limits = await this.lookup(startedAt);
     // The lookup's result is typed but not checked at runtime: `null`, a
     // non-array or a malformed row makes the formatter or a count throw, and
     // that failure ends in the same fixed text as a failed lookup.
@@ -99,15 +120,22 @@ export class LanePlanLimitsRpcHandlers {
   }
 
   /**
-   * The `ptah_agent_list` lookup: `list()` then `limits(rows)` with exactly one
-   * argument.
+   * The `ptah_agent_list` lookup: `list()` then `limits(rows)`, both bounded
+   * by the one handler budget. The list is raced against the whole budget;
+   * the lookup gets only what the list left, so a slow detection cannot push
+   * the reply past the caller's RPC deadline.
    */
-  private async lookup(): Promise<readonly AgentLimit[]> {
+  private async lookup(startedAt: number): Promise<readonly AgentLimit[]> {
     let limits: readonly AgentLimit[] | undefined;
     try {
       const agent = this.getApi().agent;
-      const rows = await agent.list();
-      limits = await agent.limits?.(rows);
+      const rows = await this.bounded(agent.list(), startedAt, 'lane list');
+      limits = await agent.limits?.(rows, {
+        deadlineMs: Math.max(
+          LANE_PLAN_LIMITS_RPC_BUDGET_MS - (Date.now() - startedAt),
+          0,
+        ),
+      });
     } catch (error) {
       throw this.unavailable('lookup failed', error);
     }
@@ -116,6 +144,40 @@ export class LanePlanLimitsRpcHandlers {
       throw new Error(UNAVAILABLE);
     }
     return limits;
+  }
+
+  /**
+   * Races one blocking step against the remaining budget. The losing step
+   * keeps running behind the race — cold detection deduplicates its
+   * in-flight promise, so the next read reuses that work — and its late
+   * rejection is swallowed here so it cannot surface as an unhandled
+   * rejection after this read already answered.
+   */
+  private async bounded<T>(
+    step: Promise<T>,
+    startedAt: number,
+    stage: string,
+  ): Promise<T> {
+    void step.catch(() => undefined);
+    const remainingMs = LANE_PLAN_LIMITS_RPC_BUDGET_MS - (Date.now() - startedAt);
+    if (remainingMs <= 0) {
+      throw new Error(`${stage} missed the RPC budget`);
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        step,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error(`${stage} missed the RPC budget`)),
+            remainingMs,
+          );
+          timer.unref?.();
+        }),
+      ]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
   }
 
   /**
