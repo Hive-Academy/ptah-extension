@@ -63,7 +63,8 @@ export class ReportResponseButtonComponent {
       '',
       '---',
       `Message ID: ${message.id}`,
-      `Reported at: ${new Date().toISOString()}`,
+      // The message's own time keeps the render pure; the mail client dates the report.
+      `Response time: ${new Date(message.timestamp).toISOString()}`,
     ];
     if (excerpt) {
       lines.push('', 'Response excerpt:', excerpt);

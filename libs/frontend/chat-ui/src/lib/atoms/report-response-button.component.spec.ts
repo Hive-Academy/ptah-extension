@@ -11,7 +11,8 @@ function makeMessage(rawContent: string): ExecutionChatMessage {
     role: 'assistant',
     rawContent,
     timestamp: 0,
-  } as unknown as ExecutionChatMessage;
+    streamingState: null,
+  };
 }
 
 describe('ReportResponseButtonComponent', () => {
@@ -50,11 +51,11 @@ describe('ReportResponseButtonComponent', () => {
     expect(anchor.getAttribute('title')).toBe('Report response');
   });
 
-  it('puts the message id, an ISO timestamp and the excerpt in the body', () => {
+  it('puts the message id, its ISO timestamp and the excerpt in the body', () => {
     const text = body(render(makeMessage('the reported answer & more')));
 
     expect(text).toContain('Message ID: msg-42');
-    expect(text).toMatch(/Reported at: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+    expect(text).toContain('Response time: 1970-01-01T00:00:00.000Z');
     expect(text).toContain('the reported answer & more');
   });
 
