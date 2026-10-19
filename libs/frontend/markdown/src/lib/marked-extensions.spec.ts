@@ -221,9 +221,10 @@ describe('code block header extension', () => {
     ).call(makeParserCtx(), {
       type: 'code',
       raw: '',
-      text: 'x',
+      text: 'a\nb\nc\nd',
       lang: '',
     } as Tokens.Code);
+    expect(out as string).toContain('code-block-header');
     expect(out as string).not.toContain('code-lang-badge');
   });
 
@@ -258,6 +259,49 @@ describe('code block header extension', () => {
     expect(out as string).toContain('&amp;');
     expect(out as string).toContain('&quot;');
     expect(out as string).not.toContain('<script>');
+  });
+
+  describe('short plain-text fences', () => {
+    const renderCode = (text: string, lang: string): string =>
+      (
+        rendererOf(ext()).code as (
+          this: unknown,
+          token: Tokens.Code,
+        ) => string | false
+      ).call(makeParserCtx(), {
+        type: 'code',
+        raw: '',
+        text,
+        lang,
+      } as Tokens.Code) as string;
+
+    it.each(['', 'text', 'plaintext', 'txt', 'TEXT'])(
+      'renders a short %p fence as a wrapped note with no header',
+      (lang) => {
+        const out = renderCode(
+          'Reported to the spawning session: wrote <two> files & more',
+          lang,
+        );
+        expect(out).toContain('class="code-block-note"');
+        expect(out).not.toContain('code-block-header');
+        expect(out).not.toContain('code-lang-badge');
+        expect(out).not.toContain('<pre');
+        expect(out).toContain('wrote &lt;two&gt; files &amp; more');
+      },
+    );
+
+    it('keeps the note up to three lines', () => {
+      expect(renderCode('a\nb\nc', 'text')).toContain('code-block-note');
+      expect(renderCode('a\nb\nc\nd', 'text')).not.toContain('code-block-note');
+      expect(renderCode('a\nb\nc\nd', 'text')).toContain('code-block-header');
+    });
+
+    it('leaves a short block with a code language as code', () => {
+      const out = renderCode('ls -la', 'bash');
+      expect(out).not.toContain('code-block-note');
+      expect(out).toContain('code-lang-badge');
+      expect(out).toContain('<pre>');
+    });
   });
 });
 

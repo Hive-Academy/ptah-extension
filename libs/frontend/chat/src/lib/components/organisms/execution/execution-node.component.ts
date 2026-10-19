@@ -22,7 +22,10 @@ import { InlineAgentBubbleComponent } from './inline-agent-bubble.component';
 import { SubagentTileComponent } from './subagent-tile.component';
 import {
   AgentSummaryComponent,
+  LaneResultCardComponent,
   ThinkingBlockComponent,
+  parseLaneResult,
+  type LaneResult,
 } from '@ptah-extension/chat-ui';
 // Used only inside `@defer`, so the compiler loads the `ptah-ui` entry (the
 // fence pipeline, zod and the declarative renderer) as a lazy chunk. Same
@@ -155,6 +158,7 @@ function scheduleFrame(cb: () => void): FrameHandle {
     SubagentTileComponent,
     AgentSummaryComponent,
     ThinkingBlockComponent,
+    LaneResultCardComponent,
     ToolCallItemComponent,
     WorkflowCardComponent,
     TaskCardComponent,
@@ -190,7 +194,7 @@ function scheduleFrame(cb: () => void): FrameHandle {
           >
             @defer (on immediate) {
               <ptah-ui-message-text
-                [text]="renderedContent()"
+                [text]="bodyText()"
                 [messageId]="host.messageId"
                 [nodeId]="node().id"
                 [orderKey]="host.orderKey"
@@ -201,11 +205,11 @@ function scheduleFrame(cb: () => void): FrameHandle {
               />
             } @placeholder {
               <markdown
-                [data]="renderedContent() | surfaceMarkdown: surfaceActive()"
+                [data]="bodyText() | surfaceMarkdown: surfaceActive()"
               />
             } @error {
               <markdown
-                [data]="renderedContent() | surfaceMarkdown: surfaceActive()"
+                [data]="bodyText() | surfaceMarkdown: surfaceActive()"
               />
             }
           </div>
@@ -215,17 +219,17 @@ function scheduleFrame(cb: () => void): FrameHandle {
           >
             @defer (on immediate) {
               <ptah-mermaid-message-text
-                [text]="renderedContent()"
+                [text]="bodyText()"
                 [finalized]="true"
                 [active]="surfaceActive()"
               />
             } @placeholder {
               <markdown
-                [data]="renderedContent() | surfaceMarkdown: surfaceActive()"
+                [data]="bodyText() | surfaceMarkdown: surfaceActive()"
               />
             } @error {
               <markdown
-                [data]="renderedContent() | surfaceMarkdown: surfaceActive()"
+                [data]="bodyText() | surfaceMarkdown: surfaceActive()"
               />
             }
           </div>
@@ -256,10 +260,15 @@ function scheduleFrame(cb: () => void): FrameHandle {
               </div>
             } @else {
               <markdown
-                [data]="renderedContent() | surfaceMarkdown: surfaceActive()"
+                [data]="bodyText() | surfaceMarkdown: surfaceActive()"
               />
             }
           </div>
+        }
+        <!-- Trailing WROTE lines, parsed from the raw text once it settles;
+             bodyText() above has them removed. -->
+        @if (laneResult(); as result) {
+          <ptah-lane-result-card [result]="result" />
         }
       }
       @case ('thinking') {
@@ -349,7 +358,7 @@ function scheduleFrame(cb: () => void): FrameHandle {
             />
           </div>
         } @else {
-        <!--
+          <!--
       Pass nodeTemplate so the bubble can render its children recursively
       without importing ExecutionNodeComponent. @defer was previously used
       here but was removed because the defer block re-fired on every input
@@ -360,26 +369,29 @@ function scheduleFrame(cb: () => void): FrameHandle {
       animate.enter is gated by isFinalizing() to avoid fade waves during
       the finalize burst.
     -->
-        <div [class.exec-fade-in]="!isFinalizing()" [class.exec-fill-height]="fillHeight()">
-          <ptah-inline-agent-bubble
-            [node]="node()"
-            [fillHeight]="fillHeight()"
-            [getPermissionForTool]="getPermissionForTool()"
-            [nodeTemplate]="bubbleChildTemplate"
-            [isFinalizing]="isFinalizing()"
-            (permissionResponded)="permissionResponded.emit($event)"
-          />
-        </div>
-        <ng-template #bubbleChildTemplate let-child>
-          <ptah-execution-node
-            [node]="child"
-            [isStreaming]="isStreaming()"
-            [isFinalizing]="isFinalizing()"
-            [getPermissionForTool]="getPermissionForTool()"
-            [agentTileMode]="agentTileMode()"
-            (permissionResponded)="permissionResponded.emit($event)"
-          />
-        </ng-template>
+          <div
+            [class.exec-fade-in]="!isFinalizing()"
+            [class.exec-fill-height]="fillHeight()"
+          >
+            <ptah-inline-agent-bubble
+              [node]="node()"
+              [fillHeight]="fillHeight()"
+              [getPermissionForTool]="getPermissionForTool()"
+              [nodeTemplate]="bubbleChildTemplate"
+              [isFinalizing]="isFinalizing()"
+              (permissionResponded)="permissionResponded.emit($event)"
+            />
+          </div>
+          <ng-template #bubbleChildTemplate let-child>
+            <ptah-execution-node
+              [node]="child"
+              [isStreaming]="isStreaming()"
+              [isFinalizing]="isFinalizing()"
+              [getPermissionForTool]="getPermissionForTool()"
+              [agentTileMode]="agentTileMode()"
+              (permissionResponded)="permissionResponded.emit($event)"
+            />
+          </ng-template>
         }
       }
       @case ('message') {
@@ -420,7 +432,8 @@ function scheduleFrame(cb: () => void): FrameHandle {
         display: block;
       }
 
-      :host(.fill-height), .exec-fill-height {
+      :host(.fill-height),
+      .exec-fill-height {
         display: flex;
         flex: 1;
         flex-direction: column;
@@ -467,11 +480,18 @@ function scheduleFrame(cb: () => void): FrameHandle {
 })
 export class ExecutionNodeComponent {
   private readonly displayDock = inject(DisplayDockState, { optional: true });
-  private readonly displaySources = inject(PTAH_UI_HOST_SOURCES, { optional: true });
+  private readonly displaySources = inject(PTAH_UI_HOST_SOURCES, {
+    optional: true,
+  });
 
   protected openInDisplay(surfaceKey: string): void {
     const tabId = this.displaySources?.tabId();
-    if (tabId && this.displayDock?.tab(tabId).surfaces.some((surface) => surface.key === surfaceKey)) {
+    if (
+      tabId &&
+      this.displayDock
+        ?.tab(tabId)
+        .surfaces.some((surface) => surface.key === surfaceKey)
+    ) {
       this.displayDock.openSurface(tabId, surfaceKey);
     }
   }
@@ -660,6 +680,25 @@ export class ExecutionNodeComponent {
       return hasPtahUiFenceLine(this.renderedContent()) ? context : null;
     },
     { equal: samePtahUiContext },
+  );
+
+  /**
+   * The trailing `WROTE:` lines of a settled text node (`parseLaneResult`),
+   * shown as a result card. Parsed from the raw text, so paths keep their
+   * backslashes; skipped while the text renders incrementally and for the
+   * agent-summary format.
+   */
+  protected readonly laneResult = computed((): LaneResult | null =>
+    this.node().type !== 'text' ||
+    this.rendersIncrementally() ||
+    this.isAgentSummaryContent()
+      ? null
+      : parseLaneResult(this.renderedContent()),
+  );
+
+  /** The markdown body: the text without the lane result lines. */
+  protected readonly bodyText = computed(
+    () => this.laneResult()?.body ?? this.renderedContent(),
   );
 
   /** Mermaid mounts once, only after streaming and the finalization handoff. */

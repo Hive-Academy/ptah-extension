@@ -38,6 +38,14 @@ export type {
   StderrSegment,
 } from './lib/molecules/agent-card/agent-card.types';
 export { AgentSummaryComponent } from './lib/molecules/agent-summary.component';
+export { LaneResultCardComponent } from './lib/molecules/lane-result/lane-result-card.component';
+export {
+  parseLaneResult,
+  type LaneResult,
+  type LaneResultFile,
+  type LaneResultFolder,
+  type LaneVerdictTone,
+} from './lib/utils/lane-result.utils';
 export { ActivityTickerComponent } from './lib/molecules/activity-ticker/activity-ticker.component';
 export { BootProgressComponent } from './lib/molecules/boot-progress/boot-progress.component';
 export {
