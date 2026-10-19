@@ -70,6 +70,15 @@ describe('NotificationService', () => {
     schedule.mockRestore();
   });
 
+  it('updates a notice when an optional field disappears', () => {
+    const item = request('context-removed', { context: 'Waiting for approval' });
+    service.upsert(item);
+    const withoutContext = request('context-removed');
+    service.upsert(withoutContext);
+    expect(service.needsYou()[0]).toBe(withoutContext);
+    expect(service.needsYou()[0].context).toBeUndefined();
+  });
+
   it.each(['chat', 'host'] as const)('merges chat and host and survives %s resolution first', first => {
     const chat = request('merged');
     const host = { ...chat, source: 'host', title: 'Host projection', soundEligible: false };

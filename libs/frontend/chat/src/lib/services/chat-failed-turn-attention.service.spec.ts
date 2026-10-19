@@ -29,6 +29,9 @@ describe('ChatFailedTurnAttentionService', () => {
     pulses.set([base, { ...base, seq: 3, revision: 3, classification: 'error',
       terminalReason: 'aborted_streaming' }, { ...base, seq: 4, revision: 4,
       classification: 'error', terminalReason: 'aborted_tools' },
+    ...(['background_requested', 'hook_stopped', 'stop_hook_prevented', 'tool_deferred', 'max_turns'] as const)
+      .map((terminalReason, index) => ({ ...base, seq: 10 + index, revision: 10 + index,
+        classification: 'error' as const, terminalReason })),
     { ...base, seq: 2, revision: 2, phase: 'failed',
       classification: 'error', terminalReason: 'model_error', lastAssistantMessage: 'private error' }]);
     TestBed.flushEffects();

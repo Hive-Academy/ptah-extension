@@ -92,7 +92,7 @@ export class NotificationService {
       const duration = item.kind === 'failure' ? 8000 : item.kind === 'warning' ? 10000 : 6000;
       this.clocks.set(item.key, { remainingMs: duration, startedAt: Date.now(), paused: this.allPaused });
     }
-    if (prior && Object.keys(presented).every(field => field === 'actions'
+    if (prior && [...new Set([...Object.keys(prior), ...Object.keys(presented)])].every(field => field === 'actions'
       ? presented.actions.length === prior.actions.length && presented.actions.every((action, index) =>
         action.id === prior.actions[index].id && action.label === prior.actions[index].label &&
         action.disabledReason === prior.actions[index].disabledReason)

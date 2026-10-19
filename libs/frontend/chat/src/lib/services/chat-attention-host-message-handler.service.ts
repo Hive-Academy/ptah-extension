@@ -161,7 +161,7 @@ export class ChatAttentionHostMessageHandler implements MessageHandler {
       for (const notice of notices) this.upsertProjection(notice);
     } finally {
       this.reconciling = false;
-      if (this.reconcileAgain && this.snapshotFailures < 5) {
+      if (this.reconcileAgain && this.snapshotFailures < 5 && !this.retryTimeout) {
         this.reconcileAgain = false;
         void this.reconcile();
       } else {

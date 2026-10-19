@@ -145,6 +145,29 @@ describe('ChatAttentionHostMessageHandler', () => {
     }
   });
 
+  it('waits for backoff when a queued reconcile follows a failed snapshot', async () => {
+    jest.useFakeTimers();
+    try {
+      let failSnapshot: (reason: Error) => void = () => { throw new Error('Snapshot was not requested'); };
+      call.mockImplementationOnce(() => new Promise((_resolve, reject) => {
+        failSnapshot = reject;
+      }));
+      window.dispatchEvent(new Event('focus'));
+      expect(call).toHaveBeenCalledTimes(1);
+      window.dispatchEvent(new Event('focus'));
+      failSnapshot(new Error('private snapshot detail'));
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(call).toHaveBeenCalledTimes(1);
+      await jest.advanceTimersByTimeAsync(1999);
+      expect(call).toHaveBeenCalledTimes(1);
+      await jest.advanceTimersByTimeAsync(1);
+      expect(call).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('opens a pending local owner after snapshot validation', async () => {
     call.mockResolvedValue(new RpcResult(true, { notices: [notice] }));
     handler.handleMessage({ type: MESSAGE_TYPES.ATTENTION_OPEN_TARGET, payload: {

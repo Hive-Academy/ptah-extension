@@ -2,6 +2,14 @@ import { Injectable, effect, inject, untracked } from '@angular/core';
 import { MODEL_REFRESH_CONTROL, TabManagerService, workspaceLabelFromPath } from '@ptah-extension/chat-state';
 import { attentionConditionKey, NotificationService, type AttentionItem } from '@ptah-extension/core';
 
+/** Terminal reasons that count as a failure (task-description.md:72); all others are not failures. */
+const FAILURE_REASONS: ReadonlySet<string> = new Set([
+  'api_error', 'model_error', 'image_error', 'budget_exhausted',
+  'blocking_limit', 'rapid_refill_breaker', 'prompt_too_long',
+  'turn_setup_failed', 'malformed_tool_use_exhausted',
+  'structured_output_retry_exhausted',
+]);
+
 /** Drains terminal turn pulses and retains only bounded failure notices in the core model. */
 @Injectable({ providedIn: 'root' })
 export class ChatFailedTurnAttentionService {
@@ -21,7 +29,7 @@ export class ChatFailedTurnAttentionService {
   private drain(): void {
     for (const pulse of this.tabs?.takeTerminalTurnPulses?.() ?? []) {
       if (pulse.classification !== 'error' ||
-          (pulse.phase !== 'failed' && (!pulse.terminalReason || pulse.terminalReason.startsWith('aborted_')))) continue;
+          (pulse.phase !== 'failed' && !(pulse.terminalReason && FAILURE_REASONS.has(pulse.terminalReason)))) continue;
       const item: AttentionItem = {
         key: attentionConditionKey(pulse.workspacePath, `turn:${pulse.sessionId}:${pulse.revision}`),
         generation: pulse.seq,
