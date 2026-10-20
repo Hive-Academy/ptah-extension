@@ -19,6 +19,7 @@ import {
   provideMessageRouter,
   MESSAGE_HANDLERS,
   ATTENTION_ACTION_DISPATCHER,
+  NOTICE_ACTION_HANDLER,
   NOTIFICATION_FOCUS_ROUTER,
   ClaudeRpcService,
   AutopilotStateService,
@@ -96,10 +97,14 @@ import { WorkspaceIndexingService } from '@ptah-extension/workspace-indexing';
 // no-op as the dashboard barrel dropped in Batch 3.
 import {
   provideWizardInternalState,
+  provideSetupWizardFocusRouter,
   SetupWizardStateService,
   SetupGenerationOpenHandler,
   GenerationRunEventAdapter,
 } from '@ptah-extension/setup-wizard';
+import { provideHarnessBuilderFocusRouter } from '@ptah-extension/harness-builder/services';
+import { provideAppsFocusRouter } from '@ptah-extension/mcp-apps-page';
+import { provideGitStatusAttention } from '@ptah-extension/git-ui';
 import {
   FileContentChangesService,
   GitBranchesService,
@@ -218,6 +223,7 @@ export const appConfig: ApplicationConfig = {
     provideVSCodeService(),
     provideMessageRouter(),
     { provide: ATTENTION_ACTION_DISPATCHER, useExisting: ChatAttentionActionDispatcherService },
+    { provide: NOTICE_ACTION_HANDLER, useExisting: VoiceProviderErrorService, multi: true },
     { provide: NOTIFICATION_FOCUS_ROUTER, useExisting: NotificationFocusCoordinator },
     provideAppInitializer(() => { inject(ChatAttentionSourceService); }),
     {
@@ -314,6 +320,10 @@ export const appConfig: ApplicationConfig = {
     { provide: MESSAGE_HANDLERS, useExisting: TasksChangedFeed, multi: true },
     ...provideModelRefreshControl(),
     ...provideWizardInternalState(),
+    ...provideSetupWizardFocusRouter(),
+    ...provideHarnessBuilderFocusRouter(),
+    ...provideAppsFocusRouter(),
+    provideGitStatusAttention(),
     { provide: MESSAGE_HANDLERS, useExisting: GitStatusService, multi: true },
     { provide: MESSAGE_HANDLERS, useExisting: GitBranchesService, multi: true },
     { provide: MESSAGE_HANDLERS, useExisting: WorktreeService, multi: true },

@@ -13,6 +13,7 @@
 // Services
 export { GitReviewService } from './lib/services/git-review.service';
 export { ReviewNavigationService } from './lib/services/review-navigation.service';
+export { provideGitStatusAttention } from './lib/services/git-status-attention.service';
 
 // Components
 export { ReviewShellComponent } from './lib/review-shell/review-shell.component';
