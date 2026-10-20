@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en" data-theme="anubis">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ptah — Aurora + Glass prototypes (A)</title>
+<script>try{var t=localStorage.getItem('ptah-proto-theme');if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  .wrap { width: min(100%, 980px); margin: 0 auto; padding: 88px 24px 56px; }
+  header { text-align: center; margin-bottom: 30px; }
+  header img { width: 56px; height: 56px; margin-bottom: 14px; }
+  h1 { font-size: clamp(28px, 4.5vw, 42px); letter-spacing: -.02em; line-height: 1.1; margin: 8px 0 14px; }
+  .rationale { padding: 20px 24px; font-size: 14.5px; color: var(--ink-muted); max-width: 72ch; margin: 0 auto 30px; }
+  .rationale strong { color: var(--ink); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px; }
+  a.card { display: flex; flex-direction: column; gap: 10px; padding: 20px; text-decoration: none; color: var(--ink); transition: transform .3s var(--ease), box-shadow .3s; }
+  a.card:hover { transform: translateY(-5px); box-shadow: var(--glass-highlight), var(--shadow), var(--glow-gold); }
+  a.card:active { transform: scale(.98); }
+  a.card h2 { font-size: 16px; }
+  a.card p { font-size: 13px; color: var(--ink-muted); flex: 1; }
+  a.card .go { font-size: 12.5px; font-weight: 650; color: var(--gold-ink); display: inline-flex; gap: 6px; align-items: center; }
+  a.card .go .i { width: 15px; height: 15px; transition: transform .25s var(--ease); }
+  a.card:hover .go .i { transform: translateX(4px); }
+  a.card:focus-visible { outline-offset: 4px; border-radius: var(--r-lg); }
+  .foot { text-align: center; margin-top: 26px; font-size: 12.5px; color: var(--ink-muted); }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="arrow" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></symbol>
+    <symbol id="moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></symbol>
+    <symbol id="sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  </defs>
+</svg>
+<button class="theme-toggle" id="theme" type="button" aria-label="Toggle dark / light theme"><svg class="i moon"><use href="#moon"/></svg><svg class="i sun"><use href="#sun"/></svg><span id="theme-label">Dark</span></button>
+<main class="stage">
+  <div class="aurora" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+  <div class="wrap">
+    <header class="reveal">
+      <img src="ptah-icon.png" alt="Ptah" width="56" height="56">
+      <p class="eyebrow">Prototype A · TASK_2026_710</p>
+      <h1>Ptah <span class="gold-text">Aurora + Glass</span></h1>
+    </header>
+    <p class="rationale glass reveal" style="--d:1"><strong>Design rationale.</strong> A slow four-blob aurora (lapis, teal, gold, violet-tinted) drifts behind frosted-glass cards with a luminous gold-to-lapis hairline edge, inner top highlight and faint grain, giving depth without noise. Egyptian identity comes from gold on near-black, a Cinzel wordmark and the Ptah emblem; Lucide-style 1.5px SVG line icons replace the broken glyphs. Every colour, blur and glow is a CSS variable in <code>tokens.css</code>, with <code>anubis</code> (dark) and <code>anubis-light</code> variants, AA text on glass, visible focus rings, and aurora motion that stops under <code>prefers-reduced-motion</code>.</p>
+    <nav class="grid" aria-label="Prototype surfaces">
+      <a class="card glass reveal" style="--d:2" href="setup-card.html"><h2>Setup card</h2><p>“Get ready” with 0 / 1 / all-ready states.</p><span class="go">Open <svg class="i"><use href="#arrow"/></svg></span></a>
+      <a class="card glass reveal" style="--d:3" href="welcome.html"><h2>Welcome</h2><p>Welcome to Ptah Desktop, no folder open.</p><span class="go">Open <svg class="i"><use href="#arrow"/></svg></span></a>
+      <a class="card glass reveal" style="--d:4" href="empty-state.html"><h2>Chat empty state</h2><p>Get started: category tiles and prompt cards.</p><span class="go">Open <svg class="i"><use href="#arrow"/></svg></span></a>
+      <a class="card glass reveal" style="--d:5" href="boot.html"><h2>Boot screen</h2><p>Staged aurora loading with live phases.</p><span class="go">Open <svg class="i"><use href="#arrow"/></svg></span></a>
+    </nav>
+    <p class="foot">Designed at 1280×800, checked at 900px. Toggle theme top-right.</p>
+  </div>
+</main>
+<script>
+(function(){var h=document.documentElement,l=document.getElementById('theme-label');
+function s(t){h.dataset.theme=t;l.textContent=t==='anubis'?'Dark':'Light';try{localStorage.setItem('ptah-proto-theme',t)}catch(e){}}
+s(h.dataset.theme);document.getElementById('theme').addEventListener('click',function(){s(h.dataset.theme==='anubis'?'anubis-light':'anubis')});})();
+</script>
+</body>
+</html>

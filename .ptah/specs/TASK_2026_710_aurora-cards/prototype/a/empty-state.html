@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en" data-theme="anubis">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ptah — Chat empty state "Get started" (Aurora A)</title>
+<script>try{var t=localStorage.getItem('ptah-proto-theme');if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  .col { width: min(100%, 720px); margin: 0 auto; padding: 72px 20px 40px; display: flex; flex-direction: column; align-items: center; gap: 18px; }
+  .brand { position: relative; display: flex; flex-direction: column; align-items: center; text-align: center; padding-bottom: 4px; }
+  .logo-wrap { position: relative; width: 84px; height: 84px; display: grid; place-items: center; margin-bottom: 12px; }
+  .logo-wrap::before { content: ''; position: absolute; inset: -20px; border-radius: 50%; background: radial-gradient(circle, rgb(212 175 55 / .45), rgb(37 99 235 / .2) 55%, transparent 72%); filter: blur(10px); animation: halo 5s ease-in-out infinite alternate; }
+  .logo-wrap::after { content: ''; position: absolute; inset: 0; border-radius: 26px; background: var(--glass-fill); border: 1px solid var(--glass-border-hi); box-shadow: var(--glass-highlight), var(--glow-gold); }
+  .logo-wrap img { position: relative; z-index: 1; width: 52px; height: 52px; }
+  @keyframes halo { to { transform: scale(1.14); opacity: .75; } }
+  .wordmark { font-size: 34px; font-weight: 700; line-height: 1.1; }
+  .tagline { font-size: 13.5px; color: var(--ink-muted); margin-top: 4px; letter-spacing: .02em; }
+  .panel { width: 100%; padding: 20px; }
+  .sec-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .sec-head .i { width: 18px; height: 18px; color: var(--gold-ink); }
+  .sec-head h2 { font-size: 12.5px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--gold-ink); }
+  .sec-head::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, var(--glass-border-hi), transparent); }
+
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
+  .tile { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px 8px 12px; cursor: pointer; border-radius: var(--r-md); background: var(--row-fill); border: 1px solid var(--divider); transition: transform .3s var(--ease), background .2s, border-color .2s, box-shadow .3s; font-size: 12.5px; font-weight: 600; color: var(--ink); }
+  .tile .i { width: 24px; height: 24px; color: var(--ink-muted); transition: color .2s, transform .3s var(--ease); }
+  .tile:hover { transform: translateY(-3px); background: var(--row-fill-hover); border-color: var(--glass-border-hi); }
+  .tile:hover .i { color: var(--gold-ink); transform: scale(1.12); }
+  .tile:active { transform: scale(.96); }
+  .tile[aria-pressed='true'] { background: linear-gradient(160deg, rgb(212 175 55 / .22), rgb(37 99 235 / .16)); border-color: var(--gold); box-shadow: var(--glow-gold), inset 0 1px 0 rgb(255 255 255 / .2); }
+  .tile[aria-pressed='true'] .i { color: var(--gold-ink); }
+
+  .prompts { display: flex; flex-direction: column; gap: 8px; }
+  .prompt { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 12px 14px; cursor: pointer; border-radius: var(--r-md); background: var(--row-fill); border: 1px solid var(--divider); transition: transform .25s var(--ease), border-color .2s, background .2s; animation: slide .35s var(--ease) both; animation-delay: calc(var(--n) * 45ms); }
+  .prompt .t { flex: 1; min-width: 0; }
+  .prompt b { display: block; font-size: 13.5px; font-weight: 650; }
+  .prompt small { display: block; font-size: 12px; color: var(--ink-muted); margin-top: 2px; }
+  .prompt .i { width: 17px; height: 17px; color: var(--ink-muted); opacity: 0; transform: translateX(-6px); transition: all .25s var(--ease); }
+  .prompt:hover { transform: translateX(4px); background: var(--row-fill-hover); border-color: var(--glass-border-hi); }
+  .prompt:hover .i { opacity: 1; transform: none; color: var(--gold-ink); }
+  .prompt:active { transform: scale(.985); }
+  .prompt:focus-visible .i { opacity: 1; transform: none; }
+  @keyframes slide { from { opacity: 0; transform: translateY(8px); } }
+
+  .toast { min-height: 20px; font-size: 12.5px; color: var(--teal-hi); text-align: center; }
+  [data-theme='anubis-light'] .toast { color: var(--teal); }
+  .footer-ornament { color: var(--gold-ink); opacity: .55; font-size: 11px; letter-spacing: .5em; display: flex; align-items: center; gap: 12px; margin-top: 4px; }
+  .footer-ornament::before, .footer-ornament::after { content: ''; width: 48px; height: 1px; background: currentColor; opacity: .6; }
+
+  /* compact inline setup card */
+  .setup { padding: 16px 18px; width: 100%; }
+  .setup .head { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; }
+  .setup .head > div { flex: 1; min-width: 180px; }
+  .setup h2 { font-size: 18px; font-weight: 700; margin: 3px 0 4px; }
+  .setup .sub { font-size: 12.5px; color: var(--ink-muted); }
+  .setup .srow { display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 8px 10px; border-radius: 12px; background: var(--row-fill); flex-wrap: wrap; }
+  .setup .srow .icon-chip { width: 32px; height: 32px; border-radius: 10px; }
+  .setup .srow .icon-chip .i { width: 17px; height: 17px; }
+  .setup .srow .b { flex: 1; min-width: 120px; line-height: 1.25; font-size: 13px; }
+  .setup .srow .b span { display: block; font-size: 12px; color: var(--ink-muted); }
+  .setup .srow:first-of-type { margin-top: 14px; }
+  @media (max-width: 560px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="hammer" viewBox="0 0 24 24"><path d="m15 12-8.4 8.4a2.1 2.1 0 0 1-3-3L12 9"/><path d="M17.6 15 22 10.6M20.9 11.7a3 3 0 0 0-.1-4.1l-2.4-2.4M14.8 4.6l4.6 4.6M13.5 5.9a3 3 0 0 0-4.2-.1L12.5 3l2.4 1.6"/></symbol>
+    <symbol id="wrench" viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0 5 5L22 9a6.5 6.5 0 0 1-9 9L5.6 21.4a2 2 0 0 1-3-3L10 11a6.5 6.5 0 0 1 9-9z" transform="scale(.9) translate(1.3 1.3)"/></symbol>
+    <symbol id="shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></symbol>
+    <symbol id="compass" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5"/><path d="m15.8 8.2-2 5.6-5.6 2 2-5.6z"/></symbol>
+    <symbol id="palette" viewBox="0 0 24 24"><path d="M12 22a10 10 0 1 1 10-10c0 2.8-2.2 4-4.5 4H15a2 2 0 0 0-1.4 3.4c.5.6.4 1.6-.3 2A9 9 0 0 1 12 22z"/><circle cx="7.5" cy="11" r="1"/><circle cx="10.5" cy="7" r="1"/><circle cx="15.5" cy="7.5" r="1"/></symbol>
+    <symbol id="book" viewBox="0 0 24 24"><path d="M4 19.5v-14A2.5 2.5 0 0 1 6.5 3H20v18H6.5A2.5 2.5 0 0 1 4 18.5"/><path d="M8 7h8M8 11h5"/></symbol>
+    <symbol id="bot" viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 4v4M9 13v2M15 13v2M2 13v3M22 13v3"/><circle cx="12" cy="3.5" r="1"/></symbol>
+    <symbol id="scan" viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/></symbol>
+    <symbol id="check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="spark" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z"/></symbol>
+    <symbol id="arrow" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></symbol>
+    <symbol id="arrow-left" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></symbol>
+    <symbol id="moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></symbol>
+    <symbol id="sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  </defs>
+</svg>
+<a class="back-link" href="index.html"><svg class="i"><use href="#arrow-left"/></svg>Gallery</a>
+<button class="theme-toggle" id="theme" type="button" aria-label="Toggle dark / light theme"><svg class="i moon"><use href="#moon"/></svg><svg class="i sun"><use href="#sun"/></svg><span id="theme-label">Dark</span></button>
+
+<main class="stage">
+  <div class="aurora" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+  <div class="col">
+    <header class="brand reveal">
+      <div class="logo-wrap"><img src="ptah-icon.png" alt="Ptah" width="52" height="52"></div>
+      <h1 class="wordmark display gold-text">Ptah</h1>
+      <p class="tagline">Ancient Wisdom • Master Craftsman</p>
+    </header>
+
+    <!-- Project setup card (shown when showProjectSetup = true) -->
+    <section class="setup glass reveal" style="--d:1" aria-labelledby="gr">
+      <div class="head">
+        <div><p class="eyebrow">Before you begin</p><h2 id="gr">Get ready</h2><p class="sub">Prepare your skills and agents so Ptah can understand your workspace.</p></div>
+        <span class="badge" aria-live="polite"><span class="dot"></span>1 of 2 ready</span>
+      </div>
+      <div class="srow"><span class="icon-chip ok" aria-hidden="true"><svg class="i"><use href="#check"/></svg></span><span class="b"><strong>Skills</strong><span>Ready</span></span><button class="btn" type="button">Open Library</button></div>
+      <div class="srow"><span class="icon-chip" aria-hidden="true"><svg class="i"><use href="#bot"/></svg></span><span class="b"><strong>Agents</strong><span>Not configured</span></span><button class="btn" type="button">Configure</button></div>
+      <div class="srow"><span class="icon-chip" aria-hidden="true"><svg class="i"><use href="#scan"/></svg></span><span class="b"><strong>Project scan</strong><span>Run setup to scan this workspace</span></span><button class="btn" type="button">Run setup</button></div>
+    </section>
+
+    <section class="panel glass reveal" style="--d:2" aria-labelledby="gs">
+      <div class="sec-head"><svg class="i"><use href="#spark"/></svg><h2 id="gs">Get Started</h2></div>
+      <div class="tiles" role="group" aria-label="Prompt categories">
+        <button class="tile" type="button" data-cat="build" aria-pressed="true"><svg class="i"><use href="#hammer"/></svg>Build</button>
+        <button class="tile" type="button" data-cat="fix" aria-pressed="false"><svg class="i"><use href="#wrench"/></svg>Fix</button>
+        <button class="tile" type="button" data-cat="review" aria-pressed="false"><svg class="i"><use href="#shield"/></svg>Review</button>
+        <button class="tile" type="button" data-cat="agents" aria-pressed="false"><svg class="i"><use href="#users"/></svg>Agents</button>
+        <button class="tile" type="button" data-cat="explore" aria-pressed="false"><svg class="i"><use href="#compass"/></svg>Explore</button>
+        <button class="tile" type="button" data-cat="creative" aria-pressed="false"><svg class="i"><use href="#palette"/></svg>Creative</button>
+      </div>
+      <div class="prompts" id="prompts" aria-live="polite"></div>
+    </section>
+    <p class="toast" id="toast" role="status"></p>
+    <div class="footer-ornament" aria-hidden="true">✦ ✦ ✦</div>
+  </div>
+</main>
+<script>
+var DATA={
+build:[['Orchestrate a feature','Plan, implement, review'],['Bootstrap SaaS workspace','Nx + NestJS + Angular'],['Design NestJS feature','Controller-service-Prisma'],['Add Angular component','Signals, OnPush, split'],['Generate project harness','Setup wizard scan']],
+fix:[['Fix a bug','Orchestrated bugfix workflow'],['Simplify recent changes','Reduce complexity safely'],['Debug a failing test','Find the root cause']],
+review:[['Review my changes','Code, style and logic'],['Review security','Auth, input and secrets'],['Review architecture','Layering and boundaries']],
+agents:[['Delegate to a CLI agent','Run Gemini, Codex or Copilot'],['Spawn parallel agents','Split work across agents']],
+explore:[['Explain this codebase','Structure and key flows'],['Find where a feature lives','Symbols and dependents'],['Map the dependencies','Libs and imports']],
+creative:[['Build a 3D scene','Three.js scene starter'],['Animate with GSAP','Timeline and scroll effects'],['Write launch content','Posts and release notes']]};
+var P=document.getElementById('prompts'),T=document.getElementById('toast');
+function esc(s){return s.replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+function render(c){P.innerHTML=DATA[c].map(function(p,n){return '<button class="prompt" type="button" style="--n:'+n+'"><span class="t"><b>'+esc(p[0])+'</b><small>'+esc(p[1])+'</small></span><svg class="i"><use href="#arrow"/></svg></button>'}).join('')}
+document.querySelectorAll('.tile').forEach(function(b){b.addEventListener('click',function(){document.querySelectorAll('.tile').forEach(function(x){x.setAttribute('aria-pressed','false')});b.setAttribute('aria-pressed','true');render(b.dataset.cat)})});
+P.addEventListener('click',function(e){var b=e.target.closest('.prompt');if(b)T.textContent='Prompt sent to chat input: “'+b.querySelector('b').textContent+'”'});
+render('build');
+(function(){var h=document.documentElement,l=document.getElementById('theme-label');
+function s(t){h.dataset.theme=t;l.textContent=t==='anubis'?'Dark':'Light';try{localStorage.setItem('ptah-proto-theme',t)}catch(e){}}
+s(h.dataset.theme);document.getElementById('theme').addEventListener('click',function(){s(h.dataset.theme==='anubis'?'anubis-light':'anubis')});})();
+</script>
+<style>@media (prefers-reduced-motion: reduce){.logo-wrap::before,.prompt{animation:none!important}.tile,.prompt,.prompt .i{transition:none!important}}</style>
+</body>
+</html>

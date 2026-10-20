@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en" data-theme="anubis">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ptah — Setup card "Get ready" (Aurora A)</title>
+<script>try{var t=localStorage.getItem('ptah-proto-theme');if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  .col { width: min(100%, 680px); margin: 0 auto; padding: 84px 20px 64px; display: flex; flex-direction: column; gap: 14px; }
+  .state-label { font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-muted); margin: 26px 4px 0; }
+  .new-session { align-self: flex-start; }
+
+  .card { padding: 22px 22px 18px; container-type: inline-size; }
+  .card-head { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px; }
+  .card-head .txt { flex: 1; min-width: 200px; }
+  .card h2 { font-size: 22px; line-height: 1.2; font-weight: 700; letter-spacing: -.01em; margin: 4px 0 6px; }
+  .card h2.row-title { display: flex; align-items: center; gap: 10px; font-size: 18px; margin: 0; flex: 1; }
+  .card .sub { font-size: 13px; color: var(--ink-muted); max-width: 46ch; }
+
+  .meter { display: flex; gap: 4px; margin-left: 2px; }
+  .meter b { width: 18px; height: 5px; border-radius: 3px; background: var(--divider); }
+  .meter b.on { background: linear-gradient(90deg, var(--teal-hi), var(--gold-hi)); box-shadow: 0 0 8px rgb(45 212 191 / .55); }
+  [data-theme='anubis-light'] .meter b.on { box-shadow: none; background: linear-gradient(90deg, var(--teal), var(--gold)); }
+
+  .rows { list-style: none; margin: 18px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 11px 12px; border-radius: var(--r-md); background: var(--row-fill); border: 1px solid transparent; transition: background .2s, border-color .2s, transform .3s var(--ease); }
+  .row:hover { background: var(--row-fill-hover); border-color: var(--divider); transform: translateX(2px); }
+  .row:hover .icon-chip { transform: scale(1.07) rotate(-3deg); box-shadow: var(--glow-gold), inset 0 1px 0 rgb(255 255 255 / .18); }
+  .row .body { flex: 1; min-width: 140px; line-height: 1.3; }
+  .row strong { font-size: 14px; font-weight: 650; display: block; }
+  .row .status { font-size: 12.5px; color: var(--ink-muted); }
+  .row .status.ok { color: var(--success); font-weight: 600; }
+
+  .tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--divider); }
+  .tools > span { font-size: 12.5px; color: var(--ink-muted); margin-right: 4px; }
+  .ready-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .ready-head .icon-chip { width: 32px; height: 32px; }
+  .ready-card { border-color: rgb(52 211 153 / .35); }
+
+  @container (max-width: 400px) {
+    .card .btn { width: 100%; }
+    .row .btn { flex: 1 0 100%; }
+  }
+  @media (max-width: 900px) { .col { padding-top: 78px; } }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="book" viewBox="0 0 24 24"><path d="M4 19.5v-14A2.5 2.5 0 0 1 6.5 3H20v18H6.5A2.5 2.5 0 0 1 4 18.5"/><path d="M8 7h8M8 11h5"/></symbol>
+    <symbol id="bot" viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 4v4M9 13v2M15 13v2M2 13v3M22 13v3"/><circle cx="12" cy="3.5" r="1"/></symbol>
+    <symbol id="scan" viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/></symbol>
+    <symbol id="check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="play" viewBox="0 0 24 24"><path d="m7 4 13 8-13 8z"/></symbol>
+    <symbol id="spark" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z"/></symbol>
+    <symbol id="arrow-left" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></symbol>
+    <symbol id="moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></symbol>
+    <symbol id="sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  </defs>
+</svg>
+
+<a class="back-link" href="index.html"><svg class="i"><use href="#arrow-left"/></svg>Gallery</a>
+<button class="theme-toggle" id="theme" type="button" aria-label="Toggle dark / light theme">
+  <svg class="i moon"><use href="#moon"/></svg><svg class="i sun"><use href="#sun"/></svg><span id="theme-label">Dark</span>
+</button>
+
+<main class="stage">
+  <div class="aurora" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+  <div class="col">
+
+    <button class="btn btn-primary new-session reveal" type="button"><svg class="i"><use href="#plus"/></svg>New session</button>
+
+    <!-- STATE 1 : 0 of 2 ready -->
+    <p class="state-label">State 1 · nothing ready</p>
+    <section class="card glass reveal" style="--d:1" aria-labelledby="t1">
+      <div class="card-head">
+        <div class="txt">
+          <p class="eyebrow">Before you begin</p>
+          <h2 id="t1">Get ready</h2>
+          <p class="sub">Prepare your skills and agents so Ptah can understand your workspace.</p>
+        </div>
+        <span class="badge" aria-live="polite"><span class="meter" aria-hidden="true"><b></b><b></b></span>0 of 2 ready</span>
+      </div>
+      <ul class="rows">
+        <li class="row"><span class="icon-chip" aria-hidden="true"><svg class="i"><use href="#book"/></svg></span><span class="body"><strong>Skills</strong><span class="status">No skills enabled</span></span><button class="btn" type="button">Open Library</button></li>
+        <li class="row"><span class="icon-chip" aria-hidden="true"><svg class="i"><use href="#bot"/></svg></span><span class="body"><strong>Agents</strong><span class="status">Not configured</span></span><button class="btn" type="button">Configure</button></li>
+        <li class="row"><span class="icon-chip" aria-hidden="true"><svg class="i"><use href="#scan"/></svg></span><span class="body"><strong>Project scan</strong><span class="status">Run setup to scan this workspace</span></span><button class="btn" type="button">Run setup</button></li>
+      </ul>
+      <div class="tools" role="group" aria-label="Setup tools"><span>Setup tools</span><button class="btn" type="button">Generate agents</button><button class="btn" type="button">Project guidance</button></div>
+    </section>
+
+    <!-- STATE 2 : 1 of 2 -->
+    <p class="state-label">State 2 · partly ready</p>
+    <section class="card glass reveal" style="--d:2" aria-labelledby="t2">
+      <div class="card-head">
+        <div class="txt">
+          <p class="eyebrow">Before you begin</p>
+          <h2 id="t2">Get ready</h2>
+          <p class="sub">Prepare your skills and agents so Ptah can understand your workspace.</p>
+        </div>
+        <span class="badge" aria-live="polite"><span class="meter" aria-hidden="true"><b class="on"></b><b></b></span>1 of 2 ready</span>
+      </div>
+      <ul class="rows">
+        <li class="row"><span class="icon-chip ok" aria-hidden="true"><svg class="i"><use href="#check"/></svg></span><span class="body"><strong>Skills</strong><span class="status ok">Ready</span></span><button class="btn" type="button">Open Library</button></li>
+        <li class="row"><span class="icon-chip" aria-hidden="true"><svg class="i"><use href="#bot"/></svg></span><span class="body"><strong>Agents</strong><span class="status">Not configured</span></span><button class="btn" type="button" id="cfg"><span id="cfg-t">Configure</span></button></li>
+        <li class="row"><span class="icon-chip" aria-hidden="true"><svg class="i"><use href="#scan"/></svg></span><span class="body"><strong>Project scan</strong><span class="status">Run setup to scan this workspace</span></span><button class="btn" type="button">Run setup</button></li>
+      </ul>
+      <div class="tools" role="group" aria-label="Setup tools"><span>Setup tools</span><button class="btn" type="button">Generate agents</button><button class="btn" type="button">Project guidance</button></div>
+    </section>
+
+    <!-- STATE 3 : all ready -->
+    <p class="state-label">State 3 · all ready</p>
+    <section class="card glass ready-card reveal" style="--d:3" aria-labelledby="t3">
+      <div class="ready-head">
+        <h2 id="t3" class="row-title"><span class="icon-chip ok" aria-hidden="true"><svg class="i"><use href="#check"/></svg></span>Ready</h2>
+        <button class="btn" type="button"><svg class="i"><use href="#play"/></svg>Run setup</button>
+        <button class="btn" type="button"><svg class="i"><use href="#spark"/></svg>Generate agents</button>
+        <button class="btn" type="button">Project guidance</button>
+      </div>
+    </section>
+
+  </div>
+</main>
+<script>
+(function(){var h=document.documentElement,l=document.getElementById('theme-label');
+function s(t){h.dataset.theme=t;l.textContent=t==='anubis'?'Dark':'Light';try{localStorage.setItem('ptah-proto-theme',t)}catch(e){}}
+s(h.dataset.theme);document.getElementById('theme').addEventListener('click',function(){s(h.dataset.theme==='anubis'?'anubis-light':'anubis')});})();
+</script>
+</body>
+</html>

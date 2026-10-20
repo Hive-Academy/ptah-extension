@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en" data-theme="anubis">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ptah — Boot screen (Aurora A)</title>
+<script>try{var t=localStorage.getItem('ptah-proto-theme');if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  .stage { display: grid; place-items: center; padding: 24px; }
+  .boot { width: min(100%, 400px); display: flex; flex-direction: column; align-items: center; gap: 22px; text-align: center; }
+  .emblem { position: relative; width: 112px; height: 112px; display: grid; place-items: center; }
+  .emblem img { position: relative; z-index: 2; width: 60px; height: 60px; filter: drop-shadow(0 4px 12px rgb(0 0 0 / .4)); }
+  .emblem .core { position: absolute; inset: 14px; border-radius: 50%; background: var(--glass-fill); border: 1px solid var(--glass-border-hi); box-shadow: var(--glass-highlight), var(--glow-gold); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+  .emblem svg.ring { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .ring circle { fill: none; stroke-width: 2; }
+  .ring .track { stroke: var(--divider); }
+  .ring .arc { stroke: url(#g); stroke-linecap: round; stroke-dasharray: 90 240; transform-origin: 50% 50%; animation: spin 2.4s linear infinite; }
+  .halo { position: absolute; inset: -26px; border-radius: 50%; background: radial-gradient(circle, rgb(212 175 55 / .4), rgb(37 99 235 / .18) 55%, transparent 72%); filter: blur(12px); animation: breathe 4s ease-in-out infinite alternate; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes breathe { to { transform: scale(1.15); opacity: .7; } }
+  .name { font-size: 28px; font-weight: 700; line-height: 1; }
+  #headline { font-size: 14px; color: var(--ink-muted); margin-top: 8px; min-height: 21px; }
+  #headline.warn { color: var(--warning); font-weight: 600; }
+  .steps { list-style: none; margin: 0; padding: 14px; width: 100%; display: flex; flex-direction: column; gap: 2px; text-align: left; }
+  .steps li { display: flex; align-items: center; gap: 12px; padding: 9px 12px; border-radius: 12px; font-size: 14px; transition: background .3s, color .3s; }
+  .steps li[data-state='pending'] { color: var(--ink-muted); }
+  .steps li[data-state='active'] { background: linear-gradient(90deg, rgb(212 175 55 / .16), rgb(37 99 235 / .08)); font-weight: 600; }
+  .mark { width: 20px; height: 20px; display: grid; place-items: center; flex: none; }
+  .mark .i { width: 18px; height: 18px; }
+  .mark .done, .mark .act { display: none; }
+  li[data-state='done'] .mark .done { display: block; color: var(--success); }
+  li[data-state='active'] .mark .act { display: block; color: var(--gold-ink); animation: spin 1.2s linear infinite; }
+  li[data-state='pending'] .mark::after { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--ink-faint); }
+  li[data-state='done'] .mark::after, li[data-state='active'] .mark::after { display: none; }
+  .bar { width: 100%; height: 3px; border-radius: 2px; background: var(--divider); overflow: hidden; }
+  .bar b { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--lapis-hi), var(--teal-hi), var(--gold-hi)); transition: width .8s var(--ease); }
+  #detail { font-size: 12.5px; color: var(--ink-muted); max-width: 34ch; min-height: 18px; }
+  #elapsed { font-size: 12.5px; color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+  .demo { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; padding: 8px; z-index: 40; max-width: calc(100% - 24px); }
+  .demo .btn { min-height: 28px; font-size: 11.5px; padding: 5px 11px; }
+  .demo .btn[aria-pressed='true'] { border-color: var(--gold); background: rgb(212 175 55 / .22); }
+  @media (prefers-reduced-motion: reduce) { .ring .arc, .halo, li[data-state='active'] .mark .act { animation: none !important; } .bar b { transition: none; } }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5b8cff"/><stop offset=".5" stop-color="#2dd4bf"/><stop offset="1" stop-color="#fbbf24"/></linearGradient>
+    <symbol id="check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="loader" viewBox="0 0 24 24"><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/></symbol>
+    <symbol id="arrow-left" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></symbol>
+    <symbol id="moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></symbol>
+    <symbol id="sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  </defs>
+</svg>
+<a class="back-link" href="index.html"><svg class="i"><use href="#arrow-left"/></svg>Gallery</a>
+<button class="theme-toggle" id="theme" type="button" aria-label="Toggle dark / light theme"><svg class="i moon"><use href="#moon"/></svg><svg class="i sun"><use href="#sun"/></svg><span id="theme-label">Dark</span></button>
+
+<main class="stage">
+  <div class="aurora" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+  <div class="boot" role="status" aria-live="polite">
+    <div class="emblem reveal">
+      <span class="halo" aria-hidden="true"></span>
+      <span class="core" aria-hidden="true"></span>
+      <svg class="ring" viewBox="0 0 112 112" aria-hidden="true"><circle class="track" cx="56" cy="56" r="52"/><circle class="arc" cx="56" cy="56" r="52"/></svg>
+      <img src="ptah-icon.png" alt="" width="60" height="60">
+    </div>
+    <div class="reveal" style="--d:1">
+      <span class="name display gold-text">Ptah</span>
+      <p id="headline" data-testid="boot-headline">Starting up</p>
+    </div>
+    <ol class="steps glass reveal" style="--d:2" id="steps" data-testid="boot-steps"></ol>
+    <div class="bar" aria-hidden="true"><b id="fill"></b></div>
+    <p id="detail"></p>
+    <p id="elapsed" data-testid="boot-elapsed">0s elapsed</p>
+  </div>
+  <div class="demo glass" role="group" aria-label="Prototype controls">
+    <button class="btn" type="button" id="auto" aria-pressed="true">Auto-advance</button>
+    <button class="btn" type="button" id="warn" aria-pressed="false">Degraded</button>
+    <button class="btn" type="button" id="unk" aria-pressed="false">Unknown phase</button>
+  </div>
+</main>
+<script>
+var S=[['starting','Starting up'],['database','Opening the database'],['harness','Syncing the agent harness'],['sessions','Importing sessions'],['index','Indexing the workspace']];
+var idx=0,auto=true,degraded=false,unknown=false,t0=Date.now();
+var ol=document.getElementById('steps'),hl=document.getElementById('headline'),fill=document.getElementById('fill'),det=document.getElementById('detail');
+ol.innerHTML=S.map(function(s){return '<li data-phase="'+s[0]+'" data-state="pending"><span class="mark"><svg class="i done"><use href="#check"/></svg><svg class="i act"><use href="#loader"/></svg></span><span>'+s[1]+'</span></li>'}).join('');
+function render(){var items=ol.children;
+ for(var i=0;i<items.length;i++)items[i].dataset.state=unknown?'pending':i<idx?'done':i===idx?'active':'pending';
+ hl.textContent=unknown?'Starting':S[idx][1];hl.className=degraded?'warn':'';
+ fill.style.width=unknown?'4%':Math.round((idx+.5)/S.length*100)+'%';
+ det.textContent=degraded?'Some services are slow to respond — continuing in degraded mode.':''}
+function tog(id,fn){var b=document.getElementById(id);b.addEventListener('click',function(){var v=b.getAttribute('aria-pressed')!=='true';b.setAttribute('aria-pressed',v);fn(v);render()})}
+tog('auto',function(v){auto=v});tog('warn',function(v){degraded=v});tog('unk',function(v){unknown=v});
+setInterval(function(){if(auto&&!unknown)idx=(idx+1)%S.length;render()},2200);
+setInterval(function(){document.getElementById('elapsed').textContent=Math.floor((Date.now()-t0)/1000)+'s elapsed'},1000);
+render();
+(function(){var h=document.documentElement,l=document.getElementById('theme-label');
+function s(t){h.dataset.theme=t;l.textContent=t==='anubis'?'Dark':'Light';try{localStorage.setItem('ptah-proto-theme',t)}catch(e){}}
+s(h.dataset.theme);document.getElementById('theme').addEventListener('click',function(){s(h.dataset.theme==='anubis'?'anubis-light':'anubis')});})();
+</script>
+</body>
+</html>

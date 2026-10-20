@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en" data-theme="anubis">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ptah — Welcome to Ptah Desktop (Aurora A)</title>
+<script>try{var t=localStorage.getItem('ptah-proto-theme');if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  .stage { display: grid; place-items: center; padding: 72px 24px 48px; }
+  .hero { width: min(100%, 560px); display: flex; flex-direction: column; align-items: center; text-align: center; }
+  .logo-wrap { position: relative; width: 104px; height: 104px; display: grid; place-items: center; margin-bottom: 22px; }
+  .logo-wrap::before { content: ''; position: absolute; inset: -22px; border-radius: 50%; background: radial-gradient(circle, rgb(212 175 55 / .45), rgb(37 99 235 / .2) 55%, transparent 72%); filter: blur(10px); animation: halo 5s ease-in-out infinite alternate; }
+  [data-theme='anubis-light'] .logo-wrap::before { background: radial-gradient(circle, rgb(212 175 55 / .5), rgb(106 155 255 / .25) 55%, transparent 72%); }
+  .logo-wrap::after { content: ''; position: absolute; inset: 0; border-radius: 30px; background: var(--glass-fill); border: 1px solid var(--glass-border-hi); box-shadow: var(--glass-highlight), var(--glow-gold); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+  .logo-wrap img { position: relative; z-index: 1; width: 64px; height: 64px; filter: drop-shadow(0 4px 10px rgb(0 0 0 / .35)); }
+  @keyframes halo { to { transform: scale(1.14); opacity: .75; } }
+  h1 { font-size: clamp(28px, 4.4vw, 40px); line-height: 1.12; font-weight: 750; letter-spacing: -.02em; margin-bottom: 12px; }
+  .lede { font-size: 15.5px; color: var(--ink-muted); max-width: 46ch; margin-bottom: 28px; }
+  .cta { margin-bottom: 30px; }
+  .features { width: 100%; padding: 8px; display: flex; flex-direction: column; gap: 2px; text-align: left; }
+  .feat { display: flex; align-items: flex-start; gap: 14px; padding: 13px 14px; border-radius: var(--r-md); transition: background .2s, transform .3s var(--ease); }
+  .feat:hover { background: var(--row-fill-hover); transform: translateX(3px); }
+  .feat:hover .icon-chip { transform: scale(1.08) rotate(-4deg); box-shadow: var(--glow-gold), inset 0 1px 0 rgb(255 255 255 / .18); }
+  .feat + .feat { border-top: 1px solid var(--divider); border-radius: 0 0 var(--r-md) var(--r-md); }
+  .feat h2 { font-size: 14.5px; font-weight: 650; margin-bottom: 2px; }
+  .feat p { font-size: 13px; color: var(--ink-muted); }
+  .kbd { margin-top: 18px; font-size: 12px; color: var(--ink-muted); }
+  kbd { font: inherit; font-size: 11px; padding: 2px 7px; border-radius: 6px; border: 1px solid var(--glass-border); background: var(--row-fill); }
+  @media (prefers-reduced-motion: reduce) { .logo-wrap::before { animation: none !important; } .feat { transition: none; } }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="folder" viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2z"/><path d="M2 10h20"/></symbol>
+    <symbol id="arrow" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></symbol>
+    <symbol id="radar" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/><path d="M12 12l6-6"/><circle cx="12" cy="12" r=".6"/></symbol>
+    <symbol id="orchestra" viewBox="0 0 24 24"><circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="18" r="2.5"/><circle cx="19" cy="18" r="2.5"/><path d="M12 7.5v4M12 11.5l-5.5 4.5M12 11.5l5.5 4.5"/></symbol>
+    <symbol id="chat" viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L3 20.5l1.5-4.9A8 8 0 1 1 21 12z"/><path d="M8.5 11h7M8.5 14h4"/></symbol>
+    <symbol id="arrow-left" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></symbol>
+    <symbol id="moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></symbol>
+    <symbol id="sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  </defs>
+</svg>
+<a class="back-link" href="index.html"><svg class="i"><use href="#arrow-left"/></svg>Gallery</a>
+<button class="theme-toggle" id="theme" type="button" aria-label="Toggle dark / light theme"><svg class="i moon"><use href="#moon"/></svg><svg class="i sun"><use href="#sun"/></svg><span id="theme-label">Dark</span></button>
+
+<main class="stage">
+  <div class="aurora" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+  <div class="hero">
+    <div class="logo-wrap reveal"><img src="ptah-icon.png" alt="Ptah" width="64" height="64"></div>
+    <h1 class="reveal" style="--d:1">Welcome to <span class="gold-text">Ptah Desktop</span></h1>
+    <p class="lede reveal" style="--d:2">Open a project folder to get started. Ptah will analyze your workspace and configure AI agents tailored to your codebase.</p>
+    <button class="btn btn-primary btn-lg cta reveal" style="--d:3" type="button"><svg class="i"><use href="#folder"/></svg>Open Folder<svg class="i i-arrow"><use href="#arrow"/></svg></button>
+
+    <section class="features glass reveal" style="--d:4" aria-label="What Ptah does">
+      <div class="feat"><span class="icon-chip" aria-hidden="true"><svg class="i"><use href="#radar"/></svg></span><div><h2>Workspace Intelligence</h2><p>Auto-detects your tech stack, frameworks, and project structure.</p></div></div>
+      <div class="feat"><span class="icon-chip" aria-hidden="true"><svg class="i"><use href="#orchestra"/></svg></span><div><h2>AI Agent Orchestra</h2><p>Specialized agents for frontend, backend, testing, and more.</p></div></div>
+      <div class="feat"><span class="icon-chip" aria-hidden="true"><svg class="i"><use href="#chat"/></svg></span><div><h2>Context-Aware Chat</h2><p>Chat with full awareness of your codebase and dependencies.</p></div></div>
+    </section>
+  </div>
+</main>
+<script>
+(function(){var h=document.documentElement,l=document.getElementById('theme-label');
+function s(t){h.dataset.theme=t;l.textContent=t==='anubis'?'Dark':'Light';try{localStorage.setItem('ptah-proto-theme',t)}catch(e){}}
+s(h.dataset.theme);document.getElementById('theme').addEventListener('click',function(){s(h.dataset.theme==='anubis'?'anubis-light':'anubis')});})();
+</script>
+</body>
+</html>
