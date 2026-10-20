@@ -71,6 +71,29 @@ Old worktrees still present (remove only when the user says): `.claude-worktrees
 
 ## Open problems and decisions
 
+0. **NEW, user-reported (high priority): notifications always show "Unknown workspace" and never
+   the linked session name** (questions, permissions). Code evidence (not yet verified at runtime):
+   - `libs/frontend/chat/src/lib/services/chat-attention-source.service.ts:117-141` builds in-app
+     request items with only `workspaceName`; no `context` is set, so no session title, provider or
+     tool shows. The approved prototype shows a context line such as
+     "Claude · Tool: Bash · ptah-extension" (`prototype/screenshots/dark-snackbar-stack.png`,
+     `dark-panel.png`; `design-spec.md` "A snackbar contains ... one context line with safe
+     workspace/session label"); decision #21 requires the session title in host notifications.
+     `AttentionItem` has `context?` (`libs/frontend/core/src/lib/services/attention.types.ts:31`).
+   - "Unknown workspace" = `owner?.workspacePath` empty (`chat-attention-source.service.ts:119`).
+     `findTabByIdAcrossWorkspaces` returns `workspacePath: activePath`
+     (`libs/frontend/chat-state/src/lib/tab-workspace-partition.service.ts:325-338`), which can be
+     `null`; check why it is null in Electron, or derive the label from the tab/session record
+     instead. Host projections use the same fallback at
+     `chat-attention-host-message-handler.service.ts:191` when the target workspace is not local.
+   - Plan: one codex lane (frontend) to (a) set a safe `context` line: session title (tab title /
+     session name), provider and tool for permissions, short question text for questions; (b) fix the
+     workspace label source; (c) check that the bell row and snackbar templates render `context`
+     (`libs/frontend/notification-center/`); update specs. Then an Anthropic code-logic review,
+     scoped checks (chat, notification-center, chat-state if touched), a PR to main, and confirm in
+     visual run 2 with the live `permission:request` shot (`{theme}-snackbar-permission-live.png`).
+     Do this BEFORE settling the style differences in item 1, so the visual run shows real labels.
+
 1. **Visual run 2 re-run** (next step 1). After it, decide the two style differences (row border,
    section header) with one codex lane + Anthropic review, or record them as approved deviations
    in `decisions.md`. Coverage gaps that stay: failed-turn notice (needs a matching session tab),
