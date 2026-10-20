@@ -630,6 +630,9 @@ export class UserLayerMirrorService {
             this.logger.info('[UserLayerMirror] retired skill preserved', preserved);
           }
         } catch (error: unknown) {
+          // degradation-audit: optional-capability - ENOENT means the retired
+          // skill folder is already gone, which is the goal; every other error
+          // is counted in result.errors and logged below.
           if (this.isEnoent(error)) return;
           result.errors += 1;
           this.logger.warn('[UserLayerMirror] retired skill removal failed', {
