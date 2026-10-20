@@ -259,6 +259,31 @@ describe('AntigravityCliAdapter — MCP config (TASK_2026_285)', () => {
       await handle.done;
     });
 
+    it('keeps the lane URL during startup when no attachment probe can confirm the read', async () => {
+      seedUserConfig({
+        ptah: { serverUrl: 'http://localhost:51820' },
+      });
+
+      const handle = await adapter.runSdk({
+        task: 'do a thing',
+        workingDirectory: ws,
+        mcpPort: 51234,
+      });
+      // Give an early restore every chance to land before the check.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(servers()['ptah']).toEqual({
+        serverUrl: scopedUrl(51234),
+      });
+
+      child.emit('close', 0, null);
+      await handle.done;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(servers()['ptah']).toEqual({
+        serverUrl: 'http://localhost:51820',
+      });
+    });
+
     it("is restored without disturbing the user's other servers", async () => {
       seedUserConfig({
         ptah: { serverUrl: 'http://localhost:51820' },

@@ -978,6 +978,7 @@ export class AntigravityCliAdapter implements CliAdapter {
             '\n[Antigravity MCP warning: config-write-failed] Ptah MCP was not configured; report in your final message.\n',
           );
         }
+        let startupGrace: ReturnType<typeof setTimeout> | undefined;
         const startup =
           mcpConfigured &&
           options.attachmentProbe &&
@@ -991,7 +992,20 @@ export class AntigravityCliAdapter implements CliAdapter {
                 ),
                 done.then(() => undefined),
               ])
-            : Promise.resolve(undefined);
+            : mcpRestoreNeeded
+              ? // No probe can confirm that agy read the lane URL, so keep it
+                // for the same startup window (or until the lane ends) before
+                // restoring. Restoring at once would race agy's config read.
+                Promise.race([
+                  done.then(() => undefined),
+                  new Promise<undefined>((resolve) => {
+                    startupGrace = setTimeout(
+                      () => resolve(undefined),
+                      MCP_ATTACHMENT_TIMEOUT_MS,
+                    );
+                  }),
+                ])
+              : Promise.resolve(undefined);
         void startup
           .then(async (attached) => {
             if (
@@ -1016,6 +1030,7 @@ export class AntigravityCliAdapter implements CliAdapter {
             );
           })
           .finally(async () => {
+            clearTimeout(startupGrace);
             if (mcpRestoreNeeded) await this.cleanupMcpEntry(priorMcpEntry);
             releaseMcpStartup();
           });
