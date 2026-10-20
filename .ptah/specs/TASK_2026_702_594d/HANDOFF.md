@@ -1,54 +1,74 @@
 # HANDOFF - TASK_2026_702_594d Elevate the Chat start screen
 
-Written 2026-10-20 by the orchestrator session `task-593-702` (it continued the 2026-10-19 handoff).
-Sibling task: TASK_2026_593_7c2e (attention-first notifications), handoff at
+Written 2026-10-20 by orchestrator session `notification-final` (continued the earlier
+`task-593-702` handoff). Sibling task: TASK_2026_593_7c2e (attention-first notifications), handoff at
 `D:/projects/ptah-extension/.claude-worktrees/attention-notifications/.ptah/specs/TASK_2026_593_7c2e/HANDOFF.md`.
+
+> **Superseded 2026-10-20 (session `notification-fixes`):** read the combined handoff
+> `D:/projects/ptah-extension/.claude-worktrees/attention-notifications/.ptah/specs/TASK_2026_593_7c2e/HANDOFF.md`.
+> PR #785 is all green at `35c9a8c59` (session-create helper fix `8a0ce5c60`; lane Open parity
+> `35c9a8c59`, user decision "fix in #785 now", review APPROVED 8/10). Ready for the user to merge.
 
 ## Goal
 
 Empty Chat board: one primary "New session" action, CSS-only Aurora hero, one "Get ready" card,
 three recent sessions, and the whole canvas dock bar removed (ticker, needs-you chip,
-"+ New Session"). The VS Code single-chat screen gets the checklist and a faint Aurora (#15).
+"+ New Session"). Phase 3 removes the needs-you chip now that the attention bell (#780) covers it.
 
 ## Where
 
-- Worktree `D:/projects/ptah-extension/.claude-worktrees/chat-start-screen`, branch
-  `feat/chat-start-screen` (node_modules junction). Task folder `.ptah/specs/TASK_2026_702_594d/`
-  (decisions #1-#26).
-- **PR #781 OPEN** (phases 1-2 + visual fix): https://github.com/Hive-Academy/ptah-extension/pull/781
+- **PR #781 MERGED** 2026-10-20 01:49 UTC (squash; branch `feat/chat-start-screen` deleted on the
+  remote). Old worktree `.claude-worktrees/chat-start-screen` still exists; remove only when the
+  user says (`cmd //c rmdir .claude-worktrees\chat-start-screen\node_modules`, then
+  `git worktree remove .claude-worktrees/chat-start-screen`).
+- **Phase 3: PR #785 OPEN** https://github.com/Hive-Academy/ptah-extension/pull/785, base `main`,
+  branch `feat/chat-needs-you-removal`, worktree
+  `D:/projects/ptah-extension/.claude-worktrees/chat-needs-you-removal` (node_modules junction).
+  After the squash merge of #781 the branch was merged with `origin/main` again; the PR now shows
+  only the 9 phase 3 files and is MERGEABLE.
 
 ## Done this session
 
 | Step | Result | Evidence |
 | --- | --- | --- |
-| Visual-fix lint + spec | `canvas-rail-board.component.ts` eqeqeq; board spec "+ New session" label; checks green (ui 696, chat 4441, canvas 426, no-alpha 11/11, audit 294) | #23 |
-| Commits | `b34813b0e` fix, `633432181` docs, `af9504659` re-check docs | git log |
-| "Open Library" removal | **user approved** (Ready strip after setup; still shown before setup) | #24 |
-| Electron re-check | `visual-recheck.md` APPROVED 8/10 (dark + light, 1440x900 + 800x700); screenshots local in `visual-recheck/` (PNG is git-ignored) and shown to the user | #25 |
-| PR #781 | opened; merged origin/main (`81b42123f`): kept main's new resizable inspector dock + Stats tab, added our hero/notice/recent sessions; F1 test now checks `[data-inspector-dock]`; ticker export dropped | #26 |
-| CI fix | `webview-e2e` session-create specs left the new-session popover open (hero opens it by design); helper closes it via its backdrop (`a1f77f2d0`) | #26 |
+| CI #781 | all green (17 pass), user merged | `gh pr checks 781` |
+| Phase 3 implementation | codex lane: chip mount, `@defer` block, placeholder and wrapper row removed from `orchestra-canvas.component.ts`; four `canvas-needs-you-queue*.ts` files deleted; stubs removed from both shell specs; one absence assertion | `phase-3-report.md`, commit `de5756f04` |
+| Phase 3 review | Anthropic code-logic review APPROVED 8/10, minors only | `code-logic-review-phase-3.md` |
+| Phase 3 checks | `@ptah-extension/canvas` typecheck+lint+test pass; `ptah-extension-webview` typecheck pass; webview `no-alpha-base-content` 11/11; degradation audit 291 | this session |
+| PR #785 | opened against main; merge of origin/main after the squash | `gh pr view 785` |
 
 ## Open / next steps
 
-1. **Watch CI on PR #781.** The re-run after `a1f77f2d0` was pending at handoff.
-   `git-real-git (windows-latest)` failed once on `node-gyp` during npm install (runner issue; the
-   same job passed on #780) - re-run it if it fails again the same way. Fix real failures with
-   one bounded codex lane + an independent Anthropic review; reply to CodeRabbit comments.
-2. **Phase 3 is unblocked** (TASK_2026_593 PR #780 merged 2026-10-20): after #781 merges (or on
-   top of it), update the branch from `main`, unmount the needs-you chip, delete
-   `canvas-needs-you-queue*.ts` + spec, update `orchestra-canvas.rail.spec.ts`; Anthropic
-   code-logic review, one codex fix round, scoped checks, commit, second PR.
-3. Accepted minor items (later polish): neutral (not amber) eyebrow/badge, no row dividers, hard
-   Aurora edge at the Sessions rail; relative dates can go stale until change detection;
-   "2h ago" spec tolerates "Yesterday" near midnight; clock-skewed timestamps show an absolute
-   date. Not captured: running cap (9 live sessions), VS Code single-chat 280px.
-4. No local-only branch at the end.
+1. **Watch CI on #785** (10 pass, 6 pending at handoff). Fix real failures with one bounded codex
+   lane + an independent Anthropic review; reply to CodeRabbit comments (CodeRabbit hit its free
+   OSS review limit on #783, so it may not review #785).
+2. **Parity gap (user decision, report it):** the chip's Open selected the exact canvas lane detail
+   pane (`CanvasDetailService.open`); the bell's Open focuses the owning session only. The review
+   judged it Minor and covered by `parity-inventory.md:33` ("opens the relevant session"). Ask the
+   user whether an optional follow-up should route lane-permission Open to the lane pane.
+3. Minor later polish: stale comment `libs/frontend/chat/src/lib/components/templates/electron-shell.component.ts:265-269`
+   still says the ticker "lives in the canvas dock row" (not edited: a comment-only change would add
+   the 4,441-test chat suite to the scoped checks). Earlier accepted minors from the previous
+   handoff stay (neutral eyebrow/badge, row dividers, Aurora edge, stale relative dates).
+4. Optional: an Electron visual check of the canvas without the chip (dark + light), before/after.
+5. No local-only branch at the end: `feat/chat-needs-you-removal` is pushed with PR #785.
+
+Scoped re-check commands (run from the worktree, one heavy job at a time on the machine):
+
+```bash
+npx nx run-many -t typecheck,lint,test -p @ptah-extension/canvas --parallel=1
+npx nx typecheck ptah-extension-webview
+npx jest -c apps/ptah-extension-webview/jest.config.ts apps/ptah-extension-webview/src/app/no-alpha-base-content.spec.ts --coverage=false --maxWorkers=2
+npx ts-node --transpile-only tools/degradation-audit/check-degradation.ts | tail -2   # must stay <= 291
+```
 
 ## Standing user rules
 
-Orchestration + agent-lanes skills; codex lanes implement (max 3, `ptah_agent_list` before every
-spawn, never AT LIMIT, parallel lanes run no nx/jest); Anthropic subagents review; memory-safe
-scoped checks only; one heavy job at a time on the machine (coordinate with peers); never
-`text-base-content/NN`; audit must not rise; commit foreground with hooks, push background; no
-`--no-verify`; do not edit notification-center code. The user accepts pushing without a full
-local re-run and letting CI check. Codex weekly 63% at handoff.
+Orchestration + agent-lanes skills; the user said "fix with our cli tools": codex CLI lanes
+implement (`ptah_agent_list` before every spawn, never AT LIMIT, max 3, parallel lanes run no
+nx/jest); Anthropic subagents do code-logic reviews; memory-safe scoped checks only (`--parallel=1`,
+Jest `--maxWorkers=2`, one heavy job at a time, coordinate with ListAgents/SendMessage
+"checks: free"); never `text-base-content/NN`; audit must not rise; commit foreground with hooks,
+push + `gh pr create` in the background; announce Electron launches ("Electron: <session>
+launching, port N, private APPDATA") and send "Electron: free" after; do not edit
+notification-center code. Codex weekly 65% at handoff (resets 2026-10-24 20:40 UTC).

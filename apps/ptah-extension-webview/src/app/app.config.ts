@@ -19,6 +19,7 @@ import {
   provideMessageRouter,
   MESSAGE_HANDLERS,
   ATTENTION_ACTION_DISPATCHER,
+  ATTENTION_LANE_OPENER,
   NOTICE_ACTION_HANDLER,
   NOTIFICATION_FOCUS_ROUTER,
   ClaudeRpcService,
@@ -114,6 +115,7 @@ import {
   provideGitStatusAttention,
 } from '@ptah-extension/git-ui/services';
 import { OrchestraCanvasComponent } from '@ptah-extension/canvas';
+import { CanvasAttentionLaneOpener } from '@ptah-extension/canvas/focus';
 import { GatewayStateService } from '@ptah-extension/messaging-gateway-ui/services';
 import { SkillSynthesisLiveService } from '@ptah-extension/skill-synthesis-ui/services';
 // NOTE: intentionally the WIDE barrel. A narrow `@ptah-extension/dashboard/services`
@@ -223,6 +225,7 @@ export const appConfig: ApplicationConfig = {
     provideVSCodeService(),
     provideMessageRouter(),
     { provide: ATTENTION_ACTION_DISPATCHER, useExisting: ChatAttentionActionDispatcherService },
+    { provide: ATTENTION_LANE_OPENER, useExisting: CanvasAttentionLaneOpener },
     { provide: NOTICE_ACTION_HANDLER, useExisting: VoiceProviderErrorService, multi: true },
     { provide: NOTIFICATION_FOCUS_ROUTER, useExisting: NotificationFocusCoordinator },
     provideAppInitializer(() => { inject(ChatAttentionSourceService); }),

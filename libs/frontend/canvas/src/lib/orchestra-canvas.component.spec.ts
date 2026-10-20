@@ -33,11 +33,7 @@ jest.mock('ngx-markdown', () => {
   };
 });
 
-import {
-  DeferBlockState,
-  TestBed,
-  type ComponentFixture,
-} from '@angular/core/testing';
+import { TestBed } from '@angular/core/testing';
 import {
   ApplicationRef,
   signal,
@@ -45,10 +41,9 @@ import {
   output,
   type WritableSignal,
 } from '@angular/core';
-import { By } from '@angular/platform-browser';
 import { FormsModule } from '@angular/forms';
 import { LucideAngularModule } from 'lucide-angular';
-import { SessionId, TabId } from '@ptah-extension/shared';
+import { TabId } from '@ptah-extension/shared';
 import type { TabState } from '@ptah-extension/chat-types';
 import { OrchestraCanvasComponent } from './orchestra-canvas.component';
 import { CanvasStore } from './canvas.store';
@@ -57,21 +52,6 @@ import { CanvasLayoutService } from './canvas-layout.service';
 import { CanvasLayoutPersistenceService } from './canvas-layout-persistence.service';
 import { NativePopoverComponent } from '@ptah-extension/ui';
 
-@Component({
-  selector: 'ptah-canvas-needs-you-queue',
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  template: '',
-})
-class NeedsYouQueueStub {}
-
-/** The needs-you queue loads in a lazy `@defer (on idle)` chunk; render it now. */
-async function completeDeferBlocks(
-  fixture: ComponentFixture<unknown>,
-): Promise<void> {
-  for (const block of await fixture.getDeferBlocks()) {
-    await block.render(DeferBlockState.Complete);
-  }
-}
 @Component({
   selector: 'ptah-canvas-rail-board',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -903,7 +883,6 @@ describe('OrchestraCanvasComponent dock and viewport allocation', () => {
           FormsModule,
           LucideAngularModule,
           RailBoardStub,
-          NeedsYouQueueStub,
           NativePopoverComponent,
         ],
         providers: [
@@ -958,21 +937,9 @@ describe('OrchestraCanvasComponent dock and viewport allocation', () => {
     expect(interactive.querySelector('ptah-canvas-rail-board')).not.toBeNull();
   });
 
-  it('keeps the deferred needs-you chip inside the viewport in flow', async () => {
-    const viewport = fixture.debugElement.query(
-      By.css('[data-testid="session-viewport"]'),
-    );
+  it('does not render the needs-you queue in the shell', () => {
     expect(
-      viewport.nativeElement.querySelector(
-        'span.btn.invisible[aria-hidden="true"]',
-      ),
-    ).not.toBeNull();
-    await completeDeferBlocks(fixture);
-    const chip = viewport.query(By.directive(NeedsYouQueueStub));
-    expect(chip).not.toBeNull();
-    expect(chip.nativeElement.parentElement.className).toContain('shrink-0');
-    expect(
-      viewport.nativeElement.querySelector('span.btn.invisible'),
+      fixture.nativeElement.querySelector('ptah-canvas-needs-you-queue'),
     ).toBeNull();
   });
 

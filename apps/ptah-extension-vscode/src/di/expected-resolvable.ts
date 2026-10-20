@@ -1,4 +1,5 @@
 import {
+  AnalyticsRpcHandlers,
   ConfigScopeRpcHandlers,
   EnhancedPromptsRpcHandlers,
   LlmRpcHandlers,
@@ -17,6 +18,7 @@ export const EXPECTED_ATTENTION_TOKENS = [
 ] as const;
 
 export const EXPECTED_RESOLVABLE = [
+  AnalyticsRpcHandlers,
   ConfigScopeRpcHandlers,
   SetupRpcHandlers,
   WizardGenerationRpcHandlers,

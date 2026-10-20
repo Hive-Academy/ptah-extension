@@ -10,6 +10,8 @@ import type {
   SessionStatsBatchParams,
   SessionStatsBatchResult,
   SessionStatsEntry,
+  UsageFact,
+  UsageSummary,
 } from '@ptah-extension/shared';
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
@@ -46,7 +48,12 @@ export class FakeRpc {
     return reply.promise;
   }
 
-  of(method: 'session:list' | 'session:stats-batch'): RecordedCall[] {
+  of(
+    method:
+      | 'session:list'
+      | 'session:stats-batch'
+      | 'analytics:spendSummary',
+  ): RecordedCall[] {
     return this.calls.filter((c) => c.method === method);
   }
 }
@@ -133,4 +140,58 @@ export function analyticsTestDoubles(): AnalyticsTestDoubles {
     workspaceInfo: signal<{ path: string } | null>({ path: '/ws/a' }),
     availableModels: signal<never[]>([]),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Usage-summary fixtures (TASK_2026_707 PR 2)
+// ---------------------------------------------------------------------------
+
+/** One usage fact; defaults describe a priced Anthropic day. */
+export function usageFact(over: Partial<UsageFact> = {}): UsageFact {
+  return {
+    day: '2026-10-18',
+    providerId: 'anthropic',
+    modelId: 'claude-sonnet-4-5',
+    inputUncachedTokens: 100,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    outputTokens: 50,
+    costUsd: 1,
+    costSource: 'provider-reported',
+    cacheSavingsUsd: null,
+    sourceId: 'claude-ledger',
+    ...over,
+  };
+}
+
+/** A summary whose window covers `range` days ending 2026-10-20 (UTC). */
+export function usageSummary(
+  facts: readonly UsageFact[],
+  over: {
+    range?: number;
+    sources?: UsageSummary['sources'];
+  } = {},
+): UsageSummary {
+  const range = over.range ?? 3;
+  const untilDayExclusive = '2026-10-21';
+  const fromMs =
+    Date.parse(`${untilDayExclusive}T00:00:00.000Z`) - range * DAY_MS;
+  return {
+    version: 1,
+    generatedAt: '2026-10-20T12:00:00.000Z',
+    timeZone: 'UTC',
+    fromDay: new Date(fromMs).toISOString().slice(0, 10),
+    untilDayExclusive,
+    facts: [...facts],
+    sources: over.sources ?? [],
+    pricing: { source: 'bundled', asOf: null },
+  };
+}
+
+/** Answer a pending `analytics:spendSummary` call with a success result. */
+export function answerUsage(
+  call: RecordedCall,
+  summary: UsageSummary,
+): void {
+  call.reply.resolve(new RpcResult<UsageSummary>(true, summary));
 }

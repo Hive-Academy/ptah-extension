@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_708_bff3
-status: in_review
+status: done
 type: FEATURE
 title: Voice canvas life - background twinkle and delegation pulses
 description: >-
@@ -8,7 +8,7 @@ description: >-
   and a bright pulse travels owner to worker on each delegation, with an arrival ring.
 depends_on: []
 created: 2026-10-20T00:45:00.000Z
-updated: 2026-10-20T19:10:00.000Z
+updated: 2026-10-20T18:30:00.000Z
 ---
 
 ## Description

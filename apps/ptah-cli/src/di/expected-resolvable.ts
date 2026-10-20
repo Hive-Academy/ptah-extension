@@ -1,4 +1,5 @@
 import {
+  AnalyticsRpcHandlers,
   EnhancedPromptsRpcHandlers,
   LlmRpcHandlers,
   SetupRpcHandlers,
@@ -14,6 +15,7 @@ export const EXPECTED_HOST_ATTENTION_TOKENS = {
 } as const;
 
 export const EXPECTED_RESOLVABLE = [
+  AnalyticsRpcHandlers,
   SetupRpcHandlers,
   WizardGenerationRpcHandlers,
   EnhancedPromptsRpcHandlers,

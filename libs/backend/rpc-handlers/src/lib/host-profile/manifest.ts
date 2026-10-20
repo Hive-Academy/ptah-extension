@@ -28,6 +28,7 @@ import {
   AttentionRpcHandlers,
   AgentRpcHandlers,
   AgentOutcomeRpcHandlers,
+  AnalyticsRpcHandlers,
   DecisionModelCatalogRpcHandlers,
   ConfigScopeRpcHandlers,
   AuthRpcHandlers,
@@ -128,6 +129,14 @@ export const RPC_HANDLER_MANIFEST = [
     methods: AgentOutcomeRpcHandlers.METHODS,
     requires: [],
     handler: AgentOutcomeRpcHandlers,
+  },
+  {
+    // Usage dashboard read (TASK_2026_707 PR 2). Every host serves it; sources
+    // that a host cannot read come back as unavailable in the summary.
+    key: 'analytics',
+    methods: AnalyticsRpcHandlers.METHODS,
+    requires: [],
+    handler: AnalyticsRpcHandlers,
   },
   {
     // Decision-model picker read (TASK_2026_684, C10). Every host serves

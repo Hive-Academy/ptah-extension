@@ -50,6 +50,7 @@ import {
   registerAuthProvidersServices,
   registerCuratorAuthServices,
 } from '@ptah-extension/auth-providers';
+import { registerUsageAnalytics } from '@ptah-extension/usage-analytics';
 import {
   registerCliAgentRuntimeServices,
   createContainerHarnessCliDetector,
@@ -204,6 +205,7 @@ export function registerPhase2Libraries(
       container.resolve<IProcessSpawner>(SDK_TOKENS.SDK_PROCESS_SPAWNER),
   });
   registerAuthProvidersServices(container, logger);
+  registerUsageAnalytics(container);
   // MUST precede registerSdkServices: PluginLoaderService injects the external
   // consent store as its allowlist source. Its late `initialize()` runs from
   // plugin activation, next to `pluginLoader.initialize()`.

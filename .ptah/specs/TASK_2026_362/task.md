@@ -7,7 +7,7 @@ title: >-
   SDK
 depends_on: []
 created: '2026-08-31T12:00:00.000Z'
-updated: '2026-09-26T14:40:57.060Z'
+updated: 2026-10-20T19:30:00.000Z
 description: >-
   Build an in-house agent loop (turn/step engine, tools, context management,
   session log, subagents, hooks) on the pi-ai provider layer, exposed as a

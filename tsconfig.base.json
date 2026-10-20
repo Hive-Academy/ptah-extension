@@ -23,6 +23,7 @@
         "./libs/backend/agent-generation/src/index.ts"
       ],
       "@ptah-extension/agent-sdk": ["./libs/backend/agent-sdk/src/index.ts"],
+      "@ptah-extension/usage-analytics": ["./libs/backend/usage-analytics/src/index.ts"],
       "@ptah-extension/auth-providers": [
         "./libs/backend/auth-providers/src/index.ts"
       ],
@@ -30,6 +31,7 @@
         "./libs/backend/auth-providers-tokens/src/index.ts"
       ],
       "@ptah-extension/canvas": ["./libs/frontend/canvas/src/index.ts"],
+      "@ptah-extension/canvas/focus": ["./libs/frontend/canvas/src/focus.ts"],
       "@ptah-extension/tribunal-panel/phase": [
         "./libs/frontend/tribunal-panel/src/phase.ts"
       ],

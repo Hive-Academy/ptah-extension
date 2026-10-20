@@ -1,13 +1,13 @@
 ---
 id: TASK_2026_687_615f
-status: in_review
+status: done
 type: BUGFIX
 title: Fix the open Command Center Moderate issues
 description: >-
   Fix the open Moderate logic and visual items of the voice Command Center left after PR #735 and PR #741.
 depends_on: [TASK_2026_678_9083, TASK_2026_686_eb9e]
 created: 2026-10-16T22:29:42.000Z
-updated: 2026-10-16T22:29:42.000Z
+updated: 2026-10-20T18:30:00.000Z
 ---
 
 ## Description
