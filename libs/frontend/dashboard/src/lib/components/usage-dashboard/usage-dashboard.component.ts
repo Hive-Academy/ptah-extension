@@ -41,6 +41,7 @@ import { UsageCostDonutComponent } from './usage-cost-donut.component';
 import { UsageKpiStripComponent } from './usage-kpi-strip.component';
 import { UsageBreakdownTableComponent } from './usage-breakdown-table.component';
 import { UsageCostQualityComponent } from './usage-cost-quality.component';
+import { UsageTopSessionsComponent } from './usage-top-sessions.component';
 
 @Component({
   selector: 'ptah-usage-dashboard',
@@ -53,6 +54,7 @@ import { UsageCostQualityComponent } from './usage-cost-quality.component';
     UsageKpiStripComponent,
     UsageBreakdownTableComponent,
     UsageCostQualityComponent,
+    UsageTopSessionsComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './usage-dashboard.component.html',
@@ -68,6 +70,7 @@ export class UsageDashboardComponent {
   protected readonly loadError = this.usageStore.loadError;
   /** True while a same-scope refresh runs and the old summary stays visible. */
   protected readonly isStale = this.usageStore.isSummaryStale;
+  protected readonly summaryGeneratedAt = computed(() => this.usageStore.summary()?.generatedAt ?? '');
 
   /** Folded summary; `null` while nothing has loaded. */
   protected readonly viewModel = computed<UsageViewModel | null>(() =>

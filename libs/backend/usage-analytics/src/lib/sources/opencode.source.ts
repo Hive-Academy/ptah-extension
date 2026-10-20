@@ -7,7 +7,7 @@ import { workspaceMatches } from './file-facts';
 
 const count = z.number().int().nonnegative().default(0);
 const assistant = z.object({ role: z.literal('assistant'), time: z.object({ created: z.number().int().nonnegative() }), tokens: z.object({ input: count, output: count, reasoning: count, cache: z.object({ read: count, write: count }).optional() }), cost: z.number().finite().nonnegative().optional(), modelID: z.string().optional(), providerID: z.string().optional(), model: z.object({ modelID: z.string().optional(), providerID: z.string().optional() }).optional() }).passthrough();
-const rowSchema = z.object({ id: z.string(), data: z.string(), directory: z.string().nullable() });
+const rowSchema = z.object({ id: z.string(), data: z.string(), sessionId: z.string(), sessionTitle: z.string().nullable(), directory: z.string().nullable() });
 type Row = z.infer<typeof rowSchema>;
 interface Database { prepare(sql: string): { all(...params: number[]): unknown[] }; close(): void }
 type DatabaseCtor = new (file: string, options: { readonly: boolean; fileMustExist: boolean }) => Database;
@@ -32,7 +32,10 @@ export class OpenCodeSource implements UsageSource {
       db = new Driver(file, { readonly: true, fileMustExist: true });
       const invalidRows = db.prepare('SELECT COUNT(*) AS count FROM message WHERE time_created >= ? AND time_created < ? AND NOT json_valid(data)').all(since, until);
       const invalidCount = z.object({ count: z.number().int().nonnegative() }).safeParse(invalidRows[0]);
-      const records = db.prepare("SELECT m.id, m.data, s.directory FROM message m LEFT JOIN session s ON s.id = m.session_id WHERE json_valid(m.data) AND json_extract(m.data, '$.role') = 'assistant' AND CAST(json_extract(m.data, '$.time.created') AS INTEGER) >= ? AND CAST(json_extract(m.data, '$.time.created') AS INTEGER) < ? LIMIT 100001").all(since, until);
+      const columns = db.prepare('PRAGMA table_info(session)').all();
+      const hasTitle = columns.some((column) => z.object({ name: z.string() }).safeParse(column).data?.name === 'title');
+      const titleColumn = hasTitle ? 's.title' : 'NULL';
+      const records = db.prepare(`SELECT m.id, m.data, m.session_id AS sessionId, ${titleColumn} AS sessionTitle, s.directory FROM message m LEFT JOIN session s ON s.id = m.session_id WHERE json_valid(m.data) AND json_extract(m.data, '$.role') = 'assistant' AND CAST(json_extract(m.data, '$.time.created') AS INTEGER) >= ? AND CAST(json_extract(m.data, '$.time.created') AS INTEGER) < ? LIMIT 100001`).all(since, until);
       const contributions: UsageContribution[] = [];
       let malformed = invalidCount.success ? invalidCount.data.count : 0; let partial = records.length > 100000;
       for (const raw of records.slice(0, 100000)) {
@@ -48,7 +51,7 @@ export class OpenCodeSource implements UsageSource {
         const value = entry.data;
         const provider = value.providerID ?? value.model?.providerID ?? 'unknown';
         const model = value.modelID ?? value.model?.modelID ?? 'unknown';
-        contributions.push({ key: row.data.id, timestampMs: value.time.created, providerId: 'opencode', modelId: `${provider}/${model}`, modelProviderId: provider, workspaceRoot: root, inputUncachedTokens: value.tokens.input, cacheReadTokens: value.tokens.cache?.read ?? 0, cacheWriteTokens: value.tokens.cache?.write ?? 0, outputTokens: value.tokens.output, ...(value.cost !== undefined && value.cost > 0 ? { reportedCostUsd: value.cost } : {}), requestCount: 1, sourceId: 'opencode' });
+        contributions.push({ key: row.data.id, timestampMs: value.time.created, sessionId: row.data.sessionId, sessionTitle: row.data.sessionTitle ?? "Session " + row.data.sessionId.slice(0, 8), providerId: 'opencode', modelId: `${provider}/${model}`, modelProviderId: provider, workspaceRoot: root, inputUncachedTokens: value.tokens.input, cacheReadTokens: value.tokens.cache?.read ?? 0, cacheWriteTokens: value.tokens.cache?.write ?? 0, outputTokens: value.tokens.output, ...(value.cost !== undefined && value.cost > 0 ? { reportedCostUsd: value.cost } : {}), requestCount: 1, sourceId: 'opencode' });
       }
       const result: UsageSourceResult = { contributions, status: { sourceId: 'opencode', status: partial || malformed ? 'partial' : 'complete', scannedFiles: 1, malformedRecords: malformed, ...(partial ? { reason: 'Query limit or workspace metadata incomplete' } : {}) } };
       if (this.cache.size >= 12) this.cache.delete(this.cache.keys().next().value ?? '');

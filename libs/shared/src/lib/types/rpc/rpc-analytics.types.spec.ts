@@ -1,6 +1,12 @@
-import { UsageFactSchema, UsageSummaryParamsSchema } from './rpc-analytics.types';
+import { UsageFactSchema, UsageSummaryParamsSchema, UsageTopSessionSchema } from './rpc-analytics.types';
 
 describe('usage analytics contract', () => {
+  it('validates bounded session rows and nullable unpriced cost', () => {
+    const row = { sessionId: 'abc', title: 'Session', providerId: 'anthropic', modelId: 'm', costUsd: null, unpriced: true, tokens: 20, messageCount: 1, subagentCount: 0, lastActive: '2026-10-20T00:00:00.000Z' };
+    expect(UsageTopSessionSchema.safeParse(row).success).toBe(true);
+    expect(UsageTopSessionSchema.safeParse({ ...row, title: '' }).success).toBe(false);
+    expect(UsageTopSessionSchema.safeParse({ ...row, tokens: -1 }).success).toBe(false);
+  });
   it('accepts only dashboard ranges', () => {
     expect(UsageSummaryParamsSchema.safeParse({ range: 90 }).success).toBe(true);
     expect(UsageSummaryParamsSchema.safeParse({ range: 200 }).success).toBe(false);

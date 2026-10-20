@@ -13,7 +13,7 @@ import { daySpanLabel, enumerateDays, formatChartUsd, formatCompactTokens, forma
 import {
   usageFact,
   usageSummary,
-} from '../../services/session-analytics-state.testing';
+} from '../../services/dashboard-rpc.testing';
 
 /** Day 18: priced Anthropic Sonnet with every token class. */
 const factSonnetDay18: UsageFact = usageFact({

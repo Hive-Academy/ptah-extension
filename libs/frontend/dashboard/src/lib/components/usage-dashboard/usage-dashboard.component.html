@@ -161,6 +161,8 @@
         [costPartiallyKnown]="vm.totalCostUnpricedFactCount > 0"
       />
 
+      <ptah-usage-top-sessions [sessions]="vm.topSessions" [generatedAt]="summaryGeneratedAt()" />
+
       <ptah-usage-cost-quality [quality]="vm.quality" />
     }
     </div>

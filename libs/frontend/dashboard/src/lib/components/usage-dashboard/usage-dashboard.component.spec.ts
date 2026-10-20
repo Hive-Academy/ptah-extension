@@ -25,7 +25,7 @@ import {
   flush,
   usageFact,
   usageSummary,
-} from '../../services/session-analytics-state.testing';
+} from '../../services/dashboard-rpc.testing';
 
 const factSonnetDay18: UsageFact = usageFact({
   inputUncachedTokens: 1000,
@@ -108,6 +108,23 @@ describe('UsageDashboardComponent', () => {
     expect(
       el().querySelector('[aria-label="Loading usage"]'),
     ).not.toBeNull();
+  });
+
+  it('renders session counts and a compact priced and unpriced top sessions table', async () => {
+    const base = usageSummary([factSonnetDay18]);
+    answerUsage(usageCall(0), {
+      ...base, sessionCount: 2, messageCount: 3, subagentCount: 1,
+      topSessions: [
+        { sessionId: 's1', title: 'Long descriptive session title', providerId: 'anthropic', modelId: 'claude', costUsd: 2, unpriced: true, tokens: 1000, messageCount: 2, subagentCount: 1, lastActive: '2026-10-20T00:00:00.000Z' },
+        { sessionId: 's2', title: 'Unknown cost session', providerId: 'opencode', modelId: 'qwen', costUsd: null, unpriced: true, tokens: 500, messageCount: 1, subagentCount: 0, lastActive: '2026-10-19T00:00:00.000Z' },
+      ],
+    });
+    await settle();
+    const table = el().querySelector('[data-testid="usage-top-sessions"]');
+    expect(table?.textContent).toContain('≥ $2.00');
+    expect(table?.textContent).toContain('Unpriced');
+    expect(table?.querySelector('td[title="Long descriptive session title"]')).not.toBeNull();
+    expect(el().querySelector('[aria-label="Session activity in selected range"]')?.textContent).toContain('Subagents1');
   });
 
   it('renders the folded summary: total, provider shares, KPIs, breakdown and quality', async () => {
