@@ -28,6 +28,7 @@ import {
   isToolUseSummary,
   isContentBlockStart,
   isContentBlockDelta,
+  isContentBlockStop,
   isTextBlock,
   isToolUseBlock,
   isThinkingBlock,
@@ -229,8 +230,9 @@ export class PtahCliStreamLoop {
   private readonly streamTransformer: SdkMessageTransformer;
   private readonly pendingToolArgs = new Map<
     number,
-    { name: string; id: string; jsonFragments: string[] }
+    { name: string; id: string; input: Record<string, unknown>; jsonFragments: string[] }
   >();
+  private readonly emittedToolSegments = new Set<string>();
   /** Track messageIds already emitted via stream_event to avoid duplicate message_start from assistant */
   private readonly emittedMessageIds = new Set<string>();
   /** Track toolCallIds already emitted via stream_event to avoid duplicate tool_start from assistant */
@@ -253,6 +255,49 @@ export class PtahCliStreamLoop {
 
   constructor(private readonly config: PtahCliStreamLoopConfig) {
     this.streamTransformer = config.messageTransformer.createIsolated();
+  }
+
+  private emitPendingToolCall(index: number): void {
+    const pending = this.pendingToolArgs.get(index);
+    if (!pending) return;
+    this.pendingToolArgs.delete(index);
+
+    let input = pending.input;
+    const fragments = pending.jsonFragments.join('');
+    if (fragments.length > 0) {
+      try {
+        const parsed: unknown = JSON.parse(fragments);
+        if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          input = parsed as Record<string, unknown>;
+        } else {
+          input = { __unparsed: fragments.slice(0, 500) };
+        }
+      } catch {
+        // degradation-audit: optional-capability - incomplete or invalid
+        // streamed JSON is retained as a bounded, distinguishable input.
+        input = { __unparsed: fragments.slice(0, 500) };
+      }
+    }
+    if (Object.keys(input).length === 0) return;
+    const argsStr = summarizeToolInput(input);
+    this.config.emitOutput(
+      `\n**Tool:** \`${pending.name}\`${argsStr ? ` ${argsStr}` : ''}\n`,
+    );
+    this.config.emitSegment({
+      type: 'tool-call',
+      content: '',
+      toolName: pending.name,
+      toolCallId: pending.id,
+      toolInput: input,
+      toolArgs: argsStr,
+    });
+    this.emittedToolSegments.add(pending.id);
+  }
+
+  private flushPendingToolCalls(): void {
+    for (const index of this.pendingToolArgs.keys()) {
+      this.emitPendingToolCall(index);
+    }
   }
 
   /**
@@ -407,20 +452,12 @@ export class PtahCliStreamLoop {
             if (isContentBlockStart(event)) {
               const block = event.content_block;
               if (isToolUseBlock(block)) {
-                const argsStr = summarizeToolInput(block.input);
+                this.emitPendingToolCall(event.index);
                 this.pendingToolArgs.set(event.index, {
                   name: block.name,
                   id: block.id,
+                  input: block.input,
                   jsonFragments: [],
-                });
-                emitOutput(
-                  `\n**Tool:** \`${block.name}\`${argsStr ? ` ${argsStr}` : ''}\n`,
-                );
-                emitSegment({
-                  type: 'tool-call',
-                  content: '',
-                  toolName: block.name,
-                  toolArgs: argsStr,
                 });
               }
               continue;
@@ -443,9 +480,14 @@ export class PtahCliStreamLoop {
               }
               continue;
             }
+            if (isContentBlockStop(event)) {
+              this.emitPendingToolCall(event.index);
+              continue;
+            }
             continue;
           }
           if (isAssistantMessage(msg)) {
+            this.flushPendingToolCalls();
             const blocks = msg.message?.content;
             if (Array.isArray(blocks)) {
               for (const block of blocks) {
@@ -455,7 +497,7 @@ export class PtahCliStreamLoop {
                     emitSegment({ type: 'text', content: block.text });
                   }
                 } else if (isToolUseBlock(block)) {
-                  if (!this.receivedTextDeltas) {
+                  if (!this.emittedToolSegments.has(block.id)) {
                     const argsStr = summarizeToolInput(block.input);
                     emitOutput(
                       `\n**Tool:** \`${block.name}\`${
@@ -466,8 +508,11 @@ export class PtahCliStreamLoop {
                       type: 'tool-call',
                       content: '',
                       toolName: block.name,
+                      toolCallId: block.id,
+                      toolInput: block.input,
                       toolArgs: argsStr,
                     });
+                    this.emittedToolSegments.add(block.id);
                   }
                 } else if (isThinkingBlock(block)) {
                   if (!this.receivedThinkingDeltas) {
@@ -481,7 +526,6 @@ export class PtahCliStreamLoop {
             }
             this.receivedTextDeltas = false;
             this.receivedThinkingDeltas = false;
-            this.pendingToolArgs.clear();
             continue;
           }
           if (isUserMessage(msg)) {
@@ -511,6 +555,7 @@ export class PtahCliStreamLoop {
                     emitSegment({
                       type: 'tool-result-error',
                       content: truncated,
+                      toolCallId: block.tool_use_id,
                     });
                   } else {
                     emitOutput(
@@ -519,6 +564,7 @@ export class PtahCliStreamLoop {
                     emitSegment({
                       type: 'tool-result',
                       content: truncated,
+                      toolCallId: block.tool_use_id,
                     });
                   }
                 }
@@ -527,6 +573,7 @@ export class PtahCliStreamLoop {
             continue;
           }
           if (isResultMessage(msg)) {
+            this.flushPendingToolCalls();
             let turnExitCode = 0;
             if (isSuccessResult(msg)) {
               const parts: string[] = [];
@@ -566,6 +613,7 @@ export class PtahCliStreamLoop {
             this.turnIndex++;
             this.turnEventCount = 0;
             this.resetTurnPlanLimits();
+            this.emittedToolSegments.clear();
             this.config.onTurnComplete?.(turnExitCode);
             continue;
           }
@@ -584,8 +632,10 @@ export class PtahCliStreamLoop {
             continue;
           }
         }
+        this.flushPendingToolCalls();
         return 0;
       } catch (error) {
+        this.flushPendingToolCalls();
         const rawMessage =
           error instanceof Error ? error.message : String(error);
         const isAbort =
@@ -601,7 +651,9 @@ export class PtahCliStreamLoop {
         return 1;
       }
     } finally {
+      this.flushPendingToolCalls();
       this.pendingToolArgs.clear();
+      this.emittedToolSegments.clear();
       this.emittedMessageIds.clear();
       this.emittedToolCallIds.clear();
     }
