@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_649_33c4
-status: in_review
+status: done
 type: BUGFIX
 title: Move the AI Team Builder and New Project builder to normal chat tabs and wire their unused features
 depends_on:

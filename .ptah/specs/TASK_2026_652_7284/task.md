@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_652_7284
-status: in_review
+status: done
 type: FEATURE
 title: "Backend slice for the Setup Hub chat-session epic (harness proposals, new-project seed, analysis manifest and freshness)"
 depends_on: []

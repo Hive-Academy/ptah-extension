@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_591_fff5
-status: in_review
+status: in_progress
 type: FEATURE
 title: 'Give the opencode lane two-way messaging (queue, then steer and interrupt)'
 depends_on: []

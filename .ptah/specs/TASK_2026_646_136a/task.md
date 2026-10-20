@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_646_136a
-status: in_review
+status: done
 type: FEATURE
 title: >-
   Optional decision model for orchestration routing (task type, executor, lane,

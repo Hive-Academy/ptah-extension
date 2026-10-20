@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_630_2250
-status: in_review
+status: pending
 type: REFACTORING
 title: Display panel follow-ups from TASK_2026_623
 description: >-

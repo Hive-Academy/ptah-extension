@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_362
-status: in_review
+status: in_progress
 type: FEATURE
 title: >-
   Native Ptah agent loop on pi-ai as a second conductor beside the Claude Agent

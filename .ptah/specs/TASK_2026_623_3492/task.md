@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_623_3492
-status: in_review
+status: done
 type: FEATURE
 title: Agent-controlled display panel with composable DaisyUI surfaces
 description: >-

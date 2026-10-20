@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_700_dcce
-status: in_review
+status: done
 type: FEATURE
 title: Align the Voice page with the 678 prototype and app style
 depends_on: []
