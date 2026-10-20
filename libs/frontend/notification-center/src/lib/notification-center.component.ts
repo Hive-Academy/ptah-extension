@@ -7,14 +7,14 @@ import {
   viewChild,
 } from '@angular/core';
 import { Bell, Check, CircleAlert, MessageCircleQuestion, ShieldQuestion, Trash2, TriangleAlert, Volume2, VolumeX, X, LucideAngularModule } from 'lucide-angular';
-import type { AttentionItem } from '@ptah-extension/core';
+import { AttentionPermissionActionsComponent, type AttentionItem } from '@ptah-extension/core';
 import { NotificationCenterStore } from './notification-center.store';
 import { NotificationSoundService } from './notification-sound.service';
 
 @Component({
   selector: 'ptah-notification-center',
   standalone: true,
-  imports: [LucideAngularModule],
+  imports: [LucideAngularModule, AttentionPermissionActionsComponent],
   providers: [NotificationCenterStore],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
@@ -52,7 +52,9 @@ import { NotificationSoundService } from './notification-sound.service';
                       <div class="min-w-0 flex-1"><p class="text-[11px] font-semibold uppercase tracking-[0.06em] text-base-content-muted">{{ kindLabel(item) }}</p><p class="mt-1 truncate text-sm font-semibold text-base-content" [attr.title]="sessionName(item)">{{ sessionName(item) }}</p><div class="flex min-w-0 items-center gap-1.5 text-xs text-base-content-muted">@if (item.provider) { <span class="truncate">{{ item.provider }}</span> }<span class="max-w-[11rem] truncate rounded-md border border-[color:var(--surface-border)] bg-base-200 px-1.5 py-0.5 text-[11px] text-base-content" [attr.title]="workspaceName(item)">{{ workspaceName(item) }}</span></div></div>
                     </div>
                     @if (item.detail || ((item.kind === 'failure' || item.kind === 'warning') && item.context)) { <p class="mt-2 truncate text-xs text-base-content-muted" [attr.title]="item.detail || item.context">{{ item.detail || item.context }}</p> }
-                    <div class="mt-3 flex flex-wrap items-center gap-1.5">
+                    @if (item.kind === 'permission') {
+                      <ptah-attention-permission-actions [item]="item" [busy]="store.isSubmitting(item)" (selected)="activate(item, $event.actionId, $event.reason)" />
+                    } @else { <div class="mt-3 flex flex-wrap items-center gap-1.5">
                       @for (action of item.actions; track action.id) {
                         <button type="button" class="btn btn-sm min-h-11 disabled:opacity-100 disabled:bg-base-200 disabled:text-base-content-muted disabled:border-[color:var(--surface-border)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
                           [class.btn-primary]="isPrimary(item, action.id)" [class.btn-ghost]="!isPrimary(item, action.id)"
@@ -62,7 +64,7 @@ import { NotificationSoundService } from './notification-sound.service';
                           [attr.aria-label]="action.label + ' ' + kindLabel(item) + ' for ' + sessionName(item) + ' in ' + workspaceName(item)"
                           (click)="activate(item, action.id)">{{ action.label }}</button>
                       }
-                    </div>
+                    </div> }
                     @for (action of item.actions; track action.id) { @if (store.disabledReason(item, action.id); as reason) { <p [id]="'bell-reason-' + item.key + '-' + action.id" class="text-xs text-base-content-muted">{{ reason }}</p> } }
                     @if (store.isSubmitting(item)) { <p [id]="'bell-pending-' + item.key" class="text-xs text-base-content-muted">Submitting...</p> }
                     @if (store.status(item)) { <p role="status" class="text-xs text-base-content-muted">{{ store.status(item) }}</p> }
@@ -78,7 +80,9 @@ import { NotificationSoundService } from './notification-sound.service';
                     <span class="absolute inset-y-3 left-0 w-[3px] rounded-r-full bg-state-err" aria-hidden="true"></span>
                     <div class="flex items-start gap-2"><lucide-angular [img]="icon(item)" class="mt-0.5 size-4 shrink-0 text-state-err" aria-hidden="true" /><div class="min-w-0 flex-1"><p class="text-[11px] font-semibold uppercase tracking-[0.06em] text-base-content-muted">{{ kindLabel(item) }}</p><p class="mt-1 truncate text-sm font-semibold text-base-content" [attr.title]="sessionName(item)">{{ sessionName(item) }}</p><div class="flex min-w-0 items-center gap-1.5 text-xs text-base-content-muted">@if (item.provider) { <span class="truncate">{{ item.provider }}</span> }<span class="max-w-[11rem] truncate rounded-md border border-[color:var(--surface-border)] bg-base-200 px-1.5 py-0.5 text-[11px] text-base-content" [attr.title]="workspaceName(item)">{{ workspaceName(item) }}</span></div></div><button type="button" class="btn btn-ghost btn-square size-8 min-h-11 min-w-11 shrink-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary" [attr.aria-label]="'Dismiss ' + kindLabel(item) + ' for ' + sessionName(item) + ' in ' + workspaceName(item)" (click)="store.dismissRecent(item.key)"><lucide-angular [img]="DismissIcon" class="size-4" /></button></div>
                     @if (item.detail || ((item.kind === 'failure' || item.kind === 'warning') && item.context)) { <p class="mt-2 truncate text-xs text-base-content-muted" [attr.title]="item.detail || item.context">{{ item.detail || item.context }}</p> }
-                    @if (item.actions.length) { <div class="mt-3 flex flex-wrap items-center gap-1.5">@for (action of item.actions; track action.id) { <button type="button" class="btn btn-ghost btn-sm min-h-11 disabled:opacity-100 disabled:bg-base-200 disabled:text-base-content-muted disabled:border-[color:var(--surface-border)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary" [disabled]="!!store.disabledReason(item, action.id) || store.isSubmitting(item)" [attr.title]="store.disabledReason(item, action.id)" [attr.aria-describedby]="store.disabledReason(item, action.id) ? 'bell-reason-' + item.key + '-' + action.id : store.isSubmitting(item) ? 'bell-pending-' + item.key : null" [attr.aria-label]="action.label + ' ' + kindLabel(item) + ' for ' + sessionName(item) + ' in ' + workspaceName(item)" (click)="activate(item, action.id)">{{ action.label }}</button> }</div> }
+                    @if (item.kind === 'permission') {
+                      <ptah-attention-permission-actions [item]="item" [busy]="store.isSubmitting(item)" (selected)="activate(item, $event.actionId, $event.reason)" />
+                    } @else if (item.actions.length) { <div class="mt-3 flex flex-wrap items-center gap-1.5">@for (action of item.actions; track action.id) { <button type="button" class="btn btn-ghost btn-sm min-h-11 disabled:opacity-100 disabled:bg-base-200 disabled:text-base-content-muted disabled:border-[color:var(--surface-border)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary" [disabled]="!!store.disabledReason(item, action.id) || store.isSubmitting(item)" [attr.title]="store.disabledReason(item, action.id)" [attr.aria-describedby]="store.disabledReason(item, action.id) ? 'bell-reason-' + item.key + '-' + action.id : store.isSubmitting(item) ? 'bell-pending-' + item.key : null" [attr.aria-label]="action.label + ' ' + kindLabel(item) + ' for ' + sessionName(item) + ' in ' + workspaceName(item)" (click)="activate(item, action.id)">{{ action.label }}</button> }</div> }
                     @for (action of item.actions; track action.id) { @if (store.disabledReason(item, action.id); as reason) { <p [id]="'bell-reason-' + item.key + '-' + action.id" class="text-xs text-base-content-muted">{{ reason }}</p> } }
                     @if (store.isSubmitting(item)) { <p [id]="'bell-pending-' + item.key" class="text-xs text-base-content-muted">Submitting...</p> }
                     @if (store.status(item)) { <p role="status" class="text-xs text-base-content-muted">{{ store.status(item) }}</p> }
@@ -173,8 +177,8 @@ export class NotificationCenterComponent {
       this.close(true);
   }
 
-  protected async activate(item: AttentionItem, actionId: string): Promise<void> {
-    const success = await this.store.activate(item, actionId);
+  protected async activate(item: AttentionItem, actionId: string, reason?: string): Promise<void> {
+    const success = await this.store.activate(item, actionId, reason);
     if (success && actionId.toLowerCase() === 'open') this.close(false);
   }
 }

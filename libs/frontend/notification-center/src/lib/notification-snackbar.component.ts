@@ -3,7 +3,7 @@ import {
   input, output, signal,
 } from '@angular/core';
 import {
-  ATTENTION_ACTION_DISPATCHER, NOTIFICATION_FOCUS_ROUTER, NotificationService, type AttentionItem,
+  ATTENTION_ACTION_DISPATCHER, NOTIFICATION_FOCUS_ROUTER, NotificationService, AttentionPermissionActionsComponent, type AttentionItem,
 } from '@ptah-extension/core';
 import {
   CircleAlert, MessageCircleQuestion, ShieldQuestion, TriangleAlert,
@@ -13,7 +13,7 @@ import {
 @Component({
   selector: 'ptah-notification-snackbar',
   standalone: true,
-  imports: [LucideAngularModule],
+  imports: [LucideAngularModule, AttentionPermissionActionsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'ptah-snackbar-host' },
   styles: [`
@@ -48,7 +48,9 @@ import {
               </button>
             </div>
             @if (item.detail || (!isRequest(item) && item.context)) { <p class="mt-2 truncate text-xs text-base-content-muted" [attr.title]="item.detail || item.context">{{ item.detail || item.context }}</p> }
-            @if (item.actions.length) {
+            @if (item.kind === 'permission') {
+              <ptah-attention-permission-actions [item]="item" [busy]="pending().has(item.key)" (selected)="dispatch(item, $event.actionId, $event.reason)" />
+            } @else if (item.actions.length) {
               <div class="mt-3 flex flex-wrap items-center gap-1.5">
                 @for (action of item.actions; track action.id) {
                   <button type="button" class="btn btn-sm min-h-11 disabled:opacity-100 disabled:bg-base-200 disabled:text-base-content-muted disabled:border-[color:var(--surface-border)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
@@ -199,7 +201,7 @@ export class NotificationSnackbarComponent {
     this.notifications.dismissPresentation(key);
   }
 
-  protected async dispatch(item: AttentionItem, actionId: string): Promise<void> {
+  protected async dispatch(item: AttentionItem, actionId: string, reason?: string): Promise<void> {
     if (this.pending().has(item.key)) return;
     this.pending.update(keys => new Set([...keys, item.key]));
     try {
@@ -210,14 +212,17 @@ export class NotificationSnackbarComponent {
           : { success: false };
         if (!result.success) this.statuses.update(current => new Map(current).set(request, 'Session unavailable'));
       } else if (this.dispatcher?.dispatchOutcome) {
-        const outcome = await this.dispatcher.dispatchOutcome(item.key, item.generation, actionId);
+        const outcome = reason === undefined
+          ? await this.dispatcher.dispatchOutcome(item.key, item.generation, actionId)
+          : await this.dispatcher.dispatchOutcome(item.key, item.generation, actionId, reason);
         if (outcome.kind === 'stale') this.statuses.update(current => new Map(current).set(request, 'Already answered'));
         if (outcome.kind === 'unavailable') {
           this.statuses.update(current => new Map(current).set(request, outcome.reason));
           this.unavailable.update(current => new Map(current).set(`${request}:${actionId}`, outcome.reason));
         }
       } else if (this.dispatcher) {
-        await this.dispatcher.dispatch(item.key, item.generation, actionId);
+        if (reason === undefined) await this.dispatcher.dispatch(item.key, item.generation, actionId);
+        else await this.dispatcher.dispatch(item.key, item.generation, actionId, reason);
       }
     } catch {
       this.statuses.update(current => new Map(current).set(`${item.key}:${item.generation}`, 'Action unavailable'));

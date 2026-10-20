@@ -101,7 +101,6 @@ export {
 export { CompactionMarkerComponent } from './lib/molecules/notifications/compaction-marker.component';
 export { CompactionNotificationComponent } from './lib/molecules/notifications/compaction-notification.component';
 export { DenyMessagePopoverComponent } from './lib/molecules/permissions/deny-message-popover.component';
-export { PermissionBadgeComponent } from './lib/molecules/permissions/permission-badge.component';
 export { PermissionRequestCardComponent } from './lib/molecules/permissions/permission-request-card.component';
 export { SessionCostSummaryComponent } from './lib/molecules/session/session-cost-summary.component';
 export {

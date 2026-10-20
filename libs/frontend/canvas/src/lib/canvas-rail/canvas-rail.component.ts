@@ -12,7 +12,7 @@ import {
   signal,
 } from '@angular/core';
 import { History, MessageCircleQuestion, ShieldQuestion, CircleAlert, LucideAngularModule } from 'lucide-angular';
-import { ATTENTION_ACTION_DISPATCHER, NotificationService, type AttentionItem } from '@ptah-extension/core';
+import { ATTENTION_ACTION_DISPATCHER, NotificationService, AttentionPermissionActionsComponent, type AttentionItem } from '@ptah-extension/core';
 import { DOCUMENT } from '@angular/common';
 import { TabManagerService } from '@ptah-extension/chat';
 import type {
@@ -45,7 +45,7 @@ const CHIP_STATES = [
 @Component({
   selector: 'ptah-canvas-rail',
   standalone: true,
-  imports: [CanvasRailCardComponent, LucideAngularModule],
+  imports: [CanvasRailCardComponent, LucideAngularModule, AttentionPermissionActionsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block h-full min-h-0' },
   styles: [
@@ -197,7 +197,9 @@ const CHIP_STATES = [
                   </div>
                   <div class="truncate text-xs font-semibold text-base-content" [title]="item.sessionTitle || 'Session unavailable'">{{ item.sessionTitle || 'Session unavailable' }}</div>
                   <p class="mt-1 truncate text-xs text-base-content-muted" [title]="item.detail ?? item.context ?? item.title">{{ item.detail ?? item.context ?? item.title }}</p>
-                  <div class="mt-2 flex flex-wrap gap-1">
+                  @if (item.kind === 'permission') {
+                    <ptah-attention-permission-actions [item]="item" [busy]="submitting().has(item.key) || isBlocked(item)" (selected)="activate(item, $event.actionId, $event.reason)" />
+                  } @else { <div class="mt-2 flex flex-wrap gap-1">
                     @for (action of item.actions; track action.id) {
                       <button type="button" class="btn btn-sm min-h-11 focus-visible:outline-2 focus-visible:outline-primary"
                         [class.btn-primary]="isPrimaryAttentionAction(item, action)"
@@ -208,7 +210,7 @@ const CHIP_STATES = [
                         [attr.aria-describedby]="action.disabledReason ? 'rail-action-reason-' + item.key : null"
                         (click)="activate(item, action.id)">{{ action.label }}</button>
                     }
-                  </div>
+                  </div> }
                   @if (attentionDisabledReason(item); as reason) { <p class="mt-1 text-xs text-base-content-muted" [id]="'rail-action-reason-' + item.key">{{ reason }}</p> }
                   @if (statusFor(item); as status) { <p class="mt-1 text-xs text-base-content-muted" role="status">{{ status }}</p> }
                 </li>
@@ -347,8 +349,8 @@ export class CanvasRailComponent {
   readonly localNeedsYou = computed(() => {
     const tiles = this.tiles();
     return this.notifications.needsYou()
-      .filter(item => item.workspacePath === this.workspacePath() && tiles.some(tile =>
-        this.matches(item, tile)))
+      .filter(item => item.workspacePath === this.workspacePath() &&
+        (item.kind === 'permission' && !item.tabId || tiles.some(tile => this.matches(item, tile))))
       .reverse();
   });
   readonly blockedKeys = computed(() => new Set(this.localNeedsYou()
@@ -400,10 +402,10 @@ export class CanvasRailComponent {
   attentionDisabledReason(item: AttentionItem): string | undefined {
     return item.actions.find(action => action.disabledReason)?.disabledReason;
   }
-  async activate(item: AttentionItem, actionId: string): Promise<void> {
+  async activate(item: AttentionItem, actionId: string, reason?: string): Promise<void> {
     const current = this.notifications.needsYou().find(candidate => candidate.key === item.key && candidate.generation === item.generation);
     if (!current?.actions.some(action => action.id === actionId && !action.disabledReason) || this.submitting().has(item.key) || this.isBlocked(item)) return;
-    if (actionId === 'allow' || actionId === 'deny') {
+    if (actionId === 'allow' || actionId === 'always_allow' || actionId === 'deny' || actionId === 'deny_with_message') {
       this.focusAfterAction.set({ key: item.key, index: this.localNeedsYou().findIndex(candidate => candidate.key === item.key) });
     }
     this.submitting.update(keys => new Set([...keys, item.key]));
@@ -412,11 +414,15 @@ export class CanvasRailComponent {
         this.setActionStatus(item, 'Action unavailable');
         this.focusAfterAction.set(null);
       } else if (this.dispatcher.dispatchOutcome) {
-        const outcome = await this.dispatcher.dispatchOutcome(item.key, item.generation, actionId);
+        const outcome = reason === undefined
+          ? await this.dispatcher.dispatchOutcome(item.key, item.generation, actionId)
+          : await this.dispatcher.dispatchOutcome(item.key, item.generation, actionId, reason);
         if (outcome.kind === 'stale') this.setActionStatus(item, 'Request changed. Open the current request.');
         if (outcome.kind === 'unavailable') this.setActionStatus(item, outcome.reason);
         if (outcome.kind !== 'completed') this.focusAfterAction.set(null);
-      } else if (!await this.dispatcher.dispatch(item.key, item.generation, actionId)) {
+      } else if (!(reason === undefined
+        ? await this.dispatcher.dispatch(item.key, item.generation, actionId)
+        : await this.dispatcher.dispatch(item.key, item.generation, actionId, reason))) {
         this.setActionStatus(item, 'Action unavailable');
         this.focusAfterAction.set(null);
       }

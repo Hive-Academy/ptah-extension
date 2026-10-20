@@ -81,6 +81,22 @@ describe('CanvasRailComponent', () => {
     notifications.resolve(request.key, request.generation); fixture.detectChanges();
     expect(host.querySelector('[data-testid="rail-needs-you"]')).toBeNull();
   });
+  it('shows a closed-tab permission in the rail without a matching tile', () => {
+    const notifications = TestBed.inject(NotificationService);
+    notifications.upsert({
+      key: 'permission:closed', generation: 1, kind: 'permission', source: 'chat',
+      workspacePath: '/local', workspaceName: 'local', sessionId: 'closed-session',
+      severity: 'warning', title: 'Permission required', permissionPreview: 'Input: echo approved',
+      actions: [{ id: 'allow', label: 'Allow' }, { id: 'always_allow', label: 'Always allow' },
+        { id: 'deny', label: 'Deny' }, { id: 'deny_with_message', label: 'Deny with message' }],
+      actionable: true, soundEligible: false,
+    });
+    const fixture = mount([]);
+    fixture.componentRef.setInput('workspacePath', '/local'); fixture.detectChanges();
+    const row = (fixture.nativeElement as HTMLElement).querySelector('[data-attention-key="permission:closed"]');
+    expect(row?.textContent).toContain('Input: echo approved');
+    expect(row?.textContent).toContain('Always allow');
+  });
   const request = (key: string, overrides: Partial<AttentionItem> = {}): AttentionItem => ({
     key, generation: 1, kind: 'permission', source: 'chat', workspacePath: '/local',
     workspaceName: 'local', sessionId: 'session-a', severity: 'warning',

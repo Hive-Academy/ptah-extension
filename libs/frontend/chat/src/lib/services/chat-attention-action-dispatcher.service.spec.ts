@@ -7,6 +7,8 @@ import { ChatAttentionSourceService } from './chat-attention-source.service';
 
 describe('ChatAttentionActionDispatcherService', () => {
   const respondLane = jest.fn();
+  const respondSession = jest.fn(() => true);
+  const isSessionPending = jest.fn(() => true);
   const focus = jest.fn();
   const openLane = jest.fn();
   const upsert = jest.fn();
@@ -32,15 +34,23 @@ describe('ChatAttentionActionDispatcherService', () => {
     itemWorkspacePath = '/ws';
     itemTabId = 'tab';
     respondLane.mockReturnValue(true);
+    respondSession.mockReturnValue(true);
+    isSessionPending.mockReturnValue(true);
     focus.mockResolvedValue({ success: true, outcome: 'focused' });
     openLane.mockReturnValue(true);
     runNotice.mockResolvedValue({ kind: 'completed' });
     TestBed.configureTestingModule({ providers: [
       { provide: ChatAttentionSourceService, useValue: {
-        getLive: (key: string, generation: number) => key === 'lane' && generation === 1
-          ? { ...live, item: { ...live.item, workspacePath: itemWorkspacePath, tabId: itemTabId } } : undefined,
+        getLive: (key: string, generation: number) => generation !== 1 ? undefined
+          : key === 'permission' ? {
+            item: { ...live.item, key, kind: 'permission', tabId: undefined,
+              actions: [{ id: 'allow', label: 'Allow' }, { id: 'always_allow', label: 'Always allow' },
+                { id: 'deny', label: 'Deny' }, { id: 'deny_with_message', label: 'Deny with message' }] },
+            target: { kind: 'permission', request: { id: 'closed-tab' }, tabId: undefined },
+          } : key === 'lane'
+            ? { ...live, item: { ...live.item, workspacePath: itemWorkspacePath, tabId: itemTabId } } : undefined,
       } },
-      { provide: AgentPermissionResponder, useValue: { respondLane } },
+      { provide: AgentPermissionResponder, useValue: { respondLane, respondSession, isSessionPending } },
       { provide: NotificationService, useValue: { upsert } },
       { provide: NOTIFICATION_FOCUS_ROUTER, useValue: { focus } },
       { provide: ATTENTION_LANE_OPENER, useValue: { open: openLane } },
@@ -56,6 +66,32 @@ describe('ChatAttentionActionDispatcherService', () => {
     expect(await service.dispatch('lane', 0, 'allow')).toBe(false);
     expect(await service.dispatchOutcome('lane', 0, 'allow')).toEqual({ kind: 'stale' });
     expect(respondLane).not.toHaveBeenCalled();
+  });
+
+  it.each(['allow', 'always_allow', 'deny'] as const)('dispatches a closed-tab permission through the session responder: %s', async decision => {
+    expect(await service.dispatchOutcome('permission', 1, decision)).toEqual({ kind: 'completed' });
+    expect(respondSession).toHaveBeenCalledWith({ id: 'closed-tab' }, decision, undefined);
+  });
+
+  it('carries denial feedback and rejects an empty reason', async () => {
+    expect(await service.dispatchOutcome('permission', 1, 'deny_with_message', 'Narrow the command'))
+      .toEqual({ kind: 'completed' });
+    expect(respondSession).toHaveBeenCalledWith({ id: 'closed-tab' }, 'deny_with_message', undefined, 'Narrow the command');
+    respondSession.mockClear();
+    expect(await service.dispatchOutcome('permission', 1, 'deny_with_message', ' ')).toEqual({ kind: 'unavailable', reason: 'Could not complete action' });
+    expect(respondSession).not.toHaveBeenCalled();
+  });
+
+  it.each(['always_allow', 'deny_with_message'] as const)('refuses a stale %s decision', async decision => {
+    isSessionPending.mockReturnValue(false);
+    expect(await service.dispatchOutcome('permission', 1, decision, 'feedback')).toEqual({ kind: 'stale' });
+    expect(respondSession).not.toHaveBeenCalled();
+  });
+
+  it('returns stale without responding when the permission leaves the queue', async () => {
+    isSessionPending.mockReturnValue(false);
+    expect(await service.dispatchOutcome('permission', 1, 'allow')).toEqual({ kind: 'stale' });
+    expect(respondSession).not.toHaveBeenCalled();
   });
 
   it('routes a tab-less notice action to its handler', async () => {

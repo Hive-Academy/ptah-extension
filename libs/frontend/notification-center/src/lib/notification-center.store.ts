@@ -82,7 +82,7 @@ export class NotificationCenterStore {
       ?? this.unavailable().get(`${item.key}:${item.generation}:${actionId}`);
   }
 
-  async activate(item: AttentionItem, actionId: string): Promise<boolean> {
+  async activate(item: AttentionItem, actionId: string, reason?: string): Promise<boolean> {
     const current = [...this.needsYou(), ...this.recentNotices()].find(
       candidate => candidate.key === item.key && candidate.generation === item.generation,
     );
@@ -98,7 +98,9 @@ export class NotificationCenterStore {
         return result.success;
       }
       if (this.dispatcher?.dispatchOutcome) {
-        const outcome = await this.dispatcher.dispatchOutcome(item.key, item.generation, actionId);
+        const outcome = reason === undefined
+          ? await this.dispatcher.dispatchOutcome(item.key, item.generation, actionId)
+          : await this.dispatcher.dispatchOutcome(item.key, item.generation, actionId, reason);
         if (outcome.kind === 'stale') this.statuses.update(current => new Map(current).set(request, 'Already answered'));
         if (outcome.kind === 'unavailable') {
           this.statuses.update(current => new Map(current).set(request, outcome.reason));
@@ -106,7 +108,9 @@ export class NotificationCenterStore {
         }
         return outcome.kind === 'completed';
       }
-      if (this.dispatcher) return await this.dispatcher.dispatch(item.key, item.generation, actionId);
+      if (this.dispatcher) return reason === undefined
+        ? await this.dispatcher.dispatch(item.key, item.generation, actionId)
+        : await this.dispatcher.dispatch(item.key, item.generation, actionId, reason);
       if (actionId.toLowerCase() === 'open') {
         return (await this.focus(item)).success;
       }

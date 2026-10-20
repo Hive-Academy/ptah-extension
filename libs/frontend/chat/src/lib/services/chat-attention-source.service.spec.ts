@@ -99,6 +99,70 @@ describe('ChatAttentionSourceService', () => {
     expect(upsert.mock.lastCall?.[0].generation).toBeGreaterThan(first.generation);
   });
 
+  it('keeps a queued permission answerable after its target tab closes', () => {
+    TestBed.inject(ChatAttentionSourceService);
+    permissions.set([{ id: 'closed-tab', toolName: 'Bash', toolInput: { command: 'echo approved' }, timestamp: 1,
+      timeoutAt: 0, description: 'Run approved command', tabId: 'tab-1', sessionId: 'session-1' }]);
+    TestBed.tick();
+    ownerAvailable = false;
+    tabs.set([]);
+    TestBed.tick();
+    const item = upsert.mock.lastCall?.[0];
+    expect(item?.tabId).toBeUndefined();
+    expect(item?.workspacePath).toBe('/ws/one');
+    expect(item?.permissionPreview).toContain('Input: echo approved');
+    expect(item?.permissionPreview).toContain('Description: Run approved command');
+    expect(item?.actions.map(action => action.id)).toEqual(['allow', 'always_allow', 'deny', 'deny_with_message', 'open']);
+    expect(item?.actions.find(action => action.id === 'allow')?.disabledReason).toBeUndefined();
+    expect(item?.actions.find(action => action.id === 'deny')?.disabledReason).toBeUndefined();
+    expect(item?.actions.find(action => action.id === 'open')?.disabledReason).toBe('Session unavailable');
+    permissions.set([{ id: 'unknown-tool', toolName: '', toolInput: {}, timestamp: 1,
+      timeoutAt: 0, description: '', tabId: 'tab-1' }]);
+    TestBed.tick();
+    expect(upsert.mock.lastCall?.[0].actions.find(action => action.id === 'allow')?.disabledReason).toBeUndefined();
+  });
+
+  it('keeps session unavailable ahead of unknown tool for a tabless lane', () => {
+    TestBed.inject(ChatAttentionSourceService);
+    ownerAvailable = false;
+    tabs.set([]);
+    lanes.set([{ agentId: 'agent', parentSessionId: 'session-1', permissionQueue: [
+      { requestId: 'missing-lane', toolName: '', timestamp: 1 },
+    ] }]);
+    TestBed.tick();
+    const item = upsert.mock.lastCall?.[0];
+    expect(item?.kind).toBe('lane-permission');
+    expect(item?.actions.find(action => action.id === 'allow')?.disabledReason).toBe('Session unavailable');
+  });
+
+  it('shows shortened relative and Windows file paths in the permission preview', () => {
+    TestBed.inject(ChatAttentionSourceService);
+    permissions.set([{ id: 'relative', toolName: 'Write', toolInput: { file_path: 'src/main.ts' },
+      timestamp: 1, timeoutAt: 0, description: '', tabId: 'tab-1', sessionId: 'session-1' }]);
+    TestBed.tick();
+    expect(upsert.mock.lastCall?.[0].permissionPreview).toBe('Input: src/main.ts');
+    permissions.set([{ id: 'windows', toolName: 'Read', toolInput: { file_path: 'C:\\repo\\src\\main.ts' },
+      timestamp: 1, timeoutAt: 0, description: '', tabId: 'tab-1', sessionId: 'session-1' }]);
+    TestBed.tick();
+    expect(upsert.mock.lastCall?.[0].permissionPreview).toBe('Input: .../src/main.ts');
+  });
+
+  it('shows path-bearing commands and redacts assigned, flagged, and token-shaped secrets', () => {
+    TestBed.inject(ChatAttentionSourceService);
+    permissions.set([{ id: 'command', toolName: 'Bash', toolInput: { command: 'rm -rf /tmp/foo' },
+      timestamp: 1, timeoutAt: 0, description: '', tabId: 'tab-1', sessionId: 'session-1' }]);
+    TestBed.tick();
+    expect(upsert.mock.lastCall?.[0].permissionPreview).toBe('Input: rm -rf /tmp/foo');
+    permissions.set([{ id: 'assigned', toolName: 'Bash', toolInput: { command: 'run password=hunter2 --token abc123' },
+      timestamp: 1, timeoutAt: 0, description: '', tabId: 'tab-1', sessionId: 'session-1' }]);
+    TestBed.tick();
+    expect(upsert.mock.lastCall?.[0].permissionPreview).toBe('Input: run password=*** --token ***');
+    permissions.set([{ id: 'token-shape', toolName: 'Bash', toolInput: { command: 'echo sk-123456789abcdef' },
+      timestamp: 1, timeoutAt: 0, description: '', tabId: 'tab-1', sessionId: 'session-1' }]);
+    TestBed.tick();
+    expect(upsert.mock.lastCall?.[0].permissionPreview).toBe('Input: echo ***');
+  });
+
   it('maps questions to Answer and lanes to Allow/Deny/Open', () => {
     TestBed.inject(ChatAttentionSourceService);
     questions.set([{ id: 'q1', toolName: 'AskUserQuestion', questions: [{
