@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { AttentionActionDispatcher, type AttentionActionOutcome, AppStateManager, LoggingService,
-  ATTENTION_LANE_OPENER, NOTIFICATION_FOCUS_ROUTER, SURFACE_FOCUS_ROUTER, NotificationService, attentionConditionKey } from '@ptah-extension/core';
+  ATTENTION_LANE_OPENER, NOTIFICATION_FOCUS_ROUTER, SURFACE_FOCUS_ROUTER, NOTICE_ACTION_HANDLER, NotificationService, attentionConditionKey } from '@ptah-extension/core';
 import { AgentPermissionResponder } from './agent-permission-responder';
 import { ChatAttentionSourceService } from './chat-attention-source.service';
 import { ChatAttentionHostMessageHandler } from './chat-attention-host-message-handler.service';
@@ -14,6 +14,7 @@ export class ChatAttentionActionDispatcherService implements AttentionActionDisp
   private readonly router = inject(NOTIFICATION_FOCUS_ROUTER, { optional: true });
   private readonly laneOpener = inject(ATTENTION_LANE_OPENER, { optional: true });
   private readonly surfaceRouters = inject(SURFACE_FOCUS_ROUTER, { optional: true }) ?? [];
+  private readonly noticeHandlers = inject(NOTICE_ACTION_HANDLER, { optional: true }) ?? [];
   private readonly host = inject(ChatAttentionHostMessageHandler, { optional: true });
   private readonly appState = inject(AppStateManager);
   private readonly logger = inject(LoggingService);
@@ -22,8 +23,7 @@ export class ChatAttentionActionDispatcherService implements AttentionActionDisp
   async dispatchOutcome(key: string, generation: number, actionId: string): Promise<AttentionActionOutcome> {
     const live = this.source.getLive(key, generation);
     if (!live && actionId !== 'open') {
-      this.unavailable('Already answered');
-      return { kind: 'stale' };
+      return this.dispatchNoticeOutcome(key, generation, actionId);
     }
     const action = live?.item.actions.find(candidate => candidate.id === actionId);
     if (live && (!action || action.disabledReason)) {
@@ -37,8 +37,10 @@ export class ChatAttentionActionDispatcherService implements AttentionActionDisp
 
   async dispatch(key: string, generation: number, actionId: string): Promise<boolean> {
     const live = this.source.getLive(key, generation);
-    if (!live) return actionId === 'open' && this.host
-      ? this.host.openProjected(key, generation) : this.unavailable('Already answered');
+    if (!live) {
+      if (actionId !== 'open') return (await this.dispatchNoticeOutcome(key, generation, actionId)).kind === 'completed';
+      return this.host ? this.host.openProjected(key, generation) : this.unavailable('Already answered');
+    }
     const action = live.item.actions.find(candidate => candidate.id === actionId);
     if (!action || action.disabledReason || this.inFlight.has(key)) return this.unavailable(action?.disabledReason ?? 'Action unavailable');
     this.inFlight.add(key);
@@ -74,6 +76,28 @@ export class ChatAttentionActionDispatcherService implements AttentionActionDisp
       return this.responder.respondSession(target.request, actionId, target.tabId);
     } catch (error) {
       return this.reportActionFailure(live, error);
+    } finally {
+      this.inFlight.delete(key);
+    }
+  }
+
+  private async dispatchNoticeOutcome(key: string, generation: number, actionId: string): Promise<AttentionActionOutcome> {
+    const handler = this.noticeHandlers.find(candidate => candidate.canHandle(key, actionId));
+    if (!handler) {
+      this.unavailable('Already answered');
+      return { kind: 'stale' };
+    }
+    if (this.inFlight.has(key)) {
+      this.unavailable('Action unavailable');
+      return { kind: 'unavailable', reason: 'Action unavailable' };
+    }
+    this.inFlight.add(key);
+    try {
+      return await handler.run(key, generation, actionId);
+    } catch (error) {
+      this.logger.warn('ChatAttentionActionDispatcherService', `Notice action failed (${error instanceof Error ? error.name : 'unknown'})`);
+      this.unavailable('Could not complete action');
+      return { kind: 'unavailable', reason: 'Could not complete action' };
     } finally {
       this.inFlight.delete(key);
     }

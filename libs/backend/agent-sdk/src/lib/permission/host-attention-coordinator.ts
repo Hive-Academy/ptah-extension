@@ -63,6 +63,7 @@ export class HostAttentionCoordinator implements IHostAttentionIngress {
   private readonly pending = new Map<string, SafeHostAttentionNotice>();
   private readonly claimedAt = new Map<string, number>();
   private readonly releasedSessionAt = new Map<string, number>();
+  private readonly releasedLaneAt = new Map<string, number>();
 
   constructor(
     @inject(PLATFORM_TOKENS.HOST_ATTENTION_NOTIFICATIONS)
@@ -176,12 +177,14 @@ export class HostAttentionCoordinator implements IHostAttentionIngress {
 
   /** Resolve a failed lane through its actual parent session, never an active workspace. */
   async presentLaneFailure(agentId: string, parentSessionId: string | undefined, generation: number): Promise<void> {
+    const releaseVersion = this.releasedLaneAt.get(agentId);
     if (!parentSessionId) {
       this.logger.debug('[HostAttentionCoordinator] Lane failure dropped: owner unavailable');
       return;
     }
     try {
       const record = await this.metadata.get(parentSessionId);
+      if (releaseVersion !== this.releasedLaneAt.get(agentId)) return;
       if (!record?.workspaceId || record.sessionId !== parentSessionId) {
         this.logger.debug('[HostAttentionCoordinator] Lane failure dropped: owner unavailable');
         return;
@@ -206,6 +209,11 @@ export class HostAttentionCoordinator implements IHostAttentionIngress {
   }
 
   releaseLaneFailure(agentId: string): void {
+    this.releasedLaneAt.set(agentId, (this.releasedLaneAt.get(agentId) ?? 0) + 1);
+    if (this.releasedLaneAt.size > MAX_ENTRIES) {
+      const oldest = this.releasedLaneAt.keys().next().value;
+      if (oldest !== undefined) this.releasedLaneAt.delete(oldest);
+    }
     const key = `c:${workspaceIdFromPath(`lane:${agentId}`)}`;
     const generation = this.generations.get(key);
     if (generation !== undefined) this.resolve(key, generation);

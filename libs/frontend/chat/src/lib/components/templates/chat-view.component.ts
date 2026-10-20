@@ -46,7 +46,6 @@ import {
 import { ResumeNotificationBannerComponent } from '../molecules/notifications/resume-notification-banner.component';
 import { AuthRequiredBannerComponent } from '../molecules/notifications/auth-required-banner.component';
 import { SessionBudgetBannerComponent } from '../molecules/notifications/session-budget-banner.component';
-import { VoiceProviderErrorToastComponent } from '../molecules/notifications/voice-provider-error-toast.component';
 import { CompactSessionCardComponent } from '../molecules/compact-session/compact-session-card.component';
 import { AgentOriginBannerComponent } from '../molecules/agent-origin-banner/agent-origin-banner.component';
 import { SessionInspectorStore } from '../../services/session-inspector';
@@ -184,7 +183,6 @@ const VIEW_PANEL_KEY = '';
     ResumeNotificationBannerComponent,
     AuthRequiredBannerComponent,
     SessionBudgetBannerComponent,
-    VoiceProviderErrorToastComponent,
     CompactionNotificationComponent,
     CompactionMarkerComponent,
     SidebarTabComponent,
@@ -261,6 +259,25 @@ export class ChatViewComponent implements OnDestroy {
   /** Inline re-auth banner state (set when a send fails needing auth). */
   protected readonly authRequiredBanner = this._authState.authRequiredBanner;
 
+  private readonly staleOlderHistory = signal<{
+    tabId: string;
+    sessionId: string | null;
+    /** Live events append; a reopen or reload replaces the loaded history. */
+    firstMessage: unknown;
+    message: string;
+  } | null>(null);
+  /** A reopened or closed tab no longer owns the stale paging snapshot. */
+  protected readonly olderHistoryAlert = computed(() => {
+    const stale = this.staleOlderHistory();
+    if (!stale) return null;
+    const tab = this._tabManager.findTabByIdAcrossWorkspaces(stale.tabId)?.tab;
+    return tab?.claudeSessionId === stale.sessionId &&
+      tab?.olderHistoryCursor === null &&
+      tab?.messages[0] === stale.firstMessage
+      ? { tabId: stale.tabId, message: stale.message }
+      : null;
+  });
+
   protected isHistoryReplaying(tabId: string): boolean {
     return this.sessionHistoryReplayer.isReplaying(tabId);
   }
@@ -275,10 +292,21 @@ export class ChatViewComponent implements OnDestroy {
   }
 
   protected async onOlderHistoryRequested(tabId: string): Promise<void> {
+    this.staleOlderHistory.set(null);
     const outcome = await this.historyPaging.loadOlder(tabId);
     if (outcome === 'stale') {
+      const message = 'Earlier history changed. Reopen the session to load it again.';
+      const tab = this._tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
+      if (tab) {
+        this.staleOlderHistory.set({
+          tabId,
+          sessionId: tab.claudeSessionId,
+          firstMessage: tab.messages[0],
+          message,
+        });
+      }
       this.showActionError(
-        'Earlier history changed. Reopen the session to load it again.',
+        message,
         tabId,
       );
     } else if (outcome === 'failed') {
@@ -319,23 +347,9 @@ export class ChatViewComponent implements OnDestroy {
    * own auto-clear timer.
    */
   private readonly actionBanner = inject(ActionBannerService);
-  readonly actionError = computed(() => {
-    const b = this.actionBanner.banner();
-    if (!b || b.kind !== 'error') return null;
-    return b.tabId === null || b.tabId === this.resolvedTabId()
-      ? b.message
-      : null;
-  });
   readonly actionInfo = computed(() => {
     const b = this.actionBanner.banner();
     if (!b || b.kind !== 'info') return null;
-    return b.tabId === null || b.tabId === this.resolvedTabId()
-      ? b.message
-      : null;
-  });
-  readonly actionWarning = computed(() => {
-    const b = this.actionBanner.banner();
-    if (!b || b.kind !== 'warning') return null;
     return b.tabId === null || b.tabId === this.resolvedTabId()
       ? b.message
       : null;

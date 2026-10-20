@@ -1,0 +1,340 @@
+{
+  "entry": "D:\\projects\\ptah-extension\\.claude-worktrees\\attention-notifications\\dist\\apps\\ptah-electron\\main.mjs",
+  "temp": "C:\\Users\\abdal\\AppData\\Local\\Temp\\ptah-attention-visual-bCBcxW",
+  "port": 9347,
+  "shots": [
+    {
+      "theme": "dark",
+      "state": "baseline",
+      "file": "D:\\projects\\ptah-extension\\.claude-worktrees\\attention-notifications\\.ptah\\specs\\TASK_2026_593_7c2e\\visual-check\\dark-baseline.png",
+      "dataTheme": "anubis"
+    },
+    {
+      "theme": "dark",
+      "state": "panel-empty",
+      "file": "D:\\projects\\ptah-extension\\.claude-worktrees\\attention-notifications\\.ptah\\specs\\TASK_2026_593_7c2e\\visual-check\\dark-panel-empty.png",
+      "dataTheme": "anubis"
+    },
+    {
+      "theme": "light",
+      "state": "baseline",
+      "file": "D:\\projects\\ptah-extension\\.claude-worktrees\\attention-notifications\\.ptah\\specs\\TASK_2026_593_7c2e\\visual-check\\light-baseline.png",
+      "dataTheme": "anubis-light"
+    },
+    {
+      "theme": "light",
+      "state": "panel-empty",
+      "file": "D:\\projects\\ptah-extension\\.claude-worktrees\\attention-notifications\\.ptah\\specs\\TASK_2026_593_7c2e\\visual-check\\light-panel-empty.png",
+      "dataTheme": "anubis-light"
+    }
+  ],
+  "checks": {
+    "shellControls": {
+      "themeToggles": 1,
+      "buttons": [
+        {
+          "label": "Thoth",
+          "title": "Thoth — agentic platform",
+          "text": ""
+        },
+        {
+          "label": "Setup hub",
+          "title": "Setup hub",
+          "text": ""
+        },
+        {
+          "label": "Marketplace",
+          "title": "Marketplace",
+          "text": ""
+        },
+        {
+          "label": "Settings",
+          "title": "Settings",
+          "text": ""
+        },
+        {
+          "label": "Change theme",
+          "title": null,
+          "text": "Theme"
+        },
+        {
+          "label": null,
+          "title": null,
+          "text": "Anubis"
+        },
+        {
+          "label": null,
+          "title": null,
+          "text": "Dark"
+        },
+        {
+          "label": null,
+          "title": null,
+          "text": "Synthwave"
+        },
+        {
+          "label": null,
+          "title": null,
+          "text": "Halloween"
+        },
+        {
+          "label": null,
+          "title": null,
+          "text": "Forest"
+        },
+        {
+          "label": null,
+          "title": null,
+          "text": "Aqua"
+        },
+        {
+          "label": null,
+          "title": null,
+          "text": "Black"
+        },
+        {
+          "label": null,
+          "title": null,
+          "text": "Luxury"
+        },
+        {
+          "label": null,
+          "title": null,
+          "text": "Dracula"
+        },
+        {
+          "label": null,
+          "title": null,
+          "text": "Business"
+        },
+        {
+          "label": null,
+          "title": null,
+          "text": "Night"
+        },
+        {
+          "label": null,
+          "title": null,
+          "text": "Coffee"
+        },
+        {
+          "label": null,
+          "title": null,
+          "text": "Dim"
+        },
+        {
+          "label": null,
+          "title": null,
+          "text": "Sunset"
+        },
+        {
+          "label": null,
+          "title": null,
+          "text": "Anubis Light"
+        },
+        {
+          "label": null,
+          "title": null,
+          "text": "Light"
+        },
+        {
+          "label": null,
+          "title": null,
+          "text": "Cupcake"
+        },
+        {
+          "label": null,
+          "title": null,
+          "text": "Bumblebee"
+        },
+        {
+          "label": null,
+          "title": null,
+          "text": "Emerald"
+        },
+        {
+          "label": null,
+          "title": null,
+          "text": "Corporate"
+        },
+        {
+          "label": null,
+          "title": null,
+          "text": "Retro"
+        },
+        {
+          "label": null,
+          "title": null,
+          "text": "Cyberpunk"
+        },
+        {
+          "label": null,
+          "title": null,
+          "text": "Valentine"
+        },
+        {
+          "label": null,
+          "title": null,
+          "text": "Garden"
+        },
+        {
+          "label": null,
+          "title": null,
+          "text": "Lofi"
+        },
+        {
+          "label": null,
+          "title": null,
+          "text": "Pastel"
+        },
+        {
+          "label": null,
+          "title": null,
+          "text": "Fantasy"
+        },
+        {
+          "label": null,
+          "title": null,
+          "text": "Wireframe"
+        },
+        {
+          "label": null,
+          "title": null,
+          "text": "CMYK"
+        },
+        {
+          "label": null,
+          "title": null,
+          "text": "Autumn"
+        }
+      ]
+    },
+    "dark-panel-empty": {
+      "dataTheme": "anubis",
+      "horizontalOverflow": false,
+      "cards": [],
+      "panel": {
+        "x": 1106,
+        "y": 39.66666793823242,
+        "right": 1426,
+        "bottom": 245.66666793823242,
+        "width": 320,
+        "height": 206
+      },
+      "composer": null,
+      "tabs": null,
+      "composerOverlap": false,
+      "tabOverlap": false,
+      "contrast": [
+        {
+          "text": "Notifications",
+          "color": "oklch(0.925095 0.00705 88.6451)",
+          "background": "oklch(0.188562 0.00805 285.602)",
+          "ratio": 14.857903169584358
+        },
+        {
+          "text": "Needs you",
+          "color": "oklch(0.925095 0.00705 88.6451)",
+          "background": "oklch(0.259365 0.0207655 284.872)",
+          "ratio": 12.459685909556201
+        },
+        {
+          "text": "Nothing needs your response",
+          "color": "oklch(0.665099 0.007403 31.091)",
+          "background": "oklch(0.259365 0.0207655 284.872)",
+          "ratio": 5.073154184489884
+        },
+        {
+          "text": "Recent notices",
+          "color": "oklch(0.925095 0.00705 88.6451)",
+          "background": "oklch(0.259365 0.0207655 284.872)",
+          "ratio": 12.459685909556201
+        },
+        {
+          "text": "No recent notices",
+          "color": "oklch(0.665099 0.007403 31.091)",
+          "background": "oklch(0.259365 0.0207655 284.872)",
+          "ratio": 5.073154184489884
+        }
+      ]
+    },
+    "dark-escape": {
+      "closed": true,
+      "focusBell": true
+    },
+    "dark-injectionAvailable": false,
+    "dark-injectionDebug": {
+      "ng": "undefined",
+      "contextType": "number",
+      "contextArray": false,
+      "keys": [
+        "__ngContext__"
+      ]
+    },
+    "light-panel-empty": {
+      "dataTheme": "anubis-light",
+      "horizontalOverflow": false,
+      "cards": [],
+      "panel": {
+        "x": 1106,
+        "y": 39.66666793823242,
+        "right": 1426,
+        "bottom": 245.66666793823242,
+        "width": 320,
+        "height": 206
+      },
+      "composer": null,
+      "tabs": null,
+      "composerOverlap": false,
+      "tabOverlap": false,
+      "contrast": [
+        {
+          "text": "Notifications",
+          "color": "oklch(0.23574 0.066 313.189)",
+          "background": "oklch(0.97788 0.004 56.375)",
+          "ratio": 15.915373243486254
+        },
+        {
+          "text": "Needs you",
+          "color": "oklch(0.23574 0.066 313.189)",
+          "background": "oklch(0.919214 0.00614 54.5612)",
+          "ratio": 13.334604300197267
+        },
+        {
+          "text": "Nothing needs your response",
+          "color": "oklch(0.489552 0.044796 348.479)",
+          "background": "oklch(0.919214 0.00614 54.5612)",
+          "ratio": 5.057330940849469
+        },
+        {
+          "text": "Recent notices",
+          "color": "oklch(0.23574 0.066 313.189)",
+          "background": "oklch(0.919214 0.00614 54.5612)",
+          "ratio": 13.334604300197267
+        },
+        {
+          "text": "No recent notices",
+          "color": "oklch(0.489552 0.044796 348.479)",
+          "background": "oklch(0.919214 0.00614 54.5612)",
+          "ratio": 5.057330940849469
+        }
+      ]
+    },
+    "light-escape": {
+      "closed": true,
+      "focusBell": true
+    },
+    "light-injectionAvailable": false,
+    "light-injectionDebug": {
+      "ng": "undefined",
+      "contextType": "number",
+      "contextArray": false,
+      "keys": [
+        "__ngContext__"
+      ]
+    }
+  },
+  "errors": [],
+  "portFreeAfter": true,
+  "tempRemoved": true
+}

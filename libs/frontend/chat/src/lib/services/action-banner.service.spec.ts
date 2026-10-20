@@ -6,13 +6,26 @@
  * surface in canvas/tile mode.
  */
 import { TestBed } from '@angular/core/testing';
+import { TabManagerService } from '@ptah-extension/chat-state';
+import { LoggingService, NotificationService } from '@ptah-extension/core';
 import { ActionBannerService } from './action-banner.service';
 
 describe('ActionBannerService', () => {
   let service: ActionBannerService;
+  const upsert = jest.fn();
+  const warn = jest.fn();
 
   beforeEach(() => {
-    TestBed.configureTestingModule({ providers: [ActionBannerService] });
+    upsert.mockClear();
+    warn.mockClear();
+    TestBed.configureTestingModule({ providers: [ActionBannerService,
+      { provide: NotificationService, useValue: { upsert } },
+      { provide: LoggingService, useValue: { warn } },
+      { provide: TabManagerService, useValue: {
+        activeWorkspacePath: '/work',
+        findTabByIdAcrossWorkspaces: (id: string) => ({ workspacePath: '/work', tab: { id } }),
+      } },
+    ] });
     service = TestBed.inject(ActionBannerService);
     jest.useFakeTimers();
   });
@@ -33,14 +46,38 @@ describe('ActionBannerService', () => {
     expect(service.banner()?.tabId).toBe('tab-1');
   });
 
-  it('showError / showWarning also thread tabId', () => {
+  it('projects errors and warnings to Recent without a local banner or badge kind', () => {
     service.showError('err', 'tab-2');
-    expect(service.banner()?.kind).toBe('error');
-    expect(service.banner()?.tabId).toBe('tab-2');
+    expect(service.banner()).toBeNull();
+    expect(upsert).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'failure', severity: 'error', title: 'err', tabId: 'tab-2', workspacePath: '/work',
+    }));
 
     service.showWarning('warn', 'tab-3');
-    expect(service.banner()?.kind).toBe('warning');
-    expect(service.banner()?.tabId).toBe('tab-3');
+    expect(service.banner()).toBeNull();
+    expect(upsert).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'warning', severity: 'warning', title: 'warn', tabId: 'tab-3', workspacePath: '/work',
+    }));
+    expect(upsert).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps info local and out of attention', () => {
+    service.showInfo('saved', 'tab-1');
+    expect(service.banner()?.message).toBe('saved');
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it('logs when attention dependencies are unavailable', () => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({ providers: [ActionBannerService,
+      { provide: NotificationService, useValue: null },
+      { provide: TabManagerService, useValue: null },
+      { provide: LoggingService, useValue: { warn } },
+    ] });
+    service = TestBed.inject(ActionBannerService);
+    service.showError('lost error');
+    expect(warn).toHaveBeenCalledWith('ActionBannerService', expect.stringContaining('notification or tab service missing'));
+    expect(upsert).not.toHaveBeenCalled();
   });
 
   it('clear() dismisses the banner and cancels the auto-clear timer', () => {

@@ -10,6 +10,7 @@ import { fakeAsync, TestBed, tick } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { ATTENTION_ACTION_DISPATCHER, NotificationService, type AttentionItem } from '@ptah-extension/core';
 import { NotificationCenterComponent } from './notification-center.component';
+import { NotificationCenterStore } from './notification-center.store';
 import { NotificationSoundService } from './notification-sound.service';
 
 const lane: AttentionItem = {
@@ -88,10 +89,27 @@ describe('NotificationCenterComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('Recent notices');
     expect(fixture.nativeElement.textContent).toContain('Approve tool');
     expect(fixture.nativeElement.textContent).toContain('Git status unavailable');
+    expect(fixture.nativeElement.querySelector('#ptah-needs-you-heading')?.parentElement?.textContent).toContain('1');
     expect(fixture.nativeElement.textContent).not.toContain('Finished');
     const rows = fixture.debugElement.queryAll(By.css('.notification-row'));
     expect(document.activeElement).toBe(rows[0].nativeElement);
     expect(rows[0].queryAll(By.css('button')).find(button => button.nativeElement.textContent.trim() === 'Allow')?.nativeElement.disabled).toBe(true);
+  }));
+
+  it('shows one All clear state without section headings or section empty messages', fakeAsync(() => {
+    const fixture = TestBed.createComponent(NotificationCenterComponent);
+    fixture.detectChanges();
+    fixture.componentInstance.openPanel();
+    fixture.detectChanges();
+    tick();
+    const panel = fixture.nativeElement.querySelector('[data-testid="notification-center-panel"]') as HTMLElement;
+    expect(panel.textContent).toContain('All clear');
+    expect(panel.textContent).toContain('Nothing needs your attention.');
+    expect(panel.querySelector('#ptah-needs-you-heading')).toBeNull();
+    expect(panel.querySelector('#ptah-recent-heading')).toBeNull();
+    expect(panel.textContent).not.toContain('Nothing needs your response');
+    expect(panel.textContent).not.toContain('No recent notices');
+    expect(panel.querySelector<HTMLButtonElement>('header button[aria-label="Clear all notices"]')?.disabled).toBe(true);
   }));
 
   it('dispatches lane Deny and clears recent notices while retaining Needs you', fakeAsync(() => {
@@ -106,13 +124,17 @@ describe('NotificationCenterComponent', () => {
     deny?.nativeElement.click();
     tick();
     expect(dispatch).toHaveBeenCalledWith('lane-1', 1, 'deny');
-    const clear = fixture.debugElement.queryAll(By.css('button')).find(button => button.nativeElement.textContent.trim() === 'Clear all');
-    expect(clear?.nativeElement.disabled).toBe(false);
-    clear?.nativeElement.click();
+    const store = fixture.debugElement.injector.get(NotificationCenterStore);
+    const clearAll = jest.spyOn(store, 'clearAll');
+    const clear = fixture.nativeElement.querySelector('header button[aria-label="Clear all notices"]') as HTMLButtonElement;
+    expect(clear).not.toBeNull();
+    expect(clear.disabled).toBe(false);
+    clear.click();
     fixture.detectChanges();
+    expect(clearAll).toHaveBeenCalledTimes(1);
     expect(notifications.needsYou()).toEqual([lane]);
     expect(notifications.recentNotices()).toEqual([]);
-    expect(clear?.nativeElement.disabled).toBe(true);
+    expect(clear.disabled).toBe(true);
   }));
 
   it('restores bell focus after Escape', fakeAsync(() => {

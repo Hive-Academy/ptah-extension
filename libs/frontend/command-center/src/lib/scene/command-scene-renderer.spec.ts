@@ -4,6 +4,7 @@ import {
   type SceneRenderSnapshot,
 } from './command-scene-renderer';
 import { VoiceRippleEmitter } from './command-scene-ripples';
+import { SCENE_DOTS } from './command-scene-decoration';
 
 const root: CommandWorkNode = {
   id: 'root:r',
@@ -59,6 +60,8 @@ describe('CommandSceneRenderer', () => {
     setTransform: jest.fn(),
     clearRect: jest.fn(),
     fillRect: jest.fn(),
+    save: jest.fn(),
+    restore: jest.fn(),
     beginPath: jest.fn(),
     moveTo: jest.fn(),
     lineTo: jest.fn(),
@@ -90,11 +93,34 @@ describe('CommandSceneRenderer', () => {
     jest.spyOn(backdrop, 'getContext').mockReturnValue(context);
     return backdrop;
   });
+  const canvasStates: Array<{
+    alpha: number;
+    fill: string | CanvasGradient | CanvasPattern;
+    stroke: string | CanvasGradient | CanvasPattern;
+    width: number;
+  }> = [];
   let callback: FrameRequestCallback;
   let renderer: CommandSceneRenderer;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    canvasStates.length = 0;
+    context.save.mockImplementation(() =>
+      canvasStates.push({
+        alpha: context.globalAlpha,
+        fill: context.fillStyle,
+        stroke: context.strokeStyle,
+        width: context.lineWidth,
+      }),
+    );
+    context.restore.mockImplementation(() => {
+      const state = canvasStates.pop();
+      if (!state) return;
+      context.globalAlpha = state.alpha;
+      context.fillStyle = state.fill;
+      context.strokeStyle = state.stroke;
+      context.lineWidth = state.width;
+    });
     context.drawImage.mockReset();
     frame.mockImplementation((next) => {
       callback = next;
@@ -858,6 +884,149 @@ describe('CommandSceneRenderer', () => {
     expect(context.drawImage).toHaveBeenCalledTimes(4);
     expect(context.arc).toHaveBeenCalledWith(100, 80, 54, 0, Math.PI * 2);
     expect(frame).toHaveBeenCalledTimes(1);
+    renderer.destroy();
+  });
+
+  const hasTwinkle = (): boolean => {
+    const positions = SCENE_DOTS.filter((_, index) => index % 4 === 1);
+    return context.fillRect.mock.calls.some(([x, y]) =>
+      positions.some(
+        (dot) => x === dot.x * 320 - 0.4 && y === dot.y * 240 - 0.4,
+      ),
+    );
+  };
+
+  it('paints an idle single root once without twinkle or a continuing frame', () => {
+    const data = snapshot();
+    renderer.setSnapshot({
+      ...data,
+      layout: {
+        ...data.layout,
+        nodes: data.layout.nodes.filter((node) => node.kind === 'root'),
+      },
+    });
+    callback(1000);
+    expect(context.clearRect).toHaveBeenCalledTimes(1);
+    expect(frame).toHaveBeenCalledTimes(1);
+    expect(hasTwinkle()).toBe(false);
+    renderer.destroy();
+  });
+
+  it('reuses the backdrop and paints twinkle only after the ambient cap', () => {
+    renderer.setSnapshot(snapshot());
+    callback(1000);
+    expect(hasTwinkle()).toBe(true);
+    context.fillRect.mockClear();
+    callback(1016);
+    expect(context.clearRect).toHaveBeenCalledTimes(1);
+    expect(context.fillRect).not.toHaveBeenCalled();
+    callback(1033);
+    expect(context.clearRect).toHaveBeenCalledTimes(2);
+    expect(hasTwinkle()).toBe(true);
+    expect(createBackdrop).toHaveBeenCalledTimes(1);
+    renderer.destroy();
+  });
+
+  it('suppresses both overlays with reduced motion', () => {
+    renderer.setSnapshot(snapshot());
+    callback(1000);
+    renderer.setSnapshot({ ...snapshot('starting'), reducedMotion: true });
+    context.arc.mockClear();
+    context.fillRect.mockClear();
+    callback(1016);
+    expect(hasTwinkle()).toBe(false);
+    expect(
+      context.arc.mock.calls.some((call) => call[2] === 2.6 || call[2] === 7),
+    ).toBe(false);
+    renderer.destroy();
+  });
+
+  it('draws a pulse for a child entering live state in a later snapshot', () => {
+    renderer.setSnapshot(snapshot());
+    callback(1000);
+    renderer.setSnapshot(snapshot('starting'));
+    callback(1016);
+    expect(context.arc).toHaveBeenCalledWith(100, 80, 2.6, 0, Math.PI * 2);
+    renderer.destroy();
+  });
+
+  it('keeps a delegation observed between two paints', () => {
+    renderer.setSnapshot(snapshot());
+    callback(1000);
+    renderer.setSnapshot(snapshot('starting'));
+    renderer.setSnapshot(snapshot());
+    callback(1016);
+    expect(context.arc).toHaveBeenCalledWith(100, 80, 2.6, 0, Math.PI * 2);
+    renderer.destroy();
+  });
+
+  it.each([false, true])(
+    'clears pulses when reduced motion changes from %s',
+    (initial) => {
+      renderer.setSnapshot({ ...snapshot(), reducedMotion: initial });
+      callback(1000);
+      if (!initial) {
+        renderer.setSnapshot(snapshot('starting'));
+        callback(1016);
+      }
+      renderer.setSnapshot({
+        ...snapshot('starting'),
+        reducedMotion: !initial,
+      });
+      context.arc.mockClear();
+      callback(1032);
+      expect(
+        context.arc.mock.calls.some((call) => call[2] === 2.6 || call[2] === 7),
+      ).toBe(false);
+      if (!initial) {
+        renderer.setSnapshot({ ...snapshot('starting'), reducedMotion: false });
+        context.arc.mockClear();
+        callback(1048);
+        expect(
+          context.arc.mock.calls.some(
+            (call) => call[2] === 2.6 || call[2] === 7,
+          ),
+        ).toBe(false);
+      }
+      renderer.destroy();
+    },
+  );
+
+  it('does not replay a hidden delegation on resume', () => {
+    renderer.setSnapshot(snapshot());
+    callback(1000);
+    renderer.setHidden(true);
+    renderer.setSnapshot(snapshot('starting'));
+    renderer.setHidden(false);
+    context.arc.mockClear();
+    callback(1016);
+    expect(context.arc.mock.calls.some((call) => call[2] === 2.6)).toBe(false);
+    renderer.destroy();
+  });
+
+  it('clears an in-flight pulse when hidden', () => {
+    renderer.setSnapshot(snapshot());
+    callback(1000);
+    renderer.setSnapshot(snapshot('starting'));
+    callback(1016);
+    expect(context.arc.mock.calls.some((call) => call[2] === 2.6)).toBe(true);
+    renderer.setHidden(true);
+    renderer.setHidden(false);
+    context.arc.mockClear();
+    callback(1100);
+    expect(context.arc.mock.calls.some((call) => call[2] === 2.6)).toBe(false);
+    renderer.destroy();
+  });
+
+  it('clears a live pulse when the theme changes', () => {
+    renderer.setSnapshot(snapshot());
+    callback(1000);
+    renderer.setSnapshot(snapshot('starting'));
+    callback(1016);
+    renderer.setSnapshot({ ...snapshot('starting'), theme: 'light' });
+    context.arc.mockClear();
+    callback(1032);
+    expect(context.arc.mock.calls.some((call) => call[2] === 2.6)).toBe(false);
     renderer.destroy();
   });
 });

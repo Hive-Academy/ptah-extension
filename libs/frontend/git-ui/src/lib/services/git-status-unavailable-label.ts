@@ -16,3 +16,8 @@ export function statusUnavailableLabel(
 ): string {
   return STATUS_UNAVAILABLE_LABELS[reason];
 }
+
+/** Fixed notice text; never includes git's raw diagnostic output. */
+export function statusUnavailableNoticeTitle(reason: GitStatusUnavailableReason): string {
+  return `Git status is unavailable (${statusUnavailableLabel(reason)})`;
+}

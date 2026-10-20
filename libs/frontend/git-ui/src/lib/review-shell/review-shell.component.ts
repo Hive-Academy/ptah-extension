@@ -12,7 +12,7 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-import { ElectronLayoutService } from '@ptah-extension/core';
+import { attentionConditionKey, ElectronLayoutService } from '@ptah-extension/core';
 import { NativeTabGroupComponent, type NativeTab } from '@ptah-extension/ui';
 import { CommitComposerComponent } from '../commit/commit-composer.component';
 import { ConflictBannerComponent } from '../conflict/conflict-banner.component';
@@ -78,8 +78,9 @@ type BodyNotice = 'loading' | 'unavailable' | 'not-a-repo';
  *
  * - **Arming.** The constructor arms `GitStatusService` and
  *   `GitBranchesService` (with a branch read) and detects editor targets;
- *   destroy disarms both. Re-arming after a dock close is idempotent because
- *   `startListening()` fetches eagerly.
+ *   destroy disarms both, so the git push gate closes with the dock.
+ *   Re-arming after a dock close is idempotent because `startListening()`
+ *   fetches eagerly. The root git attention service only observes status.
  * - **Conflict banner.** Above the tabs, `ConflictBannerComponent` shows
  *   while a merge, rebase or cherry-pick is in progress (design-spec §11).
  * - **States (RC3).** "Loading repository…" only before anything was read; a
@@ -164,6 +165,7 @@ type BodyNotice = 'loading' | 'unavailable' | 'not-a-repo';
 
       <!-- Cross-cutting notices sit above the tabs (design-spec §3.2). -->
       @if (staleLabel(); as label) {
+        @if (dismissedStripKey() !== noticeKey()) {
         <div
           role="status"
           class="flex flex-shrink-0 items-start gap-1 border-b border-l-2 border-base-content/10 border-l-warning bg-base-200 px-2 py-1.5 text-xs text-base-content"
@@ -171,7 +173,10 @@ type BodyNotice = 'loading' | 'unavailable' | 'not-a-repo';
         >
           Git status is unavailable ({{ label }}) — showing the last known
           changes.
+          <button type="button" class="btn btn-ghost btn-xs" (click)="retryStatus()">Retry</button>
+          <button type="button" class="btn btn-ghost btn-xs" aria-label="Dismiss git status warning" (click)="dismissStrip()">Dismiss</button>
         </div>
+        }
       }
 
       <!-- The merge/rebase/cherry-pick banner (design-spec §11). Always
@@ -386,6 +391,11 @@ export class ReviewShellComponent {
   private readonly navigation = inject(ReviewNavigationService);
   private readonly worktreeStatus = inject(ReviewWorktreeStatusService);
   private readonly layout = inject(ElectronLayoutService);
+  protected readonly dismissedStripKey = signal<string | null>(null);
+  protected readonly noticeKey = computed(() => {
+    const path = this.gitStatus.activeWorkspacePath();
+    return path ? attentionConditionKey(path, 'git-status-unavailable') : null;
+  });
   protected readonly launchers = inject(EditorLauncherService);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
@@ -490,8 +500,23 @@ export class ReviewShellComponent {
       : null;
   });
 
+  protected dismissStrip(): void {
+    this.dismissedStripKey.set(this.noticeKey());
+  }
+
+  protected retryStatus(): void {
+    void this.gitStatus.refresh();
+  }
+
   constructor() {
     const destroyRef = inject(DestroyRef);
+    let previousKey: string | null = null;
+    effect(() => {
+      const key = this.noticeKey();
+      const reason = this.gitStatus.statusUnavailable();
+      if (previousKey !== key || reason === null) this.dismissedStripKey.set(null);
+      previousKey = key;
+    });
 
     this.gitStatus.startListening();
     this.gitBranches.startListening();

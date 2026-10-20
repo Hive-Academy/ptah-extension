@@ -212,6 +212,9 @@
       "@ptah-extension/mcp-apps-page": [
         "./libs/frontend/mcp-apps-page/src/index.ts"
       ],
+      "@ptah-extension/mcp-apps-page/focus": [
+        "./libs/frontend/mcp-apps-page/src/focus.ts"
+      ],
       "@ptah-extension/marketplace": [
         "./libs/frontend/marketplace/src/index.ts"
       ],

@@ -126,9 +126,10 @@ export class ChatAttentionSourceService {
         ? entry.target.request.requestId : entry.target.request.id) === requestId);
     const generation = previous?.item.generation ?? ++this.generationSequence;
     const resolvedSessionId = sessionId || owner?.tab.claudeSessionId || owner?.tab.id;
-    const surfaceRoutable = !surfaceMode || this.surfaceRouters.some(router =>
+    const surfaceOwner = this.surfaceRouters.find(router =>
       !!resolvedSessionId && router.canFocus(resolvedSessionId));
-    const open = !!owner && !!resolvedSessionId && surfaceRoutable;
+    const surfaceOwned = !!surfaceOwner && (surfaceMode || !owner);
+    const open = !!resolvedSessionId && (surfaceOwned || (!!owner && !surfaceMode));
     const actions = kind === 'question'
       ? [{ id: 'answer', label: 'Answer', ...(!open && { disabledReason: 'Session unavailable' }) }]
       : [{ id: 'allow', label: 'Allow', ...((!tabId || !canAllow) && { disabledReason: !tabId ? 'Session unavailable' : 'Unknown tool' }) },
@@ -137,7 +138,7 @@ export class ChatAttentionSourceService {
     const item: AttentionItem = {
       key, generation, kind, source: 'chat', workspacePath,
       workspaceName: workspacePath ? workspaceLabelFromPath(workspacePath) : 'Unknown workspace',
-      sessionId: resolvedSessionId || undefined, tabId: owner?.tab.id, ownerSurface: surfaceMode ? 'surface' : 'chat',
+      sessionId: resolvedSessionId || undefined, tabId: owner?.tab.id, ownerSurface: surfaceOwned || surfaceMode ? 'surface' : 'chat',
       severity: 'warning', title, actions, actionable: true,
       soundEligible: !sameRequestMoved && !this.voice.isActive(owner?.tab.id ?? ''),
     };
