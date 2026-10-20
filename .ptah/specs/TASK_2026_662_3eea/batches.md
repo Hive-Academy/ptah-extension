@@ -1934,7 +1934,7 @@ pipeline tokens (batch 59) before SS registrations are removed (batch 60).
 
 # Phase E - remove shared contracts
 
-## Batch 62: SS token trim - PENDING
+## Batch 62: SS token trim - COMPLETE (a825d4749; 24 tokens, O46)
 
 - Phase: E | Executor: CLI lane codex | Depends on: 61 | Tasks: 1
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/skill-synthesis @ptah-extension/rpc-handlers @ptah-extension/thoth-runtime ptah-extension-vscode ptah-electron ptah-cli mcp-bench --parallel=1`
@@ -1949,7 +1949,7 @@ pipeline tokens (batch 59) before SS registrations are removed (batch 60).
 - Validation notes: after the batch, the removed token names have zero hits outside the immutable migrations.
 - Implementation details: none beyond the plan row.
 
-## Batch 63: Shared skill-pipeline DTO cleanup (R3) - PENDING
+## Batch 63: Shared skill-pipeline DTO cleanup (R3) - COMPLETE (b2fed64e6 with 66; 82 DTOs, O47)
 
 - Phase: E | Executor: CLI lane codex | Depends on: 25, 59 | Tasks: 1
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/shared @ptah-extension/core @ptah-extension/chat @ptah-extension/skill-synthesis-ui @ptah-extension/rpc-handlers --parallel=1`
@@ -1966,7 +1966,7 @@ pipeline tokens (batch 59) before SS registrations are removed (batch 60).
 - Validation notes: the shared-contract rule applies.
 - Implementation details: none beyond the finding.
 
-## Batch 64: Remove `SKILL_SYNTHESIS_EVENT` - PENDING
+## Batch 64: Remove `SKILL_SYNTHESIS_EVENT` - COMPLETE (6838d2932)
 
 - Phase: E | Executor: CLI lane codex | Depends on: 26, 29, 39, 43, 57, 61 | Tasks: 1
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/shared ptah-extension-webview @ptah-extension/core ptah-electron @ptah-extension/skill-synthesis-ui @ptah-extension/rpc-handlers --parallel=1`
@@ -1981,7 +1981,7 @@ pipeline tokens (batch 59) before SS registrations are removed (batch 60).
 - Validation notes: none beyond the plan row.
 - Implementation details: none beyond the plan row.
 
-## Batch 65: Remove 79 old settings keys (R5) - PENDING
+## Batch 65: Remove 79 old settings keys (R5) - COMPLETE (47f227655; + empty group fix, O48)
 
 - Phase: E | Executor: CLI lane codex | Depends on: 2, 9, 18, 25, 33, 34 | Tasks: 1
 - Flags: UI (Advanced settings rows removed), WRITE-PATH (old stored values become unread; trace that no reader remains)
@@ -2013,7 +2013,7 @@ pipeline tokens (batch 59) before SS registrations are removed (batch 60).
   it maps; the manager imports it. Behaviour unchanged. Do it in the same edit as 65.1 so the
   migration map and the removed keys stay consistent.
 
-## Batch 66: Remove the drain constants - PENDING
+## Batch 66: Remove the drain constants - COMPLETE (b2fed64e6 with 63)
 
 - Phase: E | Executor: CLI lane codex | Depends on: 37, 59 | Tasks: 1
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/shared @ptah-extension/thoth-runtime @ptah-extension/cli-engine --parallel=1`
@@ -2038,7 +2038,7 @@ This stage is irreversible for the user's data. Approval was given on 2026-10-18
 D3), but the user must see and confirm the archive before the drop. Do not commit batch 68 (registering
 0057) until OP-1 is confirmed.
 
-## Batch 67: Archive path, receipt and connection wiring (0057 not registered) - PENDING
+## Batch 67: Archive path, receipt and connection wiring (0057 not registered) - COMPLETE (333be4e41; O50, O51)
 
 - Phase: F | Executor: CLI lane codex | Depends on: 15, 47, 48, 61 | Tasks: 1
 - Flags: WRITE-PATH (archive file location, receipt)
@@ -2112,7 +2112,7 @@ D3), but the user must see and confirm the archive before the drop. Do not commi
 - Validation notes: none beyond the plan row.
 - Implementation details: none beyond the plan row.
 
-## Batch 70: User-layer promoted-skill retirement - PENDING
+## Batch 70: User-layer promoted-skill retirement - COMPLETE (6112b70d5)
 
 - Phase: F | Executor: CLI lane codex | Depends on: 49 | Tasks: 1
 - Flags: WRITE-PATH (one-time removal of two managed slugs from `~/.ptah/user/skills`)
@@ -2128,7 +2128,7 @@ D3), but the user must see and confirm the archive before the drop. Do not commi
 - Validation notes: none beyond the plan row.
 - Implementation details: none beyond the plan row.
 
-## Batch 71: Repo promoted skills + prompt suggestion - PENDING
+## Batch 71: Repo promoted skills + prompt suggestion - COMPLETE (68807eeb2; skill deletions in 333be4e41, O51)
 
 - Phase: F | Executor: CLI lane Glm | Depends on: 48, 70 | Tasks: 1
 - Flags: UI (setup-plugins prompt suggestions)
