@@ -71,8 +71,6 @@ function emptyStreamingState(): StreamingState {
     toolCallMap: new Map(),
     textAccumulators: new Map(),
     toolInputAccumulators: new Map(),
-    agentSummaryAccumulators: new Map(),
-    agentContentBlocksMap: new Map(),
     currentMessageId: null,
     currentTokenUsage: null,
     eventsByMessage: new Map(),

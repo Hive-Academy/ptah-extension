@@ -17,14 +17,17 @@ import {
   agentAccessibleLabel,
   backgroundAgentPopulation,
   formatAgentDuration,
+  agentRunDurationMs,
   formatTokenCount,
   type AgentStatusWord,
 } from '@ptah-extension/chat-ui';
 import { ModelStateService } from '@ptah-extension/core';
 import { resolveModelDisplayName } from '@ptah-extension/shared';
 import { Bot, LucideAngularModule } from 'lucide-angular';
-import { formatEstimatedCost, usageTotalsFromSegments } from '../../molecules/agent-card/stats-bar.utils';
-import { formatElapsed } from '../../molecules/agent-card/agent-card.utils';
+import {
+  formatEstimatedCost,
+  usageTotalsFromSegments,
+} from '../../molecules/agent-card/stats-bar.utils';
 import type { TrayAgentContext } from '../../../services/session-agents/session-agent-tray';
 import { SessionAgentTrayService } from '../../../services/session-agents/session-agent-tray.service';
 import type {
@@ -104,31 +107,52 @@ let nextSectionId = 0;
       [attr.aria-busy]="state.status === 'loading' ? 'true' : null"
     >
       <div class="flex items-center justify-between gap-2 px-4">
-        <h3 [id]="headingId" class="sec-label text-[10.5px] font-semibold uppercase">AGENTS</h3>
+        <h3
+          [id]="headingId"
+          class="sec-label text-[10.5px] font-semibold uppercase"
+        >
+          AGENTS
+        </h3>
         @if (state.status !== 'loading') {
-          <span class="text-[11px] tabular-nums text-base-content-muted">{{ meta() }}</span>
+          <span class="text-[11px] tabular-nums text-base-content-muted">{{
+            meta()
+          }}</span>
         }
       </div>
       @if (population(); as summary) {
-        <p class="mt-1 px-4 text-[11px] text-base-content-muted">{{ summary }}</p>
+        <p class="mt-1 px-4 text-[11px] text-base-content-muted">
+          {{ summary }}
+        </p>
       }
 
       @if (state.status === 'loading') {
         <ul class="mt-2" aria-hidden="true">
           @for (n of skeletonRows; track n) {
             <li class="flex items-center gap-[13px] py-[11px] pl-[17px] pr-4">
-              <span class="size-8 shrink-0 rounded-full bg-surface-2 animate-pulse motion-reduce:animate-none"></span>
+              <span
+                class="size-8 shrink-0 rounded-full bg-surface-2 animate-pulse motion-reduce:animate-none"
+              ></span>
               <span class="grid flex-1 gap-1.5">
-                <span class="h-3 w-32 rounded bg-surface-2 animate-pulse motion-reduce:animate-none"></span>
-                <span class="h-2.5 w-48 rounded bg-surface-2 animate-pulse motion-reduce:animate-none"></span>
+                <span
+                  class="h-3 w-32 rounded bg-surface-2 animate-pulse motion-reduce:animate-none"
+                ></span>
+                <span
+                  class="h-2.5 w-48 rounded bg-surface-2 animate-pulse motion-reduce:animate-none"
+                ></span>
               </span>
             </li>
           }
         </ul>
       } @else if (views().length === 0) {
         <div class="flex flex-col items-center px-4 py-[18px] text-center">
-          <span class="flex size-8 items-center justify-center rounded-lg bg-surface-2" aria-hidden="true">
-            <lucide-angular [img]="BotIcon" class="size-4 text-base-content-muted" />
+          <span
+            class="flex size-8 items-center justify-center rounded-lg bg-surface-2"
+            aria-hidden="true"
+          >
+            <lucide-angular
+              [img]="BotIcon"
+              class="size-4 text-base-content-muted"
+            />
           </span>
           <p class="mt-2 text-[13px] font-semibold">No agents yet</p>
           <p class="mt-1 text-xs text-base-content-muted">
@@ -146,7 +170,10 @@ let nextSectionId = 0;
               [attr.aria-current]="selectedKey() === view.key ? 'true' : null"
             >
               @if (selectedKey() === view.key) {
-                <span class="absolute inset-y-2 left-0 w-0.5 rounded-full bg-secondary" aria-hidden="true"></span>
+                <span
+                  class="absolute inset-y-2 left-0 w-0.5 rounded-full bg-secondary"
+                  aria-hidden="true"
+                ></span>
               }
               <div class="flex items-start">
                 <button
@@ -154,7 +181,9 @@ let nextSectionId = 0;
                   class="agent__main flex min-w-0 flex-1 items-start gap-[13px] pb-[11px] pl-[17px] pr-2 pt-[11px] text-left hover:bg-base-content/5 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2"
                   [attr.data-agent-key]="view.key"
                   [attr.aria-label]="view.ariaLabel"
-                  [attr.aria-describedby]="view.modelRaw ? modelDescId(i) : null"
+                  [attr.aria-describedby]="
+                    view.modelRaw ? modelDescId(i) : null
+                  "
                   (click)="activate(view)"
                 >
                   <ptah-agent-avatar
@@ -166,44 +195,98 @@ let nextSectionId = 0;
                   />
                   <span class="min-w-0 flex-1">
                     <span class="flex items-baseline gap-2">
-                      <span class="min-w-0 truncate text-[13px] font-semibold">{{ view.name }}</span>
-                      <span class="ml-auto flex shrink-0 items-baseline gap-1 text-xs">
+                      <span
+                        class="min-w-0 truncate text-[13px] font-semibold"
+                        >{{ view.name }}</span
+                      >
+                      <span
+                        class="ml-auto flex shrink-0 items-baseline gap-1 text-xs"
+                      >
                         @if (view.row.agent.status; as status) {
-                          <span [class]="'font-medium ' + view.statusInk">{{ status }}</span>
+                          <span [class]="'font-medium ' + view.statusInk">{{
+                            status
+                          }}</span>
                         }
                         @if (view.duration && view.row.agent.kind !== 'cli') {
-                          <span class="tabular-nums text-base-content-muted">· {{ view.duration }}</span>
+                          <span class="tabular-nums text-base-content-muted"
+                            >· {{ view.duration }}</span
+                          >
                         }
                       </span>
                     </span>
-                    <span class="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-base-content-muted">
+                    <span
+                      class="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-base-content-muted"
+                    >
                       <span
                         class="h-auto shrink-0 rounded border border-surface-border bg-surface-3 px-[5px] py-[3px] text-[10px] font-medium leading-none text-base-content-muted"
-                      >{{ view.kindLabel }}</span>
+                        >{{ view.kindLabel }}</span
+                      >
                       @if (view.modelName) {
-                        <span class="shrink-0 font-medium" [attr.title]="view.modelRaw">{{ view.modelName }}</span>
+                        <span
+                          class="shrink-0 font-medium"
+                          [attr.title]="view.modelRaw"
+                          >{{ view.modelName }}</span
+                        >
                       }
                       @if (view.row.agent.activity) {
-                        <span class="min-w-0 truncate">{{ view.row.agent.activity }}</span>
+                        <span class="min-w-0 truncate">{{
+                          view.row.agent.activity
+                        }}</span>
                       }
                       @if (view.tokens && view.row.agent.kind !== 'cli') {
-                        <span class="shrink-0 tabular-nums">· {{ view.tokens }} tokens</span>
+                        <span class="shrink-0 tabular-nums"
+                          >· {{ view.tokens }} tokens</span
+                        >
                       }
                     </span>
                     @if (view.row.agent.kind === 'cli') {
-                      <span class="mt-1.5 flex flex-wrap items-center gap-1.5 [&_span]:whitespace-nowrap">
+                      <span
+                        class="mt-1.5 flex flex-wrap items-center gap-1.5 [&_span]:whitespace-nowrap"
+                      >
                         @if (view.cliTokens !== null) {
                           @if (view.cliUsagePartial) {
-                            <span class="badge badge-outline badge-sm cursor-help" title="From retained output, may be partial" [attr.aria-label]="'at least ' + formatTokenCount(view.cliTokens) + ' tokens'">≥ {{ formatTokenCount(view.cliTokens) }} tokens</span>
+                            <span
+                              class="badge badge-outline badge-sm cursor-help"
+                              title="From retained output, may be partial"
+                              [attr.aria-label]="
+                                'at least ' +
+                                formatTokenCount(view.cliTokens) +
+                                ' tokens'
+                              "
+                              >≥
+                              {{
+                                formatTokenCount(view.cliTokens)
+                              }}
+                              tokens</span
+                            >
                           } @else {
                             <ptah-token-badge [tokens]="view.cliTokens" />
                           }
                         }
                         @if (view.cliCost !== null) {
-                          <span class="badge badge-sm badge-ghost text-base-content-muted tabular-nums" [attr.title]="view.cliUsagePartial ? 'From retained output, may be partial' : 'Reported or estimated cost'" [attr.aria-label]="view.cliUsagePartial ? 'at least ' + formatEstimatedCost(view.cliCost) : null">{{ view.cliUsagePartial ? '≥ ' : '' }}{{ formatEstimatedCost(view.cliCost) }}</span>
+                          <span
+                            class="badge badge-sm badge-ghost text-base-content-muted tabular-nums"
+                            [attr.title]="
+                              view.cliUsagePartial
+                                ? 'From retained output, may be partial'
+                                : 'Reported or estimated cost'
+                            "
+                            [attr.aria-label]="
+                              view.cliUsagePartial
+                                ? 'at least ' +
+                                  formatEstimatedCost(view.cliCost)
+                                : null
+                            "
+                            >{{ view.cliUsagePartial ? '≥ ' : ''
+                            }}{{ formatEstimatedCost(view.cliCost) }}</span
+                          >
                         }
                         @if (view.duration) {
-                          <span class="badge badge-sm badge-ghost text-base-content-muted tabular-nums" title="Elapsed duration">{{ view.duration }}</span>
+                          <span
+                            class="badge badge-sm badge-ghost text-base-content-muted tabular-nums"
+                            title="Elapsed duration"
+                            >{{ view.duration }}</span
+                          >
                         }
                       </span>
                     }
@@ -221,7 +304,9 @@ let nextSectionId = 0;
                 }
               </div>
               @if (view.modelRaw) {
-                <span hidden [id]="modelDescId(i)">Model {{ view.modelName }}, id {{ view.modelRaw }}</span>
+                <span hidden [id]="modelDescId(i)"
+                  >Model {{ view.modelName }}, id {{ view.modelRaw }}</span
+                >
               }
               @if (view.requests.length > 0) {
                 <ptah-inspector-request-lines
@@ -247,7 +332,10 @@ let nextSectionId = 0;
                   (steer)="onSteer(view.key, $event)"
                 />
                 @if (steerErrorKey() === view.key) {
-                  <p role="alert" class="mb-2 ml-[62px] mr-4 text-xs text-state-err">
+                  <p
+                    role="alert"
+                    class="mb-2 ml-[62px] mr-4 text-xs text-state-err"
+                  >
                     Could not send your message. Try again.
                   </p>
                 }
@@ -292,9 +380,7 @@ export class InspectorAgentsSectionComponent {
   private readonly now = signal(Date.now());
 
   private readonly rows = computed(() => this.agents().data?.rows ?? []);
-  private readonly roster = computed(() =>
-    this.rows().map((row) => row.agent),
-  );
+  private readonly roster = computed(() => this.rows().map((row) => row.agent));
 
   private readonly extras = computed(() =>
     this.tray.extrasFor(this.sessionId(), this.roster()),
@@ -326,27 +412,37 @@ export class InspectorAgentsSectionComponent {
       const agent = row.agent;
       const extra = extras.get(agent.key);
       const tray = extra?.tray ?? null;
-      const durationMs =
-        agent.startedAt !== null
-          ? (agent.endedAt ?? now) - agent.startedAt
-          : (tray?.entry.durationMs ?? null);
+      const durationMs = agentRunDurationMs(
+        {
+          running: agent.status === 'running',
+          startedAt: agent.startedAt,
+          endedAt: agent.endedAt,
+          reportedMs: tray?.entry.durationMs,
+        },
+        now,
+      );
       const modelRaw = extra?.model ?? null;
       const tokens = extra?.tokens ?? null;
-      const fallbackUsage = agent.usageTotals == null ? usageTotalsFromSegments(agent.segments ?? []) : null;
-      const usage = agent.usageTotals ?? fallbackUsage;
-      const cliTokenTotal = typeof usage?.totalTokens === 'number'
-        ? usage.totalTokens
-        : typeof usage?.inputTokens === 'number' && typeof usage?.outputTokens === 'number'
-          ? usage.inputTokens + usage.outputTokens
+      const fallbackUsage =
+        agent.usageTotals == null
+          ? usageTotalsFromSegments(agent.segments ?? [])
           : null;
-      const duration = durationMs === null ? null : agent.kind === 'cli' ? formatElapsed(durationMs) : formatAgentDuration(durationMs);
+      const usage = agent.usageTotals ?? fallbackUsage;
+      const cliTokenTotal =
+        typeof usage?.totalTokens === 'number'
+          ? usage.totalTokens
+          : typeof usage?.inputTokens === 'number' &&
+              typeof usage?.outputTokens === 'number'
+            ? usage.inputTokens + usage.outputTokens
+            : null;
+      const duration =
+        durationMs === null ? null : formatAgentDuration(durationMs);
       const label = agentAccessibleLabel({
         name: agent.name,
         kind: agent.kind,
         status: agent.status,
-        durationMs: agent.kind === 'cli' ? null : durationMs,
+        durationMs,
       });
-      const ariaLabel = agent.kind === 'cli' && duration ? `${label} ${duration}` : label;
       return {
         key: agent.key,
         row,
@@ -354,16 +450,19 @@ export class InspectorAgentsSectionComponent {
         kindLabel: AGENT_KIND_LABEL[agent.kind],
         statusInk: agent.status ? STATUS_INK[agent.status] : '',
         duration,
-        ariaLabel: agent.activity ? `${ariaLabel}. ${agent.activity}` : ariaLabel,
+        ariaLabel: agent.activity ? `${label}. ${agent.activity}` : label,
         modelName: modelRaw ? resolveModelDisplayName(modelRaw, models) : null,
         modelRaw,
         tokens:
           tokens !== null && Number.isFinite(tokens) && tokens > 0
             ? formatTokenCount(tokens)
             : null,
-        cliTokens: cliTokenTotal !== null && Number.isFinite(cliTokenTotal) && cliTokenTotal > 0
-          ? cliTokenTotal
-          : null,
+        cliTokens:
+          cliTokenTotal !== null &&
+          Number.isFinite(cliTokenTotal) &&
+          cliTokenTotal > 0
+            ? cliTokenTotal
+            : null,
         cliCost: usage?.costUsd ?? null,
         cliUsagePartial: fallbackUsage?.partial === true,
         tray,
@@ -405,9 +504,6 @@ export class InspectorAgentsSectionComponent {
     const ctx = this.contextOf(key);
     if (!ctx) return;
     switch (action) {
-      case 'transcript':
-        this.tray.viewTranscript(ctx);
-        break;
       case 'steer':
         this.steerErrorKey.set(null);
         this.steerOpenKey.set(key);

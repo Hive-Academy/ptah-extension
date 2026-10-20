@@ -25,7 +25,7 @@ import type {
 } from '@ptah-extension/shared';
 import { AgentStatsService } from '../agent-stats.service';
 import { buildStreamingIndexes } from '../indexes/streaming-indexes';
-import { buildAgentNode, buildInterleavedChildren } from './agent-node.fn';
+import { buildAgentNode } from './agent-node.fn';
 import type { BackgroundAgentLookup, BuilderDeps } from './builder-deps';
 import { buildMessageNode, findMessageStartEvent } from './message-node.fn';
 import { buildToolChildren, buildToolNode, collectTools } from './tool-node.fn';
@@ -74,7 +74,6 @@ function makeDeps(
       collectTools(deps, messageId, st, depth),
     buildAgentNode: (agentStart, toolCallId, st, depth) =>
       buildAgentNode(deps, agentStart, toolCallId, st, depth),
-    buildInterleavedChildren,
   };
   return deps;
 }
@@ -613,72 +612,6 @@ describe('builder fns (integration)', () => {
       expect(result).toEqual([]);
       expect(consoleSpy).toHaveBeenCalled();
       consoleSpy.mockRestore();
-    });
-  });
-
-  describe('buildInterleavedChildren', () => {
-    function makeToolNode(toolCallId: string): ExecutionNode {
-      return {
-        id: `node-${toolCallId}`,
-        type: 'tool',
-        status: 'complete',
-        content: null,
-        children: [],
-        isCollapsed: false,
-        toolCallId,
-        toolName: 'Read',
-      };
-    }
-
-    it('interleaves text nodes between tool refs in declared order', () => {
-      const tools = [makeToolNode('toolu_a'), makeToolNode('toolu_b')];
-      const result = buildInterleavedChildren(
-        'agent_1',
-        1000,
-        [
-          { type: 'text', text: 'before' },
-          { type: 'tool_ref', toolUseId: 'toolu_a', toolName: 'Read' },
-          { type: 'text', text: 'middle' },
-          { type: 'tool_ref', toolUseId: 'toolu_b', toolName: 'Read' },
-          { type: 'text', text: 'after' },
-        ],
-        tools,
-      );
-      expect(result.map((n) => n.type)).toEqual([
-        'text',
-        'tool',
-        'text',
-        'tool',
-        'text',
-      ]);
-      expect(result[0].content).toBe('before');
-      expect(result[1].toolCallId).toBe('toolu_a');
-    });
-
-    it('appends tools that were not referenced in content blocks', () => {
-      const tools = [makeToolNode('toolu_a'), makeToolNode('toolu_orphan')];
-      const result = buildInterleavedChildren(
-        'agent_1',
-        1000,
-        [{ type: 'tool_ref', toolUseId: 'toolu_a' }],
-        tools,
-      );
-      expect(result).toHaveLength(2);
-      expect(result[0].toolCallId).toBe('toolu_a');
-      expect(result[1].toolCallId).toBe('toolu_orphan');
-    });
-
-    it('logs a debug when a tool_ref points to a tool not present in toolChildren', () => {
-      const debugSpy = jest.spyOn(console, 'debug').mockImplementation();
-      const result = buildInterleavedChildren(
-        'agent_1',
-        1000,
-        [{ type: 'tool_ref', toolUseId: 'toolu_missing', toolName: 'Bash' }],
-        [],
-      );
-      expect(result).toEqual([]);
-      expect(debugSpy).toHaveBeenCalled();
-      debugSpy.mockRestore();
     });
   });
 });

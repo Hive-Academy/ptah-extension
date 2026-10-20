@@ -8,7 +8,14 @@ import {
   type TurnContext,
 } from '../../../utils/turn-facts.utils';
 import type { SessionAgent } from '../../../services/session-agents/session-agent-roster';
-import { laneKey } from '../../molecules/compact-session/compact-lane-rows';
+import {
+  laneKey,
+  parseLaneKey,
+} from '../../molecules/compact-session/compact-lane-rows';
+import {
+  collectNestedAgentNodes,
+  type AgentTreeFor,
+} from './transcript-agent-facts';
 
 /** Assistant message id → its place in its turn (`buildTurnContexts`). */
 export type TurnContexts = ReadonlyMap<string, TurnContext>;
@@ -23,9 +30,8 @@ export const NO_SESSION_AGENTS: readonly SessionAgent[] = [];
 const NO_IDS: readonly string[] = [];
 
 /** Agent statuses that keep their turn live (work still in flight). */
-const LIVE_AGENT_STATUSES: ReadonlySet<AgentStatusWord | null> = new Set<
-  AgentStatusWord | null
->(['running', 'waiting', 'queued']);
+const LIVE_AGENT_STATUSES: ReadonlySet<AgentStatusWord | null> =
+  new Set<AgentStatusWord | null>(['running', 'waiting', 'queued']);
 
 function sameIds(a: readonly unknown[], b: readonly unknown[]): boolean {
   if (a === b) return true;
@@ -112,11 +118,14 @@ export const NO_TURN_AGENT_KEYS: TurnAgentKeys = new Map();
  * `toolCallId` is the roster's `SubagentRecord.parentToolUseId` (the key
  * `openSubagentLane` already resolves through `findAgentNode`). CLI lanes
  * have no verified turn link and are not turn-scoped (implementation-plan
- * §2.2, A1 consumption). Turns without an agent have no entry.
+ * §2.2, A1 consumption). When `treeFor` is supplied, nested agents in each
+ * top-level agent's store tree keep that same turn. Turns without an agent
+ * have no entry and do not read the store.
  */
 export function turnAgentKeysOf(
   messages: readonly ExecutionChatMessage[],
   contexts: TurnContexts,
+  treeFor?: AgentTreeFor,
 ): TurnAgentKeys {
   if (contexts.size === 0) return NO_TURN_AGENT_KEYS;
   const keysByTurn = new Map<string, Set<string>>();
@@ -133,6 +142,20 @@ export function turnAgentKeysOf(
     for (const id of ids) {
       keys.add(laneKey('subagent', id));
       keys.add(laneKey('background', id));
+    }
+  }
+  if (treeFor) {
+    for (const keys of keysByTurn.values()) {
+      const agentIds: string[] = [];
+      for (const key of keys) {
+        const lane = parseLaneKey(key);
+        if (lane?.kind === 'subagent') agentIds.push(lane.id);
+      }
+      for (const node of collectNestedAgentNodes(agentIds, treeFor)) {
+        if (!node.toolCallId) continue;
+        keys.add(laneKey('subagent', node.toolCallId));
+        keys.add(laneKey('background', node.toolCallId));
+      }
     }
   }
   return keysByTurn.size === 0 ? NO_TURN_AGENT_KEYS : keysByTurn;

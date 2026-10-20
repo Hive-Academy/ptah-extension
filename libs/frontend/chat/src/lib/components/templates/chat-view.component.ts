@@ -11,12 +11,10 @@ import {
   untracked,
   ElementRef,
   NgZone,
-  afterNextRender,
   OnDestroy,
   InjectionToken,
   Signal,
 } from '@angular/core';
-import { NgComponentOutlet } from '@angular/common';
 import {
   LucideAngularModule,
   Bell,
@@ -44,35 +42,19 @@ import {
   StatsTileExpansionState,
   PTAH_UI_DISPLAY_DOCK,
   PTAH_UI_DISPLAY_DOCK_SYNC,
-  limitAwareDot,
-  inspectorToggleDescription,
 } from '@ptah-extension/chat-ui';
 import { ResumeNotificationBannerComponent } from '../molecules/notifications/resume-notification-banner.component';
 import { AuthRequiredBannerComponent } from '../molecules/notifications/auth-required-banner.component';
 import { SessionBudgetBannerComponent } from '../molecules/notifications/session-budget-banner.component';
 import { CompactSessionCardComponent } from '../molecules/compact-session/compact-session-card.component';
 import { AgentOriginBannerComponent } from '../molecules/agent-origin-banner/agent-origin-banner.component';
-import { SessionHeaderComponent } from '../molecules/session-header/session-header.component';
-// Referenced only in `imports` and inside `@defer (on immediate)`.
-import { SessionInspectorComponent } from '../organisms/session-inspector/session-inspector.component';
-import {
-  InspectorShellController,
-  SessionInspectorStore,
-} from '../../services/session-inspector';
+import { SessionInspectorStore } from '../../services/session-inspector';
 import { injectSessionStatsSource } from '../../services/session-stats/session-stats-source';
-import { SESSION_EMBED_CHROME } from '../../tokens/session-embed-chrome.token';
-import {
-  SESSION_WORKFLOW_ADDONS,
-  sessionWorkflowKind,
-  workflowAddonsFor,
-} from '../../tokens/session-workflow-addons.token';
-import {
-  SessionGitStatsStore,
-  sessionBranch,
-  sessionWorkingRoot,
-} from '../../services/session-git-stats/session-git-stats.store';
 import { ChatStore } from '../../services/chat.store';
-import { ActionBannerService } from '../../services/action-banner.service';
+import {
+  ActionBannerService,
+  type ActionBannerState,
+} from '../../services/action-banner.service';
 import { SessionBudgetActionsService } from '../../services/session-budget-actions.service';
 import { TranscriptRetentionService } from '../../services/transcript-retention.service';
 import { SessionLoaderService } from '../../services/chat-store/session-loader.service';
@@ -99,7 +81,6 @@ import {
   SESSION_VISIBLE,
   SESSION_FORCED_CARD,
   SESSION_START_GUARD,
-  SESSION_CARD_ACTIONS,
 } from '../../tokens/session-context.token';
 import {
   ClaudeRpcService,
@@ -145,7 +126,6 @@ export function shouldOverlayDock(
  * - Egyptian themed empty state (ChatEmptyStateComponent)
  * - Permission request handling
  * - Queued content indicator
- * - "This session" inspector host (main panel; stats, agents, requests)
  *
  * Auto-scroll behavior:
  * - Scrolls to bottom when new messages arrive
@@ -169,15 +149,8 @@ export const DISPLAY_DOCK_DEFAULT_WIDTH = 400;
 /** `PanelResizeService` bounds: 300 px, at most 75% of the host. */
 const DOCK_MIN_WIDTH = 300;
 const DOCK_MAX_WIDTH_RATIO = 0.75;
-/** How long an inspector `Answer` waits for its question card (plan-part-b §5). */
-const QUESTION_CARD_WAIT_MS = 1000;
-
 /** Includes the last inspector row's entrance and a small cleanup margin. */
 const ENTER_WINDOW_MS = 400;
-
-/** The first option of a question card, focused when an answer is routed to it. */
-const QUESTION_CARD_FOCUSABLE =
-  'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /** One separator arrow-key step (design-spec section 8, assertion 11). */
 const DOCK_KEY_STEP = 16;
@@ -215,19 +188,12 @@ const VIEW_PANEL_KEY = '';
     SidebarTabComponent,
     CompactSessionCardComponent,
     AgentOriginBannerComponent,
-    SessionHeaderComponent,
-    NgComponentOutlet,
-    // Referenced only here and inside `@defer`, so the inspector sections stay
-    // a lazy chunk (plan-part-b §5).
-    SessionInspectorComponent,
   ],
   templateUrl: './chat-view.component.html',
   styleUrl: './chat-view.component.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [
     TranscriptRetentionService,
-    // Open state, width band and sheet focus of this view's inspector.
-    InspectorShellController,
     PanelResizeService,
     DisplaySheetState,
     // One tile-expansion map per session view, released with the view (A3).
@@ -359,11 +325,20 @@ export class ChatViewComponent implements OnDestroy {
       : null;
   });
 
+  /**
+   * Bumped by every action banner this view shows, so a late outcome (a
+   * branch tile that finishes loading after its timeout) can tell whether a
+   * newer action has spoken since and stay quiet instead of replacing it.
+   */
+  private _actionBannerGeneration = 0;
+
   private showActionError(message: string, tabId: string | null = null): void {
+    this._actionBannerGeneration++;
     this.actionBanner.showError(message, tabId);
   }
 
   private showActionInfo(message: string, tabId: string | null = null): void {
+    this._actionBannerGeneration++;
     this.actionBanner.showInfo(message, tabId);
   }
 
@@ -371,6 +346,7 @@ export class ChatViewComponent implements OnDestroy {
     message: string,
     tabId: string | null = null,
   ): void {
+    this._actionBannerGeneration++;
     this.actionBanner.showWarning(message, tabId);
   }
 
@@ -678,7 +654,6 @@ export class ChatViewComponent implements OnDestroy {
   }
 
   ngOnDestroy(): void {
-    this.clearAnswerWait();
     if (this.enteringTimer !== null) clearTimeout(this.enteringTimer);
     this._cancelResizeFrame();
     this._cleanupResizeListeners();
@@ -831,22 +806,15 @@ export class ChatViewComponent implements OnDestroy {
   });
 
   /**
-   * The main panel renders a transcript LIVE only outside grid layout — in grid
-   * mode the canvas tiles own the live render, so the hidden main panel must not
-   * double-render the same tab (plan risk 5). In tile mode the surface reports
-   * its own on-screen state via SESSION_VISIBLE, so a hidden-workspace tile's
-   * transcript freezes; when the token is absent (tribunal conductor, tests) the
-   * tile is treated as always showing.
+   * A tile surface reports its own on-screen state via SESSION_VISIBLE, so a
+   * hidden-workspace tile's transcript freezes; when the token is absent
+   * (tribunal conductor, tests) the view is treated as always showing.
    *
    * A user-chosen compact tab keeps the main transcript region mounted but
    * hidden. A forced Rail card tears it down and rebuilds it on return
    * (plan risk 6).
    */
-  readonly mainPanelShowing = computed(() =>
-    this._sessionContext
-      ? (this._sessionVisible?.() ?? true)
-      : this._appState.layoutMode() !== 'grid',
-  );
+  readonly mainPanelShowing = computed(() => this._sessionVisible?.() ?? true);
 
   /**
    * Resolved messages: tile-scoped when SESSION_CONTEXT is provided, otherwise global.
@@ -955,89 +923,6 @@ export class ChatViewComponent implements OnDestroy {
     this._tabManager.switchTab(parentTabId);
   }
 
-  /**
-   * Feed the controller this view's tab, close the sheet on a session switch
-   * (a tab switch closes it inside the controller), and attach the shell once
-   * rendered. The opener and title are looked up lazily: the header renders
-   * them after this view.
-   */
-  private wireInspectorShell(): void {
-    this.shell.bindTab(() =>
-      this.hostsInspector() ? this.resolvedTabId() : null,
-    );
-    let previousSessionId: string | null | undefined;
-    effect(() => {
-      const sessionId = this.resolvedSessionId();
-      if (previousSessionId !== undefined && sessionId !== previousSessionId) {
-        untracked(() => this.shell.onTabChanged());
-      }
-      previousSessionId = sessionId;
-    });
-    afterNextRender(() => {
-      const shell = this.inspectorShell()?.nativeElement;
-      if (!shell) return;
-      const host = this.hostEl.nativeElement;
-      this.shell.attach(
-        shell,
-        () => host.querySelector<HTMLElement>('[aria-controls="inspector"]'),
-        () => host.querySelector<HTMLElement>('h1[tabindex="-1"]'),
-      );
-    });
-  }
-
-  /** Path 4: open the lane, then close the sheet; a docked inspector stays. */
-  protected openLaneFromInspector(laneKey: string): void {
-    if (!this._cardActions) return;
-    this._cardActions.openLane(laneKey);
-    if (this.shell.isModal()) this.shell.closeInsp();
-  }
-
-  /**
-   * Route an inspector `Answer` to the question card of `requestId` (path-7
-   * exception: the sheet closes onto the card's first option). The card is
-   * awaited for 1 s; without it the inspector row shows the miss error.
-   */
-  protected focusQuestionCard(requestId: string): void {
-    this.clearAnswerWait();
-    const card = this.findQuestionCard(requestId);
-    if (card) {
-      this.revealQuestionCard(requestId, card);
-      return;
-    }
-    this._answerWait = setTimeout(() => {
-      this._answerWait = null;
-      const late = this.findQuestionCard(requestId);
-      if (late) this.revealQuestionCard(requestId, late);
-      else this._inspectorStore.reportAnswerMiss(requestId);
-    }, QUESTION_CARD_WAIT_MS);
-  }
-
-  private findQuestionCard(requestId: string): HTMLElement | null {
-    const cards = this.hostEl.nativeElement.querySelectorAll<HTMLElement>(
-      'ptah-question-card[data-request-id]',
-    );
-    for (const card of Array.from(cards)) {
-      if (card.getAttribute('data-request-id') === requestId) return card;
-    }
-    return null;
-  }
-
-  private revealQuestionCard(requestId: string, card: HTMLElement): void {
-    this._inspectorStore.clearAnswerMiss(requestId);
-    const first = card.querySelector<HTMLElement>(QUESTION_CARD_FOCUSABLE);
-    if (this.shell.isModal()) {
-      this.shell.closeInsp(first ?? undefined);
-      return;
-    }
-    first?.focus();
-  }
-
-  private clearAnswerWait(): void {
-    if (this._answerWait === null) return;
-    clearTimeout(this._answerWait);
-    this._answerWait = null;
-  }
-
   private readonly _planLimits = inject(PlanLimitsStore);
   /** This surface's share of the plan-limits request; released on destroy. */
   private readonly _planLimitsScope = this._planLimits.registerScope(
@@ -1055,10 +940,10 @@ export class ChatViewComponent implements OnDestroy {
   protected readonly budgetWrapUpSent = this._budgetActions.wrapUpSent;
 
   /**
-   * The one stats source of this view (Delta 3): the inspector's SESSION,
-   * PLAN LIMITS and LANES. The main panel has no tab, so it reads the
-   * ChatStore, the active session id and this view's budget, the values the
-   * removed strip showed; `null` until the view has messages.
+   * The one stats source of this view (Delta 3). It names the run owners of
+   * this view's session for the plan-limits scope below. A view with no tab
+   * context reads the ChatStore, the active session id and this view's
+   * budget; `null` until the view has messages.
    */
   protected readonly stats = injectSessionStatsSource({
     tab: () => this.resolvedTab(),
@@ -1067,108 +952,13 @@ export class ChatViewComponent implements OnDestroy {
     available: () => this.resolvedMessages().length > 0,
   });
 
-  /** Open state, width band and sheet focus of this view's inspector. */
-  protected readonly shell = inject(InspectorShellController);
   private readonly _inspectorStore = inject(SessionInspectorStore);
-  private readonly _cardActions = inject(SESSION_CARD_ACTIONS, {
-    optional: true,
-  });
-
-  /**
-   * A host page that brings its own session chrome (TASK_2026_649) provides
-   * `'bare'`: no inspector, no default-open and no shell attach. Read once;
-   * the session header reads it too.
-   */
-  protected readonly bareChrome =
-    inject(SESSION_EMBED_CHROME, { optional: true }) === 'bare';
-
-  /** Only the full main panel hosts the inspector. */
-  protected readonly hostsInspector = computed(
-    () => !this.bareChrome && !this._sessionContext && !this.showCompactCard(),
-  );
-
-  /** Agent rows open lanes only where the host has a lane surface. */
-  protected readonly hasLaneSurface = this._cardActions !== null;
-
-  // Session header (plan part A2 binding contract; Delta 3 closed-state cues).
-  // It renders only where the inspector is hosted, so a 'bare' embed, a tile
-  // and a forced card get no header, chips or dot.
-
-  private readonly _gitStats = inject(SessionGitStatsStore);
-  private readonly _vscode = inject(VSCodeService);
-  private readonly _workflowAddons = inject(SESSION_WORKFLOW_ADDONS, {
-    optional: true,
-  });
 
   /** Unique pending requests of the shown tab (the inspector's one count). */
   protected readonly needsYouCount = computed(() => {
     const tabId = this.resolvedTabId();
     return tabId ? this._inspectorStore.modelFor(tabId)().needsYouCount : 0;
   });
-
-  /**
-   * Branch hint: the agent-origin branch, else the last known branch of the
-   * session's working root (the composer's rule). Reads git state only; the
-   * inspector's GIT section starts the tracking.
-   */
-  protected readonly headerBranch = computed(() => {
-    const tab = this.resolvedActiveTab();
-    if (!tab) return null;
-    const root = sessionWorkingRoot(
-      tab,
-      this._tabManager.findTabByIdAcrossWorkspaces(tab.id)?.workspacePath ??
-        null,
-      this._vscode.config().workspaceRoot || undefined,
-    );
-    return sessionBranch(tab, this._gitStats.stateFor(root));
-  });
-
-  /** One dot: pending request > at limit > near limit > workflow; none open. */
-  protected readonly inspectorDot = computed(() =>
-    limitAwareDot(
-      this.shell.showDot(),
-      this.shell.isOpen(),
-      this.stats.inputs()?.limitSummary ?? null,
-    ),
-  );
-
-  protected readonly limitCue = computed(
-    () => this.stats.inputs()?.limitSummary ?? null,
-  );
-
-  protected readonly contextRingPercent = computed(
-    () => this.stats.inputs()?.context.percent ?? null,
-  );
-
-  /** What is behind the closed toggle; empty without stats. */
-  protected readonly toggleDescription = computed(() => {
-    const stats = this.stats.inputs();
-    return stats
-      ? inspectorToggleDescription(
-          stats.context,
-          stats.limitSummary,
-          this.needsYouCount(),
-        )
-      : '';
-  });
-
-  /** Workflow add-ons of the shown tab for the header's chip slot. */
-  protected readonly headerChipAddons = computed(() =>
-    workflowAddonsFor(
-      this._workflowAddons,
-      sessionWorkflowKind(this.resolvedActiveTab()),
-      'sessionHeaderChip',
-    ),
-  );
-
-  /** Workflow add-ons of the shown tab for the header's action slot. */
-  protected readonly headerActionAddons = computed(() =>
-    workflowAddonsFor(
-      this._workflowAddons,
-      sessionWorkflowKind(this.resolvedActiveTab()),
-      'sessionHeaderAction',
-    ),
-  );
 
   protected readonly enteringTabId = signal<string | null>(null);
   private enteringTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1193,10 +983,6 @@ export class ChatViewComponent implements OnDestroy {
     });
   }
 
-  private readonly inspectorShell =
-    viewChild<ElementRef<HTMLElement>>('inspectorShell');
-  /** The pending 1 s wait of `focusQuestionCard`; cleared on destroy. */
-  private _answerWait: ReturnType<typeof setTimeout> | null = null;
   /**
    * The budget banner shows on the active tab of the main panel, idle or
    * streaming: the wrap-up message queues like any typed one while a turn runs.
@@ -1303,11 +1089,6 @@ export class ChatViewComponent implements OnDestroy {
 
     const tabId = this.resolvedTabId(); // frontend UUID (e.g. "tab-abc123")
     const activeTabId = this._tabManager.activeTabId();
-    const isMainPanel = !this._sessionContext;
-    const tilesPresent = this._appState.layoutMode() === 'grid';
-    if (isMainPanel && tilesPresent) {
-      return [];
-    }
     const isActiveTile = tabId !== null && tabId === activeTabId;
 
     return allQuestions.filter((q) => {
@@ -1355,12 +1136,10 @@ export class ChatViewComponent implements OnDestroy {
       sessionId: this.resolvedSessionId,
     });
     this.observeHostWidth();
-    // Tiles never host the inspector, so they start no shell observer.
-    if (!this.bareChrome && !this._sessionContext) this.wireInspectorShell();
     this.wireSessionEntrance();
 
     // A closed chat tab's dock state is released, whichever path closed it
-    // (tab bar, shortcut, canvas, tribunal); the view's own key is never a tab.
+    // (shortcut, canvas, tribunal); the view's own key is never a tab.
     // `tabs()` lists only the active workspace, so a tab that left it is
     // forgotten only when no workspace still holds it.
     const dock = this.displayDock;
@@ -1525,7 +1304,7 @@ export class ChatViewComponent implements OnDestroy {
 
   /**
    * Cancel queued message (user-requested cancellation).
-   * Uses resolvedTabId to target the correct tab in both single and canvas modes.
+   * Uses resolvedTabId to target the tab this view renders.
    */
   cancelQueue(): void {
     const tabId = this.resolvedTabId() ?? undefined;
@@ -1655,10 +1434,12 @@ export class ChatViewComponent implements OnDestroy {
   /**
    * "Branch from here" — fork the current session at the given user message
    * into a new tab. The backend slices the JSONL transcript up to and
-   * including `messageId` and returns a fresh session UUID, which we then
-   * bind to a new tab via `TabManagerService.openSessionTab()`.
+   * including `messageId` and returns a fresh session UUID, which opens as a
+   * new canvas tile via `AppStateManager.requestCanvasSession()`.
    */
   async onBranchRequested(messageId: string): Promise<void> {
+    // The tab this branch was started from; a late failure is scoped to it.
+    const originTabId = this.resolvedTabId();
     const sessionId = this.resolvedSessionId();
     if (!sessionId) {
       this.showActionError('No active session to branch from.');
@@ -1679,21 +1460,54 @@ export class ChatViewComponent implements OnDestroy {
 
       if (result.isSuccess()) {
         const newSessionId = result.data.newSessionId;
-        if (this._appState.layoutMode() === 'grid') {
-          this._appState.requestCanvasSession(newSessionId, 'Branch');
+        // `false` covers the tile cap, the canvas not draining in time, and a
+        // failed load: the fork exists on disk either way.
+        // The canvas drains the request BEFORE it awaits the session load, so
+        // app-state's 5 s timer cannot settle a hung load. Bound the wait so
+        // `_actionInFlight` always clears. On a timeout the load is still
+        // running and can still fail, so report the branch as still opening
+        // and let the original promise report a late failure.
+        const opening = this._appState.requestCanvasSession(
+          newSessionId,
+          'Branch',
+        );
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const opened = await Promise.race([
+          opening,
+          new Promise<'timeout'>((resolve) => {
+            timer = setTimeout(
+              () => resolve('timeout'),
+              ChatViewComponent.BRANCH_OPEN_TIMEOUT_MS,
+            );
+          }),
+        ]).finally(() => clearTimeout(timer));
+        if (opened === 'timeout') {
+          this.showActionInfo('Branch created. It is still opening.');
+          // A late `true` needs no notice. A late `false` or rejection means
+          // the tile never opened: report it on the originating tab, unless a
+          // newer banner has been shown since. The trailing catch keeps a
+          // throwing handler from becoming an unhandled rejection.
+          const pending = {
+            generation: this._actionBannerGeneration,
+            banner: this.actionBanner.banner(),
+          };
+          opening
+            .then(
+              (lateOpened) => {
+                if (!lateOpened) this.showLateBranchError(originTabId, pending);
+              },
+              () => this.showLateBranchError(originTabId, pending),
+            )
+            .catch((error: unknown) => {
+              console.warn(
+                '[ChatView] Failed to report a late branch outcome:',
+                error,
+              );
+            });
+        } else if (opened) {
           this.showActionInfo('Branch created.');
         } else {
-          this._tabManager.openSessionTab(newSessionId, 'Branch');
-          try {
-            await this.chatStore.switchSession(newSessionId);
-            this.showActionInfo('Branch created.');
-          } catch (err) {
-            this.showActionError(
-              `Branch tab opened, but loading history failed: ${
-                err instanceof Error ? err.message : String(err)
-              }`,
-            );
-          }
+          this.showBranchNotOpenedError();
         }
       } else {
         this.showActionError(
@@ -1705,6 +1519,28 @@ export class ChatViewComponent implements OnDestroy {
       next.delete(messageId);
       this._actionInFlight.set(next);
     }
+  }
+
+  private showBranchNotOpenedError(tabId: string | null = null): void {
+    this.showActionError(
+      'Branch created, but it did not open. Open it from Previous sessions.',
+      tabId,
+    );
+  }
+
+  /**
+   * Late branch failure (after the open timeout). Suppressed when this view
+   * has shown a newer banner, or when the shared banner slot now holds a
+   * banner from another action (another tile), so it never replaces it.
+   */
+  private showLateBranchError(
+    tabId: string | null,
+    pending: { generation: number; banner: ActionBannerState | null },
+  ): void {
+    if (this._actionBannerGeneration !== pending.generation) return;
+    const current = this.actionBanner.banner();
+    if (current !== null && current !== pending.banner) return;
+    this.showBranchNotOpenedError(tabId);
   }
 
   async onRewindRequested(messageId: string): Promise<void> {
@@ -1949,6 +1785,9 @@ export class ChatViewComponent implements OnDestroy {
 
   private static readonly MESSAGE_ID_NOT_FOUND_FALLBACK_PHRASE =
     'not found in session history';
+
+  /** Upper bound on waiting for a branch's canvas tile to report its load. */
+  private static readonly BRANCH_OPEN_TIMEOUT_MS = 10_000;
 
   private isHardRewindFailure(errMsg: string): boolean {
     return (

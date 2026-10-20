@@ -133,7 +133,7 @@ describe('CommandWorkListComponent', () => {
 
   it('keeps a row keyboard reachable after the projection shrinks', () => {
     const fixture = setup();
-    fixture.componentInstance.activeIndex.set(28);
+    fixture.componentInstance.activeId.set('node:29');
     fixture.componentRef.setInput('projection', {
       nodes: nodes.slice(0, 3),
       edges: [],
@@ -143,12 +143,29 @@ describe('CommandWorkListComponent', () => {
       'button',
     ) as NodeListOf<HTMLButtonElement>;
     expect(buttons.length).toBe(2);
-    expect(buttons[1].getAttribute('tabindex')).toBe('0');
-    buttons[1].dispatchEvent(
+    expect(buttons[0].getAttribute('tabindex')).toBe('0');
+    buttons[0].dispatchEvent(
       new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }),
     );
     fixture.detectChanges();
+    expect(buttons[1].getAttribute('tabindex')).toBe('0');
+  });
+
+  it('keeps the active node as the tab stop when projection rows reorder', () => {
+    const fixture = setup();
+    fixture.componentInstance.focusRow(2);
+    fixture.detectChanges();
+    fixture.componentRef.setInput('projection', {
+      nodes: [nodes[0], nodes[2], nodes[1], ...nodes.slice(3)],
+      edges: [],
+    });
+    fixture.detectChanges();
+    const buttons = fixture.nativeElement.querySelectorAll('ul button') as NodeListOf<HTMLButtonElement>;
+    expect(buttons[0].textContent).toContain('Work 2');
     expect(buttons[0].getAttribute('tabindex')).toBe('0');
+    expect(buttons[1].getAttribute('tabindex')).toBe('-1');
+    fixture.componentInstance.focusRow(2);
+    expect(document.activeElement).toBe(buttons[1]);
   });
 
   it('shows the prototype empty state for a root-only projection', () => {
@@ -258,5 +275,158 @@ describe('CommandWorkListComponent', () => {
     fixture.componentRef.setInput('reducedMotion', true);
     fixture.detectChanges();
     expect(icon.classList.contains('animate-spin')).toBe(false);
+  });
+
+  it('nests child-owned work and grandchildren while preserving projection-index focus', () => {
+    const fixture = setup();
+    fixture.componentRef.setInput('projection', {
+      nodes: [
+        nodes[0],
+        { ...nodes[1], id: 'child:one', kind: 'child', parentId: nodes[0].id },
+        { ...nodes[2], id: 'child:two', kind: 'child', parentId: nodes[0].id },
+        { ...nodes[3], id: 'lane:one', kind: 'agent', parentId: 'child:one' },
+        { ...nodes[4], id: 'grandchild', kind: 'agent', parentId: 'lane:one' },
+      ],
+      edges: [],
+    });
+    fixture.detectChanges();
+    const buttons = fixture.nativeElement.querySelectorAll('ul button') as NodeListOf<HTMLButtonElement>;
+    expect(Array.from(buttons, (button) => button.textContent?.trim())).toEqual([
+      expect.stringContaining('Work 1'),
+      expect.stringContaining('Work 3'),
+      expect.stringContaining('Work 4'),
+      expect.stringContaining('Work 2'),
+    ]);
+    expect(buttons[0].style.paddingInlineStart).toBe('8px');
+    expect(buttons[1].style.paddingInlineStart).toBe('24px');
+    expect(buttons[2].style.paddingInlineStart).toBe('40px');
+    fixture.componentInstance.focusRow(2);
+    expect(document.activeElement).toBe(buttons[3]);
+  });
+
+  it('promotes an orphaned node to a top-level row', () => {
+    const fixture = setup();
+    fixture.componentRef.setInput('projection', {
+      nodes: [nodes[0], { ...nodes[1], parentId: 'missing-parent' }],
+      edges: [],
+    });
+    fixture.detectChanges();
+    const buttons = fixture.nativeElement.querySelectorAll('ul button') as NodeListOf<HTMLButtonElement>;
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0].style.paddingInlineStart).toBe('8px');
+  });
+
+  it('renders both sides of a mutual parent cycle exactly once', () => {
+    const fixture = setup();
+    fixture.componentRef.setInput('projection', {
+      nodes: [
+        nodes[0],
+        { ...nodes[1], parentId: nodes[2].id },
+        { ...nodes[2], parentId: nodes[1].id },
+      ],
+      edges: [],
+    });
+    fixture.detectChanges();
+    const buttons = fixture.nativeElement.querySelectorAll('ul button') as NodeListOf<HTMLButtonElement>;
+    expect(buttons).toHaveLength(2);
+    expect(Array.from(buttons, (button) => button.textContent?.trim())).toEqual([
+      expect.stringContaining('Work 1'),
+      expect.stringContaining('Work 2'),
+    ]);
+  });
+
+  it('caps a deep descendant chain at three indentation levels', () => {
+    const fixture = setup();
+    fixture.componentRef.setInput('projection', {
+      nodes: [nodes[0], ...nodes.slice(1, 6).map((node, index) => ({
+        ...node,
+        parentId: index === 0 ? nodes[0].id : nodes[index].id,
+      }))],
+      edges: [],
+    });
+    fixture.detectChanges();
+    const buttons = fixture.nativeElement.querySelectorAll('ul button') as NodeListOf<HTMLButtonElement>;
+    expect(Array.from(buttons, (button) => button.style.paddingInlineStart)).toEqual([
+      '8px', '24px', '40px', '56px', '56px',
+    ]);
+  });
+
+  it('shows the child kind glyph and full-opacity unknown child text', () => {
+    const fixture = setup();
+    fixture.componentRef.setInput('projection', {
+      nodes: [nodes[0], { ...nodes[1], kind: 'child', label: 'Child session', providerId: null, state: 'unknown' }],
+      edges: [],
+    });
+    fixture.detectChanges();
+    const row = fixture.nativeElement.querySelector('ul button') as HTMLButtonElement;
+    expect(row.querySelector('[data-test="child-kind-icon"] svg')).not.toBeNull();
+    expect(row.textContent).toContain('Child session');
+    expect(row.textContent).toContain('unknown');
+    expect(row.className).not.toContain('opacity-');
+  });
+
+  it('wraps the flat keyboard index in both directions', () => {
+    const fixture = setup();
+    const buttons = fixture.nativeElement.querySelectorAll('ul button') as NodeListOf<HTMLButtonElement>;
+    buttons[0].focus();
+    buttons[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    expect(document.activeElement).toBe(buttons[28]);
+    buttons[28].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    expect(document.activeElement).toBe(buttons[0]);
+  });
+
+  it('measures clipping when rows change but not on clock-only renders', () => {
+    const fixture = setup();
+    const list = fixture.nativeElement.querySelector('ul') as HTMLUListElement;
+    const scrollHeight = jest.fn(() => 200);
+    const clientHeight = jest.fn(() => 100);
+    Object.defineProperty(list, 'scrollHeight', { configurable: true, get: scrollHeight });
+    Object.defineProperty(list, 'clientHeight', { configurable: true, get: clientHeight });
+    fixture.componentRef.setInput('projection', {
+      nodes: nodes.slice(0, 3),
+      edges: [],
+    });
+    fixture.detectChanges();
+    expect(scrollHeight).toHaveBeenCalled();
+    expect(clientHeight).toHaveBeenCalled();
+    scrollHeight.mockClear();
+    clientHeight.mockClear();
+    fixture.componentRef.setInput('now', Date.now() + 60_000);
+    fixture.detectChanges();
+    expect(scrollHeight).not.toHaveBeenCalled();
+    expect(clientHeight).not.toHaveBeenCalled();
+  });
+
+  it('observes one scroll container and shows the cue only while clipped', () => {
+    const original = globalThis.ResizeObserver;
+    const observe = jest.fn();
+    const disconnect = jest.fn();
+    class FakeResizeObserver implements ResizeObserver {
+      public constructor(_callback: ResizeObserverCallback) { /* one container callback */ }
+      public observe = observe;
+      public unobserve = jest.fn();
+      public disconnect = disconnect;
+    }
+    globalThis.ResizeObserver = FakeResizeObserver;
+    try {
+      const fixture = setup();
+      const list = fixture.nativeElement.querySelector('ul') as HTMLUListElement;
+      expect(observe).toHaveBeenCalledTimes(1);
+      expect(observe).toHaveBeenCalledWith(list);
+      Object.defineProperty(list, 'scrollHeight', { configurable: true, value: 200 });
+      Object.defineProperty(list, 'clientHeight', { configurable: true, value: 100 });
+      fixture.componentInstance.updateClipping();
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('[data-test="work-list-scroll-cue"]')).not.toBeNull();
+      expect(fixture.nativeElement.querySelector('[data-test="work-list-fade"]')).not.toBeNull();
+      Object.defineProperty(list, 'clientHeight', { configurable: true, value: 200 });
+      fixture.componentInstance.updateClipping();
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('[data-test="work-list-scroll-cue"]')).toBeNull();
+      fixture.destroy();
+      expect(disconnect).toHaveBeenCalledTimes(1);
+    } finally {
+      globalThis.ResizeObserver = original;
+    }
   });
 });

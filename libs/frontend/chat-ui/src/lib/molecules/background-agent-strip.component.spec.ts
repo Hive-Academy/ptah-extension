@@ -16,7 +16,6 @@ function entry(
     steerable: false,
     stoppable: false,
     canBackground: false,
-    canViewTranscript: false,
     ...overrides,
   };
 }
@@ -229,23 +228,6 @@ describe('BackgroundAgentStripComponent', () => {
       steerable: true,
       stoppable: true,
       canBackground: true,
-      canViewTranscript: true,
-    });
-
-    it('lists only the actions the capability flags allow', () => {
-      render([
-        entry({ id: 'b', status: 'background', canViewTranscript: true }),
-      ]);
-      expand();
-      const row = openMenu('b');
-      expect(
-        row.querySelector('[data-test="agent-menu-transcript"]'),
-      ).not.toBeNull();
-      expect(row.querySelector('[data-test="agent-menu-steer"]')).toBeNull();
-      expect(
-        row.querySelector('[data-test="agent-menu-background"]'),
-      ).toBeNull();
-      expect(row.querySelector('[data-test="agent-menu-stop"]')).toBeNull();
     });
 
     it('does not announce the action panel as a listbox', () => {
@@ -262,7 +244,6 @@ describe('BackgroundAgentStripComponent', () => {
     });
 
     it.each([
-      ['agent-menu-transcript', 'viewTranscript'],
       ['agent-menu-background', 'sendToBackground'],
       ['agent-menu-stop', 'stop'],
     ] as const)('%s emits %s and closes the menu', (testId, outputName) => {

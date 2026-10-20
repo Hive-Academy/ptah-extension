@@ -11,14 +11,12 @@ import {
 } from '@ptah-extension/chat-state';
 import { SessionId } from '@ptah-extension/shared';
 import { WorkspaceCoordinatorService } from './workspace-coordinator.service';
-import { ChatStore } from './chat.store';
 
 @Injectable({ providedIn: 'root' })
 export class NotificationFocusCoordinator implements NotificationFocusRouter {
   private readonly appState = inject(AppStateManager);
   private readonly tabManager = inject(TabManagerService);
   private readonly workspaceCoordinator = inject(WorkspaceCoordinatorService);
-  private readonly chatStore = inject(ChatStore);
   private transactionTail: Promise<void> = Promise.resolve();
 
   focus(target: NotificationFocusTarget): Promise<NotificationFocusResult> {
@@ -40,36 +38,13 @@ export class NotificationFocusCoordinator implements NotificationFocusRouter {
 
     await this.workspaceCoordinator.switchWorkspace(target.workspacePath);
     this.appState.setCurrentView('chat');
-    this.appState.setLayoutMode('grid');
-    const canvasResult = await this.appState.requestCanvasFocus({
+    // At the canvas tile cap the result is `cap-reached` and no tab is
+    // switched; the notification panel stays open on a non-success result.
+    return this.appState.requestCanvasFocus({
       ...target,
       tabId: initial?.tab.id,
       sessionId: initial?.tab.claudeSessionId ?? target.sessionId,
     });
-    if (canvasResult.success || canvasResult.outcome !== 'cap-reached') {
-      return canvasResult;
-    }
-
-    this.appState.setLayoutMode('single');
-    const active = this.resolve(target);
-    if (active) {
-      this.tabManager.switchTab(active.tab.id);
-      return { success: true, outcome: 'cap-reached' };
-    }
-    const sessionId = SessionId.safeParse(target.sessionId);
-    if (!sessionId) return { success: false, outcome: 'cap-reached' };
-    try {
-      const tabId = this.tabManager.openSessionTab(sessionId);
-      await this.chatStore.switchSession(sessionId);
-      this.tabManager.switchTab(tabId);
-      return { success: true, outcome: 'cap-reached' };
-    } catch (error: unknown) {
-      console.error(
-        '[NotificationFocusCoordinator] Full-view fallback failed',
-        error instanceof Error ? error.message : error,
-      );
-      return { success: false, outcome: 'cap-reached' };
-    }
   }
 
   private resolve(target: NotificationFocusTarget): TabLookupResult | null {

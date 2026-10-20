@@ -452,11 +452,6 @@ export class ElectronShellComponent {
         bell.openPanel();
       }
     });
-    // Electron uses the canvas as its sole chat surface — the single-chat
-    // layout was removed. Force grid mode so a returning user with a persisted
-    // 'single' layoutMode still lands on the canvas.
-    this.appState.setLayoutMode('grid');
-
     effect(() => {
       this.appState.currentView();
       this.appState.openConfigurationSurface();
@@ -532,7 +527,6 @@ export class ElectronShellComponent {
   readonly isMac = this.vscodeService.config().platform === 'darwin';
 
   onCanvasTab(): void {
-    this.appState.setLayoutMode('grid');
     this.appState.setCurrentView('chat');
   }
 

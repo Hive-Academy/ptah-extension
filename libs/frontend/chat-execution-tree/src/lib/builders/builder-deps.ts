@@ -92,16 +92,4 @@ export interface BuilderDeps {
     state: StreamingState,
     depth: number,
   ): ExecutionNode | null;
-
-  buildInterleavedChildren(
-    agentId: string,
-    baseTimestamp: number,
-    contentBlocks: Array<{
-      type: 'text' | 'tool_ref';
-      text?: string;
-      toolUseId?: string;
-      toolName?: string;
-    }>,
-    toolChildren: ExecutionNode[],
-  ): ExecutionNode[];
 }

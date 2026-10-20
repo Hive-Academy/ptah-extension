@@ -447,6 +447,7 @@ export function persistCliSessionReference(
       agentId: info.agentId,
       task: info.task,
       startedAt: info.startedAt,
+      ...(info.completedAt ? { completedAt: info.completedAt } : {}),
       status: info.status,
       ...(bulkInline && persistedOutput?.stdout
         ? { stdout: persistedOutput.stdout }

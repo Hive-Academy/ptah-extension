@@ -611,6 +611,100 @@ function deliveredTypes(h: Harness): string[] {
   return out;
 }
 
+describe('ChatStreamBroadcaster.streamEventsToWebview — turn boundaries', () => {
+  function messageEvent(
+    eventType: 'message_start' | 'message_complete',
+    parentToolUseId?: string,
+  ): FlatStreamEventUnion {
+    const base = {
+      id: `${eventType}-${parentToolUseId ?? 'root'}`,
+      timestamp: 1,
+      sessionId: SESSION_ID,
+      messageId: parentToolUseId ? 'subagent-message' : 'root-message',
+      parentToolUseId,
+    };
+    return eventType === 'message_start'
+      ? { ...base, eventType, role: 'assistant' }
+      : { ...base, eventType };
+  }
+
+  it('keeps the parent completion closed when a subagent starts and completes later', async () => {
+    const h = makeHarness();
+
+    async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+      yield messageEvent('message_start');
+      yield messageEvent('message_complete');
+      yield messageEvent('message_start', 'task-1');
+      yield messageEvent('message_complete', 'task-1');
+    }
+
+    await h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID);
+
+    expect(broadcastsFor(h, MESSAGE_TYPES.CHAT_CHUNK)).toHaveLength(4);
+    expect(broadcastsFor(h, MESSAGE_TYPES.CHAT_COMPLETE)).toHaveLength(1);
+    expect(deliveredTypes(h)).toEqual([
+      MESSAGE_TYPES.CHAT_CHUNK,
+      MESSAGE_TYPES.CHAT_CHUNK,
+      MESSAGE_TYPES.CHAT_COMPLETE,
+      MESSAGE_TYPES.CHAT_CHUNK,
+      MESSAGE_TYPES.CHAT_CHUNK,
+    ]);
+  });
+
+  it('waits for the parent when a subagent completes first', async () => {
+    const h = makeHarness();
+
+    async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+      yield messageEvent('message_start');
+      yield messageEvent('message_start', 'task-1');
+      yield messageEvent('message_complete', 'task-1');
+      yield messageEvent('message_complete');
+    }
+
+    await h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID);
+
+    expect(broadcastsFor(h, MESSAGE_TYPES.CHAT_CHUNK)).toHaveLength(4);
+    expect(broadcastsFor(h, MESSAGE_TYPES.CHAT_COMPLETE)).toHaveLength(1);
+    expect(deliveredTypes(h)).toEqual([
+      MESSAGE_TYPES.CHAT_CHUNK,
+      MESSAGE_TYPES.CHAT_CHUNK,
+      MESSAGE_TYPES.CHAT_CHUNK,
+      MESSAGE_TYPES.CHAT_CHUNK,
+      MESSAGE_TYPES.CHAT_COMPLETE,
+    ]);
+  });
+
+  it('reopens the gate for each root message start', async () => {
+    const h = makeHarness();
+
+    async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+      yield messageEvent('message_start');
+      yield messageEvent('message_complete');
+      yield messageEvent('message_start');
+      yield messageEvent('message_complete');
+    }
+
+    await h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID);
+
+    expect(broadcastsFor(h, MESSAGE_TYPES.CHAT_COMPLETE)).toHaveLength(2);
+  });
+
+  it('keeps the end-of-stream completion when no root message completes', async () => {
+    const h = makeHarness();
+
+    async function* stream(): AsyncGenerator<FlatStreamEventUnion> {
+      yield messageEvent('message_start', 'task-1');
+      yield messageEvent('message_complete', 'task-1');
+    }
+
+    await h.broadcaster.streamEventsToWebview(SESSION_ID, stream(), TAB_ID);
+
+    expect(broadcastsFor(h, MESSAGE_TYPES.CHAT_CHUNK)).toHaveLength(2);
+    expect(broadcastsFor(h, MESSAGE_TYPES.CHAT_COMPLETE)).toHaveLength(1);
+    expect(deliveredTypes(h).at(-1)).toBe(MESSAGE_TYPES.CHAT_COMPLETE);
+  });
+});
+
 describe('ChatStreamBroadcaster.streamEventsToWebview — surfaceMode', () => {
   it('threads surfaceMode:true into CHAT_CHUNK and CHAT_COMPLETE payloads', async () => {
     const h = makeHarness();

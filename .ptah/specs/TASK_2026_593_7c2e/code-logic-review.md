@@ -660,3 +660,41 @@ New defects: none blocking. Residuals (unchanged, out of scope here): S3 attribu
 Specs were not weakened: diff numstat shows chat-view +27/-17 (assertions swapped, not removed), action-banner +43/-6, voice +91/-1, back-office +79/-0.
 
 Score: 8/10. Verdict: APPROVED (fix round only; the deferred items remain open).
+## PR #780 review-comment fixes review
+
+Scope: `git diff HEAD` (12 files, +99/-8), read-only static review. No nx/tsc/Jest run (machine busy); spec outcomes are not verified by execution.
+
+| # | Comment | Verdict |
+|---|---------|---------|
+| 1 | Lane restart releases lane failure notice | Fixed (with a moderate race) |
+| 2 | Burst summary re-shown only when eligible | Fixed |
+| 3 | notification.service compares against presented item | Fixed (touch branch is dead code) |
+| 4 | activate catch is reported, not silent | Fixed |
+| 5 | dismiss resumes paused snackbar | Fixed |
+
+### 1. Lane restart release - fixed
+- `host-attention-coordinator.ts:208-212` `releaseLaneFailure` builds the same key as `presentLaneFailure` (`c:` + `workspaceIdFromPath('lane:<agentId>')`, lines 189 and 208) and reuses `resolve(key, generation)`. Failure presentation (`:178-195`, `agent-process-manager.service.ts:2355`) is unchanged.
+- `agent-process-manager.service.ts:1883` calls release only after `sdkHandle.continue()` succeeds. A failed continue goes through `handleExit(...,1)` and presents a fresh failure. Correct placement.
+- Moderate (new): `presentLaneFailure` is async (`await this.metadata.get`, line 184). If the user restarts the lane before that await settles, `releaseLaneFailure` finds no generation and is a no-op. The notice is then presented for a lane that is already running again. `releaseSessionFailure` guards this with `releasedSessionAt`, and the lane path has no equivalent. Window is small (one metadata lookup), so it is not blocking. Fix: record a per-agent release marker and check it before `presentFailure`.
+- Test: the new coordinator spec asserts `host.resolve` with the lane key and generation 30. The manager spec asserts the call with `agentId`. Adequate.
+
+### 2. Burst re-show - fixed
+- `electron-host-attention-notifications.ts:109-113` re-shows the summary only when `isEligible()`. Otherwise the members were already set to `handle = null` (line 106) and the old handle closed. They are detached, and later `close()` on a null handle is a no-op (line 177), so there is no leak or double close.
+- Accepted trade-off: members are not re-shown if the window loses focus again later. The request was to not show while ineligible, so this is within spec.
+
+### 3. notification.service presented comparison - fixed
+- `presentationChanged` now compares `presented.presentationKey` with `prior.presentationKey` (`:81`). Before, a host-source item with a different key could clear `dismissed` and reset the clock while the presented chat item was unchanged. That is gone, and the spec at `needsYou()[0]).toBe(chat)` pins it.
+- Minor: the new `if (stateChanged) { touch(); scheduleExpiry(); }` branch (`:109-112`) is unreachable. The early return needs `prior` and all fields equal, including `presentationKey`. `stateChanged` is only true when `newLifecycle` (which implies no `prior`) or when `presentationChanged` (which implies the key field differs). Harmless, but the comment's "still run touch()" intent is not exercised. Remove it or add a test that proves a reachable case.
+
+### 4. activate catch - fixed
+- `notification-center.store.ts:112-117` logs through `LoggingService.error(context, message, data)`, which matches the signature (`logging.service.ts:180`). It sets a fixed `'Action unavailable'` row status, returns false, and `finally` still clears `submitting`. The text is fixed and does not leak the error. The marker comment documents the intent, so this is not a silent catch. The spec asserts status, `isSubmitting` false and the logged error.
+- Minor: the status uses `statuses` only and not the `unavailable` map, so the action is retryable. That is the right behaviour for a transient dispatch failure.
+
+### 5. Snackbar dismiss - fixed
+- `notification-snackbar.component.ts:172` calls `resumeSnackbar(key)` only when `paused.delete(key)` returned true. This clears `individuallyPaused` and the clock state before `dismissPresentation`. A dismissed-then-reappearing key no longer stays individually paused. The spec covers hover, then dismiss, and `resume` is called with `'hovered'`.
+
+### Hygiene
+- No `any`, `@ts-ignore` or new `as unknown as` in added lines. The `Object.create(null) as HostAttentionCoordinator` in the manager spec is existing. No `expect` or `it` lines were removed or weakened (grep of removed lines is empty). The only new catch is the reported one in #4.
+
+### Verdict
+APPROVED, 8/10. 0 blocking, 0 serious, 2 moderate/minor: the lane release race (#1) and the dead `touch()` branch (#3). Spec execution is unverified here, so the maintainer should run the five changed projects' tests before merge.

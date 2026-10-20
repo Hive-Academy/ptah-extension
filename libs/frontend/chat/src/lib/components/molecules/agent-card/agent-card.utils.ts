@@ -7,24 +7,6 @@
 import { isOutputTruncationNotice } from '@ptah-extension/chat-streaming';
 import type { RenderSegment, StderrSegment } from '@ptah-extension/chat-ui';
 
-/**
- * Format elapsed time in human-readable form.
- */
-export function formatElapsed(ms: number): string {
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) {
-    return `${seconds}s`;
-  } else if (seconds < 3600) {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${m}m ${s}s`;
-  } else {
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    return `${h}h ${m}m`;
-  }
-}
-
 /** Error keywords that indicate a real problem, even inside [stderr]-prefixed lines */
 const STDERR_ERROR_KEYWORDS =
   /\b(error|fail(ed)?|exception|denied|unauthorized|refused|timeout|exhausted|abort|crash|panic|fatal|quota)\b/i;

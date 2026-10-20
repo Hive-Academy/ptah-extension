@@ -5,7 +5,7 @@ import {
   TabManagerService,
   type TerminalTurnPulse,
 } from '@ptah-extension/chat-state';
-import { ClaudeRpcService } from '@ptah-extension/core';
+import { ClaudeRpcService, ThemeService } from '@ptah-extension/core';
 import { ChatStore } from '@ptah-extension/chat';
 import { CommandCenterStore } from '../model/command-center.store';
 import { CommandCenterSessionCoordinator } from '../model/session-coordinator';
@@ -64,6 +64,7 @@ describe('CommandCenterPageController', () => {
   const handlePermissionResponse = jest.fn();
   const voiceSessions = { activate: jest.fn(), deactivate: jest.fn() };
   const rpc = { call: jest.fn() };
+  const theme = { isDarkMode: signal(true), toggleTheme: jest.fn() };
   const questionRequests = signal<
     readonly {
       id: string;
@@ -170,6 +171,7 @@ describe('CommandCenterPageController', () => {
           },
         },
         { provide: ClaudeRpcService, useValue: rpc },
+        { provide: ThemeService, useValue: theme },
         { provide: CommandCenterTribunalTransport, useValue: transport },
         {
           provide: CommandCenterProjectionSource,
@@ -187,6 +189,11 @@ describe('CommandCenterPageController', () => {
       ],
     });
     page = TestBed.inject(CommandCenterPageController);
+  });
+
+  it('forwards the theme action to ThemeService', () => {
+    page.toggleTheme();
+    expect(theme.toggleTheme).toHaveBeenCalledTimes(1);
   });
 
   it('loads local provider models and download status on open', async () => {

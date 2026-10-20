@@ -48,6 +48,7 @@ import { MessageFinalizationService } from './message-finalization.service';
 import { TurnStateApplier } from './turn-state-applier.service';
 import { BackgroundAgentStore } from './background-agent.store';
 import { AgentMonitorStore } from './agent-monitor.store';
+import { SubagentExecutionStore } from './subagent-execution.store';
 
 // ---------- Helpers --------------------------------------------------------
 
@@ -167,6 +168,7 @@ function messageComplete(
 
 describe('StreamingHandlerService', () => {
   let service: StreamingHandlerService;
+  let claim: jest.Mock<boolean, [FlatStreamEventUnion]>;
   let tabsSignal: ReturnType<typeof signal<TabState[]>>;
   let activeTabIdSignal: ReturnType<typeof signal<string | null>>;
   let tabManager: jest.Mocked<
@@ -226,6 +228,7 @@ describe('StreamingHandlerService', () => {
   let consoleError: jest.SpyInstance;
 
   beforeEach(() => {
+    claim = jest.fn().mockReturnValue(false);
     tabsSignal = signal<TabState[]>([makeTab()]);
     activeTabIdSignal = signal<string | null>(TAB_ID);
 
@@ -382,6 +385,7 @@ describe('StreamingHandlerService', () => {
     TestBed.configureTestingModule({
       providers: [
         StreamingHandlerService,
+        { provide: SubagentExecutionStore, useValue: { claim } },
         // EventDeduplicationService is a pure utility — use the real one so
         // the source-priority logic is exercised end-to-end through the
         // streaming handler.
@@ -412,6 +416,23 @@ describe('StreamingHandlerService', () => {
     }
     return tab.streamingState;
   }
+
+  it('claims once before resolving tabs and leaves a late subagent event off the tab', () => {
+    const event = textDelta({ id: 'late-subagent', messageId: 'child-message' });
+    const retained: FlatStreamEventUnion[] = [];
+    claim.mockImplementation((received) => {
+      retained.push(received);
+      return true;
+    });
+    tabsSignal.set([makeTab({ streamingState: null })]);
+
+    expect(service.processStreamEvent(event, TAB_ID)).toBeNull();
+    expect(claim).toHaveBeenCalledTimes(1);
+    expect(retained).toEqual([event]);
+    expect(tabManager.setStreamingState).not.toHaveBeenCalled();
+    expect(tabsSignal()[0].streamingState).toBeNull();
+    expect(tabManager.findTabsBySessionId).not.toHaveBeenCalled();
+  });
 
   it('forwards the compact-boundary measurement unchanged', () => {
     const measurement = {

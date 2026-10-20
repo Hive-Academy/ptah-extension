@@ -142,6 +142,22 @@ describe('ElectronHostAttentionNotifications', () => {
     expect(close).toHaveBeenCalledTimes(3);
   });
 
+  it('keeps surviving burst members detached when native notices become ineligible', () => {
+    eligible = true;
+    handles = [];
+    const adapter = createProvider();
+    const next = { ...notice, key: 'r:permission:two', generation: 2 };
+    adapter.present(notice);
+    adapter.present(next);
+    expect(handles).toHaveLength(2);
+    eligible = false;
+    adapter.resolve(notice.key, 1);
+    expect(handles).toHaveLength(2);
+    expect(handles[1].close).toHaveBeenCalledTimes(1);
+    const active = Reflect.get(provider, 'active') as Map<string, { handle: ElectronNotificationHandle | null }>;
+    expect(active.get(next.key)?.handle).toBeNull();
+  });
+
   it('keeps only the latest cold-start route until Angular is ready', () => {
     let ready = false;
     let signalReady: (() => void) | undefined;

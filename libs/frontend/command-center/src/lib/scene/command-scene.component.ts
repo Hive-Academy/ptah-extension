@@ -13,6 +13,7 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
+import { VSCodeService } from '@ptah-extension/core';
 import type {
   CommandTheme,
   CommandVoiceState,
@@ -101,7 +102,8 @@ function paletteName(
       <div class="pointer-events-none absolute inset-0">
         @if (layout().overflowChip; as chip) {
           <span
-            class="absolute right-5 top-12 max-w-[90%] rounded-full bg-base-200 px-2 py-1 text-xs text-base-content"
+            class="absolute right-5 max-w-[90%] rounded-full bg-base-200 px-2 py-1 text-xs text-base-content"
+            [style.top.px]="reservedTop() + 16"
             >{{ chip.text }}</span
           >
         }
@@ -113,6 +115,7 @@ export class CommandSceneComponent {
   public readonly projection = input.required<ProjectionResult>();
   public readonly selectedId = input<string | null>(null);
   public readonly theme = input<CommandTheme>('dark');
+  public readonly reservedTop = input<number>(72);
   public readonly voiceState = input<CommandVoiceState>('idle');
   public readonly inputLevel = input(0);
   public readonly outputLevel = input(0);
@@ -129,6 +132,8 @@ export class CommandSceneComponent {
   private readonly overlayLabels = signal<readonly SceneLabel[]>([]);
   private readonly viewport = signal({ width: 0, height: 0 });
   private readonly reducedMotion = signal(false);
+  private readonly logoRevision = signal(0);
+  private readonly vscodeService = inject(VSCodeService, { optional: true });
   private readonly ready = signal(false);
   private readonly inks = signal<SceneInks>(FALLBACK_INKS.dark);
   private resolveInks(): void {
@@ -148,11 +153,15 @@ export class CommandSceneComponent {
       idle: read('idle', baseContent ? `oklch(${baseContent})` : style.color),
     });
   }
-  private readonly cache = new SpriteCache(() =>
-    document.createElement('canvas'),
+  private readonly cache = new SpriteCache(
+    () => document.createElement('canvas'),
+    this.vscodeService?.getPtahIconUri(),
+    () => this.logoRevision.update((revision) => revision + 1),
   );
   private renderer: CommandSceneRenderer | null = null;
   private observer: ResizeObserver | null = null;
+  private intersectionObserver: IntersectionObserver | null = null;
+  private intersecting = true;
   private themeObserver: MutationObserver | null = null;
   private media: MediaQueryList | null = null;
   private pointerFrame = 0;
@@ -169,9 +178,25 @@ export class CommandSceneComponent {
 
   public readonly layout = signal<SceneLayout>({
     nodes: [],
+    orbitCount: 0,
     overflowCompleted: 0,
     overflowOther: 0,
     overflowChip: null,
+  });
+
+  private readonly sceneViewport = computed(() => {
+    const viewport = this.viewport();
+    const top = Math.min(viewport.height, Math.max(0, this.reservedTop() + 10));
+    const bottom = Math.max(top, viewport.height - 62);
+    return {
+      ...viewport,
+      sceneRect: {
+        x: 0,
+        y: top,
+        width: viewport.width,
+        height: bottom - top,
+      },
+    };
   });
 
   private readonly measuredLayout = computed(() => {
@@ -184,7 +209,7 @@ export class CommandSceneComponent {
     );
     return layoutScene(
       this.projection(),
-      this.viewport(),
+      this.sceneViewport(),
       (nodeId, text) => {
         const size = measured.get(nodeId);
         return size?.width && size.height
@@ -201,7 +226,12 @@ export class CommandSceneComponent {
   public constructor() {
     afterNextRender(() => this.initialize());
     effect(() => {
+      this.theme();
+      if (this.ready()) this.resolveInks();
+    });
+    effect(() => {
       if (!this.ready()) return;
+      this.logoRevision();
       const selectedId = this.selectedId();
       const theme = this.theme();
       const inks = this.inks();
@@ -242,6 +272,7 @@ export class CommandSceneComponent {
       this.zone.runOutsideAngular(() => {
         this.renderer?.setSnapshot({
           layout,
+          sceneRect: this.sceneViewport().sceneRect,
           sprites,
           voiceHalo,
           labels,
@@ -328,20 +359,31 @@ export class CommandSceneComponent {
     const stage = this.stageRef().nativeElement;
     this.zone.runOutsideAngular(() => {
       this.renderer = new CommandSceneRenderer(canvas, context);
-      this.observer = new ResizeObserver((entries) => {
-        if (entries.some((entry) => entry.target === stage)) this.resize();
-        if (entries.some((entry) => entry.target !== stage)) {
-          const labels = this.overlayLabels().map((label) => ({
-            ...label,
-            width: label.element.offsetWidth,
-            height: label.element.offsetHeight,
-          }));
-          this.zone.run(() => this.setOverlayLabels(labels));
-        }
-      });
-      this.observer.observe(stage);
-      for (const label of this.overlayLabels())
-        this.observer.observe(label.element);
+      if (typeof ResizeObserver !== 'undefined') {
+        this.observer = new ResizeObserver((entries) => {
+          if (entries.some((entry) => entry.target === stage)) this.resize();
+          if (entries.some((entry) => entry.target !== stage)) {
+            const labels = this.overlayLabels().map((label) => ({
+              ...label,
+              width: label.element.offsetWidth,
+              height: label.element.offsetHeight,
+            }));
+            this.zone.run(() => this.setOverlayLabels(labels));
+          }
+        });
+        this.observer.observe(stage);
+        for (const label of this.overlayLabels())
+          this.observer.observe(label.element);
+      }
+      if (typeof IntersectionObserver !== 'undefined') {
+        this.intersectionObserver = new IntersectionObserver((entries) => {
+          const entry = entries.find((item) => item.target === canvas);
+          if (!entry) return;
+          this.intersecting = entry.isIntersecting;
+          this.onVisibility();
+        });
+        this.intersectionObserver.observe(canvas);
+      }
       document.addEventListener('visibilitychange', this.onVisibility);
       this.media = window.matchMedia('(prefers-reduced-motion: reduce)');
       this.media.addEventListener('change', this.onMotion);
@@ -375,7 +417,7 @@ export class CommandSceneComponent {
   }
 
   private readonly onVisibility = (): void => {
-    this.renderer?.setHidden(document.hidden);
+    this.renderer?.setHidden(document.hidden || !this.intersecting);
   };
 
   private readonly onMotion = (): void => {
@@ -427,6 +469,7 @@ export class CommandSceneComponent {
       if (this.pointerFrame) cancelAnimationFrame(this.pointerFrame);
       this.pointerFrame = 0;
       this.observer?.disconnect();
+      this.intersectionObserver?.disconnect();
       this.themeObserver?.disconnect();
       this.media?.removeEventListener('change', this.onMotion);
       document.removeEventListener('visibilitychange', this.onVisibility);

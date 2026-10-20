@@ -110,6 +110,17 @@ describe('NotificationSnackbarComponent', () => {
     expect(notifications.snackbars()).toHaveLength(0);
   });
 
+  it('resumes a hovered snackbar before dismissing it', () => {
+    notifications.upsert(item('hovered'));
+    const resume = jest.spyOn(notifications, 'resumeSnackbar');
+    const fixture = TestBed.createComponent(NotificationSnackbarComponent);
+    fixture.detectChanges();
+    const card = (fixture.nativeElement as HTMLElement).querySelector('.snackbar-card');
+    card?.dispatchEvent(new Event('mouseenter'));
+    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('[aria-label="Dismiss failure hovered"]')?.click();
+    expect(resume).toHaveBeenCalledWith('hovered');
+  });
+
   it('does not expire while focus remains inside a snackbar', () => {
     notifications.upsert(item('focused'));
     const fixture = TestBed.createComponent(NotificationSnackbarComponent);

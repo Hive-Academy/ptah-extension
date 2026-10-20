@@ -13,10 +13,7 @@
  */
 export { AgentStatsService } from './lib/agent-stats.service';
 export { MAX_DEPTH } from './lib/execution-tree.constants';
-export {
-  buildAgentNode,
-  buildInterleavedChildren,
-} from './lib/builders/agent-node.fn';
+export { buildAgentNode } from './lib/builders/agent-node.fn';
 export {
   buildMessageNode,
   findMessageStartEvent,

@@ -1,11 +1,11 @@
 ---
 id: TASK_2026_683_3c29
-status: in_review
+status: done
 type: FEATURE
 title: Smooth native animations for page navigation and session switching
 depends_on: []
 created: "2026-10-16T18:16:05.000Z"
-updated: "2026-10-16T18:16:05.000Z"
+updated: "2026-10-19T00:14:13.000Z"
 description: "Routing between pages and switching between live chat sessions feel abrupt. Add small, smooth, native Angular transitions with intuitive staggering, reduced-motion safe and measured."
 executor: frontend-developer
 estimate: M

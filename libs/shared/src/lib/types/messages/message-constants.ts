@@ -194,7 +194,6 @@ export const MESSAGE_TYPES = {
    * new tab is an ordinary chat, not a child.
    */
   SESSION_HANDOFF_OPENED: 'sessionHandoff:opened',
-  AGENT_SUMMARY_CHUNK: 'agent:summary-chunk',
   SDK_ERROR: 'sdk:error',
   SETUP_WIZARD_OPEN_AGENTS_FOLDER: 'setup-wizard:open-agents-folder',
   SETUP_WIZARD_COMPLETE: 'setup-wizard:complete',

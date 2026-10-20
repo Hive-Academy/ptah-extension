@@ -67,7 +67,6 @@ import {
   buildToolChildren as buildToolChildrenFn,
   collectTools as collectToolsFn,
   buildAgentNode as buildAgentNodeFn,
-  buildInterleavedChildren as buildInterleavedChildrenFn,
 } from '@ptah-extension/chat-execution-tree';
 import {
   HASH_SEED,
@@ -206,6 +205,19 @@ export class ExecutionTreeBuilderService {
   private activeAgentBuild: ActiveAgentBuild | null = null;
 
   /**
+   * Re-keyed `agent_start` copies for hook fallback matches (PR #751 review
+   * 4309313434). A hook event's own `toolCallId` is a hook UUID, but the agent
+   * node built for a Task tool must carry the Task tool's id — consumers
+   * (`InlineAgentBubbleComponent`) key `SubagentExecutionStore` and monitor
+   * lookups by it. Cached per source event so the memoized build still sees
+   * a stable event identity (`hit.agentStart === agentStart`).
+   */
+  private readonly rekeyedAgentStarts = new WeakMap<
+    AgentStartEvent,
+    { toolCallId: string; event: AgentStartEvent }
+  >();
+
+  /**
    * BuilderDeps wired with closures back into this service. Each callback
    * forwards to the matching pure function with `this.deps` re-injected so
    * builders can recurse without importing each other at module level.
@@ -240,23 +252,12 @@ export class ExecutionTreeBuilderService {
       toolCallId: string,
       state: StreamingState,
       depth: number,
-    ) => this.buildAgentNodeMemoized(agentStart, toolCallId, state, depth),
-    buildInterleavedChildren: (
-      agentId: string,
-      baseTimestamp: number,
-      contentBlocks: Array<{
-        type: 'text' | 'tool_ref';
-        text?: string;
-        toolUseId?: string;
-        toolName?: string;
-      }>,
-      toolChildren: ExecutionNode[],
     ) =>
-      buildInterleavedChildrenFn(
-        agentId,
-        baseTimestamp,
-        contentBlocks,
-        toolChildren,
+      this.buildAgentNodeMemoized(
+        this.agentStartForTool(agentStart, toolCallId),
+        toolCallId,
+        state,
+        depth,
       ),
   };
 
@@ -279,6 +280,7 @@ export class ExecutionTreeBuilderService {
   buildTree(
     streamingState: StreamingState,
     cacheKey = 'default',
+    options?: { rootParentToolUseId?: string },
   ): ExecutionNode[] {
     const cached = this.treeCache.get(cacheKey);
     const indexes = this.resolveIndexes(streamingState, cached);
@@ -289,6 +291,7 @@ export class ExecutionTreeBuilderService {
         cacheKey,
         cached,
         indexes,
+        options,
       );
     } finally {
       this.activeIndexes = null;
@@ -301,13 +304,11 @@ export class ExecutionTreeBuilderService {
     cacheKey: string,
     cached: TreeCacheEntry | undefined,
     indexes: StreamingIndexes,
+    options?: { rootParentToolUseId?: string },
   ): ExecutionNode[] {
     const digests = computeTreeDigests(streamingState, indexes);
     const digestByRoot = digests.digestByRoot;
-    const globalEpoch = this.computeGlobalEpoch(
-      streamingState,
-      digests.unattributedAgentContent,
-    );
+    const globalEpoch = this.computeGlobalEpoch(streamingState);
 
     const rootOrder: string[] = [];
     const startByRoot = new Map<string, MessageStartEvent | undefined>();
@@ -316,7 +317,13 @@ export class ExecutionTreeBuilderService {
         streamingState,
         messageId,
       );
-      if (msgStartEvent?.parentToolUseId) continue;
+      if (options?.rootParentToolUseId !== undefined) {
+        if (msgStartEvent?.parentToolUseId !== options.rootParentToolUseId) {
+          continue;
+        }
+      } else if (msgStartEvent?.parentToolUseId) {
+        continue;
+      }
       rootOrder.push(messageId);
       startByRoot.set(messageId, msgStartEvent);
     }
@@ -411,8 +418,15 @@ export class ExecutionTreeBuilderService {
           ? this.reusableRootNode(cached, digestByRoot, messageId)
           : undefined;
 
+      // A selected subagent root is nested beneath its parent Task tool.
+      // Its own tool events carry that parent id and need nested-depth collection.
       const messageNode =
-        reusable ?? this.deps.buildMessageNode(messageId, streamingState);
+        reusable ??
+        this.deps.buildMessageNode(
+          messageId,
+          streamingState,
+          options?.rootParentToolUseId === undefined ? 0 : 1,
+        );
       if (!messageNode) continue;
       nodeByRoot.set(messageId, messageNode);
       if (reusable) reusedRoots.add(reusable);
@@ -599,23 +613,13 @@ export class ExecutionTreeBuilderService {
 
   /**
    * Fold the state-wide inputs that no per-message revision can observe: the
-   * agent summary/content-block content NO ROOT could be shown to own, and the
-   * background-agent flag set.
+   * accumulator sizes and the background-agent flag set.
    *
    * Accumulator map sizes are folded in too so this subsumes every field the
    * pre-TASK_2026_323 memo fingerprint checked. A SIZE is a legitimate fold
    * only where a size-preserving change is impossible or is already visible
    * through another input:
    *
-   * - `agentSummaryAccumulators` / `agentContentBlocksMap` (written by the
-   *   agent file watcher, keyed by agentId, not by message) fold content
-   *   length and block count, not size, and their only writer appends — so an
-   *   in-place change always moves the number. An agent that
-   *   {@link foldAgentContent} can trace to the tool that renders it is folded
-   *   into that tool's digest and its root's digest instead, so one agent's
-   *   summary chunk rebuilds only its own root (TASK_2026_628). Only the
-   *   untraceable remainder arrives here as `unattributedAgentContent`, which
-   *   keeps the pre-628 behaviour (rebuild everything) for exactly those.
    * - `textAccumulators` / `toolInputAccumulators` fold size, and their
    *   content DOES change in place — but every writer of both also routes the
    *   event through `setStreamingEventCapped`, so the owning message's digest
@@ -628,12 +632,8 @@ export class ExecutionTreeBuilderService {
    *   per-mutation counter — which is O(1) and cannot be defeated by a
    *   size-preserving swap (TASK_2026_333).
    */
-  private computeGlobalEpoch(
-    streamingState: StreamingState,
-    unattributedAgentContent: number,
-  ): number {
+  private computeGlobalEpoch(streamingState: StreamingState): number {
     let hash = HASH_SEED;
-    hash = mixNumber(hash, unattributedAgentContent);
     hash = mixNumber(hash, streamingState.textAccumulators.size);
     hash = mixNumber(hash, streamingState.toolInputAccumulators.size);
     hash = mixNumber(hash, this.backgroundAgentStore.revision());
@@ -668,7 +668,7 @@ export class ExecutionTreeBuilderService {
     const build = this.activeAgentBuild;
     const key =
       build && build.state === state && agentStart.agentId
-        ? agentMemoKey(build, agentStart.agentId, toolCallId, state, depth)
+        ? agentMemoKey(build, toolCallId, depth)
         : undefined;
     if (!build || key === undefined) {
       return buildAgentNodeFn(this.deps, agentStart, toolCallId, state, depth);
@@ -695,6 +695,25 @@ export class ExecutionTreeBuilderService {
     build.memo.set(slot, entry);
     build.built.push(entry);
     return node;
+  }
+
+  /**
+   * The `agent_start` event to build an agent node with, keyed to the Task
+   * tool it is built for. The built node stores the event's `toolCallId`, so
+   * a hook fallback match (whose own id is a hook UUID, not a `toolu_*` id)
+   * must carry the Task tool's id for `SubagentExecutionStore` and monitor
+   * lookups to find the claimed execution.
+   */
+  private agentStartForTool(
+    agentStart: AgentStartEvent,
+    toolCallId: string,
+  ): AgentStartEvent {
+    if (agentStart.toolCallId === toolCallId) return agentStart;
+    const cached = this.rekeyedAgentStarts.get(agentStart);
+    if (cached && cached.toolCallId === toolCallId) return cached.event;
+    const rekeyed: AgentStartEvent = { ...agentStart, toolCallId };
+    this.rekeyedAgentStarts.set(agentStart, { toolCallId, event: rekeyed });
+    return rekeyed;
   }
 
   /**
@@ -805,10 +824,9 @@ export class ExecutionTreeBuilderService {
    *   `thinking-block`) and nothing reads either field off the node. A reuse
    *   key must not carry state the builder neither writes nor renders.
    *
-   * `summaryContent` and `toolCount` were in neither category — both render on
-   * an agent card, and both were simply missing, so a node whose summary or
-   * tool count moved while every folded field stayed put kept its cached object
-   * and rendered stale (TASK_2026_337).
+   * `toolCount` was in neither category — it renders on an agent card and was
+   * simply missing, so a node whose tool count moved while every folded field
+   * stayed put kept its cached object and rendered stale (TASK_2026_337).
    */
   private fingerprintNode(
     node: ExecutionNode,
@@ -824,7 +842,6 @@ export class ExecutionTreeBuilderService {
     hash = mixString(hash, node.agentType ?? '');
     hash = mixString(hash, node.agentId ?? '');
     hash = mixString(hash, node.agentDescription ?? '');
-    hash = mixString(hash, node.summaryContent ?? '');
     hash = mixString(hash, node.model ?? '');
     hash = mixNumber(hash, node.cost ?? 0);
     hash = mixNumber(hash, node.duration ?? 0);

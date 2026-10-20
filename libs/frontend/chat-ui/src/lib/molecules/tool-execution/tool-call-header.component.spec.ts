@@ -223,7 +223,11 @@ describe.each([true, false])(
       it('keeps the Open-file button in the row and the file name in the lead group', () => {
         const host = render({
           toolName: 'Read',
-          toolInput: { file_path: '/repo/src/app/main.ts', offset: 1, limit: 60 },
+          toolInput: {
+            file_path: '/repo/src/app/main.ts',
+            offset: 1,
+            limit: 60,
+          },
         });
         const open = host.querySelector(
           'button[aria-label="Open main.ts"]',
@@ -245,17 +249,12 @@ describe.each([true, false])(
       });
       const button = toggle(host);
       const name = host.querySelector('[data-testid="tool-name"]');
-      const directory = host.querySelector(
-        '[data-testid="tool-file-path"] .text-base-content-muted',
-      );
 
       expect(button.classList).toContain('group/toggle');
-      for (const el of [name, directory]) {
-        expect(el?.classList).toContain('group-hover/toggle:text-base-content');
-        expect(el?.classList).toContain(
-          'group-focus-visible/toggle:text-base-content',
-        );
-      }
+      expect(name?.classList).toContain('group-hover/toggle:text-base-content');
+      expect(name?.classList).toContain(
+        'group-focus-visible/toggle:text-base-content',
+      );
     });
 
     it('puts the light-theme Ptah chip on base-100 so its gold text stays readable', () => {
@@ -263,10 +262,12 @@ describe.each([true, false])(
         toolName: 'mcp__ptah__workspace_analyze',
         toolInput: {},
       }).querySelector('[data-testid="tool-ptah-chip"]') as HTMLElement;
-      expect(chip.classList).toContain('[[data-theme-mode=light]_&]:bg-base-100');
+      expect(chip.classList).toContain(
+        '[[data-theme-mode=light]_&]:bg-base-100',
+      );
     });
 
-    it('shows a file tool as bold name and muted directory, with the full path title', () => {
+    it('shows a file tool as the bold file name only, with the full path title', () => {
       const host = render({
         toolName: 'Read',
         toolInput: { file_path: '/repo/src/app/main.ts', offset: 1, limit: 60 },
@@ -278,12 +279,14 @@ describe.each([true, false])(
 
       expect(path.getAttribute('title')).toBe('/repo/src/app/main.ts');
       expect(path.classList).toContain('truncate');
-      expect(path.querySelector('.font-semibold')?.textContent?.trim()).toBe(
-        'main.ts',
-      );
+      expect(path.classList).toContain('font-semibold');
+      expect(path.textContent?.trim()).toBe('main.ts');
+      expect(host.textContent).not.toContain('/repo/src/app');
       expect(
-        path.querySelector('.text-base-content-muted')?.textContent?.trim(),
-      ).toBe('/repo/src/app');
+        host
+          .querySelector('button[aria-label="Open main.ts"]')
+          ?.getAttribute('title'),
+      ).toBe('Open /repo/src/app/main.ts');
       expect(chips(host)).toEqual(['lines 1-60']);
     });
 
@@ -454,6 +457,34 @@ describe.each([true, false])(
         host.querySelector('[data-testid="tool-target"]')?.classList,
       ).toContain('font-mono');
       expect(chips(host)).toEqual(['in src/', '*.ts']);
+    });
+
+    it('names a search path by its last segment, with the full path as the chip title', () => {
+      const path = 'D:\\projects\\specs\\TASK_1\\code-logic-review.md';
+      const host = render({
+        toolName: 'Grep',
+        toolInput: {
+          pattern: 'Serious|Verdict',
+          path,
+          output_mode: 'content',
+          head_limit: 15,
+          '-n': true,
+        },
+      });
+
+      expect(chips(host)).toEqual([
+        'in code-logic-review.md',
+        'lines',
+        'first 15',
+      ]);
+      expect(
+        host.querySelector('[data-testid="tool-chip"]')?.getAttribute('title'),
+      ).toBe(path);
+      expect(
+        host
+          .querySelectorAll('[data-testid="tool-chip"]')[1]
+          ?.hasAttribute('title'),
+      ).toBe(false);
     });
 
     it('shows TodoWrite progress as the primary text', () => {

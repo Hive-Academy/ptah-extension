@@ -133,8 +133,13 @@ test.describe('plan limits > session inspector', () => {
             await inspectorToggle.click();
           }
         } else {
-          // At 440px the board uses its collapsed small-band details control.
-          await board.getByRole('button', { name: 'Open details' }).click();
+          // At 440px the board is at least 400px wide, so there is no compact
+          // sheet and the header has no Details toggle. The band is 'sm', where
+          // the side dock starts closed; the Stats tab opens it.
+          const statsTab = board.locator('[data-stats-tab] button');
+          if (await statsTab.getAttribute('aria-expanded') === 'false') {
+            await statsTab.click();
+          }
         }
         const inspector = board.locator('ptah-session-inspector:visible').first();
         const stats = inspector.locator('[data-testid="inspector-session-stats"]');

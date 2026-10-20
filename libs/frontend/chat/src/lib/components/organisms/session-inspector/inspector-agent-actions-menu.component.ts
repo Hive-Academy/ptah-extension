@@ -16,7 +16,6 @@ import type { BackgroundAgentStripEntry } from '@ptah-extension/chat-ui';
 import {
   ArrowDownToLine,
   Ellipsis,
-  Eye,
   LucideAngularModule,
   MessageSquareText,
   Square,
@@ -24,7 +23,7 @@ import {
 } from 'lucide-angular';
 import type { TrayAgentContext } from '../../../services/session-agents/session-agent-tray';
 
-export type AgentTrayAction = 'transcript' | 'steer' | 'background' | 'stop';
+export type AgentTrayAction = 'steer' | 'background' | 'stop';
 
 interface MenuItem {
   readonly id: AgentTrayAction;
@@ -35,8 +34,6 @@ interface MenuItem {
 /** The actions a tray entry offers, in menu order. */
 function menuItemsFor(entry: BackgroundAgentStripEntry): readonly MenuItem[] {
   const items: MenuItem[] = [];
-  if (entry.canViewTranscript)
-    items.push({ id: 'transcript', label: 'View transcript', icon: Eye });
   if (entry.steerable)
     items.push({ id: 'steer', label: 'Steer', icon: MessageSquareText });
   if (entry.canBackground)
@@ -104,7 +101,11 @@ let nextMenuId = 0;
               class="flex h-8 w-full items-center gap-2 px-3 text-left text-xs hover:bg-base-content/5 focus-visible:bg-base-content/5 focus-visible:outline-none"
               (click)="select(item.id)"
             >
-              <lucide-angular [img]="item.icon" class="size-3.5 shrink-0 text-base-content-muted" aria-hidden="true" />
+              <lucide-angular
+                [img]="item.icon"
+                class="size-3.5 shrink-0 text-base-content-muted"
+                aria-hidden="true"
+              />
               {{ item.label }}
             </button>
           </li>
@@ -155,15 +156,15 @@ export class InspectorAgentActionsMenuComponent {
   protected onMenuKeydown(event: KeyboardEvent): void {
     const buttons = this.menuButtons().map((ref) => ref.nativeElement);
     if (buttons.length === 0) return;
-    const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    const current = buttons.indexOf(
+      document.activeElement as HTMLButtonElement,
+    );
     switch (event.key) {
       case 'ArrowDown':
         this.focusItem(current < 0 ? 0 : (current + 1) % buttons.length);
         break;
       case 'ArrowUp':
-        this.focusItem(
-          current <= 0 ? buttons.length - 1 : current - 1,
-        );
+        this.focusItem(current <= 0 ? buttons.length - 1 : current - 1);
         break;
       case 'Home':
         this.focusItem(0);

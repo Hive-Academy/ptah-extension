@@ -46,8 +46,26 @@ export class SpriteCache {
     }
   >();
   private theme: 'light' | 'dark' | null = null;
+  private readonly logo: HTMLImageElement | null;
+  private logoReady = false;
 
-  public constructor(private readonly createCanvas: CanvasFactory) {}
+  public constructor(
+    private readonly createCanvas: CanvasFactory,
+    logoUri?: string,
+    private readonly onLogoReady?: () => void,
+  ) {
+    this.logo = logoUri && typeof Image !== 'undefined' ? new Image() : null;
+    if (this.logo) {
+      this.logo.onload = () => {
+        this.logoReady = true;
+        this.onLogoReady?.();
+      };
+      this.logo.onerror = () => {
+        this.logoReady = false;
+      };
+      this.logo.src = logoUri ?? '';
+    }
+  }
 
   /** Release sprites for nodes that left the current scene snapshot. */
   public prune(liveNodeIds: ReadonlySet<string>): void {
@@ -91,7 +109,10 @@ export class SpriteCache {
       previous.palette === palette &&
       previous.size === request.size &&
       previous.dpr === request.dpr &&
-      previous.paletteName === paletteName
+      previous.paletteName === paletteName &&
+      previous.signature.includes(
+        `logo:${node.parentId === null && this.logoReady}`,
+      )
     ) {
       const sprite = this.sprites.get(previous.key);
       if (sprite) return sprite;
@@ -120,6 +141,7 @@ export class SpriteCache {
       slug,
       fallback,
       tribunal,
+      `logo:${root && this.logoReady}`,
       palette.lit,
       palette.mid,
       palette.dark,
@@ -206,11 +228,27 @@ export class SpriteCache {
 
     const artwork = slug ? PROVIDER_BRAND_ART[slug] : undefined;
     if (root) {
-      context.fillStyle = theme === 'dark' ? '#fff3ce' : '#2f241b';
-      context.font = `600 ${Math.round(radius * 0.93)}px Georgia`;
-      context.textAlign = 'center';
-      context.textBaseline = 'middle';
-      context.fillText('P', center, center + 2);
+      if (this.logoReady && this.logo) {
+        context.save();
+        context.beginPath();
+        context.arc(center, center, radius * 0.91, 0, Math.PI * 2);
+        context.clip();
+        const extent = radius * 1.82;
+        context.drawImage(
+          this.logo,
+          center - extent / 2,
+          center - extent / 2,
+          extent,
+          extent,
+        );
+        context.restore();
+      } else {
+        context.fillStyle = theme === 'dark' ? '#fff3ce' : '#2f241b';
+        context.font = `600 ${Math.round(radius * 0.93)}px Georgia`;
+        context.textAlign = 'center';
+        context.textBaseline = 'middle';
+        context.fillText('P', center, center + 2);
+      }
     } else if (artwork || tribunal) {
       const box = (artwork?.viewBox ?? '0 0 24 24').split(' ').map(Number);
       const extent = Math.max(tribunal ? 12 : 12, radius * 0.86);

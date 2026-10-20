@@ -283,6 +283,15 @@ describe('HostAttentionCoordinator', () => {
     expect(logger.debug).toHaveBeenCalledWith('[HostAttentionCoordinator] Lane failure dropped: owner unavailable');
   });
 
+  it('releases the current lane failure generation', async () => {
+    const { coordinator, host, settings } = setup();
+    settings.set('notifications.failureHostEnabled', true);
+    await coordinator.presentLaneFailure('agent-1', 'session-1', 30);
+    await settle();
+    coordinator.releaseLaneFailure('agent-1');
+    expect(host.resolve).toHaveBeenCalledWith(`c:${workspaceIdFromPath('lane:agent-1')}`, 30);
+  });
+
   it('bounds live requests and expires stale pending snapshots', async () => {
     const now = jest.spyOn(Date, 'now').mockReturnValue(1_000);
     try {

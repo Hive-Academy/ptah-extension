@@ -1,0 +1,9 @@
+# Batch A1 fix round
+
+## Decisions
+
+- **Historical foreground completion:** `libs/frontend/chat-streaming/src/lib/accumulator-core.service.ts:454` passes the tool result event timestamp to `onTaskToolResult`. `libs/frontend/chat-streaming/src/lib/agent-monitor.store.ts:2432,2443` stores that epoch time and uses `Date.now()` only when the supplied timestamp is absent or non-finite. `libs/frontend/chat-streaming/src/lib/agent-monitor.store.spec.ts:838,844` covers a replayed old timestamp and the non-finite fallback. `libs/frontend/chat-streaming/src/lib/accumulator-core.service.spec.ts:989,999` checks timestamp forwarding.
+- **Restart and resume:** `libs/frontend/chat-streaming/src/lib/agent-monitor.store.ts:2040,2137,2174,2211` clears the end time for non-terminal start/progress/status state and replaces it with each terminal event time. An idempotent late start/progress event retains the end time when the record remains terminal. `libs/frontend/chat-streaming/src/lib/agent-monitor.store.spec.ts:767` covers completed, running, progress, completed, then a newer terminal status.
+- **Frozen running duration:** `libs/frontend/chat/src/lib/components/organisms/execution/inline-agent-bubble.component.ts:896` names the known limitation: `Date.now()` inside the computed value refreshes only when a signal changes. No timer was added.
+- **Badge text difference skipped:** `DurationBadgeComponent` is in `libs/frontend/chat-ui/src/lib/atoms/duration-badge.component.ts`, outside the permitted edit scope. Changing its formatter would also affect other surfaces. The footer continues to hide durations under one second but may format a visible duration differently from the other agent surfaces.
+- **Checks:** No tests, typecheck, lint, or build were run, as directed. `git diff --check` reported no whitespace errors for the edited source and spec files.

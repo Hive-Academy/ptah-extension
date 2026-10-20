@@ -23,6 +23,12 @@ describe('CommandSessionControlsComponent', () => {
     expect(input.parentElement?.className).toContain('min-w-[15rem]');
     expect(input.parentElement?.className).toContain('flex-[1_1_15rem]');
     expect(input.className).toContain('focus-visible:outline-base-content');
+    const support = fixture.nativeElement.querySelector('.session-support') as HTMLElement;
+    expect(support.parentElement?.className).toContain('session-controls');
+    expect(support.querySelector('[aria-live="polite"]')?.textContent?.trim()).toBe('Command Center · idle');
+    const help = support.querySelector('p[title]') as HTMLParagraphElement;
+    expect(help.className).toContain('truncate');
+    expect(help.title).toBe('To start a Tribunal, say an explicit move word: Council, Forge, Race, Relay, or Crucible. Ambiguous speech goes to Ptah chat.');
     input.value = '  Review release  ';
     input.dispatchEvent(new Event('input'));
     fixture.detectChanges();
@@ -55,5 +61,25 @@ describe('CommandSessionControlsComponent', () => {
     controls.draft.set('first and more');
     controls.clearDraft('first');
     expect(controls.draft()).toBe('first and more');
+  });
+
+  it('keeps a failed send draft and blocks empty submission', () => {
+    TestBed.configureTestingModule({ imports: [CommandSessionControlsComponent] });
+    const fixture = TestBed.createComponent(CommandSessionControlsComponent);
+    fixture.componentRef.setInput('sessionStatus', 'idle');
+    const submit = jest.fn();
+    fixture.componentInstance.commandSubmit.subscribe(submit);
+    fixture.detectChanges();
+    const form = fixture.nativeElement.querySelector('form') as HTMLFormElement;
+    form.dispatchEvent(new Event('submit', { cancelable: true }));
+    expect(submit).not.toHaveBeenCalled();
+    const input = fixture.nativeElement.querySelector('#command-text') as HTMLInputElement;
+    input.value = '  retry this  ';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    form.dispatchEvent(new Event('submit', { cancelable: true }));
+    expect(submit).toHaveBeenCalledWith('retry this');
+    expect(fixture.componentInstance.draft()).toBe('  retry this  ');
+    expect(input.value).toBe('  retry this  ');
   });
 });

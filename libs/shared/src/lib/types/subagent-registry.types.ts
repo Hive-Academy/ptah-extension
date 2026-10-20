@@ -7,6 +7,7 @@
  */
 
 import type { SubagentPromptCacheTtl } from './rpc/rpc-agents.types';
+import type { FlatStreamEventUnion } from './execution/stream-background';
 
 /**
  * Subagent lifecycle status
@@ -255,43 +256,22 @@ export interface SubagentCommandResult {
   readonly ok: true;
 }
 
-/**
- * A single UI-friendly message from a subagent's historical transcript.
- *
- * Normalized down from the SDK's `SessionMessage` shape: text content blocks are
- * concatenated into `text`, tool noise is dropped, and only user/assistant turns
- * are surfaced. Consumed by the subagent transcript viewer.
- */
-export interface SubagentTranscriptMessage {
-  /** The turn author. System messages are filtered out during normalization. */
-  readonly role: 'user' | 'assistant';
-  /** Rendered text content (text blocks concatenated). */
-  readonly text: string;
-  /** ISO-8601 timestamp when available on the transcript line; omitted otherwise. */
-  readonly timestamp?: string;
-}
-
-/**
- * Parameters for the subagent:transcript RPC method.
- *
- * Reads a subagent's full historical transcript on demand via the SDK's
- * `getSubagentMessages(sessionId, agentId, { limit, offset })`.
- */
-export interface SubagentTranscriptParams {
-  /** Parent session UUID that owns the subagent. */
+/** Request a bounded page of structured SDK subagent history. */
+export interface SubagentHistoryPageParams {
   readonly sessionId: string;
-  /** SDK subagent id (the short-hex `agentId`). */
-  readonly agentId: string;
-  /** Maximum number of messages to return. */
-  readonly limit?: number;
-  /** Number of messages to skip from the start. */
-  readonly offset?: number;
+  readonly toolCallId: string;
+  readonly agentId?: string;
+  readonly cursor?: string;
+  readonly maxBytes?: number;
 }
 
-/**
- * Result of the subagent:transcript RPC method.
- */
-export interface SubagentTranscriptResult {
-  /** Normalized transcript messages in chronological order. */
-  readonly messages: SubagentTranscriptMessage[];
+/** Structured history page returned by `subagent:history-page`. */
+export interface SubagentHistoryPageResult {
+  readonly status: 'ok' | 'not-found' | 'unresolved';
+  readonly agentId: string | null;
+  readonly events: FlatStreamEventUnion[];
+  readonly nextCursor: string | null;
+  readonly done: boolean;
+  readonly truncated: boolean;
+  readonly clippedEvents: number;
 }

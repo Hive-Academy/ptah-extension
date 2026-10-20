@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { FloatingUIService } from '@ptah-extension/ui';
+import { GitBranch } from 'lucide-angular';
 import type { CommandWorkNode } from '../model/command-center.store';
 import { CommandCenterStore } from '../model/command-center.store';
 import {
@@ -85,7 +86,7 @@ describe('CommandOverlayComponent', () => {
     expect(
       fixture.nativeElement.querySelectorAll('ptah-context-ring'),
     ).toHaveLength(0);
-    fixture.componentRef.setInput('rootContextPercent', 69);
+    fixture.componentRef.setInput('rootContextPercent', 62);
     fixture.componentRef.setInput('rootContextTone', 'normal');
     fixture.detectChanges();
     expect(
@@ -95,6 +96,8 @@ describe('CommandOverlayComponent', () => {
       (labels[0].querySelector('ptah-context-ring svg') as SVGElement).style
         .color,
     ).toBe('var(--state-ink-done)');
+    expect(labels[0].textContent).toContain('Context 62%');
+    expect(labels[0].getAttribute('aria-label')).toContain('Context 62%');
     expect(labels[1].querySelector('ptah-context-ring')).toBeNull();
     fixture.componentRef.setInput('rootContextPercent', 70);
     fixture.componentRef.setInput('rootContextTone', 'warning');
@@ -103,9 +106,11 @@ describe('CommandOverlayComponent', () => {
       (labels[0].querySelector('ptah-context-ring svg') as SVGElement).style
         .color,
     ).toBe('var(--state-ink-need)');
+    expect(labels[0].textContent).toContain('Context 70%');
     fixture.componentRef.setInput('rootContextPercent', null);
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('ptah-context-ring')).toBeNull();
+    expect(labels[0].textContent).toContain('Context unknown');
   });
 
   it('keeps state edges and selection visible and uses the shared detail body', () => {
@@ -306,17 +311,66 @@ describe('CommandOverlayComponent', () => {
     expect(labels[0].classList.contains('border-warning')).toBe(true);
   });
 
-  it('shows compact provider and state without an unknown placeholder', () => {
+  it('shows the root role and the child provider fallback at full opacity', () => {
     const { component, fixture, labels } = setup();
     expect(labels[0].textContent).toMatch(/Codex\s*·\s*running/);
+    expect(labels[0].textContent).toContain('HEAD OF ENGINEERING');
+    expect(labels[1].textContent).toMatch(/Provider unknown\s*·\s*queued/);
     expect(labels[1].textContent).toContain('queued');
-    expect(labels[1].textContent).not.toContain('Unknown');
+    expect(
+      labels[1].querySelector('lucide-angular.plate-child-icon'),
+    ).not.toBeNull();
+    expect(component.kindIcon(nodes[1])).toBe(GitBranch);
+    expect(labels[1].classList.contains('plate-child')).toBe(true);
+    expect(
+      labels[1].querySelector('.plate-meta')?.classList.contains('opacity-50'),
+    ).toBe(false);
     component.pin('b');
     fixture.detectChanges();
     const card = fixture.nativeElement.querySelector(
       '#command-node-card',
     ) as HTMLElement;
     expect(card.textContent).not.toContain('Provider: Unknown');
+  });
+
+  it('shows the exact unknown child wording and preserves a raw provider id', () => {
+    const { fixture, labels } = setup();
+    fixture.componentRef.setInput('projection', {
+      nodes: [
+        nodes[0],
+        {
+          ...nodes[1],
+          label: 'Child session',
+          providerId: null,
+          state: 'unknown',
+        },
+      ],
+      edges: [],
+    });
+    fixture.detectChanges();
+    expect(labels[1].getAttribute('aria-label')).toBe(
+      'Child session, Provider unknown, unknown',
+    );
+    expect(labels[1].querySelector('.truncate')?.textContent).toContain(
+      'Child session',
+    );
+    expect(
+      labels[1]
+        .querySelector('.plate-meta')
+        ?.textContent?.replace(/\s+/g, ' ')
+        .trim(),
+    ).toContain('Provider unknown · unknown');
+    expect(labels[1].querySelector('ptah-monogram-tile')).not.toBeNull();
+    fixture.componentRef.setInput('projection', {
+      nodes: [
+        nodes[0],
+        { ...nodes[1], providerId: 'vendor-x', state: 'running' },
+      ],
+      edges: [],
+    });
+    fixture.detectChanges();
+    expect(labels[1].textContent).toMatch(/vendor-x\s*·\s*running/);
+    expect(labels[1].textContent).not.toContain('Vendor X');
   });
 
   it('uses one card, replaces its node, and exposes fallback focus for a hidden trigger', () => {
@@ -408,6 +462,11 @@ describe('CommandOverlayComponent', () => {
     ) as HTMLElement;
     expect(card.classList.contains('transition-opacity')).toBe(false);
     expect(card.getAttribute('role')).toBe('region');
+    expect(
+      fixture.nativeElement.querySelector(
+        '.plate-context lucide-angular.animate-spin',
+      ),
+    ).toBeNull();
   });
 
   it('releases a pin when its node leaves the projection', () => {
@@ -458,13 +517,19 @@ describe('CommandOverlayComponent', () => {
   });
 
   it('keeps the provider mark outside the truncated label', () => {
-    const { labels } = setup();
-    const mark = labels[0].querySelector('ptah-provider-mark');
-    const label = labels[0].querySelector('.truncate');
+    const { fixture, labels } = setup();
+    fixture.componentRef.setInput('projection', {
+      nodes: [nodes[0], { ...nodes[1], providerId: 'codex' }],
+      edges: [],
+    });
+    fixture.detectChanges();
+    const mark = labels[1].querySelector('ptah-provider-mark');
+    const label = labels[1].querySelector('.truncate');
     expect(mark).not.toBeNull();
-    expect(label?.textContent).toContain('Alpha');
+    expect(label?.textContent).toContain('Beta');
     expect(label?.contains(mark)).toBe(false);
     expect(label?.classList.contains('min-w-0')).toBe(true);
+    expect(labels[0].querySelector('ptah-provider-mark')).toBeNull();
   });
 
   it('links an expanded plate to its pinned card', () => {

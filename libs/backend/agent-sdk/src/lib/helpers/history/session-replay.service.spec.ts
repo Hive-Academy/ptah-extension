@@ -110,6 +110,38 @@ describe('SessionReplayService', () => {
     return { blockOwners: new Map(), syntheticToolResults: new Set() };
   }
 
+  it('replays missing SDK ids and timestamps identically across reads', () => {
+    const messages: SessionHistoryMessage[] = [{
+      ...a({
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'answer' },
+          { type: 'tool_use', name: 'Read', input: {} },
+        ],
+      }),
+      timestamp: 'not-a-timestamp',
+      uuid: 'fixed-line',
+    }];
+    const first = service.replayAgentToStreamEvents('s', 'task', messages);
+    const second = service.replayAgentToStreamEvents('s', 'task', messages);
+    expect(second).toEqual(first);
+    expect(first[0].messageId).toBe('agent_msg_task_0_fixed-line');
+  });
+
+  it('keeps one message envelope across skipped lines with the same SDK id', () => {
+    const messages: SessionHistoryMessage[] = [
+      a({ role: 'assistant', id: 'api-one', content: [{ type: 'text', text: 'first' }] }),
+      u({ role: 'user', content: 'interleaved result' }),
+      a({ role: 'assistant', id: 'api-one', content: [{ type: 'text', text: 'second' }] }),
+    ];
+    const events = service.replayAgentToStreamEvents('s', 'task', messages);
+    expect(eventTypes(events)).toEqual([
+      'message_start', 'text_delta', 'text_delta', 'message_complete',
+    ]);
+    expect(events.filter((event) => event.eventType === 'text_delta').map((event) => event.blockIndex))
+      .toEqual([0, 1]);
+  });
+
   it('records main blocks without changing the uncollected event output', () => {
     const message = {
       ...a({
@@ -134,7 +166,7 @@ describe('SessionReplayService', () => {
     expect(metadata.syntheticToolResults.size).toBe(0);
   });
 
-  it('records correlated subagent text, omits thinking and marks only synthetic results', () => {
+  it('records correlated subagent thinking and text and marks only synthetic results', () => {
     const task = a({
       role: 'assistant',
       id: 'api-main',
@@ -167,6 +199,7 @@ describe('SessionReplayService', () => {
     const events = service.replayToStreamEvents('s', [task], [agent], metadata);
     expect([...metadata.blockOwners.values()]).toEqual([
       'api-main',
+      'api-thinking',
       'api-agent',
     ]);
     expect([...metadata.syntheticToolResults]).toEqual([
@@ -193,6 +226,46 @@ describe('SessionReplayService', () => {
       persisted,
     );
     expect(persisted.syntheticToolResults.size).toBe(0);
+  });
+
+  it('replays agent JSONL lines with real message ids, running block indices and timestamps', () => {
+    const timestamp = '2026-01-02T03:04:05.000Z';
+    const messages: SessionHistoryMessage[] = [
+      { type: 'assistant', timestamp, message: { role: 'assistant', id: 'msg-real', content: [
+        { type: 'thinking', thinking: 'reason' },
+        { type: 'text', text: 'answer' },
+        { type: 'tool_use', id: 'tool-1', name: 'Read', input: {} },
+        { type: 'tool_result', tool_use_id: 'tool-1', content: 'result' },
+      ] } },
+    ];
+    const events = service.replayAgentToStreamEvents('session', 'task', messages);
+    expect(eventTypes(events)).toEqual([
+      'message_start', 'thinking_delta', 'text_delta', 'tool_start', 'tool_result', 'message_complete',
+    ]);
+    expect(events.every((event) => event.messageId === 'msg-real')).toBe(true);
+    expect(events.map((event) => event.timestamp)).toEqual(
+      Array(events.length).fill(Date.parse(timestamp)),
+    );
+    expect(events.filter((event) => event.eventType === 'thinking_delta' || event.eventType === 'text_delta')
+      .map((event) => event.blockIndex)).toEqual([0, 1]);
+  });
+
+  it('groups adjacent lines with one API message id and skips empty thinking', () => {
+    const timestamp = '2026-01-02T03:04:05.000Z';
+    const messages: SessionHistoryMessage[] = [
+      { type: 'assistant', timestamp, message: { role: 'assistant', id: 'msg-one', content: [
+        { type: 'thinking', thinking: '' }, { type: 'text', text: 'first' },
+      ] } },
+      { type: 'assistant', timestamp, message: { role: 'assistant', id: 'msg-one', content: [
+        { type: 'thinking', thinking: 'second' },
+      ] } },
+    ];
+    const events = service.replayAgentToStreamEvents('session', 'task', messages);
+    expect(eventTypes(events)).toEqual([
+      'message_start', 'text_delta', 'thinking_delta', 'message_complete',
+    ]);
+    expect(events.filter((event) => event.eventType === 'text_delta' || event.eventType === 'thinking_delta')
+      .map((event) => event.blockIndex)).toEqual([0, 1]);
   });
 
   it('does not collect orphan agent records before a compact boundary', () => {

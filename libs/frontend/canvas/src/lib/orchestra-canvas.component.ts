@@ -447,20 +447,43 @@ export class OrchestraCanvasComponent implements OnDestroy {
     // in which case the tab simply stays in the tab list as the graceful
     // fallback. `focus: false` (agent children) appends the tile without
     // switching the active tab.
-    // KNOWN GAP (TASK_2026_471): the refusal is not reported back, so a caller
-    // that also prefills the composer for this tab prefills a surface nobody
-    // mounted. Raising the cap makes it rarer; it does not close it.
+    // Each request's `resolve` reports the outcome so a caller can react to a
+    // refusal (e.g. the task-prompt bridge skips its prefill and closes the
+    // tab): `true` when the tab is a tile — newly adopted, or already tiled
+    // (fresh-mount hydration may have tiled it and filled the grid to the cap,
+    // where `adoptTab` returns null before its dedup check) — `false` on a
+    // cap refusal or a workspace-mismatch drop.
     effect(() => {
       const pending = this.appState.canvasTabRequests();
       if (pending.length === 0) return;
       const requests = untracked(() => this.appState.takeCanvasTabRequests());
       const activeWorkspacePath = this.canvasStore.activeWorkspacePath() ?? '';
       for (const req of requests) {
-        if ((req.workspacePath ?? '') !== activeWorkspacePath) continue;
-        const adopted = this.canvasStore.adoptTab(req.tabId);
-        if (adopted && req.focus !== false) {
-          this.canvasStore.focusTile(req.tabId);
+        if ((req.workspacePath ?? '') !== activeWorkspacePath) {
+          req.resolve?.(false);
+          continue;
         }
+        // The queue is already emptied, so the app-state removal timer can no
+        // longer settle these requests: each one is settled here even when
+        // adoption or focus throws, and the loop continues with the rest.
+        let adopted: string | null = null;
+        try {
+          adopted = this.canvasStore.adoptTab(req.tabId);
+          if (adopted && req.focus !== false) {
+            this.canvasStore.focusTile(req.tabId);
+          }
+        } catch (error: unknown) {
+          console.error(
+            '[OrchestraCanvas] Failed to adopt queued tab tile',
+            error instanceof Error ? error.message : error,
+          );
+        }
+        req.resolve?.(
+          adopted !== null ||
+            untracked(() =>
+              this.canvasStore.tiles().some((t) => t.tabId === req.tabId),
+            ),
+        );
       }
     });
     effect(() => {

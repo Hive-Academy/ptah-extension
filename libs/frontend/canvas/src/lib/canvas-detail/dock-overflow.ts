@@ -1,6 +1,7 @@
 import type { SessionAgent } from '@ptah-extension/chat';
 import {
   formatAgentDuration,
+  agentRunDurationMs,
   type AgentStatusWord,
 } from '@ptah-extension/chat-ui';
 
@@ -91,10 +92,11 @@ export function planDockOverflow(
 
 /** Running time is `now - startedAt`; a finished run is `endedAt - startedAt`. */
 export function agentDurationMs(agent: SessionAgent, now: number): number | null {
-  if (typeof agent.startedAt !== 'number') return null;
-  const end = agent.status === 'running' ? now : agent.endedAt;
-  if (typeof end !== 'number') return null;
-  return end - agent.startedAt;
+  return agentRunDurationMs({
+    running: agent.status === 'running',
+    startedAt: agent.startedAt,
+    endedAt: agent.endedAt,
+  }, now);
 }
 
 /** Display text for a run, or `null` when there is nothing to show. */

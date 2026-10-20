@@ -106,9 +106,11 @@ export class ElectronHostAttentionNotifications implements IHostAttentionNotific
       for (const member of shared) member.handle = null;
       if (this.burstHandle === oldHandle) this.burstHandle = null;
       try { oldHandle.close(); } catch (error: unknown) { this.warnOnce(error); }
-      const newest = shared[shared.length - 1];
-      this.showHandle(newest, shared.length);
-      for (const member of shared) member.handle = newest.handle;
+      if (this.isEligible()) {
+        const newest = shared[shared.length - 1];
+        this.showHandle(newest, shared.length);
+        for (const member of shared) member.handle = newest.handle;
+      }
     } else {
       this.close(entry);
     }

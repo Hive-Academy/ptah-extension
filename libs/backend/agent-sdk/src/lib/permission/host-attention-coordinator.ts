@@ -205,6 +205,12 @@ export class HostAttentionCoordinator implements IHostAttentionIngress {
     if (generation !== undefined) this.resolve(key, generation);
   }
 
+  releaseLaneFailure(agentId: string): void {
+    const key = `c:${workspaceIdFromPath(`lane:${agentId}`)}`;
+    const generation = this.generations.get(key);
+    if (generation !== undefined) this.resolve(key, generation);
+  }
+
   private prune(): void {
     const now = Date.now();
     for (const [key, claimedAt] of this.claimedAt) {

@@ -40,6 +40,22 @@ describe('CommandPendingInputComponent', () => {
     return fixture;
   }
 
+  it('keeps an assertive announcement region mounted while pending changes', () => {
+    const fixture = setup(null);
+    const live = fixture.nativeElement.querySelector('[aria-live="assertive"]') as HTMLElement;
+    expect(live.getAttribute('aria-atomic')).toBe('true');
+    expect(live.textContent).toContain('Action required: Choose a branch');
+    fixture.componentRef.setInput('pending', null);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[aria-live="assertive"]')).toBe(live);
+    expect(live.textContent?.trim()).toBe('');
+    expect(fixture.nativeElement.querySelector('#pending-title')).toBeNull();
+    fixture.componentRef.setInput('pending', { ...pending, title: 'Choose a target' });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[aria-live="assertive"]')).toBe(live);
+    expect(live.textContent).toContain('Action required: Choose a target');
+  });
+
   it('uses readable light input tokens and a base-content focus ring', () => {
     const fixture = setup(null);
     const answer = fixture.nativeElement.querySelector(
@@ -213,11 +229,61 @@ describe('CommandPendingInputComponent', () => {
     expect(button.disabled).toBe(true);
   });
 
-  it('renders a non-Decline-first proposal as invalid with no Confirm', () => {
+  it('renders a non-Decline-first proposal as invalid with disabled Confirm', () => {
     const fixture = setup({ ...roster, options: ['Confirm', 'Decline'] });
     expect(fixture.nativeElement.textContent).toContain(
       'Invalid Tribunal proposal',
     );
-    expect(fixture.nativeElement.textContent).not.toContain('Confirm Tribunal');
+    const confirm = buttonWithText(fixture.nativeElement, 'Confirm Tribunal');
+    expect(confirm.disabled).toBe(true);
+    const explanation = fixture.nativeElement.querySelector('#invalid-tribunal-proposal') as HTMLElement;
+    expect(explanation.textContent).toContain('Invalid Tribunal proposal');
+    expect(confirm.getAttribute('aria-describedby')).toBe(explanation.id);
+  });
+
+  it('uses a scoped question card and keeps the typed answer available', () => {
+    const fixture = setup(null);
+    expect(fixture.nativeElement.textContent).toContain('For this session');
+    expect(fixture.nativeElement.querySelector('#pending-title')?.textContent).toContain(pending.title);
+    expect(fixture.nativeElement.querySelector('[data-test="pending-kind-icon"] svg')).not.toBeNull();
+    const response = jest.fn();
+    fixture.componentInstance.response.subscribe(response);
+    const answer = fixture.nativeElement.querySelector('#pending-answer') as HTMLInputElement;
+    answer.value = 'release/next';
+    answer.dispatchEvent(new Event('input', { bubbles: true }));
+    fixture.detectChanges();
+    buttonWithText(fixture.nativeElement, 'Send answer').click();
+    expect(response).toHaveBeenCalledWith({ id: 'q1', answer: 'release/next' });
+  });
+
+  it('uses the approval card with explicit Deny and Approve controls', () => {
+    const fixture = setup(null);
+    fixture.componentRef.setInput('pending', { ...pending, kind: 'approval', title: 'Repository access' });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Action required · approval');
+    expect(fixture.nativeElement.querySelector('[data-test="pending-kind-icon"] svg')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('#pending-answer')).toBeNull();
+    const response = jest.fn();
+    fixture.componentInstance.response.subscribe(response);
+    buttonWithText(fixture.nativeElement, 'Approve').click();
+    expect(response).toHaveBeenCalledWith({ id: 'q1', answer: 'Approve' });
+  });
+
+  it('keeps Tribunal confirmation on its focused button and disables invalid proposals', () => {
+    const fixture = setup();
+    const confirm = jest.fn();
+    fixture.componentInstance.confirm.subscribe(confirm);
+    const button = buttonWithText(fixture.nativeElement, 'Confirm Tribunal');
+    button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(confirm).not.toHaveBeenCalled();
+    button.focus();
+    button.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+    expect(confirm).toHaveBeenCalledTimes(1);
+    fixture.componentRef.setInput('proposal', { ...roster, proposalId: 'p2', options: ['Confirm', 'Decline'] });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('#pending-title')).not.toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('Invalid Tribunal proposal');
+    expect(fixture.nativeElement.querySelector('[data-test="pending-kind-icon"] svg')).not.toBeNull();
+    expect(buttonWithText(fixture.nativeElement, 'Confirm Tribunal').disabled).toBe(true);
   });
 });
