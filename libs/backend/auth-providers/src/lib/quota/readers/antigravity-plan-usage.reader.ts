@@ -74,6 +74,13 @@ export function createAntigravityPlanUsageReader(
     if (local === 'account-changed') return unavailable();
     if (local.status === 'available') return local;
     if (signal?.aborted) return unavailable();
+    // CLI usage has no email, so it cannot verify an account owner's identity.
+    if (
+      target.ownerRef.identityKind !== 'cli-store' &&
+      target.ownerRef.identityKind !== 'unknown'
+    ) {
+      return local;
+    }
     // Third fallback: the headless CLI, with its own fixed timeout.
     const cli = await readCli(signal);
     if (!cli.ok) return { ...unavailable(), statusReason: cli.reason };

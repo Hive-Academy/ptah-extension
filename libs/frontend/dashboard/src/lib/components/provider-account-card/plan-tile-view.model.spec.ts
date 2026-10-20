@@ -560,9 +560,7 @@ describe('plan-tile-view.model', () => {
         NOW,
         TIME,
       );
-      expect(view.statusNotice).toBe(
-        'Antigravity CLI usage output not recognized',
-      );
+      expect(view.statusNotice).toBeNull();
       expect(view.statusPill?.text).toBe(
         'Antigravity CLI usage output not recognized',
       );
@@ -574,7 +572,7 @@ describe('plan-tile-view.model', () => {
         NOW,
         TIME,
       );
-      expect(view.statusNotice).toBe('Open Antigravity to read local quota');
+      expect(view.statusNotice).toBeNull();
       expect(view.statusPill?.text).toBe('Open Antigravity to read local quota');
     });
 

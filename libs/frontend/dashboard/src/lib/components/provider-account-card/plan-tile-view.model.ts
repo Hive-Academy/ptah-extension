@@ -222,6 +222,7 @@ export interface PlanTileSecondaryView {
 
 /** An owner-level notice (evidence, cooldown), truncated with its tooltip. */
 export interface PlanTileNoticeView {
+  readonly key: string;
   readonly text: string;
   readonly tone: Tone;
   readonly title: string;
@@ -803,21 +804,23 @@ function evidenceNotice(
   evidence: OwnerLimitEvidence,
   now: number,
   time: LocalTimeOptions,
+  index: number,
 ): PlanTileNoticeView {
+  const key = `${evidence.source}:${evidence.observedAt}:${index}`;
   const scope = evidence.modelScope ? ` (${evidence.modelScope})` : '';
   const hit = formatLocalAbsolute(evidence.observedAt, now, time);
   const source = PLAN_LIMIT_SOURCE_LABELS[evidence.source];
   if (evidence.source === 'estimated') {
     const text = `Estimated limit hit${scope} ${hit} (unconfirmed, informational) · window unknown · ${resetPhrase(evidence.resetsAt, now, time)}`;
-    return { text, tone: 'neutral', title: `${text} · Source: ${source}` };
+    return { key, text, tone: 'neutral', title: `${text} · Source: ${source}` };
   }
   if (isActiveLimitEvidence(evidence, now)) {
     const text = `Limit hit${scope} ${hit} · window unknown · ${resetPhrase(evidence.resetsAt, now, time)}`;
-    return { text, tone: 'warning', title: `${text} · Source: ${source}` };
+    return { key, text, tone: 'warning', title: `${text} · Source: ${source}` };
   }
   // Expired: only evidence with a known, passed reset reaches here.
   const text = `Limit hit${scope} ${hit} · window unknown · ${resetPhrase(evidence.resetsAt, now, time)} · expired`;
-  return { text, tone: 'neutral', title: `${text} · Source: ${source}` };
+  return { key, text, tone: 'neutral', title: `${text} · Source: ${source}` };
 }
 
 // ---------------------------------------------------------------------------
@@ -896,6 +899,10 @@ export function buildPlanTile(
     return [lines.join(' ')];
   })();
 
+  const pill = bar === null
+    ? statusPill(owner, owner.windows.length > 0, hasData, notice)
+    : null;
+  const statusNotice = notice?.text === pill?.text ? null : (notice?.text ?? null);
   return {
     key: owner.owner.key,
     providerId: owner.owner.providerId,
@@ -904,15 +911,15 @@ export function buildPlanTile(
       subtitle === '' ? label : `${label} — ${subtitle}`,
     planBadge: badge,
     bar,
-    statusPill: bar === null ? statusPill(owner, owner.windows.length > 0, hasData, notice) : null,
+    statusPill: pill,
     chips,
     secondary: secondaryLine(owner),
     statusChip: statusChip(owner.status, owner.owner.providerId),
-    statusNotice: notice?.text ?? null,
+    statusNotice,
     statusNoticeTone: notice?.tone ?? 'neutral',
-    statusNoticeTitle: notice?.text ?? null,
+    statusNoticeTitle: statusNotice,
     action: tileAction(owner, hasData),
-    evidence: owner.ownerEvidence.map((e) => evidenceNotice(e, now, time)),
+    evidence: owner.ownerEvidence.map((e, index) => evidenceNotice(e, now, time, index)),
     cooldown:
       owner.cooldown !== undefined && owner.cooldown.until > now
         ? `Retrying after ${formatLocalAbsolute(owner.cooldown.until, now, time)} (${formatRelative(owner.cooldown.until, now)}) · a retry delay, not a plan reset`

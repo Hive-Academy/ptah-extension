@@ -42,6 +42,7 @@ export async function readJson(response: Response): Promise<unknown> {
   try {
     return JSON.parse(text);
   } catch {
+    // degradation-audit: optional-capability - invalid optional JSON is treated as no readable usage
     return undefined;
   }
 }
@@ -87,6 +88,7 @@ const UsageBodySchema = z.object({
   totals: z.object({
     request_count: z.number().int().nonnegative(),
     // A malformed per-model list never discards the request total.
+    // degradation-audit: optional-capability - malformed model groups must not discard valid request totals
     groups: z
       .array(
         z.object({

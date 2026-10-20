@@ -3,16 +3,16 @@
  *
  * Two authenticated endpoints, read independently with the same Bearer key:
  *
- * - `GET /api/balance` â€” the plan-limit source (windows).
- * - `GET /api/usage?range=7d&group_by=model` â€” request counts and per-model
+ * - `GET /api/balance` — the plan-limit source (windows).
+ * - `GET /api/usage?range=7d&group_by=model` — request counts and per-model
  *   detail, carried as secondary `localUsage`; never turned into a percentage.
  *
  * One endpoint failing never discards the other's valid data, and the cause is
  * exposed through `statusReason` on the `available` reading:
  *
- * - balance `401`/`403` with usage OK â€” `balance-auth-rejected`;
- * - balance other failure with usage OK â€” `balance-unavailable`;
- * - usage `401`/`403` with windows OK â€” `usage-auth-rejected`.
+ * - balance `401`/`403` with usage OK — `balance-auth-rejected`;
+ * - balance other failure with usage OK — `balance-unavailable`;
+ * - usage `401`/`403` with windows OK — `usage-auth-rejected`.
  *
  * With no data at all: `401`/`403` on either endpoint is `unsupported-auth`,
  * `404` on both is `no-usage-source`, anything else `service-unavailable`.

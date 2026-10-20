@@ -443,6 +443,16 @@ describe('Antigravity plan-usage reader', () => {
       expect(mockedCli).not.toHaveBeenCalled();
     });
 
+    it('does not apply CLI usage to a verified account when local probing fails', async () => {
+      mockedCli.mockClear();
+      const result = await failingLocal()({
+        target: { ownerRef: { key: owner, identityKind: 'account' } } as never,
+        refresh: true,
+      });
+      expect(result).toMatchObject({ status: 'service-unavailable', windows: [] });
+      expect(mockedCli).not.toHaveBeenCalled();
+    });
+
     it.each(['cli-unavailable', 'cli-parse-failed'] as const)(
       'carries the typed reason %s when the CLI fails',
       async (reason) => {

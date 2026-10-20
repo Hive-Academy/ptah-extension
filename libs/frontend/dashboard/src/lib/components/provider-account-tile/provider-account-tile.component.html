@@ -153,7 +153,7 @@
     </div>
   }
 
-  @for (notice of view().evidence; track notice.text) {
+  @for (notice of view().evidence; track notice.key) {
     <p
       class="m-0 truncate text-xs"
       [class.text-warning]="notice.tone === 'warning'"
