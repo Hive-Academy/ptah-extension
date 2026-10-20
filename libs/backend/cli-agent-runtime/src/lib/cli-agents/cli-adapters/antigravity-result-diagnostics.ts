@@ -38,8 +38,10 @@ export function formatAgyFailure(
     parts.push(safeAgyText(result.error));
   } else if (result.error && typeof result.error === 'object' && !Array.isArray(result.error)) {
     const error = result.error as Record<string, unknown>;
-    if (typeof error.code === 'string') parts.push(safeAgyText(error.code, 160));
-    if (typeof error.message === 'string') parts.push(safeAgyText(error.message));
+    const code = error['code'];
+    const message = error['message'];
+    if (typeof code === 'string') parts.push(safeAgyText(code, 160));
+    if (typeof message === 'string') parts.push(safeAgyText(message));
   }
   if (result.response?.trim()) parts.push(safeAgyText(result.response.trim()));
   return parts.length > 1 ? parts.join(': ') : `Antigravity CLI finished with status ${result.status}`;

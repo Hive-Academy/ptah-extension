@@ -740,7 +740,7 @@ export class AntigravityCliAdapter implements CliAdapter {
     let failedResult = false;
     let failedEvent: z.infer<typeof AgyResultEventSchema> | undefined;
     const onStep = (step: AgyStepUpdate): void => {
-      if (step.state === 'ERROR' || step.status === 'ERROR') {
+      if (step.state === 'ERROR' || step['status'] === 'ERROR') {
         errorSteps.push(step);
         if (errorSteps.length > 5) errorSteps.shift();
       }
