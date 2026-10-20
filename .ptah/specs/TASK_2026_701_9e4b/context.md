@@ -4,6 +4,7 @@
 
 User (2026-10-19): "we will need to make a task that will align both setup wizard agent generation
 along with the new skills enhancements we are doing so no weird experience happens".
+User (2026-10-20): add the Marketplace plugins page skill installs to this task (scope item 8).
 
 ## Background
 
@@ -42,6 +43,16 @@ along with the new skills enhancements we are doing so no weird experience happe
    (`content-generation.service.ts:370-402`); align the generation prompt rules with it.
 7. **Grade expectations.** A freshly generated agent shows "No grade" until a reviewed task uses it;
    say so in the wizard completion step.
+8. **Marketplace plugin skills (user request, 2026-10-20).** Skills and agents installed from the
+   Marketplace plugins page must join the same Library and enhancement flow as wizard output: the
+   same harness root, a mirror and catalog refresh after install or removal, a plugin provenance label,
+   and the item 1 keep/replace guard when a plugin file would replace a differing local file. Make
+   the Marketplace installed-skills view and the desktop Library agree on what is installed. Starting
+   points: `libs/backend/plugin-marketplace/src/lib/install/external-plugin-installer.service.ts`,
+   `libs/frontend/marketplace/src/lib/pages/skills/installed-skills-page.component.ts`,
+   `libs/frontend/marketplace/src/lib/pages/skills/installed-skill-rows.ts` (`pluginRow`,
+   `pluginSourceLabel`). Related, not owned here: TASK_2026_241 (unified installed inventory) and
+   TASK_2026_560 (skill on/off controls).
 
 ## Out of scope
 
