@@ -296,10 +296,11 @@ describe(CompactSessionCardComponent.name, () => {
     agents.set([
       lane({ agentId: 'unowned', displayName: 'Unowned CLI', parentSessionId: undefined, status: 'failed' }),
       lane({ agentId: 'foreign', displayName: 'Foreign CLI', parentSessionId: 'session-2' }),
-      lane({ agentId: 'owned-1' }),
-      lane({ agentId: 'owned-2' }),
-      lane({ agentId: 'owned-3' }),
-      lane({ agentId: 'owned-4' }),
+      // One fixed start time: rows sort newest first, and Date.now() can tick between calls.
+      lane({ agentId: 'owned-1', startedAt: 1_000 }),
+      lane({ agentId: 'owned-2', startedAt: 1_000 }),
+      lane({ agentId: 'owned-3', startedAt: 1_000 }),
+      lane({ agentId: 'owned-4', startedAt: 1_000 }),
     ]);
     const fixture = render();
     fixture.componentRef.setInput('variant', 'rail');
