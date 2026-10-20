@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { AppStateManager, LoggingService, NOTIFICATION_FOCUS_ROUTER, NOTICE_ACTION_HANDLER, NotificationService } from '@ptah-extension/core';
+import { AppStateManager, ATTENTION_LANE_OPENER, LoggingService, NOTIFICATION_FOCUS_ROUTER, NOTICE_ACTION_HANDLER, NotificationService } from '@ptah-extension/core';
 import { ChatAttentionHostMessageHandler } from './chat-attention-host-message-handler.service';
 import { AgentPermissionResponder } from './agent-permission-responder';
 import { ChatAttentionActionDispatcherService } from './chat-attention-action-dispatcher.service';
@@ -8,6 +8,7 @@ import { ChatAttentionSourceService } from './chat-attention-source.service';
 describe('ChatAttentionActionDispatcherService', () => {
   const respondLane = jest.fn();
   const focus = jest.fn();
+  const openLane = jest.fn();
   const upsert = jest.fn();
   const warn = jest.fn();
   const runNotice = jest.fn();
@@ -27,6 +28,7 @@ describe('ChatAttentionActionDispatcherService', () => {
     jest.clearAllMocks();
     respondLane.mockReturnValue(true);
     focus.mockResolvedValue({ success: true, outcome: 'focused' });
+    openLane.mockReturnValue(true);
     runNotice.mockResolvedValue({ kind: 'completed' });
     TestBed.configureTestingModule({ providers: [
       { provide: ChatAttentionSourceService, useValue: {
@@ -35,6 +37,7 @@ describe('ChatAttentionActionDispatcherService', () => {
       { provide: AgentPermissionResponder, useValue: { respondLane } },
       { provide: NotificationService, useValue: { upsert } },
       { provide: NOTIFICATION_FOCUS_ROUTER, useValue: { focus } },
+      { provide: ATTENTION_LANE_OPENER, useValue: { open: openLane } },
       { provide: NOTICE_ACTION_HANDLER, useValue: { canHandle: canHandleNotice, run: runNotice }, multi: true },
       { provide: LoggingService, useValue: { warn } },
       { provide: AppStateManager, useValue: { setStatusMessage: jest.fn() } },
@@ -80,6 +83,28 @@ describe('ChatAttentionActionDispatcherService', () => {
   it('routes Open to the recorded workspace and session', async () => {
     expect(await service.dispatch('lane', 1, 'open')).toBe(true);
     expect(focus).toHaveBeenCalledWith({ workspacePath: '/ws', sessionId: 'session', tabId: 'tab' });
+    expect(openLane).toHaveBeenCalledWith('tab', 'agent');
+  });
+
+  it('keeps session focus when the lane has ended', async () => {
+    openLane.mockReturnValue(false);
+    expect(await service.dispatch('lane', 1, 'open')).toBe(true);
+    expect(focus).toHaveBeenCalledWith({ workspacePath: '/ws', sessionId: 'session', tabId: 'tab' });
+    expect(openLane).toHaveBeenCalledWith('tab', 'agent');
+    expect(warn).toHaveBeenCalledWith('ChatAttentionActionDispatcherService', 'Lane detail unavailable; session focused');
+  });
+
+  it('leaves non-lane Open on the session focus route', async () => {
+    live.item.kind = 'permission';
+    live.target.kind = 'permission';
+    try {
+      expect(await service.dispatch('lane', 1, 'open')).toBe(true);
+      expect(focus).toHaveBeenCalledTimes(1);
+      expect(openLane).not.toHaveBeenCalled();
+    } finally {
+      live.item.kind = 'lane-permission';
+      live.target.kind = 'lane-permission';
+    }
   });
 
   it('routes host-only Open through the host snapshot guard', async () => {

@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { AttentionActionDispatcher, type AttentionActionOutcome, AppStateManager, LoggingService,
-  NOTIFICATION_FOCUS_ROUTER, SURFACE_FOCUS_ROUTER, NOTICE_ACTION_HANDLER, NotificationService, attentionConditionKey } from '@ptah-extension/core';
+  ATTENTION_LANE_OPENER, NOTIFICATION_FOCUS_ROUTER, SURFACE_FOCUS_ROUTER, NOTICE_ACTION_HANDLER, NotificationService, attentionConditionKey } from '@ptah-extension/core';
 import { AgentPermissionResponder } from './agent-permission-responder';
 import { ChatAttentionSourceService } from './chat-attention-source.service';
 import { ChatAttentionHostMessageHandler } from './chat-attention-host-message-handler.service';
@@ -12,6 +12,7 @@ export class ChatAttentionActionDispatcherService implements AttentionActionDisp
   private readonly responder = inject(AgentPermissionResponder);
   private readonly notifications = inject(NotificationService);
   private readonly router = inject(NOTIFICATION_FOCUS_ROUTER, { optional: true });
+  private readonly laneOpener = inject(ATTENTION_LANE_OPENER, { optional: true });
   private readonly surfaceRouters = inject(SURFACE_FOCUS_ROUTER, { optional: true }) ?? [];
   private readonly noticeHandlers = inject(NOTICE_ACTION_HANDLER, { optional: true }) ?? [];
   private readonly host = inject(ChatAttentionHostMessageHandler, { optional: true });
@@ -57,6 +58,13 @@ export class ChatAttentionActionDispatcherService implements AttentionActionDisp
           workspacePath: item.workspacePath, sessionId: item.sessionId, tabId: item.tabId,
         });
         if (!outcome.success) return this.unavailable('Target unavailable');
+        if (actionId === 'open' && target.kind === 'lane-permission' && item.tabId) {
+          // The lane may have ended while the session was being focused.
+          // Session focus remains the usable fallback in that case.
+          if (!this.laneOpener?.open(item.tabId, target.agentId)) {
+            this.logger.warn('ChatAttentionActionDispatcherService', 'Lane detail unavailable; session focused');
+          }
+        }
         return true;
       }
       if (actionId !== 'allow' && actionId !== 'deny') return this.unavailable('Action unavailable');
