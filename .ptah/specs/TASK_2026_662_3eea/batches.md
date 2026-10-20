@@ -1653,7 +1653,7 @@ rule (Batch defaults) to each brief before spawning. Phase C review is still due
 - Validation notes: none beyond the plan row.
 - Implementation details: none beyond the plan row.
 
-## Batch 50: Snapshot prune + archive dry-run scripts - PARTIAL (2fc7c3987; export done, prune parked for OP-2, O34a)
+## Batch 50: Snapshot prune + archive dry-run scripts - PARTIAL (2fc7c3987; export done, prune parked for OP-2, O34a; stays PARTIAL by U9, no OP-2 prune)
 
 - Phase: C | Wave: C-W3 | Executor: CLI lane codex | Depends on: 15, 49 | Tasks: 1
 - Flags: WRITE-PATH (prune deletes history files only in apply mode; the archive dry-run writes an archive to a temp path from a DB copy)
@@ -2067,7 +2067,7 @@ D3), but the user must see and confirm the archive before the drop. Do not commi
   documented user-profile location) and say which; bound the accumulation of `pre-0057-*` archive
   directories across repeated preflights (reuse a verified archive or prune older unverified ones).
 
-## OP-1: Archive dry-run and user confirmation (orchestrator, no lane, no code)
+## OP-1: Archive dry-run and user confirmation (orchestrator, no lane, no code) - CONFIRMED (U9)
 
 - Copy the user's Ptah DB to a temp path. Run the batch 50 export script against the copy, never against
   the live DB. Present the receipt to the user: the exact table list (`skill_candidates`,
@@ -2076,14 +2076,14 @@ D3), but the user must see and confirm the archive before the drop. Do not commi
   job IDs), row counts, sha256 and the archive path.
 - **Needs user confirmation of the archive before drop.** Batch 68 is not committed until the user confirms.
 
-## Batch 68: Register 0057 drop + ratchet pins (R2, N5) - PENDING
+## Batch 68: Register 0057 drop + ratchet pins (R2, N5) - COMPLETE (902e37d2f; + 0044/0046 pins and Jest home guard, O54)
 
 - Phase: F | Executor: CLI lane codex | Depends on: 67, OP-1 confirmed | Tasks: 1
 - Flags: WRITE-PATH (drops tables at next boot after the fatal verified archive), EXCEPTION (mechanical spec-pin bump, 16 specs, one project)
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/persistence-sqlite mcp-bench --parallel=1`
 - Precondition: OP-1 is confirmed. `rg -n "toBe\(56\)" PS/migrations` lists the 16 pins.
 
-### Task 68.1: 0057 last; fatal archive first; FK-safe drop - PENDING
+### Task 68.1: 0057 last; fatal archive first; FK-safe drop - COMPLETE
 
 - Files: `PS/migrations/0057_drop_skill_pipeline.ts` (new) + spec, `PS/migrations/index.ts`, ratchet pins 56 -> 57 in the 15 specs from batch 1 plus `0056_skill_nullable_grades.spec.ts`.
 - Plan reference: plan row 63; implementation-plan.md:124-129; round-2 R2, N5.
@@ -2097,13 +2097,13 @@ D3), but the user must see and confirm the archive before the drop. Do not commi
 - Validation notes: after the batch, the dropped tables have zero live SQL readers.
 - Implementation details: none beyond the plan row.
 
-## Batch 69: Runner vec-order spec + embedder comment - PENDING
+## Batch 69: Runner vec-order spec + embedder comment - COMPLETE (1414253ba)
 
 - Phase: F | Executor: CLI lane codex | Depends on: 68 | Tasks: 1
 - Verification: `npx nx run-many -t test typecheck -p @ptah-extension/persistence-sqlite --parallel=1`
 - Precondition: G15 `embedder.interface.ts:6`.
 
-### Task 69.1: Older pending vec catch-up, then archive, then drop; comment names only the memory curator - PENDING
+### Task 69.1: Older pending vec catch-up, then archive, then drop; comment names only the memory curator - COMPLETE
 
 - Files: `PS/migration-runner.spec.ts`, `PS/embedder/embedder.interface.ts`.
 - Plan reference: plan row 64.
