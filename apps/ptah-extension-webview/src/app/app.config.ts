@@ -62,6 +62,7 @@ import { appRoutes } from './app.routes';
 import { SurfaceUpdateInbox } from '@ptah-extension/chat-routing';
 import {
   ChatMessageHandler,
+  ArtifactMessageHandler,
   AgentSessionAdoptionService,
   ChatTabRouteSync,
   AgentMonitorMessageHandler,
@@ -237,6 +238,7 @@ export const appConfig: ApplicationConfig = {
     },
     { provide: MESSAGE_HANDLERS, useExisting: AppStateManager, multi: true },
     { provide: MESSAGE_HANDLERS, useExisting: ChatMessageHandler, multi: true },
+    { provide: MESSAGE_HANDLERS, useExisting: ArtifactMessageHandler, multi: true },
     // Late adoption of agent-started child tabs (TASK_2026_584). The
     // `agentSession:opened` push above only reaches a webview that is running
     // when the child starts; this asks `chat:agent-sessions` at bootstrap and

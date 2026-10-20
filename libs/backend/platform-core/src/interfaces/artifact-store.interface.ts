@@ -14,6 +14,8 @@ export type ArtifactStoreErrorCode =
   | 'INVALID_INPUT'
   | 'INVALID_PATH'
   | 'TOO_LARGE'
+  | 'QUOTA'
+  | 'IO_ERROR'
   | 'NOT_FOUND'
   | 'UNSUPPORTED';
 

@@ -7,8 +7,10 @@ import {
 // symbol of the declaration is defer-only; a second runtime symbol would keep
 // the whole `display-panel` barrel (and declarative-dashboard) eager.
 import { DisplayPanelComponent, type DisplayPanelViewStateChange } from '@ptah-extension/chat-ui/display-panel';
-import type { TurnChangeSet } from '@ptah-extension/shared';
-import { DisplayDockState } from '../../../services/display-dock/display-dock.state';
+import { ClaudeRpcService } from '@ptah-extension/core';
+import type { ArtifactRecord, TurnChangeSet } from '@ptah-extension/shared';
+import { ArtifactStore } from '../../../services/artifact.store';
+import { DisplayDockState, type DisplayDockSelection } from '../../../services/display-dock/display-dock.state';
 import { ChangeSetActionsService } from '../../../services/change-set/change-set-actions.service';
 import { DisplaySheetState } from './display-sheet.state';
 
@@ -20,6 +22,27 @@ import { DisplaySheetState } from './display-sheet.state';
 const DISPLAY_PANEL_SUMMARY_KEY = 'summary';
 const NO_CHANGE_SET_TEXT = 'This turn has no recorded file changes to open.';
 const ACTION_FAILED_TEXT = 'The review action failed.';
+
+/**
+ * The prefix the display panel gives artifact strip items (`artifact:<id>`).
+ * Duplicated for the same reason as {@link DISPLAY_PANEL_SUMMARY_KEY}: this
+ * eager sheet must not value-import the lazy entry.
+ */
+const DISPLAY_PANEL_ARTIFACT_KEY_PREFIX = 'artifact:';
+
+const NO_ARTIFACTS: readonly ArtifactRecord[] = Object.freeze([]);
+
+/** Maps a panel strip key back to the dock selection kind it denotes. */
+function selectionForKey(key: string): DisplayDockSelection {
+  if (key === DISPLAY_PANEL_SUMMARY_KEY) return { kind: 'summary' };
+  if (key.startsWith(DISPLAY_PANEL_ARTIFACT_KEY_PREFIX)) {
+    return {
+      kind: 'artifact',
+      artifactId: key.slice(DISPLAY_PANEL_ARTIFACT_KEY_PREFIX.length),
+    };
+  }
+  return { kind: 'surface', surfaceKey: key };
+}
 
 /** Session-local display collection between transcript and composer. */
 @Component({
@@ -57,16 +80,21 @@ const ACTION_FAILED_TEXT = 'The review action failed.';
           <button type="button" class="btn btn-ghost btn-xs" aria-label="Collapse display" (click)="collapse()" data-testid="display-sheet-close">Collapse</button>
         }
       </div>
-      @if (everOpened()) {
+       @if (state().open) {
         <section [id]="regionId()" role="region" aria-label="Display" class="sheet-body flex min-h-0 flex-col overflow-hidden border-t border-base-content/10"
-          [class.full]="mode() === 'full'" [hidden]="!state().open" [attr.inert]="state().open ? null : ''"
-          [style.display]="state().open ? null : 'none'" (keydown.escape)="onRegionEscape($event)" data-testid="display-sheet-region">
+          [class.full]="mode() === 'full'" (keydown.escape)="onRegionEscape($event)" data-testid="display-sheet-region">
+          @if (linkError()) { <p role="alert" class="px-3 py-1 text-xs text-error">{{ linkError() }}</p> }
+          @if (artifactStore.lastError()) { <p role="status" class="px-3 py-1 text-xs text-error">{{ artifactStore.lastError() }}</p> }
           @defer (on immediate) {
             <ptah-display-panel class="min-h-0 flex-1" [surfaces]="state().surfaces"
+              [artifacts]="artifacts()"
+              [open]="state().open" [fullscreenArtifactId]="dock.fullscreenArtifact(this.tabId())"
+              (fullscreenChange)="onFullscreenChange($event)"
               [summary]="summary()?.model ?? null" [summaryTurnKey]="summaryTurnKey() ?? ''"
-              [selectedKey]="selectedKey()" [scrollToSelectedOnMount]="state().selection?.kind === 'surface'" [pinned]="state().pinned" [viewStates]="state().viewStates"
+              [selectedKey]="selectedKey()" [scrollToSelectedOnMount]="(state().selection?.kind ?? 'summary') !== 'summary'" [pinned]="state().pinned" [viewStates]="state().viewStates"
               [actionError]="actionError()" (selectedKeyChange)="select($event)"
-              (viewStateChange)="saveViewState($event)" (openFile)="openFile($event)" (review)="review()" />
+              (viewStateChange)="saveViewState($event)" (openFile)="openFile($event)" (review)="review()"
+              (openExternal)="openExternal($event)" />
           } @placeholder { <p class="p-2 text-xs">Loading display…</p> }
           @error { <p class="p-2 text-xs text-error" role="alert">Display failed to load. <button type="button" class="btn btn-ghost btn-xs" (click)="retry()">Retry</button></p> }
         </section>
@@ -75,16 +103,25 @@ const ACTION_FAILED_TEXT = 'The review action failed.';
   `,
 })
 export class DisplaySheetComponent {
-  private readonly dock = inject(DisplayDockState);
+  protected readonly dock = inject(DisplayDockState);
   private readonly sheet = inject(DisplaySheetState);
   private readonly actions = inject(ChangeSetActionsService);
+  protected readonly artifactStore = inject(ArtifactStore);
+  private readonly rpc = inject(ClaudeRpcService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly bar = viewChild<ElementRef<HTMLButtonElement>>('bar');
   readonly tabId = input.required<string>();
   protected readonly state = computed(() => this.dock.tab(this.tabId()));
   protected readonly mode = computed(() => this.sheet.mode(this.tabId()));
   protected readonly summary = computed(() => this.dock.summaryFor(this.tabId()));
-  protected readonly itemCount = computed(() => this.state().surfaces.length + this.state().summaries.size);
+  protected readonly itemCount = computed(() => this.state().surfaces.length + this.state().summaries.size + this.artifacts().length);
+  /**
+   * The tab's published artifacts (TASK_2026_710). The store buckets records
+   * by the routing tab id, the same id the MCP publish scope carries.
+   */
+  protected readonly artifacts = computed<readonly ArtifactRecord[]>(
+    () => this.artifactStore.records()[this.tabId()] ?? NO_ARTIFACTS,
+  );
   /**
    * The bar's accessible name. `aria-label` replaces the visible "Display · N"
    * and the badge, so a non-zero `newCount` has to be part of this string.
@@ -101,12 +138,18 @@ export class DisplaySheetComponent {
   protected readonly regionId = computed(() => `display-sheet-${this.tabId().replace(/[^a-zA-Z0-9_-]/g, '-')}`);
   protected readonly selectedKey = computed(() => {
     const selection = this.state().selection;
-    return selection?.kind === 'summary' ? DISPLAY_PANEL_SUMMARY_KEY : selection?.kind === 'surface' ? selection.surfaceKey : null;
+    if (selection === null) return null;
+    if (selection.kind === 'summary') return DISPLAY_PANEL_SUMMARY_KEY;
+    if (selection.kind === 'artifact') {
+      return `${DISPLAY_PANEL_ARTIFACT_KEY_PREFIX}${selection.artifactId}`;
+    }
+    return selection.surfaceKey;
   });
   private readonly failure = signal<{ tabId: string; message: string } | null>(null);
+  protected readonly linkError = signal<string | null>(null);
+  private linkErrorTimer: ReturnType<typeof setTimeout> | null = null;
   protected readonly actionError = computed(() => this.failure()?.tabId === this.tabId() ? this.failure()?.message ?? null : null);
   protected readonly pulse = signal(false);
-  protected readonly everOpened = signal(false);
   private pulseTimer: ReturnType<typeof setTimeout> | null = null;
   private lastRevision = 0;
   private visibleTabId: string | null = null;
@@ -133,8 +176,7 @@ export class DisplaySheetComponent {
       if (this.pulseTimer !== null) clearTimeout(this.pulseTimer);
       this.pulseTimer = setTimeout(() => { this.pulse.set(false); this.pulseTimer = null; }, 650);
     });
-    effect(() => { if (this.state().open) this.everOpened.set(true); });
-    this.destroyRef.onDestroy(() => { if (this.pulseTimer !== null) clearTimeout(this.pulseTimer); });
+    this.destroyRef.onDestroy(() => { if (this.pulseTimer !== null) clearTimeout(this.pulseTimer); if (this.linkErrorTimer !== null) clearTimeout(this.linkErrorTimer); });
   }
 
   protected toggle(): void { this.dock.toggle(this.tabId()); }
@@ -146,13 +188,38 @@ export class DisplaySheetComponent {
   protected collapse(): void { this.dock.close(this.tabId()); this.bar()?.nativeElement.focus(); }
   protected onRegionEscape(event: Event): void {
     if (!(event instanceof KeyboardEvent) || event.defaultPrevented) return;
+    if (event.target instanceof Element && event.target.closest('[role="dialog"]')) return;
     event.preventDefault();
     this.collapse();
   }
   protected toggleHeight(): void { this.sheet.setMode(this.tabId(), this.mode() === 'full' ? 'peek' : 'full'); }
   protected togglePin(): void { this.dock.setPinned(this.tabId(), !this.state().pinned); }
   protected select(key: string): void {
-    this.dock.select(this.tabId(), key === DISPLAY_PANEL_SUMMARY_KEY ? { kind: 'summary' } : { kind: 'surface', surfaceKey: key });
+    this.dock.select(this.tabId(), selectionForKey(key));
+  }
+  protected onFullscreenChange(active: boolean): void {
+    if (!active) this.dock.clearFullscreenArtifact(this.tabId());
+  }
+  private showLinkError(): void {
+    this.linkError.set('Could not open the link.');
+    if (this.linkErrorTimer !== null) clearTimeout(this.linkErrorTimer);
+    this.linkErrorTimer = setTimeout(() => { this.linkError.set(null); this.linkErrorTimer = null; }, 5000);
+  }
+  /**
+   * The artifact viewer relayed a validated `open-link` request: only the
+   * main-process allowlist may open it, through the typed `artifacts:openLink`
+   * RPC — never `window.open` from the webview.
+   */
+  protected openExternal(url: string): void {
+    void this.rpc
+      .call('artifacts:openLink', { url })
+      .then((result) => {
+        if (result.success && result.data?.opened === true) return;
+        this.showLinkError();
+      })
+      .catch(() => {
+        this.showLinkError();
+      });
   }
   protected saveViewState(change: DisplayPanelViewStateChange): void { this.dock.setViewState(this.tabId(), change.surfaceKey, change.viewState); }
   protected openFile(path: string): void { void this.runAction((changeSet) => this.actions.openFile(changeSet, path)); }

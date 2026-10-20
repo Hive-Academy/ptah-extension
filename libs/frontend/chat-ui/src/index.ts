@@ -160,6 +160,12 @@ export {
 // Type only (erased): the dock store names the surfaces it holds. Never add a
 // value export from `organisms/display-panel/` here; that folder is lazy.
 export type { DisplaySurface } from './lib/organisms/display-panel/display-surfaces';
+// Artifact surfaces (TASK_2026_710): the transcript card is metadata only, so
+// it is eager-safe as a value export. The sandboxed viewer and theme bridge
+// carry the ptah-artifact iframe and its postMessage channel and stay behind
+// the lazy display-panel chunk (like `organisms/display-panel` above, never a
+// value export from this barrel). Reach them through the folder barrel.
+export { ArtifactCardComponent } from './lib/organisms/artifacts/artifact-card.component';
 export {
   generateAgentColor,
   generateAgentColorOklch,

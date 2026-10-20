@@ -1,4 +1,4 @@
-# Batch 1 report — TASK_2026_708_html
+# Batch 1 report — TASK_2026_710_html
 
 ## Files changed
 
@@ -8,7 +8,7 @@
 - `apps/ptah-electron/scripts/copy-renderer.js` — shell `frame-src ptah-artifact:` exception.
 - `apps/ptah-electron-e2e/src/specs/artifacts/artifact-containment.spec.ts` — real Electron iframe containment assertions.
 - `apps/ptah-electron-e2e/src/specs/artifacts/fixtures/containment.html` — unchanged copy of the 497 network-exfiltration fixture.
-- `.ptah/specs/TASK_2026_708_html/batch-1-report.md` — this report.
+- `.ptah/specs/TASK_2026_710_html/batch-1-report.md` — this report.
 
 ## Test seam
 

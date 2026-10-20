@@ -43,6 +43,8 @@ export {
   type ValidationResult,
 } from './message-validation.service';
 export { ChatMessageHandler } from './chat-message-handler.service';
+export { ArtifactStore } from './artifact.store';
+export { ArtifactMessageHandler } from './artifact-message-handler.service';
 export { StreamFlushScheduler } from './stream-flush-scheduler.service';
 export { ScrollDirtyService } from './scroll-dirty.service';
 export { INCREMENTAL_STREAMING_PRESENTATION_ENABLED } from './scroll-dirty.service';

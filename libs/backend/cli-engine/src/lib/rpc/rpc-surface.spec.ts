@@ -56,6 +56,10 @@ export const CLI_EXPECTED_ABSENT_METHODS: readonly string[] = [
 describe('CLI RPC surface', () => {
   const surface = deriveRpcSurface(createCliRpcHostProfile('cli'));
 
+  it('serves artifact methods with the optional store absent', () => {
+    expect(surface.registered).toEqual(expect.arrayContaining(['artifacts:list', 'artifacts:openLink']));
+  });
+
   it('serves bound guidance and generation recovery methods', () => {
     expect(surface.registered).toEqual(
       expect.arrayContaining([

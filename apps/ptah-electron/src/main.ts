@@ -21,6 +21,7 @@ import {
 import {
   PLATFORM_TOKENS,
   StateStorageRecoveryRequiredError,
+  type IArtifactStore,
 } from '@ptah-extension/platform-core';
 import type { ElectronWorkspaceProvider } from '@ptah-extension/platform-electron';
 import { flushSessionMetadataStores } from '@ptah-extension/agent-sdk';
@@ -119,18 +120,21 @@ if (!gotLock) {
   const bootSequence = app.whenReady().then(async () => {
     bootStep('whenReady');
     const fixtureDirectory =
-      process.env['PTAH_E2E'] === '1'
+      !app.isPackaged && process.env['PTAH_E2E'] === '1'
         ? process.env['PTAH_E2E_ARTIFACT_FIXTURE_DIR']
         : undefined;
     const artifactResolver: ArtifactResolver = {
       async resolve(id) {
-        if (!fixtureDirectory) return null;
-        try {
-          return { bytes: await readFile(path.join(fixtureDirectory, `${id}.html`)) };
-        } catch {
-          // degradation-audit: optional-capability - missing test fixture is a 404.
-          return null;
+        if (fixtureDirectory) {
+          try {
+            return { bytes: await readFile(path.join(fixtureDirectory, `${id}.html`)) };
+          } catch {
+            // degradation-audit: optional-capability - a missing test fixture falls through to the store.
+          }
         }
+        if (!bootContainer?.isRegistered(PLATFORM_TOKENS.ARTIFACT_STORE)) return null;
+        const bytes = await bootContainer.resolve<IArtifactStore>(PLATFORM_TOKENS.ARTIFACT_STORE).readBytes(id);
+        return bytes ? { bytes } : null;
       },
     };
     registerArtifactHandler(artifactResolver);

@@ -1,4 +1,4 @@
-# Prior-tasks synthesis — free HTML for the agent UI (TASK_2026_708_html)
+# Prior-tasks synthesis — free HTML for the agent UI (TASK_2026_710_html)
 
 Question this file answers: the user feels Ptah's fixed component schema for agent UI
 (`ptah-ui` blocks, the `ptah_surface_update` catalog, the declarative dashboard) kills the

@@ -98,6 +98,7 @@ export type {
 export { ChromeLauncherBrowserCapabilities } from './lib/code-execution/services/chrome-launcher-browser-capabilities';
 export { ScreenRecorderService } from './lib/code-execution/services/screen-recorder.service';
 export { registerVsCodeLmToolsServices } from './lib/di';
+export { ARTIFACT_NOTIFICATION_TOKEN } from './lib/code-execution/mcp-http/http-mcp-server.service';
 
 // Surface delivery and state tokens
 export {

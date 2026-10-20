@@ -23,6 +23,10 @@ import type {
 import { AgentCardComponent } from './agent-card.component';
 import { CliAgentOutputComponent } from './cli-agent-output.component';
 import { ExecutionNodeComponent } from '../../organisms/execution/execution-node.component';
+import { ArtifactStore } from '../../../services/artifact.store';
+import { DisplayDockState } from '../../../services/display-dock/display-dock.state';
+import { DisplaySheetState } from '../../organisms/display-sheet/display-sheet.state';
+import { TabManagerService } from '@ptah-extension/chat-state';
 
 function agent(overrides: Partial<MonitoredAgent> = {}): MonitoredAgent {
   return {
@@ -49,11 +53,24 @@ describe('unified CLI agent output', () => {
       providers: [
         provideSurfaceActiveTesting(),
         provideMarkdown(),
+        DisplayDockState,
+        DisplaySheetState,
+        { provide: TabManagerService, useValue: { activeTabId: signal(null) } },
         {
           provide: AgentMonitorStore,
           useValue: { tick: signal(0), agentsById: signal(new Map()) },
         },
         { provide: ClaudeRpcService, useValue: createMockRpcService() },
+        {
+          provide: ArtifactStore,
+          useValue: {
+            records: signal({}),
+            lastError: signal(null),
+            recordById: () => null,
+            forSession: () => signal([]),
+            reload: jest.fn(),
+          },
+        },
         { provide: FILE_LINK_OPENER, useValue: { open: jest.fn() } },
         {
           provide: VSCodeService,

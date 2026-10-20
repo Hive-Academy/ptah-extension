@@ -18,8 +18,8 @@ export interface ArtifactPublishResult extends ArtifactRecord {
 
 export type ArtifactPublishedNotification = ArtifactRecord;
 
-/** Scope is resolved by the host; an RPC caller supplies no scope identifiers. */
-export type ArtifactListRequest = Record<string, never>;
+/** The host resolves this tab or SDK session id through its session registry. */
+export type ArtifactListRequest = { sessionId: string };
 
 export interface ArtifactListResponse {
   artifacts: ArtifactRecord[];

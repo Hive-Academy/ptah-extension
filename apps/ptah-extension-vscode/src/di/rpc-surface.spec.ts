@@ -203,6 +203,10 @@ export const VSCODE_EXPECTED_ABSENT_METHODS: readonly string[] = [
 describe('VS Code RPC surface', () => {
   const surface = deriveRpcSurface(createVscodeRpcHostProfile(NOOP_LOGGER));
 
+  it('serves artifact methods with the optional store absent', () => {
+    expect(surface.registered).toEqual(expect.arrayContaining(['artifacts:list', 'artifacts:openLink']));
+  });
+
   it('serves bound guidance and generation recovery methods', () => {
     expect(surface.registered).toEqual(
       expect.arrayContaining([

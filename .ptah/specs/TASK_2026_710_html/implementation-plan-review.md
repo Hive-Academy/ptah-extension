@@ -1,4 +1,4 @@
-# Implementation plan review — TASK_2026_708_html
+# Implementation plan review — TASK_2026_710_html
 
 Reviewer: orchestrator (in-process, Claude). Author: codex lane (CLI). Opposite-side review.
 

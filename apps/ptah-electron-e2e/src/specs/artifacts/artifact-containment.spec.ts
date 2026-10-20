@@ -2,7 +2,7 @@ import * as path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { launchPtah } from '../../support/electron-launcher';
 
-const ARTIFACT_URL = 'ptah-artifact://containment/index.html';
+const ARTIFACT_URL = 'ptah-artifact://containment-fixture/index.html';
 const ARTIFACT_CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; font-src 'none'; media-src 'none'; worker-src 'none'; child-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'";
 
 test('isolates hostile HTML in the real Electron shell', async () => {
@@ -93,6 +93,10 @@ test('isolates hostile HTML in the real Electron shell', async () => {
     expect(checks.preloadType).toBe('undefined');
     expect(checks.fixture?.blocked).toBe(true);
     expect(checks.fixture?.successfulEgress).toEqual([]);
+    await frame.evaluate(() => {
+      (window as Window & { attemptSelfNavigation: () => void }).attemptSelfNavigation();
+    });
+    await expect.poll(() => frame.url()).toBe(ARTIFACT_URL);
     expect(remoteFinished).toEqual([]);
     expect(mainWindow.url()).toBe(initialUrl);
   } finally {

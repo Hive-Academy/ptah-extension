@@ -34,6 +34,7 @@ export function createArtifactHandler(
     try {
       url = new URL(request.url);
     } catch {
+      // degradation-audit: optional-capability - malformed URL is a 404.
       return new Response(null, { status: 404 });
     }
     const id = artifactId.safeParse(url.hostname);

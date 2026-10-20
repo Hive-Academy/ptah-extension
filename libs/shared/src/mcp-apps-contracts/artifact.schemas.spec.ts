@@ -51,12 +51,14 @@ describe('artifact wire schemas', () => {
     }).success).toBe(false);
   });
 
-  it('validates metadata and empty scoped list request', () => {
+  it('validates metadata and a bounded routing session list request', () => {
     expect(ArtifactPublishedNotificationSchema.safeParse(record).success).toBe(true);
     expect(ArtifactPublishedNotificationSchema.safeParse({ ...record, html: '<h1>secret</h1>' }).success)
       .toBe(false);
-    expect(ArtifactListRequestSchema.safeParse({}).success).toBe(true);
-    expect(ArtifactListRequestSchema.safeParse({ sessionId: 'untrusted' }).success).toBe(false);
+    expect(ArtifactListRequestSchema.parse({ sessionId: ' tab-a ' })).toEqual({ sessionId: 'tab-a' });
+    expect(ArtifactListRequestSchema.safeParse({}).success).toBe(false);
+    expect(ArtifactListRequestSchema.safeParse({ sessionId: ' '.repeat(2) }).success).toBe(false);
+    expect(ArtifactListRequestSchema.safeParse({ sessionId: 'x'.repeat(201) }).success).toBe(false);
   });
 
   it('enforces nonce, theme allowlist and strict bridge objects', () => {

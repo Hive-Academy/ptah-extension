@@ -65,7 +65,9 @@ export const ArtifactPublishResultSchema = ArtifactRecordSchema.extend({
 
 export const ArtifactPublishedNotificationSchema = ArtifactRecordSchema satisfies
   z.ZodType<ArtifactPublishedNotification>;
-export const ArtifactListRequestSchema = z.strictObject({});
+export const ArtifactListRequestSchema = z.strictObject({
+  sessionId: z.string().trim().min(1).max(200),
+});
 export const ArtifactListResponseSchema = z.strictObject({
   artifacts: z.array(ArtifactRecordSchema),
 }) satisfies z.ZodType<ArtifactListResponse>;

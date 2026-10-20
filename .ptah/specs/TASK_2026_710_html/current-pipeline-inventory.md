@@ -1,6 +1,6 @@
 # Current pipeline inventory: how an agent shows visual output in Ptah today
 
-Task: TASK_2026_708_html — inventory of every path where agent output becomes UI, the
+Task: TASK_2026_710_html — inventory of every path where agent output becomes UI, the
 Electron security posture around embedding agent HTML, and where a sandboxed free-HTML
 artifact would plug in. Evidence is file:line from this worktree
 (`D:\projects\ptah-extension\.claude-worktrees\agent-html-freedom`). Electron is the

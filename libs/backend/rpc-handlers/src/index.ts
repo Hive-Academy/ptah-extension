@@ -79,6 +79,7 @@ export {
   checkLinkedPathForm,
   type LinkedFileResolution,
 } from './lib/handlers/workspace-file-path';
+export { ArtifactRpcHandlers } from './lib/handlers/artifact-rpc.handlers';
 export type {
   DbHealthResult,
   DbHealthParams,

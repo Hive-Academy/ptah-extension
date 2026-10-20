@@ -25,6 +25,7 @@ export type DisplayDockTab = 'displays' | 'agents';
 export type DisplayDockSelection =
   | { readonly kind: 'summary' }
   | { readonly kind: 'surface'; readonly surfaceKey: string }
+  | { readonly kind: 'artifact'; readonly artifactId: string }
   | null;
 
 /** One turn's host-built summary and the change set its actions act on. */
@@ -104,6 +105,14 @@ const EMPTY_TAB_STATE: DisplayDockTabState = Object.freeze({
  */
 @Injectable()
 export class DisplayDockState implements PtahUiDisplayDock, PtahUiDisplayDockSync {
+  private readonly fullscreenRequests = signal<ReadonlyMap<string, string>>(new Map());
+  fullscreenArtifact(tabId: string): string | null { return this.fullscreenRequests().get(tabId) ?? null; }
+  requestFullscreenArtifact(tabId: string, artifactId: string): void {
+    this.fullscreenRequests.update((requests) => new Map(requests).set(tabId, artifactId));
+  }
+  clearFullscreenArtifact(tabId: string): void {
+    this.fullscreenRequests.update((requests) => { const next = new Map(requests); next.delete(tabId); return next; });
+  }
   /** One signal per tab; the map itself changes only when a tab is first written. */
   private readonly tabs = signal<
     ReadonlyMap<string, WritableSignal<DisplayDockTabState>>
@@ -145,6 +154,7 @@ export class DisplayDockState implements PtahUiDisplayDock, PtahUiDisplayDockSyn
 
   /** Releases all display and seen-fence state when its chat tab is closed. */
   forgetTab(tabId: string): void {
+    this.clearFullscreenArtifact(tabId);
     this.seen.delete(tabId);
     const tabs = new Map(this.tabs());
     if (tabs.delete(tabId)) this.tabs.set(tabs);
@@ -154,6 +164,19 @@ export class DisplayDockState implements PtahUiDisplayDock, PtahUiDisplayDockSyn
     this.update(tabId, (state) => ({
       ...openedState(state, 'displays'),
       selection: { kind: 'surface', surfaceKey },
+    }));
+  }
+
+  /**
+   * An artifact card asked for its viewer (TASK_2026_710): opens the dock on
+   * the Displays tab with that artifact's strip item selected. The artifact
+   * kind survives a surface publication, which would clear a selection that
+   * borrowed the surface kind for an `artifact:` key.
+   */
+  openArtifact(tabId: string, artifactId: string): void {
+    this.update(tabId, (state) => ({
+      ...openedState(state, 'displays'),
+      selection: { kind: 'artifact', artifactId },
     }));
   }
 
@@ -168,6 +191,7 @@ export class DisplayDockState implements PtahUiDisplayDock, PtahUiDisplayDockSyn
    * displays only count as new (R1.8). Closing a pinned dock unpins it (R1.6).
    */
   close(tabId: string): void {
+    this.clearFullscreenArtifact(tabId);
     this.update(tabId, (state) =>
       state.open
         ? {
@@ -398,8 +422,10 @@ function openedState(
 
 function sameSelection(a: DisplayDockSelection, b: DisplayDockSelection): boolean {
   if (a === null || b === null) return a === b;
-  if (a.kind === 'summary' || b.kind === 'summary') return a.kind === b.kind;
-  return a.surfaceKey === b.surfaceKey;
+  if (a.kind !== b.kind) return false;
+  if (a.kind === 'summary') return true;
+  if (a.kind === 'artifact') return b.kind === 'artifact' && a.artifactId === b.artifactId;
+  return b.kind === 'surface' && a.surfaceKey === b.surfaceKey;
 }
 
 /**

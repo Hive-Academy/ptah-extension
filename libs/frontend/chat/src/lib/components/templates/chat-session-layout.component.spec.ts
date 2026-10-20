@@ -8,6 +8,8 @@ import {
 } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { DisplayDockState } from '../../services/display-dock/display-dock.state';
+import { ArtifactStore } from '../../services/artifact.store';
+import { ClaudeRpcService } from '@ptah-extension/core';
 import { ChangeSetActionsService } from '../../services/change-set/change-set-actions.service';
 import { DisplaySheetComponent } from '../organisms/display-sheet/display-sheet.component';
 import { DisplaySheetState } from '../organisms/display-sheet/display-sheet.state';
@@ -37,7 +39,22 @@ class HostComponent {
 
 @Component({
   imports: [ChatSessionLayoutComponent, DisplaySheetComponent],
-  providers: [DisplayDockState, DisplaySheetState, { provide: ChangeSetActionsService, useValue: {} }],
+  providers: [
+    DisplayDockState,
+    DisplaySheetState,
+    { provide: ChangeSetActionsService, useValue: {} },
+    { provide: ClaudeRpcService, useValue: { call: jest.fn() } },
+    {
+      provide: ArtifactStore,
+      useValue: {
+        records: signal({}),
+        lastError: signal(null),
+        recordById: () => null,
+        forSession: () => signal([]),
+        reload: jest.fn(),
+      },
+    },
+  ],
   template: `
     <ptah-chat-session-layout>
       <div sessionTranscript class="flex-1 min-h-0">Transcript</div>
