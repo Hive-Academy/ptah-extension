@@ -262,7 +262,8 @@ export class ChatViewComponent implements OnDestroy {
   private readonly staleOlderHistory = signal<{
     tabId: string;
     sessionId: string | null;
-    messages: readonly unknown[];
+    /** Live events append; a reopen or reload replaces the loaded history. */
+    firstMessage: unknown;
     message: string;
   } | null>(null);
   /** A reopened or closed tab no longer owns the stale paging snapshot. */
@@ -272,7 +273,7 @@ export class ChatViewComponent implements OnDestroy {
     const tab = this._tabManager.findTabByIdAcrossWorkspaces(stale.tabId)?.tab;
     return tab?.claudeSessionId === stale.sessionId &&
       tab?.olderHistoryCursor === null &&
-      tab?.messages === stale.messages
+      tab?.messages[0] === stale.firstMessage
       ? { tabId: stale.tabId, message: stale.message }
       : null;
   });
@@ -300,7 +301,7 @@ export class ChatViewComponent implements OnDestroy {
         this.staleOlderHistory.set({
           tabId,
           sessionId: tab.claudeSessionId,
-          messages: tab.messages,
+          firstMessage: tab.messages[0],
           message,
         });
       }

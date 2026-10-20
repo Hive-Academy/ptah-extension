@@ -8,6 +8,10 @@ export class AppsFocusTarget {
     this.source = source;
   }
 
+  public unregister(source: () => string | null): void {
+    if (this.source === source) this.source = null;
+  }
+
   public currentSessionId(): string | null {
     return this.source?.() ?? null;
   }

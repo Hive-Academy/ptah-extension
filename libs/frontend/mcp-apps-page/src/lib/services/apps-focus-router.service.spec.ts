@@ -47,4 +47,16 @@ describe('AppsFocusTarget', () => {
     target.register(() => 'owned');
     expect(target.currentSessionId()).toBe('owned');
   });
+
+  it('only unregisters the current source', () => {
+    const target = new AppsFocusTarget();
+    const first = () => 'first';
+    const second = () => 'second';
+    target.register(first);
+    target.register(second);
+    target.unregister(first);
+    expect(target.currentSessionId()).toBe('second');
+    target.unregister(second);
+    expect(target.currentSessionId()).toBeNull();
+  });
 });

@@ -23,7 +23,8 @@ export class VoiceProviderErrorService implements MessageHandler, NoticeActionHa
   private readonly logger = inject(LoggingService);
   private readonly tabs = inject(TabManagerService, { optional: true });
   private generation = 0;
-  private currentKey: string | null = null;
+  private latestKey: string | null = null;
+  private readonly errors = new Map<string, { generation: number; payload: VoiceProviderErrorPayload; workspacePath: string }>();
   private readonly switching = signal(false);
   readonly isSwitching = this.switching.asReadonly();
   readonly switchError = signal<string | null>(null);
@@ -40,14 +41,15 @@ export class VoiceProviderErrorService implements MessageHandler, NoticeActionHa
     if (message.type !== MESSAGE_TYPES.VOICE_PROVIDER_ERROR) return;
     const payload = message.payload as VoiceProviderErrorPayload | undefined;
     if (!payload) return;
-    if (this.currentKey) this.notifications.resolve(this.currentKey);
     this._latestError.set(payload);
     this.switchError.set(null);
     const workspacePath = this.tabs?.activeWorkspacePath ?? '';
-    const key = attentionConditionKey(workspacePath, `voice-provider:${payload.direction}:${++this.generation}`);
-    this.currentKey = key;
+    const key = attentionConditionKey(workspacePath, `voice-provider:${payload.direction}`);
+    this.generation++;
+    this.latestKey = key;
+    this.errors.set(key, { generation: this.generation, payload, workspacePath });
     this.notifications.upsert({
-      key, generation: this.generation, source: 'chat', kind: 'failure', severity: 'error',
+      key, generation: this.generation, presentationKey: String(this.generation), source: 'chat', kind: 'failure', severity: 'error',
       workspacePath, workspaceName: workspaceLabelFromPath(workspacePath),
       title: `${payload.direction === 'stt' ? 'Speech-to-text' : 'Text-to-speech'} failed (${payload.providerId})`,
       context: payload.message,
@@ -59,15 +61,15 @@ export class VoiceProviderErrorService implements MessageHandler, NoticeActionHa
   /** Clear the tracked error (call after the user acts on or dismisses it). */
   dismiss(): void {
     this._latestError.set(null);
-    if (this.currentKey) this.notifications.dismissPresentation(this.currentKey);
+    if (this.latestKey) this.notifications.dismissPresentation(this.latestKey);
   }
 
   canHandle(key: string, actionId: string): boolean {
-    return actionId === 'switch-to-local' && key === this.currentKey;
+    return actionId === 'switch-to-local' && this.errors.has(key);
   }
 
   async run(key: string, generation: number, actionId: string): Promise<AttentionActionOutcome> {
-    if (!this.canHandle(key, actionId) || generation !== this.generation) return { kind: 'stale' };
+    if (!this.canHandle(key, actionId) || this.errors.get(key)?.generation !== generation) return { kind: 'stale' };
     return await this.switchToLocal(key, generation)
       ? { kind: 'completed' }
       : { kind: 'unavailable', reason: this.switchError() ?? 'Could not switch to local provider' };
@@ -75,12 +77,16 @@ export class VoiceProviderErrorService implements MessageHandler, NoticeActionHa
 
   /** Called by the attention action dispatcher for the current notice. */
   async switchToLocal(key: string, generation: number): Promise<boolean> {
-    const current = this._latestError();
-    if (!current || key !== this.currentKey || generation !== this.generation || this.switching()) return false;
+    const current = this.errors.get(key);
+    if (!current || generation !== current.generation || this.switching()) return false;
+    if (this.tabs && current.workspacePath !== (this.tabs.activeWorkspacePath ?? '')) {
+      this.switchError.set('Open the notice workspace to switch its voice provider');
+      return false;
+    }
     this.switchError.set(null);
     this.switching.set(true);
     try {
-      const result = await this.rpc.call('voice:setProviderConfig', current.direction === 'stt'
+      const result = await this.rpc.call('voice:setProviderConfig', current.payload.direction === 'stt'
         ? { sttProvider: 'local' } : { ttsProvider: 'local' });
       if (!result.isSuccess() || !result.data.ok) {
         this.switchError.set('Could not switch to local provider');
@@ -92,9 +98,12 @@ export class VoiceProviderErrorService implements MessageHandler, NoticeActionHa
         return false;
       }
       this.notifications.resolve(key, generation, 'chat');
-      if (this.currentKey === key) {
-        this.currentKey = null;
-        this._latestError.set(null);
+      if (this.errors.get(key)?.generation === generation) {
+        this.errors.delete(key);
+        if (this.latestKey === key) {
+          this.latestKey = null;
+          this._latestError.set(null);
+        }
       }
       return true;
     } catch (error) {
