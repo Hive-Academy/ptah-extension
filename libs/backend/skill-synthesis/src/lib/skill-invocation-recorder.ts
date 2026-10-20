@@ -28,6 +28,7 @@ export class SkillInvocationRecorder {
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    @inject(SkillInvocationEventStore)
     private readonly store: SkillInvocationEventStore,
   ) {}
 
