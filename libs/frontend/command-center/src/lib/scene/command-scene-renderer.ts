@@ -8,6 +8,8 @@ import {
 import { drawRootGlow, drawSceneDecoration } from './command-scene-decoration';
 import { drawStatus, drawVoiceRing } from './command-scene-status';
 import { VoiceRippleEmitter } from './command-scene-ripples';
+import { drawBackdropTwinkle } from './command-scene-twinkle';
+import { DelegationPulseEmitter } from './command-scene-pulses';
 
 export interface SceneSprite {
   readonly id: string;
@@ -90,6 +92,7 @@ export class CommandSceneRenderer {
   private readonly tetheredIds = new Set<string>();
   private readonly links = new Map<string, CanvasGradient>();
   private readonly ripples = new VoiceRippleEmitter();
+  private readonly pulses = new DelegationPulseEmitter();
   private linkSignature = '';
   private backdrop: HTMLCanvasElement | null = null;
   private backdropSignature = '';
@@ -115,6 +118,13 @@ export class CommandSceneRenderer {
       (this.snapshot?.reducedMotion === false && snapshot.reducedMotion) ||
       (this.snapshot && this.snapshot.theme !== snapshot.theme)
     ) this.ripples.clear();
+    if (
+      this.snapshot &&
+      (this.snapshot.theme !== snapshot.theme ||
+        this.snapshot.reducedMotion !== snapshot.reducedMotion)
+    )
+      this.pulses.clear();
+    this.pulses.observe(snapshot.layout, this.hidden || snapshot.reducedMotion);
     this.prepareBackdrop(snapshot);
     this.prepareLinks(snapshot);
     this.snapshot = snapshot;
@@ -175,6 +185,10 @@ export class CommandSceneRenderer {
 
   public setHidden(hidden: boolean): void {
     this.hidden = hidden;
+    if (hidden) {
+      this.pulses.clear();
+      if (this.snapshot) this.pulses.observe(this.snapshot.layout, true);
+    }
     if (hidden && this.frameId) {
       this.cancelFrame(this.frameId);
       this.frameId = 0;
@@ -203,6 +217,7 @@ export class CommandSceneRenderer {
   public destroy(): void {
     this.disposed = true;
     this.ripples.clear();
+    this.pulses.clear();
     if (this.frameId) this.cancelFrame(this.frameId);
     this.frameId = 0;
     this.spriteById.clear();
@@ -345,6 +360,8 @@ export class CommandSceneRenderer {
     context.clearRect(0, 0, width, height);
     if (this.backdrop && this.backdrop.width > 0 && this.backdrop.height > 0)
       context.drawImage(this.backdrop, 0, 0, width, height);
+    if (this.active)
+      drawBackdropTwinkle(context, width, height, snapshot.theme, time);
     context.lineWidth = 1;
     context.strokeStyle = snapshot.theme === 'dark' ? '#6b6388' : '#aaa1b1';
     const tethers = snapshot.layout.tethers ?? [];
@@ -484,6 +501,10 @@ export class CommandSceneRenderer {
         context.fillRect(px, py, 2, 2);
         particles++;
       }
+    }
+    if (this.active) {
+      this.pulses.update(time);
+      this.pulses.draw(context, time, snapshot.inks);
     }
     for (const node of snapshot.layout.nodes) {
       if (
