@@ -467,4 +467,27 @@ describe('SessionStatsReaderService', () => {
     // not an identity of THIS session — it only makes coverage partial.
     expect(entry.agentSessionCount).toBe(0);
   });
+
+  it('scans uncapped dated usage with stable dedup and an exclusive UTC end', async () => {
+    for (let i = 0; i < 205; i++) {
+      const id = uuid(1000 + i);
+      await writeParent(id, [userLine(id), usageLine(id, 'm', 2), usageLine(id, 'm', 4)]);
+    }
+    const entries = [];
+    for await (const entry of reader.scanDatedUsage({
+      workspacePath: dir,
+      since: Date.parse('2026-01-01T00:00:00.000Z'),
+      until: Date.parse('2026-01-02T00:00:00.000Z'),
+    })) entries.push(entry);
+    const usage = entries.filter((entry) => entry.kind === 'usage');
+    expect(usage).toHaveLength(205);
+    expect(usage[0]).toMatchObject({ kind: 'usage', record: { input: 4 } });
+    const boundary = [];
+    for await (const entry of reader.scanDatedUsage({
+      workspacePath: dir,
+      since: Date.parse('2026-01-01T00:00:00.000Z'),
+      until: Date.parse('2026-01-01T00:01:00.000Z'),
+    })) boundary.push(entry);
+    expect(boundary.filter((entry) => entry.kind === 'usage')).toHaveLength(0);
+  });
 });

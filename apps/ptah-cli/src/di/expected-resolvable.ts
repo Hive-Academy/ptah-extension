@@ -1,4 +1,5 @@
 import {
+  AnalyticsRpcHandlers,
   EnhancedPromptsRpcHandlers,
   LlmRpcHandlers,
   SetupRpcHandlers,
@@ -6,6 +7,7 @@ import {
 } from '@ptah-extension/rpc-handlers';
 
 export const EXPECTED_RESOLVABLE = [
+  AnalyticsRpcHandlers,
   SetupRpcHandlers,
   WizardGenerationRpcHandlers,
   EnhancedPromptsRpcHandlers,

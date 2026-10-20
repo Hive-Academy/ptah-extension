@@ -14,6 +14,7 @@ import type { DependencyContainer } from 'tsyringe';
 
 import {
   AgentOutcomeRpcHandlers,
+  AnalyticsRpcHandlers,
   DecisionModelCatalogRpcHandlers,
   SetupRpcHandlers,
   WizardGenerationRpcHandlers,
@@ -90,6 +91,9 @@ export function registerSharedRpcHandlers(
   // Decision-model picker (TASK_2026_684, C10). The catalog is registered by
   // `registerLaneRoutingServices`; it makes no request until a call.
   container.registerSingleton(DecisionModelCatalogRpcHandlers);
+  // Usage dashboard (TASK_2026_707 PR 2). Needs the usage-analytics service,
+  // which every host registers in its libraries phase.
+  container.registerSingleton(AnalyticsRpcHandlers);
 }
 
 /**

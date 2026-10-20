@@ -8,6 +8,7 @@ export {
   SUBAGENT_FILE_CONCURRENCY,
 } from './session-stats-reader.service';
 export type { SessionStatsRequest } from './session-stats-reader.service';
+export type { DatedUsageRecord, DatedUsageScanEntry } from './session-stats-reader.service';
 export type {
   SessionStatsReadEntry,
   SessionStatsScopeSelection,

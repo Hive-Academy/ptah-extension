@@ -81,6 +81,7 @@ export type {
   DbOpenBindingFolderResult,
 } from './persistence-rpc.handlers';
 export { EmbedderRpcHandlers } from './embedder-rpc.handlers';
+export { AnalyticsRpcHandlers } from './analytics-rpc.handlers';
 export { TasksRpcHandlers } from './tasks-rpc.handlers';
 export { SessionOrganizationRpcHandlers } from './session-organization-rpc.handlers';
 export { ElectronFileOpenRpcHandlers } from './file-open-rpc.handlers';
