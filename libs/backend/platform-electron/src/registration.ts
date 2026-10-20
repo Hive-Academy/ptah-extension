@@ -41,6 +41,7 @@ import {
   ElectronWorkspaceWatcher,
   type ElectronWorkspaceWatcherOptions,
 } from './workspace-watch/electron-workspace-watcher';
+import { ElectronHostAttentionNotifications, type ElectronAttentionCapabilities } from './implementations/electron-host-attention-notifications';
 
 /**
  * Options for Electron platform registration.
@@ -48,6 +49,8 @@ import {
  * import of 'electron' (enables testing without Electron runtime).
  */
 export interface ElectronPlatformOptions {
+  /** Native notification and window capabilities supplied by the Electron app. */
+  attention?: ElectronAttentionCapabilities;
   /** app.getAppPath() */
   appPath: string;
   /** app.getPath('userData') */
@@ -165,6 +168,9 @@ export function registerPlatformElectronServices(
       options.ipcMain,
       options.shell,
     ),
+  });
+  container.register(PLATFORM_TOKENS.HOST_ATTENTION_NOTIFICATIONS, {
+    useValue: new ElectronHostAttentionNotifications(options.attention ?? {}),
   });
   container.register(PLATFORM_TOKENS.OUTPUT_CHANNEL, {
     useValue: new ElectronOutputChannel('Ptah Electron', options.logsPath),

@@ -35,7 +35,6 @@ import * as sessionCmd from './commands/session.js';
 import * as settingsCmd from './commands/settings.js';
 import * as setupCmd from './commands/setup.js';
 import * as skillCmd from './commands/skill.js';
-import * as skillSynthesisCmd from './commands/skill-synthesis.js';
 import * as specCmd from './commands/ptah-spec.js';
 import * as tuiCmd from './commands/tui.js';
 import * as websearchCmd from './commands/websearch.js';
@@ -3246,101 +3245,6 @@ export function buildRouter(): Command {
     .action(async (platform: string, opts: { bindingId?: string }) => {
       const exit = await gatewayCmd.execute(
         { subcommand: 'test', platform, testBindingId: opts.bindingId },
-        resolveGlobals(program),
-      );
-      process.exitCode = exit;
-    });
-
-  // -- ptah skill-synthesis --------------------------------------------------
-  // Backed by shared SkillSynthesisRpcHandlers over the `skillSynthesis:*`
-  // namespace. Sibling of `ptah skill` (skills.sh packs), which is untouched.
-  // Runs under the Thoth one-shot tier — store-backed candidate operations.
-  const skillSynthesis = program
-    .command('skill-synthesis')
-    .description(
-      'inspect synthesized-skill candidates (list / get / promote / reject / invocations / stats)',
-    );
-
-  skillSynthesis
-    .command('list')
-    .description('emit skill_synthesis.list via skillSynthesis:listCandidates')
-    .option(
-      '--status <status>',
-      'filter by status (candidate|promoted|rejected|all)',
-    )
-    .option('--limit <n>', 'max candidates to return', (raw) =>
-      Number.parseInt(raw, 10),
-    )
-    .action(async (opts: { status?: string; limit?: number }) => {
-      const exit = await skillSynthesisCmd.execute(
-        { subcommand: 'list', status: opts.status, limit: opts.limit },
-        resolveGlobals(program),
-      );
-      process.exitCode = exit;
-    });
-
-  skillSynthesis
-    .command('get <id>')
-    .description(
-      'emit skill_synthesis.candidate via skillSynthesis:getCandidate',
-    )
-    .action(async (id: string) => {
-      const exit = await skillSynthesisCmd.execute(
-        { subcommand: 'get', id },
-        resolveGlobals(program),
-      );
-      process.exitCode = exit;
-    });
-
-  skillSynthesis
-    .command('promote <id>')
-    .description(
-      'promote a candidate via skillSynthesis:promote and emit skill_synthesis.promoted',
-    )
-    .action(async (id: string) => {
-      const exit = await skillSynthesisCmd.execute(
-        { subcommand: 'promote', id },
-        resolveGlobals(program),
-      );
-      process.exitCode = exit;
-    });
-
-  skillSynthesis
-    .command('reject <id>')
-    .description(
-      'reject a candidate via skillSynthesis:reject and emit skill_synthesis.rejected',
-    )
-    .option('--reason <text>', 'optional rejection reason')
-    .action(async (id: string, opts: { reason?: string }) => {
-      const exit = await skillSynthesisCmd.execute(
-        { subcommand: 'reject', id, reason: opts.reason },
-        resolveGlobals(program),
-      );
-      process.exitCode = exit;
-    });
-
-  skillSynthesis
-    .command('invocations <skillId>')
-    .description(
-      'emit skill_synthesis.invocations via skillSynthesis:invocations',
-    )
-    .option('--limit <n>', 'max invocations to return', (raw) =>
-      Number.parseInt(raw, 10),
-    )
-    .action(async (skillId: string, opts: { limit?: number }) => {
-      const exit = await skillSynthesisCmd.execute(
-        { subcommand: 'invocations', skillId, limit: opts.limit },
-        resolveGlobals(program),
-      );
-      process.exitCode = exit;
-    });
-
-  skillSynthesis
-    .command('stats')
-    .description('emit skill_synthesis.stats via skillSynthesis:stats')
-    .action(async () => {
-      const exit = await skillSynthesisCmd.execute(
-        { subcommand: 'stats' },
         resolveGlobals(program),
       );
       process.exitCode = exit;

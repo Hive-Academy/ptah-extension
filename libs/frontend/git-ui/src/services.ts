@@ -17,6 +17,7 @@
  */
 
 export { GitStatusService } from './lib/services/git-status.service';
+export { provideGitStatusAttention } from './lib/services/git-status-attention.service';
 export { GitBranchesService } from './lib/services/git-branches.service';
 export { WorktreeService } from './lib/services/worktree.service';
 export { FileContentChangesService } from './lib/services/file-content-changes.service';

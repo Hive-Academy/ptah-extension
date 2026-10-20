@@ -19,6 +19,8 @@ import { z } from 'zod';
 
 /** One deduplicated API message (or usage-bearing line) from a transcript. */
 export interface UsageRecord {
+  /** Stable message identity when the transcript carries one. */
+  readonly messageId: string | null;
   /** Epoch ms of the first line carrying a parseable timestamp, else `null`. */
   readonly timestampMs: number | null;
   /** Transcript `message.model` for assistant records, else `null`. */
@@ -107,6 +109,7 @@ const RELEVANT_MARKERS = ['"usage"', '"assistant"', 'compact_boundary', '"init"'
 const RECORD_BYTES = 96;
 
 interface MutableRecord {
+  messageId: string | null;
   timestampMs: number | null;
   model: string | null;
   input: number | undefined;
@@ -218,6 +221,7 @@ export class SessionUsageLedgerBuilder {
     }
 
     const record: MutableRecord = {
+      messageId: messageId ?? null,
       timestampMs,
       model,
       input: usage?.input_tokens,
@@ -240,6 +244,7 @@ export class SessionUsageLedgerBuilder {
         r.cacheRead !== undefined ||
         r.cacheCreation !== undefined;
       return {
+        messageId: r.messageId,
         timestampMs: r.timestampMs,
         model: r.model,
         input: r.input ?? 0,

@@ -18,6 +18,10 @@ import {
   provideVSCodeService,
   provideMessageRouter,
   MESSAGE_HANDLERS,
+  ATTENTION_ACTION_DISPATCHER,
+  ATTENTION_LANE_OPENER,
+  NOTICE_ACTION_HANDLER,
+  NOTIFICATION_FOCUS_ROUTER,
   ClaudeRpcService,
   AutopilotStateService,
   AppStateManager,
@@ -63,6 +67,10 @@ import { SurfaceUpdateInbox } from '@ptah-extension/chat-routing';
 import {
   ChatMessageHandler,
   ArtifactMessageHandler,
+  ChatAttentionSourceService,
+  ChatAttentionActionDispatcherService,
+  ChatAttentionHostMessageHandler,
+  NotificationFocusCoordinator,
   AgentSessionAdoptionService,
   ChatTabRouteSync,
   AgentMonitorMessageHandler,
@@ -91,10 +99,13 @@ import { WorkspaceIndexingService } from '@ptah-extension/workspace-indexing';
 // no-op as the dashboard barrel dropped in Batch 3.
 import {
   provideWizardInternalState,
+  provideSetupWizardFocusRouter,
   SetupWizardStateService,
   SetupGenerationOpenHandler,
   GenerationRunEventAdapter,
 } from '@ptah-extension/setup-wizard';
+import { provideHarnessBuilderFocusRouter } from '@ptah-extension/harness-builder/services';
+import { provideAppsFocusRouter } from '@ptah-extension/mcp-apps-page/focus';
 import {
   FileContentChangesService,
   GitBranchesService,
@@ -102,10 +113,11 @@ import {
   GitStatusService,
   ReviewDiffService,
   WorktreeService,
+  provideGitStatusAttention,
 } from '@ptah-extension/git-ui/services';
 import { OrchestraCanvasComponent } from '@ptah-extension/canvas';
+import { CanvasAttentionLaneOpener } from '@ptah-extension/canvas/focus';
 import { GatewayStateService } from '@ptah-extension/messaging-gateway-ui/services';
-import { SkillSynthesisLiveService } from '@ptah-extension/skill-synthesis-ui/services';
 // NOTE: intentionally the WIDE barrel. A narrow `@ptah-extension/dashboard/services`
 // barrel was built and measured for this import and moved 0 bytes
 // (dashboard: 35.7 kB -> 35.8 kB), because `DashboardGridComponent` stays eager
@@ -212,6 +224,11 @@ export const appConfig: ApplicationConfig = {
     ),
     provideVSCodeService(),
     provideMessageRouter(),
+    { provide: ATTENTION_ACTION_DISPATCHER, useExisting: ChatAttentionActionDispatcherService },
+    { provide: ATTENTION_LANE_OPENER, useExisting: CanvasAttentionLaneOpener },
+    { provide: NOTICE_ACTION_HANDLER, useExisting: VoiceProviderErrorService, multi: true },
+    { provide: NOTIFICATION_FOCUS_ROUTER, useExisting: NotificationFocusCoordinator },
+    provideAppInitializer(() => { inject(ChatAttentionSourceService); }),
     {
       provide: SurfaceRouterService.generationRouteTabValidatorToken,
       useFactory: () => {
@@ -239,6 +256,7 @@ export const appConfig: ApplicationConfig = {
     { provide: MESSAGE_HANDLERS, useExisting: AppStateManager, multi: true },
     { provide: MESSAGE_HANDLERS, useExisting: ChatMessageHandler, multi: true },
     { provide: MESSAGE_HANDLERS, useExisting: ArtifactMessageHandler, multi: true },
+    { provide: MESSAGE_HANDLERS, useExisting: ChatAttentionHostMessageHandler, multi: true },
     // Late adoption of agent-started child tabs (TASK_2026_584). The
     // `agentSession:opened` push above only reaches a webview that is running
     // when the child starts; this asks `chat:agent-sessions` at bootstrap and
@@ -305,6 +323,10 @@ export const appConfig: ApplicationConfig = {
     { provide: MESSAGE_HANDLERS, useExisting: TasksChangedFeed, multi: true },
     ...provideModelRefreshControl(),
     ...provideWizardInternalState(),
+    ...provideSetupWizardFocusRouter(),
+    ...provideHarnessBuilderFocusRouter(),
+    ...provideAppsFocusRouter(),
+    provideGitStatusAttention(),
     { provide: MESSAGE_HANDLERS, useExisting: GitStatusService, multi: true },
     { provide: MESSAGE_HANDLERS, useExisting: GitBranchesService, multi: true },
     { provide: MESSAGE_HANDLERS, useExisting: WorktreeService, multi: true },
@@ -336,11 +358,6 @@ export const appConfig: ApplicationConfig = {
     {
       provide: MESSAGE_HANDLERS,
       useExisting: GatewayStateService,
-      multi: true,
-    },
-    {
-      provide: MESSAGE_HANDLERS,
-      useExisting: SkillSynthesisLiveService,
       multi: true,
     },
     {

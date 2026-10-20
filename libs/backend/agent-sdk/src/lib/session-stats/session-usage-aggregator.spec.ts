@@ -116,6 +116,7 @@ describe('SessionUsageLedgerBuilder', () => {
   it('keeps one record per message id with the last counters, and no content', () => {
     expect(PARENT.records).toHaveLength(5);
     expect(PARENT.records[0]).toEqual({
+      messageId: 'm1',
       timestampMs: T(1),
       model: 'zz-priced-alpha',
       input: 100,

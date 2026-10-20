@@ -1,5 +1,5 @@
 /**
- * BackOfficeActivityService — nine push messages become one bounded, coalesced
+ * BackOfficeActivityService — eight push messages become one bounded, coalesced
  * list of human sentences (TASK_2026_380, component 14d).
  *
  * Ptah does a lot of work the user never sees. Each subsystem already
@@ -47,13 +47,20 @@ import {
   type IndexingProgressEvent,
   type MemoryCorpusChangedPayload,
   type MemoryExtractedPayload,
-  type SkillSynthesisEventPayload,
-  type SkillSynthesisEventWire,
   type VecStatusChangedPayload,
 } from '@ptah-extension/shared';
 
 import type { MessageHandler } from './message-router.types';
 import { WorkspaceScopeService } from './workspace-scope.service';
+import { attentionConditionKey, NotificationService } from './notification.service';
+
+/** Stable, diagnostic-free labels for failures projected into Recent notices. */
+const FAILURE_LABELS: Readonly<Record<string, string>> = {
+  'embedder:error': 'Embedding model failed',
+  'embedder:offline': 'Embedding model is unavailable',
+  'vec:offline': 'Vector search is unavailable',
+  'indexing:failed': 'Workspace indexing failed',
+};
 
 /** One rendered line of back-office activity. */
 export interface ActivityItem {
@@ -68,7 +75,7 @@ export interface ActivityItem {
   readonly level: ActivityLevel;
 }
 
-/** Ring size, matching `SkillSynthesisService.RING_CAPACITY` at the other end. */
+/** Maximum number of recent activity items retained. */
 export const ACTIVITY_RING_CAPACITY = 50;
 
 /** Latest-wins window for two items sharing a `source:kind` key. */
@@ -100,6 +107,8 @@ function nextItemId(): string {
 export class BackOfficeActivityService implements MessageHandler {
   private readonly destroyRef = inject(DestroyRef);
   private readonly workspaceScope = inject(WorkspaceScopeService);
+  private readonly notifications = inject(NotificationService);
+  private readonly noticeGenerations = new Map<string, number>();
 
   readonly handledMessageTypes = [
     MESSAGE_TYPES.ACTIVITY_EVENT,
@@ -108,7 +117,6 @@ export class BackOfficeActivityService implements MessageHandler {
     MESSAGE_TYPES.MEMORY_CORPUS_CHANGED,
     MESSAGE_TYPES.INDEXING_PROGRESS,
     MESSAGE_TYPES.INDEXING_COMPLETE,
-    MESSAGE_TYPES.SKILL_SYNTHESIS_EVENT,
     MESSAGE_TYPES.VEC_STATUS_CHANGED,
     MESSAGE_TYPES.EMBEDDER_STATUS_CHANGED,
   ] as const;
@@ -147,8 +155,57 @@ export class BackOfficeActivityService implements MessageHandler {
   }
 
   handleMessage(message: { type: string; payload?: unknown }): void {
+    if (message.type === MESSAGE_TYPES.BOOT_READINESS_CHANGED) {
+      this.projectBootReadiness(message.payload);
+    }
     const item = this.mapMessage(message.type, message.payload);
-    if (item) this.push(item);
+    if (item) {
+      this.push(item);
+      if (message.type !== MESSAGE_TYPES.BOOT_READINESS_CHANGED) this.projectFailure(item);
+    }
+  }
+
+  private projectBootReadiness(payload: unknown): void {
+    if (typeof payload !== 'object' || payload === null) return;
+    const body = payload as Partial<BootReadinessChangedPayload>;
+    if (!isBackendReadiness(body.readiness) || !isBootPhase(body.phase)) return;
+    const path = this.workspaceScope.activeWorkspacePath();
+    if (!path) return;
+    const key = attentionConditionKey(path, 'back-office:boot');
+    if (body.readiness === 'ready') {
+      this.notifications.resolve(key, undefined, 'back-office');
+      return;
+    }
+    if (body.readiness !== 'failed' && body.readiness !== 'degraded') return;
+    const generation = (this.noticeGenerations.get(key) ?? 0) + 1;
+    this.noticeGenerations.set(key, generation);
+    this.notifications.upsert({
+      key, generation, source: 'back-office', kind: 'failure', severity: 'error',
+      workspacePath: path, workspaceName: path.split(/[/\\]/).filter(Boolean).pop() ?? 'Workspace',
+      title: body.readiness === 'failed' ? 'Workspace startup failed' : 'Workspace startup is degraded',
+      actions: [], actionable: false, soundEligible: true,
+    });
+  }
+
+  private projectFailure(item: ActivityItem): void {
+    const path = this.workspaceScope.activeWorkspacePath();
+    if (!path) return;
+    const key = attentionConditionKey(path, `back-office:${item.source}`);
+    const label = FAILURE_LABELS[`${item.source}:${item.kind}`];
+    if (!label) {
+      // A healthy status or completed operation confirms recovery.
+      if (['online', 'ready', 'complete', 'success'].includes(item.kind)) {
+        this.notifications.resolve(key, undefined, 'back-office');
+      }
+      return;
+    }
+    const generation = (this.noticeGenerations.get(key) ?? 0) + 1;
+    this.noticeGenerations.set(key, generation);
+    this.notifications.upsert({
+      key, generation, source: 'back-office', kind: 'failure', severity: 'error',
+      workspacePath: path, workspaceName: path.split(/[/\\]/).filter(Boolean).pop() ?? 'Workspace',
+      title: label, actions: [], actionable: false, soundEligible: true,
+    });
   }
 
   /** One pure mapper per handled type; `null` means "do not narrate this". */
@@ -174,8 +231,6 @@ export class BackOfficeActivityService implements MessageHandler {
         return mapIndexingProgress(payload);
       case MESSAGE_TYPES.INDEXING_COMPLETE:
         return mapIndexingComplete(payload);
-      case MESSAGE_TYPES.SKILL_SYNTHESIS_EVENT:
-        return mapSkillSynthesis(payload);
       case MESSAGE_TYPES.VEC_STATUS_CHANGED:
         return this.mapVecStatus(payload);
       case MESSAGE_TYPES.EMBEDDER_STATUS_CHANGED:
@@ -285,12 +340,6 @@ function finiteTimestamp(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value)
     ? value
     : Date.now();
-}
-
-/** A stat is usable only when it coerces to a finite number. */
-function finiteStat(value: unknown): number | null {
-  const numeric = Number(value ?? 0);
-  return Number.isFinite(numeric) ? numeric : null;
 }
 
 function makeItem(fields: {
@@ -444,59 +493,4 @@ function mapIndexingComplete(payload: unknown): ActivityItem | null {
     summary: `Workspace index finished in ${Math.round(body.elapsedMs / 1000)}s`,
     timestamp: body.completedAt,
   });
-}
-
-/**
- * Skill-synthesis phrasing is DELIBERATELY the vocabulary already proven in
- * `skill-synthesis-live.service.ts:107-119`. Two labels for the same event
- * would read as two different things happening.
- */
-function mapSkillSynthesis(payload: unknown): ActivityItem | null {
-  const event = (payload as SkillSynthesisEventPayload | undefined)?.event;
-  if (!event || typeof event.kind !== 'string') return null;
-  return makeItem({
-    source: 'skills',
-    kind: event.kind,
-    summary: skillSummary(event),
-    level:
-      event.kind === 'error' || event.kind === 'rate-limited' ? 'warn' : 'info',
-    timestamp: event.timestamp,
-  });
-}
-
-function skillSummary(event: SkillSynthesisEventWire): string {
-  const stats = event.stats ?? {};
-  const generic = `Skill synthesis: ${event.kind}`;
-  switch (event.kind) {
-    case 'curator-pass-start':
-      return 'Curator analyzing candidates…';
-    case 'curator-pass': {
-      // A stat that does not coerce to a finite number degrades to the generic
-      // line. "(NaN suggestions)" is worse than saying less.
-      const created = finiteStat(stats['suggestionsCreated']);
-      return created === null
-        ? generic
-        : `Curator pass finished (${created} suggestions)`;
-    }
-    case 'backfill-progress': {
-      const done = finiteStat(stats['done']);
-      const total = finiteStat(stats['total']);
-      return done === null || total === null
-        ? generic
-        : `Embedding candidates ${done}/${total}…`;
-    }
-    case 'backfill-complete':
-      return 'Embedding backfill complete';
-    case 'analyze-run':
-      return 'Analyzed a session for skill candidates';
-    case 'error':
-      return `Skill synthesis error: ${
-        typeof event.error === 'string' ? event.error : 'unknown'
-      }`;
-    case 'rate-limited':
-      return 'Skill synthesis paused by its rate limit';
-    default:
-      // A new backend kind degrades to a dull line rather than disappearing.
-      return generic;
-  }
 }

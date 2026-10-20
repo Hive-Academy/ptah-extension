@@ -135,6 +135,9 @@ export class NativePopoverComponent implements OnDestroy {
    */
   readonly placement = input<Placement>('bottom');
 
+  /** Optional external positioning anchor; defaults to the projected trigger. */
+  readonly anchor = input<HTMLElement | null>(null);
+
   /**
    * Offset distance from trigger element in pixels.
    * @default DEFAULT_OVERLAY_OFFSET
@@ -215,9 +218,17 @@ export class NativePopoverComponent implements OnDestroy {
     const generation = ++this.openGeneration;
     this.previousActiveElement = document.activeElement as HTMLElement;
 
-    const trigger = this.triggerRef()?.nativeElement;
+    const anchor = this.anchor();
+    const trigger = anchor?.isConnected ? anchor : this.triggerRef()?.nativeElement;
     const floating = this.floatingRef()?.nativeElement;
-    if (!trigger || !floating) return;
+    if (!floating) return;
+    if (!trigger?.isConnected) {
+      if (isDevMode()) console.error('ptah-native-popover: no connected anchor; showing the panel unpositioned.');
+      floating.style.visibility = 'visible';
+      floating.focus();
+      this.opened.emit();
+      return;
+    }
 
     const outcome = await this.positionPanel(trigger, floating);
     // Closed, destroyed or reopened while positioning ran: the close path has

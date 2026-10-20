@@ -233,11 +233,6 @@ export class PromptSuggestionsComponent {
           text: '/humanize-library Refactor [library path] into single-responsibility files with clear names and no duplication',
           description: 'Refactor for readability',
         },
-        {
-          label: 'Extract UI feature',
-          text: '/extract-and-relocate-angular-component-feature Move [feature] from [source component] into a new self-contained component in [destination]',
-          description: 'Move feature to component',
-        },
       ],
     },
     {

@@ -306,11 +306,28 @@ describe('formatters', () => {
     ).toBe('authored');
   });
 
-  it('returns null for success rate when nothing has been recorded', () => {
-    expect(formatSuccessRate(clone({ invocationCount: 0 }))).toBeNull();
+  it('formats a graded rate independently of invocation count', () => {
+    expect(
+      formatSuccessRate(clone({ invocationCount: 0, successRate: 0.75 })),
+    ).toBe('75%');
+    expect(formatSuccessRate(clone({ invocationCount: 0, successRate: 0 }))).toBe(
+      '0%',
+    );
     expect(
       formatSuccessRate(clone({ invocationCount: 4, successRate: 0.5 })),
     ).toBe('50%');
+  });
+
+  it('renders No grade for a null or NaN rate instead of a percentage', () => {
+    expect(
+      formatSuccessRate(clone({ invocationCount: 0, successRate: null })),
+    ).toBe('No grade');
+    expect(
+      formatSuccessRate(clone({ invocationCount: 4, successRate: null })),
+    ).toBe('No grade');
+    expect(
+      formatSuccessRate(clone({ invocationCount: 4, successRate: Number.NaN })),
+    ).toBe('No grade');
   });
 
   it('renders a history stamp readably and passes unknown shapes through', () => {

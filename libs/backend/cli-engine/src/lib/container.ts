@@ -51,6 +51,7 @@ import type {
   IProcessSpawner,
   IWorkspaceProvider,
   IWorkspaceLifecycleProvider,
+  IHostAttentionIngress,
 } from '@ptah-extension/platform-core';
 import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type {
@@ -104,6 +105,7 @@ import {
 } from './bootstrap/harness-boot';
 import { shutdownHostRuntime } from './bootstrap/shutdown-host-runtime.js';
 import { registerAuthProvidersServices } from '@ptah-extension/auth-providers';
+import { registerUsageAnalytics } from '@ptah-extension/usage-analytics';
 import {
   registerCliAgentRuntimeServices,
   createContainerHarnessCliDetector,
@@ -279,6 +281,22 @@ export function registerCodeOutliner(container: DependencyContainer): void {
   });
 }
 
+export function attachCliHostAttention(
+  resolve: () => IHostAttentionIngress,
+  attach: (observer: IHostAttentionIngress) => { dispose(): void },
+  warn: (message: string) => void,
+): { dispose(): void } | undefined {
+  try {
+    return attach(resolve());
+  } catch (error: unknown) {
+    // degradation-audit: optional-capability - CLI host attention is an
+    // optional notification channel; the failure is warned and the CLI
+    // runs without it (undefined means "nothing to dispose").
+    warn(`Host attention attach failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
+    return undefined;
+  }
+}
+
 export class CliDIContainer {
   /**
    * The PtahFileSettingsManager instance shared with CliWorkspaceProvider.
@@ -314,6 +332,8 @@ export class CliDIContainer {
    * Undefined before `setup()` runs and after {@link disposeHostRuntime}.
    */
   private static _container: DependencyContainer | undefined;
+
+  private static _attentionRegistration: { dispose(): void } | undefined;
 
   /**
    * Synchronously flush any pending file-based settings writes to disk.
@@ -370,6 +390,8 @@ export class CliDIContainer {
   static async disposeHostRuntime(): Promise<void> {
     const container = CliDIContainer._container;
     CliDIContainer._container = undefined;
+    CliDIContainer._attentionRegistration?.dispose();
+    CliDIContainer._attentionRegistration = undefined;
     await shutdownHostRuntime(container);
   }
 
@@ -670,12 +692,19 @@ export class CliDIContainer {
         container.resolve<IProcessSpawner>(SDK_TOKENS.SDK_PROCESS_SPAWNER),
     });
     registerAuthProvidersServices(container, logger);
+    registerUsageAnalytics(container);
     // MUST precede registerSdkServices: PluginLoaderService injects the
     // external consent store as its allowlist source.
     registerPluginMarketplaceServices(container, logger);
     // Must be bound BEFORE registerSdkServices' capper is first resolved.
     registerCodeOutliner(container);
     registerSdkServices(container, logger);
+    CliDIContainer._attentionRegistration?.dispose();
+    CliDIContainer._attentionRegistration = attachCliHostAttention(
+      () => container.resolve<IHostAttentionIngress>(SDK_TOKENS.HOST_ATTENTION_COORDINATOR),
+      (observer) => pushAdapter.setAttentionObserver(observer, logger),
+      (message) => logger.warn(message),
+    );
     container.register(PLATFORM_TOKENS.EDITOR_LAUNCHER, {
       useValue: new CliEditorLauncher(
         container.resolve<IProcessSpawner>(SDK_TOKENS.SDK_PROCESS_SPAWNER),

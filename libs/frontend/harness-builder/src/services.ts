@@ -27,3 +27,5 @@ export { HarnessProposalHydrationService } from './lib/services/harness-proposal
 export { HarnessHelperService } from './lib/services/harness-helper.service';
 export { HarnessWorkflowRequestService } from './lib/services/harness-workflow-request.service';
 export { HarnessWorkflowMessageHandler } from './lib/services/harness-workflow-message.handler';
+export { HarnessBuilderFocusRouter } from './lib/services/harness-builder-focus-router.service';
+export { provideHarnessBuilderFocusRouter } from './lib/services/harness-builder-focus-router.provider';

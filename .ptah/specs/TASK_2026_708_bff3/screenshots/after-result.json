@@ -1,0 +1,81 @@
+{
+  "label": "after",
+  "pid": 36636,
+  "steps": [
+    {
+      "name": "dark",
+      "seed": {
+        "rootId": "root:d18d057a-4b3b-44e8-9ef5-c3061a1db109",
+        "root": [
+          407,
+          327,
+          77
+        ],
+        "nodes": 2
+      },
+      "info": {
+        "theme": "dark",
+        "reducedMotion": false,
+        "active": true,
+        "pulses": 0,
+        "pending": 1
+      },
+      "twinkleDiffPixels": 143,
+      "maxPulses": 1,
+      "frames": {
+        "flight": 335,
+        "ring": 902
+      }
+    },
+    {
+      "name": "light",
+      "seed": {
+        "rootId": "root:d18d057a-4b3b-44e8-9ef5-c3061a1db109",
+        "root": [
+          407,
+          327,
+          77
+        ],
+        "nodes": 2
+      },
+      "info": {
+        "theme": "light",
+        "reducedMotion": false,
+        "active": true,
+        "pulses": 0,
+        "pending": 1
+      },
+      "twinkleDiffPixels": 137,
+      "maxPulses": 1,
+      "frames": {
+        "flight": 337,
+        "ring": 904
+      }
+    },
+    {
+      "name": "reduced",
+      "seed": {
+        "rootId": "root:d18d057a-4b3b-44e8-9ef5-c3061a1db109",
+        "root": [
+          407,
+          327,
+          77
+        ],
+        "nodes": 2
+      },
+      "info": {
+        "theme": "dark",
+        "reducedMotion": true,
+        "active": false,
+        "pulses": 0,
+        "pending": 0
+      },
+      "twinkleDiffPixels": 0,
+      "maxPulses": 0,
+      "frames": {
+        "flight": 338,
+        "ring": 905
+      }
+    }
+  ]
+}

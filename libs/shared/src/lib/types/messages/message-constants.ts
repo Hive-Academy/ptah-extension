@@ -222,6 +222,8 @@ export const MESSAGE_TYPES = {
    */
   SURFACE_UPDATED: 'surface:updated',
   ASK_USER_QUESTION_REQUEST: 'ask-user-question:request',
+  ATTENTION_CHANGED: 'attention:changed',
+  ATTENTION_OPEN_TARGET: 'attention:openTarget',
   ASK_USER_QUESTION_RESPONSE: 'ask-user-question:response',
   ASK_USER_QUESTION_AUTO_RESOLVED: 'ask-user-question:auto-resolved',
   PERMISSION_AUTO_RESOLVED: 'permission:auto-resolved',
@@ -269,8 +271,6 @@ export const MESSAGE_TYPES = {
   VEC_STATUS_CHANGED: 'db:vecStatusChanged',
   /** Backend → Frontend: embedder readiness/progress/error changed (Electron only). */
   EMBEDDER_STATUS_CHANGED: 'embedder:statusChanged',
-  /** Backend → Frontend: a skill-synthesis pipeline event fired (analyze/curator/backfill). */
-  SKILL_SYNTHESIS_EVENT: 'skillSynthesis:event',
   /**
    * Backend → Frontend: one back-office activity item for the passive ticker
    * (TASK_2026_380).

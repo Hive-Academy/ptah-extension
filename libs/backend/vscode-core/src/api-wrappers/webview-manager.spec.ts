@@ -19,6 +19,12 @@ import { WebviewManager, type WebviewPanelConfig } from './webview-manager';
 // Module-level vscode mock
 // -------------------------------------------------------------------------
 jest.mock('vscode', () => ({
+  EventEmitter: jest.fn().mockImplementation(() => ({
+    event: jest.fn(),
+    fire: jest.fn(),
+    dispose: jest.fn(),
+  })),
+  Disposable: jest.fn().mockImplementation((dispose: () => void) => ({ dispose })),
   window: {
     createWebviewPanel: jest.fn(),
   },
@@ -373,6 +379,38 @@ describe('WebviewManager', () => {
   // sendMessage
   // ---------------------------------------------------------------------
   describe('sendMessage', () => {
+    it('observes before delivery and detaches only the registered observer', async () => {
+      manager.createWebviewPanel({ viewType: 'ptah.send', title: 'Send' });
+      const first = { observe: jest.fn() };
+      const second = { observe: jest.fn() };
+      const firstRegistration = manager.setAttentionObserver(first);
+      const secondRegistration = manager.setAttentionObserver(second);
+      firstRegistration.dispose();
+      panels[0].webview.postMessage.mockImplementationOnce(() => {
+        expect(second.observe).toHaveBeenCalledWith(MESSAGE_TYPES.CHAT_MESSAGE_CHUNK, { chunk: 'ok' });
+        return Promise.resolve(true);
+      });
+
+      await manager.sendMessage('ptah.send', MESSAGE_TYPES.CHAT_MESSAGE_CHUNK, { chunk: 'ok' });
+
+      expect(first.observe).not.toHaveBeenCalled();
+      expect(second.observe).toHaveBeenCalledTimes(1);
+      secondRegistration.dispose();
+      await manager.sendMessage('ptah.send', MESSAGE_TYPES.CHAT_MESSAGE_CHUNK, {});
+      expect(second.observe).toHaveBeenCalledTimes(1);
+    });
+
+    it('logs only an observer error name and still delivers', async () => {
+      manager.createWebviewPanel({ viewType: 'ptah.send', title: 'Send' });
+      const error = new Error('private payload');
+      error.name = 'ObserverFailure';
+      manager.setAttentionObserver({ observe: () => { throw error; } });
+
+      await expect(manager.sendMessage('ptah.send', MESSAGE_TYPES.CHAT_MESSAGE_CHUNK, {})).resolves.toBe(true);
+
+      expect(logger.error).toHaveBeenCalledWith('[WebviewManager] Attention observer failed: ObserverFailure');
+      expect(panels[0].webview.postMessage).toHaveBeenCalledTimes(1);
+    });
     it('posts the message on the matching panel and resolves true', async () => {
       manager.createWebviewPanel({
         viewType: 'ptah.send',

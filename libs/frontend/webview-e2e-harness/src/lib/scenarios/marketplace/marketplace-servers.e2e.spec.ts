@@ -204,7 +204,7 @@ test.describe('webview > marketplace > @container catalog grid', () => {
 });
 
 test.describe('webview > marketplace > D2 deep link from chat', () => {
-  test('"Open Marketplace Skills" on the canvas landing screen navigates to skills/ptah-plugins', async ({
+  test('"Open Library" on the canvas landing screen navigates to skills/ptah-plugins', async ({
     page,
     fixtureServer,
   }) => {
@@ -225,7 +225,7 @@ test.describe('webview > marketplace > D2 deep link from chat', () => {
 
     // The warning (`ProjectSetupCardComponent`) mounts on the Orchestra Canvas
     // landing screen (no tiles), not inside an empty session tile.
-    const openSkills = page.getByRole('button', { name: 'Open Marketplace Skills' });
+    const openSkills = page.getByRole('button', { name: 'Open Library' });
     await expect(openSkills).toBeVisible();
     await openSkills.click();
 

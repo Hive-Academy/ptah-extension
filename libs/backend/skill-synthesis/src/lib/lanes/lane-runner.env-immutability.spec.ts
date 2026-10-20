@@ -43,7 +43,6 @@ import { LaneRunnerService } from './lane-runner.service';
 import { SKILL_LANE_IDS } from './lane.types';
 import {
   flushMicrotasks,
-  makeBudgetStub,
   makeHangingQueryStub,
   makeLogger,
   makeQueryStub,
@@ -147,7 +146,6 @@ describe('P1-5 — a lane run leaves global auth state byte-for-byte unchanged',
       const out = await new LaneRunnerService(
         makeLogger(),
         makeResolverStub(lane).service,
-        makeBudgetStub().store,
         makeQueryStub([
           [
             resultMessage({
@@ -195,7 +193,6 @@ describe('P1-5 — a lane run leaves global auth state byte-for-byte unchanged',
     await new LaneRunnerService(
       makeLogger(),
       makeResolverStub(lane).service,
-      makeBudgetStub().store,
       makeQueryStub([[resultMessage({ result: 'ok' })]]).query,
     ).run({ laneId: 'synthesis', prompt: 'x' });
 
@@ -221,7 +218,6 @@ describe('P1-5 — a lane run leaves global auth state byte-for-byte unchanged',
       const pending = new LaneRunnerService(
         makeLogger(),
         makeResolverStub(lane).service,
-        makeBudgetStub().store,
         makeHangingQueryStub().query,
       ).run({ laneId: 'judge', prompt: 'x' });
 
@@ -253,7 +249,6 @@ describe('R2 — the auth snapshot reaches the SDK unrebuilt', () => {
     await new LaneRunnerService(
       makeLogger(),
       makeResolverStub(resolvedLane('judge', { auth })).service,
-      makeBudgetStub().store,
       query.query,
     ).run({ laneId: 'judge', prompt: 'x' });
 
@@ -268,7 +263,6 @@ describe('R2 — the auth snapshot reaches the SDK unrebuilt', () => {
     await new LaneRunnerService(
       makeLogger(),
       makeResolverStub(resolvedLane('archaeologist', { auth })).service,
-      makeBudgetStub().store,
       query.query,
     ).run({ laneId: 'archaeologist', prompt: 'x' });
 
@@ -297,7 +291,6 @@ describe('R2 — the auth snapshot reaches the SDK unrebuilt', () => {
       makeResolverStub(
         resolvedLane('judge', { auth, config: { structuredOutput: 'sdk' } }),
       ).service,
-      makeBudgetStub().store,
       query.query,
     ).run({ laneId: 'judge', prompt: 'x', outputSchema: { type: 'object' } });
 
@@ -316,7 +309,6 @@ describe('R2 — the auth snapshot reaches the SDK unrebuilt', () => {
     await new LaneRunnerService(
       makeLogger(),
       makeResolverStub(resolvedLane('replay', { auth: undefined })).service,
-      makeBudgetStub().store,
       query.query,
     ).run({ laneId: 'replay', prompt: 'x' });
 

@@ -1,4 +1,5 @@
 import {
+  AnalyticsRpcHandlers,
   ConfigScopeRpcHandlers,
   EnhancedPromptsRpcHandlers,
   LlmRpcHandlers,
@@ -6,8 +7,18 @@ import {
   WizardGenerationRpcHandlers,
   EditorRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
+import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+
+/** Attention ports and ingress attached during phase 2. */
+export const EXPECTED_ATTENTION_TOKENS = [
+  PLATFORM_TOKENS.PTAH_VIEW_VISIBILITY,
+  PLATFORM_TOKENS.HOST_ATTENTION_NOTIFICATIONS,
+  SDK_TOKENS.HOST_ATTENTION_COORDINATOR,
+] as const;
 
 export const EXPECTED_RESOLVABLE = [
+  AnalyticsRpcHandlers,
   ConfigScopeRpcHandlers,
   SetupRpcHandlers,
   WizardGenerationRpcHandlers,

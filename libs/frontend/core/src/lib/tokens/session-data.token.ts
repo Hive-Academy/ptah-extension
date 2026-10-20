@@ -4,8 +4,7 @@ import { ChatSessionSummary } from '@ptah-extension/shared';
 /**
  * Contract for providing session data to the dashboard.
  * Implemented by ChatStore in the chat library.
- * Used by SessionAnalyticsStateService in the dashboard library.
- * This token breaks the circular dependency between chat and dashboard.
+ * Registered by the VS Code webview with ChatStore as its provider.
  */
 export interface ISessionDataProvider {
   /** Signal of all loaded session summaries */

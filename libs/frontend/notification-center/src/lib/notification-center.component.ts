@@ -6,24 +6,10 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import {
-  Bell,
-  CheckCheck,
-  CircleAlert,
-  CircleCheck,
-  MessageCircleQuestion,
-  ShieldQuestion,
-  Volume2,
-  VolumeX,
-  X,
-  LucideAngularModule,
-} from 'lucide-angular';
+import { Bell, Check, CircleAlert, MessageCircleQuestion, ShieldQuestion, Trash2, TriangleAlert, Volume2, VolumeX, X, LucideAngularModule } from 'lucide-angular';
+import type { AttentionItem } from '@ptah-extension/core';
 import { NotificationCenterStore } from './notification-center.store';
 import { NotificationSoundService } from './notification-sound.service';
-import type {
-  CompletionNotificationEntry,
-  PendingNotificationEntry,
-} from './notification-center.types';
 
 @Component({
   selector: 'ptah-notification-center',
@@ -31,207 +17,141 @@ import type {
   imports: [LucideAngularModule],
   providers: [NotificationCenterStore],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { class: 'relative inline-flex' },
+  host: {
+    class: 'relative inline-flex',
+    '(document:click)': 'onDocumentClick($event)',
+  },
   template: `
-    <button
-      #bellButton
-      type="button"
+    <button #bellButton type="button"
       class="btn btn-ghost btn-square btn-xs relative focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-      aria-haspopup="dialog"
-      [attr.aria-expanded]="open()"
-      aria-controls="ptah-notification-center-panel"
-      [attr.aria-label]="bellLabel()"
-      title="Notifications"
-      data-testid="notification-center-bell"
-      (click)="toggle()"
-    >
+      aria-haspopup="dialog" [attr.aria-expanded]="panelOpen()"
+      aria-controls="ptah-notification-center-panel" [attr.aria-label]="bellLabel()"
+      title="Notifications" data-testid="notification-center-bell" (click)="toggle()">
       <lucide-angular [img]="BellIcon" class="w-3.5 h-3.5" />
-      @if (store.unreadCount() > 0) {
-        <span
-          class="absolute -right-1 -top-1 min-w-4 h-4 px-1 rounded-full bg-error text-error-content text-[10px] leading-4 text-center font-semibold"
-          aria-hidden="true"
-          data-testid="notification-count-badge"
-          >{{ visualCount() }}</span
-        >
+      @if (store.badgeCount() > 0) {
+        <span class="absolute -right-1 -top-1 min-w-4 h-4 px-1 rounded-full bg-warning text-warning-content text-[10px] leading-4 text-center font-semibold"
+          aria-hidden="true" data-testid="notification-count-badge">{{ visualCount() }}</span>
       }
     </button>
 
-    @if (open()) {
-      <section
-        id="ptah-notification-center-panel"
-        role="dialog"
-        aria-modal="false"
+    @if (panelOpen()) {
+      <section id="ptah-notification-center-panel" role="dialog" aria-modal="false"
         aria-labelledby="ptah-notification-center-heading"
-        class="surface-3 absolute right-0 top-full mt-2 z-50 w-80 max-h-[70vh] overflow-y-auto rounded-xl"
-        data-testid="notification-center-panel"
-        (keydown.escape)="close(true)"
-      >
-        <header
-          class="sticky top-0 z-10 flex items-center gap-2 border-b border-base-content/10 bg-base-100 p-3"
-        >
-          <h2
-            #panelHeading
-            id="ptah-notification-center-heading"
-            tabindex="-1"
-            class="flex-1 text-sm font-semibold outline-none"
-          >
-            Notifications
-          </h2>
-          <button
-            type="button"
-            class="btn btn-ghost btn-square btn-xs"
-            [attr.aria-label]="
-              sound.muted()
-                ? 'Unmute notification sounds'
-                : 'Mute notification sounds'
-            "
-            (click)="sound.setMuted(!sound.muted())"
-          >
-            <lucide-angular
-              [img]="sound.muted() ? VolumeXIcon : Volume2Icon"
-              class="w-3.5 h-3.5"
-            />
+        class="surface-3 absolute right-0 top-full mt-2 z-50 w-80 max-w-[calc(100vw-1rem)] max-h-[70vh] overflow-y-auto rounded-xl"
+        data-testid="notification-center-panel" (keydown.escape)="close(true)">
+        <header class="sticky top-0 z-10 flex items-center gap-2 border-b border-base-300 bg-base-100 p-3">
+          <h2 #panelHeading id="ptah-notification-center-heading" tabindex="-1"
+            class="flex-1 text-sm font-semibold outline-none">Notifications</h2>
+          <button type="button" class="btn btn-ghost btn-square btn-xs"
+            [attr.aria-label]="sound.muted() ? 'Unmute notification sounds' : 'Mute notification sounds'"
+            (click)="sound.setMuted(!sound.muted())">
+            <lucide-angular [img]="sound.muted() ? VolumeXIcon : Volume2Icon" class="w-3.5 h-3.5" />
           </button>
-          <button
-            type="button"
-            class="btn btn-ghost btn-xs gap-1"
-            (click)="store.markAllRead()"
-          >
-            <lucide-angular [img]="CheckAllIcon" class="w-3.5 h-3.5" />
-            Read all
+          <button type="button" class="btn btn-ghost btn-xs" aria-label="Clear all notices"
+            [disabled]="!store.canClearAll()" (click)="store.clearAll()">
+            <lucide-angular [img]="ClearIcon" class="w-3.5 h-3.5" />
+            Clear all notices
           </button>
         </header>
-
-        <div class="p-2 space-y-2">
-          @for (entry of store.pendingEntries(); track entry.id) {
-            <button
-              type="button"
-              class="notification-row flex w-full items-start gap-2 rounded-lg border border-warning/30 bg-warning/5 p-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-60"
-              [disabled]="entry.target === null"
-              (click)="activatePrompt(entry)"
-            >
-              <lucide-angular
-                [img]="
-                  entry.kind === 'question' ? QuestionIcon : PermissionIcon
-                "
-                class="mt-0.5 w-4 h-4 shrink-0"
-              />
-              <span class="min-w-0">
-                <span class="block text-xs font-semibold">{{
-                  entry.statusText
-                }}</span>
-                <span class="block truncate text-xs">{{ entry.title }}</span>
-                <span
-                  class="block truncate text-[11px] text-base-content-muted"
-                  >{{ entry.workspaceLabel }}</span
-                >
-              </span>
-            </button>
-          }
-
-          @for (group of store.completionGroups(); track group.id) {
-            <section
-              class="rounded-lg border border-base-content/10 p-1.5"
-              [attr.aria-label]="group.workspaceLabel"
-            >
-              <h3
-                class="px-1 pb-1 text-[11px] font-semibold text-base-content-muted"
-              >
-                {{ group.workspaceLabel }} · {{ group.entries.length }}
-              </h3>
-              @for (entry of group.entries; track entry.id) {
-                <div class="flex items-start gap-1">
-                  <button
-                    type="button"
-                    class="notification-row flex min-w-0 flex-1 items-start gap-2 rounded-md p-2 text-left hover:bg-base-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-                    [class.opacity-60]="entry.readAt !== null"
-                    [attr.aria-label]="'Open session ' + entry.title"
-                    (click)="activateCompletion(entry)"
-                  >
-                    <span
-                      class="mt-1 h-2.5 w-2.5 shrink-0 rounded-full"
-                      [style.background]="entry.sessionColor"
-                    ></span>
-                    <lucide-angular
-                      [img]="
-                        entry.classification === 'error'
-                          ? ErrorIcon
-                          : SuccessIcon
-                      "
-                      class="mt-0.5 w-4 h-4 shrink-0"
-                    />
-                    <span class="min-w-0">
-                      <span class="block text-xs font-semibold">{{
-                        entry.outcomeLabel
-                      }}</span>
-                      <span class="link link-hover block truncate text-xs">{{
-                        entry.title
-                      }}</span>
-                      @if (entry.lastAssistantMessage) {
-                        <span
-                          class="block truncate text-[11px] text-base-content-muted"
-                          >{{ entry.lastAssistantMessage }}</span
-                        >
-                      }
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    class="btn btn-ghost btn-square btn-xs shrink-0"
-                    [attr.aria-label]="'Dismiss ' + entry.title"
-                    (click)="store.dismissCompletion(entry.id)"
-                  >
+        @if (store.needsYou().length === 0 && store.recentNotices().length === 0) {
+          <div class="px-3 py-11 text-center">
+            <lucide-angular [img]="EmptyIcon" class="mx-auto w-7 h-7 text-success" aria-hidden="true" />
+            <h3 class="mt-2 text-sm font-semibold">All clear</h3>
+            <p class="mt-1 text-xs text-base-content-muted">Nothing needs your attention.</p>
+          </div>
+        } @else {
+        <div class="p-2 space-y-3">
+          <section aria-labelledby="ptah-needs-you-heading">
+            <div class="flex items-center gap-2 px-1 pb-1">
+              <h3 id="ptah-needs-you-heading" class="text-xs font-semibold uppercase tracking-wide text-base-content-muted">Needs you</h3>
+              <span class="ml-auto text-xs text-base-content-muted">{{ store.needsYou().length }}</span>
+            </div>
+            @for (item of store.needsYou(); track item.key) {
+              <div class="notification-row rounded-lg border border-base-300 bg-base-200 p-2 mb-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                [attr.tabindex]="item.actionable ? 0 : -1" [attr.aria-label]="item.title">
+                <div class="flex items-start gap-2">
+                  <lucide-angular [img]="item.kind === 'question' ? QuestionIcon : PermissionIcon"
+                    class="mt-0.5 w-4 h-4 shrink-0 text-state-need" />
+                  <div class="min-w-0 flex-1">
+                    <p class="text-xs font-semibold">{{ item.title }}</p>
+                    @if (item.context) { <p class="text-xs text-base-content-muted">{{ item.context }}</p> }
+                    <p class="text-[11px] text-base-content-muted">{{ item.workspaceName }}</p>
+                  </div>
+                </div>
+                <div class="flex flex-wrap gap-1 mt-2">
+                  @for (action of item.actions; track action.id) {
+                    <button type="button" class="btn btn-xs min-h-11"
+                      [class.btn-primary]="action.id === 'allow'"
+                      [class.btn-ghost]="action.id !== 'allow'"
+                      [disabled]="!!store.disabledReason(item, action.id) || store.isSubmitting(item)"
+                      [attr.title]="store.disabledReason(item, action.id)"
+                      [attr.aria-label]="action.label + ' ' + item.title"
+                      (click)="activate(item, action.id)">{{ action.label }}</button>
+                  }
+                </div>
+                @if (store.status(item)) { <p role="status" class="text-xs text-base-content-muted">{{ store.status(item) }}</p> }
+              </div>
+            } @empty {
+              <p class="px-2 py-3 text-xs text-base-content-muted">Nothing needs your response</p>
+            }
+          </section>
+          <section aria-labelledby="ptah-recent-heading">
+            <div class="flex items-center gap-2 px-1 pb-1">
+              <h3 id="ptah-recent-heading" class="text-xs font-semibold uppercase tracking-wide text-base-content-muted">Recent notices</h3>
+              <span class="ml-auto text-xs text-base-content-muted">{{ store.recentNotices().length }}</span>
+            </div>
+            @for (item of store.recentNotices(); track item.key) {
+              <div class="notification-row rounded-lg border border-base-300 bg-base-200 p-2 mb-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                [attr.tabindex]="item.actionable ? 0 : -1" [attr.aria-label]="item.title">
+                <div class="flex items-start gap-2">
+                  <lucide-angular [img]="item.kind === 'warning' ? WarningIcon : ErrorIcon"
+                    class="mt-0.5 w-4 h-4 shrink-0 text-state-err" />
+                  <div class="min-w-0 flex-1">
+                    <p class="text-xs font-semibold">{{ item.title }}</p>
+                    @if (item.context) { <p class="text-xs text-base-content-muted">{{ item.context }}</p> }
+                    <p class="text-[11px] text-base-content-muted">{{ item.workspaceName }}</p>
+                  </div>
+                  <button type="button" class="btn btn-ghost btn-square btn-xs min-w-11 min-h-11"
+                    [attr.aria-label]="'Dismiss ' + item.title"
+                    (click)="store.dismissRecent(item.key)">
                     <lucide-angular [img]="DismissIcon" class="w-3.5 h-3.5" />
                   </button>
                 </div>
-              }
-            </section>
-          }
-
-          @if (
-            store.pendingEntries().length === 0 &&
-            store.completionGroups().length === 0
-          ) {
-            <p class="p-6 text-center text-xs text-base-content-muted">
-              No notifications
-            </p>
-          }
+                @if (item.actions.length) {
+                  <div class="flex flex-wrap gap-1 mt-2">
+                    @for (action of item.actions; track action.id) {
+                      <button type="button" class="btn btn-ghost btn-xs min-h-11"
+                        [disabled]="!!store.disabledReason(item, action.id) || store.isSubmitting(item)"
+                        [attr.title]="store.disabledReason(item, action.id)"
+                        [attr.aria-label]="action.label + ' ' + item.title"
+                        (click)="activate(item, action.id)">{{ action.label }}</button>
+                    }
+                  </div>
+                }
+                @if (store.status(item)) { <p role="status" class="text-xs text-base-content-muted">{{ store.status(item) }}</p> }
+              </div>
+            } @empty {
+              <p class="px-2 py-3 text-xs text-base-content-muted">No recent notices</p>
+            }
+          </section>
         </div>
+        }
       </section>
-    }
-  `,
-  styles: `
-    .notification-row {
-      transition:
-        opacity 120ms ease,
-        transform 120ms ease;
-    }
-    .notification-row:hover {
-      transform: translateY(-1px);
-    }
-    @media (prefers-reduced-motion: reduce) {
-      .notification-row {
-        transition: none;
-      }
-      .notification-row:hover {
-        transform: none;
-      }
     }
   `,
 })
 export class NotificationCenterComponent {
   protected readonly store = inject(NotificationCenterStore);
   protected readonly sound = inject(NotificationSoundService);
-  protected readonly open = signal(false);
-  private readonly bellButton =
-    viewChild<ElementRef<HTMLButtonElement>>('bellButton');
-  private readonly panelHeading =
-    viewChild<ElementRef<HTMLElement>>('panelHeading');
-
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  readonly panelOpen = signal(false);
+  private readonly bellButton = viewChild<ElementRef<HTMLButtonElement>>('bellButton');
+  private readonly panelHeading = viewChild<ElementRef<HTMLElement>>('panelHeading');
   protected readonly BellIcon = Bell;
-  protected readonly CheckAllIcon = CheckCheck;
+  protected readonly EmptyIcon = Check;
+  protected readonly ClearIcon = Trash2;
   protected readonly ErrorIcon = CircleAlert;
-  protected readonly SuccessIcon = CircleCheck;
+  protected readonly WarningIcon = TriangleAlert;
   protected readonly QuestionIcon = MessageCircleQuestion;
   protected readonly PermissionIcon = ShieldQuestion;
   protected readonly Volume2Icon = Volume2;
@@ -239,46 +159,46 @@ export class NotificationCenterComponent {
   protected readonly DismissIcon = X;
 
   protected bellLabel(): string {
-    const count = this.store.unreadCount();
-    return `Notifications, ${count} unread`;
+    const count = this.store.badgeCount();
+    return `Notifications, ${count} need${count === 1 ? 's' : ''} your response`;
   }
 
   protected visualCount(): string {
-    const count = this.store.unreadCount();
+    const count = this.store.badgeCount();
     return count > 9 ? '9+' : String(count);
   }
 
   protected toggle(): void {
-    if (this.open()) {
-      this.close(false);
-      return;
-    }
-    this.open.set(true);
+    if (this.panelOpen()) { this.close(false); return; }
+    this.openPanel();
+  }
+
+  openPanel(): void {
+    if (this.panelOpen()) return;
+    this.panelOpen.set(true);
+    this.store.setPanelOpen(true);
     setTimeout(() => {
-      const actionable = document.querySelector<HTMLElement>(
-        '#ptah-notification-center-panel .notification-row:not(:disabled)',
+      const row = this.host.nativeElement.querySelector<HTMLElement>(
+        '#ptah-notification-center-panel .notification-row[tabindex="0"]',
       );
-      (actionable ?? this.panelHeading()?.nativeElement)?.focus();
+      (row ?? this.panelHeading()?.nativeElement)?.focus();
     }, 0);
   }
 
   protected close(restoreFocus: boolean): void {
-    this.open.set(false);
-    if (restoreFocus)
-      setTimeout(() => this.bellButton()?.nativeElement.focus(), 0);
+    if (!this.panelOpen()) return;
+    this.panelOpen.set(false);
+    this.store.setPanelOpen(false);
+    if (restoreFocus) setTimeout(() => this.bellButton()?.nativeElement.focus(), 0);
   }
 
-  protected async activateCompletion(
-    entry: CompletionNotificationEntry,
-  ): Promise<void> {
-    const result = await this.store.activateCompletion(entry);
-    if (result.success) this.close(false);
+  protected onDocumentClick(event: MouseEvent): void {
+    if (this.panelOpen() && event.target instanceof Node && !this.host.nativeElement.contains(event.target))
+      this.close(true);
   }
 
-  protected async activatePrompt(
-    entry: PendingNotificationEntry,
-  ): Promise<void> {
-    const result = await this.store.activatePrompt(entry);
-    if (result.success) this.close(false);
+  protected async activate(item: AttentionItem, actionId: string): Promise<void> {
+    const success = await this.store.activate(item, actionId);
+    if (success && actionId.toLowerCase() === 'open') this.close(false);
   }
 }

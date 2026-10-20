@@ -83,7 +83,7 @@ function deriveSubsystems(
 ): Record<ThothSubsystem, ThothSubsystemState> {
   return {
     memory: refs.memoryCurator ? ready() : degraded('offline'),
-    skills: refs.skillSynthesis ? ready() : degraded('offline'),
+    skills: refs.skillTrigger ? ready() : degraded('offline'),
     cron: refs.cronScheduler ? ready() : degraded('offline'),
     gateway: refs.gateway ? ready() : degraded('offline'),
     sqlite: refs.sqliteConnection ? ready() : degraded('offline'),

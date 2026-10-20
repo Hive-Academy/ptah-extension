@@ -1,339 +1,155 @@
-import { Component, NgModule, signal } from '@angular/core';
+import { Component, NgModule } from '@angular/core';
 jest.mock('ngx-markdown', () => {
   @Component({ selector: 'ptah-markdown-stub', standalone: true, template: '' })
   class MarkdownStub {}
   @NgModule({ imports: [MarkdownStub], exports: [MarkdownStub] })
   class MarkdownModule {}
-  return {
-    MarkdownModule,
-    MarkdownComponent: MarkdownStub,
-    provideMarkdown: () => [],
-  };
+  return { MarkdownModule, MarkdownComponent: MarkdownStub, provideMarkdown: () => [] };
 });
 import { fakeAsync, TestBed, tick } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
+import { ATTENTION_ACTION_DISPATCHER, NotificationService, type AttentionItem } from '@ptah-extension/core';
 import { NotificationCenterComponent } from './notification-center.component';
 import { NotificationCenterStore } from './notification-center.store';
 import { NotificationSoundService } from './notification-sound.service';
-import type {
-  CompletionNotificationEntry,
-  CompletionNotificationGroup,
-  PendingNotificationEntry,
-} from './notification-center.types';
+
+const lane: AttentionItem = {
+  key: 'lane-1', generation: 1, kind: 'lane-permission', source: 'lane',
+  workspacePath: '/workspace/a', workspaceName: 'a', sessionId: 'session-1',
+  severity: 'warning', title: 'Approve tool', context: 'Claude · Fix notifications · Tool: Bash',
+  actions: [
+    { id: 'allow', label: 'Allow', disabledReason: 'Unknown tool' },
+    { id: 'deny', label: 'Deny' }, { id: 'open', label: 'Open' },
+  ], actionable: true, soundEligible: false,
+};
+const warning: AttentionItem = {
+  ...lane, key: 'warning-1', kind: 'warning', title: 'Git status unavailable',
+  actions: [{ id: 'retry', label: 'Retry' }],
+};
 
 describe('NotificationCenterComponent', () => {
-  const unreadCount = signal(12);
-  const pendingEntries = signal<readonly PendingNotificationEntry[]>([]);
-  const completionGroups = signal<readonly CompletionNotificationGroup[]>([]);
-  const announcement = signal('12 sessions finished; 3 need attention');
-  const activateCompletion = jest.fn();
-  const activatePrompt = jest.fn();
-  const markAllRead = jest.fn();
-  const dismissCompletion = jest.fn();
-  const muted = signal(false);
-  const completion: CompletionNotificationEntry = {
-    kind: 'completion',
-    id: 'session-1:1',
-    revision: 1,
-    tabId: 'tab-1',
-    sessionId: 'session-1',
-    workspacePath: '/workspace/a',
-    workspaceLabel: 'a',
-    title: 'Build release',
-    sessionColor: 'oklch(70% 0.1 100)',
-    phase: 'idle',
-    terminalReason: 'completed',
-    lastAssistantMessage: null,
-    outcomeLabel: 'Finished',
-    classification: 'success',
-    occurredAt: 1,
-    readAt: null,
-    dismissed: false,
-    target: {
-      workspacePath: '/workspace/a',
-      tabId: 'tab-1',
-      sessionId: 'session-1',
-    },
-  };
-  const prompt: PendingNotificationEntry = {
-    kind: 'permission',
-    id: 'permission:p-1:tab-1',
-    sourceId: 'p-1',
-    sessionId: 'session-1',
-    workspacePath: '/workspace/a',
-    workspaceLabel: 'a',
-    title: 'Run tests',
-    statusText: 'Needs permission',
-    occurredAt: 1,
-    target: completion.target,
-    source: {
-      id: 'p-1',
-      toolName: 'Bash',
-      toolInput: {},
-      timestamp: 1,
-      description: 'Run tests',
-      timeoutAt: 0,
-    },
-  };
+  let notifications: NotificationService;
+  const dispatch = jest.fn();
+  const muted = jest.fn(() => false);
+  const setMuted = jest.fn();
 
-  beforeEach(async () => {
-    unreadCount.set(12);
-    pendingEntries.set([]);
-    completionGroups.set([]);
-    announcement.set('12 sessions finished; 3 need attention');
-    jest.clearAllMocks();
-    activateCompletion.mockResolvedValue({
-      success: true,
-      outcome: 'focused',
-    });
-    activatePrompt.mockResolvedValue({ success: true, outcome: 'focused' });
-    await TestBed.configureTestingModule({
+  beforeEach(() => {
+    dispatch.mockReset().mockResolvedValue(true);
+    TestBed.configureTestingModule({
       imports: [NotificationCenterComponent],
       providers: [
-        {
-          provide: NotificationCenterStore,
-          useValue: {
-            unreadCount,
-            pendingEntries,
-            completionGroups,
-            announcement,
-            activateCompletion,
-            activatePrompt,
-            markAllRead,
-            dismissCompletion,
-          },
-        },
-        {
-          provide: NotificationSoundService,
-          useValue: { muted, setMuted: jest.fn() },
-        },
+        { provide: ATTENTION_ACTION_DISPATCHER, useValue: { dispatch } },
+        { provide: NotificationSoundService, useValue: { muted, setMuted } },
       ],
-    })
-      .overrideComponent(NotificationCenterComponent, {
-        set: {
-          providers: [
-            {
-              provide: NotificationCenterStore,
-              useValue: {
-                unreadCount,
-                pendingEntries,
-                completionGroups,
-                announcement,
-                activateCompletion,
-                activatePrompt,
-                markAllRead,
-                dismissCompletion,
-              },
-            },
-          ],
-        },
-      })
-      .compileComponents();
+    });
+    notifications = TestBed.inject(NotificationService);
   });
 
-  it('uses a real button with the exact accessible count and visual 9+ cap', () => {
+  it('opens through the public API and has no dismiss control on Needs you', fakeAsync(() => {
+    notifications.upsert(lane);
     const fixture = TestBed.createComponent(NotificationCenterComponent);
     fixture.detectChanges();
-    const bell = fixture.debugElement.query(
-      By.css('[data-testid="notification-center-bell"]'),
-    ).nativeElement as HTMLButtonElement;
-    const badge = fixture.debugElement.query(
-      By.css('[data-testid="notification-count-badge"]'),
-    ).nativeElement as HTMLElement;
-    expect(bell.tagName).toBe('BUTTON');
-    expect(bell.getAttribute('aria-label')).toBe('Notifications, 12 unread');
-    expect(bell.getAttribute('aria-haspopup')).toBe('dialog');
-    expect(bell.getAttribute('aria-expanded')).toBe('false');
-    expect(badge.textContent?.trim()).toBe('9+');
-  });
+    fixture.componentInstance.openPanel();
+    fixture.detectChanges();
+    tick();
+    expect(fixture.componentInstance.panelOpen()).toBe(true);
+    expect(fixture.nativeElement.querySelector('#ptah-needs-you-heading')?.parentElement?.querySelector('[aria-label^="Dismiss"]')).toBeNull();
+  }));
 
-  it('opens with linked ARIA state, focuses the heading, and Escape restores bell focus', fakeAsync(() => {
+  it('updates action disabled state under OnPush when dispatch settles', fakeAsync(() => {
+    notifications.upsert(lane);
+    let finish: (value: boolean) => void = () => undefined;
+    dispatch.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
     const fixture = TestBed.createComponent(NotificationCenterComponent);
     fixture.detectChanges();
-    const bell = fixture.debugElement.query(By.css('button'))
-      .nativeElement as HTMLButtonElement;
+    fixture.componentInstance.openPanel();
+    fixture.detectChanges();
+    const deny = () => [...(fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent?.trim() === 'Deny');
+    deny()?.click();
+    fixture.detectChanges();
+    expect(deny()?.disabled).toBe(true);
+    finish(true);
+    tick();
+    fixture.detectChanges();
+    expect(deny()?.disabled).toBe(false);
+  }));
+
+  it('shows needs-you badge and two sections without completion rows', fakeAsync(() => {
+    notifications.upsert(lane);
+    notifications.upsert(warning);
+    const fixture = TestBed.createComponent(NotificationCenterComponent);
+    fixture.detectChanges();
+    const badge = fixture.debugElement.query(By.css('[data-testid="notification-count-badge"]'));
+    expect(badge.nativeElement.textContent.trim()).toBe('1');
+    fixture.debugElement.query(By.css('[data-testid="notification-center-bell"]')).nativeElement.click();
+    fixture.detectChanges();
+    tick();
+    expect(fixture.nativeElement.textContent).toContain('Needs you');
+    expect(fixture.nativeElement.textContent).toContain('Recent notices');
+    expect(fixture.nativeElement.textContent).toContain('Approve tool');
+    expect(fixture.nativeElement.textContent).toContain('Git status unavailable');
+    expect(fixture.nativeElement.querySelector('#ptah-needs-you-heading')?.parentElement?.textContent).toContain('1');
+    expect(fixture.nativeElement.textContent).not.toContain('Finished');
+    const rows = fixture.debugElement.queryAll(By.css('.notification-row'));
+    expect(rows[0].nativeElement.textContent).toContain('Claude · Fix notifications · Tool: Bash');
+    expect(rows[0].nativeElement.textContent).toContain('a');
+    expect(document.activeElement).toBe(rows[0].nativeElement);
+    expect(rows[0].queryAll(By.css('button')).find(button => button.nativeElement.textContent.trim() === 'Allow')?.nativeElement.disabled).toBe(true);
+  }));
+
+  it('shows one All clear state without section headings or section empty messages', fakeAsync(() => {
+    const fixture = TestBed.createComponent(NotificationCenterComponent);
+    fixture.detectChanges();
+    fixture.componentInstance.openPanel();
+    fixture.detectChanges();
+    tick();
+    const panel = fixture.nativeElement.querySelector('[data-testid="notification-center-panel"]') as HTMLElement;
+    expect(panel.textContent).toContain('All clear');
+    expect(panel.textContent).toContain('Nothing needs your attention.');
+    expect(panel.querySelector('#ptah-needs-you-heading')).toBeNull();
+    expect(panel.querySelector('#ptah-recent-heading')).toBeNull();
+    expect(panel.textContent).not.toContain('Nothing needs your response');
+    expect(panel.textContent).not.toContain('No recent notices');
+    expect(panel.querySelector<HTMLButtonElement>('header button[aria-label="Clear all notices"]')?.disabled).toBe(true);
+  }));
+
+  it('dispatches lane Deny and clears recent notices while retaining Needs you', fakeAsync(() => {
+    notifications.upsert(lane);
+    notifications.upsert(warning);
+    const fixture = TestBed.createComponent(NotificationCenterComponent);
+    fixture.detectChanges();
+    fixture.debugElement.query(By.css('[data-testid="notification-center-bell"]')).nativeElement.click();
+    fixture.detectChanges();
+    tick();
+    const deny = fixture.debugElement.queryAll(By.css('button')).find(button => button.nativeElement.textContent.trim() === 'Deny');
+    deny?.nativeElement.click();
+    tick();
+    expect(dispatch).toHaveBeenCalledWith('lane-1', 1, 'deny');
+    const store = fixture.debugElement.injector.get(NotificationCenterStore);
+    const clearAll = jest.spyOn(store, 'clearAll');
+    const clear = fixture.nativeElement.querySelector('header button[aria-label="Clear all notices"]') as HTMLButtonElement;
+    expect(clear).not.toBeNull();
+    expect(clear.disabled).toBe(false);
+    clear.click();
+    fixture.detectChanges();
+    expect(clearAll).toHaveBeenCalledTimes(1);
+    expect(notifications.needsYou()).toEqual([lane]);
+    expect(notifications.recentNotices()).toEqual([]);
+    expect(clear.disabled).toBe(true);
+  }));
+
+  it('restores bell focus after Escape', fakeAsync(() => {
+    const fixture = TestBed.createComponent(NotificationCenterComponent);
+    fixture.detectChanges();
+    const bell = fixture.debugElement.query(By.css('[data-testid="notification-center-bell"]')).nativeElement as HTMLButtonElement;
     bell.click();
     fixture.detectChanges();
     tick();
-    const panel = fixture.debugElement.query(By.css('[role="dialog"]'));
-    expect(bell.getAttribute('aria-expanded')).toBe('true');
-    expect(panel.attributes['id']).toBe('ptah-notification-center-panel');
     expect(document.activeElement?.id).toBe('ptah-notification-center-heading');
-    panel.nativeElement.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
-    );
+    fixture.debugElement.query(By.css('[data-testid="notification-center-panel"]')).triggerEventHandler('keydown.escape', new KeyboardEvent('keydown', { key: 'Escape' }));
     fixture.detectChanges();
     tick();
     expect(document.activeElement).toBe(bell);
-  }));
-
-  it('renders no live region of its own (NotificationAnnouncerComponent owns it)', () => {
-    // The bell can sit inside retained chrome that leaves the document on a
-    // standalone surface (TASK_2026_524 batch 3), so the shells render the
-    // announcer outside it; a second region here would announce twice.
-    const fixture = TestBed.createComponent(NotificationCenterComponent);
-    fixture.detectChanges();
-    const statuses = fixture.debugElement.queryAll(By.css('[role="status"]'));
-    expect(statuses).toHaveLength(0);
-  });
-
-  it('closes the panel after successful completion and prompt activation', fakeAsync(() => {
-    completionGroups.set([
-      {
-        id: 'group-1',
-        workspacePath: '/workspace/a',
-        workspaceLabel: 'a',
-        classification: 'success',
-        occurredAt: 1,
-        entries: [completion],
-      },
-    ]);
-    const fixture = TestBed.createComponent(NotificationCenterComponent);
-    fixture.detectChanges();
-    fixture.debugElement
-      .query(By.css('[data-testid="notification-center-bell"]'))
-      .nativeElement.click();
-    fixture.detectChanges();
-    tick();
-    fixture.debugElement
-      .query(By.css('.notification-row'))
-      .nativeElement.click();
-    tick();
-    fixture.detectChanges();
-    expect(activateCompletion).toHaveBeenCalledWith(completion);
-    expect(fixture.debugElement.query(By.css('[role="dialog"]'))).toBeNull();
-
-    completionGroups.set([]);
-    pendingEntries.set([prompt]);
-    fixture.detectChanges();
-    fixture.debugElement
-      .query(By.css('[data-testid="notification-center-bell"]'))
-      .nativeElement.click();
-    fixture.detectChanges();
-    tick();
-    fixture.debugElement
-      .query(By.css('.notification-row'))
-      .nativeElement.click();
-    tick();
-    fixture.detectChanges();
-    expect(activatePrompt).toHaveBeenCalledWith(prompt);
-    expect(fixture.debugElement.query(By.css('[role="dialog"]'))).toBeNull();
-  }));
-
-  it('renders a keyboard-reachable dismiss control for each completion', fakeAsync(() => {
-    completionGroups.set([
-      {
-        id: 'group-1',
-        workspacePath: '/workspace/a',
-        workspaceLabel: 'a',
-        classification: 'success',
-        occurredAt: 1,
-        entries: [completion],
-      },
-    ]);
-    const fixture = TestBed.createComponent(NotificationCenterComponent);
-    fixture.detectChanges();
-    fixture.debugElement
-      .query(By.css('[data-testid="notification-center-bell"]'))
-      .nativeElement.click();
-    fixture.detectChanges();
-    tick();
-    const dismiss = fixture.debugElement.query(
-      By.css('[aria-label="Dismiss Build release"]'),
-    ).nativeElement as HTMLButtonElement;
-
-    expect(dismiss.tagName).toBe('BUTTON');
-    expect(dismiss.tabIndex).toBe(0);
-    dismiss.click();
-    expect(dismissCompletion).toHaveBeenCalledWith(completion.id);
-    expect(activateCompletion).not.toHaveBeenCalled();
-  }));
-
-  it('renders the outcome label instead of a bare Failed/Finished string', fakeAsync(() => {
-    completionGroups.set([
-      {
-        id: 'group-1',
-        workspacePath: '/workspace/a',
-        workspaceLabel: 'a',
-        classification: 'error',
-        occurredAt: 1,
-        entries: [{ ...completion, outcomeLabel: 'Hit the turn limit' }],
-      },
-    ]);
-    const fixture = TestBed.createComponent(NotificationCenterComponent);
-    fixture.detectChanges();
-    fixture.debugElement
-      .query(By.css('[data-testid="notification-center-bell"]'))
-      .nativeElement.click();
-    fixture.detectChanges();
-    tick();
-    const row = fixture.debugElement.query(By.css('.notification-row'));
-    expect(row.nativeElement.textContent).toContain('Hit the turn limit');
-    expect(row.nativeElement.textContent).not.toContain('Failed');
-  }));
-
-  it('renders the recap under the session name, and nothing when it is null', fakeAsync(() => {
-    completionGroups.set([
-      {
-        id: 'group-1',
-        workspacePath: '/workspace/a',
-        workspaceLabel: 'a',
-        classification: 'success',
-        occurredAt: 1,
-        entries: [{ ...completion, lastAssistantMessage: 'All done.' }],
-      },
-    ]);
-    const fixture = TestBed.createComponent(NotificationCenterComponent);
-    fixture.detectChanges();
-    fixture.debugElement
-      .query(By.css('[data-testid="notification-center-bell"]'))
-      .nativeElement.click();
-    fixture.detectChanges();
-    tick();
-    let row = fixture.debugElement.query(By.css('.notification-row'));
-    expect(row.nativeElement.textContent).toContain('All done.');
-
-    completionGroups.set([
-      {
-        id: 'group-1',
-        workspacePath: '/workspace/a',
-        workspaceLabel: 'a',
-        classification: 'success',
-        occurredAt: 1,
-        entries: [{ ...completion, lastAssistantMessage: null }],
-      },
-    ]);
-    fixture.detectChanges();
-    row = fixture.debugElement.query(By.css('.notification-row'));
-    expect(row.nativeElement.textContent).not.toContain('All done.');
-  }));
-
-  it('presents the session name as a link-styled, keyboard-reachable affordance that activates the focus router', fakeAsync(() => {
-    completionGroups.set([
-      {
-        id: 'group-1',
-        workspacePath: '/workspace/a',
-        workspaceLabel: 'a',
-        classification: 'success',
-        occurredAt: 1,
-        entries: [completion],
-      },
-    ]);
-    const fixture = TestBed.createComponent(NotificationCenterComponent);
-    fixture.detectChanges();
-    fixture.debugElement
-      .query(By.css('[data-testid="notification-center-bell"]'))
-      .nativeElement.click();
-    fixture.detectChanges();
-    tick();
-    const row = fixture.debugElement.query(By.css('.notification-row'))
-      .nativeElement as HTMLButtonElement;
-    expect(row.getAttribute('aria-label')).toBe('Open session Build release');
-    const sessionName = fixture.debugElement.query(By.css('.link'));
-    expect(sessionName.nativeElement.textContent.trim()).toBe('Build release');
-    row.click();
-    tick();
-    fixture.detectChanges();
-    expect(activateCompletion).toHaveBeenCalledWith(completion);
   }));
 });

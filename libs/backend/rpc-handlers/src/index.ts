@@ -9,6 +9,7 @@
 export {
   AgentRpcHandlers,
   AgentOutcomeRpcHandlers,
+  AnalyticsRpcHandlers,
   DecisionModelCatalogRpcHandlers,
   CommandRpcHandlers,
   FileSystemRpcHandlers,
@@ -41,6 +42,7 @@ export {
   GitRpcHandlers,
   WorkspaceRpcHandlers,
   SettingsRpcHandlers,
+  AttentionRpcHandlers,
   MemoryRpcHandlers,
   MemRpcHandlers,
   CorpusRpcHandlers,

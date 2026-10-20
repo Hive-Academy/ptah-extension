@@ -17,6 +17,8 @@
  */
 
 import type { IpcBridge } from './ipc-bridge';
+import type { IHostAttentionIngress, IHostAttentionObserverHost } from '@ptah-extension/platform-core';
+import type { Logger } from '@ptah-extension/vscode-core';
 
 /**
  * Electron-compatible WebviewManager adapter.
@@ -27,8 +29,16 @@ import type { IpcBridge } from './ipc-bridge';
  * In Electron there is only one renderer (the BrowserWindow), so sendMessage
  * and broadcastMessage behave identically -- both send to the same window.
  */
-export class ElectronWebviewManagerAdapter {
-  constructor(private readonly ipcBridge: IpcBridge) {}
+export class ElectronWebviewManagerAdapter implements IHostAttentionObserverHost {
+  private attentionObserver: IHostAttentionIngress | null = null;
+  constructor(private readonly ipcBridge: IpcBridge, private readonly logger?: Logger) {}
+
+  setAttentionObserver(observer: IHostAttentionIngress): { dispose(): void } {
+    this.attentionObserver = observer;
+    return { dispose: () => {
+      if (this.attentionObserver === observer) this.attentionObserver = null;
+    } };
+  }
 
   /**
    * Send a typed message to a specific webview.
@@ -49,6 +59,11 @@ export class ElectronWebviewManagerAdapter {
     type: string,
     payload: unknown,
   ): Promise<boolean> {
+    try {
+      this.attentionObserver?.observe(type, payload);
+    } catch (error: unknown) {
+      this.logger?.warn(`Host attention observe failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
+    }
     try {
       return this.ipcBridge.sendToRenderer({ type, payload });
     } catch {
@@ -86,6 +101,11 @@ export class ElectronWebviewManagerAdapter {
    * @param payload - Message payload
    */
   async broadcastMessage(type: string, payload: unknown): Promise<void> {
+    try {
+      this.attentionObserver?.observe(type, payload);
+    } catch (error: unknown) {
+      this.logger?.warn(`Host attention observe failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
+    }
     this.ipcBridge.sendToRenderer({ type, payload });
   }
 

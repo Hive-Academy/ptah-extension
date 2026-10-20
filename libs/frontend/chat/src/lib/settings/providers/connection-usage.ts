@@ -1,8 +1,6 @@
 import type {
   CliDetectionResult,
   PtahCliSummary,
-  SkillLaneDto,
-  SkillLaneIdDto,
 } from '@ptah-extension/shared';
 import type { ProviderConsumerId } from './provider-consumer-rows';
 
@@ -30,11 +28,8 @@ export interface ConnectionUsageSources {
   readonly mainProviderId: string | null | undefined;
   /** `memory.curatorProvider` (`''` or absent in loaded data = follows main). */
   readonly curatorProvider: string | null;
-  readonly lanes: Readonly<
-    Record<SkillLaneIdDto, Pick<SkillLaneDto, 'provider'>>
-  > | null;
-  /** `skillSynthesis.judgeProvider` for Judging & enhancement (`''` = follows main). */
-  readonly judgeProvider: string | null;
+  /** `skills.enhancement.provider` (`''` = follows main). */
+  readonly enhancementProvider: string | null;
   /** Ptah CLI agents; each uses its own provider connection. */
   readonly cliAgents:
     readonly Pick<PtahCliSummary, 'id' | 'name' | 'providerId'>[] | null;
@@ -64,17 +59,6 @@ function codexCliEnabled(
   );
 }
 
-/** Background roles in the order the Orchestration tab lists them. */
-const LANES: readonly {
-  readonly id: SkillLaneIdDto;
-  readonly label: string;
-}[] = [
-  { id: 'archaeologist', label: 'Archaeologist lane' },
-  { id: 'synthesis', label: 'Synthesis lane' },
-  { id: 'judge', label: 'Judge lane' },
-  { id: 'replay', label: 'Replay lane' },
-];
-
 export interface ConnectionUsage {
   /** `{providerId → readonly UsedBy[]}`; a connection absent from it is used by nothing the sources describe. */
   readonly byProvider: Readonly<Record<string, readonly UsedBy[]>>;
@@ -86,8 +70,8 @@ export interface ConnectionUsage {
 }
 
 /**
- * Builds the usage map in a fixed order per connection: main agent, memory curator, the four lanes,
- * Judging & enhancement, Ptah CLI agents in list order, then the Codex CLI.
+ * Builds the usage map in a fixed order per connection: main agent, memory curator,
+ * Enhancement, Ptah CLI agents in list order, then the Codex CLI.
  *
  * System CLIs authenticate on their own and are not listed, with one exception: the Codex CLI counts
  * under OpenAI Codex, the sign-in it shares, while it is installed and enabled (task.md "Gate V 28
@@ -124,15 +108,7 @@ export function connectionUsage(
     });
   }
   addRole(sources.curatorProvider, 'memory-curator', 'Memory curator');
-  if (sources.lanes) {
-    for (const lane of LANES)
-      addRole(sources.lanes[lane.id]?.provider ?? '', lane.id, lane.label);
-  }
-  addRole(
-    sources.judgeProvider,
-    'judging-enhancement',
-    'Judging & enhancement',
-  );
+  addRole(sources.enhancementProvider, 'enhancement', 'Enhancement');
   for (const agent of sources.cliAgents ?? []) {
     const provider = agent.providerId.trim();
     if (provider) {
@@ -157,8 +133,7 @@ export function connectionUsage(
     complete:
       sources.mainProviderId !== undefined &&
       sources.curatorProvider !== null &&
-      sources.lanes !== null &&
-      sources.judgeProvider !== null &&
+      sources.enhancementProvider !== null &&
       sources.cliAgents !== null &&
       sources.systemClis !== null,
   };

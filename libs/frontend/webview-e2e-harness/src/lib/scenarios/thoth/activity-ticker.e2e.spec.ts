@@ -3,26 +3,16 @@
  * (TASK_2026_380, Task 5.1 — the second of the two cases Batch 4 deferred,
  * D-6 in `batch-4-report.md`).
  *
- * `BackOfficeActivityService`'s unit tests (component 14d) pin the mapper
- * and ring behaviour in isolation, and `ActivityTickerComponent`'s unit
- * tests (component 14e) pin the rotation/idle-collapse behaviour against
- * inputs it is handed directly. Neither proves that a real `activity:event`
- * push through the message router leaves the shell chrome alone, which is
- * what this scenario covers.
+ * `BackOfficeActivityService`'s unit tests pin the mapper and ring behaviour
+ * in isolation. This scenario checks shell stability when real `activity:event`
+ * pushes pass through the message router.
  *
- * Since TASK_2026_405 the ticker is NOT in the navbar. Its host is the canvas
- * dock row (`OrchestraCanvasComponent`), which renders only when the canvas
- * holds at least one tile — this harness opens no session, so the rendered
- * ticker line is out of reach here. Those assertions live in
- * `libs/frontend/canvas/src/lib/orchestra-canvas.component.spec.ts`. What a
- * real bundle can still prove is asserted below: the shell mounts no ticker
- * and no leftover toast, and the tab strip does not move however long the
- * summary is.
+ * The canvas dock and its ticker were removed. This scenario checks that
+ * activity events leave the shell chrome and tab strip stable.
  *
  * Uses the REAL `ptah-extension-webview` Angular bundle, following the
- * pattern (and the `isElectron: true` `ptahConfig` justification) in
- * `../thoth/skills-lane-pickers.e2e.spec.ts` — read its file doc comment
- * before changing that flag. This spec does not navigate into the Thoth
+ * pattern for the Electron host (`isElectron: true` in `ptahConfig`).
+ * This spec does not navigate into the Thoth
  * tab; the shell chrome it asserts on is mounted as soon as the workspace
  * gate clears, independent of which tab is active.
  */
@@ -42,7 +32,7 @@ const RPC_FIXTURES: Record<string, unknown> = {
   'workspace:switch': { success: true },
 };
 
-/** Copied from the sibling thoth scenario — see its file doc comment. */
+/** Respond to workspace RPCs during shell boot. */
 async function installRpcAutoResponder(
   page: Page,
   fixtures: Record<string, unknown>,
@@ -110,7 +100,7 @@ async function installRpcAutoResponder(
   }, JSON.stringify(fixtures));
 }
 
-/** Same worker-scoping rule as the sibling thoth scenario: file-scope opt-in. */
+/** Use the app bundle for this shell scenario. */
 test.use({ useAppBuild: true });
 
 test.describe('webview > thoth > activity ticker', () => {

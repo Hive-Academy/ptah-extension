@@ -12,7 +12,9 @@
 import { Lifecycle } from 'tsyringe';
 import type { DependencyContainer } from 'tsyringe';
 
-import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import { TOKENS, WebviewManager, type Logger } from '@ptah-extension/vscode-core';
+import type { IHostAttentionIngress } from '@ptah-extension/platform-core';
+import type * as vscode from 'vscode';
 import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace-intelligence';
 import {
   registerTaskSpecsServices,
@@ -60,6 +62,7 @@ import {
   AUTH_PROVIDERS_TOKENS,
   VscodeCopilotAuthService,
 } from '@ptah-extension/auth-providers';
+import { registerUsageAnalytics } from '@ptah-extension/usage-analytics';
 import {
   registerCliAgentRuntimeServices,
   createHarnessCliDetector,
@@ -82,6 +85,18 @@ import {
   readManageGitignore,
   readPreflightTimeoutMs,
 } from '../activation/plugin-activation';
+export function attachVsCodeHostAttention(
+  resolve: () => IHostAttentionIngress,
+  attach: (observer: IHostAttentionIngress) => void,
+  warn: (message: string) => void,
+): void {
+  try {
+    attach(resolve());
+  } catch (error: unknown) {
+    warn(`Host attention attach failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
+  }
+}
+
 export function registerPhase2Libraries(
   container: DependencyContainer,
   logger: Logger,
@@ -169,6 +184,7 @@ export function registerPhase2Libraries(
     });
   }
   registerAuthProvidersServices(container, logger);
+  registerUsageAnalytics(container);
   // Code outliner for the tool-output capper: must be bound BEFORE
   // registerSdkServices' capper is first resolved (it looks the token up then).
   // The parser is resolved lazily; workspace-intelligence registered it above.
@@ -177,6 +193,14 @@ export function registerPhase2Libraries(
       new TreeSitterCodeOutliner(c.resolve(TOKENS.TREE_SITTER_PARSER_SERVICE)),
   });
   registerSdkServices(container, logger);
+  attachVsCodeHostAttention(
+    () => container.resolve<IHostAttentionIngress>(SDK_TOKENS.HOST_ATTENTION_COORDINATOR),
+    (observer) => {
+      const registration = container.resolve<WebviewManager>(TOKENS.WEBVIEW_MANAGER).setAttentionObserver(observer);
+      container.resolve<vscode.ExtensionContext>(TOKENS.EXTENSION_CONTEXT).subscriptions.push(registration);
+    },
+    (message) => logger.warn(message),
+  );
   container.register(PLATFORM_TOKENS.EDITOR_LAUNCHER, {
     useValue: new VscodeEditorLauncher(
       container.resolve<IProcessSpawner>(SDK_TOKENS.SDK_PROCESS_SPAWNER),

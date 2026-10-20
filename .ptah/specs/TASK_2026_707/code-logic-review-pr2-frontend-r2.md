@@ -1,0 +1,40 @@
+# Code logic review — TASK_2026_707 PR 2 frontend, round 2
+
+Review family: codex; implementer family: ptah-cli (Ollama Cloud).
+
+**Verdict: REVISE. Score: 6/10.** Zero blocking, two major, two minor findings. The scope guard and principal cost labels now work, but the breakdown still gives denominator-free shares for partial costs, and the chart's provider readout can call unknown cost zero. This is above 3–4 because the prior data-loss and ratio defects were corrected with behavioral tests; it is below 7–8 because the remaining misleading cost displays affect the primary answer.
+
+## Status of prior defects
+
+1. **FIXED — stale range/workspace answer.** `analytics-usage.store.ts:109-120,131-132` clears a summary on scope change and tags successful data; `usage-dashboard.component.html:45-88` shows loading, updating, or refresh-failed states. Tests: `usage-dashboard.component.spec.ts:216-261,263-299,647-695`. The store test for workspace change calls `load()` explicitly; the component's reactive effect is at `usage-dashboard.component.ts:112-117`.
+2. **NOT FIXED completely — cost denominator.** The total and provider labels are now lower bounds and provider shares say “of known cost” (`usage-cost-summary.component.ts:127-134,160-183`; tested at `usage-dashboard.component.spec.ts:113-164`). But model and day rows still show a bare `100%` or other percentage when unpriced facts make the denominator only known priced cost (`usage-breakdown-table.component.ts:66-68,94,106-107,121,167-168`). See finding 1.
+3. **NOT FIXED completely — unknown chart cost.** Day hatching and total aria/readout labels are corrected (`stacked-area-chart.component.ts:294-305,569-575,613-619`; tests `usage-dashboard.component.spec.ts:344-369,542-568`). The readout still formats each unpriced provider's numeric zero as a plain `$0` (`stacked-area-chart.component.ts:605-610`). See finding 2.
+4. **FIXED — savings multiple.** `usage-summary.view-model.ts:593-603` requires both complete savings and no unpriced cost facts. Tests: `usage-summary.view-model.spec.ts:278-359` and `usage-dashboard.component.spec.ts:166-186`.
+5. **FIXED for finite geometry — chart sanitation.** `stacked-area-chart.component.ts:410-419` normalizes negative, NaN, Infinity and large per-series values before `:421-619` consumes them; the one cap is 1e15. Tests: `usage-dashboard.component.spec.ts:481-515`. See the remaining cap limitation below.
+6. **FIXED for rendered errors.** `analytics-usage.store.ts:128-145` exposes only a fixed error message; `usage-dashboard.component.html:54-64,72-79` renders it or a generic refresh note. Tests: `usage-dashboard.component.spec.ts:240-261,282-317,630-645`. The raw error is still sent to `console.warn`; see finding 3.
+7. **FIXED — one-day chart.** `stacked-area-chart.component.ts:466-493,530-534,581-590` draws centered bars, x label and marker. Test: `usage-dashboard.component.spec.ts:517-540`.
+8. **FIXED for the previously listed test gaps.** The new assertions cover pending and failed scope changes (`usage-dashboard.component.spec.ts:216-299,647-695`), lower-bound total and provider labels (`:113-164`), chart unknown days (`:344-369,542-568`), invalid values (`:481-515`), and one day (`:517-540`). No assertion covers the breakdown share denominator or per-provider unknown-cost readout.
+
+## Findings
+
+1. **Major — breakdown shares imply a share of total cost when cost is only partly known.** In the valid mixed-price case, `usage-summary.view-model.ts:528-537,553-566,669-677` divides known model/day costs by the known priced subtotal. The breakdown headings are only `Share` and `usage-breakdown-table.component.ts:94,121,167-168` prints the raw percentage. A sole priced model can therefore show `100%` beside an unpriced model, while the overall cost is a lower bound. **Fix:** pass the total unpriced flag into the breakdown, label these percentages “of known cost” in both views, and add a mixed-price DOM assertion.
+2. **Major — chart detail presents an unpriced provider's cost as zero.** `usage-summary.view-model.ts:465-479,620-629` preserves `costUnknownByDay`, but `usage-dashboard.component.ts:84-110` passes only numeric series values and an aggregate day flag. `stacked-area-chart.component.ts:605-610` formats each series value without coverage. A day with one priced provider and one unpriced provider yields an honest “at least” total but a plain `$0` for the unpriced provider in the focused readout. **Fix:** pass per-series cost coverage to the chart and render “unpriced” or “at least $x” for each flagged provider; test mixed-provider readout text.
+3. **Minor — new library console call violates the project rule and logs raw dependency details.** `analytics-usage.store.ts:140-144` calls `console.warn` with the workspace path and raw `error`, which can include the sensitive marker used in `usage-dashboard.component.spec.ts:245-250,634-639`. The fixed UI message does not make that diagnostic channel protected. **Fix:** use the dashboard's approved logging abstraction if one exists, with sensitive data redacted, or drop this log; do not call `console.*` in `libs`.
+4. **Minor — new source files exceed the stated 300-line limit.** `stacked-area-chart.component.ts:1-650` and `usage-summary.view-model.ts:1-708` are over twice the limit. The component spec is 720 lines and the view-model spec 391 lines. **Fix:** split the chart geometry/formatting and fold helpers into focused files, preserving the public inputs and tests.
+
+## Failure-mode audit
+
+1. **Silent success:** findings 1–2 leave partial cost looking complete in the breakdown or one provider's chart detail. The main total now uses `≥` for mixed priced/unpriced facts (`usage-cost-summary.component.ts:127-134`).
+2. **User action:** switching range/workspace clears the old answer (`analytics-usage.store.ts:109-120`); a same-scope refresh labels the retained result (`usage-dashboard.component.html:69-87`). Focusing a mixed-price chart day exposes finding 2.
+3. **Wrong input answer:** a mixed priced/unpriced model/day creates the misleading share in finding 1. A value above 1e15 is capped silently by `stacked-area-chart.component.ts:413-416`; this is a documented display ceiling but the test at `usage-dashboard.component.spec.ts:501-515` only reaches 2e12. It is a remaining precision limit, not a demonstrated normal-usage defect.
+4. **Dependency failure:** failed loads show the fixed UI message (`analytics-usage.store.ts:128-145`), and generation guards ignore superseded responses (`:103-107,127,139`). Raw failure details still enter the console (finding 3).
+5. **Requirement gap:** the requirement needs an explicit rule for cost-share denominators and per-provider chart readouts when only part of a day is priced (findings 1–2). Neither is exercised by the new tests.
+
+## Verification and limits
+
+Scoped Jest: 2 suites, 49 tests passed (`usage-dashboard.component.spec.ts`, `usage-summary.view-model.spec.ts`). `ptah_get_diagnostics` reported no errors in the four requested implementation files; eight existing sibling errors remain outside this review. All reviewed Angular components use standalone, OnPush, signals/`input()` and no `[innerHTML]` or `@Input`/`@Output`. This round did not rerun the analytics-card Sessions spec because the fix report confines edits to Usage files; the original review recorded that Sessions rendering remained intact. No source or git state was changed.
+
+## Decisions
+
+- **REVISE** for the remaining partial-cost presentations. Alternative: approve with fixes as visual wording only. Evidence: `usage-breakdown-table.component.ts:94,121` and `stacked-area-chart.component.ts:605-610` can give a wrong cost interpretation for valid unpriced facts. Reversible: yes.
+- Treat the 1e15 cap as a documented precision limit rather than another scored finding. Alternative: report it as a major defect. Evidence: `stacked-area-chart.component.ts:103-106,413-416` and the available test's 2e12 scale (`usage-dashboard.component.spec.ts:501-515`). Reversible: yes.

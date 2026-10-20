@@ -45,6 +45,10 @@ export {
 export { ChatMessageHandler } from './chat-message-handler.service';
 export { ArtifactStore } from './artifact.store';
 export { ArtifactMessageHandler } from './artifact-message-handler.service';
+export { ChatAttentionSourceService } from './chat-attention-source.service';
+export { ChatAttentionActionDispatcherService } from './chat-attention-action-dispatcher.service';
+export { ChatAttentionHostMessageHandler } from './chat-attention-host-message-handler.service';
+export { NotificationFocusCoordinator } from './notification-focus-coordinator.service';
 export { StreamFlushScheduler } from './stream-flush-scheduler.service';
 export { ScrollDirtyService } from './scroll-dirty.service';
 export { INCREMENTAL_STREAMING_PRESENTATION_ENABLED } from './scroll-dirty.service';
@@ -118,6 +122,7 @@ export {
 export { ownedBySession } from './session-agents/owned-by-session';
 export * from './session-inspector';
 export { SessionListViewStore } from './session-list/session-list-view.store';
+export { RecentSessionsStore } from './session-list/recent-sessions.store';
 export { PreviousSessionsDialogService } from './session-list/previous-sessions-dialog.service';
 export { SessionOrganizerService } from './session-list/session-organizer.service';
 export {

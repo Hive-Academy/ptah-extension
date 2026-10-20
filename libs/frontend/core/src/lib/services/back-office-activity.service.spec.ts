@@ -7,6 +7,7 @@ import {
   BackOfficeActivityService,
 } from './back-office-activity.service';
 import { WorkspaceScopeService } from './workspace-scope.service';
+import { attentionConditionKey, NotificationService } from './notification.service';
 
 function send(
   service: BackOfficeActivityService,
@@ -19,12 +20,14 @@ function send(
 describe('BackOfficeActivityService', () => {
   let service: BackOfficeActivityService;
   let workspaceScope: WorkspaceScopeService;
+  let notifications: NotificationService;
 
   beforeEach(() => {
     jest.useFakeTimers();
     jest.setSystemTime(new Date('2026-01-01T00:00:00Z'));
     TestBed.configureTestingModule({});
     workspaceScope = TestBed.inject(WorkspaceScopeService);
+    notifications = TestBed.inject(NotificationService);
     service = TestBed.inject(BackOfficeActivityService);
   });
 
@@ -37,6 +40,64 @@ describe('BackOfficeActivityService', () => {
     expect(service.recent()).toEqual([]);
     expect(service.latest()).toBeNull();
     expect(service.isIdle()).toBe(true);
+  });
+
+  it('projects embedder degradation once and resolves it on recovery', () => {
+    workspaceScope.switchTo('/ws/a');
+    send(service, MESSAGE_TYPES.EMBEDDER_STATUS_CHANGED, {
+      status: { ready: false, downloading: false, error: { message: 'private error' } },
+    });
+    expect(notifications.recentNotices().map(item => item.title)).toEqual(['Embedding model failed']);
+    send(service, MESSAGE_TYPES.EMBEDDER_STATUS_CHANGED, {
+      status: { ready: true, downloading: false },
+    });
+    expect(notifications.recentNotices()).toHaveLength(0);
+  });
+
+  it('ignores indexing progress for notices', () => {
+    workspaceScope.switchTo('/ws/a');
+    send(service, MESSAGE_TYPES.INDEXING_PROGRESS, {
+      pipeline: 'symbols', percent: 50, elapsedMs: 10, totalKnown: true,
+    });
+    expect(notifications.recentNotices()).toHaveLength(0);
+  });
+
+  it('projects indexing failure from an activity event without exposing its summary', () => {
+    workspaceScope.switchTo('/ws/a');
+    send(service, MESSAGE_TYPES.ACTIVITY_EVENT, {
+      source: 'indexing', kind: 'failed', summary: 'private index path',
+      timestamp: 1, level: 'warn',
+    });
+    expect(notifications.recentNotices()[0]).toMatchObject({
+      title: 'Workspace indexing failed', actions: [], actionable: false,
+    });
+    expect(notifications.recentNotices()[0].title).not.toContain('private index path');
+  });
+
+  it('projects terminal failed boot without adding settled to the activity ring', () => {
+    workspaceScope.switchTo('/ws/a');
+    send(service, MESSAGE_TYPES.BOOT_READINESS_CHANGED, {
+      readiness: 'failed', phase: 'settled', detail: 'private boot diagnostic', startedAt: 1,
+    });
+    expect(service.recent()).toHaveLength(0);
+    expect(notifications.recentNotices()[0]).toMatchObject({
+      key: attentionConditionKey('/ws/a', 'back-office:boot'),
+      title: 'Workspace startup failed', kind: 'failure',
+    });
+    expect(notifications.recentNotices()[0].title).not.toContain('private');
+  });
+
+  it('resolves a boot failure when a later settled readiness is healthy', () => {
+    workspaceScope.switchTo('/ws/a');
+    send(service, MESSAGE_TYPES.BOOT_READINESS_CHANGED, {
+      readiness: 'degraded', phase: 'settled', startedAt: 1,
+    });
+    expect(notifications.recentNotices()[0].title).toBe('Workspace startup is degraded');
+    send(service, MESSAGE_TYPES.BOOT_READINESS_CHANGED, {
+      readiness: 'ready', phase: 'settled', startedAt: 1,
+    });
+    expect(notifications.recentNotices()).toHaveLength(0);
+    expect(service.recent()).toHaveLength(0);
   });
 
   it('passes a well-formed activity:event straight through', () => {
@@ -311,42 +372,6 @@ describe('BackOfficeActivityService', () => {
     );
   });
 
-  it('reuses the proven skill-synthesis phrasing', () => {
-    send(service, MESSAGE_TYPES.SKILL_SYNTHESIS_EVENT, {
-      event: { kind: 'curator-pass-start', timestamp: 1 },
-    });
-    expect(service.latest()?.summary).toBe('Curator analyzing candidates…');
-
-    jest.advanceTimersByTime(2000);
-    send(service, MESSAGE_TYPES.SKILL_SYNTHESIS_EVENT, {
-      event: {
-        kind: 'backfill-progress',
-        timestamp: 2,
-        stats: { done: 3, total: 9 },
-      },
-    });
-    expect(service.latest()?.summary).toBe('Embedding candidates 3/9…');
-  });
-
-  it('degrades an unknown skill event kind to a generic line, never to null', () => {
-    send(service, MESSAGE_TYPES.SKILL_SYNTHESIS_EVENT, {
-      event: { kind: 'brand-new-kind', timestamp: 1 },
-    });
-
-    expect(service.latest()?.summary).toBe('Skill synthesis: brand-new-kind');
-  });
-
-  it('warns on a skill synthesis error', () => {
-    send(service, MESSAGE_TYPES.SKILL_SYNTHESIS_EVENT, {
-      event: { kind: 'error', timestamp: 1, error: 'disk full' },
-    });
-
-    expect(service.latest()).toMatchObject({
-      summary: 'Skill synthesis error: disk full',
-      level: 'warn',
-    });
-  });
-
   it('narrates a vec status change once and ignores the re-broadcast', () => {
     const offline = {
       ok: false,
@@ -408,7 +433,6 @@ describe('BackOfficeActivityService', () => {
     send(service, MESSAGE_TYPES.MEMORY_CORPUS_CHANGED, { action: 'built' });
     send(service, MESSAGE_TYPES.INDEXING_PROGRESS, {});
     send(service, MESSAGE_TYPES.INDEXING_COMPLETE, {});
-    send(service, MESSAGE_TYPES.SKILL_SYNTHESIS_EVENT, {});
 
     expect(service.recent()).toEqual([]);
   });
@@ -523,37 +547,6 @@ describe('BackOfficeActivityService', () => {
     expect(service.latest()?.summary).toBe('Indexing 40%');
   });
 
-  it('falls back to the generic skill line rather than printing NaN', () => {
-    send(service, MESSAGE_TYPES.SKILL_SYNTHESIS_EVENT, {
-      event: {
-        kind: 'backfill-progress',
-        timestamp: 1,
-        stats: { done: 'lots', total: 9 },
-      },
-    });
-    expect(service.latest()?.summary).toBe(
-      'Skill synthesis: backfill-progress',
-    );
-
-    jest.advanceTimersByTime(2000);
-    send(service, MESSAGE_TYPES.SKILL_SYNTHESIS_EVENT, {
-      event: {
-        kind: 'curator-pass',
-        timestamp: 2,
-        stats: { suggestionsCreated: 'some' },
-      },
-    });
-    expect(service.latest()?.summary).toBe('Skill synthesis: curator-pass');
-  });
-
-  it('does not stringify a non-string skill error', () => {
-    send(service, MESSAGE_TYPES.SKILL_SYNTHESIS_EVENT, {
-      event: { kind: 'error', timestamp: 1, error: { code: 5 } },
-    });
-
-    expect(service.latest()?.summary).toBe('Skill synthesis error: unknown');
-  });
-
   it('does not stringify a non-string vec reason or embedder message', () => {
     send(service, MESSAGE_TYPES.VEC_STATUS_CHANGED, {
       ok: false,
@@ -572,11 +565,14 @@ describe('BackOfficeActivityService', () => {
 
   it('ignores a message type it does not declare', () => {
     send(service, 'chat:messageChunk', { summary: 'nope' });
+    send(service, 'retired:event', {
+      event: { kind: 'curator-pass-start', timestamp: 1 },
+    });
 
     expect(service.recent()).toEqual([]);
   });
 
-  it('declares the nine user-meaningful handled wire strings', () => {
+  it('declares the eight user-meaningful handled wire strings', () => {
     expect(service.handledMessageTypes).toEqual([
       'activity:event',
       'boot:readinessChanged',
@@ -584,7 +580,6 @@ describe('BackOfficeActivityService', () => {
       'memory:corpusChanged',
       'indexing:progress',
       'indexing:complete',
-      'skillSynthesis:event',
       'db:vecStatusChanged',
       'embedder:statusChanged',
     ]);

@@ -8,14 +8,14 @@
  * from), the Ptah plugin catalogue (6/9 enabled), 14 installed community
  * (skills.sh) skills, and 3 installed external-marketplace plugins.
  *
- * Pattern followed: `../thoth/skills-lane-pickers.e2e.spec.ts`'s
+ * Pattern followed: `../boot/boot-progress.e2e.spec.ts`'s
  * `installRpcAutoResponder` (the `rpc:response` auto-responder over the
  * postMessage bridge) and `../vscode-shell/vscode-host.ts`'s host-config
  * injector. Centralised here (rather than duplicated per spec file, which is
- * the thoth file's own pattern) because THREE marketplace spec files need the
+ * the boot spec's own pattern) because THREE marketplace spec files need the
  * identical responder and host shapes; duplicating a working responder three
  * times would be the harness's "invented technique" antipattern, not reuse.
- * Unlike the thoth responder, dynamic answers are Node-side functions reached
+ * Unlike the boot responder, dynamic answers are Node-side functions reached
  * through `page.exposeFunction`, so no fixture source is ever evaluated in the
  * page.
  */
@@ -26,8 +26,8 @@ import { expect, type Locator, type Page } from '@playwright/test';
 // ---------------------------------------------------------------------------
 
 /**
- * Exact shape `apps/ptah-electron/src/preload.ts` injects (see the thoth
- * spec's "HOST CONFIG NOTE" for why this is the honest way to drive the
+ * Exact shape `apps/ptah-electron/src/preload.ts` injects (see
+ * `../boot/boot-progress.e2e.spec.ts` for the Electron host config used to drive the
  * Electron branch through this harness). `initialView` decides which surface
  * `App.handleInitialView()` navigates to on boot.
  */
@@ -85,7 +85,7 @@ export async function installHost(
 
 // ---------------------------------------------------------------------------
 // RPC auto-responder — the `rpc:response` mechanism of
-// `../thoth/skills-lane-pickers.e2e.spec.ts`'s `installRpcAutoResponder`,
+// `../boot/boot-progress.e2e.spec.ts`'s `installRpcAutoResponder`,
 // with dynamic answers resolved on the Node side.
 // ---------------------------------------------------------------------------
 

@@ -32,8 +32,10 @@ describe('migration 0046_memory_merge_subject_index', () => {
     // 48 and 49 since TASK_2026_563 appended 0048_memory_quarantine and 0049_memory_sediment_quarantine.
     // 51 since TASK_2026_578 appended 0051_skill_lifecycle.
     // 52 and 53 since TASK_2026_621 appended 0052_memory_boot_scan_failures and 0053_memory_boot_scan_failure_generation.
+    // 56 since TASK_2026_662 appended 0056_skill_nullable_grades.
+    // 57 since TASK_2026_662 appended 0057_drop_skill_pipeline.
     expect(Math.max(...MIGRATIONS.map((migration) => migration.version))).toBe(
-      55,
+      57,
     );
     expect(sql0046MemoryMergeSubjectIndex).not.toContain('${');
   });

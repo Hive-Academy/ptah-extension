@@ -1,11 +1,21 @@
 import {
+  AnalyticsRpcHandlers,
   EnhancedPromptsRpcHandlers,
   LlmRpcHandlers,
   SetupRpcHandlers,
   WizardGenerationRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
+import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+
+/** Host attention registrations exercised by the CLI composition smoke tests. */
+export const EXPECTED_HOST_ATTENTION_TOKENS = {
+  notifications: PLATFORM_TOKENS.HOST_ATTENTION_NOTIFICATIONS,
+  coordinator: SDK_TOKENS.HOST_ATTENTION_COORDINATOR,
+} as const;
 
 export const EXPECTED_RESOLVABLE = [
+  AnalyticsRpcHandlers,
   SetupRpcHandlers,
   WizardGenerationRpcHandlers,
   EnhancedPromptsRpcHandlers,

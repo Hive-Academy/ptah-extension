@@ -19,6 +19,7 @@ import { createMockLogger } from '@ptah-extension/shared/testing';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import { CopilotPermissionBridge } from '../cli-agents/cli-adapters/copilot-permission-bridge';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
   AgentId,
@@ -32,6 +33,34 @@ import {
 } from './agent-events';
 
 const PARENT_SESSION = '11111111-2222-4333-8444-555555555555';
+
+describe('Copilot lane host attention resolution', () => {
+  it.each(['response', 'cleanup'] as const)('resolves %s once with the request timestamp', async (settlement) => {
+    const bridge = new CopilotPermissionBridge();
+    bridge.setAutoApprove(false);
+    const hostAttention = { resolve: jest.fn() };
+    const broadcastMessage = jest.fn().mockResolvedValue(undefined);
+    wireAgentEventListeners(buildContainer([
+      [TOKENS.AGENT_PROCESS_MANAGER, { events: new EventEmitter() }],
+      [TOKENS.WEBVIEW_MANAGER, { broadcastMessage }],
+      [TOKENS.CLI_DETECTION_SERVICE, { getAdapter: () => ({ permissionBridge: bridge }) }],
+      [SDK_TOKENS.HOST_ATTENTION_COORDINATOR, hostAttention],
+    ]), {
+      logger: Object.assign(Object.create(null) as Logger, createMockLogger()),
+      platform: 'vscode',
+      options: { copilotPermission: true },
+    });
+    const pending = bridge.requestToolPermission({ agentId: 'agent-1', toolName: 'Write', toolArgs: {} });
+    await Promise.resolve();
+    const request = broadcastMessage.mock.calls[0]?.[1] as { requestId: string; timestamp: number };
+    expect(request).toBeDefined();
+    if (settlement === 'response') bridge.resolvePermission(request.requestId, { requestId: request.requestId, decision: 'allow' });
+    else bridge.cleanup();
+    await pending;
+    expect(hostAttention.resolve).toHaveBeenCalledTimes(1);
+    expect(hostAttention.resolve).toHaveBeenCalledWith(`lane-permission:${request.requestId}`, request.timestamp);
+  });
+});
 
 function buildInfo(overrides: Partial<AgentProcessInfo>): AgentProcessInfo {
   return {

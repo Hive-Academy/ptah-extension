@@ -3040,6 +3040,31 @@ describe('protocol-handlers › ptah_web_search argument validation', () => {
 // ---------------------------------------------------------------------------
 
 describe('protocol-handlers › approval_prompt auto-allow', () => {
+    it('resolves an in-app approval through the dispatcher', async () => {
+    let answer: ((response: { id: string; decision: 'allow' }) => void) | undefined;
+    const permissionPromptService = {
+      createRequest: jest.fn(() => ({ id: 'mcp-request', timestamp: 42 })),
+      setPendingResolver: jest.fn((_id: string, resolve: typeof answer) => { answer = resolve; }),
+    };
+    const webviewManager = {
+      sendMessage: jest.fn().mockResolvedValue(undefined),
+    };
+    const pending = handleMCPRequest(
+      makeRequest({
+        id: 'approval-with-view', method: 'tools/call',
+        params: { name: 'approval_prompt', arguments: { tool_name: 'Bash', input: { cmd: 'ls' } } },
+      }),
+        buildDeps({ permissionPromptService: Object.assign(Object.create(null) as NonNullable<ProtocolHandlerDependencies['permissionPromptService']>, permissionPromptService), webviewManager: Object.assign(Object.create(null) as NonNullable<ProtocolHandlerDependencies['webviewManager']>, webviewManager) }),
+    );
+    for (let attempt = 0; attempt < 10 && !answer; attempt++) await Promise.resolve();
+    expect(answer).toBeDefined();
+    answer?.({ id: 'mcp-request', decision: 'allow' });
+    await pending;
+      expect(permissionPromptService.setPendingResolver).toHaveBeenCalledWith(
+        'mcp-request', expect.any(Function), expect.objectContaining({ id: 'mcp-request' }),
+      );
+  });
+
   it('auto-allows approval_prompt when webviewManager is absent (Electron mode)', async () => {
     const deps = buildDeps({
       webviewManager: undefined,

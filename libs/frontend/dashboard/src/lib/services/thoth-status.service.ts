@@ -8,6 +8,7 @@ import {
 } from '@angular/core';
 import {
   AppStateManager,
+  ClaudeRpcService,
   VSCodeService,
   type MessageHandler,
   type ThothActiveTabId,
@@ -22,7 +23,6 @@ import {
   MemoryDiagnosticsRpcService,
   MemoryRpcService,
 } from '@ptah-extension/memory-curator-ui/services';
-import { SkillSynthesisRpcService } from '@ptah-extension/skill-synthesis-ui/services';
 import { CronRpcService } from '@ptah-extension/cron-scheduler-ui/services';
 import { GatewayRpcService } from '@ptah-extension/messaging-gateway-ui/services';
 import {
@@ -63,7 +63,7 @@ export interface ThothMemorySummary {
 
 export interface ThothSkillsSummary {
   readonly available: true;
-  readonly pendingCandidates: number;
+  readonly telemetryEnabled: boolean;
 }
 
 export type ThothCronSummary =
@@ -116,7 +116,7 @@ export interface ThothPillarStatus {
   readonly accent: string;
   /** Headline metric, already compacted (e.g. `6.5K`, `0`, `—`). */
   readonly value: string;
-  /** Short unit label rendered next to the value (e.g. `facts`, `pending`). */
+  /** Short unit label rendered next to the value (e.g. `facts`). */
   readonly unit: string;
   /** Secondary detail line (e.g. `no upcoming runs`, `Desktop only`). */
   readonly desc: string;
@@ -161,7 +161,7 @@ export class ThothStatusService implements MessageHandler {
   private readonly appState = inject(AppStateManager);
   private readonly memoryRpc = inject(MemoryRpcService);
   private readonly memoryDiagnosticsRpc = inject(MemoryDiagnosticsRpcService);
-  private readonly skillsRpc = inject(SkillSynthesisRpcService);
+  private readonly settingsRpc = inject(ClaudeRpcService);
   private readonly cronRpc = inject(CronRpcService);
   private readonly gatewayRpc = inject(GatewayRpcService);
 
@@ -309,8 +309,8 @@ export class ThothStatusService implements MessageHandler {
 
   /**
    * Re-read only the two pause flags behind the sidebar "Paused" badges
-   * (`memory:getTriggers` → `enabled`, `skillSynthesis:getSettings` →
-   * `enabled`). Cheap enough for the shell to call on window focus and when a
+   * (`memory:getTriggers` → `enabled`, `settings:get` →
+   * `skillSynthesis.enabled`). Cheap enough for the shell to call on window focus and when a
    * tab reports that its switch flipped. A read that fails keeps the last
    * known flag rather than blinking the badge off.
    */
@@ -322,7 +322,7 @@ export class ThothStatusService implements MessageHandler {
     }
     const [memory, skills] = await Promise.allSettled([
       this.memoryDiagnosticsRpc.getTriggers(),
-      this.skillsRpc.getSettings(),
+      this.settingsRpc.call('settings:get', { key: 'skillSynthesis.enabled' }),
     ]);
     if (generation !== this.pausedGeneration) return;
     this._paused.update((current) => ({
@@ -331,8 +331,11 @@ export class ThothStatusService implements MessageHandler {
           ? memory.value.enabled === false
           : current.memory,
       skills:
-        skills.status === 'fulfilled'
-          ? skills.value.enabled === false
+        skills.status === 'fulfilled' &&
+        skills.value.isSuccess() &&
+        skills.value.data?.success &&
+        typeof skills.value.data.value === 'boolean'
+          ? skills.value.data.value === false
           : current.skills,
     }));
   }
@@ -374,23 +377,16 @@ export class ThothStatusService implements MessageHandler {
 
   private async loadSkills(isCurrent: () => boolean): Promise<void> {
     try {
-      // Same query as the Skills tab's default list, so the tile and the list
-      // agree. `scope: 'workspace'` is the backend's own active workspace (it
-      // resolves the root itself; on a workspace switch the webview changes
-      // `workspaceInfo` only after `workspace:switch` has moved it), PLUS
-      // the rows whose origin was never recorded (`workspace_root IS NULL`):
-      // the store keeps those visible in every workspace on purpose, so the
-      // tile counts them too. `limit: 1000` is the handler's clamp ceiling;
-      // a workspace with more than 1000 pending candidates reads as 1000.
-      const candidates = await this.skillsRpc.listCandidates({
-        status: 'candidate',
-        scope: 'workspace',
-        limit: 1000,
+      const result = await this.settingsRpc.call('settings:get', {
+        key: 'skills.telemetry.enabled',
       });
+      if (!result.isSuccess() || !result.data?.success || typeof result.data.value !== 'boolean') {
+        throw new Error('Could not read skill telemetry setting');
+      }
       if (!isCurrent()) return;
       this._skills.set({
         available: true,
-        pendingCandidates: candidates.length,
+        telemetryEnabled: result.data.value,
       });
       this.clearError('skills');
     } catch (err) {
@@ -575,12 +571,9 @@ function deriveSkills(s: ThothStatusSummary): ThothPillarStatus {
   }
   return {
     ...base,
-    value: formatCompact(sk.pendingCandidates),
-    unit: 'pending',
-    desc:
-      sk.pendingCandidates > 0
-        ? `candidate${sk.pendingCandidates === 1 ? '' : 's'} to review`
-        : 'No skills awaiting review',
+    value: sk.telemetryEnabled ? 'On' : 'Off',
+    unit: '',
+    desc: 'Skill telemetry',
     available: true,
   };
 }

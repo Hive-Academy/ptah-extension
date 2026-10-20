@@ -1,0 +1,22 @@
+electron pid: 2616
+viewport {"w":1280,"h":800}
+window request 1280x800 actual 1280x800 theme dark
+SHOT before-thoth-memory-1280-dark.png actual=1280x800 horizontalOverflow=false
+SHOT before-thoth-skills-1280-dark.png actual=1280x800 horizontalOverflow=false
+SHOT before-thoth-cron-1280-dark.png actual=1280x800 horizontalOverflow=false
+SHOT before-thoth-gateway-1280-dark.png actual=1280x800 horizontalOverflow=false
+window request 1920x1080 actual 1904x967 theme dark
+SHOT before-thoth-memory-1920-dark.png actual=1904x967 horizontalOverflow=false
+SHOT before-thoth-skills-1920-dark.png actual=1904x967 horizontalOverflow=false
+SHOT before-thoth-cron-1920-dark.png actual=1904x967 horizontalOverflow=false
+SHOT before-thoth-gateway-1920-dark.png actual=1904x967 horizontalOverflow=false
+window request 1280x800 actual 1280x800 theme light
+SHOT before-thoth-memory-1280-light.png actual=1280x800 horizontalOverflow=false
+SHOT before-thoth-skills-1280-light.png actual=1280x800 horizontalOverflow=false
+SHOT before-thoth-cron-1280-light.png actual=1280x800 horizontalOverflow=false
+SHOT before-thoth-gateway-1280-light.png actual=1280x800 horizontalOverflow=false
+window request 1920x1080 actual 1904x967 theme light
+SHOT before-thoth-memory-1920-light.png actual=1904x967 horizontalOverflow=false
+SHOT before-thoth-skills-1920-light.png actual=1904x967 horizontalOverflow=false
+SHOT before-thoth-cron-1920-light.png actual=1904x967 horizontalOverflow=false
+SHOT before-thoth-gateway-1920-light.png actual=1904x967 horizontalOverflow=false

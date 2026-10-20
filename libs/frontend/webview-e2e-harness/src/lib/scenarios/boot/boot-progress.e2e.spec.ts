@@ -13,9 +13,8 @@
  *
  * Uses the REAL `ptah-extension-webview` Angular bundle, the same artifact
  * both VS Code and Electron load, following the pattern and the
- * `isElectron: true` `ptahConfig` justification in the sibling scenario
- * `../thoth/skills-lane-pickers.e2e.spec.ts` (read its file doc comment
- * before changing that flag). The Electron shell is reached deliberately:
+ * `isElectron: true` `ptahConfig` shape in
+ * `../marketplace/marketplace.fixtures.ts`. The Electron shell is reached deliberately:
  * `ElectronShellComponent` is where the activity ticker lives (the sibling
  * spec in this folder), and exercising the same shell here proves the boot
  * screen hands over into the surface Track B5 actually decorates.

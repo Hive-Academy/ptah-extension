@@ -17,6 +17,9 @@
  */
 
 import 'reflect-metadata';
+import { OpenRouterPricingService } from '@ptah-extension/auth-providers';
+import { SessionStatsReaderService } from '@ptah-extension/agent-sdk';
+import { registerUsageAnalytics, USAGE_ANALYTICS_TOKENS } from '@ptah-extension/usage-analytics';
 
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -59,9 +62,20 @@ import {
   DECISION_MODEL_CATALOG_TOKEN,
   DECISION_MODEL_CONFIG_TOKEN,
   EXPECTED_RESOLVABLE,
+  EXPECTED_ATTENTION_TOKENS,
   LANE_MODEL_LISTING_TOKEN,
   STRUCTURED_DECISION_TOKEN,
 } from './expected-resolvable';
+
+describe('VS Code attention DI token guard', () => {
+  it('pins visibility, host adapter and coordinator in dependency order', () => {
+    expect(EXPECTED_ATTENTION_TOKENS).toEqual([
+      PLATFORM_TOKENS.PTAH_VIEW_VISIBILITY,
+      PLATFORM_TOKENS.HOST_ATTENTION_NOTIFICATIONS,
+      SDK_TOKENS.HOST_ATTENTION_COORDINATOR,
+    ]);
+  });
+});
 import {
   EXPECTED_ABSENT_CAPABILITIES,
   EXPECTED_ABSENT_HANDLERS,
@@ -205,6 +219,9 @@ function buildMinimalContainer(): DependencyContainer {
     },
   );
 
+  c.register<Pick<OpenRouterPricingService, 'getPricing'>>(OpenRouterPricingService, { useValue: { getPricing: jest.fn() } });
+  c.register<Pick<SessionStatsReaderService, 'scanDatedUsage'>>(SessionStatsReaderService, { useValue: { scanDatedUsage: jest.fn() } });
+  registerUsageAnalytics(c);
   registerSharedRpcHandlers(c);
   return c;
 }
@@ -214,6 +231,10 @@ describe('VS Code DI — shared RPC handler resolution', () => {
 
   beforeAll(() => {
     c = buildMinimalContainer();
+  });
+
+  it('resolves the usage analytics service token', () => {
+    expect(c.resolve(USAGE_ANALYTICS_TOKENS.USAGE_ANALYTICS_SERVICE)).toBeDefined();
   });
 
   it.each(

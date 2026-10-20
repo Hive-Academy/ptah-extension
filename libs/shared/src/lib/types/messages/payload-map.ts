@@ -134,10 +134,13 @@ import type { HarnessConfig, NewProjectIntake } from '../rpc/rpc-harness.types';
 import type { DashboardSpecEnvelope } from '../../../mcp-apps-contracts/dashboard-spec.types';
 import type { SurfaceChange } from '../../../mcp-apps-contracts/surface.types';
 import type { HarnessHealthChangedPayload } from '../harness-sync.types';
-import type { SkillSynthesisEventWire } from '../rpc/rpc-curator-diagnostics.types';
 import type { GitStatusUpdatePayload } from './git-status';
 import type { GitTurnChangeSetPayload } from '../rpc/rpc-change-set.types';
 import type { GitOperationOutputPayload } from '../rpc/rpc-git.types';
+import type {
+  AttentionChangedPayload,
+  AttentionOpenTargetPayload,
+} from './attention';
 
 /**
  * Payload for MESSAGE_TYPES.FILE_CONTENT_CHANGED ('file:content-changed').
@@ -170,11 +173,6 @@ export interface VecStatusChangedPayload {
 /** Payload for MESSAGE_TYPES.EMBEDDER_STATUS_CHANGED ('embedder:statusChanged'). */
 export interface EmbedderStatusChangedPayload {
   readonly status: EmbedderStatusWire;
-}
-
-/** Payload for MESSAGE_TYPES.SKILL_SYNTHESIS_EVENT ('skillSynthesis:event'). */
-export interface SkillSynthesisEventPayload {
-  readonly event: SkillSynthesisEventWire;
 }
 
 /**
@@ -321,6 +319,8 @@ export interface SessionOrganizationChangedPayload {
  * Type mapping for message payloads - eliminates 'any' types
  */
 export interface MessagePayloadMap {
+  'attention:changed': AttentionChangedPayload;
+  'attention:openTarget': AttentionOpenTargetPayload;
   'chat:streamSnapshot': ChatStreamSnapshotPayload;
   'chat:sendMessage': ChatSendMessagePayload;
   'chat:messageChunk': ChatMessageChunkPayload;
@@ -436,7 +436,6 @@ export interface MessagePayloadMap {
   'memory:sessionStartInjected': MemorySessionStartInjectedPayload;
   'db:vecStatusChanged': VecStatusChangedPayload;
   'embedder:statusChanged': EmbedderStatusChangedPayload;
-  'skillSynthesis:event': SkillSynthesisEventPayload;
   'auth:deviceCode': AuthDeviceCodePayload;
   'auth:loginOutput': AuthLoginOutputPayload;
   'harness:open-workflow': HarnessOpenWorkflowPayload;

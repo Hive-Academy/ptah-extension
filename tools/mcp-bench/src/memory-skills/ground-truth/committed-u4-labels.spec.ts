@@ -1,6 +1,6 @@
 /**
  * Frozen U4 rows committed under fixtures/memory-skills.
- * Trigger lines are the suite parser's `triggerLabelSchema` (method
+ * Trigger lines use `triggerLabelSchema` (method
  * model-panel when every row names one panel). Session lines are
  * `realSessionLabelSchema` only: opaque id, copy hash, line numbers.
  */
@@ -11,11 +11,11 @@ jest.mock('vscode', () => ({}), { virtual: true });
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { realSessionLabelSchema } from './label-schemas';
 import {
-  TRIGGER_EVAL_PANEL,
+  COMMITTED_U4_TRIGGER_PANEL,
+  realSessionLabelSchema,
   triggerLabelSchema,
-} from '../suites/skills/trigger-human-eval';
+} from './label-schemas';
 
 const FIXTURES = join(__dirname, '../../../fixtures/memory-skills');
 
@@ -34,7 +34,7 @@ describe('committed U4 labels', () => {
     );
     expect(rows).toHaveLength(22);
     expect(new Set(rows.map((row) => row.skillId)).size).toBe(22);
-    expect(rows.every((row) => row.panel === TRIGGER_EVAL_PANEL)).toBe(true);
+    expect(rows.every((row) => row.panel === COMMITTED_U4_TRIGGER_PANEL)).toBe(true);
   });
 
   it('parses real-sessions.v1.jsonl as opaque session labels', () => {

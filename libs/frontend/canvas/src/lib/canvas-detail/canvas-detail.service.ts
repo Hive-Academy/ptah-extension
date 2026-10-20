@@ -2,6 +2,7 @@ import { DestroyRef, Injectable, computed, inject, signal } from '@angular/core'
 import { TabManagerService, parseLaneKey } from '@ptah-extension/chat';
 import { AgentMonitorStore, BackgroundAgentStore } from '@ptah-extension/chat-streaming';
 import { CanvasStore } from '../canvas.store';
+import { CanvasAttentionLaneOpener } from './canvas-attention-lane-opener.service';
 
 /** State shared by the board, its cards and the single detail overlay. */
 @Injectable()
@@ -11,9 +12,14 @@ export class CanvasDetailService {
   private readonly monitor = inject(AgentMonitorStore);
   private readonly background = inject(BackgroundAgentStore);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly attentionLaneOpener = inject(CanvasAttentionLaneOpener);
   private readonly _detailTabId = signal<string | null>(null);
   private readonly _laneKeys = signal<ReadonlyMap<string, string>>(new Map());
   private listeningForClose = false;
+
+  constructor() {
+    this.destroyRef.onDestroy(this.attentionLaneOpener.register(this));
+  }
 
   readonly detailTabId = this._detailTabId.asReadonly();
   readonly laneKey = computed(() => this.laneKeyFor(this.detailTabId() ?? ''));

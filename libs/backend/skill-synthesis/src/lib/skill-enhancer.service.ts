@@ -8,6 +8,7 @@ import {
   ENHANCE_TIMEOUT_DEFAULT_MS,
   ENHANCE_TIMEOUT_MAX_MS,
   ENHANCE_TIMEOUT_MIN_MS,
+  formatSourceHash,
   PLATFORM_TOKENS,
   resolveMcpSessionWiring,
   type IMcpServerStatus,
@@ -33,8 +34,8 @@ import {
 } from './lanes/provider-network-backoffs';
 import type {
   SkillCandidateRow,
-  SkillSynthesisSettings,
   CandidateId,
+  EnhancementDraft,
 } from './types';
 import { unjudgedVerdictFields, unmeasuredGateFields } from './types';
 import {
@@ -42,13 +43,11 @@ import {
   SKILL_SYNTHESIS_TOKENS,
   USER_LAYER_MIRROR_SERVICE_TOKEN,
 } from './di/tokens';
-import { SkillCandidateStore } from './skill-candidate.store';
 import {
   SkillRegistryStore,
   type SkillRegistryKind,
 } from './skill-registry.store';
-import { SkillJudgeService } from './skill-judge.service';
-import { TrajectoryExtractor } from './trajectory-extractor';
+import { SkillJudgeService, type JudgeGateSettings } from './skill-judge.service';
 import { PROVIDER_AUTH_RESOLVER_TOKEN } from './di/tokens';
 import type { ILaneAuthResolver } from './lanes/lane-auth-resolver.port';
 import type { LaneAuthOverride } from './lanes/lane.types';
@@ -76,32 +75,10 @@ const PROVIDER_UNREACHABLE = Symbol('provider-unreachable');
  * stays bounded.
  */
 const MAX_SCORECARD_CHARS = 1200;
-/** Auto-enhancement cooldown after a successful enhancement. */
+/** Historical cooldown duration exposed to Library status. */
 export const ENHANCE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
-/** Minimum recorded invocations before a clone is auto-enhance eligible. */
+/** Historical invocation threshold exposed to Library status. */
 export const MIN_INVOCATIONS_TO_ENHANCE = 5;
-/**
- * The MEASURED win rate at or above which auto-enhancement leaves a clone alone.
- *
- * A second eligibility input ALONGSIDE {@link MIN_INVOCATIONS_TO_ENHANCE}, not a
- * replacement for it: the invocation floor asks "is there enough usage to learn
- * from", this asks "is there anything left to fix". A clone winning 80 % of its
- * measured sessions is working, and spending a background LLM call to rewrite it
- * risks the regression more than it buys the improvement.
- *
- * ## `null` DOES NOT GATE
- *
- * An unmeasured clone (`winRate === null`) is NOT treated as a winner and NOT
- * treated as a loser — the invocation floor decides alone, exactly as it did
- * before this gate existed. That is why the check is written `=== null` first:
- * `winRate >= MAX` would let `null` through by accident today and `winRate ?? 1`
- * would block every unmeasured clone tomorrow. The mirror-image trap is `||`,
- * which turns a measured `0` — the clone most in need of enhancement — into
- * "unmeasured".
- */
-export const MAX_WIN_RATE_TO_AUTO_ENHANCE = 0.8;
-const MAX_TRAJECTORY_SESSIONS = 3;
-const TRAJECTORY_MIN_TURNS = 5;
 
 /**
  * How long a generated-but-unapplied proposal stays redeemable. Long enough to
@@ -112,18 +89,15 @@ export const PROPOSAL_TTL_MS = 15 * 60 * 1000;
 /** Hard cap on cached proposals; oldest is evicted first (insertion order). */
 export const MAX_CACHED_PROPOSALS = 20;
 
-/**
- * `userInitiated` (from `QueryOrigin`): a user is waiting, so the candidate and
- * judge calls skip the background-work governor. Independent of `manual` — a
- * manual CURATOR run sets it without `manual`, so it keeps the cooldowns.
- */
+/** Manual enhancement options. */
 export interface EnhanceOptions extends QueryOrigin {
-  /** Bypass the auto-enhance cooldown, invocation floor and win-rate skip. */
+  /** Required for manual proposal generation. */
   readonly manual?: boolean;
   readonly kind?: SkillRegistryKind;
 }
 
 export type EnhanceSkipReason =
+  | 'paused'
   | 'missing-clone'
   | 'cooldown'
   | 'below-threshold'
@@ -132,13 +106,6 @@ export type EnhanceSkipReason =
   | 'no-change'
   | 'invalid-candidate'
   | 'judge-rejected'
-  /**
-   * The clone's MEASURED win rate is at or above
-   * {@link MAX_WIN_RATE_TO_AUTO_ENHANCE}. Distinct from `below-threshold`: that
-   * one means "not enough usage to learn from", this one means "enough usage,
-   * and it says the clone is already working". Unreachable from an unmeasured
-   * clone and unreachable from a manual run.
-   */
   | 'win-rate-sufficient'
   /**
    * The provider was unreachable (network-class failure), or its network
@@ -196,6 +163,7 @@ export interface GenerateProposalResult {
   judgeScore: number | null;
   judgeReason: string | null;
   proposalId: string | null;
+  draft?: EnhancementDraft;
   skipReason?: EnhanceSkipReason;
 }
 
@@ -211,6 +179,26 @@ export interface ApplyProposalResult {
 
 /** Why a `proposalId` could not be redeemed. */
 export type ProposalRejectionCode = 'not-found' | 'expired' | 'mismatch';
+
+function safeGenerationError(error: unknown): {
+  errorName: string;
+  errorMessage: string;
+} {
+  if (!(error instanceof Error)) {
+    return { errorName: 'UnknownError', errorMessage: 'Non-Error thrown' };
+  }
+  const errorName = /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(error.name)
+    ? error.name
+    : 'Error';
+  const errorMessage = error.message
+    .replace(/https?:\/\/\S+/gi, '[url]')
+    .replace(/(?:bearer|token|secret|password|api[_-]?key|authorization)\s*[:=]?\s*\S+/gi, '[credential]')
+    .replace(/\b(?:sk|pk|rk)-[A-Za-z0-9_-]+\b/g, '[credential]')
+    .replace(/["'`][^"'`]*["'`]/g, '[quoted value]')
+    .replace(/[A-Za-z0-9+/=_-]{32,}/g, '[value]')
+    .slice(0, 240);
+  return { errorName, errorMessage };
+}
 
 /**
  * Thrown by {@link SkillEnhancerService.applyProposal} when the id does not
@@ -244,14 +232,10 @@ export class SkillEnhancerService {
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject(USER_LAYER_MIRROR_SERVICE_TOKEN)
     private readonly mirror: UserLayerMirrorService,
-    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE)
-    private readonly candidates: SkillCandidateStore,
     @inject(SKILL_SYNTHESIS_TOKENS.SKILL_REGISTRY_STORE)
     private readonly registry: SkillRegistryStore,
     @inject(SKILL_SYNTHESIS_TOKENS.SKILL_JUDGE_SERVICE)
     private readonly judge: SkillJudgeService,
-    @inject(TrajectoryExtractor)
-    private readonly trajectories: TrajectoryExtractor,
     @inject(INTERNAL_QUERY_SERVICE_TOKEN, { isOptional: true })
     private readonly internalQuery: IInternalQuery | null,
     @inject(SKILL_REPROPAGATION_TOKEN, { isOptional: true })
@@ -286,71 +270,19 @@ export class SkillEnhancerService {
     private readonly authResolver: ILaneAuthResolver | null = null,
   ) {}
 
-  /**
-   * Two measured inputs, both of which must say "yes", plus the cooldown:
-   * enough recorded usage to learn from ({@link MIN_INVOCATIONS_TO_ENHANCE})
-   * and no measurement saying the clone is already winning
-   * ({@link MAX_WIN_RATE_TO_AUTO_ENHANCE}). An unmeasured clone is decided by
-   * the invocation floor alone — see {@link isAlreadyWinning}.
-   */
+  /** Automatic enhancement is retired; callers retain this compatibility seam. */
   isEligible(
-    slug: string,
-    settings: SkillSynthesisSettings,
-    kind: SkillRegistryKind = 'skill',
+    _slug: string,
+    _settings: JudgeGateSettings,
+    _kind: SkillRegistryKind = 'skill',
   ): boolean {
-    const stats = this.candidates.getInvocationStats(slug);
-    if (stats.total < MIN_INVOCATIONS_TO_ENHANCE) return false;
-    if (this.isWithinCooldown(slug, settings, kind)) return false;
-    return !this.isAlreadyWinning(slug);
-  }
-
-  /**
-   * `true` only when a MEASURED win rate is at or above
-   * {@link MAX_WIN_RATE_TO_AUTO_ENHANCE}.
-   *
-   * `null` (never measured) returns `false` — "we have no evidence this clone is
-   * fine", which leaves the decision exactly where it was before this gate. A
-   * measured `0` also returns `false`, and that is the case the `=== null` test
-   * exists to protect: it is the clone most worth enhancing, and any truthiness
-   * check on this number would file it under "unmeasured".
-   */
-  private isAlreadyWinning(slug: string): boolean {
-    const winRate = this.winRateFor(slug);
-    if (winRate === null) return false;
-    return winRate >= MAX_WIN_RATE_TO_AUTO_ENHANCE;
-  }
-
-  /**
-   * The clone's measured win rate, or `null` for "never measured".
-   *
-   * Fail-soft: a store failure reads as unmeasured, which withholds the gate
-   * rather than inventing a verdict — enhancement then falls back to the
-   * invocation floor alone.
-   */
-  private winRateFor(slug: string): number | null {
-    try {
-      const measured = this.candidates
-        .getWinRates()
-        .find((rate) => rate.slug === slug);
-      return measured ? measured.winRate : null;
-    } catch (error: unknown) {
-      // degradation-audit: optional-capability - Win rate is optional
-      // enhancement evidence; null withholds the measurement-based gate.
-      this.logger.warn(
-        '[skill-enhancer] win-rate read failed; treating as unmeasured',
-        {
-          slug,
-          error: error instanceof Error ? error.message : String(error),
-        },
-      );
-      return null;
-    }
+    return false;
   }
 
   /**
    * Generate + judge an improvement WITHOUT touching disk.
    *
-   * Runs every gate the write path runs (eligibility, cooldown, generation,
+   * Runs generation,
    * judge verdict, frontmatter validation) and stops immediately before the
    * snapshot/write. A proposal that clears all gates is parked in the
    * in-memory cache and its opaque `proposalId` returned; redeem it with
@@ -358,7 +290,7 @@ export class SkillEnhancerService {
    */
   async generateProposal(
     slug: string,
-    settings: SkillSynthesisSettings,
+    settings: JudgeGateSettings,
     options: EnhanceOptions = {},
   ): Promise<GenerateProposalResult> {
     const kind: SkillRegistryKind = options.kind ?? 'skill';
@@ -374,6 +306,15 @@ export class SkillEnhancerService {
     };
 
     try {
+      if (!options.manual) return { ...base, skipReason: 'paused' };
+      if (
+        this.workspaceProvider.getConfiguration<boolean>(
+          'ptah',
+          'skillSynthesis.enabled',
+        ) === false
+      ) {
+        return { ...base, skipReason: 'paused' };
+      }
       if (!this.internalQuery) {
         return { ...base, skipReason: 'no-internal-query' };
       }
@@ -384,36 +325,25 @@ export class SkillEnhancerService {
         return { ...base, skipReason: 'missing-clone' };
       }
 
-      const stats = this.candidates.getInvocationStats(slug);
-      if (!options.manual && stats.total < MIN_INVOCATIONS_TO_ENHANCE) {
-        return { ...base, skipReason: 'below-threshold' };
-      }
-      if (!options.manual && this.isWithinCooldown(slug, settings, kind)) {
-        return { ...base, skipReason: 'cooldown' };
-      }
-      // Last of the three auto-eligibility gates, and the only one that reads a
-      // measurement rather than a count: a clone that is measurably winning gets
-      // no background rewrite. Manual runs bypass it exactly as they bypass the
-      // invocation floor — the user asked.
-      if (!options.manual && this.isAlreadyWinning(slug)) {
-        return { ...base, skipReason: 'win-rate-sufficient' };
-      }
-
       const cwd = this.resolveCwd();
       // Measured-usage signal for agent clones only; null (byte-identical
       // fallback) for skills/commands or when no graded/metric data exists.
       const scorecardBlock =
         kind === 'agent' ? this.buildAgentScorecardBlock(slug) : null;
+      const draftContext: {
+        model?: string;
+        evidence?: EnhancementDraft['evidence'];
+      } = {};
       const candidateBody = await this.generateCandidate(
         slug,
         currentBody,
-        settings,
         cwd,
         kind,
         scorecardBlock,
         // A user action (an RPC) skips the governor; the curator daemon's
         // automatic pass must yield to it (C14).
         skillQueryLane(options),
+        draftContext,
       );
       if (candidateBody === PROVIDER_UNREACHABLE) {
         return { ...base, currentBody, skipReason: 'provider-unreachable' };
@@ -433,6 +363,19 @@ export class SkillEnhancerService {
         return { ...base, currentBody, skipReason: 'no-change' };
       }
 
+      const draft: EnhancementDraft = {
+        before: currentBody,
+        after: candidateBody,
+        sourceHash: formatSourceHash(currentBody),
+        evidence: draftContext.evidence ?? {
+          trajectory: '',
+          findings: '',
+          scorecard: '',
+        },
+        diff: this.draftDiff(currentBody, candidateBody),
+        model: draftContext.model ?? '',
+      };
+
       const decision = await this.judge.judge(
         this.synthRow(slug, currentBody),
         candidateBody,
@@ -446,6 +389,7 @@ export class SkillEnhancerService {
         ...base,
         currentBody,
         proposedBody: candidateBody,
+        draft,
         judgeScore: decision.score,
         judgeReason: decision.reason,
       };
@@ -524,7 +468,7 @@ export class SkillEnhancerService {
       this.logger.warn('[skill-enhancer] proposal generation failed', {
         slug,
         kind,
-        error: error instanceof Error ? error.message : String(error),
+        ...safeGenerationError(error),
       });
       return { ...base, skipReason: 'error' };
     }
@@ -593,13 +537,11 @@ export class SkillEnhancerService {
   /**
    * One-shot enhancement: generate, judge, and write in a single pass.
    *
-   * Thin compose of {@link generateProposal} + {@link applyProposal} — the
-   * auto-enhance path and `skillSynthesis:enhanceNow` keep their exact prior
-   * behaviour, including fail-soft error handling.
+   * Thin compose of {@link generateProposal} + {@link applyProposal} for user actions.
    */
   async enhance(
     slug: string,
-    settings: SkillSynthesisSettings,
+    settings: JudgeGateSettings,
     options: EnhanceOptions = {},
   ): Promise<EnhanceResult> {
     const kind: SkillRegistryKind = options.kind ?? 'skill';
@@ -774,11 +716,14 @@ export class SkillEnhancerService {
   private async generateCandidate(
     slug: string,
     currentBody: string,
-    settings: SkillSynthesisSettings,
     cwd: string,
     kind: SkillRegistryKind,
     scorecardBlock: string | null,
     lane: string,
+    draftContext?: {
+      model?: string;
+      evidence?: EnhancementDraft['evidence'];
+    },
   ): Promise<string | null | typeof PROVIDER_UNREACHABLE> {
     if (!this.internalQuery) return null;
     const backoff = this.networkBackoffs?.for(ACTIVE_PROVIDER_KEY) ?? null;
@@ -786,28 +731,41 @@ export class SkillEnhancerService {
     if (lane !== USER_ACTION_QUERY_LANE && (backoff?.remainingMs() ?? 0) > 0) {
       return PROVIDER_UNREACHABLE;
     }
-    const stats = this.candidates.getInvocationStats(slug);
-    const trajectorySignal = await this.collectTrajectorySignal(slug, cwd);
     const specFindings = await this.collectSpecFindings(slug);
+    if (draftContext) {
+      draftContext.evidence = {
+        trajectory: '',
+        findings: specFindings.slice(0, 1600),
+        scorecard: (scorecardBlock ?? '').slice(0, MAX_SCORECARD_CHARS),
+      };
+    }
     const configuredTimeout = this.workspaceProvider.getConfiguration<number>(
       'ptah',
-      'skillSynthesis.enhanceTimeoutMs',
+      'skills.enhancement.timeoutMs',
     );
-    const rawTimeout = Number(configuredTimeout);
-    const timeoutMs = Number.isFinite(rawTimeout)
+    const timeoutMs =
+      typeof configuredTimeout === 'number' && Number.isFinite(configuredTimeout)
       ? Math.min(
-          Math.max(rawTimeout, ENHANCE_TIMEOUT_MIN_MS),
+          Math.max(configuredTimeout, ENHANCE_TIMEOUT_MIN_MS),
           ENHANCE_TIMEOUT_MAX_MS,
         )
       : ENHANCE_TIMEOUT_DEFAULT_MS;
 
-    const judgeProvider = (settings.judgeProvider ?? '').trim();
-    const judgeModel = settings.judgeModel;
+    const enhancementProvider = (
+      this.workspaceProvider.getConfiguration<string>(
+        'ptah',
+        'skills.enhancement.provider',
+      ) ?? ''
+    ).trim();
+    const enhancementModel = this.workspaceProvider.getConfiguration<string>(
+      'ptah',
+      'skills.enhancement.model',
+    ) || 'inherit';
     const model = resolveLaneModel(
       {
         id: 'judge',
-        provider: judgeProvider,
-        model: judgeModel === 'inherit' ? '' : judgeModel,
+        provider: enhancementProvider,
+        model: enhancementModel === 'inherit' ? '' : enhancementModel,
         defaultTier: 'haiku',
         structuredOutput: 'sdk',
         toolUse: 'none',
@@ -818,22 +776,23 @@ export class SkillEnhancerService {
       'inherit',
       this.workspaceProvider,
     );
+    if (draftContext) draftContext.model = model;
 
     let authOverride: LaneAuthOverride | undefined;
-    if (judgeProvider && this.authResolver) {
+    if (enhancementProvider && this.authResolver) {
       try {
         const resolvedAuth = await this.authResolver.resolve(
-          judgeProvider,
+          enhancementProvider,
           'lane',
         );
         authOverride = resolvedAuth ?? undefined;
-      } catch (error: unknown) {
+      } catch {
+        // Auth errors can quote credentials, so the message is not logged.
         this.logger.warn(
           '[skill-enhancer] provider auth resolution failed; provider unreachable',
           {
             slug,
-            provider: judgeProvider || '(active)',
-            error: error instanceof Error ? error.message : String(error),
+            provider: enhancementProvider,
           },
         );
         return PROVIDER_UNREACHABLE;
@@ -858,11 +817,6 @@ export class SkillEnhancerService {
     }
     promptLines.push(
       `Reply with ONLY the full improved ${artifactLabel} content — no commentary, no code fences.`,
-      ``,
-      `Usage stats: total=${stats.total}, succeeded=${stats.succeeded}, failed=${stats.failed}, distinctContexts=${stats.distinctContexts}.`,
-      ``,
-      `Recent trajectory signal:`,
-      trajectorySignal || '(none available)',
       ``,
       `Graded review findings (from orchestration specs — how this ${artifactLabel} actually performed):`,
       specFindings || '(none available)',
@@ -926,7 +880,7 @@ export class SkillEnhancerService {
       }
       this.logger.warn('[skill-enhancer] candidate generation failed', {
         slug,
-        error: error instanceof Error ? error.message : String(error),
+        ...safeGenerationError(error),
       });
       return null;
     } finally {
@@ -965,36 +919,6 @@ export class SkillEnhancerService {
     ];
   }
 
-  private async collectTrajectorySignal(
-    slug: string,
-    workspaceRoot: string,
-  ): Promise<string> {
-    const sessionIds = this.candidates.getRecentSessionsForSlug(
-      slug,
-      MAX_TRAJECTORY_SESSIONS,
-    );
-    const parts: string[] = [];
-    for (const sessionId of sessionIds) {
-      try {
-        const extracted = await this.trajectories.extract(
-          sessionId,
-          workspaceRoot,
-          TRAJECTORY_MIN_TURNS,
-        );
-        if (extracted) {
-          parts.push(extracted.canonicalText.slice(0, 1500));
-        }
-      } catch (error: unknown) {
-        this.logger.debug('[skill-enhancer] trajectory extract failed', {
-          slug,
-          sessionId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-    return parts.join('\n\n---\n\n');
-  }
-
   private async collectSpecFindings(slug: string): Promise<string> {
     if (!this.specFindings) return '';
     try {
@@ -1020,7 +944,7 @@ export class SkillEnhancerService {
   private buildAgentScorecardBlock(slug: string): string | null {
     if (!this.scorecard) return null;
     try {
-      const card = this.scorecard.getScorecards([slug])[slug];
+      const card = this.scorecard.getScorecards([slug], this.resolveAgentScope() ?? null)[slug];
       if (!card || !this.hasScorecardData(card)) return null;
       return this.formatScorecardBlock(card).slice(0, MAX_SCORECARD_CHARS);
     } catch (error: unknown) {
@@ -1086,7 +1010,7 @@ export class SkillEnhancerService {
 
   private synthRow(slug: string, body: string): SkillCandidateRow {
     return {
-      id: slug as unknown as CandidateId,
+      id: slug as CandidateId,
       name: slug,
       description: this.extractDescription(body) || slug,
       bodyPath: '',
@@ -1124,16 +1048,6 @@ export class SkillEnhancerService {
   private extractDescription(body: string): string {
     const match = /^description:\s*(.+)$/m.exec(body);
     return match ? match[1].trim().replace(/^["']|["']$/g, '') : '';
-  }
-
-  private isWithinCooldown(
-    slug: string,
-    _settings: SkillSynthesisSettings,
-    kind: SkillRegistryKind = 'skill',
-  ): boolean {
-    const row = this.registry.getBySlug(kind, slug);
-    if (!row || row.lastEnhancedAt === null) return false;
-    return Date.now() - row.lastEnhancedAt < ENHANCE_COOLDOWN_MS;
   }
 
   private resolveCwd(): string {
@@ -1177,6 +1091,29 @@ export class SkillEnhancerService {
   private stripCodeFence(text: string): string {
     const fence = /^```(?:markdown|md)?\s*\n([\s\S]*?)\n```$/.exec(text.trim());
     return fence ? fence[1] : text;
+  }
+
+  private draftDiff(before: string, after: string): string {
+    const oldLines = before.split('\n');
+    const newLines = after.split('\n');
+    let prefix = 0;
+    while (
+      prefix < oldLines.length &&
+      prefix < newLines.length &&
+      oldLines[prefix] === newLines[prefix]
+    ) prefix++;
+    let suffix = 0;
+    while (
+      suffix < oldLines.length - prefix &&
+      suffix < newLines.length - prefix &&
+      oldLines[oldLines.length - 1 - suffix] ===
+        newLines[newLines.length - 1 - suffix]
+    ) suffix++;
+    const removed = oldLines.slice(prefix, oldLines.length - suffix)
+      .join('\n').slice(0, 4000).split('\n').map((line) => `-${line}`);
+    const added = newLines.slice(prefix, newLines.length - suffix)
+      .join('\n').slice(0, 4000).split('\n').map((line) => `+${line}`);
+    return [`@@ -${prefix + 1} +${prefix + 1} @@`, ...removed, ...added].join('\n');
   }
 }
 

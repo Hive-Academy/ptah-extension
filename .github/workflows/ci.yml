@@ -36,7 +36,9 @@ jobs:
     permissions:
       actions: read
       contents: read
-    timeout-minutes: 30
+    # 45 min: a change to a root lib (e.g. shared) makes `nx affected -t build`
+    # rebuild the full graph without a remote cache, which took 22-28+ min.
+    timeout-minutes: 45
     # Skip closed/merged PRs and bot bumps from publish-cli.yml,
     # publish-electron.yml, and publish-extension.yml: chore/bump-cli-v*,
     # chore/bump-electron-v*, and chore/bump-extension-v*. Human

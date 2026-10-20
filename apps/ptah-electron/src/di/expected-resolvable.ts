@@ -1,4 +1,5 @@
 import {
+  AnalyticsRpcHandlers,
   ConfigScopeRpcHandlers,
   EnhancedPromptsRpcHandlers,
   LlmRpcHandlers,
@@ -11,6 +12,7 @@ import {
 } from '@ptah-extension/rpc-handlers';
 
 export const EXPECTED_RESOLVABLE = [
+  AnalyticsRpcHandlers,
   ConfigScopeRpcHandlers,
   SetupRpcHandlers,
   WizardGenerationRpcHandlers,
@@ -21,6 +23,9 @@ export const EXPECTED_RESOLVABLE = [
   FileViewRpcHandlers,
   FileEditRpcHandlers,
 ] as const;
+
+/** Phase-2 singleton; kept separate from the handler-class census. */
+export const HOST_ATTENTION_COORDINATOR_TOKEN = Symbol.for('HostAttentionCoordinator');
 
 /**
  * Optional port registered by `registerSharedRpcHandlers` (Batch 14).

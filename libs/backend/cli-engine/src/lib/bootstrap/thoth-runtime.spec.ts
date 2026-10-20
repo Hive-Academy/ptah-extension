@@ -47,21 +47,12 @@ interface RuntimeDoubles {
   embedderClient: { dispose: jest.Mock };
   memoryCurator: { start: jest.Mock; stop: jest.Mock };
   memoryTrigger: { start: jest.Mock; stop: jest.Mock };
-  skillSynthesis: {
-    start: jest.Mock;
-    stop: jest.Mock;
-    onStarted: jest.Mock;
-    /** Stands in for the end of a real successful `performStart()`. */
-    fireStarted: () => void;
-  };
   skillTrigger: { start: jest.Mock; stop: jest.Mock };
   cronScheduler: { start: jest.Mock; stop: jest.Mock };
   jobStore: { upsert: jest.Mock };
   handlerRegistry: { has: jest.Mock; register: jest.Mock };
-  skillDrain: { drain: jest.Mock };
   powerMonitor: { isOnBattery: jest.Mock };
   retention: { run: jest.Mock };
-  backlogCleanup: { run: jest.Mock };
   backupService: { backup: jest.Mock; rotate: jest.Mock };
   gateway: { start: jest.Mock; stop: jest.Mock };
   chatBridge: { start: jest.Mock; stop: jest.Mock };
@@ -78,7 +69,6 @@ function makeRuntimeDoubles(
 ): RuntimeDoubles {
   const order: string[] = [];
   const memoryEnabled = opts.memoryEnabled ?? true;
-  const startedListeners = new Set<() => void>();
   return {
     order,
     sqliteConnection: {
@@ -107,17 +97,6 @@ function makeRuntimeDoubles(
       start: jest.fn(() => order.push('memoryTrigger.start')),
       stop: jest.fn(() => order.push('memoryTrigger.stop')),
     },
-    skillSynthesis: {
-      start: jest.fn(async () => order.push('skillSynthesis.start')),
-      stop: jest.fn(() => order.push('skillSynthesis.stop')),
-      onStarted: jest.fn((listener: () => void) => {
-        startedListeners.add(listener);
-        return { dispose: () => startedListeners.delete(listener) };
-      }),
-      fireStarted: () => {
-        for (const l of [...startedListeners]) l();
-      },
-    },
     skillTrigger: {
       start: jest.fn(() => order.push('skillTrigger.start')),
       stop: jest.fn(() => order.push('skillTrigger.stop')),
@@ -128,23 +107,6 @@ function makeRuntimeDoubles(
     },
     jobStore: { upsert: jest.fn() },
     handlerRegistry: { has: jest.fn(() => false), register: jest.fn() },
-    skillDrain: {
-      drain: jest.fn(async () => ({
-        tier: 'frequent',
-        skipped: false,
-        reaped: 0,
-        workspacesVisited: 1,
-        claimed: 1,
-        lostClaims: 0,
-        done: 1,
-        failed: 0,
-        unscored: 0,
-        skippedItems: 0,
-        budgetDeferred: 0,
-        budgetExhausted: false,
-        durationMs: 3,
-      })),
-    },
     powerMonitor: { isOnBattery: jest.fn(() => false) },
     retention: {
       run: jest.fn(async () => ({
@@ -160,24 +122,6 @@ function makeRuntimeDoubles(
         memoriesEvicted: 0,
         lifecycleNote: null,
         backlogRemaining: false,
-        durationMs: 2,
-        error: null,
-      })),
-    },
-    backlogCleanup: {
-      run: jest.fn(async () => ({
-        status: 'completed',
-        reason: null,
-        examined: 3,
-        keptEvidence: 1,
-        keptVerdict: 0,
-        keptDegradedVerdict: 0,
-        rejectedNoEvidence: 2,
-        rejectedTranscriptUnreadable: 0,
-        rejectedNoTranscript: 0,
-        invocationsDeleted: 4,
-        deferredOnError: 0,
-        keptRootUnknown: 0,
         durationMs: 2,
         error: null,
       })),
@@ -230,8 +174,6 @@ function makeRuntimeContainer(
           return doubles.memoryTrigger;
         case MEMORY_TOKENS.INDEXING_CONTROL:
           return doubles.indexingControl;
-        case SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE:
-          return doubles.skillSynthesis;
         case SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE:
           return doubles.skillTrigger;
         case CRON_TOKENS.CRON_SCHEDULER:
@@ -242,12 +184,8 @@ function makeRuntimeContainer(
           return doubles.handlerRegistry;
         case CRON_TOKENS.CRON_POWER_MONITOR:
           return doubles.powerMonitor;
-        case SKILL_SYNTHESIS_TOKENS.SKILL_DRAIN_SERVICE:
-          return doubles.skillDrain;
         case MEMORY_TOKENS.MEMORY_RETENTION_SERVICE:
           return doubles.retention;
-        case SKILL_SYNTHESIS_TOKENS.SKILL_BACKLOG_CLEANUP_SERVICE:
-          return doubles.backlogCleanup;
         case PERSISTENCE_TOKENS.BACKUP_SERVICE:
           return doubles.backupService;
         case GATEWAY_TOKENS.GATEWAY_SERVICE:
@@ -271,13 +209,11 @@ const ALL_RUNTIME_TOKENS = new Set<symbol>([
   MEMORY_TOKENS.MEMORY_CURATOR,
   MEMORY_TOKENS.MEMORY_TRIGGER_SERVICE,
   MEMORY_TOKENS.INDEXING_CONTROL,
-  SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE,
   SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE,
   CRON_TOKENS.CRON_SCHEDULER,
   CRON_TOKENS.CRON_JOB_STORE,
   CRON_TOKENS.CRON_HANDLER_REGISTRY,
   CRON_TOKENS.CRON_POWER_MONITOR,
-  SKILL_SYNTHESIS_TOKENS.SKILL_DRAIN_SERVICE,
   GATEWAY_TOKENS.GATEWAY_SERVICE,
   GATEWAY_CHAT_BRIDGE_TOKENS.GATEWAY_CHAT_BRIDGE,
   PLATFORM_TOKENS.WORKSPACE_PROVIDER,
@@ -304,7 +240,6 @@ describe('activateThoth — runtime tier', () => {
     expect(doubles.sqliteConnection.openAndMigrate).toHaveBeenCalledTimes(1);
     expect(doubles.memoryCurator.start).toHaveBeenCalledTimes(1);
     expect(doubles.memoryTrigger.start).toHaveBeenCalledTimes(1);
-    expect(doubles.skillSynthesis.start).toHaveBeenCalledTimes(1);
     expect(doubles.skillTrigger.start).toHaveBeenCalledTimes(1);
     expect(doubles.cronScheduler.start).toHaveBeenCalledTimes(1);
     expect(doubles.gateway.start).toHaveBeenCalledTimes(1);
@@ -314,9 +249,9 @@ describe('activateThoth — runtime tier', () => {
       doubles.order.indexOf('memoryCurator.start'),
     );
     expect(doubles.order.indexOf('memoryCurator.start')).toBeLessThan(
-      doubles.order.indexOf('skillSynthesis.start'),
+      doubles.order.indexOf('skillTrigger.start'),
     );
-    expect(doubles.order.indexOf('skillSynthesis.start')).toBeLessThan(
+    expect(doubles.order.indexOf('skillTrigger.start')).toBeLessThan(
       doubles.order.indexOf('cron.start'),
     );
     expect(doubles.order.indexOf('cron.start')).toBeLessThan(
@@ -329,69 +264,6 @@ describe('activateThoth — runtime tier', () => {
     expect(refs.memoryCurator).not.toBeNull();
     expect(refs.gateway).not.toBeNull();
     expect(refs.chatBridge).not.toBeNull();
-  });
-
-  // B-P review N1: a failed boot start that the service later retries
-  // successfully must bring the skill trigger up, exactly once.
-  it('starts the skill trigger once when a failed skill-synthesis start is retried successfully', async () => {
-    const doubles = makeRuntimeDoubles();
-    doubles.skillSynthesis.start.mockRejectedValue(new Error('boom'));
-    const container = makeRuntimeContainer(doubles, ALL_RUNTIME_TOKENS);
-
-    const refs = await activateThoth(
-      container as never,
-      'runtime',
-      makeLogger() as never,
-    );
-
-    // Kept for `disposeThoth`'s `stop()`; trigger not started yet.
-    expect(refs.skillSynthesis).toBe(doubles.skillSynthesis);
-    expect(doubles.skillTrigger.start).not.toHaveBeenCalled();
-    expect(refs.skillTrigger).toBeNull();
-
-    // The `skillSynthesis.enabled` listener retry succeeds; a later resume
-    // fires again and must not double-start.
-    doubles.skillSynthesis.fireStarted();
-    doubles.skillSynthesis.fireStarted();
-
-    expect(doubles.skillTrigger.start).toHaveBeenCalledTimes(1);
-    expect(refs.skillTrigger).toBe(doubles.skillTrigger);
-  });
-
-  it('a normal start that fires onStarted and resolves starts the skill trigger once', async () => {
-    const doubles = makeRuntimeDoubles();
-    doubles.skillSynthesis.start.mockImplementation(async () => {
-      doubles.skillSynthesis.fireStarted();
-    });
-    const container = makeRuntimeContainer(doubles, ALL_RUNTIME_TOKENS);
-
-    await activateThoth(container as never, 'runtime', makeLogger() as never);
-
-    expect(doubles.skillTrigger.start).toHaveBeenCalledTimes(1);
-  });
-
-  it('a joined start that failed resolves but starts no skill trigger', async () => {
-    const doubles = makeRuntimeDoubles();
-    doubles.skillSynthesis.start.mockImplementation(
-      async () => 'failed' as const,
-    );
-    const container = makeRuntimeContainer(doubles, ALL_RUNTIME_TOKENS);
-
-    await activateThoth(container as never, 'runtime', makeLogger() as never);
-
-    expect(doubles.skillTrigger.start).not.toHaveBeenCalled();
-  });
-
-  it('a start that a stop() overtook resolves but starts no skill trigger', async () => {
-    const doubles = makeRuntimeDoubles();
-    doubles.skillSynthesis.start.mockImplementation(
-      async () => 'abandoned' as const,
-    );
-    const container = makeRuntimeContainer(doubles, ALL_RUNTIME_TOKENS);
-
-    await activateThoth(container as never, 'runtime', makeLogger() as never);
-
-    expect(doubles.skillTrigger.start).not.toHaveBeenCalled();
   });
 
   it('upserts the daily-backup job and registers its handler exactly once', async () => {
@@ -426,125 +298,7 @@ describe('activateThoth — runtime tier', () => {
     await activateThoth(container as never, 'runtime', makeLogger() as never);
 
     expect(doubles.handlerRegistry.register).not.toHaveBeenCalled();
-    // Upsert is idempotent, so it still runs for the backup + three drain jobs.
-    expect(doubles.jobStore.upsert).toHaveBeenCalledTimes(4);
-  });
-
-  it('registers the three drain handlers and upserts their fixed job ids', async () => {
-    const doubles = makeRuntimeDoubles();
-    const container = makeRuntimeContainer(doubles, ALL_RUNTIME_TOKENS);
-
-    await activateThoth(container as never, 'runtime', makeLogger() as never);
-
-    expect(
-      doubles.handlerRegistry.register.mock.calls
-        .map((call) => String(call[0]))
-        .filter((name) => name.startsWith('skills:drain:')),
-    ).toEqual([
-      'skills:drain:frequent',
-      'skills:drain:nightly',
-      'skills:drain:weekly',
-    ]);
-    expect(
-      doubles.jobStore.upsert.mock.calls
-        .map((call) => call[0] as { id: string; cronExpr: string })
-        .filter((job) => job.id.startsWith('@ptah/skills-')),
-    ).toEqual([
-      expect.objectContaining({
-        id: '@ptah/skills-drain-frequent',
-        cronExpr: '*/15 * * * *',
-        prompt: 'handler:skills:drain:frequent',
-        timezone: 'UTC',
-        enabled: true,
-      }),
-      expect.objectContaining({
-        id: '@ptah/skills-drain-nightly',
-        cronExpr: '0 3 * * *',
-        prompt: 'handler:skills:drain:nightly',
-      }),
-      expect.objectContaining({
-        id: '@ptah/skills-drain-weekly',
-        cronExpr: '0 4 * * 0',
-        prompt: 'handler:skills:drain:weekly',
-      }),
-    ]);
-  });
-
-  it('drain handlers pass their tier and the live battery reading through', async () => {
-    const doubles = makeRuntimeDoubles();
-    doubles.powerMonitor.isOnBattery = jest.fn(() => true);
-    const container = makeRuntimeContainer(doubles, ALL_RUNTIME_TOKENS);
-    await activateThoth(container as never, 'runtime', makeLogger() as never);
-
-    const signal = new AbortController().signal;
-    const registered = new Map<string, (ctx: unknown) => Promise<unknown>>(
-      doubles.handlerRegistry.register.mock.calls.map((call) => [
-        String(call[0]),
-        call[1] as (ctx: unknown) => Promise<unknown>,
-      ]),
-    );
-    for (const name of [
-      'skills:drain:frequent',
-      'skills:drain:nightly',
-      'skills:drain:weekly',
-    ]) {
-      const handler = registered.get(name);
-      expect(handler).toBeDefined();
-      await (handler as (ctx: unknown) => Promise<unknown>)({
-        job: { id: name },
-        scheduledFor: 0,
-        signal,
-      });
-    }
-
-    expect(
-      doubles.skillDrain.drain.mock.calls.map(
-        (call) => (call[0] as { tier: string }).tier,
-      ),
-    ).toEqual(['frequent', 'nightly', 'weekly']);
-    for (const call of doubles.skillDrain.drain.mock.calls) {
-      expect(call[0]).toMatchObject({ onBattery: true, signal });
-    }
-  });
-
-  it('reads the drain cron expressions from settings when they are configured', async () => {
-    const doubles = makeRuntimeDoubles();
-    doubles.workspaceProvider.getConfiguration = jest.fn(
-      (_s: string, key: string, dflt: unknown) => {
-        if (key === 'skillSynthesis.drain.cronExpr') return '*/45 * * * *';
-        if (key === 'skillSynthesis.drain.nightlyCronExpr') return '0 1 * * *';
-        if (key === 'skillSynthesis.drain.weeklyCronExpr') return '0 6 * * 1';
-        return dflt;
-      },
-    );
-    const container = makeRuntimeContainer(doubles, ALL_RUNTIME_TOKENS);
-
-    await activateThoth(container as never, 'runtime', makeLogger() as never);
-
-    const exprById = new Map(
-      doubles.jobStore.upsert.mock.calls.map((call) => {
-        const job = call[0] as { id: string; cronExpr: string };
-        return [job.id, job.cronExpr];
-      }),
-    );
-    expect(exprById.get('@ptah/skills-drain-frequent')).toBe('*/45 * * * *');
-    expect(exprById.get('@ptah/skills-drain-nightly')).toBe('0 1 * * *');
-    expect(exprById.get('@ptah/skills-drain-weekly')).toBe('0 6 * * 1');
-  });
-
-  it('registers no drain jobs when the host has no SkillDrainService', async () => {
-    const doubles = makeRuntimeDoubles();
-    const withoutDrain = new Set(ALL_RUNTIME_TOKENS);
-    withoutDrain.delete(SKILL_SYNTHESIS_TOKENS.SKILL_DRAIN_SERVICE);
-    const container = makeRuntimeContainer(doubles, withoutDrain);
-
-    await activateThoth(container as never, 'runtime', makeLogger() as never);
-
-    expect(
-      doubles.handlerRegistry.register.mock.calls.filter((call) =>
-        String(call[0]).startsWith('skills:drain:'),
-      ),
-    ).toHaveLength(0);
+    // Upsert remains idempotent for the backup job.
     expect(doubles.jobStore.upsert).toHaveBeenCalledTimes(1);
   });
 
@@ -810,51 +564,6 @@ describe('activateThoth — runtime tier', () => {
       expect(doubles.handlerRegistry.register).not.toHaveBeenCalled();
       expect(doubles.jobStore.upsert).not.toHaveBeenCalled();
       expect(doubles.retention.run).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('skills backlog cleanup job reachability', () => {
-    const WITH_CLEANUP = new Set<symbol>([
-      ...ALL_RUNTIME_TOKENS,
-      SKILL_SYNTHESIS_TOKENS.SKILL_BACKLOG_CLEANUP_SERVICE,
-    ]);
-
-    it('upserts @ptah/skills-backlog-cleanup and registers skills:backlog-cleanup when its service is registered', async () => {
-      const doubles = makeRuntimeDoubles();
-      const container = makeRuntimeContainer(doubles, WITH_CLEANUP);
-
-      await activateThoth(container as never, 'runtime', makeLogger() as never);
-
-      expect(doubles.jobStore.upsert).toHaveBeenCalledWith({
-        id: '@ptah/skills-backlog-cleanup',
-        name: 'Skills Backlog Cleanup',
-        cronExpr: '41 * * * *',
-        timezone: 'UTC',
-        prompt: 'handler:skills:backlog-cleanup',
-        enabled: true,
-      });
-      expect(doubles.handlerRegistry.register).toHaveBeenCalledWith(
-        'skills:backlog-cleanup',
-        expect.any(Function),
-      );
-    });
-
-    it('registers no cleanup job when its service token is absent', async () => {
-      const doubles = makeRuntimeDoubles();
-      const container = makeRuntimeContainer(doubles, ALL_RUNTIME_TOKENS);
-
-      await activateThoth(container as never, 'runtime', makeLogger() as never);
-
-      expect(
-        doubles.jobStore.upsert.mock.calls.some(
-          (call) =>
-            (call[0] as { id: string }).id === '@ptah/skills-backlog-cleanup',
-        ),
-      ).toBe(false);
-      expect(doubles.handlerRegistry.register).not.toHaveBeenCalledWith(
-        'skills:backlog-cleanup',
-        expect.any(Function),
-      );
     });
   });
 

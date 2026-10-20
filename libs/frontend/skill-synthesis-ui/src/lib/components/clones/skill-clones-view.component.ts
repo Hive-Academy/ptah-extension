@@ -383,7 +383,7 @@ const EMPTY_COPY: Record<SkillCloneKind, string> = {
         [loading]="previewLoading()"
         [applying]="previewApplying()"
         [error]="previewError()"
-        (apply)="onApplyProposal($event)"
+        (save)="onSaveDraft($event)"
         (discard)="onDiscardPreview()"
       />
 
@@ -810,17 +810,21 @@ export class SkillClonesViewComponent implements OnInit {
     }
   }
 
-  protected async onApplyProposal(proposalId: string): Promise<void> {
+  protected async onSaveDraft(draft: {
+    body: string;
+    expectedSourceHash: string;
+  }): Promise<void> {
     const c = this.previewClone();
-    if (c === null) return;
+    const preview = this.previewResult();
+    if (c === null || !preview?.proposed || !preview.draft ||
+      draft.body !== preview.draft.after ||
+      draft.expectedSourceHash !== preview.draft.sourceHash) return;
     this.previewApplying.set(true);
+    this.previewError.set(null);
     try {
-      const result = await this.rpc.applyProposal(c.kind, c.slug, proposalId);
-      if (result.applied) {
-        this.showToast(`Enhanced "${c.slug}".`, 'success');
-      } else {
-        this.showToast(`Nothing was applied for "${c.slug}".`, 'info');
-      }
+      await this.rpc.saveCloneBody(c.kind, c.slug, draft.body, draft.expectedSourceHash, 'enhancement');
+      if (this.previewClone() !== c || this.previewResult() !== preview) return;
+      this.showToast(`Enhanced "${c.slug}".`, 'success');
       this.closePreview();
       await this.state.refreshClones();
       // Refresh the open detail drawer so the body and history reflect the
@@ -831,7 +835,9 @@ export class SkillClonesViewComponent implements OnInit {
         void this.state.loadDetail(c.slug, c.kind);
       }
     } catch (err: unknown) {
-      this.previewError.set(this.toMessage(err));
+      if (this.previewClone() === c && this.previewResult() === preview) {
+        this.previewError.set(this.toMessage(err));
+      }
     } finally {
       this.previewApplying.set(false);
     }

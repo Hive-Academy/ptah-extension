@@ -18,6 +18,9 @@
  */
 
 import 'reflect-metadata';
+import { OpenRouterPricingService } from '@ptah-extension/auth-providers';
+import { SessionStatsReaderService } from '@ptah-extension/agent-sdk';
+import { registerUsageAnalytics, USAGE_ANALYTICS_TOKENS } from '@ptah-extension/usage-analytics';
 
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -78,6 +81,7 @@ import {
   DECISION_MODEL_CATALOG_TOKEN,
   DECISION_MODEL_CONFIG_TOKEN,
   EXPECTED_RESOLVABLE,
+  HOST_ATTENTION_COORDINATOR_TOKEN,
   LANE_MODEL_LISTING_TOKEN,
   STRUCTURED_DECISION_TOKEN,
 } from './expected-resolvable';
@@ -85,6 +89,21 @@ import { registerPhase0Platform } from './phase-0-platform';
 import { registerPhase1Infra } from './phase-1-infra';
 import { registerPhase4Handlers } from './phase-4-handlers';
 import { UPDATE_MANAGER_TOKEN } from '../services/update/update-tokens';
+
+describe('Electron DI — host attention coordinator', () => {
+  it('resolves the phase-2 singleton independently of handler classes', () => {
+    const c = buildMinimalContainer();
+    c.register(PLATFORM_TOKENS.HOST_ATTENTION_NOTIFICATIONS, {
+      useValue: { present: jest.fn(), resolve: jest.fn(), isEligible: jest.fn(() => false), open: jest.fn(), dispose: jest.fn() },
+    });
+    c.register(PLATFORM_TOKENS.WORKSPACE_PROVIDER, { useValue: { getWorkspaceRoot: jest.fn(() => null) } });
+    registerSdkServices(c, c.resolve<Logger>(TOKENS.LOGGER));
+    c.register(SDK_TOKENS.SDK_SESSION_METADATA_STORE, { useValue: { get: jest.fn(), getAll: jest.fn() } });
+    const coordinator = c.resolve(HOST_ATTENTION_COORDINATOR_TOKEN);
+    expect(coordinator).toBeDefined();
+    expect(c.resolve(HOST_ATTENTION_COORDINATOR_TOKEN)).toBe(coordinator);
+  });
+});
 
 describe('Electron DI — skill telemetry seam', () => {
   it('resolves after skill services register', () => {
@@ -105,6 +124,9 @@ function buildMinimalContainer(): DependencyContainer {
   const c = rootContainer.createChildContainer();
 
   c.register(PLATFORM_TOKENS.DI_CONTAINER, { useValue: c });
+  c.register(PLATFORM_TOKENS.HOST_ATTENTION_NOTIFICATIONS, {
+    useValue: { present: jest.fn(), resolve: jest.fn(), isEligible: jest.fn(() => false), open: jest.fn(), dispose: jest.fn() },
+  });
 
   c.register(TOKENS.LOGGER, {
     useValue: {
@@ -246,6 +268,9 @@ function buildMinimalContainer(): DependencyContainer {
     },
   );
 
+  c.register<Pick<OpenRouterPricingService, 'getPricing'>>(OpenRouterPricingService, { useValue: { getPricing: jest.fn() } });
+  c.register<Pick<SessionStatsReaderService, 'scanDatedUsage'>>(SessionStatsReaderService, { useValue: { scanDatedUsage: jest.fn() } });
+  registerUsageAnalytics(c);
   registerSharedRpcHandlers(c);
   return c;
 }
@@ -255,6 +280,10 @@ describe('Electron DI — shared RPC handler resolution', () => {
 
   beforeAll(() => {
     c = buildMinimalContainer();
+  });
+
+  it('resolves the usage analytics service token', () => {
+    expect(c.resolve(USAGE_ANALYTICS_TOKENS.USAGE_ANALYTICS_SERVICE)).toBeDefined();
   });
 
   it.each(

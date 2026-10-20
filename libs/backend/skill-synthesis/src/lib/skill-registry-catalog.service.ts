@@ -10,7 +10,6 @@ import {
   SKILL_SYNTHESIS_TOKENS,
   USER_LAYER_MIRROR_SERVICE_TOKEN,
 } from './di/tokens';
-import { SkillCandidateStore } from './skill-candidate.store';
 import {
   SkillRegistryStore,
   type CloneStatus,
@@ -29,8 +28,6 @@ export class SkillRegistryCatalogService {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(SKILL_SYNTHESIS_TOKENS.SKILL_REGISTRY_STORE)
     private readonly registry: SkillRegistryStore,
-    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE)
-    private readonly candidates: SkillCandidateStore,
     @inject(USER_LAYER_MIRROR_SERVICE_TOKEN)
     private readonly mirror: UserLayerMirrorService,
   ) {}
@@ -56,12 +53,7 @@ export class SkillRegistryCatalogService {
     let linked = 0;
 
     for (const clone of clones) {
-      const candidate =
-        clone.kind === 'skill' && clone.pluginId === null
-          ? this.candidates.findByName(clone.slug)
-          : null;
-      const candidateId = candidate ? String(candidate.id) : null;
-      const cloneStatus = this.deriveStatus(clone, candidateId !== null);
+      const cloneStatus = this.deriveStatus(clone);
       const entry: SkillRegistryEntry = {
         slug: clone.slug,
         kind: clone.kind,
@@ -73,12 +65,11 @@ export class SkillRegistryCatalogService {
         diverged: clone.diverged,
         historyDir: null,
         lastEnhancedAt: clone.lastEnhancedAt,
-        candidateId,
+        candidateId: null,
         pendingSourceHash: clone.pendingSourceHash,
       };
       this.registry.upsert(entry);
       upserted += 1;
-      if (candidateId !== null) linked += 1;
     }
 
     this.logger.info('[skill-synthesis] skill_registry catalog synced', {
@@ -88,9 +79,8 @@ export class SkillRegistryCatalogService {
     return { upserted, linked };
   }
 
-  private deriveStatus(clone: CloneEntry, hasCandidate: boolean): CloneStatus {
+  private deriveStatus(clone: CloneEntry): CloneStatus {
     if (clone.diverged) return 'diverged';
-    if (hasCandidate) return 'synth';
     if (clone.pluginId !== null) return 'clone';
     return 'authored';
   }

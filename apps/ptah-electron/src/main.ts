@@ -83,15 +83,14 @@ if (!gotLock) {
   // Not boot refs: the window itself, the tray, and the two intervals whose
   // handles `registerPostWindow` returns rather than storing.
   let mainWindow: BrowserWindow | null = null;
+  // Held for the process lifetime so the Electron Tray is never garbage
+  // collected (an unreferenced Tray disappears from the system tray).
+  const trayRef: { current: PtahTrayService | null } = { current: null };
   let revalidationInterval: ReturnType<typeof setInterval> | null = null;
   let updateCheckInterval: ReturnType<typeof setInterval> | null = null;
   let flushWorkspacePersistence: (() => void) | null = null;
   let sentryFlushed = false;
   let quitSequenceStarted = false;
-  // The pause surface (TASK_2026_620), created once the container exists.
-  // `null` until then and whenever the tray failed to construct; a `null` tray
-  // means window-all-closed quits (R10).
-  let trayService: PtahTrayService | null = null;
   let workspaceStorageReady = false;
   let startupShellQuery: Record<string, string> = { state: 'preparing' };
   // Read by the `get-startup-config` responder below. Deliberately a mutable
@@ -341,18 +340,14 @@ if (!gotLock) {
       boot.gitWatcherRef.current = coordinator.refs.gitWatcher;
     });
 
-    // The tray — the pause surface for memory and skills (TASK_2026_620) — is
-    // always created. Keep-alive stays optional: `window-all-closed` reads
-    // `skillSynthesis.trayKeepalive` live at close time (ships `false`, so
-    // closing the last window still quits). Every failure path leaves
-    // `trayService` null, which means "no keep-alive" — never "keep-alive with
-    // no way to quit" (R10).
+    // The tray is the pause surface for memory. Closing the last window quits
+    // on non-darwin platforms, whether or not tray construction succeeds.
     try {
       const workspaceProvider =
         boot.container.resolve<ElectronWorkspaceProvider>(
           PLATFORM_TOKENS.WORKSPACE_PROVIDER,
         );
-      trayService = PtahTrayService.create({
+      trayRef.current = PtahTrayService.create({
         workspace: workspaceProvider,
         // The file-settings watcher fires for in-process writes AND for
         // external edits of ~/.ptah/settings.json (its cross-process fs.watch
@@ -368,7 +363,6 @@ if (!gotLock) {
         '[Ptah Electron] Tray setup failed (non-fatal):',
         error instanceof Error ? error.message : String(error),
       );
-      trayService = null;
     }
   });
   // Nothing in the boot above may reject silently: without this a throw
@@ -407,15 +401,12 @@ if (!gotLock) {
   });
   // Branch-free delegation: the decision lives in `handleWindowAllClosed` so it
   // can be asserted (this file uses `import.meta` and is not importable under
-  // ts-jest). With `trayKeepalive` off — the shipped default — it is `if
-  // (process.platform !== 'darwin') app.quit();` and nothing else. Pinned by
+  // ts-jest). It quits on non-darwin platforms. Pinned by
   // `main.quit-path.spec.ts`.
   app.on('window-all-closed', () => {
     handleWindowAllClosed({
       platform: process.platform,
       quit: () => app.quit(),
-      hasLiveTray: () => trayService?.isLive() ?? false,
-      keepAliveRequested: () => trayService?.isKeepAliveRequested() ?? false,
     });
   });
   // Branch-free delegation, for the same reason: the LIFO disposal order is a

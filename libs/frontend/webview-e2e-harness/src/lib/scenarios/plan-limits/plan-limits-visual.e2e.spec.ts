@@ -218,24 +218,24 @@ test.describe('plan limits > dashboard provider account card', () => {
         await page.goto(fixtureServer.url);
 
         const card = page.locator('ptah-provider-account-card');
-        const sections = card.locator('[data-testid="provider-account-section"]');
-        await expect(sections).toHaveCount(DASHBOARD_SNAPSHOT.owners.length, {
+        const tiles = card.locator('[data-testid="provider-account-tile"]');
+        await expect(tiles).toHaveCount(DASHBOARD_SNAPSHOT.owners.length, {
           timeout: 15_000,
         });
-        await expect(card.locator('[data-testid="cooldown"]')).toBeVisible();
+        await expect(card.locator('[data-testid="tile-cooldown"]')).toBeVisible();
         await fitViewportHeight(page, card, width);
         await capture(card, shotPath('dashboard-card', 'owners', theme, width));
 
-        // A failed Refresh keeps every section and says so, neutrally.
+        // A failed Refresh keeps every tile and says so, neutrally.
         const refreshNotice = card.locator('[data-testid="refresh-failed"]');
         await expect(refreshNotice).toHaveCount(0);
         rpc.failPulls = true;
-        await sections.first().getByRole('button', { name: /^Refresh / }).click();
+        await tiles.first().getByRole('button', { name: /^Refresh / }).click();
         await expect(refreshNotice).toHaveAttribute('role', 'status');
         await expect(refreshNotice).toContainText(
           'Refresh failed — showing last observed data',
         );
-        await expect(sections).toHaveCount(DASHBOARD_SNAPSHOT.owners.length);
+        await expect(tiles).toHaveCount(DASHBOARD_SNAPSHOT.owners.length);
         await fitViewportHeight(page, card, width);
         await capture(card, shotPath('dashboard-card', 'refresh-failed', theme, width));
       });

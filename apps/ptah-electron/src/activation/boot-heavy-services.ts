@@ -165,11 +165,7 @@ export function createHeavyServicesBooter(
       workspaceRoot,
       logPrefix: '[Ptah Electron]',
       signal,
-      // The skill trigger starts on the continuation of the UNAWAITED skill
-      // synthesis start, or later still when a failed start is retried, so a
-      // copy taken when this call returns is almost always `null` and
-      // shutdown would never stop the trigger that runs. The callback hands
-      // over the instance at the moment it starts.
+      // Capture the trigger when it starts so shutdown stops the live instance.
       onSkillTriggerStarted: (skillTrigger) => {
         refs.skillTrigger = skillTrigger;
       },
@@ -186,7 +182,6 @@ export function createHeavyServicesBooter(
     coordinator.setPhase('harness', 'Syncing skills and agents');
     refs.memoryCurator = thoth.memoryCurator;
     refs.memoryTrigger = thoth.memoryTrigger;
-    refs.skillSynthesis = thoth.skillSynthesis;
     refs.symbolWatcher = thoth.symbolWatcher;
     refs.statusBridgeDisposables = thoth.statusBridgeDisposables;
 

@@ -161,6 +161,7 @@ const STATUS_DOT: Record<SkillCloneStatus, string> = {
                   </dt>
                   <dd
                     class="truncate tabular-nums"
+                    [class.text-base-content-muted]="metric.value === 'No grade'"
                     [attr.data-testid]="metric.testId"
                   >
                     {{ metric.value }}
@@ -599,16 +600,18 @@ export class CloneDetailDrawerComponent {
         testId: 'clone-metric-invocations',
       });
     }
-    if (clone.kind !== 'agent') {
+    if (clone.invocationCount > 0 || clone.successRate !== null) {
       const success = formatSuccessRate(clone);
-      if (success !== null) {
-        out.push({
-          label: 'Success',
-          value: success,
-          testId: 'clone-metric-success',
-        });
-      }
-    } else {
+      out.push({
+        label: 'Success',
+        value: success,
+        testId: 'clone-metric-success',
+      });
+    }
+    if (
+      clone.kind === 'agent' &&
+      (clone.invocationCount > 0 || clone.successRate !== null)
+    ) {
       const raw = this.outcomeSignals();
       const signals = raw !== null && raw.slug === clone.slug ? raw : null;
       out.push(

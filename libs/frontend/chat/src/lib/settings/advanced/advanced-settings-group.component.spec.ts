@@ -338,21 +338,21 @@ describe('AdvancedSettingsGroupComponent', () => {
       );
     });
 
-    it('a decimal setting takes a fraction and has no unit suffix', async () => {
-      await create('skill-upkeep');
-      const input = field('skillSynthesis.replayValidation.minConfidence');
-      expect(input.getAttribute('inputmode')).toBe('decimal');
+    it('a surviving numeric setting accepts an integer and shows its unit suffix', async () => {
+      await create('context-budgets');
+      const input = field('compaction.toolOutputBudgetTokens');
+      expect(input.getAttribute('inputmode')).toBe('numeric');
       expect(
-        input.parentElement?.querySelector('[aria-hidden="true"]'),
-      ).toBeNull();
+        input.parentElement?.querySelector('[aria-hidden="true"]')?.textContent?.trim(),
+      ).toBe('tokens');
       expect(
-        field('skillSynthesis.retirement.dormantAfterDays').getAttribute(
+        field('compaction.subagentHandoffTokens').getAttribute(
           'inputmode',
         ),
       ).toBe('numeric');
-      await enter('skillSynthesis.replayValidation.minConfidence', '0.75');
+      await enter('compaction.toolOutputBudgetTokens', '3000');
       expect(writes()).toEqual([
-        { key: 'skillSynthesis.replayValidation.minConfidence', value: 0.75 },
+        { key: 'compaction.toolOutputBudgetTokens', value: 3000 },
       ]);
     });
 

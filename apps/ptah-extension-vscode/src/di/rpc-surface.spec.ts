@@ -2,16 +2,16 @@
  * RPC surface baseline — VS Code extension host.
  *
  * `deriveRpcSurface(profile)` partitions the whole RPC registry into what this
- * host serves and what it excludes. The excluded list below is the frozen
- * baseline: it is exactly the hand-maintained exclusion list this host carried
- * before TASK_2026_171 replaced it with manifest x profile derivation.
+ * host serves and what it excludes. The excluded names below preserve the
+ * hand-maintained baseline this host carried before TASK_2026_171 replaced it
+ * with manifest x profile derivation. Only names still in the live RPC method
+ * registry participate in the expectation.
  *
  * This doubles as the host's expected-ABSENT list — a method appearing here
  * must NOT be reachable on this host.
  *
- * When a genuinely new method lands in `RPC_METHOD_NAMES`, exactly one of the
- * two lists must move: add it here if this host cannot serve it, otherwise the
- * partition assertion below proves it is served.
+ * When a genuinely new method lands in `RPC_METHOD_NAMES`, add it here if this
+ * host cannot serve it; otherwise the partition assertion proves it is served.
  */
 
 import 'reflect-metadata';
@@ -31,7 +31,7 @@ const NOOP_LOGGER = {
 
 /** Electron-only surfaces: raw FS, PTY, updater, workspace lifecycle, and
  *  every SQLite/native-backed subsystem. */
-export const VSCODE_EXPECTED_ABSENT_METHODS: readonly string[] = [
+const EXPECTED_ABSENT_METHOD_NAMES: readonly string[] = [
   // Lane plan-limit read (TASK_2026_623 R10.9) — `lanePlanLimits` capability is
   // Electron-only, see expected-absent.ts.
   'agent:getLanePlanLimits',
@@ -115,67 +115,33 @@ export const VSCODE_EXPECTED_ABSENT_METHODS: readonly string[] = [
   'memory:unpin',
   // The whole `skillSynthesis:*` namespace requires the `skillSynthesis`
   // capability (manifest.ts `requires: ['skillSynthesis']`), which
-  // `createVscodeRpcHostProfile` never turns on: the queue, candidate store and
-  // budget ledger are all better-sqlite3-backed, so this host serves none of it.
-  'skillSynthesis:acceptSuggestion',
-  'skillSynthesis:analyzeNow',
+  // `createVscodeRpcHostProfile` never turns on, so this host serves none of it.
   'skillSynthesis:applyProposal',
   'skillSynthesis:clearStaleSpecs',
-  'skillSynthesis:diagnostics',
-  // Weekly gap digest — reads the SQLite candidate/invocation tables.
-  'skillSynthesis:digest',
-  'skillSynthesis:dismissSuggestion',
-  'skillSynthesis:enhanceNow',
   // Per-agent model editor (TASK_2026_609) — served only to the desktop
   // Thoth Library Agents tab, like the rest of the namespace.
   'skillSynthesis:getAgentModels',
-  'skillSynthesis:getCandidate',
   'skillSynthesis:getClone',
   'skillSynthesis:getHistoryBody',
-  // Lane config read — lanes only exist to route the background drain, which
-  // this host does not run.
-  'skillSynthesis:getLanes',
   'skillSynthesis:getScorecardDetail',
   'skillSynthesis:getScorecards',
-  'skillSynthesis:getSettings',
-  'skillSynthesis:getSuggestion',
-  'skillSynthesis:getTriggers',
   'skillSynthesis:harvestSpecs',
   'skillSynthesis:invocationStats',
-  'skillSynthesis:invocations',
   'skillSynthesis:keepClone',
-  'skillSynthesis:listCandidates',
   'skillSynthesis:listClones',
   // Quarantined-agent listing (TASK_2026_609) — desktop Agents tab only.
   'skillSynthesis:listQuarantinedAgents',
   'skillSynthesis:listSpecs',
-  'skillSynthesis:listSuggestions',
-  'skillSynthesis:pin',
   'skillSynthesis:previewEnhancement',
-  'skillSynthesis:promote',
-  'skillSynthesis:promoteBulk',
-  // Durable synthesis-queue inspection — the queue table is SQLite-only.
-  'skillSynthesis:queue',
   'skillSynthesis:rebaseClone',
-  'skillSynthesis:reject',
-  'skillSynthesis:rejectBulk',
-  'skillSynthesis:rejectByPattern',
   // Quarantine restore — counterpart of `listQuarantinedAgents`, same reason.
   'skillSynthesis:restoreQuarantinedAgent',
   'skillSynthesis:revertEnhancement',
-  'skillSynthesis:runCurator',
   // Clone body save — writes into `~/.ptah/user` through
   // `UserLayerMirrorService`, which this host does not bind.
   'skillSynthesis:saveCloneBody',
   // Per-agent model write — counterpart of `getAgentModels`, same reason.
   'skillSynthesis:setAgentModel',
-  // Lane config write — counterpart of `getLanes`, same reason.
-  'skillSynthesis:setLanes',
-  'skillSynthesis:setTriggers',
-  'skillSynthesis:stats',
-  'skillSynthesis:unpin',
-  'skillSynthesis:updateSettings',
-  'skillSynthesis:updateSuggestion',
   'update:check-now',
   'update:get-state',
   'update:mark-downloaded',
@@ -200,6 +166,10 @@ export const VSCODE_EXPECTED_ABSENT_METHODS: readonly string[] = [
   'workspace:switch',
 ];
 
+const liveMethodNames = new Set<string>(RPC_METHOD_NAMES);
+export const VSCODE_EXPECTED_ABSENT_METHODS: readonly string[] =
+  EXPECTED_ABSENT_METHOD_NAMES.filter((name) => liveMethodNames.has(name));
+
 describe('VS Code RPC surface', () => {
   const surface = deriveRpcSurface(createVscodeRpcHostProfile(NOOP_LOGGER));
 
@@ -210,6 +180,7 @@ describe('VS Code RPC surface', () => {
   it('serves bound guidance and generation recovery methods', () => {
     expect(surface.registered).toEqual(
       expect.arrayContaining([
+        'attention:getSnapshot',
         'enhancedPrompts:cancel',
         'enhancedPrompts:getRunState',
         'wizard:get-generation-run-state',
@@ -217,7 +188,7 @@ describe('VS Code RPC surface', () => {
     );
   });
 
-  it('excludes exactly the pre-refactor Electron-only method list', () => {
+  it('excludes exactly the live methods in the VS Code absent list', () => {
     expect([...surface.excluded]).toEqual([...VSCODE_EXPECTED_ABSENT_METHODS]);
   });
 

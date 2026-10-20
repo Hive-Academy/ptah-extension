@@ -122,9 +122,9 @@ test.describe('Concurrent session isolation on the canvas (TASK_2026_370)', () =
 
     await ui.goto('chat');
 
-    // Second session: the New session anchor, then the create dialog's Create
+    // Second session: the Rail footer New session button, then the create dialog's Create
     // button. The Rail shows one focused pane, and the new session takes it.
-    await page.locator('[title="Add new session tile"]').first().click();
+    await page.locator('[data-testid="canvas-footer-new-session"]').first().click();
     await page.getByRole('button', { name: 'Create', exact: true }).click();
 
     const cards = page.locator('ptah-canvas-rail [data-rail-card]');

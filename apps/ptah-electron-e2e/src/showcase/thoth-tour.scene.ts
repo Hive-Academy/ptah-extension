@@ -69,9 +69,8 @@ const BEATS: readonly ThothBeat[] = [
   {
     id: 'skills',
     hero: [
-      '[data-testid="suggestions-card"]',
-      '[data-testid="skills-stat-candidates"]',
-      '[aria-label="Skill synthesis statistics"]',
+      '[data-testid="clones-view"]',
+      '[data-testid="skills-pause-switch"]',
     ],
   },
   {

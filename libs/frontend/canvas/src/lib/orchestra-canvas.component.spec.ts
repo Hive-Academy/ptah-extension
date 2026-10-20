@@ -33,12 +33,17 @@ jest.mock('ngx-markdown', () => {
   };
 });
 
-import { DeferBlockState, TestBed, type ComponentFixture } from '@angular/core/testing';
-import { ApplicationRef, signal, type WritableSignal } from '@angular/core';
-import { By } from '@angular/platform-browser';
+import { TestBed } from '@angular/core/testing';
+import {
+  ApplicationRef,
+  signal,
+  input,
+  output,
+  type WritableSignal,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { LucideAngularModule } from 'lucide-angular';
-import { SessionId, TabId } from '@ptah-extension/shared';
+import { TabId } from '@ptah-extension/shared';
 import type { TabState } from '@ptah-extension/chat-types';
 import { OrchestraCanvasComponent } from './orchestra-canvas.component';
 import { CanvasStore } from './canvas.store';
@@ -48,19 +53,6 @@ import { CanvasLayoutPersistenceService } from './canvas-layout-persistence.serv
 import { NativePopoverComponent } from '@ptah-extension/ui';
 
 @Component({
-  selector: 'ptah-canvas-needs-you-queue',
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  template: '',
-})
-class NeedsYouQueueStub {}
-
-/** The needs-you queue loads in a lazy `@defer (on idle)` chunk; render it now. */
-async function completeDeferBlocks(fixture: ComponentFixture<unknown>): Promise<void> {
-  for (const block of await fixture.getDeferBlocks()) {
-    await block.render(DeferBlockState.Complete);
-  }
-}
-@Component({
   selector: 'ptah-canvas-rail-board',
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: '',
@@ -68,10 +60,12 @@ async function completeDeferBlocks(fixture: ComponentFixture<unknown>): Promise<
 class RailBoardStub {
   @Input() workspacePath = '';
   @Input() visible = false;
+  readonly notice = input(null);
+  readonly noticeDismissed = output<string>();
+  readonly newSessionRequested = output<HTMLElement>();
 }
 import { TabManagerService, ChatStore } from '@ptah-extension/chat';
 import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
-import { ActivityTickerComponent } from '@ptah-extension/chat-ui';
 import {
   AppStateManager,
   BackOfficeActivityService,
@@ -143,6 +137,9 @@ describe('OrchestraCanvasComponent workspace effects', () => {
   let switchSessionMock: jest.Mock;
   let canvasStoreMock: CanvasStore;
   let canStartRunningSession: ReturnType<typeof signal<boolean>>;
+  let canAddTile: ReturnType<typeof signal<boolean>>;
+  let writeFailed: ReturnType<typeof signal<boolean>>;
+  let writeFailureCount: ReturnType<typeof signal<number>>;
   let newCanvasSessionRequest: WritableSignal<string | null>;
 
   function mount() {
@@ -192,6 +189,9 @@ describe('OrchestraCanvasComponent workspace effects', () => {
     });
     onTabClosedMock = jest.fn(() => jest.fn());
     canStartRunningSession = signal(true);
+    canAddTile = signal(true);
+    writeFailed = signal(false);
+    writeFailureCount = signal(0);
     newCanvasSessionRequest = signal<string | null>(null);
 
     const tabManagerMock = {
@@ -225,7 +225,7 @@ describe('OrchestraCanvasComponent workspace effects', () => {
       >([]),
       focusedTabId: signal<string | null>(null),
       tileCount: signal(0),
-      canAddTile: signal(true),
+      canAddTile,
       canStartRunningSession,
       workspacePaths: signal<string[]>([]),
       activeWorkspacePath: signal<string | null>(null),
@@ -296,7 +296,12 @@ describe('OrchestraCanvasComponent workspace effects', () => {
           { provide: CanvasLayoutService, useValue: layoutServiceMock },
           {
             provide: CanvasLayoutPersistenceService,
-            useValue: { flush: persistenceFlushMock },
+            useValue: {
+              flush: persistenceFlushMock,
+              writeFailed,
+              writeFailureCount,
+              readOnlyPaths: signal(new Set<string>()),
+            },
           },
         ],
       },
@@ -348,6 +353,56 @@ describe('OrchestraCanvasComponent workspace effects', () => {
         }
       ).headerMessage(),
     ).toBe('9 sessions are running. Wait for one to finish to start another.');
+  });
+
+  it('does not move focus when the tile bound is reached with the popover closed', () => {
+    const fixture = mount();
+    const anchor = document.createElement('button');
+    const composer = document.createElement('input');
+    document.body.append(anchor, composer);
+    try {
+      Reflect.apply(Reflect.get(fixture.componentInstance, 'openNewSessionPopover'), fixture.componentInstance, [anchor]);
+      Reflect.apply(Reflect.get(fixture.componentInstance, 'handleCancelSession'), fixture.componentInstance, []);
+      composer.focus();
+      canAddTile.set(false);
+      fixture.detectChanges();
+      expect(document.activeElement).toBe(composer);
+    } finally {
+      anchor.remove();
+      composer.remove();
+    }
+  });
+
+  it('refreshes the blocked-create notice even when the reason repeats', () => {
+    const fixture = mount();
+    canStartRunningSession.set(false);
+    const anchor = document.createElement('button');
+    const instance = fixture.componentInstance;
+    const open = () => Reflect.apply(Reflect.get(instance, 'openNewSessionPopover'), instance, [anchor]);
+    const notice = () => Reflect.get(instance, 'boardNotice')();
+    open();
+    const firstKey = notice()?.key;
+    expect(firstKey).toBeTruthy();
+    Reflect.apply(Reflect.get(instance, 'dismissNotice'), instance, [firstKey]);
+    expect(notice()).toBeNull();
+    open();
+    expect(notice()?.key).not.toBe(firstKey);
+  });
+
+  it('shows a dismissed write-failure notice after another failed write', () => {
+    const fixture = mount();
+    const instance = fixture.componentInstance;
+    const notice = () => Reflect.get(instance, 'boardNotice')() as { key: string } | null;
+    writeFailed.set(true);
+    flush();
+    const firstKey = notice()?.key;
+    expect(firstKey).toBeTruthy();
+    Reflect.apply(Reflect.get(instance, 'dismissNotice'), instance, [firstKey]);
+    expect(notice()).toBeNull();
+    writeFailureCount.update((count) => count + 1);
+    flush();
+    expect(writeFailed()).toBe(true);
+    expect(notice()?.key).not.toBe(firstKey);
   });
 
   it('workspace-swap effect calls switchWorkspaceTiles with new path and current tabs', () => {
@@ -762,36 +817,11 @@ describe('OrchestraCanvasComponent dock and viewport allocation', () => {
   let observeSpy: jest.Mock;
   let tabManagerMock: Partial<TabManagerService>;
   let tabsSignal: WritableSignal<TabState[]>;
-  let activityItems: WritableSignal<readonly ActivityItem[]>;
-  let activityIdle: WritableSignal<boolean>;
-  let setCurrentViewMock: jest.Mock;
-
-  function activityItem(id: string, summary: string): ActivityItem {
-    return {
-      id,
-      source: 'cron',
-      kind: 'cron-run',
-      summary,
-      timestamp: 1,
-      level: 'info',
-    };
-  }
-
-  function dock() {
-    return fixture.debugElement.query(By.css('[data-testid="canvas-dock"]'));
-  }
-
-  function ticker() {
-    return fixture.debugElement.query(By.directive(ActivityTickerComponent));
-  }
 
   beforeEach(() => {
     const initialTab = createMockTabState('tab 1');
     tabsSignal = signal<TabState[]>([initialTab]);
     observeSpy = jest.fn();
-    activityItems = signal<readonly ActivityItem[]>([]);
-    activityIdle = signal(true);
-    setCurrentViewMock = jest.fn();
 
     tabManagerMock = {
       tabs: tabsSignal,
@@ -827,7 +857,7 @@ describe('OrchestraCanvasComponent dock and viewport allocation', () => {
       clearNewCanvasSessionRequest: jest.fn(),
       thothFirstRunDismissed: () => true,
       dismissThothFirstRun: jest.fn(),
-      setCurrentView: setCurrentViewMock,
+      setCurrentView: jest.fn(),
     };
 
     TestBed.configureTestingModule({
@@ -842,7 +872,7 @@ describe('OrchestraCanvasComponent dock and viewport allocation', () => {
         },
         {
           provide: BackOfficeActivityService,
-          useValue: { recent: activityItems, isIdle: activityIdle },
+          useValue: { recent: signal([]), isIdle: signal(true) },
         },
       ],
     });
@@ -853,8 +883,6 @@ describe('OrchestraCanvasComponent dock and viewport allocation', () => {
           FormsModule,
           LucideAngularModule,
           RailBoardStub,
-          NeedsYouQueueStub,
-          ActivityTickerComponent,
           NativePopoverComponent,
         ],
         providers: [
@@ -866,12 +894,18 @@ describe('OrchestraCanvasComponent dock and viewport allocation', () => {
             useValue: {
               load: jest.fn(() => ({
                 tiles: null,
-                board: { mode: 'rail', railCollapsed: false, railDensity: 'comfortable', railScrollTop: 0 },
+                board: {
+                  mode: 'rail',
+                  railCollapsed: false,
+                  railDensity: 'comfortable',
+                  railScrollTop: 0,
+                },
                 writable: true,
                 needsWrite: false,
                 readOnlyReason: null,
               })),
               writeFailed: signal(false),
+              writeFailureCount: signal(0),
               readOnlyPaths: signal(new Set<string>()),
               markHydrated: jest.fn(),
               schedule: jest.fn(),
@@ -887,193 +921,47 @@ describe('OrchestraCanvasComponent dock and viewport allocation', () => {
     fixture.detectChanges();
   });
 
-  it('disables the New Session trigger and exposes its reason at nine running sessions', () => {
-    const existingTabId = tabsSignal()[0].id;
-    const runningTabs = Array.from({ length: 9 }, (_, index) => ({
-      ...createMockTabState(
-        `running-${index}`,
-        index === 0 ? existingTabId : TabId.create(),
+  it('gives the viewport the full canvas height without the old dock or ticker', () => {
+    const viewport = fixture.nativeElement.querySelector(
+      '[data-testid="session-viewport"]',
+    );
+    expect(viewport).not.toBeNull();
+    expect(
+      fixture.nativeElement.querySelector(
+        '[data-testid="canvas-dock"], ptah-activity-ticker, [data-testid="canvas-new-session-anchor"]',
       ),
-      claudeSessionId: SessionId.from(
-        `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
-      ),
-      status: 'streaming' as const,
-    }));
-    tabsSignal.set(runningTabs);
-    for (const tab of runningTabs.slice(1)) {
-      fixture.componentInstance.canvasStore.adoptTab(tab.id);
+    ).toBeNull();
+    expect(observeSpy).toHaveBeenCalledWith(viewport);
+    const interactive = fixture.nativeElement.querySelector('[data-testid="canvas-interactive"]');
+    expect(interactive).not.toBeNull();
+    expect(interactive.querySelector('ptah-canvas-rail-board')).not.toBeNull();
+  });
+
+  it('does not render the needs-you queue in the shell', () => {
+    expect(
+      fixture.nativeElement.querySelector('ptah-canvas-needs-you-queue'),
+    ).toBeNull();
+  });
+
+  it('keeps the shared popover outside viewport flow without cap-state host attributes', () => {
+    const popover = fixture.nativeElement.querySelector(
+      'ptah-native-popover',
+    ) as HTMLElement;
+    expect(popover).not.toBeNull();
+    expect(
+      fixture.nativeElement
+        .querySelector('[data-testid="session-viewport"]')
+        .contains(popover),
+    ).toBe(false);
+    expect(popover.parentElement?.className).toContain('absolute');
+    for (const name of [
+      'tabindex',
+      'role',
+      'aria-label',
+      'aria-describedby',
+      'title',
+    ]) {
+      expect(popover.hasAttribute(name)).toBe(false);
     }
-    expect(fixture.componentInstance.canvasStore.runningSessionCount()).toBe(9);
-    fixture.detectChanges();
-    const trigger = fixture.nativeElement.querySelector(
-      'button[aria-label="Add new session tile"]',
-    ) as HTMLButtonElement;
-    expect(trigger.disabled).toBe(true);
-    expect(trigger.title).toBe(
-      '9 sessions are running. Wait for one to finish to start another.',
-    );
-    expect(trigger.getAttribute('aria-describedby')).toBe(
-      'canvas-running-cap-reason',
-    );
-    const reason = fixture.nativeElement.querySelector(
-      '#canvas-running-cap-reason',
-    ) as HTMLElement | null;
-    expect(reason).not.toBeNull();
-    expect(reason?.textContent?.trim()).toBe(trigger.title);
-    expect(
-      trigger.closest('ptah-native-popover')?.getAttribute('tabindex'),
-    ).toBe('0');
-  });
-
-  it('renders reserved dock outside the session viewport when tiles are present', () => {
-    const dock = fixture.debugElement.query(
-      By.css('[data-testid="canvas-dock"]'),
-    );
-    const viewport = fixture.debugElement.query(
-      By.css('[data-testid="session-viewport"]'),
-    );
-
-    expect(dock).toBeTruthy();
-    expect(viewport).toBeTruthy();
-
-    // Dock is not inside session-viewport; it is a sibling above it
-    expect(viewport.nativeElement.contains(dock.nativeElement)).toBe(false);
-    expect(dock.nativeElement.parentElement).toBe(
-      viewport.nativeElement.parentElement,
-    );
-  });
-
-  it('reserves the queue trigger footprint with a hidden placeholder until the queue loads', async () => {
-    const dock = fixture.debugElement.query(By.css('[data-testid="canvas-dock"]'));
-    const placeholder = dock.nativeElement.querySelector('span.btn.invisible[aria-hidden="true"]');
-    expect(placeholder).not.toBeNull();
-    expect(dock.query(By.directive(NeedsYouQueueStub))).toBeNull();
-    await completeDeferBlocks(fixture);
-    expect(dock.query(By.directive(NeedsYouQueueStub))).not.toBeNull();
-    expect(dock.nativeElement.querySelector('span.btn.invisible')).toBeNull();
-  });
-
-  it('shares reserved dock between the queue and the New Session anchor, with no Grid controls', async () => {
-    await completeDeferBlocks(fixture);
-    const dock = fixture.debugElement.query(
-      By.css('[data-testid="canvas-dock"]'),
-    );
-    const queue = dock.query(By.directive(NeedsYouQueueStub));
-    const newSessionBtn = dock.query(
-      By.css('button[title="Add new session tile"]'),
-    );
-    expect(queue).toBeTruthy();
-    expect(newSessionBtn).toBeTruthy();
-    expect(
-      queue.nativeElement.compareDocumentPosition(newSessionBtn.nativeElement) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    expect(
-      dock.nativeElement.querySelector(
-        'ptah-canvas-layout-controls, ptah-canvas-board-toggle',
-      ),
-    ).toBeNull();
-    expect(
-      fixture.nativeElement.querySelectorAll('ptah-native-popover'),
-    ).toHaveLength(1);
-  });
-
-  it('mounts only the Rail board in the session viewport', () => {
-    const viewport = fixture.debugElement.query(
-      By.css('[data-testid="session-viewport"]'),
-    );
-    expect(viewport.queryAll(By.directive(RailBoardStub))).toHaveLength(1);
-    expect(
-      viewport.nativeElement.querySelector(
-        'ptah-canvas-workspace-grid, ptah-canvas-empty-state, ptah-canvas-detail-panel',
-      ),
-    ).toBeNull();
-  });
-
-  it('does not have permanent absolute overlay controls over the session viewport', () => {
-    const overlays = fixture.debugElement.queryAll(
-      By.css(
-        '.session-viewport > .absolute.top-3, .session-viewport > .absolute.bottom-4, .session-viewport > .absolute.bottom-20',
-      ),
-    );
-    expect(overlays).toHaveLength(0);
-  });
-
-  it('observes the sessionViewport element instead of outer container', () => {
-    const viewport = fixture.debugElement.query(
-      By.css('[data-testid="session-viewport"]'),
-    );
-    expect(observeSpy).toHaveBeenCalledWith(viewport.nativeElement);
-  });
-
-  /**
-   * Activity ticker placement (TASK_2026_405 follow-up). The ticker used to be
-   * a fixed toast in the top-right corner that published its own width, and
-   * the dock padded its right edge from that width — so every arriving message
-   * moved the Layout and New Session buttons. It now sits in this row, in
-   * normal flow, on the free left edge.
-   */
-  it('renders the ticker inside the dock, before the queue', async () => {
-    await completeDeferBlocks(fixture);
-    activityIdle.set(false);
-    activityItems.set([activityItem('a', 'Backup finished')]);
-    fixture.detectChanges();
-
-    const tickerEl = ticker();
-    expect(tickerEl).toBeTruthy();
-    expect(dock().nativeElement.contains(tickerEl.nativeElement)).toBe(true);
-
-    // DOM order decides the visual order: ticker first, controls after it.
-    const controls = dock().query(By.directive(NeedsYouQueueStub));
-    expect(
-      tickerEl.nativeElement.compareDocumentPosition(controls.nativeElement) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-  });
-
-  it('never positions the ticker with fixed or absolute placement', () => {
-    activityIdle.set(false);
-    activityItems.set([activityItem('a', 'Backup finished')]);
-    fixture.detectChanges();
-
-    const classes = ticker().nativeElement.parentElement?.className ?? '';
-    expect(classes).not.toContain('fixed');
-    expect(classes).not.toContain('absolute');
-    // The left cell absorbs all spare width, so the right controls cannot move.
-    expect(classes).toContain('flex-1');
-    expect(classes).toContain('min-w-0');
-  });
-
-  it('keeps the dock free of any width reservation for the ticker', () => {
-    const dockEl = dock().nativeElement as HTMLElement;
-    expect(dockEl.getAttribute('style') ?? '').not.toContain('padding-right');
-    expect(dockEl.className).not.toContain('justify-end');
-  });
-
-  it('drops the ticker while idle and brings it back on the next message', () => {
-    expect(ticker()).toBeNull();
-
-    activityIdle.set(false);
-    activityItems.set([activityItem('a', 'Backup finished')]);
-    fixture.detectChanges();
-    expect(ticker()).toBeTruthy();
-
-    activityIdle.set(true);
-    fixture.detectChanges();
-    expect(ticker()).toBeNull();
-  });
-
-  it('opens Thoth when the dock ticker is clicked', () => {
-    activityIdle.set(false);
-    activityItems.set([activityItem('a', 'Backup finished')]);
-    fixture.detectChanges();
-
-    const line = ticker().nativeElement.querySelector(
-      '[data-testid="activity-ticker-line"]',
-    );
-    expect(line?.textContent?.trim()).toBe('Backup finished');
-
-    ticker().nativeElement.querySelector('button')?.click();
-    expect(setCurrentViewMock).toHaveBeenCalledWith('thoth');
   });
 });

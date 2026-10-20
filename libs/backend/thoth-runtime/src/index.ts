@@ -11,25 +11,17 @@
  */
 export { bootThothRuntime } from './lib/boot-thoth-runtime';
 export { startThothCron } from './lib/start-thoth-cron';
-// The ONE skill-drain job table. Exported because `cli-engine` registers the
-// same three jobs through its own tier lifecycle and must not carry a second
-// copy of the ids, handler names and cron-expression keys.
 export {
-  SKILL_DRAIN_JOBS,
-  type SkillDrainJobSpec,
-} from './lib/skill-drain-jobs';
+  RETIRED_SKILL_PIPELINE_JOB_IDS,
+  disableRetiredSkillPipelineJobs,
+} from './lib/retired-skill-jobs';
 // The ONE memory retention job spec and its per-run handler, shared with
-// `cli-engine` on the same terms as the drain table.
+// `cli-engine`.
 export {
   MEMORY_RETENTION_JOB,
   createMemoryRetentionHandler,
   type MemoryRetentionJobSpec,
 } from './lib/memory-retention-job';
-export {
-  SKILL_BACKLOG_CLEANUP_JOB,
-  createSkillBacklogCleanupHandler,
-  type SkillBacklogCleanupJobSpec,
-} from './lib/skill-backlog-cleanup-job';
 export {
   createActivityEmitter,
   withActivityEmit,

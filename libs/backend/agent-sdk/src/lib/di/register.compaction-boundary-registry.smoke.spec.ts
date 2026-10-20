@@ -92,6 +92,9 @@ function buildSmokeContainer(
   const logger = createMockLogger();
 
   c.register(TOKENS.LOGGER, { useValue: logger });
+  c.register(PLATFORM_TOKENS.HOST_ATTENTION_NOTIFICATIONS, {
+    useValue: { present: jest.fn(), resolve: jest.fn(), isEligible: jest.fn(() => false), open: jest.fn(), dispose: jest.fn() },
+  });
   if (governor !== undefined) {
     c.register(TOKENS.BACKGROUND_WORK_GOVERNOR, { useValue: governor });
   }

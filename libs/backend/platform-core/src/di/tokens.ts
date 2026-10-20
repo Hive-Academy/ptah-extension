@@ -32,6 +32,12 @@ export const PLATFORM_TOKENS = {
   /** IUserInteraction — error/warning/info messages, quick pick, input box */
   USER_INTERACTION: Symbol.for('PlatformUserInteraction'),
 
+  /** IHostAttentionNotifications - native attention delivery. */
+  HOST_ATTENTION_NOTIFICATIONS: Symbol.for('PlatformHostAttentionNotifications'),
+
+  /** IPtahViewVisibility - aggregate Ptah sidebar/panel visibility. */
+  PTAH_VIEW_VISIBILITY: Symbol.for('PlatformPtahViewVisibility'),
+
   /** IOutputChannel — logging output channel */
   OUTPUT_CHANNEL: Symbol.for('PlatformOutputChannel'),
 

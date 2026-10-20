@@ -68,6 +68,22 @@ export interface SessionStatsRequest {
   readonly signal?: AbortSignal;
 }
 
+export interface DatedUsageRecord {
+  readonly key: string;
+  readonly subagentId?: string;
+  readonly timestampMs: number;
+  readonly model: string;
+  readonly input: number;
+  readonly output: number;
+  readonly cacheRead: number;
+  readonly cacheCreation: number;
+}
+
+export type DatedUsageScanEntry =
+  | { readonly kind: 'usage'; readonly record: DatedUsageRecord }
+  | { readonly kind: 'unreadable' | 'untimestamped'; readonly count: number }
+  | { readonly kind: 'limit' };
+
 interface TranscriptFile {
   readonly filePath: string;
   readonly token: TranscriptFileToken;
@@ -100,6 +116,82 @@ export class SessionStatsReaderService {
     @inject(SDK_TOKENS.SDK_JSONL_READER)
     private readonly jsonlReader: JsonlReaderService,
   ) {}
+
+  /** Workspace scan with optional caller bounds. The caller authorizes workspacePath first. */
+  async *scanDatedUsage(request: {
+    readonly workspacePath: string;
+    readonly since: number;
+    readonly until: number;
+    readonly signal?: AbortSignal;
+    readonly maxFiles?: number;
+    readonly maxRecords?: number;
+  }): AsyncGenerator<DatedUsageScanEntry> {
+    const { since, until, signal } = request;
+    if (!Number.isFinite(since) || !Number.isFinite(until) || since >= until) {
+      throw new SdkError('Invalid dated usage range');
+    }
+    const sessionsDir = await this.jsonlReader.findSessionsDirectory(request.workspacePath);
+    if (!sessionsDir) return;
+    const page: PageContext = {
+      sessionsDir, signal, subagentSlots: new Semaphore(SUBAGENT_FILE_CONCURRENCY),
+    };
+    const names = (await fs.readdir(sessionsDir)).filter((name) =>
+      UUID_REGEX.test(name.replace(/\.jsonl$/, '')) && name.endsWith('.jsonl'),
+    ).sort((a, b) => a.localeCompare(b, 'en'));
+    let scannedFiles = 0;
+    let scannedRecords = 0;
+    for (const name of names) {
+      if (request.maxFiles !== undefined && scannedFiles >= request.maxFiles) { yield { kind: 'limit' }; return; }
+      signal?.throwIfAborted();
+      const sessionId = name.slice(0, -6);
+      try {
+        const parentPath = path.join(sessionsDir, name);
+        const token = await statToken(parentPath);
+        if (!token) continue;
+        scannedFiles++;
+        const parent = await this.ledgerFor({ filePath: parentPath, token }, signal);
+        const members = await this.subagentMembers(sessionId, page);
+        if (members.unreadable) yield { kind: 'unreadable', count: members.unreadable };
+        const ledgers: Array<{ name: string; ledger: SessionUsageLedger }> = [
+          { name: 'parent', ledger: parent },
+        ];
+        for (const member of members.owned) {
+          if (request.maxFiles !== undefined && scannedFiles >= request.maxFiles) { yield { kind: 'limit' }; return; }
+          try {
+            ledgers.push({ name: path.basename(member.filePath), ledger: await this.ledgerFor(member, signal) });
+            scannedFiles++;
+          } catch {
+            if (signal?.aborted) signal.throwIfAborted();
+            yield { kind: 'unreadable', count: 1 };
+          }
+        }
+        for (const { name: ledgerName, ledger } of ledgers) {
+          for (let i = 0; i < ledger.records.length; i++) {
+            if (request.maxRecords !== undefined && scannedRecords >= request.maxRecords) { yield { kind: 'limit' }; return; }
+            scannedRecords++;
+            const record = ledger.records[i];
+            if (!record.hasUsage) continue;
+            if (record.timestampMs === null) {
+              yield { kind: 'untimestamped', count: 1 };
+              continue;
+            }
+            if (record.timestampMs < since || record.timestampMs >= until) continue;
+            yield { kind: 'usage', record: {
+              key: record.messageId ? `${sessionId}:${record.messageId}` : `${sessionId}:${ledgerName}:${i}`,
+              ...(ledgerName !== 'parent' ? { subagentId: ledgerName } : {}),
+              timestampMs: record.timestampMs,
+              model: record.model ?? ledger.initModel ?? 'unknown',
+              input: record.input, output: record.output,
+              cacheRead: record.cacheRead, cacheCreation: record.cacheCreation,
+            } };
+          }
+        }
+      } catch {
+        if (signal?.aborted) signal.throwIfAborted();
+        yield { kind: 'unreadable', count: 1 };
+      }
+    }
+  }
 
   /**
    * Stats for each requested session, in request order. Never rejects for a

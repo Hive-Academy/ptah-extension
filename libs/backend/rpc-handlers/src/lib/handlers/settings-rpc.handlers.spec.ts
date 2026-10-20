@@ -390,7 +390,7 @@ describe('SettingsRpcHandlers', () => {
     describe('described (advanced) keys', () => {
       it.each([
         ['memory.retention.stuckDays', 30],
-        ['skillSynthesis.replayValidation.minConfidence', 0.75],
+        ['internalQuery.queueTimeoutMs', 1_500],
         ['agentOrchestration.codexWebSearch', false],
         ['cron.catchupWindowMs', 0],
       ])('writes a valid value for %s', async (key, value) => {
@@ -443,9 +443,9 @@ describe('SettingsRpcHandlers', () => {
         ],
         [
           'a missing value',
-          'skillSynthesis.judgePanel.disagreementThreshold',
+          'internalQuery.maxConcurrentPerLane',
           undefined,
-          'Use a number from 0 to 9 points.',
+          'Use a whole number from 1 to 16 queries.',
         ],
         [
           'a non-boolean for a boolean key',

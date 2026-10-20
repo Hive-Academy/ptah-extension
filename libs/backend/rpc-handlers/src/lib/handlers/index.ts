@@ -54,6 +54,7 @@ export { GitChangeSetRpcHandlers } from './git-change-set-rpc.handlers';
 export { GitWorkflowRpcHandlers } from './git-workflow-rpc.handlers';
 export { WorkspaceRpcHandlers } from './workspace-rpc.handlers';
 export { SettingsRpcHandlers } from './settings-rpc.handlers';
+export { AttentionRpcHandlers } from './attention-rpc.handlers';
 export { MemoryRpcHandlers } from './memory-rpc.handlers';
 export { MemRpcHandlers } from './mem-rpc.handlers';
 export { CorpusRpcHandlers } from './corpus-rpc.handlers';
@@ -81,6 +82,7 @@ export type {
   DbOpenBindingFolderResult,
 } from './persistence-rpc.handlers';
 export { EmbedderRpcHandlers } from './embedder-rpc.handlers';
+export { AnalyticsRpcHandlers } from './analytics-rpc.handlers';
 export { TasksRpcHandlers } from './tasks-rpc.handlers';
 export { SessionOrganizationRpcHandlers } from './session-organization-rpc.handlers';
 export { ElectronFileOpenRpcHandlers } from './file-open-rpc.handlers';

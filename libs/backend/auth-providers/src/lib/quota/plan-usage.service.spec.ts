@@ -427,6 +427,48 @@ describe('PlanUsageService', () => {
       },
     );
 
+    it('API-key Grok keeps local CLI usage and says it has no subscription quota', async () => {
+      const h = harness();
+      const ownerRef = quotaOwnerRefFromKey(credentialOwnerKey('grok', 'key'));
+      const readers = h.service as unknown as {
+        localReaders: Record<string, jest.Mock>;
+      };
+      readers.localReaders['grok'] = jest.fn(async () => ({
+        status: 'available',
+        windowSetEstablished: false,
+        windows: [],
+        localUsage: {
+          kind: 'local-usage',
+          label: 'Session usage: tokens & cost',
+          tokens: 42,
+          estimatedCostUsd: 0.5,
+          observedAt: T0,
+          source: 'local-cli',
+        },
+      }));
+      const snapshot = await h.service.getOwnerSnapshot({
+        providerId: 'grok',
+        ownerRef,
+        cliSessionId: 'session1',
+      });
+      expect(snapshot.windows).toEqual([]);
+      expect(snapshot.statusReason).toBe('api-key-no-subscription-quota');
+      expect(snapshot.localUsage).toMatchObject({
+        tokens: 42,
+        estimatedCostUsd: 0.5,
+      });
+    });
+
+    it('API-key Grok without a session still names the reason', async () => {
+      const h = harness();
+      const snapshot = await h.service.getOwnerSnapshot({
+        providerId: 'grok',
+        ownerRef: quotaOwnerRefFromKey(credentialOwnerKey('grok', 'key')),
+      });
+      expect(snapshot.statusReason).toBe('api-key-no-subscription-quota');
+      expect(snapshot.localUsage).toBeUndefined();
+    });
+
     it('resolves the stored OpenCode Go credential for its reader', async () => {
       const h = harness();
       const reader = jest.fn(async (_request: { credential?: PlanSecret }) => ({

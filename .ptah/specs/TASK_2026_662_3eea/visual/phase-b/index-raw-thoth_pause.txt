@@ -1,0 +1,78 @@
+electron pid: 34312
+viewport {"w":1280,"h":800}
+seeded events=40
+theme anubis
+== stage thoth (dark)
+| thoth-skills-landing | dark | pb-thoth-skills-landing-dark.png | Thoth shell, Skills tab landing (nav tiles + pause + telemetry) |
+| dashboard-tiles | dark | pb-dashboard-tiles-dark.png | Thoth nav pillar tiles |
+| skills-tile-initial | dark | pb-skills-tile-initial-dark.png | Skills tile (initial telemetry state) |
+(note dark) skills tile (initial): Skills | On | Skill telemetry
+| pause-and-telemetry | dark | pb-pause-and-telemetry-dark.png | Pause + telemetry switches |
+| telemetry-switch | dark | pb-telemetry-switch-dark.png | Telemetry switch card |
+(note dark) telemetry switch: Skill telemetry |  | Records skill use even while Skills is paused.
+(note dark) telemetry checked initially: true
+(note dark) telemetry checked after toggle: false
+| skills-tile-toggled | dark | pb-skills-tile-toggled-dark.png | Skills tile after telemetry toggled |
+| telemetry-switch-toggled | dark | pb-telemetry-switch-toggled-dark.png | Telemetry switch after toggle |
+(note dark) skills tile (after toggle): Skills | On | Skill telemetry
+| dashboard-tiles-toggled | dark | pb-dashboard-tiles-toggled-dark.png | Nav tiles after toggle |
+| telemetry-pending | dark | pb-telemetry-pending-dark.png | Telemetry write pending (host reply held 5s) |
+(note dark) telemetry pending: checked=true disabled=true
+| telemetry-after-pending | dark | pb-telemetry-after-pending-dark.png | Telemetry after pending write settled |
+(note dark) tile after pending: Skills | On | Skill telemetry
+| telemetry-error | dark | pb-telemetry-error-dark.png | Telemetry write failed |
+(note dark) telemetry error: Skill telemetry |  | Records skill use even while Skills is paused. |  | Could not change the telemetry switch. It shows the saved setting.
+== stage pause (dark)
+(note dark) pause state: On
+(note dark) pause initial: checked=true state=On
+| pause-on | dark | pb-pause-on-dark.png | Pause switch committed On |
+| pause-pending | dark | pb-pause-pending-dark.png | Pause switch while write pending (host held 5s) |
+(note dark) state: Saving…
+(note dark) pause pending: checked=true disabled=true state=Saving…
+| pause-paused | dark | pb-pause-paused-dark.png | Pause switch committed Paused |
+(note dark) paused state: Skills | Paused |  | Pausing stops capture, background processing and manual runs (Run Curator, Analyze current session and Enhance now). Saved skills are still used in chats.
+| pause-paused-tab | dark | pb-pause-paused-tab-dark.png | Skills tab while paused (full window) |
+| dashboard-tiles-paused | dark | pb-dashboard-tiles-paused-dark.png | Nav tiles while paused |
+| pause-error | dark | pb-pause-error-dark.png | Pause switch write failed (stays Paused, error alert) |
+(note dark) pause error: checked=false
+(note dark) error text: Skills | Paused |  | Pausing stops capture, background processing and manual runs (Run Curator, Analyze current session and Enhance now). Saved skills are still used in chats. |  | Could not change the Skills switch. It shows the saved setting.
+| pause-resumed | dark | pb-pause-resumed-dark.png | Pause switch resumed |
+(note dark) resumed: checked=true
+theme anubis-light
+== stage thoth (light)
+| thoth-skills-landing | light | pb-thoth-skills-landing-light.png | Thoth shell, Skills tab landing (nav tiles + pause + telemetry) |
+| dashboard-tiles | light | pb-dashboard-tiles-light.png | Thoth nav pillar tiles |
+| skills-tile-initial | light | pb-skills-tile-initial-light.png | Skills tile (initial telemetry state) |
+(note light) skills tile (initial): Skills | On | Skill telemetry
+| pause-and-telemetry | light | pb-pause-and-telemetry-light.png | Pause + telemetry switches |
+| telemetry-switch | light | pb-telemetry-switch-light.png | Telemetry switch card |
+(note light) telemetry switch: Skill telemetry |  | Records skill use even while Skills is paused. |  | Could not change the telemetry switch. It shows the saved setting.
+(note light) telemetry checked initially: true
+(note light) telemetry checked after toggle: false
+| skills-tile-toggled | light | pb-skills-tile-toggled-light.png | Skills tile after telemetry toggled |
+| telemetry-switch-toggled | light | pb-telemetry-switch-toggled-light.png | Telemetry switch after toggle |
+(note light) skills tile (after toggle): Skills | On | Skill telemetry
+| dashboard-tiles-toggled | light | pb-dashboard-tiles-toggled-light.png | Nav tiles after toggle |
+| telemetry-pending | light | pb-telemetry-pending-light.png | Telemetry write pending (host reply held 5s) |
+(note light) telemetry pending: checked=true disabled=true
+| telemetry-after-pending | light | pb-telemetry-after-pending-light.png | Telemetry after pending write settled |
+(note light) tile after pending: Skills | On | Skill telemetry
+| telemetry-error | light | pb-telemetry-error-light.png | Telemetry write failed |
+(note light) telemetry error: Skill telemetry |  | Records skill use even while Skills is paused. |  | Could not change the telemetry switch. It shows the saved setting.
+== stage pause (light)
+(note light) pause state: On
+(note light) pause initial: checked=true state=On
+| pause-on | light | pb-pause-on-light.png | Pause switch committed On |
+| pause-pending | light | pb-pause-pending-light.png | Pause switch while write pending (host held 5s) |
+(note light) state: Saving…
+(note light) pause pending: checked=true disabled=true state=Saving…
+| pause-paused | light | pb-pause-paused-light.png | Pause switch committed Paused |
+(note light) paused state: Skills | Paused |  | Pausing stops capture, background processing and manual runs (Run Curator, Analyze current session and Enhance now). Saved skills are still used in chats.
+| pause-paused-tab | light | pb-pause-paused-tab-light.png | Skills tab while paused (full window) |
+| dashboard-tiles-paused | light | pb-dashboard-tiles-paused-light.png | Nav tiles while paused |
+| pause-error | light | pb-pause-error-light.png | Pause switch write failed (stays Paused, error alert) |
+(note light) pause error: checked=false
+(note light) error text: Skills | Paused |  | Pausing stops capture, background processing and manual runs (Run Curator, Analyze current session and Enhance now). Saved skills are still used in chats. |  | Could not change the Skills switch. It shows the saved setting.
+| pause-resumed | light | pb-pause-resumed-light.png | Pause switch resumed |
+(note light) resumed: checked=true
+rpc log tail: ["memory:getTriggers","settings:get:skillSynthesis.enabled","cron:list","gateway:status","gateway:listBindings","memory:stats","memory:list","memory:searchSymbols","indexing:getStatus","memory:getTriggers","memory:stats","settings:get:skills.telemetry.enabled","memory:getTriggers","settings:get:skillSynthesis.enabled","cron:list","gateway:status","gateway:listBindings","skillSynthesis:listCandidates","skillSynthesis:listSuggestions","skillSynthesis:stats","skillSynthesis:diagnostics","skillSynthesis:queue","skillSynthesis:digest","skillSynthesis:listSpecs","skillSynthesis:getSettings","settings:get:skills.telemetry.enabled","settings:get:skillSynthesis.enabled","skillSynthesis:listSuggestions","settings:set:skills.telemetry.enabled","settings:get:skills.telemetry.enabled","settings:set:skills.telemetry.enabled","settings:get:skills.telemetry.enabled","settings:set:skills.telemetry.enabled","settings:get:skills.telemetry.enabled","settings:set:skillSynthesis.enabled","settings:get:skillSynthesis.enabled","memory:getTriggers","settings:get:skillSynthesis.enabled","settings:set:skillSynthesis.enabled","settings:get:skillSynthesis.enabled","settings:set:skillSynthesis.enabled","settings:get:skillSynthesis.enabled","memory:getTriggers","settings:get:skillSynthesis.enabled","settings:set:skills.telemetry.enabled","settings:get:skills.telemetry.enabled","settings:set:skills.telemetry.enabled","settings:get:skills.telemetry.enabled","settings:set:skills.telemetry.enabled","settings:get:skills.telemetry.enabled","settings:set:skillSynthesis.enabled","settings:get:skillSynthesis.enabled","memory:getTriggers","settings:get:skillSynthesis.enabled","settings:set:skillSynthesis.enabled","settings:get:skillSynthesis.enabled","settings:set:skillSynthesis.enabled","settings:get:skillSynthesis.enabled","memory:getTriggers","settings:get:skillSynthesis.enabled"]

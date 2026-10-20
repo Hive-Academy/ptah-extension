@@ -19,6 +19,7 @@ import {
   SESSION_VERDICT_DEGRADED_REASONS,
   SESSION_VERDICT_JSON_SCHEMA,
   isEvidenceClass,
+  isPositiveEvidenceClass,
 } from './session-verdict.types';
 
 function properties(schema: unknown): Record<string, Record<string, unknown>> {
@@ -27,6 +28,18 @@ function properties(schema: unknown): Record<string, Record<string, unknown>> {
 }
 
 describe('EvidenceClass', () => {
+  it('never counts unverified or silence as positive evidence', () => {
+    expect(isPositiveEvidenceClass('unverified')).toBe(false);
+    expect(isPositiveEvidenceClass('no-correction')).toBe(false);
+    expect(isPositiveEvidenceClass(null)).toBe(false);
+    for (const value of [
+      'tests-green',
+      'user-accepted',
+      'explicit-confirmation',
+    ] as const) {
+      expect(isPositiveEvidenceClass(value)).toBe(true);
+    }
+  });
   it('has exactly the five members plan §2.4 pins into migration 0034', () => {
     expect([...EVIDENCE_CLASSES]).toEqual([
       'tests-green',

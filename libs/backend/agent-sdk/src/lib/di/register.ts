@@ -37,6 +37,7 @@ import { SessionStatsReaderService } from '../session-stats';
 import { SessionStatsOwnerService } from '../session-stats/session-stats-owner.service';
 import { SdkPermissionHandler } from '../sdk-permission-handler';
 import { UnattendedSessionPolicyRegistry } from '../permission/unattended-session-policy.registry';
+import { HostAttentionCoordinator } from '../permission/host-attention-coordinator';
 import { SdkMessageTransformer } from '../sdk-message-transformer';
 import { ClaudeCliDetector } from '../detector/claude-cli-detector';
 import {
@@ -210,6 +211,11 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_SESSION_METADATA_STORE,
     { useClass: SessionMetadataStore },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  container.register(
+    SDK_TOKENS.HOST_ATTENTION_COORDINATOR,
+    { useClass: HostAttentionCoordinator },
     { lifecycle: Lifecycle.Singleton },
   );
   container.register(

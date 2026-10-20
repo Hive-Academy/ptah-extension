@@ -9,7 +9,7 @@ function makeSummary(
 ): ThothStatusSummary {
   return {
     memory: { available: true, totalFacts: 5, queueLength: 0 },
-    skills: { available: true, pendingCandidates: 0 },
+    skills: { available: true, telemetryEnabled: false },
     cron: { available: true, totalJobs: 0, nextRunAt: null },
     gateway: { available: false, reason: 'desktop-only' },
     isLoading: false,
@@ -51,14 +51,18 @@ describe('deriveThothPillars', () => {
     expect(m.desc).toBe('All curated');
   });
 
-  it('shows the pending-candidate count for skills', () => {
-    const sk = deriveThothPillars(
-      makeSummary({ skills: { available: true, pendingCandidates: 0 } }),
+  it('shows whether skill telemetry is enabled', () => {
+    const enabled = deriveThothPillars(
+      makeSummary({ skills: { available: true, telemetryEnabled: true } }),
+    ).skills;
+    const disabled = deriveThothPillars(
+      makeSummary({ skills: { available: true, telemetryEnabled: false } }),
     ).skills;
 
-    expect(sk.value).toBe('0');
-    expect(sk.unit).toBe('pending');
-    expect(sk.desc).toBe('No skills awaiting review');
+    expect(enabled.value).toBe('On');
+    expect(disabled.value).toBe('Off');
+    expect(enabled.desc).toBe('Skill telemetry');
+    expect(disabled.desc).toBe('Skill telemetry');
   });
 
   it('marks cron as desktop-only when unavailable for that reason', () => {
