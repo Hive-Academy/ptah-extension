@@ -86,8 +86,17 @@ test.describe('Thoth - Skills Library', () => {
     const row = page.locator('[data-testid="consumer-row-enhancement"]');
     await expect(row).toBeVisible();
     await expect(row.locator('[data-testid="consumer-summary-enhancement"]')).toBeVisible();
-    await row.locator('[data-testid="consumer-edit-enhancement"]').click();
-    await expect(page.locator('[data-testid="consumer-editor-enhancement"]')).toBeVisible();
+    const edit = row.locator('[data-testid="consumer-edit-enhancement"]');
+    const editor = page.locator('[data-testid="consumer-editor-enhancement"]');
+    // goto() can mount Settings before its asynchronous workspace sync settles.
+    // Retry the interaction only if that transition consumed the first click.
+    await expect(async () => {
+      if (await edit.getAttribute('aria-expanded') !== 'true') {
+        await expect(edit).not.toHaveAttribute('aria-disabled', 'true');
+        await edit.click();
+      }
+      await expect(editor).toBeVisible({ timeout: 1000 });
+    }).toPass({ timeout: 10000 });
     const picker = page.locator(
       '[data-testid="consumer-editor-enhancement"] ptah-provider-model-picker',
     );
