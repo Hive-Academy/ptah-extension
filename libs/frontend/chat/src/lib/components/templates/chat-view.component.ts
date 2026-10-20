@@ -259,6 +259,24 @@ export class ChatViewComponent implements OnDestroy {
   /** Inline re-auth banner state (set when a send fails needing auth). */
   protected readonly authRequiredBanner = this._authState.authRequiredBanner;
 
+  private readonly staleOlderHistory = signal<{
+    tabId: string;
+    sessionId: string | null;
+    messages: readonly unknown[];
+    message: string;
+  } | null>(null);
+  /** A reopened or closed tab no longer owns the stale paging snapshot. */
+  protected readonly olderHistoryAlert = computed(() => {
+    const stale = this.staleOlderHistory();
+    if (!stale) return null;
+    const tab = this._tabManager.findTabByIdAcrossWorkspaces(stale.tabId)?.tab;
+    return tab?.claudeSessionId === stale.sessionId &&
+      tab?.olderHistoryCursor === null &&
+      tab?.messages === stale.messages
+      ? { tabId: stale.tabId, message: stale.message }
+      : null;
+  });
+
   protected isHistoryReplaying(tabId: string): boolean {
     return this.sessionHistoryReplayer.isReplaying(tabId);
   }
@@ -273,10 +291,21 @@ export class ChatViewComponent implements OnDestroy {
   }
 
   protected async onOlderHistoryRequested(tabId: string): Promise<void> {
+    this.staleOlderHistory.set(null);
     const outcome = await this.historyPaging.loadOlder(tabId);
     if (outcome === 'stale') {
+      const message = 'Earlier history changed. Reopen the session to load it again.';
+      const tab = this._tabManager.findTabByIdAcrossWorkspaces(tabId)?.tab;
+      if (tab) {
+        this.staleOlderHistory.set({
+          tabId,
+          sessionId: tab.claudeSessionId,
+          messages: tab.messages,
+          message,
+        });
+      }
       this.showActionError(
-        'Earlier history changed. Reopen the session to load it again.',
+        message,
         tabId,
       );
     } else if (outcome === 'failed') {

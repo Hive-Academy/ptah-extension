@@ -6,7 +6,7 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import { Bell, CircleAlert, MessageCircleQuestion, ShieldQuestion, TriangleAlert, Volume2, VolumeX, X, LucideAngularModule } from 'lucide-angular';
+import { Bell, Check, CircleAlert, MessageCircleQuestion, ShieldQuestion, Trash2, TriangleAlert, Volume2, VolumeX, X, LucideAngularModule } from 'lucide-angular';
 import type { AttentionItem } from '@ptah-extension/core';
 import { NotificationCenterStore } from './notification-center.store';
 import { NotificationSoundService } from './notification-sound.service';
@@ -47,10 +47,25 @@ import { NotificationSoundService } from './notification-sound.service';
             (click)="sound.setMuted(!sound.muted())">
             <lucide-angular [img]="sound.muted() ? VolumeXIcon : Volume2Icon" class="w-3.5 h-3.5" />
           </button>
+          <button type="button" class="btn btn-ghost btn-xs" aria-label="Clear all notices"
+            [disabled]="!store.canClearAll()" (click)="store.clearAll()">
+            <lucide-angular [img]="ClearIcon" class="w-3.5 h-3.5" />
+            Clear all notices
+          </button>
         </header>
+        @if (store.needsYou().length === 0 && store.recentNotices().length === 0) {
+          <div class="px-3 py-11 text-center">
+            <lucide-angular [img]="EmptyIcon" class="mx-auto w-7 h-7 text-success" aria-hidden="true" />
+            <h3 class="mt-2 text-sm font-semibold">All clear</h3>
+            <p class="mt-1 text-xs text-base-content-muted">Nothing needs your attention.</p>
+          </div>
+        } @else {
         <div class="p-2 space-y-3">
           <section aria-labelledby="ptah-needs-you-heading">
-            <h3 id="ptah-needs-you-heading" class="px-1 pb-1 text-xs font-semibold">Needs you</h3>
+            <div class="flex items-center gap-2 px-1 pb-1">
+              <h3 id="ptah-needs-you-heading" class="text-xs font-semibold">Needs you</h3>
+              <span class="text-xs text-base-content-muted">{{ store.needsYou().length }}</span>
+            </div>
             @for (item of store.needsYou(); track item.key) {
               <div class="notification-row rounded-lg border border-warning bg-base-200 p-2 mb-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                 [attr.tabindex]="item.actionable ? 0 : -1" [attr.aria-label]="item.title">
@@ -83,8 +98,6 @@ import { NotificationSoundService } from './notification-sound.service';
           <section aria-labelledby="ptah-recent-heading">
             <div class="flex items-center gap-2 px-1 pb-1">
               <h3 id="ptah-recent-heading" class="flex-1 text-xs font-semibold">Recent notices</h3>
-              <button type="button" class="btn btn-ghost btn-xs" [disabled]="!store.canClearAll()"
-                (click)="store.clearAll()">Clear all</button>
             </div>
             @for (item of store.recentNotices(); track item.key) {
               <div class="notification-row rounded-lg border border-base-300 bg-base-200 p-2 mb-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
@@ -121,6 +134,7 @@ import { NotificationSoundService } from './notification-sound.service';
             }
           </section>
         </div>
+        }
       </section>
     }
   `,
@@ -133,6 +147,8 @@ export class NotificationCenterComponent {
   private readonly bellButton = viewChild<ElementRef<HTMLButtonElement>>('bellButton');
   private readonly panelHeading = viewChild<ElementRef<HTMLElement>>('panelHeading');
   protected readonly BellIcon = Bell;
+  protected readonly EmptyIcon = Check;
+  protected readonly ClearIcon = Trash2;
   protected readonly ErrorIcon = CircleAlert;
   protected readonly WarningIcon = TriangleAlert;
   protected readonly QuestionIcon = MessageCircleQuestion;

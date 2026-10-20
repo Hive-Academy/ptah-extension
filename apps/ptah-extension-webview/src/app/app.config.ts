@@ -104,7 +104,6 @@ import {
 } from '@ptah-extension/setup-wizard';
 import { provideHarnessBuilderFocusRouter } from '@ptah-extension/harness-builder/services';
 import { provideAppsFocusRouter } from '@ptah-extension/mcp-apps-page/focus';
-import { provideGitStatusAttention } from '@ptah-extension/git-ui/services';
 import {
   FileContentChangesService,
   GitBranchesService,
@@ -112,6 +111,7 @@ import {
   GitStatusService,
   ReviewDiffService,
   WorktreeService,
+  provideGitStatusAttention,
 } from '@ptah-extension/git-ui/services';
 import { OrchestraCanvasComponent } from '@ptah-extension/canvas';
 import { GatewayStateService } from '@ptah-extension/messaging-gateway-ui/services';

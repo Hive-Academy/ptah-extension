@@ -273,6 +273,7 @@ function makeHarness(
       hasLiveSession: boolean;
       viewMode: TabViewMode;
       olderHistoryCursor?: string | null;
+      messages?: unknown[];
     }>
   >([
     {
@@ -281,6 +282,7 @@ function makeHarness(
       hasLiveSession: sessionIsActive,
       viewMode: activeTabViewMode,
       olderHistoryCursor: 'older-cursor',
+      messages: [],
     },
   ]);
   const openSessionTabMock = jest.fn();
@@ -591,6 +593,7 @@ function makeHarness(
     sessionIdSig,
     messagesSig,
     activeTabIdSig,
+    tabsSig,
     sessionVisibleSig,
     forcedCardSig,
     resumableSubagentsSig,
@@ -642,21 +645,74 @@ describe('ChatViewComponent — older history orchestration', () => {
     });
   });
 
+  /** Route the cross-workspace tab lookup through the active tab signal. */
+  function lookUpTabsFromSignal(h: ReturnType<typeof makeHarness>): void {
+    h.findTabByIdAcrossWorkspacesMock.mockImplementation((tabId: string) => {
+      const tab = h.tabsSig().find((candidate) => candidate.id === tabId);
+      return tab ? { tab, workspacePath: null } : null;
+    });
+  }
+
   it('reports stale history with reopen guidance and does not resume automatically', async () => {
     const h = makeHarness();
-    h.loadOlderMock.mockResolvedValue('stale');
+    lookUpTabsFromSignal(h);
+    h.loadOlderMock.mockImplementation(async () => {
+      h.tabsSig.update((tabs) => tabs.map((tab) =>
+        tab.id === 'tab-abc' ? { ...tab, olderHistoryCursor: null } : tab,
+      ));
+      return 'stale';
+    });
+    const component = h.component as unknown as {
+      onOlderHistoryRequested(tabId: string): Promise<void>;
+      olderHistoryAlert(): { tabId: string; message: string } | null;
+    };
 
-    await (
-      h.component as unknown as {
-        onOlderHistoryRequested(tabId: string): Promise<void>;
-      }
-    ).onOlderHistoryRequested('tab-abc');
+    await component.onOlderHistoryRequested('tab-abc');
 
+    expect(component.olderHistoryAlert()).toEqual({
+      tabId: 'tab-abc',
+      message: expect.stringMatching(/reopen the session/i),
+    });
     expect(h.showErrorMock).toHaveBeenCalledWith(
       expect.stringMatching(/reopen the session/i),
       'tab-abc',
     );
     expect(h.switchSessionMock).not.toHaveBeenCalled();
+
+    h.tabsSig.update((tabs) => tabs.map((tab) =>
+      tab.id === 'tab-abc'
+        ? { ...tab, olderHistoryCursor: undefined, messages: [] }
+        : tab,
+    ));
+    expect(component.olderHistoryAlert()).toBeNull();
+    h.tabsSig.update((tabs) => tabs.map((tab) =>
+      tab.id === 'tab-abc' ? { ...tab, olderHistoryCursor: 'fresh-cursor' } : tab,
+    ));
+    expect(component.olderHistoryAlert()).toBeNull();
+    h.tabsSig.update((tabs) => tabs.map((tab) =>
+      tab.id === 'tab-abc' ? { ...tab, olderHistoryCursor: null } : tab,
+    ));
+    expect(component.olderHistoryAlert()).toBeNull();
+  });
+
+  it('hides stale history guidance when its tab closes', async () => {
+    const h = makeHarness();
+    lookUpTabsFromSignal(h);
+    h.loadOlderMock.mockImplementation(async () => {
+      h.tabsSig.update((tabs) => tabs.map((tab) =>
+        tab.id === 'tab-abc' ? { ...tab, olderHistoryCursor: null } : tab,
+      ));
+      return 'stale';
+    });
+    const component = h.component as unknown as {
+      onOlderHistoryRequested(tabId: string): Promise<void>;
+      olderHistoryAlert(): { tabId: string; message: string } | null;
+    };
+
+    await component.onOlderHistoryRequested('tab-abc');
+    expect(component.olderHistoryAlert()?.message).toMatch(/reopen the session/i);
+    h.tabsSig.set([]);
+    expect(component.olderHistoryAlert()).toBeNull();
   });
 
   it('reports a retryable error when loading older history fails', async () => {
