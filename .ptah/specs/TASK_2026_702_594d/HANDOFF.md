@@ -4,6 +4,11 @@ Written 2026-10-20 by orchestrator session `notification-final` (continued the e
 `task-593-702` handoff). Sibling task: TASK_2026_593_7c2e (attention-first notifications), handoff at
 `D:/projects/ptah-extension/.claude-worktrees/attention-notifications/.ptah/specs/TASK_2026_593_7c2e/HANDOFF.md`.
 
+> **Superseded 2026-10-20 (session `notification-fixes`):** read the combined handoff
+> `D:/projects/ptah-extension/.claude-worktrees/attention-notifications/.ptah/specs/TASK_2026_593_7c2e/HANDOFF.md`.
+> PR #785 is all green at `35c9a8c59` (session-create helper fix `8a0ce5c60`; lane Open parity
+> `35c9a8c59`, user decision "fix in #785 now", review APPROVED 8/10). Ready for the user to merge.
+
 ## Goal
 
 Empty Chat board: one primary "New session" action, CSS-only Aurora hero, one "Get ready" card,
