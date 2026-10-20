@@ -698,3 +698,25 @@ Scope: `git diff HEAD` (12 files, +99/-8), read-only static review. No nx/tsc/Je
 
 ### Verdict
 APPROVED, 8/10. 0 blocking, 0 serious, 2 moderate/minor: the lane release race (#1) and the dead `touch()` branch (#3). Spec execution is unverified here, so the maintainer should run the five changed projects' tests before merge.
+
+## Phase C check-fix review
+
+Scope: `git diff HEAD` excluding `.ptah/` (5 files). Read-only; nothing was run.
+
+Verdict: APPROVED, 8/10. 0 blocking, 0 serious, 2 minor.
+
+1. review-shell `untracked` import (OK). `review-shell.component.ts:12` adds the import. The only use is the existing call at `:542`, which was already present at HEAD, so the file previously failed to compile. The effect still reads `viewedRoot()` and `scope()` tracked and loads or clears inside `untracked`. Arm/disarm behaviour is unchanged.
+2. setup-wizard focus router (OK). `setup-wizard-focus-router.service.ts:21-23` re-narrows `found.tab.workflow` with the same two literals `canFocus` checks (`:15`). `focus` still returns `missing` in the same cases and calls `navigateToSurface` with a narrowed `string`. The recheck is redundant but safe, because both calls read the same synchronous tab state. No assertion is added.
+3. chat-view spec (OK, not weakened).
+   - `prefer-const` at `chat-view.component.spec.ts:364,559` is a pure refactor.
+   - Late-rejection test: it now asserts `attentionUpsertMock` received `kind: 'failure'` with the same title and `tabId: 'tab-abc'`. The origin-tab scoping is still pinned, and `ActionBannerService.showAttention` (`action-banner.service.ts:125-142`) maps `tabId` through to `upsert`. The info-banner assertion before it is retained.
+   - Newer-notice test: suppression comes from `showLateBranchError` (`chat-view.component.ts:1540-1542`), which checks the generation and the banner identity. Both are changed by the second branch's `showActionInfo`. The added `showError('Newer action failed.')` goes through the attention path, so it does not touch `banner()` or the component generation. It documents the scenario but is not what suppresses the late failure. The final assertion `upsert` call count unchanged would fail if the guard were removed (`showBranchNotOpenedError` would upsert), so the test is not vacuous.
+4. Lane-release guard (OK).
+   - `host-attention-coordinator.ts:180,186`: `presentLaneFailure` snapshots `releasedLaneAt` before the metadata await, then compares after it. This mirrors `presentSessionFailure` (`:162,165`).
+   - `releaseLaneFailure` (`:212-217`) bumps the counter, then resolves any already-issued notice.
+   - A genuine later failure snapshots the new version, so it is not suppressed. `releaseLaneFailure` is only called from `agent-process-manager.service.ts:1883` on a successful `continue()` (restart). Failures are presented from `handleExit` (`:2355`), so a failure cannot release itself.
+   - The map is capped at `MAX_ENTRIES` (256) with FIFO eviction. The spec (`host-attention-coordinator.spec.ts:295-310`) reproduces the ordering with a deferred `metadata.get`, calls release while it is pending, then asserts no notice is presented and no resolve is issued. It would fail without the guard.
+
+Minor (no action required):
+- `host-attention-coordinator.ts:212-217`: eviction is by insertion order. If an in-flight snapshot's key is evicted and then re-released, its counter restarts at 1 and could equal the snapshot, so the stale notice would not be suppressed. This needs more than 256 distinct releases inside one metadata await, so it is practically unreachable. The same pattern already exists for sessions.
+- No test covers "a failure after a restart still presents". The logic is correct by inspection.
