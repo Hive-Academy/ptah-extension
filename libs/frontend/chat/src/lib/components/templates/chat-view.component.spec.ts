@@ -680,11 +680,18 @@ describe('ChatViewComponent — older history orchestration', () => {
     expect(h.switchSessionMock).not.toHaveBeenCalled();
 
     h.tabsSig.update((tabs) => tabs.map((tab) =>
+      tab.id === 'tab-abc' ? { ...tab, messages: [...(tab.messages ?? [])] } : tab,
+    ));
+    TestBed.tick();
+    expect(component.olderHistoryAlert()?.message).toMatch(/reopen the session/i);
+
+    h.tabsSig.update((tabs) => tabs.map((tab) =>
       tab.id === 'tab-abc'
         ? { ...tab, olderHistoryCursor: undefined, messages: [] }
         : tab,
     ));
     expect(component.olderHistoryAlert()).toBeNull();
+    TestBed.tick();
     h.tabsSig.update((tabs) => tabs.map((tab) =>
       tab.id === 'tab-abc' ? { ...tab, olderHistoryCursor: 'fresh-cursor' } : tab,
     ));
@@ -711,7 +718,11 @@ describe('ChatViewComponent — older history orchestration', () => {
 
     await component.onOlderHistoryRequested('tab-abc');
     expect(component.olderHistoryAlert()?.message).toMatch(/reopen the session/i);
+    const closedTab = h.tabsSig()[0];
     h.tabsSig.set([]);
+    expect(component.olderHistoryAlert()).toBeNull();
+    TestBed.tick();
+    h.tabsSig.set([{ ...closedTab, olderHistoryCursor: null }]);
     expect(component.olderHistoryAlert()).toBeNull();
   });
 

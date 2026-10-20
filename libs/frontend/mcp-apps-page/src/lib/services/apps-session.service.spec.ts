@@ -258,6 +258,8 @@ describe('AppsSessionService', () => {
 
     expect(service.sessionId()).toBe('session-1');
     expect(target.currentSessionId()).toBe(service.sessionId());
+    TestBed.resetTestingModule();
+    expect(target.currentSessionId()).toBeNull();
   });
 
   describe('start', () => {

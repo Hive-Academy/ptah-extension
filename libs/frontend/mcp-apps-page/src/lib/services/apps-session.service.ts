@@ -1,4 +1,5 @@
 import {
+  DestroyRef,
   Injectable,
   computed,
   effect,
@@ -184,6 +185,7 @@ export class AppsSessionService {
 
   public constructor() {
     this.focusTarget.register(this.sessionId);
+    inject(DestroyRef).onDestroy(() => this.focusTarget.unregister(this.sessionId));
     effect(() => {
       const key = this.workspaceKey();
       const previous = this.previousWorkspaceKey;

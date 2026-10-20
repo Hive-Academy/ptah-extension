@@ -1,25 +1,28 @@
 import { Injectable, inject } from '@angular/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { SurfaceRouterService, surfaceNavigationLanded, type SurfaceFocusRouter, type NotificationFocusResult } from '@ptah-extension/core';
+import { SurfaceRouterService, WORKSPACE_COORDINATOR, surfaceNavigationLanded, type SurfaceFocusRouter, type NotificationFocusResult } from '@ptah-extension/core';
 
 @Injectable({ providedIn: 'root' })
 export class SetupWizardFocusRouter implements SurfaceFocusRouter {
   readonly kind = 'setup-wizard' as const;
   private readonly tabs = inject(TabManagerService);
   private readonly router = inject(SurfaceRouterService);
+  private readonly workspaceCoordinator = inject(WORKSPACE_COORDINATOR);
 
   canFocus(sessionId: string): boolean {
     const found = this.tabs.findTabBySessionIdAcrossWorkspaces(sessionId);
     return !!found && !!found.workspacePath &&
-      found.workspacePath === this.tabs.activeWorkspacePath &&
       (found.tab.workflow === 'setup-agent-generation' || found.tab.workflow === 'setup-project-prompt');
   }
 
   async focus(sessionId: string): Promise<NotificationFocusResult> {
     if (!this.canFocus(sessionId)) return { success: false, outcome: 'missing' };
     const found = this.tabs.findTabBySessionIdAcrossWorkspaces(sessionId);
-    if (!found || (found.tab.workflow !== 'setup-agent-generation' && found.tab.workflow !== 'setup-project-prompt')) {
+    if (!found?.workspacePath || (found.tab.workflow !== 'setup-agent-generation' && found.tab.workflow !== 'setup-project-prompt')) {
       return { success: false, outcome: 'missing' };
+    }
+    if (found.workspacePath !== this.tabs.activeWorkspacePath) {
+      await this.workspaceCoordinator.switchWorkspace(found.workspacePath);
     }
     const result = await this.router.navigateToSurface('setup-wizard', [
       'generation', found.tab.workflow, found.tab.id,
