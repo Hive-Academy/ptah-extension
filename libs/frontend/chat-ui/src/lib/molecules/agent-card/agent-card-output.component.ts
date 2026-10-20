@@ -23,6 +23,8 @@ import { NgClass } from '@angular/common';
 import { MarkdownModule } from 'ngx-markdown';
 import { SurfaceMarkdownPipe } from '@ptah-extension/markdown';
 import type { RenderSegment, StderrSegment } from './agent-card.types';
+import { LaneResultCardComponent } from '../lane-result/lane-result-card.component';
+import { LaneResultPipe } from '../lane-result/lane-result.pipe';
 
 interface KeyedRenderSegment {
   readonly key: string;
@@ -45,7 +47,13 @@ const TAIL_MARKDOWN_THROTTLE_MS = 150;
 @Component({
   selector: 'ptah-agent-card-output',
   standalone: true,
-  imports: [SurfaceMarkdownPipe, MarkdownModule, NgClass],
+  imports: [
+    SurfaceMarkdownPipe,
+    MarkdownModule,
+    NgClass,
+    LaneResultPipe,
+    LaneResultCardComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   // `.ptah-superpower-badge` and `.ptah-gold-border` are defined once globally
   // in apps/ptah-extension-webview/src/styles.css, keyed off the theme-aware
@@ -56,7 +64,6 @@ const TAIL_MARKDOWN_THROTTLE_MS = 150;
       .ptah-tool-name-text {
         color: var(--ptah-gold);
       }
-
     `,
   ],
   template: `
@@ -176,13 +183,10 @@ const TAIL_MARKDOWN_THROTTLE_MS = 150;
                   >
                 </div>
                 @if (segment.content) {
-                  <div
-                    class="px-2 py-1 max-h-32 overflow-y-auto"
-                  >
+                  <div class="px-2 py-1 max-h-32 overflow-y-auto">
                     <pre
                       class="text-[10px] font-mono text-base-content-muted whitespace-pre-wrap break-words m-0 leading-relaxed"
-                      >{{ segment.content }}</pre
-                    >
+                      >{{ segment.content }}</pre>
                   </div>
                 }
               </div>
@@ -302,14 +306,25 @@ $ {{ segment.toolName }}</pre>
             }
             @case ('text') {
               @if (segment.content.trim()) {
-                <div class="prose prose-xs prose-invert max-w-none agent-prose">
-                  <markdown
-                    [data]="
-                      markdownSource(segment, $index)
-                        | surfaceMarkdown: surfaceActive()
-                    "
-                  />
-                </div>
+                <!-- Trailing WROTE lines become a result card, parsed from
+                     the raw text; the markdown gets the rest. -->
+                @let source = markdownSource(segment, $index);
+                @let lane = source | laneResult;
+                @if (lane ? lane.body.trim() : true) {
+                  <div
+                    class="prose prose-xs prose-invert max-w-none agent-prose"
+                  >
+                    <markdown
+                      [data]="
+                        (lane ? lane.body : source)
+                          | surfaceMarkdown: surfaceActive()
+                      "
+                    />
+                  </div>
+                }
+                @if (lane) {
+                  <ptah-lane-result-card [result]="lane" />
+                }
               }
             }
           }

@@ -14,6 +14,7 @@ import {
   DestroyRef,
   TemplateRef,
   NgZone,
+  untracked,
 } from '@angular/core';
 import {
   LucideAngularModule,
@@ -27,7 +28,6 @@ import {
   Send,
   CheckCircle2,
   XCircle,
-  ScrollText,
 } from 'lucide-angular';
 import {
   TypingCursorComponent,
@@ -37,10 +37,14 @@ import {
   generateAgentColorOklch,
   formatOklch,
   isThemeFallbackColor,
+  agentRunDurationMs,
+  formatAgentDuration,
 } from '@ptah-extension/chat-ui';
 import {
   AgentMonitorStore,
   BackgroundAgentStore,
+  SubagentExecutionStore,
+  SessionManager,
 } from '@ptah-extension/chat-streaming';
 import type {
   ExecutionNode,
@@ -49,7 +53,6 @@ import type {
 } from '@ptah-extension/shared';
 import { NgClass, NgTemplateOutlet } from '@angular/common';
 import { ScrollDirtyService } from '../../../services/scroll-dirty.service';
-import { SubagentTranscriptViewerService } from '../../../services/subagent-transcript-viewer.service';
 
 /**
  * InlineAgentBubbleComponent - Unified agent rendering for both streaming and replay
@@ -68,6 +71,10 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
  */
 @Component({
   selector: 'ptah-inline-agent-bubble',
+  host: {
+    '[class.fill-height]': 'fillHeight()',
+    '[class.fill-height-expanded]': 'fillHeight() && !isCollapsed()',
+  },
   imports: [
     LucideAngularModule,
     TypingCursorComponent,
@@ -83,6 +90,8 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
     <!-- Background agents get dashed border + info tint -->
     <div
       class="surface-1 my-3 border-l-2 rounded-lg overflow-hidden transition-colors"
+      [class.flex]="fillHeight()" [class.flex-col]="fillHeight()"
+      [class.flex-1]="fillHeight() && !isCollapsed()" [class.min-h-0]="fillHeight() && !isCollapsed()"
       [ngClass]="{
         'bg-warning/10': isInterrupted(),
         'border-warning': isInterrupted(),
@@ -315,23 +324,6 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
             </button>
           }
 
-          <!-- View full transcript: on-demand read of the agent's complete
-               saved conversation (distinct from the live inline tree). Shows
-               whenever the SDK agentId + owning session are known — including
-               after the agent has finished (historical backfill). -->
-          @if (canViewTranscript()) {
-            <button
-              type="button"
-              class="btn btn-ghost btn-xs px-1 min-h-0 h-5 text-base-content-muted hover:text-primary"
-              (click)="onViewTranscript($event)"
-              data-testid="subagent-transcript-button"
-              title="View full transcript"
-              aria-label="View agent transcript"
-            >
-              <lucide-angular [img]="ScrollTextIcon" class="w-3 h-3" />
-            </button>
-          }
-
           <!-- Message-agent toggle (collapsed by default).
                The message is relayed to THIS specific subagent: the backend
                dispatcher forwards it via the SDK's SendMessage tool keyed by
@@ -439,16 +431,59 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
       <div
         class="agent-collapse-wrapper"
         [class.agent-collapsed]="isCollapsed()"
+        [class.fill-height]="fillHeight()"
       >
-        <div class="agent-collapse-inner">
+        <div class="agent-collapse-inner" [class.flex]="fillHeight()" [class.flex-col]="fillHeight()">
           <div
             #contentContainer
-            class="px-3 pb-2 max-h-80 overflow-y-auto border-t border-base-300/30"
+            class="px-3 pb-2 overflow-y-auto border-t border-base-300/30"
+            [class.max-h-80]="!fillHeight()"
+            [class.flex-1]="fillHeight()" [class.min-h-0]="fillHeight()"
           >
-            <!-- summaryContent is rendered as a text child node instead of a
-             separate block. This ensures agent text is properly interleaved
-             with tool calls in chronological order. -->
-            @if (hasChildren()) {
+            <!-- Agent text arrives as text child nodes, so it stays
+             interleaved with tool calls in chronological order. -->
+            @if (canLoadHistory()) {
+              <button
+                type="button"
+                class="btn btn-ghost btn-xs"
+                (click)="loadHistory()"
+                data-testid="load-agent-output"
+              >
+                Load agent output
+              </button>
+            }
+            @if (historyEntry()?.history === 'loading') {
+              <p class="text-xs text-base-content-muted">
+                Loading saved output
+              </p>
+            } @else if (historyEntry()?.history === 'error') {
+              <p class="text-xs text-error">
+                Could not load saved output: {{ historyEntry()?.historyError }}
+                <button
+                  type="button"
+                  class="btn btn-link btn-xs p-0"
+                  (click)="loadHistory()"
+                >
+                  Retry
+                </button>
+              </p>
+            } @else if (historyEntry()?.history === 'unresolved') {
+              <p class="text-xs text-base-content-muted">
+                Saved output for this agent could not be linked.
+                <button
+                  type="button"
+                  class="btn btn-link btn-xs p-0"
+                  (click)="loadHistory()"
+                >
+                  Retry
+                </button>
+              </p>
+            } @else if (historyEntry()?.history === 'not-found') {
+              <p class="text-xs text-base-content-muted">
+                No saved output for this agent
+              </p>
+            }
+            @if (displayChildren().length > 0) {
               <!--
               Recursive child rendering is delegated to a parent-supplied
               TemplateRef to break the file-import cycle between this component
@@ -456,7 +491,7 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
               itself) provides the template via the nodeTemplate input; we just
               stamp it once per child.
             -->
-              @for (child of node().children; track child.id) {
+              @for (child of displayChildren(); track child.id) {
                 <ng-container
                   [ngTemplateOutlet]="nodeTemplate() ?? null"
                   [ngTemplateOutletContext]="{ $implicit: child }"
@@ -489,7 +524,11 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
                   <span>Starting agent execution</span>
                   <ptah-typing-cursor colorClass="text-base-content-muted" />
                 </div>
-              } @else {
+              } @else if (
+                !historyEntry() ||
+                historyEntry()?.history === 'idle' ||
+                historyEntry()?.history === 'loaded'
+              ) {
                 <div class="text-[10px] text-base-content-muted py-2">
                   No execution data
                 </div>
@@ -544,6 +583,9 @@ import { SubagentTranscriptViewerService } from '../../../services/subagent-tran
       .agent-collapse-wrapper.agent-collapsed {
         grid-template-rows: 0fr;
       }
+      :host(.fill-height) { display: flex; flex-direction: column; min-height: 0; }
+      :host(.fill-height-expanded) { flex: 1; }
+      .agent-collapse-wrapper.fill-height:not(.agent-collapsed) { flex: 1; min-height: 0; }
       .agent-collapse-inner {
         min-height: 0;
         overflow: hidden;
@@ -605,7 +647,8 @@ export class InlineAgentBubbleComponent {
   private readonly ngZone = inject(NgZone);
   private readonly agentMonitorStore = inject(AgentMonitorStore);
   private readonly backgroundAgentStore = inject(BackgroundAgentStore);
-  private readonly transcriptViewer = inject(SubagentTranscriptViewerService);
+  private readonly executionStore = inject(SubagentExecutionStore);
+  private readonly sessionManager = inject(SessionManager);
   private readonly scrollDirty = inject(ScrollDirtyService);
 
   /**
@@ -634,6 +677,7 @@ export class InlineAgentBubbleComponent {
   private observerSetupPending = false;
 
   readonly node = input.required<ExecutionNode>();
+  readonly fillHeight = input(false);
 
   /**
    * Permission lookup function forwarded from parent
@@ -683,10 +727,23 @@ export class InlineAgentBubbleComponent {
   readonly SendIcon = Send;
   readonly CheckIcon = CheckCircle2;
   readonly XIcon = XCircle;
-  readonly ScrollTextIcon = ScrollText;
   readonly isCollapsed = signal(false);
 
   constructor() {
+    effect((onCleanup) => {
+      const key = this.parentToolUseId();
+      if (!key) return;
+      this.executionStore.retain(
+        key,
+        untracked(
+          () =>
+            this.subagentRecord()?.parentSessionId ??
+            this.sessionManager.sessionId() ??
+            undefined,
+        ),
+      );
+      onCleanup(() => this.executionStore.release(key));
+    });
     effect(() => {
       if (this.isBackground()) {
         this.isCollapsed.set(true);
@@ -850,14 +907,27 @@ export class InlineAgentBubbleComponent {
     return agentType.charAt(0).toUpperCase();
   });
   readonly childStats = computed(() => {
-    const children = this.node().children ?? [];
-    const toolCount = children.filter((c) => c.type === 'tool').length;
-    const textCount = children.filter((c) => c.type === 'text').length;
+    if (this.storeTree().length === 0 && this.subagentRecord()?.toolUses) {
+      const count = this.subagentRecord()!.toolUses!;
+      return `${count} ${count === 1 ? 'tool' : 'tools'}`;
+    }
+    const children = this.displayChildren();
+    const count = (
+      nodes: readonly ExecutionNode[],
+      type: ExecutionNode['type'],
+    ): number =>
+      nodes.reduce(
+        (total, child) =>
+          total + (child.type === type ? 1 : 0) + count(child.children, type),
+        0,
+      );
+    const toolCount = count(children, 'tool');
+    const textCount = count(children, 'text');
 
     if (toolCount > 0 && textCount > 0) {
-      return `${toolCount} tools`;
+      return `${toolCount} ${toolCount === 1 ? 'tool' : 'tools'}`;
     } else if (toolCount > 0) {
-      return `${toolCount} tools`;
+      return `${toolCount} ${toolCount === 1 ? 'tool' : 'tools'}`;
     } else if (textCount > 0) {
       return `${textCount} items`;
     }
@@ -870,7 +940,10 @@ export class InlineAgentBubbleComponent {
    * Using computed() ensures Angular tracks changes properly with OnPush
    */
   readonly hasChildren = computed(() => {
-    return (this.node().children?.length ?? 0) > 0;
+    return (
+      this.displayChildren().length > 0 ||
+      (this.subagentRecord()?.toolUses ?? 0) > 0
+    );
   });
 
   /**
@@ -884,7 +957,21 @@ export class InlineAgentBubbleComponent {
    * Returns null if no duration data is available.
    * Note: DurationBadgeComponent handles unit normalization (seconds vs ms).
    */
-  readonly agentDuration = computed(() => this.node().duration ?? null);
+  readonly agentDuration = computed(() => {
+    const record = this.subagentRecord();
+    const duration = agentRunDurationMs(
+      {
+        running: record?.status === 'running' || record?.status === 'pending',
+        startedAt: record?.startedAt,
+        endedAt: record?.completedAt,
+        reportedMs: record?.durationMs ?? this.node().duration,
+      },
+      Date.now(),
+    ); // Known limitation: computed duration refreshes only when a signal changes.
+    return duration !== null && formatAgentDuration(duration) !== null
+      ? duration
+      : null;
+  });
 
   /**
    * Computed: whether we have any stats to show in the footer
@@ -904,6 +991,30 @@ export class InlineAgentBubbleComponent {
 
   /** parentToolUseId for the SDK task this bubble represents. */
   readonly parentToolUseId = computed(() => this.node().toolCallId ?? null);
+  readonly historyEntry = computed(() => {
+    const key = this.parentToolUseId();
+    return key ? this.executionStore.entryFor(key) : undefined;
+  });
+  readonly storeTree = computed(() => {
+    this.executionStore.revisionFor(this.parentToolUseId() ?? '');
+    const key = this.parentToolUseId();
+    return key ? this.executionStore.treeFor(key) : [];
+  });
+  readonly displayChildren = computed(() =>
+    this.storeTree().length > 0
+      ? this.storeTree()
+      : (this.node().children ?? []),
+  );
+  readonly canLoadHistory = computed(() => {
+    const key = this.parentToolUseId();
+    if (!key || this.storeTree().length > 0 || this.isStreaming()) return false;
+    const history = this.historyEntry()?.history;
+    return history === undefined || history === 'idle';
+  });
+  protected loadHistory(): void {
+    const key = this.parentToolUseId();
+    if (key) void this.executionStore.ensureHistory(key);
+  }
 
   /** Reactive lookup of the subagent record from AgentMonitorStore. */
   readonly subagentRecord = computed(() => {
@@ -953,32 +1064,6 @@ export class InlineAgentBubbleComponent {
     const rec = this.subagentRecord();
     return !!rec && rec.status === 'running';
   });
-
-  /**
-   * Whether the "View transcript" affordance should show. Requires both the SDK
-   * `agentId` and the owning session id on the record — the two inputs the
-   * `subagent:transcript` RPC needs. Available even after the agent finishes
-   * (records are retained), which is exactly the historical-view case.
-   */
-  readonly canViewTranscript = computed(() => {
-    const rec = this.subagentRecord();
-    return !!rec?.agentId && !!rec?.parentSessionId;
-  });
-
-  /** Open the on-demand transcript viewer for this agent. */
-  protected onViewTranscript(event: Event): void {
-    event.stopPropagation();
-    const rec = this.subagentRecord();
-    if (!rec?.agentId || !rec.parentSessionId) return;
-    void this.transcriptViewer.openFor(
-      rec.teammateName ??
-        this.node().agentType ??
-        rec.description ??
-        'Subagent',
-      rec.parentSessionId,
-      rec.agentId,
-    );
-  }
 
   /**
    * Send-to-background applies to running FOREGROUND subagents only. Gated

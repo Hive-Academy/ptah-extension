@@ -55,7 +55,7 @@ import { toolStatusPresentation } from '../../utils/tool-status.utils';
  * - Deviation from Direction A: an MCP call's first argument is not put in
  *   the header; every argument goes to the body's "Arguments", because a
  *   header argument would repeat there
- * - Primary: file name bold and directory muted (full path in `title`), a
+ * - Primary: the file name only, bold (full path in `title`), a
  *   command's description, a pattern, URL, query or summary. A command with
  *   no description shows its first line only while collapsed; expanded, the
  *   body's "Command" block has it, so the header shows no target. A primary
@@ -71,7 +71,7 @@ import { toolStatusPresentation } from '../../utils/tool-status.utils';
  *   and target form one lead group that claims up to 12rem first; chips that
  *   do not fit beside it wrap to a second line, and the chevron, duration and
  *   Open button never shrink, so they stay in the row at 360 px
- * - Muted text (tool name, directory, MCP server, "started") turns
+ * - Muted text (tool name, MCP server, "started") turns
  *   `text-base-content` while the toggle is hovered or focused: muted text on
  *   `--surface-highlight` measured under 4.5:1. In light themes the gold
  *   "Ptah" chip sits on `bg-base-100` so `--ptah-gold-strong` clears 4.5:1
@@ -142,20 +142,11 @@ import { toolStatusPresentation } from '../../utils/tool-status.utils';
             <!-- Primary: file, or the call's target -->
             @if (filePath()) {
               <span
-                class="min-w-0 truncate"
+                class="min-w-0 truncate font-semibold text-base-content"
                 [title]="filePath()"
                 data-testid="tool-file-path"
+                >{{ fileName() }}</span
               >
-                <span class="font-semibold text-base-content">{{
-                  fileName()
-                }}</span>
-                @if (fileDirectory()) {
-                  <span
-                    class="ml-1 text-base-content-muted group-hover/toggle:text-base-content group-focus-visible/toggle:text-base-content"
-                    >{{ fileDirectory() }}</span
-                  >
-                }
-              </span>
             } @else if (targetLabel()) {
               <span
                 class="min-w-0 truncate text-base-content"
@@ -170,8 +161,9 @@ import { toolStatusPresentation } from '../../utils/tool-status.utils';
           @for (chip of chips(); track $index) {
             <span
               class="badge badge-ghost badge-sm h-5 px-1.5 font-mono text-[11px] text-base-content-muted flex-shrink-0 max-w-full truncate"
+              [attr.title]="chip.title ?? null"
               data-testid="tool-chip"
-              >{{ chip }}</span
+              >{{ chip.label }}</span
             >
           }
 
@@ -297,16 +289,10 @@ export class ToolCallHeaderComponent {
     this.hasClickableFilePath() ? this.getFilePath() : '',
   );
 
-  /** Last path segment, shown prominently. */
+  /** Last path segment, the only part of the path the row shows. */
   protected readonly fileName = computed(() => {
     const path = this.filePath().replaceAll('\\', '/');
     return path.slice(path.lastIndexOf('/') + 1);
-  });
-
-  /** Directory part of the path (no trailing slash), shown muted. */
-  protected readonly fileDirectory = computed(() => {
-    const path = this.filePath().replaceAll('\\', '/');
-    return path.slice(0, Math.max(0, path.lastIndexOf('/')));
   });
 
   /** A shell command call: the Bash tool, or any input carrying `command`. */

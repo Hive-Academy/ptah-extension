@@ -656,6 +656,14 @@ describe("the 'full' preset keeps every extension's rendered output", () => {
     expect(out).toContain('language-ts');
   });
 
+  it('keeps the short plain-text note class', () => {
+    const raw = rendererFor('code').call(
+      {},
+      { type: 'code', raw: '', lang: 'text', text: 'one line' },
+    );
+    expect(sanitize(raw as string)).toContain('class="code-block-note"');
+  });
+
   it('keeps the decorative divider classes', () => {
     const out = sanitize(rendererFor('hr').call({}, {}) as string);
     expect(out).toContain('prose-divider');

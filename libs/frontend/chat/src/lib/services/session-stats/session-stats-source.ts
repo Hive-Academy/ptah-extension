@@ -18,6 +18,7 @@ import type {
   LocalTimeOptions,
   SessionBudgetState,
 } from '@ptah-extension/shared';
+import { parseSessionStatsCache } from '@ptah-extension/shared';
 import { ChatStore } from '../chat.store';
 
 /** What a stats host resolves; every getter is read reactively. */
@@ -186,6 +187,7 @@ export function injectSessionStatsSource(
     return {
       sessionId: host.sessionId(),
       snapshot: snapshot(),
+      cache: parseSessionStatsCache(snapshot()?.cache),
       liveModelStats: live,
       compactionCount: compactionCount(),
       limits: limitView,

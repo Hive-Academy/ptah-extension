@@ -1,26 +1,19 @@
 /**
  * SessionOpenBridgeService — consumes the AppStateManager `sessionOpenRequest`
- * signal bridge: navigates to chat, then opens the session as a canvas tile
- * (grid) or through `switchSession` (single), handling each request once.
+ * signal bridge: navigates to chat, then opens the session as a canvas tile,
+ * handling each request once.
  */
 import { signal, type WritableSignal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import {
-  AppStateManager,
-  type LayoutMode,
-  type SessionOpenRequest,
-} from '@ptah-extension/core';
+import { AppStateManager, type SessionOpenRequest } from '@ptah-extension/core';
 import { SessionId } from '@ptah-extension/shared';
-import { SessionLoaderService } from './session-loader.service';
 import { SessionOpenBridgeService } from './session-open-bridge.service';
 
 describe('SessionOpenBridgeService', () => {
   let request: WritableSignal<SessionOpenRequest | null>;
-  let layoutMode: WritableSignal<LayoutMode>;
   let setCurrentView: jest.Mock;
   let requestCanvasSession: jest.Mock;
   let clearSessionOpenRequest: jest.Mock;
-  let switchSession: jest.Mock;
 
   const flush = async (): Promise<void> => {
     TestBed.flushEffects();
@@ -30,14 +23,12 @@ describe('SessionOpenBridgeService', () => {
 
   beforeEach(() => {
     request = signal<SessionOpenRequest | null>(null);
-    layoutMode = signal<LayoutMode>('single');
     setCurrentView = jest.fn();
     requestCanvasSession = jest.fn(() => Promise.resolve(true));
     // Mirrors the real identity-guarded clear.
     clearSessionOpenRequest = jest.fn((handled: SessionOpenRequest) => {
       if (request() === handled) request.set(null);
     });
-    switchSession = jest.fn(() => Promise.resolve({ staleSnapshot: false }));
 
     TestBed.configureTestingModule({
       providers: [
@@ -46,13 +37,11 @@ describe('SessionOpenBridgeService', () => {
           provide: AppStateManager,
           useValue: {
             sessionOpenRequest: request.asReadonly(),
-            layoutMode: layoutMode.asReadonly(),
             setCurrentView,
             requestCanvasSession,
             clearSessionOpenRequest,
           },
         },
-        { provide: SessionLoaderService, useValue: { switchSession } },
       ],
     });
     TestBed.inject(SessionOpenBridgeService);
@@ -63,7 +52,7 @@ describe('SessionOpenBridgeService', () => {
     jest.restoreAllMocks();
   });
 
-  it('single layout: navigates to chat and switches to the session', async () => {
+  it('navigates to chat and asks the canvas to open the session', async () => {
     const sessionId = SessionId.create();
     const req: SessionOpenRequest = { sessionId, name: 'Fix login' };
     request.set(req);
@@ -71,24 +60,9 @@ describe('SessionOpenBridgeService', () => {
     await flush();
 
     expect(setCurrentView).toHaveBeenCalledWith('chat');
-    expect(switchSession).toHaveBeenCalledTimes(1);
-    expect(switchSession).toHaveBeenCalledWith(sessionId);
-    expect(requestCanvasSession).not.toHaveBeenCalled();
-    expect(clearSessionOpenRequest).toHaveBeenCalledWith(req);
-    expect(request()).toBeNull();
-  });
-
-  it('grid layout: navigates to chat and asks the canvas to open the session', async () => {
-    layoutMode.set('grid');
-    const sessionId = SessionId.create();
-    request.set({ sessionId, name: 'Fix login' });
-
-    await flush();
-
-    expect(setCurrentView).toHaveBeenCalledWith('chat');
     expect(requestCanvasSession).toHaveBeenCalledTimes(1);
     expect(requestCanvasSession).toHaveBeenCalledWith(sessionId, 'Fix login');
-    expect(switchSession).not.toHaveBeenCalled();
+    expect(clearSessionOpenRequest).toHaveBeenCalledWith(req);
     expect(request()).toBeNull();
   });
 
@@ -97,14 +71,11 @@ describe('SessionOpenBridgeService', () => {
     request.set({ sessionId });
     await flush();
 
-    // A later layout change re-runs nothing (layoutMode is read untracked),
-    // and the cleared signal holds no request to replay.
-    layoutMode.set('grid');
+    // The cleared signal holds no request to replay.
     await flush();
     await flush();
 
-    expect(switchSession).toHaveBeenCalledTimes(1);
-    expect(requestCanvasSession).not.toHaveBeenCalled();
+    expect(requestCanvasSession).toHaveBeenCalledTimes(1);
     expect(setCurrentView).toHaveBeenCalledTimes(1);
   });
 
@@ -115,25 +86,17 @@ describe('SessionOpenBridgeService', () => {
     request.set({ sessionId });
     await flush();
 
-    expect(switchSession).toHaveBeenCalledTimes(2);
+    expect(requestCanvasSession).toHaveBeenCalledTimes(2);
   });
 
-  it('a failed switch (e.g. a deleted session) is logged, not unhandled', async () => {
-    const error = new Error('chat:resume failed');
-    switchSession.mockReturnValueOnce(Promise.reject(error));
-    const consoleError = jest
-      .spyOn(console, 'error')
-      .mockImplementation(() => undefined);
+  it('a dropped canvas request (e.g. tile cap) still clears the request', async () => {
+    requestCanvasSession.mockReturnValueOnce(Promise.resolve(false));
     const sessionId = SessionId.create();
     request.set({ sessionId });
 
     await flush();
 
-    expect(consoleError).toHaveBeenCalledWith(
-      '[SessionOpenBridgeService] Failed to open session:',
-      sessionId,
-      error,
-    );
+    expect(requestCanvasSession).toHaveBeenCalledWith(sessionId, undefined);
     expect(request()).toBeNull();
   });
 });

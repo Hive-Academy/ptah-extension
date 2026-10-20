@@ -81,6 +81,9 @@ function composeHost(): Host {
 
   c.register(PLATFORM_TOKENS.DI_CONTAINER, { useValue: c });
   c.register(TOKENS.LOGGER, { useValue: logger });
+  c.register(PLATFORM_TOKENS.HOST_ATTENTION_NOTIFICATIONS, {
+    useValue: { present: jest.fn(), resolve: jest.fn(), isEligible: jest.fn(() => false), open: jest.fn(), dispose: jest.fn() },
+  });
   c.register(TOKENS.CONFIG_MANAGER, {
     useValue: {
       get: jest.fn(() => undefined),
@@ -151,6 +154,7 @@ function composeHost(): Host {
       getConfiguration: jest.fn(
         (_section: string, _key: string, fallback?: unknown) => fallback,
       ),
+      onDidChangeConfiguration: jest.fn(() => ({ dispose: jest.fn() })),
       onDidChangeWorkspaceFolders: jest.fn(() => ({ dispose: jest.fn() })),
     },
   });
@@ -227,10 +231,10 @@ describe('activateSessionLifecycleNotifier — plan-limit ledger activation', ()
     );
     expect(ledger).toBeInstanceOf(PlanLimitLedgerService);
     expect(ledgerReads(host.stateGet)).toBe(1);
+    expect(host.logger.error).not.toHaveBeenCalled();
     // ...and the broadcaster subscribed to its changes.
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(onChange.mock.instances[0]).toBe(ledger);
-    expect(host.logger.error).not.toHaveBeenCalled();
     // The ledger hears the native stream from startup: a turn-start on the
     // shared registry registers the session with no reader involved. (Other
     // registry subscribers run against this spec's stubbed session manager;

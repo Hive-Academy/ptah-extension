@@ -15,6 +15,20 @@ agent, every subagent and every CLI lane. Repeat them in any task prompt you han
 - Prefer one foreground run with a long timeout. Filter its output (`| tail`, `grep`) instead of
   re-running the command to read it.
 
+## Product focus: Electron first
+
+The Electron desktop app (`apps/ptah-electron`) is the priority host. These rules apply to the
+main agent, every subagent and every CLI lane. Repeat them in any task prompt you hand to a lane.
+
+- Plan, build and verify features for Electron first.
+- Do not start feature or polish work for the TUI (`apps/ptah-tui`) or the VS Code extension
+  (`apps/ptah-extension-vscode` and VS Code-only webview surfaces) unless the user asks for it.
+- Run visual reviews and screenshots in Electron only.
+- Keep every host compiling. When a change touches a shared lib, still run typecheck and tests
+  for each host project that depends on it; CI and the pre-push hook run them too.
+- When a shared change removes something that a TUI or VS Code surface uses, make the smallest
+  change that keeps that host working (for example a read-only view), and report it.
+
 ## Git: start every task in its own worktree
 
 - Before you change any file for a new task, create a worktree on a new branch from `main`:

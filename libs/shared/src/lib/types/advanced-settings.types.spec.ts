@@ -33,9 +33,9 @@ const booleanSettings = ADVANCED_SETTINGS.filter(
 );
 
 describe('ADVANCED_SETTINGS table', () => {
-  it('describes the 21 surfaced keys, each once', () => {
+  it('describes the 25 surfaced keys, each once', () => {
     const keys = ADVANCED_SETTINGS.map((setting) => setting.key);
-    expect(keys).toHaveLength(21);
+    expect(keys).toHaveLength(25);
     expect(new Set(keys).size).toBe(keys.length);
   });
 
@@ -86,6 +86,7 @@ describe('ADVANCED_SETTINGS table', () => {
     ['compaction.subagentHandoffTokens', 1_000, 2_000_000, true],
     ['compaction.rotationSuggestTokens', 1_000, 5_000_000, true],
     ['compaction.subagentStopWeightedTokens', 1_000, 100_000_000, true],
+    ['compaction.idleCompactionMinTokens', 100_000, 5_000_000, true],
     ['agentOrchestration.codexAutoCompactTokens', 0, 2_000_000, true],
     ['agentOrchestration.codexToolOutputTokenLimit', 0, 200_000, true],
     ['internalQuery.maxConcurrent', 1, 16, true],
@@ -107,13 +108,29 @@ describe('ADVANCED_SETTINGS table', () => {
     expect(setting.integer).toBe(integer);
   });
 
-  it('describes the three boolean keys', () => {
+  it('describes the six boolean keys', () => {
     expect(booleanSettings.map((setting) => setting.key).sort()).toEqual([
       'agentOrchestration.codexWebSearch',
+      'compaction.idleCompactionEnabled',
       'harness.manageGitignore',
       'memory.symbolInjectionEnabled',
+      'notifications.failureHostEnabled',
+      'notifications.hostEnabled',
     ]);
   });
+
+  it.each([
+    ['notifications.hostEnabled', true],
+    ['notifications.failureHostEnabled', false],
+  ] as const)(
+    '%s has the notifications descriptor and default',
+    (key, defaultValue) => {
+      const setting = booleanSetting(key);
+      expect(setting.group).toBe('notifications');
+      expect(setting.default).toBe(defaultValue);
+      expect(setting.apply).toBe('live');
+    },
+  );
 });
 
 describe('findAdvancedSetting', () => {

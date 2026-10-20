@@ -5,64 +5,16 @@
 }
 
 /* ==========================================================================
-   Shell + "This session" inspector (design-spec 2, 2.1, 4).
-   The shell is the size container; InspectorShellController observes the
-   same element and picks the band: docked >= 960 px, sheet 640-959 px,
-   full-width sheet below 640 px.
+   Shell: the size container for the chat column and the agent sidebar.
    ========================================================================== */
 .cs-shell {
   container-type: inline-size;
 }
 
-.cs-inspector {
-  display: block;
-  width: 336px;
-  height: 100%;
-  min-height: 0;
-  flex-shrink: 0;
-  border-left: 1px solid var(--surface-border);
-  background: oklch(var(--b1));
-  animation: csInspectorIn 220ms var(--ptah-ease-soft) both;
-}
-
-.cs-inspector--sheet {
-  position: absolute;
-  inset-block: 0;
-  right: 0;
-  z-index: 30;
-  width: min(336px, 100%);
-  box-shadow: var(--elev-shadow-raised);
-}
-
-.cs-inspector--full {
-  width: 100%;
-  border-left: 0;
-}
-
-/* Pointer-only; covers the whole shell (header included) under the sheet. */
-.cs-scrim {
-  position: absolute;
-  inset: 0;
-  z-index: 20;
-  background: rgb(0 0 0 / 0.3);
-}
-
-@keyframes csInspectorIn {
-  from {
-    opacity: 0;
-    transform: translateX(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
 /* Custom scrollbar for message container
    Uses VS Code variables when available (extension webview),
    falls back to Anubis theme (Electron desktop) via global styles.css */
-:host ::ng-deep .overflow-y-auto,
-.chat-scroll-container {
+:host ::ng-deep .overflow-y-auto {
   overflow-anchor: none;
   scrollbar-width: thin;
   scrollbar-color: var(
@@ -70,21 +22,6 @@
       oklch(var(--bc) / 0.2)
     )
     var(--vscode-scrollbar-shadow, transparent);
-}
-
-.chat-scroll-container {
-  display: block;
-  min-height: 0;
-  height: 100%;
-  overflow-y: auto;
-  overflow-x: hidden;
-}
-
-.chat-scroll-content {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  width: 100%;
 }
 
 /* Browser-native windowing: off-screen bubbles skip layout + paint, giving
@@ -97,24 +34,20 @@
 }
 
 /* Webkit fallback */
-:host ::ng-deep .overflow-y-auto::-webkit-scrollbar,
-.chat-scroll-container::-webkit-scrollbar {
+:host ::ng-deep .overflow-y-auto::-webkit-scrollbar {
   width: 8px;
 }
 
-:host ::ng-deep .overflow-y-auto::-webkit-scrollbar-track,
-.chat-scroll-container::-webkit-scrollbar-track {
+:host ::ng-deep .overflow-y-auto::-webkit-scrollbar-track {
   background: var(--vscode-scrollbar-shadow, transparent);
 }
 
-:host ::ng-deep .overflow-y-auto::-webkit-scrollbar-thumb,
-.chat-scroll-container::-webkit-scrollbar-thumb {
+:host ::ng-deep .overflow-y-auto::-webkit-scrollbar-thumb {
   background: var(--vscode-scrollbarSlider-background, oklch(var(--bc) / 0.2));
   border-radius: 4px;
 }
 
-:host ::ng-deep .overflow-y-auto::-webkit-scrollbar-thumb:hover,
-.chat-scroll-container::-webkit-scrollbar-thumb:hover {
+:host ::ng-deep .overflow-y-auto::-webkit-scrollbar-thumb:hover {
   background: var(
     --vscode-scrollbarSlider-hoverBackground,
     oklch(var(--bc) / 0.35)
@@ -213,8 +146,7 @@
   .banner-enter,
   .banner-leave,
   .fade-enter,
-  .fade-leave,
-  .cs-inspector {
+  .fade-leave {
     animation: none !important;
     transition: none !important;
   }

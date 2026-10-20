@@ -55,13 +55,18 @@ export class CommandCenterPageController {
   );
   private readonly rpc = inject(ClaudeRpcService);
   private readonly theme = inject(ThemeService, { optional: true });
+  public readonly darkMode = computed(() => this.theme?.isDarkMode() ?? true);
+
+  public toggleTheme(): void {
+    this.theme?.toggleTheme();
+  }
   private readonly appState = inject(AppStateManager, { optional: true });
   private readonly destroyRef = inject(DestroyRef);
   private readonly chat = inject(ChatStore);
   private readonly voiceSessions = inject(CommandCenterVoiceSessionService);
   private readonly tribunalTransport = inject(CommandCenterTribunalTransport);
   private readonly projectionSource = inject(CommandCenterProjectionSource);
-  private readonly now = commandCenterClock();
+  public readonly now = commandCenterClock();
   private readonly roster: CommandCenterRosterProvider =
     new CommandCenterRosterProvider(
       this.store,

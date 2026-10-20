@@ -18,6 +18,18 @@ export type {
 
 export { FileType, PlatformType } from './types/platform.types';
 export type { IFileSystemProvider } from './interfaces/file-system-provider.interface';
+export type {
+  IHostAttentionNotifications,
+  SafeHostAttentionNotice,
+} from './interfaces/host-attention-notifications.interface';
+export type {
+  IHostAttentionIngress,
+  IHostAttentionObserverHost,
+} from './interfaces/host-attention-ingress.interface';
+export type {
+  IPtahViewVisibility,
+  PtahViewVisibility,
+} from './interfaces/ptah-view-visibility.interface';
 export type { IStateStorage } from './interfaces/state-storage.interface';
 export type {
   IAsyncStateStorage,

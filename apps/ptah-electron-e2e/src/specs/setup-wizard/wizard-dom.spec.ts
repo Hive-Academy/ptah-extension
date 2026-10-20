@@ -13,6 +13,8 @@ test.describe('Setup wizard (DOM)', () => {
     const step = page.locator('[data-testid="wizard-step"]');
     await expect(step).toBeVisible();
     await expect(step).toHaveAttribute('data-step', 'welcome');
+    await expect(page.locator('ptah-wizard-landing')).toBeVisible();
+    await page.getByText('Analysis and recovery options').click();
     await expect(page.locator('ptah-welcome')).toBeVisible();
   });
 
@@ -27,6 +29,9 @@ test.describe('Setup wizard (DOM)', () => {
 
     const step = page.locator('[data-testid="wizard-step"]');
     await expect(step).toHaveAttribute('data-step', 'welcome');
+    await expect(page.locator('ptah-wizard-landing')).toBeVisible();
+    await page.getByText('Analysis and recovery options').click();
+    await expect(page.locator('ptah-welcome')).toBeVisible();
 
     await page.locator('[data-testid="wizard-next-btn"]').click();
 

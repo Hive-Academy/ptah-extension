@@ -97,6 +97,7 @@ class RailDisplayPanelStub {
   readonly summary = input<unknown>(null);
   readonly summaryTurnKey = input('');
   readonly selectedKey = input<string | null>(null);
+  readonly scrollToSelectedOnMount = input(false);
   readonly pinned = input(false);
   readonly viewStates = input<unknown>(null);
   readonly actionError = input<string | null>(null);
@@ -140,7 +141,7 @@ function componentImport(
 }
 
 describe('CanvasDetailTranscriptComponent visibility', () => {
-  it('fenced display opens and updates in place in Rail host', async () => {
+  it('fenced display opens and updates in place in the Rail sheet', async () => {
     const originalResizeObserver = global.ResizeObserver;
     global.ResizeObserver = jest.fn().mockImplementation(() => ({
       observe: jest.fn(),
@@ -252,7 +253,6 @@ describe('CanvasDetailTranscriptComponent visibility', () => {
           provide: AppStateManager,
           useValue: {
             currentView: signal('chat'),
-            layoutMode: signal('single'),
             composerPrefillRequest: signal({ seq: 0, text: '', tabId: null }),
           },
         },
@@ -299,14 +299,14 @@ describe('CanvasDetailTranscriptComponent visibility', () => {
         },
       ],
     });
-    const displayDock = componentImport(ChatViewComponent, 'ptah-display-dock');
+    const displaySheet = componentImport(ChatViewComponent, 'ptah-display-sheet');
     TestBed.overrideComponent(ChatViewComponent, {
       set: {
-        imports: [SidebarTabComponent, displayDock, RailAgentPanelStub],
+        imports: [SidebarTabComponent, displaySheet, RailAgentPanelStub],
         schemas: [NO_ERRORS_SCHEMA],
       },
     });
-    TestBed.overrideComponent(displayDock, {
+    TestBed.overrideComponent(displaySheet, {
       remove: { imports: [DisplayPanelComponent] },
       add: { imports: [RailDisplayPanelStub] },
     });
@@ -358,7 +358,7 @@ describe('CanvasDetailTranscriptComponent visibility', () => {
       store.setSurfaces('parent', { surfaces: [updated], statuses: new Map() });
       await settle();
       expect(
-        fixture.nativeElement.querySelectorAll('ptah-display-dock'),
+        fixture.nativeElement.querySelectorAll('ptah-display-sheet'),
       ).toHaveLength(1);
       expect(
         fixture.debugElement.query(By.directive(RailDisplayPanelStub))

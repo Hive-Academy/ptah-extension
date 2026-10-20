@@ -874,6 +874,18 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
   });
 
   describe('compaction lifecycle', () => {
+    it('passes the idle notice only from a matching completion event', () => {
+      const notice = { preTokens: 12345 };
+      const result = core.process(
+        state,
+        compactionComplete({ idleCompaction: notice }),
+        makeCtx(),
+      );
+      expect(result.idleCompaction).toEqual(notice);
+      expect(
+        core.process(state, compactionComplete(), makeCtx()).idleCompaction,
+      ).toBeUndefined();
+    });
     it('compaction_start does NOT mutate state but returns compactionStart=true', () => {
       // Prime with a few events so we can verify state is untouched.
       core.process(state, msgStart(), makeCtx());
@@ -975,6 +987,71 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
     });
   });
 
+  describe('skipStoreEffects', () => {
+    it('retains agent events without registering or notifying the agent monitor or hook', () => {
+      const onAgentStart = jest.fn();
+      const onStateChanged = jest.fn();
+      const result = core.process(
+        state,
+        agentStart(),
+        makeCtx({ skipStoreEffects: true, onAgentStart, onStateChanged }),
+      );
+
+      expect(result.stateMutated).toBe(true);
+      expect(state.events.has('evt-agent-start')).toBe(true);
+      expect(sessionManager.registerAgent).not.toHaveBeenCalled();
+      expect(onStateChanged).toHaveBeenCalledWith(state);
+      expect(onAgentStart).not.toHaveBeenCalled();
+      expect(agentMonitorStore.onAgentStart).not.toHaveBeenCalled();
+    });
+
+    it('does not drain live pending deltas during a replay', () => {
+      sessionManager.registerAgent.mockReturnValueOnce(['live pending delta']);
+      core.process(state, agentStart(), makeCtx({ skipStoreEffects: true }));
+      expect(sessionManager.registerAgent).not.toHaveBeenCalled();
+    });
+
+    it('leaves background and agent lifecycle stores untouched during replay', () => {
+      const ctx = makeCtx({ skipStoreEffects: true });
+      const lifecycleEvents: FlatStreamEventUnion[] = [
+        bgAgentStarted(), bgAgentCompleted(), bgAgentStopped(),
+        { id: 'progress', eventType: 'agent_progress', timestamp: 15, sessionId: SESSION_ID, messageId: MESSAGE_ID,
+          parentToolUseId: 'toolu_agent_1', taskId: 'task-1', description: 'Working',
+          totalTokens: 10, toolUses: 1, durationMs: 100 },
+        { id: 'status', eventType: 'agent_status', timestamp: 16, sessionId: SESSION_ID, messageId: MESSAGE_ID,
+          parentToolUseId: 'toolu_agent_1', taskId: 'task-1', status: 'running' },
+        { id: 'completed', eventType: 'agent_completed', timestamp: 17, sessionId: SESSION_ID, messageId: MESSAGE_ID,
+          parentToolUseId: 'toolu_agent_1', taskId: 'task-1', status: 'completed',
+          summary: 'Done', outputFile: '' },
+      ];
+      for (const event of lifecycleEvents) core.process(state, event, ctx);
+      expect(backgroundAgentStore.onStarted).not.toHaveBeenCalled();
+      expect(backgroundAgentStore.onCompleted).not.toHaveBeenCalled();
+      expect(backgroundAgentStore.onStopped).not.toHaveBeenCalled();
+      expect(agentMonitorStore.onBackgroundAgentStarted).not.toHaveBeenCalled();
+      expect(agentMonitorStore.onAgentProgress).not.toHaveBeenCalled();
+      expect(agentMonitorStore.onAgentStatus).not.toHaveBeenCalled();
+      expect(agentMonitorStore.onAgentCompleted).not.toHaveBeenCalled();
+      expect(sessionManager.registerAgent).not.toHaveBeenCalled();
+    });
+
+    it('does not read or update the agent monitor for a Task result or subagent completion', () => {
+      const ctx = makeCtx({ skipStoreEffects: true });
+      core.process(state, toolResult(), ctx);
+      core.process(
+        state,
+        messageComplete({ parentToolUseId: 'tool-1' }),
+        ctx,
+      );
+
+      expect(state.events.has('evt-tool-result')).toBe(true);
+      expect(state.events.has('evt-msg-complete')).toBe(true);
+      expect(agentMonitorStore.getSubagent).not.toHaveBeenCalled();
+      expect(agentMonitorStore.onTaskToolResult).not.toHaveBeenCalled();
+      expect(agentMonitorStore.onSubagentMessageComplete).not.toHaveBeenCalled();
+    });
+  });
+
   // ---- Foreground completion via Task tool_result ------------------------
 
   describe('tool_result drives foreground subagent completion', () => {
@@ -989,6 +1066,7 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
       expect(agentMonitorStore.onTaskToolResult).toHaveBeenCalledWith(
         'tool-1',
         false,
+        5,
       );
     });
 
@@ -998,6 +1076,7 @@ describe('StreamingAccumulatorCore (TASK_2026_107 Phase 2)', () => {
       expect(agentMonitorStore.onTaskToolResult).toHaveBeenCalledWith(
         'tool-1',
         true,
+        5,
       );
     });
 

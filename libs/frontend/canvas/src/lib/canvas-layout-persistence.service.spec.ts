@@ -174,16 +174,19 @@ describe('CanvasLayoutPersistenceService', () => {
     });
   });
 
-  it('warns once per storage failure kind and keeps operating', () => {
+  it('warns once per storage failure kind and counts each failed write', () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota'); });
     service.markHydrated(path, true);
+    expect(service.writeFailureCount()).toBe(0);
     service.schedule(path, () => ({ tiles: intent, board }));
     service.flush();
+    expect(service.writeFailureCount()).toBe(1);
     service.schedule(path, () => ({ tiles: intent, board }));
     service.flush();
     expect(warn).toHaveBeenCalledTimes(1);
     expect(service.writeFailed()).toBe(true);
+    expect(service.writeFailureCount()).toBe(2);
   });
 
   it('opens v2 as Rail defaults without scheduling an upgrade', () => {

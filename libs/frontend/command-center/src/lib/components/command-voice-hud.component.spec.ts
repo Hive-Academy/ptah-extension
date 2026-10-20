@@ -14,6 +14,61 @@ describe('CommandVoiceHudComponent', () => {
     return fixture;
   }
 
+  it('shows a clamped five-bar Speaker meter only while speaking', () => {
+    const fixture = render();
+    const speaker = () =>
+      fixture.nativeElement.querySelector(
+        '[role="meter"][aria-label="Speaker"]',
+      ) as HTMLElement | null;
+    expect(speaker()).toBeNull();
+    expect(fixture.nativeElement.querySelector('[data-dock-waveform]')).toBeNull();
+    fixture.componentRef.setInput('voiceState', 'speaking');
+    fixture.componentRef.setInput('outputLevel', 0.6);
+    fixture.detectChanges();
+    expect(speaker()?.getAttribute('aria-valuemin')).toBe('0');
+    expect(speaker()?.getAttribute('aria-valuemax')).toBe('100');
+    expect(speaker()?.getAttribute('aria-valuenow')).toBe('60');
+    expect(speaker()?.getAttribute('aria-valuetext')).toBe('Speaker level 60%');
+    expect(fixture.nativeElement.querySelector('[data-dock-waveform]')).not.toBeNull();
+    expect(
+      (fixture.nativeElement as HTMLElement)
+        .querySelector('[role="meter"][aria-label="Microphone level"]')
+        ?.getAttribute('aria-valuetext'),
+    ).toBe('Microphone level 0%');
+    expect(speaker()?.querySelectorAll('span')).toHaveLength(5);
+    fixture.componentRef.setInput('outputLevel', 2);
+    fixture.detectChanges();
+    expect(speaker()?.getAttribute('aria-valuenow')).toBe('100');
+    fixture.componentRef.setInput('outputLevel', -1);
+    fixture.detectChanges();
+    expect(speaker()?.getAttribute('aria-valuenow')).toBe('0');
+    fixture.componentRef.setInput('voiceState', 'listening');
+    fixture.detectChanges();
+    expect(speaker()).toBeNull();
+    expect(fixture.nativeElement.querySelector('[data-dock-waveform]')).toBeNull();
+  });
+
+  it('clamps the numeric microphone meter and retains mute, stop and interrupt', () => {
+    const fixture = render();
+    const mute = jest.fn();
+    const stop = jest.fn();
+    const interrupt = jest.fn();
+    fixture.componentInstance.toggleMute.subscribe(mute);
+    fixture.componentInstance.stop.subscribe(stop);
+    fixture.componentInstance.interrupt.subscribe(interrupt);
+    fixture.componentRef.setInput('voiceState', 'speaking');
+    fixture.componentRef.setInput('inputLevel', 2);
+    fixture.detectChanges();
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.querySelector('[role="meter"][aria-label="Microphone level"]')?.getAttribute('aria-valuenow')).toBe('100');
+    [...root.querySelectorAll('button')].find(button => button.textContent?.trim() === 'Mute')?.click();
+    [...root.querySelectorAll('button')].find(button => button.textContent?.trim() === 'Stop')?.click();
+    [...root.querySelectorAll('button')].find(button => button.textContent?.trim() === 'Interrupt speech')?.click();
+    expect(mute).toHaveBeenCalledTimes(1);
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(interrupt).toHaveBeenCalledTimes(1);
+  });
+
   it('offers an enabled mic retry for a typed capture failure', () => {
     const fixture = render();
     const start = jest.fn();
@@ -98,6 +153,8 @@ describe('CommandVoiceHudComponent', () => {
     expect(start.disabled).toBe(false);
     expect(muteButton.disabled).toBe(true);
     expect(stop.disabled).toBe(false);
+    expect(muteButton.className).toContain('btn-outline');
+    expect(stop.className).toContain('btn-outline');
     muteButton.click();
     expect(mute).not.toHaveBeenCalled();
   });

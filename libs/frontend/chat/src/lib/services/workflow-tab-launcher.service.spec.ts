@@ -1,11 +1,9 @@
 import { TestBed } from '@angular/core/testing';
-import { signal } from '@angular/core';
 import { AppStateManager, SurfaceRouterService } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { WorkflowTabLauncherService } from './workflow-tab-launcher.service';
 
 describe('WorkflowTabLauncherService', () => {
-  const layout = signal<'single' | 'grid'>('single');
   const navigateToSurface = jest.fn();
   const createTab = jest.fn(() => 'tab-1');
   const setWorkflow = jest.fn();
@@ -16,7 +14,6 @@ describe('WorkflowTabLauncherService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    layout.set('single');
     navigateToSurface.mockResolvedValue('navigated');
     TestBed.configureTestingModule({
       providers: [
@@ -34,7 +31,6 @@ describe('WorkflowTabLauncherService', () => {
         {
           provide: AppStateManager,
           useValue: {
-            layoutMode: layout,
             requestCanvasTab,
             requestComposerPrefill,
           },
@@ -52,27 +48,28 @@ describe('WorkflowTabLauncherService', () => {
     expect(createTab).not.toHaveBeenCalled();
   });
 
-  it.each([
-    ['single', null],
-    ['grid', 'tab-1'],
-  ] as const)(
-    'prefills the %s layout and tags the tab',
-    async (mode, scope) => {
-      layout.set(mode);
-      await expect(
-        service.open({
-          workflow: 'harness-configure',
-          title: 'Harness',
-          visiblePrompt: 'draft',
-          firstMessagePreamble: 'frame',
-        }),
-      ).resolves.toEqual({ outcome: 'landed', tabId: 'tab-1' });
-      expect(setWorkflow).toHaveBeenCalledWith('tab-1', 'harness-configure');
-      expect(setFirstMessagePreamble).toHaveBeenCalledWith('tab-1', 'frame');
-      expect(requestComposerPrefill).toHaveBeenCalledWith('draft', scope);
-      expect(requestCanvasTab).toHaveBeenCalledTimes(mode === 'grid' ? 1 : 0);
-    },
-  );
+  it('tags the tab, requests a canvas tile with its tabId and prefills that tile', async () => {
+    await expect(
+      service.open({
+        workflow: 'harness-configure',
+        title: 'Harness',
+        visiblePrompt: 'draft',
+        firstMessagePreamble: 'frame',
+      }),
+    ).resolves.toEqual({ outcome: 'landed', tabId: 'tab-1' });
+    expect(setWorkflow).toHaveBeenCalledWith('tab-1', 'harness-configure');
+    expect(setFirstMessagePreamble).toHaveBeenCalledWith('tab-1', 'frame');
+    // A workflow-claimed tab is tiled like any other tab (decision 7).
+    expect(requestCanvasTab).toHaveBeenCalledTimes(1);
+    expect(requestCanvasTab).toHaveBeenCalledWith('tab-1', '/work', 'Harness');
+    expect(requestComposerPrefill).toHaveBeenCalledWith('draft', 'tab-1');
+  });
+
+  it('requests the tile but no prefill without a visible prompt', async () => {
+    await service.open({ workflow: 'harness-configure', title: 'Harness' });
+    expect(requestCanvasTab).toHaveBeenCalledWith('tab-1', '/work', 'Harness');
+    expect(requestComposerPrefill).not.toHaveBeenCalled();
+  });
 
   it('rejects an unknown workflow kind', async () => {
     await expect(

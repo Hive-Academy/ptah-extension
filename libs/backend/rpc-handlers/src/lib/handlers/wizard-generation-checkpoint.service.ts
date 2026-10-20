@@ -33,8 +33,11 @@ import type {
 } from '@ptah-extension/agent-generation';
 import type {
   GenerationAgentOutcome,
+  GenerationContextSource,
   ResumableGenerationRun,
+  SetupGenerationTabBinding,
 } from '@ptah-extension/shared';
+import { sameWorkspacePath } from './wizard-generation-binding';
 
 /** Where a run's checkpoint lives: beside its analysis slug, or in the root. */
 export interface GenerationCheckpointLocation {
@@ -50,12 +53,19 @@ export interface FreshGenerationRun {
   analysisRunId?: string;
   selectedAgentIds: string[];
   input: GenerationCheckpointManifest['input'];
+  tabBinding?: SetupGenerationTabBinding;
+  source?: GenerationContextSource;
+  effectiveProvider?: string;
+  effectiveModel?: string;
+  enhancedPromptsUsed?: boolean;
 }
 
 /** What the handler launches after a checkpoint was created or resumed. */
 export interface PreparedGenerationRun {
   location: GenerationCheckpointLocation;
   manifest: GenerationCheckpointManifest;
+  /** Completed propagation from a previous invocation, restored only if no files are written. */
+  previousPropagation?: GenerationCheckpointManifest['propagation'];
   /** Agents the orchestrator must (re)run in this invocation. */
   agentIds: string[];
   /**
@@ -146,6 +156,17 @@ export class GenerationCheckpointService {
     const manifest: GenerationCheckpointManifest = {
       version: 1,
       runId: randomUUID(),
+      ...(run.tabBinding
+        ? { tabBinding: run.tabBinding, workspaceRoot: run.workspaceRoot }
+        : {}),
+      ...(run.source ? { source: run.source } : {}),
+      ...(run.effectiveProvider
+        ? { effectiveProvider: run.effectiveProvider }
+        : {}),
+      ...(run.effectiveModel ? { effectiveModel: run.effectiveModel } : {}),
+      ...(run.enhancedPromptsUsed !== undefined
+        ? { enhancedPromptsUsed: run.enhancedPromptsUsed }
+        : {}),
       ...(analysisRunId ? { analysisRunId } : {}),
       ...(run.analysisDir ? { analysisDirectory: run.analysisDir } : {}),
       createdAt: now,
@@ -186,6 +207,7 @@ export class GenerationCheckpointService {
   async locateResumable(
     workspaceRoot: string,
     analysisDir: string | null,
+    unboundOnly = false,
   ): Promise<{
     location: GenerationCheckpointLocation;
     manifest: GenerationCheckpointManifest;
@@ -200,12 +222,68 @@ export class GenerationCheckpointService {
         ? { location: { workspaceRoot, analysisDir }, manifest }
         : null;
     }
-    const latest = await storage.findLatestResumableRun(workspaceRoot);
+    const latest = unboundOnly
+      ? await storage.findLatestResumableRun(
+          workspaceRoot,
+          (run) =>
+            !!run.generation &&
+            run.generation.lifecycle !== 'completed' &&
+            !run.generation.tabBinding,
+        )
+      : await storage.findLatestResumableRun(workspaceRoot);
     if (!latest?.generation) return null;
     return {
       location: { workspaceRoot, analysisDir: latest.slugDir },
       manifest: latest.generation,
     };
+  }
+
+  /** Find the current bound checkpoint, including a completed terminal record. */
+  async locateBound(
+    workspaceRoot: string,
+    binding: SetupGenerationTabBinding,
+    runId?: string,
+  ): Promise<{
+    location: GenerationCheckpointLocation;
+    manifest: GenerationCheckpointManifest;
+  } | null> {
+    const storage = this.storage();
+    // `list` is bounded to direct, valid analysis runs and ordered newest first.
+    // A resumed checkpoint may live beside an older run after a newer analysis.
+    const analyses = await storage.list(workspaceRoot);
+    const dirs = [
+      null,
+      ...analyses.map(({ filename }) =>
+        path.join(workspaceRoot, '.ptah', 'analysis', filename),
+      ),
+    ];
+    const matches: Array<{
+      location: GenerationCheckpointLocation;
+      manifest: GenerationCheckpointManifest;
+    }> = [];
+    for (const analysisDir of dirs) {
+      const manifest = await storage.loadGenerationManifest(
+        workspaceRoot,
+        analysisDir,
+      );
+      if (
+        manifest &&
+        manifest.tabBinding?.tabId === binding.tabId &&
+        (await sameWorkspacePath(
+          manifest.tabBinding.workspacePath,
+          binding.workspacePath,
+        )) &&
+        (!runId || manifest.runId === runId)
+      ) {
+        const location = { workspaceRoot, analysisDir };
+        if (this.isTrusted(location, manifest))
+          matches.push({ location, manifest });
+      }
+    }
+    matches.sort((a, b) =>
+      b.manifest.updatedAt.localeCompare(a.manifest.updatedAt),
+    );
+    return matches[0] ?? null;
   }
 
   /**
@@ -223,8 +301,21 @@ export class GenerationCheckpointService {
     if (!isPathWithinRoots(manifest.outputDirectory, [workspaceRoot])) {
       return false;
     }
+    if (
+      (manifest.workspaceRoot &&
+        !isPathWithinRoots(manifest.workspaceRoot, [workspaceRoot])) ||
+      (manifest.tabBinding?.workspacePath &&
+        !isPathWithinRoots(manifest.tabBinding.workspacePath, [workspaceRoot]))
+    )
+      return false;
     const storage = this.storage();
-    const candidates = [location.analysisDir, manifest.analysisDirectory];
+    const candidates = [
+      location.analysisDir,
+      manifest.analysisDirectory,
+      manifest.source?.kind === 'verified-analysis'
+        ? manifest.source.analysisDir
+        : null,
+    ];
     return candidates.every(
       (dir) =>
         dir === null ||
@@ -241,6 +332,14 @@ export class GenerationCheckpointService {
   async prepareResume(
     location: GenerationCheckpointLocation,
     manifest: GenerationCheckpointManifest,
+    metadata?: Pick<
+      FreshGenerationRun,
+      | 'tabBinding'
+      | 'source'
+      | 'effectiveProvider'
+      | 'effectiveModel'
+      | 'enhancedPromptsUsed'
+    >,
   ): Promise<PreparedGenerationRun> {
     const agentIds: string[] = [];
     const carriedOver: GenerationAgentOutcome[] = [];
@@ -263,10 +362,34 @@ export class GenerationCheckpointService {
       });
     }
 
+    const propagation = manifest.propagation;
+    const resumable = { ...manifest };
+    delete resumable.verifiedResult;
+    delete resumable.propagation;
     const next: GenerationCheckpointManifest = {
-      ...manifest,
+      ...resumable,
+      ...(metadata?.tabBinding
+        ? {
+            tabBinding: metadata.tabBinding,
+            workspaceRoot: location.workspaceRoot,
+          }
+        : {}),
+      ...(metadata?.source ? { source: metadata.source } : {}),
+      ...(metadata?.effectiveProvider
+        ? { effectiveProvider: metadata.effectiveProvider }
+        : {}),
+      ...(metadata?.effectiveModel
+        ? {
+            effectiveModel: metadata.effectiveModel,
+            input: { ...manifest.input, model: metadata.effectiveModel },
+          }
+        : {}),
+      ...(metadata?.enhancedPromptsUsed !== undefined
+        ? { enhancedPromptsUsed: metadata.enhancedPromptsUsed }
+        : {}),
       lifecycle: 'running',
       updatedAt: new Date().toISOString(),
+      carriedOverAgentIds: carriedOver.map((agent) => agent.agentId),
       agents,
     };
     await this.storage().writeGenerationManifest(
@@ -279,7 +402,15 @@ export class GenerationCheckpointService {
       remaining: agentIds,
       carriedOver: carriedOver.map((agent) => agent.agentId),
     });
-    return { location, manifest: next, agentIds, carriedOver };
+    return {
+      location,
+      manifest: next,
+      agentIds,
+      carriedOver,
+      ...(propagation?.status === 'completed'
+        ? { previousPropagation: propagation }
+        : {}),
+    };
   }
 
   /**
@@ -317,31 +448,42 @@ export class GenerationCheckpointService {
   }
 
   /**
-   * Record the run's terminal lifecycle. Best-effort: the outcome has already
-   * been decided, so a failure here is logged and the payload still goes out.
+   * Record the run's terminal lifecycle. A missing or unwritable checkpoint
+   * prevents a successful completion from being reported.
    */
   async finalize(
     location: GenerationCheckpointLocation,
     lifecycle: GenerationCheckpointManifest['lifecycle'],
+    verifiedResult = false,
   ): Promise<void> {
-    try {
-      const updated = await this.storage().updateGenerationManifest(
-        location.workspaceRoot,
-        location.analysisDir,
-        (current) => ({ ...current, lifecycle }),
-      );
-      if (!updated) {
-        this.logger.warn('Generation checkpoint missing at finalize', {
-          lifecycle,
-          analysisDir: location.analysisDir,
-        });
-      }
-    } catch (error: unknown) {
-      this.logger.warn('Failed to finalize generation checkpoint', {
-        lifecycle,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+    const updated = await this.storage().updateGenerationManifest(
+      location.workspaceRoot,
+      location.analysisDir,
+      (current) => ({ ...current, lifecycle, verifiedResult }),
+    );
+    if (!updated) throw new Error('Generation checkpoint missing at finalize');
+  }
+
+  async recordPropagation(
+    location: GenerationCheckpointLocation,
+    propagation: NonNullable<GenerationCheckpointManifest['propagation']>,
+  ): Promise<void> {
+    const updated = await this.storage().updateGenerationManifest(
+      location.workspaceRoot,
+      location.analysisDir,
+      (current) => ({ ...current, propagation }),
+    );
+    if (!updated)
+      throw new Error('Generation checkpoint missing at propagation');
+  }
+
+  async loadAt(
+    location: GenerationCheckpointLocation,
+  ): Promise<GenerationCheckpointManifest | null> {
+    return this.storage().loadGenerationManifest(
+      location.workspaceRoot,
+      location.analysisDir,
+    );
   }
 
   private storage(): AnalysisStorageService {

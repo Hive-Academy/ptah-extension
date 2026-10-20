@@ -1,6 +1,7 @@
 import { Injectable, NgZone, inject } from '@angular/core';
 import {
   type CompactionMeasurement,
+  type IdleCompactionNotice,
   SessionId,
   type SdkCompactionCompletePayload,
 } from '@ptah-extension/shared';
@@ -166,40 +167,45 @@ export class CompactionLifecycleService {
       });
     }
     const compactingTabIds = tabs.map((t) => t.id);
-    const timeoutId = setTimeout(() => this.ngZone.run(() => {
-      const recovery = this.compactionRecoveryTimers.get(compactionSid);
-      if (!recovery || recovery.timeoutId !== timeoutId) return;
-      this.compactionRecoveryTimers.delete(compactionSid);
+    const timeoutId = setTimeout(
+      () =>
+        this.ngZone.run(() => {
+          const recovery = this.compactionRecoveryTimers.get(compactionSid);
+          if (!recovery || recovery.timeoutId !== timeoutId) return;
+          this.compactionRecoveryTimers.delete(compactionSid);
 
-      const ownedConversationIds = new Set<ConversationId>();
-      for (const tabId of recovery.tabIds) {
-        const tab = this.tabManager
-          .tabs()
-          .find((candidate) => candidate.id === tabId);
-        if (tab?.claudeSessionId !== compactionSid) continue;
-        const conversationId = this.tabSessionBinding.conversationFor(tabId);
-        if (
-          !conversationId ||
-          !recovery.conversationIds.includes(conversationId)
-        ) {
-          continue;
-        }
-        ownedConversationIds.add(conversationId);
-        this.tabManager.applyCompactionTimeoutReset(tabId);
-        this.tabManager.markTabIdle(tabId);
-      }
-      for (const conversationId of ownedConversationIds) {
-        this.conversationRegistry.setCompactionState(conversationId, {
-          inFlight: false,
-        });
-      }
-      if (this.sessionManager.getCurrentSessionId() === compactionSid) {
-        this.sessionManager.setStatus('loaded');
-      }
-      console.warn(
-        '[ChatStore] Compaction safety timeout reached — compaction_complete event may have been lost',
-      );
-    }), CompactionLifecycleService.COMPACTION_SAFETY_TIMEOUT_MS);
+          const ownedConversationIds = new Set<ConversationId>();
+          for (const tabId of recovery.tabIds) {
+            const tab = this.tabManager
+              .tabs()
+              .find((candidate) => candidate.id === tabId);
+            if (tab?.claudeSessionId !== compactionSid) continue;
+            const conversationId =
+              this.tabSessionBinding.conversationFor(tabId);
+            if (
+              !conversationId ||
+              !recovery.conversationIds.includes(conversationId)
+            ) {
+              continue;
+            }
+            ownedConversationIds.add(conversationId);
+            this.tabManager.applyCompactionTimeoutReset(tabId);
+            this.tabManager.markTabIdle(tabId);
+          }
+          for (const conversationId of ownedConversationIds) {
+            this.conversationRegistry.setCompactionState(conversationId, {
+              inFlight: false,
+            });
+          }
+          if (this.sessionManager.getCurrentSessionId() === compactionSid) {
+            this.sessionManager.setStatus('loaded');
+          }
+          console.warn(
+            '[ChatStore] Compaction safety timeout reached — compaction_complete event may have been lost',
+          );
+        }),
+      CompactionLifecycleService.COMPACTION_SAFETY_TIMEOUT_MS,
+    );
     this.compactionRecoveryTimers.set(compactionSid, {
       timeoutId,
       tabIds: compactingTabIds,
@@ -355,6 +361,7 @@ export class CompactionLifecycleService {
     compactionSessionId: string;
     boundaryId?: string;
     measurement?: CompactionMeasurement;
+    idleCompaction?: IdleCompactionNotice;
     preTokens?: number;
     postTokens?: number;
     durationMs?: number;
@@ -514,6 +521,7 @@ export class CompactionLifecycleService {
       this.conversationRegistry.setCompactionMarkerTokens(convId, {
         boundaryId: result.boundaryId,
         measurement: result.measurement,
+        idleCompaction: result.idleCompaction,
         preTokens: result.preTokens ?? null,
         postTokens: result.postTokens ?? null,
         durationMs: result.durationMs ?? null,
@@ -559,7 +567,9 @@ export class CompactionLifecycleService {
           .switchSession(target.sessionId, {
             reason: 'compaction',
             targetTabId: target.tabId,
-            ...(result.advisoryFallback ? { compactionDelayed: true as const } : {}),
+            ...(result.advisoryFallback
+              ? { compactionDelayed: true as const }
+              : {}),
           })
           // One `then(resolved, rejected)` hop, not `then().catch()`: the settle
           // handler keeps the same microtask position it always had.
@@ -700,7 +710,11 @@ export class CompactionLifecycleService {
         try {
           const outcome = await this.sessionLoader.switchSession(
             tab.claudeSessionId ?? compactionSid,
-            { reason: 'compaction', targetTabId: tabId, compactionDelayed: true },
+            {
+              reason: 'compaction',
+              targetTabId: tabId,
+              compactionDelayed: true,
+            },
           );
           if (outcome?.staleSnapshot) stillStale = true;
         } catch (err: unknown) {
@@ -740,6 +754,7 @@ export class CompactionLifecycleService {
     result: {
       boundaryId?: string;
       measurement?: CompactionMeasurement;
+      idleCompaction?: IdleCompactionNotice;
       preTokens?: number;
       postTokens?: number;
       durationMs?: number;
@@ -762,6 +777,7 @@ export class CompactionLifecycleService {
       this.conversationRegistry.setCompactionMarkerTokens(convId, {
         boundaryId: result.boundaryId,
         measurement: result.measurement,
+        idleCompaction: result.idleCompaction,
         preTokens: result.preTokens ?? null,
         postTokens: result.postTokens ?? null,
         durationMs: result.durationMs ?? null,

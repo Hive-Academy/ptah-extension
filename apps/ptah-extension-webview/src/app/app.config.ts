@@ -18,6 +18,8 @@ import {
   provideVSCodeService,
   provideMessageRouter,
   MESSAGE_HANDLERS,
+  ATTENTION_ACTION_DISPATCHER,
+  NOTIFICATION_FOCUS_ROUTER,
   ClaudeRpcService,
   AutopilotStateService,
   AppStateManager,
@@ -33,12 +35,39 @@ import {
   AGENT_FEEDBACK_SENDER,
   SURFACE_ACTIVE,
   surfaceActiveFor,
+  SurfaceRouterService,
   withSurfaceViewTransitions,
 } from '@ptah-extension/core';
+import { TabManagerService } from '@ptah-extension/chat-state';
+
+/** During Electron restore the workspace may activate after initial navigation; the shell revalidates the tab when it does. */
+export function generationRouteTabValidator(
+  tabs: Pick<
+    TabManagerService,
+    'findTabByIdAcrossWorkspaces' | 'activeWorkspacePath'
+  >,
+) {
+  return (
+    tabId: string,
+    workflow: 'setup-agent-generation' | 'setup-project-prompt',
+  ): boolean => {
+    const located = tabs.findTabByIdAcrossWorkspaces(tabId);
+    return (
+      !!located &&
+      located.tab.workflow === workflow &&
+      (tabs.activeWorkspacePath === null ||
+        located.workspacePath === tabs.activeWorkspacePath)
+    );
+  };
+}
 import { appRoutes } from './app.routes';
 import { SurfaceUpdateInbox } from '@ptah-extension/chat-routing';
 import {
   ChatMessageHandler,
+  ChatAttentionSourceService,
+  ChatAttentionActionDispatcherService,
+  ChatAttentionHostMessageHandler,
+  NotificationFocusCoordinator,
   AgentSessionAdoptionService,
   ChatTabRouteSync,
   AgentMonitorMessageHandler,
@@ -68,6 +97,8 @@ import { WorkspaceIndexingService } from '@ptah-extension/workspace-indexing';
 import {
   provideWizardInternalState,
   SetupWizardStateService,
+  SetupGenerationOpenHandler,
+  GenerationRunEventAdapter,
 } from '@ptah-extension/setup-wizard';
 import {
   FileContentChangesService,
@@ -185,6 +216,26 @@ export const appConfig: ApplicationConfig = {
     ),
     provideVSCodeService(),
     provideMessageRouter(),
+    { provide: ATTENTION_ACTION_DISPATCHER, useExisting: ChatAttentionActionDispatcherService },
+    { provide: NOTIFICATION_FOCUS_ROUTER, useExisting: NotificationFocusCoordinator },
+    provideAppInitializer(() => { inject(ChatAttentionSourceService); }),
+    {
+      provide: SurfaceRouterService.generationRouteTabValidatorToken,
+      useFactory: () => {
+        const tabs = inject(TabManagerService);
+        return generationRouteTabValidator(tabs);
+      },
+    },
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: SetupGenerationOpenHandler,
+      multi: true,
+    },
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: GenerationRunEventAdapter,
+      multi: true,
+    },
     { provide: MESSAGE_HANDLERS, useExisting: VSCodeService, multi: true },
     { provide: MESSAGE_HANDLERS, useExisting: ClaudeRpcService, multi: true },
     {
@@ -194,6 +245,7 @@ export const appConfig: ApplicationConfig = {
     },
     { provide: MESSAGE_HANDLERS, useExisting: AppStateManager, multi: true },
     { provide: MESSAGE_HANDLERS, useExisting: ChatMessageHandler, multi: true },
+    { provide: MESSAGE_HANDLERS, useExisting: ChatAttentionHostMessageHandler, multi: true },
     // Late adoption of agent-started child tabs (TASK_2026_584). The
     // `agentSession:opened` push above only reaches a webview that is running
     // when the child starts; this asks `chat:agent-sessions` at bootstrap and
@@ -243,8 +295,7 @@ export const appConfig: ApplicationConfig = {
     // session through this core port without importing chat.
     { provide: AGENT_FEEDBACK_SENDER, useExisting: ChatAgentFeedbackSender },
     // EAGER on purpose (TASK_2026_187). Deferring the canvas cost 50-70 ms of
-    // Electron startup TTI, because ElectronShellComponent forces grid mode in
-    // its constructor — the canvas IS the launch surface there, so there is no
+    // Electron startup TTI — the canvas IS the launch surface, so there is no
     // path on which deferring it helps. Do not convert this to a loader, and
     // do not turn it into a route: the canvas lives in the shell row that
     // `AppShellComponent` retains with `*ptahRetainWhile` — detached on a

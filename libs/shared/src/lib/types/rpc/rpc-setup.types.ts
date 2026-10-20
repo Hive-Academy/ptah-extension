@@ -6,6 +6,105 @@
 
 import type { ProjectAnalysisResult, AgentRecommendation } from '../wizard';
 import type { HarnessTargetId } from '../harness-sync.types';
+import type { GenerationAgentOutcome } from '../wizard/phase';
+
+export type SetupGenerationWorkflow =
+  'setup-agent-generation' | 'setup-project-prompt';
+
+export interface SetupGenerationTabBinding {
+  tabId: string;
+  workflow: SetupGenerationWorkflow;
+  workspacePath: string;
+}
+
+export interface SetupGenerationRunBinding extends SetupGenerationTabBinding {
+  runId: string;
+}
+
+export type GenerationContextSource =
+  | { kind: 'verified-analysis'; analysisRunId: string; analysisDir: string }
+  | {
+      kind: 'workspace-discovery';
+      reason:
+        'missing' | 'stale' | 'not-latest' | 'unreadable' | 'lookup-failed';
+    };
+
+export type SetupGenerationRunLifecycle =
+  | 'starting'
+  | 'running'
+  | 'cancelling'
+  | 'completed'
+  | 'cancelled'
+  | 'failed'
+  | 'timed-out';
+
+export type SetupGenerationTerminalStatus = Extract<
+  SetupGenerationRunLifecycle,
+  'completed' | 'cancelled' | 'failed' | 'timed-out'
+>;
+
+export interface SetupGenerationAccepted {
+  runId: string;
+  source: GenerationContextSource;
+  status: 'starting';
+  effectiveProvider: string;
+  effectiveModel: string;
+}
+
+export type SetupGenerationRejection =
+  | { reason: 'blocked'; ownerTabId?: string }
+  | {
+      reason:
+        | 'invalid-binding'
+        | 'workspace-mismatch'
+        | 'foreign-directory'
+        | 'preview-required'
+        | 'not-running';
+    };
+
+export interface SetupGenerationResultFacts {
+  finalizationFailed?: boolean;
+  committedState?: 'committed' | 'unchanged' | 'unknown';
+  interrupted?: boolean;
+  status: SetupGenerationTerminalStatus;
+  success: boolean;
+  source: GenerationContextSource;
+  effectiveProvider: string;
+  effectiveModel: string;
+  enhancedPromptsUsed?: boolean;
+  agentOutcomes?: Array<
+    Omit<GenerationAgentOutcome, 'status' | 'filePath'> & {
+      status: GenerationAgentOutcome['status'] | 'skipped' | 'rejected';
+      fileName?: string;
+    }
+  >;
+  counts?: {
+    total: number;
+    written: number;
+    unchanged: number;
+    failed: number;
+    skipped: number;
+    rejected: number;
+  };
+  rejectedSections?: number;
+  tailoredSections?: number;
+  propagation?: {
+    consent: 'granted' | 'not-granted';
+    status: 'completed' | 'unavailable' | 'failed' | 'not-attempted';
+    targets?: HarnessTargetId[];
+  };
+}
+
+export interface SetupGenerationRunState {
+  committedState?: 'committed' | 'unchanged' | 'unknown';
+  interrupted?: boolean;
+  binding: SetupGenerationRunBinding;
+  status: SetupGenerationRunLifecycle;
+  source: GenerationContextSource;
+  effectiveProvider: string;
+  effectiveModel: string;
+  result?: SetupGenerationResultFacts;
+}
 
 /** Parameters for setup-status:get-status RPC method */
 export type SetupStatusGetParams = Record<string, never>;
@@ -162,6 +261,14 @@ export type WizardDeepAnalyzeResponse = MultiPhaseAnalysisResponse;
 /** Parameters for wizard:recommend-agents RPC method */
 export type WizardRecommendAgentsParams = unknown; // DeepProjectAnalysis input
 
+/** Explicit static catalog request; legacy analysis input remains supported. */
+export interface WizardRecommendAgentsCatalogParams {
+  mode: 'workspace-catalog';
+  tabBinding?: SetupGenerationTabBinding & {
+    workflow: 'setup-agent-generation';
+  };
+}
+
 /**
  * Response from wizard:recommend-agents RPC method
  *
@@ -185,6 +292,7 @@ export interface WizardCancelAnalysisResponse {
 
 /** Parameters for wizard:submit-selection RPC method */
 export interface WizardSubmitSelectionParams {
+  tabBinding?: SetupGenerationTabBinding;
   /** Array of agent IDs to generate (from AgentRecommendation.agentId) */
   selectedAgentIds: string[];
   /** Minimum relevance threshold for agent selection (0-100). Default: 50 */
@@ -235,6 +343,8 @@ export interface WizardGetResumableRunResponse {
 export interface WizardSubmitSelectionResponse {
   /** Whether the selection was accepted and generation started */
   success: boolean;
+  accepted?: SetupGenerationAccepted;
+  rejection?: SetupGenerationRejection;
   /** Error message if selection failed */
   error?: string;
 }
@@ -243,6 +353,8 @@ export interface WizardSubmitSelectionResponse {
 export interface WizardPreviewGenerationParams {
   /** Agent ids the user is about to generate (same rule as submit-selection). */
   selectedAgentIds: string[];
+  /** Tab and workspace requesting this pre-run preview. */
+  tabBinding?: SetupGenerationTabBinding;
 }
 
 /**
@@ -292,6 +404,7 @@ export interface WizardPreviewGenerationResponse {
 
 /** Parameters for wizard:cancel RPC method */
 export interface WizardCancelParams {
+  tabBinding?: SetupGenerationRunBinding;
   /** Whether to save progress for later resume */
   saveProgress?: boolean;
 }
@@ -300,6 +413,7 @@ export interface WizardCancelParams {
 export interface WizardCancelResponse {
   /** Whether cancellation was performed */
   cancelled: boolean;
+  rejection?: SetupGenerationRejection;
   /** Session ID of cancelled session */
   sessionId?: string;
   /** Whether progress was saved */
@@ -308,6 +422,7 @@ export interface WizardCancelResponse {
 
 /** Parameters for wizard:retry-item RPC method */
 export interface WizardRetryItemParams {
+  tabBinding?: SetupGenerationRunBinding;
   /** ID of the generation item to retry */
   itemId: string;
 }
@@ -316,6 +431,8 @@ export interface WizardRetryItemParams {
 export interface WizardRetryItemResponse {
   /** Whether retry was initiated */
   success: boolean;
+  accepted?: SetupGenerationAccepted;
+  rejection?: SetupGenerationRejection;
   /** Error message if retry failed */
   error?: string;
 }
@@ -372,6 +489,7 @@ export interface EnhancedPromptsGetStatusResponse {
 
 /** Parameters for enhancedPrompts:runWizard RPC method */
 export interface EnhancedPromptsRunWizardParams {
+  tabBinding?: SetupGenerationTabBinding;
   /** Workspace path to run wizard for */
   workspacePath: string;
   /** Optional configuration overrides */
@@ -410,6 +528,8 @@ export interface EnhancedPromptsSummary {
 export interface EnhancedPromptsRunWizardResponse {
   /** Whether wizard completed successfully */
   success: boolean;
+  accepted?: SetupGenerationAccepted;
+  rejection?: SetupGenerationRejection;
   /** Error message if wizard failed */
   error?: string;
   /** ISO timestamp of generation (on success) */
@@ -440,6 +560,8 @@ export interface EnhancedPromptsSetEnabledResponse {
 
 /** Parameters for enhancedPrompts:regenerate RPC method */
 export interface EnhancedPromptsRegenerateParams {
+  tabBinding?: SetupGenerationTabBinding;
+  model?: string;
   /** Workspace path */
   workspacePath: string;
   /** Force regeneration even if cache is valid */
@@ -452,10 +574,42 @@ export interface EnhancedPromptsRegenerateParams {
 export interface EnhancedPromptsRegenerateResponse {
   /** Whether regeneration succeeded */
   success: boolean;
+  accepted?: SetupGenerationAccepted;
+  rejection?: SetupGenerationRejection;
   /** Error message if failed */
   error?: string;
   /** Updated status (on success) */
   status?: EnhancedPromptsGetStatusResponse;
+}
+
+export interface EnhancedPromptsCancelParams {
+  tabBinding: SetupGenerationRunBinding;
+}
+
+export interface EnhancedPromptsCancelResponse {
+  cancelled: boolean;
+  outcome?: 'cancelled' | 'already-finalized' | 'not-running' | 'refused';
+  rejection?: SetupGenerationRejection;
+}
+
+export interface EnhancedPromptsGetRunStateParams {
+  tabBinding: SetupGenerationTabBinding;
+  runId?: string;
+}
+
+export interface EnhancedPromptsGetRunStateResponse {
+  run: SetupGenerationRunState | null;
+  rejection?: SetupGenerationRejection;
+}
+
+export interface WizardGetGenerationRunStateParams {
+  tabBinding: SetupGenerationTabBinding;
+  runId?: string;
+}
+
+export interface WizardGetGenerationRunStateResponse {
+  run: SetupGenerationRunState | null;
+  rejection?: SetupGenerationRejection;
 }
 
 /** A single agent entry within a pack (frontend-facing DTO) */

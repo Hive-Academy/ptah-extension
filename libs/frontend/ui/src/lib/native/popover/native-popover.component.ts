@@ -43,6 +43,8 @@ import {
   effect,
   isDevMode,
   OnDestroy,
+  afterNextRender,
+  Injector,
 } from '@angular/core';
 import { Placement } from '@floating-ui/dom';
 import { DEFAULT_OVERLAY_OFFSET, FloatingUIService } from '../shared';
@@ -118,6 +120,7 @@ type PositionOutcome = 'positioned' | 'failed' | 'timed out';
 })
 export class NativePopoverComponent implements OnDestroy {
   private readonly floatingUI = inject(FloatingUIService);
+  private readonly injector = inject(Injector);
 
   /**
    * Whether the popover is open.
@@ -131,6 +134,9 @@ export class NativePopoverComponent implements OnDestroy {
    * @default 'bottom'
    */
   readonly placement = input<Placement>('bottom');
+
+  /** Optional external positioning anchor; defaults to the projected trigger. */
+  readonly anchor = input<HTMLElement | null>(null);
 
   /**
    * Offset distance from trigger element in pixels.
@@ -151,6 +157,13 @@ export class NativePopoverComponent implements OnDestroy {
    * @default 'dark'
    */
   readonly backdropClass = input<'transparent' | 'dark'>('dark');
+
+  /**
+   * Opt-in: keep the whole panel inside the viewport by also shifting it along the placement axis (it may then
+   * overlap the trigger). For a height-capped panel that can be taller than either side of its trigger.
+   * @default false
+   */
+  readonly keepInViewport = input<boolean>(false);
 
   /**
    * Emitted when popover opens and is positioned.
@@ -205,9 +218,17 @@ export class NativePopoverComponent implements OnDestroy {
     const generation = ++this.openGeneration;
     this.previousActiveElement = document.activeElement as HTMLElement;
 
-    const trigger = this.triggerRef()?.nativeElement;
+    const anchor = this.anchor();
+    const trigger = anchor?.isConnected ? anchor : this.triggerRef()?.nativeElement;
     const floating = this.floatingRef()?.nativeElement;
-    if (!trigger || !floating) return;
+    if (!floating) return;
+    if (!trigger?.isConnected) {
+      if (isDevMode()) console.error('ptah-native-popover: no connected anchor; showing the panel unpositioned.');
+      floating.style.visibility = 'visible';
+      floating.focus();
+      this.opened.emit();
+      return;
+    }
 
     const outcome = await this.positionPanel(trigger, floating);
     // Closed, destroyed or reopened while positioning ran: the close path has
@@ -253,6 +274,7 @@ export class NativePopoverComponent implements OnDestroy {
             offset: this.offset(),
             flip: true,
             shift: true,
+            ...(this.keepInViewport() ? { shiftCrossAxis: true } : {}),
           })
           .then((): PositionOutcome => 'positioned'),
         timedOut,
@@ -267,6 +289,17 @@ export class NativePopoverComponent implements OnDestroy {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  /**
+   * Repositions the open panel (flip, shift) after the next render, for a
+   * parent whose projected content just changed size (it may grow past the
+   * side it was placed on).
+   */
+  reposition(): void {
+    afterNextRender(() => this.floatingUI.update(), {
+      injector: this.injector,
+    });
   }
 
   /**

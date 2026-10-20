@@ -91,7 +91,6 @@ describe('ElectronShellComponent — activity placement', () => {
     openConfigurationSurface: signal(null),
     configurationSurfaceRemountTick: signal(0),
     thothFirstRunDismissed: () => true,
-    setLayoutMode: jest.fn(),
     setCurrentView: jest.fn(),
     dismissThothFirstRun: jest.fn(),
   };

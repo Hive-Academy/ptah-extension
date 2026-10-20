@@ -4,6 +4,7 @@ import {
   OnDestroy,
   inject,
   effect,
+  computed,
   signal,
   viewChild,
   viewChildren,
@@ -13,12 +14,10 @@ import {
   Injector,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { LucideAngularModule, Plus, X, Check } from 'lucide-angular';
+import { LucideAngularModule, X, Check } from 'lucide-angular';
 import { NativePopoverComponent } from '@ptah-extension/ui';
-import { ActivityTickerComponent } from '@ptah-extension/chat-ui';
 import {
   AppStateManager,
-  BackOfficeActivityService,
   defaultSessionName,
   SURFACE_ACTIVE,
 } from '@ptah-extension/core';
@@ -34,8 +33,14 @@ import { CanvasLayoutPersistenceService } from './canvas-layout-persistence.serv
 import { MAX_CANVAS_TILES } from './canvas-layout-intent';
 import { RUNNING_CAP_MESSAGE } from './canvas-running-cap';
 import { CanvasDetailService } from './canvas-detail/canvas-detail.service';
-import { CanvasRailBoardComponent } from './canvas-rail/canvas-rail-board.component';
-import { focusRailSelectButton, handleCanvasRailKeydown } from './canvas-rail/canvas-rail-keyboard';
+import {
+  CanvasRailBoardComponent,
+  type CanvasBoardNotice,
+} from './canvas-rail/canvas-rail-board.component';
+import {
+  focusRailSelectButton,
+  handleCanvasRailKeydown,
+} from './canvas-rail/canvas-rail-keyboard';
 
 /** Same wording as the Rail footer's disabled reason (`canvas-rail.component.ts`). */
 const TILE_BOUND_MESSAGE = `The board holds ${MAX_CANVAS_TILES} sessions. Close one to add another.`;
@@ -50,9 +55,7 @@ const TILE_BOUND_MESSAGE = `The board holds ${MAX_CANVAS_TILES} sessions. Close 
  * workspace path; only the active workspace's board is visible. A stored
  * legacy Grid board renders as Rail.
  *
- * New session: one named `ptah-native-popover`, anchored to the dock's
- * New Session button. The dock button, the Rail footer and the zero-tile
- * empty-board trigger all open this same popover.
+ * New session: one named popover anchored to the invoking board button.
  *
  * Toolbar removed; the Rail footer opens Previous sessions in canvas mode.
  * Signal bridge effects watch for session requests from AppStateManager and route them
@@ -73,7 +76,6 @@ const TILE_BOUND_MESSAGE = `The board holds ${MAX_CANVAS_TILES} sessions. Close 
     FormsModule,
     CanvasNeedsYouQueueComponent,
     CanvasRailBoardComponent,
-    ActivityTickerComponent,
     LucideAngularModule,
     NativePopoverComponent,
   ],
@@ -82,136 +84,74 @@ const TILE_BOUND_MESSAGE = `The board holds ${MAX_CANVAS_TILES} sessions. Close 
       class="flex flex-col h-full bg-base-100 relative"
       data-testid="canvas-grid"
     >
-      <!-- Reserved canvas control dock outside measured session viewport -->
       <div
-        class="canvas-dock flex items-center gap-2 px-3 py-1.5 border-b border-surface-border shrink-0 bg-surface-1 backdrop-blur-sm z-20"
-        data-testid="canvas-dock"
+        #sessionViewport
+        class="session-viewport flex-1 min-h-0 w-full relative overflow-hidden flex flex-col"
+        data-testid="session-viewport"
       >
-        <!--
-          Back-office activity ticker (TASK_2026_405 follow-up).
-
-          It sits in this row's free left edge, in normal flow — not in a
-          fixed overlay, and not in the navbar row, where its width would
-          shift the tab strip. This cell takes every spare pixel
-          (flex-1 min-w-0), so the controls after it stay pinned to the
-          right edge and never move when a message arrives or changes
-          length. The ticker's own button carries max-w + truncate, so a
-          long summary is clipped rather than pushed into the controls.
-        -->
-        <div class="flex items-center min-w-0 flex-1">
-          @if (!activity.isIdle()) {
-            <ptah-activity-ticker
-              data-testid="activity-ticker-host"
-              [items]="activity.recent()"
-              [idle]="activity.isIdle()"
-              (activate)="openThoth()"
+        <div class="shrink-0 flex justify-end px-3 pt-2">
+          @defer (on idle) {
+            <ptah-canvas-needs-you-queue />
+          } @placeholder {
+            <span
+              class="btn btn-xs btn-ghost invisible border border-base-300"
+              aria-hidden="true"
+              >All clear</span
+            >
+          }
+        </div>
+        <div class="flex-1 min-h-0" data-testid="canvas-interactive">
+          @for (path of canvasStore.workspacePaths(); track path) {
+            <ptah-canvas-rail-board
+              [workspacePath]="path"
+              [visible]="path === canvasStore.activeWorkspacePath()"
+              [notice]="
+                path === canvasStore.activeWorkspacePath()
+                  ? boardNotice()
+                  : null
+              "
+              (noticeDismissed)="dismissNotice($event)"
+              (newSessionRequested)="openNewSessionPopover($event)"
             />
           }
         </div>
-
-        @defer (on idle) {
-          <ptah-canvas-needs-you-queue />
-        } @placeholder {
-          <!-- Keeps the trigger's footprint so the controls after it do not move. -->
-          <span
-            class="btn btn-xs btn-ghost invisible border border-base-300"
-            aria-hidden="true"
-            >All clear</span
-          >
-        }
-        @if (layoutPersistence.writeFailed()) {
-          <span class="text-xs text-warning" role="status"
-            >Board layout could not be saved. Changes stay for this
-            session.</span
-          >
-        }
-        @if (
-          layoutPersistence
-            .readOnlyPaths()
-            .has(canvasStore.activeWorkspacePath() ?? '')
-        ) {
-          <span class="text-xs text-warning" role="status"
-            >This board layout was saved by a newer Ptah version. Changes here
-            are not saved.</span
-          >
-        }
-        @if (headerMessage()) {
-          <span class="text-xs text-warning" role="status">{{
-            headerMessage()
-          }}</span>
-        }
-
-        <!--
-          The one named New Session popover. Its anchor is this dock button;
-          the Rail footer and the zero-tile empty board open the same popover
-          through (newSessionRequested) and never create a session directly.
-        -->
-        @if (canvasStore.canAddTile()) {
+      </div>
+      @if (canvasStore.canAddTile()) {
+        <!-- Keep the panel outside viewport layout while Floating UI positions it. -->
+        <div class="absolute top-0 left-0 z-20">
           <ptah-native-popover
             [isOpen]="sessionPopoverOpen()"
+            [anchor]="sessionPopoverAnchor()"
             [placement]="'bottom-end'"
             [hasBackdrop]="true"
             [backdropClass]="'transparent'"
-            [attr.tabindex]="canvasStore.canStartRunningSession() ? null : 0"
-            [attr.role]="canvasStore.canStartRunningSession() ? null : 'group'"
-            [attr.aria-label]="
-              canvasStore.canStartRunningSession()
-                ? null
-                : 'New Session unavailable'
-            "
-            [attr.aria-describedby]="
-              canvasStore.canStartRunningSession()
-                ? null
-                : 'canvas-running-cap-reason'
-            "
-            [attr.title]="
-              canvasStore.canStartRunningSession() ? null : runningCapMessage
-            "
             (closed)="handleCancelSession()"
           >
-            <button
-              trigger
-              type="button"
-              class="btn btn-xs btn-primary gap-1 shadow-sm"
-              data-testid="canvas-new-session-anchor"
-              [disabled]="!canvasStore.canStartRunningSession()"
-              [title]="
-                canvasStore.canStartRunningSession()
-                  ? 'Add new session tile'
-                  : runningCapMessage
-              "
-              [attr.aria-describedby]="
-                canvasStore.canStartRunningSession()
-                  ? null
-                  : 'canvas-running-cap-reason'
-              "
-              aria-label="Add new session tile"
-              (click)="openNewSessionPopover()"
-            >
-              <lucide-angular [img]="PlusIcon" class="w-3.5 h-3.5" />
-              <span class="text-xs font-medium">New Session</span>
-            </button>
             <div
               content
               class="surface-3 p-4 w-72 rounded-xl"
               data-testid="canvas-new-session-popover"
+              role="dialog"
+              aria-labelledby="canvas-new-session-title"
+              aria-describedby="canvas-new-session-help"
             >
-              <h3 class="text-sm font-semibold mb-3 text-base-content-muted">
-                New Session
+              <h3 id="canvas-new-session-title" class="text-sm font-semibold text-base-content">
+                New session
               </h3>
+              <p id="canvas-new-session-help" class="mb-3 text-xs text-base-content-muted">Give this session a name, or use the default.</p>
+              <label for="canvas-session-name" class="mb-1 block text-xs font-medium text-base-content">Session name (optional)</label>
               <input
                 #sessionNameInputRef
+                id="canvas-session-name"
                 type="text"
                 class="input input-sm input-bordered w-full mb-3 bg-base-100 border-base-content/10 focus:border-primary"
-                placeholder="Enter session name (optional)"
-                aria-label="Session name"
+                placeholder="New session"
                 [(ngModel)]="sessionNameInput"
                 (keydown.enter)="
                   handleCreateSession();
                   $event.preventDefault();
                   $event.stopPropagation()
                 "
-                (keydown.escape)="handleCancelSession()"
               />
               <div class="flex gap-2">
                 <button
@@ -233,26 +173,8 @@ const TILE_BOUND_MESSAGE = `The board holds ${MAX_CANVAS_TILES} sessions. Close 
               </div>
             </div>
           </ptah-native-popover>
-          <span id="canvas-running-cap-reason" class="sr-only">{{
-            runningCapMessage
-          }}</span>
-        }
-      </div>
-
-      <!-- Usable session viewport -->
-      <div
-        #sessionViewport
-        class="session-viewport flex-1 min-h-0 w-full relative overflow-hidden"
-        data-testid="session-viewport"
-      >
-        @for (path of canvasStore.workspacePaths(); track path) {
-          <ptah-canvas-rail-board
-            [workspacePath]="path"
-            [visible]="path === canvasStore.activeWorkspacePath()"
-            (newSessionRequested)="openNewSessionPopover()"
-          />
-        }
-      </div>
+        </div>
+      }
     </div>
   `,
   styles: [
@@ -296,8 +218,6 @@ export class OrchestraCanvasComponent implements OnDestroy {
   private readonly appState = inject(AppStateManager);
   private readonly surfaceActive =
     inject(SURFACE_ACTIVE, { optional: true }) ?? signal(false);
-  /** The dock ticker's only source of items (TASK_2026_380). */
-  protected readonly activity = inject(BackOfficeActivityService);
   private readonly tabManager = inject(TabManagerService);
   private readonly chatStore = inject(ChatStore);
   private readonly layoutService = inject(CanvasLayoutService);
@@ -306,7 +226,6 @@ export class OrchestraCanvasComponent implements OnDestroy {
   private unsubscribeTabClosed: (() => void) | null = null;
   private focusRequestChain = Promise.resolve();
 
-  protected readonly PlusIcon = Plus;
   protected readonly XIcon = X;
   protected readonly CheckIcon = Check;
 
@@ -316,6 +235,40 @@ export class OrchestraCanvasComponent implements OnDestroy {
   private _lastRemovedWorkspaceSeq = 0;
 
   protected readonly sessionPopoverOpen = signal(false);
+  protected readonly sessionPopoverAnchor = signal<HTMLElement | null>(null);
+  private readonly onSessionAnchorEscape = (event: KeyboardEvent): void => {
+    if (event.key !== 'Escape' || !this.sessionPopoverOpen()) return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.handleCancelSession();
+  };
+  private readonly dismissedNoticeKey = signal<string | null>(null);
+  private readonly noticeRevision = signal(0);
+  protected readonly boardNotice = computed<CanvasBoardNotice | null>(() => {
+    const path = this.canvasStore.activeWorkspacePath() ?? '';
+    const revision = this.noticeRevision();
+    let notice: CanvasBoardNotice | null = null;
+    if (this.layoutPersistence.writeFailed()) {
+      notice = {
+        kind: 'write-failure',
+        text: 'Board layout could not be saved. Changes stay for this session.',
+        key: `write-failure:${path}:${revision}`,
+      };
+    } else if (this.layoutPersistence.readOnlyPaths().has(path)) {
+      notice = {
+        kind: 'read-only',
+        text: 'This board layout was saved by a newer Ptah version. Changes here are not saved.',
+        key: `read-only:${path}:${revision}`,
+      };
+    } else if (this.headerMessage()) {
+      notice = {
+        kind: 'cap',
+        text: this.headerMessage()!,
+        key: `cap:${path}:${this.headerMessage()}:${revision}`,
+      };
+    }
+    return notice?.key === this.dismissedNoticeKey() ? null : notice;
+  });
   protected readonly sessionNameInput = signal('');
   protected readonly runningCapMessage = RUNNING_CAP_MESSAGE;
   protected readonly headerMessage = signal<string | null>(null);
@@ -326,6 +279,22 @@ export class OrchestraCanvasComponent implements OnDestroy {
     viewChild<ElementRef<HTMLElement>>('sessionViewport');
 
   constructor() {
+    let priorSource = '';
+    effect(() => {
+      const source = [
+        this.canvasStore.activeWorkspacePath() ?? '',
+        this.surfaceActive(),
+        this.layoutPersistence.writeFailed(),
+        this.layoutPersistence.writeFailureCount(),
+        this.layoutPersistence
+          .readOnlyPaths()
+          .has(this.canvasStore.activeWorkspacePath() ?? ''),
+        this.headerMessage() ?? '',
+      ].join('|');
+      if (priorSource && priorSource !== source)
+        this.noticeRevision.update((value) => value + 1);
+      priorSource = source;
+    });
     afterNextRender(() => {
       const el = this.sessionViewport()?.nativeElement;
       if (el) {
@@ -428,7 +397,7 @@ export class OrchestraCanvasComponent implements OnDestroy {
     // later tile close mounts it closed and empty, never re-opened.
     effect(() => {
       if (!this.canvasStore.canAddTile()) {
-        untracked(() => this.handleCancelSession());
+        untracked(() => this.closeSessionPopover());
       }
     });
     // Adopt already-existing tabs as tiles (F-D3). The Tasks-board launch and
@@ -447,20 +416,43 @@ export class OrchestraCanvasComponent implements OnDestroy {
     // in which case the tab simply stays in the tab list as the graceful
     // fallback. `focus: false` (agent children) appends the tile without
     // switching the active tab.
-    // KNOWN GAP (TASK_2026_471): the refusal is not reported back, so a caller
-    // that also prefills the composer for this tab prefills a surface nobody
-    // mounted. Raising the cap makes it rarer; it does not close it.
+    // Each request's `resolve` reports the outcome so a caller can react to a
+    // refusal (e.g. the task-prompt bridge skips its prefill and closes the
+    // tab): `true` when the tab is a tile — newly adopted, or already tiled
+    // (fresh-mount hydration may have tiled it and filled the grid to the cap,
+    // where `adoptTab` returns null before its dedup check) — `false` on a
+    // cap refusal or a workspace-mismatch drop.
     effect(() => {
       const pending = this.appState.canvasTabRequests();
       if (pending.length === 0) return;
       const requests = untracked(() => this.appState.takeCanvasTabRequests());
       const activeWorkspacePath = this.canvasStore.activeWorkspacePath() ?? '';
       for (const req of requests) {
-        if ((req.workspacePath ?? '') !== activeWorkspacePath) continue;
-        const adopted = this.canvasStore.adoptTab(req.tabId);
-        if (adopted && req.focus !== false) {
-          this.canvasStore.focusTile(req.tabId);
+        if ((req.workspacePath ?? '') !== activeWorkspacePath) {
+          req.resolve?.(false);
+          continue;
         }
+        // The queue is already emptied, so the app-state removal timer can no
+        // longer settle these requests: each one is settled here even when
+        // adoption or focus throws, and the loop continues with the rest.
+        let adopted: string | null = null;
+        try {
+          adopted = this.canvasStore.adoptTab(req.tabId);
+          if (adopted && req.focus !== false) {
+            this.canvasStore.focusTile(req.tabId);
+          }
+        } catch (error: unknown) {
+          console.error(
+            '[OrchestraCanvas] Failed to adopt queued tab tile',
+            error instanceof Error ? error.message : error,
+          );
+        }
+        req.resolve?.(
+          adopted !== null ||
+            untracked(() =>
+              this.canvasStore.tiles().some((t) => t.tabId === req.tabId),
+            ),
+        );
       }
     });
     effect(() => {
@@ -577,16 +569,22 @@ export class OrchestraCanvasComponent implements OnDestroy {
   }
 
   /**
-   * Open the one named session popover. Called by the dock button, the Rail
-   * footer and the zero-tile empty board. A blocked create never opens it; the
-   * reason is announced in the dock status line instead.
+   * Open the shared session popover from the actual board button.
    */
-  protected openNewSessionPopover(): void {
+  protected dismissNotice(key: string): void {
+    this.dismissedNoticeKey.set(key);
+  }
+
+  protected openNewSessionPopover(anchor: HTMLElement): void {
     const blocked = this.createBlockReason();
     if (blocked) {
+      this.noticeRevision.update((value) => value + 1);
       this.headerMessage.set(blocked);
       return;
     }
+    this.sessionPopoverAnchor()?.removeEventListener('keydown', this.onSessionAnchorEscape);
+    this.sessionPopoverAnchor.set(anchor);
+    anchor.addEventListener('keydown', this.onSessionAnchorEscape);
     this.sessionNameInput.set('');
     this.sessionPopoverOpen.set(true);
   }
@@ -604,8 +602,8 @@ export class OrchestraCanvasComponent implements OnDestroy {
       : this.canvasStore.addTile(
           this.sessionNameInput().trim() || defaultSessionName(),
         );
-    this.sessionPopoverOpen.set(false);
-    this.sessionNameInput.set('');
+    this.closeSessionPopover();
+    this.sessionPopoverAnchor()?.focus();
     if (!tabId) {
       this.headerMessage.set(blocked ?? TILE_BOUND_MESSAGE);
       return;
@@ -617,6 +615,13 @@ export class OrchestraCanvasComponent implements OnDestroy {
 
   /** Cancel session creation. */
   protected handleCancelSession(): void {
+    const wasOpen = this.sessionPopoverOpen();
+    this.closeSessionPopover();
+    if (wasOpen) this.sessionPopoverAnchor()?.focus();
+  }
+
+  private closeSessionPopover(): void {
+    this.sessionPopoverAnchor()?.removeEventListener('keydown', this.onSessionAnchorEscape);
     this.sessionPopoverOpen.set(false);
     this.sessionNameInput.set('');
   }
@@ -628,18 +633,8 @@ export class OrchestraCanvasComponent implements OnDestroy {
     return null;
   }
 
-  /**
-   * The dock ticker's click target. It mirrors `ElectronShellComponent`'s
-   * handler so the ticker opens the same destination from either host.
-   */
-  protected openThoth(): void {
-    if (!this.appState.thothFirstRunDismissed()) {
-      this.appState.dismissThothFirstRun();
-    }
-    this.appState.setCurrentView('thoth');
-  }
-
   ngOnDestroy(): void {
+    this.sessionPopoverAnchor()?.removeEventListener('keydown', this.onSessionAnchorEscape);
     this.unsubscribeTabClosed?.();
     this.unsubscribeTabClosed = null;
     this.layoutPersistence.flush();

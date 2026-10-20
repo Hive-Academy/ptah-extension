@@ -33,6 +33,7 @@ import { MessageFinalizationService } from './message-finalization.service';
 import { PermissionHandlerService } from './permission-handler.service';
 import { BackgroundAgentStore } from './background-agent.store';
 import { AgentMonitorStore } from './agent-monitor.store';
+import { SubagentExecutionStore } from './subagent-execution.store';
 import {
   StreamingAccumulatorCore,
   type AccumulatorResult,
@@ -89,6 +90,7 @@ function agentProgress(): AgentProgressEvent {
 
 describe('StreamingHandlerService — background routing', () => {
   let service: StreamingHandlerService;
+  let claim: jest.Mock<boolean, [TextDeltaEvent | AgentProgressEvent | TurnStateEvent]>;
   let tabsSignal: ReturnType<typeof signal<TabState[]>>;
   let activeTabIdSignal: ReturnType<typeof signal<string | null>>;
   let updateBackgroundTab: jest.Mock<boolean, [string, Partial<TabState>]>;
@@ -106,6 +108,7 @@ describe('StreamingHandlerService — background routing', () => {
   let consoleError: jest.SpyInstance;
 
   beforeEach(() => {
+    claim = jest.fn().mockReturnValue(false);
     tabsSignal = signal<TabState[]>([]);
     activeTabIdSignal = signal<string | null>(null);
     updateBackgroundTab = jest.fn().mockReturnValue(true);
@@ -162,6 +165,7 @@ describe('StreamingHandlerService — background routing', () => {
     TestBed.configureTestingModule({
       providers: [
         StreamingHandlerService,
+        { provide: SubagentExecutionStore, useValue: { claim } },
         { provide: TabManagerService, useValue: tabManager },
         { provide: SessionManager, useValue: sessionManager },
         {
@@ -193,6 +197,15 @@ describe('StreamingHandlerService — background routing', () => {
   });
 
   describe('cross-workspace hit (background tab present)', () => {
+    it('does not resolve or update a background tab for a claimed event', () => {
+      claim.mockReturnValue(true);
+      const event = textDelta();
+      expect(service.processStreamEvent(event)).toBeNull();
+      expect(claim).toHaveBeenCalledTimes(1);
+      expect(findTabBySessionIdAcrossWorkspaces).not.toHaveBeenCalled();
+      expect(updateBackgroundTab).not.toHaveBeenCalled();
+      expect(process).not.toHaveBeenCalled();
+    });
     it('runs accumulatorCore.process and persists the streaming state via updateBackgroundTab — no status write', () => {
       const bgTab = makeTab();
       findTabBySessionIdAcrossWorkspaces.mockReturnValue({

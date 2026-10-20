@@ -181,12 +181,6 @@ export interface ExecutionNode {
    * between hook (UUID format) and complete message (toolu_* format).
    */
   readonly agentId?: string;
-  /**
-   * Summary content for agent nodes - Real-time text updates from agent session.
-   * This is populated during streaming by the AgentSessionWatcherService,
-   * which tails the agent's JSONL file for text blocks.
-   */
-  readonly summaryContent?: string;
   /** Execution start timestamp (Unix epoch ms) */
   readonly startTime?: number;
   /** Execution end timestamp (Unix epoch ms) */
@@ -229,6 +223,8 @@ export interface ExecutionNode {
 export interface ChatSessionSummary {
   /** Session identifier */
   readonly id: SessionId;
+  /** Stored canonical provider of the latest root turn, when known. */
+  readonly providerId?: string;
   /** Session display name */
   readonly name: string;
   /** Number of messages in session */

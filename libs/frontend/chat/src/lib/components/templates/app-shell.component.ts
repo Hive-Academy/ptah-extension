@@ -17,8 +17,6 @@ import {
   Check,
   ClipboardList,
   ExternalLink,
-  History,
-  LayoutGrid,
   Plus,
   RadioTower,
   Scale,
@@ -27,13 +25,10 @@ import {
   X,
   BarChart3,
 } from 'lucide-angular';
-import { ChatViewComponent } from './chat-view.component';
-import { TabBarComponent } from '../organisms/tab-bar.component';
 import { ConfirmationDialogComponent } from '../molecules/confirmation-dialog.component';
 import { SessionOrganizationEditorComponent } from '../molecules/session-organization-editor/session-organization-editor.component';
 import { PreviousSessionsModalComponent } from '../organisms/previous-sessions/previous-sessions-modal.component';
 import { PreviousSessionsLoadStateComponent } from '../organisms/previous-sessions/previous-sessions-load-state.component';
-import { SubagentTranscriptOverlayComponent } from '../organisms/subagent-transcript-overlay.component';
 import {
   SkeletonBlockComponent,
   ThemeToggleComponent,
@@ -45,7 +40,6 @@ import {
   ConfirmationDialogService,
   TabManagerService,
 } from '@ptah-extension/chat-state';
-import { SubagentTranscriptViewerService } from '../../services/subagent-transcript-viewer.service';
 import { PreviousSessionsDialogService } from '../../services/session-list/previous-sessions-dialog.service';
 import { SessionOrganizerService } from '../../services/session-list/session-organizer.service';
 import {
@@ -66,22 +60,24 @@ import {
 import {
   NotificationAnnouncerComponent,
   NotificationCenterComponent,
-  NotificationLedgerService,
+  NotificationSnackbarComponent,
+  NotificationSoundService,
 } from '@ptah-extension/notification-center';
+import { ChatFailedTurnAttentionService } from '../../services/chat-failed-turn-attention.service';
 import { NotificationFocusCoordinator } from '../../services/notification-focus-coordinator.service';
 import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-ender.service';
 import { AgentFollowUpQueueService } from '../../services/agent-follow-up-queue.service';
-import type { TitleOrigin } from '@ptah-extension/chat-types';
 
 /**
- * AppShellComponent - Main application layout: navbar and content area
+ * AppShellComponent - Main application layout: navbar and the orchestra canvas
  *
- * Optimized for VS Code sidebar panel width constraints.
+ * Optimized for VS Code sidebar panel width constraints. In Electron the
+ * navbar is hidden (the global navbar carries its controls) and only the
+ * canvas shows.
  *
  * The session list is not part of the shell (TASK_2026_679). It lives in the
  * previous-sessions modal, which the shell only hosts (deferred, created per
- * open) next to the organization editor. The modal opens from the navbar's
- * "Previous sessions" button (VS Code single layout) and from the canvas Rail
+ * open) next to the organization editor. The modal opens from the canvas Rail
  * footer; `PreviousSessionsDialogService` owns its open state and focus
  * return, and `SessionOrganizerService` owns which session the editor shows.
  *
@@ -93,39 +89,35 @@ import type { TitleOrigin } from '@ptah-extension/chat-types';
  *   `@ptah-extension/core` is imported by.
  * - `currentView()` still answers "which surface", but it now reads the Router
  *   through `SurfaceRouterService` instead of a signal write.
- * - The chat and canvas content area is deliberately NOT routed: the shell row
+ * - The canvas content area is deliberately NOT routed: the shell row
  *   is retained by `*ptahRetainWhile` (`RetainedViewDirective`), detached from
  *   the DOM and change detection on a standalone surface but never destroyed,
  *   so `CanvasStore` and the gridstack instance survive navigation.
  *
  * **Signal Dependencies**:
  * - currentView: AppStateManager.currentView (Router-derived)
- * - previousSessions.isOpen: the modal is open (shell row inert, navbar
- *   button expanded)
+ * - previousSessions.isOpen: the modal is open (shell row inert)
  * - organizer.session: the session the organization editor shows
  *
  * @see AppStateManager
- * @see ChatViewComponent
  */
 
 @Component({
   selector: 'ptah-app-shell',
   standalone: true,
   imports: [
-    ChatViewComponent,
     RetainedViewDirective,
     SurfaceActiveDirective,
     RouterOutlet,
     NgComponentOutlet,
-    TabBarComponent,
     ConfirmationDialogComponent,
-    SubagentTranscriptOverlayComponent,
     ThemeToggleComponent,
     LucideAngularModule,
     FormsModule,
     NativePopoverComponent,
     SkeletonBlockComponent,
     NotificationCenterComponent,
+    NotificationSnackbarComponent,
     NotificationAnnouncerComponent,
     SessionOrganizationEditorComponent,
     PreviousSessionsModalComponent,
@@ -156,11 +148,9 @@ export class AppShellComponent {
   private readonly authState = inject(AuthStateService);
   /** Read by the template to create the deferred dialog on first open. */
   protected readonly confirmDialog = inject(ConfirmationDialogService);
-  /** Read by the template to create the deferred overlay on first open. */
-  protected readonly transcriptViewer = inject(SubagentTranscriptViewerService);
   /**
-   * Read by the template: creates the deferred modal per open, makes the
-   * shell row inert while it is open, and drives the navbar button.
+   * Read by the template: creates the deferred modal per open and makes the
+   * shell row inert while it is open.
    */
   protected readonly previousSessions = inject(PreviousSessionsDialogService);
   /** Read by the template to render the organization editor it shows. */
@@ -175,10 +165,6 @@ export class AppShellComponent {
   private readonly _closedTabSessionEnder = inject(
     ClosedTabSessionEnderService,
   );
-  // Injected only to instantiate the root notification ledger eagerly. The
-  // bell lives in the retained row, which a standalone-first boot does not
-  // build, and completions and prompts must be processed from the start.
-  private readonly _notificationLedger = inject(NotificationLedgerService);
   // Same reason: agent follow-ups queued in the retained row must still be
   // sent when the run ends while a standalone surface is showing.
   private readonly _agentFollowUps = inject(AgentFollowUpQueueService);
@@ -186,8 +172,22 @@ export class AppShellComponent {
   // retained row injects ThemeService, so a standalone-first boot would delay
   // the theme fallback and recovery until the first visit to chat.
   private readonly _theme = inject(ThemeService);
+  protected readonly notificationPanelOpen = signal(false);
+  private readonly _failedTurns = inject(ChatFailedTurnAttentionService);
+  private readonly _notificationSound = inject(NotificationSoundService);
+  private readonly pendingNotificationOpen = signal(false);
+  private readonly notificationCenter = viewChild(NotificationCenterComponent);
+
+  protected openNotifications(): void {
+    const bell = this.notificationCenter();
+    if (bell) {
+      bell.openPanel();
+      return;
+    }
+    this.pendingNotificationOpen.set(true);
+    this.appState.setCurrentView('chat');
+  }
   readonly currentView = this.appState.currentView;
-  readonly layoutMode = this.appState.layoutMode;
 
   /**
    * True when a standalone surface is showing, so the shared chrome is hidden.
@@ -209,10 +209,9 @@ export class AppShellComponent {
    * Provided by the application bootstrapper (app.config.ts).
    *
    * **Eager on purpose.** This was deferred during TASK_2026_187 and reverted on
-   * measured evidence: `ElectronShellComponent` (which embeds this component)
-   * forces grid mode in its constructor, so the canvas is the Electron launch
-   * surface and deferring it cost 50-70 ms of startup TTI with no path on which
-   * it helped.
+   * measured evidence: the canvas is the launch surface of every host (the
+   * shell's only chat content), so deferring it cost 50-70 ms of startup TTI
+   * with no path on which it helped.
    *
    * This is the LAST remaining `*ngComponentOutlet` surface in this template.
    * The five deferred ones (harness builder, setup hub, marketplace, tribunal,
@@ -226,13 +225,11 @@ export class AppShellComponent {
     inject(ORCHESTRA_CANVAS_COMPONENT, { optional: true }) ?? null;
 
   readonly CheckIcon = Check;
-  readonly HistoryIcon = History;
   readonly PlusIcon = Plus;
   readonly SettingsIcon = Settings;
   readonly XIcon = X;
   readonly ExternalLinkIcon = ExternalLink;
   readonly BarChart3Icon = BarChart3;
-  readonly LayoutGridIcon = LayoutGrid;
   readonly RadioTowerIcon = RadioTower;
   readonly StoreIcon = Store;
   readonly ScaleIcon = Scale;
@@ -254,6 +251,15 @@ export class AppShellComponent {
   private authCheckDone = false;
 
   constructor() {
+    effect(() => {
+      const bell = this.notificationCenter();
+      if (!bell) return;
+      this.notificationPanelOpen.set(bell.panelOpen());
+      if (this.pendingNotificationOpen()) {
+        this.pendingNotificationOpen.set(false);
+        bell.openPanel();
+      }
+    });
     // A standalone surface (e.g. a notification route) replaces the chat
     // view while the modal is open: close it without moving focus, since the
     // opener is in the row that just left the document (DP-9).
@@ -303,15 +309,6 @@ export class AppShellComponent {
   }
 
   /**
-   * Navbar "Previous sessions" (VS Code single layout). The dialog service
-   * records the focused button as the opener and returns focus to it when
-   * the modal closes.
-   */
-  openPreviousSessions(): void {
-    this.previousSessions.open();
-  }
-
-  /**
    * Navigate to settings view
    */
   openSettings(): void {
@@ -358,14 +355,6 @@ export class AppShellComponent {
    */
   dismissThothFirstRun(): void {
     this.appState.dismissThothFirstRun();
-  }
-
-  /**
-   * Toggle between single-chat and canvas-grid layout modes.
-   * Replaces the old openCanvas() which navigated to a separate view.
-   */
-  toggleLayoutMode(): void {
-    this.appState.toggleLayoutMode();
   }
 
   /** Guard to prevent double-click opening multiple panels */
@@ -419,19 +408,11 @@ export class AppShellComponent {
   }
 
   /**
-   * Handle session creation from popover.
-   * Layout-mode-aware: in grid mode, requests a new canvas tile instead of a tab.
+   * Handle session creation from popover: requests a new canvas tile.
    */
   handleCreateSession(): void {
     const name = this.sessionNameInput().trim();
-    const sessionName = name || defaultSessionName();
-
-    if (this.layoutMode() === 'grid') {
-      this.appState.requestNewCanvasSession(sessionName);
-    } else {
-      const titleOrigin: TitleOrigin = name ? 'user' : 'default';
-      this.tabManager.createTab(sessionName, titleOrigin);
-    }
+    this.appState.requestNewCanvasSession(name || defaultSessionName());
     this._sessionNamePopoverOpen.set(false);
   }
 

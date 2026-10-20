@@ -50,7 +50,9 @@ describe('CommandCenterProjectionSource', () => {
   }
 
   function restoredTab(
-    modelUsageList: NonNullable<NonNullable<TabState['sessionStats']>['modelUsageList']>,
+    modelUsageList: NonNullable<
+      NonNullable<TabState['sessionStats']>['modelUsageList']
+    >,
   ): TabState {
     return Object.assign({} as TabState, {
       id: 'root-tab',
@@ -76,19 +78,42 @@ describe('CommandCenterProjectionSource', () => {
         inputTokens: 0,
         outputTokens: 0,
         costUSD: 10,
-        contextCapacity: { providerId: 'anthropic', tokens: 200000, source: 'provider-catalog', model: 'other' },
+        contextCapacity: {
+          providerId: 'anthropic',
+          tokens: 200000,
+          source: 'provider-catalog',
+          model: 'other',
+        },
       },
       {
         model: 'claude',
         inputTokens: 0,
         outputTokens: 0,
         costUSD: 0,
-        contextCapacity: { providerId: 'openrouter', tokens: 200000, source: 'provider-catalog', model: 'claude' },
+        contextCapacity: {
+          providerId: 'openrouter',
+          tokens: 200000,
+          source: 'provider-catalog',
+          model: 'claude',
+        },
       },
     ]);
     const input = inputForTab(tab, [
-      { agentId: 'pi-1', cli: 'pi', parentSessionId: 'root', status: 'running', startedAt: 1 } as MonitoredAgent,
-      { agentId: 'ptah-1', cli: 'ptah-cli', ptahCliId: 'custom-agent-id', parentSessionId: 'root', status: 'running', startedAt: 1 } as MonitoredAgent,
+      {
+        agentId: 'pi-1',
+        cli: 'pi',
+        parentSessionId: 'root',
+        status: 'running',
+        startedAt: 1,
+      } as MonitoredAgent,
+      {
+        agentId: 'ptah-1',
+        cli: 'ptah-cli',
+        ptahCliId: 'custom-agent-id',
+        parentSessionId: 'root',
+        status: 'running',
+        startedAt: 1,
+      } as MonitoredAgent,
     ]);
     expect(input.rootProviderId).toBe('openrouter');
     expect(input.agents[0].providerId).toBe('pi');
@@ -96,17 +121,53 @@ describe('CommandCenterProjectionSource', () => {
   });
 
   it('returns no provider when the matching usage row has no provider ID', () => {
-    const input = inputForTab(restoredTab([
-      {
-        model: 'claude', inputTokens: 0, outputTokens: 0, costUSD: 0,
-        contextCapacity: { providerId: null, tokens: 200000, source: 'unknown', model: 'claude' },
-      },
-    ]));
+    const input = inputForTab(
+      restoredTab([
+        {
+          model: 'claude',
+          inputTokens: 0,
+          outputTokens: 0,
+          costUSD: 0,
+          contextCapacity: {
+            providerId: null,
+            tokens: 200000,
+            source: 'unknown',
+            model: 'claude',
+          },
+        },
+      ]),
+    );
     expect(input.rootProviderId).toBeUndefined();
   });
 
   it('returns no provider for an empty usage list', () => {
     expect(inputForTab(restoredTab([])).rootProviderId).toBeUndefined();
+  });
+  it('uses persisted provider without a model and keeps live evidence first', () => {
+    const tab = {
+      ...restoredTab([]),
+      sessionModel: undefined,
+      overrideModel: undefined,
+      providerId: 'openrouter',
+    };
+    expect(inputForTab(tab).rootProviderId).toBe('openrouter');
+  });
+  it('keeps live provider evidence ahead of persisted metadata', () => {
+    const tab = { ...restoredTab([]), providerId: 'openrouter' };
+    expect(
+      inputForTab({
+        ...tab,
+        liveModelStats: {
+          model: 'claude',
+          contextCapacity: {
+            providerId: 'anthropic',
+            tokens: 200000,
+            source: 'provider-catalog',
+            model: 'claude',
+          },
+        },
+      } as TabState).rootProviderId,
+    ).toBe('anthropic');
   });
   it('shows a manifest without agents as starting only during its launch window', () => {
     const now = 1_000_000;
@@ -241,6 +302,7 @@ describe('CommandCenterProjectionSource', () => {
     expect(input.rootProviderId).toBe('anthropic');
     expect(input.children).toEqual([
       expect.objectContaining({
+        tabId: 'child-tab',
         name: 'Builder',
         providerId: 'openai-codex',
         state: 'unknown',
@@ -255,6 +317,7 @@ describe('CommandCenterProjectionSource', () => {
           agentId: 'cli-1',
           kind: 'cli',
           state: 'running',
+          task: 'Design the architecture',
         }),
         expect.objectContaining({
           agentId: 'sdk-1',
@@ -267,6 +330,9 @@ describe('CommandCenterProjectionSource', () => {
       input.agents.find((agent) => agent.agentId === 'other'),
     ).toBeUndefined();
     const projected = projectOwnedWork(input).nodes;
+    expect(projected.find((node) => node.id === 'cli:cli-1')?.startedAt).toBe(
+      100,
+    );
     expect(projected.find((node) => node.id === 'cli:cli-1')?.label).toBe(
       'Architecture 1',
     );
@@ -422,7 +488,11 @@ describe('CommandCenterProjectionSource', () => {
           rootSdkId: 'root',
           move: 'council',
           specTaskId: 'TASK_1',
-          lanes: [{ laneId: 'codex#1' }, { laneId: 'cursor#1' }],
+          lanes: [
+            { laneId: 'codex#1' },
+            { laneId: 'cursor#1' },
+            { laneId: 'unbound#1' },
+          ],
           rounds: 1,
           startedAt,
         },
@@ -451,6 +521,17 @@ describe('CommandCenterProjectionSource', () => {
           node.id === 'lane:11111111-1111-4111-8111-111111111111:codex#1',
       )?.state,
     ).toBe('running');
+    expect(
+      project().find((node) => node.id.endsWith(':codex#1'))?.startedAt,
+    ).toBe(1);
+    expect(
+      project().find((node) => node.id.endsWith(':unbound#1')),
+    ).not.toHaveProperty('startedAt');
+    expect(
+      project().find(
+        (node) => node.id === 'tribunal:11111111-1111-4111-8111-111111111111',
+      ),
+    ).not.toHaveProperty('startedAt');
     expect(project().some((node) => node.id === 'cli:uuid-1')).toBe(false);
     agents.set(agents().map((agent) => ({ ...agent, status: 'completed' })));
     expect(

@@ -29,7 +29,10 @@ import {
   registerVsCodeCorePlatformAgnostic,
   type Logger,
 } from '@ptah-extension/vscode-core';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  PLATFORM_TOKENS,
+  type IHostAttentionNotifications,
+} from '@ptah-extension/platform-core';
 import {
   LANE_ROUTING_TOKENS,
   registerLaneRoutingServices,
@@ -78,6 +81,7 @@ import {
 import {
   DECISION_MODEL_CATALOG_TOKEN,
   DECISION_MODEL_CONFIG_TOKEN,
+  EXPECTED_HOST_ATTENTION_TOKENS,
   EXPECTED_RESOLVABLE,
   LANE_MODEL_LISTING_TOKEN,
   STRUCTURED_DECISION_TOKEN,
@@ -148,6 +152,7 @@ function buildMinimalContainer(): DependencyContainer {
       getWorkspaceFolders: jest.fn(() => []),
       getConfiguration: jest.fn(() => ({ get: jest.fn() })),
       onDidChangeWorkspaceFolders: jest.fn(() => ({ dispose: jest.fn() })),
+      onDidChangeConfiguration: jest.fn(() => ({ dispose: jest.fn() })),
     },
   });
   c.register(PLATFORM_TOKENS.SECRET_STORAGE, {
@@ -353,6 +358,8 @@ describe('CLI DI — SDK budget-stop registry', () => {
     expect(
       c.resolve(SDK_TOKENS.SDK_SUBAGENT_BUDGET_STOP_CALLBACK_REGISTRY),
     ).toBe(first);
+    const idleCompaction = c.resolve(SDK_TOKENS.SDK_IDLE_COMPACTION);
+    expect(c.resolve(SDK_TOKENS.SDK_IDLE_COMPACTION)).toBe(idleCompaction);
   });
 });
 
@@ -589,6 +596,11 @@ describe('CLI DI — workspace watcher (TASK_2026_437)', () => {
     const watcher = c.resolve<CliWorkspaceWatcher>(
       PLATFORM_TOKENS.WORKSPACE_WATCHER,
     );
+    expect(
+      c.resolve<IHostAttentionNotifications>(
+        EXPECTED_HOST_ATTENTION_TOKENS.notifications,
+      ).isEligible(),
+    ).toBe(false);
     expect(watcher).toBeInstanceOf(CliWorkspaceWatcher);
     expect(c.resolve(PLATFORM_TOKENS.WORKSPACE_WATCHER)).toBe(watcher);
     expect(fork).not.toHaveBeenCalled();
@@ -706,7 +718,17 @@ describe('CLI DI — session organization recorder binding (TASK_2026_580 R-TL11
       },
     });
 
+    c.register(EXPECTED_HOST_ATTENTION_TOKENS.notifications, {
+      useValue: {
+        isEligible: () => false,
+        present: jest.fn(),
+        resolve: jest.fn(),
+        open: jest.fn(),
+        dispose: jest.fn(),
+      },
+    });
     registerSdkServices(c, logger);
+    expect(c.resolve(EXPECTED_HOST_ATTENTION_TOKENS.coordinator)).toBeDefined();
     if (withCliAgentRuntime) {
       registerCliAgentRuntimeServices(c, logger);
       for (const token of [

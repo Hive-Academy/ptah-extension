@@ -189,6 +189,7 @@ const HARNESS_SYNC_TOKENS = {
 } as const;
 
 import { WizardGenerationRpcHandlers } from './wizard-generation-rpc.handlers';
+import { sameWorkspacePath } from './wizard-generation-binding';
 import { GenerationCheckpointService } from './wizard-generation-checkpoint.service';
 import {
   GENERATION_TIMEOUT_MS,
@@ -204,6 +205,11 @@ const ANALYSIS_DIR = `${WORKSPACE}/.ptah/analysis/acme`;
 /** Same computation the checkpoint service and the orchestrator use. */
 const OUTPUT_DIR = path.join(WORKSPACE, '.claude', 'agents');
 
+it('denies unresolved workspace paths', async () => {
+  const missing = path.join(os.tmpdir(), 'ptah-missing-generation-workspace');
+  expect(await sameWorkspacePath(missing, missing)).toBe(false);
+});
+
 function outcome(
   agentId: string,
   status: GenerationAgentOutcome['status'],
@@ -218,6 +224,859 @@ function outcome(
     ...extra,
   };
 }
+
+// Bound-run integration cases use the real checkpoint and supervisor with the
+// existing in-memory storage fake.
+describe('wizard generation tab ownership and recovery', () => {
+  const tab = {
+    tabId: 'tab-one',
+    workflow: 'setup-agent-generation' as const,
+    workspacePath: WORKSPACE,
+  };
+
+  beforeEach(() => {
+    jest
+      .spyOn(fs.promises, 'realpath')
+      .mockImplementation(async (value) => String(value));
+  });
+
+  afterEach(() => jest.restoreAllMocks());
+
+  async function previewAndSubmit(
+    h: Harness,
+    params: Record<string, unknown> = {},
+  ) {
+    h.handlers.register();
+    await call(h, 'wizard:preview-generation', {
+      selectedAgentIds: ['agent-a'],
+      tabBinding: tab,
+    });
+    return call<{
+      success: boolean;
+      accepted?: { runId: string; source: unknown };
+      rejection?: unknown;
+      error?: string;
+    }>(h, 'wizard:submit-selection', {
+      selectedAgentIds: ['agent-a'],
+      tabBinding: tab,
+      ...params,
+    });
+  }
+
+  it('pushes verified facts and recovers the same facts by checkpoint lookup alone', async () => {
+    const h = makeHarness();
+    recordingOrchestrator(h, [
+      outcome('agent-a', 'written', { rejectedSections: 2 }),
+    ]);
+    await previewAndSubmit(h);
+    await settle();
+    const pushed = completeBroadcasts(h)[0];
+    expect(pushed.result).toMatchObject({
+      counts: { written: 1, failed: 0, skipped: 0 },
+      rejectedSections: 2,
+      agentOutcomes: [
+        { agentId: 'agent-a', status: 'written', fileName: 'agent-a.md' },
+      ],
+    });
+    expect(pushed.result?.agentOutcomes?.[0]).not.toHaveProperty('filePath');
+    h.webviewManager.broadcastMessage.mockClear();
+    const lookup = await h.handlers.getGenerationRunState({ tabBinding: tab });
+    expect(lookup.run?.result?.agentOutcomes).toEqual(
+      pushed.result?.agentOutcomes,
+    );
+    expect(lookup.run?.result?.counts).toEqual(pushed.result?.counts);
+    expect(lookup.run?.result?.propagation).toEqual(pushed.result?.propagation);
+    expect(completeBroadcasts(h)).toHaveLength(0);
+  });
+
+  it('persists a failed bound lifecycle when one agent succeeds and another fails', async () => {
+    const h = makeHarness();
+    recordingOrchestrator(h, [
+      outcome('agent-a', 'written'),
+      outcome('agent-b', 'failed', { error: 'template missing' }),
+    ]);
+    h.handlers.register();
+    await call(h, 'wizard:preview-generation', {
+      selectedAgentIds: ['agent-a', 'agent-b'],
+      tabBinding: tab,
+    });
+    const submitted = await call<{
+      success: boolean;
+      accepted?: { runId: string };
+    }>(h, 'wizard:submit-selection', {
+      selectedAgentIds: ['agent-a', 'agent-b'],
+      tabBinding: tab,
+    });
+    expect(submitted.success).toBe(true);
+    await settle();
+
+    const broadcast = completeBroadcasts(h)[0];
+    const lookup = await h.handlers.getGenerationRunState({ tabBinding: tab });
+    expect(manifestAt(h).lifecycle).toBe('failed');
+    expect(broadcast).toMatchObject({
+      success: false,
+      terminalStatus: 'failed',
+      failedCount: 1,
+    });
+    expect(lookup.run?.binding.runId).toBe(submitted.accepted?.runId);
+    expect(lookup.run?.result).toMatchObject({
+      status: 'failed',
+      success: false,
+    });
+  });
+
+  it('keeps a bound checkpoint failed until every failed agent is retried successfully', async () => {
+    const h = makeHarness();
+    recordingOrchestrator(h, [
+      outcome('agent-a', 'failed', { error: 'first failure' }),
+      outcome('agent-b', 'failed', { error: 'second failure' }),
+    ]);
+    h.handlers.register();
+    await call(h, 'wizard:preview-generation', {
+      selectedAgentIds: ['agent-a', 'agent-b'],
+      tabBinding: tab,
+    });
+    const submitted = await call<{
+      success: boolean;
+      accepted?: { runId: string };
+    }>(h, 'wizard:submit-selection', {
+      selectedAgentIds: ['agent-a', 'agent-b'],
+      tabBinding: tab,
+    });
+    expect(submitted.accepted?.runId).toBeDefined();
+    await settle();
+
+    const retryBinding = { ...tab, runId: submitted.accepted!.runId };
+    recordingOrchestrator(h, [outcome('agent-b', 'written')]);
+    const firstRetry = await call<{ success: boolean }>(
+      h,
+      'wizard:retry-item',
+      { itemId: 'agent-b', tabBinding: retryBinding },
+    );
+    expect(firstRetry.success).toBe(true);
+    expect(manifestAt(h).agents['agent-a'].status).toBe('failed');
+    expect(manifestAt(h).agents['agent-b'].status).toBe('written');
+    expect(manifestAt(h).lifecycle).toBe('failed');
+    const failedCompletion = completeBroadcasts(h)[1];
+    expect(failedCompletion).toMatchObject({
+      success: false,
+      terminalStatus: 'failed',
+      failedCount: 1,
+      result: { status: 'failed', success: false, counts: { failed: 1 } },
+    });
+    const failedLookup = await h.handlers.getGenerationRunState({
+      tabBinding: tab,
+      runId: retryBinding.runId,
+    });
+    expect(failedLookup.run?.result).toMatchObject({
+      status: 'failed',
+      success: false,
+      counts: { failed: 1 },
+    });
+
+    recordingOrchestrator(h, [outcome('agent-a', 'written')]);
+    const secondRetry = await call<{ success: boolean }>(
+      h,
+      'wizard:retry-item',
+      { itemId: 'agent-a', tabBinding: retryBinding },
+    );
+    expect(secondRetry.success).toBe(true);
+    expect(manifestAt(h).lifecycle).toBe('completed');
+    expect(completeBroadcasts(h)[2]).toMatchObject({
+      success: true,
+      terminalStatus: 'completed',
+      result: { status: 'completed', success: true, counts: { failed: 0 } },
+    });
+    const completedLookup = await h.handlers.getGenerationRunState({
+      tabBinding: tab,
+      runId: retryBinding.runId,
+    });
+    expect(completedLookup.run?.result).toMatchObject({
+      status: 'completed',
+      success: true,
+      counts: { failed: 0 },
+    });
+  });
+
+  it('keeps completed propagation when a resumed run writes nothing', async () => {
+    const h = makeHarness();
+    seedCheckpoint(
+      h,
+      { 'agent-a': 'pending' },
+      {
+        tabBinding: tab,
+        propagation: { consent: 'granted', status: 'completed' },
+        verifiedResult: true,
+      },
+    );
+    h.storage.resumable = {
+      slugDir: ANALYSIS_DIR,
+      manifest: null,
+      generation: manifestAt(h, ANALYSIS_DIR),
+    };
+    recordingOrchestrator(h, [outcome('agent-a', 'unchanged')]);
+    h.handlers.register();
+    await call(h, 'wizard:submit-selection', {
+      resume: true,
+      tabBinding: tab,
+      selectedAgentIds: ['agent-a'],
+    });
+    await settle();
+    expect(manifestAt(h, ANALYSIS_DIR).propagation).toEqual({
+      consent: 'granted',
+      status: 'completed',
+    });
+    expect(completeBroadcasts(h)[0].result?.propagation).toEqual({
+      consent: 'granted',
+      status: 'completed',
+    });
+  });
+
+  it('keeps completion when propagation persistence fails after finalize', async () => {
+    const h = makeHarness();
+    recordingOrchestrator(h, [outcome('agent-a', 'written')]);
+    const update = h.storage.updateGenerationManifest.getMockImplementation();
+    if (!update) throw new Error('Missing storage fake');
+    h.storage.updateGenerationManifest.mockImplementation(
+      (
+        ws: string,
+        dir: string | null,
+        patch: (
+          manifest: GenerationCheckpointManifest,
+        ) => GenerationCheckpointManifest,
+      ) => {
+        if (
+          h.storage.manifests.get(manifestKey(ws, dir))?.lifecycle ===
+          'completed'
+        )
+          throw new Error('propagation disk failure');
+        return update(ws, dir, patch);
+      },
+    );
+    await previewAndSubmit(h);
+    await settle();
+    expect(manifestAt(h).lifecycle).toBe('completed');
+    expect(completeBroadcasts(h)[0].terminalStatus).toBe('completed');
+    expect(completeBroadcasts(h)[0].result?.propagation).toBeUndefined();
+    expect(h.logger.error).toHaveBeenCalledWith(
+      'RPC: propagation checkpoint update failed',
+      expect.any(Error),
+    );
+  });
+
+  it('keeps completion without reloaded facts when post-finalize load fails', async () => {
+    const h = makeHarness();
+    recordingOrchestrator(h, [outcome('agent-a', 'written')]);
+    const load = h.storage.loadGenerationManifest.getMockImplementation();
+    if (!load) throw new Error('Missing storage fake');
+    h.storage.loadGenerationManifest.mockImplementation(
+      (ws: string, dir: string | null) => {
+        if (
+          h.storage.manifests.get(manifestKey(ws, dir))?.lifecycle ===
+          'completed'
+        )
+          throw new Error('reload failure');
+        return load(ws, dir);
+      },
+    );
+    await previewAndSubmit(h);
+    await settle();
+    expect(manifestAt(h).verifiedResult).toBe(true);
+    expect(completeBroadcasts(h)[0].terminalStatus).toBe('completed');
+    expect(completeBroadcasts(h)[0].result?.counts).toBeUndefined();
+    expect(h.logger.error).toHaveBeenCalledWith(
+      'RPC: finalized generation checkpoint could not be reloaded',
+      expect.any(Error),
+    );
+  });
+
+  it('omits detailed facts for a failed checkpoint without a verified payload', async () => {
+    const h = makeHarness();
+    seedCheckpoint(
+      h,
+      { 'agent-a': 'failed' },
+      { lifecycle: 'failed', tabBinding: tab },
+    );
+    h.storage.list.mockResolvedValue([{ filename: 'acme' }]);
+    const lookup = await h.handlers.getGenerationRunState({ tabBinding: tab });
+    expect(lookup.run?.result).toMatchObject({
+      status: 'failed',
+      success: false,
+    });
+    expect(lookup.run?.result?.agentOutcomes).toBeUndefined();
+    expect(lookup.run?.result?.counts).toBeUndefined();
+  });
+
+  it.each([
+    [
+      'missing',
+      { state: 'missing', reason: 'missing', analysisDir: null },
+      'missing',
+    ],
+    [
+      'stale',
+      { state: 'stale', reason: 'changed', analysisDir: '.ptah/analysis/acme' },
+      'stale',
+    ],
+    [
+      'unreadable',
+      { state: 'stale', reason: 'unreadable', analysisDir: null },
+      'unreadable',
+    ],
+  ])(
+    'uses workspace discovery for %s analysis',
+    async (_name, status, reason) => {
+      const h = makeHarness();
+      h.freshness.getStatus.mockResolvedValue(status);
+      const response = await previewAndSubmit(h, {
+        analysisData: VALID_ANALYSIS,
+      });
+      expect(response.accepted?.source).toEqual({
+        kind: 'workspace-discovery',
+        reason,
+      });
+      expect(firstOptions(h).preComputedAnalysis).toBeUndefined();
+      expect(manifestAt(h).input.analysisData).toBeUndefined();
+      await settle();
+    },
+  );
+
+  it('uses the latest fresh analysis with its verified run identity', async () => {
+    const h = makeHarness();
+    h.storage.loadManifest.mockResolvedValue({ runId: 'verified-run' });
+    const response = await previewAndSubmit(h, {
+      analysisDir: ANALYSIS_DIR,
+      analysisData: VALID_ANALYSIS,
+    });
+    expect(response.accepted?.source).toEqual({
+      kind: 'verified-analysis',
+      analysisDir: ANALYSIS_DIR,
+      analysisRunId: 'verified-run',
+    });
+    expect(manifestAt(h, ANALYSIS_DIR).input.analysisData).toBeUndefined();
+    expect(firstOptions(h).preComputedAnalysis).toBeUndefined();
+    await settle();
+  });
+
+  it('falls back from an older analysis directory and from a throwing freshness lookup', async () => {
+    const older = `${WORKSPACE}/.ptah/analysis/older`;
+    const h = makeHarness();
+    const response = await previewAndSubmit(h, { analysisDir: older });
+    expect(response.accepted?.source).toEqual({
+      kind: 'workspace-discovery',
+      reason: 'not-latest',
+    });
+    const h2 = makeHarness();
+    h2.freshness.getStatus.mockRejectedValue(
+      new Error('private lookup detail'),
+    );
+    const failed = await previewAndSubmit(h2);
+    expect(failed.accepted?.source).toEqual({
+      kind: 'workspace-discovery',
+      reason: 'lookup-failed',
+    });
+    await settle();
+  });
+
+  it('rejects a foreign directory and workspace mismatch before freshness or checkpoint I/O', async () => {
+    const h = makeHarness();
+    h.handlers.register();
+    const foreign = await call<{ rejection?: { reason: string } }>(
+      h,
+      'wizard:submit-selection',
+      {
+        selectedAgentIds: ['agent-a'],
+        tabBinding: tab,
+        analysisDir: '/foreign/analysis',
+      },
+    );
+    expect(foreign.rejection?.reason).toBe('foreign-directory');
+    expect(h.freshness.getStatus).not.toHaveBeenCalled();
+    expect(h.storage.writeGenerationManifest).not.toHaveBeenCalled();
+    const mismatch = await call<{ rejection?: { reason: string } }>(
+      h,
+      'wizard:submit-selection',
+      {
+        selectedAgentIds: ['agent-a'],
+        tabBinding: { ...tab, workspacePath: '/elsewhere' },
+      },
+    );
+    expect(mismatch.rejection?.reason).toBe('workspace-mismatch');
+    expect(h.freshness.getStatus).not.toHaveBeenCalled();
+    const malformed = await call<{ rejection?: { reason: string } }>(
+      h,
+      'wizard:submit-selection',
+      {
+        selectedAgentIds: ['agent-a'],
+        tabBinding: { tabId: '' },
+      },
+    );
+    expect(malformed.rejection?.reason).toBe('invalid-binding');
+  });
+
+  it('authorizes before parsing bound analysis data and ignores it for valid tabs', async () => {
+    const h = makeHarness();
+    h.handlers.register();
+    const hostile = new Proxy(
+      {},
+      {
+        get: () => {
+          throw new Error('analysis parsed');
+        },
+      },
+    );
+    const foreign = await call<{ rejection?: { reason: string } }>(
+      h,
+      'wizard:submit-selection',
+      {
+        selectedAgentIds: ['agent-a'],
+        tabBinding: { ...tab, workspacePath: '/elsewhere' },
+        analysisData: hostile,
+      },
+    );
+    expect(foreign.rejection?.reason).toBe('workspace-mismatch');
+    await call(h, 'wizard:preview-generation', {
+      selectedAgentIds: ['agent-a'],
+      tabBinding: tab,
+    });
+    const accepted = await call<{ success: boolean }>(
+      h,
+      'wizard:submit-selection',
+      {
+        selectedAgentIds: ['agent-a'],
+        tabBinding: tab,
+        analysisData: hostile,
+      },
+    );
+    expect(accepted.success).toBe(true);
+    await settle();
+  });
+
+  it('requires preview and keeps confirmation after a launch preparation failure', async () => {
+    const h = makeHarness();
+    h.handlers.register();
+    const missing = await call<{ rejection?: { reason: string } }>(
+      h,
+      'wizard:submit-selection',
+      {
+        selectedAgentIds: ['agent-a'],
+        tabBinding: tab,
+      },
+    );
+    expect(missing.rejection?.reason).toBe('preview-required');
+    await call(h, 'wizard:preview-generation', {
+      selectedAgentIds: ['agent-a'],
+      tabBinding: tab,
+    });
+    h.storage.writeGenerationManifest.mockRejectedValueOnce(
+      new Error('disk full'),
+    );
+    const failed = await call<{ success: boolean }>(
+      h,
+      'wizard:submit-selection',
+      {
+        selectedAgentIds: ['agent-a'],
+        tabBinding: tab,
+      },
+    );
+    expect(failed.success).toBe(false);
+    const accepted = await call<{ success: boolean }>(
+      h,
+      'wizard:submit-selection',
+      {
+        selectedAgentIds: ['agent-a'],
+        tabBinding: tab,
+      },
+    );
+    expect(accepted.success).toBe(true);
+    await settle();
+  });
+
+  it('reports an unavailable bound model through the RPC error', async () => {
+    const h = makeHarness();
+    h.handlers.register();
+    const result = await callRaw(h, 'wizard:submit-selection', {
+      selectedAgentIds: ['agent-a'],
+      tabBinding: tab,
+      model: 'unavailable-model',
+    });
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('selected model is unavailable');
+  });
+
+  it('returns the prepared run id before work settles and recovers a lost start response', async () => {
+    const h = makeHarness();
+    h.orchestrator.generateAgents.mockImplementation(
+      () => new Promise(() => undefined),
+    );
+    const response = await previewAndSubmit(h);
+    expect(response.accepted?.runId).toBe(manifestAt(h).runId);
+    const found = await h.handlers.getGenerationRunState({ tabBinding: tab });
+    expect(found.run?.binding.runId).toBe(response.accepted?.runId);
+    expect(found.run?.status).toBe('running');
+    const wrong = await h.handlers.getGenerationRunState({
+      tabBinding: { ...tab, tabId: 'other' },
+    });
+    expect(wrong.run).toBeNull();
+  });
+
+  it('reports an orphaned in-progress checkpoint as unconfirmed, without a terminal result', async () => {
+    const h = makeHarness();
+    seedCheckpoint(
+      h,
+      { 'agent-a': 'running' },
+      {
+        lifecycle: 'running',
+        tabBinding: tab,
+      },
+    );
+    h.storage.list.mockResolvedValue([{ filename: 'acme' }]);
+    const state = await h.handlers.getGenerationRunState({ tabBinding: tab });
+    expect(state.run?.status).toBe('failed');
+    expect(state.run?.interrupted).toBe(true);
+    expect(state.run?.committedState).toBe('unknown');
+    expect(state.run?.result?.interrupted).toBe(true);
+    expect(state.run?.effectiveProvider).toBe('unknown');
+    expect(state.run?.effectiveModel).toBe('unknown');
+    const recent = manifestAt(h, ANALYSIS_DIR);
+    recent.updatedAt = new Date().toISOString();
+    const starting = await h.handlers.getGenerationRunState({
+      tabBinding: tab,
+    });
+    expect(starting.run?.status).toBe('starting');
+    expect(starting.run?.result).toBeUndefined();
+    recent.updatedAt = 'invalid-date';
+    const invalid = await h.handlers.getGenerationRunState({ tabBinding: tab });
+    expect(invalid.run?.status).toBe('failed');
+    expect(invalid.run?.interrupted).toBe(true);
+  });
+
+  it('finds a bound checkpoint beside an older analysis after a newer one exists', async () => {
+    const h = makeHarness();
+    seedCheckpoint(
+      h,
+      { 'agent-a': 'written' },
+      {
+        lifecycle: 'completed',
+        tabBinding: tab,
+      },
+    );
+    h.storage.list.mockResolvedValue([
+      { filename: 'newer' },
+      { filename: 'acme' },
+    ]);
+    const state = await h.handlers.getGenerationRunState({ tabBinding: tab });
+    expect(state.run?.binding.runId).toBe('run-prev');
+    expect(state.run?.status).toBe('completed');
+  });
+
+  it('keeps a cancelled bound run cancelled when completion arrives late', async () => {
+    const h = makeHarness();
+    let finish: ((value: Result<GenerationSummary, Error>) => void) | undefined;
+    h.orchestrator.generateAgents.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const accepted = await previewAndSubmit(h);
+    const cancelled = await call<{ cancelled: boolean }>(h, 'wizard:cancel', {
+      tabBinding: { ...tab, runId: accepted.accepted?.runId },
+    });
+    expect(cancelled.cancelled).toBe(true);
+    finish?.(Result.ok(makeSummary([outcome('agent-a', 'written')])));
+    await settle();
+    const state = await h.handlers.getGenerationRunState({ tabBinding: tab });
+    expect(state.run?.binding.runId).toBe(accepted.accepted?.runId);
+    expect(state.run?.status).toBe('cancelled');
+    expect(state.run?.result?.success).toBe(false);
+    expect(completeBroadcasts(h)).toHaveLength(1);
+    expect(completeBroadcasts(h)[0].terminalStatus).toBe('cancelled');
+  });
+
+  it('legacy cancel leaves a tab-bound run running and still aborts an unbound run', async () => {
+    const bound = makeHarness();
+    let finish: ((value: Result<GenerationSummary, Error>) => void) | undefined;
+    bound.orchestrator.generateAgents.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    await previewAndSubmit(bound);
+    const boundSignal = firstOptions(bound).abortSignal;
+
+    const skipped = await call<{ cancelled: boolean }>(
+      bound,
+      'wizard:cancel',
+      {},
+    );
+
+    expect(skipped).toEqual({ cancelled: false });
+    expect(boundSignal?.aborted).toBe(false);
+    expect(bound.runs.binding?.tabId).toBe(tab.tabId);
+    expect(bound.runs.isActive).toBe(true);
+    finish?.(Result.ok(makeSummary([outcome('agent-a', 'written')])));
+    await settle();
+
+    const unbound = makeHarness();
+    unbound.orchestrator.generateAgents.mockImplementation(
+      () =>
+        new Promise(() => {
+          /* stays active until abort */
+        }),
+    );
+    unbound.handlers.register();
+    await call(unbound, 'wizard:submit-selection', {
+      selectedAgentIds: ['agent-a'],
+    });
+    const unboundSignal = firstOptions(unbound).abortSignal;
+
+    const cancelled = await call<{
+      cancelled: boolean;
+      progressSaved?: boolean;
+    }>(unbound, 'wizard:cancel', {});
+
+    expect(cancelled).toEqual({ cancelled: true, progressSaved: true });
+    expect(unboundSignal?.aborted).toBe(true);
+    expect(String(unboundSignal?.reason)).toBe('user_cancelled');
+    expect(unbound.runs.binding).toBeNull();
+  });
+
+  it('binds an old checkpoint only on an authorized resume and retains its outcomes and model', async () => {
+    const h = makeHarness();
+    seedCheckpoint(h, { 'agent-a': 'written', 'agent-b': 'failed' });
+    h.storage.resumable = {
+      slugDir: ANALYSIS_DIR,
+      manifest: {},
+      generation: manifestAt(h, ANALYSIS_DIR),
+    };
+    h.handlers.register();
+    const wrong = await call<{ rejection?: { reason: string } }>(
+      h,
+      'wizard:submit-selection',
+      {
+        selectedAgentIds: [],
+        resume: true,
+        tabBinding: { ...tab, workspacePath: '/elsewhere' },
+      },
+    );
+    expect(wrong.rejection?.reason).toBe('workspace-mismatch');
+    expect(manifestAt(h, ANALYSIS_DIR).tabBinding).toBeUndefined();
+    const accepted = await previewAndSubmit(h, { resume: true });
+    expect(accepted.accepted?.runId).toBe('run-prev');
+    expect(manifestAt(h, ANALYSIS_DIR).tabBinding).toEqual(tab);
+    expect(manifestAt(h, ANALYSIS_DIR).input.model).toBe('sonnet');
+    expect(manifestAt(h, ANALYSIS_DIR).effectiveModel).toBe('sonnet');
+    expect(manifestAt(h, ANALYSIS_DIR).agents['agent-a'].status).toBe(
+      'written',
+    );
+    await settle();
+  });
+
+  it('blocks another tab from adopting a paused bound checkpoint', async () => {
+    const h = makeHarness();
+    seedCheckpoint(h, { 'agent-a': 'failed' }, { tabBinding: tab });
+    h.storage.resumable = {
+      slugDir: ANALYSIS_DIR,
+      manifest: {},
+      generation: manifestAt(h, ANALYSIS_DIR),
+    };
+    h.handlers.register();
+    const response = await call<{
+      rejection?: { reason: string; ownerTabId?: string };
+    }>(h, 'wizard:submit-selection', {
+      resume: true,
+      tabBinding: { ...tab, tabId: 'tab-two' },
+    });
+    expect(response.rejection).toEqual({
+      reason: 'blocked',
+      ownerTabId: tab.tabId,
+    });
+    expect(manifestAt(h, ANALYSIS_DIR).tabBinding?.tabId).toBe(tab.tabId);
+  });
+
+  it('uses the authorized path for bound lookup and cancellation', async () => {
+    const h = makeHarness();
+    jest
+      .spyOn(fs.promises, 'realpath')
+      .mockImplementation(async (value) =>
+        String(value).toLowerCase() === WORKSPACE.toLowerCase()
+          ? WORKSPACE
+          : String(value),
+      );
+    abortAwareOrchestrator(h, () => makeSummary([]));
+    await previewAndSubmit(h);
+    const alternate = { ...tab, workspacePath: WORKSPACE.toUpperCase() };
+    const state = await h.handlers.getGenerationRunState({
+      tabBinding: alternate,
+    });
+    expect(state.run?.status).toBe('running');
+    const result = await call<{ cancelled: boolean }>(h, 'wizard:cancel', {
+      tabBinding: { ...alternate, runId: state.run?.binding.runId },
+    });
+    expect(result.cancelled).toBe(true);
+    await settle();
+  });
+
+  it('locates an older checkpoint whose stored workspace spelling differs', async () => {
+    const h = makeHarness();
+    const storedPath =
+      process.platform === 'win32' ? WORKSPACE.toUpperCase() : `${WORKSPACE}/.`;
+    jest
+      .spyOn(fs.promises, 'realpath')
+      .mockImplementation(async (value) =>
+        String(value) === storedPath || String(value) === WORKSPACE
+          ? WORKSPACE
+          : String(value),
+      );
+    seedCheckpoint(
+      h,
+      { 'agent-a': 'written' },
+      {
+        lifecycle: 'completed',
+        tabBinding: { ...tab, workspacePath: storedPath },
+      },
+    );
+    h.storage.list.mockResolvedValue([{ filename: 'acme' }]);
+    const state = await h.handlers.getGenerationRunState({ tabBinding: tab });
+    expect(state.run?.status).toBe('completed');
+  });
+
+  it('rejects bound retry without its run and reuses the matching checkpoint model', async () => {
+    const h = makeHarness();
+    const runId = '11111111-1111-4111-8111-111111111111';
+    seedCheckpoint(h, { 'agent-a': 'failed' }, { tabBinding: tab, runId });
+    recordingOrchestrator(h, [outcome('agent-a', 'written')]);
+    h.storage.list.mockResolvedValue([{ filename: 'acme' }]);
+    h.handlers.register();
+    const wrong = await call<{
+      success: boolean;
+      rejection?: { reason: string };
+    }>(h, 'wizard:retry-item', {
+      itemId: 'agent-a',
+      tabBinding: { ...tab, runId: '22222222-2222-4222-8222-222222222222' },
+    });
+    expect(wrong.rejection?.reason).toBe('not-running');
+    const retried = await call<{ success: boolean }>(h, 'wizard:retry-item', {
+      itemId: 'agent-a',
+      tabBinding: { ...tab, runId },
+    });
+    expect(retried.success).toBe(true);
+    expect(firstOptions(h).model).toBe('model-from-checkpoint');
+  });
+
+  it('finds a bound retry checkpoint through a differently spelled host root', async () => {
+    const alias = `${WORKSPACE}/.`;
+    const h = makeHarness({ workspaceRoot: alias });
+    jest
+      .spyOn(fs.promises, 'realpath')
+      .mockImplementation(async (value) =>
+        String(value) === alias ? WORKSPACE : String(value),
+      );
+    const runId = '11111111-1111-4111-8111-111111111111';
+    seedCheckpoint(h, { 'agent-a': 'failed' }, { tabBinding: tab, runId });
+    h.storage.list.mockResolvedValue([{ filename: 'acme' }]);
+    recordingOrchestrator(h, [outcome('agent-a', 'written')]);
+    h.handlers.register();
+    const retried = await call<{ success: boolean }>(h, 'wizard:retry-item', {
+      itemId: 'agent-a',
+      tabBinding: { ...tab, runId },
+    });
+    expect(retried.success).toBe(true);
+    expect(h.storage.list).toHaveBeenCalledWith(WORKSPACE);
+  });
+
+  it('does not report completed when checkpoint finalization fails', async () => {
+    const h = makeHarness();
+    h.orchestrator.generateAgents.mockResolvedValue(
+      Result.ok(makeSummary([outcome('agent-a', 'written')])),
+    );
+    h.storage.updateGenerationManifest.mockImplementation(async () => null);
+    await previewAndSubmit(h);
+    await settle();
+    const completion = completeBroadcasts(h)[0];
+    expect(completion.success).toBe(false);
+    expect(completion.terminalStatus).toBe('failed');
+    expect(manifestAt(h).lifecycle).toBe('running');
+    expect(h.propagation.propagate).toHaveBeenCalled();
+  });
+
+  it('propagates written agents after tabless checkpoint finalization fails', async () => {
+    const h = makeHarness();
+    h.handlers.register();
+    h.orchestrator.generateAgents.mockResolvedValue(
+      Result.ok(makeSummary([outcome('agent-a', 'written')])),
+    );
+    h.storage.updateGenerationManifest.mockImplementation(async () => null);
+    const accepted = await call<{ success: boolean }>(
+      h,
+      'wizard:submit-selection',
+      { selectedAgentIds: ['agent-a'] },
+    );
+    expect(accepted.success).toBe(true);
+    await settle();
+    expect(h.propagation.propagate).toHaveBeenCalledTimes(1);
+    expect(manifestAt(h).lifecycle).toBe('running');
+    expect(completeBroadcasts(h)[0].success).toBe(false);
+  });
+
+  it('pushes one terminal failure when launch loses the active-run race', async () => {
+    const h = makeHarness();
+    jest
+      .spyOn(h.runs, 'run')
+      .mockRejectedValueOnce(new Error('A generation run is already active.'));
+    const accepted = await previewAndSubmit(h);
+    expect(accepted.success).toBe(true);
+    await settle();
+    expect(completeBroadcasts(h)).toHaveLength(1);
+    expect(completeBroadcasts(h)[0].terminalStatus).toBe('failed');
+  });
+
+  it('blocks a second tab with only the owner tab id, and keeps owner ids private across workspaces', async () => {
+    const h = makeHarness();
+    h.orchestrator.generateAgents.mockImplementation(
+      () => new Promise(() => undefined),
+    );
+    await previewAndSubmit(h);
+    const second = await call<{
+      rejection?: { reason: string; ownerTabId?: string };
+      accepted?: unknown;
+    }>(h, 'wizard:submit-selection', {
+      selectedAgentIds: ['agent-a'],
+      tabBinding: { ...tab, tabId: 'other' },
+    });
+    expect(second.rejection).toEqual({
+      reason: 'blocked',
+      ownerTabId: tab.tabId,
+    });
+    expect(second.accepted).toBeUndefined();
+    const foreign = await call<{
+      rejection?: { reason: string; ownerTabId?: string };
+      accepted?: unknown;
+    }>(h, 'wizard:submit-selection', {
+      selectedAgentIds: ['agent-a'],
+      tabBinding: { ...tab, workspacePath: '/elsewhere' },
+    });
+    expect(foreign.rejection?.ownerTabId).toBeUndefined();
+    expect(foreign.accepted).toBeUndefined();
+
+    const tabless = makeHarness();
+    tabless.handlers.register();
+    await call(tabless, 'wizard:submit-selection', {
+      selectedAgentIds: ['agent-a'],
+    });
+    const hidden = await call<{
+      rejection?: { reason: string; ownerTabId?: string };
+      accepted?: unknown;
+    }>(tabless, 'wizard:submit-selection', {
+      selectedAgentIds: ['agent-a'],
+      tabBinding: tab,
+    });
+    expect(hidden.rejection).toEqual({ reason: 'blocked' });
+    expect(hidden.accepted).toBeUndefined();
+  });
+});
 
 function makeSummary(
   outcomes: GenerationAgentOutcome[],
@@ -316,16 +1175,18 @@ interface StorageFake {
     manifest: unknown;
     generation: GenerationCheckpointManifest | null;
   } | null;
+  resumableRuns?: NonNullable<StorageFake['resumable']>[];
   resolveAuthorizedAnalysisDir: jest.Mock;
   writeGenerationManifest: jest.Mock;
   loadGenerationManifest: jest.Mock;
   updateGenerationManifest: jest.Mock;
   findLatestResumableRun: jest.Mock;
+  list: jest.Mock;
   loadManifest: jest.Mock;
 }
 
 const manifestKey = (ws: string, dir: string | null): string =>
-  `${ws}|${dir ?? ''}`;
+  `${ws}|${(dir ?? '').replace(/\\/g, '/')}`;
 
 function createStorageFake(): StorageFake {
   const manifests = new Map<string, GenerationCheckpointManifest>();
@@ -369,7 +1230,16 @@ function createStorageFake(): StorageFake {
         return next;
       },
     ),
-    findLatestResumableRun: jest.fn(async () => fake.resumable),
+    findLatestResumableRun: jest.fn(
+      async (
+        _workspace: string,
+        accepts?: (run: NonNullable<StorageFake['resumable']>) => boolean,
+      ) =>
+        (fake.resumableRuns ?? (fake.resumable ? [fake.resumable] : [])).find(
+          (run) => !accepts || accepts(run),
+        ) ?? null,
+    ),
+    list: jest.fn(async () => []),
     loadManifest: jest.fn(async () => null),
   };
   return fake;
@@ -432,7 +1302,7 @@ function makeHarness(
   const storage = createStorageFake();
   storage.resolveAuthorizedAnalysisDir.mockImplementation(
     (ws: string, candidate: string): string | null => {
-      const absolute = path.posix.resolve(ws, candidate);
+      const absolute = path.posix.resolve(ws, candidate.replace(/\\/g, '/'));
       const root = path.posix.resolve(ws, '.ptah/analysis');
       const relative = path.posix.relative(root, absolute);
       return relative === '' ||
@@ -464,6 +1334,10 @@ function makeHarness(
   maybeSet(AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE, setupWizard);
   maybeSet(AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE, storage);
   maybeSet(AGENT_GENERATION_TOKENS.ANALYSIS_FRESHNESS_SERVICE, freshness);
+  maybeSet(Symbol.for('SdkProviderModels'), {
+    resolveActiveProviderId: jest.fn().mockReturnValue('anthropic'),
+    getModelTiers: jest.fn().mockReturnValue({ sonnet: 'sonnet' }),
+  });
   maybeSet(TOKENS.WEBVIEW_MANAGER, webviewManager);
   maybeSet(HARNESS_SYNC_TOKENS.PROPAGATION, propagation);
   maybeSet(HARNESS_SYNC_TOKENS.AGENT_SYNC_GATE, {
@@ -678,13 +1552,23 @@ const VALID_ANALYSIS = {
 
 describe('WizardGenerationRpcHandlers', () => {
   describe('register()', () => {
-    it('registers all four wizard generation RPC methods, exactly the METHODS list', () => {
+    it('routes run-state lookup to the prepared function', async () => {
+      const h = makeHarness();
+      const lookup = jest
+        .spyOn(h.handlers, 'getGenerationRunState')
+        .mockResolvedValue({ run: null });
+      h.handlers.register();
+      await callRaw(h, 'wizard:get-generation-run-state', {});
+      expect(lookup).toHaveBeenCalledTimes(1);
+    });
+    it('registers all five wizard generation RPC methods, exactly the METHODS list', () => {
       const h = makeHarness();
       h.handlers.register();
 
       expect(h.rpcHandler.getRegisteredMethods().sort()).toEqual(
         [
           'wizard:cancel',
+          'wizard:get-generation-run-state',
           'wizard:preview-generation',
           'wizard:retry-item',
           'wizard:submit-selection',
@@ -1470,6 +2354,121 @@ describe('WizardGenerationRpcHandlers', () => {
       expect(h.propagation.propagate).toHaveBeenCalledTimes(1);
     });
 
+    it('refuses a tab-bound checkpoint on an unbound resume and still resumes an unbound one', async () => {
+      const bound = makeHarness();
+      const tabBinding = {
+        tabId: 'tab-one',
+        workflow: 'setup-agent-generation' as const,
+        workspacePath: WORKSPACE,
+      };
+      seedCheckpoint(bound, { 'agent-a': 'failed' }, { tabBinding });
+      const before = structuredClone(manifestAt(bound, ANALYSIS_DIR));
+      bound.storage.resumable = {
+        slugDir: ANALYSIS_DIR,
+        manifest: null,
+        generation: manifestAt(bound, ANALYSIS_DIR),
+      };
+      bound.handlers.register();
+
+      const refused = await call<{ success: boolean; error?: string }>(
+        bound,
+        'wizard:submit-selection',
+        { resume: true },
+      );
+
+      expect(refused.success).toBe(false);
+      expect(refused.error).toMatch(/no resumable generation run/i);
+      expect(bound.orchestrator.generateAgents).not.toHaveBeenCalled();
+      expect(bound.storage.writeGenerationManifest).not.toHaveBeenCalled();
+      expect(manifestAt(bound, ANALYSIS_DIR)).toEqual(before);
+
+      const unbound = makeHarness();
+      seedCheckpoint(unbound, { 'agent-a': 'failed' });
+      unbound.storage.resumable = {
+        slugDir: ANALYSIS_DIR,
+        manifest: null,
+        generation: manifestAt(unbound, ANALYSIS_DIR),
+      };
+      recordingOrchestrator(unbound, [outcome('agent-a', 'written')]);
+      unbound.handlers.register();
+
+      const resumed = await call<{ success: boolean }>(
+        unbound,
+        'wizard:submit-selection',
+        { resume: true },
+      );
+
+      expect(resumed.success).toBe(true);
+      expect(unbound.storage.findLatestResumableRun).toHaveBeenCalledWith(
+        WORKSPACE,
+        expect.any(Function),
+      );
+      expect(firstOptions(unbound).userOverrides).toEqual(['agent-a']);
+      expect(manifestAt(unbound, ANALYSIS_DIR).tabBinding).toBeUndefined();
+    });
+
+    it('resumes an older unbound checkpoint when a newer tab-bound run exists', async () => {
+      const h = makeHarness();
+      const olderDir = `${WORKSPACE}/.ptah/analysis/older`;
+      seedCheckpoint(h, { 'agent-a': 'failed' });
+      const older = structuredClone(manifestAt(h, ANALYSIS_DIR));
+      older.analysisDirectory = olderDir;
+      h.storage.manifests.set(manifestKey(WORKSPACE, olderDir), older);
+      const tabBinding = {
+        tabId: 'tab-one',
+        workflow: 'setup-agent-generation' as const,
+        workspacePath: WORKSPACE,
+      };
+      seedCheckpoint(h, { 'agent-b': 'failed' }, { tabBinding });
+      const boundBefore = structuredClone(manifestAt(h, ANALYSIS_DIR));
+      h.storage.resumableRuns = [
+        { slugDir: ANALYSIS_DIR, manifest: null, generation: boundBefore },
+        { slugDir: olderDir, manifest: null, generation: older },
+      ];
+      recordingOrchestrator(h, [outcome('agent-a', 'written')]);
+      h.handlers.register();
+
+      const resumed = await call<{ success: boolean }>(
+        h,
+        'wizard:submit-selection',
+        { resume: true },
+      );
+
+      expect(resumed.success).toBe(true);
+      expect(firstOptions(h).userOverrides).toEqual(['agent-a']);
+      expect(manifestAt(h, ANALYSIS_DIR)).toEqual(boundBefore);
+      expect(manifestAt(h, olderDir).tabBinding).toBeUndefined();
+    });
+
+    it('explains that an explicit tab-bound checkpoint must resume in its chat tab', async () => {
+      const h = makeHarness();
+      seedCheckpoint(
+        h,
+        { 'agent-a': 'failed' },
+        {
+          tabBinding: {
+            tabId: 'tab-one',
+            workflow: 'setup-agent-generation',
+            workspacePath: WORKSPACE,
+          },
+        },
+      );
+      const before = structuredClone(manifestAt(h, ANALYSIS_DIR));
+      h.handlers.register();
+
+      const refused = await callRaw(h, 'wizard:submit-selection', {
+        resume: true,
+        analysisDir: ANALYSIS_DIR,
+      });
+
+      expect(refused.success).toBe(false);
+      expect(refused.error).toMatch(
+        /belongs to a chat tab.*resume it in that tab/i,
+      );
+      expect(h.orchestrator.generateAgents).not.toHaveBeenCalled();
+      expect(manifestAt(h, ANALYSIS_DIR)).toEqual(before);
+    });
+
     it('discovers the latest resumable checkpoint when no analysisDir is supplied', async () => {
       const h = makeHarness();
       seedCheckpoint(h, { 'agent-a': 'failed' });
@@ -1482,7 +2481,10 @@ describe('WizardGenerationRpcHandlers', () => {
 
       await call(h, 'wizard:submit-selection', { resume: true });
 
-      expect(h.storage.findLatestResumableRun).toHaveBeenCalledWith(WORKSPACE);
+      expect(h.storage.findLatestResumableRun).toHaveBeenCalledWith(
+        WORKSPACE,
+        expect.any(Function),
+      );
       expect(firstOptions(h).userOverrides).toEqual(['agent-a']);
     });
 
@@ -2216,7 +3218,7 @@ describe('WizardGenerationRpcHandlers', () => {
       expect(response.errorCode).toBe('INVALID_PARAMS');
     });
 
-    it('a folder nested under another harness root lists Claude paths only, with a warning naming that root', async () => {
+    it('a folder nested under another harness root lists Claude paths with a safe warning', async () => {
       const nested = path.join(tempWorkspace, 'packages', 'app');
       fs.mkdirSync(nested, { recursive: true });
       const h = makeHarness({ workspaceRoot: nested });
@@ -2233,7 +3235,8 @@ describe('WizardGenerationRpcHandlers', () => {
         { selectedAgentIds: ['backend-developer'] },
       );
 
-      expect(response.warning).toContain(path.resolve(tempWorkspace));
+      expect(response.warning).toContain('different folder');
+      expect(response.warning).not.toContain(path.resolve(tempWorkspace));
       expect(files(response, 'backend-developer')).toEqual([
         ['claude', '.claude/agents/backend-developer.md', 'definite', false],
       ]);

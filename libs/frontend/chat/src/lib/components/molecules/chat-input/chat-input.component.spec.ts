@@ -80,6 +80,7 @@ import type { AtTriggerEvent } from '../../../directives/at-trigger.directive';
 import {
   SESSION_CONTEXT,
   SESSION_START_GUARD,
+  SESSION_STOP_HANDLER,
 } from '../../../tokens/session-context.token';
 import { CompactionLifecycleService } from '../../../services/chat-store/compaction-lifecycle.service';
 import { SessionLoaderService } from '../../../services/chat-store/session-loader.service';
@@ -196,6 +197,7 @@ describe('ChatInputComponent', () => {
       /** Tile tab id for SESSION_CONTEXT; `undefined` = token not provided. */
       sessionContextTabId?: string | null;
       startGuard?: () => string | null;
+      stopHandler?: (tabId: string) => 'handled' | 'not-handled';
     } = {},
   ): void {
     mockIsElectron = opts.isElectron ?? false;
@@ -235,6 +237,9 @@ describe('ChatInputComponent', () => {
         ...(opts.startGuard
           ? [{ provide: SESSION_START_GUARD, useValue: opts.startGuard }]
           : []),
+        ...(opts.stopHandler
+          ? [{ provide: SESSION_STOP_HANDLER, useValue: opts.stopHandler }]
+          : []),
       ],
     });
 
@@ -251,6 +256,24 @@ describe('ChatInputComponent', () => {
     mockVoiceInput.stopRecording.mockResolvedValue(null);
     createComponent();
     jest.clearAllMocks();
+  });
+
+  it('routes handled Stop to the embedded workflow and preserves chat fallback', async () => {
+    const handler = jest.fn(() => 'handled' as const);
+    createComponent({
+      sessionContextTabId: 'workflow-tab',
+      stopHandler: handler,
+    });
+    await component.handleStop();
+    expect(handler).toHaveBeenCalledWith('workflow-tab');
+    expect(mockChatStore.abortWithConfirmation).not.toHaveBeenCalled();
+
+    createComponent({
+      sessionContextTabId: 'chat-tab',
+      stopHandler: () => 'not-handled',
+    });
+    await component.handleStop();
+    expect(mockChatStore.abortWithConfirmation).toHaveBeenCalledTimes(1);
   });
 
   it('should be created', () => {

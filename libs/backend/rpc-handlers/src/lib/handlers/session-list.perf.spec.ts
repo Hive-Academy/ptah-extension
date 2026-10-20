@@ -8,8 +8,10 @@
  * sessions. The real `session:list` handler runs 20 times with the sidebar's
  * filtered query; the spec asserts p95 < 200 ms and the exact `total`.
  *
- * The transcript probe of `~/.claude/projects` is stubbed (no projects
- * directory) so the measurement does not depend on the developer's disk.
+ * The transcript probe of `~/.claude/projects` is stubbed so the measurement
+ * does not depend on the developer's disk: every session has an indexed
+ * transcript, and the JSONL reader never finishes, so the spec also proves the
+ * message-count warm never holds the response (FU-13).
  *
  * better-sqlite3 is tried first, then Node's built-in `node:sqlite`. When
  * NEITHER loads, the suite FAILS — it never skips.
@@ -27,6 +29,7 @@ jest.mock('fs/promises', () => ({
   ...jest.requireActual('fs/promises'),
   access: jest.fn(),
   readdir: jest.fn(),
+  stat: jest.fn(),
 }));
 
 import {
@@ -172,6 +175,9 @@ describe('session:list AC1 performance (real SQLite store)', () => {
   let tmpDir: string | undefined;
   let db: TestDatabase | undefined;
   let rpcHandler: MockRpcHandler;
+  const jsonlReader = {
+    projectJsonlLines: jest.fn(() => new Promise<never>(() => undefined)),
+  };
   const seed = Array.from({ length: SESSION_COUNT }, (_, i) => seedRowFor(i));
 
   beforeAll(() => {
@@ -180,8 +186,19 @@ describe('session:list AC1 performance (real SQLite store)', () => {
         'No SQLite binding loaded (neither better-sqlite3 nor node:sqlite)',
       );
     }
-    (fs.access as jest.Mock).mockRejectedValue(new Error('ENOENT'));
-    (fs.readdir as jest.Mock).mockRejectedValue(new Error('ENOENT'));
+    const projectsDir = path.join(os.homedir(), '.claude', 'projects');
+    const escapedWorkspaceDir = WORKSPACE.replace(/[:\\/]/g, '-');
+    (fs.access as jest.Mock).mockResolvedValue(undefined);
+    (fs.readdir as jest.Mock).mockImplementation(async (target: PathLike) =>
+      String(target) === projectsDir
+        ? [escapedWorkspaceDir]
+        : seed.map((row) => `${row.sessionId}.jsonl`),
+    );
+    (fs.stat as jest.Mock).mockResolvedValue({
+      isFile: () => true,
+      size: 50 * 1024 * 1024,
+      mtimeMs: 1_700_000_000_000,
+    });
 
     tmpDir = fsSync.mkdtempSync(path.join(os.tmpdir(), 'ptah-ac1-'));
     db = withTransaction(opener(path.join(tmpDir, 'ptah.db')));
@@ -289,6 +306,8 @@ describe('session:list AC1 performance (real SQLite store)', () => {
       {} as never,
       {} as never,
       {} as never,
+      // A cold 50 MB transcript read that never finishes.
+      jsonlReader as never,
       null,
       organization,
       taskIndex as never,
@@ -335,6 +354,9 @@ describe('session:list AC1 performance (real SQLite store)', () => {
       expect(data.total).toBe(expectedTotal);
       expect(data.sessions).toHaveLength(Math.min(50, expectedTotal));
     }
+
+    // The warm started, yet no list waited for it.
+    expect(jsonlReader.projectJsonlLines).toHaveBeenCalled();
 
     durations.sort((a, b) => a - b);
     const p95 = durations[Math.ceil(0.95 * durations.length) - 1];

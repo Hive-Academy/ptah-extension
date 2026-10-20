@@ -5,21 +5,6 @@ description: React component composition patterns. Use when refactoring boolean 
 
 # React Composition Patterns
 
-Composition patterns for building flexible, maintainable React components. Avoid
-boolean prop proliferation by using compound components, lifting state, and
-composing internals. These patterns make codebases easier for both humans and AI
-agents to work with as they scale.
-
-## When to Apply
-
-Reference these guidelines when:
-
-- Refactoring components with many boolean props
-- Building reusable component libraries
-- Designing flexible component APIs
-- Reviewing component architecture
-- Working with compound components or context providers
-
 ## Rule Categories by Priority
 
 | Priority | Category                | Impact | Prefix          |
@@ -63,20 +48,6 @@ Reference these guidelines when:
 
 The quick reference above is the index. Every rule has its own file under
 `rules/`, named for the rule id — read the ones that apply to the component in
-front of you, not the whole set:
-
-```
-rules/architecture-avoid-boolean-props.md
-rules/state-context-interface.md
-```
-
-Each rule file contains:
-
-- Brief explanation of why it matters
-- Incorrect code example with explanation
-- Correct code example with explanation
-- Additional context and references
-
-`rules/` is the complete guide. There is no compiled all-in-one document, by
-design: it duplicated the same content a second time and defeated the point of
-splitting the rules into files.
+front of you, not the whole set. Each file carries the rationale, an incorrect
+and a correct example, and further context. There is no compiled all-in-one
+document.

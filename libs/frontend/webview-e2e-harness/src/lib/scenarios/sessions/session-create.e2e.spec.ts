@@ -6,9 +6,22 @@
  * inbound channel, and that name validation produces a client-side error
  * before any RPC is fired.
  */
+import type { Page } from '@playwright/test';
 import { test, expect } from '../../test-fixtures';
 
 test.use({ useAppBuild: true });
+
+/**
+ * The empty-board "+ New session" hero opens the named new-session popover.
+ * Close it through its click-outside backdrop so later clicks are not blocked.
+ */
+async function closeOpenPopover(page: Page): Promise<void> {
+  const backdrop = page.locator('div.fixed.inset-0[role="presentation"][aria-hidden="true"]');
+  if (await backdrop.count()) {
+    await backdrop.first().click();
+    await expect(backdrop).toHaveCount(0);
+  }
+}
 
 test.describe('webview > sessions > create', () => {
   test('create button triggers sessions:create RPC with user input', async ({
@@ -35,6 +48,7 @@ test.describe('webview > sessions > create', () => {
           .click();
       }
     }
+    await closeOpenPopover(webviewPage);
     await expect(webviewPage.locator('#ptah-e2e-fixture-root')).toHaveCount(0);
     await webviewPage
       .getByRole('button', { name: 'Previous sessions' })
@@ -69,6 +83,7 @@ test.describe('webview > sessions > create', () => {
         await submit.first().click();
       }
     }
+    await closeOpenPopover(webviewPage);
     await expect(webviewPage.locator('#ptah-e2e-fixture-root')).toHaveCount(0);
     await webviewPage
       .getByRole('button', { name: 'Previous sessions' })

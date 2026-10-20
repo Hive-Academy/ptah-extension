@@ -27,9 +27,7 @@ import {
 const AUTO_COMPACT_WINDOW_ENV = 'CLAUDE_CODE_AUTO_COMPACT_WINDOW';
 
 function isPositiveSafeInteger(value: unknown): value is number {
-  return (
-    typeof value === 'number' && Number.isSafeInteger(value) && value > 0
-  );
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
 }
 
 /**
@@ -95,6 +93,10 @@ export class CompactionConfigProvider {
   /** Budget defaults, resolved once at construction (key to platform-core default). */
   private readonly budgetDefaults: ReadonlyMap<string, number>;
 
+  /** Idle defaults, validated once so live reads only validate live settings. */
+  private readonly idleEnabledDefault: boolean;
+  private readonly idleMinTokensDefault: number;
+
   constructor(
     @inject(TOKENS.CONFIG_MANAGER) private readonly config: ConfigManager,
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -102,6 +104,22 @@ export class CompactionConfigProvider {
     this.budgetDefaults = new Map(
       BUDGET_KEYS.map((key) => [key, budgetDefault(key)] as const),
     );
+    const enabledDefault: unknown =
+      FILE_BASED_SETTINGS_DEFAULTS['compaction.idleCompactionEnabled'];
+    const minTokensDefault: unknown =
+      FILE_BASED_SETTINGS_DEFAULTS['compaction.idleCompactionMinTokens'];
+    if (typeof enabledDefault !== 'boolean') {
+      throw new Error('Missing boolean idle compaction enabled default');
+    }
+    if (
+      typeof minTokensDefault !== 'number' ||
+      !Number.isInteger(minTokensDefault) ||
+      minTokensDefault < 100_000
+    ) {
+      throw new Error('Missing valid idle compaction minimum token default');
+    }
+    this.idleEnabledDefault = enabledDefault;
+    this.idleMinTokensDefault = minTokensDefault;
   }
 
   /** Warns once per distinct key+value; `getConfig()` runs per tool call. */
@@ -181,6 +199,54 @@ export class CompactionConfigProvider {
     );
 
     return compactionConfig;
+  }
+
+  /** Read idle compaction settings at each arm/fire so live edits take effect. */
+  getIdleCompactionConfig(): { enabled: boolean; minTokens: number } {
+    const rawEnabled = this.config.get<unknown>(
+      'compaction.idleCompactionEnabled',
+    );
+    const rawMinTokens = this.config.get<unknown>(
+      'compaction.idleCompactionMinTokens',
+    );
+    let enabled = this.idleEnabledDefault;
+    let minTokens = this.idleMinTokensDefault;
+
+    if (rawEnabled !== undefined && rawEnabled !== null) {
+      if (typeof rawEnabled === 'boolean') {
+        enabled = rawEnabled;
+      } else {
+        this.warnOnce(
+          `compaction.idleCompactionEnabled:${typeof rawEnabled}:${String(rawEnabled)}`,
+          '[CompactionConfigProvider] Invalid compaction.idleCompactionEnabled, using the default',
+          {
+            providedType: typeof rawEnabled,
+            defaultValue: this.idleEnabledDefault,
+          },
+        );
+      }
+    }
+
+    if (rawMinTokens !== undefined && rawMinTokens !== null) {
+      if (
+        typeof rawMinTokens === 'number' &&
+        Number.isInteger(rawMinTokens) &&
+        rawMinTokens >= 100_000
+      ) {
+        minTokens = rawMinTokens;
+      } else {
+        this.warnOnce(
+          `compaction.idleCompactionMinTokens:${typeof rawMinTokens}:${String(rawMinTokens)}`,
+          '[CompactionConfigProvider] Invalid compaction.idleCompactionMinTokens, using the default',
+          {
+            providedType: typeof rawMinTokens,
+            defaultValue: this.idleMinTokensDefault,
+          },
+        );
+      }
+    }
+
+    return { enabled, minTokens };
   }
 
   /**

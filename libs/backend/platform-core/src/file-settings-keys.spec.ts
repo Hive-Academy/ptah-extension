@@ -293,6 +293,17 @@ describe('isFileBasedSettingKey', () => {
     });
   });
 
+  describe('idle compaction keys (TASK_2026_692)', () => {
+    it.each([
+      ['compaction.idleCompactionEnabled', true],
+      ['compaction.idleCompactionMinTokens', 200_000],
+    ] as const)('registers and defaults %s to %s', (key, expected) => {
+      expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
+      expect(isFileBasedSettingKey(key)).toBe(true);
+      expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe(expected);
+    });
+  });
+
   describe('subagent prompt-cache TTL key (TASK_2026_597 N1)', () => {
     // Written through `agent:setConfig`; unrouted, the write would be dropped
     // while the read still served the default.
@@ -778,6 +789,8 @@ describe('isFileBasedSettingKey', () => {
       'compaction.subagentHandoffTokens': 150000,
       'compaction.rotationSuggestTokens': 300000,
       'compaction.subagentStopWeightedTokens': 3000000,
+      'compaction.idleCompactionEnabled': true,
+      'compaction.idleCompactionMinTokens': 200000,
       'agentOrchestration.codexAutoCompactTokens': 120000,
       'agentOrchestration.codexToolOutputTokenLimit': 2500,
       'agentOrchestration.codexWebSearch': true,
@@ -795,6 +808,8 @@ describe('isFileBasedSettingKey', () => {
       'cron.catchupWindowMs': 86400000,
       'harness.preflightTimeoutMs': 1500,
       'harness.manageGitignore': true,
+      'notifications.hostEnabled': true,
+      'notifications.failureHostEnabled': false,
     };
 
     it.each(Object.entries(advancedDefaults))(
@@ -832,6 +847,30 @@ describe('isFileBasedSettingKey', () => {
         expect(store.get('cron.maxConcurrentJobs')).toBe(3);
         expect(store.get('harness.preflightTimeoutMs')).toBe(1500);
         expect(store.get('harness.manageGitignore')).toBe(true);
+        expect(store.get('notifications.hostEnabled')).toBe(true);
+        expect(store.get('notifications.failureHostEnabled')).toBe(false);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('persists notification preferences across store restart', async () => {
+      const dir = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'ptah-notification-keys-'),
+      );
+      try {
+        const store = new PtahFileSettingsManager(
+          FILE_BASED_SETTINGS_DEFAULTS,
+          dir,
+        );
+        await store.set('notifications.hostEnabled', false);
+        await store.set('notifications.failureHostEnabled', true);
+        const reopened = new PtahFileSettingsManager(
+          FILE_BASED_SETTINGS_DEFAULTS,
+          dir,
+        );
+        expect(reopened.get('notifications.hostEnabled')).toBe(false);
+        expect(reopened.get('notifications.failureHostEnabled')).toBe(true);
       } finally {
         fs.rmSync(dir, { recursive: true, force: true });
       }

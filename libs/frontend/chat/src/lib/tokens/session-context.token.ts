@@ -31,7 +31,7 @@ export const SESSION_VISIBLE = new InjectionToken<Signal<boolean>>(
  * ChatViewComponent is the FOCUSED tile. Canvas tiles provide their
  * `focused` signal so an unfocused tile's transcript shrinks its render
  * window and pauses decorative animations. Absent → treated as focused
- * (single chat view, tests).
+ * (tests and the Tribunal conductor).
  */
 export const SESSION_FOCUSED = new InjectionToken<Signal<boolean>>(
   'SESSION_FOCUSED',
@@ -50,6 +50,12 @@ export const SESSION_FORCED_CARD = new InjectionToken<Signal<boolean>>(
 export type SessionStartGuard = () => string | null;
 export const SESSION_START_GUARD = new InjectionToken<SessionStartGuard>(
   'SESSION_START_GUARD',
+);
+
+/** Synchronous interception; the owner dispatches cancellation asynchronously. */
+export type SessionStopHandler = (tabId: string) => 'handled' | 'not-handled';
+export const SESSION_STOP_HANDLER = new InjectionToken<SessionStopHandler>(
+  'SESSION_STOP_HANDLER',
 );
 
 /** Optional actions supplied by a canvas tile to the compact session card. */

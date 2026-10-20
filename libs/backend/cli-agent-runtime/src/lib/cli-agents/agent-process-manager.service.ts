@@ -40,7 +40,7 @@ import type {
   OutcomeRoutingSource,
 } from '@ptah-extension/shared';
 import { killProcessTree } from '@ptah-extension/platform-core';
-import { claudeModelFamily } from '@ptah-extension/agent-sdk';
+import { claudeModelFamily, SDK_TOKENS, type HostAttentionCoordinator } from '@ptah-extension/agent-sdk';
 import {
   AUTH_PROVIDERS_TOKENS,
   type PlanLimitBilling,
@@ -332,6 +332,8 @@ export class AgentProcessManager {
      */
     @inject(AUTH_PROVIDERS_TOKENS.PLAN_LIMIT_LEDGER)
     private readonly planLimits: LanePlanLimitLedger,
+    @inject(SDK_TOKENS.HOST_ATTENTION_COORDINATOR, { isOptional: true })
+    private readonly hostAttention?: HostAttentionCoordinator,
   ) {
     this.logger.info('[AgentProcessManager] Initialized');
   }
@@ -1878,6 +1880,8 @@ export class AgentProcessManager {
       throw new AgentContinueError('unknown', errorMessage);
     }
 
+    this.hostAttention?.releaseLaneFailure(agentId);
+
     outcome.done.then(
       (exitCode) => {
         this.handleExit(agentId, exitCode, null);
@@ -2348,6 +2352,7 @@ export class AgentProcessManager {
       if (status === 'failed') {
         const texts = this.laneFailureTexts(tracked);
         tracked.authMatched = matchesAuthFailure(texts);
+        void this.hostAttention?.presentLaneFailure(agentId, tracked.info.parentSessionId, observedAt);
       } else {
         tracked.authMatched = false;
       }

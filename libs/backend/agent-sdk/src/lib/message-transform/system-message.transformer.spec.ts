@@ -112,6 +112,78 @@ describe('SystemMessageTransformer', () => {
   });
 
   describe('compact_boundary', () => {
+    it('stamps a matched idle notice using the SDK session id', () => {
+      const helpers = makeHelpers(['active-sess']);
+      helpers.sessionLifecycle.idleCompactionNoticeFor = jest
+        .fn()
+        .mockReturnValue({ preTokens: 1200 });
+      const [event] = transformer.transformCompactBoundary(
+        {
+          session_id: 'sdk-sess',
+          compact_metadata: { trigger: 'auto', pre_tokens: 1000 },
+        } as never,
+        state,
+        helpers,
+        'routing-sess' as never,
+      );
+
+      expect(
+        helpers.sessionLifecycle.idleCompactionNoticeFor,
+      ).toHaveBeenCalledWith('sdk-sess');
+      expect(event).toHaveProperty('idleCompaction', { preTokens: 1200 });
+      expect(event).toHaveProperty('sessionId', 'routing-sess');
+    });
+
+    it('omits the idle field when the lifecycle has no matching notice', () => {
+      const helpers = makeHelpers(['active-sess']);
+      helpers.sessionLifecycle.idleCompactionNoticeFor = jest
+        .fn()
+        .mockReturnValue(undefined);
+      const [event] = transformer.transformCompactBoundary(
+        {
+          compact_metadata: { trigger: 'auto', pre_tokens: 1000 },
+        } as never,
+        state,
+        helpers,
+      );
+
+      expect(
+        helpers.sessionLifecycle.idleCompactionNoticeFor,
+      ).toHaveBeenCalledWith('active-sess');
+      expect(event).not.toHaveProperty('idleCompaction');
+    });
+
+    it('omits the idle field with a partial lifecycle fake', () => {
+      const [event] = transformer.transformCompactBoundary(
+        {
+          session_id: 'sdk-sess',
+          compact_metadata: { trigger: 'auto', pre_tokens: 1000 },
+        } as never,
+        state,
+        makeHelpers(),
+      );
+
+      expect(event).not.toHaveProperty('idleCompaction');
+    });
+
+    it('does not stamp a later manual boundary after a PostCompact-only idle path', () => {
+      const helpers = makeHelpers(['sdk-sess']);
+      helpers.sessionLifecycle.idleCompactionNoticeFor = jest
+        .fn()
+        .mockReturnValue(undefined);
+      const [event] = transformer.transformCompactBoundary(
+        {
+          session_id: 'sdk-sess',
+          compact_metadata: { trigger: 'manual', pre_tokens: 1000 },
+        } as never,
+        state,
+        helpers,
+      );
+
+      expect(event).toHaveProperty('eventType', 'compaction_complete');
+      expect(event).not.toHaveProperty('idleCompaction');
+    });
+
     it('emits a measurement only for a complete same-boundary SDK pair', () => {
       for (const [pre, post] of [
         [1000, 600],

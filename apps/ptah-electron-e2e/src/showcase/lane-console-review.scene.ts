@@ -40,31 +40,19 @@ async function visible(locator: Locator): Promise<boolean> {
 // Local copies of the canvas-orchestra navigation/create/send/cleanup patterns.
 // The shell keeps one canvas per workspace mounted but hidden, so every
 // canvas-level locator is narrowed to the visible (active-workspace) copy.
-async function goToCanvas(page: Page, director: Director): Promise<void> {
+async function goToCanvas(page: Page): Promise<void> {
   const grid = page
     .locator('[data-testid="canvas-grid"]')
     .locator('visible=true');
-  if (!(await visible(grid))) {
-    await director.click(
-      page.getByRole('button', {
-        name: 'Toggle canvas grid / single chat',
-        exact: true,
-      }),
-    );
-  }
   await grid.waitFor({ state: 'visible', timeout: 30_000 });
 }
 
 async function createTile(page: Page, director: Director): Promise<void> {
-  // Wait for the app to finish booting: either the dock's New Session button
-  // (tiles exist) or the empty-state New Session CTA (no tiles yet).
-  const newSession = page
-    .locator('[title="Add new session tile"]')
-    .or(page.getByRole('button', { name: 'Create new session', exact: true }))
-    .locator('visible=true')
-    .first();
-  await newSession.waitFor({ state: 'visible', timeout: 90_000 });
-  await director.click(newSession);
+  // Wait for the Rail footer, then use the hero on an empty board.
+  const footerButton = page.locator('[data-testid="canvas-footer-new-session"]').locator('visible=true').first();
+  await footerButton.waitFor({ state: 'visible', timeout: 90_000 });
+  const hero = page.locator('[data-testid="canvas-hero-new-session"]').locator('visible=true').first();
+  await director.click((await visible(hero)) ? hero : footerButton);
 
   const nameInput = page
     .locator('input[placeholder*="session name" i]')
@@ -233,7 +221,7 @@ test('PR #580 — live resizable lane console review (TASK_2026_534)', async ({
   }
 
   await beat(1, 'Create the lane-review session', async () => {
-    await goToCanvas(page, director);
+    await goToCanvas(page);
     await closeStale(page, director);
     await createTile(page, director);
     await tile.waitFor({ state: 'visible', timeout: 30_000 });

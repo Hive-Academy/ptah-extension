@@ -432,9 +432,8 @@ export class UiDriver {
   /**
    * Ensure the Rail board has a focused session with a visible chat input.
    * Reuses an existing session when one is already present (so this never
-   * inflates the session count); otherwise creates one from the New session
-   * anchor, which the canvas dock renders for the empty board and the Rail
-   * alike. Assumes the canvas is already visible.
+   * inflates the session count); otherwise creates one from the Rail footer New session button, which
+   * is present for both empty and populated boards. Assumes the canvas is already visible.
    */
   private async ensureCanvasChatTile(): Promise<void> {
     const input = this.page.locator(
@@ -450,7 +449,7 @@ export class UiDriver {
     }
 
     await this.page
-      .locator('[data-testid="canvas-new-session-anchor"]')
+      .locator('[data-testid="canvas-footer-new-session"]')
       .first()
       .click();
     await this.page

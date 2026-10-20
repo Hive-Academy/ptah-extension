@@ -71,14 +71,6 @@ export class WizardPhaseGeneration {
               progress: Math.min(percentComplete, 99),
             };
           }
-          if (item.status === 'in-progress') {
-            return {
-              ...item,
-              status: 'complete' as const,
-              progress: 100,
-            };
-          }
-
           return item;
         }),
       );

@@ -425,7 +425,7 @@ describe('LanePlanLimitsRpcHandlers', () => {
       }
     });
 
-    it('calls list() with no arguments, then limits() with exactly the rows', async () => {
+    it('calls list() with no arguments, then limits() with the rows and a bounded deadline', async () => {
       const { call, recording } = setup();
 
       await call();
@@ -433,8 +433,12 @@ describe('LanePlanLimitsRpcHandlers', () => {
       expect(recording.list).toHaveBeenCalledTimes(1);
       expect(recording.list.mock.calls[0]).toHaveLength(0);
       expect(recording.limits).toHaveBeenCalledTimes(1);
-      expect(recording.limits.mock.calls[0]).toHaveLength(1);
       expect(recording.limits.mock.calls[0][0]).toBe(ROWS);
+      // TASK_2026_704: the handler bounds the lookup inside the caller's RPC
+      // deadline. The options carry only that deadline — never `refresh`.
+      expect(recording.limits.mock.calls[0][1]).toEqual({
+        deadlineMs: expect.any(Number),
+      });
       expect(
         recording.list.mock.invocationCallOrder[0],
       ).toBeLessThan(recording.limits.mock.invocationCallOrder[0]);

@@ -25,7 +25,8 @@ export type AdvancedSettingGroupId =
   | 'background-queries'
   | 'memory-upkeep'
   | 'scheduled-jobs'
-  | 'workspace-harness';
+  | 'workspace-harness'
+  | 'notifications';
 
 /**
  * When a saved value takes effect.
@@ -112,6 +113,11 @@ export const ADVANCED_SETTING_GROUPS: readonly AdvancedSettingGroup[] = [
     title: 'Workspace harness',
     description: 'How Ptah checks and maintains the workspace harness files.',
   },
+  {
+    id: 'notifications',
+    title: 'Notifications',
+    description: 'When Ptah sends notifications through the host.',
+  },
 ];
 
 export const ADVANCED_SETTINGS: readonly AdvancedSetting[] = [
@@ -166,6 +172,28 @@ export const ADVANCED_SETTINGS: readonly AdvancedSetting[] = [
     max: 100_000_000,
     integer: true,
     default: 3_000_000,
+    apply: 'live',
+  },
+  {
+    key: 'compaction.idleCompactionEnabled',
+    group: 'context-budgets',
+    kind: 'boolean',
+    label: 'Compact idle chats',
+    help: "Before a long chat's prompt cache expires, Ptah compacts it so your next message costs less.",
+    default: true,
+    apply: 'live',
+  },
+  {
+    key: 'compaction.idleCompactionMinTokens',
+    group: 'context-budgets',
+    kind: 'number',
+    label: 'Compact idle chats from',
+    help: 'Ptah compacts an idle chat once it reaches this size.',
+    unit: 'tokens',
+    min: 100_000,
+    max: 5_000_000,
+    integer: true,
+    default: 200_000,
     apply: 'live',
   },
   // Codex agents. Read on each Codex spawn; 0 leaves the key out.
@@ -382,6 +410,24 @@ export const ADVANCED_SETTINGS: readonly AdvancedSetting[] = [
     label: 'Manage .gitignore',
     help: "Lets Ptah keep its generated harness files listed in the workspace's .gitignore.",
     default: true,
+    apply: 'live',
+  },
+  {
+    key: 'notifications.hostEnabled',
+    group: 'notifications',
+    kind: 'boolean',
+    label: 'Host notifications',
+    help: 'Shows OS or VS Code notifications for requests that need your attention.',
+    default: true,
+    apply: 'live',
+  },
+  {
+    key: 'notifications.failureHostEnabled',
+    group: 'notifications',
+    kind: 'boolean',
+    label: 'Failure notifications',
+    help: 'Shows OS or VS Code notifications when a task fails.',
+    default: false,
     apply: 'live',
   },
 ];

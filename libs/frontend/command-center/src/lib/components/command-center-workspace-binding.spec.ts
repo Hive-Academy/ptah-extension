@@ -6,9 +6,97 @@ import { CommandCenterSessionCoordinator } from '../model/session-coordinator';
 import { trackWorkspaceBinding } from './command-center-workspace-binding';
 
 describe('trackWorkspaceBinding', () => {
+  it('resolves after one load when the coordinator does not bind the store', async () => {
+    const active = signal<string | null>('/first');
+    const openStart = jest.fn().mockResolvedValue(null);
+    TestBed.configureTestingModule({
+      providers: [
+        CommandCenterStore,
+        {
+          provide: TabManagerService,
+          useValue: {
+            activeWorkspacePath$: active,
+            get activeWorkspacePath() {
+              return active();
+            },
+          },
+        },
+        {
+          provide: CommandCenterSessionCoordinator,
+          useValue: { openStart, refreshSessions: jest.fn() },
+        },
+      ],
+    });
+    const store = TestBed.inject(CommandCenterStore);
+    const binding = TestBed.runInInjectionContext(() =>
+      trackWorkspaceBinding(
+        TestBed.inject(TabManagerService),
+        store,
+        TestBed.inject(CommandCenterSessionCoordinator),
+      ),
+    );
+
+    await expect(binding.open()).resolves.toBeNull();
+    expect(openStart).toHaveBeenCalledTimes(1);
+    expect(store.workspace()).toBeNull();
+  });
+
+  it('reloads the current workspace when a start load returns null after a switch', async () => {
+    const active = signal<string | null>('/first');
+    const listStatus = signal<'loading' | 'ready'>('loading');
+    let finish!: () => void;
+    const openStart = jest
+      .fn()
+      .mockImplementationOnce(async () => {
+        store.setSession(null, null, '/first');
+        await new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+        return null;
+      })
+      .mockImplementation(async () => {
+        store.setSession(null, null, active());
+        listStatus.set('ready');
+        return null;
+      });
+    TestBed.configureTestingModule({
+      providers: [
+        CommandCenterStore,
+        {
+          provide: TabManagerService,
+          useValue: {
+            activeWorkspacePath$: active,
+            get activeWorkspacePath() {
+              return active();
+            },
+          },
+        },
+        {
+          provide: CommandCenterSessionCoordinator,
+          useValue: { openStart, listStatus },
+        },
+      ],
+    });
+    const store = TestBed.inject(CommandCenterStore);
+    const binding = TestBed.runInInjectionContext(() =>
+      trackWorkspaceBinding(
+        TestBed.inject(TabManagerService),
+        store,
+        TestBed.inject(CommandCenterSessionCoordinator),
+      ),
+    );
+    const opening = binding.open();
+    active.set('/second');
+    TestBed.tick();
+    finish();
+    await opening;
+    expect(openStart).toHaveBeenCalledTimes(2);
+    expect(store.workspace()).toBe('/second');
+    expect(listStatus()).toBe('ready');
+  });
   it('shares the initial open and rebinds when the workspace changes', async () => {
     const active = signal<string | null>('/first');
-    const openOrResume = jest.fn(async () => {
+    const openStart = jest.fn(async () => {
       store.setSession(
         active() === '/first' ? 'first-tab' : 'second-tab',
         null,
@@ -30,7 +118,7 @@ describe('trackWorkspaceBinding', () => {
         },
         {
           provide: CommandCenterSessionCoordinator,
-          useValue: { openOrResume },
+          useValue: { openStart, refreshSessions: jest.fn() },
         },
       ],
     });
@@ -47,12 +135,12 @@ describe('trackWorkspaceBinding', () => {
     expect(first).toBe(duplicate);
     await first;
     TestBed.tick();
-    expect(openOrResume).toHaveBeenCalledTimes(1);
+    expect(openStart).toHaveBeenCalledTimes(1);
     active.set('/second');
     TestBed.tick();
     await Promise.resolve();
     expect(store.workspace()).toBe('/second');
-    expect(openOrResume).toHaveBeenCalledTimes(2);
+    expect(openStart).toHaveBeenCalledTimes(2);
     active.set(null);
     TestBed.tick();
     expect(store.markedTabId()).toBeNull();
@@ -63,7 +151,7 @@ describe('trackWorkspaceBinding', () => {
 
   it('reports an effect open rejection and opens after a later workspace change', async () => {
     const active = signal<string | null>('/first');
-    const openOrResume = jest
+    const openStart = jest
       .fn()
       .mockRejectedValueOnce(new Error('private path'))
       .mockImplementation(async () => {
@@ -84,7 +172,7 @@ describe('trackWorkspaceBinding', () => {
         },
         {
           provide: CommandCenterSessionCoordinator,
-          useValue: { openOrResume },
+          useValue: { openStart, refreshSessions: jest.fn() },
         },
       ],
     });
@@ -109,13 +197,13 @@ describe('trackWorkspaceBinding', () => {
     active.set('/third');
     TestBed.tick();
     await binding.open();
-    expect(openOrResume).toHaveBeenCalledTimes(2);
+    expect(openStart).toHaveBeenCalledTimes(2);
     expect(store.workspace()).toBe('/third');
   });
 
   it('reports an open rejection started by canSend', async () => {
     const active = signal<string | null>('/first');
-    const openOrResume = jest.fn().mockRejectedValue(new Error('private path'));
+    const openStart = jest.fn().mockRejectedValue(new Error('private path'));
     TestBed.configureTestingModule({
       providers: [
         CommandCenterStore,
@@ -130,7 +218,7 @@ describe('trackWorkspaceBinding', () => {
         },
         {
           provide: CommandCenterSessionCoordinator,
-          useValue: { openOrResume },
+          useValue: { openStart, refreshSessions: jest.fn() },
         },
       ],
     });

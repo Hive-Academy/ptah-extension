@@ -427,6 +427,7 @@ export class TabWorkspacePartitionService {
     if (workspacePath === this._activeWorkspacePath()) return false;
     const tabSet = this._workspaceTabSets.get(workspacePath);
     if (!tabSet) return false;
+    if (!tabSet.tabs.some((t) => t.id === afterTabId)) return false;
     if (tabSet.tabs.some((t) => t.id === tab.id)) return false;
 
     tabSet.tabs = insertTabAfter(tabSet.tabs, tab, afterTabId);

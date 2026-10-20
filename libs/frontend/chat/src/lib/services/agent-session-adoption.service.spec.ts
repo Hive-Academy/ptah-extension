@@ -46,7 +46,6 @@ describe('AgentSessionAdoptionService', () => {
   let service: AgentSessionAdoptionService;
   let rpc: { call: jest.Mock };
   let appState: {
-    layoutMode: WritableSignal<'grid' | 'single'>;
     requestCanvasTab: jest.Mock;
   };
   let tabManager: {
@@ -86,7 +85,6 @@ describe('AgentSessionAdoptionService', () => {
       activeTabId: signal<string | null>(null),
     };
     appState = {
-      layoutMode: signal<'grid' | 'single'>('grid'),
       requestCanvasTab: jest.fn(),
     };
     TestBed.configureTestingModule({
@@ -241,7 +239,7 @@ describe('AgentSessionAdoptionService', () => {
   });
 
   describe('canvas tile request (TASK_2026_612)', () => {
-    it('grid layout: adopting a child asks the canvas for exactly one tile, unfocused', () => {
+    it('adopting a child asks the canvas for exactly one tile, unfocused', () => {
       service.adopt(descriptor('c1'), 'live');
 
       expect(appState.requestCanvasTab).toHaveBeenCalledTimes(1);
@@ -251,14 +249,6 @@ describe('AgentSessionAdoptionService', () => {
         'X',
         false,
       );
-    });
-
-    it('single layout: adoption never touches tile logic', () => {
-      appState.layoutMode.set('single');
-
-      service.adopt(descriptor('c1'), 'live');
-
-      expect(appState.requestCanvasTab).not.toHaveBeenCalled();
     });
 
     it('requests for a child that landed in the active tab set (VS Code panel, no partition)', () => {
@@ -381,7 +371,7 @@ describe('AgentSessionAdoptionService', () => {
       );
     });
 
-    it('tiles without focus when the tab bar did not focus the new tab', () => {
+    it('tiles without focus when the tab manager did not focus the new tab', () => {
       tabManager.activeTabId.set('another-tab');
 
       service.adoptHandoff(handoff('h1'));
@@ -518,7 +508,6 @@ describe('AgentSessionAdoptionService — history load on first activation', () 
         {
           provide: AppStateManager,
           useValue: {
-            layoutMode: signal<'grid' | 'single'>('single'),
             requestCanvasTab: jest.fn(),
           },
         },

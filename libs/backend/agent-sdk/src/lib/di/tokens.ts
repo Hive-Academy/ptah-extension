@@ -25,6 +25,7 @@
 export const SDK_TOKENS = {
   SDK_AGENT_ADAPTER: Symbol.for('SdkAgentAdapter'),
   SDK_SESSION_METADATA_STORE: Symbol.for('SdkSessionMetadataStore'),
+  HOST_ATTENTION_COORDINATOR: Symbol.for('HostAttentionCoordinator'),
   SDK_SESSION_IMPORTER: Symbol.for('SdkSessionImporter'),
   SDK_SESSION_HISTORY_READER: Symbol.for('SdkSessionHistoryReader'),
   /**
@@ -71,6 +72,8 @@ export const SDK_TOKENS = {
    * (TASK_2026_597 A8). Singleton — one record per live session.
    */
   SDK_COMPACTION_COORDINATOR: Symbol.for('SdkCompactionCoordinator'),
+  /** Multi-session idle compaction coordinator, shared by the SDK facade. */
+  SDK_IDLE_COMPACTION: Symbol.for('SdkIdleCompaction'),
   /**
    * `ContextUsagePort`: the single per-turn `getContextUsage` reader, cached
    * per session and turn for the coordinator and the rotation advisor.

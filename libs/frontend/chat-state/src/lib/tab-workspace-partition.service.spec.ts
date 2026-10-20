@@ -345,13 +345,14 @@ describe('TabWorkspacePartitionService', () => {
       ]);
     });
 
-    it('appends when the anchor is not in the partition', () => {
+    it('refuses a missing anchor without mutating the background partition', () => {
       backgroundA();
-      svc.addTabToWorkspace('/ws/a', makeTab('child'), 'missing');
+      expect(svc.addTabToWorkspace('/ws/a', makeTab('child'), 'missing')).toBe(
+        false,
+      );
       expect(svc.getWorkspaceTabs('/ws/a').map((t) => t.id)).toEqual([
         'p',
         'q',
-        'child',
       ]);
     });
   });

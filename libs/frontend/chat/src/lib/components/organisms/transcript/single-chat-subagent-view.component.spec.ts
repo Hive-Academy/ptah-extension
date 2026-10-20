@@ -12,6 +12,7 @@ import {
   NgModule,
   input,
   output,
+  signal,
 } from '@angular/core';
 
 jest.mock('ngx-markdown', () => {
@@ -50,8 +51,13 @@ import {
   type PermissionRequest,
   type PermissionResponse,
 } from '@ptah-extension/shared';
+import {
+  AgentMonitorStore,
+  type SubagentRecord,
+} from '@ptah-extension/chat-streaming';
 import { ChatStore } from '../../../services/chat.store';
 import { ExecutionNodeComponent } from '../execution/execution-node.component';
+import { SubagentLaneComponent } from '../subagent-lane/subagent-lane.component';
 import { SingleChatSubagentViewComponent } from './single-chat-subagent-view.component';
 
 @Component({
@@ -65,6 +71,21 @@ class ExecutionNodeStub {
   readonly node = input.required<ExecutionNode>();
   readonly isStreaming = input<boolean>(false);
   readonly agentTileMode = input<boolean>(false);
+  readonly getPermissionForTool = input<
+    ((toolCallId: string) => PermissionRequest | null) | undefined
+  >();
+  readonly permissionResponded = output<PermissionResponse>();
+}
+
+@Component({
+  selector: 'ptah-subagent-lane',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: '<input aria-label="Lane message" />',
+})
+class SubagentLaneStub {
+  readonly record = input.required<SubagentRecord>();
+  readonly sessionId = input<string | null>(null);
   readonly getPermissionForTool = input<
     ((toolCallId: string) => PermissionRequest | null) | undefined
   >();
@@ -103,6 +124,7 @@ describe('SingleChatSubagentViewComponent (R9n)', () => {
     handlePermissionResponse: jest.Mock;
   };
   let fixture: ComponentFixture<SingleChatSubagentViewComponent>;
+  const subagents = signal<ReadonlyMap<string, SubagentRecord>>(new Map());
 
   function mount(node: ExecutionNode, isStreaming = false): void {
     fixture = TestBed.createComponent(SingleChatSubagentViewComponent);
@@ -124,13 +146,17 @@ describe('SingleChatSubagentViewComponent (R9n)', () => {
       ),
       handlePermissionResponse: jest.fn(),
     };
+    subagents.set(new Map());
     TestBed.configureTestingModule({
       imports: [SingleChatSubagentViewComponent],
-      providers: [{ provide: ChatStore, useValue: chatStore }],
+      providers: [
+        { provide: ChatStore, useValue: chatStore },
+        { provide: AgentMonitorStore, useValue: { subagents } },
+      ],
     });
     TestBed.overrideComponent(SingleChatSubagentViewComponent, {
-      remove: { imports: [ExecutionNodeComponent] },
-      add: { imports: [ExecutionNodeStub] },
+      remove: { imports: [ExecutionNodeComponent, SubagentLaneComponent] },
+      add: { imports: [ExecutionNodeStub, SubagentLaneStub] },
     });
   });
 
@@ -173,6 +199,60 @@ describe('SingleChatSubagentViewComponent (R9n)', () => {
     } as unknown as PermissionResponse;
     stub?.permissionResponded.emit(response);
     expect(chatStore.handlePermissionResponse).toHaveBeenCalledWith(response);
+  });
+
+  it('renders the store-backed lane when the agent has a monitor record', () => {
+    const record: SubagentRecord = {
+      parentToolUseId: 'agent-1',
+      parentSessionId: 'session-9',
+      status: 'completed',
+    };
+    subagents.set(new Map([['agent-1', record]]));
+    mount(agentNode([bash('tool-p')]));
+    const lane = fixture.debugElement.query(By.directive(SubagentLaneStub))
+      ?.componentInstance as SubagentLaneStub | undefined;
+    expect(lane?.record()).toBe(record);
+    expect(lane?.sessionId()).toBe('session-9');
+    expect(nodeStub()).toBeNull();
+    expect(lane?.getPermissionForTool()?.('tool-p')).toBe(PENDING);
+    const response = {
+      id: 'perm-1',
+      decision: 'allow',
+    } as PermissionResponse;
+    lane?.permissionResponded.emit(response);
+    expect(chatStore.handlePermissionResponse).toHaveBeenCalledWith(response);
+  });
+
+  it('falls back to the agent node without a record and switches once one appears', () => {
+    mount(agentNode());
+    expect(nodeStub()).not.toBeNull();
+    expect(
+      fixture.debugElement.query(By.directive(SubagentLaneStub)),
+    ).toBeNull();
+    subagents.set(
+      new Map([['agent-1', { parentToolUseId: 'agent-1', status: 'running' }]]),
+    );
+    fixture.detectChanges();
+    expect(nodeStub()).toBeNull();
+    const lane = fixture.debugElement.query(By.directive(SubagentLaneStub))
+      ?.componentInstance as SubagentLaneStub | undefined;
+    expect(lane?.sessionId()).toBeNull();
+  });
+
+  it('Escape in the lane message field keeps the view', () => {
+    subagents.set(
+      new Map([['agent-1', { parentToolUseId: 'agent-1', status: 'running' }]]),
+    );
+    mount(agentNode());
+    const emitted = jest.fn();
+    fixture.componentInstance.back.subscribe(emitted);
+    const field = fixture.nativeElement.querySelector(
+      'input[aria-label="Lane message"]',
+    ) as HTMLInputElement;
+    field.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+    );
+    expect(emitted).not.toHaveBeenCalled();
   });
 
   it('moves focus to Back on entry and emits back on click', () => {

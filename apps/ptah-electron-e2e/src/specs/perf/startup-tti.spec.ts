@@ -48,14 +48,14 @@ test.describe('Startup TTI reference (informational, TASK_2026_187)', () => {
     });
 
     // (2) Explicitly-timed second boot: wall-clock from "reload issued" to
-    // "canvas interactive" (the New session anchor visible), on a warm process
+    // "canvas interactive" (the ready viewport visible), on a warm process
     // — this isolates renderer bootstrap + lazy-canvas-load time from
     // Electron main-process startup, which the M2/M1 specs' pattern also
     // treats as out of scope for a renderer-side spot-check.
     const start = Date.now();
     await ui.prepare();
     await page
-      .locator('[data-testid="canvas-new-session-anchor"]')
+      .locator('[data-testid="canvas-interactive"]')
       .waitFor({ state: 'visible' });
     const wallClockToCanvasInteractiveMs = Date.now() - start;
 

@@ -1,11 +1,13 @@
 import { Component, signal, ChangeDetectionStrategy } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { Placement } from '@floating-ui/dom';
 import * as FloatingDom from '@floating-ui/dom';
 import {
   NativePopoverComponent,
   POPOVER_POSITION_TIMEOUT_MS,
 } from './native-popover.component';
+import { FloatingUIService } from '../shared';
 
 jest.mock('@floating-ui/dom', () => {
   const actual = jest.requireActual('@floating-ui/dom');
@@ -24,6 +26,7 @@ jest.mock('@floating-ui/dom', () => {
     <ptah-native-popover
       [isOpen]="isOpen()"
       [placement]="placement()"
+      [anchor]="anchor()"
       [offset]="offsetValue()"
       [hasBackdrop]="hasBackdrop()"
       [backdropClass]="backdropClass()"
@@ -41,6 +44,7 @@ jest.mock('@floating-ui/dom', () => {
 class HostComponent {
   isOpen = signal(false);
   placement = signal<Placement>('bottom');
+  anchor = signal<HTMLElement | null>(null);
   offsetValue = signal(8);
   hasBackdrop = signal(true);
   backdropClass = signal<'transparent' | 'dark'>('dark');
@@ -86,6 +90,82 @@ describe('NativePopoverComponent', () => {
 
   it('should create', () => {
     expect(host).toBeTruthy();
+  });
+
+  it('positions from the projected trigger by default', async () => {
+    host.isOpen.set(true);
+    fixture.detectChanges();
+    await flushAll();
+    const trigger = (fixture.nativeElement as HTMLElement).querySelector('.popover-trigger');
+    expect(mockedCompute.mock.calls[0][0]).toBe(trigger);
+  });
+
+  it('positions from an external anchor when supplied', async () => {
+    const external = document.createElement('button');
+    document.body.appendChild(external);
+    try {
+      host.anchor.set(external);
+      host.isOpen.set(true);
+      fixture.detectChanges();
+      await flushAll();
+      expect(mockedCompute.mock.calls[0][0]).toBe(external);
+    } finally {
+      external.remove();
+    }
+  });
+
+  it('falls back to the projected trigger when an external anchor is detached', async () => {
+    const detached = document.createElement('button');
+    host.anchor.set(detached);
+    host.isOpen.set(true);
+    fixture.detectChanges();
+    await flushAll();
+    const trigger = (fixture.nativeElement as HTMLElement).querySelector('.popover-trigger');
+    expect(mockedCompute.mock.calls[0][0]).toBe(trigger);
+    expect(host.openedCount).toBe(1);
+  });
+
+  it('shows and focuses an unpositioned panel when no anchor is connected', async () => {
+    const trigger = (fixture.nativeElement as HTMLElement).querySelector('.popover-trigger')!;
+    trigger.remove();
+    host.anchor.set(document.createElement('button'));
+    host.isOpen.set(true);
+    fixture.detectChanges();
+    await flushAll();
+    const panel = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>('.popover-panel')!;
+    expect(panel.style.visibility).toBe('visible');
+    expect(document.activeElement).toBe(panel);
+    expect(host.openedCount).toBe(1);
+    expect(mockedCompute).not.toHaveBeenCalled();
+  });
+
+  it('reposition() recomputes the live position after the next render', () => {
+    const debug = fixture.debugElement.query(
+      By.directive(NativePopoverComponent),
+    );
+    const update = jest.spyOn(debug.injector.get(FloatingUIService), 'update');
+    (debug.componentInstance as NativePopoverComponent).reposition();
+    expect(update).not.toHaveBeenCalled();
+    fixture.detectChanges();
+    expect(update).toHaveBeenCalledTimes(1);
+  });
+
+  it('a reposition() scheduled before close has no effect: update() is a no-op after cleanup', async () => {
+    host.isOpen.set(true);
+    fixture.detectChanges();
+    await flushAll();
+    const debug = fixture.debugElement.query(
+      By.directive(NativePopoverComponent),
+    );
+    const service = debug.injector.get(FloatingUIService);
+    const update = jest.spyOn(service, 'update');
+    const computes = mockedCompute.mock.calls.length;
+    (debug.componentInstance as NativePopoverComponent).reposition();
+    host.isOpen.set(false);
+    fixture.detectChanges();
+    await flushAll();
+    expect(update).toHaveBeenCalled();
+    expect(mockedCompute.mock.calls.length).toBe(computes);
   });
 
   it('should always render the trigger', () => {
@@ -194,6 +274,17 @@ describe('NativePopoverComponent', () => {
       });
       popoverEl.dispatchEvent(event);
 
+      expect(host.closedCount).toBe(1);
+    });
+
+    it('closes on Escape while focus remains on the trigger', () => {
+      host.isOpen.set(true);
+      fixture.detectChanges();
+      const trigger = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('#trigger-btn')!;
+      trigger.focus();
+      trigger.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
       expect(host.closedCount).toBe(1);
     });
 

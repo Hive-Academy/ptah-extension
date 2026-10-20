@@ -63,7 +63,7 @@ reference the current job needs:
 
 Also gather, when present:
 
-- The existing `DESIGN-SYSTEM.md` carried by the technical-content-writer skill. When it
+- The existing design system in the project's `docs/design-system/` directory. When it
   exists it is authoritative and is not re-derived.
 - `context.md`, `parity-inventory.md`, and `design-spec.md` in the task folder.
 - The project's own token and style sources, discovered rather than assumed: whichever
@@ -99,13 +99,13 @@ recommendation, and record both the criterion applied and the pairs measured.
 
 ## Output contract
 
-| Deliverable                | Destination                                              |
-| -------------------------- | -------------------------------------------------------- |
-| Design system              | `DESIGN-SYSTEM.md` in the technical-content-writer skill |
-| Visual specification       | `.ptah/specs/<TASK_FOLDER>/design-spec.md`               |
-| Asset inventory and briefs | `.ptah/specs/<TASK_FOLDER>/design-assets-inventory.md`   |
-| Developer handoff          | `.ptah/specs/<TASK_FOLDER>/design-handoff.md`            |
-| Interactive prototype      | `.ptah/specs/<TASK_FOLDER>/prototype/`                   |
+| Deliverable                | Destination                                                                                               |
+| -------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Design system              | Existing authoritative document in `docs/design-system/`; otherwise `docs/design-system/design-system.md` |
+| Visual specification       | `.ptah/specs/<TASK_FOLDER>/design-spec.md`                                                                |
+| Asset inventory and briefs | `.ptah/specs/<TASK_FOLDER>/design-assets-inventory.md`                                                    |
+| Developer handoff          | `.ptah/specs/<TASK_FOLDER>/design-handoff.md`                                                             |
+| Interactive prototype      | `.ptah/specs/<TASK_FOLDER>/prototype/`                                                                    |
 
 The interactive prototype is a required deliverable for any new or modified UI surface.
 Write each file with the Write tool at its absolute path. One authoritative file per

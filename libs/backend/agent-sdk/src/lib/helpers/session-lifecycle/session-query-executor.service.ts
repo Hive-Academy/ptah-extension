@@ -54,6 +54,8 @@ import type {
   IContextUsagePort,
 } from '../compaction/context-usage.port';
 import type { SubagentBudgetMonitor } from '../compaction/subagent-budget-monitor';
+import { MainRequestTracker } from '../compaction/idle/idle-request-tracker';
+import type { IdleCompactionSignals } from '../compaction/idle/idle-compaction.types';
 import type { SdkModuleLoader } from '../sdk-module-loader';
 import {
   resolveSessionCapabilityPolicy,
@@ -183,6 +185,15 @@ function hasContentBlock(
  * the context-usage port for one reading. Every call is fail-open: a
  * coordinator or port failure writes one warn line and the turn goes on.
  */
+type RouteAwareIdleSignals = IdleCompactionSignals & {
+  sessionBound(
+    sessionId: string,
+    runToken: string,
+    codexProxy: boolean,
+    nativeAnthropic?: boolean,
+  ): void;
+};
+
 class CompactionSessionTap {
   private sessionId: string | null = null;
   private readonly trackedIds = new Set<string>();
@@ -192,6 +203,7 @@ class CompactionSessionTap {
   private released = false;
   /** Unset until the options build resolves it; the monitor default applies. */
   private subagentCacheTtl: SubagentPromptCacheTtl | undefined;
+  private readonly requestTracker = new MainRequestTracker(Date.now());
 
   constructor(
     private readonly logger: Logger,
@@ -207,6 +219,8 @@ class CompactionSessionTap {
      */
     private readonly runOwners: Map<string, number>,
     private readonly subagentMonitor: SubagentBudgetSink | null = null,
+    private readonly idle: RouteAwareIdleSignals | null = null,
+    private readonly nativeAnthropic = false,
   ) {}
 
   attachQuery(query: Query): void {
@@ -244,6 +258,25 @@ class CompactionSessionTap {
     if (id && id !== this.sessionId) this.bind(id);
     const sessionId = this.sessionId;
     if (sessionId === null) return;
+    if (
+      this.requestTracker.observe(message, Date.now()) === 'request-started'
+    ) {
+      this.guardIdle('request-started', (idle) =>
+        idle.requestStarted(sessionId),
+      );
+    }
+    if (message.type === 'rate_limit_event') {
+      const status = message.rate_limit_info?.status;
+      if (
+        status === 'allowed' ||
+        status === 'allowed_warning' ||
+        status === 'rejected'
+      ) {
+        this.guardIdle('rate-limit', (idle) =>
+          idle.rateLimit(sessionId, status),
+        );
+      }
+    }
     if (message.type === 'system') {
       if (message.subtype === 'status' && message.status === 'compacting') {
         this.guard('status-compacting', (c) => c.onStatusCompacting(sessionId));
@@ -254,6 +287,12 @@ class CompactionSessionTap {
             preTokens: pre_tokens,
             postTokens: post_tokens,
           }),
+        );
+        this.guardIdle('compact-boundary', (idle) =>
+          idle.compactBoundary(
+            sessionId,
+            Number.isFinite(pre_tokens) ? pre_tokens : null,
+          ),
         );
       } else if (message.subtype === 'task_started' && message.tool_use_id) {
         this.recordTaskStarted(
@@ -381,6 +420,7 @@ class CompactionSessionTap {
         );
       }
       this.guard('release', (c) => c.unregister(id));
+      this.guardIdle('release', (idle) => idle.sessionReleased(id));
       try {
         this.port?.release(id);
       } catch (error: unknown) {
@@ -426,24 +466,42 @@ class CompactionSessionTap {
         { sessionId: id, state, codexProxy: this.sessionClass.codexProxy },
       );
     });
+    this.guardIdle('session-bound', (idle) =>
+      idle.sessionBound(
+        id,
+        this.runToken,
+        this.sessionClass.codexProxy,
+        this.nativeAnthropic,
+      ),
+    );
   }
 
   private onTurnEnd(sessionId: string): void {
     this.guard('turn-end', (c) => c.onTurnEnd(sessionId));
+    this.turn += 1;
+    const turnId = `${this.runToken}:${this.turn}`;
+    this.guardIdle('turn-end', (idle) =>
+      idle.turnEnded(
+        sessionId,
+        turnId,
+        this.requestTracker.endTurn(Date.now()),
+      ),
+    );
     const port = this.port;
     const query = this.query;
     if (!port || !query) return;
-    this.turn += 1;
-    const turnId = `${this.runToken}:${this.turn}`;
     // The executor reads now; a synchronous throw becomes a rejection.
     new Promise<ContextUsageReading | undefined>((resolve) =>
       resolve(port.readAtTurnEnd(sessionId, turnId, query)),
     )
       .then((reading) => {
+        const current = this.currentId(this.sessionId ?? sessionId);
+        this.guardIdle('turn-context', (idle) =>
+          idle.turnContext(current, turnId, reading?.totalTokens ?? null),
+        );
         if (!reading || this.released) return;
         // A PostCompact during the read moved the record (and the port's
         // reading) to a new id: feed the id the session has now (FM-4).
-        const current = this.currentId(this.sessionId ?? sessionId);
         this.guard('context-usage', (c) => c.onContextUsage(current, reading));
       })
       .catch((error: unknown) =>
@@ -460,6 +518,18 @@ class CompactionSessionTap {
       fn(this.coordinator);
     } catch (error: unknown) {
       this.warn('Compaction coordinator failed', event, error);
+    }
+  }
+
+  private guardIdle(
+    event: string,
+    fn: (idle: RouteAwareIdleSignals) => void,
+  ): void {
+    if (!this.idle) return;
+    try {
+      fn(this.idle);
+    } catch (error: unknown) {
+      this.warn('Idle compaction signal failed', event, error);
     }
   }
 
@@ -508,6 +578,7 @@ export class SessionQueryExecutor {
     private readonly compactionCoordinator: CompactionCoordinatorSink | null = null,
     private readonly contextUsagePort: IContextUsagePort | null = null,
     private readonly subagentBudgetMonitor: SubagentBudgetSink | null = null,
+    private readonly idle: IdleCompactionSignals | null = null,
   ) {}
 
   /**
@@ -624,6 +695,8 @@ export class SessionQueryExecutor {
       ++this.nextRunOrder,
       this.runOwners,
       this.subagentBudgetMonitor,
+      this.idle,
+      rec.capacityRoute?.kind === 'native',
     );
     abortController.signal.addEventListener(
       'abort',
@@ -860,6 +933,7 @@ export class SessionQueryExecutor {
         // listener above stays for a run whose stream never reached the
         // transformer; release() is idempotent, so both paths are safe.
         onMessage: (message: SDKMessage) => compactionTap.observe(message),
+        beforeLiveStatsDispose: () => compactionTap.release(),
         onStreamEnd: () => compactionTap.release(),
         sessionToken: rec.token,
         usageCostSource: rec.usageCostSource,

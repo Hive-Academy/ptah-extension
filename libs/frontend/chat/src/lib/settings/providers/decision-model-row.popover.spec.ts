@@ -14,8 +14,27 @@ describe('decision-model-row.popover (P4 visual 1, 2, 5)', () => {
       expect(decisionEditorMaxHeight({ top: 800, bottom: 822 }, 983)).toBe(768);
     });
 
-    it('keeps a usable minimum in a very short window', () => {
-      expect(decisionEditorMaxHeight({ top: 60, bottom: 82 }, 200)).toBe(160);
+    it('keeps a 120 px usable floor in a very short window, below the old 160 px that overflowed', () => {
+      // The panel (120 + 16 padding) fits the 184 px between the 8 px edges, where keepInViewport shifts it.
+      // 86 px below (200 - 82 - 32), 28 px above.
+      expect(decisionEditorMaxHeight({ top: 60, bottom: 82 }, 200)).toBe(120);
+    });
+
+    it('never returns 0 or NaN: zero, negative, non-finite room and a tiny viewport get the clamped floor', () => {
+      // Zero room: the cell fills the window less the chrome on both sides.
+      expect(decisionEditorMaxHeight({ top: 32, bottom: 168 }, 200)).toBe(120);
+      // Negative room on both sides.
+      expect(decisionEditorMaxHeight({ top: 10, bottom: 190 }, 200)).toBe(120);
+      expect(decisionEditorMaxHeight({ top: NaN, bottom: NaN }, 983)).toBe(120);
+      expect(decisionEditorMaxHeight({ top: 470, bottom: 492 }, NaN)).toBe(120);
+      expect(decisionEditorMaxHeight({ top: 470, bottom: 492 }, Infinity)).toBe(
+        120,
+      );
+      // The whole panel (cap + 16 px padding) must fit inside 8 px edges: 200 - 32 = 168, so 168 is the most.
+      expect(decisionEditorMaxHeight({ top: 0, bottom: 0 }, 200)).toBe(168);
+      // A 32 px window has no room for any panel within the edges: the cap is clamped to 1 px, never 0.
+      expect(decisionEditorMaxHeight({ top: 8, bottom: 24 }, 32)).toBe(1);
+      expect(decisionEditorMaxHeight({ top: 8, bottom: 24 }, 48)).toBe(16);
     });
   });
 

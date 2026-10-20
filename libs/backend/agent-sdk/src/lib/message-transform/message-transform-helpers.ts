@@ -72,6 +72,16 @@ export function isSkillOrMetaContent(sdkMessage: SDKUserMessage): boolean {
       .join('\n');
   }
 
+  return isSkillOrMetaText(textContent);
+}
+
+/**
+ * The content markers of {@link isSkillOrMetaContent}, applied to a user
+ * message's text (its text blocks joined by newlines). Shared so a reader of
+ * raw transcript records — the `session:list` message counter — applies the
+ * same rules as the replay without building an `SDKUserMessage`.
+ */
+export function isSkillOrMetaText(textContent: string): boolean {
   if (!textContent) return false;
   if (textContent.includes('<skill-format>true</skill-format>')) return true;
   if (textContent.includes('<command-message>')) return true;

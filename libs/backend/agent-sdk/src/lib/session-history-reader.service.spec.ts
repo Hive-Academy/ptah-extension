@@ -24,12 +24,24 @@
 import 'reflect-metadata';
 import { Readable } from 'node:stream';
 
-jest.mock('fs/promises', () => ({ stat: jest.fn() }));
+// Jest resolves both specifiers to one module, so each factory carries both functions.
+jest.mock('fs/promises', () => ({ stat: jest.fn(), access: jest.fn() }));
 jest.mock('node:fs', () => ({ createReadStream: jest.fn() }));
+jest.mock('node:fs/promises', () => ({ stat: jest.fn(), access: jest.fn() }));
+jest.mock('./helpers/workflow-transcript-reader', () => ({
+  findWorkflowAgentTranscript: jest.fn(),
+}));
 
 import * as fs from 'fs/promises';
+import * as nodeFs from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
-import { SessionHistoryReaderService } from './session-history-reader.service';
+import { findWorkflowAgentTranscript } from './helpers/workflow-transcript-reader';
+import {
+  SessionHistoryReaderService,
+  SubagentHistoryValidationError,
+  retainSubagentEventsTail,
+  SUBAGENT_EVENTS_TAIL_LIMIT,
+} from './session-history-reader.service';
 import { JsonlReaderService } from './helpers/history/jsonl-reader.service';
 import type { SessionReplayService } from './helpers/history/session-replay.service';
 import { HistoryEventFactory } from './helpers/history/history-event-factory';
@@ -83,13 +95,17 @@ interface Stubs {
     Pick<
       JsonlReaderService,
       | 'findSessionsDirectory'
+      | 'listSessionsDirectories'
       | 'readJsonlMessages'
       | 'loadAgentSessions'
       | 'projectJsonlLines'
     >
   >;
   replayService: jest.Mocked<
-    Pick<SessionReplayService, 'replayToStreamEvents'>
+    Pick<
+      SessionReplayService,
+      'replayToStreamEvents' | 'correlateAgentId' | 'replayAgentToStreamEvents'
+    >
   >;
   modelResolver: jest.Mocked<
     Pick<
@@ -112,12 +128,15 @@ function makeStubs(): Stubs {
   return {
     jsonlReader: {
       findSessionsDirectory: jest.fn(),
+      listSessionsDirectories: jest.fn(),
       readJsonlMessages: jest.fn(),
       loadAgentSessions: jest.fn(),
       projectJsonlLines: jest.fn(),
     },
     replayService: {
       replayToStreamEvents: jest.fn().mockReturnValue([]),
+      correlateAgentId: jest.fn().mockReturnValue(null),
+      replayAgentToStreamEvents: jest.fn().mockReturnValue([]),
     },
     modelResolver: {
       resolveForPricing: jest.fn((m: string) => m || 'unknown'),
@@ -157,6 +176,252 @@ function makeService(stubs: Stubs): SessionHistoryReaderService {
 }
 
 describe('SessionHistoryReaderService', () => {
+  describe('readSubagentEvents', () => {
+    const access = nodeFs.access as jest.MockedFunction<typeof nodeFs.access>;
+    const workflow = findWorkflowAgentTranscript as jest.MockedFunction<
+      typeof findWorkflowAgentTranscript
+    >;
+
+    beforeEach(() => {
+      access.mockReset().mockResolvedValue(undefined);
+      workflow.mockReset().mockResolvedValue(null);
+    });
+
+    function setup() {
+      const stubs = makeStubs();
+      stubs.jsonlReader.listSessionsDirectories.mockResolvedValue([
+        '/sessions',
+      ]);
+      stubs.jsonlReader.readJsonlMessages.mockResolvedValue([
+        {
+          type: 'assistant',
+          sessionId: 'session',
+          message: { role: 'assistant', content: [] },
+        },
+      ]);
+      stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
+      return { stubs, service: makeService(stubs) };
+    }
+
+    it.each(['nested', 'flat', 'workflow'] as const)(
+      'reads the %s location',
+      async (location) => {
+        const { stubs, service } = setup();
+        workflow.mockResolvedValue(
+          location === 'workflow' ? '/workflow/agent-a.jsonl' : null,
+        );
+        access.mockImplementation(async (file) => {
+          const name = String(file).replaceAll('\\', '/');
+          if (name.endsWith('session.jsonl')) return;
+          if (location === 'nested' && name.endsWith('subagents/agent-a.jsonl'))
+            return;
+          if (location === 'flat' && name.endsWith('/sessions/agent-a.jsonl'))
+            return;
+          if (location === 'workflow' && name === '/workflow/agent-a.jsonl')
+            return;
+          throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+        });
+        expect(
+          await service.readSubagentEvents('session', 'task', 'a'),
+        ).toMatchObject({
+          status: 'ok',
+          agentId: 'a',
+          truncated: false,
+        });
+        expect(
+          stubs.replayService.replayAgentToStreamEvents,
+        ).toHaveBeenCalled();
+      },
+    );
+
+    it('returns not-found for a known agent without a file', async () => {
+      const { service } = setup();
+      access.mockImplementation(async (file) => {
+        if (String(file).replaceAll('\\', '/').endsWith('session.jsonl'))
+          return;
+        throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+      });
+      await expect(
+        service.readSubagentEvents('session', 'task', 'a'),
+      ).resolves.toMatchObject({
+        status: 'not-found',
+        agentId: 'a',
+        events: [],
+      });
+    });
+
+    it('resolves a missing agent id through parent Task correlation', async () => {
+      const { stubs, service } = setup();
+      stubs.replayService.correlateAgentId.mockReturnValue('agent-a');
+      expect(await service.readSubagentEvents('session', 'task')).toMatchObject(
+        {
+          status: 'ok',
+          agentId: 'a',
+        },
+      );
+      expect(stubs.replayService.correlateAgentId).toHaveBeenCalledWith(
+        'task',
+        expect.any(Array),
+        [],
+      );
+    });
+
+    it('returns unresolved when correlation finds no agent', async () => {
+      const { service } = setup();
+      await expect(
+        service.readSubagentEvents('session', 'task'),
+      ).resolves.toMatchObject({
+        status: 'unresolved',
+        agentId: null,
+        events: [],
+      });
+    });
+
+    it('starts a truncated tail at a message boundary', async () => {
+      const { stubs, service } = setup();
+      const factory = new HistoryEventFactory();
+      const events = Array.from(
+        { length: SUBAGENT_EVENTS_TAIL_LIMIT + 2 },
+        (_, index) => {
+          const messageId = `message-${Math.floor(index / 3)}`;
+          if (index % 3 === 0) {
+            return factory.createAgentMessageStart(
+              'session',
+              messageId,
+              index,
+              index,
+              'task',
+            );
+          }
+          if (index % 3 === 1) {
+            return factory.createAgentTextDelta(
+              'session',
+              messageId,
+              String(index),
+              0,
+              index,
+              index,
+              'task',
+            );
+          }
+          return factory.createAgentMessageComplete(
+            'session',
+            messageId,
+            index,
+            index,
+            'task',
+          );
+        },
+      );
+      stubs.replayService.replayAgentToStreamEvents.mockReturnValue(events);
+      const result = await service.readSubagentEvents('session', 'task', 'a');
+      expect(result.truncated).toBe(true);
+      expect(result.events).toHaveLength(9_999);
+      expect(result.events[0]).toBe(events[3]);
+      expect(result.events[0].eventType).toBe('message_start');
+    });
+
+    it('caps an oversized message at the tail limit, keeps its message_start, and leaves short histories intact', () => {
+      const factory = new HistoryEventFactory();
+      const start = factory.createAgentMessageStart(
+        'session',
+        'message',
+        0,
+        0,
+        'task',
+      );
+      const events = [
+        start,
+        ...Array.from({ length: SUBAGENT_EVENTS_TAIL_LIMIT }, (_, index) =>
+          factory.createAgentTextDelta(
+            'session',
+            'message',
+            String(index),
+            0,
+            index + 1,
+            index + 1,
+            'task',
+          ),
+        ),
+      ];
+      const retained = retainSubagentEventsTail(events);
+      expect(retained.truncated).toBe(true);
+      expect(retained.events).toHaveLength(SUBAGENT_EVENTS_TAIL_LIMIT);
+      expect(retained.events[0]).toBe(start);
+      expect(retained.events[1]).toBe(events[2]);
+      expect(retained.events.at(-1)).toBe(events.at(-1));
+      expect(retainSubagentEventsTail([start])).toEqual({
+        events: [start],
+        truncated: false,
+      });
+    });
+
+    it('keeps the nominal tail when the history has no message_start at all', () => {
+      const factory = new HistoryEventFactory();
+      const events = Array.from(
+        { length: SUBAGENT_EVENTS_TAIL_LIMIT + 5 },
+        (_, index) =>
+          factory.createAgentTextDelta(
+            'session',
+            'message',
+            String(index),
+            0,
+            index,
+            index,
+            'task',
+          ),
+      );
+      const retained = retainSubagentEventsTail(events);
+      expect(retained.truncated).toBe(true);
+      expect(retained.events).toHaveLength(SUBAGENT_EVENTS_TAIL_LIMIT);
+      expect(retained.events[0]).toBe(events[5]);
+    });
+
+    it('reports an oversized JSONL read without leaking the path', async () => {
+      const { stubs, service } = setup();
+      stubs.jsonlReader.readJsonlMessages.mockRejectedValue(
+        new Error('/secret/path is too large'),
+      );
+      await expect(
+        service.readSubagentEvents('session', 'task', 'a'),
+      ).rejects.toThrow('Subagent history could not be read');
+    });
+
+    it('rejects an unsafe agent id before joining a file path', async () => {
+      const { stubs, service } = setup();
+      await expect(
+        service.readSubagentEvents('session', 'task', '../escape'),
+      ).rejects.toBeInstanceOf(SubagentHistoryValidationError);
+      expect(stubs.jsonlReader.listSessionsDirectories).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['../session', 'task', undefined],
+      ['session', '../task', undefined],
+      ['session', 'task', '../agent'],
+    ])(
+      'types invalid history request identifiers',
+      async (sessionId, toolCallId, agentId) => {
+        const { stubs, service } = setup();
+        await expect(
+          service.readSubagentEvents(sessionId, toolCallId, agentId),
+        ).rejects.toBeInstanceOf(SubagentHistoryValidationError);
+        expect(
+          stubs.jsonlReader.listSessionsDirectories,
+        ).not.toHaveBeenCalled();
+      },
+    );
+
+    it('treats an invalid correlated id as a read failure', async () => {
+      const { stubs, service } = setup();
+      stubs.replayService.correlateAgentId.mockReturnValue('agent-../escape');
+      await expect(
+        service.readSubagentEvents('session', 'task'),
+      ).rejects.toThrow('Subagent history could not be read');
+      expect(stubs.logger.warn).toHaveBeenCalled();
+    });
+  });
+
   describe('readSessionHistory', () => {
     it('returns collector metadata only on a successful opted-in read', async () => {
       const stubs = makeStubs();
@@ -165,7 +430,10 @@ describe('SessionHistoryReaderService', () => {
       stubs.jsonlReader.loadAgentSessions.mockResolvedValue([]);
       const service = makeService(stubs);
 
-      const plain = await service.readSessionHistory('valid-session', '/workspace');
+      const plain = await service.readSessionHistory(
+        'valid-session',
+        '/workspace',
+      );
       expect(plain).not.toHaveProperty('blockOwners');
       expect(plain).not.toHaveProperty('syntheticToolResults');
       const optedIn = await service.readSessionHistory(
@@ -238,13 +506,20 @@ describe('SessionHistoryReaderService', () => {
       const service = makeService(stubs);
 
       const optedIn = await service.readSessionHistory(
-        'valid-session-id', '/workspace', { includeBlockOwners: true },
+        'valid-session-id',
+        '/workspace',
+        { includeBlockOwners: true },
       );
       expect(optedIn).toEqual({
-        events: [], stats: null,
-        blockOwners: new Map(), syntheticToolResults: new Set(),
+        events: [],
+        stats: null,
+        blockOwners: new Map(),
+        syntheticToolResults: new Set(),
       });
-      const legacy = await service.readSessionHistory('valid-session-id', '/workspace');
+      const legacy = await service.readSessionHistory(
+        'valid-session-id',
+        '/workspace',
+      );
       expect(legacy).toEqual({ events: [], stats: null });
     });
 
@@ -2202,6 +2477,29 @@ describe('SessionHistoryReaderService — session stats authority (TASK_2026_533
         stubs.statsOwner.snapshot(id),
       ),
     ).toEqual([null, null, null]);
+  });
+
+  it('keeps a live owner cache estimate on resume but not transcript-only stats', async () => {
+    const { stubs, service } = setup([
+      assistantMsg('m1', { input_tokens: 1, output_tokens: 1 }),
+    ]);
+    const cold = await service.readSessionHistory(SESSION, '/workspace');
+    expect(cold.stats?.cache).toBeUndefined();
+
+    const prefixStats = cold.stats;
+    if (!prefixStats) throw new Error('expected transcript stats');
+    const { generation } = await stubs.statsOwner.prepareRun(SESSION, {
+      loadPrefix: async () => ({ stats: prefixStats, subagentIds: [], savedCostState: null }),
+      loadSavedCostState: async () => null,
+    });
+    stubs.statsOwner.beginRun(SESSION, generation, 'run-cache', null);
+    stubs.statsOwner.setCacheEstimate(SESSION, 'run-cache', {
+      ttl: '5m', lastRequestAt: 100, expiresAt: 300_100,
+    }, '5m');
+    const resumed = await service.readSessionHistory(SESSION, '/workspace');
+    expect(resumed.stats?.cache).toEqual({
+      ttl: '5m', lastRequestAt: 100, expiresAt: 300_100,
+    });
   });
 
   it('answers with the owner snapshot once a run is active, never re-adding a grown transcript', async () => {

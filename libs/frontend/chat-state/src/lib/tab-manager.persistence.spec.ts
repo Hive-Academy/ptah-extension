@@ -21,6 +21,7 @@ import type {
   ExecutionChatMessage,
   ExecutionNode,
 } from '@ptah-extension/shared';
+import { SessionId } from '@ptah-extension/shared';
 
 const STORAGE_KEY = 'ptah.tabs';
 
@@ -129,6 +130,26 @@ describe('TabManagerService — persistence payload + write cadence', () => {
     expect(raw).toBeTruthy();
     return JSON.parse(raw as string);
   }
+
+  it('sanitizes persisted provider IDs and clears them when a tab resets', () => {
+    const id = service.createTab('provider');
+    jest.advanceTimersByTime(600);
+    const stored = readStored();
+    stored.tabs[0].providerId = 'openrouter';
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+    service.loadTabState();
+    expect(service.tabs()[0].providerId).toBe('openrouter');
+    service.rebindTabSession(id, SessionId.from('b5399ba8-e06d-417c-bac4-aba5add0555c'), 'Other');
+    expect(service.tabs()[0].providerId).toBeUndefined();
+    service.setSessionProvider(id, SessionId.from('b5399ba8-e06d-417c-bac4-aba5add0555c'), 'anthropic');
+    expect(service.tabs()[0].providerId).toBe('anthropic');
+    service.resetTabToFresh(id);
+    expect(service.tabs()[0].providerId).toBeUndefined();
+    stored.tabs[0].providerId = ' '.repeat(200);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+    service.loadTabState();
+    expect(service.tabs()[0].providerId).toBeUndefined();
+  });
 
   it('writes no streamingState — the readers null it, so persisting it is waste', () => {
     const tabId = service.createTab('with-stream');

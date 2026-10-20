@@ -1,3 +1,9 @@
+export {
+  GenerationWorkflowLauncherService,
+  type GenerationWorkflowOpenRequest,
+  type GenerationWorkflowOpenResult,
+} from './lib/services/generation-workflow-launcher.service';
+
 /**
  * @ptah-extension/chat-ui — Reusable presentational chat components.
  *
@@ -5,7 +11,6 @@
  *   - Atoms: smallest reusable building blocks
  *   - Molecules: composed UI pieces
  */
-export { AwaitingBackgroundIndicatorComponent } from './lib/atoms/awaiting-background-indicator/awaiting-background-indicator.component';
 export { CopyButtonComponent } from './lib/atoms/copy-button.component';
 export { CostBadgeComponent } from './lib/atoms/cost-badge.component';
 export { DurationBadgeComponent } from './lib/atoms/duration-badge.component';
@@ -16,6 +21,7 @@ export { SidebarTabComponent } from './lib/atoms/sidebar-tab.component';
 export { SkeletonBlockComponent } from './lib/atoms/skeleton-block.component';
 export {
   SplitHandleComponent,
+  type SplitHandleAppearance,
   type SplitHandleOrientation,
 } from './lib/atoms/split-handle.component';
 export { StatusBadgeComponent } from './lib/atoms/status-badge.component';
@@ -32,7 +38,14 @@ export type {
   StderrSegment,
 } from './lib/molecules/agent-card/agent-card.types';
 export { AgentSummaryComponent } from './lib/molecules/agent-summary.component';
-export { ActivityTickerComponent } from './lib/molecules/activity-ticker/activity-ticker.component';
+export { LaneResultCardComponent } from './lib/molecules/lane-result/lane-result-card.component';
+export {
+  parseLaneResult,
+  type LaneResult,
+  type LaneResultFile,
+  type LaneResultFolder,
+  type LaneVerdictTone,
+} from './lib/utils/lane-result.utils';
 export { BootProgressComponent } from './lib/molecules/boot-progress/boot-progress.component';
 export {
   BackgroundAgentStripComponent,
@@ -42,7 +55,10 @@ export {
   type BackgroundAgentSteerRequest,
 } from './lib/molecules/background-agent-strip.component';
 export { AgentSteerInputComponent } from './lib/molecules/agent-steer-input.component';
-export { SubagentTranscriptViewerComponent } from './lib/molecules/subagent-transcript-viewer.component';
+export {
+  AgentLaneStatsComponent,
+  type AgentLaneStatsView,
+} from './lib/molecules/agent-lane-stats/agent-lane-stats.component';
 export { QuestionCardComponent } from './lib/molecules/question-card.component';
 export { ThinkingBlockComponent } from './lib/molecules/thinking-block.component';
 export { AutopilotPopoverComponent } from './lib/molecules/chat-input/autopilot-popover.component';
@@ -99,7 +115,6 @@ export type {
   StatsLimitViewModelInput,
 } from './lib/molecules/session/plan-limits/stats-limit-view-model.types';
 export { StatsTileExpansionState } from './lib/molecules/session/plan-limits/stats-tile-expansion.state';
-export { TabItemComponent } from './lib/molecules/session/tab-item.component';
 export { McpDirectoryBrowserComponent } from './lib/molecules/setup-plugins/mcp-directory-browser.component';
 export {
   groupInstalledServers,
@@ -110,7 +125,7 @@ export { removeInstalledGroup } from './lib/molecules/setup-plugins/installed-mc
 export { MARKETPLACE_RPC_TIMEOUTS } from './lib/molecules/setup-plugins/marketplace-rpc-timeouts';
 export { PluginCatalogPanelComponent } from './lib/molecules/setup-plugins/plugin-catalog-panel.component';
 export { PromptSuggestionsComponent } from './lib/molecules/setup-plugins/prompt-suggestions.component';
-export { SetupStatusWidgetComponent } from './lib/molecules/setup-plugins/setup-status-widget.component';
+export { SetupStatusStore } from './lib/molecules/setup-plugins/setup-status.store';
 export { SkillShBrowserComponent } from './lib/molecules/setup-plugins/skill-sh-browser.component';
 export { CodeOutputComponent } from './lib/molecules/tool-execution/code-output.component';
 export { fenceCodeBlock } from './lib/molecules/tool-execution/code-fence';
@@ -175,7 +190,11 @@ export {
   orchestratorStatusWord,
   subagentStatusWord,
 } from './lib/atoms/agent-avatar/agent-status';
-export { formatAgentDuration } from './lib/atoms/agent-avatar/agent-duration';
+export {
+  formatAgentDuration,
+  agentRunDurationMs,
+  agentRunLabel,
+} from './lib/atoms/agent-avatar/agent-duration';
 export {
   CLI_PROVIDER_MARK_IDS,
   cliMarkFor,
@@ -187,8 +206,27 @@ export {
 // `@ptah-extension/shared`, already shared by `ptah-cost-badge`.
 export { formatTokenCount } from './lib/atoms/token-badge.component';
 export { ContextRingComponent } from './lib/atoms/context-ring.component';
+export {
+  formatCost,
+  formatDuration,
+  formatTokens,
+} from './lib/molecules/session/session-stats-format';
+export {
+  agentCountOf,
+  durationMsOf,
+  knownSubtotalOf,
+} from './lib/molecules/session/session-stats-view';
 export { InspectorSessionStatsComponent } from './lib/molecules/session/inspector-stats/inspector-session-stats.component';
 export { InspectorLimitsLanesComponent } from './lib/molecules/session/inspector-stats/inspector-limits-lanes.component';
-export { sessionContextCue, type SessionStatsInputs, type SessionContextCue } from './lib/molecules/session/session-stats-view';
-export { sessionLimitSummary, inspectorToggleDescription, limitAwareDot, type SessionLimitSummary } from './lib/molecules/session/plan-limits/session-limit-summary';
+export {
+  sessionContextCue,
+  type SessionStatsInputs,
+  type SessionContextCue,
+} from './lib/molecules/session/session-stats-view';
+export {
+  sessionLimitSummary,
+  inspectorToggleDescription,
+  limitAwareDot,
+  type SessionLimitSummary,
+} from './lib/molecules/session/plan-limits/session-limit-summary';
 export { backgroundAgentPopulation } from './lib/molecules/background-agent-population';

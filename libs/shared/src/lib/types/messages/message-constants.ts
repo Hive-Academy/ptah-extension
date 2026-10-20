@@ -194,12 +194,12 @@ export const MESSAGE_TYPES = {
    * new tab is an ordinary chat, not a child.
    */
   SESSION_HANDOFF_OPENED: 'sessionHandoff:opened',
-  AGENT_SUMMARY_CHUNK: 'agent:summary-chunk',
   SDK_ERROR: 'sdk:error',
   SETUP_WIZARD_OPEN_AGENTS_FOLDER: 'setup-wizard:open-agents-folder',
   SETUP_WIZARD_COMPLETE: 'setup-wizard:complete',
   SETUP_WIZARD_SCAN_PROGRESS: 'setup-wizard:scan-progress',
   SETUP_WIZARD_ANALYSIS_STREAM: 'setup-wizard:analysis-stream',
+  SETUP_GENERATION_OPEN: 'setup-generation:open',
   /** Backend → Frontend: open an agent-driven harness workflow surface (new-project / configure-harness). */
   HARNESS_OPEN_WORKFLOW: 'harness:open-workflow',
   /** Backend → Frontend: agent proposed harness config updates via the proposeConfig MCP tool. */
@@ -222,6 +222,8 @@ export const MESSAGE_TYPES = {
    */
   SURFACE_UPDATED: 'surface:updated',
   ASK_USER_QUESTION_REQUEST: 'ask-user-question:request',
+  ATTENTION_CHANGED: 'attention:changed',
+  ATTENTION_OPEN_TARGET: 'attention:openTarget',
   ASK_USER_QUESTION_RESPONSE: 'ask-user-question:response',
   ASK_USER_QUESTION_AUTO_RESOLVED: 'ask-user-question:auto-resolved',
   PERMISSION_AUTO_RESOLVED: 'permission:auto-resolved',

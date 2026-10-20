@@ -16,7 +16,6 @@ import {
   Ellipsis,
   MessageSquare,
   Moon,
-  ScrollText,
   Square,
 } from 'lucide-angular';
 import { NativeDropdownComponent } from '@ptah-extension/ui';
@@ -30,11 +29,7 @@ import { backgroundAgentPopulation } from './background-agent-population';
  * wrapper — the dumb component never sees the source models.
  */
 export type BackgroundAgentStripStatus =
-  | 'running'
-  | 'background'
-  | 'completed'
-  | 'error'
-  | 'stopped';
+  'running' | 'background' | 'completed' | 'error' | 'stopped';
 
 /**
  * View-model for a single row in the {@link BackgroundAgentStripComponent}.
@@ -76,9 +71,6 @@ export interface BackgroundAgentStripEntry {
   /** Whether the "send to background" action applies — foreground running
    * subagents only. */
   readonly canBackground: boolean;
-  /** Whether a "view transcript" action applies — set by the smart wrapper when
-   * both the SDK `agentId` and owning session id are known for this agent. */
-  readonly canViewTranscript: boolean;
 }
 
 /** Payload emitted when a row's inline steer input is submitted. */
@@ -328,23 +320,6 @@ interface StripRow {
                       class="flex flex-col py-1 min-w-40"
                       (keydown.escape)="closeMenu(menuTrigger)"
                     >
-                      @if (row.entry.canViewTranscript) {
-                        <button
-                          type="button"
-                          class="flex items-center gap-2 px-3 py-1.5 text-xs text-left hover:bg-base-300 focus-visible:bg-base-300 focus-visible:outline-none"
-                          data-test="agent-menu-transcript"
-                          (click)="
-                            closeMenu(); viewTranscript.emit(row.entry.id)
-                          "
-                        >
-                          <lucide-angular
-                            [img]="ScrollTextIcon"
-                            class="w-3.5 h-3.5 text-base-content-muted"
-                            aria-hidden="true"
-                          />
-                          View transcript
-                        </button>
-                      }
                       @if (row.entry.steerable) {
                         <button
                           type="button"
@@ -431,13 +406,10 @@ export class BackgroundAgentStripComponent {
   readonly stop = output<string>();
   /** Emits the entry id when Send to background is chosen from its menu. */
   readonly sendToBackground = output<string>();
-  /** Emits the entry id when View transcript is chosen from its menu. */
-  readonly viewTranscript = output<string>();
 
   protected readonly SteerIcon = MessageSquare;
   protected readonly StopIcon = Square;
   protected readonly BackgroundIcon = Moon;
-  protected readonly ScrollTextIcon = ScrollText;
   protected readonly ChevronDownIcon = ChevronDown;
   protected readonly EllipsisIcon = Ellipsis;
   protected readonly CheckIcon = Check;
@@ -470,11 +442,7 @@ export class BackgroundAgentStripComponent {
       entry,
       color: generateAgentColor(entry.agentType || entry.name),
       statusLine: this.buildStatusLine(entry),
-      hasActions:
-        entry.canViewTranscript ||
-        entry.steerable ||
-        entry.canBackground ||
-        entry.stoppable,
+      hasActions: entry.steerable || entry.canBackground || entry.stoppable,
     })),
   );
 
@@ -489,7 +457,9 @@ export class BackgroundAgentStripComponent {
    * session AGENTS chip (the backend's lifetime count), so it never calls its
    * rows "agents".
    */
-  readonly summaryText = computed(() => backgroundAgentPopulation(this.entries()));
+  readonly summaryText = computed(() =>
+    backgroundAgentPopulation(this.entries()),
+  );
 
   /**
    * The entry whose steer input is shown, or null. Resolves against the live

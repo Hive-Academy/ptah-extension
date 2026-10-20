@@ -67,7 +67,6 @@ export const ExecutionNodeSchema: z.ZodType<ExecutionNode> = z.lazy(() =>
     agentModel: z.string().optional(),
     agentDescription: z.string().optional(),
     agentPrompt: z.string().optional(),
-    summaryContent: z.string().optional(),
     startTime: z.number().optional(),
     endTime: z.number().optional(),
     duration: z.number().optional(),
@@ -110,6 +109,7 @@ export const ExecutionChatMessageSchema = z.object({
 
 export const ChatSessionSummarySchema = z.object({
   id: z.string(),
+  providerId: z.string().trim().min(1).optional(),
   name: z.string(),
   messageCount: z.number().int().nonnegative(),
   createdAt: z.number(),

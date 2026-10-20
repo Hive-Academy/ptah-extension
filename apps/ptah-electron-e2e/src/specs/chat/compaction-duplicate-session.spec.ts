@@ -170,7 +170,7 @@ test.describe('Compaction recovery for duplicate visible session tiles (TASK_202
     });
     await ui.pushEvent(turnStateIdle(firstTabId, 1));
 
-    await page.locator('[title="Add new session tile"]').click();
+    await page.locator('[data-testid="canvas-footer-new-session"]').click();
     await page.getByRole('button', { name: 'Create', exact: true }).click();
     const cards = page.locator('ptah-canvas-rail [data-rail-card]');
     await expect(cards).toHaveCount(2);

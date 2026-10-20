@@ -9,7 +9,6 @@
  * - CHAT_COMPLETE: Chat completion signal (marks tab idle)
  * - CHAT_ERROR: Chat error signal
  * - PERMISSION_REQUEST: Permission prompt from backend
- * - AGENT_SUMMARY_CHUNK: Real-time agent summary streaming
  * - SESSION_STATS: Cost/token data after completion (authoritative completion signal)
  * - SESSION_STATS_LIVE: In-turn session snapshot for the header only (never a completion signal)
  * - SESSION_ID_RESOLVED: Real SDK UUID resolution
@@ -141,7 +140,6 @@ export class ChatMessageHandler implements MessageHandler {
     MESSAGE_TYPES.CHAT_COMPLETE,
     MESSAGE_TYPES.CHAT_ERROR,
     MESSAGE_TYPES.PERMISSION_REQUEST,
-    MESSAGE_TYPES.AGENT_SUMMARY_CHUNK,
     MESSAGE_TYPES.SESSION_STATS,
     MESSAGE_TYPES.SESSION_STATS_LIVE,
     MESSAGE_TYPES.SESSION_MCP_STATUS,
@@ -178,9 +176,6 @@ export class ChatMessageHandler implements MessageHandler {
         break;
       case MESSAGE_TYPES.PERMISSION_REQUEST:
         this.handlePermissionRequest(message.payload);
-        break;
-      case MESSAGE_TYPES.AGENT_SUMMARY_CHUNK:
-        this.handleAgentSummaryChunk(message.payload);
         break;
       case MESSAGE_TYPES.SESSION_STATS:
         this.handleSessionStats(message.payload);
@@ -745,17 +740,6 @@ export class ChatMessageHandler implements MessageHandler {
     >[0];
     this.chatStore.handlePermissionRequest(prompt);
     this.streamRouter.routePermissionPrompt(prompt);
-  }
-  private handleAgentSummaryChunk(payload: unknown): void {
-    if (!payload) {
-      console.warn(
-        '[ChatMessageHandler] agent:summary-chunk received but payload is undefined!',
-      );
-      return;
-    }
-    this.chatStore.handleAgentSummaryChunk(
-      payload as Parameters<typeof this.chatStore.handleAgentSummaryChunk>[0],
-    );
   }
   /**
    * `session:mcpStatus` — what the CLI reported about this session's MCP

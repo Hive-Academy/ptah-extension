@@ -11,7 +11,7 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import type { z } from 'zod';
+import { z } from 'zod';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
 import type { SentryService } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS, PluginLoaderService } from '@ptah-extension/agent-sdk';
@@ -25,11 +25,15 @@ import type {
   EnhancedPromptsSdkConfig,
 } from '@ptah-extension/agent-generation';
 import { isAuthorizedWorkspace } from '../utils/workspace-authorization';
+import { authorizeTabWorkspace } from './wizard-generation-binding';
+import { GuidanceGenerationRunSupervisor } from './guidance-generation-run.supervisor';
 import {
   EnhancedPromptsRegenerateParamsSchema,
   EnhancedPromptsRunWizardParamsSchema,
   EnhancedPromptsSetEnabledParamsSchema,
   EnhancedPromptsWorkspaceParamsSchema,
+  EnhancedPromptsRunBindingSchema,
+  EnhancedPromptsRunStateLookupSchema,
   describeEnhancedPromptsParamsIssue,
 } from './enhanced-prompts-rpc.schema';
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
@@ -43,6 +47,14 @@ import type {
   EnhancedPromptsRegenerateParams,
   EnhancedPromptsRegenerateResponse,
   AnalysisStreamPayload,
+  EnhancedGenerationStreamPayload,
+  EnhancedPromptsCancelParams,
+  EnhancedPromptsCancelResponse,
+  EnhancedPromptsGetRunStateParams,
+  EnhancedPromptsGetRunStateResponse,
+  GenerationContextSource,
+  SetupGenerationTabBinding,
+  SetupGenerationRunBinding,
 } from '@ptah-extension/shared';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
@@ -77,6 +89,8 @@ export class EnhancedPromptsRpcHandlers {
     'enhancedPrompts:runWizard',
     'enhancedPrompts:setEnabled',
     'enhancedPrompts:regenerate',
+    'enhancedPrompts:cancel',
+    'enhancedPrompts:getRunState',
     'enhancedPrompts:getPromptContent',
     'enhancedPrompts:download',
   ] as const satisfies readonly RpcMethodName[];
@@ -100,6 +114,8 @@ export class EnhancedPromptsRpcHandlers {
     private readonly webviewManager: WebviewBroadcaster | undefined,
     @inject(TOKENS.CODE_EXECUTION_MCP, { isOptional: true })
     private readonly codeExecutionMcp: CodeExecutionMCP | undefined,
+    @inject(GuidanceGenerationRunSupervisor)
+    private readonly guidanceRuns = new GuidanceGenerationRunSupervisor(),
   ) {}
 
   /**
@@ -110,6 +126,16 @@ export class EnhancedPromptsRpcHandlers {
     this.registerRunWizard();
     this.registerSetEnabled();
     this.registerRegenerate();
+    this.rpcHandler.registerMethod<
+      EnhancedPromptsCancelParams,
+      EnhancedPromptsCancelResponse
+    >('enhancedPrompts:cancel', (params) => this.cancelGuidance(params));
+    this.rpcHandler.registerMethod<
+      EnhancedPromptsGetRunStateParams,
+      EnhancedPromptsGetRunStateResponse
+    >('enhancedPrompts:getRunState', (params) =>
+      this.getGuidanceRunState(params),
+    );
     this.registerGetPromptContent();
     this.registerDownload();
 
@@ -119,6 +145,8 @@ export class EnhancedPromptsRpcHandlers {
         'enhancedPrompts:runWizard',
         'enhancedPrompts:setEnabled',
         'enhancedPrompts:regenerate',
+        'enhancedPrompts:cancel',
+        'enhancedPrompts:getRunState',
         'enhancedPrompts:getPromptContent',
         'enhancedPrompts:download',
       ],
@@ -212,6 +240,27 @@ export class EnhancedPromptsRpcHandlers {
       EnhancedPromptsRunWizardResponse
     >('enhancedPrompts:runWizard', async (rawParams) => {
       try {
+        // Bound clients never supply trusted analysis. Parse the small envelope
+        // first so workspace authorization precedes any client analysis parsing.
+        const boundEnvelope = z
+          .object({ tabBinding: z.unknown() })
+          .safeParse(rawParams);
+        if (
+          boundEnvelope.success &&
+          boundEnvelope.data.tabBinding !== undefined
+        ) {
+          const bound = this.parse(
+            EnhancedPromptsRunWizardParamsSchema.omit({ analysisData: true }),
+            rawParams,
+          );
+          if (!bound.ok)
+            return {
+              success: false,
+              rejection: { reason: 'invalid-binding' },
+              error: bound.error,
+            };
+          return this.startBoundGuidance(bound.data, 'wizard');
+        }
         const parsed = this.parse(
           EnhancedPromptsRunWizardParamsSchema,
           rawParams,
@@ -462,6 +511,9 @@ export class EnhancedPromptsRpcHandlers {
           return { success: false, error: parsed.error };
         }
         const params = parsed.data;
+        if (params.tabBinding) {
+          return this.startBoundGuidance(params, 'regenerate');
+        }
         const workspacePath = this.resolveWorkspacePath(params.workspacePath);
         if (!isAuthorizedWorkspace(workspacePath, this.workspaceProvider)) {
           return {
@@ -517,6 +569,338 @@ export class EnhancedPromptsRpcHandlers {
         };
       }
     });
+  }
+
+  private async startBoundGuidance(
+    params:
+      | z.infer<typeof EnhancedPromptsRunWizardParamsSchema>
+      | z.infer<typeof EnhancedPromptsRegenerateParamsSchema>,
+    kind: 'wizard' | 'regenerate',
+  ): Promise<EnhancedPromptsRunWizardResponse> {
+    const tab = params.tabBinding;
+    if (!tab)
+      return {
+        success: false,
+        rejection: { reason: 'invalid-binding' },
+        error: 'Invalid generation binding.',
+      };
+    const workspacePath = this.resolveWorkspacePath(params.workspacePath);
+    const host = this.workspaceProvider.getWorkspaceRoot();
+    const canonicalHost = host
+      ? await authorizeTabWorkspace(host, tab, this.logger)
+      : null;
+    if (
+      !host ||
+      !isAuthorizedWorkspace(workspacePath, this.workspaceProvider) ||
+      !canonicalHost ||
+      !(await authorizeTabWorkspace(workspacePath, tab, this.logger))
+    ) {
+      return {
+        success: false,
+        rejection: { reason: 'workspace-mismatch' },
+        error: 'Generation workspace does not match the active tab.',
+      };
+    }
+    const binding: SetupGenerationTabBinding = {
+      ...tab,
+      workspacePath: canonicalHost,
+    };
+    const current = this.guidanceRuns.activeBinding;
+    if (
+      current?.tabId === binding.tabId &&
+      current.workflow === binding.workflow &&
+      current.workspacePath === binding.workspacePath
+    ) {
+      const run = this.guidanceRuns.lookup(binding).run;
+      if (run?.status === 'cancelling')
+        return {
+          success: false,
+          rejection: { reason: 'blocked', ownerTabId: binding.tabId },
+          error: 'Guidance generation is cancelling.',
+        };
+      if (run)
+        return {
+          success: true,
+          accepted: {
+            runId: run.binding.runId,
+            source: run.source,
+            status: 'starting',
+            effectiveProvider: run.effectiveProvider,
+            effectiveModel: run.effectiveModel,
+          },
+        };
+    }
+    const analysisDir =
+      'analysisDir' in params && params.analysisDir
+        ? this.authorizeAnalysisDir(workspacePath, params.analysisDir)
+        : undefined;
+    if ('analysisDir' in params && params.analysisDir && !analysisDir) {
+      return {
+        success: false,
+        rejection: { reason: 'foreign-directory' },
+        error: 'Analysis directory is outside the active workspace.',
+      };
+    }
+    const reservation = this.enhancedPromptsService.acquireBoundGeneration();
+    if (!reservation) {
+      return {
+        success: false,
+        rejection: {
+          reason: 'blocked',
+          ...(current?.workspacePath === binding.workspacePath
+            ? { ownerTabId: current.tabId }
+            : {}),
+        },
+        error: 'Guidance generation is already in progress.',
+      };
+    }
+    try {
+      const source = await this.resolveBoundSource(workspacePath, analysisDir);
+      const requestedModel = 'model' in params ? params.model : undefined;
+      const route = await this.resolveBoundRoute(workspacePath, requestedModel);
+      const { binding: runBinding, controller } = this.guidanceRuns.start(
+        binding,
+        source,
+        route.providerId,
+        route.model,
+      );
+      const accepted = {
+        runId: runBinding.runId,
+        source,
+        status: 'starting' as const,
+        effectiveProvider: route.providerId,
+        effectiveModel: route.model,
+      };
+      void this.executeBoundGuidance(
+        params,
+        kind,
+        workspacePath,
+        source,
+        route,
+        runBinding,
+        controller,
+        reservation,
+      );
+      return { success: true, accepted };
+    } catch (error: unknown) {
+      this.enhancedPromptsService.releaseBoundGeneration(reservation);
+      this.logger.error(
+        'Guidance start preparation failed',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+      return {
+        success: false,
+        rejection: { reason: 'not-running' },
+        error: 'Guidance provider is unavailable. Please retry.',
+      };
+    }
+  }
+
+  private async resolveBoundSource(
+    workspacePath: string,
+    analysisDir?: string,
+  ): Promise<GenerationContextSource> {
+    const source = await this.enhancedPromptsService.resolveGuidanceSource(
+      workspacePath,
+      analysisDir,
+    );
+    if (source.kind !== 'verified-analysis') return source;
+    try {
+      const manifest = await this.analysisStorage.loadManifest(
+        source.analysisDir,
+      );
+      return manifest?.runId
+        ? { ...source, analysisRunId: manifest.runId }
+        : { kind: 'workspace-discovery', reason: 'unreadable' };
+    } catch (error: unknown) {
+      this.logger.error(
+        'Guidance analysis manifest lookup failed',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+      return { kind: 'workspace-discovery', reason: 'lookup-failed' };
+    }
+  }
+
+  private async resolveBoundRoute(
+    workspacePath: string,
+    requestedModel?: string,
+  ) {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    return Promise.race([
+      this.enhancedPromptsService.resolveGuidanceRoute(
+        workspacePath,
+        requestedModel,
+      ),
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error('Guidance provider resolution timed out')),
+          15_000,
+        );
+      }),
+    ]).finally(() => {
+      if (timeout) clearTimeout(timeout);
+    });
+  }
+
+  private async executeBoundGuidance(
+    params:
+      | z.infer<typeof EnhancedPromptsRunWizardParamsSchema>
+      | z.infer<typeof EnhancedPromptsRegenerateParamsSchema>,
+    kind: 'wizard' | 'regenerate',
+    workspacePath: string,
+    source: GenerationContextSource,
+    route: Awaited<ReturnType<EnhancedPromptsService['resolveGuidanceRoute']>>,
+    runBinding: SetupGenerationRunBinding,
+    controller: AbortController,
+    reservation: object,
+  ): Promise<void> {
+    const broadcaster = this.createEnhanceStreamBroadcaster();
+    const sdkConfig = this.resolveSdkConfig((event) => {
+      if (!controller.signal.aborted)
+        broadcaster({ ...event, tabBinding: runBinding, lifecycle: 'running' });
+    }, route.model);
+    const onProgress = (): void => {
+      if (!controller.signal.aborted) this.guidanceRuns.running(runBinding);
+    };
+    const boundExecution = {
+      reservation,
+      signal: controller.signal,
+      route,
+      analysisDir:
+        source.kind === 'verified-analysis' ? source.analysisDir : undefined,
+      allowPhaseEnrichment: source.kind === 'verified-analysis',
+      beforeCommit: (): boolean => this.guidanceRuns.beginCommit(runBinding),
+      onTimeout: (): void => this.guidanceRuns.timeout(runBinding),
+      onForceRelease: (): void => {
+        if (this.guidanceRuns.forceRelease(runBinding))
+          this.broadcastGuidanceTerminal(broadcaster, runBinding, 'timed-out');
+      },
+    };
+    try {
+      const result =
+        kind === 'wizard'
+          ? await this.enhancedPromptsService.runWizard(
+              workspacePath,
+              params.config,
+              onProgress,
+              undefined,
+              sdkConfig,
+              boundExecution.analysisDir,
+              boundExecution,
+            )
+          : await this.enhancedPromptsService.regenerate(
+              workspacePath,
+              {
+                force: 'force' in params ? (params.force ?? true) : true,
+                config: params.config,
+              },
+              onProgress,
+              sdkConfig,
+              boundExecution,
+            );
+      if (
+        this.guidanceRuns.finish(
+          runBinding,
+          result.success ? 'completed' : 'failed',
+        )
+      )
+        this.broadcastGuidanceTerminal(
+          broadcaster,
+          runBinding,
+          this.guidanceRuns.lookup(runBinding, runBinding.runId).run?.status ??
+            'failed',
+        );
+    } catch (error: unknown) {
+      this.logger.error(
+        'Bound guidance execution failed',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+      if (this.guidanceRuns.finish(runBinding, 'failed'))
+        this.broadcastGuidanceTerminal(
+          broadcaster,
+          runBinding,
+          this.guidanceRuns.lookup(runBinding, runBinding.runId).run?.status ??
+            'failed',
+        );
+    } finally {
+      this.enhancedPromptsService.releaseBoundGeneration(reservation);
+    }
+  }
+
+  private broadcastGuidanceTerminal(
+    broadcaster: ReturnType<
+      EnhancedPromptsRpcHandlers['createEnhanceStreamBroadcaster']
+    >,
+    binding: SetupGenerationRunBinding,
+    status:
+      | 'completed'
+      | 'cancelled'
+      | 'failed'
+      | 'timed-out'
+      | 'starting'
+      | 'running'
+      | 'cancelling',
+  ): void {
+    const lifecycle =
+      status === 'completed' || status === 'cancelled' || status === 'timed-out'
+        ? status
+        : 'failed';
+    broadcaster({
+      kind: 'status',
+      content:
+        lifecycle === 'completed'
+          ? 'Guidance generation complete'
+          : lifecycle === 'timed-out'
+            ? 'Guidance generation timed out'
+            : 'Guidance generation stopped',
+      timestamp: Date.now(),
+      tabBinding: binding,
+      lifecycle,
+    });
+  }
+
+  async cancelGuidance(
+    raw: EnhancedPromptsCancelParams,
+  ): Promise<EnhancedPromptsCancelResponse> {
+    const parsed = EnhancedPromptsRunBindingSchema.safeParse(raw?.tabBinding);
+    const canonical = parsed.success
+      ? await this.authorizeGuidanceTab(parsed.data)
+      : null;
+    if (!parsed.success || !canonical) {
+      return {
+        cancelled: false,
+        outcome: 'refused',
+        rejection: { reason: 'invalid-binding' },
+      };
+    }
+    return this.guidanceRuns.cancel({
+      ...parsed.data,
+      workspacePath: canonical,
+    });
+  }
+
+  async getGuidanceRunState(
+    raw: EnhancedPromptsGetRunStateParams,
+  ): Promise<EnhancedPromptsGetRunStateResponse> {
+    const parsed = EnhancedPromptsRunStateLookupSchema.safeParse(raw);
+    const canonical = parsed.success
+      ? await this.authorizeGuidanceTab(parsed.data.tabBinding)
+      : null;
+    if (!parsed.success || !canonical) {
+      return { run: null, rejection: { reason: 'invalid-binding' } };
+    }
+    return this.guidanceRuns.lookup(
+      { ...parsed.data.tabBinding, workspacePath: canonical },
+      parsed.data.runId,
+      this.enhancedPromptsService.generationInProgress,
+    );
+  }
+
+  private async authorizeGuidanceTab(
+    tab: SetupGenerationTabBinding,
+  ): Promise<string | null> {
+    const host = this.workspaceProvider.getWorkspaceRoot();
+    return host ? authorizeTabWorkspace(host, tab, this.logger) : null;
   }
 
   /**
@@ -670,11 +1054,11 @@ export class EnhancedPromptsRpcHandlers {
    * registerRegenerate().
    */
   private createEnhanceStreamBroadcaster(): (
-    event: AnalysisStreamPayload,
+    event: EnhancedGenerationStreamPayload,
   ) => void {
     const webviewManager = this.webviewManager;
 
-    return (event: AnalysisStreamPayload): void => {
+    return (event: EnhancedGenerationStreamPayload): void => {
       if (!webviewManager) return;
       webviewManager
         .broadcastMessage('setup-wizard:enhance-stream', event)

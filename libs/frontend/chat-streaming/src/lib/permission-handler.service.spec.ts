@@ -71,8 +71,6 @@ function emptyStreamingState(): StreamingState {
     toolCallMap: new Map(),
     textAccumulators: new Map(),
     toolInputAccumulators: new Map(),
-    agentSummaryAccumulators: new Map(),
-    agentContentBlocksMap: new Map(),
     currentMessageId: null,
     currentTokenUsage: null,
     eventsByMessage: new Map(),
@@ -159,6 +157,10 @@ describe('PermissionHandlerService', () => {
   });
 
   describe('handlePermissionResponse', () => {
+    it('returns false for a request that is no longer pending', () => {
+      expect(service.handlePermissionResponse({ id: 'missing', decision: 'allow' })).toBe(false);
+      expect(vscodePostMessage).not.toHaveBeenCalled();
+    });
     it('removes the request and posts SDK_PERMISSION_RESPONSE', () => {
       const req = makePermissionRequest();
       service.handlePermissionRequest(req);
@@ -949,6 +951,24 @@ describe('PermissionHandlerService', () => {
       expect(service.routingTargetRevision()).toBe(initial + 3);
       service.cancelPrompt('reactive-permission', null);
       expect(service.routingTargetRevision()).toBe(initial + 4);
+    });
+  });
+
+  describe('response delivery failure', () => {
+    it('keeps a permission pending when the transport throws', () => {
+      service.handlePermissionRequest(makePermissionRequest({ id: 'retry-permission' }));
+      vscodePostMessage.mockImplementationOnce(() => { throw new Error('transport'); });
+      expect(() => service.handlePermissionResponse({ id: 'retry-permission', decision: 'allow' }, 'tab-1')).toThrow('transport');
+      expect(service.permissionRequests().map(request => request.id)).toContain('retry-permission');
+      service.handlePermissionResponse({ id: 'retry-permission', decision: 'allow' }, 'tab-1');
+      expect(service.permissionRequests()).toHaveLength(0);
+    });
+
+    it('keeps a question pending when the transport throws', () => {
+      service.handleQuestionRequest(makeQuestionRequest({ id: 'retry-question' }));
+      vscodePostMessage.mockImplementationOnce(() => { throw new Error('transport'); });
+      expect(() => service.handleQuestionResponse({ id: 'retry-question', answers: {} })).toThrow('transport');
+      expect(service.questionRequests().map(request => request.id)).toContain('retry-question');
     });
   });
 });

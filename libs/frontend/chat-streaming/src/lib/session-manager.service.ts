@@ -23,25 +23,10 @@ export type SessionState = 'draft' | 'confirming' | 'confirmed' | 'failed';
  * - Manages node maps (agents, tools) for streaming bridge
  * - Determines whether to continue or start new session
  */
-/**
- * Pending chunk buffer entry
- * Used to buffer summary chunks that arrive before agent node is created
- */
-interface PendingChunk {
-  summaryDelta: string;
-  timestamp: number;
-}
-
-/**
- * How long to keep pending chunks before discarding (60 seconds)
- */
-const PENDING_CHUNK_TTL_MS = 60_000;
-
 @Injectable({ providedIn: 'root' })
 export class SessionManager {
   private readonly _agentNodeMap = new Map<string, ExecutionNode>();
   private readonly _toolNodeMap = new Map<string, ExecutionNode>();
-  private readonly _pendingAgentChunks = new Map<string, PendingChunk[]>();
   /**
    * Reverse index: node key (toolCallId) → owning sessionId. The node maps are
    * a global singleton keyed by globally-unique toolCallIds, so two concurrent
@@ -165,7 +150,7 @@ export class SessionManager {
   }
 
   /**
-   * Clear node maps and pending chunk buffers.
+   * Clear node maps.
    *
    * @param sessionId - When provided, clears ONLY the entries owned by this
    *   session (scoped clear). When omitted, clears ALL sessions (full reset —
@@ -183,21 +168,18 @@ export class SessionManager {
     if (sessionId === undefined) {
       this._agentNodeMap.clear();
       this._toolNodeMap.clear();
-      this._pendingAgentChunks.clear();
       this._nodeSessionOwner.clear();
       return;
     }
     const keys = new Set<string>([
       ...this._agentNodeMap.keys(),
       ...this._toolNodeMap.keys(),
-      ...this._pendingAgentChunks.keys(),
     ]);
     for (const key of keys) {
       const owner = this._nodeSessionOwner.get(key);
       if (owner !== undefined && owner !== sessionId) continue;
       this._agentNodeMap.delete(key);
       this._toolNodeMap.delete(key);
-      this._pendingAgentChunks.delete(key);
       this._nodeSessionOwner.delete(key);
     }
   }
@@ -225,68 +207,21 @@ export class SessionManager {
 
   /**
    * Register an agent node (used during streaming)
-   * Returns any pending chunks that were buffered before the node existed
    *
    * @param toolCallId - The tool use ID for this agent
    * @param node - The ExecutionNode representing this agent
    * @param sessionId - Owning session id; tags the entry so a scoped
    *   `clearNodeMaps(sessionId)` can target it without wiping other sessions.
-   * @returns Array of pending summary deltas to apply (may be empty)
    */
   registerAgent(
     toolCallId: string,
     node: ExecutionNode,
     sessionId?: string,
-  ): string[] {
+  ): void {
     this._agentNodeMap.set(toolCallId, node);
     const owner = knownSessionId(sessionId);
     if (owner) {
       this._nodeSessionOwner.set(toolCallId, owner);
-    }
-    const pendingChunks = this._pendingAgentChunks.get(toolCallId);
-    if (pendingChunks && pendingChunks.length > 0) {
-      this._pendingAgentChunks.delete(toolCallId);
-      const now = Date.now();
-      const validDeltas = pendingChunks
-        .filter((chunk) => now - chunk.timestamp < PENDING_CHUNK_TTL_MS)
-        .map((chunk) => chunk.summaryDelta);
-      if (
-        validDeltas.length > 0 &&
-        typeof ngDevMode !== 'undefined' &&
-        ngDevMode
-      ) {
-        console.log(
-          `[SessionManager] Flushing ${validDeltas.length} pending chunks for agent:`,
-          toolCallId,
-        );
-      }
-
-      return validDeltas;
-    }
-
-    return [];
-  }
-
-  /**
-   * Buffer a summary chunk for an agent that doesn't exist yet
-   * Called when summary chunks arrive before the agent node is registered
-   *
-   * @param toolCallId - The tool use ID for the agent
-   * @param summaryDelta - The summary text to buffer
-   */
-  bufferAgentChunk(toolCallId: string, summaryDelta: string): void {
-    const existing = this._pendingAgentChunks.get(toolCallId) || [];
-    existing.push({
-      summaryDelta,
-      timestamp: Date.now(),
-    });
-    this._pendingAgentChunks.set(toolCallId, existing);
-    if (typeof ngDevMode !== 'undefined' && ngDevMode) {
-      console.log(
-        `[SessionManager] Buffered chunk for pending agent:`,
-        toolCallId,
-        `(${existing.length} chunks buffered)`,
-      );
     }
   }
 

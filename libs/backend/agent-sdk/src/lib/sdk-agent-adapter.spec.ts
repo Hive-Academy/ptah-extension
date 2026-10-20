@@ -180,12 +180,13 @@ function createMockModelService(): jest.Mocked<
 }
 
 function createMockMetadataStore(): jest.Mocked<
-  Pick<SessionMetadataStore, 'create' | 'touch' | 'get'>
+  Pick<SessionMetadataStore, 'create' | 'touch' | 'get' | 'updateProvider'>
 > {
   return {
     create: jest.fn().mockResolvedValue(undefined),
     touch: jest.fn().mockResolvedValue(undefined),
     get: jest.fn().mockResolvedValue(null),
+    updateProvider: jest.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -381,11 +382,7 @@ interface AdapterHarness {
 function createMockSessionBudget(): jest.Mocked<
   Pick<
     SessionBudgetService,
-    | 'observe'
-    | 'observeLive'
-    | 'recordCompaction'
-    | 'release'
-    | 'clearAll'
+    'observe' | 'observeLive' | 'recordCompaction' | 'release' | 'clearAll'
   >
 > {
   return {
@@ -1330,9 +1327,82 @@ describe('SdkAgentAdapter', () => {
           'resolved-session-id',
           '/fake/workspace',
           sessionConfig.sessionName,
+          'created',
+          undefined,
+          undefined,
         );
       },
     );
+
+    it('records the executed shared-auth route when a new session reports its real ID', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
+        sdkQuery: createFakeQuery(),
+        initialModel: 'claude',
+        abortController: new AbortController(),
+        capacityRoute: { kind: 'proxy', providerId: 'openrouter' },
+      } as ExecuteQueryResult);
+      await h.adapter.startChatSession(makeSessionConfig());
+      const resolved =
+        h.streamTransformer.transform.mock.calls[0][0].onSessionIdResolved;
+      if (!resolved) throw new Error('Expected session ID callback');
+      await resolved('tab_1', 'resolved-session-id');
+      expect(h.metadataStore.create).toHaveBeenCalledWith(
+        'resolved-session-id',
+        '/fake/workspace',
+        expect.any(String),
+        'created',
+        undefined,
+        'openrouter',
+      );
+    });
+
+    it('rejects a new session when creating metadata fails', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      const failure = new Error('storage unavailable');
+      h.metadataStore.create.mockRejectedValueOnce(failure);
+      h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
+        sdkQuery: createFakeQuery(),
+        initialModel: 'claude',
+        abortController: new AbortController(),
+        capacityRoute: { kind: 'proxy', providerId: 'openrouter' },
+      } as ExecuteQueryResult);
+      const resolved = jest.fn();
+      h.adapter.setSessionIdResolvedCallback(resolved);
+      await h.adapter.startChatSession(makeSessionConfig());
+      const callback =
+        h.streamTransformer.transform.mock.calls[0][0].onSessionIdResolved;
+      await expect(callback?.('tab_1', 'resolved-session-id')).rejects.toBe(
+        failure,
+      );
+      expect(resolved).not.toHaveBeenCalled();
+    });
+
+    it('omits a blank provider ID when creating metadata', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
+        sdkQuery: createFakeQuery(),
+        initialModel: 'claude',
+        abortController: new AbortController(),
+        capacityRoute: { kind: 'proxy', providerId: '  ' },
+      } as ExecuteQueryResult);
+      await h.adapter.startChatSession(makeSessionConfig());
+      const callback =
+        h.streamTransformer.transform.mock.calls[0][0].onSessionIdResolved;
+      if (!callback) throw new Error('Expected session ID callback');
+      await callback('tab_1', 'resolved-session-id');
+      expect(h.metadataStore.create).toHaveBeenCalledWith(
+        'resolved-session-id',
+        '/fake/workspace',
+        expect.any(String),
+        'created',
+        undefined,
+        undefined,
+      );
+    });
 
     it('preserves a supplied user name for query options and metadata', async () => {
       const h = makeAdapter();
@@ -1363,6 +1433,9 @@ describe('SdkAgentAdapter', () => {
         'resolved-session-id',
         '/fake/workspace',
         userName,
+        'created',
+        undefined,
+        undefined,
       );
     });
 
@@ -1404,6 +1477,7 @@ describe('SdkAgentAdapter', () => {
           'Child',
           'created',
           '/root/.claude-worktrees/x',
+          undefined,
         );
       });
 
@@ -1412,7 +1486,7 @@ describe('SdkAgentAdapter', () => {
         ['blank', '  '],
         ['equal to projectPath', '/fake/workspace'],
       ])(
-        'keeps the existing create() call when workspaceId is %s',
+        'keeps the default working directory when workspaceId is %s',
         async (_label, workspaceId) => {
           const h = makeAdapter();
           await h.adapter.initialize();
@@ -1431,8 +1505,10 @@ describe('SdkAgentAdapter', () => {
             'resolved-session-id',
             '/fake/workspace',
             'Plain',
+            'created',
+            undefined,
+            undefined,
           );
-          expect(h.metadataStore.create.mock.calls[0]).toHaveLength(3);
         },
       );
     });
@@ -1489,6 +1565,7 @@ describe('SdkAgentAdapter', () => {
       const activityWatchdog = new NoActivityWatchdog(100000, () => undefined);
       const onMessage: ExecuteQueryResult['onMessage'] = jest.fn();
       const onStreamEnd: ExecuteQueryResult['onStreamEnd'] = jest.fn();
+      const beforeLiveStatsDispose: ExecuteQueryResult['beforeLiveStatsDispose'] = jest.fn();
       h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
         sdkQuery,
         initialModel: 'claude-sonnet-4-20250514',
@@ -1496,6 +1573,7 @@ describe('SdkAgentAdapter', () => {
         activityWatchdog,
         onMessage,
         onStreamEnd,
+        beforeLiveStatsDispose,
       } as ExecuteQueryResult);
 
       await h.adapter.startChatSession(makeSessionConfig());
@@ -1506,6 +1584,7 @@ describe('SdkAgentAdapter', () => {
       // The compaction tap's callbacks reach the stream (TASK_2026_614 D.11).
       expect(transformArg.onMessage).toBe(onMessage);
       expect(transformArg.onStreamEnd).toBe(onStreamEnd);
+      expect(transformArg.beforeLiveStatsDispose).toBe(beforeLiveStatsDispose);
       expect(transformArg.sdkQuery).toBe(sdkQuery);
       expect(transformArg.sessionId).toBe('tab_1');
       expect(transformArg.initialModel).toBe('claude-sonnet-4-20250514');
@@ -1650,6 +1729,7 @@ describe('SdkAgentAdapter', () => {
       const sdkQuery = createFakeQuery();
       const onMessage: ExecuteQueryResult['onMessage'] = jest.fn();
       const onStreamEnd: ExecuteQueryResult['onStreamEnd'] = jest.fn();
+      const beforeLiveStatsDispose: ExecuteQueryResult['beforeLiveStatsDispose'] = jest.fn();
       h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
         sdkQuery,
         initialModel: 'claude-sonnet-4-20250514',
@@ -1657,6 +1737,7 @@ describe('SdkAgentAdapter', () => {
         activityWatchdog: new NoActivityWatchdog(100000, () => undefined),
         onMessage,
         onStreamEnd,
+        beforeLiveStatsDispose,
       } as ExecuteQueryResult);
       await h.adapter.resumeSession('sess-1' as SessionId);
 
@@ -1685,6 +1766,7 @@ describe('SdkAgentAdapter', () => {
       expect(reused.sdkQuery).toBe(sdkQuery);
       expect(reused.onMessage).toBe(onMessage);
       expect(reused.onStreamEnd).toBe(onStreamEnd);
+      expect(reused.beforeLiveStatsDispose).toBe(beforeLiveStatsDispose);
     });
 
     it('dispatches a new executeQuery() when no active session exists, threading the watchdog through', async () => {
@@ -1697,6 +1779,7 @@ describe('SdkAgentAdapter', () => {
       const activityWatchdog = new NoActivityWatchdog(100000, () => undefined);
       const onMessage: ExecuteQueryResult['onMessage'] = jest.fn();
       const onStreamEnd: ExecuteQueryResult['onStreamEnd'] = jest.fn();
+      const beforeLiveStatsDispose: ExecuteQueryResult['beforeLiveStatsDispose'] = jest.fn();
       h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
         sdkQuery,
         initialModel: 'claude-sonnet-4-20250514',
@@ -1704,6 +1787,7 @@ describe('SdkAgentAdapter', () => {
         activityWatchdog,
         onMessage,
         onStreamEnd,
+        beforeLiveStatsDispose,
       } as ExecuteQueryResult);
 
       await h.adapter.resumeSession('sess-1' as SessionId);
@@ -1719,6 +1803,7 @@ describe('SdkAgentAdapter', () => {
       // The compaction tap's callbacks reach the stream (TASK_2026_614 D.11).
       expect(transformArg.onMessage).toBe(onMessage);
       expect(transformArg.onStreamEnd).toBe(onStreamEnd);
+      expect(transformArg.beforeLiveStatsDispose).toBe(beforeLiveStatsDispose);
       expect(transformArg.sdkQuery).toBe(sdkQuery);
     });
 
@@ -2358,6 +2443,39 @@ describe('SdkAgentAdapter', () => {
       ).rejects.toBeInstanceOf(SdkError);
     });
 
+    it('starts the relaunched run when the provider write fails', async () => {
+      const h = makeAdapter();
+      await h.adapter.initialize();
+      const failure = new Error('storage unavailable');
+      h.metadataStore.updateProvider.mockRejectedValueOnce(failure);
+      const beginRun = jest.spyOn(h.statsOwner, 'beginRun');
+      h.sessionLifecycle.executeSlashCommandQuery.mockImplementationOnce(
+        async (_id, _command, options) => {
+          await options.beforeRelaunch?.();
+          return {
+            sdkQuery: createFakeQuery(),
+            initialModel: 'claude',
+            abortController: new AbortController(),
+          } as ExecuteQueryResult;
+        },
+      );
+
+      await expect(
+        h.adapter.executeSlashCommand('sess-1' as SessionId, '/compact', {
+          sessionConfig: { projectPath: '/fake/workspace' } as AISessionConfig,
+          providerProfile: { providerId: 'openrouter' } as ProviderProfile,
+        }),
+      ).resolves.toBeDefined();
+      expect(beginRun).toHaveBeenCalled();
+      expect(h.streamTransformer.transform).toHaveBeenCalled();
+      expect(h.logger.error).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'Failed to update slash-command session provider',
+        ),
+        failure,
+      );
+    });
+
     it('delegates to executeSlashCommandQuery and threads the watchdog into the transformer', async () => {
       const h = makeAdapter();
       await h.adapter.initialize();
@@ -2367,6 +2485,7 @@ describe('SdkAgentAdapter', () => {
       const activityWatchdog = new NoActivityWatchdog(100000, () => undefined);
       const onMessage: ExecuteQueryResult['onMessage'] = jest.fn();
       const onStreamEnd: ExecuteQueryResult['onStreamEnd'] = jest.fn();
+      const beforeLiveStatsDispose: ExecuteQueryResult['beforeLiveStatsDispose'] = jest.fn();
       h.sessionLifecycle.executeSlashCommandQuery.mockResolvedValueOnce({
         sdkQuery,
         initialModel: 'claude-sonnet-4-20250514',
@@ -2374,6 +2493,7 @@ describe('SdkAgentAdapter', () => {
         activityWatchdog,
         onMessage,
         onStreamEnd,
+        beforeLiveStatsDispose,
       } as ExecuteQueryResult);
 
       await h.adapter.executeSlashCommand('sess-1' as SessionId, '/help', {
@@ -2390,8 +2510,10 @@ describe('SdkAgentAdapter', () => {
       // The compaction tap's callbacks reach the stream (TASK_2026_614 D.11).
       expect(transformArg.onMessage).toBe(onMessage);
       expect(transformArg.onStreamEnd).toBe(onStreamEnd);
+      expect(transformArg.beforeLiveStatsDispose).toBe(beforeLiveStatsDispose);
       expect(transformArg.sdkQuery).toBe(sdkQuery);
       expect(transformArg.tabId).toBe('tab-1');
+      expect(h.metadataStore.updateProvider).not.toHaveBeenCalled();
     });
 
     it('runs the relaunch on the provider profile: its auth env, model and cli.js', async () => {
@@ -2416,6 +2538,10 @@ describe('SdkAgentAdapter', () => {
           cliJsPath: '/profile/cli.js',
         },
       });
+      expect(h.metadataStore.updateProvider).toHaveBeenCalledWith(
+        'sess-1',
+        'moonshot',
+      );
 
       const [, , slashConfig] =
         h.sessionLifecycle.executeSlashCommandQuery.mock.calls[0];
@@ -3731,6 +3857,7 @@ describe('SdkAgentAdapter', () => {
             initialModel: 'claude-sonnet-4-20250514',
             abortController: new AbortController(),
             sessionToken: 'resume-owner',
+            capacityRoute: { kind: 'proxy', providerId: 'openrouter' },
           } as ExecuteQueryResult);
 
           await h.adapter.resumeSession(
@@ -3746,6 +3873,10 @@ describe('SdkAgentAdapter', () => {
           );
           expect(h.metadataStore.touch).toHaveBeenCalledTimes(1);
           expect(h.metadataStore.touch).toHaveBeenCalledWith(REAL_ID);
+          expect(h.metadataStore.updateProvider).toHaveBeenCalledWith(
+            REAL_ID,
+            'openrouter',
+          );
           expect(singleSlot).toHaveBeenCalledTimes(1);
           expect(singleSlot).toHaveBeenCalledWith(TAB_ID, REAL_ID);
           expect(seen).toHaveLength(1);
@@ -3754,6 +3885,34 @@ describe('SdkAgentAdapter', () => {
           );
         },
       );
+
+      it('emits the resumed session ID when the provider write fails', async () => {
+        const h = makeAdapter();
+        await h.adapter.initialize();
+        const failure = new Error('storage unavailable');
+        h.metadataStore.updateProvider.mockRejectedValueOnce(failure);
+        h.sessionLifecycle.bindRealSessionId.mockReturnValue('bound');
+        h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
+          sdkQuery: createFakeQuery(),
+          initialModel: 'claude',
+          abortController: new AbortController(),
+          sessionToken: 'resume-owner',
+          capacityRoute: { kind: 'proxy', providerId: 'openrouter' },
+        } as ExecuteQueryResult);
+        const resolved = jest.fn();
+        h.adapter.setSessionIdResolvedCallback(resolved);
+
+        await h.adapter.resumeSession(
+          REAL_ID as SessionId,
+          makeSessionConfig({ tabId: TAB_ID }),
+        );
+        await expect(deliverInit(h, REAL_ID)).resolves.toBeUndefined();
+        expect(resolved).toHaveBeenCalledWith(TAB_ID, REAL_ID);
+        expect(h.logger.error).toHaveBeenCalledWith(
+          expect.stringContaining('Failed to update resumed session provider'),
+          failure,
+        );
+      });
 
       describe('readReboundSource', () => {
         type ReboundSourceReader = {

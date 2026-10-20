@@ -3,7 +3,7 @@ import {
   ChangeDetectionStrategy,
   input,
   output,
-  signal,
+  model,
   computed,
 } from '@angular/core';
 import { LucideAngularModule, SendHorizontal } from 'lucide-angular';
@@ -44,7 +44,7 @@ import { LucideAngularModule, SendHorizontal } from 'lucide-angular';
           type="button"
           class="btn btn-xs btn-primary btn-square"
           [disabled]="sendDisabled()"
-          aria-label="Send steer message"
+          [attr.aria-label]="sendLabel()"
           (click)="submit()"
         >
           @if (pending()) {
@@ -70,12 +70,19 @@ export class AgentSteerInputComponent {
   readonly clearOnSubmit = input<boolean>(true);
   /** Placeholder / accessible label. */
   readonly placeholder = input<string>('Steer this agent…');
+  /** Accessible label of the send button. */
+  readonly sendLabel = input<string>('Send steer message');
 
   /** Emits the trimmed steer text. Parent clears `pending` when done. */
   readonly steer = output<string>();
 
+  /**
+   * The typed text. Two-way bindable (`[(draft)]`) so a parent that keeps the
+   * draft while it waits (`clearOnSubmit` false) can clear or reset it.
+   */
+  readonly draft = model('');
+
   protected readonly SendIcon = SendHorizontal;
-  protected readonly draft = signal('');
 
   protected readonly sendDisabled = computed(
     () => this.pending() || this.draft().trim().length === 0,

@@ -1,5 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
+import type { SavedAnalysisMetadata } from '@ptah-extension/shared';
 import { WelcomeComponent } from './welcome.component';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 import { WizardRpcService } from '../services/wizard-rpc.service';
@@ -20,9 +21,8 @@ describe('WelcomeComponent', () => {
   let fixture: ComponentFixture<WelcomeComponent>;
   let mockStateService: Partial<SetupWizardStateService>;
   let mockRpcService: Partial<WizardRpcService>;
-  const availableModels = signal<
-    Array<{ id: string; name?: string }>
-  >([]);
+  const savedAnalyses = signal<SavedAnalysisMetadata[]>([]);
+  const availableModels = signal<Array<{ id: string; name?: string }>>([]);
   const currentModel = signal('');
   const connections = signal<{
     status: 'ready';
@@ -31,6 +31,7 @@ describe('WelcomeComponent', () => {
   const activeProviderId = signal<string | null>('');
 
   beforeEach(async () => {
+    savedAnalyses.set([]);
     availableModels.set([]);
     currentModel.set('');
     connections.set({ status: 'ready', data: [] });
@@ -38,7 +39,7 @@ describe('WelcomeComponent', () => {
     mockStateService = {
       setCurrentStep: jest.fn(),
       setSavedAnalyses: jest.fn(),
-      savedAnalyses: signal([]).asReadonly(),
+      savedAnalyses: savedAnalyses.asReadonly(),
     } as unknown as Partial<SetupWizardStateService>;
 
     mockRpcService = {
@@ -124,9 +125,9 @@ describe('WelcomeComponent', () => {
     expect(
       TestBed.inject(ProvidersSettingsStateService).activateConnection,
     ).toHaveBeenCalledWith('provider-a', 'global', expect.any(Object));
-    expect(
-      TestBed.inject(ModelStateService).switchModel,
-    ).toHaveBeenCalledWith('model-a');
+    expect(TestBed.inject(ModelStateService).switchModel).toHaveBeenCalledWith(
+      'model-a',
+    );
   });
 
   it('activates the provider for this workspace when a workspace is open', async () => {
@@ -163,5 +164,22 @@ describe('WelcomeComponent', () => {
 
       expect(mockStateService.setCurrentStep).toHaveBeenCalledWith('scan');
     });
+  });
+
+  it('hides a saved analysis without deleting its file', async () => {
+    const analysis = {
+      filename: 'saved',
+      projectType: 'Angular',
+      phaseCount: 4,
+      savedAt: '2026-10-16',
+      model: 'model-a',
+      durationMs: 1000,
+    };
+    savedAnalyses.set([analysis]);
+    fixture.detectChanges();
+    fixture.nativeElement
+      .querySelector('[aria-label="Hide this analysis from the list"]')
+      .click();
+    expect(mockStateService.setSavedAnalyses).toHaveBeenCalledWith([]);
   });
 });

@@ -1,4 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { FILE_LINK_OPENER } from '@ptah-extension/core';
 import { provideSurfaceActiveTesting } from '@ptah-extension/core/testing';
 import { provideMarkdown } from 'ngx-markdown';
 import { AgentCardOutputComponent } from './agent-card-output.component';
@@ -9,7 +10,11 @@ describe('AgentCardOutputComponent', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [AgentCardOutputComponent],
-      providers: [provideSurfaceActiveTesting(), provideMarkdown()],
+      providers: [
+        provideSurfaceActiveTesting(),
+        provideMarkdown(),
+        { provide: FILE_LINK_OPENER, useValue: { open: jest.fn() } },
+      ],
     }).compileComponents();
     fixture = TestBed.createComponent(AgentCardOutputComponent);
     fixture.componentRef.setInput('embedded', true);
@@ -39,6 +44,24 @@ describe('AgentCardOutputComponent', () => {
 
     const host = fixture.nativeElement as HTMLElement;
     expect(host.querySelector('strong')?.textContent).toBe('Model prose');
+  });
+
+  it('moves trailing WROTE lines out of the markdown into a result card', async () => {
+    const path = 'D:\\repo\\.claude-worktrees\\x\\plan.md';
+    fixture.componentRef.setInput('segments', [
+      { type: 'text', content: `**Done.**\n\nWROTE: ${path} — APPROVED` },
+    ]);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelector('strong')?.textContent).toBe('Done.');
+    expect(host.querySelector('markdown')?.textContent).not.toContain('WROTE');
+    expect(
+      host
+        .querySelector('[data-testid="lane-result-file"]')
+        ?.getAttribute('title'),
+    ).toBe(path);
   });
 
   it('keeps every earlier segment node when a segment is appended', async () => {

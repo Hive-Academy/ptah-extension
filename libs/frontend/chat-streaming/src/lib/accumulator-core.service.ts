@@ -36,6 +36,7 @@
 import { Injectable, inject } from '@angular/core';
 import {
   type CompactionMeasurement,
+  type IdleCompactionNotice,
   ExecutionNode,
   FlatStreamEventUnion,
   MessageStartEvent,
@@ -61,6 +62,8 @@ import { AgentMonitorStore } from './agent-monitor.store';
  * per call so the core itself stays free of consumer-specific dependencies.
  */
 export interface AccumulatorContext {
+  /** Keep event accumulation while suppressing tab-level agent store updates. */
+  readonly skipStoreEffects?: boolean;
   readonly sessionManager: SessionManager;
   readonly deduplication: EventDeduplicationService;
   readonly batchedUpdate: BatchedUpdateService;
@@ -136,6 +139,7 @@ export interface AccumulatorResult {
    */
   readonly boundaryId?: string;
   readonly measurement?: CompactionMeasurement;
+  readonly idleCompaction?: IdleCompactionNotice;
   readonly preTokens?: number;
   /** Post-compaction token count, copied off `compaction_complete`. */
   readonly postTokens?: number;
@@ -446,12 +450,19 @@ export class StreamingAccumulatorCore {
         // already-registered background case (isBackgroundAgent) AND the
         // same-event placeholder marker so no ordering race can prematurely
         // terminalise a background agent.
-        if (agentMonitorStore.getSubagent(event.toolCallId)) {
+        if (
+          !ctx.skipStoreEffects &&
+          agentMonitorStore.getSubagent(event.toolCallId)
+        ) {
           const backgrounded =
             backgroundAgentStore.isBackgroundAgent(event.toolCallId) ||
             isBackgroundedToolResult(event.output);
           if (!backgrounded) {
-            agentMonitorStore.onTaskToolResult(event.toolCallId, event.isError);
+            agentMonitorStore.onTaskToolResult(
+              event.toolCallId,
+              event.isError,
+              event.timestamp,
+            );
           }
         }
 
@@ -494,24 +505,15 @@ export class StreamingAccumulatorCore {
           startTime: event.timestamp,
           isCollapsed: false,
         };
-        ctx.onAgentStart?.(event);
-        agentMonitorStore.onAgentStart(event);
+        if (!ctx.skipStoreEffects) {
+          ctx.onAgentStart?.(event);
+          agentMonitorStore.onAgentStart(event);
+        }
 
-        const pendingDeltas = sessionManager.registerAgent(
-          event.toolCallId,
-          preliminaryAgentNode,
-          event.sessionId,
-        );
-
-        if (pendingDeltas.length > 0) {
-          const summaryContent = pendingDeltas.join('');
-          const updatedNode: ExecutionNode = {
-            ...preliminaryAgentNode,
-            summaryContent,
-          };
+        if (!ctx.skipStoreEffects) {
           sessionManager.registerAgent(
             event.toolCallId,
-            updatedNode,
+            preliminaryAgentNode,
             event.sessionId,
           );
         }
@@ -534,7 +536,7 @@ export class StreamingAccumulatorCore {
         state.currentTokenUsage = event.tokenUsage || null;
         // A subagent's own message: its usage and activity time feed the
         // agent monitor's per-subagent usage and cache state.
-        if (event.parentToolUseId) {
+        if (event.parentToolUseId && !ctx.skipStoreEffects) {
           agentMonitorStore.onSubagentMessageComplete(event);
         }
 
@@ -582,6 +584,7 @@ export class StreamingAccumulatorCore {
           compactionComplete: true,
           boundaryId: event.boundaryId,
           measurement: event.measurement,
+          idleCompaction: event.idleCompaction,
           preTokens: event.preTokens,
           postTokens: event.postTokens,
           durationMs: event.durationMs,
@@ -590,25 +593,27 @@ export class StreamingAccumulatorCore {
       }
 
       case 'background_agent_started':
-        backgroundAgentStore.onStarted(event);
-        // The only event that carries the agentId parsed from the background
-        // placeholder; the monitor's record needs it to load the transcript.
-        agentMonitorStore.onBackgroundAgentStarted(event);
+        if (!ctx.skipStoreEffects) {
+          backgroundAgentStore.onStarted(event);
+          // The only event that carries the agentId parsed from the background
+          // placeholder; the monitor's record needs it to load the transcript.
+          agentMonitorStore.onBackgroundAgentStarted(event);
+        }
         return this.mutated(event.eventType);
       case 'background_agent_completed':
-        backgroundAgentStore.onCompleted(event);
+        if (!ctx.skipStoreEffects) backgroundAgentStore.onCompleted(event);
         return this.mutated(event.eventType);
       case 'background_agent_stopped':
-        backgroundAgentStore.onStopped(event);
+        if (!ctx.skipStoreEffects) backgroundAgentStore.onStopped(event);
         return this.mutated(event.eventType);
       case 'agent_progress':
-        agentMonitorStore.onAgentProgress(event);
+        if (!ctx.skipStoreEffects) agentMonitorStore.onAgentProgress(event);
         return this.mutated(event.eventType);
       case 'agent_status':
-        agentMonitorStore.onAgentStatus(event);
+        if (!ctx.skipStoreEffects) agentMonitorStore.onAgentStatus(event);
         return this.mutated(event.eventType);
       case 'agent_completed':
-        agentMonitorStore.onAgentCompleted(event);
+        if (!ctx.skipStoreEffects) agentMonitorStore.onAgentCompleted(event);
         return this.mutated(event.eventType);
 
       case 'turn_state':

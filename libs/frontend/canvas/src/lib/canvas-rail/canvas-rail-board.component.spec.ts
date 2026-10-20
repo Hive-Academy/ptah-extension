@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { DatePipe, NgTemplateOutlet } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -11,15 +12,17 @@ import {
   signal,
   type WritableSignal,
 } from '@angular/core';
-import { DeferBlockState, TestBed, type ComponentFixture } from '@angular/core/testing';
+import { DeferBlockBehavior, DeferBlockState, TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { LucideAngularModule } from 'lucide-angular';
-import { ChatStore, CompactSessionCardComponent, PreviousSessionsDialogService, RailTranscriptRetentionCoordinator, SessionInspectorStore, SessionOrganizerService, SessionRowActionsService, TabManagerService } from '@ptah-extension/chat';
+import { ChatStore, CompactSessionCardComponent, inspectorDockWidth, inspectorMaxWidthFor, PreviousSessionsDialogService, RailTranscriptRetentionCoordinator, RecentSessionsStore, SessionInspectorStore, SessionOrganizerService, SessionRowActionsService, TabManagerService } from '@ptah-extension/chat';
 import { SessionInspectorComponent } from '@ptah-extension/chat/inspector';
 import { PlanLimitsStore, SURFACE_ACTIVE } from '@ptah-extension/core';
-import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import { AgentMonitorStore, BackgroundAgentStore } from '@ptah-extension/chat-streaming';
 import {
   COMPACT_RAIL_CARD_HEIGHT,
+  SidebarTabComponent,
+  SplitHandleComponent,
   type CompactRailDensity,
   type CompactRailState,
 } from '@ptah-extension/chat-ui';
@@ -191,7 +194,7 @@ class InspectorStub {
   readonly closeRequested = output<void>();
 }
 
-/** Session details load in a lazy `@defer (on idle)` chunk; render them now. */
+/** Session details load in a lazy `@defer` chunk once opened; render them now. */
 async function completeDeferBlocks(fixture: Pick<ComponentFixture<unknown>, 'getDeferBlocks'>): Promise<void> {
   for (const block of await fixture.getDeferBlocks()) {
     await block.render(DeferBlockState.Complete);
@@ -200,7 +203,7 @@ async function completeDeferBlocks(fixture: Pick<ComponentFixture<unknown>, 'get
 @Component({
   selector: 'ptah-project-setup-card',
   standalone: true,
-  template: '<button type="button">Open Marketplace Skills</button>',
+  template: '<button type="button">Open Library</button>',
 })
 class ProjectSetupStub {}
 
@@ -237,8 +240,9 @@ describe('CanvasRailBoardComponent actions', () => {
 
   it('asks the host for the named popover instead of adding a session', () => {
     const { instance, addTile } = board();
-    instance.newSession();
-    expect(instance.newSessionRequested.emit).toHaveBeenCalledTimes(1);
+    const button = document.createElement('button');
+    instance.newSession(button);
+    expect(instance.newSessionRequested.emit).toHaveBeenCalledWith(button);
     expect(addTile).not.toHaveBeenCalled();
   });
 
@@ -281,15 +285,22 @@ describe('CanvasRailBoardComponent actions', () => {
           addTile,
         },
       });
-      instance.newSession();
+      instance.newSession(document.createElement('button'));
       expect(addTile).not.toHaveBeenCalled();
       expect(instance.newSessionRequested.emit).toHaveBeenCalledTimes(1);
     },
   );
 });
 
+/** `InspectorDockWidthStore` key; the real root store persists the dock width here. */
+const DOCK_WIDTH_KEY = 'ptah.inspector-dock-width.v1';
+
 describe('CanvasRailBoardComponent rendering', () => {
-  afterEach(() => jest.restoreAllMocks());
+  beforeEach(() => localStorage.removeItem(DOCK_WIDTH_KEY));
+  afterEach(() => {
+    jest.restoreAllMocks();
+    localStorage.removeItem(DOCK_WIDTH_KEY);
+  });
 
   function mount(
     visible = true,
@@ -329,6 +340,12 @@ describe('CanvasRailBoardComponent rendering', () => {
     const width = signal(1400);
     const writeFailed = signal(false);
     const dialogOpen = signal(false);
+    const laneKeys = signal<ReadonlyMap<string, string>>(new Map());
+    const agents = signal<{ agentId: string; parentSessionId: string }[]>([]);
+    const subagents = signal(new Map<string, { parentToolUseId: string; parentSessionId: string }>());
+    const backgroundAgents = signal<{ toolCallId: string; sessionId: string }[]>([]);
+    const recent = signal<readonly { id: string; name: string; lastActivityAt: number }[]>([]);
+    const openSession = jest.fn().mockResolvedValue('opened');
     const setRailCollapsed = jest.fn((_: string, value: boolean) =>
       board.update((b) => ({ ...b, railCollapsed: value })),
     );
@@ -357,21 +374,27 @@ describe('CanvasRailBoardComponent rendering', () => {
     };
     TestBed.configureTestingModule({
       imports: [CanvasRailBoardComponent],
+      // The inspector blocks load as soon as they open; specs step them with `completeDeferBlocks`.
+      deferBlockBehavior: DeferBlockBehavior.Manual,
       providers: [
         CanvasRenderMetricsService,
         { provide: CanvasStore, useValue: store },
         { provide: CanvasLayoutService, useValue: { containerWidth: width } },
         { provide: CanvasLayoutPersistenceService, useValue: { writeFailed } },
         { provide: PlanLimitsStore, useValue: { snapshot: () => null } },
-        { provide: AgentMonitorStore, useValue: { agentsOwnedBySession: () => [] } },
+        { provide: AgentMonitorStore, useValue: { agentsOwnedBySession: () => [], agents, subagents } },
+        { provide: BackgroundAgentStore, useValue: { agents: backgroundAgents } },
         {
           provide: CanvasDetailService,
-          useValue: realFocus ? { laneKeyFor: () => null, selectLaneFor: jest.fn() } : {},
+          useValue: realFocus
+            ? { laneKeyFor: () => 'orchestrator', selectLaneFor: jest.fn() }
+            : { laneKeyFor: (id: string) => laneKeys().get(id) ?? 'orchestrator' },
         },
         { provide: ChatStore, useValue: {} },
         { provide: PreviousSessionsDialogService, useValue: { isOpen: dialogOpen, open: jest.fn() } },
         { provide: SessionOrganizerService, useValue: { available: () => false } },
-        { provide: SessionRowActionsService, useValue: { rename: jest.fn() } },
+        { provide: SessionRowActionsService, useValue: { rename: jest.fn(), openSession } },
+        { provide: RecentSessionsStore, useValue: { load: jest.fn().mockResolvedValue(undefined), sessions: recent, confirmed: () => true } },
         { provide: SessionInspectorStore, useValue: { modelFor: (id: string) => () => ({ needsYouCount: needsYou()[id] ?? 0 }) } },
         ...(surface ? [{ provide: SURFACE_ACTIVE, useValue: surface }] : []),
         {
@@ -379,7 +402,7 @@ describe('CanvasRailBoardComponent rendering', () => {
           useValue: {
             activeTabId: () => focused(),
             findTabByIdAcrossWorkspaces: (id: string) => ({
-              tab: { title: id },
+              tab: { title: id, claudeSessionId: 'owner' },
             }),
           },
         },
@@ -392,8 +415,13 @@ describe('CanvasRailBoardComponent rendering', () => {
           realFocus ? CanvasFocusAreaComponent : FocusStub,
           InspectorStub,
           ProjectSetupStub,
+          NgTemplateOutlet,
+          DatePipe,
           LucideAngularModule,
+          SidebarTabComponent,
+          SplitHandleComponent,
         ],
+        schemas: [NO_ERRORS_SCHEMA],
       },
     });
     if (realFocus) {
@@ -421,6 +449,12 @@ describe('CanvasRailBoardComponent rendering', () => {
       needsYou,
       board,
       width,
+      laneKeys,
+      recent,
+      openSession,
+      agents,
+      subagents,
+      backgroundAgents,
       writeFailed,
       store,
       canStart,
@@ -466,6 +500,38 @@ describe('CanvasRailBoardComponent rendering', () => {
     fixture.componentInstance.openBeside('b');
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelectorAll('[data-testid="canvas-tile"]')).toHaveLength(2);
+  });
+
+  it.each([1600, 760])('%i split clips the orchestrator tile while another lane keeps pane scrolling', (pixels) => {
+    const { fixture, width, laneKeys, agents, backgroundAgents } = mount();
+    width.set(pixels);
+    laneKeys.set(new Map([['b', 'cli:agent']]));
+    agents.set([{ agentId: 'agent', parentSessionId: 'owner' }]);
+    fixture.componentInstance.openBeside('b');
+    fixture.detectChanges();
+
+    const container = fixture.nativeElement.querySelector('[data-testid="rail-pane-container"]');
+    const orchestrator = fixture.nativeElement.querySelector('[data-pane-side="left"]');
+    const cli = fixture.nativeElement.querySelector('[data-pane-side="right"]');
+    expect(container.classList).toContain(pixels === 1600 ? 'overflow-y-hidden' : 'overflow-y-auto');
+    expect(container.classList).toContain(pixels === 1600 ? 'flex-row' : 'flex-col');
+    expect(orchestrator.classList).toContain('overflow-hidden');
+    expect(orchestrator.classList).not.toContain('overflow-y-auto');
+    expect(orchestrator.classList).toContain(pixels === 1600 ? 'min-h-0' : 'min-h-[240px]');
+    expect(cli.classList).toContain('overflow-y-auto');
+    expect(cli.classList).not.toContain('overflow-hidden');
+    expect(orchestrator.querySelector('ptah-canvas-focus-area')?.classList).toContain('min-h-0');
+
+    laneKeys.set(new Map([['a', 'bg:agent']]));
+    backgroundAgents.set([{ toolCallId: 'agent', sessionId: 'owner' }]);
+    fixture.detectChanges();
+    expect(orchestrator.classList).toContain('overflow-y-auto');
+    expect(cli.classList).toContain('overflow-hidden');
+
+    backgroundAgents.set([]);
+    fixture.detectChanges();
+    expect(orchestrator.classList).toContain('overflow-hidden');
+    expect(orchestrator.classList).not.toContain('overflow-y-auto');
   });
 
   it('binds the pane entrance only when a split is displayed', () => {
@@ -537,6 +603,13 @@ describe('CanvasRailBoardComponent rendering', () => {
     const inspector = fixture.debugElement.query(By.directive(InspectorStub));
     expect(inspector).not.toBeNull();
     expect(inspector.componentInstance.tabId()).toBe('a');
+  });
+
+  it('does not reserve an inspector column when the board has no focused session', () => {
+    const { fixture } = mount(true, 0);
+    expect(fixture.nativeElement.querySelector('[data-testid="canvas-rail-empty-board"]')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('[data-inspector-dock]')).toBeNull();
+    expect(fixture.nativeElement.querySelector('[data-stats-tab]')).toBeNull();
   });
 
   it('synchronizes pane, rail and Details after external removal of the focused tile', async () => {
@@ -652,28 +725,299 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(store.setRailCollapsed).not.toHaveBeenCalled();
   });
 
-  it('keeps a full details column at the medium width band', () => {
+  /** The single-focus dock, its separator and the Stats tab button, or null. */
+  function dockParts(host: TestHost) {
+    return {
+      tab: host.querySelector<HTMLButtonElement>('[data-stats-tab] button') as HTMLButtonElement | null,
+      separator: host.querySelector<HTMLElement>('[role="separator"][aria-label="Resize session details"]') as HTMLElement | null,
+      aside: host.querySelector<HTMLElement>('aside:not([data-dock])') as HTMLElement | null,
+    };
+  }
+
+  it('lg: the Stats tab is expanded and the dock renders the default width with the floor max', () => {
+    const { fixture } = mount();
+    const { tab, separator, aside } = dockParts(fixture.nativeElement);
+    expect(tab?.getAttribute('aria-expanded')).toBe('true');
+    expect(tab?.getAttribute('aria-label')).toContain('Stats');
+    expect(aside?.style.width).toBe(`${inspectorDockWidth(null, 1400 - 304 - 32)}px`);
+    expect(aside?.style.width).toBe('336px');
+    expect(separator?.getAttribute('aria-valuemax')).toBe(`${inspectorMaxWidthFor(1064)}`);
+    expect(separator?.getAttribute('aria-valuemax')).toBe('560');
+    expect(separator?.getAttribute('aria-valuemin')).toBe('300');
+    expect(separator?.getAttribute('aria-orientation')).toBe('vertical');
+  });
+
+  it('md: the dock is open at the default width beside the Stats tab, with no Open details control', () => {
     const { fixture, width } = mount();
     width.set(1200);
     fixture.detectChanges();
-    expect(
-      fixture.nativeElement.querySelector('aside.w-\\[296px\\]'),
-    ).toBeTruthy();
-    expect(
-      fixture.nativeElement.querySelector('[aria-label="Open details"]'),
-    ).toBeNull();
+    const { tab, separator, aside } = dockParts(fixture.nativeElement);
+    expect(tab?.getAttribute('aria-expanded')).toBe('true');
+    expect(aside?.style.width).toBe('336px');
+    expect(separator?.getAttribute('aria-valuemax')).toBe('520');
+    expect(fixture.nativeElement.querySelector('[aria-label="Open details"]')).toBeNull();
   });
 
-  it('uses a labelled lucide button for the small-band details strip', () => {
+  it('sm: the dock starts closed behind a collapsed Stats tab, with no aside and no 44 px strip', () => {
     const { fixture, width } = mount();
     width.set(760);
     fixture.detectChanges();
-    const opener: HTMLButtonElement | null = fixture.nativeElement.querySelector('button.w-11[aria-label="Open details"]');
-    expect(opener).not.toBeNull();
-    expect(opener?.title).toBe('Session details');
-    expect(opener?.getAttribute('aria-expanded')).toBe('false');
-    expect(opener?.querySelector('svg.lucide')).not.toBeNull();
-    expect(opener?.classList).toContain('focus-visible:outline-base-content');
+    const { tab, separator, aside } = dockParts(fixture.nativeElement);
+    expect(tab?.getAttribute('aria-expanded')).toBe('false');
+    expect(separator).toBeNull();
+    expect(aside).toBeNull();
+    expect(fixture.nativeElement.querySelector('button.w-11')).toBeNull();
+    expect(fixture.nativeElement.querySelector('[aria-label="Open details"]')).toBeNull();
+  });
+
+  it('the Stats tab toggles the dock at md+ and carries the needs-you badge only while closed', () => {
+    const { fixture, needsYou } = mount();
+    needsYou.set({ a: 2 });
+    fixture.detectChanges();
+    const tabAtom = () =>
+      fixture.debugElement.query(By.directive(SidebarTabComponent)).componentInstance as SidebarTabComponent;
+    expect(tabAtom().badgeType()).toBeNull();
+    dockParts(fixture.nativeElement).tab?.click();
+    fixture.detectChanges();
+    let parts = dockParts(fixture.nativeElement);
+    expect(parts.tab?.getAttribute('aria-expanded')).toBe('false');
+    expect(parts.aside).toBeNull();
+    expect(parts.separator).toBeNull();
+    expect(tabAtom().badgeType()).toBe('warning');
+    needsYou.set({});
+    fixture.detectChanges();
+    expect(tabAtom().badgeType()).toBeNull();
+    parts.tab?.click();
+    fixture.detectChanges();
+    parts = dockParts(fixture.nativeElement);
+    expect(parts.tab?.getAttribute('aria-expanded')).toBe('true');
+    expect(parts.aside).not.toBeNull();
+  });
+
+  it('a key step persists the width, a remount restores it, and a narrow board clamps only the render', () => {
+    let { fixture, width } = mount();
+    dockParts(fixture.nativeElement).separator?.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }),
+    );
+    fixture.detectChanges();
+    expect(dockParts(fixture.nativeElement).aside?.style.width).toBe('352px');
+    expect(localStorage.getItem(DOCK_WIDTH_KEY)).toBe('352');
+    fixture.destroy();
+    TestBed.resetTestingModule();
+    ({ fixture, width } = mount());
+    expect(dockParts(fixture.nativeElement).aside?.style.width).toBe('352px');
+    width.set(760);
+    fixture.detectChanges();
+    dockParts(fixture.nativeElement).tab?.click();
+    fixture.detectChanges();
+    // sm 760 with the dock open: the rail auto-collapses to 56, 672 px are shared, max 312.
+    expect(dockParts(fixture.nativeElement).aside?.style.width).toBe('312px');
+    expect(localStorage.getItem(DOCK_WIDTH_KEY)).toBe('352');
+    width.set(1400);
+    fixture.detectChanges();
+    expect(dockParts(fixture.nativeElement).aside?.style.width).toBe('352px');
+  });
+
+  it('double-click resets to the default and forgets the width; Escape mid-drag keeps the stored width', () => {
+    const { fixture } = mount();
+    const parts = () => dockParts(fixture.nativeElement);
+    parts().separator?.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowLeft', shiftKey: true, bubbles: true, cancelable: true }),
+    );
+    fixture.detectChanges();
+    expect(localStorage.getItem(DOCK_WIDTH_KEY)).toBe('384');
+    const down = new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, clientX: 500 });
+    Object.defineProperty(down, 'pointerId', { value: 1 });
+    parts().separator?.dispatchEvent(down);
+    fixture.detectChanges();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    fixture.detectChanges();
+    expect(parts().aside?.style.width).toBe('384px');
+    expect(localStorage.getItem(DOCK_WIDTH_KEY)).toBe('384');
+    parts().separator?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    fixture.detectChanges();
+    expect(parts().aside?.style.width).toBe('336px');
+    expect(localStorage.getItem(DOCK_WIDTH_KEY)).toBeNull();
+  });
+
+  it('the inspector close shuts the dock and returns focus to the Stats tab', async () => {
+    const { fixture } = mount();
+    await completeDeferBlocks(fixture);
+    fixture.detectChanges();
+    const close = fixture.nativeElement.querySelector<HTMLButtonElement>(
+      'aside:not([data-dock]) [data-inspector-close]',
+    ) as HTMLButtonElement | null;
+    expect(close).not.toBeNull();
+    close?.focus();
+    close?.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const { tab, aside } = dockParts(fixture.nativeElement);
+    expect(aside).toBeNull();
+    expect(tab?.getAttribute('aria-expanded')).toBe('false');
+    expect(document.activeElement).toBe(tab);
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
+  it('crossing md to sm closes the dock and sm to md opens it again', () => {
+    const { fixture, width } = mount();
+    width.set(1200);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.dockOpen()).toBe(true);
+    width.set(760);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.dockOpen()).toBe(false);
+    expect(dockParts(fixture.nativeElement).aside).toBeNull();
+    width.set(1200);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.dockOpen()).toBe(true);
+    expect(dockParts(fixture.nativeElement).aside).not.toBeNull();
+  });
+
+  it('crossing below 400 px with the dock open hands it to the compact sheet and moves focus there', async () => {
+    const { fixture, width } = mount();
+    width.set(760);
+    fixture.detectChanges();
+    fixture.componentInstance.toggleDetails();
+    fixture.detectChanges();
+    expect(dockParts(fixture.nativeElement).aside).not.toBeNull();
+    width.set(390);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const board = fixture.componentInstance;
+    expect(board.dockOpen()).toBe(false);
+    expect(board.detailsOpen()).toBe(true);
+    expect(fixture.nativeElement.querySelector('[data-inspector-dock]')).toBeNull();
+    const sheet = fixture.nativeElement.querySelector<HTMLElement>('[data-compact-sheet]');
+    expect(sheet).not.toBeNull();
+    expect(sheet?.contains(document.activeElement)).toBe(true);
+    await completeDeferBlocks(fixture);
+    fixture.detectChanges();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(document.activeElement).toBe(sheet?.querySelector('[data-inspector-close]'));
+  });
+
+  it('crossing above 400 px with the compact sheet open hands it to the dock and moves focus there', async () => {
+    const { fixture, width } = mount();
+    width.set(390);
+    fixture.detectChanges();
+    fixture.componentInstance.openSplitDetails('left');
+    fixture.detectChanges();
+    await completeDeferBlocks(fixture);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[data-compact-sheet]')).not.toBeNull();
+    width.set(760);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const board = fixture.componentInstance;
+    expect(board.detailsOpen()).toBe(false);
+    expect(board.dockOpen()).toBe(true);
+    expect(fixture.nativeElement.querySelector('[data-compact-sheet]')).toBeNull();
+    const dock = fixture.nativeElement.querySelector<HTMLElement>('[data-inspector-dock]');
+    expect(dock).not.toBeNull();
+    const { tab } = dockParts(fixture.nativeElement);
+    expect(tab?.getAttribute('aria-expanded')).toBe('true');
+    // Before the deferred inspector loads, the dock shows a skeleton and focus waits on its toggle.
+    for (const block of await fixture.getDeferBlocks()) await block.render(DeferBlockState.Placeholder);
+    fixture.detectChanges();
+    expect(dock?.querySelector('[data-inspector-skeleton]')).not.toBeNull();
+    expect(document.activeElement).toBe(tab);
+    await completeDeferBlocks(fixture);
+    fixture.detectChanges();
+    // MutationObserver focus handoff runs after the deferred view is inserted.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(document.activeElement).toBe(dock?.querySelector('[data-inspector-close]'));
+  });
+
+  it('one resize from md to below 400 px hands the open dock to the compact sheet, and back', async () => {
+    const { fixture, width } = mount();
+    width.set(1200);
+    fixture.detectChanges();
+    const board = fixture.componentInstance;
+    expect(board.dockOpen()).toBe(true);
+    width.set(390);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(board.dockOpen()).toBe(false);
+    expect(board.detailsOpen()).toBe(true);
+    expect(fixture.nativeElement.querySelector('[data-inspector-dock]')).toBeNull();
+    const sheet = fixture.nativeElement.querySelector<HTMLElement>('[data-compact-sheet]');
+    expect(sheet).not.toBeNull();
+    expect(sheet?.contains(document.activeElement)).toBe(true);
+    await completeDeferBlocks(fixture);
+    fixture.detectChanges();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(document.activeElement).toBe(sheet?.querySelector('[data-inspector-close]'));
+    width.set(1200);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(board.detailsOpen()).toBe(false);
+    expect(board.dockOpen()).toBe(true);
+    expect(fixture.nativeElement.querySelector('[data-compact-sheet]')).toBeNull();
+    const dock = fixture.nativeElement.querySelector<HTMLElement>('[data-inspector-dock]');
+    expect(dock).not.toBeNull();
+    await completeDeferBlocks(fixture);
+    fixture.detectChanges();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(document.activeElement).toBe(dock?.querySelector('[data-inspector-close]'));
+  });
+
+  it('keeps a closed dock closed while the band moves between md and wider', () => {
+    const { fixture, width } = mount();
+    fixture.componentInstance.toggleDetails();
+    fixture.detectChanges();
+    width.set(1200);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.dockOpen()).toBe(false);
+    width.set(1800);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.dockOpen()).toBe(false);
+  });
+
+  it.each([
+    // [board width, valuemax]: lg 1064 px shared, md 880, sm 672 (rail auto-collapsed), sm 552.
+    [1400, 560],
+    [1200, 520],
+    [760, 312],
+    [640, 300],
+  ])('single-focus floor (row 18): at %p px the separator max is %p', (boardWidth, max) => {
+    const { fixture, width } = mount();
+    width.set(boardWidth);
+    fixture.detectChanges();
+    if (!fixture.componentInstance.dockOpen()) {
+      fixture.componentInstance.toggleDetails();
+      fixture.detectChanges();
+    }
+    const separator = dockParts(fixture.nativeElement).separator;
+    expect(separator?.getAttribute('aria-valuemax')).toBe(`${max}`);
+    separator?.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true }));
+    fixture.detectChanges();
+    expect(dockParts(fixture.nativeElement).aside?.style.width).toBe(`${max}px`);
+    const tile = fixture.nativeElement.querySelector<HTMLElement>('[data-testid="canvas-tile"]') as HTMLElement | null;
+    expect(tile?.classList.contains('min-w-[360px]')).toBe(false);
+  });
+
+  it('0 tiles: renders no Stats tab, no separator and no dock aside (D-7)', () => {
+    const { fixture } = mount(true, 0);
+    const { tab, separator } = dockParts(fixture.nativeElement);
+    expect(fixture.nativeElement.querySelector('[data-stats-tab]')).toBeNull();
+    expect(tab).toBeNull();
+    expect(separator).toBeNull();
+    expect(fixture.nativeElement.querySelector('aside')).toBeNull();
+    expect(fixture.nativeElement.querySelector('[data-testid="canvas-rail-empty-board"]')).not.toBeNull();
+  });
+
+  it('split and the compact sheet show no Stats tab and no separator', () => {
+    const { fixture, width } = mount();
+    fixture.componentInstance.openBeside('b');
+    fixture.detectChanges();
+    expect(dockParts(fixture.nativeElement).tab).toBeNull();
+    expect(dockParts(fixture.nativeElement).separator).toBeNull();
+    fixture.componentInstance.closeSplit();
+    width.set(380);
+    fixture.detectChanges();
+    expect(dockParts(fixture.nativeElement).tab).toBeNull();
+    expect(dockParts(fixture.nativeElement).separator).toBeNull();
   });
 
   it('announces needs and error transitions after the initial state', () => {
@@ -842,6 +1186,124 @@ describe('CanvasRailBoardComponent rendering', () => {
     removeHost.mockRestore();
   });
 
+  it('releases the press hold and its listeners when the page becomes hidden', () => {
+    const { fixture } = mount();
+    const instance = fixture.componentInstance;
+    const card = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>(
+      '[data-tab-id="a"] .rc-select',
+    )!;
+    const removeDocument = jest.spyOn(document, 'removeEventListener');
+    const removeWindow = jest.spyOn(window, 'removeEventListener');
+    const removeHost = jest.spyOn(fixture.nativeElement as HTMLElement, 'removeEventListener');
+    let hidden = false;
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
+    document.getSelection()?.removeAllRanges();
+    try {
+      card.dispatchEvent(Object.assign(new Event('pointerdown', { bubbles: true }), { pointerId: 3 }));
+      // A visible page keeps the press.
+      document.dispatchEvent(new Event('visibilitychange'));
+      expect(instance.holdTabId()).toBe('a');
+      expect(removeDocument).not.toHaveBeenCalledWith('pointerup', expect.any(Function));
+      hidden = true;
+      document.dispatchEvent(new Event('visibilitychange'));
+      expect(instance.holdTabId()).toBeNull();
+      expect(removeDocument).toHaveBeenCalledWith('pointerup', expect.any(Function));
+      expect(removeDocument).toHaveBeenCalledWith('pointercancel', expect.any(Function));
+      expect(removeDocument).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
+      expect(removeWindow).toHaveBeenCalledWith('blur', expect.any(Function));
+      expect(removeHost).toHaveBeenCalledWith('lostpointercapture', expect.any(Function));
+      // The released pointer is forgotten: a later press starts a fresh hold.
+      hidden = false;
+      card.dispatchEvent(Object.assign(new Event('pointerdown', { bubbles: true }), { pointerId: 4 }));
+      expect(instance.holdTabId()).toBe('a');
+      document.dispatchEvent(Object.assign(new Event('pointerup'), { pointerId: 4 }));
+      expect(instance.holdTabId()).toBeNull();
+    } finally {
+      delete (document as { hidden?: boolean }).hidden;
+    }
+  });
+
+  it('ends the hold only when the last tracked pointer loses capture (FU-14)', () => {
+    const { fixture } = mount();
+    const instance = fixture.componentInstance;
+    const host = fixture.nativeElement as HTMLElement;
+    const card = host.querySelector<HTMLElement>('[data-tab-id="a"] .rc-select')!;
+    const pointer = (type: string, pointerId: number) =>
+      Object.assign(new Event(type, { bubbles: true }), { pointerId });
+    const removeDocument = jest.spyOn(document, 'removeEventListener');
+    document.getSelection()?.removeAllRanges();
+
+    card.dispatchEvent(pointer('pointerdown', 1));
+    card.dispatchEvent(pointer('pointerdown', 2));
+    card.dispatchEvent(pointer('lostpointercapture', 1));
+    expect(instance.holdTabId()).toBe('a');
+    expect(removeDocument).not.toHaveBeenCalledWith('pointerup', expect.any(Function));
+    // An untracked pointer losing capture changes nothing.
+    card.dispatchEvent(pointer('lostpointercapture', 9));
+    expect(instance.holdTabId()).toBe('a');
+    // Pointer 1 is no longer tracked, so its late `pointerup` keeps pointer 2's hold.
+    document.dispatchEvent(pointer('pointerup', 1));
+    expect(instance.holdTabId()).toBe('a');
+    card.dispatchEvent(pointer('lostpointercapture', 2));
+    expect(instance.holdTabId()).toBeNull();
+    expect(removeDocument).toHaveBeenCalledWith('pointerup', expect.any(Function));
+    expect(removeDocument).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
+    removeDocument.mockRestore();
+  });
+
+  it('clears a press hold when the board is hidden and shown again mid-press', () => {
+    const { fixture } = mount();
+    const instance = fixture.componentInstance;
+    const pointer = (type: string, pointerId: number) =>
+      Object.assign(new Event(type, { bubbles: true }), { pointerId });
+    const card = () =>
+      (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>('[data-tab-id="a"] .rc-select')!;
+    document.getSelection()?.removeAllRanges();
+
+    card().dispatchEvent(pointer('pointerdown', 6));
+    expect(instance.holdTabId()).toBe('a');
+    fixture.componentRef.setInput('visible', false);
+    fixture.detectChanges();
+    expect(instance.holdTabId()).toBeNull();
+    fixture.componentRef.setInput('visible', true);
+    fixture.detectChanges();
+    expect(instance.holdTabId()).toBeNull();
+    // The old press is forgotten: its late pointerup changes nothing, and a
+    // new press holds and releases normally.
+    document.dispatchEvent(pointer('pointerup', 6));
+    expect(instance.holdTabId()).toBeNull();
+    card().dispatchEvent(pointer('pointerdown', 7));
+    expect(instance.holdTabId()).toBe('a');
+    document.dispatchEvent(pointer('pointerup', 7));
+    expect(instance.holdTabId()).toBeNull();
+  });
+
+  it('removes document and host listeners and clears the press on destroy', () => {
+    const { fixture } = mount();
+    const instance = fixture.componentInstance;
+    const host = fixture.nativeElement as HTMLElement;
+    const card = host.querySelector<HTMLElement>('[data-tab-id="a"] .rc-select')!;
+    const removeDocument = jest.spyOn(document, 'removeEventListener');
+    const removeWindow = jest.spyOn(window, 'removeEventListener');
+    const removeHost = jest.spyOn(host, 'removeEventListener');
+    document.getSelection()?.removeAllRanges();
+
+    card.dispatchEvent(Object.assign(new Event('pointerdown', { bubbles: true }), { pointerId: 5 }));
+    expect(instance.holdTabId()).toBe('a');
+    fixture.destroy();
+    for (const type of ['selectionchange', 'pointerup', 'pointercancel', 'visibilitychange']) {
+      expect(removeDocument).toHaveBeenCalledWith(type, expect.any(Function));
+    }
+    expect(removeWindow).toHaveBeenCalledWith('blur', expect.any(Function));
+    expect(removeHost).toHaveBeenCalledWith('pointerdown', expect.any(Function));
+    expect(removeHost).toHaveBeenCalledWith('lostpointercapture', expect.any(Function));
+    // The press ends with the board: no card stays held.
+    expect(instance.holdTabId()).toBeNull();
+    removeDocument.mockRestore();
+    removeWindow.mockRestore();
+    removeHost.mockRestore();
+  });
+
   it('focuses the selected lane tab after a lane request', () => {
     const { fixture } = mount();
     fixture.componentInstance.onLanesRequested('b');
@@ -950,17 +1412,128 @@ describe('CanvasRailBoardComponent rendering', () => {
     const trigger = fixture.nativeElement.querySelector<HTMLButtonElement>(
       '[data-testid="canvas-rail-empty-board"] button',
     );
-    expect(trigger.textContent?.trim()).toBe('New session');
+    expect(trigger.textContent?.replace(/\s+/g, ' ').trim()).toBe('+ New session');
+    expect(trigger.getAttribute('data-testid')).toBe('canvas-hero-new-session');
+    expect(fixture.nativeElement.querySelector('main')!.classList).toContain('order-first');
     expect(trigger.getAttribute('aria-disabled')).toBeNull();
     trigger.click();
-    expect(requested).toHaveBeenCalledTimes(1);
+    expect(requested).toHaveBeenCalledWith(trigger);
   });
 
   it('0 tiles: renders project setup on the canvas landing screen', () => {
     const { fixture } = mount(true, 0);
     const emptyBoard = fixture.nativeElement.querySelector('[data-testid="canvas-rail-empty-board"]');
     expect(emptyBoard?.querySelector('ptah-project-setup-card')).not.toBeNull();
-    expect(emptyBoard?.textContent).toContain('Open Marketplace Skills');
+    expect(emptyBoard?.textContent).toContain('Open Library');
+  });
+
+  it('reloads recent sessions on each entry into the empty board and keeps the rail instance', () => {
+    const { fixture, tiles } = mount(true, 1);
+    const load = jest.spyOn(TestBed.inject(RecentSessionsStore), 'load');
+    const rail = fixture.nativeElement.querySelector('ptah-canvas-rail');
+    expect(load).not.toHaveBeenCalled();
+    tiles.set([]);
+    fixture.detectChanges();
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(fixture.nativeElement.querySelector('ptah-canvas-rail')).toBe(rail);
+    tiles.set([{ tabId: 'a', order: 0 } as CanvasTile]);
+    fixture.detectChanges();
+    tiles.set([]);
+    fixture.detectChanges();
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(fixture.nativeElement.querySelector('ptah-canvas-rail')).toBe(rail);
+  });
+
+  it('does not reload recent sessions when empty tiles change array identity', () => {
+    const { fixture, tiles } = mount(true, 0);
+    const load = jest.spyOn(TestBed.inject(RecentSessionsStore), 'load');
+    load.mockClear();
+    tiles.set([]);
+    fixture.detectChanges();
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it('renders one in-flow notice, announces its severity, and emits its source key', () => {
+    const { fixture } = mount(true, 0);
+    const dismissed = jest.fn();
+    fixture.componentInstance.noticeDismissed.subscribe(dismissed);
+    fixture.componentRef.setInput('notice', { kind: 'write-failure', text: 'Layout could not be saved.', key: 'save:1' });
+    fixture.detectChanges();
+    const notice = fixture.nativeElement.querySelector<HTMLElement>('[data-testid="canvas-board-notice"]')!;
+    expect(notice.getAttribute('role')).toBe('alert');
+    expect(notice.textContent).toContain('Layout could not be saved.');
+    expect(notice.compareDocumentPosition(fixture.nativeElement.querySelector('#canvas-rail-empty-board-title')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    notice.querySelector<HTMLButtonElement>('button')!.click();
+    expect(dismissed).toHaveBeenCalledWith('save:1');
+    fixture.componentRef.setInput('notice', { kind: 'cap', text: RUNNING_CAP_MESSAGE, key: 'cap:2' });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('[data-testid="canvas-board-notice"]')).toHaveLength(1);
+    expect(fixture.nativeElement.querySelector('[data-testid="canvas-board-notice"]')?.getAttribute('role')).toBe('status');
+  });
+
+  it('shows at most three recent cards and announces a failed open', async () => {
+    const { fixture, recent, openSession } = mount(true, 0);
+    recent.set(Array.from({ length: 4 }, (_, i) => ({ id: String(i), name: `Session ${i}`, lastActivityAt: i })));
+    fixture.detectChanges();
+    const cards = fixture.nativeElement.querySelectorAll<HTMLButtonElement>('[aria-label^="Open Session"]');
+    expect(cards).toHaveLength(3);
+    openSession.mockResolvedValueOnce('failed');
+    cards[0].click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(openSession).toHaveBeenCalledWith(expect.objectContaining({ id: '0' }));
+    expect(fixture.nativeElement.querySelector('[aria-live="polite"]')?.textContent).toContain('Unable to open session');
+    expect(fixture.nativeElement.querySelectorAll('[aria-label^="Open Session"]')).toHaveLength(3);
+  });
+
+  it('shows recent titles on two lines and relative activity with an absolute tooltip', () => {
+    const { fixture, recent } = mount(true, 0);
+    recent.set([{ id: 'recent', name: 'Refactor the session settings and setup flow', lastActivityAt: Date.now() - 2 * 60 * 60_000 }]);
+    fixture.detectChanges();
+    const card = fixture.nativeElement.querySelector<HTMLButtonElement>('[aria-label^="Open Refactor"]')!;
+    expect(card.querySelector('span')?.className).toContain('line-clamp-2');
+    expect(card.querySelector('span')?.classList.contains('block')).toBe(false);
+    expect(card.textContent).toMatch(/2h ago|Yesterday/);
+    expect(card.getAttribute('aria-label')).toMatch(/2h ago|Yesterday/);
+    expect(card.querySelectorAll('span')[1].getAttribute('title')).toBeTruthy();
+  });
+
+  it('formats yesterday and older dates, and leaves missing activity blank', () => {
+    const { fixture } = mount(true, 0);
+    const board = fixture.componentInstance;
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    expect(board.recentActivity(yesterday.getTime())).toBe('Yesterday');
+    const older = new Date();
+    older.setDate(older.getDate() - 8);
+    expect(board.recentActivity(older.getTime())).toBe(
+      new Intl.DateTimeFormat(undefined, {
+        month: 'short', day: 'numeric',
+        year: older.getFullYear() === new Date().getFullYear() ? undefined : 'numeric',
+      }).format(older),
+    );
+    const future = new Date();
+    future.setDate(future.getDate() + 1);
+    expect(board.recentActivity(future.getTime())).toBe(
+      new Intl.DateTimeFormat(undefined, {
+        month: 'short', day: 'numeric',
+        year: future.getFullYear() === new Date().getFullYear() ? undefined : 'numeric',
+      }).format(future),
+    );
+    expect(board.recentActivity(null)).toBe('');
+    expect(board.recentActivity(undefined)).toBe('');
+  });
+
+  it('keeps the populated rail before the pane in keyboard order and notice in flow', () => {
+    const { fixture } = mount(true, 2);
+    fixture.componentRef.setInput('notice', { kind: 'read-only', text: 'This layout is read only.', key: 'read:1' });
+    fixture.detectChanges();
+    const rail = fixture.nativeElement.querySelector('ptah-canvas-rail')!;
+    const notice = fixture.nativeElement.querySelector('[data-testid="canvas-board-notice"]')!;
+    const pane = fixture.nativeElement.querySelector('[data-testid="rail-pane-container"]')!;
+    expect(rail.compareDocumentPosition(pane) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(notice.compareDocumentPosition(pane) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(notice.parentElement?.className).not.toContain('absolute');
   });
 
   it.each([
@@ -1015,7 +1588,7 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(store.setRailCollapsed).not.toHaveBeenCalled();
   });
 
-  it('0 tiles: the empty board scrolls and centres its content with my-auto instead of clipping', () => {
+  it('0 tiles: the empty board scrolls inside the viewport', () => {
     const { fixture } = mount(true, 0);
     const emptyBoard = fixture.nativeElement.querySelector<HTMLElement>('[data-testid="canvas-rail-empty-board"]');
     expect(emptyBoard.classList).toContain('overflow-y-auto');
@@ -1023,7 +1596,7 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(emptyBoard.classList).not.toContain('justify-center');
     const content = emptyBoard.querySelector<HTMLElement>('[data-testid="canvas-rail-empty-board-content"]');
     expect(content?.parentElement).toBe(emptyBoard);
-    expect(content?.classList).toContain('my-auto');
+    expect(content?.classList).toContain('max-w-[780px]');
     expect(content?.querySelector('ptah-project-setup-card')).not.toBeNull();
     expect(content?.querySelector('#canvas-rail-empty-board-title')).not.toBeNull();
   });
@@ -1206,18 +1779,26 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(fixture.componentInstance.announcement()).toBe('Sessions side by side.');
   });
 
-  it.each([1280, 920])('%i stacked keeps two live hosts with 400 px wrappers and vertical scroll', (pixels) => {
+  it.each([1280, 920])('%i stacked gives each pane a floor and scrolls the container when needed', (pixels) => {
     const { fixture, width } = mount();
     fixture.componentInstance.openBeside('b');
     width.set(pixels);
     fixture.detectChanges();
     const container = fixture.nativeElement.querySelector('[data-testid="rail-pane-container"]');
     expect(container.classList.contains('flex-col')).toBe(true);
+    expect(container.classList).toContain('min-h-0');
+    expect(container.classList).toContain('overflow-x-auto');
+    expect(container.classList).toContain('overflow-y-auto');
+    expect(container.classList).not.toContain('overflow-y-hidden');
     const panes = fixture.nativeElement.querySelectorAll('[data-pane-side]');
     expect(panes).toHaveLength(2);
     for (const pane of panes) {
-      expect(pane.classList.contains('min-h-[400px]')).toBe(true);
-      expect(pane.classList.contains('overflow-y-auto')).toBe(true);
+      expect(pane.classList).not.toContain('min-h-0');
+      expect(pane.classList).toContain('flex-1');
+      expect(pane.classList).toContain('overflow-hidden');
+      expect(pane.classList).not.toContain('overflow-y-auto');
+      expect(pane.classList).toContain('min-h-[240px]');
+      expect(pane.classList).not.toContain('min-h-[400px]');
       expect(pane.classList.contains('min-w-[360px]')).toBe(true);
       // NEW-3: Details lives in the pane header; the wrapper adds no control over header or lane tabs.
       expect(pane.querySelector('ptah-canvas-focus-area [aria-label="Open details"]')).not.toBeNull();
@@ -1867,6 +2448,44 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(document.activeElement).toBe(buttons(left)[0]);
   });
 
+  it('Tab focus arriving from outside the board activates the pane it lands in', () => {
+    const { fixture, focused } = mount(true, 3);
+    const instance = fixture.componentInstance;
+    instance.openBeside('b');
+    fixture.detectChanges();
+    instance.swapPanes();
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const before = document.createElement('button');
+    before.textContent = 'Before board';
+    host.parentElement!.insertBefore(before, host);
+    try {
+      expect(instance.activeSide()).toBe('right');
+      before.focus();
+      // The board's Tab handler listens on its host only: a Tab pressed outside
+      // the board keeps the browser's own move.
+      expect(tab(before).defaultPrevented).toBe(false);
+      // The browser then moves focus into the board; landing in the inactive
+      // pane activates it through that pane's focusin.
+      const inactive = paneOf(fixture, 'left') as HTMLElement;
+      buttons(inactive)[0].focus();
+      fixture.detectChanges();
+      expect(document.activeElement).toBe(buttons(inactive)[0]);
+      expect(instance.activeSide()).toBe('left');
+      expect(focused()).toBe('a');
+      expect(instance.otherTabId()).toBe('b');
+      expect(inactive.getAttribute('aria-label')).toBe('Bottom session: a, active');
+      // Focus arriving in the already active pane changes nothing.
+      before.focus();
+      buttons(inactive)[0].focus();
+      fixture.detectChanges();
+      expect(instance.activeSide()).toBe('left');
+      expect(focused()).toBe('a');
+    } finally {
+      before.remove();
+    }
+  });
+
   it('side-by-side swap keeps DOM Tab order (B3)', () => {
     const { fixture, width } = mount(true, 3);
     const instance = fixture.componentInstance;
@@ -1981,7 +2600,8 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(right.classList).not.toContain('border-l');
     for (const pane of [left, right]) {
       expect(pane.classList).toContain('min-w-[360px]');
-      expect(pane.classList).toContain('min-h-[400px]');
+      expect(pane.classList).toContain('min-h-0');
+      expect(pane.classList).not.toContain('min-h-[400px]');
     }
   });
 

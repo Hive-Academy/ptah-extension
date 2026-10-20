@@ -282,6 +282,17 @@ describe('PermissionPromptService', () => {
       expect(svc.removePendingResolver('ghost')).toBe(false);
     });
 
+      it('removes an in-app pending resolver', () => {
+        const service = new PermissionPromptService(
+          Object.assign(Object.create(null) as ConstructorParameters<typeof PermissionPromptService>[0], logger),
+          workspaceState as IStateStorage,
+        );
+      const request = makeRequest();
+      service.setPendingResolver(request.id, jest.fn(), request);
+      expect(service.removePendingResolver(request.id)).toBe(true);
+        expect(service.removePendingResolver(request.id)).toBe(false);
+    });
+
     it('does not time out — setPendingResolver never schedules a timer', () => {
       const req = makeRequest();
       const spy = jest.spyOn(global, 'setTimeout');

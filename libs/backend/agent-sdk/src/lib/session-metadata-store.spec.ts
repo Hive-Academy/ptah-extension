@@ -28,6 +28,7 @@ import { join } from 'node:path';
 import {
   AgentOutputCursorStaleError,
   SessionMetadataStore,
+  SESSION_METADATA_MIGRATION,
   flushSessionMetadataStores,
   type PersistedAgentOutput,
   type TaggedAgentOutputItem,
@@ -114,6 +115,104 @@ describe('SessionMetadataStore', () => {
   // -------------------------------------------------------------------------
 
   describe('create / createChild', () => {
+    it('persists the latest known provider without losing it on unrelated writes', async () => {
+      const created = await store.create(
+        'provider-session',
+        WORKSPACE,
+        'Provider',
+        'created',
+        undefined,
+        'anthropic',
+      );
+      expect(created.providerId).toBe('anthropic');
+      await store.updateProvider('provider-session', 'openrouter');
+      await store.updateProvider('provider-session', null);
+      await store.save({ ...created, providerId: undefined, totalCost: 1 });
+      await store.save({ ...created, totalCost: 2 });
+      await store.create('provider-session', WORKSPACE, 'Duplicate');
+      expect((await store.get('provider-session'))?.providerId).toBe(
+        'openrouter',
+      );
+      expect((await store.getForWorkspace(WORKSPACE))[0]?.providerId).toBe(
+        'openrouter',
+      );
+      expect(SESSION_METADATA_MIGRATION.summaryFields).toContainEqual({
+        sourcePath: ['providerId'],
+      });
+    });
+
+    it('updates a pre-created record only for a non-empty provider', async () => {
+      await store.create(
+        'existing-provider',
+        WORKSPACE,
+        'Original',
+        'created',
+        undefined,
+        'anthropic',
+      );
+      await store.create(
+        'existing-provider',
+        WORKSPACE,
+        'Ignored',
+        'created',
+        undefined,
+        'openrouter',
+      );
+      expect((await store.get('existing-provider'))?.providerId).toBe(
+        'openrouter',
+      );
+      await store.create(
+        'existing-provider',
+        WORKSPACE,
+        'Ignored',
+        'created',
+        undefined,
+        '  ',
+      );
+      expect((await store.get('existing-provider'))?.providerId).toBe(
+        'openrouter',
+      );
+    });
+
+    it('does not save or emit when the provider is unchanged', async () => {
+      await store.create(
+        'unchanged-provider',
+        WORKSPACE,
+        'Original',
+        'created',
+        undefined,
+        'anthropic',
+      );
+      const changed = jest.fn();
+      const unsubscribe = store.onMetadataChanged(changed);
+      storage.update.mockClear();
+      await store.updateProvider('unchanged-provider', 'anthropic');
+      expect(storage.update).not.toHaveBeenCalled();
+      expect(changed).not.toHaveBeenCalled();
+      unsubscribe();
+    });
+
+    it('preserves both changes when save and updateProvider run concurrently', async () => {
+      await store.create(
+        'concurrent-provider',
+        WORKSPACE,
+        'Original',
+        'created',
+        undefined,
+        'anthropic',
+      );
+      const current = await store.get('concurrent-provider');
+      if (!current) throw new Error('Missing metadata');
+      await Promise.all([
+        store.save({ ...current, totalCost: 7 }),
+        store.updateProvider('concurrent-provider', 'openrouter'),
+      ]);
+      expect(await store.get('concurrent-provider')).toMatchObject({
+        totalCost: 7,
+        providerId: 'openrouter',
+      });
+    });
+
     it('creates new metadata with zeroed stats', async () => {
       const md = await store.create('sess-1', WORKSPACE, 'First session');
       expect(md).toMatchObject({

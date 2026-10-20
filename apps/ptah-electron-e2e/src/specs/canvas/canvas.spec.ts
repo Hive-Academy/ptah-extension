@@ -29,7 +29,7 @@ const visualSide = (page: Page, position: 0 | 1): Promise<string | null> =>
 
 async function addRailSessions(page: Page, count: number): Promise<void> {
   for (let created = 0; created < count; created++) {
-    await page.locator('[data-testid="canvas-new-session-anchor"]').click();
+    await page.locator(created === 0 ? '[data-testid="canvas-hero-new-session"]' : '[data-testid="canvas-footer-new-session"]').click();
     await page.getByRole('button', { name: 'Create', exact: true }).click();
     await expect(railCards(page)).toHaveCount(created + 1);
   }
@@ -53,7 +53,7 @@ async function openSplit(page: Page): Promise<void> {
 }
 
 test.describe('Canvas Rail', () => {
-  test('Electron opens the Rail board after a persisted single-view preference', async ({ ui }) => {
+  test('Electron ignores a stale ptah-layout-mode value and opens the Rail board', async ({ ui }) => {
     const page = ui.page;
     await page.evaluate(() => localStorage.setItem('ptah-layout-mode', 'single'));
     await ui.prepare();
@@ -68,14 +68,14 @@ test.describe('Canvas Rail', () => {
     const page = ui.page;
     const empty = page.locator('[data-testid="canvas-rail-empty-board"]');
     await expect(empty).toBeVisible();
-    await expect(empty.getByRole('heading', { name: 'No sessions on this board' })).toBeVisible();
+    await expect(empty.getByRole('heading', { name: 'A fresh space to work' })).toBeVisible();
     await expect(empty.getByRole('button', { name: 'New session' })).toBeVisible();
   });
 
   test('adds and focuses a Rail session across navigation', async ({ ui }) => {
     await ui.goto('canvas');
     const page = ui.page;
-    await page.locator('[data-testid="canvas-new-session-anchor"]').click();
+    await page.locator('[data-testid="canvas-hero-new-session"]').click();
     await page.getByRole('button', { name: 'Create', exact: true }).click();
 
     const card = page.locator('ptah-canvas-rail [data-rail-card]');
@@ -92,7 +92,7 @@ test.describe('Canvas Rail', () => {
   test('retains the Rail board and card across a settings round-trip', async ({ ui }) => {
     const page = ui.page;
     await ui.goto('canvas');
-    await page.locator('[data-testid="canvas-new-session-anchor"]').click();
+    await page.locator('[data-testid="canvas-hero-new-session"]').click();
     await page.getByRole('button', { name: 'Create', exact: true }).click();
 
     const board = page.locator('ptah-canvas-rail-board:visible');
@@ -123,7 +123,7 @@ test.describe('Canvas Rail', () => {
     await ui.mockRpc({ 'workspace:getInfo': { folders: [WS], activeFolder: WS } });
     await ui.goto('canvas');
     const page = ui.page;
-    await page.locator('[data-testid="canvas-new-session-anchor"]').click();
+    await page.locator('[data-testid="canvas-hero-new-session"]').click();
     await page.getByRole('button', { name: 'Create', exact: true }).click();
     const card = page.locator('ptah-canvas-rail [data-rail-card]');
     await expect(card).toHaveCount(1);

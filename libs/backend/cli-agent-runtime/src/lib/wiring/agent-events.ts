@@ -18,6 +18,7 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import {
   MESSAGE_TYPES,
+  attentionRequestKey,
   retryWithBackoff,
   type AgentProcessInfo,
   type AgentOutputDelta,
@@ -297,9 +298,30 @@ function wireCopilotPermissionForwarding(
     const copilotAdapter = cliDetection.getAdapter('copilot');
     if (copilotAdapter && copilotAdapter.permissionBridge) {
       const bridge = copilotAdapter.permissionBridge;
+      const hostAttention = container.isRegistered(SDK_TOKENS.HOST_ATTENTION_COORDINATOR)
+        ? container.resolve<{ resolve(key: string, generation: number): void }>(SDK_TOKENS.HOST_ATTENTION_COORDINATOR)
+        : undefined;
+      const generations = new Map<string, number>();
+      const resolveAttention = (requestId: string) => {
+        const generation = generations.get(requestId);
+        if (generation === undefined) return;
+        generations.delete(requestId);
+        hostAttention?.resolve(attentionRequestKey('lane-permission', requestId), generation);
+      };
+      const originalResolve = bridge.resolvePermission.bind(bridge);
+      bridge.resolvePermission = (requestId, decision) => {
+        resolveAttention(requestId);
+        originalResolve(requestId, decision);
+      };
+      const originalCleanup = bridge.cleanup.bind(bridge);
+      bridge.cleanup = () => {
+        for (const requestId of generations.keys()) resolveAttention(requestId);
+        originalCleanup();
+      };
       bridge.events.on(
         'permission-request',
         (request: AgentPermissionRequest) => {
+          generations.set(request.requestId, request.timestamp);
           webviewManager
             .broadcastMessage(
               MESSAGE_TYPES.AGENT_MONITOR_PERMISSION_REQUEST,
@@ -425,6 +447,7 @@ export function persistCliSessionReference(
       agentId: info.agentId,
       task: info.task,
       startedAt: info.startedAt,
+      ...(info.completedAt ? { completedAt: info.completedAt } : {}),
       status: info.status,
       ...(bulkInline && persistedOutput?.stdout
         ? { stdout: persistedOutput.stdout }

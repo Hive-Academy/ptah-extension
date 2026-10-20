@@ -42,19 +42,13 @@ export class WorkflowTabLauncherService {
     if (request.firstMessagePreamble) {
       this.tabs.setFirstMessagePreamble(tabId, request.firstMessagePreamble);
     }
-    const grid = this.appState.layoutMode() === 'grid';
-    if (grid) {
-      this.appState.requestCanvasTab(
-        tabId,
-        this.tabs.activeWorkspacePath,
-        request.title.trim(),
-      );
-    }
+    this.appState.requestCanvasTab(
+      tabId,
+      this.tabs.activeWorkspacePath,
+      request.title.trim(),
+    );
     if (request.visiblePrompt !== undefined) {
-      this.appState.requestComposerPrefill(
-        request.visiblePrompt,
-        grid ? tabId : null,
-      );
+      this.appState.requestComposerPrefill(request.visiblePrompt, tabId);
     }
     return { outcome: 'landed', tabId };
   }

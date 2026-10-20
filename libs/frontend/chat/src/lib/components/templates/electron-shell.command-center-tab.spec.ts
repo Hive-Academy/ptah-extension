@@ -58,7 +58,6 @@ describe('ElectronShellComponent Command Center tab', () => {
     openConfigurationSurface: signal<ConfigurationSurfaceId | null>(null),
     configurationSurfaceRemountTick: signal(0),
     thothFirstRunDismissed: signal(true),
-    setLayoutMode: jest.fn(),
     setCurrentView: jest.fn(),
     dismissThothFirstRun: jest.fn(),
   };

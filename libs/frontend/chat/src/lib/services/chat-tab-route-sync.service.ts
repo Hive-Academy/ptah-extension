@@ -30,9 +30,15 @@ interface HeldUrlTab {
   readonly activeAtHold: string | null;
 }
 
-/** A replace this service started, identified by the tab its URL names. */
+/** A replace this service started, identified by the tab and the URL it names. */
 interface Correction {
   readonly tabId: string | null;
+  /**
+   * Serialized target of {@link ChatTabRouteSync.issueCorrection}. Compared
+   * with a later `NavigationStart` so the same tab with a different query,
+   * fragment or matrix parameter still counts as a different navigation.
+   */
+  readonly url: string;
 }
 
 /**
@@ -125,7 +131,12 @@ export class ChatTabRouteSync {
       .subscribe((event) => {
         if (event instanceof NavigationStart) {
           this.routeGeneration++;
-          if (this.deferredCorrectionGeneration !== null) this.correctionDropped = true;
+          if (
+            this.deferredCorrectionGeneration !== null ||
+            this.supersedesCorrection(event.url)
+          ) {
+            this.correctionDropped = true;
+          }
         } else if (event instanceof NavigationEnd) {
           this.correctionDropped = false;
           this.followUrl(event.urlAfterRedirects);
@@ -328,14 +339,46 @@ export class ChatTabRouteSync {
   }
 
   /**
+   * Whether a navigation starting at `url` is another one than the correction
+   * in flight. Its own start serializes to {@link Correction.url}; any other
+   * URL supersedes it, including the same `/chat/<tab>` with a different
+   * query, fragment or matrix parameter. The correction is then marked
+   * dropped: should that newer navigation be cancelled or fail, nothing
+   * settles to call reaction 1, and {@link reconcileDroppedCorrection}
+   * restores the URL instead. A second start of the identical URL does not
+   * supersede, so a guard that refuses the correction itself is not retried.
+   */
+  private supersedesCorrection(url: string): boolean {
+    const correction = this.correction;
+    if (correction === null) return false;
+    return this.normalizedUrl(url) !== correction.url;
+  }
+
+  /** Canonical form of a navigation URL, so both sides of a comparison match. */
+  private normalizedUrl(url: string): string {
+    return this.router.serializeUrl(this.router.parseUrl(url));
+  }
+
+  /**
    * The replace is remembered until it finishes, so its landing is recognised
-   * as ours: `NavigationEnd` is emitted before `navigateByUrl` resolves. The
-   * outcome is otherwise ignored: the tab state is already correct whatever
-   * the navigation does, and a cancelled or failed replace is reconciled by
-   * the next settle. `navigateToSurface` never rejects and logs a failure.
+   * as ours: `NavigationEnd` is emitted before `navigateByUrl` resolves, and a
+   * different navigation starting meanwhile marks it dropped
+   * ({@link supersedesCorrection}). The outcome is otherwise ignored: the tab
+   * state is already correct whatever the navigation does. A superseded
+   * replace is reconciled when the superseding navigation is cancelled or
+   * fails; one cancelled or failed on its own (a guard) is left as it is, so a
+   * guard that always refuses cannot re-issue it forever. `navigateToSurface`
+   * never rejects and logs a failure.
    */
   private async issueCorrection(activeTabId: string | null): Promise<void> {
-    const correction: Correction = { tabId: activeTabId };
+    const correction: Correction = {
+      tabId: activeTabId,
+      url: this.normalizedUrl(this.router.serializeUrl(this.router.createUrlTree([
+        '/',
+        CHAT_SURFACE,
+        ...(activeTabId === null ? [] : [activeTabId]),
+      ]))),
+    };
     this.correction = correction;
     try {
       await this.surfaceRouter.navigateToSurface(

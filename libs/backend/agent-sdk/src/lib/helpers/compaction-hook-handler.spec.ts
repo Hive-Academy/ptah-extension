@@ -15,6 +15,7 @@
 
 import 'reflect-metadata';
 
+import { VirtualTimeScheduler } from 'rxjs';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { LiveUsageTracker } from './live-usage-tracker';
 import type { HookInput } from '../types/sdk-types/claude-sdk.types';
@@ -30,13 +31,17 @@ import {
   COMPACTION_MAX_DWELL_MS,
   CompactionState,
 } from './compaction/compaction-state.types';
-import type { CompactionCallbackRegistry } from './compaction-callback-registry';
+import { CompactionCallbackRegistry } from './compaction-callback-registry';
+import type { CompactionConfigProvider } from './compaction-config-provider';
 import { ContextUsagePort } from './compaction/context-usage.port';
+import { IdleCompactionService } from './compaction/idle/idle-compaction.service';
+import { IDLE_CACHE_TTL_MS } from './compaction/idle/idle-compaction.types';
 import type { SubagentBudgetMonitor } from './compaction/subagent-budget-monitor';
+import type { SessionTurnStateRegistry } from './session-turn-state.registry';
 import type { SessionEndCallbackRegistry } from './session-end-callback-registry';
-import type {
+import {
   SdkAdapterEvents,
-  SdkAdapterCompactionCompleteEvent,
+  type SdkAdapterCompactionCompleteEvent,
 } from './sdk-adapter-events.service';
 
 function makeLogger(): jest.Mocked<Logger> {
@@ -1000,9 +1005,7 @@ describe('CompactionHookHandler — compaction coordinator wiring (TASK_2026_597
     });
 
     expect(onPreCompact).toHaveBeenCalledWith('REAL-sdk-id', 'manual');
-    expect(coordinator.getState('REAL-sdk-id')).toBe(
-      CompactionState.TRIGGERED,
-    );
+    expect(coordinator.getState('REAL-sdk-id')).toBe(CompactionState.TRIGGERED);
   });
 
   it('PostCompact rebinds the coordinator record to the post-compaction session_id', async () => {
@@ -1023,7 +1026,7 @@ describe('CompactionHookHandler — compaction coordinator wiring (TASK_2026_597
     expect(emitted[0].sessionId).toBe('NEW-sdk-id');
   });
 
-  it('PostCompact without a payload session_id does not rebind', async () => {
+  it('PostCompact without a payload session_id marks the existing record finished', async () => {
     const onPostCompact = jest.spyOn(coordinator, 'onPostCompact');
     const { handler, emitted } = makeHandler(coordinator);
     const hooks = handler.createHooks('TAB-closure-id', '/repo', jest.fn());
@@ -1033,10 +1036,8 @@ describe('CompactionHookHandler — compaction coordinator wiring (TASK_2026_597
     });
     await hooks.PostCompact?.[0]?.hooks?.[0]?.(post(), undefined, { signal });
 
-    expect(onPostCompact).not.toHaveBeenCalled();
-    expect(coordinator.getState('REAL-sdk-id')).toBe(
-      CompactionState.TRIGGERED,
-    );
+    expect(onPostCompact).toHaveBeenCalledWith('REAL-sdk-id', 'REAL-sdk-id');
+    expect(coordinator.getState('REAL-sdk-id')).toBe(CompactionState.TRIGGERED);
     expect(emitted[0].sessionId).toBe('REAL-sdk-id');
   });
 
@@ -1078,6 +1079,166 @@ describe('CompactionHookHandler — compaction coordinator wiring (TASK_2026_597
       [expect.any(String), { event: 'PreCompact', error: 'pre boom' }],
       [expect.any(String), { event: 'PostCompact', error: 'post boom' }],
     ]);
+  });
+});
+
+describe('CompactionHookHandler — idle compaction rekey', () => {
+  const signal = new AbortController().signal;
+
+  it('keeps PostCompact fail-open when the idle rekey target throws', async () => {
+    const logger = makeLogger();
+    const idle = {
+      rekey: jest.fn(() => {
+        throw new Error('idle boom');
+      }),
+    } as unknown as IdleCompactionService;
+    const handler = new CompactionHookHandler(
+      logger,
+      makeUsageTracker(0) as unknown as LiveUsageTracker,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      idle,
+    );
+    const hooks = handler.createHooks('old-id', '/repo', jest.fn());
+
+    await hooks.PreCompact?.[0]?.hooks?.[0]?.(
+      {
+        hook_event_name: 'PreCompact',
+        trigger: 'manual',
+        cwd: '/repo',
+        custom_instructions: null,
+        session_id: 'old-id',
+      } as unknown as HookInput,
+      undefined,
+      { signal },
+    );
+    const result = await hooks.PostCompact?.[0]?.hooks?.[0]?.(
+      {
+        hook_event_name: 'PostCompact',
+        trigger: 'manual',
+        cwd: '/repo',
+        compact_summary: 'summary',
+        session_id: 'new-id',
+      } as unknown as HookInput,
+      undefined,
+      { signal },
+    );
+
+    expect(result).toEqual({ continue: true });
+    expect(logger.warn).toHaveBeenCalledWith(expect.any(String), {
+      target: 'idle-compaction',
+      error: 'idle boom',
+    });
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it('rekeys before the completion event, releases the moved claim, and accepts old-id input', async () => {
+    const logger = makeLogger();
+    const coordinator = new CompactionCoordinator();
+    const callbacks = new CompactionCallbackRegistry(logger);
+    const events = new SdkAdapterEvents(logger);
+    const scheduler = new VirtualTimeScheduler();
+    scheduler.maxFrames = 0;
+    let now = 0;
+    const sender = {
+      sendIdleCompact: jest.fn(
+        async (_sessionId: string, beforeEnqueue: () => void) => {
+          beforeEnqueue();
+        },
+      ),
+    };
+    const config = {
+      getIdleCompactionConfig: () => ({ enabled: true, minTokens: 200_000 }),
+      getConfig: () => ({ enabled: true }),
+    } as CompactionConfigProvider;
+    const turns = {
+      get: () => ({ phase: 'idle' }),
+    } as unknown as SessionTurnStateRegistry;
+    const idle = new IdleCompactionService(
+      logger,
+      coordinator,
+      config,
+      turns,
+      sender,
+      callbacks,
+      events,
+      undefined,
+      { scheduler, now: () => now },
+    );
+    const handler = new CompactionHookHandler(
+      logger,
+      makeUsageTracker(0) as unknown as LiveUsageTracker,
+      callbacks,
+      events,
+      new CompactionBoundaryGenerationRegistry(),
+      coordinator,
+      undefined,
+      undefined,
+      idle,
+    );
+    const hooks = handler.createHooks('closure-id', '/repo', jest.fn());
+
+    try {
+      coordinator.register('old-id', { codexProxy: false, e2Passed: true });
+      idle.sessionBound('old-id', 'run', false);
+      idle.turnEnded('old-id', 'turn-1', {
+        requestKey: 'request-1',
+        anchorAt: 0,
+        ttl: '1h',
+      });
+      idle.turnContext('old-id', 'turn-1', 250_000);
+      now = IDLE_CACHE_TTL_MS * 0.9;
+      scheduler.maxFrames = now;
+      scheduler.flush();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(sender.sendIdleCompact).toHaveBeenCalledTimes(1);
+      expect(coordinator.getIdleClaim('old-id')).toBeDefined();
+
+      await hooks.PreCompact?.[0]?.hooks?.[0]?.(
+        {
+          hook_event_name: 'PreCompact',
+          trigger: 'manual',
+          cwd: '/repo',
+          custom_instructions: null,
+          session_id: 'old-id',
+        } as unknown as HookInput,
+        undefined,
+        { signal },
+      );
+      await hooks.PostCompact?.[0]?.hooks?.[0]?.(
+        {
+          hook_event_name: 'PostCompact',
+          trigger: 'manual',
+          cwd: '/repo',
+          compact_summary: 'summary',
+          session_id: 'new-id',
+        } as unknown as HookInput,
+        undefined,
+        { signal },
+      );
+
+      expect(coordinator.getState('old-id')).toBeUndefined();
+      expect(coordinator.getIdleClaim('new-id')).toBeUndefined();
+      idle.compactBoundary('old-id', 250_000);
+      idle.input('old-id');
+      idle.turnEnded('old-id', 'turn-2', {
+        requestKey: 'request-2',
+        anchorAt: now,
+        ttl: '1h',
+      });
+      idle.turnContext('old-id', 'turn-2', 250_000);
+      expect(scheduler.actions).toHaveLength(1);
+      idle.input('old-id');
+      expect(scheduler.actions).toHaveLength(0);
+    } finally {
+      idle.dispose();
+      coordinator.dispose();
+    }
   });
 });
 

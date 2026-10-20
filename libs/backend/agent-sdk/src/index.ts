@@ -69,8 +69,12 @@ export type {
 export { SessionImporterService } from './lib/session-importer.service';
 export {
   SessionHistoryReaderService,
+  SubagentHistoryValidationError,
+  SUBAGENT_EVENTS_TAIL_LIMIT,
+  retainSubagentEventsTail,
   MESSAGE_ID_NOT_FOUND_PHRASE,
 } from './lib/session-history-reader.service';
+export type { SubagentEventsReadResult } from './lib/session-history-reader.service';
 
 export {
   SessionStatsReaderService,
@@ -95,6 +99,11 @@ export type {
   JsonlProjectionOptions,
   JsonlProjectionResult,
 } from './lib/helpers/history/jsonl-reader.service';
+// The replay's "visible user message" rules, for the session:list counter.
+export {
+  isHiddenTranscriptRecord,
+  isSkillOrMetaText,
+} from './lib/message-transform/message-transform-helpers';
 export * from './lib/types/sdk-types/claude-sdk.types';
 export { SdkPermissionHandler } from './lib/sdk-permission-handler';
 export type {
@@ -133,12 +142,17 @@ export {
   wireAgentAdapterAliases,
 } from './lib/di/register';
 export { SDK_TOKENS } from './lib/di/tokens';
+export { HostAttentionCoordinator } from './lib/permission/host-attention-coordinator';
 export type { SdkDIToken } from './lib/di/tokens';
 export {
   SubagentMessageDispatcher,
   SUBAGENT_DISPATCHER_TOKEN,
 } from './lib/helpers';
 export { CompactionCallbackRegistry } from './lib/helpers';
+export type {
+  ManualCompactAdmission,
+  ManualCompactDecision,
+} from './lib/helpers';
 export {
   SubagentBudgetStopCallbackRegistry,
   type SubagentBudgetStopCallback,

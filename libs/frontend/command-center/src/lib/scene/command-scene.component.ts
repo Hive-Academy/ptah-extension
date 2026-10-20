@@ -13,6 +13,7 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
+import { VSCodeService } from '@ptah-extension/core';
 import type {
   CommandTheme,
   CommandVoiceState,
@@ -24,6 +25,7 @@ import { SpriteCache, type SpritePalette } from './sprite-cache';
 import {
   CommandSceneRenderer,
   type SceneLabel,
+  type SceneInks,
   type SceneSprite,
   type SceneVoiceSnapshot,
 } from './command-scene-renderer';
@@ -46,6 +48,23 @@ const SCENE_PALETTES: Record<CommandTheme, Record<string, SpritePalette>> = {
     red: { lit: '#ffebea', mid: '#e7a19b', dark: '#9a555a', rim: '#bb6e70' },
     jade: { lit: '#e8fae9', mid: '#a5d8b5', dark: '#568368', rim: '#75a184' },
     silver: { lit: '#fafaff', mid: '#c4c5d2', dark: '#777a91', rim: '#9c9eb2' },
+  },
+};
+
+const FALLBACK_INKS: Record<CommandTheme, SceneInks> = {
+  dark: {
+    run: '#3b82f6',
+    need: '#f97316',
+    err: '#ef4444',
+    done: '#16a34a',
+    idle: '#9ca3af',
+  },
+  light: {
+    run: '#2a56c6',
+    need: '#8f5200',
+    err: '#b4232a',
+    done: '#13713a',
+    idle: '#6b6570',
   },
 };
 
@@ -83,7 +102,8 @@ function paletteName(
       <div class="pointer-events-none absolute inset-0">
         @if (layout().overflowChip; as chip) {
           <span
-            class="absolute right-5 top-12 max-w-[90%] rounded-full bg-base-200 px-2 py-1 text-xs text-base-content"
+            class="absolute right-5 max-w-[90%] rounded-full bg-base-200 px-2 py-1 text-xs text-base-content"
+            [style.top.px]="reservedTop() + 16"
             >{{ chip.text }}</span
           >
         }
@@ -95,6 +115,7 @@ export class CommandSceneComponent {
   public readonly projection = input.required<ProjectionResult>();
   public readonly selectedId = input<string | null>(null);
   public readonly theme = input<CommandTheme>('dark');
+  public readonly reservedTop = input<number>(72);
   public readonly voiceState = input<CommandVoiceState>('idle');
   public readonly inputLevel = input(0);
   public readonly outputLevel = input(0);
@@ -111,12 +132,37 @@ export class CommandSceneComponent {
   private readonly overlayLabels = signal<readonly SceneLabel[]>([]);
   private readonly viewport = signal({ width: 0, height: 0 });
   private readonly reducedMotion = signal(false);
+  private readonly logoRevision = signal(0);
+  private readonly vscodeService = inject(VSCodeService, { optional: true });
   private readonly ready = signal(false);
-  private readonly cache = new SpriteCache(() =>
-    document.createElement('canvas'),
+  private readonly inks = signal<SceneInks>(FALLBACK_INKS.dark);
+  private resolveInks(): void {
+    const theme = this.theme();
+    const style = getComputedStyle(this.stageRef().nativeElement);
+    const fallback = FALLBACK_INKS[theme];
+    const read = (name: string, defaultValue: string): string =>
+      style.getPropertyValue(`--state-ink-${name}`).trim() || defaultValue;
+    const baseContent =
+      style.getPropertyValue('--bcm').trim() ||
+      style.getPropertyValue('--bc').trim();
+    this.inks.set({
+      run: read('run', fallback.run),
+      need: read('need', fallback.need),
+      err: read('err', fallback.err),
+      done: read('done', fallback.done),
+      idle: read('idle', baseContent ? `oklch(${baseContent})` : style.color),
+    });
+  }
+  private readonly cache = new SpriteCache(
+    () => document.createElement('canvas'),
+    this.vscodeService?.getPtahIconUri(),
+    () => this.logoRevision.update((revision) => revision + 1),
   );
   private renderer: CommandSceneRenderer | null = null;
   private observer: ResizeObserver | null = null;
+  private intersectionObserver: IntersectionObserver | null = null;
+  private intersecting = true;
+  private themeObserver: MutationObserver | null = null;
   private media: MediaQueryList | null = null;
   private pointerFrame = 0;
   private pointerX = 0;
@@ -132,9 +178,25 @@ export class CommandSceneComponent {
 
   public readonly layout = signal<SceneLayout>({
     nodes: [],
+    orbitCount: 0,
     overflowCompleted: 0,
     overflowOther: 0,
     overflowChip: null,
+  });
+
+  private readonly sceneViewport = computed(() => {
+    const viewport = this.viewport();
+    const top = Math.min(viewport.height, Math.max(0, this.reservedTop() + 10));
+    const bottom = Math.max(top, viewport.height - 62);
+    return {
+      ...viewport,
+      sceneRect: {
+        x: 0,
+        y: top,
+        width: viewport.width,
+        height: bottom - top,
+      },
+    };
   });
 
   private readonly measuredLayout = computed(() => {
@@ -147,7 +209,7 @@ export class CommandSceneComponent {
     );
     return layoutScene(
       this.projection(),
-      this.viewport(),
+      this.sceneViewport(),
       (nodeId, text) => {
         const size = measured.get(nodeId);
         return size?.width && size.height
@@ -164,9 +226,15 @@ export class CommandSceneComponent {
   public constructor() {
     afterNextRender(() => this.initialize());
     effect(() => {
+      this.theme();
+      if (this.ready()) this.resolveInks();
+    });
+    effect(() => {
       if (!this.ready()) return;
+      this.logoRevision();
       const selectedId = this.selectedId();
       const theme = this.theme();
+      const inks = this.inks();
       const reducedMotion = this.reducedMotion();
       const labels = this.overlayLabels();
       const layout = this.measuredLayout();
@@ -180,6 +248,7 @@ export class CommandSceneComponent {
         );
         return {
           id: sceneNode.node.id,
+          rim: SCENE_PALETTES[theme][name].rim,
           image: this.cache.get({
             node: sceneNode.node,
             theme,
@@ -190,13 +259,26 @@ export class CommandSceneComponent {
           }),
         };
       });
+      const root = layout.nodes.find((node) => node.kind === 'root');
+      const voiceHalo = root
+        ? this.cache.getVoiceHalo({
+            theme,
+            paletteName: 'gold',
+            palette: SCENE_PALETTES[theme]['gold'],
+            dpr,
+          })
+        : undefined;
       this.cache.prune(new Set(layout.nodes.map((node) => node.node.id)));
       this.zone.runOutsideAngular(() => {
         this.renderer?.setSnapshot({
           layout,
+          sceneRect: this.sceneViewport().sceneRect,
           sprites,
+          voiceHalo,
           labels,
           selectedId,
+          hoveredId: this.hoveredId,
+          inks,
           ...this.voiceSnapshot,
           reducedMotion,
           theme,
@@ -277,20 +359,31 @@ export class CommandSceneComponent {
     const stage = this.stageRef().nativeElement;
     this.zone.runOutsideAngular(() => {
       this.renderer = new CommandSceneRenderer(canvas, context);
-      this.observer = new ResizeObserver((entries) => {
-        if (entries.some((entry) => entry.target === stage)) this.resize();
-        if (entries.some((entry) => entry.target !== stage)) {
-          const labels = this.overlayLabels().map((label) => ({
-            ...label,
-            width: label.element.offsetWidth,
-            height: label.element.offsetHeight,
-          }));
-          this.zone.run(() => this.setOverlayLabels(labels));
-        }
-      });
-      this.observer.observe(stage);
-      for (const label of this.overlayLabels())
-        this.observer.observe(label.element);
+      if (typeof ResizeObserver !== 'undefined') {
+        this.observer = new ResizeObserver((entries) => {
+          if (entries.some((entry) => entry.target === stage)) this.resize();
+          if (entries.some((entry) => entry.target !== stage)) {
+            const labels = this.overlayLabels().map((label) => ({
+              ...label,
+              width: label.element.offsetWidth,
+              height: label.element.offsetHeight,
+            }));
+            this.zone.run(() => this.setOverlayLabels(labels));
+          }
+        });
+        this.observer.observe(stage);
+        for (const label of this.overlayLabels())
+          this.observer.observe(label.element);
+      }
+      if (typeof IntersectionObserver !== 'undefined') {
+        this.intersectionObserver = new IntersectionObserver((entries) => {
+          const entry = entries.find((item) => item.target === canvas);
+          if (!entry) return;
+          this.intersecting = entry.isIntersecting;
+          this.onVisibility();
+        });
+        this.intersectionObserver.observe(canvas);
+      }
       document.addEventListener('visibilitychange', this.onVisibility);
       this.media = window.matchMedia('(prefers-reduced-motion: reduce)');
       this.media.addEventListener('change', this.onMotion);
@@ -302,6 +395,14 @@ export class CommandSceneComponent {
       this.onVisibility();
     });
     this.ready.set(true);
+    this.resolveInks();
+    this.themeObserver = new MutationObserver(() =>
+      this.zone.run(() => this.resolveInks()),
+    );
+    this.themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    });
   }
 
   private resize(): void {
@@ -316,7 +417,7 @@ export class CommandSceneComponent {
   }
 
   private readonly onVisibility = (): void => {
-    this.renderer?.setHidden(document.hidden);
+    this.renderer?.setHidden(document.hidden || !this.intersecting);
   };
 
   private readonly onMotion = (): void => {
@@ -359,6 +460,7 @@ export class CommandSceneComponent {
   private updateHover(id: string | null): void {
     if (id === this.hoveredId) return;
     this.hoveredId = id;
+    this.renderer?.setHoveredId(id);
     this.zone.run(() => this.hoveredNodeId.emit(id));
   }
 
@@ -367,6 +469,8 @@ export class CommandSceneComponent {
       if (this.pointerFrame) cancelAnimationFrame(this.pointerFrame);
       this.pointerFrame = 0;
       this.observer?.disconnect();
+      this.intersectionObserver?.disconnect();
+      this.themeObserver?.disconnect();
       this.media?.removeEventListener('change', this.onMotion);
       document.removeEventListener('visibilitychange', this.onVisibility);
       const canvas = this.canvasRef().nativeElement;

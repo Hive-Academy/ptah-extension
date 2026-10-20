@@ -169,6 +169,8 @@ export interface ChatContinueParams {
 export interface ChatContinueResult {
   success: boolean;
   sessionId?: SessionId;
+  /** The command completed without starting a stream. */
+  settled?: boolean;
   error?: string;
   /** Structured error code for recoverable failures (e.g. 'AUTH_REQUIRED'). */
   errorCode?: RpcUserErrorCode;
@@ -360,7 +362,7 @@ export interface ChatResumeResult {
   error?: string;
   /** Structured error code for recoverable failures (e.g. 'AUTH_REQUIRED'). */
   errorCode?: RpcUserErrorCode;
-  /** Provider whose auth is required, when errorCode is 'AUTH_REQUIRED'. */
+  /** Stored provider on success; provider needing auth when errorCode is 'AUTH_REQUIRED'. */
   providerId?: string;
 }
 

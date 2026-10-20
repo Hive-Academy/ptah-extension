@@ -156,6 +156,8 @@ export class CanvasLayoutPersistenceService {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private readonly _writeFailed = signal(false);
   readonly writeFailed = this._writeFailed.asReadonly();
+  private readonly _writeFailureCount = signal(0);
+  readonly writeFailureCount = this._writeFailureCount.asReadonly();
   private readonly _readOnlyPaths = signal<ReadonlySet<string>>(new Set());
   readonly readOnlyPaths = this._readOnlyPaths.asReadonly();
 
@@ -329,6 +331,7 @@ export class CanvasLayoutPersistenceService {
       this._writeFailed.set(false);
     } catch (error: unknown) {
       this._writeFailed.set(true);
+      this._writeFailureCount.update((count) => count + 1);
       this.warn('write', error);
     }
   }

@@ -42,6 +42,7 @@ import {
 import {
   SESSION_CONTEXT,
   SESSION_START_GUARD,
+  SESSION_STOP_HANDLER,
 } from '../../../tokens/session-context.token';
 import {
   ComposerDraftStore,
@@ -540,7 +541,7 @@ function folderName(root: string): string {
 
       <!-- Status line under the card: MCP, peer send, auth (unchanged) -->
       <div
-        class="flex items-center gap-2 px-1 mt-1.5 min-w-0 w-full max-w-[758px] mx-auto"
+        class="chat-composer-column flex items-center gap-2 px-1 mt-1.5 min-w-0 w-full mx-auto"
       >
         <div class="flex items-center gap-0.5 min-w-0">
           <!-- MCP status (host is display: contents; renders nothing when the
@@ -580,6 +581,10 @@ function folderName(root: string): string {
         container-name: ptah-composer;
       }
 
+      .chat-composer-column {
+        max-width: var(--chat-content-max-width, 758px);
+      }
+
       @container ptah-composer (max-width: 639px) {
         .ptah-composer-workspace-label,
         :host ::ng-deep ptah-effort-selector .ptah-composer-label {
@@ -606,6 +611,9 @@ export class ChatInputComponent implements OnInit, OnDestroy {
     optional: true,
   });
   private readonly sessionStartGuard = inject(SESSION_START_GUARD, {
+    optional: true,
+  });
+  private readonly sessionStopHandler = inject(SESSION_STOP_HANDLER, {
     optional: true,
   });
   readonly autopilotState = inject(AutopilotStateService);
@@ -845,7 +853,7 @@ export class ChatInputComponent implements OnInit, OnDestroy {
    */
   readonly cardClasses = computed(() => {
     const base =
-      'relative flex flex-col w-full max-w-[758px] mx-auto rounded-xl border bg-surface-1 shadow-[inset_0_1px_0_var(--surface-highlight),var(--elev-shadow)] transition-colors';
+      'chat-composer-column relative flex flex-col w-full mx-auto rounded-xl border bg-surface-1 shadow-[inset_0_1px_0_var(--surface-highlight),var(--elev-shadow)] transition-colors';
     if (
       this.autopilotState.agentPlanMode() ||
       this.autopilotState.permissionLevel() === 'plan'
@@ -1744,6 +1752,8 @@ export class ChatInputComponent implements OnInit, OnDestroy {
    * Uses abortWithConfirmation() to warn user about running sub-agents.
    */
   async handleStop(): Promise<void> {
+    const tabId = this._sessionContext?.() ?? this.tabManager.activeTabId();
+    if (tabId && this.sessionStopHandler?.(tabId) === 'handled') return;
     try {
       const aborted = await this.chatStore.abortWithConfirmation();
       console.log('[ChatInputComponent] Stop requested, aborted:', aborted);

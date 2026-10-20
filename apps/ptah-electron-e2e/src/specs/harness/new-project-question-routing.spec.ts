@@ -115,8 +115,8 @@ test.describe('Surface workflow question routing (TASK_2026_317)', () => {
     // Give the bug somewhere to go wrong. Without an open tile, "the card
     // landed on a stranger's tile" has no stranger and the test would pass
     // against the broken build too.
-    await ui.goto('chat');
-    await ui.page.locator('[data-testid="canvas-new-session-anchor"]').click();
+    await ui.goto('canvas');
+    await ui.page.locator('[data-testid="canvas-hero-new-session"]').click();
     await ui.page.getByRole('button', { name: 'Create', exact: true }).click();
     await expect(
       ui.page.locator('ptah-canvas-rail [data-rail-card]'),
@@ -178,8 +178,8 @@ test.describe('Surface workflow question routing (TASK_2026_317)', () => {
   test('a question for a session this surface never claimed does not steal the workflow panel', async ({
     ui,
   }) => {
-    await ui.goto('chat');
-    await ui.page.locator('[data-testid="canvas-new-session-anchor"]').click();
+    await ui.goto('canvas');
+    await ui.page.locator('[data-testid="canvas-hero-new-session"]').click();
     await ui.page.getByRole('button', { name: 'Create', exact: true }).click();
     const foreignTabId = await ui.page
       .locator('ptah-canvas-rail [data-rail-card]')

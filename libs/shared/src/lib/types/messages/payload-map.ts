@@ -7,6 +7,7 @@ import type {
   PermissionResponse,
 } from '../permission.types';
 import type { FlatStreamEventUnion } from '../execution';
+import type { SetupGenerationWorkflow } from '../rpc/rpc-setup.types';
 
 import type {
   ChatAgentActivityPayload,
@@ -136,6 +137,10 @@ import type { HarnessHealthChangedPayload } from '../harness-sync.types';
 import type { GitStatusUpdatePayload } from './git-status';
 import type { GitTurnChangeSetPayload } from '../rpc/rpc-change-set.types';
 import type { GitOperationOutputPayload } from '../rpc/rpc-git.types';
+import type {
+  AttentionChangedPayload,
+  AttentionOpenTargetPayload,
+} from './attention';
 
 /**
  * Payload for MESSAGE_TYPES.FILE_CONTENT_CHANGED ('file:content-changed').
@@ -189,6 +194,13 @@ export interface AuthLoginOutputPayload {
   readonly provider: string;
   readonly stream: 'stdout' | 'stderr';
   readonly line: string;
+}
+
+/** Host push to the main webview for a generation workflow. */
+export interface SetupGenerationOpenPayload {
+  workspacePath: string;
+  workflow: SetupGenerationWorkflow;
+  origin: 'analysis-result-continue' | 'independent-start';
 }
 
 /** Payload for MESSAGE_TYPES.HARNESS_OPEN_WORKFLOW ('harness:open-workflow'). */
@@ -307,6 +319,8 @@ export interface SessionOrganizationChangedPayload {
  * Type mapping for message payloads - eliminates 'any' types
  */
 export interface MessagePayloadMap {
+  'attention:changed': AttentionChangedPayload;
+  'attention:openTarget': AttentionOpenTargetPayload;
   'chat:streamSnapshot': ChatStreamSnapshotPayload;
   'chat:sendMessage': ChatSendMessagePayload;
   'chat:messageChunk': ChatMessageChunkPayload;
@@ -425,6 +439,7 @@ export interface MessagePayloadMap {
   'auth:deviceCode': AuthDeviceCodePayload;
   'auth:loginOutput': AuthLoginOutputPayload;
   'harness:open-workflow': HarnessOpenWorkflowPayload;
+  'setup-generation:open': SetupGenerationOpenPayload;
   'harness:config-proposed': HarnessConfigProposedPayload;
   'dashboard:spec-proposed': DashboardSpecProposedPayload;
   'surface:updated': SurfaceUpdatedPayload;

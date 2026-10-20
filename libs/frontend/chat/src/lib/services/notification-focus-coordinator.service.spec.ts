@@ -1,7 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { AppStateManager } from '@ptah-extension/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
-import { ChatStore } from './chat.store';
 import { WorkspaceCoordinatorService } from './workspace-coordinator.service';
 import { NotificationFocusCoordinator } from './notification-focus-coordinator.service';
 
@@ -22,6 +21,7 @@ describe('NotificationFocusCoordinator', () => {
   const findByTab = jest.fn();
   const findBySession = jest.fn();
   const switchTab = jest.fn();
+  const openSessionTab = jest.fn();
   let coordinator: NotificationFocusCoordinator;
 
   beforeEach(() => {
@@ -37,6 +37,7 @@ describe('NotificationFocusCoordinator', () => {
       .mockReset()
       .mockReturnValue({ tab, workspacePath: '/workspace/a' });
     switchTab.mockReset();
+    openSessionTab.mockReset();
     TestBed.configureTestingModule({
       providers: [
         NotificationFocusCoordinator,
@@ -44,7 +45,6 @@ describe('NotificationFocusCoordinator', () => {
           provide: AppStateManager,
           useValue: {
             setCurrentView: () => order.push('view'),
-            setLayoutMode: (mode: string) => order.push(`layout:${mode}`),
             requestCanvasFocus,
           },
         },
@@ -58,21 +58,20 @@ describe('NotificationFocusCoordinator', () => {
             findTabByIdAcrossWorkspaces: findByTab,
             findTabBySessionIdAcrossWorkspaces: findBySession,
             switchTab,
-            openSessionTab: jest.fn(),
+            openSessionTab,
           },
         },
-        { provide: ChatStore, useValue: { switchSession: jest.fn() } },
       ],
     });
     coordinator = TestBed.inject(NotificationFocusCoordinator);
   });
 
-  it('switches workspace before setting view, grid, and acknowledged canvas focus', async () => {
+  it('switches workspace before setting view and acknowledged canvas focus', async () => {
     await expect(coordinator.focus(target)).resolves.toEqual({
       success: true,
       outcome: 'focused',
     });
-    expect(order).toEqual(['workspace', 'view', 'layout:grid', 'canvas']);
+    expect(order).toEqual(['workspace', 'view', 'canvas']);
   });
 
   it('returns missing before navigation when the target no longer resolves', async () => {
@@ -97,20 +96,21 @@ describe('NotificationFocusCoordinator', () => {
       ...closedSessionTarget,
       tabId: undefined,
     });
-    expect(order).toEqual(['workspace', 'view', 'layout:grid', 'canvas']);
+    expect(order).toEqual(['workspace', 'view', 'canvas']);
   });
 
-  it('falls back to the full single view when the canvas cap is reached', async () => {
+  it('returns cap-reached and switches no tab when the canvas cap is reached', async () => {
     requestCanvasFocus.mockResolvedValue({
       success: false,
       outcome: 'cap-reached',
     });
     await expect(coordinator.focus(target)).resolves.toEqual({
-      success: true,
+      success: false,
       outcome: 'cap-reached',
     });
-    expect(order).toContain('layout:single');
-    expect(switchTab).toHaveBeenCalledWith('tab-1');
+    expect(order).toEqual(['workspace', 'view']);
+    expect(switchTab).not.toHaveBeenCalled();
+    expect(openSessionTab).not.toHaveBeenCalled();
   });
 
   it('serializes rapid competing activations', async () => {
@@ -120,11 +120,9 @@ describe('NotificationFocusCoordinator', () => {
     expect(order).toEqual([
       'workspace',
       'view',
-      'layout:grid',
       'canvas',
       'workspace',
       'view',
-      'layout:grid',
       'canvas',
     ]);
   });

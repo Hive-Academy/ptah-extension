@@ -17,6 +17,10 @@ import {
 } from 'tsyringe';
 import { LANE_ROUTING_TOKENS } from '@ptah-extension/lane-routing';
 import { TOKENS } from '@ptah-extension/vscode-core';
+import {
+  PLATFORM_TOKENS,
+  type IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
 import type {
   BackgroundWorkGovernor,
   Logger,
@@ -33,6 +37,7 @@ import { SessionStatsReaderService } from '../session-stats';
 import { SessionStatsOwnerService } from '../session-stats/session-stats-owner.service';
 import { SdkPermissionHandler } from '../sdk-permission-handler';
 import { UnattendedSessionPolicyRegistry } from '../permission/unattended-session-policy.registry';
+import { HostAttentionCoordinator } from '../permission/host-attention-coordinator';
 import { SdkMessageTransformer } from '../sdk-message-transformer';
 import { ClaudeCliDetector } from '../detector/claude-cli-detector';
 import {
@@ -113,6 +118,8 @@ import { MainThreadNoticeQueue } from '../helpers/main-thread-notice-queue';
 import { SubagentNoticeQueue } from '../helpers/subagent-notice-queue';
 import { ToolOutputCapper } from '../helpers/compaction/tool-output-capper';
 import { CompactionCoordinator } from '../helpers/compaction/compaction-coordinator';
+import { IdleCompactionService } from '../helpers/compaction/idle/idle-compaction.service';
+import { createUnrefScheduler } from '../helpers/compaction/idle/unref-scheduler';
 import { ContextUsagePort } from '../helpers/compaction/context-usage.port';
 import { SubagentBudgetMonitor } from '../helpers/compaction/subagent-budget-monitor';
 import { SubagentStopNotices } from '../helpers/compaction/subagent-stop-notices';
@@ -129,6 +136,49 @@ import { SDK_TOKENS } from './tokens';
 const noOpModelDispatchProvenanceTap: ModelDispatchProvenanceTap = {
   onModelDispatched: () => undefined,
 };
+
+function createIdleCompactionService(
+  c: DependencyContainer,
+  logger: Logger,
+): IdleCompactionService {
+  const workspace = c.isRegistered(PLATFORM_TOKENS.WORKSPACE_PROVIDER, true)
+    ? c.resolve<IWorkspaceProvider>(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    : undefined;
+  const events = c.isRegistered(SDK_TOKENS.SDK_ADAPTER_EVENTS, true)
+    ? c.resolve<SdkAdapterEvents>(SDK_TOKENS.SDK_ADAPTER_EVENTS)
+    : undefined;
+  if (!workspace || !events) {
+    logger.debug('[IdleCompaction] Optional host signals unavailable', {
+      workspace: Boolean(workspace),
+      events: Boolean(events),
+    });
+  }
+  return new IdleCompactionService(
+    logger,
+    c.resolve<CompactionCoordinator>(SDK_TOKENS.SDK_COMPACTION_COORDINATOR),
+    c.resolve<CompactionConfigProvider>(
+      SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER,
+    ),
+    c.resolve<SessionTurnStateRegistry>(
+      SDK_TOKENS.SDK_SESSION_TURN_STATE_REGISTRY,
+    ),
+    {
+      sendIdleCompact: (sessionId, beforeEnqueue) =>
+        c
+          .resolve<SessionLifecycleManager>(
+            SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER,
+          )
+          .sendIdleCompact(sessionId, beforeEnqueue),
+    },
+    c.resolve<CompactionCallbackRegistry>(
+      SDK_TOKENS.SDK_COMPACTION_CALLBACK_REGISTRY,
+    ),
+    events,
+    workspace,
+    { scheduler: createUnrefScheduler(), now: () => Date.now() },
+    c.resolve<SessionStatsOwnerService>(SDK_TOKENS.SDK_SESSION_STATS_OWNER),
+  );
+}
 
 /**
  * Register all agent-sdk services in DI container
@@ -161,6 +211,11 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_SESSION_METADATA_STORE,
     { useClass: SessionMetadataStore },
+    { lifecycle: Lifecycle.Singleton },
+  );
+  container.register(
+    SDK_TOKENS.HOST_ATTENTION_COORDINATOR,
+    { useClass: HostAttentionCoordinator },
     { lifecycle: Lifecycle.Singleton },
   );
   container.register(
@@ -490,6 +545,23 @@ export function registerSdkServices(
           error: error instanceof Error ? error.message : String(error),
         }),
       );
+    }),
+  });
+
+  let idleCompactionFailed = false;
+  container.register(SDK_TOKENS.SDK_IDLE_COMPACTION, {
+    useFactory: instanceCachingFactory((c) => {
+      if (idleCompactionFailed) return undefined;
+      try {
+        return createIdleCompactionService(c, logger);
+      } catch (cause) {
+        idleCompactionFailed = true;
+        logger.error(
+          '[IdleCompaction] Optional service unavailable',
+          cause instanceof Error ? cause : new Error(String(cause)),
+        );
+        return undefined;
+      }
     }),
   });
 

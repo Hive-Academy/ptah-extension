@@ -33,9 +33,16 @@ export class SceneStubComponent {
   public readonly voiceState = input('idle');
   public readonly inputLevel = input(0);
   public readonly outputLevel = input(0);
+  public readonly reservedTop = input(72);
   public readonly selection = output<string>();
   public readonly hoveredNodeId = output<string | null>();
   public readonly canvasUnavailable = output<boolean>();
+  public readonly layout = signal({
+    // Integration tests exercise the work list; empty scene nodes keep the overlay hidden.
+    nodes: [],
+    overflowCompleted: 0,
+    overflowOther: 0,
+  });
 }
 
 export function createHarness(

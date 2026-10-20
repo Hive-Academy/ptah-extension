@@ -87,6 +87,7 @@ const LIVE_TIMER_SEPARATOR = ' · ';
       @if (metaParts().length > 0) {
         <span
           class="ml-auto shrink-0 pl-2 text-[11px] tabular-nums text-base-content-muted"
+          [class.!text-warning]="metaTone() === 'warning'"
           aria-hidden="true"
           data-test="turn-disclosure-meta"
           >{{ metaParts().join(separator) }}</span
@@ -113,6 +114,12 @@ export class TurnDisclosureRowComponent {
 
   /** Files changed by the turn; omitted from the meta when 0. */
   readonly filesChanged = input(0);
+
+  /** Additional stable metadata after tool and file counts. */
+  readonly extraMeta = input<readonly string[]>([]);
+
+  /** Accent for a guard stop reason. */
+  readonly metaTone = input<'muted' | 'warning'>('muted');
 
   /** Compact-mode peek of the newest log row; `null` hides it. */
   readonly peek = input<string | null>(null);
@@ -143,6 +150,7 @@ export class TurnDisclosureRowComponent {
     const files = this.filesChanged();
     if (tools > 0) parts.push(`${tools} ${tools === 1 ? 'tool' : 'tools'}`);
     if (files > 0) parts.push(`${files} ${files === 1 ? 'file' : 'files'}`);
+    parts.push(...this.extraMeta().filter(Boolean));
     return parts;
   });
 

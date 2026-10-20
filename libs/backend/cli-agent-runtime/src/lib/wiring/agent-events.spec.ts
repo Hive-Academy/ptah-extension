@@ -19,8 +19,13 @@ import { createMockLogger } from '@ptah-extension/shared/testing';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import { CopilotPermissionBridge } from '../cli-agents/cli-adapters/copilot-permission-bridge';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import type { AgentId, AgentProcessInfo } from '@ptah-extension/shared';
+import type {
+  AgentId,
+  AgentProcessInfo,
+  CliSessionReference,
+} from '@ptah-extension/shared';
 import type { DependencyContainer } from 'tsyringe';
 import {
   persistCliSessionReference,
@@ -28,6 +33,34 @@ import {
 } from './agent-events';
 
 const PARENT_SESSION = '11111111-2222-4333-8444-555555555555';
+
+describe('Copilot lane host attention resolution', () => {
+  it.each(['response', 'cleanup'] as const)('resolves %s once with the request timestamp', async (settlement) => {
+    const bridge = new CopilotPermissionBridge();
+    bridge.setAutoApprove(false);
+    const hostAttention = { resolve: jest.fn() };
+    const broadcastMessage = jest.fn().mockResolvedValue(undefined);
+    wireAgentEventListeners(buildContainer([
+      [TOKENS.AGENT_PROCESS_MANAGER, { events: new EventEmitter() }],
+      [TOKENS.WEBVIEW_MANAGER, { broadcastMessage }],
+      [TOKENS.CLI_DETECTION_SERVICE, { getAdapter: () => ({ permissionBridge: bridge }) }],
+      [SDK_TOKENS.HOST_ATTENTION_COORDINATOR, hostAttention],
+    ]), {
+      logger: Object.assign(Object.create(null) as Logger, createMockLogger()),
+      platform: 'vscode',
+      options: { copilotPermission: true },
+    });
+    const pending = bridge.requestToolPermission({ agentId: 'agent-1', toolName: 'Write', toolArgs: {} });
+    await Promise.resolve();
+    const request = broadcastMessage.mock.calls[0]?.[1] as { requestId: string; timestamp: number };
+    expect(request).toBeDefined();
+    if (settlement === 'response') bridge.resolvePermission(request.requestId, { requestId: request.requestId, decision: 'allow' });
+    else bridge.cleanup();
+    await pending;
+    expect(hostAttention.resolve).toHaveBeenCalledTimes(1);
+    expect(hostAttention.resolve).toHaveBeenCalledWith(`lane-permission:${request.requestId}`, request.timestamp);
+  });
+});
 
 function buildInfo(overrides: Partial<AgentProcessInfo>): AgentProcessInfo {
   return {
@@ -130,6 +163,90 @@ describe('persistCliSessionReference — missing parent session', () => {
       PARENT_SESSION,
       expect.objectContaining({ cliSessionId: 'cli-sess-1' }),
     );
+  });
+});
+
+describe('persistCliSessionReference — completion time', () => {
+  const completedAt = '2026-10-17T12:34:56.000Z';
+
+  function persist(info: AgentProcessInfo, addCliSession: jest.Mock): void {
+    const logger = createMockLogger();
+    const container = buildContainer([
+      [
+        SDK_TOKENS.SDK_SESSION_METADATA_STORE,
+        {
+          addCliSession,
+          markChildSession: jest.fn().mockResolvedValue(undefined),
+        },
+      ],
+    ]);
+    persistCliSessionReference(
+      container,
+      logger as unknown as Logger,
+      '[test]',
+      info,
+      undefined,
+    );
+  }
+
+  it('writes the exit completion time on the reference', () => {
+    const addCliSession = jest.fn().mockResolvedValue(undefined);
+    const info = buildInfo({
+      parentSessionId: PARENT_SESSION,
+      cliSessionId: 'cli-sess-1',
+      status: 'completed',
+      completedAt,
+    });
+
+    persist(info, addCliSession);
+
+    expect(addCliSession).toHaveBeenCalledWith(
+      PARENT_SESSION,
+      expect.objectContaining({ completedAt }),
+    );
+  });
+
+  it('adds completion time when a terminal write replaces an older reference', () => {
+    const references: CliSessionReference[] = [];
+    const addCliSession = jest
+      .fn()
+      .mockImplementation((_sessionId: string, ref: CliSessionReference) => {
+        references.push(ref);
+        return Promise.resolve();
+      });
+    const base = {
+      parentSessionId: PARENT_SESSION,
+      cliSessionId: 'cli-sess-1',
+      ptahCliId: 'ptah-agent-1',
+      modelScope: 'model-1',
+    };
+
+    persist(buildInfo({ ...base, status: 'running' }), addCliSession);
+    const olderReference = references[0];
+    expect(olderReference).not.toHaveProperty('completedAt');
+
+    persist(
+      buildInfo({ ...base, status: 'completed', completedAt }),
+      addCliSession,
+    );
+
+    expect(references[1]).toEqual({
+      ...olderReference,
+      status: 'completed',
+      completedAt,
+    });
+  });
+
+  it('omits completion time when the process has none', () => {
+    const addCliSession = jest.fn().mockResolvedValue(undefined);
+    const info = buildInfo({
+      parentSessionId: PARENT_SESSION,
+      cliSessionId: 'cli-sess-1',
+      status: 'completed',
+    });
+
+    persist(info, addCliSession);
+    expect(addCliSession.mock.calls[0][1]).not.toHaveProperty('completedAt');
   });
 });
 

@@ -46,11 +46,9 @@ function session(id: SessionId, name: string): ChatSessionSummary {
 describe('SessionRowActionsService', () => {
   const TAGGED = SessionId.create();
 
-  let layoutMode: WritableSignal<'single' | 'grid'>;
   let currentSession: WritableSignal<ChatSessionSummary | null>;
   let chatStore: {
     currentSession: WritableSignal<ChatSessionSummary | null>;
-    switchSession: jest.Mock;
     updateSessionName: jest.Mock;
     removeSessionFromList: jest.Mock;
     clearCurrentSession: jest.Mock;
@@ -63,7 +61,6 @@ describe('SessionRowActionsService', () => {
     closeTab: jest.Mock;
   };
   let appState: {
-    layoutMode: WritableSignal<'single' | 'grid'>;
     requestCanvasSession: jest.Mock;
   };
   let confirmDelete: jest.Mock;
@@ -74,11 +71,9 @@ describe('SessionRowActionsService', () => {
   let service: SessionRowActionsService;
 
   beforeEach(() => {
-    layoutMode = signal<'single' | 'grid'>('single');
     currentSession = signal<ChatSessionSummary | null>(null);
     chatStore = {
       currentSession,
-      switchSession: jest.fn().mockResolvedValue(undefined),
       updateSessionName: jest.fn(),
       removeSessionFromList: jest.fn(),
       clearCurrentSession: jest.fn(),
@@ -91,7 +86,6 @@ describe('SessionRowActionsService', () => {
       closeTab: jest.fn(),
     };
     appState = {
-      layoutMode,
       requestCanvasSession: jest.fn().mockResolvedValue(true),
     };
     confirmDelete = jest.fn();
@@ -131,38 +125,7 @@ describe('SessionRowActionsService', () => {
   });
 
   describe('openSession', () => {
-    it('switches to the session tab in single layout and resolves opened', async () => {
-      await expect(
-        service.openSession({ id: TAGGED, name: 'Tagged' }),
-      ).resolves.toBe('opened');
-
-      expect(chatStore.switchSession).toHaveBeenCalledWith(TAGGED);
-      expect(appState.requestCanvasSession).not.toHaveBeenCalled();
-    });
-
-    it('waits for the single-layout switch to settle before resolving', async () => {
-      let finishSwitch: () => void = () => undefined;
-      chatStore.switchSession.mockReturnValueOnce(
-        new Promise<void>((resolve) => (finishSwitch = resolve)),
-      );
-      let settled: string | null = null;
-      void service
-        .openSession({ id: TAGGED, name: 'Tagged' })
-        .then((result) => (settled = result));
-
-      await Promise.resolve();
-      await Promise.resolve();
-      expect(settled).toBeNull();
-
-      finishSwitch();
-      await Promise.resolve();
-      await Promise.resolve();
-      expect(settled).toBe('opened');
-    });
-
-    it('asks the canvas for a tile in grid layout and resolves opened', async () => {
-      layoutMode.set('grid');
-
+    it('asks the canvas for a tile and resolves opened', async () => {
       await expect(
         service.openSession({ id: TAGGED, name: 'Tagged' }),
       ).resolves.toBe('opened');
@@ -171,12 +134,10 @@ describe('SessionRowActionsService', () => {
         TAGGED,
         'Tagged',
       );
-      expect(chatStore.switchSession).not.toHaveBeenCalled();
       expect(logger.warn).not.toHaveBeenCalled();
     });
 
-    it('resolves failed and warns when the canvas drops the grid request', async () => {
-      layoutMode.set('grid');
+    it('resolves failed and warns when the canvas drops the request', async () => {
       appState.requestCanvasSession.mockResolvedValueOnce(false);
 
       await expect(
@@ -187,22 +148,6 @@ describe('SessionRowActionsService', () => {
         'SessionRowActions',
         'Canvas did not open the session',
         { sessionId: TAGGED },
-      );
-      expect(chatStore.switchSession).not.toHaveBeenCalled();
-    });
-
-    it('resolves failed and logs when the single-layout switch rejects', async () => {
-      const error = new Error('load failed');
-      chatStore.switchSession.mockRejectedValueOnce(error);
-
-      await expect(
-        service.openSession({ id: TAGGED, name: 'Tagged' }),
-      ).resolves.toBe('failed');
-
-      expect(logger.error).toHaveBeenCalledWith(
-        'SessionRowActions',
-        'Failed to open session',
-        error,
       );
     });
   });

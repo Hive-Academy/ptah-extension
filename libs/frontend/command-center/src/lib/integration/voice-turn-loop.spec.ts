@@ -8,6 +8,7 @@ describe('Command Center voice loop integration', () => {
     const { fixture } = createHarness();
     const page = fixture.componentInstance.page;
     await page.open();
+    page.coordinator.chooseCurrentTab();
     const start = jest.spyOn(page.voice, 'start').mockResolvedValue(true);
     const mute = jest.spyOn(page.voice, 'mute').mockResolvedValue(undefined);
     await page.startVoice();
@@ -22,6 +23,7 @@ describe('Command Center voice loop integration', () => {
     const { fixture, rpc } = createHarness();
     const page = fixture.componentInstance.page;
     await page.open();
+    page.coordinator.chooseCurrentTab();
     await page.coordinator.stop();
     expect(rpc.call).toHaveBeenCalledWith(
       'chat:abort',
@@ -36,6 +38,7 @@ describe('Command Center voice loop integration', () => {
     const { fixture, rpc, sender } = createHarness();
     const page = fixture.componentInstance.page;
     await page.open();
+    page.coordinator.chooseCurrentTab();
     page.voice['active'] = true;
     page.store.setVoiceState('thinking');
     rpc.call.mockImplementation(async (method: string) => ({
@@ -67,6 +70,7 @@ describe('Command Center voice loop integration', () => {
     const { fixture, rpc, pulses } = createHarness();
     const page = fixture.componentInstance.page;
     await page.open();
+    page.coordinator.chooseCurrentTab();
     page.voice['active'] = true;
     rpc.call.mockImplementation(async (method: string) => ({
       success: method === 'voice:transcribe',

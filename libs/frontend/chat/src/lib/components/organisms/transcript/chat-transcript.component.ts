@@ -22,7 +22,10 @@ import {
   type TurnLogToggle,
 } from '../message-bubble.component';
 import { ChatEmptyStateComponent } from '../../molecules/setup-plugins/chat-empty-state.component';
-import { ExecutionTreeBuilderService } from '@ptah-extension/chat-streaming';
+import {
+  ExecutionTreeBuilderService,
+  SubagentExecutionStore,
+} from '@ptah-extension/chat-streaming';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import type { TabViewMode } from '@ptah-extension/chat-types';
 import { DOCUMENT } from '@angular/common';
@@ -49,7 +52,10 @@ import { ChangeSetCardComponent } from '@ptah-extension/chat-ui/change-set-card'
 import { TurnSummaryChipComponent } from '@ptah-extension/chat-ui/turn-recap';
 // Same contract (see `libs/frontend/chat-ui/src/display-panel.ts`).
 import { DisplaySurfaceSyncComponent } from '@ptah-extension/chat-ui/display-panel';
-import { PTAH_UI_HOST_SOURCES, PtahUiLiveWindow } from '@ptah-extension/chat-ui';
+import {
+  PTAH_UI_HOST_SOURCES,
+  PtahUiLiveWindow,
+} from '@ptah-extension/chat-ui';
 import {
   ChangeSetStore,
   type ChangeSetMarks,
@@ -709,9 +715,17 @@ export class ChatTranscriptComponent {
   /** Shared empty `agents` binding (one identity for every bubble). */
   protected readonly noAgents = NO_SESSION_AGENTS;
 
-  /** Roster keys of the agents each turn's trees spawned. */
+  private get subagentExecutions(): SubagentExecutionStore {
+    return this.injector.get(SubagentExecutionStore);
+  }
+
+  /** Roster keys of agents in the turn and in their own execution trees. */
   private readonly turnAgentKeys = computed<TurnAgentKeys>(() =>
-    turnAgentKeysOf(this.turnMessages(), this.turnContexts()),
+    turnAgentKeysOf(this.turnMessages(), this.turnContexts(), (key) => {
+      const store = this.subagentExecutions;
+      store.revisionFor(key);
+      return store.treeFor(key);
+    }),
   );
 
   private _frozenRoster: readonly SessionAgent[] = NO_SESSION_AGENTS;
@@ -914,7 +928,9 @@ export class ChatTranscriptComponent {
       lane && lane.kind !== 'cli' ? this.findSubagent(lane.id) : null;
     if (!lane || !target) {
       // Never route to another session: keep the transcript, say why.
-      this.subagentNotice.set('This agent is not available in this conversation.');
+      this.subagentNotice.set(
+        'This agent is not available in this conversation.',
+      );
       return;
     }
     this.subagentNotice.set('');
@@ -971,6 +987,17 @@ export class ChatTranscriptComponent {
         toolCallId,
       );
       if (node) return { node, streaming: index >= view.streamingBoundary };
+    }
+    if (this.turnAgentKeys().size === 0) return null;
+    for (const keys of this.turnAgentKeys().values()) {
+      for (const key of keys) {
+        const lane = parseLaneKey(key);
+        if (lane?.kind !== 'subagent') continue;
+        for (const root of this.subagentExecutions.treeFor(lane.id)) {
+          const node = findAgentNode(root, toolCallId);
+          if (node) return { node, streaming: node.status === 'streaming' };
+        }
+      }
     }
     return null;
   }
@@ -1276,19 +1303,24 @@ export class ChatTranscriptComponent {
     if (!this.workActive()) return;
     this.cancelScrollFrame();
     const generation = this.scrollGeneration;
-    this.scrollRestoreRef = afterNextRender({ write: () => {
-      if (generation !== this.scrollGeneration) return;
-      this.scrollRestoreRef = null;
-      if (!this.workActive()) return;
-      const el = this.scrollContainer()?.nativeElement;
-      if (!el) return;
-      if (this.pinnedToBottom() || this.savedScrollTop === null) {
-        el.scrollTop = el.scrollHeight;
-      } else {
-        el.scrollTop = this.savedScrollTop;
-      }
-      this.lastScrollTop = el.scrollTop;
-    } }, { injector: this.injector });
+    this.scrollRestoreRef = afterNextRender(
+      {
+        write: () => {
+          if (generation !== this.scrollGeneration) return;
+          this.scrollRestoreRef = null;
+          if (!this.workActive()) return;
+          const el = this.scrollContainer()?.nativeElement;
+          if (!el) return;
+          if (this.pinnedToBottom() || this.savedScrollTop === null) {
+            el.scrollTop = el.scrollHeight;
+          } else {
+            el.scrollTop = this.savedScrollTop;
+          }
+          this.lastScrollTop = el.scrollTop;
+        },
+      },
+      { injector: this.injector },
+    );
   }
 
   /**

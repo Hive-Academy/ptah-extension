@@ -4,6 +4,8 @@ import { By } from '@angular/platform-browser';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { TabManagerService } from '@ptah-extension/chat-state';
+import { sessionContextCue } from '@ptah-extension/chat-ui';
+import type { SessionStatsEntry } from '@ptah-extension/shared';
 import { CommandCenterStore } from '../model/command-center.store';
 import type { ProjectionResult } from '../model/work-projection';
 import type { TribunalRosterProposal } from '../model/tribunal-roster-proposal';
@@ -11,18 +13,31 @@ import { CommandSceneComponent } from '../scene/command-scene.component';
 import { CommandOverlayComponent } from './command-overlay.component';
 import { CommandPendingInputComponent } from './command-pending-input.component';
 import { CommandSessionControlsComponent } from './command-session-controls.component';
+import { CommandCenterStartComponent } from './command-center-start.component';
+import { CommandVoiceHudComponent } from './command-voice-hud.component';
 import { CommandWorkListComponent } from './command-work-list.component';
 import { CommandCenterPageComponent } from './command-center-page.component';
 import { CommandCenterPageController } from './command-center-page.controller';
+import { CommandNodeDetailComponent } from './command-node-detail.component';
+import { CommandSessionStatsComponent } from './command-session-stats.component';
 
 @Component({ selector: 'ptah-command-scene', standalone: true, template: '' })
 class SceneStubComponent {
+  public readonly setOverlayLabels = jest.fn();
+  public readonly setCardAnchor = jest.fn();
+  public readonly layout = signal({
+    nodes: [],
+    overflowCompleted: 0,
+    overflowOther: 0,
+    overflowChip: null,
+  });
   public readonly projection = input.required<ProjectionResult>();
   public readonly selectedId = input<string | null>(null);
   public readonly theme = input('dark');
   public readonly voiceState = input('idle');
   public readonly inputLevel = input(0);
   public readonly outputLevel = input(0);
+  public readonly reservedTop = input(72);
   public readonly selection = output<string>();
   public readonly hoveredNodeId = output<string | null>();
   public readonly canvasUnavailable = output<boolean>();
@@ -48,8 +63,39 @@ describe('CommandCenterPageComponent', () => {
     },
   ];
   const projection = signal<ProjectionResult>({ nodes, edges: [] });
+  type LiveContext = NonNullable<Parameters<typeof sessionContextCue>[0]>;
+  const tabs = signal<
+    {
+      id: string;
+      liveModelStats?: LiveContext | null;
+      sessionStats?: SessionStatsEntry | null;
+    }[]
+  >([]);
+  const stats: SessionStatsEntry = {
+    sessionId: 'root',
+    model: null,
+    totalCost: 0.2,
+    tokens: { input: 10, output: 2, cacheRead: 0, cacheCreation: 0 },
+    tokenCount: 12,
+    messageCount: 3,
+    status: 'ok',
+  };
+  const verifiedContext = (percent: number): LiveContext => ({
+    model: 'claude',
+    contextKnown: true,
+    contextCapacity: {
+      tokens: 200_000,
+      source: 'sdk-native',
+      providerId: null,
+      model: 'claude',
+    },
+    contextUsed: percent * 2_000,
+    contextWindow: 200_000,
+    contextPercent: percent,
+  });
   const hoveredNodeId = signal<string | null>(null);
   const canvasUnavailable = signal(false);
+  const now = signal(1_000);
   const pendingProposal = signal<TribunalRosterProposal | null>(null);
   const recordWriteFailure = signal<{
     workspacePath: string;
@@ -61,6 +107,7 @@ describe('CommandCenterPageComponent', () => {
     projection,
     hoveredNodeId,
     canvasUnavailable,
+    now,
     pendingProposal,
     shownProposal: computed(() =>
       store.pendingInput()?.kind === 'approval' ? null : pendingProposal(),
@@ -69,12 +116,27 @@ describe('CommandCenterPageComponent', () => {
     latestReply: signal<string | null>(null),
     turnAbortable: signal(false),
     shownSessionStatus: computed(() => store.sessionStatus()),
+    darkMode: signal(true),
+    toggleTheme: jest.fn(),
     rosterTimedOut: signal(false),
     ordinaryQuestion: signal(null),
     ordinaryChoices: signal<readonly string[]>([]),
-    coordinator: { newCommandCenter: jest.fn(), sendStatusTurn: jest.fn() },
-    tabs: { activeWorkspacePath: '/workspace' },
-    open: jest.fn(async () => 'root-tab'),
+    coordinator: {
+      newCommandCenter: jest.fn(),
+      sendStatusTurn: jest.fn(),
+      sessions: signal([]),
+      listStatus: signal('ready'),
+      showAll: signal(false),
+      choosing: signal(false),
+      currentTabId: signal<string | null>(null),
+      currentSessionId: signal(null),
+      recordedSessionId: signal(null),
+      chooseSession: jest.fn(),
+      chooseCurrentTab: jest.fn(),
+      refreshSessions: jest.fn(),
+    },
+    tabs: { activeWorkspacePath: '/workspace', tabs },
+    open: jest.fn(async (): Promise<string | null> => 'root-tab'),
     exit: jest.fn(async () => undefined),
     confirmProposal: jest.fn(async (_id: string) => undefined),
     declineProposal: jest.fn((_id: string) => undefined),
@@ -92,9 +154,14 @@ describe('CommandCenterPageComponent', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    store.setSession('root-tab', null, '/workspace');
+    tabs.set([]);
+    controller.coordinator.currentTabId.set(null);
+    projection.set({ nodes, edges: [] });
     controller.sendCommand.mockResolvedValue(true);
     hoveredNodeId.set(null);
     canvasUnavailable.set(false);
+    now.set(1_000);
     pendingProposal.set(null);
     store.setPendingInput(null);
     store.setVoiceError(null);
@@ -129,6 +196,279 @@ describe('CommandCenterPageComponent', () => {
         ],
       },
     });
+  });
+
+  it('shows verified context from the marked root tab only', () => {
+    tabs.set([
+      { id: 'other-tab', liveModelStats: verifiedContext(91) },
+      { id: 'root-tab', liveModelStats: verifiedContext(42) },
+    ]);
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const chip = fixture.nativeElement.querySelector(
+      'header .badge:last-of-type',
+    ) as HTMLElement;
+    expect(chip.textContent).toContain('Context 42%');
+    expect(chip.textContent).not.toContain('91%');
+    expect(chip.classList.contains('text-state-need')).toBe(false);
+    fixture.destroy();
+  });
+
+  it('uses the root snapshot for the stage strip and exact child tab for shared details', () => {
+    tabs.set([
+      { id: 'root-tab', sessionStats: stats },
+      {
+        id: 'child-tab',
+        sessionStats: {
+          ...stats,
+          sessionId: 'child',
+          messageCount: 7,
+          tokenCount: 30,
+        },
+      },
+      { id: 'unrelated', sessionStats: { ...stats, messageCount: 99 } },
+    ]);
+    projection.set({
+      nodes: [
+        nodes[0],
+        { ...nodes[1], tabId: 'child-tab', task: '<b>Work</b>' },
+      ],
+      edges: [],
+    });
+    store.select('child:one');
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const strip = fixture.debugElement.query(
+      By.directive(CommandSessionStatsComponent),
+    ).componentInstance as CommandSessionStatsComponent;
+    expect(strip.snapshot()?.sessionId).toBe('root');
+    const rail = fixture.nativeElement.querySelector(
+      '[aria-label="Selected work"]',
+    ) as HTMLElement;
+    expect(rail.querySelector('ptah-command-node-detail')).not.toBeNull();
+    expect(rail.textContent).toContain('7 messages');
+    expect(rail.textContent).not.toContain('99 messages');
+    expect(rail.textContent).toContain('<b>Work</b>');
+    expect(rail.querySelector('b')).toBeNull();
+    const detail = fixture.debugElement.query(
+      By.directive(CommandNodeDetailComponent),
+    ).componentInstance as CommandNodeDetailComponent;
+    expect(detail.childStats()?.tokens).toBe(30);
+    fixture.destroy();
+  });
+
+  it('keeps the provisional marker and omits unloaded zero child messages', () => {
+    tabs.set([
+      { id: 'root-tab', sessionStats: stats },
+      {
+        id: 'child-tab',
+        sessionStats: {
+          ...stats,
+          sessionId: 'child',
+          provisional: true,
+          messageCount: 0,
+          tokenCount: 12_345,
+          totalCost: 0.012345678,
+        },
+      },
+    ]);
+    projection.set({
+      nodes: [nodes[0], { ...nodes[1], tabId: 'child-tab' }],
+      edges: [],
+    });
+    store.select('child:one');
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const rail = fixture.nativeElement.querySelector(
+      '[aria-label="Selected work"]',
+    ) as HTMLElement;
+    expect(rail.textContent).toContain('~12.3k tokens');
+    expect(rail.textContent).toContain('~$0.01');
+    expect(rail.textContent).not.toContain('0 messages');
+    fixture.destroy();
+  });
+
+  it('shows unknown context without a zero or warning', () => {
+    tabs.set([
+      {
+        id: 'root-tab',
+        liveModelStats: {
+          ...verifiedContext(0),
+          contextCapacity: undefined,
+        },
+      },
+    ]);
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const chip = fixture.nativeElement.querySelector(
+      'header .badge:last-of-type',
+    ) as HTMLElement;
+    expect(chip.textContent).toContain('Context unknown');
+    expect(chip.textContent).not.toContain('0%');
+    expect(chip.textContent).not.toContain('Warning');
+    fixture.destroy();
+  });
+
+  it('keeps the context chip and stage counts out of the start view', () => {
+    tabs.set([{ id: 'root-tab', liveModelStats: verifiedContext(42) }]);
+    store.setSession(null, null, '/workspace');
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelector('ptah-command-center-start'),
+    ).not.toBeNull();
+    expect(
+      fixture.nativeElement.querySelector('header')?.textContent,
+    ).not.toContain('Context');
+    expect(fixture.nativeElement.querySelector('.stage')).toBeNull();
+    fixture.destroy();
+  });
+
+  it('passes the controller clock to the start view', () => {
+    store.setSession(null, null, '/workspace');
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const start = fixture.debugElement.query(
+      By.directive(CommandCenterStartComponent),
+    ).componentInstance as CommandCenterStartComponent;
+    expect(start.now()).toBe(1_000);
+    now.set(31_000);
+    fixture.detectChanges();
+    expect(start.now()).toBe(31_000);
+    fixture.destroy();
+  });
+
+  it('passes the current tab snapshot to the start row without borrowing another tab', () => {
+    store.setSession(null, null, '/workspace');
+    tabs.set([{ id: 'other-tab', sessionStats: stats }, { id: 'current-tab' }]);
+    controller.coordinator.currentTabId.set('current-tab');
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const start = fixture.debugElement.query(
+      By.directive(CommandCenterStartComponent),
+    ).componentInstance as CommandCenterStartComponent;
+    expect(start.currentStats()).toBeNull();
+    tabs.set([
+      { id: 'other-tab', sessionStats: stats },
+      {
+        id: 'current-tab',
+        sessionStats: { ...stats, sessionId: 'current', totalCost: 0.4 },
+      },
+    ]);
+    fixture.detectChanges();
+    expect(start.currentStats()?.sessionId).toBe('current');
+    expect(start.currentStats()?.totalCost).toBe(0.4);
+    controller.coordinator.currentTabId.set(null);
+    fixture.detectChanges();
+    expect(start.currentStats()).toBeNull();
+    fixture.destroy();
+  });
+
+  it('passes the existing output level signal to the voice HUD', () => {
+    store.setVoiceState('speaking');
+    store.resetLevels();
+    store.updateLevels(0, 0.7);
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const hud = fixture.debugElement.query(
+      By.directive(CommandVoiceHudComponent),
+    ).componentInstance as CommandVoiceHudComponent;
+    expect(hud.outputLevel()).toBe(0.7);
+    expect(
+      fixture.nativeElement
+        .querySelector('[role="meter"][aria-label="Speaker"]')
+        ?.getAttribute('aria-valuenow'),
+    ).toBe('70');
+    fixture.destroy();
+  });
+
+  it('passes the controller clock to the overlay and work list', () => {
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const overlay = fixture.debugElement.query(
+      By.directive(CommandOverlayComponent),
+    ).componentInstance as CommandOverlayComponent;
+    const list = fixture.debugElement.query(
+      By.directive(CommandWorkListComponent),
+    ).componentInstance as CommandWorkListComponent;
+    expect(overlay.now()).toBe(1_000);
+    expect(list.now()).toBe(1_000);
+    now.set(31_000);
+    fixture.detectChanges();
+    expect(overlay.now()).toBe(31_000);
+    expect(list.now()).toBe(31_000);
+    fixture.destroy();
+  });
+
+  it('passes scene overflow counts to the work list and clears them without a scene', () => {
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const scene = fixture.debugElement.query(By.directive(SceneStubComponent))
+      .componentInstance as SceneStubComponent;
+    const list = fixture.debugElement.query(
+      By.directive(CommandWorkListComponent),
+    ).componentInstance as CommandWorkListComponent;
+    expect(list.overflowCompleted()).toBe(0);
+    expect(list.overflowOther()).toBe(0);
+    scene.layout.set({
+      nodes: [],
+      overflowCompleted: 3,
+      overflowOther: 2,
+      overflowChip: null,
+    });
+    fixture.detectChanges();
+    expect(list.overflowCompleted()).toBe(3);
+    expect(list.overflowOther()).toBe(2);
+    scene.canvasUnavailable.emit(true);
+    fixture.detectChanges();
+    expect(list.overflowCompleted()).toBe(0);
+    expect(list.overflowOther()).toBe(0);
+    fixture.destroy();
+  });
+
+  it.each([69, 70])('warns at 70 percent, checking %i percent', (percent) => {
+    tabs.set([{ id: 'root-tab', liveModelStats: verifiedContext(percent) }]);
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const chip = fixture.nativeElement.querySelector(
+      'header .badge:last-of-type',
+    ) as HTMLElement;
+    expect(chip.textContent).toContain(`Context ${percent}%`);
+    expect(chip.textContent?.includes('Warning')).toBe(percent === 70);
+    expect(chip.classList.contains('text-state-need')).toBe(percent === 70);
+    fixture.destroy();
+  });
+
+  it('counts running and awaiting-input nodes, not starting ones, in the scene caption', () => {
+    projection.set({
+      nodes: [
+        nodes[0],
+        { ...nodes[1], state: 'starting' },
+        {
+          ...nodes[1],
+          id: 'phase:one',
+          kind: 'phase',
+          state: 'awaiting input',
+        },
+        { ...nodes[1], id: 'child:two', state: 'awaiting input' },
+        { ...nodes[1], id: 'child:three', state: 'running' },
+      ],
+      edges: [],
+    });
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const caption = fixture.nativeElement.querySelector(
+      '.stage .stats-band .stage-caption p:nth-child(2)',
+    ) as HTMLElement;
+    expect(caption.textContent).toContain('5 nodes');
+    expect(caption.textContent).toContain('1 running');
+    expect(caption.textContent).toContain('1 waiting');
+    projection.set({ nodes: [{ ...nodes[0], state: 'completed' }], edges: [] });
+    fixture.detectChanges();
+    expect(caption.textContent).toContain('1 nodes');
+    expect(caption.textContent).not.toContain('running');
+    expect(caption.textContent).not.toContain('waiting');
+    fixture.destroy();
   });
 
   it.each([
@@ -187,24 +527,182 @@ describe('CommandCenterPageComponent', () => {
     fixture.destroy();
   });
 
-  it('keeps the two-column rail bounded as the single scroller', () => {
+  it('fills the rail remainder with the delegated-work scroller', () => {
     const fixture = TestBed.createComponent(CommandCenterPageComponent);
     fixture.detectChanges();
     const styles = readFileSync(
-      join(__dirname, 'command-center-page.component.ts'),
+      join(__dirname, 'command-center-page.component.css'),
       'utf8',
     );
     const rail = styles.match(/\.rail[^{}]*\{([^}]*)\}/)?.[1];
-    const workList = styles.match(/\.work-list-region[^{}]*\{([^}]*)\}/)?.[1];
-    expect(rail).toContain(
-      'max-height: clamp(420px, calc(100vh - 280px), 620px)',
-    );
+    const workList = styles.match(/^\.work-list-region\s*\{([^}]*)\}/m)?.[1];
+    const workListHost = styles.match(/^\.work-list-region > ptah-command-work-list\s*\{([^}]*)\}/m)?.[1];
+    const narrow = styles.split('@container (max-width: 720px)')[1];
+    expect(rail).toContain('display: flex');
+    expect(rail).toContain('flex-direction: column');
     expect(rail).toContain('overflow-y: auto');
-    expect(rail).not.toContain('overscroll-behavior: contain');
-    expect(rail).not.toContain('overflow: hidden');
-    expect(workList).toContain('flex: none');
-    expect(workList).not.toMatch(/overflow-y:\s*auto/);
+    expect(workList).toContain('display: flex');
+    expect(workList).toContain('flex-direction: column');
+    expect(workList).toContain('flex: 1 1 auto');
+    expect(workList).toContain('min-height: 7rem');
+    expect(workList).toContain('overflow-y: auto');
+    expect(workListHost).toContain('display: flex');
+    expect(workListHost).toContain('flex: 1 1 auto');
+    expect(workListHost).toContain('min-height: 0');
+    expect(narrow).toContain('.layout { display: flex; flex: none; flex-direction: column; }');
+    expect(narrow).toContain('.stage-column, .dock, .rail { flex: none; width: 100%; }');
+    expect(narrow).toContain('.stage { min-height: 500px; }');
+    expect(narrow).toContain('.work-list-region { display: block; flex: none; max-height: 24rem; }');
+    expect(narrow).toContain('.work-list-region > ptah-command-work-list { display: block; min-height: auto; }');
     fixture.destroy();
+  });
+
+  it('keeps the approved deck structure and responsive band sizes', () => {
+    const css = readFileSync(join(__dirname, 'command-center-page.component.css'), 'utf8');
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    const layout = fixture.nativeElement.querySelector('.layout') as HTMLElement;
+    expect([...layout.children].map((child) => child.className)).toEqual(
+      expect.arrayContaining([expect.stringContaining('stage-column'), expect.stringContaining('dock'), expect.stringContaining('rail')]),
+    );
+    expect(css).toContain('grid-template-areas: \'stage rail\' \'dock rail\'');
+    expect(css).toContain('296px');
+    expect(css).toContain('padding: 16px');
+    expect(css).toContain('column-gap: 12px');
+    expect(css).toContain('row-gap: 10px');
+    expect(css).toContain('flex: 1 1 auto; min-height: 0');
+    expect(css).toContain('grid-template-rows: minmax(600px, 1fr) auto');
+    expect(css).toContain('grid-template-rows: minmax(570px, 1fr) auto');
+    expect(css).toContain('grid-template-rows: minmax(500px, 1fr) auto');
+    expect(css).not.toContain('100vh');
+    expect(css).toContain('@container (min-width: 1100px)');
+    expect(css).toContain('height: 72px');
+    expect(css).toContain('@container (max-width: 1000px)');
+    expect(css).toContain('240px');
+    expect(css).toContain('570px');
+    expect(css).toContain('@container (max-width: 720px)');
+    expect(css).toContain('flex-direction: column');
+    expect(css).toContain('@container (max-width: 480px)');
+    expect(css).toContain('height: 154px');
+    expect(css).toContain('min-height: 500px');
+    fixture.destroy();
+  });
+
+  it('measures the opaque stats band border box and releases its observer', async () => {
+    const original = Object.getOwnPropertyDescriptor(globalThis, 'ResizeObserver');
+    let notify: ResizeObserverCallback | undefined;
+    const observe = jest.fn();
+    const disconnect = jest.fn();
+    class BandObserver {
+      private isBand = false;
+      public constructor(private readonly callback: ResizeObserverCallback) {}
+      public observe = (target: Element) => {
+        if (target.classList.contains('stats-band')) {
+          this.isBand = true;
+          notify = this.callback;
+          observe(target);
+        }
+      };
+      public disconnect = () => { if (this.isBand) disconnect(); };
+    }
+    Object.defineProperty(globalThis, 'ResizeObserver', { configurable: true, value: BandObserver });
+    try {
+      const fixture = TestBed.createComponent(CommandCenterPageComponent);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      const scene = fixture.debugElement.query(By.directive(SceneStubComponent)).componentInstance as SceneStubComponent;
+      expect(observe).toHaveBeenCalledTimes(1);
+      const band = fixture.nativeElement.querySelector('.stats-band') as HTMLElement;
+      notify?.([{
+        target: band,
+        borderBoxSize: [{ blockSize: 144, inlineSize: 300 }],
+        contentRect: { height: 111 },
+      } as ResizeObserverEntry], {} as ResizeObserver);
+      fixture.detectChanges();
+      expect(scene.reservedTop()).toBe(144);
+      fixture.destroy();
+      expect(disconnect).toHaveBeenCalledTimes(1);
+    } finally {
+      if (original) Object.defineProperty(globalThis, 'ResizeObserver', original);
+      else Reflect.deleteProperty(globalThis, 'ResizeObserver');
+    }
+  });
+
+  it('observes a recreated stats band with the same observer', async () => {
+    const original = Object.getOwnPropertyDescriptor(globalThis, 'ResizeObserver');
+    let notify: ResizeObserverCallback | undefined;
+    const observe = jest.fn();
+    const unobserve = jest.fn();
+    const disconnect = jest.fn();
+    const bandObservers = new Set<BandObserver>();
+    class BandObserver {
+      private isBand = false;
+      public constructor(private readonly callback: ResizeObserverCallback) {}
+      public observe = (target: Element) => {
+        observe(target);
+        if (target.classList.contains('stats-band')) {
+          this.isBand = true;
+          bandObservers.add(this);
+          notify = this.callback;
+        }
+      };
+      public unobserve = unobserve;
+      public disconnect = () => { if (this.isBand) disconnect(); };
+    }
+    Object.defineProperty(globalThis, 'ResizeObserver', { configurable: true, value: BandObserver });
+    try {
+      const fixture = TestBed.createComponent(CommandCenterPageComponent);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      const firstBand = fixture.nativeElement.querySelector('.stats-band') as HTMLElement;
+      expect(observe).toHaveBeenCalledWith(firstBand);
+      notify?.([{
+        target: firstBand,
+        borderBoxSize: [{ blockSize: 144, inlineSize: 300 }],
+        contentRect: { height: 111 },
+      } as ResizeObserverEntry], {} as ResizeObserver);
+      fixture.detectChanges();
+      expect(fixture.componentInstance.statsBandHeight()).toBe(144);
+      store.setSession(null, null, '/workspace');
+      fixture.detectChanges();
+      await fixture.whenStable();
+      expect(unobserve).toHaveBeenCalledWith(firstBand);
+      store.setSession('root-tab', null, '/workspace');
+      fixture.detectChanges();
+      await fixture.whenStable();
+      const nextBand = fixture.nativeElement.querySelector('.stats-band') as HTMLElement;
+      expect(nextBand).not.toBe(firstBand);
+      expect(observe).toHaveBeenCalledWith(nextBand);
+      expect(bandObservers.size).toBe(1);
+      notify?.([{
+        target: nextBand,
+        borderBoxSize: [{ blockSize: 72, inlineSize: 300 }],
+        contentRect: { height: 39 },
+      } as ResizeObserverEntry], {} as ResizeObserver);
+      fixture.detectChanges();
+      const scene = fixture.debugElement.query(By.directive(SceneStubComponent)).componentInstance as SceneStubComponent;
+      expect(scene.reservedTop()).toBe(72);
+      fixture.destroy();
+      expect(disconnect).toHaveBeenCalledTimes(1);
+    } finally {
+      if (original) Object.defineProperty(globalThis, 'ResizeObserver', original);
+      else Reflect.deleteProperty(globalThis, 'ResizeObserver');
+    }
+  });
+
+  it('renders without ResizeObserver support', () => {
+    const original = Object.getOwnPropertyDescriptor(globalThis, 'ResizeObserver');
+    Object.defineProperty(globalThis, 'ResizeObserver', { configurable: true, value: undefined });
+    try {
+      const fixture = TestBed.createComponent(CommandCenterPageComponent);
+      fixture.detectChanges();
+      const scene = fixture.debugElement.query(By.directive(SceneStubComponent)).componentInstance as SceneStubComponent;
+      expect(scene.reservedTop()).toBe(72);
+      fixture.destroy();
+    } finally {
+      if (original) Object.defineProperty(globalThis, 'ResizeObserver', original);
+      else Reflect.deleteProperty(globalThis, 'ResizeObserver');
+    }
   });
 
   it('scrolls a newly pending card into view once per identity', async () => {
@@ -342,7 +840,7 @@ describe('CommandCenterPageComponent', () => {
       '[aria-label="Command dock"]',
     ) as HTMLElement;
     expect(dock.className).toContain('dock');
-    expect(dock.parentElement?.className).toContain('layout');
+    expect(dock.parentElement?.parentElement?.className).toContain('layout');
     const rail = fixture.nativeElement.querySelector('.rail') as HTMLElement;
     expect(
       dock.compareDocumentPosition(rail) & Node.DOCUMENT_POSITION_FOLLOWING,
@@ -383,7 +881,7 @@ describe('CommandCenterPageComponent', () => {
       // The toast floats outside the dock flow so it never shifts the input.
       expect(infoAlert.closest('[aria-label="Command dock"]')).toBeNull();
       expect(infoAlert.className).toContain('absolute');
-      expect(infoAlert.closest('.stage-column')).not.toBeNull();
+      expect(infoAlert.closest('.stage-column')).toBeNull();
       expect(infoAlert.closest('header')).toBeNull();
       jest.advanceTimersByTime(5000);
       fixture.detectChanges();
@@ -624,6 +1122,41 @@ describe('CommandCenterPageComponent', () => {
     });
     await fixture.componentInstance.requestStatus();
     expect(controller.open).toHaveBeenCalled();
+    expect(controller.coordinator.sendStatusTurn).toHaveBeenCalledWith(
+      'Status',
+    );
+    fixture.destroy();
+  });
+
+  it('shows an error toast on the start view', () => {
+    store.setSession(null, null, '/workspace');
+    store.setToast({
+      message: 'Could not restore the Command Center session.',
+      tone: 'error',
+    });
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    expect(
+      fixture.nativeElement.querySelector('ptah-command-center-start'),
+    ).not.toBeNull();
+    expect(
+      fixture.nativeElement.querySelector('.page-toast[role="alert"]')
+        ?.textContent,
+    ).toContain('Could not restore the Command Center session.');
+    fixture.destroy();
+  });
+
+  it('creates a new session for Status from the start view', async () => {
+    store.setSession(null, null, '/workspace');
+    const fixture = TestBed.createComponent(CommandCenterPageComponent);
+    fixture.detectChanges();
+    controller.open.mockResolvedValueOnce(null);
+    controller.coordinator.newCommandCenter.mockImplementationOnce(() => {
+      store.setSession('root-tab', null, '/workspace');
+      return 'root-tab';
+    });
+    await fixture.componentInstance.requestStatus();
+    expect(controller.coordinator.newCommandCenter).toHaveBeenCalled();
     expect(controller.coordinator.sendStatusTurn).toHaveBeenCalledWith(
       'Status',
     );
