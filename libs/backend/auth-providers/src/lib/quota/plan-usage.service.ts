@@ -297,7 +297,10 @@ export class PlanUsageService {
       if (localReader) {
         const [account, local] = await Promise.allSettled([
           providerId === 'grok' && owner.identityKind === 'credential'
-            ? Promise.resolve(statusOnly('no-usage-source'))
+            ? Promise.resolve({
+                ...statusOnly('no-usage-source'),
+                statusReason: 'api-key-no-subscription-quota' as const,
+              })
             : reader(request),
           providerId === 'grok' && !target.cliSessionId
             ? Promise.resolve(statusOnly('no-usage-source'))
@@ -431,6 +434,7 @@ export class PlanUsageService {
       ...(reading.unavailableReason && {
         unavailableReason: reading.unavailableReason,
       }),
+      ...(reading.statusReason && { statusReason: reading.statusReason }),
     };
   }
 }
