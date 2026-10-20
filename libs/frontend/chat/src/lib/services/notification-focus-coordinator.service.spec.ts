@@ -18,6 +18,7 @@ describe('NotificationFocusCoordinator', () => {
   const tab = { id: 'tab-1', claudeSessionId: 'session-1' };
   const order: string[] = [];
   const requestCanvasFocus = jest.fn();
+  const requestCanvasTab = jest.fn();
   const findByTab = jest.fn();
   const findBySession = jest.fn();
   const switchTab = jest.fn();
@@ -29,6 +30,10 @@ describe('NotificationFocusCoordinator', () => {
     requestCanvasFocus.mockReset().mockImplementation(async () => {
       order.push('canvas');
       return { success: true, outcome: 'focused' };
+    });
+    requestCanvasTab.mockReset().mockImplementation(async () => {
+      order.push('tab');
+      return true;
     });
     findByTab
       .mockReset()
@@ -46,6 +51,7 @@ describe('NotificationFocusCoordinator', () => {
           useValue: {
             setCurrentView: () => order.push('view'),
             requestCanvasFocus,
+            requestCanvasTab,
           },
         },
         {
@@ -72,6 +78,17 @@ describe('NotificationFocusCoordinator', () => {
       outcome: 'focused',
     });
     expect(order).toEqual(['workspace', 'view', 'canvas']);
+  });
+
+  it('opens an unpartitioned owner by tab id without switching away from its active set', async () => {
+    findByTab.mockReturnValue({ tab: { id: 'tab-1', claudeSessionId: null }, workspacePath: null });
+    findBySession.mockReturnValue(null);
+    await expect(coordinator.focus({ ...target, workspacePath: '' })).resolves.toEqual({
+      success: true, outcome: 'focused',
+    });
+    expect(requestCanvasTab).toHaveBeenCalledWith('tab-1', null, undefined, true, { timeoutMs: 5000 });
+    expect(requestCanvasFocus).not.toHaveBeenCalled();
+    expect(order).toEqual(['view', 'tab']);
   });
 
   it('returns missing before navigation when the target no longer resolves', async () => {

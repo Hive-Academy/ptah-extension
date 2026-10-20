@@ -36,8 +36,17 @@ export class NotificationFocusCoordinator implements NotificationFocusRouter {
       return { success: false, outcome: 'missing' };
     }
 
-    await this.workspaceCoordinator.switchWorkspace(target.workspacePath);
+    if (initial?.workspacePath !== null) {
+      await this.workspaceCoordinator.switchWorkspace(target.workspacePath);
+    }
     this.appState.setCurrentView('chat');
+    // The canvas uses its implicit partition for tabs whose owner path is null.
+    // Its focus request compares workspace paths literally, so adopt this tab
+    // through the tab request bridge, which normalizes null to that partition.
+    if (initial?.workspacePath === null) {
+      const focused = await this.appState.requestCanvasTab(initial.tab.id, null, undefined, true, { timeoutMs: 5000 });
+      return { success: focused, outcome: focused ? 'focused' : 'missing' };
+    }
     // At the canvas tile cap the result is `cap-reached` and no tab is
     // switched; the notification panel stays open on a non-success result.
     return this.appState.requestCanvasFocus({
@@ -51,10 +60,10 @@ export class NotificationFocusCoordinator implements NotificationFocusRouter {
     const byTab = target.tabId
       ? this.tabManager.findTabByIdAcrossWorkspaces(target.tabId)
       : null;
-    if (byTab?.workspacePath === target.workspacePath) return byTab;
+    if (byTab && (byTab.workspacePath ?? '') === target.workspacePath) return byTab;
     const bySession = this.tabManager.findTabBySessionIdAcrossWorkspaces(
       target.sessionId,
     );
-    return bySession?.workspacePath === target.workspacePath ? bySession : null;
+    return bySession && (bySession.workspacePath ?? '') === target.workspacePath ? bySession : null;
   }
 }

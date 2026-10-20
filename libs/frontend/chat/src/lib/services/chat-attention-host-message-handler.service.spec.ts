@@ -40,8 +40,9 @@ describe('ChatAttentionHostMessageHandler', () => {
       { provide: AppStateManager, useValue: { setStatusMessage } },
       { provide: VSCodeService, useValue: { config: () => ({ isVSCode: false, workspaceRoot: '' }) } },
       { provide: TabManagerService, useValue: {
+        activeWorkspacePath: '/workspace-active',
         findTabByIdAcrossWorkspaces: () => ({
-          workspacePath: '/workspace-a', tab: { id: 'tab-1', claudeSessionId: 'session-1' },
+          workspacePath: '/workspace-a', tab: { id: 'tab-1', claudeSessionId: 'session-1', providerId: 'claude-cli' },
         }),
         findTabBySessionIdAcrossWorkspaces: () => null,
       } },
@@ -64,6 +65,31 @@ describe('ChatAttentionHostMessageHandler', () => {
       key: notice.key, generation: 1, workspacePath: '/workspace-a',
       soundEligible: false,
     }));
+  });
+
+  it('shows a safe session title but keeps a remote projection workspace unknown', () => {
+    handler.handleMessage({ type: MESSAGE_TYPES.ATTENTION_CHANGED, payload: {
+      change: 'upsert', notice: { ...notice, title: 'Fix notifications',
+        target: { ...target, workspaceId: workspaceIdFromPath('/remote') } },
+    } });
+    expect(upsert).toHaveBeenCalledWith(expect.objectContaining({
+      workspaceName: 'Unknown workspace', context: 'Fix notifications',
+    }));
+  });
+
+  it('keeps ordinary slash and security-word titles but drops paths and keys', () => {
+    for (const title of ['Fix token refresh', 'CI/CD pipeline', 'and/or']) {
+      handler.handleMessage({ type: MESSAGE_TYPES.ATTENTION_CHANGED, payload: {
+        change: 'upsert', notice: { ...notice, title },
+      } });
+      expect(upsert.mock.lastCall?.[0].context).toContain(title);
+    }
+    for (const title of ['/home/user/private', 'C:\\Users\\private', 'sk-1234567890abcdef']) {
+      handler.handleMessage({ type: MESSAGE_TYPES.ATTENTION_CHANGED, payload: {
+        change: 'upsert', notice: { ...notice, title },
+      } });
+      expect(upsert.mock.lastCall?.[0].context).toBe('Claude');
+    }
   });
 
   it('drops private or malformed push payloads', () => {

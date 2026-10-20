@@ -31,6 +31,15 @@ describe('NotificationSnackbarComponent', () => {
     jest.useRealTimers();
   });
 
+  it('renders a context line as text below the title', () => {
+    notifications.upsert({ ...item('request', 'permission'), context: 'Claude · Tool: Bash · <private>' });
+    const fixture = TestBed.createComponent(NotificationSnackbarComponent);
+    fixture.detectChanges();
+    const card = (fixture.nativeElement as HTMLElement).querySelector('.snackbar-card');
+    expect(card?.textContent).toContain('Claude · Tool: Bash · <private> · Workspace');
+    expect(card?.querySelector('private')).toBeNull();
+  });
+
   it('dispatches an action and dismisses only the presentation', async () => {
     notifications.upsert(item('request', 'permission'));
     const fixture = TestBed.createComponent(NotificationSnackbarComponent);

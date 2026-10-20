@@ -176,6 +176,17 @@ export class ChatAttentionHostMessageHandler implements MessageHandler {
     const prior = this.projected.get(notice.key);
     if (prior !== undefined && notice.generation < prior) return;
     const workspacePath = notice.target ? this.localWorkspace(notice.target) : null;
+    const labelPath = workspacePath ?? '';
+    const owner = notice.target?.tabId ? this.tabs.findTabByIdAcrossWorkspaces(notice.target.tabId) :
+      notice.target ? this.tabs.findTabBySessionIdAcrossWorkspaces(notice.target.sessionId) : null;
+    const provider = workspacePath && owner?.tab.providerId === 'claude-cli' ? 'Claude'
+      : workspacePath && owner?.tab.providerId === 'ptah-cli' ? 'Ptah CLI'
+      : workspacePath && owner?.tab.providerId === 'vscode-lm' ? 'VS Code' : '';
+    const sessionTitle = notice.title.trim();
+    const safeTitle = !/^(new chat|new session|untitled|permission required|question needs an answer)$/i.test(sessionTitle) &&
+      !/(?:[A-Za-z]:[\\/]|\\\\[^\\\s]+\\|(?:^|\s)\/[\w.-]+\/|\bsk-[\w-]{8,}\b|\b[0-9a-f]{32,}\b|\b[A-Za-z0-9+/_-]{40,}={0,2}\b)/i.test(sessionTitle)
+      ? sessionTitle.slice(0, 80) : '';
+    const context = [provider, safeTitle].filter(Boolean).join(' · ');
     // An opaque ID keeps the request counted while its local owner is unavailable.
     const presentationWorkspace = workspacePath ?? `attention:${notice.target?.workspaceId ?? 'unknown'}`;
     const surfaceRouter = this.surfaceRouters.find(router =>
@@ -188,10 +199,10 @@ export class ChatAttentionHostMessageHandler implements MessageHandler {
     const item: AttentionItem = {
       key: notice.key, generation: notice.generation, kind: notice.kind,
       source: 'host', workspacePath: presentationWorkspace,
-      workspaceName: workspacePath ? workspaceLabelFromPath(workspacePath) : 'Unknown workspace',
+      workspaceName: labelPath ? workspaceLabelFromPath(labelPath) : 'Unknown workspace',
       sessionId: notice.target?.sessionId, tabId: notice.target?.tabId,
       ownerSurface: surfaceOwned || notice.target?.surfaceMode ? 'surface' : 'chat',
-      severity: 'warning', title: notice.title, actionable: true,
+      severity: 'warning', title: notice.title, context: context || undefined, actionable: true,
       actions: [{ id: 'open', label: 'Open', ...(!routable && {
         disabledReason: notice.target?.surfaceMode ? 'Answer in owning surface' : 'Target unavailable',
       }) }],
