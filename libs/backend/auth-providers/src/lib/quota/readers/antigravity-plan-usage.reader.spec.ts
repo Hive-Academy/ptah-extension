@@ -12,6 +12,17 @@ import {
   readJsonResponse,
 } from './antigravity-plan-usage.reader';
 
+import { readAntigravityCliUsage } from './antigravity-cli-usage.adapter';
+
+// Never spawn the real gy binary from unit tests; individual tests override.
+jest.mock('./antigravity-cli-usage.adapter', () => ({
+  readAntigravityCliUsage: jest.fn(async () => ({
+    ok: false,
+    reason: 'cli-unavailable',
+  })),
+}));
+const mockedCli = jest.mocked(readAntigravityCliUsage);
+
 const TOKEN = 'csrf-token';
 const EMAIL = 'fixture-user@example.test';
 const PROCESS =
@@ -368,6 +379,91 @@ describe('Antigravity plan-usage reader', () => {
     });
     await expect(readJsonResponse(() => request as never)).rejects.toThrow(
       'ECONNREFUSED',
+    );
+  });
+
+  describe('headless CLI fallback', () => {
+    const cliWindow = {
+      key: 'other:cli-gemini-models-weekly',
+      kind: 'weekly',
+      label: 'Weekly · Gemini Models',
+      used: { kind: 'percent', percent: 12 },
+      observedAt: 1,
+    } as const;
+    const failingLocal = () =>
+      createAntigravityPlanUsageReader(
+        createMockLogger() as unknown as Logger,
+        () => 1,
+        async () => '',
+        jest.fn(async () => response),
+        () => owner,
+        async () => undefined,
+      );
+    const request = {
+      target: { ownerRef: { key: owner, identityKind: 'cli-store' } } as never,
+      refresh: true,
+    };
+
+    it('is tried third, after OAuth and the local server both fail', async () => {
+      const order: string[] = [];
+      mockedCli.mockImplementationOnce(async () => {
+        order.push('cli');
+        return { ok: true, windows: [cliWindow] };
+      });
+      const instance = createAntigravityPlanUsageReader(
+        createMockLogger() as unknown as Logger,
+        () => 1,
+        async () => {
+          order.push('local');
+          return '';
+        },
+        jest.fn(async () => response),
+        () => owner,
+        async () => {
+          order.push('oauth');
+          return undefined;
+        },
+      );
+      const result = await instance(request);
+      expect(order).toEqual(['oauth', 'local', 'cli']);
+      expect(result).toMatchObject({
+        status: 'available',
+        windowSetEstablished: true,
+        windows: [cliWindow],
+      });
+    });
+
+    it('is skipped when the local server answers', async () => {
+      mockedCli.mockClear();
+      const result = await reader(async () => response)({
+        target: { ownerRef: { key: owner } } as never,
+        refresh: true,
+      });
+      expect(result.status).toBe('available');
+      expect(mockedCli).not.toHaveBeenCalled();
+    });
+
+    it('does not apply CLI usage to a verified account when local probing fails', async () => {
+      mockedCli.mockClear();
+      const result = await failingLocal()({
+        target: { ownerRef: { key: owner, identityKind: 'account' } } as never,
+        refresh: true,
+      });
+      expect(result).toMatchObject({ status: 'service-unavailable', windows: [] });
+      expect(mockedCli).not.toHaveBeenCalled();
+    });
+
+    it.each(['cli-unavailable', 'cli-parse-failed'] as const)(
+      'carries the typed reason %s when the CLI fails',
+      async (reason) => {
+        mockedCli.mockResolvedValueOnce({ ok: false, reason });
+        await expect(failingLocal()(request)).resolves.toEqual({
+          status: 'service-unavailable',
+          windowSetEstablished: false,
+          windows: [],
+          statusReason: reason,
+        });
+      },
     );
   });
 });

@@ -115,6 +115,26 @@ describe('Grok account plan reader', () => {
       ).status,
     ).toBe('no-usage-source');
   });
+  it('names the API-key reason for XAI_API_KEY and for auth_mode api_key', async () => {
+    const viaEnv = await createGrokAccountPlanUsageReader(
+      () => 1,
+      jest.fn(),
+      auth as never,
+      { XAI_API_KEY: 'key' },
+    )(request);
+    expect(viaEnv.statusReason).toBe('api-key-no-subscription-quota');
+    const viaAuth = await createGrokAccountPlanUsageReader(
+      () => 1,
+      jest.fn(),
+      (async () =>
+        JSON.stringify({
+          'https://accounts.x.ai/sign-in': { auth_mode: 'api_key', key: 'k' },
+        })) as never,
+      {},
+    )(request);
+    expect(viaAuth.status).toBe('no-usage-source');
+    expect(viaAuth.statusReason).toBe('api-key-no-subscription-quota');
+  });
   it('rejects malformed billing and times out', async () => {
     expect(
       (

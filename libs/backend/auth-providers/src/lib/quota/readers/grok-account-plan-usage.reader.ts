@@ -34,6 +34,11 @@ const noPlan = (): PlanUsageReading => ({
   windowSetEstablished: false,
   windows: [],
 });
+/** API-key login: no subscription quota exists; local usage is all there is. */
+const apiKeyNoPlan = (): PlanUsageReading => ({
+  ...noPlan(),
+  statusReason: 'api-key-no-subscription-quota',
+});
 const unavailable = (): PlanUsageReading => ({
   status: 'service-unavailable',
   windowSetEstablished: false,
@@ -63,11 +68,8 @@ export function createGrokAccountPlanUsageReader(
   return async ({ signal, target }) => {
     if (signal?.aborted) return unavailable();
     if (target.ownerRef.identityKind !== 'cli-store') return noPlan();
-    if (
-      env['XAI_API_KEY']?.trim() ||
-      CUSTOM_ENV.some((name) => env[name]?.trim())
-    )
-      return noPlan();
+    if (env['XAI_API_KEY']?.trim()) return apiKeyNoPlan();
+    if (CUSTOM_ENV.some((name) => env[name]?.trim())) return noPlan();
     const home =
       env['GROK_HOME']?.trim() ||
       join(env['HOME'] || env['USERPROFILE'] || homedir(), '.grok');
@@ -114,7 +116,9 @@ export function createGrokAccountPlanUsageReader(
         credential?.auth_mode === 'api_key'
           ? undefined
           : credential?.key?.trim();
-      if (!key) return noPlan();
+      if (!key) {
+        return credential?.auth_mode === 'api_key' ? apiKeyNoPlan() : noPlan();
+      }
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5_000);
       const abort = () => controller.abort();
