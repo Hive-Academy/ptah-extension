@@ -1,10 +1,9 @@
 /**
  * IEmbedder — shared contract for text-to-vector embedding providers.
  *
- * Implemented by `memory-curator`'s transformers.js worker proxy and consumed
- * by both memory-curator (for memory_chunks_vec) and skill-synthesis (for
- * skill_candidates_vec). Living in `persistence-sqlite` keeps both consumer
- * libraries at L3 without a horizontal L3-to-L3 dependency.
+ * Implemented by the memory curator's transformers.js worker proxy for
+ * memory_chunks_vec. The shared persistence contract keeps its embedding
+ * storage interface close to the SQLite schema.
  *
  * The interface is intentionally minimal: implementations may pre-load models,
  * batch internally, or run in worker threads — all callers see is "given N

@@ -37,6 +37,40 @@ const FIXTURE_MIGRATIONS: readonly Migration[] = [
 ];
 
 describe('SqliteMigrationRunner', () => {
+  it('catches up older vec work, archives, then applies the 0057 drop', async () => {
+    const db = new FakeSqliteDatabase();
+    db.insertMigrationRow(55, 0);
+    db.insertMigrationRow(56, 0);
+    db.addVecPending(55);
+    const order: string[] = [];
+    const originalExec = db.exec.bind(db);
+    const exec = jest.spyOn(db, 'exec').mockImplementation((sql) => {
+      if (sql.includes('CREATE TABLE older_vec')) order.push('vec catch-up');
+      if (sql.includes('DROP TABLE old_pipeline')) order.push('drop');
+      originalExec(sql);
+    });
+    const archive = jest.spyOn(skillPipelineArchive, 'archiveSkillPipeline')
+      .mockImplementation(() => {
+        expect(db.tables.has('older_vec')).toBe(true);
+        order.push('archive');
+        return { archivePath: 'verified' } as ReturnType<typeof skillPipelineArchive.archiveSkillPipeline>;
+      });
+    try {
+      const runner = new SqliteMigrationRunner(db, createMockLogger());
+      await runner.applyAll([
+        { version: 55, name: 'older_vec', vecSql: 'CREATE TABLE older_vec (id INTEGER);' },
+        { version: 56, name: '0056', sql: 'CREATE TABLE retained (id INTEGER);' },
+        { version: 57, name: '0057', sql: 'DROP TABLE old_pipeline;' },
+      ]);
+      expect(order).toEqual(['vec catch-up', 'archive', 'drop']);
+      expect(db.selectVecPendingVersions()).toEqual([]);
+      expect(runner.readAppliedVersions().has(57)).toBe(true);
+    } finally {
+      archive.mockRestore();
+      exec.mockRestore();
+    }
+  });
+
   it('keeps version 56 behavior unchanged and requires a verified archive before 57', async () => {
     const archive = jest.spyOn(skillPipelineArchive, 'archiveSkillPipeline')
       .mockImplementation(() => { throw new Error('archive verification failed'); });
@@ -430,19 +464,19 @@ describe('SqliteMigrationRunner — vec-optional split', () => {
     'memories',
     'memory_chunks',
     'memory_chunks_fts',
-    'skill_candidates',
-    'skill_invocations',
     'code_symbols',
     'code_symbols_fts',
   ];
-  const VEC_TABLES = [
-    'memory_chunks_vec',
+  const VEC_TABLES = ['memory_chunks_vec', 'code_symbols_vec'];
+  // 0057 drops these after a verified archive.
+  const DROPPED_TABLES = [
+    'skill_candidates',
+    'skill_invocations',
     'skill_candidates_vec',
-    'code_symbols_vec',
   ];
 
   // Versions that own a vecSql split or are pure-vec (deferred when no vec).
-  const VEC_VERSIONS = [2, 3, 7, 13, 19];
+  const VEC_VERSIONS = [2, 3, 7, 13, 19, 57];
 
   function loadMigrations(): readonly Migration[] {
     const { MIGRATIONS } = require('./migrations') as {
@@ -528,6 +562,9 @@ describe('SqliteMigrationRunner — vec-optional split', () => {
 
     for (const t of [...BASE_TABLES, ...VEC_TABLES]) {
       expect(db.tables.has(t)).toBe(true);
+    }
+    for (const t of DROPPED_TABLES) {
+      expect(db.tables.has(t)).toBe(false);
     }
     expect(runner.readPendingVecVersions()).toEqual([]);
     for (const v of VEC_VERSIONS) {
