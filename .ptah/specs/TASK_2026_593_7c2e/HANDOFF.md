@@ -19,7 +19,7 @@ points here.
 | **#783** (593 A8 + phase C + CI fixes + empty bell panel) | `feat/attention-phase-c` / `.claude-worktrees/attention-notifications` | `eb6d62c14` | green | **MERGED** |
 | **#790** (593 small follow-ups) | `feat/attention-followups` / `.claude-worktrees/attention-followups` | `868072d19` | retargeted to main by GitHub | **MERGED** (`c09f1e960` on main) |
 | **#785** (702 phase 3 + lane Open parity) | `feat/chat-needs-you-removal` / `.claude-worktrees/chat-needs-you-removal` | `eabcd9172` (+ handoff doc) | was green at `35c9a8c59` | OPEN; conflicts with main after #783. **Peer session 662 (skills-epic) is resolving them at the user's request** (merge origin/main, 3 conflicts in chat-attention-action-dispatcher + app.config.ts, scoped checks, push). Check its result first; keep main's changes AND #785's `ATTENTION_LANE_OPENER` additions |
-| **this branch** `docs/attention-visual-2` | `.claude-worktrees/attention-visual-2` (from `origin/main` `c09f1e960`, node_modules junction) | see `git log` | - | visual run 2 work; PR opened at handoff (see `gh pr list --head docs/attention-visual-2`) |
+| **this branch** `docs/attention-visual-2` | `.claude-worktrees/attention-visual-2` (from `origin/main` `c09f1e960`, node_modules junction) | see `git log` | - | visual run 2 work; **NOT pushed at handoff** (waited for the peer check slot). Next session: push it and open a PR to main (step 0) |
 
 Old worktrees still present (remove only when the user says): `.claude-worktrees/attention-pr780`,
 `.claude-worktrees/chat-start-screen`. Remove a worktree with a node_modules junction with
