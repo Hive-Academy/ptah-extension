@@ -43,7 +43,7 @@ export interface SessionBudgetView {
  */
 export const SESSION_WRAP_UP_PROMPT = `This session has used {used} tokens. Please wrap up and prepare a handoff.
 
-1. Do not start new work. Wait until every running subagent and CLI agent lane has finished (check their status and wait for them), then collect their results.
+1. Do not start new work. Collect the results of subagents and CLI agent lanes that already reported. Do not poll or call wait tools for the ones still running: each one pushes its report and a completion signal with its final status into this session when it ends. List each running one in the handoff (its id, its task, how to read its result) and continue.
 2. Write a handoff document named \`HANDOFF.md\` in the folder of the task you are working on (for example its task-tracking folder). If there is no task folder, write it in the root of the current worktree. Include: the goal, what is done (commits, branches, PRs), what is in progress, open problems and decisions, the key files, and the exact next steps with the verification commands.
 3. Finish your reply with one fenced code block that contains a self-contained prompt I can paste into a new session to continue. The prompt must give the absolute path of the handoff document and tell the new session to read it first.`;
 
