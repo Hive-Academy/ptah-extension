@@ -653,15 +653,23 @@ describe('ChatViewComponent — older history orchestration', () => {
     });
   }
 
-  it('reports stale history with reopen guidance and does not resume automatically', async () => {
-    const h = makeHarness();
-    lookUpTabsFromSignal(h);
+  /** A stale outcome leaves the loaded history in place and clears the cursor. */
+  function markStaleOnLoad(h: ReturnType<typeof makeHarness>): void {
+    h.tabsSig.update((tabs) => tabs.map((tab) =>
+      tab.id === 'tab-abc' ? { ...tab, messages: [{ id: 'loaded-1' }] } : tab,
+    ));
     h.loadOlderMock.mockImplementation(async () => {
       h.tabsSig.update((tabs) => tabs.map((tab) =>
         tab.id === 'tab-abc' ? { ...tab, olderHistoryCursor: null } : tab,
       ));
       return 'stale';
     });
+  }
+
+  it('reports stale history with reopen guidance and does not resume automatically', async () => {
+    const h = makeHarness();
+    lookUpTabsFromSignal(h);
+    markStaleOnLoad(h);
     const component = h.component as unknown as {
       onOlderHistoryRequested(tabId: string): Promise<void>;
       olderHistoryAlert(): { tabId: string; message: string } | null;
@@ -679,25 +687,23 @@ describe('ChatViewComponent — older history orchestration', () => {
     );
     expect(h.switchSessionMock).not.toHaveBeenCalled();
 
+    // A live event appends to the loaded history; the guidance stays.
     h.tabsSig.update((tabs) => tabs.map((tab) =>
-      tab.id === 'tab-abc' ? { ...tab, messages: [...(tab.messages ?? [])] } : tab,
+      tab.id === 'tab-abc' ? { ...tab, messages: [...(tab.messages ?? []), { id: 'live-1' }] } : tab,
     ));
-    TestBed.tick();
     expect(component.olderHistoryAlert()?.message).toMatch(/reopen the session/i);
 
+    // Reopening replaces the loaded history; the guidance never returns.
     h.tabsSig.update((tabs) => tabs.map((tab) =>
       tab.id === 'tab-abc'
         ? { ...tab, olderHistoryCursor: undefined, messages: [] }
         : tab,
     ));
     expect(component.olderHistoryAlert()).toBeNull();
-    TestBed.tick();
     h.tabsSig.update((tabs) => tabs.map((tab) =>
-      tab.id === 'tab-abc' ? { ...tab, olderHistoryCursor: 'fresh-cursor' } : tab,
-    ));
-    expect(component.olderHistoryAlert()).toBeNull();
-    h.tabsSig.update((tabs) => tabs.map((tab) =>
-      tab.id === 'tab-abc' ? { ...tab, olderHistoryCursor: null } : tab,
+      tab.id === 'tab-abc'
+        ? { ...tab, olderHistoryCursor: null, messages: [{ id: 'reloaded-1' }] }
+        : tab,
     ));
     expect(component.olderHistoryAlert()).toBeNull();
   });
@@ -705,12 +711,7 @@ describe('ChatViewComponent — older history orchestration', () => {
   it('hides stale history guidance when its tab closes', async () => {
     const h = makeHarness();
     lookUpTabsFromSignal(h);
-    h.loadOlderMock.mockImplementation(async () => {
-      h.tabsSig.update((tabs) => tabs.map((tab) =>
-        tab.id === 'tab-abc' ? { ...tab, olderHistoryCursor: null } : tab,
-      ));
-      return 'stale';
-    });
+    markStaleOnLoad(h);
     const component = h.component as unknown as {
       onOlderHistoryRequested(tabId: string): Promise<void>;
       olderHistoryAlert(): { tabId: string; message: string } | null;
@@ -721,8 +722,7 @@ describe('ChatViewComponent — older history orchestration', () => {
     const closedTab = h.tabsSig()[0];
     h.tabsSig.set([]);
     expect(component.olderHistoryAlert()).toBeNull();
-    TestBed.tick();
-    h.tabsSig.set([{ ...closedTab, olderHistoryCursor: null }]);
+    h.tabsSig.set([{ ...closedTab, olderHistoryCursor: null, messages: [{ id: 'reopened-1' }] }]);
     expect(component.olderHistoryAlert()).toBeNull();
   });
 

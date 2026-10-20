@@ -88,3 +88,14 @@ Remaining (Minor, none blocking):
 - Spec for dismissal revival uses the real NotificationService (good). Not covered: Clear all then action, and the switching-busy message.
 
 Verdict: M6 APPROVED (score 8/10); the Serious and both Moderate findings are resolved.
+
+## Orchestrator follow-up (local checks)
+
+- The F1 R2 effect made the stale-alert specs need `TestBed.tick()`, which runs a full render
+  that the chat-view harness cannot mock. The orchestrator replaced the effect with a pure
+  check in the `olderHistoryAlert` computed: the snapshot keeps `tab.messages[0]`. A live event
+  appends (same first message), so the alert stays; a reopen or reload replaces the loaded
+  history (new first message), so the alert clears and cannot revive. This also removes the
+  re-review caveat about an effect missing a transient `undefined` cursor.
+- Local checks: mcp-apps-page, setup-wizard, harness-builder typecheck+lint+test pass; chat
+  typecheck+lint pass; chat-view + voice-provider-error specs 106/106; audit 291.
