@@ -1,7 +1,7 @@
 import { injectable, inject } from 'tsyringe';
 import { homedir } from 'os';
 import { join, basename, isAbsolute } from 'path';
-import { mkdir, readdir, readFile, stat } from 'fs/promises';
+import { lstat, mkdir, readdir, readFile, stat } from 'fs/promises';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 import { formatSourceHash } from '@ptah-extension/platform-core';
 import {
@@ -16,6 +16,7 @@ import type {
 import {
   DEFAULT_HISTORY_DIR,
   ORIGIN_SIDECAR_FILENAME,
+  parseOriginSidecar,
 } from './origin-sidecar.types';
 import {
   computeSourceHash,
@@ -43,6 +44,22 @@ import type {
 } from './user-layer-seed-quarantine';
 
 const ORIGIN_SIDECAR_SUFFIX = '.ptah-origin.json';
+const RETIRED_MANAGED_SKILL_SLUGS = [
+  'execute-phase-gated-task',
+  'extract-and-relocate-angular-component-feature',
+] as const;
+const retiredManagedSkillSlugs: ReadonlySet<string> = new Set(RETIRED_MANAGED_SKILL_SLUGS);
+
+export interface RetiredSkillPreserved {
+  readonly slug: string;
+  readonly reason: 'missing-sidecar' | 'modified' | 'invalid-origin' | 'unsafe-path';
+}
+
+export interface RetiredSkillsResult {
+  readonly removed: string[];
+  readonly preserved: RetiredSkillPreserved[];
+  errors: number;
+}
 
 export type { UserLayerRoots } from './origin-sidecar.types';
 export type {
@@ -100,6 +117,7 @@ export interface MirrorSources {
 }
 
 export interface MirrorResult {
+  retiredSkills: RetiredSkillsResult;
   skillsMirrored: number;
   agentsMirrored: number;
   commandsMirrored: number;
@@ -127,6 +145,7 @@ export interface DivergedClone {
 }
 
 export interface ReconcileResult {
+  retiredSkills: RetiredSkillsResult;
   noop: number;
   fastForwarded: number;
   diverged: number;
@@ -330,6 +349,7 @@ export class UserLayerMirrorService {
 
   async mirrorAll(sources: MirrorSources): Promise<MirrorResult> {
     const result: MirrorResult = {
+      retiredSkills: await this.retireManagedSkills(),
       skillsMirrored: 0,
       agentsMirrored: 0,
       commandsMirrored: 0,
@@ -510,6 +530,7 @@ export class UserLayerMirrorService {
 
   async reconcile(sources: MirrorSources): Promise<ReconcileResult> {
     const result = emptyReconcileResult();
+    result.retiredSkills = await this.retireManagedSkills();
     const roots = this.getUserLayerRoots(sources.workspaceRoot);
 
     for (const pluginPath of allPluginRoots(sources)) {
@@ -547,6 +568,77 @@ export class UserLayerMirrorService {
       missingSidecar: result.missingSidecar,
       errors: result.errors,
     });
+    return result;
+  }
+
+  /** Retire only untouched mirror-owned copies of the two removed pipeline skills. */
+  async retireManagedSkills(): Promise<RetiredSkillsResult> {
+    const result: RetiredSkillsResult = { removed: [], preserved: [], errors: 0 };
+    const skillsRoot = this.getUserLayerRoots().skills;
+    this.fsOps.excludeSubdirectoriesFromListing(skillsRoot, retiredManagedSkillSlugs);
+    try {
+      const rootStat = await lstat(skillsRoot);
+      if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
+        this.logger.warn('[UserLayerMirror] retired skills root is not a real directory', { skillsRoot });
+        return result;
+      }
+    } catch (error: unknown) {
+      if (this.isEnoent(error)) return result;
+      this.logger.warn('[UserLayerMirror] failed to inspect retired skills root', {
+        skillsRoot,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      result.errors += 1;
+      return result;
+    }
+
+    for (const slug of RETIRED_MANAGED_SKILL_SLUGS) {
+      await this.withSlugLock('skill', slug, async () => {
+        const cloneDir = join(skillsRoot, slug);
+        try {
+          this.fsOps.assertUnderUserLayer(cloneDir);
+          const cloneStat = await lstat(cloneDir);
+          if (!cloneStat.isDirectory() || cloneStat.isSymbolicLink()) {
+            result.preserved.push({ slug, reason: 'unsafe-path' });
+          } else {
+            const sidecarPath = join(cloneDir, ORIGIN_SIDECAR_FILENAME);
+            let sidecarStat;
+            try {
+              sidecarStat = await lstat(sidecarPath);
+            } catch (error: unknown) {
+              if (!this.isEnoent(error)) throw error;
+            }
+            if (!sidecarStat) {
+              result.preserved.push({ slug, reason: 'missing-sidecar' });
+            } else if (!sidecarStat.isFile() || sidecarStat.isSymbolicLink()) {
+              result.preserved.push({ slug, reason: 'unsafe-path' });
+            } else {
+              const sidecar = parseOriginSidecar(await readSidecar(cloneDir));
+              if (sidecar?.kind !== 'skill' || sidecar.slug !== slug || !sidecar.sourceHash) {
+                result.preserved.push({ slug, reason: 'invalid-origin' });
+              } else if (await computeSourceHash(cloneDir) !== sidecar.sourceHash) {
+                result.preserved.push({ slug, reason: 'modified' });
+              } else {
+                await this.fsOps.snapshotDirToRootHistory(skillsRoot, slug, cloneDir);
+                await this.fsOps.removePath(cloneDir);
+                result.removed.push(slug);
+              }
+            }
+          }
+          const preserved = result.preserved.find((item) => item.slug === slug);
+          if (preserved) {
+            this.logger.info('[UserLayerMirror] retired skill preserved', preserved);
+          }
+        } catch (error: unknown) {
+          if (this.isEnoent(error)) return;
+          result.errors += 1;
+          this.logger.warn('[UserLayerMirror] retired skill removal failed', {
+            slug,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      });
+    }
     return result;
   }
 
@@ -1323,6 +1415,7 @@ export class UserLayerMirrorService {
     }
 
     for (const slug of slugs) {
+      if (retiredManagedSkillSlugs.has(slug)) continue;
       const sourceDir = join(sourceSkillsDir, slug);
       const cloneDir = join(skillsRoot, slug);
       await this.withSlugLock('skill', slug, async () => {
@@ -1377,7 +1470,7 @@ export class UserLayerMirrorService {
     }
 
     for (const slug of slugs) {
-      if (slug === SYNTH_CANDIDATES_DIR || slug === DEFAULT_HISTORY_DIR) {
+      if (slug === SYNTH_CANDIDATES_DIR || slug === DEFAULT_HISTORY_DIR || retiredManagedSkillSlugs.has(slug)) {
         continue;
       }
       const sourceDir = join(synthesizedSkillsRoot, slug);
@@ -1802,6 +1895,7 @@ export class UserLayerMirrorService {
     seenSkillSlugs: Map<string, string>,
     result: MirrorResult,
   ): Promise<void> {
+    if (retiredManagedSkillSlugs.has(slug)) return;
     const targetDir = join(skillsRoot, slug);
     this.assertUnderUserLayer(targetDir);
 
@@ -2282,6 +2376,7 @@ function allPluginRoots(sources: MirrorSources): string[] {
 
 function emptyReconcileResult(): ReconcileResult {
   return {
+    retiredSkills: { removed: [], preserved: [], errors: 0 },
     noop: 0,
     fastForwarded: 0,
     diverged: 0,

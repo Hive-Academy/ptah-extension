@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, writeFile, readFile, rm, stat } from 'fs/promises';
+import { mkdtemp, mkdir, readdir, writeFile, readFile, rm, stat, symlink } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -88,6 +88,110 @@ describe('UserLayerMirrorService.mirrorAll', () => {
     await writeFile(join(dir, 'SKILL.md'), body, 'utf8');
     return join(pluginRoot, pluginId);
   }
+
+  async function seedRetiredClone(
+    slug: string,
+    options: { sidecar?: boolean; modified?: boolean } = {},
+  ): Promise<string> {
+    const cloneDir = join(service.getUserLayerRoots().skills, slug);
+    await mkdir(cloneDir, { recursive: true });
+    await writeFile(join(cloneDir, 'SKILL.md'), '# mirrored', 'utf8');
+    const sourceHash = await computeSourceHash(cloneDir);
+    if (options.sidecar !== false) {
+      const sidecar: OriginSidecar = {
+        kind: 'skill',
+        slug,
+        pluginId: 'retired-plugin',
+        version: null,
+        sourceHash,
+        clonedAt: Date.now(),
+        diverged: false,
+        lastEnhancedAt: null,
+        historyDir: DEFAULT_HISTORY_DIR,
+      };
+      await writeFile(join(cloneDir, ORIGIN_SIDECAR_FILENAME), JSON.stringify(sidecar), 'utf8');
+    }
+    if (options.modified) {
+      await writeFile(join(cloneDir, 'SKILL.md'), '# user edit', 'utf8');
+    }
+    return cloneDir;
+  }
+
+  describe('retired managed skills', () => {
+    const firstSlug = 'execute-phase-gated-task';
+    const secondSlug = 'extract-and-relocate-angular-component-feature';
+
+    it('removes an unchanged managed clone and keeps a root-level history snapshot', async () => {
+      const cloneDir = await seedRetiredClone(firstSlug);
+      const result = await service.retireManagedSkills();
+      expect(result.removed).toEqual([firstSlug]);
+      expect(await fileExists(cloneDir)).toBe(false);
+      const historyRoot = join(service.getUserLayerRoots().skills, DEFAULT_HISTORY_DIR, firstSlug);
+      expect(await readdir(historyRoot)).toHaveLength(1);
+    });
+
+    it('preserves and reports a user-modified clone', async () => {
+      const cloneDir = await seedRetiredClone(secondSlug, { modified: true });
+      const result = await service.reconcileAll({
+        pluginPaths: [],
+        pluginsBasePath: pluginRoot,
+        synthesizedSkillsRoot: synthRoot,
+      });
+      expect(result.retiredSkills.preserved).toEqual([{ slug: secondSlug, reason: 'modified' }]);
+      expect(result.orphanedClones).toEqual([]);
+      expect((await readSidecarJson(cloneDir)).orphaned).toBeUndefined();
+      expect(await readFile(join(cloneDir, 'SKILL.md'), 'utf8')).toBe('# user edit');
+      expect(logger.info).toHaveBeenCalledWith('[UserLayerMirror] retired skill preserved', {
+        slug: secondSlug,
+        reason: 'modified',
+      });
+    });
+
+    it('preserves and reports a clone without an origin sidecar', async () => {
+      const cloneDir = await seedRetiredClone(firstSlug, { sidecar: false });
+      const result = await service.retireManagedSkills();
+      expect(result.preserved).toEqual([{ slug: firstSlug, reason: 'missing-sidecar' }]);
+      expect(await fileExists(cloneDir)).toBe(true);
+    });
+
+    it('does nothing on a second pass after removal', async () => {
+      await seedRetiredClone(firstSlug);
+      await service.retireManagedSkills();
+      expect(await service.retireManagedSkills()).toEqual({ removed: [], preserved: [], errors: 0 });
+    });
+
+    it('does not follow a symlinked slug directory', async () => {
+      const outside = join(workRoot, 'outside-skill');
+      await mkdir(outside);
+      await writeFile(join(outside, 'SKILL.md'), '# outside', 'utf8');
+      await mkdir(service.getUserLayerRoots().skills, { recursive: true });
+      await symlink(outside, join(service.getUserLayerRoots().skills, firstSlug), 'junction');
+      const result = await service.retireManagedSkills();
+      expect(result.preserved).toEqual([{ slug: firstSlug, reason: 'unsafe-path' }]);
+      expect(await readFile(join(outside, 'SKILL.md'), 'utf8')).toBe('# outside');
+    });
+
+    it('leaves unrelated skills untouched', async () => {
+      const unrelated = await seedRetiredClone('unrelated-skill');
+      const result = await service.retireManagedSkills();
+      expect(result.removed).toEqual([]);
+      expect(result.preserved).toEqual([]);
+      expect(await fileExists(unrelated)).toBe(true);
+    });
+
+    it('retires before startup reconciliation and does not re-seed a retired source', async () => {
+      const cloneDir = await seedRetiredClone(firstSlug);
+      const pluginPath = await seedPluginSkill('retired-plugin', firstSlug, '# source');
+      const sources = { pluginPaths: [pluginPath], synthesizedSkillsRoot: synthRoot };
+      const reconciled = await service.reconcileAll(sources);
+      expect(reconciled.retiredSkills.removed).toEqual([firstSlug]);
+      expect(reconciled.orphanedClones).toEqual([]);
+      expect(await fileExists(cloneDir)).toBe(false);
+      const mirrored = await service.mirrorAll(sources);
+      expect(mirrored.retiredSkills.removed).toEqual([]);
+      expect(await fileExists(cloneDir)).toBe(false);
+    });
+  });
 
   it('mirrors plugin skills into ~/.ptah/user/skills with a sidecar', async () => {
     const pluginPath = await seedPluginSkill(
