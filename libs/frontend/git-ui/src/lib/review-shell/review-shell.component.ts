@@ -9,6 +9,7 @@ import {
   inject,
   Injector,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
 import { attentionConditionKey, ElectronLayoutService } from '@ptah-extension/core';

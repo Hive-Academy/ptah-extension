@@ -361,7 +361,6 @@ function makeHarness(
 
   const showInfoMock = jest.fn();
   const showWarningMock = jest.fn();
-  let realActionBanner: ActionBannerService;
   const attentionUpsertMock = jest.fn();
   const actionBannerStub = {
     banner: signal<unknown>(null).asReadonly(),
@@ -557,7 +556,7 @@ function makeHarness(
     });
   }
 
-  realActionBanner = TestBed.inject(ActionBannerService);
+  const realActionBanner = TestBed.inject(ActionBannerService);
   const fixture = TestBed.createComponent(ChatViewComponent);
   const component = fixture.componentInstance;
 
@@ -1471,18 +1470,17 @@ describe('ChatViewComponent — branch (fork) flow', () => {
       rejectLate(new Error('session load failed'));
       await jest.advanceTimersByTimeAsync(0);
 
-      expect(h.realActionBanner.banner()).toEqual({
-        kind: 'error',
-        message:
-          'Branch created, but it did not open. Open it from Previous sessions.',
+      expect(h.attentionUpsertMock).toHaveBeenCalledWith(expect.objectContaining({
+        kind: 'failure',
+        title: 'Branch created, but it did not open. Open it from Previous sessions.',
         tabId: 'tab-abc',
-      });
+      }));
     } finally {
       jest.useRealTimers();
     }
   });
 
-  it('after the timeout, a newer action banner is not replaced by a late failure', async () => {
+  it('after the timeout, a newer notice is not replaced by a late failure', async () => {
     jest.useFakeTimers();
     try {
       const h = makeHarness({ useRealBanner: true });
@@ -1508,12 +1506,17 @@ describe('ChatViewComponent — branch (fork) flow', () => {
         message: 'Branch created.',
         tabId: null,
       });
+      h.realActionBanner.showError('Newer action failed.', 'tab-abc');
+      expect(h.attentionUpsertMock).toHaveBeenCalledWith(expect.objectContaining({
+        kind: 'failure', title: 'Newer action failed.', tabId: 'tab-abc',
+      }));
+      const noticeCount = h.attentionUpsertMock.mock.calls.length;
 
       settleLate(false);
       await jest.advanceTimersByTimeAsync(0);
 
       expect(h.realActionBanner.banner()).toBe(newer);
-      expect(h.component.actionError()).toBeNull();
+      expect(h.attentionUpsertMock).toHaveBeenCalledTimes(noticeCount);
     } finally {
       jest.useRealTimers();
     }

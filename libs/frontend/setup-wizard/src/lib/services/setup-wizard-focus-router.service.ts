@@ -18,7 +18,9 @@ export class SetupWizardFocusRouter implements SurfaceFocusRouter {
   async focus(sessionId: string): Promise<NotificationFocusResult> {
     if (!this.canFocus(sessionId)) return { success: false, outcome: 'missing' };
     const found = this.tabs.findTabBySessionIdAcrossWorkspaces(sessionId);
-    if (!found) return { success: false, outcome: 'missing' };
+    if (!found || (found.tab.workflow !== 'setup-agent-generation' && found.tab.workflow !== 'setup-project-prompt')) {
+      return { success: false, outcome: 'missing' };
+    }
     const result = await this.router.navigateToSurface('setup-wizard', [
       'generation', found.tab.workflow, found.tab.id,
     ]);
