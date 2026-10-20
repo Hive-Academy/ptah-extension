@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { DatePipe, NgTemplateOutlet } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -13,7 +14,8 @@ import {
 } from '@angular/core';
 import { DeferBlockBehavior, DeferBlockState, TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
-import { ChatStore, CompactSessionCardComponent, inspectorDockWidth, inspectorMaxWidthFor, PreviousSessionsDialogService, RailTranscriptRetentionCoordinator, SessionInspectorStore, SessionOrganizerService, SessionRowActionsService, TabManagerService } from '@ptah-extension/chat';
+import { LucideAngularModule } from 'lucide-angular';
+import { ChatStore, CompactSessionCardComponent, inspectorDockWidth, inspectorMaxWidthFor, PreviousSessionsDialogService, RailTranscriptRetentionCoordinator, RecentSessionsStore, SessionInspectorStore, SessionOrganizerService, SessionRowActionsService, TabManagerService } from '@ptah-extension/chat';
 import { SessionInspectorComponent } from '@ptah-extension/chat/inspector';
 import { PlanLimitsStore, SURFACE_ACTIVE } from '@ptah-extension/core';
 import { AgentMonitorStore, BackgroundAgentStore } from '@ptah-extension/chat-streaming';
@@ -201,7 +203,7 @@ async function completeDeferBlocks(fixture: Pick<ComponentFixture<unknown>, 'get
 @Component({
   selector: 'ptah-project-setup-card',
   standalone: true,
-  template: '<button type="button">Open Marketplace Skills</button>',
+  template: '<button type="button">Open Library</button>',
 })
 class ProjectSetupStub {}
 
@@ -238,8 +240,9 @@ describe('CanvasRailBoardComponent actions', () => {
 
   it('asks the host for the named popover instead of adding a session', () => {
     const { instance, addTile } = board();
-    instance.newSession();
-    expect(instance.newSessionRequested.emit).toHaveBeenCalledTimes(1);
+    const button = document.createElement('button');
+    instance.newSession(button);
+    expect(instance.newSessionRequested.emit).toHaveBeenCalledWith(button);
     expect(addTile).not.toHaveBeenCalled();
   });
 
@@ -282,7 +285,7 @@ describe('CanvasRailBoardComponent actions', () => {
           addTile,
         },
       });
-      instance.newSession();
+      instance.newSession(document.createElement('button'));
       expect(addTile).not.toHaveBeenCalled();
       expect(instance.newSessionRequested.emit).toHaveBeenCalledTimes(1);
     },
@@ -341,6 +344,8 @@ describe('CanvasRailBoardComponent rendering', () => {
     const agents = signal<{ agentId: string; parentSessionId: string }[]>([]);
     const subagents = signal(new Map<string, { parentToolUseId: string; parentSessionId: string }>());
     const backgroundAgents = signal<{ toolCallId: string; sessionId: string }[]>([]);
+    const recent = signal<readonly { id: string; name: string; lastActivityAt: number }[]>([]);
+    const openSession = jest.fn().mockResolvedValue('opened');
     const setRailCollapsed = jest.fn((_: string, value: boolean) =>
       board.update((b) => ({ ...b, railCollapsed: value })),
     );
@@ -388,7 +393,8 @@ describe('CanvasRailBoardComponent rendering', () => {
         { provide: ChatStore, useValue: {} },
         { provide: PreviousSessionsDialogService, useValue: { isOpen: dialogOpen, open: jest.fn() } },
         { provide: SessionOrganizerService, useValue: { available: () => false } },
-        { provide: SessionRowActionsService, useValue: { rename: jest.fn() } },
+        { provide: SessionRowActionsService, useValue: { rename: jest.fn(), openSession } },
+        { provide: RecentSessionsStore, useValue: { load: jest.fn().mockResolvedValue(undefined), sessions: recent, confirmed: () => true } },
         { provide: SessionInspectorStore, useValue: { modelFor: (id: string) => () => ({ needsYouCount: needsYou()[id] ?? 0 }) } },
         ...(surface ? [{ provide: SURFACE_ACTIVE, useValue: surface }] : []),
         {
@@ -409,9 +415,13 @@ describe('CanvasRailBoardComponent rendering', () => {
           realFocus ? CanvasFocusAreaComponent : FocusStub,
           InspectorStub,
           ProjectSetupStub,
+          NgTemplateOutlet,
+          DatePipe,
+          LucideAngularModule,
           SidebarTabComponent,
           SplitHandleComponent,
         ],
+        schemas: [NO_ERRORS_SCHEMA],
       },
     });
     if (realFocus) {
@@ -440,6 +450,8 @@ describe('CanvasRailBoardComponent rendering', () => {
       board,
       width,
       laneKeys,
+      recent,
+      openSession,
       agents,
       subagents,
       backgroundAgents,
@@ -591,6 +603,13 @@ describe('CanvasRailBoardComponent rendering', () => {
     const inspector = fixture.debugElement.query(By.directive(InspectorStub));
     expect(inspector).not.toBeNull();
     expect(inspector.componentInstance.tabId()).toBe('a');
+  });
+
+  it('does not reserve an inspector column when the board has no focused session', () => {
+    const { fixture } = mount(true, 0);
+    expect(fixture.nativeElement.querySelector('[data-testid="canvas-rail-empty-board"]')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('[data-inspector-dock]')).toBeNull();
+    expect(fixture.nativeElement.querySelector('[data-stats-tab]')).toBeNull();
   });
 
   it('synchronizes pane, rail and Details after external removal of the focused tile', async () => {
@@ -1393,17 +1412,128 @@ describe('CanvasRailBoardComponent rendering', () => {
     const trigger = fixture.nativeElement.querySelector<HTMLButtonElement>(
       '[data-testid="canvas-rail-empty-board"] button',
     );
-    expect(trigger.textContent?.trim()).toBe('New session');
+    expect(trigger.textContent?.replace(/\s+/g, ' ').trim()).toBe('+ New session');
+    expect(trigger.getAttribute('data-testid')).toBe('canvas-hero-new-session');
+    expect(fixture.nativeElement.querySelector('main')!.classList).toContain('order-first');
     expect(trigger.getAttribute('aria-disabled')).toBeNull();
     trigger.click();
-    expect(requested).toHaveBeenCalledTimes(1);
+    expect(requested).toHaveBeenCalledWith(trigger);
   });
 
   it('0 tiles: renders project setup on the canvas landing screen', () => {
     const { fixture } = mount(true, 0);
     const emptyBoard = fixture.nativeElement.querySelector('[data-testid="canvas-rail-empty-board"]');
     expect(emptyBoard?.querySelector('ptah-project-setup-card')).not.toBeNull();
-    expect(emptyBoard?.textContent).toContain('Open Marketplace Skills');
+    expect(emptyBoard?.textContent).toContain('Open Library');
+  });
+
+  it('reloads recent sessions on each entry into the empty board and keeps the rail instance', () => {
+    const { fixture, tiles } = mount(true, 1);
+    const load = jest.spyOn(TestBed.inject(RecentSessionsStore), 'load');
+    const rail = fixture.nativeElement.querySelector('ptah-canvas-rail');
+    expect(load).not.toHaveBeenCalled();
+    tiles.set([]);
+    fixture.detectChanges();
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(fixture.nativeElement.querySelector('ptah-canvas-rail')).toBe(rail);
+    tiles.set([{ tabId: 'a', order: 0 } as CanvasTile]);
+    fixture.detectChanges();
+    tiles.set([]);
+    fixture.detectChanges();
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(fixture.nativeElement.querySelector('ptah-canvas-rail')).toBe(rail);
+  });
+
+  it('does not reload recent sessions when empty tiles change array identity', () => {
+    const { fixture, tiles } = mount(true, 0);
+    const load = jest.spyOn(TestBed.inject(RecentSessionsStore), 'load');
+    load.mockClear();
+    tiles.set([]);
+    fixture.detectChanges();
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it('renders one in-flow notice, announces its severity, and emits its source key', () => {
+    const { fixture } = mount(true, 0);
+    const dismissed = jest.fn();
+    fixture.componentInstance.noticeDismissed.subscribe(dismissed);
+    fixture.componentRef.setInput('notice', { kind: 'write-failure', text: 'Layout could not be saved.', key: 'save:1' });
+    fixture.detectChanges();
+    const notice = fixture.nativeElement.querySelector<HTMLElement>('[data-testid="canvas-board-notice"]')!;
+    expect(notice.getAttribute('role')).toBe('alert');
+    expect(notice.textContent).toContain('Layout could not be saved.');
+    expect(notice.compareDocumentPosition(fixture.nativeElement.querySelector('#canvas-rail-empty-board-title')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    notice.querySelector<HTMLButtonElement>('button')!.click();
+    expect(dismissed).toHaveBeenCalledWith('save:1');
+    fixture.componentRef.setInput('notice', { kind: 'cap', text: RUNNING_CAP_MESSAGE, key: 'cap:2' });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('[data-testid="canvas-board-notice"]')).toHaveLength(1);
+    expect(fixture.nativeElement.querySelector('[data-testid="canvas-board-notice"]')?.getAttribute('role')).toBe('status');
+  });
+
+  it('shows at most three recent cards and announces a failed open', async () => {
+    const { fixture, recent, openSession } = mount(true, 0);
+    recent.set(Array.from({ length: 4 }, (_, i) => ({ id: String(i), name: `Session ${i}`, lastActivityAt: i })));
+    fixture.detectChanges();
+    const cards = fixture.nativeElement.querySelectorAll<HTMLButtonElement>('[aria-label^="Open Session"]');
+    expect(cards).toHaveLength(3);
+    openSession.mockResolvedValueOnce('failed');
+    cards[0].click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(openSession).toHaveBeenCalledWith(expect.objectContaining({ id: '0' }));
+    expect(fixture.nativeElement.querySelector('[aria-live="polite"]')?.textContent).toContain('Unable to open session');
+    expect(fixture.nativeElement.querySelectorAll('[aria-label^="Open Session"]')).toHaveLength(3);
+  });
+
+  it('shows recent titles on two lines and relative activity with an absolute tooltip', () => {
+    const { fixture, recent } = mount(true, 0);
+    recent.set([{ id: 'recent', name: 'Refactor the session settings and setup flow', lastActivityAt: Date.now() - 2 * 60 * 60_000 }]);
+    fixture.detectChanges();
+    const card = fixture.nativeElement.querySelector<HTMLButtonElement>('[aria-label^="Open Refactor"]')!;
+    expect(card.querySelector('span')?.className).toContain('line-clamp-2');
+    expect(card.querySelector('span')?.classList.contains('block')).toBe(false);
+    expect(card.textContent).toMatch(/2h ago|Yesterday/);
+    expect(card.getAttribute('aria-label')).toMatch(/2h ago|Yesterday/);
+    expect(card.querySelectorAll('span')[1].getAttribute('title')).toBeTruthy();
+  });
+
+  it('formats yesterday and older dates, and leaves missing activity blank', () => {
+    const { fixture } = mount(true, 0);
+    const board = fixture.componentInstance;
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    expect(board.recentActivity(yesterday.getTime())).toBe('Yesterday');
+    const older = new Date();
+    older.setDate(older.getDate() - 8);
+    expect(board.recentActivity(older.getTime())).toBe(
+      new Intl.DateTimeFormat(undefined, {
+        month: 'short', day: 'numeric',
+        year: older.getFullYear() === new Date().getFullYear() ? undefined : 'numeric',
+      }).format(older),
+    );
+    const future = new Date();
+    future.setDate(future.getDate() + 1);
+    expect(board.recentActivity(future.getTime())).toBe(
+      new Intl.DateTimeFormat(undefined, {
+        month: 'short', day: 'numeric',
+        year: future.getFullYear() === new Date().getFullYear() ? undefined : 'numeric',
+      }).format(future),
+    );
+    expect(board.recentActivity(null)).toBe('');
+    expect(board.recentActivity(undefined)).toBe('');
+  });
+
+  it('keeps the populated rail before the pane in keyboard order and notice in flow', () => {
+    const { fixture } = mount(true, 2);
+    fixture.componentRef.setInput('notice', { kind: 'read-only', text: 'This layout is read only.', key: 'read:1' });
+    fixture.detectChanges();
+    const rail = fixture.nativeElement.querySelector('ptah-canvas-rail')!;
+    const notice = fixture.nativeElement.querySelector('[data-testid="canvas-board-notice"]')!;
+    const pane = fixture.nativeElement.querySelector('[data-testid="rail-pane-container"]')!;
+    expect(rail.compareDocumentPosition(pane) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(notice.compareDocumentPosition(pane) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(notice.parentElement?.className).not.toContain('absolute');
   });
 
   it.each([
@@ -1458,7 +1588,7 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(store.setRailCollapsed).not.toHaveBeenCalled();
   });
 
-  it('0 tiles: the empty board scrolls and centres its content with my-auto instead of clipping', () => {
+  it('0 tiles: the empty board scrolls inside the viewport', () => {
     const { fixture } = mount(true, 0);
     const emptyBoard = fixture.nativeElement.querySelector<HTMLElement>('[data-testid="canvas-rail-empty-board"]');
     expect(emptyBoard.classList).toContain('overflow-y-auto');
@@ -1466,7 +1596,7 @@ describe('CanvasRailBoardComponent rendering', () => {
     expect(emptyBoard.classList).not.toContain('justify-center');
     const content = emptyBoard.querySelector<HTMLElement>('[data-testid="canvas-rail-empty-board-content"]');
     expect(content?.parentElement).toBe(emptyBoard);
-    expect(content?.classList).toContain('my-auto');
+    expect(content?.classList).toContain('max-w-[780px]');
     expect(content?.querySelector('ptah-project-setup-card')).not.toBeNull();
     expect(content?.querySelector('#canvas-rail-empty-board-title')).not.toBeNull();
   });

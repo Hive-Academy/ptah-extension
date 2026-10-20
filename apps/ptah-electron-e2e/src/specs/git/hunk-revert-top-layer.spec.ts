@@ -190,7 +190,7 @@ test.describe('hunk revert dialog is answerable by mouse (TASK_2026_227)', () =>
     // would stop guarding anything. The Rail empty-board section fills the
     // space behind the dialog; its heading confirms the expected state.
     await expect(
-      page.getByRole('heading', { name: 'No sessions on this board' }),
+      page.getByRole('heading', { name: 'A fresh space to work' }),
     ).toBeVisible();
     const canvasPanel = page.locator('[data-testid="canvas-rail-empty-board"]');
     const canvasBox = await canvasPanel.boundingBox();

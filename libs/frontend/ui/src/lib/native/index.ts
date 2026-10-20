@@ -39,6 +39,7 @@ export * from './form';
 export * from './card';
 export * from './catalog-card';
 export * from './brand-mark';
+export * from './aurora';
 export * from './mark-svg';
 export * from './monogram-tile';
 export * from './brand-slugs';

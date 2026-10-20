@@ -7,6 +7,7 @@ import {
 } from '@angular/core';
 import { PromptSuggestionsComponent } from '@ptah-extension/chat-ui';
 import { VSCodeService } from '@ptah-extension/core';
+import { AuroraEffectComponent } from '@ptah-extension/ui';
 import { ProjectSetupCardComponent } from './project-setup-card.component';
 
 /**
@@ -32,7 +33,7 @@ import { ProjectSetupCardComponent } from './project-setup-card.component';
  */
 @Component({
   selector: 'ptah-chat-empty-state',
-  imports: [PromptSuggestionsComponent, ProjectSetupCardComponent],
+  imports: [PromptSuggestionsComponent, ProjectSetupCardComponent, AuroraEffectComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <!--
@@ -50,8 +51,9 @@ import { ProjectSetupCardComponent } from './project-setup-card.component';
 
     <div class="flex flex-col items-center h-full p-4 md:p-6 overflow-y-auto">
       <!-- Hero Section with Divine Glow -->
-      <div class="relative w-full max-w-md lg:max-w-lg mb-6">
-        <div class="flex flex-col items-center text-center">
+      <div class="relative isolate overflow-hidden w-full max-w-md lg:max-w-lg mb-6">
+        <ptah-aurora-effect variant="brand" />
+        <div class="relative z-10 flex flex-col items-center text-center">
           <!-- Logo with Divine Aura -->
           <div class="relative mb-4">
             <div

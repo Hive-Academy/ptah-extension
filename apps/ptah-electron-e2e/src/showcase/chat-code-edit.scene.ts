@@ -222,9 +222,8 @@ async function closeStaleTiles(page: Page, director: Director): Promise<void> {
 }
 
 /**
- * Open exactly one canvas tile and return its locator. The "add tile" affordance
- * depends on whether the canvas is empty: the FAB ("Add new session tile") when
- * tiles exist, the empty-state CTA otherwise.
+ * Open exactly one canvas tile and return its locator. The empty-board hero
+ * creates the first session; the Rail footer creates sessions once tiles exist.
  */
 async function openSingleTile(
   page: Page,
@@ -233,14 +232,9 @@ async function openSingleTile(
   const tiles = page.locator('[data-testid="canvas-tile"]');
   const startCount = await tiles.count();
 
-  const fab = page.locator('[title="Add new session tile"]').first();
-  if (await visible(fab)) {
-    await director.click(fab);
-  } else {
-    await director.click(
-      page.getByRole('button', { name: 'Create new session' }).first(),
-    );
-  }
+  const hero = page.locator('[data-testid="canvas-hero-new-session"]').first();
+  const footerButton = page.locator('[data-testid="canvas-footer-new-session"]').first();
+  await director.click((await visible(hero)) ? hero : footerButton);
 
   const nameInput = page.locator('input[placeholder*="session name" i]').last();
   await director.type(nameInput, TILE_LABEL);
