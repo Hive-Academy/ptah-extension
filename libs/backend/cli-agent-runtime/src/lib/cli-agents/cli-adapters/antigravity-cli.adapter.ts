@@ -89,6 +89,8 @@ import {
 import { ptahMcpServerUrl } from './ptah-mcp-url';
 import { classifyCliStderr } from './cli-stderr-severity';
 import { z } from 'zod';
+import type { Logger } from '@ptah-extension/vscode-core';
+import { formatAgyDiagnostics, formatAgyFailure, redactAgyText, safeAgyText } from './antigravity-result-diagnostics';
 
 /**
  * Print-mode wait timeout. `agy` defaults to 5m, which kills most real coding
@@ -162,6 +164,7 @@ const AgyResultSchema = z
     conversation_id: z.string().optional(),
     status: z.string(),
     response: z.string().optional(),
+    error: z.unknown().optional(),
     duration_seconds: z.number().optional(),
     num_turns: z.number().optional(),
     usage: AgyUsageSchema.optional(),
@@ -353,6 +356,7 @@ export class AntigravityCliAdapter implements CliAdapter {
   constructor(
     private readonly spawner?: IProcessSpawner,
     private readonly streamJsonProbe?: (binary: string) => Promise<boolean>,
+    private readonly logger?: Logger,
   ) {}
 
   async detect(): Promise<CliDetectionResult> {
@@ -731,6 +735,20 @@ export class AntigravityCliAdapter implements CliAdapter {
     let stdinClosed = false;
     let currentTurn = createTurnDeferred();
     const firstTurn = currentTurn;
+    const errorSteps: AgyStepUpdate[] = [];
+    const agyErrors: string[] = [];
+    let failedResult = false;
+    let failedEvent: z.infer<typeof AgyResultEventSchema> | undefined;
+    const onStep = (step: AgyStepUpdate): void => {
+      if (step.state === 'ERROR' || step.status === 'ERROR') {
+        errorSteps.push(step);
+        if (errorSteps.length > 5) errorSteps.shift();
+      }
+    };
+    const onResult = (event: z.infer<typeof AgyResultEventSchema>): void => {
+      failedResult = event.result.status !== 'SUCCESS';
+      failedEvent = failedResult ? event : undefined;
+    };
 
     const emitAdapterError = (error: Error): void => {
       output.emit(`\n[Antigravity CLI Error] ${error.message}\n`);
@@ -829,11 +847,18 @@ export class AntigravityCliAdapter implements CliAdapter {
           output.emit,
           segment.emit,
           setSessionId,
+          onStep,
+          onResult,
           useStreamInput
             ? (exitCode) => {
                 const settledTurn = currentTurn;
                 settledTurn.resolve(exitCode);
-                closeAfterSettledTurn(settledTurn);
+                if (exitCode !== 0 && failedResult) {
+                  child.stdin?.end();
+                  stdinClosed = true;
+                } else {
+                  closeAfterSettledTurn(settledTurn);
+                }
               }
             : undefined,
         );
@@ -841,11 +866,12 @@ export class AntigravityCliAdapter implements CliAdapter {
     });
 
     let suppressConptyLines = 0;
-    child.stderr?.on('data', (data: string) => {
-      const cleaned = stripAnsiCodes(data).trim();
+    let stderrLineBuf = '';
+    const emitStderrLine = (line: string): void => {
+      const cleaned = line.trim();
       if (!cleaned) return;
       if (cleaned.includes('conpty_console_list_agent')) {
-        suppressConptyLines = 5; // Suppress this + next few stack trace lines
+        suppressConptyLines = 5;
         return;
       }
       if (cleaned.includes('AttachConsole failed')) {
@@ -856,8 +882,23 @@ export class AntigravityCliAdapter implements CliAdapter {
         suppressConptyLines--;
         return;
       }
-      output.emit(`[stderr] ${cleaned}\n`);
-      segment.emit({ type: classifyCliStderr(cleaned), content: cleaned });
+      const safeLine = cleaned.includes('AGY_ERROR') ? redactAgyText(cleaned) : cleaned;
+      output.emit(`[stderr] ${safeLine}\n`);
+      segment.emit({ type: classifyCliStderr(safeLine), content: safeLine });
+    };
+    child.stderr?.on('data', (data: string) => {
+      const raw = stripAnsiCodes(data);
+      stderrLineBuf += raw;
+      const stderrLines = stderrLineBuf.split(/\r?\n/);
+      stderrLineBuf = stderrLines.pop()?.slice(0, 8192) ?? '';
+      for (const line of stderrLines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('AGY_ERROR')) {
+          agyErrors.push(safeAgyText(trimmed));
+          if (agyErrors.length > 5) agyErrors.shift();
+        }
+        emitStderrLine(line);
+      }
     });
 
     const done = new Promise<number>((resolve) => {
@@ -870,23 +911,40 @@ export class AntigravityCliAdapter implements CliAdapter {
             output.emit,
             segment.emit,
             setSessionId,
-            useStreamInput
-              ? (turnCode) => currentTurn.resolve(turnCode)
-              : undefined,
+            onStep,
+            onResult,
+            useStreamInput ? (turnCode) => currentTurn.resolve(turnCode) : undefined,
           );
           lineBuf = '';
         }
         const exitCode = code ?? (signal ? 1 : 0);
-        if (useStreamInput) {
-          currentTurn.resolve(exitCode);
+        const trailingStderr = stderrLineBuf.trim();
+        emitStderrLine(trailingStderr);
+        if (trailingStderr.startsWith('AGY_ERROR')) {
+          agyErrors.push(safeAgyText(trailingStderr));
+          if (agyErrors.length > 5) agyErrors.shift();
         }
-        if (exitCode !== 0 && !abortController.signal.aborted) {
+        if (failedResult || exitCode !== 0) {
+          const detail = `Antigravity CLI process exited with code ${exitCode}${agyErrors.length ? `; ${agyErrors.join('; ')}` : ''}`;
+          output.emit(`\n[Error] ${detail}\n`);
+          segment.emit({ type: 'error', content: detail });
+        }
+        if (useStreamInput) {
+          currentTurn.resolve(failedResult ? 1 : exitCode);
+        }
+        if (exitCode !== 0 && !failedResult && !abortController.signal.aborted) {
           segment.emit({
             type: 'error',
             content: `Antigravity CLI exited with code ${exitCode}`,
           });
         }
         resolve(exitCode);
+        if (!failedResult && exitCode === 0 && agyErrors.length > 0) {
+          this.logger?.warn(`[Antigravity] AGY_ERROR on successful turn: ${agyErrors.join('; ')}`);
+        }
+        if (failedEvent) {
+          this.logger?.error(`[Antigravity] Failed result: ${formatAgyDiagnostics({ resultEvent: failedEvent, processExitCode: exitCode }, errorSteps, agyErrors)}`);
+        }
       });
 
       child.on('error', (err) => {
@@ -925,6 +983,10 @@ export class AntigravityCliAdapter implements CliAdapter {
               const previousTurn = currentTurn;
               const nextTurn = createTurnDeferred();
               currentTurn = nextTurn;
+              failedResult = false;
+              failedEvent = undefined;
+              errorSteps.length = 0;
+              agyErrors.length = 0;
               try {
                 writeTurn(message);
               } catch (error: unknown) {
@@ -948,6 +1010,8 @@ export class AntigravityCliAdapter implements CliAdapter {
     emitOutput: (data: string) => void,
     emitSegment: (segment: CliOutputSegment) => void,
     setSessionId: (id: string | undefined) => void,
+    onStep: (step: AgyStepUpdate) => void,
+    onResult: (event: z.infer<typeof AgyResultEventSchema>) => void,
     settleTurn?: (exitCode: number) => void,
   ): void {
     const trimmed = line.trim();
@@ -993,6 +1057,7 @@ export class AntigravityCliAdapter implements CliAdapter {
           emitSegment,
           (event) => {
             setSessionId(event.step_update.conversation_id);
+            onStep(event.step_update);
             this.handleStepUpdate(event.step_update, emitOutput, emitSegment);
           },
         );
@@ -1005,6 +1070,7 @@ export class AntigravityCliAdapter implements CliAdapter {
             emitSegment,
             (event) => {
               setSessionId(event.result.conversation_id);
+              onResult(event);
               this.handleResult(event.result, emitOutput, emitSegment);
               settleTurn?.(event.result.status === 'SUCCESS' ? 0 : 1);
             },
@@ -1055,6 +1121,7 @@ export class AntigravityCliAdapter implements CliAdapter {
     emitSegment: (segment: CliOutputSegment) => void,
   ): void {
     if (step.step_type === 'tool') {
+      if (step.state === 'ERROR') return;
       const toolName = step.tool_name ?? step.tool_info?.name ?? 'tool';
       const toolCallId =
         step.step_index !== undefined ? String(step.step_index) : undefined;
@@ -1119,9 +1186,7 @@ export class AntigravityCliAdapter implements CliAdapter {
     emitSegment: (segment: CliOutputSegment) => void,
   ): void {
     if (result.status && result.status !== 'SUCCESS') {
-      const message = result.response?.trim()
-        ? `${result.status}: ${result.response.trim()}`
-        : `Antigravity CLI finished with status ${result.status}`;
+      const message = formatAgyFailure(result);
       emitOutput(`\n[Error] ${message}\n`);
       emitSegment({ type: 'error', content: message });
     }
