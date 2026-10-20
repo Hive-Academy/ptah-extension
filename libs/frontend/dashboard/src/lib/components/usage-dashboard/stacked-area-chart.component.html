@@ -1,0 +1,178 @@
+<div class="w-full" data-testid="usage-chart">
+  @if (days().length === 0 || series().length === 0) {
+    <div
+      class="flex h-36 items-center justify-center text-xs text-base-content-muted"
+    >
+      No usage in this range.
+    </div>
+  } @else {
+    <ul class="mb-2 flex flex-wrap gap-x-4 gap-y-1 text-xs" aria-label="Chart legend">
+      @for (s of series(); track s.id) {
+        <li class="flex items-center gap-1.5">
+          <span
+            class="inline-block h-2 w-2 shrink-0 rounded-full"
+            [style.background]="s.color"
+            aria-hidden="true"
+          ></span>
+          <span>{{ s.label }}</span>
+        </li>
+      }
+      @if (hasUnknownDays()) {
+        <li class="flex items-center gap-1.5">
+          <span
+            class="inline-block h-2 w-2 shrink-0 rounded-sm border border-base-content/40 bg-base-content/10"
+            aria-hidden="true"
+            data-testid="usage-chart-unknown-legend"
+          ></span>
+          <span>unpriced usage (cost unknown)</span>
+        </li>
+      }
+    </ul>
+
+    <svg
+      [attr.viewBox]="'0 0 ' + viewW + ' ' + viewH"
+      class="w-full text-base-content"
+      role="img"
+      [attr.aria-label]="chartAriaLabel()"
+      data-testid="usage-chart-svg"
+    >
+      <defs>
+        <pattern
+          id="ptah-usage-chart-unpriced"
+          width="6"
+          height="6"
+          patternUnits="userSpaceOnUse"
+          patternTransform="rotate(45)"
+        >
+          <line
+            x1="0"
+            y1="0"
+            x2="0"
+            y2="6"
+            stroke="currentColor"
+            stroke-opacity="0.3"
+            stroke-width="2"
+          />
+        </pattern>
+      </defs>
+      @for (g of gridlines(); track $index) {
+        <line
+          [attr.x1]="padL"
+          [attr.x2]="padL + plotW"
+          [attr.y1]="g.y"
+          [attr.y2]="g.y"
+          stroke="currentColor"
+          stroke-opacity="0.12"
+        />
+        <text
+          [attr.x]="padL - 6"
+          [attr.y]="g.y + 3"
+          text-anchor="end"
+          fill="currentColor"
+          class="text-[9px] opacity-60"
+        >
+          {{ g.label }}
+        </text>
+      }
+
+      @for (row of areas(); track row.series.id) {
+        <path [attr.d]="row.area" [attr.fill]="row.series.color" />
+      }
+
+      @for (bar of singleDayBars(); track bar.series.id) {
+        <rect
+          [attr.x]="bar.x"
+          [attr.y]="bar.y"
+          [attr.width]="bar.width"
+          [attr.height]="bar.height"
+          [attr.fill]="bar.series.color"
+          data-testid="usage-chart-single-day-bar"
+        />
+      }
+
+      @for (column of unknownColumns(); track column.index) {
+        <rect
+          [attr.x]="column.x"
+          [attr.y]="padT"
+          [attr.width]="column.width"
+          [attr.height]="plotH"
+          fill="url(#ptah-usage-chart-unpriced)"
+          stroke="currentColor"
+          stroke-opacity="0.35"
+          stroke-dasharray="4 3"
+          data-testid="usage-chart-unknown-day"
+        />
+      }
+
+      @if (focusedDay() !== null && markerX() !== null) {
+        <line
+          class="ptah-chart-marker"
+          [attr.x1]="markerX()"
+          [attr.x2]="markerX()"
+          [attr.y1]="padT"
+          [attr.y2]="padT + plotH"
+          stroke="currentColor"
+          stroke-opacity="0.45"
+        />
+      }
+
+      @for (label of xLabels(); track $index) {
+        <text
+          [attr.x]="label.x"
+          [attr.y]="viewH - 8"
+          text-anchor="middle"
+          fill="currentColor"
+          class="text-[9px] opacity-60"
+        >
+          {{ label.label }}
+        </text>
+      }
+
+      @for (column of columns(); track column.index) {
+        <rect
+          [attr.id]="'usage-chart-col-' + column.index"
+          [attr.x]="column.x"
+          [attr.y]="padT"
+          [attr.width]="column.width"
+          [attr.height]="plotH"
+          fill="transparent"
+          [attr.tabindex]="0"
+          role="img"
+          [attr.aria-label]="column.aria"
+          (pointerenter)="setFocusedDay(column.index)"
+          (pointerleave)="setFocusedDay(null)"
+          (focus)="setFocusedDay(column.index)"
+          (blur)="setFocusedDay(null)"
+          (keydown)="onColumnKeydown($event, column.index)"
+        />
+      }
+    </svg>
+
+    <div
+      class="mt-2 min-h-11 text-xs"
+      role="status"
+      aria-live="polite"
+      data-testid="usage-chart-readout"
+    >
+      @if (readout(); as r) {
+        <p class="font-medium">{{ r.day }} — {{ r.totalLabel }}</p>
+        <ul class="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-base-content-muted">
+          @for (item of r.items; track item.id) {
+            <li class="flex items-center gap-1">
+              <span
+                class="inline-block h-2 w-2 shrink-0 rounded-full"
+                [style.background]="item.color"
+                aria-hidden="true"
+              ></span>
+              <span>{{ item.label }}: {{ item.valueLabel }}</span>
+            </li>
+          }
+        </ul>
+      } @else {
+        <p class="text-base-content-muted">
+          Hover or focus a day column for that day's per-provider values.
+        </p>
+      }
+    </div>
+  }
+</div>

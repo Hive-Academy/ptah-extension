@@ -11,6 +11,8 @@
 export * from './rpc/rpc-chat.types';
 export * from './rpc/rpc-attention.types';
 export * from './rpc/rpc-session.types';
+export * from './rpc/rpc-analytics.types';
+import type { UsageSummary, UsageSummaryParams } from './rpc/rpc-analytics.types';
 export * from './rpc/rpc-config.types';
 export * from './rpc/rpc-auth.types';
 export * from './rpc/rpc-providers.types';
@@ -785,6 +787,7 @@ import type {
  * If a method is not in this registry, it CANNOT be called from frontend.
  */
 export interface RpcMethodRegistry {
+  'analytics:spendSummary': { params: UsageSummaryParams; result: UsageSummary };
   'attention:getSnapshot': {
     params: AttentionGetSnapshotParams;
     result: AttentionGetSnapshotResult;
@@ -3804,6 +3807,7 @@ export type RpcMethodName = keyof RpcMethodRegistry;
  * verifyRpcRegistration uses set-membership checks only.
  */
 const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
+  'analytics:spendSummary': true,
   'attention:getSnapshot': true,
   'chat:start': true,
   'chat:continue': true,

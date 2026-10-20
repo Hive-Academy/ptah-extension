@@ -69,6 +69,7 @@
         "skill-synthesis",
         "lane-outcomes",
         "lane-routing",
+        "usage-analytics",
         "harness-sync",
         "thoth-runtime",
         "core",

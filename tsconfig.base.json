@@ -23,6 +23,7 @@
         "./libs/backend/agent-generation/src/index.ts"
       ],
       "@ptah-extension/agent-sdk": ["./libs/backend/agent-sdk/src/index.ts"],
+      "@ptah-extension/usage-analytics": ["./libs/backend/usage-analytics/src/index.ts"],
       "@ptah-extension/auth-providers": [
         "./libs/backend/auth-providers/src/index.ts"
       ],

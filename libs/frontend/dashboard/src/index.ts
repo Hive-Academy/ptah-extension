@@ -23,3 +23,8 @@ export {
 } from './lib/services/session-analytics-state.service';
 export { type DashboardSessionEntry } from './lib/models/session-analytics.models';
 export { ProviderAccountCardComponent } from './lib/components/provider-account-card/provider-account-card.component';
+export {
+  AnalyticsUsageStore,
+  USAGE_RANGE_OPTIONS,
+} from './lib/services/analytics-usage.store';
+export { UsageDashboardComponent } from './lib/components/usage-dashboard/usage-dashboard.component';

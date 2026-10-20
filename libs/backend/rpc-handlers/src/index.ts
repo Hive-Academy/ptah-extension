@@ -9,6 +9,7 @@
 export {
   AgentRpcHandlers,
   AgentOutcomeRpcHandlers,
+  AnalyticsRpcHandlers,
   DecisionModelCatalogRpcHandlers,
   CommandRpcHandlers,
   FileSystemRpcHandlers,

@@ -83,6 +83,8 @@ export {
 } from './lib/session-stats';
 export type {
   SessionStatsRequest,
+  DatedUsageRecord,
+  DatedUsageScanEntry,
   SessionStatsReadEntry,
   SessionStatsScopeSelection,
 } from './lib/session-stats';

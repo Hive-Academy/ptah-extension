@@ -105,6 +105,7 @@ import {
 } from './bootstrap/harness-boot';
 import { shutdownHostRuntime } from './bootstrap/shutdown-host-runtime.js';
 import { registerAuthProvidersServices } from '@ptah-extension/auth-providers';
+import { registerUsageAnalytics } from '@ptah-extension/usage-analytics';
 import {
   registerCliAgentRuntimeServices,
   createContainerHarnessCliDetector,
@@ -691,6 +692,7 @@ export class CliDIContainer {
         container.resolve<IProcessSpawner>(SDK_TOKENS.SDK_PROCESS_SPAWNER),
     });
     registerAuthProvidersServices(container, logger);
+    registerUsageAnalytics(container);
     // MUST precede registerSdkServices: PluginLoaderService injects the
     // external consent store as its allowlist source.
     registerPluginMarketplaceServices(container, logger);

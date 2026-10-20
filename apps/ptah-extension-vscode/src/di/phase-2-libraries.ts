@@ -62,6 +62,7 @@ import {
   AUTH_PROVIDERS_TOKENS,
   VscodeCopilotAuthService,
 } from '@ptah-extension/auth-providers';
+import { registerUsageAnalytics } from '@ptah-extension/usage-analytics';
 import {
   registerCliAgentRuntimeServices,
   createHarnessCliDetector,
@@ -183,6 +184,7 @@ export function registerPhase2Libraries(
     });
   }
   registerAuthProvidersServices(container, logger);
+  registerUsageAnalytics(container);
   // Code outliner for the tool-output capper: must be bound BEFORE
   // registerSdkServices' capper is first resolved (it looks the token up then).
   // The parser is resolved lazily; workspace-intelligence registered it above.

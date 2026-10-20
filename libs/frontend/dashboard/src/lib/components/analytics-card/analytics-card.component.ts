@@ -18,6 +18,7 @@ import { DashboardSessionEntry } from '../../models/session-analytics.models';
 import { MetricsCardsComponent } from '../session-analytics/metrics-cards.component';
 import { SessionStatsCardComponent } from '../session-analytics/session-stats-card.component';
 import { SessionDetailModalComponent } from '../session-analytics/session-detail-modal.component';
+import { UsageDashboardComponent } from '../usage-dashboard/usage-dashboard.component';
 
 /**
  * AnalyticsCardComponent
@@ -25,14 +26,15 @@ import { SessionDetailModalComponent } from '../session-analytics/session-detail
  * Card-sized analytics surface used inside `DashboardGridComponent`.
  *
  * Composition:
- * - Date-range filter (always visible, so it keeps focus across reloads)
- * - Aggregate `MetricsCardsComponent` (top summary row)
- * - Load/coverage status line: page progress, the session cap, partial
- *   coverage, failed sessions and unknown costs
- * - Per-session `SessionStatsCardComponent` grid
+ * - Header with the [Usage | Sessions] tab switch; Usage is the default tab
+ *   (TASK_2026_707 PR 2) and owns `UsageDashboardComponent`.
+ * - Sessions tab: date-range filter (always visible while mounted, so it
+ *   keeps focus across reloads), aggregate `MetricsCardsComponent`, load and
+ *   coverage status line, per-session `SessionStatsCardComponent` grid.
  *
  * Data flow:
- * - An effect loads on mount and again whenever the workspace changes;
+ * - An effect loads session data on mount and again whenever the workspace
+ *   changes — independent of the active tab, so the Sessions tab is warm;
  *   destroying the card cancels the load in flight.
  * - Stats arrive in pages and paint as they land. All display data comes from
  *   `SessionAnalyticsStateService` signals.
@@ -44,6 +46,7 @@ import { SessionDetailModalComponent } from '../session-analytics/session-detail
     MetricsCardsComponent,
     SessionStatsCardComponent,
     SessionDetailModalComponent,
+    UsageDashboardComponent,
     LucideAngularModule,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -51,6 +54,9 @@ import { SessionDetailModalComponent } from '../session-analytics/session-detail
 })
 export class AnalyticsCardComponent {
   private readonly analyticsState = inject(SessionAnalyticsStateService);
+
+  /** Active analytics tab; Usage is the default (TASK_2026_707 PR 2). */
+  readonly tab = signal<'usage' | 'sessions'>('usage');
 
   readonly ChartColumnIcon = ChartColumn;
   readonly dateRangeOptions = SESSION_DATE_RANGE_OPTIONS;
@@ -86,6 +92,10 @@ export class AnalyticsCardComponent {
 
   retry(): void {
     void this.analyticsState.loadDashboardData();
+  }
+
+  setTab(tab: 'usage' | 'sessions'): void {
+    this.tab.set(tab);
   }
 
   setDateRange(range: SessionDateRange): void {
