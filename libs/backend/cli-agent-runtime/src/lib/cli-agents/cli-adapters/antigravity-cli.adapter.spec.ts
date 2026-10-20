@@ -558,11 +558,14 @@ describe('AntigravityCliAdapter', () => {
       return jest
         .spyOn(
           adapter as unknown as {
-            configureMcpServer: () => Promise<undefined>;
+            configureMcpServer: () => Promise<{
+              configured: boolean;
+              restoreNeeded: boolean;
+            }>;
           },
           'configureMcpServer',
         )
-        .mockResolvedValue(undefined);
+        .mockResolvedValue({ configured: true, restoreNeeded: false });
     }
 
     it('declares the task-prompt channel', () => {

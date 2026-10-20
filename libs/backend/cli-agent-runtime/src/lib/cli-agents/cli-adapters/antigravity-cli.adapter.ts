@@ -92,9 +92,6 @@ import { classifyCliStderr } from './cli-stderr-severity';
 import { z } from 'zod';
 import type { Logger } from '@ptah-extension/vscode-core';
 
-/** How long a failed startup waits for its child to stop before it releases the MCP lock. */
-const STARTUP_CHILD_STOP_DEADLINE_MS = 5_000;
-
 /**
  * Print-mode wait timeout. `agy` defaults to 5m, which kills most real coding
  * tasks; align it with AgentProcessManager's 1h execution cap so the manager
@@ -339,6 +336,12 @@ function formatUsage(
 }
 
 export class AntigravityCliAdapter implements CliAdapter {
+  /**
+   * How long a failed startup waits for its child to stop before it releases
+   * the MCP startup lock. Mutable only so specs can shorten it.
+   */
+  static startupChildStopDeadlineMs = 5_000;
+
   private static readonly mcpStartupLocks = new Map<string, Promise<void>>();
 
   private static async lockMcpStartup(): Promise<() => void> {
@@ -1076,7 +1079,7 @@ export class AntigravityCliAdapter implements CliAdapter {
           new Promise<false>((resolve) => {
             deadline = setTimeout(
               () => resolve(false),
-              STARTUP_CHILD_STOP_DEADLINE_MS,
+              AntigravityCliAdapter.startupChildStopDeadlineMs,
             );
           }),
         ]);
@@ -1084,7 +1087,7 @@ export class AntigravityCliAdapter implements CliAdapter {
         if (!stopped) {
           this.logger?.warn(
             '[AntigravityCliAdapter] Child stop after startup error is still pending; restoring MCP config and releasing the startup lock',
-            { deadlineMs: STARTUP_CHILD_STOP_DEADLINE_MS },
+            { deadlineMs: AntigravityCliAdapter.startupChildStopDeadlineMs },
           );
         }
         if (mcpRestoreNeeded) await this.cleanupMcpEntry(priorMcpEntry);

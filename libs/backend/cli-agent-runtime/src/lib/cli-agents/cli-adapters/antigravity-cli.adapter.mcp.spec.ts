@@ -385,29 +385,19 @@ describe('AntigravityCliAdapter — MCP config (TASK_2026_285)', () => {
     child.stdin.write.mockImplementationOnce(() => {
       throw new Error('stdin failed');
     });
-    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] });
+    const defaultDeadline = AntigravityCliAdapter.startupChildStopDeadlineMs;
+    AntigravityCliAdapter.startupChildStopDeadlineMs = 20;
     try {
-      const failed = adapter.runSdk({
-        task: 'first',
-        workingDirectory: ws,
-        mcpPort: 51234,
-        agentId: 'lane-1',
-      });
-      let done = false;
-      const settled = expect(failed)
-        .rejects.toThrow('stdin failed')
-        .finally(() => {
-          done = true;
-        });
-      // The config write is real file I/O, so the deadline timer is created
-      // only after some event-loop turns. Step the clock until the run settles.
-      for (let step = 0; step < 100 && !done; step++) {
-        await jest.advanceTimersByTimeAsync(500);
-        await new Promise((resolve) => setImmediate(resolve));
-      }
-      await settled;
+      await expect(
+        adapter.runSdk({
+          task: 'first',
+          workingDirectory: ws,
+          mcpPort: 51234,
+          agentId: 'lane-1',
+        }),
+      ).rejects.toThrow('stdin failed');
     } finally {
-      jest.useRealTimers();
+      AntigravityCliAdapter.startupChildStopDeadlineMs = defaultDeadline;
     }
     expect(killProcessTree).not.toHaveBeenCalled();
     expect(servers()['ptah']).toEqual({ serverUrl: 'http://localhost:51820' });
