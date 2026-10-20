@@ -1,5 +1,6 @@
 /** Bounded diagnostics for a failed Antigravity headless turn. */
 const MAX_DIAGNOSTIC_CHARS = 8 * 1024;
+const MAX_DIAGNOSTIC_STRING_CHARS = 1024;
 const SENSITIVE_KEY = /token|key|secret|authorization|password|credential|cookie|session/i;
 const INLINE_SECRET = /\b(bearer\s+)[^\s,;"']+|\b((?:api[_-]?key|token|secret|authorization|password|credential|set-cookie|cookie|session)\s*[:=]\s*)[^\r\n,"']+/gi;
 
@@ -13,7 +14,7 @@ export function redactAgyText(value: string): string {
 
 function redactValue(value: unknown, depth = 0): unknown {
   if (depth > 12) return '[TRUNCATED]';
-  if (typeof value === 'string') return redactAgyText(value);
+  if (typeof value === 'string') return safeAgyText(value, MAX_DIAGNOSTIC_STRING_CHARS);
   if (Array.isArray(value)) return value.map((item) => redactValue(item, depth + 1));
   if (value && typeof value === 'object') {
     return Object.fromEntries(
@@ -52,5 +53,5 @@ export function formatAgyDiagnostics(
   errorSteps: readonly unknown[],
   agyErrors: readonly string[],
 ): string {
-  return JSON.stringify(redactValue({ event, errorSteps, agyErrors })).slice(0, MAX_DIAGNOSTIC_CHARS);
+  return JSON.stringify(redactValue({ agyErrors, errorSteps, event })).slice(0, MAX_DIAGNOSTIC_CHARS);
 }

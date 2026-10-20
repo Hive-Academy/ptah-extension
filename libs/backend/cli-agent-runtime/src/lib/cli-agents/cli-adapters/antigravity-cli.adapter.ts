@@ -882,7 +882,7 @@ export class AntigravityCliAdapter implements CliAdapter {
         suppressConptyLines--;
         return;
       }
-      const safeLine = cleaned.includes('AGY_ERROR') ? redactAgyText(cleaned) : cleaned;
+      const safeLine = redactAgyText(cleaned);
       output.emit(`[stderr] ${safeLine}\n`);
       segment.emit({ type: classifyCliStderr(safeLine), content: safeLine });
     };
@@ -924,19 +924,13 @@ export class AntigravityCliAdapter implements CliAdapter {
           agyErrors.push(safeAgyText(trailingStderr));
           if (agyErrors.length > 5) agyErrors.shift();
         }
-        if (failedResult || exitCode !== 0) {
+        if ((failedResult || exitCode !== 0) && !abortController.signal.aborted) {
           const detail = `Antigravity CLI process exited with code ${exitCode}${agyErrors.length ? `; ${agyErrors.join('; ')}` : ''}`;
           output.emit(`\n[Error] ${detail}\n`);
           segment.emit({ type: 'error', content: detail });
         }
         if (useStreamInput) {
           currentTurn.resolve(failedResult ? 1 : exitCode);
-        }
-        if (exitCode !== 0 && !failedResult && !abortController.signal.aborted) {
-          segment.emit({
-            type: 'error',
-            content: `Antigravity CLI exited with code ${exitCode}`,
-          });
         }
         resolve(exitCode);
         if (!failedResult && exitCode === 0 && agyErrors.length > 0) {
@@ -1108,9 +1102,8 @@ export class AntigravityCliAdapter implements CliAdapter {
    * Map a `step_update` to segments.
    *
    * - `tool` + `ACTIVE` → `tool-call` (parameters known, output not yet)
-   * - `tool` + `DONE`   → `tool-result` (`tool_info.output` carries failure
-   *   text inline; `agy` reports no separate error flag or exit code, so no
-   *   `tool-result-error` / `command` segment is synthesized)
+   * - `tool` + `DONE`   → `tool-result` (`tool_info.output`)
+   * - `tool` + `ERROR`  → `tool-result-error` for the same `toolCallId`
    * - `agent_response`  → `text` for each incremental `text_delta`
    * - everything else (`user_input`, `checkpoint`, `unknown`, …) is a
    *   structural marker and produces no segment.
@@ -1121,16 +1114,15 @@ export class AntigravityCliAdapter implements CliAdapter {
     emitSegment: (segment: CliOutputSegment) => void,
   ): void {
     if (step.step_type === 'tool') {
-      if (step.state === 'ERROR') return;
       const toolName = step.tool_name ?? step.tool_info?.name ?? 'tool';
       const toolCallId =
         step.step_index !== undefined ? String(step.step_index) : undefined;
 
-      if (step.state === 'DONE') {
+      if (step.state === 'DONE' || step.state === 'ERROR') {
         emitSegment({
-          type: 'tool-result',
+          type: step.state === 'ERROR' ? 'tool-result-error' : 'tool-result',
           toolName,
-          content: step.tool_info?.output ?? '',
+          content: step.tool_info?.output ?? (step.state === 'ERROR' ? 'Tool failed' : ''),
           toolCallId,
         });
         return;

@@ -808,6 +808,41 @@ describe('AntigravityCliAdapter', () => {
       });
     });
 
+    it('closes an ERROR tool step with a tool-result-error for the same toolCallId', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      const { segments } = collect(handle);
+
+      currentChild?.stdout.write(
+        stepLine({
+          step_index: 4,
+          state: 'ACTIVE',
+          step_type: 'tool',
+          tool_name: 'run_command',
+        }) + '\n',
+      );
+      currentChild?.stdout.write(
+        stepLine({
+          step_index: 4,
+          state: 'ERROR',
+          step_type: 'tool',
+          tool_name: 'run_command',
+          tool_info: { name: 'run_command', output: 'permission denied' },
+        }) + '\n',
+      );
+      currentChild?.emitClose(0);
+      await handle.done;
+
+      expect(segments.find((s) => s.type === 'tool-call')).toMatchObject({
+        toolName: 'run_command',
+        toolCallId: '4',
+      });
+      expect(segments.find((s) => s.type === 'tool-result-error')).toMatchObject({
+        toolName: 'run_command',
+        toolCallId: '4',
+        content: 'permission denied',
+      });
+    });
+
     it('emits incremental agent_response text_deltas as text segments', async () => {
       const handle = await adapter.runSdk(baseOptions);
       const { output, segments } = collect(handle);
@@ -1136,6 +1171,55 @@ describe('AntigravityCliAdapter', () => {
       expect(errors.some((e) => e.content.includes('exited with code 1'))).toBe(
         true,
       );
+    });
+
+    it('redacts secrets on stderr lines that are not AGY_ERROR', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      const { output, segments } = collect(handle);
+
+      currentChild?.stderr.write(
+        'HTTP debug Authorization: Bearer super-secret-token api_key=abc123\n',
+      );
+      currentChild?.emitClose(0);
+      await handle.done;
+
+      const rendered = output.join('') + segments.map((s) => s.content).join('\n');
+      expect(rendered).toContain('[stderr]');
+      expect(rendered).toContain('[REDACTED]');
+      expect(rendered).not.toContain('super-secret-token');
+      expect(rendered).not.toContain('abc123');
+    });
+
+    it('emits one exit error when a failed result already reported the failure', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      const { segments } = collect(handle);
+
+      currentChild?.stdout.write(
+        JSON.stringify({
+          event: 'result',
+          result: { status: 'ERROR', response: 'boom' },
+        }) + '\n',
+      );
+      currentChild?.emitClose(2);
+      await handle.done;
+
+      const exitErrors = segments.filter(
+        (s) => s.type === 'error' && s.content.includes('exited with code'),
+      );
+      expect(exitErrors).toHaveLength(1);
+      expect(exitErrors[0].content).toContain('code 2');
+    });
+
+    it('does not emit an error segment when the user aborts', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      const { output, segments } = collect(handle);
+
+      handle.abort.abort();
+      currentChild?.emitClose(null, 'SIGTERM');
+      await handle.done;
+
+      expect(segments.filter((s) => s.type === 'error')).toEqual([]);
+      expect(output.join('')).not.toContain('[Error]');
     });
 
     it('resolves done with the child exit code', async () => {
