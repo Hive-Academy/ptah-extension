@@ -126,6 +126,7 @@ import type {
   SdkHandle,
 } from './cli-adapters/cli-adapter.interface';
 import type { Logger } from '@ptah-extension/vscode-core';
+import type { HostAttentionCoordinator } from '@ptah-extension/agent-sdk';
 import { SYSTEM_CLI_TYPES } from '@ptah-extension/shared';
 import type {
   AgentProcessInfo,
@@ -380,6 +381,7 @@ function createManager(deps: {
   reasoningSettings: { effort: { get: jest.Mock } };
   harnessPreflight: { ensure: jest.Mock } | null;
   mcpServerStatus: { getPort: jest.Mock<number | null, []> };
+  hostAttention?: HostAttentionCoordinator;
 }): ManagerHarness {
   type EnvironmentArgs = ConstructorParameters<typeof AgentSpawnEnvironment>;
   type ManagerArgs = ConstructorParameters<typeof AgentProcessManager>;
@@ -437,6 +439,7 @@ function createManager(deps: {
     resumeGate as unknown as ManagerArgs[8],
     laneOwners as unknown as ManagerArgs[9],
     planLimits as unknown as ManagerArgs[10],
+    deps.hostAttention,
   );
   return {
     manager,
@@ -461,6 +464,9 @@ describe('AgentProcessManager - SDK Execution Path', () => {
   let cliDetection: jest.Mocked<CliDetectionService>;
   let reasoningEffortGet: jest.Mock<string, []>;
   let getMcpPort: jest.Mock<number | null, []>;
+  let hostAttention: HostAttentionCoordinator;
+  let presentLaneFailure: jest.Mock;
+  let releaseLaneFailure: jest.Mock;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -475,6 +481,11 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
     reasoningEffortGet = jest.fn(() => '');
     getMcpPort = jest.fn<number | null, []>(() => null);
+    presentLaneFailure = jest.fn(async () => undefined);
+    releaseLaneFailure = jest.fn();
+    hostAttention = Object.create(null) as HostAttentionCoordinator;
+    hostAttention.presentLaneFailure = presentLaneFailure;
+    hostAttention.releaseLaneFailure = releaseLaneFailure;
     ({
       manager,
       outputBuffer,
@@ -489,6 +500,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       reasoningSettings: { effort: { get: reasoningEffortGet } },
       harnessPreflight: null,
       mcpServerStatus: { getPort: getMcpPort },
+      hostAttention,
     }));
   });
 
@@ -1562,6 +1574,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
       expect(abortSpy).toHaveBeenCalled();
       expect(info.status).toBe('stopped');
+      expect(presentLaneFailure).not.toHaveBeenCalled();
     });
 
     it('should return current info if agent already completed', async () => {
@@ -1816,6 +1829,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
         task: 'Task',
         cli: 'codex',
         workingDirectory: '/workspace/root',
+        parentSessionId: 'parent-session',
       });
 
       sdkControls.resolve(1);
@@ -1824,6 +1838,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
       const status = manager.getStatus(result.agentId);
       expect(status).toHaveProperty('status', 'failed');
+      expect(presentLaneFailure).toHaveBeenCalledWith(result.agentId, 'parent-session', expect.any(Number));
     });
 
     it('should set status to failed on SDK done promise rejection', async () => {
@@ -1840,6 +1855,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
       const status = manager.getStatus(result.agentId);
       expect(status).toHaveProperty('status', 'failed');
+      expect(presentLaneFailure).toHaveBeenCalledTimes(1);
     });
 
     it('should not double-exit when timeout fires after SDK already resolved', async () => {
@@ -2793,6 +2809,8 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       expect(manager.getStatus(agentId)).toHaveProperty('status', 'completed');
 
       await manager.continueConversation(agentId, 'follow-up message');
+
+      expect(releaseLaneFailure).toHaveBeenCalledWith(agentId);
 
       expect(continuableControls.continueCallCount()).toBe(1);
       expect(continuableControls.continueMessages).toEqual([

@@ -25,6 +25,7 @@
 export const SDK_TOKENS = {
   SDK_AGENT_ADAPTER: Symbol.for('SdkAgentAdapter'),
   SDK_SESSION_METADATA_STORE: Symbol.for('SdkSessionMetadataStore'),
+  HOST_ATTENTION_COORDINATOR: Symbol.for('HostAttentionCoordinator'),
   SDK_SESSION_IMPORTER: Symbol.for('SdkSessionImporter'),
   SDK_SESSION_HISTORY_READER: Symbol.for('SdkSessionHistoryReader'),
   /**

@@ -49,3 +49,7 @@ export {
   runWorkspaceWatcherContract,
   type WorkspaceWatcherContractSetup,
 } from './run-workspace-watcher-contract';
+export {
+  runHostAttentionContract,
+  type HostAttentionContractSetup,
+} from './run-host-attention-contract';

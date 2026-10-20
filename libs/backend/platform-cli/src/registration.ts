@@ -30,6 +30,7 @@ import { CliTokenCounter } from './implementations/cli-token-counter';
 import { CliDiagnosticsProvider } from './implementations/cli-diagnostics-provider';
 import { CliHttpServerProvider } from './implementations/cli-http-server-provider';
 import { CliWorkspaceWatcher } from './implementations/cli-workspace-watcher';
+import { CliHostAttentionNotifications } from './implementations/cli-host-attention-notifications';
 import type { CliPlatformOptions } from './types';
 
 /**
@@ -86,6 +87,9 @@ export function registerPlatformCliServices(
   });
   container.register(PLATFORM_TOKENS.USER_INTERACTION, {
     useValue: new CliUserInteraction(),
+  });
+  container.register(PLATFORM_TOKENS.HOST_ATTENTION_NOTIFICATIONS, {
+    useValue: new CliHostAttentionNotifications(),
   });
   container.register(PLATFORM_TOKENS.OUTPUT_CHANNEL, {
     useValue: new CliOutputChannel('Ptah CLI', logsPath),

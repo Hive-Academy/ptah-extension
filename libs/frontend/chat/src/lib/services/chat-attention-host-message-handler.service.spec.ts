@@ -1,0 +1,190 @@
+import { DOCUMENT } from '@angular/common';
+import { TestBed } from '@angular/core/testing';
+import { TabManagerService } from '@ptah-extension/chat-state';
+import {
+  AppStateManager, ClaudeRpcService, LoggingService,
+  NOTIFICATION_FOCUS_ROUTER, NotificationService, RpcResult, VSCodeService,
+} from '@ptah-extension/core';
+import { MESSAGE_TYPES, type AttentionNotice, workspaceIdFromPath } from '@ptah-extension/shared';
+import { ChatAttentionHostMessageHandler } from './chat-attention-host-message-handler.service';
+
+describe('ChatAttentionHostMessageHandler', () => {
+  const target = { workspaceId: workspaceIdFromPath('/workspace-a'), sessionId: 'session-1', tabId: 'tab-1' };
+  const notice: AttentionNotice = {
+    key: 'host-request-1', generation: 1, kind: 'permission',
+    title: 'Permission required', occurredAt: 1, target,
+  };
+  const upsert = jest.fn();
+  const resolve = jest.fn();
+  const focus = jest.fn();
+  const call = jest.fn();
+  const warn = jest.fn();
+  const setStatusMessage = jest.fn();
+  let handler: ChatAttentionHostMessageHandler;
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+    call.mockResolvedValue(new RpcResult(true, { notices: [] }));
+    focus.mockResolvedValue({ success: true, outcome: 'focused' });
+    TestBed.configureTestingModule({ providers: [
+      ChatAttentionHostMessageHandler,
+      { provide: ClaudeRpcService, useValue: { call } },
+      { provide: NotificationService, useValue: { upsert, resolve } },
+      { provide: NOTIFICATION_FOCUS_ROUTER, useValue: { focus } },
+      { provide: LoggingService, useValue: { warn } },
+      { provide: AppStateManager, useValue: { setStatusMessage } },
+      { provide: VSCodeService, useValue: { config: () => ({ isVSCode: false, workspaceRoot: '' }) } },
+      { provide: TabManagerService, useValue: {
+        findTabByIdAcrossWorkspaces: () => ({
+          workspacePath: '/workspace-a', tab: { id: 'tab-1', claudeSessionId: 'session-1' },
+        }),
+        findTabBySessionIdAcrossWorkspaces: () => null,
+      } },
+      { provide: DOCUMENT, useValue: document },
+    ] });
+    handler = TestBed.inject(ChatAttentionHostMessageHandler);
+    await new Promise<void>(resolve => setTimeout(resolve, 0));
+    jest.clearAllMocks();
+  });
+
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('reconciles a missed push on bootstrap', async () => {
+    call.mockResolvedValue(new RpcResult(true, { notices: [notice] }));
+    await new Promise<void>(resolve => setTimeout(resolve, 0));
+    window.dispatchEvent(new Event('focus'));
+    await new Promise<void>(resolve => setTimeout(resolve, 0));
+    expect(call).toHaveBeenCalledWith('attention:getSnapshot', {}, { timeout: 5000 });
+    expect(upsert).toHaveBeenCalledWith(expect.objectContaining({
+      key: notice.key, generation: 1, workspacePath: '/workspace-a',
+      soundEligible: false,
+    }));
+  });
+
+  it('drops private or malformed push payloads', () => {
+    handler.handleMessage({ type: MESSAGE_TYPES.ATTENTION_CHANGED, payload: {
+      change: 'upsert', notice: { ...notice, prompt: 'private' },
+    } });
+    expect(warn).toHaveBeenCalledWith(expect.any(String), 'Invalid attention change dropped');
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it('resolves only the matching generation and ignores an old upsert', () => {
+    handler.handleMessage({ type: MESSAGE_TYPES.ATTENTION_CHANGED, payload: { change: 'upsert', notice } });
+    handler.handleMessage({ type: MESSAGE_TYPES.ATTENTION_CHANGED, payload: {
+      change: 'resolve', key: notice.key, generation: 1,
+    } });
+    handler.handleMessage({ type: MESSAGE_TYPES.ATTENTION_CHANGED, payload: { change: 'upsert', notice } });
+    expect(resolve).toHaveBeenCalledWith(notice.key, 1, 'host');
+    expect(upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it('resolves a newer generation and keeps an older resolve from removing it', () => {
+    handler.handleMessage({ type: MESSAGE_TYPES.ATTENTION_CHANGED, payload: { change: 'upsert', notice } });
+    handler.handleMessage({ type: MESSAGE_TYPES.ATTENTION_CHANGED, payload: {
+      change: 'resolve', key: notice.key, generation: 2,
+    } });
+    expect(resolve).toHaveBeenCalledWith(notice.key, 2, 'host');
+  });
+
+  it('rechecks a host click and refuses a stale request', async () => {
+    call.mockResolvedValue(new RpcResult(true, { notices: [] }));
+    handler.handleMessage({ type: MESSAGE_TYPES.ATTENTION_OPEN_TARGET, payload: {
+      key: notice.key, generation: 1, target,
+    } });
+    await new Promise<void>(resolve => setTimeout(resolve, 0));
+    expect(focus).not.toHaveBeenCalled();
+    expect(setStatusMessage).toHaveBeenCalledWith('Already answered');
+  });
+
+  it('reports a mismatched target instead of dropping the click silently', async () => {
+    call.mockResolvedValue(new RpcResult(true, { notices: [{ ...notice,
+      target: { ...target, sessionId: 'other-session' } }] }));
+    handler.handleMessage({ type: MESSAGE_TYPES.ATTENTION_OPEN_TARGET, payload: {
+      key: notice.key, generation: 1, target,
+    } });
+    await new Promise<void>(resolve => setTimeout(resolve, 0));
+    expect(setStatusMessage).toHaveBeenCalledWith('Target unavailable');
+    expect(focus).not.toHaveBeenCalled();
+  });
+
+  it('retries a failed snapshot when the view is revealed', async () => {
+    jest.useFakeTimers();
+    call.mockRejectedValueOnce(new Error('private failure'))
+      .mockResolvedValue(new RpcResult(true, { notices: [notice] }));
+    window.dispatchEvent(new Event('focus'));
+    await Promise.resolve();
+    await Promise.resolve();
+    await jest.advanceTimersByTimeAsync(2000);
+    expect(upsert).toHaveBeenCalledWith(expect.objectContaining({ key: notice.key }));
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('private failure');
+    jest.useRealTimers();
+  });
+
+  it('backs off and stops after five failed snapshots, then retries on focus', async () => {
+    jest.useFakeTimers();
+    try {
+      call.mockRejectedValue(new Error('private snapshot detail'));
+      window.dispatchEvent(new Event('focus'));
+      await jest.advanceTimersByTimeAsync(30000);
+      expect(call).toHaveBeenCalledTimes(5);
+      expect(warn).toHaveBeenCalledWith(expect.any(String), 'Attention snapshot retries exhausted');
+      expect(warn.mock.calls.filter(([, message]) => message === 'Attention snapshot retries exhausted')).toHaveLength(1);
+      await jest.advanceTimersByTimeAsync(60000);
+      expect(call).toHaveBeenCalledTimes(5);
+      expect(JSON.stringify(warn.mock.calls)).not.toContain('private snapshot detail');
+
+      call.mockResolvedValue(new RpcResult(true, { notices: [notice] }));
+      window.dispatchEvent(new Event('focus'));
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(call).toHaveBeenCalledTimes(6);
+      expect(upsert).toHaveBeenCalledWith(expect.objectContaining({ key: notice.key }));
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('waits for backoff when a queued reconcile follows a failed snapshot', async () => {
+    jest.useFakeTimers();
+    try {
+      let failSnapshot: (reason: Error) => void = () => { throw new Error('Snapshot was not requested'); };
+      call.mockImplementationOnce(() => new Promise((_resolve, reject) => {
+        failSnapshot = reject;
+      }));
+      window.dispatchEvent(new Event('focus'));
+      expect(call).toHaveBeenCalledTimes(1);
+      window.dispatchEvent(new Event('focus'));
+      failSnapshot(new Error('private snapshot detail'));
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(call).toHaveBeenCalledTimes(1);
+      await jest.advanceTimersByTimeAsync(1999);
+      expect(call).toHaveBeenCalledTimes(1);
+      await jest.advanceTimersByTimeAsync(1);
+      expect(call).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('opens a pending local owner after snapshot validation', async () => {
+    call.mockResolvedValue(new RpcResult(true, { notices: [notice] }));
+    handler.handleMessage({ type: MESSAGE_TYPES.ATTENTION_OPEN_TARGET, payload: {
+      key: notice.key, generation: 1, target,
+    } });
+    await new Promise<void>(resolve => setTimeout(resolve, 0));
+    expect(focus).toHaveBeenCalledWith({
+      workspacePath: '/workspace-a', sessionId: 'session-1', tabId: 'tab-1',
+    });
+  });
+
+  it('keeps an unknown surface owner counted with Open disabled', () => {
+    handler.handleMessage({ type: MESSAGE_TYPES.ATTENTION_CHANGED, payload: {
+      change: 'upsert', notice: { ...notice, target: { ...target, surfaceMode: true } },
+    } });
+    expect(upsert).toHaveBeenCalledWith(expect.objectContaining({
+      ownerSurface: 'surface', actions: [{ id: 'open', label: 'Open', disabledReason: 'Answer in owning surface' }],
+    }));
+  });
+});

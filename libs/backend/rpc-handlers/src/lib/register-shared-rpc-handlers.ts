@@ -13,6 +13,7 @@
 import type { DependencyContainer } from 'tsyringe';
 
 import {
+  AttentionRpcHandlers,
   AgentOutcomeRpcHandlers,
   DecisionModelCatalogRpcHandlers,
   SetupRpcHandlers,
@@ -69,6 +70,7 @@ export function registerSharedRpcHandlers(
     LaneModelListingAdapter,
   );
   container.registerSingleton(SetupRpcHandlers);
+  container.registerSingleton(AttentionRpcHandlers);
   container.registerSingleton(WizardGenerationRpcHandlers);
   container.registerSingleton(EnhancedPromptsRpcHandlers);
   container.registerSingleton(LlmRpcHandlers);

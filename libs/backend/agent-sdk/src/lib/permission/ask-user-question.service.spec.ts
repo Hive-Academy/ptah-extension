@@ -10,6 +10,7 @@ import {
 } from '@ptah-extension/shared';
 import {
   AskUserQuestionService,
+  ASK_USER_QUESTION_IDLE_TIMEOUT_MS,
   type AskUserQuestionResponse,
   type WebviewManagerLike,
 } from './ask-user-question.service';
@@ -39,7 +40,7 @@ function asLogger(mock: MockLogger): Logger {
   return mock as unknown as Logger;
 }
 
-function makeService(delivered = true): {
+function makeService(delivered = true, hostAttention?: { resolve(key: string, generation: number): void }): {
   service: AskUserQuestionService;
   logger: MockLogger;
   sent: SentMessage[];
@@ -69,10 +70,45 @@ function makeService(delivered = true): {
     webviewManager as unknown as WebviewManagerLike,
     asLogger(logger),
     registry,
+    hostAttention,
   );
 
   return { service, logger, sent, registry };
 }
+
+describe('AskUserQuestionService host attention resolution', () => {
+  it('resolves the timed-out question with its request generation', async () => {
+    jest.useFakeTimers();
+    try {
+      const hostAttention = { resolve: jest.fn() };
+      const { service, sent } = makeService(true, hostAttention);
+      const pending = service.handleAskUserQuestion(makeAskInput(), 'tool-timeout');
+      const request = sent.find((message) => message.type === MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST)?.payload;
+      expect(request).toBeDefined();
+      await jest.advanceTimersByTimeAsync(ASK_USER_QUESTION_IDLE_TIMEOUT_MS);
+      await pending;
+      expect(hostAttention.resolve).toHaveBeenCalledTimes(1);
+      expect(hostAttention.resolve).toHaveBeenCalledWith(`question:${request!['id']}`, request!['timestamp']);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+  it.each(['answered', 'aborted', 'withdrawn'] as const)('resolves a %s question once', async (settlement) => {
+    const hostAttention = { resolve: jest.fn() };
+    const { service, sent } = makeService(true, hostAttention);
+    const controller = new AbortController();
+    const pending = service.handleAskUserQuestion(makeAskInput(), 'tool-attention', asSessionId('11111111-2222-4333-8444-555555555555'), controller.signal);
+    await flushMicrotasks();
+    const request = sent.find((message) => message.type === MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST)?.payload;
+    expect(request).toBeDefined();
+    if (settlement === 'answered') service.handleQuestionResponse({ id: request!['id'] as string, answers: { 'Pick a strategy?': 'A' } });
+    if (settlement === 'aborted') controller.abort();
+    if (settlement === 'withdrawn') service.cleanupBySession('11111111-2222-4333-8444-555555555555');
+    await pending;
+    expect(hostAttention.resolve).toHaveBeenCalledTimes(1);
+    expect(hostAttention.resolve).toHaveBeenCalledWith(`question:${request!['id']}`, request!['timestamp']);
+  });
+});
 
 function makeAskInput() {
   return {

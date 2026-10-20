@@ -1273,6 +1273,8 @@ describe('isFileBasedSettingKey', () => {
       'cron.catchupWindowMs': 86400000,
       'harness.preflightTimeoutMs': 1500,
       'harness.manageGitignore': true,
+      'notifications.hostEnabled': true,
+      'notifications.failureHostEnabled': false,
     };
 
     it.each(Object.entries(advancedDefaults))(
@@ -1310,6 +1312,30 @@ describe('isFileBasedSettingKey', () => {
         expect(store.get('cron.maxConcurrentJobs')).toBe(3);
         expect(store.get('harness.preflightTimeoutMs')).toBe(1500);
         expect(store.get('harness.manageGitignore')).toBe(true);
+        expect(store.get('notifications.hostEnabled')).toBe(true);
+        expect(store.get('notifications.failureHostEnabled')).toBe(false);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('persists notification preferences across store restart', async () => {
+      const dir = fs.mkdtempSync(
+        path.join(os.tmpdir(), 'ptah-notification-keys-'),
+      );
+      try {
+        const store = new PtahFileSettingsManager(
+          FILE_BASED_SETTINGS_DEFAULTS,
+          dir,
+        );
+        await store.set('notifications.hostEnabled', false);
+        await store.set('notifications.failureHostEnabled', true);
+        const reopened = new PtahFileSettingsManager(
+          FILE_BASED_SETTINGS_DEFAULTS,
+          dir,
+        );
+        expect(reopened.get('notifications.hostEnabled')).toBe(false);
+        expect(reopened.get('notifications.failureHostEnabled')).toBe(true);
       } finally {
         fs.rmSync(dir, { recursive: true, force: true });
       }

@@ -64,7 +64,9 @@ export async function handleApprovalPrompt(
   const responsePromise = new Promise<PermissionResponse>((resolve) => {
     permissionPromptService.setPendingResolver(
       permissionRequest.id,
-      resolve,
+      (response) => {
+        resolve(response);
+      },
       permissionRequest,
     );
   });

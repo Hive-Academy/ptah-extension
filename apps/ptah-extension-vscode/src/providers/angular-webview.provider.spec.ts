@@ -7,6 +7,7 @@ import type {
 import { WebviewEventQueue } from '../services/webview-event-queue';
 import { WebviewHtmlGenerator } from '../services/webview-html-generator';
 import { AngularWebviewProvider } from './angular-webview.provider';
+import type { VscodeHostAttentionNotifications } from '@ptah-extension/platform-vscode';
 
 // The shared vscode mock has no ExtensionMode (read by the provider's
 // development watcher) or ViewColumn (read by createPanel).
@@ -36,6 +37,7 @@ function panel(): {
       onDispose.push(callback);
       return { dispose: jest.fn() };
     }),
+    onDidChangeViewState: jest.fn(() => ({ dispose: jest.fn() })),
   } as unknown as vscode.WebviewPanel;
   return { value, dispose: disposePanel, disposePanel, postMessage };
 }
@@ -69,6 +71,25 @@ describe('AngularWebviewProvider panel adoption', () => {
     localResourceRoots: [],
   };
   let liveManagerIds: Set<string>;
+
+  it('bridges panel view-state changes into the manager visibility event', async () => {
+    const visibilityListeners: Array<() => void> = [];
+    const viewStateListeners: Array<() => void> = [];
+    Object.assign(created.value, {
+      visible: true,
+      onDidChangeViewState: jest.fn((listener: () => void) => {
+        viewStateListeners.push(listener);
+        return { dispose: jest.fn() };
+      }),
+    });
+    manager.registerWebviewView.mockImplementation((_id: string, view: vscode.WebviewView) => {
+      view.onDidChangeVisibility(() => visibilityListeners.push(jest.fn()));
+    });
+    await provider.createPanel();
+    expect(viewStateListeners).toHaveLength(1);
+    viewStateListeners[0]();
+    expect(visibilityListeners).toHaveLength(1);
+  });
 
   beforeEach(() => {
     created = panel();
@@ -111,6 +132,9 @@ describe('AngularWebviewProvider panel adoption', () => {
       {
         setupMessageListener: listener,
       } as unknown as WebviewMessageHandlerService,
+      Object.assign(Object.create(null) as VscodeHostAttentionNotifications, {
+        setRouteDispatcher: jest.fn(() => ({ dispose: jest.fn() })),
+      }),
     );
   });
 
@@ -130,7 +154,7 @@ describe('AngularWebviewProvider panel adoption', () => {
       expect(vscode.window.createWebviewPanel).not.toHaveBeenCalled();
       expect(manager.registerWebviewView).toHaveBeenCalledWith(
         savedId,
-        restored.value,
+        expect.objectContaining({ webview: restored.value.webview }),
       );
       expect(generate).toHaveBeenCalledWith(
         restored.value.webview,

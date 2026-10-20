@@ -474,6 +474,9 @@ export const FILE_BASED_SETTINGS_KEYS = new Set<string>([
   // DEFAULT_MANAGE_GITIGNORE (true), which every reader still falls back to.
   'harness.preflightTimeoutMs',
   'harness.manageGitignore',
+  // Host notification preferences use the shared advanced-settings defaults.
+  'notifications.hostEnabled',
+  'notifications.failureHostEnabled',
   // User-defined provider entries (TASK_2026_236) — one JSON array of
   // NON-SECRET metadata. API keys never live here; they stay in SecretStorage
   // via AuthSecretsService.setProviderKey().

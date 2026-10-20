@@ -222,6 +222,8 @@ export const MESSAGE_TYPES = {
    */
   SURFACE_UPDATED: 'surface:updated',
   ASK_USER_QUESTION_REQUEST: 'ask-user-question:request',
+  ATTENTION_CHANGED: 'attention:changed',
+  ATTENTION_OPEN_TARGET: 'attention:openTarget',
   ASK_USER_QUESTION_RESPONSE: 'ask-user-question:response',
   ASK_USER_QUESTION_AUTO_RESOLVED: 'ask-user-question:auto-resolved',
   PERMISSION_AUTO_RESOLVED: 'permission:auto-resolved',

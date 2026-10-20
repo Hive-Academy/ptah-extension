@@ -5,6 +5,10 @@
  */
 
 import type { StrictMessageType, WebviewMessage } from '@ptah-extension/shared';
+import type {
+  IHostAttentionIngress,
+  IHostAttentionObserverHost,
+} from '@ptah-extension/platform-core';
 import {
   isRoutableMessage,
   isSystemMessage,
@@ -64,7 +68,10 @@ export interface WebviewDisposedPayload {
  * Manages webview lifecycle and provides message routing to event bus
  */
 @injectable()
-export class WebviewManager {
+export class WebviewManager implements IHostAttentionObserverHost {
+  private attentionRegistration?: { observer: IHostAttentionIngress };
+  private readonly visibilityEmitter = new vscode.EventEmitter<void>();
+  readonly onDidChangeVisibility = this.visibilityEmitter.event;
   private readonly activeWebviews = new Map<string, vscode.WebviewPanel>();
   private readonly activeWebviewViews = new Map<string, vscode.WebviewView>();
   private readonly webviewMetrics = new Map<
@@ -82,6 +89,25 @@ export class WebviewManager {
     private readonly context: vscode.ExtensionContext,
     @inject(LOGGER) private readonly logger: Logger,
   ) {}
+
+  setAttentionObserver(observer: IHostAttentionIngress): vscode.Disposable {
+    const registration = { observer };
+    this.attentionRegistration = registration;
+    return new vscode.Disposable(() => {
+      if (this.attentionRegistration === registration) {
+        this.attentionRegistration = undefined;
+      }
+    });
+  }
+
+  private observeAttention(type: string, payload: unknown): void {
+    try {
+      this.attentionRegistration?.observer.observe(type, payload);
+    } catch (error) {
+      const name = error instanceof Error ? error.name : 'UnknownError';
+      this.logger.error(`[WebviewManager] Attention observer failed: ${name}`);
+    }
+  }
 
   /**
    * Create a webview panel with enhanced configuration and event integration
@@ -136,6 +162,7 @@ export class WebviewManager {
       lastActivity: Date.now(),
       isVisible: true,
     });
+    this.visibilityEmitter.fire();
     if (initialData) {
       panel.webview.postMessage({
         type: MESSAGE_TYPES.INITIAL_DATA,
@@ -161,6 +188,7 @@ export class WebviewManager {
       lastActivity: Date.now(),
       isVisible: view.visible,
     });
+    this.visibilityEmitter.fire();
     if (typeof view.onDidChangeVisibility === 'function') {
       view.onDidChangeVisibility(() => {
         this.updateWebviewVisibility(viewType, view.visible);
@@ -170,6 +198,7 @@ export class WebviewManager {
       this.logger.debug(`[WebviewManager] WebviewView disposed: ${viewType}`);
       this.activeWebviewViews.delete(viewType);
       this.webviewMetrics.delete(viewType);
+      this.visibilityEmitter.fire();
     });
 
     this.logger.debug(
@@ -193,6 +222,15 @@ export class WebviewManager {
     viewType: string,
     type: T,
     payload: any,
+  ): Promise<boolean> {
+    this.observeAttention(type, payload);
+    return this.sendToWebview(viewType, type, payload);
+  }
+
+  private async sendToWebview<T extends StrictMessageType>(
+    viewType: string,
+    type: T,
+    payload: unknown,
   ): Promise<boolean> {
     const panel = this.activeWebviews.get(viewType);
     const view = this.activeWebviewViews.get(viewType);
@@ -298,9 +336,10 @@ export class WebviewManager {
     type: T,
     payload: any,
   ): Promise<void> {
+    this.observeAttention(type, payload);
     const allPromises: Promise<unknown>[] = [];
     for (const viewType of this.activeWebviews.keys()) {
-      allPromises.push(this.sendMessage(viewType, type, payload));
+      allPromises.push(this.sendToWebview(viewType, type, payload));
     }
     for (const [viewType, view] of this.activeWebviewViews) {
       allPromises.push(
@@ -342,6 +381,8 @@ export class WebviewManager {
     this.activeWebviews.forEach((panel) => panel.dispose());
     this.activeWebviews.clear();
     this.webviewMetrics.clear();
+    this.attentionRegistration = undefined;
+    this.visibilityEmitter.dispose();
   }
 
   /**
@@ -396,6 +437,7 @@ export class WebviewManager {
   private handleWebviewDisposal(viewType: string): void {
     this.activeWebviews.delete(viewType);
     this.webviewMetrics.delete(viewType);
+    this.visibilityEmitter.fire();
   }
 
   /**
@@ -403,9 +445,10 @@ export class WebviewManager {
    */
   private updateWebviewVisibility(viewType: string, visible: boolean): void {
     const metrics = this.webviewMetrics.get(viewType);
-    if (metrics) {
+    if (metrics && metrics.isVisible !== visible) {
       metrics.isVisible = visible;
       metrics.lastActivity = Date.now();
+      this.visibilityEmitter.fire();
     }
   }
 }
