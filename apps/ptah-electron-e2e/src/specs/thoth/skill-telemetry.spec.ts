@@ -21,7 +21,7 @@ import {
  *     → `SkillTriggerService.onPostToolUse` (toolName === 'Skill')
  *     → `extractSkillSlug` (strips leading '/')
  *     → `SkillInvocationRecorder.recordSkillEvent`
- *     → `SkillCandidateStore.recordSkillEvent`  (INSERT skill_invocation_events)
+ *     → SQLite `skill_invocation_events` insert
  *   Read-back: `skillSynthesis:invocationStats` RPC → `getInvocationStats(slug)`.
  *
  * ── Why this is gated / CI-skippable ──────────────────────────────────────
@@ -72,8 +72,7 @@ test.describe('@nightly Thoth — skill-invocation telemetry (P0)', () => {
   }) => {
     await mainWindow.waitForLoadState('domcontentloaded');
 
-    // Baseline: capture the existing row count for this slug. The DB is the
-    // shared real ~/.ptah/state/ptah.sqlite, so prior runs may have rows.
+    // Baseline: capture the existing row count in this launch's isolated DB.
     const before = await readInvocationStatsViaRpc(rpcBridge, SKILL_SLUG);
     if (before === null) {
       throw new Error(
@@ -153,3 +152,5 @@ test.describe('@nightly Thoth — skill-invocation telemetry (P0)', () => {
     }
   });
 });
+
+

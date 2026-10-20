@@ -233,6 +233,7 @@ const STATUS_HINT: Record<SkillCloneStatus, string> = {
                   class="tabular-nums"
                   [class.truncate]="!m.fullRow"
                   [class.text-warning]="m.warning"
+                  [class.text-base-content-muted]="m.value === 'No grade'"
                   [attr.title]="m.fullRow ? null : m.value"
                   [attr.data-testid]="m.testId"
                 >
@@ -476,13 +477,7 @@ export class CloneCardComponent {
     return model.enhance.reason ?? '';
   });
 
-  /**
-   * Only the metrics that actually carry data. A skill or command that has
-   * never run produces an EMPTY list, which the template renders as one
-   * explanatory sentence instead of a row of em dashes. Agent cards always
-   * include outcome signals in place of Success, so an agent with no
-   * records shows "no data yet" instead of that sentence.
-   */
+  /** Use and task-folder grade are shared by all clone kinds. */
   protected readonly metrics = computed<CloneMetric[]>(() => {
     const c = this.clone();
     const out: CloneMetric[] = [];
@@ -495,16 +490,19 @@ export class CloneCardComponent {
       });
     }
 
-    if (c.kind !== 'agent') {
+    if (c.invocationCount > 0 || c.successRate !== null) {
       const success = formatSuccessRate(c);
-      if (success !== null) {
-        out.push({
-          label: 'Success',
-          value: success,
-          testId: 'clone-metric-success',
-        });
-      }
-    } else {
+      out.push({
+        label: 'Success',
+        value: success,
+        testId: 'clone-metric-success',
+      });
+    }
+
+    if (
+      c.kind === 'agent' &&
+      (c.invocationCount > 0 || c.successRate !== null)
+    ) {
       const raw = this.outcomeSignals();
       const signals = raw !== null && raw.slug === c.slug ? raw : null;
       out.push(

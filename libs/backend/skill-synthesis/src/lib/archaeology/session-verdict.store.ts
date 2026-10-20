@@ -48,11 +48,13 @@ import {
 } from '@ptah-extension/persistence-sqlite';
 import {
   isEvidenceClass,
+  isPositiveEvidenceClass,
   type EvidenceClass,
   type FrictionEntry,
   type RoutineDraft,
   type SessionVerdict,
   type SessionVerdictInput,
+  type SessionVerdictJoin,
 } from './session-verdict.types';
 
 interface RawVerdictRow {
@@ -232,6 +234,35 @@ export class SessionVerdictStore {
       result.set(session_id, evidence_class);
     }
     return result;
+  }
+
+  /** Return positive historical evidence only when every outcome key agrees. */
+  positiveEvidenceForRun(join: SessionVerdictJoin): EvidenceClass | null {
+    if (!join.runId || !join.sessionId || !join.taskId || !join.workspaceRoot)
+      return null;
+    const raw = this.db
+      .prepare(
+        `SELECT v.evidence_class AS evidence_class
+         FROM lane_outcome_records AS r
+         JOIN skill_session_verdicts AS v
+           ON v.session_id = r.subagent_session_id
+          AND v.workspace_root = r.workspace_root
+         WHERE r.run_id = ? AND r.subagent_session_id = ?
+           AND r.task_id = ? AND r.workspace_root = ?
+           AND v.degraded_reason IS NULL`,
+      )
+      .get(
+        join.runId,
+        join.sessionId,
+        join.taskId,
+        join.workspaceRoot,
+      );
+    const parsed = EvidenceRowSchema.pick({ evidence_class: true }).safeParse(raw);
+    if (!parsed.success) return null;
+    const value = parsed.data.evidence_class;
+    return isEvidenceClass(value) && isPositiveEvidenceClass(value)
+      ? value
+      : null;
   }
 
   /**

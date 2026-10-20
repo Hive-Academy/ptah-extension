@@ -8,7 +8,6 @@ import type {
 } from '@ptah-extension/agent-generation';
 import { SkillRegistryStore } from './skill-registry.store';
 import { SkillRegistryCatalogService } from './skill-registry-catalog.service';
-import type { SkillCandidateStore } from './skill-candidate.store';
 
 const sql0022 = MIGRATIONS.find((m) => m.version === 22)?.sql ?? '';
 const sql0023 = MIGRATIONS.find((m) => m.version === 23)?.sql ?? '';
@@ -112,13 +111,9 @@ maybe('P2 reconcile → catalog wiring (Electron path)', () => {
   });
 
   function makeCatalog(clones: CloneEntry[]): SkillRegistryCatalogService {
-    const candidates = {
-      findByName: () => null,
-    } as unknown as SkillCandidateStore;
     return new SkillRegistryCatalogService(
       noopLogger as never,
       store,
-      candidates,
       makeMirror(clones),
     );
   }

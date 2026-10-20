@@ -21,7 +21,6 @@ import {
 } from '@ptah-extension/memory-curator';
 import {
   SKILL_SYNTHESIS_TOKENS,
-  type SkillSynthesisService,
   type SkillTriggerService,
 } from '@ptah-extension/skill-synthesis';
 import {
@@ -122,7 +121,7 @@ function replacePushBridge(
 
 /**
  * Boot the Thoth channel: SQLite, memory curator + trigger, memory/status
- * push bridges, skill synthesis + trigger, code-symbol indexing deps and the
+ * push bridges, skill trigger, code-symbol indexing deps and the
  * workspace file index.
  *
  * Every block is individually guarded and non-fatal: a failure degrades the
@@ -142,11 +141,9 @@ function replacePushBridge(
  * what keeps the window between "the renderer can call an RPC" and "SQLite is
  * open" as short as it can be.
  *
- * The three long scans behind it are STARTED and not awaited: the memory
- * trigger's boot scan, skill synthesis's SKILL.md walk plus trajectory scan,
- * and the workspace file index. Each was tens of seconds on a machine with
- * history, and none of them produces a value this function returns. Each
- * attaches its own `.catch` and each is gated on {@link
+ * The long scans behind it are STARTED and not awaited: the memory
+ * trigger's boot scan and the workspace file index. Neither produces a value
+ * this function returns. Each attaches its own `.catch` and is gated on {@link
  * BootThothRuntimeOptions.signal}.
  *
  * The `memoryEnabled` lookup is started rather than awaited for the same
@@ -429,83 +426,25 @@ export async function bootThothRuntime(
   if (pushBridgeDisposables.length > 0) {
     refs.statusBridgeDisposables = pushBridgeDisposables;
   }
-  /**
-   * The skill trigger, which may only start once skill synthesis has. Kept as
-   * a named step because that ordering now happens on the continuation of an
-   * unawaited promise rather than inline. Reached twice on a normal boot (the
-   * `onStarted` hook and the `start()` continuation) and later from a retried
-   * start, so it brings the trigger up at most once.
-   */
-  const startSkillTrigger = (): void => {
-    if (refs.skillTrigger !== null) return;
-    try {
-      if (
-        refs.skillSynthesis !== null &&
-        !isAborted() &&
-        container.isRegistered(SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE)
-      ) {
-        const skillTrigger = container.resolve<SkillTriggerService>(
-          SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE,
-        );
-        skillTrigger.start();
-        refs.skillTrigger = skillTrigger;
-        console.log(`${logPrefix} Skill trigger service started`);
-        options.onSkillTriggerStarted?.(skillTrigger);
-      }
-    } catch (error: unknown) {
-      console.warn(
-        `${logPrefix} Skill trigger start skipped (non-fatal):`,
-        error instanceof Error ? error.message : String(error),
-      );
-      refs.skillTrigger = null;
-    }
-  };
-
   try {
-    const skillSynthesis = container.resolve<SkillSynthesisService>(
-      SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE,
-    );
-    refs.skillSynthesis = skillSynthesis;
-    // Subscribed BEFORE `start()`: a boot start that fails can succeed later
-    // through the service's `skillSynthesis.enabled` listener retry, which
-    // this function's continuation never sees. Every successful start brings
-    // the trigger up, so a recovered host gets hooks, boot scan and harvest
-    // like a normal boot (B-P review N1). `stop()` drops the subscription.
-    skillSynthesis.onStarted(startSkillTrigger);
-    // STARTED, NOT AWAITED. `start()` re-opens SQLite (idempotent — already
-    // open above), walks every SKILL.md on disk and runs the boot trajectory
-    // scan. None of that produces anything this function returns, and all of it
-    // used to sit between the user's launch and the window.
-    //
-    // The continuation still starts the trigger after a start that RESOLVED —
-    // including a paused boot, whose trigger arms its owed boot scan for the
-    // resume. A failed start keeps the ref: the service's retry path is still
-    // live, and shutdown's `stop()` must dispose its config listener.
-    void skillSynthesis
-      .start()
-      .then((outcome) => {
-        // `abandoned`: a stop() overtook the boot work, which registered
-        // nothing; the host is stopping, so no trigger either. `failed`: this
-        // boot joined a start that rejected; a later retry brings the trigger
-        // up through `onStarted`.
-        if (isAborted() || outcome === 'abandoned' || outcome === 'failed') {
-          return;
-        }
-        console.log(`${logPrefix} Skill synthesis started`);
-        startSkillTrigger();
-      })
-      .catch((error: unknown) => {
-        console.warn(
-          `${logPrefix} Skill synthesis start failed (non-fatal; retried when skillSynthesis.enabled changes):`,
-          error instanceof Error ? error.message : String(error),
-        );
-      });
+    if (
+      !isAborted() &&
+      container.isRegistered(SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE)
+    ) {
+      const skillTrigger = container.resolve<SkillTriggerService>(
+        SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE,
+      );
+      skillTrigger.start();
+      refs.skillTrigger = skillTrigger;
+      console.log(`${logPrefix} Skill trigger service started`);
+      options.onSkillTriggerStarted?.(skillTrigger);
+    }
   } catch (error: unknown) {
     console.warn(
-      `${logPrefix} Skill synthesis start skipped (non-fatal):`,
+      `${logPrefix} Skill trigger start skipped (non-fatal):`,
       error instanceof Error ? error.message : String(error),
     );
-    refs.skillSynthesis = null;
+    refs.skillTrigger = null;
   }
 
   try {

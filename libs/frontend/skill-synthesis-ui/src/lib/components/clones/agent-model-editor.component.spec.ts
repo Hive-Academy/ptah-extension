@@ -727,5 +727,26 @@ describe('AgentModelEditorComponent', () => {
     expect(q('agent-model-load-error')?.textContent).toContain(
       'no settings here',
     );
+    expect(fixture.componentInstance.store.loading()).toBe(false);
+    expect(q('agent-model-loading')).toBeNull();
+  });
+
+  it('ignores a model list from the previous workspace after a switch', async () => {
+    setup();
+    await settle();
+    const oldList = deferred<SkillSynthesisGetAgentModelsResult>();
+    rpc.getAgentModels.mockImplementationOnce(() => oldList.promise);
+    rpc.getAgentModels.mockResolvedValueOnce(models({ workspaceRoot: '/other/resolved' }));
+    const pending = fixture.componentInstance.store.load();
+    await settle();
+    config.set({ isElectron: true, workspaceRoot: '/other' });
+    fixture.detectChanges();
+    await settle();
+    expect(fixture.componentInstance.store.snapshot()?.workspaceRoot).toBe('/other/resolved');
+    oldList.resolve(models({ workspaceRoot: '/ws/resolved' }));
+    await pending;
+    fixture.detectChanges();
+    expect(fixture.componentInstance.store.snapshot()?.workspaceRoot).toBe('/other/resolved');
+    expect(fixture.componentInstance.store.loading()).toBe(false);
   });
 });

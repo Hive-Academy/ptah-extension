@@ -10,6 +10,7 @@ describe('ChatAttentionActionDispatcherService', () => {
   const focus = jest.fn();
   const openLane = jest.fn();
   const upsert = jest.fn();
+  const setStatusMessage = jest.fn();
   const warn = jest.fn();
   const runNotice = jest.fn();
   const canHandleNotice = jest.fn((key: string, actionId: string) => key === 'voice' && actionId === 'switch-to-local');
@@ -22,17 +23,22 @@ describe('ChatAttentionActionDispatcherService', () => {
     },
     target: { kind: 'lane-permission', agentId: 'agent', request: { requestId: 'request' }, tabId: 'tab' },
   };
+  let itemWorkspacePath = '/ws';
+  let itemTabId: string | undefined = 'tab';
   let service: ChatAttentionActionDispatcherService;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    itemWorkspacePath = '/ws';
+    itemTabId = 'tab';
     respondLane.mockReturnValue(true);
     focus.mockResolvedValue({ success: true, outcome: 'focused' });
     openLane.mockReturnValue(true);
     runNotice.mockResolvedValue({ kind: 'completed' });
     TestBed.configureTestingModule({ providers: [
       { provide: ChatAttentionSourceService, useValue: {
-        getLive: (key: string, generation: number) => key === 'lane' && generation === 1 ? live : undefined,
+        getLive: (key: string, generation: number) => key === 'lane' && generation === 1
+          ? { ...live, item: { ...live.item, workspacePath: itemWorkspacePath, tabId: itemTabId } } : undefined,
       } },
       { provide: AgentPermissionResponder, useValue: { respondLane } },
       { provide: NotificationService, useValue: { upsert } },
@@ -40,7 +46,7 @@ describe('ChatAttentionActionDispatcherService', () => {
       { provide: ATTENTION_LANE_OPENER, useValue: { open: openLane } },
       { provide: NOTICE_ACTION_HANDLER, useValue: { canHandle: canHandleNotice, run: runNotice }, multi: true },
       { provide: LoggingService, useValue: { warn } },
-      { provide: AppStateManager, useValue: { setStatusMessage: jest.fn() } },
+      { provide: AppStateManager, useValue: { setStatusMessage } },
       { provide: ChatAttentionHostMessageHandler, useValue: { openProjected: jest.fn().mockResolvedValue(true) } },
     ] });
     service = TestBed.inject(ChatAttentionActionDispatcherService);
@@ -105,6 +111,20 @@ describe('ChatAttentionActionDispatcherService', () => {
       live.item.kind = 'lane-permission';
       live.target.kind = 'lane-permission';
     }
+  });
+
+  it('routes an unpartitioned owner by tab id', async () => {
+    itemWorkspacePath = '';
+    expect(await service.dispatch('lane', 1, 'open')).toBe(true);
+    expect(focus).toHaveBeenCalledWith({ workspacePath: '', sessionId: 'session', tabId: 'tab' });
+  });
+
+  it('refuses an empty workspace path without an owner tab id', async () => {
+    itemWorkspacePath = '';
+    itemTabId = undefined;
+    expect(await service.dispatch('lane', 1, 'open')).toBe(false);
+    expect(focus).not.toHaveBeenCalled();
+    expect(setStatusMessage).toHaveBeenCalledWith('Target unavailable');
   });
 
   it('routes host-only Open through the host snapshot guard', async () => {

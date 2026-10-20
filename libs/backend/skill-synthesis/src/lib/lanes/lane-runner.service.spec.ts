@@ -3,7 +3,7 @@
  *
  * The three sibling specs each own one risk (`env-immutability` = R1/R2,
  * `parse-fallback` = P1-6, `limits` = P1-8). This one owns everything else: the
- * failure-mode mapping, the tool-use capability guard, budget accounting, and
+ * failure-mode mapping, the tool-use capability guard, usage reporting, and
  * the bound on how many times a single `run()` may call the LLM.
  */
 import 'reflect-metadata';
@@ -28,12 +28,10 @@ import {
 } from '../internal-query.interface';
 import {
   assistantText,
-  makeBudgetStub,
   makeFailingResolverStub,
   makeHangingQueryStub,
   makeLogger,
   makeQueryStub,
-  makeQueueStub,
   makeResolverStub,
   makeThrowingResolverStub,
   resolvedLane,
@@ -54,7 +52,6 @@ describe('LaneRunnerService — auth-unresolvable stalls (Q2)', () => {
     const runner = new LaneRunnerService(
       makeLogger(),
       resolver.service,
-      makeBudgetStub().store,
       query.query,
     );
 
@@ -86,7 +83,6 @@ describe('LaneRunnerService — auth-unresolvable stalls (Q2)', () => {
     const runner = new LaneRunnerService(
       makeLogger(),
       resolver.service,
-      makeBudgetStub().store,
       query.query,
     );
 
@@ -107,7 +103,6 @@ describe('LaneRunnerService — auth-unresolvable stalls (Q2)', () => {
     const runner = new LaneRunnerService(
       makeLogger(),
       makeThrowingResolverStub(bug),
-      makeBudgetStub().store,
       makeQueryStub([]).query,
     );
 
@@ -122,7 +117,6 @@ describe('LaneRunnerService — a host with no SDK is unavailable, not failed', 
     const runner = new LaneRunnerService(
       makeLogger(),
       makeResolverStub(resolvedLane('judge')).service,
-      makeBudgetStub().store,
       null,
     );
 
@@ -150,7 +144,6 @@ describe('LaneRunnerService — a host with no SDK is unavailable, not failed', 
     const runner = new LaneRunnerService(
       makeLogger(),
       makeResolverStub(resolvedLane('judge')).service,
-      makeBudgetStub().store,
       uninitialized,
     );
 
@@ -171,7 +164,6 @@ describe('LaneRunnerService — a host with no SDK is unavailable, not failed', 
     const runner = new LaneRunnerService(
       makeLogger(),
       makeResolverStub(resolvedLane('judge')).service,
-      makeBudgetStub().store,
       query.query,
     );
 
@@ -195,7 +187,6 @@ describe('LaneRunnerService — a host with no SDK is unavailable, not failed', 
       makeLogger(),
       makeResolverStub(resolvedLane('judge', { config: { timeoutMs: 10 } }))
         .service,
-      makeBudgetStub().store,
       initialized,
     );
 
@@ -218,7 +209,6 @@ describe('LaneRunnerService — the happy path', () => {
       const runner = new LaneRunnerService(
         makeLogger(),
         makeResolverStub(lane).service,
-        makeBudgetStub().store,
         query.query,
       );
 
@@ -238,7 +228,6 @@ describe('LaneRunnerService — the happy path', () => {
     const runner = new LaneRunnerService(
       makeLogger(),
       makeResolverStub(resolvedLane('judge')).service,
-      makeBudgetStub().store,
       query.query,
     );
 
@@ -248,75 +237,7 @@ describe('LaneRunnerService — the happy path', () => {
     expect(query.aborted).toBe(0);
   });
 
-  it('records the result message usage into the budget ledger', async () => {
-    const budget = makeBudgetStub();
-    const query = makeQueryStub([
-      [
-        resultMessage({
-          result: 'ok',
-          usage: { input_tokens: 1200, output_tokens: 340 },
-          total_cost_usd: 0.0042,
-        }),
-      ],
-    ]);
-    const runner = new LaneRunnerService(
-      makeLogger(),
-      makeResolverStub(resolvedLane('synthesis')).service,
-      budget.store,
-      query.query,
-    );
 
-    const out = await runner.run({ laneId: 'synthesis', prompt: 'x' });
-
-    expect(budget.record).toHaveBeenCalledWith({
-      inputTokens: 1200,
-      outputTokens: 340,
-      costUsd: 0.0042,
-    });
-    expect(out.status === 'ok' && out.run.usage).toEqual({
-      inputTokens: 1200,
-      outputTokens: 340,
-      costUsd: 0.0042,
-    });
-  });
-
-  it('records nothing when the provider reports no usage', async () => {
-    const budget = makeBudgetStub();
-    const query = makeQueryStub([[resultMessage({ result: 'ok' })]]);
-    await new LaneRunnerService(
-      makeLogger(),
-      makeResolverStub(resolvedLane('synthesis')).service,
-      budget.store,
-      query.query,
-    ).run({ laneId: 'synthesis', prompt: 'x' });
-
-    expect(budget.record).not.toHaveBeenCalled();
-  });
-
-  it('survives a ledger write that throws — the tokens are already spent', async () => {
-    const logger = makeLogger();
-    const budget = makeBudgetStub();
-    budget.record.mockImplementation(() => {
-      throw new Error('database is locked');
-    });
-    const query = makeQueryStub([
-      [resultMessage({ result: 'ok', usage: { input_tokens: 5 } })],
-    ]);
-
-    const out = await new LaneRunnerService(
-      logger,
-      makeResolverStub(resolvedLane('judge')).service,
-      budget.store,
-      query.query,
-    ).run({ laneId: 'judge', prompt: 'x' });
-
-    // Failing here would re-run the stage next tick and spend the tokens twice.
-    expect(out.status).toBe('ok');
-    expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('failed to record lane usage'),
-      expect.anything(),
-    );
-  });
 });
 
 describe('LaneRunnerService — R6, the tool-use capability guard', () => {
@@ -328,7 +249,6 @@ describe('LaneRunnerService — R6, the tool-use capability guard', () => {
     const out = await new LaneRunnerService(
       makeLogger(),
       makeResolverStub(lane).service,
-      makeBudgetStub().store,
       query.query,
     ).run({ laneId: 'judge', prompt: 'x', maxTurns: 12 });
 
@@ -345,7 +265,6 @@ describe('LaneRunnerService — R6, the tool-use capability guard', () => {
     const out = await new LaneRunnerService(
       makeLogger(),
       makeResolverStub(lane).service,
-      makeBudgetStub().store,
       makeQueryStub([[resultMessage({ result: 'ok' })]]).query,
     ).run({ laneId: 'judge', prompt: 'x' });
 
@@ -362,7 +281,6 @@ describe('LaneRunnerService — R6, the tool-use capability guard', () => {
     const out = await new LaneRunnerService(
       makeLogger(),
       makeResolverStub(lane).service,
-      makeBudgetStub().store,
       query.query,
     ).run({ laneId: 'archaeologist', prompt: 'x', maxTurns: 6 });
 
@@ -381,7 +299,6 @@ describe('LaneRunnerService — R6, the tool-use capability guard', () => {
     const out = await new LaneRunnerService(
       makeLogger(),
       makeResolverStub(lane).service,
-      makeBudgetStub().store,
       makeQueryStub([[resultMessage({ subtype: 'success', result: 'ok' })]])
         .query,
     ).run({ laneId: 'archaeologist', prompt: 'x', maxTurns: 6 });
@@ -408,7 +325,6 @@ describe('LaneRunnerService — the execution bound', () => {
       makeResolverStub(
         resolvedLane('judge', { config: { structuredOutput: 'sdk' } }),
       ).service,
-      makeBudgetStub().store,
       query.query,
     ).run({ laneId: 'judge', prompt: 'x', outputSchema: { type: 'object' } });
 
@@ -424,168 +340,11 @@ describe('LaneRunnerService — the execution bound', () => {
     const out = await new LaneRunnerService(
       makeLogger(),
       makeResolverStub(resolvedLane('synthesis')).service,
-      makeBudgetStub().store,
       makeQueryStub([[assistantText('a paragraph of prose')]]).query,
     ).run({ laneId: 'synthesis', prompt: 'x' });
 
     expect(out.status).toBe('ok');
     expect(out.status === 'ok' && out.run.json).toBeNull();
-  });
-});
-
-describe('LaneRunnerService — the queue write on a transport failure', () => {
-  const AUTH_FAILURE = {
-    ok: false as const,
-    failure: {
-      kind: 'auth-unresolvable' as const,
-      reason: 'Lane judge: endpoint unreachable',
-      retryAfterMs: LANE_AUTH_RETRY_MS,
-    },
-  };
-
-  it('requeues the row behind the backoff on auth-unresolvable, never marking it unscored', async () => {
-    // `unscored` is the JUDGE's verdict. An endpoint that never answered has
-    // produced no verdict at all, and conflating the two would make the status
-    // unreadable on the Activity surface.
-    const queue = makeQueueStub();
-    const before = Date.now();
-
-    const out = await new LaneRunnerService(
-      makeLogger(),
-      makeFailingResolverStub(AUTH_FAILURE).service,
-      makeBudgetStub().store,
-      makeQueryStub([]).query,
-      queue.store,
-    ).run({ laneId: 'judge', prompt: 'x', queueItemId: 'row-1' });
-
-    expect(out.status).toBe('failed');
-    expect(queue.requeue).toHaveBeenCalledTimes(1);
-    const [id, notBefore, reason] = queue.requeue.mock.calls[0] as [
-      string,
-      number,
-      string,
-    ];
-    expect(id).toBe('row-1');
-    expect(notBefore).toBeGreaterThanOrEqual(before + LANE_AUTH_RETRY_MS);
-    expect(reason).toBe('Lane judge: endpoint unreachable');
-  });
-
-  it('does nothing to the queue when the caller supplied no row', async () => {
-    // The judge also runs at the foreground promotion gate, which has no row.
-    const queue = makeQueueStub();
-    await new LaneRunnerService(
-      makeLogger(),
-      makeFailingResolverStub(AUTH_FAILURE).service,
-      makeBudgetStub().store,
-      makeQueryStub([]).query,
-      queue.store,
-    ).run({ laneId: 'judge', prompt: 'x' });
-
-    expect(queue.requeue).not.toHaveBeenCalled();
-  });
-
-  it('requeues a quota-exhausted row behind the provider cooldown too', async () => {
-    // `quota-exhausted` is TRANSPORT: nothing ran. It earns the same queue
-    // write as the other two, and it must not be `markUnscored`.
-    const queue = makeQueueStub();
-    const before = Date.now();
-
-    const out = await new LaneRunnerService(
-      makeLogger(),
-      makeFailingResolverStub({
-        ok: false,
-        failure: {
-          kind: 'quota-exhausted',
-          reason: 'Lane judge: Provider quota exhausted.',
-          retryAfterMs: LANE_QUOTA_RETRY_MS,
-        },
-      }).service,
-      makeBudgetStub().store,
-      makeQueryStub([]).query,
-      queue.store,
-    ).run({ laneId: 'judge', prompt: 'x', queueItemId: 'row-1' });
-
-    expect(out.status).toBe('failed');
-    expect(queue.requeue).toHaveBeenCalledTimes(1);
-    const [id, notBefore, reason] = queue.requeue.mock.calls[0] as [
-      string,
-      number,
-      string,
-    ];
-    expect(id).toBe('row-1');
-    expect(notBefore).toBeGreaterThanOrEqual(before + LANE_QUOTA_RETRY_MS);
-    expect(notBefore).toBeLessThan(before + LANE_AUTH_RETRY_MS);
-    expect(reason).toBe('Lane judge: Provider quota exhausted.');
-  });
-
-  it('leaves structured-output-unsupported for the drain to map', async () => {
-    // That transition also writes the candidate's `judge_status`; splitting the
-    // pair across two owners is how a row and its candidate end up disagreeing.
-    const queue = makeQueueStub();
-    const out = await new LaneRunnerService(
-      makeLogger(),
-      makeResolverStub(
-        resolvedLane('judge', { config: { structuredOutput: 'parse' } }),
-      ).service,
-      makeBudgetStub().store,
-      makeQueryStub([[resultMessage({ result: 'no json here' })]]).query,
-      queue.store,
-    ).run({
-      laneId: 'judge',
-      prompt: 'x',
-      queueItemId: 'row-1',
-      outputSchema: { type: 'object' },
-    });
-
-    expect(out.status === 'failed' && out.failure.kind).toBe(
-      'structured-output-unsupported',
-    );
-    expect(queue.requeue).not.toHaveBeenCalled();
-  });
-
-  it('leaves the row of a successful run alone', async () => {
-    const queue = makeQueueStub();
-    const out = await new LaneRunnerService(
-      makeLogger(),
-      makeResolverStub(resolvedLane('judge')).service,
-      makeBudgetStub().store,
-      makeQueryStub([[resultMessage({ result: 'ok' })]]).query,
-      queue.store,
-    ).run({ laneId: 'judge', prompt: 'x', queueItemId: 'row-1' });
-
-    expect(out.status).toBe('ok');
-    expect(queue.requeue).not.toHaveBeenCalled();
-  });
-
-  it('tolerates a row it has already lost rather than failing the run twice', async () => {
-    const logger = makeLogger();
-    const queue = makeQueueStub(false);
-    const out = await new LaneRunnerService(
-      logger,
-      makeFailingResolverStub(AUTH_FAILURE).service,
-      makeBudgetStub().store,
-      makeQueryStub([]).query,
-      queue.store,
-    ).run({ laneId: 'judge', prompt: 'x', queueItemId: 'row-1' });
-
-    expect(out.status).toBe('failed');
-    expect(logger.debug).toHaveBeenCalledWith(
-      expect.stringContaining('no longer claimed'),
-      expect.anything(),
-    );
-  });
-
-  it('runs unchanged in a host that resolved no queue store at all', async () => {
-    const out = await new LaneRunnerService(
-      makeLogger(),
-      makeFailingResolverStub(AUTH_FAILURE).service,
-      makeBudgetStub().store,
-      makeQueryStub([]).query,
-    ).run({ laneId: 'judge', prompt: 'x', queueItemId: 'row-1' });
-
-    expect(out.status === 'failed' && out.failure.kind).toBe(
-      'auth-unresolvable',
-    );
   });
 });
 
@@ -604,9 +363,7 @@ describe('LaneRunnerService — the MCP wiring is DERIVED, not defaulted', () =>
     await new LaneRunnerService(
       makeLogger(),
       makeResolverStub(resolvedLane('judge')).service,
-      makeBudgetStub().store,
       query.query,
-      null,
       statusPort(51821),
     ).run({ laneId: 'judge', prompt: 'x' });
 
@@ -622,9 +379,7 @@ describe('LaneRunnerService — the MCP wiring is DERIVED, not defaulted', () =>
     await new LaneRunnerService(
       makeLogger(),
       makeResolverStub(resolvedLane('judge')).service,
-      makeBudgetStub().store,
       query.query,
-      null,
       statusPort(null),
     ).run({ laneId: 'judge', prompt: 'x' });
 
@@ -638,7 +393,6 @@ describe('LaneRunnerService — the MCP wiring is DERIVED, not defaulted', () =>
     await new LaneRunnerService(
       makeLogger(),
       makeResolverStub(resolvedLane('judge')).service,
-      makeBudgetStub().store,
       query.query,
     ).run({ laneId: 'judge', prompt: 'x' });
 
@@ -653,9 +407,7 @@ describe('LaneRunnerService — the MCP wiring is DERIVED, not defaulted', () =>
     await new LaneRunnerService(
       makeLogger(),
       makeResolverStub(resolvedLane('judge')).service,
-      makeBudgetStub().store,
       query.query,
-      null,
       statusPort(51821),
     ).run({ laneId: 'judge', prompt: 'x', mcpServerRunning: false });
 
@@ -676,7 +428,6 @@ describe('LaneRunnerService — the concurrency lane', () => {
     await new LaneRunnerService(
       makeLogger(),
       makeResolverStub(resolvedLane('judge')).service,
-      makeBudgetStub().store,
       query.query,
     ).run({ laneId: 'judge', prompt: 'x' });
 
@@ -692,7 +443,6 @@ describe('LaneRunnerService — the concurrency lane', () => {
     await new LaneRunnerService(
       makeLogger(),
       makeResolverStub(resolvedLane('archaeologist')).service,
-      makeBudgetStub().store,
       query.query,
     ).run({ laneId: 'archaeologist', prompt: 'x' });
 
@@ -714,7 +464,6 @@ describe('LaneRunnerService — the concurrency lane', () => {
       await new LaneRunnerService(
         makeLogger(),
         makeResolverStub(resolvedLane('judge')).service,
-        makeBudgetStub().store,
         query.query,
       ).run({ laneId: 'judge', prompt: 'x', userInitiated });
 
@@ -736,7 +485,6 @@ describe('LaneRunnerService — the concurrency lane', () => {
     const out = await new LaneRunnerService(
       makeLogger(),
       makeResolverStub(resolvedLane('judge')).service,
-      makeBudgetStub().store,
       query,
     ).run({ laneId: 'judge', prompt: 'x' });
 
@@ -760,7 +508,6 @@ describe('LaneRunnerService — a tool-use lane gets a real turn budget', () => 
       makeResolverStub(
         resolvedLane('archaeologist', { config: { toolUse: 'required' } }),
       ).service,
-      makeBudgetStub().store,
       query.query,
     ).run({ laneId: 'archaeologist', prompt: 'x' });
 
@@ -775,7 +522,6 @@ describe('LaneRunnerService — a tool-use lane gets a real turn budget', () => 
       makeResolverStub(
         resolvedLane('archaeologist', { config: { toolUse: 'required' } }),
       ).service,
-      makeBudgetStub().store,
       query.query,
     ).run({ laneId: 'archaeologist', prompt: 'x', maxTurns: 3 });
 
@@ -802,7 +548,6 @@ describe('LaneRunnerService — the ladder reads the result subtype', () => {
     const out = await new LaneRunnerService(
       logger,
       makeResolverStub(sdkLane()).service,
-      makeBudgetStub().store,
       query.query,
     ).run({ laneId: 'judge', prompt: 'x', outputSchema: SCHEMA });
 
@@ -828,7 +573,6 @@ describe('LaneRunnerService — the ladder reads the result subtype', () => {
       const out = await new LaneRunnerService(
         makeLogger(),
         makeResolverStub(sdkLane()).service,
-        makeBudgetStub().store,
         query.query,
       ).run({ laneId: 'judge', prompt: 'x', outputSchema: SCHEMA });
 
@@ -850,7 +594,6 @@ describe('LaneRunnerService — the ladder reads the result subtype', () => {
     const out = await new LaneRunnerService(
       makeLogger(),
       makeResolverStub(sdkLane()).service,
-      makeBudgetStub().store,
       query.query,
     ).run({ laneId: 'judge', prompt: 'x', outputSchema: SCHEMA });
 
@@ -893,9 +636,7 @@ describe('LaneRunnerService — dispatch provenance tap', () => {
     const runner = new LaneRunnerService(
       logger,
       makeResolverStub(opts.lane).service,
-      makeBudgetStub().store,
       query.query,
-      null,
       null,
       null,
     );
@@ -1004,9 +745,7 @@ describe('LaneRunnerService — dispatch provenance tap', () => {
           retryAfterMs: LANE_AUTH_RETRY_MS,
         },
       }).service,
-      makeBudgetStub().store,
       query.query,
-      null,
       null,
       null,
     );

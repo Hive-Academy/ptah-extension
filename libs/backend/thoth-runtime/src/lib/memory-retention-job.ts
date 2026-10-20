@@ -27,12 +27,12 @@ export interface MemoryRetentionJobSpec {
  * The memory retention cron job — the ONE definition, read by every host that
  * starts Thoth cron (TASK_2026_440).
  *
- * Data, not lifecycle, on the precedent of `SKILL_DRAIN_JOBS`: `startThothCron`
+ * Data, not lifecycle: `startThothCron`
  * and `cli-engine`'s `activateThoth` each register it their own way, but the id,
  * handler name and schedule cannot drift between them.
  *
- * Hourly at minute 17. That minute avoids :00 (daily backup and nightly drain),
- * :30 (integrity check) and the quarter-hour frequent-drain slots. It is a
+ * Hourly at minute 17. That minute avoids :00 (daily backup) and
+ * :30 (integrity check). It is a
  * constant, not a setting: the user-facing knobs are the retention days and
  * batch size, and the service decides for itself whether a tick is due.
  */
@@ -104,10 +104,9 @@ export function createMemoryRetentionHandler(
 }
 
 /**
- * The foreground tracker is optional: a host without skill synthesis has none,
+ * The foreground tracker is optional: a host without the tracker has none,
  * and `Infinity` is the tracker's own answer for "no activity observed".
- * `start()` is idempotent and subscribes the tracker when the skill drain has
- * not run yet in this process.
+ * `start()` is idempotent and subscribes the tracker before the retention run.
  */
 function foregroundActivityReader(
   container: DependencyContainer,

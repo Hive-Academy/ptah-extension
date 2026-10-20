@@ -4,8 +4,8 @@
  * Batch 25, Task 25.1; plan D1/D3, C6, C7).
  *
  * Uses the REAL `ptah-extension-webview` Angular bundle, following
- * `../thoth/skills-lane-pickers.e2e.spec.ts` and `../vscode-shell/*` (read
- * `../marketplace.fixtures.ts`'s doc comment before changing the host/RPC
+ * `../boot/boot-progress.e2e.spec.ts` and `../vscode-shell/*` (read
+ * `./marketplace.fixtures.ts`'s doc comment before changing the host/RPC
  * shapes below).
  *
  * SCOPE NOTE (host coverage). Route resolution and the header/back-button/h1

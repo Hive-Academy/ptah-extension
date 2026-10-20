@@ -2,9 +2,10 @@ import { DOCUMENT } from '@angular/common';
 import { DestroyRef, Injectable, effect, inject, untracked } from '@angular/core';
 import { CommandCenterVoiceSessionService, TabManagerService, workspaceLabelFromPath } from '@ptah-extension/chat-state';
 import { AgentMonitorStore, PermissionHandlerService } from '@ptah-extension/chat-streaming';
-import { AttentionItem, NotificationService, SURFACE_FOCUS_ROUTER } from '@ptah-extension/core';
+import { AttentionItem, NotificationService, SURFACE_FOCUS_ROUTER, VSCodeService } from '@ptah-extension/core';
 import { attentionRequestKey } from '@ptah-extension/shared';
 import type { AgentPermissionRequest, AskUserQuestionRequest, PermissionRequest } from '@ptah-extension/shared';
+import { attentionContext, isUnsafeAttentionContext } from './attention-context.util';
 
 export type ChatAttentionRequest =
   | { kind: 'permission'; request: PermissionRequest; tabId?: string }
@@ -24,6 +25,7 @@ export class ChatAttentionSourceService {
   private readonly tabs = inject(TabManagerService);
   private readonly voice = inject(CommandCenterVoiceSessionService);
   private readonly notifications = inject(NotificationService);
+  private readonly vscode = inject(VSCodeService);
   private readonly document = inject(DOCUMENT);
   private readonly destroyRef = inject(DestroyRef);
   private readonly surfaceRouters = inject(SURFACE_FOCUS_ROUTER, { optional: true }) ?? [];
@@ -46,6 +48,8 @@ export class ChatAttentionSourceService {
       this.permissions.routingTargetRevision();
       this.agents.pendingPermissions();
       this.tabs.tabs();
+      this.tabs.activeWorkspacePath$();
+      this.vscode.config();
       this.tabs.activeTabId();
       this.tabs.visibleTabIds();
       untracked(() => this.reconcile());
@@ -117,6 +121,9 @@ export class ChatAttentionSourceService {
     const owner = tabId ? this.tabs.findTabByIdAcrossWorkspaces(tabId) :
       sessionId ? this.tabs.findTabBySessionIdAcrossWorkspaces(sessionId) : null;
     const workspacePath = owner?.workspacePath ?? '';
+    const labelPath = owner
+      ? owner.workspacePath ?? this.tabs.activeWorkspacePath ?? this.vscode.config().workspaceRoot ?? ''
+      : '';
     const key = attentionRequestKey(kind, requestId);
     if (next.has(key)) return;
     const previous = this.live.get(key);
@@ -126,6 +133,22 @@ export class ChatAttentionSourceService {
         ? entry.target.request.requestId : entry.target.request.id) === requestId);
     const generation = previous?.item.generation ?? ++this.generationSequence;
     const resolvedSessionId = sessionId || owner?.tab.claudeSessionId || owner?.tab.id;
+    const tab = owner?.tab;
+    const sessionTitle = tab?.title?.trim() && tab.titleOrigin !== 'default' &&
+      !/^(new chat|new session|untitled|permission required|question needs an answer|lane permission required)$/i.test(tab.title.trim()) ? tab.title.trim() : '';
+    const safeTitle = sessionTitle && !isUnsafeAttentionContext(sessionTitle)
+      ? sessionTitle.slice(0, 80) : '';
+    const provider = tab?.providerId === 'claude-cli' ? 'Claude'
+      : tab?.providerId === 'ptah-cli' ? 'Ptah CLI'
+      : tab?.providerId === 'vscode-lm' ? 'VS Code' : '';
+    const toolName = typeof target.request.toolName === 'string' ? target.request.toolName.trim() : '';
+    const safeTool = /^[\w .:-]{1,50}$/.test(toolName) ? toolName : '';
+    const question = target.kind === 'question'
+      ? target.request.questions[0]?.question.replace(/\s+/g, ' ').trim() ?? '' : '';
+    const safeQuestion = question && !isUnsafeAttentionContext(question)
+      ? question.length > 80 ? `${question.slice(0, 79)}…` : question : '';
+    const context = attentionContext([provider, safeTitle,
+      target.kind === 'question' ? safeQuestion : safeTool ? `Tool: ${safeTool}` : '']);
     const surfaceOwner = this.surfaceRouters.find(router =>
       !!resolvedSessionId && router.canFocus(resolvedSessionId));
     const surfaceOwned = !!surfaceOwner && (surfaceMode || !owner);
@@ -134,12 +157,13 @@ export class ChatAttentionSourceService {
       ? [{ id: 'answer', label: 'Answer', ...(!open && { disabledReason: 'Session unavailable' }) }]
       : [{ id: 'allow', label: 'Allow', ...((!tabId || !canAllow) && { disabledReason: !tabId ? 'Session unavailable' : 'Unknown tool' }) },
           { id: 'deny', label: 'Deny', ...(!tabId && { disabledReason: 'Session unavailable' }) }];
-    actions.push({ id: 'open', label: 'Open', ...(!open && { disabledReason: 'Session unavailable' }) });
+    actions.push({ id: 'open', label: surfaceOwned || surfaceMode ? 'Open' : 'Show in canvas',
+      ...(!open && { disabledReason: 'Session unavailable' }) });
     const item: AttentionItem = {
       key, generation, kind, source: 'chat', workspacePath,
-      workspaceName: workspacePath ? workspaceLabelFromPath(workspacePath) : 'Unknown workspace',
+      workspaceName: labelPath ? workspaceLabelFromPath(labelPath) : 'Unknown workspace',
       sessionId: resolvedSessionId || undefined, tabId: owner?.tab.id, ownerSurface: surfaceOwned || surfaceMode ? 'surface' : 'chat',
-      severity: 'warning', title, actions, actionable: true,
+      severity: 'warning', title, context: context || undefined, actions, actionable: true,
       soundEligible: !sameRequestMoved && !this.voice.isActive(owner?.tab.id ?? ''),
     };
     next.set(key, { item, target });

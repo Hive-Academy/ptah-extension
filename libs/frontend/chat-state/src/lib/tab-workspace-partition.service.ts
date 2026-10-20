@@ -257,7 +257,9 @@ export class TabWorkspacePartitionService {
    * update can be applied to the correct workspace's tab set in the map.
    *
    * @param sessionId - Claude session ID to look up
-   * @param activeTabs - Current active workspace tabs (from signal) for fast path
+   * @param activeTabs - Current active tab set (from signal). When no workspace
+   *   is active, a hit there belongs to the unpartitioned set and reports
+   *   `workspacePath: null`, as the by-id lookup does.
    */
   findTabBySessionIdAcrossWorkspaces(
     sessionId: string,
@@ -282,14 +284,13 @@ export class TabWorkspacePartitionService {
       }
       this._sessionToWorkspace.delete(sessionId);
     }
-    if (activePath) {
-      const tabs =
-        activeTabs ?? this._workspaceTabSets.get(activePath)?.tabs ?? [];
-      const activeTab = tabs.find((t) => t.claudeSessionId === sessionId);
-      if (activeTab) {
-        this._sessionToWorkspace.set(sessionId, activePath);
-        return { tab: activeTab, workspacePath: activePath };
-      }
+    const tabs = activePath
+      ? (activeTabs ?? this._workspaceTabSets.get(activePath)?.tabs ?? [])
+      : (activeTabs ?? []);
+    const activeTab = tabs.find((t) => t.claudeSessionId === sessionId);
+    if (activeTab) {
+      if (activePath) this._sessionToWorkspace.set(sessionId, activePath);
+      return { tab: activeTab, workspacePath: activePath };
     }
 
     for (const [wsPath, tabSet] of this._workspaceTabSets) {

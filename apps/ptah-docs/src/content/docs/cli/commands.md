@@ -177,13 +177,12 @@ enable.
 
 ## Thoth subsystems
 
-These four groups drive the same subsystems as the desktop app's Thoth tabs.
+These groups drive the same subsystems as the desktop app's Thoth tabs.
 They share `~/.ptah/ptah.db`.
 
 | Group                  | Subcommands                                                                                |
 | ---------------------- | ------------------------------------------------------------------------------------------ |
 | `ptah memory`          | `list`, `search`, `get`, `stats`, `pin`, `unpin`, `forget`                                 |
-| `ptah skill-synthesis` | `list`, `get`, `promote`, `reject`, `invocations`, `stats`                                 |
 | `ptah cron`            | `list`, `get`, `create`, `update`, `delete`, `toggle`, `run-now`, `runs`, `next-fire`      |
 | `ptah gateway`         | `status`, `start`, `stop`, `set-token`, `bindings`, `approve`, `block`, `messages`, `test` |
 

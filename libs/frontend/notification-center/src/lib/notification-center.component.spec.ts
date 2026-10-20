@@ -16,7 +16,7 @@ import { NotificationSoundService } from './notification-sound.service';
 const lane: AttentionItem = {
   key: 'lane-1', generation: 1, kind: 'lane-permission', source: 'lane',
   workspacePath: '/workspace/a', workspaceName: 'a', sessionId: 'session-1',
-  severity: 'warning', title: 'Approve tool', context: 'Bash',
+  severity: 'warning', title: 'Approve tool', context: 'Claude · Fix notifications · Tool: Bash',
   actions: [
     { id: 'allow', label: 'Allow', disabledReason: 'Unknown tool' },
     { id: 'deny', label: 'Deny' }, { id: 'open', label: 'Open' },
@@ -92,6 +92,8 @@ describe('NotificationCenterComponent', () => {
     expect(fixture.nativeElement.querySelector('#ptah-needs-you-heading')?.parentElement?.textContent).toContain('1');
     expect(fixture.nativeElement.textContent).not.toContain('Finished');
     const rows = fixture.debugElement.queryAll(By.css('.notification-row'));
+    expect(rows[0].nativeElement.textContent).toContain('Claude · Fix notifications · Tool: Bash');
+    expect(rows[0].nativeElement.textContent).toContain('a');
     expect(document.activeElement).toBe(rows[0].nativeElement);
     expect(rows[0].queryAll(By.css('button')).find(button => button.nativeElement.textContent.trim() === 'Allow')?.nativeElement.disabled).toBe(true);
   }));

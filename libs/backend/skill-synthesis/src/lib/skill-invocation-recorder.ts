@@ -1,8 +1,7 @@
 import { inject, injectable } from 'tsyringe';
 import { blankToUndefined } from '@ptah-extension/shared';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
-import { SKILL_SYNTHESIS_TOKENS } from './di/tokens';
-import { SkillCandidateStore } from './skill-candidate.store';
+import { SkillInvocationEventStore } from './skill-invocation-event.store';
 import type { SubagentRunMetrics } from './types';
 
 const DEDUP_BUCKET_MS = 2000;
@@ -13,9 +12,9 @@ export interface RecordSkillEventInput {
   readonly sessionId: string;
   readonly workspaceRoot: string;
   readonly contextId: string | null;
-  readonly succeeded: boolean;
+  readonly isError: boolean;
   readonly invokedAt: number;
-  readonly source: 'tool-use' | 'prompt-expansion' | 'subagent';
+  readonly source: 'tool-use' | 'slash-command' | 'prompt-expansion' | 'subagent';
   /** Subagent-source only; transcript-derived metrics (NULL when unavailable). */
   readonly metrics?: SubagentRunMetrics | null;
   /** Exact task attribution (TASK_YYYY_NNN) for subagent runs, else NULL. */
@@ -29,8 +28,8 @@ export class SkillInvocationRecorder {
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE)
-    private readonly store: SkillCandidateStore,
+    @inject(SkillInvocationEventStore)
+    private readonly store: SkillInvocationEventStore,
   ) {}
 
   recordSkillEvent(input: RecordSkillEventInput): void {
@@ -40,7 +39,7 @@ export class SkillInvocationRecorder {
     const key =
       input.source === 'subagent' && blankToUndefined(input.runId ?? '')
         ? `subagent-run:${input.runId}`
-        : `${input.slug}|${input.sessionId}|${Math.floor(input.invokedAt / DEDUP_BUCKET_MS)}`;
+        : `${input.source}|${input.slug}|${input.sessionId}|${Math.floor(input.invokedAt / DEDUP_BUCKET_MS)}`;
     if (this.seen.has(key)) return;
     this.remember(key);
 
@@ -56,8 +55,8 @@ export class SkillInvocationRecorder {
         workspaceRoot: input.workspaceRoot,
         contextId: input.contextId,
         source: input.source,
-        succeeded: input.succeeded,
-        isError: !input.succeeded,
+        succeeded: null,
+        isError: input.isError,
         invokedAt: input.invokedAt,
         metrics: input.metrics ?? null,
         taskId: input.taskId ?? null,

@@ -243,20 +243,6 @@ function buildTestContainer(): DependencyContainer {
     },
   });
 
-  c.register(SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE, {
-    useValue: {
-      start: jest.fn().mockResolvedValue(undefined),
-      stop: jest.fn(),
-      analyzeSession: jest.fn().mockResolvedValue({
-        success: true,
-        candidatesPromoted: 0,
-      }),
-      pushEvent: jest.fn(),
-      recentEvents: jest.fn(() => []),
-      lastRunInfo: jest.fn(() => ({ at: null, stats: null })),
-    },
-  });
-
   c.register(
     MEMORY_TOKENS.MEMORY_TRIGGER_SERVICE,
     {

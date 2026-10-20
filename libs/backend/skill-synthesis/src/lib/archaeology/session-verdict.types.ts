@@ -61,6 +61,25 @@ export function isEvidenceClass(value: unknown): value is EvidenceClass {
   return (EVIDENCE_CLASSES as readonly unknown[]).includes(value);
 }
 
+/** Historical session evidence is context, not a task grade. */
+export function isPositiveEvidenceClass(
+  value: EvidenceClass | null,
+): value is 'tests-green' | 'user-accepted' | 'explicit-confirmation' {
+  return (
+    value === 'tests-green' ||
+    value === 'user-accepted' ||
+    value === 'explicit-confirmation'
+  );
+}
+
+/** Exact keys required to attribute a session verdict to a lane outcome. */
+export interface SessionVerdictJoin {
+  runId: string;
+  sessionId: string;
+  taskId: string;
+  workspaceRoot: string;
+}
+
 /** What kind of friction one turn represents. */
 export const FRICTION_KINDS = [
   /** The user corrected the assistant's direction. */

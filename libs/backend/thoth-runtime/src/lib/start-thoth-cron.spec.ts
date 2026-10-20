@@ -4,7 +4,6 @@ import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
 import { CRON_TOKENS } from '@ptah-extension/cron-scheduler';
 import type { JobHandler } from '@ptah-extension/cron-scheduler';
-import { SKILL_SYNTHESIS_TOKENS } from '@ptah-extension/skill-synthesis';
 import {
   MEMORY_RETENTION_LIMITS,
   MEMORY_TOKENS,
@@ -115,6 +114,26 @@ describe('startThothCron', () => {
     });
   });
 
+  it('disables retired jobs before starting the scheduler', async () => {
+    const scheduler = { start: jest.fn().mockResolvedValue(undefined) };
+    const jobStore = {
+      get: jest.fn().mockReturnValue({ enabled: true }),
+      update: jest.fn(),
+    };
+    const container = makeContainer([
+      [CRON_TOKENS.CRON_SCHEDULER, scheduler],
+      [CRON_TOKENS.CRON_JOB_STORE, jobStore],
+      [PLATFORM_TOKENS.WORKSPACE_PROVIDER, makeWorkspaceProvider()],
+    ]);
+
+    await startThothCron(container, refsWithSqlite());
+
+    expect(jobStore.update).toHaveBeenCalledTimes(4);
+    expect(jobStore.update.mock.invocationCallOrder[3]).toBeLessThan(
+      scheduler.start.mock.invocationCallOrder[0],
+    );
+  });
+
   it('registers the daily backup handler and upserts the @ptah/daily-backup job', async () => {
     const handlers = new Map<string, () => Promise<{ summary: string }>>();
     const handlerRegistry = {
@@ -125,7 +144,7 @@ describe('startThothCron', () => {
         },
       ),
     };
-    const jobStore = { upsert: jest.fn() };
+    const jobStore = { upsert: jest.fn(), get: jest.fn().mockReturnValue(null), update: jest.fn() };
     const backupService = {
       backup: jest.fn().mockResolvedValue('/backups/daily.db'),
       rotate: jest.fn(),
@@ -262,251 +281,6 @@ describe('startThothCron', () => {
     expect(handlerRegistry.register).not.toHaveBeenCalled();
   });
 
-  describe('skill synthesis drain jobs (B0.6.2)', () => {
-    function makeDrainContainer(
-      opts: {
-        settings?: Record<string, unknown>;
-        onBattery?: boolean;
-        withDrain?: boolean;
-      } = {},
-    ) {
-      const handlers = new Map<string, JobHandler>();
-      const handlerRegistry = {
-        has: (name: string) => handlers.has(name),
-        register: jest.fn((name: string, fn: JobHandler) => {
-          if (handlers.has(name)) {
-            // Mirrors the real HandlerRegistry, which THROWS on a duplicate —
-            // the whole reason the production code guards with has().
-            throw new Error(`duplicate handler '${name}'`);
-          }
-          handlers.set(name, fn);
-        }),
-        unregister: jest.fn(),
-        resolve: (name: string) => handlers.get(name),
-      };
-      const jobStore = { upsert: jest.fn() };
-      const drain = {
-        drain: jest.fn().mockResolvedValue({
-          tier: 'frequent',
-          skipped: false,
-          reaped: 0,
-          workspacesVisited: 1,
-          claimed: 2,
-          lostClaims: 0,
-          done: 2,
-          failed: 0,
-          unscored: 0,
-          skippedItems: 0,
-          budgetDeferred: 0,
-          budgetExhausted: false,
-          durationMs: 5,
-        }),
-      };
-      const powerMonitor = {
-        isOnBattery: jest.fn(() => opts.onBattery ?? false),
-        onResume: jest.fn(() => ({ dispose: () => undefined })),
-        onSuspend: jest.fn(() => ({ dispose: () => undefined })),
-      };
-      const entries: Entry[] = [
-        [CRON_TOKENS.CRON_SCHEDULER, { start: jest.fn() }],
-        [CRON_TOKENS.CRON_JOB_STORE, jobStore],
-        [CRON_TOKENS.CRON_HANDLER_REGISTRY, handlerRegistry],
-        [CRON_TOKENS.CRON_POWER_MONITOR, powerMonitor],
-        [
-          PLATFORM_TOKENS.WORKSPACE_PROVIDER,
-          makeWorkspaceProvider(opts.settings ?? {}),
-        ],
-      ];
-      if (opts.withDrain !== false) {
-        entries.push([SKILL_SYNTHESIS_TOKENS.SKILL_DRAIN_SERVICE, drain]);
-      }
-      return {
-        container: makeContainer(entries),
-        handlers,
-        handlerRegistry,
-        jobStore,
-        drain,
-        powerMonitor,
-      };
-    }
-
-    function upsertedIds(jobStore: { upsert: jest.Mock }): string[] {
-      return jobStore.upsert.mock.calls.map(
-        (call) => (call[0] as { id: string }).id,
-      );
-    }
-
-    it('upserts the three fixed drain job ids with the documented defaults', async () => {
-      const { container, jobStore } = makeDrainContainer();
-
-      await startThothCron(container, refsWithSqlite());
-
-      expect(jobStore.upsert).toHaveBeenCalledWith({
-        id: '@ptah/skills-drain-frequent',
-        name: 'Skill Synthesis Drain (frequent)',
-        cronExpr: '*/15 * * * *',
-        timezone: 'UTC',
-        prompt: 'handler:skills:drain:frequent',
-        enabled: true,
-      });
-      expect(jobStore.upsert).toHaveBeenCalledWith({
-        id: '@ptah/skills-drain-nightly',
-        name: 'Skill Synthesis Drain (nightly)',
-        cronExpr: '0 3 * * *',
-        timezone: 'UTC',
-        prompt: 'handler:skills:drain:nightly',
-        enabled: true,
-      });
-      expect(jobStore.upsert).toHaveBeenCalledWith({
-        id: '@ptah/skills-drain-weekly',
-        name: 'Skill Synthesis Drain (weekly)',
-        cronExpr: '0 4 * * 0',
-        timezone: 'UTC',
-        prompt: 'handler:skills:drain:weekly',
-        enabled: true,
-      });
-    });
-
-    it('reads each cron expression from its skillSynthesis.drain.* setting', async () => {
-      const { container, jobStore } = makeDrainContainer({
-        settings: {
-          'skillSynthesis.drain.cronExpr': '*/30 * * * *',
-          'skillSynthesis.drain.nightlyCronExpr': '0 2 * * *',
-          'skillSynthesis.drain.weeklyCronExpr': '0 5 * * 6',
-        },
-      });
-
-      await startThothCron(container, refsWithSqlite());
-
-      const exprById = new Map(
-        jobStore.upsert.mock.calls.map((call) => {
-          const job = call[0] as { id: string; cronExpr: string };
-          return [job.id, job.cronExpr];
-        }),
-      );
-      expect(exprById.get('@ptah/skills-drain-frequent')).toBe('*/30 * * * *');
-      expect(exprById.get('@ptah/skills-drain-nightly')).toBe('0 2 * * *');
-      expect(exprById.get('@ptah/skills-drain-weekly')).toBe('0 5 * * 6');
-    });
-
-    it('registers each handler exactly once across two startThothCron calls', async () => {
-      const { container, handlerRegistry, jobStore } = makeDrainContainer();
-      const refs = refsWithSqlite();
-
-      await startThothCron(container, refs);
-      await startThothCron(container, refs);
-
-      const drainRegistrations = handlerRegistry.register.mock.calls.filter(
-        (call) => String(call[0]).startsWith('skills:drain:'),
-      );
-      expect(drainRegistrations.map((call) => call[0]).sort()).toEqual([
-        'skills:drain:frequent',
-        'skills:drain:nightly',
-        'skills:drain:weekly',
-      ]);
-      // Upsert is idempotent by definition, so the second pass repeats it.
-      expect(
-        upsertedIds(jobStore).filter((id) => id.startsWith('@ptah/skills-')),
-      ).toEqual([
-        '@ptah/skills-drain-frequent',
-        '@ptah/skills-drain-nightly',
-        '@ptah/skills-drain-weekly',
-        '@ptah/skills-drain-frequent',
-        '@ptah/skills-drain-nightly',
-        '@ptah/skills-drain-weekly',
-      ]);
-    });
-
-    it('each handler drains its own tier with the live battery reading', async () => {
-      const { container, handlers, drain, powerMonitor } = makeDrainContainer({
-        onBattery: true,
-      });
-      await startThothCron(container, refsWithSqlite());
-      const signal = new AbortController().signal;
-
-      for (const name of [
-        'skills:drain:frequent',
-        'skills:drain:nightly',
-        'skills:drain:weekly',
-      ]) {
-        const handler = handlers.get(name);
-        expect(handler).toBeDefined();
-        await (handler as JobHandler)({
-          job: { id: name } as never,
-          scheduledFor: 0,
-          signal,
-        });
-      }
-
-      expect(drain.drain.mock.calls.map((call) => call[0].tier)).toEqual([
-        'frequent',
-        'nightly',
-        'weekly',
-      ]);
-      for (const call of drain.drain.mock.calls) {
-        expect(call[0]).toMatchObject({ onBattery: true, signal });
-      }
-      expect(powerMonitor.isOnBattery).toHaveBeenCalledTimes(3);
-    });
-
-    it('reports a gated tick as a skipped OUTCOME, not a success', async () => {
-      const { container, handlers, drain } = makeDrainContainer();
-      await startThothCron(container, refsWithSqlite());
-      drain.drain.mockResolvedValue({
-        tier: 'frequent',
-        skipped: true,
-        reason: 'on-battery',
-        reaped: 0,
-        workspacesVisited: 0,
-        claimed: 0,
-        lostClaims: 0,
-        done: 0,
-        failed: 0,
-        unscored: 0,
-        skippedItems: 0,
-        budgetDeferred: 0,
-        budgetExhausted: false,
-        durationMs: 1,
-      });
-
-      const handler = handlers.get('skills:drain:frequent') as JobHandler;
-      await expect(
-        handler({
-          job: { id: 'x' } as never,
-          scheduledFor: 0,
-          signal: new AbortController().signal,
-        }),
-        // The reason travels as a first-class field so `JobRunner` can call
-        // `markSkipped`. It used to be prose inside `summary`, which the
-        // runner had no way to read — every gated tick was recorded as
-        // `succeeded` (TASK_2026_315 / C2).
-      ).resolves.toEqual({ outcome: 'skipped', reason: 'on-battery' });
-    });
-
-    it('registers no drain jobs when the host has no SkillDrainService', async () => {
-      const { container, handlerRegistry, jobStore } = makeDrainContainer({
-        withDrain: false,
-      });
-
-      await startThothCron(container, refsWithSqlite());
-
-      expect(
-        handlerRegistry.register.mock.calls.filter((call) =>
-          String(call[0]).startsWith('skills:drain:'),
-        ),
-      ).toHaveLength(0);
-      expect(upsertedIds(jobStore)).toEqual(['@ptah/daily-backup']);
-    });
-  });
-
-  /**
-   * TASK_2026_380 component 5 — the integrity scheduling seam.
-   *
-   * The boot dispatch is asserted through a `setTimeout` SPY rather than Jest's
-   * fake timers so every assertion is a call count or an argument, never a
-   * timing: the delay is read off the spy's arguments and the callback is
-   * invoked by hand.
-   */
   describe('database integrity check job', () => {
     type CapturedTimer = {
       readonly fire: () => void;
@@ -535,7 +309,7 @@ describe('startThothCron', () => {
           handlers.set(name, fn);
         }),
       };
-      const jobStore = { upsert: jest.fn() };
+      const jobStore = { upsert: jest.fn(), get: jest.fn().mockReturnValue(null), update: jest.fn() };
       const integrity = {
         isDue: jest.fn(() => true),
         dispatchIfDue: jest.fn().mockResolvedValue(undefined),
@@ -567,8 +341,7 @@ describe('startThothCron', () => {
       expect(jobStore.upsert).toHaveBeenCalledWith({
         id: '@ptah/db-integrity-check',
         name: 'Database Integrity Check',
-        // Not `0 3` (the daily backup) and not `0 4` (the weekly drain): a
-        // whole-file read must not share a tick with a whole-file write.
+        // A whole-file read must not share a tick with the daily backup write.
         cronExpr: '30 3 * * *',
         timezone: 'UTC',
         prompt: 'handler:db:integrity',
@@ -879,7 +652,7 @@ describe('startThothCron', () => {
           handlers.set(name, fn);
         }),
       };
-      const jobStore = { upsert: jest.fn() };
+      const jobStore = { upsert: jest.fn(), get: jest.fn().mockReturnValue(null), update: jest.fn() };
       const retention = {
         run: jest.fn().mockResolvedValue({
           status: 'completed',
@@ -1022,71 +795,6 @@ describe('startThothCron', () => {
       ).toEqual(['@ptah/daily-backup']);
       expect(handlerRegistry.register).toHaveBeenCalledWith(
         'backup:daily',
-        expect.any(Function),
-      );
-    });
-  });
-
-  describe('skills backlog cleanup job', () => {
-    function makeCleanupContainer(withService: boolean) {
-      const handlers = new Map<string, JobHandler>();
-      const handlerRegistry = {
-        has: jest.fn((name: string) => handlers.has(name)),
-        register: jest.fn((name: string, handler: JobHandler) => {
-          handlers.set(name, handler);
-        }),
-      };
-      const jobStore = { upsert: jest.fn() };
-      const entries: Entry[] = [
-        [CRON_TOKENS.CRON_SCHEDULER, { start: jest.fn() }],
-        [CRON_TOKENS.CRON_JOB_STORE, jobStore],
-        [CRON_TOKENS.CRON_HANDLER_REGISTRY, handlerRegistry],
-        [CRON_TOKENS.CRON_POWER_MONITOR, { isOnBattery: jest.fn(() => false) }],
-        [PLATFORM_TOKENS.WORKSPACE_PROVIDER, makeWorkspaceProvider()],
-      ];
-      if (withService) {
-        entries.push([
-          SKILL_SYNTHESIS_TOKENS.SKILL_BACKLOG_CLEANUP_SERVICE,
-          { run: jest.fn() },
-        ]);
-      }
-      return { container: makeContainer(entries), handlerRegistry, jobStore };
-    }
-
-    it('upserts @ptah/skills-backlog-cleanup and registers skills:backlog-cleanup when its service is registered', async () => {
-      const { container, handlerRegistry, jobStore } =
-        makeCleanupContainer(true);
-
-      await startThothCron(container, refsWithSqlite());
-
-      expect(jobStore.upsert).toHaveBeenCalledWith({
-        id: '@ptah/skills-backlog-cleanup',
-        name: 'Skills Backlog Cleanup',
-        cronExpr: '41 * * * *',
-        timezone: 'UTC',
-        prompt: 'handler:skills:backlog-cleanup',
-        enabled: true,
-      });
-      expect(handlerRegistry.register).toHaveBeenCalledWith(
-        'skills:backlog-cleanup',
-        expect.any(Function),
-      );
-    });
-
-    it('registers no cleanup job when its service token is absent', async () => {
-      const { container, handlerRegistry, jobStore } =
-        makeCleanupContainer(false);
-
-      await startThothCron(container, refsWithSqlite());
-
-      expect(
-        jobStore.upsert.mock.calls.some(
-          (call) =>
-            (call[0] as { id: string }).id === '@ptah/skills-backlog-cleanup',
-        ),
-      ).toBe(false);
-      expect(handlerRegistry.register).not.toHaveBeenCalledWith(
-        'skills:backlog-cleanup',
         expect.any(Function),
       );
     });

@@ -102,14 +102,14 @@ be committed. Edit the source in `~/.ptah/user/skills/`, never a copy.
 | Invoked automatically when description matches     | Sub-agents invoked by the orchestrator; CLI lanes via `ptah_agent_spawn` |
 | Best for: patterns, checklists, reference material | Best for: multi-step execution, long-running tasks        |
 
-## Auto-discovered skills
+## Skills Library
 
-Beyond hand-authored skills, Ptah can **generate skills from your own usage**. The [Skill Synthesis](/skill-synthesis/) pipeline watches sessions for repeated successful trajectories and, after the 3rd success, materialises a `SKILL.md` at `~/.ptah/skills/<slug>/`. From that point the auto-skill participates in the same discovery, harness sync, and trigger-matching as any hand-authored skill — there's no second runtime path.
+Open **Thoth → Skills** in Ptah desktop to manage user-layer copies of skills, agents, and commands. You can edit a copy, review its history, and restore an earlier version. When a copy diverges from its upstream source, you can rebase it or keep your version.
 
-You can review, force-promote, or reject candidates in **Settings → Skill Synthesis**.
+**Enhance now** can propose a change when the action is available. Review the preview before applying it. See the [Skills Library](/skill-synthesis/) for details.
 
 ## Next steps
 
 - [Browse the popular skill catalog](/mcp-and-skills/popular-skills/)
 - [Create your own skill](/mcp-and-skills/creating-skills/)
-- [How auto-discovered skills work](/skill-synthesis/)
+- [Manage the Skills Library](/skill-synthesis/)

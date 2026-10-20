@@ -59,9 +59,10 @@ describe('ScorecardBadgeComponent', () => {
     expect(dots.length).toBe(2);
   });
 
-  it('shows "no data yet" (never zeros) when metrics are null', () => {
+  it('renders "No grade" for a null graded rate', () => {
     const el = render(
       scorecard({
+        gradedCount: 0,
         gradedSuccessRate: null,
         avgInputTokens: null,
         avgOutputTokens: null,
@@ -73,7 +74,7 @@ describe('ScorecardBadgeComponent', () => {
       el
         .querySelector('[data-testid="scorecard-success"]')
         ?.textContent?.trim(),
-    ).toBe('no data yet');
+    ).toBe('No grade');
     expect(
       el.querySelector('[data-testid="scorecard-tokens"]')?.textContent,
     ).toContain('no data yet');
@@ -103,9 +104,18 @@ describe('ScorecardBadgeComponent', () => {
       el
         .querySelector('[data-testid="scorecard-success"]')
         ?.textContent?.trim(),
-    ).toBe('no data yet');
+    ).toBe('No grade');
     expect(
       el.querySelector('[data-testid="scorecard-invocations"]')?.textContent,
     ).toContain('0 inv');
+  });
+
+  it('renders "No grade" for a non-finite rate, never NaN% or 0%', () => {
+    const el = render(scorecard({ gradedSuccessRate: Number.NaN }));
+    const badge = el.querySelector('[data-testid="scorecard-success"]');
+    expect(badge?.textContent?.trim()).toBe('No grade');
+    expect(badge?.classList.contains('badge-ghost')).toBe(true);
+    expect(badge?.classList.contains('badge-success')).toBe(false);
+    expect(badge?.classList.contains('badge-error')).toBe(false);
   });
 });

@@ -9,8 +9,6 @@ jest.mock('@ptah-extension/vscode-core', () => ({
   },
 }));
 
-jest.mock('@ptah-extension/skill-synthesis', () => ({}));
-
 jest.mock('@ptah-extension/harness-sync', () => ({
   HARNESS_SYNC_TOKENS: {
     PROPAGATION: Symbol.for('HarnessSyncPropagation'),

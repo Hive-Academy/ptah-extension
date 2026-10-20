@@ -117,7 +117,6 @@ import {
 import { OrchestraCanvasComponent } from '@ptah-extension/canvas';
 import { CanvasAttentionLaneOpener } from '@ptah-extension/canvas/focus';
 import { GatewayStateService } from '@ptah-extension/messaging-gateway-ui/services';
-import { SkillSynthesisLiveService } from '@ptah-extension/skill-synthesis-ui/services';
 // NOTE: intentionally the WIDE barrel. A narrow `@ptah-extension/dashboard/services`
 // barrel was built and measured for this import and moved 0 bytes
 // (dashboard: 35.7 kB -> 35.8 kB), because `DashboardGridComponent` stays eager
@@ -357,11 +356,6 @@ export const appConfig: ApplicationConfig = {
     {
       provide: MESSAGE_HANDLERS,
       useExisting: GatewayStateService,
-      multi: true,
-    },
-    {
-      provide: MESSAGE_HANDLERS,
-      useExisting: SkillSynthesisLiveService,
       multi: true,
     },
     {

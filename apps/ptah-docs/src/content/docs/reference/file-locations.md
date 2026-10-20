@@ -13,9 +13,8 @@ All paths below use absolute examples. Substitute `<you>` with your username.
 | `C:\Users\<you>\.ptah\plugins\` / `/Users/<you>/.ptah/plugins/` / `/home/<you>/.ptah/plugins/`                                    | Installed plugins (downloaded at runtime)                                          |
 | `C:\Users\<you>\.ptah\templates\agents\` / `/Users/<you>/.ptah/templates/agents/` / `/home/<you>/.ptah/templates/agents/`         | Installed agent templates (downloaded at runtime)                                  |
 | `C:\Users\<you>\.ptah\.content-cache.json` / `/Users/<you>/.ptah/.content-cache.json` / `/home/<you>/.ptah/.content-cache.json`   | Content cache metadata — the hash of the downloaded plugin + template set          |
-| `C:\Users\<you>\.ptah\skills\` / `/Users/<you>/.ptah/skills/` / `/home/<you>/.ptah/skills/`                                       | Auto-promoted skills (`<slug>/SKILL.md`) from [Skill Synthesis](/skill-synthesis/) |
-| `C:\Users\<you>\.ptah\user\` / `/Users/<you>/.ptah/user/` / `/home/<you>/.ptah/user/`                                             | Harness user layer — the editable source for agents and skills (see below)         |
-| `C:\Users\<you>\.ptah\ptah.db` / `/Users/<you>/.ptah/ptah.db` / `/home/<you>/.ptah/ptah.db`                                       | Shared SQLite database — memory, skills, cron jobs, messaging bindings             |
+| `C:\Users\<you>\.ptah\user\` / `/Users/<you>/.ptah/user/` / `/home/<you>/.ptah/user/`                                             | Editable Library copies of skills, agents, and commands (see below)               |
+| `C:\Users\<you>\.ptah\ptah.db` / `/Users/<you>/.ptah/ptah.db` / `/home/<you>/.ptah/ptah.db`                                       | Shared SQLite database — memory, task-review grades, skill use, cron, messaging   |
 
 ## Claude Agent SDK assets
 
@@ -62,8 +61,9 @@ These paths live **inside** each workspace folder:
 
 ## The harness user layer
 
-`~/.ptah/user/` holds the one editable copy of your agents and skills. Ptah
-reconciles that layer out to the harness directory of every AI tool it detects,
+`~/.ptah/user/` holds editable copies of skills, agents, and commands. Skills
+are under `skills/<slug>/SKILL.md`. Ptah also stores `.history/` snapshots and
+origin sidecars in this layer. It reconciles the layer to detected AI tools
 as real files rather than links. The workspace directories listed above are
 **derived copies**, and Ptah adds them to `.gitignore`.
 

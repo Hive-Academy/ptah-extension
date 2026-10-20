@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_627_session_budget_handoff
-status: in_review
+status: done
 type: BUGFIX
 title: >-
   Session budget handoff never wraps up the agent, never rotates, and strands
@@ -8,7 +8,7 @@ title: >-
 depends_on:
   - TASK_2026_626_7b3e
 created: '2026-10-11T18:00:00.000Z'
-updated: '2026-10-12T18:26:17.694Z'
+updated: 2026-10-20T18:30:00.000Z
 description: >-
   The budget is fed only at turn end, the handoff stage only writes a file, the
   subagent monitor never stops a subagent, and the limit path parks the source

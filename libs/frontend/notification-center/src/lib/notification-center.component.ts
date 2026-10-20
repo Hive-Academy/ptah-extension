@@ -63,11 +63,11 @@ import { NotificationSoundService } from './notification-sound.service';
         <div class="p-2 space-y-3">
           <section aria-labelledby="ptah-needs-you-heading">
             <div class="flex items-center gap-2 px-1 pb-1">
-              <h3 id="ptah-needs-you-heading" class="text-xs font-semibold">Needs you</h3>
-              <span class="text-xs text-base-content-muted">{{ store.needsYou().length }}</span>
+              <h3 id="ptah-needs-you-heading" class="text-xs font-semibold uppercase tracking-wide text-base-content-muted">Needs you</h3>
+              <span class="ml-auto text-xs text-base-content-muted">{{ store.needsYou().length }}</span>
             </div>
             @for (item of store.needsYou(); track item.key) {
-              <div class="notification-row rounded-lg border border-warning bg-base-200 p-2 mb-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+              <div class="notification-row rounded-lg border border-base-300 bg-base-200 p-2 mb-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                 [attr.tabindex]="item.actionable ? 0 : -1" [attr.aria-label]="item.title">
                 <div class="flex items-start gap-2">
                   <lucide-angular [img]="item.kind === 'question' ? QuestionIcon : PermissionIcon"
@@ -97,7 +97,8 @@ import { NotificationSoundService } from './notification-sound.service';
           </section>
           <section aria-labelledby="ptah-recent-heading">
             <div class="flex items-center gap-2 px-1 pb-1">
-              <h3 id="ptah-recent-heading" class="flex-1 text-xs font-semibold">Recent notices</h3>
+              <h3 id="ptah-recent-heading" class="text-xs font-semibold uppercase tracking-wide text-base-content-muted">Recent notices</h3>
+              <span class="ml-auto text-xs text-base-content-muted">{{ store.recentNotices().length }}</span>
             </div>
             @for (item of store.recentNotices(); track item.key) {
               <div class="notification-row rounded-lg border border-base-300 bg-base-200 p-2 mb-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"

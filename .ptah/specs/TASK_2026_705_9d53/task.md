@@ -1,11 +1,11 @@
 ---
 id: TASK_2026_705_9d53
-status: in_review
+status: done
 type: REFACTORING
 title: Remove the single-chat layout and ptah-tab-bar from all hosts
 depends_on: []
 created: "2026-10-19T01:56:33.739Z"
-updated: "2026-10-19T01:56:33.739Z"
+updated: 2026-10-20T18:30:00.000Z
 description: "Delete ptah-tab-bar and the 'single' LayoutMode (VS Code toggle included); every host uses the canvas grid with the session rail."
 estimate: M
 labels:
