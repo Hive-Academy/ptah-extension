@@ -1,0 +1,857 @@
+/* ==========================================================================
+   PTAH GLASS LAYER  (panelist P3)
+   Scope: [data-theme='ptah-glass'] (dark) and [data-theme='ptah-glass-light'].
+   Both are matched by the prefix selector [data-theme^='ptah-glass'].
+
+   Drop-in: paste this file inside `@layer components { … }` of
+   apps/ptah-extension-webview/src/styles.css (after the daisyUI components,
+   before utilities) — see NOTES.md. Selector policy:
+     - surfaces / geometry   -> :where([data-theme^='ptah-glass'])  (0,1,0)
+         so Tailwind utilities (bg-*, rounded-*, p-*) still override them;
+     - interactive states    -> [data-theme^='ptah-glass']          (0,2,0+)
+         so they beat daisyUI's :hover / :active / .active rules;
+     - bg-base-100/200/300   -> hard prefix, because the utility itself is (0,1,0).
+
+   BLUR BUDGET (Electron): blur is applied ONLY to large, mostly-static,
+   non-nested surfaces: .card / .navbar / sidebar menu / .glass-surface
+   (blur 18-20px) and transient overlays (.modal-box, .dropdown-content).
+   Nested glass (.card .card, tiles, bubbles, rows, inputs, buttons, badges,
+   table rows, tooltips, tabs) is translucent FILL + edge only — never blur.
+   ========================================================================== */
+
+/* -------------------------------------------------------------------------
+   1. Shared tokens
+   ------------------------------------------------------------------------- */
+[data-theme^='ptah-glass'] {
+  --g-blur: 18px;
+  --g-blur-overlay: 24px;
+  --g-sat: 1.45;
+  --g-radius: var(--rounded-box, 1.5rem); /* panels 24px */
+  --g-radius-inner: 1.125rem; /* nested tiles 18px = concentric with 24px + 6px inset */
+  --g-radius-sm: 0.875rem;
+  --g-focus-ring: 0 0 0 3px color-mix(in srgb, var(--g-focus) 28%, transparent);
+}
+
+/* -------------------------------------------------------------------------
+   2. Per-theme glass values
+   ------------------------------------------------------------------------- */
+[data-theme='ptah-glass'] {
+  --g-canvas: #070b18;
+  --g-fill-canvas: rgba(8, 12, 28, 0.34); /* bg-base-100 veil (no blur) */
+  --g-fill-1: rgba(10, 16, 38, 0.66); /* panel */
+  --g-fill-raised: rgba(20, 30, 62, 0.72);
+  --g-fill-2: rgba(255, 255, 255, 0.055); /* nested tile */
+  --g-fill-3: rgba(255, 255, 255, 0.115); /* hover */
+  --g-fill-well: rgba(255, 255, 255, 0.1); /* bg-base-300 */
+  --g-fill-seg: rgba(255, 255, 255, 0.17); /* selected segment */
+  --g-fill-sel: rgba(228, 185, 74, 0.17); /* selected nav item (gold tint) */
+  --g-fill-overlay: rgba(12, 18, 40, 0.86); /* menus / modal */
+  --g-fill-input: rgba(255, 255, 255, 0.065);
+  --g-fill-bubble-user: rgba(228, 185, 74, 0.2);
+  --g-badge-tint: 0.14;
+  --g-edge: rgba(255, 255, 255, 0.13);
+  --g-edge-strong: rgba(255, 255, 255, 0.26);
+  --g-edge-hi: rgba(255, 255, 255, 0.2); /* inset top highlight */
+  --g-edge-sel: rgba(240, 207, 122, 0.6);
+  --g-input-edge: rgba(255, 255, 255, 0.42);
+  --g-shadow: 0 22px 48px -22px rgba(1, 4, 16, 0.75), 0 2px 8px rgba(1, 4, 16, 0.28);
+  --g-shadow-overlay: 0 34px 80px -24px rgba(0, 0, 0, 0.8), 0 4px 14px rgba(0, 0, 0, 0.35);
+  --g-ink-brand: #f0cf7a; /* gold as TEXT */
+  --g-ink-accent: #6fe0d1;
+  --g-focus: #f2cd6b;
+  --g-gold-a: #f6d675;
+  --g-gold-b: #d9a928;
+  --g-btn-ink: #1b1403;
+  --g-btn-edge: rgba(255, 255, 255, 0.4);
+  --g-gold-glow: 0 10px 24px -10px rgba(228, 185, 74, 0.7);
+  --g-neutral-fill: rgba(255, 255, 255, 0.12);
+  --g-tooltip: #1f2b5a;
+  --g-code: rgba(4, 8, 22, 0.55);
+  --g-code-ink: #e8edf9;
+  --g-scrim: rgba(3, 6, 16, 0.58);
+  --g-scroll: rgba(255, 255, 255, 0.22);
+
+  /* App tokens consumed by existing components (styles.css) — glass versions. */
+  --surface-0: var(--g-fill-canvas);
+  --surface-1: var(--g-fill-2);
+  --surface-2: var(--g-fill-1);
+  --surface-3: var(--g-fill-raised);
+  --surface-border: var(--g-edge);
+  --surface-border-strong: var(--g-edge-strong);
+  --surface-highlight: var(--g-edge-hi);
+  --elev-shadow: 0 1px 2px rgba(1, 4, 16, 0.3);
+  --elev-shadow-raised: var(--g-shadow);
+  --glass-panel: var(--g-fill-1);
+  --glass-border: var(--g-edge);
+  --ptah-gold: #e4b94a;
+  --ptah-gold-strong: #f0cf7a;
+  --ptah-gold-soft: rgba(228, 185, 74, 0.16);
+  --ptah-link: var(--g-ink-brand);
+  --gradient-divine: linear-gradient(135deg, #2f6df0, #e4b94a);
+  --gradient-panel: linear-gradient(135deg, rgba(47, 109, 240, 0.1), rgba(228, 185, 74, 0.05));
+  --aura-color-dim: rgba(228, 185, 74, 0.45);
+  --aura-color-bright: rgba(228, 185, 74, 0.75);
+}
+
+[data-theme='ptah-glass-light'] {
+  --g-canvas: #f1ecfa;
+  --g-fill-canvas: rgba(255, 255, 255, 0.2);
+  --g-fill-1: rgba(255, 255, 255, 0.58);
+  --g-fill-raised: rgba(255, 255, 255, 0.72);
+  --g-fill-2: rgba(255, 255, 255, 0.46);
+  --g-fill-3: rgba(255, 255, 255, 0.78);
+  --g-fill-well: rgba(120, 100, 190, 0.12);
+  --g-fill-seg: rgba(255, 255, 255, 0.92);
+  --g-fill-sel: rgba(232, 178, 52, 0.22);
+  --g-fill-overlay: rgba(255, 255, 255, 0.9);
+  --g-fill-input: rgba(255, 255, 255, 0.66);
+  --g-fill-bubble-user: rgba(232, 178, 52, 0.26);
+  --g-badge-tint: 0.12;
+  --g-edge: rgba(255, 255, 255, 0.85);
+  --g-edge-strong: rgba(70, 50, 130, 0.3);
+  --g-edge-hi: rgba(255, 255, 255, 0.95);
+  --g-edge-sel: rgba(150, 105, 0, 0.55);
+  --g-input-edge: rgba(52, 40, 110, 0.64);
+  --g-shadow: 0 22px 50px -22px rgba(88, 60, 160, 0.4), 0 2px 8px rgba(88, 60, 160, 0.08);
+  --g-shadow-overlay: 0 34px 80px -26px rgba(70, 40, 150, 0.5), 0 4px 14px rgba(70, 40, 150, 0.12);
+  --g-ink-brand: #7a5300;
+  --g-ink-accent: #08655f;
+  --g-focus: #7a5300;
+  --g-gold-a: #f6d675;
+  --g-gold-b: #dfac33;
+  --g-btn-ink: #241a02;
+  --g-btn-edge: rgba(150, 100, 0, 0.35);
+  --g-gold-glow: 0 10px 22px -10px rgba(190, 130, 10, 0.55);
+  --g-neutral-fill: rgba(43, 38, 80, 0.9);
+  --g-tooltip: #2b2650;
+  --g-code: rgba(30, 25, 60, 0.9);
+  --g-code-ink: #f1eefc;
+  --g-scrim: rgba(60, 40, 120, 0.28);
+  --g-scroll: rgba(70, 50, 130, 0.28);
+
+  --surface-0: var(--g-fill-canvas);
+  --surface-1: var(--g-fill-2);
+  --surface-2: var(--g-fill-1);
+  --surface-3: var(--g-fill-raised);
+  --surface-border: rgba(255, 255, 255, 0.85);
+  --surface-border-strong: rgba(70, 50, 130, 0.28);
+  --surface-highlight: var(--g-edge-hi);
+  --elev-shadow: 0 1px 2px rgba(88, 60, 160, 0.1);
+  --elev-shadow-raised: var(--g-shadow);
+  --glass-panel: var(--g-fill-1);
+  --glass-border: var(--g-edge);
+  --ptah-gold: #9a6b12;
+  --ptah-gold-strong: #7a5300;
+  --ptah-gold-soft: rgba(232, 178, 52, 0.22);
+  --ptah-link: var(--g-ink-brand);
+  --gradient-divine: linear-gradient(135deg, #8d7bf0, #f0b36e);
+  --gradient-panel: linear-gradient(135deg, rgba(167, 139, 250, 0.12), rgba(255, 183, 138, 0.1));
+  --aura-color-dim: rgba(190, 130, 10, 0.35);
+  --aura-color-bright: rgba(190, 130, 10, 0.6);
+}
+
+/* -------------------------------------------------------------------------
+   3. App backdrop — fixed, so it never ends after the first viewport.
+      Painted once (static): no animation, no repaint on scroll.
+   ------------------------------------------------------------------------- */
+:root[data-theme^='ptah-glass'] {
+  background-color: var(--g-canvas);
+  background-image: none;
+  min-height: 100%;
+}
+:root[data-theme^='ptah-glass'] body {
+  background: transparent;
+}
+:root[data-theme^='ptah-glass']::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+:root[data-theme='ptah-glass']::before {
+  background:
+    radial-gradient(ellipse 58% 52% at 8% 4%, rgba(40, 104, 240, 0.66), transparent 70%),
+    radial-gradient(ellipse 46% 44% at 94% 8%, rgba(20, 184, 166, 0.44), transparent 70%),
+    radial-gradient(ellipse 52% 48% at 84% 98%, rgba(214, 170, 52, 0.34), transparent 70%),
+    radial-gradient(ellipse 46% 42% at 2% 94%, rgba(30, 64, 190, 0.52), transparent 70%),
+    radial-gradient(ellipse 36% 30% at 52% 48%, rgba(20, 120, 160, 0.2), transparent 75%),
+    linear-gradient(165deg, #0b1636 0%, #060a17 58%, #0a1124 100%);
+}
+:root[data-theme='ptah-glass-light']::before {
+  background:
+    radial-gradient(ellipse 58% 52% at 6% 4%, rgba(176, 150, 255, 0.7), transparent 70%),
+    radial-gradient(ellipse 48% 44% at 96% 6%, rgba(140, 190, 255, 0.6), transparent 70%),
+    radial-gradient(ellipse 56% 50% at 90% 98%, rgba(255, 176, 128, 0.78), transparent 70%),
+    radial-gradient(ellipse 46% 42% at 4% 96%, rgba(255, 170, 205, 0.56), transparent 70%),
+    radial-gradient(ellipse 34% 30% at 56% 46%, rgba(255, 226, 160, 0.42), transparent 75%),
+    linear-gradient(160deg, #eee9fc 0%, #f8eefa 55%, #fdeee4 100%);
+}
+
+/* -------------------------------------------------------------------------
+   4. bg-base-* fills become translucent glass (no blur: they appear on
+      lists, rows and wells). Hard prefix beats the (0,1,0) utility.
+   ------------------------------------------------------------------------- */
+[data-theme^='ptah-glass'] .bg-base-100 {
+  background-color: var(--g-fill-canvas);
+}
+[data-theme^='ptah-glass'] .bg-base-200 {
+  background-color: var(--g-fill-2);
+}
+[data-theme^='ptah-glass'] .bg-base-300 {
+  background-color: var(--g-fill-well);
+}
+[data-theme^='ptah-glass'] .border-base-300 {
+  border-color: var(--g-edge);
+}
+
+/* -------------------------------------------------------------------------
+   5. Surfaces
+   ------------------------------------------------------------------------- */
+/* 5a. Blurred, top-level panels */
+:where([data-theme^='ptah-glass']) .card,
+:where([data-theme^='ptah-glass']) .navbar,
+:where([data-theme^='ptah-glass']) .glass-surface,
+:where([data-theme^='ptah-glass']) .drawer-side > .menu,
+:where([data-theme^='ptah-glass']) .surface-3 {
+  background: var(--g-fill-1);
+  border: 1px solid var(--g-edge);
+  border-radius: var(--g-radius);
+  box-shadow: inset 0 1px 0 var(--g-edge-hi), var(--g-shadow);
+  -webkit-backdrop-filter: blur(var(--g-blur)) saturate(var(--g-sat));
+  backdrop-filter: blur(var(--g-blur)) saturate(var(--g-sat));
+}
+:where([data-theme^='ptah-glass']) .surface-3 {
+  background: var(--g-fill-raised);
+  border-radius: var(--g-radius-inner);
+}
+
+/* 5b. Nested glass — fill + edge, NO blur (a blurred layer inside a blurred
+       layer costs a second pass and looks muddy) */
+:where([data-theme^='ptah-glass']) .glass-tile,
+:where([data-theme^='ptah-glass']) .card .card,
+:where([data-theme^='ptah-glass']) .glass-surface .card,
+:where([data-theme^='ptah-glass']) .glass-surface .glass-surface,
+:where([data-theme^='ptah-glass']) .stats,
+:where([data-theme^='ptah-glass']) .collapse,
+:where([data-theme^='ptah-glass']) .mockup-code,
+:where([data-theme^='ptah-glass']) .modal-box .card,
+:where([data-theme^='ptah-glass']) .card .surface-3,
+:where([data-theme^='ptah-glass']) .glass-surface .surface-3 {
+  background: var(--g-fill-2);
+  border: 1px solid var(--g-edge);
+  border-radius: var(--g-radius-inner);
+  box-shadow: inset 0 1px 0 var(--g-edge-hi);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+/* opt-out for long lists of cards */
+:where([data-theme^='ptah-glass']) .glass-flat {
+  background: var(--g-fill-1);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+/* Light: nested tiles need a soft lift to separate white-on-white */
+:where([data-theme='ptah-glass-light']) .glass-tile,
+:where([data-theme='ptah-glass-light']) .card .card,
+:where([data-theme='ptah-glass-light']) .glass-surface .card,
+:where([data-theme='ptah-glass-light']) .glass-surface .glass-surface,
+:where([data-theme='ptah-glass-light']) .stats,
+:where([data-theme='ptah-glass-light']) .collapse {
+  box-shadow: inset 0 1px 0 #fff, 0 8px 18px -10px rgba(88, 60, 160, 0.28);
+}
+
+/* 5c. Overlays — more opaque + stronger blur, transient */
+:where([data-theme^='ptah-glass']) .modal-box,
+:where([data-theme^='ptah-glass']) .dropdown-content,
+:where([data-theme^='ptah-glass']) .glass-overlay {
+  background: var(--g-fill-overlay);
+  border: 1px solid var(--g-edge-strong);
+  border-radius: var(--g-radius);
+  box-shadow: inset 0 1px 0 var(--g-edge-hi), var(--g-shadow-overlay);
+  -webkit-backdrop-filter: blur(var(--g-blur-overlay)) saturate(var(--g-sat));
+  backdrop-filter: blur(var(--g-blur-overlay)) saturate(var(--g-sat));
+  color: oklch(var(--bc));
+}
+:where([data-theme^='ptah-glass']) .dropdown-content {
+  border-radius: var(--g-radius-inner);
+  padding: 0.375rem;
+}
+:where([data-theme='ptah-glass-light']) .modal-box,
+:where([data-theme='ptah-glass-light']) .dropdown-content {
+  border-color: rgba(255, 255, 255, 0.9);
+}
+[data-theme^='ptah-glass'] .modal[open],
+[data-theme^='ptah-glass'] .modal.modal-open,
+[data-theme^='ptah-glass'] .modal:target,
+[data-theme^='ptah-glass'] .modal-toggle:checked + .modal {
+  background-color: var(--g-scrim);
+}
+
+/* 5d. Dividers */
+[data-theme^='ptah-glass'] .divider::before,
+[data-theme^='ptah-glass'] .divider::after {
+  background-color: var(--g-edge-strong);
+  height: 1px;
+}
+[data-theme^='ptah-glass'] .divider {
+  color: oklch(var(--bcm));
+  font-size: 0.75rem;
+}
+
+/* -------------------------------------------------------------------------
+   6. Buttons
+   ------------------------------------------------------------------------- */
+[data-theme^='ptah-glass'] .btn {
+  --tw-bg-opacity: 1;
+  background: var(--g-fill-2);
+  border: var(--border-btn, 1px) solid var(--g-edge);
+  color: oklch(var(--bc));
+  box-shadow: inset 0 1px 0 var(--g-edge-hi);
+  text-transform: none;
+  font-weight: 550;
+}
+[data-theme^='ptah-glass'] .btn:hover {
+  background: var(--g-fill-3);
+  border-color: var(--g-edge-strong);
+}
+[data-theme^='ptah-glass'] .btn-active,
+[data-theme^='ptah-glass'] .btn:active:hover {
+  background: var(--g-fill-sel);
+  border-color: var(--g-edge-sel);
+}
+
+/* tone tokens (reused by btn / badge / alert / progress) */
+[data-theme^='ptah-glass'] :is(.btn-primary, .btn-secondary, .badge-primary, .badge-secondary, .alert-primary, .progress-primary) {
+  --g-tone: var(--g-ink-brand);
+  --g-tone-fill: var(--p);
+}
+[data-theme^='ptah-glass'] :is(.btn-accent, .badge-accent) {
+  --g-tone: var(--g-ink-accent);
+  --g-tone-fill: var(--a);
+}
+[data-theme^='ptah-glass'] :is(.btn-info, .badge-info, .alert-info) {
+  --g-tone: var(--state-ink-run);
+  --g-tone-fill: var(--in);
+}
+[data-theme^='ptah-glass'] :is(.btn-success, .badge-success, .alert-success) {
+  --g-tone: var(--state-ink-done);
+  --g-tone-fill: var(--su);
+}
+[data-theme^='ptah-glass'] :is(.btn-warning, .badge-warning, .alert-warning) {
+  --g-tone: var(--state-ink-need);
+  --g-tone-fill: var(--wa);
+}
+[data-theme^='ptah-glass'] :is(.btn-error, .badge-error, .alert-error) {
+  --g-tone: var(--state-ink-err);
+  --g-tone-fill: var(--er);
+}
+
+/* ghost / link / outline */
+[data-theme^='ptah-glass'] .btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+[data-theme^='ptah-glass'] .btn-ghost:hover {
+  background: var(--g-fill-3);
+  border-color: var(--g-edge);
+}
+[data-theme^='ptah-glass'] .btn-link {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--g-ink-brand);
+}
+[data-theme^='ptah-glass'] .btn-link:hover {
+  background: transparent;
+  border-color: transparent;
+  text-decoration: underline;
+}
+[data-theme^='ptah-glass'] .btn-outline {
+  background: transparent;
+  border-color: var(--g-edge-strong);
+  box-shadow: none;
+}
+[data-theme^='ptah-glass'] .btn-outline:hover {
+  background: var(--g-fill-3);
+  border-color: var(--g-edge-strong);
+}
+
+/* primary: the one bright gold fill (same in both themes) */
+[data-theme^='ptah-glass'] .btn-primary {
+  background: linear-gradient(180deg, var(--g-gold-a), var(--g-gold-b));
+  border-color: var(--g-btn-edge);
+  color: var(--g-btn-ink);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), var(--g-gold-glow);
+}
+[data-theme^='ptah-glass'] .btn-primary:hover {
+  background: linear-gradient(180deg, #fbe08a, #e3b238);
+  border-color: var(--g-btn-edge);
+}
+[data-theme^='ptah-glass'] .btn-primary.btn-outline {
+  background: transparent;
+  border-color: var(--g-edge-sel);
+  color: var(--g-ink-brand);
+  box-shadow: none;
+}
+[data-theme^='ptah-glass'] .btn-primary.btn-outline:hover {
+  background: oklch(var(--p) / 0.16);
+}
+
+/* secondary / accent: tinted glass */
+[data-theme^='ptah-glass'] :is(.btn-secondary, .btn-accent) {
+  background: oklch(var(--g-tone-fill) / 0.18);
+  border-color: oklch(var(--g-tone-fill) / 0.5);
+  color: var(--g-tone);
+  box-shadow: inset 0 1px 0 var(--g-edge-hi);
+}
+[data-theme^='ptah-glass'] :is(.btn-secondary, .btn-accent):hover {
+  background: oklch(var(--g-tone-fill) / 0.28);
+  border-color: oklch(var(--g-tone-fill) / 0.7);
+}
+
+/* neutral: smoky (dark) / the one dark-glass pill (light) */
+[data-theme^='ptah-glass'] .btn-neutral {
+  background: var(--g-neutral-fill);
+  border-color: var(--g-edge-strong);
+  color: oklch(var(--nc));
+}
+[data-theme^='ptah-glass'] .btn-neutral:hover {
+  background: var(--g-neutral-fill);
+  filter: brightness(1.18);
+}
+
+/* state buttons: solid, with glass highlight */
+[data-theme^='ptah-glass'] :is(.btn-info, .btn-success, .btn-warning, .btn-error) {
+  background: oklch(var(--g-tone-fill));
+  border-color: transparent;
+  color: oklch(var(--bc));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+[data-theme^='ptah-glass'] .btn-info { color: oklch(var(--inc)); }
+[data-theme^='ptah-glass'] .btn-success { color: oklch(var(--suc)); }
+[data-theme^='ptah-glass'] .btn-warning { color: oklch(var(--wac)); }
+[data-theme^='ptah-glass'] .btn-error { color: oklch(var(--erc)); }
+[data-theme^='ptah-glass'] :is(.btn-info, .btn-success, .btn-warning, .btn-error):hover {
+  background: oklch(var(--g-tone-fill));
+  filter: brightness(1.08);
+  border-color: transparent;
+}
+[data-theme^='ptah-glass'] :is(.btn-info, .btn-success, .btn-warning, .btn-error).btn-outline {
+  background: transparent;
+  border-color: oklch(var(--g-tone-fill) / 0.6);
+  color: var(--g-tone);
+  box-shadow: none;
+}
+[data-theme^='ptah-glass'] :is(.btn-secondary, .btn-accent, .btn-info, .btn-success, .btn-warning, .btn-error).btn-outline:hover {
+  background: oklch(var(--g-tone-fill) / 0.16);
+}
+
+[data-theme^='ptah-glass'] .btn:is(:disabled, [disabled], .btn-disabled) {
+  background: var(--g-fill-2);
+  border-color: var(--g-edge);
+  color: oklch(var(--bc) / 0.38);
+  box-shadow: none;
+  filter: none;
+}
+
+/* -------------------------------------------------------------------------
+   7. Form controls
+   ------------------------------------------------------------------------- */
+[data-theme^='ptah-glass'] :is(.input, .select, .textarea) {
+  background: var(--g-fill-input);
+  border-color: var(--g-input-edge);
+  color: oklch(var(--bc));
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12);
+  --tw-bg-opacity: 1;
+}
+[data-theme^='ptah-glass'] :is(.input, .select, .textarea)::placeholder {
+  color: oklch(var(--bcm));
+  opacity: 1;
+}
+[data-theme^='ptah-glass'] .textarea {
+  border-radius: var(--g-radius-inner);
+}
+[data-theme^='ptah-glass'] :is(.input, .select, .textarea):focus,
+[data-theme^='ptah-glass'] .input:focus-within {
+  outline: 2px solid var(--g-focus);
+  outline-offset: 2px;
+  border-color: var(--g-focus);
+  box-shadow: var(--g-focus-ring);
+}
+[data-theme^='ptah-glass'] .input:is(.input-bordered) input {
+  background: transparent;
+}
+[data-theme^='ptah-glass'] :is(.input, .select, .textarea):disabled {
+  background: var(--g-fill-2);
+  border-color: var(--g-edge);
+  color: oklch(var(--bc) / 0.4);
+}
+[data-theme^='ptah-glass'] .label-text {
+  color: oklch(var(--bc));
+}
+[data-theme^='ptah-glass'] :is(.checkbox, .radio, .toggle) {
+  border-color: var(--g-input-edge);
+}
+[data-theme^='ptah-glass'] .toggle {
+  color: var(--g-input-edge);
+  background-color: var(--g-fill-input);
+  --tglbg: transparent;
+}
+[data-theme^='ptah-glass'] .toggle:checked {
+  background-color: oklch(var(--p));
+  border-color: oklch(var(--p));
+  color: oklch(var(--pc));
+  --tglbg: oklch(var(--pc));
+}
+[data-theme^='ptah-glass'] .toggle:not(:checked) {
+  --tglbg: var(--g-input-edge);
+}
+[data-theme^='ptah-glass'] :is(.checkbox, .radio):checked {
+  background-color: oklch(var(--p));
+  border-color: oklch(var(--p));
+}
+[data-theme^='ptah-glass'] .checkbox:checked {
+  color: oklch(var(--pc));
+}
+[data-theme^='ptah-glass'] .range {
+  --range-shdw: var(--p);
+}
+[data-theme^='ptah-glass'] .range::-webkit-slider-runnable-track {
+  background: var(--g-input-edge);
+  height: 0.5rem;
+  border-radius: 9999px;
+}
+[data-theme^='ptah-glass'] .range::-webkit-slider-thumb {
+  background-color: oklch(var(--bc));
+  border: 3px solid oklch(var(--p));
+}
+[data-theme^='ptah-glass'] :is(.checkbox, .radio, .toggle, .range):focus-visible {
+  outline: 2px solid var(--g-focus);
+  outline-offset: 2px;
+}
+
+/* -------------------------------------------------------------------------
+   8. Navigation: menu, tabs, join, breadcrumbs, dropdown
+   ------------------------------------------------------------------------- */
+[data-theme^='ptah-glass'] .menu li > a,
+[data-theme^='ptah-glass'] .menu li > button,
+[data-theme^='ptah-glass'] .menu li > summary,
+[data-theme^='ptah-glass'] .menu li > details > summary {
+  color: inherit; /* never inherit the app's global link colour */
+  text-decoration: none;
+}
+[data-theme^='ptah-glass'] .menu li > *:not(ul, .menu-title, details, .btn) {
+  border-radius: var(--g-radius-sm);
+  border: 1px solid transparent;
+}
+[data-theme^='ptah-glass'] .menu li > *:not(ul, .menu-title, details, .btn):hover,
+[data-theme^='ptah-glass'] .menu li > *:not(ul, .menu-title, details, .btn):focus-visible {
+  background: var(--g-fill-3);
+  cursor: pointer;
+}
+[data-theme^='ptah-glass'] .menu li > *:not(ul, .menu-title, details, .btn):active,
+[data-theme^='ptah-glass'] .menu li > *:not(ul, .menu-title, details, .btn).active,
+[data-theme^='ptah-glass'] .menu li > *:not(ul, .menu-title, details, .btn)[aria-current='page'],
+[data-theme^='ptah-glass'] .menu li > details > summary:active {
+  background: var(--g-fill-sel);
+  border-color: var(--g-edge-sel);
+  color: oklch(var(--bc));
+  box-shadow: inset 0 1px 0 var(--g-edge-hi);
+}
+[data-theme^='ptah-glass'] .menu-title {
+  color: oklch(var(--bcm));
+  font-size: 0.6875rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+[data-theme^='ptah-glass'] .link {
+  color: inherit;
+}
+[data-theme^='ptah-glass'] :is(.link-primary, .link-secondary) {
+  color: var(--g-ink-brand);
+}
+[data-theme^='ptah-glass'] :is(.menu, .tabs, .navbar, .btn, .dropdown-content, .breadcrumbs) a:not(.link) {
+  color: inherit;
+}
+
+[data-theme^='ptah-glass'] .tabs-boxed {
+  background: var(--g-fill-2);
+  border: 1px solid var(--g-edge);
+  border-radius: 9999px;
+  padding: 0.25rem;
+  box-shadow: inset 0 1px 0 var(--g-edge-hi);
+}
+[data-theme^='ptah-glass'] .tab {
+  color: oklch(var(--bcm));
+}
+[data-theme^='ptah-glass'] .tab:hover {
+  color: oklch(var(--bc));
+}
+[data-theme^='ptah-glass'] .tabs-boxed .tab {
+  border-radius: 9999px;
+}
+[data-theme^='ptah-glass'] .tabs-boxed .tab.tab-active:not(.tab-disabled):not([disabled]),
+[data-theme^='ptah-glass'] .tabs-boxed :is(input:checked) {
+  background: var(--g-fill-seg);
+  color: oklch(var(--bc));
+  box-shadow: inset 0 1px 0 var(--g-edge-hi), 0 6px 14px -8px rgba(20, 10, 60, 0.5);
+}
+[data-theme^='ptah-glass'] .tabs-bordered > .tab {
+  border-bottom-color: var(--g-edge-strong);
+}
+[data-theme^='ptah-glass'] .tabs-bordered > .tab.tab-active:not(.tab-disabled):not([disabled]) {
+  border-bottom-color: var(--g-focus);
+  color: oklch(var(--bc));
+}
+
+[data-theme^='ptah-glass'] .join > :is(.btn:not(.btn-primary), .input, .select) {
+  background: var(--g-fill-2);
+  border-color: var(--g-edge-strong);
+}
+[data-theme^='ptah-glass'] .join > .btn-active {
+  background: var(--g-fill-sel);
+  border-color: var(--g-edge-sel);
+}
+[data-theme^='ptah-glass'] .join :where(.btn, .input, .select):focus-visible {
+  outline-offset: -2px;
+}
+
+[data-theme^='ptah-glass'] .breadcrumbs {
+  color: oklch(var(--bcm));
+}
+
+/* -------------------------------------------------------------------------
+   9. Feedback & data display
+   ------------------------------------------------------------------------- */
+[data-theme^='ptah-glass'] .badge {
+  background: var(--g-fill-2);
+  border: 1px solid var(--g-edge-strong);
+  color: oklch(var(--bc));
+}
+[data-theme^='ptah-glass'] .badge:is(.badge-primary, .badge-secondary, .badge-accent, .badge-info, .badge-success, .badge-warning, .badge-error) {
+  background: oklch(var(--g-tone-fill) / var(--g-badge-tint));
+  border-color: oklch(var(--g-tone-fill) / 0.5);
+  color: var(--g-tone);
+}
+[data-theme^='ptah-glass'] .badge-outline {
+  background: transparent;
+}
+[data-theme^='ptah-glass'] .badge-ghost {
+  background: var(--g-fill-2);
+  border-color: var(--g-edge);
+}
+[data-theme^='ptah-glass'] .badge-neutral {
+  background: var(--g-neutral-fill);
+  color: oklch(var(--nc));
+}
+
+[data-theme^='ptah-glass'] .alert {
+  background: var(--g-fill-2);
+  background-image: none;
+  border: 1px solid var(--g-edge-strong);
+  border-radius: var(--g-radius-inner);
+  color: oklch(var(--bc));
+  box-shadow: inset 0 1px 0 var(--g-edge-hi);
+}
+[data-theme^='ptah-glass'] .alert:is(.alert-info, .alert-success, .alert-warning, .alert-error) {
+  background: oklch(var(--g-tone-fill) / 0.16);
+  border-color: oklch(var(--g-tone-fill) / 0.5);
+  color: oklch(var(--bc));
+}
+[data-theme^='ptah-glass'] .alert > svg {
+  color: var(--g-tone, oklch(var(--bc)));
+  flex-shrink: 0;
+}
+
+[data-theme^='ptah-glass'] .collapse {
+  --tw-bg-opacity: 1;
+}
+[data-theme^='ptah-glass'] .collapse-title {
+  color: oklch(var(--bc));
+}
+[data-theme^='ptah-glass'] .collapse:focus-visible,
+[data-theme^='ptah-glass'] .collapse:has(> input:focus-visible) {
+  outline: 2px solid var(--g-focus);
+  outline-offset: 2px;
+}
+
+[data-theme^='ptah-glass'] .table {
+  color: oklch(var(--bc));
+}
+[data-theme^='ptah-glass'] .table :where(thead, tfoot) {
+  color: oklch(var(--bcm));
+}
+[data-theme^='ptah-glass'] .table :where(thead tr, tbody tr:not(:last-child), tbody tr:first-child:last-child) {
+  border-bottom-color: var(--g-edge);
+}
+[data-theme^='ptah-glass'] .table-zebra tbody tr:nth-child(even) :is(th, td),
+[data-theme^='ptah-glass'] .table-zebra tbody tr:nth-child(even) {
+  background-color: var(--g-fill-2);
+}
+[data-theme^='ptah-glass'] .table tbody tr.hover:hover :is(th, td),
+[data-theme^='ptah-glass'] .table.table-hover tbody tr:hover :is(th, td) {
+  background-color: var(--g-fill-3);
+}
+
+[data-theme^='ptah-glass'] .progress {
+  background-color: var(--g-fill-3);
+}
+[data-theme^='ptah-glass'] .progress::-webkit-progress-bar {
+  background-color: var(--g-fill-3);
+  border-radius: 9999px;
+}
+[data-theme^='ptah-glass'] .progress-primary::-webkit-progress-value {
+  background: linear-gradient(90deg, var(--g-gold-b), var(--g-gold-a));
+}
+[data-theme^='ptah-glass'] .progress-primary {
+  color: var(--g-gold-b);
+}
+
+[data-theme^='ptah-glass'] .tooltip {
+  --tooltip-color: var(--g-tooltip);
+  --tooltip-text-color: #f4f6fd;
+}
+[data-theme^='ptah-glass'] .tooltip:before {
+  border-radius: 0.75rem;
+  padding: 0.375rem 0.75rem;
+  font-size: 0.75rem;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22), 0 10px 24px -8px rgba(0, 0, 0, 0.5);
+}
+
+/* chat */
+[data-theme^='ptah-glass'] .chat-bubble {
+  background: var(--g-fill-2);
+  border: 1px solid var(--g-edge);
+  color: oklch(var(--bc));
+  border-radius: var(--g-radius-inner);
+  box-shadow: inset 0 1px 0 var(--g-edge-hi);
+}
+[data-theme^='ptah-glass'] .chat-bubble::before {
+  display: none; /* no tail: asymmetric radius instead */
+}
+[data-theme^='ptah-glass'] .chat-start .chat-bubble {
+  border-end-start-radius: 0.375rem;
+}
+[data-theme^='ptah-glass'] .chat-end .chat-bubble {
+  border-end-end-radius: 0.375rem;
+}
+[data-theme^='ptah-glass'] .chat-bubble-primary {
+  background: var(--g-fill-bubble-user);
+  border-color: var(--g-edge-sel);
+  color: oklch(var(--bc));
+}
+[data-theme^='ptah-glass'] .chat-header {
+  color: oklch(var(--bcm));
+}
+
+[data-theme^='ptah-glass'] .stats {
+  color: oklch(var(--bc));
+}
+[data-theme^='ptah-glass'] .stats > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--g-edge);
+}
+[data-theme^='ptah-glass'] .stat-title,
+[data-theme^='ptah-glass'] .stat-desc {
+  color: oklch(var(--bcm));
+  opacity: 1;
+}
+[data-theme^='ptah-glass'] .stat-value {
+  color: oklch(var(--bc));
+}
+
+[data-theme^='ptah-glass'] .kbd {
+  background: var(--g-fill-2);
+  border-color: var(--g-edge-strong);
+  color: oklch(var(--bc));
+}
+
+/* code */
+[data-theme^='ptah-glass'] .mockup-code {
+  background: var(--g-code);
+  color: var(--g-code-ink);
+  border-color: var(--g-edge);
+  box-shadow: inset 0 1px 0 var(--g-edge-hi);
+}
+[data-theme^='ptah-glass'] .mockup-code::before {
+  opacity: 0.45;
+}
+
+/* -------------------------------------------------------------------------
+   10. Text, selection, focus, scrollbars
+   ------------------------------------------------------------------------- */
+[data-theme^='ptah-glass'] ::selection {
+  background: oklch(var(--p) / 0.38);
+  color: inherit;
+}
+[data-theme^='ptah-glass'] :focus-visible {
+  outline: 2px solid var(--g-focus);
+  outline-offset: 2px;
+}
+[data-theme^='ptah-glass'] * {
+  scrollbar-width: thin;
+  scrollbar-color: var(--g-scroll) transparent;
+}
+[data-theme^='ptah-glass'] ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+[data-theme^='ptah-glass'] ::-webkit-scrollbar-thumb {
+  background: var(--g-scroll);
+  border-radius: 9999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+/* -------------------------------------------------------------------------
+   11. Fallbacks
+   ------------------------------------------------------------------------- */
+/* No backdrop-filter support: more opaque fills so text stays readable. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  [data-theme='ptah-glass'] {
+    --g-fill-1: rgba(14, 21, 44, 0.92);
+    --g-fill-raised: rgba(20, 30, 62, 0.95);
+    --g-fill-overlay: rgba(12, 18, 40, 0.97);
+  }
+  [data-theme='ptah-glass-light'] {
+    --g-fill-1: rgba(250, 247, 255, 0.92);
+    --g-fill-raised: rgba(252, 250, 255, 0.95);
+    --g-fill-overlay: rgba(252, 250, 255, 0.98);
+  }
+}
+
+/* Reduced transparency: near-opaque fills, no blur at all. */
+@media (prefers-reduced-transparency: reduce) {
+  [data-theme='ptah-glass'] {
+    --g-fill-canvas: rgba(8, 12, 28, 0.7);
+    --g-fill-1: rgba(14, 21, 44, 0.96);
+    --g-fill-raised: rgba(22, 32, 66, 0.98);
+    --g-fill-2: rgba(40, 52, 94, 0.55);
+    --g-fill-overlay: rgba(12, 18, 40, 0.99);
+    --g-fill-input: rgba(40, 52, 94, 0.7);
+  }
+  [data-theme='ptah-glass-light'] {
+    --g-fill-canvas: rgba(250, 247, 255, 0.7);
+    --g-fill-1: rgba(250, 247, 255, 0.97);
+    --g-fill-raised: rgba(253, 251, 255, 0.99);
+    --g-fill-2: rgba(240, 234, 252, 0.9);
+    --g-fill-overlay: rgba(253, 251, 255, 0.99);
+    --g-fill-input: rgba(255, 255, 255, 0.95);
+  }
+  [data-theme^='ptah-glass'] * {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-theme^='ptah-glass'] *,
+  [data-theme^='ptah-glass'] *::before,
+  [data-theme^='ptah-glass'] *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}
