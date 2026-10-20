@@ -1,13 +1,13 @@
 ---
 id: TASK_2026_688_f6d2
-status: in_review
+status: done
 type: BUGFIX
 title: Validate session:stats-batch pages in Session Analytics
 description: >-
   Session Analytics fails with "result.data.sessionStats is not iterable" when a stats page has no sessionStats array.
 depends_on: []
 created: 2026-10-17T00:00:00.000Z
-updated: 2026-10-17T00:00:00.000Z
+updated: 2026-10-20T18:30:00.000Z
 ---
 
 ## Description
