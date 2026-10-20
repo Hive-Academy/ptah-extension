@@ -50,7 +50,6 @@ import {
 import { ResumeNotificationBannerComponent } from '../molecules/notifications/resume-notification-banner.component';
 import { AuthRequiredBannerComponent } from '../molecules/notifications/auth-required-banner.component';
 import { SessionBudgetBannerComponent } from '../molecules/notifications/session-budget-banner.component';
-import { VoiceProviderErrorToastComponent } from '../molecules/notifications/voice-provider-error-toast.component';
 import { CompactSessionCardComponent } from '../molecules/compact-session/compact-session-card.component';
 import { AgentOriginBannerComponent } from '../molecules/agent-origin-banner/agent-origin-banner.component';
 import { SessionHeaderComponent } from '../molecules/session-header/session-header.component';
@@ -211,7 +210,6 @@ const VIEW_PANEL_KEY = '';
     ResumeNotificationBannerComponent,
     AuthRequiredBannerComponent,
     SessionBudgetBannerComponent,
-    VoiceProviderErrorToastComponent,
     CompactionNotificationComponent,
     CompactionMarkerComponent,
     SidebarTabComponent,
@@ -353,23 +351,9 @@ export class ChatViewComponent implements OnDestroy {
    * own auto-clear timer.
    */
   private readonly actionBanner = inject(ActionBannerService);
-  readonly actionError = computed(() => {
-    const b = this.actionBanner.banner();
-    if (!b || b.kind !== 'error') return null;
-    return b.tabId === null || b.tabId === this.resolvedTabId()
-      ? b.message
-      : null;
-  });
   readonly actionInfo = computed(() => {
     const b = this.actionBanner.banner();
     if (!b || b.kind !== 'info') return null;
-    return b.tabId === null || b.tabId === this.resolvedTabId()
-      ? b.message
-      : null;
-  });
-  readonly actionWarning = computed(() => {
-    const b = this.actionBanner.banner();
-    if (!b || b.kind !== 'warning') return null;
     return b.tabId === null || b.tabId === this.resolvedTabId()
       ? b.message
       : null;

@@ -83,6 +83,8 @@ import {
   ClaudeRpcService,
   AppStateManager,
   AuthStateService,
+  LoggingService,
+  NotificationService,
   PlanLimitsStore,
   type PlanLimitsSurfaceScope,
 } from '@ptah-extension/core';
@@ -157,8 +159,7 @@ function makeHarness(
     confirmResult?: boolean;
     /**
      * When true, wire the REAL `ActionBannerService` instead of the jest stub
-     * so the per-tile banner filtering computeds (`actionInfo`/`actionWarning`/
-     * `actionError`) are exercised end-to-end.
+     * so local info banners and attention notices are exercised end-to-end.
      */
     useRealBanner?: boolean;
     /**
@@ -366,7 +367,8 @@ function makeHarness(
 
   const showInfoMock = jest.fn();
   const showWarningMock = jest.fn();
-  const realActionBanner = new ActionBannerService();
+  let realActionBanner: ActionBannerService;
+  const attentionUpsertMock = jest.fn();
   const actionBannerStub = {
     banner: signal<unknown>(null).asReadonly(),
     error: signal<string | null>(null).asReadonly(),
@@ -376,9 +378,6 @@ function makeHarness(
     showInfo: showInfoMock,
     showWarning: showWarningMock,
   } as unknown as ActionBannerService;
-  const actionBannerProvider: ActionBannerService = useRealBanner
-    ? realActionBanner
-    : actionBannerStub;
 
   const agentsForSessionMock = jest.fn(
     (_sessionId: string): MonitoredAgent[] => [],
@@ -487,7 +486,11 @@ function makeHarness(
       { provide: VSCodeService, useValue: vscodeStub },
       { provide: ClaudeRpcService, useValue: rpcStub },
       { provide: ConfirmationDialogService, useValue: confirmDialogStub },
-      { provide: ActionBannerService, useValue: actionBannerProvider },
+      useRealBanner
+        ? { provide: ActionBannerService, useFactory: () => new ActionBannerService() }
+        : { provide: ActionBannerService, useValue: actionBannerStub },
+      { provide: NotificationService, useValue: { upsert: attentionUpsertMock } },
+      { provide: LoggingService, useValue: { warn: jest.fn() } },
       { provide: TabManagerService, useValue: tabManagerStub },
       {
         provide: SessionHistoryReplayer,
@@ -570,6 +573,7 @@ function makeHarness(
     });
   }
 
+  realActionBanner = TestBed.inject(ActionBannerService);
   const fixture = TestBed.createComponent(ChatViewComponent);
   const component = fixture.componentInstance;
 
@@ -600,6 +604,7 @@ function makeHarness(
     showInfoMock,
     showWarningMock,
     realActionBanner,
+    attentionUpsertMock,
     sessionIsActiveSig,
     sessionIdSig,
     messagesSig,
@@ -1438,7 +1443,9 @@ describe('ChatViewComponent — canvas start guard', () => {
       else h.component.handleResumeAllAgents(agents);
       expect(h.sendOrQueueMessageMock).not.toHaveBeenCalled();
       expect(h.removeResumableSubagentMock).not.toHaveBeenCalled();
-      expect(h.component.actionError()).toBe('Running cap reached');
+      expect(h.attentionUpsertMock).toHaveBeenCalledWith(expect.objectContaining({
+        kind: 'failure', title: 'Running cap reached', tabId: 'tile-A',
+      }));
     },
   );
 
@@ -1465,7 +1472,9 @@ describe('ChatViewComponent — canvas start guard', () => {
       h.component as unknown as { onBudgetWrapUp(): Promise<void> }
     ).onBudgetWrapUp();
     expect(h.sendOrQueueMessageMock).not.toHaveBeenCalled();
-    expect(h.component.actionError()).toBe('Running cap reached');
+    expect(h.attentionUpsertMock).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'failure', title: 'Running cap reached', tabId: 'tile-A',
+    }));
   });
 });
 
@@ -1496,26 +1505,27 @@ describe('ChatViewComponent — per-tile banner scoping', () => {
     h.realActionBanner.clear();
   });
 
-  it('surfaces a global (tabId: null) banner on every tile', () => {
+  it('publishes a global error notice without a tab scope', () => {
     const h = makeHarness({
       useRealBanner: true,
       sessionContextTabId: 'tile-A',
     });
     h.realActionBanner.showError('No active session to rewind.', null);
-    expect(h.component.actionError()).toBe('No active session to rewind.');
-    h.realActionBanner.clear();
+    expect(h.attentionUpsertMock).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'failure', title: 'No active session to rewind.',
+    }));
+    expect(h.attentionUpsertMock.mock.calls[0][0].tabId).toBeUndefined();
   });
 
-  it('discriminates by kind — a warning does not leak into the info/error slots', () => {
+  it('publishes a warning scoped to the originating tile', () => {
     const h = makeHarness({
       useRealBanner: true,
       sessionContextTabId: 'tile-A',
     });
     h.realActionBanner.showWarning('rollback skipped', 'tile-A');
-    expect(h.component.actionWarning()).toBe('rollback skipped');
-    expect(h.component.actionInfo()).toBeNull();
-    expect(h.component.actionError()).toBeNull();
-    h.realActionBanner.clear();
+    expect(h.attentionUpsertMock).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'warning', title: 'rollback skipped', tabId: 'tile-A',
+    }));
   });
 });
 

@@ -1,6 +1,7 @@
 export * from './lib/services';
 export { SURFACE_FOCUS_ROUTER, type SurfaceFocusRouter } from './lib/tokens/surface-focus-router.token';
 export { ATTENTION_ACTION_DISPATCHER, type AttentionActionDispatcher, type AttentionActionOutcome } from './lib/tokens/attention-action-dispatcher.token';
+export { NOTICE_ACTION_HANDLER, type NoticeActionHandler } from './lib/tokens/notice-action-handler.token';
 export * from './lib/services/providers-settings-state.service';
 export { PeerSessionFacade } from './lib/services/peer-session.facade';
 export {

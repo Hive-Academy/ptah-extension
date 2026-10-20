@@ -126,18 +126,6 @@
       </div>
 
       <div sessionControls class="mx-auto flex-shrink-0" style="width: calc(100% - 1.5rem); max-width: var(--chat-content-max-width)">
-      <!-- Branch/Rewind action error banner (auto-clears after 4s) -->
-      @if (actionError(); as errMsg) {
-        <div
-          class="px-4 py-2 mx-2 my-1 rounded-md bg-error/10 border border-error/30 text-error text-xs"
-          role="alert"
-          animate.enter="banner-enter"
-          animate.leave="banner-leave"
-        >
-          {{ errMsg }}
-        </div>
-      }
-
       <!-- Branch/Rewind action info banner (auto-clears after 4s) -->
       @if (actionInfo(); as infoMsg) {
         <div
@@ -182,9 +170,6 @@
           />
         </div>
       }
-
-      <!-- Cloud voice-provider failure toast with switch-to-local action -->
-      <ptah-voice-provider-error-toast />
 
       <!-- Collapsed Permission Badge (doesn't block chat area) -->
       <ptah-permission-badge
