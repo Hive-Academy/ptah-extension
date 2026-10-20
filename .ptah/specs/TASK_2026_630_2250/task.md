@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_630_2250
-status: pending
+status: in_review
 type: REFACTORING
 title: Display panel follow-ups from TASK_2026_623
 description: >-
@@ -10,7 +10,7 @@ description: >-
   counts, Edit/Write meta data, and four partially pinned acceptance criteria.
 depends_on: [TASK_2026_623_3492]
 created: 2026-10-12T00:00:00.000Z
-updated: 2026-10-12T00:00:00.000Z
+updated: 2026-10-20T19:30:00.000Z
 ---
 
 ## Description

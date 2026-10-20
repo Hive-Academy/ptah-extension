@@ -1,12 +1,12 @@
 ---
 id: TASK_2026_650_2c78
-status: in_progress
+status: in_review
 type: REFACTORING
 title: Split agent and system-prompt generation out of the Setup Wizard analysis
 depends_on:
   - TASK_2026_648_374e
 created: '2026-10-13T16:57:51.549Z'
-updated: '2026-10-13T16:57:51.549Z'
+updated: 2026-10-20T19:30:00.000Z
 description: 'Phase 3 (wizard plan 1): generation runs as independent chat-tab workflows that gather their own context when the analysis is missing or stale.'
 parent: TASK_2026_647_1b0f
 estimate: L

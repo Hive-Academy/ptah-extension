@@ -1,6 +1,6 @@
 # TASK_2026_660 — child sessions ignore the parent's autopilot level
 
-status: in-progress
+status: in_review
 type: BUGFIX
 branch: fix/child-session-permission (worktree .claude-worktrees/fix-child-session-permission)
 

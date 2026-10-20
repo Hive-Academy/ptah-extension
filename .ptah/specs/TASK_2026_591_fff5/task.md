@@ -1,11 +1,11 @@
 ---
 id: TASK_2026_591_fff5
-status: in_progress
+status: in_review
 type: FEATURE
 title: 'Give the opencode lane two-way messaging (queue, then steer and interrupt)'
 depends_on: []
 created: '2026-10-01T15:50:44.025Z'
-updated: '2026-10-05T23:31:10.820Z'
+updated: 2026-10-20T19:30:00.000Z
 description: >-
   OpencodeCliAdapter reports no messaging (capabilities all false) because it
   runs one-shot `opencode run` with no continue(); add queue-next-turn via `run
