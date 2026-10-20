@@ -1,0 +1,38 @@
+/* Compiled-equivalent channels for the static file prototype. In-app, DaisyUI
+   generates these from theme.config.js; do not load both there. */
+[data-theme=ptah-glass] {
+  color-scheme: dark;
+  --p: 76.069% 0.1126 189.96; --pf: 66.808% 0.1056 190.92; --pc: 26.852% 0.0401 214.13;
+  --s: 78.800% 0.1169 89.06; --sf: 71.237% 0.1191 87.22; --sc: 24.424% 0.0300 93.54;
+  --a: 86.432% 0.1128 87.31; --af: 78.800% 0.1169 89.06; --ac: 24.654% 0.0321 88.76;
+  --n: 32.766% 0.0400 253.21; --nf: 39.149% 0.0447 252.57; --nc: 97.155% 0.0041 121.56;
+  --b1: 26.117% 0.0369 255.45; --b2: 28.527% 0.0384 255.06; --b3: 33.873% 0.0382 251.87; --bc: 97.155% 0.0041 121.56;
+  --in: 81.696% 0.0968 236.72; --inc: 27.056% 0.0488 235.42;
+  --su: 83.942% 0.1004 160.88; --suc: 29.671% 0.0527 160.57;
+  --wa: 82.007% 0.1160 72.81; --wac: 27.711% 0.0485 66.85;
+  --er: 80.441% 0.1120 17.10; --erc: 28.764% 0.0591 9.91;
+  --bcm: 81% 0.015 215;
+  --state-ink-run: #84CDFA; --state-ink-need: #F2B86B; --state-ink-err: #FFA1A5; --state-ink-done: #8DDFB5; --state-ink-idle: #D0D9DD;
+  --ptah-check-edge: 70%;
+  --rounded-box: 1.5rem; --rounded-btn: .875rem; --rounded-badge: 1rem;
+  --animation-btn: .15s; --animation-input: .2s; --btn-focus-scale: 1.01;
+  --border-btn: 1px; --tab-border: 1px; --tab-radius: .875rem;
+}
+[data-theme=ptah-glass-light] {
+  color-scheme: light;
+  --p: 44.638% 0.1350 286.50; --pf: 37.927% 0.1219 285.06; --pc: 100% 0 0;
+  --s: 46.679% 0.0868 69.18; --sf: 40.834% 0.0764 67.61; --sc: 100% 0 0;
+  --a: 46.662% 0.1371 298.44; --af: 40.227% 0.1217 296.52; --ac: 100% 0 0;
+  --n: 33.983% 0.0452 289.04; --nf: 28.076% 0.0383 288.03; --nc: 100% 0 0;
+  --b1: 98.804% 0.0069 304.24; --b2: 95.073% 0.0181 303.41; --b3: 91.496% 0.0244 306.95; --bc: 27.589% 0.0422 291.36;
+  --in: 91.183% 0.0361 245.63; --inc: 34.298% 0.0698 248.20;
+  --su: 93.051% 0.0372 156.43; --suc: 40.190% 0.0825 155.13;
+  --wa: 92.640% 0.0491 76.12; --wac: 41.121% 0.0837 65.68;
+  --er: 91.292% 0.0355 2.52; --erc: 40.208% 0.1208 9.30;
+  --bcm: 43% 0.035 290;
+  --state-ink-run: #364C9E; --state-ink-need: #80520D; --state-ink-err: #A52D45; --state-ink-done: #206D4E; --state-ink-idle: #5C596F;
+  --ptah-check-edge: 70%;
+  --rounded-box: 1.5rem; --rounded-btn: .875rem; --rounded-badge: 1rem;
+  --animation-btn: .15s; --animation-input: .2s; --btn-focus-scale: 1.01;
+  --border-btn: 1px; --tab-border: 1px; --tab-radius: .875rem;
+}

@@ -1,0 +1,302 @@
+/* ==========================================================================
+   Ptah glass layer — scoped to [data-theme="ptah-glass"] / [data-theme="ptah-glass-light"].
+   Moves into apps/ptah-extension-webview/src/styles.css unchanged (plain CSS, no nesting,
+   no @apply). data-theme is expected on <html> (ThemeService sets documentElement).
+
+   Why: a DaisyUI 4 theme compiles to OKLCH channels with no alpha, so translucency and
+   backdrop-filter live here. Theme colour vars (--b1, --bc, --p, ...) are reused with an
+   explicit alpha: oklch(var(--p) / .18).
+
+   Blur budget (Electron): see NOTES.md. Rule of thumb — blur big, static, few panels
+   (sidebar, navbar, cards, modal, menus); never rows of long/scrolling lists.
+   Opt-in:  .glass-blur   Opt-out: .glass-flat  (fill + edge, no backdrop-filter)
+   ========================================================================== */
+
+/* ---------- 1. Tokens per theme ------------------------------------------- */
+[data-theme="ptah-glass"] {
+  --g-bf: blur(16px) saturate(1.3);        /* big panels */
+  --g-bf-sm: blur(10px) saturate(1.2);     /* tooltip / small chips */
+  --g-card: linear-gradient(150deg, rgb(255 255 255 / .06), rgb(255 255 255 / 0) 45%), rgb(11 19 48 / .66);
+  --g-card-nested: linear-gradient(150deg, rgb(255 255 255 / .05), rgb(255 255 255 / 0) 50%), rgb(255 255 255 / .04);
+  --g-pop: linear-gradient(150deg, rgb(255 255 255 / .05), rgb(255 255 255 / 0) 45%), rgb(11 19 48 / .86);
+  --g-bar: linear-gradient(180deg, rgb(255 255 255 / .05), rgb(255 255 255 / 0)), rgb(8 14 36 / .60);
+  --g-flat: rgb(11 19 48 / .60);           /* fill only, no blur: lists, rows, bubbles */
+  --g-chip: rgb(255 255 255 / .08);
+  --g-chip-hover: rgb(255 255 255 / .14);
+  --g-input: rgb(255 255 255 / .06);
+  --g-edge: rgb(255 255 255 / .14);
+  --g-edge-strong: rgb(255 255 255 / .46); /* inputs / outline buttons: >= 3:1 UI edge */
+  --g-hi: inset 0 1px 0 rgb(255 255 255 / .12);
+  --g-shadow: 0 12px 32px -12px rgb(0 0 0 / .6), 0 2px 6px -2px rgb(0 0 0 / .35);
+  --g-shadow-pop: 0 24px 60px -16px rgb(0 0 0 / .7), 0 4px 12px -4px rgb(0 0 0 / .4);
+  --g-scrim: rgb(4 7 20 / .5);
+  --g-ring: oklch(var(--p));
+  --g-select-bg: #0f1733;
+  --g-glow: 0 6px 22px -6px oklch(var(--p) / .55);
+  --g-radius: 1.5rem;
+  --g-radius-sm: 1rem;
+}
+[data-theme="ptah-glass-light"] {
+  --g-bf: blur(18px) saturate(1.5);
+  --g-bf-sm: blur(10px) saturate(1.3);
+  --g-card: linear-gradient(150deg, rgb(255 255 255 / .35), rgb(255 255 255 / 0) 50%), rgb(255 255 255 / .70);
+  --g-card-nested: linear-gradient(150deg, rgb(255 255 255 / .3), rgb(255 255 255 / 0) 50%), rgb(255 255 255 / .42);
+  --g-pop: rgb(255 255 255 / .88);
+  --g-bar: rgb(255 255 255 / .62);
+  --g-flat: rgb(255 255 255 / .66);
+  --g-chip: rgb(255 255 255 / .55);
+  --g-chip-hover: rgb(255 255 255 / .85);
+  --g-input: rgb(255 255 255 / .6);
+  --g-edge: rgb(255 255 255 / .75);
+  --g-edge-strong: rgb(31 26 48 / .55);
+  --g-hi: inset 0 1px 0 rgb(255 255 255 / .9);
+  --g-shadow: 0 10px 32px -14px rgb(90 70 160 / .35), 0 2px 6px -2px rgb(90 70 160 / .12);
+  --g-shadow-pop: 0 24px 56px -18px rgb(90 70 160 / .45), 0 4px 12px -4px rgb(90 70 160 / .15);
+  --g-scrim: rgb(70 50 120 / .28);
+  --g-ring: oklch(var(--a));
+  --g-select-bg: #ffffff;
+  --g-glow: 0 6px 20px -6px oklch(var(--p) / .6);
+  --g-radius: 1.5rem;
+  --g-radius-sm: 1rem;
+}
+
+/* ---------- 2. App backdrop (static gradients, no animated blur) ---------- */
+html[data-theme="ptah-glass"],
+html[data-theme="ptah-glass-light"] { background-color: oklch(var(--b1)); }
+html[data-theme="ptah-glass"] body,
+html[data-theme="ptah-glass-light"] body,
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) body.bg-base-100 { background: transparent; }
+
+html[data-theme="ptah-glass"]::before,
+html[data-theme="ptah-glass-light"]::before {
+  content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+}
+/* Dark: lapis / teal / gold aurora. Brightest stop of any gradient = #17707c / #2a4fb0 / #8f6d1c
+   (the contrast table in NOTES.md is computed against exactly these). */
+html[data-theme="ptah-glass"]::before {
+  background:
+    radial-gradient(52% 46% at 10% 6%, #17707c 0%, rgb(23 112 124 / 0) 72%),
+    radial-gradient(50% 50% at 92% 12%, #2a4fb0 0%, rgb(42 79 176 / 0) 72%),
+    radial-gradient(46% 40% at 72% 104%, #8f6d1c 0%, rgb(143 109 28 / 0) 72%),
+    linear-gradient(112deg, transparent 28%, rgb(23 112 124 / .28) 46%, rgb(42 79 176 / .26) 60%, transparent 78%),
+    linear-gradient(170deg, #070c1d 0%, #0a1230 55%, #0b1026 100%);
+}
+/* Light: lavender -> peach. Darkest stops = #b9a9ee / #a9c3f2 / #f2b896. */
+html[data-theme="ptah-glass-light"]::before {
+  background:
+    radial-gradient(55% 50% at 8% 6%, #b9a9ee 0%, rgb(185 169 238 / 0) 72%),
+    radial-gradient(50% 50% at 94% 10%, #a9c3f2 0%, rgb(169 195 242 / 0) 72%),
+    radial-gradient(60% 50% at 80% 102%, #f2b896 0%, rgb(242 184 150 / 0) 72%),
+    linear-gradient(135deg, #d9d0f7 0%, #cfdcf7 42%, #f7d4bd 100%);
+}
+
+/* ---------- 3. Blurred panels (budget: sidebar, navbar, cards, modal, menus) */
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) :is(.card, .glass-card) {
+  background: var(--g-card);
+  border: 1px solid var(--g-edge);
+  border-radius: var(--g-radius);
+  box-shadow: var(--g-hi), var(--g-shadow);
+  -webkit-backdrop-filter: var(--g-bf); backdrop-filter: var(--g-bf);
+  color: oklch(var(--bc));
+}
+/* nested glass: lighter fill, NO second blur (a nested backdrop-filter costs and shows nothing) */
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) :is(.card, .glass-card, .modal-box, .drawer-side) :is(.card, .glass-card, .glass-nested) {
+  background: var(--g-card-nested); box-shadow: var(--g-hi);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+  border-radius: var(--g-radius-sm);
+}
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .card.bordered { border-width: 1px; }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .card-title { color: oklch(var(--bc)); }
+
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) :is(.navbar, .glass-bar) {
+  background: var(--g-bar);
+  border: 1px solid var(--g-edge);
+  border-radius: var(--g-radius);
+  box-shadow: var(--g-hi), var(--g-shadow);
+  -webkit-backdrop-filter: var(--g-bf); backdrop-filter: var(--g-bf);
+  color: oklch(var(--bc));
+}
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) :is(.drawer-side > *:not(.drawer-overlay), .glass-sidebar) {
+  background: var(--g-bar);
+  border: 1px solid var(--g-edge);
+  box-shadow: var(--g-hi), var(--g-shadow);
+  -webkit-backdrop-filter: var(--g-bf); backdrop-filter: var(--g-bf);
+  color: oklch(var(--bc));
+}
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) :is(.modal-box, .dropdown-content, .glass-pop) {
+  background: var(--g-pop);
+  border: 1px solid var(--g-edge);
+  border-radius: var(--g-radius);
+  box-shadow: var(--g-hi), var(--g-shadow-pop);
+  -webkit-backdrop-filter: var(--g-bf); backdrop-filter: var(--g-bf);
+  color: oklch(var(--bc));
+}
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .dropdown-content { border-radius: var(--g-radius-sm); }
+/* modal overlay: dim only — a full-screen blur is the most expensive thing we could draw */
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .modal { background-color: var(--g-scrim); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .modal:not(dialog:not(.modal-open)) { background-color: var(--g-scrim); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .tooltip::before {
+  background: var(--g-pop); color: oklch(var(--bc)); border: 1px solid var(--g-edge);
+  -webkit-backdrop-filter: var(--g-bf-sm); backdrop-filter: var(--g-bf-sm);
+}
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .glass-blur { -webkit-backdrop-filter: var(--g-bf); backdrop-filter: var(--g-bf); }
+
+/* ---------- 4. Fill-only surfaces (NO blur: safe in long / scrolling lists) */
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) :is(.bg-base-100, .bg-base-200, .bg-base-300) { background-color: var(--g-flat); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) :is(.bg-base-200, .bg-base-300) { background-color: var(--g-chip); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) :is(.collapse, .stats, .join, .tabs-boxed) {
+  background: var(--g-flat); border: 1px solid var(--g-edge); box-shadow: var(--g-hi);
+}
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .collapse { border-radius: var(--g-radius-sm); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .collapse-title { color: oklch(var(--bc)); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .stats { border-radius: var(--g-radius-sm); overflow: hidden; }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .stats > .stat { border-color: var(--g-edge); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) :is(.stat-title, .stat-desc) { color: oklch(var(--bcm)); opacity: 1; }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .tabs-boxed { border-radius: 9999px; padding: .25rem; }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .tabs-boxed .tab { border-radius: 9999px; color: oklch(var(--bc)); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .tabs-boxed .tab:hover:not(.tab-active) { background: var(--g-chip-hover); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .tabs-boxed .tab-active:not(.tab-disabled):not([disabled]) {
+  background: oklch(var(--p)); color: oklch(var(--pc)); box-shadow: var(--g-glow);
+}
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .join { border-radius: 9999px; }
+
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .alert {
+  background: var(--g-flat); border: 1px solid var(--g-edge); border-radius: var(--g-radius-sm);
+  color: oklch(var(--bc)); box-shadow: var(--g-hi);
+}
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .alert-info    { background: linear-gradient(oklch(var(--in) / .16), oklch(var(--in) / .16)), var(--g-flat); border-color: oklch(var(--in) / .5); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .alert-success { background: linear-gradient(oklch(var(--su) / .16), oklch(var(--su) / .16)), var(--g-flat); border-color: oklch(var(--su) / .5); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .alert-warning { background: linear-gradient(oklch(var(--wa) / .16), oklch(var(--wa) / .16)), var(--g-flat); border-color: oklch(var(--wa) / .55); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .alert-error   { background: linear-gradient(oklch(var(--er) / .16), oklch(var(--er) / .16)), var(--g-flat); border-color: oklch(var(--er) / .55); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .alert-info > svg    { color: oklch(var(--in)); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .alert-success > svg { color: oklch(var(--su)); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .alert-warning > svg { color: oklch(var(--wa)); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .alert-error > svg   { color: oklch(var(--er)); }
+
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .chat-bubble {
+  background: var(--g-chip); color: oklch(var(--bc)); border: 1px solid var(--g-edge);
+  border-radius: 1.25rem; box-shadow: var(--g-hi);
+}
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .chat-bubble-primary { background: oklch(var(--p)); color: oklch(var(--pc)); border-color: transparent; }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .chat-bubble-secondary { background: oklch(var(--s)); color: oklch(var(--sc)); border-color: transparent; }
+
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .table { color: oklch(var(--bc)); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .table :where(thead, tfoot) { color: oklch(var(--bcm)); border-color: var(--g-edge); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .table :where(th, td) { border-color: var(--g-edge); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .table :where(tbody tr):hover { background: var(--g-chip); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .table-zebra tbody tr:nth-child(even) { background: var(--g-chip); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) :is(.mockup-code, pre.glass-code) {
+  background: rgb(6 10 26 / .78); color: #e8ecfa; border: 1px solid var(--g-edge); border-radius: var(--g-radius-sm);
+}
+
+/* ---------- 5. Controls ---------------------------------------------------- */
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .btn {
+  border-radius: 9999px; letter-spacing: .01em;
+  background: var(--g-chip); border-color: var(--g-edge); color: oklch(var(--bc)); box-shadow: var(--g-hi);
+}
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .btn:hover:not(:disabled):not(.btn-disabled) { background: var(--g-chip-hover); border-color: var(--g-edge); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .btn-ghost { background: transparent; border-color: transparent; box-shadow: none; }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .btn-ghost:hover:not(:disabled) { background: var(--g-chip-hover); border-color: transparent; }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .btn-outline { background: transparent; border-color: var(--g-edge-strong); box-shadow: none; }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .btn-neutral { background: var(--g-chip-hover); color: oklch(var(--bc)); border-color: var(--g-edge); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .btn-link { background: transparent; box-shadow: none; border-color: transparent; color: oklch(var(--a)); text-decoration: underline; }
+/* solid variants keep DaisyUI content colours (all >= 4.5:1, see NOTES.md) + a soft coloured glow */
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .btn-primary   { background: oklch(var(--p));  color: oklch(var(--pc));  border-color: transparent; box-shadow: var(--g-hi), 0 6px 20px -8px oklch(var(--p) / .7); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .btn-secondary { background: oklch(var(--s));  color: oklch(var(--sc));  border-color: transparent; box-shadow: var(--g-hi), 0 6px 20px -8px oklch(var(--s) / .6); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .btn-accent    { background: oklch(var(--a));  color: oklch(var(--ac));  border-color: transparent; box-shadow: var(--g-hi), 0 6px 20px -8px oklch(var(--a) / .6); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .btn-info      { background: oklch(var(--in)); color: oklch(var(--inc)); border-color: transparent; }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .btn-success   { background: oklch(var(--su)); color: oklch(var(--suc)); border-color: transparent; }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .btn-warning   { background: oklch(var(--wa)); color: oklch(var(--wac)); border-color: transparent; }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .btn-error     { background: oklch(var(--er)); color: oklch(var(--erc)); border-color: transparent; }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) :is(.btn-primary, .btn-secondary, .btn-accent, .btn-info, .btn-success, .btn-warning, .btn-error):hover:not(:disabled) { filter: brightness(1.07); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .btn:is(:disabled, .btn-disabled), 
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .btn[disabled] { opacity: .5; background: var(--g-chip); color: oklch(var(--bc)); box-shadow: none; }
+
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) :is(.input, .textarea, .select) {
+  background: var(--g-input); border: 1px solid var(--g-edge-strong); color: oklch(var(--bc));
+  border-radius: var(--g-radius-sm); box-shadow: inset 0 1px 2px rgb(0 0 0 / .08);
+}
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .input, 
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .select { border-radius: 9999px; }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .textarea { border-radius: 1.25rem; }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) :is(.input, .textarea, .select)::placeholder { color: oklch(var(--bcm)); opacity: 1; }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .select option { background: var(--g-select-bg); color: oklch(var(--bc)); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) :is(.input, .textarea, .select):focus,
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) :is(.input, .textarea, .select):focus-within { border-color: var(--g-ring); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .label-text { color: oklch(var(--bc)); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .label-text-alt { color: oklch(var(--bcm)); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) :is(.toggle, .checkbox, .radio) { border-color: var(--g-edge-strong); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .toggle { background-color: var(--g-chip-hover); color: oklch(var(--bc)); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .toggle:checked { background-color: oklch(var(--p)); border-color: oklch(var(--p)); color: oklch(var(--pc)); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .progress { background-color: var(--g-chip-hover); }
+
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .badge {
+  background: var(--g-chip); border: 1px solid var(--g-edge); color: oklch(var(--bc)); height: 1.5rem;
+}
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .badge-primary   { background: oklch(var(--p));  color: oklch(var(--pc));  border-color: transparent; }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .badge-secondary { background: oklch(var(--s));  color: oklch(var(--sc));  border-color: transparent; }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .badge-accent    { background: oklch(var(--a));  color: oklch(var(--ac));  border-color: transparent; }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .badge-info      { background: oklch(var(--in)); color: oklch(var(--inc)); border-color: transparent; }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .badge-success   { background: oklch(var(--su)); color: oklch(var(--suc)); border-color: transparent; }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .badge-warning   { background: oklch(var(--wa)); color: oklch(var(--wac)); border-color: transparent; }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .badge-error     { background: oklch(var(--er)); color: oklch(var(--erc)); border-color: transparent; }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .badge-outline   { background: transparent; border-color: var(--g-edge-strong); color: oklch(var(--bc)); }
+
+/* menus */
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .menu { color: oklch(var(--bc)); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .menu :where(li:not(.menu-title) > *:not(ul, details, .menu-title)):not(.active):hover,
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .menu :where(li:not(.menu-title) > *:not(ul, details, .menu-title)):not(.active):focus { background: var(--g-chip-hover); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .menu li > *:not(ul, .menu-title, details) { border-radius: var(--g-radius-sm); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .menu :where(li > .active, li > *:not(ul, .menu-title, details):active) {
+  background: linear-gradient(oklch(var(--p) / .2), oklch(var(--p) / .2)), var(--g-chip);
+  color: oklch(var(--bc)); box-shadow: inset 2px 0 0 oklch(var(--p));
+}
+[data-theme="ptah-glass-light"] .menu :where(li > .active, li > *:not(ul, .menu-title, details):active) {
+  background: linear-gradient(oklch(var(--a) / .14), oklch(var(--a) / .14)), var(--g-chip); box-shadow: inset 2px 0 0 oklch(var(--a));
+}
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .menu-title { color: oklch(var(--bcm)); opacity: 1; }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .divider::before,
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .divider::after { background-color: var(--g-edge); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .kbd { background: var(--g-chip); border-color: var(--g-edge); color: oklch(var(--bc)); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .text-base-content-muted { color: oklch(var(--bcm)); }
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) :is(a, .link) { color: oklch(var(--a)); }
+
+/* ---------- 6. Visible focus (>= 3:1, on every control) ---------------------- */
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) :is(a, button, input, select, textarea, summary, [tabindex], .btn, .tab, .toggle, .checkbox, .radio, .menu a):focus-visible {
+  outline: 2px solid var(--g-ring); outline-offset: 2px;
+}
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) :is(.input, .textarea, .select):focus { outline: 2px solid var(--g-ring); outline-offset: 2px; }
+
+/* thin translucent scrollbars (Chromium / Electron) */
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) * { scrollbar-width: thin; scrollbar-color: var(--g-edge-strong) transparent; }
+
+/* ---------- 7. Opt-out + fallbacks -------------------------------------------- */
+:is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) .glass-flat { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--g-flat); }
+
+/* No backdrop-filter support: raise opacity so text contrast does not depend on the blur */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  [data-theme="ptah-glass"] { --g-card: rgb(14 22 52 / .92); --g-bar: rgb(10 16 40 / .94); --g-pop: rgb(14 22 52 / .97); --g-flat: rgb(14 22 52 / .9); }
+  [data-theme="ptah-glass-light"] { --g-card: rgb(255 255 255 / .9); --g-bar: rgb(255 255 255 / .92); --g-pop: rgb(255 255 255 / .97); --g-flat: rgb(255 255 255 / .88); }
+}
+/* prefers-reduced-transparency: opaque fills, no blur, flat backdrop */
+@media (prefers-reduced-transparency: reduce) {
+  [data-theme="ptah-glass"] {
+    --g-bf: none; --g-bf-sm: none;
+    --g-card: #101a3a; --g-card-nested: rgb(255 255 255 / .06); --g-pop: #0f1733; --g-bar: #0c1430; --g-flat: #101a3a;
+    --g-chip: #1a2549; --g-chip-hover: #243061; --g-input: #0c1430; --g-scrim: rgb(2 4 12 / .72);
+  }
+  [data-theme="ptah-glass-light"] {
+    --g-bf: none; --g-bf-sm: none;
+    --g-card: #ffffff; --g-card-nested: #f4effc; --g-pop: #ffffff; --g-bar: #fbf8ff; --g-flat: #ffffff;
+    --g-chip: #f0eafa; --g-chip-hover: #e4dcf4; --g-input: #ffffff; --g-scrim: rgb(40 30 80 / .5);
+  }
+  html[data-theme="ptah-glass"]::before { background: linear-gradient(170deg, #070c1d, #0b1230); }
+  html[data-theme="ptah-glass-light"]::before { background: linear-gradient(135deg, #e6dff8, #f6e1d3); }
+}
+@media (prefers-reduced-motion: reduce) {
+  :is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) *,
+  :is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) *::before,
+  :is([data-theme="ptah-glass"], [data-theme="ptah-glass-light"]) *::after {
+    animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important;
+  }
+}

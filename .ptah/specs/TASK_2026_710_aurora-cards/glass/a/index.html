@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en" data-theme="ptah-glass">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ptah glass — theme prototype</title>
+<link rel="stylesheet" href="file:///D:/projects/ptah-extension/node_modules/daisyui/dist/full.css">
+<link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="glass-layer.css">
+<style>
+  /* prototype layout only (flex/grid); everything visual comes from DaisyUI + the glass layer */
+  *{box-sizing:border-box}
+  html,body{margin:0;min-height:100%}
+  body{font-family:Inter,system-ui,"Segoe UI",sans-serif;font-size:14px;color:oklch(var(--bc))}
+  .shell{display:grid;grid-template-columns:260px minmax(0,1fr) 300px;grid-template-rows:auto 1fr;gap:16px;padding:16px;height:100vh;min-height:640px}
+  .shell>.glass-sidebar{grid-row:1/3;border-radius:var(--g-radius);padding:12px;display:flex;flex-direction:column;gap:8px;overflow:hidden}
+  .shell>.navbar{grid-column:2/4;min-height:3.5rem;padding:.25rem .75rem}
+  .col{display:flex;flex-direction:column;gap:12px;min-height:0}
+  .chat-scroll{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:12px;padding:4px}
+  .composer{display:flex;flex-direction:column;gap:8px;padding:12px}
+  .composer-row{display:flex;gap:8px;align-items:flex-end}
+  .composer textarea{flex:1;min-height:3rem;resize:none}
+  .side-right{display:flex;flex-direction:column;gap:12px;overflow:auto;min-height:0}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .muted{color:oklch(var(--bcm))}
+  .brand{font-weight:700;letter-spacing:.02em;color:oklch(var(--p))}
+  pre{margin:0;padding:12px 14px;font:12px/1.5 ui-monospace,Consolas,monospace;overflow:auto}
+  .strip{padding:20px;display:grid;gap:20px;margin:0 16px 16px}
+  .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
+  .stage{position:relative;min-height:230px;display:grid;align-items:center;justify-items:center;overflow:hidden;border-radius:var(--g-radius-sm)}
+  .stage .modal{position:absolute}
+  .menu-stage{min-height:230px}
+  h3.sec{margin:0 0 8px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:oklch(var(--bcm))}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;padding:0 16px 24px}
+  .hero{display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;padding:20px}
+  .logo{width:56px;height:56px;border-radius:9999px;display:grid;place-items:center;font-size:24px;color:oklch(var(--pc));background:oklch(var(--p));box-shadow:var(--g-glow)}
+  .dot{width:8px;height:8px;border-radius:9999px;display:inline-block}
+  @media (max-width:1100px){.shell{grid-template-columns:220px 1fr;height:auto}.side-right{grid-column:2}.shell>.navbar{grid-column:2}}
+</style>
+</head>
+<body>
+<div class="shell">
+  <!-- Sidebar: session list -->
+  <aside class="glass-sidebar" aria-label="Sessions">
+    <div class="row" style="padding:4px 4px 8px">
+      <span class="logo" style="width:32px;height:32px;font-size:16px" aria-hidden="true">𓂀</span>
+      <span class="brand">Ptah</span>
+      <span class="badge badge-ghost badge-sm" style="margin-left:auto">glass</span>
+    </div>
+    <button class="btn btn-primary btn-sm" type="button">＋ New session</button>
+    <input class="input input-sm" type="search" placeholder="Search sessions" aria-label="Search sessions">
+    <ul class="menu menu-sm" style="padding:0;flex:1;overflow:auto">
+      <li class="menu-title">Today</li>
+      <li><a class="active" href="#" aria-current="page"><span class="dot" style="background:var(--state-ink-run)"></span>Refactor DI registration</a></li>
+      <li><a href="#"><span class="dot" style="background:var(--state-ink-need)"></span>Fix license webhook</a></li>
+      <li><a href="#"><span class="dot" style="background:var(--state-ink-done)"></span>Add glass theme</a></li>
+      <li class="menu-title">Earlier</li>
+      <li><a href="#"><span class="dot" style="background:var(--state-ink-idle)"></span>Docs sidebar order</a></li>
+      <li><a href="#"><span class="dot" style="background:var(--state-ink-err)"></span>Codex adapter timeout</a></li>
+      <li><a href="#"><span class="dot" style="background:var(--state-ink-idle)"></span>Remotion intro</a></li>
+    </ul>
+    <div class="row muted" style="font-size:12px;padding:4px"><span class="dot" style="background:var(--state-ink-done)"></span>Connected · Claude</div>
+  </aside>
+
+  <!-- Navbar -->
+  <header class="navbar">
+    <div style="flex:1" class="row">
+      <strong>Refactor DI registration</strong>
+      <span class="badge badge-secondary badge-sm">Opus</span>
+    </div>
+    <div class="row" role="group" aria-label="Theme">
+      <div class="join">
+        <button class="btn btn-sm join-item" id="t-dark" type="button" aria-pressed="true">Dark</button>
+        <button class="btn btn-sm join-item" id="t-light" type="button" aria-pressed="false">Light</button>
+      </div>
+      <button class="btn btn-ghost btn-sm btn-circle" type="button" aria-label="Search">⌕</button>
+      <button class="btn btn-ghost btn-sm btn-circle" type="button" aria-label="Notifications">🔔</button>
+      <button class="btn btn-ghost btn-sm btn-circle" type="button" aria-label="Settings">⚙</button>
+      <div class="avatar placeholder"><div class="bg-neutral text-neutral-content rounded-full w-8"><span class="text-xs">AB</span></div></div>
+    </div>
+  </header>
+
+  <!-- Chat column -->
+  <main class="col">
+    <div class="chat-scroll" tabindex="0" aria-label="Conversation">
+      <div class="chat chat-end"><div class="chat-bubble chat-bubble-primary">Move the provider registration into the per-lib registration.ts.</div></div>
+      <div class="chat chat-start" style="display:block">
+        <div class="chat-bubble" style="max-width:100%">I’ll register the tokens in <code>di/tokens.ts</code> and keep resolution in the composition roots.
+          <pre class="glass-code" style="margin-top:10px;border-radius:12px"><span class="muted" style="color:#a8b0c4">// libs/backend/agent/src/di/registration.ts</span>
+container.register(TOKENS.AGENT_RUNNER, { useClass: AgentRunner });</pre>
+        </div>
+        <div class="collapse collapse-arrow" style="margin-top:8px">
+          <input type="checkbox" checked aria-label="Toggle tool call">
+          <div class="collapse-title text-sm font-medium">🛠 ptah_search_files · 3 results</div>
+          <div class="collapse-content text-sm muted"><p>libs/backend/agent/src/di/registration.ts<br>libs/backend/agent/src/di/tokens.ts<br>apps/ptah-electron/src/di/phase-2-agent.ts</p></div>
+        </div>
+      </div>
+    </div>
+    <div class="card composer">
+      <textarea class="textarea" placeholder="Message Ptah…" aria-label="Message"></textarea>
+      <div class="composer-row">
+        <button class="btn btn-ghost btn-sm" type="button">📎 Attach</button>
+        <button class="btn btn-ghost btn-sm" type="button">@ Mention</button>
+        <span class="muted" style="font-size:12px;margin-left:auto">Enter to send</span>
+        <button class="btn btn-primary btn-sm" type="button">Send</button>
+      </div>
+    </div>
+  </main>
+
+  <!-- Right panel -->
+  <aside class="side-right" aria-label="Session stats">
+    <div class="card"><div class="card-body" style="padding:16px">
+      <h2 class="card-title text-sm">Context</h2>
+      <div class="stat-value" style="font-size:1.75rem;font-weight:700">64%</div>
+      <progress class="progress progress-primary" value="64" max="100" aria-label="Context used"></progress>
+      <p class="muted text-xs">128k of 200k tokens</p>
+    </div></div>
+    <div class="card"><div class="card-body" style="padding:16px">
+      <h2 class="card-title text-sm">Cost</h2>
+      <div class="stats" style="width:100%">
+        <div class="stat" style="padding:.5rem .75rem"><div class="stat-title">Today</div><div class="stat-value text-lg">$2.41</div><div class="stat-desc">↗︎ 12%</div></div>
+        <div class="stat" style="padding:.5rem .75rem"><div class="stat-title">Month</div><div class="stat-value text-lg">$38</div><div class="stat-desc">of $100</div></div>
+      </div>
+    </div></div>
+    <div class="card"><div class="card-body" style="padding:16px">
+      <h2 class="card-title text-sm">Agents</h2>
+      <div class="row"><span class="badge badge-success badge-sm">3 done</span><span class="badge badge-warning badge-sm">1 needs input</span><span class="badge badge-error badge-sm">1 failed</span></div>
+    </div></div>
+  </aside>
+</div>
+
+<!-- Setup surfaces from libs/frontend/chat/.../setup-plugins -->
+<section class="tiles" aria-label="Setup surfaces">
+  <div class="card" style="padding:16px">
+    <section aria-labelledby="get-ready-title">
+      <div class="row" style="align-items:flex-start">
+        <div style="flex:1;min-width:0">
+          <p class="text-[10px]" style="margin:0 0 4px;font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:oklch(var(--s))">Before you begin</p>
+          <h2 id="get-ready-title" style="margin:0;font-size:14px;font-weight:600">Get ready</h2>
+          <p class="muted" style="margin:4px 0 0;font-size:12px">Prepare your skills and agents so Ptah can understand your workspace.</p>
+        </div>
+        <span class="badge badge-ghost" aria-live="polite">1 of 2 ready</span>
+      </div>
+      <div style="margin-top:12px">
+        <div class="row" style="padding:8px 0;border-top:1px solid var(--g-edge)"><span class="glass-nested" style="width:28px;height:28px;border-radius:10px;display:grid;place-items:center;background:var(--g-chip)" aria-hidden="true">✓</span><span style="flex:1;font-size:12px"><strong>Skills</strong><br><span class="muted">Ready</span></span><button class="btn btn-xs btn-outline" type="button">Open Library</button></div>
+        <div class="row" style="padding:8px 0;border-top:1px solid var(--g-edge)"><span style="width:28px;height:28px;border-radius:10px;display:grid;place-items:center;background:var(--g-chip)" aria-hidden="true">🤖</span><span style="flex:1;font-size:12px"><strong>Agents</strong><br><span class="muted">Not configured</span></span><button class="btn btn-xs btn-outline" type="button">Configure</button></div>
+        <div class="row" style="padding:8px 0;border-top:1px solid var(--g-edge)"><span style="width:28px;height:28px;border-radius:10px;display:grid;place-items:center;background:var(--g-chip)" aria-hidden="true">⌖</span><span style="flex:1;font-size:12px"><strong>Project scan</strong><br><span class="muted">Run setup to scan this workspace</span></span><button class="btn btn-xs btn-outline" type="button">Run setup</button></div>
+      </div>
+      <div role="alert" class="alert alert-warning" style="margin-top:12px;padding:8px 12px;font-size:12px"><span>Could not check setup. Please try again.</span><button class="btn btn-xs btn-outline" type="button">Retry</button></div>
+    </section>
+  </div>
+
+  <div class="card">
+    <div class="hero">
+      <span class="logo" aria-hidden="true">𓂀</span>
+      <h1 style="margin:0;font-size:22px;font-weight:700;color:oklch(var(--p))">Get started</h1>
+      <p class="muted" style="margin:0;font-size:13px">Ancient Wisdom · Master Craftsman</p>
+      <div class="row" style="justify-content:center;margin-top:8px">
+        <button class="btn btn-sm" type="button">Explain this codebase</button>
+        <button class="btn btn-sm" type="button">Find failing tests</button>
+        <button class="btn btn-sm" type="button">Review my diff</button>
+      </div>
+      <p class="muted" style="margin:10px 0 0;font-size:12px;letter-spacing:.2em" aria-hidden="true">𓂀 𓋹 𓆣</p>
+    </div>
+  </div>
+</section>
+
+<!-- Components strip -->
+<section class="card strip" aria-label="Components">
+  <div>
+    <h3 class="sec">Buttons</h3>
+    <div class="row">
+      <button class="btn" type="button">Default</button>
+      <button class="btn btn-primary" type="button">Primary</button>
+      <button class="btn btn-secondary" type="button">Secondary</button>
+      <button class="btn btn-accent" type="button">Accent</button>
+      <button class="btn btn-neutral" type="button">Neutral</button>
+      <button class="btn btn-ghost" type="button">Ghost</button>
+      <button class="btn btn-outline" type="button">Outline</button>
+      <button class="btn btn-link" type="button">Link</button>
+      <button class="btn btn-info" type="button">Info</button>
+      <button class="btn btn-success" type="button">Success</button>
+      <button class="btn btn-warning" type="button">Warning</button>
+      <button class="btn btn-error" type="button">Error</button>
+      <button class="btn" type="button" disabled>Disabled</button>
+      <button class="btn btn-primary btn-sm" type="button">Small</button>
+      <button class="btn btn-primary btn-circle btn-sm" type="button" aria-label="Add">＋</button>
+    </div>
+  </div>
+  <div class="grid2">
+    <div>
+      <h3 class="sec">Inputs</h3>
+      <div style="display:grid;gap:8px">
+        <input class="input" type="text" placeholder="Text input" aria-label="Text input">
+        <select class="select" aria-label="Model"><option>Claude Opus</option><option>Codex</option><option>Gemini</option></select>
+        <textarea class="textarea" placeholder="Textarea" aria-label="Textarea"></textarea>
+        <label class="row"><input type="checkbox" class="toggle toggle-primary" checked> <span>Auto-approve reads</span></label>
+        <label class="row"><input type="checkbox" class="checkbox checkbox-primary" checked> <span>Checkbox</span></label>
+        <label class="row"><input type="radio" name="r" class="radio radio-primary" checked> <span>Radio</span></label>
+      </div>
+    </div>
+    <div>
+      <h3 class="sec">Tabs · badges · progress · tooltip</h3>
+      <div style="display:grid;gap:12px">
+        <div role="tablist" class="tabs tabs-boxed" style="width:fit-content"><a role="tab" class="tab tab-active" aria-selected="true">Chat</a><a role="tab" class="tab">Files</a><a role="tab" class="tab">Agents</a></div>
+        <div class="row"><span class="badge">default</span><span class="badge badge-primary">primary</span><span class="badge badge-secondary">secondary</span><span class="badge badge-accent">accent</span><span class="badge badge-info">info</span><span class="badge badge-success">success</span><span class="badge badge-warning">warning</span><span class="badge badge-error">error</span><span class="badge badge-outline">outline</span></div>
+        <progress class="progress progress-primary" value="40" max="100" aria-label="Progress 40%"></progress>
+        <progress class="progress progress-secondary" value="70" max="100" aria-label="Progress 70%"></progress>
+        <div class="row"><div class="tooltip tooltip-open tooltip-top" data-tip="Copy to clipboard"><button class="btn btn-sm" type="button">Hover me</button></div><span class="loading loading-spinner loading-md" style="color:oklch(var(--p))" aria-label="Loading"></span><span class="kbd kbd-sm">Ctrl</span><span class="kbd kbd-sm">K</span></div>
+      </div>
+    </div>
+  </div>
+  <div>
+    <h3 class="sec">Alerts</h3>
+    <div class="grid2">
+      <div role="alert" class="alert alert-info"><span>ⓘ New version available.</span></div>
+      <div role="alert" class="alert alert-success"><span>✓ Session saved.</span></div>
+      <div role="alert" class="alert alert-warning"><span>⚠ Approaching context limit.</span></div>
+      <div role="alert" class="alert alert-error"><span>✕ Provider request failed.</span></div>
+    </div>
+  </div>
+  <div class="grid2">
+    <div>
+      <h3 class="sec">Dropdown (open)</h3>
+      <div class="menu-stage glass-flat" style="border-radius:var(--g-radius-sm);padding:12px">
+        <div class="dropdown dropdown-open"><button class="btn btn-sm" type="button" aria-haspopup="true" aria-expanded="true">Actions ▾</button>
+          <ul class="dropdown-content menu menu-sm" style="width:12rem;padding:8px;z-index:2" role="menu">
+            <li><a href="#">Rename session</a></li><li><a class="active" href="#">Duplicate</a></li><li><a href="#">Export…</a></li><li><a href="#">Delete</a></li>
+          </ul></div>
+      </div>
+    </div>
+    <div>
+      <h3 class="sec">Modal (open)</h3>
+      <div class="stage glass-flat">
+        <div class="modal modal-open" role="dialog" aria-modal="true" aria-labelledby="m-title">
+          <div class="modal-box" style="max-width:22rem">
+            <h3 id="m-title" style="margin:0;font-weight:700;font-size:16px">Delete session?</h3>
+            <p class="muted" style="margin:8px 0 0">This removes the transcript from this device.</p>
+            <div class="modal-action"><button class="btn btn-ghost btn-sm" type="button">Cancel</button><button class="btn btn-error btn-sm" type="button">Delete</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div>
+    <h3 class="sec">Table</h3>
+    <div style="overflow:auto">
+      <table class="table table-zebra">
+        <thead><tr><th>Agent</th><th>Provider</th><th>Status</th><th>Cost</th></tr></thead>
+        <tbody>
+          <tr><td>Refactor DI</td><td>Claude</td><td><span class="badge badge-success badge-sm">done</span></td><td>$0.84</td></tr>
+          <tr><td>Webhook fix</td><td>Codex</td><td><span class="badge badge-warning badge-sm">needs input</span></td><td>$0.31</td></tr>
+          <tr><td>Docs order</td><td>Gemini</td><td><span class="badge badge-error badge-sm">failed</span></td><td>$0.05</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<script>
+  // prototype-only theme toggle
+  const root = document.documentElement, d = document.getElementById('t-dark'), l = document.getElementById('t-light');
+  function set(t){ root.dataset.theme = t; d.setAttribute('aria-pressed', t==='ptah-glass'); l.setAttribute('aria-pressed', t==='ptah-glass-light'); }
+  d.onclick = () => set('ptah-glass'); l.onclick = () => set('ptah-glass-light');
+  if (location.hash === '#light') set('ptah-glass-light');
+</script>
+</body>
+</html>

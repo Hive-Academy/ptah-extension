@@ -1,0 +1,127 @@
+/* Portable appearance layer. Keep it after DaisyUI's generated stylesheet. */
+:where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) {
+  --glass-fill: rgb(19 32 48 / .91);
+  --glass-fill-soft: rgb(28 43 61 / .86);
+  --glass-fill-strong: rgb(16 27 42 / .96);
+  --glass-line: rgb(238 249 250 / .45);
+  --glass-highlight: rgb(255 255 255 / .14);
+  --glass-shadow: 0 20px 50px rgb(2 11 24 / .27), inset 0 1px 0 var(--glass-highlight);
+  --glass-small-shadow: 0 10px 28px rgb(3 13 25 / .19), inset 0 1px 0 var(--glass-highlight);
+  --glass-focus: #F2CE78;
+  --surface-0: rgb(16 27 42 / .96);
+  --surface-1: rgb(19 32 48 / .91);
+  --surface-2: rgb(28 43 61 / .86);
+  --surface-3: rgb(32 48 66 / .9);
+  --surface-border: var(--glass-line);
+  --surface-highlight: var(--glass-highlight);
+  --elev-shadow: var(--glass-small-shadow);
+  background: radial-gradient(ellipse 60% 65% at 12% 10%, #245779 0%, transparent 74%),
+              radial-gradient(ellipse 48% 50% at 86% 16%, #256e6b 0%, transparent 78%),
+              radial-gradient(ellipse 50% 55% at 62% 93%, #735a38 0%, transparent 78%),
+              linear-gradient(135deg, #0b1729 10%, #14293b 50%, #161b30 100%);
+  background-attachment: fixed;
+  color: oklch(var(--bc));
+}
+:where([data-theme=ptah-glass-light]) {
+  --glass-fill: rgb(255 252 255 / .90);
+  --glass-fill-soft: rgb(252 249 255 / .85);
+  --glass-fill-strong: rgb(255 253 255 / .97);
+  --glass-line: rgb(85 67 113 / .62);
+  --glass-highlight: rgb(255 255 255 / .82);
+  --glass-shadow: 0 20px 48px rgb(72 58 108 / .16), inset 0 1px 0 var(--glass-highlight);
+  --glass-small-shadow: 0 10px 26px rgb(75 58 103 / .13), inset 0 1px 0 var(--glass-highlight);
+  --glass-focus: #51449A;
+  --surface-0: rgb(255 253 255 / .97);
+  --surface-1: rgb(255 252 255 / .90);
+  --surface-2: rgb(252 249 255 / .85);
+  --surface-3: rgb(252 249 255 / .92);
+  --surface-border: var(--glass-line);
+  background: radial-gradient(ellipse 58% 62% at 13% 12%, #b7c8f3 0%, transparent 72%),
+              radial-gradient(ellipse 58% 62% at 88% 15%, #dfc8ee 0%, transparent 75%),
+              radial-gradient(ellipse 65% 60% at 77% 92%, #f2c9b4 0%, transparent 76%),
+              linear-gradient(135deg, #e5e6fa 0%, #eee3f1 50%, #f5e3d5 100%);
+}
+:where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) body { min-height: 100vh; background: transparent; }
+:where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) .glass-shell {
+  background-color: var(--glass-fill-soft);
+  border: 1px solid var(--glass-line);
+  border-radius: 2rem;
+}
+
+/* Only bounded, relatively static surfaces get a blur. */
+:where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) :is(.card, .modal-box, .dropdown-content, .menu, .navbar, .collapse, .alert, .tabs-boxed, .join, .tooltip, .glass-panel, .surface-3) {
+  background-color: var(--glass-fill);
+  border: 1px solid var(--glass-line);
+  box-shadow: var(--glass-small-shadow);
+  backdrop-filter: blur(8px) saturate(1.12);
+  -webkit-backdrop-filter: blur(8px) saturate(1.12);
+}
+:where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) :is(.modal-box, .glass-shell) {
+  box-shadow: var(--glass-shadow);
+}
+:where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) .drawer-side > :not(.drawer-overlay) {
+  background-color: var(--glass-fill-strong);
+  border-right: 1px solid var(--glass-line);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+:where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) :is(.card, .modal-box, .collapse, .alert, .glass-panel, .glass-shell) { border-radius: 1.5rem; }
+:where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) :is(.dropdown-content, .menu, .tabs-boxed, .join) { border-radius: 1rem; }
+
+/* List rows and message bubbles use translucent pigment without per-row blur. */
+:where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) :is(.chat-bubble, .badge, .table, .input, .textarea, .select) {
+  background-color: var(--glass-fill-soft);
+  border-color: var(--glass-line);
+  color: oklch(var(--bc));
+}
+:where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) .btn:not(.btn-primary):not(.btn-secondary):not(.btn-accent):not(.btn-neutral):not(.btn-info):not(.btn-success):not(.btn-warning):not(.btn-error):not(.btn-link) {
+  background-color: var(--glass-fill-soft);
+  border-color: var(--glass-line);
+  color: oklch(var(--bc));
+}
+:where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) :is(.input, .textarea, .select) { box-shadow: inset 0 1px 2px rgb(0 0 0 / .08); }
+:where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) .chat-bubble-primary { background-color: oklch(var(--p)); color: oklch(var(--pc)); }
+:where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) .chat-bubble-secondary { background-color: oklch(var(--s)); color: oklch(var(--sc)); }
+:where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) .badge-primary { background-color: oklch(var(--p)); color: oklch(var(--pc)); }
+:where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) .badge-secondary { background-color: oklch(var(--s)); color: oklch(var(--sc)); }
+:where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) .badge-accent { background-color: oklch(var(--a)); color: oklch(var(--ac)); }
+:where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) .badge-info { background-color: oklch(var(--in)); color: oklch(var(--inc)); }
+:where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) .badge-success { background-color: oklch(var(--su)); color: oklch(var(--suc)); }
+:where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) .badge-warning { background-color: oklch(var(--wa)); color: oklch(var(--wac)); }
+:where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) .badge-error { background-color: oklch(var(--er)); color: oklch(var(--erc)); }
+:where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) .badge-neutral { background-color: oklch(var(--n)); color: oklch(var(--nc)); }
+:where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) .btn-neutral { background-color: oklch(var(--n)); color: oklch(var(--nc)); }
+:where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) .alert { color: oklch(var(--bc)); }
+:where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) .alert-info { background-color: oklch(var(--in) / .94); color: oklch(var(--inc)); }
+:where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) .alert-success { background-color: oklch(var(--su) / .94); color: oklch(var(--suc)); }
+:where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) .alert-warning { background-color: oklch(var(--wa) / .94); color: oklch(var(--wac)); }
+:where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) .alert-error { background-color: oklch(var(--er) / .94); color: oklch(var(--erc)); }
+:where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) .btn-outline { border-color: var(--glass-line); }
+:where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) :is(.bg-base-100, .bg-base-200, .bg-base-300) { background-color: var(--glass-fill-soft); }
+:where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) .table :is(th, td) { border-color: var(--glass-line); }
+:where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) .table-zebra tbody tr:nth-child(even) { background: var(--glass-fill-soft); }
+:where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) .tooltip::before { background: var(--glass-fill-strong); color: oklch(var(--bc)); border: 1px solid var(--glass-line); }
+:where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) .text-base-content-muted { color: oklch(var(--bcm)); }
+
+:where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) :is(a, button, input, textarea, select, summary, [tabindex]):focus-visible {
+  outline: 3px solid var(--glass-focus);
+  outline-offset: 3px;
+}
+@media (prefers-reduced-transparency: reduce) {
+  :where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) {
+    --glass-fill: #172638; --glass-fill-soft: #223449; --glass-fill-strong: #152335;
+  }
+  :where([data-theme=ptah-glass-light]) {
+    --glass-fill: #FCFAFF; --glass-fill-soft: #F1ECF9; --glass-fill-strong: #FFFFFF;
+  }
+  :where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) :is(.card, .modal-box, .dropdown-content, .menu, .navbar, .collapse, .alert, .tabs-boxed, .join, .tooltip, .glass-panel, .surface-3, .drawer-side > :not(.drawer-overlay)) {
+    backdrop-filter: none; -webkit-backdrop-filter: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) *,
+  :where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) *::before,
+  :where([data-theme=ptah-glass], [data-theme=ptah-glass-light]) *::after {
+    animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important;
+  }
+}

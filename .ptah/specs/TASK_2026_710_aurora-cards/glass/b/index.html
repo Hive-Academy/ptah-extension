@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en" data-theme="ptah-glass">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ptah Glass · Theme Prototype</title>
+  <link rel="stylesheet" href="file:///D:/projects/ptah-extension/node_modules/daisyui/dist/full.css">
+  <link rel="stylesheet" href="theme.css">
+  <link rel="stylesheet" href="glass-layer.css">
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 14px; }
+    .page { max-width: 1720px; margin: auto; padding: 24px; }
+    .page-heading { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 18px; margin-bottom: 18px; }
+    .eyebrow { text-transform: uppercase; letter-spacing: .18em; font-size: 11px; font-weight: 800; color: oklch(var(--s)); }
+    .page-heading h1 { font-size: clamp(24px, 3vw, 34px); line-height: 1.1; margin: 5px 0; }
+    .muted { color: oklch(var(--bcm)); }
+    .theme-switch { display: flex; gap: 8px; padding: 6px; border-radius: 999px; }
+    .theme-switch .btn { min-width: 145px; border-radius: 999px; }
+    .app-shell { display: grid; grid-template-columns: 240px minmax(380px,1fr) 290px; grid-template-rows: auto minmax(700px, auto); gap: 14px; padding: 14px; }
+    .app-top { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 10px 16px; min-height: 58px; }
+    .brand { display: flex; align-items: center; gap: 12px; font-weight: 800; letter-spacing: .04em; }
+    .brand-mark { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 12px; background: oklch(var(--s)); color: oklch(var(--sc)); font-size: 23px; font-family: Georgia,serif; }
+    .top-actions,.row,.component-row,.composer-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+    .top-actions { justify-content: flex-end; }
+    .icon-btn { width: 38px; min-height: 38px; padding: 0; font-size: 17px; }
+    .sidebar,.chat-column,.inspector { min-width: 0; padding: 18px; }
+    .sidebar,.inspector { display: flex; flex-direction: column; gap: 16px; }
+    .sidebar h2,.inspector h2 { margin: 0; font-size: 17px; }
+    .sidebar .menu { padding: 8px; width: 100%; }
+    .sidebar .menu li a { display: flex; justify-content: space-between; border-radius: 12px; }
+    .sidebar .menu li a.active { background: oklch(var(--p)); color: oklch(var(--pc)); }
+    .sidebar-foot { margin-top: auto; }
+    .chat-column { display: flex; flex-direction: column; gap: 16px; }
+    .chat-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--glass-line); }
+    .chat-header h2 { margin: 2px 0; font-size: 18px; }
+    .conversation { display: flex; flex-direction: column; gap: 12px; }
+    .chat-bubble { max-width: min(640px,100%); padding: 13px 16px; line-height: 1.55; }
+    .chat-headerline { font-size: 11px; color: oklch(var(--bcm)); margin-bottom: 4px; }
+    .code { overflow: auto; padding: 16px; border-radius: 16px; background: #101c2c; color: #e7f4e9; font-size: 12px; line-height: 1.5; }
+    .code .keyword { color: #9fd6f8; } .code .string { color: #f4d38d; }
+    .tool-collapse { margin: 8px 0 0 42px; }
+    .collapse-title { font-weight: 650; }
+    .composer { margin-top: auto; padding: 12px; }
+    .composer .textarea { width: 100%; min-height: 85px; resize: vertical; }
+    .composer-actions { justify-content: space-between; margin-top: 10px; }
+    .stat-stack { display: grid; gap: 10px; }
+    .stat-card { padding: 16px; }
+    .stat-card .number { font-size: 26px; line-height: 1.1; font-weight: 750; margin: 6px 0 2px; }
+    .inspector .progress { width: 100%; }
+    .section-title { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin: 28px 0 14px; }
+    .section-title h2 { margin: 0; font-size: 23px; }
+    .showcase { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 14px; }
+    .sample { min-width: 0; padding: 19px; }
+    .sample h3 { margin: 0 0 14px; font-size: 15px; }
+    .sample p { margin: 7px 0; }
+    .sample.wide { grid-column: span 2; }
+    .field-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; }
+    .field-grid label { display: grid; gap: 6px; font-size: 12px; }
+    .field-grid :is(input,select,textarea) { width: 100%; }
+    .sample .tabs { width: max-content; max-width: 100%; }
+    .sample .table-wrap { overflow-x: auto; border-radius: 14px; }
+    .sample-modal { position: relative !important; display: grid !important; inset: auto !important; padding: 0 !important; background: transparent !important; min-height: 190px; width: 100%; }
+    .sample-modal .modal-box { max-width: none; width: 100%; padding: 20px; }
+    .sample-modal::backdrop { display: none; }
+    .empty-state { text-align: center; padding: 14px 20px; }
+    .empty-state .orb { width: 56px; height: 56px; border-radius: 20px; display: grid; place-items: center; margin: auto auto 12px; background: oklch(var(--s)); color: oklch(var(--sc)); font: 32px Georgia,serif; }
+    .empty-state h3 { font-size: 23px; margin: 5px 0; }
+    .setup-row { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-top: 1px solid var(--glass-line); }
+    .setup-row span:first-child { flex: 1; }
+    .setup-card { padding: 18px; }
+    .dropdown-content { min-width: 170px; padding: 7px; }
+    .tooltip-open::before,.tooltip-open::after { opacity: 1 !important; }
+    @media (max-width: 1180px) { .app-shell { grid-template-columns: 220px minmax(0,1fr); } .inspector { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 2fr; } .showcase { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+    @media (max-width: 720px) { .page { padding: 12px; } .app-shell { grid-template-columns: 1fr; } .app-top,.sidebar,.chat-column,.inspector { grid-column: 1; } .sidebar { min-height: auto; } .inspector { display: flex; } .showcase { grid-template-columns: 1fr; } .sample.wide { grid-column: 1; } .field-grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="page-heading">
+      <div><div class="eyebrow">Ptah / design study</div><h1>Glass, with room to think.</h1><div class="muted">One calm surface language for every workspace view.</div></div>
+      <div class="theme-switch glass-panel" role="group" aria-label="Theme"><button class="btn btn-primary" type="button" data-pick="ptah-glass" aria-pressed="true">◐ Dark glass</button><button class="btn" type="button" data-pick="ptah-glass-light" aria-pressed="false">☼ Light glass</button></div>
+    </header>
+
+    <section class="app-shell glass-shell" aria-label="Ptah application shell">
+      <header class="app-top navbar" aria-label="Application toolbar"><div class="brand"><span class="brand-mark" aria-hidden="true">𓊹</span><span>PTAH</span><span class="badge badge-ghost">Workspace</span></div><div class="top-actions"><span class="badge badge-success">● Agent online</span><button class="btn btn-ghost icon-btn" aria-label="Search" type="button">⌕</button><button class="btn btn-ghost icon-btn" aria-label="Notifications" type="button">♢</button><button class="btn btn-ghost icon-btn" aria-label="Settings" type="button">⚙</button></div></header>
+      <aside class="sidebar card" aria-label="Sessions"><div class="row" style="justify-content:space-between"><h2>Sessions</h2><button class="btn btn-primary btn-sm" type="button">＋ New</button></div><label class="input input-bordered" style="display:flex;align-items:center;gap:8px">⌕ <input style="width:100%;background:none;outline:0" aria-label="Search sessions" placeholder="Search sessions"></label><ul class="menu" aria-label="Recent sessions"><li><a href="#conversation" class="active" aria-current="page">Aurora cards <span>●</span></a></li><li><a href="#conversation">Review auth flow <span>⌁</span></a></li><li><a href="#conversation">CLI command design <span>⌁</span></a></li><li><a href="#conversation">Workspace indexing <span>⌁</span></a></li></ul><div class="sidebar-foot"><div class="eyebrow">Current workspace</div><p style="margin:5px 0">ptah-extension</p><div class="muted">main · 4 agents ready</div></div></aside>
+      <section id="conversation" class="chat-column card" aria-label="Chat"><div class="chat-header"><div><div class="eyebrow">Today / design conversation</div><h2>Aurora card prototypes</h2><div class="muted">Claude Sonnet · 3 tools available</div></div><div class="row"><span class="badge badge-outline">Active</span><button class="btn btn-ghost icon-btn" type="button" aria-label="More chat options">⋯</button></div></div><div class="conversation"><div class="chat chat-end"><div class="chat-headerline">You · 10:42</div><div class="chat-bubble chat-bubble-primary">Design a glass theme for the whole Ptah app. Keep the chat readable and the interface quiet.</div></div><div class="chat chat-start"><div class="chat-headerline">Ptah · 10:43</div><div class="chat-bubble">I mapped the shell into three clear zones: navigation, conversation, and context. The backdrop stays still so the content can stay sharp.</div></div><div class="chat chat-start"><div class="chat-bubble"><strong>Theme tokens</strong><p>Two palettes share the same radius, depth, and focus behavior. Only the pigment and backdrop change.</p><pre class="code"><code><span class="keyword">const</span> theme = {
+  radius: <span class="string">'24px'</span>,
+  accent: <span class="string">'gold'</span>,
+  blur: <span class="string">'8px on bounded panels'</span>
+};</code></pre></div></div><details class="collapse tool-collapse" open><summary class="collapse-title">⌁ Tool call · inspect theme config <span class="badge badge-success">Complete</span></summary><div class="collapse-content muted">Read the Anubis theme keys and preserved the application-specific tokens.</div></details><div class="chat chat-start"><div class="chat-bubble">The prototype also shows high-contrast states, open overlays, and setup screens so you can review the theme as a system.</div></div></div><div class="composer card"><label for="prompt" class="eyebrow">Message Ptah</label><textarea id="prompt" class="textarea textarea-bordered" placeholder="Ask Ptah to change, explain, or build something…"></textarea><div class="composer-actions"><div class="row"><button type="button" class="btn btn-ghost btn-sm">＋ Attach</button><button type="button" class="btn btn-ghost btn-sm">⌁ Tools</button></div><div class="row"><span class="muted">⌘ Enter to send</span><button type="button" class="btn btn-primary btn-sm">Send ↗</button></div></div></div></section>
+      <aside class="inspector card" aria-label="Workspace insights"><div><div class="eyebrow">Context</div><h2>Workspace pulse</h2><p class="muted">Your project at a glance.</p></div><div class="stat-stack"><div class="stat-card card"><div class="eyebrow">Indexed files</div><div class="number">1,284</div><div class="muted">Ready for retrieval</div></div><div class="stat-card card"><div class="eyebrow">Agent tasks</div><div class="number">04 <span style="font-size:14px;font-weight:400">/ 06</span></div><progress class="progress progress-primary" value="67" max="100" aria-label="Four of six agent tasks complete"></progress></div><div class="stat-card card"><div class="eyebrow">This session</div><div class="number">12.8k</div><div class="muted">Tokens in context</div></div></div><div class="alert alert-info"><span>✦</span><span>Workspace scan finished. Your project is ready.</span></div></aside>
+    </section>
+
+    <div class="section-title"><h2>System components</h2><span class="muted">Common DaisyUI states · both palettes</span></div>
+    <section class="showcase" aria-label="DaisyUI component gallery">
+      <article class="sample card wide"><h3>Buttons</h3><div class="component-row"><button class="btn" type="button">Default</button><button class="btn btn-primary" type="button">Primary</button><button class="btn btn-secondary" type="button">Secondary</button><button class="btn btn-accent" type="button">Accent</button><button class="btn btn-neutral" type="button">Neutral</button><button class="btn btn-ghost" type="button">Ghost</button><button class="btn btn-outline" type="button">Outline</button><button class="btn btn-link" type="button">Link</button><button class="btn" disabled>Disabled</button></div><div class="component-row" style="margin-top:10px"><button class="btn btn-info btn-sm" type="button">Info</button><button class="btn btn-success btn-sm" type="button">Success</button><button class="btn btn-warning btn-sm" type="button">Warning</button><button class="btn btn-error btn-sm" type="button">Error</button></div></article>
+      <article class="sample card"><h3>Badges + tooltip</h3><div class="component-row"><span class="badge">Default</span><span class="badge badge-primary">Primary</span><span class="badge badge-secondary">Gold</span><span class="badge badge-accent">Accent</span><span class="badge badge-outline">Outline</span></div><div style="height:62px;display:grid;place-items:end center"><div class="tooltip tooltip-open" data-tip="Helpful context"><button class="btn btn-sm" type="button">Hover hint</button></div></div></article>
+      <article class="sample card wide"><h3>Inputs + controls</h3><div class="field-grid"><label>Project name<input class="input input-bordered" value="Aurora cards" aria-label="Project name"></label><label>Model<select class="select select-bordered" aria-label="Model"><option>Claude Sonnet</option><option>GPT Codex</option></select></label><label style="grid-column:1/-1">Instructions<textarea class="textarea textarea-bordered" rows="2" aria-label="Instructions">Keep panels quiet and typography crisp.</textarea></label></div><div class="component-row" style="margin-top:12px"><label class="row"><input type="checkbox" class="toggle toggle-primary" checked><span>Live preview</span></label><label class="row"><input type="checkbox" class="checkbox checkbox-secondary" checked><span>Include context</span></label><label class="row"><input type="radio" class="radio radio-primary" checked name="mode"><span>Auto</span></label></div></article>
+      <article class="sample card"><h3>Tabs + segmented choice</h3><div role="tablist" class="tabs tabs-boxed" aria-label="View"><button role="tab" class="tab tab-active" aria-selected="true">Chat</button><button role="tab" class="tab">Canvas</button><button role="tab" class="tab">History</button></div><div class="join" style="margin-top:16px"><button class="btn btn-sm join-item btn-primary" type="button">Today</button><button class="btn btn-sm join-item" type="button">Week</button><button class="btn btn-sm join-item" type="button">Month</button></div></article>
+      <article class="sample card"><h3>Open dropdown</h3><details class="dropdown" open><summary class="btn btn-outline">Session actions ⌄</summary><ul class="dropdown-content menu" style="z-index:2"><li><a href="#conversation">Rename session</a></li><li><a href="#conversation">Export transcript</a></li><li><a href="#conversation">Archive</a></li></ul></details></article>
+      <article class="sample card"><h3>Alert + progress</h3><div class="alert alert-success"><span>✓</span><span>Changes saved. Your workspace is current.</span></div><div style="margin-top:18px"><div class="row" style="justify-content:space-between"><span>Scan progress</span><strong>72%</strong></div><progress class="progress progress-primary" value="72" max="100" aria-label="Scan progress 72 percent" style="width:100%"></progress></div></article>
+      <article class="sample card wide"><h3>Table</h3><div class="table-wrap"><table class="table table-zebra"><caption class="sr-only">Recent agent activity</caption><thead><tr><th>Agent</th><th>Task</th><th>Status</th><th>Time</th></tr></thead><tbody><tr><td>Design agent</td><td>Theme study</td><td><span class="badge badge-success">Done</span></td><td>10:43</td></tr><tr><td>Code agent</td><td>Glass layer</td><td><span class="badge badge-primary">Running</span></td><td>10:41</td></tr><tr><td>Review agent</td><td>Contrast audit</td><td><span class="badge badge-outline">Queued</span></td><td>10:38</td></tr></tbody></table></div></article>
+      <article class="sample card"><h3>Open modal</h3><div class="modal modal-open sample-modal" role="dialog" aria-modal="false" aria-labelledby="modal-title"><div class="modal-box"><div class="eyebrow">Preview</div><h4 id="modal-title" style="font-size:18px;margin:4px 0 9px">Create a session</h4><p class="muted">Start a focused conversation in this workspace.</p><div class="modal-action"><button class="btn btn-ghost btn-sm" type="button">Cancel</button><button class="btn btn-primary btn-sm" type="button">Create</button></div></div></div></article>
+      <article class="sample card wide"><h3>Get ready · setup card</h3><div class="setup-card surface-3"><div class="row" style="justify-content:space-between;align-items:flex-start"><div><div class="eyebrow">Before you begin</div><h4 style="margin:2px 0;font-size:17px">Get ready</h4><div class="muted">Prepare your skills and agents so Ptah can understand your workspace.</div></div><span class="badge badge-ghost">1 of 2 ready</span></div><div class="setup-row"><span><strong>◇ Skills</strong><br><small class="muted">No skills enabled</small></span><button class="btn btn-xs btn-outline" type="button">Open Library</button></div><div class="setup-row"><span><strong>♧ Agents</strong><br><small class="muted">2 agents configured</small></span><button class="btn btn-xs btn-outline" type="button">Update</button></div><div class="setup-row"><span><strong>⌕ Project scan</strong><br><small class="muted">Run setup to scan this workspace</small></span><button class="btn btn-xs btn-outline" type="button">Run setup</button></div><div class="component-row"><small class="muted">Setup tools</small><button class="btn btn-xs btn-outline" type="button">Generate agents</button><button class="btn btn-xs btn-outline" type="button">Project guidance</button></div></div></article>
+      <article class="sample card"><h3>Get started · empty state</h3><div class="empty-state"><div class="orb" aria-hidden="true">𓊹</div><h4 style="margin:0;font-size:20px">Ptah</h4><p class="muted">Ancient Wisdom · Master Craftsman</p><h3>Get started</h3><p class="muted">Ask about your code, or start with a suggestion.</p><button class="btn btn-primary btn-sm" type="button">Explore my workspace ↗</button></div></article>
+    </section>
+  </main>
+  <script>
+    const picks = document.querySelectorAll('[data-pick]');
+    picks.forEach(button => button.addEventListener('click', () => {
+      const theme = button.dataset.pick;
+      document.documentElement.dataset.theme = theme;
+      picks.forEach(pick => {
+        const active = pick === button;
+        pick.classList.toggle('btn-primary', active);
+        pick.setAttribute('aria-pressed', String(active));
+      });
+    }));
+  </script>
+</body>
+</html>

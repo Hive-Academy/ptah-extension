@@ -1,0 +1,92 @@
+/* Compiled-equivalent of theme.config.js (what DaisyUI 4 emits) so the static prototype renders without Tailwind. */
+[data-theme="ptah-glass"] {
+  color-scheme: dark;
+  --p: 81.835% 0.1357 88.1; /* #e8be4f */
+  --pf: 74.59% 0.1389 85.59; /* #d4a52e */
+  --pc: 19.657% 0.0338 86.03; /* #1c1403 */
+  --s: 74.091% 0.1231 182.77; /* #2dc4b2 */
+  --sf: 64.517% 0.1092 182.28; /* #1fa393 */
+  --sc: 22.034% 0.0358 182.41; /* #03201c */
+  --a: 76.413% 0.1197 266.3; /* #8fb0ff */
+  --af: 68.442% 0.1485 265.92; /* #6e95f5 */
+  --ac: 19.622% 0.056 260.93; /* #06142e */
+  --n: 26.384% 0.0559 269.3; /* #1a2340 */
+  --nf: 31.51% 0.068 269.7; /* #242f54 */
+  --nc: 89.564% 0.0268 271.84; /* #d6dcef */
+  --b1: 17.961% 0.0422 269.26; /* #0a1024 */
+  --b2: 22.634% 0.0559 268.3; /* #111a36 */
+  --b3: 27.543% 0.0682 268.83; /* #1a2549 */
+  --bc: 95.846% 0.0125 271.29; /* #eef1fa */
+  --in: 72.25% 0.1482 252.28; /* #5aa9ff */
+  --inc: 19.235% 0.0544 255.84; /* #03142c */
+  --su: 77.294% 0.1535 163.22; /* #34d399 */
+  --suc: 22.968% 0.0416 170.58; /* #03231a */
+  --wa: 75.764% 0.159 55.93; /* #fb923c */
+  --wac: 21.164% 0.0518 55.99; /* #2a1100 */
+  --er: 71.063% 0.1661 22.22; /* #f87171 */
+  --erc: 19.252% 0.0605 24.87; /* #2a0606 */
+  --bcm: 83.385% 0.0172 271.29;
+  --state-ink-run: #6ea8ff;
+  --state-ink-need: #fb923c;
+  --state-ink-err: #f87171;
+  --state-ink-done: #34d399;
+  --state-ink-idle: #a8b0c4;
+  --ptah-check-edge: 60%;
+  --rounded-box: 1.5rem;
+  --rounded-btn: 9999px;
+  --rounded-badge: 9999px;
+  --animation-btn: 0.2s;
+  --animation-input: 0.2s;
+  --btn-focus-scale: 1.02;
+  --border-btn: 1px;
+  --tab-border: 1px;
+  --tab-radius: 9999px;
+  --padding-card: 1.5rem;
+  --rounded-box: 1.5rem;
+}
+
+[data-theme="ptah-glass-light"] {
+  color-scheme: light;
+  --p: 76.95% 0.1475 81.55; /* #e3a92a */
+  --pf: 70.81% 0.1409 79.41; /* #cf951a */
+  --pc: 24.179% 0.0497 83.05; /* #2b1d00 */
+  --s: 47.614% 0.0809 185.68; /* #0b6b63 */
+  --sf: 40.936% 0.0686 186.45; /* #095650 */
+  --sc: 98.982% 0.0139 185.97; /* #f2fffd */
+  --a: 49.605% 0.1848 271.08; /* #3f52c9 */
+  --af: 43.991% 0.1733 270.64; /* #3243b0 */
+  --ac: 100% 0 0; /* #ffffff */
+  --n: 28.339% 0.049 291.45; /* #2a2540 */
+  --nf: 23.883% 0.0435 290.7; /* #1f1b32 */
+  --nc: 93.849% 0.0205 298.18; /* #ece8f7 */
+  --b1: 98.804% 0.0069 304.24; /* #fcfaff */
+  --b2: 95.975% 0.018 303.42; /* #f4effc */
+  --b3: 91.924% 0.0294 303.06; /* #e8e0f5 */
+  --bc: 23.509% 0.0419 293.35; /* #1f1a30 */
+  --in: 54.455% 0.1492 254.49; /* #2670c4 */
+  --inc: 100% 0 0; /* #ffffff */
+  --su: 52.73% 0.1371 150.07; /* #15803d */
+  --suc: 100% 0 0; /* #ffffff */
+  --wa: 55.25% 0.1545 45.35; /* #b84d06 */
+  --wac: 100% 0 0; /* #ffffff */
+  --er: 54.201% 0.1937 21.08; /* #c7273a */
+  --erc: 100% 0 0; /* #ffffff */
+  --bcm: 46.097% 0.0314 293.35;
+  --state-ink-run: #2a56c6;
+  --state-ink-need: #8f5200;
+  --state-ink-err: #b4232a;
+  --state-ink-done: #13713a;
+  --state-ink-idle: #6b6570;
+  --ptah-check-edge: 60%;
+  --rounded-box: 1.5rem;
+  --rounded-btn: 9999px;
+  --rounded-badge: 9999px;
+  --animation-btn: 0.2s;
+  --animation-input: 0.2s;
+  --btn-focus-scale: 1.02;
+  --border-btn: 1px;
+  --tab-border: 1px;
+  --tab-radius: 9999px;
+  --padding-card: 1.5rem;
+  --rounded-box: 1.5rem;
+}
