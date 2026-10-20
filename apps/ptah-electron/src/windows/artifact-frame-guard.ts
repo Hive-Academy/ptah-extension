@@ -6,6 +6,7 @@ export function isAllowedArtifactFrameUrl(target: string): boolean {
       /^[A-Za-z0-9_-]{16,128}$/.test(url.hostname) &&
       url.pathname === '/index.html' && !url.search && !url.hash;
   } catch {
+    // degradation-audit: reported — `false` is the guard's invalid-URL result.
     return false;
   }
 }

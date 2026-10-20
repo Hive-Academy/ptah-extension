@@ -46,6 +46,7 @@ const viewerUrl = z.string().refine((value) => {
       && url.pathname === '/index.html'
       && !url.search && !url.hash;
   } catch {
+    // degradation-audit: reported — `false` is the refine's invalid-URL result.
     return false;
   }
 }, 'Invalid artifact viewer URL');

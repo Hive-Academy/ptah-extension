@@ -155,10 +155,9 @@ export class ElectronArtifactStore implements IArtifactStore {
       const { workspaceRoot: _workspaceRoot, ...result } = record;
       return result;
     } catch {
-      // degradation-audit: optional-capability - best-effort cleanup of an unpublished temporary record.
-      await fs.rm(temporary, { recursive: true, force: true }).catch(() => {
-        // degradation-audit: optional-capability - startup sweep retries unpublished temporary cleanup.
-      });
+      // degradation-audit: optional-capability - best-effort cleanup of an unpublished temporary record;
+      // the startup sweep retries it.
+      await fs.rm(temporary, { recursive: true, force: true }).catch(() => undefined);
       throw new ArtifactStoreError('IO_ERROR');
     }
   }
