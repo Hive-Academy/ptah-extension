@@ -22,6 +22,7 @@ import type { StreamingState } from '@ptah-extension/chat-types';
 import type { SessionId } from '@ptah-extension/shared';
 import { APPS_SYSTEM_PROMPT } from '../apps-system-prompt';
 import { AppsConversationClaims } from './apps-conversation-claims';
+import { AppsFocusTarget } from './apps-focus-target';
 import {
   abortAppsSession,
   abortUnownedAppsStart,
@@ -96,6 +97,7 @@ export class AppsSessionService {
   private readonly tabManager = inject(TabManagerService);
   private readonly liveness = inject(SessionLivenessRegistry);
   private readonly claims = inject(AppsConversationClaims);
+  private readonly focusTarget = inject(AppsFocusTarget);
 
   /** Workspace slice key → slice. */
   private readonly _slices = signal<ReadonlyMap<string, AppsWorkspaceSlice>>(
@@ -181,6 +183,7 @@ export class AppsSessionService {
   });
 
   public constructor() {
+    this.focusTarget.register(this.sessionId);
     effect(() => {
       const key = this.workspaceKey();
       const previous = this.previousWorkspaceKey;

@@ -103,8 +103,8 @@ import {
   GenerationRunEventAdapter,
 } from '@ptah-extension/setup-wizard';
 import { provideHarnessBuilderFocusRouter } from '@ptah-extension/harness-builder/services';
-import { provideAppsFocusRouter } from '@ptah-extension/mcp-apps-page';
-import { provideGitStatusAttention } from '@ptah-extension/git-ui';
+import { provideAppsFocusRouter } from '@ptah-extension/mcp-apps-page/focus';
+import { provideGitStatusAttention } from '@ptah-extension/git-ui/services';
 import {
   FileContentChangesService,
   GitBranchesService,
