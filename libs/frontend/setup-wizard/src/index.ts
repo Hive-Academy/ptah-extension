@@ -7,6 +7,7 @@ export {
   type WizardInternalState,
 } from './lib/services/setup-wizard/wizard-internal-state';
 export { provideWizardInternalState } from './lib/services/wizard-internal-state.provider';
+export { provideSetupWizardFocusRouter } from './lib/services/setup-wizard-focus-router.provider';
 export { WizardViewComponent } from './lib/components/wizard-view.component';
 export { WizardLandingComponent } from './lib/components/wizard-landing.component';
 export { WorkflowCardComponent } from './lib/components/workflow-card.component';
