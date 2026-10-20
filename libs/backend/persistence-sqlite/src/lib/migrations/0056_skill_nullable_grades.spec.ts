@@ -75,11 +75,12 @@ function openAt55(): DatabaseShape {
 
 describe('migration 0056_skill_nullable_grades', () => {
   it('is registered after 0055 and advances the bundled ratchet', () => {
-    expect(MIGRATIONS.slice(-2).map((migration) => migration.version)).toEqual([55, 56]);
+    expect(MIGRATIONS.filter((migration) => migration.version === 55 || migration.version === 56)
+      .map((migration) => migration.version)).toEqual([55, 56]);
     expect(MIGRATIONS.filter((migration) => migration.version === 56)).toEqual([
       { version: 56, name: '0056_skill_nullable_grades', sql },
     ]);
-    expect(Math.max(...MIGRATIONS.map((migration) => migration.version))).toBe(56);
+    expect(Math.max(...MIGRATIONS.map((migration) => migration.version))).toBe(57);
     expect(sql).not.toContain('${');
   });
 

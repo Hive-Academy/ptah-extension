@@ -11,6 +11,7 @@ export default {
       },
     ],
   },
+  setupFiles: ['<rootDir>/jest.setup-home.cjs'],
   moduleFileExtensions: ['ts', 'js', 'html'],
   coverageDirectory: '../../../coverage/libs/backend/persistence-sqlite',
   moduleNameMapper: {

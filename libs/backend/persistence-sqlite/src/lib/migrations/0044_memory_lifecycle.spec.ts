@@ -68,8 +68,9 @@ describe('migration 0044_memory_lifecycle — registry and static SQL', () => {
     // 51 since TASK_2026_578 appended 0051_skill_lifecycle.
     // 52 and 53 since TASK_2026_621 appended 0052_memory_boot_scan_failures and 0053_memory_boot_scan_failure_generation.
     // 56 since TASK_2026_662 appended 0056_skill_nullable_grades.
+    // 57 since TASK_2026_662 appended 0057_drop_skill_pipeline.
     expect(Math.max(...MIGRATIONS.map((migration) => migration.version))).toBe(
-      56,
+      57,
     );
     expect(entry?.vecSql).toBeUndefined();
     expect(entry?.requiresVec).toBeUndefined();

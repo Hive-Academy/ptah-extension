@@ -20,7 +20,7 @@ const TABLES = [
   'scheduled_jobs',
 ] as const;
 
-const PIPELINE_JOB_IDS = [
+export const PIPELINE_JOB_IDS = [
   '@ptah/skills-drain-frequent',
   '@ptah/skills-drain-nightly',
   '@ptah/skills-drain-weekly',

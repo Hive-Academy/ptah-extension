@@ -82,6 +82,7 @@ import { sql as sql0053MemoryBootScanFailureGeneration } from './0053_memory_boo
 import { sql as sql0054LaneOutcomeRecords } from './0054_lane_outcome_records';
 import { sql as sql0055SkillInvocationRunId } from './0055_skill_invocation_run_id';
 import { sql as sql0056SkillNullableGrades } from './0056_skill_nullable_grades';
+import { sql as sql0057DropSkillPipeline, vecSql as vecSql0057DropSkillPipeline } from './0057_drop_skill_pipeline';
 import type { SqliteDatabase } from '../sqlite-connection.service';
 
 export interface Migration {
@@ -406,5 +407,11 @@ export const MIGRATIONS: readonly Migration[] = [
     version: 56,
     name: '0056_skill_nullable_grades',
     sql: sql0056SkillNullableGrades,
+  },
+  {
+    version: 57,
+    name: '0057_drop_skill_pipeline',
+    sql: sql0057DropSkillPipeline,
+    vecSql: vecSql0057DropSkillPipeline,
   },
 ];
