@@ -63,3 +63,8 @@ export function resolvePtahDbPath(opts?: { isDev?: boolean }): string {
     DB_FILE_BY_PROFILE[resolvePtahDbProfile(opts)],
   );
 }
+
+/** Keep pre-drop archives beside the selected database, including overrides. */
+export function skillPipelineArchiveRoot(dbPath: string): string {
+  return path.join(path.dirname(dbPath), 'backups', 'skill-pipeline');
+}

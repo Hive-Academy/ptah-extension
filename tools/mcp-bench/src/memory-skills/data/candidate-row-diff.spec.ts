@@ -13,6 +13,7 @@ import { join, relative } from 'node:path';
 import {
   ARCHIVE_TABLES,
   diffCandidateRows,
+  readArchiveTable,
   runCandidateRowDiff,
   sha256File,
   type CandidateRowDiff,
@@ -20,7 +21,7 @@ import {
 
 async function createArchive(
   directory: string,
-  names: { id: string; name: string; status: string }[],
+  names: { id: string; name: string; status: string; payload?: { $base64: string } }[],
 ): Promise<string> {
   await mkdir(directory, { recursive: true });
   const contents = names.map((row) => JSON.stringify({
@@ -29,6 +30,7 @@ async function createArchive(
   const sha256 = createHash('sha256').update(contents).digest('hex');
   await writeFile(join(directory, 'skill_candidates.jsonl'), contents);
   await writeFile(join(directory, 'receipt.json'), JSON.stringify({
+    format: 2,
     archivePath: directory,
     tables: ARCHIVE_TABLES.map((table) => table === 'skill_candidates'
       ? { table, present: true, file: 'skill_candidates.jsonl', rows: names.length, sha256 }
@@ -38,6 +40,19 @@ async function createArchive(
 }
 
 describe('diffCandidateRows', () => {
+  it('decodes format-2 BLOB envelopes and rejects older receipts', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'candidate-archive-format-'));
+    try {
+      await createArchive(directory, [{ id: '1', name: 'alpha', status: 'candidate', payload: { $base64: 'AQID' } }]);
+      const receiptPath = join(directory, 'receipt.json');
+      expect((await readArchiveTable(receiptPath, 'skill_candidates')).rows[0]['payload']).toEqual(Buffer.from([1, 2, 3]));
+      const receipt = JSON.parse(await readFile(receiptPath, 'utf8')) as Record<string, unknown>;
+      await writeFile(receiptPath, JSON.stringify({ ...receipt, format: 1 }));
+      await expect(readArchiveTable(receiptPath, 'skill_candidates')).rejects.toThrow();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
   it('reports rows without dirs, dirs without rows and empty dirs', () => {
     const rows = [
       {

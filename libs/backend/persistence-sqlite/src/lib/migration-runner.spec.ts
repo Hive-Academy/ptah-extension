@@ -42,13 +42,14 @@ describe('SqliteMigrationRunner', () => {
       .mockImplementation(() => { throw new Error('archive verification failed'); });
     try {
       const db = new FakeSqliteDatabase();
-      const runner = new SqliteMigrationRunner(db, createMockLogger());
+      const runner = new SqliteMigrationRunner(db, createMockLogger(), undefined, 'custom/archive/root');
       await runner.applyAll([{ version: 56, name: '0056', sql: 'CREATE TABLE t56 (id INTEGER);' }]);
       expect(archive).not.toHaveBeenCalled();
       await expect(runner.applyAll([
         { version: 56, name: '0056', sql: 'CREATE TABLE t56 (id INTEGER);' },
         { version: 57, name: '0057', sql: 'CREATE TABLE t57 (id INTEGER);' },
       ])).rejects.toThrow('archive verification failed');
+      expect(archive).toHaveBeenCalledWith(db, 'custom/archive/root');
       expect(db.tables.has('t57')).toBe(false);
       expect(runner.readAppliedVersions().has(57)).toBe(false);
     } finally {

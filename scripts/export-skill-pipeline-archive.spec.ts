@@ -25,6 +25,9 @@ describe('OP-1 archive export', () => {
     const { receipt, copyPath } = exportArchive(source, output);
     expect(fs.existsSync(copyPath)).toBe(true);
     expect(receipt.archivePath.startsWith(output)).toBe(true);
+    expect(receipt.format).toBe(2);
+    expect(receipt.tables).toHaveLength(9);
+    expect(receipt.tables[8]?.table).toBe('scheduled_jobs');
     expect(receipt.tables.find((entry) => entry.table === 'skill_candidates')).toMatchObject({ present: true, rows: 2 });
     const entry = receipt.tables.find((item) => item.table === 'skill_candidates');
     expect(entry?.sha256).toBe(createHash('sha256').update(fs.readFileSync(path.join(receipt.archivePath, 'skill_candidates.jsonl'))).digest('hex'));

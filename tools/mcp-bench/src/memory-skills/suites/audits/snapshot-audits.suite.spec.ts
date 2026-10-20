@@ -125,6 +125,7 @@ function createArchive(directory: string, queue: Record<string, unknown>[], cand
       sha256: createHash('sha256').update(contents).digest('hex') };
   });
   writeFileSync(join(directory, 'receipt.json'), JSON.stringify({
+    format: 2,
     archivePath: directory,
     tables: ARCHIVE_TABLES.map((table) => tables.find((entry) => entry.table === table) ??
       { table, present: false, file: null, rows: 0, sha256: null }),

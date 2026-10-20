@@ -22,6 +22,7 @@ import {
 } from '@ptah-extension/vscode-core';
 import { PERSISTENCE_TOKENS } from './di/tokens';
 import { SqliteMigrationRunner } from './migration-runner';
+import { skillPipelineArchiveRoot } from './db-path';
 import { MIGRATIONS } from './migrations';
 import type { IBackupService } from './backup.service';
 import {
@@ -231,6 +232,7 @@ export class SqliteConnectionService {
       db,
       this.logger,
       this.backupService,
+      skillPipelineArchiveRoot(this._dbPath),
     );
     this.logger.debug(
       '[persistence-sqlite] Migration runner created, applying migrations...',

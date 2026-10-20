@@ -6,6 +6,7 @@ import type { SqliteDatabase } from './sqlite-connection.service';
 
 export const FIRST_DESTRUCTIVE_SKILL_PIPELINE_VERSION = 57;
 export const SKILL_PIPELINE_ARCHIVE_DIR_PREFIX = 'pre-0057-';
+const STALE_PARTIAL_ARCHIVE_MS = 60 * 60 * 1000;
 
 const TABLES = [
   'skill_candidates',
@@ -16,6 +17,7 @@ const TABLES = [
   'skill_synthesis_workspace_cursor',
   'skill_candidates_vec',
   'job_runs',
+  'scheduled_jobs',
 ] as const;
 
 const PIPELINE_JOB_IDS = [
@@ -34,11 +36,23 @@ export interface SkillPipelineArchiveEntry {
 }
 
 export interface SkillPipelineArchiveReceipt {
+  readonly format: 2;
   readonly archivePath: string;
   readonly tables: readonly SkillPipelineArchiveEntry[];
+  /** Run-local maintenance result; omitted from receipt.json. */
+  readonly maintenance?: {
+    readonly reused: boolean;
+    readonly pruned: number;
+    readonly kept: number;
+    readonly maintenanceError?: boolean;
+  };
 }
 
-/** Export a fixed set of legacy pipeline data and verify the files from disk. */
+/** Export a fixed set of legacy pipeline data and verify the files from disk.
+ * On Windows, POSIX modes are not enforced: archives inherit the per-user ACL
+ * of the DB directory (normally in the user profile). The connection derives
+ * this root from the DB path for that reason.
+ */
 export function archiveSkillPipeline(
   db: SqliteDatabase,
   archiveRoot = path.join(os.homedir(), '.ptah', 'backups', 'skill-pipeline'),
@@ -62,14 +76,24 @@ export function archiveSkillPipeline(
     try {
       const query = table === 'job_runs'
         ? 'SELECT * FROM job_runs WHERE job_id IN (?, ?, ?, ?)'
-        : `SELECT * FROM "${table}"`;
+        : table === 'scheduled_jobs'
+          ? 'SELECT * FROM scheduled_jobs WHERE id IN (?, ?, ?, ?)'
+          // vec0 rowid is implicit; candidate embeddings refer to this key.
+          : table === 'skill_candidates_vec'
+            ? 'SELECT rowid AS rowid, * FROM "skill_candidates_vec"'
+            : `SELECT * FROM "${table}"`;
       const statement = db.prepare(query);
-      const values = table === 'job_runs'
+      const values = table === 'job_runs' || table === 'scheduled_jobs'
         ? statement.iterate(...PIPELINE_JOB_IDS)
         : statement.iterate();
       for (const row of values) {
-        const line = Buffer.from(`${JSON.stringify(row, (_key, value: unknown) =>
-          typeof value === 'bigint' ? value.toString() : value)}\n`);
+        if (!isRecord(row)) throw new Error(`Skill pipeline archive row is not an object: ${table}`);
+        const encoded = Object.fromEntries(Object.entries(row).map(([key, value]) => [
+          key,
+          value instanceof Uint8Array ? { $base64: Buffer.from(value).toString('base64') }
+            : typeof value === 'bigint' ? value.toString() : value,
+        ]));
+        const line = Buffer.from(`${JSON.stringify(encoded)}\n`);
         let offset = 0;
         while (offset < line.length) {
           const written = fs.writeSync(fd, line, offset, line.length - offset);
@@ -85,11 +109,89 @@ export function archiveSkillPipeline(
     entries.push({ table, present: true, file, rows, sha256: inspectFile(filePath).sha256 });
   }
 
-  const receipt: SkillPipelineArchiveReceipt = { archivePath, tables: entries };
+  const receipt: SkillPipelineArchiveReceipt = { format: 2, archivePath, tables: entries };
   const receiptPath = path.join(archivePath, 'receipt.json');
   fs.writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
   verifySkillPipelineArchive(receiptPath);
-  return receipt;
+  let pruned = 0;
+  let kept = 0;
+  let newestOlder: SkillPipelineArchiveReceipt | null = null;
+  let newestMtime = -Infinity;
+  // A verified new archive already exists; maintenance must never block drop preflight.
+  try {
+    for (const name of fs.readdirSync(archiveRoot)) {
+      if (!name.startsWith(SKILL_PIPELINE_ARCHIVE_DIR_PREFIX)) continue;
+      const olderPath = path.join(archiveRoot, name);
+      const stat = fs.lstatSync(olderPath);
+      if (!stat.isDirectory() || olderPath === archivePath) continue;
+      const olderReceiptPath = path.join(olderPath, 'receipt.json');
+      try {
+        fs.lstatSync(olderReceiptPath);
+      } catch (error) {
+        if (!isMissingFileError(error)) throw error;
+        if (Date.now() - stat.mtimeMs <= STALE_PARTIAL_ARCHIVE_MS) continue;
+        fs.rmSync(olderPath, { recursive: true });
+        pruned++;
+        continue;
+      }
+      let older: SkillPipelineArchiveReceipt;
+      try {
+        older = verifySkillPipelineArchive(olderReceiptPath);
+      } catch {
+        // A receipt is present: old format, corruption, or transient I/O. Keep it.
+        kept++;
+        continue;
+      }
+      if (stat.mtimeMs > newestMtime) {
+        newestOlder = older;
+        newestMtime = stat.mtimeMs;
+      }
+    }
+    if (newestOlder && newestOlder.tables.length === entries.length &&
+      newestOlder.tables.every((entry, index) => {
+        const current = entries[index];
+        return current !== undefined && entry.present === current.present &&
+          entry.rows === current.rows && entry.sha256 === current.sha256;
+      })) {
+      // The older archive is verified and identical, so it stays the receipt even
+      // if this delete fails part-way and leaves the new copy incomplete.
+      let maintenanceError = false;
+      try {
+        fs.rmSync(archivePath, { recursive: true });
+      } catch {
+        maintenanceError = true;
+      }
+      return {
+        ...newestOlder,
+        maintenance: { reused: true, pruned, kept, ...(maintenanceError ? { maintenanceError } : {}) },
+      };
+    }
+  } catch {
+    return { ...receipt, maintenance: { reused: false, pruned, kept, maintenanceError: true } };
+  }
+  return pruned > 0 || kept > 0 ? { ...receipt, maintenance: { reused: false, pruned, kept } } : receipt;
+}
+
+function isMissingFileError(error: unknown): boolean {
+  return isRecord(error) && error['code'] === 'ENOENT';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** Decode the explicit BLOB envelope used by format-2 JSONL rows. */
+export function decodeSkillPipelineArchiveRow(row: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(row).map(([key, value]) => [
+    key,
+    isBase64Envelope(value) ? Buffer.from(value.$base64, 'base64') : value,
+  ]));
+}
+
+function isBase64Envelope(value: unknown): value is { $base64: string } {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) &&
+    Object.keys(value).length === 1 && '$base64' in value && typeof value.$base64 === 'string' &&
+    /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value.$base64);
 }
 
 /** Re-read the receipt and every archived file before destructive migration. */
@@ -141,8 +243,13 @@ function inspectFile(filePath: string): { sha256: string; rows: number; endsWith
 
 function isReceipt(value: unknown): value is SkillPipelineArchiveReceipt {
   return typeof value === 'object' && value !== null &&
+    'format' in value && value.format === 2 &&
     'archivePath' in value && typeof value.archivePath === 'string' &&
     'tables' in value && Array.isArray(value.tables) && value.tables.length === TABLES.length &&
     value.tables.every((entry: unknown) => typeof entry === 'object' && entry !== null &&
-      'table' in entry && 'present' in entry && 'file' in entry && 'rows' in entry && 'sha256' in entry);
+      'table' in entry && TABLES.some((table) => table === entry.table) &&
+      'present' in entry && typeof entry.present === 'boolean' &&
+      'file' in entry && (entry.file === null || typeof entry.file === 'string') &&
+      'rows' in entry && typeof entry.rows === 'number' &&
+      'sha256' in entry && (entry.sha256 === null || typeof entry.sha256 === 'string'));
 }

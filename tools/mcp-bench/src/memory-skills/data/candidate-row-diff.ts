@@ -136,6 +136,7 @@ export interface CandidateRowDiffResult {
 }
 
 const archiveReceiptSchema = z.object({
+  format: z.literal(2),
   archivePath: z.string(),
   tables: z.array(z.object({
     table: z.string(),
@@ -148,7 +149,7 @@ const archiveReceiptSchema = z.object({
 export const ARCHIVE_TABLES = [
   'skill_candidates', 'skill_suggestions', 'skill_synthesis_queue',
   'skill_synthesis_budget', 'skill_invocations',
-  'skill_synthesis_workspace_cursor', 'skill_candidates_vec', 'job_runs',
+  'skill_synthesis_workspace_cursor', 'skill_candidates_vec', 'job_runs', 'scheduled_jobs',
 ] as const;
 
 /** Read a batch-15 JSONL table only after checking its receipt and digest. */
@@ -177,7 +178,7 @@ export async function readArchiveTable(
   }
   const lines = contents.length === 0 ? [] : contents.trimEnd().split('\n');
   if (lines.length !== entry.rows) throw new Error(`Archive row count changed: ${table}`);
-  return { rows: lines.map((line) => z.record(z.string(), z.unknown()).parse(JSON.parse(line))), sha256: digest };
+  return { rows: lines.map((line) => decodeArchiveRow(z.record(z.string(), z.unknown()).parse(JSON.parse(line)))), sha256: digest };
 }
 
 const candidateArchiveRowSchema = z.object({
@@ -283,4 +284,30 @@ async function readCandidateDirs(
     dirs.set(entry.name, existsSync(join(copyDir, entry.name, 'SKILL.md')));
   }
   return dirs;
+}
+
+/**
+ * Decode the `{ "$base64": ... }` BLOB envelope of a format-2 archive row
+ * (written by persistence-sqlite `skill-pipeline-archive.ts`). Kept local so
+ * this reader does not load the persistence DI barrel.
+ */
+function decodeArchiveRow(row: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(row).map(([key, value]) => [
+      key,
+      isBase64Envelope(value) ? Buffer.from(value.$base64, 'base64') : value,
+    ]),
+  );
+}
+
+function isBase64Envelope(value: unknown): value is { $base64: string } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.keys(value).length === 1 &&
+    '$base64' in value &&
+    typeof value.$base64 === 'string' &&
+    /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value.$base64)
+  );
 }

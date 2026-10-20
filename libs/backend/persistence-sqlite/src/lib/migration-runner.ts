@@ -47,6 +47,7 @@ export class SqliteMigrationRunner {
     private readonly db: SqliteDatabase,
     private readonly logger: Logger,
     private readonly backupService?: IBackupService,
+    private readonly archiveRoot?: string,
   ) {}
 
   /**
@@ -351,9 +352,11 @@ export class SqliteMigrationRunner {
       .get('skill_candidates_vec') !== undefined) {
       throw new Error('SqliteMigrationRunner: skill_candidates_vec exists but sqlite-vec is unavailable; archive preflight failed');
     }
-    const receipt = archiveSkillPipeline(this.db);
+    const receipt = archiveSkillPipeline(this.db, this.archiveRoot);
     this.logger.info('[persistence-sqlite] verified skill pipeline archive', {
       archivePath: receipt.archivePath,
+      reused: receipt.maintenance?.reused ?? false,
+      pruned: receipt.maintenance?.pruned ?? 0,
     });
   }
 
