@@ -17,16 +17,15 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'ptah-snackbar-host' },
   styles: [`
-    :host { position: fixed; z-index: 60; top: var(--ptah-snackbar-top, 4rem); right: 1rem; width: min(348px, calc(100vw - 2rem)); pointer-events: none; }
+    :host { position: fixed; z-index: 60; bottom: 5rem; right: 1rem; width: min(348px, calc(100vw - 2rem)); pointer-events: none; }
     .snackbar-card, .snackbar-more { pointer-events: auto; }
     .snackbar-card { animation: snackbar-enter 120ms ease-out; }
-    @keyframes snackbar-enter { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes snackbar-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
     @media (prefers-reduced-motion: reduce) { .snackbar-card { animation: none; } }
-    @media (max-width: 900px) { :host { right: .5rem; width: min(348px, calc(100vw - 1rem)); } }
   `],
   template: `
     @if (!panelOpen()) {
-      <div class="flex flex-col gap-2" data-testid="notification-snackbars">
+      <div class="flex flex-col-reverse gap-2" data-testid="notification-snackbars">
         @for (item of visible(); track item.key) {
           <section class="snackbar-card surface-3 relative rounded-2xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-3 pl-4 text-base-content hover:bg-[color:var(--surface-highlight)]"
             [attr.aria-label]="kindLabel(item) + ' for ' + sessionName(item) + ' in ' + workspaceName(item)"

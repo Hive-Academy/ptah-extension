@@ -248,6 +248,11 @@ describe('CanvasRailCardComponent', () => {
     fixture.componentRef.setInput('attentionItems', [item]); fixture.detectChanges();
     const host = fixture.nativeElement as HTMLElement;
     expect(host.querySelector('[data-testid="rail-card-needs-you"]')?.textContent).toContain('Needs you');
+    const frame = host.querySelector('[data-testid="rail-attention-frame"]') as HTMLElement;
+    expect(frame).not.toBeNull();
+    expect(frame.contains(host.querySelector('ptah-compact-session-card'))).toBe(true);
+    expect(frame.contains(host.querySelector('[data-testid="rail-card-needs-you"]'))).toBe(true);
+    expect([...frame.classList]).toEqual(expect.arrayContaining(['rounded-lg', 'border', 'bg-base-200']));
     (host.querySelector('[data-testid="rail-card-needs-you"] button') as HTMLButtonElement).click();
     expect(emitted).toHaveBeenCalledWith({ item, actionId: 'answer' });
     expect(focusTile).not.toHaveBeenCalled();
@@ -263,13 +268,16 @@ describe('CanvasRailCardComponent', () => {
     fixture.componentRef.setInput('attentionItems', [item]); fixture.detectChanges();
     const buttons = () => (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('[data-testid="rail-card-needs-you"] button');
     expect(buttons()[0].classList).toContain('btn-primary');
+    expect(buttons()[0].classList).not.toContain('btn-ghost');
     fixture.componentRef.setInput('attentionItems', [{ ...item, actions: [
       { id: 'allow', label: 'Allow', disabledReason: 'Already decided' },
       { id: 'open', label: 'Show in canvas' },
     ] }]); fixture.detectChanges();
     expect(buttons()[0].disabled).toBe(true);
     expect(buttons()[0].classList).not.toContain('btn-primary');
+    expect(buttons()[0].classList).toContain('btn-ghost');
     expect(buttons()[1].classList).toContain('btn-primary');
+    expect(buttons()[1].classList).not.toContain('btn-ghost');
     fixture.componentRef.setInput('submittingKeys', new Set([item.key])); fixture.detectChanges();
     expect([...buttons()].every(button => button.disabled)).toBe(true);
     fixture.componentRef.setInput('submittingKeys', new Set());

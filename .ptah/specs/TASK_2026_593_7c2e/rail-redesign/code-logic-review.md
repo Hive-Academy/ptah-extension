@@ -268,3 +268,50 @@ None. The card's action label still falls back to `current.title` (`canvas-rail-
 - Recommendation: APPROVE
 - Confidence: HIGH on the six filed defects. MEDIUM on Stats overlap.
 - Top residual: snackbar stale actions stay enabled.
+
+## Re-review (round 2)
+
+Reviewed the uncommitted diff against HEAD (`ef3a7ae7d`) after `lane-rail-r2.md` and `lane-cards-r2.md`. Read the rail queue template, `kindLabel`, `isPrimaryAttentionAction`, the card frame and click/keydown handlers, `isIgnoredCardClick`, the compact rail card focus styles, and the snackbar host, stack order, limit, and specs. No tests or builds were run. No `text-base-content/NN` in the changed components.
+
+| Item | Status | Evidence |
+| --- | --- | --- |
+| One exclusive primary per rail request | Fixed | Queue binds `btn-primary` and `btn-ghost` as negations (`canvas-rail.component.ts:202-204`). The card does the same (`canvas-rail-card.component.ts:180`). `isPrimaryAttentionAction` (`rail-attention-action.ts:3-12`) returns the enabled Answer/Allow id, otherwise `open`. A disabled Allow is ghost and Show in canvas is the only primary. Specs: `canvas-rail.component.spec.ts:91-106`, `canvas-rail-card.component.spec.ts:260-280`. |
+| Needs you inside one framed card | Fixed | `canvas-rail-card.component.ts:172-191` wraps the compact card and the Needs you block in `.rail-attention-frame`. The spec requires both nodes inside that frame (`canvas-rail-card.component.spec.ts:251-255`). |
+| Queue order is kind, session, one detail | Fixed | Uppercase `kindLabel` comes from `item.kind` (`canvas-rail.component.ts:196`, `:381-383`), then `sessionTitle` or `Session unavailable` (`:198`), then one truncated detail (`:199`). `item.title` is no longer its own row. Spec `canvas-rail.component.spec.ts:108-127` fails if a request title is repeated or a kind label is wrong. |
+| Snackbar bottom-right, newest lowest, 3/1 cap | Fixed | Host is `bottom: 5rem; right: 1rem` with `pointer-events: none` (`notification-snackbar.component.ts:20-21`). Cards and `+N more` set `pointer-events: auto`. `flex-col-reverse` (`:28`) paints the newest-first `snackbars()` slice at the bottom. Limit stays 3, and 1 only when `innerWidth <= 900` (`:102`). The `<=900` edge shift is gone; clearance stays `calc(100vw - 2rem)`. Specs `notification-snackbar.component.spec.ts:119-136` and `:184-197`. |
+
+### Regressions checked
+
+- Selection ring moves with the wrap. `::ng-deep` clears the inner card border, radius, shadow, and background (`canvas-rail-card.component.ts:126-131`). `.rail-attention-frame:has(.rc-focused)` (`:121-125`) repeats the compact card's selected frame (`compact-rail-card.component.ts:174-178`). The state stripe is a `::before`, so it remains. Keyboard focus still outlines the rail host when `.rc-select` is focus-visible (`canvas-rail-card.component.ts:101-104`) and the inner card (`compact-rail-card.component.ts:159-162`).
+- Inline actions do not select the session. Host click uses `isIgnoredCardClick` (`canvas-rail-card.component.ts:465-474`, `canvas-card-click.ts:17-23`), which ignores `button`. The card spec clicks Answer and expects no `focusTile` (`canvas-rail-card.component.spec.ts:256-258`). Enter on the host still opens the session; Enter on a button does not (`canvas-rail-card.component.ts:476-496`).
+- Disabled and blocked rows stay disabled. Queue: `disabledReason`, `submitting()`, or `isBlocked` (`canvas-rail.component.ts:205`, `:403-405`). Card: the same three gates (`canvas-rail-card.component.ts:180`). Submitting or blocked does not change which action is primary. The card spec disables every button for both sets (`canvas-rail-card.component.spec.ts:281-285`).
+- Snackbar focus pause, `+N more` `stopPropagation`, and reduced motion are unchanged (`notification-snackbar.component.ts:24`, `:32-33`, `:74-76`, `:173-183`). Specs at `notification-snackbar.component.spec.ts:105-116` and `:168-181` still describe that behavior.
+- `snackbars()` is newest first (`notification.service.ts:48-53`). With `flex-col-reverse`, the first DOM card is the newest and sits at the bottom. The overflow control stays last in the DOM, so it paints above the cards.
+
+### Still open (not a new defect)
+
+Snackbar `stale` still only writes "Already answered" and leaves the buttons enabled (`notification-snackbar.component.ts:214`). That was accepted in round 1. This diff does not touch dispatch.
+
+### New defects
+
+| Severity | Issue | Fix |
+| --- | --- | --- |
+| Minor | Tab order no longer matches top-to-bottom reading. `flex-col-reverse` (`notification-snackbar.component.ts:28`) keeps newest-first DOM, so Tab starts on the bottom card and moves upward, then to `+N more` at the top. | Reverse the rendered list and use `flex-col`, so the newest card is last in the DOM and at the bottom, or set `tabindex` to the visual order. Keep `stopPropagation` on `+N more`. |
+
+### Score
+
+| Metric | Value |
+| --- | --- |
+| Overall score | 8/10 |
+| Assessment | APPROVED |
+| Blocking | 0 |
+| Serious | 0 |
+| Moderate | 0 |
+| Minor | 1 (snackbar tab order versus visual order) |
+| New defects | 1 minor |
+
+8 rather than 9: snackbar stale actions remain enabled, and tab order now runs upward through the stack. 8 rather than 7: each visual change is in source, primary and disabled rules still hold, and card actions still do not select the session.
+
+- Recommendation: APPROVE
+- Confidence: HIGH on the source and specs. MEDIUM on whether `bottom: 5rem` clears the composer, because this review did not render Electron.
+- Top residual: snackbar stale actions stay enabled; keyboard order through the stack is bottom-up.

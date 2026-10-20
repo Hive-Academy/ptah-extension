@@ -101,7 +101,30 @@ describe('CanvasRailComponent', () => {
     const buttons = row.querySelectorAll<HTMLButtonElement>('button');
     expect(buttons[0].disabled).toBe(true);
     expect(buttons[0].classList).not.toContain('btn-primary');
+    expect(buttons[0].classList).toContain('btn-ghost');
     expect(buttons[1].classList).toContain('btn-primary');
+    expect(buttons[1].classList).not.toContain('btn-ghost');
+  });
+  it('uses a kind label, session title, and one detail line without repeating the request title', () => {
+    const notifications = TestBed.inject(NotificationService);
+    notifications.upsert(request('permission:label', { title: 'Permission: Bash', sessionTitle: 'Alpha' }));
+    notifications.upsert(request('question:label', { kind: 'question', title: 'Question: Bash', sessionTitle: 'Beta', actions: [{ id: 'answer', label: 'Answer' }] }));
+    notifications.upsert(request('lane:label', { kind: 'lane-permission', title: 'Lane: Bash', sessionTitle: 'Gamma' }));
+    const fixture = mount([tile('a', 0)]);
+    fixture.componentRef.setInput('workspacePath', '/local'); fixture.detectChanges();
+    const rows = (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLElement>('[data-attention-key]');
+    expect(rows).toHaveLength(3);
+    for (const [key, label, sessionTitle, title] of [
+      ['permission:label', 'Permission required', 'Alpha', 'Permission: Bash'],
+      ['question:label', 'Question needs an answer', 'Beta', 'Question: Bash'],
+      ['lane:label', 'Lane permission required', 'Gamma', 'Lane: Bash'],
+    ]) {
+      const row = [...rows].find(candidate => candidate.dataset['attentionKey'] === key)!;
+      expect(row.querySelector('.uppercase')?.textContent?.trim()).toBe(label);
+      expect(row.textContent).toContain(sessionTitle);
+      expect(row.querySelector('p')?.textContent).toContain('Tool: Bash');
+      expect(row.textContent).not.toContain(title);
+    }
   });
   it('opens overflow idempotently and reports a missing bell', () => {
     const notifications = TestBed.inject(NotificationService);

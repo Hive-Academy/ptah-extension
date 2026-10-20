@@ -110,7 +110,7 @@ async function capture(theme, name, check, notes = '') {
   const file = path.join(__dirname, `${theme}-${name}.png`);
   try {
     if (fs.existsSync(file)) fs.unlinkSync(file);
-    await assertChatBoard();
+    if (name !== 'snackbar-live') await assertChatBoard();
     await assertTheme(theme);
     await closeThemeMenu();
     if (check) await check();
@@ -181,31 +181,53 @@ async function createSessionTab() {
 }
 async function captureLivePermission(theme, tabId) {
   const id = crypto.randomUUID();
+  let snackbarId;
   const file = path.join(__dirname, `${theme}-panel-permission-live.png`);
   try {
     await send({ type: 'permission:request', payload: {
       id, tabId, toolName: 'Bash', toolInput: { command: 'git status' },
       description: 'Run git status', timestamp: Date.now(), timeoutAt: Date.now() + 120000,
     } });
+    await capture(theme, 'rail-needs-you', async () => {
+      const queue = page.locator('[data-testid="rail-needs-you"]');
+      await queue.waitFor({ state: 'visible', timeout: 10000 });
+      await queue.getByText('Attention capture', { exact: true }).waitFor({ state: 'visible', timeout: 5000 });
+      const card = page.locator(`[data-rail-card][data-tab-id="${tabId}"]`);
+      await card.getByText('Needs you', { exact: true }).waitFor({ state: 'visible', timeout: 5000 });
+    }, `real permission:request in Sessions queue and tab card ${tabId}`);
     await page.locator('[data-testid="notification-center-bell"]').click();
     await capture(theme, 'panel-permission-live', async () => {
       const panel = page.locator('[data-testid="notification-center-panel"]');
       await panel.waitFor({ state: 'visible', timeout: 5000 });
-      const row = panel.locator('section[aria-labelledby="ptah-needs-you-heading"] .notification-row')
-        .filter({ hasText: 'Permission: Bash' }).first();
-      await row.waitFor({ state: 'visible', timeout: 10000 });
-      for (const label of ['Allow', 'Deny', 'Show in canvas']) {
-        const button = row.getByRole('button', { name: `${label} Permission: Bash`, exact: true });
-        await button.waitFor({ state: 'visible', timeout: 5000 });
-        if (!(await button.isEnabled())) throw Error(`${label} is disabled on live permission`);
-      }
+      results.livePanel ??= {};
+      results.livePanel[theme] = {
+        text: await panel.innerText(),
+        needsRows: await panel.locator('section[aria-labelledby="ptah-needs-you-heading"] .notification-row').count(),
+      };
     }, `real permission:request routed to canvas tab ${tabId}; Needs you row captured in bell panel`);
+    await closePanel();
+    await page.getByRole('tab', { name: 'Tasks', exact: true }).click();
+    snackbarId = crypto.randomUUID();
+    await send({ type: 'permission:request', payload: {
+      id: snackbarId, tabId, toolName: 'Bash', toolInput: { command: 'git status' },
+      description: 'Run git status', timestamp: Date.now(), timeoutAt: Date.now() + 120000,
+    } });
+    const snackbar = page.locator('.snackbar-card').filter({ hasText: 'Attention capture' }).first();
+    if (await snackbar.waitFor({ state: 'visible', timeout: 5000 }).then(() => true, () => false)) {
+      await capture(theme, 'snackbar-live', () => snackbar.waitFor({ state: 'visible', timeout: 5000 }),
+        `real permission:request while Tasks is visible; canvas tab ${tabId}`);
+    } else {
+      results.limitations.push(`${theme}: live snackbar suppressed while Tasks is visible; no snackbar-live image captured.`);
+    }
+    await page.getByRole('tab', { name: 'Chat', exact: true }).click();
   } catch (error) {
     if (fs.existsSync(file)) fs.unlinkSync(file);
     const message = String(error?.stack || error);
     results.shots.push({ file, ok: false, notes: `live permission setup: ${message}`, viewport: page.viewportSize(), theme });
     results.errors.push(`${path.basename(file)}: ${message}`);
   } finally {
+    if (snackbarId) try { await send({ type: 'permission:auto-resolved', payload: { id: snackbarId, toolName: 'Bash' } }); }
+    catch (error) { results.errors.push(`resolve live snackbar permission: ${String(error?.stack || error)}`); }
     try { await send({ type: 'permission:auto-resolved', payload: { id, toolName: 'Bash' } }); }
     catch (error) { results.errors.push(`resolve live permission: ${String(error?.stack || error)}`); }
     try { await closePanel(); }

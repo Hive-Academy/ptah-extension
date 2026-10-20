@@ -13,6 +13,7 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import {
   CompactSessionCardComponent,
   SESSION_CARD_ACTIONS,
@@ -52,6 +53,7 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
   standalone: true,
   imports: [
     CompactSessionCardComponent,
+    NgTemplateOutlet,
     NativePopoverComponent,
     WorkflowBadgeComponent,
     LucideAngularModule,
@@ -70,7 +72,7 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
     '[attr.data-attention-count]': 'attentionItems().length',
     '[attr.data-state]': 'state()',
     '[style.height.px]':
-      'collapsed() ? 56 : cardHeight() + (tab()?.workflow ? 20 : 0) + (attentionItems().length ? 88 : 0)',
+      'collapsed() ? 56 : cardHeight() + (tab()?.workflow ? 20 : 0) + (attentionItems().length ? (attentionItems()[0].actions.length > 2 || attentionItems().length > 1 ? 136 : 88) : 0)',
     // The host click is a pointer shortcut; its keyboard equivalent is the
     // card's select button (or the collapsed button), so the li stays a listitem.
     role: 'listitem',
@@ -109,6 +111,23 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
       /* Paint-only hover: the 56 px collapsed control never changes size. */
       .rail-collapsed:hover {
         border-color: var(--rail-state-ink);
+      }
+      .rail-attention-frame {
+        --rc-focus-frame: oklch(var(--p));
+      }
+      :host-context([data-theme='anubis-light']) .rail-attention-frame {
+        --rc-focus-frame: oklch(var(--pc));
+      }
+      .rail-attention-frame:has(.rc-focused) {
+        border-color: var(--rc-focus-frame);
+        box-shadow: inset 0 0 0 1px var(--rc-focus-frame);
+        background-color: color-mix(in oklch, oklch(var(--p)) 14%, oklch(var(--b2)));
+      }
+      :host ::ng-deep .rail-attention-frame ptah-compact-rail-card {
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+        background: transparent;
       }
     `,
   ],
@@ -149,6 +168,31 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
             [workflow]="current.workflow"
           />
         }
+        @if (attentionItems().length) {
+          <div class="rail-attention-frame relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-base-content/10 bg-base-200" data-testid="rail-attention-frame">
+            <ng-container [ngTemplateOutlet]="expandedCard" />
+            <div class="relative z-10 min-w-0 px-2 pb-1 text-xs" data-testid="rail-card-needs-you">
+              <span class="inline-flex items-center gap-1 font-semibold text-state-need"><lucide-angular [img]="needIcon" class="size-3.5" aria-hidden="true" />Needs you</span>
+              <span class="ml-1 truncate text-base-content-muted" [title]="attentionItems()[0].detail ?? attentionItems()[0].context ?? attentionItems()[0].title">{{ attentionItems()[0].detail ?? attentionItems()[0].context ?? attentionItems()[0].title }}</span>
+              <div class="mt-1 flex flex-wrap gap-1">
+                @for (action of attentionItems()[0].actions; track action.id) {
+                  @if (action.id.toLowerCase() === 'answer' || action.id.toLowerCase() === 'allow' || action.id.toLowerCase() === 'deny' || action.id.toLowerCase() === 'open') {
+                    <button type="button" class="btn btn-sm min-h-11" [class.btn-primary]="isPrimaryAttentionAction(attentionItems()[0], action)" [class.btn-ghost]="!isPrimaryAttentionAction(attentionItems()[0], action)" [disabled]="!!action.disabledReason || submittingKeys().has(attentionItems()[0].key) || blockedKeys().has(attentionItems()[0].key)"
+                      [attr.title]="action.disabledReason ?? null"
+                      [attr.aria-describedby]="action.disabledReason ? 'rail-card-attention-reason-' + tabId() : null"
+                      [attr.aria-label]="action.label + ' for ' + (attentionItems()[0].sessionTitle ?? current.title) + ' in ' + (attentionItems()[0].workspaceName || 'Workspace unavailable')"
+                      (click)="attentionAction.emit({item: attentionItems()[0], actionId: action.id})">{{ action.label }}</button>
+                  }
+                }
+                @if (attentionItems().length > 1) { <button type="button" class="btn btn-ghost btn-xs min-h-11" (click)="otherRequests.emit()">+{{ attentionItems().length - 1 }} more</button> }
+              </div>
+              @if (firstDisabledReason(); as reason) { <span class="sr-only" [id]="'rail-card-attention-reason-' + tabId()">{{ reason }}</span> }
+            </div>
+          </div>
+        } @else {
+          <ng-container [ngTemplateOutlet]="expandedCard" />
+        }
+        <ng-template #expandedCard>
         <ptah-compact-session-card
           class="min-w-0 flex-1"
           [tab]="current"
@@ -162,25 +206,7 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
           (staleAction)="onStaleAction()"
           (lanesRequested)="lanesRequested.emit(tabId())"
         />
-        @if (attentionItems().length) {
-          <div class="relative z-10 min-w-0 px-2 pb-1 text-xs" data-testid="rail-card-needs-you">
-            <span class="inline-flex items-center gap-1 font-semibold text-state-need"><lucide-angular [img]="needIcon" class="size-3.5" aria-hidden="true" />Needs you</span>
-            <span class="ml-1 truncate text-base-content-muted" [title]="attentionItems()[0].detail ?? attentionItems()[0].context ?? attentionItems()[0].title">{{ attentionItems()[0].detail ?? attentionItems()[0].context ?? attentionItems()[0].title }}</span>
-            <div class="mt-1 flex flex-wrap gap-1">
-              @for (action of attentionItems()[0].actions; track action.id) {
-                @if (action.id.toLowerCase() === 'answer' || action.id.toLowerCase() === 'allow' || action.id.toLowerCase() === 'deny' || action.id.toLowerCase() === 'open') {
-                  <button type="button" class="btn btn-ghost btn-xs min-h-11" [class.btn-primary]="isPrimaryAttentionAction(attentionItems()[0], action)" [disabled]="!!action.disabledReason || submittingKeys().has(attentionItems()[0].key) || blockedKeys().has(attentionItems()[0].key)"
-                    [attr.title]="action.disabledReason ?? null"
-                    [attr.aria-describedby]="action.disabledReason ? 'rail-card-attention-reason-' + tabId() : null"
-                    [attr.aria-label]="action.label + ' for ' + (attentionItems()[0].sessionTitle ?? current.title) + ' in ' + (attentionItems()[0].workspaceName || 'Workspace unavailable')"
-                    (click)="attentionAction.emit({item: attentionItems()[0], actionId: action.id})">{{ action.label }}</button>
-                }
-              }
-              @if (attentionItems().length > 1) { <button type="button" class="btn btn-ghost btn-xs min-h-11" (click)="otherRequests.emit()">+{{ attentionItems().length - 1 }} more</button> }
-            </div>
-            @if (firstDisabledReason(); as reason) { <span class="sr-only" [id]="'rail-card-attention-reason-' + tabId()">{{ reason }}</span> }
-          </div>
-        }
+        </ng-template>
       }
       <!-- Expanded: the full-width card's top-right corner, 6 px inside its
            frame over the title line it reserves; a sibling of the card, so it

@@ -193,14 +193,15 @@ const CHIP_STATES = [
                 <li class="surface-2 rounded-lg border border-[color:var(--surface-border)] p-2" [attr.data-attention-key]="item.key">
                   <div class="flex items-center gap-2 text-state-need">
                     <lucide-angular [img]="kindIcon(item)" class="size-4 shrink-0" aria-hidden="true" />
-                    <span class="truncate text-xs font-semibold text-base-content" [title]="item.sessionTitle || 'Session unavailable'">{{ item.sessionTitle || 'Session unavailable' }}</span>
+                    <span class="truncate text-[11px] font-semibold uppercase tracking-[0.08em]">{{ kindLabel(item) }}</span>
                   </div>
-                  <span class="text-xs text-base-content-muted">{{ item.title }}</span>
+                  <div class="truncate text-xs font-semibold text-base-content" [title]="item.sessionTitle || 'Session unavailable'">{{ item.sessionTitle || 'Session unavailable' }}</div>
                   <p class="mt-1 truncate text-xs text-base-content-muted" [title]="item.detail ?? item.context ?? item.title">{{ item.detail ?? item.context ?? item.title }}</p>
                   <div class="mt-2 flex flex-wrap gap-1">
                     @for (action of item.actions; track action.id) {
-                      <button type="button" class="btn btn-ghost btn-xs min-h-11 focus-visible:outline-2 focus-visible:outline-primary"
+                      <button type="button" class="btn btn-sm min-h-11 focus-visible:outline-2 focus-visible:outline-primary"
                         [class.btn-primary]="isPrimaryAttentionAction(item, action)"
+                        [class.btn-ghost]="!isPrimaryAttentionAction(item, action)"
                         [disabled]="!!action.disabledReason || submitting().has(item.key) || isBlocked(item)"
                         [attr.title]="action.disabledReason ?? null"
                         [attr.aria-label]="action.label + ' for ' + (item.sessionTitle || 'Session unavailable') + ' in ' + (item.workspaceName || 'Workspace unavailable')"
@@ -376,6 +377,9 @@ export class CanvasRailComponent {
   protected readonly laneIcon = CircleAlert;
   kindIcon(item: AttentionItem) {
     return item.kind === 'question' ? this.questionIcon : item.kind === 'lane-permission' ? this.laneIcon : this.permissionIcon;
+  }
+  kindLabel(item: AttentionItem): string {
+    return item.kind === 'question' ? 'Question needs an answer' : item.kind === 'lane-permission' ? 'Lane permission required' : 'Permission required';
   }
   needsFor(tile: CanvasTile): readonly AttentionItem[] {
     return this.localNeedsYou().filter(item => this.matches(item, tile));

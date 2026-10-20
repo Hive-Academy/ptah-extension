@@ -126,6 +126,13 @@ describe('NotificationSnackbarComponent', () => {
       const host = fixture.nativeElement as HTMLElement;
       expect(host.querySelectorAll('.snackbar-card')).toHaveLength(3);
       expect(host.textContent).toContain('+1 more');
+      expect(getComputedStyle(host).bottom).toBe('5rem');
+      expect(getComputedStyle(host).right).toBe('1rem');
+      expect(getComputedStyle(host).width).toBe('min(348px, calc(100vw - 2rem))');
+      const stack = host.querySelector<HTMLElement>('[data-testid="notification-snackbars"]');
+      expect(getComputedStyle(stack as HTMLElement).flexDirection).toBe('column-reverse');
+      expect(stack?.querySelector('.snackbar-card')?.textContent).toContain('failure-3');
+      expect(stack?.lastElementChild?.classList.contains('snackbar-more')).toBe(true);
     } finally {
       Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth });
     }
@@ -185,6 +192,8 @@ describe('NotificationSnackbarComponent', () => {
       const host = fixture.nativeElement as HTMLElement;
       expect(host.querySelectorAll('.snackbar-card')).toHaveLength(1);
       expect(host.textContent).toContain('+1 more');
+      expect(getComputedStyle(host).right).toBe('1rem');
+      expect(getComputedStyle(host).width).toBe('min(348px, calc(100vw - 2rem))');
     } finally {
       Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth });
     }
