@@ -3,6 +3,7 @@ import {
   CommandSceneRenderer,
   type SceneRenderSnapshot,
 } from './command-scene-renderer';
+import { VoiceRippleEmitter } from './command-scene-ripples';
 
 const root: CommandWorkNode = {
   id: 'root:r',
@@ -173,6 +174,106 @@ describe('CommandSceneRenderer', () => {
     callback(1000);
     expect(frame).toHaveBeenCalledTimes(1);
     expect(context.clearRect).toHaveBeenCalledTimes(1);
+    renderer.destroy();
+  });
+
+  it('draws a voice ripple when speaking above threshold', () => {
+    renderer.setSnapshot({ ...snapshot(), voiceState: 'speaking', outputLevel: 1 });
+    context.arc.mockClear();
+    callback(1000);
+    expect(context.arc).toHaveBeenCalledWith(100, 80, 48, 0, Math.PI * 2);
+    renderer.destroy();
+  });
+
+  it('draws no voice ripple under reduced motion', () => {
+    renderer.setSnapshot({
+      ...snapshot(),
+      voiceState: 'speaking',
+      outputLevel: 1,
+      reducedMotion: true,
+    });
+    context.arc.mockClear();
+    callback(1000);
+    expect(context.arc.mock.calls.some((call) => call[2] === 48)).toBe(false);
+    renderer.destroy();
+  });
+
+  it('clears ripples synchronously when voice state changes', () => {
+    const clear = jest.spyOn(VoiceRippleEmitter.prototype, 'clear');
+    try {
+      renderer.setSnapshot({ ...snapshot(), voiceState: 'speaking', outputLevel: 1 });
+      callback(1000);
+      clear.mockClear();
+      renderer.setVoice({ voiceState: 'listening', inputLevel: 0, outputLevel: 0 });
+      expect(clear).toHaveBeenCalledTimes(1);
+      context.arc.mockClear();
+      callback(1000);
+      expect(context.arc.mock.calls.some((call) => call[2] === 48)).toBe(false);
+    } finally {
+      renderer.destroy();
+      clear.mockRestore();
+    }
+  });
+
+  it('clears ripples when a snapshot voice differs from the last setVoice', () => {
+    renderer.setSnapshot(snapshot());
+    renderer.setVoice({ voiceState: 'speaking', inputLevel: 0, outputLevel: 1 });
+    callback(1000);
+    expect(context.arc).toHaveBeenCalledWith(100, 80, 48, 0, Math.PI * 2);
+    renderer.setSnapshot({ ...snapshot(), voiceState: 'listening' });
+    context.arc.mockClear();
+    callback(1000);
+    expect(context.arc.mock.calls.some((call) => call[2] === 48)).toBe(false);
+    renderer.destroy();
+  });
+
+  it('clears ripples synchronously when reduced motion becomes true', () => {
+    const clear = jest.spyOn(VoiceRippleEmitter.prototype, 'clear');
+    try {
+      renderer.setSnapshot({ ...snapshot(), voiceState: 'speaking', outputLevel: 1 });
+      callback(1000);
+      clear.mockClear();
+      renderer.setSnapshot({
+        ...snapshot(),
+        voiceState: 'speaking',
+        outputLevel: 0,
+        reducedMotion: true,
+      });
+      expect(clear).toHaveBeenCalledTimes(1);
+      context.arc.mockClear();
+      callback(1000);
+      expect(context.arc.mock.calls.some((call) => call[2] === 48)).toBe(false);
+    } finally {
+      renderer.destroy();
+      clear.mockRestore();
+    }
+  });
+
+  it('clears ripples when the theme changes', () => {
+    renderer.setSnapshot({ ...snapshot(), voiceState: 'speaking', outputLevel: 1 });
+    callback(1000);
+    renderer.setSnapshot({
+      ...snapshot(),
+      voiceState: 'speaking',
+      outputLevel: 0,
+      theme: 'light',
+    });
+    context.arc.mockClear();
+    callback(1000);
+    expect(context.arc.mock.calls.some((call) => call[2] === 48)).toBe(false);
+    renderer.destroy();
+  });
+
+  it('clears ripples through a hidden speaking-listening-speaking transition', () => {
+    renderer.setSnapshot({ ...snapshot(), voiceState: 'speaking', outputLevel: 1 });
+    callback(1000);
+    renderer.setHidden(true);
+    renderer.setVoice({ voiceState: 'listening', inputLevel: 0, outputLevel: 0 });
+    renderer.setVoice({ voiceState: 'speaking', inputLevel: 0, outputLevel: 0 });
+    renderer.setHidden(false);
+    context.arc.mockClear();
+    callback(1000);
+    expect(context.arc.mock.calls.some((call) => call[2] === 48)).toBe(false);
     renderer.destroy();
   });
 
