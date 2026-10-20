@@ -292,6 +292,23 @@ describe('HostAttentionCoordinator', () => {
     expect(host.resolve).toHaveBeenCalledWith(`c:${workspaceIdFromPath('lane:agent-1')}`, 30);
   });
 
+  it('does not present a lane failure released while owner metadata is pending', async () => {
+    const { coordinator, metadata, settings, presented, host } = setup();
+    settings.set('notifications.failureHostEnabled', true);
+    const parent = await metadata.get('session-1');
+    let finish: ((value: Awaited<ReturnType<SessionMetadataStore['get']>>) => void) | undefined;
+    jest.mocked(metadata.get).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+
+    const pending = coordinator.presentLaneFailure('agent-1', 'session-1', 30);
+    coordinator.releaseLaneFailure('agent-1');
+    finish?.(parent);
+    await pending;
+    await settle();
+
+    expect(presented).toEqual([]);
+    expect(host.resolve).not.toHaveBeenCalledWith(`c:${workspaceIdFromPath('lane:agent-1')}`, 30);
+  });
+
   it('bounds live requests and expires stale pending snapshots', async () => {
     const now = jest.spyOn(Date, 'now').mockReturnValue(1_000);
     try {
