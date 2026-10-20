@@ -29,9 +29,11 @@
       }
     </ul>
 
+    <div class="relative w-full">
     <svg
       [attr.viewBox]="'0 0 ' + viewW + ' ' + viewH"
-      class="w-full text-base-content"
+      preserveAspectRatio="none"
+      class="block h-[clamp(220px,15vw,260px)] w-full text-base-content"
       role="img"
       [attr.aria-label]="chartAriaLabel()"
       data-testid="usage-chart-svg"
@@ -64,15 +66,6 @@
           stroke="currentColor"
           stroke-opacity="0.12"
         />
-        <text
-          [attr.x]="padL - 6"
-          [attr.y]="g.y + 3"
-          text-anchor="end"
-          fill="currentColor"
-          class="text-[11px] opacity-80"
-        >
-          {{ g.label }}
-        </text>
       }
 
       @for (bar of bars(); track bar.day + '-' + bar.series.id) {
@@ -112,18 +105,6 @@
         />
       }
 
-      @for (label of xLabels(); track $index) {
-        <text
-          [attr.x]="label.x"
-          [attr.y]="viewH - 8"
-          text-anchor="middle"
-          fill="currentColor"
-          class="text-[11px] opacity-80"
-        >
-          {{ label.label }}
-        </text>
-      }
-
       @for (column of columns(); track column.index) {
         <rect
           [attr.id]="'usage-chart-col-' + column.index"
@@ -143,6 +124,15 @@
         />
       }
     </svg>
+    <div class="pointer-events-none absolute inset-0 text-[11px] text-base-content opacity-80" aria-hidden="true" data-testid="usage-chart-axis-labels">
+      @for (g of gridlines(); track $index) {
+        <span class="absolute -translate-x-full -translate-y-1/2 whitespace-nowrap" [style.left.%]="(padL - 6) / viewW * 100" [style.top.%]="g.y / viewH * 100">{{ g.label }}</span>
+      }
+      @for (label of xLabels(); track $index) {
+        <span class="absolute -translate-x-1/2 -translate-y-1/2 whitespace-nowrap" [style.left.%]="label.x / viewW * 100" [style.top.%]="(viewH - 8) / viewH * 100">{{ label.label }}</span>
+      }
+    </div>
+    </div>
 
     <div
       class="mt-2 min-h-11 text-xs"

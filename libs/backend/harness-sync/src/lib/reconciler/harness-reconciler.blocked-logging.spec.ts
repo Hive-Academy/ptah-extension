@@ -117,7 +117,7 @@ function warnPayloads(logger: FakeLogger, message: string): unknown[] {
  * Collected structurally rather than by naming `note`, `action` and each
  * path's `reason`, so a prose field added to this payload later is under the
  * wording guard the day it lands. `JSON.stringify` is not used because it
- * escapes the quotes inside the action ("Your harness is short"), which would
+ * escapes the quotes inside the action ("Skills & Plugins harness health badge"), which would
  * make the approved sentence unfindable in its own line.
  */
 function stringsIn(value: unknown): string[] {
@@ -333,23 +333,20 @@ describe('HarnessReconcilerService — the blocked-path line', () => {
     ).toEqual([]);
   });
 
-  it('names the Dashboard harness card, so the line is not a dead end for a user without a terminal', async () => {
+  it('names the Skills & Plugins harness badge for a user without a terminal', async () => {
     const reconciler = buildReconciler(writeSources());
     writeOccupants();
 
     await reconciler.reconcile(ws, { mode: 'full', reason: 'activation' });
 
     const { action } = blockedDetail(logger);
-    // A log line cannot be clicked, so naming the destination IS the entry
-    // point. The card's own heading is the label, verbatim — a user reading
-    // the log and then opening the home must find the words they just read.
-    expect(action).toContain('Your harness is short');
-    expect(action).toContain('Dashboard');
-    // Both routes, not one instead of the other: the CLI still clears it and
-    // the card only shows it.
+    // A log line cannot be clicked, so name the live Skills & Plugins badge.
+    expect(action).toContain(
+      'Skills & Plugins page, in the harness health badge',
+    );
+    expect(action).not.toContain('Dashboard');
     expect(action).toContain('ptah harness doctor --fix');
-    // The card discloses; it does not repair. Describing it as a fix would
-    // claim an ownership of these paths that nothing here establishes.
+    // The user chooses paths in the repair dialog; the log makes no ownership claim.
     expect(action.toLowerCase()).not.toMatch(/\bfix (it|them|this)\b/);
   });
 

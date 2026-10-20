@@ -236,6 +236,8 @@ export interface PlanLimitSessionOwner {
 export interface PlanLimitsSnapshot {
   readonly generatedAt: number;
   readonly owners: readonly PlanLimitOwnerSnapshot[];
+  /** CLI detection missed the discovery deadline; a later pull may find more owners. */
+  readonly discoveryIncomplete?: boolean;
   /** Keyed by session id. */
   readonly sessionOwners: Readonly<Record<string, PlanLimitSessionOwner>>;
 }

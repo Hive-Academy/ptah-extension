@@ -21,6 +21,7 @@ import {
   formatLocalWithRelative,
   formatRelative,
   formatUsed,
+  formatToolResetText,
   FRESHNESS_MS,
   isActiveLimitEvidence,
   NEAR_LIMIT_PERCENT,
@@ -273,6 +274,11 @@ export interface PlanTileView {
   /** Plan badge text (e.g. "plus"), or `null` when no plan is known. */
   readonly planBadge: string | null;
   readonly bar: PlanTileBarView | null;
+  readonly primaryValue: string | null;
+  readonly primaryTone: Tone;
+  readonly compactWindows: readonly PlanTileCompactWindow[];
+  readonly shortReset: string | null;
+  readonly accessibleLabel: string;
   readonly statusPill: PlanTileStatusPillView | null;
   readonly chips: readonly PlanTileChipView[];
   readonly secondary: PlanTileSecondaryView | null;
@@ -288,6 +294,22 @@ export interface PlanTileView {
   /** Windows hidden from the compact view, kept as tooltip lines. */
   readonly hiddenWindowNotes: readonly string[];
   readonly noUsageSource: boolean;
+}
+
+export interface PlanTileCompactWindow {
+  readonly key: string;
+  readonly label: string;
+  readonly valueText: string;
+  readonly percent: number | null;
+  readonly tone: Tone;
+  readonly title: string;
+}
+
+function shortWindowLabel(label: string): string {
+  if (/^5[ -]?hour/i.test(label)) return '5h';
+  if (/week/i.test(label)) return 'Wk';
+  if (/month/i.test(label)) return 'Mo';
+  return label;
 }
 
 // ---------------------------------------------------------------------------
@@ -939,6 +961,38 @@ export function buildPlanTile(
     };
   })();
 
+  const displayPrimary = primary ?? owner.windows[0] ?? null;
+  const visibleWindows = owner.windows.filter((window) => window !== hidden);
+  const compactWindows: PlanTileCompactWindow[] = visibleWindows
+    .slice(0, 3)
+    .map((window) => {
+      const facts = windowFacts(window, owner, now, time);
+      const percent = facts.state === 'reset-usage-unknown' ? undefined : facts.percent;
+      return {
+        key: window.key,
+        label: shortWindowLabel(window.label),
+        valueText: facts.state === 'reset-usage-unknown' ? 'unknown' : formatUsed(window.used),
+        percent: percent === undefined ? null : Math.max(0, Math.min(100, percent)),
+        tone: BAR_TONES[facts.state] ?? 'neutral',
+        title: `${window.label}: ${factsTitle(facts)}\n${formatToolResetText(window, now)}`,
+      };
+    });
+  const primaryValue = displayPrimary === null ? null
+    : states.get(displayPrimary.key) === 'reset-usage-unknown' ? 'unknown'
+    : formatUsed(displayPrimary.used);
+  const primaryState = displayPrimary === null ? undefined : states.get(displayPrimary.key);
+  const primaryTone = primaryState === undefined ? 'neutral' : BAR_TONES[primaryState] ?? 'neutral';
+  const shortReset = displayPrimary === null ? null : (() => {
+    const reset = formatToolResetText(displayPrimary, now);
+    const relative = reset.match(/\(([^)]+)\)/)?.[1];
+    if (relative === undefined) return reset;
+    return reset.startsWith('resets ')
+      ? `resets ${relative.replace(/^in /, '')}`
+      : `reset passed ${relative}`;
+  })();
+  const accessibleLabel = [label, primaryValue, ...owner.windows.map((window) =>
+    `${window.label} ${states.get(window.key) === 'reset-usage-unknown' ? 'unknown' : formatUsed(window.used)}, ${formatToolResetText(window, now)}`), shortReset].filter(Boolean).join(', ');
+
   const hiddenWindowNotes = hidden === null ? [] : (() => {
     const facts = windowFacts(hidden, owner, now, time);
     const lines = [`${hidden.label} (hidden from the compact view):`, ...facts.resetLines];
@@ -946,6 +1000,13 @@ export function buildPlanTile(
     if (chip) lines.push(chip.text);
     return [lines.join(' ')];
   })();
+  const overflowWindows = visibleWindows.slice(3);
+  if (overflowWindows.length > 0) {
+    hiddenWindowNotes.push(`+${overflowWindows.length} more: ${overflowWindows.map((window) => {
+      const facts = windowFacts(window, owner, now, time);
+      return `${window.label}: ${facts.valueText}, ${formatToolResetText(window, now)}. ${factsTitle(facts)}`;
+    }).join('\n')}`);
+  }
 
   const pill = bar === null
     ? statusPill(owner, owner.windows.length > 0, hasData, notice)
@@ -976,6 +1037,11 @@ export function buildPlanTile(
       subtitle === '' ? label : `${label} — ${subtitle}`,
     planBadge: badge,
     bar,
+    primaryValue,
+    primaryTone,
+    compactWindows,
+    shortReset,
+    accessibleLabel,
     statusPill: pill,
     chips,
     secondary: secondaryLine(owner),

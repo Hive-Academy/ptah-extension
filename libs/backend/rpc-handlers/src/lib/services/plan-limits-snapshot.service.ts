@@ -15,10 +15,8 @@
  * - `known` — the snapshot is already complete and is passed through
  *   unchanged. It is never read.
  *
- * Discovery bounds each of its own sources by the same deadlines and never
- * rejects, so one call takes about two deadlines at worst (discovery, then
- * the parallel reads): up to ~24 s on a first, cold Codex read, while the
- * Codex owner is not yet cached.
+ * Discovery and all parallel owner reads share one 24-second ceiling. Slow
+ * owners still appear with ledger evidence when that ceiling expires.
  *
  * The single-owner lookup behind `provider:getAccountUsage`
  * (`ownerSnapshotForProvider`) is the exception: it reads without that
@@ -55,6 +53,7 @@ import {
 } from '@ptah-extension/cli-agent-runtime';
 import {
   limitLookupDeadlineMs,
+  SLOW_LIMIT_LOOKUP_DEADLINE_MS,
   type PlanLimitOwnerSnapshot,
   type PlanLimitSessionOwner,
   type PlanLimitsSnapshot,
@@ -82,6 +81,9 @@ export type PlanLimitsLedgerReader = Pick<
   PlanLimitLedgerService,
   'snapshotFor' | 'sessionOwners'
 >;
+/** Leaves six seconds for RPC transport and rendering (30 second client timeout). */
+const SNAPSHOT_BUDGET_MS = 24_000;
+const RESERVED_READ_MS = SLOW_LIMIT_LOOKUP_DEADLINE_MS;
 
 @injectable()
 export class PlanLimitsSnapshotService {
@@ -144,13 +146,15 @@ export class PlanLimitsSnapshotService {
     scope: PlanOwnerDiscoveryRequest,
     refresh: boolean,
   ): Promise<PlanLimitsSnapshot> {
-    const entries = await this.discovery.discoverTargets(scope);
+    const deadlineAt = Date.now() + SNAPSHOT_BUDGET_MS;
+    const entries = await this.discovery.discoverTargets(scope, deadlineAt - RESERVED_READ_MS);
     const owners = await Promise.all(
-      entries.map((entry) => this.ownerSnapshot(entry, refresh, true)),
+      entries.map((entry) => this.ownerSnapshot(entry, refresh, true, deadlineAt)),
     );
     return {
       generatedAt: Date.now(),
       owners,
+      discoveryIncomplete: entries.discoveryIncomplete === true,
       sessionOwners: this.sessionOwners(scope.sessionIds ?? []),
     };
   }
@@ -159,9 +163,10 @@ export class PlanLimitsSnapshotService {
     entry: DiscoveredPlanOwner,
     refresh: boolean,
     withDeadline: boolean,
+    deadlineAt?: number,
   ): Promise<PlanLimitOwnerSnapshot> {
     if (entry.kind === 'known') return entry.snapshot;
-    const snapshot = await this.readOwner(entry.target, refresh, withDeadline);
+    const snapshot = await this.readOwner(entry.target, refresh, withDeadline, deadlineAt);
     return entry.unknownReason
       ? { ...snapshot, unknownReason: entry.unknownReason }
       : snapshot;
@@ -177,20 +182,34 @@ export class PlanLimitsSnapshotService {
     target: PlanOwnerTarget,
     refresh: boolean,
     withDeadline: boolean,
+    deadlineAt?: number,
   ): Promise<PlanLimitOwnerSnapshot> {
     const controller = withDeadline ? new AbortController() : undefined;
-    const timer = controller
-      ? setTimeout(
-          () => controller.abort(),
-          limitLookupDeadlineMs(target.providerId),
-        )
-      : undefined;
-    timer?.unref?.();
+    const remainingMs = controller
+      ? Math.min(limitLookupDeadlineMs(target.providerId), (deadlineAt ?? Date.now()) - Date.now())
+      : 0;
+    if (controller && remainingMs <= 0) {
+      this.logger.debug('[PlanLimitsSnapshot] owner read ended without a snapshot', {
+        providerId: target.providerId,
+        reason: 'timeout',
+      });
+      return this.unreadSnapshot(target.ownerRef);
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      return await this.usage.getOwnerSnapshot(target, {
+      const read = this.usage.getOwnerSnapshot(target, {
         refresh,
         ...(controller && { signal: controller.signal }),
       });
+      if (!controller) return await read;
+      const timeout = new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          controller.abort();
+          reject(new Error('Plan limit owner read deadline'));
+        }, remainingMs);
+        timer.unref?.();
+      });
+      return await Promise.race([read, timeout]);
     } catch (error: unknown) {
       this.logger.debug(
         '[PlanLimitsSnapshot] owner read ended without a snapshot',
@@ -205,7 +224,7 @@ export class PlanLimitsSnapshotService {
       );
       return this.unreadSnapshot(target.ownerRef);
     } finally {
-      if (timer) clearTimeout(timer);
+      if (timer !== undefined) clearTimeout(timer);
     }
   }
 

@@ -75,8 +75,31 @@ describe('plan-tile-view.model', () => {
       expect(view.bar?.roundedPercent).toBe(94);
       // 94% is at or above the near-limit percent, so the fill warns.
       expect(view.bar?.barTone).toBe('warning');
+      expect(view.primaryValue).toBe('94%');
+      expect(view.compactWindows.map((window) => window.label)).toEqual(['5h', 'Wk']);
+      expect(view.shortReset).toBe('resets 3h 0m');
+      expect(view.accessibleLabel).toContain('Weekly 94%');
       // The other window stays as a labeled chip.
       expect(view.chips.map((chip) => chip.label)).toContain('5-hour');
+    });
+
+    it('uses the shared reset text when only exhaustion records the reset', () => {
+      const view = buildPlanTile(owner([win({
+        resetsAt: undefined,
+        used: { kind: 'percent', percent: 100 },
+        exhaustion: { observedAt: NOW - MIN, source: 'error-derived', resetsAt: NOW + 4 * 60 * MIN },
+      })]), NOW, TIME);
+      expect(view.shortReset).toBe('resets 4h 0m');
+      expect(view.shortReset).not.toBe('reset unknown');
+    });
+
+    it('keeps windows beyond the third meter in tooltip notes', () => {
+      const view = buildPlanTile(owner(Array.from({ length: 5 }, (_, index) =>
+        win({ key: `other:${index}`, label: `Window ${index}`, used: { kind: 'percent', percent: 20 + index } })
+      )), NOW, TIME);
+      expect(view.compactWindows).toHaveLength(3);
+      expect(view.hiddenWindowNotes.join('\n')).toContain('+2 more');
+      expect(view.hiddenWindowNotes.join('\n')).toContain('Window 4: 24%');
     });
 
     it('breaks an equal percentage tie by the nearest reset', () => {

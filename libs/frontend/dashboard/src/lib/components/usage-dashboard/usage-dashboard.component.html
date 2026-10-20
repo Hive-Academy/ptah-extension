@@ -1,6 +1,6 @@
-<div class="flex flex-col gap-4" data-testid="usage-dashboard">
-  <!-- Header row: title, date span, range control, refresh -->
+<div class="usage-dashboard flex flex-col gap-4" data-testid="usage-dashboard">
   <div class="flex flex-wrap items-center gap-3">
+    <h3 class="text-sm font-semibold">Usage</h3>
     <div class="min-w-0">
       <p class="text-xs text-base-content-muted" data-testid="usage-date-span">
         {{ viewModel()?.dateSpanLabel }}
@@ -40,6 +40,20 @@
       }
       Refresh
     </button>
+    @if (viewModel()?.isPartial) {
+      <button
+        type="button"
+        class="badge badge-warning badge-sm tooltip tooltip-top cursor-help"
+        [class.tooltip-open]="partialBadgeFocused()"
+        [attr.data-tip]="sourceTip()"
+        aria-describedby="usage-partial-source-description"
+        [attr.title]="sourceTip()"
+        (focus)="partialBadgeFocused.set(true)"
+        (blur)="partialBadgeFocused.set(false)"
+        data-testid="usage-partial-badge"
+      >partial</button>
+      <span id="usage-partial-source-description" class="sr-only">{{ sourceTip() }}</span>
+    }
   </div>
 
   @if (isLoading() && viewModel() === null) {
@@ -98,24 +112,14 @@
         </p>
       </div>
     } @else {
-      <div class="grid grid-cols-1 gap-5 lg:grid-cols-5">
-        <div class="lg:col-span-2 flex flex-col gap-4">
-          <ptah-usage-cost-summary
-            [totalCostUsd]="vm.totalCostUsd"
-            [isPartial]="vm.isPartial"
-            [providers]="vm.providers"
-            [sources]="vm.sources"
-            [totalUnpricedFactCount]="vm.totalCostUnpricedFactCount"
-            [totalUnpricedTokens]="vm.totalCostUnpricedTokens"
-          />
-          <ptah-usage-cost-donut
-            [providers]="vm.providers"
-            [models]="vm.modelRows"
-            [totalCostUsd]="vm.totalCostUsd"
-            [unpricedFactCount]="vm.totalCostUnpricedFactCount"
-          />
-        </div>
-        <div class="lg:col-span-3">
+      <ptah-usage-kpi-strip
+        [kpis]="vm.kpis"
+        [totalCostUsd]="vm.totalCostUsd"
+        [totalUnpricedFactCount]="vm.totalCostUnpricedFactCount"
+        [totalUnpricedTokens]="vm.totalCostUnpricedTokens"
+      />
+
+      <section class="min-w-0 rounded-lg bg-base-200/20 p-3" aria-label="Daily usage">
           <div class="flex items-center justify-between gap-2">
             <h4 class="text-xs font-semibold uppercase tracking-wide text-base-content-muted">
               Daily usage
@@ -150,18 +154,29 @@
             [unknownDays]="chartUnknownDays()"
             [unknownSeries]="chartMode() === 'cost' ? vm.providerSeries.map((p) => p.costUnknownByDay) : []"
           />
-        </div>
+      </section>
+
+      <div class="usage-share-grid grid grid-cols-1 gap-5">
+        <ptah-usage-cost-donut
+          [providers]="vm.providers"
+          [models]="vm.modelRows"
+          [totalCostUsd]="vm.totalCostUsd"
+          [unpricedFactCount]="vm.totalCostUnpricedFactCount"
+        />
+        <ptah-usage-cost-summary
+          [providers]="vm.providers"
+          [totalUnpricedFactCount]="vm.totalCostUnpricedFactCount"
+        />
       </div>
 
-      <ptah-usage-kpi-strip [kpis]="vm.kpis" />
-
-      <ptah-usage-breakdown-table
-        [modelRows]="vm.modelRows"
-        [dayRows]="vm.dayRows"
-        [costPartiallyKnown]="vm.totalCostUnpricedFactCount > 0"
-      />
-
-      <ptah-usage-top-sessions [sessions]="vm.topSessions" [generatedAt]="summaryGeneratedAt()" />
+      <div class="usage-table-grid grid grid-cols-1 gap-5">
+        <ptah-usage-breakdown-table
+          [modelRows]="vm.modelRows"
+          [dayRows]="vm.dayRows"
+          [costPartiallyKnown]="vm.totalCostUnpricedFactCount > 0"
+        />
+        <ptah-usage-top-sessions [sessions]="vm.topSessions" [generatedAt]="summaryGeneratedAt()" />
+      </div>
 
       <ptah-usage-cost-quality [quality]="vm.quality" />
     }

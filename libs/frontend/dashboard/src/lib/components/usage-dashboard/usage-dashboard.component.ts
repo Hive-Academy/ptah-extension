@@ -31,7 +31,7 @@ import {
   USAGE_RANGE_OPTIONS,
 } from '../../services/analytics-usage.store';
 import { buildUsageViewModel, type UsageViewModel } from './usage-summary.view-model';
-import { formatChartUsd, formatCompactTokens } from './usage-formatting';
+import { formatChartUsd, formatCompactTokens, providerDisplayName } from './usage-formatting';
 import {
   StackedBarChartComponent,
   type StackedBarSeries,
@@ -58,6 +58,15 @@ import { UsageTopSessionsComponent } from './usage-top-sessions.component';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './usage-dashboard.component.html',
+  styles: [`
+    .usage-dashboard { container-type: inline-size; }
+    @container (min-width: 720px) {
+      .usage-share-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @container (min-width: 900px) {
+      .usage-table-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+  `],
 })
 export class UsageDashboardComponent {
   private readonly usageStore = inject(AnalyticsUsageStore);
@@ -79,6 +88,15 @@ export class UsageDashboardComponent {
       this.modelState.availableModels(),
     ),
   );
+
+  protected readonly sourceTip = computed(() =>
+    (this.viewModel()?.sources ?? [])
+      .filter((source) => source.status !== 'complete')
+      .map((source) => `${providerDisplayName(source.sourceId)}: ${source.reason ?? source.status}`)
+      .join('; '),
+  );
+
+  protected readonly partialBadgeFocused = signal(false);
 
   protected readonly chartMode = signal<'cost' | 'tokens'>('cost');
 
