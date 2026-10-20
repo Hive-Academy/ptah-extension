@@ -17,6 +17,7 @@ const lane: AttentionItem = {
   key: 'lane-1', generation: 1, kind: 'lane-permission', source: 'lane',
   workspacePath: '/workspace/a', workspaceName: 'a', sessionId: 'session-1',
   severity: 'warning', title: 'Approve tool', context: 'Claude · Fix notifications · Tool: Bash',
+  sessionTitle: 'Fix notifications', provider: 'Claude', detail: 'Tool: Bash',
   actions: [
     { id: 'allow', label: 'Allow', disabledReason: 'Unknown tool' },
     { id: 'deny', label: 'Deny' }, { id: 'open', label: 'Open' },
@@ -24,6 +25,7 @@ const lane: AttentionItem = {
 };
 const warning: AttentionItem = {
   ...lane, key: 'warning-1', kind: 'warning', title: 'Git status unavailable',
+  sessionTitle: undefined, provider: undefined, detail: undefined,
   actions: [{ id: 'retry', label: 'Retry' }],
 };
 
@@ -92,10 +94,24 @@ describe('NotificationCenterComponent', () => {
     expect(fixture.nativeElement.querySelector('#ptah-needs-you-heading')?.parentElement?.textContent).toContain('1');
     expect(fixture.nativeElement.textContent).not.toContain('Finished');
     const rows = fixture.debugElement.queryAll(By.css('.notification-row'));
-    expect(rows[0].nativeElement.textContent).toContain('Claude · Fix notifications · Tool: Bash');
+    expect(rows[0].nativeElement.textContent).toContain('Fix notifications');
+    expect(rows[0].nativeElement.textContent).toContain('Claude');
+    expect(rows[0].nativeElement.textContent).toContain('Tool: Bash');
     expect(rows[0].nativeElement.textContent).toContain('a');
-    expect(document.activeElement).toBe(rows[0].nativeElement);
+    expect(document.activeElement).toBe(rows[0].nativeElement.querySelector('button:not(:disabled)'));
     expect(rows[0].queryAll(By.css('button')).find(button => button.nativeElement.textContent.trim() === 'Allow')?.nativeElement.disabled).toBe(true);
+  }));
+
+  it('shows Session unavailable for a request without a session title', fakeAsync(() => {
+    notifications.upsert({ ...lane, sessionTitle: undefined, title: 'Permission required' });
+    const fixture = TestBed.createComponent(NotificationCenterComponent);
+    fixture.detectChanges();
+    fixture.componentInstance.openPanel();
+    fixture.detectChanges();
+    tick();
+    const row = (fixture.nativeElement as HTMLElement).querySelector('.notification-row');
+    expect(row?.querySelector('p[title="Session unavailable"]')?.textContent).toBe('Session unavailable');
+    expect(row?.textContent).toContain('Lane permission required');
   }));
 
   it('shows one All clear state without section headings or section empty messages', fakeAsync(() => {

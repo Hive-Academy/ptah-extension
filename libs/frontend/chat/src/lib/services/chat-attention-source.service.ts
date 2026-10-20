@@ -163,7 +163,10 @@ export class ChatAttentionSourceService {
       key, generation, kind, source: 'chat', workspacePath,
       workspaceName: labelPath ? workspaceLabelFromPath(labelPath) : 'Unknown workspace',
       sessionId: resolvedSessionId || undefined, tabId: owner?.tab.id, ownerSurface: surfaceOwned || surfaceMode ? 'surface' : 'chat',
-      severity: 'warning', title, context: context || undefined, actions, actionable: true,
+      severity: 'warning', title, context: context || undefined,
+      sessionTitle: safeTitle || undefined, provider: provider || undefined,
+      detail: target.kind === 'question' ? safeQuestion || undefined : safeTool ? `Tool: ${safeTool}` : undefined,
+      actions, actionable: true,
       soundEligible: !sameRequestMoved && !this.voice.isActive(owner?.tab.id ?? ''),
     };
     next.set(key, { item, target });

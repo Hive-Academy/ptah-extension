@@ -1,5 +1,7 @@
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { ATTENTION_ACTION_DISPATCHER, NotificationService, type AttentionItem } from '@ptah-extension/core';
+import { TabManagerService } from '@ptah-extension/chat';
 import { By } from '@angular/platform-browser';
 import type { CompactRailDensity, CompactRailState } from '@ptah-extension/chat-ui';
 import type { CanvasTile } from '../canvas.store';
@@ -27,6 +29,11 @@ class CardStub {
   readonly tabId = input.required<string>(); readonly density = input<CompactRailDensity>('comfortable');
   readonly collapsed = input(false); readonly index = input(1); readonly focused = input(false);
   readonly holdText = input(false); readonly state = input<CompactRailState>('idle');
+  readonly attentionItems = input<readonly AttentionItem[]>([]);
+  readonly submittingKeys = input<ReadonlySet<string>>(new Set());
+  readonly blockedKeys = input<ReadonlySet<string>>(new Set());
+  readonly attentionAction = output<{item: AttentionItem; actionId: string}>();
+  readonly otherRequests = output<void>();
   readonly focusRequested = output<string>(); readonly railState = output<CompactRailState>();
   readonly staleAction = output<string>(); readonly lanesRequested = output<string>();
   readonly canMoveUp = input(false); readonly canMoveDown = input(false);
@@ -38,14 +45,112 @@ class CardStub {
 const tile = (tabId: string, order: number): CanvasTile => ({ tabId, order, width: DEFAULT_TILE_WIDTH, rowBreakBefore: false });
 
 describe('CanvasRailComponent', () => {
+  const dispatchOutcome = jest.fn().mockResolvedValue({ kind: 'completed' });
   beforeEach(() => {
-    TestBed.configureTestingModule({ imports: [CanvasRailComponent] });
+    dispatchOutcome.mockReset().mockResolvedValue({ kind: 'completed' });
+    TestBed.configureTestingModule({ imports: [CanvasRailComponent], providers: [
+      { provide: TabManagerService, useValue: { findTabByIdAcrossWorkspaces: (id: string) => ({ tab: { claudeSessionId: id === 'a' ? 'session-a' : null } }) } },
+      { provide: ATTENTION_ACTION_DISPATCHER, useValue: { dispatchOutcome } },
+    ] });
     TestBed.overrideComponent(CanvasRailComponent, { remove: { imports: [CanvasRailCardComponent] }, add: { imports: [CardStub] } });
   });
   function mount(tiles: readonly CanvasTile[] = []) {
     const fixture = TestBed.createComponent(CanvasRailComponent);
     fixture.componentRef.setInput('tiles', tiles); fixture.detectChanges(); return fixture;
   }
+  it('projects local requests and dispatches the authoritative action', async () => {
+    const notifications = TestBed.inject(NotificationService);
+    const request: AttentionItem = {
+      key: 'permission:one', generation: 1, kind: 'permission', source: 'chat',
+      workspacePath: '/local', workspaceName: 'local', sessionId: 'session-a',
+      severity: 'warning', title: 'Permission required', sessionTitle: 'Alpha', detail: 'Tool: Bash',
+      actions: [{ id: 'allow', label: 'Allow' }, { id: 'deny', label: 'Deny' }], actionable: true, soundEligible: false,
+    };
+    notifications.upsert(request);
+    const fixture = mount([tile('a', 1)]);
+    fixture.componentRef.setInput('workspacePath', '/local'); fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelector('[data-testid="rail-needs-you"]')?.textContent).toContain('Alpha');
+    dispatchOutcome.mockImplementationOnce(async () => {
+      notifications.resolve(request.key, request.generation);
+      return { kind: 'completed' };
+    });
+    (host.querySelector('[data-attention-key] button') as HTMLButtonElement).click();
+    expect(dispatchOutcome).toHaveBeenCalledWith(request.key, request.generation, 'allow');
+    await fixture.whenStable();
+    notifications.resolve(request.key, request.generation); fixture.detectChanges();
+    expect(host.querySelector('[data-testid="rail-needs-you"]')).toBeNull();
+  });
+  const request = (key: string, overrides: Partial<AttentionItem> = {}): AttentionItem => ({
+    key, generation: 1, kind: 'permission', source: 'chat', workspacePath: '/local',
+    workspaceName: 'local', sessionId: 'session-a', severity: 'warning',
+    title: 'Permission required', detail: 'Tool: Bash', actionable: true, soundEligible: false,
+    actions: [{ id: 'allow', label: 'Allow' }, { id: 'deny', label: 'Deny' }, { id: 'open', label: 'Show in canvas' }],
+    ...overrides,
+  });
+  it('uses unavailable identity and promotes Show in canvas when Allow is disabled', () => {
+    TestBed.inject(NotificationService).upsert(request('disabled', { actions: [
+      { id: 'allow', label: 'Allow', disabledReason: 'Already decided' },
+      { id: 'open', label: 'Show in canvas' },
+    ] }));
+    const fixture = mount([tile('a', 0)]);
+    fixture.componentRef.setInput('workspacePath', '/local'); fixture.detectChanges();
+    const row = (fixture.nativeElement as HTMLElement).querySelector('[data-attention-key]')!;
+    expect(row.textContent).toContain('Session unavailable');
+    expect(row.textContent).toContain('Permission required');
+    const buttons = row.querySelectorAll<HTMLButtonElement>('button');
+    expect(buttons[0].disabled).toBe(true);
+    expect(buttons[0].classList).not.toContain('btn-primary');
+    expect(buttons[1].classList).toContain('btn-primary');
+  });
+  it('opens overflow idempotently and reports a missing bell', () => {
+    const notifications = TestBed.inject(NotificationService);
+    for (let index = 0; index < 4; index++) notifications.upsert(request(`overflow:${index}`));
+    const fixture = mount([tile('a', 0)]);
+    fixture.componentRef.setInput('workspacePath', '/local'); fixture.detectChanges();
+    const overflow = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('[data-testid="rail-needs-you"] > button')!;
+    overflow.click(); fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Notifications are unavailable.');
+    const bell = document.createElement('button');
+    bell.dataset['testid'] = 'notification-center-bell';
+    bell.setAttribute('aria-expanded', 'false');
+    const clicked = jest.fn(() => bell.setAttribute('aria-expanded', 'true'));
+    bell.addEventListener('click', clicked);
+    document.body.appendChild(bell);
+    try {
+      overflow.click(); overflow.click();
+      expect(clicked).toHaveBeenCalledTimes(1);
+    } finally { bell.remove(); }
+  });
+  it.each([
+    [{ kind: 'stale' }, 'Request changed. Open the current request.'],
+    [{ kind: 'unavailable', reason: 'No handler' }, 'No handler'],
+  ])('disables %s actions and clears their status when the generation changes', async (outcome, message) => {
+    const notifications = TestBed.inject(NotificationService);
+    notifications.upsert(request('stale'));
+    dispatchOutcome.mockResolvedValueOnce(outcome);
+    const fixture = mount([tile('a', 0)]);
+    fixture.componentRef.setInput('workspacePath', '/local'); fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    host.querySelector<HTMLButtonElement>('[data-attention-key] button')!.click();
+    await fixture.whenStable(); fixture.detectChanges();
+    expect(host.querySelectorAll<HTMLButtonElement>('[data-attention-key] button:disabled')).toHaveLength(3);
+    expect(stubs(fixture)[0].blockedKeys().has('stale')).toBe(true);
+    host.querySelector<HTMLButtonElement>('[data-attention-key] button')!.click();
+    expect(dispatchOutcome).toHaveBeenCalledTimes(1);
+    notifications.upsert(request('stale', { generation: 2 })); fixture.detectChanges();
+    expect(host.textContent).not.toContain(message);
+    expect(host.querySelector<HTMLButtonElement>('[data-attention-key] button')?.disabled).toBe(false);
+  });
+  it('prefers tab id and assigns a session fallback to only the first tile', () => {
+    const notifications = TestBed.inject(NotificationService);
+    notifications.upsert(request('direct', { tabId: 'b' }));
+    const fixture = mount([tile('a', 0), tile('b', 1)]);
+    fixture.componentRef.setInput('workspacePath', '/local'); fixture.detectChanges();
+    expect(stubs(fixture).map(card => card.attentionItems().map(item => item.key))).toEqual([[], ['direct']]);
+    notifications.upsert(request('fallback', { tabId: 'missing' })); fixture.detectChanges();
+    expect(stubs(fixture).map(card => card.attentionItems().map(item => item.key))).toEqual([['fallback'], ['direct']]);
+  });
   it('renders a list in stable order and counts state chips on one line', () => {
     const fixture = mount([tile('b', 2), tile('a', 1)]);
     fixture.componentRef.setInput('states', new Map([['a', 'needs'], ['b', 'running']])); fixture.detectChanges();

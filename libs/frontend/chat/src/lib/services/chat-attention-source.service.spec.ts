@@ -75,6 +75,7 @@ describe('ChatAttentionSourceService', () => {
     if (!item) throw new Error('Missing attention item');
     expect(item).toMatchObject({ kind: 'permission', workspacePath: '/ws/one', soundEligible: false });
     expect(item.actions.find(action => action.id === 'open')?.label).toBe('Show in canvas');
+    expect(item).toMatchObject({ sessionTitle: 'Fix notifications', provider: 'Claude', detail: 'Tool: Write' });
     expect(item.context).toBe('Claude · Fix notifications · Tool: Write');
     expect(item.title).not.toContain('private details');
     expect(source.getLive(item.key, item.generation)?.target.kind).toBe('permission');
@@ -115,10 +116,13 @@ describe('ChatAttentionSourceService', () => {
     expect(items.find(item => item.kind === 'lane-permission')?.actions.map((action: { id: string }) => action.id))
       .toEqual(['allow', 'deny', 'open']);
     expect(items.find(item => item.kind === 'question')?.context).toMatch(/^Claude · Fix notifications · Which option should we choose\?/);
+    expect(items.find(item => item.kind === 'question')).toMatchObject({ sessionTitle: 'Fix notifications', provider: 'Claude' });
+    expect(items.find(item => item.kind === 'question')?.detail).toMatch(/^Which option should we choose\?/);
     expect(items.find(item => item.kind === 'question')?.context).toHaveLength(80);
     expect(items.find(item => item.kind === 'question')?.context).toMatch(/…$/);
     expect(items.find(item => item.kind === 'lane-permission')?.context)
       .toBe('Claude · Fix notifications · Tool: Bash');
+    expect(items.find(item => item.kind === 'lane-permission')?.detail).toBe('Tool: Bash');
   });
 
   it('uses the background owner workspace before the active workspace', () => {

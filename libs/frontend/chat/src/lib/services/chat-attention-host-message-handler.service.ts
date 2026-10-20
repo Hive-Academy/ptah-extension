@@ -209,7 +209,8 @@ export class ChatAttentionHostMessageHandler implements MessageHandler {
       workspaceName: labelPath ? workspaceLabelFromPath(labelPath) : 'Unknown workspace',
       sessionId: notice.target?.sessionId, tabId: notice.target?.tabId,
       ownerSurface: surfaceOwned || notice.target?.surfaceMode ? 'surface' : 'chat',
-      severity: 'warning', title: kindTitle ?? notice.title, context: context || undefined, actionable: true,
+      severity: 'warning', title: kindTitle ?? notice.title, context: context || undefined,
+      sessionTitle: safeTitle || undefined, provider: provider || undefined, actionable: true,
       actions: [{ id: 'open', label: surfaceOwned || notice.target?.surfaceMode ? 'Open' : 'Show in canvas', ...(!routable && {
         disabledReason: notice.target?.surfaceMode ? 'Answer in owning surface' : 'Target unavailable',
       }) }],

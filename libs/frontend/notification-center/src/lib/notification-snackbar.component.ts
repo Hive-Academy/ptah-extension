@@ -28,50 +28,51 @@ import {
     @if (!panelOpen()) {
       <div class="flex flex-col gap-2" data-testid="notification-snackbars">
         @for (item of visible(); track item.key) {
-          <section
-            class="snackbar-card surface-3 rounded-xl border-l-4 p-3 text-base-content"
-            [class.border-primary]="isRequest(item)"
-            [class.border-error]="item.kind === 'failure'"
-            [class.border-warning]="item.kind === 'warning'"
-            [attr.aria-label]="item.title"
-            (mouseenter)="hover(item.key, true)"
-            (mouseleave)="hover(item.key, false)"
-            (focusin)="focus(item.key, true)"
-            (focusout)="focusOut(item.key, $event)"
-          >
+          <section class="snackbar-card surface-3 relative rounded-2xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-3 pl-4 text-base-content hover:bg-[color:var(--surface-highlight)]"
+            [attr.aria-label]="kindLabel(item) + ' for ' + sessionName(item) + ' in ' + workspaceName(item)"
+            (mouseenter)="hover(item.key, true)" (mouseleave)="hover(item.key, false)"
+            (focusin)="focus(item.key, true)" (focusout)="focusOut(item.key, $event)">
+            <span class="absolute inset-y-3 left-0 w-[3px] rounded-r-full" [class.bg-state-need]="isRequest(item)" [class.bg-state-err]="!isRequest(item)" aria-hidden="true"></span>
             <div class="flex items-start gap-2">
-              <lucide-angular [img]="icon(item)" class="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              <lucide-angular [img]="icon(item)" class="mt-0.5 size-4 shrink-0" [class.text-state-need]="isRequest(item)" [class.text-state-err]="!isRequest(item)" aria-hidden="true" />
               <div class="min-w-0 flex-1">
-                <p class="text-sm font-semibold">{{ item.title }}</p>
-                @if (item.context || item.workspaceName) {
-                  <p class="text-xs text-base-content-muted">{{ item.context ? item.context + ' · ' + item.workspaceName : item.workspaceName }}</p>
-                }
+                <p class="text-[11px] font-semibold uppercase tracking-[0.06em] text-base-content-muted">{{ kindLabel(item) }}</p>
+                <p class="mt-1 truncate text-sm font-semibold text-base-content" [attr.title]="sessionName(item)">{{ sessionName(item) }}</p>
+                <div class="flex min-w-0 items-center gap-1.5 text-xs text-base-content-muted">
+                  @if (item.provider) { <span class="truncate">{{ item.provider }}</span> }
+                  <span class="max-w-[11rem] truncate rounded-md border border-[color:var(--surface-border)] bg-base-200 px-1.5 py-0.5 text-[11px] text-base-content" [attr.title]="workspaceName(item)">{{ workspaceName(item) }}</span>
+                </div>
               </div>
-              <button type="button" class="btn btn-ghost btn-square min-h-11 min-w-11 shrink-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-                [attr.aria-label]="'Dismiss ' + item.title"
-                (click)="dismiss(item.key)">
-                <lucide-angular [img]="XIcon" class="h-6 w-6" aria-hidden="true" />
+              <button type="button" class="btn btn-ghost btn-square size-8 min-h-11 min-w-11 shrink-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                [attr.aria-label]="'Dismiss ' + kindLabel(item) + ' presentation for ' + sessionName(item) + ' in ' + workspaceName(item)" (click)="dismiss(item.key)">
+                <lucide-angular [img]="XIcon" class="size-4" aria-hidden="true" />
               </button>
             </div>
+            @if (item.detail || (!isRequest(item) && item.context)) { <p class="mt-2 truncate text-xs text-base-content-muted" [attr.title]="item.detail || item.context">{{ item.detail || item.context }}</p> }
             @if (item.actions.length) {
-              <div class="mt-2 flex flex-wrap gap-2">
+              <div class="mt-3 flex flex-wrap items-center gap-1.5">
                 @for (action of item.actions; track action.id) {
-                  <button type="button" class="btn btn-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-                    [class.btn-primary]="$first" [class.btn-ghost]="!$first"
-                    [disabled]="!!action.disabledReason || !!unavailable().get(item.key + ':' + item.generation + ':' + action.id) || pending().has(item.key)"
-                    [attr.title]="action.disabledReason || unavailable().get(item.key + ':' + item.generation + ':' + action.id) || null"
-                    [attr.aria-label]="action.disabledReason ? action.label + ': ' + action.disabledReason : action.label"
+                  <button type="button" class="btn btn-sm min-h-11 disabled:opacity-100 disabled:bg-base-200 disabled:text-base-content-muted disabled:border-[color:var(--surface-border)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                    [class.btn-primary]="isPrimary(item, action.id)" [class.btn-ghost]="!isPrimary(item, action.id)"
+                    [disabled]="!!actionReason(item, action.id) || pending().has(item.key)"
+                    [attr.title]="actionReason(item, action.id)"
+                    [attr.aria-describedby]="actionReason(item, action.id) ? 'snackbar-reason-' + item.key + '-' + action.id : pending().has(item.key) ? 'snackbar-pending-' + item.key : null"
+                    [attr.aria-label]="action.label + ' ' + kindLabel(item) + ' for ' + sessionName(item) + ' in ' + workspaceName(item)"
                     (click)="dispatch(item, action.id)">{{ action.label }}</button>
                 }
               </div>
             }
+            @for (action of item.actions; track action.id) {
+              @if (actionReason(item, action.id); as reason) { <p [id]="'snackbar-reason-' + item.key + '-' + action.id" class="text-xs text-base-content-muted">{{ reason }}</p> }
+            }
+            @if (pending().has(item.key)) { <p [id]="'snackbar-pending-' + item.key" class="text-xs text-base-content-muted">Submitting...</p> }
             @if (statuses().get(item.key + ':' + item.generation); as status) {
               <p role="status" class="text-xs text-base-content-muted">{{ status }}</p>
             }
           </section>
         }
         @if (overflow() > 0) {
-          <button type="button" class="snackbar-more btn btn-ghost btn-sm self-end focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+          <button type="button" class="snackbar-more btn btn-ghost btn-sm self-end focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
             [attr.aria-label]="'Show ' + overflow() + ' more notifications'"
             (click)="$event.stopPropagation(); openNotifications.emit()">+{{ overflow() }} more</button>
         }
@@ -99,7 +100,7 @@ export class NotificationSnackbarComponent {
 
   constructor() {
     if (typeof window !== 'undefined') {
-      const resize = (): void => this.limit.set(window.innerWidth <= 900 || window.innerHeight <= 620 ? 1 : 3);
+      const resize = (): void => this.limit.set(window.innerWidth <= 900 ? 1 : 3);
       resize();
       window.addEventListener('resize', resize);
       this.destroyRef.onDestroy(() => window.removeEventListener('resize', resize));
@@ -131,11 +132,37 @@ export class NotificationSnackbarComponent {
     return item.kind === 'permission' || item.kind === 'question' || item.kind === 'lane-permission';
   }
 
+  protected kindLabel(item: AttentionItem): string {
+    if (item.kind === 'question') return 'Question needs an answer';
+    if (item.kind === 'permission') return 'Permission required';
+    if (item.kind === 'lane-permission') return 'Lane permission required';
+    return item.title;
+  }
+
+  protected sessionName(item: AttentionItem): string {
+    return item.sessionTitle || 'Session unavailable';
+  }
+
+  protected workspaceName(item: AttentionItem): string {
+    return item.workspaceName && item.workspaceName !== 'Unknown workspace' ? item.workspaceName : 'Workspace unavailable';
+  }
+
+  protected actionReason(item: AttentionItem, actionId: string): string | undefined {
+    return item.actions.find(action => action.id === actionId)?.disabledReason ||
+      this.unavailable().get(`${item.key}:${item.generation}:${actionId}`);
+  }
+
+  protected isPrimary(item: AttentionItem, actionId: string): boolean {
+    const preferred = item.kind === 'question' ? 'answer' : 'allow';
+    const canUsePreferred = item.actions.some(action => action.id === preferred && !this.actionReason(item, preferred));
+    return actionId === (canUsePreferred ? preferred : 'open') && !this.actionReason(item, actionId);
+  }
+
   protected icon(item: AttentionItem): typeof ShieldQuestion {
     if (item.kind === 'question') return MessageCircleQuestion;
     if (item.kind === 'failure') return CircleAlert;
     if (item.kind === 'warning') return TriangleAlert;
-    return ShieldQuestion;
+    return item.kind === 'lane-permission' ? CircleAlert : ShieldQuestion;
   }
 
   protected hover(key: string, active: boolean): void {

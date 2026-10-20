@@ -81,6 +81,7 @@ describe('ChatAttentionHostMessageHandler', () => {
     } });
     expect(upsert).toHaveBeenCalledWith(expect.objectContaining({
       title: 'Permission required', context: 'Claude · Fix notifications',
+      sessionTitle: 'Fix notifications', provider: 'Claude',
       actions: [{ id: 'open', label: 'Show in canvas' }],
     }));
     expect(upsert.mock.lastCall?.[0].title).not.toContain('Fix notifications');
@@ -165,6 +166,7 @@ describe('ChatAttentionHostMessageHandler', () => {
         change: 'upsert', notice: { ...notice, title },
       } });
       expect(upsert.mock.lastCall?.[0].context).toBe('Claude');
+      expect(upsert.mock.lastCall?.[0].sessionTitle).toBeUndefined();
       expect(upsert.mock.lastCall?.[0].title).toBe('Permission required');
     }
   });
