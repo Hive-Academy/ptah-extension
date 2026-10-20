@@ -1,5 +1,5 @@
 /**
- * Pure plan-tile view-model mapping (TASK_2026_707, PR 1).
+ * Pure plan-tile view-model mapping.
  *
  * One compact, uniform tile per quota owner: a header, ONE primary bar for
  * the most constrained eligible window, compact chips for the other windows,
@@ -126,6 +126,26 @@ export function planLimitReasonLabel(
     : null;
 }
 
+/**
+ * The header's two lines: the name with the
+ * key suffix on line 1, the label's parenthesized qualifiers ("(owner
+ * unknown)", "(key unavailable)") on a smaller muted second line, so the
+ * meaningful part is never truncated away. A label without parentheses has
+ * one line and `null` qualifiers. Whitespace the removal leaves behind is
+ * collapsed away.
+ */
+export function tileTitleLines(
+  label: string,
+): { name: string; qualifier: string | null } {
+  const qualifierParts = label.match(/\([^()]*\)/g);
+  if (qualifierParts === null) return { name: label, qualifier: null };
+  const name = label
+    .replace(/\([^()]*\)/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return { name, qualifier: qualifierParts.join(' ') };
+}
+
 // ---------------------------------------------------------------------------
 // Compact number formatting
 // ---------------------------------------------------------------------------
@@ -244,6 +264,10 @@ export interface PlanTileView {
   readonly providerId: string;
   /** Generic label plus the short key suffix ("Claude account · a1b2"). */
   readonly label: string;
+  /** Header line 1: the name with the key suffix, qualifiers removed. */
+  readonly titleName: string;
+  /** Header line 2: the label's parenthesized qualifiers, or `null`. */
+  readonly titleQualifier: string | null;
   /** Header tooltip: the label plus the identity subtitle, when one exists. */
   readonly headerTitle: string;
   /** Plan badge text (e.g. "plus"), or `null` when no plan is known. */
@@ -252,7 +276,9 @@ export interface PlanTileView {
   readonly statusPill: PlanTileStatusPillView | null;
   readonly chips: readonly PlanTileChipView[];
   readonly secondary: PlanTileSecondaryView | null;
-  readonly statusChip: { glyph: string; text: string; tone: Tone } | null;
+  readonly statusChip:
+    | { icon: PlanTileStatusChipIcon; text: string; tone: Tone }
+    | null;
   readonly statusNotice: string | null;
   readonly statusNoticeTone: Tone;
   readonly statusNoticeTitle: string | null;
@@ -394,7 +420,7 @@ function sourceLabels(window: PlanLimitWindow): string[] {
 }
 
 // ---------------------------------------------------------------------------
-// Primary selection (TASK_2026_707 selection rule)
+// Primary selection
 // ---------------------------------------------------------------------------
 
 /**
@@ -481,21 +507,31 @@ function subtitleFor(owner: PlanLimitOwnerSnapshot): string {
   return plan ? `${base} · Plan: ${plan}` : base;
 }
 
+/**
+ * The semantic icon kind of the footer status chip: the tile maps each kind to a small icon component, replacing
+ * the former plain "–" / "○" leading characters.
+ */
+export type PlanTileStatusChipIcon =
+  | 'key'
+  | 'cli'
+  | 'cli-update'
+  | 'off';
+
 /** Short, human-readable status labels; diagnostic codes stay out of the UI. */
 function statusChip(
   status: ProviderAccountUsageStatus,
   providerId: string,
-): { glyph: string; text: string; tone: Tone } | null {
+): { icon: PlanTileStatusChipIcon; text: string; tone: Tone } | null {
   switch (status) {
     case 'available':
       return null;
     case 'no-usage-source':
-      return { glyph: '○', text: 'No usage source', tone: 'neutral' };
+      return { icon: 'off', text: 'No usage source', tone: 'neutral' };
     case 'stale':
-      return { glyph: '◷', text: 'Cached data', tone: 'warning' };
+      return null;
     case 'unsupported-auth':
       return {
-        glyph: '–',
+        icon: 'key',
         text:
           providerId === 'ollama-cloud'
             ? 'API key rejected'
@@ -508,7 +544,7 @@ function statusChip(
       };
     case 'unsupported-config':
       return {
-        glyph: '○',
+        icon: 'off',
         text:
           providerId === 'ollama-cloud'
             ? 'No API key configured'
@@ -516,13 +552,13 @@ function statusChip(
         tone: 'neutral',
       };
     case 'provider-unsupported':
-      return { glyph: '○', text: 'No usage source', tone: 'neutral' };
+      return { icon: 'off', text: 'No usage source', tone: 'neutral' };
     case 'cli-unavailable':
-      return { glyph: '!', text: 'CLI unavailable', tone: 'warning' };
+      return { icon: 'cli', text: 'CLI unavailable', tone: 'warning' };
     case 'cli-version-unsupported':
-      return { glyph: '!', text: 'CLI update needed', tone: 'warning' };
+      return { icon: 'cli-update', text: 'CLI update needed', tone: 'warning' };
     case 'service-unavailable':
-      return { glyph: '○', text: 'Usage unavailable', tone: 'neutral' };
+      return { icon: 'off', text: 'Usage unavailable', tone: 'neutral' };
   }
 }
 
@@ -850,6 +886,7 @@ export function buildPlanTile(
     owner.localUsage !== undefined;
   const notice = statusNoticeText(owner, hasData, now, time);
   const label = ownerDisplayLabel(owner.owner);
+  const title = tileTitleLines(label);
   const subtitle = subtitleFor(owner);
   const badge = owner.account?.planType ?? null;
 
@@ -873,6 +910,17 @@ export function buildPlanTile(
             ? 'warning'
             : 'neutral',
       title: factsTitle(facts),
+    });
+  }
+  if (chips.length > 3) {
+    const hiddenChips = chips.splice(3);
+    chips.push({
+      key: '__more-windows',
+      label: `+${hiddenChips.length} more`,
+      valueText: '',
+      resetText: '',
+      tone: 'neutral',
+      title: hiddenChips.map((chip) => `${chip.label}: ${chip.valueText}, ${chip.resetText}. ${chip.title}`).join('\n'),
     });
   }
 
@@ -902,11 +950,28 @@ export function buildPlanTile(
   const pill = bar === null
     ? statusPill(owner, owner.windows.length > 0, hasData, notice)
     : null;
+  // A windowless pill already names the status cause.
+  const chip =
+    pill !== null && owner.windows.length === 0
+      ? null
+      : statusChip(owner.status, owner.owner.providerId);
   const statusNotice = notice?.text === pill?.text ? null : (notice?.text ?? null);
+  const evidence = owner.ownerEvidence.map((e, index) => evidenceNotice(e, now, time, index));
+  if (evidence.length > 2) {
+    const hiddenEvidence = evidence.splice(2);
+    evidence.push({
+      key: '__more-evidence',
+      text: `+${hiddenEvidence.length} more`,
+      tone: 'neutral',
+      title: hiddenEvidence.map((item) => item.title).join('\n'),
+    });
+  }
   return {
     key: owner.owner.key,
     providerId: owner.owner.providerId,
     label,
+    titleName: title.name,
+    titleQualifier: title.qualifier,
     headerTitle:
       subtitle === '' ? label : `${label} — ${subtitle}`,
     planBadge: badge,
@@ -914,12 +979,12 @@ export function buildPlanTile(
     statusPill: pill,
     chips,
     secondary: secondaryLine(owner),
-    statusChip: statusChip(owner.status, owner.owner.providerId),
+    statusChip: chip,
     statusNotice,
     statusNoticeTone: notice?.tone ?? 'neutral',
     statusNoticeTitle: statusNotice,
     action: tileAction(owner, hasData),
-    evidence: owner.ownerEvidence.map((e, index) => evidenceNotice(e, now, time, index)),
+    evidence,
     cooldown:
       owner.cooldown !== undefined && owner.cooldown.until > now
         ? `Retrying after ${formatLocalAbsolute(owner.cooldown.until, now, time)} (${formatRelative(owner.cooldown.until, now)}) · a retry delay, not a plan reset`

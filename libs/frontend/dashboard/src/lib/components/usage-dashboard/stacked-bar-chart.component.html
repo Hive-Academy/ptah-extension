@@ -69,24 +69,20 @@
           [attr.y]="g.y + 3"
           text-anchor="end"
           fill="currentColor"
-          class="text-[9px] opacity-60"
+          class="text-[11px] opacity-80"
         >
           {{ g.label }}
         </text>
       }
 
-      @for (row of areas(); track row.series.id) {
-        <path [attr.d]="row.area" [attr.fill]="row.series.color" />
-      }
-
-      @for (bar of singleDayBars(); track bar.series.id) {
+      @for (bar of bars(); track bar.day + '-' + bar.series.id) {
         <rect
           [attr.x]="bar.x"
           [attr.y]="bar.y"
           [attr.width]="bar.width"
           [attr.height]="bar.height"
           [attr.fill]="bar.series.color"
-          data-testid="usage-chart-single-day-bar"
+          data-testid="usage-chart-bar"
         />
       }
 
@@ -122,7 +118,7 @@
           [attr.y]="viewH - 8"
           text-anchor="middle"
           fill="currentColor"
-          class="text-[9px] opacity-60"
+          class="text-[11px] opacity-80"
         >
           {{ label.label }}
         </text>

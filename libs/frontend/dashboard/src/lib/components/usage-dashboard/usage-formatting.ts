@@ -18,6 +18,11 @@ const compactUsdFormat = new Intl.NumberFormat('en-US', {
   notation: 'compact',
   maximumFractionDigits: 1,
 });
+const smallUsdFormat = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  maximumSignificantDigits: 2,
+});
 const compactTokenFormat = new Intl.NumberFormat('en-US', {
   notation: 'compact',
   maximumFractionDigits: 1,
@@ -45,6 +50,15 @@ export function formatUsd(value: number): string {
 
 /** "$1.2K" — chart axis labels and compact cost chips. */
 export function formatCompactUsd(value: number): string {
+  return compactUsdFormat.format(value);
+}
+
+/**
+ * Chart axis and readout values: sub-dollar amounts keep two significant
+ * digits so small scales never collapse to identical "$0" labels.
+ */
+export function formatChartUsd(value: number): string {
+  if (value > 0 && value < 1) return smallUsdFormat.format(value);
   return compactUsdFormat.format(value);
 }
 

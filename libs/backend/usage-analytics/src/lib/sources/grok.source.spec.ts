@@ -35,4 +35,16 @@ describe('GrokSource', () => {
     expect(result.contributions).toHaveLength(2);
     expect(result.contributions[0].key).toBe(result.contributions[1].key);
   });
+
+  it('counts one message for a turn with multiple models', async () => {
+    const folder = path.join(home, 'sessions', encodeURIComponent('/work'), 's1');
+    await fs.mkdir(folder, { recursive: true });
+    const at = Date.parse('2026-10-20T12:00:00Z');
+    const event = { timestamp: at, params: { update: { sessionUpdate: 'turn_completed', prompt_id: 'p1', usage: { modelUsage: { 'grok-4': { inputTokens: 10, outputTokens: 1 }, 'grok-3': { inputTokens: 20, outputTokens: 2 } } } } } };
+    await fs.writeFile(path.join(folder, 'updates.jsonl'), JSON.stringify(event));
+    const result = await new GrokSource(home).read('/work', at, at + 1);
+    expect(result.contributions).toHaveLength(2);
+    expect(result.contributions.map((row) => row.requestCount)).toEqual([1, 0]);
+    expect(result.contributions.map((row) => row.inputUncachedTokens)).toEqual([10, 20]);
+  });
 });
