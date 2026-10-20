@@ -246,6 +246,15 @@ function settingsGetResolver(params: unknown): {
   value: unknown;
 } {
   const key = (params as { key?: unknown }).key;
+  if (key === 'skills.enhancement.provider') {
+    return { success: true, value: '' };
+  }
+  if (key === 'skills.enhancement.model') {
+    return { success: true, value: 'inherit' };
+  }
+  if (key === 'skills.enhancement.timeoutMs') {
+    return { success: true, value: 120000 };
+  }
   if (
     typeof key === 'string' &&
     Object.hasOwn(SESSION_BUDGET_SETTINGS_FIXTURE, key)

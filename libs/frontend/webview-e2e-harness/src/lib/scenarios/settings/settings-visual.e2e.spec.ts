@@ -716,7 +716,7 @@ async function captureRolesOpen(
   const consumerRows = consumers.locator(
     'article[data-testid^="consumer-row-"]',
   );
-  await expect(consumerRows).toHaveCount(7);
+  await expect(consumerRows).toHaveCount(3);
   // Card grids can vary in height; each assignment label must stay on one line.
   const cellHeights = await consumers
     .locator('[data-testid^="consumer-summary-"]')
@@ -729,16 +729,16 @@ async function captureRolesOpen(
   console.log(
     `B35 role cells ${host}/${theme}: cell heights ${cellHeights.join(',')}; row heights ${rowHeights.join(',')}`,
   );
-  expect(cellHeights).toHaveLength(7);
+  expect(cellHeights).toHaveLength(3);
   for (const height of cellHeights)
     expect(height, 'role cell is one line').toBeLessThanOrEqual(24);
   await summary.evaluate((node) => node.scrollIntoView({ block: 'start' }));
   await waitForSettled(page);
   await capture(page, 'orchestration-roles-open', host, theme);
-  // Batch 35: a role's reassignment popover (the Judge lane cell), on screen and painted on top; Esc returns focus.
-  const roleCell = consumers.locator('[data-testid="consumer-edit-judge"]');
+  // A retained role's reassignment popover stays on screen; Esc returns focus.
+  const roleCell = consumers.locator('[data-testid="consumer-edit-enhancement"]');
   await roleCell.click();
-  const rolePopover = page.locator('[data-testid="consumer-editor-judge"]');
+  const rolePopover = page.locator('[data-testid="consumer-editor-enhancement"]');
   await expect(rolePopover).toBeVisible();
   const popoverBox = await rolePopover.boundingBox();
   const viewport = page.viewportSize();

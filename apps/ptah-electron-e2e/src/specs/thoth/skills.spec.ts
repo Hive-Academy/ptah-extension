@@ -35,7 +35,7 @@ test.describe('Thoth - Skills Library', () => {
     const page = ui.page;
     const toggle = page.locator('[data-testid="skills-enabled-toggle"]');
     await expect(toggle).toBeChecked();
-    await toggle.uncheck();
+    await toggle.click();
     await expect(toggle).not.toBeChecked();
     await expect(page.locator('[data-testid="skills-pause-state"]')).toHaveText('Paused');
     const call = await ui.waitForObservedCall('settings:set');
@@ -47,7 +47,7 @@ test.describe('Thoth - Skills Library', () => {
     await ui.openTab('skills');
     const toggle = ui.page.locator('[data-testid="skills-telemetry-toggle"]');
     await expect(toggle).toBeChecked();
-    await toggle.uncheck();
+    await toggle.click();
     await expect(toggle).not.toBeChecked();
     const call = await ui.waitForObservedCall('settings:set');
     expect(call.params).toEqual({ key: 'skills.telemetry.enabled', value: false });
@@ -85,7 +85,9 @@ test.describe('Thoth - Skills Library', () => {
     await page.locator('[data-testid="background-roles-summary"]').click();
     const row = page.locator('[data-testid="consumer-row-enhancement"]');
     await expect(row).toBeVisible();
+    await expect(row.locator('[data-testid="consumer-summary-enhancement"]')).toBeVisible();
     await row.locator('[data-testid="consumer-edit-enhancement"]').click();
+    await expect(page.locator('[data-testid="consumer-editor-enhancement"]')).toBeVisible();
     const picker = page.locator(
       '[data-testid="consumer-editor-enhancement"] ptah-provider-model-picker',
     );

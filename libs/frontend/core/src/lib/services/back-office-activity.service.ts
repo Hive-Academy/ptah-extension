@@ -52,6 +52,15 @@ import {
 
 import type { MessageHandler } from './message-router.types';
 import { WorkspaceScopeService } from './workspace-scope.service';
+import { attentionConditionKey, NotificationService } from './notification.service';
+
+/** Stable, diagnostic-free labels for failures projected into Recent notices. */
+const FAILURE_LABELS: Readonly<Record<string, string>> = {
+  'embedder:error': 'Embedding model failed',
+  'embedder:offline': 'Embedding model is unavailable',
+  'vec:offline': 'Vector search is unavailable',
+  'indexing:failed': 'Workspace indexing failed',
+};
 
 /** One rendered line of back-office activity. */
 export interface ActivityItem {
@@ -98,6 +107,8 @@ function nextItemId(): string {
 export class BackOfficeActivityService implements MessageHandler {
   private readonly destroyRef = inject(DestroyRef);
   private readonly workspaceScope = inject(WorkspaceScopeService);
+  private readonly notifications = inject(NotificationService);
+  private readonly noticeGenerations = new Map<string, number>();
 
   readonly handledMessageTypes = [
     MESSAGE_TYPES.ACTIVITY_EVENT,
@@ -144,8 +155,57 @@ export class BackOfficeActivityService implements MessageHandler {
   }
 
   handleMessage(message: { type: string; payload?: unknown }): void {
+    if (message.type === MESSAGE_TYPES.BOOT_READINESS_CHANGED) {
+      this.projectBootReadiness(message.payload);
+    }
     const item = this.mapMessage(message.type, message.payload);
-    if (item) this.push(item);
+    if (item) {
+      this.push(item);
+      if (message.type !== MESSAGE_TYPES.BOOT_READINESS_CHANGED) this.projectFailure(item);
+    }
+  }
+
+  private projectBootReadiness(payload: unknown): void {
+    if (typeof payload !== 'object' || payload === null) return;
+    const body = payload as Partial<BootReadinessChangedPayload>;
+    if (!isBackendReadiness(body.readiness) || !isBootPhase(body.phase)) return;
+    const path = this.workspaceScope.activeWorkspacePath();
+    if (!path) return;
+    const key = attentionConditionKey(path, 'back-office:boot');
+    if (body.readiness === 'ready') {
+      this.notifications.resolve(key, undefined, 'back-office');
+      return;
+    }
+    if (body.readiness !== 'failed' && body.readiness !== 'degraded') return;
+    const generation = (this.noticeGenerations.get(key) ?? 0) + 1;
+    this.noticeGenerations.set(key, generation);
+    this.notifications.upsert({
+      key, generation, source: 'back-office', kind: 'failure', severity: 'error',
+      workspacePath: path, workspaceName: path.split(/[/\\]/).filter(Boolean).pop() ?? 'Workspace',
+      title: body.readiness === 'failed' ? 'Workspace startup failed' : 'Workspace startup is degraded',
+      actions: [], actionable: false, soundEligible: true,
+    });
+  }
+
+  private projectFailure(item: ActivityItem): void {
+    const path = this.workspaceScope.activeWorkspacePath();
+    if (!path) return;
+    const key = attentionConditionKey(path, `back-office:${item.source}`);
+    const label = FAILURE_LABELS[`${item.source}:${item.kind}`];
+    if (!label) {
+      // A healthy status or completed operation confirms recovery.
+      if (['online', 'ready', 'complete', 'success'].includes(item.kind)) {
+        this.notifications.resolve(key, undefined, 'back-office');
+      }
+      return;
+    }
+    const generation = (this.noticeGenerations.get(key) ?? 0) + 1;
+    this.noticeGenerations.set(key, generation);
+    this.notifications.upsert({
+      key, generation, source: 'back-office', kind: 'failure', severity: 'error',
+      workspacePath: path, workspaceName: path.split(/[/\\]/).filter(Boolean).pop() ?? 'Workspace',
+      title: label, actions: [], actionable: false, soundEligible: true,
+    });
   }
 
   /** One pure mapper per handled type; `null` means "do not narrate this". */

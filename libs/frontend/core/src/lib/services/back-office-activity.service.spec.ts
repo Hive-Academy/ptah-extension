@@ -7,6 +7,7 @@ import {
   BackOfficeActivityService,
 } from './back-office-activity.service';
 import { WorkspaceScopeService } from './workspace-scope.service';
+import { attentionConditionKey, NotificationService } from './notification.service';
 
 function send(
   service: BackOfficeActivityService,
@@ -19,12 +20,14 @@ function send(
 describe('BackOfficeActivityService', () => {
   let service: BackOfficeActivityService;
   let workspaceScope: WorkspaceScopeService;
+  let notifications: NotificationService;
 
   beforeEach(() => {
     jest.useFakeTimers();
     jest.setSystemTime(new Date('2026-01-01T00:00:00Z'));
     TestBed.configureTestingModule({});
     workspaceScope = TestBed.inject(WorkspaceScopeService);
+    notifications = TestBed.inject(NotificationService);
     service = TestBed.inject(BackOfficeActivityService);
   });
 
@@ -37,6 +40,64 @@ describe('BackOfficeActivityService', () => {
     expect(service.recent()).toEqual([]);
     expect(service.latest()).toBeNull();
     expect(service.isIdle()).toBe(true);
+  });
+
+  it('projects embedder degradation once and resolves it on recovery', () => {
+    workspaceScope.switchTo('/ws/a');
+    send(service, MESSAGE_TYPES.EMBEDDER_STATUS_CHANGED, {
+      status: { ready: false, downloading: false, error: { message: 'private error' } },
+    });
+    expect(notifications.recentNotices().map(item => item.title)).toEqual(['Embedding model failed']);
+    send(service, MESSAGE_TYPES.EMBEDDER_STATUS_CHANGED, {
+      status: { ready: true, downloading: false },
+    });
+    expect(notifications.recentNotices()).toHaveLength(0);
+  });
+
+  it('ignores indexing progress for notices', () => {
+    workspaceScope.switchTo('/ws/a');
+    send(service, MESSAGE_TYPES.INDEXING_PROGRESS, {
+      pipeline: 'symbols', percent: 50, elapsedMs: 10, totalKnown: true,
+    });
+    expect(notifications.recentNotices()).toHaveLength(0);
+  });
+
+  it('projects indexing failure from an activity event without exposing its summary', () => {
+    workspaceScope.switchTo('/ws/a');
+    send(service, MESSAGE_TYPES.ACTIVITY_EVENT, {
+      source: 'indexing', kind: 'failed', summary: 'private index path',
+      timestamp: 1, level: 'warn',
+    });
+    expect(notifications.recentNotices()[0]).toMatchObject({
+      title: 'Workspace indexing failed', actions: [], actionable: false,
+    });
+    expect(notifications.recentNotices()[0].title).not.toContain('private index path');
+  });
+
+  it('projects terminal failed boot without adding settled to the activity ring', () => {
+    workspaceScope.switchTo('/ws/a');
+    send(service, MESSAGE_TYPES.BOOT_READINESS_CHANGED, {
+      readiness: 'failed', phase: 'settled', detail: 'private boot diagnostic', startedAt: 1,
+    });
+    expect(service.recent()).toHaveLength(0);
+    expect(notifications.recentNotices()[0]).toMatchObject({
+      key: attentionConditionKey('/ws/a', 'back-office:boot'),
+      title: 'Workspace startup failed', kind: 'failure',
+    });
+    expect(notifications.recentNotices()[0].title).not.toContain('private');
+  });
+
+  it('resolves a boot failure when a later settled readiness is healthy', () => {
+    workspaceScope.switchTo('/ws/a');
+    send(service, MESSAGE_TYPES.BOOT_READINESS_CHANGED, {
+      readiness: 'degraded', phase: 'settled', startedAt: 1,
+    });
+    expect(notifications.recentNotices()[0].title).toBe('Workspace startup is degraded');
+    send(service, MESSAGE_TYPES.BOOT_READINESS_CHANGED, {
+      readiness: 'ready', phase: 'settled', startedAt: 1,
+    });
+    expect(notifications.recentNotices()).toHaveLength(0);
+    expect(service.recent()).toHaveLength(0);
   });
 
   it('passes a well-formed activity:event straight through', () => {
