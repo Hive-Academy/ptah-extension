@@ -1,8 +1,7 @@
 <!-- One owner tile: header, one bar slot (bar or status pill), chips,
-     one secondary line, status line, notices. Long text truncates and
-     carries its full content in a title tooltip. -->
+     one secondary line, status line, notices. -->
 <section
-  class="flex h-full min-w-0 flex-col gap-1.5"
+  class="flex h-full min-w-0 flex-col gap-1.5 rounded-lg border border-base-content/10 p-2.5"
   [attr.aria-label]="view().label + ' usage'"
   [style.--accent]="accent()"
   data-testid="provider-account-tile"
@@ -11,12 +10,25 @@
     <span class="mark-box" aria-hidden="true">
       <ptah-provider-mark [providerId]="view().providerId" />
     </span>
+    <!-- The name keeps its own line and the
+         parenthesized qualifiers ("(owner unknown)", "(key unavailable)")
+         move to a smaller muted second line, so the meaningful part is
+         never truncated away. The mark, badge and refresh stay aligned to
+         the two-line block. -->
     <span
-      class="min-w-0 flex-1 truncate text-sm font-medium"
+      class="min-w-0 flex-1"
       [attr.title]="headerTitle()"
       data-testid="tile-label"
-      >{{ view().label }}</span
     >
+      <span class="block truncate text-sm font-medium" [attr.title]="view().titleName">{{
+        view().titleName
+      }}</span>
+      @if (view().titleQualifier; as qualifier) {
+        <span class="block whitespace-normal break-words text-xs opacity-60" [attr.title]="qualifier">{{
+          qualifier
+        }}</span>
+      }
+    </span>
     @if (view().planBadge) {
       <span
         class="badge badge-ghost badge-xs shrink-0"
@@ -66,7 +78,9 @@
           aria-hidden="true"
         ></div>
       </div>
-      <p class="m-0 mt-0.5 truncate text-xs opacity-70" [attr.title]="bar.title">
+      <!-- Wraps instead of truncating, so
+           "% used" is never cut off; the full fact stays in the tooltip. -->
+      <p class="m-0 mt-0.5 text-xs opacity-70 leading-snug" [attr.title]="bar.title">
         {{ bar.limitLine ?? bar.resetText }} · {{ bar.valueText }}
       </p>
     </div>
@@ -124,10 +138,16 @@
     <div class="mt-auto flex min-w-0 flex-wrap items-center gap-1" data-testid="tile-status">
       @if (view().statusChip; as statusChip) {
         <span
-          [class]="'badge badge-xs shrink-0 ' + badgeClass(statusChip.tone)"
+          [class]="'badge badge-xs shrink-0 gap-1 ' + badgeClass(statusChip.tone)"
           data-testid="tile-status-chip"
         >
-          <span aria-hidden="true">{{ statusChip.glyph }}</span>
+          <!-- A small status icon instead of
+               the plain "–"/"○" leading characters. -->
+          <lucide-angular
+            [img]="statusChipIcons[statusChip.icon]"
+            class="h-3 w-3 shrink-0"
+            aria-hidden="true"
+          ></lucide-angular>
           {{ statusChip.text }}
         </span>
       }

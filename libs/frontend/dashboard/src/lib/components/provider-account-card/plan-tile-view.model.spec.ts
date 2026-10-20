@@ -10,6 +10,7 @@ import {
   compactCount,
   compactTokens,
   planLimitReasonLabel,
+  tileTitleLines,
 } from './plan-tile-view.model';
 
 const NOW = Date.UTC(2026, 9, 3, 12, 0);
@@ -822,14 +823,189 @@ describe('plan-tile-view.model', () => {
         entry.text.includes('expired'),
       );
       expect(expired?.tone).toBe('neutral');
-      const estimated = view.evidence.find((entry) =>
-        entry.text.includes('Estimated'),
-      );
-      expect(estimated?.tone).toBe('neutral');
-      // The sentence carries the observed time; assert the stable parts.
-      expect(estimated?.text).toContain('Estimated limit hit');
-      expect(estimated?.text).toContain('(unconfirmed, informational)');
+      expect(view.evidence[2]?.text).toBe('+1 more');
+      expect(view.evidence[2]?.title).toContain('Estimated limit hit');
+      expect(view.evidence[2]?.title).toContain('(unconfirmed, informational)');
       expect(view.bar?.title).toContain('Estimated limit hit');
+    });
+  });
+
+  describe('tileTitleLines', () => {
+    it('keeps a plain label on one line', () => {
+      expect(tileTitleLines('Claude account · cdef')).toEqual({
+        name: 'Claude account · cdef',
+        qualifier: null,
+      });
+    });
+
+    it('moves parenthesized qualifiers to the muted second line', () => {
+      expect(
+        tileTitleLines('Claude (owner unknown) (key unavailable) · 81da'),
+      ).toEqual({
+        name: 'Claude · 81da',
+        qualifier: '(owner unknown) (key unavailable)',
+      });
+    });
+
+    it('feeds the two header lines from the owner label', () => {
+      const view = buildPlanTile(
+        owner([], {
+          status: 'unsupported-auth',
+          owner: {
+            key: 'claude-cli#credential:0123456789abcdef',
+            providerId: 'claude-cli',
+            identityKind: 'credential',
+            label: 'Claude (owner unknown) (key unavailable)',
+          },
+        }),
+        NOW,
+        TIME,
+      );
+      expect(view.titleName).toBe('Claude · cdef');
+      expect(view.titleQualifier).toBe('(owner unknown) (key unavailable)');
+      // The full label stays for aria-labels and the header tooltip.
+      expect(view.label).toBe(
+        'Claude (owner unknown) (key unavailable) · cdef',
+      );
+    });
+  });
+
+  describe('buildPlanTile footer status chip', () => {
+    it('drops the footer chip that would repeat the API-key pill (Claude)', () => {
+      const view = buildPlanTile(
+        owner([], {
+          status: 'unsupported-auth',
+          owner: {
+            key: 'claude-cli#credential:0123456789abcdef',
+            providerId: 'claude-cli',
+            identityKind: 'credential',
+            label: 'Claude API key',
+          },
+        }),
+        NOW,
+        TIME,
+      );
+      expect(view.statusPill?.text).toBe('No plan limits (API key)');
+      expect(view.statusNotice).toBeNull();
+      expect(view.statusChip).toBeNull();
+    });
+
+    it('drops the footer chip for a provider-CLI API key', () => {
+      const view = buildPlanTile(
+        owner([], {
+          status: 'unsupported-auth',
+          owner: {
+            key: 'provider-cli#credential:0123456789abcdef',
+            providerId: 'provider-cli',
+            identityKind: 'credential',
+            label: 'Provider CLI login',
+          },
+        }),
+        NOW,
+        TIME,
+      );
+      expect(view.statusPill?.text).toBe('No plan limits (API key)');
+      expect(view.statusChip).toBeNull();
+    });
+
+    it('keeps only the Add key action for a missing Ollama key', () => {
+      const view = buildPlanTile(
+        owner([], {
+          status: 'unsupported-config',
+          owner: {
+            key: 'ollama-cloud#credential:0123456789abcdef',
+            providerId: 'ollama-cloud',
+            identityKind: 'credential',
+            label: 'Ollama Cloud (owner unknown)',
+          },
+        }),
+        NOW,
+        TIME,
+      );
+      expect(view.statusPill?.text).toBe('No API key configured');
+      expect(view.statusNotice).toBeNull();
+      expect(view.statusChip).toBeNull();
+      expect(view.action).toEqual({
+        kind: 'add-key',
+        label: 'Add key',
+        providerId: 'ollama-cloud',
+      });
+    });
+
+    it('drops the Usage unavailable chip next to the Antigravity pill', () => {
+      const view = buildPlanTile(
+        owner([], {
+          status: 'service-unavailable',
+          owner: {
+            key: 'antigravity#account:0123456789abcdef',
+            providerId: 'antigravity',
+            identityKind: 'account',
+            label: 'Antigravity account',
+          },
+        }),
+        NOW,
+        TIME,
+      );
+      expect(view.statusPill?.text).toBe('Open Antigravity to read local quota');
+      expect(view.statusChip).toBeNull();
+    });
+
+    it('shows one stale message for a windowed owner and retains cooldown', () => {
+      const view = buildPlanTile(
+        owner([win({ observedAt: NOW - 2 * 60 * MIN })], {
+          status: 'stale',
+          staleSince: NOW - 60 * MIN,
+          cooldown: { observedAt: NOW, until: NOW + 5 * MIN },
+        }),
+        NOW,
+        TIME,
+      );
+      expect(view.bar).not.toBeNull();
+      expect(view.statusChip).toBeNull();
+      expect(view.statusNotice).toContain('Showing cached account data; refresh failed');
+      expect(view.cooldown).toContain('a retry delay, not a plan reset');
+    });
+
+    it('keeps Codex weekly quota and its 5-hour chip', () => {
+      const view = buildPlanTile(owner([
+        win({ key: 'five_hour', kind: 'five_hour', label: '5-hour', used: { kind: 'percent', percent: 41 } }),
+        win({ key: 'weekly', kind: 'weekly', label: 'Weekly', used: { kind: 'percent', percent: 94 } }),
+      ], { owner: { key: 'codex#account:0123456789abcdef', providerId: 'codex', identityKind: 'account', label: 'Codex account' } }), NOW, TIME);
+      expect(view.bar?.name).toBe('Weekly');
+      expect(view.chips.map((chip) => chip.label)).toEqual(['5-hour']);
+      expect(view.statusChip).toBeNull();
+      expect(view.statusNotice).toBeNull();
+    });
+
+    it('keeps OpenCode Go monthly, 5-hour and weekly facts without a duplicate status', () => {
+      const view = buildPlanTile(owner([
+        win({ key: 'monthly', kind: 'monthly', label: 'Go monthly', used: { kind: 'percent', percent: 95 } }),
+        win({ key: 'five_hour', kind: 'five_hour', label: '5-hour', used: { kind: 'percent', percent: 42 } }),
+        win({ key: 'weekly', kind: 'weekly', label: 'Weekly', used: { kind: 'percent', percent: 38 } }),
+      ], { owner: { key: 'opencode#account:0123456789abcdef', providerId: 'opencode', identityKind: 'account', label: 'OpenCode Go' } }), NOW, TIME);
+      expect(view.bar?.name).toBe('Go monthly');
+      expect(view.chips.map((chip) => chip.label)).toEqual(['5-hour', 'Weekly']);
+      expect(view.statusChip).toBeNull();
+      expect(view.statusNotice).toBeNull();
+    });
+
+    it('caps secondary windows at three plus a titled overflow chip', () => {
+      const windows = [
+        win({ key: 'other:primary', label: 'Primary', used: { kind: 'percent', percent: 99 } }),
+        ...Array.from({ length: 5 }, (_, index) => win({ key: `other:extra-${index}`, label: `Extra ${index}`, used: { kind: 'percent', percent: 20 + index } })),
+      ];
+      const view = buildPlanTile(owner(windows), NOW, TIME);
+      expect(view.chips.map((chip) => chip.label)).toEqual(['Extra 0', 'Extra 1', 'Extra 2', '+2 more']);
+      expect(view.chips[3]?.title).toContain('Extra 3');
+      expect(view.chips[3]?.title).toContain('Extra 4');
+    });
+
+    it('caps evidence at two plus a titled overflow notice', () => {
+      const view = buildPlanTile(owner([], { ownerEvidence: Array.from({ length: 4 }, (_, index) => ({ observedAt: NOW - (index + 1) * MIN, source: 'error-derived' as const, modelScope: `Model ${index}`, resetsAt: NOW + 60 * MIN })) }), NOW, TIME);
+      expect(view.evidence).toHaveLength(3);
+      expect(view.evidence[2]?.text).toBe('+2 more');
+      expect(view.evidence[2]?.title).toContain('Model 2');
+      expect(view.evidence[2]?.title).toContain('Model 3');
     });
   });
 });

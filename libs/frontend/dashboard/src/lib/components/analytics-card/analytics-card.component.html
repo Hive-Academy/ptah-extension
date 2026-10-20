@@ -17,6 +17,7 @@
         type="button"
         class="join-item btn btn-xs"
         [class.btn-active]="tab() === 'usage'"
+        [class.btn-primary]="tab() === 'usage'"
         [attr.aria-pressed]="tab() === 'usage'"
         (click)="setTab('usage')"
       >
@@ -26,6 +27,7 @@
         type="button"
         class="join-item btn btn-xs"
         [class.btn-active]="tab() === 'sessions'"
+        [class.btn-primary]="tab() === 'sessions'"
         [attr.aria-pressed]="tab() === 'sessions'"
         (click)="setTab('sessions')"
       >
@@ -60,6 +62,7 @@
             type="button"
             class="join-item btn btn-xs"
             [class.btn-active]="dateRange() === option.value"
+            [class.btn-primary]="dateRange() === option.value"
             [attr.aria-pressed]="dateRange() === option.value"
             (click)="setDateRange(option.value)"
           >

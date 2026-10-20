@@ -2,7 +2,6 @@
   <!-- Header row: title, date span, range control, refresh -->
   <div class="flex flex-wrap items-center gap-3">
     <div class="min-w-0">
-      <h3 class="text-base font-semibold">Usage</h3>
       <p class="text-xs text-base-content-muted" data-testid="usage-date-span">
         {{ viewModel()?.dateSpanLabel }}
       </p>
@@ -13,6 +12,7 @@
           type="button"
           class="join-item btn btn-xs"
           [class.btn-active]="range() === option.value"
+          [class.btn-primary]="range() === option.value"
           [attr.aria-pressed]="range() === option.value"
           [disabled]="isLoading()"
           (click)="setRange(option.value)"
@@ -99,7 +99,7 @@
       </div>
     } @else {
       <div class="grid grid-cols-1 gap-5 lg:grid-cols-5">
-        <div class="lg:col-span-2">
+        <div class="lg:col-span-2 flex flex-col gap-4">
           <ptah-usage-cost-summary
             [totalCostUsd]="vm.totalCostUsd"
             [isPartial]="vm.isPartial"
@@ -107,6 +107,12 @@
             [sources]="vm.sources"
             [totalUnpricedFactCount]="vm.totalCostUnpricedFactCount"
             [totalUnpricedTokens]="vm.totalCostUnpricedTokens"
+          />
+          <ptah-usage-cost-donut
+            [providers]="vm.providers"
+            [models]="vm.modelRows"
+            [totalCostUsd]="vm.totalCostUsd"
+            [unpricedFactCount]="vm.totalCostUnpricedFactCount"
           />
         </div>
         <div class="lg:col-span-3">
@@ -119,6 +125,7 @@
                 type="button"
                 class="join-item btn btn-xs"
                 [class.btn-active]="chartMode() === 'cost'"
+                [class.btn-primary]="chartMode() === 'cost'"
                 [attr.aria-pressed]="chartMode() === 'cost'"
                 (click)="setChartMode('cost')"
               >
@@ -128,6 +135,7 @@
                 type="button"
                 class="join-item btn btn-xs"
                 [class.btn-active]="chartMode() === 'tokens'"
+                [class.btn-primary]="chartMode() === 'tokens'"
                 [attr.aria-pressed]="chartMode() === 'tokens'"
                 (click)="setChartMode('tokens')"
               >
@@ -135,7 +143,7 @@
               </button>
             </div>
           </div>
-          <ptah-stacked-area-chart
+          <ptah-stacked-bar-chart
             [series]="chartSeries()"
             [days]="vm.days"
             [valueFormat]="chartValueFormat()"

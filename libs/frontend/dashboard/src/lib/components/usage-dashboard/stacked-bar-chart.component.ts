@@ -1,35 +1,4 @@
-/**
- * StackedAreaChartComponent
- *
- * Presentational stacked-area chart drawn as one static SVG (TASK_2026_707
- * PR 2): no chart library, no per-point timer or observer. Inputs are
- * normalized series (`id`/`label`/`color`/`values`, oldest day first) plus the
- * day labels and a value formatter; the component owns only focus
- * presentation. Pure geometry (view constants, the monotone cubic path
- * builder, the value sanitization boundary) lives in
- * `stacked-area-chart.geometry.ts`; the markup lives in
- * `stacked-area-chart.component.html`.
- *
- * - Areas are built from smooth monotone cubic curves (Fritsch–Carlson), so a
- *   stacked boundary never overshoots its data and invents negative usage.
- * - Plotted values pass one boundary: anything that is not a finite
- *   non-negative number is dropped to 0, and values are capped so sums can
- *   never overflow into NaN or Infinity geometry or labels.
- * - Days flagged `unknownDays` (cost mode with unpriced facts) draw a
- *   hatched marker; their aria label and readout say the value is unpriced
- *   instead of presenting the known part as the whole day.
- * - Providers flagged through `unknownSeries` read "at least …" or
- *   "unpriced" in the focused readout, never a plain `$0`.
- * - A one-day range draws a centered stacked bar, a centered focus marker
- *   and a centered x label.
- * - Y gridlines use a nice ceiling with compact labels; x labels are thinned.
- * - Every day is a focusable column with a full aria-label (day, total and
- *   each series value), and the readout below mirrors the focused day for
- *   sighted keyboard users. Arrow keys move between columns.
- * - Colour comes from CSS (series `color` is any CSS colour; text uses
- *   `currentColor`), so light and dark themes both hold. The only motion is a
- *   marker fade, disabled under `prefers-reduced-motion`.
- */
+/** Daily stacked bars with keyboard-focusable day columns and unpriced readouts. */
 import {
   ChangeDetectionStrategy,
   Component,
@@ -48,17 +17,15 @@ import {
   SINGLE_DAY_BAR_W,
   VIEW_H,
   VIEW_W,
-  areaPath,
   niceCeiling,
   sanitizeSeriesValue,
   type DayColumn,
   type Gridline,
-  type Point,
   type ReadoutItem,
   type XLabel,
-} from './stacked-area-chart.geometry';
+} from './stacked-bar-chart.geometry';
 
-export interface StackedAreaSeries {
+export interface StackedBarSeries {
   readonly id: string;
   readonly label: string;
   /** Any CSS colour (hex or `oklch(var(--…))` token). */
@@ -67,25 +34,20 @@ export interface StackedAreaSeries {
   readonly values: readonly number[];
 }
 
-interface AreaRow {
-  readonly series: StackedAreaSeries;
-  readonly area: string;
-}
-
-/** One stacked bar of the single-day range. */
 interface BarRow {
-  readonly series: StackedAreaSeries;
+  readonly series: StackedBarSeries;
   readonly x: number;
   readonly y: number;
   readonly width: number;
   readonly height: number;
+  readonly day: number;
 }
 
 @Component({
-  selector: 'ptah-stacked-area-chart',
+  selector: 'ptah-stacked-bar-chart',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  templateUrl: './stacked-area-chart.component.html',
+  templateUrl: './stacked-bar-chart.component.html',
   styles: [
     `
       .ptah-chart-marker {
@@ -99,10 +61,10 @@ interface BarRow {
     `,
   ],
 })
-export class StackedAreaChartComponent {
+export class StackedBarChartComponent {
   private readonly elementRef = inject(ElementRef<HTMLElement>);
 
-  readonly series = input.required<readonly StackedAreaSeries[]>();
+  readonly series = input.required<readonly StackedBarSeries[]>();
   readonly days = input.required<readonly string[]>();
   readonly valueFormat = input.required<(value: number) => string>();
   /**
@@ -134,83 +96,36 @@ export class StackedAreaChartComponent {
    * cumulative sums stay finite. Every geometry, label and readout below
    * reads from this, never from the raw input.
    */
-  private readonly clean = computed<readonly StackedAreaSeries[]>(() =>
+  private readonly clean = computed<readonly StackedBarSeries[]>(() =>
     this.series().map((s) => ({
       ...s,
       values: s.values.map(sanitizeSeriesValue),
     })),
   );
 
-  /** Stacked area path per series, bottom series (largest cost) first. */
-  private readonly stacked = computed<readonly {
-    top: readonly Point[];
-    bottom: readonly Point[];
-  }[]>(() => {
+  /** One stacked bar slot per day; zero segments generate no SVG shape. */
+  readonly bars = computed<readonly BarRow[]>(() => {
     const days = this.days();
     const series = this.clean();
-    const n = days.length;
-    if (n < 2) return [];
-    const totals = days.map(() => 0);
-    const cumulative: number[][] = [];
-    for (const s of series) {
-      const level: number[] = [];
-      for (let i = 0; i < n; i++) {
-        const value = s.values[i] ?? 0;
-        totals[i] = (totals[i] ?? 0) + value;
-        level.push((cumulative.at(-1)?.[i] ?? 0) + value);
-      }
-      cumulative.push(level);
-    }
-    const yMax = niceCeiling(Math.max(...totals, 0));
-    const toX = (i: number): number => PAD_L + (i * PLOT_W) / (n - 1);
+    if (days.length === 0 || series.length === 0) return [];
+    const totals = days.map((_, i) => series.reduce((sum, s) => sum + (s.values[i] ?? 0), 0));
+    const yMax = niceCeiling(Math.max(...totals, 0) / 4) * 4;
     const toY = (value: number): number =>
       PAD_T + PLOT_H - (value / yMax) * PLOT_H;
-    const toPoints = (level: readonly number[]): readonly Point[] =>
-      level.map((value, i) => ({ x: toX(i), y: toY(value) }));
-    const zeroPoints: readonly Point[] = days.map((_, i) => ({
-      x: toX(i),
-      y: toY(0),
-    }));
-    return cumulative.map((level, index) => ({
-      top: toPoints(level),
-      bottom: index === 0 ? zeroPoints : toPoints(cumulative[index - 1]!),
-    }));
-  });
-
-  readonly areas = computed<readonly AreaRow[]>(() =>
-    this.stacked()
-      .map((levels, index) => ({
-        series: this.clean()[index]!,
-        area: areaPath(levels.top, levels.bottom),
-      }))
-      .filter((row) => row.area !== ''),
-  );
-
-  /** Centered stacked bars for a one-day range, bottom series first. */
-  readonly singleDayBars = computed<readonly BarRow[]>(() => {
-    const days = this.days();
-    const series = this.clean();
-    if (days.length !== 1 || series.length === 0) return [];
-    const total = series.reduce((sum, s) => sum + (s.values[0] ?? 0), 0);
-    if (total <= 0) return [];
-    const yMax = niceCeiling(total);
-    const toY = (value: number): number =>
-      PAD_T + PLOT_H - (value / yMax) * PLOT_H;
-    const x = PAD_L + PLOT_W / 2 - SINGLE_DAY_BAR_W / 2;
     const bars: BarRow[] = [];
-    let level = 0;
-    for (const s of series) {
-      const value = s.values[0] ?? 0;
-      if (value <= 0) continue;
-      const bottom = level;
-      level += value;
-      bars.push({
-        series: s,
-        x,
-        y: toY(level),
-        width: SINGLE_DAY_BAR_W,
-        height: toY(bottom) - toY(level),
-      });
+    const slot = PLOT_W / days.length;
+    const width = days.length === 1 ? SINGLE_DAY_BAR_W : Math.max(2, Math.min(28, slot * 0.7));
+    for (let i = 0; i < days.length; i++) {
+      let level = 0;
+      for (const s of series) {
+        const value = s.values[i] ?? 0;
+        if (value <= 0) continue;
+        const bottom = level;
+        level += value;
+        bars.push({ series: s, day: i,
+          x: PAD_L + slot * (i + 0.5) - width / 2,
+          y: toY(level), width, height: toY(bottom) - toY(level) });
+      }
     }
     return bars;
   });
@@ -235,11 +150,11 @@ export class StackedAreaChartComponent {
         totals[i] = (totals[i] ?? 0) + (value ?? 0);
       });
     }
-    const yMax = niceCeiling(Math.max(...totals, 0));
+    const step = niceCeiling(Math.max(...totals, 0) / 4);
     const format = this.valueFormat();
     return [0, 1, 2, 3, 4].map((k) => ({
       y: PAD_T + PLOT_H - (k / 4) * PLOT_H,
-      label: format((yMax * k) / 4),
+      label: format(step * k),
     }));
   });
 
@@ -250,10 +165,7 @@ export class StackedAreaChartComponent {
     const labels: XLabel[] = [];
     for (let i = 0; i < days.length; i += step) {
       labels.push({
-        x:
-          days.length === 1
-            ? PAD_L + PLOT_W / 2
-            : PAD_L + (i * PLOT_W) / (days.length - 1),
+        x: PAD_L + (i + 0.5) * PLOT_W / days.length,
         label: formatDayShort(days[i]!),
       });
     }
@@ -266,13 +178,11 @@ export class StackedAreaChartComponent {
     const n = days.length;
     if (n === 0) return [];
     const format = this.valueFormat();
-    const spacing = n > 1 ? PLOT_W / (n - 1) : PLOT_W;
+    const spacing = PLOT_W / n;
     const columns: DayColumn[] = [];
     for (let i = 0; i < n; i++) {
-      const center = n > 1 ? PAD_L + i * spacing : PAD_L + PLOT_W / 2;
-      const left = n > 1 ? Math.max(PAD_L, center - spacing / 2) : PAD_L;
-      const right =
-        n > 1 ? Math.min(PAD_L + PLOT_W, center + spacing / 2) : PAD_L + PLOT_W;
+      const left = PAD_L + i * spacing;
+      const right = left + spacing;
       let total = 0;
       const parts: string[] = [];
       for (const s of series) {
@@ -307,9 +217,7 @@ export class StackedAreaChartComponent {
     const days = this.days();
     if (i < 0 || i >= days.length || days.length < 1) return null;
     // A one-day range centers its marker on the single bar.
-    return days.length === 1
-      ? PAD_L + PLOT_W / 2
-      : PAD_L + (i * PLOT_W) / (days.length - 1);
+    return PAD_L + (i + 0.5) * PLOT_W / days.length;
   });
 
   readonly readout = computed<{
@@ -353,12 +261,15 @@ export class StackedAreaChartComponent {
     };
   });
 
-  readonly chartAriaLabel = computed(
-    () =>
-      `Daily usage stacked area chart, ${this.days().length} days from ${
-        this.days()[0] ?? ''
-      } to ${this.days().at(-1) ?? ''}`,
-  );
+  readonly chartAriaLabel = computed(() => {
+    const days = this.days();
+    if (days.length === 1) {
+      return `Daily usage stacked bar chart, 1 day: ${days[0]}`;
+    }
+    return `Daily usage stacked bar chart, ${days.length} days from ${
+      days[0] ?? ''
+    } to ${days.at(-1) ?? ''}`;
+  });
 
   setFocusedDay(index: number | null): void {
     this.focusedDay.set(index);

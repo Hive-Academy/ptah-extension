@@ -385,4 +385,102 @@ describe('ProviderAccountTileComponent', () => {
         ?.getAttribute('title'),
     ).toContain('Top models:');
   });
+
+  it('groups the tile content with a subtle border and rounded corners', () => {
+    const fixture = createTile(owner([win()]));
+    const section = (fixture.nativeElement as HTMLElement).querySelector(
+      'section',
+    );
+    expect(section?.className).toContain('rounded-lg');
+    expect(section?.className).toContain('border-base-content/10');
+  });
+
+  it('renders the parenthesized qualifiers as a muted second header line', () => {
+    const fixture = createTile(
+      owner([], {
+        owner: {
+          key: 'claude-cli#credential:0123456789abcdef',
+          providerId: 'claude-cli',
+          identityKind: 'credential',
+          label: 'Claude (owner unknown) (key unavailable)',
+        },
+      }),
+    );
+    const lines = (fixture.nativeElement as HTMLElement).querySelectorAll(
+      '[data-testid="tile-label"] span',
+    );
+    expect(lines[0]?.textContent?.trim()).toBe('Claude · cdef');
+    expect(lines[1]?.textContent?.trim()).toBe(
+      '(owner unknown) (key unavailable)',
+    );
+    expect(lines[0]?.getAttribute('title')).toBe('Claude · cdef');
+    expect(lines[1]?.getAttribute('title')).toBe('(owner unknown) (key unavailable)');
+    expect(lines[1]?.className).not.toContain('truncate');
+    expect(lines[1]?.className).toContain('break-words');
+  });
+
+  it('lets the reset line wrap instead of truncating the used value', () => {
+    const fixture = createTile(
+      owner([win({ used: { kind: 'percent', percent: 93 } })]),
+    );
+    const el = fixture.nativeElement as HTMLElement;
+    const line = el.querySelector<HTMLElement>(
+      '[data-testid="tile-bar-slot"] p',
+    );
+    expect(line?.textContent).toContain('93% used');
+    expect(line?.className).not.toContain('truncate');
+  });
+
+  it('hides the whole footer for a window-less API-key owner', () => {
+    const fixture = createTile(owner([], { status: 'unsupported-auth' }));
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('[data-testid="tile-status-pill"]')).not.toBeNull();
+    expect(el.querySelector('[data-testid="tile-status-chip"]')).toBeNull();
+    expect(el.querySelector('[data-testid="tile-status"]')).toBeNull();
+  });
+
+  it('keeps only the Add key action in the footer for a missing Ollama key', () => {
+    const fixture = createTile(
+      owner([], {
+        status: 'unsupported-config',
+        owner: {
+          key: 'ollama-cloud#credential:0123456789abcdef',
+          providerId: 'ollama-cloud',
+          identityKind: 'credential',
+          label: 'Ollama Cloud (owner unknown)',
+        },
+      }),
+    );
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('[data-testid="tile-status-chip"]')).toBeNull();
+    const action = el.querySelector<HTMLButtonElement>(
+      '[data-testid="tile-action-add-key"]',
+    );
+    expect(action?.textContent?.trim()).toBe('Add key');
+  });
+
+  it('renders a small lucide status icon in a kept footer chip', () => {
+    const fixture = createTile(
+      owner([win()], { status: 'cli-unavailable' }),
+    );
+    const el = fixture.nativeElement as HTMLElement;
+    const chip = el.querySelector<HTMLElement>('[data-testid="tile-status-chip"]');
+    expect(chip?.textContent).toContain('CLI unavailable');
+    expect(chip?.querySelector('svg, lucide-angular')).not.toBeNull();
+    expect(chip?.textContent?.trim().startsWith('–')).toBe(false);
+    expect(chip?.textContent?.trim().startsWith('○')).toBe(false);
+  });
+
+  it('shows one stale failure message and a distinct cooldown for a windowed owner', () => {
+    const fixture = createTile(owner([win()], {
+      status: 'stale',
+      staleSince: NOW - 60 * MIN,
+      cooldown: { observedAt: NOW, until: NOW + 5 * MIN },
+    }));
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('[data-testid="tile-status-chip"]')).toBeNull();
+    expect(el.querySelectorAll('[data-testid="tile-status-notice"]')).toHaveLength(1);
+    expect(el.querySelector('[data-testid="tile-status-notice"]')?.textContent).toContain('refresh failed');
+    expect(el.querySelector('[data-testid="tile-cooldown"]')?.textContent).toContain('retry delay');
+  });
 });

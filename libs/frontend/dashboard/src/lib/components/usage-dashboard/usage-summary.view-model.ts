@@ -70,7 +70,7 @@ export interface UsageCostQuality {
   readonly cacheSavingsUnknownFactCount: number;
 }
 
-/** Per-provider daily series for the stacked area chart (requirement 3). */
+/** Per-provider daily series for the stacked bar chart. */
 export interface ProviderDailySeries {
   readonly providerId: string;
   readonly displayName: string;

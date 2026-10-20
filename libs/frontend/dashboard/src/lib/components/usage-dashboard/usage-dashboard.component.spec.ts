@@ -1,5 +1,5 @@
 /**
- * UsageDashboardComponent, StackedAreaChartComponent and AnalyticsUsageStore
+ * UsageDashboardComponent, StackedBarChartComponent and AnalyticsUsageStore
  * — the Usage tab over a fake RPC client: the default 30-day mount request,
  * the rendered fold (total, provider shares, KPIs, breakdown, quality),
  * honest rendering of unpriced and partial data, range switching with a
@@ -17,7 +17,7 @@ import {
 import type { UsageFact } from '@ptah-extension/shared';
 
 import { UsageDashboardComponent } from './usage-dashboard.component';
-import { StackedAreaChartComponent } from './stacked-area-chart.component';
+import { StackedBarChartComponent } from './stacked-bar-chart.component';
 import { AnalyticsUsageStore } from '../../services/analytics-usage.store';
 import {
   FakeRpc,
@@ -161,6 +161,14 @@ describe('UsageDashboardComponent', () => {
     expect(modelRows).toHaveLength(3);
     expect(modelRows[0].textContent).toContain('Claude Opus 4.6');
     expect(modelRows[0].textContent).toContain('$3.00');
+    expect(rows[0].querySelector('ptah-provider-mark')?.getAttribute('size')).toBe('sm');
+    expect(el().querySelector('[data-testid="usage-donut-svg"]')?.getAttribute('aria-label'))
+      .toContain('Unpriced usage excluded from arcs');
+    expect(el().querySelectorAll('[data-testid="usage-donut-arc"]')).toHaveLength(1);
+    expect(text('usage-cost-donut')).toContain('unpriced');
+    clickButton('Model');
+    expect(el().querySelectorAll('[data-testid="usage-donut-arc"]')).toHaveLength(2);
+    expect(el().querySelector('[aria-label="Cost share view"] .btn-active')?.textContent).toContain('Model');
   });
 
   it('shows the savings multiple when cost and savings are both fully known', async () => {
@@ -182,7 +190,7 @@ describe('UsageDashboardComponent', () => {
     // Every fact is priced and reports savings: 6 raw + 2.4 saved → 1.4x.
     expect(text('usage-total-cost')).toBe('$6.00');
     expect(text('usage-kpi-savings')).toContain('$2.40');
-    expect(text('usage-kpi-savings')).toContain('1.4x the raw token cost');
+    expect(text('usage-kpi-savings')).toContain('Cost before cache savings: 1.4x raw cost');
   });
 
   it('marks the total partial and lists incomplete sources quietly', async () => {
@@ -447,12 +455,12 @@ describe('UsageDashboardComponent', () => {
   });
 });
 
-describe('StackedAreaChartComponent', () => {
-  let fixture: ComponentFixture<StackedAreaChartComponent>;
+describe('StackedBarChartComponent', () => {
+  let fixture: ComponentFixture<StackedBarChartComponent>;
 
   beforeEach(() => {
-    TestBed.configureTestingModule({ imports: [StackedAreaChartComponent] });
-    fixture = TestBed.createComponent(StackedAreaChartComponent);
+    TestBed.configureTestingModule({ imports: [StackedBarChartComponent] });
+    fixture = TestBed.createComponent(StackedBarChartComponent);
     fixture.componentRef.setInput('series', [
       { id: 'a', label: 'A', color: '#123456', values: [1, 2] },
       { id: 'b', label: 'B', color: '#654321', values: [3, 4] },
@@ -469,21 +477,32 @@ describe('StackedAreaChartComponent', () => {
   const dayColumns = (): SVGElement[] =>
     Array.from(el().querySelectorAll('svg rect[role="img"]'));
 
-  it('draws one area path per series', () => {
-    expect(count(el(), 'svg path')).toBe(2);
+  it('draws one stacked segment per provider per active day', () => {
+    expect(count(el(), '[data-testid="usage-chart-bar"]')).toBe(4);
+  });
+
+  it('draws no segment on zero days between sparse active days', () => {
+    fixture.componentRef.setInput('days', ['2026-10-18', '2026-10-19', '2026-10-20']);
+    fixture.componentRef.setInput('series', [
+      { id: 'a', label: 'A', color: '#123456', values: [2, 0, 3] },
+      { id: 'b', label: 'B', color: '#654321', values: [0, 0, 1] },
+    ]);
+    fixture.detectChanges();
+    expect(count(el(), '[data-testid="usage-chart-bar"]')).toBe(3);
+    expect(dayColumns()[1].getAttribute('aria-label')).toBe('Oct 19: no usage');
   });
 
   it('uses nice gridline ceilings and thinned day labels', () => {
     const labels = Array.from(el().querySelectorAll('svg text')).map(
       (t) => t.textContent?.trim(),
     );
-    // Max stack total is 6; the nice ceiling is 10, labeled in quarters.
+    // Max stack total is 6; a nice 2-unit step covers the scale.
     for (const expected of [
       '0',
-      '2.5',
-      '5',
-      '7.5',
-      '10',
+      '2',
+      '4',
+      '6',
+      '8',
       'Oct 18',
       'Oct 19',
     ]) {
@@ -551,7 +570,7 @@ describe('StackedAreaChartComponent', () => {
     );
     expect(labels.join(' ')).not.toContain('NaN');
     expect(labels.join(' ')).not.toContain('Infinity');
-    expect(count(el(), 'svg path')).toBe(2);
+    expect(count(el(), '[data-testid="usage-chart-bar"]')).toBe(2);
   });
 
   it('scales very large values without invalid geometry or labels', () => {
@@ -560,7 +579,7 @@ describe('StackedAreaChartComponent', () => {
     ]);
     fixture.detectChanges();
 
-    expect(count(el(), 'svg path')).toBe(1);
+    expect(count(el(), '[data-testid="usage-chart-bar"]')).toBe(2);
     const labels = Array.from(el().querySelectorAll('svg text')).map(
       (t) => t.textContent ?? '',
     );
@@ -578,10 +597,9 @@ describe('StackedAreaChartComponent', () => {
     fixture.componentRef.setInput('days', ['2026-10-18']);
     fixture.detectChanges();
 
-    // No area path exists for a single day; the day is a stacked bar.
-    expect(count(el(), 'svg path')).toBe(0);
+    // The single day is a centered stacked bar.
     const bars = el().querySelectorAll(
-      '[data-testid="usage-chart-single-day-bar"]',
+      '[data-testid="usage-chart-bar"]',
     );
     expect(bars).toHaveLength(2);
     // PAD_L 48, PLOT_W 584: a 48px-wide bar centered on the plot.

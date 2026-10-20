@@ -77,6 +77,7 @@ import { formatCompactTokens, formatPercent, formatUsd, providerDisplayName } fr
           >
             <ptah-provider-mark
               [providerId]="row.providerId"
+              size="sm"
               class="h-4 w-4 shrink-0"
             />
             <span class="w-24 shrink-0 truncate text-xs" [attr.title]="row.displayName">

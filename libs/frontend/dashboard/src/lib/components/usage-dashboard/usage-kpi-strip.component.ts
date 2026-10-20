@@ -120,7 +120,7 @@ export class UsageKpiStripComponent {
   protected readonly savingsSub = computed(() => {
     const kpis = this.kpis();
     if (kpis.savingsMultiple !== null) {
-      return `${kpis.savingsMultiple.toFixed(1)}x the raw token cost`;
+      return `Cost before cache savings: ${kpis.savingsMultiple.toFixed(1)}x raw cost`;
     }
     if (kpis.cacheSavingsUsd === null) return 'No savings data';
     return kpis.cacheSavingsUnknownFactCount > 0
