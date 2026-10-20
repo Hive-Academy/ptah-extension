@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_662_3eea
-status: in_progress
+status: done
 type: REFACTORING
 title: "Skill synthesis: keep and fix the Library, delete the pipeline, archive its data"
 depends_on:
