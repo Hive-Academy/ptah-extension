@@ -9,6 +9,7 @@
  */
 
 export * from './rpc/rpc-chat.types';
+export * from './rpc/rpc-attention.types';
 export * from './rpc/rpc-session.types';
 export * from './rpc/rpc-config.types';
 export * from './rpc/rpc-auth.types';
@@ -51,6 +52,10 @@ import type {
   AgentGetLanePlanLimitsParams,
   AgentGetLanePlanLimitsResult,
 } from './rpc/rpc-lane-plan-limits.types';
+import type {
+  AttentionGetSnapshotParams,
+  AttentionGetSnapshotResult,
+} from './rpc/rpc-attention.types';
 
 import type {
   AgentOutcomeSignalsParams,
@@ -780,6 +785,10 @@ import type {
  * If a method is not in this registry, it CANNOT be called from frontend.
  */
 export interface RpcMethodRegistry {
+  'attention:getSnapshot': {
+    params: AttentionGetSnapshotParams;
+    result: AttentionGetSnapshotResult;
+  };
   'chat:start': { params: ChatStartParams; result: ChatStartResult };
   'chat:continue': { params: ChatContinueParams; result: ChatContinueResult };
   'chat:setStreamViewport': {
@@ -3795,6 +3804,7 @@ export type RpcMethodName = keyof RpcMethodRegistry;
  * verifyRpcRegistration uses set-membership checks only.
  */
 const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
+  'attention:getSnapshot': true,
   'chat:start': true,
   'chat:continue': true,
   'chat:setStreamViewport': true,

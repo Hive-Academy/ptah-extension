@@ -60,8 +60,10 @@ import {
 import {
   NotificationAnnouncerComponent,
   NotificationCenterComponent,
-  NotificationLedgerService,
+  NotificationSnackbarComponent,
+  NotificationSoundService,
 } from '@ptah-extension/notification-center';
+import { ChatFailedTurnAttentionService } from '../../services/chat-failed-turn-attention.service';
 import { NotificationFocusCoordinator } from '../../services/notification-focus-coordinator.service';
 import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-ender.service';
 import { AgentFollowUpQueueService } from '../../services/agent-follow-up-queue.service';
@@ -115,6 +117,7 @@ import { AgentFollowUpQueueService } from '../../services/agent-follow-up-queue.
     NativePopoverComponent,
     SkeletonBlockComponent,
     NotificationCenterComponent,
+    NotificationSnackbarComponent,
     NotificationAnnouncerComponent,
     SessionOrganizationEditorComponent,
     PreviousSessionsModalComponent,
@@ -162,10 +165,6 @@ export class AppShellComponent {
   private readonly _closedTabSessionEnder = inject(
     ClosedTabSessionEnderService,
   );
-  // Injected only to instantiate the root notification ledger eagerly. The
-  // bell lives in the retained row, which a standalone-first boot does not
-  // build, and completions and prompts must be processed from the start.
-  private readonly _notificationLedger = inject(NotificationLedgerService);
   // Same reason: agent follow-ups queued in the retained row must still be
   // sent when the run ends while a standalone surface is showing.
   private readonly _agentFollowUps = inject(AgentFollowUpQueueService);
@@ -173,6 +172,21 @@ export class AppShellComponent {
   // retained row injects ThemeService, so a standalone-first boot would delay
   // the theme fallback and recovery until the first visit to chat.
   private readonly _theme = inject(ThemeService);
+  protected readonly notificationPanelOpen = signal(false);
+  private readonly _failedTurns = inject(ChatFailedTurnAttentionService);
+  private readonly _notificationSound = inject(NotificationSoundService);
+  private readonly pendingNotificationOpen = signal(false);
+  private readonly notificationCenter = viewChild(NotificationCenterComponent);
+
+  protected openNotifications(): void {
+    const bell = this.notificationCenter();
+    if (bell) {
+      bell.openPanel();
+      return;
+    }
+    this.pendingNotificationOpen.set(true);
+    this.appState.setCurrentView('chat');
+  }
   readonly currentView = this.appState.currentView;
 
   /**
@@ -237,6 +251,15 @@ export class AppShellComponent {
   private authCheckDone = false;
 
   constructor() {
+    effect(() => {
+      const bell = this.notificationCenter();
+      if (!bell) return;
+      this.notificationPanelOpen.set(bell.panelOpen());
+      if (this.pendingNotificationOpen()) {
+        this.pendingNotificationOpen.set(false);
+        bell.openPanel();
+      }
+    });
     // A standalone surface (e.g. a notification route) replaces the chat
     // view while the modal is open: close it without moving focus, since the
     // opener is in the row that just left the document (DP-9).

@@ -12,6 +12,40 @@ import {
 
 import type { StrictMessageType } from './message-type';
 
+// Routing identifiers are opaque. Filesystem paths and source request text are
+// never accepted as routing fields on the attention wire.
+const AttentionIdSchema = z.string().min(1).max(256).regex(/^[A-Za-z0-9._:-]+$/);
+
+export const AttentionTargetSchema = z.object({
+  workspaceId: AttentionIdSchema,
+  sessionId: AttentionIdSchema,
+  tabId: AttentionIdSchema.optional(),
+  surfaceMode: z.boolean().optional(),
+  surfaceKind: z.enum(['setup-wizard', 'harness-builder', 'mcp-apps']).optional(),
+}).strict();
+
+export const AttentionNoticeSchema = z.object({
+  key: AttentionIdSchema,
+  generation: z.number().int().nonnegative(),
+  kind: z.enum(['permission', 'question', 'lane-permission']),
+  // Decision #21 permits the session title. The host truncates it before push.
+  title: z.string().min(1).transform(title => title.slice(0, 120)),
+  occurredAt: z.number().int().nonnegative(),
+  target: AttentionTargetSchema.nullable(),
+}).strict();
+
+export const AttentionChangedPayloadSchema = z.discriminatedUnion('change', [
+  z.object({ change: z.literal('upsert'), notice: AttentionNoticeSchema }).strict(),
+  z.object({ change: z.literal('resolve'), key: AttentionIdSchema,
+    generation: z.number().int().nonnegative() }).strict(),
+]);
+
+export const AttentionOpenTargetPayloadSchema = z.object({
+  key: AttentionIdSchema,
+  generation: z.number().int().nonnegative(),
+  target: AttentionTargetSchema,
+}).strict();
+
 /**
  * Zod Schemas for Runtime Validation
  */

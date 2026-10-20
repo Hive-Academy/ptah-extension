@@ -16,6 +16,7 @@ export { CliEditorProvider } from './implementations/cli-editor-provider';
 export { CliEditorLauncher } from './implementations/cli-editor-launcher';
 export type { CliEditorLauncherOptions } from './implementations/cli-editor-launcher';
 export { CliHttpServerProvider } from './implementations/cli-http-server-provider';
+export { CliHostAttentionNotifications } from './implementations/cli-host-attention-notifications';
 export {
   CLI_WORKSPACE_WATCH_HOST_BUNDLE,
   CliWorkspaceWatcher,

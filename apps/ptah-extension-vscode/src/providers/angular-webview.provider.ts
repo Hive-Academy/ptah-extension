@@ -13,6 +13,9 @@ import {
 } from '@ptah-extension/shared';
 import { WebviewEventQueue } from '../services/webview-event-queue';
 import { WebviewHtmlGenerator } from '../services/webview-html-generator';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import { VscodeHostAttentionNotifications } from '@ptah-extension/platform-vscode';
+import { MESSAGE_TYPES, type AttentionOpenTargetPayload } from '@ptah-extension/shared';
 
 /**
  * Workspace information interface
@@ -53,12 +56,31 @@ export class AngularWebviewProvider
     private readonly eventQueue: WebviewEventQueue,
     @inject(TOKENS.WEBVIEW_MESSAGE_HANDLER)
     private readonly messageHandler: WebviewMessageHandlerService,
+    @inject(PLATFORM_TOKENS.HOST_ATTENTION_NOTIFICATIONS)
+    attention: VscodeHostAttentionNotifications,
   ) {
+    this._disposables.push(attention.setRouteDispatcher((payload) => this.queueAttentionOpen(payload)));
     this.htmlGenerator = new WebviewHtmlGenerator(context);
     this.initializeDevelopmentWatcher();
     this.logger.info(
       'AngularWebviewProvider initialized - using shared WebviewMessageHandlerService',
     );
+  }
+
+  private queueAttentionOpen(payload: AttentionOpenTargetPayload): void {
+    const message = { type: MESSAGE_TYPES.ATTENTION_OPEN_TARGET, payload };
+    if (this._view) {
+      this.postMessage(message);
+      return;
+    }
+    const firstPanel = this._panels.entries().next().value;
+    if (!firstPanel) {
+      this.postMessage(message);
+      return;
+    }
+    const [panelId, panel] = firstPanel;
+    const queue = this._panelEventQueues.get(panelId);
+    if (queue && !queue.enqueue(message)) void panel.webview.postMessage(message);
   }
 
   async resolveWebviewView(
@@ -228,9 +250,18 @@ export class AngularWebviewProvider
       );
       this._panels.set(panelId, panel);
       this._panelEventQueues.set(panelId, panelEventQueue);
+      // The manager tracks WebviewView visibility. Bridge panel view-state
+      // events so its shared visibility snapshot covers editor panels too.
+      const observedPanel = {
+        get webview() { return panel.webview; },
+        get visible() { return panel.visible; },
+        onDidDispose: panel.onDidDispose.bind(panel),
+        onDidChangeVisibility: (listener: () => void) =>
+          panel.onDidChangeViewState(() => listener()),
+      } as vscode.WebviewView;
       this.webviewManager.registerWebviewView(
         panelId,
-        panel as unknown as vscode.WebviewView,
+        observedPanel,
       );
       this.messageHandler.setupMessageListener(
         {

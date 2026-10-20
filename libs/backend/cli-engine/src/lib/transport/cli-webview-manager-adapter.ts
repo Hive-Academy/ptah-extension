@@ -16,8 +16,47 @@ import { EventEmitter } from 'events';
 
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import type { BatchMessagePayload } from '@ptah-extension/shared';
+import type {
+  IHostAttentionIngress,
+  IHostAttentionObserverHost,
+} from '@ptah-extension/platform-core';
+import type { Logger } from '@ptah-extension/vscode-core';
 
-export class CliWebviewManagerAdapter extends EventEmitter {
+export class CliWebviewManagerAdapter
+  extends EventEmitter
+  implements IHostAttentionObserverHost
+{
+  private attentionRegistration?: {
+    observer: IHostAttentionIngress;
+    logger?: Pick<Logger, 'error'>;
+  };
+
+  setAttentionObserver(
+    observer: IHostAttentionIngress,
+    logger?: Pick<Logger, 'error'>,
+  ): { dispose(): void } {
+    const registration = { observer, logger };
+    this.attentionRegistration = registration;
+    return {
+      dispose: () => {
+        if (this.attentionRegistration === registration) {
+          this.attentionRegistration = undefined;
+        }
+      },
+    };
+  }
+
+  private observeAttention(type: string, payload: unknown): void {
+    try {
+      this.attentionRegistration?.observer.observe(type, payload);
+    } catch (error: unknown) {
+      const name = error instanceof Error ? error.name : 'UnknownError';
+      this.attentionRegistration?.logger?.error(
+        `[CliWebviewManagerAdapter] Attention observer failed: ${name}`,
+      );
+    }
+  }
+
   /**
    * Send a typed message (backend -> TUI).
    * Matches the interface contract from webview-manager-adapter.ts:46-53.
@@ -27,6 +66,7 @@ export class CliWebviewManagerAdapter extends EventEmitter {
     type: string,
     payload: unknown,
   ): Promise<boolean> {
+    this.observeAttention(type, payload);
     this.dispatch(type, payload);
     return true;
   }
@@ -36,6 +76,7 @@ export class CliWebviewManagerAdapter extends EventEmitter {
    * Matches the interface contract from webview-manager-adapter.ts:65-68.
    */
   async broadcastMessage(type: string, payload: unknown): Promise<void> {
+    this.observeAttention(type, payload);
     this.dispatch(type, payload);
   }
 

@@ -1,4 +1,6 @@
 export * from './logging.service';
+export * from './attention.types';
+export { NotificationService, attentionRequestKey, attentionConditionKey, ATTENTION_RECENT_LIMIT, ATTENTION_SOUND_BURST_MS, ATTENTION_SOUND_COOLDOWN_MS } from './notification.service';
 export {
   VSCodeService,
   provideVSCodeService,

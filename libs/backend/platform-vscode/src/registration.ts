@@ -26,6 +26,8 @@ import { VscodeDiagnosticsProvider } from './implementations/vscode-diagnostics-
 import { VscodeHttpServerProvider } from './implementations/vscode-http-server-provider';
 import { VscodeUriOAuthCallbackListener } from './implementations/vscode-uri-oauth-callback-listener';
 import { VscodeWorkspaceWatcher } from './implementations/vscode-workspace-watcher';
+import { VscodePtahViewVisibility } from './implementations/ptah-view-visibility';
+import { VscodeHostAttentionNotifications } from './implementations/vscode-host-attention-notifications';
 
 import type { IPlatformInfo } from '@ptah-extension/platform-core';
 import {
@@ -54,6 +56,8 @@ export function registerPlatformVscodeServices(
       context.storageUri?.fsPath ?? context.globalStorageUri.fsPath,
   };
   container.register(PLATFORM_TOKENS.PLATFORM_INFO, { useValue: platformInfo });
+  container.registerSingleton(PLATFORM_TOKENS.PTAH_VIEW_VISIBILITY, VscodePtahViewVisibility);
+  container.registerSingleton(PLATFORM_TOKENS.HOST_ATTENTION_NOTIFICATIONS, VscodeHostAttentionNotifications);
   container.register(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, {
     useValue: new VscodeFileSystemProvider(),
   });
