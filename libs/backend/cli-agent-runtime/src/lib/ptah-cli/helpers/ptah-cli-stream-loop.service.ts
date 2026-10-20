@@ -229,8 +229,14 @@ export class PtahCliStreamLoop {
   private effectiveSessionId: SessionId | null = null;
   private readonly streamTransformer: SdkMessageTransformer;
   private readonly pendingToolArgs = new Map<
-    number,
-    { name: string; id: string; input: Record<string, unknown>; jsonFragments: string[] }
+    string,
+    {
+      parentToolUseId: string | null;
+      name: string;
+      id: string;
+      input: Record<string, unknown>;
+      jsonFragments: string[];
+    }
   >();
   private readonly emittedToolSegments = new Set<string>();
   /** Track messageIds already emitted via stream_event to avoid duplicate message_start from assistant */
@@ -257,10 +263,17 @@ export class PtahCliStreamLoop {
     this.streamTransformer = config.messageTransformer.createIsolated();
   }
 
-  private emitPendingToolCall(index: number): void {
-    const pending = this.pendingToolArgs.get(index);
+  private toolBlockKey(
+    parentToolUseId: string | null | undefined,
+    index: number,
+  ): string {
+    return JSON.stringify([parentToolUseId ?? null, index]);
+  }
+
+  private emitPendingToolCall(key: string): void {
+    const pending = this.pendingToolArgs.get(key);
     if (!pending) return;
-    this.pendingToolArgs.delete(index);
+    this.pendingToolArgs.delete(key);
 
     let input = pending.input;
     const fragments = pending.jsonFragments.join('');
@@ -294,9 +307,14 @@ export class PtahCliStreamLoop {
     this.emittedToolSegments.add(pending.id);
   }
 
-  private flushPendingToolCalls(): void {
-    for (const index of this.pendingToolArgs.keys()) {
-      this.emitPendingToolCall(index);
+  private flushPendingToolCalls(parentToolUseId?: string | null): void {
+    for (const [key, pending] of this.pendingToolArgs) {
+      if (
+        parentToolUseId === undefined ||
+        pending.parentToolUseId === parentToolUseId
+      ) {
+        this.emitPendingToolCall(key);
+      }
     }
   }
 
@@ -452,8 +470,10 @@ export class PtahCliStreamLoop {
             if (isContentBlockStart(event)) {
               const block = event.content_block;
               if (isToolUseBlock(block)) {
-                this.emitPendingToolCall(event.index);
-                this.pendingToolArgs.set(event.index, {
+                const key = this.toolBlockKey(msg.parent_tool_use_id, event.index);
+                this.emitPendingToolCall(key);
+                this.pendingToolArgs.set(key, {
+                  parentToolUseId: msg.parent_tool_use_id ?? null,
                   name: block.name,
                   id: block.id,
                   input: block.input,
@@ -473,7 +493,9 @@ export class PtahCliStreamLoop {
                 this.receivedThinkingDeltas = true;
                 emitSegment({ type: 'thinking', content: delta.thinking });
               } else if (isInputJsonDelta(delta)) {
-                const pending = this.pendingToolArgs.get(event.index);
+                const pending = this.pendingToolArgs.get(
+                  this.toolBlockKey(msg.parent_tool_use_id, event.index),
+                );
                 if (pending) {
                   pending.jsonFragments.push(delta.partial_json);
                 }
@@ -481,13 +503,15 @@ export class PtahCliStreamLoop {
               continue;
             }
             if (isContentBlockStop(event)) {
-              this.emitPendingToolCall(event.index);
+              this.emitPendingToolCall(
+                this.toolBlockKey(msg.parent_tool_use_id, event.index),
+              );
               continue;
             }
             continue;
           }
           if (isAssistantMessage(msg)) {
-            this.flushPendingToolCalls();
+            this.flushPendingToolCalls(msg.parent_tool_use_id ?? null);
             const blocks = msg.message?.content;
             if (Array.isArray(blocks)) {
               for (const block of blocks) {
