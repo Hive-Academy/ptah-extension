@@ -1,140 +1,121 @@
-# HANDOFF - Skills epic (TASK_2026_639 + TASK_2026_662) - 2026-10-20 (session 8)
-
-## Session 9 update (2026-10-20)
-
-Next steps 1-6 are done: gate green after fixes, two reviews, commits 902e37d2f (68), 1414253ba (69),
-70cf30416 (audit marker), audit exit 0. See decisions O53 and O54. Remaining: push + PR (step 7),
-then the status commit (step 8).
+# HANDOFF - Skills epic (TASK_2026_639 + TASK_2026_662) + PR follow-ups - 2026-10-20 (session 9 end)
 
 ## Goal
 
-The user approved the full skills epic:
+1. Get PR #788 (`refactor/skill-synthesis-purge`, TASK_2026_662: purge the skill-synthesis pipeline, keep
+   the Skills Library, migration 0057 archives then drops the pipeline data) green in CI and mergeable.
+2. Side PRs the user asked about in this session: #785 (merged), #791 and #792 (green, need approval).
+3. Out of scope: epic TASK_2026_640 and TASK_2026_701_9e4b. Do NOT start them.
+4. User rules for this phase: **use CLI lanes (codex) for all work**; the orchestrator only plans, verifies,
+   coordinates the machine with peers, and reports. Electron is the priority host (U8). Never grok/opencode;
+   Glm is AT LIMIT. At most 3 lanes; `ptah_agent_list` before each spawn; full instructions every time.
 
-- Epic TASK_2026_639 children: TASK_2026_644 (PR #756 MERGED) and TASK_2026_435 (PR #759 MERGED).
-- TASK_2026_662: delete the skill-synthesis pipeline in place, keep and fix the Library, add a success
-  signal derived from task-folder reviews, archive then drop the pipeline data. Batches 1-72 in 6 phases
-  (A-F) in `batches.md`.
-- Out of scope: epic TASK_2026_640 and backlog task TASK_2026_701_9e4b. Do NOT start them.
-- U8: Electron is the priority host. No TUI or VS Code feature work and no visual checks for them. Keep
-  the typecheck/test gates for every host that compiles a changed lib.
-
-## Done
+## Done (session 9)
 
 Worktree `D:\projects\ptah-extension\.claude-worktrees\skill-synthesis-purge`, branch
-`refactor/skill-synthesis-purge`. NOT pushed (local only), no PR yet. Commits this session (oldest first,
-on top of `2a715bfa3`):
+`refactor/skill-synthesis-purge`, PR https://github.com/Hive-Academy/ptah-extension/pull/788 (open).
+Commits pushed (oldest first, on top of 4da7713ec):
 
-| Commit | Content |
+| Commit | Subject |
 | --- | --- |
-| `333be4e41` | batch 67: archive format 2 (+ the two `.claude/skills` deletions of batch 71 landed here by mistake, O51 d) |
-| `6112b70d5` | batch 70: `retireManagedSkills()` + user-layer listing exclusion |
-| `68807eeb2` | batch 71: "Extract UI feature" suggestion removed (body notes the slip) |
-| `658755c59` | docs: batches 67/70/71 COMPLETE, O46-O51, Phase F review + r2, reports, old handoff |
-| `4da7713ec` | docs: `visual-review-phase-ef.md` APPROVED 8/10, O52 |
+| 902e37d2f | refactor(persistence-sqlite): batch 68 - register 0057 drop (+ Jest home guard `jest.setup-home.cjs`) |
+| 1414253ba | test(persistence-sqlite): batch 69 - vec order spec and embedder comment |
+| 70cf30416 | fix(agent-generation): mark the ENOENT return in skill retirement (degradation audit) |
+| e6bdec698 | docs(task-specs): TASK_2026_662 batches 68-69 complete |
+| a62b814bb | docs(task-specs): set TASK_2026_662 and TASK_2026_639 to done |
+| ec223e574 | Merge origin/main (5 conflicts: 3 rpc-surface specs, advanced-settings spec = 25 keys, 639 task.md) |
+| 474797b8d | fix(skill-synthesis): inject the invocation event store explicitly (CI di-lint) |
+| cad8d9413 | fix(skill-synthesis): use the BATCHES_FILE contract constant (CI contract guard) |
 
-Evidence this session:
-- Phase F gate (6 projects): 81/82 suites green; `native-baselines.spec.ts` (sources identical to `main`)
-  failed under peer push load, passed on `main`, then passed alone in the worktree (11/11): accepted (O51 a).
-- `scripts/export-skill-pipeline-archive.spec.ts` fixed for the scripts tsconfig (index access) + dedupe
-  compare now requires equal table count; persistence-sqlite test+typecheck re-run green; spec 2/2 (O51 b).
-- `code-logic-review-phase-f-r2.md` APPROVED 8.5/10 (Claude reviewer; codex implementer).
-- Phase E+F Electron visual review APPROVED 8/10 (O52). The run used the worktree as workspace and
-  harness sync deleted 7 tracked `.claude/commands/*.md` and edited `.gitignore`; restored with `git restore`.
-  Future recipes: point the sandbox workspace at a temp copy.
-- OP-1 done: SQLite backup-API snapshot of the live DB (`quick_check` ok) and dry-run export on the copy,
-  in `C:\Users\abdal\AppData\Local\Temp\ptah-op1-8BUWMI\` (archive `export\pre-0057-rvHLJt`, 12 MB,
-  receipt sha256 `4045f1aa...ddee8d`; vec 2692 rows, all with unique rowids). Snapshot script:
-  `C:\Users\abdal\AppData\Local\Temp\ptah-op1-tools\snapshot.cjs`.
-- **User decisions (U9, recorded in `decisions.md`, uncommitted):** OP-1 APPROVED (register 0057).
-  OP-2: KEEP ALL ~1055 `.history` snapshots, no prune; batch 50 stays PARTIAL by decision.
+Evidence: persistence-sqlite + mcp-bench gate green (mcp-bench `native-baselines` load-flaky, 11/11 alone);
+post-merge typecheck + test green for 13 projects (shared, platform-core, vscode-core, rpc-handlers,
+agent-generation, cli-engine, chat, chat-ui, core, ptah-electron, ptah-extension-vscode,
+ptah-extension-webview, ptah-cli); degradation audit exit 0; reviews `code-logic-review-phase-f-68-69.md`
+(8/10) and `...-fixes.md` (8/10). Real `~/.ptah/backups/skill-pipeline` emptied (16 empty test archives
+deleted, user-approved). HTML report (untracked): `reports/gate-runs-2026-10-20.html`.
 
-## In progress at handoff (UNCOMMITTED, the lane finished)
+Other PRs:
+- #785 (`feat/chat-needs-you-removal`): merge conflicts fixed (9f220a380), MERGED by the user.
+- #791 (`fix/ptah-cli-repeat-guard`, worktree `.claude-worktrees/ptah-cli-repeat-guard`): CodeRabbit finding
+  fixed in 4b4fe6188 (pending tool input keyed by parent_tool_use_id + block index), pushed, reply
+  comment 4329016317 posted. CI 17 pass / 3 skipped. State: MERGEABLE, BLOCKED = REVIEW_REQUIRED (user approval).
+- #792 (`docs/attention-visual-2`, docs only): flaky e2e rerun passed. BLOCKED = needs user approval.
+- Main checkout `D:\projects\ptah-extension` pulled to c09f1e960 (13 local `.opencode/agent/*.md` edits kept).
 
-Codex lane (finished, exit 0, verdict delivered; CLI Session ID `01a1570b-d90e-7210-9b45-86beeb6e4173`
-for `resume_session_id` in a fix round, but still give full instructions) wrote batches 68 + 69.
-Report: `reports/batch-68-69-report.md`. BOMs stripped
-(none found). NOT gated, NOT reviewed, NOT committed:
+## In progress at handoff (UNCOMMITTED in the 788 worktree, lanes finished, NOT verified)
 
-- Batch 68: new `PS/migrations/0057_drop_skill_pipeline.ts` + `.spec.ts` (4 required cases),
-  `PS/migrations/index.ts` (0057 last), 16 ratchet pins 56 -> 57 in migration specs (0028 ... 0056),
-  `PS/skill-pipeline-archive.ts` one line: `export const PIPELINE_JOB_IDS` (scope exception for reuse,
-  accept it). Runner unchanged (`FIRST_DESTRUCTIVE_SKILL_PIPELINE_VERSION` already 57).
-- Batch 69: `PS/migration-runner.spec.ts` order spec (vec catch-up -> archive -> drop),
-  `PS/embedder/embedder.interface.ts` comment names only the memory curator.
-- `decisions.md` has the uncommitted U9 row.
+PR #788 CI on cad8d9413 failed: `test (shard 4/4)`, `electron-e2e (shard 4/4)`, `webview-e2e`
+(main and other PR branches pass the same workflows today). Two codex lanes wrote fixes (no checks run):
 
-(PS = `libs/backend/persistence-sqlite/src/lib`.)
+Lane A (unit) - report `reports/ci-788-unit-fix-report.md`:
+- `libs/frontend/core/src/lib/services/back-office-activity.service.ts` (+62 lines: "aligned core notice
+  projection with main") and its `.spec.ts` (removed the synthesis-failure projection assertion). REVIEW
+  the service change carefully: confirm the merge really dropped main's notice projection (compare with
+  `git show origin/main:libs/frontend/core/src/lib/services/back-office-activity.service.ts`) and that the
+  lane did not re-add synthesis code.
+- `cli-workspace-watcher.spec.ts` (platform-cli) left unchanged: no branch diff, real-filesystem timeout.
 
-## Machine queue with peers
+Lane B (e2e) - report `reports/ci-788-e2e-fix-report.md`:
+- `apps/ptah-electron-e2e/src/specs/thoth/skills.spec.ts`: switches use click (committed-state toggles),
+  picker waits for the loaded Enhancement row.
+- `libs/frontend/webview-e2e-harness/src/lib/scenarios/settings/settings.fixtures.ts`: fixture supplies the
+  retained enhancement settings (reachability "Used by 2").
+- `.../settings/settings-visual.e2e.spec.ts`: expects the approved 3 consumer roles (Memory curator,
+  Enhancement, Decision) instead of 7; checks the Enhancement popover.
+- session-create failures left unchanged (popover backdrop flake, no branch diff; blank-name passed on retry).
 
-- At handoff, peers 708 (voice) and 707 (analytics) paused for handoffs; notification-final
-  (`ptah-ptah-extension-notification-final-f-563e7e0000ebk2qkufgly0j`) may run canvas/git-ui/webview checks.
-  662 told all of them it pauses and will re-announce.
-- New session: run `ListAgents`, message every peer "662 wants one 2-project nx gate, then a push with the
-  pre-push gate", wait for "checks: free"/"go", and send "checks: free" to the next peer afterwards.
+Untracked, never commit: `visual/` folders (U4). `reports/gate-runs-2026-10-20.html` is optional.
 
 ## Open problems and decisions
 
-1. Named follow-ups (recorded, not fixed): Phase C M3, M5, m1-m6; light-theme tile contrast; Skills tile
-   staleness; lane-outcomes warning; O36d; O37; 24px spec buttons; O45; O48; Phase F M2/M3 + Minors (O50);
-   r2 Moderate (vec rowid spec uses a plain table; real-vec0 evidence from OP-1) and r2 Minors (O51 c);
-   stale "synth" legend at `skill-clones-view.component.ts:210` and frontmatter-as-markdown (O52).
-2. `skill-judge.service.ts`, `applyProposal`, `queue/queue-db.test-support.ts`, spec RPCs kept (U5).
-3. Encoding: after each lane run strip BOMs:
-   `for f in $(git status --porcelain | awk '{print $2}'); do [ -f "$f" ] && [ "$(head -c 3 "$f" | od -An -tx1 | tr -d ' ')" = "efbbbf" ] && sed -i '1s/^\xEF\xBB\xBF//' "$f"; done`
-4. Lanes: codex first (weekly 65%, resets 2026-10-24). Glm (`pc-355b645d-35af-4974-84cf-9cf961ea0164`,
-   modelTier opus) only as fallback. Never grok or opencode. Max 3. `ptah_agent_list` before each spawn.
-   Full instructions every time. Lanes run no checks.
-5. Commit with explicit pathspecs (`git commit -F - -- <paths>`); never `git add` + bare `git commit` while
-   other changes are staged (cause of the O51 d slip). Never amend.
-6. `~/.ptah/settings.json` keeps `skillSynthesis.enabled=false`. Worktrees `skills-lane-messaging`,
-   `skills-rubric-sweep`, `question-routing-e2e`, `electron-first` stay until the user says otherwise.
-7. Never commit `visual/` folders (U4).
+1. `decisions.md` has rows up to O54. Add O55: main merge + CI fixes (di-lint, contract guard, the two lane
+   fixes above, watcher and session-create judged not branch-caused) with evidence.
+2. The pre-push `di-lint` passed from the Nx cache although a source file broke it (its target inputs do not
+   include lib sources). Recorded as a gap; not fixed (outside the task).
+3. `claude-approval.reader.spec.ts` (cli-agent-runtime, real-git tests) fails on clean main too: pre-existing.
+4. Named follow-ups from earlier sessions still open (see `decisions.md` O50-O54 and old HANDOFF list): Phase C
+   M3/M5/m1-m6, light-theme tile contrast, Skills tile staleness, stale "synth" legend at
+   `skill-clones-view.component.ts:210`, the two Moderate test-depth items from O53.
+5. Worktrees stay until the user says: skill-synthesis-purge, ptah-cli-repeat-guard, chat-needs-you-removal
+   (785 merged; remove only on user request), attention-visual-2 and the older ones listed in O-rows.
+6. Machine queue with peers (one heavy job at a time across sessions): run `ListAgents`, message every peer
+   before any heavy check or push, wait for "checks: free", and send "checks: free" after. Peers seen:
+   analytics 707, voice 708, notification-fixes (new session ...ljw2qmbecj405).
 
 ## Key files
 
 - Task folder: `D:\projects\ptah-extension\.claude-worktrees\skill-synthesis-purge\.ptah\specs\TASK_2026_662_3eea\`
-  (`batches.md`, `decisions.md` U1-U9 + O1-O52, `implementation-plan.md`, `reports/batch-68-69-report.md`,
-  reviews `code-logic-review-phase-{d,d-r2,e,f,f-r2}.md`, `visual-review-phase-ef.md`, `drafts/`).
-- Epic task file: `.ptah/specs/TASK_2026_639*/task.md`; this task: `TASK_2026_662_3eea/task.md`.
+  (`decisions.md`, `batches.md`, `reports/ci-788-unit-fix-report.md`, `reports/ci-788-e2e-fix-report.md`).
 - Skills: `.claude/skills/orchestration/SKILL.md`, `.claude/skills/agent-lanes/SKILL.md`.
+- Saved CI logs (cad8d9413 run): `C:\Users\abdal\AppData\Local\Temp\j118820269545.log` (test shard 4),
+  `j118820266111.log` (electron-e2e shard 4), `j118820267522.log` (webview-e2e). Read only with filters.
 
 ## Next steps (in order)
 
-1. `git -C D:\projects\ptah-extension\.claude-worktrees\skill-synthesis-purge status --short`. Expect HEAD
-   `4da7713ec`, the uncommitted batch 68/69 files above, `decisions.md` (U9), the report, untracked `visual/`.
-2. Read `reports/batch-68-69-report.md` and the two 0057 files; spot-check the 4 spec cases and that the
-   drop deletes only `PIPELINE_JOB_IDS` rows.
-3. Coordinate peers, then ONE gate (filter output):
-   `NX_NO_CLOUD=true npx nx run-many -t test typecheck -p @ptah-extension/persistence-sqlite mcp-bench --parallel=1 > /tmp/gate-68.log 2>&1; sed 's/\x1b\[[0-9;]*m//g' /tmp/gate-68.log | grep -E "Running target|Test Suites:|error TS|FAIL  [a-z]|● .*›|Successfully|^- "`
-   Header must say 2 projects. Also `npx jest --config=scripts/jest.config.ts scripts/export-skill-pipeline-archive.spec.ts --coverage=false --maxWorkers=1`
-   (the archive file changed). O20: if the export of `PIPELINE_JOB_IDS` or index changes affect other
-   dependents' typecheck, add `ptah-electron` typecheck. Known load-flaky mcp-bench specs
-   (`native-baselines`, `open-handle-probe`, `corpus`, `host-launcher`) count only after a pass alone:
-   `npx jest -c tools/mcp-bench/jest.config.ts <spec> --coverage=false --maxWorkers=1`.
-4. One code-logic review of batches 68-69 (different family than codex: a Claude `code-logic-reviewer`,
-   read-only) -> `code-logic-review-phase-f-68-69.md`. One fix round only for Blocking/Serious.
-5. Commit in the foreground with pathspecs: batch 68 `refactor(persistence-sqlite): batch 68 - register 0057 drop`
-   (0057 files, index.ts, the 16 pinned specs, skill-pipeline-archive.ts), batch 69
-   `test(persistence-sqlite): batch 69 - vec order spec and embedder comment`, then
-   `docs(task-specs)`: `batches.md` (68, 69 COMPLETE; OP-1 confirmed; batch 50 PARTIAL by U9),
-   `decisions.md`, report, review, this HANDOFF. Read `.commitlintrc.json`; subject <= 72; body lines <= 72;
-   end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
-6. Degradation audit: `npx ts-node --transpile-only tools/degradation-audit/check-degradation.ts` (exit 0;
-   never raise baselines).
-7. Push in the background (Bash `run_in_background`), announce to peers first (pre-push runs di-lint +
-   Electron validate-deps):
-   `git push -u origin refactor/skill-synthesis-purge && gh pr create --base main --title "refactor: purge skill-synthesis pipeline, keep the Library" --body-file <file>`
-   (`## Summary` + `## Test plan`, mention 0057 archives then drops 9 tables on next boot, end with
-   `🤖 Generated with [Claude Code](https://claude.com/claude-code)`). A failed gate needs a fix commit on top.
-   Report the PR link.
-8. Set `status: done` in `TASK_2026_662_3eea/task.md` and the TASK_2026_639 `task.md` (edit only the
-   `status:` line), commit as docs(task-specs), push again in the background. No OP-2 prune (U9).
+1. `git -C D:\projects\ptah-extension\.claude-worktrees\skill-synthesis-purge status --short` - expect HEAD
+   cad8d9413 (in sync with origin) and the 5 modified files + 2 untracked reports above.
+2. Read both lane reports. Review the 5-file diff yourself (`git diff --stat`, then targeted hunks),
+   especially `back-office-activity.service.ts` against origin/main. Strip BOMs:
+   `for f in $(git status --porcelain | awk '{print $2}'); do [ -f "$f" ] && [ "$(head -c 3 "$f" | od -An -tx1 | tr -d ' ')" = "efbbbf" ] && sed -i '1s/^\xEF\xBB\xBF//' "$f"; done`
+3. Coordinate the machine with peers, then spawn ONE codex lane (ptah_agent_list first) to run, from the
+   worktree, one at a time, output filtered:
+   - `NX_NO_CLOUD=true npx nx run-many -t typecheck lint test -p @ptah-extension/core --parallel=1`
+   - `NX_NO_CLOUD=true npx nx run-many -t typecheck lint -p ptah-electron-e2e @ptah-extension/webview-e2e-harness --parallel=1`
+     (confirm the exact Nx project names in each `project.json` first; no e2e targets locally)
+   - Never pass `-- --maxWorkers` through nx run-many (it reaches tsc: TS5023).
+4. If green: commit in the foreground with explicit pathspecs (`git commit -F - -- <paths>`; read
+   `.commitlintrc.json`; subject <= 72; body wrapped at 72; end with
+   `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`), e.g.
+   `fix(core,e2e): align activity notices and settings e2e with the purge`. Add the two reports and an O55
+   row in `decisions.md` in a `docs(task-specs)` commit.
+5. Push via the lane (background, network retry up to 3), then watch CI on the new head:
+   `gh run list --repo Hive-Academy/ptah-extension --branch refactor/skill-synthesis-purge --limit 6`
+   and `gh pr checks 788`. If e2e still fails, fetch the job log (`gh api repos/Hive-Academy/ptah-extension/actions/jobs/<id>/logs`)
+   and send a new lane with the filtered failure lines. A flaky-only failure: `gh run rerun <run> --failed`.
+6. When #788 is green, report: #788, #791, #792 need the user's approval to merge. Send "checks: free" to
+   the next peer.
 
 ## Verification rules (memory-safe)
 
-- Only changed projects: `npx nx run-many -t test typecheck -p <projects> --parallel=1`; confirm the header
-  says "for N projects". O20: also gate every project whose specs fake or build a changed API.
-- One spec: `npx jest -c <lib>/jest.config.(ts|cjs) <spec> --coverage=false --maxWorkers=2`.
-- Never workspace-wide, build, serve, e2e or package unless asked. One heavy check at a time across all
-  sessions.
+- Only changed projects, `--parallel=1`, Jest `--maxWorkers=2`, output filtered; never workspace-wide,
+  build, serve, e2e or package locally. One heavy check at a time across all sessions.
