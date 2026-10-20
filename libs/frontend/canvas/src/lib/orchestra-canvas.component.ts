@@ -25,9 +25,6 @@ import { SessionId } from '@ptah-extension/shared';
 import { TabManagerService, ChatStore } from '@ptah-extension/chat';
 import { CanvasStore } from './canvas.store';
 import { CanvasLayoutService } from './canvas-layout.service';
-// Deferred (`@defer` only, never a value here): its own declaration, and no
-// eager file imports it, so the compiler and esbuild move it to a lazy chunk.
-import { CanvasNeedsYouQueueComponent } from './canvas-needs-you-queue.component';
 import { CanvasRenderMetricsService } from './canvas-render-metrics.service';
 import { CanvasLayoutPersistenceService } from './canvas-layout-persistence.service';
 import { MAX_CANVAS_TILES } from './canvas-layout-intent';
@@ -74,7 +71,6 @@ const TILE_BOUND_MESSAGE = `The board holds ${MAX_CANVAS_TILES} sessions. Close 
   ],
   imports: [
     FormsModule,
-    CanvasNeedsYouQueueComponent,
     CanvasRailBoardComponent,
     LucideAngularModule,
     NativePopoverComponent,
@@ -89,17 +85,6 @@ const TILE_BOUND_MESSAGE = `The board holds ${MAX_CANVAS_TILES} sessions. Close 
         class="session-viewport flex-1 min-h-0 w-full relative overflow-hidden flex flex-col"
         data-testid="session-viewport"
       >
-        <div class="shrink-0 flex justify-end px-3 pt-2">
-          @defer (on idle) {
-            <ptah-canvas-needs-you-queue />
-          } @placeholder {
-            <span
-              class="btn btn-xs btn-ghost invisible border border-base-300"
-              aria-hidden="true"
-              >All clear</span
-            >
-          }
-        </div>
         <div class="flex-1 min-h-0" data-testid="canvas-interactive">
           @for (path of canvasStore.workspacePaths(); track path) {
             <ptah-canvas-rail-board
