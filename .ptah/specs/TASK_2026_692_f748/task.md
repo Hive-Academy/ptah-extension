@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_692_f748
-status: in_review
+status: done
 type: FEATURE
 title: Idle compaction for Agent SDK sessions
 description: >-
@@ -8,7 +8,7 @@ description: >-
   sessions before the 1-hour prompt cache expires, to save usage.
 depends_on: []
 created: 2026-10-17T19:00:00.000Z
-updated: 2026-10-17T19:00:00.000Z
+updated: 2026-10-20T18:30:00.000Z
 ---
 
 ## Description

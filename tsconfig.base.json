@@ -31,6 +31,7 @@
         "./libs/backend/auth-providers-tokens/src/index.ts"
       ],
       "@ptah-extension/canvas": ["./libs/frontend/canvas/src/index.ts"],
+      "@ptah-extension/canvas/focus": ["./libs/frontend/canvas/src/focus.ts"],
       "@ptah-extension/tribunal-panel/phase": [
         "./libs/frontend/tribunal-panel/src/phase.ts"
       ],

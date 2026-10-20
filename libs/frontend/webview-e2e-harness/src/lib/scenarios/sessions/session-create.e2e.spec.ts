@@ -13,14 +13,14 @@ test.use({ useAppBuild: true });
 
 /**
  * The empty-board "+ New session" hero opens the named new-session popover.
- * Close it through its click-outside backdrop so later clicks are not blocked.
+ * Close that popover with Escape so later clicks are not blocked.
  */
 async function closeOpenPopover(page: Page): Promise<void> {
-  const backdrop = page.locator('div.fixed.inset-0[role="presentation"][aria-hidden="true"]');
-  if (await backdrop.count()) {
-    await backdrop.first().click();
-    await expect(backdrop).toHaveCount(0);
+  const popover = page.getByTestId('canvas-new-session-popover');
+  if (await popover.isVisible()) {
+    await page.keyboard.press('Escape');
   }
+  await expect(popover).toBeHidden();
 }
 
 test.describe('webview > sessions > create', () => {

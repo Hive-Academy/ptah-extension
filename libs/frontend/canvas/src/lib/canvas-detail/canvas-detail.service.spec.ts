@@ -4,6 +4,7 @@ import { CanvasStore } from '../canvas.store';
 import { TabManagerService } from '@ptah-extension/chat';
 import { AgentMonitorStore, BackgroundAgentStore } from '@ptah-extension/chat-streaming';
 import { CanvasDetailService } from './canvas-detail.service';
+import { CanvasAttentionLaneOpener } from './canvas-attention-lane-opener.service';
 
 describe('CanvasDetailService', () => {
   const tiles = signal([
@@ -51,6 +52,19 @@ describe('CanvasDetailService', () => {
     detail.open('missing');
     detail.open('a', 'invalid');
     expect(detail.laneKeyFor('a')).toBe('cli:agent-1');
+  });
+
+  it('opens the exact CLI lane through the attention focus bridge', () => {
+    const opener = TestBed.inject(CanvasAttentionLaneOpener);
+    expect(opener.open('a', 'agent-1')).toBe(true);
+    expect(detail.laneKeyFor('a')).toBe('cli:agent-1');
+    expect(focusTile).toHaveBeenCalledWith('a');
+  });
+
+  it('reports an unresolved lane so the caller can retain session focus', () => {
+    const opener = TestBed.inject(CanvasAttentionLaneOpener);
+    expect(opener.open('a', 'missing')).toBe(false);
+    expect(focusTile).not.toHaveBeenCalled();
   });
 
   it('restores each tab lane after focusing another tab', () => {
