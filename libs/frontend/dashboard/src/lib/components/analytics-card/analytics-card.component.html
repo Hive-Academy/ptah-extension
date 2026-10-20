@@ -3,6 +3,40 @@
   aria-label="Session analytics"
   data-testid="analytics-section-session"
 >
+  <div class="flex items-center justify-between gap-3">
+    <h3 class="text-base font-semibold">
+      {{ tab() === 'usage' ? 'Usage' : 'Sessions' }}
+    </h3>
+    <div
+      class="join"
+      role="group"
+      aria-label="Analytics view"
+      data-testid="analytics-tabs"
+    >
+      <button
+        type="button"
+        class="join-item btn btn-xs"
+        [class.btn-active]="tab() === 'usage'"
+        [attr.aria-pressed]="tab() === 'usage'"
+        (click)="setTab('usage')"
+      >
+        Usage
+      </button>
+      <button
+        type="button"
+        class="join-item btn btn-xs"
+        [class.btn-active]="tab() === 'sessions'"
+        [attr.aria-pressed]="tab() === 'sessions'"
+        (click)="setTab('sessions')"
+      >
+        Sessions
+      </button>
+    </div>
+  </div>
+
+  @if (tab() === 'usage') {
+    <ptah-usage-dashboard />
+  } @else {
     <div class="flex items-start justify-between gap-3">
       <div class="min-w-0">
         <h3 class="text-base font-semibold">Session Analytics</h3>
@@ -162,6 +196,7 @@
         }
       </div>
     }
+  }
 
   <ptah-session-detail-modal
     [session]="selectedSession()"

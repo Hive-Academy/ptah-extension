@@ -26,7 +26,7 @@ import type {
  * - `provider-api` — a documented or vendor-typed provider source.
  * - `provider-unofficial` — an undocumented provider source.
  * - `stream-event` — a rate-limit event observed on a live stream.
- * - `error-derived` — parsed from a limit error (e.g. "try again at …").
+ * - `error-derived` — parsed from a limit error (e.g. "try again at â€¦").
  * - `estimated` — computed locally; never supersedes newer real evidence.
  */
 export type PlanLimitSource =
@@ -154,10 +154,46 @@ export interface PlanLocalUsage {
    * this instead of the token/cost figure, which such a source cannot provide.
    */
   readonly requests?: number;
+  /**
+   * Per-model request counts over `range` (Ollama Cloud's `/api/usage`
+   * `group_by=model`). Detail only: never a percentage of any allowance.
+   */
+  readonly models?: readonly PlanModelUsage[];
+}
+
+/** Request count attributed to one model by a provider usage endpoint. */
+export interface PlanModelUsage {
+  readonly model: string;
+  readonly requests: number;
 }
 
 /** Why an owner's limits could not be read even though the route supports it. */
 export type PlanLimitUnavailableReason = 'no-open-session';
+
+/**
+ * Precise cause behind a status, including partial readings with usable data.
+ *
+ * - `no-oauth` / `no-local-server` — Antigravity OAuth token / local language
+ *   server was not usable (reported only when the CLI fallback did not run).
+ * - `cli-unavailable` — the `agy` binary is missing, failed, timed out or the
+ *   user is not signed in.
+ * - `cli-parse-failed` — `agy -p /usage` answered with unrecognised output.
+ * - `api-key-no-subscription-quota` — an API-key login has no subscription
+ *   quota; any local usage on the snapshot is the only figure available.
+ */
+export type PlanLimitStatusReason =
+  | 'no-oauth'
+  | 'no-local-server'
+  | 'cli-unavailable'
+  | 'cli-not-found'
+  | 'cli-timeout'
+  | 'cli-not-signed-in'
+  | 'cli-exit-error'
+  | 'cli-parse-failed'
+  | 'api-key-no-subscription-quota'
+  | 'balance-unavailable'
+  | 'balance-auth-rejected'
+  | 'usage-auth-rejected';
 
 /** Everything known about one owner's limits. */
 export interface PlanLimitOwnerSnapshot {
@@ -182,6 +218,8 @@ export interface PlanLimitOwnerSnapshot {
   readonly account?: ProviderGetAccountUsageResult['account'];
   readonly activity?: ProviderGetAccountUsageResult['activity'];
   readonly unavailableReason?: PlanLimitUnavailableReason;
+  /** Typed cause behind a window-less status; see {@link PlanLimitStatusReason}. */
+  readonly statusReason?: PlanLimitStatusReason;
 }
 
 /** The owner and current model scope of one chat session. */

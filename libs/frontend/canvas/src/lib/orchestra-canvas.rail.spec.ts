@@ -138,13 +138,6 @@ class RailStub implements OnDestroy {
   }
 }
 @Component({
-  selector: 'ptah-canvas-needs-you-queue',
-  standalone: true,
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  template: '',
-})
-class QueueStub {}
-@Component({
   selector: 'ptah-native-popover',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -255,7 +248,6 @@ describe('OrchestraCanvasComponent Rail integration', () => {
           FormsModule,
           LucideAngularModule,
           RailStub,
-          QueueStub,
           PopoverStub,
         ],
         providers: [

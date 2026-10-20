@@ -1,0 +1,182 @@
+<!-- One owner tile: header, one bar slot (bar or status pill), chips,
+     one secondary line, status line, notices. Long text truncates and
+     carries its full content in a title tooltip. -->
+<section
+  class="flex h-full min-w-0 flex-col gap-1.5"
+  [attr.aria-label]="view().label + ' usage'"
+  [style.--accent]="accent()"
+  data-testid="provider-account-tile"
+>
+  <header class="flex min-w-0 items-center gap-2">
+    <span class="mark-box" aria-hidden="true">
+      <ptah-provider-mark [providerId]="view().providerId" />
+    </span>
+    <span
+      class="min-w-0 flex-1 truncate text-sm font-medium"
+      [attr.title]="headerTitle()"
+      data-testid="tile-label"
+      >{{ view().label }}</span
+    >
+    @if (view().planBadge) {
+      <span
+        class="badge badge-ghost badge-xs shrink-0"
+        [attr.title]="'Plan: ' + view().planBadge"
+        >{{ view().planBadge }}</span
+      >
+    }
+    <button
+      type="button"
+      class="btn btn-ghost btn-xs btn-square shrink-0"
+      [attr.aria-label]="'Refresh ' + view().label + ' usage'"
+      [disabled]="refreshing()"
+      (click)="refresh.emit()"
+      data-testid="tile-refresh"
+    >
+      <span aria-hidden="true">↻</span>
+    </button>
+  </header>
+
+  <!-- The bar slot: the ONE primary bar, or a status pill that names the
+       precise cause of the missing bar. -->
+  @if (view().bar; as bar) {
+    <div class="min-w-0" data-testid="tile-bar-slot">
+      <div class="flex items-baseline justify-between gap-2">
+        <span class="min-w-0 truncate text-xs font-medium" [attr.title]="bar.title">{{
+          bar.name
+        }}</span>
+        <span class="shrink-0 text-xs font-semibold">{{ bar.roundedPercent }}%</span>
+      </div>
+      <div
+        class="bar-track mt-0.5"
+        role="progressbar"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        [attr.aria-valuenow]="bar.roundedPercent"
+        [attr.aria-valuetext]="bar.valueText"
+        [attr.aria-label]="bar.name + ' plan usage'"
+        data-testid="tile-bar"
+      >
+        <div
+          [class]="'bar-fill ' + barFillClass(bar.barTone)"
+          [style.width.%]="bar.percent"
+        ></div>
+        <div
+          class="bar-tick"
+          [style.left.%]="nearLimitPercent"
+          aria-hidden="true"
+        ></div>
+      </div>
+      <p class="m-0 mt-0.5 truncate text-xs opacity-70" [attr.title]="bar.title">
+        {{ bar.limitLine ?? bar.resetText }} · {{ bar.valueText }}
+      </p>
+    </div>
+  } @else if (view().statusPill; as pill) {
+    <div class="min-h-10" data-testid="tile-bar-slot">
+      <p
+        [class]="
+          'badge badge-outline w-full whitespace-normal rounded-md border-dashed px-2 py-1 text-left text-xs font-normal leading-snug ' +
+          (pill.tone === 'warning' ? 'badge-warning' : 'badge-ghost')
+        "
+        [attr.title]="pill.text"
+        data-testid="tile-status-pill"
+      >
+        {{ pill.text }}
+      </p>
+    </div>
+  }
+
+  @if (view().chips.length > 0) {
+    <ul class="m-0 flex list-none flex-wrap gap-1 p-0" data-testid="tile-chips">
+      @for (chip of view().chips; track chip.key) {
+        <li
+          [class]="
+            'badge badge-xs whitespace-nowrap font-normal ' + badgeClass(chip.tone)
+          "
+          [attr.title]="chip.title"
+          [attr.data-testid]="'tile-chip'"
+        >
+          <span class="max-w-32 overflow-hidden text-ellipsis">{{ chip.label }}</span>
+          <span class="font-medium">{{ chip.valueText }}</span>
+          <span class="opacity-60">{{ chip.resetText }}</span>
+        </li>
+      }
+    </ul>
+  }
+
+  @if (view().secondary; as secondary) {
+    <p
+      class="m-0 truncate text-xs opacity-70"
+      [attr.title]="secondary.title"
+      data-testid="tile-secondary"
+    >
+      {{ secondary.text }}
+    </p>
+    <!-- Tooltips are not reliably announced: the per-model detail also has a
+         screen-reader text next to the line it belongs to. -->
+    @if (secondary.accessibleText) {
+      <span class="sr-only" data-testid="tile-secondary-detail">{{
+        secondary.accessibleText
+      }}</span>
+    }
+  }
+
+  @if (view().statusChip || view().statusNotice || view().action) {
+    <div class="mt-auto flex min-w-0 flex-wrap items-center gap-1" data-testid="tile-status">
+      @if (view().statusChip; as statusChip) {
+        <span
+          [class]="'badge badge-xs shrink-0 ' + badgeClass(statusChip.tone)"
+          data-testid="tile-status-chip"
+        >
+          <span aria-hidden="true">{{ statusChip.glyph }}</span>
+          {{ statusChip.text }}
+        </span>
+      }
+      @if (view().statusNotice) {
+        <span
+          class="min-w-0 truncate text-xs opacity-70"
+          [attr.title]="view().statusNotice"
+          data-testid="tile-status-notice"
+        >
+          {{ view().statusNotice }}
+        </span>
+      }
+      @if (view().action; as action) {
+        <button
+          type="button"
+          class="btn btn-ghost btn-xs shrink-0"
+          (click)="actionClick.emit(action)"
+          [attr.data-testid]="'tile-action-' + action.kind"
+        >
+          {{ action.label }}
+        </button>
+      }
+    </div>
+  }
+
+  @for (notice of view().evidence; track notice.key) {
+    <p
+      class="m-0 truncate text-xs"
+      [class.text-warning]="notice.tone === 'warning'"
+      [class.opacity-70]="notice.tone !== 'warning'"
+      role="status"
+      [attr.title]="notice.title"
+      data-testid="tile-notice"
+    >
+      {{ notice.text }}
+    </p>
+  }
+
+  @if (view().cooldown) {
+    <p
+      class="m-0 truncate text-xs opacity-70"
+      [attr.title]="view().cooldown"
+      data-testid="tile-cooldown"
+    >
+      {{ view().cooldown }}
+    </p>
+  }
+
+  @if (view().noUsageSource) {
+    <span class="sr-only">No usage source reported for this account.</span>
+  }
+</section>

@@ -1,0 +1,160 @@
+<div class="flex flex-col gap-4" data-testid="usage-dashboard">
+  <!-- Header row: title, date span, range control, refresh -->
+  <div class="flex flex-wrap items-center gap-3">
+    <div class="min-w-0">
+      <h3 class="text-base font-semibold">Usage</h3>
+      <p class="text-xs text-base-content-muted" data-testid="usage-date-span">
+        {{ viewModel()?.dateSpanLabel }}
+      </p>
+    </div>
+    <div class="join" role="group" aria-label="Usage range in days">
+      @for (option of rangeOptions; track option.value) {
+        <button
+          type="button"
+          class="join-item btn btn-xs"
+          [class.btn-active]="range() === option.value"
+          [attr.aria-pressed]="range() === option.value"
+          [disabled]="isLoading()"
+          (click)="setRange(option.value)"
+        >
+          {{ option.label }}
+        </button>
+      }
+    </div>
+    <button
+      type="button"
+      class="btn btn-xs btn-ghost gap-1"
+      [disabled]="isLoading()"
+      (click)="retry()"
+      aria-label="Refresh usage"
+      data-testid="usage-refresh"
+    >
+      @if (isLoading()) {
+        <span class="loading loading-spinner loading-xs" aria-hidden="true"></span>
+      } @else {
+        <lucide-angular
+          [img]="RefreshCwIcon"
+          class="h-3.5 w-3.5"
+          aria-hidden="true"
+        ></lucide-angular>
+      }
+      Refresh
+    </button>
+  </div>
+
+  @if (isLoading() && viewModel() === null) {
+    <div
+      class="flex flex-col items-center justify-center py-10"
+      role="status"
+      aria-label="Loading usage"
+    >
+      <span class="loading loading-spinner loading-md" aria-hidden="true"></span>
+      <p class="mt-3 text-xs text-base-content-muted">Loading usage...</p>
+    </div>
+  } @else if (loadError() !== null && viewModel() === null) {
+    <div class="alert alert-error" role="alert" data-testid="usage-error">
+      <span>{{ loadError() }}</span>
+      <button
+        type="button"
+        class="btn btn-sm"
+        (click)="retry()"
+        aria-label="Retry loading usage"
+      >
+        Retry
+      </button>
+    </div>
+  } @else if (viewModel(); as vm) {
+    <div
+      class="flex flex-col gap-4"
+      [class.opacity-60]="isStale()"
+      data-testid="usage-content"
+    >
+      @if (loadError() !== null) {
+        <div
+          class="alert alert-warning py-2 text-xs"
+          role="status"
+          data-testid="usage-refresh-failed"
+        >
+          <span>Refresh failed; showing the last loaded data.</span>
+        </div>
+      } @else if (isStale()) {
+        <div
+          class="text-xs text-base-content-muted"
+          role="status"
+          data-testid="usage-updating"
+        >
+          Updating usage... (showing the last loaded data)
+        </div>
+      }
+
+    @if (!vm.hasUsage) {
+      <div
+        class="flex flex-col items-center justify-center py-10 text-base-content-muted"
+        data-testid="usage-empty"
+      >
+        <p class="text-xs">
+          No usage in this range. Start a chat to see provider usage, tokens and
+          cost.
+        </p>
+      </div>
+    } @else {
+      <div class="grid grid-cols-1 gap-5 lg:grid-cols-5">
+        <div class="lg:col-span-2">
+          <ptah-usage-cost-summary
+            [totalCostUsd]="vm.totalCostUsd"
+            [isPartial]="vm.isPartial"
+            [providers]="vm.providers"
+            [sources]="vm.sources"
+            [totalUnpricedFactCount]="vm.totalCostUnpricedFactCount"
+            [totalUnpricedTokens]="vm.totalCostUnpricedTokens"
+          />
+        </div>
+        <div class="lg:col-span-3">
+          <div class="flex items-center justify-between gap-2">
+            <h4 class="text-xs font-semibold uppercase tracking-wide text-base-content-muted">
+              Daily usage
+            </h4>
+            <div class="join" role="group" aria-label="Chart metric">
+              <button
+                type="button"
+                class="join-item btn btn-xs"
+                [class.btn-active]="chartMode() === 'cost'"
+                [attr.aria-pressed]="chartMode() === 'cost'"
+                (click)="setChartMode('cost')"
+              >
+                Cost
+              </button>
+              <button
+                type="button"
+                class="join-item btn btn-xs"
+                [class.btn-active]="chartMode() === 'tokens'"
+                [attr.aria-pressed]="chartMode() === 'tokens'"
+                (click)="setChartMode('tokens')"
+              >
+                Tokens
+              </button>
+            </div>
+          </div>
+          <ptah-stacked-area-chart
+            [series]="chartSeries()"
+            [days]="vm.days"
+            [valueFormat]="chartValueFormat()"
+            [unknownDays]="chartUnknownDays()"
+            [unknownSeries]="chartMode() === 'cost' ? vm.providerSeries.map((p) => p.costUnknownByDay) : []"
+          />
+        </div>
+      </div>
+
+      <ptah-usage-kpi-strip [kpis]="vm.kpis" />
+
+      <ptah-usage-breakdown-table
+        [modelRows]="vm.modelRows"
+        [dayRows]="vm.dayRows"
+        [costPartiallyKnown]="vm.totalCostUnpricedFactCount > 0"
+      />
+
+      <ptah-usage-cost-quality [quality]="vm.quality" />
+    }
+    </div>
+  }
+</div>

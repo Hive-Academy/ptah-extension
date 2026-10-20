@@ -15,12 +15,15 @@ after `/session-handoff` (for example a context-usage figure) is context only, n
 - Check everything still running once: subagents, CLI agent lanes (`ptah_agent_status`; lane
   mechanics live in the `agent-lanes` skill) and child sessions (`ptah_session_status`). Collect
   the results of those that finished.
-- Wait for the rest briefly, at most 5 minutes in total (`ptah_agent_wait` for lanes). Never wait
-  indefinitely.
-- Record and continue: anything waiting on a permission or other outside input (for example
-  `awaiting-permission`), or still not settled after that wait, is unfinished. Do not wait for it
-  any longer. Record it under **Background work** in HANDOFF.md (its id, its state, how to check
-  on it), then go on.
+- Do not wait for the rest. Never poll, and never call `ptah_agent_wait` in a loop: a CLI lane
+  pushes its `ptah_agent_report` and an `<agent-lane-completed>` signal with its final status
+  (verdict, exit code, deliverables) into this session when it ends, and a subagent or child
+  session sends its own completion notice. `ptah_agent_wait` also returns after at most 45 s per
+  call, so waiting with it means many paid calls.
+- Record and continue: anything still running, or waiting on a permission or other outside input
+  (for example `awaiting-permission`), is unfinished. Record it under **Background work** in
+  HANDOFF.md (its id, its task, its state, how to read its result: `ptah_agent_read`,
+  `ptah_session_read`), then go on. If its report arrives before you finish, add the result.
 
 ## 2. Write HANDOFF.md
 

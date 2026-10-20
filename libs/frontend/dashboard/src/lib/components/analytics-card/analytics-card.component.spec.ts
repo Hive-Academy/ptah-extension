@@ -26,6 +26,7 @@ import {
 describe('AnalyticsCardComponent', () => {
   let doubles: AnalyticsTestDoubles;
   let fixture: ComponentFixture<AnalyticsCardComponent>;
+  let openedOnUsageTab = false;
 
   beforeEach(() => {
     doubles = analyticsTestDoubles();
@@ -45,6 +46,11 @@ describe('AnalyticsCardComponent', () => {
     });
     fixture = TestBed.createComponent(AnalyticsCardComponent);
     fixture.detectChanges();
+    openedOnUsageTab =
+      el().querySelector('[data-testid="usage-dashboard"]') !== null;
+    // The card opens on the Usage tab (TASK_2026_707 PR 2); the session
+    // assertions below all target the Sessions tab.
+    showSessions();
   });
 
   const el = (): HTMLElement => fixture.nativeElement as HTMLElement;
@@ -55,6 +61,14 @@ describe('AnalyticsCardComponent', () => {
     el().querySelectorAll(selector).length;
   const listCall = (i = 0) => doubles.rpc.of('session:list')[i];
   const statsCall = (i: number) => doubles.rpc.of('session:stats-batch')[i];
+
+  function showSessions(): void {
+    const sessionsTab = Array.from(el().querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Sessions',
+    );
+    sessionsTab?.click();
+    fixture.detectChanges();
+  }
 
   async function settle(): Promise<void> {
     await flush();
@@ -345,5 +359,39 @@ describe('AnalyticsCardComponent', () => {
     fixture.destroy();
 
     expect(page.signal?.aborted).toBe(true);
+  });
+
+  it('opens on the Usage tab and requests the default 30-day summary', () => {
+    expect(openedOnUsageTab).toBe(true);
+    const usageCalls = doubles.rpc.of('analytics:spendSummary');
+    expect(usageCalls.length).toBeGreaterThanOrEqual(1);
+    expect(usageCalls[0]?.params).toEqual({
+      range: 30,
+      workspace: '/ws/a',
+    });
+  });
+
+  it('swaps the usage dashboard and the session list when the tab changes', async () => {
+    // beforeEach left the card on the Sessions tab with the session list.
+    answerList(listCall(), sessions(2));
+    await settle();
+
+    expect(count('[data-testid="usage-dashboard"]')).toBe(0);
+    expect(text('analytics-estimate-label')).toBe(
+      'Estimated from recorded usage and current rate card',
+    );
+
+    const usageTab = Array.from(el().querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Usage',
+    );
+    usageTab?.click();
+    fixture.detectChanges();
+
+    expect(count('[data-testid="usage-dashboard"]')).toBe(1);
+    expect(text('analytics-estimate-label')).toBeNull();
+
+    showSessions();
+    expect(count('[data-testid="usage-dashboard"]')).toBe(0);
+    expect(count('ptah-session-stats-card')).toBe(2);
   });
 });

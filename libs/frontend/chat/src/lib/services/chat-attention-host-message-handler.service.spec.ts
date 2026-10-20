@@ -3,7 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import {
   AppStateManager, ClaudeRpcService, LoggingService,
-  NOTIFICATION_FOCUS_ROUTER, NotificationService, RpcResult, VSCodeService,
+  NOTIFICATION_FOCUS_ROUTER, SURFACE_FOCUS_ROUTER, NotificationService, RpcResult, VSCodeService,
 } from '@ptah-extension/core';
 import { MESSAGE_TYPES, type AttentionNotice, workspaceIdFromPath } from '@ptah-extension/shared';
 import { ChatAttentionHostMessageHandler } from './chat-attention-host-message-handler.service';
@@ -17,6 +17,7 @@ describe('ChatAttentionHostMessageHandler', () => {
   const upsert = jest.fn();
   const resolve = jest.fn();
   const focus = jest.fn();
+  const focusSurface = jest.fn();
   const call = jest.fn();
   const warn = jest.fn();
   const setStatusMessage = jest.fn();
@@ -26,11 +27,15 @@ describe('ChatAttentionHostMessageHandler', () => {
     jest.clearAllMocks();
     call.mockResolvedValue(new RpcResult(true, { notices: [] }));
     focus.mockResolvedValue({ success: true, outcome: 'focused' });
+    focusSurface.mockResolvedValue({ success: true, outcome: 'focused' });
     TestBed.configureTestingModule({ providers: [
       ChatAttentionHostMessageHandler,
       { provide: ClaudeRpcService, useValue: { call } },
       { provide: NotificationService, useValue: { upsert, resolve } },
       { provide: NOTIFICATION_FOCUS_ROUTER, useValue: { focus } },
+      { provide: SURFACE_FOCUS_ROUTER, useValue: {
+        kind: 'mcp-apps', canFocus: (id: string) => id === 'apps-session', focus: focusSurface,
+      }, multi: true },
       { provide: LoggingService, useValue: { warn } },
       { provide: AppStateManager, useValue: { setStatusMessage } },
       { provide: VSCodeService, useValue: { config: () => ({ isVSCode: false, workspaceRoot: '' }) } },
@@ -186,5 +191,20 @@ describe('ChatAttentionHostMessageHandler', () => {
     expect(upsert).toHaveBeenCalledWith(expect.objectContaining({
       ownerSurface: 'surface', actions: [{ id: 'open', label: 'Open', disabledReason: 'Answer in owning surface' }],
     }));
+  });
+
+  it('maps a tab-less host target to its owning surface and opens it', async () => {
+    const tabless = { workspaceId: target.workspaceId, sessionId: 'apps-session' };
+    const projected = { ...notice, target: tabless };
+    handler.handleMessage({ type: MESSAGE_TYPES.ATTENTION_CHANGED, payload: {
+      change: 'upsert', notice: projected,
+    } });
+    expect(upsert).toHaveBeenCalledWith(expect.objectContaining({
+      ownerSurface: 'surface', actions: [{ id: 'open', label: 'Open' }],
+    }));
+    call.mockResolvedValue(new RpcResult(true, { notices: [projected] }));
+    await expect(handler.openProjected(notice.key, notice.generation)).resolves.toBe(true);
+    expect(focusSurface).toHaveBeenCalledWith('apps-session');
+    expect(focus).not.toHaveBeenCalled();
   });
 });

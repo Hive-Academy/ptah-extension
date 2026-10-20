@@ -29,9 +29,11 @@ import {
   AntigravityStatusSchema,
 } from './antigravity-ls.provisional';
 import type {
+  PlanOwnerTarget,
   PlanUsageReader,
   PlanUsageReading,
 } from './plan-usage-reader.types';
+import { readAntigravityCliUsage } from './antigravity-cli-usage.adapter';
 import { readAntigravityOAuthQuota } from './antigravity-oauth-plan-usage.reader';
 
 export const ANTIGRAVITY_USAGE_TIMEOUT_MS = 3_000;
@@ -65,8 +67,36 @@ export function createAntigravityPlanUsageReader(
   requestStatus: StatusRequest = defaultRequest,
   observeAccount: (email: string | null) => string = observeAntigravityAccount,
   readOAuth: typeof readAntigravityOAuthQuota = readAntigravityOAuthQuota,
+  readCli: typeof readAntigravityCliUsage = readAntigravityCliUsage,
 ): PlanUsageReader {
   return async ({ signal, target }) => {
+    const local = await probeLocal(signal, target);
+    if (local === 'account-changed') return unavailable();
+    if (local.status === 'available') return local;
+    if (signal?.aborted) return unavailable();
+    // CLI usage has no email, so it cannot verify an account owner's identity.
+    if (
+      target.ownerRef.identityKind !== 'cli-store' &&
+      target.ownerRef.identityKind !== 'unknown'
+    ) {
+      return local;
+    }
+    // Third fallback: the headless CLI, with its own fixed timeout.
+    const cli = await readCli(signal);
+    if (!cli.ok) return { ...unavailable(), statusReason: cli.reason };
+    const observedAt = now();
+    return {
+      status: 'available',
+      fetchedAt: observedAt,
+      windowSetEstablished: true,
+      windows: cli.windows,
+    };
+  };
+
+  async function probeLocal(
+    signal: AbortSignal | undefined,
+    target: PlanOwnerTarget,
+  ): Promise<PlanUsageReading | 'account-changed'> {
     if (signal?.aborted) return unavailable();
     // An account owner observed through the language server has verified email;
     // the ACP token file contains no email to prove it is the same account.
@@ -117,7 +147,7 @@ export function createAntigravityPlanUsageReader(
               '[PlanUsage] antigravity account changed; owner re-resolves',
               { providerId: 'antigravity' },
             );
-            return unavailable();
+            return 'account-changed';
           }
           const observedAt = now();
           const windows =
@@ -165,7 +195,7 @@ export function createAntigravityPlanUsageReader(
       clearTimeout(timeout);
       signal?.removeEventListener('abort', abort);
     }
-  };
+  }
 }
 
 async function discoverServer(

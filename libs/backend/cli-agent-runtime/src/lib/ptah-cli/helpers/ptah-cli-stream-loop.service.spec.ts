@@ -291,6 +291,291 @@ describe('PtahCliStreamLoop dedup across turns', () => {
 });
 
 // TASK_2026_596 (Component 10; Decision 8; Decision 4 S2; F63).
+describe('PtahCliStreamLoop tool-call segments', () => {
+  function makeToolLoop() {
+    const emitSegment = jest.fn();
+    const emitOutput = jest.fn();
+    const loop = new PtahCliStreamLoop({
+      logger: createLogger(),
+      messageTransformer: createTransformerStub(),
+      emitOutput,
+      emitSegment,
+      emitStreamEvent: jest.fn(),
+      agentName: 'test-agent',
+    });
+    return { loop, emitSegment, emitOutput };
+  }
+
+  function streamEvent(
+    event: Record<string, unknown>,
+    parentToolUseId: string | null = null,
+  ): SDKMessage {
+    return {
+      type: 'stream_event',
+      event,
+      parent_tool_use_id: parentToolUseId,
+    } as unknown as SDKMessage;
+  }
+
+  function toolStart(
+    index: number,
+    id: string,
+    input = {},
+    parentToolUseId: string | null = null,
+  ): SDKMessage {
+    return streamEvent(
+      {
+        type: 'content_block_start',
+        index,
+        content_block: { type: 'tool_use', id, name: 'Grep', input },
+      },
+      parentToolUseId,
+    );
+  }
+
+  function toolDelta(
+    index: number,
+    partial_json: string,
+    parentToolUseId: string | null = null,
+  ): SDKMessage {
+    return streamEvent(
+      {
+        type: 'content_block_delta',
+        index,
+        delta: { type: 'input_json_delta', partial_json },
+      },
+      parentToolUseId,
+    );
+  }
+
+  function toolStop(index: number, parentToolUseId: string | null = null): SDKMessage {
+    return streamEvent(
+      { type: 'content_block_stop', index },
+      parentToolUseId,
+    );
+  }
+
+  function toolCalls(emitSegment: jest.Mock) {
+    return emitSegment.mock.calls
+      .map(([segment]) => segment)
+      .filter((segment) => segment.type === 'tool-call');
+  }
+
+  it('emits one streamed call with completed JSON input and its id', async () => {
+    const { loop, emitSegment, emitOutput } = makeToolLoop();
+    await loop.run(manyMessages([
+      toolStart(0, 'grep-1'),
+      toolDelta(0, '{"pattern":"first'),
+      toolDelta(0, ' search"}'),
+      toolStop(0),
+      {
+        type: 'assistant',
+        message: {
+          content: [{ type: 'tool_use', id: 'grep-1', name: 'Grep', input: { pattern: 'first search' } }],
+        },
+      } as unknown as SDKMessage,
+    ]));
+
+    expect(toolCalls(emitSegment)).toEqual([{
+      type: 'tool-call',
+      content: '',
+      toolName: 'Grep',
+      toolCallId: 'grep-1',
+      toolInput: { pattern: 'first search' },
+      toolArgs: 'first search',
+    }]);
+    expect(emitOutput).toHaveBeenCalledWith('\n**Tool:** `Grep` first search\n');
+  });
+
+  it('keeps different inputs for two streamed calls to the same tool', async () => {
+    const { loop, emitSegment } = makeToolLoop();
+    await loop.run(manyMessages([
+      toolStart(0, 'grep-1'), toolDelta(0, '{"pattern":"one"}'), toolStop(0),
+      toolStart(1, 'grep-2'), toolDelta(1, '{"pattern":"two"}'), toolStop(1),
+    ]));
+
+    expect(toolCalls(emitSegment)).toEqual([
+      expect.objectContaining({ toolCallId: 'grep-1', toolInput: { pattern: 'one' } }),
+      expect.objectContaining({ toolCallId: 'grep-2', toolInput: { pattern: 'two' } }),
+    ]);
+  });
+
+  it('keeps interleaved parent calls at index zero separate', async () => {
+    const { loop, emitSegment } = makeToolLoop();
+    await loop.run(manyMessages([
+      toolStart(0, 'grep-a', {}, 'parent-a'),
+      toolStart(0, 'grep-b', {}, 'parent-b'),
+      toolDelta(0, '{"pattern":"alpha', 'parent-a'),
+      toolDelta(0, '{"pattern":"beta', 'parent-b'),
+      toolDelta(0, ' search"}', 'parent-a'),
+      toolDelta(0, ' search"}', 'parent-b'),
+      toolStop(0, 'parent-a'),
+      toolStop(0, 'parent-b'),
+    ]));
+
+    expect(toolCalls(emitSegment)).toEqual([
+      expect.objectContaining({ toolName: 'Grep', toolCallId: 'grep-a', toolInput: { pattern: 'alpha search' } }),
+      expect.objectContaining({ toolName: 'Grep', toolCallId: 'grep-b', toolInput: { pattern: 'beta search' } }),
+    ]);
+  });
+
+  it('flushes only the matching parent call on an assistant message', async () => {
+    const { loop, emitSegment } = makeToolLoop();
+    await loop.run(manyMessages([
+      toolStart(0, 'grep-a', {}, 'parent-a'),
+      toolStart(0, 'grep-b', {}, 'parent-b'),
+      toolDelta(0, '{"pattern":"alpha"}', 'parent-a'),
+      toolDelta(0, '{"pattern":"beta', 'parent-b'),
+      {
+        type: 'assistant',
+        parent_tool_use_id: 'parent-a',
+        message: { content: [{ type: 'tool_use', id: 'grep-a', name: 'Grep', input: { pattern: 'alpha' } }] },
+      } as SDKMessage,
+      toolDelta(0, ' search"}', 'parent-b'),
+      toolStop(0, 'parent-b'),
+    ]));
+
+    expect(toolCalls(emitSegment)).toEqual([
+      expect.objectContaining({ toolCallId: 'grep-a', toolInput: { pattern: 'alpha' } }),
+      expect.objectContaining({ toolCallId: 'grep-b', toolInput: { pattern: 'beta search' } }),
+    ]);
+  });
+
+  it('flushes every remaining parent call at stream end', async () => {
+    const { loop, emitSegment } = makeToolLoop();
+    await loop.run(manyMessages([
+      toolStart(0, 'grep-a', {}, 'parent-a'),
+      toolStart(0, 'grep-b', {}, 'parent-b'),
+      toolDelta(0, '{"pattern":"alpha"}', 'parent-a'),
+      toolDelta(0, '{"pattern":"beta"}', 'parent-b'),
+    ]));
+
+    expect(toolCalls(emitSegment)).toEqual([
+      expect.objectContaining({ toolCallId: 'grep-a', toolInput: { pattern: 'alpha' } }),
+      expect.objectContaining({ toolCallId: 'grep-b', toolInput: { pattern: 'beta' } }),
+    ]);
+  });
+
+  it('retains invalid partial JSON as distinguishable bounded input', async () => {
+    const { loop, emitSegment } = makeToolLoop();
+    await expect(loop.run(manyMessages([
+      toolStart(0, 'grep-1', { pattern: 'fallback' }),
+      toolDelta(0, '{"pattern":'),
+      toolStop(0),
+    ]))).resolves.toBe(0);
+
+    expect(toolCalls(emitSegment)).toEqual([
+      expect.objectContaining({
+        toolCallId: 'grep-1',
+        toolInput: { __unparsed: '{"pattern":' },
+        toolArgs: expect.any(String),
+      }),
+    ]);
+  });
+
+  it('flushes a partial call before a stream error', async () => {
+    const { loop, emitSegment } = makeToolLoop();
+    async function* failingStream(): AsyncIterable<SDKMessage> {
+      yield toolStart(0, 'grep-1');
+      yield toolDelta(0, '{"pattern":"unfinished"');
+      throw new Error('stream failed');
+    }
+
+    await expect(loop.run(failingStream())).resolves.toBe(1);
+    expect(emitSegment.mock.calls.map(([segment]) => segment.type)).toEqual([
+      'tool-call', 'error',
+    ]);
+    expect(toolCalls(emitSegment)).toEqual([
+      expect.objectContaining({
+        toolCallId: 'grep-1',
+        toolInput: { __unparsed: '{"pattern":"unfinished"' },
+      }),
+    ]);
+  });
+
+  it('skips an unstopped call with no known input', async () => {
+    const { loop, emitSegment } = makeToolLoop();
+    await loop.run(singleMessage(toolStart(0, 'grep-1')));
+    expect(toolCalls(emitSegment)).toEqual([]);
+  });
+
+  it('emits both calls when a second start reuses a pending index', async () => {
+    const { loop, emitSegment } = makeToolLoop();
+    await loop.run(manyMessages([
+      toolStart(0, 'grep-1'), toolDelta(0, '{"pattern":"first"}'),
+      toolStart(0, 'grep-2'), toolDelta(0, '{"pattern":"second"}'),
+      toolStop(0),
+    ]));
+
+    expect(toolCalls(emitSegment)).toEqual([
+      expect.objectContaining({ toolCallId: 'grep-1', toolInput: { pattern: 'first' } }),
+      expect.objectContaining({ toolCallId: 'grep-2', toolInput: { pattern: 'second' } }),
+    ]);
+  });
+
+  it('clears emitted ids between turns while suppressing each turn assistant echo', async () => {
+    const { loop, emitSegment } = makeToolLoop();
+    const assistantCall = {
+      type: 'assistant',
+      message: {
+        content: [{ type: 'tool_use', id: 'grep-1', name: 'Grep', input: { pattern: 'echo' } }],
+      },
+    } as unknown as SDKMessage;
+    await loop.run(manyMessages([
+      toolStart(0, 'grep-1'), toolDelta(0, '{"pattern":"turn-1"}'),
+      toolStop(0), assistantCall, successResult,
+      toolStart(0, 'grep-1'), toolDelta(0, '{"pattern":"turn-2"}'),
+      toolStop(0), assistantCall, successResult,
+    ]));
+
+    expect(toolCalls(emitSegment)).toEqual([
+      expect.objectContaining({ toolCallId: 'grep-1', toolInput: { pattern: 'turn-1' } }),
+      expect.objectContaining({ toolCallId: 'grep-1', toolInput: { pattern: 'turn-2' } }),
+    ]);
+  });
+
+  it('tags successful and failed tool results with the call id', async () => {
+    const { loop, emitSegment } = makeToolLoop();
+    await loop.run(singleMessage({
+      type: 'user',
+      message: { content: [
+        { type: 'tool_result', tool_use_id: 'grep-1', content: 'found' },
+        { type: 'tool_result', tool_use_id: 'grep-2', content: 'failed', is_error: true },
+      ] },
+    } as unknown as SDKMessage));
+
+    expect(emitSegment.mock.calls.map(([segment]) => segment)).toEqual([
+      expect.objectContaining({ type: 'tool-result', toolCallId: 'grep-1' }),
+      expect.objectContaining({ type: 'tool-result-error', toolCallId: 'grep-2' }),
+    ]);
+  });
+
+  it('flushes an unstopped block once at stream end', async () => {
+    const { loop, emitSegment } = makeToolLoop();
+    await loop.run(manyMessages([
+      toolStart(0, 'grep-1'), toolDelta(0, '{"pattern":"late"}'),
+    ]));
+
+    expect(toolCalls(emitSegment)).toEqual([
+      expect.objectContaining({ toolCallId: 'grep-1', toolInput: { pattern: 'late' } }),
+    ]);
+  });
+
+  it('uses full input and id for a non-streamed assistant call', async () => {
+    const { loop, emitSegment } = makeToolLoop();
+    await loop.run(singleMessage({
+      type: 'assistant',
+      message: {
+        content: [{ type: 'tool_use', id: 'grep-1', name: 'Grep', input: { pattern: 'plain' } }],
+      },
+    } as unknown as SDKMessage));
+
+    expect(toolCalls(emitSegment)).toEqual([
+      expect.objectContaining({ toolCallId: 'grep-1', toolInput: { pattern: 'plain' } }),
+    ]);
+  });
+});
+
 describe('PtahCliStreamLoop plan-limit signals and usage', () => {
   const RESETS_AT_SECONDS = 1_791_200_000;
 

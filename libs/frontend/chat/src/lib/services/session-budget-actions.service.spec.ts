@@ -170,6 +170,12 @@ describe('SessionBudgetActionsService', () => {
       expect(SESSION_WRAP_UP_PROMPT).toContain('{used}');
     });
 
+    it('lets running lanes report on their own instead of waiting for them', () => {
+      expect(SESSION_WRAP_UP_PROMPT).toContain('Do not poll or call wait tools');
+      expect(SESSION_WRAP_UP_PROMPT).toContain('completion signal with its final status');
+      expect(SESSION_WRAP_UP_PROMPT).not.toMatch(/wait until every running/i);
+    });
+
     it('reads a cost budget as an amount', () => {
       const prompt = buildWrapUpPrompt({
         ...BUDGET,

@@ -1,6 +1,6 @@
 import { orbitRadii, type SceneRect } from './scene-layout';
 
-const dots = Array.from({ length: 48 }, (_, index) => ({
+export const SCENE_DOTS = Array.from({ length: 48 }, (_, index) => ({
   x: ((index * 73) % 97) / 97,
   y: ((index * 41) % 89) / 89,
   size: index % 5 === 0 ? 1.5 : 0.8,
@@ -33,7 +33,7 @@ export function drawSceneDecoration(
 
   context.fillStyle = theme === 'dark' ? '#9d93ae' : '#625d73';
   context.globalAlpha = 0.18;
-  for (const dot of dots)
+  for (const dot of SCENE_DOTS)
     context.fillRect(dot.x * width, dot.y * height, dot.size, dot.size);
   context.globalAlpha = 1;
   context.strokeStyle = theme === 'dark' ? '#504b68' : '#aaa1b1';
@@ -61,11 +61,10 @@ export function drawRootGlow(
   theme: 'light' | 'dark',
   reducedMotion: boolean,
 ): void {
-  const safeLevel = Number.isFinite(level) ? Math.max(0, Math.min(1, level)) : 0;
-  const radius =
-    rootRadius *
-    1.9 *
-    (reducedMotion ? 1 : 1 + safeLevel * 0.25);
+  const safeLevel = Number.isFinite(level)
+    ? Math.max(0, Math.min(1, level))
+    : 0;
+  const radius = rootRadius * 1.9 * (reducedMotion ? 1 : 1 + safeLevel * 0.25);
   const glow = context.createRadialGradient(
     x,
     y,

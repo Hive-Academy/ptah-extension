@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_698_4146
-status: in_review
+status: done
 type: FEATURE
 title: Show an estimated prompt-cache expiry timer in the session inspector
 description: >-
@@ -8,7 +8,7 @@ description: >-
   compaction fires) in the right sidebar, using MainRequestTracker data from TASK_2026_692_f748.
 depends_on: []
 created: 2026-10-18T18:05:00.000Z
-updated: 2026-10-18T18:05:00.000Z
+updated: 2026-10-20T18:30:00.000Z
 ---
 
 ## Description

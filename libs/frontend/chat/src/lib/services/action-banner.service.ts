@@ -15,7 +15,9 @@
  * successive actions show only the most recent message and the timer is
  * always anchored to the latest call.
  */
-import { Injectable, signal, computed } from '@angular/core';
+import { Injectable, signal, computed, inject } from '@angular/core';
+import { TabManagerService, workspaceLabelFromPath } from '@ptah-extension/chat-state';
+import { LoggingService, NotificationService, attentionConditionKey } from '@ptah-extension/core';
 
 export interface ActionBannerState {
   kind: 'error' | 'info' | 'warning';
@@ -29,6 +31,10 @@ const WARNING_DURATION_MS = 8000;
 
 @Injectable({ providedIn: 'root' })
 export class ActionBannerService {
+  private readonly notifications = inject(NotificationService, { optional: true });
+  private readonly tabs = inject(TabManagerService, { optional: true });
+  private readonly logger = inject(LoggingService);
+  private sequence = 0;
   private readonly _banner = signal<ActionBannerState | null>(null);
   private _timeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -66,9 +72,9 @@ export class ActionBannerService {
   showError(
     message: string,
     tabId: string | null = null,
-    durationMs: number = DEFAULT_DURATION_MS,
+    _durationMs: number = DEFAULT_DURATION_MS,
   ): void {
-    this.show({ kind: 'error', message, tabId }, durationMs);
+    this.showAttention('failure', message, tabId);
   }
 
   /** Show an info-style banner. Auto-clears after `durationMs` (default 4s). */
@@ -90,9 +96,9 @@ export class ActionBannerService {
   showWarning(
     message: string,
     tabId: string | null = null,
-    durationMs: number = WARNING_DURATION_MS,
+    _durationMs: number = WARNING_DURATION_MS,
   ): void {
-    this.show({ kind: 'warning', message, tabId }, durationMs);
+    this.showAttention('warning', message, tabId);
   }
 
   /** Dismiss any active banner immediately and cancel its auto-clear timer. */
@@ -114,5 +120,24 @@ export class ActionBannerService {
       this._banner.set(null);
       this._timeout = null;
     }, durationMs);
+  }
+
+  private showAttention(kind: 'failure' | 'warning', message: string, tabId: string | null): void {
+    if (!this.notifications || !this.tabs) {
+      this.logger.warn('ActionBannerService', 'Attention notice unavailable: notification or tab service missing');
+      return;
+    }
+    const match = tabId ? this.tabs.findTabByIdAcrossWorkspaces(tabId) : null;
+    const workspacePath = match?.workspacePath ?? this.tabs.activeWorkspacePath ?? '';
+    const generation = ++this.sequence;
+    this.notifications.upsert({
+      key: attentionConditionKey(workspacePath, `action-banner:${tabId ?? 'global'}:${generation}`),
+      generation, source: 'chat', kind,
+      severity: kind === 'failure' ? 'error' : 'warning',
+      workspacePath, workspaceName: workspaceLabelFromPath(workspacePath),
+      tabId: tabId ?? undefined,
+      title: message,
+      actions: [], actionable: false, soundEligible: false,
+    });
   }
 }

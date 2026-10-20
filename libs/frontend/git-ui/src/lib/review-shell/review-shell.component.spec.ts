@@ -179,6 +179,7 @@ function makeGitStatus() {
     changedFileCount: signal(3),
     stagedCount: signal(2),
     branchName: signal('main'),
+    refresh: jest.fn(async () => undefined),
   };
 }
 
@@ -208,11 +209,11 @@ describe('ReviewShellComponent', () => {
   };
   let navigation: ReviewNavigationService;
   let worktreeStatus: ReturnType<typeof makeWorktreeStatus>;
-  let layout: { addFolderByPath: jest.Mock };
+  let layout: { addFolderByPath: jest.Mock; editorPanelVisible: ReturnType<typeof signal<boolean>> };
 
   beforeEach(() => {
     worktreeStatus = makeWorktreeStatus();
-    layout = { addFolderByPath: jest.fn(async () => undefined) };
+    layout = { addFolderByPath: jest.fn(async () => undefined), editorPanelVisible: signal(true) };
     FakeResizeObserver.instances = [];
     (globalThis as { ResizeObserver?: unknown }).ResizeObserver =
       FakeResizeObserver;
@@ -400,7 +401,7 @@ describe('ReviewShellComponent', () => {
     expect(launchers.detect).toHaveBeenCalledTimes(1);
   });
 
-  it('disarms both services when destroyed', () => {
+  it('disarms git status and branches when destroyed, so the push gate closes with the dock', () => {
     const fixture = TestBed.createComponent(ReviewShellComponent);
     expect(gitStatus.stopListening).not.toHaveBeenCalled();
 
@@ -410,7 +411,7 @@ describe('ReviewShellComponent', () => {
     expect(gitBranches.stopListening).toHaveBeenCalledTimes(1);
   });
 
-  it('re-arms idempotently after a prior destroy', () => {
+  it('re-arms status and branches idempotently after a prior destroy', () => {
     TestBed.createComponent(ReviewShellComponent).destroy();
     TestBed.createComponent(ReviewShellComponent);
 
@@ -474,10 +475,49 @@ describe('ReviewShellComponent', () => {
 
     expect(canvas(fixture)).not.toBeNull();
     expect(stale?.getAttribute('role')).toBe('status');
-    expect(stale?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+    expect(stale?.textContent?.replace(/\s+/g, ' ').trim()).toContain(
       'Git status is unavailable (git timed out) — showing the last known changes.',
     );
     expect(text(fixture)).not.toContain('not a Git repository');
+  });
+
+  it('shows the local strip with Retry and clears a dismissal on recovery', async () => {
+    gitStatus.statusUnavailable.set('timeout');
+    gitStatus.staleReason.set('timeout');
+    const fixture = await render();
+    const strip = query(fixture, '[data-testid="review-shell-stale"]');
+    expect(strip?.textContent).toContain('Retry');
+    (strip?.querySelector('button') as HTMLButtonElement).click();
+    expect(gitStatus.refresh).toHaveBeenCalledTimes(1);
+    (strip?.querySelector('[aria-label="Dismiss git status warning"]') as HTMLButtonElement).click();
+    await settle(fixture);
+    expect(query(fixture, '[data-testid="review-shell-stale"]')).toBeNull();
+    gitStatus.statusUnavailable.set(null);
+    gitStatus.staleReason.set(null);
+    await settle(fixture);
+  });
+
+  it('keeps the local strip independent of dock visibility', async () => {
+    layout.editorPanelVisible.set(false);
+    gitStatus.statusUnavailable.set('locked');
+    gitStatus.staleReason.set('locked');
+    const fixture = await render();
+    layout.editorPanelVisible.set(true);
+    await settle(fixture);
+    expect(query(fixture, '[data-testid="review-shell-stale"]')).not.toBeNull();
+  });
+
+  it('clears the local dismissal when the workspace changes', async () => {
+    gitStatus.statusUnavailable.set('timeout');
+    gitStatus.staleReason.set('timeout');
+    const fixture = await render();
+    const dismiss = query(fixture, '[aria-label="Dismiss git status warning"]') as HTMLButtonElement;
+    dismiss.click();
+    await settle(fixture);
+    expect(query(fixture, '[data-testid="review-shell-stale"]')).toBeNull();
+    gitStatus.activeWorkspacePath.set('/ws/b');
+    await settle(fixture);
+    expect(query(fixture, '[data-testid="review-shell-stale"]')).not.toBeNull();
   });
 
   // -- Conflict banner slot (Batch 54) ----------------------------------------
