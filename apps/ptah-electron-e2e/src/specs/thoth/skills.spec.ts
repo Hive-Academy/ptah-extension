@@ -67,6 +67,10 @@ test.describe('Thoth - Skills Library', () => {
       'config:getScopes': { activePath: 'C:\\ptah-e2e-ws', entries: [] },
       'config:model-get': { model: 'kimi-k2' },
       'config:effort-get': { effort: null },
+      'agent:getConfig': {
+        detectedClis: [], disabledClis: [], preferredAgentOrder: [],
+        maxConcurrentAgents: 1, copilotAutoApprove: false,
+      },
       'ptahCli:list': { agents: [] },
       'memory:getTriggers': { triggers: {} },
       'provider:listCustomEntries': { entries: [] },
@@ -88,15 +92,8 @@ test.describe('Thoth - Skills Library', () => {
     await expect(row.locator('[data-testid="consumer-summary-enhancement"]')).toBeVisible();
     const edit = row.locator('[data-testid="consumer-edit-enhancement"]');
     const editor = page.locator('[data-testid="consumer-editor-enhancement"]');
-    // goto() can mount Settings before its asynchronous workspace sync settles.
-    // Retry the interaction only if that transition consumed the first click.
-    await expect(async () => {
-      if (await edit.getAttribute('aria-expanded') !== 'true') {
-        await expect(edit).not.toHaveAttribute('aria-disabled', 'true');
-        await edit.click();
-      }
-      await expect(editor).toBeVisible({ timeout: 1000 });
-    }).toPass({ timeout: 10000 });
+    await edit.click();
+    await expect(editor).toBeVisible();
     const picker = page.locator(
       '[data-testid="consumer-editor-enhancement"] ptah-provider-model-picker',
     );
