@@ -1,4 +1,6 @@
 export { registerPlatformElectronServices } from './registration';
+export { ElectronHostAttentionNotifications } from './implementations/electron-host-attention-notifications';
+export type { ElectronAttentionCapabilities, ElectronNotificationHandle } from './implementations/electron-host-attention-notifications';
 export type { ElectronPlatformOptions } from './registration';
 export { registerElectronSettings } from './settings/electron-settings-registration';
 export { createAgentModelSettingsGetter } from './settings/agent-model-settings-getter';

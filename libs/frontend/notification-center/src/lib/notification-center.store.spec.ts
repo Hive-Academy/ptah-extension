@@ -1,379 +1,126 @@
-import { Component, NgModule, signal } from '@angular/core';
+import { Component, NgModule } from '@angular/core';
 jest.mock('ngx-markdown', () => {
   @Component({ selector: 'ptah-markdown-stub', standalone: true, template: '' })
   class MarkdownStub {}
   @NgModule({ imports: [MarkdownStub], exports: [MarkdownStub] })
   class MarkdownModule {}
-  return {
-    MarkdownModule,
-    MarkdownComponent: MarkdownStub,
-    provideMarkdown: () => [],
-  };
+  return { MarkdownModule, MarkdownComponent: MarkdownStub, provideMarkdown: () => [] };
 });
 import { TestBed } from '@angular/core/testing';
 import {
-  CommandCenterVoiceSessionService,
-  TabManagerService,
-  type TerminalTurnPulse,
-} from '@ptah-extension/chat-state';
-import { PermissionHandlerService } from '@ptah-extension/chat-streaming';
-import { NOTIFICATION_FOCUS_ROUTER } from '@ptah-extension/core';
-import type { PermissionRequest } from '@ptah-extension/shared';
+  ATTENTION_ACTION_DISPATCHER,
+  NOTIFICATION_FOCUS_ROUTER,
+  NotificationService,
+  LoggingService,
+  type AttentionItem,
+} from '@ptah-extension/core';
 import { NotificationCenterStore } from './notification-center.store';
-import { deriveOutcomeLabel } from './notification-ledger.service';
-import { NotificationSoundService } from './notification-sound.service';
+
+const lane: AttentionItem = {
+  key: 'lane-1', generation: 1, kind: 'lane-permission', source: 'lane',
+  workspacePath: '/workspace/a', workspaceName: 'a', sessionId: 'session-1',
+  severity: 'warning', title: 'Lane requests permission',
+  actions: [
+    { id: 'allow', label: 'Allow' }, { id: 'deny', label: 'Deny' },
+    { id: 'open', label: 'Open' },
+  ], actionable: true, soundEligible: false,
+};
+const failure: AttentionItem = {
+  ...lane, key: 'failure-1', kind: 'failure', severity: 'error',
+  title: 'Run failed', actions: [{ id: 'open', label: 'Open' }],
+};
 
 describe('NotificationCenterStore', () => {
-  const pulses = signal<readonly TerminalTurnPulse[]>([]);
-  const permissions = signal<PermissionRequest[]>([]);
-  const questions = signal<never[]>([]);
-  const routingRevision = signal(0);
-  const targets = new Map<string, readonly string[]>();
-  const focus = jest.fn();
-  const playBurst = jest.fn();
+  let notifications: NotificationService;
   let store: NotificationCenterStore;
-
-  const tab = {
-    id: 'tab-1',
-    title: 'Build release',
-    name: 'Build release',
-    claudeSessionId: 'session-1',
-  };
-  const secondTab = {
-    id: 'tab-2',
-    title: 'Second build',
-    name: 'Second build',
-    claudeSessionId: 'session-2',
-  };
+  const dispatch = jest.fn<Promise<boolean>, [string, number, string]>();
+  const focus = jest.fn();
+  const logError = jest.fn();
 
   beforeEach(() => {
     jest.useFakeTimers();
-    pulses.set([]);
-    permissions.set([]);
-    routingRevision.set(0);
-    targets.clear();
+    dispatch.mockReset().mockResolvedValue(true);
     focus.mockReset().mockResolvedValue({ success: true, outcome: 'focused' });
-    playBurst.mockReset();
-    TestBed.configureTestingModule({
-      providers: [
-        NotificationCenterStore,
-        {
-          provide: TabManagerService,
-          useValue: {
-            terminalTurnPulses: pulses,
-            takeTerminalTurnPulses: () => {
-              const queued = pulses();
-              pulses.set([]);
-              return queued;
-            },
-            findTabByIdAcrossWorkspaces: (id: string) => {
-              const found = [tab, secondTab].find(
-                (candidate) => candidate.id === id,
-              );
-              return found
-                ? { tab: found, workspacePath: '/workspace/a' }
-                : null;
-            },
-            findTabBySessionIdAcrossWorkspaces: (id: string) =>
-              id === tab.claudeSessionId
-                ? { tab, workspacePath: '/workspace/a' }
-                : null,
-          },
-        },
-        {
-          provide: PermissionHandlerService,
-          useValue: {
-            permissionRequests: permissions,
-            questionRequests: questions,
-            routingTargetRevision: routingRevision,
-            targetTabsFor: (id: string) => targets.get(id) ?? [],
-            questionTargetTabsFor: () => [],
-          },
-        },
-        { provide: NOTIFICATION_FOCUS_ROUTER, useValue: { focus } },
-        { provide: NotificationSoundService, useValue: { playBurst } },
-      ],
-    });
+    logError.mockReset();
+    TestBed.configureTestingModule({ providers: [
+      NotificationCenterStore,
+      { provide: ATTENTION_ACTION_DISPATCHER, useValue: { dispatch } },
+      { provide: NOTIFICATION_FOCUS_ROUTER, useValue: { focus } },
+      { provide: LoggingService, useValue: { error: logError } },
+    ] });
+    notifications = TestBed.inject(NotificationService);
     store = TestBed.inject(NotificationCenterStore);
-    TestBed.flushEffects();
   });
-
   afterEach(() => jest.useRealTimers());
 
-  function emit(seq: number, overrides: Partial<TerminalTurnPulse> = {}): void {
-    pulses.update((queued) => [
-      ...queued,
-      {
-        seq,
-        tabId: 'tab-1',
-        sessionId: `session-${seq}`,
-        workspacePath: '/workspace/a',
-        revision: seq,
-        phase: 'idle',
-        terminalReason: 'completed',
-        lastAssistantMessage: null,
-        classification: 'success',
-        title: `Run ${seq}`,
-        occurredAt: seq * 100,
-        ...overrides,
-      },
-    ]);
+  it('counts only live needs-you items and clears recent failures only', () => {
+    notifications.upsert(lane);
+    notifications.upsert(failure);
+    expect(store.badgeCount()).toBe(1);
+    expect(store.needsYou()).toEqual([lane]);
+    expect(store.recentNotices()).toEqual([failure]);
+    expect(store.canClearAll()).toBe(true);
+    store.clearAll();
+    expect(store.recentNotices()).toEqual([]);
+    expect(store.canClearAll()).toBe(false);
+    expect(store.needsYou()).toEqual([lane]);
+    expect(notifications.snackbars().map(item => item.key)).toEqual(['lane-1']);
+  });
+
+  it('pauses transient timeout and hides redundant snackbars while open', () => {
+    notifications.upsert(failure);
+    jest.advanceTimersByTime(3000);
+    store.setPanelOpen(true);
     TestBed.flushEffects();
-  }
-
-  // `tab.title` is mutable: a fresh tab is 'New Chat' until an auto title is
-  // derived, and a user can rename it afterwards. The pulse can only carry the
-  // title as it stood at turn end, so the card must resolve the live one or it
-  // will disagree with the tile it exists to open.
-  it('renders the session title as it stands now, not as the pulse snapshotted it', () => {
-    // The pulse carries 'New Chat' — the title as it stood when the turn
-    // ended, before the auto title landed. The tab is 'Build release' now.
-    // Pre-fix the card kept the snapshot and disagreed with its own tile.
-    emit(1, { title: 'New Chat' });
-
-    expect(store.completionGroups()[0].entries[0].title).toBe('Build release');
-  });
-
-  it('keeps the snapshotted title once the tab is gone', () => {
-    emit(1, { tabId: 'tab-closed', title: 'Closed session' });
-    const entry = store
-      .completionGroups()
-      .flatMap((group) => group.entries)
-      .find((candidate) => candidate.revision === 1);
-    expect(entry?.title).toBe('Closed session');
-  });
-
-  it('deduplicates session+revision and bounds completion history to 75', () => {
-    for (let seq = 1; seq <= 80; seq += 1) emit(seq);
-    expect(store.completionEntries()).toHaveLength(75);
-    const latest = store.completionEntries().at(-1);
-    pulses.set(
-      latest
-        ? [
-            {
-              seq: 81,
-              tabId: latest.tabId,
-              sessionId: latest.sessionId,
-              workspacePath: latest.workspacePath,
-              revision: latest.revision,
-              phase: latest.phase,
-              terminalReason: latest.terminalReason,
-              lastAssistantMessage: latest.lastAssistantMessage,
-              classification: latest.classification,
-              title: latest.title,
-              occurredAt: latest.occurredAt,
-            },
-          ]
-        : [],
-    );
+    expect(notifications.snackbars()).toEqual([]);
+    jest.advanceTimersByTime(10000);
+    expect(store.recentNotices()).toEqual([failure]);
+    store.setPanelOpen(false);
     TestBed.flushEffects();
-    expect(store.completionEntries()).toHaveLength(75);
+    expect(notifications.snackbars()).toEqual([failure]);
+    jest.advanceTimersByTime(5000);
+    expect(notifications.snackbars()).toEqual([]);
   });
 
-  it('records two terminal turns emitted in one synchronous batch', () => {
-    pulses.set([
-      {
-        seq: 1,
-        tabId: 'tab-1',
-        sessionId: 'session-1',
-        workspacePath: '/workspace/a',
-        revision: 1,
-        phase: 'idle',
-        terminalReason: 'completed',
-        lastAssistantMessage: null,
-        classification: 'success',
-        title: 'Run 1',
-        occurredAt: 100,
-      },
-      {
-        seq: 2,
-        tabId: 'tab-2',
-        sessionId: 'session-2',
-        workspacePath: '/workspace/a',
-        revision: 1,
-        phase: 'idle',
-        terminalReason: 'completed',
-        lastAssistantMessage: null,
-        classification: 'success',
-        title: 'Run 2',
-        occurredAt: 101,
-      },
-    ]);
-
-    TestBed.flushEffects();
-
-    expect(store.completionEntries().map((entry) => entry.sessionId)).toEqual([
-      'session-1',
-      'session-2',
-    ]);
+  it('dispatches lane actions once per in-flight request and rejects stale actions', async () => {
+    notifications.upsert(lane);
+    let finish: (value: boolean) => void = () => undefined;
+    dispatch.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    const first = store.activate(lane, 'allow');
+    expect(store.isSubmitting(lane)).toBe(true);
+    await expect(store.activate(lane, 'deny')).resolves.toBe(false);
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    finish(true);
+    await expect(first).resolves.toBe(true);
+    notifications.resolve(lane.key, lane.generation);
+    await expect(store.activate(lane, 'allow')).resolves.toBe(false);
   });
 
-  it('groups a workspace burst without erasing individual targets', () => {
-    emit(1, { occurredAt: 1000 });
-    emit(2, { occurredAt: 1300 });
-    expect(store.completionGroups()).toHaveLength(1);
-    expect(store.completionGroups()[0]?.entries).toHaveLength(2);
-    expect(
-      store.completionGroups()[0]?.entries.map((entry) => entry.target),
-    ).toHaveLength(2);
+  it('returns false and reports an unavailable action when dispatch rejects', async () => {
+    notifications.upsert(lane);
+    const failure = new Error('private detail');
+    dispatch.mockRejectedValueOnce(failure);
+    await expect(store.activate(lane, 'allow')).resolves.toBe(false);
+    expect(store.status(lane)).toBe('Action unavailable');
+    expect(store.isSubmitting(lane)).toBe(false);
+    expect(logError).toHaveBeenCalledWith('NotificationCenterStore', 'Action unavailable', failure);
   });
 
-  it('derives prompts from live state and removes them with the source', () => {
-    const request: PermissionRequest = {
-      id: 'permission-1',
-      toolName: 'Bash',
-      toolInput: {},
-      timestamp: 1,
-      description: 'Run tests',
-      timeoutAt: 0,
-      sessionId: 'mismatched-session',
-    };
-    permissions.set([request]);
-    targets.set(request.id, ['tab-1']);
-    routingRevision.update((value) => value + 1);
-    expect(store.pendingEntries()[0]?.target?.tabId).toBe('tab-1');
-    permissions.set([]);
-    expect(store.pendingEntries()).toEqual([]);
-  });
-
-  it('counts one prompt source whether its target is unavailable or fanned out', () => {
-    const request: PermissionRequest = {
-      id: 'permission-count',
-      toolName: 'Bash',
-      toolInput: {},
-      timestamp: 1,
-      description: 'Run tests',
-      timeoutAt: 0,
-    };
-    permissions.set([request]);
-    expect(store.pendingEntries()[0]?.target).toBeNull();
-    expect(store.unreadCount()).toBe(1);
-
-    targets.set(request.id, ['tab-1', 'tab-2']);
-    routingRevision.update((value) => value + 1);
-    expect(store.pendingEntries()).toHaveLength(2);
-    expect(store.unreadCount()).toBe(1);
-  });
-
-  it('does not count a dismissed completion as unread', () => {
-    emit(1);
-    const entry = store.completionEntries()[0];
-    expect(store.unreadCount()).toBe(1);
-    expect(entry).toBeDefined();
-    if (!entry) return;
-
-    store.dismissCompletion(entry.id);
-
-    expect(store.unreadCount()).toBe(0);
-  });
-
-  it('counts the same completed turn only once', () => {
-    emit(1);
-    emit(2, { sessionId: 'session-1', revision: 1 });
-
-    expect(store.completionEntries()).toHaveLength(1);
-    expect(store.unreadCount()).toBe(1);
-  });
-
-  it('marks completions read only after successful focus and never hides prompts', async () => {
-    emit(1);
-    const entry = store.completionEntries()[0];
-    expect(entry).toBeDefined();
-    if (!entry) return;
-    focus.mockResolvedValueOnce({ success: false, outcome: 'missing' });
-    await store.activateCompletion(entry);
-    expect(store.completionEntries()[0]?.readAt).toBeNull();
-    focus.mockResolvedValueOnce({ success: true, outcome: 'focused' });
-    await store.activateCompletion(entry);
-    expect(store.completionEntries()[0]?.readAt).not.toBeNull();
-  });
-
-  it('keeps twelve storm records and emits one burst side effect', () => {
-    for (let seq = 1; seq <= 12; seq += 1) emit(seq);
-    expect(store.completionEntries()).toHaveLength(12);
-    jest.advanceTimersByTime(350);
-    expect(store.announcement()).toBe('12 sessions finished');
-    expect(playBurst).toHaveBeenCalledTimes(1);
-  });
-
-  it('keeps voice completion and announcement silent even if voice stops before the burst expires', () => {
-    const sessions = TestBed.inject(CommandCenterVoiceSessionService);
-    sessions.activate('tab-1');
-    emit(1);
-    sessions.deactivate('tab-1');
-    jest.advanceTimersByTime(350);
-
-    expect(store.completionEntries()).toHaveLength(1);
-    expect(store.announcement()).toBe('1 session finished');
-    expect(playBurst).not.toHaveBeenCalled();
-  });
-
-  it('sounds a mixed burst only for its ordinary completion', () => {
-    const sessions = TestBed.inject(CommandCenterVoiceSessionService);
-    sessions.activate('tab-1');
-    emit(1);
-    emit(2, { tabId: 'tab-2' });
-    jest.advanceTimersByTime(350);
-
-    expect(store.completionEntries()).toHaveLength(2);
-    expect(store.announcement()).toBe('2 sessions finished');
-    expect(playBurst).toHaveBeenCalledTimes(1);
-  });
-
-  it('carries the recap text onto the completion entry', () => {
-    emit(1, { lastAssistantMessage: 'All tests pass.' });
-    expect(store.completionEntries()[0]?.lastAssistantMessage).toBe(
-      'All tests pass.',
-    );
-  });
-
-  it('leaves the recap null when the turn state carried none', () => {
-    emit(1, { lastAssistantMessage: null });
-    expect(store.completionEntries()[0]?.lastAssistantMessage).toBeNull();
-  });
-
-  describe('deriveOutcomeLabel', () => {
-    it.each([
-      ['completed', 'Finished'],
-      ['max_turns', 'Hit the turn limit'],
-      ['budget_exhausted', 'Out of budget'],
-      ['blocking_limit', 'Rate limited'],
-      ['rapid_refill_breaker', 'Rate limited'],
-      ['api_error', 'Provider error'],
-      ['model_error', 'Provider error'],
-      ['image_error', 'Provider error'],
-      ['prompt_too_long', 'Prompt too long'],
-      ['aborted_streaming', 'Stopped'],
-      ['aborted_tools', 'Stopped'],
-      ['stop_hook_prevented', 'Stopped by a hook'],
-      ['hook_stopped', 'Stopped by a hook'],
-      ['tool_deferred', 'Waiting on a tool'],
-      ['tool_deferred_unavailable', 'Waiting on a tool'],
-      ['background_requested', 'Moved to the background'],
-      ['malformed_tool_use_exhausted', 'Gave up retrying'],
-      ['structured_output_retry_exhausted', 'Gave up retrying'],
-      ['turn_setup_failed', 'Could not start'],
-      [null, 'Finished (unknown outcome)'],
-    ] as const)('maps %s to %s', (reason, label) => {
-      expect(deriveOutcomeLabel(reason, 'idle')).toBe(label);
-    });
-
-    // `terminal_reason` is optional on the result message, so a turn the
-    // StopFailure hook already marked `failed` can settle with a null reason.
-    // Captioning that red row "Finished" is the defect this task exists to fix.
-    it('captions a failed phase with no reason as Failed, not Finished', () => {
-      expect(deriveOutcomeLabel(null, 'failed')).toBe('Failed');
-    });
-
-    it('still prefers a known reason over the phase', () => {
-      expect(deriveOutcomeLabel('api_error', 'failed')).toBe('Provider error');
+  it('retains the shell focus router', async () => {
+    await expect(store.focus(lane)).resolves.toEqual({ success: true, outcome: 'focused' });
+    expect(focus).toHaveBeenCalledWith({
+      workspacePath: '/workspace/a', sessionId: 'session-1', tabId: undefined,
     });
   });
 
-  it('derives the outcome label on the completion entry from the pulse reason', () => {
-    emit(1, { terminalReason: 'max_turns', classification: 'error' });
-    expect(store.completionEntries()[0]?.outcomeLabel).toBe(
-      'Hit the turn limit',
-    );
+  it('reactively tracks pending actions and reports stale and unavailable outcomes', async () => {
+    notifications.upsert(lane);
+    const outcome = jest.fn().mockResolvedValueOnce({ kind: 'stale' }).mockResolvedValueOnce({ kind: 'unavailable', reason: 'No owner' });
+    TestBed.inject(ATTENTION_ACTION_DISPATCHER).dispatchOutcome = outcome;
+    await expect(store.activate(lane, 'allow')).resolves.toBe(false);
+    expect(store.status(lane)).toBe('Already answered');
+    await expect(store.activate(lane, 'deny')).resolves.toBe(false);
+    expect(store.disabledReason(lane, 'deny')).toBe('No owner');
+    expect(store.status(lane)).toBe('No owner');
   });
 });

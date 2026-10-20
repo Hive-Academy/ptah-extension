@@ -62,9 +62,20 @@ import {
   DECISION_MODEL_CATALOG_TOKEN,
   DECISION_MODEL_CONFIG_TOKEN,
   EXPECTED_RESOLVABLE,
+  EXPECTED_ATTENTION_TOKENS,
   LANE_MODEL_LISTING_TOKEN,
   STRUCTURED_DECISION_TOKEN,
 } from './expected-resolvable';
+
+describe('VS Code attention DI token guard', () => {
+  it('pins visibility, host adapter and coordinator in dependency order', () => {
+    expect(EXPECTED_ATTENTION_TOKENS).toEqual([
+      PLATFORM_TOKENS.PTAH_VIEW_VISIBILITY,
+      PLATFORM_TOKENS.HOST_ATTENTION_NOTIFICATIONS,
+      SDK_TOKENS.HOST_ATTENTION_COORDINATOR,
+    ]);
+  });
+});
 import {
   EXPECTED_ABSENT_CAPABILITIES,
   EXPECTED_ABSENT_HANDLERS,

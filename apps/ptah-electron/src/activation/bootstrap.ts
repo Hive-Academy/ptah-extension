@@ -6,6 +6,7 @@ import {
   ipcMain,
   shell,
   clipboard,
+  Notification,
 } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -40,6 +41,9 @@ import { resolveInitialWorkspaceArg } from './initial-workspace-arg';
 import { runSessionStoreMigration } from './session-store-migration';
 import { IpcBridge } from '../ipc/ipc-bridge';
 import { ElectronWebviewManagerAdapter } from '../ipc/webview-manager-adapter';
+import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import type { IHostAttentionIngress } from '@ptah-extension/platform-core';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import { ElectronBootReadinessProvider } from '../services/platform/electron-boot-readiness';
 import type { BootCoordinator } from './boot-coordinator';
 import { bootStep } from './boot-trace';
@@ -198,6 +202,50 @@ export function createMainWindowHandleGetter(
   };
 }
 
+/** The chat attention handler's snapshot request proves Angular has registered its message handler. */
+export function createAttentionRendererReadiness(
+  currentContents: () => { on(event: 'did-start-loading', listener: () => void): void } | null,
+  subscribeRpc: (listener: (sender: object, message: unknown) => void) => void,
+): { isReady(): boolean; onReady(listener: () => void): boolean } {
+  const ready = new WeakSet<object>();
+  const tracked = new WeakSet<object>();
+  const listeners = new Set<() => void>();
+  const current = () => {
+    const contents = currentContents();
+    if (contents && !tracked.has(contents)) {
+      tracked.add(contents);
+      contents.on('did-start-loading', () => ready.delete(contents));
+    }
+    return contents;
+  };
+  subscribeRpc((sender, message) => {
+    const contents = current();
+    if (!contents || sender !== contents || !message || typeof message !== 'object') return;
+    const rpc = message as { type?: unknown; payload?: unknown };
+    if (rpc.type !== MESSAGE_TYPES.RPC_CALL || !rpc.payload || typeof rpc.payload !== 'object') return;
+    if ((rpc.payload as { method?: unknown }).method !== 'attention:getSnapshot') return;
+    ready.add(contents);
+    for (const listener of listeners) listener();
+    listeners.clear();
+  });
+  return {
+    isReady: () => { const contents = current(); return !!contents && ready.has(contents); },
+    onReady: (listener) => { if (!current()) return false; listeners.add(listener); return true; },
+  };
+}
+
+export function attachElectronHostAttention(
+  resolve: () => IHostAttentionIngress,
+  attach: (observer: IHostAttentionIngress) => void,
+  warn: (message: string) => void,
+): void {
+  try {
+    attach(resolve());
+  } catch (error: unknown) {
+    warn(`Host attention attach failed: ${error instanceof Error ? error.name : 'UnknownError'}`);
+  }
+}
+
 export async function bootstrapElectron(
   getMainWindow: () => BrowserWindow | null,
   coordinator: Pick<BootCoordinator, 'snapshot'>,
@@ -223,7 +271,38 @@ export async function bootstrapElectron(
   if (initialFolders) {
     console.log(`[Ptah Electron] Workspace path: ${initialFolders[0]}`);
   }
+  const attentionRendererReadiness = createAttentionRendererReadiness(
+    () => {
+      const win = getMainWindow();
+      return win && !win.isDestroyed() ? win.webContents : null;
+    },
+    (listener) => ipcMain.on('rpc', (event, message: unknown) => listener(event.sender, message)),
+  );
   const platformOptions: ElectronPlatformOptions = {
+    attention: {
+      createNotification: (options) => new Notification(options),
+      notificationsSupported: () => Notification.isSupported(),
+      isWindowFocused: () => getMainWindow()?.isFocused() ?? true,
+      revealWindow: () => {
+        const win = getMainWindow();
+        if (!win || win.isDestroyed()) return;
+        if (win.isMinimized()) win.restore();
+        win.show();
+        win.focus();
+      },
+      sendToRenderer: (message) => {
+        const win = getMainWindow();
+        if (!win || win.isDestroyed()) return;
+        win.webContents.send('to-renderer', message);
+      },
+      isRendererReady: attentionRendererReadiness.isReady,
+      onRendererReady: attentionRendererReadiness.onReady,
+      hasLiveWindow: () => {
+        const win = getMainWindow();
+        return !!win && !win.isDestroyed();
+      },
+      warn: (message) => container.resolve<Logger>(TOKENS.LOGGER).warn(message),
+    },
     appPath: app.getAppPath(),
     userDataPath: app.getPath('userData'),
     logsPath: app.getPath('logs'),
@@ -409,7 +488,7 @@ export async function bootstrapElectron(
     );
   }
 
-  const webviewManagerAdapter = new ElectronWebviewManagerAdapter(ipcBridge);
+  const webviewManagerAdapter = new ElectronWebviewManagerAdapter(ipcBridge, container.resolve<Logger>(TOKENS.LOGGER));
   try {
     container.register(TOKENS.WEBVIEW_MANAGER, {
       useValue: webviewManagerAdapter,
@@ -421,6 +500,11 @@ export async function bootstrapElectron(
     );
     throw error;
   }
+  attachElectronHostAttention(
+    () => container.resolve<IHostAttentionIngress>(SDK_TOKENS.HOST_ATTENTION_COORDINATOR),
+    (observer) => { webviewManagerAdapter.setAttentionObserver(observer); },
+    (message) => container.resolve<Logger>(TOKENS.LOGGER).warn(message),
+  );
   // The boot readiness port, registered beside WEBVIEW_MANAGER because both are
   // the same kind of thing: a host-owned object the runtime-agnostic RPC
   // surface needs to reach. `useValue`, not `registerSingleton` — the

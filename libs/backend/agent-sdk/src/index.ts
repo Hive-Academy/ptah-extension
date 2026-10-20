@@ -144,6 +144,7 @@ export {
   wireAgentAdapterAliases,
 } from './lib/di/register';
 export { SDK_TOKENS } from './lib/di/tokens';
+export { HostAttentionCoordinator } from './lib/permission/host-attention-coordinator';
 export type { SdkDIToken } from './lib/di/tokens';
 export {
   SubagentMessageDispatcher,

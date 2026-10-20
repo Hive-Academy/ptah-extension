@@ -81,6 +81,7 @@ import {
   DECISION_MODEL_CATALOG_TOKEN,
   DECISION_MODEL_CONFIG_TOKEN,
   EXPECTED_RESOLVABLE,
+  HOST_ATTENTION_COORDINATOR_TOKEN,
   LANE_MODEL_LISTING_TOKEN,
   STRUCTURED_DECISION_TOKEN,
 } from './expected-resolvable';
@@ -88,6 +89,21 @@ import { registerPhase0Platform } from './phase-0-platform';
 import { registerPhase1Infra } from './phase-1-infra';
 import { registerPhase4Handlers } from './phase-4-handlers';
 import { UPDATE_MANAGER_TOKEN } from '../services/update/update-tokens';
+
+describe('Electron DI — host attention coordinator', () => {
+  it('resolves the phase-2 singleton independently of handler classes', () => {
+    const c = buildMinimalContainer();
+    c.register(PLATFORM_TOKENS.HOST_ATTENTION_NOTIFICATIONS, {
+      useValue: { present: jest.fn(), resolve: jest.fn(), isEligible: jest.fn(() => false), open: jest.fn(), dispose: jest.fn() },
+    });
+    c.register(PLATFORM_TOKENS.WORKSPACE_PROVIDER, { useValue: { getWorkspaceRoot: jest.fn(() => null) } });
+    registerSdkServices(c, c.resolve<Logger>(TOKENS.LOGGER));
+    c.register(SDK_TOKENS.SDK_SESSION_METADATA_STORE, { useValue: { get: jest.fn(), getAll: jest.fn() } });
+    const coordinator = c.resolve(HOST_ATTENTION_COORDINATOR_TOKEN);
+    expect(coordinator).toBeDefined();
+    expect(c.resolve(HOST_ATTENTION_COORDINATOR_TOKEN)).toBe(coordinator);
+  });
+});
 
 describe('Electron DI — skill telemetry seam', () => {
   it('resolves after skill services register', () => {
@@ -108,6 +124,9 @@ function buildMinimalContainer(): DependencyContainer {
   const c = rootContainer.createChildContainer();
 
   c.register(PLATFORM_TOKENS.DI_CONTAINER, { useValue: c });
+  c.register(PLATFORM_TOKENS.HOST_ATTENTION_NOTIFICATIONS, {
+    useValue: { present: jest.fn(), resolve: jest.fn(), isEligible: jest.fn(() => false), open: jest.fn(), dispose: jest.fn() },
+  });
 
   c.register(TOKENS.LOGGER, {
     useValue: {

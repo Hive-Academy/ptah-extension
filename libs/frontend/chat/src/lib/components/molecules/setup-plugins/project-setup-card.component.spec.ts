@@ -1,115 +1,123 @@
-﻿import { signal } from '@angular/core';
+import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { TabManagerService } from '@ptah-extension/chat-state';
-import { GenerationWorkflowLauncherService } from '@ptah-extension/chat-ui';
-import {
-  AppStateManager,
-  ClaudeRpcService,
-  PluginCatalogService,
-} from '@ptah-extension/core';
+import { SetupStatusStore } from '@ptah-extension/chat-ui';
+import { AppStateManager, PluginCatalogService } from '@ptah-extension/core';
 import { ProjectSetupCardComponent } from './project-setup-card.component';
 
 describe('ProjectSetupCardComponent', () => {
   let fixture: ComponentFixture<ProjectSetupCardComponent>;
-  const tabs = { activeWorkspacePath: '/workspace' };
-  const launcher = { open: jest.fn() };
+  const count = signal<number | null>(null);
+  const allReady = signal(false);
+  const skillsReady = signal<boolean | null>(null);
+  const agentsReady = signal<boolean | null>(null);
+  const workspaceNotOpen = signal(false);
+  const error = signal<string | null>(null);
+  const launchError = signal<string | null>(null);
+  const setup = {
+    readyCount: count, allReady, skillsReady, agentsReady, workspaceNotOpen,
+    error, launchError, folderError: signal<string | null>(null), isLoading: signal(false), launching: signal(false), status: signal({ agentCount: 2 }),
+    launchWizard: jest.fn(), launchGeneration: jest.fn(), openFolder: jest.fn(), retry: jest.fn(), refresh: jest.fn(),
+  };
+  const catalog = { error: signal<string | null>(null), isLoaded: signal(false) };
   const appState = { openMarketplace: jest.fn() };
-  const catalog = {
-    isLoaded: signal(true),
-    hasEnabledPlugins: signal(true),
-    ensureLoaded: jest.fn().mockResolvedValue(undefined),
-  };
-  const rpc = {
-    call: jest.fn(async (method: string) => ({
-      data:
-        method === 'setup-status:get-status'
-          ? {
-              isConfigured: false,
-              agentCount: 0,
-              ruleCount: 0,
-              lastUpdated: null,
-              hasClaudeConfig: false,
-            }
-          : { success: true },
-      isSuccess: () => true,
-    })),
-  };
-
-  function buttons(label: string): HTMLButtonElement[] {
-    return Array.from(
-      (fixture.nativeElement as HTMLElement).querySelectorAll('button'),
-    ).filter((element) => element.textContent?.trim() === label);
-  }
-
-  async function click(label: string): Promise<void> {
-    expect(buttons(label)).toHaveLength(1);
-    buttons(label)[0].click();
-    await fixture.whenStable();
-    fixture.detectChanges();
-  }
+  const host = () => fixture.nativeElement as HTMLElement;
+  const button = (label: string) => Array.from(host().querySelectorAll('button')).find(item => item.textContent?.trim() === label);
 
   beforeEach(async () => {
-    tabs.activeWorkspacePath = '/workspace';
-    catalog.isLoaded.set(true);
-    catalog.hasEnabledPlugins.set(true);
     jest.clearAllMocks();
-    launcher.open.mockResolvedValue({ outcome: 'landed', tabId: 'tab-1' });
+    setup.refresh.mockReset();
+    count.set(null); allReady.set(false); skillsReady.set(null); agentsReady.set(null);
+    workspaceNotOpen.set(false); error.set(null); launchError.set(null); setup.folderError.set(null); setup.isLoading.set(false); setup.launching.set(false); catalog.error.set(null); catalog.isLoaded.set(false);
     await TestBed.configureTestingModule({
       imports: [ProjectSetupCardComponent],
       providers: [
-        { provide: TabManagerService, useValue: tabs },
-        { provide: GenerationWorkflowLauncherService, useValue: launcher },
-        { provide: ClaudeRpcService, useValue: rpc },
-        { provide: AppStateManager, useValue: appState },
+        { provide: SetupStatusStore, useValue: setup },
         { provide: PluginCatalogService, useValue: catalog },
+        { provide: AppStateManager, useValue: appState },
       ],
     }).compileComponents();
     fixture = TestBed.createComponent(ProjectSetupCardComponent);
     fixture.detectChanges();
-    await fixture.whenStable();
-    fixture.detectChanges();
   });
-
   afterEach(() => fixture.destroy());
 
-  it('shows one action for each workflow through the embedded status widget', () => {
-    const host = fixture.nativeElement as HTMLElement;
-    expect(host.querySelectorAll('ptah-setup-status-widget')).toHaveLength(1);
-    expect(buttons('Generate agents')).toHaveLength(1);
-    expect(buttons('Project guidance')).toHaveLength(1);
+  it('announces checking until both counted signals are known', () => {
+    expect(host().textContent).toContain('Checking readiness');
+    count.set(1); skillsReady.set(true); agentsReady.set(false); fixture.detectChanges();
+    expect(host().textContent).toContain('1 of 2 ready');
+    expect(host().textContent).toContain('Project scan');
+    expect(host().textContent).toContain('Before you begin');
+    expect(host().textContent).toContain('Setup tools');
+    expect(host().querySelector('[role="group"][aria-label="Setup tools"]')).not.toBeNull();
+    expect(host().querySelectorAll('lucide-angular')).toHaveLength(3);
+    expect(button('Run setup')?.className).toContain('btn-outline');
+    expect(host().querySelector('.btn-primary')).toBeNull();
+    expect(host().textContent).not.toContain('1 of 3');
   });
 
-  it.each([
-    ['Generate agents', 'setup-agent-generation'],
-    ['Project guidance', 'setup-project-prompt'],
-  ] as const)(
-    'opens %s for the active workspace through the widget',
-    async (label, workflow) => {
-      await click(label);
-      expect(launcher.open).toHaveBeenCalledWith({
-        workspacePath: '/workspace',
-        workflow,
-        origin: 'independent-start',
-      });
-      expect(launcher.open).toHaveBeenCalledTimes(1);
-    },
-  );
+  it('keeps all actions in the Ready strip', () => {
+    allReady.set(true); count.set(2); fixture.detectChanges();
+    expect(host().textContent).toContain('Ready');
+    expect(host().textContent).not.toContain('Project scan');
+    for (const label of ['Run setup', 'Generate agents', 'Project guidance']) expect(button(label)).toBeDefined();
+    expect(button('Open Library')).toBeUndefined();
+    expect(button('Run setup')?.className).toContain('btn-outline');
+    expect(host().querySelector('.btn-primary')).toBeNull();
+    button('Run setup')?.click(); button('Generate agents')?.click(); button('Project guidance')?.click();
+    expect(setup.launchWizard).toHaveBeenCalledTimes(1);
+    expect(setup.launchGeneration).toHaveBeenCalledWith('setup-agent-generation');
+    expect(setup.launchGeneration).toHaveBeenCalledWith('setup-project-prompt');
+  });
 
-  it('keeps the skills warning and marketplace action', async () => {
-    catalog.hasEnabledPlugins.set(false);
-    fixture.detectChanges();
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain(
-      'Skills Not Configured',
-    );
-    await click('Open Marketplace Skills');
-    expect(appState.openMarketplace).toHaveBeenCalledWith({
-      page: 'skills',
-      source: 'ptah-plugins',
+  it('routes Library and wizard actions', () => {
+    button('Open Library')?.click(); button('Configure')?.click(); button('Run setup')?.click();
+    expect(appState.openMarketplace).toHaveBeenCalledWith({ page: 'skills', source: 'ptah-plugins' });
+    expect(setup.launchWizard).toHaveBeenCalledTimes(2);
+  });
+
+  it('offers folder and retry states with safe failure feedback', () => {
+    workspaceNotOpen.set(true); error.set('unsafe detail'); fixture.detectChanges();
+    expect(button('Open Folder')).toBeDefined(); expect(button('Retry')).toBeDefined();
+    expect(host().textContent).toContain('Open a folder to check');
+    expect(button('Generate agents')?.disabled).toBe(true);
+    expect(button('Project guidance')?.disabled).toBe(true);
+    expect(host().textContent).not.toContain('unsafe detail');
+    button('Open Folder')?.click(); button('Retry')?.click();
+    expect(setup.openFolder).toHaveBeenCalled(); expect(setup.retry).toHaveBeenCalled();
+  });
+
+  it('refreshes on mount and visible return and removes listeners on destroy', () => {
+    expect(setup.refresh).toHaveBeenCalledTimes(1);
+    window.dispatchEvent(new Event('focus'));
+    expect(setup.refresh).toHaveBeenCalledTimes(2);
+    fixture.destroy();
+    window.dispatchEvent(new Event('focus'));
+    expect(setup.refresh).toHaveBeenCalledTimes(2);
+  });
+
+  it('updates the count when a card remounts after host setup completes', () => {
+    let configuredOnHost = false;
+    setup.refresh.mockImplementation(() => {
+      agentsReady.set(configuredOnHost);
+      count.set(Number(skillsReady()) + Number(configuredOnHost));
     });
-    expect(rpc.call).toHaveBeenCalledWith(
-      'setup-status:get-status',
-      {},
-      { timeout: 10000 },
-    );
+    skillsReady.set(true);
+    fixture.destroy();
+    configuredOnHost = true;
+    fixture = TestBed.createComponent(ProjectSetupCardComponent);
+    fixture.detectChanges();
+    expect(setup.refresh).toHaveBeenCalled();
+    expect(host().textContent).toContain('2 of 2 ready');
+    expect(count()).toBe(2);
+  });
+
+  it('shows unavailable copy and singular agent count', () => {
+    catalog.isLoaded.set(true);
+    error.set('failed'); fixture.detectChanges();
+    expect(host().textContent).toContain('Readiness unavailable');
+    error.set(null); count.set(1); agentsReady.set(true); setup.status.set({ agentCount: 1 }); fixture.detectChanges();
+    expect(host().textContent).toContain('1 agent configured');
+    setup.launching.set(true); fixture.detectChanges();
+    expect(host().querySelector('.loading-spinner')).toBeTruthy();
   });
 });

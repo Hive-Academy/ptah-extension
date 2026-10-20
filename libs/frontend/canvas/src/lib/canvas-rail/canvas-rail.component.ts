@@ -233,14 +233,15 @@ const CHIP_STATES = [
         <div class="flex flex-col gap-1.5">
         <button
           type="button"
-          class="btn btn-primary btn-sm h-[30px] w-full"
+          data-testid="canvas-footer-new-session"
+          class="btn btn-outline btn-sm h-[30px] w-full"
           [attr.aria-disabled]="disabledReason() ? 'true' : null"
           [attr.aria-describedby]="
             disabledReason() ? 'rail-new-session-reason' : null
           "
-          [attr.title]="collapsed() ? disabledReason() : null"
+          [attr.title]="disabledReason() ?? (collapsed() ? 'New session' : null)"
           [attr.aria-label]="collapsed() ? 'New session' : null"
-          (click)="onNewSession()"
+          (click)="onNewSession($event)"
         >
           {{ collapsed() ? '+' : 'New session' }}
         </button>
@@ -295,7 +296,7 @@ export class CanvasRailComponent {
   readonly collapseToggled = output<void>();
   readonly densityToggled = output<void>();
   readonly jumpTo = output<CompactRailState>();
-  readonly newSession = output<void>();
+  readonly newSession = output<HTMLElement>();
   readonly previousSessionsRequested = output<void>();
   readonly scrolled = output<number>();
   readonly railState = output<{ tabId: string; state: CompactRailState }>();
@@ -339,8 +340,9 @@ export class CanvasRailComponent {
   onCollapseToggle(): void {
     if (!this.autoCollapsed()) this.collapseToggled.emit();
   }
-  onNewSession(): void {
-    if (!this.disabledReason()) this.newSession.emit();
+  onNewSession(event: MouseEvent): void {
+    if (!this.disabledReason() && event.currentTarget instanceof HTMLElement)
+      this.newSession.emit(event.currentTarget);
   }
   onScroll(event: Event): void {
     if (event.target instanceof HTMLElement)

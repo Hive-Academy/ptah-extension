@@ -24,6 +24,9 @@ export const EXPECTED_RESOLVABLE = [
   FileEditRpcHandlers,
 ] as const;
 
+/** Phase-2 singleton; kept separate from the handler-class census. */
+export const HOST_ATTENTION_COORDINATOR_TOKEN = Symbol.for('HostAttentionCoordinator');
+
 /**
  * Optional port registered by `registerSharedRpcHandlers` (Batch 14).
  * Same symbol as `LANE_ROUTING_TOKENS.LANE_MODEL_LISTING`. Kept out of

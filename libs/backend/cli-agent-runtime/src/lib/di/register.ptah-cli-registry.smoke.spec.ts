@@ -50,6 +50,9 @@ function buildSmokeContainer(): DependencyContainer {
   const logger = createMockLogger();
 
   c.register(TOKENS.LOGGER, { useValue: logger });
+  c.register(PLATFORM_TOKENS.HOST_ATTENTION_NOTIFICATIONS, {
+    useValue: { present: jest.fn(), resolve: jest.fn(), isEligible: jest.fn(() => false), open: jest.fn(), dispose: jest.fn() },
+  });
 
   // Platform dependencies required by ConfigWatcher during registerSdkServices
   c.register(TOKENS.CONFIG_MANAGER, {

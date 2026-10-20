@@ -81,6 +81,9 @@ function composeHost(): Host {
 
   c.register(PLATFORM_TOKENS.DI_CONTAINER, { useValue: c });
   c.register(TOKENS.LOGGER, { useValue: logger });
+  c.register(PLATFORM_TOKENS.HOST_ATTENTION_NOTIFICATIONS, {
+    useValue: { present: jest.fn(), resolve: jest.fn(), isEligible: jest.fn(() => false), open: jest.fn(), dispose: jest.fn() },
+  });
   c.register(TOKENS.CONFIG_MANAGER, {
     useValue: {
       get: jest.fn(() => undefined),

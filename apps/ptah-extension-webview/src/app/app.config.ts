@@ -18,6 +18,8 @@ import {
   provideVSCodeService,
   provideMessageRouter,
   MESSAGE_HANDLERS,
+  ATTENTION_ACTION_DISPATCHER,
+  NOTIFICATION_FOCUS_ROUTER,
   ClaudeRpcService,
   AutopilotStateService,
   AppStateManager,
@@ -62,6 +64,10 @@ import { appRoutes } from './app.routes';
 import { SurfaceUpdateInbox } from '@ptah-extension/chat-routing';
 import {
   ChatMessageHandler,
+  ChatAttentionSourceService,
+  ChatAttentionActionDispatcherService,
+  ChatAttentionHostMessageHandler,
+  NotificationFocusCoordinator,
   AgentSessionAdoptionService,
   ChatTabRouteSync,
   AgentMonitorMessageHandler,
@@ -211,6 +217,9 @@ export const appConfig: ApplicationConfig = {
     ),
     provideVSCodeService(),
     provideMessageRouter(),
+    { provide: ATTENTION_ACTION_DISPATCHER, useExisting: ChatAttentionActionDispatcherService },
+    { provide: NOTIFICATION_FOCUS_ROUTER, useExisting: NotificationFocusCoordinator },
+    provideAppInitializer(() => { inject(ChatAttentionSourceService); }),
     {
       provide: SurfaceRouterService.generationRouteTabValidatorToken,
       useFactory: () => {
@@ -237,6 +246,7 @@ export const appConfig: ApplicationConfig = {
     },
     { provide: MESSAGE_HANDLERS, useExisting: AppStateManager, multi: true },
     { provide: MESSAGE_HANDLERS, useExisting: ChatMessageHandler, multi: true },
+    { provide: MESSAGE_HANDLERS, useExisting: ChatAttentionHostMessageHandler, multi: true },
     // Late adoption of agent-started child tabs (TASK_2026_584). The
     // `agentSession:opened` push above only reaches a webview that is running
     // when the child starts; this asks `chat:agent-sessions` at bootstrap and

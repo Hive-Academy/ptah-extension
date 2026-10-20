@@ -49,6 +49,11 @@
             "glob": "brand-icons-notices.txt",
             "input": "libs/frontend/ui/src/lib/native/brand-mark",
             "output": "."
+          },
+          {
+            "glob": "aurora-notices.txt",
+            "input": "libs/frontend/ui/src/lib/native/brand-mark",
+            "output": "."
           }
         ]
       },

@@ -81,6 +81,20 @@ function createParams(
 }
 
 describe('handleApprovalPrompt', () => {
+  it('resolves the in-app approval before formatting a response', async () => {
+    const service = createPermissionService();
+    const pending = handleApprovalPrompt(createRequest(), createParams(), {
+      permissionPromptService: service,
+      webviewManager: createWebviewManager(),
+      logger: createLogger(),
+    });
+    await Promise.resolve();
+    service.resolver?.({ id: 'req-123', decision: 'allow' });
+    await pending;
+    expect(service.setPendingResolver).toHaveBeenCalledWith(
+      'req-123', expect.any(Function), expect.objectContaining({ id: 'req-123' }),
+    );
+  });
   let logger: jest.Mocked<Logger>;
   let webviewManager: jest.Mocked<WebviewManager>;
   let permissionPromptService: FakePermissionService & PermissionPromptService;

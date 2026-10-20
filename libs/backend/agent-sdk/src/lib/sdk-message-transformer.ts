@@ -17,6 +17,7 @@ import type { IModelResolver } from './auth-env.port';
 import type { SessionLifecycleManager } from './helpers/session-lifecycle-manager';
 import type { LiveUsageTracker } from './helpers/live-usage-tracker';
 import type { SessionTurnStateRegistry } from './helpers/session-turn-state.registry';
+import { isFailureTerminalReason, type HostAttentionCoordinator } from './permission/host-attention-coordinator';
 import type { CompactionBoundaryGenerationRegistry } from './helpers/compaction-boundary-generation-registry';
 import { SubagentStopNotices } from './helpers/compaction/subagent-stop-notices';
 import {
@@ -133,6 +134,8 @@ export class SdkMessageTransformer implements TransformerState {
     private readonly compactionBoundaryRegistry: CompactionBoundaryGenerationRegistry,
     @inject(SDK_TOKENS.SDK_SUBAGENT_STOP_NOTICES)
     private readonly stopNotices: SubagentStopNotices,
+    @inject(SDK_TOKENS.HOST_ATTENTION_COORDINATOR, { isOptional: true })
+    private readonly hostAttention?: HostAttentionCoordinator,
   ) {
     this.helpers = {
       logger: this.logger,
@@ -162,6 +165,7 @@ export class SdkMessageTransformer implements TransformerState {
       this.turnState,
       this.compactionBoundaryRegistry,
       this.stopNotices,
+      this.hostAttention,
     );
   }
 
@@ -235,6 +239,9 @@ export class SdkMessageTransformer implements TransformerState {
       }
 
       if (isUserMessage(sdkMessage)) {
+        if (sessionId && !isReplayMessage(sdkMessage)) {
+          this.hostAttention?.releaseSessionFailure(sessionId);
+        }
         if (sdkMessage.isSynthetic === true) {
           this.logger.debug(
             '[SdkMessageTransformer] Skipping synthetic user message (skill/meta content)',
@@ -316,11 +323,17 @@ export class SdkMessageTransformer implements TransformerState {
       }
 
       if (isResultMessage(sdkMessage)) {
-        return this.resultTransformer.transform(
+        const events = this.resultTransformer.transform(
           sdkMessage,
           this.helpers,
           sessionId,
         );
+        const turn = sessionId ? this.turnState.get(sessionId) : undefined;
+        if (sessionId && turn &&
+          (turn.phase === 'failed' || isFailureTerminalReason(turn.terminalReason))) {
+          void this.hostAttention?.presentSessionFailure(sessionId, Date.now());
+        }
+        return events;
       }
 
       if (isStreamEvent(sdkMessage)) {

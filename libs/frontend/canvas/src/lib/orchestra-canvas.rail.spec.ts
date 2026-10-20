@@ -48,6 +48,7 @@ import { CanvasLayoutPersistenceService } from './canvas-layout-persistence.serv
 import { CanvasDetailService } from './canvas-detail/canvas-detail.service';
 import { CanvasRailComponent } from './canvas-rail/canvas-rail.component';
 import { RUNNING_CAP_MESSAGE } from './canvas-running-cap';
+import type { CanvasBoardNotice } from './canvas-rail/canvas-rail-board.component';
 const { OrchestraCanvasComponent } =
   require('./orchestra-canvas.component') as {
     OrchestraCanvasComponent: typeof OrchestraCanvasType;
@@ -83,14 +84,22 @@ const tile = (tabId: string, order: number) => ({
   template: `@if (visible()) {
     <ptah-canvas-rail
       [canStart]="canStart()"
-      (newSession)="newSessionRequested.emit()"
+      (newSession)="newSessionRequested.emit($event)"
     />
     @if (orderedTiles().length === 0) {
       <section data-testid="canvas-rail-empty-board">
-        <button type="button" (click)="newSessionRequested.emit()">
+        <button #hero type="button" (click)="newSessionRequested.emit(hero)">
           New session
         </button>
       </section>
+    }
+    @if (notice(); as current) {
+      <div data-testid="test-board-notice">
+        {{ current.text
+        }}<button type="button" (click)="noticeDismissed.emit(current.key)">
+          Dismiss
+        </button>
+      </div>
     }
     <div data-rail-card data-tab-id="a">
       <div aria-hidden="true" style="display: none">
@@ -111,7 +120,9 @@ const tile = (tabId: string, order: number) => ({
 class RailStub implements OnDestroy {
   readonly workspacePath = input.required<string>();
   readonly visible = input.required<boolean>();
-  readonly newSessionRequested = output<void>();
+  readonly newSessionRequested = output<HTMLElement>();
+  readonly notice = input<CanvasBoardNotice | null>(null);
+  readonly noticeDismissed = output<string>();
   readonly draft = signal(savedDraft());
   readonly canStart = canStart;
   readonly orderedTiles = () => tiles();
@@ -144,10 +155,12 @@ class PopoverStub {
   readonly placement = input('');
   readonly hasBackdrop = input(false);
   readonly backdropClass = input('');
+  readonly anchor = input<HTMLElement | null>(null);
   readonly closed = output<void>();
 }
 
 describe('OrchestraCanvasComponent Rail integration', () => {
+  const surfaceActive = signal(true);
   const path = signal<string | null>('/a');
   const paths = signal<readonly string[]>(['/a']);
   const writeFailed = signal(false);
@@ -175,11 +188,17 @@ describe('OrchestraCanvasComponent Rail integration', () => {
     removeTileOnly: jest.fn(),
     removeTileFromAnyWorkspace: jest.fn(),
   };
-  const persistence = { writeFailed, readOnlyPaths, flush: jest.fn() };
+  const persistence = {
+    writeFailed,
+    writeFailureCount: signal(0),
+    readOnlyPaths,
+    flush: jest.fn(),
+  };
   let fixture: ReturnType<typeof TestBed.createComponent<OrchestraCanvasType>>;
 
   beforeEach(() => {
     path.set('/a');
+    surfaceActive.set(true);
     paths.set(['/a']);
     modes.clear();
     savedDraft.set('');
@@ -197,7 +216,7 @@ describe('OrchestraCanvasComponent Rail integration', () => {
     TestBed.configureTestingModule({
       imports: [OrchestraCanvasComponent],
       providers: [
-        { provide: SURFACE_ACTIVE, useValue: signal(true) },
+        { provide: SURFACE_ACTIVE, useValue: surfaceActive },
         {
           provide: TabManagerService,
           useValue: {
@@ -274,12 +293,12 @@ describe('OrchestraCanvasComponent Rail integration', () => {
     find<HTMLButtonElement>('ptah-canvas-rail footer button');
   const createButton = () =>
     [
-      ...fixture.nativeElement.querySelectorAll<HTMLButtonElement>(
+      ...(fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>(
         '[data-testid="canvas-new-session-popover"] button',
       ),
     ].find((button) => button.textContent?.trim() === 'Create');
   const typeName = async (value: string) => {
-    const field = find<HTMLInputElement>('input[aria-label="Session name"]');
+    const field = find<HTMLInputElement>('input#canvas-session-name');
     if (!field) throw new Error('Session name input is not rendered');
     field.value = value;
     field.dispatchEvent(new Event('input'));
@@ -320,7 +339,9 @@ describe('OrchestraCanvasComponent Rail integration', () => {
     footerButton()?.click();
     fixture.detectChanges();
     expect(popoverOpen()).toBe(true);
-    expect(find('input[aria-label="Session name"]')).not.toBeNull();
+    expect(popovers()[0]?.anchor()).toBe(footerButton());
+    expect(find('label[for="canvas-session-name"]')?.textContent).toContain('Session name (optional)');
+    expect(find('input#canvas-session-name')?.hasAttribute('aria-label')).toBe(false);
     expect(addTile).not.toHaveBeenCalled();
     expect(popovers()).toHaveLength(1);
   });
@@ -336,7 +357,26 @@ describe('OrchestraCanvasComponent Rail integration', () => {
     fixture.detectChanges();
     expect(popovers()).toHaveLength(1);
     expect(popoverOpen()).toBe(true);
+    expect(popovers()[0]?.anchor()).toBe(trigger);
     expect(addTile).not.toHaveBeenCalled();
+  });
+
+  it('closes the new-session popover once when Escape is pressed on its external anchor', () => {
+    tiles.set([]);
+    fixture.detectChanges();
+    const trigger = find<HTMLButtonElement>('[data-testid="canvas-rail-empty-board"] button')!;
+    trigger.click();
+    fixture.detectChanges();
+    expect(popoverOpen()).toBe(true);
+    const focus = jest.spyOn(trigger, 'focus');
+    trigger.focus();
+    focus.mockClear();
+    trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    fixture.detectChanges();
+    expect(popoverOpen()).toBe(false);
+    expect(focus).toHaveBeenCalledTimes(1);
+    trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(focus).toHaveBeenCalledTimes(1);
   });
 
   it('keeps a typed name, then focuses and anchors the new Rail tile', async () => {
@@ -375,9 +415,9 @@ describe('OrchestraCanvasComponent Rail integration', () => {
     expect(addTile).not.toHaveBeenCalled();
     expect(visibleBoard()?.sessionCreated).not.toHaveBeenCalled();
     expect(popoverOpen()).toBe(false);
-    expect(
-      find('[data-testid="canvas-dock"] [role="status"]')?.textContent,
-    ).toContain(RUNNING_CAP_MESSAGE);
+    expect(find('[data-testid="test-board-notice"]')?.textContent).toContain(
+      RUNNING_CAP_MESSAGE,
+    );
   });
 
   it('a null add leaves no tile, closes the popover and announces the tile bound', async () => {
@@ -391,9 +431,9 @@ describe('OrchestraCanvasComponent Rail integration', () => {
     expect(visibleBoard()?.sessionCreated).not.toHaveBeenCalled();
     expect(focusTile).not.toHaveBeenCalled();
     expect(popoverOpen()).toBe(false);
-    expect(
-      find('[data-testid="canvas-dock"] [role="status"]')?.textContent,
-    ).toContain('Close one to add another');
+    expect(find('[data-testid="test-board-notice"]')?.textContent).toContain(
+      'Close one to add another',
+    );
   });
 
   it('announces the tile bound when an external new session request cannot add a tile', () => {
@@ -402,15 +442,18 @@ describe('OrchestraCanvasComponent Rail integration', () => {
     newSessionRequest.set('Gamma');
     fixture.detectChanges();
     expect(addTile).toHaveBeenCalledWith('Gamma');
-    expect(find('[data-testid="canvas-dock"] [role="status"]')?.textContent)
-      .toContain('Close one to add another');
+    expect(find('[data-testid="test-board-notice"]')?.textContent).toContain(
+      'Close one to add another',
+    );
   });
 
   it('leaves the header message empty when an external new session request succeeds', () => {
     newSessionRequest.set('Gamma');
     fixture.detectChanges();
     expect(addTile).toHaveBeenCalledWith('Gamma');
-    expect(find('[data-testid="canvas-dock"] [role="status"]')?.textContent?.trim() ?? '').toBe('');
+    expect(
+      find('[data-testid="test-board-notice"]')?.textContent?.trim() ?? '',
+    ).toBe('');
   });
 
   it.each([
@@ -430,9 +473,9 @@ describe('OrchestraCanvasComponent Rail integration', () => {
       expect(popoverOpen()).toBe(false);
       expect(addTile).not.toHaveBeenCalled();
       expect(visibleBoard()?.sessionCreated).not.toHaveBeenCalled();
-      expect(
-        find('[data-testid="canvas-dock"] [role="status"]')?.textContent,
-      ).toContain(reason);
+      expect(find('[data-testid="test-board-notice"]')?.textContent).toContain(
+        reason,
+      );
     },
   );
 
@@ -448,8 +491,28 @@ describe('OrchestraCanvasComponent Rail integration', () => {
     fixture.detectChanges();
     await fixture.whenStable();
     expect(
-      find<HTMLInputElement>('input[aria-label="Session name"]')?.value,
+      find<HTMLInputElement>('input#canvas-session-name')?.value,
     ).toBe('');
+  });
+
+  it('returns focus to the invoking footer on cancel and failed create', () => {
+    const footer = footerButton();
+    expect(footer).not.toBeNull();
+    footer?.focus();
+    footer?.click();
+    fixture.detectChanges();
+    find<HTMLInputElement>('input#canvas-session-name')?.focus();
+    popovers()[0]?.closed.emit();
+    fixture.detectChanges();
+    expect(document.activeElement).toBe(footer);
+
+    footer?.click();
+    fixture.detectChanges();
+    find<HTMLInputElement>('input#canvas-session-name')?.focus();
+    addTile.mockReturnValue(null);
+    createButton()?.click();
+    fixture.detectChanges();
+    expect(document.activeElement).toBe(footer);
   });
 
   it('reaching the tile bound closes the open popover; a later tile close does not reopen it', async () => {
@@ -458,15 +521,15 @@ describe('OrchestraCanvasComponent Rail integration', () => {
     await typeName('Epsilon');
     expect(popoverOpen()).toBe(true);
     const statusBefore =
-      find('[data-testid="canvas-dock"] [role="status"]')?.textContent ?? null;
+      find('[data-testid="test-board-notice"]')?.textContent ?? null;
     // A queued or adopted session takes the last tile while the popover is open.
     canAddTile.set(false);
     fixture.detectChanges();
     expect(popovers()).toHaveLength(0);
     // Nothing extra is announced for the silent close.
-    expect(
-      find('[data-testid="canvas-dock"] [role="status"]')?.textContent ?? null,
-    ).toBe(statusBefore);
+    expect(find('[data-testid="test-board-notice"]')?.textContent ?? null).toBe(
+      statusBefore,
+    );
     // A tile is closed and the bound frees up again.
     canAddTile.set(true);
     fixture.detectChanges();
@@ -474,7 +537,7 @@ describe('OrchestraCanvasComponent Rail integration', () => {
     expect(popovers()).toHaveLength(1);
     expect(popoverOpen()).toBe(false);
     expect(
-      find<HTMLInputElement>('input[aria-label="Session name"]')?.value,
+      find<HTMLInputElement>('input#canvas-session-name')?.value,
     ).toBe('');
     expect(addTile).not.toHaveBeenCalled();
   });
@@ -503,15 +566,42 @@ describe('OrchestraCanvasComponent Rail integration', () => {
     expect(document.activeElement).toBe(visible);
   });
 
-  it('shows persistence notes', () => {
-    writeFailed.set(true);
-    readOnlyPaths.set(new Set(['/a']));
+  it('ranks notices and resets dismissal on source refresh and workspace change', () => {
+    readOnlyPaths.set(new Set(['/a', '/b']));
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain(
-      'Board layout could not be saved',
+    expect(find('[data-testid="test-board-notice"]')?.textContent).toContain(
+      'newer Ptah',
     );
-    expect(fixture.nativeElement.textContent).toContain(
-      'saved by a newer Ptah version',
+    writeFailed.set(true);
+    fixture.detectChanges();
+    expect(find('[data-testid="test-board-notice"]')?.textContent).toContain(
+      'could not be saved',
+    );
+    find('[data-testid="test-board-notice"] button')?.click();
+    fixture.detectChanges();
+    expect(find('[data-testid="test-board-notice"]')).toBeNull();
+    surfaceActive.set(false);
+    fixture.detectChanges();
+    surfaceActive.set(true);
+    fixture.detectChanges();
+    expect(find('[data-testid="test-board-notice"]')?.textContent).toContain(
+      'could not be saved',
+    );
+    writeFailed.set(false);
+    fixture.detectChanges();
+    expect(find('[data-testid="test-board-notice"]')?.textContent).toContain(
+      'newer Ptah',
+    );
+    writeFailed.set(true);
+    fixture.detectChanges();
+    expect(find('[data-testid="test-board-notice"]')?.textContent).toContain(
+      'could not be saved',
+    );
+    path.set('/b');
+    paths.set(['/a', '/b']);
+    fixture.detectChanges();
+    expect(find('[data-testid="test-board-notice"]')?.textContent).toContain(
+      'could not be saved',
     );
   });
 

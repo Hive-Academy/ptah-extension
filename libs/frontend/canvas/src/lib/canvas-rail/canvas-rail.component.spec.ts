@@ -68,6 +68,15 @@ describe('CanvasRailComponent', () => {
     fixture.componentRef.setInput('canAdd', false); fixture.detectChanges();
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('The board holds 20 sessions. Close one to add another.');
   });
+  it('emits the actual secondary footer button as the popover anchor', () => {
+    const fixture = mount();
+    const emitted = jest.fn();
+    fixture.componentInstance.newSession.subscribe(emitted);
+    const button = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('[data-testid="canvas-footer-new-session"]')!;
+    expect(button.classList).toContain('btn-outline');
+    button.click();
+    expect(emitted).toHaveBeenCalledWith(button);
+  });
   it('opens Previous sessions in both footer forms even when New session is capped', () => {
     const fixture = mount();
     const requested = jest.fn();

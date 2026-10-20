@@ -18,6 +18,7 @@ import {
   type ISdkPermissionHandler,
   type PermissionLevel,
   type AskUserQuestionRequest,
+  attentionRequestKey,
 } from '@ptah-extension/shared';
 import {
   CanUseTool,
@@ -51,6 +52,7 @@ import type {
   UnattendedSessionPolicyRegistry,
 } from './permission/unattended-session-policy.registry';
 import { SDK_TOKENS } from './di/tokens';
+import type { HostAttentionCoordinator } from './permission/host-attention-coordinator';
 
 /** Tools of Ptah's own MCP server, allowed for unattended sessions (R1). */
 const PTAH_MCP_TOOL_PREFIX = 'mcp__ptah__';
@@ -148,6 +150,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
   private _permissionLevel: PermissionLevel = 'ask';
 
   private pendingRequests = new Map<string, PendingRequest>();
+  private readonly attentionGenerations = new Map<string, { kind: 'permission' | 'lane-permission'; timestamp: number }>();
   private readonly ruleStore: PermissionRuleStore;
   private readonly lifecycleListeners =
     new Set<PermissionPromptLifecycleListener>();
@@ -179,6 +182,8 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       isOptional: true,
     })
     private readonly unattendedPolicies?: UnattendedSessionPolicyRegistry,
+    @inject(SDK_TOKENS.HOST_ATTENTION_COORDINATOR, { isOptional: true })
+    private readonly hostAttention?: Pick<HostAttentionCoordinator, 'resolve'>,
   ) {
     this.ruleStore = new PermissionRuleStore(this.logger);
 
@@ -190,6 +195,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       this.webviewManager,
       this.logger,
       questionRegistry,
+      this.hostAttention,
     );
     this.exitPlanMode = new ExitPlanModeService(
       this.webviewManager,
@@ -254,6 +260,10 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     payload: PermissionRequest,
     cliAgentId?: string,
   ): void {
+    this.attentionGenerations.set(payload.id, {
+      kind: cliAgentId ? 'lane-permission' : 'permission',
+      timestamp: payload.timestamp,
+    });
     if (cliAgentId) {
       this.sendCliAgentPermissionRequest(payload, cliAgentId);
       return;
@@ -313,6 +323,13 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           });
         }
       });
+  }
+
+  private resolveHostAttention(requestId: string): void {
+    const attention = this.attentionGenerations.get(requestId);
+    if (!attention) return;
+    this.attentionGenerations.delete(requestId);
+    this.hostAttention?.resolve(attentionRequestKey(attention.kind, requestId), attention.timestamp);
   }
 
   private sendCliAgentPermissionRequest(
@@ -1209,6 +1226,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
   ): Promise<InternalPermissionResponse | null> {
     return new Promise<InternalPermissionResponse | null>((resolve) => {
       if (signal?.aborted) {
+        this.resolveHostAttention(requestId);
         this.pendingRequests.delete(requestId);
         this.pendingRequestContext.delete(requestId);
         resolve(null);
@@ -1225,6 +1243,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
 
       const onAbort = () => {
         clearTimer();
+        this.resolveHostAttention(requestId);
         this.pendingRequests.delete(requestId);
         this.pendingRequestContext.delete(requestId);
         resolve(null);
@@ -1235,6 +1254,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         resolve: (response) => {
           clearTimer();
           signal?.removeEventListener('abort', onAbort);
+          this.resolveHostAttention(requestId);
           resolve(response);
         },
         sessionId,

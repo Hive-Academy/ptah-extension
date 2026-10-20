@@ -1,4 +1,4 @@
-import { inject, Injectable } from '@angular/core';
+import { effect, inject, Injectable } from '@angular/core';
 import {
   AgentMonitorStore,
   PermissionHandlerService,
@@ -17,6 +17,14 @@ export class AgentPermissionResponder {
   private readonly permissionHandler = inject(PermissionHandlerService);
   private readonly answeredRequestIds = new Set<string>();
 
+  constructor() {
+    effect(() => {
+      const pending = new Set(this.agentStore.pendingPermissions().flatMap(agent =>
+        agent.permissionQueue.map(request => request.requestId)));
+      for (const id of this.answeredRequestIds) if (!pending.has(id)) this.answeredRequestIds.delete(id);
+    });
+  }
+
   respondLane(
     agentId: string,
     requestId: string,
@@ -24,6 +32,9 @@ export class AgentPermissionResponder {
     reason?: string,
   ): boolean {
     if (this.answeredRequestIds.has(requestId)) return false;
+    if (!this.agentStore.pendingPermissions().some(agent =>
+      agent.agentId === agentId && agent.permissionQueue.some(request => request.requestId === requestId)
+    )) return false;
     this.answeredRequestIds.add(requestId);
     try {
       this.vscode.postMessage({
@@ -50,8 +61,9 @@ export class AgentPermissionResponder {
     request: PermissionRequest,
     decision: PermissionResponse['decision'],
     tabId: string,
-  ): void {
-    this.permissionHandler.handlePermissionResponse(
+  ): boolean {
+    if (!this.permissionHandler.permissionRequests().some(pending => pending.id === request.id)) return false;
+    return this.permissionHandler.handlePermissionResponse(
       { id: request.id, decision },
       tabId,
     );

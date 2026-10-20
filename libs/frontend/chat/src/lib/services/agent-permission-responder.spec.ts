@@ -29,10 +29,13 @@ describe('AgentPermissionResponder', () => {
     TestBed.configureTestingModule({
       providers: [
         { provide: VSCodeService, useValue: { postMessage } },
-        { provide: AgentMonitorStore, useValue: { clearPermission } },
+        { provide: AgentMonitorStore, useValue: {
+          clearPermission,
+          pendingPermissions: () => [{ agentId: 'agent', permissionQueue: queue }],
+        } },
         {
           provide: PermissionHandlerService,
-          useValue: { handlePermissionResponse },
+          useValue: { handlePermissionResponse, permissionRequests: () => [{ id: 'session-perm' }] },
         },
       ],
     });
@@ -69,6 +72,12 @@ describe('AgentPermissionResponder', () => {
     expect(clearPermission).toHaveBeenCalledTimes(1);
   });
 
+  it('refuses a lane request withdrawn before an answer', () => {
+    queue.splice(0, queue.length);
+    expect(responder.respondLane('agent', 'first', 'allow')).toBe(false);
+    expect(postMessage).not.toHaveBeenCalled();
+  });
+
   it('forwards the deciding tab for session permissions', () => {
     const request = { id: 'session-perm' } as PermissionRequest;
     responder.respondSession(request, 'allow', 'tab-2');
@@ -76,5 +85,11 @@ describe('AgentPermissionResponder', () => {
       { id: 'session-perm', decision: 'allow' },
       'tab-2',
     );
+  });
+
+  it('refuses a session permission withdrawn before dispatch', () => {
+    const request = { id: 'withdrawn' } as PermissionRequest;
+    expect(responder.respondSession(request, 'allow', 'tab-2')).toBe(false);
+    expect(handlePermissionResponse).not.toHaveBeenCalled();
   });
 });

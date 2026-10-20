@@ -60,7 +60,10 @@ import {
 import {
   NotificationAnnouncerComponent,
   NotificationCenterComponent,
+  NotificationSnackbarComponent,
+  NotificationSoundService,
 } from '@ptah-extension/notification-center';
+import { ChatFailedTurnAttentionService } from '../../services/chat-failed-turn-attention.service';
 import { NotificationFocusCoordinator } from '../../services/notification-focus-coordinator.service';
 import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-ender.service';
 
@@ -79,6 +82,7 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
     ThemeToggleComponent,
     LucideAngularModule,
     NotificationCenterComponent,
+    NotificationSnackbarComponent,
     NotificationAnnouncerComponent,
   ],
   providers: [
@@ -298,9 +302,13 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
             [showSetupHub]="!layout.hasWorkspaceFolders()"
           />
           <ptah-theme-toggle />
-          <ptah-notification-center />
+          <ptah-notification-center #notificationCenter />
           <ptah-notification-announcer />
         </div>
+        <ptah-notification-snackbar
+          [panelOpen]="notificationPanelOpen()"
+          (openNotifications)="openNotifications()"
+        />
       </div>
 
       <!-- Content: welcome, pre-workspace configuration, or workspace layout. -->
@@ -389,6 +397,22 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
   `,
 })
 export class ElectronShellComponent {
+  protected readonly notificationPanelOpen = signal(false);
+  private readonly _failedTurns = inject(ChatFailedTurnAttentionService);
+  private readonly _notificationSound = inject(NotificationSoundService);
+  private readonly pendingNotificationOpen = signal(false);
+  private readonly notificationCenter = viewChild(NotificationCenterComponent);
+
+  protected openNotifications(): void {
+    const bell = this.notificationCenter();
+    if (bell) {
+      bell.openPanel();
+      return;
+    }
+    this.pendingNotificationOpen.set(true);
+    this.appState.setCurrentView('chat');
+  }
+
   protected readonly layout = inject(ElectronLayoutService);
   private readonly vscodeService = inject(VSCodeService);
   protected readonly appState = inject(AppStateManager);
@@ -419,6 +443,15 @@ export class ElectronShellComponent {
   readonly dockLoadFailed = signal(false);
 
   constructor() {
+    effect(() => {
+      const bell = this.notificationCenter();
+      if (!bell) return;
+      this.notificationPanelOpen.set(bell.panelOpen());
+      if (this.pendingNotificationOpen()) {
+        this.pendingNotificationOpen.set(false);
+        bell.openPanel();
+      }
+    });
     effect(() => {
       this.appState.currentView();
       this.appState.openConfigurationSurface();

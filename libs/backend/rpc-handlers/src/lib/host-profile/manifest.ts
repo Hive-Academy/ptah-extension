@@ -25,6 +25,7 @@ import type { RpcMethodName } from '@ptah-extension/shared';
 
 import type { Capability } from './capabilities';
 import {
+  AttentionRpcHandlers,
   AgentRpcHandlers,
   AgentOutcomeRpcHandlers,
   AnalyticsRpcHandlers,
@@ -323,6 +324,12 @@ export const RPC_HANDLER_MANIFEST = [
     methods: SessionOrganizationRpcHandlers.METHODS,
     requires: [],
     handler: SessionOrganizationRpcHandlers,
+  },
+  {
+    key: 'attention',
+    methods: AttentionRpcHandlers.METHODS,
+    requires: [],
+    handler: AttentionRpcHandlers,
   },
   {
     key: 'settings',

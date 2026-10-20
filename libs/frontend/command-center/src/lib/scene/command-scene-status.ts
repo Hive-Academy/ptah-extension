@@ -158,23 +158,4 @@ export function drawVoiceRing(
   );
   context.stroke();
   context.setLineDash([]);
-  if (voice === 'speaking' && !snapshot.reducedMotion) {
-    const level = Math.max(0, Math.min(1, voiceSnapshot.outputLevel));
-    context.strokeStyle = snapshot.inks.need;
-    context.lineWidth = 1.5;
-    for (let index = 0; index < 2; index++) {
-      const progress = (time * 0.00045 + index * 0.5) % 1;
-      context.globalAlpha = (1 - progress) * (0.08 + level * 0.18);
-      context.beginPath();
-      context.arc(
-        node.x,
-        node.y,
-        node.radius + 20 + progress * 34,
-        0,
-        Math.PI * 2,
-      );
-      context.stroke();
-    }
-    context.globalAlpha = 1;
-  }
 }
