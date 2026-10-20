@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en" data-theme="anubis">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Boot v2 — console card with beam progress</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  .page { padding-bottom: 120px; }
+  .card { width: min(100%, 460px); border-radius: 30px; padding: 28px; display: grid; gap: 22px; }
+  .top { display: flex; align-items: center; gap: 16px; }
+  .top .medal { width: 68px; height: 68px; }
+  .top img { width: 42px; height: 42px; object-fit: contain; }
+  .top h1 { font-family: var(--display); font-size: 28px; line-height: 1; }
+  .top p { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .top .pct { margin-left: auto; font: 700 30px var(--font); font-variant-numeric: tabular-nums; }
+  .top .pct small { font-size: 14px; color: var(--muted); }
+  .bar { position: relative; height: 10px; border-radius: 99px; background: var(--track); overflow: hidden; }
+  .bar i { position: absolute; inset: 0 auto 0 0; width: calc(var(--p) * 100%); border-radius: inherit; background: linear-gradient(90deg, var(--gold-b), var(--teal) 70%, var(--lapis)); box-shadow: 0 0 18px var(--gold-b); transition: width 1s var(--ease); }
+  .bar i::after { content: ''; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 30%, rgba(255,255,255,.7) 50%, transparent 70%); background-size: 200% 100%; animation: sheen 1.8s linear infinite; }
+  @keyframes sheen { from { background-position: 200% 0; } to { background-position: -100% 0; } }
+  .list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+  .list li { display: flex; align-items: center; gap: 12px; padding: 9px 12px; border-radius: 14px; color: var(--muted); font-size: 14px; transition: background .3s, color .3s; }
+  .list .mk { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 14px; box-shadow: inset 0 0 0 1px var(--glass-brd); flex: none; }
+  .list li.done { color: var(--text); }
+  .list li.done .mk { color: var(--on-gold); background: var(--teal); box-shadow: 0 0 14px -2px var(--teal); }
+  .list li.now { color: var(--text); background: color-mix(in srgb, var(--gold-b) 13%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold-b) 35%, transparent); }
+  .list li.now .mk { box-shadow: inset 0 0 0 2px var(--gold-b); color: var(--gold-t); }
+  .list li.now .mk::after { content: ''; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--gold-b); border-top-color: transparent; animation: rot .9s linear infinite; }
+  @keyframes rot { to { transform: rotate(360deg); } }
+  .list .e { margin-left: auto; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="aurora brand"><span class="lights"></span></div>
+<main class="page">
+  <section class="glass beam card reveal" aria-label="Starting Ptah"><span class="aurora in-card"><span class="lights"></span></span>
+    <div class="top"><span class="medal pulse"><img src="ptah-icon.png" alt="Ptah"></span><div><h1 class="gold-text">Ptah</h1><p id="lab" role="status" aria-live="polite">Starting up…</p></div><div class="pct" id="pct">0<small>%</small></div></div>
+    <div class="bar" role="progressbar" aria-label="Boot progress" aria-valuemin="0" aria-valuemax="100" id="bar"><i></i></div>
+    <ul class="list" id="list"></ul>
+  </section>
+</main>
+<script src="kit.js"></script>
+<script>
+  var STEPS = [['starting', 'Starting up'], ['database', 'Opening the database'], ['harness', 'Syncing the agent harness'], ['sessions', 'Importing sessions'], ['index', 'Indexing the workspace']];
+  var i = Ptah.i, L = document.getElementById('list'), bar = document.getElementById('bar'), cur = 0, t0 = Date.now(), pinned = false;
+  var reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  L.innerHTML = STEPS.map(function (s) { return '<li><span class="mk"></span><span>' + s[1] + '</span><span class="e"></span></li>'; }).join('');
+  function show(n) {
+    cur = n; var p = (n + .5) / STEPS.length;
+    L.querySelectorAll('li').forEach(function (e, k) { e.className = k < n ? 'done' : k === n ? 'now' : ''; e.querySelector('.mk').innerHTML = k < n ? i('check') : ''; e.querySelector('.e').textContent = k < n ? 'done' : ''; });
+    bar.style.setProperty('--p', p); bar.setAttribute('aria-valuenow', Math.round(p * 100));
+    document.getElementById('pct').innerHTML = Math.round(p * 100) + '<small>%</small>';
+    document.getElementById('lab').textContent = STEPS[n][1] + '…';
+  }
+  if (!reduce) setInterval(function () { if (!pinned) show((cur + 1) % STEPS.length); }, 2200);
+  Ptah.dev({ states: [['auto', 'Auto'], ['0', 'Start'], ['1', 'Database'], ['2', 'Harness'], ['3', 'Sessions'], ['4', 'Index']], current: 'auto', on: function (k) { pinned = k !== 'auto'; show(pinned ? +k : cur); } });
+  show(reduce ? 2 : 0);
+</script>
+</body>
+</html>

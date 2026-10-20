@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en" data-theme="anubis">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Setup card v2 — step track pillars</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  .stack { display: grid; gap: 14px; }
+  .newsess { justify-self: start; }
+  .card { border-radius: var(--r-xl); padding: 0; }
+  .banner { padding: 24px 24px 20px; display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
+  .banner h2 { font-family: var(--display); font-size: 34px; line-height: 1.05; margin: 6px 0 8px; }
+  .banner .sub { color: var(--muted); font-size: 14px; max-width: 36ch; }
+  .meter { text-align: right; flex: none; }
+  .meter .big { font-size: 44px; font-weight: 700; line-height: 1; }
+  .meter .big small { font-size: 18px; color: var(--muted); font-weight: 600; }
+  .meter .bar { width: 120px; height: 6px; margin: 10px 0 0 auto; border-radius: 99px; background: var(--track); overflow: hidden; }
+  .meter .bar i { display: block; height: 100%; width: calc(var(--p) * 100%); border-radius: inherit; background: linear-gradient(90deg, var(--gold-b), var(--teal)); box-shadow: 0 0 12px var(--gold-b); transition: width .8s var(--ease); }
+  .meter .lbl { font-size: 12px; color: var(--muted); font-weight: 600; margin-top: 6px; }
+  /* step track: medallions on a glowing rail */
+  .track { position: relative; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 0 14px 14px; }
+  .track::before { content: ''; position: absolute; z-index: 1; left: 16.6%; right: 16.6%; top: 46px; height: 2px; background: linear-gradient(90deg, var(--gold-b) calc(var(--p) * 100%), var(--track) 0); }
+  .pillar { position: relative; z-index: 2; border-radius: var(--r-lg); padding: 18px 12px 14px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 4px; background: color-mix(in srgb, var(--b1) 28%, transparent); box-shadow: inset 0 0 0 1px var(--glass-brd), inset 0 1px 0 var(--glass-hi); overflow: hidden; transition: transform .3s var(--ease), box-shadow .3s; }
+  .pillar:hover { transform: translateY(-4px); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold-b) 60%, transparent), 0 14px 30px -12px color-mix(in srgb, var(--gold-b) 50%, transparent); }
+  .pillar .medal { margin-bottom: 8px; }
+  .pillar .badge { position: absolute; top: 10px; right: 10px; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; color: var(--ok); background: color-mix(in srgb, var(--ok) 16%, transparent); box-shadow: inset 0 0 0 1px var(--ok); }
+  .pillar h3 { font-size: 16px; font-weight: 650; }
+  .pillar .st { font-size: 12.5px; color: var(--muted); min-height: 38px; }
+  .pillar.ok .st { color: var(--ok); font-weight: 600; }
+  .pillar .btn { width: 100%; margin-top: 8px; min-height: 38px; font-size: 13px; padding: 0 10px; }
+  .tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px 14px; border-top: 1px solid var(--glass-brd); background: color-mix(in srgb, var(--b1) 22%, transparent); }
+  .tools > span { font-size: 11px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin-right: 4px; }
+  .tools .btn { min-height: 34px; font-size: 13px; padding: 0 14px; border-radius: 11px; }
+  @media (max-width: 520px) { .track { grid-template-columns: 1fr; } .track::before { display: none; } .banner { flex-direction: column; } .meter { text-align: left; } .meter .bar { margin-left: 0; } }
+</style>
+</head>
+<body>
+<div class="aurora brand"><span class="lights"></span></div>
+<main class="page"><div class="col stack" id="root"></div></main>
+<script src="kit.js"></script>
+<script>
+  var root = document.getElementById('root');
+  function render(n) {
+    var s = Ptah.setup(n), i = Ptah.i, p = s.n / 2;
+    var pillars = s.items.map(function (it) {
+      var primary = it.k === 'scan' || !it.ok;
+      return '<div class="pillar spot ' + (it.ok ? 'ok' : '') + '"><span class="medal lg ' + it.m + '">' + i(it.i) + '</span>' +
+        (it.ok ? '<span class="badge" aria-hidden="true">' + i('check') + '</span>' : '') +
+        '<h3>' + it.name + '</h3><p class="st">' + it.status + '</p>' +
+        '<button class="btn ' + (primary ? 'btn-fill' : 'btn-glow') + '" type="button">' + it.btn + '</button></div>';
+    }).join('');
+    root.innerHTML =
+      '<button class="btn btn-fill newsess reveal" type="button">' + i('plus') + 'New session</button>' +
+      '<section class="glass card beam reveal" style="--d:1" aria-labelledby="t"><span class="aurora in-card"><span class="lights"></span></span>' +
+        '<div class="banner"><div><p class="eyebrow">Before you begin</p><h2 id="t">' + s.title + '</h2><p class="sub">' + s.sub + '</p></div>' +
+        '<div class="meter" style="--p:' + p + '"><div class="big">' + s.n + '<small> / 2</small></div><div class="bar" role="img" aria-label="' + s.badge + '"><i></i></div><div class="lbl">' + s.badge + '</div></div></div>' +
+        '<div class="track" style="--p:' + p + '">' + pillars + '</div>' +
+        '<div class="tools" role="group" aria-label="Setup tools"><span>Setup tools</span><button class="btn btn-glow" type="button">' + i('sparkles') + 'Generate agents</button><button class="btn btn-glow" type="button">' + i('shield') + 'Project guidance</button></div>' +
+      '</section>';
+  }
+  Ptah.dev({ states: [['0', '0 of 2'], ['1', '1 of 2'], ['2', 'All ready']], current: '1', on: render, widths: true });
+</script>
+</body>
+</html>

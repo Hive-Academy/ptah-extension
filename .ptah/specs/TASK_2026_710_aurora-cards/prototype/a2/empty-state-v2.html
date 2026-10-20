@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en" data-theme="anubis">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Empty state v2 — segmented glass + featured bento</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  .stack { display: grid; gap: 20px; }
+  .head { display: flex; align-items: center; gap: 14px; }
+  .head .medal { width: 56px; height: 56px; }
+  .head img { width: 34px; height: 34px; object-fit: contain; }
+  .head h1 { font-size: 32px; line-height: 1; }
+  .head p { color: var(--muted); font-size: 12.5px; letter-spacing: .08em; margin-top: 4px; }
+  .seg { position: relative; display: grid; grid-template-columns: repeat(6, 1fr); padding: 5px; border-radius: 20px; gap: 0; }
+  .seg .thumb { position: absolute; z-index: 1; top: 5px; bottom: 5px; left: 5px; width: calc((100% - 10px) / 6); border-radius: 15px; transform: translateX(calc(var(--k, 0) * 100%)); transition: transform .45s var(--ease); background: linear-gradient(135deg, color-mix(in srgb, var(--gold-b) 38%, transparent), color-mix(in srgb, var(--teal) 22%, transparent)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold-b) 60%, transparent), 0 0 24px -4px color-mix(in srgb, var(--gold-b) 60%, transparent), inset 0 1px 0 var(--glass-hi); }
+  .seg button { position: relative; z-index: 2 !important; background: none; border: 0; min-height: 52px; display: grid; place-items: center; align-content: center; gap: 2px; font-size: 12px; font-weight: 600; color: var(--muted); border-radius: 15px; }
+  .seg button:hover { color: var(--text); }
+  .seg button[aria-pressed='true'] { color: var(--text); }
+  .seg .i { font-size: 18px; }
+  .lab { display: flex; justify-content: space-between; align-items: center; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: auto auto auto; gap: 12px; }
+  .p { text-align: left; color: var(--text); border-radius: 22px; padding: 16px; display: flex; flex-direction: column; gap: 10px; min-height: 104px; }
+  .p b { display: block; font-size: 15px; font-weight: 650; }
+  .p small { display: block; font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .p.feat { grid-row: span 2; padding: 20px; justify-content: flex-end; min-height: 240px; border-radius: 26px; }
+  .p.feat b { font-size: 19px; font-family: var(--display); }
+  .p.feat .medal { position: absolute; top: 18px; left: 18px; z-index: 2; }
+  .p.wide { grid-column: 1 / -1; flex-direction: row; align-items: center; min-height: 0; }
+  .p .num { font: 700 11px var(--font); letter-spacing: .14em; color: var(--gold-t); }
+  .p .go { position: absolute; right: 14px; top: 14px; z-index: 2; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; color: var(--on-gold); background: var(--gold-b); opacity: 0; transform: scale(.6) rotate(-45deg); transition: .35s var(--ease); }
+  .p:hover .go, .p:focus-visible .go { opacity: 1; transform: none; }
+  .p.wide .tx { flex: 1; }
+  .toast { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 90; padding: 8px 16px; border-radius: 12px; font-size: 13px; background: var(--glass-2); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); border: 1px solid var(--glass-brd); opacity: 0; transition: opacity .3s; }
+  .toast.on { opacity: 1; }
+  @media (max-width: 520px) { .seg { grid-template-columns: repeat(3, 1fr); } .thumb { display: none; } .seg button[aria-pressed='true'] { background: color-mix(in srgb, var(--gold-b) 25%, transparent); } .grid { grid-template-columns: 1fr; } .p.feat { grid-row: auto; min-height: 150px; } }
+</style>
+</head>
+<body>
+<div class="aurora brand"><span class="lights"></span></div>
+<main class="page"><div class="col stack">
+  <header class="head reveal"><span class="medal pulse"><img src="ptah-icon.png" alt=""></span><div><h1 class="display gold-text">Ptah</h1><p>Ancient Wisdom • Master Craftsman</p></div></header>
+  <div class="glass seg reveal" style="--d:1" id="seg" role="group" aria-label="Get Started categories"><span class="thumb" aria-hidden="true"></span></div>
+  <div class="lab"><h2 class="eyebrow">Get Started</h2><svg class="i muted"><use href="#i-sparkles"/></svg></div>
+  <div class="grid" id="grid" aria-live="polite"></div>
+</div></main>
+<p class="toast" id="toast" role="status"></p>
+<script src="kit.js"></script><script src="empty-data.js"></script>
+<script>
+  var E = PtahEmpty, i = Ptah.i, cur = 'build';
+  var seg = document.getElementById('seg'), G = document.getElementById('grid'), T = document.getElementById('toast');
+  seg.insertAdjacentHTML('beforeend', E.cats.map(function (c) { return '<button type="button" data-c="' + c[0] + '" aria-pressed="false">' + i(c[2]) + c[1] + '</button>'; }).join(''));
+  function render(c) {
+    var idx = 0;
+    seg.querySelectorAll('button').forEach(function (b, n) { var on = b.dataset.c === c; b.setAttribute('aria-pressed', on); if (on) idx = n; });
+    seg.style.setProperty('--k', idx);
+    var meta = E.cats[idx], tone = E.tone[c];
+    G.innerHTML = E.data[c].map(function (p, n) {
+      var cls = n === 0 ? 'feat beam' : n === 3 ? 'wide' : '';
+      return '<button class="glass spot lift p ' + cls + ' reveal" style="--d:' + n + '" type="button">' +
+        (n === 0 ? '<span class="aurora in-card"><span class="lights"></span></span><span class="medal lg ' + tone + '">' + i(meta[2]) + '</span>' : '') +
+        (n === 3 ? '<span class="medal sm ' + tone + '">' + i(meta[2]) + '</span>' : '') +
+        '<span class="tx"><span class="num">0' + (n + 1) + '</span><b>' + Ptah.esc(p[0]) + '</b><small>' + Ptah.esc(p[1]) + '</small></span><span class="go">' + i('arrow') + '</span></button>';
+    }).join('');
+  }
+  seg.addEventListener('click', function (e) { var b = e.target.closest('button'); if (b) render(b.dataset.c); });
+  G.addEventListener('click', function (e) { var b = e.target.closest('.p'); if (!b) return; T.textContent = 'Prompt sent: ' + b.querySelector('b').textContent; T.classList.add('on'); setTimeout(function () { T.classList.remove('on'); }, 1600); });
+  render(cur);
+  Ptah.dev({ widths: true });
+</script>
+</body>
+</html>

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en" data-theme="anubis">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Welcome v1 — centered hero + bento</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  .wrap { width: min(100%, 1040px); display: grid; gap: 18px; }
+  .hero { text-align: center; display: grid; justify-items: center; gap: 14px; padding-top: 8px; }
+  .logo { position: relative; width: 112px; height: 112px; display: grid; place-items: center; border-radius: 50%; }
+  .logo::before { content: ''; position: absolute; inset: -10px; border-radius: 50%; padding: 2px; background: conic-gradient(from var(--ang), transparent 0 55%, var(--gold-b), var(--teal), var(--lapis), transparent); -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0); animation: spin 8s linear infinite; }
+  .logo::after { content: ''; position: absolute; inset: -30px; border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--gold-b) 38%, transparent), transparent 65%); z-index: -1; }
+  .logo span { width: 100%; height: 100%; border-radius: 50%; display: grid; place-items: center; background: var(--glass-2); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); box-shadow: inset 0 1px 0 var(--glass-hi), 0 14px 40px -8px color-mix(in srgb, var(--gold-b) 60%, transparent); border: 1px solid var(--glass-brd); }
+  .logo img { width: 66px; height: 66px; object-fit: contain; }
+  h1 { font-family: var(--display); font-size: clamp(32px, 5vw, 52px); line-height: 1.05; }
+  .lede { color: var(--muted); max-width: 52ch; font-size: 16px; }
+  .cta { margin-top: 6px; border-radius: 18px; }
+  .bento { display: grid; grid-template-columns: repeat(6, 1fr); gap: 14px; margin-top: 10px; }
+  .f { padding: 22px; display: flex; flex-direction: column; gap: 14px; min-height: 210px; border-radius: var(--r-xl); }
+  .f:nth-child(1) { grid-column: span 2; }
+  .f:nth-child(2) { grid-column: span 2; }
+  .f:nth-child(3) { grid-column: span 2; }
+  .f h2 { font-size: 19px; font-weight: 650; }
+  .f p { color: var(--muted); font-size: 14px; }
+  .f .viz { margin-top: auto; display: flex; flex-wrap: wrap; gap: 6px; }
+  .f .viz .chip { font-size: 11.5px; padding: 3px 9px; }
+  .f.feature { transform: translateY(-14px); }
+  .f.feature:hover { transform: translateY(-17px); }
+  .bars { display: flex; align-items: flex-end; gap: 5px; height: 36px; margin-top: auto; }
+  .bars i { flex: 1; border-radius: 4px 4px 0 0; background: linear-gradient(to top, color-mix(in srgb, var(--gold-b) 25%, transparent), var(--gold-b)); height: var(--h); animation: eq 2.4s ease-in-out infinite alternate; animation-delay: calc(var(--k) * -.3s); }
+  @keyframes eq { to { transform: scaleY(.45); transform-origin: bottom; } }
+  @media (max-width: 860px) { .bento { grid-template-columns: 1fr; } .f:nth-child(n) { grid-column: auto; } .f.feature { transform: none; } .f { min-height: 0; } }
+</style>
+</head>
+<body>
+<div class="aurora brand"><span class="lights"></span></div>
+<main class="page">
+  <div class="wrap">
+    <section class="hero" aria-labelledby="h">
+      <div class="logo reveal"><span><img src="ptah-icon.png" alt="Ptah"></span></div>
+      <h1 id="h" class="reveal" style="--d:1">Welcome to <span class="gold-text">Ptah Desktop</span></h1>
+      <p class="lede reveal" style="--d:2">Open a project folder to get started. Ptah will analyze your workspace and configure AI agents tailored to your codebase.</p>
+      <button class="btn btn-fill btn-lg cta reveal" style="--d:3" type="button"><svg class="i"><use href="#i-folder"/></svg>Open Folder<svg class="i arrow"><use href="#i-arrow"/></svg></button>
+    </section>
+    <section class="bento" aria-label="Features">
+      <article class="glass spot lift f reveal" style="--d:4"><span class="medal lg"><svg class="i"><use href="#i-radar"/></svg></span><h2>Workspace Intelligence</h2><p>Auto-detects your tech stack, frameworks, and project structure.</p><div class="viz" aria-hidden="true"><span class="chip">Angular</span><span class="chip">NestJS</span><span class="chip">Nx</span><span class="chip">+ 12</span></div></article>
+      <article class="glass spot lift f feature beam reveal" style="--d:5"><span class="aurora in-card"><span class="lights"></span></span><span class="medal lg m-lapis pulse"><svg class="i"><use href="#i-workflow"/></svg></span><h2>AI Agent Orchestra</h2><p>Specialized agents for frontend, backend, testing, and more.</p><div class="bars" aria-hidden="true"><i style="--h:60%;--k:1"></i><i style="--h:90%;--k:2"></i><i style="--h:45%;--k:3"></i><i style="--h:75%;--k:4"></i><i style="--h:55%;--k:5"></i><i style="--h:100%;--k:6"></i><i style="--h:65%;--k:7"></i></div></article>
+      <article class="glass spot lift f reveal" style="--d:6"><span class="medal lg m-teal"><svg class="i"><use href="#i-chat"/></svg></span><h2>Context-Aware Chat</h2><p>Chat with full awareness of your codebase and dependencies.</p><div class="viz" aria-hidden="true"><span class="chip ok"><span class="dot"></span>Context loaded</span></div></article>
+    </section>
+  </div>
+</main>
+<script src="kit.js"></script>
+<script>Ptah.dev({});</script>
+</body>
+</html>

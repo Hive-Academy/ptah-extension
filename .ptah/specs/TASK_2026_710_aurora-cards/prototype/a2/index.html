@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en" data-theme="anubis">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ptah aurora cards — round 2 gallery</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  .wrap { width: min(100%, 1000px); display: grid; gap: 22px; }
+  h1 { font-family: var(--display); font-size: clamp(30px, 4vw, 46px); }
+  .intro { color: var(--muted); max-width: 70ch; }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .g { padding: 18px; display: grid; gap: 14px; border-radius: 26px; }
+  .g h2 { font-size: 16px; font-weight: 650; }
+  .links { display: grid; gap: 8px; }
+  .links a { text-decoration: none; display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-radius: 13px; font-weight: 600; font-size: 14px; color: var(--gold-t); background: color-mix(in srgb, var(--gold-b) 12%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold-b) 22%, transparent); transition: .25s var(--ease); }
+  .links a:hover { background: color-mix(in srgb, var(--gold-b) 24%, transparent); transform: translateX(3px); }
+  @media (max-width: 860px) { .grid { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 480px) { .grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="aurora brand"><span class="lights"></span></div>
+<main class="page"><div class="wrap">
+  <header class="reveal"><p class="eyebrow">TASK_2026_710 · Round 2</p><h1 class="gold-text">Aurora cards</h1></header>
+  <p class="intro reveal" style="--d:1">Every surface sits on the app's real aurora (the gold repeating-stripe layer from <code>aurora-effect.component.ts</code>, copied verbatim into <code>tokens.css</code>). Cards are rebuilt as true glass that lets it show through, with border beams, cursor spotlights, glowing icon medallions and progress rings instead of row lists and outline pills. Each surface has two structurally different directions. Dark and light themes via the toolbar.</p>
+  <section class="grid">
+    <article class="glass spot g reveal" style="--d:2"><span class="medal lg"><svg class="i"><use href="#i-check"/></svg></span><h2>Setup card</h2><div class="links"><a href="setup-card-v1.html">v1 · ring hero + bento<svg class="i"><use href="#i-arrow"/></svg></a><a href="setup-card-v2.html">v2 · step-track pillars<svg class="i"><use href="#i-arrow"/></svg></a></div></article>
+    <article class="glass spot g reveal" style="--d:3"><span class="medal lg m-lapis"><svg class="i"><use href="#i-folder"/></svg></span><h2>Welcome</h2><div class="links"><a href="welcome-v1.html">v1 · centered + bento<svg class="i"><use href="#i-arrow"/></svg></a><a href="welcome-v2.html">v2 · hero card + asymmetric<svg class="i"><use href="#i-arrow"/></svg></a></div></article>
+    <article class="glass spot g reveal" style="--d:4"><span class="medal lg m-teal"><svg class="i"><use href="#i-sparkles"/></svg></span><h2>Empty state</h2><div class="links"><a href="empty-state-v1.html">v1 · medallions + bento<svg class="i"><use href="#i-arrow"/></svg></a><a href="empty-state-v2.html">v2 · segmented + featured<svg class="i"><use href="#i-arrow"/></svg></a></div></article>
+    <article class="glass spot g reveal" style="--d:5"><span class="medal lg"><svg class="i"><use href="#i-power"/></svg></span><h2>Boot</h2><div class="links"><a href="boot-v1.html">v1 · ring orb + track<svg class="i"><use href="#i-arrow"/></svg></a><a href="boot-v2.html">v2 · console + beam bar<svg class="i"><use href="#i-arrow"/></svg></a></div></article>
+  </section>
+</div></main>
+<script src="kit.js"></script>
+<script>Ptah.dev({});</script>
+</body>
+</html>

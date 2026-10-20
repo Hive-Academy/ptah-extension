@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en" data-theme="anubis">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Empty state v1 — medallion row + bento prompts</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  .stack { display: grid; gap: 22px; justify-items: center; }
+  .brandbox { display: grid; justify-items: center; gap: 6px; text-align: center; }
+  .logo { width: 76px; height: 76px; }
+  .logo img { width: 46px; height: 46px; object-fit: contain; }
+  .wordmark { font-size: 40px; line-height: 1; }
+  .tagline { color: var(--muted); font-size: 13px; letter-spacing: .08em; }
+  .sec { display: flex; align-items: center; gap: 10px; width: 100%; }
+  .sec::before, .sec::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, transparent, var(--glass-brd)); }
+  .sec::after { transform: scaleX(-1); }
+  .cats { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; width: 100%; }
+  .cat { background: none; border: 0; padding: 6px 0; display: grid; justify-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; color: var(--muted); border-radius: 16px; }
+  .cat .medal { opacity: .7; filter: saturate(.7); transition: .3s var(--ease); }
+  .cat:hover { color: var(--text); }
+  .cat:hover .medal { opacity: 1; filter: none; transform: translateY(-3px) scale(1.06); }
+  .cat[aria-pressed='true'] { color: var(--text); }
+  .cat[aria-pressed='true'] .medal { opacity: 1; filter: none; transform: scale(1.1); }
+  .cat[aria-pressed='true'] .medal::before { content: ''; position: absolute; inset: -7px; border-radius: 50%; padding: 2px; background: conic-gradient(from var(--ang), transparent 0 40%, var(--mc), transparent); -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0); animation: spin 4s linear infinite; }
+  .prompts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; width: 100%; }
+  .p { text-align: left; border-radius: var(--r-lg); padding: 16px; display: flex; flex-direction: column; gap: 12px; min-height: 124px; color: var(--text); }
+  .p.big { grid-column: 1 / -1; flex-direction: row; align-items: center; min-height: 0; padding: 18px; }
+  .p b { display: block; font-size: 15px; font-weight: 650; }
+  .p small { display: block; font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .p .go { position: absolute; right: 14px; bottom: 14px; opacity: 0; transform: translate(-6px, 6px); transition: .3s var(--ease); color: var(--gold-t); z-index: 2; }
+  .p.big .go { bottom: auto; top: 50%; margin-top: -10px; }
+  .p:hover .go, .p:focus-visible .go { opacity: 1; transform: none; }
+  .p .tx { flex: 1; min-width: 0; padding-right: 22px; }
+  .toast { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 90; padding: 8px 16px; border-radius: 12px; font-size: 13px; background: var(--glass-2); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); border: 1px solid var(--glass-brd); opacity: 0; transition: opacity .3s; }
+  .toast.on { opacity: 1; }
+  @media (max-width: 480px) { .cats { grid-template-columns: repeat(3, 1fr); row-gap: 12px; } .prompts { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="aurora brand"><span class="lights"></span></div>
+<main class="page"><div class="col stack">
+  <header class="brandbox reveal"><span class="medal xl logo pulse"><img src="ptah-icon.png" alt=""></span><h1 class="wordmark display gold-text">Ptah</h1><p class="tagline">Ancient Wisdom • Master Craftsman</p></header>
+  <div class="sec"><svg class="i muted"><use href="#i-sparkles"/></svg><h2 class="eyebrow" id="gs">Get Started</h2></div>
+  <div class="cats reveal" style="--d:2" role="group" aria-labelledby="gs" id="cats"></div>
+  <div class="prompts" id="prompts" aria-live="polite"></div>
+</div></main>
+<p class="toast" id="toast" role="status"></p>
+<script src="kit.js"></script><script src="empty-data.js"></script>
+<script>
+  var E = PtahEmpty, i = Ptah.i, cur = 'build';
+  var cats = document.getElementById('cats'), P = document.getElementById('prompts'), T = document.getElementById('toast');
+  cats.innerHTML = E.cats.map(function (c) { return '<button class="cat" type="button" data-c="' + c[0] + '" aria-pressed="' + (c[0] === cur) + '"><span class="medal ' + E.tone[c[0]] + '">' + i(c[2]) + '</span>' + c[1] + '</button>'; }).join('');
+  function render(c) {
+    cats.querySelectorAll('.cat').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.c === c); });
+    var meta = E.cats.filter(function (x) { return x[0] === c; })[0], tone = E.tone[c];
+    P.innerHTML = E.data[c].map(function (p, n) {
+      var big = n === 0;
+      return '<button class="glass spot lift p ' + (big ? 'big beam' : '') + ' reveal" style="--d:' + n + '" type="button">' + (big ? '<span class="aurora in-card"><span class="lights"></span></span>' : '') +
+        '<span class="medal ' + (big ? 'lg ' : 'sm ') + tone + '">' + i(meta[2]) + '</span><span class="tx"><b>' + Ptah.esc(p[0]) + '</b><small>' + Ptah.esc(p[1]) + '</small></span><span class="go">' + i('arrow') + '</span></button>';
+    }).join('');
+  }
+  cats.addEventListener('click', function (e) { var b = e.target.closest('.cat'); if (b) render(b.dataset.c); });
+  P.addEventListener('click', function (e) { var b = e.target.closest('.p'); if (!b) return; T.textContent = 'Prompt sent: ' + b.querySelector('b').textContent; T.classList.add('on'); setTimeout(function () { T.classList.remove('on'); }, 1600); });
+  render(cur);
+  Ptah.dev({ widths: true });
+</script>
+</body>
+</html>

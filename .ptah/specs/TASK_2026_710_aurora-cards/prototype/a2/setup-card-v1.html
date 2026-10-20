@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en" data-theme="anubis">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Setup card v1 — bento</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  .stack { display: grid; gap: 14px; }
+  .newsess { justify-self: start; }
+  .hero { padding: 22px; display: flex; align-items: center; gap: 22px; border-radius: var(--r-xl); }
+  .hero h2 { font-size: 30px; line-height: 1.1; margin: 4px 0 8px; font-family: var(--display); letter-spacing: .01em; }
+  .hero p.sub { color: var(--muted); font-size: 14px; max-width: 34ch; }
+  .hero .chip { margin-top: 12px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .tile { padding: 18px; display: flex; flex-direction: column; gap: 14px; min-height: 176px; }
+  .tile.wide { grid-column: 1 / -1; flex-direction: row; align-items: center; min-height: 0; gap: 16px; }
+  .tile .head { display: flex; justify-content: space-between; align-items: flex-start; }
+  .tile h3 { font-size: 17px; font-weight: 650; }
+  .tile .st { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .tile.ok .st { color: var(--ok); font-weight: 600; }
+  .tile .btn { margin-top: auto; align-self: flex-start; }
+  .tile.wide .btn { margin: 0 0 0 auto; }
+  .tile .body { flex: 1; min-width: 0; }
+  .tick { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 14px; color: var(--ok); background: color-mix(in srgb, var(--ok) 16%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ok) 50%, transparent); }
+  .tile:not(.ok) .tick { color: var(--muted); background: transparent; box-shadow: inset 0 0 0 1px var(--glass-brd); }
+  .tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 12px; border-radius: var(--r-md); }
+  .tools > span { font-size: 11px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin-right: 4px; }
+  .tools .btn { min-height: 34px; font-size: 13px; padding: 0 14px; border-radius: 11px; }
+  @media (max-width: 560px) { .hero { flex-direction: column; align-items: flex-start; } .grid { grid-template-columns: 1fr; } .tile.wide { flex-wrap: wrap; } }
+</style>
+</head>
+<body>
+<div class="aurora brand"><span class="lights"></span></div>
+<main class="page"><div class="col stack" id="root"></div></main>
+<script src="kit.js"></script>
+<script>
+  var root = document.getElementById('root');
+  function render(n) {
+    var s = Ptah.setup(n), i = Ptah.i;
+    var tiles = s.items.map(function (it, idx) {
+      var wide = it.k === 'scan';
+      return '<article class="glass spot lift tile reveal ' + (it.ok ? 'ok ' : '') + (wide ? 'wide beam' : '') + '" style="--d:' + (idx + 3) + '">' +
+        (wide
+          ? '<span class="medal lg ' + it.m + ' pulse">' + i(it.i) + '</span><div class="body"><h3>' + it.name + '</h3><p class="st">' + it.status + '</p></div><button class="btn btn-fill" type="button">' + i('play') + it.btn + '</button>'
+          : '<div class="head"><span class="medal lg ' + it.m + '">' + i(it.i) + '</span><span class="tick" aria-hidden="true">' + (it.ok ? i('check') : '') + '</span></div><div><h3>' + it.name + '</h3><p class="st">' + it.status + '</p></div><button class="btn ' + (it.ok ? 'btn-glow' : 'btn-fill') + '" type="button">' + it.btn + i('arrow', 'arrow') + '</button>') +
+        '</article>';
+    }).join('');
+    root.innerHTML =
+      '<button class="btn btn-fill newsess reveal" type="button">' + i('plus') + 'New session</button>' +
+      '<section class="glass spot hero reveal beam" style="--d:1" aria-labelledby="t"><span class="aurora in-card"><span class="lights"></span></span>' +
+        '<div class="ring" style="--p:' + (s.n / 2) + '" role="img" aria-label="' + s.badge + '"><svg viewBox="0 0 100 100"><circle class="tr" cx="50" cy="50" r="42" pathLength="100"/><circle class="pg" cx="50" cy="50" r="42" pathLength="100"/></svg><div class="num">' + s.n + '<small>of 2</small></div></div>' +
+        '<div><p class="eyebrow">Before you begin</p><h2 id="t">' + s.title + '</h2><p class="sub">' + s.sub + '</p><span class="chip ' + (s.n >= 2 ? 'ok' : '') + '"><span class="dot"></span>' + s.badge + '</span></div></section>' +
+      '<div class="grid">' + tiles + '</div>' +
+      '<div class="glass tools reveal" style="--d:6" role="group" aria-label="Setup tools"><span>Setup tools</span><button class="btn btn-glow" type="button">' + i('sparkles') + 'Generate agents</button><button class="btn btn-glow" type="button">' + i('shield') + 'Project guidance</button></div>';
+  }
+  Ptah.dev({ states: [['0', '0 of 2'], ['1', '1 of 2'], ['2', 'All ready']], current: '0', on: render, widths: true });
+</script>
+</body>
+</html>

@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en" data-theme="anubis">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Boot v1 — ring medallion + stage track</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  .page { padding-bottom: 120px; }
+  .wrap { display: grid; justify-items: center; gap: 22px; text-align: center; width: min(100%, 720px); }
+  .orb { position: relative; width: 220px; height: 220px; display: grid; place-items: center; }
+  .orb .glowbg { position: absolute; inset: -50px; border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--gold-b) 34%, transparent), transparent 62%); animation: breathe 4s ease-in-out infinite alternate; }
+  @keyframes breathe { to { transform: scale(1.15); opacity: .7; } }
+  .orb svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); overflow: visible; }
+  .orb .tr { fill: none; stroke: var(--track); stroke-width: 4; }
+  .orb .pg { fill: none; stroke: url(#grad-ring); stroke-width: 4; stroke-linecap: round; stroke-dasharray: calc(var(--p) * 100) 100; transition: stroke-dasharray 1s var(--ease); filter: drop-shadow(0 0 8px var(--gold-b)); }
+  .orb .sweep { position: absolute; inset: 0; border-radius: 50%; padding: 4px; background: conic-gradient(from var(--ang), transparent 0 80%, color-mix(in srgb, var(--teal) 80%, transparent)); -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0); animation: spin 3s linear infinite; }
+  .core { width: 150px; height: 150px; border-radius: 50%; display: grid; place-items: center; background: var(--glass-2); -webkit-backdrop-filter: blur(18px) saturate(140%); backdrop-filter: blur(18px) saturate(140%); border: 1px solid var(--glass-brd); box-shadow: var(--glass-shadow), 0 0 60px -10px color-mix(in srgb, var(--gold-b) 70%, transparent); }
+  .core img { width: 88px; height: 88px; object-fit: contain; animation: float 5s ease-in-out infinite alternate; }
+  @keyframes float { to { transform: translateY(-5px); } }
+  h1 { font-family: var(--display); font-size: 32px; }
+  .stagelab { color: var(--muted); font-size: 15px; min-height: 24px; }
+  .stagelab b { color: var(--text); font-weight: 600; }
+  .stages { display: flex; align-items: flex-start; width: 100%; padding: 16px 10px; border-radius: 22px; }
+  .stg { flex: 1; display: grid; justify-items: center; gap: 8px; position: relative; font-size: 12px; color: var(--muted); padding: 0 4px; }
+  .stg:not(:last-child)::after { content: ''; position: absolute; top: 17px; left: calc(50% + 20px); right: calc(-50% + 20px); height: 2px; background: var(--track); }
+  .stg.done:not(:last-child)::after { background: linear-gradient(90deg, var(--gold-b), var(--teal)); }
+  .stg .medal { width: 34px; height: 34px; font-size: 16px; opacity: .55; filter: saturate(.6); }
+  .stg.done .medal { opacity: 1; filter: none; --mc: var(--teal); --mc-fg: var(--teal-t); }
+  .stg.now .medal { opacity: 1; filter: none; animation: pulseg 1.6s ease-in-out infinite; }
+  @keyframes pulseg { 50% { box-shadow: 0 0 0 9px color-mix(in srgb, var(--mc) 6%, transparent), 0 8px 32px 0 color-mix(in srgb, var(--mc) 80%, transparent); } }
+  .stg.now, .stg.done { color: var(--text); }
+  .meta { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  @media (max-width: 560px) { .stg span.t { display: none; } .stg.now span.t { display: block; position: absolute; top: 44px; white-space: nowrap; } .stages { padding-bottom: 36px; } }
+</style>
+</head>
+<body>
+<div class="aurora brand"><span class="lights"></span></div>
+<main class="page"><div class="wrap">
+  <div class="orb reveal"><span class="glowbg"></span><svg viewBox="0 0 100 100" aria-hidden="true"><circle class="tr" cx="50" cy="50" r="48" pathLength="100"/><circle class="pg" id="pg" cx="50" cy="50" r="48" pathLength="100"/></svg><span class="sweep"></span><div class="core"><img src="ptah-icon.png" alt="Ptah"></div></div>
+  <div class="reveal" style="--d:1"><h1 class="gold-text">Ptah</h1><p class="stagelab" role="status" aria-live="polite" id="lab"></p></div>
+  <div class="glass stages reveal" style="--d:2" id="stages" role="list" aria-label="Boot stages"></div>
+  <p class="meta" id="el">0:00</p>
+</div></main>
+<script src="kit.js"></script>
+<script>
+  var STEPS = [['starting', 'Starting up', 'power'], ['database', 'Opening the database', 'database'], ['harness', 'Syncing the agent harness', 'refresh'], ['sessions', 'Importing sessions', 'download'], ['index', 'Indexing the workspace', 'search']];
+  var i = Ptah.i, S = document.getElementById('stages'), cur = 0, t0 = Date.now(), timer = null, pinned = false;
+  var reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  S.innerHTML = STEPS.map(function (s) { return '<div class="stg" role="listitem"><span class="medal">' + i(s[2]) + '</span><span class="t">' + s[1] + '</span></div>'; }).join('');
+  function show(n) {
+    cur = n;
+    S.querySelectorAll('.stg').forEach(function (e, k) { e.className = 'stg' + (k < n ? ' done' : k === n ? ' now' : ''); e.querySelector('.medal').innerHTML = k < n ? i('check') : i(STEPS[k][2]); });
+    document.getElementById('pg').parentNode.parentNode.style.setProperty('--p', (n + .5) / STEPS.length);
+    document.getElementById('lab').innerHTML = '<b>' + STEPS[n][1] + '…</b>';
+  }
+  function tick() { var s = Math.floor((Date.now() - t0) / 1000); document.getElementById('el').textContent = 'Elapsed ' + Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2); }
+  function loop() { clearInterval(timer); if (reduce) return; timer = setInterval(function () { if (!pinned) show((cur + 1) % STEPS.length); }, 2200); }
+  setInterval(tick, 1000);
+  Ptah.dev({ states: [['auto', 'Auto'], ['0', 'Start'], ['1', 'Database'], ['2', 'Harness'], ['3', 'Sessions'], ['4', 'Index']], current: 'auto', on: function (k) { pinned = k !== 'auto'; show(pinned ? +k : cur); } });
+  show(reduce ? 2 : 0); loop();
+</script>
+</body>
+</html>

@@ -1,5 +1,45 @@
 # TASK_2026_710 — Aurora + glass redesign prototypes (Tribunal Forge, prototype-only)
 
+## ROUND 2 — read this first; it overrides the round-1 text below
+
+The user REJECTED round 1 (`prototype/a`, `prototype/b`): both kept the card design the user does not
+want. Keep the same **content** (labels, copy, actions, states), but you are NOT bound to the current
+**layout or card structure** — redesign it.
+
+### Banned (this is the rejected card design)
+
+- A bordered dark panel holding a stack of full-width rows "icon · title/subtitle · outline button on
+  the right" (the current setup card and welcome feature list).
+- Plain rectangular prompt cards stacked in a list or simple grid (title + subtitle, thin border).
+- Plain bordered category tiles that differ only by a border color when selected.
+- Outline pill buttons as the main action style inside cards.
+- A home-made blurred-blob background in place of the real aurora (below).
+- Prototype-only chrome in the page body (breadcrumbs, side menus, explainer copy). Put state
+  switchers in a small floating dev toolbar only.
+
+### Required
+
+1. **Use the app's real aurora effect.** Copy the CSS of
+   `D:\projects\ptah-extension\libs\frontend\ui\src\lib\native\aurora\aurora-effect.component.ts`
+   (gold repeating-stripe aurora, `aurora-shift` keyframes, radial mask; variants `board` and `brand`)
+   into your prototype and use it as the backdrop of every surface. Map its OKLCH DaisyUI tokens to
+   literal anubis colors. You may ALSO bring the aurora INTO cards (e.g. a clipped aurora layer inside
+   a hero card, or an aurora-tinted animated border).
+2. **Cards are the design statement**, in a current 2025–2026 style. Pick from: bento grid with mixed
+   tile sizes; true glass (translucent, `backdrop-filter: blur(16–24px) saturate(140%)`, aurora visibly
+   showing through); animated conic-gradient or "border beam" edges; cursor-follow spotlight / glow on
+   hover (vanilla JS sets `--x/--y`); large gradient-glow icon medallions; depth with layered shadows
+   and inner highlights; progress rings / step tracks instead of text status.
+3. Setup card: a readiness hero (ring or track showing 0/1/2 of 2) + the three items as distinct glass
+   tiles (bento), where the action is a clear filled or ghost-glow button, not an outline pill.
+4. Empty state: category tiles as glowing icon medallions or segmented glass control; prompt cards as
+   rich glass tiles (icon, title, subtitle, hover spotlight, arrow reveal), bento layout. Must fit a
+   600–760px chat column (wrap correctly at 600px).
+5. Welcome: hero + feature tiles as a bento of glass cards, not a row list.
+6. Boot: a branded aurora loading moment (logo medallion, ring/beam progress, stage track).
+7. **Two directions per surface** (`-v1` and `-v2`) that differ in card structure, not just color.
+
+
 ## Objective
 
 The user finds the card design on four Ptah Electron surfaces "very basic, not shiny or stunning".
