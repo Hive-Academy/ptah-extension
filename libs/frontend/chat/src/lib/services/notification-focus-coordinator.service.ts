@@ -45,6 +45,8 @@ export class NotificationFocusCoordinator implements NotificationFocusRouter {
     // through the tab request bridge, which normalizes null to that partition.
     if (initial?.workspacePath === null) {
       const focused = await this.appState.requestCanvasTab(initial.tab.id, null, undefined, true, { timeoutMs: 5000 });
+      // The boolean tab bridge cannot distinguish a tile cap from a mismatch or timeout.
+      // Reporting cap-reached requires a richer result from the canvas bridge.
       return { success: focused, outcome: focused ? 'focused' : 'missing' };
     }
     // At the canvas tile cap the result is `cap-reached` and no tab is

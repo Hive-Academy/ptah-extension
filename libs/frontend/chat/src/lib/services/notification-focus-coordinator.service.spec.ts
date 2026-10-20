@@ -91,6 +91,15 @@ describe('NotificationFocusCoordinator', () => {
     expect(order).toEqual(['view', 'tab']);
   });
 
+  it('reports an unpartitioned canvas tab refusal as missing', async () => {
+    findByTab.mockReturnValue({ tab, workspacePath: null });
+    requestCanvasTab.mockResolvedValue(false);
+    await expect(coordinator.focus({ ...target, workspacePath: '' })).resolves.toEqual({
+      success: false, outcome: 'missing',
+    });
+    expect(requestCanvasTab).toHaveBeenCalledWith('tab-1', null, undefined, true, { timeoutMs: 5000 });
+  });
+
   it('returns missing before navigation when the target no longer resolves', async () => {
     findByTab.mockReturnValue(null);
     findBySession.mockReturnValue(null);

@@ -74,6 +74,7 @@ describe('ChatAttentionSourceService', () => {
     const item = upsert.mock.lastCall?.[0];
     if (!item) throw new Error('Missing attention item');
     expect(item).toMatchObject({ kind: 'permission', workspacePath: '/ws/one', soundEligible: false });
+    expect(item.actions.find(action => action.id === 'open')?.label).toBe('Show in canvas');
     expect(item.context).toBe('Claude · Fix notifications · Tool: Write');
     expect(item.title).not.toContain('private details');
     expect(source.getLive(item.key, item.generation)?.target.kind).toBe('permission');
@@ -114,7 +115,7 @@ describe('ChatAttentionSourceService', () => {
     expect(items.find(item => item.kind === 'lane-permission')?.actions.map((action: { id: string }) => action.id))
       .toEqual(['allow', 'deny', 'open']);
     expect(items.find(item => item.kind === 'question')?.context).toMatch(/^Claude · Fix notifications · Which option should we choose\?/);
-    expect(items.find(item => item.kind === 'question')?.context?.split(' · ').at(-1)?.length).toBeLessThanOrEqual(80);
+    expect(items.find(item => item.kind === 'question')?.context).toHaveLength(80);
     expect(items.find(item => item.kind === 'question')?.context).toMatch(/…$/);
     expect(items.find(item => item.kind === 'lane-permission')?.context)
       .toBe('Claude · Fix notifications · Tool: Bash');
@@ -185,12 +186,69 @@ describe('ChatAttentionSourceService', () => {
     permissions.set([request]);
     TestBed.tick();
     expect(upsert.mock.lastCall?.[0].context).toContain('Fix token refresh and/or CI/CD pipeline');
-    for (const title of ['/home/user/private', 'C:\\Users\\private', '\\\\server\\share\\private',
-      'sk-1234567890abcdef', '0123456789abcdef0123456789abcdef']) {
+    for (const title of ['Use /compact', 'run /clear', '/init', '/review']) {
+      tabs.set([{ ...tabs()[0], title }]);
+      TestBed.tick();
+      expect(upsert.mock.lastCall?.[0].context).toContain(title);
+    }
+    for (const title of ['/home/user/private', '/etc', '/tmp', '~/projects/x', 'src/app/foo.ts',
+      'C:\\Users\\private', '\\\\server\\share\\private', 'sk-1234567890abcdef',
+      'AKIAABCDEFGHIJKLMNOP', 'ghp_abcdef123456', 'xoxb-1234-abcdef',
+      '0123456789abcdef0123456789abcdef']) {
       tabs.set([{ ...tabs()[0], title }]);
       TestBed.tick();
       expect(upsert.mock.lastCall?.[0].context).toBe('Claude · Tool: Read');
     }
+  });
+
+  it('drops unsafe question context but keeps ordinary slash words', () => {
+    TestBed.inject(ChatAttentionSourceService);
+    const request: AskUserQuestionRequest = { id: 'safe-question', toolName: 'AskUserQuestion',
+      questions: [{ question: 'CI/CD pipeline and/or release?', header: 'Choice', options: [], multiSelect: false }],
+      timestamp: 1, timeoutAt: 0, tabId: 'tab-1' };
+    questions.set([request]);
+    TestBed.tick();
+    expect(upsert.mock.lastCall?.[0].context).toContain('CI/CD pipeline and/or release?');
+    for (const question of ['Use /compact?', 'run /clear?', 'Try /init or /review?']) {
+      questions.set([{ ...request, questions: [{ ...request.questions[0], question }] }]);
+      TestBed.tick();
+      expect(upsert.mock.lastCall?.[0].context).toContain(question);
+    }
+    for (const question of ['/etc', '/SYSTEM', '~/projects/x', 'src/app/foo.ts', 'AKIAABCDEFGHIJKLMNOP',
+      'ghp_abcdef123456', 'xoxb-1234-abcdef']) {
+      questions.set([{ ...request, questions: [{ ...request.questions[0], question }] }]);
+      TestBed.tick();
+      expect(upsert.mock.lastCall?.[0].context).toBe('Claude · Fix notifications');
+    }
+  });
+
+  it('ignores a non-string tool name at the request boundary', () => {
+    TestBed.inject(ChatAttentionSourceService);
+    permissions.set([{ id: 'malformed-tool', toolName: 42 as unknown as string,
+      toolInput: {}, timestamp: 1, timeoutAt: 0, description: '', tabId: 'tab-1' }]);
+    expect(() => TestBed.tick()).not.toThrow();
+    expect(upsert.mock.lastCall?.[0].context).toBe('Claude · Fix notifications');
+  });
+
+  it('caps the complete provider, title, and tool context at 80 characters', () => {
+    TestBed.inject(ChatAttentionSourceService);
+    tabs.set([{ ...tabs()[0], title: 'Long safe session title '.repeat(4) }]);
+    permissions.set([{ id: 'long-context', toolName: 'Bash', toolInput: {}, timestamp: 1,
+      timeoutAt: 0, description: '', tabId: 'tab-1' }]);
+    TestBed.tick();
+    const context = upsert.mock.lastCall?.[0].context;
+    expect(context).toHaveLength(80);
+    expect(context).toMatch(/^Claude · .*… · Tool: Bash$/);
+  });
+
+  it('omits a lane permission default session title', () => {
+    TestBed.inject(ChatAttentionSourceService);
+    tabs.set([{ ...tabs()[0], title: 'Lane permission required' }]);
+    lanes.set([{ agentId: 'agent', parentSessionId: 'session-1', permissionQueue: [
+      { requestId: 'default-lane', toolName: 'Bash', timestamp: 1 },
+    ] }]);
+    TestBed.tick();
+    expect(upsert.mock.lastCall?.[0].context).toBe('Claude · Tool: Bash');
   });
 
   it('resolves a lane permission by session in an unpartitioned tab set', () => {
@@ -217,6 +275,7 @@ describe('ChatAttentionSourceService', () => {
     const item = upsert.mock.lastCall?.[0];
     expect(item?.workspacePath).toBe('');
     expect(item?.actions.find(action => action.id === 'open')?.disabledReason).toBe('Session unavailable');
+    expect(item?.actions.find(action => action.id === 'open')?.label).toBe('Show in canvas');
   });
 
   it('enables Open for a tab-less request owned by a surface', () => {

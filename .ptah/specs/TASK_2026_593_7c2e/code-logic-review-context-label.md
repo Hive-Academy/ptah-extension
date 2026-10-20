@@ -71,3 +71,70 @@ N2. MINOR. `requestCanvasTab` queues until the canvas mounts; if the canvas is n
 
 Score: 8/10
 Verdict: APPROVED. All six defects are fixed or acceptably mitigated. N1 and N2 are minor and non-blocking. Residual: the exact Electron reproduction timing is still unproven by the evidence. The orchestrator still has to run the scoped chat-state, chat and notification-center checks.
+
+## Re-review (round 2 + CodeRabbit)
+
+Reviewer: Anthropic Claude (independent); implementer: codex. Read-only; no checks run. Reviewed the uncommitted diff plus `attention-context.util.ts`.
+
+### Per-item status
+
+A. Duplicate title: FIXED. `chat-attention-host-message-handler.service.ts:~187-196,211`: row title is the kind label, context is provider plus safe session title, falling back to `notice.title` with no context for an unknown kind. Residual: the default-title filter list (`:~192`) omits "Lane permission required", so a host title equal to that string would duplicate; add it. Minor.
+
+B1. Unpartitioned owner resolves a real path: IMPLEMENTED, but it introduces a routing defect, see N1 (blocking). The path is taken only from a root whose `workspaceIdFromPath` equals the target id (`:~238-241`); the workspaceId is never used as a path and remote targets stay Unknown. The check that `validTab` matches by `claudeSessionId` OR `tab.id` (`:~229-231`) widens the old rule; a UUID collision is implausible, so minor.
+
+B2. `/tmp`: FIXED. `attention-context.util.ts:1`, the `(?:^|\s)\/[^\s]+` alternative.
+
+B3/B6. Cap at 80: FIXED, deterministic (pure function of stable inputs). `attention-context.util.ts:5-8` and both call sites. Weakness: the cap truncates the tail, so a title near 80 characters pushes `Tool: X` or the question out entirely, and the tool name is the most useful part for a permission. Minor; fix by budgeting the title to about 40 characters before joining.
+
+B4. `typeof toolName` check: FIXED, `chat-attention-source.service.ts:144`.
+
+B5. Shared filter: FIXED, with false positives.
+- Any whitespace-preceded slash token is dropped, so "Use /compact", "run /clear" and a question "Should I use /init?" disappear (`util.ts:1`). Slash commands are normal in this product's titles. Minor, but it contradicts "normal titles must survive". Fix: require two or more segments or a known root (`/(?:tmp|etc|usr|var|home|Users|opt|root)\b`), or restrict single-segment to those roots.
+- `1/2.5`-style tokens match the relative-file rule. Cosmetic.
+- "CI/CD" and "and/or" are safe (no preceding whitespace before the slash, no extension).
+- Secret prefixes AKIA, ghp_, xoxb- and sk- are covered. No negatives found for the stated cases.
+
+B7. Focus outcome: PARTIAL, and the mapping is wrong for two of three causes. `notification-focus-coordinator.service.ts:48` now reports every `false` as `cap-reached`, but `false` also means workspace mismatch and the 5 s mount timeout (`app-state.service.ts:1317-1320`). Neither is a cap, so the old `missing` was the more accurate label for them, and `cap-reached` may drive a misleading "tile cap" message. Minor. Fix: keep `cap-reached` only when the canvas tile count is at the limit, otherwise `missing`. The already-tiled-at-cap deferral is a legitimate scope limit.
+
+TestBed overload errors: NOT NEW. `useClass` in `overrideProvider` exists at `origin/main` in `chat-attention-source.service.spec.ts` (`:122,144` there, `:271,293` now, shifted by the added specs).
+
+### New defects
+
+N1. BLOCKING. `chat-attention-host-message-handler.service.ts:~238-241` together with `notification-focus-coordinator.service.ts:~38-58`. After B1, a host projection for an unpartitioned owner has `item.workspacePath` set to the real root (`:~211`) and `Open` is routable. `focusRouter.focus({workspacePath: '/root', tabId})` reaches `resolve()`, which compares `(byTab.workspacePath ?? '')` ('') with '/root', fails, and returns null. `run()` then calls `switchWorkspace('/root')`. With no active path, `TabWorkspacePartitionService.switchWorkspace` does not save the current tabs (`tab-workspace-partition.service.ts:~200-206`, `if (current)`), and `TabManagerService.switchWorkspace` then replaces `_tabs` with the stored or empty set (`tab-manager.service.ts:~849-857`). The unpartitioned tabs, including the target tab, disappear from view, and focus continues with `tabId: undefined` and cannot find them. The user clicks Open and loses their tab list. The previous rounds avoided this because the source item path stayed `''`.
+Fix (either): (a) in `resolve()`, accept `byTab.workspacePath === null` when the global `tabId` matches regardless of `target.workspacePath` (tab ids are unique and the host handler has already verified ownership), so the null-path branch adopts through `requestCanvasTab` and never switches; or (b) have the host handler keep `presentationWorkspace` as `''` for a null-path owner and use the real root only for the label. Add a spec using a null-path owner with a real-root target asserting no `switchWorkspace` call.
+
+N2. MINOR. `attention-context.util.ts:1` slash-command and single-segment false positives, see B5.
+
+N3. MINOR. Spec coverage: the lane's host specs cover the title and context split and the root matching, but nothing exercises the N1 path (host target with root path plus null-path owner through the real coordinator).
+
+### Score and verdict
+
+Score: 6/10
+Verdict: REVISE. Part A and the CodeRabbit regex, cap and typeof fixes are sound. B1 creates a regression in the Open flow (N1), which must be fixed before merge. B5 and B7 refinements are minor.
+
+## Final review (bounded correction)
+
+Reviewer: Anthropic Claude (independent); implementer: codex. Read-only; no checks run.
+
+### Per-item status
+
+1. N1 (unpartitioned Open): FIXED. `chat-attention-host-message-handler.service.ts:~197-198` sets the projection routing path to `''` when a validated owner has a null path, with the real root only in `labelPath`; `openProjected` (`:~285-290`) passes `''` for the same owner. The coordinator `resolve()` matches `(null ?? '') === ''`, takes the null-path branch (no `switchWorkspace`), and adopts via `requestCanvasTab(tab.id, null, ...)`; the canvas normalises null to `''` (`orchestra-canvas.component.ts:430-433`). Spec: dispatcher "routes an unpartitioned owner by tab id" and the coordinator null-path spec cover it.
+2. Path filter: FIXED. `attention-context.util.ts:1`: `/compact` and `/clear` survive; `/tmp`-style well-known roots and multi-segment paths are rejected; "CI/CD" and "and/or" pass. Residual false positives: `/dev` or `/home` used as bare words and `/api/users`-style tokens are dropped (arguably path-like). Cosmetic.
+3. Cap shortens the variable part first: FIXED for the main cases. `attention-context.util.ts:5-19`; the slice arithmetic yields exactly 80. Gap (minor): when the provider is empty, parts are `[title, 'Tool: X']`, so the index-1 branch truncates the tool before the title and drops `Tool: X` entirely once title plus tool exceeds 80. Fix: choose the truncation target by identity (the title entry) rather than by index, or pass labelled parts.
+4. 'missing' on failed adoption: FIXED, `notification-focus-coordinator.service.ts:~48-50`, with the spec.
+5. "Lane permission required" in the default-title filter: FIXED at `chat-attention-source.service.ts:~137` and the host handler.
+6. Dispatcher gate: FIXED and correct. `chat-attention-action-dispatcher.service.ts:55` allows `''` only with a `tabId` and still refuses when both are missing; the spec covers both. VS Code: an unpartitioned `''` path previously refused Open outright, so this is not a regression. It now routes through the null-path branch, which in a panel without a mounted canvas waits the 5 s timeout and then reports "Target unavailable". Acceptable.
+7. "Show in canvas" label: FIXED. Source (`chat-attention-source.service.ts:160`), host projection (`...handler.service.ts:213`) and failed-turn (`chat-failed-turn-attention.service.ts:44`) use it; surface-owned rows keep "Open"; the action id stays `open`, so `notification-center.store.ts:110` (`actionId.toLowerCase() === 'open'`) and the dispatcher keep working. No non-spec code keys on the label text.
+
+### Defects
+
+D1. MINOR (pre-existing hazard, now more reachable). `notification-focus-coordinator.service.ts:~39-41` calls `workspaceCoordinator.switchWorkspace('')` whenever `initial` is null, including `target.workspacePath === ''`. With a stale `tabId` (tab closed between render and click) and an active workspace, this switches to an empty `''` partition and hides the user's tabs. The notification-center store and snackbar already forwarded `''` before this change (`notification-center.store.ts:~130`), and the item 6 gate now also lets it through when `tabId` is set. Fix: `if (target.workspacePath && initial?.workspacePath !== null) await switchWorkspace(...)`, returning `missing` when `initial` is null and the path is empty.
+D2. MINOR. Context cap target selection when the provider is empty (item 3).
+D3. COSMETIC. Bare `/dev`, `/home` words in titles are treated as paths.
+
+No blocking defects. The routing, label and filter changes match the stated intent, and the specs referenced (null-path coordinator branch, dispatcher gate, host and source context cases) assert the new behaviour and would fail against the previous code.
+
+### Score and verdict
+
+Score: 8/10
+Verdict: APPROVED. D1 and D2 are small follow-ups, not merge blockers. Scoped chat and notification-center checks must still be run by the orchestrator.

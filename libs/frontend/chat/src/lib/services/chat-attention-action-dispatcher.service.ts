@@ -52,7 +52,7 @@ export class ChatAttentionActionDispatcherService implements AttentionActionDisp
           const result = await surface.focus(item.sessionId);
           return result.success || this.unavailable('Target unavailable');
         }
-        if (!this.router || !item.workspacePath || !item.sessionId) return this.unavailable('Target unavailable');
+        if (!this.router || (!item.workspacePath && !item.tabId) || !item.sessionId) return this.unavailable('Target unavailable');
         const outcome = await this.router.focus({
           workspacePath: item.workspacePath, sessionId: item.sessionId, tabId: item.tabId,
         });

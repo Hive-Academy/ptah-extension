@@ -5,6 +5,7 @@ import { AgentMonitorStore, PermissionHandlerService } from '@ptah-extension/cha
 import { AttentionItem, NotificationService, SURFACE_FOCUS_ROUTER, VSCodeService } from '@ptah-extension/core';
 import { attentionRequestKey } from '@ptah-extension/shared';
 import type { AgentPermissionRequest, AskUserQuestionRequest, PermissionRequest } from '@ptah-extension/shared';
+import { attentionContext, isUnsafeAttentionContext } from './attention-context.util';
 
 export type ChatAttentionRequest =
   | { kind: 'permission'; request: PermissionRequest; tabId?: string }
@@ -134,21 +135,20 @@ export class ChatAttentionSourceService {
     const resolvedSessionId = sessionId || owner?.tab.claudeSessionId || owner?.tab.id;
     const tab = owner?.tab;
     const sessionTitle = tab?.title?.trim() && tab.titleOrigin !== 'default' &&
-      !/^(new chat|new session|untitled)$/i.test(tab.title.trim()) ? tab.title.trim() : '';
-    const unsafeContext = /(?:[A-Za-z]:[\\/]|\\\\[^\\\s]+\\|(?:^|\s)\/[\w.-]+\/|\bsk-[\w-]{8,}\b|\b[0-9a-f]{32,}\b|\b[A-Za-z0-9+/_-]{40,}={0,2}\b)/i;
-    const safeTitle = sessionTitle && !unsafeContext.test(sessionTitle)
+      !/^(new chat|new session|untitled|permission required|question needs an answer|lane permission required)$/i.test(tab.title.trim()) ? tab.title.trim() : '';
+    const safeTitle = sessionTitle && !isUnsafeAttentionContext(sessionTitle)
       ? sessionTitle.slice(0, 80) : '';
     const provider = tab?.providerId === 'claude-cli' ? 'Claude'
       : tab?.providerId === 'ptah-cli' ? 'Ptah CLI'
       : tab?.providerId === 'vscode-lm' ? 'VS Code' : '';
-    const toolName = target.request.toolName?.trim() ?? '';
+    const toolName = typeof target.request.toolName === 'string' ? target.request.toolName.trim() : '';
     const safeTool = /^[\w .:-]{1,50}$/.test(toolName) ? toolName : '';
     const question = target.kind === 'question'
       ? target.request.questions[0]?.question.replace(/\s+/g, ' ').trim() ?? '' : '';
-    const safeQuestion = question && !unsafeContext.test(question)
+    const safeQuestion = question && !isUnsafeAttentionContext(question)
       ? question.length > 80 ? `${question.slice(0, 79)}…` : question : '';
-    const context = [provider, safeTitle,
-      target.kind === 'question' ? safeQuestion : safeTool ? `Tool: ${safeTool}` : ''].filter(Boolean).join(' · ');
+    const context = attentionContext([provider, safeTitle,
+      target.kind === 'question' ? safeQuestion : safeTool ? `Tool: ${safeTool}` : '']);
     const surfaceOwner = this.surfaceRouters.find(router =>
       !!resolvedSessionId && router.canFocus(resolvedSessionId));
     const surfaceOwned = !!surfaceOwner && (surfaceMode || !owner);
@@ -157,7 +157,8 @@ export class ChatAttentionSourceService {
       ? [{ id: 'answer', label: 'Answer', ...(!open && { disabledReason: 'Session unavailable' }) }]
       : [{ id: 'allow', label: 'Allow', ...((!tabId || !canAllow) && { disabledReason: !tabId ? 'Session unavailable' : 'Unknown tool' }) },
           { id: 'deny', label: 'Deny', ...(!tabId && { disabledReason: 'Session unavailable' }) }];
-    actions.push({ id: 'open', label: 'Open', ...(!open && { disabledReason: 'Session unavailable' }) });
+    actions.push({ id: 'open', label: surfaceOwned || surfaceMode ? 'Open' : 'Show in canvas',
+      ...(!open && { disabledReason: 'Session unavailable' }) });
     const item: AttentionItem = {
       key, generation, kind, source: 'chat', workspacePath,
       workspaceName: labelPath ? workspaceLabelFromPath(labelPath) : 'Unknown workspace',
