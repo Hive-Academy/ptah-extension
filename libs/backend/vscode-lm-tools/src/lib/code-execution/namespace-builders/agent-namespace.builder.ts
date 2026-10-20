@@ -77,6 +77,7 @@ interface SpawnAgentFailure {
  * @warning If PtahCliRegistry's public API changes, this interface MUST be updated
  */
 interface PtahCliRegistryLike {
+  hasMcpPort?(): boolean;
   listAgents(): Promise<PtahCliListEntry[]>;
   spawnAgent(
     id: string,
@@ -321,6 +322,7 @@ export function buildAgentNamespace(
           renderLaneCompletionContract({
             taskFolder: request.taskFolder,
             deliverables: request.deliverables,
+            canUsePtahMcp: registry.hasMcpPort?.() === true,
           });
 
         const result = await registry.spawnAgent(
@@ -360,6 +362,8 @@ export function buildAgentNamespace(
             parentSessionId: activeSessionId,
             ptahCliName: result.agentName,
             ptahCliId: request.ptahCliId,
+            mcpPort: registry.getMcpPort(),
+            expectsMcp: true,
             timeout: request.timeout,
             resumeSessionId: prepared.resumeSessionId,
             ...(prepared.resumeDecision

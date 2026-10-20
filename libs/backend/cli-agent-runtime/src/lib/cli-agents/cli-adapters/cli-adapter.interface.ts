@@ -41,6 +41,7 @@ export type LaneModelSource =
   'request' | 'setting' | 'ptah-default' | 'cli-default';
 
 export interface CliCommandOptions {
+  readonly attachmentProbe?: import('../mcp-attachment-probe.port').IMcpAttachmentProbe;
   readonly task: string;
   readonly workingDirectory: string;
   readonly files?: string[];
@@ -105,6 +106,9 @@ export interface SdkHandle {
   readonly onOutput: (callback: (data: string) => void) => void;
   /** Register a callback to receive structured output segments. Optional — only SDK adapters with structured event data implement this. */
   readonly onSegment?: (callback: (segment: CliOutputSegment) => void) => void;
+  /** Fired when this handle's own MCP startup gate times out. */
+  readonly onMcpAttachmentTimeout?: (callback: () => void) => void;
+  readonly mcpConfigWriteFailed?: boolean;
   /** Get CLI-native session ID (e.g., a session UUID from an init event). Returns undefined if not yet available or not supported by this adapter. */
   readonly getSessionId?: () => string | undefined;
   /** Register a callback to receive rich FlatStreamEventUnion events.

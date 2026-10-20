@@ -87,8 +87,13 @@ import {
   type IProcessSpawner,
 } from '@ptah-extension/platform-core';
 import { ptahMcpServerUrl } from './ptah-mcp-url';
+import { MCP_ATTACHMENT_TIMEOUT_MS } from '../mcp-attachment-probe.port';
 import { classifyCliStderr } from './cli-stderr-severity';
 import { z } from 'zod';
+import type { Logger } from '@ptah-extension/vscode-core';
+
+/** How long a failed startup waits for its child to stop before it releases the MCP lock. */
+const STARTUP_CHILD_STOP_DEADLINE_MS = 5_000;
 
 /**
  * Print-mode wait timeout. `agy` defaults to 5m, which kills most real coding
@@ -334,6 +339,26 @@ function formatUsage(
 }
 
 export class AntigravityCliAdapter implements CliAdapter {
+  private static readonly mcpStartupLocks = new Map<string, Promise<void>>();
+
+  private static async lockMcpStartup(): Promise<() => void> {
+    const key = process.env['HOME'] || process.env['USERPROFILE'] || homedir();
+    const previous = this.mcpStartupLocks.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.mcpStartupLocks.set(key, current);
+    await previous;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      if (this.mcpStartupLocks.get(key) === current)
+        this.mcpStartupLocks.delete(key);
+      release();
+    };
+  }
   readonly name = 'antigravity' as const;
   readonly displayName = 'Antigravity';
   readonly roleChannel = 'task-prompt' as const;
@@ -353,6 +378,7 @@ export class AntigravityCliAdapter implements CliAdapter {
   constructor(
     private readonly spawner?: IProcessSpawner,
     private readonly streamJsonProbe?: (binary: string) => Promise<boolean>,
+    private readonly logger?: Logger,
   ) {}
 
   async detect(): Promise<CliDetectionResult> {
@@ -594,7 +620,13 @@ export class AntigravityCliAdapter implements CliAdapter {
     port: number,
     workingDirectory: string,
     agentId?: string,
-  ): Promise<McpServerConfig | undefined> {
+  ): Promise<{
+    prior?: McpServerConfig;
+    configured: boolean;
+    restoreNeeded: boolean;
+  }> {
+    let prior: McpServerConfig | undefined;
+    let restoreNeeded = false;
     try {
       const facet = AntigravityCliAdapter.mcpFacet();
       // Captured BEFORE the write so cleanup can put it back. `CodeExecutionMCP`
@@ -602,7 +634,21 @@ export class AntigravityCliAdapter implements CliAdapter {
       // server is up, so that a user's own `agy` — not just one Ptah spawned —
       // has the tools. Deleting the key after this run would take that away and
       // leave it gone until the next registration pass.
-      const prior = facet.readAll('').get(PTAH_SPAWN_MCP_KEY);
+      const found = facet.readAll('').get(PTAH_SPAWN_MCP_KEY);
+      prior = found;
+      if (found && 'url' in found && typeof found.url === 'string') {
+        const match =
+          /^(http:\/\/localhost:\d+)\/agent\/[^/]+(?:\/workspace\/.*)?$/.exec(
+            found.url,
+          );
+        if (match) {
+          prior = { type: 'sse', url: match[1] };
+          this.logger?.warn(
+            '[AntigravityCliAdapter] Stale lane MCP URL found; restoring bare server entry',
+          );
+        }
+      }
+      restoreNeeded = true;
       await facet.write(
         '',
         PTAH_SPAWN_MCP_KEY,
@@ -617,11 +663,15 @@ export class AntigravityCliAdapter implements CliAdapter {
         // flight, and cleanup restores whatever this run found.
         { type: 'sse', url: ptahMcpServerUrl(port, workingDirectory, agentId) },
       );
-      return prior;
-    } catch {
+      return { prior, configured: true, restoreNeeded };
+    } catch (error: unknown) {
       // degradation-audit: optional-capability - per the doc comment on this
       // method, MCP tools won't be available this run; CLI still functions.
-      return undefined;
+      this.logger?.error(
+        '[AntigravityCliAdapter] MCP config write failed',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+      return { prior, configured: false, restoreNeeded };
     }
   }
 
@@ -655,8 +705,14 @@ export class AntigravityCliAdapter implements CliAdapter {
       } else {
         await facet.write('', PTAH_SPAWN_MCP_KEY, prior);
       }
-    } catch {
+    } catch (error: unknown) {
+      // degradation-audit: optional-capability - a failed restore is retried by
+      // the next startup and must not change the lane's result.
       // Stale ptah entry will be overwritten on next configureMcpServer().
+      this.logger?.error(
+        '[AntigravityCliAdapter] MCP config restore failed',
+        error instanceof Error ? error : new Error(String(error)),
+      );
     }
   }
 
@@ -702,240 +758,341 @@ export class AntigravityCliAdapter implements CliAdapter {
     // The `ptah` entry as this run found it. Held in a LOCAL, not a field:
     // two `agy` agents can be in flight at once and a shared slot would let
     // one run's cleanup restore the other run's snapshot.
+    const releaseMcpStartup = options.mcpPort
+      ? await AntigravityCliAdapter.lockMcpStartup()
+      : undefined;
     let priorMcpEntry: McpServerConfig | undefined;
-    if (options.mcpPort) {
-      priorMcpEntry = await this.configureMcpServer(
-        options.mcpPort,
-        options.workingDirectory,
-        options.agentId,
+    let mcpConfigured = false;
+    let mcpRestoreNeeded = false;
+    let spawnedChild: ReturnType<typeof spawnCli> | undefined;
+    try {
+      if (options.mcpPort) {
+        const setup = await this.configureMcpServer(
+          options.mcpPort,
+          options.workingDirectory,
+          options.agentId,
+        );
+        priorMcpEntry = setup.prior;
+        mcpConfigured = setup.configured;
+        mcpRestoreNeeded = setup.restoreNeeded;
+      }
+
+      const output = createBufferedEmitter<string>();
+      const segment = createBufferedEmitter<CliOutputSegment>();
+
+      const child = spawnCli(
+        spawnDescriptor.command,
+        [...spawnDescriptor.prefixArgs, ...args],
+        {
+          cwd: options.workingDirectory,
+          env: Object.keys(spawnEnv).length > 0 ? spawnEnv : undefined,
+          needsConsole: true,
+          detached: true,
+          spawner: this.spawner,
+        },
       );
-    }
+      spawnedChild = child;
+      child.stdout?.setEncoding('utf8');
+      child.stderr?.setEncoding('utf8');
+      let processClosed = false;
+      let stdinClosed = false;
+      let currentTurn = createTurnDeferred();
+      const firstTurn = currentTurn;
 
-    const output = createBufferedEmitter<string>();
-    const segment = createBufferedEmitter<CliOutputSegment>();
-
-    const child = spawnCli(
-      spawnDescriptor.command,
-      [...spawnDescriptor.prefixArgs, ...args],
-      {
-        cwd: options.workingDirectory,
-        env: Object.keys(spawnEnv).length > 0 ? spawnEnv : undefined,
-        needsConsole: true,
-        detached: true,
-        spawner: this.spawner,
-      },
-    );
-    child.stdout?.setEncoding('utf8');
-    child.stderr?.setEncoding('utf8');
-    let processClosed = false;
-    let stdinClosed = false;
-    let currentTurn = createTurnDeferred();
-    const firstTurn = currentTurn;
-
-    const emitAdapterError = (error: Error): void => {
-      output.emit(`\n[Antigravity CLI Error] ${error.message}\n`);
-      segment.emit({
-        type: 'error',
-        content: `Antigravity CLI Error: ${error.message}`,
-      });
-    };
-
-    child.stdin?.on?.('error', (error: Error) => {
-      stdinClosed = true;
-      currentTurn.resolve(1);
-      emitAdapterError(error);
-    });
-
-    const writeTurn = (message: string): void => {
-      const parsed = AgyInputMessageSchema.safeParse({
-        event: 'user',
-        message: { content: message },
-      });
-      if (!parsed.success) {
-        throw new Error(
-          `Refusing to send an invalid Antigravity stream-json message: ${z.prettifyError(parsed.error)}`,
-        );
-      }
-      if (processClosed || stdinClosed || !child.stdin) {
-        throw new Error('Antigravity stdin is no longer writable');
-      }
-      child.stdin.write(`${JSON.stringify(parsed.data)}\n`);
-    };
-
-    if (useStreamInput) {
-      writeTurn(taskPrompt);
-    } else {
-      // The fallback prompt is carried in argv and remains strictly one-shot.
-      child.stdin?.end();
-      stdinClosed = true;
-    }
-
-    const closeAfterSettledTurn = (settledTurn: TurnDeferred): void => {
-      setImmediate(() => {
-        if (
-          !processClosed &&
-          !stdinClosed &&
-          currentTurn === settledTurn &&
-          settledTurn.settled
-        ) {
-          child.stdin?.end();
-          stdinClosed = true;
-        }
-      });
-    };
-
-    const onAbort = (): void => {
-      // `pid` is known synchronously for an inline spawn and NOT for an
-      // off-thread one, where the child is created on a worker. `whenSpawned`
-      // is the one read that works for both; it settles to null if the child
-      // never started, so this can never hang (TASK_2026_367).
-      void child.whenSpawned.then((pid) => {
-        if (pid && !child.killed) {
-          // Tree-kill the whole process group — child.kill() alone orphans the
-          // real `agy` process (and any shell subprocesses) when child is a shim.
-          void killProcessTree(pid);
-        }
-      });
-    };
-    abortController.signal.addEventListener('abort', onAbort);
-
-    const setSessionId = (id: string | undefined): void => {
-      if (!capturedSessionId && id) {
-        capturedSessionId = id;
-      }
-    };
-
-    let lineBuf = '';
-    child.stdout?.on('data', (data: string) => {
-      lineBuf += stripAnsiCodes(data);
-      const lines = lineBuf.split(/\r?\n/);
-      lineBuf = lines.pop() ?? '';
-      // A single stream-json line carries a whole tool output, so the cap is
-      // sized like opencode's rather than the old plain-text 64KB.
-      const LINE_BUF_CAP = 1024 * 1024;
-      if (lineBuf.length > LINE_BUF_CAP) {
-        output.emit(
-          `[Antigravity CLI Warning] Line buffer exceeded ${LINE_BUF_CAP} bytes without a newline; resetting.\n`,
-        );
+      const emitAdapterError = (error: Error): void => {
+        output.emit(`\n[Antigravity CLI Error] ${error.message}\n`);
         segment.emit({
-          type: 'info',
-          content: `Line buffer exceeded ${LINE_BUF_CAP} bytes without a newline; resetting.`,
+          type: 'error',
+          content: `Antigravity CLI Error: ${error.message}`,
         });
-        lineBuf = '';
-      }
-      for (const line of lines) {
-        this.handleLine(
-          line,
-          output.emit,
-          segment.emit,
-          setSessionId,
-          useStreamInput
-            ? (exitCode) => {
-                const settledTurn = currentTurn;
-                settledTurn.resolve(exitCode);
-                closeAfterSettledTurn(settledTurn);
-              }
-            : undefined,
-        );
-      }
-    });
+      };
 
-    let suppressConptyLines = 0;
-    child.stderr?.on('data', (data: string) => {
-      const cleaned = stripAnsiCodes(data).trim();
-      if (!cleaned) return;
-      if (cleaned.includes('conpty_console_list_agent')) {
-        suppressConptyLines = 5; // Suppress this + next few stack trace lines
-        return;
-      }
-      if (cleaned.includes('AttachConsole failed')) {
-        suppressConptyLines = 3;
-        return;
-      }
-      if (suppressConptyLines > 0) {
-        suppressConptyLines--;
-        return;
-      }
-      output.emit(`[stderr] ${cleaned}\n`);
-      segment.emit({ type: classifyCliStderr(cleaned), content: cleaned });
-    });
+      child.stdin?.on?.('error', (error: Error) => {
+        stdinClosed = true;
+        currentTurn.resolve(1);
+        emitAdapterError(error);
+      });
 
-    const done = new Promise<number>((resolve) => {
-      child.on('close', (code, signal) => {
-        processClosed = true;
-        abortController.signal.removeEventListener('abort', onAbort);
-        if (lineBuf.trim()) {
+      const writeTurn = (message: string): void => {
+        const parsed = AgyInputMessageSchema.safeParse({
+          event: 'user',
+          message: { content: message },
+        });
+        if (!parsed.success) {
+          throw new Error(
+            `Refusing to send an invalid Antigravity stream-json message: ${z.prettifyError(parsed.error)}`,
+          );
+        }
+        if (processClosed || stdinClosed || !child.stdin) {
+          throw new Error('Antigravity stdin is no longer writable');
+        }
+        child.stdin.write(`${JSON.stringify(parsed.data)}\n`);
+      };
+
+      if (useStreamInput) {
+        writeTurn(taskPrompt);
+      } else {
+        // The fallback prompt is carried in argv and remains strictly one-shot.
+        child.stdin?.end();
+        stdinClosed = true;
+      }
+
+      const closeAfterSettledTurn = (settledTurn: TurnDeferred): void => {
+        setImmediate(() => {
+          if (
+            !processClosed &&
+            !stdinClosed &&
+            currentTurn === settledTurn &&
+            settledTurn.settled
+          ) {
+            child.stdin?.end();
+            stdinClosed = true;
+          }
+        });
+      };
+
+      const onAbort = (): void => {
+        // `pid` is known synchronously for an inline spawn and NOT for an
+        // off-thread one, where the child is created on a worker. `whenSpawned`
+        // is the one read that works for both; it settles to null if the child
+        // never started, so this can never hang (TASK_2026_367).
+        void child.whenSpawned.then((pid) => {
+          if (pid && !child.killed) {
+            // Tree-kill the whole process group — child.kill() alone orphans the
+            // real `agy` process (and any shell subprocesses) when child is a shim.
+            void killProcessTree(pid);
+          }
+        });
+      };
+      abortController.signal.addEventListener('abort', onAbort);
+
+      const setSessionId = (id: string | undefined): void => {
+        if (!capturedSessionId && id) {
+          capturedSessionId = id;
+        }
+      };
+
+      let lineBuf = '';
+      child.stdout?.on('data', (data: string) => {
+        lineBuf += stripAnsiCodes(data);
+        const lines = lineBuf.split(/\r?\n/);
+        lineBuf = lines.pop() ?? '';
+        // A single stream-json line carries a whole tool output, so the cap is
+        // sized like opencode's rather than the old plain-text 64KB.
+        const LINE_BUF_CAP = 1024 * 1024;
+        if (lineBuf.length > LINE_BUF_CAP) {
+          output.emit(
+            `[Antigravity CLI Warning] Line buffer exceeded ${LINE_BUF_CAP} bytes without a newline; resetting.\n`,
+          );
+          segment.emit({
+            type: 'info',
+            content: `Line buffer exceeded ${LINE_BUF_CAP} bytes without a newline; resetting.`,
+          });
+          lineBuf = '';
+        }
+        for (const line of lines) {
           this.handleLine(
-            lineBuf,
+            line,
             output.emit,
             segment.emit,
             setSessionId,
             useStreamInput
-              ? (turnCode) => currentTurn.resolve(turnCode)
+              ? (exitCode) => {
+                  const settledTurn = currentTurn;
+                  settledTurn.resolve(exitCode);
+                  closeAfterSettledTurn(settledTurn);
+                }
               : undefined,
           );
-          lineBuf = '';
         }
-        const exitCode = code ?? (signal ? 1 : 0);
-        if (useStreamInput) {
-          currentTurn.resolve(exitCode);
-        }
-        if (exitCode !== 0 && !abortController.signal.aborted) {
-          segment.emit({
-            type: 'error',
-            content: `Antigravity CLI exited with code ${exitCode}`,
-          });
-        }
-        resolve(exitCode);
       });
 
-      child.on('error', (err) => {
-        processClosed = true;
-        abortController.signal.removeEventListener('abort', onAbort);
-        if (useStreamInput) {
-          currentTurn.resolve(1);
+      let suppressConptyLines = 0;
+      child.stderr?.on('data', (data: string) => {
+        const cleaned = stripAnsiCodes(data).trim();
+        if (!cleaned) return;
+        if (cleaned.includes('conpty_console_list_agent')) {
+          suppressConptyLines = 5; // Suppress this + next few stack trace lines
+          return;
         }
-        emitAdapterError(err);
-        resolve(1);
+        if (cleaned.includes('AttachConsole failed')) {
+          suppressConptyLines = 3;
+          return;
+        }
+        if (suppressConptyLines > 0) {
+          suppressConptyLines--;
+          return;
+        }
+        output.emit(`[stderr] ${cleaned}\n`);
+        segment.emit({ type: classifyCliStderr(cleaned), content: cleaned });
       });
-    });
 
-    if (options.mcpPort) {
-      done.then(() => {
-        this.cleanupMcpEntry(priorMcpEntry);
-      });
-    }
-
-    return {
-      abort: abortController,
-      done: useStreamInput ? firstTurn.done : done,
-      onOutput: output.subscribe,
-      onSegment: segment.subscribe,
-      getSessionId: () => capturedSessionId,
-      getPid: () => child.pid,
-      ...(useStreamInput
-        ? {
-            supportsContinuation: () => !processClosed && !stdinClosed,
-            continue: async (message: string) => {
-              if (!currentTurn.settled) {
-                throw new Error(
-                  'Antigravity is still processing the current turn',
-                );
-              }
-              const previousTurn = currentTurn;
-              const nextTurn = createTurnDeferred();
-              currentTurn = nextTurn;
-              try {
-                writeTurn(message);
-              } catch (error: unknown) {
-                currentTurn = previousTurn;
-                throw error;
-              }
-              return { done: nextTurn.done };
-            },
+      const done = new Promise<number>((resolve) => {
+        child.on('close', (code, signal) => {
+          processClosed = true;
+          abortController.signal.removeEventListener('abort', onAbort);
+          if (lineBuf.trim()) {
+            this.handleLine(
+              lineBuf,
+              output.emit,
+              segment.emit,
+              setSessionId,
+              useStreamInput
+                ? (turnCode) => currentTurn.resolve(turnCode)
+                : undefined,
+            );
+            lineBuf = '';
           }
-        : {}),
-    };
+          const exitCode = code ?? (signal ? 1 : 0);
+          if (useStreamInput) {
+            currentTurn.resolve(exitCode);
+          }
+          if (exitCode !== 0 && !abortController.signal.aborted) {
+            segment.emit({
+              type: 'error',
+              content: `Antigravity CLI exited with code ${exitCode}`,
+            });
+          }
+          resolve(exitCode);
+        });
+
+        child.on('error', (err) => {
+          processClosed = true;
+          abortController.signal.removeEventListener('abort', onAbort);
+          if (useStreamInput) {
+            currentTurn.resolve(1);
+          }
+          emitAdapterError(err);
+          resolve(1);
+        });
+      });
+
+      let mcpTimedOut = false;
+      let onMcpTimeout: (() => void) | undefined;
+      if (releaseMcpStartup) {
+        if (!mcpConfigured) {
+          output.emit(
+            '\n[Antigravity MCP warning: config-write-failed] Ptah MCP was not configured; report in your final message.\n',
+          );
+        }
+        const startup =
+          mcpConfigured &&
+          options.attachmentProbe &&
+          options.agentId &&
+          options.mcpPort
+            ? Promise.race([
+                options.attachmentProbe.waitFor(
+                  options.agentId,
+                  options.mcpPort,
+                  MCP_ATTACHMENT_TIMEOUT_MS,
+                ),
+                done.then(() => undefined),
+              ])
+            : Promise.resolve(undefined);
+        void startup
+          .then(async (attached) => {
+            if (
+              mcpConfigured &&
+              !attached &&
+              options.attachmentProbe &&
+              options.agentId &&
+              options.mcpPort &&
+              !processClosed
+            ) {
+              mcpTimedOut = true;
+              onMcpTimeout?.();
+              output.emit(
+                '\n[Antigravity MCP warning: handshake-timeout] Ptah MCP did not connect within 15s; report in your final message.\n',
+              );
+            }
+          })
+          .catch((error: unknown) => {
+            this.logger?.error(
+              '[AntigravityCliAdapter] MCP startup wait failed',
+              error instanceof Error ? error : new Error(String(error)),
+            );
+          })
+          .finally(async () => {
+            if (mcpRestoreNeeded) await this.cleanupMcpEntry(priorMcpEntry);
+            releaseMcpStartup();
+          });
+      }
+
+      return {
+        abort: abortController,
+        done: useStreamInput ? firstTurn.done : done,
+        onOutput: output.subscribe,
+        onSegment: segment.subscribe,
+        onMcpAttachmentTimeout: (callback) => {
+          onMcpTimeout = callback;
+          if (mcpTimedOut) callback();
+        },
+        mcpConfigWriteFailed: !!options.mcpPort && !mcpConfigured,
+        getSessionId: () => capturedSessionId,
+        getPid: () => child.pid,
+        ...(useStreamInput
+          ? {
+              supportsContinuation: () => !processClosed && !stdinClosed,
+              continue: async (message: string) => {
+                if (!currentTurn.settled) {
+                  throw new Error(
+                    'Antigravity is still processing the current turn',
+                  );
+                }
+                const previousTurn = currentTurn;
+                const nextTurn = createTurnDeferred();
+                currentTurn = nextTurn;
+                try {
+                  writeTurn(message);
+                } catch (error: unknown) {
+                  currentTurn = previousTurn;
+                  throw error;
+                }
+                return { done: nextTurn.done };
+              },
+            }
+          : {}),
+      };
+    } catch (error: unknown) {
+      try {
+        // The pid report and the Windows tree kill have no deadline of their
+        // own. Bound the wait so restore and release always run; a pid that
+        // arrives later is still killed, just without holding the lock.
+        const stopChild = (async (): Promise<void> => {
+          const pid = await spawnedChild?.whenSpawned;
+          if (pid) await killProcessTree(pid);
+        })().catch((killError: unknown) => {
+          // degradation-audit: optional-capability - cleanup still restores the shared key.
+          this.logger?.error(
+            '[AntigravityCliAdapter] Failed to stop child after startup error',
+            killError instanceof Error
+              ? killError
+              : new Error(String(killError)),
+          );
+        });
+        let deadline: ReturnType<typeof setTimeout> | undefined;
+        const stopped = await Promise.race([
+          stopChild.then(() => true),
+          new Promise<false>((resolve) => {
+            deadline = setTimeout(
+              () => resolve(false),
+              STARTUP_CHILD_STOP_DEADLINE_MS,
+            );
+          }),
+        ]);
+        clearTimeout(deadline);
+        if (!stopped) {
+          this.logger?.warn(
+            '[AntigravityCliAdapter] Child stop after startup error is still pending; restoring MCP config and releasing the startup lock',
+            { deadlineMs: STARTUP_CHILD_STOP_DEADLINE_MS },
+          );
+        }
+        if (mcpRestoreNeeded) await this.cleanupMcpEntry(priorMcpEntry);
+      } finally {
+        releaseMcpStartup?.();
+      }
+      throw error;
+    }
   }
 
   /**

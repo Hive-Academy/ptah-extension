@@ -122,6 +122,8 @@ export type AgentRoleChannel =
   | 'agent-selection';
 
 export interface AgentProcessInfo {
+  /** Ptah MCP attachment warning, when the lane could not use its report tool. */
+  mcpAttachmentWarning?: string;
   readonly agentId: AgentId;
   readonly cli: CliType;
   readonly task: string;
@@ -581,6 +583,7 @@ export type LaneCompletionVerdict =
 
 /** The payload pushed to the session that spawned the lane. */
 export interface LaneCompletionSignal {
+  readonly mcpAttachmentWarning?: string;
   readonly agentId: string;
   readonly cli: CliType;
   /** The label a person recognizes the lane by. */

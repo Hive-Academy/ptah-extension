@@ -462,6 +462,7 @@ describe('Electron DI — lane outcomes', () => {
     const runtime = source.indexOf(
       'registerCliAgentRuntimeServices(container, logger);',
     );
+    expect(source).toContain('container.register(CLI_AGENT_RUNTIME_TOKENS.MCP_ATTACHMENT_PROBE, { useValue: mcpAttachmentObserver });');
     const reader = source.indexOf('useToken: LANE_OUTCOME_TOKENS.READER');
     const classifier = source.indexOf(
       'useToken: LANE_ROUTING_TOKENS.FAILURE_CLASSIFIER',
