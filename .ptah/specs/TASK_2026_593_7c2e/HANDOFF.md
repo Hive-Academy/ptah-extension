@@ -18,7 +18,7 @@ points here.
 | --- | --- | --- | --- | --- |
 | **#783** (593 A8 + phase C + CI fixes + empty bell panel) | `feat/attention-phase-c` / `.claude-worktrees/attention-notifications` | `eb6d62c14` | green | **MERGED** |
 | **#790** (593 small follow-ups) | `feat/attention-followups` / `.claude-worktrees/attention-followups` | `868072d19` | retargeted to main by GitHub | **MERGED** (`c09f1e960` on main) |
-| **#785** (702 phase 3 + lane Open parity) | `feat/chat-needs-you-removal` / `.claude-worktrees/chat-needs-you-removal` | `eabcd9172` (+ handoff doc) | was green at `35c9a8c59` | OPEN; conflicts with main after #783. **Peer session 662 (skills-epic) is resolving them at the user's request** (merge origin/main, 3 conflicts in chat-attention-action-dispatcher + app.config.ts, scoped checks, push). Check its result first; keep main's changes AND #785's `ATTENTION_LANE_OPENER` additions |
+| **#785** (702 phase 3 + lane Open parity) | `feat/chat-needs-you-removal` / `.claude-worktrees/chat-needs-you-removal` | `9f220a380` | re-running after merge | OPEN, MERGEABLE: peer 662 merged `origin/main` (kept the `ATTENTION_LANE_OPENER` additions; canvas+core typecheck/lint/test, dispatcher spec 10/10, webview+chat typecheck, audit 291). Watch CI, then the user merges |
 | **this branch** `docs/attention-visual-2` | `.claude-worktrees/attention-visual-2` (from `origin/main` `c09f1e960`, node_modules junction) | see `git log` | - | visual run 2 work; **NOT pushed at handoff** (waited for the peer check slot). Next session: push it and open a PR to main (step 0) |
 
 Old worktrees still present (remove only when the user says): `.claude-worktrees/attention-pr780`,
@@ -126,15 +126,15 @@ Old worktrees still present (remove only when the user says): `.claude-worktrees
 
 ## Next steps
 
-0. Push the two local-only branches (one pre-push gate each, after a "checks: free" slot) and open
-   a PR to main for each: `docs/attention-visual-2` (this worktree) and `fix/handoff-no-lane-wait`
+0. The two branches below were pushed with PRs at the end of the `notification-fixes` session
+   (check `gh pr list --head docs/attention-visual-2` and `--head fix/handoff-no-lane-wait`; if a
+   push failed, push again after a "checks: free" slot): `docs/attention-visual-2` (this worktree) and `fix/handoff-no-lane-wait`
    (`.claude-worktrees/handoff-no-lane-wait`, commit `f73433376`: the "Wrap up & hand off" prompt in
    `libs/frontend/chat/src/lib/services/session-budget-actions.service.ts` and the `session-handoff`
    skill, both copies + `content-manifest.json`, no longer tell the agent to wait for running lanes;
    lanes push their report and completion signal with their status; spec 19/19 passed).
-   Check #785: did peer 662 push the conflict fix, and is CI green (`gh pr checks 785`)? If 662
-   stopped, do the merge yourself in `.claude-worktrees/chat-needs-you-removal` (keep both sides,
-   see the #785 row above), run its scoped checks (commands below), push in the background.
+   Check #785 CI after 662's merge (`gh pr checks 785`); fix a real failure with one codex lane +
+   Anthropic review, re-run a flaky `spot-editor-save` shard once.
 1. Read and verify the revised `visual-check/shoot-populated.cjs` in THIS worktree
    (`.claude-worktrees/attention-visual-2`). Ask peers for the slot (ListAgents + SendMessage),
    announce "Electron: <session> launching, port 9347, private APPDATA", then build main once and
