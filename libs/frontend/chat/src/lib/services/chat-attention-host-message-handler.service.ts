@@ -179,15 +179,18 @@ export class ChatAttentionHostMessageHandler implements MessageHandler {
     // An opaque ID keeps the request counted while its local owner is unavailable.
     const presentationWorkspace = workspacePath ?? `attention:${notice.target?.workspaceId ?? 'unknown'}`;
     const surfaceRouter = this.surfaceRouters.find(router =>
-      router.kind === notice.target?.surfaceKind && router.canFocus(notice.target.sessionId));
-    const routable = !!notice.target && (notice.target.surfaceMode
-      ? !!surfaceRouter : !!workspacePath && !!this.focusRouter);
+      !!notice.target && (!notice.target.surfaceKind || router.kind === notice.target.surfaceKind) &&
+      router.canFocus(notice.target.sessionId));
+    const surfaceOwned = !!notice.target && !!surfaceRouter &&
+      (notice.target.surfaceMode || !notice.target.tabId);
+    const routable = surfaceOwned || (!!notice.target && !notice.target.surfaceMode &&
+      !!workspacePath && !!this.focusRouter);
     const item: AttentionItem = {
       key: notice.key, generation: notice.generation, kind: notice.kind,
       source: 'host', workspacePath: presentationWorkspace,
       workspaceName: workspacePath ? workspaceLabelFromPath(workspacePath) : 'Unknown workspace',
       sessionId: notice.target?.sessionId, tabId: notice.target?.tabId,
-      ownerSurface: notice.target?.surfaceMode ? 'surface' : 'chat',
+      ownerSurface: surfaceOwned || notice.target?.surfaceMode ? 'surface' : 'chat',
       severity: 'warning', title: notice.title, actionable: true,
       actions: [{ id: 'open', label: 'Open', ...(!routable && {
         disabledReason: notice.target?.surfaceMode ? 'Answer in owning surface' : 'Target unavailable',
@@ -240,17 +243,19 @@ export class ChatAttentionHostMessageHandler implements MessageHandler {
       this.appState.setStatusMessage('Target unavailable');
       return false;
     }
-    if (target.surfaceMode) {
+    if (target.surfaceMode || !target.tabId) {
       const router = this.surfaceRouters.find(candidate =>
-        candidate.kind === target.surfaceKind && candidate.canFocus(target.sessionId));
-      if (!router) { this.appState.setStatusMessage('Target unavailable'); return false; }
-      try {
-        const result = await router.focus(target.sessionId);
-        if (!result.success) this.appState.setStatusMessage('Target unavailable');
-        return result.success;
-      } catch (error) {
-        return this.focusFailure(error);
+        (!target.surfaceKind || candidate.kind === target.surfaceKind) && candidate.canFocus(target.sessionId));
+      if (router) {
+        try {
+          const result = await router.focus(target.sessionId);
+          if (!result.success) this.appState.setStatusMessage('Target unavailable');
+          return result.success;
+        } catch (error) {
+          return this.focusFailure(error);
+        }
       }
+      if (target.surfaceMode) { this.appState.setStatusMessage('Target unavailable'); return false; }
     }
     const workspacePath = this.localWorkspace(target);
     if (!workspacePath || !this.focusRouter || target.surfaceMode) {

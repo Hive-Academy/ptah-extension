@@ -545,6 +545,121 @@ Scope: only the post-check correction (decisions.md #38 production edits and the
 
 Verdict: APPROVED, 9/10.
 
+
+## Phase C + A8 review
+
+Review family: implementer codex (lanes) + Anthropic orchestrator edits; reviewer Anthropic subagent.
+
+Scope: `git diff HEAD` plus untracked files (excluding `.ptah/`). Read whole: dispatcher, voice service, action-banner service, git-status-attention service, the three focus routers and providers, `notice-action-handler.token.ts`, back-office mapper and projection, `NotificationService`, `GitStatusService`. Read as diffs only: host handler, source service, review-shell, chat-view, app.config. Nothing was executed (no nx, tsc or Jest, per instruction); "will fail" claims below come from reading the code and the audit rule source.
+
+Score: 6/10. Verdict: REVISE (0 Blocking, 3 Serious, 6 Moderate, 3 Minor).
+
+### Serious
+
+1. `chat-view.component.spec.ts` still uses the deleted members `actionError()` and `actionWarning()`.
+   - Where: `libs/frontend/chat/src/lib/components/templates/chat-view.component.spec.ts:1441, 1468, 1505, 1515, 1517`. The file is not in the diff.
+   - Scenario: `chat-view.component.ts` dropped both computeds, so these specs fail to compile or throw `is not a function`. The chat project's test target goes red.
+   - Context: `ActionBannerService.showError` and `showWarning` no longer write to the local banner, so the "real banner" assertions are also obsolete.
+   - Fix: replace them with assertions on `NotificationService` (upsert called, kind `failure` or `warning`, `tabId` scoped) and delete the "warning does not leak into info/error slots" case.
+
+2. New silent catch in `libs/frontend/chat`, which is ratcheted (baseline 11, `tools/degradation-audit/baseline.json`).
+   - Where: `voice-provider-error.service.ts:97-99`. The block is `catch { switchError.set(...); return false; }` with no throw, no `.error(` and no `degradation-audit: reported` marker.
+   - Why it counts: `check-degradation.ts` rule 1 (catch-return-sentinel) flags a catch that returns a literal `false`. This adds one site to the chat directory and trips the ratchet. The "stays 294" requirement is not met.
+   - Fix: log with `LoggingService` (the dispatcher does this) and add `// degradation-audit: reported - <reason>`, or return an outcome object.
+   - Not run here. Confirm with the audit target.
+
+3. C3 back-office projection misses the terminal boot failure, never clears a boot failure, and relies on unverified labels.
+   - `mapBootReadiness` returns `null` for `phase === 'settled'` (`back-office-activity.service.ts:~383`). `rpc-readiness.types.ts:100` says `settled` "pairs with a terminal BackendReadiness". So a final `failed` or `degraded` boot arrives with `settled`, is dropped before `projectFailure` runs, and the "Workspace startup failed" label is mostly unreachable.
+   - For non-settled phases `item.kind` is the phase name (`database`, `index`, ...). That is never in the recovery list `['online','ready','complete','success']`, so a boot notice, once raised, is never resolved by a later healthy boot.
+   - `FAILURE_LABELS` has entries `indexing:failed`, `indexing:degraded`, `indexing:error`, `database:error` and `harness:error`. I found no emitter for them: `mapIndexingComplete` only yields `complete`, and no emitter for these kinds was found. Treat them as dead or speculative unless a test drives a real emission.
+   - Attribution: `projectFailure` uses `workspaceScope.activeWorkspacePath()` at receipt time. Activity events carry no workspace (only `memory:extracted` is filtered by `isForActiveWorkspace`). A failure from workspace A while B is active is filed under B. Also, `if (!path) return` drops the failure when there is no active workspace.
+   - Fix: project boot readiness before the settled filter (the ticker can keep skipping it), resolve on a `ready` readiness, and drop or prove the speculative labels.
+
+### Moderate
+
+4. `GitStatusAttentionService` cannot clear on recovery while the dock is closed (`git-status.service.ts:386-387` ignores pushes unless listening; `git-status-attention.service.ts:36-70`).
+   - The service is deliberately observe-only, and the shell disarms the status service on dock close. The warning then stays until `switchWorkspace`, an explicit Retry or a dock reopen.
+   - Scenario: git fails, the dock closes, git recovers, and the "Git status is unavailable" notice stays in Recent. The AC "resolve on recovery" holds only while the dock is open.
+   - Related: `markReadFailed` (`git-status.service.ts:558`) publishes nothing when there is no last-good data, so a first-read failure raises no warning.
+   - Suggest: say so in the spec, or have the root service re-read on a slow trigger.
+
+5. Voice switch races a newer error (`voice-provider-error.service.ts:93-95`).
+   - Scenario: a switch is in flight for an stt error, a tts error arrives (new key, `currentKey` replaced), then the stt switch succeeds. The success path sets `currentKey = null` and `_latestError = null`, wiping the tts notice's tracking. The tts notice stays visible, but `canHandle` returns false and the user sees "Already answered".
+   - Fix: after the await, only clear when `this.currentKey === key`.
+
+6. Each voice error creates a new key and resolves the prior one (`voice-provider-error.service.ts:42-55`).
+   - A burst of failing transcribe calls makes the snackbar flicker and replay.
+   - Suggest a stable key per direction with an incrementing generation.
+
+7. `ActionBannerService` is now misleading and can drop errors (`action-banner.service.ts:71-77, 95-101, 124-138`).
+   - `showError` and `showWarning` ignore `_durationMs`.
+   - `error()` and `warning()` computeds can never be non-null any more. `ActionBannerState.kind` still advertises `'error' | 'warning'`.
+   - `showAttention` returns silently when `!notifications || !tabs` (non-injection construction). That is a silent drop of a user-facing error, with no log.
+   - Every call mints a unique key (`...:${generation}`) with no dedupe, so a repeated failure fills the Recent list (bounded by the eviction limit).
+   - The notice has `actions: []`, so a tab-scoped error carries `tabId` but offers no way to reach it. That matches "no Open without a reliable target", but it is a behaviour change from the inline banner.
+
+8. Routability is computed once at projection time, so Open can be stale in either direction.
+   - Where: `chat-attention-host-message-handler.service.ts` `upsertProjection` (the `surfaceRouters.find(... canFocus)` and `routable` computation), and `chat-attention-source.service.ts` (the `surfaceOwner` computation).
+   - `AppsFocusRouter.canFocus` depends on the live `AppsSessionService.sessionId()`. `SetupWizardFocusRouter` and `HarnessBuilderFocusRouter` depend on the active workspace.
+   - Scenario: a notice arrives before the apps session id is set. Open is permanently `disabledReason: 'Target unavailable'` until the notice is re-projected. Conversely, Open shows enabled after a workspace switch and then fails on click. The click path handles the failure with a status message, so this is not data loss.
+
+9. Setup and harness `canFocus` require `found.workspacePath === tabs.activeWorkspacePath` (`setup-wizard-focus-router.service.ts:13-14`, same in harness).
+   - A wizard or harness session in another workspace gets Open disabled instead of switching workspace, unlike chat tabs routed through the focus coordinator. Confirm this is the intended decision #30 behaviour; if not, it is a requirements gap.
+
+### Minor
+
+10. `VoiceProviderErrorService.dismiss()` has no production caller now (only the spec). The deleted toast was its caller. Presentation dismissal goes through `NotificationService`, so `_latestError` is never cleared by the panel's dismiss. This is harmless today, but `switchError` and `isSwitching` signals are also unrendered.
+11. `soundEligible: true` on every back-office failure (`back-office-activity.service.ts`). Because `resolve` clears `sounded`, a flapping `vec` or `embedder` status replays the sound, limited only by the global cooldown.
+12. `GitStatusAttentionService` derives `workspaceName` by regex while sibling sources use `workspaceLabelFromPath`. This is a duplicate and could drift. `review-shell` Dismiss for the inline strip is local only and does not touch the attention notice, which is acceptable but undocumented.
+
+### Focus-area results
+
+- **A8 routers and registration**
+  - `canFocus` is limited to owned sessions: setup and harness by `tab.workflow` plus active workspace, apps by `sessions.sessionId()`. `focus` re-checks `canFocus`, maps navigation failure to `missing`, and switches the tab only after a landed navigation. The routes exist (`harness-builder/:mode/:tabId`, `generationRouteBinding`). OK.
+  - All three providers are registered in `app.config.ts`. The `harness-builder/services` alias exists. Provider arrays use `multi: true`. OK.
+  - Dependency direction: the apps shell imports each lib. No lib imports a sibling feature lib to register it. OK.
+  - The tab-less Open mapping is consistent between the host handler (`upsertProjection`, `openProjected`) and the source service. The mismatch check against pending target fields is kept. Fall-through to the focus coordinator for tab-less, router-less targets is correct. The caveat is item 8.
+- **NOTICE_ACTION_HANDLER and dispatcher** (`chat-attention-action-dispatcher.service.ts`)
+  - Stale generation: `getLive(key, gen)` returns null, then no handler matches, then `{ kind: 'stale' }`. Correct.
+  - inFlight is per key and released in `finally`, so double clicks are blocked. The handlers add their own guards (`switching`, generation check).
+  - Outcome mapping is consistent: completed, unavailable with reason, stale. A handler throw is logged and mapped to unavailable. OK.
+  - `dispatch()` collapses the outcome to a boolean, which is fine for the legacy path.
+- **C1 voice**
+  - Preserved: message (`context: payload.message`), provider name (title), dismiss (via the panel), and switch-to-local that resolves on success and keeps the notice on failure (resolve happens only after both RPCs succeed). Registration in `app.config.ts` is present.
+  - Deleted toast: no dangling import of `VoiceProviderErrorToast` remains in non-spec code.
+  - Gaps: items 2, 5, 6 and 10. Inline `isSwitching` progress and the inline error text are no longer shown. Failure is surfaced via the dispatcher outcome reason.
+- **C2 git**
+  - The service is observe-only. The shell still arms and disarms `GitStatusService` (`review-shell.component.ts` `startListening` in the constructor), and `git-dock-arming-identity.spec.ts` guards it.
+  - The key is stable, with generation 1. A re-upsert with identical content is a no-op in `NotificationService`, and presentation dismissal survives dock toggles. Snackbar suppression is set before the upsert and cleared with the entry. Resolve fires on recovery and on workspace change. The retry handler guards on key, generation and reason.
+  - Gap: item 4.
+- **C3 back-office**
+  - Every public member of `BackOfficeActivityService` is unchanged. `push` still runs first, so the canvas ticker is unaffected. Labels are fixed strings with no diagnostic text, and `actions: []`, so there is no Open without a target.
+  - Gap: item 3.
+- **General**
+  - No `any`, `@ts-ignore` or `as unknown as` in the added non-spec lines. No new `text-base-content/NN` in templates (the existing `border-base-content/10` is a `border-` utility). Module direction is clean.
+  - The degradation audit is at risk from item 2.
+
+### Verdict
+
+REVISE. Fix 1-3, then re-run the chat, core and git-ui specs and the degradation audit target on the changed directories. Items 4-9 can be fixed in the same pass or recorded as decisions.
+
+## Phase C fix-round re-review
+
+Scope: only S1, S2, S3, M5 and M7-partial from "Phase C + A8 review". Static read, no tests run (machine busy).
+
+| Finding | Status | Evidence |
+| ------- | ------ | -------- |
+| S1 chat-view spec uses deleted members | Fixed | `chat-view.component.spec.ts:1446-1448, 1475-1477, 1515-1517, 1527-1529` now assert `attentionUpsertMock` (kind, title, tabId). The real `ActionBannerService` is built by a `useFactory` (line ~489) so `inject()` works, and `NotificationService`/`LoggingService` stubs are provided. `tabManagerStub` has `activeWorkspacePath` (318) and `findTabByIdAcrossWorkspaces` (331), so `showAttention` does not throw. Only the obsolete "no leak into info/error" case was dropped; the two replacement cases keep equal strength (global has no `tabId`, warning is tab-scoped). |
+| S2 silent catch | Fixed | `voice-provider-error.service.ts:100-104` logs via `LoggingService.warn` (error name only, no payload), sets `switchError`, carries `degradation-audit: reported`. The notice stays actionable. Spec `voice-provider-error.service.spec.ts:140-146` covers the thrown path. Not run against the audit target. |
+| S3 back-office projection | Fixed, with one residual | `handleMessage` (`back-office-activity.service.ts:161-170`) calls `projectBootReadiness` before the mapper, so the terminal `failed`/`degraded` with phase `settled` raises the notice and `ready` resolves it (key `back-office:boot`). `mapBootReadiness` still returns `null` for `settled` (394), so the activity ring still skips it; no public member was removed (diff is additions plus a new `NotificationService` inject). Spec at `...spec.ts:95-103` asserts a failed settled boot raises a notice. FAILURE_LABELS: `skills:error` (mapSkillSynthesis, 520), `embedder:error` (312), `embedder:offline`/`vec:offline` (330, 292) have emitters. The four removed labels (`indexing:degraded`, `indexing:error`, `database:error`, `harness:error`) had no emitter in the typed mappers. `indexing:failed` has no typed emitter but can arrive through the generic `mapActivityEvent` pass-through (375-384), and a spec drives it (`...spec.ts:83-93`); acceptable. |
+| M5 voice switch race | Fixed | `voice-provider-error.service.ts:94-98`: the old key is resolved (correct, the switch did succeed for it), but `currentKey` and `_latestError` are cleared only when `this.currentKey === key`. Spec at 124-137 covers it. |
+| M7-partial banner silent drop | Fixed (partial, as scoped) | `action-banner.service.ts:126-129` now logs a warning when `notifications`/`tabs` are missing. Spec was extended (+43/-6). `_durationMs` is still ignored, the dead `error()`/`warning()` computeds and no dedupe remain: deferred, out of scope. |
+
+New defects: none blocking. Residuals (unchanged, out of scope here): S3 attribution still uses the active workspace at receipt time (`projectBootReadiness` 177, `projectFailure` 197), and a failure with no active workspace is dropped without a log.
+
+Specs were not weakened: diff numstat shows chat-view +27/-17 (assertions swapped, not removed), action-banner +43/-6, voice +91/-1, back-office +79/-0.
+
+Score: 8/10. Verdict: APPROVED (fix round only; the deferred items remain open).
 ## PR #780 review-comment fixes review
 
 Scope: `git diff HEAD` (12 files, +99/-8), read-only static review. No nx/tsc/Jest run (machine busy); spec outcomes are not verified by execution.
@@ -583,3 +698,25 @@ Scope: `git diff HEAD` (12 files, +99/-8), read-only static review. No nx/tsc/Je
 
 ### Verdict
 APPROVED, 8/10. 0 blocking, 0 serious, 2 moderate/minor: the lane release race (#1) and the dead `touch()` branch (#3). Spec execution is unverified here, so the maintainer should run the five changed projects' tests before merge.
+
+## Phase C check-fix review
+
+Scope: `git diff HEAD` excluding `.ptah/` (5 files). Read-only; nothing was run.
+
+Verdict: APPROVED, 8/10. 0 blocking, 0 serious, 2 minor.
+
+1. review-shell `untracked` import (OK). `review-shell.component.ts:12` adds the import. The only use is the existing call at `:542`, which was already present at HEAD, so the file previously failed to compile. The effect still reads `viewedRoot()` and `scope()` tracked and loads or clears inside `untracked`. Arm/disarm behaviour is unchanged.
+2. setup-wizard focus router (OK). `setup-wizard-focus-router.service.ts:21-23` re-narrows `found.tab.workflow` with the same two literals `canFocus` checks (`:15`). `focus` still returns `missing` in the same cases and calls `navigateToSurface` with a narrowed `string`. The recheck is redundant but safe, because both calls read the same synchronous tab state. No assertion is added.
+3. chat-view spec (OK, not weakened).
+   - `prefer-const` at `chat-view.component.spec.ts:364,559` is a pure refactor.
+   - Late-rejection test: it now asserts `attentionUpsertMock` received `kind: 'failure'` with the same title and `tabId: 'tab-abc'`. The origin-tab scoping is still pinned, and `ActionBannerService.showAttention` (`action-banner.service.ts:125-142`) maps `tabId` through to `upsert`. The info-banner assertion before it is retained.
+   - Newer-notice test: suppression comes from `showLateBranchError` (`chat-view.component.ts:1540-1542`), which checks the generation and the banner identity. Both are changed by the second branch's `showActionInfo`. The added `showError('Newer action failed.')` goes through the attention path, so it does not touch `banner()` or the component generation. It documents the scenario but is not what suppresses the late failure. The final assertion `upsert` call count unchanged would fail if the guard were removed (`showBranchNotOpenedError` would upsert), so the test is not vacuous.
+4. Lane-release guard (OK).
+   - `host-attention-coordinator.ts:180,186`: `presentLaneFailure` snapshots `releasedLaneAt` before the metadata await, then compares after it. This mirrors `presentSessionFailure` (`:162,165`).
+   - `releaseLaneFailure` (`:212-217`) bumps the counter, then resolves any already-issued notice.
+   - A genuine later failure snapshots the new version, so it is not suppressed. `releaseLaneFailure` is only called from `agent-process-manager.service.ts:1883` on a successful `continue()` (restart). Failures are presented from `handleExit` (`:2355`), so a failure cannot release itself.
+   - The map is capped at `MAX_ENTRIES` (256) with FIFO eviction. The spec (`host-attention-coordinator.spec.ts:295-310`) reproduces the ordering with a deferred `metadata.get`, calls release while it is pending, then asserts no notice is presented and no resolve is issued. It would fail without the guard.
+
+Minor (no action required):
+- `host-attention-coordinator.ts:212-217`: eviction is by insertion order. If an in-flight snapshot's key is evicted and then re-released, its counter restarts at 1 and could equal the snapshot, so the stale notice would not be suppressed. This needs more than 256 distinct releases inside one metadata await, so it is practically unreachable. The same pattern already exists for sessions.
+- No test covers "a failure after a restart still presents". The logic is correct by inspection.

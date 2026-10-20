@@ -2,7 +2,7 @@ import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { CommandCenterVoiceSessionService, TabManagerService } from '@ptah-extension/chat-state';
 import { AgentMonitorStore, PermissionHandlerService } from '@ptah-extension/chat-streaming';
-import { AttentionItem, NotificationService } from '@ptah-extension/core';
+import { AttentionItem, NotificationService, SURFACE_FOCUS_ROUTER } from '@ptah-extension/core';
 import type { AskUserQuestionRequest, PermissionRequest } from '@ptah-extension/shared';
 import { ChatAttentionSourceService } from './chat-attention-source.service';
 
@@ -41,6 +41,10 @@ describe('ChatAttentionSourceService', () => {
       } },
       { provide: CommandCenterVoiceSessionService, useValue: { isActive: voice } },
       { provide: NotificationService, useValue: { upsert, resolve, setSnackbarSuppressed } },
+      { provide: SURFACE_FOCUS_ROUTER, useValue: {
+        kind: 'mcp-apps', canFocus: (id: string) => id === 'apps-session',
+        focus: jest.fn(),
+      }, multi: true },
     ] });
   });
 
@@ -101,6 +105,17 @@ describe('ChatAttentionSourceService', () => {
     const item = upsert.mock.lastCall?.[0];
     expect(item?.workspacePath).toBe('');
     expect(item?.actions.find(action => action.id === 'open')?.disabledReason).toBe('Session unavailable');
+  });
+
+  it('enables Open for a tab-less request owned by a surface', () => {
+    TestBed.inject(ChatAttentionSourceService);
+    permissions.set([{ id: 'surface-request', toolName: 'Read', toolInput: {}, timestamp: 1,
+      timeoutAt: 0, description: '', sessionId: 'apps-session' }]);
+    TestBed.tick();
+    expect(upsert.mock.lastCall?.[0]).toMatchObject({
+      ownerSurface: 'surface', sessionId: 'apps-session',
+      actions: expect.arrayContaining([{ id: 'open', label: 'Open' }]),
+    });
   });
 
   it('keeps an ownerless request in the real model without a reactive write loop', () => {

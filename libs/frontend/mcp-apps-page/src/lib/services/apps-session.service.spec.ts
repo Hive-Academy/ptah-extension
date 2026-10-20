@@ -37,6 +37,7 @@ import {
   APPS_SESSION_NAME,
 } from './apps-session.service';
 import { APPS_SURFACE_READ_TIMEOUT_MS } from './apps-surface-sync';
+import { AppsFocusTarget } from './apps-focus-target';
 import { APPS_IMPLICIT_WORKSPACE } from './apps-workspace-slice';
 
 function content(surfaceId: string): SurfaceContent {
@@ -246,6 +247,17 @@ describe('AppsSessionService', () => {
 
   afterEach(() => {
     warn.mockRestore();
+  });
+
+  it('registers its current session id with the focus target', async () => {
+    const target = TestBed.inject(AppsFocusTarget);
+    expect(target.currentSessionId()).toBe(service.sessionId());
+
+    await service.start('Build');
+    sessionResolved = true;
+
+    expect(service.sessionId()).toBe('session-1');
+    expect(target.currentSessionId()).toBe(service.sessionId());
   });
 
   describe('start', () => {
