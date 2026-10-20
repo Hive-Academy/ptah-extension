@@ -3,6 +3,12 @@ import 'reflect-metadata';
 import { app, BrowserWindow, crashReporter } from 'electron';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+import { readFile } from 'node:fs/promises';
+import {
+  registerArtifactHandler,
+  registerArtifactScheme,
+  type ArtifactResolver,
+} from './artifacts/artifact-protocol';
 import { createMainWindow } from './windows/main-window';
 import { ElectronDIContainer } from './di/container';
 import { VOICE_TOKENS } from '@ptah-extension/voice-providers';
@@ -48,6 +54,7 @@ import {
 const BOOT_WATCHDOG_MS = 20_000;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+registerArtifactScheme();
 const isDev = process.env['NODE_ENV'] === 'development';
 app.setName(isDev ? 'Ptah Dev' : 'Ptah');
 if (isDev) {
@@ -111,6 +118,22 @@ if (!gotLock) {
 
   const bootSequence = app.whenReady().then(async () => {
     bootStep('whenReady');
+    const fixtureDirectory =
+      process.env['PTAH_E2E'] === '1'
+        ? process.env['PTAH_E2E_ARTIFACT_FIXTURE_DIR']
+        : undefined;
+    const artifactResolver: ArtifactResolver = {
+      async resolve(id) {
+        if (!fixtureDirectory) return null;
+        try {
+          return { bytes: await readFile(path.join(fixtureDirectory, `${id}.html`)) };
+        } catch {
+          // degradation-audit: optional-capability - missing test fixture is a 404.
+          return null;
+        }
+      },
+    };
+    registerArtifactHandler(artifactResolver);
     // A boot that stalls or fails short of the renderer is never silent
     // (TASK_2026_556): a watchdog names the last step, and process-level
     // handlers log a rejection or exception — for THIS window only. They come

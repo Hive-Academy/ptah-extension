@@ -141,6 +141,9 @@ export const PLATFORM_TOKENS = {
    */
   CALLER_WORKSPACE_RESOLVER: Symbol.for('PlatformCallerWorkspaceResolver'),
 
+  /** IArtifactStore — host-managed immutable HTML artifact persistence. */
+  ARTIFACT_STORE: Symbol.for('PlatformArtifactStore'),
+
   /**
    * IBootReadinessProvider — read-only boot snapshot for `boot:getReadiness`.
    * Adapters: ElectronBootReadinessProvider (ptah-electron, delegates to

@@ -33,6 +33,12 @@ blocks all network, bridge limited to theme in and height/link out. This replace
 rule "no agent scripts ever" (TASK_2026_490/493/494, quoted in TASK_2026_610 context.md:130)
 for the new artifact surface only. `ptah-ui` blocks stay for small inline summaries.
 
+## Lane limits (this run)
+
+- `grok` (family grok): usage limit, HTTP 402 "Grok Build usage balance exhausted" at
+  2026-10-20T17:14Z. `ptah_agent_list` then showed AT LIMIT, Weekly 100%, reset
+  2026-10-20 17:40 UTC. Skip until that reset. Batch 2 moved to `codex`.
+
 ## Proposed next phase
 
 Phase 0: run the TASK_2026_497 containment spike with the new policy. Then specify the artifact
