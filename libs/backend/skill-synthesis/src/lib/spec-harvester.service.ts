@@ -33,7 +33,7 @@ import {
   normalizeWorkspaceRoot,
   type IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
-import { CARRIER_FILE } from '@ptah-extension/shared';
+import { BATCHES_FILE, CARRIER_FILE } from '@ptah-extension/shared';
 import { SKILL_SYNTHESIS_TOKENS } from './di/tokens';
 import { SkillInvocationEventStore } from './skill-invocation-event.store';
 import { SkillTaskGradeStore, type GradeAttribution, type SkillTaskGrade } from './skill-task-grade.store';
@@ -190,7 +190,7 @@ export class SpecHarvesterService implements SpecFindingsPort {
         const grade: SkillTaskGrade = {
           taskId: spec.taskId, subjectKind: attribution.kind, subjectSlug: attribution.slug,
           attributionKey: attribution.attributionKey, runId: attribution.runId, verdict,
-          sourceFile: batch ? 'batches.md' : laneVerdict ? 'lane_outcome_records' : review?.file ?? null,
+          sourceFile: batch ? BATCHES_FILE : laneVerdict ? 'lane_outcome_records' : review?.file ?? null,
           sourceDigest: spec.artifactDigest, evidenceSource: batch ? 'batch' : laneVerdict ? 'lane-final-review' : 'task-review',
           workspaceRoot, gradedAt: now, findingsRef: review ? `${spec.taskId}/${review.file}` : null,
         };
