@@ -103,7 +103,13 @@ Old worktrees still present (remove only when the user says): `.claude-worktrees
 
 ## Next steps
 
-0. Check #785: did peer 662 push the conflict fix, and is CI green (`gh pr checks 785`)? If 662
+0. Push the two local-only branches (one pre-push gate each, after a "checks: free" slot) and open
+   a PR to main for each: `docs/attention-visual-2` (this worktree) and `fix/handoff-no-lane-wait`
+   (`.claude-worktrees/handoff-no-lane-wait`, commit `f73433376`: the "Wrap up & hand off" prompt in
+   `libs/frontend/chat/src/lib/services/session-budget-actions.service.ts` and the `session-handoff`
+   skill, both copies + `content-manifest.json`, no longer tell the agent to wait for running lanes;
+   lanes push their report and completion signal with their status; spec 19/19 passed).
+   Check #785: did peer 662 push the conflict fix, and is CI green (`gh pr checks 785`)? If 662
    stopped, do the merge yourself in `.claude-worktrees/chat-needs-you-removal` (keep both sides,
    see the #785 row above), run its scoped checks (commands below), push in the background.
 1. Read and verify the revised `visual-check/shoot-populated.cjs` in THIS worktree
