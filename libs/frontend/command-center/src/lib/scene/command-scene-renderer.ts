@@ -7,6 +7,7 @@ import {
 } from './scene-layout';
 import { drawRootGlow, drawSceneDecoration } from './command-scene-decoration';
 import { drawStatus, drawVoiceRing } from './command-scene-status';
+import { VoiceRippleEmitter } from './command-scene-ripples';
 
 export interface SceneSprite {
   readonly id: string;
@@ -88,6 +89,7 @@ export class CommandSceneRenderer {
   private readonly nodeById = new Map<string, SceneNode>();
   private readonly tetheredIds = new Set<string>();
   private readonly links = new Map<string, CanvasGradient>();
+  private readonly ripples = new VoiceRippleEmitter();
   private linkSignature = '';
   private backdrop: HTMLCanvasElement | null = null;
   private backdropSignature = '';
@@ -108,6 +110,11 @@ export class CommandSceneRenderer {
   ) {}
 
   public setSnapshot(snapshot: SceneRenderSnapshot): void {
+    if (
+      this.voice.voiceState !== snapshot.voiceState ||
+      (this.snapshot?.reducedMotion === false && snapshot.reducedMotion) ||
+      (this.snapshot && this.snapshot.theme !== snapshot.theme)
+    ) this.ripples.clear();
     this.prepareBackdrop(snapshot);
     this.prepareLinks(snapshot);
     this.snapshot = snapshot;
@@ -133,6 +140,7 @@ export class CommandSceneRenderer {
   }
 
   public setVoice(voice: SceneVoiceSnapshot): void {
+    if (this.voice.voiceState !== voice.voiceState) this.ripples.clear();
     this.voice = voice;
     if (!this.snapshot) return;
     this.recomputeActive();
@@ -194,6 +202,7 @@ export class CommandSceneRenderer {
 
   public destroy(): void {
     this.disposed = true;
+    this.ripples.clear();
     if (this.frameId) this.cancelFrame(this.frameId);
     this.frameId = 0;
     this.spriteById.clear();
@@ -555,8 +564,11 @@ export class CommandSceneRenderer {
           context.fillText('CS', node.x, node.y);
         }
       }
-      if (node.kind === 'root')
+      if (node.kind === 'root') {
+        this.ripples.update(this.voice, snapshot.inks, snapshot.reducedMotion, time);
+        this.ripples.draw(context, node.x, node.y, node.radius, time);
         drawVoiceRing(context, this.voice, node, time, snapshot);
+      }
       if (snapshot.selectedId === node.node.id) {
         context.strokeStyle = snapshot.theme === 'dark' ? '#f4efe3' : '#554a45';
         context.lineWidth = 1.5;
