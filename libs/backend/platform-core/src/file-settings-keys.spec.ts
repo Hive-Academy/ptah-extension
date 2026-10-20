@@ -194,6 +194,22 @@ describe('isFileBasedSettingKey', () => {
     });
   });
 
+  describe('skill enhancement and telemetry settings', () => {
+    const defaults = {
+      'skills.enhancement.provider': '',
+      'skills.enhancement.model': 'inherit',
+      'skills.enhancement.timeoutMs': ENHANCE_TIMEOUT_DEFAULT_MS,
+      'skills.telemetry.enabled': true,
+    } as const;
+
+    it.each(Object.entries(defaults))('routes and defaults %s', (key, value) => {
+      expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
+      expect(isFileBasedSettingKey(key)).toBe(true);
+      expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe(value);
+    });
+
+  });
+
   describe('memory lifecycle keys (TASK_2026_443)', () => {
     const lifecycleDefaults = {
       'memory.lifecycle.enabled': true,
@@ -365,34 +381,27 @@ describe('isFileBasedSettingKey', () => {
     });
   });
 
-  describe('curator/synthesis trigger keys (TASK_2026_126)', () => {
+  describe('curator trigger keys (TASK_2026_126)', () => {
     const memoryTriggerKeys = [
       'memory.triggers.idleMs',
       'memory.triggers.turnThreshold',
       'memory.triggers.bootScan',
     ] as const;
 
-    const skillTriggerKeys = [
-      'skillSynthesis.triggers.idleMs',
-      'skillSynthesis.triggers.bootScan',
-    ] as const;
-
     const expectedDefaults: Record<string, boolean | number> = {
       'memory.triggers.idleMs': 600000,
       'memory.triggers.turnThreshold': 20,
       'memory.triggers.bootScan': true,
-      'skillSynthesis.triggers.idleMs': 600000,
-      'skillSynthesis.triggers.bootScan': true,
     };
 
-    it.each([...memoryTriggerKeys, ...skillTriggerKeys])(
+    it.each(memoryTriggerKeys)(
       'registers %s in FILE_BASED_SETTINGS_KEYS',
       (key) => {
         expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
       },
     );
 
-    it.each([...memoryTriggerKeys, ...skillTriggerKeys])(
+    it.each(memoryTriggerKeys)(
       'declares a default for %s in FILE_BASED_SETTINGS_DEFAULTS',
       (key) => {
         expect(
@@ -406,7 +415,7 @@ describe('isFileBasedSettingKey', () => {
     );
 
     it('routes every trigger key through isFileBasedSettingKey', () => {
-      for (const key of [...memoryTriggerKeys, ...skillTriggerKeys]) {
+      for (const key of memoryTriggerKeys) {
         expect(isFileBasedSettingKey(key)).toBe(true);
       }
     });
@@ -421,27 +430,13 @@ describe('isFileBasedSettingKey', () => {
       'memory.triggers.maxCuratesPerHour',
     ] as const;
 
-    const skillHookTriggerKeys = [
-      'skillSynthesis.triggers.subagentStop.enabled',
-      'skillSynthesis.triggers.postToolUse.enabled',
-      'skillSynthesis.triggers.postToolUse.minEditCount',
-      'skillSynthesis.triggers.maxAnalyzesPerHour',
-    ] as const;
-
-    const allHookKeys = [
-      ...memoryHookTriggerKeys,
-      ...skillHookTriggerKeys,
-    ] as const;
+    const allHookKeys = memoryHookTriggerKeys;
 
     const expectedScalarDefaults: Record<string, boolean | number> = {
       'memory.triggers.userPromptSubmit.enabled': true,
       'memory.triggers.userPromptSubmit.minPromptLength': 20,
       'memory.triggers.postToolUse.enabled': true,
       'memory.triggers.maxCuratesPerHour': 20,
-      'skillSynthesis.triggers.subagentStop.enabled': true,
-      'skillSynthesis.triggers.postToolUse.enabled': true,
-      'skillSynthesis.triggers.postToolUse.minEditCount': 3,
-      'skillSynthesis.triggers.maxAnalyzesPerHour': 6,
     };
 
     const expectedCueList = [
@@ -494,468 +489,14 @@ describe('isFileBasedSettingKey', () => {
     });
   });
 
-  describe('synthesis drain + budget keys (TASK_2026_180, Phase 0)', () => {
-    /**
-     * The values on the right are the SAME numbers as `SKILL_DRAIN_DEFAULTS`
-     * in `skill-synthesis/src/lib/queue/skill-drain.service.ts`. They cannot be
-     * imported here — `platform-core` is the leaf every backend lib depends on,
-     * so importing `skill-synthesis` would invert the graph. This table is the
-     * literal restatement, and it is why the drain behaves identically before
-     * and after a user has ever written `~/.ptah/settings.json`.
-     */
-    const drainDefaults: Record<string, string | number | boolean> = {
-      'skillSynthesis.drain.cronExpr': '*/15 * * * *',
-      'skillSynthesis.drain.nightlyCronExpr': '0 3 * * *',
-      'skillSynthesis.drain.weeklyCronExpr': '0 4 * * 0',
-      'skillSynthesis.drain.maxItemsPerRun': 4,
-      'skillSynthesis.drain.nightlyMaxItemsPerRun': 40,
-      'skillSynthesis.drain.weeklyMaxItemsPerRun': 400,
-      'skillSynthesis.drain.perWorkspaceBatch': 1,
-      'skillSynthesis.drain.foregroundBackoffMs': 300000,
-      'skillSynthesis.drain.pauseOnBattery': true,
-      'skillSynthesis.drain.maxAttempts': 5,
-      'skillSynthesis.drain.staleClaimTtlMs': 900000,
-      'skillSynthesis.budget.maxTokensPerDay': 2000000,
-      'skillSynthesis.trayKeepalive': false,
-    };
-
-    const drainKeys = Object.keys(drainDefaults);
-
-    it.each(drainKeys)('registers %s in FILE_BASED_SETTINGS_KEYS', (key) => {
-      expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
-    });
-
-    it.each(drainKeys)('routes %s through isFileBasedSettingKey', (key) => {
-      expect(isFileBasedSettingKey(key)).toBe(true);
-    });
-
-    it.each(Object.entries(drainDefaults))(
-      'declares default %s = %s',
-      (key, expected) => {
-        expect(
-          Object.prototype.hasOwnProperty.call(
-            FILE_BASED_SETTINGS_DEFAULTS,
-            key,
-          ),
-        ).toBe(true);
-        expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe(expected);
-      },
-    );
-
-    // Decision Q-B. The tray's "Pause background learning" writes
-    // `skillSynthesis.enabled` — the drain's first gate — rather than a second
-    // pause key. A `trayPaused`/`queueEnabled` key appearing here would mean
-    // two ways to say "off" and a gate order that no longer matches the
-    // documented contract.
-    it('adds no second pause switch beside skillSynthesis.enabled', () => {
-      const pauseLike = [...FILE_BASED_SETTINGS_KEYS].filter(
-        (key) =>
-          key.startsWith('skillSynthesis.') && /paused|queueEnabled/i.test(key),
-      );
-      expect(pauseLike).toEqual([]);
-      expect(FILE_BASED_SETTINGS_DEFAULTS['skillSynthesis.enabled']).toBe(true);
-    });
-
-    it('ships the tray keep-alive OFF so commit C5 is purely additive', () => {
-      expect(FILE_BASED_SETTINGS_DEFAULTS['skillSynthesis.trayKeepalive']).toBe(
-        false,
-      );
-    });
-
-    /**
-     * The nightly tier fires ONCE a day against a frequent tier that fires 96
-     * times, so a shared item cap is 96× more generous to the tier that needs
-     * it least. If these two ever converge, the nightly-only stages are back to
-     * ≤ 4 rows a day of supply and the queue grows without bound.
-     */
-    it('gives the nightly tier a strictly larger item cap than the frequent one', () => {
-      const frequent = FILE_BASED_SETTINGS_DEFAULTS[
-        'skillSynthesis.drain.maxItemsPerRun'
-      ] as number;
-      const nightly = FILE_BASED_SETTINGS_DEFAULTS[
-        'skillSynthesis.drain.nightlyMaxItemsPerRun'
-      ] as number;
-      expect(nightly).toBeGreaterThan(frequent);
-      expect(nightly).toBe(40);
-    });
-
-    /**
-     * The same argument one cadence further out. The weekly tick fires once
-     * every SEVEN days, so its cap is a whole week's supply for `judge-panel`
-     * and `trigger-eval` — both of which phase 3 chains off every successful
-     * prefilter, roughly two rows per eligible session. A weekly cap that is
-     * merely EQUAL to the nightly one already gives the rarer tier 7× less
-     * throughput per unit time, so "strictly larger" is the invariant, not
-     * "different".
-     */
-    it('gives the weekly tier a strictly larger item cap than the nightly one', () => {
-      const nightly = FILE_BASED_SETTINGS_DEFAULTS[
-        'skillSynthesis.drain.nightlyMaxItemsPerRun'
-      ] as number;
-      const weekly = FILE_BASED_SETTINGS_DEFAULTS[
-        'skillSynthesis.drain.weeklyMaxItemsPerRun'
-      ] as number;
-      expect(weekly).toBeGreaterThan(nightly);
-      expect(weekly).toBe(400);
-    });
-
-    /**
-     * Measured, not chosen: ~163 prefilter-eligible sessions a week over an
-     * 828-session corpus, times the two weekly rows phase 3 chains off each
-     * one, is ~325 rows a week of demand. A cap below that is the starvation
-     * defect this key exists to remove, whatever number is in the table.
-     */
-    it('keeps the weekly cap above measured weekly demand', () => {
-      const MEASURED_WEEKLY_DEMAND_ROWS = 325;
-      expect(
-        FILE_BASED_SETTINGS_DEFAULTS[
-          'skillSynthesis.drain.weeklyMaxItemsPerRun'
-        ] as number,
-      ).toBeGreaterThan(MEASURED_WEEKLY_DEMAND_ROWS);
-    });
-
-    it('uses the quarter-hour cadence for the frequent tier (Q5)', () => {
-      expect(
-        FILE_BASED_SETTINGS_DEFAULTS['skillSynthesis.drain.cronExpr'],
-      ).toBe('*/15 * * * *');
-    });
-  });
-
-  describe('empirical-gate keys (TASK_2026_180, Phase 3)', () => {
-    /**
-     * WHY THIS DESCRIBE EXISTS AT ALL, given the generic
-     * "every key in FILE_BASED_SETTINGS_DEFAULTS is also in
-     * FILE_BASED_SETTINGS_KEYS" assertion further up.
-     *
-     * That generic pair only proves the two tables agree with EACH OTHER. It
-     * says nothing when a key is missing from BOTH, which is the actual failure
-     * mode: an unrouted key fails in the WRITE direction only. The read falls
-     * through to a `getConfiguration` default and looks correct, while the
-     * write goes to a store that does not own the key and is silently dropped —
-     * so the settings panel shows the gate off while the drain keeps running
-     * it. This task has already been bitten by exactly that twice (the missing
-     * `lane` scope in `PROVIDER_SCOPED_TIER_PATTERN`, and B1.8's four unrouted
-     * `maxPasses` keys). Naming the five keys literally here is what makes a
-     * forgotten one a red test instead of a silent behaviour.
-     */
-    const gateDefaults: Record<string, boolean | number> = {
-      'skillSynthesis.replayValidation.enabled': true,
-      'skillSynthesis.replayValidation.minConfidence': 0.5,
-      'skillSynthesis.triggerEval.enabled': true,
-      'skillSynthesis.judgePanel.enabled': true,
-      'skillSynthesis.judgePanel.disagreementThreshold': 3,
-    };
-
-    const gateKeys = Object.keys(gateDefaults);
-
-    it.each(gateKeys)('registers %s in FILE_BASED_SETTINGS_KEYS', (key) => {
-      expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
-    });
-
-    it.each(gateKeys)('routes %s through isFileBasedSettingKey', (key) => {
-      expect(isFileBasedSettingKey(key)).toBe(true);
-    });
-
-    it.each(Object.entries(gateDefaults))(
-      'declares default %s = %s',
-      (key, expected) => {
-        expect(
-          Object.prototype.hasOwnProperty.call(
-            FILE_BASED_SETTINGS_DEFAULTS,
-            key,
-          ),
-        ).toBe(true);
-        expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe(expected);
-      },
-    );
-
-    /**
-     * All three gates ship ON. A gate defaulting off would mean every install
-     * that never opens the settings panel keeps phase 1's promotion rule while
-     * the code claims phase 3's — the hardest kind of behaviour to notice,
-     * because nothing errors and the UI is telling the truth about the setting.
-     */
+  describe('retained skill synthesis settings', () => {
     it.each([
-      'skillSynthesis.replayValidation.enabled',
-      'skillSynthesis.triggerEval.enabled',
-      'skillSynthesis.judgePanel.enabled',
-    ])('ships %s ON', (key) => {
-      expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe(true);
-    });
-
-    /**
-     * NO GATE KEY MAY LAND INSIDE A LANE'S SUB-TREE.
-     *
-     * `replay` is one of the four lane ids, so `skillSynthesis.replay.*` is
-     * already the replay LANE's eight capability fields. The batch text for
-     * this phase asked for `skillSynthesis.replay.enabled` /
-     * `.minConfidence`, which would have made two gate switches look like
-     * ninth and tenth lane fields — to a human reading the settings file, and
-     * to `skillSynthesis:getLanes` / `setLanes`, which round-trip that
-     * sub-tree. B1.8's stray-lane-key guard (below, and its mirror in
-     * `rpc-handlers`) rejected both, which is exactly what it was written for.
-     *
-     * The keys were renamed to `replayValidation.*`; the lane is what the gate
-     * RUNS ON, the gate is a different thing. This assertion is what stops the
-     * collision being reintroduced by a later gate — `judgePanel` is already
-     * one character from the `judge` lane.
-     */
-    it('places no gate key inside one of the four lane sub-trees', () => {
-      const laneScoped = gateKeys.filter((key) =>
-        /^skillSynthesis\.(archaeologist|synthesis|judge|replay)\./.test(key),
-      );
-      expect(laneScoped).toEqual([]);
-    });
-
-    /**
-     * `minConfidence` is compared against the stored `replay_confidence`, which
-     * migration `0036` and `SkillCandidateStore.recordReplay` both hold to
-     * 0–1. A threshold outside that range makes the comparison answer the same
-     * way for every candidate — always-promote at `< 0`, never at `> 1` — which
-     * is a disabled gate wearing an enabled gate's name.
-     */
-    it('keeps minConfidence on the same 0–1 scale as replay_confidence', () => {
-      const value = FILE_BASED_SETTINGS_DEFAULTS[
-        'skillSynthesis.replayValidation.minConfidence'
-      ] as number;
-      expect(value).toBeGreaterThanOrEqual(0);
-      expect(value).toBeLessThanOrEqual(1);
-    });
-
-    /**
-     * The disagreement threshold lives on the JUDGE's 0–10 scale, the same one
-     * `minJudgeScore` uses — it is a gap between two panellists' headline
-     * scores, not a probability. Pinning both here is what stops a later reader
-     * "harmonising" it onto the 0–1 replay scale, which would escalate every
-     * verdict and quadruple promotion cost (R8).
-     */
-    it('keeps disagreementThreshold on the judge 0–10 scale', () => {
-      const threshold = FILE_BASED_SETTINGS_DEFAULTS[
-        'skillSynthesis.judgePanel.disagreementThreshold'
-      ] as number;
-      const minJudgeScore = FILE_BASED_SETTINGS_DEFAULTS[
-        'skillSynthesis.minJudgeScore'
-      ] as number;
-      expect(threshold).toBeGreaterThan(1);
-      expect(threshold).toBeLessThanOrEqual(10);
-      expect(minJudgeScore).toBeLessThanOrEqual(10);
-    });
-
-    /**
-     * Each gate carries its OWN `enabled`. One shared `gates.enabled` would tie
-     * trigger-eval — whose retrieval is local-embedding only and spends nothing
-     * — to replay and judge-panel, which each cost a lane call per candidate
-     * (R8). A user who wants the free gate but not the expensive ones must be
-     * able to say so.
-     */
-    it('gives each gate its own switch rather than one shared flag', () => {
-      const enabledKeys = [...FILE_BASED_SETTINGS_KEYS].filter(
-        (key) =>
-          /^skillSynthesis\.(replayValidation|triggerEval|judgePanel)\./.test(
-            key,
-          ) && key.endsWith('.enabled'),
-      );
-      expect(enabledKeys.sort()).toEqual([
-        'skillSynthesis.judgePanel.enabled',
-        'skillSynthesis.replayValidation.enabled',
-        'skillSynthesis.triggerEval.enabled',
-      ]);
-    });
-  });
-
-  describe('skillSynthesis judge and enhancement keys (TASK_2026_523)', () => {
-    it('registers judgeProvider and enhanceTimeoutMs in FILE_BASED_SETTINGS_KEYS', () => {
-      expect(FILE_BASED_SETTINGS_KEYS.has('skillSynthesis.judgeProvider')).toBe(
-        true,
-      );
-      expect(
-        FILE_BASED_SETTINGS_KEYS.has('skillSynthesis.enhanceTimeoutMs'),
-      ).toBe(true);
-    });
-
-    it('defines correct defaults in FILE_BASED_SETTINGS_DEFAULTS and aligns with ENHANCE_TIMEOUT_* constants', () => {
-      expect(FILE_BASED_SETTINGS_DEFAULTS['skillSynthesis.judgeProvider']).toBe(
-        '',
-      );
-      expect(
-        FILE_BASED_SETTINGS_DEFAULTS['skillSynthesis.enhanceTimeoutMs'],
-      ).toBe(ENHANCE_TIMEOUT_DEFAULT_MS);
-      expect(ENHANCE_TIMEOUT_DEFAULT_MS).toBe(120_000);
-      expect(ENHANCE_TIMEOUT_MIN_MS).toBe(15_000);
-      expect(ENHANCE_TIMEOUT_MAX_MS).toBe(600_000);
-      expect(ENHANCE_TIMEOUT_MIN_MS).toBeLessThanOrEqual(
-        ENHANCE_TIMEOUT_DEFAULT_MS,
-      );
-      expect(ENHANCE_TIMEOUT_DEFAULT_MS).toBeLessThanOrEqual(
-        ENHANCE_TIMEOUT_MAX_MS,
-      );
-    });
-  });
-
-  describe('skillSynthesis retirement and pool keys (TASK_2026_578)', () => {
-    const retirementDefaults = {
-      'skillSynthesis.retirement.dormantAfterDays': 30,
-      'skillSynthesis.retirement.retireAfterDormantDays': 30,
-    } as const;
-
-    it.each(Object.entries(retirementDefaults))(
-      'registers and defaults %s to %s',
-      (key, expected) => {
-        expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
-        expect(isFileBasedSettingKey(key)).toBe(true);
-        expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe(expected);
-      },
-    );
-
-    it('defaults skillSynthesis.suggestionMaxCandidates to 1000', () => {
-      expect(
-        FILE_BASED_SETTINGS_KEYS.has('skillSynthesis.suggestionMaxCandidates'),
-      ).toBe(true);
-      expect(
-        FILE_BASED_SETTINGS_DEFAULTS['skillSynthesis.suggestionMaxCandidates'],
-      ).toBe(1000);
-    });
-  });
-
-  describe('skill-synthesis lane keys (TASK_2026_180, Phase 1)', () => {
-    /**
-     * The literal restatement of `SKILL_LANE_DEFAULTS`
-     * (`skill-synthesis/src/lib/lanes/skill-lane-config.ts`). It cannot be
-     * imported: `platform-core` is the leaf `skill-synthesis` depends on, so
-     * the import would close a cycle — the same constraint that produced the
-     * drain-defaults table above.
-     *
-     * This spec pins the SHAPE (all four lanes × all eight fields present,
-     * routed, and defaulted). The cross-lib equality against the real
-     * `SKILL_LANE_KEYS` / `SKILL_LANE_DEFAULTS` is asserted in
-     * `rpc-handlers/.../skills-synthesis-rpc.handlers.spec.ts`, which is the
-     * one place that may legally import both sides.
-     */
-    const laneDefaults: Record<string, Record<string, string | number>> = {
-      archaeologist: {
-        provider: '',
-        model: '',
-        defaultTier: 'haiku',
-        structuredOutput: 'sdk',
-        toolUse: 'required',
-        timeoutMs: 120000,
-        maxInputChars: 12000,
-        maxPasses: 4,
-      },
-      synthesis: {
-        provider: '',
-        model: '',
-        defaultTier: 'haiku',
-        structuredOutput: 'sdk',
-        toolUse: 'none',
-        timeoutMs: 90000,
-        maxInputChars: 8000,
-        maxPasses: 1,
-      },
-      judge: {
-        provider: '',
-        model: '',
-        defaultTier: 'haiku',
-        structuredOutput: 'sdk',
-        toolUse: 'none',
-        timeoutMs: 45000,
-        maxInputChars: 3000,
-        maxPasses: 1,
-      },
-      replay: {
-        provider: '',
-        model: '',
-        defaultTier: 'haiku',
-        structuredOutput: 'sdk',
-        toolUse: 'none',
-        timeoutMs: 90000,
-        maxInputChars: 8000,
-        maxPasses: 1,
-      },
-    };
-
-    const laneEntries: Array<[string, string | number]> = Object.entries(
-      laneDefaults,
-    ).flatMap(([lane, fields]) =>
-      Object.entries(fields).map(
-        ([field, value]): [string, string | number] => [
-          `skillSynthesis.${lane}.${field}`,
-          value,
-        ],
-      ),
-    );
-
-    const laneKeys = laneEntries.map(([key]) => key);
-
-    it('registers 32 lane keys — four lanes × eight fields', () => {
-      expect(laneKeys).toHaveLength(32);
-      for (const key of laneKeys) {
-        expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
-      }
-    });
-
-    it.each(laneKeys)('routes %s through isFileBasedSettingKey', (key) => {
+      ['skillSynthesis.enabled', true],
+      ['skillSynthesis.skillsRoot', ''],
+    ] as const)('routes and defaults %s', (key, value) => {
+      expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
       expect(isFileBasedSettingKey(key)).toBe(true);
-    });
-
-    it.each(laneEntries)('declares default %s = %s', (key, expected) => {
-      expect(
-        Object.prototype.hasOwnProperty.call(FILE_BASED_SETTINGS_DEFAULTS, key),
-      ).toBe(true);
-      expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe(expected);
-    });
-
-    it('carries a maxPasses key for EVERY lane, not only the multi-pass one', () => {
-      // A missing `maxPasses` fails in the write direction only: the read
-      // falls through to the default and looks correct while the write is
-      // handed to a store that does not own the key and is dropped silently.
-      for (const lane of Object.keys(laneDefaults)) {
-        expect(
-          FILE_BASED_SETTINGS_KEYS.has(`skillSynthesis.${lane}.maxPasses`),
-        ).toBe(true);
-      }
-    });
-
-    it('defaults every lane to "inherit" — provider and model both empty', () => {
-      // The untouched-existing-installs guarantee. A lane defaulted to a
-      // concrete provider would repoint background work on upgrade, with no
-      // user action and nothing in the UI to explain it.
-      for (const lane of Object.keys(laneDefaults)) {
-        expect(
-          FILE_BASED_SETTINGS_DEFAULTS[`skillSynthesis.${lane}.provider`],
-        ).toBe('');
-        expect(
-          FILE_BASED_SETTINGS_DEFAULTS[`skillSynthesis.${lane}.model`],
-        ).toBe('');
-      }
-    });
-
-    it('names no provider id in any lane default', () => {
-      // Global invariant 1: lanes differ ONLY by capability fields. A provider
-      // id reaching a default here is the first step to a lane that behaves
-      // differently because of WHO the provider is rather than WHAT it
-      // declared.
-      const laneValues = laneKeys.map(
-        (key) => FILE_BASED_SETTINGS_DEFAULTS[key],
-      );
-      const providerish =
-        /anthropic|openai|copilot|codex|openrouter|moonshot|z-ai|ollama|lm-studio|cursor/i;
-      for (const value of laneValues) {
-        if (typeof value === 'string') {
-          expect(providerish.test(value)).toBe(false);
-        }
-      }
-    });
-
-    it('adds no lane key outside the four declared lanes', () => {
-      const declared = new Set(laneKeys);
-      const stray = [...FILE_BASED_SETTINGS_KEYS].filter(
-        (key) =>
-          /^skillSynthesis\.(archaeologist|synthesis|judge|replay)\./.test(
-            key,
-          ) && !declared.has(key),
-      );
-      expect(stray).toEqual([]);
+      expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe(value);
     });
   });
 
@@ -1263,12 +804,6 @@ describe('isFileBasedSettingKey', () => {
       'memory.lifecycle.archiveAfterDays': 30,
       'memory.lifecycle.deleteAfterDays': 60,
       'memory.lifecycle.maxPerWorkspace': 25000,
-      'skillSynthesis.retirement.dormantAfterDays': 30,
-      'skillSynthesis.retirement.retireAfterDormantDays': 30,
-      'skillSynthesis.replayValidation.minConfidence': 0.5,
-      'skillSynthesis.judgePanel.disagreementThreshold': 3,
-      'skillSynthesis.triggers.bootScanDelayMs': 300000,
-      'skillSynthesis.triggers.bootScanIdleBackoffMs': 300000,
       'cron.maxConcurrentJobs': 3,
       'cron.catchupWindowMs': 86400000,
       'harness.preflightTimeoutMs': 1500,

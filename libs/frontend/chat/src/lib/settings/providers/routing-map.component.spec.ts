@@ -31,10 +31,7 @@ class StateStub {
   readonly route = signal<ProvidersSettingsSection<ProvidersEffectiveRoute>>(ready(ROUTE));
   readonly effort = signal<ProvidersSettingsSection<{ effort?: string }>>(ready({ effort: 'medium' }));
   readonly memory = signal<ProvidersSettingsSection<{ curatorProvider: string }>>(ready({ curatorProvider: 'openai-codex' }));
-  readonly lanes = signal<ProvidersSettingsSection<Record<string, { provider: string }>>>(ready({
-    archaeologist: { provider: '' }, synthesis: { provider: '' }, judge: { provider: 'moonshot' }, replay: { provider: '' },
-  }));
-  readonly judging = signal<ProvidersSettingsSection<{ judgeProvider: string }>>(ready({ judgeProvider: '' }));
+  readonly enhancement = signal<ProvidersSettingsSection<{ provider: string }>>(ready({ provider: 'moonshot' }));
   readonly orchestration = signal<ProvidersSettingsSection<unknown>>(ready({
     detectedClis: DETECTED, disabledClis: ['copilot'], preferredAgentOrder: ['codex', 'antigravity', 'glm-instance-1', 'copilot'],
   }));
@@ -43,8 +40,7 @@ class StateStub {
   ]));
   readonly refreshRoute = jest.fn(async () => undefined);
   readonly refreshMemory = jest.fn(async () => undefined);
-  readonly refreshLanes = jest.fn(async () => undefined);
-  readonly refreshJudging = jest.fn(async () => undefined);
+  readonly refreshEnhancement = jest.fn(async () => undefined);
   readonly refreshOrchestration = jest.fn(async () => undefined);
 }
 
@@ -58,12 +54,12 @@ class HostComponent {
 }
 
 describe('routing map derivations', () => {
-  it('backgroundRolesPreview splits the six roles into explicit ones (with connection names) and followers', () => {
-    const preview = backgroundRolesPreview('openai-codex', { judge: { provider: 'moonshot' }, synthesis: { provider: ' ' } }, '',
+  it('backgroundRolesPreview counts Decision and names explicit providers', () => {
+    const preview = backgroundRolesPreview('openai-codex', 'moonshot',
       (id) => ({ 'openai-codex': 'OpenAI Codex', moonshot: 'Moonshot (Kimi)' })[id] ?? id);
     expect(preview).toEqual({
-      explicit: [{ label: 'Memory curator', provider: 'OpenAI Codex' }, { label: 'Judge lane', provider: 'Moonshot (Kimi)' }],
-      following: 4, total: 6,
+      explicit: [{ label: 'Memory curator', provider: 'OpenAI Codex' }, { label: 'Enhancement', provider: 'Moonshot (Kimi)' }],
+      defaulted: ['Decision'], total: 3,
     });
   });
 
@@ -188,19 +184,21 @@ describe('RoutingMapComponent', () => {
   });
 
   describe('Background Roles node', () => {
-    it('previews the two explicit roles with their connection and how many follow the main agent', () => {
+    it('previews the two explicit roles and default Decision', () => {
       const rows = Array.from(node('background-roles').querySelectorAll('li'))
         .map((row) => Array.from(row.querySelectorAll('span')).map((span) => span.textContent?.trim()));
-      expect(rows).toEqual([['Memory curator', 'OpenAI Codex'], ['Judge lane', 'Moonshot (Kimi)'], ['4 roles', 'Follow main agent']]);
-      expect(within('background-roles', 'routing-node-status')?.textContent?.trim()).toBe('6 roles');
-      expect(within('background-roles', 'routing-node-footer')?.textContent?.trim()).toBe('2 set · 4 following');
+      expect(rows).toEqual([['Memory curator', 'OpenAI Codex'], ['Enhancement', 'Moonshot (Kimi)'], ['Decision', 'Default']]);
+      expect(within('background-roles', 'routing-node-status')?.textContent?.trim()).toBe('3 roles');
+      expect(within('background-roles', 'routing-node-footer')?.textContent?.trim()).toBe('2 set · 1 default');
     });
 
-    it('more than two explicit roles adds "N more set"', () => {
-      state.judging.set(ready({ judgeProvider: 'moonshot' }));
-      state.lanes.set(ready({ archaeologist: { provider: 'moonshot' }, synthesis: { provider: '' }, judge: { provider: 'moonshot' }, replay: { provider: '' } }));
+    it('shows Enhancement and Decision as defaulted when Enhancement has no provider', () => {
+      state.enhancement.set(ready({ provider: '' }));
       fixture.detectChanges();
-      expect(within('background-roles', 'routing-background-more')?.textContent?.trim()).toBe('2 more set');
+      expect(node('background-roles').querySelectorAll('[data-testid="routing-background-default"]')).toHaveLength(2);
+      const rows = Array.from(node('background-roles').querySelectorAll('li'))
+        .map((row) => Array.from(row.querySelectorAll('span')).map((span) => span.textContent?.trim()));
+      expect(rows).toEqual([['Memory curator', 'OpenAI Codex'], ['Enhancement', 'Default'], ['Decision', 'Default']]);
     });
 
     it('Inspect opens Agent Orchestration at the background models', () => {
@@ -209,16 +207,15 @@ describe('RoutingMapComponent', () => {
       expect(fixture.componentInstance.activated).toEqual(['background-roles']);
     });
 
-    it('loads with a skeleton until all three reads land; Retry re-reads only the failed ones', () => {
-      state.lanes.set(loading());
+    it('loads with a skeleton until both reads land; Retry re-reads only the failed one', () => {
+      state.enhancement.set(loading());
       fixture.detectChanges();
       expect(within('background-roles', 'routing-node-skeleton')).not.toBeNull();
-      state.lanes.set(failed());
+      state.enhancement.set(failed());
       fixture.detectChanges();
       within('background-roles', 'routing-node-retry')?.click();
-      expect(state.refreshLanes).toHaveBeenCalledTimes(1);
+      expect(state.refreshEnhancement).toHaveBeenCalledTimes(1);
       expect(state.refreshMemory).not.toHaveBeenCalled();
-      expect(state.refreshJudging).not.toHaveBeenCalled();
     });
   });
 

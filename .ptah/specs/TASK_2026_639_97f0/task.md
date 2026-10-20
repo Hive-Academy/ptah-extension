@@ -1,6 +1,6 @@
 ---
 id: TASK_2026_639_97f0
-status: in_progress
+status: done
 type: FEATURE
 title: "Skills: shipped skill content and skill synthesis"
 depends_on: []

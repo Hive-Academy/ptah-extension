@@ -1,4 +1,5 @@
 import { appendFileSync, existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import {
   mkdir,
   mkdtemp,
@@ -10,44 +11,48 @@ import {
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import {
+  ARCHIVE_TABLES,
   diffCandidateRows,
+  readArchiveTable,
   runCandidateRowDiff,
   sha256File,
-  withReadonlySnapshot,
   type CandidateRowDiff,
 } from './candidate-row-diff';
 
-interface WritableDb {
-  exec(sql: string): void;
-  prepare(sql: string): { run(...params: unknown[]): unknown };
-  close(): void;
-}
-
-function createSnapshot(
-  path: string,
-  names: { id: string; name: string; status: string }[],
-): void {
-  const Database = require('better-sqlite3') as new (
-    file: string,
-  ) => WritableDb;
-  const db = new Database(path);
-  db.exec(
-    'CREATE TABLE skill_candidates (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, status TEXT NOT NULL, body_path TEXT NOT NULL)',
-  );
-  const insert = db.prepare(
-    'INSERT INTO skill_candidates (id, name, status, body_path) VALUES (?, ?, ?, ?)',
-  );
-  for (const row of names)
-    insert.run(
-      row.id,
-      row.name,
-      row.status,
-      `C:\\home\\.ptah\\skills\\_candidates\\${row.name}\\SKILL.md`,
-    );
-  db.close();
+async function createArchive(
+  directory: string,
+  names: { id: string; name: string; status: string; payload?: { $base64: string } }[],
+): Promise<string> {
+  await mkdir(directory, { recursive: true });
+  const contents = names.map((row) => JSON.stringify({
+    ...row, body_path: `C:\\home\\.ptah\\skills\\_candidates\\${row.name}\\SKILL.md`,
+  })).join('\n') + '\n';
+  const sha256 = createHash('sha256').update(contents).digest('hex');
+  await writeFile(join(directory, 'skill_candidates.jsonl'), contents);
+  await writeFile(join(directory, 'receipt.json'), JSON.stringify({
+    format: 2,
+    archivePath: directory,
+    tables: ARCHIVE_TABLES.map((table) => table === 'skill_candidates'
+      ? { table, present: true, file: 'skill_candidates.jsonl', rows: names.length, sha256 }
+      : { table, present: false, file: null, rows: 0, sha256: null }),
+  }));
+  return sha256;
 }
 
 describe('diffCandidateRows', () => {
+  it('decodes format-2 BLOB envelopes and rejects older receipts', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'candidate-archive-format-'));
+    try {
+      await createArchive(directory, [{ id: '1', name: 'alpha', status: 'candidate', payload: { $base64: 'AQID' } }]);
+      const receiptPath = join(directory, 'receipt.json');
+      expect((await readArchiveTable(receiptPath, 'skill_candidates')).rows[0]['payload']).toEqual(Buffer.from([1, 2, 3]));
+      const receipt = JSON.parse(await readFile(receiptPath, 'utf8')) as Record<string, unknown>;
+      await writeFile(receiptPath, JSON.stringify({ ...receipt, format: 1 }));
+      await expect(readArchiveTable(receiptPath, 'skill_candidates')).rejects.toThrow();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
   it('reports rows without dirs, dirs without rows and empty dirs', () => {
     const rows = [
       {
@@ -82,7 +87,7 @@ describe('diffCandidateRows', () => {
       ['orphan', true],
     ]);
     const diff: CandidateRowDiff = diffCandidateRows(rows, dirs, {
-      snapshotSha256: 'h',
+      archiveSha256: 'h',
       copyDir: '/c',
     });
     expect(diff.matched).toBe(2);
@@ -109,7 +114,7 @@ describe('runCandidateRowDiff', () => {
       'o',
       'utf8',
     );
-    createSnapshot(join(snapshots, 'snap.sqlite'), [
+    await createArchive(join(snapshots, 'pre-0057'), [
       { id: '1', name: 'alpha', status: 'candidate' },
       { id: '2', name: 'missing-body', status: 'rejected' },
     ]);
@@ -118,19 +123,16 @@ describe('runCandidateRowDiff', () => {
     await rm(benchDataDir, { recursive: true, force: true });
   });
 
-  it('opens the snapshot read-only, leaves it unchanged and writes the report only under the bench dir', async () => {
-    const snapshot = join(benchDataDir, 'snapshots', 'snap.sqlite');
-    const before = await sha256File(snapshot);
+  it('reads the verified archive and writes the report only under the bench dir', async () => {
+    const archived = join(benchDataDir, 'snapshots', 'pre-0057', 'skill_candidates.jsonl');
+    const before = await sha256File(archived);
     const { diff, reportPath } = await runCandidateRowDiff({
       benchDataDir,
-      snapshotFile: 'snap.sqlite',
       candidatesName: 'cands',
-      expectedSnapshotSha256: before,
+      expectedArchiveSha256: before,
     });
-    expect(diff.snapshotSha256).toBe(before);
-    expect(await sha256File(snapshot)).toBe(before);
-    for (const suffix of ['-wal', '-shm', '-journal'])
-      expect(existsSync(snapshot + suffix)).toBe(false);
+    expect(diff.archiveSha256).toBe(before);
+    expect(await sha256File(archived)).toBe(before);
     expect(diff.rowsWithoutDir.map((r) => r.name)).toEqual(['missing-body']);
     expect(diff.dirsWithoutRow).toEqual(['orphan']);
     expect(relative(benchDataDir, reportPath).startsWith('reports')).toBe(true);
@@ -141,31 +143,29 @@ describe('runCandidateRowDiff', () => {
     ]);
   });
 
-  it('refuses a snapshot whose hash is not the pinned value', async () => {
+  it('refuses an archive whose hash is not the pinned value', async () => {
     await expect(
       runCandidateRowDiff({
         benchDataDir,
-        snapshotFile: 'snap.sqlite',
         candidatesName: 'cands',
-        expectedSnapshotSha256: '0'.repeat(64),
+        expectedArchiveSha256: '0'.repeat(64),
       }),
-    ).rejects.toThrow('not the frozen value');
+    ).rejects.toThrow('not the pinned value');
   });
 
-  it('fails when the snapshot changes while it is read', async () => {
-    const snapshot = join(benchDataDir, 'snapshots', 'snap.sqlite');
+  it('fails when the archive contents change after receipt creation', async () => {
+    const archived = join(benchDataDir, 'snapshots', 'pre-0057', 'skill_candidates.jsonl');
     await expect(
-      withReadonlySnapshot(snapshot, () => {
-        // Simulates another writer touching the file during the read.
-        appendFileSync(snapshot, 'x');
-        return 0;
-      }),
-    ).rejects.toThrow('Snapshot changed while it was read');
+      (async () => {
+        appendFileSync(archived, '{}\n');
+        await runCandidateRowDiff({ benchDataDir, candidatesName: 'cands' });
+      })(),
+    ).rejects.toThrow('Archive verification failed');
   });
 
-  it('never creates a missing snapshot', async () => {
-    const missing = join(benchDataDir, 'snapshots', 'absent.sqlite');
-    await expect(withReadonlySnapshot(missing, () => 0)).rejects.toThrow();
+  it('never creates a missing archive', async () => {
+    const missing = join(benchDataDir, 'snapshots', 'absent', 'receipt.json');
+    await expect(runCandidateRowDiff({ benchDataDir, candidatesName: 'cands', archiveReceiptFile: 'absent/receipt.json' })).rejects.toThrow();
     expect(existsSync(missing)).toBe(false);
   });
 });

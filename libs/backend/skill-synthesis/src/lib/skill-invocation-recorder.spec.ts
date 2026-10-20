@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { SkillInvocationRecorder } from './skill-invocation-recorder';
-import type { SkillCandidateStore } from './skill-candidate.store';
+import { SkillInvocationEventStore } from './skill-invocation-event.store';
 import type { RecordSkillEventInput } from './skill-invocation-recorder';
 
 function makeLogger(): Logger {
@@ -14,17 +14,17 @@ function makeLogger(): Logger {
 }
 
 interface StoreHarness {
-  store: SkillCandidateStore;
+  store: SkillInvocationEventStore;
   record: jest.Mock;
 }
 
 function makeStore(): StoreHarness {
   const record = jest.fn();
+  const store = Object.create(SkillInvocationEventStore.prototype) as SkillInvocationEventStore;
+  store.recordSkillEvent = record;
   return {
     record,
-    store: {
-      recordSkillEvent: record,
-    } as unknown as SkillCandidateStore,
+    store,
   };
 }
 
@@ -36,7 +36,7 @@ function input(
     sessionId: 's1',
     workspaceRoot: '/ws',
     contextId: 'fp-1',
-    succeeded: true,
+    isError: false,
     invokedAt: 1000,
     source: 'tool-use',
     ...overrides,
@@ -110,53 +110,40 @@ describe('SkillInvocationRecorder', () => {
     });
   });
 
-  describe('isError derivation', () => {
-    it('passes isError=false to the store when succeeded=true', () => {
-      const logger = makeLogger();
+  describe('nullable grades and explicit errors', () => {
+    it.each([
+      ['tool-use', false],
+      ['tool-use', true],
+      ['subagent', false],
+      ['slash-command', false],
+    ] as const)('records %s with isError=%s and no grade', (source, isError) => {
       const { store, record } = makeStore();
-      const recorder = new SkillInvocationRecorder(logger, store);
+      const recorder = new SkillInvocationRecorder(makeLogger(), store);
 
-      recorder.recordSkillEvent(input({ succeeded: true }));
+      recorder.recordSkillEvent(input({ source, isError }));
 
       expect(record).toHaveBeenCalledWith(
-        expect.objectContaining({ succeeded: true, isError: false }),
-      );
-    });
-
-    it('passes isError=true to the store when succeeded=false', () => {
-      const logger = makeLogger();
-      const { store, record } = makeStore();
-      const recorder = new SkillInvocationRecorder(logger, store);
-
-      recorder.recordSkillEvent(input({ succeeded: false }));
-
-      expect(record).toHaveBeenCalledWith(
-        expect.objectContaining({ succeeded: false, isError: true }),
+        expect.objectContaining({ source, succeeded: null, isError }),
       );
     });
 
     it('maps the recorder API fields onto the store insert shape', () => {
-      const logger = makeLogger();
       const { store, record } = makeStore();
-      const recorder = new SkillInvocationRecorder(logger, store);
-
-      recorder.recordSkillEvent(
-        input({
-          slug: 'caveman',
-          sessionId: 's9',
-          contextId: 'fp-9',
-          source: 'prompt-expansion',
-          invokedAt: 4242,
-        }),
-      );
-
+      const recorder = new SkillInvocationRecorder(makeLogger(), store);
+      recorder.recordSkillEvent(input({
+        slug: 'caveman',
+        sessionId: 's9',
+        contextId: 'fp-9',
+        source: 'slash-command',
+        invokedAt: 4242,
+      }));
       expect(record).toHaveBeenCalledWith({
         skillSlug: 'caveman',
         sessionId: 's9',
         workspaceRoot: '/ws',
         contextId: 'fp-9',
-        source: 'prompt-expansion',
-        succeeded: true,
+        source: 'slash-command',
+        succeeded: null,
         isError: false,
         invokedAt: 4242,
         metrics: null,
@@ -166,6 +153,13 @@ describe('SkillInvocationRecorder', () => {
     });
   });
 
+  it('retains separate Skill and Command events in the same dedup bucket', () => {
+    const { store, record } = makeStore();
+    const recorder = new SkillInvocationRecorder(makeLogger(), store);
+    recorder.recordSkillEvent(input({ source: 'tool-use' }));
+    recorder.recordSkillEvent(input({ source: 'slash-command' }));
+    expect(record).toHaveBeenCalledTimes(2);
+  });
   /**
    * CORRECTION C10 — the whole reason this describe block exists.
    *

@@ -14,7 +14,7 @@
  * Keyed fields are `laneId`, `prompt`, `systemPromptAppend`, `cwd`,
  * `maxTurns`, `outputSchema` and `userInitiated`: everything the model call
  * itself depends on. Excluded are `signal` (not serialisable), and
- * `attempt`, `queueItemId`, `mcpServerRunning` and `mcpPort` — run-context
+ * `attempt`, `mcpServerRunning` and `mcpPort` — run-context
  * and host state that differ between the record host and CI, never reach the
  * model, and would make every cassette miss across machines.
  *

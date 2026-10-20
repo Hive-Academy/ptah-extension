@@ -1,10 +1,11 @@
-import type { AgentOutcomeSignals } from '@ptah-extension/shared';
-
-import { formatAgentOutcomeSignals } from './agent-outcome-signals';
+import {
+  formatAgentOutcomeSignals,
+  type AgentOutcomeSignalsInput,
+} from './agent-outcome-signals';
 
 function signals(
-  overrides: Partial<AgentOutcomeSignals> = {},
-): AgentOutcomeSignals {
+  overrides: Partial<AgentOutcomeSignalsInput> = {},
+): AgentOutcomeSignalsInput {
   return {
     slug: 'planner',
     windowDays: 30,
@@ -54,6 +55,31 @@ describe('formatAgentOutcomeSignals', () => {
     expect(metrics).toHaveLength(1);
     expect(metrics[0]?.value).toBe('no data yet');
     expect(metrics.map((metric) => metric.value).join(' ')).not.toMatch(/\d+%/);
+  });
+
+  it('renders absence labels, never NaN, when ratio parts are null', () => {
+    const metrics = formatAgentOutcomeSignals(
+      signals({
+        delivered: { numerator: null, denominator: 5 },
+        reviewPass: { numerator: 2, denominator: undefined },
+      }),
+      30,
+    );
+    expect(byId(metrics, 'clone-metric-outcome-delivered')?.value).toBe(
+      'no verified runs',
+    );
+    expect(byId(metrics, 'clone-metric-outcome-review')?.value).toBe(
+      'not reviewed yet',
+    );
+    expect(byId(metrics, 'clone-metric-outcome-revise')).toBeUndefined();
+    expect(metrics.map((metric) => metric.value).join(' ')).not.toMatch(/NaN/);
+    expect(metrics.map((metric) => metric.value).join(' ')).not.toMatch(/\d+%/);
+  });
+
+  it('says no data yet for a null run count, like an empty window', () => {
+    const metrics = formatAgentOutcomeSignals(signals({ runCount: null }), 30);
+    expect(metrics).toHaveLength(1);
+    expect(metrics[0]?.value).toBe('no data yet');
   });
 
   it('labels the empty state with the echoed window', () => {

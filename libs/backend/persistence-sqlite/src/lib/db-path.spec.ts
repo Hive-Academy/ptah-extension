@@ -1,7 +1,7 @@
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { resolvePtahDbPath, resolvePtahDbProfile } from './db-path';
+import { resolvePtahDbPath, resolvePtahDbProfile, skillPipelineArchiveRoot } from './db-path';
 
 /**
  * The regression these pin (TASK_2026_291): the profile used to be
@@ -11,6 +11,10 @@ import { resolvePtahDbPath, resolvePtahDbProfile } from './db-path';
  * migrations, and the installed build could no longer open its own data.
  */
 describe('resolvePtahDbPath', () => {
+  it('places the archive beside the selected DB', () => {
+    const dbPath = path.join(os.tmpdir(), 'custom-state', 'ptah.sqlite');
+    expect(skillPipelineArchiveRoot(dbPath)).toBe(path.join(os.tmpdir(), 'custom-state', 'backups', 'skill-pipeline'));
+  });
   const originalNodeEnv = process.env['NODE_ENV'];
   const originalOverride = process.env['PTAH_DB_PATH'];
 

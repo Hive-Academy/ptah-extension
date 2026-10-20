@@ -19,23 +19,18 @@ import {
 } from '@ptah-extension/memory-curator';
 import {
   SKILL_SYNTHESIS_TOKENS,
-  type SkillDrainService,
-  type SkillSynthesisService,
   type SkillTriggerService,
 } from '@ptah-extension/skill-synthesis';
 import {
   MEMORY_RETENTION_JOB,
-  SKILL_BACKLOG_CLEANUP_JOB,
-  SKILL_DRAIN_JOBS,
   createMemoryRetentionHandler,
-  createSkillBacklogCleanupHandler,
+  disableRetiredSkillPipelineJobs,
 } from '@ptah-extension/thoth-runtime';
 import {
   CRON_TOKENS,
   type CronScheduler,
   type IJobStore,
   type IHandlerRegistry,
-  type IPowerMonitor,
 } from '@ptah-extension/cron-scheduler';
 import {
   GATEWAY_TOKENS,
@@ -66,7 +61,6 @@ export interface ThothRefs {
   sqliteConnection: SqliteConnectionService | null;
   memoryCurator: MemoryCuratorService | null;
   memoryTrigger: MemoryTriggerService | null;
-  skillSynthesis: SkillSynthesisService | null;
   skillTrigger: SkillTriggerService | null;
   cronScheduler: CronScheduler | null;
   gateway: GatewayService | null;
@@ -92,7 +86,6 @@ function emptyRefs(): ThothRefs {
     sqliteConnection: null,
     memoryCurator: null,
     memoryTrigger: null,
-    skillSynthesis: null,
     skillTrigger: null,
     cronScheduler: null,
     gateway: null,
@@ -162,7 +155,7 @@ export async function activateThoth(
   }
 
   await startMemory(container, refs, workspaceRoot, logger);
-  await startSkillSynthesis(container, refs, logger);
+  startSkillTrigger(container, refs, logger);
   await startCron(container, refs, logger);
   await startGateway(container, refs, logger);
 
@@ -205,9 +198,6 @@ export async function disposeThoth(
   });
   await guard('skillTrigger.stop', logger, async () => {
     refs.skillTrigger?.stop();
-  });
-  await guard('skillSynthesis.stop', logger, async () => {
-    refs.skillSynthesis?.stop();
   });
   await guard('memoryTrigger.stop', logger, async () => {
     refs.memoryTrigger?.stop();
@@ -304,65 +294,25 @@ async function startMemory(
   }
 }
 
-async function startSkillSynthesis(
+function startSkillTrigger(
   container: DependencyContainer,
   refs: ThothRefs,
   logger: Logger,
-): Promise<void> {
-  /**
-   * The skill trigger, which may only start once skill synthesis has. Reached
-   * from the `onStarted` hook and after `start()` resolves, and later from a
-   * retried start, so it brings the trigger up at most once.
-   */
-  const startSkillTrigger = (): void => {
-    if (refs.skillTrigger !== null) return;
-    try {
-      if (
-        refs.skillSynthesis !== null &&
-        container.isRegistered(SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE)
-      ) {
-        const skillTrigger = container.resolve<SkillTriggerService>(
-          SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE,
-        );
-        skillTrigger.start();
-        refs.skillTrigger = skillTrigger;
-      }
-    } catch (error: unknown) {
-      logger.warn('[CLI Thoth] Skill trigger start skipped (non-fatal)', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      refs.skillTrigger = null;
-    }
-  };
-
+): void {
+  if (refs.skillTrigger !== null) return;
   try {
-    if (
-      container.isRegistered(SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE)
-    ) {
-      const skillSynthesis = container.resolve<SkillSynthesisService>(
-        SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE,
+    if (container.isRegistered(SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE)) {
+      const skillTrigger = container.resolve<SkillTriggerService>(
+        SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE,
       );
-      refs.skillSynthesis = skillSynthesis;
-      // Subscribed BEFORE `start()`: a start that fails here can succeed later
-      // through the service's `skillSynthesis.enabled` listener retry, and
-      // every successful start must bring the trigger up (B-P review N1).
-      // `stop()` in `disposeThoth` drops the subscription.
-      skillSynthesis.onStarted(startSkillTrigger);
-      const outcome = await skillSynthesis.start();
-      // A start that resolved, including a paused boot, whose trigger arms
-      // its owed boot scan for the resume. Not one a stop() abandoned, and not
-      // a joined start that failed: a later retry brings the trigger up
-      // through `onStarted`.
-      if (outcome !== 'abandoned' && outcome !== 'failed') startSkillTrigger();
+      skillTrigger.start();
+      refs.skillTrigger = skillTrigger;
     }
   } catch (error: unknown) {
-    // A failed `start()` keeps the ref: the service's retry path is still
-    // live, and `disposeThoth` must `stop()` it to dispose its config
-    // listener. A failed resolve leaves it null.
-    logger.warn(
-      '[CLI Thoth] Skill synthesis start failed (non-fatal; retried when skillSynthesis.enabled changes)',
-      { error: error instanceof Error ? error.message : String(error) },
-    );
+    logger.warn('[CLI Thoth] Skill trigger start skipped (non-fatal)', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    refs.skillTrigger = null;
   }
 }
 
@@ -379,9 +329,7 @@ async function startCron(
       return;
     }
     registerBackupJob(container, logger);
-    registerSkillDrainJobs(container, logger);
     registerMemoryRetentionJob(container, logger);
-    registerSkillBacklogCleanupJob(container, logger);
 
     const workspaceProvider = container.resolve<IWorkspaceProvider>(
       PLATFORM_TOKENS.WORKSPACE_PROVIDER,
@@ -405,6 +353,24 @@ async function startCron(
     const cronScheduler = container.resolve<CronScheduler>(
       CRON_TOKENS.CRON_SCHEDULER,
     );
+    if (container.isRegistered(CRON_TOKENS.CRON_JOB_STORE)) {
+      try {
+        const result = disableRetiredSkillPipelineJobs(
+          container.resolve<IJobStore>(CRON_TOKENS.CRON_JOB_STORE),
+        );
+        if (result.disabled > 0) {
+          logger.info('[CLI Thoth] Disabled retired skill pipeline jobs', { count: result.disabled });
+        }
+        if (result.failed.length > 0) {
+          logger.warn('[CLI Thoth] Failed to disable retired skill pipeline jobs', { ids: result.failed });
+        }
+      } catch (error: unknown) {
+        // degradation-audit: reported - cron still starts; the failed retirement is warned.
+        logger.warn('[CLI Thoth] Retired skill pipeline job disable failed (non-fatal)', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
     await cronScheduler.start({
       enabled: enabled ?? true,
       maxConcurrentJobs: maxConcurrentJobs ?? 3,
@@ -483,101 +449,14 @@ function registerBackupJob(
 }
 
 /**
- * Register the three drain handlers and upsert their jobs for the CLI tier.
- *
- * The TABLE is `thoth-runtime`'s `SKILL_DRAIN_JOBS` — one definition of the job
- * ids, handler names and cron-expression keys, so a key the user sets in one
- * host is the key the other host reads. Only the REGISTRATION is the CLI
- * tier's own: no activity emitter (the CLI has no webview to emit into) and a
- * `Logger` rather than `console`. The two lifecycles are still deliberately
- * unmerged — `cli-engine` runs its own `activateThoth`/`disposeThoth` tier
- * model, and converging them is a separate task.
- *
- * `has()` guards registration because `HandlerRegistry.register` THROWS on a
- * duplicate name and `activateThoth` can run more than once in a long-lived
- * CLI process. `upsert` is idempotent, so it is not guarded. Non-fatal by
- * construction: a CLI host without skill-synthesis simply gets no drain jobs.
- */
-function registerSkillDrainJobs(
-  container: DependencyContainer,
-  logger: Logger,
-): void {
-  try {
-    if (
-      !container.isRegistered(CRON_TOKENS.CRON_JOB_STORE) ||
-      !container.isRegistered(CRON_TOKENS.CRON_HANDLER_REGISTRY) ||
-      !container.isRegistered(SKILL_SYNTHESIS_TOKENS.SKILL_DRAIN_SERVICE)
-    ) {
-      return;
-    }
-    const jobStore = container.resolve<IJobStore>(CRON_TOKENS.CRON_JOB_STORE);
-    const handlerRegistry = container.resolve<IHandlerRegistry>(
-      CRON_TOKENS.CRON_HANDLER_REGISTRY,
-    );
-    const workspaceProvider = container.resolve<IWorkspaceProvider>(
-      PLATFORM_TOKENS.WORKSPACE_PROVIDER,
-    );
-    for (const job of SKILL_DRAIN_JOBS) {
-      if (!handlerRegistry.has(job.handlerName)) {
-        handlerRegistry.register(job.handlerName, async (ctx) => {
-          const drain = container.resolve<SkillDrainService>(
-            SKILL_SYNTHESIS_TOKENS.SKILL_DRAIN_SERVICE,
-          );
-          // Resolved per run, not captured: a laptop can move on and off mains
-          // between two ticks.
-          const monitor = container.resolve<IPowerMonitor>(
-            CRON_TOKENS.CRON_POWER_MONITOR,
-          );
-          const summary = await drain.drain({
-            tier: job.tier,
-            signal: ctx.signal,
-            onBattery: monitor.isOnBattery(),
-          });
-          // Same rule as the Electron/VS Code seam in
-          // `thoth-runtime/start-thoth-cron.ts`: a gated tick did no work, so
-          // it records as `skipped` with the drain's own reason token, not as
-          // a success (TASK_2026_315 / C2).
-          return summary.skipped
-            ? { outcome: 'skipped', reason: summary.reason ?? 'unknown' }
-            : {
-                summary: `claimed ${summary.claimed}, done ${summary.done}, failed ${summary.failed}`,
-              };
-        });
-      }
-      jobStore.upsert({
-        id: job.jobId,
-        name: job.name,
-        cronExpr:
-          workspaceProvider.getConfiguration<string>(
-            'ptah',
-            job.cronExprKey,
-            job.defaultCronExpr,
-          ) || job.defaultCronExpr,
-        timezone: 'UTC',
-        prompt: `handler:${job.handlerName}`,
-        enabled: true,
-      });
-    }
-  } catch (error: unknown) {
-    logger.warn(
-      '[CLI Thoth] Skill drain cron registration failed (non-fatal)',
-      {
-        error: error instanceof Error ? error.message : String(error),
-      },
-    );
-  }
-}
-
-/**
  * Register the memory retention handler and upsert its hourly job for the CLI
  * tier (TASK_2026_440).
  *
  * The job spec and the per-run handler are `thoth-runtime`'s, so the id,
  * schedule and report mapping cannot drift from the Electron host. Only the
  * registration is the CLI tier's own: no activity emitter and a `Logger`
- * rather than `console`. Same guards as the drain jobs: `has()` because
- * `register` throws on a duplicate, an unguarded idempotent `upsert`, and no
- * job at all on a host without `MEMORY_RETENTION_SERVICE`.
+ * rather than `console`. `has()` avoids duplicate handler registration, while
+ * `upsert` is idempotent. Hosts without `MEMORY_RETENTION_SERVICE` get no job.
  */
 function registerMemoryRetentionJob(
   container: DependencyContainer,
@@ -612,48 +491,6 @@ function registerMemoryRetentionJob(
   } catch (error: unknown) {
     logger.warn(
       '[CLI Thoth] Memory retention cron registration failed (non-fatal)',
-      {
-        error: error instanceof Error ? error.message : String(error),
-      },
-    );
-  }
-}
-
-function registerSkillBacklogCleanupJob(
-  container: DependencyContainer,
-  logger: Logger,
-): void {
-  try {
-    if (
-      !container.isRegistered(CRON_TOKENS.CRON_JOB_STORE) ||
-      !container.isRegistered(CRON_TOKENS.CRON_HANDLER_REGISTRY) ||
-      !container.isRegistered(
-        SKILL_SYNTHESIS_TOKENS.SKILL_BACKLOG_CLEANUP_SERVICE,
-      )
-    ) {
-      return;
-    }
-    const jobStore = container.resolve<IJobStore>(CRON_TOKENS.CRON_JOB_STORE);
-    const handlerRegistry = container.resolve<IHandlerRegistry>(
-      CRON_TOKENS.CRON_HANDLER_REGISTRY,
-    );
-    if (!handlerRegistry.has(SKILL_BACKLOG_CLEANUP_JOB.handlerName)) {
-      handlerRegistry.register(
-        SKILL_BACKLOG_CLEANUP_JOB.handlerName,
-        createSkillBacklogCleanupHandler(container),
-      );
-    }
-    jobStore.upsert({
-      id: SKILL_BACKLOG_CLEANUP_JOB.jobId,
-      name: SKILL_BACKLOG_CLEANUP_JOB.name,
-      cronExpr: SKILL_BACKLOG_CLEANUP_JOB.cronExpr,
-      timezone: SKILL_BACKLOG_CLEANUP_JOB.timezone,
-      prompt: `handler:${SKILL_BACKLOG_CLEANUP_JOB.handlerName}`,
-      enabled: true,
-    });
-  } catch (error: unknown) {
-    logger.warn(
-      '[CLI Thoth] Skills backlog cleanup cron registration failed (non-fatal)',
       {
         error: error instanceof Error ? error.message : String(error),
       },

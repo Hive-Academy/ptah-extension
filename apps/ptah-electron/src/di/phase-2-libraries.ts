@@ -118,10 +118,7 @@ import { ElectronIntegrityWorkerFactory } from '../services/platform/electron-in
 import { MetadataGatewaySessionLister } from '../services/gateway/metadata-gateway-session-lister';
 import { ElectronSetupWizardService } from '../services/electron-setup-wizard.service';
 import { ElectronSkillRepropagation } from '../activation/skill-repropagation';
-import {
-  createUserLayerRefresher,
-  readDormantSkillSlugs,
-} from '../activation/plugin-activation';
+import { createUserLayerRefresher } from '../activation/plugin-activation';
 
 /**
  * `harness.preflightTimeoutMs` — how long a session start may wait for the
@@ -248,42 +245,15 @@ export function registerPhase2Libraries(
         return {
           resolveCurrentPluginPaths: (workspaceRoot) =>
             loader.resolveCurrentPluginPaths(workspaceRoot),
-          // Dormant promoted skills are folded into the disabled channel here,
-          // once, rather than at every reconcile call site. The residency
-          // budget's decision is "this skill must not occupy prompt budget",
-          // which is precisely what `disabledSkillIds` means to the builder.
-          // Electron-only: the candidate store is a Thoth (SQLite) service.
-          //
-          // `readDormantSkillSlugs` takes no root and is NOT widened to take one:
-          // `SkillCandidateStore` is backed by the single machine-level
-          // `~/.ptah/ptah.db`, and dormancy is a residency-budget decision about
-          // the model's prompt, not about a folder. Giving it a workspace
-          // argument it does not honour would be a scope this side cannot keep.
-          getDisabledSkillIds: (workspaceRoot) => [
-            ...loader.getDisabledSkillIds(workspaceRoot),
-            ...readDormantSkillSlugs(container),
-          ],
+          getDisabledSkillIds: (workspaceRoot) =>
+            loader.getDisabledSkillIds(workspaceRoot),
           getWorkspacePluginConfig: (workspaceRoot) =>
             loader.getWorkspacePluginConfig(workspaceRoot),
           // The layered (global + workspace) policy, which the source resolver
           // reads INSTEAD of the three members above whenever it is present
-          // (TASK_2026_560). Dormant slugs are folded in here too, exactly as in
-          // `getDisabledSkillIds`: otherwise the residency budget's decision
-          // would vanish the moment the resolver switched to this member.
-          getEffectivePluginConfig: async (workspaceRoot) => {
-            const effective =
-              await loader.getEffectivePluginConfig(workspaceRoot);
-            return {
-              ...effective,
-              config: {
-                ...effective.config,
-                disabledSkillIds: [
-                  ...effective.config.disabledSkillIds,
-                  ...readDormantSkillSlugs(container),
-                ],
-              },
-            };
-          },
+          // (TASK_2026_560).
+          getEffectivePluginConfig: (workspaceRoot) =>
+            loader.getEffectivePluginConfig(workspaceRoot),
         };
       },
       undefined,
@@ -424,6 +394,7 @@ export function registerPhase2Libraries(
     );
   }
   startAndRegisterLaneOutcomes(container, logger);
+  // Register the skill trigger and telemetry seam for library RPC handlers.
   registerSkillSynthesisServices(container, logger);
   registerTaskSpecsServices(container, logger);
   // Warm the index at activation (TASK_2026_179 step 11) so `.ptah/specs/

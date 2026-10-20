@@ -50,8 +50,8 @@ import type {
   ProvidersConnectionDraft,
   ProvidersEditContext,
   ProvidersEffectiveRoute,
+  ProvidersEnhancementSettings,
   ProvidersExternalAuthAction,
-  ProvidersJudgingSettings,
   ProvidersMainSources,
   ProvidersCliTest,
   ProvidersCustomEntry,
@@ -60,13 +60,14 @@ import type {
   ProvidersSettingsPatch,
   SaveOperation,
 } from './providers-settings.types';
+import { PROVIDERS_ENHANCEMENT_KEYS } from './providers-settings.types';
 import { WorkspaceScopeService } from './workspace-scope.service';
 
 export type {
   ProvidersSettingsSection,
   ProvidersEffectiveRoute,
-  ProvidersJudgingSettings,
-  ProvidersJudgingPatch,
+  ProvidersEnhancementSettings,
+  ProvidersEnhancementPatch,
   ProvidersEditContext,
   ProvidersSettingsCommit,
   ProvidersSettingsPatch,
@@ -120,10 +121,8 @@ export class ProvidersSettingsStateService {
     createSectionStore<RpcMethodResult<'config:effort-get'>>();
   private readonly memoryStore =
     createSectionStore<RpcMethodResult<'memory:getTriggers'>['triggers']>();
-  private readonly lanesStore =
-    createSectionStore<RpcMethodResult<'skillSynthesis:getLanes'>['lanes']>();
-  private readonly judgingStore =
-    createSectionStore<ProvidersJudgingSettings>();
+  private readonly enhancementStore =
+    createSectionStore<ProvidersEnhancementSettings>();
   private readonly cliStore =
     createSectionStore<RpcMethodResult<'ptahCli:list'>['agents']>();
   private readonly orchestrationStore =
@@ -148,8 +147,7 @@ export class ProvidersSettingsStateService {
   readonly model = this.view(this.modelStore);
   readonly effort = this.freshEffortView(this.effortStore, this.effortRevision);
   readonly memory = this.view(this.memoryStore);
-  readonly lanes = this.view(this.lanesStore);
-  readonly judging = this.view(this.judgingStore);
+  readonly enhancement = this.view(this.enhancementStore);
   readonly cliAgents = this.view(this.cliStore);
   readonly orchestration = this.view(this.orchestrationStore);
   /** Last explicit CLI re-detection (`redetectClis`); `loading` while it runs. */
@@ -215,8 +213,7 @@ export class ProvidersSettingsStateService {
       this.refreshModel(),
       this.refreshEffort(),
       this.refreshMemory(),
-      this.refreshLanes(),
-      this.refreshJudging(),
+      this.refreshEnhancement(),
       this.refreshCliAgents(),
       this.refreshCliModels(),
       this.refreshOrchestration(),
@@ -660,23 +657,24 @@ export class ProvidersSettingsStateService {
       async () => (await this.require('memory:getTriggers', {})).triggers,
     );
   }
-  async refreshLanes(): Promise<void> {
-    await this.read(
-      this.lanesStore,
-      async () => (await this.require('skillSynthesis:getLanes', {})).lanes,
-    );
-  }
-  async refreshJudging(): Promise<void> {
-    await this.read(this.judgingStore, async () => {
-      const { judgeProvider, judgeModel, enhanceTimeoutMs } = (
-        await this.require('skillSynthesis:getSettings', {})
-      ).settings;
-      return {
-        judgeProvider,
-        enhanceTimeoutMs,
-        // model-resolver.ts:171 recognizes 'inherit'; the picker uses ''.
-        judgeModel: judgeModel === 'inherit' ? '' : judgeModel,
-      };
+  async refreshEnhancement(): Promise<void> {
+    await this.read(this.enhancementStore, async () => {
+      const [provider, model, timeoutMs] = await Promise.all(
+        (['provider', 'model', 'timeoutMs'] as const).map(async (field) => {
+          const result = await this.require('settings:get', {
+            key: PROVIDERS_ENHANCEMENT_KEYS[field],
+          });
+          if (!result.success) throw new Error('Enhancement settings unavailable');
+          return result.value;
+        }),
+      );
+      if (
+        typeof provider !== 'string' ||
+        typeof model !== 'string' ||
+        typeof timeoutMs !== 'number' ||
+        !Number.isFinite(timeoutMs)
+      ) throw new Error('Enhancement settings unavailable');
+      return { provider, model: model === 'inherit' ? '' : model, timeoutMs };
     });
   }
   async refreshCliAgents(): Promise<void> {
@@ -968,8 +966,7 @@ export class ProvidersSettingsStateService {
         this.model(),
         this.effort(),
         this.memory(),
-        this.lanes(),
-        this.judging(),
+        this.enhancement(),
         this.cliAgents(),
         this.cliModels(),
         this.orchestration(),

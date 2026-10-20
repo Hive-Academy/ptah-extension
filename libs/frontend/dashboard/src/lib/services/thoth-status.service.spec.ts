@@ -1,9 +1,8 @@
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
-import { AppStateManager, VSCodeService } from '@ptah-extension/core';
+import { AppStateManager, ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import { MemoryRpcService } from '@ptah-extension/memory-curator-ui';
 import { MemoryDiagnosticsRpcService } from '@ptah-extension/memory-curator-ui/services';
-import { SkillSynthesisRpcService } from '@ptah-extension/skill-synthesis-ui';
 import { CronRpcService } from '@ptah-extension/cron-scheduler-ui';
 import { GatewayRpcService } from '@ptah-extension/messaging-gateway-ui';
 import {
@@ -14,7 +13,6 @@ import {
   type CronListResult,
   type MemoryStatsResult,
   type ScheduledJobDto,
-  type SkillSynthesisCandidateSummary,
 } from '@ptah-extension/shared';
 
 import { ThothStatusService } from './thoth-status.service';
@@ -43,13 +41,6 @@ function makeJob(over: Partial<ScheduledJobDto>): ScheduledJobDto {
   };
 }
 
-/** Candidate rows reduced to the one field the tile reads: the row count. */
-function candidateRows(
-  ids: readonly string[],
-): SkillSynthesisCandidateSummary[] {
-  return ids.map((id) => ({ id }) as unknown as SkillSynthesisCandidateSummary);
-}
-
 interface Deferred<T> {
   readonly promise: Promise<T>;
   resolve(value: T): void;
@@ -75,7 +66,8 @@ function flushAsync(): Promise<void> {
 describe('ThothStatusService', () => {
   let memoryRpc: jest.Mocked<MemoryRpcService>;
   let memoryDiagnosticsRpc: { getTriggers: jest.Mock };
-  let skillsRpc: jest.Mocked<SkillSynthesisRpcService>;
+  let settingsCall: jest.Mock;
+  let telemetryRead: jest.Mock;
   let cronRpc: jest.Mocked<CronRpcService>;
   let gatewayRpc: jest.Mocked<GatewayRpcService>;
   let vscode: VscodeStub;
@@ -88,10 +80,12 @@ describe('ThothStatusService', () => {
     memoryDiagnosticsRpc = {
       getTriggers: jest.fn(async () => ({ triggers: {}, enabled: true })),
     };
-    skillsRpc = {
-      listCandidates: jest.fn(),
-      getSettings: jest.fn(async () => ({ enabled: true })),
-    } as unknown as jest.Mocked<SkillSynthesisRpcService>;
+    telemetryRead = jest.fn(async () => ({ isSuccess: () => true, data: { success: true, value: true } }));
+    settingsCall = jest.fn((method: string, params: { key: string }) =>
+      params.key === 'skills.telemetry.enabled'
+        ? telemetryRead()
+        : Promise.resolve({ isSuccess: () => true, data: { success: true, value: true } }),
+    );
     cronRpc = {
       list: jest.fn(),
     } as unknown as jest.Mocked<CronRpcService>;
@@ -112,7 +106,7 @@ describe('ThothStatusService', () => {
           provide: MemoryDiagnosticsRpcService,
           useValue: memoryDiagnosticsRpc,
         },
-        { provide: SkillSynthesisRpcService, useValue: skillsRpc },
+        { provide: ClaudeRpcService, useValue: { call: settingsCall } },
         { provide: CronRpcService, useValue: cronRpc },
         { provide: GatewayRpcService, useValue: gatewayRpc },
       ],
@@ -131,15 +125,6 @@ describe('ThothStatusService', () => {
     };
     memoryRpc.stats.mockResolvedValue(memStats);
 
-    const candidates: SkillSynthesisCandidateSummary[] = [
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      { id: 'a' } as any,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      { id: 'b' } as any,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      { id: 'c' } as any,
-    ];
-    skillsRpc.listCandidates.mockResolvedValue(candidates);
 
     const cronList: CronListResult = {
       jobs: [
@@ -178,7 +163,7 @@ describe('ThothStatusService', () => {
     });
     expect(summary.skills).toEqual({
       available: true,
-      pendingCandidates: 3,
+      telemetryEnabled: true,
     });
     expect(summary.cron).toEqual({
       available: true,
@@ -208,11 +193,7 @@ describe('ThothStatusService', () => {
     expect(summary.lastUpdatedAt).not.toBeNull();
     expect(service.hasLoadedOnce()).toBe(true);
 
-    expect(skillsRpc.listCandidates).toHaveBeenCalledWith({
-      status: 'candidate',
-      scope: 'workspace',
-      limit: 1000,
-    });
+    expect(settingsCall).toHaveBeenCalledWith('settings:get', { key: 'skills.telemetry.enabled' });
     expect(gatewayRpc.listBindings).toHaveBeenCalledWith({ status: 'pending' });
   });
 
@@ -224,14 +205,13 @@ describe('ThothStatusService', () => {
       codeIndex: 0,
       lastCuratedAt: null,
     });
-    skillsRpc.listCandidates.mockResolvedValue([]);
     cronRpc.list.mockResolvedValue({ jobs: [] });
     gatewayRpc.status.mockResolvedValue({ enabled: true, adapters: [] });
     gatewayRpc.listBindings.mockResolvedValue({ bindings: [] });
     const pausedMemory = deferred<{ triggers: object; enabled: boolean }>();
-    const pausedSkills = deferred<{ enabled: boolean }>();
+    const pausedSkills = deferred<{ isSuccess: () => boolean; data: { success: boolean; value: boolean } }>();
     memoryDiagnosticsRpc.getTriggers.mockReturnValue(pausedMemory.promise);
-    skillsRpc.getSettings.mockReturnValue(pausedSkills.promise as never);
+    settingsCall.mockImplementation((method: string, params: { key: string }) => params.key === 'skillSynthesis.enabled' ? pausedSkills.promise : telemetryRead());
 
     const service = TestBed.inject(ThothStatusService);
     await service.refresh();
@@ -276,7 +256,6 @@ describe('ThothStatusService', () => {
       codeIndex: 0,
       lastCuratedAt: null,
     });
-    skillsRpc.listCandidates.mockResolvedValue([]);
 
     const service = TestBed.inject(ThothStatusService);
     await service.refresh();
@@ -305,7 +284,6 @@ describe('ThothStatusService', () => {
       codeIndex: 0,
       lastCuratedAt: null,
     });
-    skillsRpc.listCandidates.mockResolvedValue([]);
 
     const service = TestBed.inject(ThothStatusService);
     await service.refreshIfNeeded();
@@ -313,7 +291,6 @@ describe('ThothStatusService', () => {
     await service.refreshIfNeeded();
 
     expect(memoryRpc.stats).toHaveBeenCalledTimes(1);
-    expect(skillsRpc.listCandidates).toHaveBeenCalledTimes(1);
   });
 
   it('refresh() reloads every pillar after the first load', async () => {
@@ -325,109 +302,66 @@ describe('ThothStatusService', () => {
       codeIndex: 0,
       lastCuratedAt: null,
     });
-    skillsRpc.listCandidates.mockResolvedValue([]);
     cronRpc.list.mockResolvedValue({ jobs: [] });
     gatewayRpc.status.mockResolvedValue({ enabled: false, adapters: [] });
     gatewayRpc.listBindings.mockResolvedValue({ bindings: [] });
 
     const service = TestBed.inject(ThothStatusService);
     await service.refreshIfNeeded();
-
-    skillsRpc.listCandidates.mockResolvedValue(candidateRows(['a', 'b']));
     await service.refresh();
 
     expect(memoryRpc.stats).toHaveBeenCalledTimes(2);
-    expect(skillsRpc.listCandidates).toHaveBeenCalledTimes(2);
     expect(cronRpc.list).toHaveBeenCalledTimes(2);
     expect(gatewayRpc.status).toHaveBeenCalledTimes(2);
     expect(service.summary().skills).toEqual({
       available: true,
-      pendingCandidates: 2,
+      telemetryEnabled: true,
     });
   });
 
-  describe('overlapping refreshes', () => {
-    beforeEach(() => {
-      vscode.config.set({ isElectron: false });
-      memoryRpc.stats.mockResolvedValue({
-        core: 0,
-        recall: 0,
-        archival: 0,
-        codeIndex: 0,
-        lastCuratedAt: null,
-      });
+  it('shows the telemetry setting without a candidate count', async () => {
+    vscode.config.set({ isElectron: false });
+    memoryRpc.stats.mockResolvedValue({
+      core: 0, recall: 0, archival: 0, codeIndex: 0, lastCuratedAt: null,
     });
-
-    it('drops a superseded refresh whose response lands after the newer one', async () => {
-      const first = deferred<SkillSynthesisCandidateSummary[]>();
-      const second = deferred<SkillSynthesisCandidateSummary[]>();
-      skillsRpc.listCandidates
-        .mockReturnValueOnce(first.promise)
-        .mockReturnValueOnce(second.promise);
-
-      const service = TestBed.inject(ThothStatusService);
-      const stale = service.refresh();
-      const fresh = service.refresh();
-
-      second.resolve(candidateRows(['new']));
-      await fresh;
-      expect(service.summary().skills).toEqual({
-        available: true,
-        pendingCandidates: 1,
-      });
-      expect(service.summary().isLoading).toBe(false);
-
-      first.resolve(candidateRows(['old-1', 'old-2', 'old-3']));
-      await stale;
-
-      expect(service.summary().skills).toEqual({
-        available: true,
-        pendingCandidates: 1,
-      });
-      expect(service.summary().isLoading).toBe(false);
+    telemetryRead.mockResolvedValue({
+      isSuccess: () => true, data: { success: true, value: false },
     });
+    const service = TestBed.inject(ThothStatusService);
+    await service.refresh();
+    expect(service.summary().skills).toEqual({ available: true, telemetryEnabled: false });
+    expect(service.pillars().skills).toMatchObject({ value: 'Off', unit: '', desc: 'Skill telemetry' });
+    expect(settingsCall).toHaveBeenCalledWith('settings:get', { key: 'skills.telemetry.enabled' });
+  });
 
-    it('drops a superseded refresh failure instead of flagging the tile', async () => {
-      const first = deferred<SkillSynthesisCandidateSummary[]>();
-      skillsRpc.listCandidates
-        .mockReturnValueOnce(first.promise)
-        .mockResolvedValueOnce(candidateRows(['a']));
-
-      const service = TestBed.inject(ThothStatusService);
-      const stale = service.refresh();
-      await service.refresh();
-
-      first.reject(new Error('stale boom'));
-      await stale;
-
-      expect(service.summary().skills).toEqual({
-        available: true,
-        pendingCandidates: 1,
-      });
-      expect(service.summary().errors.skills).toBeNull();
+  it('keeps a failed telemetry read isolated to the Skills tile', async () => {
+    vscode.config.set({ isElectron: false });
+    memoryRpc.stats.mockResolvedValue({
+      core: 1, recall: 0, archival: 0, codeIndex: 0, lastCuratedAt: null,
     });
+    telemetryRead.mockRejectedValue(new Error('unavailable'));
+    const service = TestBed.inject(ThothStatusService);
+    await service.refresh();
+    expect(service.summary().skills).toEqual({ available: false, reason: 'error' });
+    expect(service.summary().memory.available).toBe(true);
+  });
 
-    it('keeps isLoading true until the newest refresh settles', async () => {
-      const first = deferred<SkillSynthesisCandidateSummary[]>();
-      const second = deferred<SkillSynthesisCandidateSummary[]>();
-      skillsRpc.listCandidates
-        .mockReturnValueOnce(first.promise)
-        .mockReturnValueOnce(second.promise);
-
-      const service = TestBed.inject(ThothStatusService);
-      const stale = service.refresh();
-      const fresh = service.refresh();
-
-      first.resolve([]);
-      await stale;
-      expect(service.summary().isLoading).toBe(true);
-      expect(service.hasLoadedOnce()).toBe(false);
-
-      second.resolve([]);
-      await fresh;
-      expect(service.summary().isLoading).toBe(false);
-      expect(service.hasLoadedOnce()).toBe(true);
+  it('drops a stale telemetry answer after a newer refresh', async () => {
+    vscode.config.set({ isElectron: false });
+    memoryRpc.stats.mockResolvedValue({
+      core: 0, recall: 0, archival: 0, codeIndex: 0, lastCuratedAt: null,
     });
+    const oldRead = deferred<{ isSuccess: () => boolean; data: { success: boolean; value: boolean } }>();
+    telemetryRead.mockReturnValueOnce(oldRead.promise);
+    telemetryRead.mockResolvedValueOnce({
+      isSuccess: () => true, data: { success: true, value: false },
+    });
+    const service = TestBed.inject(ThothStatusService);
+    const stale = service.refresh();
+    await service.refresh();
+    oldRead.resolve({ isSuccess: () => true, data: { success: true, value: true } });
+    await stale;
+    expect(service.summary().skills).toEqual({ available: true, telemetryEnabled: false });
   });
 
   it('derives running state even when the master enabled flag is false', async () => {
@@ -440,7 +374,6 @@ describe('ThothStatusService', () => {
       codeIndex: 0,
       lastCuratedAt: null,
     });
-    skillsRpc.listCandidates.mockResolvedValue([]);
     cronRpc.list.mockResolvedValue({ jobs: [] });
     gatewayRpc.status.mockResolvedValue({
       enabled: false,
@@ -490,7 +423,6 @@ describe('ThothStatusService', () => {
         codeIndex: 0,
         lastCuratedAt: null,
       });
-      skillsRpc.listCandidates.mockResolvedValue([]);
       cronRpc.list.mockResolvedValue({ jobs: [] });
       gatewayRpc.status.mockResolvedValue({
         enabled: false,
@@ -565,7 +497,6 @@ describe('ThothStatusService', () => {
         codeIndex: 0,
         lastCuratedAt: null,
       });
-      skillsRpc.listCandidates.mockResolvedValue([]);
       cronRpc.list.mockResolvedValue({ jobs: [] });
       gatewayRpc.status.mockRejectedValue(new Error('gateway boom'));
       gatewayRpc.listBindings.mockResolvedValue({ bindings: [] });
@@ -625,7 +556,6 @@ describe('ThothStatusService', () => {
     beforeEach(() => {
       vscode.config.set({ isElectron: true });
       memoryRpc.stats.mockResolvedValue(emptyStats);
-      skillsRpc.listCandidates.mockResolvedValue([]);
       cronRpc.list.mockResolvedValue({ jobs: [] });
       gatewayRpc.status.mockResolvedValue({ enabled: false, adapters: [] });
       gatewayRpc.listBindings.mockResolvedValue({ bindings: [] });
@@ -663,7 +593,6 @@ describe('ThothStatusService', () => {
 
       expect(memoryRpc.stats).toHaveBeenCalledTimes(2);
       expect(memoryRpc.stats).toHaveBeenLastCalledWith('/ws-b');
-      expect(skillsRpc.listCandidates).toHaveBeenCalledTimes(2);
       expect(cronRpc.list).toHaveBeenCalledTimes(2);
     });
 
@@ -696,39 +625,29 @@ describe('ThothStatusService', () => {
       expect(memoryRpc.stats).toHaveBeenCalledTimes(2);
       expect(memoryRpc.stats).toHaveBeenLastCalledWith(null);
       expect(cronRpc.list).toHaveBeenLastCalledWith({});
-      expect(skillsRpc.listCandidates).toHaveBeenCalledTimes(2);
-      expect(skillsRpc.listCandidates).toHaveBeenLastCalledWith({
-        status: 'candidate',
-        scope: 'workspace',
-        limit: 1000,
-      });
     });
 
     it('a workspace switch during an in-flight refresh keeps the new root result', async () => {
-      const staleSkills = deferred<SkillSynthesisCandidateSummary[]>();
       const staleStats = deferred<MemoryStatsResult>();
       appState.workspaceInfo.set({ path: '/ws-a' });
 
       const service = TestBed.inject(ThothStatusService);
       TestBed.tick();
 
-      skillsRpc.listCandidates.mockReturnValueOnce(staleSkills.promise);
-      memoryRpc.stats.mockReturnValueOnce(staleStats.promise);
+        memoryRpc.stats.mockReturnValueOnce(staleStats.promise);
       const stale = service.refresh();
 
-      skillsRpc.listCandidates.mockResolvedValueOnce(candidateRows(['b1']));
-      memoryRpc.stats.mockResolvedValueOnce({ ...emptyStats, core: 7 });
+        memoryRpc.stats.mockResolvedValueOnce({ ...emptyStats, core: 7 });
       appState.workspaceInfo.set({ path: '/ws-b' });
       TestBed.tick();
       await flushAsync();
 
-      staleSkills.resolve(candidateRows(['a1', 'a2', 'a3']));
       staleStats.resolve({ ...emptyStats, core: 40 });
       await stale;
       await flushAsync();
 
       const summary = service.summary();
-      expect(summary.skills).toEqual({ available: true, pendingCandidates: 1 });
+      expect(summary.skills).toEqual({ available: true, telemetryEnabled: true });
       expect(summary.memory).toEqual({
         available: true,
         totalFacts: 7,
@@ -742,7 +661,6 @@ describe('ThothStatusService', () => {
     vscode.config.set({ isElectron: true });
 
     memoryRpc.stats.mockRejectedValue(new Error('memory boom'));
-    skillsRpc.listCandidates.mockResolvedValue([]);
     cronRpc.list.mockResolvedValue({ jobs: [] });
     gatewayRpc.status.mockResolvedValue({ enabled: false, adapters: [] });
     gatewayRpc.listBindings.mockResolvedValue({ bindings: [] });
@@ -767,7 +685,6 @@ describe('ThothStatusService', () => {
         codeIndex: 0,
         lastCuratedAt: null,
       });
-      skillsRpc.listCandidates.mockResolvedValue([]);
       cronRpc.list.mockResolvedValue({ jobs: [] });
       gatewayRpc.status.mockResolvedValue({
         enabled: false,
@@ -796,17 +713,12 @@ describe('ThothStatusService', () => {
 
     it('refreshPaused() re-reads only the two flags', async () => {
       const service = TestBed.inject(ThothStatusService);
-      skillsRpc.getSettings.mockResolvedValue({
-        enabled: false,
-      } as unknown as Awaited<
-        ReturnType<SkillSynthesisRpcService['getSettings']>
-      >);
+      settingsCall.mockImplementation((method: string, params: { key: string }) => Promise.resolve({ isSuccess: () => true, data: { success: true, value: params.key === 'skillSynthesis.enabled' ? false : true } }));
 
       await service.refreshPaused();
 
       expect(service.pillars().skills.paused).toBe(true);
       expect(memoryRpc.stats).not.toHaveBeenCalled();
-      expect(skillsRpc.listCandidates).not.toHaveBeenCalled();
       expect(cronRpc.list).not.toHaveBeenCalled();
     });
 
@@ -849,7 +761,7 @@ describe('ThothStatusService', () => {
       await service.refreshPaused();
 
       expect(memoryDiagnosticsRpc.getTriggers).not.toHaveBeenCalled();
-      expect(skillsRpc.getSettings).not.toHaveBeenCalled();
+      expect(settingsCall).not.toHaveBeenCalled();
       expect(service.summary().paused).toEqual({
         memory: false,
         skills: false,

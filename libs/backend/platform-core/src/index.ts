@@ -313,6 +313,7 @@ export type {
   WorkspaceWatchUnsubscribeMessage,
 } from './workspace-watch/workspace-watch-protocol';
 export { normalizeWorkspaceRoot } from './utils/normalize-workspace-root';
+export { formatSourceHash } from './utils/source-hash';
 export {
   PROCESS_TREE_KILL_GRACE_MS,
   killProcessTree,

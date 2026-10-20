@@ -32,11 +32,9 @@ import {
 } from './lane-runner.service';
 import {
   flushMicrotasks,
-  makeBudgetStub,
   makeHangingQueryStub,
   makeLogger,
   makeQueryStub,
-  makeQueueStub,
   makeResolverStub,
   resolvedLane,
   resultMessage,
@@ -69,7 +67,6 @@ describe('P1-8 — a hung stream is aborted at exactly cfg.timeoutMs', () => {
       makeResolverStub(
         resolvedLane('judge', { config: { timeoutMs: TIMEOUT_MS } }),
       ).service,
-      makeBudgetStub().store,
       query.query,
     );
 
@@ -92,7 +89,6 @@ describe('P1-8 — a hung stream is aborted at exactly cfg.timeoutMs', () => {
       makeResolverStub(
         resolvedLane('judge', { config: { timeoutMs: TIMEOUT_MS } }),
       ).service,
-      makeBudgetStub().store,
       query.query,
     );
 
@@ -129,7 +125,6 @@ describe('P1-8 — a hung stream is aborted at exactly cfg.timeoutMs', () => {
         makeResolverStub(
           resolvedLane('judge', { config: { timeoutMs: 5_000 } }),
         ).service,
-        makeBudgetStub().store,
         shortLane.query,
       ).run({ laneId: 'judge', prompt: 'x' }),
     );
@@ -141,7 +136,6 @@ describe('P1-8 — a hung stream is aborted at exactly cfg.timeoutMs', () => {
         makeResolverStub(
           resolvedLane('archaeologist', { config: { timeoutMs: 120_000 } }),
         ).service,
-        makeBudgetStub().store,
         longLane.query,
       ).run({ laneId: 'archaeologist', prompt: 'x' }),
     );
@@ -158,44 +152,7 @@ describe('P1-8 — a hung stream is aborted at exactly cfg.timeoutMs', () => {
     expect(longRun.done()).toBe(true);
   });
 
-  it('requeues the row behind the exponential backoff on timeout', async () => {
-    // The transport-failure write: the row goes back to `queued` behind
-    // `2^attempt x 60s`, NOT to a terminal status.
-    const queue = makeQueueStub();
-    const query = makeHangingQueryStub();
-    const startedAt = Date.now();
-    const state = settled(
-      new LaneRunnerService(
-        makeLogger(),
-        makeResolverStub(
-          resolvedLane('synthesis', { config: { timeoutMs: TIMEOUT_MS } }),
-        ).service,
-        makeBudgetStub().store,
-        query.query,
-        queue.store,
-      ).run({
-        laneId: 'synthesis',
-        prompt: 'x',
-        attempt: 3,
-        queueItemId: 'row-9',
-      }),
-    );
 
-    await flushMicrotasks();
-    jest.advanceTimersByTime(TIMEOUT_MS);
-    await flushMicrotasks();
-
-    expect(state.done()).toBe(true);
-    expect(queue.requeue).toHaveBeenCalledTimes(1);
-    const [id, notBefore, reason] = queue.requeue.mock.calls[0] as [
-      string,
-      number,
-      string,
-    ];
-    expect(id).toBe('row-9');
-    expect(notBefore).toBe(startedAt + TIMEOUT_MS + timeoutBackoffMs(3));
-    expect(reason).toContain('synthesis');
-  });
 });
 
 describe('P1-8 — maxInputChars clips the prompt and flags the truncation', () => {
@@ -208,7 +165,6 @@ describe('P1-8 — maxInputChars clips the prompt and flags the truncation', () 
       makeResolverStub(
         resolvedLane('archaeologist', { config: { maxInputChars } }),
       ).service,
-      makeBudgetStub().store,
       query.query,
     );
     return { query, out: runner.run({ laneId: 'archaeologist', prompt }) };

@@ -20,6 +20,10 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import type { Migration } from './migrations';
 import type { SqliteDatabase } from './sqlite-connection.service';
 import { KEEP_BY_KIND, type IBackupService } from './backup.service';
+import {
+  archiveSkillPipeline,
+  FIRST_DESTRUCTIVE_SKILL_PIPELINE_VERSION,
+} from './skill-pipeline-archive';
 
 /** Result of an `applyAll` run — useful for telemetry. */
 export interface MigrationRunResult {
@@ -43,6 +47,7 @@ export class SqliteMigrationRunner {
     private readonly db: SqliteDatabase,
     private readonly logger: Logger,
     private readonly backupService?: IBackupService,
+    private readonly archiveRoot?: string,
   ) {}
 
   /**
@@ -109,6 +114,13 @@ export class SqliteMigrationRunner {
       ? new Set(this.readPendingVecVersions())
       : new Set<number>();
 
+    let archiveVerified = false;
+    const ensureArchiveOnce = (): void => {
+      if (archiveVerified) return;
+      this.ensureArchive(sorted, appliedNow, vecLoaded);
+      archiveVerified = true;
+    };
+
     for (const migration of sorted) {
       if (applied.has(migration.version)) {
         skippedNow.push(migration.version);
@@ -117,6 +129,9 @@ export class SqliteMigrationRunner {
       if (vecPendingSet.has(migration.version)) {
         skippedNow.push(migration.version);
         continue;
+      }
+      if (migration.version >= FIRST_DESTRUCTIVE_SKILL_PIPELINE_VERSION) {
+        ensureArchiveOnce();
       }
       const isPureVec =
         migration.requiresVec === true && migration.sql === undefined;
@@ -133,6 +148,13 @@ export class SqliteMigrationRunner {
     }
 
     if (vecLoaded) {
+      if (
+        this.readPendingVecVersions().some(
+          (version) => version >= FIRST_DESTRUCTIVE_SKILL_PIPELINE_VERSION,
+        )
+      ) {
+        ensureArchiveOnce();
+      }
       this.runVecCatchUp(sorted, appliedNow);
     }
 
@@ -316,11 +338,35 @@ export class SqliteMigrationRunner {
    * clear the pending row. Versions whose migration is no longer bundled are
    * dropped from the pending table.
    */
+  private ensureArchive(
+    sorted: readonly Migration[],
+    appliedNow: number[],
+    vecLoaded: boolean,
+  ): void {
+    if (vecLoaded) {
+      this.runVecCatchUp(sorted, appliedNow, {
+        maxVersion: FIRST_DESTRUCTIVE_SKILL_PIPELINE_VERSION - 1,
+        fatal: true,
+      });
+    } else if (this.db.prepare("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?")
+      .get('skill_candidates_vec') !== undefined) {
+      throw new Error('SqliteMigrationRunner: skill_candidates_vec exists but sqlite-vec is unavailable; archive preflight failed');
+    }
+    const receipt = archiveSkillPipeline(this.db, this.archiveRoot);
+    this.logger.info('[persistence-sqlite] verified skill pipeline archive', {
+      archivePath: receipt.archivePath,
+      reused: receipt.maintenance?.reused ?? false,
+      pruned: receipt.maintenance?.pruned ?? 0,
+    });
+  }
+
   private runVecCatchUp(
     sorted: readonly Migration[],
     appliedNow: number[],
+    options: { maxVersion?: number; fatal?: boolean } = {},
   ): void {
-    const pending = this.readPendingVecVersions();
+    const { maxVersion = Number.POSITIVE_INFINITY, fatal = false } = options;
+    const pending = this.readPendingVecVersions().filter((version) => version <= maxVersion);
     if (pending.length === 0) return;
     const byVersion = new Map(sorted.map((m) => [m.version, m]));
     const recordedApplied = this.readAppliedVersions();
@@ -351,6 +397,9 @@ export class SqliteMigrationRunner {
         this.db.exec('COMMIT');
       } catch (err: unknown) {
         this.db.exec('ROLLBACK');
+        if (fatal) {
+          throw new Error(`SqliteMigrationRunner: vec catch-up ${version} failed before archive: ${stringifyError(err)}`);
+        }
         this.logger.warn(
           `[persistence-sqlite] vec catch-up for migration ${version} (${migration.name}) failed; left deferred, vector search stays disabled until next boot: ` +
             stringifyError(err),

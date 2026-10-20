@@ -1,10 +1,11 @@
 import 'reflect-metadata';
 import { MIGRATIONS } from '@ptah-extension/persistence-sqlite';
-import { mkdtemp, mkdir, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
+import { normalizeWorkspaceRoot } from '@ptah-extension/platform-core';
 import { SpecHarvesterService } from './spec-harvester.service';
-import { SkillCandidateStore } from './skill-candidate.store';
+import { SkillInvocationEventStore } from './skill-invocation-event.store';
 import { HARVEST_MARKER_FILE } from './spec-extractor';
 
 const COMPLETED_TASKS_MD = `## Batch 1: Backend — COMPLETE
@@ -128,16 +129,164 @@ describe('SpecHarvesterService', () => {
       expect.objectContaining({ slug: 'backend-developer', succeeded: true }),
     );
     expect(store.reconcileSubagentEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ slug: 'frontend-developer', isError: true }),
+      expect.objectContaining({ slug: 'frontend-developer', succeeded: false }),
+    );
+    for (const [input] of store.reconcileSubagentEvent.mock.calls) {
+      expect(input).not.toHaveProperty('isError');
+    }
+    expect(await fileExists(join(dir, HARVEST_MARKER_FILE))).toBe(true);
+  });
+
+  it('re-harvests a legacy marker to attach an artifact digest', async () => {
+    await writeSpec('TASK_2026_002', { harvestedAt: 1 });
+    const result = await svc.harvest();
+    expect(result.harvested).toBe(1);
+    expect(store.reconcileSubagentEvent).not.toHaveBeenCalled();
+  });
+
+  it('replaces a grade after a corrected review without repeating the old reconciliation', async () => {
+    const grades = {
+      findAttributions: jest.fn().mockReturnValue([{ kind: 'agent', slug: 'backend-developer', runId: 'run-1', sessionId: 'session-1', attributionKey: 'run:run-1', finalReview: null }]),
+      upsert: jest.fn(), removeAbsent: jest.fn().mockReturnValue(0), hasGradeForTask: jest.fn().mockReturnValue(false),
+    };
+    svc = new SpecHarvesterService(makeLogger() as never, { getWorkspaceRoot: () => root } as never, store as never, grades as never);
+    const dir = await writeSpec('TASK_2026_090', {
+      tasksMd: '## Batch 1: Backend — IN PROGRESS\n\n**Recommended Executor**: backend-developer\n',
+      review: 'Verdict: FAIL\nRun ID: run-1',
+    });
+    await svc.harvest();
+    expect(grades.upsert).toHaveBeenCalledWith(expect.objectContaining({ verdict: 'fail', sourceFile: 'code-logic-review.md' }));
+    await expect(readFile(join(dir, HARVEST_MARKER_FILE), 'utf8')).resolves.toContain('artifactDigest');
+    await writeFile(join(dir, 'code-logic-review.md'), 'Verdict: PASS\nRun ID: run-1', 'utf8');
+    await svc.harvest();
+    expect(grades.upsert).toHaveBeenLastCalledWith(expect.objectContaining({ verdict: 'pass' }));
+    expect(store.reconcileSubagentEvent).not.toHaveBeenCalled();
+  });
+
+  it('lets batch and lane verdicts outrank conflicting reviews', async () => {
+    const grades = {
+      findAttributions: jest.fn().mockReturnValue([{
+        kind: 'agent', slug: 'backend-developer', runId: 'run-1',
+        sessionId: 'session-1', attributionKey: 'run:run-1', finalReview: null,
+      }]),
+      upsert: jest.fn(), removeAbsent: jest.fn().mockReturnValue(0), hasGradeForTask: jest.fn(),
+    };
+    const logger = makeLogger();
+    svc = new SpecHarvesterService(logger as never, { getWorkspaceRoot: () => root } as never, store as never, grades as never);
+    const batchDir = await writeSpec('TASK_2026_091', { review: 'Verdict: FAIL' });
+    await writeFile(join(batchDir, 'code-style-review.md'), 'Verdict: PASS', 'utf8');
+    await svc.harvest();
+    expect(grades.upsert).toHaveBeenCalledWith(expect.objectContaining({ verdict: 'pass', evidenceSource: 'batch' }));
+
+    grades.findAttributions.mockReturnValue([{
+      kind: 'agent', slug: 'backend-developer', runId: 'run-1',
+      sessionId: 'session-1', attributionKey: 'run:run-1', finalReview: 'approved',
+    }]);
+    const laneDir = await writeSpec('TASK_2026_092', {
+      tasksMd: '## Batch 1: Backend — IN PROGRESS\n\n**Recommended Executor**: backend-developer\n',
+      review: 'Verdict: FAIL',
+    });
+    await writeFile(join(laneDir, 'code-style-review.md'), 'Verdict: PASS', 'utf8');
+    await svc.harvest();
+    expect(grades.upsert).toHaveBeenLastCalledWith(expect.objectContaining({ verdict: 'pass', evidenceSource: 'lane-final-review' }));
+    expect(logger.warn).not.toHaveBeenCalledWith('[spec-harvester] conflicting review verdicts', expect.anything());
+
+    grades.findAttributions.mockReturnValue([{
+      kind: 'agent', slug: 'backend-developer', runId: 'run-1',
+      sessionId: 'session-1', attributionKey: 'run:run-1', finalReview: null,
+    }]);
+    const reviewDir = await writeSpec('TASK_2026_095', {
+      tasksMd: '## Batch 1: Backend — IN PROGRESS\n\n**Recommended Executor**: backend-developer\n',
+      review: 'Verdict: FAIL',
+    });
+    await writeFile(join(reviewDir, 'code-style-review.md'), 'Verdict: PASS', 'utf8');
+    const priorWrites = grades.upsert.mock.calls.length;
+    grades.removeAbsent.mockReturnValueOnce(2);
+    await svc.harvest();
+    expect(grades.upsert).toHaveBeenCalledTimes(priorWrites);
+    expect(logger.warn).toHaveBeenCalledWith('[spec-harvester] conflicting review verdicts', expect.objectContaining({ taskId: 'TASK_2026_095' }));
+    expect(grades.removeAbsent).toHaveBeenCalledWith('TASK_2026_095', normalizeWorkspaceRoot(root), []);
+    expect(logger.info).toHaveBeenCalledWith('[spec-harvester] pruned stale grades', {
+      taskId: 'TASK_2026_095', removed: 2, kept: 0,
+    });
+  });
+
+  it('passes the canonical workspace root to grade attribution and writes', async () => {
+    const grades = {
+      findAttributions: jest.fn().mockReturnValue([{
+        kind: 'agent', slug: 'backend-developer', runId: 'run-1',
+        sessionId: 'session-1', attributionKey: 'run:run-1', finalReview: 'approved',
+      }]),
+      upsert: jest.fn(), removeAbsent: jest.fn().mockReturnValue(0), hasGradeForTask: jest.fn(),
+    };
+    svc = new SpecHarvesterService(makeLogger() as never, { getWorkspaceRoot: () => root } as never, store as never, grades as never);
+    await writeSpec('TASK_2026_093');
+    const suppliedRoot = process.platform === 'win32'
+      ? `${root.replace(/^[a-zA-Z]:/, (drive) => drive.toUpperCase())}${sep}`
+      : `${root}${sep}`;
+    await svc.harvest(suppliedRoot);
+    const normalized = normalizeWorkspaceRoot(root);
+    expect(grades.findAttributions).toHaveBeenCalledWith('TASK_2026_093', normalized);
+    expect(grades.upsert).toHaveBeenCalledWith(expect.objectContaining({ workspaceRoot: normalized }));
+    expect(grades.removeAbsent).toHaveBeenCalledWith('TASK_2026_093', normalized, expect.any(Array));
+  });
+
+  it('warns once when a batched spec has no grade attributions and still marks it harvested', async () => {
+    const grades = {
+      findAttributions: jest.fn().mockReturnValue([]),
+      upsert: jest.fn(), removeAbsent: jest.fn().mockReturnValue(0), hasGradeForTask: jest.fn(),
+    };
+    const logger = makeLogger();
+    svc = new SpecHarvesterService(logger as never, { getWorkspaceRoot: () => root } as never, store as never, grades as never);
+    const dir = await writeSpec('TASK_2026_096');
+    expect((await svc.harvest()).harvested).toBe(1);
+    expect(logger.warn.mock.calls.filter(([message]) =>
+      message === '[spec-harvester] no grade attributions for spec batches')).toHaveLength(1);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[spec-harvester] no grade attributions for spec batches',
+      { taskId: 'TASK_2026_096', batchCount: 2, attributionCount: 0 },
     );
     expect(await fileExists(join(dir, HARVEST_MARKER_FILE))).toBe(true);
   });
 
-  it('skips specs that already carry a harvest marker', async () => {
-    await writeSpec('TASK_2026_002', { harvestedAt: 1 });
-    const result = await svc.harvest();
-    expect(result.harvested).toBe(0);
-    expect(store.reconcileSubagentEvent).not.toHaveBeenCalled();
+  it.each(['attribution', 'write'] as const)('retries after a failed grade %s without marking harvested', async (failure) => {
+    const attribution = {
+      kind: 'agent', slug: 'backend-developer', runId: 'run-1',
+      sessionId: 'session-1', attributionKey: 'run:run-1', finalReview: 'approved',
+    };
+    const grades = {
+      findAttributions: jest.fn().mockReturnValue([attribution]),
+      upsert: jest.fn(), removeAbsent: jest.fn().mockReturnValue(0), hasGradeForTask: jest.fn(),
+    };
+    if (failure === 'attribution') grades.findAttributions.mockImplementationOnce(() => { throw new Error('unavailable'); });
+    else grades.upsert.mockImplementationOnce(() => { throw new Error('unavailable'); });
+    svc = new SpecHarvesterService(makeLogger() as never, { getWorkspaceRoot: () => root } as never, store as never, grades as never);
+    const dir = await writeSpec('TASK_2026_094');
+    expect((await svc.harvest()).harvested).toBe(0);
+    expect(await fileExists(join(dir, HARVEST_MARKER_FILE))).toBe(false);
+    expect((await svc.harvest()).harvested).toBe(1);
+    expect(grades.upsert).toHaveBeenCalledWith(expect.objectContaining({ taskId: 'TASK_2026_094' }));
+    expect(await fileExists(join(dir, HARVEST_MARKER_FILE))).toBe(true);
+  });
+
+  it('caps persistent grade-write attempts and warnings for an unchanged spec', async () => {
+    const grades = {
+      findAttributions: jest.fn().mockReturnValue([{
+        kind: 'agent', slug: 'backend-developer', runId: 'run-1',
+        sessionId: 'session-1', attributionKey: 'run:run-1', finalReview: 'approved',
+      }]),
+      upsert: jest.fn(() => { throw new Error('unavailable'); }),
+      removeAbsent: jest.fn().mockReturnValue(0), hasGradeForTask: jest.fn(),
+    };
+    const logger = makeLogger();
+    svc = new SpecHarvesterService(logger as never, { getWorkspaceRoot: () => root } as never, store as never, grades as never);
+    const dir = await writeSpec('TASK_2026_097');
+    for (let attempt = 0; attempt < 5; attempt++) {
+      expect((await svc.harvest()).harvested).toBe(0);
+    }
+    expect(grades.upsert).toHaveBeenCalledTimes(3);
+    expect(logger.warn.mock.calls.filter(([message]) => message === '[spec-harvester] grade write unavailable')).toHaveLength(3);
+    expect(await fileExists(join(dir, HARVEST_MARKER_FILE))).toBe(false);
   });
 
   // ─── Task 3.1: taskId + provenance threading (harvest → store) ─────────────
@@ -160,7 +309,7 @@ describe('SpecHarvesterService', () => {
       expect.objectContaining({
         slug: 'frontend-developer',
         taskId: 'TASK_2026_311',
-        isError: true,
+        succeeded: false,
         verdictSource: 'spec:TASK_2026_311',
       }),
     );
@@ -234,7 +383,7 @@ describe('SpecHarvesterService', () => {
 // ─── Real-store harvest reconciliation provenance (Task 3.1) ─────────────────
 //
 // The mock-store tests above prove the harvester THREADS taskId + provenance.
-// These tests wire a REAL SkillCandidateStore against a temp better-sqlite3 DB
+// These tests wire a REAL SkillInvocationEventStore against a temp better-sqlite3 DB
 // so we can observe what the store actually STAMPS end-to-end: `spec:` on an
 // exact (slug, task_id) hit vs `spec-window:` on the legacy NULL-task_id
 // window fallback, plus `.harvested.json` + `reconciled_at` idempotency.
@@ -303,19 +452,9 @@ function createEventsDb(): BetterSqliteDb {
   return db;
 }
 
-function makeRealStore(db: BetterSqliteDb): SkillCandidateStore {
+function makeRealStore(db: BetterSqliteDb): SkillInvocationEventStore {
   const connection = { db, vecExtensionLoaded: false, isOpen: true };
-  const vecStatus = {
-    available: false,
-    getStatus: () => ({ available: false }),
-    on: () => ({ dispose: () => undefined }),
-    refresh: () => undefined,
-  };
-  return new SkillCandidateStore(
-    makeLogger() as never,
-    connection as never,
-    vecStatus as never,
-  );
+  return new SkillInvocationEventStore(makeLogger() as never, connection as never);
 }
 
 /** Write a COMPLETE/backend + FAILED/frontend spec folder (unharvested). */
@@ -351,7 +490,7 @@ function rowByTask(
 }
 
 function recordSubagentRun(
-  store: SkillCandidateStore,
+  store: SkillInvocationEventStore,
   slug: string,
   invokedAt: number,
   taskId: string | null,
@@ -372,7 +511,7 @@ describe('SpecHarvesterService — real-store reconciliation provenance', () => 
   let root: string;
   let specsRoot: string;
   let db: BetterSqliteDb;
-  let store: SkillCandidateStore;
+  let store: SkillInvocationEventStore;
   let svc: SpecHarvesterService;
 
   beforeEach(async () => {

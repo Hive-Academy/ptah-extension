@@ -42,6 +42,7 @@ import {
 } from './session-verdict.types';
 
 const SQL_0034 = MIGRATIONS.find((m) => m.version === 34)?.sql ?? '';
+const SQL_0054 = MIGRATIONS.find((m) => m.version === 54)?.sql ?? '';
 
 const FRICTION: FrictionEntry[] = [
   { turnIndex: 4, kind: 'correction', note: 'wrong file targeted' },
@@ -87,6 +88,7 @@ describe('SessionVerdictStore — behaviour (skipped without any SQLite binding)
     db.exec('PRAGMA journal_mode = WAL');
     db.exec('PRAGMA busy_timeout = 5000');
     db.exec(SQL_0034);
+    db.exec(SQL_0054);
     store = new SessionVerdictStore(noopLogger, asConnection(db));
   });
 
@@ -164,6 +166,42 @@ describe('SessionVerdictStore — behaviour (skipped without any SQLite binding)
     expect(store.hasUsableVerdict('s-full')).toBe(true);
     expect(store.hasUsableVerdict('s-thin')).toBe(false);
     expect(store.hasUsableVerdict('s-absent')).toBe(false);
+  });
+
+  maybe('attributes positive evidence only by exact run, session, task and workspace', () => {
+    if (!db) throw new Error('SQLite database unavailable');
+    store.save({
+      sessionId: 'session-a',
+      workspaceRoot: '/workspace-a',
+      evidenceClass: 'tests-green',
+    });
+    db.prepare(`INSERT INTO lane_outcome_records
+      (run_id, executor_kind, lane_id, agent_id, model, task_id, verdict,
+       ended_at, subagent_session_id, workspace_root, created_at, updated_at)
+      VALUES (?, 'subagent', 'lane', 'agent', 'model', ?, 'pass',
+              1, ?, ?, 1, 1)`)
+      .run('run-a', 'task-a', 'session-a', '/workspace-a');
+    const join = {
+      runId: 'run-a',
+      sessionId: 'session-a',
+      taskId: 'task-a',
+      workspaceRoot: '/workspace-a',
+    };
+    expect(store.positiveEvidenceForRun(join)).toBe('tests-green');
+    expect(store.positiveEvidenceForRun({ ...join, runId: 'run-b' })).toBeNull();
+    expect(store.positiveEvidenceForRun({ ...join, sessionId: 'session-b' })).toBeNull();
+    expect(store.positiveEvidenceForRun({ ...join, taskId: 'task-b' })).toBeNull();
+    expect(
+      store.positiveEvidenceForRun({ ...join, workspaceRoot: '/workspace-b' }),
+    ).toBeNull();
+    expect(store.positiveEvidenceForRun({ ...join, workspaceRoot: '' })).toBeNull();
+
+    store.save({
+      sessionId: 'session-a',
+      workspaceRoot: '/workspace-a',
+      evidenceClass: 'unverified',
+    });
+    expect(store.positiveEvidenceForRun(join)).toBeNull();
   });
 
   // ── JSON round trip ───────────────────────────────────────────────────────
