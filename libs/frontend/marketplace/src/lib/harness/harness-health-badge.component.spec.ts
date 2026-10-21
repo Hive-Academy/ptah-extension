@@ -30,7 +30,7 @@ import type {
   HarnessTargetHealth,
   HarnessTargetId,
 } from '@ptah-extension/shared';
-import { summarizeHarnessHealth } from '@ptah-extension/shared';
+import { HARNESS_BLOCKED_RECONCILE_STEPS, summarizeHarnessHealth } from '@ptah-extension/shared';
 import { HarnessHealthBadgeComponent } from './harness-health-badge.component';
 
 function ok<T>(data: T) {
@@ -178,6 +178,22 @@ describe('HarnessHealthBadgeComponent', () => {
       expect(calls[0]?.method).toBe('harness:health');
       expect(calls[0]?.params).toEqual({});
     });
+  });
+
+  it('offers one repair dialog for blocked paths beside Reconcile now', async () => {
+    await render(makeHealth({ targets: [makeTarget('claude', {
+      found: 3,
+      missing: ['.claude/skills/orchestration'],
+      foreign: ['.claude/skills/orchestration'],
+    })] }));
+    await openPanel();
+    expect(testId('harness-reconcile')).not.toBeNull();
+    const repair = testId('harness-badge-repair');
+    expect(repair?.textContent).toContain('Move these aside');
+    expect(testId('harness-blocked-action')?.textContent).toContain(HARNESS_BLOCKED_RECONCILE_STEPS['marketplace-popover']);
+    repair?.click();
+    fixture.detectChanges();
+    expect(host.querySelector('ptah-harness-repair-dialog')).not.toBeNull();
   });
 
   describe('overall state', () => {

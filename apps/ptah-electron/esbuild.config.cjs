@@ -46,6 +46,7 @@ const ELECTRON_NAMED_EXPORTS = [
   'globalShortcut',
   'net',
   'crashReporter',
+  'protocol',
 ];
 
 const isProd = process.env.NODE_ENV === 'production';

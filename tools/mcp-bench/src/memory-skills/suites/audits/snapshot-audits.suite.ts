@@ -1,7 +1,7 @@
 /**
  * `mem.liveness.audit` and `skill.backlog.audit` (benchmark-design.md
  * :202-203, :283-288; R-M1a carve-out). LOCAL host suites over a release DB
- * snapshot: never a CI suite, because the snapshot is private user data.
+ * snapshot and its pre-0057 archive: never a CI suite, because the data is private.
  *
  * Safety:
  *   - the snapshot is read only from a COPY inside the bench host's isolated
@@ -9,13 +9,12 @@
  *     copies and hash-checks it before the engine boots, and the suite
  *     resolves the path with `resolveHomeFile`, which refuses anything outside
  *     the home. The original in the bench data folder is never opened;
- *   - the copy is opened `readonly` + `fileMustExist` through
- *     `withReadonlySnapshot` (`data/candidate-row-diff.ts`), which checks the
- *     expected sha256 before reading and fails if the hash changed or a
- *     sidecar appeared while reading;
- *   - only SELECT statements; ground truth is the rows themselves
- *     (`observation_queue`, `memories`, `skill_synthesis_queue`,
- *     `skill_candidates`), never the product's own counters
+ *   - the liveness copy is opened `readonly` + `fileMustExist` through
+ *     `withReadonlySnapshot` (`data/candidate-row-diff.ts`), which checks its
+ *     sha256 and rejects changes or new sidecars; backlog reads JSONL from
+ *     the receipt path and verifies each selected file's digest and row count;
+ *   - liveness reads only SELECT statements; backlog reads verified JSONL
+ *     archive rows. Ground truth is the rows themselves, never product counters
  *     (`memory_retention_state`, `skill_backlog_cleanup_state`, the Thoth
  *     tile).
  *
@@ -44,6 +43,7 @@ import { z } from 'zod';
 import {
   FROZEN_SNAPSHOT_FILE,
   FROZEN_SNAPSHOT_SHA256,
+  readArchiveTable,
   withReadonlySnapshot,
   type ReadonlySqlite,
 } from '../../data/candidate-row-diff';
@@ -103,6 +103,7 @@ const snapshotRefSchema = z.strictObject({
   file: nonEmpty,
   sha256: sha256HexSchema,
 });
+const archiveRefSchema = z.strictObject({ file: nonEmpty });
 
 export const snapshotAuditOptionsSchema = z.strictObject({
   snapshot: snapshotRefSchema.default({
@@ -111,7 +112,9 @@ export const snapshotAuditOptionsSchema = z.strictObject({
   }),
   /** The previous release's snapshot copy: audited the same way, as a baseline. */
   previousSnapshot: snapshotRefSchema.extend({ label: nonEmpty }).optional(),
-  /** Overrides the "as of" instant; default the newest timestamp in the snapshot. */
+  archive: archiveRefSchema.default({ file: 'snapshots/pre-0057/receipt.json' }),
+  previousArchive: archiveRefSchema.extend({ label: nonEmpty }).optional(),
+  /** Overrides the "as of" instant; default the newest timestamp in the data. */
   asOf: z.string().datetime().optional(),
   /** Complete weeks the net backlog slope averages over. */
   slopeWeeks: z.number().int().min(1).max(52).default(4),
@@ -134,12 +137,11 @@ const memoriesSchema = z.strictObject({
   n: z.number().int().nonnegative(),
   with_session: z.number().int().nonnegative(),
 });
-const enqueuedSchema = z.array(z.strictObject({ e: z.number() }));
-const candidatesSchema = z.strictObject({
-  n: z.number().int().nonnegative(),
-  judged: z.number().int().nonnegative(),
-  cleanup: z.number().int().nonnegative(),
-  cleanup_no_judge: z.number().int().nonnegative(),
+const queueArchiveSchema = z.object({
+  stage: z.string(), status: z.string(), enqueued_at: z.number(), finished_at: z.number().nullable(),
+});
+const candidateArchiveSchema = z.object({
+  status: z.string(), judge_status: z.string().nullable(), rejected_reason: z.string().nullable(), created_at: z.number(),
 });
 
 /** Nearest-rank percentile; `null` for no values. */
@@ -268,41 +270,26 @@ export interface BacklogReading {
   readonly cleanupRejectedNoJudge: number;
 }
 
-const BACKLOG_NEWEST_SQL = `
-  SELECT MAX(t) AS t FROM (
-    SELECT MAX(enqueued_at) AS t FROM skill_synthesis_queue
-    UNION ALL SELECT MAX(finished_at) AS t FROM skill_synthesis_queue
-    UNION ALL SELECT MAX(created_at) AS t FROM skill_candidates
-  )`;
-
-const FINISHED_IN = FINISHED_STATUSES.map((status) => `'${status}'`).join(', ');
-
 export function readBacklog(
-  db: ReadonlySqlite,
+  archive: { queue: readonly Record<string, unknown>[]; candidates: readonly Record<string, unknown>[] },
   options: { readonly asOf?: string; readonly slopeWeeks: number },
 ): BacklogReading {
-  const at = asOfMs(db, options.asOf, BACKLOG_NEWEST_SQL);
-  const queuedStatement = db.prepare(
-    "SELECT enqueued_at AS e FROM skill_synthesis_queue WHERE stage = ? AND status = 'queued'",
-  );
-  const enqueuedStatement = db.prepare(
-    'SELECT COUNT(*) AS n FROM skill_synthesis_queue WHERE stage = ? AND enqueued_at > ? AND enqueued_at <= ?',
-  );
-  const finishedStatement = db.prepare(
-    `SELECT COUNT(*) AS n FROM skill_synthesis_queue
-      WHERE stage = ? AND status IN (${FINISHED_IN})
-        AND finished_at > ? AND finished_at <= ?`,
-  );
+  const queue = archive.queue.map((row) => queueArchiveSchema.parse(row));
+  const candidates = archive.candidates.map((row) => candidateArchiveSchema.parse(row));
+  const newestQueue = queue.reduce((latest, row) =>
+    Math.max(latest, row.enqueued_at, row.finished_at ?? -Infinity), -Infinity);
+  const newest = candidates.reduce((latest, row) => Math.max(latest, row.created_at), newestQueue);
+  const at = options.asOf === undefined ? newest : Date.parse(options.asOf);
+  if (!Number.isFinite(at)) throw new Error('the archive holds no timestamp to audit as of');
   const stages = BACKLOG_STAGES.map((stage): StageReading => {
-    const ages = enqueuedSchema
-      .parse(queuedStatement.all(stage))
-      .map((row) => (at - row.e) / DAY_MS);
+    const ages = queue.filter((row) => row.stage === stage && row.status === 'queued')
+      .map((row) => (at - row.enqueued_at) / DAY_MS);
     const weeks = Array.from({ length: options.slopeWeeks }, (_, index) => {
       const end = at - (options.slopeWeeks - 1 - index) * WEEK_MS;
       const start = end - WEEK_MS;
       return {
-        enqueued: countSchema.parse(enqueuedStatement.get(stage, start, end)).n,
-        finished: countSchema.parse(finishedStatement.get(stage, start, end)).n,
+        enqueued: queue.filter((row) => row.stage === stage && row.enqueued_at > start && row.enqueued_at <= end).length,
+        finished: queue.filter((row) => row.stage === stage && FINISHED_STATUSES.some((status) => status === row.status) && row.finished_at !== null && row.finished_at > start && row.finished_at <= end).length,
       };
     });
     return {
@@ -316,24 +303,14 @@ export function readBacklog(
         weeks.length,
     };
   });
-  const candidates = candidatesSchema.parse(
-    db
-      .prepare(
-        `SELECT COUNT(*) AS n,
-                COALESCE(SUM(judge_status IS NOT NULL), 0) AS judged,
-                COALESCE(SUM(status = 'rejected' AND rejected_reason LIKE ?), 0) AS cleanup,
-                COALESCE(SUM(status = 'rejected' AND rejected_reason LIKE ? AND judge_status IS NULL), 0) AS cleanup_no_judge
-           FROM skill_candidates`,
-      )
-      .get(`${CLEANUP_REASON_PREFIX}%`, `${CLEANUP_REASON_PREFIX}%`),
-  );
+  const cleanup = candidates.filter((row) => row.status === 'rejected' && row.rejected_reason?.startsWith(CLEANUP_REASON_PREFIX));
   return {
     asOfMs: at,
     stages,
-    candidates: candidates.n,
-    judged: candidates.judged,
-    cleanupRejected: candidates.cleanup,
-    cleanupRejectedNoJudge: candidates.cleanup_no_judge,
+    candidates: candidates.length,
+    judged: candidates.filter((row) => row.judge_status !== null).length,
+    cleanupRejected: cleanup.length,
+    cleanupRejectedNoJudge: cleanup.filter((row) => row.judge_status === null).length,
   };
 }
 
@@ -458,6 +435,21 @@ async function auditSnapshot<T>(
   const started = performance.now();
   const { result, sha256 } = await withReadonlySnapshot(path, read, ref.sha256);
   return { reading: result, sha256, latencyMs: performance.now() - started };
+}
+
+async function auditBacklogArchive(
+  home: string,
+  ref: { readonly file: string },
+  options: { readonly asOf?: string; readonly slopeWeeks: number },
+): Promise<SnapshotRead<BacklogReading>> {
+  const receiptPath = resolveHomeFile(home, ref.file);
+  const started = performance.now();
+  const [queue, candidates] = await Promise.all([
+    readArchiveTable(receiptPath, 'skill_synthesis_queue'),
+    readArchiveTable(receiptPath, 'skill_candidates'),
+  ]);
+  const reading = readBacklog({ queue: queue.rows, candidates: candidates.rows }, options);
+  return { reading, sha256: candidates.sha256, latencyMs: performance.now() - started };
 }
 
 function withPrevious(
@@ -624,15 +616,13 @@ export async function runLivenessAudit(
 
 export async function runBacklogAudit(input: AuditInput): Promise<AuditOutput> {
   const { options } = input;
-  const current = await auditSnapshot(input.home, options.snapshot, (db) =>
-    readBacklog(db, { asOf: options.asOf, slopeWeeks: options.slopeWeeks }),
-  );
+  const current = await auditBacklogArchive(input.home, options.archive,
+    { asOf: options.asOf, slopeWeeks: options.slopeWeeks });
   const previous =
-    options.previousSnapshot === undefined
+    options.previousArchive === undefined
       ? null
-      : await auditSnapshot(input.home, options.previousSnapshot, (db) =>
-          readBacklog(db, { slopeWeeks: options.slopeWeeks }),
-        );
+      : await auditBacklogArchive(input.home, options.previousArchive,
+          { slopeWeeks: options.slopeWeeks });
   const { reading } = current;
   const subject = {
     sha256: current.sha256,
@@ -737,10 +727,10 @@ export async function runBacklogAudit(input: AuditInput): Promise<AuditOutput> {
       },
       ...withPrevious(
         RECORDED_BACKLOG_BASELINES,
-        previous === null || options.previousSnapshot === undefined
+        previous === null || options.previousArchive === undefined
           ? null
           : {
-              label: `previous release snapshot ${options.previousSnapshot.label}`,
+              label: `previous release archive ${options.previousArchive.label}`,
               metrics: backlogMetrics(previous.reading),
             },
         productMetrics,

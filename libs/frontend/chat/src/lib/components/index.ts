@@ -86,7 +86,6 @@ export {
  */
 export {
   DenyMessagePopoverComponent,
-  PermissionBadgeComponent,
   PermissionRequestCardComponent,
 } from '@ptah-extension/chat-ui';
 export * from './molecules/chat-input/chat-input.component';

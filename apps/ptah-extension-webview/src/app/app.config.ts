@@ -66,6 +66,7 @@ import { appRoutes } from './app.routes';
 import { SurfaceUpdateInbox } from '@ptah-extension/chat-routing';
 import {
   ChatMessageHandler,
+  ArtifactMessageHandler,
   ChatAttentionSourceService,
   ChatAttentionActionDispatcherService,
   ChatAttentionHostMessageHandler,
@@ -117,7 +118,6 @@ import {
 import { OrchestraCanvasComponent } from '@ptah-extension/canvas';
 import { CanvasAttentionLaneOpener } from '@ptah-extension/canvas/focus';
 import { GatewayStateService } from '@ptah-extension/messaging-gateway-ui/services';
-import { SkillSynthesisLiveService } from '@ptah-extension/skill-synthesis-ui/services';
 // NOTE: intentionally the WIDE barrel. A narrow `@ptah-extension/dashboard/services`
 // barrel was built and measured for this import and moved 0 bytes
 // (dashboard: 35.7 kB -> 35.8 kB), because `DashboardGridComponent` stays eager
@@ -255,6 +255,7 @@ export const appConfig: ApplicationConfig = {
     },
     { provide: MESSAGE_HANDLERS, useExisting: AppStateManager, multi: true },
     { provide: MESSAGE_HANDLERS, useExisting: ChatMessageHandler, multi: true },
+    { provide: MESSAGE_HANDLERS, useExisting: ArtifactMessageHandler, multi: true },
     { provide: MESSAGE_HANDLERS, useExisting: ChatAttentionHostMessageHandler, multi: true },
     // Late adoption of agent-started child tabs (TASK_2026_584). The
     // `agentSession:opened` push above only reaches a webview that is running
@@ -357,11 +358,6 @@ export const appConfig: ApplicationConfig = {
     {
       provide: MESSAGE_HANDLERS,
       useExisting: GatewayStateService,
-      multi: true,
-    },
-    {
-      provide: MESSAGE_HANDLERS,
-      useExisting: SkillSynthesisLiveService,
       multi: true,
     },
     {

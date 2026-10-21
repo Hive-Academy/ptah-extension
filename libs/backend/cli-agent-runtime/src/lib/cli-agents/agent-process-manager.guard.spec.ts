@@ -167,6 +167,7 @@ async function startLane(
     task: 'build the thing',
     cli: 'codex',
     workingDirectory: ROOT,
+    expectsMcp: false,
   });
   return { lane, agentId: result.agentId };
 }

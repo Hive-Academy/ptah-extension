@@ -47,7 +47,7 @@ A judge reads every implementation plus its cross-review and ranks them against 
 - "Have each vendor implement this and pick the best"
 - "Cross-vendor build of X"
 
-**From the Tribunal panel**: choose **Convene a Tribunal** on the dashboard, pick **Forge**, add a lane per vendor (and a model for each), then launch and describe the coding task in the conductor chat. The panel is built from whatever discovery finds installed and configured on your machine — there is no fixed vendor list.
+**From the Tribunal panel**: open the **Tribunal** tab in the top navigation, choose **Convene a Tribunal**, pick **Forge**, add a lane per vendor (and a model for each), then launch and describe the coding task in the conductor chat. The panel is built from whatever discovery finds installed and configured on your machine — there is no fixed vendor list.
 
 **Explicit harness**: select **Tribunal Conductor** from the harness picker, then describe the coding task.
 

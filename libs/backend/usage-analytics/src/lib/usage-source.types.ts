@@ -12,6 +12,9 @@ export interface UsageContribution {
   readonly reportedCostUsd?: number;
   readonly requestCount?: number;
   readonly sourceId: string;
+  readonly sessionId?: string;
+  readonly sessionTitle?: string;
+  readonly subagentId?: string;
   readonly modelProviderId?: string;
   readonly workspaceRoot?: string;
 }

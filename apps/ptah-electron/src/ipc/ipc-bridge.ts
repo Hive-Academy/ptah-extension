@@ -200,21 +200,10 @@ export class IpcBridge {
    *
    * ### Why boot-time pushes are DROPPED and not queued (B2, TASK_2026_315)
    *
-   * Traced at a clean boot, exactly two messages reach this method before the
-   * `BrowserWindow` exists — `main.ts` runs `wireRuntime` at `:127` and only
-   * creates the window inside `registerPostWindow` at `:145`:
-   *
-   *  1. `skillSynthesis:event` (the `boot-scan` stats event) — from
-   *     `SkillTriggerService.runBootScan` via `SkillSynthesisService.pushEvent`.
-   *  2. `harness:healthChanged` — from `HarnessHealthRpcService.pushIfChanged`,
-   *     on the `reason: activation` reconcile pass.
-   *
-   * Both are EDGE-TRIGGERED notifications sitting on top of PULL-backed state,
-   * and both consumers cold-pull when no push has reached them:
+   * The activation `harness:healthChanged` notification can reach this method
+   * before `BrowserWindow` exists. It sits on top of pull-backed state:
    * `HarnessCardComponent.ngOnInit` calls `HarnessHealthStore.refresh()`
-   * whenever `health()` is still null, and `SkillSynthesisLiveService` feeds an
-   * activity feed whose entire meaning is "while you were watching" — there was
-   * nobody watching. Nothing downstream loses state it depended on.
+   * whenever `health()` is still null.
    *
    * Queueing was the cheap option — `enqueueStreamEvent` above already buffers
    * one class of message — and it is the wrong one, for two reasons:
@@ -225,13 +214,12 @@ export class IpcBridge {
    *    state with staler state — strictly worse than the drop.
    *  - `IpcBridge` outlives a renderer reload (`SETUP_WIZARD_COMPLETE` below
    *    reloads the window deliberately), so a replay buffer would re-deliver
-   *    boot events to a renderer that has already moved past them.
+   *    activation events to a renderer that has already moved past them.
    *
    * So the drop stays, and only its reporting changes. Before the first window
    * a push has no subscriber and that is normal: debug, not warn. After a
    * window has existed, losing one is not normal and still warns. Either way
-   * the message TYPE is named — the bare warning this replaces carried no type,
-   * which is why identifying those two events needed a stack trace at all.
+   * the message TYPE is named so an undeliverable push can be diagnosed.
    */
   private resolveWindow(
     messageType: string | undefined,

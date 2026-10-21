@@ -1,5 +1,6 @@
 import 'reflect-metadata';
-import { mkdtemp, mkdir, writeFile, readFile, rm, stat } from 'fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdtemp, mkdir, readdir, writeFile, readFile, rm, stat, symlink } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -88,6 +89,110 @@ describe('UserLayerMirrorService.mirrorAll', () => {
     return join(pluginRoot, pluginId);
   }
 
+  async function seedRetiredClone(
+    slug: string,
+    options: { sidecar?: boolean; modified?: boolean } = {},
+  ): Promise<string> {
+    const cloneDir = join(service.getUserLayerRoots().skills, slug);
+    await mkdir(cloneDir, { recursive: true });
+    await writeFile(join(cloneDir, 'SKILL.md'), '# mirrored', 'utf8');
+    const sourceHash = await computeSourceHash(cloneDir);
+    if (options.sidecar !== false) {
+      const sidecar: OriginSidecar = {
+        kind: 'skill',
+        slug,
+        pluginId: 'retired-plugin',
+        version: null,
+        sourceHash,
+        clonedAt: Date.now(),
+        diverged: false,
+        lastEnhancedAt: null,
+        historyDir: DEFAULT_HISTORY_DIR,
+      };
+      await writeFile(join(cloneDir, ORIGIN_SIDECAR_FILENAME), JSON.stringify(sidecar), 'utf8');
+    }
+    if (options.modified) {
+      await writeFile(join(cloneDir, 'SKILL.md'), '# user edit', 'utf8');
+    }
+    return cloneDir;
+  }
+
+  describe('retired managed skills', () => {
+    const firstSlug = 'execute-phase-gated-task';
+    const secondSlug = 'extract-and-relocate-angular-component-feature';
+
+    it('removes an unchanged managed clone and keeps a root-level history snapshot', async () => {
+      const cloneDir = await seedRetiredClone(firstSlug);
+      const result = await service.retireManagedSkills();
+      expect(result.removed).toEqual([firstSlug]);
+      expect(await fileExists(cloneDir)).toBe(false);
+      const historyRoot = join(service.getUserLayerRoots().skills, DEFAULT_HISTORY_DIR, firstSlug);
+      expect(await readdir(historyRoot)).toHaveLength(1);
+    });
+
+    it('preserves and reports a user-modified clone', async () => {
+      const cloneDir = await seedRetiredClone(secondSlug, { modified: true });
+      const result = await service.reconcileAll({
+        pluginPaths: [],
+        pluginsBasePath: pluginRoot,
+        synthesizedSkillsRoot: synthRoot,
+      });
+      expect(result.retiredSkills.preserved).toEqual([{ slug: secondSlug, reason: 'modified' }]);
+      expect(result.orphanedClones).toEqual([]);
+      expect((await readSidecarJson(cloneDir)).orphaned).toBeUndefined();
+      expect(await readFile(join(cloneDir, 'SKILL.md'), 'utf8')).toBe('# user edit');
+      expect(logger.info).toHaveBeenCalledWith('[UserLayerMirror] retired skill preserved', {
+        slug: secondSlug,
+        reason: 'modified',
+      });
+    });
+
+    it('preserves and reports a clone without an origin sidecar', async () => {
+      const cloneDir = await seedRetiredClone(firstSlug, { sidecar: false });
+      const result = await service.retireManagedSkills();
+      expect(result.preserved).toEqual([{ slug: firstSlug, reason: 'missing-sidecar' }]);
+      expect(await fileExists(cloneDir)).toBe(true);
+    });
+
+    it('does nothing on a second pass after removal', async () => {
+      await seedRetiredClone(firstSlug);
+      await service.retireManagedSkills();
+      expect(await service.retireManagedSkills()).toEqual({ removed: [], preserved: [], errors: 0 });
+    });
+
+    it('does not follow a symlinked slug directory', async () => {
+      const outside = join(workRoot, 'outside-skill');
+      await mkdir(outside);
+      await writeFile(join(outside, 'SKILL.md'), '# outside', 'utf8');
+      await mkdir(service.getUserLayerRoots().skills, { recursive: true });
+      await symlink(outside, join(service.getUserLayerRoots().skills, firstSlug), 'junction');
+      const result = await service.retireManagedSkills();
+      expect(result.preserved).toEqual([{ slug: firstSlug, reason: 'unsafe-path' }]);
+      expect(await readFile(join(outside, 'SKILL.md'), 'utf8')).toBe('# outside');
+    });
+
+    it('leaves unrelated skills untouched', async () => {
+      const unrelated = await seedRetiredClone('unrelated-skill');
+      const result = await service.retireManagedSkills();
+      expect(result.removed).toEqual([]);
+      expect(result.preserved).toEqual([]);
+      expect(await fileExists(unrelated)).toBe(true);
+    });
+
+    it('retires before startup reconciliation and does not re-seed a retired source', async () => {
+      const cloneDir = await seedRetiredClone(firstSlug);
+      const pluginPath = await seedPluginSkill('retired-plugin', firstSlug, '# source');
+      const sources = { pluginPaths: [pluginPath], synthesizedSkillsRoot: synthRoot };
+      const reconciled = await service.reconcileAll(sources);
+      expect(reconciled.retiredSkills.removed).toEqual([firstSlug]);
+      expect(reconciled.orphanedClones).toEqual([]);
+      expect(await fileExists(cloneDir)).toBe(false);
+      const mirrored = await service.mirrorAll(sources);
+      expect(mirrored.retiredSkills.removed).toEqual([]);
+      expect(await fileExists(cloneDir)).toBe(false);
+    });
+  });
+
   it('mirrors plugin skills into ~/.ptah/user/skills with a sidecar', async () => {
     const pluginPath = await seedPluginSkill(
       'plugin-a',
@@ -157,6 +262,48 @@ describe('UserLayerMirrorService.mirrorAll', () => {
     });
     expect(second.skillsMirrored).toBe(0);
     expect(second.skipped).toBe(1);
+  });
+
+  it('does not grow history during repeated seeds and upstream-only fast-forwards', async () => {
+    const pluginPath = await seedPluginSkill(
+      'plugin-a',
+      'deep-research',
+      '# skill v1',
+    );
+    const commandSource = join(pluginPath, 'commands', 'review.md');
+    await mkdir(join(pluginPath, 'commands'), { recursive: true });
+    await writeFile(commandSource, '# command v1', 'utf8');
+    const sources = {
+      pluginPaths: [pluginPath],
+      synthesizedSkillsRoot: synthRoot,
+    };
+
+    await service.mirrorAll(sources);
+    await service.mirrorAll(sources);
+    expect(await service.listHistory('skill', 'deep-research')).toEqual([]);
+    expect(await service.listHistory('command', 'review')).toEqual([]);
+
+    for (const version of [2, 3]) {
+      await writeFile(
+        join(pluginPath, 'skills', 'deep-research', 'SKILL.md'),
+        `# skill v${version}`,
+        'utf8',
+      );
+      await writeFile(commandSource, `# command v${version}`, 'utf8');
+      const result = await service.reconcile(sources);
+      expect(result.fastForwarded).toBe(2);
+      await service.mirrorAll(sources);
+      expect(await service.listHistory('skill', 'deep-research')).toEqual([]);
+      expect(await service.listHistory('command', 'review')).toEqual([]);
+    }
+
+    const roots = service.getUserLayerRoots();
+    expect(
+      await readFile(join(roots.skills, 'deep-research', 'SKILL.md'), 'utf8'),
+    ).toBe('# skill v3');
+    expect(await readFile(join(roots.commands, 'review.md'), 'utf8')).toBe(
+      '# command v3',
+    );
   });
 
   it('does not clobber a user-edited clone on re-run', async () => {
@@ -705,7 +852,7 @@ describe('UserLayerMirrorService.rebaseClone / keepClone', () => {
    * saved with whatever upstream now holds.
    */
   describe('saveCloneBody', () => {
-    it('writes the body, snapshots first, and touches ONLY currentContentHash (skill)', async () => {
+    it('keeps the existing body and history save behavior when the hash is absent (skill)', async () => {
       await seedAndMirrorSkill('plugin-a', 'deep-research', '# v1 upstream');
       const roots = service.getUserLayerRoots();
       const cloneDir = join(roots.skills, 'deep-research');
@@ -737,6 +884,7 @@ describe('UserLayerMirrorService.rebaseClone / keepClone', () => {
       expect(result.reason).toBeNull();
       expect(result.historyTs).not.toBeNull();
       expect(result.metadataIncomplete).toBe(false);
+      expect(result.currentContentHash).toBe(await computeSourceHash(cloneDir));
       // The clone HAS a sidecar, so the next reconcile sees
       // `liveCloneHash !== sourceHash` and marks it diverged instead of
       // fast-forwarding. This write is protected.
@@ -791,6 +939,7 @@ describe('UserLayerMirrorService.rebaseClone / keepClone', () => {
 
       expect(result.written).toBe(true);
       expect(result.metadataIncomplete).toBe(false);
+      expect(result.currentContentHash).toBe(await computeSourceHash(cloneFile));
       expect(result.reconcileProtected).toBe(true);
       expect(await readFile(cloneFile, 'utf8')).toBe('# the user typed this');
 
@@ -811,6 +960,69 @@ describe('UserLayerMirrorService.rebaseClone / keepClone', () => {
       expect(after.currentContentHash).toBe(await computeSourceHash(cloneFile));
     });
 
+    it('refuses a stale skill body without writing a file or history snapshot', async () => {
+      const original = '# v1 upstream';
+      await seedAndMirrorSkill('plugin-a', 'deep-research', original);
+      const cloneSkill = join(service.getUserLayerRoots().skills, 'deep-research', 'SKILL.md');
+      const expectedSourceHash = `sha256:${createHash('sha256').update(original).digest('hex')}`;
+      await writeFile(cloneSkill, '# changed after draft', 'utf8');
+      const historyBefore = await service.listHistory('skill', 'deep-research');
+
+      const result = await service.saveCloneBody({
+        kind: 'skill',
+        slug: 'deep-research',
+        body: '# draft replacement',
+        expectedSourceHash,
+      });
+
+      expect(result).toMatchObject({ written: false, reason: 'stale-source', historyTs: null, currentContentHash: null });
+      expect(await readFile(cloneSkill, 'utf8')).toBe('# changed after draft');
+      expect(await service.listHistory('skill', 'deep-research')).toEqual(historyBefore);
+    });
+
+    it('saves a skill and snapshots its prior body when the hash matches', async () => {
+      const original = '# v1 upstream';
+      await seedAndMirrorSkill('plugin-a', 'deep-research', original);
+      const cloneSkill = join(service.getUserLayerRoots().skills, 'deep-research', 'SKILL.md');
+      const expectedSourceHash = `sha256:${createHash('sha256').update(original).digest('hex')}`;
+      const historyBefore = await service.listHistory('skill', 'deep-research');
+
+      const result = await service.saveCloneBody({
+        kind: 'skill',
+        slug: 'deep-research',
+        body: '# draft replacement',
+        expectedSourceHash,
+      });
+
+      expect(result.written).toBe(true);
+      expect(await readFile(cloneSkill, 'utf8')).toBe('# draft replacement');
+      const historyAfter = await service.listHistory('skill', 'deep-research');
+      expect(historyAfter).toHaveLength(historyBefore.length + 1);
+      const snapshot = historyAfter.find((entry) => entry.ts === result.historyTs);
+      expect(snapshot).toBeDefined();
+      expect(await readFile(join(snapshot!.path, 'SKILL.md'), 'utf8')).toBe(original);
+    });
+
+    it('refuses a stale flat-file body without writing a file or history snapshot', async () => {
+      const original = '# review v1';
+      await seedAndMirrorCommand('plugin-a', 'review', original);
+      const cloneFile = join(service.getUserLayerRoots().commands, 'review.md');
+      const expectedSourceHash = `sha256:${createHash('sha256').update(original).digest('hex')}`;
+      await writeFile(cloneFile, '# changed after draft', 'utf8');
+      const historyBefore = await service.listHistory('command', 'review');
+
+      const result = await service.saveCloneBody({
+        kind: 'command',
+        slug: 'review',
+        body: '# draft replacement',
+        expectedSourceHash,
+      });
+
+      expect(result).toMatchObject({ written: false, reason: 'stale-source', historyTs: null, currentContentHash: null });
+      expect(await readFile(cloneFile, 'utf8')).toBe('# changed after draft');
+      expect(await service.listHistory('command', 'review')).toEqual(historyBefore);
+    });
+
     it('returns written:false and creates NOTHING when the clone is absent', async () => {
       const roots = service.getUserLayerRoots();
       const cloneDir = join(roots.skills, 'never-cloned');
@@ -824,6 +1036,7 @@ describe('UserLayerMirrorService.rebaseClone / keepClone', () => {
       expect(result.written).toBe(false);
       expect(result.reason).toBe('clone-missing');
       expect(result.historyTs).toBeNull();
+      expect(result.currentContentHash).toBeNull();
       expect(await fileExists(cloneDir)).toBe(false);
       expect(await fileExists(join(cloneDir, 'SKILL.md'))).toBe(false);
     });
@@ -839,6 +1052,7 @@ describe('UserLayerMirrorService.rebaseClone / keepClone', () => {
 
       expect(result.written).toBe(false);
       expect(result.reason).toBe('clone-missing');
+      expect(result.currentContentHash).toBeNull();
       expect(await fileExists(join(roots.commands, 'never-cloned.md'))).toBe(
         false,
       );
@@ -872,6 +1086,7 @@ describe('UserLayerMirrorService.rebaseClone / keepClone', () => {
       // in user-layer-save-reconcile.spec.ts.
       expect(result.reconcileProtected).toBe(false);
       expect(result.metadataIncomplete).toBe(false);
+      expect(result.currentContentHash).toBe(await computeSourceHash(cloneDir));
     });
 
     it('writes a sidecar-less flat-file clone without minting a sidecar', async () => {
@@ -893,6 +1108,7 @@ describe('UserLayerMirrorService.rebaseClone / keepClone', () => {
       ).toBe(false);
       expect(result.reconcileProtected).toBe(false);
       expect(result.metadataIncomplete).toBe(false);
+      expect(result.currentContentHash).toBe(await computeSourceHash(cloneFile));
     });
 
     /**
@@ -927,6 +1143,7 @@ describe('UserLayerMirrorService.rebaseClone / keepClone', () => {
         expect(result.written).toBe(true);
         expect(result.reason).toBeNull();
         expect(result.metadataIncomplete).toBe(true);
+        expect(result.currentContentHash).toBe(await computeSourceHash(cloneDir));
         // Nothing was learned about the sidecar, so the conservative answer.
         expect(result.reconcileProtected).toBe(false);
 
@@ -958,6 +1175,7 @@ describe('UserLayerMirrorService.rebaseClone / keepClone', () => {
 
         expect(result.written).toBe(true);
         expect(result.metadataIncomplete).toBe(true);
+        expect(result.currentContentHash).toBe(await computeSourceHash(cloneFile));
         expect(result.reconcileProtected).toBe(false);
         expect(result.historyTs).not.toBeNull();
         expect(await readFile(cloneFile, 'utf8')).toBe('# the user typed this');

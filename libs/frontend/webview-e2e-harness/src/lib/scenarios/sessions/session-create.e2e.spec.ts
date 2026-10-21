@@ -37,16 +37,18 @@ test.describe('webview > sessions > create', () => {
     });
     if (await createBtn.count()) {
       await createBtn.first().click();
-      const nameInput = webviewPage.getByRole('textbox', {
-        name: /session name|name/i,
-      });
-      if (await nameInput.count()) {
-        await nameInput.first().fill('Investigate cache bug');
-        await webviewPage
-          .getByRole('button', { name: /create|confirm|save/i })
-          .first()
-          .click();
-      }
+      // The popover renders after the click; wait for its input instead of
+      // a one-shot count(), which skipped the submit and left the popover
+      // backdrop over the rail.
+      const nameInput = webviewPage
+        .getByRole('textbox', { name: /session name/i })
+        .first();
+      await expect(nameInput).toBeVisible();
+      await nameInput.fill('Investigate cache bug');
+      await webviewPage
+        .getByRole('button', { name: 'Create', exact: true })
+        .first()
+        .click();
     }
     await closeOpenPopover(webviewPage);
     await expect(webviewPage.locator('#ptah-e2e-fixture-root')).toHaveCount(0);
@@ -76,12 +78,13 @@ test.describe('webview > sessions > create', () => {
     });
     if (await createBtn.count()) {
       await createBtn.first().click();
-      const submit = webviewPage.getByRole('button', {
-        name: /create|confirm|save/i,
-      });
-      if (await submit.count()) {
-        await submit.first().click();
-      }
+      await expect(
+        webviewPage.getByRole('textbox', { name: /session name/i }).first(),
+      ).toBeVisible();
+      await webviewPage
+        .getByRole('button', { name: 'Create', exact: true })
+        .first()
+        .click();
     }
     await closeOpenPopover(webviewPage);
     await expect(webviewPage.locator('#ptah-e2e-fixture-root')).toHaveCount(0);

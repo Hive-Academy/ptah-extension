@@ -133,6 +133,7 @@ import { container } from 'tsyringe';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger, WebviewManager } from '@ptah-extension/vscode-core';
 import type {
+  IArtifactStore,
   IStateStorage,
   IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
@@ -147,6 +148,7 @@ import {
 
 // Import AFTER jest.mock so the SUT receives the mocked module.
 import { CodeExecutionMCP } from './http-mcp-server.service';
+import type { ArtifactNotification } from '../mcp-core/artifact-tool-handlers';
 import { IDE_CAPABILITIES_TOKEN } from '../ptah-api-builder.service';
 import type { PtahAPIBuilder } from '../ptah-api-builder.service';
 import type { PermissionPromptService } from '../../permission/permission-prompt.service';
@@ -235,6 +237,8 @@ interface Fixture {
 }
 
 interface BuildOptions {
+  artifactStore?: IArtifactStore;
+  notifyArtifactPublished?: ArtifactNotification;
   registerWebview?: WebviewManager | false;
   registerIdeCapabilities?: boolean;
   configOverrides?: Record<string, unknown>;
@@ -277,6 +281,9 @@ function build(opts: BuildOptions = {}): Fixture {
     // No CLI detector: every target but `claude` is gated on one, so these
     // cases observe exactly the `.mcp.json` behaviour they were written for.
     undefined,
+    undefined,
+    opts.artifactStore,
+    opts.notifyArtifactPublished,
   );
 
   return {
@@ -326,6 +333,24 @@ afterEach(() => {
 // ===========================================================================
 
 describe('CodeExecutionMCP — construction / tool registration', () => {
+  it('passes Electron artifact ports to the HTTP dispatcher', async () => {
+    const artifactStore: IArtifactStore = {
+      publish: jest.fn(),
+      list: jest.fn(),
+      readBytes: jest.fn(),
+    };
+    const notifyArtifactPublished: ArtifactNotification = jest.fn(async () => undefined);
+    const { service } = build({ artifactStore, notifyArtifactPublished });
+    await service.start();
+
+    const probe: MCPRequest = { jsonrpc: '2.0', id: 10, method: 'tools/list' };
+    await startHttpServer.mock.calls[0][0].onMCPRequest(probe);
+    expect(handleMCPRequest).toHaveBeenCalledWith(
+      probe,
+      expect.objectContaining({ artifactStore, notifyArtifactPublished }),
+    );
+  });
+
   it('builds the ptah API eagerly via the injected PtahAPIBuilder', () => {
     const { apiBuilder } = build();
     expect(apiBuilder.build).toHaveBeenCalledTimes(1);

@@ -35,7 +35,14 @@ import { isErrnoCode } from './source-hash';
 export const MAX_COPY_RECURSION_DEPTH = 20;
 
 export class UserLayerFsOps {
+  private readonly excludedSubdirectories = new Map<string, ReadonlySet<string>>();
+
   constructor(private readonly logger: Logger) {}
+
+  /** Exclude retired clone slugs from the orphan reaper's root listing. */
+  excludeSubdirectoriesFromListing(root: string, slugs: ReadonlySet<string>): void {
+    this.excludedSubdirectories.set(resolve(root), slugs);
+  }
 
   /** Absolute root of the user layer (`~/.ptah/user`). */
   userLayerBase(): string {
@@ -276,7 +283,10 @@ export class UserLayerFsOps {
 
   async listSubdirectories(dir: string): Promise<string[]> {
     const entries = await readdir(dir, { withFileTypes: true });
-    return entries.filter((e) => e.isDirectory()).map((e) => e.name);
+    const excluded = this.excludedSubdirectories.get(resolve(dir));
+    return entries
+      .filter((entry) => entry.isDirectory() && !excluded?.has(entry.name))
+      .map((entry) => entry.name);
   }
 
   async listMarkdownFiles(dir: string): Promise<string[]> {

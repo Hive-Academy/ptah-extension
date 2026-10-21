@@ -6,7 +6,7 @@ import type { Page } from '@playwright/test';
  * `webview-html-generator.ts` writes into the webview HTML.
  *
  * HOST CONFIG NOTE. `ptahConfig.isElectron` is deliberately LEFT OUT,
- * matching the "HOST CONFIG NOTE" in `../thoth/skills-lane-pickers.e2e.spec.ts`:
+ * matching `../marketplace/marketplace.fixtures.ts`'s VS Code host config:
  * a real VS Code webview host never sets it, and `vscode.service.ts`'s
  * default config has `isElectron: false` (`:82`). With that, `app.html`'s
  * `@if (isElectron()) { <ptah-electron-shell /> } @else { <ptah-app-shell /> }`

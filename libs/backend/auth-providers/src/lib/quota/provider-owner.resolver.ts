@@ -95,6 +95,7 @@ const PROVIDER_DISPLAY_NAMES: Readonly<Record<string, string>> = {
   'opencode-go': 'OpenCode',
   'opencode-zen': 'OpenCode',
   antigravity: 'Antigravity',
+  grok: 'Grok',
 };
 
 const KIND_LABEL_SUFFIX: Readonly<Record<QuotaOwnerIdentityKind, string>> = {

@@ -148,7 +148,7 @@ describe('buildTaskPrompt', () => {
 
     expect(prompt).toBe(
       `${toolPolicy}\n\nImplement the requested change.\n\n` +
-        renderLaneCompletionContract({}),
+        renderLaneCompletionContract({ canUsePtahMcp: false }),
     );
   });
 
@@ -183,7 +183,9 @@ describe('buildTaskPrompt', () => {
 
     it('keeps the fresh spawn snapshot and removes only the restored prefix', () => {
       const fresh = { ...base, resumeRestoresContext: true };
-      expect(buildTaskPrompt(fresh, 'cursor')).toContain(PTAH_LANE_POLICY);
+      const freshPrompt = buildTaskPrompt(fresh, 'cursor');
+      expect(freshPrompt).toContain(PTAH_LANE_POLICY);
+      expect(freshPrompt).toContain('Ptah MCP reporting is unavailable.');
       const resumed = { ...fresh, resumeSessionId: 'session-1' };
       const prompt = buildTaskPrompt(resumed, 'cursor');
       expect(prompt).not.toContain(base.projectGuidance);
@@ -202,7 +204,9 @@ describe('buildTaskPrompt', () => {
       );
       expect(prompt).toContain(toolPolicy);
       expect(prompt).toContain(base.task);
-      expect(prompt).toContain(renderLaneCompletionContract(base));
+      expect(prompt).toContain(
+        renderLaneCompletionContract({ ...base, canUsePtahMcp: false }),
+      );
     });
 
     describe('preambles (TASK_2026_597, F6)', () => {
@@ -443,7 +447,7 @@ describe('buildTaskPrompt', () => {
       `${toolPolicy}\n\nShip it.` +
       '\n\nFocus on these files:\n- src/a.ts' +
       '\n\nWrite deliverable files to: /tf' +
-      `\n\n${renderLaneCompletionContract({ taskFolder: '/tf' })}`;
+      `\n\n${renderLaneCompletionContract({ taskFolder: '/tf', canUsePtahMcp: false })}`;
     const base = {
       task: 'Ship it.',
       workingDirectory: '/ws',
@@ -494,7 +498,7 @@ describe('buildTaskPrompt', () => {
 
       expect(prompt).toContain('- /tf/report.md');
       expect(prompt).toContain('- /tf/notes.md');
-      expect(prompt).toContain('ptah_agent_report');
+      expect(prompt).toContain('Ptah MCP reporting is unavailable');
     });
 
     it('refuses to render a role without knowing the CLI', () => {
@@ -603,7 +607,7 @@ describe('buildTaskPrompt', () => {
 
       // Recorded, not a ceiling to grow into. The child prompt is argv on the
       // task-prompt adapters and the Windows `.cmd` fallback limit is 8,191.
-      expect(added).toBe(994);
+      expect(added).toBe(2057);
     });
   });
 });

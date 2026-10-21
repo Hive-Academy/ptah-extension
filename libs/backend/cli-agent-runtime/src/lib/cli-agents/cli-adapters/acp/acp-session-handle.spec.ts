@@ -2,6 +2,7 @@ import type { CliOutputSegment } from '@ptah-extension/shared';
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import type { MockLogger } from '@ptah-extension/shared/testing';
 import type { Logger } from '@ptah-extension/vscode-core';
+import type { McpAttachment } from '../../mcp-attachment-probe.port';
 import type { CliCommandOptions, SdkHandle } from '../cli-adapter.interface';
 import {
   createFakeAcpAgent,
@@ -174,6 +175,104 @@ afterEach(async () => {
 });
 
 describe('createAcpSessionHandle — first turn', () => {
+  it('waits for the Ptah MCP attachment before the first prompt', async () => {
+    let attach: (value: McpAttachment) => void = () => {
+      throw new Error('attachment waiter was not installed');
+    };
+    const waitFor = jest.fn(
+      () =>
+        new Promise<McpAttachment | undefined>((resolve) => {
+          attach = resolve;
+        }),
+    );
+    const h = start({
+      options: {
+        agentId: 'a-1',
+        mcpPort: 51820,
+        attachmentProbe: { get: () => undefined, waitFor },
+      },
+    });
+
+    await settle();
+    expect(sent(h.agent, 'session/new')).toHaveLength(1);
+    expect(sent(h.agent, 'session/prompt')).toHaveLength(0);
+    expect(waitFor).toHaveBeenCalledWith(
+      'a-1',
+      51820,
+      15_000,
+      expect.any(AbortSignal),
+    );
+
+    attach({
+      agentId: 'a-1',
+      port: 51820,
+      method: 'initialize',
+      time: Date.now(),
+    });
+    await expect(h.handle.done).resolves.toBe(0);
+    expect(sent(h.agent, 'session/prompt')).toHaveLength(1);
+  });
+
+  it('continues the first prompt and warns when attachment times out', async () => {
+    const h = start({
+      options: {
+        agentId: 'a-1',
+        mcpPort: 51820,
+        attachmentProbe: {
+          get: () => undefined,
+          waitFor: async () => undefined,
+        },
+      },
+    });
+
+    await expect(h.handle.done).resolves.toBe(0);
+    expect(sent(h.agent, 'session/prompt')).toHaveLength(1);
+    expect(h.infos()).toContain(
+      'Ptah MCP did not connect within 15s; report in your final message.',
+    );
+    expect(h.logger.warn).toHaveBeenCalledWith(
+      '[AcpSessionHandle] Ptah MCP did not connect before first prompt',
+      expect.objectContaining({ cause: 'handshake-timeout' }),
+    );
+  });
+
+  it('cancels its attachment waiter when stopped before the first prompt', async () => {
+    let waiterSignal: AbortSignal | undefined;
+    const h = start({
+      options: {
+        agentId: 'a-1',
+        mcpPort: 51820,
+        attachmentProbe: {
+          get: () => undefined,
+          waitFor: (_id, _port, _timeout, signal) => {
+            waiterSignal = signal;
+            return new Promise((resolve) =>
+              signal?.addEventListener('abort', () => resolve(undefined), {
+                once: true,
+              }),
+            );
+          },
+        },
+      },
+    });
+    await settle();
+    expect(waiterSignal?.aborted).toBe(false);
+    const onTimeout = jest.fn();
+    h.handle.onMcpAttachmentTimeout?.(onTimeout);
+    h.handle.abort.abort();
+    await expect(h.handle.done).resolves.toBe(1);
+    expect(waiterSignal?.aborted).toBe(true);
+    expect(onTimeout).not.toHaveBeenCalled();
+    expect(sent(h.agent, 'session/prompt')).toHaveLength(0);
+    expect(h.logger.warn).not.toHaveBeenCalledWith(
+      '[AcpSessionHandle] Ptah MCP did not connect before first prompt',
+      expect.anything(),
+    );
+    expect(h.infos()).not.toContain(
+      'Ptah MCP did not connect within 15s; report in your final message.',
+    );
+  });
+
   it('completes an end_turn prompt with 0 and resolves the session id', async () => {
     const h = start({
       script: (agent) =>

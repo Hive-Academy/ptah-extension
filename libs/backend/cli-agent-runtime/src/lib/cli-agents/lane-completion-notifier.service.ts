@@ -589,6 +589,7 @@ export class LaneCompletionNotifier {
       deliverables,
       verdict: LaneCompletionNotifier.verdictOf(info.status, deliverables),
       reportsDelivered: context.reportsDelivered,
+      ...(info.mcpAttachmentWarning ? { mcpAttachmentWarning: info.mcpAttachmentWarning } : {}),
       ...(info.cliSessionId ? { cliSessionId: info.cliSessionId } : {}),
     };
   }

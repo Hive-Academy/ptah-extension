@@ -29,6 +29,14 @@ export interface AttentionItem {
   readonly severity: AttentionSeverity;
   readonly title: string;
   readonly context?: string;
+  /** Safe session title shown as the card's main line. */
+  readonly sessionTitle?: string;
+  /** Provider label, e.g. "Claude". */
+  readonly provider?: string;
+  /** One safe detail line: "Tool: Bash" or a short question preview. */
+  readonly detail?: string;
+  /** Plain text, length-limited tool input and description for permission review. */
+  readonly permissionPreview?: string;
   readonly actions: readonly AttentionAction[];
   readonly actionable: boolean;
   readonly soundEligible: boolean;

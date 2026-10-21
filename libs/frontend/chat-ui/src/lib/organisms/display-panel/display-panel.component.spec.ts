@@ -8,7 +8,7 @@ import {
   type SurfaceViewState,
 } from '@ptah-extension/declarative-dashboard';
 import type { SurfaceContent } from '@ptah-extension/shared/mcp-apps-contracts/surface';
-import type { TurnSourceSnapshot } from '@ptah-extension/shared';
+import type { ArtifactRecord, TurnSourceSnapshot } from '@ptah-extension/shared';
 import {
   buildTurnSummaryModel,
   type TurnSummaryModel,
@@ -128,6 +128,8 @@ describe('DisplayPanelComponent', () => {
     scrollToSelectedOnMount?: boolean;
     pinned?: boolean;
     viewStates?: ReadonlyMap<string, SurfaceViewState>;
+    artifacts?: readonly ArtifactRecord[];
+    open?: boolean;
   }): void {
     for (const [name, value] of Object.entries(inputs)) {
       fixture.componentRef.setInput(name, value);
@@ -338,6 +340,23 @@ describe('DisplayPanelComponent', () => {
   });
 
   describe('surfaces', () => {
+    it('mounts one frame for three artifacts and releases it on collapse', () => {
+      const artifacts: ArtifactRecord[] = [1, 2, 3].map((n) => ({
+        id: `artifact-${n}`, title: `Artifact ${n}`, sessionId: 'session-1', revision: 1,
+        createdAt: '2026-10-20T00:00:00.000Z', viewerUrl: `ptah-artifact://artifact-${n}/index.html`,
+      }));
+      set({ artifacts, selectedKey: 'artifact:artifact-2', open: true });
+      expect(native().querySelectorAll('iframe')).toHaveLength(1);
+      expect(queryAll('display-panel-artifact-viewer')).toHaveLength(1);
+      set({ open: false });
+      expect(native().querySelectorAll('iframe')).toHaveLength(0);
+    });
+
+    it('shows an error for an artifact absent from this tab', () => {
+      set({ selectedKey: 'artifact:missing' });
+      expect(query('display-panel-artifact-missing') ?? native().querySelector('[role="alert"]')).not.toBeNull();
+      expect(native().querySelector('iframe')).toBeNull();
+    });
     it('renders each surface read-only at container width with the store view state', () => {
       const stored: SurfaceViewState = {
         components: { acc: { expanded: true } },

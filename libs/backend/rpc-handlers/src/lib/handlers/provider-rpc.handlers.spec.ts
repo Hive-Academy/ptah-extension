@@ -705,11 +705,14 @@ describe('ProviderRpcHandlers', () => {
         { providerId: 'claude-cli', sessionIds: ['s-1'], ownerKeys: ['k'] },
       );
 
-      expect(h.planLimits.discoverTargets).toHaveBeenCalledWith({
-        selectedProviderId: 'claude-cli',
-        sessionIds: ['s-1'],
-        ownerKeys: ['k'],
-      });
+      expect(h.planLimits.discoverTargets).toHaveBeenCalledWith(
+        {
+          selectedProviderId: 'claude-cli',
+          sessionIds: ['s-1'],
+          ownerKeys: ['k'],
+        },
+        expect.any(Number),
+      );
       // One reader call, for the `read` entry only — never for the known owner.
       expect(h.planLimits.getOwnerSnapshot).toHaveBeenCalledTimes(1);
       expect(h.planLimits.getOwnerSnapshot).toHaveBeenCalledWith(

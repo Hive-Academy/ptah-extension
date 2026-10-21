@@ -24,7 +24,6 @@ export type AdvancedSettingGroupId =
   | 'codex-agents'
   | 'background-queries'
   | 'memory-upkeep'
-  | 'skill-upkeep'
   | 'scheduled-jobs'
   | 'workspace-harness'
   | 'notifications';
@@ -103,12 +102,6 @@ export const ADVANCED_SETTING_GROUPS: readonly AdvancedSettingGroup[] = [
     id: 'memory-upkeep',
     title: 'Memory upkeep',
     description: 'How long memory records are kept and how cleanup runs.',
-  },
-  {
-    id: 'skill-upkeep',
-    title: 'Skill upkeep',
-    description:
-      'When learned skills are retired and how strictly new ones are checked.',
   },
   {
     id: 'scheduled-jobs',
@@ -367,87 +360,6 @@ export const ADVANCED_SETTINGS: readonly AdvancedSetting[] = [
     integer: true,
     default: 25_000,
     apply: 'next-run',
-  },
-  // Skill upkeep.
-  {
-    key: 'skillSynthesis.retirement.dormantAfterDays',
-    group: 'skill-upkeep',
-    kind: 'number',
-    label: 'Mark skills dormant after',
-    help: 'A learned skill that has not been used for this long is marked dormant.',
-    unit: 'days',
-    min: 1,
-    max: 3_650,
-    integer: true,
-    default: 30,
-    apply: 'next-run',
-  },
-  {
-    key: 'skillSynthesis.retirement.retireAfterDormantDays',
-    group: 'skill-upkeep',
-    kind: 'number',
-    label: 'Retire dormant skills after',
-    help: 'A dormant skill is retired once it has stayed dormant this long.',
-    unit: 'days',
-    min: 1,
-    max: 3_650,
-    integer: true,
-    default: 30,
-    apply: 'next-run',
-  },
-  {
-    key: 'skillSynthesis.replayValidation.minConfidence',
-    group: 'skill-upkeep',
-    kind: 'number',
-    label: 'Replay confidence floor',
-    help: 'The lowest replay confidence that counts as evidence for promoting a new skill.',
-    min: 0,
-    max: 1,
-    integer: false,
-    default: 0.5,
-    apply: 'live',
-  },
-  {
-    // Max = the judge's per-criterion score range: each criterion is scored
-    // 1-10 (`toScore` in skill-synthesis skill-judge.service.ts), so no two
-    // scores can differ by more than 9.
-    key: 'skillSynthesis.judgePanel.disagreementThreshold',
-    group: 'skill-upkeep',
-    kind: 'number',
-    label: 'Judge disagreement limit',
-    help: 'When two judges score any criterion further apart than this, a third judge decides.',
-    unit: 'points',
-    min: 0,
-    max: 9,
-    integer: false,
-    default: 3,
-    apply: 'live',
-  },
-  {
-    key: 'skillSynthesis.triggers.bootScanDelayMs',
-    group: 'skill-upkeep',
-    kind: 'number',
-    label: 'Startup skill scan delay',
-    help: 'How long after start-up Ptah waits before it scans past sessions for new skills.',
-    unit: 'ms',
-    min: 0,
-    max: 3_600_000,
-    integer: true,
-    default: 300_000,
-    apply: 'restart',
-  },
-  {
-    key: 'skillSynthesis.triggers.bootScanIdleBackoffMs',
-    group: 'skill-upkeep',
-    kind: 'number',
-    label: 'Startup scan wait while chatting',
-    help: 'If you chatted more recently than this, the startup skill scan waits this long again.',
-    unit: 'ms',
-    min: 0,
-    max: 3_600_000,
-    integer: true,
-    default: 300_000,
-    apply: 'live',
   },
   // Scheduled jobs. Read once when the scheduler starts.
   {

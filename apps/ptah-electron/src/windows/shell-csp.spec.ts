@@ -161,7 +161,7 @@ describe('effective Electron shell CSP', () => {
       'worker-src': ["'self'", 'blob:'],
       'object-src': ["'none'"],
       'base-uri': ["'self'"],
-      'frame-src': ["'none'"],
+      'frame-src': ['ptah-artifact:'],
       'form-action': ["'none'"],
     });
   });

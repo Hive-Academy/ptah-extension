@@ -17,14 +17,14 @@ import { SkillSynthesisStateService } from '../services/skill-synthesis-state.se
  * The Skills master switch (`skillSynthesis.enabled`) at the top of the Thoth
  * Skills tab (TASK_2026_620 B-P, plan 3.7).
  *
- * Applies on change, with no Save button: optimistic, rolled back on failure
- * (see {@link SkillSynthesisStateService.setSkillsEnabled}). The host value is
+ * Applies on change, with no Save button. The switch displays the committed
+ * host value while a write is pending and after its read-back. The host value is
  * re-read when the tab is shown, when the window regains focus and when the
  * page becomes visible again, so a pause made from the tray or by editing the
  * settings file shows up without a reload.
  *
  * `pausedChange` fires only when the committed host value flips, never for the
- * first read and never for the optimistic position; the Thoth shell refreshes
+ * first read; the Thoth shell refreshes
  * its sidebar badge on it.
  */
 @Component({
@@ -124,8 +124,8 @@ export class SkillsPauseSwitchComponent implements OnInit {
   /** `true` when Skills became paused, `false` when it resumed. */
   public readonly pausedChange = output<boolean>();
 
-  protected readonly enabled = this.state.skillsEnabled;
-  protected readonly paused = this.state.skillsPaused;
+  protected readonly enabled = this.state.skillsEnabledCommitted;
+  protected readonly paused = computed(() => this.enabled() === false);
   protected readonly saving = this.state.skillsSwitchSaving;
   protected readonly error = this.state.skillsSwitchError;
 
@@ -175,9 +175,10 @@ export class SkillsPauseSwitchComponent implements OnInit {
   protected onToggle(event: Event): void {
     const input = event.target as HTMLInputElement;
     const wanted = input.checked;
-    // The DOM checkbox flipped itself; put it back to the bound value so a
-    // refused or failed write never leaves it out of step with the state.
+    // The DOM checkbox flips before the host responds. Keep it at the last
+    // committed value until the state service has read the value back.
     input.checked = this.checked();
+    if (this.disabled()) return;
     void this.state.setSkillsEnabled(wanted);
   }
 }

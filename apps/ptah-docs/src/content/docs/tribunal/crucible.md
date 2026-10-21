@@ -78,7 +78,7 @@ Then you see the diff. Nothing is committed without you, and nothing is ever mer
 
 ## Launching from the Tribunal panel
 
-Crucible is launchable from the **Tribunal panel** — the same place as every other move — as well as from chat. From the dashboard, choose **Convene a Tribunal** and the wizard walks four steps:
+Crucible is launchable from the **Tribunal panel** — the same place as every other move — as well as from chat. Open the **Tribunal** tab in the top navigation and choose **Convene a Tribunal**; the wizard walks four steps:
 
 1. **Move** — pick Crucible.
 2. **Roster** — two role slots, `Executor` and `Judge`, each with a vendor and a model. The roster is validated as you fill it, and two rules block launch outright: an unfilled slot, and an executor and judge from the **same vendor family**. A lane grading its own output is not a signal, and on round 2 it would be grading work it effectively authored.

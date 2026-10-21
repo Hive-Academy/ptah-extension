@@ -191,7 +191,6 @@ describe('AdvancedSettingsComponent', () => {
     await block.render(DeferBlockState.Complete);
     expect(groupIds()).toEqual([
       'group-memory-upkeep',
-      'group-skill-upkeep',
       'group-scheduled-jobs',
       'group-workspace-harness',
     ]);

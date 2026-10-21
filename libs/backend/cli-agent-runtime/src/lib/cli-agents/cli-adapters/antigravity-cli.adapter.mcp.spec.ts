@@ -61,6 +61,11 @@ jest.mock('@ptah-extension/platform-core', () => {
 });
 
 import { AntigravityCliAdapter } from './antigravity-cli.adapter';
+import { killProcessTree } from '@ptah-extension/platform-core';
+import type {
+  IMcpAttachmentProbe,
+  McpAttachment,
+} from '../mcp-attachment-probe.port';
 
 interface FakeChild extends EventEmitter {
   stdout: PassThrough;
@@ -254,6 +259,31 @@ describe('AntigravityCliAdapter — MCP config (TASK_2026_285)', () => {
       await handle.done;
     });
 
+    it('keeps the lane URL during startup when no attachment probe can confirm the read', async () => {
+      seedUserConfig({
+        ptah: { serverUrl: 'http://localhost:51820' },
+      });
+
+      const handle = await adapter.runSdk({
+        task: 'do a thing',
+        workingDirectory: ws,
+        mcpPort: 51234,
+      });
+      // Give an early restore every chance to land before the check.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(servers()['ptah']).toEqual({
+        serverUrl: scopedUrl(51234),
+      });
+
+      child.emit('close', 0, null);
+      await handle.done;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(servers()['ptah']).toEqual({
+        serverUrl: 'http://localhost:51820',
+      });
+    });
+
     it("is restored without disturbing the user's other servers", async () => {
       seedUserConfig({
         ptah: { serverUrl: 'http://localhost:51820' },
@@ -278,5 +308,176 @@ describe('AntigravityCliAdapter — MCP config (TASK_2026_285)', () => {
     await handle.done;
 
     expect(() => readFileSync(configPath, 'utf-8')).toThrow();
+  });
+
+  it('serializes two startups and restores the value before both lanes', async () => {
+    seedUserConfig({ ptah: { serverUrl: 'http://localhost:51820' } });
+    const children = [createFakeChild(), createFakeChild()];
+    mockSpawnCli
+      .mockImplementationOnce(() => children[0])
+      .mockImplementationOnce(() => children[1]);
+    const resolveWaits = new Map<string, (entry: McpAttachment) => void>();
+    const probe: IMcpAttachmentProbe = {
+      get: () => undefined,
+      waitFor: (id) =>
+        new Promise((resolve) => {
+          resolveWaits.set(id, resolve);
+        }),
+    };
+    const first = await adapter.runSdk({
+      task: 'one',
+      workingDirectory: ws,
+      mcpPort: 51234,
+      agentId: 'lane-1',
+      attachmentProbe: probe,
+    });
+    expect(servers()['ptah']).toEqual({
+      serverUrl: `http://localhost:51234/agent/lane-1/workspace/${encodeURIComponent(ws)}`,
+    });
+    const secondPromise = adapter.runSdk({
+      task: 'two',
+      workingDirectory: ws,
+      mcpPort: 51234,
+      agentId: 'lane-2',
+      attachmentProbe: probe,
+    });
+    await Promise.resolve();
+    expect(mockSpawnCli).toHaveBeenCalledTimes(1);
+    expect(servers()['ptah']).toEqual({
+      serverUrl: `http://localhost:51234/agent/lane-1/workspace/${encodeURIComponent(ws)}`,
+    });
+    resolveWaits.get('lane-1')?.({
+      agentId: 'lane-1',
+      method: 'initialize',
+      port: 51234,
+      time: Date.now(),
+    });
+    const second = await secondPromise;
+    expect(servers()['ptah']).toEqual({
+      serverUrl: `http://localhost:51234/agent/lane-2/workspace/${encodeURIComponent(ws)}`,
+    });
+    resolveWaits.get('lane-2')?.({
+      agentId: 'lane-2',
+      method: 'initialize',
+      port: 51234,
+      time: Date.now(),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(servers()['ptah']).toEqual({ serverUrl: 'http://localhost:51820' });
+    children[0].emit('close', 0, null);
+    children[1].emit('close', 0, null);
+    await Promise.all([first.done, second.done]);
+  });
+
+  it('releases the startup lock and restores the entry after a stdin write failure', async () => {
+    seedUserConfig({ ptah: { serverUrl: 'http://localhost:51820' } });
+    child.stdin.write.mockImplementationOnce(() => {
+      throw new Error('stdin failed');
+    });
+
+    await expect(
+      adapter.runSdk({
+        task: 'first',
+        workingDirectory: ws,
+        mcpPort: 51234,
+        agentId: 'lane-1',
+      }),
+    ).rejects.toThrow('stdin failed');
+    expect(killProcessTree).toHaveBeenCalledWith(4242);
+    expect(child.kill).not.toHaveBeenCalled();
+    expect(servers()['ptah']).toEqual({ serverUrl: 'http://localhost:51820' });
+
+    const nextChild = createFakeChild();
+    mockSpawnCli.mockImplementationOnce(() => nextChild);
+    const second = await adapter.runSdk({
+      task: 'second',
+      workingDirectory: ws,
+      mcpPort: 51234,
+      agentId: 'lane-2',
+    });
+    expect(servers()['ptah']).toEqual({
+      serverUrl: `http://localhost:51234/agent/lane-2/workspace/${encodeURIComponent(ws)}`,
+    });
+    nextChild.emit('close', 0, null);
+    await second.done;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(servers()['ptah']).toEqual({ serverUrl: 'http://localhost:51820' });
+  });
+
+  it('releases the startup lock and restores the entry when the failed child never reports a pid', async () => {
+    seedUserConfig({ ptah: { serverUrl: 'http://localhost:51820' } });
+    child.whenSpawned = new Promise<number | null>(() => undefined);
+    child.stdin.write.mockImplementationOnce(() => {
+      throw new Error('stdin failed');
+    });
+    const defaultDeadline = AntigravityCliAdapter.startupChildStopDeadlineMs;
+    AntigravityCliAdapter.startupChildStopDeadlineMs = 20;
+    try {
+      await expect(
+        adapter.runSdk({
+          task: 'first',
+          workingDirectory: ws,
+          mcpPort: 51234,
+          agentId: 'lane-1',
+        }),
+      ).rejects.toThrow('stdin failed');
+    } finally {
+      AntigravityCliAdapter.startupChildStopDeadlineMs = defaultDeadline;
+    }
+    expect(killProcessTree).not.toHaveBeenCalled();
+    expect(servers()['ptah']).toEqual({ serverUrl: 'http://localhost:51820' });
+
+    const nextChild = createFakeChild();
+    mockSpawnCli.mockImplementationOnce(() => nextChild);
+    const second = await adapter.runSdk({
+      task: 'second',
+      workingDirectory: ws,
+      mcpPort: 51234,
+      agentId: 'lane-2',
+    });
+    expect(servers()['ptah']).toEqual({
+      serverUrl: `http://localhost:51234/agent/lane-2/workspace/${encodeURIComponent(ws)}`,
+    });
+    nextChild.emit('close', 0, null);
+    await second.done;
+  });
+
+  it('reports a failed config write without firing the attachment timeout callback', async () => {
+    mkdirSync(configPath, { recursive: true });
+    const handle = await adapter.runSdk({
+      task: 'continue without MCP',
+      workingDirectory: ws,
+      mcpPort: 51234,
+      agentId: 'lane-config-failure',
+      attachmentProbe: {
+        get: () => undefined,
+        waitFor: jest.fn().mockResolvedValue(undefined),
+      },
+    });
+    const onTimeout = jest.fn();
+    handle.onMcpAttachmentTimeout?.(onTimeout);
+    expect(handle.mcpConfigWriteFailed).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(onTimeout).not.toHaveBeenCalled();
+    child.emit('close', 0, null);
+    await handle.done;
+  });
+
+  it('does not preserve a stale lane URL as the next lane prior', async () => {
+    seedUserConfig({
+      ptah: {
+        serverUrl: 'http://localhost:51820/agent/old-lane/workspace/root',
+      },
+    });
+    const handle = await adapter.runSdk({
+      task: 'next',
+      workingDirectory: ws,
+      mcpPort: 51234,
+      agentId: 'lane-2',
+    });
+    child.emit('close', 0, null);
+    await handle.done;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(servers()['ptah']).toEqual({ serverUrl: 'http://localhost:51820' });
   });
 });

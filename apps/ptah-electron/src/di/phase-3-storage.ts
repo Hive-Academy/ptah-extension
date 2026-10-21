@@ -27,7 +27,9 @@ import {
   ChromeLauncherBrowserCapabilities,
   IDE_CAPABILITIES_TOKEN,
   McpCallerWorkspaceResolver,
+  ARTIFACT_NOTIFICATION_TOKEN,
 } from '@ptah-extension/vscode-lm-tools';
+import type { ArtifactPublishedNotification } from '@ptah-extension/shared/mcp-apps-contracts';
 import type { ICodeSymbolReader } from '@ptah-extension/memory-contracts';
 import type {
   DependencyGraphService,
@@ -44,7 +46,26 @@ import {
   ElectronPowerMonitor,
 } from '../services/platform';
 import { ElectronIDECapabilities } from '../services/electron-ide-capabilities';
+import { ElectronWebviewManagerAdapter } from '../ipc/webview-manager-adapter';
 import { CRON_TOKENS } from '@ptah-extension/cron-scheduler';
+
+/** Resolve the renderer at send time; phase 3 precedes window registration. */
+export function registerArtifactNotification(container: DependencyContainer): void {
+  container.register(ARTIFACT_NOTIFICATION_TOKEN, {
+    useFactory: (c) => async (
+      type: 'artifact:published',
+      payload: ArtifactPublishedNotification,
+    ): Promise<void> => {
+      if (!c.isRegistered(TOKENS.WEBVIEW_MANAGER)) return;
+      const host = c.resolve<ElectronWebviewManagerAdapter>(TOKENS.WEBVIEW_MANAGER);
+      await Promise.all(
+        host.getActiveWebviews().map((viewType) =>
+          host.sendMessage(viewType, type, payload),
+        ),
+      );
+    },
+  });
+}
 
 /** Global symbol the symbol-index reader is registered under (memory-curator). */
 const CODE_SYMBOL_READER_TOKEN = Symbol.for('PtahCodeSymbolReader');
@@ -132,6 +153,7 @@ export function registerPhase3Storage(
     );
   }
   registerVsCodeLmToolsServices(container, logger);
+  registerArtifactNotification(container);
   // The caller-workspace port (TASK_2026_364): lets AgentProcessManager scope
   // spawns and status reads to the calling MCP request's workspace without
   // importing vscode-lm-tools. Registered only by hosts that run the

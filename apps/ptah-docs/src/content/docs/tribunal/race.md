@@ -52,7 +52,7 @@ Every attempt is scored against the rubric and ranked. The **top-ranked** attemp
 - "Best verified attempt at X"
 - "Have the models compete and commit the one that passes"
 
-**From the Tribunal panel**: choose **Convene a Tribunal** on the dashboard, pick **Race**, add a lane per attempt — the same vendor may be added more than once, on different models — then launch and describe the change in the conductor chat.
+**From the Tribunal panel**: open the **Tribunal** tab in the top navigation, choose **Convene a Tribunal**, pick **Race**, add a lane per attempt — the same vendor may be added more than once, on different models — then launch and describe the change in the conductor chat.
 
 **Explicit harness**: select **Tribunal Conductor** from the harness picker, then describe the change and (optionally) the rubric.
 

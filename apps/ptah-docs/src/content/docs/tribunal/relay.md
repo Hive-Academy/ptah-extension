@@ -34,7 +34,7 @@ Without a pinned roster, planning and architecture use strong reasoning lanes, i
 
 ## Invoking Relay
 
-From the dashboard, choose **Convene a Tribunal**, then **Relay**. The current wizard shows four role slots — Plan, Architect, Implement, Review — with a vendor and model for each. An identical implement/review lane is blocked; a same-family review is flagged. Launch, then describe your task and acceptance criteria in the conductor chat.
+Open the **Tribunal** tab in the top navigation, choose **Convene a Tribunal**, then **Relay**. The current wizard shows four role slots — Plan, Architect, Implement, Review — with a vendor and model for each. An identical implement/review lane is blocked; a same-family review is flagged. Launch, then describe your task and acceptance criteria in the conductor chat.
 
 The live panel shows a four-step phase rail with each phase's status, lane assignment, and a link to its deliverable. If no spec folder could be allocated, the progress readout is marked unavailable.
 

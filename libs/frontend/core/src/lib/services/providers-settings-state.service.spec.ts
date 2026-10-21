@@ -6,8 +6,6 @@ import type {
   ConfigGetScopesResult,
   RpcMethodName,
   ScopedSettingEntry,
-  SkillLaneIdDto,
-  SkillLanesDto,
 } from '@ptah-extension/shared';
 import { ClaudeRpcService, RpcResult } from './claude-rpc.service';
 import {
@@ -65,25 +63,6 @@ function entry(
     ...overrides,
   };
 }
-function lanes(): SkillLanesDto {
-  const lane = (id: SkillLaneIdDto) => ({
-    id,
-    provider: '',
-    model: '',
-    defaultTier: 'haiku' as const,
-    structuredOutput: 'sdk' as const,
-    toolUse: 'none' as const,
-    timeoutMs: 30000,
-    maxInputChars: 1000,
-    maxPasses: 1,
-  });
-  return {
-    archaeologist: lane('archaeologist'),
-    synthesis: lane('synthesis'),
-    judge: lane('judge'),
-    replay: lane('replay'),
-  };
-}
 function probe(probeId: string): AuthVerifyDraftConnectionResult {
   return {
     probeId,
@@ -100,16 +79,6 @@ describe('ProvidersSettingsStateService', () => {
   let service: ProvidersSettingsStateService;
   let workspace: WorkspaceScopeService;
   let scopeResponse: ConfigGetScopesResult;
-  let judgingResponse: {
-    judgeProvider: string;
-    judgeModel: string;
-    enhanceTimeoutMs: {
-      value: number;
-      default: number;
-      min: number;
-      max: number;
-    };
-  };
   let memoryResponse: {
     idleMs: number;
     turnThreshold: number;
@@ -117,6 +86,7 @@ describe('ProvidersSettingsStateService', () => {
     curatorProvider: string;
     curatorModel: string;
   };
+  let enhancementResponse: Record<string, string | number>;
   let handlers: Map<
     RpcMethodName,
     (params: unknown) => Promise<RpcResult<unknown>>
@@ -132,16 +102,6 @@ describe('ProvidersSettingsStateService', () => {
       activePath: '/workspace',
       entries: [entry('authMethod'), entry('anthropicProviderId')],
     };
-    judgingResponse = {
-      judgeProvider: '',
-      judgeModel: 'inherit',
-      enhanceTimeoutMs: {
-        value: 120000,
-        default: 120000,
-        min: 15000,
-        max: 600000,
-      },
-    };
     memoryResponse = {
       idleMs: 1000,
       turnThreshold: 4,
@@ -149,12 +109,28 @@ describe('ProvidersSettingsStateService', () => {
       curatorProvider: '',
       curatorModel: '',
     };
+    enhancementResponse = {
+      'skills.enhancement.provider': '',
+      'skills.enhancement.model': 'inherit',
+      'skills.enhancement.timeoutMs': 120000,
+    };
     handlers = new Map<
       RpcMethodName,
       (params: unknown) => Promise<RpcResult<unknown>>
     >([
       ['auth:getApiKeyStatus', async () => success({ providers: [] })],
-      ['settings:get', async () => success({ success: true, value: [] })],
+      ['settings:get', async (params) => {
+        const key = (params as { key: string }).key;
+        return success({
+          success: true,
+          value: key in enhancementResponse ? enhancementResponse[key] : [],
+        });
+      }],
+      ['settings:set', async (params) => {
+        const { key, value } = params as { key: string; value: string | number };
+        enhancementResponse[key] = value;
+        return success({ success: true });
+      }],
       [
         'llm:getProviderBaseUrl',
         async () => success({ baseUrl: null, defaultBaseUrl: null }),
@@ -176,11 +152,6 @@ describe('ProvidersSettingsStateService', () => {
       ['config:model-get', async () => success({ model: 'pinned-model' })],
       ['config:effort-get', async () => success({ effort: undefined })],
       ['memory:getTriggers', async () => success({ triggers: memoryResponse })],
-      ['skillSynthesis:getLanes', async () => success({ lanes: lanes() })],
-      [
-        'skillSynthesis:getSettings',
-        async () => success({ settings: judgingResponse }),
-      ],
       ['ptahCli:list', async () => success({ agents: [] })],
       [
         'agent:getConfig',
@@ -224,6 +195,60 @@ describe('ProvidersSettingsStateService', () => {
     service = TestBed.inject(ProvidersSettingsStateService);
   });
   afterEach(() => TestBed.resetTestingModule());
+
+  it('loads enhancement file settings into its own section', async () => {
+    enhancementResponse['skills.enhancement.provider'] = 'openrouter';
+    enhancementResponse['skills.enhancement.model'] = 'model-one';
+    enhancementResponse['skills.enhancement.timeoutMs'] = 90000;
+    await service.refreshEnhancement();
+    expect(service.enhancement()).toEqual({
+      status: 'ready',
+      data: { provider: 'openrouter', model: 'model-one', timeoutMs: 90000 },
+      error: null,
+    });
+    expect(call.mock.calls.map(([method, params]) => [method, params])).toEqual([
+      ['settings:get', { key: 'skills.enhancement.provider' }],
+      ['settings:get', { key: 'skills.enhancement.model' }],
+      ['settings:get', { key: 'skills.enhancement.timeoutMs' }],
+    ]);
+  });
+
+  it('saves enhancement fields with readback', async () => {
+    const reviewed = await context();
+    call.mockClear();
+    await service.saveSettings(
+      { enhancement: { provider: 'openrouter', model: ' ', timeoutMs: 90000 } },
+      reviewed,
+    );
+    expect(service.commit()).toMatchObject({
+      status: 'saved',
+      saved: [
+        'skills.enhancement.provider',
+        'skills.enhancement.model',
+        'skills.enhancement.timeoutMs',
+      ],
+    });
+    expect(service.enhancement().data).toEqual({
+      provider: 'openrouter', model: '', timeoutMs: 90000,
+    });
+    for (const [key, value] of [
+      ['skills.enhancement.provider', 'openrouter'],
+      ['skills.enhancement.model', 'inherit'],
+      ['skills.enhancement.timeoutMs', 90000],
+    ] as const) {
+      const writeIndex = call.mock.calls.findIndex(
+        ([method, params]) => method === 'settings:set' &&
+          (params as { key: string }).key === key,
+      );
+      const readIndex = call.mock.calls.findIndex(
+        ([method, params], index) => index > writeIndex &&
+          method === 'settings:get' && (params as { key: string }).key === key,
+      );
+      expect(writeIndex).toBeGreaterThanOrEqual(0);
+      expect(readIndex).toBeGreaterThan(writeIndex);
+      expect(call.mock.calls[writeIndex][1]).toEqual({ key, value });
+    }
+  });
 
   it('rereads effective effort on open and refresh without exposing the cached value during loading', async () => {
     handlers.set('config:effort-get', async () => success({ effort: 'low' }));
@@ -1153,7 +1178,6 @@ describe('ProvidersSettingsStateService', () => {
       data: [],
       error: null,
     });
-    expect(service.judging().data?.judgeModel).toBe('');
     expect(service.model().data?.model).toBe('pinned-model');
   });
 
@@ -1167,7 +1191,6 @@ describe('ProvidersSettingsStateService', () => {
       data: null,
       error: 'Could not load this section. Retry.',
     });
-    expect(service.lanes().status).toBe('ready');
     expect(service.route().status).toBe('ready');
     call.mockClear();
     handlers.set('memory:getTriggers', async () =>
@@ -1296,6 +1319,39 @@ describe('ProvidersSettingsStateService', () => {
     expect(service.writeScopes('authMethod')).toEqual(['global', 'app']);
   });
 
+  it('requests global provenance for every enhancement setting', async () => {
+    const keys = [
+      'skills.enhancement.provider',
+      'skills.enhancement.model',
+      'skills.enhancement.timeoutMs',
+    ] as const;
+    handlers.set('config:getScopes', async (params) => {
+      const { keys: requested } = params as { keys: string[] };
+      return success({
+        activePath: '/workspace',
+        entries: keys
+          .filter((key) => requested.includes(key))
+          .map((key) => entry(key, { supportedTargets: ['global'] })),
+      });
+    });
+
+    await service.refreshScopes();
+
+    const requestedKeys = call.mock.calls
+      .filter(([method]) => method === 'config:getScopes')
+      .flatMap(([, params]) => (params as { keys: string[] }).keys);
+    for (const key of keys) {
+      expect(requestedKeys).toContain(key);
+      expect(service.scopeEntry(key)).toMatchObject({
+        key,
+        scope: 'global',
+        supportedTargets: ['global'],
+      });
+      expect(service.writeScopes(key)).toEqual(['global']);
+    }
+    expect(service.groupScope(keys.slice(0, 2))).toBe('global');
+  });
+
   // Batch 27b: every host writes and reads its own App layer (`app.vscode.*` in VS Code,
   // `app.electron.*` in the desktop app; backend `resolveAppPrefix`), so `writeScopes` passes the
   // host's `app` target through in both hosts. Only the label differs, and the chat components own it.
@@ -1357,81 +1413,6 @@ describe('ProvidersSettingsStateService', () => {
       undefined,
     );
     expect(service.scopeEntry(scope.key)).toEqual(scope);
-  });
-
-  it('owns the inherit conversion both directions and writes timeout as a number', async () => {
-    const reviewed = await context();
-    handlers.set('skillSynthesis:updateSettings', async (params) => {
-      const patch = (params as { settings: Record<string, string | number> })
-        .settings;
-      if (typeof patch['judgeModel'] === 'string')
-        judgingResponse.judgeModel = patch['judgeModel'];
-      if (typeof patch['judgeProvider'] === 'string')
-        judgingResponse.judgeProvider = patch['judgeProvider'];
-      if (typeof patch['enhanceTimeoutMs'] === 'number')
-        judgingResponse.enhanceTimeoutMs.value = patch['enhanceTimeoutMs'];
-      return success({ updated: true });
-    });
-    await service.saveSettings(
-      {
-        judging: {
-          judgeModel: '   ',
-          judgeProvider: 'first',
-          enhanceTimeoutMs: 90000,
-        },
-      },
-      reviewed,
-    );
-    expect(call).toHaveBeenCalledWith(
-      'skillSynthesis:updateSettings',
-      { settings: { judgeModel: 'inherit' } },
-      undefined,
-    );
-    expect(call).toHaveBeenCalledWith(
-      'skillSynthesis:updateSettings',
-      { settings: { enhanceTimeoutMs: 90000 } },
-      undefined,
-    );
-    expect(service.judging().data).toEqual({
-      judgeProvider: 'first',
-      judgeModel: '',
-      enhanceTimeoutMs: {
-        value: 90000,
-        default: 120000,
-        min: 15000,
-        max: 600000,
-      },
-    });
-    expect(service.commit().status).toBe('saved');
-  });
-
-  it('names saved and unsaved fields after partial failure and refreshes effective values', async () => {
-    const reviewed = await context();
-    handlers.set('memory:setTriggers', async () => {
-      memoryResponse = { ...memoryResponse, curatorProvider: 'second' };
-      return success({ triggers: memoryResponse });
-    });
-    handlers.set(
-      'skillSynthesis:updateSettings',
-      async () => new RpcResult(false, undefined, 'secret error'),
-    );
-    await service.saveSettings(
-      {
-        memory: { curatorProvider: 'second' },
-        judging: { judgeModel: 'wanted' },
-      },
-      reviewed,
-    );
-    // D15 (deliberate change): an error envelope throws in require(), so the host may have written.
-    // The field is unconfirmed, not unsaved, and read-back no longer runs after the throw.
-    expect(service.commit()).toMatchObject({
-      status: 'unconfirmed',
-      saved: ['memory.curatorProvider'],
-      unsaved: [],
-      unconfirmed: ['skillSynthesis.judgeModel'],
-    });
-    expect(service.memory().data?.curatorProvider).toBe('second');
-    expect(service.judging().data?.judgeModel).toBe('');
   });
 
   it('D15: a thrown write is unconfirmed even when read-back would match, and is never saved', async () => {
@@ -1834,20 +1815,8 @@ describe('ProvidersSettingsStateService', () => {
     });
   });
 
-  it('routes lane and tier assignments through their owners, preserving tier usage scope', async () => {
+  it('routes tier assignments through their owner, preserving tier usage scope', async () => {
     const reviewed = await context();
-    const savedLanes = lanes();
-    handlers.set('skillSynthesis:setLanes', async () => {
-      handlers.set('skillSynthesis:getLanes', async () =>
-        success({
-          lanes: {
-            ...savedLanes,
-            judge: { ...savedLanes.judge, provider: 'second' },
-          },
-        }),
-      );
-      return success({ lanes: savedLanes });
-    });
     handlers.set('provider:setModelTier', async () => {
       handlers.set('provider:getModelTiers', async () =>
         success({ sonnet: null, opus: null, haiku: 'tier-model' }),
@@ -1856,7 +1825,6 @@ describe('ProvidersSettingsStateService', () => {
     });
     await service.saveSettings(
       {
-        lanes: { judge: { provider: 'second' } },
         tiers: [
           {
             providerId: 'second',
@@ -1869,11 +1837,6 @@ describe('ProvidersSettingsStateService', () => {
       reviewed,
     );
     expect(service.commit().status).toBe('saved');
-    expect(call).toHaveBeenCalledWith(
-      'skillSynthesis:setLanes',
-      { lanes: { judge: { provider: 'second' } } },
-      undefined,
-    );
     expect(call).toHaveBeenCalledWith(
       'provider:setModelTier',
       {
@@ -2490,12 +2453,15 @@ describe('ProvidersSettingsStateService', () => {
         saved: ['Main agent haiku model'],
       });
       handlers.set('ptahCli:update', async () => success({ success: true }));
-      handlers.set('settings:get', async () =>
-        success({
+      handlers.set('settings:get', async (params) => {
+        const key = (params as { key: string }).key;
+        return success({
           success: true,
-          value: [{ id: 'agent-1', tierMappings: { opus: 'big' } }],
-        }),
-      );
+          value: key === 'ptahCliAgents'
+            ? [{ id: 'agent-1', tierMappings: { opus: 'big' } }]
+            : enhancementResponse[key],
+        });
+      });
       call.mockClear();
       await expect(
         service.setCliInstanceTiers('agent-1', { opus: 'big' }, reviewed),

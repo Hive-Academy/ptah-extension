@@ -1,7 +1,5 @@
 /**
- * Dashboard provider account card (TASK_2026_596, Component 16; design §4;
- * relaid out as a provider list in TASK_2026_631; compact uniform tiles in
- * TASK_2026_707).
+ * Dashboard provider account card with compact uniform tiles.
  *
  * One compact tile per quota owner, three to four per row on desktop, all
  * with the same anatomy whatever state each owner is in. The card owns the
@@ -53,20 +51,28 @@ import { ProviderAccountTileComponent } from '../provider-account-tile/provider-
   imports: [ProviderAccountTileComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [
-    // TASK_2026_707: one compact tile per owner, 3–4 per desktop row, all
-    // rows equal height (grid stretch). Each tile renders its own layout.
+    // Responsive columns follow available section width.
     `
       :host {
         display: block;
+        container-type: inline-size;
       }
       .tiles {
         list-style: none;
         margin: 0;
         padding: 0;
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+        grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 0.5rem;
-        align-items: stretch;
+      }
+      @container (min-width: 1400px) {
+        .tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      }
+      @container (max-width: 999px) {
+        .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      }
+      @container (max-width: 639px) {
+        .tiles { grid-template-columns: minmax(0, 1fr); }
       }
       .tiles > li {
         min-width: 0;
@@ -80,13 +86,9 @@ import { ProviderAccountTileComponent } from '../provider-account-tile/provider-
       data-testid="dashboard-section-provider-accounts"
     >
       <div>
-        <h3 id="provider-accounts-heading" class="text-base font-semibold">
+        <h3 id="provider-accounts-heading" class="text-base font-semibold" [attr.title]="'The tick on each bar marks ' + nearLimitPercent + '% (near limit); color shows reached limits.'">
           Provider accounts &amp; plan limits
         </h3>
-        <p class="mt-0.5 text-xs text-base-content-muted">
-          One tile per quota owner. The tick on each bar marks
-          {{ nearLimitPercent }}% (near limit); bars highlight a reached limit.
-        </p>
       </div>
       @if (owners(); as list) {
         @if (refreshNotice(); as notice) {

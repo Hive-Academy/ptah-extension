@@ -16,7 +16,7 @@
  *    - `openai-codex` → the Codex account home, no credential reference.
  *    - `ollama-cloud`, `opencode-go`, `opencode-zen` → the stored provider key.
  *    - anything else → `provider-unsupported`, never read.
- * 2. **Local CLI stores**: installed `opencode` and `antigravity`.
+ * 2. **Local CLI stores**: installed `opencode`, `antigravity`, and `grok`.
  * 3. **The requested sessions' owners**, from the resolver's session route.
  * 4. **Lane owners from detection**: installed `codex`, and enabled Ptah CLI
  *    agents on Ollama Cloud (Glm included), each read with its own key. A
@@ -37,14 +37,12 @@
  *
  * ## Deadline
  *
- * The sources run together, each bounded by its lookup deadline (12 seconds
- * for Codex-home sources, 3 seconds otherwise). A source
+ * Detection has its own bounded deadline. CLI source read deadlines start
+ * after detection finishes (12 seconds for Codex-home reads, 3 seconds
+ * otherwise), but every source also shares the snapshot's 24-second ceiling. A source
  * that throws or misses the deadline is dropped alone, logged at debug; the
  * others still return. `discoverTargets` never rejects.
  */
-import { readFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import {
@@ -165,33 +163,10 @@ const STORED_KEY_PROVIDERS: ReadonlySet<string> = new Set([
 ]);
 const CLI_STORE_CLIS = ['opencode', 'antigravity'] as const;
 
-async function hasGrokCliLogin(): Promise<boolean> {
-  const home = process.env['GROK_HOME']?.trim() || join(homedir(), '.grok');
-  try {
-    const auth: unknown = JSON.parse(
-      await readFile(join(home, 'auth.json'), 'utf8'),
-    );
-    if (!auth || typeof auth !== 'object' || Array.isArray(auth)) return false;
-    const credentials = auth as Record<string, unknown>;
-    return [
-      credentials['https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828'],
-      credentials['https://accounts.x.ai/sign-in'],
-    ].some(
-      (entry) =>
-        entry !== null &&
-        typeof entry === 'object' &&
-        'key' in entry &&
-        typeof entry.key === 'string' &&
-        entry.key.trim().length > 0 &&
-        (!('auth_mode' in entry) || entry.auth_mode !== 'api_key'),
-    );
-  } catch {
-    // degradation-audit: optional-capability - Missing or invalid optional Grok login means no authenticated CLI store.
-    return false;
-  }
-}
 /** What a source's deadline resolves with. */
 const TIMED_OUT: unique symbol = Symbol('plan-owner-source-timed-out');
+/** Shared ceiling for discovery and the subsequent parallel owner reads. */
+const PLAN_LIMIT_SNAPSHOT_BUDGET_MS = 24_000;
 
 @injectable()
 export class PlanLimitOwnerDiscoveryService {
@@ -218,7 +193,8 @@ export class PlanLimitOwnerDiscoveryService {
   /** The owners to show, deduplicated by owner key. Never rejects. */
   async discoverTargets(
     request: PlanOwnerDiscoveryRequest = {},
-  ): Promise<DiscoveredPlanOwner[]> {
+    deadlineAt = Date.now() + PLAN_LIMIT_SNAPSHOT_BUDGET_MS,
+  ): Promise<DiscoveredPlanOwner[] & { discoveryIncomplete?: boolean }> {
     const sessionIds = request.sessionIds ?? [];
     const cachedCodexHomeOwner = this.completedCodexHomeOwner;
     this.completedCodexHomeOwner = undefined;
@@ -231,11 +207,14 @@ export class PlanLimitOwnerDiscoveryService {
       }
     };
 
-    // Every source starts now and races its own copy of the same deadline;
-    // results are added in source order, so precedence does not depend on
-    // which source settles first.
-    const detected = this.fromSource('detection', () =>
-      this.detection.detectAll(),
+    // Independent sources start now. Detection has its own deadline; CLI
+    // source deadlines begin after it settles. Results retain source order.
+    const detected = this.fromSource(
+      'detection',
+      () => this.detection.detectAll(),
+      undefined,
+      SLOW_LIMIT_LOOKUP_DEADLINE_MS,
+      deadlineAt,
     );
     const sources: Array<
       Promise<ReadonlyArray<DiscoveredPlanOwner | undefined> | undefined>
@@ -251,29 +230,28 @@ export class PlanLimitOwnerDiscoveryService {
         ],
         () => (this.retainNextCodexHomeOwner = true),
         limitLookupDeadlineMs(request.selectedProviderId),
+        deadlineAt,
       ),
-      this.fromSource('cli-store', async () =>
-        this.cliStores((await detected) ?? []),
+      detected.then((results) =>
+        this.fromSource('cli-store', () => this.cliStores(results ?? []), undefined, LIMIT_LOOKUP_DEADLINE_MS, deadlineAt),
       ),
-      this.fromSource('session', () => this.sessions(sessionIds)),
-      this.fromSource(
-        'lane',
-        async () =>
-          this.detectedLanes((await detected) ?? [], cachedCodexHomeOwner),
-        () => (this.retainNextCodexHomeOwner = true),
-        SLOW_LIMIT_LOOKUP_DEADLINE_MS,
-      ),
-      this.fromSource('ptah-cli', () => this.ptahCliLanes()),
-      this.fromSource('owner-key', () =>
-        Promise.resolve(
-          this.ledgerOnly(parseOwnerKeys(request.ownerKeys ?? []), 'owner-key'),
+      this.fromSource('session', () => this.sessions(sessionIds), undefined, LIMIT_LOOKUP_DEADLINE_MS, deadlineAt),
+      detected.then((results) =>
+        this.fromSource(
+          'lane',
+          () => this.detectedLanes(results ?? [], cachedCodexHomeOwner),
+          () => (this.retainNextCodexHomeOwner = true),
+          SLOW_LIMIT_LOOKUP_DEADLINE_MS,
+          deadlineAt,
         ),
       ),
-      this.fromSource('active-evidence', () =>
-        Promise.resolve(
-          this.ledgerOnly(this.ledger.knownOwners(), 'active-evidence'),
-        ),
-      ),
+      this.fromSource('ptah-cli', () => this.ptahCliLanes(), undefined, LIMIT_LOOKUP_DEADLINE_MS, deadlineAt),
+      this.fromSource('owner-key', () => Promise.resolve(
+        this.ledgerOnly(parseOwnerKeys(request.ownerKeys ?? []), 'owner-key'),
+      ), undefined, LIMIT_LOOKUP_DEADLINE_MS, deadlineAt),
+      this.fromSource('active-evidence', () => Promise.resolve(
+        this.ledgerOnly(this.ledger.knownOwners(), 'active-evidence'),
+      ), undefined, LIMIT_LOOKUP_DEADLINE_MS, deadlineAt),
     ];
     for (const entries of await Promise.all(sources)) add(entries ?? []);
     const entries = [...listed.values()];
@@ -290,7 +268,7 @@ export class PlanLimitOwnerDiscoveryService {
         )
         .map((owner) => owner.key),
     );
-    return entries.filter((entry) => {
+    const visible = entries.filter((entry) => {
       const owner = ownerOf(entry);
       return !(
         owner.providerId === 'anthropic' &&
@@ -302,6 +280,9 @@ export class PlanLimitOwnerDiscoveryService {
         verified.size === 1
       );
     });
+    // A timed-out detection keeps running in the detection service. Tell the
+    // caller this roster needs another pull once its shared promise settles.
+    return Object.assign(visible, { discoveryIncomplete: (await detected) === undefined });
   }
 
   /**
@@ -407,7 +388,7 @@ export class PlanLimitOwnerDiscoveryService {
         'cli-store',
       ),
     );
-    if (isInstalled(detected, 'grok') && (await hasGrokCliLogin())) {
+    if (isInstalled(detected, 'grok')) {
       entries.push(
         this.entryFor(this.owners.ownerForCliStore('grok'), 'cli-store'),
       );
@@ -622,10 +603,17 @@ export class PlanLimitOwnerDiscoveryService {
     read: () => Promise<T>,
     onTimeout?: () => void,
     deadlineMs = LIMIT_LOOKUP_DEADLINE_MS,
+    deadlineAt = Date.now() + PLAN_LIMIT_SNAPSHOT_BUDGET_MS,
   ): Promise<T | undefined> {
+    const remainingMs = Math.min(deadlineMs, deadlineAt - Date.now());
+    if (remainingMs <= 0) {
+      onTimeout?.();
+      this.logger.debug('[PlanLimitOwnerDiscovery] source timed out', { source });
+      return undefined;
+    }
     let timer: ReturnType<typeof setTimeout> | undefined;
     const deadline = new Promise<typeof TIMED_OUT>((resolve) => {
-      timer = setTimeout(() => resolve(TIMED_OUT), deadlineMs);
+      timer = setTimeout(() => resolve(TIMED_OUT), remainingMs);
       timer.unref?.();
     });
     try {

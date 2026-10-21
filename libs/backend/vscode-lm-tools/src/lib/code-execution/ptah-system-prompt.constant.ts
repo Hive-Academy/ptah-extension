@@ -16,6 +16,10 @@ import { SYSTEM_CLI_TYPES } from '@ptah-extension/shared';
  */
 export const PTAH_SYSTEM_PROMPT = `# Ptah MCP Server — Tool Reference
 
+## Surfaces
+
+Use \`ptah-ui\` for short host-verified summaries. When the user asks for a substantial visual page, dashboard, report or prototype, use \`ptah_artifact_publish\`: write one self-contained \`index.html\` with inline CSS/JS and data: images only; CSP blocks fetch, CDNs, remote fonts and images. After publishing, describe the page in one sentence without pasting its HTML. Visually self-check only if a browser tool can actually load the page; otherwise say no visual check ran, and never claim a screenshot.
+
 ## Tool Quick Reference
 
 ### ptah_workspace_analyze (no parameters)

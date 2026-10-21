@@ -1,8 +1,9 @@
 import { injectable, inject } from 'tsyringe';
 import { homedir } from 'os';
 import { join, basename, isAbsolute } from 'path';
-import { mkdir, readdir, stat } from 'fs/promises';
+import { lstat, mkdir, readdir, readFile, stat } from 'fs/promises';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
+import { formatSourceHash } from '@ptah-extension/platform-core';
 import {
   USER_LAYER_AGENTS_DIR_NAME,
   userLayerAgentDirName,
@@ -15,6 +16,7 @@ import type {
 import {
   DEFAULT_HISTORY_DIR,
   ORIGIN_SIDECAR_FILENAME,
+  parseOriginSidecar,
 } from './origin-sidecar.types';
 import {
   computeSourceHash,
@@ -42,6 +44,22 @@ import type {
 } from './user-layer-seed-quarantine';
 
 const ORIGIN_SIDECAR_SUFFIX = '.ptah-origin.json';
+const RETIRED_MANAGED_SKILL_SLUGS = [
+  'execute-phase-gated-task',
+  'extract-and-relocate-angular-component-feature',
+] as const;
+const retiredManagedSkillSlugs: ReadonlySet<string> = new Set(RETIRED_MANAGED_SKILL_SLUGS);
+
+export interface RetiredSkillPreserved {
+  readonly slug: string;
+  readonly reason: 'missing-sidecar' | 'modified' | 'invalid-origin' | 'unsafe-path';
+}
+
+export interface RetiredSkillsResult {
+  readonly removed: string[];
+  readonly preserved: RetiredSkillPreserved[];
+  errors: number;
+}
 
 export type { UserLayerRoots } from './origin-sidecar.types';
 export type {
@@ -99,6 +117,7 @@ export interface MirrorSources {
 }
 
 export interface MirrorResult {
+  retiredSkills: RetiredSkillsResult;
   skillsMirrored: number;
   agentsMirrored: number;
   commandsMirrored: number;
@@ -126,6 +145,7 @@ export interface DivergedClone {
 }
 
 export interface ReconcileResult {
+  retiredSkills: RetiredSkillsResult;
   noop: number;
   fastForwarded: number;
   diverged: number;
@@ -187,6 +207,8 @@ export interface SaveCloneBodyArgs extends WorkspaceScopedArgs {
   slug: string;
   /** Full replacement body. Not a patch — the clone file is overwritten. */
   body: string;
+  /** Hash of the exact user-layer body seen when the draft was generated. */
+  expectedSourceHash?: string;
 }
 
 export interface SaveCloneBodyResult {
@@ -195,8 +217,10 @@ export interface SaveCloneBodyResult {
   /** Snapshot stamp; `null` only when `written` is false. */
   historyTs: string | null;
   written: boolean;
-  /** `'clone-missing'` when the target file/dir is not on disk. */
+  /** `'clone-missing'` or `'stale-source'` when no write occurred. */
   reason: string | null;
+  /** Post-write content hash, or `null` when no write occurred or re-hashing failed. */
+  currentContentHash: string | null;
   /**
    * `true` when the body IS on disk but a post-write bookkeeping step (the
    * content re-hash, or the sidecar read/write that carries it) failed.
@@ -325,6 +349,7 @@ export class UserLayerMirrorService {
 
   async mirrorAll(sources: MirrorSources): Promise<MirrorResult> {
     const result: MirrorResult = {
+      retiredSkills: await this.retireManagedSkills(),
       skillsMirrored: 0,
       agentsMirrored: 0,
       commandsMirrored: 0,
@@ -505,6 +530,7 @@ export class UserLayerMirrorService {
 
   async reconcile(sources: MirrorSources): Promise<ReconcileResult> {
     const result = emptyReconcileResult();
+    result.retiredSkills = await this.retireManagedSkills();
     const roots = this.getUserLayerRoots(sources.workspaceRoot);
 
     for (const pluginPath of allPluginRoots(sources)) {
@@ -542,6 +568,80 @@ export class UserLayerMirrorService {
       missingSidecar: result.missingSidecar,
       errors: result.errors,
     });
+    return result;
+  }
+
+  /** Retire only untouched mirror-owned copies of the two removed pipeline skills. */
+  async retireManagedSkills(): Promise<RetiredSkillsResult> {
+    const result: RetiredSkillsResult = { removed: [], preserved: [], errors: 0 };
+    const skillsRoot = this.getUserLayerRoots().skills;
+    this.fsOps.excludeSubdirectoriesFromListing(skillsRoot, retiredManagedSkillSlugs);
+    try {
+      const rootStat = await lstat(skillsRoot);
+      if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
+        this.logger.warn('[UserLayerMirror] retired skills root is not a real directory', { skillsRoot });
+        return result;
+      }
+    } catch (error: unknown) {
+      if (this.isEnoent(error)) return result;
+      this.logger.warn('[UserLayerMirror] failed to inspect retired skills root', {
+        skillsRoot,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      result.errors += 1;
+      return result;
+    }
+
+    for (const slug of RETIRED_MANAGED_SKILL_SLUGS) {
+      await this.withSlugLock('skill', slug, async () => {
+        const cloneDir = join(skillsRoot, slug);
+        try {
+          this.fsOps.assertUnderUserLayer(cloneDir);
+          const cloneStat = await lstat(cloneDir);
+          if (!cloneStat.isDirectory() || cloneStat.isSymbolicLink()) {
+            result.preserved.push({ slug, reason: 'unsafe-path' });
+          } else {
+            const sidecarPath = join(cloneDir, ORIGIN_SIDECAR_FILENAME);
+            let sidecarStat;
+            try {
+              sidecarStat = await lstat(sidecarPath);
+            } catch (error: unknown) {
+              if (!this.isEnoent(error)) throw error;
+            }
+            if (!sidecarStat) {
+              result.preserved.push({ slug, reason: 'missing-sidecar' });
+            } else if (!sidecarStat.isFile() || sidecarStat.isSymbolicLink()) {
+              result.preserved.push({ slug, reason: 'unsafe-path' });
+            } else {
+              const sidecar = parseOriginSidecar(await readSidecar(cloneDir));
+              if (sidecar?.kind !== 'skill' || sidecar.slug !== slug || !sidecar.sourceHash) {
+                result.preserved.push({ slug, reason: 'invalid-origin' });
+              } else if (await computeSourceHash(cloneDir) !== sidecar.sourceHash) {
+                result.preserved.push({ slug, reason: 'modified' });
+              } else {
+                await this.fsOps.snapshotDirToRootHistory(skillsRoot, slug, cloneDir);
+                await this.fsOps.removePath(cloneDir);
+                result.removed.push(slug);
+              }
+            }
+          }
+          const preserved = result.preserved.find((item) => item.slug === slug);
+          if (preserved) {
+            this.logger.info('[UserLayerMirror] retired skill preserved', preserved);
+          }
+        } catch (error: unknown) {
+          // degradation-audit: optional-capability - ENOENT means the retired
+          // skill folder is already gone, which is the goal; every other error
+          // is counted in result.errors and logged below.
+          if (this.isEnoent(error)) return;
+          result.errors += 1;
+          this.logger.warn('[UserLayerMirror] retired skill removal failed', {
+            slug,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      });
+    }
     return result;
   }
 
@@ -662,10 +762,21 @@ export class UserLayerMirrorService {
     return this.withSlugLock(args.kind, args.slug, async () => {
       const roots = this.getUserLayerRoots(args.workspaceRoot);
       if (args.kind === 'skill') {
-        return this.saveDirCloneBody(args.slug, args.body, roots.skills);
+        return this.saveDirCloneBody(
+          args.slug,
+          args.body,
+          roots.skills,
+          args.expectedSourceHash,
+        );
       }
       const root = args.kind === 'agent' ? roots.agents : roots.commands;
-      return this.saveFileCloneBody(args.kind, args.slug, args.body, root);
+      return this.saveFileCloneBody(
+        args.kind,
+        args.slug,
+        args.body,
+        root,
+        args.expectedSourceHash,
+      );
     });
   }
 
@@ -673,6 +784,7 @@ export class UserLayerMirrorService {
     slug: string,
     body: string,
     skillsRoot: string,
+    expectedSourceHash?: string,
   ): Promise<SaveCloneBodyResult> {
     const cloneDir = join(skillsRoot, slug);
     const skillFile = join(cloneDir, 'SKILL.md');
@@ -686,6 +798,20 @@ export class UserLayerMirrorService {
         historyTs: null,
         written: false,
         reason: 'clone-missing',
+        currentContentHash: null,
+        metadataIncomplete: false,
+        reconcileProtected: false,
+      };
+    }
+
+    if (await this.isStaleSource(skillFile, expectedSourceHash)) {
+      return {
+        kind: 'skill',
+        slug,
+        historyTs: null,
+        written: false,
+        reason: 'stale-source',
+        currentContentHash: null,
         metadataIncomplete: false,
         reconcileProtected: false,
       };
@@ -721,19 +847,22 @@ export class UserLayerMirrorService {
   private async refreshSavedSidecarDir(
     cloneDir: string,
     slug: string,
-  ): Promise<{ metadataIncomplete: boolean; reconcileProtected: boolean }> {
+  ): Promise<
+    Pick<SaveCloneBodyResult, 'currentContentHash' | 'metadataIncomplete' | 'reconcileProtected'>
+  > {
     let reconcileProtected = false;
+    let currentContentHash: string | null = null;
     try {
-      const currentContentHash = await computeSourceHash(cloneDir);
+      currentContentHash = await computeSourceHash(cloneDir);
       const existing = await readSidecar(cloneDir);
       if (!existing) {
-        return { metadataIncomplete: false, reconcileProtected: false };
+        return { currentContentHash, metadataIncomplete: false, reconcileProtected: false };
       }
       // The sidecar exists, so the divergence rule already protects the body
       // regardless of whether the hash write below lands.
       reconcileProtected = true;
       await writeSidecarAtomic(cloneDir, { ...existing, currentContentHash });
-      return { metadataIncomplete: false, reconcileProtected };
+      return { currentContentHash, metadataIncomplete: false, reconcileProtected };
     } catch (error: unknown) {
       this.logger.warn(
         '[UserLayerMirror] clone body saved but sidecar bookkeeping failed',
@@ -743,7 +872,7 @@ export class UserLayerMirrorService {
           error: error instanceof Error ? error.message : String(error),
         },
       );
-      return { metadataIncomplete: true, reconcileProtected };
+      return { currentContentHash, metadataIncomplete: true, reconcileProtected };
     }
   }
 
@@ -752,6 +881,7 @@ export class UserLayerMirrorService {
     slug: string,
     body: string,
     rootDir: string,
+    expectedSourceHash?: string,
   ): Promise<SaveCloneBodyResult> {
     const cloneFile = join(rootDir, `${slug}.md`);
     const sidecarPath = join(rootDir, `${slug}${ORIGIN_SIDECAR_SUFFIX}`);
@@ -765,6 +895,20 @@ export class UserLayerMirrorService {
         historyTs: null,
         written: false,
         reason: 'clone-missing',
+        currentContentHash: null,
+        metadataIncomplete: false,
+        reconcileProtected: false,
+      };
+    }
+
+    if (await this.isStaleSource(cloneFile, expectedSourceHash)) {
+      return {
+        kind,
+        slug,
+        historyTs: null,
+        written: false,
+        reason: 'stale-source',
+        currentContentHash: null,
         metadataIncomplete: false,
         reconcileProtected: false,
       };
@@ -787,25 +931,37 @@ export class UserLayerMirrorService {
   }
 
   /** Flat-file twin of {@link refreshSavedSidecarDir}. */
+  private async isStaleSource(
+    bodyPath: string,
+    expectedSourceHash?: string,
+  ): Promise<boolean> {
+    if (expectedSourceHash === undefined) return false;
+    const currentBody = await readFile(bodyPath, 'utf8');
+    return formatSourceHash(currentBody) !== expectedSourceHash;
+  }
+
   private async refreshSavedSidecarFile(
     kind: OriginKind,
     slug: string,
     cloneFile: string,
     sidecarPath: string,
-  ): Promise<{ metadataIncomplete: boolean; reconcileProtected: boolean }> {
+  ): Promise<
+    Pick<SaveCloneBodyResult, 'currentContentHash' | 'metadataIncomplete' | 'reconcileProtected'>
+  > {
     let reconcileProtected = false;
+    let currentContentHash: string | null = null;
     try {
-      const currentContentHash = await computeSourceHash(cloneFile);
+      currentContentHash = await computeSourceHash(cloneFile);
       const existing = await readSidecarAt(sidecarPath);
       if (!existing) {
-        return { metadataIncomplete: false, reconcileProtected: false };
+        return { currentContentHash, metadataIncomplete: false, reconcileProtected: false };
       }
       reconcileProtected = true;
       await writeSidecarAtomicAt(sidecarPath, {
         ...existing,
         currentContentHash,
       });
-      return { metadataIncomplete: false, reconcileProtected };
+      return { currentContentHash, metadataIncomplete: false, reconcileProtected };
     } catch (error: unknown) {
       this.logger.warn(
         '[UserLayerMirror] clone body saved but sidecar bookkeeping failed',
@@ -815,7 +971,7 @@ export class UserLayerMirrorService {
           error: error instanceof Error ? error.message : String(error),
         },
       );
-      return { metadataIncomplete: true, reconcileProtected };
+      return { currentContentHash, metadataIncomplete: true, reconcileProtected };
     }
   }
 
@@ -1262,6 +1418,7 @@ export class UserLayerMirrorService {
     }
 
     for (const slug of slugs) {
+      if (retiredManagedSkillSlugs.has(slug)) continue;
       const sourceDir = join(sourceSkillsDir, slug);
       const cloneDir = join(skillsRoot, slug);
       await this.withSlugLock('skill', slug, async () => {
@@ -1316,7 +1473,7 @@ export class UserLayerMirrorService {
     }
 
     for (const slug of slugs) {
-      if (slug === SYNTH_CANDIDATES_DIR || slug === DEFAULT_HISTORY_DIR) {
+      if (slug === SYNTH_CANDIDATES_DIR || slug === DEFAULT_HISTORY_DIR || retiredManagedSkillSlugs.has(slug)) {
         continue;
       }
       const sourceDir = join(synthesizedSkillsRoot, slug);
@@ -1463,7 +1620,6 @@ export class UserLayerMirrorService {
 
       const liveCloneHash = await computeSourceHash(cloneDir);
       if (liveCloneHash === sidecar.sourceHash) {
-        await this.snapshotDirToHistory(cloneDir);
         await this.clearCloneTrackedContent(cloneDir);
         await this.copyTree(sourceDir, cloneDir);
         await this.refreshSidecarDir(cloneDir, sidecar, liveSourceHash);
@@ -1525,7 +1681,6 @@ export class UserLayerMirrorService {
 
       const liveCloneHash = await computeSourceHash(cloneFile);
       if (liveCloneHash === sidecar.sourceHash) {
-        await this.snapshotFileToHistory(rootDir, slug, cloneFile);
         await this.copyFileAtomic(sourceFile, cloneFile);
         await this.refreshSidecarAt(sidecarPath, sidecar, liveSourceHash);
         result.fastForwarded += 1;
@@ -1743,6 +1898,7 @@ export class UserLayerMirrorService {
     seenSkillSlugs: Map<string, string>,
     result: MirrorResult,
   ): Promise<void> {
+    if (retiredManagedSkillSlugs.has(slug)) return;
     const targetDir = join(skillsRoot, slug);
     this.assertUnderUserLayer(targetDir);
 
@@ -2223,6 +2379,7 @@ function allPluginRoots(sources: MirrorSources): string[] {
 
 function emptyReconcileResult(): ReconcileResult {
   return {
+    retiredSkills: { removed: [], preserved: [], errors: 0 },
     noop: 0,
     fastForwarded: 0,
     diverged: 0,

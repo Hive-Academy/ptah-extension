@@ -1,5 +1,5 @@
 /** Dashboard view-model shapes and top-level summary builder. */
-import type { UsageRangeDays, UsageSourceStatus, UsageSummary } from '@ptah-extension/shared';
+import type { UsageRangeDays, UsageSourceStatus, UsageSummary, UsageTopSession } from '@ptah-extension/shared';
 import { resolveModelDisplayName } from '@ptah-extension/shared';
 import { providerAccent } from '../provider-account-card/provider-accent';
 import { daySpanLabel, enumerateDays, providerDisplayName } from './usage-formatting';
@@ -37,6 +37,9 @@ export interface ProviderUsageRow {
 
 /** KPI strip inputs (requirement 4). `null` means unknown, never zero. */
 export interface UsageKpis {
+  readonly sessionCount: number;
+  readonly messageCount: number;
+  readonly subagentCount: number;
   readonly processedTokens: number;
   readonly processedPerActiveDay: number | null;
   readonly activeDayCount: number;
@@ -70,7 +73,7 @@ export interface UsageCostQuality {
   readonly cacheSavingsUnknownFactCount: number;
 }
 
-/** Per-provider daily series for the stacked area chart (requirement 3). */
+/** Per-provider daily series for the stacked bar chart. */
 export interface ProviderDailySeries {
   readonly providerId: string;
   readonly displayName: string;
@@ -110,7 +113,12 @@ export interface DayBreakdownRow {
   readonly savingsUnknownFactCount: number;
 }
 
+export interface UsageSessionRow extends UsageTopSession {
+  readonly modelDisplayName: string;
+}
+
 export interface UsageViewModel {
+  readonly topSessions: readonly UsageSessionRow[];
   readonly range: UsageRangeDays | null;
   readonly days: readonly string[];
   readonly dateSpanLabel: string;
@@ -212,6 +220,9 @@ export function buildUsageViewModel(
   const activeDayCount = dayModels.size;
   const observedInput = cachedInput + uncachedInput;
   const kpis: UsageKpis = {
+    sessionCount: summary.sessionCount ?? 0,
+    messageCount: summary.messageCount ?? 0,
+    subagentCount: summary.subagentCount ?? 0,
     processedTokens: processed,
     processedPerActiveDay:
       activeDayCount > 0 ? processed / activeDayCount : null,
@@ -267,6 +278,10 @@ export function buildUsageViewModel(
   );
 
   return {
+    topSessions: (summary.topSessions ?? []).map((session) => ({
+      ...session,
+      modelDisplayName: resolveModelDisplayName(session.modelId, availableModels),
+    })),
     range: days.length === 7 || days.length === 30 || days.length === 90
       ? (days.length as UsageRangeDays)
       : null,

@@ -121,6 +121,7 @@ jest.mock('fs/promises', () => ({
 }));
 
 import { AntigravityCliAdapter } from './antigravity-cli.adapter';
+import type { Logger } from '@ptah-extension/vscode-core';
 import type { SdkHandle } from './cli-adapter.interface';
 import type {
   AgentRoleDefinition,
@@ -559,11 +560,14 @@ describe('AntigravityCliAdapter', () => {
       return jest
         .spyOn(
           adapter as unknown as {
-            configureMcpServer: () => Promise<undefined>;
+            configureMcpServer: () => Promise<{
+              configured: boolean;
+              restoreNeeded: boolean;
+            }>;
           },
           'configureMcpServer',
         )
-        .mockResolvedValue(undefined);
+        .mockResolvedValue({ configured: true, restoreNeeded: false });
     }
 
     it('declares the task-prompt channel', () => {
@@ -808,6 +812,41 @@ describe('AntigravityCliAdapter', () => {
       });
     });
 
+    it('closes an ERROR tool step with a tool-result-error for the same toolCallId', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      const { segments } = collect(handle);
+
+      currentChild?.stdout.write(
+        stepLine({
+          step_index: 4,
+          state: 'ACTIVE',
+          step_type: 'tool',
+          tool_name: 'run_command',
+        }) + '\n',
+      );
+      currentChild?.stdout.write(
+        stepLine({
+          step_index: 4,
+          state: 'ERROR',
+          step_type: 'tool',
+          tool_name: 'run_command',
+          tool_info: { name: 'run_command', output: 'permission denied' },
+        }) + '\n',
+      );
+      currentChild?.emitClose(0);
+      await handle.done;
+
+      expect(segments.find((s) => s.type === 'tool-call')).toMatchObject({
+        toolName: 'run_command',
+        toolCallId: '4',
+      });
+      expect(segments.find((s) => s.type === 'tool-result-error')).toMatchObject({
+        toolName: 'run_command',
+        toolCallId: '4',
+        content: 'permission denied',
+      });
+    });
+
     it('emits incremental agent_response text_deltas as text segments', async () => {
       const handle = await adapter.runSdk(baseOptions);
       const { output, segments } = collect(handle);
@@ -958,6 +997,104 @@ describe('AntigravityCliAdapter', () => {
       expect(errors[0].content).toBe('ERROR: model quota exceeded');
     });
 
+    it('settles a failed result before the child closes and diagnoses an unknown error shape', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      const { segments } = collect(handle);
+      currentChild?.stdout.write(JSON.stringify({ event: 'result', result: { status: 'ERROR', error: 123 } }) + '\n');
+
+      await expect(handle.done).resolves.toBe(1);
+      expect(handle.supportsContinuation?.()).toBe(false);
+      expect(segments.some((s) => s.type === 'error' && s.content.includes('status ERROR'))).toBe(true);
+      expect(segments.some((s) => s.content.includes('Invalid Antigravity stream-json event'))).toBe(false);
+      currentChild?.emitClose(3);
+    });
+
+    it('logs a redacted failed result and failed steps, and reports the AGY_ERROR exit', async () => {
+      const logError = jest.fn();
+      const loggedAdapter = new AntigravityCliAdapter(
+        undefined,
+        async () => true,
+        { error: logError } as unknown as Logger,
+      );
+      const handle = await loggedAdapter.runSdk(baseOptions);
+      const { output, segments } = collect(handle);
+      currentChild?.stdout.write(stepLine({
+        step_index: 1,
+        state: 'ERROR',
+        status: 'ERROR',
+        step_type: 'tool',
+        api_key: 'step-secret',
+        nested: { cookie: 'nested-cookie-secret', session: 'nested-session-secret' },
+      }) + '\n');
+      currentChild?.stderr.write('AGY_ERROR: Cookie: header-cookie-secret; token=stderr-secret');
+      currentChild?.stderr.write('\n');
+      currentChild?.stdout.write(JSON.stringify({
+        event: 'result',
+        result: {
+          conversation_id: CONV_ID,
+          status: 'ERROR',
+          response: 'retry failed',
+          error: { code: 'MODEL_FAILED', message: 'Bearer message-secret failed', secret: 'result-secret' },
+          api_key: 'payload-secret',
+        },
+      }) + '\n');
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      currentChild?.emitClose(3);
+      expect(await handle.done).toBe(1);
+      const errors = segments.filter((s) => s.type === 'error').map((s) => s.content);
+      expect(errors[0]).toContain('MODEL_FAILED');
+      expect(errors[0]).toContain('Bearer [REDACTED] failed');
+      expect(errors.join(' ')).toContain('code 3');
+      expect(errors.join(' ')).toContain('AGY_ERROR');
+      expect(output.join('')).toContain('[Error]');
+      expect(logError).toHaveBeenCalledTimes(1);
+      const logged = String(logError.mock.calls[0][0]);
+      expect(logged).toContain('MODEL_FAILED');
+      expect(logged).toContain('errorSteps');
+      for (const secret of ['step-secret', 'stderr-secret', 'result-secret', 'payload-secret', 'message-secret', 'nested-cookie-secret', 'nested-session-secret', 'header-cookie-secret']) {
+        expect(logged).not.toContain(secret);
+        expect(output.join('')).not.toContain(secret);
+      }
+    });
+
+    it('does not log a SUCCESS result and preserves exit 0', async () => {
+      const logError = jest.fn();
+      const loggedAdapter = new AntigravityCliAdapter(undefined, async () => true, { error: logError } as unknown as Logger);
+      const handle = await loggedAdapter.runSdk(baseOptions);
+      const { segments } = collect(handle);
+      currentChild?.stdout.write(JSON.stringify({ event: 'result', result: { conversation_id: CONV_ID, status: 'SUCCESS', response: 'OK' } }) + '\n');
+      currentChild?.emitClose(0);
+      expect(await handle.done).toBe(0);
+      expect(segments.some((s) => s.type === 'error')).toBe(false);
+      expect(logError).not.toHaveBeenCalled();
+    });
+
+    it('accepts a SUCCESS result with error null', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      const { segments } = collect(handle);
+      currentChild?.stdout.write(JSON.stringify({ event: 'result', result: { status: 'SUCCESS', error: null } }) + '\n');
+      expect(await handle.done).toBe(0);
+      expect(segments.some((s) => s.type === 'error')).toBe(false);
+      currentChild?.emitClose(0);
+    });
+
+    it('keeps a successful final result clear of earlier failure state and warns for AGY_ERROR', async () => {
+      const logError = jest.fn();
+      const logWarn = jest.fn();
+      const loggedAdapter = new AntigravityCliAdapter(undefined, async () => true, { error: logError, warn: logWarn } as unknown as Logger);
+      const handle = await loggedAdapter.runSdk(baseOptions);
+      const { output } = collect(handle);
+      currentChild?.stdout.write(JSON.stringify({ event: 'result', result: { status: 'ERROR' } }) + '\n');
+      expect(await handle.done).toBe(1);
+      currentChild?.stdout.write(JSON.stringify({ event: 'result', result: { status: 'SUCCESS' } }) + '\n');
+      currentChild?.stderr.write('AGY_ERROR: Cookie: private-cookie\n');
+      currentChild?.emitClose(0);
+      expect(logError).not.toHaveBeenCalled();
+      expect(logWarn).toHaveBeenCalledTimes(1);
+      expect(output.join('')).not.toContain('private-cookie');
+      expect(output.join('')).not.toContain('process exited with code 0');
+    });
+
     it('falls back to verbatim text for a line that is not JSON', async () => {
       const handle = await adapter.runSdk(baseOptions);
       const { output, segments } = collect(handle);
@@ -1013,6 +1150,15 @@ describe('AntigravityCliAdapter', () => {
       expect(text[0].content).toBe('Final answer');
     });
 
+    it('settles an unterminated malformed result as failure even when the process exits zero', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      const { segments } = collect(handle);
+      currentChild?.stdout.write(JSON.stringify({ event: 'result' }));
+      currentChild?.emitClose(0);
+      expect(await handle.done).toBe(1);
+      expect(segments.some((s) => s.content.includes('Invalid Antigravity stream-json event'))).toBe(true);
+    });
+
     it('emits an error segment for stderr and a non-zero exit', async () => {
       const handle = await adapter.runSdk(baseOptions);
       const { segments } = collect(handle);
@@ -1029,6 +1175,55 @@ describe('AntigravityCliAdapter', () => {
       expect(errors.some((e) => e.content.includes('exited with code 1'))).toBe(
         true,
       );
+    });
+
+    it('redacts secrets on stderr lines that are not AGY_ERROR', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      const { output, segments } = collect(handle);
+
+      currentChild?.stderr.write(
+        'HTTP debug Authorization: Bearer super-secret-token api_key=abc123\n',
+      );
+      currentChild?.emitClose(0);
+      await handle.done;
+
+      const rendered = output.join('') + segments.map((s) => s.content).join('\n');
+      expect(rendered).toContain('[stderr]');
+      expect(rendered).toContain('[REDACTED]');
+      expect(rendered).not.toContain('super-secret-token');
+      expect(rendered).not.toContain('abc123');
+    });
+
+    it('emits one exit error when a failed result already reported the failure', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      const { segments } = collect(handle);
+
+      currentChild?.stdout.write(
+        JSON.stringify({
+          event: 'result',
+          result: { status: 'ERROR', response: 'boom' },
+        }) + '\n',
+      );
+      currentChild?.emitClose(2);
+      await handle.done;
+
+      const exitErrors = segments.filter(
+        (s) => s.type === 'error' && s.content.includes('exited with code'),
+      );
+      expect(exitErrors).toHaveLength(1);
+      expect(exitErrors[0].content).toContain('code 2');
+    });
+
+    it('does not emit an error segment when the user aborts', async () => {
+      const handle = await adapter.runSdk(baseOptions);
+      const { output, segments } = collect(handle);
+
+      handle.abort.abort();
+      currentChild?.emitClose(null, 'SIGTERM');
+      await handle.done;
+
+      expect(segments.filter((s) => s.type === 'error')).toEqual([]);
+      expect(output.join('')).not.toContain('[Error]');
     });
 
     it('resolves done with the child exit code', async () => {

@@ -25,6 +25,7 @@ import type {
 import { transformAgentBody } from '@ptah-extension/harness-sync';
 import type { CliCommandOptions } from './cli-adapter.interface';
 import { renderLaneCompletionContract } from '../lane-reporting-contract';
+import { PTAH_MCP_TOOL_GUIDANCE } from '../ptah-mcp-tool-guidance.constant';
 import { condenseLaneRole } from './lane-role-condenser';
 
 // Re-exported for `cli-stdout-probe.ts`, which kills its timed-out probe
@@ -463,7 +464,7 @@ Cost: each tool call may resend context. Batch independent reads, keep output ta
  */
 const TWO_WAY_MESSAGING_GUIDANCE =
   'Two-way messaging: you are a spawned agent and the session that spawned you can reach you.\n' +
-  '- These tools come from the `ptah` MCP server and may carry a server prefix (`mcp__ptah__ptah_agent_report`). Match tool names by substring, never by a `ptah_` prefix.\n' +
+  '- ' + PTAH_MCP_TOOL_GUIDANCE + '\n' +
   '- Report to it with `ptah_agent_report`. It takes no agent id. A `delivered: false` answer carries a reason and is a normal outcome — record it and carry on, do not retry in a loop.\n' +
   '- A message from that session can arrive between your turns. Treat it as an instruction from your caller; where it disagrees with the task text above, the message wins.\n' +
   '- You can spawn agents yourself with `ptah_agent_spawn`. Read `ptah_agent_list` for what exists on this machine: never assume a CLI, a provider or a messaging capability is present. Any name in a document is an illustration, never a guarantee.\n' +
@@ -626,6 +627,7 @@ export function buildTaskPrompt(
   taskPrompt += `\n\n${renderLaneCompletionContract({
     taskFolder: options.taskFolder,
     deliverables: options.deliverables,
+    canUsePtahMcp: carriesMessagingBlock(options),
   })}`;
 
   return taskPrompt;

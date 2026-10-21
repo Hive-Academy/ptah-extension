@@ -84,6 +84,7 @@ import {
   WorkspaceRpcHandlers,
 } from '../handlers';
 import { DiagnosticsConsentRpcHandlers } from '../handlers/diagnostics-consent-rpc.handlers';
+import { ArtifactRpcHandlers } from '../handlers/artifact-rpc.handlers';
 
 /**
  * Structural shape every RPC handler class satisfies. tsyringe's
@@ -108,6 +109,12 @@ export interface RpcHandlerManifestEntry {
 }
 
 export const RPC_HANDLER_MANIFEST = [
+  {
+    key: 'artifacts',
+    methods: ArtifactRpcHandlers.METHODS,
+    requires: [],
+    handler: ArtifactRpcHandlers,
+  },
   {
     key: 'configScope',
     methods: ConfigScopeRpcHandlers.METHODS,

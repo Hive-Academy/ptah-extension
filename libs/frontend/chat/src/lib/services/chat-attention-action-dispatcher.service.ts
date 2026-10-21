@@ -4,6 +4,11 @@ import { AttentionActionDispatcher, type AttentionActionOutcome, AppStateManager
 import { AgentPermissionResponder } from './agent-permission-responder';
 import { ChatAttentionSourceService } from './chat-attention-source.service';
 import { ChatAttentionHostMessageHandler } from './chat-attention-host-message-handler.service';
+import type { PermissionResponse } from '@ptah-extension/shared';
+
+function isPermissionDecision(value: string): value is PermissionResponse['decision'] {
+  return value === 'allow' || value === 'always_allow' || value === 'deny' || value === 'deny_with_message';
+}
 
 /** Shell registration binds this service to ATTENTION_ACTION_DISPATCHER. */
 @Injectable({ providedIn: 'root' })
@@ -20,7 +25,7 @@ export class ChatAttentionActionDispatcherService implements AttentionActionDisp
   private readonly logger = inject(LoggingService);
   private readonly inFlight = new Set<string>();
 
-  async dispatchOutcome(key: string, generation: number, actionId: string): Promise<AttentionActionOutcome> {
+  async dispatchOutcome(key: string, generation: number, actionId: string, reason?: string): Promise<AttentionActionOutcome> {
     const live = this.source.getLive(key, generation);
     if (!live && actionId !== 'open') {
       return this.dispatchNoticeOutcome(key, generation, actionId);
@@ -30,12 +35,17 @@ export class ChatAttentionActionDispatcherService implements AttentionActionDisp
       this.unavailable(action?.disabledReason ?? 'Action unavailable');
       return { kind: 'unavailable', reason: action?.disabledReason ?? 'Action unavailable' };
     }
-    return await this.dispatch(key, generation, actionId)
+    if (live?.target.kind === 'permission' && ['allow', 'always_allow', 'deny', 'deny_with_message'].includes(actionId) &&
+      !this.responder.isSessionPending(live.target.request.id)) {
+      this.unavailable('Already answered');
+      return { kind: 'stale' };
+    }
+    return await this.dispatch(key, generation, actionId, reason)
       ? { kind: 'completed' }
       : { kind: 'unavailable', reason: 'Could not complete action' };
   }
 
-  async dispatch(key: string, generation: number, actionId: string): Promise<boolean> {
+  async dispatch(key: string, generation: number, actionId: string, reason?: string): Promise<boolean> {
     const live = this.source.getLive(key, generation);
     if (!live) {
       if (actionId !== 'open') return (await this.dispatchNoticeOutcome(key, generation, actionId)).kind === 'completed';
@@ -53,7 +63,7 @@ export class ChatAttentionActionDispatcherService implements AttentionActionDisp
           const result = await surface.focus(item.sessionId);
           return result.success || this.unavailable('Target unavailable');
         }
-        if (!this.router || !item.workspacePath || !item.sessionId) return this.unavailable('Target unavailable');
+        if (!this.router || (!item.workspacePath && !item.tabId) || !item.sessionId) return this.unavailable('Target unavailable');
         const outcome = await this.router.focus({
           workspacePath: item.workspacePath, sessionId: item.sessionId, tabId: item.tabId,
         });
@@ -67,13 +77,16 @@ export class ChatAttentionActionDispatcherService implements AttentionActionDisp
         }
         return true;
       }
-      if (actionId !== 'allow' && actionId !== 'deny') return this.unavailable('Action unavailable');
+      if (!isPermissionDecision(actionId)) return this.unavailable('Action unavailable');
       if (target.kind === 'question') return this.unavailable('Action unavailable');
       if (target.kind === 'lane-permission') {
+        if (actionId !== 'allow' && actionId !== 'deny') return this.unavailable('Action unavailable');
         return this.responder.respondLane(target.agentId, target.request.requestId, actionId);
       }
-      if (!target.tabId) return this.unavailable('Session unavailable');
-      return this.responder.respondSession(target.request, actionId, target.tabId);
+      if (actionId === 'deny_with_message' && !reason?.trim()) return this.unavailable('Enter a reason');
+      return reason === undefined
+        ? this.responder.respondSession(target.request, actionId, target.tabId)
+        : this.responder.respondSession(target.request, actionId, target.tabId, reason);
     } catch (error) {
       return this.reportActionFailure(live, error);
     } finally {

@@ -91,7 +91,7 @@ Panel size: 3 vendors
 - "Multi-vendor review"
 - "What do the other vendors think about this approach?"
 
-**From the Tribunal panel**: choose **Convene a Tribunal** on the dashboard, pick **Council**, assemble the panel (add a lane per vendor, choose a model for each), and launch. The page switches to the live grid — a tile per panelist, with the conductor chat alongside. Type your question there to start the run.
+**From the Tribunal panel**: open the **Tribunal** tab in the top navigation, choose **Convene a Tribunal**, pick **Council**, assemble the panel (add a lane per vendor, choose a model for each), and launch. The page switches to the live grid — a tile per panelist, with the conductor chat alongside. Type your question there to start the run.
 
 **Explicit harness**: select **Tribunal Conductor** from the harness picker, then choose **Council** when prompted.
 

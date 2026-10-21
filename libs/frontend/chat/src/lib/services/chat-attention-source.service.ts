@@ -2,9 +2,10 @@ import { DOCUMENT } from '@angular/common';
 import { DestroyRef, Injectable, effect, inject, untracked } from '@angular/core';
 import { CommandCenterVoiceSessionService, TabManagerService, workspaceLabelFromPath } from '@ptah-extension/chat-state';
 import { AgentMonitorStore, PermissionHandlerService } from '@ptah-extension/chat-streaming';
-import { AttentionItem, NotificationService, SURFACE_FOCUS_ROUTER } from '@ptah-extension/core';
+import { AttentionItem, NotificationService, SURFACE_FOCUS_ROUTER, VSCodeService } from '@ptah-extension/core';
 import { attentionRequestKey } from '@ptah-extension/shared';
 import type { AgentPermissionRequest, AskUserQuestionRequest, PermissionRequest } from '@ptah-extension/shared';
+import { attentionContext, isUnsafeAttentionContext } from './attention-context.util';
 
 export type ChatAttentionRequest =
   | { kind: 'permission'; request: PermissionRequest; tabId?: string }
@@ -16,6 +17,38 @@ interface LiveAttention {
   target: ChatAttentionRequest;
 }
 
+const SECRET_KEY = 'password|passwd|secret|token|api[_-]?key|auth';
+const ASSIGNED_SECRET = new RegExp(`(\\b(?:${SECRET_KEY})\\s*=\\s*)(?:"[^"]*"|'[^']*'|[^\\s]+)`, 'gi');
+const FLAG_SECRET = new RegExp(`(--(?:${SECRET_KEY})\\s+)(?:"[^"]*"|'[^']*'|[^\\s]+)`, 'gi');
+const TOKEN_SHAPE = /\b(?:sk-[\w-]{8,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9_]+|xoxb-[A-Za-z0-9-]+|[0-9a-f]{32,}|[A-Za-z0-9+/_-]{40,}={0,2})\b/gi;
+
+function safePreview(text: string, limit: number): string {
+  const plain = text.replace(/[\x00-\x1f\x7f]/g, ' ').replace(/\s+/g, ' ').trim();
+  const redacted = plain.replace(ASSIGNED_SECRET, '$1***').replace(FLAG_SECRET, '$1***')
+    .replace(TOKEN_SHAPE, '***');
+  return redacted.length > limit ? `${redacted.slice(0, limit)}...` : redacted;
+}
+
+/** Mirrors the old card's compact input fields, with control characters and sensitive values removed. */
+function permissionPreview(request: PermissionRequest): string {
+  const input = request.toolInput;
+  let value = '';
+  if (typeof input['command'] === 'string') value = safePreview(input['command'], 40);
+  else if (typeof input['file_path'] === 'string') {
+    const parts = input['file_path'].replace(/\\/g, '/').split('/');
+    value = safePreview(parts.length > 2 ? `.../${parts.slice(-2).join('/')}` : input['file_path'], 50);
+  } else if (typeof input['pattern'] === 'string') value = safePreview(input['pattern'], 30);
+  else value = Object.entries(input).slice(0, 3).map(([key, entry]) => {
+    if (/secret|token|password|key|credential/i.test(key)) return `${key}: [redacted]`;
+    if (typeof entry === 'string') return `${key}: ${safePreview(entry, 30)}`;
+    if (typeof entry === 'number' || typeof entry === 'boolean') return `${key}: ${entry}`;
+    return `${key}: [structured input]`;
+  }).join(', ');
+  const description = safePreview(request.description, 50);
+  return [value ? `Input: ${value}` : 'Input: {}', description && `Description: ${description}`]
+    .filter(Boolean).join(' · ').slice(0, 160);
+}
+
 /** Reconciles authoritative prompt queues with the shared attention model. */
 @Injectable({ providedIn: 'root' })
 export class ChatAttentionSourceService {
@@ -24,10 +57,12 @@ export class ChatAttentionSourceService {
   private readonly tabs = inject(TabManagerService);
   private readonly voice = inject(CommandCenterVoiceSessionService);
   private readonly notifications = inject(NotificationService);
+  private readonly vscode = inject(VSCodeService);
   private readonly document = inject(DOCUMENT);
   private readonly destroyRef = inject(DestroyRef);
   private readonly surfaceRouters = inject(SURFACE_FOCUS_ROUTER, { optional: true }) ?? [];
   private readonly live = new Map<string, LiveAttention>();
+  private readonly sessionWorkspaces = new Map<string, string>();
   private generationSequence = 0;
 
   constructor() {
@@ -46,6 +81,8 @@ export class ChatAttentionSourceService {
       this.permissions.routingTargetRevision();
       this.agents.pendingPermissions();
       this.tabs.tabs();
+      this.tabs.activeWorkspacePath$();
+      this.vscode.config();
       this.tabs.activeTabId();
       this.tabs.visibleTabIds();
       untracked(() => this.reconcile());
@@ -116,7 +153,9 @@ export class ChatAttentionSourceService {
   ): void {
     const owner = tabId ? this.tabs.findTabByIdAcrossWorkspaces(tabId) :
       sessionId ? this.tabs.findTabBySessionIdAcrossWorkspaces(sessionId) : null;
-    const workspacePath = owner?.workspacePath ?? '';
+    if (owner?.workspacePath && sessionId) this.sessionWorkspaces.set(sessionId, owner.workspacePath);
+    const workspacePath = owner?.workspacePath ?? (sessionId ? this.sessionWorkspaces.get(sessionId) : undefined) ?? '';
+    const labelPath = workspacePath || (owner ? this.tabs.activeWorkspacePath ?? this.vscode.config().workspaceRoot ?? '' : '');
     const key = attentionRequestKey(kind, requestId);
     if (next.has(key)) return;
     const previous = this.live.get(key);
@@ -126,20 +165,43 @@ export class ChatAttentionSourceService {
         ? entry.target.request.requestId : entry.target.request.id) === requestId);
     const generation = previous?.item.generation ?? ++this.generationSequence;
     const resolvedSessionId = sessionId || owner?.tab.claudeSessionId || owner?.tab.id;
+    const tab = owner?.tab;
+    const sessionTitle = tab?.title?.trim() && tab.titleOrigin !== 'default' &&
+      !/^(new chat|new session|untitled|permission required|question needs an answer|lane permission required)$/i.test(tab.title.trim()) ? tab.title.trim() : '';
+    const safeTitle = sessionTitle && !isUnsafeAttentionContext(sessionTitle)
+      ? sessionTitle.slice(0, 80) : '';
+    const provider = tab?.providerId === 'claude-cli' ? 'Claude'
+      : tab?.providerId === 'ptah-cli' ? 'Ptah CLI'
+      : tab?.providerId === 'vscode-lm' ? 'VS Code' : '';
+    const toolName = typeof target.request.toolName === 'string' ? target.request.toolName.trim() : '';
+    const safeTool = /^[\w .:-]{1,50}$/.test(toolName) ? toolName : '';
+    const question = target.kind === 'question'
+      ? target.request.questions[0]?.question.replace(/\s+/g, ' ').trim() ?? '' : '';
+    const safeQuestion = question && !isUnsafeAttentionContext(question)
+      ? question.length > 80 ? `${question.slice(0, 79)}…` : question : '';
+    const context = attentionContext([provider, safeTitle,
+      target.kind === 'question' ? safeQuestion : safeTool ? `Tool: ${safeTool}` : '']);
     const surfaceOwner = this.surfaceRouters.find(router =>
       !!resolvedSessionId && router.canFocus(resolvedSessionId));
     const surfaceOwned = !!surfaceOwner && (surfaceMode || !owner);
     const open = !!resolvedSessionId && (surfaceOwned || (!!owner && !surfaceMode));
     const actions = kind === 'question'
       ? [{ id: 'answer', label: 'Answer', ...(!open && { disabledReason: 'Session unavailable' }) }]
-      : [{ id: 'allow', label: 'Allow', ...((!tabId || !canAllow) && { disabledReason: !tabId ? 'Session unavailable' : 'Unknown tool' }) },
-          { id: 'deny', label: 'Deny', ...(!tabId && { disabledReason: 'Session unavailable' }) }];
-    actions.push({ id: 'open', label: 'Open', ...(!open && { disabledReason: 'Session unavailable' }) });
+      : [{ id: 'allow', label: 'Allow', ...(kind !== 'permission' && (!tabId || !canAllow) && { disabledReason: !tabId ? 'Session unavailable' : 'Unknown tool' }) },
+          ...(kind === 'permission' ? [{ id: 'always_allow', label: 'Always allow' }] : []),
+          { id: 'deny', label: 'Deny', ...(kind !== 'permission' && !tabId && { disabledReason: 'Session unavailable' }) }];
+    if (kind === 'permission') actions.push({ id: 'deny_with_message', label: 'Deny with message' });
+    actions.push({ id: 'open', label: surfaceOwned || surfaceMode ? 'Open' : 'Show in canvas',
+      ...(!open && { disabledReason: 'Session unavailable' }) });
     const item: AttentionItem = {
       key, generation, kind, source: 'chat', workspacePath,
-      workspaceName: workspacePath ? workspaceLabelFromPath(workspacePath) : 'Unknown workspace',
+      workspaceName: labelPath ? workspaceLabelFromPath(labelPath) : 'Unknown workspace',
       sessionId: resolvedSessionId || undefined, tabId: owner?.tab.id, ownerSurface: surfaceOwned || surfaceMode ? 'surface' : 'chat',
-      severity: 'warning', title, actions, actionable: true,
+      severity: 'warning', title, context: context || undefined,
+      sessionTitle: safeTitle || undefined, provider: provider || undefined,
+      detail: target.kind === 'question' ? safeQuestion || undefined : safeTool ? `Tool: ${safeTool}` : undefined,
+      permissionPreview: target.kind === 'permission' ? permissionPreview(target.request) : undefined,
+      actions, actionable: true,
       soundEligible: !sameRequestMoved && !this.voice.isActive(owner?.tab.id ?? ''),
     };
     next.set(key, { item, target });
