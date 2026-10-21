@@ -53,9 +53,9 @@ Hover, focus, and dismiss still call `pauseSnackbar` / `resumeSnackbar` / `dismi
 
 ## Check 4 — Secret fixtures are still secret-shaped at runtime
 
-`chat-attention-source.service.spec.ts:156` joins to `run password=hunter2 --token abc123`. `ASSIGNED_SECRET` / `FLAG_SECRET` (`chat-attention-source.service.ts:20-22`) rewrite that to `password=***` and `--token ***`. The expectation at spec `:159` is `Input: run password=*** --token ***`, which fits the 40-character command cap (`:36`). Spec `:160` joins to `echo sk-1234567890abcdef`. `TOKEN_SHAPE` (`:23`) requires `sk-` plus 8 word characters; that value has 16 and becomes `Input: echo ***` (spec `:163`).
+`chat-attention-source.service.spec.ts:156` joins to `run password=<redacted> --token <redacted>`. `ASSIGNED_SECRET` / `FLAG_SECRET` (`chat-attention-source.service.ts:20-22`) rewrite that to `password=***` and `--token ***`. The expectation at spec `:159` is `Input: run password=*** --token ***`, which fits the 40-character command cap (`:36`). Spec `:160` joins to `echo sk-<redacted>`. `TOKEN_SHAPE` (`:23`) requires `sk-` plus 8 word characters; that value has 16 and becomes `Input: echo ***` (spec `:163`).
 
-`chat-attention-host-message-handler.service.spec.ts:164` joins to `sk-1234567890abcdef`. `isUnsafeAttentionContext` uses `\bsk-[\w-]{8,}\b` (`attention-context.util.ts:1-3`). The spec expects the title to be replaced with `Permission required`, `sessionTitle` unset, and context `Claude` (`:168-170`). The fixtures still exercise redaction. No contiguous secret literal remains in those two specs.
+`chat-attention-host-message-handler.service.spec.ts:164` joins to `sk-<redacted>`. `isUnsafeAttentionContext` uses `\bsk-[\w-]{8,}\b` (`attention-context.util.ts:1-3`). The spec expects the title to be replaced with `Permission required`, `sessionTitle` unset, and context `Claude` (`:168-170`). The fixtures still exercise redaction. No contiguous secret literal remains in those two specs.
 
 ## Check 5 — Regressions
 

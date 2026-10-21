@@ -3,7 +3,7 @@
 ## Defect 1: Tool input preview
 
 - `libs/frontend/chat/src/lib/services/chat-attention-source.service.ts:20-49`: The preview now shortens file paths using the removed card's last-two-segments rule, keeps path-bearing commands and patterns visible, and adds an ellipsis when input exceeds the compact limit. It no longer applies the context-label path filter to tool input. It strips control characters and redacts known token shapes plus `key=value` and `--flag value` for password, passwd, secret, token, api_key/api-key, and auth before truncation. The description uses the same redaction.
-- `libs/frontend/chat/src/lib/services/chat-attention-source.service.spec.ts:138-170`: Added assertions for `src/main.ts`, a shortened absolute Windows path, `rm -rf /tmp/foo`, `password=hunter2`, `--token abc123`, and `sk-...`.
+- `libs/frontend/chat/src/lib/services/chat-attention-source.service.spec.ts:138-170`: Added assertions for `src/main.ts`, a shortened absolute Windows path, `rm -rf /tmp/foo`, `password=<redacted>`, `--token <redacted>`, and `sk-...`.
 
 ## Defect 2: Deny with message
 

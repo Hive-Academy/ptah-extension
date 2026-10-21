@@ -693,7 +693,7 @@ export class CanvasRailBoardComponent {
       const sample = {
         key: `${density}|${collapsed}`,
         order: cards.map((card) => card.dataset['tabId'] ?? ''),
-        heights: cards.map((card) => card.getBoundingClientRect().height - (Number(card.dataset['attentionCount']) ? 88 : 0)),
+        heights: cards.map((card) => card.getBoundingClientRect().height - Number(card.dataset['attentionExtra'] ?? 0)),
       };
       if (cards.length !== tiles.length) return;
       const result = checkRailGeometry(
