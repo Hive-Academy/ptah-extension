@@ -23,6 +23,19 @@ const combos = [
 ];
 
 async function applyTheme(win, theme, mode, accent) {
+  // Non-eager themes live in the deferred theme-extra.css; link it like ThemeService does.
+  await win.evaluate(
+    () =>
+      new Promise((resolve) => {
+        if (document.querySelector('link[data-shot-extra]')) return resolve();
+        const l = document.createElement('link');
+        l.rel = 'stylesheet';
+        l.href = 'theme-extra.css';
+        l.setAttribute('data-shot-extra', '');
+        l.onload = l.onerror = () => resolve();
+        document.head.appendChild(l);
+      }),
+  );
   await win.evaluate(
     ([t, m, a]) => {
       const glass = ['ptah-glass', 'ptah-glass-light', 'dark', 'nord', 'cupcake', 'dracula'];

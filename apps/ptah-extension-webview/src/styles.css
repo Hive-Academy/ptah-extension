@@ -2534,6 +2534,38 @@ Session-related buttons use the brand gold, view pills get elegant styling
 END OF ANUBIS DESIGN SYSTEM
 ============================================================================ */
 
+/* lofi polish (flat, non-glass). The workspace sidebar already gets its
+   tint and edge from bg-surface-1 / border-r. */
+:root[data-theme='lofi'] ptah-canvas-rail > aside[aria-label='Sessions'] {
+  background: oklch(var(--b2));
+  border-inline-start: 1px solid var(--surface-border);
+  border-inline-end: 1px solid var(--surface-border);
+}
+:root[data-theme='lofi'] .electron-shell-body > ptah-sidebar-tab button {
+  border-color: var(--surface-border);
+  background: oklch(var(--b2));
+}
+:root[data-theme='lofi'] .electron-shell-body > ptah-sidebar-tab button:hover {
+  background: oklch(var(--b3));
+}
+:root[data-theme='lofi'] [data-testid='canvas-hero-new-session'].btn-primary {
+  background: oklch(var(--p));
+  border-color: oklch(var(--p));
+  color: oklch(var(--pc));
+}
+:root[data-theme='lofi'] [data-testid='canvas-hero-new-session'].btn-primary:hover {
+  background: oklch(var(--p) / 0.88);
+}
+:root[data-theme='lofi'] ptah-project-setup-card > section {
+  background: oklch(var(--b1));
+  border: 1px solid var(--surface-border-strong);
+  border-radius: var(--rounded-box);
+  box-shadow: none;
+}
+:root[data-theme='lofi'] .electron-tabs.tabs-lifted > .tab {
+  --tab-bg: oklch(var(--b1));
+}
+
 @layer components {
 /* ==========================================================================
    PTAH GLASS LAYER v2 — one theme-agnostic glass recipe for DaisyUI v4.
