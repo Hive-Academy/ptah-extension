@@ -26,6 +26,7 @@ describe('renderSessionChildContract', () => {
       You are child session "parser fix", started by the parent session orchestrator (11111111-2222-4333-8444-555555555555) with ptah_session_start.
       You work on branch feat/parser-fix in the git worktree /repo/.claude-worktrees/feat-parser-fix-0123456789ab. Stay inside that worktree.
       You run unattended in your own tab; the user may also type there. AskUserQuestion and plan mode are unavailable: decide, note the assumption, and continue.
+      The host attaches an MCP server named \`ptah\` with the tools \`ptah_agent_report\`, \`ptah_agent_list\`, \`ptah_agent_spawn\` and \`ptah_agent_message\`. Call the exact tool identifier your tool list shows for that server. It can be bare, server-prefixed, or reachable only through an MCP search or call tool; in that case use server \`ptah\` and the identifier the search returns. Do not invent prefixes. If no connected server is named \`ptah\`, put your report in your final message instead and continue the task.
       Report progress, decisions and blockers to the parent with ptah_agent_report. If a report is refused because the parent is not live, repeat its content in your final message of the turn so the parent reads it later.
       You cannot start sessions of your own (ptah_session_start is refused for child sessions).
       Bash commands that start with one of \`git status\`, \`npx nx\` run without asking. Any other command waits for approval in your tab and is denied after 1 minute; prefer the allowed commands.

@@ -1493,6 +1493,8 @@ export class AgentRpcHandlers {
           ? { originalTask: prepared.originalTask }
           : {}),
         agentId,
+        mcpPort: this.ptahCliRegistry.getMcpPort(),
+        expectsMcp: true,
       },
     );
     spawnResult.setAgentId(result.agentId);

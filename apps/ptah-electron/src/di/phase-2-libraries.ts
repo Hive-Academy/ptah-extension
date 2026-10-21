@@ -32,7 +32,7 @@ import {
   registerWorkspaceIntelligenceServices,
   registerTypeScriptDiagnosticsProvider,
 } from '@ptah-extension/workspace-intelligence';
-import { TreeSitterCodeOutliner } from '@ptah-extension/vscode-lm-tools';
+import { TreeSitterCodeOutliner, mcpAttachmentObserver } from '@ptah-extension/vscode-lm-tools';
 import {
   registerSdkServices,
   wireAgentAdapterAliases,
@@ -53,6 +53,7 @@ import {
 import { registerUsageAnalytics } from '@ptah-extension/usage-analytics';
 import {
   registerCliAgentRuntimeServices,
+  CLI_AGENT_RUNTIME_TOKENS,
   createContainerHarnessCliDetector,
 } from '@ptah-extension/cli-agent-runtime';
 import {
@@ -294,6 +295,7 @@ export function registerPhase2Libraries(
     useToken: LANE_ROUTING_TOKENS.FAILURE_CLASSIFIER,
   });
   registerCliAgentRuntimeServices(container, logger);
+  container.register(CLI_AGENT_RUNTIME_TOKENS.MCP_ATTACHMENT_PROBE, { useValue: mcpAttachmentObserver });
 
   wireAgentAdapterAliases(container);
   try {

@@ -382,6 +382,7 @@ function createManager(deps: {
   harnessPreflight: { ensure: jest.Mock } | null;
   mcpServerStatus: { getPort: jest.Mock<number | null, []> };
   hostAttention?: HostAttentionCoordinator;
+  attachmentProbe?: import('./mcp-attachment-probe.port').IMcpAttachmentProbe;
 }): ManagerHarness {
   type EnvironmentArgs = ConstructorParameters<typeof AgentSpawnEnvironment>;
   type ManagerArgs = ConstructorParameters<typeof AgentProcessManager>;
@@ -440,6 +441,7 @@ function createManager(deps: {
     laneOwners as unknown as ManagerArgs[9],
     planLimits as unknown as ManagerArgs[10],
     deps.hostAttention,
+    deps.attachmentProbe,
   );
   return {
     manager,
@@ -540,6 +542,130 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       expect((sdkAdapter.runSdk as jest.Mock).mock.calls[0][0].mcpPort).toBe(
         51821,
       );
+    });
+
+    it('records a no-port warning without failing an MCP-capable lane', async () => {
+      getMcpPort.mockReturnValue(null);
+      const result = await manager.spawn({
+        task: 'Use Ptah tools',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+      });
+      expect(result.status).toBe('running');
+      expect(manager.getStatus(result.agentId)).toMatchObject({
+        mcpAttachmentWarning: expect.stringContaining('(no-port)'),
+      });
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[AgentProcessManager] MCP attachment warning',
+        expect.objectContaining({ cause: 'no-port', agentId: result.agentId }),
+      );
+      sdkControls.resolve(0);
+    });
+
+    it('records no-port for a Ptah CLI SdkHandle', async () => {
+      const controls = createMockSdkHandle();
+      const result = await manager.spawnFromSdkHandle(controls.handle, {
+        task: 'Use tools',
+        cli: 'ptah-cli',
+        workingDirectory: '/workspace/root',
+        expectsMcp: true,
+      });
+      expect(manager.getStatus(result.agentId)).toMatchObject({
+        mcpAttachmentWarning: expect.stringContaining('(no-port)'),
+      });
+      controls.resolve(0);
+      await controls.handle.done;
+      await Promise.resolve();
+      expect(
+        laneCompletion.signal.mock.calls[0][0].mcpAttachmentWarning,
+      ).toContain('(no-port)');
+    });
+
+    it('records a config write failure in status and completion', async () => {
+      const controls = createMockSdkHandle();
+      const handle = { ...controls.handle, mcpConfigWriteFailed: true };
+      const result = await manager.spawnFromSdkHandle(handle, {
+        task: 'Use tools',
+        cli: 'ptah-cli',
+        workingDirectory: '/workspace/root',
+        mcpPort: 51820,
+        expectsMcp: true,
+      });
+      expect(manager.getStatus(result.agentId)).toMatchObject({
+        mcpAttachmentWarning: expect.stringContaining('(config-write-failed)'),
+      });
+      controls.resolve(0);
+      await handle.done;
+      await Promise.resolve();
+      expect(
+        laneCompletion.signal.mock.calls[0][0].mcpAttachmentWarning,
+      ).toContain('(config-write-failed)');
+    });
+
+    it('clears a handle timeout warning when attachment arrives later', async () => {
+      getMcpPort.mockReturnValue(51821);
+      let notifyTimeout: (() => void) | undefined;
+      let attachment:
+        import('./mcp-attachment-probe.port').McpAttachment | undefined;
+      let resolveAttachment: (
+        entry: import('./mcp-attachment-probe.port').McpAttachment | undefined,
+      ) => void = () => undefined;
+      const probe: import('./mcp-attachment-probe.port').IMcpAttachmentProbe = {
+        get: () => attachment,
+        waitFor: () =>
+          new Promise((resolve) => {
+            resolveAttachment = resolve;
+          }),
+      };
+      const controls = createMockSdkHandle();
+      const handle = {
+        ...controls.handle,
+        onMcpAttachmentTimeout: (callback: () => void) => {
+          notifyTimeout = callback;
+        },
+      };
+      (sdkAdapter.runSdk as jest.Mock).mockResolvedValue(handle);
+      const harness = createManager({
+        logger,
+        cliDetection,
+        workspaceProvider: createMockWorkspaceProvider(),
+        reasoningSettings: { effort: { get: reasoningEffortGet } },
+        harnessPreflight: null,
+        mcpServerStatus: { getPort: getMcpPort },
+        hostAttention,
+        attachmentProbe: probe,
+      });
+      const result = await harness.manager.spawn({
+        task: 'Use tools',
+        cli: 'codex',
+        workingDirectory: '/workspace/root',
+      });
+      await jest.advanceTimersByTimeAsync(15_000);
+      expect(harness.manager.getStatus(result.agentId)).not.toHaveProperty(
+        'mcpAttachmentWarning',
+      );
+      notifyTimeout?.();
+      expect(harness.manager.getStatus(result.agentId)).toMatchObject({
+        mcpAttachmentWarning: expect.stringContaining('(handshake-timeout)'),
+      });
+      await jest.advanceTimersByTimeAsync(5_000);
+      attachment = {
+        agentId: result.agentId,
+        port: 51821,
+        method: 'initialize',
+        time: Date.now(),
+      };
+      resolveAttachment(attachment);
+      await Promise.resolve();
+      expect(harness.manager.getStatus(result.agentId)).not.toHaveProperty(
+        'mcpAttachmentWarning',
+      );
+      controls.resolve(0);
+      await controls.handle.done;
+      await Promise.resolve();
+      expect(
+        harness.laneCompletion.signal.mock.calls[0][0].mcpAttachmentWarning,
+      ).toBeUndefined();
     });
 
     it('does not resolve an MCP port for adapters that opt out', async () => {
@@ -684,6 +810,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
         ptahCliName: 'Moonshot',
         ptahCliId: 'ptah-cli-1',
         roleStamp: { role: 'code-style-reviewer', ...PTAH_CLI_ROLE_DELIVERY },
+        expectsMcp: false,
       });
 
       const expected = {
@@ -728,6 +855,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
         task: 'Review the batch',
         cli: 'ptah-cli',
         workingDirectory: '/workspace/root',
+        expectsMcp: false,
       });
 
       const record = manager.getStatus(result.agentId);
@@ -1229,6 +1357,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
           resumeSessionId: prepared.resumeSessionId,
           resumeDecision: prepared.resumeDecision,
           originalTask: prepared.originalTask,
+          expectsMcp: false,
         });
 
         expect(result.resumeDecision).toEqual({
@@ -1838,7 +1967,11 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
       const status = manager.getStatus(result.agentId);
       expect(status).toHaveProperty('status', 'failed');
-      expect(presentLaneFailure).toHaveBeenCalledWith(result.agentId, 'parent-session', expect.any(Number));
+      expect(presentLaneFailure).toHaveBeenCalledWith(
+        result.agentId,
+        'parent-session',
+        expect.any(Number),
+      );
     });
 
     it('should set status to failed on SDK done promise rejection', async () => {
@@ -2255,6 +2388,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
             workingDirectory: '/workspace/root',
             ptahCliName: 'Lane',
             ptahCliId: 'ptah-cli-1',
+            expectsMcp: false,
           },
         );
         if (laneOwner) manager.recordQuotaOwner(agentId, laneOwner);

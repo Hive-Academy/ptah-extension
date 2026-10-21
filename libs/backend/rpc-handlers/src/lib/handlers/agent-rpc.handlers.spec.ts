@@ -96,6 +96,7 @@ function makeHarness(): Harness {
       setAgentId: jest.fn(),
     }),
     listAgents: jest.fn().mockResolvedValue([]),
+    getMcpPort: jest.fn().mockReturnValue(undefined),
   };
 
   const processManager = {

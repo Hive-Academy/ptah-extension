@@ -18,7 +18,10 @@
  * lane that reports gives the orchestrator the account a file listing cannot.
  */
 
+import { PTAH_MCP_TOOL_GUIDANCE } from './ptah-mcp-tool-guidance.constant';
+
 export interface LaneCompletionContractInput {
+  readonly canUsePtahMcp?: boolean;
   readonly taskFolder?: string;
   readonly deliverables?: readonly string[];
 }
@@ -51,7 +54,9 @@ export function renderLaneCompletionContract(
   }
 
   lines.push(
-    'Then call `ptah_agent_report` once with: what you produced, the absolute ' +
+    input.canUsePtahMcp === false
+      ? 'Put what you produced, the absolute path of each file, and anything you could not do in your final message; Ptah MCP reporting is unavailable.'
+      : PTAH_MCP_TOOL_GUIDANCE + '\nThen call `ptah_agent_report` once with: what you produced, the absolute ' +
       'path of each file you wrote, and anything you could NOT do. That call ' +
       'reaches the session that spawned you immediately — it is how the ' +
       'orchestrator learns what you did without reading your whole output. ' +

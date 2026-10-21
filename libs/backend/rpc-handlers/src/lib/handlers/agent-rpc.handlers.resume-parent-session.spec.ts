@@ -95,7 +95,11 @@ const CLI_SESSION_ID = 'cli-session-uuid';
 interface Harness {
   handlers: AgentRpcHandlers;
   rpcHandler: MockRpcHandler;
-  registry: { spawnAgent: jest.Mock; listAgents: jest.Mock };
+  registry: {
+    spawnAgent: jest.Mock;
+    listAgents: jest.Mock;
+    getMcpPort: jest.Mock;
+  };
   processManager: {
     spawnFromSdkHandle: jest.Mock;
     spawn: jest.Mock;
@@ -116,6 +120,7 @@ function makeHarness(): Harness {
       setAgentId: jest.fn(),
     }),
     listAgents: jest.fn().mockResolvedValue([]),
+    getMcpPort: jest.fn().mockReturnValue(51820),
   };
 
   const processManager = {
@@ -241,6 +246,17 @@ describe('AgentRpcHandlers — agent:resumeCliSession parent session', () => {
   beforeEach(() => {
     mockReaddir.mockReset();
     mockAccess.mockReset();
+  });
+
+  it('passes the configured MCP port to the resumed handle tracker', async () => {
+    const h = makeHarness();
+    const result = await resume(h, PARENT_SESSION_ID);
+
+    expect(result.success).toBe(true);
+    expect(h.processManager.spawnFromSdkHandle.mock.calls[0][1]).toMatchObject({
+      mcpPort: 51820,
+      expectsMcp: true,
+    });
   });
 
   it('threads parentSessionId into PtahCliRegistry.spawnAgent, not just the process manager', async () => {
