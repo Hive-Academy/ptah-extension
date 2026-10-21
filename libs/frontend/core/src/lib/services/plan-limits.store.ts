@@ -186,8 +186,8 @@ export class PlanLimitsStore implements MessageHandler {
       if (response.isSuccess() && isPlanLimitsSnapshot(response.data)) {
         this.apply(response.data);
         if (response.data.discoveryIncomplete && this.incompleteRetryCount < 3) {
-          // degradation-audit: reported - a bounded follow-up recovers CLI
-          // owners omitted while cold detection was still in progress.
+          // A bounded follow-up recovers CLI owners omitted while cold
+          // detection was still in progress.
           this.incompleteRetryCount++;
           this.incompleteRetryTimer = setTimeout(() => {
             this.incompleteRetryTimer = null;
