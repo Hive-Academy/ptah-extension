@@ -164,6 +164,12 @@ export type {
   McpSubagentRootRetention,
 } from './interfaces/mcp-subagent-root-registrar.interface';
 export type { ICallerWorkspaceResolver } from './interfaces/caller-workspace-resolver.interface';
+export type {
+  IArtifactStore,
+  ArtifactScope,
+  ArtifactStoreErrorCode,
+} from './interfaces/artifact-store.interface';
+export { ArtifactStoreError } from './interfaces/artifact-store.interface';
 export type { ITracer } from './interfaces/tracer.interface';
 export type {
   IProcessSpawner,

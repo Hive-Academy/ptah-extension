@@ -25,6 +25,10 @@ export * from './rpc/rpc-editor.types';
 export * from './rpc/rpc-memory.types';
 export * from './rpc/rpc-mem.types';
 export * from './rpc/rpc-corpus.types';
+import type {
+  ArtifactListRequest,
+  ArtifactListResponse,
+} from '../../mcp-apps-contracts/artifact.types';
 
 export * from './rpc/rpc-indexing.types';
 
@@ -774,6 +778,8 @@ import type {
  * If a method is not in this registry, it CANNOT be called from frontend.
  */
 export interface RpcMethodRegistry {
+  'artifacts:list': { params: ArtifactListRequest; result: ArtifactListResponse };
+  'artifacts:openLink': { params: { url: string }; result: { opened: boolean } };
   'analytics:spendSummary': { params: UsageSummaryParams; result: UsageSummary };
   'attention:getSnapshot': {
     params: AttentionGetSnapshotParams;
@@ -3066,6 +3072,8 @@ export type RpcMethodName = keyof RpcMethodRegistry;
  * verifyRpcRegistration uses set-membership checks only.
  */
 const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
+  'artifacts:list': true,
+  'artifacts:openLink': true,
   'analytics:spendSummary': true,
   'attention:getSnapshot': true,
   'chat:start': true,

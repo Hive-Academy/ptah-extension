@@ -56,4 +56,8 @@ describe('Electron RPC surface', () => {
       manifestMethods.length,
     );
   });
+
+  it('serves artifact listing and external link opening', () => {
+    expect(surface.registered).toEqual(expect.arrayContaining(['artifacts:list', 'artifacts:openLink']));
+  });
 });

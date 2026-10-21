@@ -712,6 +712,8 @@ describe('Electron DI — workspace watcher (TASK_2026_437)', () => {
 
     expect(c.isRegistered(PLATFORM_TOKENS.WORKSPACE_WATCHER)).toBe(true);
     expect(() => c.resolve(PLATFORM_TOKENS.WORKSPACE_WATCHER)).not.toThrow();
+    expect(c.isRegistered(PLATFORM_TOKENS.ARTIFACT_STORE)).toBe(true);
+    expect(c.resolve(PLATFORM_TOKENS.ARTIFACT_STORE)).toBeDefined();
   });
 });
 

@@ -42,6 +42,7 @@ import {
  * Security: Prevents unauthorized method registration and injection attacks
  */
 export const ALLOWED_METHOD_PREFIXES = [
+  'artifacts:',
   'attention:',
   'session:',
   'chat:',

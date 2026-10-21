@@ -105,6 +105,11 @@ class RailDisplayPanelStub {
   readonly viewStateChange = output<unknown>();
   readonly openFile = output<string>();
   readonly review = output<void>();
+  readonly artifacts = input<readonly unknown[]>([]);
+  readonly open = input(false);
+  readonly fullscreenArtifactId = input<string | null>(null);
+  readonly fullscreenChange = output<unknown>();
+  readonly openExternal = output<string>();
 }
 @Component({
   selector: 'ptah-agent-monitor-panel',
@@ -384,7 +389,7 @@ describe('CanvasDetailTranscriptComponent visibility', () => {
       jest.useFakeTimers();
       const actions = injector.get(SESSION_CARD_ACTIONS);
       const status = fixture.nativeElement.querySelector(
-        '[role="status"]',
+        ':scope > [role="status"]',
       ) as HTMLElement;
       expect(status).toBeTruthy();
       expect(status.classList.contains('sr-only')).toBe(false);
@@ -419,7 +424,7 @@ describe('CanvasDetailTranscriptComponent visibility', () => {
       jest.advanceTimersByTime(4000);
       fixture.detectChanges();
       expect(status.querySelector('span')).toBeNull();
-      expect(fixture.nativeElement.querySelector('[role="status"]')).toBe(
+      expect(fixture.nativeElement.querySelector(':scope > [role="status"]')).toBe(
         status,
       );
       const scheduled = jest.spyOn(global, 'setTimeout');

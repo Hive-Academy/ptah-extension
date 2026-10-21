@@ -87,6 +87,7 @@ import { HistoryPagingService } from '../../services/chat-store/history-paging.s
 import { ChangeSetActionsService } from '../../services/change-set/change-set-actions.service';
 import { DisplaySheetComponent } from '../organisms/display-sheet/display-sheet.component';
 import { DisplayDockState } from '../../services/display-dock/display-dock.state';
+import { ArtifactStore } from '../../services/artifact.store';
 import { SESSION_CARD_ACTIONS, SESSION_VISIBLE } from '../../tokens/session-context.token';
 
 @Component({
@@ -287,6 +288,10 @@ describe('ChatViewComponent keep-alive — workspace-switch transcript survival'
 })
 class StubDisplayPanelComponent {
   readonly surfaces = input<readonly DisplaySurface[]>([]);
+  readonly artifacts = input<readonly unknown[]>([]);
+  readonly open = input(true);
+  readonly fullscreenArtifactId = input<string | null>(null);
+  readonly fullscreenChange = output<boolean>();
   readonly summary = input<unknown>(null);
   readonly summaryTurnKey = input('');
   readonly selectedKey = input<string | null>(null);
@@ -408,6 +413,16 @@ function mountRail(
     deferBlockBehavior: deferBehavior,
     providers: [
       provideSurfaceActiveTesting(),
+      {
+        provide: ArtifactStore,
+        useValue: {
+          records: signal({}),
+          lastError: signal(null),
+          recordById: () => null,
+          forSession: () => signal([]),
+          reload: jest.fn(),
+        },
+      },
       {
         provide: ChatStore,
         useValue: {
@@ -666,4 +681,3 @@ describe('Rail ChatView per-pane display dock', () => {
     }
   });
 });
-
