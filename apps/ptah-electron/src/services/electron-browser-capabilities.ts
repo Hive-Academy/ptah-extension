@@ -15,7 +15,16 @@ import type {
   IBrowserCapabilities,
   BrowserSessionOptions,
 } from '@ptah-extension/vscode-lm-tools';
-import { ScreenRecorderService } from '@ptah-extension/vscode-lm-tools';
+import {
+  ESCAPED_PAGE_MESSAGE,
+  evaluateFileUrl,
+  FILE_URL_BLOCKED_MESSAGE,
+  fileUrlFailsClosedLexically,
+  readContainedWorkspaceFile,
+  sameWorkspaceRoots,
+  ScreenRecorderService,
+  toolMayReadPage,
+} from '@ptah-extension/vscode-lm-tools';
 
 /** Network request entry stored in ring buffer */
 interface NetworkEntry {
@@ -56,11 +65,60 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
   private _viewport = { ...DEFAULT_VIEWPORT };
   /** Pending session options set by configureSession(), consumed by createSession() */
   private _pendingOptions: BrowserSessionOptions = {};
+  /** Roots snapshotted when the current window was created. */
+  private sessionRoots: readonly string[] = Object.freeze([]);
+  /** Host roots changed; the next ensureSession() opens a new window. */
+  private rootsDirty = false;
+  /** Bumps when requested roots differ from the live snapshot. */
+  private rootsGeneration = 0;
+  /** Generation whose roots were published on the live window. */
+  private appliedRootsGeneration = 0;
+  /** Follow-on http(s) localhost rule. Default matches validateBrowserUrl. */
+  private allowLocalhost = false;
   constructor(private readonly getRecordingDir: () => string = () => '') {}
 
   configureSession(options: BrowserSessionOptions): void {
-    this._pendingOptions = { ...this._pendingOptions, ...options };
+    if (options.allowLocalhost !== undefined) {
+      this.allowLocalhost = options.allowLocalhost;
+    }
+    const frozenRoots = options.workspaceRoots
+      ? Object.freeze([...options.workspaceRoots])
+      : undefined;
+    this._pendingOptions = {
+      ...this._pendingOptions,
+      ...options,
+      ...(frozenRoots ? { workspaceRoots: frozenRoots } : {}),
+    };
+    const nextRoots = this._pendingOptions.workspaceRoots ?? [];
+    if (!sameWorkspaceRoots(nextRoots, this.sessionRoots)) {
+      this.rootsGeneration += 1;
+      if (this.connected) {
+        this.rootsDirty = true;
+      }
+    }
   }
+
+  private readonly handleWillNavigate = (
+    event: Electron.Event,
+    url: string,
+  ): void => {
+    if (fileUrlFailsClosedLexically(url)) {
+      event.preventDefault();
+    }
+  };
+
+  private readonly handleWillRedirect = (
+    event: Electron.Event,
+    url: string,
+  ): void => {
+    if (fileUrlFailsClosedLexically(url)) {
+      event.preventDefault();
+    }
+  };
+
+  private readonly handleWillAttachWebview = (event: Electron.Event): void => {
+    event.preventDefault();
+  };
 
   async navigate(
     url: string,
@@ -69,6 +127,10 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     try {
       await this.ensureSession();
       this.resetInactivityTimer();
+      const destinationBlock = await this.blockFileDestination(url);
+      if (destinationBlock) {
+        return { success: false, url: '', title: '', error: destinationBlock };
+      }
 
       const win = this.window;
       if (!win) {
@@ -99,6 +161,21 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
 
       const title = win.webContents.getTitle();
       const finalUrl = win.webContents.getURL();
+      if (
+        !(await toolMayReadPage(
+          finalUrl,
+          this.sessionRoots,
+          this.allowLocalhost,
+        ))
+      ) {
+        await this.blankEscapedPage();
+        return {
+          success: false,
+          url: '',
+          title: '',
+          error: ESCAPED_PAGE_MESSAGE,
+        };
+      }
 
       return { success: true, url: finalUrl, title };
     } catch (error) {
@@ -120,6 +197,10 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     try {
       await this.ensureSession();
       this.resetInactivityTimer();
+      const escaped = await this.rejectIfPageEscaped();
+      if (escaped) {
+        return { data: '', format: fmt, error: escaped };
+      }
 
       const result = await this.sendCDP('Page.captureScreenshot', {
         format: fmt === 'png' ? 'png' : fmt === 'webp' ? 'webp' : 'jpeg',
@@ -144,6 +225,10 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     try {
       await this.ensureSession();
       this.resetInactivityTimer();
+      const escaped = await this.rejectIfPageEscaped();
+      if (escaped) {
+        return { value: null, type: 'error', error: escaped };
+      }
 
       const result = await this.sendCDP('Runtime.evaluate', {
         expression,
@@ -303,10 +388,23 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
       };
     }
     this.resetInactivityTimer();
+    if (!(await this.currentPageAllowed())) {
+      return { requests: [] };
+    }
     const entries = this.networkEntries.slice(
       -Math.min(limit, MAX_NETWORK_ENTRIES),
     );
-    return { requests: entries };
+    const visible: NetworkEntry[] = [];
+    for (const entry of entries) {
+      if (entry.url.toLowerCase().startsWith('file:')) {
+        const decision = await evaluateFileUrl(entry.url, this.sessionRoots);
+        if (!decision.allowed) {
+          continue;
+        }
+      }
+      visible.push(entry);
+    }
+    return { requests: visible };
   }
 
   async close(): Promise<void> {
@@ -331,17 +429,33 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     const autoCloseInMs = this.startedAt
       ? Math.max(0, MAX_LIFETIME_MS - uptimeMs)
       : 0;
-
-    return {
+    const metadata = {
       connected: true,
-      url: this.window.webContents.getURL(),
-      title: this.window.webContents.getTitle(),
       uptimeMs,
       autoCloseInMs,
       headless: this._headless,
       recording: this.recorder?.isRecording() ?? false,
       viewport: { ...this._viewport },
     };
+    if (!(await this.currentPageAllowed())) {
+      return metadata;
+    }
+
+    return {
+      ...metadata,
+      url: this.window.webContents.getURL(),
+      title: this.window.webContents.getTitle(),
+    };
+  }
+
+  private async currentPageAllowed(): Promise<boolean> {
+    const href = this.window?.isDestroyed()
+      ? undefined
+      : this.window?.webContents.getURL();
+    if (typeof href !== 'string') {
+      return false;
+    }
+    return toolMayReadPage(href, this.sessionRoots, this.allowLocalhost);
   }
 
   isConnected(): boolean {
@@ -356,34 +470,48 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
   }
 
   private async ensureSession(): Promise<void> {
-    if (this.window && !this.window.isDestroyed() && this.connected) {
-      return;
-    }
-    if (this.sessionPromise) {
-      await this.sessionPromise;
-      return;
-    }
+    for (;;) {
+      if (
+        !this.rootsDirty &&
+        this.appliedRootsGeneration === this.rootsGeneration &&
+        this.window &&
+        !this.window.isDestroyed() &&
+        this.connected
+      ) {
+        return;
+      }
+      if (this.sessionPromise) {
+        await this.sessionPromise;
+        continue;
+      }
 
-    this.sessionPromise = this.createSession();
-    try {
-      await this.sessionPromise;
-    } finally {
-      this.sessionPromise = null;
+      this.sessionPromise = this.createSession();
+      try {
+        await this.sessionPromise;
+      } finally {
+        this.sessionPromise = null;
+      }
     }
   }
 
   private async createSession(): Promise<void> {
+    const pendingOptions: BrowserSessionOptions = { ...this._pendingOptions };
     await this.cleanup();
-    this._headless = this._pendingOptions.headless ?? false;
-    this._viewport = this._pendingOptions.viewport
-      ? { ...this._pendingOptions.viewport }
+    this._headless = pendingOptions.headless ?? false;
+    this._viewport = pendingOptions.viewport
+      ? { ...pendingOptions.viewport }
       : { ...DEFAULT_VIEWPORT };
-    this._pendingOptions = {};
+    // In-memory partition so the file: guard cannot see or cancel file loads
+    // belonging to the app window. webSecurity stays on: there is no
+    // --disable-web-security and no --allow-file-access-from-files. A file
+    // page keeps an opaque origin; Fetch plus will-navigate/will-redirect
+    // reject workspace escapes. Do not cache a target realpath.
     this.window = new BrowserWindow({
       show: !this._headless,
       width: this._viewport.width,
       height: this._viewport.height,
       webPreferences: {
+        partition: 'ptah-browser-tool',
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
@@ -411,21 +539,57 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     this.networkEntries = [];
     this.pendingResponses.clear();
 
+    this.window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     this.window.webContents.debugger.on(
       'message',
       (
         _event: Electron.Event,
         method: string,
         params: Record<string, unknown>,
-      ) => {
-        this.handleCDPEvent(method, params);
-      },
+      ) => this.handleCDPEvent(method, params),
+    );
+    this.window.webContents.on('will-navigate', this.handleWillNavigate);
+    this.window.webContents.on('will-redirect', this.handleWillRedirect);
+    this.window.webContents.on(
+      'will-attach-webview',
+      this.handleWillAttachWebview,
     );
     this.window.on('closed', () => {
       this.connected = false;
       this.window = null;
     });
+    try {
+      await this.sendCDP('Fetch.enable', {
+        patterns: [{ urlPattern: 'file:*', requestStage: 'Request' }],
+      });
+    } catch {
+      this.window.webContents.removeListener(
+        'will-navigate',
+        this.handleWillNavigate,
+      );
+      this.window.webContents.removeListener(
+        'will-redirect',
+        this.handleWillRedirect,
+      );
+      this.window.webContents.removeListener(
+        'will-attach-webview',
+        this.handleWillAttachWebview,
+      );
+      this.window.destroy();
+      this.window = null;
+      throw new Error('Browser file-access guard could not be installed.');
+    }
 
+    // Re-read roots after the awaits. A configureSession during window
+    // setup updates _pendingOptions; publishing that list here keeps it.
+    this.sessionRoots = Object.freeze([
+      ...(this._pendingOptions.workspaceRoots ?? []),
+    ]);
+    this.appliedRootsGeneration = this.rootsGeneration;
+    this.rootsDirty = false;
+    // Consumed after the awaits, so a configureSession during setup is
+    // published above and is not discarded by cleanup().
+    this._pendingOptions = {};
     this.connected = true;
     this.startedAt = Date.now();
     this.resetInactivityTimer();
@@ -450,7 +614,22 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
   private handleCDPEvent(
     method: string,
     params: Record<string, unknown>,
-  ): void {
+  ): Promise<void> | void {
+    if (method === 'Fetch.requestPaused') {
+      const requestId = params['requestId'];
+      const request = params['request'];
+      const url =
+        typeof request === 'object' &&
+        request !== null &&
+        'url' in request &&
+        typeof request.url === 'string'
+          ? request.url
+          : '';
+      if (typeof requestId === 'string') {
+        return this.resolvePausedFileRequest(requestId, url);
+      }
+      return;
+    }
     if (method === 'Network.requestWillBeSent') {
       const request = params['request'] as {
         url: string;
@@ -534,6 +713,18 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     }
 
     if (this.window && !this.window.isDestroyed()) {
+      this.window.webContents.removeListener(
+        'will-navigate',
+        this.handleWillNavigate,
+      );
+      this.window.webContents.removeListener(
+        'will-redirect',
+        this.handleWillRedirect,
+      );
+      this.window.webContents.removeListener(
+        'will-attach-webview',
+        this.handleWillAttachWebview,
+      );
       this.window.webContents.debugger.detach();
       this.window.destroy();
     }
@@ -543,7 +734,82 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     this.startedAt = null;
     this.networkEntries = [];
     this.pendingResponses.clear();
-    this._pendingOptions = {};
+    this.sessionRoots = Object.freeze([]);
+  }
+
+  private async blockFileDestination(url: string): Promise<string | undefined> {
+    if (!url.toLowerCase().startsWith('file:')) {
+      return undefined;
+    }
+    const decision = await evaluateFileUrl(url, this.sessionRoots);
+    return decision.allowed ? undefined : FILE_URL_BLOCKED_MESSAGE;
+  }
+
+  private async rejectIfPageEscaped(): Promise<string | undefined> {
+    const href = this.window?.isDestroyed()
+      ? undefined
+      : this.window?.webContents.getURL();
+    if (typeof href !== 'string') {
+      return ESCAPED_PAGE_MESSAGE;
+    }
+    if (
+      await toolMayReadPage(href, this.sessionRoots, this.allowLocalhost)
+    ) {
+      return undefined;
+    }
+    await this.blankEscapedPage();
+    return ESCAPED_PAGE_MESSAGE;
+  }
+
+  private async blankEscapedPage(): Promise<void> {
+    const win = this.window;
+    if (!win || win.isDestroyed()) {
+      return;
+    }
+    try {
+      await win.loadURL('about:blank');
+    } catch {
+      // degradation-audit: optional-capability - blanking is best-effort;
+      // callers still withhold content, screenshots and evaluation.
+    }
+  }
+
+  private async resolvePausedFileRequest(
+    requestId: string,
+    url: string,
+  ): Promise<void> {
+    const fail = (): Promise<Record<string, unknown>> =>
+      this.sendCDP('Fetch.failRequest', {
+        requestId,
+        errorReason: 'BlockedByClient',
+      });
+    try {
+      const payload = await readContainedWorkspaceFile(url, this.sessionRoots);
+      if (payload === undefined) {
+        await fail();
+        return;
+      }
+      const fulfillParams: Record<string, unknown> = {
+        requestId,
+        responseCode: 200,
+        responseHeaders: [
+          { name: 'Content-Type', value: payload.contentType },
+        ],
+        body: payload.bodyBase64,
+      };
+      await this.sendCDP('Fetch.fulfillRequest', fulfillParams);
+    } catch {
+      // degradation-audit: optional-capability - a failed block leaves the
+      // file request paused, so Electron does not deliver the body.
+      try {
+        await this.sendCDP('Fetch.failRequest', {
+          requestId,
+          errorReason: 'BlockedByClient',
+        });
+      } catch {
+        // degradation-audit: optional-capability - the request stays paused.
+      }
+    }
   }
 
   async startRecording(options?: {
@@ -561,6 +827,10 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     try {
       await this.ensureSession();
       this.resetInactivityTimer();
+      const escaped = await this.rejectIfPageEscaped();
+      if (escaped) {
+        return { success: false, error: escaped };
+      }
       this.recorder = new ScreenRecorderService();
       const startResult = this.recorder.startRecording(options);
       if (!startResult.success) {
@@ -603,6 +873,18 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     }
 
     try {
+      const escaped = await this.rejectIfPageEscaped();
+      if (escaped) {
+        this.recorder = null;
+        return {
+          filePath: '',
+          frameCount: 0,
+          durationMs: 0,
+          fileSizeBytes: 0,
+          truncated: false,
+          error: escaped,
+        };
+      }
       if (this.connected && this.window && !this.window.isDestroyed()) {
         // degradation-audit: optional-capability - telling Chrome to stop
         // screencasting is optional cleanup on a session being torn down

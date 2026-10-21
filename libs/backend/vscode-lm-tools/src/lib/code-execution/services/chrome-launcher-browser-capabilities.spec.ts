@@ -21,6 +21,10 @@
  *   - 'fs' / 'fs.promises'       → screen-recorder transitive dep
  */
 
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { ChromeLauncherBrowserCapabilities } from './chrome-launcher-browser-capabilities';
 
 // ---------------------------------------------------------------------------
@@ -66,6 +70,7 @@ interface CdpStubs {
     enable: jest.Mock;
     navigate: jest.Mock;
     loadEventFired: jest.Mock;
+    getFrameTree: jest.Mock;
     captureScreenshot: jest.Mock;
     startScreencast: jest.Mock;
     stopScreencast: jest.Mock;
@@ -80,9 +85,38 @@ interface CdpStubs {
     requestListener?: (params: unknown) => void;
     responseListener?: (params: unknown) => void;
   };
-  Runtime: { enable: jest.Mock; evaluate: jest.Mock };
+  Runtime: {
+    enable: jest.Mock;
+    evaluate: jest.Mock;
+    runIfWaitingForDebugger: jest.Mock;
+  };
   Emulation: { setDeviceMetricsOverride: jest.Mock };
   Input: { insertText: jest.Mock };
+  Fetch: {
+    enable: jest.Mock;
+    requestPaused: jest.Mock;
+    continueRequest: jest.Mock;
+    fulfillRequest: jest.Mock;
+    failRequest: jest.Mock;
+    listener?: (
+      params: {
+        requestId: string;
+        request?: { url?: string };
+      },
+      sessionId?: string,
+    ) => Promise<void> | void;
+  };
+  Target: {
+    setAutoAttach: jest.Mock;
+    attachedToTarget: jest.Mock;
+    closeTarget: jest.Mock;
+    runIfWaitingForDebugger: jest.Mock;
+    listener?: (params: {
+      sessionId?: string;
+      waitingForDebugger?: boolean;
+      targetInfo?: { targetId?: string; type?: string; openerId?: string };
+    }) => Promise<void> | void;
+  };
   close: jest.Mock;
 }
 
@@ -101,6 +135,9 @@ function buildCdpStubs(): CdpStubs {
     enable: jest.fn().mockResolvedValue(undefined),
     navigate: jest.fn().mockResolvedValue(undefined),
     loadEventFired: jest.fn().mockResolvedValue(undefined),
+    getFrameTree: jest.fn().mockResolvedValue({
+      frameTree: { frame: { url: 'https://example.com/' } },
+    }),
     captureScreenshot: jest.fn().mockResolvedValue({ data: 'BASE64PNG' }),
     startScreencast: jest.fn().mockResolvedValue(undefined),
     stopScreencast: jest.fn().mockResolvedValue(undefined),
@@ -110,6 +147,7 @@ function buildCdpStubs(): CdpStubs {
 
   const Runtime = {
     enable: jest.fn().mockResolvedValue(undefined),
+    runIfWaitingForDebugger: jest.fn().mockResolvedValue(undefined),
     evaluate: jest.fn().mockResolvedValue({
       result: {
         value: JSON.stringify({
@@ -127,6 +165,43 @@ function buildCdpStubs(): CdpStubs {
 
   const Input = { insertText: jest.fn().mockResolvedValue(undefined) };
 
+  const Fetch: CdpStubs['Fetch'] = {
+    enable: jest.fn().mockResolvedValue(undefined),
+    requestPaused: jest.fn(
+      (
+        listener: (
+          params: {
+            requestId: string;
+            request?: { url?: string };
+          },
+          sessionId?: string,
+        ) => Promise<void> | void,
+      ) => {
+        Fetch.listener = listener;
+      },
+    ),
+    continueRequest: jest.fn().mockResolvedValue(undefined),
+    fulfillRequest: jest.fn().mockResolvedValue(undefined),
+    failRequest: jest.fn().mockResolvedValue(undefined),
+  };
+
+  const Target: CdpStubs['Target'] = {
+    setAutoAttach: jest.fn().mockResolvedValue(undefined),
+    attachedToTarget: jest.fn(
+      (
+        listener: (params: {
+          sessionId?: string;
+          waitingForDebugger?: boolean;
+          targetInfo?: { targetId?: string; type?: string; openerId?: string };
+        }) => Promise<void> | void,
+      ) => {
+        Target.listener = listener;
+      },
+    ),
+    closeTarget: jest.fn().mockResolvedValue(undefined),
+    runIfWaitingForDebugger: jest.fn().mockResolvedValue(undefined),
+  };
+
   const close = jest.fn().mockResolvedValue(undefined);
 
   const client: Record<string, unknown> = {
@@ -135,6 +210,8 @@ function buildCdpStubs(): CdpStubs {
     Runtime,
     Emulation,
     Input,
+    Fetch,
+    Target,
     close,
   };
 
@@ -145,6 +222,8 @@ function buildCdpStubs(): CdpStubs {
     Runtime,
     Emulation,
     Input,
+    Fetch,
+    Target,
     close,
   };
 }
@@ -466,6 +545,269 @@ describe('ChromeLauncherBrowserCapabilities', () => {
       await caps.startRecording();
       await caps.stopRecording();
       expect(cdp.Page.stopScreencast).toHaveBeenCalled();
+    });
+  });
+
+  describe('workspace file guard', () => {
+    let root: string;
+    let outside: string;
+    let insideUrl: string;
+    let outsideUrl: string;
+
+    beforeEach(() => {
+      root = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-browser-root-'));
+      outside = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-browser-out-'));
+      const insideFile = path.join(root, 'page.html');
+      const outsideFile = path.join(outside, 'secret.html');
+      fs.writeFileSync(insideFile, '<p>inside</p>');
+      fs.writeFileSync(outsideFile, 'SECRET');
+      insideUrl = pathToFileURL(insideFile).href;
+      outsideUrl = pathToFileURL(outsideFile).href;
+    });
+
+    afterEach(() => {
+      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(outside, { recursive: true, force: true });
+    });
+
+    it('omits --allow-file-access-from-files and --disable-web-security', async () => {
+      await caps.navigate('https://example.com/');
+      const launchArgs = chromeLauncherMock.launch.mock.calls[0][0] as {
+        chromeFlags: string[];
+      };
+      expect(launchArgs.chromeFlags).not.toContain(
+        '--allow-file-access-from-files',
+      );
+      expect(launchArgs.chromeFlags).not.toContain('--disable-web-security');
+    });
+
+    it('installs file: interception before the first navigation', async () => {
+      caps.configureSession({ workspaceRoots: [root] });
+      await caps.navigate('https://example.com/');
+      expect(cdp.Fetch.enable).toHaveBeenCalledWith({
+        patterns: [{ urlPattern: 'file:*', requestStage: 'Request' }],
+      });
+      const enableOrder = cdp.Fetch.enable.mock.invocationCallOrder[0];
+      const navigateOrder = cdp.Page.navigate.mock.invocationCallOrder[0];
+      expect(enableOrder).toBeLessThan(navigateOrder);
+    });
+
+    it('fulfills canonical bytes for an inside file and fails an outside file', async () => {
+      caps.configureSession({ workspaceRoots: [root] });
+      await caps.navigate('https://example.com/');
+      expect(cdp.Fetch.listener).toBeDefined();
+
+      await cdp.Fetch.listener?.({
+        requestId: 'in',
+        request: { url: insideUrl },
+      });
+      await cdp.Fetch.listener?.({
+        requestId: 'out',
+        request: { url: outsideUrl },
+      });
+
+      const insideFile = path.join(root, 'page.html');
+      expect(cdp.Fetch.fulfillRequest).toHaveBeenCalledWith({
+        requestId: 'in',
+        responseCode: 200,
+        responseHeaders: [
+          { name: 'Content-Type', value: 'text/html; charset=utf-8' },
+        ],
+        body: fs.readFileSync(insideFile).toString('base64'),
+      });
+      expect(cdp.Fetch.continueRequest).not.toHaveBeenCalled();
+      expect(cdp.Fetch.failRequest).toHaveBeenCalledWith({
+        requestId: 'out',
+        errorReason: 'BlockedByClient',
+      });
+    });
+
+    it('closes a page target opened by the tool tab', async () => {
+      await caps.navigate('https://example.com/');
+      expect(cdp.Target.setAutoAttach).toHaveBeenCalledWith({
+        autoAttach: true,
+        waitForDebuggerOnStart: true,
+        flatten: true,
+      });
+      await cdp.Target.listener?.({
+        sessionId: 'popup',
+        waitingForDebugger: true,
+        targetInfo: {
+          targetId: 'popup-target',
+          type: 'page',
+          openerId: 'tab-1',
+        },
+      });
+      expect(cdp.Target.closeTarget).toHaveBeenCalledWith({
+        targetId: 'popup-target',
+      });
+      expect(cdp.Target.runIfWaitingForDebugger).not.toHaveBeenCalled();
+      expect(cdp.Runtime.runIfWaitingForDebugger).not.toHaveBeenCalled();
+    });
+
+    it('resumes an attached worker or iframe with Runtime.runIfWaitingForDebugger', async () => {
+      await caps.navigate('https://example.com/');
+      await cdp.Target.listener?.({
+        sessionId: 'worker-1',
+        waitingForDebugger: true,
+        targetInfo: { targetId: 'worker-target', type: 'worker' },
+      });
+      await cdp.Target.listener?.({
+        sessionId: 'frame-1',
+        waitingForDebugger: true,
+        targetInfo: { targetId: 'frame-target', type: 'iframe' },
+      });
+      const fetchOrder = cdp.Fetch.enable.mock.invocationCallOrder;
+      const resumeOrder =
+        cdp.Runtime.runIfWaitingForDebugger.mock.invocationCallOrder;
+      expect(cdp.Fetch.enable).toHaveBeenCalledWith(
+        { patterns: [{ urlPattern: 'file:*', requestStage: 'Request' }] },
+        'worker-1',
+      );
+      expect(cdp.Runtime.runIfWaitingForDebugger).toHaveBeenCalledWith(
+        {},
+        'worker-1',
+      );
+      expect(cdp.Runtime.runIfWaitingForDebugger).toHaveBeenCalledWith(
+        {},
+        'frame-1',
+      );
+      expect(fetchOrder[fetchOrder.length - 2]).toBeLessThan(resumeOrder[0]);
+      expect(fetchOrder[fetchOrder.length - 1]).toBeLessThan(resumeOrder[1]);
+      expect(cdp.Target.closeTarget).not.toHaveBeenCalled();
+    });
+
+    it('omits url, title, and network entries when the page scheme is refused', async () => {
+      await caps.navigate('https://example.com/');
+      cdp.Network.requestListener?.({
+        requestId: '1',
+        request: { url: 'https://example.com/a.js', method: 'GET' },
+        type: 'Script',
+      });
+      cdp.Network.responseListener?.({
+        requestId: '1',
+        response: { status: 200, headers: { 'content-length': '4' } },
+      });
+      cdp.Page.getFrameTree.mockResolvedValue({
+        frameTree: { frame: { url: 'data:text/html,hi' } },
+      });
+      const pageStatus = await caps.status();
+      expect(pageStatus.connected).toBe(true);
+      expect(pageStatus.url).toBeUndefined();
+      expect(pageStatus.title).toBeUndefined();
+      expect(pageStatus.viewport).toEqual({ width: 1920, height: 1080 });
+      const { requests, error } = await caps.getNetworkRequests();
+      expect(requests).toEqual([]);
+      expect(error).toBeUndefined();
+    });
+
+    it('withholds a data: or javascript: follow-on and blanks the page', async () => {
+      caps.configureSession({ workspaceRoots: [root] });
+      await caps.navigate('https://example.com/');
+      cdp.Page.navigate.mockClear();
+      cdp.Page.getFrameTree.mockResolvedValue({
+        frameTree: { frame: { url: 'data:text/html,hi' } },
+      });
+      const dataShot = await caps.screenshot();
+      expect(dataShot.data).toBe('');
+      expect(dataShot.error).toMatch(/outside the workspace/);
+      expect(cdp.Page.captureScreenshot).not.toHaveBeenCalled();
+      expect(cdp.Page.navigate).toHaveBeenCalledWith({ url: 'about:blank' });
+
+      cdp.Page.getFrameTree.mockResolvedValue({
+        frameTree: { frame: { url: 'javascript:alert(1)' } },
+      });
+      const scriptShot = await caps.screenshot();
+      expect(scriptShot.data).toBe('');
+      expect(cdp.Page.captureScreenshot).not.toHaveBeenCalled();
+    });
+
+    it('answers a paused file request on the child session that sent it', async () => {
+      caps.configureSession({ workspaceRoots: [root] });
+      await caps.navigate('https://example.com/');
+      await cdp.Fetch.listener?.(
+        { requestId: 'child-in', request: { url: insideUrl } },
+        'child-session-1',
+      );
+      expect(cdp.Fetch.fulfillRequest).toHaveBeenCalledWith(
+        expect.objectContaining({ requestId: 'child-in' }),
+        'child-session-1',
+      );
+      await cdp.Fetch.listener?.(
+        { requestId: 'child-out', request: { url: outsideUrl } },
+        'child-session-1',
+      );
+      expect(cdp.Fetch.failRequest).toHaveBeenCalledWith(
+        { requestId: 'child-out', errorReason: 'BlockedByClient' },
+        'child-session-1',
+      );
+    });
+
+    it('keeps roots configured while the browser session is starting', async () => {
+      caps.configureSession({ workspaceRoots: [root] });
+      chromeLauncherMock.launch.mockImplementationOnce(async () => {
+        caps.configureSession({ workspaceRoots: [outside] });
+        return { port: 9222, kill };
+      });
+      await caps.navigate('https://example.com/');
+      expect(chromeLauncherMock.launch).toHaveBeenCalledTimes(1);
+      await cdp.Fetch.listener?.({
+        requestId: 'moved',
+        request: { url: outsideUrl },
+      });
+      const outsideFile = path.join(outside, 'secret.html');
+      expect(cdp.Fetch.fulfillRequest).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestId: 'moved',
+          body: fs.readFileSync(outsideFile).toString('base64'),
+        }),
+      );
+      await cdp.Fetch.listener?.({
+        requestId: 'old',
+        request: { url: insideUrl },
+      });
+      expect(cdp.Fetch.failRequest).toHaveBeenCalledWith({
+        requestId: 'old',
+        errorReason: 'BlockedByClient',
+      });
+    });
+
+    it('does not open the page when the file guard cannot be installed', async () => {
+      cdp.Fetch.enable.mockRejectedValueOnce(new Error('no fetch'));
+      const result = await caps.navigate('https://example.com/');
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/file-access guard/i);
+      expect(cdp.Page.navigate).not.toHaveBeenCalled();
+      expect(kill).toHaveBeenCalled();
+    });
+
+    it('withholds screenshot and evaluate when the current page is an outside file', async () => {
+      caps.configureSession({ workspaceRoots: [root] });
+      await caps.navigate('https://example.com/');
+      cdp.Page.getFrameTree.mockResolvedValue({
+        frameTree: { frame: { url: outsideUrl } },
+      });
+
+      const shot = await caps.screenshot();
+      expect(shot.data).toBe('');
+      expect(shot.error).toMatch(/outside the workspace/);
+      expect(shot.error).not.toContain('SECRET');
+      expect(shot.error).not.toContain(outsideUrl);
+      expect(cdp.Page.captureScreenshot).not.toHaveBeenCalled();
+
+      const evaluated = await caps.evaluate('document.body.innerText');
+      expect(evaluated.type).toBe('error');
+      expect(evaluated.error).toMatch(/outside the workspace/);
+      expect(evaluated.error).not.toContain('SECRET');
+    });
+
+    it('starts a new session when workspace roots change and keeps it when they do not', async () => {
+      await caps.navigate('https://example.com/');
+      caps.configureSession({ workspaceRoots: [root] });
+      await caps.navigate('https://example.com/');
+      caps.configureSession({ workspaceRoots: [root] });
+      await caps.navigate('https://example.com/again');
+      expect(chromeLauncherMock.launch).toHaveBeenCalledTimes(2);
     });
   });
 });

@@ -1126,7 +1126,9 @@ export function buildBrowserNavigateTool(): MCPToolDefinition {
     name: 'ptah_browser_navigate',
     description:
       'Navigate the browser to a URL. Lazily starts a browser session if none exists. ' +
-      'Returns the final URL and page title after load. Only http/https URLs are allowed. ' +
+      'Returns the final URL and page title after load. ' +
+      'file:// URLs of files inside the workspace are allowed. ' +
+      'http and https are allowed. ' +
       'Localhost is blocked by default (enable via ptah.browser.allowLocalhost setting). ' +
       'You can control headless mode and viewport size — these take effect when creating a new session.',
     inputSchema: {
@@ -1134,7 +1136,8 @@ export function buildBrowserNavigateTool(): MCPToolDefinition {
       properties: {
         url: {
           type: 'string',
-          description: 'The URL to navigate to (http/https only)',
+          description:
+            'http or https URL, or a file:// URL of a file inside the workspace',
         },
         waitForLoad: {
           type: 'boolean',

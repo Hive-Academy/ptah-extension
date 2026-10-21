@@ -818,6 +818,7 @@ export class PtahAPIBuilder {
               'browser.allowLocalhost',
               false,
             ) ?? false,
+          getWorkspaceRoots: () => this.getHostWorkspaceRoots(),
         }),
       ),
       skill: this.buildNamespaceSafe('skill', () =>
