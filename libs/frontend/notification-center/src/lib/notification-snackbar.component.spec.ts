@@ -31,13 +31,28 @@ describe('NotificationSnackbarComponent', () => {
     jest.useRealTimers();
   });
 
-  it('renders a context line as text below the title', () => {
-    notifications.upsert({ ...item('request', 'permission'), context: 'Claude · Tool: Bash · <private>' });
+  it('renders the shared identity and safe detail as text', () => {
+    notifications.upsert({ ...item('request', 'permission'), sessionTitle: 'Fix notifications', provider: 'Claude', detail: 'Tool: Bash <private>', permissionPreview: 'echo approved <private>' });
     const fixture = TestBed.createComponent(NotificationSnackbarComponent);
     fixture.detectChanges();
     const card = (fixture.nativeElement as HTMLElement).querySelector('.snackbar-card');
-    expect(card?.textContent).toContain('Claude · Tool: Bash · <private> · Workspace');
+    expect(card?.textContent).toContain('Permission required');
+    expect(card?.textContent).toContain('Fix notifications');
+    expect(card?.textContent).toContain('echo approved <private>');
+    expect(card?.querySelector('span[title="echo approved <private>"]')?.textContent).toBe('echo approved <private>');
+    expect(card?.getAttribute('aria-describedby')).toBe(card?.querySelector('span.sr-only[id^="snackbar-preview-"]')?.id);
+    expect(card?.textContent).toContain('Tool: Bash <private>');
+    expect(card?.querySelector('.bg-state-need')).not.toBeNull();
     expect(card?.querySelector('private')).toBeNull();
+  });
+
+  it('shows Session unavailable for a request without a session title', () => {
+    notifications.upsert({ ...item('request', 'permission'), title: 'Permission required' });
+    const fixture = TestBed.createComponent(NotificationSnackbarComponent);
+    fixture.detectChanges();
+    const card = (fixture.nativeElement as HTMLElement).querySelector('.snackbar-card');
+    expect(card?.querySelector('p[title="Session unavailable"]')?.textContent).toBe('Session unavailable');
+    expect(card?.textContent).toContain('Permission required');
   });
 
   it('dispatches an action and dismisses only the presentation', async () => {
@@ -50,14 +65,14 @@ describe('NotificationSnackbarComponent', () => {
     action?.click();
     await Promise.resolve();
     expect(dispatch).toHaveBeenCalledWith('request', 1, 'open');
-    host.querySelector<HTMLButtonElement>('[aria-label="Dismiss permission request"]')?.click();
+    host.querySelector<HTMLButtonElement>('[aria-label^="Dismiss Permission required presentation"]')?.click();
     fixture.detectChanges();
     expect(host.querySelector('.snackbar-card')).toBeNull();
     expect(notifications.badgeCount()).toBe(1);
   });
 
-  it('shows stale and unavailable outcomes and disables unavailable action', async () => {
-    const dispatchOutcome = jest.fn().mockResolvedValueOnce({ kind: 'stale' }).mockResolvedValueOnce({ kind: 'unavailable', reason: 'No owner' });
+  it('latches stale without dispatching again', async () => {
+    const dispatchOutcome = jest.fn().mockResolvedValue({ kind: 'stale' });
     TestBed.inject(ATTENTION_ACTION_DISPATCHER).dispatchOutcome = dispatchOutcome;
     notifications.upsert(item('request', 'permission'));
     const fixture = TestBed.createComponent(NotificationSnackbarComponent);
@@ -72,7 +87,7 @@ describe('NotificationSnackbarComponent', () => {
     await Promise.resolve();
     fixture.detectChanges();
     expect(button()?.disabled).toBe(true);
-    expect(button()?.title).toBe('No owner');
+    expect(dispatchOutcome).toHaveBeenCalledTimes(1);
   });
 
   it('shows a fixed status when dispatch rejects', async () => {
@@ -103,6 +118,26 @@ describe('NotificationSnackbarComponent', () => {
     }
   });
 
+  it('shows two desktop cards and keeps overflow in the bell', () => {
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1200 });
+    try {
+      for (let index = 0; index < 4; index += 1) notifications.upsert(item(`failure-${index}`));
+      const fixture = TestBed.createComponent(NotificationSnackbarComponent);
+      fixture.detectChanges();
+      const host = fixture.nativeElement as HTMLElement;
+      expect(host.querySelectorAll('.snackbar-card')).toHaveLength(2);
+      expect(host.style.bottom).toBe('1rem');
+      expect(host.textContent).toContain('+2 more');
+      const stack = host.querySelector<HTMLElement>('[data-testid="notification-snackbars"]');
+      expect(stack?.classList.contains('flex-col')).toBe(true);
+      expect(stack?.querySelector('.snackbar-card')?.textContent).toContain('failure-2');
+      expect(stack?.firstElementChild?.classList.contains('snackbar-more')).toBe(true);
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth });
+    }
+  });
+
   it('pauses the remaining failure time on hover and resumes without restarting it', () => {
     notifications.upsert(item('failure'));
     const fixture = TestBed.createComponent(NotificationSnackbarComponent);
@@ -126,7 +161,7 @@ describe('NotificationSnackbarComponent', () => {
     fixture.detectChanges();
     const card = (fixture.nativeElement as HTMLElement).querySelector('.snackbar-card');
     card?.dispatchEvent(new Event('mouseenter'));
-    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('[aria-label="Dismiss failure hovered"]')?.click();
+    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('[aria-label^="Dismiss failure hovered presentation"]')?.click();
     expect(resume).toHaveBeenCalledWith('hovered');
   });
 
@@ -148,7 +183,7 @@ describe('NotificationSnackbarComponent', () => {
 
   it('shows one card with overflow at a narrow viewport', () => {
     const originalWidth = window.innerWidth;
-    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 800 });
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 900 });
     try {
       notifications.upsert(item('first'));
       notifications.upsert(item('second'));
@@ -157,20 +192,23 @@ describe('NotificationSnackbarComponent', () => {
       const host = fixture.nativeElement as HTMLElement;
       expect(host.querySelectorAll('.snackbar-card')).toHaveLength(1);
       expect(host.textContent).toContain('+1 more');
+      expect(host.style.bottom).toBe('11rem');
     } finally {
       Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth });
     }
   });
 
-  it('shows one card when vertical space is short and hides cards while the bell is open', () => {
+  it('keeps the desktop count when vertical space is short and hides cards while the bell is open', () => {
+    const originalWidth = window.innerWidth;
     const originalHeight = window.innerHeight;
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1200 });
     Object.defineProperty(window, 'innerHeight', { configurable: true, value: 600 });
     try {
       notifications.upsert(item('first'));
       notifications.upsert(item('second'));
       const fixture = TestBed.createComponent(NotificationSnackbarComponent);
       fixture.detectChanges();
-      expect((fixture.nativeElement as HTMLElement).querySelectorAll('.snackbar-card')).toHaveLength(1);
+      expect((fixture.nativeElement as HTMLElement).querySelectorAll('.snackbar-card')).toHaveLength(2);
       fixture.componentRef.setInput('panelOpen', true);
       fixture.detectChanges();
       expect((fixture.nativeElement as HTMLElement).querySelectorAll('.snackbar-card')).toHaveLength(0);
@@ -181,6 +219,7 @@ describe('NotificationSnackbarComponent', () => {
       jest.advanceTimersByTime(8000);
       expect(notifications.snackbars()).toHaveLength(0);
     } finally {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth });
       Object.defineProperty(window, 'innerHeight', { configurable: true, value: originalHeight });
     }
   });

@@ -1,0 +1,1167 @@
+{
+  "entry": "D:\\projects\\ptah-extension\\.claude-worktrees\\attention-rail-redesign\\dist\\apps\\ptah-electron\\main.mjs",
+  "workspace": "C:\\Users\\abdal\\AppData\\Local\\Temp\\ptah-attention-populated-YYcuTB\\workspace",
+  "port": 9347,
+  "shots": [
+    {
+      "file": "D:\\projects\\ptah-extension\\.claude-worktrees\\attention-rail-redesign\\.ptah\\specs\\TASK_2026_593_7c2e\\visual-check\\dark-snackbar-permission.png",
+      "ok": true,
+      "notes": "attention:changed projection; raw request also sent for permission/question",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "theme": "dark"
+    },
+    {
+      "file": "D:\\projects\\ptah-extension\\.claude-worktrees\\attention-rail-redesign\\.ptah\\specs\\TASK_2026_593_7c2e\\visual-check\\dark-snackbar-question.png",
+      "ok": true,
+      "notes": "attention:changed projection; raw request also sent for permission/question",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "theme": "dark"
+    },
+    {
+      "file": "D:\\projects\\ptah-extension\\.claude-worktrees\\attention-rail-redesign\\.ptah\\specs\\TASK_2026_593_7c2e\\visual-check\\dark-snackbar-lane.png",
+      "ok": true,
+      "notes": "attention:changed projection; raw request also sent for permission/question",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "theme": "dark"
+    },
+    {
+      "file": "D:\\projects\\ptah-extension\\.claude-worktrees\\attention-rail-redesign\\.ptah\\specs\\TASK_2026_593_7c2e\\visual-check\\dark-snackbar-failure.png",
+      "ok": true,
+      "notes": "voice:providerError produces a recent failure",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "theme": "dark"
+    },
+    {
+      "file": "D:\\projects\\ptah-extension\\.claude-worktrees\\attention-rail-redesign\\.ptah\\specs\\TASK_2026_593_7c2e\\visual-check\\dark-snackbar-stack.png",
+      "ok": true,
+      "notes": "five live projections plus voice failure",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "theme": "dark"
+    },
+    {
+      "file": "D:\\projects\\ptah-extension\\.claude-worktrees\\attention-rail-redesign\\.ptah\\specs\\TASK_2026_593_7c2e\\visual-check\\dark-bell-badge.png",
+      "ok": true,
+      "notes": "",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "theme": "dark"
+    },
+    {
+      "file": "D:\\projects\\ptah-extension\\.claude-worktrees\\attention-rail-redesign\\.ptah\\specs\\TASK_2026_593_7c2e\\visual-check\\dark-panel.png",
+      "ok": true,
+      "notes": "",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "theme": "dark"
+    },
+    {
+      "file": "D:\\projects\\ptah-extension\\.claude-worktrees\\attention-rail-redesign\\.ptah\\specs\\TASK_2026_593_7c2e\\visual-check\\dark-panel-clear-all.png",
+      "ok": true,
+      "notes": "live request projections remain; recent failure cleared",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "theme": "dark"
+    },
+    {
+      "file": "D:\\projects\\ptah-extension\\.claude-worktrees\\attention-rail-redesign\\.ptah\\specs\\TASK_2026_593_7c2e\\visual-check\\dark-panel-empty.png",
+      "ok": true,
+      "notes": "after resolving live requests and clearing recent notices",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "theme": "dark"
+    },
+    {
+      "file": "D:\\projects\\ptah-extension\\.claude-worktrees\\attention-rail-redesign\\.ptah\\specs\\TASK_2026_593_7c2e\\visual-check\\dark-800.png",
+      "ok": true,
+      "notes": "",
+      "viewport": {
+        "width": 800,
+        "height": 900
+      },
+      "theme": "dark"
+    },
+    {
+      "file": "D:\\projects\\ptah-extension\\.claude-worktrees\\attention-rail-redesign\\.ptah\\specs\\TASK_2026_593_7c2e\\visual-check\\dark-rail-needs-you.png",
+      "ok": true,
+      "notes": "real permission:request in Sessions queue and tab card 13e9a7b7-87c8-4e94-932a-bbae2da70ec6",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "theme": "dark"
+    },
+    {
+      "file": "D:\\projects\\ptah-extension\\.claude-worktrees\\attention-rail-redesign\\.ptah\\specs\\TASK_2026_593_7c2e\\visual-check\\dark-panel-permission-live.png",
+      "ok": true,
+      "notes": "real permission:request routed to canvas tab 13e9a7b7-87c8-4e94-932a-bbae2da70ec6; Needs you row captured in bell panel",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "theme": "dark"
+    },
+    {
+      "file": "D:\\projects\\ptah-extension\\.claude-worktrees\\attention-rail-redesign\\.ptah\\specs\\TASK_2026_593_7c2e\\visual-check\\light-snackbar-permission.png",
+      "ok": true,
+      "notes": "attention:changed projection; raw request also sent for permission/question",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "theme": "light"
+    },
+    {
+      "file": "D:\\projects\\ptah-extension\\.claude-worktrees\\attention-rail-redesign\\.ptah\\specs\\TASK_2026_593_7c2e\\visual-check\\light-snackbar-question.png",
+      "ok": true,
+      "notes": "attention:changed projection; raw request also sent for permission/question",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "theme": "light"
+    },
+    {
+      "file": "D:\\projects\\ptah-extension\\.claude-worktrees\\attention-rail-redesign\\.ptah\\specs\\TASK_2026_593_7c2e\\visual-check\\light-snackbar-lane.png",
+      "ok": true,
+      "notes": "attention:changed projection; raw request also sent for permission/question",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "theme": "light"
+    },
+    {
+      "file": "D:\\projects\\ptah-extension\\.claude-worktrees\\attention-rail-redesign\\.ptah\\specs\\TASK_2026_593_7c2e\\visual-check\\light-snackbar-failure.png",
+      "ok": true,
+      "notes": "voice:providerError produces a recent failure",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "theme": "light"
+    },
+    {
+      "file": "D:\\projects\\ptah-extension\\.claude-worktrees\\attention-rail-redesign\\.ptah\\specs\\TASK_2026_593_7c2e\\visual-check\\light-snackbar-stack.png",
+      "ok": true,
+      "notes": "five live projections plus voice failure",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "theme": "light"
+    },
+    {
+      "file": "D:\\projects\\ptah-extension\\.claude-worktrees\\attention-rail-redesign\\.ptah\\specs\\TASK_2026_593_7c2e\\visual-check\\light-bell-badge.png",
+      "ok": true,
+      "notes": "",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "theme": "light"
+    },
+    {
+      "file": "D:\\projects\\ptah-extension\\.claude-worktrees\\attention-rail-redesign\\.ptah\\specs\\TASK_2026_593_7c2e\\visual-check\\light-panel.png",
+      "ok": true,
+      "notes": "",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "theme": "light"
+    },
+    {
+      "file": "D:\\projects\\ptah-extension\\.claude-worktrees\\attention-rail-redesign\\.ptah\\specs\\TASK_2026_593_7c2e\\visual-check\\light-panel-clear-all.png",
+      "ok": true,
+      "notes": "live request projections remain; recent failure cleared",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "theme": "light"
+    },
+    {
+      "file": "D:\\projects\\ptah-extension\\.claude-worktrees\\attention-rail-redesign\\.ptah\\specs\\TASK_2026_593_7c2e\\visual-check\\light-panel-empty.png",
+      "ok": true,
+      "notes": "after resolving live requests and clearing recent notices",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "theme": "light"
+    },
+    {
+      "file": "D:\\projects\\ptah-extension\\.claude-worktrees\\attention-rail-redesign\\.ptah\\specs\\TASK_2026_593_7c2e\\visual-check\\light-800.png",
+      "ok": true,
+      "notes": "",
+      "viewport": {
+        "width": 800,
+        "height": 900
+      },
+      "theme": "light"
+    },
+    {
+      "file": "D:\\projects\\ptah-extension\\.claude-worktrees\\attention-rail-redesign\\.ptah\\specs\\TASK_2026_593_7c2e\\visual-check\\light-rail-needs-you.png",
+      "ok": true,
+      "notes": "real permission:request in Sessions queue and tab card 13e9a7b7-87c8-4e94-932a-bbae2da70ec6",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "theme": "light"
+    },
+    {
+      "file": "D:\\projects\\ptah-extension\\.claude-worktrees\\attention-rail-redesign\\.ptah\\specs\\TASK_2026_593_7c2e\\visual-check\\light-panel-permission-live.png",
+      "ok": true,
+      "notes": "real permission:request routed to canvas tab 13e9a7b7-87c8-4e94-932a-bbae2da70ec6; Needs you row captured in bell panel",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "theme": "light"
+    }
+  ],
+  "steps": [
+    {
+      "name": "create canvas session tab",
+      "ok": true,
+      "notes": "13e9a7b7-87c8-4e94-932a-bbae2da70ec6"
+    },
+    {
+      "name": "dark: theme",
+      "ok": true
+    },
+    {
+      "name": "dark: 1440x900",
+      "ok": true
+    },
+    {
+      "name": "dark: close panel",
+      "ok": true
+    },
+    {
+      "name": "dark: clear projected requests",
+      "ok": true
+    },
+    {
+      "name": "dark: reset permission",
+      "ok": true
+    },
+    {
+      "name": "dark: raw permission",
+      "ok": true
+    },
+    {
+      "name": "dark: project permission",
+      "ok": true
+    },
+    {
+      "name": "dark: reset question",
+      "ok": true
+    },
+    {
+      "name": "dark: raw question",
+      "ok": true
+    },
+    {
+      "name": "dark: project question",
+      "ok": true
+    },
+    {
+      "name": "dark: reset lane",
+      "ok": true
+    },
+    {
+      "name": "dark: raw lane",
+      "ok": true
+    },
+    {
+      "name": "dark: project lane",
+      "ok": true
+    },
+    {
+      "name": "dark: clear before failure",
+      "ok": true
+    },
+    {
+      "name": "dark: voice provider error",
+      "ok": true
+    },
+    {
+      "name": "dark: stack projections",
+      "ok": true
+    },
+    {
+      "name": "dark: open panel",
+      "ok": true
+    },
+    {
+      "name": "dark: clear recent notices",
+      "ok": true
+    },
+    {
+      "name": "dark: resolve live requests",
+      "ok": true
+    },
+    {
+      "name": "dark: close panel after clear",
+      "ok": true
+    },
+    {
+      "name": "dark: verify panel closed for 800px",
+      "ok": true
+    },
+    {
+      "name": "dark: 800px request",
+      "ok": true
+    },
+    {
+      "name": "dark: 800x900",
+      "ok": true
+    },
+    {
+      "name": "dark: restore 1440x900",
+      "ok": true
+    },
+    {
+      "name": "dark: final reset",
+      "ok": true
+    },
+    {
+      "name": "dark: live permission",
+      "ok": true
+    },
+    {
+      "name": "dark: capture sequence",
+      "ok": true
+    },
+    {
+      "name": "light: theme",
+      "ok": true
+    },
+    {
+      "name": "light: 1440x900",
+      "ok": true
+    },
+    {
+      "name": "light: close panel",
+      "ok": true
+    },
+    {
+      "name": "light: clear projected requests",
+      "ok": true
+    },
+    {
+      "name": "light: reset permission",
+      "ok": true
+    },
+    {
+      "name": "light: raw permission",
+      "ok": true
+    },
+    {
+      "name": "light: project permission",
+      "ok": true
+    },
+    {
+      "name": "light: reset question",
+      "ok": true
+    },
+    {
+      "name": "light: raw question",
+      "ok": true
+    },
+    {
+      "name": "light: project question",
+      "ok": true
+    },
+    {
+      "name": "light: reset lane",
+      "ok": true
+    },
+    {
+      "name": "light: raw lane",
+      "ok": true
+    },
+    {
+      "name": "light: project lane",
+      "ok": true
+    },
+    {
+      "name": "light: clear before failure",
+      "ok": true
+    },
+    {
+      "name": "light: voice provider error",
+      "ok": true
+    },
+    {
+      "name": "light: stack projections",
+      "ok": true
+    },
+    {
+      "name": "light: open panel",
+      "ok": true
+    },
+    {
+      "name": "light: clear recent notices",
+      "ok": true
+    },
+    {
+      "name": "light: resolve live requests",
+      "ok": true
+    },
+    {
+      "name": "light: close panel after clear",
+      "ok": true
+    },
+    {
+      "name": "light: verify panel closed for 800px",
+      "ok": true
+    },
+    {
+      "name": "light: 800px request",
+      "ok": true
+    },
+    {
+      "name": "light: 800x900",
+      "ok": true
+    },
+    {
+      "name": "light: restore 1440x900",
+      "ok": true
+    },
+    {
+      "name": "light: final reset",
+      "ok": true
+    },
+    {
+      "name": "light: live permission",
+      "ok": true
+    },
+    {
+      "name": "light: capture sequence",
+      "ok": true
+    }
+  ],
+  "errors": [],
+  "limitations": [
+    "Raw lane permission has no live agent; attention:changed projects the same kind for capture.",
+    "dark: live snackbar suppressed while Tasks is visible; no snackbar-live image captured.",
+    "Raw lane permission has no live agent; attention:changed projects the same kind for capture.",
+    "light: live snackbar suppressed while Tasks is visible; no snackbar-live image captured.",
+    "Raw lane permission has no live agent; attention:changed projects the lane kind for capture.",
+    "A git:status-update refreshes Git UI; no routed git-status warning notice source was found.",
+    "The failed-turn screenshot uses a real voice:providerError because a new canvas tab has no backend Claude session/failed turn."
+  ],
+  "snackbarStyle": {
+    "dark-snackbar-permission": {
+      "backgroundColor": "oklch(0.259365 0.0207655 284.872)",
+      "opacity": "1",
+      "ancestors": [
+        {
+          "element": "section",
+          "className": "snackbar-card surface-3 relative rounded-xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-1.5 pl-2.5 text-base-content hover:bg-[color:var(--surface-highlight)]",
+          "opacity": "1"
+        },
+        {
+          "element": "div",
+          "className": "flex flex-col gap-1",
+          "opacity": "1"
+        },
+        {
+          "element": "ptah-notification-snackbar",
+          "className": "ptah-snackbar-host",
+          "opacity": "1"
+        },
+        {
+          "element": "div",
+          "className": "flex items-center h-10 px-3 bg-surface-1 border-b border-surface-border gap-2 flex-shrink-0",
+          "opacity": "1"
+        },
+        {
+          "element": "div",
+          "className": "flex flex-col h-screen w-screen bg-surface-0",
+          "opacity": "1"
+        },
+        {
+          "element": "ptah-electron-shell",
+          "className": "h-full w-full",
+          "opacity": "1"
+        },
+        {
+          "element": "main",
+          "className": "h-screen w-screen bg-base-100 overflow-hidden",
+          "opacity": "1"
+        },
+        {
+          "element": "ptah-root",
+          "className": "",
+          "opacity": "1"
+        },
+        {
+          "element": "body",
+          "className": "",
+          "opacity": "1"
+        },
+        {
+          "element": "html",
+          "className": "",
+          "opacity": "1"
+        }
+      ]
+    },
+    "dark-snackbar-question": {
+      "backgroundColor": "oklch(0.259365 0.0207655 284.872)",
+      "opacity": "1",
+      "ancestors": [
+        {
+          "element": "section",
+          "className": "snackbar-card surface-3 relative rounded-xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-1.5 pl-2.5 text-base-content hover:bg-[color:var(--surface-highlight)]",
+          "opacity": "1"
+        },
+        {
+          "element": "div",
+          "className": "flex flex-col gap-1",
+          "opacity": "1"
+        },
+        {
+          "element": "ptah-notification-snackbar",
+          "className": "ptah-snackbar-host",
+          "opacity": "1"
+        },
+        {
+          "element": "div",
+          "className": "flex items-center h-10 px-3 bg-surface-1 border-b border-surface-border gap-2 flex-shrink-0",
+          "opacity": "1"
+        },
+        {
+          "element": "div",
+          "className": "flex flex-col h-screen w-screen bg-surface-0",
+          "opacity": "1"
+        },
+        {
+          "element": "ptah-electron-shell",
+          "className": "h-full w-full",
+          "opacity": "1"
+        },
+        {
+          "element": "main",
+          "className": "h-screen w-screen bg-base-100 overflow-hidden",
+          "opacity": "1"
+        },
+        {
+          "element": "ptah-root",
+          "className": "",
+          "opacity": "1"
+        },
+        {
+          "element": "body",
+          "className": "",
+          "opacity": "1"
+        },
+        {
+          "element": "html",
+          "className": "",
+          "opacity": "1"
+        }
+      ]
+    },
+    "dark-snackbar-lane": {
+      "backgroundColor": "oklch(0.259365 0.0207655 284.872)",
+      "opacity": "1",
+      "ancestors": [
+        {
+          "element": "section",
+          "className": "snackbar-card surface-3 relative rounded-xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-1.5 pl-2.5 text-base-content hover:bg-[color:var(--surface-highlight)]",
+          "opacity": "1"
+        },
+        {
+          "element": "div",
+          "className": "flex flex-col gap-1",
+          "opacity": "1"
+        },
+        {
+          "element": "ptah-notification-snackbar",
+          "className": "ptah-snackbar-host",
+          "opacity": "1"
+        },
+        {
+          "element": "div",
+          "className": "flex items-center h-10 px-3 bg-surface-1 border-b border-surface-border gap-2 flex-shrink-0",
+          "opacity": "1"
+        },
+        {
+          "element": "div",
+          "className": "flex flex-col h-screen w-screen bg-surface-0",
+          "opacity": "1"
+        },
+        {
+          "element": "ptah-electron-shell",
+          "className": "h-full w-full",
+          "opacity": "1"
+        },
+        {
+          "element": "main",
+          "className": "h-screen w-screen bg-base-100 overflow-hidden",
+          "opacity": "1"
+        },
+        {
+          "element": "ptah-root",
+          "className": "",
+          "opacity": "1"
+        },
+        {
+          "element": "body",
+          "className": "",
+          "opacity": "1"
+        },
+        {
+          "element": "html",
+          "className": "",
+          "opacity": "1"
+        }
+      ]
+    },
+    "dark-snackbar-failure": {
+      "backgroundColor": "oklch(0.259365 0.0207655 284.872)",
+      "opacity": "1",
+      "ancestors": [
+        {
+          "element": "section",
+          "className": "snackbar-card surface-3 relative rounded-xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-1.5 pl-2.5 text-base-content hover:bg-[color:var(--surface-highlight)]",
+          "opacity": "1"
+        },
+        {
+          "element": "div",
+          "className": "flex flex-col gap-1",
+          "opacity": "1"
+        },
+        {
+          "element": "ptah-notification-snackbar",
+          "className": "ptah-snackbar-host",
+          "opacity": "1"
+        },
+        {
+          "element": "div",
+          "className": "flex items-center h-10 px-3 bg-surface-1 border-b border-surface-border gap-2 flex-shrink-0",
+          "opacity": "1"
+        },
+        {
+          "element": "div",
+          "className": "flex flex-col h-screen w-screen bg-surface-0",
+          "opacity": "1"
+        },
+        {
+          "element": "ptah-electron-shell",
+          "className": "h-full w-full",
+          "opacity": "1"
+        },
+        {
+          "element": "main",
+          "className": "h-screen w-screen bg-base-100 overflow-hidden",
+          "opacity": "1"
+        },
+        {
+          "element": "ptah-root",
+          "className": "",
+          "opacity": "1"
+        },
+        {
+          "element": "body",
+          "className": "",
+          "opacity": "1"
+        },
+        {
+          "element": "html",
+          "className": "",
+          "opacity": "1"
+        }
+      ]
+    },
+    "dark-snackbar-stack": {
+      "backgroundColor": "oklch(0.259365 0.0207655 284.872)",
+      "opacity": "1",
+      "ancestors": [
+        {
+          "element": "section",
+          "className": "snackbar-card surface-3 relative rounded-xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-1.5 pl-2.5 text-base-content hover:bg-[color:var(--surface-highlight)]",
+          "opacity": "1"
+        },
+        {
+          "element": "div",
+          "className": "flex flex-col gap-1",
+          "opacity": "1"
+        },
+        {
+          "element": "ptah-notification-snackbar",
+          "className": "ptah-snackbar-host",
+          "opacity": "1"
+        },
+        {
+          "element": "div",
+          "className": "flex items-center h-10 px-3 bg-surface-1 border-b border-surface-border gap-2 flex-shrink-0",
+          "opacity": "1"
+        },
+        {
+          "element": "div",
+          "className": "flex flex-col h-screen w-screen bg-surface-0",
+          "opacity": "1"
+        },
+        {
+          "element": "ptah-electron-shell",
+          "className": "h-full w-full",
+          "opacity": "1"
+        },
+        {
+          "element": "main",
+          "className": "h-screen w-screen bg-base-100 overflow-hidden",
+          "opacity": "1"
+        },
+        {
+          "element": "ptah-root",
+          "className": "",
+          "opacity": "1"
+        },
+        {
+          "element": "body",
+          "className": "",
+          "opacity": "1"
+        },
+        {
+          "element": "html",
+          "className": "",
+          "opacity": "1"
+        }
+      ]
+    },
+    "dark-800": {
+      "backgroundColor": "oklch(0.259365 0.0207655 284.872)",
+      "opacity": "1",
+      "ancestors": [
+        {
+          "element": "section",
+          "className": "snackbar-card surface-3 relative rounded-xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-1.5 pl-2.5 text-base-content hover:bg-[color:var(--surface-highlight)]",
+          "opacity": "1"
+        },
+        {
+          "element": "div",
+          "className": "flex flex-col gap-1",
+          "opacity": "1"
+        },
+        {
+          "element": "ptah-notification-snackbar",
+          "className": "ptah-snackbar-host",
+          "opacity": "1"
+        },
+        {
+          "element": "div",
+          "className": "flex items-center h-10 px-3 bg-surface-1 border-b border-surface-border gap-2 flex-shrink-0",
+          "opacity": "1"
+        },
+        {
+          "element": "div",
+          "className": "flex flex-col h-screen w-screen bg-surface-0",
+          "opacity": "1"
+        },
+        {
+          "element": "ptah-electron-shell",
+          "className": "h-full w-full",
+          "opacity": "1"
+        },
+        {
+          "element": "main",
+          "className": "h-screen w-screen bg-base-100 overflow-hidden",
+          "opacity": "1"
+        },
+        {
+          "element": "ptah-root",
+          "className": "",
+          "opacity": "1"
+        },
+        {
+          "element": "body",
+          "className": "",
+          "opacity": "1"
+        },
+        {
+          "element": "html",
+          "className": "",
+          "opacity": "1"
+        }
+      ]
+    },
+    "light-snackbar-permission": {
+      "backgroundColor": "oklch(0.919214 0.00614 54.5612)",
+      "opacity": "1",
+      "ancestors": [
+        {
+          "element": "section",
+          "className": "snackbar-card surface-3 relative rounded-xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-1.5 pl-2.5 text-base-content hover:bg-[color:var(--surface-highlight)]",
+          "opacity": "1"
+        },
+        {
+          "element": "div",
+          "className": "flex flex-col gap-1",
+          "opacity": "1"
+        },
+        {
+          "element": "ptah-notification-snackbar",
+          "className": "ptah-snackbar-host",
+          "opacity": "1"
+        },
+        {
+          "element": "div",
+          "className": "flex items-center h-10 px-3 bg-surface-1 border-b border-surface-border gap-2 flex-shrink-0",
+          "opacity": "1"
+        },
+        {
+          "element": "div",
+          "className": "flex flex-col h-screen w-screen bg-surface-0",
+          "opacity": "1"
+        },
+        {
+          "element": "ptah-electron-shell",
+          "className": "h-full w-full",
+          "opacity": "1"
+        },
+        {
+          "element": "main",
+          "className": "h-screen w-screen bg-base-100 overflow-hidden",
+          "opacity": "1"
+        },
+        {
+          "element": "ptah-root",
+          "className": "",
+          "opacity": "1"
+        },
+        {
+          "element": "body",
+          "className": "",
+          "opacity": "1"
+        },
+        {
+          "element": "html",
+          "className": "",
+          "opacity": "1"
+        }
+      ]
+    },
+    "light-snackbar-question": {
+      "backgroundColor": "oklch(0.919214 0.00614 54.5612)",
+      "opacity": "1",
+      "ancestors": [
+        {
+          "element": "section",
+          "className": "snackbar-card surface-3 relative rounded-xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-1.5 pl-2.5 text-base-content hover:bg-[color:var(--surface-highlight)]",
+          "opacity": "1"
+        },
+        {
+          "element": "div",
+          "className": "flex flex-col gap-1",
+          "opacity": "1"
+        },
+        {
+          "element": "ptah-notification-snackbar",
+          "className": "ptah-snackbar-host",
+          "opacity": "1"
+        },
+        {
+          "element": "div",
+          "className": "flex items-center h-10 px-3 bg-surface-1 border-b border-surface-border gap-2 flex-shrink-0",
+          "opacity": "1"
+        },
+        {
+          "element": "div",
+          "className": "flex flex-col h-screen w-screen bg-surface-0",
+          "opacity": "1"
+        },
+        {
+          "element": "ptah-electron-shell",
+          "className": "h-full w-full",
+          "opacity": "1"
+        },
+        {
+          "element": "main",
+          "className": "h-screen w-screen bg-base-100 overflow-hidden",
+          "opacity": "1"
+        },
+        {
+          "element": "ptah-root",
+          "className": "",
+          "opacity": "1"
+        },
+        {
+          "element": "body",
+          "className": "",
+          "opacity": "1"
+        },
+        {
+          "element": "html",
+          "className": "",
+          "opacity": "1"
+        }
+      ]
+    },
+    "light-snackbar-lane": {
+      "backgroundColor": "oklch(0.919214 0.00614 54.5612)",
+      "opacity": "1",
+      "ancestors": [
+        {
+          "element": "section",
+          "className": "snackbar-card surface-3 relative rounded-xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-1.5 pl-2.5 text-base-content hover:bg-[color:var(--surface-highlight)]",
+          "opacity": "1"
+        },
+        {
+          "element": "div",
+          "className": "flex flex-col gap-1",
+          "opacity": "1"
+        },
+        {
+          "element": "ptah-notification-snackbar",
+          "className": "ptah-snackbar-host",
+          "opacity": "1"
+        },
+        {
+          "element": "div",
+          "className": "flex items-center h-10 px-3 bg-surface-1 border-b border-surface-border gap-2 flex-shrink-0",
+          "opacity": "1"
+        },
+        {
+          "element": "div",
+          "className": "flex flex-col h-screen w-screen bg-surface-0",
+          "opacity": "1"
+        },
+        {
+          "element": "ptah-electron-shell",
+          "className": "h-full w-full",
+          "opacity": "1"
+        },
+        {
+          "element": "main",
+          "className": "h-screen w-screen bg-base-100 overflow-hidden",
+          "opacity": "1"
+        },
+        {
+          "element": "ptah-root",
+          "className": "",
+          "opacity": "1"
+        },
+        {
+          "element": "body",
+          "className": "",
+          "opacity": "1"
+        },
+        {
+          "element": "html",
+          "className": "",
+          "opacity": "1"
+        }
+      ]
+    },
+    "light-snackbar-failure": {
+      "backgroundColor": "oklch(0.919214 0.00614 54.5612)",
+      "opacity": "1",
+      "ancestors": [
+        {
+          "element": "section",
+          "className": "snackbar-card surface-3 relative rounded-xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-1.5 pl-2.5 text-base-content hover:bg-[color:var(--surface-highlight)]",
+          "opacity": "1"
+        },
+        {
+          "element": "div",
+          "className": "flex flex-col gap-1",
+          "opacity": "1"
+        },
+        {
+          "element": "ptah-notification-snackbar",
+          "className": "ptah-snackbar-host",
+          "opacity": "1"
+        },
+        {
+          "element": "div",
+          "className": "flex items-center h-10 px-3 bg-surface-1 border-b border-surface-border gap-2 flex-shrink-0",
+          "opacity": "1"
+        },
+        {
+          "element": "div",
+          "className": "flex flex-col h-screen w-screen bg-surface-0",
+          "opacity": "1"
+        },
+        {
+          "element": "ptah-electron-shell",
+          "className": "h-full w-full",
+          "opacity": "1"
+        },
+        {
+          "element": "main",
+          "className": "h-screen w-screen bg-base-100 overflow-hidden",
+          "opacity": "1"
+        },
+        {
+          "element": "ptah-root",
+          "className": "",
+          "opacity": "1"
+        },
+        {
+          "element": "body",
+          "className": "",
+          "opacity": "1"
+        },
+        {
+          "element": "html",
+          "className": "",
+          "opacity": "1"
+        }
+      ]
+    },
+    "light-snackbar-stack": {
+      "backgroundColor": "oklch(0.919214 0.00614 54.5612)",
+      "opacity": "1",
+      "ancestors": [
+        {
+          "element": "section",
+          "className": "snackbar-card surface-3 relative rounded-xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-1.5 pl-2.5 text-base-content hover:bg-[color:var(--surface-highlight)]",
+          "opacity": "1"
+        },
+        {
+          "element": "div",
+          "className": "flex flex-col gap-1",
+          "opacity": "1"
+        },
+        {
+          "element": "ptah-notification-snackbar",
+          "className": "ptah-snackbar-host",
+          "opacity": "1"
+        },
+        {
+          "element": "div",
+          "className": "flex items-center h-10 px-3 bg-surface-1 border-b border-surface-border gap-2 flex-shrink-0",
+          "opacity": "1"
+        },
+        {
+          "element": "div",
+          "className": "flex flex-col h-screen w-screen bg-surface-0",
+          "opacity": "1"
+        },
+        {
+          "element": "ptah-electron-shell",
+          "className": "h-full w-full",
+          "opacity": "1"
+        },
+        {
+          "element": "main",
+          "className": "h-screen w-screen bg-base-100 overflow-hidden",
+          "opacity": "1"
+        },
+        {
+          "element": "ptah-root",
+          "className": "",
+          "opacity": "1"
+        },
+        {
+          "element": "body",
+          "className": "",
+          "opacity": "1"
+        },
+        {
+          "element": "html",
+          "className": "",
+          "opacity": "1"
+        }
+      ]
+    },
+    "light-800": {
+      "backgroundColor": "oklch(0.919214 0.00614 54.5612)",
+      "opacity": "1",
+      "ancestors": [
+        {
+          "element": "section",
+          "className": "snackbar-card surface-3 relative rounded-xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-1.5 pl-2.5 text-base-content hover:bg-[color:var(--surface-highlight)]",
+          "opacity": "1"
+        },
+        {
+          "element": "div",
+          "className": "flex flex-col gap-1",
+          "opacity": "1"
+        },
+        {
+          "element": "ptah-notification-snackbar",
+          "className": "ptah-snackbar-host",
+          "opacity": "1"
+        },
+        {
+          "element": "div",
+          "className": "flex items-center h-10 px-3 bg-surface-1 border-b border-surface-border gap-2 flex-shrink-0",
+          "opacity": "1"
+        },
+        {
+          "element": "div",
+          "className": "flex flex-col h-screen w-screen bg-surface-0",
+          "opacity": "1"
+        },
+        {
+          "element": "ptah-electron-shell",
+          "className": "h-full w-full",
+          "opacity": "1"
+        },
+        {
+          "element": "main",
+          "className": "h-screen w-screen bg-base-100 overflow-hidden",
+          "opacity": "1"
+        },
+        {
+          "element": "ptah-root",
+          "className": "",
+          "opacity": "1"
+        },
+        {
+          "element": "body",
+          "className": "",
+          "opacity": "1"
+        },
+        {
+          "element": "html",
+          "className": "",
+          "opacity": "1"
+        }
+      ]
+    }
+  },
+  "workspaceVisible": true,
+  "livePanel": {
+    "dark": {
+      "text": "Notifications\nClear all notices\nNEEDS YOU\n1\n\nPERMISSION REQUIRED\n\nPermission: Bash\n\nAttention capture\nworkspace\n\nTool: Bash\n\nInput: git status · Description: Run git status\n\nAllow\nDeny\nMore\nRECENT NOTICES\n0\n\nNo recent notices",
+      "needsRows": 1
+    },
+    "light": {
+      "text": "Notifications\nClear all notices\nNEEDS YOU\n1\n\nPERMISSION REQUIRED\n\nPermission: Bash\n\nAttention capture\nworkspace\n\nTool: Bash\n\nInput: git status · Description: Run git status\n\nAllow\nDeny\nMore\nRECENT NOTICES\n0\n\nNo recent notices",
+      "needsRows": 1
+    }
+  },
+  "portFreeAfter": true,
+  "tempRemoved": true
+}

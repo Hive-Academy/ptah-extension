@@ -75,6 +75,7 @@ describe('ChatAttentionSourceService', () => {
     if (!item) throw new Error('Missing attention item');
     expect(item).toMatchObject({ kind: 'permission', workspacePath: '/ws/one', soundEligible: false });
     expect(item.actions.find(action => action.id === 'open')?.label).toBe('Show in canvas');
+    expect(item).toMatchObject({ sessionTitle: 'Fix notifications', provider: 'Claude', detail: 'Tool: Write' });
     expect(item.context).toBe('Claude · Fix notifications · Tool: Write');
     expect(item.title).not.toContain('private details');
     expect(source.getLive(item.key, item.generation)?.target.kind).toBe('permission');
@@ -98,6 +99,70 @@ describe('ChatAttentionSourceService', () => {
     expect(upsert.mock.lastCall?.[0].generation).toBeGreaterThan(first.generation);
   });
 
+  it('keeps a queued permission answerable after its target tab closes', () => {
+    TestBed.inject(ChatAttentionSourceService);
+    permissions.set([{ id: 'closed-tab', toolName: 'Bash', toolInput: { command: 'echo approved' }, timestamp: 1,
+      timeoutAt: 0, description: 'Run approved command', tabId: 'tab-1', sessionId: 'session-1' }]);
+    TestBed.tick();
+    ownerAvailable = false;
+    tabs.set([]);
+    TestBed.tick();
+    const item = upsert.mock.lastCall?.[0];
+    expect(item?.tabId).toBeUndefined();
+    expect(item?.workspacePath).toBe('/ws/one');
+    expect(item?.permissionPreview).toContain('Input: echo approved');
+    expect(item?.permissionPreview).toContain('Description: Run approved command');
+    expect(item?.actions.map(action => action.id)).toEqual(['allow', 'always_allow', 'deny', 'deny_with_message', 'open']);
+    expect(item?.actions.find(action => action.id === 'allow')?.disabledReason).toBeUndefined();
+    expect(item?.actions.find(action => action.id === 'deny')?.disabledReason).toBeUndefined();
+    expect(item?.actions.find(action => action.id === 'open')?.disabledReason).toBe('Session unavailable');
+    permissions.set([{ id: 'unknown-tool', toolName: '', toolInput: {}, timestamp: 1,
+      timeoutAt: 0, description: '', tabId: 'tab-1' }]);
+    TestBed.tick();
+    expect(upsert.mock.lastCall?.[0].actions.find(action => action.id === 'allow')?.disabledReason).toBeUndefined();
+  });
+
+  it('keeps session unavailable ahead of unknown tool for a tabless lane', () => {
+    TestBed.inject(ChatAttentionSourceService);
+    ownerAvailable = false;
+    tabs.set([]);
+    lanes.set([{ agentId: 'agent', parentSessionId: 'session-1', permissionQueue: [
+      { requestId: 'missing-lane', toolName: '', timestamp: 1 },
+    ] }]);
+    TestBed.tick();
+    const item = upsert.mock.lastCall?.[0];
+    expect(item?.kind).toBe('lane-permission');
+    expect(item?.actions.find(action => action.id === 'allow')?.disabledReason).toBe('Session unavailable');
+  });
+
+  it('shows shortened relative and Windows file paths in the permission preview', () => {
+    TestBed.inject(ChatAttentionSourceService);
+    permissions.set([{ id: 'relative', toolName: 'Write', toolInput: { file_path: 'src/main.ts' },
+      timestamp: 1, timeoutAt: 0, description: '', tabId: 'tab-1', sessionId: 'session-1' }]);
+    TestBed.tick();
+    expect(upsert.mock.lastCall?.[0].permissionPreview).toBe('Input: src/main.ts');
+    permissions.set([{ id: 'windows', toolName: 'Read', toolInput: { file_path: 'C:\\repo\\src\\main.ts' },
+      timestamp: 1, timeoutAt: 0, description: '', tabId: 'tab-1', sessionId: 'session-1' }]);
+    TestBed.tick();
+    expect(upsert.mock.lastCall?.[0].permissionPreview).toBe('Input: .../src/main.ts');
+  });
+
+  it('shows path-bearing commands and redacts assigned, flagged, and token-shaped secrets', () => {
+    TestBed.inject(ChatAttentionSourceService);
+    permissions.set([{ id: 'command', toolName: 'Bash', toolInput: { command: 'rm -rf /tmp/foo' },
+      timestamp: 1, timeoutAt: 0, description: '', tabId: 'tab-1', sessionId: 'session-1' }]);
+    TestBed.tick();
+    expect(upsert.mock.lastCall?.[0].permissionPreview).toBe('Input: rm -rf /tmp/foo');
+    permissions.set([{ id: 'assigned', toolName: 'Bash', toolInput: { command: ['run password=', 'hunter2', ' --token ', 'abc123'].join('') },
+      timestamp: 1, timeoutAt: 0, description: '', tabId: 'tab-1', sessionId: 'session-1' }]);
+    TestBed.tick();
+    expect(upsert.mock.lastCall?.[0].permissionPreview).toBe('Input: run password=*** --token ***');
+    permissions.set([{ id: 'token-shape', toolName: 'Bash', toolInput: { command: ['echo sk-', '123456789abcdef'].join('') },
+      timestamp: 1, timeoutAt: 0, description: '', tabId: 'tab-1', sessionId: 'session-1' }]);
+    TestBed.tick();
+    expect(upsert.mock.lastCall?.[0].permissionPreview).toBe('Input: echo ***');
+  });
+
   it('maps questions to Answer and lanes to Allow/Deny/Open', () => {
     TestBed.inject(ChatAttentionSourceService);
     questions.set([{ id: 'q1', toolName: 'AskUserQuestion', questions: [{
@@ -115,10 +180,13 @@ describe('ChatAttentionSourceService', () => {
     expect(items.find(item => item.kind === 'lane-permission')?.actions.map((action: { id: string }) => action.id))
       .toEqual(['allow', 'deny', 'open']);
     expect(items.find(item => item.kind === 'question')?.context).toMatch(/^Claude · Fix notifications · Which option should we choose\?/);
+    expect(items.find(item => item.kind === 'question')).toMatchObject({ sessionTitle: 'Fix notifications', provider: 'Claude' });
+    expect(items.find(item => item.kind === 'question')?.detail).toMatch(/^Which option should we choose\?/);
     expect(items.find(item => item.kind === 'question')?.context).toHaveLength(80);
     expect(items.find(item => item.kind === 'question')?.context).toMatch(/…$/);
     expect(items.find(item => item.kind === 'lane-permission')?.context)
       .toBe('Claude · Fix notifications · Tool: Bash');
+    expect(items.find(item => item.kind === 'lane-permission')?.detail).toBe('Tool: Bash');
   });
 
   it('uses the background owner workspace before the active workspace', () => {
@@ -192,8 +260,8 @@ describe('ChatAttentionSourceService', () => {
       expect(upsert.mock.lastCall?.[0].context).toContain(title);
     }
     for (const title of ['/home/user/private', '/etc', '/tmp', '~/projects/x', 'src/app/foo.ts',
-      'C:\\Users\\private', '\\\\server\\share\\private', 'sk-1234567890abcdef',
-      'AKIAABCDEFGHIJKLMNOP', 'ghp_abcdef123456', 'xoxb-1234-abcdef',
+      'C:\\Users\\private', '\\\\server\\share\\private', ['sk-', '1234567890abcdef'].join(''),
+      ['AKIA', 'ABCDEFGHIJKLMNOP'].join(''), ['ghp_', 'abcdef123456'].join(''), ['xoxb-', '1234-abcdef'].join(''),
       '0123456789abcdef0123456789abcdef']) {
       tabs.set([{ ...tabs()[0], title }]);
       TestBed.tick();
