@@ -2,7 +2,6 @@ import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { TabManagerService } from '@ptah-extension/chat-state';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import { type ArtifactRecord } from '@ptah-extension/shared';
-import { ArtifactListResponseSchema } from '@ptah-extension/shared/mcp-apps-contracts';
 
 const MAX_RECORDS_PER_SESSION = 200;
 const EMPTY_RECORDS: readonly ArtifactRecord[] = [];
@@ -55,6 +54,7 @@ export class ArtifactStore {
         console.warn('[ArtifactStore] artifacts:list failed', { sessionId });
         return;
       }
+      const { ArtifactListResponseSchema } = await import('@ptah-extension/shared/mcp-apps-contracts');
       const parsed = ArtifactListResponseSchema.safeParse(result.data);
       if (!parsed.success) {
         this.lastError.set('Unable to load artifacts.');

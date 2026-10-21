@@ -48,7 +48,7 @@ describe('ArtifactStore', () => {
     call.mockResolvedValue({ success: true, data: { artifacts: [record('one'), record('two', 'session-b')] } });
     activeTab.set('session-a');
     TestBed.flushEffects();
-    await Promise.resolve();
+    await store.reload('session-a');
     expect(call).toHaveBeenCalledWith('artifacts:list', { sessionId: 'session-a' });
     expect(store.forSession('session-a')().map((item) => item.title)).toEqual(['one']);
     expect(store.forSession('session-b')()).toEqual([]);
