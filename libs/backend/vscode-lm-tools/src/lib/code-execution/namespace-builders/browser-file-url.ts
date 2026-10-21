@@ -164,6 +164,8 @@ export async function toolMayReadPage(
   try {
     parsed = new URL(rawUrl);
   } catch {
+    // degradation-audit: optional-capability - an unparseable page URL is
+    // refused (fail closed); the caller withholds the page.
     return false;
   }
   if (parsed.href === 'about:blank') {
@@ -243,6 +245,8 @@ export async function readContainedWorkspaceFile(
       contentType: contentTypeForPath(openedReal),
     };
   } catch {
+    // degradation-audit: optional-capability - a file that cannot be opened
+    // or read is not served (fail closed); the request is failed.
     return undefined;
   } finally {
     if (handle !== undefined) {
@@ -339,6 +343,8 @@ async function locateContainedPath(
   try {
     targetReal = await realpath(filesystemPath);
   } catch {
+    // degradation-audit: optional-capability - a missing or unresolvable
+    // target is refused (fail closed).
     return undefined;
   }
   if (!(await realpathInsideRoots(targetReal, workspaceRoots))) {
@@ -461,6 +467,8 @@ function decodeFilePath(pathPart: string): string | undefined {
   try {
     decoded = decodeURIComponent(pathPart);
   } catch {
+    // degradation-audit: optional-capability - malformed percent-encoding is
+    // refused (fail closed).
     return undefined;
   }
   if (decoded.includes('\\') || decoded.includes('\0') || !decoded.startsWith('/')) {
@@ -495,6 +503,8 @@ function filesystemPathFromDecoded(decodedPath: string): string | undefined {
     }
     return filesystemPath;
   } catch {
+    // degradation-audit: optional-capability - a URL that fileURLToPath
+    // rejects is refused (fail closed).
     return undefined;
   }
 }

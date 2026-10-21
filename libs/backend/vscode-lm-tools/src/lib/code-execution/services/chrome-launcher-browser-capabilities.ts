@@ -688,6 +688,8 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
     try {
       href = await this.readCurrentUrl();
     } catch {
+      // degradation-audit: optional-capability - an unreadable current URL
+      // withholds the page (fail closed).
       return false;
     }
     if (typeof href !== 'string') {
