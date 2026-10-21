@@ -110,7 +110,8 @@ describe('NotificationCenterComponent', () => {
     fixture.detectChanges();
     tick();
     const row = (fixture.nativeElement as HTMLElement).querySelector('.notification-row');
-    expect(row?.querySelector('p[title="Session unavailable"]')?.textContent).toBe('Session unavailable');
+    expect(row?.querySelector('span[title="Session unavailable"]')?.textContent).toBe('Session unavailable');
+    expect(row?.querySelector('p[title="Permission required"]')?.textContent).toBe('Permission required');
     expect(row?.textContent).toContain('Lane permission required');
   }));
 
@@ -168,4 +169,54 @@ describe('NotificationCenterComponent', () => {
     tick();
     expect(document.activeElement).toBe(bell);
   }));
+
+  it('disables an unavailable permission action in the bell without resending it', async () => {
+    notifications.upsert({ ...lane, actions: [
+      { id: 'allow', label: 'Allow' }, { id: 'deny', label: 'Deny' }, { id: 'open', label: 'Show in canvas' },
+    ] });
+    const dispatchOutcome = jest.fn().mockResolvedValue({ kind: 'unavailable', reason: 'No owner' });
+    TestBed.inject(ATTENTION_ACTION_DISPATCHER).dispatchOutcome = dispatchOutcome;
+    const fixture = TestBed.createComponent(NotificationCenterComponent);
+    fixture.detectChanges();
+    fixture.componentInstance.openPanel();
+    fixture.detectChanges();
+    const row = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>('.notification-row');
+    const button = (name: string) => [...(row?.querySelectorAll<HTMLButtonElement>('button') ?? [])]
+      .find(candidate => candidate.textContent?.trim() === name);
+    button('Allow')?.click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(button('Allow')?.disabled).toBe(true);
+    expect(button('Allow')?.title).toBe('No owner');
+    expect(button('Deny')?.disabled).toBe(false);
+    button('Allow')?.click();
+    expect(dispatchOutcome).toHaveBeenCalledTimes(1);
+  });
+
+  const staleCases: { kind: AttentionItem['kind']; actionId: string; label: string }[] = [
+    { kind: 'question', actionId: 'answer', label: 'Answer' },
+    { kind: 'failure', actionId: 'retry', label: 'Retry' },
+    { kind: 'lane-permission', actionId: 'deny', label: 'Deny' },
+  ];
+  it.each(staleCases)('disables $kind actions after a stale outcome', async ({ kind, actionId, label }) => {
+    notifications.upsert({ ...lane, kind, actions: [{ id: actionId, label }] });
+    const dispatchOutcome = jest.fn().mockResolvedValue({ kind: 'stale' });
+    TestBed.inject(ATTENTION_ACTION_DISPATCHER).dispatchOutcome = dispatchOutcome;
+    const fixture = TestBed.createComponent(NotificationCenterComponent);
+    fixture.detectChanges();
+    fixture.componentInstance.openPanel();
+    fixture.detectChanges();
+    const host: HTMLElement = fixture.nativeElement;
+    const row = host.querySelector<HTMLElement>('.notification-row');
+    const button = [...(row?.querySelectorAll<HTMLButtonElement>('button') ?? [])]
+      .find(candidate => candidate.textContent?.trim() === label);
+    expect(button?.disabled).toBe(false);
+    button?.click();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(button?.disabled).toBe(true);
+    expect(row?.textContent).toContain('Already answered');
+    button?.click();
+    expect(dispatchOutcome).toHaveBeenCalledTimes(1);
+  });
 });

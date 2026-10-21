@@ -15,9 +15,9 @@ import {
   standalone: true,
   imports: [LucideAngularModule, AttentionPermissionActionsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { class: 'ptah-snackbar-host' },
+  host: { class: 'ptah-snackbar-host', '[style.bottom]': "limit() === 1 ? '11rem' : '1rem'" },
   styles: [`
-    :host { position: fixed; z-index: 60; bottom: 5rem; right: 1rem; width: min(348px, calc(100vw - 2rem)); pointer-events: none; }
+    :host { position: fixed; z-index: 60; right: 1rem; width: min(20rem, calc(100vw - 2rem)); pointer-events: none; }
     .snackbar-card, .snackbar-more { pointer-events: auto; }
     .snackbar-card { animation: snackbar-enter 120ms ease-out; }
     @keyframes snackbar-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
@@ -25,57 +25,56 @@ import {
   `],
   template: `
     @if (!panelOpen()) {
-      <div class="flex flex-col-reverse gap-2" data-testid="notification-snackbars">
+      <div class="flex flex-col gap-1" data-testid="notification-snackbars">
+        @if (overflow() > 0) {
+          <button type="button" class="snackbar-more btn btn-ghost btn-xs self-end focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+            [attr.aria-label]="'Show ' + overflow() + ' more notifications'"
+            (click)="$event.stopPropagation(); openNotifications.emit()">+{{ overflow() }} more</button>
+        }
         @for (item of visible(); track item.key) {
-          <section class="snackbar-card surface-3 relative rounded-2xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-3 pl-4 text-base-content hover:bg-[color:var(--surface-highlight)]"
+          <section class="snackbar-card surface-3 relative rounded-xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-1.5 pl-2.5 text-base-content hover:bg-[color:var(--surface-highlight)]"
             [attr.aria-label]="kindLabel(item) + ' for ' + sessionName(item) + ' in ' + workspaceName(item)"
+            [attr.aria-describedby]="item.permissionPreview ? 'snackbar-preview-' + item.key + '-' + item.generation : null"
             (mouseenter)="hover(item.key, true)" (mouseleave)="hover(item.key, false)"
             (focusin)="focus(item.key, true)" (focusout)="focusOut(item.key, $event)">
             <span class="absolute inset-y-3 left-0 w-[3px] rounded-r-full" [class.bg-state-need]="isRequest(item)" [class.bg-state-err]="!isRequest(item)" aria-hidden="true"></span>
-            <div class="flex items-start gap-2">
-              <lucide-angular [img]="icon(item)" class="mt-0.5 size-4 shrink-0" [class.text-state-need]="isRequest(item)" [class.text-state-err]="!isRequest(item)" aria-hidden="true" />
-              <div class="min-w-0 flex-1">
-                <p class="text-[11px] font-semibold uppercase tracking-[0.06em] text-base-content-muted">{{ kindLabel(item) }}</p>
-                <p class="mt-1 truncate text-sm font-semibold text-base-content" [attr.title]="sessionName(item)">{{ sessionName(item) }}</p>
-                <div class="flex min-w-0 items-center gap-1.5 text-xs text-base-content-muted">
-                  @if (item.provider) { <span class="truncate">{{ item.provider }}</span> }
-                  <span class="max-w-[11rem] truncate rounded-md border border-[color:var(--surface-border)] bg-base-200 px-1.5 py-0.5 text-[11px] text-base-content" [attr.title]="workspaceName(item)">{{ workspaceName(item) }}</span>
-                </div>
-              </div>
-              <button type="button" class="btn btn-ghost btn-square size-8 min-h-11 min-w-11 shrink-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+            <div class="flex min-w-0 items-center gap-1.5">
+              <lucide-angular [img]="icon(item)" class="size-4 shrink-0" [class.text-state-need]="isRequest(item)" [class.text-state-err]="!isRequest(item)" aria-hidden="true" />
+              <span class="shrink-0 text-[10px] font-semibold text-base-content-muted">{{ kindLabel(item) }}</span>
+              <p class="min-w-0 flex-1 truncate text-xs font-semibold text-base-content" [attr.title]="sessionName(item)">{{ sessionName(item) }}</p>
+               <button type="button" class="btn btn-ghost btn-square size-6 min-h-6 min-w-6 shrink-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
                 [attr.aria-label]="'Dismiss ' + kindLabel(item) + ' presentation for ' + sessionName(item) + ' in ' + workspaceName(item)" (click)="dismiss(item.key)">
                 <lucide-angular [img]="XIcon" class="size-4" aria-hidden="true" />
               </button>
             </div>
-            @if (item.detail || (!isRequest(item) && item.context)) { <p class="mt-2 truncate text-xs text-base-content-muted" [attr.title]="item.detail || item.context">{{ item.detail || item.context }}</p> }
-            @if (item.kind === 'permission') {
-              <ptah-attention-permission-actions [item]="item" [busy]="pending().has(item.key)" (selected)="dispatch(item, $event.actionId, $event.reason)" />
-            } @else if (item.actions.length) {
-              <div class="mt-3 flex flex-wrap items-center gap-1.5">
+             <div class="mt-0.5 flex min-w-0 items-center justify-between gap-1">
+               <span class="min-w-0 flex-1 truncate text-[11px] text-base-content-muted" [attr.title]="item.permissionPreview || workspaceName(item)">{{ item.permissionPreview || workspaceName(item) }}@if (!item.permissionPreview && item.provider) { · {{ item.provider }} }</span>
+              @if (item.kind === 'permission') {
+                 <ptah-attention-permission-actions class="shrink-0" [item]="item" [compact]="true" [busy]="pending().has(item.key) || stale().has(item.key + ':' + item.generation)" [unavailable]="unavailable()" (selected)="dispatch(item, $event.actionId, $event.reason)" />
+              } @else if (item.actions.length) {
+              <div class="flex shrink-0 items-center gap-1">
                 @for (action of item.actions; track action.id) {
-                  <button type="button" class="btn btn-sm min-h-11 disabled:opacity-100 disabled:bg-base-200 disabled:text-base-content-muted disabled:border-[color:var(--surface-border)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                   <button type="button" class="btn btn-sm min-h-7 h-7 px-2 disabled:opacity-100 disabled:bg-base-200 disabled:text-base-content-muted disabled:border-[color:var(--surface-border)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
                     [class.btn-primary]="isPrimary(item, action.id)" [class.btn-ghost]="!isPrimary(item, action.id)"
-                    [disabled]="!!actionReason(item, action.id) || pending().has(item.key)"
+                     [disabled]="!!actionReason(item, action.id) || pending().has(item.key) || stale().has(item.key + ':' + item.generation)"
                     [attr.title]="actionReason(item, action.id)"
                     [attr.aria-describedby]="actionReason(item, action.id) ? 'snackbar-reason-' + item.key + '-' + action.id : pending().has(item.key) ? 'snackbar-pending-' + item.key : null"
                     [attr.aria-label]="action.label + ' ' + kindLabel(item) + ' for ' + sessionName(item) + ' in ' + workspaceName(item)"
                     (click)="dispatch(item, action.id)">{{ action.label }}</button>
                 }
               </div>
-            }
+              }
+            </div>
+             @if (item.permissionPreview) { <span class="sr-only" [id]="'snackbar-preview-' + item.key + '-' + item.generation">{{ item.permissionPreview }}</span> }
+             @if (item.detail || item.context) { <span class="sr-only">{{ item.detail || item.context }}</span> }
             @for (action of item.actions; track action.id) {
-              @if (actionReason(item, action.id); as reason) { <p [id]="'snackbar-reason-' + item.key + '-' + action.id" class="text-xs text-base-content-muted">{{ reason }}</p> }
+              @if (actionReason(item, action.id); as reason) { <span [id]="'snackbar-reason-' + item.key + '-' + action.id" class="sr-only">{{ reason }}</span> }
             }
             @if (pending().has(item.key)) { <p [id]="'snackbar-pending-' + item.key" class="text-xs text-base-content-muted">Submitting...</p> }
             @if (statuses().get(item.key + ':' + item.generation); as status) {
               <p role="status" class="text-xs text-base-content-muted">{{ status }}</p>
             }
           </section>
-        }
-        @if (overflow() > 0) {
-          <button type="button" class="snackbar-more btn btn-ghost btn-sm self-end focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-            [attr.aria-label]="'Show ' + overflow() + ' more notifications'"
-            (click)="$event.stopPropagation(); openNotifications.emit()">+{{ overflow() }} more</button>
         }
       </div>
     }
@@ -94,14 +93,15 @@ export class NotificationSnackbarComponent {
   protected readonly pending = signal<ReadonlySet<string>>(new Set());
   protected readonly statuses = signal<ReadonlyMap<string, string>>(new Map());
   protected readonly unavailable = signal<ReadonlyMap<string, string>>(new Map());
-  protected readonly limit = signal(3);
-  protected readonly visible = computed(() => this.notifications.snackbars().slice(0, this.limit()));
+  protected readonly stale = signal<ReadonlySet<string>>(new Set());
+  protected readonly limit = signal(2);
+  protected readonly visible = computed(() => this.notifications.snackbars().slice(0, this.limit()).reverse());
   protected readonly overflow = computed(() => Math.max(0, this.notifications.snackbars().length - this.limit()));
   protected readonly XIcon = X;
 
   constructor() {
     if (typeof window !== 'undefined') {
-      const resize = (): void => this.limit.set(window.innerWidth <= 900 ? 1 : 3);
+      const resize = (): void => this.limit.set(window.innerWidth <= 900 ? 1 : 2);
       resize();
       window.addEventListener('resize', resize);
       this.destroyRef.onDestroy(() => window.removeEventListener('resize', resize));
@@ -114,6 +114,7 @@ export class NotificationSnackbarComponent {
       const visibleKeys = new Set(this.visible().map(item => item.key));
       const live = new Set(this.notifications.snackbars().map(item => `${item.key}:${item.generation}`));
       this.statuses.update(current => new Map([...current].filter(([key]) => live.has(key))));
+      this.stale.update(current => new Set([...current].filter(key => live.has(key))));
       this.unavailable.update(current => new Map([...current].filter(([key]) => [...live].some(id => key.startsWith(`${id}:`)))));
       for (const key of this.paused) {
         if (visibleKeys.has(key) && !this.panelOpen()) continue;
@@ -149,6 +150,7 @@ export class NotificationSnackbarComponent {
   }
 
   protected actionReason(item: AttentionItem, actionId: string): string | undefined {
+    if (this.stale().has(`${item.key}:${item.generation}`)) return 'Already answered';
     return item.actions.find(action => action.id === actionId)?.disabledReason ||
       this.unavailable().get(`${item.key}:${item.generation}:${actionId}`);
   }
@@ -202,7 +204,7 @@ export class NotificationSnackbarComponent {
   }
 
   protected async dispatch(item: AttentionItem, actionId: string, reason?: string): Promise<void> {
-    if (this.pending().has(item.key)) return;
+    if (this.pending().has(item.key) || this.stale().has(`${item.key}:${item.generation}`) || this.actionReason(item, actionId)) return;
     this.pending.update(keys => new Set([...keys, item.key]));
     try {
       const request = `${item.key}:${item.generation}`;
@@ -215,7 +217,10 @@ export class NotificationSnackbarComponent {
         const outcome = reason === undefined
           ? await this.dispatcher.dispatchOutcome(item.key, item.generation, actionId)
           : await this.dispatcher.dispatchOutcome(item.key, item.generation, actionId, reason);
-        if (outcome.kind === 'stale') this.statuses.update(current => new Map(current).set(request, 'Already answered'));
+        if (outcome.kind === 'stale') {
+          this.statuses.update(current => new Map(current).set(request, 'Already answered'));
+          this.stale.update(current => new Set([...current, request]));
+        }
         if (outcome.kind === 'unavailable') {
           this.statuses.update(current => new Map(current).set(request, outcome.reason));
           this.unavailable.update(current => new Map(current).set(`${request}:${actionId}`, outcome.reason));

@@ -1,6 +1,6 @@
 {
   "entry": "D:\\projects\\ptah-extension\\.claude-worktrees\\attention-rail-redesign\\dist\\apps\\ptah-electron\\main.mjs",
-  "workspace": "C:\\Users\\abdal\\AppData\\Local\\Temp\\ptah-attention-populated-kajEat\\workspace",
+  "workspace": "C:\\Users\\abdal\\AppData\\Local\\Temp\\ptah-attention-populated-YYcuTB\\workspace",
   "port": 9347,
   "shots": [
     {
@@ -106,7 +106,7 @@
     {
       "file": "D:\\projects\\ptah-extension\\.claude-worktrees\\attention-rail-redesign\\.ptah\\specs\\TASK_2026_593_7c2e\\visual-check\\dark-rail-needs-you.png",
       "ok": true,
-      "notes": "real permission:request in Sessions queue and tab card 56f14e15-c9e4-4912-9846-8a18366b2236",
+      "notes": "real permission:request in Sessions queue and tab card 13e9a7b7-87c8-4e94-932a-bbae2da70ec6",
       "viewport": {
         "width": 1440,
         "height": 900
@@ -116,7 +116,7 @@
     {
       "file": "D:\\projects\\ptah-extension\\.claude-worktrees\\attention-rail-redesign\\.ptah\\specs\\TASK_2026_593_7c2e\\visual-check\\dark-panel-permission-live.png",
       "ok": true,
-      "notes": "real permission:request routed to canvas tab 56f14e15-c9e4-4912-9846-8a18366b2236; Needs you row captured in bell panel",
+      "notes": "real permission:request routed to canvas tab 13e9a7b7-87c8-4e94-932a-bbae2da70ec6; Needs you row captured in bell panel",
       "viewport": {
         "width": 1440,
         "height": 900
@@ -226,7 +226,7 @@
     {
       "file": "D:\\projects\\ptah-extension\\.claude-worktrees\\attention-rail-redesign\\.ptah\\specs\\TASK_2026_593_7c2e\\visual-check\\light-rail-needs-you.png",
       "ok": true,
-      "notes": "real permission:request in Sessions queue and tab card 56f14e15-c9e4-4912-9846-8a18366b2236",
+      "notes": "real permission:request in Sessions queue and tab card 13e9a7b7-87c8-4e94-932a-bbae2da70ec6",
       "viewport": {
         "width": 1440,
         "height": 900
@@ -236,7 +236,7 @@
     {
       "file": "D:\\projects\\ptah-extension\\.claude-worktrees\\attention-rail-redesign\\.ptah\\specs\\TASK_2026_593_7c2e\\visual-check\\light-panel-permission-live.png",
       "ok": true,
-      "notes": "real permission:request routed to canvas tab 56f14e15-c9e4-4912-9846-8a18366b2236; Needs you row captured in bell panel",
+      "notes": "real permission:request routed to canvas tab 13e9a7b7-87c8-4e94-932a-bbae2da70ec6; Needs you row captured in bell panel",
       "viewport": {
         "width": 1440,
         "height": 900
@@ -248,7 +248,7 @@
     {
       "name": "create canvas session tab",
       "ok": true,
-      "notes": "56f14e15-c9e4-4912-9846-8a18366b2236"
+      "notes": "13e9a7b7-87c8-4e94-932a-bbae2da70ec6"
     },
     {
       "name": "dark: theme",
@@ -484,12 +484,12 @@
       "ancestors": [
         {
           "element": "section",
-          "className": "snackbar-card surface-3 relative rounded-2xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-3 pl-4 text-base-content hover:bg-[color:var(--surface-highlight)]",
+          "className": "snackbar-card surface-3 relative rounded-xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-1.5 pl-2.5 text-base-content hover:bg-[color:var(--surface-highlight)]",
           "opacity": "1"
         },
         {
           "element": "div",
-          "className": "flex flex-col-reverse gap-2",
+          "className": "flex flex-col gap-1",
           "opacity": "1"
         },
         {
@@ -540,12 +540,12 @@
       "ancestors": [
         {
           "element": "section",
-          "className": "snackbar-card surface-3 relative rounded-2xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-3 pl-4 text-base-content hover:bg-[color:var(--surface-highlight)]",
+          "className": "snackbar-card surface-3 relative rounded-xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-1.5 pl-2.5 text-base-content hover:bg-[color:var(--surface-highlight)]",
           "opacity": "1"
         },
         {
           "element": "div",
-          "className": "flex flex-col-reverse gap-2",
+          "className": "flex flex-col gap-1",
           "opacity": "1"
         },
         {
@@ -596,12 +596,12 @@
       "ancestors": [
         {
           "element": "section",
-          "className": "snackbar-card surface-3 relative rounded-2xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-3 pl-4 text-base-content hover:bg-[color:var(--surface-highlight)]",
+          "className": "snackbar-card surface-3 relative rounded-xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-1.5 pl-2.5 text-base-content hover:bg-[color:var(--surface-highlight)]",
           "opacity": "1"
         },
         {
           "element": "div",
-          "className": "flex flex-col-reverse gap-2",
+          "className": "flex flex-col gap-1",
           "opacity": "1"
         },
         {
@@ -652,12 +652,12 @@
       "ancestors": [
         {
           "element": "section",
-          "className": "snackbar-card surface-3 relative rounded-2xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-3 pl-4 text-base-content hover:bg-[color:var(--surface-highlight)]",
+          "className": "snackbar-card surface-3 relative rounded-xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-1.5 pl-2.5 text-base-content hover:bg-[color:var(--surface-highlight)]",
           "opacity": "1"
         },
         {
           "element": "div",
-          "className": "flex flex-col-reverse gap-2",
+          "className": "flex flex-col gap-1",
           "opacity": "1"
         },
         {
@@ -708,12 +708,12 @@
       "ancestors": [
         {
           "element": "section",
-          "className": "snackbar-card surface-3 relative rounded-2xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-3 pl-4 text-base-content hover:bg-[color:var(--surface-highlight)]",
+          "className": "snackbar-card surface-3 relative rounded-xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-1.5 pl-2.5 text-base-content hover:bg-[color:var(--surface-highlight)]",
           "opacity": "1"
         },
         {
           "element": "div",
-          "className": "flex flex-col-reverse gap-2",
+          "className": "flex flex-col gap-1",
           "opacity": "1"
         },
         {
@@ -764,12 +764,12 @@
       "ancestors": [
         {
           "element": "section",
-          "className": "snackbar-card surface-3 relative rounded-2xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-3 pl-4 text-base-content hover:bg-[color:var(--surface-highlight)]",
+          "className": "snackbar-card surface-3 relative rounded-xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-1.5 pl-2.5 text-base-content hover:bg-[color:var(--surface-highlight)]",
           "opacity": "1"
         },
         {
           "element": "div",
-          "className": "flex flex-col-reverse gap-2",
+          "className": "flex flex-col gap-1",
           "opacity": "1"
         },
         {
@@ -820,12 +820,12 @@
       "ancestors": [
         {
           "element": "section",
-          "className": "snackbar-card surface-3 relative rounded-2xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-3 pl-4 text-base-content hover:bg-[color:var(--surface-highlight)]",
+          "className": "snackbar-card surface-3 relative rounded-xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-1.5 pl-2.5 text-base-content hover:bg-[color:var(--surface-highlight)]",
           "opacity": "1"
         },
         {
           "element": "div",
-          "className": "flex flex-col-reverse gap-2",
+          "className": "flex flex-col gap-1",
           "opacity": "1"
         },
         {
@@ -876,12 +876,12 @@
       "ancestors": [
         {
           "element": "section",
-          "className": "snackbar-card surface-3 relative rounded-2xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-3 pl-4 text-base-content hover:bg-[color:var(--surface-highlight)]",
+          "className": "snackbar-card surface-3 relative rounded-xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-1.5 pl-2.5 text-base-content hover:bg-[color:var(--surface-highlight)]",
           "opacity": "1"
         },
         {
           "element": "div",
-          "className": "flex flex-col-reverse gap-2",
+          "className": "flex flex-col gap-1",
           "opacity": "1"
         },
         {
@@ -932,12 +932,12 @@
       "ancestors": [
         {
           "element": "section",
-          "className": "snackbar-card surface-3 relative rounded-2xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-3 pl-4 text-base-content hover:bg-[color:var(--surface-highlight)]",
+          "className": "snackbar-card surface-3 relative rounded-xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-1.5 pl-2.5 text-base-content hover:bg-[color:var(--surface-highlight)]",
           "opacity": "1"
         },
         {
           "element": "div",
-          "className": "flex flex-col-reverse gap-2",
+          "className": "flex flex-col gap-1",
           "opacity": "1"
         },
         {
@@ -988,12 +988,12 @@
       "ancestors": [
         {
           "element": "section",
-          "className": "snackbar-card surface-3 relative rounded-2xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-3 pl-4 text-base-content hover:bg-[color:var(--surface-highlight)]",
+          "className": "snackbar-card surface-3 relative rounded-xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-1.5 pl-2.5 text-base-content hover:bg-[color:var(--surface-highlight)]",
           "opacity": "1"
         },
         {
           "element": "div",
-          "className": "flex flex-col-reverse gap-2",
+          "className": "flex flex-col gap-1",
           "opacity": "1"
         },
         {
@@ -1044,12 +1044,12 @@
       "ancestors": [
         {
           "element": "section",
-          "className": "snackbar-card surface-3 relative rounded-2xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-3 pl-4 text-base-content hover:bg-[color:var(--surface-highlight)]",
+          "className": "snackbar-card surface-3 relative rounded-xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-1.5 pl-2.5 text-base-content hover:bg-[color:var(--surface-highlight)]",
           "opacity": "1"
         },
         {
           "element": "div",
-          "className": "flex flex-col-reverse gap-2",
+          "className": "flex flex-col gap-1",
           "opacity": "1"
         },
         {
@@ -1100,12 +1100,12 @@
       "ancestors": [
         {
           "element": "section",
-          "className": "snackbar-card surface-3 relative rounded-2xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-3 pl-4 text-base-content hover:bg-[color:var(--surface-highlight)]",
+          "className": "snackbar-card surface-3 relative rounded-xl border border-[color:var(--surface-border)] shadow-[var(--elev-shadow-raised)] p-1.5 pl-2.5 text-base-content hover:bg-[color:var(--surface-highlight)]",
           "opacity": "1"
         },
         {
           "element": "div",
-          "className": "flex flex-col-reverse gap-2",
+          "className": "flex flex-col gap-1",
           "opacity": "1"
         },
         {
@@ -1154,11 +1154,11 @@
   "workspaceVisible": true,
   "livePanel": {
     "dark": {
-      "text": "Notifications\nClear all notices\nNEEDS YOU\n1\n\nPERMISSION REQUIRED\n\nAttention capture\n\nworkspace\n\nTool: Bash\n\nInput: git status · Description: Run git status\n\nAllow\nAlways allow\nDeny\nShow in canvas\nDeny with message\nRECENT NOTICES\n0\n\nNo recent notices",
+      "text": "Notifications\nClear all notices\nNEEDS YOU\n1\n\nPERMISSION REQUIRED\n\nPermission: Bash\n\nAttention capture\nworkspace\n\nTool: Bash\n\nInput: git status · Description: Run git status\n\nAllow\nDeny\nMore\nRECENT NOTICES\n0\n\nNo recent notices",
       "needsRows": 1
     },
     "light": {
-      "text": "Notifications\nClear all notices\nNEEDS YOU\n1\n\nPERMISSION REQUIRED\n\nAttention capture\n\nworkspace\n\nTool: Bash\n\nInput: git status · Description: Run git status\n\nAllow\nAlways allow\nDeny\nShow in canvas\nDeny with message\nRECENT NOTICES\n0\n\nNo recent notices",
+      "text": "Notifications\nClear all notices\nNEEDS YOU\n1\n\nPERMISSION REQUIRED\n\nPermission: Bash\n\nAttention capture\nworkspace\n\nTool: Bash\n\nInput: git status · Description: Run git status\n\nAllow\nDeny\nMore\nRECENT NOTICES\n0\n\nNo recent notices",
       "needsRows": 1
     }
   },

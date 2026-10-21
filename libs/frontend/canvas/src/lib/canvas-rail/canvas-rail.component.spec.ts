@@ -95,6 +95,8 @@ describe('CanvasRailComponent', () => {
     fixture.componentRef.setInput('workspacePath', '/local'); fixture.detectChanges();
     const row = (fixture.nativeElement as HTMLElement).querySelector('[data-attention-key="permission:closed"]');
     expect(row?.textContent).toContain('Input: echo approved');
+    row?.querySelector<HTMLButtonElement>('[aria-label="More permission actions"]')?.click();
+    fixture.detectChanges();
     expect(row?.textContent).toContain('Always allow');
   });
   const request = (key: string, overrides: Partial<AttentionItem> = {}): AttentionItem => ({
@@ -114,12 +116,14 @@ describe('CanvasRailComponent', () => {
     const row = (fixture.nativeElement as HTMLElement).querySelector('[data-attention-key]')!;
     expect(row.textContent).toContain('Session unavailable');
     expect(row.textContent).toContain('Permission required');
-    const buttons = row.querySelectorAll<HTMLButtonElement>('button');
-    expect(buttons[0].disabled).toBe(true);
-    expect(buttons[0].classList).not.toContain('btn-primary');
-    expect(buttons[0].classList).toContain('btn-ghost');
-    expect(buttons[1].classList).toContain('btn-primary');
-    expect(buttons[1].classList).not.toContain('btn-ghost');
+    const buttons = [...row.querySelectorAll<HTMLButtonElement>('button')];
+    const allow = buttons.find(button => button.textContent?.trim() === 'Allow');
+    const open = buttons.find(button => button.textContent?.trim() === 'Show in canvas');
+    expect(allow?.disabled).toBe(true);
+    expect(allow?.classList).toContain('btn-ghost');
+    expect(open?.disabled).toBe(false);
+    expect(open?.classList).toContain('btn-primary');
+    expect(buttons.filter(button => button.classList.contains('btn-primary'))).toHaveLength(1);
   });
   it('uses a kind label, session title, and one detail line without repeating the request title', () => {
     const notifications = TestBed.inject(NotificationService);
@@ -171,15 +175,27 @@ describe('CanvasRailComponent', () => {
     const fixture = mount([tile('a', 0)]);
     fixture.componentRef.setInput('workspacePath', '/local'); fixture.detectChanges();
     const host = fixture.nativeElement as HTMLElement;
-    host.querySelector<HTMLButtonElement>('[data-attention-key] button')!.click();
+    const row = host.querySelector<HTMLElement>('[data-attention-key]')!;
+    const action = (label: string) => [...row.querySelectorAll<HTMLButtonElement>('button')]
+      .find(button => button.textContent?.trim() === label);
+    expect(action('Deny')?.classList.contains('btn-ghost')).toBe(true);
+    expect(action('Show in canvas')).toBeUndefined();
+    row.querySelector<HTMLButtonElement>('[aria-label="More permission actions"]')?.click(); fixture.detectChanges();
+    expect(action('Show in canvas')).toBeTruthy();
+    action('Allow')!.click();
     await fixture.whenStable(); fixture.detectChanges();
-    expect(host.querySelectorAll<HTMLButtonElement>('[data-attention-key] button:disabled')).toHaveLength(3);
+    expect(action('Allow')?.disabled).toBe(true);
+    expect(action('Deny')?.disabled).toBe(true);
+    expect(action('Show in canvas')).toBeUndefined();
+    expect(row.querySelector<HTMLButtonElement>('[aria-label="More permission actions"]')?.disabled).toBe(true);
+    expect(row.querySelectorAll<HTMLButtonElement>('button:disabled')).toHaveLength(3);
     expect(stubs(fixture)[0].blockedKeys().has('stale')).toBe(true);
-    host.querySelector<HTMLButtonElement>('[data-attention-key] button')!.click();
+    action('Allow')?.click();
     expect(dispatchOutcome).toHaveBeenCalledTimes(1);
     notifications.upsert(request('stale', { generation: 2 })); fixture.detectChanges();
     expect(host.textContent).not.toContain(message);
-    expect(host.querySelector<HTMLButtonElement>('[data-attention-key] button')?.disabled).toBe(false);
+    expect(action('Allow')?.disabled).toBe(false);
+    expect(row.querySelector<HTMLButtonElement>('[aria-label="More permission actions"]')?.disabled).toBe(false);
   });
   it('prefers tab id and assigns a session fallback to only the first tile', () => {
     const notifications = TestBed.inject(NotificationService);

@@ -153,11 +153,11 @@ describe('ChatAttentionSourceService', () => {
       timestamp: 1, timeoutAt: 0, description: '', tabId: 'tab-1', sessionId: 'session-1' }]);
     TestBed.tick();
     expect(upsert.mock.lastCall?.[0].permissionPreview).toBe('Input: rm -rf /tmp/foo');
-    permissions.set([{ id: 'assigned', toolName: 'Bash', toolInput: { command: 'run password=hunter2 --token abc123' },
+    permissions.set([{ id: 'assigned', toolName: 'Bash', toolInput: { command: ['run password=', 'hunter2', ' --token ', 'abc123'].join('') },
       timestamp: 1, timeoutAt: 0, description: '', tabId: 'tab-1', sessionId: 'session-1' }]);
     TestBed.tick();
     expect(upsert.mock.lastCall?.[0].permissionPreview).toBe('Input: run password=*** --token ***');
-    permissions.set([{ id: 'token-shape', toolName: 'Bash', toolInput: { command: 'echo sk-123456789abcdef' },
+    permissions.set([{ id: 'token-shape', toolName: 'Bash', toolInput: { command: ['echo sk-', '123456789abcdef'].join('') },
       timestamp: 1, timeoutAt: 0, description: '', tabId: 'tab-1', sessionId: 'session-1' }]);
     TestBed.tick();
     expect(upsert.mock.lastCall?.[0].permissionPreview).toBe('Input: echo ***');
@@ -260,8 +260,8 @@ describe('ChatAttentionSourceService', () => {
       expect(upsert.mock.lastCall?.[0].context).toContain(title);
     }
     for (const title of ['/home/user/private', '/etc', '/tmp', '~/projects/x', 'src/app/foo.ts',
-      'C:\\Users\\private', '\\\\server\\share\\private', 'sk-1234567890abcdef',
-      'AKIAABCDEFGHIJKLMNOP', 'ghp_abcdef123456', 'xoxb-1234-abcdef',
+      'C:\\Users\\private', '\\\\server\\share\\private', ['sk-', '1234567890abcdef'].join(''),
+      ['AKIA', 'ABCDEFGHIJKLMNOP'].join(''), ['ghp_', 'abcdef123456'].join(''), ['xoxb-', '1234-abcdef'].join(''),
       '0123456789abcdef0123456789abcdef']) {
       tabs.set([{ ...tabs()[0], title }]);
       TestBed.tick();

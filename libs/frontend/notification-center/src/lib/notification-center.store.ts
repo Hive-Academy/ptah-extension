@@ -77,9 +77,18 @@ export class NotificationCenterStore {
     return this.statuses().get(`${item.key}:${item.generation}`);
   }
 
+  isStale(item: AttentionItem): boolean {
+    return this.status(item) === 'Already answered';
+  }
+
   disabledReason(item: AttentionItem, actionId: string): string | undefined {
     return item.actions.find(action => action.id === actionId)?.disabledReason
       ?? this.unavailable().get(`${item.key}:${item.generation}:${actionId}`);
+  }
+
+  unavailableFor(item: AttentionItem): ReadonlyMap<string, string> {
+    const prefix = `${item.key}:${item.generation}:`;
+    return new Map([...this.unavailable()].filter(([key]) => key.startsWith(prefix)));
   }
 
   async activate(item: AttentionItem, actionId: string, reason?: string): Promise<boolean> {
@@ -87,7 +96,7 @@ export class NotificationCenterStore {
       candidate => candidate.key === item.key && candidate.generation === item.generation,
     );
     const action = current?.actions.find(candidate => candidate.id === actionId);
-    if (!current || !action || action.disabledReason) return false;
+    if (!current || !action || this.disabledReason(current, actionId) || this.isStale(current)) return false;
     const request = `${item.key}:${item.generation}`;
     if (this.submitting().has(request)) return false;
     this.submitting.update(current => new Set([...current, request]));

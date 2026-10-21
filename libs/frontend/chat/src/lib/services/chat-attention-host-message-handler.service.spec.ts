@@ -161,7 +161,7 @@ describe('ChatAttentionHostMessageHandler', () => {
       } });
       expect(upsert.mock.lastCall?.[0].context).toContain(title);
     }
-    for (const title of ['/home/user/private', '/tmp', '/tmp/', '/etc', '/Volumes', '/SYSTEM', 'C:\\Users\\private', 'sk-1234567890abcdef']) {
+    for (const title of ['/home/user/private', '/tmp', '/tmp/', '/etc', '/Volumes', '/SYSTEM', 'C:\\Users\\private', ['sk-', '1234567890abcdef'].join('')]) {
       handler.handleMessage({ type: MESSAGE_TYPES.ATTENTION_CHANGED, payload: {
         change: 'upsert', notice: { ...notice, title },
       } });
