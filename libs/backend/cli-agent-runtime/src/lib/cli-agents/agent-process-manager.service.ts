@@ -66,6 +66,7 @@ import {
   tailLines,
   capStreamEvents,
 } from './agent-process-manager-helpers';
+import { LaneInstructionFileStore } from './lane-instruction-file-store';
 import { AgentSpawnEnvironment } from './agent-spawn-environment.service';
 import { LaneCompletionNotifier } from './lane-completion-notifier.service';
 import { AgentOutputBuffer } from './agent-output-buffer.service';
@@ -334,6 +335,8 @@ export class AgentProcessManager {
     private readonly planLimits: LanePlanLimitLedger,
     @inject(SDK_TOKENS.HOST_ATTENTION_COORDINATOR, { isOptional: true })
     private readonly hostAttention?: HostAttentionCoordinator,
+    @inject(CLI_AGENT_RUNTIME_TOKENS.LANE_INSTRUCTION_FILE_STORE, { isOptional: true })
+    private readonly instructionFiles?: LaneInstructionFileStore,
   ) {
     this.logger.info('[AgentProcessManager] Initialized');
   }
@@ -685,7 +688,9 @@ export class AgentProcessManager {
     };
     this.logger.info('[AgentProcessManager] Lane policy', lanePolicy);
 
-    const sdkHandle = await runSdk({
+    let sdkHandle: SdkHandle;
+    try {
+      sdkHandle = await runSdk({
       task,
       workingDirectory,
       files: request.files,
@@ -706,17 +711,24 @@ export class AgentProcessManager {
       agentId,
       role: roleDefinition,
       laneBudgets,
+      instructionFileStore: this.instructionFiles,
     });
+    } catch (error: unknown) {
+      await this.instructionFiles?.remove(agentId);
+      throw error;
+    }
     sdkHandle.onLaneConfigRejected?.(() => {
       this.logger.info('[AgentProcessManager] Lane policy', {
         ...lanePolicy,
         prefixKeys: 'dropped (config rejected)',
       });
     });
+    const effectiveChannel = sdkHandle.getLanePolicyDelivery?.() ?? roleChannel;
+    const effectiveInfo = roleStamp ? { ...info, roleChannel: effectiveChannel } : info;
     const initialCliSessionId = sdkHandle.getSessionId?.();
     const infoWithSession = initialCliSessionId
-      ? { ...info, cliSessionId: initialCliSessionId }
-      : info;
+      ? { ...effectiveInfo, cliSessionId: initialCliSessionId }
+      : effectiveInfo;
 
     const spawned = this.trackSdkHandle(
       sdkHandle,
@@ -809,10 +821,14 @@ export class AgentProcessManager {
           : {}),
         ...meta.roleStamp,
       };
+      const effectiveChannel = sdkHandle.getLanePolicyDelivery?.();
+      const effectiveInfo = effectiveChannel && meta.roleStamp
+        ? { ...info, roleChannel: effectiveChannel }
+        : info;
       const initialCliSessionId = sdkHandle.getSessionId?.();
       const infoWithSession = initialCliSessionId
-        ? { ...info, cliSessionId: initialCliSessionId }
-        : info;
+        ? { ...effectiveInfo, cliSessionId: initialCliSessionId }
+        : effectiveInfo;
 
       this.logger.info('[AgentProcessManager] Spawned agent from SdkHandle', {
         agentId,
@@ -1953,6 +1969,7 @@ export class AgentProcessManager {
     this.signalLaneCompletion(tracked);
     await this.killProcess(tracked);
     tracked.subprocessReleased = true;
+    if (this.instructionFiles) await this.instructionFiles.remove(agentId);
     this.clearIdleRelease(tracked);
     clearTimeout(tracked.timeoutHandle);
     this.flushDelta(agentId);
@@ -2204,6 +2221,7 @@ export class AgentProcessManager {
     this.events.emit('agent:exited', tracked.info);
     await this.killProcess(tracked);
     tracked.subprocessReleased = true;
+    if (this.instructionFiles) await this.instructionFiles.remove(agentId);
     this.clearIdleRelease(tracked);
     this.flushDelta(agentId);
     this.outputBuffer.discard(agentId);
@@ -2277,7 +2295,10 @@ export class AgentProcessManager {
     tracked: TrackedAgent,
     reason: AgentReleaseReason,
   ): Promise<void> {
-    if (tracked.subprocessReleased) return;
+    if (tracked.subprocessReleased) {
+      await this.instructionFiles?.remove(agentId);
+      return;
+    }
     // Set BEFORE the await: killProcess yields, and a second caller arriving in
     // that window would issue a duplicate abort and a duplicate tree-kill.
     tracked.subprocessReleased = true;
@@ -2313,6 +2334,14 @@ export class AgentProcessManager {
       reason,
       cliSessionId: tracked.info.cliSessionId,
     });
+    try {
+      await this.instructionFiles?.remove(agentId);
+    } catch (error: unknown) {
+      this.logger.warn('[AgentProcessManager] Lane instruction cleanup failed', {
+        agentId, error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
   }
 
   private handleExit(
@@ -2324,6 +2353,11 @@ export class AgentProcessManager {
     if (!tracked) return;
     if (tracked.hasExited) return;
     tracked.hasExited = true;
+    if (tracked.sdkHandle?.supportsContinuation?.() !== true) {
+      void this.instructionFiles?.remove(agentId).catch((error: unknown) => {
+        this.logger.warn('[AgentProcessManager] Lane instruction cleanup failed', { agentId, error: error instanceof Error ? error.message : String(error) });
+      });
+    }
 
     clearTimeout(tracked.timeoutHandle);
     // A continuation-capable lane can start another caller turn on this

@@ -69,14 +69,13 @@ import { EnhancedPromptsStateStore } from './enhanced-prompts-state-store';
  *
  * The generated prompt is unbounded — it grows with the workspace analysis —
  * but `getProjectGuidanceContent` feeds the spawn prompt, which every vendor
- * then resends on every tool call. 4,000 bytes is ~1,000 tokens; past that the
- * guidance costs more than it steers (`.ptah/specs/TASK_PROMPT_EFFICIENCY/audit.md` R5).
+ * then resends on every tool call. 64 KiB bounds prompt memory while allowing full project guidance for non-argv channels.
  */
-const PROJECT_GUIDANCE_MAX_BYTES = 4000;
+const PROJECT_GUIDANCE_MAX_BYTES = 64 * 1024;
 
 /** Appended in place of the dropped tail so the reader knows it is partial. */
 const PROJECT_GUIDANCE_TRUNCATION_NOTICE =
-  '\n\n[Project guidance truncated at 4,000 bytes to keep the spawn prompt small.]';
+  '\n\n[Project guidance truncated at 64 KiB.]';
 
 /**
  * Cut `guidance` so the returned string stays within
@@ -920,7 +919,7 @@ export class EnhancedPromptsService {
    * while excluding PTAH_CORE_SYSTEM_PROMPT and PTAH_SYSTEM_PROMPT which are
    * Claude-specific and not applicable to CLI agents (Codex, Copilot).
    *
-   * Capped at {@link PROJECT_GUIDANCE_MAX_BYTES}: this string is prepended to
+   * Bounded at {@link PROJECT_GUIDANCE_MAX_BYTES}: this string is prepended to
    * every CLI spawn and resent with every tool call of that lane.
    *
    * A stored prompt without the marker (generated before the marker existed,

@@ -81,6 +81,9 @@ import { bestMessagingCapability } from './cli-adapter.interface';
 import {
   stripAnsiCodes,
   buildTaskPrompt,
+  PTAH_LANE_POLICY,
+  renderRoleBlock,
+  fullPromptPreambles,
   probeCliVersion,
   resolveCliPath,
   resolveDirectSpawn,
@@ -181,7 +184,7 @@ export function parsePiModelList(stdout: string): CliModelInfo[] {
 export class PiCliAdapter implements CliAdapter {
   readonly name = 'pi' as const;
   readonly displayName = 'Pi';
-  readonly roleChannel = 'task-prompt' as const;
+  readonly roleChannel = 'system-prompt' as const;
   /** Pi has no MCP support — its extensibility is code-based (registerTool). */
   readonly supportsMcp = false;
 
@@ -317,6 +320,24 @@ export class PiCliAdapter implements CliAdapter {
 
     const abortController = new AbortController();
     const binary = options.binaryPath ?? 'pi';
+    const fileChannel = !!options.instructionFileStore && !!options.agentId;
+    const instructionContent = [options.projectGuidance, options.role ? renderRoleBlock(options.role, this.name) : undefined, PTAH_LANE_POLICY]
+      .filter((part): part is string => !!part)
+      .join('\n\n');
+    const writeInstruction = (): Promise<string> => options.instructionFileStore!.write(
+      options.workingDirectory, options.agentId!, 'pi-append-system.md', instructionContent,
+    );
+    let instructionPath: string | undefined;
+    if (fileChannel) {
+      try {
+        instructionPath = await writeInstruction();
+      } catch {
+        // A missing instruction file is safe only when the policy is in text.
+      }
+    }
+    const promptOptions: CliCommandOptions = instructionPath
+      ? { ...options, projectGuidance: undefined, role: undefined, lanePolicyDelivery: 'system-prompt' }
+      : options;
     let capturedSessionId: string | undefined;
     let capturedSessionFile: string | undefined;
     let activeChild: ReturnType<typeof spawnCli> | undefined;
@@ -374,8 +395,10 @@ export class PiCliAdapter implements CliAdapter {
     const runTurn = (
       message: string,
       resumeSessionId?: string,
+      turnInstructionPath?: string,
     ): Promise<number> => {
       const args: string[] = ['--mode', 'rpc', '-a'];
+      if (turnInstructionPath) args.push('--append-system-prompt', turnInstructionPath);
       if (options.model) {
         args.push('--model', options.model);
       }
@@ -507,8 +530,13 @@ export class PiCliAdapter implements CliAdapter {
     };
 
     const done = runTurn(
-      buildTaskPrompt(options, this.name),
+      buildTaskPrompt({
+        ...promptOptions,
+        resumeRestoresContext: !!options.resumeSessionId && !!instructionPath,
+        resumeDeliveredPreambles: options.resumeSessionId && instructionPath ? fullPromptPreambles(promptOptions) : undefined,
+      }, this.name),
       options.resumeSessionId,
+      instructionPath,
     );
 
     return {
@@ -518,6 +546,7 @@ export class PiCliAdapter implements CliAdapter {
       onSegment: segment.subscribe,
       getSessionId: () => capturedSessionId,
       getPid: () => activeChild?.pid,
+      getLanePolicyDelivery: () => instructionPath ? 'system-prompt' : 'task-prompt',
       steer: (message: string): void => {
         // Mid-run steering targets the CURRENT child's stdin. NEVER a bare
         // `prompt` (Pi errors on that mid-run) — the dedicated `steer` request.
@@ -526,10 +555,22 @@ export class PiCliAdapter implements CliAdapter {
         }
       },
       supportsContinuation: () => capturedSessionId != null,
-      continue: (message: string): Promise<ContinuationOutcome> =>
-        // Re-spawn with the captured session id; the new child re-points
-        // `activeChild`, so steering works on the continued turn too.
-        Promise.resolve({ done: runTurn(message, capturedSessionId) }),
+      continue: async (message: string): Promise<ContinuationOutcome> => {
+        // Every child that receives the append argument must find the file.
+        // If rewriting fails, deliver the policy in the RPC prompt instead.
+        let turnPath: string | undefined;
+        if (fileChannel) {
+          try {
+            turnPath = await writeInstruction();
+          } catch {
+            turnPath = undefined;
+          }
+        }
+        const turnMessage = fileChannel && !turnPath
+          ? buildTaskPrompt({ ...options, task: message, files: undefined }, this.name)
+          : message;
+        return { done: runTurn(turnMessage, capturedSessionId, turnPath) };
+      },
     };
   }
 

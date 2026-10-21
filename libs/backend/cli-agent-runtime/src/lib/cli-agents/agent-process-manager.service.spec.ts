@@ -3026,6 +3026,18 @@ describe('AgentProcessManager - SDK Execution Path', () => {
   describe('idle subprocess release', () => {
     let controls: MockSdkHandleControls;
 
+    it('keeps a continuation policy file after turn settlement until subprocess release', async () => {
+      const remove = jest.fn().mockResolvedValue(undefined);
+      Reflect.set(manager, 'instructionFiles', { remove });
+      const agentId = await spawnContinuable();
+      controls.resolve(0);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(remove).not.toHaveBeenCalled();
+      await manager.stop(agentId);
+      expect(remove).toHaveBeenCalledWith(agentId);
+    });
+
     const spawnContinuable = async (): Promise<string> => {
       controls = createMockSdkHandle({ supportsContinuation: true });
       (sdkAdapter.runSdk as jest.Mock).mockResolvedValue(controls.handle);

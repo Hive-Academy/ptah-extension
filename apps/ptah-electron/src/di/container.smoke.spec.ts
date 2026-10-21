@@ -974,6 +974,12 @@ describe('Electron DI — session organization recorder binding (TASK_2026_580 R
     ).toEqual([]);
   });
 
+  it('resolves one lane instruction file store for the Electron runtime', () => {
+    const { c } = composePhase2(true);
+    const token = CLI_AGENT_RUNTIME_TOKENS.LANE_INSTRUCTION_FILE_STORE;
+    expect(c.resolve(token)).toBe(c.resolve(token));
+  });
+
   it('the bound recorder reaches the child-session spawner (R-TL8)', () => {
     const { c } = composePhase2(true);
 

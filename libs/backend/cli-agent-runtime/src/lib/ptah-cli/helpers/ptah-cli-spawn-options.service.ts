@@ -52,7 +52,7 @@ import {
 } from '@ptah-extension/output-styles';
 import { blankToUndefined } from './ptah-cli-registry.utils';
 import { ptahMcpServerUrl } from '../../cli-agents/cli-adapters/ptah-mcp-url';
-import { renderRoleBlock } from '../../cli-agents/cli-adapters/cli-adapter.utils';
+import { renderRoleBlock, PTAH_LANE_POLICY } from '../../cli-agents/cli-adapters/cli-adapter.utils';
 
 /**
  * Assembled spawn options returned by assembleSpawnOptions()
@@ -200,6 +200,7 @@ export class PtahCliSpawnOptions {
       [
         promptResult.content,
         role ? renderRoleBlock(role, 'ptah-cli') : undefined,
+        PTAH_LANE_POLICY,
       ]
         .filter(Boolean)
         .join('\n\n') || undefined;

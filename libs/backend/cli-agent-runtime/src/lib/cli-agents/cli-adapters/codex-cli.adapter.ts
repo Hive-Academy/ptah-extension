@@ -31,12 +31,14 @@ import { bestMessagingCapability } from './cli-adapter.interface';
 import type { ResumeDeliveredPreambles } from './cli-adapter.utils';
 import {
   assertCommandLineWithinLimit,
+  CliCommandLineTooLongError,
   stripAnsiCodes,
   buildTaskPrompt,
   fullPromptPreambles,
   resolveCliPath,
   createBufferedEmitter,
   renderRoleBlock,
+  PTAH_LANE_POLICY,
 } from './cli-adapter.utils';
 import { summarizeCliSdkError } from './sdk-error-summary';
 import {
@@ -536,9 +538,7 @@ export class CodexCliAdapter implements CliAdapter {
       options.workingDirectory,
     );
     const budgets = resolveCodexLaneBudgets(options.laneBudgets);
-    const developerInstructions = options.role
-      ? renderRoleBlock(options.role, this.name)
-      : undefined;
+    const developerInstructions = [options.role ? renderRoleBlock(options.role, this.name) : undefined, PTAH_LANE_POLICY].filter(Boolean).join('\n\n');
     const reasoningEffort =
       options.reasoningEffort &&
       (CODEX_REASONING_EFFORTS as readonly string[]).includes(
@@ -572,6 +572,7 @@ export class CodexCliAdapter implements CliAdapter {
     /** `onLaneConfigRejected` fires once per handle. */
     let rejectionAnnounced = false;
 
+    let policyInTask = false;
     const laneConfig = (variant: CodexLaneConfigVariant): string[] => {
       const built = buildCodexLaneConfig({
         variant,
@@ -581,7 +582,7 @@ export class CodexCliAdapter implements CliAdapter {
         workingDirectory: options.workingDirectory,
         agentId: options.agentId,
         userMcpServerNames: userServers.names,
-        developerInstructions,
+        developerInstructions: policyInTask ? (options.role ? renderRoleBlock(options.role, this.name) : undefined) : developerInstructions,
         codexVersion: binary?.version,
       });
       this.logLaneWarnings(built.warnings);
@@ -597,15 +598,20 @@ export class CodexCliAdapter implements CliAdapter {
      * is truncated (Batch 5 H6).
      */
     const turnOverrides = (threadId: string | undefined): string[] => {
-      const configOverrides = laneConfig(threadId ? 'resume' : 'first-turn');
-      assertCommandLineWithinLimit(
-        binary?.path ?? 'codex',
-        codexExecArgs({
-          configOverrides,
-          ...threadOptions,
-          resumeThreadId: threadId,
-        }),
-      );
+      const check = (configOverrides: string[]): void =>
+        assertCommandLineWithinLimit(
+          binary?.path ?? 'codex',
+          codexExecArgs({ configOverrides, ...threadOptions, resumeThreadId: threadId }),
+        );
+      let configOverrides = laneConfig(threadId ? 'resume' : 'first-turn');
+      try {
+        check(configOverrides);
+      } catch (error: unknown) {
+        if (!(error instanceof CliCommandLineTooLongError)) throw error;
+        policyInTask = true;
+        configOverrides = laneConfig(threadId ? 'resume' : 'first-turn');
+        check(configOverrides);
+      }
       return configOverrides;
     };
 
@@ -635,15 +641,15 @@ export class CodexCliAdapter implements CliAdapter {
     });
 
     const taskPrompt = buildTaskPrompt(
-      { ...options, role: undefined, resumeRestoresContext: true },
+      { ...options, role: undefined, lanePolicyDelivery: policyInTask ? 'task-prompt' : 'developer-instructions', resumeRestoresContext: true },
       this.name,
     );
     // What this handle's first turn carried; later turns on the same thread
     // leave out exactly those blocks. A `resumeSessionId` spawn is a new
     // process with no record of the earlier one, so its first turn above
     // passes nothing and keeps both.
-    const firstTurnPreambles: ResumeDeliveredPreambles =
-      fullPromptPreambles(options);
+    let deliveredPreambles: ResumeDeliveredPreambles =
+      fullPromptPreambles({ ...options, lanePolicyDelivery: policyInTask ? 'task-prompt' : 'developer-instructions' });
     const abortController = new AbortController();
     let capturedThreadId: string | undefined;
     const itemTextTracker = new Map<string, string>();
@@ -843,6 +849,9 @@ export class CodexCliAdapter implements CliAdapter {
       // resume). With no thread to resume, the message starts a new thread
       // and therefore carries the full prefix again.
       const threadId = capturedThreadId ?? options.resumeSessionId;
+      // Resume argv includes the thread id; choose the policy channel before
+      // constructing text, since this argv can cross the limit on its own.
+      turnOverrides(threadId);
       const prompt = buildTaskPrompt(
         {
           ...options,
@@ -850,11 +859,15 @@ export class CodexCliAdapter implements CliAdapter {
           files: undefined,
           role: undefined,
           resumeSessionId: threadId,
+          lanePolicyDelivery: policyInTask ? 'task-prompt' : 'developer-instructions',
           resumeRestoresContext: true,
-          resumeDeliveredPreambles: firstTurnPreambles,
+          resumeDeliveredPreambles: deliveredPreambles,
         },
         this.name,
       );
+      if (policyInTask && prompt.includes(PTAH_LANE_POLICY)) {
+        deliveredPreambles = { ...deliveredPreambles, lanePolicy: true };
+      }
       return runTurn(prompt, threadId);
     };
 
@@ -863,6 +876,7 @@ export class CodexCliAdapter implements CliAdapter {
     return {
       abort: abortController,
       done,
+      getLanePolicyDelivery: () => policyInTask ? 'task-prompt' : 'developer-instructions',
       onOutput: output.subscribe,
       onSegment: segment.subscribe,
       onLaneConfigRejected: configRejection.subscribe,

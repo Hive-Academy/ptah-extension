@@ -51,7 +51,7 @@ export function renderLaneCompletionContract(
   }
 
   lines.push(
-    'Then call `ptah_agent_report` once with: what you produced, the absolute ' +
+    'Ptah tools may have a server prefix; search your tool list for `ptah_agent_report` and use the name shown. Then call it once with: what you produced, the absolute ' +
       'path of each file you wrote, and anything you could NOT do. That call ' +
       'reaches the session that spawned you immediately — it is how the ' +
       'orchestrator learns what you did without reading your whole output. ' +

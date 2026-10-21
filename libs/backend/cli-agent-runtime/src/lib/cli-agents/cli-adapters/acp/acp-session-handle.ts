@@ -32,7 +32,7 @@ import type {
   ContinuationOutcome,
   SdkHandle,
 } from '../cli-adapter.interface';
-import { buildTaskPrompt, createBufferedEmitter } from '../cli-adapter.utils';
+import { buildTaskPrompt, createBufferedEmitter, fullPromptPreambles } from '../cli-adapter.utils';
 import { classifyCliStderr } from '../cli-stderr-severity';
 import { decideAcpPermission } from './acp-permission-policy';
 import { spawnAcpProcess } from './acp-process-transport';
@@ -717,7 +717,7 @@ export function createAcpSessionHandle(
     if (abort.signal.aborted) return 1;
     return runPrompt(
       buildTaskPrompt(
-        { ...options, resumeRestoresContext: restoredContext },
+        { ...options, resumeRestoresContext: restoredContext, resumeDeliveredPreambles: restoredContext ? fullPromptPreambles(options) : undefined },
         profile.vendor,
       ),
     );
