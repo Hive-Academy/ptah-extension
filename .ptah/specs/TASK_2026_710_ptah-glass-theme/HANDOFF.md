@@ -108,7 +108,7 @@ Not covered yet: a busy chat (messages, code block, tool calls) and a modal, bot
 ## 7. Exact next steps
 
 1. Read `code-logic-review.md` and section 8. Verify each finding at its `file:line`. Send the confirmed
-   findings 1-7 as one numbered defect list to a codex lane (`ptah_agent_list` first; workingDirectory = the
+   findings 1-7 plus the user defects 8-10 as one numbered defect list to a codex lane (`ptah_agent_list` first; workingDirectory = the
    phase-3 worktree; brief must repeat the memory-safe and Electron-first rules, no git writes, load
    `impeccable` + `angular-frontend-patterns`). After the fix, re-review by grok (different family), max 2
    revise rounds.
@@ -164,6 +164,27 @@ The orchestrator has not yet verified each finding against the code; verify, the
    resolved accent back when state is present but invalid; add a spec.
 7. Minor — `index.html:96-101` pre-paint reads only the localStorage accent hint, not
    `vscode.getState()['ptah-accent']` like the theme path. Prefer state, then hint.
+
+### User feedback after the review (2026-10-21, from `shots-workspace/ptah-glass-gold-home.png`)
+
+8. **Right sidebar has no glass background.** The Sessions pane on the right of the chat (title "Sessions",
+   "0 / 9 running", "No sessions yet", bottom "New session" / "Previous sessions") sits bare on the
+   backdrop over the teal glow: no `chrome` pane fill, rim or blur, and its text is not on a plate. Find the
+   component that renders that pane inside the Electron shell (the right session pane, not
+   `ptah-docked-inspector`, which lane B already marked) and give it `data-glass-surface="chrome"`, with
+   `plate` on its title row and list area per C4 NOTES section 2. Check the C4 shot: the right pane is a
+   framed glass card like the left one.
+9. **Rounded corners collide where panes touch.** The Electron shell panes are docked flush (header bar,
+   left workspace sidebar, the vertical "WORKSPACES" tab with the gold rule, chat area, right pane, "GIT"
+   rail). Each glass role applies `--glass-radius`, so adjacent rounded corners leave notches and wedges:
+   top-left where the header bar meets the sidebar, the sidebar's bottom (a second rounded edge shows
+   under "Add Folder"), and the header's own corners. Decide one rule and apply it everywhere in the shell:
+   (a) recommended, matching C4: float the panes as separate cards with a small gap (e.g. 8px padding on
+   the shell body and between panes) so every rounded corner has backdrop around it; or (b) keep panes
+   flush and set the radius to 0 on every edge that touches another pane (only outer window corners
+   round). Also remove the duplicate rounded surface at the bottom of the workspace sidebar.
+10. The opaque rectangle right of the active "Chat" tab is still visible (review finding 5; the layered
+    `--tab-bg` override does not win).
 
 Also noted (not a finding): first launch in VS Code light sets `ptah-glass-light` only in memory, so cold
 start paints dark until Angular boots (same shape as the old anubis default).
