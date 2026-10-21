@@ -1,5 +1,6 @@
 ﻿import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 import type { UsageTopSession } from '@ptah-extension/shared';
+import type { UsageSessionRow } from './usage-summary.view-model';
 import { ProviderMarkComponent } from '@ptah-extension/ui';
 import { formatCompactTokens, formatUsd } from './usage-formatting';
 
@@ -21,7 +22,7 @@ import { formatCompactTokens, formatUsd } from './usage-formatting';
               @for (session of sessions(); track session.providerId + ':' + session.sessionId) {
                 <tr>
                   <td class="max-w-48 truncate" [attr.title]="session.title">{{ session.title }}</td>
-                  <td><span class="flex items-center gap-2"><ptah-provider-mark [providerId]="session.providerId" size="sm" class="h-4 w-4 shrink-0" /><span class="max-w-40 truncate" [attr.title]="session.modelId">{{ session.modelId }}</span></span></td>
+                  <td><span class="flex items-center gap-2"><ptah-provider-mark [providerId]="session.providerId" size="sm" class="h-4 w-4 shrink-0" /><span class="max-w-40 truncate" [attr.title]="session.modelId">{{ session.modelDisplayName }}</span></span></td>
                   <td class="text-right tabular-nums" [attr.title]="session.unpriced ? 'Some usage has no price' : null">{{ costLabel(session) }}</td>
                   <td class="text-right tabular-nums">{{ compact(session.tokens) }}</td>
                   <td class="text-right whitespace-nowrap" [attr.title]="session.lastActive">{{ relative(session.lastActive) }}</td>
@@ -35,7 +36,7 @@ import { formatCompactTokens, formatUsd } from './usage-formatting';
   `,
 })
 export class UsageTopSessionsComponent {
-  readonly sessions = input.required<readonly UsageTopSession[]>();
+  readonly sessions = input.required<readonly UsageSessionRow[]>();
   readonly generatedAt = input.required<string>();
   protected readonly compact = formatCompactTokens;
 

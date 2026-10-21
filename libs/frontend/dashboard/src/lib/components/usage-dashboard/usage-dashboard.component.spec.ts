@@ -115,7 +115,7 @@ describe('UsageDashboardComponent', () => {
     answerUsage(usageCall(0), {
       ...base, sessionCount: 2, messageCount: 3, subagentCount: 1,
       topSessions: [
-        { sessionId: 's1', title: 'Long descriptive session title', providerId: 'anthropic', modelId: 'claude', costUsd: 2, unpriced: true, tokens: 1000, messageCount: 2, subagentCount: 1, lastActive: '2026-10-20T00:00:00.000Z' },
+        { sessionId: 's1', title: 'Long descriptive session title', providerId: 'anthropic', modelId: 'claude-opus-4-6', costUsd: 2, unpriced: true, tokens: 1000, messageCount: 2, subagentCount: 1, lastActive: '2026-10-20T00:00:00.000Z' },
         { sessionId: 's2', title: 'Unknown cost session', providerId: 'opencode', modelId: 'qwen', costUsd: null, unpriced: true, tokens: 500, messageCount: 1, subagentCount: 0, lastActive: '2026-10-19T00:00:00.000Z' },
       ],
     });
@@ -123,8 +123,10 @@ describe('UsageDashboardComponent', () => {
     const table = el().querySelector('[data-testid="usage-top-sessions"]');
     expect(table?.textContent).toContain('≥ $2.00');
     expect(table?.textContent).toContain('Unpriced');
+    expect(table?.textContent).toContain('Claude Opus 4.6');
+    expect(table?.querySelector('[title="claude-opus-4-6"]')).not.toBeNull();
     expect(table?.querySelector('td[title="Long descriptive session title"]')).not.toBeNull();
-    expect(el().querySelector('[aria-label="Session activity in selected range"]')?.textContent).toContain('Subagents1');
+    expect(text('usage-kpis')).toContain('Subagents1');
   });
 
   it('renders the folded summary: total, provider shares, KPIs, breakdown and quality', async () => {
@@ -140,10 +142,8 @@ describe('UsageDashboardComponent', () => {
     // complete-looking total, and the tooltip names the unpriced facts.
     expect(text('usage-total-cost')).toBe('≥ $5.00');
     expect(
-      el().querySelector('[data-testid="usage-total-cost"]')?.getAttribute(
-        'data-tip',
-      ),
-    ).toBe('1 fact unpriced, 1K tokens');
+      el().querySelector('[data-testid="usage-total-cost"]')?.getAttribute('title'),
+    ).toContain('1 fact unpriced, 1K tokens');
     expect(el().textContent).not.toContain('$9.00');
 
     const rows = Array.from(
@@ -160,14 +160,26 @@ describe('UsageDashboardComponent', () => {
     expect(rows[1].textContent).not.toContain('$0');
 
     expect(text('usage-kpi-processed')).toContain('3.2K');
+    expect(el().querySelector('[data-testid="usage-kpis"]')?.getAttribute('aria-label'))
+      .toBe('Usage totals for the selected range');
+    const processed = el().querySelector('[data-testid="usage-kpi-processed"]')!;
+    expect(processed.querySelector('p:last-child')?.textContent).toContain('Output 700 tokens');
+    expect(el().querySelectorAll('[data-testid="usage-kpis"] > div')).toHaveLength(6);
+    const content = el().querySelector('[data-testid="usage-content"]')!;
+    const kpi = content.querySelector('[data-testid="usage-kpis"]')!;
+    const chart = content.querySelector('[data-testid="usage-chart"]')!;
+    const share = content.querySelector('[data-testid="usage-cost-donut"]')!;
+    const breakdown = content.querySelector('[data-testid="usage-breakdown"]')!;
+    expect(kpi.compareDocumentPosition(chart) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(chart.compareDocumentPosition(share) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(share.compareDocumentPosition(breakdown) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // Mixed savings: the known sum renders as a lower bound, never zero.
-    expect(text('usage-kpi-savings')).toContain('≥ $2.00');
-    expect(text('usage-kpi-savings')).toContain('a lower bound');
+    expect(text('usage-kpi-cost')).toContain('a lower bound');
     expect(
       el()
-        .querySelector('[data-testid="usage-kpi-savings"]')
-        ?.getAttribute('data-tip'),
-    ).toBe('1 fact without savings data');
+        .querySelector('[data-testid="usage-total-cost"]')
+        ?.getAttribute('title'),
+    ).toContain('Cache savings ≥ $2.00');
     expect(text('usage-quality-savings')).toContain('≥ $2.00');
     expect(text('usage-quality-unpriced')).toContain('31.3%');
     expect(text('usage-quality-reported')).toContain('68.8%');
@@ -206,11 +218,11 @@ describe('UsageDashboardComponent', () => {
 
     // Every fact is priced and reports savings: 6 raw + 2.4 saved → 1.4x.
     expect(text('usage-total-cost')).toBe('$6.00');
-    expect(text('usage-kpi-savings')).toContain('$2.40');
-    expect(text('usage-kpi-savings')).toContain('Cost before cache savings: 1.4x raw cost');
+    expect(text('usage-kpi-cost')).toContain('Cost before cache savings: 1.4x raw cost');
+    expect(el().querySelector('[data-testid="usage-total-cost"]')?.getAttribute('title')).toContain('Cache savings $2.40');
   });
 
-  it('marks the total partial and lists incomplete sources quietly', async () => {
+  it('puts incomplete source reasons in the focusable partial badge', async () => {
     answerUsage(
       usageCall(0),
       usageSummary([factSonnetDay18], {
@@ -231,10 +243,17 @@ describe('UsageDashboardComponent', () => {
     await settle();
 
     expect(count('[data-testid="usage-partial-badge"]')).toBe(1);
-    const notes = text('usage-source-notes') ?? '';
-    expect(notes).toContain('Antigravity: no dated history');
-    expect(notes).toContain('Claude Ledger: one malformed line');
-    // An unavailable source is a quiet note, never an error.
+    const badge = el().querySelector<HTMLButtonElement>('[data-testid="usage-partial-badge"]');
+    const description = el().querySelector(`#${badge?.getAttribute('aria-describedby')}`);
+    expect(description?.textContent).toContain('Antigravity: no dated history');
+    expect(description?.textContent).toContain('Claude Ledger: one malformed line');
+    badge?.dispatchEvent(new Event('focus'));
+    fixture.detectChanges();
+    expect(badge?.classList).toContain('tooltip-open');
+    badge?.dispatchEvent(new Event('blur'));
+    fixture.detectChanges();
+    expect(badge?.classList).not.toContain('tooltip-open');
+    expect(el().querySelector('[data-testid="usage-source-notes"]')).toBeNull();
     expect(el().querySelector('[data-testid="usage-error"]')).toBeNull();
   });
 
@@ -364,6 +383,21 @@ describe('UsageDashboardComponent', () => {
 
     clickButton('Tokens');
     expect(firstDay().getAttribute('aria-label')).toContain('total 2K');
+  });
+
+  it('renders fixed-size chart labels outside the scalable SVG', async () => {
+    answerUsage(usageCall(0), usageSummary([factSonnetDay18]));
+    await settle();
+
+    const chart = el().querySelector('[data-testid="usage-chart"]')!;
+    const svg = chart.querySelector('[data-testid="usage-chart-svg"]')!;
+    expect(svg.getAttribute('preserveAspectRatio')).toBe('none');
+    expect(svg.classList).toContain('h-[clamp(220px,15vw,260px)]');
+    expect(svg.querySelector('text')).toBeNull();
+    const labels = chart.querySelector('[data-testid="usage-chart-axis-labels"]')!;
+    expect(labels.classList).toContain('text-[11px]');
+    expect(labels.textContent).toContain('Oct 18');
+    expect(chart.querySelectorAll('svg rect[role="img"]')).toHaveLength(3);
   });
 
   it('marks days with unpriced usage in cost mode only', async () => {
@@ -510,7 +544,7 @@ describe('StackedBarChartComponent', () => {
   });
 
   it('uses nice gridline ceilings and thinned day labels', () => {
-    const labels = Array.from(el().querySelectorAll('svg text')).map(
+    const labels = Array.from(el().querySelectorAll('[data-testid="usage-chart-axis-labels"] span')).map(
       (t) => t.textContent?.trim(),
     );
     // Max stack total is 6; a nice 2-unit step covers the scale.
@@ -582,7 +616,7 @@ describe('StackedBarChartComponent', () => {
     expect(columns[1].getAttribute('aria-label')).toBe(
       'Oct 19: total 6; A: 2; B: 4',
     );
-    const labels = Array.from(el().querySelectorAll('svg text')).map(
+    const labels = Array.from(el().querySelectorAll('[data-testid="usage-chart-axis-labels"] span')).map(
       (t) => t.textContent ?? '',
     );
     expect(labels.join(' ')).not.toContain('NaN');
@@ -597,7 +631,7 @@ describe('StackedBarChartComponent', () => {
     fixture.detectChanges();
 
     expect(count(el(), '[data-testid="usage-chart-bar"]')).toBe(2);
-    const labels = Array.from(el().querySelectorAll('svg text')).map(
+    const labels = Array.from(el().querySelectorAll('[data-testid="usage-chart-axis-labels"] span')).map(
       (t) => t.textContent ?? '',
     );
     expect(labels.join(' ')).not.toContain('NaN');

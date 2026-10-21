@@ -517,6 +517,7 @@ describe('ProviderOwnerResolver', () => {
       const grok = resolver.ownerForCliStore('grok');
       expect(grok.key).toBe(cliStoreOwnerKey('grok', resolve('grok-home')));
       expect(grok.identityKind).toBe('cli-store');
+      expect(grok.label).toBe('Grok CLI login');
       for (const ref of [opencode, antigravity, grok]) expectRestorable(ref);
     } finally {
       if (previous === undefined) delete process.env['XDG_DATA_HOME'];

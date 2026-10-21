@@ -7,7 +7,7 @@ import type { Locator, Page } from '@playwright/test';
  *
  * A calm, social-media-ready walkthrough of Ptah's Dashboard: the card-driven
  * home that aggregates usage from local sources and the
- * Tribunal convene affordance. This is a SCENE, not a test — it asserts almost
+ * Tribunal navigation tab. This is a SCENE, not a test — it asserts almost
  * nothing, runs NO agents, and is tuned for how it looks on camera: smooth
  * pointer travel, lower-third captions, generous dwell, and spotlight beats on
  * the hero cards.
@@ -20,7 +20,7 @@ import type { Locator, Page } from '@playwright/test';
  * camera onto each card as the VO names it.
  *
  * Strictly NON-DESTRUCTIVE: it navigates, scrolls, hovers, and spotlights. It
- * never clicks "Convene a Tribunal" or any control that would start a paid run.
+ * never clicks Tribunal or any control that would start a paid run.
  *
  * Prereqs (the launcher assumes these):
  * - `nx serve ptah-electron` has been run once so the default profile is
@@ -100,22 +100,17 @@ test('SHOWCASE — dashboard tour (card-driven home)', async ({
     },
   });
 
-  // Hero card #1 — the Tribunal convene affordance (spotlight + hover only,
-  // never click: clicking would launch a multi-vendor panel). The targeted
-  // caption punches the virtual camera onto the card as the VO names it.
-  const tribunalCard = page
-    .getByRole('button', { name: 'Convene a Tribunal' })
-    .first();
-  if (await isVisible(tribunalCard)) {
+  // Show the Tribunal navigation tab without entering a paid run.
+  const tribunalTab = page.getByRole('tab', { name: 'Tribunal' }).first();
+  if (await isVisible(tribunalTab)) {
     await director.say(4, {
-      target: tribunalCard,
+      target: tribunalTab,
       during: async () => {
-        await director.hover(tribunalCard, 700);
-        await director.spotlight(tribunalCard, 1800);
+        await director.hover(tribunalTab, 700);
+        await director.spotlight(tribunalTab, 1800);
       },
     });
   }
-
   // Hero card #2 — the Usage card.
   const analyticsCard = page
     .locator('section[aria-label="Usage"]')

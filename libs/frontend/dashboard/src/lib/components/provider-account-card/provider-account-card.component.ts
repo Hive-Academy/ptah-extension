@@ -51,24 +51,28 @@ import { ProviderAccountTileComponent } from '../provider-account-tile/provider-
   imports: [ProviderAccountTileComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [
-    // One compact tile per owner, 3–4 per desktop row.
-    // `grid-auto-rows: 1fr` gives every row
-    // ONE shared height — each implicit row resolves to the tallest tile's
-    // content, so no row is taller or shorter than another and nothing
-    // clips; `align-items: stretch` then fills each cell to that height.
+    // Responsive columns follow available section width.
     `
       :host {
         display: block;
+        container-type: inline-size;
       }
       .tiles {
         list-style: none;
         margin: 0;
         padding: 0;
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
-        grid-auto-rows: 1fr;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 0.5rem;
-        align-items: stretch;
+      }
+      @container (min-width: 1400px) {
+        .tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      }
+      @container (max-width: 999px) {
+        .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      }
+      @container (max-width: 639px) {
+        .tiles { grid-template-columns: minmax(0, 1fr); }
       }
       .tiles > li {
         min-width: 0;
@@ -82,13 +86,9 @@ import { ProviderAccountTileComponent } from '../provider-account-tile/provider-
       data-testid="dashboard-section-provider-accounts"
     >
       <div>
-        <h3 id="provider-accounts-heading" class="text-base font-semibold">
+        <h3 id="provider-accounts-heading" class="text-base font-semibold" [attr.title]="'The tick on each bar marks ' + nearLimitPercent + '% (near limit); color shows reached limits.'">
           Provider accounts &amp; plan limits
         </h3>
-        <p class="mt-0.5 text-xs text-base-content-muted">
-          One tile per quota owner. The tick on each bar marks
-          {{ nearLimitPercent }}% (near limit); bars highlight a reached limit.
-        </p>
       </div>
       @if (owners(); as list) {
         @if (refreshNotice(); as notice) {

@@ -113,8 +113,12 @@ export interface DayBreakdownRow {
   readonly savingsUnknownFactCount: number;
 }
 
+export interface UsageSessionRow extends UsageTopSession {
+  readonly modelDisplayName: string;
+}
+
 export interface UsageViewModel {
-  readonly topSessions: readonly UsageTopSession[];
+  readonly topSessions: readonly UsageSessionRow[];
   readonly range: UsageRangeDays | null;
   readonly days: readonly string[];
   readonly dateSpanLabel: string;
@@ -274,7 +278,10 @@ export function buildUsageViewModel(
   );
 
   return {
-    topSessions: summary.topSessions ?? [],
+    topSessions: (summary.topSessions ?? []).map((session) => ({
+      ...session,
+      modelDisplayName: resolveModelDisplayName(session.modelId, availableModels),
+    })),
     range: days.length === 7 || days.length === 30 || days.length === 90
       ? (days.length as UsageRangeDays)
       : null,
