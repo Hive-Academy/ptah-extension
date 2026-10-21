@@ -42,7 +42,7 @@ describe('index.html pre-paint theme boot lists', () => {
   const html = readFileSync(INDEX_HTML, 'utf8');
 
   it('EAGER lists exactly the themes compiled into styles.css', () => {
-    expect(readList(html, 'EAGER')).toEqual(['anubis', 'anubis-light']);
+    expect(readList(html, 'EAGER')).toEqual(['anubis', 'anubis-light', 'ptah-glass', 'ptah-glass-light']);
   });
 
   it('EAGER + DEFERRED together cover every theme in DAISYUI_THEMES', () => {
@@ -68,6 +68,18 @@ describe('index.html pre-paint theme boot lists', () => {
       .sort();
 
     expect([...readList(html, 'DARK')].sort()).toEqual(declared);
+  });
+
+  it('GLASS matches the opt-in theme metadata', () => {
+    expect([...readList(html, 'GLASS')].sort()).toEqual(
+      DAISYUI_THEMES.filter((theme) => theme.glass).map((theme) => theme.name).sort(),
+    );
+  });
+
+  it('pre-paint accepts exactly the non-default accents', () => {
+    const source = readFileSync(join(__dirname, '..', '..', '..', '..', 'libs', 'frontend', 'core', 'src', 'lib', 'services', 'theme.service.ts'), 'utf8');
+    const declared = /export const ACCENTS:[^=]+ = \[([^\]]+)\]/.exec(source)?.[1].match(/'([^']+)'/g)?.map((name) => name.slice(1, -1)) ?? [];
+    expect(readList(html, 'ACCENT')).toEqual(declared.filter((name) => name !== 'gold'));
   });
 
   it('does not link the deferred sheet as a stylesheet or preload', () => {

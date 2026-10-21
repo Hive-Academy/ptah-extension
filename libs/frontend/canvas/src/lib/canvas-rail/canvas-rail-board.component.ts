@@ -100,6 +100,7 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
     '(document:keydown.escape)': 'onDocumentEscape($event)',
   },
   styles: [`
+    :host-context([data-glass='on']) ptah-aurora-effect { display: none; }
     @keyframes rail-pane-enter { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: translateX(0); } }
     @media (prefers-reduced-motion: no-preference) {
       .rail-pane-enter { animation: rail-pane-enter 180ms var(--ptah-ease-soft) both; }

@@ -72,7 +72,7 @@ import type {
     PermissionRequestCardComponent,
   ],
   template: `
-    <div class="relative pl-2.5 my-0.5">
+    <div class="relative pl-2.5 my-0.5" data-glass-surface="tile">
       <!-- Status rail: colour only; the header names the status in words -->
       <span
         [class]="railClass()"

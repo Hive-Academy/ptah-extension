@@ -73,10 +73,14 @@ describe('ThemeService', () => {
     TestBed.resetTestingModule();
     document.documentElement.removeAttribute('data-theme');
     document.documentElement.removeAttribute('data-theme-mode');
+    document.documentElement.removeAttribute('data-glass');
+    document.documentElement.removeAttribute('data-glass-mode');
+    document.documentElement.removeAttribute('data-accent');
     document.getElementById('ptah-theme-extra')?.remove();
     document.getElementById('test-app-styles')?.remove();
     deferredSheetLink()?.remove();
     localStorage.removeItem('ptah-theme');
+    localStorage.removeItem('ptah-accent');
   });
 
   describe('initial theme resolution', () => {
@@ -95,21 +99,21 @@ describe('ThemeService', () => {
       });
       const service = configure(mock);
 
-      expect(service.currentTheme()).toBe('anubis-light');
+      expect(service.currentTheme()).toBe('ptah-glass-light');
     });
 
-    it('defaults to "anubis" when VS Code theme kind is dark and nothing is persisted', () => {
+    it('defaults to Ptah glass when VS Code theme kind is dark and nothing is persisted', () => {
       const mock = createMockVscode({ themeKind: 'dark' });
       const service = configure(mock);
 
-      expect(service.currentTheme()).toBe('anubis');
+      expect(service.currentTheme()).toBe('ptah-glass');
     });
 
-    it('switches to "anubis-light" on first launch when VS Code theme kind is light', () => {
+    it('switches to Ptah glass light on first launch when VS Code theme kind is light', () => {
       const mock = createMockVscode({ themeKind: 'light' });
       const service = configure(mock);
 
-      expect(service.currentTheme()).toBe('anubis-light');
+      expect(service.currentTheme()).toBe('ptah-glass-light');
     });
 
     /**
@@ -162,7 +166,7 @@ describe('ThemeService', () => {
 
         const service = configure(createMockVscode({ themeKind: 'light' }));
 
-        expect(service.currentTheme()).toBe('anubis-light');
+        expect(service.currentTheme()).toBe('ptah-glass-light');
       });
     });
 
@@ -210,15 +214,15 @@ describe('ThemeService', () => {
   });
 
   describe('toggleTheme()', () => {
-    it('toggles anubis → anubis-light and back', () => {
+    it('toggles the Ptah glass pair', () => {
       const mock = createMockVscode();
       const service = configure(mock);
 
-      expect(service.currentTheme()).toBe('anubis');
+      expect(service.currentTheme()).toBe('ptah-glass');
       service.toggleTheme();
-      expect(service.currentTheme()).toBe('anubis-light');
+      expect(service.currentTheme()).toBe('ptah-glass-light');
       service.toggleTheme();
-      expect(service.currentTheme()).toBe('anubis');
+      expect(service.currentTheme()).toBe('ptah-glass');
     });
 
     it('toggling from a non-anubis theme sends it to "anubis"', () => {
@@ -227,7 +231,7 @@ describe('ThemeService', () => {
 
       service.toggleTheme();
       // Non-'anubis' starting point falls into the else branch: → 'anubis'
-      expect(service.currentTheme()).toBe('anubis');
+      expect(service.currentTheme()).toBe('ptah-glass');
     });
   });
 
@@ -268,7 +272,7 @@ describe('ThemeService', () => {
       const link = deferredSheetLink();
       expect(link).not.toBeNull();
       expect(link?.rel).toBe('stylesheet');
-      expect(service.currentTheme()).toBe('anubis');
+      expect(service.currentTheme()).toBe('ptah-glass');
 
       link?.dispatchEvent(new Event('load'));
       await Promise.resolve();
@@ -369,6 +373,41 @@ describe('ThemeService', () => {
   });
 
   describe('DOM sync effect', () => {
+    it('defaults to gold with no accent attribute', () => {
+      const service = configure(createMockVscode());
+      TestBed.inject(ApplicationRef).tick();
+      expect(service.accent()).toBe('gold');
+      expect(document.documentElement.hasAttribute('data-accent')).toBe(false);
+      expect(document.documentElement.getAttribute('data-glass')).toBe('on');
+      expect(document.documentElement.getAttribute('data-glass-mode')).toBe('dark');
+    });
+
+    it('persists rose and keeps it across stock theme switches', () => {
+      const mock = createMockVscode();
+      const service = configure(mock);
+      const app = TestBed.inject(ApplicationRef);
+      service.setAccent('rose');
+      app.tick();
+      expect(mock.setState).toHaveBeenCalledWith('ptah-accent', 'rose');
+      expect(localStorage.getItem('ptah-accent')).toBe('rose');
+      expect(document.documentElement.getAttribute('data-accent')).toBe('rose');
+      service.setTheme('light');
+      app.tick();
+      expect(service.accent()).toBe('rose');
+      expect(document.documentElement.hasAttribute('data-glass')).toBe(false);
+      expect(document.documentElement.getAttribute('data-accent')).toBe('rose');
+      service.setTheme('cupcake');
+      app.tick();
+      expect(document.documentElement.getAttribute('data-glass-mode')).toBe('light');
+    });
+
+    it('rejects unknown stored accents', () => {
+      localStorage.setItem('ptah-accent', 'violet');
+      const service = configure(createMockVscode());
+      TestBed.inject(ApplicationRef).tick();
+      expect(service.accent()).toBe('gold');
+      expect(document.documentElement.hasAttribute('data-accent')).toBe(false);
+    });
     it('writes data-theme on document.documentElement when the signal updates', () => {
       const mock = createMockVscode({ persisted: 'dracula' });
       const service = configure(mock);

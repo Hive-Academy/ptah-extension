@@ -1,7 +1,7 @@
 <!-- Shell: main chat content plus the optional agent sidebar. -->
 <div class="cs-shell flex h-full w-full relative">
   <!-- Main chat content. -->
-  <div class="flex-1 flex flex-col min-w-0 min-h-0 relative">
+  <div class="flex-1 flex flex-col min-w-0 min-h-0 relative" data-glass-surface="chrome">
     @if (showCompactCard() && resolvedActiveTab()) {
       <!-- ============================================================ -->
       <!-- COMPACT CARD: selected by the user or forced by a host        -->
@@ -158,6 +158,7 @@
       @if (resolvedQueuedContent()) {
         <div
           class="px-4 pb-2 border-t border-primary/20 bg-primary/5"
+          data-glass-surface="plate"
           animate.enter="banner-enter"
           animate.leave="banner-leave"
         >

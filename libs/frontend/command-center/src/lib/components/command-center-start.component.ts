@@ -31,6 +31,7 @@ import { History, Plus, Play, LucideAngularModule } from 'lucide-angular';
   template: `
     <section
       class="mx-auto w-full max-w-6xl px-4 py-8 text-base-content sm:px-6 lg:px-8"
+      data-glass-surface="content"
       aria-labelledby="start-heading"
     >
       <p class="mb-2 font-mono text-xs uppercase tracking-widest text-secondary-focus">Ptah / Engineering</p>

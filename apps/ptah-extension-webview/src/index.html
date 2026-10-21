@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="anubis">
+<html lang="en" data-theme="ptah-glass" data-theme-mode="dark" data-glass="on" data-glass-mode="dark">
   <head>
     <meta charset="utf-8" />
     <title>Ptah - Coding Orchestra</title>
@@ -24,12 +24,12 @@
     <!--
       Pre-paint theme boot.
 
-      Only `anubis` and `anubis-light` are compiled into styles.css. The other
+      `anubis`, `anubis-light`, and the Ptah glass pair are compiled into styles.css. The other
       32 daisyUI themes are emitted to `theme-extra.css`, which the build does
       NOT link from this document (project.json -> styles -> inject:false).
 
       A user whose persisted theme is one of those 32 must get that sheet
-      BEFORE the first painted frame, or they see a frame of `anubis` first.
+      BEFORE the first painted frame, or they see a frame of Ptah glass first.
       Inserting a render-blocking stylesheet link into the head while the
       parser is still running is exactly that guarantee. A user on the default
       must never fetch it at all.
@@ -49,11 +49,13 @@
     -->
     <script>
       (function () {
-        var EAGER = 'anubis anubis-light';
+        var EAGER = 'anubis anubis-light ptah-glass ptah-glass-light';
         var DEFERRED =
           'light dark cupcake bumblebee emerald corporate synthwave retro cyberpunk valentine halloween garden forest aqua lofi pastel fantasy wireframe black luxury dracula cmyk autumn business acid lemonade night coffee winter dim nord sunset';
         var DARK =
-          'anubis dark synthwave halloween forest aqua black luxury dracula business night coffee dim sunset';
+          'anubis ptah-glass dark synthwave halloween forest aqua black luxury dracula business night coffee dim sunset';
+        var GLASS = 'ptah-glass ptah-glass-light dark nord cupcake dracula';
+        var ACCENT = 'rose moonstone';
 
         function has(list, name) {
           return (' ' + list + ' ').indexOf(' ' + name + ' ') !== -1;
@@ -66,6 +68,13 @@
             'data-theme-mode',
             has(DARK, theme) ? 'dark' : 'light',
           );
+          if (has(GLASS, theme)) {
+            root.setAttribute('data-glass', 'on');
+            root.setAttribute('data-glass-mode', has(DARK, theme) ? 'dark' : 'light');
+          } else {
+            root.removeAttribute('data-glass');
+            root.removeAttribute('data-glass-mode');
+          }
         }
 
         var theme = null;
@@ -84,8 +93,15 @@
           } catch (e) {}
         }
 
+        try {
+          var accent = localStorage.getItem('ptah-accent');
+          if (has(ACCENT, accent)) {
+            document.documentElement.setAttribute('data-accent', accent);
+          }
+        } catch (e) {}
+
         // Nothing persisted, or an unrecognised value: leave the
-        // <html data-theme="anubis"> default in place and fetch nothing.
+        // <html data-theme="ptah-glass"> default in place and fetch nothing.
         if (!theme) return;
         if (has(EAGER, theme)) {
           apply(theme);

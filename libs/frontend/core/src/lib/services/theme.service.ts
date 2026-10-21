@@ -6,7 +6,7 @@
  * - Persistence via VSCodeService state API
  * - Automatic DOM data-theme attribute updates via effect()
  * - VS Code theme synchronization for initial state
- * - Support for all DaisyUI v4 prebuilt themes + custom Anubis themes
+ * - Support for all DaisyUI v4 prebuilt themes and custom Ptah/Anubis themes
  */
 
 import { Injectable, signal, computed, effect, inject } from '@angular/core';
@@ -16,6 +16,8 @@ import { VSCodeService } from './vscode.service';
  * All available DaisyUI theme names (custom + prebuilt)
  */
 export type ThemeName =
+  | 'ptah-glass'
+  | 'ptah-glass-light'
   | 'anubis'
   | 'anubis-light'
   | 'light'
@@ -58,6 +60,29 @@ export interface ThemeInfo {
   readonly name: ThemeName;
   readonly label: string;
   readonly isDark: boolean;
+  readonly glass?: boolean;
+}
+
+export type AccentName = 'gold' | 'rose' | 'moonstone';
+export const ACCENTS: readonly AccentName[] = ['gold', 'rose', 'moonstone'];
+export const DEFAULT_ACCENT: AccentName = 'gold';
+/** C4 accent hex source, mirrored from glass/c4/accents.cjs and theme.config.js. */
+export const ACCENT_COLORS = {
+  'ptah-glass': {
+    gold: { p: '#e4b94a', pc: '#1b1403', a: '#f6d675', b: '#d9a928', ink: '#1b1403', link: '#f0cf7a', focus: '#f2cd6b' },
+    rose: { p: '#f2a9bd', pc: '#3a0a1a', a: '#f9c6d4', b: '#e98fab', ink: '#3a0a1a', link: '#ffc3d3', focus: '#ffd3df' },
+    moonstone: { p: '#cfd6e6', pc: '#12151f', a: '#eef1f8', b: '#bcc4d6', ink: '#12151f', link: '#dfe5f2', focus: '#f2f5fb' },
+  },
+  'ptah-glass-light': {
+    gold: { p: '#7c5700', pc: '#fff8e6', a: '#f6d675', b: '#dfac33', ink: '#241a02', link: '#6e4a00', focus: '#6e4a00' },
+    rose: { p: '#a3265c', pc: '#fff1f6', a: '#f7b3c6', b: '#e97d9c', ink: '#3a0618', link: '#861d4a', focus: '#861d4a' },
+    moonstone: { p: '#3d4560', pc: '#f4f6fb', a: '#5d678a', b: '#3f4766', ink: '#f4f6fb', link: '#363d58', focus: '#363d58' },
+  },
+} as const;
+const ACCENT_STATE_KEY = 'ptah-accent';
+const ACCENT_HINT_KEY = 'ptah-accent';
+function isValidAccent(value: unknown): value is AccentName {
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(ACCENT_COLORS['ptah-glass'], value);
 }
 
 /**
@@ -65,11 +90,13 @@ export interface ThemeInfo {
  * Order matches DaisyUI's official theme list.
  */
 export const DAISYUI_THEMES: readonly ThemeInfo[] = [
+  { name: 'ptah-glass', label: 'Ptah Glass', isDark: true, glass: true },
+  { name: 'ptah-glass-light', label: 'Ptah Glass Light', isDark: false, glass: true },
   { name: 'anubis', label: 'Anubis', isDark: true },
   { name: 'anubis-light', label: 'Anubis Light', isDark: false },
   { name: 'light', label: 'Light', isDark: false },
-  { name: 'dark', label: 'Dark', isDark: true },
-  { name: 'cupcake', label: 'Cupcake', isDark: false },
+  { name: 'dark', label: 'Dark', isDark: true, glass: true },
+  { name: 'cupcake', label: 'Cupcake', isDark: false, glass: true },
   { name: 'bumblebee', label: 'Bumblebee', isDark: false },
   { name: 'emerald', label: 'Emerald', isDark: false },
   { name: 'corporate', label: 'Corporate', isDark: false },
@@ -87,7 +114,7 @@ export const DAISYUI_THEMES: readonly ThemeInfo[] = [
   { name: 'wireframe', label: 'Wireframe', isDark: false },
   { name: 'black', label: 'Black', isDark: true },
   { name: 'luxury', label: 'Luxury', isDark: true },
-  { name: 'dracula', label: 'Dracula', isDark: true },
+  { name: 'dracula', label: 'Dracula', isDark: true, glass: true },
   { name: 'cmyk', label: 'CMYK', isDark: false },
   { name: 'autumn', label: 'Autumn', isDark: false },
   { name: 'business', label: 'Business', isDark: true },
@@ -97,7 +124,7 @@ export const DAISYUI_THEMES: readonly ThemeInfo[] = [
   { name: 'coffee', label: 'Coffee', isDark: true },
   { name: 'winter', label: 'Winter', isDark: false },
   { name: 'dim', label: 'Dim', isDark: true },
-  { name: 'nord', label: 'Nord', isDark: false },
+  { name: 'nord', label: 'Nord', isDark: false, glass: true },
   { name: 'sunset', label: 'Sunset', isDark: true },
 ] as const;
 
@@ -117,11 +144,11 @@ const ALL_THEME_NAMES: ReadonlySet<string> = new Set(
 const THEME_STATE_KEY = 'theme';
 
 /**
- * The two themes compiled into the initial `styles.css`. Every other entry of
+ * The four themes compiled into the initial `styles.css`. Every other entry of
  * `DAISYUI_THEMES` lives in the deferred `theme-extra.css` sheet, which is
  * emitted by the build but not linked from `index.html`.
  */
-const EAGER_THEMES: ReadonlySet<string> = new Set(['anubis', 'anubis-light']);
+const EAGER_THEMES: ReadonlySet<string> = new Set(['anubis', 'anubis-light', 'ptah-glass', 'ptah-glass-light']);
 
 /**
  * `localStorage` mirror of the persisted theme.
@@ -148,9 +175,11 @@ export class ThemeService {
 
   /**
    * Private mutable signal for current theme
-   * Default to 'anubis' (dark) to prevent flash of unstyled content
+   * Default to Ptah glass (dark) to prevent flash of unstyled content
    */
-  private readonly _currentTheme = signal<ThemeName>('anubis');
+  private readonly _currentTheme = signal<ThemeName>('ptah-glass');
+  private readonly _accent = signal<AccentName>(DEFAULT_ACCENT);
+  readonly accent = this._accent.asReadonly();
 
   /**
    * Public readonly signal for current theme
@@ -181,6 +210,7 @@ export class ThemeService {
     }
 
     this.initializeTheme();
+    this.initializeAccent();
 
     effect(() => {
       const theme = this._currentTheme();
@@ -192,6 +222,17 @@ export class ThemeService {
         'data-theme-mode',
         DARK_THEMES.has(theme) ? 'dark' : 'light',
       );
+      const info = DAISYUI_THEMES.find((item) => item.name === theme);
+      if (info?.glass) {
+        root.setAttribute('data-glass', 'on');
+        root.setAttribute('data-glass-mode', info.isDark ? 'dark' : 'light');
+      } else {
+        root.removeAttribute('data-glass');
+        root.removeAttribute('data-glass-mode');
+      }
+      const accent = this._accent();
+      if (accent === DEFAULT_ACCENT) root.removeAttribute('data-accent');
+      else root.setAttribute('data-accent', accent);
     });
   }
 
@@ -204,7 +245,7 @@ export class ThemeService {
    * 1. Persisted theme from `vscode.getState()` (authoritative)
    * 2. The `localStorage` mirror this service writes on every `setTheme`
    * 3. VS Code theme kind mapping (first-launch default)
-   * 4. Default 'anubis' (dark)
+   * 4. Default 'ptah-glass' (dark)
    *
    * Step 2 is not redundant. The pre-paint script has already applied the
    * user's theme from whichever of (1) or (2) answered first; if this service
@@ -238,12 +279,31 @@ export class ThemeService {
       return;
     }
 
-    // Theme-kind fallback can only ever pick `anubis-light`, which is in
+    // Theme-kind fallback can only ever pick `ptah-glass-light`, which is in
     // styles.css — this path never needs the deferred sheet.
     const vscodeTheme = this.vscode.config().theme;
     if (vscodeTheme === 'light') {
-      this._currentTheme.set('anubis-light');
+      this._currentTheme.set('ptah-glass-light');
     }
+  }
+
+  private initializeAccent(): void {
+    const state = this.vscode.getState<string>(ACCENT_STATE_KEY);
+    let hint: string | null = null;
+    try { hint = localStorage.getItem(ACCENT_HINT_KEY); } catch { /* optional mirror */ }
+    const accent = isValidAccent(state) ? state : isValidAccent(hint) ? hint : DEFAULT_ACCENT;
+    this._accent.set(accent);
+    if (state === undefined && isValidAccent(hint)) {
+      this.vscode.setState(ACCENT_STATE_KEY, accent);
+    }
+    try { localStorage.setItem(ACCENT_HINT_KEY, accent); } catch { /* optional mirror */ }
+  }
+
+  setAccent(accent: AccentName): void {
+    if (!isValidAccent(accent)) return;
+    this._accent.set(accent);
+    this.vscode.setState(ACCENT_STATE_KEY, accent);
+    try { localStorage.setItem(ACCENT_HINT_KEY, accent); } catch { /* optional mirror */ }
   }
 
   /**
@@ -372,7 +432,7 @@ export class ThemeService {
    */
   toggleTheme(): void {
     const newTheme =
-      this._currentTheme() === 'anubis' ? 'anubis-light' : 'anubis';
+      this._currentTheme() === 'ptah-glass' ? 'ptah-glass-light' : 'ptah-glass';
     this.setTheme(newTheme);
   }
 }

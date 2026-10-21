@@ -67,7 +67,7 @@ const LOGOUT_FAILED = 'Could not log out.';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (!isLoadingLicenseStatus()) {
-      <div class="card bg-base-200 border border-base-300 p-3">
+      <div class="card bg-base-200 border border-base-300 p-3" data-glass-surface="content">
         <!-- Header: heading + one primary action; Export/Import are projected by the Advanced shell (A8/A9). -->
         <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
           <div class="flex items-center gap-1.5">

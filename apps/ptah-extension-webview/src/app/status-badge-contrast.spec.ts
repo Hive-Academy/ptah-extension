@@ -35,10 +35,7 @@ const BASE_LAYERS = ['b1', 'b2', 'b3'] as const;
 
 type ThemeSource = Record<string, string>;
 
-const customThemes: Record<string, ThemeSource> =
-  TAILWIND_CONFIG.daisyui.themes.find(
-    (entry: unknown) => typeof entry === 'object' && entry !== null,
-  );
+const customThemes: Record<string, ThemeSource> = Object.assign({}, ...TAILWIND_CONFIG.daisyui.themes);
 
 const isDark = (color: unknown): boolean =>
   wcagContrast(color, 'black') < wcagContrast(color, 'white');

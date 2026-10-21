@@ -99,6 +99,10 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
       width: 100%;
     }
 
+    :host-context([data-glass='on']) > .bg-surface-0 {
+      background-color: transparent;
+    }
+
     .titlebar-drag {
       -webkit-app-region: drag;
     }
@@ -132,6 +136,7 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
            the panels is the surface-0 root above. -->
       <div
         class="flex items-center h-10 px-3 bg-surface-1 border-b border-surface-border gap-2 flex-shrink-0"
+        data-glass-surface="bar"
         [class.titlebar-drag]="isMac"
       >
         <!-- Logo + App name -->
@@ -324,7 +329,7 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
         <div class="flex flex-1 min-h-0 overflow-hidden">
           <!-- Workspace sidebar (toggleable) -->
           @if (layout.workspaceSidebarVisible()) {
-            <ptah-workspace-sidebar [width]="layout.workspaceSidebarWidth()" />
+            <ptah-workspace-sidebar data-glass-surface="chrome" [width]="layout.workspaceSidebarWidth()" />
           }
 
           <!-- Workspaces vertical tab (between sidebar and chat) -->
