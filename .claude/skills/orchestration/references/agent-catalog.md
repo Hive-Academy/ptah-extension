@@ -89,7 +89,7 @@ absolute paths: `<absolute task folder>/design-spec.md` and `<absolute task fold
 | visual-reviewer | Visual review | `**Changes**: batches.md (frontend files)`<br>`**Base URL**: <running app URL>` | `visual-review.md` + `screenshots/` | Run the visual review checklist below. |
 | researcher-expert | Research X | `**Research Question**: "<the question>"` | `research-report.md` | Compare the options, recommend one. |
 | modernization-detector | Analyze future improvements | `**Changes**: batches.md` | `future-enhancements.md` | Find follow-up improvements and tech debt. |
-| ui-ux-designer | Create design and prototype | `**Goal**: <what to design>`<br>`**Parity**: parity-inventory.md when required` | `design-spec.md` + `prototype/` | Run niche discovery, build the design system and prototype (README.md + screenshots/); disclose lane-introduced constraints; revise until Gate 1.7 is approved. |
+| ui-ux-designer | Create design and prototype | `**Goal**: <what to design>`<br>`**Parity**: parity-inventory.md when required` | `design-spec.md` + `prototype/` | Run niche discovery, build the design system and prototype (README.md + screenshots/); disclose lane-introduced constraints; revise until Gate 1.7 is approved. Check the lane's tool list; lanes that have `ptah_browser_*` render and screenshot their own UI; the visual-reviewer still gives the independent dark+light evidence. |
 | technical-content-writer | Create content | `**Design System**: the project's design system in docs/design-system/`<br>`**Goal**: <what to write>` | `content-specification.md` | Write design-integrated content. |
 | video-director | Author showcase scene | `**Goal**: <feature or flow>`<br>`**App**: <what to launch, which URL>` | scene + render | Read the `video-showcase` skill first, then author, capture, render. |
 
@@ -123,6 +123,8 @@ the same path in `deliverables`.
 5. Check touch target sizes.
 6. Test responsive behavior between the breakpoints.
 7. Compare dark + light theme screenshots with the approved `<taskFolder>/prototype/`. When no prototype is required (a UI change that adds or redesigns no surface), capture dark + light screenshots of the affected screen at the base commit (before) and at the fixed state (after), and compare those. The visual-reviewer prompt must supply both inputs: the base-commit capture or a running app at the base commit, and the running app with the fix. Show evidence to the user before merge.
+
+Check the lane's tool list; lanes that have `ptah_browser_*` render and screenshot their own UI; the visual-reviewer still gives the independent dark+light evidence.
 
 ---
 
