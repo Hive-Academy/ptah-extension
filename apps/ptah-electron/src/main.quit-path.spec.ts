@@ -1,22 +1,8 @@
 /**
  * `window-all-closed` quit path (TASK_2026_180, B5.1.2; TASK_2026_620 B-P).
  *
- * ## The parity group is the whole safety argument for the default
- *
- * The tray is now always created (it is the pause surface), but
- * `skillSynthesis.trayKeepalive` ships `false`, so the quit path must stay
- * BYTE-IDENTICAL to the pre-change code — with or without a live tray. The
- * `parity` group below encodes that pre-change code as an executable oracle
- * and asserts the new implementation agrees with it on every platform. If the
- * always-on tray ever starts suppressing the quit by default, that group fails.
- *
- * ## The matrix
- *
- * | tray      | trayKeepalive | non-darwin | darwin |
- * |-----------|---------------|------------|--------|
- * | none      | false / true  | quit       | stay   |
- * | live      | false         | quit       | stay   |
- * | live      | true          | stay       | stay   |
+ * The tray is the memory pause surface. Closing the last window quits on
+ * non-darwin platforms and leaves the app running on darwin.
  *
  * ## Why this spec does not import `main.ts`
  *
@@ -32,8 +18,6 @@
  *   handleWindowAllClosed({
  *     platform: process.platform,
  *     quit: () => app.quit(),
- *     hasLiveTray: () => trayService?.isLive() ?? false,
- *     keepAliveRequested: () => trayService?.isKeepAliveRequested() ?? false,
  *   });
  * });
  * ```
@@ -49,84 +33,19 @@ import {
   requiresDeferredDisposal,
 } from './activation/shutdown';
 
-/** Every platform Electron ships for, so the oracle is exercised on all of them. */
-const PLATFORMS: readonly NodeJS.Platform[] = [
-  'win32',
-  'linux',
-  'darwin',
-  'freebsd',
-];
-
 const NON_DARWIN: readonly [NodeJS.Platform][] = [
   ['win32'],
   ['linux'],
   ['freebsd'],
 ];
 
-/**
- * The pre-change handler, verbatim from `main.ts:161-165` before C5:
- *
- * ```ts
- * app.on('window-all-closed', () => {
- *   if (process.platform !== 'darwin') {
- *     app.quit();
- *   }
- * });
- * ```
- */
-function preChangeHandler(platform: NodeJS.Platform, quit: () => void): void {
-  if (platform !== 'darwin') {
-    quit();
-  }
-}
-
-describe('parity — with the shipped default (trayKeepalive false)', () => {
-  it.each(PLATFORMS)(
-    'on %s with NO tray, matches the pre-change handler exactly',
-    (platform) => {
-      const expected = jest.fn();
-      preChangeHandler(platform, expected);
-
-      const actual = jest.fn();
-      handleWindowAllClosed({
-        platform,
-        quit: actual,
-        hasLiveTray: () => false,
-        keepAliveRequested: () => false,
-      });
-
-      expect(actual.mock.calls).toEqual(expected.mock.calls);
-    },
-  );
-
-  it.each(PLATFORMS)(
-    'on %s with a LIVE tray, still matches the pre-change handler exactly',
-    (platform) => {
-      // The tray is always created now; a live tray alone must not change what
-      // closing the last window does.
-      const expected = jest.fn();
-      preChangeHandler(platform, expected);
-
-      const actual = jest.fn();
-      handleWindowAllClosed({
-        platform,
-        quit: actual,
-        hasLiveTray: () => true,
-        keepAliveRequested: () => false,
-      });
-
-      expect(actual.mock.calls).toEqual(expected.mock.calls);
-    },
-  );
-
+describe('window-all-closed', () => {
   it.each(NON_DARWIN)('quits exactly once on %s', (platform) => {
     const quit = jest.fn();
 
     handleWindowAllClosed({
       platform,
       quit,
-      hasLiveTray: () => true,
-      keepAliveRequested: () => false,
     });
 
     expect(quit).toHaveBeenCalledTimes(1);
@@ -138,100 +57,12 @@ describe('parity — with the shipped default (trayKeepalive false)', () => {
     handleWindowAllClosed({
       platform: 'darwin',
       quit,
-      hasLiveTray: () => true,
-      keepAliveRequested: () => false,
     });
 
     expect(quit).not.toHaveBeenCalled();
   });
 });
 
-describe('keep-alive — trayKeepalive on AND a live tray suppresses the quit', () => {
-  it.each(NON_DARWIN)(
-    'does not quit on %s while keep-alive is on and a tray is live',
-    (platform) => {
-      const quit = jest.fn();
-
-      handleWindowAllClosed({
-        platform,
-        quit,
-        hasLiveTray: () => true,
-        keepAliveRequested: () => true,
-      });
-
-      expect(quit).not.toHaveBeenCalled();
-    },
-  );
-
-  it('leaves darwin behaviour unchanged when keep-alive is on', () => {
-    const quit = jest.fn();
-
-    handleWindowAllClosed({
-      platform: 'darwin',
-      quit,
-      hasLiveTray: () => true,
-      keepAliveRequested: () => true,
-    });
-
-    expect(quit).not.toHaveBeenCalled();
-  });
-
-  it('reads the keep-alive setting at close time, not at startup', () => {
-    const quit = jest.fn();
-    let keepAlive = true;
-    const deps = {
-      platform: 'win32' as NodeJS.Platform,
-      quit,
-      hasLiveTray: () => true,
-      keepAliveRequested: () => keepAlive,
-    };
-
-    handleWindowAllClosed(deps);
-    expect(quit).not.toHaveBeenCalled();
-
-    // The user turned keep-alive off after startup; the next close quits.
-    keepAlive = false;
-    handleWindowAllClosed(deps);
-    expect(quit).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe('R10 fail-safe — the setting alone never suppresses the quit', () => {
-  it('quits when the tray failed to construct, even though keep-alive was requested', () => {
-    // `PtahTrayService.create` returned null (missing icon, no tray host, ...),
-    // so `main.ts` passes `hasLiveTray: () => false`. Gating on the
-    // `trayKeepalive` setting alone would strand an unkillable process here.
-    const quit = jest.fn();
-
-    handleWindowAllClosed({
-      platform: 'win32',
-      quit,
-      hasLiveTray: () => false,
-      keepAliveRequested: () => true,
-    });
-
-    expect(quit).toHaveBeenCalledTimes(1);
-  });
-
-  it('consults tray liveness at close time, not at startup', () => {
-    const quit = jest.fn();
-    let live = true;
-    const deps = {
-      platform: 'win32' as NodeJS.Platform,
-      quit,
-      hasLiveTray: () => live,
-      keepAliveRequested: () => true,
-    };
-
-    handleWindowAllClosed(deps);
-    expect(quit).not.toHaveBeenCalled();
-
-    // The tray was destroyed after startup; the app must become quittable again.
-    live = false;
-    handleWindowAllClosed(deps);
-    expect(quit).toHaveBeenCalledTimes(1);
-  });
-});
 
 // ---------------------------------------------------------------------------
 // `will-quit` — LIFO disposal and quit-during-boot (TASK_2026_331 B1.T6).
@@ -275,7 +106,6 @@ const EXPECTED_LIFO_ORDER: readonly string[] = [
   'symbolWatcher',
   'statusBridgeDisposables',
   'skillTrigger',
-  'skillSynthesis',
   'cronScheduler',
   'memoryTrigger',
   'memoryCurator',
@@ -344,9 +174,6 @@ function makeFullRefs(order: string[]): BootRefs {
   refs.skillTrigger = {
     stop: record('skillTrigger'),
   } as unknown as BootRefs['skillTrigger'];
-  refs.skillSynthesis = {
-    stop: record('skillSynthesis'),
-  } as unknown as BootRefs['skillSynthesis'];
   refs.cronScheduler = {
     stop: record('cronScheduler'),
   } as unknown as BootRefs['cronScheduler'];

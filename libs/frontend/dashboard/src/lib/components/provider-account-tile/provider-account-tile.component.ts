@@ -13,15 +13,17 @@ import type {
   PlanLimitOwnerSnapshot,
 } from '@ptah-extension/shared';
 import { ProviderMarkComponent } from '@ptah-extension/ui';
+import { LucideAngularModule, CircleOff, KeyRound, RefreshCw, Terminal } from 'lucide-angular';
 import {
   buildPlanTile,
   type PlanTileActionView,
+  type PlanTileStatusChipIcon,
   type Tone,
 } from '../provider-account-card/plan-tile-view.model';
 import { providerAccent } from '../provider-account-card/provider-accent';
 
 /**
- * One compact, uniform plan-limit tile (TASK_2026_707): the same anatomy for
+ * One compact, uniform plan-limit tile: the same anatomy for
  * every provider — header, ONE primary bar (or a status pill in the same
  * slot), chips for the other windows, one secondary metric line and a status
  * line. Pure presentation: the card owns the data flow, passes one owner
@@ -32,7 +34,7 @@ import { providerAccent } from '../provider-account-card/provider-accent';
 @Component({
   selector: 'ptah-provider-account-tile',
   standalone: true,
-  imports: [ProviderMarkComponent],
+  imports: [LucideAngularModule, ProviderMarkComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './provider-account-tile.component.html',
   styles: [
@@ -109,7 +111,19 @@ export class ProviderAccountTileComponent {
     zoneNameLocale: this.locale,
   };
 
+  /** The near-limit threshold each tile's bar tick marks. */
   protected readonly nearLimitPercent = NEAR_LIMIT_PERCENT;
+
+  /**
+   * Footer status chip icons, one per
+   * semantic kind from the view model; replaces the plain "–"/"○" glyphs.
+   */
+  protected readonly statusChipIcons = {
+    key: KeyRound,
+    cli: Terminal,
+    'cli-update': RefreshCw,
+    off: CircleOff,
+  } as const satisfies Record<PlanTileStatusChipIcon, unknown>;
 
   protected readonly view = computed(() =>
     buildPlanTile(this.owner(), this.now(), this.timeOptions),

@@ -479,47 +479,15 @@ export const SCOPED_SETTING_KEYS: Record<
     supportedTargets: ['global'],
   },
   'memory.curatorModel': { appScopable: false, supportedTargets: ['global'] },
-  'skillSynthesis.archaeologist.provider': {
+  'skills.enhancement.provider': {
     appScopable: false,
     supportedTargets: ['global'],
   },
-  'skillSynthesis.archaeologist.model': {
+  'skills.enhancement.model': {
     appScopable: false,
     supportedTargets: ['global'],
   },
-  'skillSynthesis.synthesis.provider': {
-    appScopable: false,
-    supportedTargets: ['global'],
-  },
-  'skillSynthesis.synthesis.model': {
-    appScopable: false,
-    supportedTargets: ['global'],
-  },
-  'skillSynthesis.judge.provider': {
-    appScopable: false,
-    supportedTargets: ['global'],
-  },
-  'skillSynthesis.judge.model': {
-    appScopable: false,
-    supportedTargets: ['global'],
-  },
-  'skillSynthesis.replay.provider': {
-    appScopable: false,
-    supportedTargets: ['global'],
-  },
-  'skillSynthesis.replay.model': {
-    appScopable: false,
-    supportedTargets: ['global'],
-  },
-  'skillSynthesis.judgeModel': {
-    appScopable: false,
-    supportedTargets: ['global'],
-  },
-  'skillSynthesis.judgeProvider': {
-    appScopable: false,
-    supportedTargets: ['global'],
-  },
-  'skillSynthesis.enhanceTimeoutMs': {
+  'skills.enhancement.timeoutMs': {
     appScopable: false,
     supportedTargets: ['global'],
   },

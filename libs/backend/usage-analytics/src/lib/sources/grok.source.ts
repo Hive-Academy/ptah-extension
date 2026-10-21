@@ -56,9 +56,11 @@ export class GrokSource implements UsageSource {
       if (!Number.isFinite(timestampMs)) { malformed++; continue; }
       const models = update.usage.modelUsage;
       if (!models || Object.keys(models).length === 0) { partial = true; continue; }
+      let countedMessage = false;
       for (const [modelId, usage] of Object.entries(models)) {
         if (usage.cachedReadTokens > usage.inputTokens) { malformed++; continue; }
-        facts.push({ key: `${path.basename(path.dirname(file))}:${update.prompt_id ?? `${timestampMs}:${index}`}:${modelId}`, timestampMs, providerId: 'grok', modelId, inputUncachedTokens: usage.inputTokens - usage.cachedReadTokens, cacheReadTokens: usage.cachedReadTokens, cacheWriteTokens: usage.cacheCreationTokens, outputTokens: usage.outputTokens, ...(usage.costUsdTicks !== undefined ? { reportedCostUsd: usage.costUsdTicks / TICKS_PER_USD } : {}), requestCount: 1, sourceId: 'grok' });
+        facts.push({ key: `${path.basename(path.dirname(file))}:${update.prompt_id ?? `${timestampMs}:${index}`}:${modelId}`, timestampMs, sessionId: path.basename(path.dirname(file)), sessionTitle: "Session " + path.basename(path.dirname(file)).slice(0, 8), providerId: 'grok', modelId, inputUncachedTokens: usage.inputTokens - usage.cachedReadTokens, cacheReadTokens: usage.cachedReadTokens, cacheWriteTokens: usage.cacheCreationTokens, outputTokens: usage.outputTokens, ...(usage.costUsdTicks !== undefined ? { reportedCostUsd: usage.costUsdTicks / TICKS_PER_USD } : {}), requestCount: countedMessage ? 0 : 1, sourceId: 'grok' });
+        countedMessage = true;
       }
     }
     return { facts, malformed, partial };

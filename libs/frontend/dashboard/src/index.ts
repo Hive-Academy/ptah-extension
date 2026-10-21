@@ -17,10 +17,6 @@ export {
   type ThothPillarStatus,
 } from './lib/services/thoth-status.service';
 
-export {
-  SessionAnalyticsStateService,
-  type AggregateTotals,
-} from './lib/services/session-analytics-state.service';
 export { type DashboardSessionEntry } from './lib/models/session-analytics.models';
 export { ProviderAccountCardComponent } from './lib/components/provider-account-card/provider-account-card.component';
 export {

@@ -1,6 +1,5 @@
 import {
   ANCHOR_471,
-  PROMOTED_SYNTHESIZED_SLUGS,
   RUBRIC_SAMPLE_SIZE,
   STRATUM_TARGETS,
   allocate,
@@ -13,13 +12,14 @@ import {
 
 const DAY = 24 * 60 * 60 * 1000;
 const START = Date.UTC(2026, 5, 1);
+const PROMOTED_SLUGS = ['promoted-skill-a', 'promoted-skill-b'];
 
 function syntheticInputs(
   overrides: Partial<RubricSampleInputs> = {},
 ): RubricSampleInputs {
   const tracked = [
     ...Array.from({ length: 23 }, (_, i) => `authored-skill-${i}`),
-    ...PROMOTED_SYNTHESIZED_SLUGS,
+    ...PROMOTED_SLUGS,
   ];
   const candidates: CandidateEntry[] = [];
   ANCHOR_471.forEach((a, i) =>
@@ -63,7 +63,7 @@ function syntheticInputs(
   }
   // A promoted skill also left a dir in the candidate copy: never sampled as a candidate.
   candidates.push({
-    slug: PROMOTED_SYNTHESIZED_SLUGS[1] ?? '',
+    slug: PROMOTED_SLUGS[1] ?? '',
     bodyShape: 'model',
     row: null,
   });
@@ -74,6 +74,7 @@ function syntheticInputs(
   return {
     seed: 'TASK_2026_620',
     trackedSkillSlugs: tracked,
+    promotedSkillSlugs: PROMOTED_SLUGS,
     candidates,
     suggestions,
     ...overrides,
@@ -162,7 +163,7 @@ describe('selectRubricSample', () => {
     const candidateSlugs = sample.documents
       .filter((d) => d.source.kind === 'candidate')
       .map((d) => d.slug);
-    for (const slug of PROMOTED_SYNTHESIZED_SLUGS)
+    for (const slug of PROMOTED_SLUGS)
       expect(candidateSlugs).not.toContain(slug);
     const anchors = sample.documents.filter((d) => d.stratum === 'anchor-471');
     expect(anchors.map((d) => d.anchor471Total)).toEqual(

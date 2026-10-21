@@ -1,12 +1,12 @@
 /**
  * AnalyticsUsageStore
  *
- * Signal-based view state for the Usage tab of the analytics card
+ * Signal-based view state for the Usage view of the analytics card
  * (TASK_2026_707 PR 2). Owns the 7/30/90-day range selection and exactly one
  * `analytics:spendSummary` request in flight.
  *
- * Staleness mirrors `SessionAnalyticsStateService`: every load increments a
- * generation and gets its own `AbortController`. A range change, a refresh or
+ * Every load increments a generation and gets its own `AbortController`.
+ * A range change, a refresh or
  * `cancelLoad()` aborts the previous request, and a response is written only
  * while its generation is still current — a slow 30-day answer can never
  * overwrite a fresh 7-day one. The host call goes through `ClaudeRpcService`

@@ -1,7 +1,5 @@
 /**
- * Dashboard provider account card (TASK_2026_596, Component 16; design §4;
- * relaid out as a provider list in TASK_2026_631; compact uniform tiles in
- * TASK_2026_707).
+ * Dashboard provider account card with compact uniform tiles.
  *
  * One compact tile per quota owner, three to four per row on desktop, all
  * with the same anatomy whatever state each owner is in. The card owns the
@@ -53,8 +51,11 @@ import { ProviderAccountTileComponent } from '../provider-account-tile/provider-
   imports: [ProviderAccountTileComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [
-    // TASK_2026_707: one compact tile per owner, 3–4 per desktop row, all
-    // rows equal height (grid stretch). Each tile renders its own layout.
+    // One compact tile per owner, 3–4 per desktop row.
+    // `grid-auto-rows: 1fr` gives every row
+    // ONE shared height — each implicit row resolves to the tallest tile's
+    // content, so no row is taller or shorter than another and nothing
+    // clips; `align-items: stretch` then fills each cell to that height.
     `
       :host {
         display: block;
@@ -65,6 +66,7 @@ import { ProviderAccountTileComponent } from '../provider-account-tile/provider-
         padding: 0;
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+        grid-auto-rows: 1fr;
         gap: 0.5rem;
         align-items: stretch;
       }

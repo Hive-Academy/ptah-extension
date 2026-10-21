@@ -19,17 +19,17 @@ const MAIN: UsedBy = {
   kind: 'main-agent',
   followsMain: false,
 };
-const ARCHAEOLOGIST: UsedBy = {
-  id: 'archaeologist',
-  label: 'Archaeologist lane',
-  kind: 'background-role',
-  followsMain: true,
-};
-const JUDGE: UsedBy = {
-  id: 'judge',
-  label: 'Judge lane',
+const CURATOR: UsedBy = {
+  id: 'memory-curator',
+  label: 'Memory curator',
   kind: 'background-role',
   followsMain: false,
+};
+const ENHANCEMENT: UsedBy = {
+  id: 'enhancement',
+  label: 'Enhancement',
+  kind: 'background-role',
+  followsMain: true,
 };
 const CODEX_CLI: UsedBy = {
   id: 'codex-cli',
@@ -539,12 +539,12 @@ describe('OverviewTabComponent', () => {
     });
 
     it('complete with entries: lists them in order with the count', () => {
-      render({ usageComplete: true, usedBy: [MAIN, ARCHAEOLOGIST, JUDGE] });
+      render({ usageComplete: true, usedBy: [MAIN, CURATOR, ENHANCEMENT] });
       const rows = Array.from(element.querySelectorAll('[data-used-by]'));
       expect(rows.map((row) => row.getAttribute('data-used-by'))).toEqual([
         'main-agent',
-        'archaeologist',
-        'judge',
+        'memory-curator',
+        'enhancement',
       ]);
       expect(query('connection-used-by-count')?.textContent?.trim()).toBe(
         '3 active routes',
@@ -558,10 +558,10 @@ describe('OverviewTabComponent', () => {
         badges.map((badge) =>
           badge.closest('[data-used-by]')?.getAttribute('data-used-by'),
         ),
-      ).toEqual(['main-agent', 'judge']);
+      ).toEqual(['main-agent', 'memory-curator']);
       expect(badges.map((badge) => badge.textContent?.trim())).toEqual([
         'Active (Main agent)',
-        'Active (Judge)',
+        'Active (Memory curator)',
       ]);
       expect(badges[1].className).toContain('text-base-content');
     });
@@ -580,7 +580,7 @@ describe('OverviewTabComponent', () => {
   });
 
   it('names the badge after the consumer', () => {
-    expect(usedByBadge(JUDGE)).toBe('Active (Judge)');
+    expect(usedByBadge(ENHANCEMENT)).toBe('Active (Enhancement)');
     expect(
       usedByBadge({
         id: 'memory-curator',
@@ -632,21 +632,21 @@ describe('OverviewTabComponent', () => {
   });
 
   it('"Follows main agent →" opens that role on Agent Orchestration; own-provider rows have no chip', () => {
-    render({ usageComplete: true, usedBy: [MAIN, ARCHAEOLOGIST, JUDGE] });
+    render({ usageComplete: true, usedBy: [MAIN, CURATOR, ENHANCEMENT] });
     const chips = element.querySelectorAll<HTMLButtonElement>(
       '[data-testid="connection-follows-main"]',
     );
     expect(chips).toHaveLength(1);
     expect(
       chips[0].closest('[data-used-by]')?.getAttribute('data-used-by'),
-    ).toBe('archaeologist');
+    ).toBe('enhancement');
     expect(chips[0].getAttribute('aria-label')).toBe(
-      'Archaeologist lane follows the main agent. Open it in Agent Orchestration',
+      'Enhancement follows the main agent. Open it in Agent Orchestration',
     );
     chips[0].click();
     expect(requestSettingsTab).toHaveBeenCalledWith({
       tab: 'orchestration',
-      section: 'archaeologist',
+      section: 'enhancement',
     });
   });
 });

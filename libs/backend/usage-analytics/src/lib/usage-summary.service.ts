@@ -1,7 +1,7 @@
 import { inject, injectable } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
-import { UsageSummaryParamsSchema, UsageSummarySchema } from '@ptah-extension/shared';
-import type { UsageFact, UsageSummary, UsageSummaryParams, UsageSourceStatus } from '@ptah-extension/shared';
+import { UsageSummaryParamsSchema, UsageSummarySchema, UsageTopSessionSchema } from '@ptah-extension/shared';
+import type { UsageFact, UsageSummary, UsageSummaryParams, UsageSourceStatus, UsageTopSession } from '@ptah-extension/shared';
 import { ClaudeLedgerSource } from './sources/claude-ledger.source';
 import { CliSessionSource } from './cli-session.source';
 import { CodexSource } from './sources/codex.source';
@@ -37,6 +37,11 @@ export class UsageAnalyticsService {
     const statuses: UsageSourceStatus[] = [];
     const seen = new Set<string>();
     const groups = new Map<string, UsageFact>();
+    const sessions = new Map<string, UsageTopSession>();
+    const sessionModels = new Map<string, Map<string, { providerId: string; modelId: string; costUsd: number | null; tokens: number }>>();
+    const subagents = new Set<string>();
+    const invalidSessionSources = new Set<string>();
+    let messageCount = 0;
     let priceSource: 'openrouter' | 'bundled' | 'unavailable' = 'unavailable';
     for (const [sourceIndex, source] of this.sources.entries()) {
       const sourceId = SOURCE_IDS[sourceIndex];
@@ -55,10 +60,51 @@ export class UsageAnalyticsService {
           if (seen.has(dedupKey)) continue;
           seen.add(dedupKey);
           const priced = await this.pricing.price(contribution);
-          if (priced.priceSource === 'openrouter' || (priced.priceSource === 'bundled' && priceSource === 'unavailable')) priceSource = priced.priceSource;
           const day = new Date(contribution.timestampMs).toISOString().slice(0, 10);
           const key = JSON.stringify([day, contribution.providerId, contribution.modelId, contribution.sourceId, priced.costSource]);
           const previous = groups.get(key);
+          if (!previous && groups.size >= MAX_FACTS) { overflow = true; break; }
+          const validSessionId = contribution.sessionId && UsageTopSessionSchema.shape.sessionId.safeParse(contribution.sessionId).success;
+          if (contribution.sessionId && !validSessionId && !invalidSessionSources.has(contribution.sourceId)) {
+            invalidSessionSources.add(contribution.sourceId);
+            this.logger.warn('[UsageAnalytics] Invalid session id omitted', { sourceId: contribution.sourceId });
+          }
+          if (validSessionId && contribution.sessionId) {
+            const sessionKey = `${contribution.sourceId}:${contribution.sessionId}`;
+            const previousSession = sessions.get(sessionKey);
+            const tokens = contribution.inputUncachedTokens + contribution.cacheReadTokens + contribution.cacheWriteTokens + contribution.outputTokens;
+            let models = sessionModels.get(sessionKey);
+            if (!models) { models = new Map(); sessionModels.set(sessionKey, models); }
+            const modelKey = JSON.stringify([contribution.providerId, contribution.modelId]);
+            const previousModel = models.get(modelKey);
+            models.set(modelKey, {
+              providerId: contribution.providerId, modelId: contribution.modelId,
+              costUsd: priced.costUsd === null ? (previousModel?.costUsd ?? null) : (previousModel?.costUsd ?? 0) + priced.costUsd,
+              tokens: (previousModel?.tokens ?? 0) + tokens,
+            });
+            const dominantModel = [...models.values()].sort((a, b) =>
+              (a.costUsd === null ? 1 : 0) - (b.costUsd === null ? 1 : 0) ||
+              (b.costUsd ?? 0) - (a.costUsd ?? 0) || b.tokens - a.tokens ||
+              a.modelId.localeCompare(b.modelId, 'en'),
+            )[0];
+            const agentKey = contribution.subagentId ? `${sessionKey}:${contribution.subagentId}` : null;
+            const newAgent = agentKey !== null && !subagents.has(agentKey);
+            if (agentKey) subagents.add(agentKey);
+            sessions.set(sessionKey, {
+              sessionId: contribution.sessionId,
+              title: (contribution.sessionTitle?.trim() || `Session ${contribution.sessionId.slice(0, 8)}`).slice(0, 500),
+              providerId: dominantModel.providerId,
+              modelId: dominantModel.modelId,
+              costUsd: priced.costUsd === null ? (previousSession?.costUsd ?? null) : (previousSession?.costUsd ?? 0) + priced.costUsd,
+              unpriced: (previousSession?.unpriced ?? false) || priced.costUsd === null,
+              tokens: (previousSession?.tokens ?? 0) + tokens,
+              messageCount: (previousSession?.messageCount ?? 0) + (contribution.requestCount ?? 1),
+              subagentCount: (previousSession?.subagentCount ?? 0) + Number(newAgent),
+              lastActive: new Date(Math.max(contribution.timestampMs, previousSession ? Date.parse(previousSession.lastActive) : 0)).toISOString(),
+            });
+            messageCount += contribution.requestCount ?? 1;
+          }
+          if (priced.priceSource === 'openrouter' || (priced.priceSource === 'bundled' && priceSource === 'unavailable')) priceSource = priced.priceSource;
           const row: UsageFact = {
             day, providerId: contribution.providerId, modelId: contribution.modelId,
             sourceId: contribution.sourceId, costSource: priced.costSource,
@@ -70,7 +116,6 @@ export class UsageAnalyticsService {
             cacheSavingsUsd: priced.cacheSavingsUsd === null ? null : (previous?.cacheSavingsUsd ?? 0) + priced.cacheSavingsUsd,
             ...(contribution.requestCount !== undefined ? { requestCount: (previous?.requestCount ?? 0) + contribution.requestCount } : {}),
           };
-          if (!previous && groups.size >= MAX_FACTS) { overflow = true; break; }
           groups.set(key, row);
         }
         statuses.push(signal?.aborted ? { ...result.status, status: 'partial', reason: 'time-budget' } : overflow ? { ...result.status, status: 'partial', reason: 'fact-limit' } : result.status);
@@ -93,6 +138,12 @@ export class UsageAnalyticsService {
       fromDay: new Date(since).toISOString().slice(0, 10),
       untilDayExclusive: new Date(until).toISOString().slice(0, 10),
       facts: [...groups.values()].sort((a, b) => JSON.stringify([a.day, a.providerId, a.modelId]).localeCompare(JSON.stringify([b.day, b.providerId, b.modelId]), 'en')),
+      topSessions: [...sessions.values()].sort((a, b) =>
+        (a.costUsd === null ? 1 : 0) - (b.costUsd === null ? 1 : 0) ||
+        (b.costUsd ?? 0) - (a.costUsd ?? 0) || b.tokens - a.tokens ||
+        a.sessionId.localeCompare(b.sessionId, 'en'),
+      ).slice(0, 5),
+      sessionCount: sessions.size, messageCount, subagentCount: subagents.size,
       sources: statuses,
       pricing: { source: priceSource, asOf: priceSource === 'unavailable' ? null : new Date(now).toISOString() },
     };

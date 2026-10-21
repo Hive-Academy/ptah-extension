@@ -193,7 +193,6 @@ describe('RecordedLaneRunner', () => {
     );
     await recordInto(path, { run }).run(
       request({
-        queueItemId: 'row-1',
         attempt: 1,
         mcpServerRunning: true,
         mcpPort: 7799,
@@ -205,7 +204,6 @@ describe('RecordedLaneRunner', () => {
     await expect(
       replayFrom(path).run(
         request({
-          queueItemId: 'row-999',
           attempt: 3,
           mcpServerRunning: false,
           mcpPort: 1234,

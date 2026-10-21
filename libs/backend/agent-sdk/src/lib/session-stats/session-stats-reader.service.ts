@@ -70,6 +70,7 @@ export interface SessionStatsRequest {
 
 export interface DatedUsageRecord {
   readonly key: string;
+  readonly subagentId?: string;
   readonly timestampMs: number;
   readonly model: string;
   readonly input: number;
@@ -177,6 +178,7 @@ export class SessionStatsReaderService {
             if (record.timestampMs < since || record.timestampMs >= until) continue;
             yield { kind: 'usage', record: {
               key: record.messageId ? `${sessionId}:${record.messageId}` : `${sessionId}:${ledgerName}:${i}`,
+              ...(ledgerName !== 'parent' ? { subagentId: ledgerName } : {}),
               timestampMs: record.timestampMs,
               model: record.model ?? ledger.initModel ?? 'unknown',
               input: record.input, output: record.output,

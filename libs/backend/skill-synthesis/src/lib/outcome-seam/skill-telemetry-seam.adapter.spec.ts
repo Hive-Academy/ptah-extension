@@ -1,11 +1,10 @@
 import 'reflect-metadata';
 import {
   SqliteConnectionService,
-  VecStatusService,
 } from '@ptah-extension/persistence-sqlite';
 import { resolveOpener } from '../queue/queue-db.test-support';
 import { noopLogger } from '../queue/queue-db.test-support';
-import { SkillCandidateStore } from '../skill-candidate.store';
+import { SkillInvocationEventStore } from '../skill-invocation-event.store';
 import { SessionVerdictStore } from '../archaeology/session-verdict.store';
 import { SkillTelemetrySeamAdapter } from './skill-telemetry-seam.adapter';
 
@@ -36,14 +35,10 @@ describe('SkillTelemetrySeamAdapter', () => {
           SqliteConnectionService.prototype,
         ) as SqliteConnectionService;
         Object.defineProperty(connection, 'db', { value: db });
-        const candidates = new SkillCandidateStore(
-          noopLogger,
-          connection,
-          Object.create(VecStatusService.prototype) as VecStatusService,
-        );
+        const events = new SkillInvocationEventStore(noopLogger, connection);
         const verdicts = new SessionVerdictStore(noopLogger, connection);
-        const adapter = new SkillTelemetrySeamAdapter(candidates, verdicts);
-        expect(candidates.findSubagentRuns(['a'])).toEqual([
+        const adapter = new SkillTelemetrySeamAdapter(events, verdicts);
+        expect(events.findSubagentRuns(['a'])).toEqual([
           {
             run_id: 'a',
             input_tokens: 10,
@@ -126,15 +121,11 @@ describe('SkillTelemetrySeamAdapter', () => {
           Object.create(noopLogger) as typeof noopLogger,
           { warn },
         );
-        const candidates = new SkillCandidateStore(
-          logger,
-          connection,
-          Object.create(VecStatusService.prototype) as VecStatusService,
-        );
+        const events = new SkillInvocationEventStore(logger, connection);
         const verdicts = new SessionVerdictStore(logger, connection);
-        expect(candidates.findSubagentRuns(['good', 'bad'])).toHaveLength(1);
+        expect(events.findSubagentRuns(['good', 'bad'])).toHaveLength(1);
         expect(
-          candidates
+          events
             .listSkillsForScopes([
               { runId: 'main', sessionId: 's', fromMs: 0, toMs: 20 },
             ])
@@ -147,7 +138,7 @@ describe('SkillTelemetrySeamAdapter', () => {
           false,
         );
         expect(warn).toHaveBeenCalledTimes(4);
-        const adapter = new SkillTelemetrySeamAdapter(candidates, verdicts);
+        const adapter = new SkillTelemetrySeamAdapter(events, verdicts);
         expect(
           (await adapter.subagentRuns(['subagent:bad'])).get('subagent:bad')
             ?.match,

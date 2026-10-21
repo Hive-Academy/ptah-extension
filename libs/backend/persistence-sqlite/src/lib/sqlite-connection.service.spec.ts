@@ -14,6 +14,8 @@ import { SqliteConnectionService } from './sqlite-connection.service';
 import { FakeSqliteDatabase } from './testing/fake-sqlite-database';
 import { createMockLogger } from './testing/mock-logger';
 import { MIGRATIONS } from './migrations';
+import { SqliteMigrationRunner } from './migration-runner';
+import { skillPipelineArchiveRoot } from './db-path';
 
 function makeTempDbPath(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-persist-test-'));
@@ -21,6 +23,23 @@ function makeTempDbPath(): string {
 }
 
 describe('SqliteConnectionService', () => {
+  it('passes the DB-adjacent archive root to the migration runner', async () => {
+    const dbPath = makeTempDbPath();
+    const spy = jest.spyOn(SqliteMigrationRunner.prototype, 'applyAll').mockResolvedValue({ appliedVersions: [], skippedVersions: [], finalVersion: 0 });
+    try {
+      const service = new SqliteConnectionService(dbPath, createMockLogger());
+      service.configure({ factory: () => new FakeSqliteDatabase(), vecPathResolver: () => '/fake/vec/path' });
+      await service.openAndMigrate();
+      const runner: unknown = Reflect.get(service, 'migrationRunner');
+      expect(runner).toBeInstanceOf(SqliteMigrationRunner);
+      if (!(runner instanceof SqliteMigrationRunner)) throw new Error('Migration runner was not created');
+      expect(Reflect.get(runner, 'archiveRoot')).toBe(skillPipelineArchiveRoot(dbPath));
+      expect(service.isOpen).toBe(true);
+    } finally {
+      spy.mockRestore();
+      fs.rmSync(path.dirname(dbPath), { recursive: true, force: true });
+    }
+  });
   it('opens the connection, applies pragmas, and runs every bundled migration', async () => {
     const dbPath = makeTempDbPath();
     const fake = new FakeSqliteDatabase();

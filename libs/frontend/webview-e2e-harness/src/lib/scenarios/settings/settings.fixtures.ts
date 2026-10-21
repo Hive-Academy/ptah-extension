@@ -246,6 +246,15 @@ function settingsGetResolver(params: unknown): {
   value: unknown;
 } {
   const key = (params as { key?: unknown }).key;
+  if (key === 'skills.enhancement.provider') {
+    return { success: true, value: '' };
+  }
+  if (key === 'skills.enhancement.model') {
+    return { success: true, value: 'inherit' };
+  }
+  if (key === 'skills.enhancement.timeoutMs') {
+    return { success: true, value: 120000 };
+  }
   if (
     typeof key === 'string' &&
     Object.hasOwn(SESSION_BUDGET_SETTINGS_FIXTURE, key)
@@ -263,70 +272,6 @@ export const MEMORY_TRIGGERS_FIXTURE = {
     bootScan: true,
     curatorProvider: 'openai-codex',
     curatorModel: 'gpt-5.6-luna',
-  },
-};
-
-/** `skillSynthesis:getLanes` — archaeologist/synthesis/judge/replay (BRIEF:60-62). */
-export const SKILL_LANES_FIXTURE = {
-  lanes: {
-    archaeologist: {
-      id: 'archaeologist',
-      provider: '',
-      model: '',
-      defaultTier: 'haiku',
-      structuredOutput: 'parse',
-      retrievalDepth: 'none',
-    },
-    synthesis: {
-      id: 'synthesis',
-      provider: '',
-      model: '',
-      defaultTier: 'sonnet',
-      structuredOutput: 'parse',
-      retrievalDepth: 'none',
-    },
-    judge: {
-      id: 'judge',
-      provider: 'moonshot',
-      model: 'kimi-k2.5',
-      defaultTier: 'sonnet',
-      structuredOutput: 'parse',
-      retrievalDepth: 'none',
-    },
-    replay: {
-      id: 'replay',
-      provider: '',
-      model: '',
-      defaultTier: 'haiku',
-      structuredOutput: 'parse',
-      retrievalDepth: 'none',
-    },
-  },
-};
-
-/** `skillSynthesis:getSettings` — judging & enhancement lane (BRIEF:62). */
-export const SKILL_SYNTHESIS_SETTINGS_FIXTURE = {
-  settings: {
-    enabled: true,
-    successesToPromote: 3,
-    dedupCosineThreshold: 0.92,
-    maxActiveSkills: 40,
-    candidatesDir: '.ptah/skill-candidates',
-    evictionDecayRate: 0.1,
-    generalizationContextThreshold: 3,
-    dedupClusterThreshold: 0.85,
-    prefilterMinEdits: 2,
-    prefilterMinToolUses: 1,
-    judgeEnabled: true,
-    minJudgeScore: 0.7,
-    judgeModel: 'inherit',
-    judgeProvider: '',
-    enhanceTimeoutMs: {
-      value: 120000,
-      default: 120000,
-      min: 30000,
-      max: 600000,
-    },
   },
 };
 
@@ -751,8 +696,6 @@ function statefulSettingsFixtures(
     'config:model-get': () => ({ model: state.model }),
     'config:effort-get': () => ({ effort: state.effort }),
     'memory:getTriggers': MEMORY_TRIGGERS_FIXTURE,
-    'skillSynthesis:getLanes': SKILL_LANES_FIXTURE,
-    'skillSynthesis:getSettings': SKILL_SYNTHESIS_SETTINGS_FIXTURE,
     'ptahCli:list': () => ({ agents: state.ptahCliAgents }),
     'ptahCli:testConnection': (params: unknown) => {
       record(state, 'ptahCli:testConnection', params);
@@ -804,14 +747,6 @@ function statefulSettingsFixtures(
     'memory:setTriggers': (params: unknown) => {
       record(state, 'memory:setTriggers', params);
       return { success: true };
-    },
-    'skillSynthesis:setLanes': (params: unknown) => {
-      record(state, 'skillSynthesis:setLanes', params);
-      return { success: true };
-    },
-    'skillSynthesis:updateSettings': (params: unknown) => {
-      record(state, 'skillSynthesis:updateSettings', params);
-      return { updated: true };
     },
     'ptahCli:create': (params: unknown) => {
       record(state, 'ptahCli:create', params);

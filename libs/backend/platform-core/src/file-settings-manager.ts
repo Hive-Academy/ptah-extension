@@ -22,7 +22,10 @@ import * as fsPromises from 'fs/promises';
 import * as path from 'path';
 import { homedir } from 'os';
 import { SettingsPersistError } from './file-settings-errors';
-import { FILE_BASED_OBJECT_SETTINGS_KEYS } from './file-settings-keys';
+import {
+  FILE_BASED_OBJECT_SETTINGS_KEYS,
+  SKILL_SETTINGS_MIGRATIONS,
+} from './file-settings-keys';
 
 export interface FileSettingsDefaults {
   [key: string]: unknown;
@@ -43,6 +46,7 @@ const CROSS_PROCESS_WATCH_DEBOUNCE_MS = 50;
  * any in-flight write (including the bounded rename retries).
  */
 const STALE_TEMP_FILE_AGE_MS = 10 * 60 * 1000;
+
 /**
  * Process-wide counter that keeps each persist()'s temp file name unique. It is
  * shared by every instance: two managers on one file in one process would
@@ -513,16 +517,36 @@ export class PtahFileSettingsManager {
     this.sweepStaleTempFiles();
     try {
       const raw = fs.readFileSync(this.filePath, 'utf-8');
-      const parsed = JSON.parse(raw);
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
       this.settings = flattenObject(parsed);
+
+      let migrated = false;
+      for (const [oldKey, newKey] of SKILL_SETTINGS_MIGRATIONS) {
+        if (
+          Object.prototype.hasOwnProperty.call(this.settings, oldKey) &&
+          !Object.prototype.hasOwnProperty.call(this.settings, newKey)
+        ) {
+          this.settings[newKey] = this.settings[oldKey];
+          migrated = true;
+        }
+      }
+
+      if (migrated) {
+        this.writePromise = this.writePromise
+          .then(() => this.persist())
+          .catch((error: unknown) => {
+            console.warn(
+              `[PtahFileSettingsManager] Could not migrate settings in ${this.filePath} (${fsErrorCode(error)})`,
+            );
+          });
+      }
     } catch (error: unknown) {
       if (isNodeError(error) && error.code === 'ENOENT') {
         this.settings = {};
         return;
       }
       console.warn(
-        `[PtahFileSettingsManager] Failed to load settings from ${this.filePath}:`,
-        error instanceof Error ? error.message : String(error),
+        `[PtahFileSettingsManager] Failed to load settings from ${this.filePath} (${fsErrorCode(error)})`,
       );
       this.settings = {};
     }

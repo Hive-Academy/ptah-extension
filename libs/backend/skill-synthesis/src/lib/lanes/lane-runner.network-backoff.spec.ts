@@ -13,7 +13,6 @@ import { isTransportLaneFailure } from './lane.types';
 import { ProviderNetworkBackoffs } from './provider-network-backoffs';
 import {
   assistantText,
-  makeBudgetStub,
   makeLogger,
   makeQueryStub,
   makeResolverStub,
@@ -59,9 +58,7 @@ function harness(scripts: StreamMessage[][]) {
   const runner = new LaneRunnerService(
     logger,
     makeResolverStub(resolvedLane('archaeologist')).service,
-    makeBudgetStub().store,
     query.query,
-    null,
     null,
     backoffs,
   );
@@ -209,7 +206,6 @@ describe('LaneRunnerService — network-class failures (C14 f)', () => {
     const runner = new LaneRunnerService(
       makeLogger(),
       makeResolverStub(resolvedLane('judge')).service,
-      makeBudgetStub().store,
       query.query,
     );
 
@@ -236,9 +232,7 @@ describe('LaneRunnerService — the back-off is kept per provider (C14 f)', () =
         makeLogger(),
         makeResolverStub(resolvedLane('judge', { config: { provider } }))
           .service,
-        makeBudgetStub().store,
         query.query,
-        null,
         null,
         backoffs,
       );

@@ -44,7 +44,7 @@ import {
               <div class="min-w-0 flex-1">
                 <p class="text-sm font-semibold">{{ item.title }}</p>
                 @if (item.context || item.workspaceName) {
-                  <p class="text-xs text-base-content-muted">{{ item.context || item.workspaceName }}</p>
+                  <p class="text-xs text-base-content-muted">{{ item.context ? item.context + ' · ' + item.workspaceName : item.workspaceName }}</p>
                 }
               </div>
               <button type="button" class="btn btn-ghost btn-square min-h-11 min-w-11 shrink-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"

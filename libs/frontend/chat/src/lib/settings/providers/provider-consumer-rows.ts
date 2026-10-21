@@ -1,7 +1,6 @@
 import {
   getAnthropicProvider,
   type ProviderModelTier,
-  type SkillLaneIdDto,
 } from '@ptah-extension/shared';
 import type {
   ProvidersSettingsPatch,
@@ -15,30 +14,22 @@ import type { SettingScopeDisplay } from './setting-scope-row.component';
  * passes in the state it read.
  */
 
-/** The seven Background Model Roles: the six provider-assigned roles, then the decision model (TASK_2026_646 Req 1). */
+/** Background model roles, including the separate decision model. */
 export type BackgroundConsumerId =
   | 'memory-curator'
-  | 'archaeologist'
-  | 'synthesis'
-  | 'judge'
-  | 'replay'
-  | 'judging-enhancement'
+  | 'enhancement'
   | 'decision';
 
-/** The six roles that take a provider and model from the providers settings; the decision model has its own row. */
+/** Roles that take a provider and model from the providers settings. */
 export type ProviderConsumerId = Exclude<BackgroundConsumerId, 'decision'>;
 
-/** The six provider-assigned roles in their fixed order. */
+/** Provider-assigned roles in display order. */
 export const PROVIDER_CONSUMER_IDS: readonly ProviderConsumerId[] = [
   'memory-curator',
-  'archaeologist',
-  'synthesis',
-  'judge',
-  'replay',
-  'judging-enhancement',
+  'enhancement',
 ];
 
-/** Every Background Model Roles row in display order (the summary's role count). */
+/** Every Background Model Roles row in display order. */
 export const BACKGROUND_ROLE_IDS: readonly BackgroundConsumerId[] = [
   ...PROVIDER_CONSUMER_IDS,
   'decision',
@@ -56,9 +47,9 @@ export function toPickerModel(model: string | undefined | null): string {
 /**
  * Translates picker selection to the backend stored model value.
  * ProviderModelPickerComponent emits '' for inherit.
- * resolveJudgeModel requires the literal 'inherit'.
+ * The settings store persists the literal 'inherit'.
  */
-export function toBackendJudgeModel(model: string | undefined | null): string {
+export function toBackendEnhancementModel(model: string | undefined | null): string {
   return !model || model.trim() === '' ? 'inherit' : model.trim();
 }
 
@@ -108,11 +99,11 @@ export interface BackgroundConsumerRow {
    */
   readonly loaded: boolean;
   /** Which state-service section a retry re-reads. */
-  readonly retryKey: 'memory' | 'lanes' | 'judging';
+  readonly retryKey: 'memory' | 'enhancement';
 }
 
-export const JUDGING_HELPER_COPY =
-  'Used for judging and for Enhance now on skills, agents, and commands. The Judge lane is configured separately above.';
+export const ENHANCEMENT_HELPER_COPY =
+  'Used for Enhance now on skills, agents, and commands.';
 
 /** The main agent's route as the summaries need it (`ProvidersSettingsStateService.route().data`). */
 export interface ConsumerRouteInfo {
@@ -213,46 +204,26 @@ export function makeRow(
   };
 }
 
-/** A lane as `skillSynthesis:getLanes` returns it. */
-interface LaneSource {
-  readonly provider?: string;
-  readonly model?: string;
-  readonly defaultTier?: ProviderModelTier;
-  readonly toolUse?: string;
-}
-
-/** The three sections the six rows read. */
+/** Sections read by the provider-assigned rows. */
 export interface ConsumerSources {
   readonly memory: ProvidersSettingsSection<{
     readonly curatorProvider?: string;
     readonly curatorModel?: string;
   }>;
-  readonly lanes: ProvidersSettingsSection<
-    Partial<Record<SkillLaneIdDto, LaneSource>>
-  >;
-  readonly judging: ProvidersSettingsSection<{
-    readonly judgeProvider?: string;
-    readonly judgeModel?: string;
+  readonly enhancement: ProvidersSettingsSection<{
+    readonly provider: string;
+    readonly model: string;
+    readonly timeoutMs: number;
   }>;
 }
 
-const LANES: readonly {
-  readonly id: SkillLaneIdDto & ProviderConsumerId;
-  readonly name: string;
-}[] = [
-  { id: 'archaeologist', name: 'Archaeologist lane' },
-  { id: 'synthesis', name: 'Synthesis lane' },
-  { id: 'judge', name: 'Judge lane' },
-  { id: 'replay', name: 'Replay lane' },
-];
-
-/** The six rows, in the fixed order: Memory curator, the four lanes, Judging & enhancement. */
+/** Memory curator and Enhancement in display order. */
 export function buildConsumerRows(
   sources: ConsumerSources,
   route: ConsumerRouteInfo | null,
   scopeOf: ScopeLookup,
 ): readonly BackgroundConsumerRow[] {
-  const { memory, lanes, judging } = sources;
+  const { memory, enhancement } = sources;
   const memoryRow = makeRow(
     {
       id: 'memory-curator',
@@ -270,44 +241,24 @@ export function buildConsumerRows(
     route,
     scopeOf,
   );
-  const laneRows = LANES.map(({ id, name }) => {
-    const lane = lanes.data?.[id];
-    return makeRow(
-      {
-        id,
-        name,
-        helperCopy: null,
-        tier: lane?.defaultTier ?? 'haiku',
-        toolUse: lane?.toolUse === 'required',
-        provider: lane?.provider ?? '',
-        model: lane?.model ?? '',
-        providerKey: `skillSynthesis.${id}.provider`,
-        modelKey: `skillSynthesis.${id}.model`,
-        section: lanes,
-        retryKey: 'lanes',
-      },
-      route,
-      scopeOf,
-    );
-  });
-  const judgingRow = makeRow(
+  const enhancementRow = makeRow(
     {
-      id: 'judging-enhancement',
-      name: 'Judging & enhancement',
-      helperCopy: JUDGING_HELPER_COPY,
+      id: 'enhancement',
+      name: 'Enhancement',
+      helperCopy: ENHANCEMENT_HELPER_COPY,
       tier: 'haiku',
       toolUse: false,
-      provider: judging.data?.judgeProvider ?? '',
-      model: toPickerModel(judging.data?.judgeModel),
-      providerKey: 'skillSynthesis.judgeProvider',
-      modelKey: 'skillSynthesis.judgeModel',
-      section: judging,
-      retryKey: 'judging',
+      provider: enhancement.data?.provider ?? '',
+      model: toPickerModel(enhancement.data?.model),
+      providerKey: 'skills.enhancement.provider',
+      modelKey: 'skills.enhancement.model',
+      section: enhancement,
+      retryKey: 'enhancement',
     },
     route,
     scopeOf,
   );
-  return [memoryRow, ...laneRows, judgingRow];
+  return [memoryRow, enhancementRow];
 }
 
 /** The settings patch that assigns `provider`/`model` to one role (the picker's `''` model is "inherit"). */
@@ -318,14 +269,7 @@ export function consumerPatch(
 ): ProvidersSettingsPatch {
   if (id === 'memory-curator')
     return { memory: { curatorProvider: provider, curatorModel: model } };
-  if (id === 'judging-enhancement')
-    return {
-      judging: {
-        judgeProvider: provider,
-        judgeModel: toBackendJudgeModel(model),
-      },
-    };
-  return { lanes: { [id]: { provider, model } } };
+  return { enhancement: { provider, model: toBackendEnhancementModel(model) } };
 }
 
 /** Whether a chosen provider can be saved for a role; `blocking: false` is an advisory note only. */

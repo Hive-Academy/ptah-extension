@@ -193,11 +193,11 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
         }
 
         <div
-          class="grid grid-cols-2 gap-3 xl:grid-cols-4"
+          class="grid grid-cols-[repeat(auto-fit,minmax(9.5rem,1fr))] gap-3"
           aria-label="Gateway statistics"
         >
-          <div class="stats surface-2 rounded-2xl">
-            <div class="stat p-4">
+          <div class="stats surface-2 min-w-0 overflow-hidden rounded-2xl">
+            <div class="stat min-w-0 overflow-hidden p-4">
               <div class="stat-figure text-success">
                 <lucide-angular
                   [img]="RadioTowerIcon"
@@ -205,7 +205,7 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
                   aria-hidden="true"
                 />
               </div>
-              <div class="stat-title text-base-content-muted">
+              <div class="stat-title min-w-0 whitespace-normal text-base-content-muted">
                 Adapters running
               </div>
               <div class="stat-value text-2xl text-success">
@@ -214,8 +214,8 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
             </div>
           </div>
 
-          <div class="stats surface-2 rounded-2xl">
-            <div class="stat p-4">
+          <div class="stats surface-2 min-w-0 overflow-hidden rounded-2xl">
+            <div class="stat min-w-0 overflow-hidden p-4">
               <div class="stat-figure text-warning">
                 <lucide-angular
                   [img]="UserPlusIcon"
@@ -223,7 +223,7 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
                   aria-hidden="true"
                 />
               </div>
-              <div class="stat-title text-base-content-muted">
+              <div class="stat-title min-w-0 whitespace-normal text-base-content-muted">
                 Pending approvals
               </div>
               <div class="stat-value text-2xl text-warning">
@@ -232,8 +232,8 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
             </div>
           </div>
 
-          <div class="stats surface-2 rounded-2xl">
-            <div class="stat p-4">
+          <div class="stats surface-2 min-w-0 overflow-hidden rounded-2xl">
+            <div class="stat min-w-0 overflow-hidden p-4">
               <div class="stat-figure text-primary">
                 <lucide-angular
                   [img]="UserCheckIcon"
@@ -241,7 +241,7 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
                   aria-hidden="true"
                 />
               </div>
-              <div class="stat-title text-base-content-muted">
+              <div class="stat-title min-w-0 whitespace-normal text-base-content-muted">
                 Approved senders
               </div>
               <div class="stat-value text-2xl text-primary">
@@ -250,8 +250,8 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
             </div>
           </div>
 
-          <div class="stats surface-2 rounded-2xl">
-            <div class="stat p-4">
+          <div class="stats surface-2 min-w-0 overflow-hidden rounded-2xl">
+            <div class="stat min-w-0 overflow-hidden p-4">
               <div class="stat-figure text-info">
                 <lucide-angular
                   [img]="MicIcon"
@@ -259,8 +259,8 @@ const PLATFORM_CARDS: readonly PlatformCardConfig[] = [
                   aria-hidden="true"
                 />
               </div>
-              <div class="stat-title text-base-content-muted">Voice</div>
-              <div class="stat-value text-sm font-medium text-info">
+              <div class="stat-title min-w-0 whitespace-normal text-base-content-muted">Voice</div>
+              <div class="stat-value min-w-0 break-words text-sm font-medium text-info">
                 {{ voiceEnabled() ? 'On' : 'Off' }}
               </div>
             </div>

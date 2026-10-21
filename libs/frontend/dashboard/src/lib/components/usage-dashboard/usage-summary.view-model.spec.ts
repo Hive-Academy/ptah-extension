@@ -8,11 +8,12 @@
  */
 import type { UsageFact } from '@ptah-extension/shared';
 import { buildUsageViewModel } from './usage-summary.view-model';
-import { daySpanLabel, enumerateDays, formatCompactTokens, formatCompactUsd, formatDayShort, formatPercent, formatUsd, providerDisplayName } from './usage-formatting';
+import { buildCostSlices } from './usage-cost-donut.geometry';
+import { daySpanLabel, enumerateDays, formatChartUsd, formatCompactTokens, formatCompactUsd, formatDayShort, formatPercent, formatUsd, providerDisplayName } from './usage-formatting';
 import {
   usageFact,
   usageSummary,
-} from '../../services/session-analytics-state.testing';
+} from '../../services/dashboard-rpc.testing';
 
 /** Day 18: priced Anthropic Sonnet with every token class. */
 const factSonnetDay18: UsageFact = usageFact({
@@ -50,6 +51,32 @@ const factOutOfWindow: UsageFact = usageFact({
 });
 
 describe('usage-summary view model helpers', () => {
+  it('keeps small chart cost ticks distinct instead of collapsing to $0', () => {
+    const ticks = [0, 0.002, 0.004, 0.006, 0.008].map(formatChartUsd);
+    expect(ticks).toEqual(['$0', '$0.002', '$0.004', '$0.006', '$0.008']);
+    expect(new Set(ticks).size).toBe(ticks.length);
+    expect(formatChartUsd(0.0034)).toBe('$0.0034');
+    expect(formatChartUsd(2.4)).toBe(formatCompactUsd(2.4));
+  });
+
+  it('calculates the displayed before-savings multiple for $11.05 saved on $3.82 cost', () => {
+    const vm = buildUsageViewModel(usageSummary([
+      { ...factSonnetDay18, costUsd: 3.82, cacheSavingsUsd: 11.05 },
+    ]))!;
+    expect(vm.kpis.savingsMultiple).toBeCloseTo((3.82 + 11.05) / 3.82);
+    expect(vm.kpis.savingsMultiple?.toFixed(1)).toBe('3.9');
+  });
+
+  it('excludes unpriced cost from donut arcs and groups slices after the top five', () => {
+    const items = [1, 2, 3, 4, 5, 6].map((cost, i) => ({
+      id: String(i), label: `Model ${i}`, costUsd: cost, color: '#123456', unpriced: false,
+    }));
+    const slices = buildCostSlices([...items, { id: 'unknown', label: 'Unknown', costUsd: null, color: '#654321', unpriced: true }]);
+    expect(slices).toHaveLength(7);
+    expect(slices.find((slice) => slice.id === 'other')?.costUsd).toBe(1);
+    expect(slices.find((slice) => slice.id === 'unknown')?.percent).toBeNull();
+    expect(slices.filter((slice) => slice.percent !== null).reduce((sum, slice) => sum + slice.percent!, 0)).toBeCloseTo(1);
+  });
   it('enumerates every UTC day of a half-open window, oldest first', () => {
     expect(enumerateDays('2026-10-18', '2026-10-21')).toEqual([
       '2026-10-18',

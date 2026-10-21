@@ -75,6 +75,11 @@ import { formatCompactTokens, formatPercent, formatUsd } from './usage-formattin
         </p>
       </div>
     </div>
+    <div class="mt-3 grid grid-cols-3 gap-3" aria-label="Session activity in selected range" title="Counts include usage sources with session identity in this range">
+      <div class="rounded-lg bg-base-200/40 p-3"><p class="text-[11px] text-base-content-muted">Sessions</p><p class="font-semibold tabular-nums">{{ kpis().sessionCount }}</p></div>
+      <div class="rounded-lg bg-base-200/40 p-3"><p class="text-[11px] text-base-content-muted">Messages</p><p class="font-semibold tabular-nums">{{ kpis().messageCount }}</p></div>
+      <div class="rounded-lg bg-base-200/40 p-3"><p class="text-[11px] text-base-content-muted">Subagents</p><p class="font-semibold tabular-nums">{{ kpis().subagentCount }}</p></div>
+    </div>
   `,
 })
 export class UsageKpiStripComponent {
@@ -120,7 +125,7 @@ export class UsageKpiStripComponent {
   protected readonly savingsSub = computed(() => {
     const kpis = this.kpis();
     if (kpis.savingsMultiple !== null) {
-      return `${kpis.savingsMultiple.toFixed(1)}x the raw token cost`;
+      return `Cost before cache savings: ${kpis.savingsMultiple.toFixed(1)}x raw cost`;
     }
     if (kpis.cacheSavingsUsd === null) return 'No savings data';
     return kpis.cacheSavingsUnknownFactCount > 0

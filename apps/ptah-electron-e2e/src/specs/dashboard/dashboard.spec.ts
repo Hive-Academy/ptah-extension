@@ -10,7 +10,6 @@ test.describe('Dashboard', () => {
         codeIndex: 120,
         lastCuratedAt: 1_700_000_000_000,
       },
-      'skillSynthesis:listCandidates': { candidates: [] },
     });
 
     await ui.openTab('memory');
@@ -27,3 +26,5 @@ test.describe('Dashboard', () => {
     ).toContainText('7');
   });
 });
+
+

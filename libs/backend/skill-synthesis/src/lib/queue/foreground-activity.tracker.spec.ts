@@ -5,12 +5,16 @@
  * at all still resolves and answers.
  */
 import 'reflect-metadata';
+import { container as rootContainer } from 'tsyringe';
+import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import { registerSkillSynthesisServices } from '../di/register';
+import { SKILL_SYNTHESIS_TOKENS } from '../di/tokens';
 import {
   ForegroundActivityTracker,
   type ForegroundActivityPayload,
   type ForegroundActivitySource,
 } from './foreground-activity.tracker';
-import { noopLogger } from './queue-db.test-support';
+const noopLogger = { debug: jest.fn(), info: jest.fn() } as unknown as Logger;
 
 /** A stand-in for the push-only registry. */
 class FakeActivitySource implements ForegroundActivitySource {
@@ -30,6 +34,20 @@ class FakeActivitySource implements ForegroundActivitySource {
 }
 
 describe('ForegroundActivityTracker', () => {
+  it('resolves through its token with only a logger registered', () => {
+    const container = rootContainer.createChildContainer();
+    container.registerInstance(TOKENS.LOGGER, noopLogger);
+    registerSkillSynthesisServices(container, noopLogger);
+
+    const tracker = container.resolve<ForegroundActivityTracker>(
+      SKILL_SYNTHESIS_TOKENS.FOREGROUND_ACTIVITY_TRACKER,
+    );
+    expect(tracker).toBeInstanceOf(ForegroundActivityTracker);
+    expect(tracker).toBe(container.resolve(ForegroundActivityTracker));
+    tracker.start();
+    expect(tracker.msSinceLastActivity()).toBe(Number.POSITIVE_INFINITY);
+  });
+
   it('reports Infinity before any activity is observed', () => {
     const tracker = new ForegroundActivityTracker(
       noopLogger,

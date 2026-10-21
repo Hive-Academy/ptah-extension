@@ -119,7 +119,6 @@ export const test = base.extend<PtahFixtures>({
       'editor:detectTargets': NO_EDITOR_TARGETS,
       'cron:list': { jobs: [] },
       'gateway:listBindings': { bindings: [] },
-      'skillSynthesis:listCandidates': { candidates: [] },
       'memory:list': { memories: [], total: 0 },
     });
     await driver.prepare();
@@ -128,3 +127,5 @@ export const test = base.extend<PtahFixtures>({
 });
 
 export const expect = base.expect;
+
+
