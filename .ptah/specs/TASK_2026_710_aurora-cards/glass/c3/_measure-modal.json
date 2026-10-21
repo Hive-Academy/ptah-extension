@@ -1,0 +1,74 @@
+{
+ "ptah-glass:gold": {
+  "textRuns": 20,
+  "textMin": 8.86,
+  "textFails": 0,
+  "textWorst": [
+   "8.86 (need 4.5) \"Run setup\" <button.btn> y=474 bg=rgb(218,175,57)",
+   "9.37 (need 4.5) \"Run setup\" <button.btn> y=1274 bg=rgb(224,180,59)",
+   "9.37 (need 4.5) \"Run setup\" <button.btn> y=2074 bg=rgb(224,180,59)",
+   "9.37 (need 4.5) \"Run setup\" <button.btn> y=2874 bg=rgb(224,180,59)",
+   "9.37 (need 4.5) \"Run setup\" <button.btn> y=2973 bg=rgb(224,180,59)"
+  ],
+  "accentText": [
+   "Run setup: 8.86"
+  ],
+  "ui": [
+   "13.12 (need 3) focus ring (btn-primary) y=2869 bg=rgb(40,40,43)"
+  ]
+ },
+ "ptah-glass:violet": {
+  "textRuns": 20,
+  "textMin": 7.64,
+  "textFails": 0,
+  "textWorst": [
+   "7.64 (need 4.5) \"Run setup\" <button.btn> y=474 bg=rgb(176,150,255)",
+   "7.64 (need 4.5) \"Run setup\" <button.btn> y=1274 bg=rgb(176,150,255)",
+   "7.64 (need 4.5) \"Run setup\" <button.btn> y=2074 bg=rgb(176,150,255)",
+   "7.64 (need 4.5) \"Run setup\" <button.btn> y=2874 bg=rgb(176,150,255)",
+   "7.64 (need 4.5) \"Run setup\" <button.btn> y=2973 bg=rgb(176,150,255)"
+  ],
+  "accentText": [
+   "Run setup: 7.64"
+  ],
+  "ui": [
+   "13.12 (need 3) focus ring (btn-primary) y=2869 bg=rgb(40,40,43)"
+  ]
+ },
+ "ptah-glass-light:gold": {
+  "textRuns": 20,
+  "textMin": 5.26,
+  "textFails": 0,
+  "textWorst": [
+   "5.26 (need 4.5) \"Ptah will scan this workspace, gener\" <p.sm> y=431 bg=rgb(224,220,231)",
+   "5.62 (need 4.5) \"Ptah will scan this workspace, gener\" <p.sm> y=2831 bg=rgb(232,227,236)",
+   "5.62 (need 4.5) \"Ptah will scan this workspace, gener\" <p.sm> y=2930 bg=rgb(232,227,236)",
+   "5.63 (need 4.5) \"Ptah will scan this workspace, gener\" <p.sm> y=2031 bg=rgb(232,227,237)",
+   "5.63 (need 4.5) \"Ptah will scan this workspace, gener\" <p.sm> y=1231 bg=rgb(232,227,238)"
+  ],
+  "accentText": [
+   "Run setup: 9.07"
+  ],
+  "ui": [
+   "5.33 (need 3) focus ring (btn-primary) y=469 bg=rgb(230,225,236)"
+  ]
+ },
+ "ptah-glass-light:teal": {
+  "textRuns": 20,
+  "textMin": 5.26,
+  "textFails": 0,
+  "textWorst": [
+   "5.26 (need 4.5) \"Ptah will scan this workspace, gener\" <p.sm> y=431 bg=rgb(224,220,231)",
+   "5.62 (need 4.5) \"Ptah will scan this workspace, gener\" <p.sm> y=2831 bg=rgb(232,227,236)",
+   "5.62 (need 4.5) \"Ptah will scan this workspace, gener\" <p.sm> y=2930 bg=rgb(232,227,236)",
+   "5.63 (need 4.5) \"Ptah will scan this workspace, gener\" <p.sm> y=2031 bg=rgb(232,227,237)",
+   "5.63 (need 4.5) \"Ptah will scan this workspace, gener\" <p.sm> y=1231 bg=rgb(232,227,238)"
+  ],
+  "accentText": [
+   "Run setup: 7.89"
+  ],
+  "ui": [
+   "6.73 (need 3) focus ring (btn-primary) y=469 bg=rgb(230,225,236)"
+  ]
+ }
+}

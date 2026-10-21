@@ -1,0 +1,206 @@
+{
+ "ptah-glass:gold": {
+  "textRuns": 289,
+  "textMin": 4.6,
+  "textFails": 0,
+  "textWorst": [
+   "4.60 (need 4.5) \"+$0.06 last turn\" <div.stat-desc> y=181 bg=rgb(51,104,120)",
+   "4.62 (need 4.5) \"/ 200k\" <span.xs> y=166 bg=rgb(50,104,118)",
+   "4.62 (need 4.5) \"1 waiting\" <div.stat-desc> y=181 bg=rgb(50,104,118)",
+   "4.63 (need 4.5) \"Plan\" <div.eyebrow> y=232 bg=rgb(50,104,117)",
+   "4.67 (need 4.5) \"Agents\" <div.stat-title> y=141 bg=rgb(51,103,118)"
+  ],
+  "accentText": [
+   "Manage providers: 10.05",
+   "Read the docs: 9.68",
+   "Primary: 9.48",
+   "New session: 9.37",
+   "Create: 9.73",
+   "Ptah: 7.09",
+   "Run setup: 9.37"
+  ],
+  "ui": [
+   "3.55 (need 3) checked control (checkbox checkbox-primary checkbox-sm) y=252 bg=rgb(47,100,115)",
+   "4.18 (need 3) checked control (toggle toggle-primary toggle-sm) y=32 bg=rgb(40,89,103)",
+   "5.43 (need 3) focus ring (btn-primary) y=1995 bg=rgb(97,98,103)",
+   "7.89 (need 3) checked control (radio radio-primary) y=2326 bg=rgb(39,40,51)",
+   "7.99 (need 3) focus ring (label) y=116 bg=rgb(78,73,62)",
+   "8.02 (need 3) checked control (toggle toggle-primary) y=2298 bg=rgb(37,39,49)",
+   "8.19 (need 3) checked control (checkbox checkbox-primary) y=2298 bg=rgb(34,38,46)",
+   "8.19 (need 3) focus ring (select) y=27 bg=rgb(39,77,88)",
+   "10.34 (need 3) focus ring (join btn-primary, inset: sampled on its own fill) y=2113 bg=rgb(231,190,77)",
+   "10.34 (need 3) focus ring (textarea) y=758 bg=rgb(55,57,60)",
+   "12.65 (need 3) focus ring (input) y=2027 bg=rgb(44,41,56)"
+  ]
+ },
+ "ptah-glass:violet": {
+  "textRuns": 289,
+  "textMin": 4.6,
+  "textFails": 0,
+  "textWorst": [
+   "4.60 (need 4.5) \"+$0.06 last turn\" <div.stat-desc> y=181 bg=rgb(51,104,120)",
+   "4.62 (need 4.5) \"/ 200k\" <span.xs> y=166 bg=rgb(50,104,118)",
+   "4.62 (need 4.5) \"1 waiting\" <div.stat-desc> y=181 bg=rgb(50,104,118)",
+   "4.63 (need 4.5) \"Plan\" <div.eyebrow> y=232 bg=rgb(50,104,117)",
+   "4.67 (need 4.5) \"Agents\" <div.stat-title> y=141 bg=rgb(51,103,118)"
+  ],
+  "accentText": [
+   "Manage providers: 10.13",
+   "Read the docs: 9.76",
+   "Primary: 7.78",
+   "New session: 7.64",
+   "Create: 7.93",
+   "Ptah: 7.09",
+   "Run setup: 7.62"
+  ],
+  "ui": [
+   "3.03 (need 3) checked control (checkbox checkbox-primary checkbox-sm) y=252 bg=rgb(47,100,115)",
+   "3.56 (need 3) checked control (toggle toggle-primary toggle-sm) y=32 bg=rgb(40,89,103)",
+   "5.43 (need 3) focus ring (btn-primary) y=1995 bg=rgb(97,98,104)",
+   "6.73 (need 3) checked control (radio radio-primary) y=2326 bg=rgb(39,40,51)",
+   "6.85 (need 3) checked control (toggle toggle-primary) y=2298 bg=rgb(37,39,49)",
+   "6.99 (need 3) checked control (checkbox checkbox-primary) y=2298 bg=rgb(34,38,46)",
+   "8.19 (need 3) focus ring (select) y=27 bg=rgb(39,77,88)",
+   "8.54 (need 3) focus ring (join btn-primary, inset: sampled on its own fill) y=2113 bg=rgb(185,162,255)",
+   "8.61 (need 3) focus ring (label) y=116 bg=rgb(68,66,91)",
+   "10.34 (need 3) focus ring (textarea) y=758 bg=rgb(55,57,60)",
+   "12.65 (need 3) focus ring (input) y=2027 bg=rgb(44,41,56)"
+  ]
+ },
+ "ptah-glass:teal": {
+  "textRuns": 289,
+  "textMin": 4.6,
+  "textFails": 0,
+  "textWorst": [
+   "4.60 (need 4.5) \"+$0.06 last turn\" <div.stat-desc> y=181 bg=rgb(51,104,120)",
+   "4.62 (need 4.5) \"/ 200k\" <span.xs> y=166 bg=rgb(50,104,118)",
+   "4.62 (need 4.5) \"1 waiting\" <div.stat-desc> y=181 bg=rgb(50,104,118)",
+   "4.63 (need 4.5) \"Plan\" <div.eyebrow> y=232 bg=rgb(50,104,117)",
+   "4.67 (need 4.5) \"Agents\" <div.stat-title> y=141 bg=rgb(51,103,118)"
+  ],
+  "accentText": [
+   "Manage providers: 10.17",
+   "Read the docs: 9.79",
+   "Primary: 8.48",
+   "New session: 8.38",
+   "Create: 8.66",
+   "Ptah: 7.09",
+   "Run setup: 8.38"
+  ],
+  "ui": [
+   "3.24 (need 3) checked control (checkbox checkbox-primary checkbox-sm) y=252 bg=rgb(47,100,115)",
+   "3.80 (need 3) checked control (toggle toggle-primary toggle-sm) y=32 bg=rgb(40,89,103)",
+   "5.45 (need 3) focus ring (btn-primary) y=1995 bg=rgb(96,98,103)",
+   "7.18 (need 3) checked control (radio radio-primary) y=2326 bg=rgb(39,40,51)",
+   "7.31 (need 3) checked control (toggle toggle-primary) y=2298 bg=rgb(37,39,49)",
+   "7.46 (need 3) checked control (checkbox checkbox-primary) y=2298 bg=rgb(34,38,46)",
+   "8.19 (need 3) focus ring (select) y=27 bg=rgb(39,77,88)",
+   "8.25 (need 3) focus ring (label) y=116 bg=rgb(51,75,83)",
+   "9.16 (need 3) focus ring (join btn-primary, inset: sampled on its own fill) y=2113 bg=rgb(78,202,213)",
+   "10.34 (need 3) focus ring (textarea) y=758 bg=rgb(55,57,60)",
+   "12.65 (need 3) focus ring (input) y=2027 bg=rgb(44,41,56)"
+  ]
+ },
+ "ptah-glass-light:gold": {
+  "textRuns": 289,
+  "textMin": 4.51,
+  "textFails": 0,
+  "textWorst": [
+   "4.51 (need 4.5) \"// 401 contract unchanged\" <span.tc> y=399 bg=rgb(59,54,94)",
+   "4.80 (need 4.5) \"Ptah\" <h1.display> y=39 bg=rgb(221,211,245)",
+   "4.85 (need 4.5) \"Ptah\" <h1.display> y=1076 bg=rgb(222,215,221)",
+   "4.86 (need 4.5) \"Error\" <button.btn> y=2160 bg=rgb(207,58,58)",
+   "4.86 (need 4.5) \"Error\" <button.btn> y=2160 bg=rgb(207,58,58)"
+  ],
+  "accentText": [
+   "Manage providers: 5.94",
+   "Read the docs: 5.94",
+   "Primary: 9.21",
+   "New session: 9.07",
+   "Create: 9.39",
+   "Ptah: 4.80",
+   "Run setup: 9.05"
+  ],
+  "ui": [
+   "4.33 (need 3) focus ring (btn-primary) y=1995 bg=rgb(212,203,211)",
+   "4.90 (need 3) focus ring (label) y=116 bg=rgb(228,214,225)",
+   "5.36 (need 3) checked control (toggle toggle-primary toggle-sm) y=32 bg=rgb(228,232,252)",
+   "5.60 (need 3) checked control (checkbox checkbox-primary checkbox-sm) y=2430 bg=rgb(240,236,246)",
+   "5.62 (need 3) checked control (checkbox checkbox-primary) y=2298 bg=rgb(245,235,246)",
+   "5.66 (need 3) checked control (toggle toggle-primary) y=2298 bg=rgb(244,236,249)",
+   "5.66 (need 3) checked control (radio radio-primary) y=2326 bg=rgb(244,236,249)",
+   "5.66 (need 3) focus ring (select) y=27 bg=rgb(231,232,252)",
+   "5.90 (need 3) focus ring (textarea) y=758 bg=rgb(244,235,247)",
+   "5.94 (need 3) focus ring (input) y=2113 bg=rgb(244,236,249)",
+   "9.94 (need 3) focus ring (join btn-primary, inset: sampled on its own fill) y=2113 bg=rgb(234,192,83)"
+  ]
+ },
+ "ptah-glass-light:violet": {
+  "textRuns": 289,
+  "textMin": 4.51,
+  "textFails": 0,
+  "textWorst": [
+   "4.51 (need 4.5) \"// 401 contract unchanged\" <span.tc> y=399 bg=rgb(59,54,94)",
+   "4.86 (need 4.5) \"Error\" <button.btn> y=2160 bg=rgb(207,58,58)",
+   "4.86 (need 4.5) \"Error\" <button.btn> y=2160 bg=rgb(207,58,58)",
+   "5.23 (need 4.5) \"Earlier\" <li.menu-title> y=351 bg=rgb(227,216,251)",
+   "5.26 (need 4.5) \"Today\" <li.menu-title> y=167 bg=rgb(227,217,250)"
+  ],
+  "accentText": [
+   "Manage providers: 7.98",
+   "Read the docs: 7.98",
+   "Primary: 7.28",
+   "New session: 7.21",
+   "Create: 7.43",
+   "Ptah: 5.73",
+   "Run setup: 7.20"
+  ],
+  "ui": [
+   "5.67 (need 3) focus ring (btn-primary) y=1995 bg=rgb(203,202,212)",
+   "5.84 (need 3) checked control (toggle toggle-primary toggle-sm) y=32 bg=rgb(228,232,252)",
+   "6.01 (need 3) focus ring (label) y=116 bg=rgb(215,202,250)",
+   "6.11 (need 3) checked control (checkbox checkbox-primary checkbox-sm) y=2430 bg=rgb(240,236,246)",
+   "6.13 (need 3) checked control (checkbox checkbox-primary) y=2298 bg=rgb(245,235,246)",
+   "6.17 (need 3) checked control (toggle toggle-primary) y=2298 bg=rgb(244,236,249)",
+   "6.17 (need 3) checked control (radio radio-primary) y=2326 bg=rgb(244,236,249)",
+   "7.60 (need 3) focus ring (select) y=27 bg=rgb(231,232,252)",
+   "7.92 (need 3) focus ring (textarea) y=758 bg=rgb(244,235,247)",
+   "7.94 (need 3) focus ring (join btn-primary, inset: sampled on its own fill) y=2113 bg=rgb(184,161,250)",
+   "7.98 (need 3) focus ring (input) y=2113 bg=rgb(244,236,249)"
+  ]
+ },
+ "ptah-glass-light:teal": {
+  "textRuns": 289,
+  "textMin": 4.51,
+  "textFails": 0,
+  "textWorst": [
+   "4.51 (need 4.5) \"// 401 contract unchanged\" <span.tc> y=399 bg=rgb(59,54,94)",
+   "4.86 (need 4.5) \"Error\" <button.btn> y=2160 bg=rgb(207,58,58)",
+   "4.86 (need 4.5) \"Error\" <button.btn> y=2160 bg=rgb(207,58,58)",
+   "5.23 (need 4.5) \"Earlier\" <li.menu-title> y=351 bg=rgb(227,216,251)",
+   "5.26 (need 4.5) \"Today\" <li.menu-title> y=167 bg=rgb(227,217,250)"
+  ],
+  "accentText": [
+   "Manage providers: 7.50",
+   "Read the docs: 7.50",
+   "Primary: 7.97",
+   "New session: 7.89",
+   "Create: 8.16",
+   "Ptah: 5.73",
+   "Run setup: 7.88"
+  ],
+  "ui": [
+   "5.13 (need 3) checked control (toggle toggle-primary toggle-sm) y=32 bg=rgb(228,232,252)",
+   "5.36 (need 3) checked control (checkbox checkbox-primary checkbox-sm) y=2430 bg=rgb(240,236,246)",
+   "5.38 (need 3) checked control (checkbox checkbox-primary) y=2298 bg=rgb(245,235,246)",
+   "5.40 (need 3) focus ring (btn-primary) y=1995 bg=rgb(202,203,222)",
+   "5.41 (need 3) checked control (toggle toggle-primary) y=2298 bg=rgb(244,236,249)",
+   "5.41 (need 3) checked control (radio radio-primary) y=2326 bg=rgb(244,236,249)",
+   "5.70 (need 3) focus ring (label) y=116 bg=rgb(201,209,238)",
+   "7.14 (need 3) focus ring (select) y=27 bg=rgb(231,232,252)",
+   "7.44 (need 3) focus ring (textarea) y=758 bg=rgb(244,235,247)",
+   "7.50 (need 3) focus ring (input) y=2113 bg=rgb(244,236,249)",
+   "8.63 (need 3) focus ring (join btn-primary, inset: sampled on its own fill) y=2113 bg=rgb(89,207,216)"
+  ]
+ }
+}
