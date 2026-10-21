@@ -106,3 +106,9 @@ injected Logger; Zod at boundaries. Do not raise `tools/degradation-audit` basel
      adapters + probes; codex) ; C (docs + sync spec + vendor guard + ptah-system-prompt; grok).
   Checks: lanes run no nx/jest/tsc; the orchestrator runs scoped tests one at a time.
   Review: grok reviews A, codex reviews B (incl. security) → code-logic-review.md.
+- 2026-10-21 PR #803 opened (commits cd346800f, 7ba5de3bd, 9430dea0b). Reviews: A APPROVED 9/10
+  (grok), B APPROVED WITH FIXES 7/10 (codex) — see code-logic-review.md.
+- 2026-10-21 USER DECISION: run the live adherence probes AFTER #803 merges and a new build is
+  installed (codex, grok, antigravity, opencode; ≤3 at a time; ≤15 tool calls; 10-min timeout;
+  neutral task text from amendment 1) → adherence-report.md in a follow-up. Open follow-up:
+  catch a rejected Runtime.runIfWaitingForDebugger (chrome-launcher-browser-capabilities.ts:848).
