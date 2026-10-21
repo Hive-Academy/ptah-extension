@@ -186,6 +186,29 @@ const CLEAN_GRAPH_COVERAGE: LanguageCoverage = withCoverageVerdict({
 });
 
 describe('artifact publish dispatch scope', () => {
+  it('publishes under the resolved tab id for a resumed SDK session', async () => {
+    const publish = jest.fn().mockResolvedValue({
+      id: 'abcdefghijklmnop', revision: 1, title: 'Report',
+      sessionId: 'tab-a', viewerUrl: 'ptah-artifact://abcdefghijklmnop/index.html',
+      createdAt: '2026-10-20T12:00:00.000Z',
+      savedPath: '/trusted/workspace/artifacts/index.html',
+    });
+    const deps = buildDeps({
+      artifactStore: { publish, list: jest.fn(), readBytes: jest.fn() },
+      getSessionWorkspace: (id) => id === 'sdk-a' ? '/trusted/workspace' : undefined,
+      getSessionTabId: (id) => id === 'sdk-a' ? 'tab-a' : undefined,
+    });
+    const response = await handleMCPRequest(makeRequest({
+      method: 'tools/call', _callerSessionId: 'sdk-a',
+      params: { name: 'ptah_artifact_publish', arguments: { title: 'Report', html: '<h1>ok</h1>' } },
+    }), deps);
+    expect(response.result).toBeDefined();
+    expect(publish).toHaveBeenCalledWith(
+      { workspaceRoot: '/trusted/workspace', sessionId: 'tab-a' },
+      { title: 'Report', html: '<h1>ok</h1>' },
+    );
+  });
+
   it('takes identity from the transport and rejects agent-supplied scope', async () => {
     const publish = jest.fn().mockResolvedValue({
       id: 'abcdefghijklmnop', revision: 1, title: 'Report',

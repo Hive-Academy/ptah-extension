@@ -313,6 +313,8 @@ export interface ProtocolHandlerDependencies {
    * refuses the call.
    */
   getSessionWorkspace?: (idOrTabId: string) => string | undefined;
+  /** Resolve an SDK session id to its routing tab id. */
+  getSessionTabId?: (idOrTabId: string) => string | undefined;
   permissionPromptService: PermissionPromptService;
   webviewManager?: WebviewManager;
   logger: Logger;
@@ -2368,7 +2370,9 @@ async function handleIndividualTool(
           args,
           {
             workspaceRoot: callerWorkspace,
-            sessionId: callerSessionId,
+            sessionId: callerSessionId
+              ? deps.getSessionTabId?.(callerSessionId) ?? callerSessionId
+              : undefined,
           },
           deps.artifactStore,
           deps.notifyArtifactPublished,

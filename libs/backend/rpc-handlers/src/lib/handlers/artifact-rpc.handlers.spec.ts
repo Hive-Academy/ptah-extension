@@ -3,8 +3,7 @@ import type { DependencyContainer } from 'tsyringe';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import { PLATFORM_TOKENS, type IArtifactStore, type IUserInteraction } from '@ptah-extension/platform-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
-import { ArtifactRpcHandlers } from './artifact-rpc.handlers';
-import * as navigationPolicy from '../../../../../../apps/ptah-electron/src/windows/navigation-policy';
+import { ArtifactRpcHandlers, isSafeExternalUrl } from './artifact-rpc.handlers';
 
 type Handler = (params: unknown) => Promise<unknown>;
 
@@ -80,15 +79,11 @@ describe('ArtifactRpcHandlers', () => {
     },
   );
 
-  it('refuses a URL declined by the Electron navigation policy', async () => {
-    const policy = jest.spyOn(navigationPolicy, 'isSafeExternalUrl').mockReturnValue(false);
-    try {
-      const h = setup();
-      expect(await h.call('artifacts:openLink', { url: 'https://example.com' }))
-        .toEqual({ opened: false });
-      expect(h.interaction.openExternal).not.toHaveBeenCalled();
-    } finally {
-      policy.mockRestore();
-    }
+  it('allows only HTTP(S) URLs in the local navigation predicate', () => {
+    expect(isSafeExternalUrl('https://example.com')).toBe(true);
+    expect(isSafeExternalUrl('http://example.com')).toBe(true);
+    expect(isSafeExternalUrl('javascript:alert(1)')).toBe(false);
+    expect(isSafeExternalUrl('file:///tmp/a')).toBe(false);
+    expect(isSafeExternalUrl('not a URL')).toBe(false);
   });
 });

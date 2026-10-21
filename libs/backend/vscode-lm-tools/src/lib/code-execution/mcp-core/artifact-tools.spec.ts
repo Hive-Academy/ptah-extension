@@ -28,12 +28,22 @@ describe('ptah_artifact_publish', () => {
     const tool = buildArtifactPublishTool();
     expect(tool.name).toBe('ptah_artifact_publish');
     expect(ArtifactPublishInputSchema.safeParse({ title: 'x', html: '<h1>x</h1>', sessionId: 'spoof' }).success).toBe(false);
-    expect(tool.inputSchema).toMatchObject({ anyOf: expect.any(Array) });
-    expect(tool.inputSchema).toMatchObject({ type: 'object' });
-    const branches = ('anyOf' in tool.inputSchema ? tool.inputSchema.anyOf : []) as
-      Array<{ properties?: Record<string, unknown>; required?: string[] }>;
-    expect(branches.some((branch) => branch.properties?.['title'] && branch.properties?.['html']
-      && branch.required?.includes('title') && branch.required?.includes('html'))).toBe(true);
+    expect(tool.inputSchema).toMatchObject({
+      type: 'object', required: ['title'], additionalProperties: false,
+      properties: {
+        title: { type: 'string', minLength: 1 },
+        html: { type: 'string', minLength: 1 },
+        path: { type: 'string', minLength: 1, maxLength: 1024 },
+      },
+    });
+    const properties = tool.inputSchema['properties'] as Record<string, object>;
+    expect(properties['title']).not.toHaveProperty('maxLength');
+    expect(properties['html']).not.toHaveProperty('maxLength');
+    expect(tool.inputSchema).not.toHaveProperty('anyOf');
+    expect(tool.inputSchema).not.toHaveProperty('oneOf');
+    expect(tool.inputSchema).not.toHaveProperty('allOf');
+    expect(ArtifactPublishInputSchema.safeParse({ title: 'Report' }).success).toBe(false);
+    expect(ArtifactPublishInputSchema.safeParse({ title: 'Report', html: 'x', path: 'index.html' }).success).toBe(false);
     expect(ArtifactPublishInputSchema.safeParse({ title: 'Report', html: '<h1>ok</h1>' }).success).toBe(true);
   });
 

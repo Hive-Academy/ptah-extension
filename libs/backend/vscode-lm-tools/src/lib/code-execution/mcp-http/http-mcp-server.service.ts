@@ -112,6 +112,7 @@ const SDK_SESSION_LIFECYCLE_MANAGER = Symbol.for('SdkSessionLifecycleManager');
 /** The one lifecycle-manager read the artifact publish scope needs. */
 interface SessionWorkspaceReader {
   getSessionWorkspace(idOrTabId: string): string | undefined;
+  find(idOrTabId: string): { tabId: string } | undefined;
 }
 
 function notRegistered(
@@ -418,6 +419,7 @@ export class CodeExecutionMCP
           notifyArtifactPublished: this.notifyArtifactPublished,
           getSessionWorkspace: (id) =>
             this.sessionWorkspaces?.getSessionWorkspace(id),
+          getSessionTabId: (id) => this.sessionWorkspaces?.find(id)?.tabId,
           permissionPromptService: this.permissionPromptService,
           webviewManager: this.webviewManager,
           logger: this.logger,

@@ -14,7 +14,16 @@ import {
 } from '@ptah-extension/shared/mcp-apps-contracts';
 import type { ArtifactListResponse, RpcMethodName } from '@ptah-extension/shared';
 import { TOKENS, RpcUserError, type Logger, type RpcHandler } from '@ptah-extension/vscode-core';
-import { isSafeExternalUrl } from '../../../../../../apps/ptah-electron/src/windows/navigation-policy';
+
+export function isSafeExternalUrl(value: string): boolean {
+  try {
+    const protocol = new URL(value).protocol;
+    return protocol === 'http:' || protocol === 'https:';
+  } catch {
+    // degradation-audit: reported — invalid URLs are refused by the caller.
+    return false;
+  }
+}
 
 const OpenLinkParamsSchema = ArtifactOpenLinkMessageSchema.shape.url;
 type OpenLinkParams = { url: string };
