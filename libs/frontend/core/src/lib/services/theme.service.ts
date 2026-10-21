@@ -293,7 +293,7 @@ export class ThemeService {
     try { hint = localStorage.getItem(ACCENT_HINT_KEY); } catch { /* optional mirror */ }
     const accent = isValidAccent(state) ? state : isValidAccent(hint) ? hint : DEFAULT_ACCENT;
     this._accent.set(accent);
-    if (state === undefined && isValidAccent(hint)) {
+    if (!isValidAccent(state)) {
       this.vscode.setState(ACCENT_STATE_KEY, accent);
     }
     try { localStorage.setItem(ACCENT_HINT_KEY, accent); } catch { /* optional mirror */ }
@@ -431,8 +431,9 @@ export class ThemeService {
    * Toggle between dark and light themes (legacy convenience method)
    */
   toggleTheme(): void {
-    const newTheme =
-      this._currentTheme() === 'ptah-glass' ? 'ptah-glass-light' : 'ptah-glass';
+    const current = this._currentTheme();
+    const isDark = DAISYUI_THEMES.find((theme) => theme.name === current)?.isDark;
+    const newTheme = isDark ? 'ptah-glass-light' : 'ptah-glass';
     this.setTheme(newTheme);
   }
 }

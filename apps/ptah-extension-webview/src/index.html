@@ -55,7 +55,7 @@
         var DARK =
           'anubis ptah-glass dark synthwave halloween forest aqua black luxury dracula business night coffee dim sunset';
         var GLASS = 'ptah-glass ptah-glass-light dark nord cupcake dracula';
-        var ACCENT = 'rose moonstone';
+        var ACCENT = 'gold rose moonstone';
 
         function has(list, name) {
           return (' ' + list + ' ').indexOf(' ' + name + ' ') !== -1;
@@ -78,8 +78,9 @@
         }
 
         var theme = null;
+        var state = null;
         try {
-          var state =
+          state =
             window.vscode && typeof window.vscode.getState === 'function'
               ? window.vscode.getState()
               : null;
@@ -93,12 +94,13 @@
           } catch (e) {}
         }
 
-        try {
-          var accent = localStorage.getItem('ptah-accent');
-          if (has(ACCENT, accent)) {
-            document.documentElement.setAttribute('data-accent', accent);
-          }
-        } catch (e) {}
+        var accent = state && state['ptah-accent'];
+        if (!has(ACCENT, accent)) {
+          try { accent = localStorage.getItem('ptah-accent'); } catch (e) {}
+        }
+        if (accent === 'rose' || accent === 'moonstone') {
+          document.documentElement.setAttribute('data-accent', accent);
+        }
 
         // Nothing persisted, or an unrecognised value: leave the
         // <html data-theme="ptah-glass"> default in place and fetch nothing.

@@ -7,7 +7,7 @@
  *     kind when persisted is missing, (3) defaults to 'anubis' otherwise.
  *   - Invalid persisted theme is rejected.
  *   - `setTheme` updates the signal and persists via `VSCodeService.setState`.
- *   - `toggleTheme` flips between 'anubis' and 'anubis-light'.
+ *   - `toggleTheme` follows the current theme mode.
  *   - `isDarkMode` computed matches the dark-theme allowlist.
  *   - `effect()` on `currentTheme` writes `document.documentElement` attribute.
  */
@@ -225,12 +225,17 @@ describe('ThemeService', () => {
       expect(service.currentTheme()).toBe('ptah-glass');
     });
 
-    it('toggling from a non-anubis theme sends it to "anubis"', () => {
+    it('toggles a dark non-pair theme to Ptah glass light', () => {
       const mock = createMockVscode({ persisted: 'dracula' });
       const service = configure(mock);
 
       service.toggleTheme();
-      // Non-'anubis' starting point falls into the else branch: → 'anubis'
+      expect(service.currentTheme()).toBe('ptah-glass-light');
+    });
+
+    it('toggles a light non-pair theme to Ptah glass dark', () => {
+      const service = configure(createMockVscode({ persisted: 'anubis-light' }));
+      service.toggleTheme();
       expect(service.currentTheme()).toBe('ptah-glass');
     });
   });
@@ -407,6 +412,14 @@ describe('ThemeService', () => {
       TestBed.inject(ApplicationRef).tick();
       expect(service.accent()).toBe('gold');
       expect(document.documentElement.hasAttribute('data-accent')).toBe(false);
+    });
+    it('repairs an invalid accent in VS Code state', () => {
+      const mock = createMockVscode();
+      mock.getState.mockImplementation((key: string) => key === 'ptah-accent' ? 'violet' : undefined);
+      localStorage.setItem('ptah-accent', 'rose');
+      const service = configure(mock);
+      expect(service.accent()).toBe('rose');
+      expect(mock.setState).toHaveBeenCalledWith('ptah-accent', 'rose');
     });
     it('writes data-theme on document.documentElement when the signal updates', () => {
       const mock = createMockVscode({ persisted: 'dracula' });

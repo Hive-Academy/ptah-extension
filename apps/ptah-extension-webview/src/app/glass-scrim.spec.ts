@@ -13,6 +13,10 @@ describe('glass local scrim floors', () => {
   });
 
   it('uses solid plates in the glass escape hatches', () => {
-    expect(css.match(/--glass-plate:\s*oklch\(var\(--b1\)\);/g)).toHaveLength(2);
+    const hatches = [...css.matchAll(/:root\[data-theme\]\[data-glass='on'\]:is\(\[data-glass-mode='dark'\], \[data-glass-mode='light'\]\)\s*\{([^}]+)\}/g)];
+    expect(hatches).toHaveLength(2);
+    for (const [, body] of hatches) {
+      expect(body).toContain('--glass-plate: oklch(var(--b1));');
+    }
   });
 });

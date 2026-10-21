@@ -8,8 +8,8 @@ const gradientTokens = ['--g-ptah-focus', '--g-ptah-gold', '--g-ptah-link', '--g
 describe('glass accent CSS', () => {
   for (const theme of ['ptah-glass', 'ptah-glass-light']) {
     it(`${theme} supplies the default gold gradient`, () => {
-      const block = [...css.matchAll(/([^{}]+)\{([^{}]+)\}/g)].find(([, selector]) =>
-        selector.includes(`:root[data-theme='${theme}'][data-glass='on']`) && !selector.includes('[data-accent='),
+      const block = [...css.matchAll(/([^{}]+)\{([^{}]+)\}/g)].find(([, selector, body]) =>
+        selector.includes(`:root[data-theme='${theme}'][data-glass='on']`) && !selector.includes('[data-accent=') && body.includes('--g-ptah-focus:'),
       )?.[2] ?? '';
       for (const token of gradientTokens) expect(block).toContain(`${token}:`);
     });

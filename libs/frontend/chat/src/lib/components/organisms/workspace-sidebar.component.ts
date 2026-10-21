@@ -120,7 +120,7 @@ import { McpServersCardComponent } from '../molecules/mcp-servers-card.component
           <span class="text-xs">Add Folder</span>
         </button>
       </div>
-      <div class="px-3 pb-3" data-glass-surface="tile">
+      <div class="px-3 pb-3">
         <ptah-mcp-servers-card />
       </div>
     </div>

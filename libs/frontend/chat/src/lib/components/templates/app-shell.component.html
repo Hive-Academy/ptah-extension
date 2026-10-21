@@ -115,6 +115,7 @@
     <!-- Header: hidden in Electron (global navbar provides all controls) -->
     <div
       class="navbar bg-surface-1 border-b border-surface-border min-h-[40px] px-2 gap-2"
+      data-glass-surface="bar"
       [class.hidden]="isElectron"
     >
       <!-- Dashboard (gold accent, VS Code only — Electron has it in global navbar) -->
@@ -271,6 +272,7 @@
           <div
             content
             class="p-4 w-72 bg-base-200 border border-base-content/10 rounded-xl shadow-lg"
+            data-glass-surface="overlay"
           >
             <h3 class="text-sm font-semibold mb-3 text-base-content-muted">
               New Session
