@@ -594,7 +594,12 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     this.startedAt = Date.now();
     this.resetInactivityTimer();
     this.lifetimeTimer = setTimeout(() => {
-      this.cleanup();
+      void this.cleanup().catch((error: unknown) => {
+        console.warn(
+          '[ElectronBrowserCapabilities] Timed cleanup failed:',
+          error instanceof Error ? error.message : String(error),
+        );
+      });
     }, MAX_LIFETIME_MS);
   }
 
@@ -692,7 +697,12 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
       : VISIBLE_INACTIVITY_TIMEOUT_MS;
 
     this.inactivityTimer = setTimeout(() => {
-      this.cleanup();
+      void this.cleanup().catch((error: unknown) => {
+        console.warn(
+          '[ElectronBrowserCapabilities] Timed cleanup failed:',
+          error instanceof Error ? error.message : String(error),
+        );
+      });
     }, timeout);
   }
 
