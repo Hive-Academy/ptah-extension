@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ptah theme picker prototype — proposal</title>
+<style>
+  :root {
+    --glass-radius-inner: 14px;
+    --glass-radius-sm: 10px;
+    --font: Inter, system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: var(--font);
+    background: #12141a;
+    color: #f2f2f1;
+  }
+  .banner {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 16px 16px 0;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+  .banner h1 { font-size: 18px; font-weight: 600; margin: 0 0 8px; }
+  .banner p { margin: 0 0 8px; }
+  .stages {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 16px 16px 48px;
+  }
+  @media (max-width: 800px) { .stages { grid-template-columns: 1fr; } }
+  .stage {
+    min-height: 560px;
+    border-radius: 22px;
+    position: relative;
+    overflow: visible;
+    padding: 12px;
+  }
+  .stage.dark {
+    background:
+      radial-gradient(420px 280px at 12% 20%, #b43fc4 0%, transparent 60%),
+      radial-gradient(380px 260px at 88% 30%, #f07a1a 0%, transparent 55%),
+      radial-gradient(320px 240px at 70% 80%, #14b2d8 0%, transparent 60%),
+      linear-gradient(135deg, #2b2e34, #17191d 62%, #26292f);
+    color: #f2f2f1;
+    --ink: #f2f2f1;
+    --overlay: rgba(32, 35, 41, 0.88);
+    --sel: rgba(242, 242, 241, 0.12);
+    --hover: rgba(242, 242, 241, 0.1);
+    --line: rgba(255, 255, 255, 0.12);
+    --line-strong: rgba(242, 242, 241, 0.28);
+    --divider: rgba(255, 255, 255, 0.1);
+    --plate: rgba(23, 25, 29, 0.5);
+    --shadow: 0 30px 72px -24px rgb(5 8 14 / 0.5);
+    --chip-glass: linear-gradient(135deg, #2b2e34, #17191d 62%, #26292f);
+  }
+  .stage.light {
+    background:
+      radial-gradient(420px 280px at 12% 18%, #b8a3f5 0%, transparent 60%),
+      radial-gradient(380px 260px at 86% 28%, #ffbf9c 0%, transparent 55%),
+      radial-gradient(340px 240px at 60% 82%, #ffb3d0 0%, transparent 60%),
+      linear-gradient(135deg, #e9e1fb, #f6edf8 62%, #fde9df);
+    color: #1e1936;
+    --ink: #1e1936;
+    --overlay: rgba(247, 243, 253, 0.9);
+    --sel: rgba(247, 243, 253, 0.94);
+    --hover: rgba(247, 243, 253, 0.78);
+    --line: rgba(255, 255, 255, 0.85);
+    --line-strong: rgba(30, 25, 54, 0.3);
+    --divider: rgba(30, 25, 54, 0.14);
+    --plate: rgba(247, 243, 253, 0.5);
+    --shadow: 0 30px 70px -26px rgb(70 50 130 / 0.4);
+    --chip-glass: linear-gradient(135deg, #e9e1fb, #f6edf8 62%, #fde9df);
+  }
+  .bar {
+    height: 40px;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    padding: 0 8px;
+    border-radius: 14px;
+    background: rgba(23, 25, 29, 0.45);
+    border: 1px solid var(--line);
+  }
+  .stage.light .bar { background: rgba(255, 251, 245, 0.55); }
+  .trigger {
+    font: inherit;
+    color: inherit;
+    background: transparent;
+    border: 0;
+    border-radius: 999px;
+    padding: 2px 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+  }
+  .trigger:focus-visible, .tab:focus-visible, .tile:focus-visible, .accent input:focus-visible + span {
+    outline: 2px solid var(--ink);
+    outline-offset: 2px;
+  }
+  .trigger svg { width: 16px; height: 16px; }
+  .trigger span { font-size: 12px; }
+  .panel {
+    width: min(16rem, calc(100vw - 16px));
+    max-height: min(28rem, calc(100dvh - 16px));
+    overflow-y: auto;
+    margin: 0;
+    padding: 0.375rem;
+    border: 0;
+    border-radius: var(--glass-radius-inner);
+    color: var(--ink);
+    background: var(--overlay);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.38), var(--shadow);
+    font-family: var(--font);
+  }
+  .panel:popover-open { position: fixed; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 8px; }
+  .tab {
+    font: inherit;
+    color: var(--ink);
+    background: transparent;
+    border: 0;
+    border-radius: var(--glass-radius-sm);
+    padding: 4px 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .tab[aria-selected="true"] { background: var(--sel); }
+  .chip { width: 12px; height: 12px; border-radius: 2px; border: 1px solid var(--line-strong); display: inline-block; }
+  .chip.light { background: #fff; }
+  .chip.dark { background: #17191d; }
+  .chip.glass { background: var(--chip-glass); }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, 2.25rem);
+    gap: 6px;
+  }
+  .tile {
+    position: relative;
+    width: 2.25rem;
+    height: 2.25rem;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+  }
+  .tile:hover { background: var(--hover); }
+  .tile[aria-pressed="true"] { outline: 2px solid currentColor; outline-offset: 2px; }
+  .dots {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2px;
+    width: 22px;
+    height: 22px;
+    margin: 7px;
+  }
+  .dots i { display: block; border-radius: 999px; }
+  .mark {
+    position: absolute;
+    right: -2px;
+    bottom: -2px;
+    width: 14px;
+    height: 14px;
+    border-radius: 999px;
+    background: var(--plate);
+    display: none;
+    align-items: center;
+    justify-content: center;
+  }
+  .tile[aria-pressed="true"] .mark { display: flex; }
+  .mark svg { width: 10px; height: 10px; }
+  .tile .tip {
+    display: none;
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 4px);
+    transform: translateX(-50%);
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: var(--ink);
+    color: var(--overlay);
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 1;
+  }
+  .tile:hover .tip, .tile:focus-visible .tip { display: block; }
+  .accent {
+    margin: 12px 0 0;
+    padding: 8px 4px 4px;
+    border: 0;
+    border-top: 1px solid var(--divider);
+  }
+  .accent legend { font-size: 12px; font-weight: 600; padding: 0 4px; }
+  .accent-row { display: flex; gap: 12px; padding-top: 8px; }
+  .accent label { cursor: pointer; }
+  .accent input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .accent span {
+    display: block;
+    width: 22px;
+    height: 22px;
+    border-radius: 999px;
+    border: 1px solid var(--line-strong);
+  }
+  .accent input:checked + span { box-shadow: 0 0 0 2px var(--overlay), 0 0 0 4px var(--ink); }
+  .log { font-size: 12px; margin-top: 12px; min-height: 2.5em; }
+  @media (prefers-reduced-transparency: reduce) {
+    .panel { background: var(--ink); color: var(--overlay); }
+    .stage.dark .panel { background: #17191d; color: #f2f2f1; }
+    .stage.light .panel { background: #f7f3fd; color: #1e1936; }
+  }
+</style>
+</head>
+<body>
+  <div class="banner">
+    <h1>Theme picker prototype</h1>
+    <p>Proposal for TASK_2026_710, revision after the parent REVISE note. Not an Electron screenshot and not Gate 1.7 approval. Production keeps <code>popover="auto"</code>. This page uses <code>popover="manual"</code> so both C4 stages can stay open. Each panel is inside its stage so the stage color tokens inherit through the top layer. Escape returns focus to that stage's trigger. An outside click does not. Scene stops are from <code>styles.css</code> lines 2793–2794, not the full generated SVG. The hover label repeats <code>title</code> for review. Implementation uses <code>title</code> and <code>aria-label</code> only.</p>
+    <p id="check">Checking partitions…</p>
+  </div>
+  <div class="stages">
+    <section class="stage dark" data-mode="dark" data-theme="ptah-glass" data-accent="gold">
+      <div class="bar">
+        <button class="trigger" type="button" aria-label="Change theme" aria-haspopup="true" aria-expanded="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="8" r="1.2" fill="currentColor"/></svg>
+          <span>Theme</span>
+        </button>
+      </div>
+      <p class="log"></p>
+    </section>
+    <section class="stage light" data-mode="light" data-theme="ptah-glass-light" data-accent="rose">
+      <div class="bar">
+        <button class="trigger" type="button" aria-label="Change theme" aria-haspopup="true" aria-expanded="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="8" r="1.2" fill="currentColor"/></svg>
+          <span>Theme</span>
+        </button>
+      </div>
+      <p class="log"></p>
+    </section>
+  </div>
+<script>
+const THEMES = [
+  ["ptah-glass","Ptah Glass",1,1,"#e4b94a","#efd48c","#45d0be","#30343a"],
+  ["ptah-glass-light","Ptah Glass Light",0,1,"#7c5700","#9a6b12","#0b7f77","#2b2650"],
+  ["anubis","Anubis",1,0,"#2563eb","#d4af37","#fbbf24","#1e1e26"],
+  ["anubis-light","Anubis Light",0,0,"oklch(85% 0.138 181.071)","oklch(58% 0.132 75)","oklch(90% 0.076 70.697)","oklch(27% 0.006 286.033)"],
+  ["light","Light",0,0,"49.12% 0.3096 275.75","69.71% 0.329 342.55","76.76% 0.184 183.61","32.1785% 0.02476 255.701624"],
+  ["dark","Dark",1,1,"65.69% 0.196 275.75","74.8% 0.26 342.55","74.51% 0.167 183.61","31.3815% 0.021108 254.139175"],
+  ["cupcake","Cupcake",0,1,"76.172% 0.089459 200.026556","78.9351% 0.101246 356.29965","79.3811% 0.146032 78.618794","23.5742% 0.066235 313.189598"],
+  ["bumblebee","Bumblebee",0,0,"89.51% 0.2132 96.61","80.39% 0.194 70.76","81.27% 0.157 56.52","12.75% 0.075 281.99"],
+  ["emerald","Emerald",0,0,"76.6626% 0.135433 153.450024","61.3028% 0.202368 261.294233","72.7725% 0.149783 33.200363","35.5192% 0.032071 262.988584"],
+  ["corporate","Corporate",0,0,"60.39% 0.228 269.1","65.3694% 0.054756 256.688055","76.9669% 0.113994 163.57888","22.3899% 0.031305 278.07229"],
+  ["synthwave","Synthwave",1,0,"72.2105% 0.159514 342.009383","78.2714% 0.118101 227.382405","88.04% 0.206 93.72","25.5554% 0.103537 286.507967"],
+  ["retro","Retro",0,0,"76.8664% 0.104092 22.664655","80.7415% 0.052534 159.094608","70.3919% 0.125455 52.953428","28.4181% 0.009519 355.534017"],
+  ["cyberpunk","Cyberpunk",0,0,"74.22% 0.209 6.35","83.33% 0.184 204.72","71.86% 0.2176 310.43","23.04% 0.065 269.31"],
+  ["valentine","Valentine",0,0,"68.6197% 0.153774 15.066527","71.971% 0.14629 293.189609","71.2685% 0.074804 197.828857","54.6053% 0.143342 358.004839"],
+  ["halloween","Halloween",1,0,"77.48% 0.204 60.62","45.98% 0.248 305.03","64.8% 0.223 136.073479","24.371% 0.046608 65.681484"],
+  ["garden","Garden",0,0,"62.45% 0.278 3.83636","48.4952% 0.110985 355.095988","56.2735% 0.054297 154.390187","24.1559% 0.049362 89.070594"],
+  ["forest","Forest",1,0,"68.6283% 0.185567 148.958922","69.7764% 0.135385 168.327128","70.6285% 0.119451 185.713193","30.6985% 0.039032 171.364646"],
+  ["aqua","Aqua",1,0,"85.6617% 0.14498 198.6458","60.6827% 0.108752 309.782946","93.4269% 0.102225 94.555431","61.0622% 0.117009 243.760661"],
+  ["lofi","Lofi",0,0,"15.9066% 0 0","21.455% 0.001566 17.278957","26.8618% 0 0","0% 0 0"],
+  ["pastel","Pastel",0,0,"83.0828% 0.034896 316.8737","88.0763% 0.049197 8.688364","89.2096% 0.06028 170.923263","71.3406% 0.07351 228.183906"],
+  ["fantasy","Fantasy",0,0,"37.45% 0.189 325.02","53.92% 0.162 241.36","75.98% 0.204 56.72","27.8078% 0.029596 256.847952"],
+  ["wireframe","Wireframe",0,0,"78.2604% 0 0","78.2604% 0 0","78.2604% 0 0","94.007% 0 0"],
+  ["black","Black",1,0,"33.6799% 0 0","33.6799% 0 0","33.6799% 0 0","33.6799% 0 0"],
+  ["luxury","Luxury",1,0,"100% 0 0","27.5815% 0.064106 261.069149","36.6744% 0.051741 338.82597","24.27% 0.057015 59.825019"],
+  ["dracula","Dracula",1,1,"75.4611% 0.18307 346.812432","74.2023% 0.148546 301.883095","83.3927% 0.124132 66.558491","39.4456% 0.032576 275.524078"],
+  ["cmyk","CMYK",0,0,"71.7722% 0.133298 239.443325","64.4766% 0.202758 359.339283","94.2289% 0.189741 105.306968","21.7787% 0 0"],
+  ["autumn","Autumn",0,0,"40.7232% 0.16116 17.530175","61.6763% 0.169105 23.865865","73.4253% 0.094994 60.729616","54.3672% 0.037374 51.902819"],
+  ["business","Business",1,0,"41.7036% 0.099057 251.473931","64.0924% 0.027405 229.389418","67.271% 0.167726 35.791525","27.441% 0.01325 253.041249"],
+  ["acid","Acid",0,0,"71.9% 0.357 330.759573","73.37% 0.224 48.250878","92.78% 0.264 122.962951","21.31% 0.128 278.68"],
+  ["lemonade","Lemonade",0,0,"58.92% 0.199 134.6","77.75% 0.196 111.09","85.39% 0.201 100.73","30.98% 0.075 108.6"],
+  ["night","Night",1,0,"75.3513% 0.138989 232.66148","68.0113% 0.158303 276.934902","72.3603% 0.176218 350.048739","27.9495% 0.036848 260.030984"],
+  ["coffee","Coffee",1,0,"71.9967% 0.123825 62.756393","34.465% 0.029849 199.19444","42.6213% 0.074405 224.389184","16.5109% 0.015743 326.261446"],
+  ["winter","Winter",0,0,"56.86% 0.255 257.57","42.5516% 0.161098 282.339433","59.9398% 0.191515 335.171434","19.6166% 0.063518 257.651965"],
+  ["dim","Dim",1,0,"86.1335% 0.141656 139.549991","73.3759% 0.165904 35.353059","74.2296% 0.133641 311.37924","24.7311% 0.020483 264.094728"],
+  ["nord","Nord",0,1,"59.4359% 0.077246 254.027774","69.6516% 0.059108 248.687186","77.4643% 0.062249 217.469017","45.229% 0.035214 264.1312"],
+  ["sunset","Sunset",1,0,"74.7039% 0.158278 39.94703","72.5375% 0.177654 2.72034","71.2947% 0.166678 299.844533","26% 0.019 237.69"]
+].map(([name,label,isDark,glass,p,s,a,n]) => ({name,label,isDark:!!isDark,glass:!!glass,p,s,a,n}));
+
+function category(theme) { return theme.glass ? "glass" : theme.isDark ? "dark" : "light"; }
+function paint(value) { return value.startsWith("#") || value.startsWith("oklch(") ? value : "oklch(" + value + ")"; }
+const ACCENTS = [
+  ["gold","Gold","linear-gradient(#f6d675, #d9a928)"],
+  ["rose","Rose quartz","linear-gradient(#f9c6d4, #e98fab)"],
+  ["moonstone","Moonstone","linear-gradient(#eef1f8, #bcc4d6)"]
+];
+const TAB_ORDER = ["light","dark","glass"];
+
+function partitionOk() {
+  const groups = {light:[], dark:[], glass:[]};
+  for (const theme of THEMES) groups[category(theme)].push(theme.name);
+  const all = new Set(THEMES.map(t => t.name));
+  const flat = [...groups.light, ...groups.dark, ...groups.glass];
+  return THEMES.length === 36 && flat.length === all.size && groups.light.length === 18 && groups.dark.length === 12 && groups.glass.length === 6
+    && groups.glass.join(",") === "ptah-glass,ptah-glass-light,dark,cupcake,dracula,nord";
+}
+document.getElementById("check").textContent = partitionOk()
+  ? "36 themes. Light 18, Dark 12, Glass 6. Nord, Cupcake, and the theme named Dark sit on Glass."
+  : "Partition check failed.";
+
+function cssVar(theme, key) { return "--c" + key + ":" + paint(theme[key]); }
+
+let seq = 0;
+for (const stage of document.querySelectorAll(".stage")) {
+  const id = "theme-panel-" + (++seq);
+  const trigger = stage.querySelector(".trigger");
+  const log = stage.querySelector(".log");
+  const panel = document.createElement("div");
+  panel.id = id;
+  panel.className = "panel";
+  panel.setAttribute("popover", "manual");
+  panel.setAttribute("role", "dialog");
+  panel.setAttribute("aria-label", "Theme");
+  trigger.setAttribute("aria-controls", id);
+  stage.appendChild(panel);
+
+  const state = {
+    theme: stage.dataset.theme,
+    accent: stage.dataset.accent,
+    tab: category(THEMES.find(t => t.name === stage.dataset.theme))
+  };
+
+  function write(message) { log.textContent = message; }
+
+  function render() {
+    const current = THEMES.find(t => t.name === state.theme);
+    panel.replaceChildren();
+    const tabs = document.createElement("div");
+    tabs.className = "tabs";
+    tabs.setAttribute("role", "tablist");
+    tabs.setAttribute("aria-label", "Theme categories");
+    for (const key of TAB_ORDER) {
+      const tab = document.createElement("button");
+      tab.type = "button";
+      tab.className = "tab";
+      tab.setAttribute("role", "tab");
+      tab.dataset.tab = key;
+      tab.id = id + "-tab-" + key;
+      tab.setAttribute("aria-controls", id + "-tabpanel");
+      tab.setAttribute("aria-selected", key === state.tab ? "true" : "false");
+      tab.tabIndex = key === state.tab ? 0 : -1;
+      const chip = document.createElement("i");
+      chip.className = "chip " + key;
+      chip.setAttribute("aria-hidden", "true");
+      tab.append(chip, document.createTextNode(key === "light" ? "Light" : key === "dark" ? "Dark" : "Glass"));
+      tabs.append(tab);
+    }
+    const tabpanel = document.createElement("div");
+    tabpanel.id = id + "-tabpanel";
+    tabpanel.setAttribute("role", "tabpanel");
+    tabpanel.setAttribute("aria-labelledby", id + "-tab-" + state.tab);
+    const grid = document.createElement("div");
+    grid.className = "grid";
+    const visible = THEMES.filter(t => category(t) === state.tab);
+    visible.forEach((theme, index) => {
+      const pressed = theme.name === state.theme;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "tile";
+      button.dataset.theme = theme.name;
+      button.title = theme.label;
+      button.setAttribute("aria-label", theme.label);
+      button.setAttribute("aria-pressed", pressed ? "true" : "false");
+      button.tabIndex = pressed || (!visible.some(t => t.name === state.theme) && index === 0) ? 0 : -1;
+      button.style.cssText = [cssVar(theme,"p"), cssVar(theme,"s"), cssVar(theme,"a"), cssVar(theme,"n")].join(";");
+      button.innerHTML = '<span class="dots" aria-hidden="true"><i style="background:var(--cp)"></i><i style="background:var(--cs)"></i><i style="background:var(--ca)"></i><i style="background:var(--cn)"></i></span><span class="tip"></span><span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 7"/></svg></span>';
+      button.style.setProperty("--cp", paint(theme.p));
+      button.style.setProperty("--cs", paint(theme.s));
+      button.style.setProperty("--ca", paint(theme.a));
+      button.style.setProperty("--cn", paint(theme.n));
+      button.querySelector(".tip").textContent = theme.label;
+      grid.append(button);
+    });
+    if (![...grid.querySelectorAll(".tile")].some(el => el.tabIndex === 0) && grid.firstElementChild) {
+      grid.firstElementChild.tabIndex = 0;
+    }
+    tabpanel.append(grid);
+    panel.append(tabs, tabpanel);
+    if (current && (current.name === "ptah-glass" || current.name === "ptah-glass-light")) {
+      const field = document.createElement("fieldset");
+      field.className = "accent";
+      const legend = document.createElement("legend");
+      legend.textContent = "Primary accent";
+      const row = document.createElement("div");
+      row.className = "accent-row";
+      for (const [name, label, fill] of ACCENTS) {
+        const labelEl = document.createElement("label");
+        labelEl.title = label;
+        const input = document.createElement("input");
+        input.type = "radio";
+        input.name = id + "-accent";
+        input.value = name;
+        input.setAttribute("aria-label", label);
+        input.checked = state.accent === name;
+        const swatch = document.createElement("span");
+        swatch.style.background = fill;
+        labelEl.append(input, swatch);
+        row.append(labelEl);
+      }
+      field.append(legend, row);
+      panel.append(field);
+    }
+    write("ThemeService.setTheme('" + state.theme + "')" + (current && current.glass && current.name.startsWith("ptah-glass") ? " · setAccent('" + state.accent + "')" : " · accent hidden") + ". Storage API unchanged.");
+  }
+
+  function place() {
+    const margin = 8;
+    const gap = 4;
+    const cap = Math.min(28 * 16, window.innerHeight - margin * 2);
+    panel.style.right = "auto";
+    panel.style.maxHeight = cap + "px";
+    const width = panel.offsetWidth || 256;
+    const triggerRect = trigger.getBoundingClientRect();
+    let left = triggerRect.right - width;
+    if (left < margin) left = margin;
+    if (left + width > window.innerWidth - margin) left = Math.max(margin, window.innerWidth - margin - width);
+    panel.style.left = left + "px";
+    const needed = Math.min(panel.scrollHeight, cap);
+    const spaceBelow = window.innerHeight - triggerRect.bottom - margin;
+    const spaceAbove = triggerRect.top - margin;
+    let top;
+    let maxHeight;
+    if (spaceBelow >= needed + gap) {
+      top = triggerRect.bottom + gap;
+      maxHeight = needed;
+    } else if (spaceAbove >= needed + gap) {
+      maxHeight = needed;
+      top = triggerRect.top - gap - needed;
+    } else if (spaceBelow >= spaceAbove && spaceBelow > gap) {
+      maxHeight = spaceBelow - gap;
+      top = triggerRect.bottom + gap;
+    } else if (spaceAbove > gap) {
+      maxHeight = spaceAbove - gap;
+      top = triggerRect.top - gap - maxHeight;
+    } else {
+      maxHeight = Math.max(0, window.innerHeight - margin * 2);
+      top = margin;
+    }
+    if (top < margin) top = margin;
+    if (top + maxHeight > window.innerHeight - margin) top = Math.max(margin, window.innerHeight - margin - maxHeight);
+    panel.style.top = top + "px";
+    panel.style.maxHeight = Math.max(0, maxHeight) + "px";
+  }
+
+  function openPanel(focusTile) {
+    render();
+    panel.showPopover();
+    trigger.setAttribute("aria-expanded", "true");
+    place();
+    if (focusTile) {
+      const selected = panel.querySelector('.tile[aria-pressed="true"]') || panel.querySelector(".tile");
+      selected?.focus();
+    }
+  }
+  function closePanel(restore) {
+    if (panel.matches(":popover-open")) panel.hidePopover();
+    trigger.setAttribute("aria-expanded", "false");
+    if (restore) trigger.focus();
+  }
+
+  trigger.addEventListener("click", () => {
+    if (panel.matches(":popover-open")) closePanel(false);
+    else openPanel(false);
+  });
+  trigger.addEventListener("keydown", event => {
+    if (event.key === "ArrowDown" && !panel.matches(":popover-open")) {
+      event.preventDefault();
+      openPanel(true);
+    }
+  });
+  panel.addEventListener("keydown", event => {
+    const tabs = [...panel.querySelectorAll(".tab")];
+    const tiles = [...panel.querySelectorAll(".tile")];
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closePanel(true);
+      return;
+    }
+    if (event.target.classList.contains("tab") && (event.key === "ArrowRight" || event.key === "ArrowLeft" || event.key === "Home" || event.key === "End")) {
+      event.preventDefault();
+      const index = tabs.indexOf(event.target);
+      const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+      state.tab = tabs[next].dataset.tab;
+      render();
+      place();
+      panel.querySelector('.tab[data-tab="' + state.tab + '"]').focus();
+    }
+    if (event.target.classList.contains("tile") && ["ArrowRight","ArrowLeft","ArrowUp","ArrowDown","Home","End"].includes(event.key)) {
+      event.preventDefault();
+      const cols = getComputedStyle(panel.querySelector(".grid")).gridTemplateColumns.split(" ").length;
+      const index = tiles.indexOf(event.target);
+      let next = index;
+      if (event.key === "ArrowRight") next = Math.min(tiles.length - 1, index + 1);
+      if (event.key === "ArrowLeft") next = Math.max(0, index - 1);
+      if (event.key === "ArrowDown") next = Math.min(tiles.length - 1, index + cols);
+      if (event.key === "ArrowUp") next = Math.max(0, index - cols);
+      if (event.key === "Home") next = 0;
+      if (event.key === "End") next = tiles.length - 1;
+      tiles.forEach((tile, tileIndex) => { tile.tabIndex = tileIndex === next ? 0 : -1; });
+      tiles[next].focus();
+    }
+  });
+  panel.addEventListener("click", event => {
+    const tab = event.target.closest(".tab");
+    if (tab) {
+      state.tab = tab.dataset.tab;
+      render();
+      place();
+      panel.querySelector('.tab[data-tab="' + state.tab + '"]').focus();
+      return;
+    }
+    const tile = event.target.closest(".tile");
+    if (!tile) return;
+    state.theme = tile.dataset.theme;
+    state.tab = category(THEMES.find(t => t.name === state.theme));
+    render();
+    place();
+    panel.querySelector('.tile[data-theme="' + state.theme + '"]')?.focus();
+  });
+  panel.addEventListener("change", event => {
+    if (event.target.name && event.target.name.endsWith("-accent")) {
+      state.accent = event.target.value;
+      write("ThemeService.setAccent('" + state.accent + "'). Theme stays " + state.theme + ".");
+    }
+  });
+  document.addEventListener("pointerdown", event => {
+    if (!panel.matches(":popover-open")) return;
+    if (panel.contains(event.target) || trigger.contains(event.target)) return;
+    closePanel(false);
+  });
+  window.addEventListener("resize", () => {
+    if (panel.matches(":popover-open")) place();
+  });
+  render();
+  openPanel(false);
+}
+</script>
+</body>
+</html>

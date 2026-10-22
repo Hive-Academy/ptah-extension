@@ -42,14 +42,12 @@ const STYLES_CSS = join(__dirname, '..', 'styles.css');
 const AA_NORMAL = 4.5;
 
 /** The two themes whose `--bcm` is declared in tailwind.config.js. */
-const EAGER_THEMES = ['anubis', 'anubis-light'] as const;
+const EAGER_THEMES = ['anubis', 'anubis-light', 'ptah-glass', 'ptah-glass-light'] as const;
 
 type ThemeSource = Record<string, string>;
 
 /** The custom-theme object out of the daisyui plugin config. */
-const customThemes: ThemeSource = TAILWIND_CONFIG.daisyui.themes.find(
-  (entry: unknown) => typeof entry === 'object' && entry !== null,
-);
+const customThemes: Record<string, ThemeSource> = Object.assign({}, ...TAILWIND_CONFIG.daisyui.themes);
 
 it('keeps the anubis idle ink readable on its dark surfaces', () => {
   const anubis = customThemes['anubis'] as unknown as ThemeSource;

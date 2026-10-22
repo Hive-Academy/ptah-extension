@@ -253,6 +253,7 @@ export function capabilityPanelLines(
       >
         <section
           class="space-y-2 rounded-lg border border-base-300 bg-base-100 p-3"
+          data-glass-surface="content"
           aria-labelledby="server-capabilities-heading"
           data-testid="server-capabilities"
           [attr.data-state]="capabilities.state()"

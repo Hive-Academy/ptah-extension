@@ -54,7 +54,7 @@ import { McpServersCardComponent } from '../molecules/mcp-servers-card.component
       </div>
 
       <!-- Folder list -->
-      <div class="flex-1 overflow-y-auto px-3 py-3">
+      <div class="overflow-y-auto px-3 py-3" style="flex: 0 1 auto" data-glass-surface="plate">
         @for (
           folder of layout.workspaceFolders();
           track folder.path;
@@ -110,7 +110,7 @@ import { McpServersCardComponent } from '../molecules/mcp-servers-card.component
       </div>
 
       <!-- Add folder button -->
-      <div class="px-3 py-3 border-t border-surface-border">
+      <div class="mt-auto px-3 py-3 border-t border-surface-border">
         <button
           class="btn btn-ghost btn-sm w-full gap-2 text-base-content-muted hover:text-base-content justify-start"
           (click)="layout.addFolder()"

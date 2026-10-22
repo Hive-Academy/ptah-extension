@@ -110,6 +110,14 @@ async function waitForSettled(page: Page, scope = page.locator('body')): Promise
  * row ("viewport adjusted until the shell's measured width equals the
  * target").
  */
+/**
+ * Viewport-minus-shell gap last measured on a page. The Electron chrome is the
+ * same at every width, so the next fit starts from it and converges in one
+ * resize instead of two. Each resize re-lays-out the blurred glass surfaces
+ * and is the dominant cost of this spec.
+ */
+const measuredChromeGap = new WeakMap<Page, number>();
+
 async function fitShellWidth(
   page: Page,
   host: 'electron' | 'vscode',
@@ -120,14 +128,48 @@ async function fitShellWidth(
     await page.setViewportSize({ width: target, height: 1000 });
     return;
   }
-  let viewport = target + 260; // seed above the known sidebar width
+  // Electron chrome (sidebar, frame, git dock) is the gap between the
+  // viewport and the shell. One correction is viewport = target + that gap.
+  // The dock absorbs part of a viewport change until its floor, so the gap
+  // is remeasured, up to six times. A miss is a failure: do not clamp it
+  // into a screenshot labeled with the requested width. Never call
+  // setViewportSize with a non-finite, non-positive, or >1e7 width.
+  const maxViewport = 10_000_000;
+  let viewport = target + (measuredChromeGap.get(page) ?? 260); // seed: last measured gap, else above the known sidebar width
+  let measured = Number.NaN;
+  let applied = viewport;
   for (let attempt = 0; attempt < 6; attempt += 1) {
-    await page.setViewportSize({ width: viewport, height: 1000 });
-    const box = await shell.boundingBox();
-    const measured = Math.round(box?.width ?? 0);
-    if (Math.abs(measured - target) <= 2) return;
-    viewport += target - measured;
+    const width = Math.round(viewport);
+    if (!Number.isFinite(width) || width <= 0 || width > maxViewport) {
+      throw new Error(
+        `fitShellWidth: next viewport ${viewport} is not a finite width in (0, ${maxViewport}] (target ${target}, viewport ${applied}, measured ${measured})`,
+      );
+    }
+    applied = width;
+    await page.setViewportSize({ width, height: 1000 });
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() => resolve());
+        }),
+    );
+    measured = await shell.evaluate((el) =>
+      Math.round(el.getBoundingClientRect().width),
+    );
+    if (!Number.isFinite(measured) || measured <= 0) {
+      throw new Error(
+        `fitShellWidth: shell measure ${measured} is not a positive finite width (target ${target}, viewport ${applied}, measured ${measured})`,
+      );
+    }
+    if (Math.abs(measured - target) <= 2) {
+      measuredChromeGap.set(page, applied - measured);
+      return;
+    }
+    viewport = target + (applied - measured);
   }
+  throw new Error(
+    `fitShellWidth: shell width is not within 2px of the target after 6 attempts (target ${target}, viewport ${applied}, measured ${measured})`,
+  );
 }
 
 for (const host of ['vscode', 'electron'] as const) {
@@ -146,6 +188,10 @@ for (const host of ['vscode', 'electron'] as const) {
     });
 
     test('six discovery views at 720/1100/1750', async ({ page, fixtureServer }) => {
+      // 18 captures. Measured locally: ~0.8-1.6s per element screenshot (the glass surfaces' backdrop blur is
+      // repainted for each one), about 27s of the electron run, plus ~0.2s per fit. That leaves no margin
+      // under the 30s default on a slower CI runner.
+      test.setTimeout(120_000);
       await boot(page, fixtureServer.url, host);
       const shell = page.locator('[data-testid="marketplace-shell"]');
 

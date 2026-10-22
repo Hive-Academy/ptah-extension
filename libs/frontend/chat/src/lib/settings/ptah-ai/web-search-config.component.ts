@@ -108,7 +108,7 @@ function providerLabel(provider: ProviderId): string {
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
-    <section class="card bg-base-200 border border-base-300 p-3" aria-labelledby="web-search-heading">
+    <section class="card bg-base-200 border border-base-300 p-3" data-glass-surface="content" aria-labelledby="web-search-heading">
       <div class="flex items-center justify-between gap-3 mb-2">
         <div class="flex items-center gap-1.5">
           <lucide-angular [img]="GlobeIcon" class="w-4 h-4 text-secondary" aria-hidden="true" />

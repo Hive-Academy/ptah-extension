@@ -23,12 +23,12 @@ let nextSessionId = 0;
   template: `
     @let s = stats();
     <section class="p-4" data-testid="inspector-session-stats" [attr.aria-labelledby]="headingId">
-      <div class="mb-2 flex items-center justify-between gap-2">
+      <div class="mb-2 flex items-center justify-between gap-2" data-glass-surface="plate">
         <h3 [id]="headingId" class="sec-label text-[10.5px] font-semibold uppercase">SESSION</h3>
         @if (s.snapshot?.provisional) { <span class="text-[11px] text-base-content-muted">~ = estimate</span> }
       </div>
       @if (s.limitSummary.state !== 'none') {
-        <p class="mb-2 flex items-center gap-1.5 text-[11px]"
+        <p class="mb-2 flex items-center gap-1.5 text-[11px]" data-glass-surface="plate"
           [style.color]="s.limitSummary.state === 'at' ? 'var(--state-ink-err)' : 'var(--state-ink-need)'">
           <lucide-angular [img]="AlertTriangleIcon" class="size-3.5 shrink-0" aria-hidden="true" />
           <span class="min-w-0 flex-1">{{ s.limitSummary.fullText }}</span>
@@ -40,7 +40,7 @@ let nextSessionId = 0;
       }
       <div class="grid grid-cols-2 gap-2">
         @if (s.cache; as cache) { <ptah-inspector-cache-tile [cache]="cache" /> }
-        <div class="relative col-span-2 rounded-md border border-surface-border bg-surface-1 p-2.5">
+        <div class="relative col-span-2 rounded-md border border-surface-border bg-surface-1 p-2.5" data-glass-surface="tile">
           <div class="flex items-center gap-3"
             [attr.role]="s.context.known ? 'progressbar' : null"
             [attr.aria-valuemin]="s.context.known ? 0 : null" [attr.aria-valuemax]="s.context.known ? 100 : null"
@@ -62,7 +62,7 @@ let nextSessionId = 0;
           </div>
           @if (contextDetails(); as details) { <ng-container [ngTemplateOutlet]="detail" [ngTemplateOutletContext]="{ name: 'Context', key: 'sd-context', text: details }" /> }
         </div>
-        <div class="relative rounded-md border border-surface-border bg-surface-1 p-2.5" [class.col-span-2]="isOpen('sd-tokens')">
+        <div class="relative rounded-md border border-surface-border bg-surface-1 p-2.5" data-glass-surface="tile" [class.col-span-2]="isOpen('sd-tokens')">
           <div class="pr-7 text-[11px] text-base-content-muted">Tokens</div>
           <div class="text-[15px] font-semibold tabular-nums">
             @if (s.snapshot?.provisional) { <span aria-hidden="true">~</span><span class="sr-only">estimated </span> }
@@ -78,7 +78,7 @@ let nextSessionId = 0;
           }
           <ng-container [ngTemplateOutlet]="detail" [ngTemplateOutletContext]="{ name: 'Tokens', key: 'sd-tokens', text: tokenDetails() }" />
         </div>
-        <div class="relative rounded-md border border-surface-border bg-surface-1 p-2.5" [class.col-span-2]="isOpen('sd-cost')">
+        <div class="relative rounded-md border border-surface-border bg-surface-1 p-2.5" data-glass-surface="tile" [class.col-span-2]="isOpen('sd-cost')">
           <div class="pr-7 text-[11px] text-base-content-muted">Cost</div>
           <div class="flex items-center gap-1 text-[15px] font-semibold tabular-nums">
             @if (s.snapshot?.provisional) { <span aria-hidden="true">~</span><span class="sr-only">estimated </span> }
@@ -99,26 +99,26 @@ let nextSessionId = 0;
           @if (costDetails(); as details) { <ng-container [ngTemplateOutlet]="detail" [ngTemplateOutletContext]="{ name: 'Cost', key: 'sd-cost', text: details }" /> }
         </div>
         @if (duration(); as ms) {
-          <div class="rounded-md border border-surface-border bg-surface-1 p-2.5" [class.col-span-2]="!agents()">
+          <div class="rounded-md border border-surface-border bg-surface-1 p-2.5" data-glass-surface="tile" [class.col-span-2]="!agents()">
             <div class="text-[11px] text-base-content-muted">Time</div>
             <div class="text-[15px] font-semibold tabular-nums">{{ formatDuration(ms) }}</div>
             @if (turns() !== null) { <p class="text-[11px] text-base-content-muted">{{ turns() }} turns</p> }
           </div>
         }
         @if (agents(); as count) {
-          <div class="relative rounded-md border border-surface-border bg-surface-1 p-2.5" [class.col-span-2]="isOpen('sd-agents') || !duration()">
+          <div class="relative rounded-md border border-surface-border bg-surface-1 p-2.5" data-glass-surface="tile" [class.col-span-2]="isOpen('sd-agents') || !duration()">
             <div class="pr-7 text-[11px] text-base-content-muted">Agents</div>
             <div class="text-[15px] font-semibold tabular-nums">{{ count }}</div>
             <ng-container [ngTemplateOutlet]="detail" [ngTemplateOutletContext]="{ name: 'Agents', key: 'sd-agents', text: agentsDetails }" />
           </div>
         }
         @if (modelNames().length === 1) {
-          <div class="col-span-2 rounded-md border border-surface-border bg-surface-1 p-2.5">
+          <div class="col-span-2 rounded-md border border-surface-border bg-surface-1 p-2.5" data-glass-surface="tile">
             <div class="text-[11px] text-base-content-muted">Model</div>
             <div class="text-[15px] font-semibold" [title]="primaryModel()">{{ modelNames()[0] }}</div>
           </div>
         } @else if (modelNames().length >= 2) {
-          <button type="button" class="col-span-2 flex items-center gap-2 rounded-md border border-surface-border bg-surface-1 p-2.5 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content"
+          <button type="button" class="col-span-2 flex items-center gap-2 rounded-md border border-surface-border bg-surface-1 p-2.5 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-content" data-glass-surface="tile"
             [attr.aria-expanded]="isOpen('sd-models')" [attr.aria-controls]="modelsPanelId"
             [title]="isOpen('sd-models') ? 'Hide per-model breakdown' : 'Show per-model breakdown'" (click)="toggle('sd-models')" (keydown.escape)="closeOnEscape($event, 'sd-models')">
             <span class="min-w-0 flex-1"><span class="block text-[11px] text-base-content-muted">Models</span><span class="block truncate text-[15px] font-semibold">{{ modelNames().slice(0, 2).join(', ') }}</span></span>
@@ -128,7 +128,7 @@ let nextSessionId = 0;
           <div [id]="modelsPanelId" class="col-span-2 grid gap-1.5" [hidden]="!isOpen('sd-models')" role="list" aria-label="Per-model usage">
             @if (isOpen('sd-models')) {
               @for (row of s.snapshot?.modelUsageList ?? []; track row.model) {
-                <div role="listitem" class="rounded-md border border-surface-border bg-surface-1 p-2.5">
+        <div role="listitem" class="rounded-md border border-surface-border bg-surface-1 p-2.5" data-glass-surface="tile">
                   <div class="flex items-center justify-between gap-2 text-[13px] font-semibold">
                     <span class="min-w-0 truncate" [title]="row.model">{{ formatModelName(row.model) }}</span>
                     <span class="tabular-nums">{{ formatCost(row.costUSD) }}</span>

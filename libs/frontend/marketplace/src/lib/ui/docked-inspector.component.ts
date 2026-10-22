@@ -36,11 +36,13 @@ let nextInspectorId = 0;
   template: `
     <aside
       class="surface-3 flex h-full min-h-0 flex-col rounded-none border-y-0 border-r-0"
+      data-glass-surface="chrome"
       [attr.aria-labelledby]="headingId"
       data-testid="docked-inspector"
     >
       <div
         class="flex flex-shrink-0 items-center gap-2 border-b border-surface-border px-4 py-3"
+        data-glass-surface="plate"
       >
         <h2
           [id]="headingId"

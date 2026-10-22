@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, inject, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, effect, inject, input, viewChild } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { LucideAngularModule, X } from 'lucide-angular';
 import { SettingsSaveFeedbackService } from './settings-save-feedback.service';
@@ -17,6 +17,10 @@ import { SettingsBusyDisabledDirective } from './busy-disabled.directive';
  * `inline` (Batch 55b CS-1): the same toast in the flow of a panel instead of fixed to the page, for a surface
  * whose focus trap the page toast is outside of (the drawer's Models & Tiers tab), so a keyboard user can reach its
  * Undo. Its test ids carry `-inline`, so the page toast and an inline copy never share one.
+ *
+ * The page toast is a manual popover, so it sits in the browser top layer. A native popover or dropdown shell
+ * (also top layer, with a full-viewport backdrop) opened earlier would otherwise cover the toast and take the
+ * click meant for its Undo; a popover shown later is stacked above the earlier ones.
  */
 @Component({
   selector: 'ptah-settings-toast',
@@ -29,7 +33,9 @@ import { SettingsBusyDisabledDirective } from './busy-disabled.directive';
         <ng-container *ngTemplateOutlet="body; context: { $implicit: toast }" />
       } @else {
         <div
-          class="fixed bottom-6 right-6 z-50 max-w-sm [body:has(ptah-native-drawer_[role=dialog])_&]:bottom-28"
+          #region
+          popover="manual"
+          class="fixed inset-auto bottom-6 right-6 z-50 m-0 h-auto w-auto max-w-sm overflow-visible border-0 bg-transparent p-0 text-inherit [body:has(ptah-native-drawer_[role=dialog])_&]:bottom-28"
           data-testid="settings-toast-region"
         >
           <ng-container *ngTemplateOutlet="body; context: { $implicit: toast }" />
@@ -78,6 +84,34 @@ export class SettingsToastComponent {
 
   /** Render in the flow of the host panel instead of fixed to the page; off for the page toast. */
   readonly inline = input(false);
+
+  private readonly region = viewChild<ElementRef<HTMLElement>>('region');
+
+  constructor() {
+    effect(() => {
+      // Read the toast so every new message re-stacks the region above popovers opened since.
+      this.feedback.toast();
+      const region = this.region()?.nativeElement;
+      if (!region) return;
+      if (typeof region.showPopover !== 'function') {
+        this.keepRegionInPlace(region);
+        return;
+      }
+      try {
+        if (region.matches(':popover-open')) region.hidePopover();
+        region.showPopover();
+        region.style.display = '';
+      } catch {
+        // Intentionally swallowed (not connected or Popover API refused): the toast stays in the page layer.
+        this.keepRegionInPlace(region);
+      }
+    });
+  }
+
+  /** Undo a non-open popover's display:none when promotion did not happen, so the toast stays visible in-page. */
+  private keepRegionInPlace(region: HTMLElement): void {
+    region.style.display = 'block';
+  }
 
   protected testId(base: string): string {
     return this.inline() ? base.replace('settings-toast', 'settings-toast-inline') : base;

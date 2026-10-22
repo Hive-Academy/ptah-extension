@@ -2,7 +2,10 @@ import { Component, signal, ChangeDetectionStrategy } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Placement } from '@floating-ui/dom';
 import * as FloatingDom from '@floating-ui/dom';
-import { NativeDropdownComponent } from './native-dropdown.component';
+import {
+  DROPDOWN_POSITION_TIMEOUT_MS,
+  NativeDropdownComponent,
+} from './native-dropdown.component';
 
 jest.mock('@floating-ui/dom', () => {
   const actual = jest.requireActual('@floating-ui/dom');
@@ -77,6 +80,17 @@ describe('NativeDropdownComponent', () => {
 
   const flushMicrotasks = () =>
     new Promise((r) => queueMicrotask(() => r(null)));
+
+  /** The open microtask plus the bounded positioning race's promise hops. */
+  const flushAll = async () => {
+    await flushMicrotasks();
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+  };
+
+  const panel = () =>
+    (fixture.nativeElement as HTMLElement).querySelector(
+      '.dropdown-panel',
+    ) as HTMLElement;
 
   it('should create', () => {
     expect(host).toBeTruthy();
@@ -166,9 +180,7 @@ describe('NativeDropdownComponent', () => {
     fixture.detectChanges();
 
     // Wait for microtask + async positioning
-    await flushMicrotasks();
-    await Promise.resolve();
-    await Promise.resolve();
+    await flushAll();
 
     expect(host.openedCount).toBe(1);
   });
@@ -181,6 +193,237 @@ describe('NativeDropdownComponent', () => {
     await Promise.resolve();
 
     expect(mockedCompute).toHaveBeenCalled();
+  });
+
+  describe('top-layer shell', () => {
+    const proto = HTMLElement.prototype;
+
+    function installPopoverApi(
+      show: (this: HTMLElement) => void,
+      hide: (this: HTMLElement) => void,
+    ): () => void {
+      const previous = {
+        show: Object.getOwnPropertyDescriptor(proto, 'showPopover'),
+        hide: Object.getOwnPropertyDescriptor(proto, 'hidePopover'),
+      };
+      Object.defineProperty(proto, 'showPopover', { configurable: true, value: show });
+      Object.defineProperty(proto, 'hidePopover', { configurable: true, value: hide });
+      return () => {
+        if (previous.show) Object.defineProperty(proto, 'showPopover', previous.show);
+        else Reflect.deleteProperty(proto, 'showPopover');
+        if (previous.hide) Object.defineProperty(proto, 'hidePopover', previous.hide);
+        else Reflect.deleteProperty(proto, 'hidePopover');
+      };
+    }
+
+    it('wraps backdrop and panel in a manual popover shell only while open', () => {
+      const root = fixture.nativeElement as HTMLElement;
+      expect(root.querySelector('[popover]')).toBeNull();
+      host.isOpen.set(true);
+      fixture.detectChanges();
+      const shell = root.querySelector('[popover="manual"]');
+      expect(shell).not.toBeNull();
+      expect(shell?.querySelector('.dropdown-panel')).not.toBeNull();
+      expect(shell?.querySelector('[role="presentation"]')).not.toBeNull();
+    });
+
+    const shell = () =>
+      (fixture.nativeElement as HTMLElement).querySelector(
+        '[popover="manual"]',
+      ) as HTMLElement;
+
+    it('promotes the shell before positioning and hides it on close', async () => {
+      const order: string[] = [];
+      const shown: HTMLElement[] = [];
+      const hidden: HTMLElement[] = [];
+      mockedCompute.mockImplementationOnce(async () => {
+        order.push('compute');
+        return { x: 0, y: 0 };
+      });
+      const restore = installPopoverApi(
+        function (this: HTMLElement) {
+          order.push('show');
+          shown.push(this);
+        },
+        function (this: HTMLElement) {
+          hidden.push(this);
+        },
+      );
+      try {
+        host.isOpen.set(true);
+        fixture.detectChanges();
+        await flushAll();
+        expect(order).toEqual(['show', 'compute']);
+        expect(shown).toHaveLength(1);
+        expect(shown[0].getAttribute('popover')).toBe('manual');
+        // Promoted: no in-page display override.
+        expect(shown[0].style.display).toBe('');
+
+        host.isOpen.set(false);
+        fixture.detectChanges();
+        expect(hidden).toEqual(shown);
+      } finally {
+        restore();
+      }
+    });
+
+    it('keeps the shell visible in place and positions when the Popover API is missing', async () => {
+      const previous = Object.getOwnPropertyDescriptor(proto, 'showPopover');
+      Reflect.deleteProperty(proto, 'showPopover');
+      try {
+        expect(typeof proto.showPopover).not.toBe('function');
+        host.isOpen.set(true);
+        fixture.detectChanges();
+        await flushAll();
+        expect(shell().style.display).toBe('block');
+        expect(mockedCompute).toHaveBeenCalled();
+        expect(panel().style.visibility).toBe('visible');
+      } finally {
+        if (previous) Object.defineProperty(proto, 'showPopover', previous);
+      }
+    });
+
+    it('keeps the shell visible in place when showPopover throws', async () => {
+      const restore = installPopoverApi(
+        () => {
+          throw new DOMException('not connected', 'InvalidStateError');
+        },
+        () => undefined,
+      );
+      try {
+        host.isOpen.set(true);
+        fixture.detectChanges();
+        await flushAll();
+        expect(shell().style.display).toBe('block');
+        expect(panel().style.visibility).toBe('visible');
+        expect(host.openedCount).toBe(1);
+      } finally {
+        restore();
+      }
+    });
+  });
+
+  describe('initial positioning failure and cancellation', () => {
+    const settle = () => new Promise((resolve) => setTimeout(resolve));
+
+    it('reveals the panel under the trigger when positioning rejects', async () => {
+      mockedCompute.mockRejectedValueOnce(new Error('compute failed'));
+      host.isOpen.set(true);
+      fixture.detectChanges();
+      await flushAll();
+
+      expect(panel().style.visibility).toBe('visible');
+      // Only the fallback writes top/left; the service writes them after a compute.
+      expect(panel().style.top).toBe('0px');
+      expect(panel().style.left).toBe('0px');
+      expect(host.openedCount).toBe(1);
+    });
+
+    it('reveals the panel under the trigger once positioning overruns its bound', async () => {
+      jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick'] });
+      try {
+        mockedCompute.mockReturnValueOnce(new Promise(() => undefined));
+        host.isOpen.set(true);
+        fixture.detectChanges();
+        await flushAll();
+
+        expect(panel().style.visibility).toBe('hidden');
+        expect(host.openedCount).toBe(0);
+
+        jest.advanceTimersByTime(DROPDOWN_POSITION_TIMEOUT_MS);
+        await flushAll();
+
+        expect(panel().style.visibility).toBe('visible');
+        expect(host.openedCount).toBe(1);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('does not emit opened when closed before positioning resolves', async () => {
+      let resolvePosition: (value: { x: number; y: number }) => void = () =>
+        undefined;
+      mockedCompute.mockReturnValueOnce(
+        new Promise((resolve) => (resolvePosition = resolve)),
+      );
+      host.isOpen.set(true);
+      fixture.detectChanges();
+      await flushAll();
+      expect(mockedCompute).toHaveBeenCalledTimes(1);
+
+      host.isOpen.set(false);
+      fixture.detectChanges();
+      resolvePosition({ x: 0, y: 0 });
+      await settle();
+
+      expect(host.openedCount).toBe(0);
+    });
+
+    it('emits opened once for a reopen while the first position is pending', async () => {
+      let resolveFirst: (value: { x: number; y: number }) => void = () =>
+        undefined;
+      mockedCompute.mockReturnValueOnce(
+        new Promise((resolve) => (resolveFirst = resolve)),
+      );
+      host.isOpen.set(true);
+      fixture.detectChanges();
+      await flushAll();
+
+      host.isOpen.set(false);
+      fixture.detectChanges();
+      host.isOpen.set(true);
+      fixture.detectChanges();
+      await flushAll();
+      expect(host.openedCount).toBe(1);
+
+      resolveFirst({ x: 0, y: 0 });
+      await settle();
+      expect(host.openedCount).toBe(1);
+    });
+
+    it('does not emit opened when destroyed before positioning resolves', async () => {
+      let resolvePosition: (value: { x: number; y: number }) => void = () =>
+        undefined;
+      mockedCompute.mockReturnValueOnce(
+        new Promise((resolve) => (resolvePosition = resolve)),
+      );
+      host.isOpen.set(true);
+      fixture.detectChanges();
+      await flushAll();
+
+      fixture.destroy();
+      resolvePosition({ x: 0, y: 0 });
+      await settle();
+
+      expect(host.openedCount).toBe(0);
+    });
+
+    it('clears the positioning bound on close and destroy', async () => {
+      jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick'] });
+      try {
+        mockedCompute
+          .mockReturnValueOnce(new Promise(() => undefined))
+          .mockReturnValueOnce(new Promise(() => undefined));
+        host.isOpen.set(true);
+        fixture.detectChanges();
+        await flushAll();
+        expect(jest.getTimerCount()).toBe(1);
+
+        host.isOpen.set(false);
+        fixture.detectChanges();
+        expect(jest.getTimerCount()).toBe(0);
+
+        host.isOpen.set(true);
+        fixture.detectChanges();
+        await flushAll();
+        expect(jest.getTimerCount()).toBe(1);
+
+        fixture.destroy();
+        expect(jest.getTimerCount()).toBe(0);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
   });
 
   describe('document click outside (no backdrop)', () => {

@@ -82,18 +82,21 @@ const CHIP_STATES = [
       .rail-scroll-collapsed::-webkit-scrollbar {
         display: none;
       }
+      :host-context([data-glass='on']) header[data-glass-surface='plate'] { margin: 6px 6px 0; }
+      :host-context([data-glass='on']) div[data-glass-surface='plate'] { margin: 6px; }
     `,
   ],
   template: `
     <aside
       aria-label="Sessions"
       class="flex h-full min-h-0 flex-col border-r border-base-content/10 bg-base-100"
+      data-glass-surface="chrome"
       [class.w-[56px]]="collapsed()"
       [class.w-[304px]]="!collapsed() && (band() === 'xl' || band() === 'lg')"
       [class.w-[288px]]="!collapsed() && band() === 'md'"
       [class.w-[272px]]="!collapsed() && band() === 'sm'"
     >
-      <header class="h-[72px] shrink-0 overflow-hidden px-2 py-1">
+      <header class="h-[72px] shrink-0 overflow-hidden px-2 py-1" data-glass-surface="plate">
         <div class="flex h-7 items-center gap-1 whitespace-nowrap">
           @if (!collapsed()) {
             <strong id="rail-sessions-heading" tabindex="-1" class="min-w-0 flex-1 truncate text-sm">Sessions</strong>
@@ -180,6 +183,7 @@ const CHIP_STATES = [
       </header>
       <div
         class="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]"
+        data-glass-surface="plate"
         [class.rail-scroll-collapsed]="collapsed()"
         (scroll)="onScroll($event)"
       >

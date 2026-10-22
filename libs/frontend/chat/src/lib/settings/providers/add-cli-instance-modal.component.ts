@@ -90,6 +90,7 @@ type KeyMode = 'required' | 'optional' | 'none' | 'sign-in';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <ptah-native-modal
+      data-glass-surface="overlay"
       [isOpen]="open()"
       ariaLabelledby="add-cli-instance-title"
       size="md"

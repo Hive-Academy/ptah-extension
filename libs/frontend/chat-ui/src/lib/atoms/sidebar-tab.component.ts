@@ -35,6 +35,11 @@ import {
       flex-shrink: 0;
     }
 
+    :host-context([data-glass='on']) button {
+      background-color: transparent;
+      border-color: transparent;
+    }
+
     .tab-label {
       writing-mode: vertical-rl;
     }

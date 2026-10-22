@@ -110,6 +110,10 @@ import { ProjectSetupCardComponent } from './project-setup-card.component';
         background: var(--gradient-panel);
       }
 
+      :host-context([data-glass='on']) ptah-aurora-effect {
+        display: none;
+      }
+
       /* Content reveal animation */
       .tab-content-animated {
         animation: fadeIn 0.3s ease-in-out;
