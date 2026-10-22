@@ -24,7 +24,7 @@ import { createPromptMailbox } from '../ptah-cli/helpers/ptah-cli-prompt-mailbox
 
 jest.mock('../ptah-cli/helpers/ptah-cli-stream-loop.service');
 
-const logger = createMockLogger() as Logger;
+const logger = createMockLogger() as unknown as Logger;
 type PermissionLevel = ReturnType<SdkPermissionHandler['getPermissionLevel']>;
 function permissionHandler(level: PermissionLevel = 'ask') {
   const callback: ReturnType<
