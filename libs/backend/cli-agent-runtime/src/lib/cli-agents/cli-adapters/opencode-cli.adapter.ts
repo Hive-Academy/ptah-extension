@@ -75,7 +75,8 @@ import type {
 import { bestMessagingCapability } from './cli-adapter.interface';
 import {
   stripAnsiCodes,
-  buildTaskPrompt,
+  buildArgvTaskPrompt,
+  assertCommandLineWithinLimit,
   probeCliVersion,
   resolveCliPath,
   resolveDirectSpawn,
@@ -619,7 +620,7 @@ export class OpencodeCliAdapter implements CliAdapter {
    * starting a fresh session that would lose the conversation (as Pi does).
    */
   async runSdk(options: CliCommandOptions): Promise<SdkHandle> {
-    const taskPrompt = buildTaskPrompt(options, this.name);
+    const taskPrompt = buildArgvTaskPrompt(options, this.name);
     const abortController = new AbortController();
     let capturedSessionId: string | undefined;
     let activeChild: ReturnType<typeof spawnCli> | undefined;
@@ -688,6 +689,7 @@ export class OpencodeCliAdapter implements CliAdapter {
       }
       // Prompt is a positional arg; keep it LAST.
       args.push(prompt);
+      assertCommandLineWithinLimit(spawnDescriptor.command, args);
       return this.runTurn({
         command: spawnDescriptor.command,
         args,

@@ -40,7 +40,12 @@ export interface CliLaneBudgets {
 export type LaneModelSource =
   'request' | 'setting' | 'ptah-default' | 'cli-default';
 
+export type LanePolicyDelivery = 'task-prompt' | 'developer-instructions' | 'system-prompt' | 'instruction-file';
+
 export interface CliCommandOptions {
+  /** Per-process instruction files for adapters with a verified file channel. */
+  readonly instructionFileStore?: import('../lane-instruction-file-store').LaneInstructionFileStore;
+  readonly lanePolicyDelivery?: LanePolicyDelivery;
   readonly attachmentProbe?: import('../mcp-attachment-probe.port').IMcpAttachmentProbe;
   readonly task: string;
   readonly workingDirectory: string;
@@ -98,6 +103,16 @@ export interface CliCommandOptions {
 export interface SdkHandle {
   /** Provider configured for a Ptah CLI handle at spawn. */
   readonly providerId?: string;
+  /** Effective policy channel after adapter fallback selection. */
+  readonly getLanePolicyDelivery?: () => AgentRoleChannel;
+  /**
+   * Effective ROLE channel after adapter fallback selection — where the role
+   * block actually went. The policy channel is not always the role channel:
+   * when the Codex policy falls back to the task prompt the role stays on
+   * `developer_instructions`, while Pi delivers role and policy on one
+   * shared channel. Absent keeps the adapter's configured channel.
+   */
+  readonly getRoleDelivery?: () => AgentRoleChannel;
   /** Abort controller to cancel the SDK operation */
   readonly abort: AbortController;
   /** Promise that resolves when SDK execution completes. Resolves with exit code (0=success, 1=error). */

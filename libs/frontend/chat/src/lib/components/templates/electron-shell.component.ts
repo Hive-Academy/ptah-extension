@@ -99,6 +99,51 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
       width: 100%;
     }
 
+    :host-context([data-glass='on']) > .bg-surface-0 {
+      background-color: transparent;
+    }
+
+    :host-context([data-glass='on']) .electron-shell-root {
+      padding: 8px;
+      gap: 8px;
+    }
+
+    :host-context([data-glass='on']) .electron-shell-body {
+      gap: 0;
+    }
+
+    :host-context([data-glass='on']) .electron-shell-body > :not(ptah-electron-resize-handle):not(:last-child) {
+      margin-inline-end: 8px;
+    }
+
+    :host-context([data-glass='on']) .electron-shell-body > [data-test='configuration-surface-host']:has(+ ptah-electron-resize-handle) {
+      margin-inline-end: 0;
+    }
+
+    :host-context([data-glass='on']) .electron-shell-body > ptah-electron-resize-handle {
+      margin-inline: 1px;
+    }
+
+    /* Glass frame yield: the 8px root padding is chrome around every pane
+       (the resize handle's 6px + 1px margins already keep the chat↔dock
+       gutter at 8px). The chat column's 400px floor drops by that 16px so
+       the hidden-sidebar 1200px row still fits a 700px dock without flex
+       taking those pixels out of the dock (git-rail-collapse e2e, 699–701).
+       The dock keeps flex-shrink so a row that still does not fit — sidebar
+       open — gives the leftover to the dock (down to its 300px min) instead
+       of clipping the trailing Git tab. */
+    :host-context([data-glass='on']) .electron-shell-body > [data-test='configuration-surface-host'] {
+      min-width: 384px;
+    }
+
+    :host-context([data-glass='on']) .electron-shell-body > ptah-workspace-sidebar,
+    :host-context([data-glass='on']) .electron-shell-body > ptah-sidebar-tab,
+    :host-context([data-glass='on']) .electron-shell-body > [data-test='configuration-surface-host'],
+    :host-context([data-glass='on']) .electron-shell-body > .electron-git-dock {
+      border-radius: var(--glass-radius);
+      overflow: hidden;
+    }
+
     .titlebar-drag {
       -webkit-app-region: drag;
     }
@@ -126,12 +171,13 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
     }
   `,
   template: `
-    <div class="flex flex-col h-screen w-screen bg-surface-0">
+    <div class="electron-shell-root flex flex-col h-screen w-screen bg-surface-0">
       <!-- Global Navbar (spans full width, draggable on macOS).
            One surface-1 plane and a single bottom edge. The canvas behind
            the panels is the surface-0 root above. -->
       <div
         class="flex items-center h-10 px-3 bg-surface-1 border-b border-surface-border gap-2 flex-shrink-0"
+        data-glass-surface="bar"
         [class.titlebar-drag]="isMac"
       >
         <!-- Logo + App name -->
@@ -321,14 +367,19 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
         <div class="flex-1 min-h-0 overflow-hidden ptah-vt-surface"><router-outlet /></div>
       } @else {
         <!-- 3-Panel Content Area -->
-        <div class="flex flex-1 min-h-0 overflow-hidden">
+        <div class="electron-shell-body flex flex-1 min-h-0 overflow-hidden">
           <!-- Workspace sidebar (toggleable) -->
           @if (layout.workspaceSidebarVisible()) {
-            <ptah-workspace-sidebar [width]="layout.workspaceSidebarWidth()" />
+            <ptah-workspace-sidebar
+              class="shrink-0"
+              data-glass-surface="chrome"
+              [width]="layout.workspaceSidebarWidth()"
+            />
           }
 
           <!-- Workspaces vertical tab (between sidebar and chat) -->
           <ptah-sidebar-tab
+            data-glass-surface="chrome"
             label="Workspaces"
             side="left"
             [isOpen]="layout.workspaceSidebarVisible()"
@@ -339,6 +390,7 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
           <div
             #configurationSurfaceHost
             data-test="configuration-surface-host"
+            data-glass-surface="chrome"
             tabindex="-1"
             class="flex-1 min-h-0 min-w-[400px] overflow-hidden outline-none ptah-vt-surface"
           >
@@ -356,7 +408,8 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
             />
 
             <div
-              class="min-w-[300px] border-l border-surface-border overflow-hidden"
+              class="electron-git-dock min-w-[300px] border-l border-surface-border overflow-hidden"
+              data-glass-surface="chrome"
               [style.width.px]="layout.editorPanelWidth()"
             >
               @if (dockComponent()) {
@@ -386,6 +439,7 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
 
           <!-- Git vertical tab (always visible when folders exist) -->
           <ptah-sidebar-tab
+            data-glass-surface="chrome"
             label="Git"
             side="right"
             [isOpen]="layout.editorPanelVisible()"

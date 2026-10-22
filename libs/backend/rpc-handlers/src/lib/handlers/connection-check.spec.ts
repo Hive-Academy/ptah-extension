@@ -250,8 +250,10 @@ describe('ConnectionChecker — key-carrying connections', () => {
       latencyMs: null,
       checkedAt: expect.any(String),
     });
-    expect(JSON.stringify(result)).not.toContain('401');
-    expect(JSON.stringify(result)).not.toContain(KEY.slice(0, 5));
+    // checkedAt is a live ISO timestamp whose digits can contain "401".
+    const persisted = JSON.stringify({ ...result, checkedAt: undefined });
+    expect(persisted).not.toContain('401');
+    expect(persisted).not.toContain(KEY.slice(0, 5));
   });
 
   it('a timed-out or cancelled probe records failed with latencyMs: null', async () => {

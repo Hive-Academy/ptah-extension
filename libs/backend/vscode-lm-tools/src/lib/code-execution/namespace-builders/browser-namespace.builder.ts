@@ -26,6 +26,10 @@ import type {
   BrowserRecordStopResult,
   ViewportDimensions,
 } from '../types';
+import {
+  evaluateFileUrl,
+  FILE_URL_BLOCKED_MESSAGE,
+} from './browser-file-url';
 
 /**
  * Platform-specific browser automation capabilities interface.
@@ -50,6 +54,17 @@ export interface BrowserSessionOptions {
   headless?: boolean;
   /** Viewport dimensions (default: 1920x1080 — desktop) */
   viewport?: ViewportDimensions;
+  /**
+   * Host workspace roots snapshotted for the next browser session.
+   * file: URLs are allowed only inside these roots. A later change
+   * starts a new session; callers cannot widen the snapshot in place.
+   */
+  workspaceRoots?: readonly string[];
+  /**
+   * Mirrors ptah.browser.allowLocalhost for a follow-on http(s) URL.
+   * Direct navigation still applies the same rule before this runs.
+   */
+  allowLocalhost?: boolean;
 }
 
 export interface IBrowserCapabilities {
@@ -134,7 +149,6 @@ export interface IBrowserCapabilities {
 }
 
 const BLOCKED_SCHEMES = [
-  'file:',
   'chrome:',
   'chrome-extension:',
   'about:',
@@ -153,24 +167,31 @@ const DEFAULT_SCREENSHOT_QUALITY = 60;
 
 /**
  * Validate a URL against the security blocklist.
- * Only http: and https: schemes are allowed.
+ * http: and https: are allowed. file: is allowed only when the target exists
+ * and its realpath stays inside a trusted host workspace root.
  * Localhost is blocked by default (configurable via allowLocalhost).
  *
  * @param url - URL to validate
  * @param allowLocalhost - Whether to allow localhost URLs (default: false)
+ * @param workspaceRoots - Host-recorded workspace roots for file: containment
  * @returns Error message if URL is blocked, undefined if allowed
  */
-export function validateBrowserUrl(
+export async function validateBrowserUrl(
   url: string,
   allowLocalhost = false,
-): string | undefined {
+  workspaceRoots: readonly string[] = [],
+): Promise<string | undefined> {
   try {
     const parsed = new URL(url);
+    if (parsed.protocol === 'file:') {
+      const decision = await evaluateFileUrl(url, workspaceRoots);
+      return decision.allowed ? undefined : FILE_URL_BLOCKED_MESSAGE;
+    }
     if (BLOCKED_SCHEMES.includes(parsed.protocol)) {
-      return `Blocked: ${parsed.protocol} URLs are not allowed for security reasons. Only http: and https: are permitted.`;
+      return `Blocked: ${parsed.protocol} URLs are not allowed for security reasons. Only http:, https:, and workspace file: URLs are permitted.`;
     }
     if (!['http:', 'https:'].includes(parsed.protocol)) {
-      return `Blocked: ${parsed.protocol} URLs are not allowed. Only http: and https: are permitted.`;
+      return `Blocked: ${parsed.protocol} URLs are not allowed. Only http:, https:, and workspace file: URLs are permitted.`;
     }
     if (!allowLocalhost && BLOCKED_HOSTS.includes(parsed.hostname)) {
       return `Blocked: ${parsed.hostname} URLs are blocked by default. Enable ptah.browser.allowLocalhost in settings to allow local dev server access.`;
@@ -178,7 +199,7 @@ export function validateBrowserUrl(
 
     return undefined; // URL is allowed
   } catch {
-    return `Blocked: Invalid URL "${url}". Only valid http: and https: URLs are allowed.`;
+    return `Blocked: Invalid URL "${url}". Only valid http:, https:, and workspace file: URLs are allowed.`;
   }
 }
 
@@ -192,10 +213,12 @@ const BROWSER_NOT_AVAILABLE_MSG =
  *   Provided in Electron (ElectronBrowserCapabilities) and VS Code (ChromeLauncherBrowserCapabilities).
  *   Undefined when no browser capabilities are available (graceful degradation).
  * @property getAllowLocalhost - Function returning the ptah.browser.allowLocalhost setting value.
+ * @property getWorkspaceRoots - Host-recorded workspace roots. Caller-declared MCP roots are not included.
  */
 export interface BrowserNamespaceDependencies {
   capabilities?: IBrowserCapabilities;
   getAllowLocalhost?: () => boolean;
+  getWorkspaceRoots?: () => readonly string[];
 }
 
 /**
@@ -213,7 +236,7 @@ export interface BrowserNamespaceDependencies {
 export function buildBrowserNamespace(
   deps: BrowserNamespaceDependencies,
 ): BrowserNamespace {
-  const { capabilities, getAllowLocalhost } = deps;
+  const { capabilities, getAllowLocalhost, getWorkspaceRoots } = deps;
 
   // A host may register a placeholder under the browser token that has none
   // of these methods (the CLI does); treat it as no browser at all so every
@@ -222,7 +245,11 @@ export function buildBrowserNamespace(
     return buildGracefulBrowserNamespace();
   }
 
-  return buildCapabilityBackedBrowserNamespace(capabilities, getAllowLocalhost);
+  return buildCapabilityBackedBrowserNamespace(
+    capabilities,
+    getAllowLocalhost,
+    getWorkspaceRoots,
+  );
 }
 
 const BROWSER_CAPABILITY_METHODS: ReadonlyArray<keyof IBrowserCapabilities> = [
@@ -252,11 +279,17 @@ function implementsBrowserCapabilities(
 function buildCapabilityBackedBrowserNamespace(
   capabilities: IBrowserCapabilities,
   getAllowLocalhost?: () => boolean,
+  getWorkspaceRoots?: () => readonly string[],
 ): BrowserNamespace {
   return {
     navigate: async (params): Promise<BrowserNavigateResult> => {
       const allowLocalhost = getAllowLocalhost?.() ?? false;
-      const validationError = validateBrowserUrl(params.url, allowLocalhost);
+      const workspaceRoots = getWorkspaceRoots?.() ?? [];
+      const validationError = await validateBrowserUrl(
+        params.url,
+        allowLocalhost,
+        workspaceRoots,
+      );
       if (validationError) {
         return {
           success: false,
@@ -286,12 +319,12 @@ function buildCapabilityBackedBrowserNamespace(
       }
 
       try {
-        if (params.headless !== undefined || params.viewport) {
-          capabilities.configureSession({
-            ...(params.headless !== undefined && { headless: params.headless }),
-            ...(params.viewport && { viewport: params.viewport }),
-          });
-        }
+        capabilities.configureSession({
+          ...(params.headless !== undefined && { headless: params.headless }),
+          ...(params.viewport && { viewport: params.viewport }),
+          workspaceRoots,
+          allowLocalhost,
+        });
 
         return await capabilities.navigate(
           params.url,

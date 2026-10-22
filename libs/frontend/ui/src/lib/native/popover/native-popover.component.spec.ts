@@ -489,4 +489,218 @@ describe('NativePopoverComponent', () => {
       expect(() => fixture.destroy()).not.toThrow();
     });
   });
+
+  describe('top-layer shell', () => {
+    const proto = HTMLElement.prototype;
+
+    function installPopoverApi(
+      show: (this: HTMLElement) => void,
+      hide: (this: HTMLElement) => void,
+    ): () => void {
+      const previous = {
+        show: Object.getOwnPropertyDescriptor(proto, 'showPopover'),
+        hide: Object.getOwnPropertyDescriptor(proto, 'hidePopover'),
+      };
+      Object.defineProperty(proto, 'showPopover', { configurable: true, value: show });
+      Object.defineProperty(proto, 'hidePopover', { configurable: true, value: hide });
+      return () => {
+        if (previous.show) Object.defineProperty(proto, 'showPopover', previous.show);
+        else Reflect.deleteProperty(proto, 'showPopover');
+        if (previous.hide) Object.defineProperty(proto, 'hidePopover', previous.hide);
+        else Reflect.deleteProperty(proto, 'hidePopover');
+      };
+    }
+
+    it('wraps the panel in a manual popover shell only while open', () => {
+      const root = fixture.nativeElement as HTMLElement;
+      expect(root.querySelector('.ptah-popover-layer')).toBeFalsy();
+
+      host.isOpen.set(true);
+      fixture.detectChanges();
+      const layer = root.querySelector<HTMLElement>('.ptah-popover-layer')!;
+      const panel = layer.querySelector<HTMLElement>('.popover-panel')!;
+      expect(layer.getAttribute('popover')).toBe('manual');
+      expect(layer.contains(panel)).toBe(true);
+
+      // jest-preset-angular removes inline styles; verify the rendered shell lifecycle here.
+      host.isOpen.set(false);
+      fixture.detectChanges();
+      expect(root.querySelector('.ptah-popover-layer')).toBeNull();
+    });
+
+    it('keeps the optional backdrop inside the shell', () => {
+      host.isOpen.set(true);
+      fixture.detectChanges();
+      const layer = (fixture.nativeElement as HTMLElement).querySelector(
+        '.ptah-popover-layer',
+      );
+      const backdrop = layer?.querySelector('[role="presentation"]') as HTMLElement;
+      expect(backdrop.classList.contains('bg-black/50')).toBe(true);
+      backdrop.click();
+      expect(host.backdropClickedCount).toBe(1);
+      expect(host.closedCount).toBe(1);
+    });
+
+    it('omits the backdrop when hasBackdrop is false and still mounts the shell', () => {
+      host.hasBackdrop.set(false);
+      host.backdropClass.set('transparent');
+      host.isOpen.set(true);
+      fixture.detectChanges();
+      const root = fixture.nativeElement as HTMLElement;
+      const layer = root.querySelector('.ptah-popover-layer');
+      expect(layer?.getAttribute('popover')).toBe('manual');
+      expect(layer?.querySelector('[role="presentation"]')).toBeFalsy();
+      expect(layer?.querySelector('.popover-panel')).toBeTruthy();
+    });
+
+    it('promotes the shell with showPopover before computePosition', async () => {
+      const order: string[] = [];
+      const restore = installPopoverApi(
+        function (this: HTMLElement) {
+          order.push(this.classList.contains('ptah-popover-layer') ? 'show' : 'other');
+        },
+        () => undefined,
+      );
+      mockedCompute.mockImplementationOnce(() => {
+        order.push('compute');
+        return Promise.resolve({ x: 4, y: 8 });
+      });
+      try {
+        host.isOpen.set(true);
+        fixture.detectChanges();
+        await flushAll();
+        expect(order).toEqual(['show', 'compute']);
+        expect(host.openedCount).toBe(1);
+      } finally {
+        restore();
+        mockedCompute.mockReset();
+        mockedCompute.mockResolvedValue({ x: 0, y: 0 });
+      }
+    });
+
+    it('does not promote when closed before the open microtask', async () => {
+      const show = jest.fn();
+      const restore = installPopoverApi(show, jest.fn());
+      try {
+        host.isOpen.set(true);
+        fixture.detectChanges();
+        host.isOpen.set(false);
+        fixture.detectChanges();
+        await flushAll();
+        expect(show).not.toHaveBeenCalled();
+        expect(host.openedCount).toBe(0);
+      } finally {
+        restore();
+      }
+    });
+
+    it('hides on close and does not move focus on a later turn', async () => {
+      const hide = jest.fn();
+      const restore = installPopoverApi(() => undefined, hide);
+      document.body.appendChild(fixture.nativeElement);
+      const trigger = (fixture.nativeElement as HTMLElement).querySelector(
+        '#trigger-btn',
+      ) as HTMLButtonElement;
+      try {
+        trigger.focus();
+        host.isOpen.set(true);
+        fixture.detectChanges();
+        await flushAll();
+        expect(hide).not.toHaveBeenCalled();
+
+        host.isOpen.set(false);
+        fixture.detectChanges();
+        expect(hide).toHaveBeenCalledTimes(1);
+        expect(document.activeElement).toBe(trigger);
+
+        await flushAll();
+        expect(hide).toHaveBeenCalledTimes(1);
+        expect(document.activeElement).toBe(trigger);
+      } finally {
+        restore();
+      }
+    });
+
+    it('hides on destroy', async () => {
+      const hide = jest.fn();
+      const restore = installPopoverApi(() => undefined, hide);
+      try {
+        host.isOpen.set(true);
+        fixture.detectChanges();
+        await flushAll();
+        fixture.destroy();
+        expect(hide).toHaveBeenCalledTimes(1);
+      } finally {
+        restore();
+      }
+    });
+
+    it('still positions and opens when the engine has no popover API', async () => {
+      host.isOpen.set(true);
+      fixture.detectChanges();
+      await flushAll();
+      expect(mockedCompute).toHaveBeenCalled();
+      expect(host.openedCount).toBe(1);
+      const panel = (fixture.nativeElement as HTMLElement).querySelector(
+        '.popover-panel',
+      ) as HTMLElement;
+      expect(document.activeElement).toBe(panel);
+    });
+
+    it('pins a failed panel under the trigger instead of the viewport origin', async () => {
+      mockedCompute.mockRejectedValueOnce(new Error('no layout'));
+      const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      document.body.appendChild(fixture.nativeElement);
+      const trigger = (fixture.nativeElement as HTMLElement).querySelector(
+        '.popover-trigger',
+      ) as HTMLElement;
+      jest.spyOn(trigger, 'getBoundingClientRect').mockReturnValue({
+        x: 40,
+        y: 50,
+        left: 40,
+        top: 50,
+        right: 80,
+        bottom: 70,
+        width: 40,
+        height: 20,
+        toJSON: () => ({}),
+      });
+      try {
+        host.isOpen.set(true);
+        fixture.detectChanges();
+        await new Promise((resolve) => setTimeout(resolve));
+        const panel = (fixture.nativeElement as HTMLElement).querySelector(
+          '.popover-panel',
+        ) as HTMLElement;
+        expect(panel.style.visibility).toBe('visible');
+        expect(panel.style.position).toBe('fixed');
+        expect(panel.style.left).toBe('40px');
+        expect(panel.style.top).toBe('70px');
+      } finally {
+        consoleError.mockRestore();
+        mockedCompute.mockReset();
+        mockedCompute.mockResolvedValue({ x: 0, y: 0 });
+      }
+    });
+
+    it('stops Escape from the panel so an ancestor does not see it', () => {
+      host.isOpen.set(true);
+      fixture.detectChanges();
+      let parentSaw = 0;
+      const parent = fixture.nativeElement as HTMLElement;
+      parent.addEventListener('keydown', () => {
+        parentSaw += 1;
+      });
+      const panel = parent.querySelector('.popover-panel') as HTMLElement;
+      const event = new KeyboardEvent('keydown', {
+        key: 'Escape',
+        bubbles: true,
+        cancelable: true,
+      });
+      panel.dispatchEvent(event);
+      expect(parentSaw).toBe(0);
+      expect(event.defaultPrevented).toBe(true);
+      expect(host.closedCount).toBe(1);
+    });
+  });
 });

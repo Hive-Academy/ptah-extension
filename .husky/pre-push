@@ -2,9 +2,6 @@
 
 echo "🚀 Running pre-push checks..."
 
-# Get the current branch
-current_branch=$(git rev-parse --abbrev-ref HEAD)
-
 # DI invariant check — runs on every push regardless of branch (fast, ~2s).
 # Asserts every @inject(token) resolves to a register*(token, ...) call.
 echo "🔗 Running di-lint (DI invariant check)..."
@@ -17,11 +14,12 @@ fi
 # Electron build gate — runs on every push regardless of branch.
 echo "🏗️  Verifying electron main bundle builds + native deps declared..."
 if [ "${PTAH_PREPUSH_PARANOID:-0}" = "1" ]; then
+  # Compare committed HEAD only; uncommitted edits are not being pushed.
   # Paranoid mode: the affected build AND the packaged-runtime dependency
   # gate. `nx affected -t build` covers compilation but does not run
   # ptah-electron:validate-deps, so a runtime dep missing from
   # apps/ptah-electron/package.json would pass on build alone.
-  npx nx affected -t build --base=origin/main
+  npx nx affected -t build --base=origin/main --head=HEAD
   if [ $? -ne 0 ]; then
     echo "❌ Affected build failed (PTAH_PREPUSH_PARANOID=1) — fix the compile errors above, then push again."
     exit 1
@@ -40,21 +38,19 @@ else
   fi
 fi
 
-# Only run full checks if pushing to main or develop
+# CI (.github/workflows/ci.yml) runs only on pull requests into main, so a
+# direct push to main or develop has no other build or typecheck gate.
+# --head=HEAD compares committed work only: without it `nx affected` also
+# counts uncommitted files, and one unrelated edit to tsconfig.base.json
+# once marked all 103 projects affected and made a push take 17 minutes.
+current_branch=$(git rev-parse --abbrev-ref HEAD)
 if [ "$current_branch" = "main" ] || [ "$current_branch" = "develop" ]; then
-
-
-  echo "🏗️ Building affected projects..."
-  npx nx affected -t build --base=origin/$current_branch
-
-
-  # Validate that all affected libraries can build and lint
-  echo "🏗️ Building and linting affected projects..."
-  npm run typecheck:affected
-
-
-else
-  echo "ℹ️  Skipping full checks for feature branch: $current_branch"
+  echo "🏗️ Building and type-checking affected projects..."
+  npx nx affected -t build typecheck --base=origin/$current_branch --head=HEAD
+  if [ $? -ne 0 ]; then
+    echo "❌ Affected build/typecheck failed — fix the errors above, then push again."
+    exit 1
+  fi
 fi
 
 echo "✅ Pre-push checks passed!"

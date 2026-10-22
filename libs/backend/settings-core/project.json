@@ -22,10 +22,7 @@
       }
     },
     "test": {
-      "executor": "@nx/jest:jest",
-      "outputs": ["{workspaceRoot}/coverage/libs/backend/settings-core"],
       "options": {
-        "jestConfig": "libs/backend/settings-core/jest.config.ts",
         "passWithNoTests": false
       }
     }

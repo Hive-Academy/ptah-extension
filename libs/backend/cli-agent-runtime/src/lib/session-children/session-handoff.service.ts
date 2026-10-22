@@ -392,8 +392,8 @@ export class SessionHandoffService implements ISessionHandoff {
     try {
       this.output.appendLine(`${LOG_PREFIX} ${message}`);
     } catch {
-      // degradation-audit: suppressed - the log line is lost; the result
-      // already decided is returned unchanged, keeping the never-throw port.
+      // degradation-audit: optional-capability - the output channel is optional;
+      // a lost log line keeps the never-throw port.
     }
   }
 }

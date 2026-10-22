@@ -94,7 +94,13 @@ test('isolates hostile HTML in the real Electron shell', async () => {
     expect(checks.fixture?.blocked).toBe(true);
     expect(checks.fixture?.successfulEgress).toEqual([]);
     await frame.evaluate(() => {
-      (window as Window & { attemptSelfNavigation: () => void }).attemptSelfNavigation();
+      if (
+        !('attemptSelfNavigation' in window) ||
+        typeof window.attemptSelfNavigation !== 'function'
+      ) {
+        throw new Error('artifact fixture did not expose attemptSelfNavigation');
+      }
+      window.attemptSelfNavigation();
     });
     await expect.poll(() => frame.url()).toBe(ARTIFACT_URL);
     expect(remoteFinished).toEqual([]);

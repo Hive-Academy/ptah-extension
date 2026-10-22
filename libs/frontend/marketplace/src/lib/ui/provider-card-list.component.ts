@@ -168,6 +168,7 @@ const SKELETON_CARDS = [0, 1, 2] as const;
             @for (row of rows(); track row.ref) {
               <li
                 class="relative rounded-xl border bg-base-200 p-3 transition-transform duration-150 hover:-translate-y-px has-[[aria-expanded=true]]:transform-none has-[[aria-expanded=true]]:transition-none motion-reduce:transition-none motion-reduce:hover:transform-none"
+                data-glass-surface="content"
                 [class]="cardClass(row.ref)"
                 [attr.aria-current]="row.ref === activeRef() ? 'true' : null"
                 [attr.data-active]="row.ref === activeRef()"

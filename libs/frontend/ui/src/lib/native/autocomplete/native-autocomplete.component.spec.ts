@@ -8,8 +8,9 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { fakeAsync, flushMicrotasks, tick } from '@angular/core/testing';
 import * as FloatingDom from '@floating-ui/dom';
-import { NativeAutocompleteComponent } from './native-autocomplete.component';
+import { AUTOCOMPLETE_POSITION_TIMEOUT_MS, NativeAutocompleteComponent } from './native-autocomplete.component';
 
 jest.mock('@floating-ui/dom', () => {
   const actual = jest.requireActual('@floating-ui/dom');
@@ -127,7 +128,7 @@ describe('NativeAutocompleteComponent', () => {
   let scrollIntoViewMock: jest.Mock;
 
   beforeEach(async () => {
-    (FloatingDom.computePosition as unknown as jest.Mock).mockClear();
+    jest.mocked(FloatingDom.computePosition).mockClear();
 
     await TestBed.configureTestingModule({
       imports: [HostComponent],
@@ -144,6 +145,138 @@ describe('NativeAutocompleteComponent', () => {
     });
 
     fixture.detectChanges();
+  });
+
+  describe('top-layer suggestions', () => {
+    let previousShow: PropertyDescriptor | undefined;
+    let previousHide: PropertyDescriptor | undefined;
+    let show: jest.Mock;
+    let hide: jest.Mock;
+    const root = (): HTMLElement => fixture.nativeElement;
+    const layer = (): HTMLElement | null => root().querySelector('[popover="manual"]');
+    const panel = (): HTMLElement | null => root().querySelector('[role="listbox"]');
+
+    beforeEach(() => {
+      previousShow = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'showPopover');
+      previousHide = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'hidePopover');
+      show = jest.fn();
+      hide = jest.fn();
+      Object.defineProperty(HTMLElement.prototype, 'showPopover', { configurable: true, value: show });
+      Object.defineProperty(HTMLElement.prototype, 'hidePopover', { configurable: true, value: hide });
+    });
+
+    afterEach(() => {
+      fixture.destroy();
+      if (previousShow) Object.defineProperty(HTMLElement.prototype, 'showPopover', previousShow);
+      else Reflect.deleteProperty(HTMLElement.prototype, 'showPopover');
+      if (previousHide) Object.defineProperty(HTMLElement.prototype, 'hidePopover', previousHide);
+      else Reflect.deleteProperty(HTMLElement.prototype, 'hidePopover');
+      jest.mocked(FloatingDom.computePosition).mockReset().mockResolvedValue({
+        x: 0, y: 0, placement: 'bottom-start', strategy: 'fixed', middlewareData: {},
+      });
+    });
+
+    it('promotes before positioning, retains input focus, and hides on close', fakeAsync(() => {
+      const input = root().querySelector('input');
+      input?.focus();
+      host.isOpen.set(true);
+      fixture.detectChanges();
+      flushMicrotasks();
+      expect(show).toHaveBeenCalledTimes(1);
+      expect(layer()?.style.display).toBe('');
+      expect(panel()?.style.visibility).toBe('visible');
+      expect(document.activeElement).toBe(input);
+      host.isOpen.set(false);
+      fixture.detectChanges();
+      expect(hide).toHaveBeenCalledTimes(1);
+      expect(layer()).toBeNull();
+    }));
+
+    it('hides on destroy', fakeAsync(() => {
+      host.isOpen.set(true);
+      fixture.detectChanges();
+      flushMicrotasks();
+      fixture.destroy();
+      expect(hide).toHaveBeenCalledTimes(1);
+    }));
+
+    it.each(['missing', 'throws'])('keeps the fallback visible when the API %s', (mode) => {
+      if (mode === 'missing') Reflect.deleteProperty(HTMLElement.prototype, 'showPopover');
+      else show.mockImplementation(() => { throw new DOMException('unavailable'); });
+      return (async () => {
+        host.isOpen.set(true);
+        fixture.detectChanges();
+        await fixture.whenStable();
+        expect(layer()?.style.display).toBe('block');
+        expect(panel()?.style.visibility).toBe('visible');
+      })();
+    });
+
+    it('preserves click containment, keyboard selection, and active descendant IDs', fakeAsync(() => {
+      host.isOpen.set(true);
+      fixture.detectChanges();
+      flushMicrotasks();
+      root().querySelector<HTMLElement>('.item-label')?.click();
+      expect(host.selected?.name).toBe('Alpha');
+      expect(host.closedCount).toBe(0);
+      host.autocomplete.onKeyDown(new KeyboardEvent('keydown', { key: 'ArrowDown' }));
+      host.autocomplete.onKeyDown(new KeyboardEvent('keydown', { key: 'Enter' }));
+      expect(host.selected?.name).toBe('Beta');
+      expect(root().querySelector('[id="' + host.autocomplete.getActiveDescendantId() + '"]')).toBeTruthy();
+    }));
+
+    it('does not promote when closed before the opening microtask', fakeAsync(() => {
+      host.isOpen.set(true);
+      fixture.detectChanges();
+      host.isOpen.set(false);
+      fixture.detectChanges();
+      flushMicrotasks();
+      expect(show).not.toHaveBeenCalled();
+      expect(FloatingDom.computePosition).not.toHaveBeenCalled();
+    }));
+
+    it('reveals below the input when positioning rejects', fakeAsync(() => {
+      jest.mocked(FloatingDom.computePosition).mockRejectedValueOnce(new Error('position unavailable'));
+      host.isOpen.set(true);
+      fixture.detectChanges();
+      flushMicrotasks();
+      expect(panel()?.style.visibility).toBe('visible');
+      expect(panel()?.style.position).toBe('fixed');
+    }));
+
+    it('bounds stalled positioning and cancels its timer on close', fakeAsync(() => {
+      jest.mocked(FloatingDom.computePosition).mockReturnValue(new Promise(() => undefined));
+      host.isOpen.set(true);
+      fixture.detectChanges();
+      flushMicrotasks();
+      tick(AUTOCOMPLETE_POSITION_TIMEOUT_MS);
+      expect(panel()?.style.visibility).toBe('visible');
+      host.isOpen.set(false);
+      fixture.detectChanges();
+      host.isOpen.set(true);
+      fixture.detectChanges();
+      flushMicrotasks();
+      const stalePanel = panel();
+      host.isOpen.set(false);
+      fixture.detectChanges();
+      tick(AUTOCOMPLETE_POSITION_TIMEOUT_MS);
+      expect(stalePanel?.style.visibility).toBe('hidden');
+    }));
+
+    it('drops a late position result after close', fakeAsync(() => {
+      let finish: ((value: Awaited<ReturnType<typeof FloatingDom.computePosition>>) => void) | undefined;
+      jest.mocked(FloatingDom.computePosition).mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }));
+      host.isOpen.set(true);
+      fixture.detectChanges();
+      flushMicrotasks();
+      const stalePanel = panel();
+      host.isOpen.set(false);
+      fixture.detectChanges();
+      finish?.({ x: 120, y: 140, placement: 'bottom-start', strategy: 'fixed', middlewareData: {} });
+      flushMicrotasks();
+      expect(stalePanel?.style.visibility).toBe('hidden');
+      expect(FloatingDom.autoUpdate).not.toHaveBeenCalledWith(expect.anything(), stalePanel, expect.anything());
+    }));
   });
 
   it('should create', () => {

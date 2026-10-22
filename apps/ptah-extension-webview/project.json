@@ -9,6 +9,7 @@
     "build": {
       "executor": "@angular/build:application",
       "outputs": ["{options.outputPath}"],
+      "defaultConfiguration": "production",
       "options": {
         "outputPath": "dist/apps/ptah-extension-webview",
         "browser": "apps/ptah-extension-webview/src/main.ts",
@@ -94,12 +95,15 @@
           "sourceMap": true,
           "outputHashing": "none"
         }
-      },
-      "defaultConfiguration": "production"
+      }
     },
     "serve": {
       "continuous": true,
       "executor": "@angular/build:dev-server",
+      "defaultConfiguration": "development",
+      "readyWhen": {
+        "signal": true
+      },
       "configurations": {
         "production": {
           "buildTarget": "ptah-extension-webview:build:production"
@@ -107,8 +111,7 @@
         "development": {
           "buildTarget": "ptah-extension-webview:build:development"
         }
-      },
-      "defaultConfiguration": "development"
+      }
     },
     "extract-i18n": {
       "executor": "@angular/build:extract-i18n",
@@ -116,15 +119,9 @@
         "buildTarget": "ptah-extension-webview:build"
       }
     },
-    "lint": {
-      "executor": "@nx/eslint:lint"
-    },
     "test": {
-      "executor": "@nx/jest:jest",
-      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
       "options": {
-        "jestConfig": "apps/ptah-extension-webview/jest.config.ts",
-        "tsConfig": "apps/ptah-extension-webview/tsconfig.spec.json"
+        "passWithNoTests": true
       }
     },
     "serve-static": {
@@ -134,7 +131,11 @@
         "buildTarget": "ptah-extension-webview:build",
         "staticFilePath": "dist/apps/ptah-extension-vscode/webview/browser",
         "spa": true
-      }
+      },
+      "readyWhen": {
+        "signal": true
+      },
+      "dependsOn": ["build"]
     },
     "verify-eager-bundle": {
       "executor": "nx:run-commands",

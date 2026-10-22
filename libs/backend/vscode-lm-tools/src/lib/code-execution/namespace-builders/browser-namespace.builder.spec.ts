@@ -11,6 +11,10 @@
  *     localhost toggling.
  */
 
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
   buildBrowserNamespace,
   validateBrowserUrl,
@@ -55,24 +59,121 @@ function createCapabilities(): jest.Mocked<IBrowserCapabilities> {
 // ---------------------------------------------------------------------------
 
 describe('validateBrowserUrl', () => {
-  it('accepts http/https URLs and returns undefined', () => {
-    expect(validateBrowserUrl('https://example.com')).toBeUndefined();
-    expect(validateBrowserUrl('http://example.com')).toBeUndefined();
+  let root: string;
+  let outside: string;
+  let insideFile: string;
+
+  beforeEach(async () => {
+    root = await fs.mkdtemp(path.join(os.tmpdir(), 'ptah-url-root-'));
+    outside = await fs.mkdtemp(path.join(os.tmpdir(), 'ptah-url-out-'));
+    insideFile = path.join(root, 'page.html');
+    await fs.writeFile(insideFile, '<p>inside</p>');
+    await fs.writeFile(path.join(outside, 'secret.html'), 'SECRET');
   });
 
-  it('rejects file/data/chrome/javascript schemes', () => {
-    expect(validateBrowserUrl('file:///C:/a.html')).toMatch(/not allowed/);
-    expect(validateBrowserUrl('data:text/html,hi')).toMatch(/not allowed/);
-    expect(validateBrowserUrl('javascript:alert(1)')).toMatch(/not allowed/);
+  afterEach(async () => {
+    await fs.rm(root, { recursive: true, force: true });
+    await fs.rm(outside, { recursive: true, force: true });
   });
 
-  it('blocks localhost unless allowLocalhost=true', () => {
-    expect(validateBrowserUrl('http://localhost:3000')).toMatch(/localhost/);
-    expect(validateBrowserUrl('http://localhost:3000', true)).toBeUndefined();
+  it('accepts http/https URLs and returns undefined', async () => {
+    await expect(validateBrowserUrl('https://example.com')).resolves.toBeUndefined();
+    await expect(validateBrowserUrl('http://example.com')).resolves.toBeUndefined();
   });
 
-  it('returns "Invalid URL" for malformed input', () => {
-    expect(validateBrowserUrl('not a url')).toMatch(/Invalid URL/);
+  it('accepts a file URL whose real path is inside a workspace root', async () => {
+    const decision = await validateBrowserUrl(
+      pathToFileURL(insideFile).href,
+      false,
+      [root],
+    );
+    expect(decision).toBeUndefined();
+  });
+
+  it('rejects a file URL outside the workspace without echoing the path', async () => {
+    const outsideFile = path.join(outside, 'secret.html');
+    const decision = await validateBrowserUrl(
+      pathToFileURL(outsideFile).href,
+      false,
+      [root],
+    );
+    expect(decision).toMatch(/inside the workspace/);
+    expect(decision).not.toContain(outsideFile);
+    expect(decision).not.toContain('SECRET');
+  });
+
+  it('rejects a missing file inside the root', async () => {
+    const missing = pathToFileURL(path.join(root, 'missing.html')).href;
+    await expect(validateBrowserUrl(missing, false, [root])).resolves.toMatch(
+      /inside the workspace/,
+    );
+  });
+
+  it('rejects .. and encoded traversal before the filesystem is consulted', async () => {
+    const base = pathToFileURL(insideFile).href;
+    const parent = base.replace(/\/page\.html$/, '/../secret.html');
+    await expect(validateBrowserUrl(parent, false, [root])).resolves.toMatch(
+      /inside the workspace/,
+    );
+    const encoded = base.replace(
+      '/page.html',
+      '/%2e%2e/%2Fsecret.html',
+    );
+    const encodedDecision = await validateBrowserUrl(encoded, false, [root]);
+    expect(encodedDecision).toMatch(/inside the workspace/);
+    expect(encodedDecision).not.toContain('secret');
+  });
+
+  it('rejects UNC and any nonempty file host, including localhost', async () => {
+    await expect(
+      validateBrowserUrl('file://server/share/secret.html', false, [root]),
+    ).resolves.toMatch(/inside the workspace/);
+    await expect(
+      validateBrowserUrl('file://localhost/C:/page.html', false, [root]),
+    ).resolves.toMatch(/inside the workspace/);
+  });
+
+  (process.platform === 'win32' ? it : it.skip)(
+    'accepts the opposite drive-letter case when the file is inside the root',
+    async () => {
+      const href = pathToFileURL(insideFile).href.replace(
+        /file:\/\/\/([A-Za-z]):/,
+        (_match, letter: string) =>
+          `file:///${letter.toLowerCase() === letter ? letter.toUpperCase() : letter.toLowerCase()}:`,
+      );
+      await expect(validateBrowserUrl(href, false, [root])).resolves.toBeUndefined();
+    },
+  );
+
+  it('still rejects data, chrome and javascript schemes', async () => {
+    await expect(validateBrowserUrl('data:text/html,hi')).resolves.toMatch(
+      /not allowed/,
+    );
+    await expect(validateBrowserUrl('javascript:alert(1)')).resolves.toMatch(
+      /not allowed/,
+    );
+    await expect(validateBrowserUrl('chrome://settings')).resolves.toMatch(
+      /not allowed/,
+    );
+    await expect(validateBrowserUrl('about:blank')).resolves.toMatch(
+      /not allowed/,
+    );
+  });
+
+  it('blocks localhost unless allowLocalhost=true', async () => {
+    await expect(validateBrowserUrl('http://localhost:3000')).resolves.toMatch(
+      /localhost/,
+    );
+    await expect(
+      validateBrowserUrl('http://localhost:3000', true),
+    ).resolves.toBeUndefined();
+    await expect(
+      validateBrowserUrl('http://127.0.0.1:3000', false),
+    ).resolves.toMatch(/127\.0\.0\.1/);
+  });
+
+  it('returns "Invalid URL" for malformed input', async () => {
+    await expect(validateBrowserUrl('not a url')).resolves.toMatch(/Invalid URL/);
   });
 });
 
@@ -138,8 +239,26 @@ describe('buildBrowserNamespace — capability-backed', () => {
     const ns = buildBrowserNamespace(deps);
     const out = await ns.navigate({ url: 'file:///evil.html' });
     expect(out.success).toBe(false);
-    expect(out.error).toMatch(/not allowed/);
+    expect(out.error).toMatch(/inside the workspace/);
+    expect(out.error).not.toContain('evil.html');
     expect(capabilities.navigate).not.toHaveBeenCalled();
+    expect(capabilities.configureSession).not.toHaveBeenCalled();
+  });
+
+  it('navigate() snapshots host workspace roots before the capability runs', async () => {
+    const ns = buildBrowserNamespace({
+      ...deps,
+      getWorkspaceRoots: () => ['/workspace/host'],
+    });
+    await ns.navigate({
+      url: 'https://example.com',
+      headless: true,
+    });
+    expect(capabilities.configureSession).toHaveBeenCalledWith({
+      headless: true,
+      workspaceRoots: ['/workspace/host'],
+      allowLocalhost: false,
+    });
   });
 
   it('navigate() validates viewport bounds', async () => {

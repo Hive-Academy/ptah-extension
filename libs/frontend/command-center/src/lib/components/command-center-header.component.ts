@@ -7,7 +7,7 @@ import { AudioLines, CircleGauge, LucideAngularModule, Moon, Settings, Sparkles,
   imports: [LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <header class="flex min-h-[60px] flex-wrap items-center justify-between gap-2 border-b border-base-300 bg-base-100 px-4 py-1 text-base-content">
+    <header class="flex min-h-[60px] flex-wrap items-center justify-between gap-2 border-b border-base-300 bg-base-100 px-4 py-1 text-base-content" data-glass-surface="bar">
       <div class="flex min-w-0 items-center gap-2">
         <span class="flex size-8 shrink-0 items-center justify-center rounded-lg border border-secondary text-secondary-focus" aria-hidden="true"><lucide-angular [img]="sparklesIcon" class="size-4" /></span>
         <div class="min-w-0">

@@ -9,7 +9,7 @@ import { BookOpen, Bot, Check, LucideAngularModule, ScanLine } from 'lucide-angu
   imports: [LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="surface-3 rounded-lg border border-base-300 p-4 text-left" aria-labelledby="get-ready-title">
+    <section class="surface-3 rounded-lg border border-base-300 p-4 text-left" data-glass-surface="tile" aria-labelledby="get-ready-title">
       @if (setup.allReady()) {
         <div class="flex flex-wrap items-center gap-2">
           <h2 id="get-ready-title" class="flex flex-1 items-center gap-2 text-sm font-semibold text-base-content"><lucide-angular [img]="checkIcon" class="size-4 text-success" aria-hidden="true" />Ready</h2>

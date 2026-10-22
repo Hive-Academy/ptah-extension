@@ -61,6 +61,7 @@ import {
 import { APPS_ONLY_TOOL_NAMES } from './mcp-tool-profile';
 import * as ToolResultBudgetModule from './tool-result-budget';
 import { formatWorkspaceAnalysis } from './mcp-response-formatter';
+import { buildBrowserNavigateTool } from './tool-description.builder';
 import type { MCPRequest, MCPResponse, PtahAPI } from '../types';
 import { AgentToolDispatcher } from '../mcp-stdio/agent-tool.dispatcher';
 import { StdioMcpServerService } from '../mcp-stdio/stdio-mcp-server.service';
@@ -2402,7 +2403,9 @@ describe('MCP dispatcher contract sweep (TASK_2026_559 Batch 21, Task 21.1)', ()
       ptah_agent_status: 445,
       ptah_memory_search: 438,
       ptah_json_validate: 395,
-      ptah_browser_navigate: 384,
+      // TASK_2026_711: workspace file:// sentence. Measured 390 chars;
+      // ceil(390 * 1.1) + 10.
+      ptah_browser_navigate: 440,
       ptah_task_check: 371,
       ptah_browser_screenshot: 354,
       ptah_harness_list_installed_mcp: 354,
@@ -2461,6 +2464,18 @@ describe('MCP dispatcher contract sweep (TASK_2026_559 Batch 21, Task 21.1)', ()
       }
     }
     expect(violations).toEqual([]);
+  });
+
+  it('ptah_browser_navigate describes workspace file:// URLs', () => {
+    const tool = buildBrowserNavigateTool();
+    expect(tool.description).toContain(
+      'file:// URLs of files inside the workspace are allowed',
+    );
+    const url = tool.inputSchema.properties?.['url'] as
+      | { description?: string }
+      | undefined;
+    expect(url?.description).toContain('file://');
+    expect(url?.description).toContain('inside the workspace');
   });
 
   it('pins the total tools/list JSON size and byte-stability across caller kinds', async () => {

@@ -90,6 +90,15 @@ A lane shares none of your context and cannot ask the user anything. Every `task
 9. **Preserve list**: when replacing, consolidating or deleting an existing surface, list what it
    can do today (or pass `parity-inventory.md` in `files`). Every item stays, moves, or is listed
    under `## Proposed Removals` for user approval — never removed silently.
+10. **UI deliverables** (HTML, components, styles): the lane loads the matching design skill
+    (for example `impeccable`, `ui-ux-designer`, `angular-frontend-patterns`) with its own skill
+    mechanism, renders the output, and checks it with `ptah_browser_navigate` (a `file://` URL
+    inside the workspace is allowed) and `ptah_browser_screenshot`. The report states what it
+    checked. If those browser tools are absent from the lane's tool list, say so.
+
+Every lane receives `PTAH_LANE_POLICY`
+(`libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/cli-adapter.utils.ts`) on that
+CLI's strongest channel (canary `Lane policy id: …`). Do not repeat its tool table in `task`.
 
 Say the output format ("markdown table", "numbered defects with `file:line`"). A lane that is not
 told where to write dumps its answer into the reply and skips the file.
@@ -230,13 +239,14 @@ arrived. A lane's `ptah_agent_report` can return `delivered: false`; a report is
 authentication — verify its claims against files and tests. The same rule applies to the
 completion signal: it is evidence a file exists, never evidence the content is right.
 
-The lane does not need to be told any of this in its `task`: `buildTaskPrompt`
-(`libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/cli-adapter.utils.ts`,
-`TWO_WAY_MESSAGING_GUIDANCE`) already carries the child-side half on every spawn that has an MCP
-port and an agent id, and `renderLaneCompletionContract`
-(`libs/backend/cli-agent-runtime/src/lib/cli-agents/lane-reporting-contract.ts`) carries the
-before-you-exit half on every lane. Their shared `PTAH_MCP_TOOL_GUIDANCE` tells the child to use the exact identifier shown for server `ptah`, including one found through MCP search. If no `ptah` server is connected, the child reports in its final message and continues. That constant is the source of truth; this section and
-the parent-side tool table in `ptah-system-prompt.constant.ts` must agree with them.
+The lane does not need this section, or a Ptah tool table, repeated in its `task`.
+Child-side sources of truth:
+
+- `PTAH_LANE_POLICY` (`libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/cli-adapter.utils.ts`), on each CLI's strongest channel (canary `Lane policy id: …`).
+- `TWO_WAY_MESSAGING_GUIDANCE` (same file), only when that spawn has an MCP port and an agent id. Branch on the returned `mode`. Do not treat a messaging mode as available.
+- `renderLaneCompletionContract` (`libs/backend/cli-agent-runtime/src/lib/cli-agents/lane-reporting-contract.ts`), on every lane. Its shared `PTAH_MCP_TOOL_GUIDANCE` tells the child to use the identifier shown for the Ptah server, including one found through MCP search. If no Ptah server is connected, the child reports in its final message and continues.
+
+This section and the parent-side tool table in `ptah-system-prompt.constant.ts` must agree with those three. `ptah_agent_list` is still what says whether a mode exists on this run.
 
 ## 8. Cost
 

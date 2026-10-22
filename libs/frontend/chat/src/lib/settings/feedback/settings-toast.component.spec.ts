@@ -156,6 +156,188 @@ describe('SettingsToastComponent', () => {
     expect(query('settings-toast')).toBeNull();
   });
 
+  describe('top-layer promotion', () => {
+    const proto = HTMLElement.prototype;
+    let previousShow: PropertyDescriptor | undefined;
+
+    async function showToast(): Promise<HTMLElement> {
+      await feedback.save({ label: 'voice', scope: 'app', write: settlesTo({ status: 'saved' }), undo: null });
+      fixture.detectChanges();
+      // A second pass runs the effect once the view query sees the new region.
+      fixture.detectChanges();
+      return query('settings-toast-region') as HTMLElement;
+    }
+
+    beforeEach(() => {
+      previousShow = Object.getOwnPropertyDescriptor(proto, 'showPopover');
+      // jsdom may not know :popover-open; report a closed popover.
+      const realMatches = Element.prototype.matches;
+      jest
+        .spyOn(Element.prototype, 'matches')
+        .mockImplementation(function (this: Element, selector: string) {
+          return selector === ':popover-open' ? false : realMatches.call(this, selector);
+        });
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+      if (previousShow) Object.defineProperty(proto, 'showPopover', previousShow);
+      else Reflect.deleteProperty(proto, 'showPopover');
+    });
+
+    it('promotes the region with showPopover and keeps no in-page display override', async () => {
+      const shown: HTMLElement[] = [];
+      Object.defineProperty(proto, 'showPopover', {
+        configurable: true,
+        value(this: HTMLElement) {
+          shown.push(this);
+        },
+      });
+      const region = await showToast();
+      expect(shown).toContain(region);
+      expect(shown.every((el) => el === region)).toBe(true);
+      expect(region.style.display).toBe('');
+    });
+
+    it('stays visible in the page layer when the Popover API is missing', async () => {
+      Reflect.deleteProperty(proto, 'showPopover');
+      const region = await showToast();
+      expect(region.style.display).toBe('block');
+    });
+
+    it('stays visible in the page layer when showPopover throws', async () => {
+      Object.defineProperty(proto, 'showPopover', {
+        configurable: true,
+        value() {
+          throw new DOMException('not connected', 'InvalidStateError');
+        },
+      });
+      const region = await showToast();
+      expect(region.style.display).toBe('block');
+    });
+  });
+
+  describe('restacking after another overlay opens', () => {
+    let previousShow: PropertyDescriptor | undefined;
+    let previousHide: PropertyDescriptor | undefined;
+    let show: jest.Mock;
+    let hide: jest.Mock;
+    let overlay: HTMLElement;
+
+    function toggle(target: HTMLElement, newState = 'open'): void {
+      const event = new Event('toggle'); // Non-bubbling, as in Chromium.
+      Object.defineProperty(event, 'newState', { value: newState });
+      target.dispatchEvent(event);
+    }
+
+    async function showToast(): Promise<HTMLElement> {
+      await feedback.save({ label: 'voice', scope: 'app', write: settlesTo({ status: 'saved' }), undo: null });
+      fixture.detectChanges();
+      fixture.detectChanges();
+      show.mockClear();
+      hide.mockClear();
+      return query('settings-toast-region') as HTMLElement;
+    }
+
+    beforeEach(() => {
+      previousShow = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'showPopover');
+      previousHide = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'hidePopover');
+      const opened = new WeakSet<HTMLElement>();
+      show = jest.fn(function (this: HTMLElement) { opened.add(this); });
+      hide = jest.fn(function (this: HTMLElement) { opened.delete(this); });
+      Object.defineProperty(HTMLElement.prototype, 'showPopover', { configurable: true, value: show });
+      Object.defineProperty(HTMLElement.prototype, 'hidePopover', { configurable: true, value: hide });
+      const realMatches = Element.prototype.matches;
+      jest.spyOn(Element.prototype, 'matches').mockImplementation(function (this: Element, selector: string) {
+        return selector === ':popover-open'
+          ? this instanceof HTMLElement && opened.has(this)
+          : realMatches.call(this, selector);
+      });
+      overlay = document.createElement('div');
+      overlay.setAttribute('popover', 'manual');
+      document.body.appendChild(overlay);
+    });
+
+    afterEach(() => {
+      overlay.remove();
+      jest.restoreAllMocks();
+      if (previousShow) Object.defineProperty(HTMLElement.prototype, 'showPopover', previousShow);
+      else Reflect.deleteProperty(HTMLElement.prototype, 'showPopover');
+      if (previousHide) Object.defineProperty(HTMLElement.prototype, 'hidePopover', previousHide);
+      else Reflect.deleteProperty(HTMLElement.prototype, 'hidePopover');
+    });
+
+    it('captures open toggles and coalesces them into a microtask restack', async () => {
+      await showToast();
+      toggle(overlay);
+      toggle(overlay);
+      expect(show).not.toHaveBeenCalled();
+      await Promise.resolve();
+      expect(hide).toHaveBeenCalledTimes(1);
+      expect(show).toHaveBeenCalledTimes(1);
+      expect(hide.mock.invocationCallOrder[0]).toBeLessThan(show.mock.invocationCallOrder[0]);
+    });
+
+    it('ignores its own toggle, closed toggles, and ordinary details toggles', async () => {
+      const region = await showToast();
+      toggle(region);
+      toggle(overlay, 'closed');
+      overlay.removeAttribute('popover');
+      toggle(overlay);
+      await Promise.resolve();
+      expect(show).not.toHaveBeenCalled();
+    });
+
+    it('does nothing without a visible page toast, including inline mode', async () => {
+      toggle(overlay);
+      await Promise.resolve();
+      expect(show).not.toHaveBeenCalled();
+      fixture.componentRef.setInput('inline', true);
+      await showToast();
+      toggle(overlay);
+      await Promise.resolve();
+      expect(show).not.toHaveBeenCalled();
+    });
+
+    it('does not resurrect a toast dismissed before the microtask', async () => {
+      await showToast();
+      toggle(overlay);
+      feedback.dismiss();
+      await Promise.resolve();
+      expect(show).not.toHaveBeenCalled();
+    });
+
+    it('raises above dialog openings without adding autofocus or moving focus', async () => {
+      const region = await showToast();
+      const dialog = document.createElement('dialog');
+      const input = document.createElement('input');
+      dialog.appendChild(input);
+      document.body.appendChild(dialog);
+      try {
+        input.focus();
+        toggle(dialog);
+        await Promise.resolve();
+        expect(show).toHaveBeenCalledTimes(1);
+        expect(document.activeElement).toBe(input);
+        expect(region.querySelector('[autofocus]')).toBeNull();
+      } finally {
+        dialog.remove();
+      }
+    });
+
+    it('removes its capture listener and cancels a queued raise on destroy', async () => {
+      await showToast();
+      const remove = jest.spyOn(document, 'removeEventListener');
+      toggle(overlay);
+      fixture.destroy();
+      await Promise.resolve();
+      expect(remove).toHaveBeenCalledWith('toggle', expect.any(Function), true);
+      toggle(overlay);
+      await Promise.resolve();
+      expect(show).not.toHaveBeenCalled();
+    });
+  });
+
   describe('placement over an open drawer (Batch 49b)', () => {
     const LIFT = '[body:has(ptah-native-drawer_[role=dialog])_&]:bottom-28';
     /** The CSS selector Tailwind emits for {@link LIFT}, minus the toast's own class. */

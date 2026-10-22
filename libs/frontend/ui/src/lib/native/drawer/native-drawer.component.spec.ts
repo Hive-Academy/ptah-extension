@@ -85,6 +85,41 @@ describe('NativeDrawerComponent', () => {
     expect(q('[data-testid="native-drawer-backdrop"]')).toBeTruthy();
   });
 
+  it('renders the root as a manual popover shell so it can join the top layer', async () => {
+    await open();
+    expect(q('[data-testid="native-drawer-root"]')?.getAttribute('popover')).toBe('manual');
+  });
+
+  it('promotes the root to the top layer with showPopover before moving focus', async () => {
+    const proto = HTMLElement.prototype;
+    const previous = Object.getOwnPropertyDescriptor(proto, 'showPopover');
+    const shown: { layer: HTMLElement; focusInPanel: boolean }[] = [];
+    Object.defineProperty(proto, 'showPopover', {
+      configurable: true,
+      value(this: HTMLElement) {
+        shown.push({ layer: this, focusInPanel: this.contains(document.activeElement) });
+      },
+    });
+    // jsdom may not know :popover-open; report a closed popover.
+    const realMatches = Element.prototype.matches;
+    const matches = jest
+      .spyOn(Element.prototype, 'matches')
+      .mockImplementation(function (this: Element, selector: string) {
+        return selector === ':popover-open' ? false : realMatches.call(this, selector);
+      });
+    try {
+      await open();
+      expect(shown).toHaveLength(1);
+      expect(shown[0].layer).toBe(q('[data-testid="native-drawer-root"]'));
+      expect(shown[0].focusInPanel).toBe(false);
+      expect(panel().contains(document.activeElement)).toBe(true);
+    } finally {
+      matches.mockRestore();
+      if (previous) Object.defineProperty(proto, 'showPopover', previous);
+      else Reflect.deleteProperty(proto, 'showPopover');
+    }
+  });
+
   it('projects header, body and footer slots', async () => {
     await open();
     const body = q('[data-testid="native-drawer-body"]') as HTMLElement;

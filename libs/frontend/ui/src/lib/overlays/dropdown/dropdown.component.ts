@@ -61,6 +61,7 @@ import { DROPDOWN_POSITIONS } from '../shared/overlay-positions';
     >
       <div
         class="dropdown-panel surface-3 rounded-xl p-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
+        data-glass-surface="overlay"
       >
         <ng-content select="[content]" />
       </div>

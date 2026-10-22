@@ -1,6 +1,6 @@
 ---
 name: angular-gsap-animation-crafter
-description: 'Designs scroll-driven Angular animations with @hive-academy/angular-gsap (GSAP, ScrollTrigger). Use for scroll-triggered or viewport animations, parallax, pinned or hijacked-scroll sections, easing and timing, or recreating motion from a reference video or image.'
+description: 'Designs scroll, parallax and timeline motion for @hive-academy/angular-gsap. Use for scroll-triggered or viewport animations, pinned or hijacked-scroll sections, easing and timing, or recreating motion from a reference. A 3D scene is angular-3d-scene-crafter and may load when the task has both. Component structure may load angular-frontend-patterns. Non-Angular animation is outside this skill.'
 ---
 
 # Angular GSAP Animation Crafter

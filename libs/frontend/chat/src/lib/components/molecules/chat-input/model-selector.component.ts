@@ -48,7 +48,7 @@ import { SessionId } from '@ptah-extension/shared';
            selector and the attach button in chat-input. -->
       <button
         trigger
-        class="inline-flex items-center gap-1.5 h-7 px-2 rounded-full text-xs font-normal max-w-[12rem] min-w-0 text-base-content-muted hover:text-base-content hover:bg-base-content/5 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-base-content/30 disabled:opacity-50 disabled:pointer-events-none"
+        class="inline-flex items-center gap-1.5 h-7 px-2 rounded-full text-xs font-normal w-full min-w-0 text-base-content-muted hover:text-base-content hover:bg-base-content/5 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-base-content/30 disabled:opacity-50 disabled:pointer-events-none"
         [class.bg-base-300]="isOpen()"
         [class.text-base-content]="isOpen()"
         type="button"
@@ -58,7 +58,7 @@ import { SessionId } from '@ptah-extension/shared';
         [attr.aria-expanded]="isOpen()"
       >
         @if (modelState.isPending()) {
-          <span class="loading loading-spinner loading-xs"></span>
+          <span class="loading loading-spinner loading-xs shrink-0"></span>
         } @else {
           <!-- Accent on the icon only: a provider override is active -->
           <lucide-angular
@@ -70,7 +70,7 @@ import { SessionId } from '@ptah-extension/shared';
         @if (effectiveModelProviderHint()) {
           <!-- Provider override active: show provider model as primary -->
           <span
-            class="truncate"
+            class="min-w-0 truncate"
             [title]="
               effectiveModelDisplay() + ' → ' + effectiveModelProviderHint()
             "
@@ -78,7 +78,7 @@ import { SessionId } from '@ptah-extension/shared';
           >
         } @else {
           <!-- No provider override: show standard display name -->
-          <span class="truncate" [title]="effectiveModelDisplay()">{{
+          <span class="min-w-0 truncate" [title]="effectiveModelDisplay()">{{
             effectiveModelDisplay()
           }}</span>
         }
@@ -165,6 +165,21 @@ import { SessionId } from '@ptah-extension/shared';
         </div>
       </div>
     </ptah-native-dropdown>
+  `,
+  styles: `
+    :host {
+      display: block;
+      min-width: 3.5rem;
+      max-width: 12rem;
+    }
+
+    /* Carry the available flex width through both dropdown wrappers so the
+       label truncates instead of painting over adjacent composer controls. */
+    ptah-native-dropdown,
+    :host ::ng-deep .dropdown-trigger {
+      width: 100%;
+      min-width: 0;
+    }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

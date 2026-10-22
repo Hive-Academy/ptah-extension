@@ -482,6 +482,7 @@ describe('GrokCliAdapter', () => {
         },
       ]);
       expect(received.filter(byMethod('session/prompt'))).toHaveLength(1);
+      expect(JSON.stringify(paramsOf(received.find(byMethod('session/prompt')))).match(/Lane policy id: ptah-lane-policy-v1/g)).toHaveLength(1);
       expect(handle.getSessionId?.()).toBe('grok-sess-2');
       expect(handle.supportsContinuation?.()).toBe(true);
       expect(output.join('')).toContain('Hello from Grok');

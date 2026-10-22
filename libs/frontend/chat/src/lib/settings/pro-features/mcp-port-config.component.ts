@@ -50,7 +50,7 @@ export const COULD_NOT_LOAD_MCP_CONFIG = 'Could not load the MCP and browser set
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
   template: `
-    <section class="card bg-base-200 border border-base-300 p-3" aria-labelledby="mcp-browser-heading">
+    <section class="card bg-base-200 border border-base-300 p-3" data-glass-surface="content" aria-labelledby="mcp-browser-heading">
       <div class="flex items-center gap-1.5 mb-2">
         <lucide-angular [img]="PlugIcon" class="w-4 h-4 text-secondary shrink-0" aria-hidden="true" />
         <h2 id="mcp-browser-heading" class="text-xs font-bold uppercase tracking-wider text-base-content">

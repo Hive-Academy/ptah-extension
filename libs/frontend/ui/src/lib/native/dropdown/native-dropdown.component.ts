@@ -50,6 +50,9 @@ import {
 import { Placement } from '@floating-ui/dom';
 import { DEFAULT_OVERLAY_OFFSET, FloatingUIService } from '../shared';
 
+/** Longest wait for the first position before the trigger-anchored fallback. */
+export const DROPDOWN_POSITION_TIMEOUT_MS = 1000;
+
 /**
  * Native dropdown component using Floating UI for positioning.
  *
@@ -69,26 +72,30 @@ import { DEFAULT_OVERLAY_OFFSET, FloatingUIService } from '../shared';
 
     <!-- Dropdown panel (conditionally rendered) -->
     @if (isOpen()) {
-      <!-- Backdrop for click-outside detection -->
-      @if (hasBackdrop()) {
-        <div
-          class="fixed inset-0 z-40"
-          [class]="backdropClass() === 'dark' ? 'bg-black/20' : ''"
-          (click)="handleBackdropClick()"
-          tabindex="-1"
-          role="presentation"
-          aria-hidden="true"
-        ></div>
-      }
+      <!-- Open shell only. manual popover: top layer, no light dismiss, so a
+           sibling pane's stacking context cannot paint over the panel. -->
+      <div #layerRef popover="manual" class="ptah-dropdown-layer">
+        <!-- Backdrop for click-outside detection -->
+        @if (hasBackdrop()) {
+          <div
+            class="fixed inset-0 z-40"
+            [class]="backdropClass() === 'dark' ? 'bg-black/20' : ''"
+            (click)="handleBackdropClick()"
+            tabindex="-1"
+            role="presentation"
+            aria-hidden="true"
+          ></div>
+        }
 
-      <!-- Floating content - starts hidden until positioned -->
-      <div
-        #floatingRef
-        class="dropdown-panel surface-3 z-50 rounded-xl p-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
-        style="visibility: hidden;"
-        [attr.role]="panelRole()"
-      >
-        <ng-content select="[content]" />
+        <!-- Floating content - starts hidden until positioned -->
+        <div
+          #floatingRef
+          class="dropdown-panel surface-3 z-50 rounded-xl p-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
+          style="visibility: hidden;"
+          [attr.role]="panelRole()"
+        >
+          <ng-content select="[content]" />
+        </div>
       </div>
     }
   `,
@@ -97,6 +104,36 @@ import { DEFAULT_OVERLAY_OFFSET, FloatingUIService } from '../shared';
       :host {
         display: inline-block;
         position: relative;
+      }
+
+      /* Full-viewport top-layer shell. No transform, filter, contain, or
+         will-change: any of those would make Floating UI's fixed coordinates miss. */
+      .ptah-dropdown-layer {
+        position: fixed;
+        inset: 0;
+        box-sizing: border-box;
+        width: 100%;
+        height: 100%;
+        max-width: none;
+        max-height: none;
+        margin: 0;
+        border: 0;
+        padding: 0;
+        overflow: visible;
+        background: transparent;
+        color: inherit;
+        box-shadow: none;
+        pointer-events: none;
+      }
+
+      .ptah-dropdown-layer::backdrop {
+        background: transparent !important;
+        pointer-events: none !important;
+      }
+
+      .ptah-dropdown-layer > .dropdown-panel,
+      .ptah-dropdown-layer > [role='presentation'] {
+        pointer-events: auto;
       }
     `,
   ],
@@ -177,6 +214,21 @@ export class NativeDropdownComponent implements OnDestroy {
     viewChild<ElementRef<HTMLElement>>('triggerRef');
   private readonly floatingRef =
     viewChild<ElementRef<HTMLElement>>('floatingRef');
+  private readonly layerRef = viewChild<ElementRef<HTMLElement>>('layerRef');
+
+  /** Layer element of the current open. Survives the @if teardown. */
+  private layerElement: HTMLElement | null = null;
+
+  /** Whether showPopover succeeded for layerElement. */
+  private layerShowing = false;
+
+  /** Bumped on every open, close and destroy; a stale open reports nothing. */
+  private openGeneration = 0;
+
+  private destroyed = false;
+
+  /** Bound on the first positioning; cleared on settle, close and destroy. */
+  private positionTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor() {
     effect(() => {
@@ -191,6 +243,9 @@ export class NativeDropdownComponent implements OnDestroy {
         });
       } else {
         this.positioningPending = false;
+        this.openGeneration++;
+        this.clearPositionTimer();
+        this.hideLayer();
         this.floatingUI.cleanup();
       }
     });
@@ -201,17 +256,122 @@ export class NativeDropdownComponent implements OnDestroy {
    * Called automatically when isOpen becomes true.
    */
   private async positionDropdown(): Promise<void> {
+    if (this.destroyed || !this.isOpen()) return;
+    const generation = ++this.openGeneration;
     const trigger = this.triggerRef()?.nativeElement;
     const floating = this.floatingRef()?.nativeElement;
+    if (!trigger || !floating) return;
 
-    if (trigger && floating) {
-      await this.floatingUI.position(trigger, floating, {
-        placement: this.placement(),
-        offset: this.offset(),
-        flip: true,
-        shift: true,
-      });
-      this.opened.emit();
+    // A hidden [popover] is display:none: promote before measuring.
+    this.showLayer();
+    const positioned = await this.positionPanel(trigger, floating);
+    // Closed, reopened or destroyed while positioning ran: the close path
+    // already hid the shell and cancelled the request, so report nothing.
+    if (this.destroyed || generation !== this.openGeneration || !this.isOpen()) {
+      return;
+    }
+    if (!positioned) {
+      // Never leave a hidden panel behind the viewport-wide backdrop: pin it
+      // under the trigger without flip or shift.
+      this.revealUnderTrigger(floating, trigger);
+    }
+    this.opened.emit();
+  }
+
+  /**
+   * First positioning, bounded by DROPDOWN_POSITION_TIMEOUT_MS. Resolves
+   * false on rejection or timeout. A late success still applies through the
+   * service while the dropdown stays open; after a close the service drops it.
+   */
+  private async positionPanel(
+    trigger: HTMLElement,
+    floating: HTMLElement,
+  ): Promise<boolean> {
+    this.clearPositionTimer();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<boolean>((resolve) => {
+      timer = setTimeout(() => resolve(false), DROPDOWN_POSITION_TIMEOUT_MS);
+      this.positionTimer = timer;
+    });
+    try {
+      return await Promise.race([
+        this.floatingUI
+          .position(trigger, floating, {
+            placement: this.placement(),
+            offset: this.offset(),
+            flip: true,
+            shift: true,
+          })
+          .then(() => true),
+        timedOut,
+      ]);
+    } catch {
+      // degradation-audit: optional-capability - smart placement failed; the
+      // caller reveals the trigger-anchored fallback so the menu stays usable.
+      return false;
+    } finally {
+      // A stale call must not clear the timer of a newer open.
+      if (this.positionTimer === timer) this.clearPositionTimer();
+    }
+  }
+
+  private clearPositionTimer(): void {
+    if (this.positionTimer !== undefined) {
+      clearTimeout(this.positionTimer);
+      this.positionTimer = undefined;
+    }
+  }
+
+  /** Make the panel visible under the trigger without a position pass. */
+  private revealUnderTrigger(floating: HTMLElement, trigger: HTMLElement): void {
+    if (trigger.isConnected) {
+      const rect = trigger.getBoundingClientRect();
+      floating.style.position = 'fixed';
+      floating.style.left = `${rect.left}px`;
+      floating.style.top = `${rect.bottom}px`;
+    }
+    floating.style.visibility = 'visible';
+  }
+
+  /** Promote the shell to the top layer. Without the Popover API the shell stays in place. */
+  private showLayer(): void {
+    const layer = this.layerRef()?.nativeElement;
+    if (!layer || this.destroyed) return;
+    this.layerElement = layer;
+    if (this.layerShowing) return;
+    if (typeof layer.showPopover !== 'function') {
+      this.keepLayerInPlace(layer);
+      return;
+    }
+    try {
+      layer.showPopover();
+      this.layerShowing = true;
+    } catch {
+      // Intentionally swallowed (not connected or already open): the shell
+      // stays in the page layer, made visible below.
+      this.keepLayerInPlace(layer);
+    }
+  }
+
+  /** Undo a non-open popover's display:none when promotion did not happen. */
+  private keepLayerInPlace(layer: HTMLElement): void {
+    layer.style.display = 'block';
+  }
+
+  /** Leave the top layer. A shell the view already removed is hidden by the engine. */
+  private hideLayer(): void {
+    const layer = this.layerElement;
+    const showing = this.layerShowing;
+    this.layerElement = null;
+    this.layerShowing = false;
+    if (layer) layer.style.display = '';
+    if (!layer || !showing || !layer.isConnected || typeof layer.hidePopover !== 'function') {
+      return;
+    }
+    try {
+      layer.hidePopover();
+    } catch {
+      // Intentionally swallowed: the shell is already hidden.
     }
   }
 
@@ -249,6 +409,10 @@ export class NativeDropdownComponent implements OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.destroyed = true;
+    this.openGeneration++;
+    this.clearPositionTimer();
+    this.hideLayer();
     this.floatingUI.cleanup();
   }
 }

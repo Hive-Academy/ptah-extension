@@ -39,8 +39,8 @@ describe('ElectronShell notification center composition', () => {
   it('places exactly one bell in the Electron global action row', () => {
     const source = readFileSync(
       resolve(
-        process.cwd(),
-        'libs/frontend/chat/src/lib/components/templates/electron-shell.component.ts',
+        __dirname,
+        'electron-shell.component.ts',
       ),
       'utf8',
     );

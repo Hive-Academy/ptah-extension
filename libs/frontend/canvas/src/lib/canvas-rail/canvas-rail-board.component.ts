@@ -19,7 +19,7 @@ import {
 import { DatePipe, NgTemplateOutlet } from '@angular/common';
 import { INSPECTOR_TAB_WIDTH, InspectorDockController, InspectorShellController, PreviousSessionsDialogService, ProjectSetupCardComponent, RailTranscriptRetentionCoordinator, RecentSessionsStore, SessionInspectorStore, SessionRowActionsService, TabManagerService, injectSessionStatsSource } from '@ptah-extension/chat';
 import { SessionInspectorComponent } from '@ptah-extension/chat/inspector';
-import { SURFACE_ACTIVE } from '@ptah-extension/core';
+import { SURFACE_ACTIVE, VSCodeService } from '@ptah-extension/core';
 import { SidebarTabComponent, SplitHandleComponent, StatsTileExpansionState, inspectorToggleDescription, type CompactRailState } from '@ptah-extension/chat-ui';
 import { CanvasStore } from '../canvas.store';
 import { railWidthBand, railWidthPx } from '../canvas-board-mode';
@@ -100,6 +100,8 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
     '(document:keydown.escape)': 'onDocumentEscape($event)',
   },
   styles: [`
+    :host-context([data-glass='on']) ptah-aurora-effect { display: none; }
+    :host-context([data-glass='on']) .canvas-rail-board-layout { gap: 8px; }
     @keyframes rail-pane-enter { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: translateX(0); } }
     @media (prefers-reduced-motion: no-preference) {
       .rail-pane-enter { animation: rail-pane-enter 180ms var(--ptah-ease-soft) both; }
@@ -108,7 +110,7 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
   `],
   template: `
     @if (visible()) {
-      <div class="relative flex h-full min-h-0 min-w-0">
+      <div class="canvas-rail-board-layout relative flex h-full min-h-0 min-w-0">
         <ptah-canvas-rail
           [attr.inert]="compactSheetOpen() ? '' : null"
           [tiles]="orderedTiles()"
@@ -145,6 +147,7 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
         @if (orderedTiles().length === 0) {
           <main
             class="relative order-first flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto"
+            [attr.data-glass-surface]="isElectron ? null : 'chrome'"
             data-testid="canvas-rail-empty-board"
             aria-labelledby="canvas-rail-empty-board-title"
           >
@@ -207,7 +210,7 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
             </div>
           </main>
         } @else {
-          <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
+          <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto" [attr.data-glass-surface]="isElectron ? null : 'chrome'">
           @if (notice()) { <div class="mx-auto w-full max-w-[780px] shrink-0 p-4"><ng-container [ngTemplateOutlet]="noticeTemplate" /></div> }
           <div class="flex min-h-0 min-w-0 flex-1 overflow-x-auto" [class.overflow-y-auto]="splitStacked() && splitDisplayed()" [class.overflow-y-hidden]="!splitStacked() || !splitDisplayed()" [class.flex-col]="splitStacked() && splitDisplayed()" [class.flex-row]="!splitStacked() || !splitDisplayed()" [class.gap-1]="splitDisplayed()" [attr.inert]="compactSheetOpen() ? '' : null" data-testid="rail-pane-container">
             @for (side of sides; track side) {
@@ -344,6 +347,7 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
   `,
 })
 export class CanvasRailBoardComponent {
+  readonly isElectron = inject(VSCodeService).isElectron;
   recentActivity(timestamp: number | null | undefined): string {
     if (timestamp == null) return '';
     const date = new Date(timestamp);

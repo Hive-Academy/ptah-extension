@@ -61,7 +61,7 @@ interface PromptItem {
   imports: [LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="w-full">
+    <div class="w-full" data-glass-surface="tile">
       <!-- Section header -->
       <div class="flex items-center gap-2 mb-3">
         <span class="text-secondary text-base">📜</span>

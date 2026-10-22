@@ -22,8 +22,8 @@ import { join } from 'node:path';
  * these assertions pass vacuously against empty content.
  */
 const DIR = join(
-  process.cwd(),
-  'libs/frontend/dashboard/src/lib/components/dashboard-grid',
+  __dirname,
+  '.',
 );
 const COMPONENT = join(DIR, 'dashboard-grid.component.ts');
 const TEMPLATE = join(DIR, 'dashboard-grid.component.html');

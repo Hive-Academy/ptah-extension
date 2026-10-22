@@ -7,15 +7,9 @@
   "tags": ["scope:webview", "type:data-access"],
   "targets": {
     "test": {
-      "executor": "@nx/jest:jest",
-      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
       "options": {
-        "jestConfig": "libs/frontend/chat-state/jest.config.ts",
-        "tsConfig": "libs/frontend/chat-state/tsconfig.spec.json"
+        "passWithNoTests": true
       }
-    },
-    "lint": {
-      "executor": "@nx/eslint:lint"
     },
     "typecheck": {
       "executor": "nx:run-commands",

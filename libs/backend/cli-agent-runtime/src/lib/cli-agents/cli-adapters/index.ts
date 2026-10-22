@@ -15,6 +15,7 @@ export {
   spawnCli,
   assertCommandLineWithinLimit,
   CliCommandLineTooLongError,
+  PTAH_LANE_POLICY,
 } from './cli-adapter.utils';
 export { fixPath } from './fix-path';
 export { ptahMcpServerUrl } from './ptah-mcp-url';

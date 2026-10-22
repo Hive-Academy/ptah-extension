@@ -9,6 +9,7 @@
     "build": {
       "executor": "@angular/build:application",
       "outputs": ["{options.outputPath}"],
+      "defaultConfiguration": "production",
       "options": {
         "outputPath": "dist/ptah-landing-page",
         "browser": "apps/ptah-landing-page/src/main.ts",
@@ -63,12 +64,15 @@
             }
           ]
         }
-      },
-      "defaultConfiguration": "production"
+      }
     },
     "serve": {
       "continuous": true,
       "executor": "@angular/build:dev-server",
+      "defaultConfiguration": "development",
+      "readyWhen": {
+        "signal": true
+      },
       "options": {
         "port": 4200,
         "proxyConfig": "apps/ptah-landing-page/proxy.conf.json"
@@ -83,8 +87,7 @@
         "checkout": {
           "buildTarget": "ptah-landing-page:build:checkout"
         }
-      },
-      "defaultConfiguration": "development"
+      }
     },
     "extract-i18n": {
       "executor": "@angular/build:extract-i18n",
@@ -92,15 +95,13 @@
         "buildTarget": "ptah-landing-page:build"
       }
     },
-    "lint": {
-      "executor": "@nx/eslint:lint"
-    },
     "test": {
-      "executor": "@nx/jest:jest",
-      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "outputs": [
+        "{workspaceRoot}/coverage/{projectRoot}",
+        "{workspaceRoot}/apps/coverage/ptah-landing-page"
+      ],
       "options": {
-        "jestConfig": "apps/ptah-landing-page/jest.config.ts",
-        "tsConfig": "apps/ptah-landing-page/tsconfig.spec.json"
+        "passWithNoTests": true
       }
     },
     "serve-static": {
@@ -110,7 +111,11 @@
         "buildTarget": "ptah-landing-page:build",
         "staticFilePath": "dist/ptah-landing-page/browser",
         "spa": true
-      }
+      },
+      "readyWhen": {
+        "signal": true
+      },
+      "dependsOn": ["build"]
     },
     "typecheck": {
       "executor": "nx:run-commands",

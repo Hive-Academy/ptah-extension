@@ -70,6 +70,7 @@
       @if (parts.answer.length > 0) {
         <div
           class="cs-answer max-w-[600px] text-[13px] leading-[1.6]"
+          data-glass-surface="content"
           [class.pt-4]="hasLog() || disclosureLabel() !== null"
         >
           @for (child of parts.answer; track child.id; let last = $last) {
@@ -91,7 +92,7 @@
       }
     } @else {
       <!-- No tree (raw, system or error text): the raw text is the answer. -->
-      <div class="cs-answer max-w-[600px] text-[13px] leading-[1.6]">
+      <div class="cs-answer max-w-[600px] text-[13px] leading-[1.6]" data-glass-surface="content">
         @if (mermaidFallbackText(); as text) {
           @defer (on immediate) {
             <ptah-mermaid-message-text
@@ -288,7 +289,7 @@
 
         <!-- Image attachment indicator -->
         @if (imageCountLabel(); as label) {
-          <div [class.mt-1.5]="!message().files?.length">
+          <div [class.mt-1]="!message().files?.length">
             <div class="flex items-center gap-1.5">
               <div
                 class="badge badge-sm bg-base-content/10 text-base-content gap-1 py-2.5 border-0"
