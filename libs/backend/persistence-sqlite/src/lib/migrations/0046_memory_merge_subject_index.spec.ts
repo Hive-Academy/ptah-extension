@@ -34,8 +34,9 @@ describe('migration 0046_memory_merge_subject_index', () => {
     // 52 and 53 since TASK_2026_621 appended 0052_memory_boot_scan_failures and 0053_memory_boot_scan_failure_generation.
     // 56 since TASK_2026_662 appended 0056_skill_nullable_grades.
     // 57 since TASK_2026_662 appended 0057_drop_skill_pipeline.
+    // 58 since TASK_2026_712 appended 0058_provider_accounts.
     expect(Math.max(...MIGRATIONS.map((migration) => migration.version))).toBe(
-      57,
+      58,
     );
     expect(sql0046MemoryMergeSubjectIndex).not.toContain('${');
   });
