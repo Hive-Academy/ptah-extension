@@ -73,7 +73,9 @@ Open items in that diff:
    stopped as told. 25 lines are > 160 chars (15 at HEAD): check that no unchanged code was packed
    (`git diff` the harness); restore original formatting where it was. Decide: accept the warning
    (it existed before: 827) or extract one more cohesive module (for example the run-case logic).
-2. Verify the `approvalsReviewer` claim against the pinned schema (thread/start, turn/start params).
+2. CLOSED (orchestrator checked the pinned schema): `ThreadStartParams` and `TurnStartParams` have
+   `approvalsReviewer` -> `ApprovalsReviewer`; its description says the default is `user`, and
+   `auto_review` / `guardian_subagent` route to a subagent. Sending `"user"` is explicit, not new.
 3. "True = ask" for the granular fields is an inference; the schema has no descriptions. Run 6
    proves it.
 
@@ -120,7 +122,7 @@ Bundled binary: `D:/projects/ptah-extension/node_modules/@openai/codex-win32-x64
 1. Read this file, `decisions.md` (last 25 rows), `batch-1c-report.md` and
    `codex-version-contract-report.md` section 5.
 2. Examine the uncommitted Batch 1c diff (`git diff -- libs/backend/codex-runtime/tools/` plus
-   the two new files). Settle open items 1-2 above; give any fix to a fresh Codex lane
+   the two new files). Settle open item 1 above; give any fix to a fresh Codex lane
    (`backend-developer`, workingDirectory = worktree, the five tools files only, at most 20 tool
    calls, no checks, no git). Run `ptah_agent_list` first.
 3. Different-family review of the full Batch 1c diff (Codex wrote it): a Claude
