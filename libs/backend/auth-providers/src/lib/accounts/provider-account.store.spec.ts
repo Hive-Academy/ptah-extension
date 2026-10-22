@@ -5,7 +5,7 @@ import type { SpawnedProcessHandle } from '@ptah-extension/platform-core';
 import { ClaudeAccountCommand } from './claude-account-command';
 import { ProviderAccountActionsService } from './provider-account-actions.service';
 
-import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MIGRATIONS, type SqliteDatabase } from '@ptah-extension/persistence-sqlite';
@@ -75,6 +75,56 @@ describe('ProviderAccountStore transactions', () => {
     expect(action).toThrow(expect.objectContaining({ code }));
   }
 
+  it('status reservation keeps row unchanged and excludes auth across connections until completion', () => {
+    add();
+    const before = a.get(profileId);
+    const held = a.reserveStatus(profileId, before.revision, request().route, 'status-0001', 'owner-0001');
+    expect(b.get(profileId)).toEqual(before);
+    refuses(() => b.reserveAuth(profileId, before.revision, request().route, 'auth-00001', 'owner-0002', 'sign-in'), 'busy');
+    refuses(() => b.completeStatus('status-0001', 'owner-0002', held.authEpoch, 'signed-in', true));
+    refuses(() => b.completeStatus('status-0001', 'owner-0001', held.authEpoch + 1, 'signed-in', true));
+    a.completeStatus('status-0001', 'owner-0001', held.authEpoch, before.state, true);
+    expect(b.get(profileId)).toEqual(before);
+    expect(count('operations')).toBe(0);
+    expect(b.reserveAuth(profileId, before.revision, request().route, 'auth-00001', 'owner-0002', 'sign-in').authEpoch)
+      .toBe(before.auth_epoch + 1);
+  });
+
+  it('Add refuses a directory swapped for a link after mkdir and never stores the link target', () => {
+    const directory = join(root, 'account');
+    const target = join(root, 'external');
+    mkdirSync(target);
+    const native = realpathSync.native;
+    const resolve = jest.spyOn(realpathSync, 'native').mockImplementationOnce(path => {
+      renameSync(directory, join(root, 'owned'));
+      symlinkSync(target, directory, process.platform === 'win32' ? 'junction' : 'dir');
+      return native(path);
+    });
+    try {
+      refuses(() => a.add(profileId, 'Work', directory), 'route-changed');
+      expect(count('profiles')).toBe(0);
+      expect(existsSync(target)).toBe(true);
+      expect(existsSync(directory)).toBe(true);
+      expect(existsSync(join(root, 'owned'))).toBe(true);
+    } finally { resolve.mockRestore(); }
+  });
+
+  it('Add rechecks ownership inside the insertion transaction before storing a route', () => {
+    const directory = join(root, 'account');
+    const target = join(root, 'external');
+    mkdirSync(target);
+    const guarded = new ProviderAccountStore({ get db() {
+      renameSync(directory, join(root, 'owned'));
+      symlinkSync(target, directory, process.platform === 'win32' ? 'junction' : 'dir');
+      return first;
+    } });
+    refuses(() => guarded.add(profileId, 'Work', directory), 'route-changed');
+    expect(count('profiles')).toBe(0);
+    expect(existsSync(directory)).toBe(true);
+    expect(existsSync(target)).toBe(true);
+    expect(existsSync(join(root, 'owned'))).toBe(true);
+  });
+
   it.each(['status', 'login', 'logout'] as const)(
     'disposal awaits bounded %s process termination, retains an unproved lease and refuses every new action',
     async kind => {
@@ -104,7 +154,7 @@ describe('ProviderAccountStore transactions', () => {
         await jest.advanceTimersByTimeAsync(1);
         await disposal;
         await expect(running).resolves.toMatchObject({ code: 'cancelled' });
-        expect(a.get(profileId).state).toBe('pending');
+        expect(a.get(profileId).state).toBe(kind === 'status' ? 'not-signed-in' : 'pending');
         expect(count('operations')).toBe(1);
         refuses(() => b.reserveAuth(profileId, a.get(profileId).revision, request().route,
           'operation-other', 'owner-other', 'sign-in'), 'busy');

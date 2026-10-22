@@ -106,6 +106,50 @@ describe('Provider account official actions', () => {
     expect(service.selection(root, 'main').profileId).toBeNull();
   });
 
+  it('idle signed-in status preserves epoch, state and revision and never makes sign-in busy by pending', async () => {
+    permitMocks();
+    db.prepare("UPDATE provider_account_profiles SET state = 'signed-in' WHERE profile_id = ?").run(id);
+    const before = store.get(id);
+    const pending = actions.readStatus(target()); await flush();
+    expect(store.get(id)).toEqual(before);
+    const other = new ProviderAccountActionsService(store, commands);
+    expect((await other.startSignIn(command('operation-concurrent'))).code).toBe('busy');
+    expect(store.get(id).state).toBe('signed-in');
+    children[0].close(0, status('claude.ai'));
+    expect((await pending).code).toBe('ok');
+    expect(store.get(id)).toEqual(before);
+    const login = other.startSignIn(command('operation-after-status')); await flush();
+    expect(store.get(id).state).toBe('pending');
+    children[1].close(1); await login;
+  });
+
+  it.each([
+    ['none', 0, 'signed-out'],
+    ['claude.ai', 0, 'signed-in'],
+    ['none', 1, 'disconnected'],
+    ['unproved', 0, 'disconnected'],
+  ] as const)('status %s with exit %s persists %s without changing epoch', async (method, code, state) => {
+    permitMocks();
+    db.prepare("UPDATE provider_account_profiles SET state = 'signed-in' WHERE profile_id = ?").run(id);
+    const before = store.get(id);
+    const pending = actions.readStatus(target()); await flush();
+    children[0].close(code, status(method)); await pending;
+    expect(store.get(id)).toMatchObject({ state, auth_epoch: before.auth_epoch,
+      revision: before.revision + (state === before.state ? 0 : 1) });
+    expect(db.prepare('SELECT * FROM provider_account_operations').all()).toEqual([]);
+  });
+
+  it('unproved status termination marks signed-in disconnected and retains exclusion', async () => {
+    permitMocks();
+    db.prepare("UPDATE provider_account_profiles SET state = 'signed-in' WHERE profile_id = ?").run(id);
+    const before = store.get(id);
+    jest.spyOn(commands, 'execute').mockResolvedValue({ code: 'timeout', terminated: false });
+    await actions.readStatus(target());
+    expect(store.get(id)).toMatchObject({ state: 'disconnected', auth_epoch: before.auth_epoch, revision: before.revision + 1 });
+    expect(db.prepare('SELECT * FROM provider_account_operations').all()).toHaveLength(1);
+    expect((await actions.startSignIn(command())).code).toBe('busy');
+  });
+
   it('moves not-signed-in through pending to signed-in and verified signed-out', async () => {
     permitMocks();
     const login = actions.startSignIn(command()); await flush();

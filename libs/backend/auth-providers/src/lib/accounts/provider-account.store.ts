@@ -112,10 +112,10 @@ export class ProviderAccountStore {
   /** Public Add never imports/adopts an existing credential directory. */
   add(profileId: string, label: string, directory: string): StoredProviderAccount {
     this.validateProfile(profileId, label);
-    return withNewProviderAccountDirectory(directory, route => this.insert(profileId, label, route));
+    return withNewProviderAccountDirectory(directory, (route, validateOwned) => this.insert(profileId, label, route, validateOwned));
   }
 
-  private insert(profileId: string, label: string, route: CanonicalProviderAccountRoute): StoredProviderAccount {
+  private insert(profileId: string, label: string, route: CanonicalProviderAccountRoute, validateOwned: () => void): StoredProviderAccount {
     revalidateProviderAccountRoute(route);
     return this.atomic(db => {
       if (db.prepare('SELECT 1 FROM provider_account_profiles WHERE canonical_route = ? OR route_fingerprint = ?')
@@ -123,6 +123,7 @@ export class ProviderAccountStore {
         throw new ProviderAccountStoreError('conflict', PROVIDER_ACCOUNT_DUPLICATE_ROUTE_SUMMARY);
       }
       this.unoccupied(db, route.fingerprint, true);
+      validateOwned();
       db.prepare(`INSERT INTO provider_account_profiles
         (profile_id, provider, label, canonical_route, route_fingerprint, physical_identity, created_at, updated_at)
         VALUES (?, 'claude', ?, ?, ?, ?, ?, ?)`)
@@ -214,6 +215,47 @@ export class ProviderAccountStore {
         reservationId: request.reservationId, operationId: request.operationId, runId: request.runId,
         routeFingerprint: request.route.fingerprint, routeRevision: profile?.route_revision ?? 0, authEpoch: profile?.auth_epoch ?? 0,
       } };
+    });
+  }
+
+  /** Status excludes other operations without starting a new authentication epoch. */
+  reserveStatus(profileId: string, expectedRevision: number, route: CanonicalProviderAccountRoute,
+    operationId: string, ownerId: string): { readonly authEpoch: number } {
+    this.validateIds(operationId, ownerId);
+    this.validateRevision(expectedRevision);
+    revalidateProviderAccountRoute(route);
+    return this.atomic(db => {
+      const profile = this.profile(db, profileId, expectedRevision);
+      this.routeProfile(db, profileId, expectedRevision, route);
+      this.unoccupied(db, route.fingerprint, true);
+      db.prepare(`INSERT INTO provider_account_operations
+        (operation_id, route_fingerprint, profile_id, provider, kind, auth_epoch, expected_revision, owner_id, created_at)
+        VALUES (?, ?, ?, 'claude', 'status', ?, ?, ?, ?)`)
+        .run(operationId, route.fingerprint, profileId, profile.auth_epoch, profile.revision, ownerId, Date.now());
+      return { authEpoch: profile.auth_epoch };
+    });
+  }
+
+  /** Unproved termination retains exclusion, even when the last observation is disconnected. */
+  completeStatus(operationId: string, ownerId: string, authEpoch: number, state: ProviderAccountState, terminated: boolean): void {
+    this.validateIds(operationId, ownerId);
+    this.validateRevision(authEpoch);
+    if (!PROVIDER_ACCOUNT_STATES.includes(state)) throw new ProviderAccountStoreError('conflict');
+    this.atomic(db => {
+      const raw = db.prepare(`SELECT profile_id, expected_revision FROM provider_account_operations
+        WHERE operation_id = ? AND owner_id = ? AND auth_epoch = ? AND kind = 'status'`)
+        .get(operationId, ownerId, authEpoch);
+      if (!raw) throw new ProviderAccountStoreError('conflict');
+      const op = z.object({ profile_id: opaqueId, expected_revision: revision }).parse(raw);
+      const profile = this.profile(db, op.profile_id, op.expected_revision);
+      if (profile.auth_epoch !== authEpoch) throw new ProviderAccountStoreError('conflict');
+      if (profile.state !== state) {
+        db.prepare('UPDATE provider_account_profiles SET state = ?, revision = revision + 1, updated_at = ? WHERE profile_id = ?')
+          .run(state, Date.now(), op.profile_id);
+        if (!terminated) db.prepare('UPDATE provider_account_operations SET expected_revision = expected_revision + 1 WHERE operation_id = ?')
+          .run(operationId);
+      }
+      if (terminated) db.prepare('DELETE FROM provider_account_operations WHERE operation_id = ?').run(operationId);
     });
   }
 

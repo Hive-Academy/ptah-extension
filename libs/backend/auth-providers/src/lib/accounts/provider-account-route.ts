@@ -57,7 +57,7 @@ export function revalidateProviderAccountRoute(route: CanonicalProviderAccountRo
  * The synchronous callback commits metadata; it must not return a Promise.
  */
 export function withNewProviderAccountDirectory<T>(directory: string,
-  commit: (route: CanonicalProviderAccountRoute) => T extends PromiseLike<unknown> ? never : T): T {
+  commit: (route: CanonicalProviderAccountRoute, validateOwned: () => void) => T extends PromiseLike<unknown> ? never : T): T {
   if (!isAbsolute(directory)) throw new ProviderAccountStoreError('unsupported-source');
   try { mkdirSync(directory, { mode: 0o700 }); }
   catch (error: unknown) {
@@ -68,7 +68,23 @@ export function withNewProviderAccountDirectory<T>(directory: string,
   }
   const owned = lstatSync(directory, { bigint: true });
   try {
-    return commit(resolveProviderAccountRoute(directory));
+    const route = resolveProviderAccountRoute(directory);
+    const validateOwned = (): void => {
+      try {
+        const current = lstatSync(directory, { bigint: true });
+        const canonical = statSync(realpathSync.native(directory), { bigint: true });
+        if (!owned.isDirectory() || owned.isSymbolicLink() || !current.isDirectory() || current.isSymbolicLink() ||
+          current.dev !== owned.dev || current.ino !== owned.ino || current.birthtimeNs !== owned.birthtimeNs ||
+          !canonical.isDirectory() || canonical.dev !== owned.dev || canonical.ino !== owned.ino) {
+          throw new ProviderAccountStoreError('route-changed');
+        }
+        revalidateProviderAccountRoute(route);
+      } catch {
+        throw new ProviderAccountStoreError('route-changed');
+      }
+    };
+    validateOwned();
+    return commit(route, validateOwned);
   } catch (error: unknown) {
     try {
       const current = lstatSync(directory, { bigint: true });

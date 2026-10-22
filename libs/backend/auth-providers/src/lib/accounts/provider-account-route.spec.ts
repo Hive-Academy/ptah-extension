@@ -58,6 +58,20 @@ describe('canonical provider account routes', () => {
     }
   });
 
+  it('rechecks owned identity at commit and preserves a replacement link and its target', () => {
+    const directory = join(root, 'new');
+    const target = join(root, 'external');
+    mkdirSync(target);
+    expect(() => withNewProviderAccountDirectory(directory, (_route, validateOwned) => {
+      renameSync(directory, join(root, 'owned'));
+      symlinkSync(target, directory, process.platform === 'win32' ? 'junction' : 'dir');
+      validateOwned();
+    })).toThrow(expect.objectContaining({ code: 'route-changed' }));
+    expect(existsSync(directory)).toBe(true);
+    expect(existsSync(target)).toBe(true);
+    expect(existsSync(join(root, 'owned'))).toBe(true);
+  });
+
   it('failed Add removes only its own empty directory', () => {
     const directory = join(root, 'new');
     expect(() => withNewProviderAccountDirectory(directory, () => { throw new Error('commit failed'); })).toThrow('commit failed');

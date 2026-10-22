@@ -83,8 +83,10 @@ export class ProviderAccountActionsService implements ProviderAccountActionPort 
       if (authorization !== 'ok') return accountActionResult(authorization);
       const route = resolveProviderAccountRoute(profile.canonical_route);
       // reserveAuth compares the persisted path, physical identity and fingerprint.
-      const reservation = this.store.reserveAuth(command.profileId, command.expectedRevision, route,
-        command.operationId, this.ownerId, kind === 'logout' ? 'sign-out' : 'sign-in');
+      const reservation = kind === 'status'
+        ? this.store.reserveStatus(command.profileId, command.expectedRevision, route, command.operationId, this.ownerId)
+        : this.store.reserveAuth(command.profileId, command.expectedRevision, route,
+          command.operationId, this.ownerId, kind === 'logout' ? 'sign-out' : 'sign-in');
       const controller = new AbortController();
       const done = Promise.resolve().then(async () => {
         let outcome = await this.commands.execute(kind, route, controller.signal);
@@ -97,6 +99,14 @@ export class ProviderAccountActionsService implements ProviderAccountActionPort 
           outcome = interrupted ? { ...outcome, terminated: checked.terminated } : checked;
         }
         if (controller.signal.aborted) outcome = { ...outcome, code: 'cancelled' };
+        if (kind === 'status') {
+          const state: ProviderAccountState = outcome.terminated && outcome.code === 'ok' && outcome.authMethod === 'claude.ai'
+            ? 'signed-in' : outcome.terminated && outcome.code === 'ok' && outcome.authMethod === 'none'
+              ? 'signed-out' : profile.state === 'signed-in' ? 'disconnected' : profile.state;
+          this.store.completeStatus(command.operationId, this.ownerId, reservation.authEpoch, state, outcome.terminated);
+          return accountActionResult(outcome.code === 'ok' && (!outcome.terminated || !outcome.authMethod)
+            ? 'unsupported-source' : outcome.code);
+        }
         if (!outcome.terminated) return accountActionResult(outcome.code);
         let state: ProviderAccountState;
         if (outcome.code === 'cancelled') state = 'cancelled';
@@ -111,7 +121,7 @@ export class ProviderAccountActionsService implements ProviderAccountActionPort 
         this.active.delete(command.profileId);
       });
       this.active.set(command.profileId, { operationId: command.operationId, epoch: reservation.authEpoch,
-        revision: command.expectedRevision + 1, controller, kind, done });
+        revision: command.expectedRevision + (kind === 'status' ? 0 : 1), controller, kind, done });
       return await done;
     } catch (error: unknown) { return this.refusal(error); }
   }
