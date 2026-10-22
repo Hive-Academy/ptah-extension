@@ -725,7 +725,9 @@ export class AgentProcessManager {
       instructionFileStore: this.instructionFiles,
     });
     } catch (error: unknown) {
-      await this.instructionFiles?.remove(agentId);
+      // The spawn failure is the error the caller needs; the cleanup behind
+      // it must never replace it (4332578869).
+      await this.removeInstructionFiles(agentId);
       throw error;
     }
     sdkHandle.onLaneConfigRejected?.(() => {
@@ -734,7 +736,10 @@ export class AgentProcessManager {
         prefixKeys: 'dropped (config rejected)',
       });
     });
-    const effectiveChannel = sdkHandle.getLanePolicyDelivery?.() ?? roleChannel;
+    // The ROLE channel, not the policy channel: when the Codex policy falls
+    // back to the task prompt the role stays on developer instructions, and
+    // Pi reports its shared channel here too (4332578858).
+    const effectiveChannel = sdkHandle.getRoleDelivery?.() ?? roleChannel;
     const effectiveInfo = roleStamp ? { ...info, roleChannel: effectiveChannel } : info;
     const initialCliSessionId = sdkHandle.getSessionId?.();
     const infoWithSession = initialCliSessionId
@@ -835,7 +840,7 @@ export class AgentProcessManager {
           : {}),
         ...meta.roleStamp,
       };
-      const effectiveChannel = sdkHandle.getLanePolicyDelivery?.();
+      const effectiveChannel = sdkHandle.getRoleDelivery?.();
       const effectiveInfo = effectiveChannel && meta.roleStamp
         ? { ...info, roleChannel: effectiveChannel }
         : info;
@@ -2048,7 +2053,7 @@ export class AgentProcessManager {
     this.signalLaneCompletion(tracked);
     await this.killProcess(tracked);
     tracked.subprocessReleased = true;
-    if (this.instructionFiles) await this.instructionFiles.remove(agentId);
+    await this.removeInstructionFiles(agentId);
     this.clearIdleRelease(tracked);
     clearTimeout(tracked.timeoutHandle);
     this.flushDelta(agentId);
@@ -2300,7 +2305,7 @@ export class AgentProcessManager {
     this.events.emit('agent:exited', tracked.info);
     await this.killProcess(tracked);
     tracked.subprocessReleased = true;
-    if (this.instructionFiles) await this.instructionFiles.remove(agentId);
+    await this.removeInstructionFiles(agentId);
     this.clearIdleRelease(tracked);
     this.flushDelta(agentId);
     this.outputBuffer.discard(agentId);
@@ -2352,6 +2357,25 @@ export class AgentProcessManager {
   }
 
   /**
+   * Remove the lane's instruction files without ever throwing. A cleanup
+   * failure is logged at warn and the caller's terminal bookkeeping — the
+   * exit event, the timers, the buffers, the TTL schedule — still runs; a
+   * rejected remove used to skip that bookkeeping or replace a spawn
+   * failure (4332578869).
+   */
+  // degradation-audit: reported - the remove failure is logged at warn; the terminal bookkeeping still completes
+  private async removeInstructionFiles(agentId: string): Promise<void> {
+    try {
+      await this.instructionFiles?.remove(agentId);
+    } catch (error: unknown) {
+      this.logger.warn('[AgentProcessManager] Lane instruction cleanup failed', {
+        agentId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /**
    * End an agent's operating-system process while KEEPING its record.
    *
    * This is the memory reclamation that `handleExit` never did. It aborts the
@@ -2375,7 +2399,7 @@ export class AgentProcessManager {
     reason: AgentReleaseReason,
   ): Promise<void> {
     if (tracked.subprocessReleased) {
-      await this.instructionFiles?.remove(agentId);
+      await this.removeInstructionFiles(agentId);
       return;
     }
     // Set BEFORE the await: killProcess yields, and a second caller arriving in
@@ -2413,14 +2437,7 @@ export class AgentProcessManager {
       reason,
       cliSessionId: tracked.info.cliSessionId,
     });
-    try {
-      await this.instructionFiles?.remove(agentId);
-    } catch (error: unknown) {
-      this.logger.warn('[AgentProcessManager] Lane instruction cleanup failed', {
-        agentId, error: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
-    }
+    await this.removeInstructionFiles(agentId);
   }
 
   private handleExit(

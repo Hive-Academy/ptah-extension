@@ -323,6 +323,13 @@ export class CodexCliAdapter implements CliAdapter {
   readonly roleChannel = 'developer-instructions' as const;
 
   /**
+   * The platform whose command-line limit the spawn argv checks measure
+   * against. `process.platform` in production; a spec may point it at
+   * another platform to exercise a limit this host does not run under.
+   */
+  private argvLimitPlatform: NodeJS.Platform = process.platform;
+
+  /**
    * @param logger - Optional; when supplied it receives the FULL SDK rejection
    *   text, which the stream deliberately no longer carries.
    */
@@ -602,6 +609,7 @@ export class CodexCliAdapter implements CliAdapter {
         assertCommandLineWithinLimit(
           binary?.path ?? 'codex',
           codexExecArgs({ configOverrides, ...threadOptions, resumeThreadId: threadId }),
+          this.argvLimitPlatform,
         );
       let configOverrides = laneConfig(threadId ? 'resume' : 'first-turn');
       try {
@@ -877,6 +885,9 @@ export class CodexCliAdapter implements CliAdapter {
       abort: abortController,
       done,
       getLanePolicyDelivery: () => policyInTask ? 'task-prompt' : 'developer-instructions',
+      // The role rides developer_instructions on every turn, including the
+      // turns where the policy fell back to the task prompt.
+      getRoleDelivery: () => 'developer-instructions',
       onOutput: output.subscribe,
       onSegment: segment.subscribe,
       onLaneConfigRejected: configRejection.subscribe,

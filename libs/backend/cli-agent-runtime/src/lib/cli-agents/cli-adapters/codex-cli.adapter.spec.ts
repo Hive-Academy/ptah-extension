@@ -920,19 +920,35 @@ describe('CodexCliAdapter', () => {
     });
 
     it('puts policy in continue text once when the resume thread id makes developer argv too long', async () => {
-      const threadId = 't'.repeat(31_000);
-      mockRunStreamed.mockImplementation(async () => ({
-        events: createFakeEventGenerator([{ type: 'thread.started', thread_id: threadId }]),
-      }));
-      const handle = await adapter.runSdk(defaultOptions);
-      await handle.done;
-      const outcome = await handle.continue?.('Follow-up message');
-      expect(await outcome?.done).toBe(0);
-      expect(mockRunStreamed.mock.calls[1][0]).toContain('Lane policy id: ptah-lane-policy-v1');
-      expect(handle.getLanePolicyDelivery?.()).toBe('task-prompt');
-      const later = await handle.continue?.('Later message');
-      expect(await later?.done).toBe(0);
-      expect(mockRunStreamed.mock.calls[2][0]).not.toContain('Lane policy id: ptah-lane-policy-v1');
+      // The thread id and the developer instructions compete for a
+      // WHOLE-COMMAND limit: dropping the policy cures an argv that the id
+      // pushed over that limit. Only win32 (and darwin) model a total; linux
+      // models the per-argument MAX_ARG_STRLEN, which a thread id can breach
+      // but dropping the policy cannot cure — so a 31,000-char id sails
+      // under linux's limit and the fallback never triggers (the #803 CI
+      // failure). Pin the argv checks to win32 so every platform exercises
+      // the same fallback.
+      Reflect.set(adapter, 'argvLimitPlatform', 'win32');
+      try {
+        const threadId = 't'.repeat(31_000);
+        mockRunStreamed.mockImplementation(async () => ({
+          events: createFakeEventGenerator([{ type: 'thread.started', thread_id: threadId }]),
+        }));
+        const handle = await adapter.runSdk(defaultOptions);
+        await handle.done;
+        const outcome = await handle.continue?.('Follow-up message');
+        expect(await outcome?.done).toBe(0);
+        expect(mockRunStreamed.mock.calls[1][0]).toContain('Lane policy id: ptah-lane-policy-v1');
+        expect(handle.getLanePolicyDelivery?.()).toBe('task-prompt');
+        // The policy moved to the task prompt, but the role never left
+        // developer instructions (4332578858).
+        expect(handle.getRoleDelivery?.()).toBe('developer-instructions');
+        const later = await handle.continue?.('Later message');
+        expect(await later?.done).toBe(0);
+        expect(mockRunStreamed.mock.calls[2][0]).not.toContain('Lane policy id: ptah-lane-policy-v1');
+      } finally {
+        Reflect.set(adapter, 'argvLimitPlatform', process.platform);
+      }
     });
 
     it('starts a new thread with the full prefix when the first turn never reported one', async () => {

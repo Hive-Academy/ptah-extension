@@ -546,6 +546,17 @@ describe('ChromeLauncherBrowserCapabilities', () => {
       await caps.stopRecording();
       expect(cdp.Page.stopScreencast).toHaveBeenCalled();
     });
+
+    it('stopRecording() still stops the CDP screencast when the page escaped', async () => {
+      await caps.startRecording();
+      cdp.Page.getFrameTree.mockResolvedValueOnce({
+        frameTree: { frame: { url: 'data:text/html,escaped' } },
+      });
+      const result = await caps.stopRecording();
+      expect(result.error).toMatch(/outside the workspace/);
+      expect(result.filePath).toBe('');
+      expect(cdp.Page.stopScreencast).toHaveBeenCalled();
+    });
   });
 
   describe('workspace file guard', () => {

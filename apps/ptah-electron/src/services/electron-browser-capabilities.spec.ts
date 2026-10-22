@@ -384,4 +384,20 @@ describe('ElectronBrowserCapabilities file guard', () => {
     expect(result.error).toMatch(/file-access guard/);
     expect(specState().loadURL).not.toHaveBeenCalled();
   });
+
+  describe('recording', () => {
+    it('stopRecording() stops the screencast when the page escaped', async () => {
+      await caps.navigate('https://example.com/');
+      const start = await caps.startRecording();
+      expect(start.success).toBe(true);
+      specState().getURL.mockReturnValue('data:text/html,escaped');
+      const result = await caps.stopRecording();
+      expect(result.error).toMatch(/outside the workspace/);
+      expect(result.filePath).toBe('');
+      expect(specState().sendCommand).toHaveBeenCalledWith(
+        'Page.stopScreencast',
+        {},
+      );
+    });
+  });
 });

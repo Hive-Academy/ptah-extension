@@ -112,3 +112,6 @@ injected Logger; Zod at boundaries. Do not raise `tools/degradation-audit` basel
   installed (codex, grok, antigravity, opencode; ≤3 at a time; ≤15 tool calls; 10-min timeout;
   neutral task text from amendment 1) → adherence-report.md in a follow-up. Open follow-up:
   catch a rejected Runtime.runIfWaitingForDebugger (chrome-launcher-browser-capabilities.ts:848).
+- 2026-10-22 LANE QUOTA RECORD (recovery): lane opencode (family opencode) stopped mid-task —
+  monthly Go quota 100% used, resets 2026-11-04 11:44 UTC. No opencode retry before the reset.
+  The ptah-cli (glm) recovery lane finished the runtime fixes; see pr803-runtime-fixes.md.

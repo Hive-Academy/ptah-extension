@@ -3172,6 +3172,61 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       expect(remove).toHaveBeenCalledWith(agentId);
     });
 
+    it('still completes the stop bookkeeping when the instruction cleanup fails', async () => {
+      // A rejected remove must not skip the terminal bookkeeping around it
+      // (4332578869): the stop still settles, the failure is logged at warn,
+      // and the record stays readable.
+      const remove = jest.fn().mockRejectedValue(new Error('remove failed'));
+      Reflect.set(manager, 'instructionFiles', { remove });
+      const agentId = await spawnContinuable();
+      controls.resolve(0);
+      await Promise.resolve();
+      await Promise.resolve();
+      await expect(manager.stop(agentId)).resolves.toMatchObject({
+        status: 'completed',
+      });
+      expect(remove).toHaveBeenCalledWith(agentId);
+      expect(manager.getStatus(agentId)).toMatchObject({ status: 'completed' });
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[AgentProcessManager] Lane instruction cleanup failed',
+        expect.objectContaining({ agentId, error: 'remove failed' }),
+      );
+    });
+
+    it('still settles a live stop and emits its exit event when the instruction cleanup fails', async () => {
+      // 4332578869, running branch. The test above locks the settled-release
+      // path; this one keeps the turn in flight so `stop` takes the
+      // running-stop branch, where a rejected remove must not skip the
+      // terminal tail: the timers, the buffers, the TTL and `agent:exited`.
+      const remove = jest.fn().mockRejectedValue(new Error('remove failed'));
+      Reflect.set(manager, 'instructionFiles', { remove });
+      const agentId = await spawnContinuable();
+      expect(manager.getStatus(agentId)).toHaveProperty('status', 'running');
+
+      const exits: unknown[] = [];
+      manager.events.on('agent:exited', (info: unknown) => exits.push(info));
+
+      const stopPromise = manager.stop(agentId);
+      // The abort inside `stop` is what ends the in-flight turn: completion
+      // is not faked before the stop.
+      controls.resolve(0);
+      jest.advanceTimersByTime(600);
+      const info = await stopPromise;
+
+      expect(info).toMatchObject({ status: 'stopped' });
+      expect(manager.getStatus(agentId)).toMatchObject({ status: 'stopped' });
+      expect(remove).toHaveBeenCalledTimes(1);
+      expect(remove).toHaveBeenCalledWith(agentId);
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[AgentProcessManager] Lane instruction cleanup failed',
+        expect.objectContaining({ agentId, error: 'remove failed' }),
+      );
+      // The terminal exit event still carries the stopped record.
+      expect(exits).toContainEqual(
+        expect.objectContaining({ agentId, status: 'stopped' }),
+      );
+    });
+
     const spawnContinuable = async (): Promise<string> => {
       controls = createMockSdkHandle({ supportsContinuation: true });
       (sdkAdapter.runSdk as jest.Mock).mockResolvedValue(controls.handle);

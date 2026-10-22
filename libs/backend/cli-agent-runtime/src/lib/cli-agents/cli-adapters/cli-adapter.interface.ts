@@ -105,6 +105,14 @@ export interface SdkHandle {
   readonly providerId?: string;
   /** Effective policy channel after adapter fallback selection. */
   readonly getLanePolicyDelivery?: () => AgentRoleChannel;
+  /**
+   * Effective ROLE channel after adapter fallback selection — where the role
+   * block actually went. The policy channel is not always the role channel:
+   * when the Codex policy falls back to the task prompt the role stays on
+   * `developer_instructions`, while Pi delivers role and policy on one
+   * shared channel. Absent keeps the adapter's configured channel.
+   */
+  readonly getRoleDelivery?: () => AgentRoleChannel;
   /** Abort controller to cancel the SDK operation */
   readonly abort: AbortController;
   /** Promise that resolves when SDK execution completes. Resolves with exit code (0=success, 1=error). */

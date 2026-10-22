@@ -875,6 +875,14 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     try {
       const escaped = await this.rejectIfPageEscaped();
       if (escaped) {
+        if (this.connected && this.window && !this.window.isDestroyed()) {
+          // degradation-audit: optional-capability - the captured content is
+          // withheld, but the CDP screencast must still be stopped so frames
+          // and acks cannot keep flowing once the recorder is cleared.
+          await this.sendCDP('Page.stopScreencast', {}).catch(
+            (_stopError: unknown) => {},
+          );
+        }
         this.recorder = null;
         return {
           filePath: '',

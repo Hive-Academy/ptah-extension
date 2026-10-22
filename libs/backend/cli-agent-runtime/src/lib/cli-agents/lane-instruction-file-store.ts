@@ -1,6 +1,23 @@
 import { lstat, realpath } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { types } from 'node:util';
 import type { IFileSystemProvider } from '@ptah-extension/platform-core';
+
+/**
+ * ENOENT from a filesystem call, checked with no realm assumption. Jest runs
+ * this module inside a `vm` context whose `Error` intrinsic is not the one
+ * `node:fs` rejects with, so an `instanceof Error` guard rethrows every real
+ * ENOENT under test; `types.isNativeError` accepts the native errors of any
+ * realm and still rejects non-error throws. Measured on win32, Node 24: from
+ * inside a vm context, a real fs ENOENT has `instanceof Error === false` and
+ * `types.isNativeError === true`.
+ */
+function isEnoent(error: unknown): boolean {
+  return (
+    types.isNativeError(error) &&
+    (error as NodeJS.ErrnoException).code === 'ENOENT'
+  );
+}
 
 /** Owns only instruction directories created for this process's lanes. */
 export class LaneInstructionFileStore {
@@ -51,8 +68,34 @@ export class LaneInstructionFileStore {
   async remove(agentId: string): Promise<void> {
     const owned = this.owned.get(agentId);
     if (!owned) return;
-    const root = await realpath(owned.root);
-    const directory = await realpath(owned.directory);
+    let root: string;
+    let directory: string;
+    try {
+      root = await realpath(owned.root);
+      directory = await realpath(owned.directory);
+    } catch (error: unknown) {
+      // degradation-audit: optional-capability - ENOENT can mean "removed": a
+      // workspace or lane directory that no longer resolves, with no entry
+      // left at the owned path, has nothing left to delete or to contain, and
+      // keeping the entry would own a vanished directory forever. Any other
+      // error still fails the removal.
+      if (!isEnoent(error)) throw error;
+      // An ENOENT from realpath is not proof the name is gone: the entry can
+      // be a dangling link or junction. lstat does not follow the final
+      // component, so an entry that still exists keeps its ownership and the
+      // removal is refused as a containment change instead of silently
+      // forgetting it; nothing is ever deleted through a link.
+      let entryExists = false;
+      try {
+        await lstat(owned.directory);
+        entryExists = true;
+      } catch (lstatError: unknown) {
+        if (!isEnoent(lstatError)) throw lstatError;
+      }
+      if (entryExists) throw new Error('Lane instruction directory changed');
+      this.owned.delete(agentId);
+      return;
+    }
     this.assertInside(root, directory);
     if (directory !== owned.directory) throw new Error('Lane instruction directory changed');
     await this.files.delete(directory, { recursive: true });

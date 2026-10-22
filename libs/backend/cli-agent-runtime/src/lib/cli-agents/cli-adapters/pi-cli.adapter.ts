@@ -547,6 +547,9 @@ export class PiCliAdapter implements CliAdapter {
       getSessionId: () => capturedSessionId,
       getPid: () => activeChild?.pid,
       getLanePolicyDelivery: () => instructionPath ? 'system-prompt' : 'task-prompt',
+      // Pi's channel is shared: the role rides the same system-prompt file
+      // (or the same task prompt) as the policy.
+      getRoleDelivery: () => instructionPath ? 'system-prompt' : 'task-prompt',
       steer: (message: string): void => {
         // Mid-run steering targets the CURRENT child's stdin. NEVER a bare
         // `prompt` (Pi errors on that mid-run) — the dedicated `steer` request.
