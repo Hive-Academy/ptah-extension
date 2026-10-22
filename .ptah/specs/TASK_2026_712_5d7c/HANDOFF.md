@@ -52,7 +52,13 @@ PR stays ready), D19 (P1-C, deferred items).
 - At handoff: 9 pass, 6 pending (test shards, e2e), 1 **fail = `checks` job** (degradation-audit ratchet:
   agent-sdk 8 > baseline 4, cli-agent-runtime 2 > 1). Fix `8fa5c01d9` is local, NOT pushed; the local
   audit passes (agent-sdk 3/4, cli-agent-runtime 1/1). Baseline unchanged.
-- The test shards for `86cef1ec1` had not finished. Batches 14–15 specs have never run yet.
+- Final CI result for `86cef1ec1` (collected at wrap-up): `checks` fail (fixed locally by `8fa5c01d9`),
+  `main` fail (aggregate), **`test (shard 1/4)` fail** in
+  `libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/claude-cli.adapter.spec.ts` (P1-B fix `5b0fac24a`):
+  "closes the prompt and ends lifecycle tracking on synchronous SDK failure" and
+  "gives two fresh spawns different permission routing hints". NOT fixed yet. Reproduce first (slot needed):
+  `npx jest -c libs/backend/cli-agent-runtime/jest.config.ts libs/backend/cli-agent-runtime/src/lib/cli-agents/cli-adapters/claude-cli.adapter.spec.ts --coverage=false --maxWorkers=2`.
+  The other shards passed or were not reported as failed.
 
 ## Open problems and follow-ups
 
