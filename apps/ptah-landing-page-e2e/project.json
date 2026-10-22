@@ -3,8 +3,14 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "projectType": "application",
   "sourceRoot": "apps/ptah-landing-page-e2e/src",
-  "tags": ["scope:e2e", "type:e2e", "scope:landing"],
-  "implicitDependencies": ["ptah-landing-page"],
+  "tags": [
+    "scope:e2e",
+    "type:e2e",
+    "scope:landing"
+  ],
+  "implicitDependencies": [
+    "ptah-landing-page"
+  ],
   "targets": {
     "e2e": {
       "executor": "nx:run-commands",
@@ -32,13 +38,31 @@
         "command": "npx playwright test --config=playwright.checkout.config.ts"
       }
     },
-    "lint": {
-      "executor": "@nx/eslint:lint"
-    },
     "typecheck": {
       "executor": "nx:run-commands",
       "options": {
         "command": "tsc --noEmit --project apps/ptah-landing-page-e2e/tsconfig.spec.json"
+      }
+    },
+    "lint": {
+      "inputs": [
+        "default",
+        "^default",
+        "{workspaceRoot}/.eslintrc.json",
+        "{workspaceRoot}/.eslintignore",
+        "{workspaceRoot}/eslint.config.mjs",
+        "{workspaceRoot}/tools/eslint-rules/**/*",
+        {
+          "externalDependencies": [
+            "eslint"
+          ]
+        }
+      ],
+      "executor": "nx:run-commands",
+      "cache": true,
+      "options": {
+        "cwd": "apps/ptah-landing-page-e2e",
+        "command": "eslint ."
       }
     }
   }

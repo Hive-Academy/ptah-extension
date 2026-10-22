@@ -69,8 +69,8 @@ import { PreviousSessionsDialogService } from '../../services/session-list/previ
 import { SessionOrganizerService } from '../../services/session-list/session-organizer.service';
 
 const SHELL_TEMPLATE = join(
-  process.cwd(),
-  'libs/frontend/chat/src/lib/components/templates/app-shell.component.html',
+  __dirname,
+  'app-shell.component.html',
 );
 
 /** The canvas content container (bare `ptahSurfaceActive`). */

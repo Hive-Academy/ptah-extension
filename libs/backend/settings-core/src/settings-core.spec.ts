@@ -824,6 +824,8 @@ describe('TC-18: Isolation guarantee — zero unauthorized consumers', () => {
       /^docs[\\/]/,
       // Task specs quote import lines in their plans. Prose, never compiled.
       /^\.ptah[\\/]specs[\\/]/,
+      // CI shard weights key projects by name. Data, never compiled.
+      /^\.github[\\/]ci[\\/]test-weights\.json$/,
     ];
 
     const unauthorized = lines.filter(

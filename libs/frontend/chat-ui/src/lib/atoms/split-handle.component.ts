@@ -82,10 +82,9 @@ const GRIP_SEPARATOR_EXTRA =
   `,
   host: {
     class: 'block shrink-0',
-    '[class.w-1.5]': "appearance() === 'line' && orientation() === 'vertical'",
+    '[class.w-1]': "appearance() === 'line' && orientation() === 'vertical'",
     '[class.h-full]': "orientation() === 'vertical'",
-    '[class.h-1.5]':
-      "appearance() === 'line' && orientation() === 'horizontal'",
+    '[class.h-1]': "appearance() === 'line' && orientation() === 'horizontal'",
     '[class.w-full]': "orientation() === 'horizontal'",
   },
   changeDetection: ChangeDetectionStrategy.OnPush,

@@ -7,15 +7,9 @@
   "tags": ["scope:web", "type:feature"],
   "targets": {
     "test": {
-      "executor": "@nx/jest:jest",
-      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
       "options": {
-        "jestConfig": "libs/web/legal/jest.config.cts",
-        "tsConfig": "libs/web/legal/tsconfig.spec.json"
+        "passWithNoTests": true
       }
-    },
-    "lint": {
-      "executor": "@nx/eslint:lint"
     },
     "typecheck": {
       "executor": "nx:run-commands",

@@ -7,16 +7,9 @@
   "tags": ["scope:webview", "type:feature"],
   "targets": {
     "test": {
-      "executor": "@nx/jest:jest",
-      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
       "options": {
-        "jestConfig": "libs/frontend/tribunal-panel/jest.config.ts",
-        "tsConfig": "libs/frontend/tribunal-panel/tsconfig.spec.json",
         "passWithNoTests": true
       }
-    },
-    "lint": {
-      "executor": "@nx/eslint:lint"
     },
     "typecheck": {
       "executor": "nx:run-commands",

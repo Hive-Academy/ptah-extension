@@ -424,8 +424,9 @@ describe('SplitHandleComponent', () => {
 
   describe('appearance', () => {
     it('keeps the default line markup and host size classes', () => {
-      // Today's rendering: Angular reads the host key `class.w-1.5` as the
-      // class `w-1` (it stops at the dot). Pinned so `line` stays unchanged.
+      // Angular 22.1 read the old host key `class.w-1.5` as the class `w-1`
+      // (it stopped at the dot); 22.2 applies `w-1.5`. The key is now `w-1`,
+      // so the rendered `line` handle stays 4px. Pinned so it stays unchanged.
       const el = handleHost();
       expect([...el.classList]).toEqual(['block', 'shrink-0', 'w-1', 'h-full']);
       // The separator's `[class]` binding orders classes itself; the set is

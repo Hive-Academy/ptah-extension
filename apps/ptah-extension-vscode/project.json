@@ -7,6 +7,12 @@
   "implicitDependencies": ["@ptah-extension/rpc-handlers"],
   "targets": {
     "build": {
+      "inputs": [
+        "default",
+        "^production",
+        "{workspaceRoot}/apps/ptah-extension-webview/**/*",
+        "{workspaceRoot}/libs/frontend/**/*"
+      ],
       "executor": "nx:noop",
       "dependsOn": ["build-esbuild", "post-build-copy"]
     },
@@ -170,6 +176,12 @@
       }
     },
     "prune": {
+      "inputs": [
+        "default",
+        "^production",
+        "{workspaceRoot}/apps/ptah-extension-webview/**/*",
+        "{workspaceRoot}/libs/frontend/**/*"
+      ],
       "dependsOn": ["prune-lockfile", "copy-workspace-modules"],
       "executor": "nx:noop"
     },
@@ -191,15 +203,9 @@
         }
       }
     },
-    "lint": {
-      "executor": "@nx/eslint:lint"
-    },
     "test": {
-      "executor": "@nx/jest:jest",
       "dependsOn": ["build-esbuild"],
-      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
       "options": {
-        "jestConfig": "apps/ptah-extension-vscode/jest.config.ts",
         "passWithNoTests": true
       }
     },
