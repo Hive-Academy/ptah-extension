@@ -35,10 +35,8 @@
       }
     },
     "test": {
-      "executor": "@nx/jest:jest",
-      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
       "options": {
-        "jestConfig": "libs/backend/rpc-handlers/jest.config.ts"
+        "passWithNoTests": true
       }
     },
     "typecheck": {
@@ -46,9 +44,6 @@
       "options": {
         "command": "tsc --noEmit --project libs/backend/rpc-handlers/tsconfig.lib.json"
       }
-    },
-    "lint": {
-      "executor": "@nx/eslint:lint"
     }
   }
 }

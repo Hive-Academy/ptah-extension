@@ -3,19 +3,33 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "projectType": "application",
   "sourceRoot": "apps/ptah-tui/src",
-  "tags": ["scope:cli", "type:app"],
+  "tags": [
+    "scope:cli",
+    "type:app"
+  ],
   "targets": {
     "build": {
       "executor": "@nx/esbuild:esbuild",
-      "outputs": ["{options.outputPath}/tui.mjs"],
-      "dependsOn": [{ "projects": ["ptah-cli"], "target": "build" }],
+      "outputs": [
+        "{options.outputPath}/tui.mjs"
+      ],
+      "dependsOn": [
+        {
+          "projects": [
+            "ptah-cli"
+          ],
+          "target": "build"
+        }
+      ],
       "defaultConfiguration": "production",
       "options": {
         "outputPath": "dist/apps/ptah-cli",
         "main": "apps/ptah-tui/src/main.tsx",
         "outputFileName": "tui.mjs",
         "tsConfig": "apps/ptah-tui/tsconfig.build.json",
-        "format": ["esm"],
+        "format": [
+          "esm"
+        ],
         "platform": "node",
         "target": "node20",
         "bundle": true,
@@ -23,7 +37,9 @@
         "skipTypeCheck": true,
         "deleteOutputPath": false,
         "esbuildOptions": {
-          "outExtension": { ".js": ".mjs" },
+          "outExtension": {
+            ".js": ".mjs"
+          },
           "jsx": "automatic",
           "banner": {
             "js": "import 'reflect-metadata'; import { createRequire } from 'module'; import { fileURLToPath as __esm_fileURLToPath } from 'url'; import { dirname as __esm_dirname } from 'path'; const require = createRequire(import.meta.url); const __filename = __esm_fileURLToPath(import.meta.url); const __dirname = __esm_dirname(__filename);"
@@ -100,16 +116,33 @@
         "command": "tsc --noEmit --project apps/ptah-tui/tsconfig.app.json"
       }
     },
-    "lint": {
-      "executor": "@nx/eslint:lint"
-    },
     "test": {
-      "executor": "@nx/jest:jest",
-      "dependsOn": ["build"],
-      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "dependsOn": [
+        "build"
+      ],
       "options": {
-        "jestConfig": "apps/ptah-tui/jest.config.cjs",
         "passWithNoTests": true
+      }
+    },
+    "lint": {
+      "inputs": [
+        "default",
+        "^default",
+        "{workspaceRoot}/.eslintrc.json",
+        "{workspaceRoot}/.eslintignore",
+        "{workspaceRoot}/eslint.config.mjs",
+        "{workspaceRoot}/tools/eslint-rules/**/*",
+        {
+          "externalDependencies": [
+            "eslint"
+          ]
+        }
+      ],
+      "executor": "nx:run-commands",
+      "cache": true,
+      "options": {
+        "cwd": "apps/ptah-tui",
+        "command": "eslint ."
       }
     }
   }

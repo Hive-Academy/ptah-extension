@@ -5,8 +5,8 @@ describe('AppShell notification center composition', () => {
   it('places exactly one bell in the non-Electron header action branch', () => {
     const html = readFileSync(
       resolve(
-        process.cwd(),
-        'libs/frontend/chat/src/lib/components/templates/app-shell.component.html',
+        __dirname,
+        'app-shell.component.html',
       ),
       'utf8',
     );
@@ -24,8 +24,8 @@ describe('AppShell notification center composition', () => {
   it('provides the core focus-router token through the coordinator', () => {
     const source = readFileSync(
       resolve(
-        process.cwd(),
-        'libs/frontend/chat/src/lib/components/templates/app-shell.component.ts',
+        __dirname,
+        'app-shell.component.ts',
       ),
       'utf8',
     );
@@ -34,7 +34,7 @@ describe('AppShell notification center composition', () => {
   });
 
   it('opens the typed bell and starts failure and sound projection from the shell', () => {
-    const source = readFileSync(resolve(process.cwd(), 'libs/frontend/chat/src/lib/components/templates/app-shell.component.ts'), 'utf8');
+    const source = readFileSync(resolve(__dirname, 'app-shell.component.ts'), 'utf8');
     expect(source).toContain('viewChild(NotificationCenterComponent)');
     expect(source).toContain('bell.openPanel()');
     expect(source).toContain('inject(ChatFailedTurnAttentionService)');

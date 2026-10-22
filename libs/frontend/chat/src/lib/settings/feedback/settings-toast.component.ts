@@ -1,5 +1,5 @@
-import { ChangeDetectionStrategy, Component, ElementRef, effect, inject, input, viewChild } from '@angular/core';
-import { NgTemplateOutlet } from '@angular/common';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, effect, inject, input, viewChild } from '@angular/core';
+import { DOCUMENT, NgTemplateOutlet } from '@angular/common';
 import { LucideAngularModule, X } from 'lucide-angular';
 import { SettingsSaveFeedbackService } from './settings-save-feedback.service';
 import { SettingsBusyDisabledDirective } from './busy-disabled.directive';
@@ -12,7 +12,7 @@ import { SettingsBusyDisabledDirective } from './busy-disabled.directive';
  * While a NativeDrawer is open the toast sits at `bottom-28` (112 px) instead of `bottom-6`, so it clears
  * the drawer's pinned footer (Close, Save, Back: 57 px, 105 px when the setup wizard's footer wraps) and
  * never takes a click meant for it (Batch 49b). The rule is pure CSS (`:has()`), so nothing is observed or
- * polled. A NativeModal needs no rule: its `<dialog>` is in the top layer, above any fixed element.
+ * polled. The page toast also re-raises above newly opened modal dialogs without moving focus.
  *
  * `inline` (Batch 55b CS-1): the same toast in the flow of a panel instead of fixed to the page, for a surface
  * whose focus trap the page toast is outside of (the drawer's Models & Tiers tab), so a keyboard user can reach its
@@ -87,25 +87,61 @@ export class SettingsToastComponent {
 
   private readonly region = viewChild<ElementRef<HTMLElement>>('region');
 
+  private readonly document = inject(DOCUMENT);
+  private readonly destroyRef = inject(DestroyRef);
+  private raisePending = false;
+
   constructor() {
     effect(() => {
-      // Read the toast so every new message re-stacks the region above popovers opened since.
+      // Every new message also re-stacks the region.
       this.feedback.toast();
       const region = this.region()?.nativeElement;
-      if (!region) return;
-      if (typeof region.showPopover !== 'function') {
-        this.keepRegionInPlace(region);
-        return;
-      }
-      try {
-        if (region.matches(':popover-open')) region.hidePopover();
-        region.showPopover();
-        region.style.display = '';
-      } catch {
-        // Intentionally swallowed (not connected or Popover API refused): the toast stays in the page layer.
-        this.keepRegionInPlace(region);
-      }
+      if (region) this.raiseRegion(region);
     });
+    // toggle does not bubble. Capture also observes modal dialog openings.
+    this.document.addEventListener('toggle', this.onTopLayerToggle, true);
+    this.destroyRef.onDestroy(() => {
+      this.document.removeEventListener('toggle', this.onTopLayerToggle, true);
+    });
+  }
+
+  private readonly onTopLayerToggle = (event: Event): void => {
+    const region = this.region()?.nativeElement;
+    const target = event.target;
+    if (
+      !('newState' in event) || event.newState !== 'open' ||
+      !region || !this.feedback.toast() || this.inline() || target === region ||
+      !(target instanceof HTMLElement) ||
+      !(target.hasAttribute('popover') || target.tagName === 'DIALOG') ||
+      // Another page toast re-raising itself must not re-raise this one (loop).
+      target.matches('[data-testid="settings-toast-region"]') ||
+      this.raisePending
+    ) return;
+    this.raisePending = true;
+    queueMicrotask(() => {
+      this.raisePending = false;
+      if (
+        !this.destroyRef.destroyed && this.feedback.toast() && !this.inline() &&
+        this.region()?.nativeElement === region && region.isConnected
+      ) this.raiseRegion(region);
+    });
+  };
+
+  private raiseRegion(region: HTMLElement): void {
+    if (typeof region.showPopover !== 'function') {
+      this.keepRegionInPlace(region);
+      return;
+    }
+    try {
+      if (region.matches(':popover-open')) region.hidePopover();
+      // No autofocus descendants: popover focusing steps leave the active control alone,
+      // including when a modal dialog just opened. The inline variant remains reachable there.
+      region.showPopover();
+      region.style.display = '';
+    } catch {
+      // degradation-audit: optional-capability - promotion refused; keep the toast visible in-page.
+      this.keepRegionInPlace(region);
+    }
   }
 
   /** Undo a non-open popover's display:none when promotion did not happen, so the toast stays visible in-page. */

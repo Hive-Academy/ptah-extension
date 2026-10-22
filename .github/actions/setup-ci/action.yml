@@ -9,7 +9,7 @@ inputs:
     description: Full cache key for this job's Nx task results.
     required: true
   NX_CACHE_RESTORE_KEY:
-    description: Shared restore-key prefix for Nx task results.
+    description: Ordered restore-key prefixes for Nx task results (job first, then OS).
     required: true
 
 runs:

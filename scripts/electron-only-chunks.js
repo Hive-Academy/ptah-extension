@@ -1,8 +1,9 @@
 /**
  * Electron-only chunk list for the webview build (TASK_2026_576, R12).
  *
- * Reads `dist/apps/ptah-extension-webview/stats.json` (esbuild metafile written
- * by the production build, `statsJson: true`) and writes
+ * Reads `dist/apps/ptah-extension-webview/browser-stats.json` (esbuild metafile
+ * written by the production build, `statsJson: true`; Angular 22.1 and earlier
+ * named it `stats.json`) and writes
  * `dist/apps/ptah-extension-webview/electron-only-chunks.json`.
  *
  * A JS output is Electron-only ONLY when it has at least one input and EVERY
@@ -19,7 +20,7 @@
  * `scripts/copy-webview.js` (VSIX) skips the listed files; the Electron
  * renderer copy (`apps/ptah-electron/scripts/copy-renderer.js`) keeps all.
  *
- * `generate` refuses a stats.json that does not describe the `browser/` folder
+ * `generate` refuses a stats file that does not describe the `browser/` folder
  * beside it (a JS file one has and the other lacks), and a list whose dropped
  * chunks are reachable from `main.js` through static imports, so a stale or
  * mismatched build fails loudly instead of shipping a wrong VSIX.
@@ -120,7 +121,7 @@ function classify(stats) {
 
 /**
  * Throw unless the top-level JS files of `browserDir` are exactly the JS
- * outputs `stats` names (case-sensitive): otherwise stats.json is stale or
+ * outputs `stats` names (case-sensitive): otherwise the stats file is stale or
  * from another build, and the list would name the wrong files.
  */
 function assertStatsMatchBuild(stats, browserDir) {
@@ -139,7 +140,7 @@ function assertStatsMatchBuild(stats, browserDir) {
   const notDescribed = [...built].filter((f) => !described.has(f));
   if (notBuilt.length > 0 || notDescribed.length > 0) {
     throw new Error(
-      `[electron-only-chunks] stats.json does not match ${browserDir} ` +
+      `[electron-only-chunks] ${STATS_FILE} does not match ${browserDir} ` +
         `(${notBuilt.length} described but not built, e.g. ${notBuilt.slice(0, 3).join(', ') || '-'}; ` +
         `${notDescribed.length} built but not described, e.g. ${notDescribed.slice(0, 3).join(', ') || '-'}). ` +
         'Rebuild the production webview so both come from the same build.',
@@ -172,9 +173,12 @@ function assertEagerClosureKept(stats, electronOnly) {
   }
 }
 
-/** Generate the list from `<distDir>/stats.json`; returns the summary. */
+/** Name of the esbuild metafile that `@angular/build` (22.2+) writes. */
+const STATS_FILE = 'browser-stats.json';
+
+/** Generate the list from `<distDir>/browser-stats.json`; returns the summary. */
 function generate(distDir) {
-  const statsPath = path.join(distDir, 'stats.json');
+  const statsPath = path.join(distDir, STATS_FILE);
   if (!fs.existsSync(statsPath)) {
     throw new Error(
       `[electron-only-chunks] ${statsPath} not found. Run the production webview build first.`,
@@ -193,6 +197,7 @@ function generate(distDir) {
 }
 
 module.exports = {
+  STATS_FILE,
   generate,
   classify,
   isElectronOnlyInput,

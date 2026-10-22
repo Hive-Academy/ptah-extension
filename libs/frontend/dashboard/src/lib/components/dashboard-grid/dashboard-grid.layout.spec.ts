@@ -1,7 +1,7 @@
 ﻿import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const components = join(process.cwd(), 'libs/frontend/dashboard/src/lib/components');
+const components = join(__dirname, '..');
 const grid = readFileSync(join(components, 'dashboard-grid/dashboard-grid.component.html'), 'utf8');
 const analytics = readFileSync(join(components, 'analytics-card/analytics-card.component.html'), 'utf8');
 

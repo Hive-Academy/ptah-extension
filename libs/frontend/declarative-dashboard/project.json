@@ -7,15 +7,9 @@
   "tags": ["scope:webview", "type:ui", "platform:angular"],
   "targets": {
     "test": {
-      "executor": "@nx/jest:jest",
-      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
       "options": {
-        "jestConfig": "libs/frontend/declarative-dashboard/jest.config.ts",
-        "tsConfig": "libs/frontend/declarative-dashboard/tsconfig.spec.json"
+        "passWithNoTests": true
       }
-    },
-    "lint": {
-      "executor": "@nx/eslint:lint"
     },
     "typecheck": {
       "executor": "nx:run-commands",
