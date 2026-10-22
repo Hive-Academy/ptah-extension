@@ -670,7 +670,7 @@ export class SpotEditorComponent {
         this.settleLeave(true);
         return;
       case 'reload':
-        void this.reload().then(() => this.resumeWaiting());
+        void this.reload(true).then(() => this.resumeWaiting());
         return;
       case 'conflict':
         void this.save(true).then(() => this.resumeWaiting());
@@ -708,7 +708,7 @@ export class SpotEditorComponent {
     const kind = this.dialogKind();
     this.dialogKind.set(null);
     if (kind !== 'conflict') return;
-    void this.reload().then(() => this.resumeWaiting());
+    void this.reload(true).then(() => this.resumeWaiting());
   }
 
   protected async save(overwrite = false): Promise<void> {
@@ -780,8 +780,19 @@ export class SpotEditorComponent {
     );
   }
 
-  /** Re-read the open file, keeping the cursor. Drops local edits. */
-  protected async reload(): Promise<void> {
+  /**
+   * Re-read the open file, keeping the cursor. A background reload (a
+   * `file:content-changed` push, the stale banner's Reload, the error
+   * banner's Retry) must not drop edits made while its read was in flight:
+   * when the buffer is dirty, or a save is running, at apply time it keeps
+   * the buffer, raises the stale mark when the disk bytes differ, and
+   * leaves the loaded baseline alone so the next save still reports a
+   * conflict. A fresh result also repairs the failed-read status a
+   * confirmed reload left, so Retry restores a usable editor with the
+   * edits intact. Only `discardEdits` — an explicitly confirmed Reload
+   * answer — replaces the buffer.
+   */
+  protected async reload(discardEdits = false): Promise<void> {
     const current = this.file();
     if (!current) return;
     const cursor = this.handle?.cursor() ?? null;
@@ -792,15 +803,28 @@ export class SpotEditorComponent {
       current.status === 'blocked' ? undefined : current,
     );
     if (this.destroyed || seq !== this.readSeq) return;
+    if ((this.modified() || this.saving()) && !discardEdits) {
+      // The buffer moved while the read was in flight: never overwrite it.
+      // A fresh read only raises the stale mark: a mark from a push that
+      // landed during the read is newer than this read. A failed re-read
+      // proves nothing, so the previous marks stay.
+      if (result.status === 'fresh') {
+        if (result.sha256 !== current.sha256) this.stale.set(true);
+        // A confirmed reload that failed without mounting left the dirty
+        // buffer under a failed-read status: this good read makes the editor
+        // usable again, without adopting the new bytes as the baseline.
+        if (current.status !== 'fresh') {
+          this.file.set({ ...current, status: 'fresh', failure: undefined });
+        }
+      }
+      return;
+    }
     this.stale.set(false);
     this.saveError.set(null);
-    const unchanged =
-      result.status === 'fresh' &&
-      result.sha256 === current.sha256 &&
-      !this.modified();
     this.file.set(result);
     // Our own save echoes back as a push: same bytes, so keep undo history.
-    if (unchanged || result.status !== 'fresh') return;
+    if (result.status !== 'fresh') return;
+    if (!discardEdits && result.sha256 === current.sha256) return;
     await this.mountDocument(result, cursor);
   }
 
