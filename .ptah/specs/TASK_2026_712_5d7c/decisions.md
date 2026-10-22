@@ -112,3 +112,11 @@ Each document gets one initial cross-side review and at most two author/reviewer
 - Antigravity hit its quota (429, ~98h); Grok at 99% weekly; Codex is the implementer family. User chose a Claude (Anthropic) subagent as an exception to the lanes-first rule (valid until 2026-10-24) for the P1-C phase review.
 - Review family: Anthropic on OpenAI (Batches 12–15, quota split) and Anthropic on Anthropic for orchestrator fix 0c7313438 (same family; reason: no other family available; weaker evidence; CI spec run 27/27 pass locally).
 - PR #808: user keeps it ready (not draft); P1-C and later phases go to the same PR.
+
+## D19 — P1-C accepted (2026-10-23)
+
+- Phase review (Claude subagent, Anthropic, on Codex Batches 12–15 + quota split; D18 user exception): REVISE 7/10, 0 Blocking, 2 Serious, 6 Moderate, 3 Minor (`code-logic-review-phase-p1-c.md`). Orchestrator fix 0c7313438: mapping unchanged (same family, weaker evidence).
+- One fix round by two file-disjoint Codex lanes: output-styles (F1 opaque named labels, F2 real-path containment, F3 missing global style → no style + unavailable marker, F4 logs) and agent-sdk (F4 logs, F6 LRU epochs with active-read protection, F7 per-entry link skip).
+- Deferred as named later items (lean rule 4; no lane-config break or data loss): F5 named plan-usage reads bypass TTL (add owner/epoch-proof cache + minimum interval); F8 no global cap on account model probes (add a small semaphore). Minors F9–F11 recorded.
+- Re-review: APPROVED (`code-logic-re-review-phase-p1-c.md`). Open follow-ups for Batch 17 certification: N1 (Moderate) raw account paths still logged at jsonl-reader.service.ts:448, :898, :1069; N2 (Minor) file-level symlink can redirect a named style write; N3 (Minor) no consumer of the style-unavailable marker yet (Batch 17 launcher / UI); N4 (Minor) redundant second readdir.
+- P1-C (Batches 12–15) accepted pending CI. Next phase: P1-D (Batches 16–22); Batch 16 owns shared session-metadata-store.ts — claim with TASK_2026_714 first.
