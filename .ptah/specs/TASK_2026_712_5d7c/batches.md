@@ -300,7 +300,7 @@ At each implementation phase's last batch, stop for one combined independent cod
 - Command: `Verify-ProviderAccountsBatch -Projects @('@ptah-extension/output-styles','@ptah-extension/cli-agent-runtime') -Hosts $H`
 - Report: T/implementation-report-batch-13.md.
 
-## Batch 14: Account-scoped model and quota control probes — PENDING
+## Batch 14: Account-scoped model and quota control probes — IMPLEMENTED (Codex; D17 +session-registry; review at 15)
 
 - Recommended executor: CLI lane, SDK control calls/cache disposal; sequential; actual family unassigned.
 - Depends on: 8/12/13. Phase P1-C; review at 15.

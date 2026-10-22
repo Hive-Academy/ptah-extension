@@ -99,3 +99,10 @@ Each document gets one initial cross-side review and at most two author/reviewer
 - Decision: Batch 12 binds history/rewind/stats/import *reading* to the explicit account context and returns an explicit unavailable result for a missing requested root. With a named context, the importer refuses to persist (explicit unsupported result, no write, no ambient fallback) until Batch 16 adds the validated immutable linkage. Ambient (no context) import stays unchanged.
 - Batch 16 acceptance gains: persisted import linkage per route; same SDK sessionId from two routes does not merge or skip silently.
 - Evidence: implementation-report-batch-12.md; batches.md Batch 16 scope (session metadata linkage). Fail-closed, reversible.
+
+## D17 — Batch 14 ownership +1: session registry binding (2026-10-23, orchestrator)
+
+- Lane finding: the quota probe reads SessionRecord, which has no admitted account route or auth epoch (`session-registry.service.ts:253` register, `:422` setSessionQuery). Matching-query identity (plan 209–211) is impossible without it.
+- Decision: Batch 14 also owns `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-registry.service.ts` (5/6 files). Add an optional immutable account binding (route identity + auth epoch) on SessionRecord and one bind method; a second bind with a different value refuses. A named quota read requires a record whose binding matches the requested route and current epoch; otherwise it returns an explicit unavailable result. Batch 17 populates the binding at launch. Ambient reads unchanged.
+- Options rejected: associate route and query because a caller passes both (no verification); unavailable-only quota (loses the contract Batch 17 needs).
+- No batch owns the file; claim sent to TASK_2026_714. Fail-closed, reversible.
