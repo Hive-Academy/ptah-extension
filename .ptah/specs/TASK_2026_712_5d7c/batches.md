@@ -241,7 +241,7 @@ At each implementation phase's last batch, stop for one combined independent cod
 - Command: `Verify-ProviderAccountsBatch -Projects @('@ptah-extension/cli-agent-runtime') -Hosts $H`
 - Report: T/implementation-report-batch-09.md.
 
-## Batch 10: Empty-until-commit prompt primitive — PENDING
+## Batch 10: Empty-until-commit prompt primitive — COMPLETE (Codex; CI gate per D8a; phase review at 11)
 
 - Recommended executor: CLI lane, async iterator/concurrency testing; sequential; actual family unassigned.
 - Depends on: 8. Phase P1-B; review at 11.
