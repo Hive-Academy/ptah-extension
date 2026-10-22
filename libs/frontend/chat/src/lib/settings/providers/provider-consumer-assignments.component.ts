@@ -60,10 +60,13 @@ const TIMEOUT_NOT_SAVED =
 /** The save never ran: another change was still saving (Gate V 36 re-check N-2). */
 const TIMEOUT_REFUSED =
   'The enhancement time limit was not saved because another change was still saving. The limit shown is the saved one.';
+// Matches the ENHANCE_TIMEOUT_* values in file-settings-keys.ts.
+const TIMEOUT_MIN_SEC = 15;
+const TIMEOUT_MAX_SEC = 600;
+const TIMEOUT_DEFAULT_SEC = 120;
 
 /**
- * Background model roles (design-spec §1.2 item 4, plan :765-774, prototype `orchestration.html` section 3): the six
- * background-consumer cards in fixed order inside the Orchestration tab's roles `<details>`, then the Decision model
+ * Background model roles: Memory curator and Enhancement appear inside the Orchestration tab's roles `<details>`, then the Decision model
  *   card (`DecisionModelRowComponent`, TASK_2026_646 Req 1), which owns its own `agent:getConfig` read and writes.
  * - The Provider & model cell opens the row's reassignment popover (the shared provider/model picker). A choice saves
  *   at once through `SettingsSaveFeedbackService` with Undo (D2); a provider that is not ready is not saved and the
@@ -73,9 +76,8 @@ const TIMEOUT_REFUSED =
  *   to the row's cell, also while a save runs: the cell is then `aria-disabled`, never natively disabled (Gate V 36,
  *   M-2), so it can take focus back.
  * - Scope badges sit inline after the cell, only for a role with a non-inherited value (D16; no Scope column, V36-6).
- * - The Enhancement time limit sits under Judging & enhancement; it is rendered only from the backend's
- *   `enhanceTimeoutMs` (never invented bounds). It saves with Undo through the same feedback path; a write that did
- *   not save puts the input back on the saved limit and says so (D15, Gate V 36 S-1).
+ * - The Enhancement time limit sits under Enhancement and displays the loaded effective value. It saves with Undo.
+ *   A write that did not save puts the input back on the saved limit and says so (D15, Gate V 36 S-1).
  * Row derivation is pure, in `provider-consumer-rows.ts`.
  */
 @Component({
@@ -342,7 +344,7 @@ const TIMEOUT_REFUSED =
               </div>
             }
           </article>
-          @if (row.id === 'judging-enhancement' && timeoutMeta()) {
+          @if (row.id === 'enhancement' && timeoutMeta() !== null) {
             <section
               class="surface-2 consumer-timeout-section space-y-1.5 rounded-lg p-3"
               data-testid="enhancement-timeout-section"
@@ -620,35 +622,29 @@ export class ProviderConsumerAssignmentsComponent {
   /**
    * Bounds and effective value come only from the backend payload
    * (Decision 8: the backend owns the bound; the UI never invents the range).
-   * Null while the judging read has not landed — no number renders then.
+   * Null while the enhancement read has not landed; no number renders then.
    */
   protected readonly timeoutMeta = computed(
-    () => this.state.judging().data?.enhanceTimeoutMs ?? null,
+    () => this.state.enhancement().data?.timeoutMs ?? null,
   );
-  protected readonly timeoutMinSec = computed<number>(() =>
-    Math.round((this.timeoutMeta()?.min ?? 0) / 1000),
-  );
-  protected readonly timeoutMaxSec = computed<number>(() =>
-    Math.round((this.timeoutMeta()?.max ?? 0) / 1000),
-  );
-  protected readonly timeoutDefaultSec = computed<number>(() =>
-    Math.round((this.timeoutMeta()?.default ?? 0) / 1000),
-  );
+  protected readonly timeoutMinSec = () => TIMEOUT_MIN_SEC;
+  protected readonly timeoutMaxSec = () => TIMEOUT_MAX_SEC;
+  protected readonly timeoutDefaultSec = () => TIMEOUT_DEFAULT_SEC;
   protected readonly timeoutEffectiveSec = computed<number>(() =>
-    Math.round((this.timeoutMeta()?.value ?? 0) / 1000),
+    Math.round((this.timeoutMeta() ?? 0) / 1000),
   );
   protected readonly timeoutScope = computed<SettingScopeDisplay>(
     () =>
-      this.state.scopeEntry('skillSynthesis.enhanceTimeoutMs')?.scope ??
+      this.state.scopeEntry('skills.enhancement.timeoutMs')?.scope ??
       'mixed',
   );
   protected readonly timeoutOverride = computed<boolean>(
     () =>
-      this.state.scopeEntry('skillSynthesis.enhanceTimeoutMs')?.hasOverride ===
+      this.state.scopeEntry('skills.enhancement.timeoutMs')?.hasOverride ===
       true,
   );
   protected readonly timeoutValidationError = computed<string | null>(() => {
-    if (!this.timeoutMeta()) return null;
+    if (this.timeoutMeta() === null) return null;
     const sec = this.timeoutDraftSec(),
       min = this.timeoutMinSec(),
       max = this.timeoutMaxSec();
@@ -658,7 +654,7 @@ export class ProviderConsumerAssignmentsComponent {
   });
   protected readonly isTimeoutSaveDisabled = computed<boolean>(
     () =>
-      !this.timeoutMeta() ||
+      this.timeoutMeta() === null ||
       this.busy() ||
       this.disabled() ||
       this.timeoutValidationError() !== null ||
@@ -669,8 +665,7 @@ export class ProviderConsumerAssignmentsComponent {
     buildConsumerRows(
       {
         memory: this.state.memory(),
-        lanes: this.state.lanes(),
-        judging: this.state.judging(),
+        enhancement: this.state.enhancement(),
       },
       this.state.route().data,
       (key) => this.state.scopeEntry(key),
@@ -783,12 +778,11 @@ export class ProviderConsumerAssignmentsComponent {
     retryKey: BackgroundConsumerRow['retryKey'],
   ): Promise<void> {
     if (retryKey === 'memory') await this.state.refreshMemory();
-    else if (retryKey === 'lanes') await this.state.refreshLanes();
-    else await this.state.refreshJudging();
+    else await this.state.refreshEnhancement();
   }
 
   protected editTimeout(): void {
-    if (!this.timeoutMeta()) return;
+    if (this.timeoutMeta() === null) return;
     this.timeoutSaveError.set(null);
     this.timeoutDraftSec.set(this.timeoutEffectiveSec());
     this.isEditingTimeout.set(true);
@@ -843,13 +837,13 @@ export class ProviderConsumerAssignmentsComponent {
     );
   }
 
-  /** One limit write; `timeoutSaved` (the host re-reads judging) follows only this write's own confirmed save. */
+  /** One limit write; `timeoutSaved` follows only this write's own confirmed save. */
   private async writeTimeout(
     sec: number,
     context: ProvidersEditContext,
   ): Promise<boolean> {
     const patch: ProvidersSettingsPatch = {
-      judging: { enhanceTimeoutMs: Math.round(sec * 1000) },
+      enhancement: { timeoutMs: Math.round(sec * 1000) },
     };
     const accepted = await this.state.saveSettings(patch, context);
     if (accepted && this.state.commit().status === 'saved')

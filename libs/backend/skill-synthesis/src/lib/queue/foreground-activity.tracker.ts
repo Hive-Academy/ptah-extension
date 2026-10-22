@@ -3,10 +3,8 @@
  *
  * `SessionActivityRegistry` (`agent-sdk`) is PUSH-ONLY: it exposes `register`
  * and `notifyAll` and nothing else (`session-activity-registry.ts:55-57`). There
- * is no "is a session active right now" query anywhere in the codebase, and the
- * drain needs exactly that one number to honour `foregroundBackoffMs`. Rather
- * than widen a port for a single consumer, this tracker keeps the one piece of
- * state the registry throws away — the timestamp of the last event.
+ * is no "is a session active right now" query anywhere in the codebase. This
+ * tracker keeps the timestamp of the last event, which the registry discards.
  *
  * The registry is injected `{isOptional: true}` and referenced through a locally
  * declared `Symbol.for('SdkSessionActivityRegistry')`, the same way
@@ -16,8 +14,8 @@
  *
  * `msSinceLastActivity()` returns `Number.POSITIVE_INFINITY` before the first
  * event. Infinity — not `0` — because the gate reads "less than the backoff
- * means someone is typing"; a fresh process with no activity must NOT look
- * busy, or the very first drain after start-up would always be suppressed.
+ * means someone is typing"; a fresh process with no activity must not look
+ * busy.
  */
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
@@ -26,7 +24,7 @@ import { SESSION_ACTIVITY_REGISTRY_TOKEN } from '../di/tokens';
 /**
  * The one field this tracker reads off a session-activity event. Declared
  * locally (structurally compatible with `agent-sdk`'s `SessionActivityPayload`)
- * so the queue does not take a type dependency on the SDK-facing lib.
+ * so the tracker does not take a type dependency on the SDK-facing lib.
  */
 export interface ForegroundActivityPayload {
   readonly timestamp?: number;
@@ -50,8 +48,7 @@ export class ForegroundActivityTracker {
 
   /**
    * Subscribe to the registry. Idempotent, and a no-op when no registry is
-   * registered — the drain calls this at the head of every tick so the
-   * subscription exists without a second start-up wiring step to forget.
+   * registered. Callers start it before reading activity.
    */
   start(): void {
     if (this.disposer || !this.activity) return;
@@ -87,7 +84,7 @@ export class ForegroundActivityTracker {
         ? stamped
         : Date.now();
     // Monotonic: an out-of-order event must never make the session look older
-    // than it is, or a stale event could unblock a drain mid-conversation.
+    // than it is, or a stale event could make foreground work look idle.
     if (this.lastActivityAt === null || at > this.lastActivityAt) {
       this.lastActivityAt = at;
     }

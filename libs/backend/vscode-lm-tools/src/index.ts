@@ -13,6 +13,7 @@ export {
   type McpRegistrationFailure,
   type McpSubagentRegistration,
 } from './lib/code-execution/mcp-http/http-mcp-server.service';
+export { mcpAttachmentObserver } from './lib/code-execution/mcp-http/mcp-attachment-observer';
 export { TreeSitterCodeOutliner } from './lib/code-execution/mcp-core/code-outliner.adapter';
 export { McpCallerWorkspaceResolver } from './lib/code-execution/mcp-caller-workspace-resolver';
 // The per-call MCP caller context (session, workspace, tool profile). Hosts
@@ -98,6 +99,7 @@ export type {
 export { ChromeLauncherBrowserCapabilities } from './lib/code-execution/services/chrome-launcher-browser-capabilities';
 export { ScreenRecorderService } from './lib/code-execution/services/screen-recorder.service';
 export { registerVsCodeLmToolsServices } from './lib/di';
+export { ARTIFACT_NOTIFICATION_TOKEN } from './lib/code-execution/mcp-http/http-mcp-server.service';
 
 // Surface delivery and state tokens
 export {

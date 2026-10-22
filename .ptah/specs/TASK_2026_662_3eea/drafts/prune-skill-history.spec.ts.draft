@@ -1,0 +1,69 @@
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { createHash } from 'node:crypto';
+import { archiveSkillPipeline } from '../libs/backend/persistence-sqlite/src/lib/skill-pipeline-archive';
+import { applyManifest, dryRun, type ProvenanceEntry } from './prune-skill-history';
+
+describe('prune skill history', () => {
+  let dir: string;
+  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'prune-history-spec-')); });
+  afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
+
+  async function fixture() {
+    const root = path.join(dir, 'user');
+    const snapshot = path.join(root, 'skills', 'demo', '.history', '100', 'SKILL.md');
+    const source = path.join(dir, 'source.md');
+    const sidecar = path.join(root, 'skills', 'demo', '.ptah-origin.json');
+    fs.mkdirSync(path.dirname(snapshot), { recursive: true });
+    fs.writeFileSync(snapshot, 'upstream\n');
+    fs.writeFileSync(source, 'upstream\n');
+    const sourceHash = `sha256:${createHash('sha256').update('upstream\n').digest('hex')}`;
+    fs.writeFileSync(sidecar, JSON.stringify({ sourceHash, diverged: false, lastEnhancedAt: null }));
+    const provenance: ProvenanceEntry[] = [{ snapshot, source, sidecar, operation: 'seed', sourceHash }];
+    const manifest = await dryRun(root, provenance);
+    const manifestPath = path.join(dir, 'manifest.json');
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+    return { root, snapshot, provenance, manifest, manifestPath };
+  }
+
+  function receipt(): string {
+    const dbPath = path.join(dir, 'fixture.sqlite');
+    const Database = require('better-sqlite3') as new (file: string) => {
+      prepare(sql: string): { get(...args: unknown[]): unknown; iterate(...args: unknown[]): IterableIterator<unknown> };
+      close(): void;
+    };
+    const db = new Database(dbPath);
+    try {
+      const archived = archiveSkillPipeline(db as Parameters<typeof archiveSkillPipeline>[0], dir);
+      return path.join(archived.archivePath, 'receipt.json');
+    } finally { db.close(); }
+  }
+
+  it('emits a path and sha256 dry-run manifest', async () => {
+    const { manifest, snapshot } = await fixture();
+    expect(manifest.entries).toEqual([{ path: snapshot, sha256: createHash('sha256').update('upstream\n').digest('hex') }]);
+  });
+
+  it('refuses missing archive receipt and missing manifest', async () => {
+    const f = await fixture();
+    await expect(applyManifest(f.root, f.provenance, f.manifestPath, path.join(dir, 'missing'))).rejects.toThrow();
+    await expect(applyManifest(f.root, f.provenance, path.join(dir, 'missing'), receipt())).rejects.toThrow();
+    expect(fs.existsSync(f.snapshot)).toBe(true);
+  });
+
+  it('refuses an unknown hash', async () => {
+    const f = await fixture();
+    fs.writeFileSync(f.manifestPath, JSON.stringify({ ...f.manifest, entries: [{ ...f.manifest.entries[0], sha256: '0'.repeat(64) }] }));
+    await expect(applyManifest(f.root, f.provenance, f.manifestPath, receipt())).rejects.toThrow('unknown');
+    expect(fs.existsSync(f.snapshot)).toBe(true);
+  });
+
+  it('refuses a changed hash and preserves user edits', async () => {
+    const f = await fixture();
+    fs.writeFileSync(f.snapshot, 'user edit\n');
+    await expect(applyManifest(f.root, f.provenance, f.manifestPath, receipt())).rejects.toThrow();
+    expect(fs.readFileSync(f.snapshot, 'utf8')).toBe('user edit\n');
+    expect((await dryRun(f.root, f.provenance)).entries).toEqual([]);
+  });
+});

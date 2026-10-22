@@ -23,7 +23,6 @@ import { z } from 'zod';
 import { isPathInside, isSamePath } from '../../bench-data';
 import type { CuratorFaultMode } from '../doubles/recorded-curator-llm';
 import { productSettingsSchema } from '../runner/runner-plan';
-import { funnelPlanProblems } from '../suites/skills/funnel.suite';
 import { hostSuitePlacement, suitePlacementProblems } from './suite-placement';
 
 /** Env var naming the absolute path of the plan JSON. */
@@ -265,10 +264,6 @@ export function createMemorySkillsPlanSchema(
         hostSuitePlacement,
       )) {
         issue(problem.message, ['suites', problem.index, 'id']);
-      }
-      // The funnel stages share one memoised pass: their shared options agree.
-      for (const message of funnelPlanProblems(plan.suites)) {
-        issue(message, ['suites']);
       }
     });
 }

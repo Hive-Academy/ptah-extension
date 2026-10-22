@@ -23,7 +23,7 @@
  * to a user as exactly the instruction the rule forbids. Worse, three of the
  * five surfaces never got even that list: they made a bare
  * `not.toContain('delete')` check, so "remove the occupant" would have shipped
- * on the Dashboard card, the Marketplace popover and the health store today.
+ * in the Skills & Plugins badge and the health store today.
  *
  * So the check is inverted. A surface passes only by rendering a sentence that
  * is ALREADY on this list, character for character. That makes any rewording
@@ -41,11 +41,10 @@
  *
  * ### Why the allowlist lives in `libs/shared`
  *
- * Five surfaces, two sides of the hexagon. `harness-sync` (backend) emits the
- * reconcile WARN; `marketplace` and `dashboard` (frontend) render the other
- * four. A frontend lib may not import a backend lib, and five private copies of
- * the approved sentence is precisely how the wording drifted apart in the first
- * place. `libs/shared` is the one permitted bridge, and it already holds
+ * Four surfaces, two sides of the hexagon. `harness-sync` (backend) emits the
+ * reconcile WARN; `marketplace` (frontend) renders the badge, dialog, and store.
+ * A frontend lib may not import a backend lib, and private copies of the
+ * approved sentence are how the wording drifted apart in the first place. `libs/shared` is the one permitted bridge, and it already holds
  * `blockedTargetPaths()` and `summarizeHarnessHealth()` for this exact reason:
  * more than one consumer reads it and they must never disagree.
  *
@@ -60,11 +59,10 @@
  * prose at all.
  */
 
-/** The five surfaces that tell a user how to clear a blocked harness path. */
+/** The surfaces that tell a user how to clear a blocked harness path. */
 export type HarnessBlockedSurface =
   | 'reconcile-warn'
   | 'marketplace-popover'
-  | 'dashboard-card'
   | 'repair-dialog'
   | 'health-store';
 
@@ -94,21 +92,18 @@ const CLEAR_IT_YOURSELF_CLOSING =
  *
  * Everything around it is fixed. This varies because it points at a control
  * and the control is not in the same place on every surface — the Reconcile
- * button sits eight pixels below the popover's paragraph, the Dashboard card
- * has its own dialog, and the log line has neither and must name both routes.
+ * buttons sit below the popover's paragraph, and the log line must name the
+ * Skills & Plugins destination.
  *
- * Adding a sixth surface means adding a key here. Rewording an existing one
+ * Adding a surface means adding a key here. Rewording an existing one
  * means editing its value here, which is the deliberate, reviewable act this
  * module exists to force.
  */
 export const HARNESS_BLOCKED_RECONCILE_STEPS = {
   'reconcile-warn':
     'then re-run `ptah harness doctor --fix`. The same list is on the ' +
-    'Dashboard home, in the "Your harness is short" card.',
-  'marketplace-popover': 'then run Reconcile now.',
-  'dashboard-card':
-    'then reconcile from Marketplace → Plugins, or let Ptah move it for you ' +
-    'with the button below.',
+    'Skills & Plugins page, in the harness health badge.',
+  'marketplace-popover': 'then use Reconcile now, or Move these aside… below.',
 } as const satisfies Readonly<Record<string, string>>;
 
 /** A surface whose action is the shared "clear it yourself" sentence. */
@@ -123,7 +118,7 @@ export type HarnessBlockedReconcileStep =
  * Assemble the approved "clear it yourself" sentence for one surface.
  *
  * Exported so a surface can render it rather than restate it, and so a reader
- * can see that the three phrasings differ in exactly one clause.
+ * can see that the surface phrasings differ in exactly one clause.
  */
 export function harnessBlockedAction(
   surface: HarnessBlockedReconcileSurface,
@@ -170,7 +165,7 @@ const REPAIR_DIALOG_ACTION =
 
 /**
  * The per-path `reason` strings the repair emits — Ptah-authored SENTENCES,
- * not user data, and the sixth surface.
+ * not user data, and an approved part of the repair-dialog surface.
  *
  * `HarnessRepairPathResult.reason` renders unconditionally in the repair
  * dialog (`harness-repair-dialog.component.ts:276-280`), so every value
@@ -224,7 +219,7 @@ export const HARNESS_QUARANTINE_FAILURE_PROSE: readonly string[] =
  * What the health store says when `harness:repairBlocked` fails with no
  * message of its own.
  *
- * It is on this list because it is the fifth surface: the only sentence the
+ * It is on this list because it is a user-facing surface: the only sentence the
  * store composes about blocked paths, shown to a user who has just consented
  * to a move. "Failed to delete the blocked paths" would misdescribe the
  * operation AND teach the wrong verb for it, which is why a store fallback
@@ -243,7 +238,6 @@ export const HARNESS_BLOCKED_APPROVED_ACTIONS: Readonly<
 > = Object.freeze({
   'reconcile-warn': harnessBlockedAction('reconcile-warn'),
   'marketplace-popover': harnessBlockedAction('marketplace-popover'),
-  'dashboard-card': harnessBlockedAction('dashboard-card'),
   'repair-dialog': REPAIR_DIALOG_ACTION,
   'health-store': HEALTH_STORE_REPAIR_FAILURE,
 });
@@ -297,20 +291,6 @@ export const HARNESS_BLOCKED_APPROVED_PROSE: Readonly<
     'blocked path',
     'blocked paths',
   ]),
-  'dashboard-card': Object.freeze([
-    HARNESS_BLOCKED_APPROVED_ACTIONS['dashboard-card'],
-    'Something Ptah does not own already sits there. Each one counts as ' +
-      'missing because the artifact is not installed, and Ptah left it alone ' +
-      'because it cannot prove it wrote what is already there. A path it ' +
-      'refuses is never attempted, so a block never shows up as a write ' +
-      'failure — that is how the harness reads short with nothing having failed.',
-    'Your harness is short',
-    'Some of what Ptah tried to install for your AI tools is not there, and ' +
-      'nothing failed while installing it.',
-    'Move these aside…',
-    'blocked path',
-    'blocked paths',
-  ]),
   'repair-dialog': Object.freeze([
     HARNESS_BLOCKED_APPROVED_ACTIONS['repair-dialog'],
     'Move blocked paths aside',
@@ -342,7 +322,7 @@ export const HARNESS_BLOCKED_APPROVED_PROSE: Readonly<
     'Cancel',
     'Close',
     'selected',
-    // The sixth surface: `HarnessRepairPathResult.reason`, rendered at
+    // Repair-dialog prose: `HarnessRepairPathResult.reason`, rendered at
     // `harness-repair-dialog.component.ts:276-280`. Ptah's sentences, so they
     // are approved PROSE here and must never be passed as `data`.
     ...Object.values(HARNESS_REPAIR_REASONS),
@@ -355,7 +335,7 @@ export const HARNESS_BLOCKED_APPROVED_PROSE: Readonly<
 
 /** One surface's rendered output, handed to the checker. */
 export interface HarnessBlockedWordingCheck {
-  /** Which of the five is being checked. */
+  /** Which surface is being checked. */
   readonly surface: HarnessBlockedSurface;
   /**
    * The action string the surface actually produced — the WARN's `action`

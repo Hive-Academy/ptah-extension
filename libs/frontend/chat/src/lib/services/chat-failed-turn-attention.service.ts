@@ -41,7 +41,7 @@ export class ChatFailedTurnAttentionService {
         sessionId: pulse.sessionId,
         tabId: pulse.tabId,
         title: `Session failed: ${pulse.title}`,
-        actions: [{ id: 'open', label: 'Open' }],
+        actions: [{ id: 'open', label: 'Show in canvas' }],
         actionable: true,
         soundEligible: false,
       };

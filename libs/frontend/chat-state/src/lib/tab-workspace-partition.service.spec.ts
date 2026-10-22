@@ -63,6 +63,17 @@ describe('TabWorkspacePartitionService', () => {
     });
   });
 
+  it('finds an unpartitioned active tab by id and session id', () => {
+    const activeTabs = [makeTab('tab-1', 'session-1')];
+    expect(svc.activeWorkspacePath).toBeNull();
+    expect(svc.findTabByIdAcrossWorkspaces('tab-1', activeTabs)).toEqual({
+      tab: activeTabs[0], workspacePath: null,
+    });
+    expect(svc.findTabBySessionIdAcrossWorkspaces('session-1', activeTabs)).toEqual({
+      tab: activeTabs[0], workspacePath: null,
+    });
+  });
+
   describe('reverse index', () => {
     it('finds a tab in the active workspace by sessionId via fast path', () => {
       const tabs = [makeTab('t1', 'sess-1')];

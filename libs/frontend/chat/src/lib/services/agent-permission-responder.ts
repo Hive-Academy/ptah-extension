@@ -60,12 +60,17 @@ export class AgentPermissionResponder {
   respondSession(
     request: PermissionRequest,
     decision: PermissionResponse['decision'],
-    tabId: string,
+    tabId?: string,
+    reason?: string,
   ): boolean {
-    if (!this.permissionHandler.permissionRequests().some(pending => pending.id === request.id)) return false;
+    if (!this.isSessionPending(request.id)) return false;
     return this.permissionHandler.handlePermissionResponse(
-      { id: request.id, decision },
+      { id: request.id, decision, reason },
       tabId,
     );
+  }
+
+  isSessionPending(requestId: string): boolean {
+    return this.permissionHandler.permissionRequests().some(pending => pending.id === requestId);
   }
 }

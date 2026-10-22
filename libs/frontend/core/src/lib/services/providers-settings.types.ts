@@ -7,9 +7,6 @@ import type {
   RpcMethodResult,
   ScopedSettingEntry,
   SettingScope,
-  SkillLaneIdDto,
-  SkillSynthesisSettingsDto,
-  SkillSynthesisSettingsWriteDto,
 } from '@ptah-extension/shared';
 
 /**
@@ -29,16 +26,18 @@ export type ProvidersEffectiveRoute = Omit<
   AuthGetEffectiveRouteResult,
   'storedAuthMethodDiagnostic'
 >;
-export type ProvidersJudgingSettings = Pick<
-  SkillSynthesisSettingsDto,
-  'judgeProvider' | 'judgeModel' | 'enhanceTimeoutMs'
->;
-export type ProvidersJudgingPatch = Partial<
-  Pick<
-    SkillSynthesisSettingsWriteDto,
-    'judgeProvider' | 'judgeModel' | 'enhanceTimeoutMs'
-  >
->;
+export const PROVIDERS_ENHANCEMENT_KEYS = {
+  provider: 'skills.enhancement.provider',
+  model: 'skills.enhancement.model',
+  timeoutMs: 'skills.enhancement.timeoutMs',
+} as const;
+export interface ProvidersEnhancementSettings {
+  readonly provider: string;
+  /** An empty picker value persists as 'inherit'. */
+  readonly model: string;
+  readonly timeoutMs: number;
+}
+export type ProvidersEnhancementPatch = Partial<ProvidersEnhancementSettings>;
 export interface ProvidersEditContext {
   readonly scopeKey: string;
   readonly activePath: string | null;
@@ -86,10 +85,7 @@ export interface ProvidersSettingsPatch {
   readonly model?: RpcMethodParams<'config:model-switch'>;
   readonly effort?: RpcMethodParams<'config:effort-set'>;
   readonly memory?: { curatorProvider?: string; curatorModel?: string };
-  readonly lanes?: Partial<
-    Record<SkillLaneIdDto, { provider?: string; model?: string }>
-  >;
-  readonly judging?: ProvidersJudgingPatch;
+  readonly enhancement?: ProvidersEnhancementPatch;
   readonly orchestration?: Partial<
     Pick<
       RpcMethodParams<'agent:setConfig'>,

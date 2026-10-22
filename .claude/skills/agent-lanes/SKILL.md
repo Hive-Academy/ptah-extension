@@ -235,7 +235,7 @@ The lane does not need to be told any of this in its `task`: `buildTaskPrompt`
 `TWO_WAY_MESSAGING_GUIDANCE`) already carries the child-side half on every spawn that has an MCP
 port and an agent id, and `renderLaneCompletionContract`
 (`libs/backend/cli-agent-runtime/src/lib/cli-agents/lane-reporting-contract.ts`) carries the
-before-you-exit half on every lane. Those two constants are the source of truth; this section and
+before-you-exit half on every lane. Their shared `PTAH_MCP_TOOL_GUIDANCE` tells the child to use the exact identifier shown for server `ptah`, including one found through MCP search. If no `ptah` server is connected, the child reports in its final message and continues. That constant is the source of truth; this section and
 the parent-side tool table in `ptah-system-prompt.constant.ts` must agree with them.
 
 ## 8. Cost

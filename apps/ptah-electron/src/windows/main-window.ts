@@ -7,6 +7,7 @@ import {
   isSameDocumentNavigation,
 } from './navigation-policy';
 import { installPermissionPolicy } from './permission-policy';
+import { isAllowedArtifactFrameUrl } from './artifact-frame-guard';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
@@ -69,6 +70,11 @@ function openExternalSafely(targetUrl: string): void {
  * app's own startup load is unaffected.
  */
 function installNavigationGuard(window: BrowserWindow): void {
+  window.webContents.on('will-frame-navigate', (event) => {
+    if (!event.isMainFrame && !isAllowedArtifactFrameUrl(event.url)) {
+      event.preventDefault();
+    }
+  });
   window.webContents.on('will-navigate', (event, targetUrl) => {
     if (isSameDocumentNavigation(window.webContents.getURL(), targetUrl)) {
       return;

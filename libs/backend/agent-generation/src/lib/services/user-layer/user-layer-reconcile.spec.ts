@@ -173,7 +173,7 @@ describe('UserLayerMirrorService.reconcile', () => {
     expect(res.diverged).toBe(0);
   });
 
-  it('Case B: source changed, clone untouched → fast-forward + snapshot first', async () => {
+  it('Case B: source changed, clone untouched → fast-forward without history', async () => {
     const pluginPath = await seedPluginSkill('p', 'dr', '# v1');
     await service.mirrorAll({
       pluginPaths: [pluginPath],
@@ -195,59 +195,12 @@ describe('UserLayerMirrorService.reconcile', () => {
     expect(body).toBe('# v2 upstream');
 
     const histRoot = join(cloneDir, DEFAULT_HISTORY_DIR);
-    const snaps = await readdir(histRoot);
-    expect(snaps.length).toBe(1);
-    const snapBody = await readFile(
-      join(histRoot, snaps[0], 'SKILL.md'),
-      'utf8',
-    );
-    expect(snapBody).toBe('# v1');
+    expect(await fileExists(histRoot)).toBe(false);
 
     const sidecar = await readSidecarDir(cloneDir);
     expect(sidecar.diverged).toBe(false);
     expect(sidecar.pendingSourceHash).toBeUndefined();
     expect(sidecar.currentContentHash).toBe(sidecar.sourceHash);
-  });
-
-  it('Case B snapshot is taken BEFORE overwrite (snapshot has the OLD content)', async () => {
-    const pluginPath = await seedPluginSkill('p', 'dr', '# OLD');
-    await service.mirrorAll({
-      pluginPaths: [pluginPath],
-      synthesizedSkillsRoot: synthRoot,
-    });
-    await writeSourceSkill(pluginPath, 'dr', '# NEW');
-
-    const roots = service.getUserLayerRoots();
-    const cloneDir = join(roots.skills, 'dr');
-    const cloneFile = join(cloneDir, 'SKILL.md');
-
-    const realCopyTree = (
-      service as unknown as {
-        copyTree: (s: string, t: string) => Promise<void>;
-      }
-    ).copyTree.bind(service);
-    let snapshotContentAtOverwrite: string | null = null;
-    (
-      service as unknown as {
-        copyTree: (s: string, t: string) => Promise<void>;
-      }
-    ).copyTree = async (src: string, dst: string) => {
-      const histRoot = join(cloneDir, DEFAULT_HISTORY_DIR);
-      const snaps = await readdir(histRoot);
-      snapshotContentAtOverwrite = await readFile(
-        join(histRoot, snaps[0], 'SKILL.md'),
-        'utf8',
-      );
-      return realCopyTree(src, dst);
-    };
-
-    await service.reconcile({
-      pluginPaths: [pluginPath],
-      synthesizedSkillsRoot: synthRoot,
-    });
-
-    expect(snapshotContentAtOverwrite).toBe('# OLD');
-    expect(await readFile(cloneFile, 'utf8')).toBe('# NEW');
   });
 
   it('Case C: source changed AND clone edited → diverged, clone untouched', async () => {
@@ -326,12 +279,7 @@ describe('UserLayerMirrorService.reconcile', () => {
     expect(cloneHash).toBe(sourceHash);
 
     const histRoot = join(cloneDir, DEFAULT_HISTORY_DIR);
-    const snaps = await readdir(histRoot);
-    expect(snaps.length).toBe(1);
-    expect(await fileExists(join(histRoot, snaps[0], 'EXTRA.md'))).toBe(true);
-    expect(await readFile(join(histRoot, snaps[0], 'EXTRA.md'), 'utf8')).toBe(
-      '# extra v1',
-    );
+    expect(await fileExists(histRoot)).toBe(false);
 
     const res2 = await service.reconcile({
       pluginPaths: [pluginPath],
@@ -430,8 +378,7 @@ describe('UserLayerMirrorService.reconcile', () => {
       '# review v2',
     );
     const histRoot = join(roots.commands, DEFAULT_HISTORY_DIR, 'review');
-    const snaps = await readdir(histRoot);
-    expect(snaps.length).toBe(1);
+    expect(await fileExists(histRoot)).toBe(false);
   });
 
   it('flat command Case C diverged keeps the clone', async () => {

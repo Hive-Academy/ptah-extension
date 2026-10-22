@@ -22,7 +22,9 @@ export class ClaudeLedgerSource implements UsageSource {
           key: r.key, timestampMs: r.timestampMs, providerId: 'anthropic',
           modelId: r.model, inputUncachedTokens: r.input, outputTokens: r.output,
           cacheReadTokens: r.cacheRead, cacheWriteTokens: r.cacheCreation,
-          sourceId: 'claude-ledger',
+          sourceId: 'claude-ledger', sessionId: r.key.slice(0, 36),
+          sessionTitle: `Session ${r.key.slice(0, 8)}`,
+          ...(r.subagentId ? { subagentId: r.subagentId } : {}),
         });
       }
     } catch {

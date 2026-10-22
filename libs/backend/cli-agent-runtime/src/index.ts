@@ -43,6 +43,8 @@ export {
   type SelectedProviderDiscovery,
 } from './lib/cli-agents/limits/plan-limit-owner-discovery.service';
 export { CLI_AGENT_RUNTIME_TOKENS } from './lib/di/tokens';
+export { MCP_ATTACHMENT_TIMEOUT_MS } from './lib/cli-agents/mcp-attachment-probe.port';
+export type { IMcpAttachmentProbe, McpAttachment } from './lib/cli-agents/mcp-attachment-probe.port';
 export type { CliAgentRuntimeDIToken } from './lib/di/tokens';
 export { registerCliAgentRuntimeServices } from './lib/di/register';
 

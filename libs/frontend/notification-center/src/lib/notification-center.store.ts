@@ -77,17 +77,26 @@ export class NotificationCenterStore {
     return this.statuses().get(`${item.key}:${item.generation}`);
   }
 
+  isStale(item: AttentionItem): boolean {
+    return this.status(item) === 'Already answered';
+  }
+
   disabledReason(item: AttentionItem, actionId: string): string | undefined {
     return item.actions.find(action => action.id === actionId)?.disabledReason
       ?? this.unavailable().get(`${item.key}:${item.generation}:${actionId}`);
   }
 
-  async activate(item: AttentionItem, actionId: string): Promise<boolean> {
+  unavailableFor(item: AttentionItem): ReadonlyMap<string, string> {
+    const prefix = `${item.key}:${item.generation}:`;
+    return new Map([...this.unavailable()].filter(([key]) => key.startsWith(prefix)));
+  }
+
+  async activate(item: AttentionItem, actionId: string, reason?: string): Promise<boolean> {
     const current = [...this.needsYou(), ...this.recentNotices()].find(
       candidate => candidate.key === item.key && candidate.generation === item.generation,
     );
     const action = current?.actions.find(candidate => candidate.id === actionId);
-    if (!current || !action || action.disabledReason) return false;
+    if (!current || !action || this.disabledReason(current, actionId) || this.isStale(current)) return false;
     const request = `${item.key}:${item.generation}`;
     if (this.submitting().has(request)) return false;
     this.submitting.update(current => new Set([...current, request]));
@@ -98,7 +107,9 @@ export class NotificationCenterStore {
         return result.success;
       }
       if (this.dispatcher?.dispatchOutcome) {
-        const outcome = await this.dispatcher.dispatchOutcome(item.key, item.generation, actionId);
+        const outcome = reason === undefined
+          ? await this.dispatcher.dispatchOutcome(item.key, item.generation, actionId)
+          : await this.dispatcher.dispatchOutcome(item.key, item.generation, actionId, reason);
         if (outcome.kind === 'stale') this.statuses.update(current => new Map(current).set(request, 'Already answered'));
         if (outcome.kind === 'unavailable') {
           this.statuses.update(current => new Map(current).set(request, outcome.reason));
@@ -106,7 +117,9 @@ export class NotificationCenterStore {
         }
         return outcome.kind === 'completed';
       }
-      if (this.dispatcher) return await this.dispatcher.dispatch(item.key, item.generation, actionId);
+      if (this.dispatcher) return reason === undefined
+        ? await this.dispatcher.dispatch(item.key, item.generation, actionId)
+        : await this.dispatcher.dispatch(item.key, item.generation, actionId, reason);
       if (actionId.toLowerCase() === 'open') {
         return (await this.focus(item)).success;
       }

@@ -2,12 +2,19 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
+  Injector,
+  afterNextRender,
   computed,
+  effect,
   inject,
   input,
   output,
+  signal,
 } from '@angular/core';
-import { History, LucideAngularModule } from 'lucide-angular';
+import { History, MessageCircleQuestion, ShieldQuestion, CircleAlert, LucideAngularModule } from 'lucide-angular';
+import { ATTENTION_ACTION_DISPATCHER, NotificationService, AttentionPermissionActionsComponent, type AttentionItem } from '@ptah-extension/core';
+import { DOCUMENT } from '@angular/common';
+import { TabManagerService } from '@ptah-extension/chat';
 import type {
   CompactRailDensity,
   CompactRailState,
@@ -23,6 +30,7 @@ import {
   SPLIT_ALREADY_FOCUSED_REASON,
 } from './canvas-rail-card.component';
 import { focusRailSelectButton, handleCanvasRailKeydown } from './canvas-rail-keyboard';
+import { isPrimaryAttentionAction } from './rail-attention-action';
 
 const TILE_BOUND_MESSAGE = `The board holds ${MAX_CANVAS_TILES} sessions. Close one to add another.`;
 const AUTO_COLLAPSE_REASON = 'Widen the canvas to expand the Rail';
@@ -37,7 +45,7 @@ const CHIP_STATES = [
 @Component({
   selector: 'ptah-canvas-rail',
   standalone: true,
-  imports: [CanvasRailCardComponent, LucideAngularModule],
+  imports: [CanvasRailCardComponent, LucideAngularModule, AttentionPermissionActionsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block h-full min-h-0' },
   styles: [
@@ -91,7 +99,7 @@ const CHIP_STATES = [
       <header class="h-[72px] shrink-0 overflow-hidden px-2 py-1" data-glass-surface="plate">
         <div class="flex h-7 items-center gap-1 whitespace-nowrap">
           @if (!collapsed()) {
-            <strong class="min-w-0 flex-1 truncate text-sm">Sessions</strong>
+            <strong id="rail-sessions-heading" tabindex="-1" class="min-w-0 flex-1 truncate text-sm">Sessions</strong>
             <span class="text-xs text-base-content-muted"
               >{{ runningCount() }} / {{ maxRunning }} running</span
             >
@@ -179,6 +187,45 @@ const CHIP_STATES = [
         [class.rail-scroll-collapsed]="collapsed()"
         (scroll)="onScroll($event)"
       >
+        @if (!collapsed() && localNeedsYou().length) {
+          <section class="px-2 pb-2" aria-labelledby="rail-needs-you-heading" data-testid="rail-needs-you">
+            <h2 id="rail-needs-you-heading" class="flex justify-between text-[11px] font-semibold uppercase tracking-[0.08em] text-base-content-muted">
+              <span>Needs you</span><span>{{ localNeedsYou().length }}</span>
+            </h2>
+            <ul role="list" class="mt-2 flex max-h-[260px] flex-col gap-2 overflow-y-auto">
+              @for (item of localNeedsYou().slice(0, 3); track item.key) {
+                <li class="surface-2 rounded-lg border border-[color:var(--surface-border)] p-2" [attr.data-attention-key]="item.key">
+                  <div class="flex items-center gap-2 text-state-need">
+                    <lucide-angular [img]="kindIcon(item)" class="size-4 shrink-0" aria-hidden="true" />
+                    <span class="truncate text-[11px] font-semibold uppercase tracking-[0.08em]">{{ kindLabel(item) }}</span>
+                  </div>
+                  <div class="truncate text-xs font-semibold text-base-content" [title]="item.sessionTitle || 'Session unavailable'">{{ item.sessionTitle || 'Session unavailable' }}</div>
+                  <p class="mt-1 truncate text-xs text-base-content-muted" [title]="item.detail ?? item.context ?? item.title">{{ item.detail ?? item.context ?? item.title }}</p>
+                  @if (item.kind === 'permission') {
+                    <ptah-attention-permission-actions [item]="item" [busy]="submitting().has(item.key) || isBlocked(item)" (selected)="activate(item, $event.actionId, $event.reason)" />
+                  } @else { <div class="mt-2 flex flex-wrap gap-1">
+                    @for (action of item.actions; track action.id) {
+                      <button type="button" class="btn btn-sm min-h-11 focus-visible:outline-2 focus-visible:outline-primary"
+                        [class.btn-primary]="isPrimaryAttentionAction(item, action)"
+                        [class.btn-ghost]="!isPrimaryAttentionAction(item, action)"
+                        [disabled]="!!action.disabledReason || submitting().has(item.key) || isBlocked(item)"
+                        [attr.title]="action.disabledReason ?? null"
+                        [attr.aria-label]="action.label + ' for ' + (item.sessionTitle || 'Session unavailable') + ' in ' + (item.workspaceName || 'Workspace unavailable')"
+                        [attr.aria-describedby]="action.disabledReason ? 'rail-action-reason-' + item.key : null"
+                        (click)="activate(item, action.id)">{{ action.label }}</button>
+                    }
+                  </div> }
+                  @if (attentionDisabledReason(item); as reason) { <p class="mt-1 text-xs text-base-content-muted" [id]="'rail-action-reason-' + item.key">{{ reason }}</p> }
+                  @if (statusFor(item); as status) { <p class="mt-1 text-xs text-base-content-muted" role="status">{{ status }}</p> }
+                </li>
+              }
+            </ul>
+            @if (localNeedsYou().length > 3) {
+              <button type="button" class="btn btn-ghost btn-xs mt-1 min-h-11" (click)="openNotifications()">+{{ localNeedsYou().length - 3 }} more</button>
+            }
+            @if (notificationOpenError()) { <p role="status" class="mt-1 text-xs text-base-content-muted">{{ notificationOpenError() }}</p> }
+          </section>
+        }
         @if (orderedTiles().length === 0) {
           @if (collapsed()) {
             <!-- 56 px: the sentence cannot fit, so show a dash and keep the words for screen readers. -->
@@ -219,6 +266,11 @@ const CHIP_STATES = [
               [focused]="focusedTabId() === tile.tabId"
               [holdText]="holdTabId() === tile.tabId"
               [state]="states().get(tile.tabId) ?? 'idle'"
+              [attentionItems]="needsFor(tile)"
+              [submittingKeys]="submitting()"
+              [blockedKeys]="blockedKeys()"
+              (attentionAction)="activate($event.item, $event.actionId)"
+              (otherRequests)="openNotifications()"
               [canMoveUp]="!first"
               [canMoveDown]="!last"
               [splitDisabledReason]="cardSplitReason(tile.tabId)"
@@ -279,6 +331,115 @@ const CHIP_STATES = [
   `,
 })
 export class CanvasRailComponent {
+  private readonly document = inject(DOCUMENT);
+  private readonly injector = inject(Injector);
+  private readonly tabs = inject(TabManagerService);
+  private readonly notifications = inject(NotificationService);
+  private readonly dispatcher = inject(ATTENTION_ACTION_DISPATCHER, { optional: true });
+  readonly workspacePath = input('');
+  openNotifications(): void {
+    const bell = this.document.querySelector<HTMLButtonElement>('[data-testid="notification-center-bell"]');
+    if (!bell) {
+      this.notificationOpenError.set('Notifications are unavailable.');
+      return;
+    }
+    this.notificationOpenError.set('');
+    if (bell.getAttribute('aria-expanded') !== 'true') bell.click();
+  }
+  readonly notificationOpenError = signal('');
+  readonly submitting = signal<ReadonlySet<string>>(new Set());
+  readonly actionStatus = signal<ReadonlyMap<string, { generation: number; message: string }>>(new Map());
+  private readonly focusAfterAction = signal<{ key: string; index: number } | null>(null);
+  readonly localNeedsYou = computed(() => {
+    const tiles = this.tiles();
+    return this.notifications.needsYou()
+      .filter(item => item.workspacePath === this.workspacePath() &&
+        (item.kind === 'permission' && !item.tabId || tiles.some(tile => this.matches(item, tile))))
+      .reverse();
+  });
+  readonly blockedKeys = computed(() => new Set(this.localNeedsYou()
+    .filter(item => this.isBlocked(item)).map(item => item.key)));
+  private readonly pruneActionStatus = effect(() => {
+    const current = this.localNeedsYou();
+    const statuses = this.actionStatus();
+    const retained = new Map([...statuses].filter(([key, status]) =>
+      current.some(item => item.key === key && item.generation === status.generation)));
+    if (retained.size !== statuses.size) this.actionStatus.set(retained);
+  });
+  private readonly restoreActionFocus = effect(() => {
+    const pending = this.focusAfterAction();
+    if (!pending || this.localNeedsYou().some(item => item.key === pending.key)) return;
+    this.focusAfterAction.set(null);
+    afterNextRender(() => {
+      if (this.document.activeElement !== this.document.body && this.document.activeElement?.isConnected) return;
+      const rows = this.host.nativeElement.querySelectorAll<HTMLElement>('[data-attention-key]');
+      const target = rows[Math.min(pending.index, rows.length - 1)]?.querySelector<HTMLButtonElement>('button:not(:disabled)')
+        ?? this.host.nativeElement.querySelector<HTMLElement>('#rail-sessions-heading');
+      target?.focus();
+    }, { injector: this.injector });
+  });
+  protected readonly questionIcon = MessageCircleQuestion;
+  protected readonly permissionIcon = ShieldQuestion;
+  protected readonly laneIcon = CircleAlert;
+  kindIcon(item: AttentionItem) {
+    return item.kind === 'question' ? this.questionIcon : item.kind === 'lane-permission' ? this.laneIcon : this.permissionIcon;
+  }
+  kindLabel(item: AttentionItem): string {
+    return item.kind === 'question' ? 'Question needs an answer' : item.kind === 'lane-permission' ? 'Lane permission required' : 'Permission required';
+  }
+  needsFor(tile: CanvasTile): readonly AttentionItem[] {
+    return this.localNeedsYou().filter(item => this.matches(item, tile));
+  }
+  private matches(item: AttentionItem, tile: CanvasTile): boolean {
+    if (item.tabId && this.tiles().some(current => current.tabId === item.tabId)) return item.tabId === tile.tabId;
+    if (!item.sessionId) return false;
+    const firstMatch = this.orderedTiles().find(current =>
+      this.tabs.findTabByIdAcrossWorkspaces(current.tabId)?.tab.claudeSessionId === item.sessionId);
+    return firstMatch?.tabId === tile.tabId;
+  }
+  readonly isPrimaryAttentionAction = isPrimaryAttentionAction;
+  statusFor(item: AttentionItem): string | undefined {
+    const status = this.actionStatus().get(item.key);
+    return status?.generation === item.generation ? status.message : undefined;
+  }
+  isBlocked(item: AttentionItem): boolean { return !!this.statusFor(item); }
+  attentionDisabledReason(item: AttentionItem): string | undefined {
+    return item.actions.find(action => action.disabledReason)?.disabledReason;
+  }
+  async activate(item: AttentionItem, actionId: string, reason?: string): Promise<void> {
+    const current = this.notifications.needsYou().find(candidate => candidate.key === item.key && candidate.generation === item.generation);
+    if (!current?.actions.some(action => action.id === actionId && !action.disabledReason) || this.submitting().has(item.key) || this.isBlocked(item)) return;
+    if (actionId === 'allow' || actionId === 'always_allow' || actionId === 'deny' || actionId === 'deny_with_message') {
+      this.focusAfterAction.set({ key: item.key, index: this.localNeedsYou().findIndex(candidate => candidate.key === item.key) });
+    }
+    this.submitting.update(keys => new Set([...keys, item.key]));
+    try {
+      if (!this.dispatcher) {
+        this.setActionStatus(item, 'Action unavailable');
+        this.focusAfterAction.set(null);
+      } else if (this.dispatcher.dispatchOutcome) {
+        const outcome = reason === undefined
+          ? await this.dispatcher.dispatchOutcome(item.key, item.generation, actionId)
+          : await this.dispatcher.dispatchOutcome(item.key, item.generation, actionId, reason);
+        if (outcome.kind === 'stale') this.setActionStatus(item, 'Request changed. Open the current request.');
+        if (outcome.kind === 'unavailable') this.setActionStatus(item, outcome.reason);
+        if (outcome.kind !== 'completed') this.focusAfterAction.set(null);
+      } else if (!(reason === undefined
+        ? await this.dispatcher.dispatch(item.key, item.generation, actionId)
+        : await this.dispatcher.dispatch(item.key, item.generation, actionId, reason))) {
+        this.setActionStatus(item, 'Action unavailable');
+        this.focusAfterAction.set(null);
+      }
+    } catch {
+      this.setActionStatus(item, 'Action unavailable');
+      this.focusAfterAction.set(null);
+    } finally {
+      this.submitting.update(keys => new Set([...keys].filter(key => key !== item.key)));
+    }
+  }
+  private setActionStatus(item: AttentionItem, message: string): void {
+    this.actionStatus.update(current => new Map(current).set(item.key, { generation: item.generation, message }));
+  }
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   readonly tiles = input<readonly CanvasTile[]>([]);
   readonly states = input<ReadonlyMap<string, CompactRailState>>(new Map());

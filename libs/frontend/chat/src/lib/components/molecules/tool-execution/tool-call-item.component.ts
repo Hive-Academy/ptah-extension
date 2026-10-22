@@ -7,8 +7,11 @@ import {
   computed,
   ChangeDetectionStrategy,
   viewChild,
+  inject,
 } from '@angular/core';
+import { TabManagerService } from '@ptah-extension/chat-state';
 import {
+  ArtifactCardComponent,
   ToolCallHeaderComponent,
   ToolInputDisplayComponent,
   ToolOutputDisplayComponent,
@@ -16,11 +19,18 @@ import {
   isPtahMcpToolName,
   toolStatusPresentation,
 } from '@ptah-extension/chat-ui';
+import { ArtifactStore } from '../../../services/artifact.store';
+import { DisplayDockState } from '../../../services/display-dock/display-dock.state';
+import { DisplaySheetState } from '../../organisms/display-sheet/display-sheet.state';
 import type {
   ExecutionNode,
   PermissionRequest,
   PermissionResponse,
 } from '@ptah-extension/shared';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
 
 /**
  * ToolCallItemComponent - One tool call as a quiet log line with a status rail
@@ -70,6 +80,7 @@ import type {
     ToolInputDisplayComponent,
     ToolOutputDisplayComponent,
     PermissionRequestCardComponent,
+    ArtifactCardComponent,
   ],
   template: `
     <div class="relative pl-2.5 my-0.5" data-glass-surface="tile">
@@ -88,6 +99,15 @@ import type {
         [awaitingPermission]="awaitingPermission()"
         (toggleClicked)="toggleCollapse()"
       />
+
+      @if (artifact(); as record) {
+        <ptah-artifact-card [artifact]="record" (open)="openArtifact($event)" (fullscreen)="openArtifact($event, true)" />
+      } @else if (publishedArtifact(); as published) {
+        <article class="flex flex-col gap-1 rounded-box border border-base-content/15 bg-base-200/40 p-3" data-testid="artifact-card">
+          <p class="truncate text-sm font-semibold" data-testid="artifact-card-title">{{ published.title }}</p>
+          <p class="text-xs text-base-content-muted">Not loaded yet</p>
+        </article>
+      }
 
       <!-- Collapsible content -->
       @if (!isCollapsed()) {
@@ -123,10 +143,45 @@ import type {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ToolCallItemComponent {
+  private readonly artifacts = inject(ArtifactStore);
+  private readonly dock = inject(DisplayDockState);
+  private readonly sheet = inject(DisplaySheetState);
+  private readonly tabs = inject(TabManagerService);
   readonly node = input.required<ExecutionNode>();
   readonly isCollapsed = signal(true); // Collapsed by default
 
   private readonly headerRef = viewChild<ToolCallHeaderComponent>('headerRef');
+
+  protected readonly publishedArtifact = computed((): { id: string; title: string } | null => {
+    const node = this.node();
+    if (node.isError || node.status !== 'complete' || !/^(?:mcp__ptah__)?ptah_artifact_publish$/.test(node.toolName ?? '')) return null;
+    const output = node.toolOutput;
+    const content = Array.isArray(output) ? output : isRecord(output) ? output['content'] : null;
+    const part = Array.isArray(content)
+      ? content.find((entry: unknown) => isRecord(entry) && entry['type'] === 'text')
+      : null;
+    const text = typeof output === 'string' ? output : isRecord(part) ? part['text'] : null;
+    if (typeof text !== 'string') return null;
+    try {
+      const result: unknown = JSON.parse(text);
+      return isRecord(result) && typeof result['id'] === 'string'
+        ? { id: result['id'], title: typeof result['title'] === 'string' ? result['title'] : 'Artifact' } : null;
+    } catch { return null; }
+  });
+  protected readonly artifact = computed(() => {
+    const published = this.publishedArtifact();
+    return published ? this.artifacts.recordById(published.id) : null;
+  });
+
+  protected openArtifact(id: string, full = false): void {
+    const tabId = this.tabs.activeTabId();
+    if (!tabId) return;
+    this.dock.openArtifact(tabId, id);
+    if (full) {
+      this.dock.requestFullscreenArtifact(tabId, id);
+      this.sheet.setMode(tabId, 'full');
+    }
+  }
 
   /** A permission request for this call is waiting on the user. */
   protected readonly awaitingPermission = computed(() => !!this.permission());

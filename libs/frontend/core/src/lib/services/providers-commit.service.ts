@@ -15,6 +15,7 @@ import type {
   SaveOperation,
   SaveOutcome,
 } from './providers-settings.types';
+import { PROVIDERS_ENHANCEMENT_KEYS } from './providers-settings.types';
 import { WorkspaceScopeService } from './workspace-scope.service';
 
 const MODEL_TIERS = ['sonnet', 'opus', 'haiku'] as const;
@@ -130,59 +131,19 @@ export class ProvidersCommitService {
             value,
         });
     }
-    for (const lane of [
-      'archaeologist',
-      'synthesis',
-      'judge',
-      'replay',
-    ] as const) {
-      for (const field of ['provider', 'model'] as const) {
-        const value = patch.lanes?.[lane]?.[field];
-        if (value !== undefined)
-          operations.push({
-            fields: [`skillSynthesis.${lane}.${field}`],
-            write: async () => {
-              await this.require('skillSynthesis:setLanes', {
-                lanes: { [lane]: { [field]: value } },
-              });
-              return true;
-            },
-            readBack: async () =>
-              (await this.require('skillSynthesis:getLanes', {})).lanes[lane][
-                field
-              ] === value,
-          });
-      }
-    }
-    for (const field of [
-      'judgeProvider',
-      'judgeModel',
-      'enhanceTimeoutMs',
-    ] as const) {
-      const requested = patch.judging?.[field];
+    for (const field of ['provider', 'model', 'timeoutMs'] as const) {
+      const requested = patch.enhancement?.[field];
       if (requested === undefined) continue;
-      // model-resolver.ts:171 recognizes only 'inherit', not the picker's ''.
-      const value =
-        field === 'judgeModel' && typeof requested === 'string'
-          ? requested.trim() || 'inherit'
-          : requested;
+      const value = field === 'model' && typeof requested === 'string'
+        ? requested.trim() || 'inherit'
+        : requested;
+      const key = PROVIDERS_ENHANCEMENT_KEYS[field];
       operations.push({
-        fields: [`skillSynthesis.${field}`],
-        write: async () => {
-          const settings = { [field]: value };
-          return (
-            await this.require('skillSynthesis:updateSettings', { settings })
-          ).updated;
-        },
+        fields: [key],
+        write: async () => (await this.require('settings:set', { key, value })).success,
         readBack: async () => {
-          const settings = (
-            await this.require('skillSynthesis:getSettings', {})
-          ).settings;
-          return (
-            (field === 'enhanceTimeoutMs'
-              ? settings.enhanceTimeoutMs.value
-              : settings[field]) === value
-          );
+          const stored = await this.require('settings:get', { key });
+          return stored.success && stored.value === value;
         },
       });
     }

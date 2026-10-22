@@ -12,7 +12,7 @@ const entry = path.join(root, 'dist/apps/ptah-electron/main.mjs');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'ptah-attention-populated-'));
 const workspace = path.join(temp, 'workspace');
 const output = path.join(__dirname, 'capture-results-2.json');
-const results = { entry, workspace, port: 9347, shots: [], steps: [], errors: [], limitations: [] };
+const results = { entry, workspace, port: 9347, shots: [], steps: [], errors: [], limitations: [], snackbarStyle: {} };
 let app;
 let appProcess;
 let pid;
@@ -78,8 +78,11 @@ async function failure() {
 }
 async function waitText(text) { await page.getByText(text, { exact: false }).first().waitFor({ timeout: 5000 }); }
 async function assertChatBoard() {
-  await page.getByRole('button', { name: 'New Session', exact: true }).first().waitFor({ state: 'visible', timeout: 30000 });
-  await page.getByText('Orchestra Canvas', { exact: true }).first().waitFor({ state: 'visible', timeout: 30000 });
+  await page.getByRole('button', { name: 'New session', exact: true }).first().waitFor({ state: 'visible', timeout: 30000 });
+  if ((await page.evaluate(() => window.innerWidth)) > 900)
+    await page.getByText('Sessions', { exact: true }).first().waitFor({ state: 'visible', timeout: 30000 });
+  else
+    await page.locator('[data-testid="notification-center-bell"]').waitFor({ state: 'visible', timeout: 30000 });
   if (await page.getByText('Welcome to Ptah Desktop').isVisible().catch(() => false)) {
     throw Error('Workspace did not open: Welcome / Open Folder screen remains visible');
   }
@@ -91,7 +94,7 @@ async function assertTheme(theme) {
 }
 async function closeThemeMenu() {
   const selector = 'ptah-theme-toggle .dropdown-content';
-  if (!(await page.locator(selector).count())) return;
+  if (!(await page.locator(selector).first().isVisible().catch(() => false))) return;
   await page.keyboard.press('Escape');
   // DaisyUI focus dropdown may remain open while its trigger keeps focus.
   await page.locator('body').click({ position: { x: 8, y: 8 } });
@@ -107,11 +110,23 @@ async function capture(theme, name, check, notes = '') {
   const file = path.join(__dirname, `${theme}-${name}.png`);
   try {
     if (fs.existsSync(file)) fs.unlinkSync(file);
-    await assertChatBoard();
+    if (name !== 'snackbar-live') await assertChatBoard();
     await assertTheme(theme);
     await closeThemeMenu();
     if (check) await check();
-    await page.screenshot({ path: file, fullPage: true });
+    if (name.startsWith('snackbar-') || name === '800') {
+      await page.waitForTimeout(300);
+      results.snackbarStyle[`${theme}-${name}`] = await page.locator('.snackbar-card').first().evaluate(card => {
+        const ancestors = [];
+        for (let node = card; node; node = node.parentElement) {
+          const style = getComputedStyle(node);
+          ancestors.push({ element: node.tagName.toLowerCase(), className: String(node.className), opacity: style.opacity });
+        }
+        const style = getComputedStyle(card);
+        return { backgroundColor: style.backgroundColor, opacity: style.opacity, ancestors };
+      });
+    }
+    await page.screenshot({ path: file, fullPage: true, animations: 'disabled' });
     results.shots.push({ file, ok: true, notes, viewport: page.viewportSize(), theme });
   } catch (error) {
     const message = String(error?.stack || error);
@@ -124,25 +139,37 @@ async function chooseTheme(theme) {
   await closeThemeMenu();
   const toggle = page.locator('ptah-theme-toggle:visible').first();
   await toggle.locator('[aria-label="Change theme"]').click();
-  await toggle.locator(`button[data-theme="${name}"]`).click();
-  await page.waitForFunction(value => document.documentElement.dataset.theme === value, name, { timeout: 10000 });
+  const option = toggle.locator(`.dropdown-content button[data-theme="${name}"]`);
+  if (await option.isVisible().catch(() => false)) {
+    await option.click({ timeout: 1500 }).catch(() => option.evaluate(button => button.click()));
+  } else {
+    // DaisyUI's focus dropdown can hide before Playwright's actionability check.
+    // A DOM click still invokes the picker's selectTheme -> ThemeService.setTheme.
+    await option.evaluate(button => button.click());
+  }
+  await page.waitForFunction(([value, mode]) => {
+    const root = document.documentElement;
+    return root.dataset.theme === value && root.dataset.themeMode === mode;
+  }, [name, theme], { timeout: 10000 });
   await closeThemeMenu();
   await assertTheme(theme);
 }
 async function closePanel() {
   const panel = page.locator('[data-testid="notification-center-panel"]');
   if (await panel.isVisible().catch(() => false)) {
-    await panel.press('Escape');
+    await page.locator('[data-testid="notification-center-bell"]').click();
     await panel.waitFor({ state: 'hidden', timeout: 5000 });
   }
 }
 async function createSessionTab() {
   const cards = page.locator('[data-rail-card][data-tab-id]');
   const before = await cards.evaluateAll(nodes => nodes.map(node => node.getAttribute('data-tab-id')));
-  await page.getByRole('button', { name: 'New Session', exact: true }).first().click();
-  const nameInput = page.getByPlaceholder('Enter session name (optional)');
+  await page.getByRole('button', { name: 'New session', exact: true }).first().click();
+  const popover = page.locator('[data-testid="canvas-new-session-popover"]');
+  await popover.waitFor({ state: 'visible', timeout: 10000 });
+  const nameInput = popover.getByRole('textbox', { name: 'Session name (optional)' });
   await nameInput.fill('Attention capture');
-  await nameInput.locator('..').getByRole('button', { name: 'Create', exact: true }).click();
+  await popover.getByRole('button', { name: 'Create', exact: true }).click();
   await page.waitForFunction(existing => [...document.querySelectorAll('[data-rail-card][data-tab-id]')]
     .some(node => node.getAttribute('data-tab-id') && !existing.includes(node.getAttribute('data-tab-id'))), before, { timeout: 15000 });
   const after = await cards.evaluateAll(nodes => nodes.map(node => node.getAttribute('data-tab-id')));
@@ -154,33 +181,57 @@ async function createSessionTab() {
 }
 async function captureLivePermission(theme, tabId) {
   const id = crypto.randomUUID();
-  const file = path.join(__dirname, `${theme}-snackbar-permission-live.png`);
+  let snackbarId;
+  const file = path.join(__dirname, `${theme}-panel-permission-live.png`);
   try {
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].blur());
-    await page.waitForFunction(() => !document.hasFocus(), null, { timeout: 5000 });
     await send({ type: 'permission:request', payload: {
       id, tabId, toolName: 'Bash', toolInput: { command: 'git status' },
       description: 'Run git status', timestamp: Date.now(), timeoutAt: Date.now() + 120000,
     } });
-    await capture(theme, 'snackbar-permission-live', async () => {
-      const card = page.locator('.snackbar-card').filter({ hasText: 'Permission: Bash' }).first();
-      await card.waitFor({ state: 'visible', timeout: 10000 });
-      for (const label of ['Allow', 'Deny', 'Open']) {
-        const button = card.getByRole('button', { name: label, exact: true });
-        await button.waitFor({ state: 'visible', timeout: 5000 });
-        if (!(await button.isEnabled())) throw Error(`${label} is disabled on live permission`);
-      }
-    }, `real permission:request routed to canvas tab ${tabId}; window blurred to reveal snackbar`);
+    await capture(theme, 'rail-needs-you', async () => {
+      const queue = page.locator('[data-testid="rail-needs-you"]');
+      await queue.waitFor({ state: 'visible', timeout: 10000 });
+      await queue.getByText('Attention capture', { exact: true }).waitFor({ state: 'visible', timeout: 5000 });
+      const card = page.locator(`[data-rail-card][data-tab-id="${tabId}"]`);
+      await card.getByText('Needs you', { exact: true }).waitFor({ state: 'visible', timeout: 5000 });
+    }, `real permission:request in Sessions queue and tab card ${tabId}`);
+    await page.locator('[data-testid="notification-center-bell"]').click();
+    await capture(theme, 'panel-permission-live', async () => {
+      const panel = page.locator('[data-testid="notification-center-panel"]');
+      await panel.waitFor({ state: 'visible', timeout: 5000 });
+      results.livePanel ??= {};
+      results.livePanel[theme] = {
+        text: await panel.innerText(),
+        needsRows: await panel.locator('section[aria-labelledby="ptah-needs-you-heading"] .notification-row').count(),
+      };
+    }, `real permission:request routed to canvas tab ${tabId}; Needs you row captured in bell panel`);
+    await closePanel();
+    await page.getByRole('tab', { name: 'Tasks', exact: true }).click();
+    snackbarId = crypto.randomUUID();
+    await send({ type: 'permission:request', payload: {
+      id: snackbarId, tabId, toolName: 'Bash', toolInput: { command: 'git status' },
+      description: 'Run git status', timestamp: Date.now(), timeoutAt: Date.now() + 120000,
+    } });
+    const snackbar = page.locator('.snackbar-card').filter({ hasText: 'Attention capture' }).first();
+    if (await snackbar.waitFor({ state: 'visible', timeout: 5000 }).then(() => true, () => false)) {
+      await capture(theme, 'snackbar-live', () => snackbar.waitFor({ state: 'visible', timeout: 5000 }),
+        `real permission:request while Tasks is visible; canvas tab ${tabId}`);
+    } else {
+      results.limitations.push(`${theme}: live snackbar suppressed while Tasks is visible; no snackbar-live image captured.`);
+    }
+    await page.getByRole('tab', { name: 'Chat', exact: true }).click();
   } catch (error) {
     if (fs.existsSync(file)) fs.unlinkSync(file);
     const message = String(error?.stack || error);
     results.shots.push({ file, ok: false, notes: `live permission setup: ${message}`, viewport: page.viewportSize(), theme });
     results.errors.push(`${path.basename(file)}: ${message}`);
   } finally {
+    if (snackbarId) try { await send({ type: 'permission:auto-resolved', payload: { id: snackbarId, toolName: 'Bash' } }); }
+    catch (error) { results.errors.push(`resolve live snackbar permission: ${String(error?.stack || error)}`); }
     try { await send({ type: 'permission:auto-resolved', payload: { id, toolName: 'Bash' } }); }
     catch (error) { results.errors.push(`resolve live permission: ${String(error?.stack || error)}`); }
-    try { await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].focus()); }
-    catch (error) { results.errors.push(`refocus Electron: ${String(error?.stack || error)}`); }
+    try { await closePanel(); }
+    catch (error) { results.errors.push(`close live permission panel: ${String(error?.stack || error)}`); }
   }
 }
 async function eachTheme(theme, tabId) {
@@ -203,16 +254,24 @@ async function eachTheme(theme, tabId) {
   });
   await capture(theme, 'snackbar-stack', () => page.locator('.snackbar-more').waitFor({ timeout: 5000 }), 'five live projections plus voice failure');
   await capture(theme, 'bell-badge', () => page.locator('[data-testid="notification-count-badge"]').waitFor({ timeout: 5000 }));
-  await record(`${theme}: open panel`, () => page.locator('[data-testid="notification-center-bell"]').click());
-  await capture(theme, 'panel', () => page.locator('[data-testid="notification-center-panel"] .notification-row').first().waitFor({ timeout: 5000 }));
-  await record(`${theme}: clear recent notices`, () => page.getByRole('button', { name: 'Clear all notices' }).click());
+  await record(`${theme}: open panel`, async () => {
+    await page.locator('[data-testid="notification-center-bell"]').click();
+    await page.locator('[data-testid="notification-center-panel"]').waitFor({ state: 'visible', timeout: 5000 });
+  });
+  await capture(theme, 'panel', () => page.locator('[data-testid="notification-center-panel"] .notification-row').first().waitFor({ state: 'visible', timeout: 5000 }));
+  await record(`${theme}: clear recent notices`, () => page.locator('[data-testid="notification-center-panel"]').getByRole('button', { name: 'Clear all notices', exact: true }).click());
   await capture(theme, 'panel-clear-all', async () => {
-    await page.getByText('Needs you', { exact: true }).waitFor({ timeout: 5000 });
-    if (await page.getByText('Text-to-speech failed').count()) throw Error('Recent failure remained after Clear all notices');
+    const panel = page.locator('[data-testid="notification-center-panel"]');
+    const needsYou = panel.locator('section[aria-labelledby="ptah-needs-you-heading"]');
+    const recent = panel.locator('section[aria-labelledby="ptah-recent-heading"]');
+    await needsYou.locator('.notification-row').first().waitFor({ state: 'visible', timeout: 5000 });
+    await recent.getByText('No recent notices', { exact: true }).waitFor({ state: 'visible', timeout: 5000 });
+    if (await recent.locator('.notification-row').count()) throw Error('Recent notices remained after Clear all notices');
   }, 'live request projections remain; recent failure cleared');
   await record(`${theme}: resolve live requests`, clearRequests);
   await capture(theme, 'panel-empty', () => waitText('All clear'), 'after resolving live requests and clearing recent notices');
   await record(`${theme}: close panel after clear`, closePanel);
+  await record(`${theme}: verify panel closed for 800px`, () => page.locator('[data-testid="notification-center-panel"]').waitFor({ state: 'hidden', timeout: 5000 }));
   await record(`${theme}: 800px request`, () => project('permission', `${theme}-800`));
   await record(`${theme}: 800x900`, () => page.setViewportSize({ width: 800, height: 900 }));
   await capture(theme, '800', () => page.locator('.snackbar-card').first().waitFor({ timeout: 5000 }));
@@ -220,7 +279,7 @@ async function eachTheme(theme, tabId) {
   await record(`${theme}: final reset`, clearRequests);
   if (tabId) await record(`${theme}: live permission`, () => captureLivePermission(theme, tabId));
   else {
-    const file = path.join(__dirname, `${theme}-snackbar-permission-live.png`);
+    const file = path.join(__dirname, `${theme}-panel-permission-live.png`);
     if (fs.existsSync(file)) fs.unlinkSync(file);
     results.shots.push({ file, ok: false,
       notes: 'No canvas tab UUID was created; a routed live permission cannot be injected.', viewport: page.viewportSize(), theme });
@@ -255,7 +314,14 @@ async function main() {
   results.limitations.push('The failed-turn screenshot uses a real voice:providerError because a new canvas tab has no backend Claude session/failed turn.');
 }
 (async () => {
-  try { await main(); } catch (error) { results.errors.push(`main: ${String(error?.stack || error)}`); }
+  try { await main(); } catch (error) {
+    results.errors.push(`main: ${String(error?.stack || error)}`);
+    if (page) {
+      await page.screenshot({ path: path.join(__dirname, 'debug-main-failure.png') }).catch(() => undefined);
+      results.debugButtons = await page.getByRole('button').allInnerTexts().catch(e => [`buttons: ${e}`]);
+      results.debugUrl = page.url();
+    }
+  }
   finally {
     if (app) try { await app.close(); } catch (error) { results.errors.push(`close: ${error}`); }
     // app.process() is invalid after close; only inspect the retained ChildProcess.

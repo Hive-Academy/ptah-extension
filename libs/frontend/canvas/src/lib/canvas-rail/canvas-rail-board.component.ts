@@ -114,6 +114,7 @@ function isTabbable(element: HTMLElement, sheet?: HTMLElement): boolean {
         <ptah-canvas-rail
           [attr.inert]="compactSheetOpen() ? '' : null"
           [tiles]="orderedTiles()"
+          [workspacePath]="workspacePath()"
           [states]="railStates()"
           [focusedTabId]="focusedId()"
           [density]="board().railDensity"
@@ -696,7 +697,7 @@ export class CanvasRailBoardComponent {
       const sample = {
         key: `${density}|${collapsed}`,
         order: cards.map((card) => card.dataset['tabId'] ?? ''),
-        heights: cards.map((card) => card.getBoundingClientRect().height),
+        heights: cards.map((card) => card.getBoundingClientRect().height - Number(card.dataset['attentionExtra'] ?? 0)),
       };
       if (cards.length !== tiles.length) return;
       const result = checkRailGeometry(
@@ -728,16 +729,20 @@ export class CanvasRailBoardComponent {
     afterNextRender(
       () => {
         const list = this.list();
-        const index = this.orderedTiles().findIndex(
-          (tile) => tile.tabId === (targetId ?? this.focusedId()),
-        );
-        if (list && index >= 0)
-          list.scrollTop = railAnchorScrollTop(
-            index,
-            railCardHeight(this.board().railDensity, this.effectiveCollapsed()),
-            list.clientHeight,
-            list.scrollTop,
-          );
+        const card = [...(list?.querySelectorAll<HTMLElement>('[data-rail-card]') ?? [])]
+          .find(element => element.dataset['tabId'] === (targetId ?? this.focusedId()));
+        if (list && card) {
+          const hasAttention = !!list.querySelector('[data-attention-count]:not([data-attention-count="0"])');
+          if (!hasAttention) {
+            const index = this.orderedTiles().findIndex(tile => tile.tabId === (targetId ?? this.focusedId()));
+            list.scrollTop = railAnchorScrollTop(index, railCardHeight(this.board().railDensity, this.effectiveCollapsed()), list.clientHeight, list.scrollTop);
+            return;
+          }
+          const top = card.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop;
+          const bottom = top + card.getBoundingClientRect().height;
+          if (top < list.scrollTop) list.scrollTop = top;
+          else if (bottom > list.scrollTop + list.clientHeight) list.scrollTop = bottom - list.clientHeight;
+        }
       },
       { injector: this.injector },
     );

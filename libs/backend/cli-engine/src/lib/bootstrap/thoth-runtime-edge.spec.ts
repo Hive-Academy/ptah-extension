@@ -59,11 +59,6 @@ function makeFullDoubles(
       start: jest.fn(() => order.push('memoryTrigger.start')),
       stop: jest.fn(() => order.push('memoryTrigger.stop')),
     },
-    skillSynthesis: {
-      start: jest.fn(async () => order.push('skillSynthesis.start')),
-      stop: jest.fn(() => order.push('skillSynthesis.stop')),
-      onStarted: jest.fn(() => ({ dispose: jest.fn() })),
-    },
     skillTrigger: {
       start: jest.fn(() => order.push('skillTrigger.start')),
       stop: jest.fn(() => order.push('skillTrigger.stop')),
@@ -109,7 +104,6 @@ const ALL_TOKENS = new Set<symbol>([
   MEMORY_TOKENS.MEMORY_CURATOR,
   MEMORY_TOKENS.MEMORY_TRIGGER_SERVICE,
   MEMORY_TOKENS.INDEXING_CONTROL,
-  SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE,
   SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE,
   CRON_TOKENS.CRON_SCHEDULER,
   CRON_TOKENS.CRON_JOB_STORE,
@@ -138,8 +132,6 @@ function makeContainer(
           return doubles.memoryTrigger;
         case MEMORY_TOKENS.INDEXING_CONTROL:
           return doubles.indexingControl;
-        case SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE:
-          return doubles.skillSynthesis;
         case SKILL_SYNTHESIS_TOKENS.SKILL_TRIGGER_SERVICE:
           return doubles.skillTrigger;
         case CRON_TOKENS.CRON_SCHEDULER:
@@ -304,9 +296,6 @@ describe('thoth-runtime edge cases', () => {
         memoryTrigger: {
           stop: jest.fn(() => order.push('memoryTrigger.stop')),
         } as never,
-        skillSynthesis: {
-          stop: jest.fn(() => order.push('skillSynthesis.stop')),
-        } as never,
         skillTrigger: {
           stop: jest.fn(() => order.push('skillTrigger.stop')),
         } as never,
@@ -330,52 +319,9 @@ describe('thoth-runtime edge cases', () => {
       ).resolves.toBeUndefined();
 
       expect(order).toContain('memoryTrigger.stop');
-      expect(order).toContain('skillSynthesis.stop');
       expect(order).toContain('cron.stop');
       expect(order).toContain('gateway.stop');
       expect(order).toContain('sqlite.close');
-      expect(order[order.length - 1]).toBe('sqlite.close');
-    });
-
-    it('continues through all steps even when skillSynthesis.stop throws', async () => {
-      const order: string[] = [];
-      const refs: ThothRefs = {
-        sqliteConnection: {
-          close: jest.fn(() => order.push('sqlite.close')),
-          get isOpen() {
-            return true;
-          },
-        } as never,
-        memoryCurator: {
-          stop: jest.fn(() => order.push('memoryCurator.stop')),
-        } as never,
-        memoryTrigger: null,
-        skillSynthesis: {
-          stop: jest.fn(() => {
-            throw new Error('synthesis.stop boom');
-          }),
-        } as never,
-        skillTrigger: {
-          stop: jest.fn(() => order.push('skillTrigger.stop')),
-        } as never,
-        cronScheduler: {
-          stop: jest.fn(() => order.push('cron.stop')),
-        } as never,
-        gateway: null,
-        chatBridge: null,
-        embedderClient: {
-          dispose: jest.fn(async () => order.push('embedder.dispose')),
-        } as never,
-        pushDisposables: [],
-      };
-
-      await expect(
-        disposeThoth(refs, makeLogger() as never),
-      ).resolves.toBeUndefined();
-
-      expect(order).toContain('skillTrigger.stop');
-      expect(order).toContain('cron.stop');
-      expect(order).toContain('embedder.dispose');
       expect(order[order.length - 1]).toBe('sqlite.close');
     });
 
@@ -390,7 +336,6 @@ describe('thoth-runtime edge cases', () => {
         } as never,
         memoryCurator: null,
         memoryTrigger: null,
-        skillSynthesis: null,
         skillTrigger: null,
         cronScheduler: null,
         gateway: {
@@ -424,7 +369,6 @@ describe('thoth-runtime edge cases', () => {
         } as never,
         memoryCurator: null,
         memoryTrigger: null,
-        skillSynthesis: null,
         skillTrigger: null,
         cronScheduler: null,
         gateway: null,
@@ -459,7 +403,6 @@ describe('thoth-runtime edge cases', () => {
           }),
         } as never,
         memoryTrigger: null,
-        skillSynthesis: null,
         skillTrigger: null,
         cronScheduler: null,
         gateway: null,

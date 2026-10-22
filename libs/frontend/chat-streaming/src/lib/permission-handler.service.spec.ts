@@ -157,6 +157,16 @@ describe('PermissionHandlerService', () => {
   });
 
   describe('handlePermissionResponse', () => {
+    it.each(['allow', 'deny'] as const)('posts the same SDK response for a tab-less decision: %s', decision => {
+      service.handlePermissionRequest(makePermissionRequest({ tabId: undefined, sessionId: undefined }));
+      expect(service.handlePermissionResponse({ id: 'req-1', decision })).toBe(true);
+      expect(vscodePostMessage).toHaveBeenCalledWith({
+        type: MESSAGE_TYPES.SDK_PERMISSION_RESPONSE,
+        response: { id: 'req-1', decision },
+      });
+      expect(service.permissionRequests()).toEqual([]);
+    });
+
     it('returns false for a request that is no longer pending', () => {
       expect(service.handlePermissionResponse({ id: 'missing', decision: 'allow' })).toBe(false);
       expect(vscodePostMessage).not.toHaveBeenCalled();
@@ -495,7 +505,7 @@ describe('PermissionHandlerService', () => {
       expect(service.unmatchedPermissions()).toEqual([req]);
     });
 
-    it('shows fallback when the only target tab closes during pop-out', () => {
+    it('keeps the permission queued when the only target tab closes during pop-out', () => {
       tabSignals.tabs.set([{ id: 'tab-1' }, { id: 'tab-source' }]);
       const req = makePermissionRequest({ toolUseId: 'tool-popout' });
       service.handlePermissionRequest(req);
@@ -503,7 +513,8 @@ describe('PermissionHandlerService', () => {
       expect(service.unmatchedPermissions()).toEqual([]);
 
       tabSignals.tabs.set([{ id: 'tab-1' }]);
-      expect(service.unmatchedPermissions()).toEqual([req]);
+      expect(service.permissionRequests()).toContainEqual(req);
+      expect(service.unmatchedPermissions()).toContainEqual(req);
     });
 
     it('keeps genuine surface-only prompts out of the fallback', () => {

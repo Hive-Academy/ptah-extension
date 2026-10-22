@@ -15,7 +15,7 @@ describe('OpenCodeSource', () => {
     expect((await new OpenCodeSource(dataHome).read('', 0, 100)).status.status).toBe('unavailable');
   });
 
-  it('reads assistant messages with provider costs and workspace filter', async () => {
+  it('keeps assistant messages when the session table has no title', async () => {
     const dir = path.join(dataHome, 'opencode');
     await fs.mkdir(dir);
     const Driver = require('better-sqlite3') as TestDatabaseCtor;
@@ -33,9 +33,24 @@ describe('OpenCodeSource', () => {
     db.close();
     const result = await new OpenCodeSource(dataHome).read('/work', at, at + 86_400_000);
     expect(result.contributions).toHaveLength(1);
-    expect(result.contributions[0]).toMatchObject({ providerId: 'opencode', modelId: 'openai/m', reportedCostUsd: 0.2, inputUncachedTokens: 12, cacheReadTokens: 8 });
+    expect(result.contributions[0]).toMatchObject({ sessionId: 's', sessionTitle: 'Session s', providerId: 'opencode', modelId: 'openai/m', reportedCostUsd: 0.2, inputUncachedTokens: 12, cacheReadTokens: 8 });
     expect(result.status.malformedRecords).toBe(1);
     expect(result.status.status).toBe('partial');
     expect((await new OpenCodeSource(dataHome).read('/other', at, at + 86_400_000)).contributions).toHaveLength(0);
+  });
+
+  it('uses the session title when the column exists', async () => {
+    const dir = path.join(dataHome, 'opencode');
+    await fs.mkdir(dir);
+    const Driver = require('better-sqlite3') as TestDatabaseCtor;
+    const db = new Driver(path.join(dir, 'opencode.db'));
+    db.exec('CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT, title TEXT); CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, data TEXT)');
+    db.prepare('INSERT INTO session VALUES (?, ?, ?)').run('s', '/work', 'Important task');
+    const at = Date.parse('2026-10-20T00:00:00Z');
+    db.prepare('INSERT INTO message VALUES (?, ?, ?, ?)').run('a', 's', at, JSON.stringify({ role: 'assistant', time: { created: at }, tokens: { input: 1, output: 1 } }));
+    db.close();
+    const result = await new OpenCodeSource(dataHome).read('/work', at, at + 1);
+    expect(result.contributions).toHaveLength(1);
+    expect(result.contributions[0]).toMatchObject({ sessionId: 's', sessionTitle: 'Important task' });
   });
 });

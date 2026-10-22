@@ -12,6 +12,7 @@ import {
   signal,
 } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import type { AttentionItem } from '@ptah-extension/core';
 import { By } from '@angular/platform-browser';
 import {
   CompactSessionCardComponent,
@@ -236,6 +237,72 @@ describe('CanvasRailCardComponent', () => {
     fixture.detectChanges();
     return fixture;
   }
+  it('shows the pending chip and emits the inline action without selecting the session', () => {
+    const fixture = mount();
+    const item: AttentionItem = {
+      key: 'question:one', generation: 1, kind: 'question', source: 'chat', workspacePath: '/local',
+      workspaceName: 'local', sessionId, severity: 'info', title: 'Question needs an answer',
+      detail: 'Which approach?', actions: [{ id: 'answer', label: 'Answer' }], actionable: true, soundEligible: false,
+    };
+    const emitted = jest.fn(); fixture.componentInstance.attentionAction.subscribe(emitted);
+    fixture.componentRef.setInput('attentionItems', [item]); fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.dataset['attentionExtra']).toBe('88');
+    expect(host.style.height).toBe(`${COMPACT_RAIL_CARD_HEIGHT.comfortable + 88}px`);
+    expect(host.querySelector('[data-testid="rail-card-needs-you"]')?.textContent).toContain('Needs you');
+    const frame = host.querySelector('[data-testid="rail-attention-frame"]') as HTMLElement;
+    expect(frame).not.toBeNull();
+    expect(frame.contains(host.querySelector('ptah-compact-session-card'))).toBe(true);
+    expect(frame.contains(host.querySelector('[data-testid="rail-card-needs-you"]'))).toBe(true);
+    expect([...frame.classList]).toEqual(expect.arrayContaining(['rounded-lg', 'border', 'bg-base-200']));
+    (host.querySelector('[data-testid="rail-card-needs-you"] button') as HTMLButtonElement).click();
+    expect(emitted).toHaveBeenCalledWith({ item, actionId: 'answer' });
+    expect(focusTile).not.toHaveBeenCalled();
+  });
+  it('reports the larger attention height once and clears it when collapsed', () => {
+    const fixture = mount();
+    const item: AttentionItem = {
+      key: 'permission:height', generation: 1, kind: 'permission', source: 'chat', workspacePath: '/local',
+      workspaceName: 'local', sessionId, severity: 'warning', title: 'Permission required',
+      actions: [{ id: 'allow', label: 'Allow' }, { id: 'deny', label: 'Deny' }, { id: 'open', label: 'Show in canvas' }],
+      actionable: true, soundEligible: false,
+    };
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.dataset['attentionExtra']).toBe('0');
+    fixture.componentRef.setInput('attentionItems', [item]); fixture.detectChanges();
+    expect(host.dataset['attentionExtra']).toBe('136');
+    expect(host.style.height).toBe(`${COMPACT_RAIL_CARD_HEIGHT.comfortable + 136}px`);
+    fixture.componentRef.setInput('collapsed', true); fixture.detectChanges();
+    expect(host.dataset['attentionExtra']).toBe('0');
+    expect(host.style.height).toBe('56px');
+  });
+  it('promotes the enabled decision, then Show in canvas when the decision is disabled', () => {
+    const fixture = mount();
+    const item: AttentionItem = {
+      key: 'permission:card', generation: 1, kind: 'permission', source: 'chat', workspacePath: '/local',
+      workspaceName: 'local', sessionId, severity: 'warning', title: 'Permission required',
+      actions: [{ id: 'allow', label: 'Allow' }, { id: 'open', label: 'Show in canvas' }],
+      actionable: true, soundEligible: false,
+    };
+    fixture.componentRef.setInput('attentionItems', [item]); fixture.detectChanges();
+    const buttons = () => (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('[data-testid="rail-card-needs-you"] button');
+    expect(buttons()[0].classList).toContain('btn-primary');
+    expect(buttons()[0].classList).not.toContain('btn-ghost');
+    fixture.componentRef.setInput('attentionItems', [{ ...item, actions: [
+      { id: 'allow', label: 'Allow', disabledReason: 'Already decided' },
+      { id: 'open', label: 'Show in canvas' },
+    ] }]); fixture.detectChanges();
+    expect(buttons()[0].disabled).toBe(true);
+    expect(buttons()[0].classList).not.toContain('btn-primary');
+    expect(buttons()[0].classList).toContain('btn-ghost');
+    expect(buttons()[1].classList).toContain('btn-primary');
+    expect(buttons()[1].classList).not.toContain('btn-ghost');
+    fixture.componentRef.setInput('submittingKeys', new Set([item.key])); fixture.detectChanges();
+    expect([...buttons()].every(button => button.disabled)).toBe(true);
+    fixture.componentRef.setInput('submittingKeys', new Set());
+    fixture.componentRef.setInput('blockedKeys', new Set([item.key])); fixture.detectChanges();
+    expect([...buttons()].every(button => button.disabled)).toBe(true);
+  });
 
   it('shows the workflow badge on an expanded tagged card only', () => {
     workflow = 'harness-configure';

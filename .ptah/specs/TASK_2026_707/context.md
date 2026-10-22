@@ -94,3 +94,6 @@
   - Next: PR 2 review after batch C;  (RPC handler + host DI + guard specs), batch C (dashboard UI + SVG charts)
 - Reviews: code by a different family than the implementer; visual review in Electron.
 - node_modules: junctions to main checkout in both worktrees.
+
+## Lane limit (2026-10-20 ~18:35 UTC)
+- Glm (ptahCliId pc-355b645d-35af-4974-84cf-9cf961ea0164, family Ollama Cloud): usage limit hit, reset unknown. Skip for the rest of this run. Fallback: codex for the PR 784 revise round 1; re-review by a non-codex family (opencode).

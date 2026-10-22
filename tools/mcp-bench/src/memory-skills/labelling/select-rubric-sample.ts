@@ -2,11 +2,9 @@ import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
+import { z } from 'zod';
 import {
-  FROZEN_SNAPSHOT_FILE,
-  FROZEN_SNAPSHOT_SHA256,
-  withReadonlySnapshot,
-  type ReadonlySqlite,
+  readArchiveTable,
 } from '../data/candidate-row-diff';
 import {
   FROZEN_CANDIDATES_NAME,
@@ -40,12 +38,6 @@ export const STRATUM_TARGETS: Readonly<Record<RubricStratum, number>> = {
 };
 export const RUBRIC_SAMPLE_SIZE = 105;
 export const DEFAULT_SAMPLE_SEED = 'TASK_2026_620';
-
-/** The two pipeline-promoted synthesized skills (design K1). */
-export const PROMOTED_SYNTHESIZED_SLUGS: readonly string[] = [
-  'execute-phase-gated-task',
-  'extract-and-relocate-angular-component-feature',
-];
 
 export interface Anchor471 {
   id: string;
@@ -149,6 +141,8 @@ export interface RubricSampleInputs {
   seed: string;
   /** Git-tracked `.claude/skills/<slug>/SKILL.md` slugs at the pinned commit. */
   trackedSkillSlugs: readonly string[];
+  /** Promoted candidate names from the archived candidate rows. */
+  promotedSkillSlugs: readonly string[];
   /** Candidate dirs of the frozen copy that hold a SKILL.md. */
   candidates: readonly CandidateEntry[];
   suggestions: readonly SuggestionEntry[];
@@ -208,7 +202,7 @@ export function selectRubricSample(inputs: RubricSampleInputs): RubricSample {
   const shortfalls: StratumShortfall[] = [];
   const documents: SampledDocument[] = [];
   const taken = new Set<string>();
-  const promoted = new Set(PROMOTED_SYNTHESIZED_SLUGS);
+  const promoted = new Set(inputs.promotedSkillSlugs);
   const anchorSlugs = new Set(ANCHOR_471.map((a) => a.slug));
   const order = (value: string): string => sha256(seed + value);
   const byOrder = <T>(items: readonly T[], keyOf: (item: T) => string): T[] =>
@@ -255,7 +249,7 @@ export function selectRubricSample(inputs: RubricSampleInputs): RubricSample {
 
   // promoted-synthesized: the repo copy of each promoted skill.
   let promotedCount = 0;
-  for (const slug of PROMOTED_SYNTHESIZED_SLUGS) {
+  for (const slug of [...promoted].sort(compareCodePoints)) {
     if (!tracked.has(slug)) {
       notes.push(`promoted skill ${slug} is not tracked at the pinned commit`);
       continue;
@@ -655,6 +649,7 @@ export interface SuggestionRow {
 export interface LoadedRubricInputs {
   inputs: RubricSampleInputs;
   commit: string;
+  /** Verified candidate JSONL digest; legacy field name retained for output compatibility. */
   snapshotSha256: string;
   copyDir: string;
   suggestionRows: SuggestionRow[];
@@ -666,9 +661,9 @@ export interface LoadRubricInputsOptions {
   /** Commit the authored skills are read at (resolved to a full SHA). */
   commitRef: string;
   seed?: string;
-  snapshotFile?: string;
+  archiveReceiptFile?: string;
   candidatesName?: string;
-  expectedSnapshotSha256?: string | null;
+  expectedArchiveSha256?: string;
   /** Overrides for 619's bench-data rules (specs only). */
   benchDataRules?: BenchDataRules;
 }
@@ -701,67 +696,96 @@ export async function loadRubricSampleInputs(
     shapes.set(entry.name, classifyBodyShape(await readFile(file, 'utf8')));
   }
 
-  const snapshotPath = join(
+  const receiptPath = join(
     benchDataDir,
     'snapshots',
-    options.snapshotFile ?? FROZEN_SNAPSHOT_FILE,
+    options.archiveReceiptFile ?? 'pre-0057/receipt.json',
   );
-  const expected =
-    options.expectedSnapshotSha256 === undefined
-      ? FROZEN_SNAPSHOT_SHA256
-      : options.expectedSnapshotSha256;
-  const { result, sha256: snapshotSha256 } = await withReadonlySnapshot(
-    snapshotPath,
-    (db) => ({
-      rows: readCandidateInfo(db),
-      suggestions: readSuggestionRows(db),
-    }),
-    expected,
-  );
+  const [candidateArchive, queueArchive, suggestionArchive] = await Promise.all([
+    readArchiveTable(receiptPath, 'skill_candidates'),
+    readArchiveTable(receiptPath, 'skill_synthesis_queue'),
+    readArchiveTable(receiptPath, 'skill_suggestions'),
+  ]);
+  const snapshotSha256 = candidateArchive.sha256;
+  if (options.expectedArchiveSha256 !== undefined &&
+    snapshotSha256 !== options.expectedArchiveSha256) {
+    throw new Error('Archive sha256 is not the pinned value');
+  }
+  const rows = readCandidateInfo(candidateArchive.rows, queueArchive.rows);
+  const suggestions = readSuggestionRows(suggestionArchive.rows);
+  const promotedSkillSlugs = candidateArchive.rows
+    .map((raw) => candidateArchiveSchema.parse(raw))
+    .filter((row) => row.status === 'promoted')
+    .map((row) => row.name)
+    .sort(compareCodePoints);
 
   const candidates: CandidateEntry[] = [...shapes.entries()]
     .sort(([a], [b]) => compareCodePoints(a, b))
     .map(([slug, bodyShape]) => ({
       slug,
       bodyShape,
-      row: result.rows.get(slug) ?? null,
+      row: rows.get(slug) ?? null,
     }));
   return {
     inputs: {
       seed: options.seed ?? DEFAULT_SAMPLE_SEED,
       trackedSkillSlugs,
+      promotedSkillSlugs,
       candidates,
-      suggestions: result.suggestions.map((s) => ({ id: s.id, name: s.name })),
+      suggestions: suggestions.map((s) => ({ id: s.id, name: s.name })),
     },
     commit,
     snapshotSha256,
     copyDir,
-    suggestionRows: result.suggestions,
+    suggestionRows: suggestions,
   };
 }
 
-function readCandidateInfo(db: ReadonlySqlite): Map<string, CandidateRowInfo> {
-  const turns = db.prepare(
-    'SELECT MAX(turn_count) AS turns FROM skill_synthesis_queue WHERE session_id = ? AND turn_count > 0',
-  );
-  const rows = db
-    .prepare(
-      'SELECT id, name, created_at, judge_score, source_session_ids FROM skill_candidates',
-    )
-    .all() as Record<string, unknown>[];
+const candidateArchiveSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  status: z.string(),
+  created_at: z.number(),
+  judge_score: z.number().nullable(),
+  source_session_ids: z.string(),
+});
+
+const queueArchiveSchema = z.object({
+  session_id: z.string(),
+  turn_count: z.number().nullable(),
+});
+
+const suggestionArchiveSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string(),
+  body: z.string(),
+  references_json: z.string().nullable(),
+});
+
+function readCandidateInfo(
+  candidateRows: readonly Record<string, unknown>[],
+  queueRows: readonly Record<string, unknown>[],
+): Map<string, CandidateRowInfo> {
+  const turns = new Map<string, number>();
+  for (const raw of queueRows) {
+    const row = queueArchiveSchema.parse(raw);
+    if (row.turn_count !== null && row.turn_count > 0) {
+      turns.set(row.session_id, Math.max(turns.get(row.session_id) ?? 0, row.turn_count));
+    }
+  }
   const out = new Map<string, CandidateRowInfo>();
-  for (const row of rows) {
+  for (const raw of candidateRows) {
+    const row = candidateArchiveSchema.parse(raw);
     let sessionIds: unknown;
     try {
-      sessionIds = JSON.parse(String(row['source_session_ids']));
+      sessionIds = JSON.parse(row.source_session_ids);
     } catch {
       sessionIds = [];
     }
     let transcriptTurns: number | null = null;
     for (const sessionId of Array.isArray(sessionIds) ? sessionIds : []) {
-      const value = (
-        turns.get(String(sessionId)) as { turns: number | null } | undefined
-      )?.turns;
+      const value = turns.get(String(sessionId));
       if (
         typeof value === 'number' &&
         (transcriptTurns === null || value > transcriptTurns)
@@ -769,29 +793,25 @@ function readCandidateInfo(db: ReadonlySqlite): Map<string, CandidateRowInfo> {
         transcriptTurns = value;
       }
     }
-    out.set(String(row['name']), {
-      id: String(row['id']),
-      createdAt: Number(row['created_at']),
-      judged: row['judge_score'] !== null && row['judge_score'] !== undefined,
+    out.set(row.name, {
+      id: row.id,
+      createdAt: row.created_at,
+      judged: row.judge_score !== null,
       transcriptTurns,
     });
   }
   return out;
 }
 
-function readSuggestionRows(db: ReadonlySqlite): SuggestionRow[] {
-  return (
-    db
-      .prepare(
-        'SELECT id, name, description, body, references_json FROM skill_suggestions ORDER BY id',
-      )
-      .all() as Record<string, unknown>[]
-  ).map((row) => ({
-    id: String(row['id']),
-    name: String(row['name']),
-    description: String(row['description']),
-    body: String(row['body']),
-    referencesJson:
-      row['references_json'] === null ? null : String(row['references_json']),
-  }));
+function readSuggestionRows(rows: readonly Record<string, unknown>[]): SuggestionRow[] {
+  return rows.map((raw) => {
+    const row = suggestionArchiveSchema.parse(raw);
+    return {
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      body: row.body,
+      referencesJson: row.references_json,
+    };
+  }).sort((a, b) => compareCodePoints(a.id, b.id));
 }

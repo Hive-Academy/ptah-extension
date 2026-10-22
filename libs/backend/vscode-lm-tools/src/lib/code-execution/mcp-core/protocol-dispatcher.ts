@@ -150,6 +150,9 @@ import {
   buildSurfaceUpdateTool,
 } from './surface-tools';
 import { handleSurfaceToolCall } from './surface-tool-handlers';
+import { ARTIFACT_PUBLISH_TOOL_NAME, buildArtifactPublishTool } from './artifact-tools';
+import { handleArtifactPublish, type ArtifactNotification } from './artifact-tool-handlers';
+import type { IArtifactStore } from '@ptah-extension/platform-core';
 import type { McpToolProfile } from '@ptah-extension/shared';
 import {
   APPS_ONLY_TOOL_NAMES,
@@ -300,6 +303,18 @@ export type ToolResultCallback = (
  */
 export interface ProtocolHandlerDependencies {
   ptahAPI: PtahAPI;
+  /** Host-owned persistence; absent in hosts that cannot display artifacts. */
+  artifactStore?: IArtifactStore;
+  /** Host adapter sends a validated metadata-only webview message. */
+  notifyArtifactPublished?: ArtifactNotification;
+  /**
+   * The registered workspace of one session or tab id, with no fallback to
+   * another session or folder. Absent, or an unknown id: artifact publishing
+   * refuses the call.
+   */
+  getSessionWorkspace?: (idOrTabId: string) => string | undefined;
+  /** Resolve an SDK session id to its routing tab id. */
+  getSessionTabId?: (idOrTabId: string) => string | undefined;
   permissionPromptService: PermissionPromptService;
   webviewManager?: WebviewManager;
   logger: Logger;
@@ -553,6 +568,7 @@ function buildToolDefinitions(
     buildDashboardProposeSpecTool(),
     buildSurfaceUpdateTool(),
     buildSurfaceGetStateTool(),
+    buildArtifactPublishTool(),
     ...(deps.hasIDECapabilities === true && !disabled.has('ide')
       ? [
           buildLspReferencesTool(),
@@ -2336,6 +2352,30 @@ async function handleIndividualTool(
             sessionId: getCallerSessionId(),
             toolCallId: request.id.toString(),
           },
+          logger,
+        );
+        return reply.isError
+          ? toolErrorResponse(request, reply.text)
+          : await createToolSuccessResponse(request, reply.text, deps);
+      }
+
+      case ARTIFACT_PUBLISH_TOOL_NAME: {
+        const callerSessionId = getCallerSessionId()?.trim() || undefined;
+        // Only the caller session's own registered workspace: an unknown
+        // session must not fall back to the active session or open folder.
+        const callerWorkspace = callerSessionId
+          ? deps.getSessionWorkspace?.(callerSessionId)
+          : undefined;
+        const reply = await handleArtifactPublish(
+          args,
+          {
+            workspaceRoot: callerWorkspace,
+            sessionId: callerSessionId
+              ? deps.getSessionTabId?.(callerSessionId) ?? callerSessionId
+              : undefined,
+          },
+          deps.artifactStore,
+          deps.notifyArtifactPublished,
           logger,
         );
         return reply.isError

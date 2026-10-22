@@ -14,7 +14,7 @@
  * the card a stacking context and the `fixed` containing block.
  *
  * Self-contained on purpose: the host config and the `rpc:response`
- * auto-responder follow `../thoth/skills-lane-pickers.e2e.spec.ts`'s pattern,
+ * auto-responder follow `../boot/boot-progress.e2e.spec.ts`'s pattern,
  * and the installed-server data is the minimal slice of the Batch 25
  * marketplace fixture (`prototype-brief.md:42-69`) this scenario needs —
  * `sentry` blocked and NOT the last row, `sonarqube` blocked after it, and two

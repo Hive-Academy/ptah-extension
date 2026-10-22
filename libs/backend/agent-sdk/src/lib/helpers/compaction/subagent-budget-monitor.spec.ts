@@ -1775,9 +1775,13 @@ describe('SubagentBudgetMonitor', () => {
   });
 });
 
-/** Yield to I/O until `done()` holds (bounded). */
+/**
+ * Yield to I/O until `done()` holds (bounded). Real file writes on a loaded CI
+ * runner can need far more than a few thousand turns; the loop exits as soon as
+ * `done()` holds, so the high bound only matters on the failure path.
+ */
 async function waitUntil(done: () => boolean): Promise<void> {
-  for (let i = 0; i < 2_000 && !done(); i += 1) {
+  for (let i = 0; i < 200_000 && !done(); i += 1) {
     await new Promise<void>((resolve) => setImmediate(resolve));
   }
   if (!done()) {

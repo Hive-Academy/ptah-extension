@@ -36,6 +36,7 @@ import { ElectronEditorProvider } from './implementations/electron-editor-provid
 import { ElectronTokenCounter } from './implementations/electron-token-counter';
 import { ElectronDiagnosticsProvider } from './implementations/electron-diagnostics-provider';
 import { ElectronHttpServerProvider } from './implementations/electron-http-server-provider';
+import { ElectronArtifactStore } from './artifacts/electron-artifact-store';
 import {
   ElectronWorkspaceWatcher,
   type ElectronWorkspaceWatcherOptions,
@@ -191,6 +192,9 @@ export function registerPlatformElectronServices(
   });
   container.register(PLATFORM_TOKENS.HTTP_SERVER_PROVIDER, {
     useValue: new ElectronHttpServerProvider(),
+  });
+  container.register(PLATFORM_TOKENS.ARTIFACT_STORE, {
+    useValue: new ElectronArtifactStore(options.userDataPath),
   });
   if (options.workspaceWatchHost) {
     // Construction forks nothing: the host starts on the first `watch`.

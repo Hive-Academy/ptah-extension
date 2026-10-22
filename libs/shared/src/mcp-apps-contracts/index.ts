@@ -38,6 +38,8 @@ export {
   DASHBOARD_URL_SCHEME_ALLOWLIST,
   isAllowedDashboardUrl,
 } from './dashboard-catalog';
+export type * from './artifact.types';
+export * from './artifact.schemas';
 export type {
   DashboardActionId,
   DashboardComponentKind,

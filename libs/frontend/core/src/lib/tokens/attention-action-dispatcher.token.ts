@@ -6,8 +6,8 @@ export type AttentionActionOutcome =
   | { readonly kind: 'unavailable'; readonly reason: string };
 
 export interface AttentionActionDispatcher {
-  dispatch(key: string, generation: number, actionId: string): Promise<boolean>;
-  dispatchOutcome?(key: string, generation: number, actionId: string): Promise<AttentionActionOutcome>;
+  dispatch(key: string, generation: number, actionId: string, reason?: string): Promise<boolean>;
+  dispatchOutcome?(key: string, generation: number, actionId: string, reason?: string): Promise<AttentionActionOutcome>;
 }
 
 export const ATTENTION_ACTION_DISPATCHER =
