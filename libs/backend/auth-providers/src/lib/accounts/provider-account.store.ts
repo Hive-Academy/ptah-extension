@@ -9,7 +9,7 @@ import {
 import type { ClaudeAccountRunReservation, ClaudeAccountAuthOperationReservation,
   ClaudeAccountReservationRelease, ClaudeAccountReservationRetain } from '@ptah-extension/auth-providers-tokens';
 import { ProviderAccountStoreError, revalidateProviderAccountRoute,
-  withNewProviderAccountDirectory, type CanonicalProviderAccountRoute } from './provider-account-route';
+  withNewProviderAccountDirectory, providerAccountErrorCode, type CanonicalProviderAccountRoute } from './provider-account-route';
 
 const revision = z.number().int().nonnegative();
 const opaqueId = z.string().refine(isProviderAccountOpaqueId);
@@ -61,7 +61,7 @@ export class ProviderAccountStore {
         }
       }
       if (error instanceof ProviderAccountStoreError) throw error;
-      const code = error instanceof Error && 'code' in error ? String(error.code) : '';
+      const code = providerAccountErrorCode(error);
       if (/SQLITE_(BUSY|LOCKED)/.test(code)) throw new ProviderAccountStoreError('busy');
       if (/SQLITE_CONSTRAINT/.test(code)) throw new ProviderAccountStoreError('conflict');
       throw new ProviderAccountStoreError('unavailable-storage');

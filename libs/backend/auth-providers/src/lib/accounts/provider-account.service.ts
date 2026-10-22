@@ -11,7 +11,7 @@ import { accountActionResult } from './claude-account-command';
 import type { SqliteConnectionService, SqliteDatabase } from '@ptah-extension/persistence-sqlite';
 import { isProviderAccountOpaqueId, isSafeProviderAccountLabel, type ProviderAccountScope, type ProviderAccountSummary } from '@ptah-extension/shared';
 import { ProviderAccountStore, type StoredProviderAccount, type StoredAccountSelection } from './provider-account.store';
-import { ProviderAccountStoreError } from './provider-account-route';
+import { ProviderAccountStoreError, providerAccountErrorCode } from './provider-account-route';
 
 const admissionRequestSchema = z.object({
   provider: z.literal('claude'), scope: z.enum(['main', 'lane']),
@@ -77,7 +77,7 @@ export class ProviderAccountService implements ProviderAccountAdmissionPort {
         parent = join(parent, segment);
         try { mkdirSync(parent, { mode: 0o700 }); }
         catch (error: unknown) {
-          if (!(error instanceof Error) || !('code' in error) || error.code !== 'EEXIST') throw error;
+          if (providerAccountErrorCode(error) !== 'EEXIST') throw error;
         }
         const stat = lstatSync(parent);
         if (stat.isSymbolicLink() || !stat.isDirectory()) throw new ProviderAccountStoreError('unsupported-store');
@@ -147,7 +147,7 @@ export class ProviderAccountService implements ProviderAccountAdmissionPort {
         }
       }
       if (error instanceof ProviderAccountStoreError) throw error;
-      if (error instanceof Error && 'code' in error && /SQLITE_(BUSY|LOCKED)/.test(String(error.code))) {
+      if (/SQLITE_(BUSY|LOCKED)/.test(providerAccountErrorCode(error))) {
         throw new ProviderAccountStoreError('busy');
       }
       throw new ProviderAccountStoreError('unavailable-storage');

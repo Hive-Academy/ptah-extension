@@ -4,6 +4,14 @@ import { isAbsolute } from 'node:path';
 import type { ClaudeAccountFilesystemIdentity } from '@ptah-extension/auth-providers-tokens';
 import { PROVIDER_ACCOUNT_DUPLICATE_ROUTE_SUMMARY, type ProviderAccountResultCode } from '@ptah-extension/shared';
 
+/**
+ * Node and SQLite errors can come from another realm (Jest VM, native addon),
+ * so `instanceof Error` is unreliable. Read the code structurally.
+ */
+export function providerAccountErrorCode(error: unknown): string {
+  return typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : '';
+}
+
 /** Safe failures only: never attach filesystem or SQLite error messages. */
 export class ProviderAccountStoreError extends Error {
   constructor(readonly code: Exclude<ProviderAccountResultCode, 'ok'>,
@@ -61,7 +69,7 @@ export function withNewProviderAccountDirectory<T>(directory: string,
   if (!isAbsolute(directory)) throw new ProviderAccountStoreError('unsupported-source');
   try { mkdirSync(directory, { mode: 0o700 }); }
   catch (error: unknown) {
-    if (error instanceof Error && 'code' in error && error.code === 'EEXIST') {
+    if (providerAccountErrorCode(error) === 'EEXIST') {
       throw new ProviderAccountStoreError('conflict', PROVIDER_ACCOUNT_DUPLICATE_ROUTE_SUMMARY);
     }
     throw new ProviderAccountStoreError('unsupported-store');
