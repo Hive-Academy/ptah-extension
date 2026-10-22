@@ -195,7 +195,7 @@ At each implementation phase's last batch, stop for one combined independent cod
 - Command: `Verify-ProviderAccountsBatch -Projects @('@ptah-extension/auth-providers') -Hosts $H`
 - Report: T/implementation-report-batch-06.md.
 
-## Batch 7: Lazy registry/action DI and public package exports — IMPLEMENTED (Codex; awaiting P1-A phase review)
+## Batch 7: Lazy registry/action DI and public package exports — COMPLETE (Codex; P1-A accepted, see D14)
 
 - Recommended executor: CLI lane, backend DI/wiring; sequential; actual family unassigned.
 - Depends on: 1–6. Phase P1-A last batch; **STOP for combined code-logic + public-API style review of Batches 1–7**.

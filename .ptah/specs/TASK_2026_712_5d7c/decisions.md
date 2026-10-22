@@ -75,3 +75,10 @@ Each document gets one initial cross-side review and at most two author/reviewer
 - Admission success is NOT implemented in Batch 7; SDK_PROVIDER_ACCOUNT_ADMISSION stays fail-closed (typed refusal). Certified admission belongs to Batches 8/17 and release-held live certification (D7). Evidence: batches.md Batch 8/17 scope; lane question 2026-10-22.
 - Batch 7 ownership extended by one file (6/6 cap): provider-account-actions.service.ts gets a minimal dispose() that aborts active controllers plus a disposed guard. Reason: active controllers are private; disposal ownership (Batch 7 acceptance) is impossible otherwise without a brittle proxy or duplicate implementation. Reversible.
 - Process note (2026-10-22): a message queued to a completed Codex lane later revived it as new turns, which collided with a second lane on the same files. Lane 68442c9c was stopped; 9d20d0ef integrated. Rule from now on: never start a second writer while messages are queued for a lane that owns the same files.
+
+## D14 — P1-A accepted (2026-10-22)
+
+- Phase review (Grok, xAI, reviewing Codex Batches 3–7): REVISE, 1 Serious + 2 Moderate. One fix round by Codex (2ef3b39a1). Grok re-review: all 3 RESOLVED, 1 new Moderate regression (proved status failure no longer stored as failed; contradicted an existing spec).
+- Review cap reached; one bounded orchestrator correction (81701a5de), independently reviewed by Codex (OpenAI reviewing Anthropic): APPROVED.
+- Review families: xAI on OpenAI (phase), OpenAI on Anthropic (correction). Static review only; CI runs tests.
+- P1-A (Batches 1–7) accepted pending CI on PR #808. Next phase: P1-B (Batches 8–11).
