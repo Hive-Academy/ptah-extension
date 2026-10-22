@@ -301,10 +301,11 @@ export class JsonlReaderService {
         .filter((entry) => entry.isDirectory())
         .map((entry) => path.join(projectsDir, entry.name));
     } catch (error: unknown) {
-      if (context?.kind === 'named')
-        throw new ClaudeAccountResourceError('unavailable');
       // degradation-audit: optional-capability - transcript history is absent
       // or unavailable, so callers retain candidates instead of guessing.
+      // A named account refuses explicitly instead.
+      if (context?.kind === 'named')
+        throw new ClaudeAccountResourceError('unavailable');
       this.logger.debug('[JsonlReader] Could not list session directories', {
         projectsDir,
         error: error instanceof Error ? error.message : String(error),
@@ -360,11 +361,12 @@ export class JsonlReaderService {
     try {
       await fs.access(projectsDir);
     } catch {
-      if (context?.kind === 'named')
-        throw new ClaudeAccountResourceError('unavailable');
       // degradation-audit: optional-capability - ~/.claude/projects is absent
       // on a machine that has never run the Claude CLI; null means "no
       // transcript history here" and every caller treats that as no sessions.
+      // A named account refuses explicitly instead.
+      if (context?.kind === 'named')
+        throw new ClaudeAccountResourceError('unavailable');
       this.logger.warn('[JsonlReader] Projects directory does not exist', {
         projectsDir,
       });

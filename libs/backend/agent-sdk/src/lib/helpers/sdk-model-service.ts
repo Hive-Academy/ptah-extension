@@ -447,7 +447,9 @@ export class SdkModelService {
         }
       }
     } catch {
-      // Control errors may contain account data. Never log the raw exception.
+      // degradation-audit: optional-capability - an empty list is the specified
+      // "catalog unknown" result for a named account; callers keep configured
+      // precedence. Control errors may contain account data, so never log them.
       this.logger.debug('[SdkModelService] Named account catalog unavailable');
       return [];
     } finally {
@@ -533,6 +535,8 @@ export class SdkModelService {
       const models = await Promise.race([query.supportedModels(), cancelled]);
       return !controller.signal.aborted && Array.isArray(models) ? models : [];
     } catch {
+      // degradation-audit: optional-capability - a failed or timed-out control
+      // probe yields the specified empty "catalog unknown" list; no inference.
       this.logger.debug('[SdkModelService] Named account control probe failed');
       return [];
     } finally {

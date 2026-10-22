@@ -973,11 +973,12 @@ export class SessionImporterService {
     try {
       await fs.promises.access(projectsDir);
     } catch {
-      if (context?.kind === 'named')
-        throw new ClaudeAccountResourceError('unavailable');
       // degradation-audit: optional-capability - ~/.claude/projects is absent
       // on a machine that has never run the Claude CLI; null means "nothing
       // to import for this workspace", which the importer treats as zero.
+      // A named account refuses explicitly instead.
+      if (context?.kind === 'named')
+        throw new ClaudeAccountResourceError('unavailable');
       return null;
     }
     const escapedPath = workspacePath.replace(/[:\\/]/g, '-');

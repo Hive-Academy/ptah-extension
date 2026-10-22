@@ -91,6 +91,8 @@ export class ClaudeCliAdapter implements ClaudeCliAdapterContract {
         name: model.displayName,
       }));
     } catch {
+      // degradation-audit: optional-capability - listing never runs inference;
+      // an unreadable native catalog is the specified empty model list.
       this.logger.debug('[ClaudeCliAdapter] Native model catalog unavailable');
       return [];
     }
