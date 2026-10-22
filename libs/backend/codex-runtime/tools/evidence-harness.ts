@@ -15,6 +15,8 @@ export const CASE_DEADLINE_MS = 60_000;
 export const USAGE_CEILING = 12_000;
 const REQUEST_TIMEOUT_MS = 15_000;
 const MAX_EVENTS = 4000;
+// codex 0.155.1 has no per-turn output cap (model_max_output_tokens is ignored); user-approved substitute bounds.
+export const OUTPUT_BOUNDS = { model_reasoning_effort: 'low', model_verbosity: 'low', tool_output_token_limit: 2000 } as const;
 const idSchema = z.union([z.string(), z.number().int()]);
 const methodSchema = z.string().max(200).regex(/^[A-Za-z0-9_./:-]+$/);
 const header = { jsonrpc: z.literal('2.0').optional(), emittedAtMs: z.number().int().nonnegative().optional() };
@@ -157,7 +159,7 @@ export function sanitize(value: unknown, secrets: readonly string[] = []): unkno
   if (Array.isArray(value)) return value.map((entry) => sanitize(entry, secrets));
   if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, entry]) =>
     [key, /auth|secret|password|credential|account|email|cookie|session|token|refresh|api.?key|prompt|stderr/i.test(key) &&
-      !(typeof entry === 'number' && /^(inputTokens|outputTokens|totalTokens|cachedInputTokens|reasoningOutputTokens|maxOutputTokens)$/.test(key))
+      !(typeof entry === 'number' && /^(inputTokens|outputTokens|totalTokens|cachedInputTokens|reasoningOutputTokens|maxOutputTokens|tool_output_token_limit)$/.test(key))
       ? '[REDACTED]' : /Sha256$/.test(key) && typeof entry === 'string' && /^[a-f0-9]{64}$/.test(entry)
         ? entry : sanitize(entry, secrets)]));
   return value;
@@ -518,7 +520,7 @@ function configSummary(value: unknown): unknown {
   const config = record(record(value)['config']);
   assertSafeSandbox(config);
   if (record(config['sandbox_workspace_write'] ?? {})['network_access'] !== false) throw new Error('Network disable not confirmed by config/read');
-  return Object.fromEntries(['model', 'sandbox_mode', 'approval_policy', 'sandbox_workspace_write', 'model_max_output_tokens'].map((key) => [key, config[key]]));
+  return Object.fromEntries(['model', 'sandbox_mode', 'approval_policy', 'sandbox_workspace_write', ...Object.keys(OUTPUT_BOUNDS)].map((key) => [key, config[key]]));
 }
 function usageSummary(params: unknown): unknown {
   const data = record(params);
@@ -611,7 +613,7 @@ async function runCase(item: EvidenceCase, result: CaseResult, experiment: Exper
     `mcp_servers.marker.command=${JSON.stringify(process.execPath)}`,
     `mcp_servers.marker.args=${JSON.stringify([fixture, JSON.stringify({ root: experiment.root, original })])}`,
     `mcp_servers.marker.enabled=${item.kind === 'mcp'}`,
-    'model_max_output_tokens=1024', 'web_search="disabled"', 'features.apps=false',
+    ...Object.entries(OUTPUT_BOUNDS).map(([key, value]) => `${key}=${JSON.stringify(value)}`), 'web_search="disabled"', 'features.apps=false',
     'sandbox_workspace_write.network_access=false',
     `sandbox_mode=${JSON.stringify(selected.sandbox)}`, `approval_policy=${JSON.stringify(selected.approvalPolicy)}`,
   ];
@@ -716,7 +718,7 @@ async function runCase(item: EvidenceCase, result: CaseResult, experiment: Exper
     if (!z.array(z.object({ id: z.string(), model: z.string().optional() })).parse(models['data']).some((entry) => entry.id === model || entry.model === model)) throw new Error('Selected model not in first model/list page');
     result.effectiveConfig = configSummary(await rpc.request('config/read', { includeLayers: false }));
     const effective = record(result.effectiveConfig);
-    if (effective['model_max_output_tokens'] !== 1024 || effective['sandbox_mode'] !== selected.sandbox || effective['approval_policy'] !== selected.approvalPolicy) throw new Error('Effective config differs from bounded profile');
+    if (Object.entries(OUTPUT_BOUNDS).some(([key, value]) => effective[key] !== value) || effective['sandbox_mode'] !== selected.sandbox || effective['approval_policy'] !== selected.approvalPolicy) throw new Error('Effective config differs from bounded profile');
     const thread = await rpc.request('thread/start', { model, cwd: experiment.workspace, ...selected, ephemeral: true,
       developerInstructions: 'Evidence experiment. Only the single requested marker may be touched. Do not inspect credentials, config, home, environment or network. No subagents. No retries. Stop after one tool action.' });
     assertSafeSandbox(thread);
@@ -765,7 +767,7 @@ export async function runHarness(options: HarnessOptions, cases: readonly Eviden
   print: (text: string) => void = (text) => process.stdout.write(text), io: typeof disk = disk): Promise<void> {
   if (cases.reduce((total, item) => total + item.turnCost, 0) > TURN_CAP) throw new Error('Planned turn budget exceeds cap');
   if (!options.run || options.dryRun) {
-    print(JSON.stringify({ mode: 'dry-run', cap: TURN_CAP, maxOutputTokens: 1024, usageCeiling: USAGE_CEILING, caseDeadlineMs: CASE_DEADLINE_MS, cases }, null, 2) + '\n');
+    print(JSON.stringify({ mode: 'dry-run', cap: TURN_CAP, outputBounds: OUTPUT_BOUNDS, usageCeiling: USAGE_CEILING, caseDeadlineMs: CASE_DEADLINE_MS, cases }, null, 2) + '\n');
     return;
   }
   const { binary: binaryInput, authSource, model, out } = options;
@@ -832,7 +834,7 @@ export async function runHarness(options: HarnessOptions, cases: readonly Eviden
     finally { for (const event of fatalEvents) process.removeListener(event, signal); }
     const artifact = sanitize({ provenance: 'real run requested; individual observations only', model, binary,
       binarySha256: manifest.binarySha256, schemaSha256: manifest.schemaSha256, platform: process.platform, arch: process.arch,
-      cap: TURN_CAP, turnsConsumed: budget.consumed, maxOutputTokens: 1024, usageCeiling: USAGE_CEILING,
+      cap: TURN_CAP, turnsConsumed: budget.consumed, outputBounds: OUTPUT_BOUNDS, usageCeiling: USAGE_CEILING,
       observedUsage: usage.consumed, caseDeadlineMs: CASE_DEADLINE_MS, cleanup, results,
       harnessCapabilities: [
         ['Plan entry/read-only planning', 'plan'], ['AskUserQuestion', 'userInput'], ['ExitPlanMode', 'plan'],
