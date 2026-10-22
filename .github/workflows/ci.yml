@@ -60,8 +60,10 @@ jobs:
       - uses: ./.github/actions/setup-ci
         with:
           NODE_VERSION: ${{ env.NODE_VERSION }}
-          NX_CACHE_KEY: nx-${{ runner.os }}-${{ github.sha }}-checks
-          NX_CACHE_RESTORE_KEY: nx-${{ runner.os }}-
+          NX_CACHE_KEY: nx-${{ runner.os }}-checks-${{ github.sha }}
+          NX_CACHE_RESTORE_KEY: |
+            nx-${{ runner.os }}-checks-
+            nx-${{ runner.os }}-
 
       # DI invariant gate — every @inject(token) must resolve to a
       # register*(token, ...) call somewhere. Also runs the meta self-test
@@ -94,6 +96,12 @@ jobs:
         run: npm run test:scripts
 
       - run: node_modules/.bin/nx affected -t build
+
+      # The pre-push hook type-checks only direct pushes to main/develop, so
+      # this is the only typecheck gate for a PR. esbuild/webpack builds strip
+      # types without checking them; e2e and spec-only projects have no build.
+      - name: Typecheck affected projects
+        run: node_modules/.bin/nx affected -t typecheck
 
       # Electron runtime-dependency gate: every external import in the main
       # bundle must be declared in apps/ptah-electron/package.json, or the
@@ -133,23 +141,28 @@ jobs:
       - uses: ./.github/actions/setup-ci
         with:
           NODE_VERSION: ${{ env.NODE_VERSION }}
-          NX_CACHE_KEY: nx-${{ runner.os }}-${{ github.sha }}-test-${{ matrix.shard }}
-          NX_CACHE_RESTORE_KEY: nx-${{ runner.os }}-
+          NX_CACHE_KEY: nx-${{ runner.os }}-test-${{ matrix.shard }}-${{ github.sha }}
+          NX_CACHE_RESTORE_KEY: |
+            nx-${{ runner.os }}-test-${{ matrix.shard }}-
+            nx-${{ runner.os }}-
 
       - name: Assign affected test projects to this shard
         id: bucket
         shell: bash
         run: |
-          AFFECTED_PROJECTS="$(node_modules/.bin/nx show projects --affected -t test --json)" \
-            node -e 'const affected = JSON.parse(process.env.AFFECTED_PROJECTS); const heavy = ["@ptah-extension/vscode-lm-tools", "@ptah-extension/agent-sdk", "@ptah-extension/chat", "@ptah-extension/rpc-handlers", "@ptah-extension/cli-agent-runtime", "@ptah-extension/chat-streaming", "@ptah-extension/cli-engine"]; const remaining = new Set(affected); const ordered = [...heavy.filter((project) => remaining.delete(project)), ...[...remaining].sort()]; const shard = Number(process.argv[1]); const shardCount = Number(process.argv[2]); const bucket = ordered.filter((_, index) => index % shardCount === shard - 1); console.error(`Shard ${shard}/${shardCount}: ${bucket.join(", ") || "no affected test projects"}`); console.log(`projects=${bucket.join(",")}`);' "${{ matrix.shard }}" 4 >> "$GITHUB_OUTPUT"
+          AFFECTED_PROJECTS="$(node_modules/.bin/nx show projects --affected -t test --json)"
+          export AFFECTED_PROJECTS
+          node tools/ci/assign-test-shard.mjs "${{ matrix.shard }}" 4 >> "$GITHUB_OUTPUT"
 
       # mcp-bench's live-rg specs fail under CI=true without ripgrep (see
       # tools/mcp-bench/src/baselines/native-baselines.spec.ts).
       - name: Install ripgrep for mcp-bench specs
         if: contains(format(',{0},', steps.bucket.outputs.projects), ',mcp-bench,')
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ripgrep
+          if ! command -v rg >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y ripgrep
+          fi
 
       # `npm ci --ignore-scripts` (setup-ci) skips Electron's binary downloader,
       # and apps/ptah-electron/src/windows/shell-csp.spec.ts launches real
@@ -157,8 +170,10 @@ jobs:
       - name: Install Electron binary and xvfb for ptah-electron specs
         if: contains(format(',{0},', steps.bucket.outputs.projects), ',ptah-electron,')
         run: |
-          sudo apt-get update
-          sudo apt-get install -y xvfb
+          if ! command -v xvfb-run >/dev/null 2>&1 || ! command -v xauth >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y xvfb xauth
+          fi
           node node_modules/electron/install.js
 
       # Required coverage gate (TASK_2025_294 W8.B1). Per-project
