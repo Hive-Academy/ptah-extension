@@ -27,7 +27,7 @@ if (migration57 === undefined) throw new Error('Migration 0057 is not registered
 describe('migration 0057_drop_skill_pipeline', () => {
   it('registers last with relational and optional vec cleanup', () => {
     expect(migration57).toEqual({ version: 57, name: '0057_drop_skill_pipeline', sql, vecSql });
-    expect(MIGRATIONS.at(-1)).toBe(migration57);
+    expect(MIGRATIONS[MIGRATIONS.indexOf(migration57) - 1]?.version).toBe(56);
   });
 
   it('leaves version 56 and every table intact when archive verification fails', async () => {
