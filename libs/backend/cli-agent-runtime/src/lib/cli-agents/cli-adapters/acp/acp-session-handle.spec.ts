@@ -600,6 +600,9 @@ describe('createAcpSessionHandle — resume', () => {
     const prompt = promptText(sent(h.agent, 'session/prompt')[0]);
     expect(prompt).not.toContain('PROJECT-GUIDANCE-MARKER');
     expect(prompt).toContain('Summarise the repository');
+    // The restored session's earlier turns ran in another handle, so this
+    // first prompt must still carry the lane policy (4332578879).
+    expect(prompt).toContain('Lane policy id: ptah-lane-policy-v1');
   });
 
   it('falls back to session/new with an info when resume fails', async () => {

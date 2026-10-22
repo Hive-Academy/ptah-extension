@@ -68,6 +68,14 @@ export async function setTheme(page: Page, theme: AxeTheme): Promise<void> {
       document.body.removeAttribute('data-vscode-theme-kind');
       document.documentElement.setAttribute('data-theme', name);
       document.documentElement.setAttribute('data-theme-mode', mode);
+      // anubis / anubis-light are not glass themes. A ptah-glass boot leaves
+      // data-glass set, and this attribute write used to keep it when the
+      // Angular debug `ng` handle is absent (production bundles). Glass
+      // `.btn-error` then paints anubis error-content (#e8e6e1 on #dc2626,
+      // 3.87:1) over `.err-solid-text`. ThemeService.removeAttribute does
+      // the same when setTheme runs below.
+      document.documentElement.removeAttribute('data-glass');
+      document.documentElement.removeAttribute('data-glass-mode');
 
       // Surfaces that follow `ThemeService.isDarkMode()` (the CodeMirror
       // editor, the Pierre diff options) never see a bare attribute flip.

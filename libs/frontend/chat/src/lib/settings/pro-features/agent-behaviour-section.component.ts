@@ -93,6 +93,7 @@ interface LoadError {
   template: `
     <section
       class="card bg-base-200 border border-base-300 p-3"
+      data-glass-surface="content"
       aria-labelledby="agent-behaviour-heading"
       data-testid="agent-behaviour-card"
     >

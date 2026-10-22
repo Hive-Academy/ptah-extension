@@ -92,7 +92,7 @@ import { NgClass } from '@angular/common';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <dialog #modal class="modal">
-      <div class="modal-box">
+      <div class="modal-box" data-glass-surface="overlay">
         <h3 class="font-bold text-lg">{{ title() }}</h3>
         <p class="py-4">{{ message() }}</p>
         <div class="modal-action">

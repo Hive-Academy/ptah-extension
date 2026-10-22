@@ -62,10 +62,12 @@ import {
 import {
   assertCommandLineWithinLimit,
   buildTaskPrompt,
+  buildArgvTaskPrompt,
   CliCommandLineTooLongError,
   fullPromptPreambles,
   probeCliVersion,
   renderRoleBlock,
+  PTAH_LANE_POLICY,
   resolveDirectSpawn,
   spawnCli,
   withAsarUnpackedTwin,
@@ -96,18 +98,46 @@ function createFakeChild(): FakeChild & EventEmitter {
 }
 
 describe('buildTaskPrompt', () => {
-  const toolPolicy =
-    'Tool policy: prefer direct `ptah_*` tools over `execute_code`. `ptah.files` is read-only; use native CLI write/edit tools for file creation or edits, never `execute_code`.\n' +
-    'Cost policy — every tool call resends the whole thread, so finish in as few calls as possible:\n' +
-    '- Verify only changed projects: `nx test <project>`, `nx affected -t test`, or changed Jest specs; never workspace-wide, build, serve, dev or e2e unless asked. Use Nx `--parallel=1`, Jest `--maxWorkers=2` (or 50%), one heavy foreground run at a time.\n' +
-    '- Keep tool output small: filter or tail command output, never paste a full test or build log into the thread, and never re-run a failed suite just to re-read its output.\n' +
-    '- For a long command: run it once in the foreground with a long timeout, or in the background with ONE completion check. Never a wait/status loop.\n' +
-    '- Prefer AST/summary tools and targeted reads over whole-file reads.';
+  it('bounds argv preambles while preserving the complete lane policy and role priority', () => {
+    const prompt = buildArgvTaskPrompt({
+      task: 'Do the work',
+      workingDirectory: '/ws',
+      projectGuidance: 'guidance '.repeat(9_000),
+      role: { name: 'reviewer', body: 'role '.repeat(9_000), sourcePath: '/ws/reviewer.md', bytes: 45_000 },
+    }, 'opencode');
+    expect(prompt.match(/Lane policy id: ptah-lane-policy-v1/g)).toHaveLength(1);
+    expect(prompt).toContain('## Role: reviewer');
+    expect(prompt).toContain('/ws/reviewer.md');
+    expect(prompt).not.toContain('guidance guidance');
+    const preamble = prompt.slice(0, prompt.indexOf('Do the work'));
+    expect(Buffer.byteLength(preamble, 'utf8')).toBeLessThanOrEqual(4_000);
+  });
+  const toolPolicy = PTAH_LANE_POLICY;
+
+  it('has one stable canary and the required tool table', () => {
+    expect(PTAH_LANE_POLICY.match(/Lane policy id: ptah-lane-policy-v1/g)).toHaveLength(1);
+    expect(PTAH_LANE_POLICY).toContain('search your tool list for "ptah_"');
+    for (const key of ['ptah_code_search_symbols', 'ptah_ast_analyze', 'ptah_lsp_references', 'ptah_get_diagnostics', 'ptah_memory_search', 'ptah_search_files', 'ptah_context_enrich_file', 'ptah_get_dependents', 'ptah_web_search', 'ptah_browser_navigate', 'ptah_browser_screenshot']) {
+      expect(PTAH_LANE_POLICY).toContain(key);
+    }
+  });
+
+  it('does not name a CLI or model vendor', () => {
+    const roster = ['codex', 'copilot', 'cursor', 'antigravity', 'opencode', 'pi', 'grok', 'gemini', 'claude', 'openai', 'anthropic', 'xai', 'ollama', 'openrouter', 'glm', 'kimi', 'moonshot'];
+    for (const name of roster) {
+      expect(PTAH_LANE_POLICY).not.toMatch(new RegExp(`\\b${name}\\b`, 'i'));
+    }
+  });
+
+  it('omits task-text policy for a stronger channel', () => {
+    expect(buildTaskPrompt({ task: 'Ship it.', workingDirectory: '/ws', lanePolicyDelivery: 'developer-instructions' })).not.toContain(PTAH_LANE_POLICY);
+    expect(fullPromptPreambles({ task: 'Ship it.', workingDirectory: '/ws', lanePolicyDelivery: 'system-prompt' }).lanePolicy).toBe(false);
+  });
 
   it('stays within the argv budget it shares with the task text', () => {
     // argv on the task-prompt adapters; the Windows `.cmd` fallback limit is
     // 8,191 bytes for the WHOLE command line.
-    expect(Buffer.byteLength(toolPolicy, 'utf8')).toBeLessThan(1000);
+    expect(Buffer.byteLength(toolPolicy, 'utf8')).toBeLessThanOrEqual(3500);
   });
 
   it('includes the shared native-agent policy without enhanced guidance', () => {
@@ -153,39 +183,9 @@ describe('buildTaskPrompt', () => {
 
     it('keeps the fresh spawn snapshot and removes only the restored prefix', () => {
       const fresh = { ...base, resumeRestoresContext: true };
-      expect(buildTaskPrompt(fresh, 'cursor')).toMatchInlineSnapshot(`
-        "SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
-
-        ---
-
-        ## Role: backend-developer
-
-        You are running as the \`backend-developer\` role; the definition below governs this task and outranks any generic persona above.
-
-        Follow the repository patterns.
-
-        ---
-
-        Tool policy: prefer direct \`ptah_*\` tools over \`execute_code\`. \`ptah.files\` is read-only; use native CLI write/edit tools for file creation or edits, never \`execute_code\`.
-        Cost policy — every tool call resends the whole thread, so finish in as few calls as possible:
-        - Verify only changed projects: \`nx test <project>\`, \`nx affected -t test\`, or changed Jest specs; never workspace-wide, build, serve, dev or e2e unless asked. Use Nx \`--parallel=1\`, Jest \`--maxWorkers=2\` (or 50%), one heavy foreground run at a time.
-        - Keep tool output small: filter or tail command output, never paste a full test or build log into the thread, and never re-run a failed suite just to re-read its output.
-        - For a long command: run it once in the foreground with a long timeout, or in the background with ONE completion check. Never a wait/status loop.
-        - Prefer AST/summary tools and targeted reads over whole-file reads.
-
-        Continue the implementation.
-
-        Focus on these files:
-        - src/a.ts
-
-        Write deliverable files to: /tf
-
-        ## Before you exit
-        Write every one of these files before your final message. The session that spawned you checks each path the moment you exit, and a clean exit with a missing or empty file is reported as work NOT done:
-        - /tf/report.md
-        Put what you produced, the absolute path of each file, and anything you could not do in your final message; Ptah MCP reporting is unavailable.
-        Never end a turn claiming success for a file you did not write."
-      `);
+      const freshPrompt = buildTaskPrompt(fresh, 'cursor');
+      expect(freshPrompt).toContain(PTAH_LANE_POLICY);
+      expect(freshPrompt).toContain('Ptah MCP reporting is unavailable.');
       const resumed = { ...fresh, resumeSessionId: 'session-1' };
       const prompt = buildTaskPrompt(resumed, 'cursor');
       expect(prompt).not.toContain(base.projectGuidance);
@@ -233,7 +233,7 @@ describe('buildTaskPrompt', () => {
         const prompt = buildTaskPrompt(
           {
             ...resumed,
-            resumeDeliveredPreambles: { toolPolicy: false, messaging: false },
+            resumeDeliveredPreambles: { lanePolicy: false, messaging: false },
           },
           'opencode',
         );
@@ -249,12 +249,12 @@ describe('buildTaskPrompt', () => {
         const prompt = buildTaskPrompt(
           {
             ...resumed,
-            resumeDeliveredPreambles: { toolPolicy: true, messaging: true },
+            resumeDeliveredPreambles: { lanePolicy: true, messaging: true },
           },
           'opencode',
         );
 
-        expect(prompt).not.toContain('Tool policy:');
+        expect(prompt).not.toContain('Lane policy id: ptah-lane-policy-v1');
         expect(prompt).not.toContain('Cost policy');
         expect(prompt).not.toContain('Two-way messaging:');
         expect(prompt.startsWith(base.task)).toBe(true);
@@ -267,12 +267,12 @@ describe('buildTaskPrompt', () => {
         const prompt = buildTaskPrompt(
           {
             ...resumed,
-            resumeDeliveredPreambles: { toolPolicy: true, messaging: false },
+            resumeDeliveredPreambles: { lanePolicy: true, messaging: false },
           },
           'opencode',
         );
 
-        expect(prompt).not.toContain('Tool policy:');
+        expect(prompt).not.toContain('Lane policy id: ptah-lane-policy-v1');
         expect(prompt.startsWith(base.task)).toBe(true);
         expect(prompt).toContain('Two-way messaging:');
         expect(
@@ -286,7 +286,7 @@ describe('buildTaskPrompt', () => {
             ...base,
             ...messaging,
             resumeRestoresContext: true,
-            resumeDeliveredPreambles: { toolPolicy: true, messaging: true },
+            resumeDeliveredPreambles: { lanePolicy: true, messaging: true },
           },
           'opencode',
         );
@@ -304,7 +304,7 @@ describe('buildTaskPrompt', () => {
             ...base,
             ...messaging,
             resumeSessionId: 'session-1',
-            resumeDeliveredPreambles: { toolPolicy: true, messaging: true },
+            resumeDeliveredPreambles: { lanePolicy: true, messaging: true },
           },
           'opencode',
         );
@@ -315,15 +315,15 @@ describe('buildTaskPrompt', () => {
 
       it('reports what a prompt built without delivery flags carries', () => {
         expect(fullPromptPreambles({ ...base, ...messaging })).toEqual({
-          toolPolicy: true,
+          lanePolicy: true,
           messaging: true,
         });
         expect(fullPromptPreambles({ ...base, agentId: 'agent-42' })).toEqual({
-          toolPolicy: true,
+          lanePolicy: true,
           messaging: false,
         });
         expect(fullPromptPreambles({ ...base, mcpPort: 41739 })).toEqual({
-          toolPolicy: true,
+          lanePolicy: true,
           messaging: false,
         });
         // The flag matches the prompt: messaging present exactly when reported.

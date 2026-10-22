@@ -143,6 +143,8 @@ import type {
   CliOutputSegment,
 } from '@ptah-extension/shared';
 import { buildTaskPrompt, renderRoleBlock } from './cli-adapter.utils';
+import { LaneInstructionFileStore } from '../lane-instruction-file-store';
+import type { IFileSystemProvider } from '@ptah-extension/platform-core';
 
 /** Drain a handle's raw output + structured segments into arrays. */
 function collect(handle: SdkHandle): {
@@ -397,8 +399,76 @@ describe('PiCliAdapter (RPC mode)', () => {
       reasoningEffort: 'high',
     };
 
-    it('declares the task-prompt channel', () => {
-      expect(adapter.roleChannel).toBe('task-prompt');
+    it('declares the additive system prompt channel', () => {
+      expect(adapter.roleChannel).toBe('system-prompt');
+    });
+
+    it('writes the policy once to a process instruction file and leaves it out of RPC task text', async () => {
+      const store = new LaneInstructionFileStore({} as IFileSystemProvider);
+      const path = '/proj/.ptah/lanes/pi-lane/pi-append-system.md';
+      const write = jest.spyOn(store, 'write').mockResolvedValue(path);
+      const handle = await adapter.runSdk({ ...baseOptions, role, agentId: 'pi-lane', instructionFileStore: store });
+      const [, args] = mockSpawnCli.mock.calls[0] as [string, string[]];
+      expect(args[args.indexOf('--append-system-prompt') + 1]).toBe(path);
+      expect(handle.getLanePolicyDelivery?.()).toBe('system-prompt');
+      expect(write).toHaveBeenCalledWith('/proj', 'pi-lane', 'pi-append-system.md', expect.stringContaining('Lane policy id: ptah-lane-policy-v1'));
+      const content = write.mock.calls[0][3];
+      expect(content.match(/Lane policy id: ptah-lane-policy-v1/g)).toHaveLength(1);
+      expect(content).toContain('HARNESS CONTEXT');
+      expect(content).toContain(renderRoleBlock(role, 'pi'));
+      const [firstPrompt] = writtenRequests(spawnedChildren[0]);
+      expect(String(firstPrompt['message'])).not.toContain('Lane policy id:');
+      expect(String(firstPrompt['message'])).not.toContain('HARNESS CONTEXT');
+      currentChild?.emitClose(0);
+      await handle.done;
+    });
+
+    it('rewrites the policy file before each follow-up process and falls back to RPC text on write failure', async () => {
+      const store = new LaneInstructionFileStore({} as IFileSystemProvider);
+      const path = '/proj/.ptah/lanes/pi-lane/pi-append-system.md';
+      const write = jest.spyOn(store, 'write').mockResolvedValue(path);
+      const handle = await adapter.runSdk({ ...baseOptions, role, agentId: 'pi-lane', instructionFileStore: store });
+      spawnedChildren[0].stdout.write(JSON.stringify({ type: 'session', version: 3, id: 'sess-file' }) + '\n');
+      spawnedChildren[0].stdout.write(JSON.stringify({ type: 'agent_settled' }) + '\n');
+      await handle.done;
+
+      const followUp = await handle.continue?.('second turn');
+      expect(write).toHaveBeenCalledTimes(2);
+      const [, args] = mockSpawnCli.mock.calls[1] as [string, string[]];
+      expect(args[args.indexOf('--append-system-prompt') + 1]).toBe(path);
+      spawnedChildren[1].stdout.write(JSON.stringify({ type: 'agent_settled' }) + '\n');
+      await followUp?.done;
+
+      write.mockRejectedValueOnce(new Error('locked'));
+      const fallback = await handle.continue?.('third turn');
+      const [, fallbackArgs] = mockSpawnCli.mock.calls[2] as [string, string[]];
+      expect(fallbackArgs).not.toContain('--append-system-prompt');
+      expect(String(writtenRequests(spawnedChildren[2])[0]['message'])).toContain('Lane policy id: ptah-lane-policy-v1');
+      spawnedChildren[2].stdout.write(JSON.stringify({ type: 'agent_settled' }) + '\n');
+      await fallback?.done;
+    });
+
+    it('keeps the policy in follow-up RPC text when neither instruction write succeeds', async () => {
+      const store = new LaneInstructionFileStore({} as IFileSystemProvider);
+      jest.spyOn(store, 'write').mockRejectedValue(new Error('locked'));
+      const handle = await adapter.runSdk({ ...baseOptions, role, agentId: 'pi-lane', instructionFileStore: store });
+      spawnedChildren[0].stdout.write(JSON.stringify({ type: 'session', version: 3, id: 'sess-file' }) + '\n');
+      spawnedChildren[0].stdout.write(JSON.stringify({ type: 'agent_settled' }) + '\n');
+      await handle.done;
+
+      const followUp = await handle.continue?.('second turn');
+      const [, args] = mockSpawnCli.mock.calls[1] as [string, string[]];
+      expect(args).not.toContain('--append-system-prompt');
+      expect(String(writtenRequests(spawnedChildren[1])[0]['message'])).toContain('Lane policy id: ptah-lane-policy-v1');
+      spawnedChildren[1].stdout.write(JSON.stringify({ type: 'agent_settled' }) + '\n');
+      await followUp?.done;
+    });
+
+    it('includes the policy in a new resumed process when no instruction file proves delivery', async () => {
+      const handle = await adapter.runSdk({ ...baseOptions, resumeSessionId: 'external-session' });
+      expect(String(writtenRequests(spawnedChildren[0])[0]['message'])).toContain('Lane policy id: ptah-lane-policy-v1');
+      currentChild?.emitClose(0);
+      await handle.done;
     });
 
     it('sends the role block in the first stdin prompt and not on continuation', async () => {

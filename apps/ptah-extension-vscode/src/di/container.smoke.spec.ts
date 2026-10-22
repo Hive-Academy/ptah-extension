@@ -34,7 +34,7 @@ import {
   type Logger,
 } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import { CLI_AGENT_RUNTIME_TOKENS } from '@ptah-extension/cli-agent-runtime';
+import { CLI_AGENT_RUNTIME_TOKENS, registerCliAgentRuntimeServices } from '@ptah-extension/cli-agent-runtime';
 import {
   LANE_ROUTING_TOKENS,
   registerLaneRoutingServices,
@@ -231,6 +231,13 @@ describe('VS Code DI — shared RPC handler resolution', () => {
 
   beforeAll(() => {
     c = buildMinimalContainer();
+  });
+
+  it('resolves one lane instruction file store after runtime registration', () => {
+    const runtime = buildMinimalContainer();
+    registerCliAgentRuntimeServices(runtime, runtime.resolve<Logger>(TOKENS.LOGGER));
+    const token = CLI_AGENT_RUNTIME_TOKENS.LANE_INSTRUCTION_FILE_STORE;
+    expect(runtime.resolve(token)).toBe(runtime.resolve(token));
   });
 
   it('resolves the usage analytics service token', () => {

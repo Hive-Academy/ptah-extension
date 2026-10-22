@@ -207,7 +207,7 @@ import type { CliLaneBudgets, SdkHandle } from './cli-adapter.interface';
 import type { AgentRoleDefinition } from '@ptah-extension/shared';
 import { readFileSync } from 'fs';
 import type { Logger } from '@ptah-extension/vscode-core';
-import { buildTaskPrompt, renderRoleBlock } from './cli-adapter.utils';
+import { buildTaskPrompt, renderRoleBlock, PTAH_LANE_POLICY } from './cli-adapter.utils';
 import { CODEX_RESUME_RESENDS_ROLE } from './codex/codex-lane-config.builder';
 
 function createMockLogger(): {
@@ -915,8 +915,40 @@ describe('CodexCliAdapter', () => {
       // the completion contract always is.
       const followUp = mockRunStreamed.mock.calls[1][0] as string;
       expect(followUp.startsWith('Follow-up message')).toBe(true);
-      expect(followUp).not.toContain('Tool policy:');
+      expect(followUp).not.toContain('Lane policy id: ptah-lane-policy-v1');
       expect(followUp).toContain('## Before you exit');
+    });
+
+    it('puts policy in continue text once when the resume thread id makes developer argv too long', async () => {
+      // The thread id and the developer instructions compete for a
+      // WHOLE-COMMAND limit: dropping the policy cures an argv that the id
+      // pushed over that limit. Only win32 (and darwin) model a total; linux
+      // models the per-argument MAX_ARG_STRLEN, which a thread id can breach
+      // but dropping the policy cannot cure — so a 31,000-char id sails
+      // under linux's limit and the fallback never triggers (the #803 CI
+      // failure). Pin the argv checks to win32 so every platform exercises
+      // the same fallback.
+      Reflect.set(adapter, 'argvLimitPlatform', 'win32');
+      try {
+        const threadId = 't'.repeat(31_000);
+        mockRunStreamed.mockImplementation(async () => ({
+          events: createFakeEventGenerator([{ type: 'thread.started', thread_id: threadId }]),
+        }));
+        const handle = await adapter.runSdk(defaultOptions);
+        await handle.done;
+        const outcome = await handle.continue?.('Follow-up message');
+        expect(await outcome?.done).toBe(0);
+        expect(mockRunStreamed.mock.calls[1][0]).toContain('Lane policy id: ptah-lane-policy-v1');
+        expect(handle.getLanePolicyDelivery?.()).toBe('task-prompt');
+        // The policy moved to the task prompt, but the role never left
+        // developer instructions (4332578858).
+        expect(handle.getRoleDelivery?.()).toBe('developer-instructions');
+        const later = await handle.continue?.('Later message');
+        expect(await later?.done).toBe(0);
+        expect(mockRunStreamed.mock.calls[2][0]).not.toContain('Lane policy id: ptah-lane-policy-v1');
+      } finally {
+        Reflect.set(adapter, 'argvLimitPlatform', process.platform);
+      }
     });
 
     it('starts a new thread with the full prefix when the first turn never reported one', async () => {
@@ -929,7 +961,8 @@ describe('CodexCliAdapter', () => {
 
       expect(mockResumeThread).not.toHaveBeenCalled();
       expect(mockStartThread).toHaveBeenCalledTimes(2);
-      expect(mockRunStreamed.mock.calls[1][0]).toContain('Tool policy:');
+      expect(mockRunStreamed.mock.calls[1][0]).not.toContain('Lane policy id: ptah-lane-policy-v1');
+      expect(overrideValue('developer_instructions', 1)).toContain('Lane policy id: ptah-lane-policy-v1');
     });
 
     it('streams the continued turn through the same onOutput callbacks', async () => {
@@ -1348,11 +1381,11 @@ describe('CodexCliAdapter', () => {
       await handle.done;
 
       expect(overrideValue('developer_instructions')).toBe(
-        renderRoleBlock(role, 'codex'),
+        `${renderRoleBlock(role, 'codex')}\n\n${PTAH_LANE_POLICY}`,
       );
       const input = mockRunStreamed.mock.calls[0][0] as string;
       expect(input).not.toContain('## Role: reviewer');
-      expect(input).toBe(buildTaskPrompt({ ...baseOptions, role: undefined }));
+      expect(input).toBe(buildTaskPrompt({ ...baseOptions, role: undefined, lanePolicyDelivery: 'developer-instructions' }));
     });
 
     it('keeps a leading --- block of the role body in developer_instructions', async () => {
@@ -1390,7 +1423,7 @@ describe('CodexCliAdapter', () => {
       expect(followUp.startsWith('Follow-up')).toBe(true);
       expect(followUp).not.toContain('## Role: reviewer');
       expect(overrideValue('developer_instructions', 1)).toBe(
-        CODEX_RESUME_RESENDS_ROLE ? renderRoleBlock(role, 'codex') : undefined,
+        CODEX_RESUME_RESENDS_ROLE ? `${renderRoleBlock(role, 'codex')}\n\n${PTAH_LANE_POLICY}` : undefined,
       );
     });
 
@@ -1399,7 +1432,7 @@ describe('CodexCliAdapter', () => {
 
       await adapter.runSdk(baseOptions);
 
-      expect(overrideValue('developer_instructions')).toBeUndefined();
+      expect(overrideValue('developer_instructions')).toBe(PTAH_LANE_POLICY);
     });
 
     it('caps an oversized role at 10,000 chars before it reaches the Codex client', async () => {
@@ -1414,9 +1447,9 @@ describe('CodexCliAdapter', () => {
       await adapter.runSdk({ ...baseOptions, role: hugeRole });
 
       const instructions = String(overrideValue('developer_instructions'));
-      expect(instructions).toBe(renderRoleBlock(hugeRole, 'codex'));
+      expect(instructions).toBe(`${renderRoleBlock(hugeRole, 'codex')}\n\n${PTAH_LANE_POLICY}`);
       expect(hugeBody.length).toBeGreaterThan(1_000_000);
-      expect(instructions.length).toBeLessThanOrEqual(10_000);
+      expect(renderRoleBlock(hugeRole, 'codex').length).toBeLessThanOrEqual(10_000);
       // The identity paragraph survives and the pointer names the full file.
       expect(instructions).toContain(identity);
       expect(instructions).toContain(`\`${hugeRole.sourcePath}\``);
@@ -1436,7 +1469,9 @@ describe('CodexCliAdapter', () => {
       const withRole = constructedOverrides(1).filter(
         (entry) => !entry.startsWith('developer_instructions='),
       );
-      expect(withRole).toEqual(constructedOverrides(0));
+      expect(withRole).toEqual(constructedOverrides(0).filter(
+        (entry) => !entry.startsWith('developer_instructions='),
+      ));
       expect(overrideValue('approval_policy', 1)).toBe('never');
       expect(overrideValue('model_reasoning_effort', 1)).toBe('high');
     });
@@ -1555,7 +1590,7 @@ describe('CodexCliAdapter', () => {
       await handle.done;
 
       expect(overrideValue('developer_instructions')).toBe(
-        renderRoleBlock(role, 'codex'),
+        `${renderRoleBlock(role, 'codex')}\n\n${PTAH_LANE_POLICY}`,
       );
       expect(overrideValue('web_search')).toBe('live');
       expect(overrideValue('approval_policy')).toBe('never');
@@ -1604,7 +1639,7 @@ describe('CodexCliAdapter', () => {
         'skills.include_instructions=false',
       );
       expect(overrideValue('developer_instructions')).toBe(
-        CODEX_RESUME_RESENDS_ROLE ? renderRoleBlock(role, 'codex') : undefined,
+        CODEX_RESUME_RESENDS_ROLE ? `${renderRoleBlock(role, 'codex')}\n\n${PTAH_LANE_POLICY}` : undefined,
       );
     });
 
@@ -1626,14 +1661,15 @@ describe('CodexCliAdapter', () => {
         'skills.include_instructions=false',
       );
       expect(overrideValue('developer_instructions', 1)).toBe(
-        CODEX_RESUME_RESENDS_ROLE ? renderRoleBlock(role, 'codex') : undefined,
+        CODEX_RESUME_RESENDS_ROLE ? `${renderRoleBlock(role, 'codex')}\n\n${PTAH_LANE_POLICY}` : undefined,
       );
       // The first turn carried the tool policy and (agent id + port) the
       // messaging block, so neither is resent; the contract always is.
       const firstInput = mockRunStreamed.mock.calls[0][0] as string;
       const followUp = mockRunStreamed.mock.calls[1][0] as string;
-      expect(firstInput).toContain('Tool policy:');
-      expect(followUp).not.toContain('Tool policy:');
+      expect(firstInput).not.toContain('Lane policy id: ptah-lane-policy-v1');
+      expect(overrideValue('developer_instructions')).toContain('Lane policy id: ptah-lane-policy-v1');
+      expect(followUp).not.toContain('Lane policy id: ptah-lane-policy-v1');
       expect(followUp.length).toBeLessThan(firstInput.length);
       expect(followUp).toContain('## Before you exit');
     });

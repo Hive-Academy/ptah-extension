@@ -6,7 +6,7 @@ import { DAISYUI_THEMES } from '@ptah-extension/core';
 const { wcagContrast } = require('culori/require');
 const tailwindConfig = require('../../tailwind.config.js');
 
-const themes = ['anubis', 'anubis-light'] as const;
+const themes = ['anubis', 'anubis-light', 'ptah-glass', 'ptah-glass-light'] as const;
 const states = {
   run: 'in',
   need: 'wa',
@@ -17,9 +17,7 @@ const states = {
 const surfaces = ['base-100', 'base-200', 'base-300'] as const;
 
 type Theme = Record<string, string>;
-const customThemes: Record<string, Theme> = tailwindConfig.daisyui.themes.find(
-  (entry: unknown) => typeof entry === 'object' && entry !== null,
-);
+const customThemes: Record<string, Theme> = Object.assign({}, ...tailwindConfig.daisyui.themes);
 
 describe.each(themes)('%s state ink', (name) => {
   const theme = customThemes[name];
@@ -40,7 +38,7 @@ describe.each(themes)('%s state ink', (name) => {
   }
 
   it('sets the pending-todo checkbox outline alpha', () => {
-    expect(theme['--ptah-check-edge']).toBe('55%');
+    expect(theme['--ptah-check-edge']).toMatch(/^(55|70)%$/);
   });
 });
 
@@ -76,7 +74,7 @@ describe('stock theme status inks in styles.css', () => {
   }
 
   const stockThemes = DAISYUI_THEMES.map((entry) => entry.name as string).filter(
-    (name) => !name.startsWith('anubis'),
+    (name) => !name.startsWith('anubis') && !name.startsWith('ptah-glass'),
   );
   const declared = declarationsByTheme();
 

@@ -52,6 +52,7 @@ const OUTPUT_STYLE_PARITY_FAILED =
   template: `
     <section
       class="card bg-base-200 border border-base-300 p-3"
+      data-glass-surface="content"
       aria-labelledby="output-style-heading"
       data-testid="output-style-card"
     >

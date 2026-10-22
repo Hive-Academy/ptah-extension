@@ -7,7 +7,8 @@
  * Key differences from CDK PopoverComponent:
  * - Uses Floating UI instead of CDK Overlay for positioning
  * - Native focus management instead of CDK FocusTrap
- * - No portal rendering (content stays in component DOM)
+ * - No portal: the open shell stays in this component and joins the top layer
+ *   (`popover="manual"`) so an isolating glass ancestor cannot clip it
  * - Native backdrop element with dark/transparent options
  *
  * @example
@@ -85,28 +86,30 @@ type PositionOutcome = 'positioned' | 'failed' | 'timed out';
       <ng-content select="[trigger]" />
     </div>
 
-    <!-- Popover panel (conditionally rendered) -->
+    <!-- Open shell only. manual popover: top layer, no light dismiss. -->
     @if (isOpen()) {
-      <!-- Backdrop (optional) -->
-      @if (hasBackdrop()) {
-        <div
-          class="fixed inset-0 z-40"
-          [class]="backdropClass() === 'dark' ? 'bg-black/50' : ''"
-          (click)="handleBackdropClick()"
-          tabindex="-1"
-          role="presentation"
-          aria-hidden="true"
-        ></div>
-      }
+      <div #layerRef popover="manual" class="ptah-popover-layer">
+        <!-- Backdrop (optional). The native ::backdrop stays click-through. -->
+        @if (hasBackdrop()) {
+          <div
+            class="fixed inset-0 z-40"
+            [class]="backdropClass() === 'dark' ? 'bg-black/50' : ''"
+            (click)="handleBackdropClick()"
+            tabindex="-1"
+            role="presentation"
+            aria-hidden="true"
+          ></div>
+        }
 
-      <!-- Floating content - starts hidden until positioned -->
-      <div
-        #floatingRef
-        class="popover-panel surface-3 z-50 rounded-xl p-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
-        style="visibility: hidden;"
-        tabindex="-1"
-      >
-        <ng-content select="[content]" />
+        <!-- Floating content - starts hidden until positioned -->
+        <div
+          #floatingRef
+          class="popover-panel surface-3 z-50 rounded-xl p-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
+          style="visibility: hidden;"
+          tabindex="-1"
+        >
+          <ng-content select="[content]" />
+        </div>
       </div>
     }
   `,
@@ -114,6 +117,36 @@ type PositionOutcome = 'positioned' | 'failed' | 'timed out';
     `
       :host {
         display: inline-block;
+      }
+
+      /* Full-viewport top-layer shell. No transform, filter, contain, or
+         will-change: any of those would make Floating UI's fixed coordinates miss. */
+      .ptah-popover-layer {
+        position: fixed;
+        inset: 0;
+        box-sizing: border-box;
+        width: 100%;
+        height: 100%;
+        max-width: none;
+        max-height: none;
+        margin: 0;
+        border: 0;
+        padding: 0;
+        overflow: visible;
+        background: transparent;
+        color: inherit;
+        box-shadow: none;
+        pointer-events: none;
+      }
+
+      .ptah-popover-layer::backdrop {
+        background: transparent !important;
+        pointer-events: none !important;
+      }
+
+      .ptah-popover-layer > .popover-panel,
+      .ptah-popover-layer > [role='presentation'] {
+        pointer-events: auto;
       }
     `,
   ],
@@ -185,6 +218,16 @@ export class NativePopoverComponent implements OnDestroy {
     viewChild<ElementRef<HTMLElement>>('triggerRef');
   private readonly floatingRef =
     viewChild<ElementRef<HTMLElement>>('floatingRef');
+  private readonly layerRef = viewChild<ElementRef<HTMLElement>>('layerRef');
+
+  /** Layer element that showPopover promoted. Survives the @if teardown. */
+  private layerElement: HTMLElement | null = null;
+
+  /** True only after showPopover succeeded, so hide is not called twice. */
+  private layerShowing = false;
+
+  /** Set in ngOnDestroy so a queued open cannot show or focus afterwards. */
+  private destroyed = false;
 
   /**
    * Stores the element that had focus before popover opened.
@@ -214,17 +257,26 @@ export class NativePopoverComponent implements OnDestroy {
    */
   private async openPopover(): Promise<void> {
     // Closed again before the queued open ran: nothing to open.
-    if (!this.isOpen()) return;
+    if (!this.isOpen() || this.destroyed) return;
     const generation = ++this.openGeneration;
     this.previousActiveElement = document.activeElement as HTMLElement;
 
     const anchor = this.anchor();
     const trigger = anchor?.isConnected ? anchor : this.triggerRef()?.nativeElement;
     const floating = this.floatingRef()?.nativeElement;
-    if (!floating) return;
+    if (!floating || this.destroyed || generation !== this.openGeneration) return;
+
+    // A hidden [popover] is display:none. Promote before any measurement so
+    // Floating UI sees the panel, and so the shell is already the top layer.
+    this.showLayer();
+    if (this.destroyed || generation !== this.openGeneration || !this.isOpen()) {
+      this.hideLayer();
+      return;
+    }
+
     if (!trigger?.isConnected) {
       if (isDevMode()) console.error('ptah-native-popover: no connected anchor; showing the panel unpositioned.');
-      floating.style.visibility = 'visible';
+      this.revealUnpositioned(floating, null);
       floating.focus();
       this.opened.emit();
       return;
@@ -235,19 +287,85 @@ export class NativePopoverComponent implements OnDestroy {
     // already restored focus, so a stale open neither focuses nor reports.
     // Its cleanup() (or the newer position()) cancelled the request in the
     // service, which installs no auto-update when it settles late.
-    if (generation !== this.openGeneration) return;
+    if (this.destroyed || generation !== this.openGeneration) return;
     if (outcome !== 'positioned') {
-      // Fallback: show the panel where it sits unpositioned (its static
-      // position under the trigger) so it stays usable and dismissable.
+      // The shell is a full-viewport containing block, so an in-flow panel
+      // would sit at the viewport origin. Pin it under the trigger instead.
+      // Still no flip, shift, or auto-update: this is the unpositioned fallback.
       if (isDevMode()) {
         console.error(
           `ptah-native-popover: positioning ${outcome}; showing the panel unpositioned.`,
         );
       }
-      floating.style.visibility = 'visible';
+      this.revealUnpositioned(floating, trigger);
     }
     floating.focus();
     this.opened.emit();
+  }
+
+  /**
+   * Show the manual popover shell. Missing or rejected Popover API leaves the
+   * panel in place (the pre-top-layer behaviour) and still lets positioning run.
+   */
+  private showLayer(): void {
+    const layer = this.layerRef()?.nativeElement;
+    if (!layer || this.destroyed) return;
+    this.layerElement = layer;
+    if (this.layerShowing) return;
+    if (typeof layer.showPopover !== 'function') {
+      // No Popover API: the attribute's UA rule would keep the shell at
+      // display:none. Stay in place so positioning still has a box.
+      this.keepLayerInPlace(layer);
+      return;
+    }
+    try {
+      layer.showPopover();
+      this.layerShowing = true;
+    } catch (error: unknown) {
+      this.keepLayerInPlace(layer);
+      if (isDevMode()) {
+        console.error('ptah-native-popover: showPopover failed:', error);
+      }
+    }
+  }
+
+  /** Undo a non-open popover's display:none when promotion did not happen. */
+  private keepLayerInPlace(layer: HTMLElement): void {
+    layer.style.display = 'block';
+  }
+
+  /**
+   * Leave the top layer. Safe when the view already removed the shell: a
+   * disconnected popover is hidden by the engine, and a second hide throws.
+   */
+  private hideLayer(): void {
+    const layer = this.layerElement;
+    const showing = this.layerShowing;
+    this.layerShowing = false;
+    this.layerElement = null;
+    if (layer) layer.style.display = '';
+    if (!layer || !showing || typeof layer.hidePopover !== 'function') return;
+    try {
+      layer.hidePopover();
+    } catch (error: unknown) {
+      if (layer.isConnected && isDevMode()) {
+        console.error('ptah-native-popover: hidePopover failed:', error);
+      }
+    }
+  }
+
+  /** Make a failed or anchor-less panel visible without a position pass. */
+  private revealUnpositioned(
+    floating: HTMLElement,
+    trigger: HTMLElement | null,
+  ): void {
+    if (trigger?.isConnected) {
+      const rect = trigger.getBoundingClientRect();
+      floating.style.position = 'fixed';
+      floating.style.left = `${rect.left}px`;
+      floating.style.top = `${rect.bottom}px`;
+    }
+    floating.style.visibility = 'visible';
   }
 
   /**
@@ -307,6 +425,7 @@ export class NativePopoverComponent implements OnDestroy {
    */
   private closePopover(): void {
     this.openGeneration++;
+    this.hideLayer();
     this.floatingUI.cleanup();
     if (this.previousActiveElement?.isConnected) {
       this.previousActiveElement.focus();
@@ -336,7 +455,9 @@ export class NativePopoverComponent implements OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.destroyed = true;
     this.openGeneration++;
+    this.hideLayer();
     this.floatingUI.cleanup();
     if (this.previousActiveElement?.isConnected) {
       this.previousActiveElement.focus();

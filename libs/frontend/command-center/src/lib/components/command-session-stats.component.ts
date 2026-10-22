@@ -26,7 +26,7 @@ import { Bot, Clock3, Coins, Hash, LucideAngularModule } from 'lucide-angular';
       aria-label="Session statistics"
     >
       @if (hasCost()) {
-      <span class="flex items-center gap-2"><lucide-angular [img]="coinsIcon" class="size-4" aria-hidden="true" /> Cost
+      <span class="flex items-center gap-2" data-glass-surface="tile"><lucide-angular [img]="coinsIcon" class="size-4" aria-hidden="true" /> Cost
         <strong class="font-mono">
           @if (snapshot()?.provisional) {
             <span class="sr-only">estimated </span>
@@ -35,7 +35,7 @@ import { Bot, Clock3, Coins, Hash, LucideAngularModule } from 'lucide-angular';
         ></span>
       }
       @if (hasTokens()) {
-      <span class="flex items-center gap-2"><lucide-angular [img]="hashIcon" class="size-4" aria-hidden="true" /> Tokens
+      <span class="flex items-center gap-2" data-glass-surface="tile"><lucide-angular [img]="hashIcon" class="size-4" aria-hidden="true" /> Tokens
         <strong class="font-mono">
           @if (snapshot()?.provisional) {
             <span class="sr-only">estimated </span>
@@ -44,10 +44,10 @@ import { Bot, Clock3, Coins, Hash, LucideAngularModule } from 'lucide-angular';
         ></span>
       }
       @if (hasAgents()) {
-      <span class="flex items-center gap-2"><lucide-angular [img]="botIcon" class="size-4" aria-hidden="true" /> Agents <strong class="font-mono">{{ agents() }}</strong></span>
+      <span class="flex items-center gap-2" data-glass-surface="tile"><lucide-angular [img]="botIcon" class="size-4" aria-hidden="true" /> Agents <strong class="font-mono">{{ agents() }}</strong></span>
       }
       @if (hasDuration()) {
-      <span class="flex items-center gap-2"><lucide-angular [img]="clockIcon" class="size-4" aria-hidden="true" /> Duration <strong class="font-mono">{{ duration() }}</strong></span>
+      <span class="flex items-center gap-2" data-glass-surface="tile"><lucide-angular [img]="clockIcon" class="size-4" aria-hidden="true" /> Duration <strong class="font-mono">{{ duration() }}</strong></span>
       }
     </div>
   `,

@@ -52,7 +52,8 @@ import type {
 import { bestMessagingCapability } from './cli-adapter.interface';
 import {
   stripAnsiCodes,
-  buildTaskPrompt,
+  buildArgvTaskPrompt,
+  assertCommandLineWithinLimit,
   probeCliVersion,
   resolveCliPath,
   resolveDirectSpawn,
@@ -365,6 +366,7 @@ export class CopilotSdkAdapter implements CliAdapter {
         args.push('--additional-mcp-config', mcpConfig);
       }
 
+      assertCommandLineWithinLimit(spawnDescriptor.command, [...spawnDescriptor.prefixArgs, ...args]);
       const child = spawnCli(
         spawnDescriptor.command,
         [...spawnDescriptor.prefixArgs, ...args],
@@ -474,7 +476,7 @@ export class CopilotSdkAdapter implements CliAdapter {
     };
 
     const done = runTurn(
-      buildTaskPrompt(options, this.name),
+      buildArgvTaskPrompt(options, this.name),
       options.resumeSessionId,
     );
 

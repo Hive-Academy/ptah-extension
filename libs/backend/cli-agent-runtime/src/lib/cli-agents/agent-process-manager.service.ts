@@ -70,6 +70,7 @@ import {
   tailLines,
   capStreamEvents,
 } from './agent-process-manager-helpers';
+import { LaneInstructionFileStore } from './lane-instruction-file-store';
 import { AgentSpawnEnvironment } from './agent-spawn-environment.service';
 import { LaneCompletionNotifier } from './lane-completion-notifier.service';
 import { AgentOutputBuffer } from './agent-output-buffer.service';
@@ -342,6 +343,8 @@ export class AgentProcessManager {
     private readonly hostAttention?: HostAttentionCoordinator,
     @inject(CLI_AGENT_RUNTIME_TOKENS.MCP_ATTACHMENT_PROBE, { isOptional: true })
     private readonly attachmentProbe?: import('./mcp-attachment-probe.port').IMcpAttachmentProbe,
+    @inject(CLI_AGENT_RUNTIME_TOKENS.LANE_INSTRUCTION_FILE_STORE, { isOptional: true })
+    private readonly instructionFiles?: LaneInstructionFileStore,
   ) {
     this.logger.info('[AgentProcessManager] Initialized');
   }
@@ -695,7 +698,9 @@ export class AgentProcessManager {
     };
     this.logger.info('[AgentProcessManager] Lane policy', lanePolicy);
 
-    const sdkHandle = await runSdk({
+    let sdkHandle: SdkHandle;
+    try {
+      sdkHandle = await runSdk({
       task,
       workingDirectory,
       files: request.files,
@@ -717,17 +722,29 @@ export class AgentProcessManager {
       agentId,
       role: roleDefinition,
       laneBudgets,
+      instructionFileStore: this.instructionFiles,
     });
+    } catch (error: unknown) {
+      // The spawn failure is the error the caller needs; the cleanup behind
+      // it must never replace it (4332578869).
+      await this.removeInstructionFiles(agentId);
+      throw error;
+    }
     sdkHandle.onLaneConfigRejected?.(() => {
       this.logger.info('[AgentProcessManager] Lane policy', {
         ...lanePolicy,
         prefixKeys: 'dropped (config rejected)',
       });
     });
+    // The ROLE channel, not the policy channel: when the Codex policy falls
+    // back to the task prompt the role stays on developer instructions, and
+    // Pi reports its shared channel here too (4332578858).
+    const effectiveChannel = sdkHandle.getRoleDelivery?.() ?? roleChannel;
+    const effectiveInfo = roleStamp ? { ...info, roleChannel: effectiveChannel } : info;
     const initialCliSessionId = sdkHandle.getSessionId?.();
     const infoWithSession = initialCliSessionId
-      ? { ...info, cliSessionId: initialCliSessionId }
-      : info;
+      ? { ...effectiveInfo, cliSessionId: initialCliSessionId }
+      : effectiveInfo;
 
     const spawned = this.trackSdkHandle(
       sdkHandle,
@@ -823,10 +840,14 @@ export class AgentProcessManager {
           : {}),
         ...meta.roleStamp,
       };
+      const effectiveChannel = sdkHandle.getRoleDelivery?.();
+      const effectiveInfo = effectiveChannel && meta.roleStamp
+        ? { ...info, roleChannel: effectiveChannel }
+        : info;
       const initialCliSessionId = sdkHandle.getSessionId?.();
       const infoWithSession = initialCliSessionId
-        ? { ...info, cliSessionId: initialCliSessionId }
-        : info;
+        ? { ...effectiveInfo, cliSessionId: initialCliSessionId }
+        : effectiveInfo;
 
       this.logger.info('[AgentProcessManager] Spawned agent from SdkHandle', {
         agentId,
@@ -2032,6 +2053,7 @@ export class AgentProcessManager {
     this.signalLaneCompletion(tracked);
     await this.killProcess(tracked);
     tracked.subprocessReleased = true;
+    await this.removeInstructionFiles(agentId);
     this.clearIdleRelease(tracked);
     clearTimeout(tracked.timeoutHandle);
     this.flushDelta(agentId);
@@ -2283,6 +2305,7 @@ export class AgentProcessManager {
     this.events.emit('agent:exited', tracked.info);
     await this.killProcess(tracked);
     tracked.subprocessReleased = true;
+    await this.removeInstructionFiles(agentId);
     this.clearIdleRelease(tracked);
     this.flushDelta(agentId);
     this.outputBuffer.discard(agentId);
@@ -2334,6 +2357,24 @@ export class AgentProcessManager {
   }
 
   /**
+   * Remove the lane's instruction files without ever throwing. A cleanup
+   * failure is logged at warn and the caller's terminal bookkeeping — the
+   * exit event, the timers, the buffers, the TTL schedule — still runs; a
+   * rejected remove used to skip that bookkeeping or replace a spawn
+   * failure (4332578869).
+   */
+  private async removeInstructionFiles(agentId: string): Promise<void> {
+    try {
+      await this.instructionFiles?.remove(agentId);
+    } catch (error: unknown) {
+      this.logger.warn('[AgentProcessManager] Lane instruction cleanup failed', {
+        agentId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /**
    * End an agent's operating-system process while KEEPING its record.
    *
    * This is the memory reclamation that `handleExit` never did. It aborts the
@@ -2356,7 +2397,10 @@ export class AgentProcessManager {
     tracked: TrackedAgent,
     reason: AgentReleaseReason,
   ): Promise<void> {
-    if (tracked.subprocessReleased) return;
+    if (tracked.subprocessReleased) {
+      await this.removeInstructionFiles(agentId);
+      return;
+    }
     // Set BEFORE the await: killProcess yields, and a second caller arriving in
     // that window would issue a duplicate abort and a duplicate tree-kill.
     tracked.subprocessReleased = true;
@@ -2392,6 +2436,7 @@ export class AgentProcessManager {
       reason,
       cliSessionId: tracked.info.cliSessionId,
     });
+    await this.removeInstructionFiles(agentId);
   }
 
   private handleExit(
@@ -2403,6 +2448,11 @@ export class AgentProcessManager {
     if (!tracked) return;
     if (tracked.hasExited) return;
     tracked.hasExited = true;
+    if (tracked.sdkHandle?.supportsContinuation?.() !== true) {
+      void this.instructionFiles?.remove(agentId).catch((error: unknown) => {
+        this.logger.warn('[AgentProcessManager] Lane instruction cleanup failed', { agentId, error: error instanceof Error ? error.message : String(error) });
+      });
+    }
 
     clearTimeout(tracked.timeoutHandle);
     // A continuation-capable lane can start another caller turn on this

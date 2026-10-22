@@ -53,9 +53,9 @@ Hover, focus, and dismiss still call `pauseSnackbar` / `resumeSnackbar` / `dismi
 
 ## Check 4 — Secret fixtures are still secret-shaped at runtime
 
-`chat-attention-source.service.spec.ts:156` joins to `run password=<redacted> --token <redacted>`. `ASSIGNED_SECRET` / `FLAG_SECRET` (`chat-attention-source.service.ts:20-22`) rewrite that to `password=***` and `--token ***`. The expectation at spec `:159` is `Input: run password=*** --token ***`, which fits the 40-character command cap (`:36`). Spec `:160` joins to `echo sk-<redacted>`. `TOKEN_SHAPE` (`:23`) requires `sk-` plus 8 word characters; that value has 16 and becomes `Input: echo ***` (spec `:163`).
+`chat-attention-source.service.spec.ts:156` builds a command containing an assigned password and a flagged token fixture. `ASSIGNED_SECRET` / `FLAG_SECRET` (`chat-attention-source.service.ts:20-22`) redact both values; the runtime assertion at spec `:159` expects the resulting password and token fields to use `***`, within the 40-character command cap (`:36`). Spec `:160` builds a token-shaped value. `TOKEN_SHAPE` (`:23`) requires the `sk-` prefix followed by at least 8 word characters; the runtime assertion at spec `:163` expects the full value to be redacted in the rendered input.
+`chat-attention-host-message-handler.service.spec.ts:164` builds another token-shaped value. `isUnsafeAttentionContext` uses `\bsk-[\w-]{8,}\b` (`attention-context.util.ts:1-3`). The runtime assertions at spec `:168-170` require the title to become `Permission required`, `sessionTitle` to be unset, and context to be `Claude`. The fixtures still exercise redaction without documenting contiguous credential-shaped values.
 
-`chat-attention-host-message-handler.service.spec.ts:164` joins to `sk-<redacted>`. `isUnsafeAttentionContext` uses `\bsk-[\w-]{8,}\b` (`attention-context.util.ts:1-3`). The spec expects the title to be replaced with `Permission required`, `sessionTitle` unset, and context `Claude` (`:168-170`). The fixtures still exercise redaction. No contiguous secret literal remains in those two specs.
 
 ## Check 5 — Regressions
 

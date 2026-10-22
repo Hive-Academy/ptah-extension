@@ -351,6 +351,7 @@ describe('AntigravityCliAdapter', () => {
         })}\n`,
       );
       expect(currentChild?.child.stdin.end).not.toHaveBeenCalled();
+      expect(buildTaskPrompt(baseOptions, 'antigravity').match(/Lane policy id: ptah-lane-policy-v1/g)).toHaveLength(1);
 
       currentChild?.emitClose(0);
       await handle.done;

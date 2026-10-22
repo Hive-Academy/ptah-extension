@@ -190,6 +190,7 @@ function folderName(root: string): string {
            border carries the mode tint (plan = info, autopilot = primary). -->
       <form
         [class]="cardClasses()"
+        data-glass-surface="tile"
         aria-label="Message composer"
         data-testid="chat-composer-form"
         (submit)="$event.preventDefault()"
@@ -542,6 +543,7 @@ function folderName(root: string): string {
       <!-- Status line under the card: MCP, peer send, auth (unchanged) -->
       <div
         class="chat-composer-column flex items-center gap-2 px-1 mt-1.5 min-w-0 w-full mx-auto"
+        data-glass-surface="plate"
       >
         <div class="flex items-center gap-0.5 min-w-0">
           <!-- MCP status (host is display: contents; renders nothing when the

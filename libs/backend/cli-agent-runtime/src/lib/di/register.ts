@@ -26,6 +26,7 @@ import type { IFileSystemProvider } from '@ptah-extension/platform-core';
 import type { IAgentAdapter } from '@ptah-extension/shared';
 import { CliDetectionService } from '../cli-agents/cli-detection.service';
 import { AgentProcessManager } from '../cli-agents/agent-process-manager.service';
+import { LaneInstructionFileStore } from '../cli-agents/lane-instruction-file-store';
 import { AgentSpawnEnvironment } from '../cli-agents/agent-spawn-environment.service';
 import { AgentOutputBuffer } from '../cli-agents/agent-output-buffer.service';
 import { LaneCompletionNotifier } from '../cli-agents/lane-completion-notifier.service';
@@ -263,6 +264,11 @@ export function registerCliAgentRuntimeServices(
     { useClass: PlanLimitOwnerDiscoveryService },
     { lifecycle: Lifecycle.Singleton },
   );
+  container.register(CLI_AGENT_RUNTIME_TOKENS.LANE_INSTRUCTION_FILE_STORE, {
+    useFactory: instanceCachingFactory((c) =>
+      new LaneInstructionFileStore(c.resolve<IFileSystemProvider>(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)),
+    ),
+  });
   container.registerSingleton(
     TOKENS.AGENT_PROCESS_MANAGER,
     AgentProcessManager,
