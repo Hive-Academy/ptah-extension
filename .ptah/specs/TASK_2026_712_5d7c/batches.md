@@ -330,7 +330,9 @@ At each implementation phase's last batch, stop for one combined independent cod
 - Command: `Verify-ProviderAccountsBatch -Projects @('@ptah-extension/auth-providers') -Hosts $H`
 - Report T/implementation-report-batch-15.md. Reviews T/code-logic-review-phase-p1-c.md and T/code-style-review-phase-p1-c.md.
 
-## Batch 16: Authoritative durable binding and session metadata linkage — PENDING
+## Batch 16: Authoritative durable binding and session metadata linkage — IMPLEMENTED (D20: part A 91b86e380, 16b-A ea27188eb, 16b-B 738ae99ef)
+
+- D20 split: part A = metadata linkage + run-binding commit/read; 16b-A = migration 0059 `provider_account_session_links`; 16b-B = `attachSdkSession` / `lookupBySdkSession`. Two-store admission coordination and the importer change (implementation-report-batch-16.md § Exact importer handoff) move to Batch 17. Batch 12 named-import refusal stays until then.
 
 - Recommended executor: CLI lane, transactional admission/persistence; sequential; actual family unassigned.
 - Depends on: P1-C review. Phase P1-D Admission; review at 22.
