@@ -728,7 +728,7 @@ export class SessionMetadataStore {
       throw new SessionAccountBindingError(authoritative.status);
     }
     const metadata = await this.get(sessionId);
-    if (authoritative.status === 'absent') {
+    if (authoritative.status !== 'bound') {
       if (metadata?.accountBinding) throw new SessionAccountBindingError('invalid-bound');
       return null;
     }

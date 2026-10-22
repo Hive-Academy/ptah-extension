@@ -13,6 +13,12 @@ import { ProviderAccountStoreError, revalidateProviderAccountRoute,
 
 const revision = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const opaqueId = z.string().refine(isProviderAccountOpaqueId);
+const sdkSessionId = z.string().min(1).max(256).regex(/^[^/\\\s\x00-\x1f\x7f]+$/);
+const sdkSessionLookupSchema = z.object({
+  provider: z.string().min(1).max(64).regex(/^[a-z][a-z0-9-]*$/), sdkSessionId,
+}).strict();
+const sdkSessionAttachmentSchema = sdkSessionLookupSchema.extend({ runId: opaqueId, attachedAt: revision });
+const sessionLinkSchema = z.object({ run_id: opaqueId, sdk_session_id: sdkSessionId, attached_at: revision });
 const profileSchema = z.object({
   profile_id: opaqueId, provider: z.literal('claude'), label: z.string().refine(isSafeProviderAccountLabel),
   canonical_route: z.string(), route_fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
@@ -26,6 +32,15 @@ export type AccountBindingLookup =
   | { readonly status: 'absent' }
   | { readonly status: 'bound'; readonly binding: ProviderAccountBinding }
   | { readonly status: 'invalid-bound' | 'unavailable-storage' };
+
+export interface AccountSdkSessionLookup { readonly provider: string; readonly sdkSessionId: string }
+export interface AccountSdkSessionAttachment extends AccountSdkSessionLookup {
+  readonly runId: string;
+  readonly attachedAt: number;
+}
+export type AccountSdkSessionAttachmentResult = {
+  readonly status: 'attached' | 'binding-absent' | 'session-linked-elsewhere' | 'run-linked-elsewhere';
+};
 
 export interface AccountRunAdmission {
   readonly profileId: string | null;
@@ -98,6 +113,60 @@ export class ProviderAccountStore {
     return this.admit(request);
   }
 
+  /** Immutable SDK linkage checkpoint; the caller must still hold prompt release. */
+  async attachSdkSession(request: AccountSdkSessionAttachment): Promise<AccountSdkSessionAttachmentResult> {
+    const parsed = sdkSessionAttachmentSchema.safeParse(request);
+    if (!parsed.success) throw new ProviderAccountStoreError('conflict');
+    const input = parsed.data;
+    return this.atomic(db => {
+      const raw = db.prepare('SELECT * FROM provider_account_run_bindings WHERE run_id = ?').get(input.runId);
+      if (!raw) return { status: 'binding-absent' };
+      const provider = z.object({ provider: z.string() }).safeParse(raw);
+      if (!provider.success) throw new ProviderAccountStoreError('invalid-bound');
+      if (provider.data.provider !== input.provider) return { status: 'binding-absent' };
+      this.parseBinding(raw);
+      const existing = db.prepare('SELECT * FROM provider_account_session_links WHERE provider = ? AND sdk_session_id = ?')
+        .get(input.provider, input.sdkSessionId);
+      if (existing) {
+        const link = sessionLinkSchema.safeParse(existing);
+        if (!link.success) throw new ProviderAccountStoreError('invalid-bound');
+        return { status: link.data.run_id === input.runId ? 'attached' : 'session-linked-elsewhere' };
+      }
+      if (db.prepare('SELECT run_id FROM provider_account_session_links WHERE run_id = ?').get(input.runId)) {
+        return { status: 'run-linked-elsewhere' };
+      }
+      db.prepare(`INSERT INTO provider_account_session_links (provider, sdk_session_id, run_id, attached_at)
+        VALUES (?, ?, ?, ?)`).run(input.provider, input.sdkSessionId, input.runId, input.attachedAt);
+      return { status: 'attached' };
+    });
+  }
+
+  /** Resolve the authoritative link before considering a session legacy/ambient. */
+  async lookupBySdkSession(request: AccountSdkSessionLookup): Promise<AccountBindingLookup> {
+    const parsed = sdkSessionLookupSchema.safeParse(request);
+    if (!parsed.success) return { status: 'invalid-bound' };
+    const input = parsed.data;
+    let result: AccountBindingLookup;
+    try {
+      result = this.atomic(db => {
+        const rawLink = db.prepare('SELECT * FROM provider_account_session_links WHERE provider = ? AND sdk_session_id = ?')
+          .get(input.provider, input.sdkSessionId);
+        if (!rawLink) return { status: 'absent' };
+        const link = sessionLinkSchema.safeParse(rawLink);
+        if (!link.success) throw new ProviderAccountStoreError('invalid-bound');
+        const rawBinding = db.prepare('SELECT * FROM provider_account_run_bindings WHERE run_id = ?').get(link.data.run_id);
+        if (!rawBinding) throw new ProviderAccountStoreError('invalid-bound');
+        const binding = this.parseBinding(rawBinding);
+        if (binding.provider !== input.provider) throw new ProviderAccountStoreError('invalid-bound');
+        return { status: 'bound', binding };
+      });
+    } catch (error: unknown) {
+      // degradation-audit: optional-capability - typed refusal preserves storage failure; never treat it as ambient absence
+      result = { status: providerAccountErrorCode(error) === 'invalid-bound' ? 'invalid-bound' : 'unavailable-storage' };
+    }
+    return result;
+  }
+
   /** A run-id lookup is NOT a session-id lookup. Storage failure is never absence. */
   async lookupRunBinding(runId: string): Promise<AccountBindingLookup> {
     let result: AccountBindingLookup;
@@ -115,24 +184,28 @@ export class ProviderAccountStore {
     return this.atomic(db => {
       const raw = db.prepare('SELECT * FROM provider_account_run_bindings WHERE run_id = ?').get(runId);
       if (!raw) return null;
-      const row = z.object({ run_id: opaqueId, version: z.literal(1), provider: z.literal('claude'),
-        profile_id: opaqueId, route_revision: revision, route_fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
-        auth_epoch: revision, identity_kind: z.enum(['known', 'unknown']), owner_key_hash: z.string().nullable(),
-      }).safeParse(raw);
-      if (!row.success) throw new ProviderAccountStoreError('invalid-bound');
-      const parsed = row.data;
-      const identity: ProviderAccountIdentityEvidence = parsed.identity_kind === 'known' && parsed.owner_key_hash !== null
-        ? { kind: 'known', ownerKey: parsed.owner_key_hash } : { kind: 'unknown' };
-      if (parsed.identity_kind !== identity.kind || (identity.kind === 'unknown' && parsed.owner_key_hash !== null)) {
-        throw new ProviderAccountStoreError('invalid-bound');
-      }
-      if (identity.kind === 'known' && !isProviderAccountOwnerKey(identity.ownerKey)) {
-        throw new ProviderAccountStoreError('invalid-bound');
-      }
-      return Object.freeze({ version: parsed.version, provider: parsed.provider, profileId: parsed.profile_id,
-        routeRevision: parsed.route_revision, routeFingerprint: parsed.route_fingerprint, authEpoch: parsed.auth_epoch,
-        runId: parsed.run_id, identity: Object.freeze(identity) });
+      return this.parseBinding(raw);
     });
+  }
+
+  private parseBinding(raw: unknown): ProviderAccountBinding {
+    const row = z.object({ run_id: opaqueId, version: z.literal(1), provider: z.literal('claude'),
+      profile_id: opaqueId, route_revision: revision, route_fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+      auth_epoch: revision, identity_kind: z.enum(['known', 'unknown']), owner_key_hash: z.string().nullable(),
+    }).safeParse(raw);
+    if (!row.success) throw new ProviderAccountStoreError('invalid-bound');
+    const parsed = row.data;
+    const identity: ProviderAccountIdentityEvidence = parsed.identity_kind === 'known' && parsed.owner_key_hash !== null
+      ? { kind: 'known', ownerKey: parsed.owner_key_hash } : { kind: 'unknown' };
+    if (parsed.identity_kind !== identity.kind || (identity.kind === 'unknown' && parsed.owner_key_hash !== null)) {
+      throw new ProviderAccountStoreError('invalid-bound');
+    }
+    if (identity.kind === 'known' && !isProviderAccountOwnerKey(identity.ownerKey)) {
+      throw new ProviderAccountStoreError('invalid-bound');
+    }
+    return Object.freeze({ version: parsed.version, provider: parsed.provider, profileId: parsed.profile_id,
+      routeRevision: parsed.route_revision, routeFingerprint: parsed.route_fingerprint, authEpoch: parsed.auth_epoch,
+      runId: parsed.run_id, identity: Object.freeze(identity) });
   }
 
   /** Public Add never imports/adopts an existing credential directory. */

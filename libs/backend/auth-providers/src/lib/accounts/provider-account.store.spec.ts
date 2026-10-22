@@ -26,9 +26,11 @@ class DisposalChild extends EventEmitter implements SpawnedProcessHandle {
 
 // Real independent SQLite connections; no production/development DB path resolver.
 const Database = require('better-sqlite3') as new (path: string) => SqliteDatabase;
-const migration = MIGRATIONS.find(entry => entry.version === 58);
-if (!migration?.sql) throw new Error('Provider account migration is missing');
-const schema = migration.sql;
+const schema = [58, 59].map(version => {
+  const migration = MIGRATIONS.find(entry => entry.version === version);
+  if (!migration?.sql) throw new Error('Provider account migration is missing');
+  return migration.sql;
+}).join('\n');
 
 describe('ProviderAccountStore transactions', () => {
   let root: string;
@@ -61,19 +63,147 @@ describe('ProviderAccountStore transactions', () => {
     return { profileId, expectedRevision: 0, route: resolveProviderAccountRoute(join(root, 'account')),
       runId: 'run-00001', reservationId: 'lease-0001', operationId: 'owner-0001', ...overrides };
   }
-  function count(table: 'profiles' | 'selections' | 'operations' | 'run_bindings' | 'run_leases'): number {
+  function count(table: 'profiles' | 'selections' | 'operations' | 'run_bindings' | 'run_leases' | 'session_links'): number {
     const queries = {
       profiles: 'SELECT * FROM provider_account_profiles',
       selections: 'SELECT * FROM provider_account_selections',
       operations: 'SELECT * FROM provider_account_operations',
       run_bindings: 'SELECT * FROM provider_account_run_bindings',
       run_leases: 'SELECT * FROM provider_account_run_leases',
+      session_links: 'SELECT * FROM provider_account_session_links',
     };
     return first.prepare(queries[table]).all().length;
   }
   function refuses(action: () => unknown, code = 'conflict'): void {
     expect(action).toThrow(expect.objectContaining({ code }));
   }
+
+  const attachment = { provider: 'claude', runId: 'run-00001', sdkSessionId: 'sdk-session-0001', attachedAt: 123 };
+
+  it('attaches durably, resolves the full frozen binding, and preserves the first attachment on repeat', async () => {
+    add();
+    const committed = await a.commitRunBinding(request({ identity: { kind: 'known', ownerKey: 'a'.repeat(64) } }));
+    const service = new ProviderAccountService(a, { db: first, dbPath: join(root, 'isolated.sqlite') });
+    await expect(service.attachSdkSession(attachment)).resolves.toEqual({ status: 'attached' });
+    await expect(b.attachSdkSession({ ...attachment, attachedAt: 456 })).resolves.toEqual({ status: 'attached' });
+    const lookup = { provider: attachment.provider, sdkSessionId: attachment.sdkSessionId };
+    const result = await b.lookupBySdkSession(lookup);
+    expect(result).toEqual({ status: 'bound', binding: committed.binding });
+    await expect(service.lookupBySdkSession(lookup)).resolves.toEqual(result);
+    if (result.status !== 'bound') throw new Error('Expected bound SDK session');
+    expect(Object.isFrozen(result.binding)).toBe(true);
+    expect(Object.isFrozen(result.binding.identity)).toBe(true);
+    expect(JSON.stringify(result)).not.toContain(root);
+    expect(JSON.stringify(result)).not.toMatch(/canonicalPath|canonical_route|directory|requestedPath/);
+    expect(first.prepare('SELECT attached_at FROM provider_account_session_links').get()).toEqual({ attached_at: 123 });
+    expect(count('session_links')).toBe(1);
+  });
+
+  it('refuses another run for the same SDK session without changing the original link', async () => {
+    add();
+    await a.commitRunBinding(request());
+    await a.commitRunBinding(request({ runId: 'run-00002', reservationId: 'lease-0002' }));
+    await a.attachSdkSession(attachment);
+    await expect(b.attachSdkSession({ ...attachment, runId: 'run-00002' }))
+      .resolves.toEqual({ status: 'session-linked-elsewhere' });
+    expect(first.prepare('SELECT run_id FROM provider_account_session_links').all()).toEqual([{ run_id: attachment.runId }]);
+  });
+
+  it('refuses another SDK session for the same run without changing the original link', async () => {
+    add();
+    await a.commitRunBinding(request());
+    await a.attachSdkSession(attachment);
+    await expect(b.attachSdkSession({ ...attachment, sdkSessionId: 'sdk-session-0002' }))
+      .resolves.toEqual({ status: 'run-linked-elsewhere' });
+    expect(first.prepare('SELECT sdk_session_id FROM provider_account_session_links').all())
+      .toEqual([{ sdk_session_id: attachment.sdkSessionId }]);
+  });
+
+  it('requires a binding with the same provider', async () => {
+    await expect(a.attachSdkSession(attachment)).resolves.toEqual({ status: 'binding-absent' });
+    add();
+    await a.commitRunBinding(request());
+    await expect(a.attachSdkSession({ ...attachment, provider: 'codex' })).resolves.toEqual({ status: 'binding-absent' });
+    expect(count('session_links')).toBe(0);
+  });
+
+  it.each(['', '/', '\\', '/private/account', 'C:\\private\\account', 'a'.repeat(257), ' ', 'sdk\u0000id'])
+    ('refuses invalid SDK session id case %# without exposing its value', async sdkSessionId => {
+      await expect(a.attachSdkSession({ ...attachment, sdkSessionId }))
+        .rejects.toMatchObject({ code: 'conflict', message: 'The local account operation could not be completed.' });
+      await expect(a.lookupBySdkSession({ provider: 'claude', sdkSessionId })).resolves.toEqual({ status: 'invalid-bound' });
+      expect(count('session_links')).toBe(0);
+    });
+
+  it('accepts an SDK session id at the length bound', async () => {
+    add();
+    await a.commitRunBinding(request());
+    await expect(a.attachSdkSession({ ...attachment, sdkSessionId: 'a'.repeat(256) })).resolves.toEqual({ status: 'attached' });
+  });
+
+  it('returns absence only for an absent provider/session link', async () => {
+    add();
+    await a.commitRunBinding(request());
+    await expect(a.lookupBySdkSession({ provider: 'claude', sdkSessionId: attachment.sdkSessionId })).resolves.toEqual({ status: 'absent' });
+    await a.attachSdkSession(attachment);
+    await expect(a.lookupBySdkSession({ provider: 'codex', sdkSessionId: attachment.sdkSessionId })).resolves.toEqual({ status: 'absent' });
+  });
+
+  it('refuses an orphan session link rather than classifying it as ambient', async () => {
+    first.pragma('foreign_keys = OFF');
+    first.prepare('INSERT INTO provider_account_session_links (provider, sdk_session_id, run_id, attached_at) VALUES (?, ?, ?, ?)')
+      .run(attachment.provider, attachment.sdkSessionId, attachment.runId, attachment.attachedAt);
+    first.pragma('foreign_keys = ON');
+    await expect(b.lookupBySdkSession({ provider: 'claude', sdkSessionId: attachment.sdkSessionId }))
+      .resolves.toEqual({ status: 'invalid-bound' });
+  });
+
+  it('refuses malformed bound evidence and provider-mismatched persisted links', async () => {
+    add();
+    await a.commitRunBinding(request());
+    await a.attachSdkSession(attachment);
+    first.prepare("UPDATE provider_account_session_links SET provider = 'codex'").run();
+    await expect(b.lookupBySdkSession({ provider: 'codex', sdkSessionId: attachment.sdkSessionId }))
+      .resolves.toEqual({ status: 'invalid-bound' });
+    first.prepare("UPDATE provider_account_session_links SET provider = 'claude'").run();
+    first.prepare("UPDATE provider_account_run_bindings SET identity_kind = 'known', owner_key_hash = ? WHERE run_id = ?")
+      .run('/private/account', attachment.runId);
+    await expect(b.lookupBySdkSession({ provider: 'claude', sdkSessionId: attachment.sdkSessionId }))
+      .resolves.toEqual({ status: 'invalid-bound' });
+    await expect(b.attachSdkSession(attachment)).rejects.toMatchObject({ code: 'invalid-bound' });
+  });
+
+  it('reports unavailable SDK lookup for inaccessible and closed databases', async () => {
+    const unavailable = new ProviderAccountStore({ get db(): SqliteDatabase { throw { code: 'SQLITE_IOERR', message: '/private/account' }; } });
+    const closed = new Database(join(root, 'closed.sqlite'));
+    closed.close();
+    for (const store of [unavailable, new ProviderAccountStore({ db: closed })]) {
+      await expect(store.lookupBySdkSession({ provider: 'claude', sdkSessionId: attachment.sdkSessionId }))
+        .resolves.toEqual({ status: 'unavailable-storage' });
+      await expect(store.attachSdkSession(attachment)).rejects.toMatchObject({
+        code: 'unavailable-storage', message: 'The local account operation could not be completed.',
+      });
+    }
+  });
+
+  it('rolls back SDK attachment on a native SQLite constraint error without exposing its message', async () => {
+    add();
+    await a.commitRunBinding(request());
+    first.exec("CREATE TRIGGER fail_attachment AFTER INSERT ON provider_account_session_links BEGIN SELECT RAISE(ABORT, '/private/account'); END");
+    await expect(a.attachSdkSession(attachment)).rejects.toMatchObject({
+      code: 'conflict', message: 'The local account operation could not be completed.',
+    });
+    expect(count('session_links')).toBe(0);
+  });
+
+  it('recognizes SQLite constraint codes on objects outside the Error hierarchy', async () => {
+    const unavailable = new ProviderAccountStore({ get db(): SqliteDatabase {
+      throw { code: 'SQLITE_CONSTRAINT_UNIQUE', message: '/private/account' };
+    } });
+    await expect(unavailable.attachSdkSession(attachment)).rejects.toMatchObject({
+      code: 'conflict', message: 'The local account operation could not be completed.',
+    });
+  });
 
   it('awaits the registry transaction and reads immutable unknown evidence from another connection', async () => {
     add();
@@ -131,7 +261,11 @@ describe('ProviderAccountStore transactions', () => {
     service.dispose();
     await expect(service.lookupRunBinding('run-00001')).resolves.toEqual({ status: 'unavailable-storage' });
     await expect(service.commitRunBinding(request())).rejects.toMatchObject({ code: 'unavailable-storage' });
+    await expect(service.attachSdkSession(attachment)).rejects.toMatchObject({ code: 'unavailable-storage' });
+    await expect(service.lookupBySdkSession({ provider: 'claude', sdkSessionId: attachment.sdkSessionId }))
+      .resolves.toEqual({ status: 'unavailable-storage' });
     expect(count('run_bindings')).toBe(0);
+    expect(count('session_links')).toBe(0);
   });
 
   it('status reservation keeps row unchanged and excludes auth across connections until completion', () => {

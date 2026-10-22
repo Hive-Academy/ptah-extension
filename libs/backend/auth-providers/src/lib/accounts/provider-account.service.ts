@@ -10,7 +10,8 @@ import type { ProviderAccountAdmissionPort, ClaudeAccountAdmissionRequest, Claud
 import { accountActionResult } from './claude-account-command';
 import type { SqliteConnectionService, SqliteDatabase } from '@ptah-extension/persistence-sqlite';
 import { isProviderAccountOpaqueId, isSafeProviderAccountLabel, type ProviderAccountScope, type ProviderAccountSummary } from '@ptah-extension/shared';
-import { ProviderAccountStore, type StoredProviderAccount, type StoredAccountSelection, type AccountRunAdmission, type AccountBindingLookup } from './provider-account.store';
+import { ProviderAccountStore, type StoredProviderAccount, type StoredAccountSelection, type AccountRunAdmission, type AccountBindingLookup,
+  type AccountSdkSessionAttachment, type AccountSdkSessionAttachmentResult, type AccountSdkSessionLookup } from './provider-account.store';
 import { ProviderAccountStoreError, providerAccountErrorCode } from './provider-account-route';
 
 const admissionRequestSchema = z.object({
@@ -33,7 +34,7 @@ export class ProviderAccountService implements ProviderAccountAdmissionPort {
     @inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION)
     private readonly connection: Pick<SqliteConnectionService, 'db' | 'dbPath'>) {}
 
-  /** Persistence checkpoint; admission remains held until SDK attachment is available. */
+  /** Persistence checkpoint; admission remains held until the SDK gate is certified. */
   async commitRunBinding(request: AccountRunAdmission): Promise<ReturnType<ProviderAccountStore['admit']>> {
     if (this.disposed) throw new ProviderAccountStoreError('unavailable-storage');
     return this.store.commitRunBinding(request);
@@ -42,6 +43,16 @@ export class ProviderAccountService implements ProviderAccountAdmissionPort {
   async lookupRunBinding(runId: string): Promise<AccountBindingLookup> {
     if (this.disposed) return { status: 'unavailable-storage' };
     return this.store.lookupRunBinding(runId);
+  }
+
+  async attachSdkSession(request: AccountSdkSessionAttachment): Promise<AccountSdkSessionAttachmentResult> {
+    if (this.disposed) throw new ProviderAccountStoreError('unavailable-storage');
+    return this.store.attachSdkSession(request);
+  }
+
+  async lookupBySdkSession(request: AccountSdkSessionLookup): Promise<AccountBindingLookup> {
+    if (this.disposed) return { status: 'unavailable-storage' };
+    return this.store.lookupBySdkSession(request);
   }
 
   async admitClaudeRoute(request: ClaudeAccountAdmissionRequest): Promise<ClaudeAccountAdmissionOutcome> {
