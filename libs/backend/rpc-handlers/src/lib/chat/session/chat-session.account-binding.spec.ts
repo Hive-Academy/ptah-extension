@@ -28,6 +28,7 @@ jest.mock('@ptah-extension/workspace-intelligence', () => ({
   ContextEnrichmentService: class ContextEnrichmentServiceStub {},
 }));
 
+import type { Logger } from '@ptah-extension/vscode-core';
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import { createMockWorkspaceProvider } from '@ptah-extension/platform-core/testing';
 import type { ProviderAccountBinding, SessionId } from '@ptah-extension/shared';
@@ -102,36 +103,36 @@ function harness(bound = false) {
   const broadcast = { broadcastMessage: jest.fn() };
   type RouterArgs = ConstructorParameters<typeof ChatSlashCommandRouterService>;
   const router = new ChatSlashCommandRouterService(
-    createMockLogger(), broadcast as RouterArgs[1], createMockModelSettings(), sdk as RouterArgs[3],
+    createMockLogger() as unknown as Logger, broadcast as unknown as RouterArgs[1], createMockModelSettings(), sdk as unknown as RouterArgs[3],
     { intercept: jest.fn().mockImplementation((prompt: string) => prompt.startsWith('/')
       ? { action: 'new-query', commandName: 'compact', rawCommand: prompt }
-      : { action: 'passthrough' }) } as RouterArgs[4],
-    context as RouterArgs[5], broadcaster as RouterArgs[6], provider as RouterArgs[7],
-    compact as RouterArgs[8], accounts as RouterArgs[9], activeProvider as RouterArgs[10], metadata,
+      : { action: 'passthrough' }) } as unknown as RouterArgs[4],
+    context as unknown as RouterArgs[5], broadcaster as unknown as RouterArgs[6], provider as unknown as RouterArgs[7],
+    compact as unknown as RouterArgs[8], accounts as unknown as RouterArgs[9], activeProvider as unknown as RouterArgs[10], metadata,
   );
   type Args = ConstructorParameters<typeof ChatSessionService>;
   const service = new ChatSessionService(
-    createMockLogger(), broadcast as Args[1],
-    { get: jest.fn(), getWithDefault: jest.fn().mockReturnValue(false) } as Args[2],
-    sdk as Args[3], { captureException: jest.fn() } as Args[4], mcp as Args[5], history as Args[6],
+    createMockLogger() as unknown as Logger, broadcast as unknown as Args[1],
+    { get: jest.fn(), getWithDefault: jest.fn().mockReturnValue(false) } as unknown as Args[2],
+    sdk as unknown as Args[3], { captureException: jest.fn() } as unknown as Args[4], mcp as unknown as Args[5], history as unknown as Args[6],
     { restoreResumableBySession: jest.fn().mockReturnValue(0), registerFromHistoryEvents: jest.fn(),
-      getResumableBySession: jest.fn().mockReturnValue([]) } as Args[7],
-    { intercept: jest.fn().mockReturnValue({ action: 'passthrough' }) } as Args[8], metadata,
+      getResumableBySession: jest.fn().mockReturnValue([]) } as unknown as Args[7],
+    { intercept: jest.fn().mockReturnValue({ action: 'passthrough' }) } as unknown as Args[8], metadata,
     createMockWorkspaceProvider({ folders: [ROOT] }),
-    { type: 'cli', extensionPath: '/tmp/app', globalStoragePath: '/tmp/storage', workspaceStoragePath: '/tmp/ws' } as Args[11],
-    context as Args[12],
-    { handleContinue: jest.fn().mockResolvedValue({ error: '__NOT_PTAH_CLI__' }) } as Args[13],
-    broadcaster as Args[14],
-    { injectInterruptedAgentsContext: jest.fn().mockImplementation(async (prompt: string) => ({ prompt })) } as Args[15],
+    { type: 'cli', extensionPath: '/tmp/app', globalStoragePath: '/tmp/storage', workspaceStoragePath: '/tmp/ws' } as unknown as Args[11],
+    context as unknown as Args[12],
+    { handleContinue: jest.fn().mockResolvedValue({ error: '__NOT_PTAH_CLI__' }) } as unknown as Args[13],
+    broadcaster as unknown as Args[14],
+    { injectInterruptedAgentsContext: jest.fn().mockImplementation(async (prompt: string) => ({ prompt })) } as unknown as Args[15],
     router, createMockModelSettings(), {
       getProviderKey: jest.fn().mockResolvedValue(null),
       setProviderKey: jest.fn().mockResolvedValue(undefined),
       deleteProviderKey: jest.fn().mockResolvedValue(undefined),
-    } as Args[18], provider as Args[19], style as Args[20],
+    } as unknown as Args[18], provider as unknown as Args[19], style as unknown as Args[20],
     new SessionMcpStatusRegistry(),
-    { register: jest.fn().mockReturnValue(() => undefined) } as Args[22],
-    { register: jest.fn().mockReturnValue(() => undefined) } as Args[23],
-    null, null, null, accounts as Args[27], activeProvider as Args[28],
+    { register: jest.fn().mockReturnValue(() => undefined) } as unknown as Args[22],
+    { register: jest.fn().mockReturnValue(() => undefined) } as unknown as Args[23],
+    null, null, null, accounts as unknown as Args[27], activeProvider as unknown as Args[28],
   );
   return { service, router, accounts, activeProvider, metadata, get, sdk, context, mcp, history,
     provider, style, broadcaster, compact, broadcast, calls };

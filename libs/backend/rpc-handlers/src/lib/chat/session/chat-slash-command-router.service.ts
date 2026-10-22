@@ -40,9 +40,9 @@ import type {
 import {
   MESSAGE_TYPES,
   PROVIDER_ACCOUNT_RESULT_CODES,
-  ProviderAccountSelectionSchema,
   isSafeProviderAccountSummary,
 } from '@ptah-extension/shared';
+import { ProviderAccountSelectionSchema } from '@ptah-extension/shared/schemas';
 import type { ProviderAccountPortRefusal } from '@ptah-extension/auth-providers-tokens';
 
 import { CHAT_TOKENS } from '../tokens';

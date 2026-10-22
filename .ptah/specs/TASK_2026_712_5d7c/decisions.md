@@ -147,3 +147,8 @@ Each document gets one initial cross-side review and at most two author/reviewer
 - Batch 21 ownership +1: `chat/session/child-chat-session-host.adapter.ts:96,151` passes the parent/handoff SDK session id as `sourceSessionId` (inherited handoff vs fresh launch).
 - Deferred to the Accounts UI / RPC contract batches: `libs/shared/src/lib/types/rpc/rpc-chat.types.ts` accountSelection + safe accountRefusal, `chat-rpc.schema.ts:64,82,96`, frontend refusal display (no recovery chooser).
 - Deferred to certification (release-held, D7): SDK live-turn lease transfer (`sdk-agent-adapter.ts:1183,1653`), `SDK_NAMED_ACCOUNT_PERSISTENCE` and `SDK_SESSION_IMPORT_BINDING_LOOKUP` host registration with DI guard specs, then replace the preflight hold at `chat-slash-command-router.service.ts:142`.
+
+## D23 — Batch 18b ownership +1: public gate-only wrapper (2026-10-23, orchestrator)
+
+- Lane finding (implementation-report-batch-18b.md): the Batch 18 gate `ChatSessionService.gateAccount` (`chat-session.service.ts:1752`) is private; `SessionRpcHandlers` already injects ChatSessionService (`session-rpc.handlers.ts:198`). `ensureSessionActiveForRewind` can resume, so it cannot serve as a gate-only call without changing ambient behaviour.
+- Decision: Batch 18b also owns `chat-session.service.ts` to add one public gate-only method that delegates to `gateAccount` (no logic copy, no DI change). Options rejected: handler DI change to the account port (duplicates gate logic); reuse ensureSessionActiveForRewind (ambient side effects). No concurrent owner (Batch 19 is cli-agent-runtime; Batch 21 comes later). Reversible.

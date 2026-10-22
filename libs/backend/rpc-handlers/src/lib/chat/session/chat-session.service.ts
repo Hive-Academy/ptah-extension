@@ -1750,6 +1750,11 @@ export class ChatSessionService {
     }
   }
 
+  /** Check the original session account before fork/rewind without resuming it. */
+  public gateSessionAccount(sessionId: SessionId): Promise<void> {
+    return this.gateAccount({ sessionId });
+  }
+
   private async gateAccount(input: MainSessionAccountSelection & { workspacePath?: string; sessionId?: string }): Promise<void> {
     // Fresh ambient hosts retain their call sequence. Existing sessions still
     // inspect local linkage if the authoritative account service is unavailable.
