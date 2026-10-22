@@ -4,6 +4,12 @@ jest.mock('os', () => ({
   ...jest.requireActual<typeof import('os')>('os'),
   homedir: jest.fn(),
 }));
+// Module namespace properties are not configurable on every platform, so
+// jest.spyOn(fs, 'stat') throws on Linux CI. Mock with a pass-through instead.
+jest.mock('fs/promises', () => {
+  const actual = jest.requireActual<typeof import('fs/promises')>('fs/promises');
+  return { ...actual, stat: jest.fn(actual.stat) };
+});
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
@@ -230,7 +236,7 @@ describe('Claude account resource context', () => {
       .spyOn(reader, 'findSessionsDirectory')
       .mockResolvedValue(path.join(config, 'projects', escaped));
     jest
-      .spyOn(fs, 'stat')
+      .mocked(fs.stat)
       .mockRejectedValue({ code: 'EACCES', message: `denied ${config}` });
     try {
       await stats.readStats(
@@ -252,6 +258,11 @@ describe('Claude account resource context', () => {
         config,
       );
     } finally {
+      jest
+        .mocked(fs.stat)
+        .mockImplementation(
+          jest.requireActual<typeof import('fs/promises')>('fs/promises').stat,
+        );
       stats.dispose();
     }
   });
