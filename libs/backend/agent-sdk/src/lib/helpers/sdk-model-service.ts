@@ -287,6 +287,7 @@ function hashSecret(value: string): string {
 export class SdkModelService {
   private readonly accountModels = new Map<string, ModelInfo[]>();
   private readonly accountEpochs = new Map<string, number>();
+  private readonly activeAccountReads = new Map<string, number>();
   private readonly accountProbes = new Map<
     string,
     {
@@ -363,7 +364,14 @@ export class SdkModelService {
     route = { ...route };
     const identity = JSON.stringify([route.provider, route.routeFingerprint]);
     const epoch = this.accountEpochs.get(identity);
-    if (epoch !== undefined && epoch > route.authEpoch) return [];
+    if (epoch !== undefined && epoch > route.authEpoch) {
+      this.invalidateAccountRoute(route);
+      return [];
+    }
+    this.activeAccountReads.set(
+      identity,
+      (this.activeAccountReads.get(identity) ?? 0) + 1,
+    );
     this.invalidateAccountRoute(route);
     const generation = this.cacheGeneration;
     const current = (): boolean =>
@@ -442,21 +450,36 @@ export class SdkModelService {
       // Control errors may contain account data. Never log the raw exception.
       this.logger.debug('[SdkModelService] Named account catalog unavailable');
       return [];
+    } finally {
+      const remaining = (this.activeAccountReads.get(identity) ?? 1) - 1;
+      if (remaining === 0) this.activeAccountReads.delete(identity);
+      else this.activeAccountReads.set(identity, remaining);
+      this.trimAccountEpochs();
     }
   }
 
   /** Admission/auth lifecycle can advance an epoch without starting a probe. */
   invalidateAccountRoute(route: ClaudeAccountNamedRoute): void {
     const identity = JSON.stringify([route.provider, route.routeFingerprint]);
-    if ((this.accountEpochs.get(identity) ?? -1) > route.authEpoch) return;
-    this.accountEpochs.set(identity, route.authEpoch);
+    const epoch = Math.max(
+      this.accountEpochs.get(identity) ?? -1,
+      route.authEpoch,
+    );
+    this.accountEpochs.delete(identity);
+    this.accountEpochs.set(identity, epoch);
     for (const probe of this.accountProbes.values()) {
       if (probe.identity === identity && probe.epoch < route.authEpoch)
         probe.controller.abort();
     }
-    if (this.accountEpochs.size > 128) {
-      const oldest = this.accountEpochs.keys().next().value;
-      if (oldest !== undefined) this.accountEpochs.delete(oldest);
+    this.trimAccountEpochs();
+  }
+
+  // Active reads may temporarily exceed the cap; trim again when they settle.
+  private trimAccountEpochs(): void {
+    for (const identity of this.accountEpochs.keys()) {
+      if (this.accountEpochs.size <= 128) break;
+      if (!this.activeAccountReads.has(identity))
+        this.accountEpochs.delete(identity);
     }
   }
 

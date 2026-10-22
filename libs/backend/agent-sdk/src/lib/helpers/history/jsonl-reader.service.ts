@@ -274,15 +274,27 @@ export class JsonlReaderService {
       const entries = await fs.readdir(projectsDir, { withFileTypes: true });
       if (context?.kind === 'named') {
         const directories = new Set<string>();
+        let skippedEntries = 0;
         for (const entry of entries) {
           if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
-          const resolved = await boundPath(
-            projectsDir,
-            path.join(projectsDir, entry.name),
-          );
-          if ((await fs.stat(resolved)).isDirectory())
-            directories.add(resolved);
+          try {
+            const resolved = await boundPath(
+              projectsDir,
+              path.join(projectsDir, entry.name),
+            );
+            if ((await fs.stat(resolved)).isDirectory())
+              directories.add(resolved);
+          } catch {
+            skippedEntries++;
+          }
         }
+        // An unusable root is still unavailable, even if entries failed independently.
+        await fs.readdir(projectsDir);
+        if (skippedEntries > 0)
+          this.logger.debug(
+            '[JsonlReader] Skipped unavailable project entries',
+            { skippedEntries },
+          );
         return [...directories];
       }
       return entries
@@ -546,7 +558,12 @@ export class JsonlReaderService {
       const limitMB = Math.round(this.MAX_SESSION_FILE_SIZE / 1024 / 1024);
       this.logger.warn(
         `[JsonlReader] Session file exceeds size limit: ${stats.size} bytes`,
-        { filePath, sizeMB, limitMB },
+        {
+          filePath:
+            context?.kind === 'named' ? path.basename(filePath) : filePath,
+          sizeMB,
+          limitMB,
+        },
       );
       throw new SdkError(
         `Session file too large (${sizeMB}MB). Max: ${limitMB}MB`,
@@ -987,7 +1004,8 @@ export class JsonlReaderService {
     }
 
     this.logger.info('[JsonlReader] Scanning for agent files', {
-      sessionsDir,
+      sessionsDir:
+        context?.kind === 'named' ? path.basename(sessionsDir) : sessionsDir,
       parentSessionId,
       agentFilesFound: agentFilePaths.length,
       source:
@@ -1018,7 +1036,8 @@ export class JsonlReaderService {
         }
       } catch {
         this.logger.debug('[JsonlReader] Skipping unreadable agent file', {
-          filePath,
+          filePath:
+            context?.kind === 'named' ? path.basename(filePath) : filePath,
         });
         onUnreadable?.(
           isNested ? { agentId, owned: true } : { agentId: null, owned: false },

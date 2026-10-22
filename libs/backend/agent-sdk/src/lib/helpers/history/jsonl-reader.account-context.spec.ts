@@ -156,6 +156,106 @@ describe('Claude account resource context', () => {
     ).rejects.toMatchObject({ code: 'unavailable' });
   });
 
+  it('skips dangling and escaping project links while retaining usable sessions', async () => {
+    const config = await root('mixed');
+    const outside = path.join(temp, 'outside');
+    await fs.mkdir(outside);
+    await fs.symlink(
+      outside,
+      path.join(config, 'projects', 'escape'),
+      'junction',
+    );
+    await fs.symlink(
+      path.join(temp, 'missing'),
+      path.join(config, 'projects', 'dangling'),
+      'junction',
+    );
+    const log = logger();
+    const localReader = new JsonlReaderService(log);
+    try {
+      expect(
+        await localReader.listSessionsDirectories(context(config)),
+      ).toEqual([await fs.realpath(path.join(config, 'projects', escaped))]);
+      expect(log.debug).toHaveBeenCalledWith(
+        '[JsonlReader] Skipped unavailable project entries',
+        { skippedEntries: 2 },
+      );
+      expect(JSON.stringify(jest.mocked(log.debug).mock.calls)).not.toContain(
+        config,
+      );
+      await expect(
+        localReader.listSessionsDirectories(context(path.join(temp, 'absent'))),
+      ).rejects.toMatchObject({ code: 'unavailable' });
+    } finally {
+      localReader.dispose();
+    }
+  });
+
+  it('keeps named oversized and unreadable agent paths out of logs', async () => {
+    const config = await root('private-account');
+    const dir = path.join(config, 'projects', escaped);
+    const file = path.join(dir, 'agent-private.jsonl');
+    const handle = await fs.open(file, 'w');
+    try {
+      await handle.truncate(101 * 1024 * 1024);
+    } finally {
+      await handle.close();
+    }
+    const log = logger();
+    const localReader = new JsonlReaderService(log);
+    try {
+      await localReader.loadAgentSessions(dir, id, undefined, context(config));
+      expect(log.warn).toHaveBeenCalled();
+      expect(log.debug).toHaveBeenCalledWith(
+        '[JsonlReader] Skipping unreadable agent file',
+        {
+          filePath: 'agent-private.jsonl',
+        },
+      );
+      for (const method of [log.warn, log.debug, log.info]) {
+        expect(JSON.stringify(jest.mocked(method).mock.calls)).not.toContain(
+          config,
+        );
+      }
+    } finally {
+      localReader.dispose();
+    }
+  });
+
+  it('logs only structural filesystem error codes for named stats failures', async () => {
+    const config = await root('private-stats');
+    const log = logger();
+    const stats = new SessionStatsReaderService(log, reader);
+    jest
+      .spyOn(reader, 'findSessionsDirectory')
+      .mockResolvedValue(path.join(config, 'projects', escaped));
+    jest
+      .spyOn(fs, 'stat')
+      .mockRejectedValue({ code: 'EACCES', message: `denied ${config}` });
+    try {
+      await stats.readStats(
+        {
+          workspacePath: workspace,
+          sessionIds: [id],
+          scope: { kind: 'session' },
+        },
+        context(config),
+      );
+      expect(log.warn).toHaveBeenCalledWith(
+        '[SessionStatsReader] Could not read session stats',
+        {
+          sessionId: id,
+          error: 'EACCES',
+        },
+      );
+      expect(JSON.stringify(jest.mocked(log.warn).mock.calls)).not.toContain(
+        config,
+      );
+    } finally {
+      stats.dispose();
+    }
+  });
+
   it('refuses named import before reading or writing metadata, with a safe closed code', async () => {
     const metadata: Pick<
       SessionMetadataStore,

@@ -347,7 +347,19 @@ export class SessionStatsReaderService {
             unreadableSubagents++;
             this.logger.debug('[SessionStatsReader] Unreadable subagent file', {
               sessionId,
-              error: error instanceof Error ? error.message : String(error),
+              error:
+                page.context?.kind === 'named'
+                  ? typeof error === 'object' &&
+                    error !== null &&
+                    'code' in error &&
+                    typeof error.code === 'string'
+                    ? error.code
+                    : error instanceof Error
+                      ? error.name
+                      : 'Error'
+                  : error instanceof Error
+                    ? error.message
+                    : String(error),
             });
           }
         }),
@@ -373,7 +385,19 @@ export class SessionStatsReaderService {
       if (!page.signal?.aborted) {
         this.logger.warn('[SessionStatsReader] Could not read session stats', {
           sessionId,
-          error: error instanceof Error ? error.message : String(error),
+          error:
+            page.context?.kind === 'named'
+              ? typeof error === 'object' &&
+                error !== null &&
+                'code' in error &&
+                typeof error.code === 'string'
+                ? error.code
+                : error instanceof Error
+                  ? error.name
+                  : 'Error'
+              : error instanceof Error
+                ? error.message
+                : String(error),
         });
       }
       return failedSessionStats(sessionId);
@@ -421,7 +445,19 @@ export class SessionStatsReaderService {
             '[SessionStatsReader] Unreadable legacy subagent file',
             {
               sessionId,
-              error: error instanceof Error ? error.message : String(error),
+              error:
+                page.context?.kind === 'named'
+                  ? typeof error === 'object' &&
+                    error !== null &&
+                    'code' in error &&
+                    typeof error.code === 'string'
+                    ? error.code
+                    : error instanceof Error
+                      ? error.name
+                      : 'Error'
+                  : error instanceof Error
+                    ? error.message
+                    : String(error),
             },
           );
           return undefined;

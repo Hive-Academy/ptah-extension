@@ -6,6 +6,7 @@ import type {
   AccountInfo,
   Query,
 } from '../../types/sdk-types/claude-sdk.types';
+import { SdkModelService } from '../sdk-model-service';
 import { SessionRegistry } from '../session-lifecycle/session-registry.service';
 import { SdkAdapterEvents } from '../sdk-adapter-events.service';
 import { SessionPlanLimitCallbackRegistry } from './session-plan-limit-callback-registry';
@@ -190,13 +191,128 @@ describe('account-scoped session quota controls', () => {
     const unavailable = { status: 'unavailable', code: 'stale-epoch' };
     expect(await first).toEqual(unavailable);
     expect(await second).toEqual(unavailable);
-    expect(await h.probe.readAccountForRoute('a', route())).toEqual(unavailable);
+    expect(await h.probe.readAccountForRoute('a', route())).toEqual(
+      unavailable,
+    );
     expect(await h.probe.readAccountForRoute('a', route('a', 2))).toEqual({
       status: 'unavailable',
       code: 'account-mismatch',
     });
     h.probe.dispose();
   });
+
+  it.each([false, true])(
+    'pins a live quota identity under eviction pressure (advance=%s)',
+    async (advance) => {
+      const h = harness();
+      const a = h.add('a');
+      let resolve!: (value: AccountInfo) => void;
+      a.accountInfo.mockImplementation(
+        () =>
+          new Promise((done) => {
+            resolve = done;
+          }),
+      );
+      const pending = h.probe.readAccountForRoute('a', route());
+      if (advance) h.probe.invalidateAccountRoute(route('a', 2));
+      for (let i = 0; i < 140; i++)
+        h.probe.invalidateAccountRoute(route(`pressure-${i}`));
+      if (advance) {
+        expect(await h.probe.readAccountForRoute('a', route())).toEqual({
+          status: 'unavailable',
+          code: 'stale-epoch',
+        });
+      }
+      resolve(account('a'));
+      expect(await pending).toEqual(
+        advance
+          ? { status: 'unavailable', code: 'stale-epoch' }
+          : { status: 'available', value: account('a') },
+      );
+      expect(h.probe['accountEpochs'].size).toBeLessThanOrEqual(128);
+      h.probe.dispose();
+    },
+  );
+
+  it('refreshes quota epochs in LRU order', () => {
+    const h = harness();
+    for (let i = 0; i < 128; i++)
+      h.probe.invalidateAccountRoute(route(`lru-${i}`));
+    h.probe.invalidateAccountRoute(route('lru-0', 2));
+    h.probe.invalidateAccountRoute(route('new'));
+    expect(
+      h.probe['accountEpochs'].get(JSON.stringify(['claude', 'lru-0'])),
+    ).toBe(2);
+    expect(
+      h.probe['accountEpochs'].has(JSON.stringify(['claude', 'lru-1'])),
+    ).toBe(false);
+    h.probe.dispose();
+  });
+
+  it.each([
+    [false, false],
+    [true, false],
+    [false, true],
+    [true, true],
+  ])(
+    'pins model reads under pressure (advance=%s, probing=%s)',
+    async (advance, probing) => {
+      type Dependencies = ConstructorParameters<typeof SdkModelService>;
+      type Installation = Awaited<
+        ReturnType<NonNullable<Dependencies[7]>['findExecutable']>
+      >;
+      let resolve!: (value: Installation) => void;
+      const findExecutable = jest.fn(
+        () =>
+          new Promise<Installation>((done) => {
+            resolve = done;
+          }),
+      );
+      const service = new SdkModelService(
+        partialMock<Logger>({ debug: jest.fn() }),
+        partialMock<Dependencies[1]>({}),
+        partialMock<Dependencies[2]>({}),
+        partialMock<Dependencies[3]>({}),
+        partialMock<Dependencies[4]>({}),
+        partialMock<Dependencies[5]>({}),
+        undefined,
+        { findExecutable },
+      );
+      const models = [
+        { value: 'fixture', displayName: 'Fixture', description: 'Fixture' },
+      ];
+      let finishProbe!: (value: typeof models) => void;
+      service['probeAccountModels'] = jest.fn(() =>
+        probing
+          ? new Promise<typeof models>((done) => {
+              finishProbe = done;
+            })
+          : Promise.resolve(models),
+      );
+      const installation = partialMock<NonNullable<Installation>>({
+        cliJsPath: '/fixture/cli.js',
+        version: '1.0',
+      });
+      const pending = service.getSupportedModels(route());
+      if (probing) {
+        resolve(installation);
+        await Promise.resolve();
+        expect(service['probeAccountModels']).toHaveBeenCalledTimes(1);
+      }
+      if (advance) service.invalidateAccountRoute(route('a', 2));
+      for (let i = 0; i < 140; i++)
+        service.invalidateAccountRoute(route(`pressure-${i}`));
+      if (advance) {
+        expect(await service.getSupportedModels(route())).toEqual([]);
+        expect(findExecutable).toHaveBeenCalledTimes(1);
+      }
+      if (probing) finishProbe(models);
+      else resolve(installation);
+      expect(await pending).toEqual(advance ? [] : models);
+      expect(service['accountEpochs'].size).toBeLessThanOrEqual(128);
+      expect(service['activeAccountReads'].size).toBe(0);
+    },
+  );
 
   it('discards a usage result when its query was replaced', async () => {
     const h = harness();

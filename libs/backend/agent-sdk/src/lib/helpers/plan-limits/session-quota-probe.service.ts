@@ -152,6 +152,7 @@ class ProbeTimeoutError extends Error {
 export class SessionQuotaProbeService implements SessionQuotaProbe {
   private disposed = false;
   private readonly accountEpochs = new Map<string, number>();
+  private readonly activeAccountReads = new Map<string, number>();
   private readonly queryRevisions = new WeakMap<object, number>();
   private readonly namedReads = new WeakMap<
     object,
@@ -312,11 +313,21 @@ export class SessionQuotaProbeService implements SessionQuotaProbe {
   /** Called by the admission/auth lifecycle when the current epoch advances. */
   invalidateAccountRoute(route: ClaudeAccountNamedRoute): void {
     const identity = JSON.stringify([route.provider, route.routeFingerprint]);
-    if ((this.accountEpochs.get(identity) ?? -1) > route.authEpoch) return;
-    this.accountEpochs.set(identity, route.authEpoch);
-    if (this.accountEpochs.size > 128) {
-      const oldest = this.accountEpochs.keys().next().value;
-      if (oldest !== undefined) this.accountEpochs.delete(oldest);
+    const epoch = Math.max(
+      this.accountEpochs.get(identity) ?? -1,
+      route.authEpoch,
+    );
+    this.accountEpochs.delete(identity);
+    this.accountEpochs.set(identity, epoch);
+    this.trimAccountEpochs();
+  }
+
+  // Active reads may temporarily exceed the cap; trim again when they settle.
+  private trimAccountEpochs(): void {
+    for (const identity of this.accountEpochs.keys()) {
+      if (this.accountEpochs.size <= 128) break;
+      if (!this.activeAccountReads.has(identity))
+        this.accountEpochs.delete(identity);
     }
   }
 
@@ -332,71 +343,85 @@ export class SessionQuotaProbeService implements SessionQuotaProbe {
     const identity = JSON.stringify([route.provider, route.routeFingerprint]);
     const epoch = this.accountEpochs.get(identity);
     if (epoch !== undefined && epoch > route.authEpoch) {
+      this.invalidateAccountRoute(route);
       return { status: 'unavailable', code: 'stale-epoch' };
     }
-    this.invalidateAccountRoute(route);
-    const matches = (record: SessionRecord): boolean => {
-      const binding = record.accountBinding;
-      return (
-        binding?.provider === route.provider &&
-        binding.routeFingerprint === route.routeFingerprint &&
-        binding.routeRevision === route.routeRevision &&
-        binding.authEpoch === route.authEpoch
-      );
-    };
-    const targetId =
-      sessionId ??
-      this.sessions.getActiveSessionIds().find((id) => {
-        const record = this.sessions.find(id);
-        return record !== undefined && matches(record) && record.query !== null;
-      });
-    const record =
-      targetId === undefined ? undefined : this.sessions.find(targetId);
-    if (!record || !record.query || targetId === undefined) {
-      return { status: 'unavailable', code: 'no-open-session' };
-    }
-    if (!matches(record))
-      return { status: 'unavailable', code: 'account-mismatch' };
-    const query = record.query;
-    const revision = this.queryRevisions.get(query) ?? 0;
-    const key = JSON.stringify([
+    this.activeAccountReads.set(
       identity,
-      route.routeRevision,
-      route.authEpoch,
-      revision,
-      operation,
-    ]);
-    let reads = this.namedReads.get(query);
-    if (!reads) {
-      reads = new Map();
-      this.namedReads.set(query, reads);
-    }
-    let pending = reads.get(key);
-    if (!pending) {
-      pending = this.callBounded(targetId, operation, () =>
-        read(query as object & QuotaReadableQuery),
-      );
-      reads.set(key, pending);
-    }
+      (this.activeAccountReads.get(identity) ?? 0) + 1,
+    );
     try {
-      const value = await pending;
-      if (this.disposed)
-        return { status: 'unavailable', code: 'service-unavailable' };
-      if (
-        this.accountEpochs.get(identity) !== route.authEpoch ||
-        this.sessions.find(targetId) !== record ||
-        record.query !== query ||
-        !matches(record) ||
-        (this.queryRevisions.get(query) ?? 0) !== revision
-      ) {
-        return { status: 'unavailable', code: 'stale-epoch' };
+      this.invalidateAccountRoute(route);
+      const matches = (record: SessionRecord): boolean => {
+        const binding = record.accountBinding;
+        return (
+          binding?.provider === route.provider &&
+          binding.routeFingerprint === route.routeFingerprint &&
+          binding.routeRevision === route.routeRevision &&
+          binding.authEpoch === route.authEpoch
+        );
+      };
+      const targetId =
+        sessionId ??
+        this.sessions.getActiveSessionIds().find((id) => {
+          const record = this.sessions.find(id);
+          return (
+            record !== undefined && matches(record) && record.query !== null
+          );
+        });
+      const record =
+        targetId === undefined ? undefined : this.sessions.find(targetId);
+      if (!record || !record.query || targetId === undefined) {
+        return { status: 'unavailable', code: 'no-open-session' };
       }
-      // The key includes the operation; only this operation can populate it.
-      return value === null
-        ? { status: 'unavailable', code: 'service-unavailable' }
-        : { status: 'available', value: value as T };
+      if (!matches(record))
+        return { status: 'unavailable', code: 'account-mismatch' };
+      const query = record.query;
+      const revision = this.queryRevisions.get(query) ?? 0;
+      const key = JSON.stringify([
+        identity,
+        route.routeRevision,
+        route.authEpoch,
+        revision,
+        operation,
+      ]);
+      let reads = this.namedReads.get(query);
+      if (!reads) {
+        reads = new Map();
+        this.namedReads.set(query, reads);
+      }
+      let pending = reads.get(key);
+      if (!pending) {
+        pending = this.callBounded(targetId, operation, () =>
+          read(query as object & QuotaReadableQuery),
+        );
+        reads.set(key, pending);
+      }
+      try {
+        const value = await pending;
+        if (this.disposed)
+          return { status: 'unavailable', code: 'service-unavailable' };
+        if (
+          this.accountEpochs.get(identity) !== route.authEpoch ||
+          this.sessions.find(targetId) !== record ||
+          record.query !== query ||
+          !matches(record) ||
+          (this.queryRevisions.get(query) ?? 0) !== revision
+        ) {
+          return { status: 'unavailable', code: 'stale-epoch' };
+        }
+        // The key includes the operation; only this operation can populate it.
+        return value === null
+          ? { status: 'unavailable', code: 'service-unavailable' }
+          : { status: 'available', value: value as T };
+      } finally {
+        if (reads.get(key) === pending) reads.delete(key);
+      }
     } finally {
-      if (reads.get(key) === pending) reads.delete(key);
+      const remaining = (this.activeAccountReads.get(identity) ?? 1) - 1;
+      if (remaining === 0) this.activeAccountReads.delete(identity);
+      else this.activeAccountReads.set(identity, remaining);
+      this.trimAccountEpochs();
     }
   }
 
