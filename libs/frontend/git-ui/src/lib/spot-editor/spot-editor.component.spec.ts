@@ -1058,6 +1058,158 @@ describe('SpotEditorComponent', () => {
       expect(editorView(fixture).state.sliceDoc()).toBe('const a = 1;\nx');
       expect(byTestId(fixture, 'spot-editor-dirty')).not.toBeNull();
     });
+
+    it('keeps edits typed after the discard confirmation while its read is in flight', async () => {
+      routeRpc([viewResult()]);
+      const fixture = await render(undefined, true);
+      type(fixture, 'x');
+      fixture.componentInstance.notifyDiskChange(['/ws/src/a.ts'], false);
+      await settle(fixture);
+
+      const release = holdNextRead();
+      byTestId<HTMLButtonElement>(fixture, 'spot-editor-stale-reload')?.click();
+      await settle(fixture);
+      dialogButton(fixture, 'confirm').click();
+      // The read is in flight; edits typed now are newer than the discard
+      // the confirmation covers.
+      type(fixture, '// typed after confirming\n');
+      release(viewResult({ content: 'new\n', sha256: SHA_B }));
+      await settle(fixture);
+
+      expect(editorView(fixture).state.sliceDoc()).toBe(
+        'const a = 1;\nx// typed after confirming\n',
+      );
+      expect(byTestId(fixture, 'spot-editor-dirty')).not.toBeNull();
+      expect(byTestId(fixture, 'spot-editor-stale')).not.toBeNull();
+      // The loaded hash survives too: the next save still meets the host's
+      // conflict check instead of silently overwriting the disk change.
+      await clickSave(fixture);
+      expect(saveCalls()[0]).toMatchObject({
+        content: 'const a = 1;\nx// typed after confirming\n',
+        expectedSha256: SHA_A,
+      });
+    });
+
+    it('still discards when the post-confirmation typing is undone before the read lands', async () => {
+      routeRpc([viewResult()]);
+      const fixture = await render(undefined, true);
+      type(fixture, 'x');
+      fixture.componentInstance.notifyDiskChange(['/ws/src/a.ts'], false);
+      await settle(fixture);
+
+      const release = holdNextRead();
+      byTestId<HTMLButtonElement>(fixture, 'spot-editor-stale-reload')?.click();
+      await settle(fixture);
+      dialogButton(fixture, 'confirm').click();
+      type(fixture, 'y');
+      expect(undo(editorView(fixture))).toBe(true);
+      // Back to the buffer the confirmation covered: the discard stands.
+      release(viewResult({ content: 'new\n', sha256: SHA_B }));
+      await settle(fixture);
+      expect(editorView(fixture).state.sliceDoc()).toBe('new\n');
+      expect(byTestId(fixture, 'spot-editor-dirty')).toBeNull();
+      expect(byTestId(fixture, 'spot-editor-stale')).toBeNull();
+      expect(saveDisabled(fixture)).toBe(true);
+    });
+
+    it('keeps post-confirmation edits when the confirmed read fails; Retry restores editing', async () => {
+      routeRpc([viewResult()]);
+      const fixture = await render(undefined, true);
+      type(fixture, 'x');
+      fixture.componentInstance.notifyDiskChange(['/ws/src/a.ts'], false);
+      await settle(fixture);
+
+      const release = holdNextRead();
+      byTestId<HTMLButtonElement>(fixture, 'spot-editor-stale-reload')?.click();
+      await settle(fixture);
+      dialogButton(fixture, 'confirm').click();
+      type(fixture, '// typed after confirming\n');
+      release({
+        success: false,
+        reason: 'not-found',
+        error: 'The file does not exist.',
+        externalOpenAllowed: false,
+      });
+      await settle(fixture);
+
+      // The reload the confirmation started failed: the buffer, now holding
+      // edits newer than that confirmation, survives read-only under the
+      // read error.
+      expect(byTestId(fixture, 'spot-editor-read-error')).not.toBeNull();
+      expect(editorView(fixture).state.sliceDoc()).toBe(
+        'const a = 1;\nx// typed after confirming\n',
+      );
+      expect(editorView(fixture).state.readOnly).toBe(true);
+
+      // Retry reads fresh: the editor becomes usable again, the typed
+      // buffer survives and the disk change surfaces as a stale mark.
+      const retryRelease = holdNextRead();
+      el(fixture)
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="spot-editor-read-error"] button',
+        )
+        ?.click();
+      retryRelease(viewResult({ content: 'from disk\n', sha256: SHA_B }));
+      await settle(fixture);
+      expect(byTestId(fixture, 'spot-editor-read-error')).toBeNull();
+      expect(byTestId(fixture, 'spot-editor-stale')).not.toBeNull();
+      expect(editorView(fixture).state.readOnly).toBe(false);
+      expect(editorView(fixture).state.sliceDoc()).toBe(
+        'const a = 1;\nx// typed after confirming\n',
+      );
+      expect(byTestId(fixture, 'spot-editor-dirty')).not.toBeNull();
+      await clickSave(fixture);
+      expect(saveCalls()[0]).toMatchObject({
+        content: 'const a = 1;\nx// typed after confirming\n',
+        expectedSha256: SHA_A,
+      });
+    });
+
+    it('drops a read whose captured baseline a completed save replaced; the next save uses the saved hash', async () => {
+      routeRpc([viewResult()]);
+      const fixture = await render(undefined, true);
+      const release = holdNextRead();
+      fixture.componentInstance.notifyDiskChange(['/ws/src/a.ts'], false);
+      // A background reload's read is in flight; the user edits and saves
+      // while it is pending.
+      type(fixture, 'x');
+      await clickSave(fixture);
+      expect(saveCalls()[0]).toMatchObject({
+        content: 'const a = 1;\nx',
+        expectedSha256: SHA_A,
+      });
+      // The held read still answers with the bytes it captured before the
+      // save replaced the loaded baseline.
+      release(viewResult());
+      await settle(fixture);
+
+      // The saved buffer stays clean, and the next save meets the host's
+      // conflict check with the hash the save produced.
+      expect(editorView(fixture).state.sliceDoc()).toBe('const a = 1;\nx');
+      expect(byTestId(fixture, 'spot-editor-dirty')).toBeNull();
+      type(fixture, 'y');
+      await clickSave(fixture);
+      expect(saveCalls()[1]).toMatchObject({
+        content: 'const a = 1;\nxy',
+        expectedSha256: SHA_B,
+      });
+    });
+
+    it('keeps the saved buffer when the read held across a save answers with newer disk bytes', async () => {
+      routeRpc([viewResult()]);
+      const fixture = await render(undefined, true);
+      const release = holdNextRead();
+      fixture.componentInstance.notifyDiskChange(['/ws/src/a.ts'], false);
+      type(fixture, 'x');
+      await clickSave(fixture);
+      release(viewResult({ content: 'from disk\n', sha256: 'c'.repeat(64) }));
+      await settle(fixture);
+      // The read predates the save, so the saved buffer survives it; the
+      // disk change surfaces on the next save's conflict check instead.
+      expect(editorView(fixture).state.sliceDoc()).toBe('const a = 1;\nx');
+      expect(byTestId(fixture, 'spot-editor-dirty')).toBeNull();
+      expect(byTestId(fixture, 'spot-editor-stale')).toBeNull();
+    });
   });
 
   describe('replacing the open file', () => {

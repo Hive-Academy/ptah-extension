@@ -790,12 +790,19 @@ export class SpotEditorComponent {
    * conflict. A fresh result also repairs the failed-read status a
    * confirmed reload left, so Retry restores a usable editor with the
    * edits intact. Only `discardEdits` — an explicitly confirmed Reload
-   * answer — replaces the buffer.
+   * answer — replaces the buffer, and only the buffer as it stood at that
+   * confirmation: text typed after it survives like any in-flight edit.
+   * A read is also dropped when a completed save replaced the baseline it
+   * captured: its result predates the save, and the save's own echo push
+   * reloads the file.
    */
   protected async reload(discardEdits = false): Promise<void> {
     const current = this.file();
     if (!current) return;
     const cursor = this.handle?.cursor() ?? null;
+    // A confirmed discard covers the buffer as it is now; text typed after
+    // that confirmation must survive the read the confirmation started.
+    const discardText = discardEdits ? (this.handle?.text() ?? null) : null;
     const seq = ++this.readSeq;
     const result = await this.reader.read(
       current.request,
@@ -803,6 +810,17 @@ export class SpotEditorComponent {
       current.status === 'blocked' ? undefined : current,
     );
     if (this.destroyed || seq !== this.readSeq) return;
+    if (
+      discardEdits &&
+      result.status === 'fresh' &&
+      discardText !== null &&
+      this.handle?.text() !== discardText
+    ) {
+      // The buffer moved after the confirmation: a fresh result must not
+      // wipe it. A failed read keeps the discard answer, so the error
+      // status below still reports the failed reload and Retry recovers.
+      discardEdits = false;
+    }
     if ((this.modified() || this.saving()) && !discardEdits) {
       // The buffer moved while the read was in flight: never overwrite it.
       // A fresh read only raises the stale mark: a mark from a push that
@@ -819,6 +837,11 @@ export class SpotEditorComponent {
       }
       return;
     }
+    // A save that completed while the read was in flight replaced the loaded
+    // baseline this read captured: applying the older result would corrupt
+    // the new baseline and fault the next save. The save's own echo push
+    // reloads the file instead.
+    if (this.file()?.sha256 !== current.sha256) return;
     this.stale.set(false);
     this.saveError.set(null);
     this.file.set(result);
