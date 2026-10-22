@@ -802,6 +802,14 @@ export function createAcpSessionHandle(
     if (abort.signal.aborted || closed) return 1;
     return runPrompt(
       buildTaskPrompt(
+        // A restored session ran its earlier turns in another handle — another
+        // process, host or Ptah version — so what they carried (the policy
+        // version, the messaging block) is unknown here. Claiming today's
+        // preambles were delivered would drop the lane policy and messaging
+        // from a resume that may never have carried them; no
+        // resumeDeliveredPreambles is passed, so both blocks stay in this
+        // first prompt. Same-process continuations (continueTurn) still send
+        // bare messages and keep their dedup.
         { ...options, resumeRestoresContext: restoredContext },
         profile.vendor,
       ),

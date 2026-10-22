@@ -76,6 +76,7 @@ import {
   assertCommandLineWithinLimit,
   stripAnsiCodes,
   buildTaskPrompt,
+  buildArgvTaskPrompt,
   probeCliVersion,
   resolveCliPath,
   resolveDirectSpawn,
@@ -752,7 +753,8 @@ export class AntigravityCliAdapter implements CliAdapter {
     const binary = options.binaryPath ?? 'agy';
     const useStreamInput = await this.probeStreamJsonInput(binary);
 
-    const args = buildAntigravityArgs(options, taskPrompt, useStreamInput);
+    const prompt = useStreamInput ? taskPrompt : buildArgvTaskPrompt(options, this.name);
+    const args = buildAntigravityArgs(options, prompt, useStreamInput);
 
     // `agy` ships as a real `.exe` under %LOCALAPPDATA%\agy\bin, which
     // resolveDirectSpawn returns unchanged; when it is instead an npm `.cmd`

@@ -107,7 +107,7 @@ You control the browser mode and viewport at session creation time via ptah_brow
 These settings apply when creating a NEW session. To change them, close the current session first.
 
 ### ptah_browser_navigate { url, waitForLoad?, headless?, viewport? }
-Navigate to a URL (http/https only). Starts browser session if none exists. Returns final URL and page title.
+Navigate to an http(s) URL, or to a \`file://\` URL inside the workspace. Starts a browser session if none exists. Returns the final URL and the page title.
 - headless: false (default) = visible browser, true = no window
 - viewport: { width, height } — default 1920x1080
 
@@ -216,7 +216,7 @@ Understand file relationships via import-based dependency graph:
 
 ## Multi-Agent Delegation — Fire-and-Check Pattern
 
-You have access to **agent orchestration tools** that let you spawn background workers on whichever CLI agents this machine has. Use these to delegate independent subtasks while you continue working.
+You have access to **agent orchestration tools** that let you spawn background workers on whichever CLI agents this machine has. Use these to delegate independent subtasks while you continue working. Each spawned lane receives the Ptah lane policy (\`PTAH_LANE_POLICY\`) automatically, so do not paste a tool table into \`task\`.
 
 ### When to Delegate
 

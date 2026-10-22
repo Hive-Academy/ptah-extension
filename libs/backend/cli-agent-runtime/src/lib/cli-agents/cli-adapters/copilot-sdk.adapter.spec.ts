@@ -249,6 +249,7 @@ describe('CopilotSdkAdapter', () => {
       expect(argsArg).toContain('json');
       expect(argsArg).toContain('--allow-all-tools');
       expect(argsArg).toContain('-s');
+      expect(argsArg[argsArg.indexOf('-p') + 1].match(/Lane policy id: ptah-lane-policy-v1/g)).toHaveLength(1);
 
       currentChild?.emitClose(0);
       const code = await handle.done;
@@ -1002,14 +1003,7 @@ describe('CopilotSdkAdapter', () => {
       await outcome?.done;
     });
 
-    it('surfaces the command-line guard error from spawnCli for an oversized role-carrying prompt', async () => {
-      const actual = jest.requireActual<typeof import('./cli-adapter.utils')>(
-        './cli-adapter.utils',
-      );
-      mockSpawnCli.mockImplementationOnce(
-        (command: string, args: string[], opts: Record<string, unknown>) =>
-          actual.spawnCli(command, args, opts),
-      );
+    it('rejects an oversized role-carrying prompt before it spawns', async () => {
       // The role block is capped (TASK_2026_597), so the oversized part of
       // this role-carrying prompt is the task text.
       const hugeTask = 'x'.repeat(1_100_000);

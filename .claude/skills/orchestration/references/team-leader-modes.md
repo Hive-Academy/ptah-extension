@@ -51,6 +51,7 @@ UI batches require visual-reviewer screenshots in dark + light themes against th
 `<taskFolder>/prototype/`, or — for a UI change with no added/redesigned surface and so no
 prototype — before/after screenshots (dark + light) of the affected screen (the "before" screenshots
 captured from the base commit, before the fix lands), shown to the user before merge; typecheck/test/lint alone do not suffice.
+Check the lane's tool list; lanes that have `ptah_browser_*` render and screenshot their own UI; the visual-reviewer still gives the independent dark+light evidence.
 For changed persisted settings/config/storage writes, require a **write-path trace** to each
 runtime reader (key, scope, value format, side effects such as env vars), confirming unchanged or
 intended behaviour. Missing evidence goes back for verification before `TASK COMPLETE`.

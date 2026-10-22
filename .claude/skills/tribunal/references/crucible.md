@@ -53,6 +53,8 @@ Roster sources, in order:
 3. **Lanes the user named** — resolve each against `ptah_agent_list` and use exactly those. The judge must still be a different family from the executor; if the named pair is one family, say so and ask for another judge.
 4. **Nothing named** — the heuristic above, selecting for role fit rather than family spread.
 
+UI deliverables: check the lane's tool list; lanes that have `ptah_browser_*` render and screenshot their own UI; the visual-reviewer still gives the independent dark+light evidence.
+
 If discovery turns up fewer than two families, Crucible cannot run — there is no independent judge to be had. Say so, and offer an in-house review, or point the user at settings to configure another provider.
 
 ## The rubric (write it first, then freeze it)
