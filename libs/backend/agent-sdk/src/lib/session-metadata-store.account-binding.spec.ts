@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import type { ProviderAccountBinding } from '@ptah-extension/shared';
+import type { Logger } from '@ptah-extension/vscode-core';
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import { createMockStateStorage } from '@ptah-extension/platform-core/testing';
 import {
@@ -21,7 +22,8 @@ const otherRoute: ProviderAccountBinding = { ...binding, profileId: 'profile-000
 
 function fixture() {
   const storage = createMockStateStorage();
-  const logger = createMockLogger();
+  const loggerMethods: Pick<Logger, 'debug' | 'info' | 'warn' | 'error'> = createMockLogger();
+  const logger = loggerMethods as Logger;
   return { storage, logger, store: new SessionMetadataStore(storage, logger) };
 }
 
@@ -112,16 +114,30 @@ describe('immutable session account linkage', () => {
     await expect(store.getAccountBound(metadata.sessionId, binding)).rejects.toMatchObject({ code: 'binding-conflict' });
   });
 
-  it('resolves server linkage before classifying local absence', async () => {
+  it.each([false, true])('refuses incomplete local linkage (metadata present: %s) after server lookup', async present => {
     const { store } = fixture();
-    await store.save(metadata);
+    if (present) await store.save(metadata);
     const read = jest.spyOn(store, 'get');
     const lookup = jest.fn(async () => {
       expect(read).not.toHaveBeenCalled();
       return { status: 'bound' as const, binding };
     });
-    await expect(store.resolveAccountBinding(metadata.sessionId, lookup)).resolves.toEqual(binding);
+    await expect(store.resolveAccountBinding(metadata.sessionId, lookup)).rejects.toMatchObject({ code: 'linkage-incomplete' });
     expect(lookup).toHaveBeenCalledWith(metadata.sessionId);
+  });
+
+  it('resumes only when both durable stores agree on a known binding', async () => {
+    const { store, storage, logger } = fixture();
+    await store.saveAccountBound(metadata, binding);
+    const restored = new SessionMetadataStore(storage, logger);
+    await expect(restored.resolveAccountBinding(metadata.sessionId, async () => ({ status: 'bound', binding })))
+      .resolves.toEqual(binding);
+  });
+
+  it('keeps an SDK session absent from both stores ambient', async () => {
+    const { store } = fixture();
+    await expect(store.resolveAccountBinding(metadata.sessionId, async () => ({ status: 'absent' })))
+      .resolves.toBeNull();
   });
 
   it.each(['unavailable-storage', 'invalid-bound'] as const)('refuses %s without reading legacy metadata', async status => {

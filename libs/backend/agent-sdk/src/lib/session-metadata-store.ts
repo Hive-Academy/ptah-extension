@@ -83,7 +83,7 @@ const accountBindingSchema = z.object({
 }).strict();
 
 export class SessionAccountBindingError extends Error {
-  constructor(readonly code: 'invalid-bound' | 'binding-conflict' | 'identity-unproved' | 'unavailable-storage') {
+  constructor(readonly code: 'invalid-bound' | 'binding-conflict' | 'linkage-incomplete' | 'identity-unproved' | 'unavailable-storage') {
     super(`Session account linkage refused: ${code}`);
     this.name = 'SessionAccountBindingError';
   }
@@ -733,7 +733,8 @@ export class SessionMetadataStore {
       return null;
     }
     const binding = parseSessionAccountBinding(authoritative.binding);
-    if (metadata?.accountBinding && !sameAccountBinding(metadata.accountBinding, binding)) {
+    if (!metadata?.accountBinding) throw new SessionAccountBindingError('linkage-incomplete');
+    if (!sameAccountBinding(metadata.accountBinding, binding)) {
       throw new SessionAccountBindingError('binding-conflict');
     }
     if (binding.identity.kind === 'unknown') throw new SessionAccountBindingError('identity-unproved');

@@ -46,6 +46,9 @@ const ownerKeySchema = z.string().refine(isProviderAccountOwnerKey);
 /** Positive safe integer. Floats and coerced numeric strings are rejected. */
 const revisionSchema = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 
+/** Registry auth epochs and route revisions start at zero (migration 0058). */
+const accountRevisionSchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+
 const activeRunCountSchema = z
   .number()
   .int()
@@ -118,9 +121,9 @@ export const ProviderAccountBindingSchema: z.ZodType<ProviderAccountBinding> = z
     version: z.literal(PROVIDER_ACCOUNT_BINDING_VERSION),
     provider: providerSchema,
     profileId: opaqueIdSchema,
-    routeRevision: revisionSchema,
+    routeRevision: accountRevisionSchema,
     routeFingerprint: fingerprintSchema,
-    authEpoch: revisionSchema,
+    authEpoch: accountRevisionSchema,
     runId: opaqueIdSchema,
     identity: ProviderAccountIdentityEvidenceSchema,
   })

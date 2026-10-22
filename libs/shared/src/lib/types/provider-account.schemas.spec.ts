@@ -292,6 +292,19 @@ describe('provider account summary and result', () => {
 });
 
 describe('provider account binding', () => {
+  it.each(['routeRevision', 'authEpoch'] as const)('accepts zero and safe integers for %s', field => {
+    for (const value of [0, 1, Number.MAX_SAFE_INTEGER]) {
+      expect(ProviderAccountBindingSchema.safeParse({ ...knownBinding, [field]: value }).success).toBe(true);
+    }
+    for (const value of [-1, 1.5, Number.MAX_SAFE_INTEGER + 1, '0']) {
+      expect(ProviderAccountBindingSchema.safeParse({ ...knownBinding, [field]: value }).success).toBe(false);
+    }
+  });
+
+  it('keeps summary revisions positive', () => {
+    expect(ProviderAccountSummarySchema.safeParse({ ...summary, revision: 0 }).success).toBe(false);
+  });
+
   it('round-trips known and unknown version-1 bindings', () => {
     expect(parseProviderAccountBinding(knownBinding)).toEqual({
       ok: true,
@@ -316,10 +329,10 @@ describe('provider account binding', () => {
       { ...knownBinding, version: 2 },
       { ...knownBinding, version: 0 },
       { ...knownBinding, version: '1' },
-      { ...knownBinding, routeRevision: 0 },
       { ...knownBinding, routeRevision: 1.5 },
       { ...knownBinding, routeRevision: -1 },
-      { ...knownBinding, authEpoch: 0 },
+      { ...knownBinding, authEpoch: -1 },
+      { ...knownBinding, authEpoch: 1.5 },
       { ...knownBinding, provider: 'openai' },
       { ...knownBinding, canonicalConfigDir: '/tmp/claude' },
       { ...knownBinding, env: { CLAUDE_CONFIG_DIR: '/tmp/claude' } },
