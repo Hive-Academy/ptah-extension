@@ -56,12 +56,135 @@ import {
   createSmitheryConfigSecretStore,
 } from '../mcp-directory/smithery-installed-manifest';
 import { McpOAuthInstalledManifestStore } from '../mcp-directory/oauth/mcp-oauth-installed-manifest';
+import {
+  AUTH_PROVIDERS_TOKENS,
+  type ProviderAccountAdmissionPort,
+} from '@ptah-extension/auth-providers-tokens';
+import {
+  SETTINGS_TOKENS,
+  type ReasoningSettings,
+} from '@ptah-extension/settings-core';
+import {
+  resolveSessionCapabilityPolicy,
+  type SdkModuleLoader,
+  type SdkModelService,
+  type SdkMessageTransformer,
+  type SdkPermissionHandler,
+  type HarnessPolicySync,
+} from '@ptah-extension/agent-sdk';
+import type { ICapabilityResolver } from '@ptah-extension/shared';
+import { ClaudeCliAdapter } from '../cli-agents/cli-adapters/claude-cli.adapter';
+import { ClaudeSdkLaneRunner } from '../claude/claude-sdk-lane-runner';
+import type { ISdkProcessSpawner } from '../spawn/sdk-process-spawner.port';
+import {
+  PtahCliLanePlanLimits,
+  type LanePlanLimitWriter,
+} from '../ptah-cli/helpers/ptah-cli-lane-plan-limits';
 
 export function registerCliAgentRuntimeServices(
   container: DependencyContainer,
   logger: Logger,
 ): void {
   logger.info('[CliAgentRuntime] Registering CLI agent runtime services...');
+
+  container.register(ClaudeSdkLaneRunner, {
+    useFactory: instanceCachingFactory(
+      (c) =>
+        new ClaudeSdkLaneRunner(
+          c.resolve<Logger>(TOKENS.LOGGER),
+          c.resolve<SdkMessageTransformer>(SDK_TOKENS.SDK_MESSAGE_TRANSFORMER),
+        ),
+    ),
+  });
+  // Class tokens keep these runtime-local until the Batch 26 roster activation.
+  // Resolve policy/owner services at spawn time to avoid a manager/detection cycle.
+  container.register(ClaudeCliAdapter, {
+    useFactory: instanceCachingFactory(
+      (c) =>
+        new ClaudeCliAdapter(c.resolve<Logger>(TOKENS.LOGGER), {
+          loader: c.resolve<SdkModuleLoader>(SDK_TOKENS.SDK_MODULE_LOADER),
+          assembly: c.resolve<PtahCliSpawnOptions>(
+            CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_SPAWN_OPTIONS,
+          ),
+          runner: c.resolve(ClaudeSdkLaneRunner),
+          permissionHandler: c.resolve<SdkPermissionHandler>(
+            SDK_TOKENS.SDK_PERMISSION_HANDLER,
+          ),
+          processSpawner: c.resolve<ISdkProcessSpawner>(
+            SDK_TOKENS.SDK_PROCESS_SPAWNER,
+          ),
+          models: {
+            getNativeClaudeModels: () =>
+              c
+                .resolve<SdkModelService>(SDK_TOKENS.SDK_MODEL_SERVICE)
+                .getNativeClaudeModels(),
+          },
+          defaults: () => ({
+            chatEffort: c
+              .resolve<ReasoningSettings>(SETTINGS_TOKENS.REASONING_SETTINGS)
+              .effort.get(),
+          }),
+          admission: () =>
+            c.isRegistered(
+              AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_ACCOUNT_ADMISSION,
+              true,
+            )
+              ? c.resolve<ProviderAccountAdmissionPort>(
+                  AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_ACCOUNT_ADMISSION,
+                )
+              : null,
+          policy: (cwd) =>
+            resolveSessionCapabilityPolicy(
+              c.resolve<ICapabilityResolver>(
+                SDK_TOKENS.SDK_CAPABILITY_RESOLVER,
+              ),
+              cwd,
+              logger,
+            ),
+          syncHarness: async (policy) => {
+            if (
+              policy.status !== 'verified' ||
+              !c.isRegistered(SDK_TOKENS.SDK_HARNESS_POLICY_SYNC, true)
+            )
+              return;
+            try {
+              const result = await c
+                .resolve<HarnessPolicySync>(SDK_TOKENS.SDK_HARNESS_POLICY_SYNC)
+                .apply(policy.physicalRoot, policy.harnessFingerprint);
+              if (!result.acknowledged)
+                logger.warn(
+                  '[ClaudeCliAdapter] Harness policy not acknowledged',
+                );
+            } catch {
+              logger.warn(
+                '[ClaudeCliAdapter] Harness policy sync unavailable; capability restrictions remain active',
+              );
+            }
+          },
+          planLimits: () =>
+            new PtahCliLanePlanLimits({
+              logger,
+              ptahCliId: 'claude',
+              providerId: 'claude-cli',
+              ledger: c.isRegistered(
+                AUTH_PROVIDERS_TOKENS.PLAN_LIMIT_LEDGER,
+                true,
+              )
+                ? c.resolve<LanePlanLimitWriter>(
+                    AUTH_PROVIDERS_TOKENS.PLAN_LIMIT_LEDGER,
+                  )
+                : null,
+              owners: c.resolve<LaneOwnerResolver>(
+                CLI_AGENT_RUNTIME_TOKENS.LANE_OWNER_RESOLVER,
+              ),
+              recordOwner: (id, owner) =>
+                c
+                  .resolve<AgentProcessManager>(TOKENS.AGENT_PROCESS_MANAGER)
+                  .recordQuotaOwner(id, owner),
+            }),
+        }),
+    ),
+  });
 
   container.register(
     CLI_AGENT_RUNTIME_TOKENS.SDK_PTAH_CLI_CONFIG_PERSISTENCE,

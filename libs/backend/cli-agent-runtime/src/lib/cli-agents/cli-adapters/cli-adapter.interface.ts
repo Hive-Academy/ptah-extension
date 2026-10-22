@@ -21,6 +21,21 @@ export interface CliModelInfo {
   readonly name: string;
 }
 
+/** Constructible before Claude joins the public system detection roster. */
+export interface ClaudeCliAdapterContract extends Omit<
+  CliAdapter,
+  'name' | 'detect'
+> {
+  readonly name: 'claude';
+  detect(): Promise<Omit<CliDetectionResult, 'cli'> & { cli: 'claude' }>;
+}
+
+export interface ClaudeCliCommandOptions extends CliCommandOptions {
+  readonly parentSessionId?: string;
+  /** Selection only: never an environment bag or a caller-certified route. */
+  readonly accountAdmission?: import('@ptah-extension/auth-providers-tokens').ClaudeAccountAdmissionRequest;
+}
+
 /**
  * Codex lane budgets read from the `agentOrchestration.codex*` settings
  * (TASK_2026_597, R4.1, R4.2, R4.4). A token value of 0 leaves Codex's own
