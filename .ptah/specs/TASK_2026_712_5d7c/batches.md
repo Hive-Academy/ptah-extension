@@ -180,7 +180,7 @@ At each implementation phase's last batch, stop for one combined independent cod
 - Command: `Verify-ProviderAccountsBatch -Projects @('@ptah-extension/auth-providers') -Hosts $H`
 - Report: T/implementation-report-batch-05.md.
 
-## Batch 6: Claude official actions and fail-closed source certification — PENDING
+## Batch 6: Claude official actions and fail-closed source certification — COMPLETE (Codex; CI gate per D8a; live commands release-held; phase review at 7)
 
 - Recommended executor: CLI lane, backend process state-machine/testing; sequential; actual family unassigned.
 - Depends on: 2/5. Phase P1-A; review at 7.
