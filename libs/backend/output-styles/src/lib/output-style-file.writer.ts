@@ -27,6 +27,7 @@
  * is workspace- or `~`-relative, never an absolute host path (Req 7.6).
  */
 import * as path from 'path';
+import type { ClaudeAccountResolvedResourceContext } from '@ptah-extension/auth-providers-tokens';
 import { inject, injectable } from 'tsyringe';
 import {
   PLATFORM_TOKENS,
@@ -162,7 +163,10 @@ export class OutputStyleFileWriter {
    * one is removed on a rename, so an interrupted save leaves two files rather
    * than none.
    */
-  async save(params: SaveOutputStyleParams): Promise<SaveOutputStyleResult> {
+  async save(
+    params: SaveOutputStyleParams,
+    context?: ClaudeAccountResolvedResourceContext,
+  ): Promise<SaveOutputStyleResult> {
     const name = params.name.trim();
     if (name.length === 0) {
       return failure('INVALID_NAME', 'A style name is required.');
@@ -171,7 +175,11 @@ export class OutputStyleFileWriter {
     const slug = slugifyStyleName(name);
     if (!slug.ok) return { ok: false, error: slug.error };
 
-    const directory = this.resolveDirectory(params.tier, params.workspaceRoot);
+    const directory = this.resolveDirectory(
+      params.tier,
+      params.workspaceRoot,
+      context,
+    );
     if (!directory.ok) return directory;
 
     const fileName = styleFileName(slug.slug);
@@ -276,13 +284,18 @@ export class OutputStyleFileWriter {
   /** Remove one style file, located by its frontmatter `name` (Req 4.5). */
   async delete(
     params: DeleteOutputStyleParams,
+    context?: ClaudeAccountResolvedResourceContext,
   ): Promise<DeleteOutputStyleResult> {
     const name = params.name.trim();
     if (name.length === 0) {
       return failure('INVALID_NAME', 'A style name is required.');
     }
 
-    const directory = this.resolveDirectory(params.tier, params.workspaceRoot);
+    const directory = this.resolveDirectory(
+      params.tier,
+      params.workspaceRoot,
+      context,
+    );
     if (!directory.ok) return directory;
 
     const existing = await this.locate(params.tier, directory.directory, name);
@@ -314,13 +327,20 @@ export class OutputStyleFileWriter {
    * Capture the E8 guard stamp for a style. This is the "on read" half — the
    * caller echoes both values back on `save`, which re-checks them.
    */
-  async stat(params: StatOutputStyleParams): Promise<StatOutputStyleResult> {
+  async stat(
+    params: StatOutputStyleParams,
+    context?: ClaudeAccountResolvedResourceContext,
+  ): Promise<StatOutputStyleResult> {
     const name = params.name.trim();
     if (name.length === 0) {
       return failure('INVALID_NAME', 'A style name is required.');
     }
 
-    const directory = this.resolveDirectory(params.tier, params.workspaceRoot);
+    const directory = this.resolveDirectory(
+      params.tier,
+      params.workspaceRoot,
+      context,
+    );
     if (!directory.ok) return directory;
 
     const existing = await this.locate(params.tier, directory.directory, name);
@@ -358,9 +378,18 @@ export class OutputStyleFileWriter {
   private resolveDirectory(
     tier: WritableOutputStyleTier,
     explicitRoot: string | undefined,
+    context?: ClaudeAccountResolvedResourceContext,
   ): DirectoryResult {
     const workspaceRoot = this.resolveWorkspaceRoot(explicitRoot);
-    const directory = outputStyleDirectoryFor(tier, workspaceRoot);
+    let directory: string | undefined;
+    try {
+      directory = outputStyleDirectoryFor(tier, workspaceRoot, context);
+    } catch {
+      return failure(
+        'NOT_FOUND',
+        'The requested Claude account output style directory is unavailable.',
+      );
+    }
     if (directory === undefined) {
       return failure(
         'NO_WORKSPACE',

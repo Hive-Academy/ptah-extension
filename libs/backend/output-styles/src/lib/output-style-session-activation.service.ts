@@ -40,11 +40,12 @@
  * two sessions is therefore reflected on the next session start, with no
  * invalidation logic to get wrong.
  *
- * ## Never fatal
+ * ## Ambient compatibility
  *
  * An unreadable settings store or an unreadable style directory degrades to
  * "no style". A cosmetic preference must not be able to stop a chat from
- * starting, or a spawned agent from running.
+ * starting, or a spawned agent from running. Named contexts instead reject
+ * an unavailable selected resource explicitly; they never substitute ambient state.
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -55,14 +56,20 @@ import {
   type ISettingsStore,
   type WorkspaceScopeResolver,
 } from '@ptah-extension/settings-core';
-import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
+import {
+  AUTH_PROVIDERS_TOKENS,
+  type ClaudeAccountResolvedResourceContext,
+} from '@ptah-extension/auth-providers-tokens';
 import {
   includesUserSettingSource,
   type ActivationDecision,
   type AuthEnv,
 } from '@ptah-extension/shared';
 import type { OutputStyleActivationResolver } from './output-style-activation.resolver';
-import type { OutputStyleDiscoveryService } from './output-style-discovery.service';
+import {
+  OutputStyleAccountResourceError,
+  type OutputStyleDiscoveryService,
+} from './output-style-discovery.service';
 import { OUTPUT_STYLE_TOKENS } from './di/tokens';
 import {
   readOutputStyleSelection,
@@ -141,15 +148,19 @@ export class OutputStyleSessionActivationService {
   /** Resolve the activation for ONE session start, resume or agent spawn. */
   async resolveSessionFields(
     options: ResolveSessionFieldsOptions = {},
+    context?: ClaudeAccountResolvedResourceContext,
   ): Promise<OutputStyleSessionFields> {
     try {
       const selected = this.readSelectedName();
       if (selected === null) return NO_OUTPUT_STYLE;
 
-      const { styles } = await this.discovery.discover({
+      const discoveryOptions = {
         workspaceRoot: options.workspaceRoot,
         activeName: selected,
-      });
+      };
+      const { styles } = await (context === undefined
+        ? this.discovery.discover(discoveryOptions)
+        : this.discovery.discover(discoveryOptions, context));
 
       // The winner under the SDK merge order. A shadowed entry is a real file
       // that a higher tier overrides, so binding to it would apply text the
@@ -158,6 +169,10 @@ export class OutputStyleSessionActivationService {
         styles.find(
           (style) => style.name === selected && style.shadowed !== true,
         ) ?? null;
+
+      if (context?.kind === 'named' && winner === null) {
+        throw new OutputStyleAccountResourceError();
+      }
 
       const decision = this.activation.resolve({
         style: winner,
@@ -168,6 +183,8 @@ export class OutputStyleSessionActivationService {
 
       return this.toSessionFields(decision);
     } catch (error: unknown) {
+      if (context?.kind === 'named')
+        throw new OutputStyleAccountResourceError();
       // Degrade to "no style" — see the class comment. A style is a
       // preference; a working session is the product.
       this.logger.warn(
