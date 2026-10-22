@@ -314,7 +314,7 @@ At each implementation phase's last batch, stop for one combined independent cod
 - Command: `Verify-ProviderAccountsBatch -Projects @('@ptah-extension/agent-sdk') -Hosts $H`
 - Report: T/implementation-report-batch-14.md.
 
-## Batch 15: Owner-correct Claude plan cache and source handles — PENDING
+## Batch 15: Owner-correct Claude plan cache and source handles — IMPLEMENTED (Codex; awaiting P1-C phase review)
 
 - Recommended executor: CLI lane, identity/usage correctness; sequential; actual family unassigned.
 - Depends on: 14. Phase P1-C last; **STOP code-logic review Batches 12–15**, style for changed exported resource/owner interfaces.
