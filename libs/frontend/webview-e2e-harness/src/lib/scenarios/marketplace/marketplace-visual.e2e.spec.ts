@@ -120,14 +120,45 @@ async function fitShellWidth(
     await page.setViewportSize({ width: target, height: 1000 });
     return;
   }
+  // Electron chrome (sidebar, frame, git dock) is the gap between the
+  // viewport and the shell. One correction is viewport = target + that gap.
+  // The dock absorbs part of a viewport change until its floor, so the gap
+  // is remeasured, up to six times. A miss is a failure: do not clamp it
+  // into a screenshot labeled with the requested width. Never call
+  // setViewportSize with a non-finite, non-positive, or >1e7 width.
+  const maxViewport = 10_000_000;
   let viewport = target + 260; // seed above the known sidebar width
+  let measured = Number.NaN;
+  let applied = viewport;
   for (let attempt = 0; attempt < 6; attempt += 1) {
-    await page.setViewportSize({ width: viewport, height: 1000 });
-    const box = await shell.boundingBox();
-    const measured = Math.round(box?.width ?? 0);
+    const width = Math.round(viewport);
+    if (!Number.isFinite(width) || width <= 0 || width > maxViewport) {
+      throw new Error(
+        `fitShellWidth: next viewport ${viewport} is not a finite width in (0, ${maxViewport}] (target ${target}, viewport ${applied}, measured ${measured})`,
+      );
+    }
+    applied = width;
+    await page.setViewportSize({ width, height: 1000 });
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() => resolve());
+        }),
+    );
+    measured = await shell.evaluate((el) =>
+      Math.round(el.getBoundingClientRect().width),
+    );
+    if (!Number.isFinite(measured) || measured <= 0) {
+      throw new Error(
+        `fitShellWidth: shell measure ${measured} is not a positive finite width (target ${target}, viewport ${applied}, measured ${measured})`,
+      );
+    }
     if (Math.abs(measured - target) <= 2) return;
-    viewport += target - measured;
+    viewport = target + (applied - measured);
   }
+  throw new Error(
+    `fitShellWidth: shell width is not within 2px of the target after 6 attempts (target ${target}, viewport ${applied}, measured ${measured})`,
+  );
 }
 
 for (const host of ['vscode', 'electron'] as const) {

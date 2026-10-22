@@ -2208,6 +2208,16 @@ ANUBIS SEMANTIC INK OVERRIDES (TASK_2026_576, design-spec §0)
 [data-theme='anubis-light'] .err-solid-text {
   color: #131317;
 }
+/* Glass `.btn-error` is (0,3,0) and paints `error-content`, which beats the
+   rules above. Anubis error / error-content is #dc2626 / #e8e6e1 (3.87:1).
+   These repeat the measured ink at (0,4,0) so a glass boot that still has
+   `data-glass` cannot put that pair back on Reject. */
+:root[data-glass='on'][data-theme='anubis'] .err-solid-text {
+  color: #ffffff;
+}
+:root[data-glass='on'][data-theme='anubis-light'] .err-solid-text {
+  color: #131317;
+}
 [data-theme='anubis'] .ok-solid-text {
   color: #131317;
 }
@@ -2742,6 +2752,12 @@ END OF ANUBIS DESIGN SYSTEM
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
+  :root[data-glass='on'] [data-glass-surface]::after,
+  :root[data-glass='on'] :is(.modal-box, .dropdown-content)::after {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: none;
+  }
   :root[data-glass='on'] [data-glass-surface]::before { display: none; }
   :root[data-glass='on'] :focus-visible { outline-color: Highlight; }
 }
@@ -2790,34 +2806,56 @@ END OF ANUBIS DESIGN SYSTEM
    ------------------------------------------------------------------------- */
 :where([data-glass-surface]) { position: relative; isolation: isolate; }
 
+/* The fill and the blur sit on ::after, not on the surface. `backdrop-filter`
+   on the surface makes that element the containing block for position:fixed
+   descendants. A settings scroller (overflow-y: auto) or a pane
+   (overflow: hidden) inside that box then clips the popover, and floating-ui's
+   viewport coordinates are applied relative to the pane, so the panel lands
+   under the next card. The pseudo is not an ancestor, so fixed panels stay
+   viewport-fixed. isolation keeps z-index -1 inside the surface. The element
+   background stays transparent so the pseudo blurs the scene, not its own fill. */
 :root[data-glass='on'] :is([data-glass-surface='chrome'], [data-glass-surface='bar']),
 :root[data-glass='on'] [data-glass-surface='overlay'],
 :root[data-glass='on'] :is(.modal-box, .dropdown-content) {
-  background: var(--glass-grain), linear-gradient(var(--glass-fill), var(--glass-fill)), linear-gradient(var(--glass-under), var(--glass-under));
-  background-size: 160px 160px, auto, auto;
+  background: transparent;
   border-radius: var(--glass-radius);
   box-shadow: inset 0 1px 0 var(--glass-glint), var(--glass-shadow);
+  color: var(--glass-ink);
+  isolation: isolate;
+}
+:root[data-glass='on'] :is([data-glass-surface='chrome'], [data-glass-surface='bar'])::after,
+:root[data-glass='on'] [data-glass-surface='overlay']::after,
+:root[data-glass='on'] :is(.modal-box, .dropdown-content)::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: inherit;
+  background: var(--glass-grain), linear-gradient(var(--glass-fill), var(--glass-fill)), linear-gradient(var(--glass-under), var(--glass-under));
+  background-size: 160px 160px, auto, auto;
   -webkit-backdrop-filter: var(--glass-filter);
   backdrop-filter: var(--glass-filter);
-  color: var(--glass-ink);
-}
-/* grain is a 160px tile whose own alpha is tuned via an overlay layer */
-:root[data-glass='on'] :is([data-glass-surface='chrome'], [data-glass-surface='bar'])::after,
-:root[data-glass='on'] [data-glass-surface='overlay']::after {
-  content: none;
 }
 :root[data-glass='on'] [data-glass-surface='overlay'],
 :root[data-glass='on'] :is(.modal-box, .dropdown-content) {
+  background: transparent;
+  box-shadow: inset 0 1px 0 var(--glass-glint), var(--glass-shadow-overlay);
+}
+:root[data-glass='on'] [data-glass-surface='overlay']::after,
+:root[data-glass='on'] :is(.modal-box, .dropdown-content)::after {
   background: var(--glass-grain), var(--glass-fill-overlay);
   background-size: 160px 160px, auto;
-  box-shadow: inset 0 1px 0 var(--glass-glint), var(--glass-shadow-overlay);
   -webkit-backdrop-filter: var(--glass-filter-overlay);
   backdrop-filter: var(--glass-filter-overlay);
 }
 :root[data-glass='on'] :is(.dropdown-content) { border-radius: var(--glass-radius-inner); padding: 0.375rem; }
 
-/* bar: chrome recipe with a denser under-scrim, for text-dense strips (app header, toolbars). Same single blur. */
+/* bar: chrome recipe with a denser under-scrim, for text-dense strips (app header, toolbars). Same single blur, still on ::after. */
 :root[data-glass='on'] [data-glass-surface='bar'] {
+  background: transparent;
+}
+:root[data-glass='on'] [data-glass-surface='bar']::after {
   background: var(--glass-grain), linear-gradient(var(--glass-fill), var(--glass-fill)), linear-gradient(var(--glass-under-bar), var(--glass-under-bar));
   background-size: 160px 160px, auto, auto;
 }
@@ -2886,8 +2924,15 @@ END OF ANUBIS DESIGN SYSTEM
    intercept its clicks (marketplace provider cards, the settings license
    card, the canvas rail menu over the board panes). `.popover-panel`
    exists in the DOM only while a popover is open, so lift exactly the
-   hosting surface for exactly that time. Same lift level as the bar. */
+   hosting surface for exactly that time. Same lift level as the bar.
+   The surface's own z-index does not escape an inline custom-element host
+   (the license card host has no display), so the following block sibling
+   paints over the panel. Lift the host that directly wraps that surface. */
 :root[data-glass='on'] [data-glass-surface]:has(.popover-panel) { z-index: 30; }
+:root[data-glass='on'] :has(> [data-glass-surface='content']:has(.popover-panel)) {
+  position: relative;
+  z-index: 30;
+}
 
 :root[data-glass='on'] .border-base-300 { border-color: var(--glass-line); }
 
@@ -3128,8 +3173,17 @@ END OF ANUBIS DESIGN SYSTEM
 
 }
 
-/* Unlayered glass overrides: utilities must not replace role fills. */
-:root[data-glass='on'] :is(.bg-base-100, .bg-surface-0, .bg-surface-1) { background-color: transparent; }
+/* Unlayered glass overrides: utilities must not replace role fills.
+   Shell canvases opt in to a clear backdrop so chrome and bar panes blur the
+   scene. Nested reading fills keep bg-surface-0/1 and bg-base-100 (the
+   previous-sessions panel, its header, the composer). Role rules below still
+   clear chrome, bar, and overlay. */
+:root[data-glass='on'] :is(
+  .electron-shell-root,
+  ptah-app-shell > .bg-surface-0,
+  ptah-marketplace-shell > .bg-surface-0,
+  ptah-thoth-shell > .bg-surface-0
+) { background-color: transparent; }
 :root[data-glass='on'] .bg-base-200 { background-color: var(--glass-fill-tile); }
 :root[data-glass='on'] .bg-base-300 { background-color: var(--glass-hover); }
 
@@ -3177,20 +3231,32 @@ END OF ANUBIS DESIGN SYSTEM
   background: oklch(var(--g-tone-fill) / 0.16);
 }
 :root[data-glass='on'] :is(.modal-box, .dropdown-content, [data-glass-surface='overlay']):is(.bg-base-100, .bg-base-200, .bg-base-300, .bg-surface-0, .bg-surface-1) {
+  background: transparent;
+}
+:root[data-glass='on'] :is(.modal-box, .dropdown-content, [data-glass-surface='overlay']):is(.bg-base-100, .bg-base-200, .bg-base-300, .bg-surface-0, .bg-surface-1)::after {
   background: var(--glass-grain), var(--glass-fill-overlay);
   background-size: 160px 160px, auto;
 }
 :root[data-glass='on'] [data-glass-surface='chrome'] {
-  background: var(--glass-grain), linear-gradient(var(--glass-fill), var(--glass-fill)), linear-gradient(var(--glass-under), var(--glass-under));
-  background-size: 160px 160px, auto, auto;
+  background: transparent;
 }
 :root[data-glass='on'] [data-glass-surface='bar'] {
-  background: var(--glass-grain), linear-gradient(var(--glass-fill), var(--glass-fill)), linear-gradient(var(--glass-under-bar), var(--glass-under-bar));
-  background-size: 160px 160px, auto, auto;
+  background: transparent;
 }
 :root[data-glass='on'] [data-glass-surface='content'] { background: var(--glass-fill-content); }
+/* Assistant answers are a content card with no inset of their own. User
+   bubbles already use this padding (.chat-bubble, sidebar scale). Apply it
+   only while glass paints the card, so non-glass transcript spacing stays. */
+:root[data-glass='on'] .cs-answer[data-glass-surface='content'] {
+  padding: var(--sidebar-spacing-sm) var(--sidebar-spacing-md);
+}
 :root[data-glass='on'] [data-glass-surface='tile'] { background: var(--glass-fill-tile); }
 :root[data-glass='on'] [data-glass-surface='plate'] { background: var(--glass-plate); }
-:root[data-glass='on'] :is(.modal-box, .dropdown-content, [data-glass-surface='overlay']):is(.bg-base-100, .bg-base-200, .bg-base-300) { background-color: var(--glass-fill-overlay); }
-/* Menus nested inside a filtered bar need an almost solid fill. */
-:root[data-glass='on'] [data-glass-surface='bar'] .dropdown-content { background-color: oklch(var(--b1) / 0.97); }
+:root[data-glass='on'] :is(.modal-box, .dropdown-content, [data-glass-surface='overlay']):is(.bg-base-100, .bg-base-200, .bg-base-300) { background-color: transparent; }
+/* Menus nested in a bar: almost solid fill on the blur layer, not on the element (that layer would be what ::after blurs). */
+:root[data-glass='on'] [data-glass-surface='bar'] .dropdown-content { background-color: transparent; }
+:root[data-glass='on'] [data-glass-surface='bar'] .dropdown-content::after {
+  background: oklch(var(--b1) / 0.97);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}

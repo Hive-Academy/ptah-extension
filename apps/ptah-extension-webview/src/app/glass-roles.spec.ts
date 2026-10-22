@@ -14,10 +14,37 @@ function templateFiles(directory: string): string[] {
 }
 
 describe('glass surface roles', () => {
+  it('blurs glass panes on ::after so the pane is not a fixed containing block', () => {
+    const elementRule =
+      /:root\[data-glass='on'\] :is\(\[data-glass-surface='chrome'\], \[data-glass-surface='bar'\]\),\s*:root\[data-glass='on'\] \[data-glass-surface='overlay'\],\s*:root\[data-glass='on'\] :is\(\.modal-box, \.dropdown-content\) \{[^}]*\}/;
+    const element = elementRule.exec(css)?.[0] ?? '';
+    expect(element).not.toMatch(/backdrop-filter/);
+    expect(element).toMatch(/background:\s*transparent/);
+    expect(css).toMatch(
+      /\[data-glass-surface='chrome'\], \[data-glass-surface='bar'\]\)::after[\s\S]*?backdrop-filter:\s*var\(--glass-filter\)/,
+    );
+    expect(css).toMatch(
+      /:root\[data-glass='on'\] :has\(> \[data-glass-surface='content'\]:has\(\.popover-panel\)\)/,
+    );
+  });
+
   it('styles every approved role', () => {
     for (const role of roles) expect(css).toContain(`[data-glass-surface='${role}']`);
     const defined = new Set([...css.matchAll(/data-glass-surface='([^']+)'/g)].map((match) => match[1]));
     expect([...defined].sort()).toEqual([...roles].sort());
+  });
+
+  it('clears shell canvases only, and insets assistant answer cards like chat bubbles', () => {
+    expect(css).not.toMatch(
+      /:root\[data-glass='on'\] :is\(\.bg-base-100, \.bg-surface-0, \.bg-surface-1\) \{\s*background-color:\s*transparent/,
+    );
+    expect(css).toMatch(/\.electron-shell-root/);
+    expect(css).toMatch(/ptah-app-shell > \.bg-surface-0/);
+    expect(css).toMatch(/ptah-marketplace-shell > \.bg-surface-0/);
+    expect(css).toMatch(/ptah-thoth-shell > \.bg-surface-0/);
+    expect(css).toMatch(
+      /\.cs-answer\[data-glass-surface='content'\] \{[^}]*padding:\s*var\(--sidebar-spacing-sm\) var\(--sidebar-spacing-md\)/,
+    );
   });
 
   it('uses only approved role names in component templates', () => {

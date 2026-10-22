@@ -65,6 +65,7 @@ const LOGOUT_FAILED = 'Could not log out.';
   standalone: true,
   imports: [LucideAngularModule, FormsModule, NativePopoverComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'block' },
   template: `
     @if (!isLoadingLicenseStatus()) {
       <div class="card bg-base-200 border border-base-300 p-3" data-glass-surface="content">
