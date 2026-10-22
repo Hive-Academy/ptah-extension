@@ -14,6 +14,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import { randomUUID } from 'node:crypto';
+import { tmpdir } from 'node:os';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import {
   PLATFORM_TOKENS,
@@ -894,6 +895,28 @@ export interface QueryOptionsInput {
   capabilityPolicy?: EffectiveCapabilitySet;
 }
 
+/** Fixed bootstrap: never spread conversation options into this object. */
+export function buildNamedAccountBootstrapOptions(
+  route: ClaudeAccountRoute,
+  abortController: AbortController,
+  pathToClaudeCodeExecutable?: string,
+): Options {
+  return {
+    cwd: tmpdir(),
+    abortController,
+    pathToClaudeCodeExecutable,
+    env: applyClaudeAccountRouteEnv({ ...process.env }, route),
+    systemPrompt: '',
+    settingSources: [],
+    tools: [],
+    mcpServers: {},
+    strictMcpConfig: true,
+    persistSession: false,
+    maxTurns: 1,
+    canUseTool: async () => ({ behavior: 'deny', message: 'Account admission pending.' }),
+  };
+}
+
 /**
  * SDK query options structure — directly aliased from the SDK's canonical
  * `Options` type. Aliasing `Options` directly surfaces compile errors when we
@@ -1057,14 +1080,16 @@ export class SdkQueryOptionsBuilder {
       capabilityPolicy,
     } = input;
 
-    const effectiveAuthEnv: AuthEnv = authEnvOverride ?? this.authEnv;
+    const effectiveAuthEnv: AuthEnv = input.accountRoute?.kind === 'named'
+      ? applyClaudeAccountRouteEnv({}, input.accountRoute)
+      : authEnvOverride ?? this.authEnv;
     if (!sessionConfig?.model) {
       throw new SdkError('Model not provided - ensure SDK is initialized');
     }
     this.warnIfForkOptionsDroppedSilently(input);
     const model = this.modelService.resolveModelId(
       sessionConfig.model,
-      authEnvOverride,
+      input.accountRoute?.kind === 'named' ? effectiveAuthEnv : authEnvOverride,
     );
     if (!sessionConfig?.projectPath) {
       throw new SdkError(
@@ -1090,6 +1115,8 @@ export class SdkQueryOptionsBuilder {
       model,
       effectiveAuthEnv,
       this.isProfiledCrossProvider(authEnvOverride),
+      input.accountRoute,
+      abortController.signal,
     );
     if (!model.startsWith('claude-')) {
       const claudeTiers = [envSonnet, envOpus, envHaiku].filter(
@@ -1615,7 +1642,16 @@ export class SdkQueryOptionsBuilder {
     resolvedModel: string,
     authEnvOverride?: AuthEnv,
     skipCrossProvider = false,
+    accountRoute?: ClaudeAccountRoute,
+    signal?: AbortSignal,
   ): Promise<void> {
+    if (accountRoute?.kind === 'named') {
+      const models = await this.modelService.getSupportedModels(accountRoute, signal);
+      if (models.length && !models.some((model) => model.value === resolvedModel)) {
+        throw new SdkError('Selected model is unavailable for this account.');
+      }
+      return;
+    }
     // A profiled session whose provider differs from the process-global active
     // provider must NOT be validated against the global provider's model cache
     // — that cache belongs to a different provider and would spuriously reject

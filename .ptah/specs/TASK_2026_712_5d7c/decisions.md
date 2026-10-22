@@ -130,3 +130,11 @@ Each document gets one initial cross-side review and at most two author/reviewer
 - Recorded for its owner, not fixed: `libs/shared/src/lib/types/provider-account.schemas.ts:47,121-123` require positive epoch/revision, the registry persists zero-based values. Batch 17 aligns the shared schema.
 - Options rejected: edit unshipped 0058 in place (dev databases that already ran 0058 would never get the column); use run_id as an SDK alias (overloads identity). Reversible until merge.
 - Verification: diagnostics unavailable in the lane; per the user's lanes-first rule CI runs typecheck/tests. Local audit: agent-sdk 3/4, auth-providers 24/24.
+
+## D21 — Batch 17 accepted for commit; Batch 17b scope (2026-10-23, orchestrator)
+
+- Batch 17 (Codex, 6 files incl. session-registry.service.ts per D17): named bootstrap + own-gate final query coordinator behind a token-only persistence port `SDK_NAMED_ACCOUNT_PERSISTENCE`; route model reads and epoch invalidation; ambient path unchanged; admission stays release-held. Diagnostics clean in the six files. Claim on sdk-agent-adapter.ts acknowledged by TASK_2026_714 (keep additive).
+- Orchestrator test-only fix: `session-metadata-store.account-binding.spec.ts:24` TS2352 cast removed (MockLogger is assignable, as in session-metadata-store.spec.ts).
+- Batch 17b (agent-sdk + shared, file-disjoint from Batch 18): (1) `resolveAccountBinding` must require BOTH the authoritative link and matching metadata linkage — server binding with absent metadata refuses (lane finding, `session-metadata-store.ts:736`); (2) importer handoff from implementation-report-batch-16.md; (3) shared schema zero-based epoch/revision alignment (`provider-account.schemas.ts:47,121`); (4) D19 N1 raw paths in `jsonl-reader.service.ts`.
+- Deferred to the certification batches (named admission stays release-held until then, D7): host registration of `SDK_NAMED_ACCOUNT_PERSISTENCE` (adapter to ProviderAccountService + SessionMetadataStore) with DI guard specs; termination proof in `off-thread-process-spawner.ts:529` (signal-only exits keep the reservation, conservative); D15 broad env prefix drop.
+- Batch 18 must carry authoritative named context for bound sessions when accountSelection is omitted (active reuse and slash paths refuse explicit named selection today).

@@ -55,6 +55,7 @@ import { SDK_TOKENS } from '../di/tokens';
 import {
   AUTH_PROVIDERS_TOKENS,
   type ClaudeAccountRoute,
+  type ProviderAccountAdmissionPort,
 } from '@ptah-extension/auth-providers-tokens';
 import { applyClaudeAccountRouteEnv } from './claude-account-route-env';
 import { SdkError } from '../errors';
@@ -86,6 +87,16 @@ import {
   QueryFunction,
 } from '../types/sdk-types/claude-sdk.types';
 import type { Query } from './session-lifecycle-manager';
+import type { NamedAccountPersistencePort } from './session-lifecycle/session-query-executor.service';
+
+/** Host adapter over the account registry and SessionMetadataStore. */
+export const SDK_NAMED_ACCOUNT_PERSISTENCE = Symbol.for('SdkNamedAccountPersistence');
+
+export interface NamedAccountQueryHandle {
+  readonly sdkQuery: ReturnType<QueryFunction>;
+  /** Resolves only on the spawned child's exit event, never on query.close(). */
+  readonly terminated: Promise<void>;
+}
 import { PTAH_MCP_PORT } from '../constants';
 
 const SERVICE_TAG = '[SdkQueryRunner]';
@@ -297,6 +308,10 @@ export class SdkQueryRunner {
      */
     @inject(MODEL_DISPATCH_PROVENANCE_TAP, { isOptional: true })
     private readonly provenanceTap: ModelDispatchProvenanceTap | null = null,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_PROVIDER_ACCOUNT_ADMISSION, { isOptional: true })
+    readonly accountAdmission: ProviderAccountAdmissionPort | null = null,
+    @inject(SDK_NAMED_ACCOUNT_PERSISTENCE, { isOptional: true })
+    readonly accountPersistence: NamedAccountPersistencePort | null = null,
   ) {}
 
   /**
@@ -462,6 +477,34 @@ export class SdkQueryRunner {
       queryFn({ prompt, options }),
     );
     return { sdkQuery };
+  }
+
+  /** Observe termination at the launch funnel; policy remains with the executor. */
+  invokeNamedQuery(
+    queryFn: QueryFunction,
+    prompt: AsyncIterable<SDKUserMessage>,
+    options: SdkQueryOptions,
+    observeTermination?: (termination: Promise<void>) => void,
+  ): NamedAccountQueryHandle {
+    this.useOffThreadSpawner(options);
+    const spawn = options.spawnClaudeCodeProcess;
+    if (!spawn) throw new SdkError('Named account process observer unavailable.');
+    let terminated!: () => void;
+    const termination = new Promise<void>((resolve) => { terminated = resolve; });
+    observeTermination?.(termination);
+    const observedOptions: SdkQueryOptions = {
+      ...options,
+      spawnClaudeCodeProcess: (input) => {
+        const child = spawn(input);
+        // The worker shim can synthesize a signal-only exit after losing its
+        // worker. A numeric exit status is proof; signal-only exits stay held
+        // until the spawner exposes an explicit, trustworthy termination proof.
+        child.once('exit', (code) => { if (code !== null) terminated(); });
+        return child;
+      },
+    };
+    const sdkQuery = this.launch('interactive', () => queryFn({ prompt, options: observedOptions }));
+    return { sdkQuery, terminated: termination };
   }
 
   /**

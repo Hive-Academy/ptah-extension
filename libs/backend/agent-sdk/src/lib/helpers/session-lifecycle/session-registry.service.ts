@@ -452,6 +452,18 @@ export class SessionRegistry {
     return true;
   }
 
+  /** An epoch change retires affected queries; immutable bindings are never relabelled. */
+  invalidateAccountRoute(route: Pick<ClaudeAccountNamedRoute, 'provider' | 'routeFingerprint' | 'authEpoch'>): void {
+    for (const rec of this.byTabId.values()) {
+      const binding = rec.accountBinding;
+      if (binding?.provider === route.provider &&
+          binding.routeFingerprint === route.routeFingerprint &&
+          binding.authEpoch < route.authEpoch) {
+        rec.abortController.abort();
+      }
+    }
+  }
+
   /**
    * Set the SDK query for a pre-registered session.
    * Mutates the single SessionRecord stored in byTabId (and referenced by

@@ -1,5 +1,4 @@
 import 'reflect-metadata';
-import type { Logger } from '@ptah-extension/vscode-core';
 import type { ProviderAccountBinding } from '@ptah-extension/shared';
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import { createMockStateStorage } from '@ptah-extension/platform-core/testing';
@@ -22,7 +21,7 @@ const otherRoute: ProviderAccountBinding = { ...binding, profileId: 'profile-000
 
 function fixture() {
   const storage = createMockStateStorage();
-  const logger = createMockLogger() as Logger;
+  const logger = createMockLogger();
   return { storage, logger, store: new SessionMetadataStore(storage, logger) };
 }
 
