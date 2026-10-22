@@ -306,8 +306,8 @@ export class NativeDropdownComponent implements OnDestroy {
         timedOut,
       ]);
     } catch {
-      // Intentionally swallowed: the caller reveals the trigger-anchored
-      // fallback, which is the only recovery a rejected compute allows.
+      // degradation-audit: optional-capability - smart placement failed; the
+      // caller reveals the trigger-anchored fallback so the menu stays usable.
       return false;
     } finally {
       // A stale call must not clear the timer of a newer open.
