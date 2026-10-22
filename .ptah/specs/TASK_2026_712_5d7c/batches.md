@@ -226,7 +226,7 @@ At each implementation phase's last batch, stop for one combined independent cod
 - Command: `Verify-ProviderAccountsBatch -Projects @('@ptah-extension/agent-sdk') -Hosts $H`
 - Report: T/implementation-report-batch-08.md.
 
-## Batch 9: Shared real native lane option/permission/handle extraction — PENDING
+## Batch 9: Shared real native lane option/permission/handle extraction — COMPLETE (Codex; CI gate per D8a; phase review at 11)
 
 - Recommended executor: CLI lane, capable SDK lifecycle refactor; sequential; actual family unassigned.
 - Depends on: 8. Phase P1-B; review at 11.
