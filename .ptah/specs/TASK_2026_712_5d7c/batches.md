@@ -255,7 +255,7 @@ At each implementation phase's last batch, stop for one combined independent cod
 - Command: `Verify-ProviderAccountsBatch -Projects @('@ptah-extension/agent-sdk') -Hosts $H`
 - Report: T/implementation-report-batch-10.md.
 
-## Batch 11: Constructible Claude adapter and runtime runner registration — PENDING
+## Batch 11: Constructible Claude adapter and runtime runner registration — IMPLEMENTED (Codex; awaiting P1-B phase review)
 
 - Recommended executor: CLI lane, adapter/DI SDK capability; sequential; actual family unassigned.
 - Depends on: 9–10. Phase P1-B last; **STOP for code-logic + style review Batches 8–11**.
