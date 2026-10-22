@@ -41,8 +41,44 @@ main agent, every subagent and every CLI lane. Repeat them in any task prompt yo
 - Changes that are already in the main checkout move to a worktree before more work starts:
   create the worktree, copy the changed files, confirm they are identical (`cmp`), and only
   then revert them in the main checkout.
-- The worktree and its branch stay until the user says to remove them. After the PR merges,
-  remove it with `git worktree remove .claude-worktrees/<short-name>`.
+- The worktree and its branch stay until the user says to remove them. After the PR merges
+  and the user authorizes cleanup, use `git worktree remove .claude-worktrees/<short-name>`.
+
+## Git: complete the task through PR checks and review
+
+- The default task workflow is worktree → implement → verify → review → commit → push →
+  open a pull request → watch CI jobs and code reviews → address actionable findings.
+  Do not finish a completed task with uncommitted changes or an unpublished branch.
+- This is standing authorization to commit verified task changes, push the task branch,
+  and open or update its pull request without a separate request for each step. It replaces
+  older project preferences that require explicit follow-up approval for commits, pushes,
+  or pull requests. Apply this authorization when a skill says the user handles Git or
+  requires a separate commit/push request. Keep worker-lane ownership restrictions intact.
+  A current user instruction to stop, keep work local, or defer delivery takes precedence.
+  If a tool denies an action, stop that action and report the blocker.
+- Only the coordinating agent commits, pushes, and manages the pull request. Delegate these
+  actions explicitly if needed. Implementation lanes report their changes to that agent
+  and must not push or open competing pull requests on their own.
+- Inspect the worktree status and the complete task diff before each commit. Stage only
+  task files by explicit path. Preserve unrelated changes. Follow `.commitlintrc.json` and
+  the repository commit conventions. Do not bypass hooks or signing.
+- Complete scoped verification and an independent review before the initial push. If a
+  check cannot run or a failure blocks delivery, report the exact blocker. Do not claim
+  success, suppress failures, or publish unfinished work as ready for review.
+- Open the pull request against `main`. Inspect every task commit, not only the latest.
+  Keep the title under 70 characters. Include `## Summary` and `## Test plan`, with actual
+  verification results and any checks that did not run. Reuse an existing task PR.
+- After each push, watch the PR's CI jobs and code reviews with `gh`. Use a background
+  watcher for long waits. Inspect failed job logs, review comments, and unresolved threads.
+  Address confirmed task-related defects, verify the fixes, create new commits, and push
+  again. Explain why any disputed finding needs no change. Repeat for the new PR head.
+- Do not treat a successful push as task completion. Report the PR URL, current head,
+  CI results, and review state. If CI or reviews remain pending, explicitly report that
+  state and keep the watch active while the session permits. Report failed, cancelled,
+  timed-out, or unavailable checks and any blocker that needs the user's decision.
+- This authorization does not permit merges, force pushes, history rewrites, branch
+  deletion, or worktree removal. Keep the branch and worktree until the user authorizes
+  cleanup. Never bypass a permission denial through another tool or agent.
 
 ## Git: commit in the foreground, push in the background
 
