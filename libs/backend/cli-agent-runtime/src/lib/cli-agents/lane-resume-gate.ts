@@ -23,6 +23,12 @@ import type {
   LaneRequestContextSource,
 } from '@ptah-extension/shared';
 import type { IOutputChannel } from '@ptah-extension/platform-core';
+import { classifyProviderAccountBinding } from '@ptah-extension/shared/schemas';
+import { PROVIDER_ACCOUNT_RESULT_CODES } from '@ptah-extension/shared';
+import type {
+  LaneAccountBindingPort,
+  LaneAccountReference,
+} from './cli-adapters/cli-adapter.interface';
 import {
   readCodexRolloutUsage,
   type CodexRolloutUsage,
@@ -40,7 +46,9 @@ export const HANDOFF_FINAL_TEXT_MAX_CHARS = 2_000;
 const LOG_PREFIX = '[LaneResumeGate]';
 
 export interface LaneResumeGateInput {
-  readonly cli: CliType;
+  readonly cli: CliType | 'claude';
+  readonly accountReference?: { readonly accountBinding?: unknown; readonly accountBindingId?: unknown };
+  readonly accountBindings?: LaneAccountBindingPort;
   /** The CLI-native session (Codex thread id) the caller asked to resume. */
   readonly cliSessionId: string;
   /** Epoch milliseconds of the lane's last activity, when this host knows it. */
@@ -50,6 +58,7 @@ export interface LaneResumeGateInput {
 }
 
 export interface LaneResumeDecision {
+  readonly accountReference?: LaneAccountReference;
   readonly decision: 'resume' | 'fresh';
   readonly reason: string;
   /** The context figure the decision used; `null` when none was known. */
@@ -78,6 +87,9 @@ export class LaneResumeGate {
   ) {}
 
   async evaluate(input: LaneResumeGateInput): Promise<LaneResumeDecision> {
+    // Identity is checked before the cost gate can read context or make a
+    // handoff. A fresh-context decision must retain this same account.
+    const accountReference = await resolveLaneAccountResume(input);
     const figure = await this.contextFigure(input);
     const lastActivityAt = input.lastActivityAt ?? figure.modifiedAtMs;
     const idleMs =
@@ -91,6 +103,7 @@ export class LaneResumeGate {
       contextTokens: figure.tokens,
       source: figure.source,
       idleMs,
+      ...(accountReference ? { accountReference } : {}),
     };
     this.output.appendLine(
       `${LOG_PREFIX} ${result.decision}: ${input.cli} session ${input.cliSessionId} — ` +
@@ -135,6 +148,91 @@ export class LaneResumeGate {
         note: `rollout unreadable: ${message}`,
       };
     }
+  }
+}
+
+export class LaneAccountResumeError extends Error {
+  readonly code: string;
+  constructor(code: string) {
+    const safeCode = laneAccountErrorCode({ code }) ?? 'unavailable-storage';
+    super(`Claude lane account resume refused (${safeCode}).`);
+    this.name = 'LaneAccountResumeError';
+    this.code = safeCode;
+  }
+}
+
+export function laneAccountErrorCode(error: unknown): string | undefined {
+  if (typeof error !== 'object' || error === null || !('code' in error)) return undefined;
+  return PROVIDER_ACCOUNT_RESULT_CODES.find(code => code !== 'ok' && code === error.code);
+}
+
+/** Read untrusted restore data without erasing present-but-corrupt fields. */
+export function laneAccountFields(value: object): {
+  readonly accountBinding?: unknown;
+  readonly accountBindingId?: unknown;
+} {
+  const binding = 'accountBinding' in value ? value.accountBinding : undefined;
+  const id = 'accountBindingId' in value ? value.accountBindingId : undefined;
+  const parsed = classifyProviderAccountBinding(binding);
+  if (parsed.status === 'absent' && id === undefined) return {};
+  if (parsed.status !== 'bound' || parsed.binding.provider !== 'claude' || id !== parsed.binding.runId) {
+    // Preserve corruption as a safe sentinel, without broadcasting arbitrary
+    // persisted values (which could include physical directories).
+    return { accountBinding: null };
+  }
+  return {
+    accountBindingId: id,
+    accountBinding: Object.freeze({ ...parsed.binding, identity: Object.freeze({ ...parsed.binding.identity }) }),
+  };
+}
+
+export function snapshotLaneAccountReference(value: {
+  readonly accountBinding?: unknown;
+  readonly accountBindingId?: unknown;
+}): LaneAccountReference | undefined {
+  const parsed = classifyProviderAccountBinding(value.accountBinding);
+  if (parsed.status === 'absent' && value.accountBindingId === undefined) return undefined;
+  if (parsed.status !== 'bound' || parsed.binding.provider !== 'claude' ||
+      value.accountBindingId !== parsed.binding.runId) {
+    throw new LaneAccountResumeError('invalid-bound');
+  }
+  return Object.freeze({
+    accountBindingId: parsed.binding.runId,
+    accountBinding: Object.freeze({
+      ...parsed.binding,
+      identity: Object.freeze({ ...parsed.binding.identity }),
+    }),
+  });
+}
+
+export async function resolveLaneAccountResume(
+  input: Pick<LaneResumeGateInput, 'cli' | 'cliSessionId' | 'accountReference' | 'accountBindings'>,
+): Promise<LaneAccountReference | undefined> {
+  const local = snapshotLaneAccountReference(input.accountReference ?? {});
+  if (input.cli !== 'claude' && !local) return undefined;
+  const port = input.accountBindings;
+  if (!port) throw new LaneAccountResumeError('unavailable-storage');
+  try {
+    const found = await port.lookupBySdkSession({ provider: 'claude', sdkSessionId: input.cliSessionId });
+    if (found.status === 'absent') {
+      if (local) throw new LaneAccountResumeError('invalid-bound');
+      return undefined; // Only authoritative absence is ambient legacy.
+    }
+    if (found.status !== 'bound') throw new LaneAccountResumeError(found.status);
+    const reference = snapshotLaneAccountReference({ accountBinding: found.binding, accountBindingId: found.binding.runId });
+    if (!reference || reference.accountBinding.identity.kind !== 'known') {
+      throw new LaneAccountResumeError('identity-unproved');
+    }
+    if (local && JSON.stringify(local) !== JSON.stringify(reference)) {
+      throw new LaneAccountResumeError('invalid-bound');
+    }
+    const result = await port.validateResume(reference);
+    if (result.code !== 'ok') throw new LaneAccountResumeError(result.code);
+    return reference;
+  } catch (error: unknown) {
+    if (error instanceof LaneAccountResumeError) throw error;
+    // Never expose dependency errors (which may contain physical paths).
+    throw new LaneAccountResumeError(laneAccountErrorCode(error) ?? 'unavailable-storage');
   }
 }
 

@@ -13,7 +13,43 @@ import type {
   CliDetectionResult,
   CliOutputSegment,
   FlatStreamEventUnion,
+  ProviderAccountBinding,
 } from '@ptah-extension/shared';
+
+/** Path-free immutable receipt; the registry run id is the binding id. */
+export interface LaneAccountReference {
+  readonly accountBinding: ProviderAccountBinding;
+  readonly accountBindingId: string;
+}
+
+export interface LaneAccountBindingFields {
+  readonly accountBinding?: ProviderAccountBinding;
+  readonly accountBindingId?: string;
+}
+
+/** Host-owned authority, never a local lane/session index. */
+export interface LaneAccountBindingPort {
+  lookupBySdkSession(request: {
+    readonly provider: 'claude';
+    readonly sdkSessionId: string;
+  }): Promise<
+    | { readonly status: 'absent' }
+    | { readonly status: 'bound'; readonly binding: ProviderAccountBinding }
+    | { readonly status: 'invalid-bound' | 'unavailable-storage' }
+  >;
+  /**
+   * Require matching durable metadata, a live route with unchanged physical
+   * identity/revision/fingerprint, and fresh known identity equal to baseline.
+   * Epoch changes require fresh proof; labels/defaults are not authority.
+   * Keep release-held until the host can certify all of these checks.
+   */
+  validateResume(reference: LaneAccountReference): Promise<{ readonly code: string }>;
+  /**
+   * Await BOTH registry SDK linkage and durable reference before returning.
+   * Must work without a parent. Failure keeps the adapter's prompt gate shut.
+   */
+  persistReference(reference: LaneAccountReference, sdkSessionId: string): Promise<void>;
+}
 
 /** Model info returned by CLI adapter's listModels() */
 export interface CliModelInfo {
@@ -57,7 +93,9 @@ export type LaneModelSource =
 
 export type LanePolicyDelivery = 'task-prompt' | 'developer-instructions' | 'system-prompt' | 'instruction-file';
 
-export interface CliCommandOptions {
+export interface CliCommandOptions extends LaneAccountBindingFields {
+  /** Adapters MUST await this checkpoint before releasing a named prompt. */
+  readonly onAccountBinding?: (reference: LaneAccountReference, sdkSessionId: string) => Promise<void>;
   /** Per-process instruction files for adapters with a verified file channel. */
   readonly instructionFileStore?: import('../lane-instruction-file-store').LaneInstructionFileStore;
   readonly lanePolicyDelivery?: LanePolicyDelivery;
@@ -115,7 +153,7 @@ export interface CliCommandOptions {
  * Handle returned by SDK-based adapters.
  * AgentProcessManager uses this instead of ChildProcess when present.
  */
-export interface SdkHandle {
+export interface SdkHandle extends LaneAccountBindingFields {
   /** Provider configured for a Ptah CLI handle at spawn. */
   readonly providerId?: string;
   /** Effective policy channel after adapter fallback selection. */
@@ -222,6 +260,8 @@ export interface ContinuationOutcome {
 }
 
 export interface CliAdapter {
+  /** Optional until the host's named account admission is certified. */
+  readonly accountBindings?: LaneAccountBindingPort;
   /** CLI identifier */
   readonly name: CliType;
   /** Human-readable display name */
