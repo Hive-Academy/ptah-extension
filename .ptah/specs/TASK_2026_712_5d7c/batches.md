@@ -165,7 +165,7 @@ At each implementation phase's last batch, stop for one combined independent cod
 - Command: `Verify-ProviderAccountsBatch -Projects @('@ptah-extension/persistence-sqlite') -Hosts $H`
 - Report: T/implementation-report-batch-04.md.
 
-## Batch 5: Real canonical routes and transactional account store — PENDING
+## Batch 5: Real canonical routes and transactional account store — COMPLETE (Codex; CI gate per D8a; phase review at 7)
 
 - Recommended executor: CLI lane, filesystem/SQLite correctness; sequential; actual family unassigned.
 - Depends on: 4. Phase P1-A; review at 7.
