@@ -2,13 +2,13 @@ import type { SDKUserMessage } from '../types/sdk-types/claude-sdk.types';
 
 export type NamedAccountPromptGateState = 'held' | 'committed' | 'closed';
 
-/** One admission only. Follow-up turns require a new gate and approval. */
+/** One long-lived prompt channel with fresh approval for each held batch. */
 export interface NamedAccountPromptGate {
   readonly prompt: AsyncIterable<SDKUserMessage>;
   readonly state: NamedAccountPromptGateState;
-  /** Retain input locally. Refused after commit or closure. */
+  /** Retain input locally for the next commit. Refused after closure. */
   push(message: SDKUserMessage): boolean;
-  /** Release only this admission's held input; cannot be reused. */
+  /** Release only this admission's held input; later input needs a fresh commit. */
   commit(): boolean;
   /** Reject admission and discard all undelivered input. */
   reject(): void;
@@ -19,15 +19,17 @@ export interface NamedAccountPromptGate {
  * Starts empty. The caller commits only after identity approval and durable
  * binding. This primitive does not perform identity checks itself.
  *
- * The shared iterator delivers each approved message once, then ends. It never
- * accepts input after commit. Close, abort and iterator return discard remaining
- * input and release every waiter; messages already delivered cannot be recalled.
+ * The shared iterator delivers each approved message once, then waits for more.
+ * Later input stays held until a fresh commit. Close, abort and iterator return
+ * discard remaining input and release every waiter; messages already delivered
+ * cannot be recalled.
  */
 export function createNamedAccountPromptGate(
   signal?: AbortSignal,
 ): NamedAccountPromptGate {
   let state: NamedAccountPromptGateState = 'held';
   const held: SDKUserMessage[] = [];
+  const committed: SDKUserMessage[] = [];
   const waiters = new Set<() => void>();
 
   const wake = (): void => {
@@ -43,7 +45,7 @@ export function createNamedAccountPromptGate(
       return;
     }
     state = 'closed';
-    held.length = 0;
+    held.length = committed.length = 0;
     signal?.removeEventListener('abort', close);
     wake();
   };
@@ -53,16 +55,13 @@ export function createNamedAccountPromptGate(
       return this;
     },
     async next(): Promise<IteratorResult<SDKUserMessage>> {
-      // Register synchronously before awaiting so commit/close cannot miss us.
-      while (state === 'held') {
-        await new Promise<void>((resolve) => waiters.add(resolve));
-      }
-      if (state === 'committed') {
-        const message = held.shift();
+      while (state !== 'closed') {
+        const message = committed.shift();
         if (message !== undefined) {
           return { done: false, value: message };
         }
-        close();
+        // Register synchronously before awaiting so commit/close cannot miss us.
+        await new Promise<void>((resolve) => waiters.add(resolve));
       }
       return { done: true, value: undefined };
     },
@@ -84,9 +83,10 @@ export function createNamedAccountPromptGate(
       return state;
     },
     push(message): boolean {
-      if (state !== 'held') {
+      if (state === 'closed') {
         return false;
       }
+      state = 'held';
       held.push(message);
       return true;
     },
@@ -94,6 +94,8 @@ export function createNamedAccountPromptGate(
       if (state !== 'held') {
         return false;
       }
+      committed.push(...held);
+      held.length = 0;
       state = 'committed';
       wake();
       return true;

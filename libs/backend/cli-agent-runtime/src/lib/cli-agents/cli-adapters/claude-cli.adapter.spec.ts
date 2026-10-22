@@ -46,7 +46,10 @@ function fixture() {
   > = async () => ({ behavior: 'deny', message: 'fixture' });
   const permissionHandler = {
     getPermissionLevel: jest.fn(() => 'ask' as const),
-    createCallback: jest.fn(() => callback),
+    createCallback: jest.fn<
+      ReturnType<SdkPermissionHandler['createCallback']>,
+      Parameters<SdkPermissionHandler['createCallback']>
+    >(() => callback),
   };
   const assembly: PtahSpawnAssembly = {
     systemPromptMode: 'preset-append',
@@ -111,6 +114,7 @@ function fixture() {
     workingDirectory: '/workspace',
   };
   return {
+    logger,
     adapter,
     deps,
     loader,
@@ -289,6 +293,68 @@ describe('ClaudeCliAdapter native SDK execution', () => {
     await g.adapter.runSdk(g.input);
     expect(g.run.mock.calls[0][0].options).not.toHaveProperty('model');
     g.finish(0);
+  });
+
+  it('gives two fresh spawns different permission routing hints', async () => {
+    const f = fixture();
+    const first = await f.adapter.runSdk(f.input);
+    const second = await f.adapter.runSdk(f.input);
+    const firstHint = f.permissionHandler.createCallback.mock.calls[0][0];
+    const secondHint = f.permissionHandler.createCallback.mock.calls[1][0];
+    expect(firstHint).toMatch(/^claude:/);
+    expect(secondHint).toMatch(/^claude:/);
+    expect(secondHint).not.toBe(firstHint);
+    f.finish(0);
+    await Promise.all([first.done, second.done]);
+  });
+
+  it.each(['low', 'medium', 'high', 'xhigh', 'max'])(
+    'applies explicit effort %s with the SDK default model',
+    async (reasoningEffort) => {
+      const f = fixture();
+      f.defaults.mockReturnValue({});
+      const handle = await f.adapter.runSdk({ ...f.input, reasoningEffort });
+      expect(f.run.mock.calls[0][0].options).not.toHaveProperty('model');
+      expect(f.run.mock.calls[0][0].options.effort).toBe(reasoningEffort);
+      expect(f.models).not.toHaveBeenCalled();
+      f.finish(0);
+      await handle.done;
+    },
+  );
+
+  it('logs unsupported explicit effort without a model and preserves precedence', async () => {
+    const f = fixture();
+    f.defaults.mockReturnValue({ effort: 'high' });
+    const handle = await f.adapter.runSdk({ ...f.input, reasoningEffort: 'unsupported' });
+    expect(f.run.mock.calls[0][0].options).not.toHaveProperty('model');
+    expect(f.run.mock.calls[0][0].options.effort).toBe('high');
+    expect(f.logger.info).toHaveBeenCalledWith(
+      '[ClaudeCliAdapter] Not applied \u2014 configured precedence remains in effect',
+    );
+    f.finish(0);
+    await handle.done;
+  });
+
+  it('replays every structured segment buffered before subscription in order', async () => {
+    const f = fixture();
+    const handle = await f.adapter.runSdk(f.input);
+    const context = f.run.mock.calls[0][0];
+    const segments = Array.from({ length: 5001 }, (_, index) => ({
+      type: 'text' as const,
+      content: `segment ${index}`,
+    }));
+    for (const segment of segments) context.emitSegment(segment);
+    const subscriber = jest.fn();
+    context.onSegment(subscriber);
+    expect(subscriber.mock.calls.map(([segment]) => segment)).toEqual(segments);
+    const live = { type: 'text' as const, content: 'live' };
+    context.emitSegment(live);
+    expect(subscriber).toHaveBeenLastCalledWith(live);
+    const laterSubscriber = jest.fn();
+    context.onSegment(laterSubscriber);
+    expect(laterSubscriber).not.toHaveBeenCalled();
+    f.finish(0);
+    await handle.done;
   });
 
   it('treats unavailable model metadata as unknown and applies no effort', async () => {

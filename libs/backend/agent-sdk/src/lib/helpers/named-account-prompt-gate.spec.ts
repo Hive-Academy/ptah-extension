@@ -29,6 +29,7 @@ describe('createNamedAccountPromptGate', () => {
     await pending;
     expect(settled).toHaveBeenCalledTimes(1);
     expect(settled).toHaveBeenCalledWith({ done: false, value: input });
+    gate.close();
     await expect(reader.next()).resolves.toEqual(done);
     expect(gate.state).toBe('closed');
   });
@@ -42,20 +43,27 @@ describe('createNamedAccountPromptGate', () => {
     const reader = gate.prompt[Symbol.asyncIterator]();
     const reads = [reader.next(), reader.next(), reader.next()];
     gate.commit();
-    await expect(Promise.all(reads)).resolves.toEqual([
+    await expect(Promise.all(reads.slice(0, 2))).resolves.toEqual([
       { done: false, value: first },
       { done: false, value: second },
-      done,
     ]);
+    gate.close();
+    await expect(reads[2]).resolves.toEqual(done);
   });
 
-  it('committing an empty gate finishes pending readers and cannot preapprove input', async () => {
+  it('an empty commit keeps readers waiting and cannot preapprove later input', async () => {
     const gate = createNamedAccountPromptGate();
-    const pending = gate.prompt[Symbol.asyncIterator]().next();
+    const settled = jest.fn();
+    const pending = gate.prompt[Symbol.asyncIterator]().next().then(settled);
     expect(gate.commit()).toBe(true);
-    expect(gate.push(message('too late'))).toBe(false);
-    await expect(pending).resolves.toEqual(done);
     expect(gate.commit()).toBe(false);
+    expect(gate.push(message('later'))).toBe(true);
+    await Promise.resolve();
+    expect(settled).not.toHaveBeenCalled();
+    gate.commit();
+    await pending;
+    expect(settled).toHaveBeenCalledWith({ done: false, value: message('later') });
+    gate.close();
   });
 
   it.each(['close', 'reject', 'abort'] as const)(
@@ -135,24 +143,57 @@ describe('createNamedAccountPromptGate', () => {
     await expect(pending).resolves.toEqual(done);
   });
 
-  it('refuses follow-up pushes and requires a fresh gate and admission', async () => {
+  it('keeps one iterator open and requires a fresh commit for each turn', async () => {
     const gate = createNamedAccountPromptGate();
+    const reader = gate.prompt[Symbol.asyncIterator]();
     gate.push(message('initial'));
     gate.commit();
-    expect(gate.push(message('follow-up'))).toBe(false);
-    expect(gate.commit()).toBe(false);
-    gate.close();
-
-    const followUp = createNamedAccountPromptGate();
-    followUp.push(message('follow-up'));
+    await expect(reader.next()).resolves.toEqual({ done: false, value: message('initial') });
     const settled = jest.fn();
-    const pending = followUp.prompt[Symbol.asyncIterator]().next().then(settled);
+    const pending = reader.next().then(settled);
     await Promise.resolve();
     expect(settled).not.toHaveBeenCalled();
-    followUp.commit();
+    expect(gate.push(message('follow-up'))).toBe(true);
+    expect(gate.state).toBe('held');
+    await Promise.resolve();
+    expect(settled).not.toHaveBeenCalled();
+    expect(gate.commit()).toBe(true);
     await pending;
     expect(settled).toHaveBeenCalledWith({ done: false, value: message('follow-up') });
-    followUp.close();
+    const end = reader.next();
+    gate.close();
+    await expect(end).resolves.toEqual(done);
+  });
+
+  it('does not mix later held input into an undrained committed batch', async () => {
+    const gate = createNamedAccountPromptGate();
+    const reader = gate.prompt[Symbol.asyncIterator]();
+    gate.push(message('initial'));
+    gate.commit();
+    gate.push(message('unapproved'));
+    await expect(reader.next()).resolves.toEqual({ done: false, value: message('initial') });
+    const settled = jest.fn();
+    const pending = reader.next().then(settled);
+    await Promise.resolve();
+    expect(settled).not.toHaveBeenCalled();
+    gate.close();
+    await pending;
+    expect(settled).toHaveBeenCalledWith(done);
+    await expect(reader.next()).resolves.toEqual(done);
+  });
+
+  it('abort during the wait after a committed turn ends without another yield', async () => {
+    const controller = new AbortController();
+    const gate = createNamedAccountPromptGate(controller.signal);
+    const reader = gate.prompt[Symbol.asyncIterator]();
+    gate.push(message('initial'));
+    gate.commit();
+    await reader.next();
+    const pending = reader.next();
+    gate.push(message('unapproved'));
+    controller.abort();
+    await expect(pending).resolves.toEqual(done);
+    expect(gate.commit()).toBe(false);
   });
 
   it('iterator return wakes pending readers and removes the abort listener', async () => {
@@ -173,12 +214,15 @@ describe('createNamedAccountPromptGate', () => {
     remove.mockRestore();
   });
 
-  it('natural exhaustion removes the abort listener', async () => {
+  it('waiting after commit retains the abort listener until close', async () => {
     const controller = new AbortController();
     const remove = jest.spyOn(controller.signal, 'removeEventListener');
     const gate = createNamedAccountPromptGate(controller.signal);
     gate.commit();
-    await expect(gate.prompt[Symbol.asyncIterator]().next()).resolves.toEqual(done);
+    const pending = gate.prompt[Symbol.asyncIterator]().next();
+    expect(remove).not.toHaveBeenCalled();
+    gate.close();
+    await expect(pending).resolves.toEqual(done);
     expect(remove).toHaveBeenCalledTimes(1);
     remove.mockRestore();
   });

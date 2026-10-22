@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type {
   EffectiveCapabilitySet,
@@ -138,7 +139,7 @@ export class ClaudeCliAdapter implements ClaudeCliAdapterContract {
       cwd: input.workingDirectory,
       agentName: input.role?.name ?? this.displayName,
       agentId: input.agentId,
-      routingId: 'claude',
+      routingId: `claude:${randomUUID()}`,
       resumeSessionId: input.resumeSessionId,
       parentSessionId: input.parentSessionId,
       cliAgentResolver: () => agentIdHolder.value,
@@ -188,7 +189,6 @@ export class ClaudeCliAdapter implements ClaudeCliAdapterContract {
           if (segmentCallbacks.length) {
             for (const callback of segmentCallbacks) callback(segment);
           } else {
-            if (segments.length >= 5000) segments.shift();
             segments.push(segment);
           }
         },
@@ -223,12 +223,17 @@ export class ClaudeCliAdapter implements ClaudeCliAdapterContract {
     if (defaults.effort === 'inherit') candidates.push(defaults.chatEffort);
     if (isReviewerOrTester(input.role?.name)) candidates.push('medium');
     candidates.push(defaults.chatEffort);
-    if (!candidates.some(Boolean) || !model) return undefined;
+    if (!candidates.some(Boolean)) return undefined;
     try {
-      const metadata = (await this.deps.models.getNativeClaudeModels()).find(
-        (entry) => entry.value === model,
-      );
-      if (!metadata?.supportsEffort || !metadata.supportedEffortLevels?.length)
+      const metadata = model
+        ? (await this.deps.models.getNativeClaudeModels()).find(
+            (entry) => entry.value === model,
+          )
+        : undefined;
+      if (
+        model &&
+        (!metadata?.supportsEffort || !metadata.supportedEffortLevels?.length)
+      )
         return undefined;
       for (const candidate of candidates) {
         // Installed SDK scale, without Codex's max -> xhigh conversion.
@@ -238,7 +243,7 @@ export class ClaudeCliAdapter implements ClaudeCliAdapterContract {
             candidate === 'high' ||
             candidate === 'xhigh' ||
             candidate === 'max') &&
-          metadata.supportedEffortLevels.includes(candidate)
+          (!model || metadata?.supportedEffortLevels?.includes(candidate))
         )
           return candidate;
         if (candidate)
