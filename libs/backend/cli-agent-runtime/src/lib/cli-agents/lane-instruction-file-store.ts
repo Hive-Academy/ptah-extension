@@ -32,7 +32,7 @@ export class LaneInstructionFileStore {
     content: string,
   ): Promise<string> {
     if (!/^[a-zA-Z0-9_-]+$/.test(agentId) ||
-        !/^[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_.-]+)*$/.test(relativeName) ||
+        !/^[a-zA-Z0-9_.-]+(?:\/[a-zA-Z0-9_.-]+)*$/.test(relativeName) ||
         relativeName.split('/').some((part) => part === '..' || part === '.')) {
       throw new Error('Invalid lane instruction path');
     }

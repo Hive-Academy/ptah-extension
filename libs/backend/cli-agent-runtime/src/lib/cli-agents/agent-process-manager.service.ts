@@ -2363,7 +2363,6 @@ export class AgentProcessManager {
    * rejected remove used to skip that bookkeeping or replace a spawn
    * failure (4332578869).
    */
-  // degradation-audit: reported - the remove failure is logged at warn; the terminal bookkeeping still completes
   private async removeInstructionFiles(agentId: string): Promise<void> {
     try {
       await this.instructionFiles?.remove(agentId);

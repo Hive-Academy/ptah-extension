@@ -114,6 +114,17 @@ describe('LaneInstructionFileStore', () => {
     );
   });
 
+  it('writes a dotted root filename while rejecting dot and traversal segments', async () => {
+    const owner = store();
+    const path = await owner.write(root, 'agent-1', 'pi-append-system.md', 'policy');
+    expect(await readFile(path, 'utf8')).toBe('policy');
+    for (const name of ['.', '..', '../x.md']) {
+      await expect(owner.write(root, 'agent-1', name, 'policy')).rejects.toThrow(
+        'Invalid lane instruction path',
+      );
+    }
+  });
+
   it('rejects traversal in an instruction name', async () => {
     await expect(store().write(root, 'agent-1', '../outside', 'policy')).rejects.toThrow();
   });
