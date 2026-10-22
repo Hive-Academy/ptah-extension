@@ -27,7 +27,7 @@ jest.mock('@ptah-extension/agent-sdk', () => {
 
 import { PtahCliSpawnOptions } from './ptah-cli-spawn-options.service';
 import { PTAH_CLI_ROLE_DELIVERY } from './ptah-cli-registry.utils';
-import { renderRoleBlock } from '../../cli-agents/cli-adapters/cli-adapter.utils';
+import { renderRoleBlock, PTAH_LANE_POLICY } from '../../cli-agents/cli-adapters/cli-adapter.utils';
 
 const AUTH_ENV = {
   ANTHROPIC_BASE_URL: 'http://127.0.0.1:51830',
@@ -81,7 +81,8 @@ describe('PtahCliSpawnOptions — role delivery', () => {
     expect(occurrences(content, GUIDANCE)).toBe(1);
     expect(content).not.toContain('## Project Guidance');
     expect(content.indexOf(GUIDANCE)).toBeLessThan(roleIndex);
-    expect(content.endsWith(renderRoleBlock(ROLE, 'ptah-cli'))).toBe(true);
+    expect(content.endsWith(PTAH_LANE_POLICY)).toBe(true);
+    expect(occurrences(content, 'Lane policy id: ptah-lane-policy-v1')).toBe(1);
   });
 
   it('declares preamble delivery over the system prompt', async () => {
@@ -156,7 +157,7 @@ describe('PtahCliSpawnOptions — role delivery', () => {
     expect(body.length).toBeGreaterThan(20_000);
     expect(roleBlock.length).toBeLessThanOrEqual(10_000);
     expect(roleBlock).toContain(`\`${ROLE.sourcePath}\``);
-    expect(content.endsWith(roleBlock)).toBe(true);
+    expect(content).toContain(`${roleBlock}\n\n${PTAH_LANE_POLICY}`);
     expect(occurrences(content, GUIDANCE)).toBe(1);
   });
 

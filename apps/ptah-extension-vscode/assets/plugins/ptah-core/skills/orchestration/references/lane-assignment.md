@@ -75,7 +75,7 @@ parallel lanes: [team-leader-modes.md](team-leader-modes.md#spawning-a-batch-exe
   subagent's _own_ deliverable — lanes may gather inputs, the subagent writes and owns the document.
   A phase assigned wholly to a lane (below) is the exception, and still passes Gate 1 / Gate 2.
 - Git commits, and anything that asks the user.
-- visual-reviewer work — it needs browser tools lanes do not have.
+- visual-reviewer work — check the lane's tool list; lanes that have `ptah_browser_*` render and screenshot their own UI; the visual-reviewer still gives the independent dark+light evidence.
 - ui-ux-designer work — it needs interactive discovery with the user.
 - Final security-critical decisions. A lane document review may approve Gates 1, 1.7 and 2 in
   `lane-review` mode ([checkpoints.md § Approval mode](checkpoints.md#approval-mode)); in `user`

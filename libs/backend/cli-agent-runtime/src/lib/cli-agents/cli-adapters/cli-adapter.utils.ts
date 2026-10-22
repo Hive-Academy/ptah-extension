@@ -412,15 +412,30 @@ export function probeCliVersion(
  * all requests and shell output alone put 56 MB into contexts over seven days.
  *
  * Bytes are argv here too — see the note on `TWO_WAY_MESSAGING_GUIDANCE` below.
- * Keep this whole constant under ~1 KB.
+ * Keep this whole constant at or under 3,500 UTF-8 bytes.
  */
-const NATIVE_AGENT_TOOL_POLICY =
-  'Tool policy: prefer direct `ptah_*` tools over `execute_code`. `ptah.files` is read-only; use native CLI write/edit tools for file creation or edits, never `execute_code`.\n' +
-  'Cost policy — every tool call resends the whole thread, so finish in as few calls as possible:\n' +
-  '- Verify only changed projects: `nx test <project>`, `nx affected -t test`, or changed Jest specs; never workspace-wide, build, serve, dev or e2e unless asked. Use Nx `--parallel=1`, Jest `--maxWorkers=2` (or 50%), one heavy foreground run at a time.\n' +
-  '- Keep tool output small: filter or tail command output, never paste a full test or build log into the thread, and never re-run a failed suite just to re-read its output.\n' +
-  '- For a long command: run it once in the foreground with a long timeout, or in the background with ONE completion check. Never a wait/status loop.\n' +
-  '- Prefer AST/summary tools and targeted reads over whole-file reads.';
+export const PTAH_LANE_POLICY = `Lane policy id: ptah-lane-policy-v1
+
+You are a Ptah coding lane in the supplied workspace. Follow the task's scope and deliverable contract. Load a matching skill through your CLI's own skill mechanism before work the skill covers; read its instructions, then apply them. For UI work, examples include impeccable, ui-ux-designer, and angular-frontend-patterns. If skill discovery is unavailable, say so in your report. Check tool and skill availability before claiming it.
+
+Use Ptah tools when present:
+Ptah tools may appear under your CLI's MCP naming (for example a server prefix); search your tool list for "ptah_" and call them by the name your CLI shows.
+Need                                      | Prefer
+Understand workspace                      | ptah_workspace_analyze
+Find files by path                        | ptah_search_files
+Find function/class/method                 | ptah_code_search_symbols
+Inspect source structure before full read | ptah_ast_analyze
+Inspect signatures/API                    | ptah_context_enrich_file
+Find symbol usages                        | ptah_lsp_references after locating file/line/col
+Check impact before editing               | ptah_get_dependents
+Check errors after editing                | ptah_get_diagnostics scoped to changed files
+Recall earlier decisions                  | ptah_memory_search for "last time"/"previously"
+Check current external facts              | ptah_web_search
+Check rendered UI                         | ptah_browser_navigate and ptah_browser_screenshot
+
+If a Ptah tool is absent, errors, or has no usable index result, use the closest native tool and name the fallback. Ptah file tools are read-only; write with native file-edit tools. For UI work, render the result and inspect a screenshot. For an in-workspace HTML artifact, use ptah_browser_navigate on its in-workspace file:// URL and ptah_browser_screenshot before reporting. State what you checked against the design reference. Do not infer visual quality from source or type checks.
+
+Cost: each tool call may resend context. Batch independent reads, keep output targeted, and stop once evidence is sufficient. Verify only changed projects with nx test/typecheck/lint <project> --parallel=1 or changed Jest specs with --coverage=false --maxWorkers=2. Run one heavy check at a time. Never run workspace-wide checks or build, serve, dev, e2e, or package targets unless the user requests them. Keep Electron first and shared-host compatibility. Report what changed, evidence, and any unmet requirement.`;
 
 /**
  * What a SPAWNED agent is told about talking back to the session that spawned
@@ -502,8 +517,8 @@ export function renderRoleBlock(
  * resume can leave out exactly those (TASK_2026_597, F6).
  */
 export interface ResumeDeliveredPreambles {
-  /** The earlier turn carried `NATIVE_AGENT_TOOL_POLICY`. */
-  readonly toolPolicy: boolean;
+  /** The earlier turn carried `PTAH_LANE_POLICY`. */
+  readonly lanePolicy: boolean;
   /** The earlier turn carried `TWO_WAY_MESSAGING_GUIDANCE`. */
   readonly messaging: boolean;
 }
@@ -522,7 +537,7 @@ function carriesMessagingBlock(options: CliCommandOptions): boolean {
 export function fullPromptPreambles(
   options: CliCommandOptions,
 ): ResumeDeliveredPreambles {
-  return { toolPolicy: true, messaging: carriesMessagingBlock(options) };
+  return { lanePolicy: options.lanePolicyDelivery === undefined || options.lanePolicyDelivery === 'task-prompt', messaging: carriesMessagingBlock(options) };
 }
 
 /**
@@ -558,7 +573,7 @@ export function buildTaskPrompt(
   const delivered = restoredContext
     ? options.resumeDeliveredPreambles
     : undefined;
-  const omitToolPolicy = delivered?.toolPolicy === true;
+  const omitToolPolicy = delivered?.lanePolicy === true || (options.lanePolicyDelivery !== undefined && options.lanePolicyDelivery !== 'task-prompt');
   const omitMessaging = delivered?.messaging === true;
   let taskPrompt = '';
   const systemContext = options.projectGuidance;
@@ -580,7 +595,7 @@ export function buildTaskPrompt(
   // (TASK_2026_597, F6). The completion contract below is always sent.
   taskPrompt += omitToolPolicy
     ? options.task
-    : `${NATIVE_AGENT_TOOL_POLICY}\n\n${options.task}`;
+    : `${PTAH_LANE_POLICY}\n\n${options.task}`;
 
   if (options.files && options.files.length > 0) {
     taskPrompt += `\n\nFocus on these files:\n${options.files
@@ -616,6 +631,41 @@ export function buildTaskPrompt(
   })}`;
 
   return taskPrompt;
+}
+
+/** Bound only the instruction preamble carried in an argv prompt. */
+export function buildArgvTaskPrompt(options: CliCommandOptions, cli: CliType): string {
+  const bare = buildTaskPrompt({ ...options, projectGuidance: undefined, role: undefined }, cli);
+  const policyBytes = bare.includes(PTAH_LANE_POLICY)
+    ? Buffer.byteLength(PTAH_LANE_POLICY, 'utf8') + 2
+    : 0;
+  let remaining = 4_000 - policyBytes;
+  const delimiterBytes = Buffer.byteLength(PROMPT_SECTION_DELIMITER, 'utf8');
+  const fit = (value: string, limit: number, marker: string): string => {
+    if (Buffer.byteLength(value, 'utf8') <= limit) return value;
+    if (limit <= 0) return '';
+    const suffix = Buffer.byteLength(marker, 'utf8') <= limit ? marker : '';
+    const bodyLimit = limit - Buffer.byteLength(suffix, 'utf8');
+    let body = '';
+    for (const char of value) {
+      if (Buffer.byteLength(body + char, 'utf8') > bodyLimit) break;
+      body += char;
+    }
+    return body + suffix;
+  };
+  const role = options.role ? renderRoleBlock(options.role, cli) : '';
+  const roleMarker = options.role
+    ? `\n[Role condensed for argv; read ${options.role.sourcePath}]`
+    : '';
+  // Reserve role space first: guidance gives way before role, and policy is immutable.
+  const rolePart = role && remaining > delimiterBytes
+    ? fit(role, remaining - delimiterBytes, roleMarker)
+    : '';
+  remaining -= rolePart ? Buffer.byteLength(rolePart, 'utf8') + delimiterBytes : 0;
+  const guidance = options.projectGuidance && remaining > delimiterBytes
+    ? fit(options.projectGuidance, remaining - delimiterBytes, '\n[Project guidance truncated for argv]')
+    : '';
+  return `${guidance ? guidance + PROMPT_SECTION_DELIMITER : ''}${rolePart ? rolePart + PROMPT_SECTION_DELIMITER : ''}${bare}`;
 }
 
 /**

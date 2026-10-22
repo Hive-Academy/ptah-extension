@@ -418,6 +418,7 @@ describe('OpencodeCliAdapter', () => {
       expect(argsArg.slice(0, 3)).toEqual(['run', '--format', 'json']);
       expect(argsArg).toContain('--auto');
       expect(argsArg[argsArg.length - 1]).toContain('Do the thing');
+      expect(argsArg[argsArg.length - 1].match(/Lane policy id: ptah-lane-policy-v1/g)).toHaveLength(1);
     });
 
     /**

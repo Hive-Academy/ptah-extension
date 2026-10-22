@@ -846,6 +846,17 @@ describe('CLI DI — session organization recorder binding (TASK_2026_580 R-TL11
     ).toEqual([]);
   });
 
+  it('resolves one lane instruction file store for the CLI runtime', () => {
+    const { c } = composePhase2(true);
+    // The platform layer binds the file system in production; this harness
+    // composes phase 2 only.
+    if (!c.isRegistered(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, true)) {
+      c.register(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER, { useValue: {} });
+    }
+    const token = CLI_AGENT_RUNTIME_TOKENS.LANE_INSTRUCTION_FILE_STORE;
+    expect(c.resolve(token)).toBe(c.resolve(token));
+  });
+
   it('the bound recorder reaches the child-session spawner (R-TL8)', () => {
     const { c } = composePhase2(true);
 
