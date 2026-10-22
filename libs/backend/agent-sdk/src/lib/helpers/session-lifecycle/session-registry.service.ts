@@ -19,6 +19,7 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto';
+import type { ClaudeAccountNamedRoute } from '@ptah-extension/auth-providers-tokens';
 
 import type { Logger } from '@ptah-extension/vscode-core';
 import type {
@@ -42,7 +43,16 @@ import type { UsageCostSource } from '../../session-stats/session-stats-owner.se
  * Co-located here to avoid circular imports (sub-services import from the
  * registry, not from session-lifecycle-manager).
  */
+export type SessionAccountBinding = Readonly<
+  Pick<
+    ClaudeAccountNamedRoute,
+    'provider' | 'routeFingerprint' | 'routeRevision' | 'authEpoch'
+  >
+>;
+
 export interface SessionRecord {
+  /** Admitted launch identity. Contains no config directory or credentials. */
+  readonly accountBinding?: SessionAccountBinding;
   /**
    * Opaque identity of THIS registration, minted fresh in `register()`.
    *
@@ -412,6 +422,34 @@ export class SessionRegistry {
     if (ownedTabIndex) {
       this.recomputeLastActiveOnRemoval(rec.tabId);
     }
+  }
+
+  /** Bind once; an identical repeat is idempotent. Launch ownership supplies it. */
+  bindAccountRoute(sessionId: string, route: ClaudeAccountNamedRoute): boolean {
+    const rec = this.find(sessionId);
+    if (!rec) return false;
+    const binding: SessionAccountBinding = Object.freeze({
+      provider: route.provider,
+      routeFingerprint: route.routeFingerprint,
+      routeRevision: route.routeRevision,
+      authEpoch: route.authEpoch,
+    });
+    const current = rec.accountBinding;
+    if (current) {
+      return (
+        current.provider === binding.provider &&
+        current.routeFingerprint === binding.routeFingerprint &&
+        current.routeRevision === binding.routeRevision &&
+        current.authEpoch === binding.authEpoch
+      );
+    }
+    Object.defineProperty(rec, 'accountBinding', {
+      value: binding,
+      enumerable: true,
+      writable: false,
+      configurable: false,
+    });
+    return true;
   }
 
   /**
