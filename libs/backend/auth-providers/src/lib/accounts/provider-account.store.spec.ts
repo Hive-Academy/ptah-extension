@@ -1,10 +1,28 @@
 import 'reflect-metadata';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
+import type { SpawnedProcessHandle } from '@ptah-extension/platform-core';
+import { ClaudeAccountCommand } from './claude-account-command';
+import { ProviderAccountActionsService } from './provider-account-actions.service';
+
 import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MIGRATIONS, type SqliteDatabase } from '@ptah-extension/persistence-sqlite';
 import { ProviderAccountStore, type AccountRunAdmission } from './provider-account.store';
 import { ProviderAccountStoreError, resolveProviderAccountRoute } from './provider-account-route';
+import { ProviderAccountService } from './provider-account.service';
+
+class DisposalChild extends EventEmitter implements SpawnedProcessHandle {
+  readonly stdin = new PassThrough();
+  readonly stdout = new PassThrough();
+  readonly stderr = new PassThrough();
+  readonly whenSpawned = Promise.resolve(null);
+  readonly pid = undefined;
+  readonly killed = false;
+  readonly exitCode = null;
+  kill(): boolean { return true; }
+}
 
 // Real independent SQLite connections; no production/development DB path resolver.
 const Database = require('better-sqlite3') as new (path: string) => SqliteDatabase;
@@ -56,6 +74,89 @@ describe('ProviderAccountStore transactions', () => {
   function refuses(action: () => unknown, code = 'conflict'): void {
     expect(action).toThrow(expect.objectContaining({ code }));
   }
+
+  it.each(['status', 'login', 'logout'] as const)(
+    'disposal awaits bounded %s process termination, retains an unproved lease and refuses every new action',
+    async kind => {
+      jest.useFakeTimers();
+      const child = new DisposalChild();
+      const spawnProcess = jest.fn(() => child);
+      const commands = new ClaudeAccountCommand({ findExecutable: jest.fn().mockResolvedValue({
+        path: 'mock-claude', source: 'path', version: 'fixture',
+      }) }, { spawnProcess });
+      jest.spyOn(commands, 'authorization').mockReturnValue('ok');
+      jest.spyOn(commands, 'environment').mockImplementation(route => ({ CLAUDE_CONFIG_DIR: route.canonicalPath }));
+      const actions = new ProviderAccountActionsService(a, commands);
+      try {
+        add();
+        const target = { provider: 'claude' as const, profileId };
+        const command = { ...target, operationId: 'operation-disposal', expectedRevision: 0 };
+        const running = kind === 'status' ? actions.readStatus(target)
+          : kind === 'login' ? actions.startSignIn(command) : actions.signOut(command);
+        await jest.advanceTimersByTimeAsync(0);
+        expect(spawnProcess).toHaveBeenCalledTimes(1);
+        let settled = false;
+        const disposal = actions.dispose();
+        expect(actions.dispose()).toBe(disposal);
+        void disposal.then(() => { settled = true; });
+        await jest.advanceTimersByTimeAsync(1_999);
+        expect(settled).toBe(false);
+        await jest.advanceTimersByTimeAsync(1);
+        await disposal;
+        await expect(running).resolves.toMatchObject({ code: 'cancelled' });
+        expect(a.get(profileId).state).toBe('pending');
+        expect(count('operations')).toBe(1);
+        refuses(() => b.reserveAuth(profileId, a.get(profileId).revision, request().route,
+          'operation-other', 'owner-other', 'sign-in'), 'busy');
+        for (const result of await Promise.all([
+          actions.readStatus(target), actions.startSignIn(command),
+          actions.signOut(command), actions.cancelSignIn(command),
+        ])) expect(result.code).toBe('unavailable-storage');
+        expect(spawnProcess).toHaveBeenCalledTimes(1);
+        expect(child.listenerCount('close')).toBe(0);
+        expect(child.stdout.listenerCount('data')).toBe(0);
+        expect(jest.getTimerCount()).toBe(0);
+      } finally {
+        jest.restoreAllMocks();
+        jest.useRealTimers();
+      }
+    },
+  );
+
+  it('disposal aborts a cancellation status recheck and retains its unproved operation', async () => {
+    jest.useFakeTimers();
+    const children: DisposalChild[] = [];
+    const commands = new ClaudeAccountCommand({ findExecutable: jest.fn().mockResolvedValue({
+      path: 'mock-claude', source: 'path', version: 'fixture',
+    }) }, { spawnProcess: () => {
+      const child = new DisposalChild(); children.push(child); return child;
+    } });
+    jest.spyOn(commands, 'authorization').mockReturnValue('ok');
+    jest.spyOn(commands, 'environment').mockImplementation(route => ({ CLAUDE_CONFIG_DIR: route.canonicalPath }));
+    const actions = new ProviderAccountActionsService(a, commands);
+    try {
+      add();
+      const command = { provider: 'claude' as const, profileId, operationId: 'operation-disposal', expectedRevision: 0 };
+      const running = actions.startSignIn(command);
+      await jest.advanceTimersByTimeAsync(0);
+      const cancellation = actions.cancelSignIn({ ...command, expectedRevision: 1 });
+      children[0].emit('close', 0, null);
+      await jest.advanceTimersByTimeAsync(0);
+      expect(children).toHaveLength(2);
+      const disposal = actions.dispose();
+      await jest.advanceTimersByTimeAsync(2_000);
+      await disposal;
+      await expect(running).resolves.toMatchObject({ code: 'cancelled' });
+      await expect(cancellation).resolves.toMatchObject({ code: 'cancelled' });
+      expect(a.get(profileId).state).toBe('pending');
+      expect(count('operations')).toBe(1);
+      expect(children[1].listenerCount('close')).toBe(0);
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.restoreAllMocks();
+      jest.useRealTimers();
+    }
+  });
 
   it('two connections racing Add have one winner and preserve its directory', () => {
     add();
@@ -243,5 +344,41 @@ describe('ProviderAccountStore transactions', () => {
     expect(() => a.add('../unsafe', 'Work', join(root, 'bad'))).toThrow(ProviderAccountStoreError);
     expect(count('profiles')).toBe(0);
     expect(existsSync(join(root, 'bad'))).toBe(false);
+  });
+
+  it('disposal retains an uncertain lease and refuses caller-driven release of a prior host reservation', async () => {
+    add();
+    const { reservation } = a.admit(request());
+    const service = new ProviderAccountService(a, { db: first, dbPath: join(root, 'isolated.sqlite') });
+    service.dispose();
+    service.dispose();
+    expect(await service.releaseReservation({ ...reservation, reason: 'disposal' })).toMatchObject({ code: 'conflict' });
+    expect(count('run_leases')).toBe(1);
+    expect(count('run_bindings')).toBe(1);
+    refuses(() => b.reserveAuth(profileId, 0, request().route, 'auth-00001', 'owner-0001', 'sign-in'), 'busy');
+  });
+
+  it('executes the metadata facade surfaces against an injected isolated connection', () => {
+    const service = new ProviderAccountService(a, { db: first, dbPath: join(root, 'isolated.sqlite') });
+    const profile = service.add('Work');
+    expect(service.list()).toEqual([profile]);
+    expect(service.selection(root, 'main')).toEqual({ profileId: null, revision: -1 });
+    expect(service.select(root, 'main', profile.profileId, -1, profile.revision)).toEqual({ profileId: profile.profileId, revision: 0 });
+    expect(service.setDefault(root, profile.profileId, { main: 0, lane: -1 }, profile.revision)).toEqual({
+      main: { profileId: profile.profileId, revision: 1 }, lane: { profileId: profile.profileId, revision: 0 },
+    });
+    const renamed = service.rename(profile.profileId, profile.revision, 'Personal');
+    expect(renamed.label).toBe('Personal');
+    service.remove(profile.profileId, renamed.revision);
+    expect(service.list()).toEqual([]);
+    service.dispose();
+  });
+
+  it('keeps live admission release-held without discovering or spawning a provider command', async () => {
+    add();
+    const service = new ProviderAccountService(a, { db: first, dbPath: join(root, 'isolated.sqlite') });
+    expect(await service.admitClaudeRoute({ provider: 'claude', scope: 'main',
+      selection: { kind: 'named', profileId }, operationId: 'owner-0001', runId: 'run-00001' })).toMatchObject({ code: 'release-held' });
+    expect(count('run_leases')).toBe(0);
   });
 });

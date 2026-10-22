@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { inject, injectable } from 'tsyringe';
 import type { ClaudeAccountActionCommand, ClaudeAccountActionTarget, ProviderAccountActionPort } from '@ptah-extension/auth-providers-tokens';
 import type { ProviderAccountActionResult, ProviderAccountState } from '@ptah-extension/shared';
 import { accountActionResult, ClaudeAccountCommand, type ClaudeAccountCommandKind } from './claude-account-command';
@@ -15,13 +16,29 @@ interface ActiveAction {
 }
 
 /** The store arbitrates across hosts; this map contains only owned live handles. */
+@injectable()
 export class ProviderAccountActionsService implements ProviderAccountActionPort {
   private readonly ownerId = randomUUID();
   private readonly active = new Map<string, ActiveAction>();
+  private readonly disposalController = new AbortController();
+  private disposal?: Promise<void>;
 
-  constructor(private readonly store: ProviderAccountStore, private readonly commands: ClaudeAccountCommand) {}
+  constructor(@inject(ProviderAccountStore) private readonly store: ProviderAccountStore,
+    @inject(ClaudeAccountCommand) private readonly commands: ClaudeAccountCommand) {}
+
+  dispose(): Promise<void> {
+    if (this.disposal) return this.disposal;
+    this.disposalController.abort();
+    const active = [...this.active.values()];
+    for (const action of active) action.controller.abort();
+    // Existing bounded command termination decides whether close is proved.
+    // Never complete or release an unresolved operation during shutdown.
+    this.disposal = Promise.all(active.map(action => action.done)).then(() => undefined);
+    return this.disposal;
+  }
 
   async readStatus(target: ClaudeAccountActionTarget): Promise<ProviderAccountActionResult> {
+    if (this.disposalController.signal.aborted) return accountActionResult('unavailable-storage');
     try {
       if (target.provider !== 'claude') return accountActionResult('wrong-provider');
       const profile = this.store.get(target.profileId);
@@ -40,6 +57,7 @@ export class ProviderAccountActionsService implements ProviderAccountActionPort 
   }
 
   async cancelSignIn(command: ClaudeAccountActionCommand): Promise<ProviderAccountActionResult> {
+    if (this.disposalController.signal.aborted) return accountActionResult('unavailable-storage');
     try {
       if (command.provider !== 'claude') return accountActionResult('wrong-provider');
       const active = this.active.get(command.profileId);
@@ -55,6 +73,7 @@ export class ProviderAccountActionsService implements ProviderAccountActionPort 
   }
 
   private async run(command: ClaudeAccountActionCommand, kind: ClaudeAccountCommandKind): Promise<ProviderAccountActionResult> {
+    if (this.disposalController.signal.aborted) return accountActionResult('unavailable-storage');
     try {
       if (command.provider !== 'claude') return accountActionResult('wrong-provider');
       const profile = this.store.get(command.profileId);
@@ -72,9 +91,9 @@ export class ProviderAccountActionsService implements ProviderAccountActionPort 
         const interrupted = outcome.code === 'cancelled' || outcome.code === 'timeout';
         // Recheck within the same reservation. A cancelled browser flow may still succeed,
         // but this operation must remain cancelled; a later explicit status can observe it.
-        if (outcome.terminated && ((outcome.code === 'ok' && kind !== 'status') || interrupted)) {
+        if (!this.disposalController.signal.aborted && outcome.terminated && ((outcome.code === 'ok' && kind !== 'status') || interrupted)) {
           const checked = await this.commands.execute('status', route,
-            interrupted ? new AbortController().signal : controller.signal);
+            interrupted ? this.disposalController.signal : controller.signal);
           outcome = interrupted ? { ...outcome, terminated: checked.terminated } : checked;
         }
         if (controller.signal.aborted) outcome = { ...outcome, code: 'cancelled' };

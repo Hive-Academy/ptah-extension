@@ -2,15 +2,69 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, lstatSync } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
 import { z } from 'zod';
+import { inject, injectable } from 'tsyringe';
+import { PERSISTENCE_TOKENS } from '@ptah-extension/persistence-sqlite';
+import type { ProviderAccountAdmissionPort, ClaudeAccountAdmissionRequest, ClaudeAccountAdmissionOutcome,
+  ClaudeAccountReservationRelease, ClaudeAccountReservationReleaseOutcome,
+  ClaudeAccountReservationRetain, ClaudeAccountReservationRetainOutcome, ProviderAccountPortRefusal } from '@ptah-extension/auth-providers-tokens';
+import { accountActionResult } from './claude-account-command';
 import type { SqliteConnectionService, SqliteDatabase } from '@ptah-extension/persistence-sqlite';
 import { isProviderAccountOpaqueId, isSafeProviderAccountLabel, type ProviderAccountScope, type ProviderAccountSummary } from '@ptah-extension/shared';
 import { ProviderAccountStore, type StoredProviderAccount, type StoredAccountSelection } from './provider-account.store';
 import { ProviderAccountStoreError } from './provider-account-route';
 
-/** Metadata only. Construction is lazy; no environment-derived database path. */
-export class ProviderAccountService {
-  constructor(private readonly store: ProviderAccountStore,
+const admissionRequestSchema = z.object({
+  provider: z.literal('claude'), scope: z.enum(['main', 'lane']),
+  operationId: z.string().refine(isProviderAccountOpaqueId),
+  runId: z.string().refine(isProviderAccountOpaqueId),
+  selection: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('omitted') }).strict(),
+    z.object({ kind: z.literal('ambient') }).strict(),
+    z.object({ kind: z.literal('named'), profileId: z.string().refine(isProviderAccountOpaqueId) }).strict(),
+  ]),
+}).strict();
+
+/** Metadata and fail-closed admission. Construction never reads the database. */
+@injectable()
+export class ProviderAccountService implements ProviderAccountAdmissionPort {
+  private disposed = false;
+
+  constructor(@inject(ProviderAccountStore) private readonly store: ProviderAccountStore,
+    @inject(PERSISTENCE_TOKENS.SQLITE_CONNECTION)
     private readonly connection: Pick<SqliteConnectionService, 'db' | 'dbPath'>) {}
+
+  async admitClaudeRoute(request: ClaudeAccountAdmissionRequest): Promise<ClaudeAccountAdmissionOutcome> {
+    try {
+      if (this.disposed) return this.refusal('unavailable-storage');
+      if (request.provider !== 'claude') return this.refusal('wrong-provider');
+      const parsed = admissionRequestSchema.safeParse(request);
+      if (!parsed.success) return this.refusal('conflict');
+      const selection = parsed.data.selection;
+      if (selection.kind === 'named') this.store.get(selection.profileId);
+      // D7: certification and successful admission belong to later batches.
+      // Never manufacture a certified route from persisted directory metadata.
+      return this.refusal('release-held');
+    } catch (error: unknown) {
+      return this.refusal(error instanceof ProviderAccountStoreError ? error.code : 'unavailable-storage');
+    }
+  }
+
+  async releaseReservation(_command: ClaudeAccountReservationRelease): Promise<ClaudeAccountReservationReleaseOutcome> {
+    return this.refusal('conflict');
+  }
+
+  async retainUnresolvedReservation(_command: ClaudeAccountReservationRetain): Promise<ClaudeAccountReservationRetainOutcome> {
+    return this.refusal('conflict');
+  }
+
+  dispose(): void {
+    this.disposed = true;
+    // Disposal is not termination proof. Never sweep persisted reservations.
+  }
+
+  private refusal(code: ProviderAccountPortRefusal['code']): ProviderAccountPortRefusal {
+    return { code, summary: accountActionResult(code).summary };
+  }
 
   add(label: string): ProviderAccountSummary {
     if (!isSafeProviderAccountLabel(label)) throw new ProviderAccountStoreError('conflict');
