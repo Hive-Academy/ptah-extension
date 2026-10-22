@@ -100,9 +100,13 @@ export class ProviderAccountActionsService implements ProviderAccountActionPort 
         }
         if (controller.signal.aborted) outcome = { ...outcome, code: 'cancelled' };
         if (kind === 'status') {
-          const state: ProviderAccountState = outcome.terminated && outcome.code === 'ok' && outcome.authMethod === 'claude.ai'
-            ? 'signed-in' : outcome.terminated && outcome.code === 'ok' && outcome.authMethod === 'none'
-              ? 'signed-out' : profile.state === 'signed-in' ? 'disconnected' : profile.state;
+          let state: ProviderAccountState;
+          if (outcome.terminated && outcome.code === 'ok' && outcome.authMethod === 'claude.ai') state = 'signed-in';
+          else if (outcome.terminated && outcome.code === 'ok' && outcome.authMethod === 'none') state = 'signed-out';
+          else if (profile.state === 'signed-in') state = 'disconnected';
+          // An unproved close keeps the last observation; a proved failure is recorded.
+          else if (!outcome.terminated) state = profile.state;
+          else state = outcome.code === 'cancelled' ? 'cancelled' : 'failed';
           this.store.completeStatus(command.operationId, this.ownerId, reservation.authEpoch, state, outcome.terminated);
           return accountActionResult(outcome.code === 'ok' && (!outcome.terminated || !outcome.authMethod)
             ? 'unsupported-source' : outcome.code);
