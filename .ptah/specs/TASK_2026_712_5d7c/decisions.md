@@ -53,3 +53,11 @@ Each document gets one initial cross-side review and at most two author/reviewer
 - R2 (Moderate, `export *` in shared main barrel): no change. Orchestrator brief said "type-only"; batches.md:105 requires Zod-free, which holds, and matches repository convention.
 - R3 (Minor, numeric/strict-union regression cases): recorded; add when Batch 25 touches the schemas.
 - Full P1-A phase review remains at Batch 7.
+
+## Cross-task coordination with TASK_2026_714 (Codex App Server, 2026-10-22)
+
+- Peer: session `ptah-ptah-extension-codex-sdk-main-chat`, worktree `.claude-worktrees/codex-sdk-main-chat`, branch `feat/codex-sdk-main-chat` (planning phase, no code yet).
+- Overlapping files: agent-adapter.types.ts (our B3), sdk-query-options-builder.ts (B8), session-metadata-store.ts (B16), sdk-agent-adapter.ts (B17), chat-session.service.ts (B18), codex-home-resolver.ts (B37), codex-account-usage.service.ts (B38), codex-cli.adapter.ts (B40).
+- Rules A–E AGREED by peer 2026-10-22: claim-before-edit message per file; our shared contracts (B1–B3) land in main first; agent-sdk/chat files go to whoever claims first, the other rebases; our Codex batches 37–40 wait for TASK_2026_714 to merge and build on its App Server abstractions; shared heavy-check slot protocol.
+- Before dispatching any batch that owns a listed file, the orchestrator checks for a claim from the peer.
+- Peer notes: their agent-adapter.types.ts change (bypassPermissions on native route, :160-162) is additive and rebases on our B3. Their first likely touch is session-metadata-store.ts (`updateCodexExecution` writer) — our B16 rebases on it. No early edits by them to sdk-query-options-builder.ts, sdk-agent-adapter.ts, chat-session.service.ts. CodexHomeAuthReader takes a normalized home path; per-home cache/lock/watcher; they only read codex-home-resolver.ts and codex-account-usage.service.ts. codex-cli.adapter.ts is free until they claim it.
