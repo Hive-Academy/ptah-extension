@@ -1,119 +1,119 @@
-# Session handoff — TASK_2026_712_5d7c (2026-10-22, session 2)
+# Session handoff — TASK_2026_712_5d7c (2026-10-23, session 3)
 
 ## Goal
 
 Claude multi-account for Ptah, Electron first: a first-class Claude CLI lane, named Claude accounts
-with isolated per-account `CLAUDE_CONFIG_DIR`, stable account bindings, account-scoped usage and an
-Electron Accounts UI. Preserve default (ambient) authentication and all existing integrations.
-
-Scope changed this session (D12, user decision): this task now ends at **Batch 35**. Codex
-multi-account (former Batches 36–43) moved to **TASK_2026_715_6cba**, which starts only after this
-task and TASK_2026_714 (Codex App Server, another session) are merged to `main`.
+with isolated per-account `CLAUDE_CONFIG_DIR`, stable account bindings, account-scoped resources
+(history, styles, models, quota, plan usage) and an Electron Accounts UI. Default (ambient)
+authentication and all existing integrations stay unchanged. The task ends at **Batch 35** (D12).
+Codex multi-account is TASK_2026_715_6cba (starts after this task and TASK_2026_714 merge).
 
 ## Workspace
 
 - Worktree: `D:/projects/ptah-extension/.claude-worktrees/provider-accounts`
-- Branch: `feat/provider-accounts` (tracks `origin/feat/provider-accounts`)
+- Branch: `feat/provider-accounts` → PR **#808** https://github.com/Hive-Academy/ptah-extension/pull/808
+  (open, NOT draft; the user decided to keep it ready, D18). All later phases go to this PR.
 - Task folder: `D:/projects/ptah-extension/.claude-worktrees/provider-accounts/.ptah/specs/TASK_2026_712_5d7c`
-- Follow-up task: `.../.ptah/specs/TASK_2026_715_6cba` (task.md + context.md only)
-- Local HEAD = remote HEAD = `eb14e1d09` (all commits pushed 2026-10-22 through the pre-push gate). CI for this head was not yet checked at handoff.
-- `node_modules` in the worktree is a git-ignored directory junction to
-  `D:/projects/ptah-extension/node_modules` (D10). Keep it; it fixes the Jest `marked` mapping.
+- Remote head: `86cef1ec1`. Local HEAD: `8fa5c01d9` + this handoff commit.
+  **4 commits are local and NOT pushed:** `733ebc9b9`, `317a95ec6`, `7e50e31bc`, `8fa5c01d9`.
+- `node_modules` in the worktree is a git-ignored junction to the main checkout (D10). Keep it.
+- Untracked, not ours to commit: `.ptah/specs/TASK_2026_712_5d7c/verification-batch-01-tracked.patch` (leave it).
 
-## Authority (decisions.md)
+## Authority
 
-- D8a: commit verified batches on `feat/provider-accounts`, push, PR; CI + pre-push hook are the
-  host test gate. No merges, force pushes or branch deletion. The merged repo `CLAUDE.md` also grants
-  standing commit/push/PR authority.
-- Still NOT authorized: real sign-in/sign-out, real credential changes, paid inference probes,
-  Anthropic subscription release (D7 is the user's decision).
-- User global rule until 2026-10-24: CLI lanes first, no Claude subagents for implementation or
-  review, no local typecheck/lint/test before push except to reproduce a CI failure.
+- D8a + repo `CLAUDE.md`: commit verified batches, push, update PR. No merges, force pushes,
+  branch deletion or worktree removal.
+- NOT authorized: real sign-in/sign-out, credential changes, paid inference probes, subscription release (D7).
+- User global rule until 2026-10-24: CLI lanes first; no Claude subagents (exception granted once for
+  the P1-C review, D18); no local typecheck/lint/test before push except to reproduce a CI failure.
 
-## Done
+## Done (this session)
 
 | Phase | Batches | State |
 |---|---|---|
-| P1-A foundation | 1–7 | **Accepted (D14)**: Grok phase review → Codex fix round → Grok re-review → orchestrator correction `81701a5de` approved by Codex |
-| P1-B execution primitives | 8, 9, 10 | COMPLETE (Codex), committed |
-| P1-B | 11 | IMPLEMENTED (Codex), committed `4ca9e4efc`; **awaiting P1-B phase review** |
+| P1-A | 1–7 | Accepted (D14) |
+| P1-B | 8–11 | **Accepted (D15)**. Grok review REVISE → Codex fixes `f9cf528bd`, `5b0fac24a` → Grok re-review APPROVED |
+| P1-C | 12–15 | **Accepted (D19)** pending CI. Claude-subagent review REVISE 7/10 → Codex fixes `733ebc9b9`, `317a95ec6` → re-review APPROVED |
 
-Key commits (local, oldest first after the remote head): `58db76bc3` B5 store, `515590f4d` migration
-ratchet 57→58 (fixes CI shard 3/4), `f20d9a0e6` B6 actions, `c17046bda` B7 DI, `2ef3b39a1` P1-A
-fixes, `81701a5de` status correction, B8 `feat(agent-sdk)` route env, B9 `refactor(cli-agent-runtime)`
-lane extraction (+ spec cast fix), B10 prompt gate, `4ca9e4efc`-1 B11 Claude adapter.
+Commits this session (oldest first): `f06ccae50` CI fix (ESM import chain), `f9cf528bd` secure-storage pin,
+`5b0fac24a` multi-turn prompt gate, `982007d6c` docs, `331df3fcb` B12, `8e3522203` B13,
+`0c7313438` store error-code fix (CI), `35196a63a` B14, `f73350a97` B15, `1c2965b4a` quota-probe split,
+`86cef1ec1` D18 docs, `733ebc9b9` + `317a95ec6` P1-C fixes, `7e50e31bc` D19, `8fa5c01d9` audit markers.
 
-**PR #808** https://github.com/Hive-Academy/ptah-extension/pull/808 — open, not draft, contains only
-Batches 1–4 + docs (remote head `7fd7e5fa5`). Its CI: 16 pass, `test (shard 3/4)` failed on 18
-persistence-sqlite migration ratchet specs. Fix `515590f4d` is committed locally and verified:
-`npx jest -c libs/backend/persistence-sqlite/jest.config.ts libs/backend/persistence-sqlite/src/lib/migrations --coverage=false --maxWorkers=2`
-→ 41 suites / 318 tests passed. Not pushed yet.
+Decisions added: D15 (P1-B), D16 (Batch 12 named import refuses; linkage → Batch 16), D17 (Batch 14
+owns `session-registry.service.ts` binding; Batch 17 populates it), D18 (Claude subagent reviewer,
+PR stays ready), D19 (P1-C, deferred items).
 
-## In progress / waiting
+## CI state of PR #808 (head `86cef1ec1`)
 
-1. **Push: DONE** (`eb14e1d09`, pre-push gate passed, slot released to TASK_2026_714). Next: check `gh pr checks 808` for the new head.
-   di-lint + the Electron validate-deps build). Agreed queue: TASK_2026_710 (glass-theme, holds it
-   now) → skill-routing (PR #807) → **TASK_2026_712 (us)** → TASK_2026_714. Wait for "released"
-   from the skill-routing session (or 710 if skill-routing skips). After the push, send "released"
-   to `ptah-ptah-extension-codex-sdk-main-chat-9c48fa00009r82qp3j06i0q` and
-   `ptah-ptah-extension-card-design-v4-a8a40800009r82qp3j06i0p`.
-2. **User question still open:** convert PR #808 to draft until a phase is reviewed, or keep it open.
-   Orchestrator recommendation: P1-A is now accepted, so mark it ready after CI is green; one PR per
-   phase from P1-B onwards (new branch per phase is optional).
-3. **P1-B phase review** (Batches 8–11, logic + public-API style) not started. Deliverables:
-   `code-logic-review-phase-p1-b.md` (+ style section). Implementer was Codex (OpenAI) → reviewer
-   must be another family. Grok is at ~93% weekly (resets 2026-10-27 17:40 UTC); Antigravity limits
-   unknown; Copilot disabled; OpenCode and Glm at limit. If no other family has room, ask the user
-   (Claude subagents for review are banned by the user's rule until 2026-10-24).
+- Earlier failures are fixed and pushed: 11 `cli-agent-runtime` suites (ESM `wasm-bundle-dir.ts` via
+  agent-generation, `f06ccae50`); 2 `provider-account.store.spec.ts` cases (cross-realm `instanceof Error`,
+  `0c7313438`, verified locally 27/27).
+- At handoff: 9 pass, 6 pending (test shards, e2e), 1 **fail = `checks` job** (degradation-audit ratchet:
+  agent-sdk 8 > baseline 4, cli-agent-runtime 2 > 1). Fix `8fa5c01d9` is local, NOT pushed; the local
+  audit passes (agent-sdk 3/4, cli-agent-runtime 1/1). Baseline unchanged.
+- The test shards for `86cef1ec1` had not finished. Batches 14–15 specs have never run yet.
 
-## Cross-session coordination (decisions.md, rules A–E agreed)
+## Open problems and follow-ups
 
-- Peer TASK_2026_714 (Codex App Server), worktree `.claude-worktrees/codex-sdk-main-chat`, session
-  `ptah-ptah-extension-codex-sdk-main-chat-9c48fa00009r82qp3j06i0q`.
-- Claim before editing a shared file; release = merged to main. Our current claims (until merged):
-  `agent-adapter.types.ts`, `sdk-query-options-builder.ts`, `sdk-query-runner.service.ts`,
-  `agent-sdk/src/lib/helpers/index.ts`, `agent-sdk/src/index.ts`, `claude-account-route-env.ts`,
-  `cli-agent-runtime/src/lib/di/register.ts`, `cli-adapter.interface.ts`, migration number 0058.
-- Their first likely edit is `session-metadata-store.ts` (our Batch 16 rebases on it). Our Batches
-  17–18 (`sdk-agent-adapter.ts`, `chat-session.service.ts`) need a claim first. Merge `main` before a
-  batch that owns a shared file.
+- Deferred (D19): F5 named plan-usage reads bypass the TTL (add owner/epoch-proof cache + minimum
+  interval); F8 no global cap on account model probes (add a semaphore). Batch 17 certification items:
+  N1 raw account paths still logged at `jsonl-reader.service.ts` ~448/~898/~1069; N2 file-level symlink can
+  redirect a named style write; N3 the style-unavailable marker has no consumer; N4 redundant readdir.
+- D15 deferred: the broad env prefix drop (CLAUDE*/ANTHROPIC*/AWS_/…) → Batch 17 certification.
+- D16: Batch 16 acceptance now includes persisted import linkage per route.
+- D17: Batch 17 must populate `SessionRegistry.bindAccountRoute` at launch, pass routes into
+  `readAccountForRoute` / `readPlanUsageForRoute` / model calls, and call `invalidateAccountRoute` on epoch change.
+- Lane limits (context.md): Antigravity at quota (429, ~98h from 2026-10-22 21:50 UTC); Grok 99% weekly
+  (resets 2026-10-27 17:40 UTC); OpenCode and Glm at limit; Copilot disabled. Only Codex has room, and
+  Codex is the implementer family → P1-D review needs a user decision if no other family has room.
+- Lane lesson: messages queued to a finished Codex lane start a new turn; the first completion signal can
+  belong to the earlier turn. Commit only after the final turn's signal or after checking `git status`.
+- New lane rule learned: lanes must not value-import `@ptah-extension/agent-generation` /
+  `workspace-intelligence` into cli-agent-runtime modules, and must read error `code` structurally.
+- Release holds: A1–A4 installed-runtime evidence, live certification (D7), Electron visual review (P1-F).
 
-## Open problems and risks
+## Cross-session coordination
 
-- Batch 9 refactored `ptah-cli-registry.ts` (−320 lines); only diagnostics checked it. CI and the
-  pre-push build are the first real test.
-- Lane lesson (D13 note): a message queued to a Codex lane revives it after completion. Never start
-  a second writer on the same files while messages are queued. Commit only after a lane finishes
-  (lint-staged hides unstaged files during the hook).
-- Release holds remain: A1–A4 installed-runtime evidence, live certification (D7), Electron visual
-  review of the Accounts UI (P1-F).
+- TASK_2026_714 session is now `ptah-ptah-extension-claude-sdk-main-chat-e2690100009r82qp3j06i0x`
+  (the old codex-sdk-main-chat name is gone). It acknowledged our claim on
+  `session-registry.service.ts`. Our claims until merge: the files in the previous handoff list plus
+  `session-registry.service.ts`, `session-quota-probe.service.ts`, `sdk-model-service.ts`.
+- Batch 16 owns `session-metadata-store.ts` (shared; TASK_2026_714 planned an edit there) and Batches 17–18
+  own `sdk-agent-adapter.ts`, `chat-session.service.ts`: send a claim message first and merge `main` before.
+- Heavy-check slot peers: `ptah-ptah-extension-card-design-v5-86d29a00009r82qp3j06i0v` (TASK_2026_710),
+  `ptah-ptah-extension-chat-3b0a4600009r82qp3j06i0s` (skill-routing),
+  `ptah-ptah-extension-push-and-nx-affected-d4197900009r82qp3j06i0u` (Nx 24, PR #810), and TASK_2026_714.
+  Ask for the slot, wait for "released", then announce "released" after the push gate ends.
+  At handoff we hold no slot.
 
 ## Key files
 
-- `.../TASK_2026_712_5d7c/batches.md` — batch plan, status headers, execution order.
-- `.../TASK_2026_712_5d7c/decisions.md` — D8a, D10–D14, coordination rules, review dispositions.
-- `.../TASK_2026_712_5d7c/implementation-plan.md` — approved architecture.
-- `.../TASK_2026_712_5d7c/implementation-report-batch-NN.md` — per-batch reports (01–11, p1-a-fixes).
-- `.../TASK_2026_712_5d7c/code-logic-review-phase-p1-a.md`, `code-logic-re-review-phase-p1-a.md`,
-  `code-logic-review-p1-a-correction.md`, `code-logic-review-batch-01-02.md`.
+- `batches.md` (status headers; 12–15 IMPLEMENTED; Batch 16 has the D16 acceptance addition)
+- `decisions.md` (D13–D19), `context.md` (lane limit record)
+- Reviews: `code-logic-review-phase-p1-b.md`, `code-logic-re-review-phase-p1-b.md`,
+  `code-logic-review-phase-p1-c.md`, `code-logic-re-review-phase-p1-c.md`
+- Reports: `implementation-report-batch-12..15.md`, `implementation-report-p1-b-fixes-{a,b}.md`,
+  `implementation-report-p1-c-fixes-{a,b}.md`, `implementation-report-quota-probe-split.md`
+- Degradation audit: `tools/degradation-audit/check-degradation.ts`, `baseline.json` (never raise it)
 
 ## Next steps
 
-1. Read this file, `decisions.md` (D8a–D14 and coordination), and the Batch 11–12 sections of
-   `batches.md`. Run `git status` and `git log --oneline origin/feat/provider-accounts..HEAD`.
-2. Run `ptah_agent_list`. Start the P1-B phase review on a non-OpenAI lane with room (see above):
-   review `git diff 7fd7e5fa5..HEAD -- libs/backend/agent-sdk libs/backend/cli-agent-runtime`,
-   Batches 8–11 acceptance, plan lines 160–188; write `code-logic-review-phase-p1-b.md`. One fix
-   round (Codex), one re-review, then record P1-B acceptance in `decisions.md` (D15).
-3. When the slot comes to us: push in the background
-   `git push origin feat/provider-accounts`, then send "released" to the peers. Watch CI:
-   `gh pr checks 808`; on failure read only the failing job (`gh run view <run> --job <job> --log-failed | grep -E "FAIL|●|error TS"`)
-   and reproduce only the failing spec with
-   `npx jest -c <lib>/jest.config.ts <spec> --coverage=false --maxWorkers=2`.
-4. Ask the user the open PR #808 draft/ready question if still unanswered; update the PR body with
-   P1-A/P1-B content and actual CI results.
-5. Continue P1-C (Batches 12–15) with Codex lanes, one batch at a time, file-disjoint, 6-file cap,
-   commit after each lane completes. Check claims with TASK_2026_714 before any shared file.
-6. Verification rules for every lane: no nx/jest/tsc/lint/build in lanes; `ptah_get_diagnostics`
-   on changed files only; Nx `--parallel=1`, Jest `--maxWorkers=2`; one heavy check at a time across
-   sessions; never build/serve/e2e/package without user permission.
+1. Read this file, `decisions.md` D13–D19 and the Batch 16–22 sections of `batches.md`.
+   Run `git status` and `git log --oneline origin/feat/provider-accounts..HEAD` (expect 5 local commits).
+2. Check CI for `86cef1ec1`: `gh pr checks 808`. For each failing job, read only the failure:
+   `gh api repos/Hive-Academy/ptah-extension/actions/jobs/<job>/logs | sed 's/\x1b\[[0-9;]*m//g' | grep -E "FAIL|●|error TS|FAIL \(baseline"`.
+   Reproduce only the failing spec (after you hold the slot):
+   `npx jest -c libs/backend/<lib>/jest.config.ts <spec> --coverage=false --maxWorkers=2`.
+   Audit check (light, no slot): `npx ts-node --transpile-only tools/degradation-audit/check-degradation.ts`.
+3. Fix task-related failures (new commits), then ask peers for the heavy-check slot and push in the
+   background: `git push origin feat/provider-accounts`. Send "released" after the gate. Watch
+   `gh pr checks 808 --watch` in the background.
+4. Update the PR #808 body: P1-A/P1-B/P1-C summaries and actual CI results (## Summary, ## Test plan).
+5. Start P1-D (Batches 16–22) with Codex lanes, one batch at a time, file-disjoint, ≤6 files, commit after
+   each lane's final signal. Claim shared files with TASK_2026_714 first (Batch 16: `session-metadata-store.ts`).
+   P1-D phase review at Batch 22 needs a non-OpenAI reviewer: check `ptah_agent_list`; if none has room,
+   ask the user (the subagent exception D18 was for P1-C only; the lanes-first rule expires 2026-10-24).
+6. Lane rules for every brief: no nx/jest/tsc/lint/build in lanes; `ptah_get_diagnostics` on changed files
+   only; Nx `--parallel=1`, Jest `--maxWorkers=2`; one heavy check at a time across sessions; no
+   build/serve/e2e/package; no sign-in, credential change or paid inference; Electron first.
