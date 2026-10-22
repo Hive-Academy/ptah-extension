@@ -493,9 +493,9 @@ describe('EnhancedPromptsService', () => {
       );
     });
 
-    it('caps a marker-less prompt at 4,000 bytes and keeps it non-empty', async () => {
+    it('caps a marker-less prompt at 64 KiB and keeps it non-empty', async () => {
       const generatedPrompt = Array.from(
-        { length: 20 },
+        { length: 160 },
         (_, n) => `### Legacy ${n}\n\n${'y'.repeat(500)}\n\n`,
       ).join('');
       mocks.context.globalState.get.mockReturnValue({
@@ -510,9 +510,9 @@ describe('EnhancedPromptsService', () => {
       const r = await service.getProjectGuidanceContent(testWorkspacePath);
 
       expect(r).not.toBeNull();
-      expect(Buffer.byteLength(r as string, 'utf8')).toBeLessThanOrEqual(4000);
+      expect(Buffer.byteLength(r as string, 'utf8')).toBeLessThanOrEqual(64 * 1024);
       expect(r).toContain('### Legacy 0');
-      expect(r).toContain('[Project guidance truncated at 4,000 bytes');
+      expect(r).toContain('[Project guidance truncated at 64 KiB');
     });
 
     it('returns null for a whitespace-only prompt', async () => {
@@ -544,12 +544,12 @@ describe('EnhancedPromptsService', () => {
 
     // This string is prepended to every CLI spawn and resent on every tool
     // call of that lane, so an unbounded workspace analysis must not reach it.
-    it('caps oversized guidance at 4,000 bytes, cutting on a section boundary', async () => {
+    it('caps oversized guidance at 64 KiB, cutting on a section boundary', async () => {
       const section = (n: number): string =>
         `### Section ${n}\n\n${'x'.repeat(500)}\n\n`;
       const generatedPrompt =
         'preamble\n## Project-Specific Guidance\n\n' +
-        Array.from({ length: 20 }, (_, i) => section(i)).join('');
+        Array.from({ length: 160 }, (_, i) => section(i)).join('');
 
       mocks.context.globalState.get.mockReturnValue({
         enabled: true,
@@ -563,10 +563,10 @@ describe('EnhancedPromptsService', () => {
       const r = await service.getProjectGuidanceContent(testWorkspacePath);
 
       expect(r).not.toBeNull();
-      expect(Buffer.byteLength(r as string, 'utf8')).toBeLessThanOrEqual(4000);
+      expect(Buffer.byteLength(r as string, 'utf8')).toBeLessThanOrEqual(64 * 1024);
       expect(r).toContain('## Project-Specific Guidance');
       expect(r).toContain(
-        '[Project guidance truncated at 4,000 bytes to keep the spawn prompt small.]',
+        '[Project guidance truncated at 64 KiB.]',
       );
       // Cut on a heading, so the retained tail is a whole section.
       expect(r).toMatch(/x{500}\n\n\[Project guidance truncated/);

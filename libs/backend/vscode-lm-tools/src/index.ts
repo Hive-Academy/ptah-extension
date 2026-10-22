@@ -96,6 +96,21 @@ export type {
   IBrowserCapabilities,
   BrowserSessionOptions,
 } from './lib/code-execution/namespace-builders/browser-namespace.builder';
+export {
+  canonicalPathInsideRoot,
+  evaluateFileUrl,
+  fileUrlFailsClosedLexically,
+  readContainedWorkspaceFile,
+  sameWorkspaceRoots,
+  toolMayReadPage,
+  ESCAPED_PAGE_MESSAGE,
+  FILE_URL_BLOCKED_MESSAGE,
+  MAX_CONTAINED_FILE_BYTES,
+} from './lib/code-execution/namespace-builders/browser-file-url';
+export type {
+  ContainedFilePayload,
+  FileUrlDecision,
+} from './lib/code-execution/namespace-builders/browser-file-url';
 export { ChromeLauncherBrowserCapabilities } from './lib/code-execution/services/chrome-launcher-browser-capabilities';
 export { ScreenRecorderService } from './lib/code-execution/services/screen-recorder.service';
 export { registerVsCodeLmToolsServices } from './lib/di';

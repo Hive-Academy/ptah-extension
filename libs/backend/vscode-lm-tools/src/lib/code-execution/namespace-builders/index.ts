@@ -53,6 +53,19 @@ export {
   validateBrowserUrl,
 } from './browser-namespace.builder';
 export {
+  canonicalPathInsideRoot,
+  evaluateFileUrl,
+  fileUrlFailsClosedLexically,
+  readContainedWorkspaceFile,
+  sameWorkspaceRoots,
+  toolMayReadPage,
+  ESCAPED_PAGE_MESSAGE,
+  FILE_URL_BLOCKED_MESSAGE,
+  MAX_CONTAINED_FILE_BYTES,
+  type ContainedFilePayload,
+  type FileUrlDecision,
+} from './browser-file-url';
+export {
   buildSkillNamespace,
   type SkillNamespaceDependencies,
   type SkillNamespace,

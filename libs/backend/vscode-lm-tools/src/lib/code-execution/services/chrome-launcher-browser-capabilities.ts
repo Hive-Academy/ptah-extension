@@ -13,6 +13,14 @@ import type {
   IBrowserCapabilities,
   BrowserSessionOptions,
 } from '../namespace-builders/browser-namespace.builder';
+import {
+  ESCAPED_PAGE_MESSAGE,
+  evaluateFileUrl,
+  FILE_URL_BLOCKED_MESSAGE,
+  readContainedWorkspaceFile,
+  sameWorkspaceRoots,
+  toolMayReadPage,
+} from '../namespace-builders/browser-file-url';
 import { ScreenRecorderService } from './screen-recorder.service';
 let launchChrome: ((...args: any[]) => Promise<any>) | undefined;
 let CDPClient: ((...args: any[]) => Promise<any>) | undefined;
@@ -69,10 +77,37 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
   private _viewport = { ...DEFAULT_VIEWPORT };
   /** Pending session options set by configureSession(), consumed by createSession() */
   private _pendingOptions: BrowserSessionOptions = {};
+  /** Roots snapshotted when the current Chrome process was created. */
+  private sessionRoots: readonly string[] = Object.freeze([]);
+  /** Host roots changed; the next ensureSession() starts a new browser. */
+  private rootsDirty = false;
+  /** Bumps when requested roots differ from the live snapshot. */
+  private rootsGeneration = 0;
+  /** Generation whose roots were published on the live session. */
+  private appliedRootsGeneration = 0;
+  /** Follow-on http(s) localhost rule. Default matches validateBrowserUrl. */
+  private allowLocalhost = false;
   constructor(private readonly getRecordingDir: () => string = () => '') {}
 
   configureSession(options: BrowserSessionOptions): void {
-    this._pendingOptions = { ...this._pendingOptions, ...options };
+    if (options.allowLocalhost !== undefined) {
+      this.allowLocalhost = options.allowLocalhost;
+    }
+    const frozenRoots = options.workspaceRoots
+      ? Object.freeze([...options.workspaceRoots])
+      : undefined;
+    this._pendingOptions = {
+      ...this._pendingOptions,
+      ...options,
+      ...(frozenRoots ? { workspaceRoots: frozenRoots } : {}),
+    };
+    const nextRoots = this._pendingOptions.workspaceRoots ?? [];
+    if (!sameWorkspaceRoots(nextRoots, this.sessionRoots)) {
+      this.rootsGeneration += 1;
+      if (this._connected) {
+        this.rootsDirty = true;
+      }
+    }
   }
 
   async navigate(
@@ -82,6 +117,10 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
     try {
       await this.ensureSession();
       this.resetInactivityTimer();
+      const destinationBlock = await this.blockFileDestination(url);
+      if (destinationBlock) {
+        return { success: false, url: '', title: '', error: destinationBlock };
+      }
 
       const { Page, Runtime } = this.client;
 
@@ -109,6 +148,21 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
         url: string;
         title: string;
       };
+      if (
+        !(await toolMayReadPage(
+          pageInfo.url,
+          this.sessionRoots,
+          this.allowLocalhost,
+        ))
+      ) {
+        await this.blankEscapedPage();
+        return {
+          success: false,
+          url: '',
+          title: '',
+          error: ESCAPED_PAGE_MESSAGE,
+        };
+      }
 
       return { success: true, url: pageInfo.url, title: pageInfo.title };
     } catch (error) {
@@ -130,6 +184,10 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
     try {
       await this.ensureSession();
       this.resetInactivityTimer();
+      const escaped = await this.rejectIfPageEscaped();
+      if (escaped) {
+        return { data: '', format: fmt, error: escaped };
+      }
 
       const { Page } = this.client;
       const result = await Page.captureScreenshot({
@@ -155,6 +213,10 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
     try {
       await this.ensureSession();
       this.resetInactivityTimer();
+      const escaped = await this.rejectIfPageEscaped();
+      if (escaped) {
+        return { value: null, type: 'error', error: escaped };
+      }
 
       const { Runtime } = this.client;
       const result = await Runtime.evaluate({
@@ -301,10 +363,23 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
       };
     }
     this.resetInactivityTimer();
+    if (!(await this.currentPageAllowed())) {
+      return { requests: [] };
+    }
     const entries = this.networkEntries.slice(
       -Math.min(limit, MAX_NETWORK_ENTRIES),
     );
-    return { requests: entries };
+    const visible: NetworkEntry[] = [];
+    for (const entry of entries) {
+      if (entry.url.toLowerCase().startsWith('file:')) {
+        const decision = await evaluateFileUrl(entry.url, this.sessionRoots);
+        if (!decision.allowed) {
+          continue;
+        }
+      }
+      visible.push(entry);
+    }
+    return { requests: visible };
   }
 
   async close(): Promise<void> {
@@ -325,6 +400,22 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
       return { connected: false };
     }
 
+    const uptimeMs = this.startedAt ? Date.now() - this.startedAt : 0;
+    const autoCloseInMs = this.startedAt
+      ? Math.max(0, MAX_LIFETIME_MS - uptimeMs)
+      : 0;
+    const metadata = {
+      connected: true,
+      uptimeMs,
+      autoCloseInMs,
+      headless: this._headless,
+      recording: this.recorder?.isRecording() ?? false,
+      viewport: { ...this._viewport },
+    };
+    if (!(await this.currentPageAllowed())) {
+      return metadata;
+    }
+
     try {
       const { Runtime } = this.client;
       const result = await Runtime.evaluate({
@@ -338,23 +429,13 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
         title: string;
       };
 
-      const uptimeMs = this.startedAt ? Date.now() - this.startedAt : 0;
-      const autoCloseInMs = this.startedAt
-        ? Math.max(0, MAX_LIFETIME_MS - uptimeMs)
-        : 0;
-
       return {
-        connected: true,
+        ...metadata,
         url: pageInfo.url,
         title: pageInfo.title,
-        uptimeMs,
-        autoCloseInMs,
-        headless: this._headless,
-        recording: this.recorder?.isRecording() ?? false,
-        viewport: { ...this._viewport },
       };
     } catch {
-      return { connected: false };
+      return metadata;
     }
   }
 
@@ -370,19 +451,27 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
   }
 
   private async ensureSession(): Promise<void> {
-    if (this._connected && this.client && this.chrome) {
-      return;
-    }
-    if (this.sessionPromise) {
-      await this.sessionPromise;
-      return;
-    }
+    for (;;) {
+      if (
+        !this.rootsDirty &&
+        this.appliedRootsGeneration === this.rootsGeneration &&
+        this._connected &&
+        this.client &&
+        this.chrome
+      ) {
+        return;
+      }
+      if (this.sessionPromise) {
+        await this.sessionPromise;
+        continue;
+      }
 
-    this.sessionPromise = this.createSession();
-    try {
-      await this.sessionPromise;
-    } finally {
-      this.sessionPromise = null;
+      this.sessionPromise = this.createSession();
+      try {
+        await this.sessionPromise;
+      } finally {
+        this.sessionPromise = null;
+      }
     }
   }
 
@@ -401,8 +490,12 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
     this._viewport = pendingOptions.viewport
       ? { ...pendingOptions.viewport }
       : { ...DEFAULT_VIEWPORT };
-    this._pendingOptions = {};
     try {
+      // A file:// document has an opaque origin unless Chrome is launched with
+      // --allow-file-access-from-files. That flag, and --disable-web-security,
+      // stay absent: script fetch of another file fails. Request interception
+      // below is what stops a link, redirect, frame or subresource whose
+      // realpath leaves the workspace. Do not cache that realpath.
       const chromeFlags = [
         '--disable-gpu',
         '--no-first-run',
@@ -435,10 +528,17 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
         `Failed to connect to Chrome: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
-    const { Page, Network, Runtime, Emulation } = this.client;
-    await Page.enable();
-    await Network.enable();
-    await Runtime.enable();
+    const { Page, Network, Runtime, Emulation, Fetch, Target } = this.client;
+    try {
+      await Page.enable();
+      await Network.enable();
+      await Runtime.enable();
+      await this.installFileInterception(Fetch);
+      await this.installPopupDenial(Target);
+    } catch {
+      await this.cleanup();
+      throw new Error('Browser file-access guard could not be installed.');
+    }
     await Emulation.setDeviceMetricsOverride({
       width: this._viewport.width,
       height: this._viewport.height,
@@ -491,6 +591,16 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
       },
     );
 
+    // Re-read roots after the awaits. A configureSession during launch
+    // updates _pendingOptions; publishing that list here keeps it.
+    this.sessionRoots = Object.freeze([
+      ...(this._pendingOptions.workspaceRoots ?? []),
+    ]);
+    this.appliedRootsGeneration = this.rootsGeneration;
+    this.rootsDirty = false;
+    // Consumed after the awaits, so a configureSession during launch is
+    // published above and is not discarded by cleanup().
+    this._pendingOptions = {};
     this._connected = true;
     this.startedAt = Date.now();
     this.resetInactivityTimer();
@@ -541,9 +651,307 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
     this._connected = false;
     this.screencastListenerRegistered = false;
     this.startedAt = null;
-    this._pendingOptions = {};
+    this.sessionRoots = Object.freeze([]);
     this.networkEntries = [];
     this.pendingResponses.clear();
+  }
+
+  private async blockFileDestination(url: string): Promise<string | undefined> {
+    if (!url.toLowerCase().startsWith('file:')) {
+      return undefined;
+    }
+    const decision = await evaluateFileUrl(url, this.sessionRoots);
+    return decision.allowed ? undefined : FILE_URL_BLOCKED_MESSAGE;
+  }
+
+  private async rejectIfPageEscaped(): Promise<string | undefined> {
+    let href: string | undefined;
+    try {
+      href = await this.readCurrentUrl();
+    } catch {
+      return ESCAPED_PAGE_MESSAGE;
+    }
+    if (href === undefined) {
+      return ESCAPED_PAGE_MESSAGE;
+    }
+    if (
+      await toolMayReadPage(href, this.sessionRoots, this.allowLocalhost)
+    ) {
+      return undefined;
+    }
+    await this.blankEscapedPage();
+    return ESCAPED_PAGE_MESSAGE;
+  }
+
+  private async currentPageAllowed(): Promise<boolean> {
+    let href: string | undefined;
+    try {
+      href = await this.readCurrentUrl();
+    } catch {
+      // degradation-audit: optional-capability - an unreadable current URL
+      // withholds the page (fail closed).
+      return false;
+    }
+    if (typeof href !== 'string') {
+      return false;
+    }
+    return toolMayReadPage(href, this.sessionRoots, this.allowLocalhost);
+  }
+
+  private async readCurrentUrl(): Promise<string | undefined> {
+    const page = this.client?.Page as
+      | {
+          getFrameTree?: () => Promise<{
+            frameTree?: { frame?: { url?: unknown } };
+          }>;
+        }
+      | undefined;
+    if (!page || typeof page.getFrameTree !== 'function') {
+      return undefined;
+    }
+    const tree = await page.getFrameTree();
+    const url = tree?.frameTree?.frame?.url;
+    return typeof url === 'string' ? url : undefined;
+  }
+
+  private async blankEscapedPage(): Promise<void> {
+    try {
+      const page = this.client?.Page as
+        | { navigate?: (params: { url: string }) => Promise<unknown> }
+        | undefined;
+      if (page && typeof page.navigate === 'function') {
+        await page.navigate({ url: 'about:blank' });
+      }
+    } catch {
+      // degradation-audit: optional-capability - blanking is best-effort;
+      // callers still withhold content, screenshots and evaluation.
+    }
+  }
+
+  private async installFileInterception(fetchDomain: {
+    enable?: (params: {
+      patterns: Array<{ urlPattern: string; requestStage: string }>;
+    }) => Promise<void>;
+    requestPaused?: (
+      listener: (
+        params: {
+          requestId: string;
+          request?: { url?: string };
+          sessionId?: string;
+        },
+        sessionId?: string,
+      ) => Promise<void> | void,
+    ) => void;
+    fulfillRequest?: (
+      params: {
+        requestId: string;
+        responseCode: number;
+        responseHeaders: Array<{ name: string; value: string }>;
+        body: string;
+      },
+      sessionId?: string,
+    ) => Promise<void>;
+    failRequest?: (
+      params: {
+        requestId: string;
+        errorReason: string;
+      },
+      sessionId?: string,
+    ) => Promise<void>;
+  }): Promise<void> {
+    if (
+      typeof fetchDomain?.enable !== 'function' ||
+      typeof fetchDomain.requestPaused !== 'function' ||
+      typeof fetchDomain.fulfillRequest !== 'function' ||
+      typeof fetchDomain.failRequest !== 'function'
+    ) {
+      throw new Error('Browser file-access guard could not be installed.');
+    }
+    const fulfillRequest = fetchDomain.fulfillRequest.bind(fetchDomain);
+    const failRequest = fetchDomain.failRequest.bind(fetchDomain);
+    // chrome-remote-interface passes the child session id of an attached
+    // frame or worker as the second listener argument, not in params.
+    fetchDomain.requestPaused((params, sessionId) =>
+      this.resolvePausedFileRequest(
+        { ...params, sessionId: params.sessionId ?? sessionId },
+        fulfillRequest,
+        failRequest,
+      ),
+    );
+    await fetchDomain.enable({
+      patterns: [{ urlPattern: 'file:*', requestStage: 'Request' }],
+    });
+  }
+
+  private async installPopupDenial(targetDomain: {
+    setAutoAttach?: (params: {
+      autoAttach: boolean;
+      waitForDebuggerOnStart: boolean;
+      flatten: boolean;
+    }) => Promise<void>;
+    attachedToTarget?: (
+      listener: (params: {
+        sessionId?: string;
+        waitingForDebugger?: boolean;
+        targetInfo?: { targetId?: string; type?: string; openerId?: string };
+      }) => Promise<void> | void,
+    ) => void;
+    closeTarget?: (params: { targetId: string }) => Promise<void>;
+    runIfWaitingForDebugger?: (params: { sessionId?: string }) => Promise<void>;
+  } | null): Promise<void> {
+    if (
+      !targetDomain ||
+      typeof targetDomain.setAutoAttach !== 'function' ||
+      typeof targetDomain.attachedToTarget !== 'function' ||
+      typeof targetDomain.closeTarget !== 'function'
+    ) {
+      throw new Error('Browser file-access guard could not be installed.');
+    }
+    const closeTarget = targetDomain.closeTarget.bind(targetDomain);
+    targetDomain.attachedToTarget((params) =>
+      this.handleAttachedTarget(params, closeTarget),
+    );
+    await targetDomain.setAutoAttach({
+      autoAttach: true,
+      waitForDebuggerOnStart: true,
+      flatten: true,
+    });
+  }
+
+  private async handleAttachedTarget(
+    params: {
+      sessionId?: string;
+      waitingForDebugger?: boolean;
+      targetInfo?: { targetId?: string; type?: string; openerId?: string };
+    },
+    closeTarget: (params: { targetId: string }) => Promise<void>,
+  ): Promise<void> {
+    const info = params.targetInfo;
+    if (
+      info?.type === 'page' &&
+      typeof info.openerId === 'string' &&
+      info.openerId.length > 0 &&
+      typeof info.targetId === 'string'
+    ) {
+      await closeTarget({ targetId: info.targetId });
+      return;
+    }
+    if (!params.waitingForDebugger || typeof params.sessionId !== 'string') {
+      return;
+    }
+    const sessionId = params.sessionId;
+    const guarded = await this.enableFetchOnSession(sessionId);
+    if (!guarded) {
+      if (typeof info?.targetId === 'string') {
+        await closeTarget({ targetId: info.targetId });
+      }
+      return;
+    }
+    const resumed = await this.resumeAttachedSession(sessionId);
+    if (!resumed && typeof info?.targetId === 'string') {
+      await closeTarget({ targetId: info.targetId });
+    }
+  }
+
+  private async enableFetchOnSession(sessionId: string): Promise<boolean> {
+    const fetchDomain = this.client?.Fetch;
+    if (!fetchDomain || typeof fetchDomain.enable !== 'function') {
+      return true;
+    }
+    try {
+      await fetchDomain.enable(
+        { patterns: [{ urlPattern: 'file:*', requestStage: 'Request' }] },
+        sessionId,
+      );
+      return true;
+    } catch {
+      // degradation-audit: optional-capability - Fetch.enable failed on the
+      // attached session; the caller closes that target instead of resuming it.
+      return false;
+    }
+  }
+
+  private async resumeAttachedSession(sessionId: string): Promise<boolean> {
+    const runtime = this.client?.Runtime;
+    if (runtime && typeof runtime.runIfWaitingForDebugger === 'function') {
+      await runtime.runIfWaitingForDebugger({}, sessionId);
+      return true;
+    }
+    const send = this.client?.send;
+    if (typeof send === 'function') {
+      await send('Runtime.runIfWaitingForDebugger', {}, sessionId);
+      return true;
+    }
+    return false;
+  }
+
+  private async resolvePausedFileRequest(
+    params: {
+      requestId: string;
+      request?: { url?: string };
+      sessionId?: string;
+    },
+    fulfillRequest: (
+      paused: {
+        requestId: string;
+        responseCode: number;
+        responseHeaders: Array<{ name: string; value: string }>;
+        body: string;
+      },
+      sessionId?: string,
+    ) => Promise<void>,
+    failRequest: (
+      paused: {
+        requestId: string;
+        errorReason: string;
+      },
+      sessionId?: string,
+    ) => Promise<void>,
+  ): Promise<void> {
+    const sessionId =
+      typeof params.sessionId === 'string' ? params.sessionId : undefined;
+    const fail = async (): Promise<void> => {
+      const blocked = {
+        requestId: params.requestId,
+        errorReason: 'BlockedByClient',
+      };
+      if (sessionId === undefined) {
+        await failRequest(blocked);
+        return;
+      }
+      await failRequest(blocked, sessionId);
+    };
+    try {
+      const payload = await readContainedWorkspaceFile(
+        params.request?.url ?? '',
+        this.sessionRoots,
+      );
+      if (payload === undefined) {
+        await fail();
+        return;
+      }
+      const fulfilled = {
+        requestId: params.requestId,
+        responseCode: 200,
+        responseHeaders: [
+          { name: 'Content-Type', value: payload.contentType },
+        ],
+        body: payload.bodyBase64,
+      };
+      if (sessionId === undefined) {
+        await fulfillRequest(fulfilled);
+        return;
+      }
+      await fulfillRequest(fulfilled, sessionId);
+    } catch {
+      // degradation-audit: optional-capability - a failed block leaves the
+      // file request paused, so Chrome does not deliver the body.
+      try {
+        await fail();
+      } catch {
+        // degradation-audit: optional-capability - the request stays paused.
+      }
+    }
   }
 
   async startRecording(options?: {
@@ -561,6 +969,10 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
     try {
       await this.ensureSession();
       this.resetInactivityTimer();
+      const escaped = await this.rejectIfPageEscaped();
+      if (escaped) {
+        return { success: false, error: escaped };
+      }
       this.recorder = new ScreenRecorderService();
       const startResult = this.recorder.startRecording(options);
       if (!startResult.success) {
@@ -625,6 +1037,25 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
     }
 
     try {
+      const escaped = await this.rejectIfPageEscaped();
+      if (escaped) {
+        if (this._connected && this.client) {
+          const { Page } = this.client;
+          // degradation-audit: optional-capability - the captured content is
+          // withheld, but the CDP screencast must still be stopped so frames
+          // and acks cannot keep flowing once the recorder is cleared.
+          await Page.stopScreencast().catch((_stopError: unknown) => {});
+        }
+        this.recorder = null;
+        return {
+          filePath: '',
+          frameCount: 0,
+          durationMs: 0,
+          fileSizeBytes: 0,
+          truncated: false,
+          error: escaped,
+        };
+      }
       if (this._connected && this.client) {
         const { Page } = this.client;
         // degradation-audit: optional-capability - the frames are already
