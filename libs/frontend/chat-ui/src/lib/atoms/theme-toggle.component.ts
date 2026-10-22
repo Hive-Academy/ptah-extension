@@ -1,4 +1,9 @@
-import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  inject,
+  signal,
+} from '@angular/core';
 import { LucideAngularModule, Palette, Check } from 'lucide-angular';
 import {
   ThemeService,
@@ -12,20 +17,44 @@ type AccentName = Parameters<ThemeService['setAccent']>[0];
   selector: 'ptah-theme-toggle',
   standalone: true,
   imports: [LucideAngularModule],
+  styles: `
+    /* DaisyUI keeps .dropdown-content opacity:0 until :focus-within, and
+       position:absolute inside the 40px bar. The bar is a flex item under
+       overflow:hidden and an isolating stacking context, so the open panel
+       was clipped or painted under the panes. The top layer is not clipped
+       by those ancestors. :popover-open wins over the closed opacity. */
+    .dropdown > .dropdown-content {
+      position: fixed;
+      inset: auto;
+      margin: 0;
+      height: auto;
+      color: inherit;
+    }
+    .dropdown > .dropdown-content:popover-open {
+      visibility: visible;
+      opacity: 1;
+      transform: none;
+    }
+  `,
   template: `
-    <div class="dropdown dropdown-end">
-      <div
-        tabindex="0"
-        role="button"
+    <div class="dropdown dropdown-end" [class.dropdown-open]="menuOpen()">
+      <button
+        type="button"
         class="btn btn-ghost btn-xs gap-1"
         aria-label="Change theme"
+        aria-haspopup="true"
+        [attr.aria-expanded]="menuOpen() ? 'true' : 'false'"
+        [attr.aria-controls]="menuId"
+        [attr.popovertarget]="menuId"
       >
         <lucide-angular [img]="PaletteIcon" class="w-4 h-4" />
         <span class="icon-btn-label text-xs">Theme</span>
-      </div>
+      </button>
       <div
-        tabindex="0"
+        [id]="menuId"
+        popover="auto"
         class="dropdown-content z-[1] p-2 shadow-lg bg-base-200 rounded-box w-64 max-h-[28rem] overflow-y-auto"
+        (beforetoggle)="onBeforeToggle($event)"
       >
         <!-- Dark Themes -->
         <div
@@ -134,10 +163,14 @@ type AccentName = Parameters<ThemeService['setAccent']>[0];
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ThemeToggleComponent {
+  private static sequence = 0;
+
   private readonly themeService = inject(ThemeService);
 
   readonly currentTheme = this.themeService.currentTheme;
   readonly accent = this.themeService.accent;
+  protected readonly menuId = `ptah-theme-menu-${++ThemeToggleComponent.sequence}`;
+  protected readonly menuOpen = signal(false);
   readonly accents: readonly { name: AccentName; label: string; fill: string }[] = [
     { name: 'gold', label: 'Gold', fill: 'linear-gradient(#f6d675, #d9a928)' },
     { name: 'rose', label: 'Rose quartz', fill: 'linear-gradient(#f9c6d4, #e98fab)' },
@@ -154,5 +187,21 @@ export class ThemeToggleComponent {
   }
   protected selectAccent(accent: AccentName): void {
     this.themeService.setAccent(accent);
+  }
+
+  /** Place the panel before the top layer shows it. newState is a DOM ToggleEvent field. */
+  protected onBeforeToggle(event: Event): void {
+    const next = (event as { newState?: string }).newState;
+    if (next !== 'open' && next !== 'closed') return;
+    this.menuOpen.set(next === 'open');
+    if (next !== 'open') return;
+    const panel = event.currentTarget;
+    const trigger = panel instanceof HTMLElement ? panel.previousElementSibling : null;
+    if (!(panel instanceof HTMLElement) || !(trigger instanceof HTMLElement)) return;
+    const rect = trigger.getBoundingClientRect();
+    panel.style.top = `${rect.bottom + 4}px`;
+    panel.style.right = `${Math.max(0, window.innerWidth - rect.right)}px`;
+    panel.style.left = 'auto';
+    panel.style.bottom = 'auto';
   }
 }

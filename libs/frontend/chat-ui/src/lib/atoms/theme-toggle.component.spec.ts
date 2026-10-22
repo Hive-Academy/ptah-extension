@@ -5,11 +5,15 @@ import { ThemeToggleComponent } from './theme-toggle.component';
 
 describe('ThemeToggleComponent', () => {
   let setTheme: jest.Mock;
+  let setAccent: jest.Mock;
   let currentTheme: ReturnType<typeof signal<ThemeName>>;
+  let accent: ReturnType<typeof signal<'gold' | 'rose' | 'moonstone'>>;
 
   beforeEach(async () => {
     currentTheme = signal<ThemeName>('anubis');
+    accent = signal<'gold' | 'rose' | 'moonstone'>('gold');
     setTheme = jest.fn();
+    setAccent = jest.fn();
 
     await TestBed.configureTestingModule({
       imports: [ThemeToggleComponent],
@@ -18,7 +22,9 @@ describe('ThemeToggleComponent', () => {
           provide: ThemeService,
           useValue: {
             currentTheme: currentTheme.asReadonly(),
+            accent: accent.asReadonly(),
             setTheme,
+            setAccent,
           },
         },
       ],
@@ -55,5 +61,72 @@ describe('ThemeToggleComponent', () => {
     firstButton.click();
     expect(setTheme).toHaveBeenCalledTimes(1);
     expect(setTheme).toHaveBeenCalledWith(firstButton.dataset['theme']);
+  });
+
+  it('opens the same 36-theme list in the top layer under the trigger', () => {
+    const fixture = TestBed.createComponent(ThemeToggleComponent);
+    fixture.detectChanges();
+
+    const trigger = fixture.nativeElement.querySelector(
+      '[aria-label="Change theme"]',
+    ) as HTMLButtonElement;
+    const panel = fixture.nativeElement.querySelector(
+      '.dropdown-content',
+    ) as HTMLElement;
+
+    expect(trigger.tagName).toBe('BUTTON');
+    expect(trigger.getAttribute('popovertarget')).toBe(panel.id);
+    expect(panel.getAttribute('popover')).toBe('auto');
+    expect(panel.querySelectorAll('button[data-theme]').length).toBe(36);
+    expect(
+      fixture.componentInstance.darkThemes.length +
+        fixture.componentInstance.lightThemes.length,
+    ).toBe(36);
+
+    jest.spyOn(trigger, 'getBoundingClientRect').mockReturnValue({
+      bottom: 40,
+      right: 800,
+      top: 8,
+      left: 700,
+      width: 100,
+      height: 32,
+      x: 700,
+      y: 8,
+      toJSON() {
+        return {};
+      },
+    });
+    const opening = new Event('beforetoggle');
+    Object.defineProperty(opening, 'newState', { value: 'open' });
+    panel.dispatchEvent(opening);
+    fixture.detectChanges();
+
+    expect(panel.style.top).toBe('44px');
+    expect(panel.style.right).toBe(`${window.innerWidth - 800}px`);
+    expect(trigger.getAttribute('aria-expanded')).toBe('true');
+    expect(panel.querySelector('fieldset')).toBeNull();
+  });
+
+  it('keeps accent choices on the glass themes and delegates them', () => {
+    currentTheme.set('ptah-glass');
+    const fixture = TestBed.createComponent(ThemeToggleComponent);
+    fixture.detectChanges();
+
+    const radios = [
+      ...fixture.nativeElement.querySelectorAll('input[type="radio"]'),
+    ] as HTMLInputElement[];
+    expect(radios.map((radio) => radio.getAttribute('aria-label'))).toEqual([
+      'Gold',
+      'Rose quartz',
+      'Moonstone',
+    ]);
+    radios[1].dispatchEvent(new Event('change'));
+    expect(setAccent).toHaveBeenCalledWith('rose');
+
+    currentTheme.set('ptah-glass-light');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('input[type="radio"]').length).toBe(
+      3,
+    );
   });
 });
