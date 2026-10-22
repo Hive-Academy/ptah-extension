@@ -26,8 +26,8 @@ import { join } from 'node:path';
  * these assertions pass vacuously against empty content.
  */
 const SHELL_TEMPLATE = join(
-  process.cwd(),
-  'libs/frontend/chat/src/lib/components/templates/app-shell.component.html',
+  __dirname,
+  'app-shell.component.html',
 );
 
 /**

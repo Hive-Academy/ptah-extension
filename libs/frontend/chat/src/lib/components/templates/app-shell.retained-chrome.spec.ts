@@ -64,8 +64,8 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
 import { AgentFollowUpQueueService } from '../../services/agent-follow-up-queue.service';
 
 const TEMPLATES_DIR = join(
-  process.cwd(),
-  'libs/frontend/chat/src/lib/components/templates',
+  __dirname,
+  '.',
 );
 const SHELL_TEMPLATE = join(TEMPLATES_DIR, 'app-shell.component.html');
 const SHELL_CLASS = join(TEMPLATES_DIR, 'app-shell.component.ts');
