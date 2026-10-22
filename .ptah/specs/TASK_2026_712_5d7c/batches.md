@@ -284,7 +284,7 @@ At each implementation phase's last batch, stop for one combined independent cod
 - Command: `Verify-ProviderAccountsBatch -Projects @('@ptah-extension/agent-sdk') -Hosts $H`
 - Report: T/implementation-report-batch-12.md.
 
-## Batch 13: Selected output styles and truthful imported user-state support — PENDING
+## Batch 13: Selected output styles and truthful imported user-state support — IMPLEMENTED (Codex; review at 15)
 
 - Recommended executor: CLI lane, resource context/policy; sequential; actual family unassigned.
 - Depends on: 12. Phase P1-C; review at 15.
