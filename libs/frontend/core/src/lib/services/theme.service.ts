@@ -293,7 +293,19 @@ export class ThemeService {
     try { hint = localStorage.getItem(ACCENT_HINT_KEY); } catch { /* optional mirror */ }
     const accent = isValidAccent(state) ? state : isValidAccent(hint) ? hint : DEFAULT_ACCENT;
     this._accent.set(accent);
-    if (!isValidAccent(state)) {
+    // Repair the authoritative store only when there is something to repair.
+    // A present value that is not a valid accent (a retired name) is rewritten.
+    // An absent key is rewritten only when the mirror holds a non-default
+    // accent the state lost (rose / moonstone). An absent key plus the default
+    // gold — including the hint this method itself writes below — is not a
+    // lost choice: gold is already the meaning of "no key" in the pre-paint
+    // script and in this service. Writing it would replace the whole state
+    // record from a snapshot that can be stale next to concurrent
+    // main-process writers (Electron webview state marker loss, PR #805),
+    // and the first boot's gold hint would arm that write on the second boot.
+    const mirrorLostNonDefault =
+      isValidAccent(hint) && hint !== DEFAULT_ACCENT;
+    if (state === undefined ? mirrorLostNonDefault : !isValidAccent(state)) {
       this.vscode.setState(ACCENT_STATE_KEY, accent);
     }
     try { localStorage.setItem(ACCENT_HINT_KEY, accent); } catch { /* optional mirror */ }

@@ -76,10 +76,14 @@ describe('index.html pre-paint theme boot lists', () => {
     );
   });
 
-  it('pre-paint accepts exactly the non-default accents', () => {
+  it('pre-paint accepts exactly the declared accents', () => {
+    // Gold IS in the list on purpose (stored-gold fix): a stored 'gold' must
+    // be recognised as valid so a stale non-default localStorage mirror
+    // cannot override it. The script still applies data-accent only for the
+    // non-default accents; gold IS the default.
     const source = readFileSync(join(__dirname, '..', '..', '..', '..', 'libs', 'frontend', 'core', 'src', 'lib', 'services', 'theme.service.ts'), 'utf8');
     const declared = /export const ACCENTS:[^=]+ = \[([^\]]+)\]/.exec(source)?.[1].match(/'([^']+)'/g)?.map((name) => name.slice(1, -1)) ?? [];
-    expect(readList(html, 'ACCENT')).toEqual(declared.filter((name) => name !== 'gold'));
+    expect(readList(html, 'ACCENT')).toEqual(declared);
   });
 
   it('does not link the deferred sheet as a stylesheet or preload', () => {

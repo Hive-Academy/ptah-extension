@@ -2879,6 +2879,16 @@ END OF ANUBIS DESIGN SYSTEM
 
 /* The header bar isolates (surface role); lift it so its dropdowns (theme picker) paint above the panes below. */
 :root[data-glass='on'] [data-glass-surface='bar'] { z-index: 30; }
+
+/* Every surface role isolates, which traps the z-40/z-50 of a native
+   popover (panel + fixed backdrop stay in the component DOM) inside the
+   surface that hosts it — later siblings then paint above the panel and
+   intercept its clicks (marketplace provider cards, the settings license
+   card, the canvas rail menu over the board panes). `.popover-panel`
+   exists in the DOM only while a popover is open, so lift exactly the
+   hosting surface for exactly that time. Same lift level as the bar. */
+:root[data-glass='on'] [data-glass-surface]:has(.popover-panel) { z-index: 30; }
+
 :root[data-glass='on'] .border-base-300 { border-color: var(--glass-line); }
 
 :root[data-glass='on'] .divider { color: oklch(var(--bcm, var(--bc))); font-size: 0.75rem; }

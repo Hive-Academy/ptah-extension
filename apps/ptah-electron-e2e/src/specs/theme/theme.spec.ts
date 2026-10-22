@@ -45,7 +45,7 @@ import { test, expect } from '../../support/fixtures';
  *   Code profile) are also left to the human gate** — same reasoning.
  */
 test.describe('Theme split — theme-extra.css fetch gating (H2, TASK_2026_187 Unit 9)', () => {
-  test('default theme (anubis, no persisted state): theme-extra.css is never requested', async ({
+  test('default theme (ptah-glass, no persisted state): theme-extra.css is never requested', async ({
     ui,
   }) => {
     const page = ui.page;
@@ -62,7 +62,7 @@ test.describe('Theme split — theme-extra.css fetch gating (H2, TASK_2026_187 U
       await page.evaluate(() =>
         document.documentElement.getAttribute('data-theme'),
       ),
-    ).toBe('anubis');
+    ).toBe('ptah-glass');
   });
 
   test('anubis-light persisted: theme-extra.css is never requested', async ({
@@ -118,14 +118,17 @@ test.describe('Theme split — theme-extra.css fetch gating (H2, TASK_2026_187 U
 });
 
 test.describe('Theme picker (H3 mechanics, TASK_2026_187 Unit 9)', () => {
-  test('all 34 themes are listed and selectable', async ({ ui }) => {
+  test('all 36 themes are listed and selectable', async ({ ui }) => {
     const page = ui.page;
     await page.locator('[aria-label="Change theme"]').click();
 
+    // 36 = every entry in DAISYUI_THEMES
+    // (libs/frontend/core/src/lib/services/theme.service.ts): the 34 stock
+    // themes plus the ptah-glass pair. Update together with that metadata.
     const themeButtons = page.locator(
       'div.dropdown-content button[data-theme]',
     );
-    await expect(themeButtons).toHaveCount(34);
+    await expect(themeButtons).toHaveCount(36);
 
     // Spot-check both ends of the split: the two that stayed eager, and one
     // from the 32 that moved to the deferred sheet.
@@ -147,7 +150,7 @@ test.describe('Theme picker (H3 mechanics, TASK_2026_187 Unit 9)', () => {
     const requests: string[] = [];
     page.on('request', (req) => requests.push(req.url()));
 
-    // Starts on the default (anubis, no persisted state) -- the sheet has
+    // Starts on the default (ptah-glass, no persisted state) -- the sheet has
     // never been loaded in this session.
     expect(requests.some((u) => u.includes('theme-extra.css'))).toBe(false);
 
@@ -207,7 +210,7 @@ test.describe('Theme picker (H3 mechanics, TASK_2026_187 Unit 9)', () => {
    *
    * This asserts the computed variables, which is the property that broke.
    */
-  test('a deferred theme repaints the variables, and switching back restores anubis', async ({
+  test('a deferred theme repaints the variables, and switching back restores the default', async ({
     ui,
   }) => {
     const page = ui.page;
@@ -231,19 +234,20 @@ test.describe('Theme picker (H3 mechanics, TASK_2026_187 Unit 9)', () => {
       });
     };
 
-    const anubis = await readVars();
-    expect(anubis.p).not.toBe('');
-    expect(anubis.b1).not.toBe('');
+    // The out-of-the-box default (ptah-glass) since the glass theme pair.
+    const initial = await readVars();
+    expect(initial.p).not.toBe('');
+    expect(initial.b1).not.toBe('');
 
     await pick('dracula');
     const dracula = await readVars();
-    expect(dracula.p).not.toBe(anubis.p);
-    expect(dracula.b1).not.toBe(anubis.b1);
+    expect(dracula.p).not.toBe(initial.p);
+    expect(dracula.b1).not.toBe(initial.b1);
 
     // Back to an eager theme with the deferred sheet now in the document —
     // the direction that fails if the deferred sheet is appended last, because
     // its leading `:root` block is daisyUI's `light` theme.
-    await pick('anubis');
-    expect(await readVars()).toEqual(anubis);
+    await pick('ptah-glass');
+    expect(await readVars()).toEqual(initial);
   });
 });

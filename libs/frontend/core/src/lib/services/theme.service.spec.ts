@@ -182,6 +182,61 @@ describe('ThemeService', () => {
     });
   });
 
+  describe('accent initialization', () => {
+    it('adopts a valid stored accent without rewriting the state', () => {
+      const mock = createMockVscode();
+      mock.getState.mockImplementation(
+        (key: string) => (key === 'ptah-accent' ? 'moonstone' : undefined),
+      );
+
+      const service = configure(mock);
+
+      expect(service.accent()).toBe('moonstone');
+      expect(mock.setState).not.toHaveBeenCalled();
+    });
+
+    it('leaves a fresh profile unwritten — an absent accent is the default everywhere', () => {
+      const mock = createMockVscode();
+
+      const service = configure(mock);
+
+      expect(service.accent()).toBe('gold');
+      // Nothing to repair, so initialization must not replace the state
+      // record: a boot write clobbers keys other writers store around
+      // Angular bootstrap (Electron webview state, PR #805).
+      expect(mock.setState).not.toHaveBeenCalled();
+      expect(localStorage.getItem('ptah-accent')).toBe('gold');
+    });
+
+    it('does not write state on a second boot when the only hint is default gold', () => {
+      const mock = createMockVscode();
+      configure(mock);
+      expect(localStorage.getItem('ptah-accent')).toBe('gold');
+      expect(mock.setState).not.toHaveBeenCalled();
+
+      // New process: the hint the first boot planted is still there, the
+      // authoritative key is still absent. Reset the testing module so the
+      // next configure() constructs a new ThemeService.
+      TestBed.resetTestingModule();
+      mock.setState.mockClear();
+      const second = configure(mock);
+
+      expect(second.accent()).toBe('gold');
+      expect(mock.getState('ptah-accent')).toBeUndefined();
+      expect(mock.setState).not.toHaveBeenCalled();
+    });
+
+    it('repairs an absent state accent from the localStorage mirror', () => {
+      localStorage.setItem('ptah-accent', 'rose');
+      const mock = createMockVscode();
+
+      const service = configure(mock);
+
+      expect(service.accent()).toBe('rose');
+      expect(mock.setState).toHaveBeenCalledWith('ptah-accent', 'rose');
+    });
+  });
+
   describe('setTheme()', () => {
     it('updates the signal and persists via VSCodeService.setState', () => {
       const mock = createMockVscode();

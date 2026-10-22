@@ -124,6 +124,18 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
       margin-inline: 1px;
     }
 
+    /* Glass frame yield: the 8px root padding is chrome around every pane
+       (the resize handle's 6px + 1px margins already keep the chat↔dock
+       gutter at 8px). The chat column's 400px floor drops by that 16px so
+       the hidden-sidebar 1200px row still fits a 700px dock without flex
+       taking those pixels out of the dock (git-rail-collapse e2e, 699–701).
+       The dock keeps flex-shrink so a row that still does not fit — sidebar
+       open — gives the leftover to the dock (down to its 300px min) instead
+       of clipping the trailing Git tab. */
+    :host-context([data-glass='on']) .electron-shell-body > [data-test='configuration-surface-host'] {
+      min-width: 384px;
+    }
+
     :host-context([data-glass='on']) .electron-shell-body > ptah-workspace-sidebar,
     :host-context([data-glass='on']) .electron-shell-body > ptah-sidebar-tab,
     :host-context([data-glass='on']) .electron-shell-body > [data-test='configuration-surface-host'],
@@ -358,7 +370,11 @@ import { ClosedTabSessionEnderService } from '../../services/closed-tab-session-
         <div class="electron-shell-body flex flex-1 min-h-0 overflow-hidden">
           <!-- Workspace sidebar (toggleable) -->
           @if (layout.workspaceSidebarVisible()) {
-            <ptah-workspace-sidebar data-glass-surface="chrome" [width]="layout.workspaceSidebarWidth()" />
+            <ptah-workspace-sidebar
+              class="shrink-0"
+              data-glass-surface="chrome"
+              [width]="layout.workspaceSidebarWidth()"
+            />
           }
 
           <!-- Workspaces vertical tab (between sidebar and chat) -->
