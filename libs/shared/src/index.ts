@@ -29,6 +29,7 @@ export * from './lib/types/cli-skill-sync.types';
 export * from './lib/types/auth-env.types';
 export * from './lib/types/auth-strategy.types';
 export * from './lib/types/provider-profile.types';
+export * from './lib/types/provider-account.types';
 // The declarative dashboard contract's PLAIN types (TASK_2026_493_9f58). Same
 // split as `provider-profile.types` above: the zod schemas that validate these
 // live behind `@ptah-extension/shared/mcp-apps-contracts`, so this barrel stays
