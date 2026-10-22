@@ -19,6 +19,11 @@ import {
   SessionMetadata,
 } from './session-metadata-store';
 import { SDK_TOKENS } from './di/tokens';
+import type { ClaudeAccountResolvedResourceContext } from '@ptah-extension/auth-providers-tokens';
+import {
+  ClaudeAccountResourceError,
+  claudeProjectsRoot,
+} from './helpers/history/jsonl-reader.service';
 
 /**
  * Session file info for sorting
@@ -179,6 +184,12 @@ export class SessionImporterService {
    * `WorkspaceRpcHandlers.deferSessionImport`.
    */
   private readonly scansInFlight = new Map<string, Promise<number>>();
+  private readonly shutdown = new AbortController();
+
+  dispose(): void {
+    this.shutdown.abort();
+    this.scansInFlight.clear();
+  }
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -224,7 +235,11 @@ export class SessionImporterService {
     workspacePath: string,
     limit = 50,
     options?: ScanAndImportOptions,
+    context?: ClaudeAccountResolvedResourceContext,
   ): Promise<number> {
+    // D16: refuse before joining ambient work or touching metadata. Batch 16 owns linkage.
+    if (context?.kind === 'named')
+      return Promise.reject(new ClaudeAccountResourceError('unsupported'));
     const key = normalizeWorkspaceKey(workspacePath);
     const joined = this.scansInFlight.get(key);
     if (joined !== undefined) {
@@ -255,7 +270,9 @@ export class SessionImporterService {
       limit,
     });
 
-    const signal = options?.signal;
+    const signal = options?.signal
+      ? AbortSignal.any([options.signal, this.shutdown.signal])
+      : this.shutdown.signal;
     if (signal?.aborted === true) return 0;
 
     const sessionsDir = await this.findSessionsDirectory(workspacePath);
@@ -341,6 +358,7 @@ export class SessionImporterService {
           continue;
         }
         if (await this.isContentlessSessionFile(filePath)) {
+          if (signal?.aborted) break;
           await this.metadataStore.delete(entry.sessionId);
           pruned++;
         }
@@ -553,6 +571,7 @@ export class SessionImporterService {
           if (
             await this.metadataStore.isReferencedAsChildSession(entry.sessionId)
           ) {
+            if (signal?.aborted) break;
             await this.metadataStore.createChild(
               entry.sessionId,
               workspacePath,
@@ -589,6 +608,7 @@ export class SessionImporterService {
             totalTokens: { input: 0, output: 0 },
           };
 
+          if (signal?.aborted) break;
           await this.metadataStore.save(metadata);
           imported++;
           this.logger.info('[SessionImporter] Imported session from index', {
@@ -652,6 +672,7 @@ export class SessionImporterService {
             '[SessionImporter] Detected child session via cross-reference, creating child metadata',
             { sessionId },
           );
+          if (signal?.aborted) break;
           await this.metadataStore.createChild(
             sessionId,
             workspacePath,
@@ -667,6 +688,7 @@ export class SessionImporterService {
         );
 
         if (metadata) {
+          if (signal?.aborted) break;
           await this.metadataStore.save(metadata);
           imported++;
           this.logger.info('[SessionImporter] Imported session from file', {
@@ -940,13 +962,19 @@ export class SessionImporterService {
    */
   private async findSessionsDirectory(
     workspacePath: string,
+    context?: ClaudeAccountResolvedResourceContext,
   ): Promise<string | null> {
     const homeDir = os.homedir();
-    const projectsDir = path.join(homeDir, '.claude', 'projects');
+    const projectsDir =
+      context?.kind === 'named'
+        ? await claudeProjectsRoot(context)
+        : path.join(homeDir, '.claude', 'projects');
 
     try {
       await fs.promises.access(projectsDir);
     } catch {
+      if (context?.kind === 'named')
+        throw new ClaudeAccountResourceError('unavailable');
       // degradation-audit: optional-capability - ~/.claude/projects is absent
       // on a machine that has never run the Claude CLI; null means "nothing
       // to import for this workspace", which the importer treats as zero.

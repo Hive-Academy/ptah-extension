@@ -25,6 +25,69 @@ import type {
   UnreadableAgentMember,
 } from './history.types';
 import { SdkError } from '../../errors';
+import type { ClaudeAccountResolvedResourceContext } from '@ptah-extension/auth-providers-tokens';
+
+/** Safe, closed failure contract for explicitly selected account resources. */
+export class ClaudeAccountResourceError extends Error {
+  constructor(readonly code: 'unavailable' | 'unsupported') {
+    super(
+      code === 'unsupported'
+        ? 'Named Claude session import is not supported.'
+        : 'The requested Claude account resource is unavailable.',
+    );
+    this.name = 'ClaudeAccountResourceError';
+  }
+}
+
+/** No owner identity: two routes belonging to one owner remain distinct. */
+export function claudeResourceKey(
+  context?: ClaudeAccountResolvedResourceContext,
+): string {
+  return context?.kind === 'named'
+    ? JSON.stringify([
+        context.route.routeFingerprint,
+        context.route.routeRevision,
+        context.route.authEpoch,
+      ])
+    : 'ambient';
+}
+
+/** Resolve only the requested root, never substitute the ambient directory. */
+export async function claudeProjectsRoot(
+  context: ClaudeAccountResolvedResourceContext,
+): Promise<string> {
+  if (context.kind === 'ambient')
+    return path.join(os.homedir(), '.claude', 'projects');
+  const config = context.route.canonicalConfigDir;
+  if (!config.trim() || !path.isAbsolute(config))
+    throw new ClaudeAccountResourceError('unavailable');
+  try {
+    const root = await fs.realpath(path.join(config, 'projects'));
+    if (!(await fs.stat(root)).isDirectory())
+      throw new ClaudeAccountResourceError('unavailable');
+    return root;
+  } catch {
+    throw new ClaudeAccountResourceError('unavailable');
+  }
+}
+
+/** Canonicalize aliases and refuse symlinks escaping the selected projects root. */
+async function boundPath(root: string, target: string): Promise<string> {
+  try {
+    const resolved = await fs.realpath(target);
+    const relative = path.relative(root, resolved);
+    if (
+      relative === '..' ||
+      relative.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(relative)
+    ) {
+      throw new ClaudeAccountResourceError('unavailable');
+    }
+    return resolved;
+  } catch {
+    throw new ClaudeAccountResourceError('unavailable');
+  }
+}
 
 /** Options accepted by every read path on {@link JsonlReaderService}. */
 export interface JsonlReadOptions {
@@ -183,6 +246,15 @@ export class JsonlReaderService {
   /** Cap on the number of cached transcripts, whatever their size. */
   private readonly TRANSCRIPT_CACHE_MAX_ENTRIES = 8;
 
+  private disposed = false;
+
+  dispose(): void {
+    this.disposed = true;
+    this.sessionsDirCache.clear();
+    this.transcriptCache.clear();
+    this.transcriptCacheBytes = 0;
+  }
+
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
 
   /**
@@ -191,14 +263,34 @@ export class JsonlReaderService {
    * This lookup is deliberately uncached: callers that need reuse own a
    * shorter-lived cache whose invalidation matches their operation.
    */
-  async listSessionsDirectories(): Promise<string[] | null> {
-    const projectsDir = this.projectsRoot();
+  async listSessionsDirectories(
+    context?: ClaudeAccountResolvedResourceContext,
+  ): Promise<string[] | null> {
+    const projectsDir =
+      context?.kind === 'named'
+        ? await claudeProjectsRoot(context)
+        : this.projectsRoot();
     try {
       const entries = await fs.readdir(projectsDir, { withFileTypes: true });
+      if (context?.kind === 'named') {
+        const directories = new Set<string>();
+        for (const entry of entries) {
+          if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+          const resolved = await boundPath(
+            projectsDir,
+            path.join(projectsDir, entry.name),
+          );
+          if ((await fs.stat(resolved)).isDirectory())
+            directories.add(resolved);
+        }
+        return [...directories];
+      }
       return entries
         .filter((entry) => entry.isDirectory())
         .map((entry) => path.join(projectsDir, entry.name));
     } catch (error: unknown) {
+      if (context?.kind === 'named')
+        throw new ClaudeAccountResourceError('unavailable');
       // degradation-audit: optional-capability - transcript history is absent
       // or unavailable, so callers retain candidates instead of guessing.
       this.logger.debug('[JsonlReader] Could not list session directories', {
@@ -236,12 +328,28 @@ export class JsonlReaderService {
    * @param workspacePath - The absolute path to the workspace
    * @returns The sessions directory path, or null if not found
    */
-  async findSessionsDirectory(workspacePath: string): Promise<string | null> {
-    const projectsDir = this.projectsRoot();
+  async findSessionsDirectory(
+    workspacePath: string,
+    context?: ClaudeAccountResolvedResourceContext,
+  ): Promise<string | null> {
+    const projectsDir =
+      context?.kind === 'named'
+        ? await claudeProjectsRoot(context)
+        : this.projectsRoot();
+    const cacheKey =
+      context?.kind === 'named'
+        ? JSON.stringify([
+            workspacePath,
+            claudeResourceKey(context),
+            projectsDir,
+          ])
+        : workspacePath;
 
     try {
       await fs.access(projectsDir);
     } catch {
+      if (context?.kind === 'named')
+        throw new ClaudeAccountResourceError('unavailable');
       // degradation-audit: optional-capability - ~/.claude/projects is absent
       // on a machine that has never run the Claude CLI; null means "no
       // transcript history here" and every caller treats that as no sessions.
@@ -254,26 +362,38 @@ export class JsonlReaderService {
     }
 
     const projectsMtimeMs = await this.readProjectsDirMtime(projectsDir);
-    if (projectsMtimeMs !== null) {
-      const cached = this.sessionsDirCache.get(workspacePath);
+    if (!this.disposed && projectsMtimeMs !== null) {
+      const cached = this.sessionsDirCache.get(cacheKey);
       if (cached && cached.projectsMtimeMs === projectsMtimeMs) {
         // Re-insert to make the eviction order least-recently-USED: the
         // workspace being worked in is asked for constantly and must not age
         // out behind one that was merely visited later.
-        this.sessionsDirCache.delete(workspacePath);
-        this.sessionsDirCache.set(workspacePath, cached);
+        this.sessionsDirCache.delete(cacheKey);
+        this.sessionsDirCache.set(cacheKey, cached);
         return cached.resolved;
       }
     }
 
-    const resolved = await this.scanForSessionsDirectory(
-      projectsDir,
-      workspacePath,
-    );
+    let resolved: string | null;
+    try {
+      resolved = await this.scanForSessionsDirectory(
+        projectsDir,
+        workspacePath,
+      );
+      if (context?.kind === 'named' && resolved) {
+        resolved = await boundPath(projectsDir, resolved);
+        if (!(await fs.stat(resolved)).isDirectory())
+          throw new ClaudeAccountResourceError('unavailable');
+      }
+    } catch (error: unknown) {
+      if (context?.kind === 'named')
+        throw new ClaudeAccountResourceError('unavailable');
+      throw error;
+    }
 
-    if (projectsMtimeMs !== null) {
-      this.sessionsDirCache.delete(workspacePath);
-      this.sessionsDirCache.set(workspacePath, { resolved, projectsMtimeMs });
+    if (!this.disposed && projectsMtimeMs !== null) {
+      this.sessionsDirCache.delete(cacheKey);
+      this.sessionsDirCache.set(cacheKey, { resolved, projectsMtimeMs });
       this.evictOldestSessionsDirEntries();
     }
 
@@ -414,7 +534,10 @@ export class JsonlReaderService {
   async readJsonlMessages(
     filePath: string,
     options?: JsonlReadOptions,
+    context?: ClaudeAccountResolvedResourceContext,
   ): Promise<SessionHistoryMessage[]> {
+    if (context?.kind === 'named')
+      filePath = await boundPath(await claudeProjectsRoot(context), filePath);
     options?.signal?.throwIfAborted();
 
     const stats = await fs.stat(filePath);
@@ -431,7 +554,11 @@ export class JsonlReaderService {
     }
     if (stats.size === 0) return [];
 
-    const cached = this.readCachedTranscript(filePath, stats);
+    const cacheKey =
+      context?.kind === 'named'
+        ? JSON.stringify([claudeResourceKey(context), filePath])
+        : filePath;
+    const cached = this.readCachedTranscript(cacheKey, stats);
     if (cached) return cached;
 
     const messages = await this.parseJsonlStream(
@@ -443,7 +570,7 @@ export class JsonlReaderService {
       { dropFirstLine: false, signal: options?.signal },
     );
 
-    this.cacheTranscript(filePath, stats, messages);
+    this.cacheTranscript(cacheKey, stats, messages);
     // Every caller gets its OWN array. The elements are shared — nothing in the
     // history pipeline mutates a parsed message — but an array-level mutation
     // (a `sort`, a `splice`) by one caller must not reach the next one.
@@ -483,7 +610,8 @@ export class JsonlReaderService {
     stats: { size: number; mtimeMs: number },
     messages: SessionHistoryMessage[],
   ): void {
-    if (stats.size > this.TRANSCRIPT_CACHE_MAX_FILE_BYTES) return;
+    if (this.disposed || stats.size > this.TRANSCRIPT_CACHE_MAX_FILE_BYTES)
+      return;
     // No usable mtime means no validity token, and an entry that cannot be
     // invalidated is worse than no entry.
     if (typeof stats.mtimeMs !== 'number') return;
@@ -554,7 +682,10 @@ export class JsonlReaderService {
   async readJsonlTail(
     filePath: string,
     options: JsonlTailOptions,
+    context?: ClaudeAccountResolvedResourceContext,
   ): Promise<SessionHistoryMessage[]> {
+    if (context?.kind === 'named')
+      filePath = await boundPath(await claudeProjectsRoot(context), filePath);
     options.signal?.throwIfAborted();
 
     const maxBytes = Math.floor(options.maxBytes);
@@ -634,7 +765,10 @@ export class JsonlReaderService {
     filePath: string,
     visit: (line: string) => void,
     options?: JsonlProjectionOptions,
+    context?: ClaudeAccountResolvedResourceContext,
   ): Promise<JsonlProjectionResult> {
+    if (context?.kind === 'named')
+      filePath = await boundPath(await claudeProjectsRoot(context), filePath);
     options?.signal?.throwIfAborted();
     const byteLength = options?.byteLength;
     if (byteLength !== undefined && byteLength <= 0) {
@@ -814,7 +948,13 @@ export class JsonlReaderService {
     sessionsDir: string,
     parentSessionId: string,
     onUnreadable?: (member: UnreadableAgentMember) => void,
+    context?: ClaudeAccountResolvedResourceContext,
   ): Promise<AgentSessionData[]> {
+    if (context?.kind === 'named')
+      sessionsDir = await boundPath(
+        await claudeProjectsRoot(context),
+        sessionsDir,
+      );
     const agentSessions: AgentSessionData[] = [];
     const agentFilePaths: { filePath: string; agentId: string }[] = [];
     const subagentsDir = path.join(sessionsDir, parentSessionId, 'subagents');
@@ -862,7 +1002,11 @@ export class JsonlReaderService {
         path.join(parentSessionId, 'subagents'),
       );
       try {
-        const messages = await this.readJsonlMessages(filePath);
+        const messages = await this.readJsonlMessages(
+          filePath,
+          undefined,
+          context,
+        );
         const firstMsg = messages[0];
 
         if (isNested || firstMsg?.sessionId === parentSessionId) {
