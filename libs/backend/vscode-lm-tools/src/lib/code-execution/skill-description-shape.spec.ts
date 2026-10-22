@@ -287,7 +287,7 @@ describe('revised skill descriptions keep their static routing contract', () => 
     const headings = atxHeadings(text).map(normaliseHeading);
     expect(headings).not.toContain('when to use this skill');
     const body = text.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '');
-    expect(body).toContain('exits when stdin closes');
+    expect(body).toContain('session ends when stdin closes');
     expect(body).toContain(
       '## Hard rule: NDJSON on stdout, human text on stderr',
     );
