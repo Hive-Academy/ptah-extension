@@ -69,3 +69,9 @@ Each document gets one initial cross-side review and at most two author/reviewer
 - Batches 36–43 (all Codex work) move to TASK_2026_715_6cba, which depends on this task and TASK_2026_714_c8a2 (Codex App Server). They are inputs to a fresh plan there, not an approved plan, because they target the legacy Codex resolver.
 - Not a removal: every Codex capability and acceptance criterion moves with the batches. Shared contracts already landed (provider discriminant `codex` in Batch 1 vocabulary, provider-scoped store in Batches 4–5) stay provider-generic so the follow-up reuses them.
 - Effect on coordination: our Codex-file overlaps with TASK_2026_714 (codex-home-resolver.ts, codex-account-usage.service.ts, codex-cli.adapter.ts) are released from this task.
+
+## D13 — Batch 7 scope answers (2026-10-22, orchestrator)
+
+- Admission success is NOT implemented in Batch 7; SDK_PROVIDER_ACCOUNT_ADMISSION stays fail-closed (typed refusal). Certified admission belongs to Batches 8/17 and release-held live certification (D7). Evidence: batches.md Batch 8/17 scope; lane question 2026-10-22.
+- Batch 7 ownership extended by one file (6/6 cap): provider-account-actions.service.ts gets a minimal dispose() that aborts active controllers plus a disposed guard. Reason: active controllers are private; disposal ownership (Batch 7 acceptance) is impossible otherwise without a brittle proxy or duplicate implementation. Reversible.
+- Process note (2026-10-22): a message queued to a completed Codex lane later revived it as new turns, which collided with a second lane on the same files. Lane 68442c9c was stopped; 9d20d0ef integrated. Rule from now on: never start a second writer while messages are queued for a lane that owns the same files.
