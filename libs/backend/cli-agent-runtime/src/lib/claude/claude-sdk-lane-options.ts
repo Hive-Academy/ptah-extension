@@ -1,20 +1,29 @@
 import { SessionId, type AuthEnv } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import {
+  applyClaudeAccountRouteEnv,
   buildFlagSettingsArg,
+  buildSafeEnv,
   buildSessionName,
   deriveWorkspaceLabel,
   type Options,
   type SdkPermissionHandler,
 } from '@ptah-extension/agent-sdk';
-import {
-  buildClaudeLaneEnv,
-  type PtahSpawnAssembly,
-} from '../ptah-cli/helpers/ptah-cli-spawn-options.service';
+// Type-only: a value import would load agent-generation and its ESM-only
+// workspace-intelligence chain into every registry spec.
+import type { PtahSpawnAssembly } from '../ptah-cli/helpers/ptah-cli-spawn-options.service';
 import { blankToUndefined } from '../ptah-cli/helpers/ptah-cli-registry.utils';
 import { stripAnsiCodes } from '../cli-agents/cli-adapters/cli-adapter.utils';
 import { classifyCliStderr } from '../cli-agents/cli-adapters/cli-stderr-severity';
 import type { ISdkProcessSpawner } from '../spawn/sdk-process-spawner.port';
+
+/** Apply account routing last, after every safe-env/auth selector has been assembled. */
+export function buildClaudeLaneEnv(
+  authEnv: AuthEnv,
+  accountRoute?: Parameters<typeof applyClaudeAccountRouteEnv>[1],
+): Record<string, string | undefined> {
+  return applyClaudeAccountRouteEnv(buildSafeEnv(authEnv), accountRoute);
+}
 
 export interface ClaudeSdkLaneOptionsInput {
   assembly: PtahSpawnAssembly;

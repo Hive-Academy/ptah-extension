@@ -29,8 +29,6 @@ import {
 } from '@ptah-extension/platform-core';
 import {
   SDK_TOKENS,
-  buildSafeEnv,
-  applyClaudeAccountRouteEnv,
   SubagentHookHandler,
   CompactionHookHandler,
   CompactionConfigProvider,
@@ -392,12 +390,4 @@ export class PtahCliSpawnOptions {
       return undefined;
     }
   }
-}
-
-/** Apply account routing last, after every safe-env/auth selector has been assembled. */
-export function buildClaudeLaneEnv(
-  authEnv: AuthEnv,
-  accountRoute?: Parameters<typeof applyClaudeAccountRouteEnv>[1],
-): Record<string, string | undefined> {
-  return applyClaudeAccountRouteEnv(buildSafeEnv(authEnv), accountRoute);
 }
