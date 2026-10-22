@@ -39,7 +39,7 @@ Tests and builds were not run (review rule). `ptah_*` tools are not connected (`
    - `:35-42` runs that whole string through `isUnsafeAttentionContext` and, on a match, replaces it with `[sensitive input]`.
    - `attention-context.util.ts:1-3` treats Windows paths, absolute paths, and relative paths with an extension as unsafe. Checked with the same expression: `.../src/app.ts`, `src/main.ts`, `C:/repo/file.ts`, and `rm -rf /tmp/foo` match; `echo approved` and `README.md` do not.
    - `:183-186` still adds Allow and Always allow with no `disabledReason` for `kind === 'permission'`.
-   - The command branch never applies the key redaction at `:29-30`. `password=hunter2` does not match the regex, so that command is shown in the bell, snackbar, and rail. Known token shapes such as `sk-` are replaced (`chat-attention-source.service.spec.ts:138-143`), which only covers that shape.
+   - The command branch never applies the key redaction at `:29-30`. `password=<redacted>` does not match the regex, so that command is shown in the bell, snackbar, and rail. Known token shapes such as `sk-` are replaced (`chat-attention-source.service.spec.ts:138-143`), which only covers that shape.
    - The card showed the shortened path and the command (`permission-request-card.component.ts:345-366`). No spec asserts a file path survives.
    - Impact: Write, Read, and Edit, and any shell command that mentions a path, render `Input: [sensitive input]` (or the same for the description when it also contains a path). The click still posts `allow` or `always_allow`. The row looks answered. A short secret in a command that is not a known token is displayed. The preview is not written to the logger (`chat-attention-action-dispatcher.service.ts:125` logs `error.name` only).
 
@@ -104,7 +104,7 @@ Not covered: a file path or a path-containing command surviving the preview, foc
 
 1. **Silent failure.** Allow posts after the preview has been replaced with `[sensitive input]` (new defect 1). The host receives `allow`. Whitespace-only Deny with message returns without a message (new defect 2). A refused second answer does not post.
 2. **Unexpected user action.** Approving Write or Read from the bell, snackbar, or rail. Expanding Deny with message and pressing Enter on spaces. The field is not focused, so keyboard users land elsewhere.
-3. **Wrong answer from input.** `toolInput.file_path` of `src/main.ts`, or `command` of `rm -rf /tmp/foo`, becomes `[sensitive input]` while Allow stays enabled. `command` of `password=hunter2` is shown. An empty `toolName` on a session permission still enables Allow, matching the card.
+3. **Wrong answer from input.** `toolInput.file_path` of `src/main.ts`, or `command` of `rm -rf /tmp/foo`, becomes `[sensitive input]` while Allow stays enabled. `command` of `password=<redacted>` is shown. An empty `toolName` on a session permission still enables Allow, matching the card.
 4. **Dependency failure.** If `postMessage` throws, the handler has not removed the id yet (`permission-handler.service.ts:433-457`). `dispatch` catches it, logs the error name, and upserts "Could not complete action" (`chat-attention-action-dispatcher.service.ts:90-91`, `:124-134`). A later click can send once. If the id is already gone, nothing is posted (`:38-41`, responder `:66`, handler `:432`).
 5. **Unspecified remainder.** A session that never had a visible tab is still absent from the rail because no workspace was stored. The badge expiry countdown is still gone. `modifiedInput` remains unused, as it was on the card's emit.
 
