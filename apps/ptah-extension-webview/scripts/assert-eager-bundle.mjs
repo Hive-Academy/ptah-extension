@@ -158,10 +158,9 @@ if (staleMarkers.length) {
   );
 }
 
-if (existsSync(join(distDir, 'stats.json'))) {
-  const r = require('../../../scripts/electron-only-chunks.js').generate(
-    distDir,
-  );
+const electronOnlyChunks = require('../../../scripts/electron-only-chunks.js');
+if (existsSync(join(distDir, electronOnlyChunks.STATS_FILE))) {
+  const r = electronOnlyChunks.generate(distDir);
   console.log(
     `[eager-bundle] electron-only chunks: ${r.electronOnly.length} of ${r.electronOnly.length + r.kept.length} -> ${r.outPath}`,
   );

@@ -112,7 +112,7 @@ jobs:
         run: node_modules/.bin/nx affected -t validate-deps
 
       - name: Enforce eager-closure bundle gate
-        if: hashFiles('dist/apps/ptah-extension-webview/stats.json') != ''
+        if: hashFiles('dist/apps/ptah-extension-webview/browser-stats.json') != ''
         run: npm run gate:eager-closure
 
   test-shard:
