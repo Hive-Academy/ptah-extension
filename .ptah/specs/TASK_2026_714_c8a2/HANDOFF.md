@@ -1,121 +1,139 @@
-# Session handoff — TASK_2026_714_c8a2 (session 2)
+# Session handoff — TASK_2026_714_c8a2 (session 3)
 
-Written 2026-10-22 at the user's request (session at 24.4M tokens). This file replaces the earlier
-HANDOFF.md from session 1. No lane, subagent or background command is running.
+Written 2026-10-23 at the user's request (session at 25.9M tokens). Replaces the session 2 handoff.
+No lane, subagent or background command is running. The CI watcher command ended with the session.
 
 ## Goal
 
-One Codex runtime for Ptah: the Codex App Server. It is shared by main chat, the messaging gateways
-and CLI lanes through ONE core lib (`@ptah-extension/codex-runtime`) and thin adapters. The user
-said: "I don't want to end up having 3 ways for Codex." The two current paths are migration
-sources that are retired after proven parity:
+One Codex runtime for Ptah: the Codex App Server, shared by main chat, the messaging gateways and
+CLI lanes through ONE core lib (`@ptah-extension/codex-runtime`) and thin adapters. The two current
+paths (main chat = Claude Agent SDK + Codex translation proxy; lanes = `@openai/codex-sdk`) are
+migration sources, retired only after proven parity and separate user confirmation (Removal A:
+proxy, Removal B: codex-sdk lanes). Claude behavior stays unchanged. Electron first. No
+runtime-selector UI. A visible refusal is not parity. Production stays disabled until the evidence
+spike proves the required observations (`implementation-plan.md:262-270`).
 
-1. Main chat = Claude Agent SDK + Codex translation proxy (`auth-providers/.../codex/codex-translation-proxy.ts`).
-2. Lanes = `@openai/codex-sdk` in `cli-agent-runtime/.../codex-cli.adapter.ts`.
-
-Claude behavior stays unchanged. Electron first; VS Code and CLI keep compiling. No runtime-selector
-UI. A visible refusal is not parity. Each removal (A: proxy, B: codex-sdk lanes) needs separate user
-confirmation with a caller audit. Follow-up task (not this one): measure the Claude harness tools that
-Codex lacks and offer them as Ptah-native, provider-neutral tools.
-
-## Done
+## Done (all pushed unless stated)
 
 - Worktree `D:/projects/ptah-extension/.claude-worktrees/codex-sdk-main-chat`, branch
-  `feat/codex-sdk-main-chat`, based on main `0d5be6dae`.
-- Draft PR https://github.com/Hive-Academy/ptah-extension/pull/809.
-- Commit `0c910f80c` docs(task-specs): planning set — pushed.
-- Commit `f9e7fbfc6` feat(codex-runtime): evidence tooling + `codex-runtime` commitlint scope —
-  **local only, NOT pushed**.
-- Task documents after `0c910f80c` (this file, reports, reviews, spike results) — committed in the
-  docs commit that follows this file; also **not pushed**.
-- Gate 2: plan approved. Codex audit (`plan-alignment-audit.md`) → Codex final revision → Grok
-  re-review → user-approved bounded fix → Grok scoped re-check APPROVED → user APPROVED.
-- User decisions (see `decisions.md`): gateways move to App Server in this task (third thin consumer);
-  the spike may make a bounded real model call (8 turns total, temp CODEX_HOME with a COPY of
-  auth.json only, marker files only, no network MCP).
-- Batch 1a (evidence tooling): implemented by Codex, safety review by Grok (REVISE → one fix round →
-  APPROVED 7/10). Orchestrator made one bounded correction: realm-safe `errorCode()` instead of
-  `instanceof Error` (fs errors fail `instanceof` in the Jest VM). Jest 28/28 pass (file-symlink case
-  skipped on Windows), `nx typecheck codex-runtime` passes.
-- Protocol export from bundled `codex.exe` 0.155.1 written:
-  `libs/backend/codex-runtime/src/lib/protocol/codex-app-server-protocol.{schema,manifest}.json`
-  (102 requests, 10 server requests, 82 notifications; decision literals include `accept`,
-  `acceptForSession`, `decline`, `deny`).
-- Real spike run 1: **fail-closed after `initialize`, 0/8 turns used, no model call, auth copy and
-  experiment deleted** (`spike-run.md`, `spike-run.json`).
+  `feat/codex-sdk-main-chat`, draft PR https://github.com/Hive-Academy/ptah-extension/pull/809.
+  Remote head `3ec2bb479`.
+- `5fc9e7d01` batch 1b: envelopes accept `emittedAtMs` (still `.strict()`), sanitized failure
+  reasons in case notes, `errorCode()` accepts string codes only. Grok review APPROVED 8/10
+  (`code-logic-review-batch-1b.md`).
+- `f9e3f6def` approval policy `untrusted` -> `on-request` (0.155.1 refuses `untrusted` at startup).
+- `9756958be` OUTPUT_BOUNDS (user-approved substitute spend bounds): `model_reasoning_effort="low"`,
+  `model_verbosity="low"`, `tool_output_token_limit=2000`; config/read must echo all three.
+- `c7e3036ce` `native-route-evidence.md` (runs 1-5, observation table, gap table, reductions).
+- `847533975` merge of origin/main (Nx 24.0.0 + Angular 22.2). `3ec2bb479` codex-runtime moved to
+  inferred `@nx/jest` / `@nx/eslint` targets (`nx.json` include lists), reasoned
+  `eslint-disable no-unsafe-finally` for the secret-cleanup throw. test 38/38, typecheck, lint pass
+  (2 warnings).
+- GLM review of the orchestrator edits (`f9e3f6def`, `9756958be`, `3ec2bb479`): APPROVED 8/10, two
+  Minor (`code-logic-review-orchestrator-edits.md`). Not committed yet (see below).
+- Spike: runs 1-5 used **1 of 8 turns**. Run 5 got a real `item/commandExecution/requestApproval`
+  and the harness declined it as "Unexpected command" (shape not recorded). No
+  `%TEMP%\ptah-codex-evidence-*` leftover after any run. Model `gpt-6-luna`.
+- Research (`codex-version-contract-report.md`): codex 0.163.0 has the same approval contracts as
+  0.155.1; neither has `modifiedInput` or a per-turn output cap; both refuse `untrusted`. Stay on
+  the 0.155.1 pin. Closest edited-input stand-in: decline + `turn/steer` with the edited command.
+- Local only, NOT pushed: the docs commit with this HANDOFF.md, `decisions.md`, `batch-1c-report.md`,
+  `codex-version-contract-report.md` and `code-logic-review-orchestrator-edits.md` (push with the
+  next Batch 1c commit).
+- CI on `3ec2bb479` at wrap-up: 14 pass, 2 pending, 3 skipped, 0 failed. No code review (CodeRabbit
+  skips drafts).
 
-## In progress / open problems
+## User decisions this session (in `decisions.md`)
 
-1. **Spike blocker (fix first).** Most likely cause: the Zod envelopes in
-   `libs/backend/codex-runtime/tools/evidence-harness.ts:20-25` are `.strict()`. Right after
-   `initialize`, codex 0.155.1 sends `remoteControl/status/changed` with a top-level `emittedAtMs`
-   key, so the strict notification schema rejects it. `jsonrpc` is absent in responses (already
-   optional). Evidence: a manual initialize probe with an empty temp CODEX_HOME (no auth):
-   `{"id":1,"result":{...}}` then
-   `{"method":"remoteControl/status/changed","params":{...},"emittedAtMs":...}`.
-   Fix: allow known extra top-level keys (`emittedAtMs`) or use `.passthrough()` on the envelope
-   while still validating `id`/`method`/`params`; and make the harness record the sanitized failure
-   reason in `notes` (run 1 had empty notes). Add a spec case with this exact frame.
-2. **Code review still owed** for the orchestrator's `errorCode()` correction and the fix above
-   (different family from the implementer: Grok for Codex code; Grok was at 93% weekly).
-3. **Schema facts to use**: `modifiedInput` is NOT in the 0.155.1 schema (edited-input parity is
-   unverified → user-reserved reduction decision later). Candidates for the harness-gap table:
-   `item/tool/requestUserInput` (AskUserQuestion), `acceptForSession` (Always Allow),
-   `item/plan/delta` / `turn/plan/updated` (plan), `item/permissions/requestApproval`,
-   `mcpServer/elicitation/request`, `thread/compact/start`, `thread/rollback`.
-4. **Version drift**: user's global `codex` is 0.163.0; Ptah bundles 0.155.1 (resolved first by
-   `codex-native-binary-path.ts`). The core must check the manifest pin against the binary resolved
-   at runtime.
-5. **Spike residuals accepted by review**: if a tree kill fails, a temp auth copy can stay in
-   `%TEMP%\ptah-codex-evidence-*` (check after every run); usage ceiling is observed, not enforced.
+1. Substitute spend bounds (above) instead of the missing output cap.
+2. Edited-input approval: keep Codex rollout blocked on this row; investigate and prove a native
+   alternative first.
+3. Ptah "ask" level: test the granular approval policy first; adopt only if it proves
+   ask-before-effect, else back to the user.
+4. User allowed Claude subagents, Codex and GLM lanes (session 3 message "utilize your subagents
+   along with codex u can also use glm").
 
-## Peer coordination (other sessions)
+## In progress — Batch 1c (UNCOMMITTED code in the worktree)
 
-- TASK_2026_712 (provider accounts, `feat/provider-accounts`, PR #808) owns until merged:
-  `libs/shared/src/lib/types/agent-adapter.types.ts`, `sdk-query-options-builder.ts`,
-  `sdk-query-runner.service.ts`, agent-sdk `helpers/index.ts` and `src/index.ts`,
-  `cli-agent-runtime` `di/register.ts`, `cli-adapter.interface.ts`. Claim-first for
-  `session-metadata-store.ts`, `sdk-agent-adapter.ts`, `chat-session.service.ts`. Migration 0058 is
-  theirs. Codex multi-account moved to TASK_2026_715_6cba, which builds on our per-home
-  `CodexHomeAuthReader` seam.
-- Heavy-check slot protocol: claim by message, wait for "released", release after. At wrap-up the
-  glass-theme session (TASK_2026_710, PR #805, new pipe `card-design-v5`) holds the slot. Use
-  ListAgents for current addresses; old pipe addresses can be stale.
+Codex lane `b7783ef6` changed `libs/backend/codex-runtime/tools/`: `evidence-harness.ts` (673
+lines), `evidence-harness.spec.ts`, `evidence-cases.json`, NEW `evidence-failure-notes.ts`.
+Report: `batch-1c-report.md`. Content: sanitized "Unexpected command shape" notes with
+`<ROOT>/<HOME>/<SCRATCH>/<WORKSPACE>/<NODE>/<MARKER_SCRIPT>` placeholders, wrapper/quoting
+classification, granular all-true policy for `ask`, structural config compare. NOT checked, NOT
+reviewed.
+
+Known defects in that diff (the follow-up round failed at resume start, exit 1 after 1 s, changed
+nothing):
+1. It packed lines to reach the 700-line lint limit (46 lines > 160 chars vs 15 at HEAD). Undo the
+   packing of unchanged code.
+2. Missing: NEW `tools/evidence-frames.ts` (move idSchema, methodSchema, header, the four frame
+   schemas, envelope, Frame types and FrameDecoder there; update imports).
+3. Missing: note `granular ask: no approval request observed` when a granular ask case completes
+   without an approval request (case still fails closed) + spec.
+4. Missing: set `approvalsReviewer: "user"` on thread/start or turn/start for granular ask cases,
+   only if the pinned 0.155.1 schema allows that literal (research report section 5).
+"True = ask" for the granular fields is an inference; the schema has no descriptions. Run 6 proves it.
+
+## Open problems
+
+- Granular semantics unproved; `approvalsReviewer` unchecked.
+- Ask-level parity: `on-request` lets sandbox-allowed commands run without a prompt.
+- Edited input: decline + `turn/steer` needs a real-model proof (not in the current 8 cases).
+- Turn budget: 7 of 8 turns remain; the cases need 8, so the last case (`compaction`) will not run
+  in run 6. More turns need a new user approval.
+- Observed usage is not enforced mid-turn (accepted residual, GLM Minor F1).
+- GLM Minor F2 (pre-existing): cleanup status can claim success when `createExperiment` throws
+  before register.
+- Version drift: global codex 0.163.0, bundled 0.155.1; core must check the manifest pin against
+  the binary resolved at runtime.
+
+## Peer coordination
+
+- TASK_2026_712 (PR #808, not merged; head `c6e39a3ce`) owns until merged: agent-sdk
+  `sdk-agent-adapter.ts`, `session-query-executor.service.ts`, `sdk-query-options-builder.ts`,
+  `sdk-query-runner.service.ts`, `session-registry.service.ts`, `session-metadata-store.ts`,
+  `session-quota-probe.service.ts`, `sdk-model-service.ts`, agent-sdk `di/register.ts`;
+  rpc-handlers `chat-session.service.ts`, `chat-slash-command-router.service.ts`,
+  `session-rpc.handlers.ts`. Our later batches modify several of these: rebase on #808 first.
+  Migration 0059 is theirs; any 714 migration is 0060 or later.
+- Heavy-check slot: claim by message, wait for "released", release after. Use ListAgents for
+  current addresses. This session does not hold the slot.
+- Shared `node_modules`: the worktree has none of its own; Node resolves
+  `D:/projects/ptah-extension/node_modules` (Nx 24). Never run `npm ci`/`npm install` here.
 
 ## Key files
 
 Task folder `D:/projects/ptah-extension/.claude-worktrees/codex-sdk-main-chat/.ptah/specs/TASK_2026_714_c8a2/`:
-`context.md`, `decisions.md` (all decisions with evidence), `task-description.md`,
-`parity-inventory.md`, `research-report.md`, `plan-alignment-audit.md`, `implementation-plan.md`
-(486 lines; evidence spike `:255-270`, gap register `:307-333`, team-leader handoff `:336+`,
-removals `:411+`), `implementation-plan-review.md`, `batch-1a-report.md`, `batch-1a-fix-report.md`,
-`code-logic-review-batch-1a.md`, `spike-run.md`, `spike-run.json`.
-
-Code: `libs/backend/codex-runtime/tools/evidence-harness.ts`, `evidence-harness.spec.ts`,
-`evidence-cases.json`, `generate-protocol-manifest.mjs`, `src/lib/protocol/*`.
-
+`decisions.md`, `implementation-plan.md` (spike `:255-284`, gap table `:307-333`, team-leader
+handoff `:336+`, removals `:411+`), `native-route-evidence.md`, `codex-version-contract-report.md`,
+`batch-1b-report.md`, `batch-1c-report.md`, `code-logic-review-batch-1b.md`,
+`code-logic-review-orchestrator-edits.md`, `spike-run.md` … `spike-run-5.md` (+ `.json`).
+Code: `libs/backend/codex-runtime/tools/` (harness, spec, cases, failure notes),
+`libs/backend/codex-runtime/src/lib/protocol/` (pinned schema + manifest).
 Bundled binary: `D:/projects/ptah-extension/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe` (0.155.1).
 
 ## Next steps
 
-1. Read this file, then `decisions.md` (last 15 rows) and `implementation-plan.md:255-284`.
-2. Push the local commits (pre-push runs di-lint + Electron validate-deps: claim the heavy-check slot
-   first), as one background command:
-   `git -C D:/projects/ptah-extension/.claude-worktrees/codex-sdk-main-chat push`
-3. Fix the spike blocker (open problem 1) on a Codex lane (`backend-developer`), budget ≤ 20 tool
-   calls, lane runs no checks. Then have Grok (or another family with room) review the diff of
-   `f9e7fbfc6..HEAD` for `libs/backend/codex-runtime/tools/`.
-4. Under the heavy-check slot, verify:
-   `npx jest -c libs/backend/codex-runtime/jest.config.ts --coverage=false --maxWorkers=2`
-   `npx nx typecheck codex-runtime --parallel=1`
-5. Dry run, then real run 2 (8-turn cap is per run; record run 1 used 0):
+1. Read this file, `decisions.md` (last 25 rows), `batch-1c-report.md` and
+   `codex-version-contract-report.md` section 5.
+2. Finish Batch 1c on a fresh Codex lane (`backend-developer`, workingDirectory = worktree, files =
+   the four tools files + new `evidence-frames.ts`, at most 25 tool calls, no checks, no git): fix
+   defects 1-4 above. Run `ptah_agent_list` first.
+3. Different-family review of the full Batch 1c diff (Codex wrote it): a Claude
+   `code-logic-reviewer` subagent, deliverable `code-logic-review-batch-1c.md`. One fix round.
+4. Claim the heavy-check slot, then:
+   `npx nx run-many -t test typecheck lint -p codex-runtime --parallel=1 --output-style=static`
+   (expect harness <= 700 lines, no lint errors).
+5. Commit in the foreground (scope `codex-runtime`), push in the background, release the slot.
+6. Dry run, then real run 6 (7 turns remain; record the per-run usage):
    `npx ts-node --project libs/backend/codex-runtime/tsconfig.spec.json libs/backend/codex-runtime/tools/evidence-harness.ts --dry-run`
-   `npx ts-node --project libs/backend/codex-runtime/tsconfig.spec.json libs/backend/codex-runtime/tools/evidence-harness.ts --run --binary 'D:/projects/ptah-extension/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe' --auth-source "$USERPROFILE/.codex/auth.json" --model gpt-5.1-codex-mini --out 'D:/projects/ptah-extension/.claude-worktrees/codex-sdk-main-chat/.ptah/specs/TASK_2026_714_c8a2/spike-run.md'`
+   `npx ts-node --project libs/backend/codex-runtime/tsconfig.spec.json libs/backend/codex-runtime/tools/evidence-harness.ts --run --binary 'D:/projects/ptah-extension/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe' --auth-source "$USERPROFILE/.codex/auth.json" --model gpt-6-luna --out 'D:/projects/ptah-extension/.claude-worktrees/codex-sdk-main-chat/.ptah/specs/TASK_2026_714_c8a2/spike-run-6.md'`
    After the run: `ls -d "$TEMP"/ptah-codex-evidence-*` must list nothing.
-6. Write `native-route-evidence.md` (pass / fail / unverified per required observation in
-   `implementation-plan.md:262-270`, plus the filled harness-gap table). Failures keep production
-   disabled; bring capability reductions (e.g. no `modifiedInput`) to the user.
-7. Then team-leader decomposition of the core batch (contracts/core/auth), respecting the 712 claims.
+7. Update `native-route-evidence.md`; bring granular / ask-level and edited-input results to the
+   user. If a gate needs more than the remaining turns, ask the user for a new budget.
+8. Watch PR #809 CI (`gh pr checks 809`) after each push; read failed job logs.
+9. Then team-leader decomposition of the core batch, respecting the 712 claims.
 
-Rules: CLI lanes first (temporary CLAUDE.md rule until 2026-10-24; no Claude subagents), memory-safe
-scoped checks only, commit in foreground, push in background, never commit to main.
+Rules: CLAUDE.md (memory-safe scoped checks, one heavy check at a time, commit in the foreground,
+push in the background, never commit to main, never `npm ci` in this worktree). The temporary
+"CLI lanes first" rule expires 2026-10-24; the user also allowed Claude subagents and GLM.
