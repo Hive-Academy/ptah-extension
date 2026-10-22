@@ -45,6 +45,8 @@ import { SETTINGS_TOKENS } from '@ptah-extension/settings-core';
 import type { ModelSettings } from '@ptah-extension/settings-core';
 import {
   AUTH_PROVIDERS_TOKENS,
+  ProviderAccountService,
+  type ActiveProviderResolver,
   type WorkspaceProviderProfileResolver,
 } from '@ptah-extension/auth-providers';
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
@@ -90,7 +92,12 @@ import type {
   WebviewManager,
 } from '../streaming/chat-stream-broadcaster.service';
 import type { ChatSubagentContextInjectorService } from './chat-subagent-context-injector.service';
-import type { ChatSlashCommandRouterService } from './chat-slash-command-router.service';
+import {
+  gateMainSessionAccount,
+  mainSessionAccountFailure,
+  type MainSessionAccountSelection,
+  type ChatSlashCommandRouterService,
+} from './chat-slash-command-router.service';
 import type { ChatHistoryReadService } from './chat-history-read.service';
 import {
   selectDeliveredBlockOwners,
@@ -119,7 +126,7 @@ import { HarnessProposalTurnAttributionService } from '../../harness/config/harn
  * compiler honest if a future change reads `params.prompt` (the auto-resume
  * path uses the separate `prompt` positional arg, not this field).
  */
-interface AutoResumePreflight {
+interface AutoResumePreflight extends MainSessionAccountSelection {
   systemPrompt?: ChatContinueParams['systemPrompt'];
   sessionId: SessionId;
   tabId: string;
@@ -133,7 +140,9 @@ interface AutoResumePreflight {
 }
 
 /** Input of {@link ChatSessionService.startAgentChildSession} (TASK_2026_584). */
-export interface AgentChildSessionStartParams {
+export interface AgentChildSessionStartParams extends MainSessionAccountSelection {
+  /** Authoritative parent SDK id, supplied by the host rather than the prompt. */
+  readonly sourceSessionId?: SessionId;
   /** Backend-minted child tab id: the stream key and MCP routing id. */
   readonly tabId: string;
   /** Parent root: the metadata `workspaceId` and the root context resolves for. */
@@ -152,7 +161,9 @@ export interface AgentChildSessionStartParams {
 }
 
 /** Input of {@link ChatSessionService.startHandoffSession} (TASK_2026_655). */
-export interface HandoffSessionStartParams {
+export interface HandoffSessionStartParams extends MainSessionAccountSelection {
+  /** Original SDK id: a fresh context still inherits its account binding. */
+  readonly sourceSessionId?: SessionId;
   /** Backend-minted tab id of the new session: the stream key and MCP routing id. */
   readonly tabId: string;
   /** The handing-off session's root: the metadata `workspaceId`. */
@@ -274,6 +285,10 @@ export class ChatSessionService {
     private readonly sessionBudget: ChatSessionBudget | null = null,
     @inject(HarnessProposalTurnAttributionService, { isOptional: true })
     private readonly turnAttribution: HarnessProposalTurnAttributionService | null = null,
+    @inject(ProviderAccountService, { isOptional: true })
+    private readonly accounts?: ProviderAccountService,
+    @inject(AUTH_PROVIDERS_TOKENS.SDK_ACTIVE_PROVIDER_RESOLVER, { isOptional: true })
+    private readonly activeProvider?: ActiveProviderResolver,
   ) {
     this.subscribeToMcpStatus();
     this.subscribeToSessionEnd();
@@ -502,7 +517,7 @@ export class ChatSessionService {
     };
   }
 
-  async startSession(params: ChatStartParams): Promise<ChatStartResult> {
+  async startSession(params: ChatStartParams & MainSessionAccountSelection): Promise<ChatStartResult> {
     try {
       const { prompt, tabId, options, name } = params;
       const workspacePath =
@@ -577,6 +592,7 @@ export class ChatSessionService {
         });
         return { success: true };
       }
+      await this.gateAccount({ workspacePath, accountSelection: params.accountSelection });
       let mcpServerRunning = this.sdkContext.isMcpServerRunning();
 
       this.logger.info('[ptah.main] chat:start - session config', {
@@ -622,6 +638,8 @@ export class ChatSessionService {
 
       return { success: true };
     } catch (error) {
+      const refusal = mainSessionAccountFailure(error);
+      if (refusal) return refusal;
       this.logger.error(
         'RPC: chat:start failed',
         error instanceof Error ? error : new Error(String(error)),
@@ -665,6 +683,8 @@ export class ChatSessionService {
       );
       if (refused) return refused;
 
+      await this.gateAccount({ workspacePath: workspaceRoot, sessionId: params.sourceSessionId,
+        accountSelection: params.accountSelection });
       const mcpServerRunning = this.codeExecutionMcp.getPort() !== null;
       const permissionLevel = this.childPermissionLevel(params.permissionLevel);
       this.logger.info('[ptah.main] agent child session - session config', {
@@ -691,6 +711,8 @@ export class ChatSessionService {
 
       return { success: true };
     } catch (error) {
+      const refusal = mainSessionAccountFailure(error);
+      if (refusal) return refusal;
       this.logger.error(
         'RPC: agent child session start failed',
         error instanceof Error ? error : new Error(String(error)),
@@ -755,6 +777,8 @@ export class ChatSessionService {
       );
       if (refused) return refused;
 
+      await this.gateAccount({ workspacePath: workspaceRoot, sessionId: params.sourceSessionId,
+        accountSelection: params.accountSelection });
       const mcpServerRunning = this.codeExecutionMcp.getPort() !== null;
       this.logger.info('[ptah.main] handoff session - session config', {
         tabId,
@@ -780,6 +804,8 @@ export class ChatSessionService {
 
       return { success: true };
     } catch (error) {
+      const refusal = mainSessionAccountFailure(error);
+      if (refusal) return refusal;
       const kind = safeErrorKind(error);
       this.logger.error(`RPC: handoff session start failed: ${kind}`);
       this.captureSentry(
@@ -923,7 +949,7 @@ export class ChatSessionService {
    * slash-command intercept + interrupted-subagent context injection.
    */
   async continueSession(
-    params: ChatContinueParams,
+    params: ChatContinueParams & MainSessionAccountSelection,
   ): Promise<ChatContinueResult> {
     try {
       const { prompt, sessionId, tabId, name } = params;
@@ -936,6 +962,7 @@ export class ChatSessionService {
       if (ptahCliResult.error !== '__NOT_PTAH_CLI__') {
         return ptahCliResult;
       }
+      await this.gateAccount({ sessionId, accountSelection: params.accountSelection });
       // The session's own folder, never `params.workspacePath` or the active
       // root: with several projects open those name another repo (PTAH-37).
       const workspacePath =
@@ -1059,6 +1086,8 @@ export class ChatSessionService {
 
       return { success: true, sessionId };
     } catch (error) {
+      const refusal = mainSessionAccountFailure(error);
+      if (refusal) return refusal;
       if (error instanceof RpcUserError) {
         this.logger.warn(
           `RPC: chat:continue returned user error (${error.errorCode}): ${error.message}`,
@@ -1089,9 +1118,12 @@ export class ChatSessionService {
    * transcript in the reply (TASK_2026_437 INV-9) — plus aggregated usage
    * stats, resumable subagents, and any CLI session references.
    */
-  async resumeSession(params: ChatResumeParams): Promise<ChatResumeResult> {
+  async resumeSession(params: ChatResumeParams & MainSessionAccountSelection): Promise<ChatResumeResult> {
     try {
       const { sessionId } = params;
+      if (!params.ptahCliId) {
+        await this.gateAccount({ sessionId, accountSelection: params.accountSelection });
+      }
       const metadata = await this.sessionMetadataStore.get(sessionId);
       const result = await this.historyRead.readForResume(sessionId, {
         includeBlockOwners: params.historyBlockOwners === true,
@@ -1196,6 +1228,7 @@ export class ChatSessionService {
               workspacePath: resolvedWorkspacePath,
               systemPrompt: params.systemPrompt,
               ptahUiFence: params.ptahUiFence,
+              accountSelection: params.accountSelection,
             },
           );
           if ('justResumed' in activateResult) {
@@ -1255,6 +1288,8 @@ export class ChatSessionService {
         ...(activationErrorCode ? { activationErrorCode } : {}),
       };
     } catch (error) {
+      const refusal = mainSessionAccountFailure(error);
+      if (refusal) return refusal;
       if (error instanceof RpcUserError) {
         this.logger.warn(
           `RPC: chat:resume returned user error (${error.errorCode}): ${error.message}`,
@@ -1423,8 +1458,16 @@ export class ChatSessionService {
   ): Promise<
     | { alreadyActive: true }
     | { resumed: true }
-    | { resumed: false; error: string }
+    | { resumed: false; error: string;
+        accountRefusal?: NonNullable<ReturnType<typeof mainSessionAccountFailure>>['accountRefusal'] }
   > {
+    try {
+      await this.gateAccount({ sessionId });
+    } catch (error: unknown) {
+      const refusal = mainSessionAccountFailure(error);
+      if (!refusal) throw error;
+      return { resumed: false, error: refusal.error, accountRefusal: refusal.accountRefusal };
+    }
     if (this.hasLiveSessionStream(sessionId, tabId)) {
       return { alreadyActive: true };
     }
@@ -1492,6 +1535,13 @@ export class ChatSessionService {
      */
     mcpRegisteredForSubagents = true,
   ): Promise<{ justResumed: boolean } | { error: ChatContinueResult }> {
+    try {
+      await this.gateAccount({ sessionId, accountSelection: params.accountSelection });
+    } catch (error: unknown) {
+      const refusal = mainSessionAccountFailure(error);
+      if (!refusal) throw error;
+      return { error: { ...refusal, sessionId } };
+    }
     if (this.hasLiveSessionStream(sessionId, tabId)) {
       return { justResumed: false };
     }
@@ -1698,6 +1748,14 @@ export class ChatSessionService {
           : new Error(String(cleanupError)),
       );
     }
+  }
+
+  private async gateAccount(input: MainSessionAccountSelection & { workspacePath?: string; sessionId?: string }): Promise<void> {
+    // Fresh ambient hosts retain their call sequence. Existing sessions still
+    // inspect local linkage if the authoritative account service is unavailable.
+    if (!this.accounts && input.accountSelection === undefined && !input.sessionId) return;
+    await gateMainSessionAccount({ accounts: this.accounts, activeProvider: this.activeProvider,
+      metadata: this.sessionMetadataStore }, input);
   }
 
   /** Per-method Sentry capture (each method result-shapes its failures, so the handler's `runRpc` won't see them). */
