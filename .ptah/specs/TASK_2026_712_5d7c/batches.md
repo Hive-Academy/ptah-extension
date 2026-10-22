@@ -152,13 +152,13 @@ At each implementation phase's last batch, stop for one combined independent cod
 - Command: `Verify-ProviderAccountsBatch -Projects @('@ptah-extension/shared') -Hosts $H`
 - Report: T/implementation-report-batch-03.md.
 
-## Batch 4: Registered forward-only account migration — PENDING
+## Batch 4: Registered forward-only account migration — COMPLETE (Codex; CI gate per D8a; phase review at 7) (renumbered 0056→0058 after main merge: 0056/0057 taken)
 
 - Recommended executor: CLI lane, SQLite migration/tests; sequential; actual family unassigned.
 - Depends on: 1–3. Phase P1-A; review at 7.
 - Task 4.1 — PENDING. Own exactly:
-  - CREATE W/libs/backend/persistence-sqlite/src/lib/migrations/0056_provider_accounts.ts
-  - CREATE W/libs/backend/persistence-sqlite/src/lib/migrations/0056_provider_accounts.spec.ts
+  - CREATE W/libs/backend/persistence-sqlite/src/lib/migrations/0058_provider_accounts.ts
+  - CREATE W/libs/backend/persistence-sqlite/src/lib/migrations/0058_provider_accounts.spec.ts
   - MODIFY W/libs/backend/persistence-sqlite/src/lib/migrations/index.ts
 - Plan 131–140; pattern 0055 and sqlite-lane-outcome transaction precedent. Recheck next unused migration number before creating; if changed, report proposed exact replacement paths for ownership update first. Static tables/indexes for profiles, selections, tombstones, operation reservations, run bindings/leases; unique physical route, revisions/epochs/idempotency. No credentials/raw identities.
 - Acceptance: fresh/upgrade/repeated migration, uniqueness and referential constraints, rollback, two-connection busy handling, isolated temp DB; no data/credential migration. Registry explicitly imports/registers migration.
@@ -627,7 +627,7 @@ At each implementation phase's last batch, stop for one combined independent cod
 
 Batches 36–43 are defined, not authorized to start by their existence. Before Phase 2, orchestrator must have accepting P1 reviews, scoped checks and capability-by-capability evidence for all non-Codex Phase 1 acceptance. A1–A3 installed compatibility, rendered Electron evidence, and user-reserved subscription enablement/release remain open. Technical mock proof does not waive these. Do not imply visual evidence or user authorization from Gate 1/1.7/2. If holds prevent full Phase 1 acceptance, stop Phase 2 dispatch and report remaining holds; do not rewrite requirement phase ordering or silently remove actions. Existing ambient behavior stays available; live named auth-command/query launch stays held. A later authorized compatibility/visual session must not run implicitly as a batch check.
 
-## Batch 36: Codex official account commands and store admission — PENDING
+## Batch 36: Codex official account commands and store admission — MOVED to TASK_2026_715_6cba (re-plan on Codex App Server)
 
 - Recommended executor: CLI lane, Codex auth/store backend; sequential; actual family unassigned.
 - Depends on: **satisfied Claude exit gate**, 6/7. Phase P2-A Codex services; review at 39.
@@ -642,7 +642,7 @@ Batches 36–43 are defined, not authorized to start by their existence. Before 
 - Command: `Verify-ProviderAccountsBatch -Projects @('@ptah-extension/auth-providers') -Hosts $H`
 - Report T/implementation-report-batch-36.md.
 
-## Batch 37: Per-home Codex resolver/auth service pool and refresh serialization — PENDING
+## Batch 37: Per-home Codex resolver/auth service pool and refresh serialization — MOVED to TASK_2026_715_6cba (re-plan on Codex App Server)
 
 - Recommended executor: CLI lane, auth lifecycle/pool concurrency; sequential; actual family unassigned.
 - Depends on: 36. Phase P2-A; review at 39.
@@ -657,7 +657,7 @@ Batches 36–43 are defined, not authorized to start by their existence. Before 
 - Command: `Verify-ProviderAccountsBatch -Projects @('@ptah-extension/auth-providers') -Hosts $H`
 - Report T/implementation-report-batch-37.md.
 
-## Batch 38: Codex scoped App Server usage, proxy and registration — PENDING
+## Batch 38: Codex scoped App Server usage, proxy and registration — MOVED to TASK_2026_715_6cba (re-plan on Codex App Server)
 
 - Recommended executor: CLI lane, Codex transport/pool DI; sequential; actual family unassigned.
 - Depends on: 37. Phase P2-A; review at 39.
@@ -673,7 +673,7 @@ Batches 36–43 are defined, not authorized to start by their existence. Before 
 - Command: `Verify-ProviderAccountsBatch -Projects @('@ptah-extension/auth-providers') -Hosts $H`
 - Report T/implementation-report-batch-38.md.
 
-## Batch 39: Codex verified-identity owner aggregation — PENDING
+## Batch 39: Codex verified-identity owner aggregation — MOVED to TASK_2026_715_6cba (re-plan on Codex App Server)
 
 - Recommended executor: CLI lane, owner/cache tests; sequential; actual family unassigned.
 - Depends on: 38. Phase P2-A last; **STOP code-logic + style review Batches 36–39**.
@@ -688,7 +688,7 @@ Batches 36–43 are defined, not authorized to start by their existence. Before 
 - Command: `Verify-ProviderAccountsBatch -Projects @('@ptah-extension/auth-providers') -Hosts $H`
 - Report T/implementation-report-batch-39.md. Reviews T/code-logic-review-phase-p2-a.md and T/code-style-review-phase-p2-a.md.
 
-## Batch 40: Codex lane selected-home catalog/MCP/rollout/spawn/resume — PENDING
+## Batch 40: Codex lane selected-home catalog/MCP/rollout/spawn/resume — MOVED to TASK_2026_715_6cba (re-plan on Codex App Server)
 
 - Recommended executor: CLI lane, Codex adapter integration; sequential; actual family unassigned.
 - Depends on: accepting P2-A review. Phase P2-B Codex integration; review at 43.
@@ -703,7 +703,7 @@ Batches 36–43 are defined, not authorized to start by their existence. Before 
 - Command: `Verify-ProviderAccountsBatch -Projects @('@ptah-extension/cli-agent-runtime') -Hosts $H`
 - Report T/implementation-report-batch-40.md.
 
-## Batch 41: Codex main route and historical analytics context — PENDING
+## Batch 41: Codex main route and historical analytics context — MOVED to TASK_2026_715_6cba (re-plan on Codex App Server)
 
 - Recommended executor: CLI lane, main/analytics integration; sequential; actual family unassigned.
 - Depends on: 40. Phase P2-B; review at 43.
@@ -717,7 +717,7 @@ Batches 36–43 are defined, not authorized to start by their existence. Before 
 - Command: `Verify-ProviderAccountsBatch -Projects @('@ptah-extension/rpc-handlers','@ptah-extension/usage-analytics') -Hosts $H`
 - Report T/implementation-report-batch-41.md.
 
-## Batch 42: Reuse Electron Accounts surface for Codex — PENDING
+## Batch 42: Reuse Electron Accounts surface for Codex — MOVED to TASK_2026_715_6cba (re-plan on Codex App Server)
 
 - Recommended executor: CLI lane, Angular provider-parameterized UI; sequential; actual family unassigned.
 - Depends on: 36–41. Phase P2-B; review at 43.
@@ -733,7 +733,7 @@ Batches 36–43 are defined, not authorized to start by their existence. Before 
 - Command: `Verify-ProviderAccountsBatch -Projects @('@ptah-extension/core','@ptah-extension/chat') -Hosts $H`
 - Report T/implementation-report-batch-42.md.
 
-## Batch 43: Final Codex/Claude parity and release-hold regression matrix — PENDING
+## Batch 43: Final Codex/Claude parity and release-hold regression matrix — MOVED to TASK_2026_715_6cba (re-plan on Codex App Server)
 
 - Recommended executor: CLI lane, adversarial account integration tests; sequential; actual family unassigned.
 - Depends on: 40–42. Phase P2-B last; **STOP combined code-logic review Batches 40–43 and Electron visual gate**.

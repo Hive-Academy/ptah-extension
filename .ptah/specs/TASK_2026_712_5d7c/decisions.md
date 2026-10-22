@@ -61,3 +61,11 @@ Each document gets one initial cross-side review and at most two author/reviewer
 - Rules A–E AGREED by peer 2026-10-22: claim-before-edit message per file; our shared contracts (B1–B3) land in main first; agent-sdk/chat files go to whoever claims first, the other rebases; our Codex batches 37–40 wait for TASK_2026_714 to merge and build on its App Server abstractions; shared heavy-check slot protocol.
 - Before dispatching any batch that owns a listed file, the orchestrator checks for a claim from the peer.
 - Peer notes: their agent-adapter.types.ts change (bypassPermissions on native route, :160-162) is additive and rebases on our B3. Their first likely touch is session-metadata-store.ts (`updateCodexExecution` writer) — our B16 rebases on it. No early edits by them to sdk-query-options-builder.ts, sdk-agent-adapter.ts, chat-session.service.ts. CodexHomeAuthReader takes a normalized home path; per-home cache/lock/watcher; they only read codex-home-resolver.ts and codex-account-usage.service.ts. codex-cli.adapter.ts is free until they claim it.
+
+## D12 — Scope split: Claude first, Codex later on App Server (2026-10-22, user)
+
+- User: "work on the multiple accounts for claude first then work on the codex changes later on by first unifying it to use app server then allow multi account for it".
+- This task now ends at Batch 35 (Phase 1: Claude multi-account, shared account store, RPC, Electron Accounts UI, Claude exit evidence checkpoint).
+- Batches 36–43 (all Codex work) move to TASK_2026_715_6cba, which depends on this task and TASK_2026_714_c8a2 (Codex App Server). They are inputs to a fresh plan there, not an approved plan, because they target the legacy Codex resolver.
+- Not a removal: every Codex capability and acceptance criterion moves with the batches. Shared contracts already landed (provider discriminant `codex` in Batch 1 vocabulary, provider-scoped store in Batches 4–5) stay provider-generic so the follow-up reuses them.
+- Effect on coordination: our Codex-file overlaps with TASK_2026_714 (codex-home-resolver.ts, codex-account-usage.service.ts, codex-cli.adapter.ts) are released from this task.
