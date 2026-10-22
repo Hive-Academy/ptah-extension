@@ -14,12 +14,27 @@ describe('Claude account source certification', () => {
     expect(() => certifyClaudeAccountEnvironment({ [key]: 'foreign' }, [{}], route)).toThrow(expect.objectContaining({ code: 'unsupported-source' }));
   });
 
+  it.each([
+    'CLAUDE_SECURESTORAGE_CONFIG_DIR', 'claude_securestorage_config_dir', 'Claude_SecureStorage_Config_Dir',
+    'ANTHROPIC_CONFIG_DIR', 'anthropic_config_dir', 'Anthropic_Profile',
+  ])('rejects a populated namespace and canonicalizes an empty namespace %s', key => {
+    expect(() => certifyClaudeAccountEnvironment({ [key]: 'foreign' }, [{}], route)).toThrow(expect.objectContaining({ code: 'unsupported-source' }));
+    const env = Object.freeze({ [key]: '' });
+    const child = certifyClaudeAccountEnvironment(env, [{}], route);
+    if (key !== 'CLAUDE_SECURESTORAGE_CONFIG_DIR') expect(child).not.toHaveProperty(key);
+    expect(child['CLAUDE_CONFIG_DIR']).toBe(route.canonicalPath);
+    expect(child['CLAUDE_SECURESTORAGE_CONFIG_DIR']).toBe(route.canonicalPath);
+    expect(Object.keys(child).filter(candidate => candidate.toUpperCase() === 'CLAUDE_SECURESTORAGE_CONFIG_DIR'))
+      .toEqual(['CLAUDE_SECURESTORAGE_CONFIG_DIR']);
+    expect(env[key]).toBe('');
+  });
+
   it('clears the finite selectors, preserves real home and never mutates parent env', () => {
     const env: NodeJS.ProcessEnv = { HOME: 'real-home', USERPROFILE: 'real-profile', PATH: 'bin', NODE_OPTIONS: 'untrusted' };
     for (const key of CLAUDE_ACCOUNT_SELECTOR_KEYS) env[key] = '';
     const child = certifyClaudeAccountEnvironment(env, [{}], route);
     for (const key of CLAUDE_ACCOUNT_SELECTOR_KEYS) {
-      expect(child[key]).toBe(key === 'CLAUDE_CONFIG_DIR' ? route.canonicalPath : undefined);
+      expect(child[key]).toBe(key === 'CLAUDE_CONFIG_DIR' || key === 'CLAUDE_SECURESTORAGE_CONFIG_DIR' ? route.canonicalPath : undefined);
       expect(env[key]).toBe('');
     }
     expect(child['HOME']).toBe('real-home'); expect(child['USERPROFILE']).toBe('real-profile');

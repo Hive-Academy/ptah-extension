@@ -27,6 +27,7 @@ export function accountActionResult(code: ProviderAccountResultCode): ProviderAc
 }
 
 export const CLAUDE_ACCOUNT_SELECTOR_KEYS = [
+  'CLAUDE_SECURESTORAGE_CONFIG_DIR', 'ANTHROPIC_CONFIG_DIR', 'ANTHROPIC_PROFILE',
   'CLAUDE_CONFIG_DIR', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR',
   'CLAUDE_CODE_API_KEY_HELPER_TTL_MS', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN',
   'ANTHROPIC_BASE_URL', 'ANTHROPIC_CUSTOM_HEADERS', 'ANTHROPIC_MODEL',
@@ -71,6 +72,7 @@ export function certifyClaudeAccountEnvironment(
     if (BASELINE.has(upper)) result[key] = value;
   }
   result['CLAUDE_CONFIG_DIR'] = route.canonicalPath;
+  result['CLAUDE_SECURESTORAGE_CONFIG_DIR'] = route.canonicalPath;
   return Object.freeze(result);
 }
 

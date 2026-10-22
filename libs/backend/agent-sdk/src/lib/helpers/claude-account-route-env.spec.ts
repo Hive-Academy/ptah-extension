@@ -29,8 +29,10 @@ const named = {
 } as ClaudeAccountNamedRoute;
 const ambient = { kind: 'ambient' } as ClaudeAccountAmbientRoute;
 
-// Independent enumeration pins every selector in the admission contract.
+// Independent enumeration pins selectors removed rather than canonically reset.
 const conflictingSelectors = [
+  'ANTHROPIC_CONFIG_DIR',
+  'ANTHROPIC_PROFILE',
   'CLAUDE_CODE_OAUTH_TOKEN',
   'CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR',
   'CLAUDE_CODE_API_KEY_HELPER_TTL_MS',
@@ -73,6 +75,9 @@ const polluted = Object.fromEntries(
 const inherited: Record<string, string | undefined> = {
   ...polluted,
   CLAUDE_CONFIG_DIR: 'D:/accounts/ambient',
+  CLAUDE_SECURESTORAGE_CONFIG_DIR: 'D:/accounts/ambient-store',
+  claude_securestorage_config_dir: 'D:/accounts/lowercase',
+  Claude_SecureStorage_Config_Dir: 'D:/accounts/mixedcase',
   HOME: 'D:/home',
   USERPROFILE: 'D:/profile',
   XDG_CONFIG_HOME: 'D:/xdg',
@@ -194,12 +199,18 @@ describe('applyClaudeAccountRouteEnv', () => {
       {
         anthropic_api_key: 'foreign',
         Claude_Config_Dir: 'foreign',
+        CLAUDE_SECURESTORAGE_CONFIG_DIR: 'foreign',
+        claude_securestorage_config_dir: 'foreign',
+        Claude_SecureStorage_Config_Dir: 'foreign',
+        anthropic_config_dir: 'foreign',
+        Anthropic_Profile: 'foreign',
         AWS_UNRELATED: 'keep',
       },
       named,
     );
     expect(result).toEqual({
       CLAUDE_CONFIG_DIR: named.canonicalConfigDir,
+      CLAUDE_SECURESTORAGE_CONFIG_DIR: named.canonicalConfigDir,
       AWS_UNRELATED: 'keep',
     });
   });
@@ -210,6 +221,22 @@ describe('applyClaudeAccountRouteEnv', () => {
       expect(applyClaudeAccountRouteEnv(inherited, route)).toBe(inherited);
     },
   );
+
+  it('pins exactly one secure-storage namespace before the SDK Windows fallback', () => {
+    const base = Object.freeze({ ...inherited });
+    const result = applyClaudeAccountRouteEnv(base, named);
+    expect(Object.keys(result).filter(key => key.toUpperCase() === 'CLAUDE_SECURESTORAGE_CONFIG_DIR'))
+      .toEqual(['CLAUDE_SECURESTORAGE_CONFIG_DIR']);
+    expect(result['CLAUDE_SECURESTORAGE_CONFIG_DIR']).toBe(named.canonicalConfigDir);
+    const sdkNamespace = result['CLAUDE_SECURESTORAGE_CONFIG_DIR'] ?? base['CLAUDE_SECURESTORAGE_CONFIG_DIR'] ?? result['CLAUDE_CONFIG_DIR'];
+    expect(sdkNamespace).toBe(named.canonicalConfigDir);
+    expect(base).toEqual(inherited);
+  });
+
+  it.each(['', ' ', '\t\r\n'])('refuses a blank named config directory %j', canonicalConfigDir => {
+    expect(() => applyClaudeAccountRouteEnv(inherited, { ...named, canonicalConfigDir }))
+      .toThrow(new Error('Named Claude account requires a non-empty canonical config directory.'));
+  });
 
   it('does not mutate process.env or AuthEnv', () => {
     const before = { ...process.env };
@@ -288,8 +315,11 @@ describe('applyClaudeAccountRouteEnv', () => {
       const baseline = await options();
       const result = await options(named);
       expect(result.env?.['CLAUDE_CONFIG_DIR']).toBe(named.canonicalConfigDir);
+      expect(result.env?.['CLAUDE_SECURESTORAGE_CONFIG_DIR']).toBe(named.canonicalConfigDir);
       for (const key of conflictingSelectors)
         expect(result.env).not.toHaveProperty(key);
+      expect(result.env).not.toHaveProperty('claude_securestorage_config_dir');
+      expect(result.env).not.toHaveProperty('Claude_SecureStorage_Config_Dir');
       expect(result.env?.['HOME']).toBe(inherited['HOME']);
       expect(result.env?.['NO_PROXY']).toBe('127.0.0.1,localhost');
       if (kind === 'main')

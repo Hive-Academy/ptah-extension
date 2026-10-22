@@ -3,6 +3,9 @@ import type { ClaudeAccountRoute } from '@ptah-extension/auth-providers-tokens';
 // Mirrors the finite selector contract in the account admission command.
 // Keep local: auth-providers depends on agent-sdk, never the reverse.
 const CONFLICTING_SELECTORS = [
+  'CLAUDE_SECURESTORAGE_CONFIG_DIR',
+  'ANTHROPIC_CONFIG_DIR',
+  'ANTHROPIC_PROFILE',
   'CLAUDE_CODE_OAUTH_TOKEN',
   'CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR',
   'CLAUDE_CODE_API_KEY_HELPER_TTL_MS',
@@ -46,6 +49,9 @@ export function applyClaudeAccountRouteEnv(
   route?: ClaudeAccountRoute,
 ): Record<string, string | undefined> {
   if (route?.kind !== 'named') return baseEnv;
+  if (!route.canonicalConfigDir.trim()) {
+    throw new Error('Named Claude account requires a non-empty canonical config directory.');
+  }
 
   const env: Record<string, string | undefined> = {
     ...baseEnv,
@@ -63,5 +69,8 @@ export function applyClaudeAccountRouteEnv(
       delete env[key];
     }
   }
+  // Pin this after clearing every casing so the SDK's Windows fallback cannot
+  // select process.env.CLAUDE_SECURESTORAGE_CONFIG_DIR ahead of our config dir.
+  env['CLAUDE_SECURESTORAGE_CONFIG_DIR'] = route.canonicalConfigDir;
   return env;
 }
