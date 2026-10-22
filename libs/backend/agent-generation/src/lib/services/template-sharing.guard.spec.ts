@@ -934,6 +934,20 @@ async function resolveTemplate(file: string) {
   return resolution;
 }
 
+/**
+ * Distinctive clause phrases from the shared skill-use section.
+ * Presence is the contract. The partial is not snapshotted.
+ * Clause 4's permission proposition sits inside the denial sentence.
+ */
+const SKILL_USE_PHRASES = [
+  'catalogue name is not an assignment',
+  'denied load is not another path and is not permission to perform the denied action',
+  'optional miss continues independent permitted work',
+  'required miss stops the dependent work',
+] as const;
+
+const SKILL_USE_PERMISSION = 'not permission to perform the denied action';
+
 describe('partial resolution', () => {
   const resolver = new TemplatePartialResolver({
     debug: jest.fn(),
@@ -983,6 +997,32 @@ describe('partial resolution', () => {
           taskSpecAudienceFor(file.replace('.template.md', '')),
         ).trim(),
       );
+    }
+  });
+
+  it('expands the skill-use contract into every role and leaves sources unduplicated', async () => {
+    expect(FILES).toHaveLength(EXPECTED_TEMPLATE_COUNT);
+
+    for (const file of FILES) {
+      const parsed = matter(read(file));
+      const raw = parsed.data['variables'];
+      expect(raw && typeof raw === 'object' && !Array.isArray(raw)).toBe(
+        true,
+      );
+      const trigger = (raw as Record<string, unknown>)['CLARIFY_TRIGGER'];
+      expect(typeof trigger).toBe('string');
+      expect((trigger as string).trim().length).toBeGreaterThan(0);
+
+      for (const phrase of SKILL_USE_PHRASES) {
+        expect(parsed.content).not.toContain(phrase);
+      }
+
+      const { content } = await resolveTemplate(file);
+      expect(content).not.toContain('{{');
+      expect(content).toContain((trigger as string).trim());
+      for (const phrase of SKILL_USE_PHRASES) {
+        expect(content).toContain(phrase);
+      }
     }
   });
 });
@@ -1077,9 +1117,40 @@ describe('role grants', () => {
       expect(ROLE_PARTIALS[role]).not.toContain(DELEGATE);
       const { blocks, content } = await resolveTemplate(`${role}.template.md`);
       expect(blocks.map((b) => b.id)).not.toContain(DELEGATE);
+      expect(content).toContain(SKILL_USE_PERMISSION);
       expect(content).not.toContain('ptah_agent_list');
     },
   );
+
+  it('keeps the skill-use section free of tooling tokens', () => {
+    const tooling = fs.readFileSync(
+      path.join(PARTIALS_DIR, partialFileName(TOOLING)),
+      'utf8',
+    );
+    expect(tooling).toMatch(/^## Working rules\s*$/m);
+    const section = tooling.split(/^## Skill use\s*$/m)[1];
+    expect(section).toBeDefined();
+    const body = section ?? '';
+    expect(body.trim().length).toBeGreaterThan(0);
+    expect(
+      body
+        .split('\n')
+        .filter((line) => line.startsWith('- ')),
+    ).toHaveLength(7);
+    expect(body).not.toMatch(/\bptah_[a-z_]+\b/);
+    expect(body).not.toContain('{{');
+    for (const phrase of SKILL_USE_PHRASES) {
+      expect(body).toContain(phrase);
+    }
+    expect(body).toContain('reconstructed steps');
+    expect(body).toContain('only the unassigned entry');
+    expect(body).toContain(
+      'does not stop this role from loading other relevant supporting skills',
+    );
+    expect(body).toContain('skill-loading tool');
+    expect(body).toContain('already uses for a blocked step');
+    expect(body).toContain('home of its rules');
+  });
 });
 
 // ---------------------------------------------------------------------------
