@@ -73,6 +73,7 @@
       }
     },
     "prune": {
+      "inputs": ["default", "^production"],
       "dependsOn": ["prune-lockfile", "copy-workspace-modules"],
       "executor": "nx:noop"
     },

@@ -33,7 +33,7 @@
     }
   },
   "peerDependencies": {
-    "@angular/core": "22.1.7"
+    "@angular/core": "~22.2.0"
   },
   "peerDependenciesMeta": {
     "@angular/core": {

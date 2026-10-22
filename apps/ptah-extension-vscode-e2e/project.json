@@ -3,13 +3,24 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "projectType": "application",
   "sourceRoot": "apps/ptah-extension-vscode-e2e/src",
-  "tags": ["scope:e2e", "type:e2e"],
-  "implicitDependencies": ["ptah-extension-vscode"],
+  "tags": [
+    "scope:e2e",
+    "type:e2e"
+  ],
+  "implicitDependencies": [
+    "ptah-extension-vscode"
+  ],
   "targets": {
     "e2e": {
       "executor": "nx:run-commands",
+      "inputs": ["default", "^production"],
       "dependsOn": [
-        { "target": "build", "projects": ["ptah-extension-vscode"] }
+        {
+          "target": "build",
+          "projects": [
+            "ptah-extension-vscode"
+          ]
+        }
       ],
       "options": {
         "cwd": "apps/ptah-extension-vscode-e2e",
@@ -17,7 +28,25 @@
       }
     },
     "lint": {
-      "executor": "@nx/eslint:lint"
+      "inputs": [
+        "default",
+        "^default",
+        "{workspaceRoot}/.eslintrc.json",
+        "{workspaceRoot}/.eslintignore",
+        "{workspaceRoot}/eslint.config.mjs",
+        "{workspaceRoot}/tools/eslint-rules/**/*",
+        {
+          "externalDependencies": [
+            "eslint"
+          ]
+        }
+      ],
+      "executor": "nx:run-commands",
+      "cache": true,
+      "options": {
+        "cwd": "apps/ptah-extension-vscode-e2e",
+        "command": "eslint ."
+      }
     }
   }
 }

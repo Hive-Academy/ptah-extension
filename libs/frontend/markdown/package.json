@@ -2,7 +2,7 @@
   "name": "@ptah-extension/markdown",
   "version": "0.0.1",
   "peerDependencies": {
-    "@angular/core": "22.1.7",
+    "@angular/core": "~22.2.0",
     "ngx-markdown": "^22.0.2",
     "marked": "^18.0.13",
     "dompurify": "^3.3.3"
