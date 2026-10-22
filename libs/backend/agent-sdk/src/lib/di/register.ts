@@ -215,9 +215,12 @@ export function registerSdkServices(
   // Named Claude accounts stay release-held (TASK_2026_712 D7/D21): no host
   // has a certified persistence or import-lookup adapter yet, so both resolve
   // to null and every named admission or import refuses. A host replaces these
-  // defaults when it registers the certified adapters.
-  container.register(SDK_NAMED_ACCOUNT_PERSISTENCE, { useValue: null });
-  container.register(SDK_SESSION_IMPORT_BINDING_LOOKUP, { useValue: null });
+  // defaults when it registers the certified adapters. A factory is required:
+  // tsyringe rejects `{ useValue: null }` (its check is `useValue != undefined`).
+  container.register(SDK_NAMED_ACCOUNT_PERSISTENCE, { useFactory: () => null });
+  container.register(SDK_SESSION_IMPORT_BINDING_LOOKUP, {
+    useFactory: () => null,
+  });
   container.register(
     SDK_TOKENS.SDK_SESSION_METADATA_STORE,
     { useClass: SessionMetadataStore },
