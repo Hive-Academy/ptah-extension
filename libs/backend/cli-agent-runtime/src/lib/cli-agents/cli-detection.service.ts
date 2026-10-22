@@ -69,7 +69,10 @@ export class CliDetectionService {
         this.authSecrets.getProviderKey('cursor'),
       ),
     );
-    this.adapters.set('antigravity', new AntigravityCliAdapter(this.spawner));
+    this.adapters.set(
+      'antigravity',
+      new AntigravityCliAdapter(this.spawner, undefined, this.logger),
+    );
     this.adapters.set('opencode', new OpencodeCliAdapter(this.spawner));
     this.adapters.set('pi', new PiCliAdapter(this.spawner));
     this.adapters.set('grok', new GrokCliAdapter(this.spawner, this.logger));

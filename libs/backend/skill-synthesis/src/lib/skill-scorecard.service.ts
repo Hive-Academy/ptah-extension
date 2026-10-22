@@ -1,25 +1,8 @@
 /**
- * SkillScorecardService — composes persisted subagent telemetry into the
- * Library-tab scorecard DTOs.
+ * Composes invocation counts and metrics with task-grade verdicts for Library
+ * scorecards. Only skill_task_grades supplies rates and recent verdicts.
  *
- * Two entry points mirror the two RPC methods:
- *  - `getScorecards(slugs)` — the BATCHED path. One `GROUP BY` over
- *    `SkillCandidateStore.getScorecardAggregates` plus a tiny indexed verdict
- *    query per slug that actually has graded events. No disk reads here — the
- *    200-clone Library render must stay to one aggregate pass.
- *  - `getScorecardDetail(slug, limit?)` — the LAZY path, fetched only on card
- *    expansion. Recent graded rows plus a truncated review-findings excerpt
- *    (`SpecFindingsPort.getRecentFindings`, re-read from disk, 4000-char cap).
- *
- * A third read sits ALONGSIDE the aggregates rather than inside them:
- *  - `getWinRates(slugs)` — the per-slug win rate over the invocation →
- *    session-outcome join. It is a separate pass because it answers a different
- *    question from a different join, and because its `null` is a value the
- *    aggregate DTO has no room for (see the method's own header).
- *
- * All empty/partial states are well-typed: a slug with no rows yields a zeroed
- * scorecard (`totalInvocations: 0`, null averages, `gradedSuccessRate: null`),
- * never an error. `catch (error: unknown)` narrowing throughout.
+ * Findings are loaded on demand for the expanded detail view.
  */
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
@@ -29,15 +12,22 @@ import type {
   SkillSynthesisGetScorecardDetailResult,
 } from '@ptah-extension/shared';
 import { SKILL_SYNTHESIS_TOKENS } from './di/tokens';
-import {
-  SkillCandidateStore,
-  type SkillWinRate,
-} from './skill-candidate.store';
+import { SkillTaskGradeStore, type SkillTaskGradeAggregate } from './skill-task-grade.store';
+import { SkillInvocationEventStore } from './skill-invocation-event.store';
 import {
   SPEC_FINDINGS_TOKEN,
   type SpecFindingsPort,
 } from './spec-findings.port';
-import type { GradedInvocationRow, ScorecardAggregate } from './types';
+import type { ScorecardAggregate } from './types';
+import type { SkillRegistryKind } from './skill-registry.store';
+
+interface SkillWinRate {
+  readonly slug: string;
+  readonly invocations: number;
+  readonly wins: number;
+  readonly unknown: number;
+  readonly winRate: number | null;
+}
 
 /** Recent-verdict cap surfaced on each card (D9). */
 const MAX_RECENT_VERDICTS = 5;
@@ -51,25 +41,52 @@ const MAX_FINDINGS_CHARS = 4000;
 export class SkillScorecardService {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE)
-    private readonly store: SkillCandidateStore,
+        @inject(SKILL_SYNTHESIS_TOKENS.SKILL_TASK_GRADE_STORE)
+    private readonly grades: SkillTaskGradeStore,
     @inject(SPEC_FINDINGS_TOKEN, { isOptional: true })
     private readonly findings: SpecFindingsPort | null,
+    @inject(SkillInvocationEventStore)
+    private readonly events: SkillInvocationEventStore,
   ) {}
+
+  /** Graded task counts and rate, with distinct contexts from invocation telemetry. */
+  getInvocationStats(kind: SkillRegistryKind, slug: string, workspaceRoot: string | null): {
+    total: number;
+    succeeded: number;
+    failed: number;
+    distinctContexts: number;
+    invocationCount: number;
+    successRate: number | null;
+  } {
+    const grade = this.grades.getAggregates(kind, [slug], workspaceRoot ?? null).get(slug);
+    const total = grade?.graded ?? 0;
+    const succeeded = grade?.passed ?? 0;
+    const contextRow = this.events.getUsageStats(slug);
+    return {
+      total,
+      succeeded,
+      failed: total - succeeded,
+      distinctContexts: contextRow.distinctContexts,
+      invocationCount: contextRow.invocationCount,
+      successRate: total > 0 ? succeeded / total : null,
+    };
+  }
 
   /**
    * Batched scorecards for every visible agent-clone slug. One aggregate pass;
    * a slug is only hit with a verdict query when it has graded events.
    */
-  getScorecards(slugs: readonly string[]): Record<string, AgentScorecard> {
+  getScorecards(slugs: readonly string[], workspaceRoot: string | null): Record<string, AgentScorecard> {
     const scorecards: Record<string, AgentScorecard> = {};
     if (slugs.length === 0) return scorecards;
     try {
-      const aggregates = this.store.getScorecardAggregates(slugs);
+      const aggregates = this.events.getScorecardAggregates(slugs);
+      const grades = this.grades.getAggregates('agent', slugs, workspaceRoot ?? null);
       for (const [slug, aggregate] of aggregates) {
+        const grade = grades.get(slug) ?? { graded: 0, passed: 0, successRate: null };
         const recentVerdicts =
-          aggregate.graded > 0 ? this.buildRecentVerdicts(slug) : [];
-        scorecards[slug] = this.toScorecard(aggregate, recentVerdicts);
+          grade.graded > 0 ? this.buildRecentVerdicts(slug, workspaceRoot ?? null) : [];
+        scorecards[slug] = this.toScorecard(aggregate, grade, recentVerdicts);
       }
       return scorecards;
     } catch (error: unknown) {
@@ -87,40 +104,28 @@ export class SkillScorecardService {
   }
 
   /**
-   * Per-slug win rate for the requested clones, alongside the aggregates above.
-   *
-   * ## `winRate: null` IS A VALUE, AND IT IS NEVER `0`
-   *
-   * `null` means "no measured session for this slug yet"; `0` means "measured,
-   * and it lost every time". This service does not coalesce one into the other
-   * in either direction, and no caller may either — a `||` on this field turns a
-   * measured zero into "unmeasured" and quietly re-ranks it. Every slug the
-   * caller asked for comes back, so a slug with no invocation events at all
-   * reads as `{invocations: 0, wins: 0, unknown: 0, winRate: null}` rather than
-   * being missing from the record: absent and unmeasured are the same fact, and
-   * making the caller re-derive that is where the `0` creeps back in.
-   *
-   * Deliberately NOT folded into {@link AgentScorecard}: that DTO is the wire
-   * contract for the Library cards, and widening a shared wire type is the RPC
-   * batch's job, not this one. One store pass serves every requested slug —
-   * `getWinRates()` is a single `GROUP BY`, so filtering here is cheaper than
-   * asking per slug.
-   *
-   * Fail-soft, exactly like {@link getScorecards}: a store failure degrades to
-   * "nothing is measured", which is the honest answer and the one that changes
-   * no ranking, rather than throwing into a card render.
+   * Per-slug task-grade rate. Null means no grade; zero means graded failure.
+   * Invocation counts still come from telemetry. Store failure returns unmeasured.
    */
-  getWinRates(slugs: readonly string[]): Record<string, SkillWinRate> {
+  getWinRates(slugs: readonly string[], workspaceRoot: string | null): Record<string, SkillWinRate> {
     const rates: Record<string, SkillWinRate> = {};
     if (slugs.length === 0) return rates;
     for (const slug of slugs) {
       rates[slug] = unmeasuredWinRate(slug);
     }
     try {
-      for (const measured of this.store.getWinRates()) {
-        if (measured.slug in rates) {
-          rates[measured.slug] = measured;
-        }
+      const grades = this.grades.getAggregates('agent', slugs, workspaceRoot ?? null);
+      const aggregates = this.events.getScorecardAggregates(slugs);
+      for (const slug of slugs) {
+        const grade = grades.get(slug);
+        const total = aggregates.get(slug)?.total ?? 0;
+        rates[slug] = {
+          slug,
+          invocations: total,
+          wins: grade?.passed ?? 0,
+          unknown: Math.max(0, total - (grade?.graded ?? 0)),
+          winRate: grade?.successRate ?? null,
+        };
       }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
@@ -138,6 +143,7 @@ export class SkillScorecardService {
    */
   async getScorecardDetail(
     slug: string,
+    workspaceRoot: string | null,
     limit?: number,
   ): Promise<SkillSynthesisGetScorecardDetailResult> {
     if (!slug) {
@@ -146,8 +152,7 @@ export class SkillScorecardService {
     const effectiveLimit = this.clampDetailLimit(limit);
     let rows: ScorecardInvocationRow[] = [];
     try {
-      rows = this.store
-        .listGradedInvocations(slug, effectiveLimit)
+      rows = this.grades.listRecent('agent', slug, effectiveLimit, workspaceRoot ?? null)
         .map((r) => this.toInvocationRow(r));
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
@@ -162,28 +167,26 @@ export class SkillScorecardService {
     return { slug, rows, findingsExcerpt };
   }
 
-  private buildRecentVerdicts(slug: string): AgentScorecard['recentVerdicts'] {
-    return this.store
-      .listGradedInvocations(slug, MAX_RECENT_VERDICTS)
+  private buildRecentVerdicts(slug: string, workspaceRoot: string | null): AgentScorecard['recentVerdicts'] {
+    return this.grades
+      .listRecent('agent', slug, MAX_RECENT_VERDICTS, workspaceRoot)
       .map((r) => ({
-        taskId: r.taskId ?? taskIdFromVerdictSource(r.verdictSource) ?? '',
-        succeeded: r.succeeded,
-        reconciledAt: r.reconciledAt,
+        taskId: r.taskId,
+        succeeded: r.verdict === 'pass',
+        reconciledAt: r.gradedAt,
       }));
   }
 
   private toScorecard(
     aggregate: ScorecardAggregate,
+    grade: SkillTaskGradeAggregate,
     recentVerdicts: AgentScorecard['recentVerdicts'],
   ): AgentScorecard {
     return {
       slug: aggregate.slug,
       totalInvocations: aggregate.total,
-      gradedCount: aggregate.graded,
-      gradedSuccessRate:
-        aggregate.graded > 0
-          ? aggregate.gradedSucceeded / aggregate.graded
-          : null,
+      gradedCount: grade.graded,
+      gradedSuccessRate: grade.successRate,
       avgInputTokens: aggregate.avgInputTokens,
       avgOutputTokens: aggregate.avgOutputTokens,
       avgCacheReadTokens: aggregate.avgCacheReadTokens,
@@ -214,17 +217,17 @@ export class SkillScorecardService {
     };
   }
 
-  private toInvocationRow(row: GradedInvocationRow): ScorecardInvocationRow {
+  private toInvocationRow(row: import('./skill-task-grade.store').SkillTaskGrade): ScorecardInvocationRow {
     return {
       taskId: row.taskId,
-      succeeded: row.succeeded,
-      exactAttribution: isExactAttribution(row.verdictSource),
-      inputTokens: row.inputTokens,
-      outputTokens: row.outputTokens,
-      costUsd: row.costUsd,
-      durationMs: row.durationMs,
-      invokedAt: row.invokedAt,
-      reconciledAt: row.reconciledAt,
+      succeeded: row.verdict === 'pass',
+      exactAttribution: row.runId !== null || row.evidenceSource.startsWith('spec:'),
+      inputTokens: null,
+      outputTokens: null,
+      costUsd: null,
+      durationMs: null,
+      invokedAt: row.gradedAt,
+      reconciledAt: row.gradedAt,
     };
   }
 
@@ -264,18 +267,4 @@ export class SkillScorecardService {
  */
 function unmeasuredWinRate(slug: string): SkillWinRate {
   return { slug, invocations: 0, wins: 0, unknown: 0, winRate: null };
-}
-
-/** Exact attribution = base `spec:` provenance (not `spec-window:`). */
-function isExactAttribution(verdictSource: string | null): boolean {
-  return verdictSource !== null && verdictSource.startsWith('spec:');
-}
-
-/** Recover the task id from a `spec:TASK_X` / `spec-window:TASK_X` provenance. */
-function taskIdFromVerdictSource(verdictSource: string | null): string | null {
-  if (!verdictSource) return null;
-  const idx = verdictSource.indexOf(':');
-  if (idx < 0) return null;
-  const tail = verdictSource.slice(idx + 1).trim();
-  return tail.length > 0 ? tail : null;
 }

@@ -338,6 +338,14 @@ export class PtahCliSpawnOptions {
     });
   }
 
+  hasMcpPort(): boolean {
+    return this.resolveMcpPort() !== undefined;
+  }
+
+  getMcpPort(): number | undefined {
+    return this.resolveMcpPort();
+  }
+
   private resolveMcpPort(): number | undefined {
     try {
       return this.mcpServerStatus?.getPort() ?? undefined;

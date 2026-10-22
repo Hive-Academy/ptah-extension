@@ -433,6 +433,19 @@ export interface GradedInvocationRow {
   reconciledAt: number;
 }
 
+/** In-memory preview, retained only until the user explicitly saves. */
+export interface EnhancementDraft {
+  /** Exact body read before generation; sourceHash identifies its revision. */
+  before: string;
+  after: string;
+  sourceHash: string;
+  /** Bounded excerpts of the evidence supplied to the model. */
+  evidence: { trajectory: string; findings: string; scorecard: string };
+  /** Bounded line diff for review; before and after retain the full text. */
+  diff: string;
+  model: string;
+}
+
 /** Settings projection used by the synthesis service. */
 export interface SkillSynthesisSettings {
   enabled: boolean;

@@ -22,7 +22,7 @@ export interface CloneSummary {
   cloneStatus: SkillCloneStatus;
   diverged: boolean;
   invocationCount: number;
-  successRate: number;
+  successRate: number | null;
   lastEnhancedAt: number | null;
   historyCount: number;
   pendingSourceHash: string | null;
@@ -65,6 +65,9 @@ export interface SkillCloneInvocationStats {
   succeeded: number;
   failed: number;
   distinctContexts: number;
+  graded: number;
+  passed: number;
+  successRate: number | null;
 }
 
 export type SkillSynthesisListClonesParams = Record<string, never>;
@@ -121,6 +124,15 @@ export interface SkillSynthesisPreviewEnhancementResult {
   judgeScore: number | null;
   judgeReason: string | null;
   proposalId: string | null;
+  /** In-memory review data. Null when generation produced no candidate. */
+  draft?: {
+    before: string;
+    after: string;
+    diff: string;
+    evidence: { trajectory: string; findings: string; scorecard: string };
+    model: string;
+    sourceHash: string;
+  } | null;
 }
 
 export interface SkillSynthesisApplyProposalParams {
@@ -188,6 +200,10 @@ export interface SkillSynthesisSaveCloneBodyParams {
   slug: string;
   /** Full replacement body. Not a patch — the file is overwritten. */
   body: string;
+  /** Optional Phase A revision guard over the current user-layer body. */
+  expectedSourceHash?: string;
+  /** Marks an explicit enhancement save for registry and harness refresh. */
+  origin?: 'enhancement';
 }
 export interface SkillSynthesisSaveCloneBodyResult {
   kind: SkillCloneKind;
@@ -220,6 +236,7 @@ export interface SkillSynthesisSaveCloneBodyResult {
 
 export interface SkillSynthesisInvocationStatsParams {
   slug: string;
+  kind?: SkillCloneKind;
 }
 export interface SkillSynthesisInvocationStatsResult {
   slug: string;

@@ -15,6 +15,7 @@ import {
 } from 'lucide-angular';
 import { NativePopoverComponent } from '@ptah-extension/ui';
 import { AppStateManager, VSCodeService } from '@ptah-extension/core';
+import { HARNESS_BLOCKED_RECONCILE_STEPS } from '@ptah-extension/shared';
 import { HarnessHealthStore } from './harness-health.store';
 import {
   harnessBadgeTone,
@@ -23,6 +24,9 @@ import {
 } from './harness-health.model';
 import { HarnessTargetRowComponent } from './harness-target-row.component';
 import { HarnessBlockedPathsComponent } from './harness-blocked-paths.component';
+import { HarnessRepairDialogComponent } from './harness-repair-dialog.component';
+
+const RECONCILE_STEP = HARNESS_BLOCKED_RECONCILE_STEPS['marketplace-popover'];
 
 /** Per-tone classes for the badge trigger. Kept as whole strings so Tailwind can see them. */
 const TONE_CLASSES: Readonly<Record<HarnessBadgeTone, string>> = {
@@ -59,6 +63,7 @@ const TONE_CLASSES: Readonly<Record<HarnessBadgeTone, string>> = {
     NativePopoverComponent,
     HarnessTargetRowComponent,
     HarnessBlockedPathsComponent,
+    HarnessRepairDialogComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -165,7 +170,7 @@ const TONE_CLASSES: Readonly<Record<HarnessBadgeTone, string>> = {
         }
 
         @if (blocked().count > 0) {
-          <ptah-harness-blocked-paths [blocked]="blocked()" />
+          <ptah-harness-blocked-paths [blocked]="blocked()" [reconcileStep]="RECONCILE_STEP" />
         }
 
         @if (collisionCount() > 0) {
@@ -180,27 +185,35 @@ const TONE_CLASSES: Readonly<Record<HarnessBadgeTone, string>> = {
           </p>
         }
 
-        <div class="flex items-center justify-between gap-2 pt-1">
+        <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
           <span class="text-[10px] text-base-content-muted">
             {{ generatedLabel() }}
           </span>
-          <button
-            type="button"
-            class="btn btn-primary btn-xs"
-            data-testid="harness-reconcile"
-            [disabled]="store.busy()"
-            (click)="reconcile()"
-          >
-            @if (store.reconciling()) {
-              <span class="loading loading-spinner loading-xs"></span>
-              Reconciling…
-            } @else {
-              Reconcile now
+          <div class="flex flex-wrap items-center gap-1">
+            @if (blocked().count > 0) {
+              <button type="button" class="btn btn-warning btn-outline btn-xs" data-testid="harness-badge-repair" (click)="repairOpen.set(true)">Move these aside…</button>
             }
-          </button>
+            <button
+              type="button"
+              class="btn btn-primary btn-xs"
+              data-testid="harness-reconcile"
+              [disabled]="store.busy()"
+              (click)="reconcile()"
+            >
+              @if (store.reconciling()) {
+                <span class="loading loading-spinner loading-xs"></span>
+                Reconciling…
+              } @else {
+                Reconcile now
+              }
+            </button>
+          </div>
         </div>
       </div>
     </ptah-native-popover>
+    @if (repairOpen()) {
+      <ptah-harness-repair-dialog [blocked]="blocked()" (closed)="repairOpen.set(false)" />
+    }
   `,
 })
 export class HarnessHealthBadgeComponent implements OnInit {
@@ -215,6 +228,8 @@ export class HarnessHealthBadgeComponent implements OnInit {
   protected readonly RefreshIcon = RefreshCw;
 
   protected readonly open = signal(false);
+  protected readonly repairOpen = signal(false);
+  protected readonly RECONCILE_STEP = RECONCILE_STEP;
 
   protected readonly summary = this.store.summary;
 
@@ -280,7 +295,7 @@ export class HarnessHealthBadgeComponent implements OnInit {
       : `Checked ${at.toLocaleTimeString()}`;
   });
 
-  /** Load on mount — the badge only mounts on the Plugins page. */
+  /** Load on mount in the Skills & Plugins header. */
   public ngOnInit(): void {
     void this.store.refresh();
   }

@@ -272,6 +272,7 @@ async function runLane(
     parentSessionId: SESSION_ID,
     ptahCliId: 'pc-claude',
     ptahCliName: 'Claude Lane',
+    expectsMcp: false,
   });
   lane.attach(agentId);
   await lane.settled;
@@ -309,138 +310,164 @@ describe('Owner lifecycle (F55 backend legs, G2 per-turn account, G3 restart)', 
     world.ledger.dispose();
   });
 
-  it('moves the session from A to B across turns while each run keeps its own owner', async () => {
-    const ownerA = world.resolver.ownerForClaudeAccount(ACCOUNT_A, 'a');
-    const ownerB = world.resolver.ownerForClaudeAccount(ACCOUNT_B, 'b');
-    expect(ownerA.identityKind).toBe('account');
-    expect(ownerRelation(ownerA, ownerB)).toBe('different');
+  it(
+    'moves the session from A to B across turns while each run keeps its own owner',
+    async () => {
+      const ownerA = world.resolver.ownerForClaudeAccount(ACCOUNT_A, 'a');
+      const ownerB = world.resolver.ownerForClaudeAccount(ACCOUNT_B, 'b');
+      expect(ownerA.identityKind).toBe('account');
+      expect(ownerRelation(ownerA, ownerB)).toBe('different');
 
-    // Turn 1: the probe reads account A.
-    startTurn(world);
-    await settle();
-    expect(sessionOwner(world)).toEqual(ownerA);
+      // Turn 1: the probe reads account A.
+      startTurn(world);
+      await settle();
+      expect(sessionOwner(world)).toEqual(ownerA);
 
-    const run1 = await runLane(world, 'cli-run-1', ACCOUNT_A);
-    expect(world.manager.findAgentInfo(run1.agentId)?.quotaOwner).toEqual(
-      ownerA,
-    );
-    expect(
-      ownerRelation(
-        world.manager.findAgentInfo(run1.agentId)?.quotaOwner,
-        sessionOwner(world),
-      ),
-    ).toBe('same');
-    // The owner is persisted as soon as it is known, before the run exits.
-    expect((await persistedRefs(world.store))[0]?.quotaOwner).toEqual(ownerA);
-    await run1.finish();
+      const run1 = await runLane(world, 'cli-run-1', ACCOUNT_A);
+      expect(world.manager.findAgentInfo(run1.agentId)?.quotaOwner).toEqual(
+        ownerA,
+      );
+      expect(
+        ownerRelation(
+          world.manager.findAgentInfo(run1.agentId)?.quotaOwner,
+          sessionOwner(world),
+        ),
+      ).toBe('same');
+      // The owner is persisted as soon as it is known, before the run exits.
+      expect((await persistedRefs(world.store))[0]?.quotaOwner).toEqual(ownerA);
+      await run1.finish();
 
-    // Turn 2: no event of any kind, just the next per-turn read — account B.
-    startTurn(world);
-    await settle();
-    expect(world.accountInfo).toHaveBeenCalledTimes(2);
-    expect(sessionOwner(world)).toEqual(ownerB);
+      // Turn 2: no event of any kind, just the next per-turn read — account B.
+      startTurn(world);
+      await settle();
+      expect(world.accountInfo).toHaveBeenCalledTimes(2);
+      expect(sessionOwner(world)).toEqual(ownerB);
 
-    const run1Info = world.manager.findAgentInfo(run1.agentId);
-    expect(run1Info?.status).toBe('completed');
-    expect(run1Info?.quotaOwner).toEqual(ownerA);
-    expect(ownerRelation(run1Info?.quotaOwner, sessionOwner(world))).toBe(
-      'different',
-    );
+      const run1Info = world.manager.findAgentInfo(run1.agentId);
+      expect(run1Info?.status).toBe('completed');
+      expect(run1Info?.quotaOwner).toEqual(ownerA);
+      expect(ownerRelation(run1Info?.quotaOwner, sessionOwner(world))).toBe(
+        'different',
+      );
 
-    const run2 = await runLane(world, 'cli-run-2', ACCOUNT_B);
-    await run2.finish();
-    const run2Info = world.manager.findAgentInfo(run2.agentId);
-    expect(run2Info?.quotaOwner).toEqual(ownerB);
-    expect(ownerRelation(run2Info?.quotaOwner, sessionOwner(world))).toBe(
-      'same',
-    );
+      const run2 = await runLane(world, 'cli-run-2', ACCOUNT_B);
+      await run2.finish();
+      const run2Info = world.manager.findAgentInfo(run2.agentId);
+      expect(run2Info?.quotaOwner).toEqual(ownerB);
+      expect(ownerRelation(run2Info?.quotaOwner, sessionOwner(world))).toBe(
+        'same',
+      );
 
-    const refs = await persistedRefs(world.store);
-    expect(
-      refs.map((ref) => [ref.cliSessionId, ref.status, ref.quotaOwner]),
-    ).toEqual([
-      ['cli-run-1', 'completed', ownerA],
-      ['cli-run-2', 'completed', ownerB],
-    ]);
-  }, EXIT_TEST_TIMEOUT_MS);
+      const refs = await persistedRefs(world.store);
+      expect(
+        refs.map((ref) => [ref.cliSessionId, ref.status, ref.quotaOwner]),
+      ).toEqual([
+        ['cli-run-1', 'completed', ownerA],
+        ['cli-run-2', 'completed', ownerB],
+      ]);
+    },
+    EXIT_TEST_TIMEOUT_MS,
+  );
 
-  it('G3 restart: run A with no ledger evidence still restores as A, a different owner from B', async () => {
-    const ownerA = world.resolver.ownerForClaudeAccount(ACCOUNT_A, 'a');
-    const ownerB = world.resolver.ownerForClaudeAccount(ACCOUNT_B, 'b');
+  it(
+    'G3 restart: run A with no ledger evidence still restores as A, a different owner from B',
+    async () => {
+      const ownerA = world.resolver.ownerForClaudeAccount(ACCOUNT_A, 'a');
+      const ownerB = world.resolver.ownerForClaudeAccount(ACCOUNT_B, 'b');
 
-    startTurn(world);
-    await settle();
-    const run1 = await runLane(world, 'cli-run-1', ACCOUNT_A);
-    await run1.finish();
-    startTurn(world);
-    await settle();
-    expect(sessionOwner(world)).toEqual(ownerB);
+      startTurn(world);
+      await settle();
+      const run1 = await runLane(world, 'cli-run-1', ACCOUNT_A);
+      await run1.finish();
+      startTurn(world);
+      await settle();
+      expect(sessionOwner(world)).toEqual(ownerB);
 
-    // Nothing was ever recorded against A: the restore cannot lean on it.
-    expect(world.ledger.snapshotFor(ownerA.key)).toBeUndefined();
+      // Nothing was ever recorded against A: the restore cannot lean on it.
+      expect(world.ledger.snapshotFor(ownerA.key)).toBeUndefined();
 
-    // Host restart: a fresh store over the same storage, a fresh manager.
-    await world.store.flush();
-    const reloadedStore = new SessionMetadataStore(world.storage, world.logger);
-    const refs = await reloadedStore.getCliSessionsForRestore(SESSION_ID);
-    const restartedManager = createManager(
-      world.logger,
-      world.laneOwners,
-      world.ledger,
-    );
-    try {
-      expect(restartedManager.restoreAgents(refs, ROOT)).toBe(1);
+      // Host restart: a fresh store over the same storage, a fresh manager.
+      await world.store.flush();
+      const reloadedStore = new SessionMetadataStore(
+        world.storage,
+        world.logger,
+      );
+      const refs = await reloadedStore.getCliSessionsForRestore(SESSION_ID);
+      const restartedManager = createManager(
+        world.logger,
+        world.laneOwners,
+        world.ledger,
+      );
+      try {
+        expect(restartedManager.restoreAgents(refs, ROOT)).toBe(1);
 
-      const restored = restartedManager.findAgentInfo(run1.agentId);
-      expect(restored?.quotaOwner).toEqual(ownerA);
-      expect(ownerRelation(restored?.quotaOwner, ownerB)).toBe('different');
-    } finally {
-      await restartedManager.disposeAll();
-    }
-  }, EXIT_TEST_TIMEOUT_MS);
+        const restored = restartedManager.findAgentInfo(run1.agentId);
+        expect(restored?.quotaOwner).toEqual(ownerA);
+        expect(ownerRelation(restored?.quotaOwner, ownerB)).toBe('different');
+      } finally {
+        await restartedManager.disposeAll();
+      }
+    },
+    EXIT_TEST_TIMEOUT_MS,
+  );
 
   it.each<[string, Record<string, unknown>]>([
-    ['a malformed owner', { quotaOwner: { providerId: 'anthropic', key: 'x' } }],
-    ['a legacy bare key', { quotaOwnerKey: 'anthropic#account:0123456789abcdef' }],
-    ['an owner with an unknown identity kind', {
-      quotaOwner: {
-        providerId: 'anthropic',
-        identityKind: 'email',
-        key: 'anthropic#account:0123456789abcdef',
-        label: 'Claude account',
+    [
+      'a malformed owner',
+      { quotaOwner: { providerId: 'anthropic', key: 'x' } },
+    ],
+    [
+      'a legacy bare key',
+      { quotaOwnerKey: 'anthropic#account:0123456789abcdef' },
+    ],
+    [
+      'an owner with an unknown identity kind',
+      {
+        quotaOwner: {
+          providerId: 'anthropic',
+          identityKind: 'email',
+          key: 'anthropic#account:0123456789abcdef',
+          label: 'Claude account',
+        },
       },
-    }],
-  ])('restores %s as no owner, never the current owner B', async (_name, stored) => {
-    const ownerB = world.resolver.ownerForClaudeAccount(ACCOUNT_B, 'b');
-    const agentId = 'aaaaaaaa-bbbb-4ccc-8ddd-0000000000aa' as AgentId;
-    await world.store.addCliSession(SESSION_ID, {
-      cliSessionId: 'cli-legacy',
-      cli: 'ptah-cli',
-      agentId,
-      task: 'older run',
-      startedAt: '2026-09-01T10:00:00.000Z',
-      status: 'completed',
-      ...stored,
-    } as unknown as CliSessionReference);
-    await world.store.flush();
+    ],
+  ])(
+    'restores %s as no owner, never the current owner B',
+    async (_name, stored) => {
+      const ownerB = world.resolver.ownerForClaudeAccount(ACCOUNT_B, 'b');
+      const agentId = 'aaaaaaaa-bbbb-4ccc-8ddd-0000000000aa' as AgentId;
+      await world.store.addCliSession(SESSION_ID, {
+        cliSessionId: 'cli-legacy',
+        cli: 'ptah-cli',
+        agentId,
+        task: 'older run',
+        startedAt: '2026-09-01T10:00:00.000Z',
+        status: 'completed',
+        ...stored,
+      } as unknown as CliSessionReference);
+      await world.store.flush();
 
-    const reloadedStore = new SessionMetadataStore(world.storage, world.logger);
-    const refs = await reloadedStore.getCliSessionsForRestore(SESSION_ID);
-    const restartedManager = createManager(
-      world.logger,
-      world.laneOwners,
-      world.ledger,
-    );
-    try {
-      restartedManager.restoreAgents(refs, ROOT);
+      const reloadedStore = new SessionMetadataStore(
+        world.storage,
+        world.logger,
+      );
+      const refs = await reloadedStore.getCliSessionsForRestore(SESSION_ID);
+      const restartedManager = createManager(
+        world.logger,
+        world.laneOwners,
+        world.ledger,
+      );
+      try {
+        restartedManager.restoreAgents(refs, ROOT);
 
-      const restored = restartedManager.findAgentInfo(agentId);
-      expect(restored).toBeDefined();
-      expect(restored).not.toHaveProperty('quotaOwner');
-      expect(restored).not.toHaveProperty('quotaOwnerKey');
-      expect(ownerRelation(restored?.quotaOwner, ownerB)).toBe('unknown');
-    } finally {
-      await restartedManager.disposeAll();
-    }
-  });
+        const restored = restartedManager.findAgentInfo(agentId);
+        expect(restored).toBeDefined();
+        expect(restored).not.toHaveProperty('quotaOwner');
+        expect(restored).not.toHaveProperty('quotaOwnerKey');
+        expect(ownerRelation(restored?.quotaOwner, ownerB)).toBe('unknown');
+      } finally {
+        await restartedManager.disposeAll();
+      }
+    },
+  );
 });

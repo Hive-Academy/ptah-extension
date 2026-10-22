@@ -6,6 +6,8 @@
  * exits; a child session never exits on its own, it goes idle in its tab.
  */
 
+import { PTAH_MCP_TOOL_GUIDANCE } from '../cli-agents/ptah-mcp-tool-guidance.constant';
+
 export interface SessionChildContractInput {
   /** How the parent is named to the child (its label or tab id). */
   readonly parentLabel: string;
@@ -37,6 +39,7 @@ export function renderSessionChildContract(
     'You run unattended in your own tab; the user may also type there. ' +
       'AskUserQuestion and plan mode are unavailable: decide, note the ' +
       'assumption, and continue.',
+    PTAH_MCP_TOOL_GUIDANCE,
     'Report progress, decisions and blockers to the parent with ' +
       'ptah_agent_report. If a report is refused because the parent is not ' +
       'live, repeat its content in your final message of the turn so the ' +

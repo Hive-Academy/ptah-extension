@@ -5,6 +5,7 @@ import {
   detectStatus,
   extractSpec,
   normalizeExecutor,
+  parseReviewVerdict,
   parseBatchVerdicts,
   HARVEST_MARKER_FILE,
 } from './spec-extractor';
@@ -43,6 +44,29 @@ Example body for ${id}.
 }
 
 describe('spec-extractor pure parsers', () => {
+  it('accepts only explicit terminal review verdicts', () => {
+    expect(parseReviewVerdict('judge-round-1.json', '{"verdict":"approved","run_id":"r1"}', 'digest')).toEqual(expect.objectContaining({ verdict: 'pass', runId: 'r1' }));
+    expect(parseReviewVerdict('judge-round-2.json', '{"pass":false,"taskId":"TASK_2026_001"}', 'digest')).toEqual(expect.objectContaining({ verdict: 'fail' }));
+    expect(parseReviewVerdict('judge-round-1.json', '{broken', 'digest')).toBeNull();
+    expect(parseReviewVerdict('code-style-review.md', 'Some tests passed.', 'digest')).toBeNull();
+  });
+  it('parses the repository review verdict formats', () => {
+    const samples = [
+      ['code-logic-review.md', '## Verdict\n\n- Recommendation: REVISE (Verdict: REVISE)\n- Confidence: MEDIUM-HIGH', 'fail'],
+      ['code-style-review.md', '## Verdict\n\n- Recommendation: APPROVE\n- Confidence: HIGH', 'pass'],
+      ['code-style-review.md', '## Verdict\n\n- **Recommendation**: NEEDS_REVISION\n- Confidence: HIGH', 'fail'],
+      ['code-style-review.md', 'Verdict: REJECT', 'fail'],
+      ['code-style-review.md', 'Verdict: REJECTED', 'fail'],
+      ['code-style-review.md', 'Verdict: NEEDS REVISION', 'fail'],
+      ['code-style-review.md', 'Verdict: NEEDS-REVISION', 'fail'],
+      ['code-style-review.md', 'Recommendation: APPROVE with minor changes', 'pass'],
+      ['code-style-review.md', 'Verdict: APPROVED\nStatus: draft notes', 'pass'],
+      ['code-logic-review.md', '## Verdict\n\nAPPROVED\n', 'pass'],
+    ] as const;
+    for (const [file, content, verdict] of samples) {
+      expect(parseReviewVerdict(file, content, 'digest')?.verdict).toBe(verdict);
+    }
+  });
   describe('normalizeExecutor', () => {
     it('reduces a decorated executor to a single slug', () => {
       expect(normalizeExecutor('**backend-developer**')).toBe(
@@ -254,5 +278,33 @@ describe('extractSpec', () => {
     );
     const spec = await extractSpec(specDir);
     expect(spec?.harvested).toBe(true);
+  });
+
+  it('records a bounded diagnostic for malformed judge JSON and changes the artifact digest after correction', async () => {
+    const specDir = await makeSpec('TASK_2026_300');
+    await writeFile(join(specDir, 'task.md'), taskMd('TASK_2026_300', 'done'), 'utf8');
+    await writeFile(join(specDir, 'judge-round-1.json'), '{broken', 'utf8');
+    const before = await extractSpec(specDir);
+    expect(before?.reviews).toEqual([]);
+    expect(before?.diagnostics).toEqual(expect.arrayContaining([expect.stringContaining('judge-round-1.json')]));
+    await writeFile(join(specDir, 'judge-round-1.json'), '{"taskId":"TASK_2026_300","pass":true}', 'utf8');
+    const after = await extractSpec(specDir);
+    expect(after?.artifactDigest).not.toBe(before?.artifactDigest);
+    expect(after?.reviews).toEqual([expect.objectContaining({ verdict: 'pass' })]);
+  });
+
+  it('records one bounded diagnostic for review text without a verdict', async () => {
+    const specDir = await makeSpec('TASK_2026_302');
+    await writeFile(join(specDir, 'task.md'), taskMd('TASK_2026_302', 'done'), 'utf8');
+    await writeFile(join(specDir, 'code-logic-review.md'), 'Sensitive review content without a verdict', 'utf8');
+    const spec = await extractSpec(specDir);
+    expect(spec?.diagnostics).toEqual(['code-logic-review.md: invalid or missing terminal verdict']);
+    expect(spec?.diagnostics.join(' ')).not.toContain('Sensitive');
+  });
+
+  it('rejects a task folder outside the supplied specs root', async () => {
+    const specDir = await makeSpec('TASK_2026_301');
+    await writeFile(join(specDir, 'task.md'), taskMd('TASK_2026_301', 'done'), 'utf8');
+    expect(await extractSpec(specDir, join(dir, 'different-root'))).toBeNull();
   });
 });

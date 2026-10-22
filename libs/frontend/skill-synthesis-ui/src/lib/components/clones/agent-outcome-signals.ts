@@ -5,6 +5,13 @@
  * agent drawer. Skills and commands keep `formatSuccessRate`. Absent
  * signals and a zero run count render "no data yet" — never a fabricated
  * 0% or 100%. Rates are whole-number percentages with their counts.
+ *
+ * NULL-SAFE BOUNDARY. The shared DTO still types every count as `number`,
+ * but this formatter accepts `number | null | undefined` for the run count
+ * and both ratio parts, so an absent rate can never reach the division in
+ * `formatPercent` and print `NaN%`. An absent ratio renders the same
+ * absence label as a zero denominator — the outcome-side statement of what
+ * `formatSuccessRate` renders as "No grade" on the graded surfaces.
  */
 import type { AgentOutcomeSignals, OutcomeRatio } from '@ptah-extension/shared';
 
@@ -17,6 +24,31 @@ export interface CloneMetric {
 
 export type OutcomeStatus =
   'loading' | 'ready' | 'unavailable' | 'not-persistent';
+
+/**
+ * A pass/success ratio as this module accepts it. The shared `OutcomeRatio`
+ * still types both parts as `number`; `null`/`undefined` parts mean the
+ * producer never computed the rate, and must render an absence label rather
+ * than reach the division in {@link formatPercent}.
+ */
+export interface NullableOutcomeRatio {
+  readonly numerator: number | null | undefined;
+  readonly denominator: number | null | undefined;
+}
+
+/**
+ * `AgentOutcomeSignals` as this formatter accepts it: the run count and both
+ * ratio parts widened to `number | null | undefined`. A real
+ * `AgentOutcomeSignals` stays assignable — callers need no cast.
+ */
+export type AgentOutcomeSignalsInput = Omit<
+  AgentOutcomeSignals,
+  'runCount' | 'delivered' | 'reviewPass'
+> & {
+  readonly runCount: number | null | undefined;
+  readonly delivered: NullableOutcomeRatio;
+  readonly reviewPass: NullableOutcomeRatio;
+};
 
 /**
  * Window the RPC contract uses when the handler has not answered yet
@@ -33,7 +65,7 @@ const DEFAULT_WINDOW_DAYS = 30;
  *   that call returns. A positive finite value wins over `signals.windowDays`.
  */
 export function formatAgentOutcomeSignals(
-  signals: AgentOutcomeSignals | null | undefined,
+  signals: AgentOutcomeSignalsInput | null | undefined,
   windowDays: number | null,
   status: OutcomeStatus = 'ready',
 ): CloneMetric[] {
@@ -56,7 +88,7 @@ export function formatAgentOutcomeSignals(
       },
     ];
   }
-  if (signals == null || signals.runCount === 0) {
+  if (signals == null || !isRecordedCount(signals.runCount)) {
     return [
       {
         label: `Outcomes (${days}d)`,
@@ -66,7 +98,7 @@ export function formatAgentOutcomeSignals(
     ];
   }
 
-  const reviewed = signals.reviewPass.denominator > 0;
+  const reviewed = hasRatio(signals.reviewPass);
   const out: CloneMetric[] = [
     {
       label: 'Window',
@@ -110,7 +142,7 @@ export function formatAgentOutcomeSignals(
 
 function resolveWindowDays(
   windowDays: number | null,
-  signals: AgentOutcomeSignals | null | undefined,
+  signals: AgentOutcomeSignalsInput | null | undefined,
 ): number {
   const candidate = windowDays ?? signals?.windowDays ?? DEFAULT_WINDOW_DAYS;
   if (Number.isFinite(candidate) && candidate > 0) {
@@ -119,14 +151,34 @@ function resolveWindowDays(
   return DEFAULT_WINDOW_DAYS;
 }
 
-function formatDelivered(ratio: OutcomeRatio): string {
-  if (ratio.denominator === 0) return 'no verified runs';
+function formatDelivered(ratio: NullableOutcomeRatio): string {
+  if (!hasRatio(ratio)) return 'no verified runs';
   return formatPercent(ratio);
 }
 
-function formatReview(ratio: OutcomeRatio): string {
-  if (ratio.denominator === 0) return 'not reviewed yet';
+function formatReview(ratio: NullableOutcomeRatio): string {
+  if (!hasRatio(ratio)) return 'not reviewed yet';
   return formatPercent(ratio);
+}
+
+/**
+ * True when both parts are real numbers and the denominator is positive.
+ * Everything else — null, undefined, non-finite, non-positive — is the same
+ * fact: no rate exists to show, so the absence label renders, never `NaN%`.
+ */
+function hasRatio(ratio: NullableOutcomeRatio): ratio is OutcomeRatio {
+  return (
+    typeof ratio.numerator === 'number' &&
+    Number.isFinite(ratio.numerator) &&
+    typeof ratio.denominator === 'number' &&
+    Number.isFinite(ratio.denominator) &&
+    ratio.denominator > 0
+  );
+}
+
+/** True only for a real, positive run count; `0` and absent are both empty. */
+function isRecordedCount(count: number | null | undefined): boolean {
+  return typeof count === 'number' && Number.isFinite(count) && count > 0;
 }
 
 function formatPercent(ratio: OutcomeRatio): string {

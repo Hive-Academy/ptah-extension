@@ -31,7 +31,6 @@ const STATE_STORAGE_TOKEN = Symbol.for('IStateStorage');
 const USER_LAYER_MIRROR_TOKEN = Symbol.for('PtahUserLayerMirrorService');
 const SKILL_REGISTRY_STORE_TOKEN = Symbol.for('SkillRegistryStore');
 const SKILL_REGISTRY_CATALOG_TOKEN = Symbol.for('SkillRegistryCatalogService');
-const SKILL_CANDIDATE_STORE_TOKEN = Symbol.for('SkillCandidateStore');
 const SQLITE_CONNECTION_TOKEN = Symbol.for('PtahSqliteConnection');
 const AGENT_SYNC_GATE_TOKEN = Symbol.for('HarnessSyncAgentSyncGate');
 const GOVERNOR_TOKEN = Symbol.for('BackgroundWorkGovernor');
@@ -91,7 +90,6 @@ jest.mock('@ptah-extension/skill-synthesis', () => ({
   SKILL_SYNTHESIS_TOKENS: {
     SKILL_REGISTRY_STORE: Symbol.for('SkillRegistryStore'),
     SKILL_REGISTRY_CATALOG_SERVICE: Symbol.for('SkillRegistryCatalogService'),
-    SKILL_CANDIDATE_STORE: Symbol.for('SkillCandidateStore'),
   },
   resolveSkillsRoot: jest.fn(() => CONFIGURED_SKILLS_ROOT),
 }));
@@ -194,7 +192,6 @@ function makeHarness(
     ],
     [SKILL_REGISTRY_STORE_TOKEN, { setDiverged, setPending }],
     [SKILL_REGISTRY_CATALOG_TOKEN, { sync: catalogSync }],
-    [SKILL_CANDIDATE_STORE_TOKEN, { listDormantPromotedSlugs: () => [] }],
     [SQLITE_CONNECTION_TOKEN, { isOpen: options.sqliteOpen ?? true }],
     [
       AGENT_SYNC_GATE_TOKEN,

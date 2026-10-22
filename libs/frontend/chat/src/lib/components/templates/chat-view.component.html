@@ -133,12 +133,6 @@
         </div>
       }
 
-      <!-- Collapsed Permission Badge (doesn't block chat area) -->
-      <ptah-permission-badge
-        [permissions]="chatStore.unmatchedPermissions()"
-        (responded)="chatStore.handlePermissionResponse($event)"
-      />
-
       <!-- AskUserQuestion Cards — session-scoped to prevent showing in all canvas tiles -->
       @for (questionReq of resolvedQuestionRequests(); track questionReq.id) {
         <div

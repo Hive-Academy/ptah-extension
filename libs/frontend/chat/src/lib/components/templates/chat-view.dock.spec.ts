@@ -91,6 +91,7 @@ import { ActionBannerService } from '../../services/action-banner.service';
 import { SessionHistoryReplayer } from '../../services/chat-store/session-history-replayer.service';
 import { HistoryPagingService } from '../../services/chat-store/history-paging.service';
 import { DisplayDockState } from '../../services/display-dock/display-dock.state';
+import { ArtifactStore } from '../../services/artifact.store';
 import { ChangeSetActionsService } from '../../services/change-set/change-set-actions.service';
 import { DisplaySheetComponent } from '../organisms/display-sheet/display-sheet.component';
 import {
@@ -108,6 +109,10 @@ import {
 })
 class StubDisplayPanelComponent {
   readonly surfaces = input<readonly DisplaySurface[]>([]);
+  readonly artifacts = input<readonly unknown[]>([]);
+  readonly open = input(true);
+  readonly fullscreenArtifactId = input<string | null>(null);
+  readonly fullscreenChange = output<boolean>();
   readonly summary = input<unknown>(null);
   readonly summaryTurnKey = input('');
   readonly selectedKey = input<string | null>(null);
@@ -248,6 +253,16 @@ function mount(
     deferBlockBehavior: deferBehavior,
     providers: [
       provideSurfaceActiveTesting(),
+      {
+        provide: ArtifactStore,
+        useValue: {
+          records: signal({}),
+          lastError: signal(null),
+          recordById: () => null,
+          forSession: () => signal([]),
+          reload: jest.fn(),
+        },
+      },
       {
         provide: ChatStore,
         useValue: {
@@ -562,7 +577,7 @@ describe('ChatViewComponent - Display dock (Task 25.2)', () => {
       expect(native().querySelector('[data-testid="display-sheet-region"]')).not.toBeNull();
       await clickToggle();
       expect(bar.getAttribute('aria-expanded')).toBe('false');
-      expect((native().querySelector('[data-testid="display-sheet-region"]') as HTMLElement).hidden).toBe(true);
+      expect(native().querySelector('[data-testid="display-sheet-region"]')).toBeNull();
     });
   });
 
@@ -605,7 +620,7 @@ describe('ChatViewComponent - Display dock (Task 25.2)', () => {
     h.activeTabId.set('tab-2');
     await settle();
     expect(dockEl()?.style.display).toBe('none');
-    expect((native().querySelector('[data-testid="display-sheet-region"]') as HTMLElement).hidden).toBe(true);
+    expect(native().querySelector('[data-testid="display-sheet-region"]')).toBeNull();
     expect(store().tab('tab-2').open).toBe(false);
 
     h.activeTabId.set('tab-1');

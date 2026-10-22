@@ -113,14 +113,23 @@ describe('NotificationCenterStore', () => {
     });
   });
 
-  it('reactively tracks pending actions and reports stale and unavailable outcomes', async () => {
+  it('latches stale outcomes across all actions', async () => {
     notifications.upsert(lane);
-    const outcome = jest.fn().mockResolvedValueOnce({ kind: 'stale' }).mockResolvedValueOnce({ kind: 'unavailable', reason: 'No owner' });
+    const outcome = jest.fn().mockResolvedValue({ kind: 'stale' });
     TestBed.inject(ATTENTION_ACTION_DISPATCHER).dispatchOutcome = outcome;
     await expect(store.activate(lane, 'allow')).resolves.toBe(false);
     expect(store.status(lane)).toBe('Already answered');
     await expect(store.activate(lane, 'deny')).resolves.toBe(false);
-    expect(store.disabledReason(lane, 'deny')).toBe('No owner');
-    expect(store.status(lane)).toBe('No owner');
+    expect(outcome).toHaveBeenCalledTimes(1);
+  });
+
+  it('exposes an unavailable action reason to permission controls', async () => {
+    notifications.upsert(lane);
+    const outcome = jest.fn().mockResolvedValue({ kind: 'unavailable', reason: 'No owner' });
+    TestBed.inject(ATTENTION_ACTION_DISPATCHER).dispatchOutcome = outcome;
+    await expect(store.activate(lane, 'allow')).resolves.toBe(false);
+    expect(store.unavailableFor(lane).get(`${lane.key}:${lane.generation}:allow`)).toBe('No owner');
+    await expect(store.activate(lane, 'allow')).resolves.toBe(false);
+    expect(outcome).toHaveBeenCalledTimes(1);
   });
 });

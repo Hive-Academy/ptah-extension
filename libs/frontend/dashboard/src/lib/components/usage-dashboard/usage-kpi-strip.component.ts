@@ -1,18 +1,4 @@
-/**
- * UsageKpiStripComponent
- *
- * The five compact KPI tiles under the usage header (requirement 4):
- * processed tokens (with per-active-day), cached input (share of observed
- * input), uncached input (with cache writes), output, and cache savings.
- * Every `null` renders as an honest "unknown" note — a null share never
- * becomes a fabricated 0%.
- */
-import {
-  ChangeDetectionStrategy,
-  Component,
-  computed,
-  input,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { type UsageKpis } from './usage-summary.view-model';
 import { formatCompactTokens, formatPercent, formatUsd } from './usage-formatting';
 
@@ -20,111 +6,94 @@ import { formatCompactTokens, formatPercent, formatUsd } from './usage-formattin
   selector: 'ptah-usage-kpi-strip',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
+  styles: [`
+    @container (min-width: 900px) {
+      .usage-kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
+    @container (min-width: 1300px) {
+      .usage-kpi-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+    }
+  `],
   template: `
-    <div
-      class="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5"
-      data-testid="usage-kpis"
-    >
+    <div class="usage-kpi-grid grid grid-cols-2 gap-3" data-testid="usage-kpis" role="group" aria-label="Usage totals for the selected range">
+      <div class="rounded-lg bg-base-200/40 p-3" data-testid="usage-kpi-cost">
+        <p class="text-[11px] text-base-content-muted">Raw token cost</p>
+        <p class="mt-1 text-xl font-semibold tabular-nums" data-testid="usage-total-cost" [attr.title]="costTooltip()">{{ costLabel() }}</p>
+        <p class="mt-0.5 text-[10px] text-base-content-muted">{{ savingsSub() }}</p>
+      </div>
       <div class="rounded-lg bg-base-200/40 p-3" data-testid="usage-kpi-processed">
         <p class="text-[11px] text-base-content-muted">Processed tokens</p>
-        <p class="mt-1 text-lg font-semibold tabular-nums">
-          {{ compact(kpis().processedTokens) }}
-        </p>
-        <p class="mt-0.5 text-[10px] text-base-content-muted">
-          {{ processedSub() }}
-        </p>
+        <p class="mt-1 text-xl font-semibold tabular-nums">{{ compact(kpis().processedTokens) }}</p>
+        <p class="mt-0.5 text-[10px] text-base-content-muted">{{ processedSub() }}</p>
+        <p class="text-[10px] text-base-content-muted">{{ outputSub() }}</p>
       </div>
-
       <div class="rounded-lg bg-base-200/40 p-3" data-testid="usage-kpi-cached">
-        <p class="text-[11px] text-base-content-muted">Cached input</p>
-        <p class="mt-1 text-lg font-semibold tabular-nums">
-          {{ compact(kpis().cachedInputTokens) }}
-        </p>
-        <p class="mt-0.5 text-[10px] text-base-content-muted">
-          {{ cachedShareSub() }}
-        </p>
+        <p class="text-[11px] text-base-content-muted">Cached %</p>
+        <p class="mt-1 text-xl font-semibold tabular-nums" [attr.title]="cachedShareNote()">{{ cachedShareLabel() }}</p>
+        <p class="mt-0.5 text-[10px] text-base-content-muted">Cached input {{ compact(kpis().cachedInputTokens) }}</p>
+        <p class="text-[10px] text-base-content-muted" data-testid="usage-kpi-uncached">Uncached input {{ compact(kpis().uncachedInputTokens) }} · {{ compact(kpis().cacheWriteTokens) }} cache writes</p>
       </div>
-
-      <div class="rounded-lg bg-base-200/40 p-3" data-testid="usage-kpi-uncached">
-        <p class="text-[11px] text-base-content-muted">Uncached input</p>
-        <p class="mt-1 text-lg font-semibold tabular-nums">
-          {{ compact(kpis().uncachedInputTokens) }}
-        </p>
-        <p class="mt-0.5 text-[10px] text-base-content-muted">
-          {{ cacheWritesSub() }}
-        </p>
+      <div class="rounded-lg bg-base-200/40 p-3" title="Counts include usage sources with session identity in this range">
+        <p class="text-[11px] text-base-content-muted">Sessions</p>
+        <p class="mt-1 text-xl font-semibold tabular-nums">{{ kpis().sessionCount }}</p>
       </div>
-
-      <div class="rounded-lg bg-base-200/40 p-3" data-testid="usage-kpi-output">
-        <p class="text-[11px] text-base-content-muted">Output</p>
-        <p class="mt-1 text-lg font-semibold tabular-nums">
-          {{ compact(kpis().outputTokens) }}
-        </p>
+      <div class="rounded-lg bg-base-200/40 p-3" title="Counts include usage sources with session identity in this range">
+        <p class="text-[11px] text-base-content-muted">Messages</p>
+        <p class="mt-1 text-xl font-semibold tabular-nums">{{ kpis().messageCount }}</p>
       </div>
-
-      <div
-        class="rounded-lg bg-base-200/40 p-3"
-        data-testid="usage-kpi-savings"
-        [class.tooltip]="savingsTooltip() !== null"
-        [attr.data-tip]="savingsTooltip()"
-      >
-        <p class="text-[11px] text-base-content-muted">Cache savings</p>
-        <p class="mt-1 text-lg font-semibold tabular-nums">{{ savingsValue() }}</p>
-        <p class="mt-0.5 text-[10px] text-base-content-muted">
-          {{ savingsSub() }}
-        </p>
+      <div class="rounded-lg bg-base-200/40 p-3" title="Counts include usage sources with session identity in this range">
+        <p class="text-[11px] text-base-content-muted">Subagents</p>
+        <p class="mt-1 text-xl font-semibold tabular-nums">{{ kpis().subagentCount }}</p>
       </div>
     </div>
+    <p class="mt-1.5 text-[10px] text-base-content-muted">* estimated at API rates; not your bill</p>
   `,
 })
 export class UsageKpiStripComponent {
   readonly kpis = input.required<UsageKpis>();
-
+  readonly totalCostUsd = input<number | null>(null);
+  readonly totalUnpricedFactCount = input(0);
+  readonly totalUnpricedTokens = input(0);
   protected readonly compact = formatCompactTokens;
+
+  protected readonly costLabel = computed(() => {
+    const cost = this.totalCostUsd();
+    return cost === null ? 'Unknown' : `${this.totalUnpricedFactCount() > 0 ? '≥ ' : ''}${formatUsd(cost)}`;
+  });
+
+  protected readonly costTooltip = computed(() => {
+    const count = this.totalUnpricedFactCount();
+    const unpriced = count > 0 ? `${count} ${count === 1 ? 'fact' : 'facts'} unpriced, ${formatCompactTokens(this.totalUnpricedTokens())} tokens. ` : '';
+    const savings = this.kpis().cacheSavingsUsd === null ? 'No savings data' : `Cache savings ${this.savingsValue()}`;
+    return `${unpriced}${savings}`;
+  });
 
   protected readonly processedSub = computed(() => {
     const perDay = this.kpis().processedPerActiveDay;
-    return perDay === null
-      ? 'No active days'
-      : `~${formatCompactTokens(perDay)} per active day`;
+    return perDay === null ? 'No active days' : `~${formatCompactTokens(perDay)} per active day`;
   });
 
-  protected readonly cachedShareSub = computed(() => {
+  protected readonly cachedShareLabel = computed(() => {
     const share = this.kpis().cachedShareOfInput;
-    return share === null
-      ? 'No input observed'
-      : `${formatPercent(share)} of observed input`;
+    return share === null ? '—' : formatPercent(share);
   });
 
-  protected readonly cacheWritesSub = computed(() =>
-    `${formatCompactTokens(this.kpis().cacheWriteTokens)} cache writes`,
+  protected readonly cachedShareNote = computed(() =>
+    this.kpis().cachedShareOfInput === null ? 'No input observed' : `${this.cachedShareLabel()} of observed input`,
   );
 
-  /** "—", "$12.40", or "≥ $12.40" while some facts withhold savings. */
   protected readonly savingsValue = computed(() => {
     const kpis = this.kpis();
     if (kpis.cacheSavingsUsd === null) return '—';
-    return kpis.cacheSavingsUnknownFactCount > 0
-      ? `≥ ${formatUsd(kpis.cacheSavingsUsd)}`
-      : formatUsd(kpis.cacheSavingsUsd);
-  });
-
-  /** Tooltip text while the tile shows a lower bound; `null` hides it. */
-  protected readonly savingsTooltip = computed(() => {
-    const unknown = this.kpis().cacheSavingsUnknownFactCount;
-    return unknown > 0
-      ? `${unknown} ${unknown === 1 ? 'fact' : 'facts'} without savings data`
-      : null;
+    return `${kpis.cacheSavingsUnknownFactCount > 0 ? '≥ ' : ''}${formatUsd(kpis.cacheSavingsUsd)}`;
   });
 
   protected readonly savingsSub = computed(() => {
     const kpis = this.kpis();
-    if (kpis.savingsMultiple !== null) {
-      return `${kpis.savingsMultiple.toFixed(1)}x the raw token cost`;
-    }
+    if (kpis.savingsMultiple !== null) return `Cost before cache savings: ${kpis.savingsMultiple.toFixed(1)}x raw cost`;
     if (kpis.cacheSavingsUsd === null) return 'No savings data';
-    return kpis.cacheSavingsUnknownFactCount > 0
-      ? 'a lower bound'
-      : 'vs raw token cost';
+    return kpis.cacheSavingsUnknownFactCount > 0 ? 'a lower bound' : 'vs raw token cost';
   });
+
+  protected readonly outputSub = computed(() => `Output ${formatCompactTokens(this.kpis().outputTokens)} tokens`);
 }

@@ -1,112 +1,11 @@
-import {
-  Component,
-  ChangeDetectionStrategy,
-  DestroyRef,
-  computed,
-  effect,
-  inject,
-  signal,
-  untracked,
-} from '@angular/core';
-import { LucideAngularModule, ChartColumn } from 'lucide-angular';
-import {
-  SessionAnalyticsStateService,
-  SessionDateRange,
-  SESSION_DATE_RANGE_OPTIONS,
-} from '../../services/session-analytics-state.service';
-import { DashboardSessionEntry } from '../../models/session-analytics.models';
-import { MetricsCardsComponent } from '../session-analytics/metrics-cards.component';
-import { SessionStatsCardComponent } from '../session-analytics/session-stats-card.component';
-import { SessionDetailModalComponent } from '../session-analytics/session-detail-modal.component';
+﻿import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { UsageDashboardComponent } from '../usage-dashboard/usage-dashboard.component';
 
-/**
- * AnalyticsCardComponent
- *
- * Card-sized analytics surface used inside `DashboardGridComponent`.
- *
- * Composition:
- * - Header with the [Usage | Sessions] tab switch; Usage is the default tab
- *   (TASK_2026_707 PR 2) and owns `UsageDashboardComponent`.
- * - Sessions tab: date-range filter (always visible while mounted, so it
- *   keeps focus across reloads), aggregate `MetricsCardsComponent`, load and
- *   coverage status line, per-session `SessionStatsCardComponent` grid.
- *
- * Data flow:
- * - An effect loads session data on mount and again whenever the workspace
- *   changes — independent of the active tab, so the Sessions tab is warm;
- *   destroying the card cancels the load in flight.
- * - Stats arrive in pages and paint as they land. All display data comes from
- *   `SessionAnalyticsStateService` signals.
- */
 @Component({
   selector: 'ptah-analytics-card',
   standalone: true,
-  imports: [
-    MetricsCardsComponent,
-    SessionStatsCardComponent,
-    SessionDetailModalComponent,
-    UsageDashboardComponent,
-    LucideAngularModule,
-  ],
+  imports: [UsageDashboardComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './analytics-card.component.html',
 })
-export class AnalyticsCardComponent {
-  private readonly analyticsState = inject(SessionAnalyticsStateService);
-
-  /** Active analytics tab; Usage is the default (TASK_2026_707 PR 2). */
-  readonly tab = signal<'usage' | 'sessions'>('usage');
-
-  readonly ChartColumnIcon = ChartColumn;
-  readonly dateRangeOptions = SESSION_DATE_RANGE_OPTIONS;
-  readonly estimateLabel =
-    'Estimated from recorded usage and current rate card';
-
-  readonly isLoading = this.analyticsState.isLoading;
-  readonly isLoadingStats = this.analyticsState.isLoadingStats;
-  readonly statsProgress = this.analyticsState.statsProgress;
-  readonly loadError = this.analyticsState.loadError;
-  readonly displayedSessions = this.analyticsState.displayedSessions;
-  readonly aggregates = this.analyticsState.aggregates;
-  readonly dateRange = this.analyticsState.dateRange;
-  readonly totalSessionCount = this.analyticsState.totalSessionCount;
-  readonly hasMoreSessions = this.analyticsState.hasMoreSessions;
-  readonly sessionCap = this.analyticsState.sessionCap;
-
-  /** Failed sessions are worth a retry only once the load has settled. */
-  readonly canRetryFailed = computed(
-    () => !this.isLoadingStats() && this.aggregates().errorSessionCount > 0,
-  );
-
-  /** The session shown in the detail modal, or null when closed. */
-  readonly selectedSession = signal<DashboardSessionEntry | null>(null);
-
-  constructor() {
-    effect(() => {
-      this.analyticsState.workspacePath();
-      untracked(() => void this.analyticsState.loadDashboardData());
-    });
-    inject(DestroyRef).onDestroy(() => this.analyticsState.cancelLoad());
-  }
-
-  retry(): void {
-    void this.analyticsState.loadDashboardData();
-  }
-
-  setTab(tab: 'usage' | 'sessions'): void {
-    this.tab.set(tab);
-  }
-
-  setDateRange(range: SessionDateRange): void {
-    void this.analyticsState.setDateRange(range);
-  }
-
-  openSession(session: DashboardSessionEntry): void {
-    this.selectedSession.set(session);
-  }
-
-  closeSession(): void {
-    this.selectedSession.set(null);
-  }
-}
+export class AnalyticsCardComponent {}

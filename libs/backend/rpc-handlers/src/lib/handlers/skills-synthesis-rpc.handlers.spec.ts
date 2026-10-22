@@ -1,9 +1,5 @@
 /**
- * Unit tests for SkillsSynthesisRpcHandlers — diagnostics + analyzeNow +
- * setTriggers + getTriggers (Batch B6, TASK_2026_126).
- *
- * Each new method covers: happy path, Zod invalid params, service throw.
- * Plus a dual-registration smoke test against ALLOWED_METHOD_PREFIXES.
+ * Unit tests for the retained Skill Synthesis RPC surface.
  */
 
 import 'reflect-metadata';
@@ -18,20 +14,14 @@ import {
 } from '@ptah-extension/vscode-core';
 import {
   SKILL_SYNTHESIS_TOKENS,
+  SKILL_REPROPAGATION_TOKEN,
   USER_LAYER_MIRROR_SERVICE_TOKEN,
   ProposalNotFoundError,
-  SKILL_LANE_IDS,
-  SKILL_LANE_FIELDS,
-  SKILL_LANE_KEYS,
-  SKILL_LANE_DEFAULTS,
   SKILLS_ROOT_KEY,
   resolveSkillsRoot,
 } from '@ptah-extension/skill-synthesis';
 import {
   PLATFORM_TOKENS,
-  FILE_BASED_SETTINGS_KEYS,
-  FILE_BASED_SETTINGS_DEFAULTS,
-  isFileBasedSettingKey,
 } from '@ptah-extension/platform-core';
 import {
   createMockWorkspaceProvider,
@@ -91,17 +81,6 @@ function makeRpcHandler() {
 
 function makeSentry() {
   return { captureException: jest.fn() };
-}
-
-function makeSynthesis() {
-  return {
-    analyzeSession: jest.fn(),
-    readSettings: jest.fn().mockReturnValue({}),
-    restartCurator: jest.fn(),
-    promote: jest.fn(),
-    promoteBulk: jest.fn().mockResolvedValue([]),
-    reject: jest.fn(),
-  };
 }
 
 function makeStore() {
@@ -174,6 +153,7 @@ function makeRegistry() {
     getBySlug: jest.fn().mockReturnValue(null),
     setDiverged: jest.fn(),
     setPending: jest.fn(),
+    markEnhanced: jest.fn(),
   };
 }
 
@@ -223,6 +203,10 @@ function emptyScorecard(slug: string) {
 
 function makeScorecard() {
   return {
+    getInvocationStats: jest.fn().mockReturnValue({
+      total: 0, succeeded: 0, failed: 0, distinctContexts: 0,
+      invocationCount: 0, successRate: null,
+    }),
     getScorecards: jest.fn().mockReturnValue({}),
     // B4.4.3: `skillSynthesis:getScorecards` now merges the win-rate pass into
     // the aggregate, so the double has to answer both calls.
@@ -233,78 +217,17 @@ function makeScorecard() {
   };
 }
 
-/**
- * The queue store is injected non-optionally (it ships with the same
- * `registerSkillSynthesisServices` call as the candidate store), so every
- * container that resolves the handler class must provide it. The queue method
- * itself is exercised in `skills-synthesis-rpc.queue.spec.ts`.
- */
-function makeQueueStore() {
-  return {
-    listRecent: jest.fn().mockReturnValue([]),
-  };
-}
-
-/**
- * The budget store is injected non-optionally for the same reason as the queue
- * store, so it too must be present in EVERY container in this file — including
- * the two deliberately-sparse ones. There are four construction sites here plus
- * one in `skills-synthesis-rpc.queue.spec.ts`; a new constructor parameter
- * breaks all five, which is a known cost and a filed follow-up, not something
- * to fix by consolidating them inside a feature batch.
- */
-function makeBudgetStore() {
-  return {
-    todayStageUsage: jest.fn().mockReturnValue([]),
-  };
-}
-
-function makeDiagnostics() {
-  return {
-    getSnapshot: jest.fn().mockResolvedValue({
-      lastAnalyzeRunAt: null,
-      lastCuratorPassAt: null,
-      eligibilityHistogram: {
-        prefilterTooThin: 0,
-        prefilterRejected: 0,
-        accepted: 0,
-      },
-      byStatus: {
-        candidate: 0,
-        promoted: 0,
-        rejected: 0,
-        invocations: 0,
-        active: 0,
-        dormant: 0,
-        merged: 0,
-        retired: 0,
-      },
-      recentEvents: [],
-      triggers: {
-        idleMs: 600000,
-        bootScan: true,
-        subagentStop: { enabled: true },
-        postToolUse: { enabled: true, minEditCount: 3 },
-        turnComplete: { enabled: true },
-        maxAnalyzesPerHour: 6,
-      },
-    }),
-  };
-}
-
-function buildHandlers(workspaceFolders: string[] = ['/workspace/project']) {
+function buildHandlers(workspaceFolders: string[] = ['/workspace/project'], withScorecard = true) {
   const logger = makeLogger();
   const rpcHandler = makeRpcHandler();
   const sentry = makeSentry();
-  const synthesis = makeSynthesis();
   const store = makeStore();
-  const diagnostics = makeDiagnostics();
   const enhancer = makeEnhancer();
   const registry = makeRegistry();
   const mirror = makeMirror();
   const contentDownload = makeContentDownload();
   const scorecard = makeScorecard();
-  const queueStore = makeQueueStore();
+  const repropagation = { repropagate: jest.fn().mockResolvedValue(undefined) };
   const workspaceProvider: MockWorkspaceProvider = createMockWorkspaceProvider({
     folders: workspaceFolders,
   });
@@ -314,31 +237,20 @@ function buildHandlers(workspaceFolders: string[] = ['/workspace/project']) {
   child.registerInstance(TOKENS.RPC_HANDLER, rpcHandler);
   child.registerInstance(TOKENS.SENTRY_SERVICE, sentry);
   child.registerInstance(
-    SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE,
-    synthesis,
-  );
-  child.registerInstance(SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE, store);
-  child.registerInstance(
-    SKILL_SYNTHESIS_TOKENS.SKILL_DIAGNOSTICS_SERVICE,
-    diagnostics,
-  );
-  child.registerInstance(
     SKILL_SYNTHESIS_TOKENS.SKILL_ENHANCER_SERVICE,
     enhancer,
   );
   child.registerInstance(SKILL_SYNTHESIS_TOKENS.SKILL_REGISTRY_STORE, registry);
   child.registerInstance(USER_LAYER_MIRROR_SERVICE_TOKEN, mirror);
   child.registerInstance(PLATFORM_TOKENS.CONTENT_DOWNLOAD, contentDownload);
-  child.registerInstance(
-    SKILL_SYNTHESIS_TOKENS.SKILL_SCORECARD_SERVICE,
-    scorecard,
-  );
-  child.registerInstance(SKILL_SYNTHESIS_TOKENS.SKILL_QUEUE_STORE, queueStore);
-  child.registerInstance(
-    SKILL_SYNTHESIS_TOKENS.SKILL_BUDGET_STORE,
-    makeBudgetStore(),
-  );
+  if (withScorecard) {
+    child.registerInstance(
+      SKILL_SYNTHESIS_TOKENS.SKILL_SCORECARD_SERVICE,
+      scorecard,
+    );
+  }
   child.registerInstance(PLATFORM_TOKENS.WORKSPACE_PROVIDER, workspaceProvider);
+  child.registerInstance(SKILL_REPROPAGATION_TOKEN, repropagation);
   child.register(SkillsSynthesisRpcHandlers, {
     useClass: SkillsSynthesisRpcHandlers,
   });
@@ -350,595 +262,17 @@ function buildHandlers(workspaceFolders: string[] = ['/workspace/project']) {
     handlers,
     rpcHandler,
     sentry,
-    synthesis,
     store,
-    diagnostics,
     enhancer,
     registry,
     mirror,
     contentDownload,
     scorecard,
-    queueStore,
     workspaceProvider,
     logger,
+    repropagation,
   };
 }
-
-describe('SkillsSynthesisRpcHandlers — skillSynthesis:diagnostics', () => {
-  it('returns wire-shaped snapshot from diagnostics + store stats', async () => {
-    const { rpcHandler, diagnostics, store } = buildHandlers();
-    diagnostics.getSnapshot.mockResolvedValue({
-      lastAnalyzeRunAt: 1700000000000,
-      lastCuratorPassAt: 1699000000000,
-      eligibilityHistogram: {
-        prefilterTooThin: 1,
-        prefilterRejected: 5,
-        accepted: 4,
-      },
-      byStatus: {
-        candidate: 10,
-        promoted: 3,
-        rejected: 2,
-        invocations: 12,
-        active: 2,
-        dormant: 1,
-        merged: 4,
-        retired: 5,
-      },
-      recentEvents: [
-        { kind: 'analyze-run', timestamp: 1700000000000, sessionId: 's-1' },
-      ],
-      triggers: {
-        idleMs: 300000,
-        bootScan: false,
-        subagentStop: { enabled: true },
-        postToolUse: { enabled: true, minEditCount: 3 },
-        turnComplete: { enabled: true },
-        maxAnalyzesPerHour: 6,
-      },
-    });
-    store.getStats.mockReturnValue({
-      candidates: 10,
-      promoted: 3,
-      rejected: 2,
-      active: 2,
-      dormant: 1,
-      merged: 4,
-      retired: 5,
-      invocations: 12,
-    });
-
-    const result = await rpcHandler.call('skillSynthesis:diagnostics', {
-      workspaceRoot: '/workspace/project',
-    });
-
-    expect(diagnostics.getSnapshot).toHaveBeenCalledWith(
-      '/workspace/project',
-      undefined,
-    );
-    expect(result).toMatchObject({
-      lastAnalyzeRunAt: 1700000000000,
-      lastCuratorPassAt: 1699000000000,
-      totalCandidates: 10,
-      totalPromoted: 3,
-      totalRejected: 2,
-      totalInvocations: 12,
-      // Resident only: the dormant promoted row is not active.
-      activeSkills: 2,
-      totalMerged: 4,
-      totalRetired: 5,
-      totalDormant: 1,
-      eligibilityHistogram: { accepted: 4 },
-      triggers: { idleMs: 300000, bootScan: false },
-    });
-  });
-
-  it('carries each event id onto the wire and keeps the newest-first order of getSnapshot', async () => {
-    const { rpcHandler, diagnostics } = buildHandlers();
-    // Two events in the same millisecond, then an older one: newest-first as
-    // `SkillSynthesisService.recentEvents` returns them.
-    const newest = {
-      id: '01HNZXD07M5CEN5XA66EMZSRZY',
-      kind: 'ineligible' as const,
-      timestamp: 1700000000500,
-      sessionId: 's-b',
-    };
-    // Realistic ineligible event: reason + candidateId live outside `stats`
-    // internally and must be folded into wire `stats`, exactly as the live
-    // SKILL_SYNTHESIS_EVENT broadcast does (see the matching literal in
-    // skill-synthesis.service.spec.ts "folds reason and candidateId ...").
-    const sameMs = {
-      id: '01HNZXD07M5CEN5XA66EMZSRZX',
-      kind: 'ineligible' as const,
-      timestamp: 1700000000500,
-      sessionId: 's-a',
-      reason: 'prefilterTooThin',
-      candidateId: 'cand_1',
-      stats: { turns: 2 },
-    };
-    const older = {
-      id: '01HNZXD07M5CEN5XA66EMZSRZW',
-      kind: 'error' as const,
-      timestamp: 1700000000000,
-      sessionId: 's-a',
-      error: 'boom',
-    };
-    diagnostics.getSnapshot.mockResolvedValue({
-      lastAnalyzeRunAt: null,
-      lastCuratorPassAt: null,
-      eligibilityHistogram: {
-        prefilterTooThin: 0,
-        prefilterRejected: 0,
-        accepted: 0,
-      },
-      byStatus: {
-        candidate: 0,
-        promoted: 0,
-        rejected: 0,
-        invocations: 0,
-        active: 0,
-        dormant: 0,
-        merged: 0,
-        retired: 0,
-      },
-      recentEvents: [newest, sameMs, older],
-      triggers: {
-        idleMs: 600000,
-        bootScan: true,
-        subagentStop: { enabled: true },
-        postToolUse: { enabled: true, minEditCount: 3 },
-        turnComplete: { enabled: true },
-        maxAnalyzesPerHour: 6,
-      },
-    });
-
-    const result = (await rpcHandler.call('skillSynthesis:diagnostics', {
-      workspaceRoot: '/workspace/project',
-    })) as { recentEvents: Array<Record<string, unknown>> };
-
-    expect(result.recentEvents.map((e) => e['id'])).toEqual([
-      newest.id,
-      sameMs.id,
-      older.id,
-    ]);
-    expect(result.recentEvents).toEqual([
-      {
-        id: newest.id,
-        kind: 'ineligible',
-        timestamp: 1700000000500,
-        sessionId: 's-b',
-        stats: undefined,
-        error: undefined,
-      },
-      {
-        id: sameMs.id,
-        kind: 'ineligible',
-        timestamp: 1700000000500,
-        sessionId: 's-a',
-        stats: { turns: 2, candidateId: 'cand_1', reason: 'prefilterTooThin' },
-        error: undefined,
-      },
-      {
-        id: older.id,
-        kind: 'error',
-        timestamp: 1700000000000,
-        sessionId: 's-a',
-        stats: undefined,
-        error: 'boom',
-      },
-    ]);
-  });
-
-  it('rejects invalid workspaceRoot with INVALID_PARAMS', async () => {
-    const { rpcHandler, diagnostics } = buildHandlers();
-    await expect(
-      rpcHandler.call('skillSynthesis:diagnostics', { workspaceRoot: '' }),
-    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
-    expect(diagnostics.getSnapshot).not.toHaveBeenCalled();
-  });
-
-  it('wraps diagnostics throw in PERSISTENCE_UNAVAILABLE without leaking', async () => {
-    const { rpcHandler, diagnostics } = buildHandlers();
-    diagnostics.getSnapshot.mockRejectedValue(
-      new Error('SQLITE_CORRUPT: malformed disk image'),
-    );
-    let thrown: unknown;
-    try {
-      await rpcHandler.call('skillSynthesis:diagnostics', {});
-    } catch (err) {
-      thrown = err;
-    }
-    expect(thrown).toBeInstanceOf(RpcUserError);
-    const rpcErr = thrown as RpcUserError;
-    expect(rpcErr.errorCode).toBe('PERSISTENCE_UNAVAILABLE');
-    expect(rpcErr.message).not.toContain('SQLITE_CORRUPT');
-  });
-});
-
-describe('SkillsSynthesisRpcHandlers — skillSynthesis:stats', () => {
-  it('reports resident-only activeSkills and event-based invocations', async () => {
-    const { rpcHandler, store } = buildHandlers();
-    store.getStats.mockReturnValue({
-      candidates: 6,
-      promoted: 5,
-      rejected: 3,
-      active: 3,
-      dormant: 2,
-      merged: 1,
-      retired: 2,
-      invocations: 9,
-    });
-
-    const result = await rpcHandler.call('skillSynthesis:stats', {});
-
-    expect(result).toEqual({
-      totalCandidates: 6,
-      totalPromoted: 5,
-      totalRejected: 3,
-      totalInvocations: 9,
-      activeSkills: 3,
-    });
-  });
-});
-
-describe('SkillsSynthesisRpcHandlers — skillSynthesis:invocations', () => {
-  it('reads tracker events by candidate id and maps them onto the wire', async () => {
-    const { rpcHandler, store } = buildHandlers();
-    store.listInvocationEvents.mockReturnValue([
-      {
-        id: 'evt-2',
-        skillId: 'cand_1',
-        sessionId: 's-2',
-        succeeded: true,
-        invokedAt: 1700000000500,
-        notes: 'tool-use',
-        contextId: 'ctx-1',
-      },
-      {
-        id: 'evt-1',
-        skillId: 'cand_1',
-        sessionId: 's-1',
-        succeeded: false,
-        invokedAt: 1700000000000,
-        notes: null,
-        contextId: null,
-      },
-    ]);
-
-    const result = await rpcHandler.call('skillSynthesis:invocations', {
-      skillId: 'cand_1',
-      limit: 25,
-    });
-
-    expect(store.listInvocationEvents).toHaveBeenCalledWith('cand_1', 25);
-    expect(result).toEqual({
-      invocations: [
-        {
-          id: 'evt-2',
-          skillId: 'cand_1',
-          sessionId: 's-2',
-          succeeded: true,
-          invokedAt: 1700000000500,
-          notes: 'tool-use',
-        },
-        {
-          id: 'evt-1',
-          skillId: 'cand_1',
-          sessionId: 's-1',
-          succeeded: false,
-          invokedAt: 1700000000000,
-          notes: null,
-        },
-      ],
-    });
-  });
-
-  it('defaults the limit to 200 and returns [] without a skillId', async () => {
-    const { rpcHandler, store } = buildHandlers();
-
-    await rpcHandler.call('skillSynthesis:invocations', { skillId: 'cand_9' });
-    expect(store.listInvocationEvents).toHaveBeenCalledWith('cand_9', 200);
-
-    store.listInvocationEvents.mockClear();
-    const empty = await rpcHandler.call('skillSynthesis:invocations', {});
-    expect(empty).toEqual({ invocations: [] });
-    expect(store.listInvocationEvents).not.toHaveBeenCalled();
-  });
-});
-
-describe('SkillsSynthesisRpcHandlers — skillSynthesis:analyzeNow', () => {
-  it('passes force=true through to synthesis.analyzeSession', async () => {
-    const { rpcHandler, synthesis } = buildHandlers();
-    synthesis.analyzeSession.mockResolvedValue({
-      candidate: { id: 'cand-1' },
-      reused: false,
-    });
-
-    const result = await rpcHandler.call('skillSynthesis:analyzeNow', {
-      sessionId: 'sess-1',
-      workspaceRoot: '/workspace/project',
-      force: true,
-    });
-
-    expect(synthesis.analyzeSession).toHaveBeenCalledWith(
-      'sess-1',
-      '/workspace/project',
-      { force: true },
-    );
-    expect(result).toMatchObject({
-      success: true,
-      candidateId: 'cand-1',
-      reason: null,
-    });
-  });
-
-  it('defaults force=false when omitted', async () => {
-    const { rpcHandler, synthesis } = buildHandlers();
-    synthesis.analyzeSession.mockResolvedValue(null);
-
-    const result = await rpcHandler.call('skillSynthesis:analyzeNow', {
-      sessionId: 'sess-2',
-      workspaceRoot: '/workspace/project',
-    });
-
-    expect(synthesis.analyzeSession).toHaveBeenCalledWith(
-      'sess-2',
-      '/workspace/project',
-      { force: false },
-    );
-    expect(result).toMatchObject({
-      success: false,
-      candidateId: null,
-      reason: 'ineligible',
-    });
-  });
-
-  it('rejects empty sessionId with INVALID_PARAMS', async () => {
-    const { rpcHandler, synthesis } = buildHandlers();
-    await expect(
-      rpcHandler.call('skillSynthesis:analyzeNow', {
-        sessionId: '',
-        workspaceRoot: '/workspace/project',
-      }),
-    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
-    expect(synthesis.analyzeSession).not.toHaveBeenCalled();
-  });
-
-  it('rejects reserved sessionId "manual" with INVALID_PARAMS (Critical-1 guard)', async () => {
-    const { rpcHandler, synthesis } = buildHandlers();
-    await expect(
-      rpcHandler.call('skillSynthesis:analyzeNow', {
-        sessionId: 'manual',
-        workspaceRoot: '/workspace/project',
-      }),
-    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
-    expect(synthesis.analyzeSession).not.toHaveBeenCalled();
-  });
-
-  it('returns error envelope when synthesis throws (no leak as raw throw)', async () => {
-    const { rpcHandler, synthesis } = buildHandlers();
-    synthesis.analyzeSession.mockRejectedValue(new Error('JSONL read failed'));
-
-    const result = await rpcHandler.call('skillSynthesis:analyzeNow', {
-      sessionId: 'sess-3',
-      workspaceRoot: '/workspace/project',
-    });
-
-    expect(result).toMatchObject({
-      success: false,
-      candidateId: null,
-      error: 'JSONL read failed',
-    });
-  });
-});
-
-describe('SkillsSynthesisRpcHandlers — skillSynthesis:setTriggers', () => {
-  it('persists each provided field and returns the read-back triggers', async () => {
-    const { rpcHandler, workspaceProvider } = buildHandlers();
-    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
-
-    const result = await rpcHandler.call('skillSynthesis:setTriggers', {
-      triggers: { idleMs: 120000, bootScan: false },
-    });
-
-    expect(setSpy).toHaveBeenCalledWith(
-      'ptah',
-      'skillSynthesis.triggers.idleMs',
-      120000,
-    );
-    expect(setSpy).toHaveBeenCalledWith(
-      'ptah',
-      'skillSynthesis.triggers.bootScan',
-      false,
-    );
-    expect(result).toMatchObject({
-      triggers: { idleMs: 120000, bootScan: false },
-    });
-  });
-
-  it('rejects negative idleMs with INVALID_PARAMS', async () => {
-    const { rpcHandler, workspaceProvider } = buildHandlers();
-    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
-    await expect(
-      rpcHandler.call('skillSynthesis:setTriggers', {
-        triggers: { idleMs: -1 },
-      }),
-    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
-    expect(setSpy).not.toHaveBeenCalled();
-  });
-
-  it('rejects degenerate idleMs (1ms) with INVALID_PARAMS (Moderate-1)', async () => {
-    const { rpcHandler, workspaceProvider } = buildHandlers();
-    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
-    await expect(
-      rpcHandler.call('skillSynthesis:setTriggers', {
-        triggers: { idleMs: 1 },
-      }),
-    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
-    expect(setSpy).not.toHaveBeenCalled();
-  });
-
-  it('accepts idleMs = 0 (disabled)', async () => {
-    const { rpcHandler } = buildHandlers();
-    const result = await rpcHandler.call('skillSynthesis:setTriggers', {
-      triggers: { idleMs: 0 },
-    });
-    expect(result).toMatchObject({ triggers: { idleMs: 0 } });
-  });
-
-  it('returns PERSISTENCE_UNAVAILABLE without leaking when setConfiguration throws', async () => {
-    const { rpcHandler, workspaceProvider } = buildHandlers();
-    jest
-      .spyOn(workspaceProvider, 'setConfiguration')
-      .mockRejectedValue(new Error('EACCES: ~/.ptah/settings.json'));
-    let thrown: unknown;
-    try {
-      await rpcHandler.call('skillSynthesis:setTriggers', {
-        triggers: { idleMs: 120000 },
-      });
-    } catch (err) {
-      thrown = err;
-    }
-    expect(thrown).toBeInstanceOf(RpcUserError);
-    const rpcErr = thrown as RpcUserError;
-    expect(rpcErr.errorCode).toBe('PERSISTENCE_UNAVAILABLE');
-    expect(rpcErr.message).not.toContain('EACCES');
-  });
-});
-
-describe('SkillsSynthesisRpcHandlers — skillSynthesis:getTriggers', () => {
-  it('returns defaults when no settings present', async () => {
-    const { rpcHandler } = buildHandlers();
-    const result = await rpcHandler.call('skillSynthesis:getTriggers', {});
-    expect(result).toMatchObject({
-      triggers: {
-        idleMs: 600000,
-        bootScan: true,
-        subagentStop: { enabled: true },
-        postToolUse: { enabled: true, minEditCount: 3 },
-        maxAnalyzesPerHour: 6,
-      },
-    });
-  });
-
-  it('returns persisted values after setTriggers', async () => {
-    const { rpcHandler } = buildHandlers();
-    await rpcHandler.call('skillSynthesis:setTriggers', {
-      triggers: { idleMs: 90000, bootScan: false },
-    });
-    const result = await rpcHandler.call('skillSynthesis:getTriggers', {});
-    expect(result).toMatchObject({
-      triggers: { idleMs: 90000, bootScan: false },
-    });
-  });
-
-  it('rejects unknown fields when params is non-empty object with extras', async () => {
-    const { rpcHandler } = buildHandlers();
-    await expect(
-      rpcHandler.call('skillSynthesis:getTriggers', {
-        junk: 'value',
-      } as unknown),
-    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
-  });
-});
-
-describe('SkillsSynthesisRpcHandlers — nested triggers (subagentStop / postToolUse / maxAnalyzesPerHour)', () => {
-  it('persists nested subagentStop via flat dotted keys and round-trips', async () => {
-    const { rpcHandler, workspaceProvider } = buildHandlers();
-    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
-
-    const result = await rpcHandler.call('skillSynthesis:setTriggers', {
-      triggers: { subagentStop: { enabled: false } },
-    });
-
-    expect(setSpy).toHaveBeenCalledWith(
-      'ptah',
-      'skillSynthesis.triggers.subagentStop.enabled',
-      false,
-    );
-    expect(result).toMatchObject({
-      triggers: { subagentStop: { enabled: false } },
-    });
-
-    const getResult = await rpcHandler.call('skillSynthesis:getTriggers', {});
-    expect(getResult).toMatchObject({
-      triggers: { subagentStop: { enabled: false } },
-    });
-  });
-
-  it('persists nested postToolUse via 2 flat dotted keys', async () => {
-    const { rpcHandler, workspaceProvider } = buildHandlers();
-    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
-
-    await rpcHandler.call('skillSynthesis:setTriggers', {
-      triggers: { postToolUse: { enabled: false, minEditCount: 5 } },
-    });
-
-    expect(setSpy).toHaveBeenCalledWith(
-      'ptah',
-      'skillSynthesis.triggers.postToolUse.enabled',
-      false,
-    );
-    expect(setSpy).toHaveBeenCalledWith(
-      'ptah',
-      'skillSynthesis.triggers.postToolUse.minEditCount',
-      5,
-    );
-  });
-
-  it('persists maxAnalyzesPerHour as top-level flat key', async () => {
-    const { rpcHandler, workspaceProvider } = buildHandlers();
-    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
-
-    await rpcHandler.call('skillSynthesis:setTriggers', {
-      triggers: { maxAnalyzesPerHour: 24 },
-    });
-
-    expect(setSpy).toHaveBeenCalledWith(
-      'ptah',
-      'skillSynthesis.triggers.maxAnalyzesPerHour',
-      24,
-    );
-
-    const getResult = await rpcHandler.call('skillSynthesis:getTriggers', {});
-    expect(getResult).toMatchObject({
-      triggers: { maxAnalyzesPerHour: 24 },
-    });
-  });
-
-  it('rejects minEditCount=0 (below min) via Zod refinement', async () => {
-    const { rpcHandler, workspaceProvider } = buildHandlers();
-    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
-    await expect(
-      rpcHandler.call('skillSynthesis:setTriggers', {
-        triggers: { postToolUse: { enabled: true, minEditCount: 0 } },
-      }),
-    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
-    expect(setSpy).not.toHaveBeenCalled();
-  });
-
-  it('rejects minEditCount=21 (above max) via Zod refinement', async () => {
-    const { rpcHandler, workspaceProvider } = buildHandlers();
-    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
-    await expect(
-      rpcHandler.call('skillSynthesis:setTriggers', {
-        triggers: { postToolUse: { enabled: true, minEditCount: 21 } },
-      }),
-    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
-    expect(setSpy).not.toHaveBeenCalled();
-  });
-
-  it('rejects maxAnalyzesPerHour > 1000 via Zod refinement', async () => {
-    const { rpcHandler, workspaceProvider } = buildHandlers();
-    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
-    await expect(
-      rpcHandler.call('skillSynthesis:setTriggers', {
-        triggers: { maxAnalyzesPerHour: 1001 },
-      }),
-    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
-    expect(setSpy).not.toHaveBeenCalled();
-  });
-});
 
 describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
   const sampleRow = {
@@ -958,14 +292,16 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
     updatedAt: 1700000000000,
   };
 
-  it('listClones joins registry rows with invocation stats + history count', async () => {
-    const { rpcHandler, registry, store, mirror } = buildHandlers();
+  it('listClones joins grade rates with telemetry counts and history', async () => {
+    const { rpcHandler, registry, store, scorecard, mirror } = buildHandlers();
     registry.listAll.mockReturnValue([sampleRow]);
-    store.getInvocationStats.mockReturnValue({
-      total: 10,
-      succeeded: 7,
-      failed: 3,
+    scorecard.getInvocationStats.mockReturnValue({
+      total: 5,
+      succeeded: 3,
+      failed: 2,
       distinctContexts: 4,
+      invocationCount: 10,
+      successRate: 0.6,
     });
     mirror.listHistory.mockResolvedValue([
       { ts: 't1', path: '/p/t1', hasSkillMd: true },
@@ -982,13 +318,107 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
       kind: 'skill',
       cloneStatus: 'clone',
       invocationCount: 10,
-      successRate: 0.7,
+      successRate: 0.6,
       historyCount: 2,
       lastEnhancedAt: 1700000000000,
       enhanceMinInvocations: 5,
       enhanceCooldownUntil: 1700000000000 + 24 * 60 * 60 * 1000,
     });
+    expect(scorecard.getInvocationStats).toHaveBeenCalledWith('skill', 'deep-research', '/workspace/project');
+    expect(store.getInvocationStats).not.toHaveBeenCalled();
   });
+
+  it('listClones returns a null success rate without grades', async () => {
+    const { rpcHandler, registry, scorecard, store } = buildHandlers();
+    registry.listAll.mockReturnValue([sampleRow]);
+    scorecard.getInvocationStats.mockReturnValue({
+      total: 0, succeeded: 0, failed: 0, distinctContexts: 3,
+      invocationCount: 8, successRate: null,
+    });
+
+    const result = (await rpcHandler.call('skillSynthesis:listClones', {})) as {
+      clones: Array<{ invocationCount: number; successRate: number | null }>;
+    };
+
+    expect(result.clones[0].successRate).toBeNull();
+    expect(result.clones[0].invocationCount).toBe(8);
+    expect(store.getInvocationStats).not.toHaveBeenCalled();
+  });
+
+  it('keeps every clone when one invocation lookup throws', async () => {
+    const { rpcHandler, registry, scorecard, logger } = buildHandlers();
+    registry.listAll.mockReturnValue([sampleRow, { ...sampleRow, slug: 'other' }]);
+    const failure = new Error('telemetry unavailable');
+    scorecard.getInvocationStats.mockImplementation((_kind: string, slug: string) => {
+      if (slug === 'deep-research') throw failure;
+      return { total: 1, succeeded: 1, failed: 0, distinctContexts: 1,
+        invocationCount: 3, successRate: 1 };
+    });
+    const result = await rpcHandler.call('skillSynthesis:listClones', {}) as {
+      clones: Array<{ slug: string; invocationCount: number; successRate: number | null }>;
+    };
+    expect(result.clones).toHaveLength(2);
+    expect(result.clones[0]).toMatchObject({ invocationCount: 0, successRate: null });
+    expect(result.clones[1]).toMatchObject({ invocationCount: 3, successRate: 1 });
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[skill-synthesis] clone invocation stats unavailable',
+      expect.objectContaining({ slug: 'deep-research', error: failure }),
+    );
+  });
+
+  it('listClones keeps rows available when the optional scorecard is absent', async () => {
+    const { rpcHandler, registry, store, scorecard } = buildHandlers(['/workspace/project'], false);
+    registry.listAll.mockReturnValue([sampleRow]);
+
+    const result = (await rpcHandler.call('skillSynthesis:listClones', {})) as {
+      clones: Array<{ invocationCount: number; successRate: number | null }>;
+    };
+
+    expect(result.clones).toHaveLength(1);
+    expect(result.clones[0]).toMatchObject({ invocationCount: 0, successRate: null });
+    expect(scorecard.getInvocationStats).not.toHaveBeenCalled();
+    expect(store.getInvocationStats).not.toHaveBeenCalled();
+  });
+
+  it('listClones uses graded rate even with ungraded invocations', async () => {
+    const { rpcHandler, registry, scorecard, store } = buildHandlers();
+    registry.listAll.mockReturnValue([sampleRow]);
+    scorecard.getInvocationStats.mockReturnValue({
+      total: 2,
+      succeeded: 1,
+      failed: 1,
+      distinctContexts: 1,
+      invocationCount: 3,
+      successRate: 0.5,
+    });
+
+    const result = (await rpcHandler.call('skillSynthesis:listClones', {})) as {
+      clones: Array<{ successRate: number | null }>;
+    };
+
+    expect(result.clones[0].successRate).toBe(0.5);
+    expect(store.getInvocationStats).not.toHaveBeenCalled();
+  });
+
+  it.each(['agent', 'command'] as const)(
+    'listClones reads %s grades using the clone kind',
+    async (kind) => {
+      const { rpcHandler, registry, scorecard, store } = buildHandlers();
+      registry.listAll.mockReturnValue([{ ...sampleRow, kind }]);
+      scorecard.getInvocationStats.mockReturnValue({
+        total: 2, succeeded: 1, failed: 1, distinctContexts: 1,
+        invocationCount: 3, successRate: 0.5,
+      });
+
+      const result = (await rpcHandler.call('skillSynthesis:listClones', {})) as {
+        clones: Array<{ successRate: number | null }>;
+      };
+
+      expect(scorecard.getInvocationStats).toHaveBeenCalledWith(kind, 'deep-research', '/workspace/project');
+      expect(result.clones[0].successRate).toBe(0.5);
+      expect(store.getInvocationStats).not.toHaveBeenCalled();
+    },
+  );
 
   it('listClones returns PERSISTENCE_UNAVAILABLE when registry unbound (VS Code)', async () => {
     const logger = makeLogger();
@@ -998,32 +428,10 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
     child.registerInstance(TOKENS.RPC_HANDLER, rpcHandler);
     child.registerInstance(TOKENS.SENTRY_SERVICE, makeSentry());
     child.registerInstance(
-      SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE,
-      makeSynthesis(),
-    );
-    child.registerInstance(
-      SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE,
-      makeStore(),
-    );
-    child.registerInstance(
-      SKILL_SYNTHESIS_TOKENS.SKILL_DIAGNOSTICS_SERVICE,
-      makeDiagnostics(),
-    );
-    child.registerInstance(
       PLATFORM_TOKENS.WORKSPACE_PROVIDER,
       createMockWorkspaceProvider({ folders: ['/workspace/project'] }),
     );
-    // The registry is what this test leaves unbound; the queue and budget
-    // stores are not optional, so both must be present even in a
-    // deliberately-sparse container.
-    child.registerInstance(
-      SKILL_SYNTHESIS_TOKENS.SKILL_QUEUE_STORE,
-      makeQueueStore(),
-    );
-    child.registerInstance(
-      SKILL_SYNTHESIS_TOKENS.SKILL_BUDGET_STORE,
-      makeBudgetStore(),
-    );
+    // The registry is deliberately unbound in this container.
     child.register(SkillsSynthesisRpcHandlers, {
       useClass: SkillsSynthesisRpcHandlers,
     });
@@ -1071,36 +479,6 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
     ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
   });
 
-  it('enhanceNow reads settings and calls enhancer with manual flag + kind', async () => {
-    const { rpcHandler, registry, enhancer, synthesis } = buildHandlers();
-    synthesis.readSettings.mockReturnValue({ minJudgeScore: 6 });
-    registry.getBySlug.mockReturnValue(sampleRow);
-    enhancer.enhance.mockResolvedValue({
-      changed: true,
-      slug: 'deep-research',
-      kind: 'skill',
-      judgeScore: 8,
-      judgeReason: 'judge-verdict',
-      historyTs: '20260101T000000',
-    });
-
-    const result = await rpcHandler.call('skillSynthesis:enhanceNow', {
-      kind: 'skill',
-      slug: 'deep-research',
-    });
-
-    expect(enhancer.enhance).toHaveBeenCalledWith(
-      'deep-research',
-      { minJudgeScore: 6 },
-      { manual: true, kind: 'skill', userInitiated: true },
-    );
-    expect(result).toMatchObject({
-      changed: true,
-      slug: 'deep-research',
-      judgeScore: 8,
-      skipReason: null,
-    });
-  });
 
   it('revertEnhancement delegates to enhancer.revert with kind', async () => {
     const { rpcHandler, enhancer } = buildHandlers();
@@ -1162,105 +540,9 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
     expect(enhancer.revert).not.toHaveBeenCalled();
   });
 
-  it('enhanceNow enhances an agent-kind clone with kind agent', async () => {
-    const { rpcHandler, registry, enhancer, synthesis } = buildHandlers();
-    synthesis.readSettings.mockReturnValue({ minJudgeScore: 6 });
-    registry.getBySlug.mockImplementation((kind: string) =>
-      kind === 'agent'
-        ? { ...sampleRow, kind: 'agent', slug: 'my-agent' }
-        : null,
-    );
-    enhancer.enhance.mockResolvedValue({
-      changed: true,
-      slug: 'my-agent',
-      kind: 'agent',
-      judgeScore: 8,
-      judgeReason: 'judge-verdict',
-      historyTs: '1717848000000',
-    });
 
-    const result = await rpcHandler.call('skillSynthesis:enhanceNow', {
-      kind: 'agent',
-      slug: 'my-agent',
-    });
 
-    expect(enhancer.enhance).toHaveBeenCalledWith(
-      'my-agent',
-      { minJudgeScore: 6 },
-      { manual: true, kind: 'agent', userInitiated: true },
-    );
-    expect(result).toMatchObject({ changed: true, kind: 'agent' });
-  });
 
-  it('enhanceNow enhances a command-kind clone with kind command', async () => {
-    const { rpcHandler, registry, enhancer, synthesis } = buildHandlers();
-    synthesis.readSettings.mockReturnValue({ minJudgeScore: 6 });
-    registry.getBySlug.mockImplementation((kind: string) =>
-      kind === 'command'
-        ? { ...sampleRow, kind: 'command', slug: 'my-cmd' }
-        : null,
-    );
-    enhancer.enhance.mockResolvedValue({
-      changed: false,
-      slug: 'my-cmd',
-      kind: 'command',
-      judgeScore: null,
-      judgeReason: null,
-      historyTs: null,
-    });
-
-    await rpcHandler.call('skillSynthesis:enhanceNow', {
-      kind: 'command',
-      slug: 'my-cmd',
-    });
-
-    expect(enhancer.enhance).toHaveBeenCalledWith(
-      'my-cmd',
-      { minJudgeScore: 6 },
-      { manual: true, kind: 'command', userInitiated: true },
-    );
-  });
-
-  it('enhanceNow rejects with INVALID_PARAMS when no clone exists for (kind, slug); enhancer untouched', async () => {
-    const { rpcHandler, registry, enhancer } = buildHandlers();
-    registry.getBySlug.mockReturnValue(null);
-
-    await expect(
-      rpcHandler.call('skillSynthesis:enhanceNow', {
-        kind: 'agent',
-        slug: 'missing',
-      }),
-    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
-    expect(enhancer.enhance).not.toHaveBeenCalled();
-  });
-
-  it('enhanceNow proceeds to enhancer when the slug is a skill clone', async () => {
-    const { rpcHandler, registry, enhancer, synthesis } = buildHandlers();
-    synthesis.readSettings.mockReturnValue({ minJudgeScore: 6 });
-    registry.getBySlug.mockImplementation((kind: string) =>
-      kind === 'skill' ? sampleRow : null,
-    );
-    enhancer.enhance.mockResolvedValue({
-      changed: true,
-      slug: 'deep-research',
-      kind: 'skill',
-      judgeScore: 8,
-      judgeReason: 'judge-verdict',
-      historyTs: '1717848000000',
-    });
-
-    const result = await rpcHandler.call('skillSynthesis:enhanceNow', {
-      kind: 'skill',
-      slug: 'deep-research',
-    });
-
-    expect(enhancer.enhance).toHaveBeenCalledWith(
-      'deep-research',
-      { minJudgeScore: 6 },
-      { manual: true, kind: 'skill', userInitiated: true },
-    );
-    expect(result).toMatchObject({ changed: true, skipReason: null });
-  });
 
   it('rebaseClone returns PERSISTENCE_UNAVAILABLE for a poisoned originPluginId (no path join)', async () => {
     const { rpcHandler, registry, mirror, contentDownload } = buildHandlers();
@@ -1353,8 +635,8 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
   });
 
   describe('saveCloneBody', () => {
-    it('delegates to the mirror with exactly kind, slug, body and workspaceRoot', async () => {
-      const { rpcHandler, registry, mirror } = buildHandlers();
+    it('keeps the existing save behavior when expectedSourceHash is absent', async () => {
+      const { rpcHandler, registry, mirror, repropagation } = buildHandlers();
       registry.getBySlug.mockReturnValue(sampleRow);
       mirror.saveCloneBody.mockResolvedValue({
         kind: 'skill',
@@ -1362,6 +644,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
         historyTs: '1700000000001',
         written: true,
         reason: null,
+        currentContentHash: 'sha256:saved',
         metadataIncomplete: false,
         reconcileProtected: true,
       });
@@ -1385,6 +668,101 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
         metadataIncomplete: false,
         reconcileProtected: true,
       });
+      expect(registry.markEnhanced).not.toHaveBeenCalled();
+      expect(repropagation.repropagate).not.toHaveBeenCalled();
+    });
+
+    it('stamps and repropagates a committed enhancement save', async () => {
+      const { rpcHandler, registry, mirror, repropagation } = buildHandlers();
+      registry.getBySlug.mockReturnValue(sampleRow);
+      const savedHash = `sha256:${'b'.repeat(64)}`;
+      mirror.saveCloneBody.mockResolvedValue({ kind: 'skill', slug: 'deep-research',
+        historyTs: '1700000000001', written: true, reason: null,
+        currentContentHash: savedHash, metadataIncomplete: false, reconcileProtected: true });
+      const result = await rpcHandler.call('skillSynthesis:saveCloneBody', {
+        kind: 'skill', slug: 'deep-research', body: '# enhanced', origin: 'enhancement',
+        expectedSourceHash: `sha256:${'a'.repeat(64)}`,
+      });
+      expect(result).toMatchObject({ metadataIncomplete: false });
+      expect(registry.markEnhanced).toHaveBeenCalledWith(
+        'skill', 'deep-research', expect.any(Number), savedHash,
+      );
+      expect(repropagation.repropagate).toHaveBeenCalledWith(
+        'skill', 'deep-research', '/workspace/project', { userInitiated: true },
+      );
+    });
+
+    it('skips the enhancement stamp and flags incomplete metadata when no hash is returned', async () => {
+      const { rpcHandler, registry, mirror, repropagation } = buildHandlers();
+      registry.getBySlug.mockReturnValue(sampleRow);
+      mirror.saveCloneBody.mockResolvedValue({
+        kind: 'skill', slug: 'deep-research', historyTs: '1700000000001',
+        written: true, reason: null, currentContentHash: null,
+        metadataIncomplete: false, reconcileProtected: true,
+      });
+
+      const result = await rpcHandler.call('skillSynthesis:saveCloneBody', {
+        kind: 'skill', slug: 'deep-research', body: '# enhanced', origin: 'enhancement',
+      });
+
+      expect(result).toMatchObject({ metadataIncomplete: true });
+      expect(registry.markEnhanced).not.toHaveBeenCalled();
+      expect(repropagation.repropagate).toHaveBeenCalledWith(
+        'skill', 'deep-research', '/workspace/project', { userInitiated: true },
+      );
+    });
+
+    it('does not stamp or repropagate a stale enhancement draft', async () => {
+      const { rpcHandler, registry, mirror, repropagation } = buildHandlers();
+      registry.getBySlug.mockReturnValue(sampleRow);
+      mirror.saveCloneBody.mockResolvedValue({ kind: 'skill', slug: 'deep-research',
+        historyTs: null, written: false, reason: 'stale-source',
+        currentContentHash: null, metadataIncomplete: false, reconcileProtected: true });
+      await expect(rpcHandler.call('skillSynthesis:saveCloneBody', {
+        kind: 'skill', slug: 'deep-research', body: '# enhanced', origin: 'enhancement',
+        expectedSourceHash: `sha256:${'a'.repeat(64)}`,
+      })).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
+      expect(registry.markEnhanced).not.toHaveBeenCalled();
+      expect(repropagation.repropagate).not.toHaveBeenCalled();
+    });
+
+    it.each([true, false])('passes the hash to the mirror and maps its result (stale=%s)', async (stale) => {
+      const expectedSourceHash = `sha256:${'a'.repeat(64)}`;
+      const { rpcHandler, registry, mirror } = buildHandlers();
+      registry.getBySlug.mockReturnValue(sampleRow);
+      mirror.saveCloneBody.mockResolvedValue({
+        kind: 'skill',
+        slug: 'deep-research',
+        historyTs: stale ? null : '1700000000001',
+        written: !stale,
+        reason: stale ? 'stale-source' : null,
+        currentContentHash: stale ? null : 'sha256:saved',
+        metadataIncomplete: false,
+        reconcileProtected: !stale,
+      });
+      const save = rpcHandler.call('skillSynthesis:saveCloneBody', {
+        kind: 'skill',
+        slug: 'deep-research',
+        body: 'AFTER',
+        expectedSourceHash,
+      });
+      if (stale) {
+        await expect(save).rejects.toMatchObject({
+          errorCode: 'INVALID_PARAMS',
+          message: expect.stringContaining('changed since the draft'),
+        });
+      } else {
+        await expect(save).resolves.toMatchObject({
+          historyTs: '1700000000001',
+        });
+      }
+      expect(mirror.saveCloneBody).toHaveBeenCalledWith({
+        kind: 'skill',
+        slug: 'deep-research',
+        body: 'AFTER',
+        workspaceRoot: '/workspace/project',
+        expectedSourceHash,
+      });
     });
 
     /**
@@ -1401,6 +779,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
         historyTs: '1700000000001',
         written: true,
         reason: null,
+        currentContentHash: null,
         metadataIncomplete: true,
         reconcileProtected: false,
       });
@@ -1435,6 +814,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
         historyTs: '1700000000002',
         written: true,
         reason: null,
+        currentContentHash: 'sha256:saved',
         metadataIncomplete: false,
         reconcileProtected: false,
       });
@@ -1471,6 +851,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
         historyTs: '1700000000001',
         written: true,
         reason: null,
+        currentContentHash: 'sha256:saved',
         metadataIncomplete: false,
         reconcileProtected: true,
       });
@@ -1525,6 +906,7 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
         historyTs: null,
         written: false,
         reason: 'clone-missing',
+        currentContentHash: null,
         metadataIncomplete: false,
         reconcileProtected: false,
       });
@@ -1862,24 +1244,73 @@ describe('SkillsSynthesisRpcHandlers — clone/enhance RPC (P3-3)', () => {
     });
   });
 
-  it('invocationStats returns slug-keyed counts from the candidate store', async () => {
-    const { rpcHandler, store } = buildHandlers();
-    store.getInvocationStats.mockReturnValue({
+  it('invocationStats returns grade counts and telemetry contexts', async () => {
+    const { rpcHandler, store, scorecard } = buildHandlers();
+    scorecard.getInvocationStats.mockReturnValue({
       total: 5,
-      succeeded: 4,
-      failed: 1,
+      succeeded: 3,
+      failed: 2,
       distinctContexts: 2,
+      invocationCount: 9,
+      successRate: 0.6,
     });
 
     const result = await rpcHandler.call('skillSynthesis:invocationStats', {
       slug: 'deep-research',
     });
 
-    expect(store.getInvocationStats).toHaveBeenCalledWith('deep-research');
+    expect(scorecard.getInvocationStats).toHaveBeenCalledWith('skill', 'deep-research', '/workspace/project');
+    expect(store.getInvocationStats).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       slug: 'deep-research',
-      stats: { total: 5, succeeded: 4, failed: 1, distinctContexts: 2 },
+      stats: { total: 9, succeeded: 3, failed: 2, distinctContexts: 2,
+        graded: 5, passed: 3, successRate: 0.6 },
     });
+    expect(result).toEqual({
+      slug: 'deep-research',
+      stats: { total: 9, succeeded: 3, failed: 2, distinctContexts: 2,
+        graded: 5, passed: 3, successRate: 0.6 },
+    });
+  });
+
+  it('invocationStats reports no graded tasks even when telemetry exists', async () => {
+    const { rpcHandler, store, scorecard } = buildHandlers();
+    scorecard.getInvocationStats.mockReturnValue({
+      total: 0, succeeded: 0, failed: 0, distinctContexts: 2,
+      invocationCount: 9, successRate: null,
+    });
+
+    expect(await rpcHandler.call('skillSynthesis:invocationStats', {
+      slug: 'deep-research',
+    })).toEqual({
+      slug: 'deep-research',
+      stats: { total: 9, succeeded: 0, failed: 0, distinctContexts: 2,
+        graded: 0, passed: 0, successRate: null },
+    });
+    expect(store.getInvocationStats).not.toHaveBeenCalled();
+  });
+
+  it('invocationStats accepts an agent kind', async () => {
+    const { rpcHandler, scorecard } = buildHandlers();
+    const result = await rpcHandler.call('skillSynthesis:invocationStats', {
+      slug: 'reviewer', kind: 'agent',
+    });
+    expect(scorecard.getInvocationStats).toHaveBeenCalledWith('agent', 'reviewer', '/workspace/project');
+    expect(result).toMatchObject({ stats: { total: 0, graded: 0, successRate: null } });
+  });
+
+  it('invocationStats returns zeros when the optional scorecard is absent', async () => {
+    const { rpcHandler, scorecard, store } = buildHandlers(['/workspace/project'], false);
+
+    expect(await rpcHandler.call('skillSynthesis:invocationStats', {
+      slug: 'deep-research',
+    })).toEqual({
+      slug: 'deep-research',
+      stats: { total: 0, succeeded: 0, failed: 0, distinctContexts: 0,
+        graded: 0, passed: 0, successRate: null },
+    });
+    expect(scorecard.getInvocationStats).not.toHaveBeenCalled();
+    expect(store.getInvocationStats).not.toHaveBeenCalled();
   });
 
   it('invocationStats rejects empty slug with INVALID_PARAMS', async () => {
@@ -1904,8 +1335,23 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:getScorecards', () => {
       slugs: ['backend-developer'],
     })) as { scorecards: Record<string, { totalInvocations: number }> };
 
-    expect(scorecard.getScorecards).toHaveBeenCalledWith(['backend-developer']);
+    expect(scorecard.getScorecards).toHaveBeenCalledWith(['backend-developer'], '/workspace/project');
     expect(result.scorecards['backend-developer'].totalInvocations).toBe(12);
+  });
+
+  it('passes the active workspace root to both scorecard reads', async () => {
+    const { rpcHandler, scorecard } = buildHandlers(['/workspace/active']);
+
+    await rpcHandler.call('skillSynthesis:getScorecards', {
+      slugs: ['backend-developer'],
+    });
+
+    expect(scorecard.getScorecards).toHaveBeenCalledWith(
+      ['backend-developer'], '/workspace/active',
+    );
+    expect(scorecard.getWinRates).toHaveBeenCalledWith(
+      ['backend-developer'], '/workspace/active',
+    );
   });
 
   it('returns a typed empty scorecard for a no-data slug', async () => {
@@ -1971,7 +1417,7 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:getScorecards', () => {
       'measured-loser',
       'never-settled',
       'no-events-at-all',
-    ]);
+    ], '/workspace/project');
   });
 
   it('returns {} scorecards when the scorecard service is unbound', async () => {
@@ -1982,32 +1428,10 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:getScorecards', () => {
     child.registerInstance(TOKENS.RPC_HANDLER, rpcHandler);
     child.registerInstance(TOKENS.SENTRY_SERVICE, makeSentry());
     child.registerInstance(
-      SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE,
-      makeSynthesis(),
-    );
-    child.registerInstance(
-      SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE,
-      makeStore(),
-    );
-    child.registerInstance(
-      SKILL_SYNTHESIS_TOKENS.SKILL_DIAGNOSTICS_SERVICE,
-      makeDiagnostics(),
-    );
-    child.registerInstance(
       PLATFORM_TOKENS.WORKSPACE_PROVIDER,
       createMockWorkspaceProvider({ folders: ['/workspace/project'] }),
     );
-    // The scorecard service is what this test leaves unbound; the queue and
-    // budget stores are not optional, so both must be present even in a sparse
-    // container.
-    child.registerInstance(
-      SKILL_SYNTHESIS_TOKENS.SKILL_QUEUE_STORE,
-      makeQueueStore(),
-    );
-    child.registerInstance(
-      SKILL_SYNTHESIS_TOKENS.SKILL_BUDGET_STORE,
-      makeBudgetStore(),
-    );
+    // The scorecard service is deliberately unbound in this container.
     child.register(SkillsSynthesisRpcHandlers, {
       useClass: SkillsSynthesisRpcHandlers,
     });
@@ -2088,6 +1512,7 @@ describe('SkillsSynthesisRpcHandlers — skillSynthesis:getScorecardDetail', () 
 
     expect(scorecard.getScorecardDetail).toHaveBeenCalledWith(
       'backend-developer',
+      '/workspace/project',
       10,
     );
     expect(result.rows).toHaveLength(1);
@@ -2168,11 +1593,6 @@ describe('SkillsSynthesisRpcHandlers — dual-registration smoke', () => {
     }
   });
 
-  // Correction C11. `skillSynthesis:` was already allowed before this batch,
-  // and the runtime guard is per PREFIX, not per method. A `getLanes` /
-  // `setLanes` entry appearing in that list would be a second, redundant way to
-  // say the same thing — and the next person to add a method would reasonably
-  // conclude they had to add one too.
   it('adds no per-method entry to the runtime prefix guard', () => {
     const perMethod = ALLOWED_METHOD_PREFIXES.filter(
       (p) => p.startsWith('skillSynthesis:') && p !== 'skillSynthesis:',
@@ -2180,1290 +1600,6 @@ describe('SkillsSynthesisRpcHandlers — dual-registration smoke', () => {
     expect(perMethod).toEqual([]);
   });
 });
-
-describe('SkillsSynthesisRpcHandlers — lane settings keys (B1.8.1)', () => {
-  // `platform-core` cannot import `skill-synthesis` (it is the leaf that
-  // `skill-synthesis` depends on), so its lane key list and defaults are a
-  // literal restatement. `rpc-handlers` imports BOTH, which makes this the one
-  // place the restatement can be checked mechanically instead of by comment.
-  const laneEntries = SKILL_LANE_IDS.flatMap((id) =>
-    SKILL_LANE_FIELDS.map(
-      (field) =>
-        [id, field, SKILL_LANE_KEYS[id][field]] as [
-          (typeof SKILL_LANE_IDS)[number],
-          (typeof SKILL_LANE_FIELDS)[number],
-          string,
-        ],
-    ),
-  );
-
-  it('derives 32 dotted keys — four lanes × eight fields', () => {
-    expect(laneEntries).toHaveLength(32);
-  });
-
-  it.each(laneEntries)(
-    '%s.%s → routes %s to ~/.ptah/settings.json',
-    (_id, _field, key) => {
-      expect(FILE_BASED_SETTINGS_KEYS.has(key)).toBe(true);
-      expect(isFileBasedSettingKey(key)).toBe(true);
-    },
-  );
-
-  it.each(laneEntries)(
-    '%s.%s → platform-core default for %s equals SKILL_LANE_DEFAULTS',
-    (id, field, key) => {
-      expect(
-        Object.prototype.hasOwnProperty.call(FILE_BASED_SETTINGS_DEFAULTS, key),
-      ).toBe(true);
-      expect(FILE_BASED_SETTINGS_DEFAULTS[key]).toBe(
-        SKILL_LANE_DEFAULTS[id][field],
-      );
-    },
-  );
-
-  it('registers no lane key platform-core knows about and SKILL_LANE_KEYS does not', () => {
-    const declared = new Set(laneEntries.map(([, , key]) => key));
-    const stray = [...FILE_BASED_SETTINGS_KEYS].filter(
-      (key) =>
-        /^skillSynthesis\.(archaeologist|synthesis|judge|replay)\./.test(key) &&
-        !declared.has(key),
-    );
-    expect(stray).toEqual([]);
-  });
-
-  it('defaults every lane to inherit — provider and model both empty', () => {
-    for (const id of SKILL_LANE_IDS) {
-      expect(SKILL_LANE_DEFAULTS[id].provider).toBe('');
-      expect(SKILL_LANE_DEFAULTS[id].model).toBe('');
-      expect(FILE_BASED_SETTINGS_DEFAULTS[SKILL_LANE_KEYS[id].provider]).toBe(
-        '',
-      );
-      expect(FILE_BASED_SETTINGS_DEFAULTS[SKILL_LANE_KEYS[id].model]).toBe('');
-    }
-  });
-});
-
-describe('SkillsSynthesisRpcHandlers — skillSynthesis:getLanes / setLanes (B1.8.2)', () => {
-  it('returns the four inherit-by-default lanes when nothing is persisted', async () => {
-    const { rpcHandler } = buildHandlers();
-    const result = (await rpcHandler.call('skillSynthesis:getLanes', {})) as {
-      lanes: Record<string, Record<string, unknown>>;
-    };
-
-    expect(Object.keys(result.lanes).sort()).toEqual(
-      [...SKILL_LANE_IDS].sort(),
-    );
-    for (const id of SKILL_LANE_IDS) {
-      expect(result.lanes[id]).toEqual(SKILL_LANE_DEFAULTS[id]);
-    }
-  });
-
-  it('round-trips all 32 lane keys through setLanes → getLanes', async () => {
-    const { rpcHandler, workspaceProvider } = buildHandlers();
-    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
-
-    // Deliberately no provider-id literal: `provider` is an opaque registry id
-    // and this spec must not become the place a vendor name leaks into a lane
-    // code path (global invariant 1).
-    const patch = {
-      archaeologist: {
-        provider: 'lane-provider-a',
-        model: 'lane-model-a',
-        defaultTier: 'opus' as const,
-        structuredOutput: 'parse' as const,
-        toolUse: 'none' as const,
-        timeoutMs: 111000,
-        maxInputChars: 11100,
-        maxPasses: 7,
-      },
-      synthesis: {
-        provider: 'lane-provider-b',
-        model: 'lane-model-b',
-        defaultTier: 'sonnet' as const,
-        structuredOutput: 'parse' as const,
-        toolUse: 'required' as const,
-        timeoutMs: 222000,
-        maxInputChars: 22200,
-        maxPasses: 2,
-      },
-      judge: {
-        provider: 'lane-provider-c',
-        model: 'lane-model-c',
-        defaultTier: 'haiku' as const,
-        structuredOutput: 'sdk' as const,
-        toolUse: 'required' as const,
-        timeoutMs: 33000,
-        maxInputChars: 3300,
-        maxPasses: 3,
-      },
-      replay: {
-        provider: 'lane-provider-d',
-        model: 'lane-model-d',
-        defaultTier: 'opus' as const,
-        structuredOutput: 'parse' as const,
-        toolUse: 'none' as const,
-        timeoutMs: 44000,
-        maxInputChars: 4400,
-        maxPasses: 4,
-      },
-    };
-
-    const setResult = (await rpcHandler.call('skillSynthesis:setLanes', {
-      lanes: patch,
-    })) as { lanes: Record<string, Record<string, unknown>> };
-
-    // Every one of the 32 dotted keys reached setConfiguration individually —
-    // per-key routing is what makes file-based settings work at all.
-    for (const id of SKILL_LANE_IDS) {
-      for (const field of SKILL_LANE_FIELDS) {
-        expect(setSpy).toHaveBeenCalledWith(
-          'ptah',
-          SKILL_LANE_KEYS[id][field],
-          patch[id][field],
-        );
-      }
-    }
-    expect(setSpy).toHaveBeenCalledTimes(32);
-
-    const getResult = (await rpcHandler.call(
-      'skillSynthesis:getLanes',
-      {},
-    )) as { lanes: Record<string, Record<string, unknown>> };
-
-    for (const id of SKILL_LANE_IDS) {
-      const expected = { id, ...patch[id] };
-      expect(setResult.lanes[id]).toEqual(expected);
-      expect(getResult.lanes[id]).toEqual(expected);
-    }
-  });
-
-  it('writes only the fields named in a sparse patch and leaves the rest alone', async () => {
-    const { rpcHandler, workspaceProvider } = buildHandlers();
-    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
-
-    const result = (await rpcHandler.call('skillSynthesis:setLanes', {
-      lanes: { judge: { timeoutMs: 60000 } },
-    })) as { lanes: Record<string, Record<string, unknown>> };
-
-    expect(setSpy).toHaveBeenCalledTimes(1);
-    expect(setSpy).toHaveBeenCalledWith(
-      'ptah',
-      SKILL_LANE_KEYS.judge.timeoutMs,
-      60000,
-    );
-    expect(result.lanes['judge']).toEqual({
-      ...SKILL_LANE_DEFAULTS.judge,
-      timeoutMs: 60000,
-    });
-    expect(result.lanes['synthesis']).toEqual(SKILL_LANE_DEFAULTS.synthesis);
-  });
-
-  it('returns the READ-BACK state, not an echo of the patch', async () => {
-    // `readSkillLane` serves the default when a persisted value is unusable.
-    // Echoing the request would report a write that did not take effect.
-    const { rpcHandler, workspaceProvider } = buildHandlers();
-    await workspaceProvider.setConfiguration(
-      'ptah',
-      SKILL_LANE_KEYS.judge.timeoutMs,
-      -5,
-    );
-    const result = (await rpcHandler.call('skillSynthesis:getLanes', {})) as {
-      lanes: Record<string, Record<string, unknown>>;
-    };
-    expect(result.lanes['judge']['timeoutMs']).toBe(
-      SKILL_LANE_DEFAULTS.judge.timeoutMs,
-    );
-  });
-
-  it('rejects a non-positive timeoutMs with INVALID_PARAMS and writes nothing', async () => {
-    const { rpcHandler, workspaceProvider } = buildHandlers();
-    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
-    await expect(
-      rpcHandler.call('skillSynthesis:setLanes', {
-        lanes: { judge: { timeoutMs: 0 } },
-      }),
-    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
-    expect(setSpy).not.toHaveBeenCalled();
-  });
-
-  it('rejects an unknown lane id with INVALID_PARAMS', async () => {
-    const { rpcHandler } = buildHandlers();
-    await expect(
-      rpcHandler.call('skillSynthesis:setLanes', {
-        lanes: { curator: { timeoutMs: 1000 } },
-      } as unknown),
-    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
-  });
-
-  it('rejects an unknown lane FIELD with INVALID_PARAMS', async () => {
-    const { rpcHandler } = buildHandlers();
-    await expect(
-      rpcHandler.call('skillSynthesis:setLanes', {
-        lanes: { judge: { temperature: 0.7 } },
-      } as unknown),
-    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
-  });
-
-  it('rejects an out-of-vocabulary structuredOutput mode', async () => {
-    const { rpcHandler } = buildHandlers();
-    await expect(
-      rpcHandler.call('skillSynthesis:setLanes', {
-        lanes: { judge: { structuredOutput: 'yaml' } },
-      } as unknown),
-    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
-  });
-
-  it('rejects an empty patch that names no lane', async () => {
-    const { rpcHandler } = buildHandlers();
-    await expect(
-      rpcHandler.call('skillSynthesis:setLanes', { lanes: {} }),
-    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
-  });
-
-  it('rejects unknown params on getLanes', async () => {
-    const { rpcHandler } = buildHandlers();
-    await expect(
-      rpcHandler.call('skillSynthesis:getLanes', { junk: 'value' } as unknown),
-    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
-  });
-
-  it('surfaces PERSISTENCE_UNAVAILABLE without leaking the underlying message', async () => {
-    const { rpcHandler, workspaceProvider } = buildHandlers();
-    jest
-      .spyOn(workspaceProvider, 'setConfiguration')
-      .mockRejectedValue(new Error('EACCES: ~/.ptah/settings.json'));
-    let thrown: unknown;
-    try {
-      await rpcHandler.call('skillSynthesis:setLanes', {
-        lanes: { judge: { timeoutMs: 60000 } },
-      });
-    } catch (err) {
-      thrown = err;
-    }
-    expect(thrown).toBeInstanceOf(RpcUserError);
-    const rpcErr = thrown as RpcUserError;
-    expect(rpcErr.errorCode).toBe('PERSISTENCE_UNAVAILABLE');
-    expect(rpcErr.message).not.toContain('EACCES');
-  });
-});
-
-describe('SkillsSynthesisRpcHandlers — candidate summary judge fields (B1.8.3)', () => {
-  function candidateRow(overrides: Record<string, unknown> = {}) {
-    return {
-      id: 'cand-1',
-      name: 'refactor-jest-configs',
-      description: 'Refactor jest configs into a shared preset',
-      bodyPath: '/tmp/cand-1/SKILL.md',
-      sourceSessionIds: ['s-1'],
-      trajectoryHash: 'hash-1',
-      embeddingRowid: null,
-      status: 'candidate' as const,
-      successCount: 3,
-      failureCount: 1,
-      createdAt: 1700000000000,
-      promotedAt: null,
-      rejectedAt: null,
-      rejectedReason: null,
-      pinned: false,
-      residency: 'resident' as const,
-      judgeStatus: null,
-      judgeScore: null,
-      judgeReason: null,
-      judgeCriteria: {
-        novelty: null,
-        actionability: null,
-        scope: null,
-        generalization: null,
-        triggerClarity: null,
-      },
-      judgePanelRationales: null,
-      judgedAt: null,
-      displayName: null,
-      // ── 0040 origin ────────────────────────────────────────────────────────
-      workspaceRoot: null,
-      // ── 0036 empirical gates ───────────────────────────────────────────────
-      replayConfidence: null,
-      replayHoldoutSessionId: null,
-      replayAt: null,
-      triggerScore: null,
-      triggerPrecision: null,
-      triggerRecall: null,
-      triggerEvalAt: null,
-      ...overrides,
-    };
-  }
-
-  async function listOne(row: Record<string, unknown>) {
-    const { rpcHandler, store } = buildHandlers();
-    store.listByStatus.mockReturnValue([row]);
-    const result = (await rpcHandler.call('skillSynthesis:listCandidates', {
-      status: 'candidate',
-    })) as { candidates: Array<Record<string, unknown>> };
-    return result.candidates[0];
-  }
-
-  it('rejects an unknown status instead of returning an empty list', async () => {
-    // The gap this closes: `status` reached the handler unvalidated and
-    // `collectByStatus` cast it, so a malformed value produced a
-    // `WHERE status = ?` that matched nothing. An empty review queue that is
-    // really a rejected request is indistinguishable from the feature working.
-    const { rpcHandler, store } = buildHandlers();
-    store.listByStatus.mockReturnValue([]);
-    await expect(
-      rpcHandler.call('skillSynthesis:listCandidates', { status: 'pending' }),
-    ).rejects.toThrow();
-    expect(store.listByStatus).not.toHaveBeenCalled();
-  });
-
-  it('rejects an unknown scope rather than silently narrowing', async () => {
-    // Without the schema this fell into the `else` branch and quietly became
-    // the workspace-scoped read — safe, but it answered a question nobody
-    // asked.
-    const { rpcHandler, store } = buildHandlers();
-    store.listByStatus.mockReturnValue([]);
-    await expect(
-      rpcHandler.call('skillSynthesis:listCandidates', {
-        status: 'candidate',
-        scope: 'global',
-      }),
-    ).rejects.toThrow();
-    expect(store.listByStatus).not.toHaveBeenCalled();
-  });
-
-  it('still accepts no params at all', async () => {
-    // The method has no required parameter and every caller may send
-    // `undefined`; `.nullish()` is what keeps that true.
-    const { rpcHandler, store } = buildHandlers();
-    store.listByStatus.mockReturnValue([]);
-    await expect(
-      rpcHandler.call('skillSynthesis:listCandidates', undefined),
-    ).resolves.toEqual({ candidates: [] });
-    expect(store.listByStatus).toHaveBeenCalledWith(
-      'candidate',
-      '/workspace/project',
-    );
-  });
-
-  it('leaves limit clamping to clampLimit rather than rejecting', async () => {
-    // `limit` is typed at the boundary but NOT range-checked: `clampLimit`
-    // owns the range, and rejecting `limit: 0` would be a behaviour change
-    // wearing validation's clothes.
-    const { rpcHandler, store } = buildHandlers();
-    store.listByStatus.mockReturnValue([]);
-    await expect(
-      rpcHandler.call('skillSynthesis:listCandidates', {
-        status: 'candidate',
-        limit: 0,
-      }),
-    ).resolves.toEqual({ candidates: [] });
-  });
-
-  it('scopes the list to the open workspace by DEFAULT', async () => {
-    // The reported defect: a brand-new project's review queue was every other
-    // project's backlog, because this read never named a workspace. The
-    // default is the NARROW one, so a caller that says nothing gets the
-    // scoped read.
-    const { rpcHandler, store } = buildHandlers(['/workspace/project']);
-    store.listByStatus.mockReturnValue([]);
-    await rpcHandler.call('skillSynthesis:listCandidates', {
-      status: 'candidate',
-    });
-    expect(store.listByStatus).toHaveBeenCalledWith(
-      'candidate',
-      '/workspace/project',
-    );
-  });
-
-  it("scope: 'all' passes no root, so the store reads every project", async () => {
-    const { rpcHandler, store } = buildHandlers(['/workspace/project']);
-    store.listByStatus.mockReturnValue([]);
-    await rpcHandler.call('skillSynthesis:listCandidates', {
-      status: 'candidate',
-      scope: 'all',
-    });
-    // `undefined`, NOT `''`. An empty string is a real value meaning
-    // "deliberately cross-project" and would match almost nothing.
-    expect(store.listByStatus).toHaveBeenCalledWith('candidate', undefined);
-  });
-
-  it("status: 'all' scopes each of the three status reads", async () => {
-    const { rpcHandler, store } = buildHandlers(['/workspace/project']);
-    store.listByStatus.mockReturnValue([]);
-    await rpcHandler.call('skillSynthesis:listCandidates', { status: 'all' });
-    expect(store.listByStatus).toHaveBeenCalledTimes(3);
-    for (const status of ['candidate', 'promoted', 'rejected']) {
-      expect(store.listByStatus).toHaveBeenCalledWith(
-        status,
-        '/workspace/project',
-      );
-    }
-  });
-
-  it('a host with no workspace open reads every project rather than nothing', async () => {
-    // There is nothing to scope to, and scoping to `''` would match only rows
-    // explicitly marked cross-project — which the capture path never writes —
-    // so the list would be permanently empty.
-    const { rpcHandler, store } = buildHandlers([]);
-    store.listByStatus.mockReturnValue([]);
-    await rpcHandler.call('skillSynthesis:listCandidates', {
-      status: 'candidate',
-    });
-    expect(store.listByStatus).toHaveBeenCalledWith('candidate', undefined);
-  });
-
-  it('carries the originating workspace onto the summary', async () => {
-    const summary = await listOne(
-      candidateRow({ workspaceRoot: 'D:\\projects\\alpha' }),
-    );
-    expect(summary['workspaceRoot']).toBe('D:\\projects\\alpha');
-  });
-
-  it('projects an unknown origin as null, never an empty string', async () => {
-    // `null` is "we do not know which project this came from"; `''` is the
-    // distinct claim "deliberately cross-project". The UI renders them
-    // differently and must be able to tell them apart.
-    const summary = await listOne(candidateRow({ workspaceRoot: null }));
-    expect(summary['workspaceRoot']).toBeNull();
-    expect(summary['workspaceRoot']).not.toBe('');
-  });
-
-  it('projects a never-judged candidate as all-null, never zero', async () => {
-    const summary = await listOne(candidateRow());
-    expect(summary['judgeStatus']).toBeNull();
-    expect(summary['judgeScore']).toBeNull();
-    expect(summary['judgeScore']).not.toBe(0);
-    expect(summary['judgeReason']).toBeNull();
-    expect(summary['judgeCriteria']).toBeNull();
-    expect(summary['displayName']).toBeNull();
-  });
-
-  it('carries an unscored verdict as status + reason with a NULL score', async () => {
-    // The defect this replaces: a failed judge call used to fabricate
-    // `{passed: true, score: 10}`, which the UI rendered as a genuine verdict.
-    const summary = await listOne(
-      candidateRow({
-        judgeStatus: 'unscored',
-        judgeScore: null,
-        judgeReason: 'judge-call-threw',
-      }),
-    );
-    expect(summary['judgeStatus']).toBe('unscored');
-    expect(summary['judgeScore']).toBeNull();
-    expect(summary['judgeReason']).toBe('judge-call-threw');
-  });
-
-  it('carries a genuine zero score as 0, distinct from unscored', async () => {
-    const summary = await listOne(
-      candidateRow({
-        judgeStatus: 'scored',
-        judgeScore: 0,
-        judgeReason: 'no reusable workflow',
-        judgeCriteria: {
-          novelty: 0,
-          actionability: 0,
-          scope: 0,
-          generalization: 0,
-          triggerClarity: 0,
-        },
-      }),
-    );
-    expect(summary['judgeScore']).toBe(0);
-    expect(summary['judgeScore']).not.toBeNull();
-    expect(summary['judgeCriteria']).toEqual({
-      novelty: 0,
-      actionability: 0,
-      scope: 0,
-      generalization: 0,
-      triggerClarity: 0,
-    });
-  });
-
-  it('forwards a scored verdict with its five criteria and display name', async () => {
-    const summary = await listOne(
-      candidateRow({
-        displayName: 'Share one Jest preset across libs',
-        judgeStatus: 'scored',
-        judgeScore: 7.4,
-        judgeReason: 'reusable and well triggered',
-        judgeCriteria: {
-          novelty: 7,
-          actionability: 8,
-          scope: 7,
-          generalization: 7,
-          triggerClarity: 8,
-        },
-      }),
-    );
-    expect(summary['displayName']).toBe('Share one Jest preset across libs');
-    expect(summary['judgeStatus']).toBe('scored');
-    expect(summary['judgeScore']).toBe(7.4);
-    expect(summary['judgeCriteria']).toEqual({
-      novelty: 7,
-      actionability: 8,
-      scope: 7,
-      generalization: 7,
-      triggerClarity: 8,
-    });
-  });
-
-  it('reports a disabled gate as a status, not as an absent verdict', async () => {
-    const summary = await listOne(
-      candidateRow({ judgeStatus: 'disabled', judgeReason: 'judge gate off' }),
-    );
-    expect(summary['judgeStatus']).toBe('disabled');
-    expect(summary['judgeScore']).toBeNull();
-  });
-
-  it('collapses an all-null criteria block to null rather than five blanks', async () => {
-    const summary = await listOne(candidateRow({ judgeStatus: 'unscored' }));
-    expect(summary['judgeCriteria']).toBeNull();
-  });
-
-  // ── B3.5.3: the empirical gate block ──────────────────────────────────────
-
-  describe('empirical gate fields (B3.5.3)', () => {
-    function panelEntry(overrides: Record<string, unknown> = {}) {
-      return {
-        role: 'panellist-a',
-        status: 'scored',
-        score: 7,
-        criteria: {
-          novelty: 7,
-          actionability: 8,
-          scope: 6,
-          generalization: 7,
-          triggerClarity: 9,
-        },
-        reason: 'reusable and well triggered',
-        summary: 'panellist A read the body and the triggers',
-        ...overrides,
-      };
-    }
-
-    it('projects an ungated candidate as all-null, never zero', async () => {
-      const summary = await listOne(candidateRow());
-      expect(summary['replayConfidence']).toBeNull();
-      expect(summary['replayConfidence']).not.toBe(0);
-      expect(summary['triggerScore']).toBeNull();
-      expect(summary['triggerScore']).not.toBe(0);
-      expect(summary['judgePanelRationales']).toBeNull();
-    });
-
-    it('carries a measured zero as 0, distinct from never-measured', async () => {
-      // `0` here is EVIDENCE — a replay that aligned with nothing, a
-      // description that retrieved nothing. `null` is the absence of evidence,
-      // and only the second leaves the candidate owed a retry.
-      const summary = await listOne(
-        candidateRow({ replayConfidence: 0, triggerScore: 0 }),
-      );
-      expect(summary['replayConfidence']).toBe(0);
-      expect(summary['replayConfidence']).not.toBeNull();
-      expect(summary['triggerScore']).toBe(0);
-      expect(summary['triggerScore']).not.toBeNull();
-    });
-
-    it('forwards measured gate values unchanged', async () => {
-      const summary = await listOne(
-        candidateRow({ replayConfidence: 0.82, triggerScore: 7.5 }),
-      );
-      expect(summary['replayConfidence']).toBe(0.82);
-      expect(summary['triggerScore']).toBe(7.5);
-    });
-
-    it('leaves the gate values alone when only one gate has run', async () => {
-      const summary = await listOne(candidateRow({ replayConfidence: 0.4 }));
-      expect(summary['replayConfidence']).toBe(0.4);
-      expect(summary['triggerScore']).toBeNull();
-    });
-
-    it('does not put the raw JSON string of the panel on the wire', async () => {
-      const summary = await listOne(
-        candidateRow({
-          judgePanelRationales: JSON.stringify([panelEntry()]),
-        }),
-      );
-      expect(typeof summary['judgePanelRationales']).not.toBe('string');
-      expect(Array.isArray(summary['judgePanelRationales'])).toBe(true);
-    });
-
-    it('parses the whole panel, escalation included, in stored order', async () => {
-      const summary = await listOne(
-        candidateRow({
-          judgePanelRationales: JSON.stringify([
-            panelEntry({ role: 'panellist-a', score: 8 }),
-            panelEntry({ role: 'panellist-b', score: 3 }),
-            panelEntry({
-              role: 'escalation',
-              score: 6,
-              reason: 'panellists disagreed on scope',
-              summary: 'escalation read both panellists',
-            }),
-          ]),
-        }),
-      );
-      const panel = summary['judgePanelRationales'] as Array<
-        Record<string, unknown>
-      >;
-      expect(panel).toHaveLength(3);
-      expect(panel.map((entry) => entry['role'])).toEqual([
-        'panellist-a',
-        'panellist-b',
-        'escalation',
-      ]);
-      expect(panel[2]).toEqual({
-        role: 'escalation',
-        status: 'scored',
-        score: 6,
-        criteria: {
-          novelty: 7,
-          actionability: 8,
-          scope: 6,
-          generalization: 7,
-          triggerClarity: 9,
-        },
-        reason: 'panellists disagreed on scope',
-        summary: 'escalation read both panellists',
-      });
-    });
-
-    it('carries an unscored panellist with a NULL score', async () => {
-      const summary = await listOne(
-        candidateRow({
-          judgePanelRationales: JSON.stringify([
-            panelEntry({
-              status: 'unscored',
-              score: null,
-              criteria: null,
-              reason: 'lane timed out',
-            }),
-          ]),
-        }),
-      );
-      const panel = summary['judgePanelRationales'] as Array<
-        Record<string, unknown>
-      >;
-      expect(panel[0]['status']).toBe('unscored');
-      expect(panel[0]['score']).toBeNull();
-      expect(panel[0]['criteria']).toBeNull();
-    });
-
-    it('voids the whole panel when one entry fabricates a score', async () => {
-      // `{status:'unscored', score:10}` is the exact defect phase 1 removed,
-      // stored one column to the left. A panel holding it is not a record to
-      // forward in part.
-      const summary = await listOne(
-        candidateRow({
-          judgePanelRationales: JSON.stringify([
-            panelEntry({ role: 'panellist-a' }),
-            panelEntry({ role: 'panellist-b', status: 'unscored', score: 10 }),
-          ]),
-        }),
-      );
-      expect(summary['judgePanelRationales']).toBeNull();
-    });
-
-    it('voids the whole panel on an out-of-vocabulary role', async () => {
-      const summary = await listOne(
-        candidateRow({
-          judgePanelRationales: JSON.stringify([
-            panelEntry({ role: 'panellist-c' }),
-          ]),
-        }),
-      );
-      expect(summary['judgePanelRationales']).toBeNull();
-    });
-
-    it('voids the whole panel on an out-of-vocabulary status', async () => {
-      const summary = await listOne(
-        candidateRow({
-          judgePanelRationales: JSON.stringify([
-            panelEntry({ status: 'passed' }),
-          ]),
-        }),
-      );
-      expect(summary['judgePanelRationales']).toBeNull();
-    });
-
-    it('voids a scored entry whose score is not a finite number', async () => {
-      const summary = await listOne(
-        candidateRow({
-          judgePanelRationales: JSON.stringify([panelEntry({ score: 'high' })]),
-        }),
-      );
-      expect(summary['judgePanelRationales']).toBeNull();
-    });
-
-    it('reads unparseable panel JSON as null, not as an empty panel', async () => {
-      const summary = await listOne(
-        candidateRow({ judgePanelRationales: '{not json' }),
-      );
-      expect(summary['judgePanelRationales']).toBeNull();
-      expect(summary['judgePanelRationales']).not.toEqual([]);
-    });
-
-    it('reads a stored empty array as null — the store never writes one', async () => {
-      const summary = await listOne(
-        candidateRow({ judgePanelRationales: '[]' }),
-      );
-      expect(summary['judgePanelRationales']).toBeNull();
-    });
-
-    it('reads a non-array panel payload as null', async () => {
-      const summary = await listOne(
-        candidateRow({ judgePanelRationales: JSON.stringify(panelEntry()) }),
-      );
-      expect(summary['judgePanelRationales']).toBeNull();
-    });
-
-    it('collapses an all-null panellist scorecard to null', async () => {
-      const summary = await listOne(
-        candidateRow({
-          judgePanelRationales: JSON.stringify([
-            panelEntry({
-              criteria: {
-                novelty: null,
-                actionability: null,
-                scope: null,
-                generalization: null,
-                triggerClarity: null,
-              },
-            }),
-          ]),
-        }),
-      );
-      const panel = summary['judgePanelRationales'] as Array<
-        Record<string, unknown>
-      >;
-      expect(panel[0]['criteria']).toBeNull();
-    });
-
-    it('keeps a genuine zero criterion inside a panellist scorecard', async () => {
-      const summary = await listOne(
-        candidateRow({
-          judgePanelRationales: JSON.stringify([
-            panelEntry({
-              score: 0,
-              criteria: {
-                novelty: 0,
-                actionability: 0,
-                scope: 0,
-                generalization: 0,
-                triggerClarity: 0,
-              },
-            }),
-          ]),
-        }),
-      );
-      const panel = summary['judgePanelRationales'] as Array<
-        Record<string, unknown>
-      >;
-      expect(panel[0]['score']).toBe(0);
-      expect(panel[0]['criteria']).toEqual({
-        novelty: 0,
-        actionability: 0,
-        scope: 0,
-        generalization: 0,
-        triggerClarity: 0,
-      });
-    });
-
-    it('carries the gate block onto the candidate DETAIL as well', async () => {
-      const { rpcHandler, store } = buildHandlers();
-      const row = candidateRow({
-        replayConfidence: 0,
-        triggerScore: 0.25,
-        judgePanelRationales: JSON.stringify([panelEntry()]),
-      });
-      store.findById.mockReturnValue(row);
-      const result = (await rpcHandler.call('skillSynthesis:getCandidate', {
-        id: 'cand-1',
-      })) as { candidate: Record<string, unknown> | null };
-
-      expect(result.candidate?.['replayConfidence']).toBe(0);
-      expect(result.candidate?.['triggerScore']).toBe(0.25);
-      expect(
-        (result.candidate?.['judgePanelRationales'] as unknown[]).length,
-      ).toBe(1);
-    });
-  });
-});
-
-const fakeSuggestionRow = {
-  id: 'sug-1',
-  name: 'My Skill',
-  description: 'does things',
-  body: '## Body\nStep 1.',
-  memberSessionIds: ['s-1'],
-  memberCandidateIds: ['c-1'],
-  clusterSize: 3,
-  technologyFingerprint: 'fp-abc',
-  judgeScore: 7.5,
-  status: 'pending' as const,
-  createdAt: 1700000000000,
-  decidedAt: null,
-};
-
-function makeSuggestionStore() {
-  return {
-    listByStatus: jest.fn().mockReturnValue([]),
-    findById: jest.fn().mockReturnValue(fakeSuggestionRow),
-    updatePending: jest.fn().mockReturnValue(fakeSuggestionRow),
-  };
-}
-
-function makeCurator() {
-  return {
-    runManual: jest.fn().mockResolvedValue({
-      reportPath: '/tmp/report.md',
-      changesQueued: 0,
-      skippedPinned: 0,
-    }),
-    start: jest.fn(),
-    stop: jest.fn(),
-    acceptSuggestion: jest.fn().mockResolvedValue({
-      accepted: true,
-      filePath: '/home/.ptah/user/skills/my-skill/SKILL.md',
-    }),
-    dismissSuggestion: jest.fn().mockReturnValue({ dismissed: true }),
-  };
-}
-
-function buildHandlersWithSuggestions(
-  workspaceFolders: string[] = ['/workspace/project'],
-  gapCurator: { runDigest: jest.Mock } | null = null,
-) {
-  const logger = makeLogger();
-  const rpcHandler = makeRpcHandler();
-  const sentry = makeSentry();
-  const synthesis = makeSynthesis();
-  const store = makeStore();
-  const diagnostics = makeDiagnostics();
-  const enhancer = makeEnhancer();
-  const registry = makeRegistry();
-  const mirror = makeMirror();
-  const contentDownload = makeContentDownload();
-  const suggestionStore = makeSuggestionStore();
-  const curator = makeCurator();
-  const queueStore = makeQueueStore();
-  const workspaceProvider: MockWorkspaceProvider = createMockWorkspaceProvider({
-    folders: workspaceFolders,
-  });
-
-  const child = container.createChildContainer();
-  child.registerInstance(TOKENS.LOGGER, logger);
-  child.registerInstance(TOKENS.RPC_HANDLER, rpcHandler);
-  child.registerInstance(TOKENS.SENTRY_SERVICE, sentry);
-  child.registerInstance(
-    SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE,
-    synthesis,
-  );
-  child.registerInstance(SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE, store);
-  child.registerInstance(
-    SKILL_SYNTHESIS_TOKENS.SKILL_DIAGNOSTICS_SERVICE,
-    diagnostics,
-  );
-  child.registerInstance(
-    SKILL_SYNTHESIS_TOKENS.SKILL_ENHANCER_SERVICE,
-    enhancer,
-  );
-  child.registerInstance(SKILL_SYNTHESIS_TOKENS.SKILL_REGISTRY_STORE, registry);
-  child.registerInstance(USER_LAYER_MIRROR_SERVICE_TOKEN, mirror);
-  child.registerInstance(PLATFORM_TOKENS.CONTENT_DOWNLOAD, contentDownload);
-  child.registerInstance(PLATFORM_TOKENS.WORKSPACE_PROVIDER, workspaceProvider);
-  child.registerInstance(
-    SKILL_SYNTHESIS_TOKENS.SKILL_SUGGESTION_STORE,
-    suggestionStore,
-  );
-  child.registerInstance(SKILL_SYNTHESIS_TOKENS.SKILL_CURATOR_SERVICE, curator);
-  child.registerInstance(SKILL_SYNTHESIS_TOKENS.SKILL_QUEUE_STORE, queueStore);
-  child.registerInstance(
-    SKILL_SYNTHESIS_TOKENS.SKILL_BUDGET_STORE,
-    makeBudgetStore(),
-  );
-  if (gapCurator !== null) {
-    child.registerInstance(
-      SKILL_SYNTHESIS_TOKENS.SKILL_GAP_CURATOR_SERVICE,
-      gapCurator,
-    );
-  }
-  child.register(SkillsSynthesisRpcHandlers, {
-    useClass: SkillsSynthesisRpcHandlers,
-  });
-
-  const handlers = child.resolve(SkillsSynthesisRpcHandlers);
-  handlers.register();
-
-  return {
-    handlers,
-    rpcHandler,
-    sentry,
-    synthesis,
-    store,
-    diagnostics,
-    enhancer,
-    registry,
-    mirror,
-    contentDownload,
-    workspaceProvider,
-    logger,
-    suggestionStore,
-    curator,
-    queueStore,
-  };
-}
-
-describe('SkillsSynthesisRpcHandlers — skillSynthesis:listSuggestions', () => {
-  it('happy path: calls suggestionStore.listByStatus with pending default and returns mapped suggestions', async () => {
-    const { rpcHandler, suggestionStore } = buildHandlersWithSuggestions();
-    const fakeRow = {
-      id: 'sug-1',
-      name: 'My Skill',
-      description: 'does things',
-      body: '## Description\nx',
-      memberSessionIds: ['s-1'],
-      memberCandidateIds: ['c-1'],
-      clusterSize: 3,
-      technologyFingerprint: 'fp-abc',
-      judgeScore: 7.5,
-      status: 'pending' as const,
-      createdAt: 1700000000000,
-      decidedAt: null,
-    };
-    suggestionStore.listByStatus.mockReturnValue([fakeRow]);
-
-    const result = await rpcHandler.call('skillSynthesis:listSuggestions', {});
-
-    expect(suggestionStore.listByStatus).toHaveBeenCalledWith('pending');
-    expect(result).toMatchObject({
-      suggestions: [
-        {
-          id: 'sug-1',
-          name: 'My Skill',
-          description: 'does things',
-          clusterSize: 3,
-          technologyFingerprint: 'fp-abc',
-          judgeScore: 7.5,
-          memberSessionIds: ['s-1'],
-          status: 'pending',
-          createdAt: 1700000000000,
-        },
-      ],
-    });
-  });
-
-  it('happy path: forwards explicit status=accepted to listByStatus', async () => {
-    const { rpcHandler, suggestionStore } = buildHandlersWithSuggestions();
-    suggestionStore.listByStatus.mockReturnValue([]);
-
-    const result = await rpcHandler.call('skillSynthesis:listSuggestions', {
-      status: 'accepted',
-    });
-
-    expect(suggestionStore.listByStatus).toHaveBeenCalledWith('accepted');
-    expect(result).toMatchObject({ suggestions: [] });
-  });
-
-  it('desktop guard: throws PERSISTENCE_UNAVAILABLE when suggestionStore is absent (VS Code)', async () => {
-    const { rpcHandler } = buildHandlers();
-
-    await expect(
-      rpcHandler.call('skillSynthesis:listSuggestions', {}),
-    ).rejects.toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
-  });
-
-  it('param validation: invalid status value rejected with INVALID_PARAMS', async () => {
-    const { rpcHandler } = buildHandlersWithSuggestions();
-
-    await expect(
-      rpcHandler.call('skillSynthesis:listSuggestions', { status: 'bogus' }),
-    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
-  });
-});
-
-describe('SkillsSynthesisRpcHandlers — skillSynthesis:acceptSuggestion', () => {
-  it('happy path: calls curator.acceptSuggestion with id + settings and returns accepted + filePath', async () => {
-    const { rpcHandler, curator, synthesis } = buildHandlersWithSuggestions();
-    const fakeSettings = {
-      enabled: true,
-      successesToPromote: 3,
-      dedupCosineThreshold: 0.85,
-      maxActiveSkills: 50,
-      candidatesDir: '',
-      evictionDecayRate: 0.95,
-      generalizationContextThreshold: 3,
-      dedupClusterThreshold: 0.78,
-      prefilterMinEdits: 1,
-      prefilterMinToolUses: 2,
-      judgeEnabled: true,
-      minJudgeScore: 6.0,
-      judgeModel: 'inherit',
-      maxPinnedSkills: 10,
-      curatorEnabled: true,
-      curatorIntervalHours: 24,
-      suggestionMinClusterSize: 2,
-      suggestionMaxCandidates: 200,
-    };
-    synthesis.readSettings.mockReturnValue(fakeSettings);
-    curator.acceptSuggestion.mockResolvedValue({
-      accepted: true,
-      filePath: '/home/.ptah/user/skills/my-skill/SKILL.md',
-    });
-
-    const result = await rpcHandler.call('skillSynthesis:acceptSuggestion', {
-      id: 'sug-42',
-    });
-
-    expect(synthesis.readSettings).toHaveBeenCalled();
-    // A click: the harness refresh after the accept never waits (FU-17b).
-    expect(curator.acceptSuggestion).toHaveBeenCalledWith(
-      'sug-42',
-      fakeSettings,
-      { userInitiated: true },
-    );
-    expect(result).toMatchObject({
-      accepted: true,
-      filePath: '/home/.ptah/user/skills/my-skill/SKILL.md',
-    });
-  });
-
-  it('desktop guard: throws PERSISTENCE_UNAVAILABLE when curator is absent (VS Code)', async () => {
-    const { rpcHandler } = buildHandlers();
-
-    await expect(
-      rpcHandler.call('skillSynthesis:acceptSuggestion', { id: 'sug-1' }),
-    ).rejects.toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
-  });
-
-  it('param validation: missing id rejected with INVALID_PARAMS', async () => {
-    const { rpcHandler } = buildHandlersWithSuggestions();
-
-    await expect(
-      rpcHandler.call('skillSynthesis:acceptSuggestion', {}),
-    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
-  });
-
-  it('param validation: empty id rejected with INVALID_PARAMS', async () => {
-    const { rpcHandler } = buildHandlersWithSuggestions();
-
-    await expect(
-      rpcHandler.call('skillSynthesis:acceptSuggestion', { id: '' }),
-    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
-  });
-});
-
-describe('SkillsSynthesisRpcHandlers — skillSynthesis:dismissSuggestion', () => {
-  it('happy path: calls curator.dismissSuggestion with id and returns dismissed', async () => {
-    const { rpcHandler, curator } = buildHandlersWithSuggestions();
-    curator.dismissSuggestion.mockReturnValue({ dismissed: true });
-
-    const result = await rpcHandler.call('skillSynthesis:dismissSuggestion', {
-      id: 'sug-99',
-    });
-
-    expect(curator.dismissSuggestion).toHaveBeenCalledWith('sug-99');
-    expect(result).toMatchObject({ dismissed: true });
-  });
-
-  it('happy path: optional reason field is accepted and does not break dispatch', async () => {
-    const { rpcHandler, curator } = buildHandlersWithSuggestions();
-    curator.dismissSuggestion.mockReturnValue({ dismissed: true });
-
-    const result = await rpcHandler.call('skillSynthesis:dismissSuggestion', {
-      id: 'sug-99',
-      reason: 'not useful',
-    });
-
-    expect(curator.dismissSuggestion).toHaveBeenCalledWith('sug-99');
-    expect(result).toMatchObject({ dismissed: true });
-  });
-
-  it('desktop guard: throws PERSISTENCE_UNAVAILABLE when curator is absent (VS Code)', async () => {
-    const { rpcHandler } = buildHandlers();
-
-    await expect(
-      rpcHandler.call('skillSynthesis:dismissSuggestion', { id: 'sug-1' }),
-    ).rejects.toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
-  });
-
-  it('param validation: missing id rejected with INVALID_PARAMS', async () => {
-    const { rpcHandler } = buildHandlersWithSuggestions();
-
-    await expect(
-      rpcHandler.call('skillSynthesis:dismissSuggestion', {}),
-    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
-  });
-
-  it('param validation: empty id rejected with INVALID_PARAMS', async () => {
-    const { rpcHandler } = buildHandlersWithSuggestions();
-
-    await expect(
-      rpcHandler.call('skillSynthesis:dismissSuggestion', { id: '' }),
-    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
-  });
-
-  it('param validation: reason exceeding 500 chars rejected with INVALID_PARAMS', async () => {
-    const { rpcHandler } = buildHandlersWithSuggestions();
-
-    await expect(
-      rpcHandler.call('skillSynthesis:dismissSuggestion', {
-        id: 'sug-1',
-        reason: 'x'.repeat(501),
-      }),
-    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
-  });
-});
-
-describe('SkillsSynthesisRpcHandlers — skillSynthesis:getSuggestion', () => {
-  it('happy path: calls suggestionStore.findById and returns suggestion with body', async () => {
-    const { rpcHandler, suggestionStore } = buildHandlersWithSuggestions();
-    suggestionStore.findById.mockReturnValue(fakeSuggestionRow);
-
-    const result = await rpcHandler.call('skillSynthesis:getSuggestion', {
-      id: 'sug-1',
-    });
-
-    expect(suggestionStore.findById).toHaveBeenCalledWith('sug-1');
-    expect(result).toMatchObject({
-      suggestion: {
-        id: 'sug-1',
-        name: 'My Skill',
-        description: 'does things',
-        body: '## Body\nStep 1.',
-        status: 'pending',
-      },
-    });
-  });
-
-  it('returns suggestion:null when findById returns null (not found)', async () => {
-    const { rpcHandler, suggestionStore } = buildHandlersWithSuggestions();
-    suggestionStore.findById.mockReturnValue(null);
-
-    const result = (await rpcHandler.call('skillSynthesis:getSuggestion', {
-      id: 'missing',
-    })) as { suggestion: null };
-
-    expect(result.suggestion).toBeNull();
-  });
-
-  it('desktop guard: throws PERSISTENCE_UNAVAILABLE when suggestionStore is absent (VS Code)', async () => {
-    const { rpcHandler } = buildHandlers();
-
-    await expect(
-      rpcHandler.call('skillSynthesis:getSuggestion', { id: 'sug-1' }),
-    ).rejects.toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
-  });
-
-  it('param validation: missing id rejected with INVALID_PARAMS', async () => {
-    const { rpcHandler } = buildHandlersWithSuggestions();
-
-    await expect(
-      rpcHandler.call('skillSynthesis:getSuggestion', {}),
-    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
-  });
-
-  it('param validation: empty id rejected with INVALID_PARAMS', async () => {
-    const { rpcHandler } = buildHandlersWithSuggestions();
-
-    await expect(
-      rpcHandler.call('skillSynthesis:getSuggestion', { id: '' }),
-    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
-  });
-});
-
-describe('SkillsSynthesisRpcHandlers — skillSynthesis:updateSuggestion', () => {
-  it('happy path: calls updatePending with fields and returns updated=true when still pending', async () => {
-    const { rpcHandler, suggestionStore } = buildHandlersWithSuggestions();
-    const updatedRow = {
-      ...fakeSuggestionRow,
-      name: 'New Name',
-      status: 'pending' as const,
-    };
-    suggestionStore.updatePending.mockReturnValue(updatedRow);
-
-    const result = await rpcHandler.call('skillSynthesis:updateSuggestion', {
-      id: 'sug-1',
-      name: 'New Name',
-    });
-
-    expect(suggestionStore.updatePending).toHaveBeenCalledWith('sug-1', {
-      name: 'New Name',
-      description: undefined,
-      body: undefined,
-    });
-    expect(result).toMatchObject({
-      updated: true,
-      suggestion: expect.objectContaining({ name: 'New Name' }),
-    });
-  });
-
-  it('returns updated=false when the row is accepted (immutable)', async () => {
-    const { rpcHandler, suggestionStore } = buildHandlersWithSuggestions();
-    // Store returns the accepted row unchanged (it was already accepted)
-    const acceptedRow = { ...fakeSuggestionRow, status: 'accepted' as const };
-    suggestionStore.updatePending.mockReturnValue(acceptedRow);
-
-    const result = (await rpcHandler.call('skillSynthesis:updateSuggestion', {
-      id: 'sug-1',
-      name: 'ignored',
-    })) as { updated: boolean; suggestion: unknown };
-
-    expect(result.updated).toBe(false);
-    expect(result.suggestion).not.toBeNull();
-  });
-
-  it('returns updated=false and suggestion=null when id not found', async () => {
-    const { rpcHandler, suggestionStore } = buildHandlersWithSuggestions();
-    suggestionStore.updatePending.mockReturnValue(null);
-
-    const result = (await rpcHandler.call('skillSynthesis:updateSuggestion', {
-      id: 'missing',
-      name: 'x',
-    })) as { updated: boolean; suggestion: null };
-
-    expect(result.updated).toBe(false);
-    expect(result.suggestion).toBeNull();
-  });
-
-  it('desktop guard: throws PERSISTENCE_UNAVAILABLE when suggestionStore is absent (VS Code)', async () => {
-    const { rpcHandler } = buildHandlers();
-
-    await expect(
-      rpcHandler.call('skillSynthesis:updateSuggestion', {
-        id: 'sug-1',
-        name: 'x',
-      }),
-    ).rejects.toMatchObject({ errorCode: 'PERSISTENCE_UNAVAILABLE' });
-  });
-
-  it('param validation: missing id rejected with INVALID_PARAMS', async () => {
-    const { rpcHandler } = buildHandlersWithSuggestions();
-
-    await expect(
-      rpcHandler.call('skillSynthesis:updateSuggestion', { name: 'x' }),
-    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
-  });
-
-  it('param validation: empty id rejected with INVALID_PARAMS', async () => {
-    const { rpcHandler } = buildHandlersWithSuggestions();
-
-    await expect(
-      rpcHandler.call('skillSynthesis:updateSuggestion', { id: '' }),
-    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
-  });
-
-  it('param validation: name longer than 200 chars rejected with INVALID_PARAMS', async () => {
-    const { rpcHandler } = buildHandlersWithSuggestions();
-
-    await expect(
-      rpcHandler.call('skillSynthesis:updateSuggestion', {
-        id: 'sug-1',
-        name: 'x'.repeat(201),
-      }),
-    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
-  });
-});
-
-// ─── Preview-before-apply RPC surface ──────────────────────────────────────
 
 describe('SkillsSynthesisRpcHandlers — previewEnhancement / applyProposal', () => {
   const PROPOSAL_ID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
@@ -3486,9 +1622,8 @@ describe('SkillsSynthesisRpcHandlers — previewEnhancement / applyProposal', ()
   };
 
   it('previewEnhancement returns both bodies, judge verdict, and a proposalId', async () => {
-    const { rpcHandler, registry, enhancer, synthesis } = buildHandlers();
+    const { rpcHandler, registry, enhancer } = buildHandlers();
     registry.getBySlug.mockReturnValue(cloneRow);
-    synthesis.readSettings.mockReturnValue({ minJudgeScore: 6 });
     enhancer.generateProposal.mockResolvedValue({
       proposed: true,
       slug: 'deep-research',
@@ -3498,6 +1633,14 @@ describe('SkillsSynthesisRpcHandlers — previewEnhancement / applyProposal', ()
       judgeScore: 8,
       judgeReason: 'judge-verdict',
       proposalId: PROPOSAL_ID,
+      draft: {
+        before: 'OLD',
+        after: 'NEW',
+        diff: '@@ -1 +1 @@\n-OLD\n+NEW',
+        evidence: { trajectory: '', findings: '', scorecard: '' },
+        model: 'claude-haiku-4-5-20251001',
+        sourceHash: 'sha256:abc',
+      },
     });
 
     const result = await rpcHandler.call('skillSynthesis:previewEnhancement', {
@@ -3507,7 +1650,7 @@ describe('SkillsSynthesisRpcHandlers — previewEnhancement / applyProposal', ()
 
     expect(enhancer.generateProposal).toHaveBeenCalledWith(
       'deep-research',
-      { minJudgeScore: 6 },
+      { judgeEnabled: true, minJudgeScore: 6 },
       { manual: true, kind: 'skill', userInitiated: true },
     );
     expect(result).toEqual({
@@ -3518,11 +1661,19 @@ describe('SkillsSynthesisRpcHandlers — previewEnhancement / applyProposal', ()
       judgeScore: 8,
       judgeReason: 'judge-verdict',
       proposalId: PROPOSAL_ID,
+      draft: {
+        before: 'OLD',
+        after: 'NEW',
+        diff: '@@ -1 +1 @@\n-OLD\n+NEW',
+        evidence: { trajectory: '', findings: '', scorecard: '' },
+        model: 'claude-haiku-4-5-20251001',
+        sourceHash: 'sha256:abc',
+      },
     });
   });
 
   it('previewEnhancement never reaches the write path', async () => {
-    const { rpcHandler, registry, enhancer } = buildHandlers();
+    const { rpcHandler, registry, enhancer, mirror } = buildHandlers();
     registry.getBySlug.mockReturnValue(cloneRow);
 
     await rpcHandler.call('skillSynthesis:previewEnhancement', {
@@ -3531,6 +1682,36 @@ describe('SkillsSynthesisRpcHandlers — previewEnhancement / applyProposal', ()
     });
 
     expect(enhancer.enhance).not.toHaveBeenCalled();
+    expect(enhancer.applyProposal).not.toHaveBeenCalled();
+    expect(mirror.saveCloneBody).not.toHaveBeenCalled();
+  });
+
+  it('previewEnhancement returns a provider skip without saving', async () => {
+    const { rpcHandler, registry, enhancer, mirror } = buildHandlers();
+    registry.getBySlug.mockReturnValue(cloneRow);
+    enhancer.generateProposal.mockResolvedValue({
+      proposed: false,
+      slug: 'deep-research',
+      kind: 'skill',
+      currentBody: 'OLD',
+      proposedBody: null,
+      judgeScore: null,
+      judgeReason: null,
+      proposalId: null,
+      skipReason: 'provider-unreachable',
+    });
+
+    const result = await rpcHandler.call('skillSynthesis:previewEnhancement', {
+      kind: 'skill',
+      slug: 'deep-research',
+    });
+
+    expect(result).toMatchObject({
+      proposed: false,
+      proposalId: null,
+      skipReason: 'provider-unreachable',
+    });
+    expect(mirror.saveCloneBody).not.toHaveBeenCalled();
     expect(enhancer.applyProposal).not.toHaveBeenCalled();
   });
 
@@ -3881,73 +2062,6 @@ describe('SkillsSynthesisRpcHandlers — getHistoryBody', () => {
   });
 });
 
-/**
- * TASK_2026_437 C14, Batch 16b. Every skill-synthesis RPC a user waits on
- * marks its work `userInitiated`, which is what routes its LLM calls to the
- * ungoverned default lane (the lane mapping itself is pinned in
- * skill-synthesis's `user-initiated-lane.spec.ts`). enhanceNow and
- * previewEnhancement are pinned by the exact-argument cases above.
- */
-describe('SkillsSynthesisRpcHandlers — user-initiated work skips the governor', () => {
-  it('skillSynthesis:promote passes userInitiated', async () => {
-    const { rpcHandler, synthesis } = buildHandlersWithSuggestions();
-    synthesis.promote.mockResolvedValue({ promoted: true, filePath: '/x' });
-
-    await rpcHandler.call('skillSynthesis:promote', { id: 'cand-1' });
-
-    expect(synthesis.promote).toHaveBeenCalledWith('cand-1', {
-      userInitiated: true,
-    });
-  });
-
-  it('skillSynthesis:promoteBulk passes userInitiated', async () => {
-    const { rpcHandler, synthesis } = buildHandlersWithSuggestions();
-
-    await rpcHandler.call('skillSynthesis:promoteBulk', {
-      ids: ['cand-1', 'cand-2'],
-    });
-
-    expect(synthesis.promoteBulk).toHaveBeenCalledWith(['cand-1', 'cand-2'], {
-      userInitiated: true,
-    });
-  });
-
-  it('skillSynthesis:runCurator passes userInitiated', async () => {
-    const { rpcHandler, curator } = buildHandlersWithSuggestions();
-
-    await rpcHandler.call('skillSynthesis:runCurator', {});
-
-    expect(curator.runManual).toHaveBeenCalledWith({ userInitiated: true });
-  });
-
-  it('skillSynthesis:digest passes userInitiated beside the caller allowRewrite', async () => {
-    const gapCurator = { runDigest: jest.fn().mockResolvedValue([]) };
-    const { rpcHandler } = buildHandlersWithSuggestions(
-      ['/workspace/project'],
-      gapCurator,
-    );
-
-    await rpcHandler.call('skillSynthesis:digest', {
-      workspaceRoot: '/workspace/project',
-      allowRewrite: true,
-    });
-
-    expect(gapCurator.runDigest).toHaveBeenCalledWith(
-      expect.objectContaining({ allowRewrite: true, userInitiated: true }),
-    );
-  });
-});
-
-/**
- * C2 quarantine list + restore (TASK_2026_609 B-2b).
- *
- * The filesystem restore itself (snapshot selection, link/copy, conflicts) is
- * pinned against a real `UserLayerMirrorService` in agent-generation's
- * `user-layer-seed-quarantine.spec.ts`. Here the mirror is a stateful double of
- * its two facade methods, and the agent-sync gate is the REAL `AgentSyncGate`
- * over a real `.ptah/harness/state.json`, so "restore never changes consent"
- * is asserted on the bytes the gate reads, not on a mock.
- */
 describe('SkillsSynthesisRpcHandlers — quarantine list / restore (C2)', () => {
   let tempRoot: string;
   let ws: string;
@@ -4016,26 +2130,6 @@ describe('SkillsSynthesisRpcHandlers — quarantine list / restore (C2)', () => 
     child.registerInstance(TOKENS.LOGGER, logger);
     child.registerInstance(TOKENS.RPC_HANDLER, rpcHandler);
     child.registerInstance(TOKENS.SENTRY_SERVICE, sentry);
-    child.registerInstance(
-      SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE,
-      makeSynthesis(),
-    );
-    child.registerInstance(
-      SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE,
-      makeStore(),
-    );
-    child.registerInstance(
-      SKILL_SYNTHESIS_TOKENS.SKILL_DIAGNOSTICS_SERVICE,
-      makeDiagnostics(),
-    );
-    child.registerInstance(
-      SKILL_SYNTHESIS_TOKENS.SKILL_QUEUE_STORE,
-      makeQueueStore(),
-    );
-    child.registerInstance(
-      SKILL_SYNTHESIS_TOKENS.SKILL_BUDGET_STORE,
-      makeBudgetStore(),
-    );
     child.registerInstance(
       PLATFORM_TOKENS.WORKSPACE_PROVIDER,
       createMockWorkspaceProvider({ folders: options.folders ?? [ws] }),
@@ -4357,7 +2451,7 @@ describe('SkillsSynthesisRpcHandlers — agent models get / set (C6)', () => {
       watchGlobal: () => ({ dispose: () => undefined }),
       watchSecret: () => ({ dispose: () => undefined }),
       flushSync: () => undefined,
-    } as unknown as ISettingsStore;
+    } as ISettingsStore;
     return {
       store,
       data,
@@ -4398,26 +2492,6 @@ describe('SkillsSynthesisRpcHandlers — agent models get / set (C6)', () => {
     child.registerInstance(TOKENS.RPC_HANDLER, rpcHandler);
     child.registerInstance(TOKENS.SENTRY_SERVICE, sentry);
     child.registerInstance(
-      SKILL_SYNTHESIS_TOKENS.SKILL_SYNTHESIS_SERVICE,
-      makeSynthesis(),
-    );
-    child.registerInstance(
-      SKILL_SYNTHESIS_TOKENS.SKILL_CANDIDATE_STORE,
-      makeStore(),
-    );
-    child.registerInstance(
-      SKILL_SYNTHESIS_TOKENS.SKILL_DIAGNOSTICS_SERVICE,
-      makeDiagnostics(),
-    );
-    child.registerInstance(
-      SKILL_SYNTHESIS_TOKENS.SKILL_QUEUE_STORE,
-      makeQueueStore(),
-    );
-    child.registerInstance(
-      SKILL_SYNTHESIS_TOKENS.SKILL_BUDGET_STORE,
-      makeBudgetStore(),
-    );
-    child.registerInstance(
       PLATFORM_TOKENS.WORKSPACE_PROVIDER,
       workspaceProvider,
     );
@@ -4429,7 +2503,7 @@ describe('SkillsSynthesisRpcHandlers — agent models get / set (C6)', () => {
     }
     child.registerInstance(CliModelListService, {
       listForClassification,
-    } as unknown as CliModelListService);
+    } as Pick<CliModelListService, 'listForClassification'> as CliModelListService);
     child.register(SkillsSynthesisRpcHandlers, {
       useClass: SkillsSynthesisRpcHandlers,
     });
@@ -4820,186 +2894,13 @@ describe('SkillsSynthesisRpcHandlers — agent models get / set (C6)', () => {
 // TASK_2026_620 B-P — the skills pause switch and the curator restart
 // ---------------------------------------------------------------------------
 
-describe('SkillsSynthesisRpcHandlers — manual runs while skills are paused', () => {
-  const cloneRow = {
-    slug: 'deep-research',
-    kind: 'skill' as const,
-    userPath: '/home/.ptah/user/skills/deep-research',
-    originPluginId: 'research-pack',
-    originVersion: '1.0.0',
-    sourceHash: 'sha256:aaa',
-    cloneStatus: 'clone' as const,
-    diverged: false,
-    historyDir: null,
-    lastEnhancedAt: null,
-    candidateId: null,
-    pendingSourceHash: null,
-    createdAt: 1690000000000,
-    updatedAt: 1700000000000,
-  };
-
-  /** `enabled` undefined → the key is not stored, so the default applies. */
-  function buildWithSwitch(enabled: boolean | undefined) {
-    const built = buildHandlersWithSuggestions();
-    if (enabled !== undefined) {
-      built.workspaceProvider.__state.config.set(
-        'ptah.skillSynthesis.enabled',
-        enabled,
-      );
-    }
-    built.registry.getBySlug.mockReturnValue(cloneRow);
-    built.synthesis.analyzeSession.mockResolvedValue(null);
-    built.enhancer.enhance.mockResolvedValue({
-      changed: false,
-      slug: 'deep-research',
-      kind: 'skill',
-      judgeScore: null,
-      judgeReason: null,
-      historyTs: null,
-    });
-    built.enhancer.generateProposal.mockResolvedValue({
-      proposed: false,
-      slug: 'deep-research',
-      kind: 'skill',
-      currentBody: 'OLD',
-      proposedBody: null,
-      judgeScore: null,
-      judgeReason: null,
-      proposalId: null,
-    });
-    return built;
-  }
-
-  type Built = ReturnType<typeof buildWithSwitch>;
-
-  const cases: ReadonlyArray<{
-    method:
-      | 'skillSynthesis:runCurator'
-      | 'skillSynthesis:analyzeNow'
-      | 'skillSynthesis:enhanceNow'
-      | 'skillSynthesis:previewEnhancement';
-    params: Record<string, unknown>;
-    work: (b: Built) => jest.Mock;
-  }> = [
-    {
-      method: 'skillSynthesis:runCurator',
-      params: {},
-      work: (b) => b.curator.runManual,
-    },
-    {
-      method: 'skillSynthesis:analyzeNow',
-      params: { sessionId: 'sess-1', workspaceRoot: '/workspace/project' },
-      work: (b) => b.synthesis.analyzeSession,
-    },
-    {
-      method: 'skillSynthesis:enhanceNow',
-      params: { kind: 'skill', slug: 'deep-research' },
-      work: (b) => b.enhancer.enhance,
-    },
-    {
-      method: 'skillSynthesis:previewEnhancement',
-      params: { kind: 'skill', slug: 'deep-research' },
-      work: (b) => b.enhancer.generateProposal,
-    },
-  ];
-
-  it.each(cases)(
-    '$method throws PAUSED and does no work when skillSynthesis.enabled is false',
-    async ({ method, params, work }) => {
-      const built = buildWithSwitch(false);
-
-      let thrown: unknown;
-      try {
-        await built.rpcHandler.call(method, params);
-      } catch (err) {
-        thrown = err;
-      }
-
-      expect(thrown).toBeInstanceOf(RpcUserError);
-      expect((thrown as RpcUserError).errorCode).toBe('PAUSED');
-      expect(work(built)).not.toHaveBeenCalled();
-      // A refusal is the switch working, not a failure to report.
-      expect(built.sentry.captureException).not.toHaveBeenCalled();
-    },
-  );
-
-  it.each(cases)(
-    '$method runs when skillSynthesis.enabled is true',
-    async ({ method, params, work }) => {
-      const built = buildWithSwitch(true);
-
-      await built.rpcHandler.call(method, params);
-
-      expect(work(built)).toHaveBeenCalledTimes(1);
-    },
-  );
-
-  it.each(cases)(
-    '$method runs when skillSynthesis.enabled is unset (default on)',
-    async ({ method, params, work }) => {
-      const built = buildWithSwitch(undefined);
-
-      await built.rpcHandler.call(method, params);
-
-      expect(work(built)).toHaveBeenCalledTimes(1);
-    },
-  );
-
-  it('analyzeNow reports INVALID_PARAMS before the pause check', async () => {
-    const built = buildWithSwitch(false);
-
-    await expect(
-      built.rpcHandler.call('skillSynthesis:analyzeNow', { sessionId: '' }),
-    ).rejects.toMatchObject({ errorCode: 'INVALID_PARAMS' });
-  });
-});
-
-describe('SkillsSynthesisRpcHandlers — updateSettings curator restart', () => {
-  it('a curatorIntervalHours change restarts the curator through the service', async () => {
-    const { rpcHandler, synthesis, curator, workspaceProvider } =
-      buildHandlersWithSuggestions();
-
-    await rpcHandler.call('skillSynthesis:updateSettings', {
-      settings: { curatorIntervalHours: 12 },
-    });
-
-    expect(
-      workspaceProvider.__state.config.get(
-        'ptah.skillSynthesis.curatorIntervalHours',
-      ),
-    ).toBe(12);
-    expect(synthesis.restartCurator).toHaveBeenCalledTimes(1);
-    // The RPC no longer stops/starts the curator itself; that path dropped the
-    // pass/event callbacks `SkillSynthesisService.start()` wires (S13).
-    expect(curator.stop).not.toHaveBeenCalled();
-    expect(curator.start).not.toHaveBeenCalled();
-  });
-
-  it('a curatorEnabled change restarts the curator through the service', async () => {
-    const { rpcHandler, synthesis } = buildHandlersWithSuggestions();
-
-    await rpcHandler.call('skillSynthesis:updateSettings', {
-      settings: { curatorEnabled: false },
-    });
-
-    expect(synthesis.restartCurator).toHaveBeenCalledTimes(1);
-  });
-
-  it('the pause switch alone writes skillSynthesis.enabled and does not restart the curator', async () => {
-    const { rpcHandler, synthesis, workspaceProvider } =
-      buildHandlersWithSuggestions();
-    const setSpy = jest.spyOn(workspaceProvider, 'setConfiguration');
-
-    await rpcHandler.call('skillSynthesis:updateSettings', {
-      settings: { enabled: false },
-    });
-
-    expect(setSpy).toHaveBeenCalledTimes(1);
-    expect(setSpy).toHaveBeenCalledWith(
-      'ptah',
-      'skillSynthesis.enabled',
-      false,
-    );
-    expect(synthesis.restartCurator).not.toHaveBeenCalled();
+describe('SkillsSynthesisRpcHandlers — preview while skills are paused', () => {
+  it('refuses a paused preview before generating a proposal', async () => {
+    const { rpcHandler, enhancer, workspaceProvider } = buildHandlers();
+    workspaceProvider.__state.config.set('ptah.skillSynthesis.enabled', false);
+    await expect(rpcHandler.call('skillSynthesis:previewEnhancement', {
+      kind: 'skill', slug: 'deep-research',
+    })).rejects.toMatchObject({ errorCode: 'PAUSED' });
+    expect(enhancer.generateProposal).not.toHaveBeenCalled();
   });
 });

@@ -478,11 +478,23 @@ export type PanelSessionAdjudication = z.infer<
   typeof panelSessionAdjudicationSchema
 >;
 
-/** Skill id shape shared with `triggerLabelSchema` (trigger-human-eval.ts). */
+/** Skill id shape shared by panel and committed trigger labels. */
 const panelSkillIdSchema = z
   .string()
   .regex(/^[a-z0-9][a-z0-9-]*$/, 'skill id: a lower-case slug');
 const panelPromptListSchema = z.array(z.string().trim().min(1)).min(1);
+
+/** Verified panel spelling for the committed U4 trigger labels. */
+export const COMMITTED_U4_TRIGGER_PANEL = 'xAI+Google; adjudicator=GLM';
+
+/** One committed U4 trigger label, including its pinned skill description. */
+export const triggerLabelSchema = z.strictObject({
+  skillId: panelSkillIdSchema,
+  description: z.string().trim().min(1),
+  shouldTrigger: panelPromptListSchema,
+  nearMiss: panelPromptListSchema,
+  panel: z.string().min(1).optional(),
+});
 
 /** One U4 trigger rater line. Description stays on the packet, not this row. */
 export const panelTriggerLabelSchema = z.strictObject({
@@ -518,7 +530,7 @@ export type PanelTriggerAdjudication = z.infer<
  * `nearMiss`, and optional `panel`. `panel` is the verified family string
  * from `modelPanelName` / `PanelEligibility.panel`
  * (`<raterA>+<raterB>; adjudicator=<family>`). It is omitted when the row
- * was not labelled by the panel. `triggerLabelSchema` is the suite parser.
+ * was not labelled by the panel.
  */
 export const committedTriggerLabelSchema = z.strictObject({
   skillId: panelSkillIdSchema,

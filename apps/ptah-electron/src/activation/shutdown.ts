@@ -227,7 +227,6 @@ function disposeBeforePersistence(deps: DisposalDeps): Promise<void> {
     refs.statusBridgeDisposables?.forEach((d) => d.dispose()),
   );
   nonFatal('Skill trigger stop', () => refs.skillTrigger?.stop());
-  nonFatal('Skill synthesis stop', () => refs.skillSynthesis?.stop());
   nonFatal('Cron scheduler stop', () => refs.cronScheduler?.stop());
   nonFatal('Memory trigger stop', () => refs.memoryTrigger?.stop());
   nonFatal('Memory curator stop', () => refs.memoryCurator?.stop());

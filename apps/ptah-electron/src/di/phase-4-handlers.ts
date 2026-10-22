@@ -26,6 +26,7 @@ import {
 } from '@ptah-extension/vscode-core';
 import {
   SessionRpcHandlers,
+  ArtifactRpcHandlers,
   ChatRpcHandlers,
   ConfigRpcHandlers,
   ConfigScopeRpcHandlers,
@@ -89,6 +90,7 @@ export function registerPhase4Handlers(
   registerHarnessServices(container);
   registerChatServices(container);
   container.registerSingleton(SessionRpcHandlers);
+  container.registerSingleton(ArtifactRpcHandlers);
   container.registerSingleton(ChatRpcHandlers);
   container.registerSingleton(ConfigRpcHandlers);
   container.registerSingleton(AuthRpcHandlers);

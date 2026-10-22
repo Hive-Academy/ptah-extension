@@ -185,6 +185,84 @@ const CLEAN_GRAPH_COVERAGE: LanguageCoverage = withCoverageVerdict({
   },
 });
 
+describe('artifact publish dispatch scope', () => {
+  it('publishes under the resolved tab id for a resumed SDK session', async () => {
+    const publish = jest.fn().mockResolvedValue({
+      id: 'abcdefghijklmnop', revision: 1, title: 'Report',
+      sessionId: 'tab-a', viewerUrl: 'ptah-artifact://abcdefghijklmnop/index.html',
+      createdAt: '2026-10-20T12:00:00.000Z',
+      savedPath: '/trusted/workspace/artifacts/index.html',
+    });
+    const deps = buildDeps({
+      artifactStore: { publish, list: jest.fn(), readBytes: jest.fn() },
+      getSessionWorkspace: (id) => id === 'sdk-a' ? '/trusted/workspace' : undefined,
+      getSessionTabId: (id) => id === 'sdk-a' ? 'tab-a' : undefined,
+    });
+    const response = await handleMCPRequest(makeRequest({
+      method: 'tools/call', _callerSessionId: 'sdk-a',
+      params: { name: 'ptah_artifact_publish', arguments: { title: 'Report', html: '<h1>ok</h1>' } },
+    }), deps);
+    expect(response.result).toBeDefined();
+    expect(publish).toHaveBeenCalledWith(
+      { workspaceRoot: '/trusted/workspace', sessionId: 'tab-a' },
+      { title: 'Report', html: '<h1>ok</h1>' },
+    );
+  });
+
+  it('takes identity from the transport and rejects agent-supplied scope', async () => {
+    const publish = jest.fn().mockResolvedValue({
+      id: 'abcdefghijklmnop', revision: 1, title: 'Report',
+      sessionId: 'trusted-session',
+      viewerUrl: 'ptah-artifact://abcdefghijklmnop/index.html',
+      createdAt: '2026-10-20T12:00:00.000Z',
+      savedPath: '/trusted/workspace/artifacts/index.html',
+    });
+    const notify = jest.fn().mockResolvedValue(undefined);
+    const deps = buildDeps({
+      artifactStore: { publish, list: jest.fn(), readBytes: jest.fn() },
+      notifyArtifactPublished: notify,
+      getSessionWorkspace: (id) =>
+        id === 'trusted-session' ? '/trusted/workspace' : undefined,
+    });
+    const request = makeRequest({
+      method: 'tools/call',
+      _callerSessionId: 'trusted-session',
+      params: { name: 'ptah_artifact_publish', arguments: { title: 'Report', html: '<h1>ok</h1>' } },
+    });
+    expect((await handleMCPRequest(request, deps)).result).toBeDefined();
+    expect(publish).toHaveBeenCalledWith(
+      { workspaceRoot: '/trusted/workspace', sessionId: 'trusted-session' },
+      { title: 'Report', html: '<h1>ok</h1>' },
+    );
+    expect(notify).toHaveBeenCalledTimes(1);
+    const spoofed = await handleMCPRequest({
+      ...request,
+      params: { name: 'ptah_artifact_publish', arguments: { title: 'Report', html: 'x', sessionId: 'forged' } },
+    }, deps);
+    expect(spoofed.result).toMatchObject({ isError: true });
+    expect(publish).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses an unknown caller session instead of using another workspace', async () => {
+    const publish = jest.fn();
+    const deps = buildDeps({
+      artifactStore: { publish, list: jest.fn(), readBytes: jest.fn() },
+      getSessionWorkspace: () => undefined,
+    });
+    const response = await handleMCPRequest(
+      makeRequest({
+        method: 'tools/call',
+        _callerWorkspaceRoot: '/declared/workspace',
+        _callerSessionId: 'unknown-session',
+        params: { name: 'ptah_artifact_publish', arguments: { title: 'Report', html: '<h1>ok</h1>' } },
+      }),
+      deps,
+    );
+    expect(response.result).toMatchObject({ isError: true });
+    expect(publish).not.toHaveBeenCalled();
+  });
+});
+
 /** A qualified graph coverage: three Python files the graph cannot analyse. */
 const QUALIFIED_GRAPH_COVERAGE: LanguageCoverage = withCoverageVerdict({
   ...CLEAN_GRAPH_COVERAGE,
@@ -285,6 +363,7 @@ describe('protocol-handlers › tools/list', () => {
       deps,
     );
     const names = getToolNames(res);
+    expect(names).toContain('ptah_artifact_publish');
 
     for (const core of [
       'ptah_workspace_analyze',
@@ -7906,7 +7985,8 @@ describe('MCP tool profile listing, eager loading and dispatch', () => {
       expect(await list('admin')).toEqual(coding);
       // +3: agent_wait, run_check and HTTP-only run_check_wait. +1:
       // ptah_session_handoff, always-on (TASK_2026_655).
-      expect(coding).toHaveLength(hasIDECapabilities ? 65 : 62);
+      expect(coding).toHaveLength(hasIDECapabilities ? 66 : 63);
+      expect(coding.map((tool) => tool.name)).toContain('ptah_artifact_publish');
       expect(coding.map((tool) => tool.name)).toEqual(
         expect.arrayContaining(['ptah_route_decide', 'ptah_outcome_report']),
       );

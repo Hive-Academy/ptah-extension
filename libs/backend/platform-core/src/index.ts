@@ -164,6 +164,12 @@ export type {
   McpSubagentRootRetention,
 } from './interfaces/mcp-subagent-root-registrar.interface';
 export type { ICallerWorkspaceResolver } from './interfaces/caller-workspace-resolver.interface';
+export type {
+  IArtifactStore,
+  ArtifactScope,
+  ArtifactStoreErrorCode,
+} from './interfaces/artifact-store.interface';
+export { ArtifactStoreError } from './interfaces/artifact-store.interface';
 export type { ITracer } from './interfaces/tracer.interface';
 export type {
   IProcessSpawner,
@@ -313,6 +319,7 @@ export type {
   WorkspaceWatchUnsubscribeMessage,
 } from './workspace-watch/workspace-watch-protocol';
 export { normalizeWorkspaceRoot } from './utils/normalize-workspace-root';
+export { formatSourceHash } from './utils/source-hash';
 export {
   PROCESS_TREE_KILL_GRACE_MS,
   killProcessTree,

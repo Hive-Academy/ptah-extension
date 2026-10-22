@@ -1,158 +1,121 @@
-# HANDOFF — TASK_2026_707 Analytics dashboard redesign
+# HANDOFF — TASK_2026_707 Analytics dashboard redesign (session 2)
 
-Written 2026-10-20 by the orchestrator session at handoff (token budget). Read `context.md` in this
-folder for the full chronological log; this file is the actionable summary.
+Written 2026-10-20 ~19:45 local by orchestrator session 2 (token budget). Supersedes the session-1
+handoff. `context.md` in this folder has the full log (Glm limit recorded at its end).
 
 ## Goal (user request)
+1. Compact, uniform plan-limit tiles; fix Grok / Ollama / Antigravity readers. (PR 1)
+2. T3-Code-style usage dashboard: usage per provider, tokens, cost per model, charts. (PR 2)
+3. User sees every change in Electron (dark + light, **full-page desktop view**) before merge.
+4. Side task: agy (Antigravity CLI) lanes end with `result.status: ERROR` → diagnostics fix.
 
-1. **Plan-limits section** on the analytics page: was buggy, not uniform across providers, too tall.
-   Explain/fix Grok (shows nothing), Ollama (showed only request counts), Antigravity (usage unknown;
-   see https://antigravity.google/docs/cli/commands/usage/).
-2. **Session stats**: replace basic cards with a T3-Code-style usage dashboard — usage per provider
-   today, tokens burned per provider, cost per model, stats and charts.
-3. User wants to **see the changes visually** (Electron) before anything merges.
+User decisions (keep): in-house SVG charts; daily **stacked bars**; **cost-share donut** with
+Provider | Model toggle; tiles get a subtle border; RPC is `analytics:spendSummary` (renamed so
+the TASK_2026_610 host-source guard does not match `usage`); merge the old Sessions tab into the
+Usage view = **"Merge + small top-5 list"** (counts into the KPI strip, top-5 sessions table, remove
+session cards/modal/tab). User APPROVED the #796 design screenshots but wants **full-page desktop
+screenshots** (they were window-sized sections).
 
-User decisions (keep): two PRs (PR 1 tiles + readers, PR 2 usage dashboard), built in parallel;
-in-house SVG charts (no chart lib); pricing = existing OpenRouter pricing service + bundled rate card
-fallback (no LiteLLM); Grok = local CLI session usage, no new xAI key (management key = future);
-Ollama = `/api/balance` for %, never compute % from request counts.
+## PRs and branches
+| PR | Branch / worktree | State |
+| --- | --- | --- |
+| #784 plan-limit tiles | `feat/plan-limit-tiles` / `.claude-worktrees/plan-limit-tiles` | MERGED (head 7fac90cb1). Worktree clean. |
+| #787 usage dashboard | `feat/analytics-dashboard` | MERGED (head 8b9df45cd). |
+| **#796** tile + usage polish, donut | `feat/usage-dashboard-polish` / `.claude-worktrees/analytics-dashboard` | OPEN. Commits 0f925e8f8 (code), 5448a9e97 (specs). CI: only `electron-e2e` shards 1/3 failed on npm `ECONNRESET` (infra); `gh run rerun --failed` requested for run 39481994925. |
+| **#797** agy diagnostics | `fix/agy-error-status` / `.claude-worktrees/agy-error-status` | OPEN. Commits 36d41ddd0 (fix), efeb2b7fc (specs). CI running. |
 
-## Worktrees and branches
+All worktrees have a `node_modules` junction to the main checkout. Main checkout stays on `main`.
 
-| PR | Worktree | Branch | State |
-| --- | --- | --- | --- |
-| PR 1 | `D:/projects/ptah-extension/.claude-worktrees/plan-limit-tiles` | `feat/plan-limit-tiles` | commit `c1ec75cea` pushed; **PR #784** open: https://github.com/Hive-Academy/ptah-extension/pull/784 ; **uncommitted** CI/CodeRabbit fixes on top |
-| PR 2 | `D:/projects/ptah-extension/.claude-worktrees/analytics-dashboard` | `feat/analytics-dashboard` | nothing committed; all PR 2 code + this spec folder uncommitted |
-
-Both worktrees have a `node_modules` junction to the main checkout. Main checkout stays on `main`.
-
-## Done
-
-### PR 1 (#784) — compact uniform plan-limit tiles
-- Tile grid (`provider-account-tile/*`, `provider-account-card/plan-tile-view.model.ts`); old
-  `provider-account-row.component.ts` deleted.
-- Ollama reader: `/api/balance` (session/weekly %, resets, allowance) + `/api/usage` per-model
-  requests; typed `statusReason` (`balance-unavailable`, `balance-auth-rejected`,
-  `usage-auth-rejected`); per-endpoint cooldown; in-flight sharing; streamed body cap; split into
-  `ollama-cloud-plan-usage.reader.ts` + `ollama-cloud-usage.parsers.ts`.
-- Antigravity: `antigravity-cli-usage.adapter.ts` runs `agy -p /usage` (tab-separated
-  `<group>\t<label>\t<remaining%>\t<ISO reset>`; used = 100 − remaining) as 3rd fallback; typed
-  reasons `cli-not-found|cli-timeout|cli-not-signed-in|cli-exit-error|cli-parse-failed`.
-- Grok API-key login: `api-key-no-subscription-quota` + local CLI usage.
-- Claude stale generic weekly hidden when a model weekly exists; Codex lifetime tokens BigInt-safe.
-- Reviews: codex REVISE → fixed → re-reviews APPROVE WITH FIXES → fixes applied.
-- Checks run at commit: typecheck dashboard/auth-providers/shared PASS; tests PASS except
-  `libs/backend/auth-providers/src/lib/translation/translation-proxy.sdk.integration.spec.ts`, which
-  **also fails on main** (5/9) — pre-existing, not ours.
-
-### PR 1 follow-up (UNCOMMITTED, in plan-limit-tiles worktree) — report `pr784-ci-and-review-fix.md`
-- CI `checks` (degradation ratchet auth-providers 26 > 24): `ollama-cloud-usage.parsers.ts:45,91`
-  now carry justified `optional-capability` suppressions → audit shows `24 ok (baseline 24)`.
-- CI `webview-e2e`: `plan-limits-visual.e2e.spec.ts:221-239` now uses `provider-account-tile` and
-  `tile-cooldown` test ids. Local run failed only because the harness serves a **stale**
-  `dist/apps/ptah-extension-webview` bundle (no build was allowed); CI builds it.
-- CodeRabbit 4320598599 (major): CLI fallback only for `cli-store`/`unknown` owners
-  (`antigravity-plan-usage.reader.ts:77-84`, test at spec :446).
-- CodeRabbit 4320598622: pill/notice duplicate suppressed (`plan-tile-view.model.ts:902-920`).
-- CodeRabbit 4320598631: evidence notices tracked by key (`plan-tile-view.model.ts:225,809,922`,
-  tile html :156).
-- CodeRabbit 4320598643: UTF-8 em-dashes in `plan-limit.types.ts`, `ollama-cloud-plan-usage.reader.ts`.
-- Reply texts for each CodeRabbit comment are in `pr784-ci-and-review-fix.md`.
-- Also: orchestrator fixes in that worktree before commit c1ec75cea were committed (spec type errors,
-  agy mojibake label, candidate loop).
-
-### PR 2 — usage dashboard (UNCOMMITTED, in analytics-dashboard worktree)
-- Contract `libs/shared/src/lib/types/rpc/rpc-analytics.types.ts` (`UsageSummary`, `UsageFact` incl.
-  `cacheSavingsUsd: number | null`, `costSource`), RPC `analytics:usageSummary`.
-- `libs/backend/agent-sdk/src/lib/session-stats/*`: public uncapped dated scan.
-- New lib `libs/backend/usage-analytics` (sources: Claude ledger, Codex `~/.codex/sessions`,
-  OpenCode `opencode.db` via lazy `better-sqlite3`, Grok `~/.grok/sessions` with 1e10 ticks/USD;
-  Ollama/Antigravity = 'unavailable'); pricing OpenRouter → bundled; per-file cache; 30 s budget →
-  partial summary; DI tokens/registration.
-- `libs/backend/rpc-handlers/.../analytics-rpc.handlers.ts` + host registration in Electron, VS Code,
-  CLI (phase-2) + DI smoke guards.
-- Frontend: Usage | Sessions tabs in analytics card; `usage-dashboard/*` (cost summary, KPI strip,
-  breakdown table model/day, cost quality, SVG stacked area chart), `analytics-usage.store.ts`.
-- Backend review: APPROVE WITH FIXES 8/10 after fix round; orchestrator fixed N1/N2 in
-  `usage-summary.service.ts` (`SOURCE_IDS`, `skippedSources`).
-- Frontend review: REVISE → fix 1 → re-review REVISE 6/10 → **fix round 2 of 2** (see In progress).
+## Done in session 2
+- PR 784 follow-up: CI fixes + 4 CodeRabbit replies, merged.
+- PR 787: view-model split (707→3 files), mojibake repairs, RPC rename, `messageId` spec, opencode
+  WAL suppression, `usage-analytics` commitlint scope, tsconfig.base alias, host build alias in
+  `apps/ptah-{electron,cli,tui}/tsconfig.build.json` (Electron build-main failed without it),
+  merge of main (rpc.types conflict). Merged.
+- Visual review r1 (FAIL both) → fixes → reviews → visual review r2 PASS WITH NOTES (both),
+  screenshots `visual/r2/*.png` (git-ignored, local only).
+- agy: investigation (`agy-error-status-investigation.md`, 3 real runs SUCCESS), web research
+  (`agy-error-status-web-research.md`, agy 1.4.3), diagnostics fix with 2 review rounds
+  (final APPROVE WITH FIXES 8/10; low items listed as follow-ups in #797 body).
+- Known pre-existing failures on main (not ours): `claude-approval.reader.spec.ts` (2 real-git
+  tests, cli-agent-runtime); `translation-proxy.sdk.integration.spec.ts` (auth-providers);
+  Electron `state-storage-oversized-profile.bundle.spec.ts` needs a built worker artifact.
 
 ## In progress at handoff
-No lane is running. All lanes ended; every deliverable is on disk.
+- **Codex lane `39bc3598-4144-49b2-882f-652eccedd443`** (CLI Session ID
+  `01a15aca-a665-7c42-8333-3b16fe9518f1`), working in `.claude-worktrees/analytics-dashboard`
+  on branch `feat/usage-dashboard-polish`: merge Sessions tab into Usage (preserve list in its
+  brief): sessions/messages/subagents counts → KPI strip; new "Top 5 sessions by cost" table from
+  the Usage summary (may extend `UsageSummary`/`UsageFact` + `usage-analytics`); remove Sessions
+  tab, session cards, detail modal and code with no other consumer. Deliverable:
+  `batch-sessions-merge.md` in this folder (incl. `## Proposed Removals` — needs user approval).
+  **UPDATE: the lane FINISHED after the handoff was written** (report received; deliverable
+  `batch-sessions-merge.md` written). 27 files changed, UNCOMMITTED, UNVERIFIED by the
+  orchestrator. Lane claims: session KPIs + top-5 table added; contract/backend extended;
+  session card/modal components deleted; public session-stats RPC/service KEPT (CLI/TUI
+  consumers); titles fall back to session IDs where the source has none; counts cover only
+  session-linked contributions. Targeted Jest: backend 3/3, shared 3/3, frontend 56/56 and 36/36.
+  Its `## Proposed Removals` (need user approval, NOT done): `SessionAnalyticsStateService` +
+  fixtures (public index still exports them); "Session Analytics" wording in docs, Electron
+  showcase copy and VS Code command titles.
+- Machine queue (shared RAM/Electron): html-components (`ptah-ptah-extension-html-components-v2…`)
+  holds the check slot and will send "checks: free" to 707; notification-fixes
+  (`ptah-ptah-extension-notification-fixes-v-336f5e…`) also waits and needs Electron later.
 
-Last lane: Glm `ab9e2457` — PR 2 frontend fix round 2 (FINAL, cap reached) → `batch-pr2-frontend-fix2.md`.
-Lane claims (NOT yet verified by the orchestrator, no independent re-review):
-- Fixed: breakdown share heading "Share of known cost" when unpriced facts exist; chart readout
-  shows `unpriced` / `at least $x` per provider in Cost mode; `console.warn` removed from
-  `analytics-usage.store.ts`; chart split into `stacked-area-chart.geometry.ts` +
-  `stacked-area-chart.component.html` + component (~368 lines). 51/51 scoped Jest, typecheck dashboard pass.
-- NOT done (file size): `usage-summary.view-model.ts` is 708 lines (planned split:
-  `usage-formatting.ts` + `usage-summary-fold.ts`); chart component still ~368 lines;
-  `usage-dashboard.component.spec.ts` ~790 lines. Also untested: the per-provider
-  `at least $x` chart readout branch (only the `unpriced` branch has a DOM test). Per review-cap rule: do ONE bounded correction
-  for these (behavior-preserving split) and have it independently checked, or list them in the PR
-  body as follow-ups. Do not start a third review round.
-
-## Open problems and decisions
-1. **Visual review not done.** User has not seen either PR. Required before merge: Electron build-dev
-   from each worktree, screenshots dark + light of (a) plan-limit tiles, (b) Usage tab; show user.
-2. PR 2 frontend review cap reached after round 2: verify the r2 items yourself; if a defect remains,
-   one bounded correction + independent check, else report it — do not reset the cap.
-3. PR 2 workspace scope: summary is per active workspace (Claude scan is per workspace). A future
-   "This workspace / All workspaces" switch is a follow-up.
-4. Deferred (list in PR 2 body as follow-ups): 90-day benchmark/persisted rollup; qualified bundled
-   pricing lookup (prefix stripped in `pricing.utils.ts:332-337`); legacy Claude null-id dedup;
-   pricing `asOf`; Ollama/Antigravity dashboard sources. OpenCode positive cost stays
-   `provider-reported` (orchestrator decision: CLI records it).
-5. PR 1 deferred minors: `no-oauth`/`no-local-server` declared not emitted; FIFO owner eviction.
-6. `usage-summary.service.ts` has very long one-line statements → code-style review / prettier.
-7. Antigravity lane limit: "Individual quota reached", reset ~2026-10-20 05:11 UTC. Note `agy -p
-   /usage` showed 100% remaining at the time, so /usage windows miss this quota.
-8. Side quest (not in scope; propose as separate task): agy lanes exit 1 with `result.status ERROR`
-   after finishing; both failing runs had exactly one retried `503 UNAVAILABLE` in
-   `~/.gemini/antigravity-cli/log/cli-*.log`; passing runs had none. Proposed adapter change in
-   `libs/backend/cli-agent-runtime/.../antigravity-cli.adapter.ts:1121`: log full result event +
-   ERROR steps; treat ERROR + all deliverables + report as "completed with agent warning".
-   User has not answered whether to open that task.
-9. Machine queue (other sessions share RAM/Electron): announce before heavy checks; 662
-   (skills-epic, `ptah-ptah-extension-skills-epic-v7-ab908d0000ebk2qkufgly0h`) holds the slot now;
-   708 (voice) will re-announce. Send "checks: free" when done.
+## Open problems / decisions
+1. Glm lane is AT LIMIT (reset unknown) — do not use. Reviews of Codex work go to grok (confirmed
+   room) or opencode (Monthly 94%, near limit).
+2. The sessions-merge lane output is unverified: read the deliverable, check the preserve list,
+   check every deleted symbol's consumers (VS Code webview, CLI/TUI, e2e harness, DI/RPC guards,
+   host-source baseline), get an independent review (grok or opencode), max 2 revise rounds.
+3. The tile grid uses `grid-auto-rows: 1fr`; with few accounts a short tile has empty space
+   (user did not object; mention it).
+4. Follow-ups listed in PR bodies (#787/#796/#797): workspace scope switch, 90-day rollup,
+   qualified bundled pricing, pricing asOf, legacy Claude null-id dedup, Ollama/Antigravity
+   dashboard sources, spec file sizes; agy D6/D8/N1/N2.
 
 ## Key files
 - Spec folder: `D:/projects/ptah-extension/.claude-worktrees/analytics-dashboard/.ptah/specs/TASK_2026_707/`
-  — `context.md`, `implementation-plan.md`, `code-audit.md`, `provider-usage-sources.md`, batch
-  reports `batch-*.md`, reviews `code-logic-review-*.md`, `pr784-ci-and-review-fix.md`.
+  (context.md, batch-*.md, code-logic-review-*.md, visual-review.md, visual-review-pr787.md,
+  visual-review-r2.md, visual/ and visual/r2/ screenshots).
+- agy spec folder: `D:/projects/ptah-extension/.claude-worktrees/agy-error-status/.ptah/specs/TASK_2026_707_agy/`.
+- Dashboard code: `libs/frontend/dashboard/src/lib/components/{usage-dashboard,analytics-card,
+  provider-account-card,provider-account-tile,session-analytics}/`,
+  `libs/frontend/dashboard/src/lib/services/analytics-usage.store.ts`.
+- Backend: `libs/backend/usage-analytics/`, `libs/shared/src/lib/types/rpc/rpc-analytics.types.ts`,
+  `libs/backend/rpc-handlers/src/lib/handlers/analytics-rpc.handlers.ts`.
 
 ## Exact next steps
-1. Read `batch-pr2-frontend-fix2.md` and verify its 4 findings against
-   `code-logic-review-pr2-frontend-r2.md` yourself (read the cited lines). Decide the file-size
-   follow-up (see "In progress").
-0. Before any heavy check or Electron launch, announce on the machine queue (SendMessage to the
-   other sessions listed by ListAgents) and wait for "checks: free". At handoff end,
-   the checks slot and Electron were FREE (notification-final sent "Electron: free" and
-   "checks: free"); 662, 708 and notification-final all paused for their own handoffs and will
-   re-announce. Still announce before you start.
-2. PR 1 follow-up — in `plan-limit-tiles` (announce machine use first):
+1. Lane `39bc3598` is finished. Read `batch-sessions-merge.md`; verify the preserve list,
+   deletions and consumers (`git status` / `git diff` in the worktree); ask the user about the
+   two `## Proposed Removals`.
+2. Spawn an independent code-logic review (grok preferred, else opencode; never codex for codex
+   code) → fix → re-review (cap 2 rounds).
+3. Ask the machine queue for the slot (SendMessage via ListAgents), then in
+   `.claude-worktrees/analytics-dashboard`:
    ```powershell
    $env:NX_NO_CLOUD='true'
-   npx nx typecheck dashboard --parallel=1; npx nx typecheck auth-providers --parallel=1; npx nx typecheck shared --parallel=1
-   npx nx run-many -t test -p dashboard auth-providers shared --parallel=1 -- --maxWorkers=2   # header must say 3 projects
-   npx ts-node --transpile-only tools/degradation-audit/check-degradation.ts 2>&1 | Select-String "auth-providers|TOTAL"
-   ```
-   Commit (foreground; read `.commitlintrc.json`; e.g. `fix(dashboard,auth-providers,shared): address PR 784 CI and review`),
-   push in background, reply to the 4 CodeRabbit comments with the texts in
-   `pr784-ci-and-review-fix.md`, then watch `gh pr checks 784`.
-3. PR 2 — in `analytics-dashboard`:
-   ```powershell
-   $env:NX_NO_CLOUD='true'
-   npx nx run-many -t typecheck -p shared agent-sdk usage-analytics rpc-handlers dashboard --parallel=1
-   npx nx run-many -t test -p shared agent-sdk usage-analytics rpc-handlers dashboard --parallel=1 -- --maxWorkers=2
+   npx nx run-many -t typecheck -p dashboard usage-analytics shared rpc-handlers --parallel=1   # only projects the lane changed
+   npx nx run-many -t test -p dashboard usage-analytics shared rpc-handlers --parallel=1 -- --maxWorkers=2   # check header count
    npx ts-node --transpile-only tools/degradation-audit/check-degradation.ts 2>&1 | Select-String "FAIL|TOTAL"
    ```
-   Plus the host smoke specs changed in batch B/fix (Electron, VS Code, CLI `container.smoke.spec.ts`)
-   via `npx jest -c <app>/jest.config.ts <spec> --coverage=false --maxWorkers=2`; typecheck
-   `ptah-electron`, `ptah-extension-vscode`, `ptah-cli` (shared libs changed). Commit spec folder +
-   code, push, open PR 2 with summary, deferred list, test plan.
-4. Visual review in Electron (dark + light) for both PRs; show screenshots to the user; merge only
-   after user approval.
-5. Ask the user about the agy adapter side-quest task.
+   If host-facing code changed (RPC removed/added): also typecheck `ptah-electron`,
+   `ptah-extension-vscode`, `ptah-cli` and run their `src/di` Jest specs
+   (`apps/ptah-cli/jest.config.cjs`).
+4. Electron visual review via a Codex `visual-reviewer` lane (port 9335, kill only its own PID,
+   never by image name): `npx nx build-dev ptah-electron --parallel=1`, `npx nx copy-renderer-dev
+   ptah-electron --parallel=1`, launch `NODE_ENV=development ./node_modules/electron/dist/electron.exe
+   --remote-debugging-port=9335 dist/apps/ptah-electron/main.mjs`. **Window 1920x1080 and
+   1440x900; one full-page image of the whole analytics page (scroll the inner container and
+   stitch), dark + light**, plus detail shots (readout, donut Model mode, Tokens mode, top-5 table).
+   Show the images to the user (Read the PNGs) before any merge.
+5. Commit in the foreground (scope e.g. `feat(dashboard,usage-analytics): merge sessions into usage view`,
+   read `.commitlintrc.json`), push in the background to #796, update the #796 body (sessions
+   merge + test plan), send "checks: free" to the waiting sessions.
+6. Watch #796 and #797 CI (`gh pr checks 796`, `gh pr checks 797`); infra flakes (npm ECONNRESET)
+   → `gh run rerun <run> --failed` after the run completes.
+7. Merge only after the user approves the full-page screenshots.
+
+Rules: CLAUDE.md (memory-safe checks, Electron first, worktrees, foreground commit / background
+push). Until 2026-10-24 use CLI lanes (load agent-lanes skill), not Claude subagents. Never wait
+or poll for lanes; act on `<agent-lane-completed>`.

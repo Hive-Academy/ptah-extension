@@ -12,10 +12,12 @@ import type { AgentScorecard } from '@ptah-extension/shared';
  *
  * Compact per-agent scorecard summary shown inline on an agent clone card:
  * reconciled success-rate badge, invocation count, avg tokens, avg cost, and
- * a last-5 verdict-dot strip (COMPLETE/FAILED). NULL/absent metrics render an
- * explicit "no data yet" — never a fabricated zero (R6.3). Tokens and cost are
- * treated independently so a usage-bearing but price-less provider still shows
- * tokens (D8). No service coupling; `input()` signals + OnPush only.
+ * a last-5 verdict-dot strip (COMPLETE/FAILED). An ungraded agent renders
+ * "No grade" — the same label `formatSuccessRate` gives a null rate — never a
+ * fabricated 0% or NaN (R6.3). Absent usage metrics still render "no data
+ * yet"; tokens and cost are treated independently so a usage-bearing but
+ * price-less provider still shows tokens (D8). No service coupling; `input()`
+ * signals + OnPush only.
  */
 @Component({
   selector: 'ptah-scorecard-badge',
@@ -83,21 +85,37 @@ export class ScorecardBadgeComponent {
 
   private readonly noData = 'no data yet';
 
+  /** Batch-7 label for an absent grade — identical to `formatSuccessRate`. */
+  private readonly noGrade = 'No grade';
+
   /** Most-recent-last, capped to the last five verdicts. */
   protected readonly verdicts = computed(
     () => this.scorecard()?.recentVerdicts?.slice(-5) ?? [],
   );
 
   protected readonly successTone = computed<'good' | 'bad' | 'none'>(() => {
-    const rate = this.scorecard()?.gradedSuccessRate;
-    if (rate === null || rate === undefined) return 'none';
+    const rate = this.gradedRate();
+    if (rate === null) return 'none';
     return rate >= 0.5 ? 'good' : 'bad';
   });
 
   protected successLabel(): string {
+    const rate = this.gradedRate();
+    return rate === null ? this.noGrade : `${Math.round(rate * 100)}% ok`;
+  }
+
+  /**
+   * The graded success rate, or null when the agent is ungraded. The
+   * `typeof` guard is the narrowing test, as in `formatSuccessRate`:
+   * `Number.isFinite` accepts `unknown` and narrows nothing, so it can only
+   * run after the union is narrowed to `number`. A null, absent or
+   * non-finite rate is the same fact — no grade — and must never become
+   * `0% ok` or `NaN% ok`.
+   */
+  private gradedRate(): number | null {
     const rate = this.scorecard()?.gradedSuccessRate;
-    if (rate === null || rate === undefined) return this.noData;
-    return `${Math.round(rate * 100)}% ok`;
+    if (typeof rate !== 'number' || !Number.isFinite(rate)) return null;
+    return rate;
   }
 
   protected successTitle(): string {

@@ -1,8 +1,7 @@
 /**
  * Test doubles shared by the ProviderListView specs
  * (`provider-list-view.component.spec.ts`, `provider-list-view.removal.spec.ts`).
- * Spec-only: no production file imports this module (precedent:
- * `dashboard/.../session-analytics-state.testing.ts`). No jest globals here —
+ * Spec-only: no production file imports this module. No jest globals here;
  * specs spy on the stub's methods with `jest.spyOn`.
  */
 
@@ -44,7 +43,7 @@ import {
 } from '../../layout/marketplace-layout';
 import { ProviderListViewComponent } from './provider-list-view.component';
 
-// ── Fixtures ──────────────────────────────────────────────────────────────────
+// â”€â”€ Fixtures â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export function testServer(
   serverKey: string,
@@ -133,7 +132,7 @@ export function createInventoryStub(
 
 export type InventoryStub = ReturnType<typeof createInventoryStub>;
 
-// ── Routed host ───────────────────────────────────────────────────────────────
+// â”€â”€ Routed host â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @Component({
   selector: 'ptah-test-servers-page',
@@ -196,7 +195,7 @@ export function configureListViewTestBed(
   });
 }
 
-// ── DOM driver ────────────────────────────────────────────────────────────────
+// â”€â”€ DOM driver â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /** Mounts the routed list and reads / drives its DOM. */
 export class ListViewPage {
@@ -306,3 +305,4 @@ export class ListViewPage {
     return this.harness;
   }
 }
+

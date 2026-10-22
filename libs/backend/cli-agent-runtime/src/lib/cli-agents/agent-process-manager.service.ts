@@ -40,7 +40,11 @@ import type {
   OutcomeRoutingSource,
 } from '@ptah-extension/shared';
 import { killProcessTree } from '@ptah-extension/platform-core';
-import { claudeModelFamily, SDK_TOKENS, type HostAttentionCoordinator } from '@ptah-extension/agent-sdk';
+import {
+  claudeModelFamily,
+  SDK_TOKENS,
+  type HostAttentionCoordinator,
+} from '@ptah-extension/agent-sdk';
 import {
   AUTH_PROVIDERS_TOKENS,
   type PlanLimitBilling,
@@ -77,6 +81,7 @@ import {
 import { LaneBudgetGuard } from './lane-budget-guard';
 import { findBlockedLaneModel } from './lane-spawn-policy';
 import { CLI_AGENT_RUNTIME_TOKENS } from '../di/tokens';
+import { MCP_ATTACHMENT_TIMEOUT_MS } from './mcp-attachment-probe.port';
 import type { TrackedAgent } from './tracked-agent';
 import {
   classifyLaneLimit,
@@ -154,6 +159,7 @@ export interface AgentRoleStamp {
 }
 
 interface SdkSpawnOptions {
+  readonly expectsMcp?: boolean;
   readonly runSdk: (options: CliCommandOptions) => Promise<SdkHandle>;
   readonly request: SpawnAgentRequest;
   readonly task: string;
@@ -334,6 +340,8 @@ export class AgentProcessManager {
     private readonly planLimits: LanePlanLimitLedger,
     @inject(SDK_TOKENS.HOST_ATTENTION_COORDINATOR, { isOptional: true })
     private readonly hostAttention?: HostAttentionCoordinator,
+    @inject(CLI_AGENT_RUNTIME_TOKENS.MCP_ATTACHMENT_PROBE, { isOptional: true })
+    private readonly attachmentProbe?: import('./mcp-attachment-probe.port').IMcpAttachmentProbe,
   ) {
     this.logger.info('[AgentProcessManager] Initialized');
   }
@@ -440,6 +448,7 @@ export class AgentProcessManager {
       roleChannel: adapter.roleChannel,
       binaryPath: detection.path,
       mcpPort,
+      expectsMcp: adapter.supportsMcp !== false,
       cliVersion: detection.version,
     });
   }
@@ -601,6 +610,7 @@ export class AgentProcessManager {
       roleChannel,
       binaryPath,
       mcpPort,
+      expectsMcp,
       cliVersion,
       resumeDecision,
       originalTask,
@@ -695,6 +705,7 @@ export class AgentProcessManager {
       modelSource: laneModel.source,
       binaryPath,
       mcpPort,
+      attachmentProbe: this.attachmentProbe,
       resumeSessionId: request.resumeSessionId,
       projectGuidance: request.projectGuidance,
       reasoningEffort: laneEffort.effort,
@@ -723,6 +734,7 @@ export class AgentProcessManager {
       infoWithSession,
       request.timeout,
       () => sdkHandle.getSessionId?.(),
+      { mcpPort, expectsMcp },
     );
     return resumeDecision ? { ...spawned, resumeDecision } : spawned;
   }
@@ -754,6 +766,8 @@ export class AgentProcessManager {
       taskKind?: OutcomeTaskKind;
       routingSource?: Exclude<OutcomeRoutingSource, 'not-routed'>;
       timeout?: number;
+      mcpPort?: number;
+      expectsMcp: boolean;
       resumedFromAgentId?: string;
       /** Resume session ID. Pre-sets cliSessionId on the agent:spawned event
        *  so the frontend can deduplicate agent cards by CLI session. */
@@ -826,6 +840,7 @@ export class AgentProcessManager {
         infoWithSession,
         meta.timeout,
         () => sdkHandle.getSessionId?.(),
+        { mcpPort: meta.mcpPort, expectsMcp: meta.expectsMcp },
       );
       return meta.resumeDecision
         ? { ...spawned, resumeDecision: meta.resumeDecision }
@@ -854,6 +869,7 @@ export class AgentProcessManager {
     info: AgentProcessInfo,
     requestedTimeout: number | undefined,
     captureSessionId?: () => string | undefined,
+    mcp?: { readonly mcpPort?: number; readonly expectsMcp?: boolean },
   ): SpawnAgentResult {
     const agentId = info.agentId;
     const inactivityTimeoutMs =
@@ -918,6 +934,69 @@ export class AgentProcessManager {
         onFlushDue,
       );
     });
+    const warnMcp = (
+      cause:
+        | 'no-port'
+        | 'handshake-timeout'
+        | 'lane-exited-before-handshake'
+        | 'config-write-failed',
+    ): void => {
+      if (tracked.info.mcpAttachmentWarning) return;
+      const warning = `Ptah MCP did not connect for this lane (${cause}); report in your final message.`;
+      tracked.info = { ...tracked.info, mcpAttachmentWarning: warning };
+      this.logger.warn('[AgentProcessManager] MCP attachment warning', {
+        cause,
+        cli: tracked.info.cli,
+        agentId,
+        port: mcp?.mcpPort,
+        configAttempted: cause !== 'no-port',
+      });
+      if (cause !== 'no-port') {
+        this.outputBuffer.appendOutput(
+          agentId,
+          tracked,
+          'stdout',
+          `\n${warning}\n`,
+          onFlushDue,
+        );
+        this.flushDelta(agentId);
+      }
+    };
+    if (mcp?.expectsMcp && !mcp.mcpPort) warnMcp('no-port');
+    if (mcp?.expectsMcp && sdkHandle.mcpConfigWriteFailed)
+      warnMcp('config-write-failed');
+    if (mcp?.expectsMcp && mcp.mcpPort && this.attachmentProbe) {
+      const port = mcp.mcpPort;
+      const probe = this.attachmentProbe;
+      const clearWarning = (): void => {
+        if (!probe.get(agentId, port)) return;
+        const { mcpAttachmentWarning: _warning, ...withoutWarning } =
+          tracked.info;
+        tracked.info = withoutWarning;
+      };
+      const lateWait = new AbortController();
+      void probe
+        .waitFor(agentId, port, 60 * 60 * 1000, lateWait.signal)
+        .then(clearWarning);
+      if (sdkHandle.onMcpAttachmentTimeout) {
+        sdkHandle.onMcpAttachmentTimeout(() => {
+          if (!probe.get(agentId, port) && !tracked.hasExited)
+            warnMcp('handshake-timeout');
+        });
+      } else {
+        void probe
+          .waitFor(agentId, port, MCP_ATTACHMENT_TIMEOUT_MS)
+          .then((entry) => {
+            if (!entry && !tracked.hasExited) warnMcp('handshake-timeout');
+          });
+      }
+      const onMcpLaneExit = (): void => {
+        lateWait.abort();
+        if (probe.get(agentId, port)) clearWarning();
+        else warnMcp('lane-exited-before-handshake');
+      };
+      void sdkHandle.done.then(onMcpLaneExit, onMcpLaneExit);
+    }
     if (sdkHandle.onSegment) {
       // Only a handle that streams segments can show its tool calls, so only
       // such a lane gets a budget guard.
@@ -2352,7 +2431,11 @@ export class AgentProcessManager {
       if (status === 'failed') {
         const texts = this.laneFailureTexts(tracked);
         tracked.authMatched = matchesAuthFailure(texts);
-        void this.hostAttention?.presentLaneFailure(agentId, tracked.info.parentSessionId, observedAt);
+        void this.hostAttention?.presentLaneFailure(
+          agentId,
+          tracked.info.parentSessionId,
+          observedAt,
+        );
       } else {
         tracked.authMatched = false;
       }

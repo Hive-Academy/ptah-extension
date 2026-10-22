@@ -12,6 +12,7 @@ import {
   type AttentionNotice, type AttentionTarget, workspaceIdFromPath,
 } from '@ptah-extension/shared';
 import { z } from 'zod';
+import { attentionContext, isUnsafeAttentionContext } from './attention-context.util';
 
 const SnapshotSchema = z.object({ notices: z.array(AttentionNoticeSchema) }).strict();
 const LOG_CONTEXT = 'ChatAttentionHostMessageHandler';
@@ -176,8 +177,25 @@ export class ChatAttentionHostMessageHandler implements MessageHandler {
     const prior = this.projected.get(notice.key);
     if (prior !== undefined && notice.generation < prior) return;
     const workspacePath = notice.target ? this.localWorkspace(notice.target) : null;
+    const owner = notice.target?.tabId ? this.tabs.findTabByIdAcrossWorkspaces(notice.target.tabId) :
+      notice.target ? this.tabs.findTabBySessionIdAcrossWorkspaces(notice.target.sessionId) : null;
+    const validOwner = owner && (owner.tab.claudeSessionId === notice.target?.sessionId ||
+      owner.tab.id === notice.target?.sessionId) ? owner : null;
+    const labelPath = workspacePath ?? '';
+    const provider = workspacePath && validOwner?.tab.providerId === 'claude-cli' ? 'Claude'
+      : workspacePath && validOwner?.tab.providerId === 'ptah-cli' ? 'Ptah CLI'
+      : workspacePath && validOwner?.tab.providerId === 'vscode-lm' ? 'VS Code' : '';
+    const kindTitle = notice.kind === 'permission' ? 'Permission required'
+      : notice.kind === 'question' ? 'Question needs an answer'
+      : notice.kind === 'lane-permission' ? 'Lane permission required' : undefined;
+    const sessionTitle = notice.title.trim();
+    const safeTitle = !/^(new chat|new session|untitled|permission required|question needs an answer|lane permission required)$/i.test(sessionTitle) &&
+      !isUnsafeAttentionContext(sessionTitle)
+      ? sessionTitle.slice(0, 80) : '';
+    const context = kindTitle ? attentionContext([provider, safeTitle]) : '';
     // An opaque ID keeps the request counted while its local owner is unavailable.
-    const presentationWorkspace = workspacePath ?? `attention:${notice.target?.workspaceId ?? 'unknown'}`;
+    const presentationWorkspace = workspacePath && validOwner?.workspacePath === null ? ''
+      : workspacePath ?? `attention:${notice.target?.workspaceId ?? 'unknown'}`;
     const surfaceRouter = this.surfaceRouters.find(router =>
       !!notice.target && (!notice.target.surfaceKind || router.kind === notice.target.surfaceKind) &&
       router.canFocus(notice.target.sessionId));
@@ -188,11 +206,12 @@ export class ChatAttentionHostMessageHandler implements MessageHandler {
     const item: AttentionItem = {
       key: notice.key, generation: notice.generation, kind: notice.kind,
       source: 'host', workspacePath: presentationWorkspace,
-      workspaceName: workspacePath ? workspaceLabelFromPath(workspacePath) : 'Unknown workspace',
+      workspaceName: labelPath ? workspaceLabelFromPath(labelPath) : 'Unknown workspace',
       sessionId: notice.target?.sessionId, tabId: notice.target?.tabId,
       ownerSurface: surfaceOwned || notice.target?.surfaceMode ? 'surface' : 'chat',
-      severity: 'warning', title: notice.title, actionable: true,
-      actions: [{ id: 'open', label: 'Open', ...(!routable && {
+      severity: 'warning', title: kindTitle ?? notice.title, context: context || undefined,
+      sessionTitle: safeTitle || undefined, provider: provider || undefined, actionable: true,
+      actions: [{ id: 'open', label: surfaceOwned || notice.target?.surfaceMode ? 'Open' : 'Show in canvas', ...(!routable && {
         disabledReason: notice.target?.surfaceMode ? 'Answer in owning surface' : 'Target unavailable',
       }) }],
       soundEligible: false,
@@ -211,16 +230,17 @@ export class ChatAttentionHostMessageHandler implements MessageHandler {
 
   private localWorkspace(target: AttentionTarget): string | null {
     const byTab = target.tabId ? this.tabs.findTabByIdAcrossWorkspaces(target.tabId) : null;
-    if (byTab && byTab.tab.claudeSessionId === target.sessionId && byTab.workspacePath &&
-        workspaceIdFromPath(byTab.workspacePath) === target.workspaceId) {
-      return byTab.workspacePath;
+    const validTab = byTab && (byTab.tab.claudeSessionId === target.sessionId ||
+      byTab.tab.id === target.sessionId) ? byTab : null;
+    if (validTab?.workspacePath &&
+        workspaceIdFromPath(validTab.workspacePath) === target.workspaceId) {
+      return validTab.workspacePath;
     }
     const bySession = this.tabs.findTabBySessionIdAcrossWorkspaces(target.sessionId);
     if (bySession?.workspacePath && workspaceIdFromPath(bySession.workspacePath) === target.workspaceId) return bySession.workspacePath;
-    // VS Code has one workspace and its tabs are not workspace-partitioned.
-    if (this.vscode.config().isVSCode && (byTab || bySession)) {
-      const root = this.vscode.config().workspaceRoot;
-      return root && workspaceIdFromPath(root) === target.workspaceId ? root : null;
+    if (validTab?.workspacePath === null || bySession?.workspacePath === null) {
+      const roots = [this.tabs.activeWorkspacePath, this.vscode.config().workspaceRoot];
+      return roots.find(root => !!root && workspaceIdFromPath(root) === target.workspaceId) ?? null;
     }
     return null;
   }
@@ -263,8 +283,12 @@ export class ChatAttentionHostMessageHandler implements MessageHandler {
       return false;
     }
     try {
+      const owner = target.tabId ? this.tabs.findTabByIdAcrossWorkspaces(target.tabId) :
+        this.tabs.findTabBySessionIdAcrossWorkspaces(target.sessionId);
+      const unpartitionedOwner = owner?.workspacePath === null &&
+        (owner.tab.claudeSessionId === target.sessionId || owner.tab.id === target.sessionId);
       const outcome = await this.focusRouter.focus({
-        workspacePath, sessionId: target.sessionId, tabId: target.tabId,
+        workspacePath: unpartitionedOwner ? '' : workspacePath, sessionId: target.sessionId, tabId: target.tabId,
       });
       if (!outcome.success) this.appState.setStatusMessage('Target unavailable');
       return outcome.success;

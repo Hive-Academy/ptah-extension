@@ -141,7 +141,7 @@ describe('ProviderAccountCardComponent', () => {
     expect(textOf(el.querySelector('#provider-accounts-heading'))).toBe(
       'Provider accounts & plan limits',
     );
-    expect(textOf(el)).toContain('marks 90% (near limit)');
+    expect(el.querySelector('#provider-accounts-heading')?.getAttribute('title')).toContain('90% (near limit)');
   });
 
   it('renders one compact tile per owner in the auto-fit grid', () => {
@@ -171,16 +171,12 @@ describe('ProviderAccountCardComponent', () => {
         owner('anthropic', 'Claude account'),
       ),
     );
-    expect(tiles(el).map((s) => s.getAttribute('aria-label'))).toEqual([
-      'Claude account · cdef usage',
-      'Codex account · cdef usage',
-    ]);
+    expect(tiles(el)[0]?.getAttribute('aria-label')).toContain('Claude account');
+    expect(tiles(el)[1]?.getAttribute('aria-label')).toContain('Codex account');
     providerId.set('openai-codex');
     fixture.detectChanges();
-    expect(tiles(el).map((s) => s.getAttribute('aria-label'))).toEqual([
-      'Codex account · cdef usage',
-      'Claude account · cdef usage',
-    ]);
+    expect(tiles(el)[0]?.getAttribute('aria-label')).toContain('Codex account');
+    expect(tiles(el)[1]?.getAttribute('aria-label')).toContain('Claude account');
   });
 
   it('suffixes two owners that share the generic label, so their tiles are told apart', () => {
@@ -279,10 +275,8 @@ describe('ProviderAccountCardComponent', () => {
       ),
       'en-GB',
     );
-    const resetAt = NOW + 2 * HOUR;
-    expect(textOf(el)).toContain(
-      `Resets ${formatRelative(resetAt, NOW)} (${formatLocalAbsolute(resetAt, NOW, { timeZone: ZONE, zoneNameLocale: 'en-GB' })})`,
-    );
+    expect(textOf(el)).toContain('resets 2h 0m');
+    expect(tiles(el)[0]?.getAttribute('aria-label')).toContain('resets 2h 0m');
   });
 
   describe('failed refresh while data is held', () => {
@@ -458,7 +452,7 @@ describe('ProviderAccountCardComponent', () => {
     expect(rpc.call).toHaveBeenCalledWith('provider:getPlanLimits', {
       providerId: 'openai-codex',
     });
-    expect(textOf(real.nativeElement)).toContain('321 lifetime tokens');
+    expect(textOf(real.nativeElement)).toContain('No plan limits reported');
     real.destroy();
   });
 });

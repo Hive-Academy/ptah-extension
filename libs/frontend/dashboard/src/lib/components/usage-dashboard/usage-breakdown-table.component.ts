@@ -36,6 +36,7 @@ import { formatCompactTokens, formatDayShort, formatPercent, formatUsd, provider
             type="button"
             class="join-item btn btn-xs"
             [class.btn-active]="mode() === 'model'"
+            [class.btn-primary]="mode() === 'model'"
             [attr.aria-pressed]="mode() === 'model'"
             (click)="mode.set('model')"
           >
@@ -45,6 +46,7 @@ import { formatCompactTokens, formatDayShort, formatPercent, formatUsd, provider
             type="button"
             class="join-item btn btn-xs"
             [class.btn-active]="mode() === 'day'"
+            [class.btn-primary]="mode() === 'day'"
             [attr.aria-pressed]="mode() === 'day'"
             (click)="mode.set('day')"
           >
@@ -71,7 +73,8 @@ import { formatCompactTokens, formatDayShort, formatPercent, formatUsd, provider
                     <div class="flex items-center gap-2">
                       <ptah-provider-mark
                         [providerId]="row.providerId"
-                        class="h-3.5 w-3.5 shrink-0"
+                        size="sm"
+                        class="h-4 w-4 shrink-0"
                       />
                       <span class="truncate" [attr.title]="row.modelDisplayName">
                         {{ row.modelDisplayName }}

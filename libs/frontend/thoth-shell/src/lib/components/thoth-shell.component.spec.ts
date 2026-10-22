@@ -14,6 +14,7 @@ import { filter, firstValueFrom } from 'rxjs';
 
 import {
   AppStateManager,
+  ClaudeRpcService,
   SurfaceRouterService,
   VSCodeService,
 } from '@ptah-extension/core';
@@ -64,55 +65,7 @@ const modelRefreshStub = {
  * even in non-Electron tests where it renders only the placeholder.
  */
 const skillStateStub = {
-  candidates: signal([]),
-  invocations: signal([]),
-  stats: signal(null),
-  statusFilter: signal('all'),
-  selectedCandidateId: signal(null),
-  selectedCandidate: signal(null),
-  loading: signal(false),
-  error: signal(null),
-  suggestions: signal([]),
-  suggestionsLoading: signal(false),
-  suggestionDetail: signal(null),
-  suggestionDetailLoading: signal(false),
-  candidateDetail: signal(null),
-  candidateDetailLoading: signal(false),
-  pendingSuggestionCount: signal(0),
-  specs: signal([]),
-  specsLoading: signal(false),
-  staleSpecCount: signal(0),
-  settings: signal(null),
-  queueItems: signal([]),
-  drainRuns: signal([]),
-  stageSpend: signal([]),
-  queueLoading: signal(false),
-  queuedAttemptTotal: signal(0),
-  digestItems: signal([]),
-  digestLoading: signal(false),
-  refreshCandidates: () => Promise.resolve(),
-  refreshSuggestions: () => Promise.resolve(),
-  refreshSpecs: () => Promise.resolve(),
-  refreshQueue: () => Promise.resolve(),
-  refreshDigest: () => Promise.resolve(),
-  harvestSpecs: () => Promise.resolve(),
-  clearStaleSpecs: () => Promise.resolve(),
-  loadStats: () => Promise.resolve(),
-  loadSettings: () => Promise.resolve(),
-  loadCandidateDetail: () => Promise.resolve(),
-  loadSuggestionDetail: () => Promise.resolve(),
-  clearSuggestionDetail: () => undefined,
-  updateSuggestion: () => Promise.resolve(),
-  setStatusFilter: () => Promise.resolve(),
-  selectCandidate: () => Promise.resolve(),
-  promote: () => Promise.resolve(),
-  promoteBulk: () => Promise.resolve(0),
-  reject: () => Promise.resolve(),
-  rejectBulk: () => Promise.resolve(0),
-  rejectByPattern: () => Promise.resolve(0),
-  accept: () => Promise.resolve(),
-  dismiss: () => Promise.resolve(),
-  // The Skills master switch the tab header renders.
+  // The Library tab's pause switch and telemetry controls.
   skillsEnabled: signal(true),
   skillsEnabledCommitted: signal(true),
   skillsPaused: signal(false),
@@ -121,7 +74,19 @@ const skillStateStub = {
   refreshSkillsEnabled: () => Promise.resolve(),
   setSkillsEnabled: () => Promise.resolve(),
   markSkillsPaused: () => undefined,
-} as unknown as SkillSynthesisStateService;
+  telemetryEnabled: signal<boolean | null>(true),
+  telemetrySaving: signal(false),
+  telemetryError: signal<string | null>(null),
+  refreshTelemetryEnabled: (): Promise<void> => Promise.resolve(),
+  setTelemetryEnabled: (_enabled: boolean): Promise<void> => Promise.resolve(),
+  // The Library tab's spec control (U5).
+  specs: signal<readonly unknown[]>([]),
+  specsLoading: signal(false),
+  staleSpecCount: signal(0),
+  refreshSpecs: (): Promise<void> => Promise.resolve(),
+  harvestSpecs: (): Promise<void> => Promise.resolve(),
+  clearStaleSpecs: (): Promise<number> => Promise.resolve(0),
+};
 
 /**
  * The Memory tab header renders the Memory master switch, which reads
@@ -287,6 +252,11 @@ describe('ThothShellComponent', () => {
       host.querySelector('[data-testid="thoth-section-nav"]')?.className,
     ).toContain('surface-1');
     expect(host.firstElementChild?.className).toContain('bg-surface-0');
+    const panelWrapper = host.querySelector<HTMLElement>(
+      '[data-testid="thoth-section-panel"] > div',
+    );
+    expect(panelWrapper).not.toBeNull();
+    expect(panelWrapper?.className).not.toMatch(/\bmax-w-/);
   });
 
   /**
@@ -523,33 +493,40 @@ describe('ThothShellComponent', () => {
     const text = fixture.nativeElement.textContent ?? '';
     expect(text).toContain('Ptah desktop');
 
-    // Filter chips for the live skills UI must not render in placeholder mode.
-    const skillFilterTabs = (
-      fixture.nativeElement as HTMLElement
-    ).querySelectorAll('[aria-label="Status filter"] [role="tab"]');
-    expect(skillFilterTabs.length).toBe(0);
+    expect(text).toContain('Skills Library');
   });
 
   /**
    * Acceptance: the sidebar tiles reload on a tab switch and on a workspace
-   * switch, and the Skills tile counts only the current workspace. Runs the
-   * REAL ThothStatusService; only the RPC services are stubbed, and the skills
-   * stub answers like the backend handler: by `scope`, against the backend's
-   * own active root.
+   * switch, and the Skills tile reflects telemetry for the current workspace.
+   * Runs the REAL ThothStatusService; only the RPC services are stubbed.
    */
   describe('tile refresh (real ThothStatusService)', () => {
     interface FakeSkillsBackend {
       root: string | null;
-      readonly pendingByRoot: Record<string, string[]>;
     }
 
     let backend: FakeSkillsBackend;
     let workspaceInfo: ReturnType<typeof signal<{ path: string } | null>>;
     let listCandidates: jest.Mock;
-    let getSettings: jest.Mock;
+    let getSettings: jest.MockedFunction<() => Promise<{ enabled: boolean }>>;
+    let settingsGet: jest.MockedFunction<
+      (
+        method: string,
+        params: { key: string },
+      ) => Promise<{
+        isSuccess: () => boolean;
+        data: { success: boolean; value: boolean };
+      }>
+    >;
+    let telemetryByRoot: Record<string, boolean>;
     let memoryDiagnosticsRpc: ReturnType<typeof memoryDiagnosticsRpcStub>;
 
-    const allRows = (): string[] => Object.values(backend.pendingByRoot).flat();
+    const telemetryReads = () =>
+      settingsGet.mock.calls.filter(
+        ([method, params]) =>
+          method === 'settings:get' && params.key === 'skills.telemetry.enabled',
+      );
 
     const flushAsync = (): Promise<void> =>
       new Promise((resolve) => setTimeout(resolve, 0));
@@ -567,25 +544,24 @@ describe('ThothShellComponent', () => {
       workspaceInfo = signal<{ path: string } | null>({ path: '/ws-a' });
       backend = {
         root: '/ws-a',
-        pendingByRoot: {
-          '/ws-a': ['a1', 'a2', 'a3'],
-          '/ws-b': ['b1', 'b2', 'b3', 'b4', 'b5'],
-        },
       };
+      telemetryByRoot = { '/ws-a': true, '/ws-b': true };
 
-      listCandidates = jest.fn(
-        async (params: { scope?: 'workspace' | 'all' } = {}) => {
-          // Mirrors `listScope`: 'all' is every row; otherwise the backend's
-          // own root, falling back to every row when it has none.
-          const rows =
-            params.scope === 'all' || backend.root === null
-              ? allRows()
-              : (backend.pendingByRoot[backend.root] ?? []);
-          return rows.map((id) => ({ id }));
-        },
-      );
+      listCandidates = jest.fn(async () => []);
 
       getSettings = jest.fn(async () => ({ enabled: true }));
+      settingsGet = jest.fn(async (_method: string, params: { key: string }) => ({
+        isSuccess: () => true,
+        data: {
+          success: true,
+          value:
+            params.key === 'skills.telemetry.enabled'
+              ? (telemetryByRoot[backend.root ?? ''] ?? false)
+              : params.key === 'skillSynthesis.enabled'
+                ? (await getSettings()).enabled
+                : true,
+        },
+      }));
       memoryDiagnosticsRpc = memoryDiagnosticsRpcStub();
 
       TestBed.configureTestingModule({
@@ -628,6 +604,10 @@ describe('ThothShellComponent', () => {
             useValue: { listCandidates, getSettings },
           },
           {
+            provide: ClaudeRpcService,
+            useValue: { call: settingsGet },
+          },
+          {
             provide: CronRpcService,
             useValue: { list: jest.fn(async () => ({ jobs: [] })) },
           },
@@ -648,10 +628,11 @@ describe('ThothShellComponent', () => {
       fixture.detectChanges();
       await flushAsync();
       fixture.detectChanges();
-      expect(skillsTileValue(el)).toBe('3');
+      expect(skillsTileValue(el)).toBe('On');
+      expect(telemetryReads()).toHaveLength(1);
 
-      // The backend gains a candidate while the user sits on Memory.
-      backend.pendingByRoot['/ws-a'].push('a4');
+      // Telemetry changes while the user sits on Memory.
+      telemetryByRoot['/ws-a'] = false;
 
       const tabs = el.querySelectorAll<HTMLButtonElement>(
         '[role="tablist"][aria-label="Thoth feature tabs"] > [role="tab"]',
@@ -662,7 +643,8 @@ describe('ThothShellComponent', () => {
       fixture.detectChanges();
       // The click navigates; the tile reload does not wait for it.
       expect(TestBed.inject(Router).url).toBe('/thoth/cron');
-      expect(skillsTileValue(el)).toBe('4');
+      expect(skillsTileValue(el)).toBe('Off');
+      expect(telemetryReads()).toHaveLength(2);
 
       // Workspace switch: the backend root moves first, then the webview's.
       backend.root = '/ws-b';
@@ -670,18 +652,14 @@ describe('ThothShellComponent', () => {
       TestBed.tick();
       await flushAsync();
       fixture.detectChanges();
-      expect(skillsTileValue(el)).toBe('5');
+      expect(skillsTileValue(el)).toBe('On');
 
-      // Never the machine-wide count, and every call asked for the workspace.
-      expect(allRows()).toHaveLength(9);
-      expect(listCandidates).toHaveBeenCalledTimes(3);
-      for (const [params] of listCandidates.mock.calls) {
-        expect(params).toEqual({
-          status: 'candidate',
-          scope: 'workspace',
-          limit: 1000,
-        });
+      expect(telemetryReads()).toHaveLength(3);
+      for (const [method, params] of telemetryReads()) {
+        expect(method).toBe('settings:get');
+        expect(params).toEqual({ key: 'skills.telemetry.enabled' });
       }
+      expect(listCandidates).not.toHaveBeenCalled();
     });
 
     it('does not refetch when the active tab is clicked again', async () => {
@@ -689,7 +667,7 @@ describe('ThothShellComponent', () => {
       const el = fixture.nativeElement as HTMLElement;
       fixture.detectChanges();
       await flushAsync();
-      expect(listCandidates).toHaveBeenCalledTimes(1);
+      expect(telemetryReads()).toHaveLength(1);
 
       const tabs = el.querySelectorAll<HTMLButtonElement>(
         '[role="tablist"][aria-label="Thoth feature tabs"] > [role="tab"]',
@@ -698,7 +676,7 @@ describe('ThothShellComponent', () => {
       fixture.detectChanges();
       await flushAsync();
 
-      expect(listCandidates).toHaveBeenCalledTimes(1);
+      expect(telemetryReads()).toHaveLength(1);
     });
 
     describe('"Paused" badges', () => {
@@ -736,8 +714,6 @@ describe('ThothShellComponent', () => {
         await flushAsync();
         fixture.detectChanges();
         expect(pausedBadge(el, 'skills')).toBeNull();
-        const statsCalls = listCandidates.mock.calls.length;
-
         getSettings.mockResolvedValue({ enabled: false });
         activeTabSignal.set('skills');
         fixture.detectChanges();
@@ -749,8 +725,8 @@ describe('ThothShellComponent', () => {
         fixture.detectChanges();
 
         expect(pausedBadge(el, 'skills')?.textContent?.trim()).toBe('Paused');
-        // Only the flags were re-read, not every pillar.
-        expect(listCandidates.mock.calls).toHaveLength(statsCalls);
+        // Only the flags were re-read; candidate fetching remains retired.
+        expect(listCandidates).not.toHaveBeenCalled();
       });
 
       it('re-reads the pause flags when the window regains focus, and stops after destroy', async () => {

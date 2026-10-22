@@ -1,11 +1,13 @@
 import { TestBed } from '@angular/core/testing';
-import type { ScorecardInvocationRow } from '@ptah-extension/shared';
 
-import { ScorecardDetailComponent } from './scorecard-detail.component';
+import {
+  ScorecardDetailComponent,
+  type ScorecardDetailRow,
+} from './scorecard-detail.component';
 
 function row(
-  overrides: Partial<ScorecardInvocationRow> = {},
-): ScorecardInvocationRow {
+  overrides: Partial<ScorecardDetailRow> = {},
+): ScorecardDetailRow {
   return {
     taskId: 'TASK_2026_001',
     succeeded: true,
@@ -21,7 +23,7 @@ function row(
 }
 
 function render(inputs: {
-  rows?: ScorecardInvocationRow[];
+  rows?: ScorecardDetailRow[];
   findingsExcerpt?: string | null;
   loading?: boolean;
 }) {
@@ -70,6 +72,28 @@ describe('ScorecardDetailComponent', () => {
     expect(
       el.querySelector('[data-testid="scorecard-heuristic-marker"]'),
     ).toBeTruthy();
+  });
+
+  it('renders FAILED with the error pill for a recorded failure', () => {
+    const el = render({ rows: [row({ succeeded: false })] });
+    const verdict = el.querySelector(
+      '[data-testid="scorecard-row-verdict"]',
+    );
+    expect(verdict?.textContent?.trim()).toBe('FAILED');
+    expect(verdict?.classList.contains('badge-error')).toBe(true);
+  });
+
+  it('renders "No grade" for an ungraded row instead of claiming FAILED', () => {
+    const el = render({ rows: [row({ succeeded: null })] });
+    const rowEl = el.querySelector('[data-testid="scorecard-detail-row"]');
+    const verdict = rowEl?.querySelector(
+      '[data-testid="scorecard-row-verdict"]',
+    );
+    expect(verdict?.textContent?.trim()).toBe('No grade');
+    expect(verdict?.classList.contains('badge-success')).toBe(false);
+    expect(verdict?.classList.contains('badge-error')).toBe(false);
+    expect(rowEl?.textContent).not.toContain('FAILED');
+    expect(rowEl?.textContent).not.toContain('COMPLETE');
   });
 
   it('says no metrics were recorded rather than fabricating zeros', () => {

@@ -43,6 +43,8 @@ export {
   type ValidationResult,
 } from './message-validation.service';
 export { ChatMessageHandler } from './chat-message-handler.service';
+export { ArtifactStore } from './artifact.store';
+export { ArtifactMessageHandler } from './artifact-message-handler.service';
 export { ChatAttentionSourceService } from './chat-attention-source.service';
 export { ChatAttentionActionDispatcherService } from './chat-attention-action-dispatcher.service';
 export { ChatAttentionHostMessageHandler } from './chat-attention-host-message-handler.service';

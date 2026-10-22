@@ -105,6 +105,8 @@ export class PlanLimitsStore implements MessageHandler {
   });
 
   private loadGeneration = 0;
+  private incompleteRetryCount = 0;
+  private incompleteRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private clockHandle: ReturnType<typeof setInterval> | null = null;
   /**
    * Session and run-owner scope of every live surface, by handle id. Every
@@ -118,7 +120,10 @@ export class PlanLimitsStore implements MessageHandler {
   private providerId: string | undefined;
 
   constructor() {
-    this.destroyRef.onDestroy(() => this.stopClock());
+    this.destroyRef.onDestroy(() => {
+      this.stopClock();
+      if (this.incompleteRetryTimer) clearTimeout(this.incompleteRetryTimer);
+    });
   }
 
   /** Owner snapshot by opaque owner key; `null` when the host listed none. */
@@ -166,7 +171,10 @@ export class PlanLimitsStore implements MessageHandler {
    * Reads a snapshot for the union of registered surface scopes. `providerId`
    * replaces the remembered provider; omitting it keeps the last one.
    */
-  async load(params: PlanLimitsLoadParams = {}): Promise<void> {
+  async load(params: PlanLimitsLoadParams = {}, incompleteRetry = false): Promise<void> {
+    if (this.incompleteRetryTimer) clearTimeout(this.incompleteRetryTimer);
+    this.incompleteRetryTimer = null;
+    if (!incompleteRetry) this.incompleteRetryCount = 0;
     this.startClock();
     if (params.providerId !== undefined) this.providerId = params.providerId;
     const generation = ++this.loadGeneration;
@@ -177,6 +185,15 @@ export class PlanLimitsStore implements MessageHandler {
       if (generation !== this.loadGeneration) return;
       if (response.isSuccess() && isPlanLimitsSnapshot(response.data)) {
         this.apply(response.data);
+        if (response.data.discoveryIncomplete && this.incompleteRetryCount < 3) {
+          // A bounded follow-up recovers CLI owners omitted while cold
+          // detection was still in progress.
+          this.incompleteRetryCount++;
+          this.incompleteRetryTimer = setTimeout(() => {
+            this.incompleteRetryTimer = null;
+            void this.load({}, true);
+          }, 1_000);
+        }
         return;
       }
       if (response.isSuccess()) {
@@ -339,6 +356,8 @@ function isPlanLimitsSnapshot(
     Array.isArray(value['owners']) &&
     value['owners'].every(isOwnerSnapshot) &&
     isRecord(value['sessionOwners']) &&
+    (value['discoveryIncomplete'] === undefined ||
+      typeof value['discoveryIncomplete'] === 'boolean') &&
     Object.values(value['sessionOwners']).every(isSessionOwner)
   );
 }

@@ -127,6 +127,19 @@ describe('PlanLimitsStore', () => {
   });
 
   describe('load', () => {
+    it('automatically retries a cold roster after detection missed its deadline', async () => {
+      const partial = { ...snapshot(T0, [owner('claude')]), discoveryIncomplete: true };
+      const complete = snapshot(T0 + 1, [owner('claude'), owner('codex')]);
+      rpc.call.mockResolvedValueOnce(rpcSuccess(partial) as RpcResult<never>)
+        .mockResolvedValueOnce(rpcSuccess(complete) as RpcResult<never>);
+
+      await store.load();
+      expect(store.ownerByKey('codex')).toBeNull();
+      await jest.advanceTimersByTimeAsync(1_000);
+      expect(store.ownerByKey('codex')).not.toBeNull();
+      expect(rpc.call).toHaveBeenCalledTimes(2);
+    });
+
     it('calls provider:getPlanLimits with a surface scope and exposes the result', async () => {
       const result = snapshot(T0, [owner('anthropic#account:a', 42)], {
         s1: { ownerKey: 'anthropic#account:a', modelScope: 'opus' },

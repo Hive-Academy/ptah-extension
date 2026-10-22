@@ -3,7 +3,7 @@
  *
  * Smart container for the Usage tab of the analytics card (TASK_2026_707
  * PR 2, T3-Code-style): range segmented control (7/30/90 days), refresh, the
- * raw-token-cost summary with provider share rows, the daily stacked area
+ * raw-token-cost summary with provider share rows, the daily stacked bar
  * chart with a cost/tokens toggle, the KPI strip, the model/day breakdown
  * table and the cost-quality panel.
  *
@@ -31,29 +31,42 @@ import {
   USAGE_RANGE_OPTIONS,
 } from '../../services/analytics-usage.store';
 import { buildUsageViewModel, type UsageViewModel } from './usage-summary.view-model';
-import { formatCompactTokens, formatCompactUsd } from './usage-formatting';
+import { formatChartUsd, formatCompactTokens, providerDisplayName } from './usage-formatting';
 import {
-  StackedAreaChartComponent,
-  type StackedAreaSeries,
-} from './stacked-area-chart.component';
+  StackedBarChartComponent,
+  type StackedBarSeries,
+} from './stacked-bar-chart.component';
 import { UsageCostSummaryComponent } from './usage-cost-summary.component';
+import { UsageCostDonutComponent } from './usage-cost-donut.component';
 import { UsageKpiStripComponent } from './usage-kpi-strip.component';
 import { UsageBreakdownTableComponent } from './usage-breakdown-table.component';
 import { UsageCostQualityComponent } from './usage-cost-quality.component';
+import { UsageTopSessionsComponent } from './usage-top-sessions.component';
 
 @Component({
   selector: 'ptah-usage-dashboard',
   standalone: true,
   imports: [
     LucideAngularModule,
-    StackedAreaChartComponent,
+    StackedBarChartComponent,
     UsageCostSummaryComponent,
+    UsageCostDonutComponent,
     UsageKpiStripComponent,
     UsageBreakdownTableComponent,
     UsageCostQualityComponent,
+    UsageTopSessionsComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './usage-dashboard.component.html',
+  styles: [`
+    .usage-dashboard { container-type: inline-size; }
+    @container (min-width: 720px) {
+      .usage-share-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @container (min-width: 900px) {
+      .usage-table-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+  `],
 })
 export class UsageDashboardComponent {
   private readonly usageStore = inject(AnalyticsUsageStore);
@@ -66,6 +79,7 @@ export class UsageDashboardComponent {
   protected readonly loadError = this.usageStore.loadError;
   /** True while a same-scope refresh runs and the old summary stays visible. */
   protected readonly isStale = this.usageStore.isSummaryStale;
+  protected readonly summaryGeneratedAt = computed(() => this.usageStore.summary()?.generatedAt ?? '');
 
   /** Folded summary; `null` while nothing has loaded. */
   protected readonly viewModel = computed<UsageViewModel | null>(() =>
@@ -75,9 +89,18 @@ export class UsageDashboardComponent {
     ),
   );
 
+  protected readonly sourceTip = computed(() =>
+    (this.viewModel()?.sources ?? [])
+      .filter((source) => source.status !== 'complete')
+      .map((source) => `${providerDisplayName(source.sourceId)}: ${source.reason ?? source.status}`)
+      .join('; '),
+  );
+
+  protected readonly partialBadgeFocused = signal(false);
+
   protected readonly chartMode = signal<'cost' | 'tokens'>('cost');
 
-  protected readonly chartSeries = computed<readonly StackedAreaSeries[]>(
+  protected readonly chartSeries = computed<readonly StackedBarSeries[]>(
     () => {
       const vm = this.viewModel();
       if (!vm) return [];
@@ -92,7 +115,7 @@ export class UsageDashboardComponent {
   );
 
   protected readonly chartValueFormat = computed<(value: number) => string>(
-    () => (this.chartMode() === 'cost' ? formatCompactUsd : formatCompactTokens),
+    () => (this.chartMode() === 'cost' ? formatChartUsd : formatCompactTokens),
   );
 
   /**

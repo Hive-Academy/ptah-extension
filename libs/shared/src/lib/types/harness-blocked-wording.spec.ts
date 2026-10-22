@@ -1,7 +1,7 @@
 /**
  * The guard on the guard.
  *
- * Five surfaces tell a user how to clear a blocked harness path, and each has
+ * Four surfaces tell a user how to clear a blocked harness path, and each has
  * its own spec asserting it renders an approved sentence. Those specs are only
  * worth what the checker underneath them is worth, so this file proves the
  * checker actually FAILS — on the exact phrasings the old eight-regex denylist
@@ -9,8 +9,8 @@
  *
  * The two named in TASK_2026_309 are "purge" and "remove the occupant".
  * "Purge" was never in the denylist at all; "remove" was in the denylist but
- * only on two of the five surfaces, so "remove the occupant" would have
- * shipped on the Dashboard card, the Marketplace popover and the health store
+ * only on two of the original five surfaces, so "remove the occupant" could have
+ * shipped on the Marketplace popover and the health store
  * with a green suite.
  */
 import {
@@ -30,7 +30,6 @@ import {
 const SURFACES: readonly HarnessBlockedSurface[] = [
   'reconcile-warn',
   'marketplace-popover',
-  'dashboard-card',
   'repair-dialog',
   'health-store',
 ];
@@ -176,13 +175,13 @@ describe('harnessBlockedWordingViolations', () => {
     it('stays silent when the residue is genuinely just data', () => {
       // The backstop must not turn every path and label into a finding, or it
       // becomes the thing it is backing up.
-      const action = HARNESS_BLOCKED_APPROVED_ACTIONS['dashboard-card'];
+      const action = HARNESS_BLOCKED_APPROVED_ACTIONS['marketplace-popover'];
 
       expect(
         harnessBlockedWordingViolations({
-          surface: 'dashboard-card',
+          surface: 'marketplace-popover',
           action,
-          wholeText: `${wholeTextFor('dashboard-card', action)} | Claude Code | .claude/skills/legacy-0 | 13 blocked paths`,
+          wholeText: `${wholeTextFor('marketplace-popover', action)} | Claude Code | .claude/skills/legacy-0 | 13 blocked paths`,
         }),
       ).toEqual([]);
     });
@@ -271,7 +270,7 @@ describe('harnessBlockedWordingViolations', () => {
   });
 
   describe('the repair `reason` field is PROSE, not data', () => {
-    // The sixth surface. `HarnessRepairPathResult.reason` is populated by
+    // Repair-dialog prose. `HarnessRepairPathResult.reason` is populated by
     // `HarnessBlockedRepairService` with Ptah-authored sentences and rendered
     // unconditionally at `harness-repair-dialog.component.ts:276-280`. It was
     // invisible to the first version of this guard because every spec passed
@@ -334,7 +333,7 @@ describe('harnessBlockedWordingViolations', () => {
     // The denylist this replaces could only ever say "you used a forbidden
     // word". The allowlist says what the sentence is supposed to be.
     const violations = harnessBlockedWordingViolations({
-      surface: 'dashboard-card',
+      surface: 'marketplace-popover',
       action: 'Delete the occupant.',
       wholeText: 'Delete the occupant.',
     });
@@ -355,14 +354,13 @@ describe('the approved action strings', () => {
     }
   });
 
-  it('differ between the three "clear it yourself" surfaces in exactly one clause', () => {
+  it('differs between the two "clear it yourself" surfaces in exactly one clause', () => {
     // The point of the builder: the opening and the closing are one definition,
     // and only the clause naming WHERE to act varies — because the control is
-    // not in the same place on the log line, the popover and the card.
+    // not in the same place on the log line and the popover.
     for (const surface of [
       'reconcile-warn',
       'marketplace-popover',
-      'dashboard-card',
     ] as const) {
       const action = harnessBlockedAction(surface);
       expect(action).toBe(HARNESS_BLOCKED_APPROVED_ACTIONS[surface]);

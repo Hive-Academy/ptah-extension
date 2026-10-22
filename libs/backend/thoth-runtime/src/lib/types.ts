@@ -3,10 +3,7 @@ import type {
   MemoryCuratorService,
   MemoryTriggerService,
 } from '@ptah-extension/memory-curator';
-import type {
-  SkillSynthesisService,
-  SkillTriggerService,
-} from '@ptah-extension/skill-synthesis';
+import type { SkillTriggerService } from '@ptah-extension/skill-synthesis';
 import type { CronScheduler } from '@ptah-extension/cron-scheduler';
 
 /**
@@ -41,12 +38,8 @@ export interface BootThothRuntimeOptions {
    */
   signal?: AbortSignal;
   /**
-   * Called with the skill trigger service the moment it starts (B-P review
-   * round 2). The trigger starts on the continuation of the UNAWAITED skill
-   * synthesis start — and, after a failed boot start, only when the service's
-   * retry succeeds — so it is almost never set on the refs this function
-   * returns. A host that copies refs at return time uses this to hold the
-   * trigger that actually runs, so its shutdown can stop it.
+   * Called when the skill trigger starts so the host can retain its handle
+   * for shutdown.
    */
   onSkillTriggerStarted?: (skillTrigger: SkillTriggerService) => void;
 }
@@ -97,17 +90,8 @@ export interface ThothRuntimeRefs {
    */
   memoryTrigger: MemoryTriggerService | null;
   /**
-   * Skill synthesis service handle for orderly shutdown. Null when
-   * persistence-sqlite is unavailable or the service did not resolve. Kept
-   * when `start()` fails: the service retries its start, and `stop()` must
-   * still dispose it.
-   */
-  skillSynthesis: SkillSynthesisService | null;
-  /**
-   * Skill trigger service handle for orderly shutdown. Null until skill
-   * synthesis has started (it may start late, after a retried start), or
-   * when `start()` failed. Must be
-   * stopped BEFORE the skill synthesis in the LIFO teardown chain.
+   * Skill trigger service handle for orderly shutdown. Null when absent or
+   * when `start()` failed.
    */
   skillTrigger: SkillTriggerService | null;
   /**
@@ -135,7 +119,6 @@ export function emptyThothRuntimeRefs(): ThothRuntimeRefs {
     sqliteConnection: null,
     memoryCurator: null,
     memoryTrigger: null,
-    skillSynthesis: null,
     skillTrigger: null,
     cronScheduler: null,
     symbolWatcher: null,

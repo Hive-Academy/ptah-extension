@@ -133,7 +133,7 @@ const KIND_DETAIL: Readonly<Record<UsedBy['kind'], string>> = {
   'system-cli': 'Uses this sign-in',
 };
 
-/** Right-hand badge of an own-provider row ("Active (Judge)" in the prototype). */
+/** Right-hand badge of an own-provider row (for example, "Active (Enhancement)"). */
 export function usedByBadge(entry: UsedBy): string {
   switch (entry.kind) {
     case 'main-agent': return 'Active (Main agent)';

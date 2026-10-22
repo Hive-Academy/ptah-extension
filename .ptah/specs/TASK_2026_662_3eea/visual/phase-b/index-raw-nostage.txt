@@ -1,0 +1,6 @@
+electron pid: 11812
+viewport {"w":1280,"h":800}
+seeded events=40
+theme anubis
+theme anubis-light
+rpc log tail: ["boot:getReadiness","boot:getReadiness","boot:getReadiness"]

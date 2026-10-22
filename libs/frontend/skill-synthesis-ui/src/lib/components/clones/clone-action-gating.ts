@@ -236,12 +236,22 @@ export function formatHistoryTimestamp(ts: string): string {
   return `${y}-${mo}-${d} ${h}:${mi}`;
 }
 
-/** Success rate as a percentage, or `—` when nothing has been recorded. */
-export function formatSuccessRate(clone: CloneSummary): string | null {
-  if (clone.invocationCount <= 0 || !Number.isFinite(clone.successRate)) {
-    return null;
+/**
+ * Success rate as a percentage, or `No grade` when the clone is ungraded.
+ *
+ * `CloneSummary.successRate` is nullable (`number | null`). A null grade
+ * renders `No grade`, regardless of the invocation count. The `typeof` guard is the narrowing test:
+ * `Number.isFinite` accepts `unknown` and narrows nothing, so arithmetic
+ * after it would not compile against the nullable field. A null rate — and
+ * a non-finite number, defensively — renders `No grade` instead of a
+ * fabricated percentage.
+ */
+export function formatSuccessRate(clone: CloneSummary): string {
+  const rate: number | null = clone.successRate;
+  if (typeof rate !== 'number' || !Number.isFinite(rate)) {
+    return 'No grade';
   }
-  return `${Math.round(clone.successRate * 100)}%`;
+  return `${Math.round(rate * 100)}%`;
 }
 
 function remainingCooldownMs(clone: CloneSummary, now: number): number {

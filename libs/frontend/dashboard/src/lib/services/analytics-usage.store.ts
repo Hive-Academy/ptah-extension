@@ -1,12 +1,12 @@
 /**
  * AnalyticsUsageStore
  *
- * Signal-based view state for the Usage tab of the analytics card
+ * Signal-based view state for the Usage view of the analytics card
  * (TASK_2026_707 PR 2). Owns the 7/30/90-day range selection and exactly one
  * `analytics:spendSummary` request in flight.
  *
- * Staleness mirrors `SessionAnalyticsStateService`: every load increments a
- * generation and gets its own `AbortController`. A range change, a refresh or
+ * Every load increments a generation and gets its own `AbortController`.
+ * A range change, a refresh or
  * `cancelLoad()` aborts the previous request, and a response is written only
  * while its generation is still current — a slow 30-day answer can never
  * overwrite a fresh 7-day one. The host call goes through `ClaudeRpcService`
@@ -122,7 +122,9 @@ export class AnalyticsUsageStore {
       const result = await this.rpc.call(
         'analytics:spendSummary',
         { range, ...(workspace ? { workspace } : {}) },
-        { signal: controller.signal },
+        // The host's scan has a 30-second budget; leave transport and startup
+        // scheduling room for its final partial summary to reach the UI.
+        { signal: controller.signal, timeout: 40_000 },
       );
       if (generation !== this.generation) return;
       if (!result.isSuccess()) {

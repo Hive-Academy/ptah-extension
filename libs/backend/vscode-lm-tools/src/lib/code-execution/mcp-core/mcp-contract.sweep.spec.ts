@@ -1359,6 +1359,8 @@ const BELOW_OUTLINE_CAP_DRIVERS: Readonly<Record<string, ToolDriver>> = {
  * these, so a new tool can never be skipped silently).
  */
 const CONTROL_TOOL_EXCEPTIONS: Readonly<Record<string, string>> = {
+  ptah_artifact_publish:
+    'bounded metadata acknowledgement after an optional host persistence call; focused artifact tool specs cover the response and failures',
   ptah_route_decide:
     'routing service: covered with focused handler and namespace specs; the generic oversized reply fixture cannot fake the injected routing service',
   ptah_outcome_report:
@@ -1922,7 +1924,8 @@ describe('coverage matrix — served tools across host, caller and transport (de
     // drops the 3 Apps-only tools (TASK_2026_595). +3: agent_wait,
     // run_check and HTTP-only run_check_wait. +1: ptah_session_handoff,
     // always-on (TASK_2026_655).
-    expect(namesPerCaller[0]).toHaveLength(65);
+    expect(namesPerCaller[0]).toHaveLength(66);
+    expect(namesPerCaller[0]).toContain('ptah_artifact_publish');
   });
 
   it('HTTP coding without IDE capabilities serves 59 tools, identically across caller kinds, minus exactly the 3 IDE-gated tools', async () => {
@@ -1948,7 +1951,8 @@ describe('coverage matrix — served tools across host, caller and transport (de
     }
     // 63 in total minus the 3 IDE-gated tools; see the note above
     // (TASK_2026_655: +1, ptah_session_handoff).
-    expect(namesPerCaller[0]).toHaveLength(62);
+    expect(namesPerCaller[0]).toHaveLength(63);
+    expect(namesPerCaller[0]).toContain('ptah_artifact_publish');
     for (const ideOnly of [
       'ptah_lsp_references',
       'ptah_lsp_definitions',
@@ -1987,7 +1991,7 @@ describe('coverage matrix — served tools across host, caller and transport (de
           ),
         );
         // TASK_2026_655: +1, ptah_session_handoff (always-on).
-        expect(apps).toHaveLength(hasIDECapabilities ? 68 : 65);
+        expect(apps).toHaveLength(hasIDECapabilities ? 69 : 66);
         expect(apps.filter((name) => !APPS_ONLY_TOOL_NAMES.has(name))).toEqual(
           coding,
         );
@@ -2351,6 +2355,7 @@ describe('MCP dispatcher contract sweep (TASK_2026_559 Batch 21, Task 21.1)', ()
     // with no entry here fails explicitly, rather than inheriting a generous
     // default that would hide its own growth.
     const DESCRIPTION_BUDGETS: Readonly<Record<string, number>> = {
+      ptah_artifact_publish: 420,
       ptah_surface_update: 4956,
       ptah_harness_search_mcp_registry: 2450,
       ptah_harness_search_skills: 2354,

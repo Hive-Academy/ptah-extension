@@ -21,10 +21,18 @@ describe('ChatAttentionHostMessageHandler', () => {
   const call = jest.fn();
   const warn = jest.fn();
   const setStatusMessage = jest.fn();
+  let ownerWorkspacePath: string | null;
+  let ownerSessionId: string;
+  let activeWorkspacePath: string | null;
+  let workspaceRoot: string;
   let handler: ChatAttentionHostMessageHandler;
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    ownerWorkspacePath = '/workspace-a';
+    ownerSessionId = 'session-1';
+    activeWorkspacePath = '/workspace-active';
+    workspaceRoot = '';
     call.mockResolvedValue(new RpcResult(true, { notices: [] }));
     focus.mockResolvedValue({ success: true, outcome: 'focused' });
     focusSurface.mockResolvedValue({ success: true, outcome: 'focused' });
@@ -38,10 +46,11 @@ describe('ChatAttentionHostMessageHandler', () => {
       }, multi: true },
       { provide: LoggingService, useValue: { warn } },
       { provide: AppStateManager, useValue: { setStatusMessage } },
-      { provide: VSCodeService, useValue: { config: () => ({ isVSCode: false, workspaceRoot: '' }) } },
+      { provide: VSCodeService, useValue: { config: () => ({ isVSCode: false, workspaceRoot }) } },
       { provide: TabManagerService, useValue: {
+        get activeWorkspacePath() { return activeWorkspacePath; },
         findTabByIdAcrossWorkspaces: () => ({
-          workspacePath: '/workspace-a', tab: { id: 'tab-1', claudeSessionId: 'session-1' },
+          workspacePath: ownerWorkspacePath, tab: { id: 'tab-1', claudeSessionId: ownerSessionId, providerId: 'claude-cli' },
         }),
         findTabBySessionIdAcrossWorkspaces: () => null,
       } },
@@ -63,6 +72,129 @@ describe('ChatAttentionHostMessageHandler', () => {
     expect(upsert).toHaveBeenCalledWith(expect.objectContaining({
       key: notice.key, generation: 1, workspacePath: '/workspace-a',
       soundEligible: false,
+    }));
+  });
+
+  it('uses the kind title and a safe session context for a local projection', () => {
+    handler.handleMessage({ type: MESSAGE_TYPES.ATTENTION_CHANGED, payload: {
+      change: 'upsert', notice: { ...notice, title: 'Fix notifications' },
+    } });
+    expect(upsert).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Permission required', context: 'Claude · Fix notifications',
+      sessionTitle: 'Fix notifications', provider: 'Claude',
+      actions: [{ id: 'open', label: 'Show in canvas' }],
+    }));
+    expect(upsert.mock.lastCall?.[0].title).not.toContain('Fix notifications');
+  });
+
+  it('labels a validated unpartitioned owner from the matching local root', () => {
+    ownerWorkspacePath = null;
+    activeWorkspacePath = '/workspace-a';
+    handler.handleMessage({ type: MESSAGE_TYPES.ATTENTION_CHANGED, payload: {
+      change: 'upsert', notice: { ...notice, title: 'Fix notifications' },
+    } });
+    expect(upsert).toHaveBeenCalledWith(expect.objectContaining({
+      workspacePath: '', workspaceName: 'workspace-a',
+      title: 'Permission required', context: 'Claude · Fix notifications',
+    }));
+  });
+
+  it('uses the matching renderer root for an unpartitioned owner', () => {
+    ownerWorkspacePath = null;
+    activeWorkspacePath = null;
+    workspaceRoot = '/workspace-a';
+    handler.handleMessage({ type: MESSAGE_TYPES.ATTENTION_CHANGED, payload: {
+      change: 'upsert', notice: { ...notice, title: 'Fix notifications' },
+    } });
+    expect(upsert).toHaveBeenCalledWith(expect.objectContaining({
+      workspacePath: '', workspaceName: 'workspace-a', context: 'Claude · Fix notifications',
+    }));
+  });
+
+  it('keeps an unmatched unpartitioned owner unknown without a provider', () => {
+    ownerWorkspacePath = null;
+    activeWorkspacePath = '/another-workspace';
+    handler.handleMessage({ type: MESSAGE_TYPES.ATTENTION_CHANGED, payload: {
+      change: 'upsert', notice: { ...notice, title: 'Fix notifications' },
+    } });
+    expect(upsert).toHaveBeenCalledWith(expect.objectContaining({
+      workspaceName: 'Unknown workspace', context: 'Fix notifications',
+    }));
+  });
+
+  it('does not label an unpartitioned tab whose session does not own the request', () => {
+    ownerWorkspacePath = null;
+    activeWorkspacePath = '/workspace-a';
+    ownerSessionId = 'other-session';
+    handler.handleMessage({ type: MESSAGE_TYPES.ATTENTION_CHANGED, payload: {
+      change: 'upsert', notice: { ...notice, title: 'Fix notifications' },
+    } });
+    expect(upsert).toHaveBeenCalledWith(expect.objectContaining({
+      workspaceName: 'Unknown workspace', context: 'Fix notifications',
+    }));
+  });
+
+  it('uses the kind title and session context but keeps a remote projection workspace unknown', () => {
+    handler.handleMessage({ type: MESSAGE_TYPES.ATTENTION_CHANGED, payload: {
+      change: 'upsert', notice: { ...notice, kind: 'question', title: 'Fix notifications',
+        target: { ...target, workspaceId: workspaceIdFromPath('/remote') } },
+    } });
+    expect(upsert).toHaveBeenCalledWith(expect.objectContaining({
+      workspaceName: 'Unknown workspace', title: 'Question needs an answer', context: 'Fix notifications',
+    }));
+    expect(upsert.mock.lastCall?.[0].title).not.toContain('Fix notifications');
+  });
+
+  it('uses the lane permission label for a host projection', () => {
+    handler.handleMessage({ type: MESSAGE_TYPES.ATTENTION_CHANGED, payload: {
+      change: 'upsert', notice: { ...notice, kind: 'lane-permission', title: 'Fix notifications' },
+    } });
+    expect(upsert).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Lane permission required', context: 'Claude · Fix notifications',
+    }));
+  });
+
+  it('keeps ordinary slash and security-word titles but drops paths and keys', () => {
+    for (const title of ['Fix token refresh', 'CI/CD pipeline', 'and/or', 'Use /compact', 'run /clear', '/init', '/review']) {
+      handler.handleMessage({ type: MESSAGE_TYPES.ATTENTION_CHANGED, payload: {
+        change: 'upsert', notice: { ...notice, title },
+      } });
+      expect(upsert.mock.lastCall?.[0].context).toContain(title);
+    }
+    for (const title of ['/home/user/private', '/tmp', '/tmp/', '/etc', '/Volumes', '/SYSTEM', 'C:\\Users\\private', ['sk-', '1234567890abcdef'].join('')]) {
+      handler.handleMessage({ type: MESSAGE_TYPES.ATTENTION_CHANGED, payload: {
+        change: 'upsert', notice: { ...notice, title },
+      } });
+      expect(upsert.mock.lastCall?.[0].context).toBe('Claude');
+      expect(upsert.mock.lastCall?.[0].sessionTitle).toBeUndefined();
+      expect(upsert.mock.lastCall?.[0].title).toBe('Permission required');
+    }
+  });
+
+  it('caps the assembled provider and session context at 80 characters', () => {
+    handler.handleMessage({ type: MESSAGE_TYPES.ATTENTION_CHANGED, payload: {
+      change: 'upsert', notice: { ...notice, title: 'Long safe session title '.repeat(4) },
+    } });
+    const context = upsert.mock.lastCall?.[0].context;
+    expect(context).toHaveLength(80);
+    expect(context).toMatch(/…$/);
+  });
+
+  it('omits a default session title from context', () => {
+    handler.handleMessage({ type: MESSAGE_TYPES.ATTENTION_CHANGED, payload: {
+      change: 'upsert', notice: { ...notice, title: 'New session' },
+    } });
+    expect(upsert).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Permission required', context: 'Claude',
+    }));
+  });
+
+  it('omits the lane permission default title from context', () => {
+    handler.handleMessage({ type: MESSAGE_TYPES.ATTENTION_CHANGED, payload: {
+      change: 'upsert', notice: { ...notice, kind: 'lane-permission', title: 'Lane permission required' },
+    } });
+    expect(upsert).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Lane permission required', context: 'Claude',
     }));
   });
 
@@ -182,6 +314,17 @@ describe('ChatAttentionHostMessageHandler', () => {
     expect(focus).toHaveBeenCalledWith({
       workspacePath: '/workspace-a', sessionId: 'session-1', tabId: 'tab-1',
     });
+  });
+
+  it('opens a null-path owner through its unpartitioned routing path', async () => {
+    ownerWorkspacePath = null;
+    activeWorkspacePath = '/workspace-a';
+    handler.handleMessage({ type: MESSAGE_TYPES.ATTENTION_CHANGED, payload: {
+      change: 'upsert', notice,
+    } });
+    call.mockResolvedValue(new RpcResult(true, { notices: [notice] }));
+    await expect(handler.openProjected(notice.key, notice.generation)).resolves.toBe(true);
+    expect(focus).toHaveBeenCalledWith({ workspacePath: '', sessionId: 'session-1', tabId: 'tab-1' });
   });
 
   it('keeps an unknown surface owner counted with Open disabled', () => {

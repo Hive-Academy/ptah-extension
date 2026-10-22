@@ -1584,70 +1584,6 @@ const regressedUx: readonly ReachabilityEntry[] = [
       await expect(page.getByText(/Manage .* in Providers/)).toHaveCount(0);
     },
   },
-  {
-    id: 'RUX-12',
-    capability:
-      'Background role reassigned in place: a popover from its cell (or "Follows main agent →" chip), saved on selection',
-    status: 'restored',
-    // Batch 35: the roles table-xs. Judge lane's cell opens its popover; choosing "follow the main agent" (provider '')
-    // writes `skillSynthesis:setLanes` at once. The fixture's `getLanes` is static, so the read-back cannot confirm the
-    // write: the entry asserts the write and that the toast does not claim it saved (D15). Esc returns focus to the
-    // cell; the roles are closed again for later entries.
-    reach: async (page) => {
-      await orchestrationTab(page);
-      const details = page.locator('[data-testid="background-roles-details"]');
-      // Batch 35 revise R3: #83's `background-models` deep link (earlier in this session) belongs to that visit only;
-      // a later visit finds the roles closed.
-      await expect(details).not.toHaveAttribute('open');
-      await page.locator('[data-testid="background-roles-summary"]').click();
-      await expect(details).toHaveAttribute('open', '');
-      try {
-        await expect(
-          page.locator('[data-testid="consumer-table"]'),
-        ).toBeVisible();
-        await expect(
-          page.locator('[data-testid="consumer-summary-archaeologist"]'),
-        ).toHaveText('Follows main agent → Claude (Subscription)');
-        // R1: one line, the full route in the cell's title.
-        await expect(
-          page.locator('[data-testid="consumer-edit-archaeologist"]'),
-        ).toHaveAttribute(
-          'title',
-          /^Follows main agent → Claude \(Subscription\)/,
-        );
-        const cell = page.locator('[data-testid="consumer-edit-judge"]');
-        await expect(cell).toHaveText(/Moonshot \(Kimi\) · kimi-k2\.5/);
-        await visibleEnabled(cell);
-        await cell.click();
-        const popover = page.locator('[data-testid="consumer-editor-judge"]');
-        await expect(popover).toBeVisible();
-        const before = getFixtureState(page).calls.length;
-        await popover
-          .locator('[data-testid="provider-model-picker-provider"]')
-          .selectOption('');
-        await expectCall(page, before, 'skillSynthesis:setLanes', {
-          lanes: { judge: { provider: '' } },
-        });
-        await expect(
-          page.locator('[data-testid="settings-toast-message"]'),
-        ).toBeVisible();
-        await expect(
-          page.locator('[data-testid="settings-toast-message"]'),
-        ).not.toContainText('Saved Judge lane');
-        await popover
-          .locator('[data-testid="provider-model-picker-provider"]')
-          .focus();
-        await page.keyboard.press('Escape');
-        await expect(popover).toHaveCount(0);
-        await expect(cell).toBeFocused();
-      } finally {
-        if ((await details.getAttribute('open')) !== null)
-          await page
-            .locator('[data-testid="background-roles-summary"]')
-            .click();
-      }
-    },
-  },
   // Gate V 28 follow-ups (Batch 28d, task.md "Gate V 28 (2026-10-01, user)"): the deviations the user did not accept.
   {
     id: 'GV28-1',
@@ -1737,9 +1673,9 @@ const regressedUx: readonly ReachabilityEntry[] = [
 
 export interface KeptSelector {
   readonly selector: string;
-  /** The tab that hosts it (plan §6: `assignments-heading` "on whichever tab hosts it"). */
+  /** The tab that hosts it. */
   readonly tab: (typeof SETTINGS_TAB_LABELS)[number];
-  /** A control a user clicks first to show it (Batch 33: the roles are in a closed `<details>`). */
+  /** A control a user clicks first to show it. */
   readonly reveal?: string;
 }
 
@@ -1781,8 +1717,9 @@ export const REACHABILITY_TABLE: readonly ReachabilityEntry[] = [
  * reassigned in place from its table cell's popover): 98.
  * Batch 49 (track B, from the 94 above) added the Advanced (ADV-1..24) and Search & Voice (SV-1..19) preserve-list
  * entries: 43. Merged with the Orchestration additions (track A, 98) after Gate V 36: 98 + 43 = 141.
+ * TASK_2026_662 batch 51 removed RUX-12 with the deleted Judge lane picker: 140.
  */
-export const EXPECTED_CAPABILITY_COUNT = 141;
+export const EXPECTED_CAPABILITY_COUNT = 140;
 
 /**
  * The frozen S4 baseline (D14 rule 3): every id that was `'present'` in THIS

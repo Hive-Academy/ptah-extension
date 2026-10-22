@@ -118,7 +118,7 @@ describe('buildTaskPrompt', () => {
 
     expect(prompt).toBe(
       `${toolPolicy}\n\nImplement the requested change.\n\n` +
-        renderLaneCompletionContract({}),
+        renderLaneCompletionContract({ canUsePtahMcp: false }),
     );
   });
 
@@ -183,7 +183,7 @@ describe('buildTaskPrompt', () => {
         ## Before you exit
         Write every one of these files before your final message. The session that spawned you checks each path the moment you exit, and a clean exit with a missing or empty file is reported as work NOT done:
         - /tf/report.md
-        Then call \`ptah_agent_report\` once with: what you produced, the absolute path of each file you wrote, and anything you could NOT do. That call reaches the session that spawned you immediately — it is how the orchestrator learns what you did without reading your whole output. If it returns \`delivered: false\`, put the same summary in your final message instead.
+        Put what you produced, the absolute path of each file, and anything you could not do in your final message; Ptah MCP reporting is unavailable.
         Never end a turn claiming success for a file you did not write."
       `);
       const resumed = { ...fresh, resumeSessionId: 'session-1' };
@@ -204,7 +204,9 @@ describe('buildTaskPrompt', () => {
       );
       expect(prompt).toContain(toolPolicy);
       expect(prompt).toContain(base.task);
-      expect(prompt).toContain(renderLaneCompletionContract(base));
+      expect(prompt).toContain(
+        renderLaneCompletionContract({ ...base, canUsePtahMcp: false }),
+      );
     });
 
     describe('preambles (TASK_2026_597, F6)', () => {
@@ -445,7 +447,7 @@ describe('buildTaskPrompt', () => {
       `${toolPolicy}\n\nShip it.` +
       '\n\nFocus on these files:\n- src/a.ts' +
       '\n\nWrite deliverable files to: /tf' +
-      `\n\n${renderLaneCompletionContract({ taskFolder: '/tf' })}`;
+      `\n\n${renderLaneCompletionContract({ taskFolder: '/tf', canUsePtahMcp: false })}`;
     const base = {
       task: 'Ship it.',
       workingDirectory: '/ws',
@@ -496,7 +498,7 @@ describe('buildTaskPrompt', () => {
 
       expect(prompt).toContain('- /tf/report.md');
       expect(prompt).toContain('- /tf/notes.md');
-      expect(prompt).toContain('ptah_agent_report');
+      expect(prompt).toContain('Ptah MCP reporting is unavailable');
     });
 
     it('refuses to render a role without knowing the CLI', () => {
@@ -605,7 +607,7 @@ describe('buildTaskPrompt', () => {
 
       // Recorded, not a ceiling to grow into. The child prompt is argv on the
       // task-prompt adapters and the Windows `.cmd` fallback limit is 8,191.
-      expect(added).toBe(994);
+      expect(added).toBe(2057);
     });
   });
 });

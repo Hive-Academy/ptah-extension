@@ -14,8 +14,6 @@
  */
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { IInternalQuery } from '../internal-query.interface';
-import type { SkillBudgetStore } from '../queue/skill-budget.store';
-import type { SkillQueueStore } from '../queue/skill-queue.store';
 import type { LaneResolverService } from './lane-resolver.service';
 import type {
   ResolvedSkillLane,
@@ -60,33 +58,6 @@ export function makeLogger(): Logger & {
     info: jest.Mock;
     error: jest.Mock;
   };
-}
-
-export function makeBudgetStub(): {
-  store: SkillBudgetStore;
-  record: jest.Mock;
-} {
-  const record = jest.fn();
-  return {
-    record,
-    store: {
-      record,
-      spentToday: jest.fn(() => 0),
-    } as unknown as SkillBudgetStore,
-  };
-}
-
-/**
- * A `SkillQueueStore` with only `requeue` on it. Returns `true` by default —
- * "the row was still claimed" — because that is what every caller that supplies
- * a `queueItemId` has just done.
- */
-export function makeQueueStub(applied = true): {
-  store: SkillQueueStore;
-  requeue: jest.Mock;
-} {
-  const requeue = jest.fn(() => applied);
-  return { requeue, store: { requeue } as unknown as SkillQueueStore };
 }
 
 /** A resolver that always hands back the same lane. */

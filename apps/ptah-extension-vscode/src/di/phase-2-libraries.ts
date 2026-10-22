@@ -45,6 +45,7 @@ import {
   ChromeLauncherBrowserCapabilities,
   McpCallerWorkspaceResolver,
   TreeSitterCodeOutliner,
+  mcpAttachmentObserver,
 } from '@ptah-extension/vscode-lm-tools';
 import { VscodeIDECapabilities } from '@ptah-extension/vscode-lm-tools/vscode';
 import {
@@ -65,6 +66,7 @@ import {
 import { registerUsageAnalytics } from '@ptah-extension/usage-analytics';
 import {
   registerCliAgentRuntimeServices,
+  CLI_AGENT_RUNTIME_TOKENS,
   createHarnessCliDetector,
   type HarnessCliDetectionReader,
 } from '@ptah-extension/cli-agent-runtime';
@@ -257,6 +259,7 @@ export function registerPhase2Libraries(
     useToken: HARNESS_SYNC_TOKENS.PREFLIGHT,
   });
   registerCliAgentRuntimeServices(container, logger);
+  container.register(CLI_AGENT_RUNTIME_TOKENS.MCP_ATTACHMENT_PROBE, { useValue: mcpAttachmentObserver });
   startAndRegisterLaneOutcomes(container, logger);
   container.register(
     AUTH_PROVIDERS_TOKENS.SDK_COPILOT_AUTH,
