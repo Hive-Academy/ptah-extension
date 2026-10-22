@@ -106,3 +106,9 @@ Each document gets one initial cross-side review and at most two author/reviewer
 - Decision: Batch 14 also owns `libs/backend/agent-sdk/src/lib/helpers/session-lifecycle/session-registry.service.ts` (5/6 files). Add an optional immutable account binding (route identity + auth epoch) on SessionRecord and one bind method; a second bind with a different value refuses. A named quota read requires a record whose binding matches the requested route and current epoch; otherwise it returns an explicit unavailable result. Batch 17 populates the binding at launch. Ambient reads unchanged.
 - Options rejected: associate route and query because a caller passes both (no verification); unavailable-only quota (loses the contract Batch 17 needs).
 - No batch owns the file; claim sent to TASK_2026_714. Fail-closed, reversible.
+
+## D18 — P1-C reviewer: Claude subagent, user exception (2026-10-23, user)
+
+- Antigravity hit its quota (429, ~98h); Grok at 99% weekly; Codex is the implementer family. User chose a Claude (Anthropic) subagent as an exception to the lanes-first rule (valid until 2026-10-24) for the P1-C phase review.
+- Review family: Anthropic on OpenAI (Batches 12–15, quota split) and Anthropic on Anthropic for orchestrator fix 0c7313438 (same family; reason: no other family available; weaker evidence; CI spec run 27/27 pass locally).
+- PR #808: user keeps it ready (not draft); P1-C and later phases go to the same PR.

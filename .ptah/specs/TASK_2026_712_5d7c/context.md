@@ -43,3 +43,8 @@ Anthropic docs restrict third-party claude.ai login/subscription limits without 
 
 ## Verification constraints
 Only changed projects and dependent host projects required by shared changes. Nx --parallel=1, Jest --maxWorkers=2, one heavy check at a time across lanes. No workspace-wide checks. No build/serve/dev/e2e/package without user authorization. No live account login/logout or paid inference probes without authorization. Visual review must be Electron dark/light; identify any launch permission needed before it runs.
+
+## Lane limit record (2026-10-23)
+
+- antigravity (Google): confirmed limit — RESOURCE_EXHAUSTED 429 "Individual quota reached", resets in ~98h (from 2026-10-22 21:50 UTC). Skip until reset.
+- grok (xAI): near limit, Weekly 99%, resets 2026-10-27 17:40 UTC.
