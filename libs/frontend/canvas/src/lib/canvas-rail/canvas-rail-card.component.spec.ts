@@ -247,6 +247,8 @@ describe('CanvasRailCardComponent', () => {
     const emitted = jest.fn(); fixture.componentInstance.attentionAction.subscribe(emitted);
     fixture.componentRef.setInput('attentionItems', [item]); fixture.detectChanges();
     const host = fixture.nativeElement as HTMLElement;
+    expect(host.dataset['attentionExtra']).toBe('88');
+    expect(host.style.height).toBe(`${COMPACT_RAIL_CARD_HEIGHT.comfortable + 88}px`);
     expect(host.querySelector('[data-testid="rail-card-needs-you"]')?.textContent).toContain('Needs you');
     const frame = host.querySelector('[data-testid="rail-attention-frame"]') as HTMLElement;
     expect(frame).not.toBeNull();
@@ -256,6 +258,23 @@ describe('CanvasRailCardComponent', () => {
     (host.querySelector('[data-testid="rail-card-needs-you"] button') as HTMLButtonElement).click();
     expect(emitted).toHaveBeenCalledWith({ item, actionId: 'answer' });
     expect(focusTile).not.toHaveBeenCalled();
+  });
+  it('reports the larger attention height once and clears it when collapsed', () => {
+    const fixture = mount();
+    const item: AttentionItem = {
+      key: 'permission:height', generation: 1, kind: 'permission', source: 'chat', workspacePath: '/local',
+      workspaceName: 'local', sessionId, severity: 'warning', title: 'Permission required',
+      actions: [{ id: 'allow', label: 'Allow' }, { id: 'deny', label: 'Deny' }, { id: 'open', label: 'Show in canvas' }],
+      actionable: true, soundEligible: false,
+    };
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.dataset['attentionExtra']).toBe('0');
+    fixture.componentRef.setInput('attentionItems', [item]); fixture.detectChanges();
+    expect(host.dataset['attentionExtra']).toBe('136');
+    expect(host.style.height).toBe(`${COMPACT_RAIL_CARD_HEIGHT.comfortable + 136}px`);
+    fixture.componentRef.setInput('collapsed', true); fixture.detectChanges();
+    expect(host.dataset['attentionExtra']).toBe('0');
+    expect(host.style.height).toBe('56px');
   });
   it('promotes the enabled decision, then Show in canvas when the decision is disabled', () => {
     const fixture = mount();

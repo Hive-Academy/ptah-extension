@@ -70,9 +70,10 @@ export const SPLIT_ALREADY_FOCUSED_REASON =
     'data-rail-card': '',
     '[attr.data-tab-id]': 'tabId()',
     '[attr.data-attention-count]': 'attentionItems().length',
+    '[attr.data-attention-extra]': 'attentionExtra()',
     '[attr.data-state]': 'state()',
     '[style.height.px]':
-      'collapsed() ? 56 : cardHeight() + (tab()?.workflow ? 20 : 0) + (attentionItems().length ? (attentionItems()[0].actions.length > 2 || attentionItems().length > 1 ? 136 : 88) : 0)',
+      'collapsed() ? 56 : cardHeight() + (tab()?.workflow ? 20 : 0) + attentionExtra()',
     // The host click is a pointer shortcut; its keyboard equivalent is the
     // card's select button (or the collapsed button), so the li stays a listitem.
     role: 'listitem',
@@ -421,6 +422,11 @@ export class CanvasRailCardComponent implements SessionCardActions {
   readonly cardHeight = computed(
     () => COMPACT_RAIL_CARD_HEIGHT[this.density()],
   );
+  readonly attentionExtra = computed(() => {
+    const items = this.attentionItems();
+    if (this.collapsed() || items.length === 0) return 0;
+    return items[0].actions.length > 2 || items.length > 1 ? 136 : 88;
+  });
   readonly tab = computed(
     () => this.tabs.findTabByIdAcrossWorkspaces(this.tabId())?.tab ?? null,
   );

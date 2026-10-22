@@ -17,9 +17,10 @@ interface LiveAttention {
   target: ChatAttentionRequest;
 }
 
-const SECRET_KEY = 'password|passwd|secret|token|api[_-]?key|auth';
-const ASSIGNED_SECRET = new RegExp(`(\\b(?:${SECRET_KEY})\\s*=\\s*)(?:"[^"]*"|'[^']*'|[^\\s]+)`, 'gi');
-const FLAG_SECRET = new RegExp(`(--(?:${SECRET_KEY})\\s+)(?:"[^"]*"|'[^']*'|[^\\s]+)`, 'gi');
+// Extra name parts must start with `_` or `-`, so `author` or `tokens` are not secret keys.
+const SECRET_NAME = '(?:[A-Za-z0-9]+[_-])*(?:password|passwd|secret|token|api[_-]?key|auth)(?:[_-][A-Za-z0-9]+)*';
+const ASSIGNED_SECRET = new RegExp(`(\\b${SECRET_NAME}\\s*=\\s*)(?:"[^"]*"|'[^']*'|[^\\s]+)`, 'gi');
+const FLAG_SECRET = new RegExp(`(--${SECRET_NAME}\\s+)(?:"[^"]*"|'[^']*'|[^\\s]+)`, 'gi');
 const TOKEN_SHAPE = /\b(?:sk-[\w-]{8,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9_]+|xoxb-[A-Za-z0-9-]+|[0-9a-f]{32,}|[A-Za-z0-9+/_-]{40,}={0,2})\b/gi;
 
 function safePreview(text: string, limit: number): string {

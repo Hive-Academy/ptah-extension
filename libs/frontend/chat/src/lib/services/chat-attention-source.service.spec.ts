@@ -163,6 +163,31 @@ describe('ChatAttentionSourceService', () => {
     expect(upsert.mock.lastCall?.[0].permissionPreview).toBe('Input: echo ***');
   });
 
+  it.each([
+    { parts: ['GITHUB', '_TOKEN=', 'x'.repeat(8)], preview: 'Input: GITHUB_TOKEN=***' },
+    { parts: ['DB', '_PASSWORD=', 'x'.repeat(8)], preview: 'Input: DB_PASSWORD=***' },
+    { parts: ['AWS', '_SECRET_ACCESS_KEY=', 'x'.repeat(8)], preview: 'Input: AWS_SECRET_ACCESS_KEY=***' },
+    { parts: ['--api', '-token ', 'x'.repeat(8)], preview: 'Input: --api-token ***' },
+    { parts: ['--client', '-secret ', 'x'.repeat(8)], preview: 'Input: --client-secret ***' },
+    { parts: ['TOKEN', '_BACKUP=', 'x'.repeat(8)], preview: 'Input: TOKEN_BACKUP=***' },
+  ])('redacts prefixed and suffixed sensitive keys in $preview', ({ parts, preview }) => {
+    TestBed.inject(ChatAttentionSourceService);
+    permissions.set([{ id: 'sensitive-key', toolName: 'Bash', toolInput: { command: parts.join('') },
+      timestamp: 1, timeoutAt: 0, description: '', tabId: 'tab-1', sessionId: 'session-1' }]);
+    TestBed.tick();
+    expect(upsert.mock.lastCall?.[0].permissionPreview).toBe(preview);
+  });
+
+  it.each([
+    'git log --author alice', 'git commit author=alice', 'count tokens=5', 'set secretary=bob',
+  ])('keeps ordinary words that only start with a sensitive key: %s', command => {
+    TestBed.inject(ChatAttentionSourceService);
+    permissions.set([{ id: 'ordinary-word', toolName: 'Bash', toolInput: { command },
+      timestamp: 1, timeoutAt: 0, description: '', tabId: 'tab-1', sessionId: 'session-1' }]);
+    TestBed.tick();
+    expect(upsert.mock.lastCall?.[0].permissionPreview).toBe(`Input: ${command}`);
+  });
+
   it('maps questions to Answer and lanes to Allow/Deny/Open', () => {
     TestBed.inject(ChatAttentionSourceService);
     questions.set([{ id: 'q1', toolName: 'AskUserQuestion', questions: [{
