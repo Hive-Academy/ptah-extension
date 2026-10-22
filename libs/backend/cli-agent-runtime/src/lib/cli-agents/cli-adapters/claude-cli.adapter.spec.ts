@@ -1,3 +1,9 @@
+import { PassThrough } from 'node:stream';
+import { createHash } from 'node:crypto';
+import { EventEmitter } from 'node:events';
+import type { ClaudeAccountNamedRoute } from '@ptah-extension/auth-providers-tokens';
+import type { ProviderAccountBinding } from '@ptah-extension/shared';
+import type { ClaudeLaneAccountPersistence } from '../../claude/claude-sdk-lane-runner';
 import 'reflect-metadata';
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import type { Logger } from '@ptah-extension/vscode-core';
@@ -326,7 +332,10 @@ describe('ClaudeCliAdapter native SDK execution', () => {
   it('logs unsupported explicit effort without a model and preserves precedence', async () => {
     const f = fixture();
     f.defaults.mockReturnValue({ effort: 'high' });
-    const handle = await f.adapter.runSdk({ ...f.input, reasoningEffort: 'unsupported' });
+    const handle = await f.adapter.runSdk({
+      ...f.input,
+      reasoningEffort: 'unsupported',
+    });
     expect(f.run.mock.calls[0][0].options).not.toHaveProperty('model');
     expect(f.run.mock.calls[0][0].options.effort).toBe('high');
     expect(f.logger.info).toHaveBeenCalledWith(
@@ -406,5 +415,492 @@ describe('ClaudeCliAdapter native SDK execution', () => {
     for await (const message of context.mailbox.prompt) drained.push(message);
     expect(drained).toHaveLength(1);
     expect(f.limits.end).toHaveBeenCalled();
+  });
+});
+
+function namedFixture() {
+  const f = fixture();
+  const route = {
+    kind: 'named',
+    provider: 'claude',
+    profileId: 'profile',
+    canonicalConfigDir: 'D:/accounts/selected',
+    routeFingerprint: 'a'.repeat(64),
+    routeRevision: 0,
+    authEpoch: 0,
+    runId: 'run',
+  } as ClaudeAccountNamedRoute;
+  const binding: ProviderAccountBinding = {
+    version: 1,
+    provider: 'claude',
+    profileId: route.profileId,
+    runId: route.runId,
+    routeFingerprint: route.routeFingerprint,
+    routeRevision: 0,
+    authEpoch: 0,
+    identity: {
+      kind: 'known',
+      ownerKey: createHash('sha256')
+        .update('ptah-quota-owner\0owner@example.test\0org')
+        .digest('hex'),
+    },
+  };
+  const reservation = {
+    kind: 'run' as const,
+    phase: 'reserved' as const,
+    provider: 'claude' as const,
+    routeKind: 'named' as const,
+    routeFingerprint: route.routeFingerprint,
+    routeRevision: 0,
+    authEpoch: 0,
+    runId: 'run',
+    operationId: 'operation',
+    reservationId: 'reservation',
+  };
+  const admission = {
+    admitClaudeRoute: jest.fn(async () => ({
+      code: 'ok' as const,
+      resources: {
+        kind: 'named' as const,
+        route,
+        accountDataDir: 'D:/accounts/data',
+        filesystemIdentity: { volumeId: 'volume', fileId: 'file' },
+      },
+      reservation,
+    })),
+    releaseReservation: jest.fn(async () => ({
+      code: 'ok' as const,
+      reservation: { ...reservation, phase: 'released' as const },
+    })),
+    retainUnresolvedReservation: jest.fn(async () => ({
+      code: 'ok' as const,
+      reservation: { ...reservation, phase: 'retained' as const },
+    })),
+  };
+  f.admission.mockReturnValue(admission);
+  let epoch: ((route: ClaudeAccountNamedRoute) => void) | undefined;
+  const unsubscribe = jest.fn();
+  const persistence = {
+    available: true,
+    lookupBySdkSession: jest.fn<
+      ReturnType<ClaudeLaneAccountPersistence['lookupBySdkSession']>,
+      []
+    >(async () => ({ status: 'bound', binding })),
+    validateResume: jest.fn(async () => ({ code: 'ok' })),
+    persistReference: jest.fn(async () => undefined),
+    commitRunBinding: jest.fn(async () => binding),
+    attachSdkSession: jest.fn<
+      ReturnType<ClaudeLaneAccountPersistence['attachSdkSession']>,
+      []
+    >(async () => ({ status: 'attached' })),
+    saveAccountBound: jest.fn(async () => undefined),
+    assertRouteCurrent: jest.fn(async () => undefined),
+    onAuthEpochChanged: jest.fn(
+      (listener: (route: ClaudeAccountNamedRoute) => void) => {
+        epoch = listener;
+        return unsubscribe;
+      },
+    ),
+  };
+  const callbacks = jest.fn(async () => undefined);
+  const input: ClaudeCliCommandOptions = {
+    ...f.input,
+    onAccountBinding: callbacks,
+    accountAdmission: {
+      provider: 'claude',
+      scope: 'lane',
+      selection: { kind: 'named', profileId: 'profile' },
+      runId: 'run',
+      operationId: 'operation',
+    },
+  };
+  const children: Array<{
+    close: jest.Mock;
+    accountInfo: jest.Mock;
+    prompt: AsyncIterable<import('@ptah-extension/agent-sdk').SDKUserMessage>;
+    process: EventEmitter;
+  }> = [];
+  const processes: EventEmitter[] = [];
+  f.deps.processSpawner.spawn = jest.fn(() => {
+    const process = Object.assign(new EventEmitter(), {
+      stdin: new PassThrough(),
+      stdout: new PassThrough(),
+      killed: false,
+      exitCode: null,
+      kill: jest.fn(() => true),
+    });
+    processes.push(process);
+    return process;
+  });
+  f.query.mockImplementation(({ prompt, options }) => {
+    if (typeof prompt === 'string' || !options?.spawnClaudeCodeProcess)
+      throw new Error('fixture requires gate');
+    options.spawnClaudeCodeProcess({
+      command: 'fixture',
+      args: [],
+      cwd: '/workspace',
+      env: {},
+      signal: new AbortController().signal,
+    });
+    const process = processes[processes.length - 1];
+    const accountInfo = jest.fn(async () => ({
+      email: 'owner@example.test',
+      organization: 'org',
+    }));
+    const close = jest.fn(() => process.emit('exit', 0, null));
+    const stream = (async function* () {
+      yield {
+        type: 'system',
+        subtype: 'init',
+        session_id: 'sdk-session',
+      } as import('@ptah-extension/agent-sdk').SDKMessage;
+    })();
+    const query = Object.assign(stream, {
+      close,
+      accountInfo,
+    }) as unknown as ReturnType<ClaudeSdkLaneRunContext['queryFn']>;
+    children.push({ close, accountInfo, prompt, process });
+    return query;
+  });
+  const adapter = new ClaudeCliAdapter(f.logger, {
+    ...f.deps,
+    accountPersistence: () => persistence,
+  });
+  return {
+    ...f,
+    adapter,
+    input,
+    route,
+    binding,
+    admission,
+    persistence,
+    callbacks,
+    children,
+    unsubscribe,
+    epoch: () => epoch?.({ ...route, authEpoch: 1 }),
+  };
+}
+
+describe('named Claude lane admission', () => {
+  it('holds unavailable persistence before admission and SDK loading', async () => {
+    const f = namedFixture();
+    f.persistence.available = false;
+    await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
+      code: 'release-held',
+    });
+    expect(f.admission.admitClaudeRoute).not.toHaveBeenCalled();
+    expect(f.loader.getQueryFunction).not.toHaveBeenCalled();
+  });
+
+  it('bootstraps without task options and awaits both stores and the receipt callback on a fresh final gate', async () => {
+    const f = namedFixture();
+    let release!: () => void;
+    let reached!: () => void;
+    const checkpoint = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    f.callbacks.mockImplementation(async () => {
+      reached();
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    });
+    const run = f.adapter.runSdk(f.input);
+    await checkpoint;
+    expect(f.query).toHaveBeenCalledTimes(2);
+    const bootstrap = f.query.mock.calls[0][0];
+    expect(bootstrap.options).toMatchObject({
+      tools: [],
+      mcpServers: {},
+      systemPrompt: '',
+      settingSources: [],
+      persistSession: false,
+    });
+    expect(bootstrap.options).not.toHaveProperty('resume');
+    expect(bootstrap.options).not.toHaveProperty('hooks');
+    expect(f.assembleSpawnOptions.mock.invocationCallOrder[0]).toBeGreaterThan(
+      f.children[0].close.mock.invocationCallOrder[0],
+    );
+    expect(f.children[0].prompt).not.toBe(f.children[1].prompt);
+    expect(
+      await f.children[0].prompt[Symbol.asyncIterator]().next(),
+    ).toMatchObject({ done: true });
+    expect(f.persistence.commitRunBinding).toHaveBeenCalledTimes(1);
+    expect(f.persistence.attachSdkSession).toHaveBeenCalledTimes(1);
+    expect(f.persistence.saveAccountBound).toHaveBeenCalledTimes(1);
+    expect(f.persistence.persistReference).toHaveBeenCalledTimes(1);
+    const yielded = jest.fn();
+    const first = f.children[1].prompt[Symbol.asyncIterator]()
+      .next()
+      .then((value) => {
+        yielded(value);
+        return value;
+      });
+    await Promise.resolve();
+    expect(yielded).not.toHaveBeenCalled();
+    const permission = f.query.mock.calls[1][0].options?.canUseTool;
+    expect(
+      await permission?.(
+        'fixture',
+        {},
+        {
+          signal: new AbortController().signal,
+          toolUseID: 'tool',
+          requestId: 'request',
+        },
+      ),
+    ).toMatchObject({ behavior: 'deny' });
+    release();
+    const handle = await run;
+    expect((await first).value).toMatchObject({
+      message: { content: f.input.task },
+    });
+    expect(handle.accountBinding).toEqual(f.binding);
+    expect(handle.accountBindingId).toBe('run');
+    expect(f.callbacks).toHaveBeenCalledWith(
+      { accountBinding: f.binding, accountBindingId: 'run' },
+      'sdk-session',
+    );
+    expect(f.adapter.accountBindings).toBe(f.persistence);
+    f.finish(0);
+    await handle.done;
+    expect(f.children[1].close).toHaveBeenCalledTimes(1);
+    expect(f.admission.releaseReservation).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    'commitRunBinding',
+    'attachSdkSession',
+    'saveAccountBound',
+    'persistReference',
+  ] as const)('drops all conversation when %s fails', async (method) => {
+    const f = namedFixture();
+    f.persistence[method].mockRejectedValue(new Error('private failure'));
+    await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
+      code: 'release-held',
+    });
+    expect(
+      await f.children[1].prompt[Symbol.asyncIterator]().next(),
+    ).toMatchObject({ done: true });
+    expect(f.children[1].close).toHaveBeenCalledTimes(1);
+    expect(f.unsubscribe).toHaveBeenCalledTimes(1);
+    expect(f.run).not.toHaveBeenCalled();
+  });
+
+  it('drops conversation if the manager receipt checkpoint rejects', async () => {
+    const f = namedFixture();
+    f.callbacks.mockRejectedValue(new Error('private callback failure'));
+    await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
+      code: 'release-held',
+    });
+    expect(
+      await f.children[1].prompt[Symbol.asyncIterator]().next(),
+    ).toMatchObject({ done: true });
+    expect(f.admission.releaseReservation).toHaveBeenCalledTimes(1);
+  });
+
+  it('checks the final query identity again after persistence', async () => {
+    const f = namedFixture();
+    f.callbacks.mockImplementation(async () => {
+      f.children[1].accountInfo.mockResolvedValue({
+        email: 'other@example.test',
+      });
+    });
+    await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
+      code: 'release-held',
+    });
+    expect(
+      await f.children[1].prompt[Symbol.asyncIterator]().next(),
+    ).toMatchObject({ done: true });
+  });
+
+  it('drops queued input and settles once on an observed epoch change even if the stream never ends', async () => {
+    const f = namedFixture();
+    const handle = await f.adapter.runSdk(f.input);
+    const next = await handle.continue?.('queued');
+    f.epoch();
+    expect(
+      await f.children[1].prompt[Symbol.asyncIterator]().next(),
+    ).toMatchObject({ done: true });
+    await expect(handle.done).resolves.toBe(1);
+    await expect(next?.done).resolves.toBe(1);
+    await expect(handle.continue?.('late')).rejects.toMatchObject({
+      code: 'release-held',
+    });
+    f.finish(0);
+    await Promise.resolve();
+    expect(f.children[1].close).toHaveBeenCalledTimes(1);
+    expect(f.limits.end).toHaveBeenCalledTimes(1);
+    expect(f.unsubscribe).toHaveBeenCalledTimes(1);
+    expect(f.admission.releaseReservation).toHaveBeenCalledTimes(1);
+  });
+
+  it('revalidates queued input at consumption and retains an uncertain child exit', async () => {
+    const f = namedFixture();
+    const handle = await f.adapter.runSdk(f.input);
+    f.children[1].close.mockImplementation(() =>
+      f.children[1].process.emit('exit', null, 'SIGKILL'),
+    );
+    await handle.continue?.('queued');
+    f.children[1].accountInfo.mockResolvedValue({
+      email: 'other@example.test',
+    });
+    await expect(
+      f.children[1].prompt[Symbol.asyncIterator]().next(),
+    ).rejects.toMatchObject({ code: 'release-held' });
+    await expect(handle.done).resolves.toBe(1);
+    expect(f.admission.retainUnresolvedReservation).toHaveBeenCalledTimes(1);
+    expect(f.admission.releaseReservation).not.toHaveBeenCalled();
+  });
+
+  it('keeps the running snapshot immutable and blocks later turns when metadata is deleted', async () => {
+    const f = namedFixture();
+    const handle = await f.adapter.runSdk(f.input);
+    expect(Object.isFrozen(handle.accountBinding)).toBe(true);
+    const prompt = f.children[1].prompt[Symbol.asyncIterator]();
+    expect((await prompt.next()).value).toMatchObject({
+      message: { content: f.input.task },
+    });
+    // A label rename is not part of the immutable route or receipt.
+    expect(handle.accountBinding).not.toHaveProperty('label');
+    f.persistence.validateResume.mockResolvedValue({ code: 'not-found' });
+    expect(handle.abort.signal.aborted).toBe(false);
+    await expect(handle.continue?.('deleted')).rejects.toMatchObject({
+      code: 'release-held',
+    });
+    expect(await prompt.next()).toMatchObject({ done: true });
+    await expect(handle.done).resolves.toBe(1);
+  });
+
+  it('rejects unknown resume evidence before loading SDK and preserves an authoritative bound run', async () => {
+    const f = namedFixture();
+    f.persistence.lookupBySdkSession.mockResolvedValueOnce({
+      status: 'bound',
+      binding: { ...f.binding, identity: { kind: 'unknown' } },
+    });
+    await expect(
+      f.adapter.runSdk({ ...f.input, resumeSessionId: 'sdk-session' }),
+    ).rejects.toMatchObject({ code: 'release-held' });
+    expect(f.loader.getQueryFunction).not.toHaveBeenCalled();
+    const handle = await f.adapter.runSdk({
+      ...f.input,
+      resumeSessionId: 'sdk-session',
+    });
+    expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
+    expect(handle.accountBinding).toEqual(f.binding);
+    f.finish(0);
+    await handle.done;
+  });
+});
+
+describe('named Claude failure and isolation regressions', () => {
+  it('refuses a held admission port before loading the SDK', async () => {
+    const f = namedFixture();
+    f.admission.admitClaudeRoute.mockRejectedValue(
+      Object.assign(new Error('held'), { code: 'release-held' }),
+    );
+    await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
+      code: 'release-held',
+    });
+    expect(f.loader.getQueryFunction).not.toHaveBeenCalled();
+    expect(f.assembleSpawnOptions).not.toHaveBeenCalled();
+  });
+
+  it('never constructs task options if bootstrap identity cannot be read', async () => {
+    const f = namedFixture();
+    const invoke = f.query.getMockImplementation()!;
+    f.query.mockImplementation((args) => {
+      const query = invoke(args);
+      f.children[0].accountInfo.mockRejectedValue(
+        new Error('private bootstrap failure'),
+      );
+      return query;
+    });
+    await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
+      code: 'release-held',
+    });
+    expect(f.query).toHaveBeenCalledTimes(1);
+    expect(f.assembleSpawnOptions).not.toHaveBeenCalled();
+    expect(f.models).not.toHaveBeenCalled();
+    expect(f.children[0].close).toHaveBeenCalledTimes(1);
+    expect(
+      await f.children[0].prompt[Symbol.asyncIterator]().next(),
+    ).toMatchObject({ done: true });
+  });
+
+  it('never persists a final query whose own account differs from bootstrap', async () => {
+    const f = namedFixture();
+    const invoke = f.query.getMockImplementation()!;
+    f.query.mockImplementation((args) => {
+      const query = invoke(args);
+      if (f.children.length === 2)
+        f.children[1].accountInfo.mockResolvedValue({
+          email: 'other@example.test',
+        });
+      return query;
+    });
+    await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
+      code: 'release-held',
+    });
+    expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
+    expect(f.callbacks).not.toHaveBeenCalled();
+  });
+
+  it('retains the reservation when query throws after an uncertain spawn', async () => {
+    const f = namedFixture();
+    const invoke = f.query.getMockImplementation()!;
+    f.query.mockImplementation((args) => {
+      invoke(args);
+      throw new Error('private SDK failure');
+    });
+    await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
+      code: 'release-held',
+    });
+    expect(f.admission.retainUnresolvedReservation).toHaveBeenCalledTimes(1);
+    expect(f.admission.releaseReservation).not.toHaveBeenCalled();
+  });
+
+  it('does not release a late callback after epoch cancellation', async () => {
+    const f = namedFixture();
+    let finish!: () => void;
+    f.callbacks.mockImplementation(async () => {
+      f.epoch();
+      await new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+    });
+    await expect(f.adapter.runSdk(f.input)).rejects.toMatchObject({
+      code: 'release-held',
+    });
+    finish();
+    expect(
+      await f.children[1].prompt[Symbol.asyncIterator]().next(),
+    ).toMatchObject({ done: true });
+    expect(f.run).not.toHaveBeenCalled();
+    expect(f.children[1].close).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not reuse an earlier run gate or silently accept bound ambient input', async () => {
+    const f = namedFixture();
+    await expect(
+      f.adapter.runSdk({
+        ...f.input,
+        accountAdmission: undefined,
+        accountBinding: f.binding,
+      }),
+    ).rejects.toMatchObject({ code: 'release-held' });
+    const first = await f.adapter.runSdk(f.input);
+    first.abort.abort();
+    await first.done;
+    const second = await f.adapter.runSdk(f.input);
+    expect(f.children[1].prompt).not.toBe(f.children[3].prompt);
+    expect(
+      await f.children[1].prompt[Symbol.asyncIterator]().next(),
+    ).toMatchObject({ done: true });
+    expect(
+      (await f.children[3].prompt[Symbol.asyncIterator]().next()).value,
+    ).toMatchObject({ message: { content: f.input.task } });
+    second.abort.abort();
+    await second.done;
   });
 });

@@ -228,7 +228,10 @@ describe('Claude native lane options', () => {
   });
 });
 
-function runnerFixture(ownerSettled: Promise<void> = Promise.resolve()) {
+function runnerFixture(
+  ownerSettled: Promise<void> = Promise.resolve(),
+  named?: ClaudeSdkLaneRunContext['named'],
+) {
   let finish: (code: number) => void = () => {
     throw new Error('not initialized');
   };
@@ -248,6 +251,7 @@ function runnerFixture(ownerSettled: Promise<void> = Promise.resolve()) {
   const queryFn = jest.fn<ReturnType<QueryFn>, Parameters<QueryFn>>();
   const context: ClaudeSdkLaneRunContext = {
     queryFn,
+    named,
     options: { ...buildClaudeSdkLaneOptions(optionsInput()), abortController },
     mailbox,
     providerId: 'claude-cli',
@@ -376,5 +380,109 @@ describe('Claude native lane lifecycle', () => {
     await expect(f.handle.done).resolves.toBe(1);
     await expect(next?.done).resolves.toBe(1);
     expect(f.context.stopProxy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('named lane option and lifecycle boundaries', () => {
+  it('pins secure storage, excludes ambient settings and redacts named child diagnostics', () => {
+    const input = optionsInput();
+    input.accountRoute = {
+      kind: 'named',
+      provider: 'claude',
+      profileId: 'profile',
+      canonicalConfigDir: 'D:/accounts/selected',
+      routeFingerprint: 'fingerprint',
+      routeRevision: 0,
+      authEpoch: 0,
+      runId: 'run',
+    } as ClaudeAccountNamedRoute;
+    const options = buildClaudeSdkLaneOptions(input);
+    expect(options.settingSources).toEqual([]);
+    expect(options.env?.['CLAUDE_SECURESTORAGE_CONFIG_DIR']).toBe(
+      'D:/accounts/selected',
+    );
+    options.stderr?.('private token and account directory');
+    expect(logger.debug).toHaveBeenLastCalledWith(
+      '[ClaudeLane] Child diagnostic received.',
+    );
+    expect(logger.warn).not.toHaveBeenCalledWith(
+      expect.stringContaining('private token'),
+    );
+  });
+
+  it('does not settle or close twice when abort precedes stream completion', async () => {
+    const f = runnerFixture();
+    const queued = await f.handle.continue?.('queued');
+    f.handle.abort.abort();
+    f.finish(1);
+    await f.handle.done;
+    await queued?.done;
+    expect(f.close).toHaveBeenCalledTimes(1);
+    expect(f.context.disposeCallbacks).toHaveBeenCalledTimes(1);
+    expect(f.context.lanePlanLimits.end).toHaveBeenCalledTimes(1);
+    expect(f.context.stopProxy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('named runner handoff', () => {
+  function namedRunnerFixture() {
+    const named = {
+      query: {} as ReturnType<ClaudeSdkLaneRunContext['queryFn']>,
+      reference: {
+        accountBindingId: 'run',
+        accountBinding: {
+          version: 1 as const,
+          provider: 'claude' as const,
+          profileId: 'profile',
+          runId: 'run',
+          routeFingerprint: 'a'.repeat(64),
+          routeRevision: 0,
+          authEpoch: 0,
+          identity: { kind: 'unknown' as const },
+        },
+      },
+      enqueue: jest.fn(async () => undefined),
+      dispose: jest.fn(async () => undefined),
+    };
+    const f = runnerFixture(
+      Promise.resolve(),
+      named as unknown as NonNullable<ClaudeSdkLaneRunContext['named']>,
+    );
+    return { ...f, named };
+  }
+
+  it('uses the admitted query and receipt without launching a third query or draining the ambient mailbox', async () => {
+    const f = namedRunnerFixture();
+    expect(f.context.queryFn).not.toHaveBeenCalled();
+    expect(PtahCliStreamLoop.prototype.run).toHaveBeenCalledWith(f.named.query);
+    expect(f.handle.accountBinding).toBe(f.named.reference.accountBinding);
+    expect(f.handle.accountBindingId).toBe('run');
+    const queued = await f.handle.continue?.('next');
+    expect(f.named.enqueue).toHaveBeenCalledWith('next', undefined);
+    expect(f.handle.steer).toBeUndefined();
+    expect(f.handle.interrupt).toBeUndefined();
+    f.finish(0);
+    await f.handle.done;
+    await queued?.done;
+    expect(f.named.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it('settles turns and cleans listeners once on named abort even when the stream stays pending', async () => {
+    const f = namedRunnerFixture();
+    const queued = await f.handle.continue?.('queued');
+    f.handle.abort.abort();
+    await expect(f.handle.done).resolves.toBe(1);
+    await expect(queued?.done).resolves.toBe(1);
+    await expect(f.handle.continue?.('late')).rejects.toMatchObject({
+      code: 'release-held',
+    });
+    f.finish(0);
+    await Promise.resolve();
+    expect(f.close).toHaveBeenCalledTimes(1);
+    expect(f.named.dispose).toHaveBeenCalledTimes(1);
+    expect(f.context.disposeCallbacks).toHaveBeenCalledTimes(1);
+    expect(f.context.stopProxy).toHaveBeenCalledTimes(1);
+    expect(f.context.lanePlanLimits.end).toHaveBeenCalledTimes(1);
+    expect(f.remove).toHaveBeenCalledWith('abort', expect.any(Function));
   });
 });

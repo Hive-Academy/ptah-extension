@@ -1,3 +1,4 @@
+import { tmpdir } from 'node:os';
 import { SessionId, type AuthEnv } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import {
@@ -23,6 +24,33 @@ export function buildClaudeLaneEnv(
   accountRoute?: Parameters<typeof applyClaudeAccountRouteEnv>[1],
 ): Record<string, string | undefined> {
   return applyClaudeAccountRouteEnv(buildSafeEnv(authEnv), accountRoute);
+}
+
+/** Control-only bootstrap; no workspace, role, resume, hooks or task material. */
+export function buildClaudeLaneBootstrapOptions(
+  accountRoute: NonNullable<Parameters<typeof buildClaudeLaneEnv>[1]>,
+  abortController: AbortController,
+  processSpawner: ISdkProcessSpawner,
+  executable?: string,
+): Options {
+  return {
+    cwd: tmpdir(),
+    abortController,
+    pathToClaudeCodeExecutable: executable,
+    env: buildClaudeLaneEnv({}, accountRoute),
+    systemPrompt: '',
+    settingSources: [],
+    tools: [],
+    mcpServers: {},
+    strictMcpConfig: true,
+    persistSession: false,
+    maxTurns: 1,
+    canUseTool: async () => ({
+      behavior: 'deny',
+      message: 'Account admission pending.',
+    }),
+    spawnClaudeCodeProcess: (options) => processSpawner.spawn(options, {}),
+  };
 }
 
 export interface ClaudeSdkLaneOptionsInput {
@@ -72,6 +100,10 @@ export function buildClaudeSdkLaneOptions(
     executable,
   } = input;
   const handleChildStderr = (data: string) => {
+    if (accountRoute?.kind === 'named') {
+      logger.debug('[ClaudeLane] Child diagnostic received.');
+      return;
+    }
     const isError = classifyCliStderr(stripAnsiCodes(data).trim()) === 'error';
     const message = `[PtahCliRegistry] Agent "${agentName}" stderr: ${data}`;
     if (isError) {
@@ -140,7 +172,10 @@ export function buildClaudeSdkLaneOptions(
         routingId,
       cliAgentResolver,
     ),
-    settingSources: ['user', 'project', 'local'] as const,
+    settingSources:
+      accountRoute?.kind === 'named'
+        ? []
+        : (['user', 'project', 'local'] as const),
     includePartialMessages: true,
     persistSession: true,
     ...(resumeSessionId && { resume: resumeSessionId }),

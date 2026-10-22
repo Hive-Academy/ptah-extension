@@ -5,17 +5,26 @@ import type {
   CliOutputSegment,
   FlatStreamEventUnion,
 } from '@ptah-extension/shared';
-import type { ProviderAccountAdmissionPort } from '@ptah-extension/auth-providers-tokens';
+import type {
+  ProviderAccountAdmissionPort,
+  ProviderAccountPortRefusal,
+} from '@ptah-extension/auth-providers-tokens';
 import type {
   Options,
   SdkModuleLoader,
   SdkModelService,
   SdkPermissionHandler,
 } from '@ptah-extension/agent-sdk';
-import { buildClaudeSdkLaneOptions } from '../../claude/claude-sdk-lane-options';
-import type {
-  ClaudeSdkLaneRunner,
-  ClaudeSdkLaneRunContext,
+import {
+  buildClaudeLaneBootstrapOptions,
+  buildClaudeSdkLaneOptions,
+} from '../../claude/claude-sdk-lane-options';
+import {
+  ClaudeNamedLaneAdmission,
+  claudeLaneRefusal,
+  type ClaudeLaneAccountPersistence,
+  type ClaudeSdkLaneRunner,
+  type ClaudeSdkLaneRunContext,
 } from '../../claude/claude-sdk-lane-runner';
 import type { PtahCliSpawnOptions } from '../../ptah-cli/helpers/ptah-cli-spawn-options.service';
 import { createPromptMailbox } from '../../ptah-cli/helpers/ptah-cli-prompt-mailbox';
@@ -26,6 +35,7 @@ import type {
   ClaudeCliAdapterContract,
   ClaudeCliCommandOptions,
   SdkHandle,
+  LaneAccountBindingPort,
 } from './cli-adapter.interface';
 
 export interface ClaudeCliAdapterDependencies {
@@ -42,6 +52,7 @@ export interface ClaudeCliAdapterDependencies {
   readonly syncHarness: (policy: EffectiveCapabilitySet) => Promise<void>;
   readonly planLimits: () => ClaudeSdkLaneRunContext['lanePlanLimits'];
   readonly admission: () => ProviderAccountAdmissionPort | null;
+  readonly accountPersistence?: () => ClaudeLaneAccountPersistence | null;
   readonly defaults: () => {
     model?: string;
     effort?: string;
@@ -60,6 +71,10 @@ export class ClaudeCliAdapter implements ClaudeCliAdapterContract {
     private readonly logger: Logger,
     private readonly deps: ClaudeCliAdapterDependencies,
   ) {}
+
+  get accountBindings(): LaneAccountBindingPort | undefined {
+    return this.deps.accountPersistence?.() ?? undefined;
+  }
 
   capabilities() {
     return { continuation: true, steer: false, interrupt: false };
@@ -99,118 +114,252 @@ export class ClaudeCliAdapter implements ClaudeCliAdapterContract {
   }
 
   async runSdk(input: ClaudeCliCommandOptions): Promise<SdkHandle> {
-    // Admission alone cannot release a prompt: Batches 17/20 must also wire
-    // the durable binding and own-query identity gate. Do not acquire a lease
-    // until those operations can complete and release it on every exit path.
-    if (input.accountAdmission) {
-      const admission = this.deps.admission();
-      throw new Error(
-        admission
-          ? 'Claude account admission prompt gate is not available'
-          : 'Claude account admission is not available',
-      );
-    }
-    const executable = await this.deps.loader.getCliJsPath();
-    if (!executable) throw new Error('Claude executable is unavailable');
-    const queryFn = await this.deps.loader.getQueryFunction();
-    const defaults = this.deps.defaults();
-    const model = input.model || defaults.model || '';
-    const effort = await this.resolveEffort(input, model, defaults);
-    const policy = await this.deps.policy(input.workingDirectory);
-    await this.deps.syncHarness(policy);
-    const assembly = await this.deps.assembly.assembleSpawnOptions(
-      {},
-      input.workingDirectory,
-      model || undefined,
-      {
-        parentSessionId: input.parentSessionId,
-        ownSessionId: input.resumeSessionId,
-      },
-      input.agentId,
-      input.role,
-      policy,
-    );
     const abortController = new AbortController();
-    const agentIdHolder = { value: input.agentId };
-    const options = buildClaudeSdkLaneOptions({
-      assembly,
-      authEnv: {},
-      abortController,
-      model,
-      effort,
-      cwd: input.workingDirectory,
-      agentName: input.role?.name ?? this.displayName,
-      agentId: input.agentId,
-      routingId: `claude:${randomUUID()}`,
-      resumeSessionId: input.resumeSessionId,
-      parentSessionId: input.parentSessionId,
-      cliAgentResolver: () => agentIdHolder.value,
-      permissionHandler: this.deps.permissionHandler,
-      logger: this.logger,
-      processSpawner: this.deps.processSpawner,
-      executable,
-    });
-    // An unresolved native model is the SDK default, never a tier alias.
-    if (!model) delete options.model;
-    const mailbox = createPromptMailbox(input.task);
-    const outputCallbacks: Array<(data: string) => void> = [];
-    const segmentCallbacks: Array<(segment: CliOutputSegment) => void> = [];
-    const streamCallbacks: Array<(event: FlatStreamEventUnion) => void> = [];
-    const segments: CliOutputSegment[] = [];
-    const events: FlatStreamEventUnion[] = [];
-    const disposeCallbacks = () => {
-      outputCallbacks.length =
-        segmentCallbacks.length =
-        streamCallbacks.length =
-          0;
-      segments.length = events.length = 0;
-    };
-    const lanePlanLimits = this.deps.planLimits();
+    const named = await this.prepareNamed(input, abortController);
     try {
-      return this.deps.runner.run({
-        queryFn,
-        options: { ...options, abortController },
-        mailbox,
-        providerId: 'claude-cli',
+      const executable = await this.deps.loader.getCliJsPath();
+      if (!executable) throw new Error('Claude executable is unavailable');
+      const queryFn = await this.deps.loader.getQueryFunction();
+      if (named)
+        await named.bootstrap(
+          queryFn,
+          buildClaudeLaneBootstrapOptions(
+            named.route,
+            new AbortController(),
+            this.deps.processSpawner,
+            executable,
+          ),
+        );
+      const defaults = this.deps.defaults();
+      const model = input.model || defaults.model || '';
+      const effort = await this.resolveEffort(input, model, defaults);
+      const policy = await this.deps.policy(input.workingDirectory);
+      await this.deps.syncHarness(policy);
+      const assembly = await this.deps.assembly.assembleSpawnOptions(
+        {},
+        input.workingDirectory,
+        model || undefined,
+        {
+          parentSessionId: input.parentSessionId,
+          ownSessionId: input.resumeSessionId,
+        },
+        input.agentId,
+        input.role,
+        policy,
+      );
+      const agentIdHolder = { value: input.agentId };
+      const options = buildClaudeSdkLaneOptions({
+        assembly,
+        authEnv: {},
+        accountRoute: named?.route,
+        abortController,
+        model,
+        effort,
+        cwd: input.workingDirectory,
         agentName: input.role?.name ?? this.displayName,
-        agentIdHolder,
-        lanePlanLimits,
-        outputCallbacks,
-        onSegment: (callback) => {
-          segmentCallbacks.push(callback);
-          for (const segment of segments.splice(0)) callback(segment);
-        },
-        onStreamEvent: (callback) => {
-          streamCallbacks.push(callback);
-          for (const event of events.splice(0)) callback(event);
-        },
-        emitOutput: (data) => {
-          for (const callback of outputCallbacks) callback(data);
-        },
-        emitSegment: (segment) => {
-          if (segmentCallbacks.length) {
-            for (const callback of segmentCallbacks) callback(segment);
-          } else {
-            segments.push(segment);
-          }
-        },
-        emitStreamEvent: (event) => {
-          if (streamCallbacks.length) {
-            for (const callback of streamCallbacks) callback(event);
-          } else {
-            if (events.length >= 5000) events.shift();
-            events.push(event);
-          }
-        },
-        disposeCallbacks,
-        stopProxy: async () => undefined,
-      }).handle;
+        agentId: input.agentId,
+        routingId: `claude:${randomUUID()}`,
+        resumeSessionId: input.resumeSessionId,
+        parentSessionId: input.parentSessionId,
+        cliAgentResolver: () => agentIdHolder.value,
+        permissionHandler: this.deps.permissionHandler,
+        logger: this.logger,
+        processSpawner: this.deps.processSpawner,
+        executable,
+      });
+      // An unresolved native model is the SDK default, never a tier alias.
+      if (!model) delete options.model;
+      if (named) {
+        const now = Date.now();
+        await named.launch(
+          queryFn,
+          options,
+          {
+            name: input.role?.name ?? this.displayName,
+            workspaceId: input.workingDirectory,
+            workingDirectory: input.workingDirectory,
+            createdAt: now,
+            lastActiveAt: now,
+            totalCost: 0,
+            totalTokens: { input: 0, output: 0 },
+            isChildSession: true,
+          },
+          input.onAccountBinding,
+        );
+        await named.enqueue(input.task, input.resumeSessionId, true);
+      }
+      // The named query owns its empty gate. The legacy mailbox remains seeded
+      // only for ambient runs, including the configured native registry.
+      const mailbox = createPromptMailbox(named ? '' : input.task);
+      const outputCallbacks: Array<(data: string) => void> = [];
+      const segmentCallbacks: Array<(segment: CliOutputSegment) => void> = [];
+      const streamCallbacks: Array<(event: FlatStreamEventUnion) => void> = [];
+      const segments: CliOutputSegment[] = [];
+      const events: FlatStreamEventUnion[] = [];
+      const disposeCallbacks = () => {
+        outputCallbacks.length =
+          segmentCallbacks.length =
+          streamCallbacks.length =
+            0;
+        segments.length = events.length = 0;
+      };
+      const lanePlanLimits = this.deps.planLimits();
+      try {
+        return this.deps.runner.run({
+          queryFn,
+          named,
+          options: { ...options, abortController },
+          mailbox,
+          providerId: 'claude-cli',
+          agentName: input.role?.name ?? this.displayName,
+          agentIdHolder,
+          lanePlanLimits,
+          outputCallbacks,
+          onSegment: (callback) => {
+            segmentCallbacks.push(callback);
+            for (const segment of segments.splice(0)) callback(segment);
+          },
+          onStreamEvent: (callback) => {
+            streamCallbacks.push(callback);
+            for (const event of events.splice(0)) callback(event);
+          },
+          emitOutput: (data) => {
+            for (const callback of outputCallbacks) callback(data);
+          },
+          emitSegment: (segment) => {
+            if (segmentCallbacks.length) {
+              for (const callback of segmentCallbacks) callback(segment);
+            } else {
+              segments.push(segment);
+            }
+          },
+          emitStreamEvent: (event) => {
+            if (streamCallbacks.length) {
+              for (const callback of streamCallbacks) callback(event);
+            } else {
+              if (events.length >= 5000) events.shift();
+              events.push(event);
+            }
+          },
+          disposeCallbacks,
+          stopProxy: async () => undefined,
+        }).handle;
+      } catch (error: unknown) {
+        abortController.abort();
+        throw error;
+      }
     } catch (error: unknown) {
-      abortController.abort();
-      mailbox.close();
-      disposeCallbacks();
-      lanePlanLimits.end();
+      if (named) {
+        await named.dispose();
+        throw claudeLaneRefusal();
+      }
       throw error;
+    }
+  }
+
+  private async prepareNamed(
+    input: ClaudeCliCommandOptions,
+    abort: AbortController,
+  ): Promise<ClaudeNamedLaneAdmission | undefined> {
+    const request = input.accountAdmission;
+    // Bound context must never silently downgrade through a direct caller.
+    if (!request) {
+      if (
+        input.accountBinding !== undefined ||
+        input.accountBindingId !== undefined
+      )
+        throw claudeLaneRefusal();
+      return undefined;
+    }
+    const admission = this.deps.admission();
+    if (!admission)
+      throw claudeLaneRefusal('Claude account admission is not available');
+    const persistence = this.deps.accountPersistence?.();
+    if (!persistence?.available) throw claudeLaneRefusal();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let refusalCode: ProviderAccountPortRefusal['code'] = 'release-held';
+    const pending = (async () => {
+      const lookup = input.resumeSessionId
+        ? await persistence.lookupBySdkSession({
+            provider: 'claude',
+            sdkSessionId: input.resumeSessionId,
+          })
+        : undefined;
+      if (input.resumeSessionId && lookup?.status !== 'bound')
+        throw claudeLaneRefusal();
+      const stored = lookup?.status === 'bound' ? lookup.binding : undefined;
+      if (
+        stored &&
+        (stored.identity.kind !== 'known' ||
+          (
+            await persistence.validateResume({
+              accountBinding: stored,
+              accountBindingId: stored.runId,
+            })
+          ).code !== 'ok')
+      )
+        throw claudeLaneRefusal();
+      if (abort.signal.aborted) throw claudeLaneRefusal();
+      const result = await admission.admitClaudeRoute({
+        ...request,
+        scope: 'lane',
+        ...(stored
+          ? {
+              runId: stored.runId,
+              selection: { kind: 'named', profileId: stored.profileId },
+            }
+          : {}),
+      });
+      if (result.code !== 'ok') {
+        refusalCode = result.code;
+        throw claudeLaneRefusal();
+      }
+      if (result.resources.kind !== 'named') {
+        await admission.releaseReservation({
+          reservationId: result.reservation.reservationId,
+          operationId: result.reservation.operationId,
+          authEpoch: result.reservation.authEpoch,
+          reason: 'startup-failure',
+        });
+        throw claudeLaneRefusal();
+      }
+      const named = new ClaudeNamedLaneAdmission(
+        result.resources.route,
+        result.reservation,
+        admission,
+        persistence,
+        abort,
+        this.logger,
+        stored,
+      );
+      const route = named.route;
+      if (
+        abort.signal.aborted ||
+        (stored &&
+          (stored.provider !== route.provider ||
+            stored.profileId !== route.profileId ||
+            stored.routeFingerprint !== route.routeFingerprint ||
+            stored.routeRevision !== route.routeRevision))
+      ) {
+        await named.dispose();
+        throw claudeLaneRefusal();
+      }
+      return named;
+    })();
+    try {
+      return await Promise.race([
+        pending,
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => {
+            abort.abort();
+            reject(claudeLaneRefusal());
+          }, 15_000);
+        }),
+      ]);
+    } catch {
+      throw Object.assign(claudeLaneRefusal(), { code: refusalCode });
+    } finally {
+      clearTimeout(timer);
     }
   }
 
