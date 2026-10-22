@@ -45,6 +45,12 @@ const OLLAMA: QuotaOwnerRef = {
   identityKind: 'credential',
   label: 'Ollama Cloud key',
 };
+const OPENCODE: QuotaOwnerRef = {
+  key: 'opencode#cli-store:c3',
+  providerId: 'opencode',
+  identityKind: 'cli-store',
+  label: 'OpenCode account',
+};
 
 function available(owner: QuotaOwnerRef): PlanLimitOwnerSnapshot {
   return {
@@ -58,7 +64,7 @@ function available(owner: QuotaOwnerRef): PlanLimitOwnerSnapshot {
 
 function build() {
   const logger: MockLogger = createMockLogger();
-  const discoverTargets = jest.fn<Promise<DiscoveredPlanOwner[]>, [unknown]>(
+  const discoverTargets = jest.fn<Promise<DiscoveredPlanOwner[]>, [unknown, number?]>(
     async () => [],
   );
   const discoverSelectedProvider = jest.fn(
@@ -92,6 +98,16 @@ function build() {
 }
 
 describe('PlanLimitsSnapshotService', () => {
+  it('passes an incomplete discovery marker to the client snapshot', async () => {
+    const s = build();
+    s.discoverTargets.mockResolvedValue(
+      Object.assign([] as DiscoveredPlanOwner[], { discoveryIncomplete: true }),
+    );
+    await expect(s.service.snapshot({})).resolves.toMatchObject({
+      discoveryIncomplete: true,
+    });
+  });
+
   it('pushes with the scope of the last request and never refreshes', async () => {
     const s = build();
     s.discoverTargets.mockResolvedValue([
@@ -114,7 +130,7 @@ describe('PlanLimitsSnapshotService', () => {
       selectedProviderId: 'openai-codex',
       sessionIds: ['s-1'],
       ownerKeys: [OLLAMA.key],
-    });
+    }, expect.any(Number));
     expect(s.getOwnerSnapshot.mock.calls.map(([, options]) => options)).toEqual(
       [
         expect.objectContaining({ refresh: true }),
@@ -126,7 +142,59 @@ describe('PlanLimitsSnapshotService', () => {
   it('pushes with an empty scope before any request', async () => {
     const s = build();
     await s.service.currentSnapshot();
-    expect(s.discoverTargets).toHaveBeenCalledWith({});
+    expect(s.discoverTargets).toHaveBeenCalledWith({}, expect.any(Number));
+  });
+
+  it('returns a partial snapshot within 24 seconds after slow discovery and a hung Codex read', async () => {
+    jest.useFakeTimers();
+    try {
+      const s = build();
+      s.discoverTargets.mockImplementation(() => new Promise((resolve) =>
+        setTimeout(() => resolve([
+          { kind: 'known', origin: 'selected-provider', snapshot: available(OLLAMA) },
+          { kind: 'read', origin: 'lane', target: { providerId: 'openai-codex', ownerRef: CODEX } },
+        ]), 11_000),
+      ));
+      s.getOwnerSnapshot.mockImplementation(() => new Promise(() => undefined));
+      const pending = s.service.snapshot({});
+      await jest.advanceTimersByTimeAsync(24_000);
+      await expect(pending).resolves.toMatchObject({ owners: [
+        { owner: OLLAMA, status: 'available' },
+        { owner: CODEX, status: 'service-unavailable' },
+      ] });
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('reserves time for a live owner read after discovery uses its 12 second deadline', async () => {
+    jest.useFakeTimers();
+    try {
+      const s = build();
+      const startedAt = Date.now();
+      s.discoverTargets.mockImplementation(() => new Promise((resolve) =>
+        setTimeout(() => resolve([
+          { kind: 'read', origin: 'cli-store', target: { providerId: 'opencode', ownerRef: OPENCODE } },
+        ]), 12_000),
+      ));
+      s.getOwnerSnapshot.mockResolvedValue({ ...available(OPENCODE), status: 'unsupported-config' });
+
+      const pending = s.service.snapshot({});
+      expect(s.discoverTargets).toHaveBeenCalledWith({}, startedAt + 12_000);
+      await jest.advanceTimersByTimeAsync(12_000);
+      await expect(pending).resolves.toMatchObject({ owners: [
+        { owner: OPENCODE, status: 'unsupported-config' },
+      ] });
+      expect(s.getOwnerSnapshot).toHaveBeenCalledWith(
+        { providerId: 'opencode', ownerRef: OPENCODE },
+        expect.objectContaining({ refresh: false, signal: expect.any(AbortSignal) }),
+      );
+      expect(Date.now() - startedAt).toBeLessThan(24_000);
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('a provider lookup reads only the selected-provider owner and keeps the push scope', async () => {
@@ -158,7 +226,7 @@ describe('PlanLimitsSnapshotService', () => {
     await s.service.currentSnapshot();
     expect(s.discoverTargets).toHaveBeenLastCalledWith({
       selectedProviderId: 'claude-cli',
-    });
+    }, expect.any(Number));
   });
 
   describe('read deadline', () => {

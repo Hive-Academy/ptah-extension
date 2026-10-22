@@ -25,6 +25,10 @@ export * from './rpc/rpc-editor.types';
 export * from './rpc/rpc-memory.types';
 export * from './rpc/rpc-mem.types';
 export * from './rpc/rpc-corpus.types';
+import type {
+  ArtifactListRequest,
+  ArtifactListResponse,
+} from '../../mcp-apps-contracts/artifact.types';
 
 export * from './rpc/rpc-indexing.types';
 
@@ -103,7 +107,6 @@ import type {
   SubagentHistoryPageResult,
 } from './subagent-registry.types';
 import type { SavedAnalysisMetadata } from './wizard';
-import type { SkillDrainTier } from '../constants/skill-drain.constants';
 import type {
   ChatStartParams,
   ChatStartResult,
@@ -689,18 +692,6 @@ import type {
   MemorySetTriggersResult,
   MemoryGetTriggersParams,
   MemoryGetTriggersResult,
-  SkillDiagnosticsParams,
-  SkillDiagnosticsResult,
-  SkillAnalyzeNowParams,
-  SkillAnalyzeNowResult,
-  SkillSetTriggersParams,
-  SkillSetTriggersResult,
-  SkillGetTriggersParams,
-  SkillGetTriggersResult,
-  SkillSetLanesParams,
-  SkillSetLanesResult,
-  SkillGetLanesParams,
-  SkillGetLanesResult,
 } from './rpc/rpc-curator-diagnostics.types';
 import type {
   TasksListParams,
@@ -787,6 +778,8 @@ import type {
  * If a method is not in this registry, it CANNOT be called from frontend.
  */
 export interface RpcMethodRegistry {
+  'artifacts:list': { params: ArtifactListRequest; result: ArtifactListResponse };
+  'artifacts:openLink': { params: { url: string }; result: { opened: boolean } };
   'analytics:spendSummary': { params: UsageSummaryParams; result: UsageSummary };
   'attention:getSnapshot': {
     params: AttentionGetSnapshotParams;
@@ -2013,74 +2006,6 @@ export interface RpcMethodRegistry {
     params: CorpusSuggestParams;
     result: CorpusSuggestResult;
   };
-  'skillSynthesis:listCandidates': {
-    params: SkillSynthesisListCandidatesParams;
-    result: SkillSynthesisListCandidatesResult;
-  };
-  'skillSynthesis:getCandidate': {
-    params: SkillSynthesisGetCandidateParams;
-    result: SkillSynthesisGetCandidateResult;
-  };
-  'skillSynthesis:promote': {
-    params: SkillSynthesisPromoteParams;
-    result: SkillSynthesisPromoteResult;
-  };
-  'skillSynthesis:reject': {
-    params: SkillSynthesisRejectParams;
-    result: SkillSynthesisRejectResult;
-  };
-  'skillSynthesis:invocations': {
-    params: SkillSynthesisInvocationsParams;
-    result: SkillSynthesisInvocationsResult;
-  };
-  'skillSynthesis:stats': {
-    params: SkillSynthesisStatsParams;
-    result: SkillSynthesisStatsResult;
-  };
-  'skillSynthesis:getSettings': {
-    params: SkillSynthesisGetSettingsParams;
-    result: SkillSynthesisGetSettingsResult;
-  };
-  'skillSynthesis:updateSettings': {
-    params: SkillSynthesisUpdateSettingsParams;
-    result: SkillSynthesisUpdateSettingsResult;
-  };
-  'skillSynthesis:pin': {
-    params: SkillSynthesisPinParams;
-    result: SkillSynthesisPinResult;
-  };
-  'skillSynthesis:unpin': {
-    params: SkillSynthesisUnpinParams;
-    result: SkillSynthesisUnpinResult;
-  };
-  'skillSynthesis:runCurator': {
-    params: SkillSynthesisRunCuratorParams;
-    result: SkillSynthesisRunCuratorResult;
-  };
-  'skillSynthesis:diagnostics': {
-    params: SkillDiagnosticsParams;
-    result: SkillDiagnosticsResult;
-  };
-  'skillSynthesis:analyzeNow': {
-    params: SkillAnalyzeNowParams;
-    result: SkillAnalyzeNowResult;
-  };
-  'skillSynthesis:setTriggers': {
-    params: SkillSetTriggersParams;
-    result: SkillSetTriggersResult;
-  };
-  'skillSynthesis:getTriggers': {
-    params: SkillGetTriggersParams;
-    result: SkillGetTriggersResult;
-  };
-  'skillSynthesis:setLanes': {
-    params: SkillSetLanesParams;
-    result: SkillSetLanesResult;
-  };
-  'skillSynthesis:getLanes': {
-    params: SkillGetLanesParams;
-    result: SkillGetLanesResult;
-  };
   'skillSynthesis:listClones': {
     params: SkillSynthesisListClonesParams;
     result: SkillSynthesisListClonesResult;
@@ -2088,10 +2013,6 @@ export interface RpcMethodRegistry {
   'skillSynthesis:getClone': {
     params: SkillSynthesisGetCloneParams;
     result: SkillSynthesisGetCloneResult;
-  };
-  'skillSynthesis:enhanceNow': {
-    params: SkillSynthesisEnhanceNowParams;
-    result: SkillSynthesisEnhanceNowResult;
   };
   'skillSynthesis:previewEnhancement': {
     params: SkillSynthesisPreviewEnhancementParams;
@@ -2149,38 +2070,6 @@ export interface RpcMethodRegistry {
     params: SkillSynthesisGetScorecardDetailParams;
     result: SkillSynthesisGetScorecardDetailResult;
   };
-  'skillSynthesis:listSuggestions': {
-    params: SkillSynthesisListSuggestionsParams;
-    result: SkillSynthesisListSuggestionsResult;
-  };
-  'skillSynthesis:acceptSuggestion': {
-    params: SkillSynthesisAcceptSuggestionParams;
-    result: SkillSynthesisAcceptSuggestionResult;
-  };
-  'skillSynthesis:dismissSuggestion': {
-    params: SkillSynthesisDismissSuggestionParams;
-    result: SkillSynthesisDismissSuggestionResult;
-  };
-  'skillSynthesis:getSuggestion': {
-    params: SkillSynthesisGetSuggestionParams;
-    result: SkillSynthesisGetSuggestionResult;
-  };
-  'skillSynthesis:updateSuggestion': {
-    params: SkillSynthesisUpdateSuggestionParams;
-    result: SkillSynthesisUpdateSuggestionResult;
-  };
-  'skillSynthesis:rejectBulk': {
-    params: SkillSynthesisRejectBulkParams;
-    result: SkillSynthesisRejectBulkResult;
-  };
-  'skillSynthesis:promoteBulk': {
-    params: SkillSynthesisPromoteBulkParams;
-    result: SkillSynthesisPromoteBulkResult;
-  };
-  'skillSynthesis:rejectByPattern': {
-    params: SkillSynthesisRejectByPatternParams;
-    result: SkillSynthesisRejectByPatternResult;
-  };
   'skillSynthesis:listSpecs': {
     params: SkillSynthesisListSpecsParams;
     result: SkillSynthesisListSpecsResult;
@@ -2192,14 +2081,6 @@ export interface RpcMethodRegistry {
   'skillSynthesis:clearStaleSpecs': {
     params: SkillSynthesisClearStaleSpecsParams;
     result: SkillSynthesisClearStaleSpecsResult;
-  };
-  'skillSynthesis:queue': {
-    params: SkillSynthesisQueueParams;
-    result: SkillSynthesisQueueResult;
-  };
-  'skillSynthesis:digest': {
-    params: SkillSynthesisDigestParams;
-    result: SkillSynthesisDigestResult;
   };
   'cron:list': { params: CronListParams; result: CronListResult };
   'cron:get': { params: CronGetParams; result: CronGetResult };
@@ -2527,244 +2408,6 @@ export interface RpcMethodRegistry {
   };
 }
 
-/**
- * The judge verdict vocabulary on the wire (TASK_2026_180, Phase 1).
- *
- * Structural mirror of `JudgeStatus` in
- * `skill-synthesis/src/lib/types.ts` — declared here rather than imported
- * because `libs/shared` is the foundation layer and may not import a backend
- * lib. `SkillCandidateStore` remains the enforcing gate on both edges; this
- * union is the wire restatement, not a second validation layer.
- */
-export type SkillJudgeStatusDto = 'scored' | 'unscored' | 'disabled';
-
-/**
- * The five criteria the judge scores. Carried individually rather than only as
- * an average so the UI can render a scorecard instead of one collapsed number.
- * `null` per criterion means "this criterion was not scored".
- */
-export interface SkillJudgeCriteriaDto {
-  novelty: number | null;
-  actionability: number | null;
-  scope: number | null;
-  generalization: number | null;
-  triggerClarity: number | null;
-}
-
-/**
- * Who produced one entry in a judge PANEL, on the wire (TASK_2026_180, Phase 3).
- *
- * Structural mirror of `JudgePanelRole` in `skill-synthesis/src/lib/types.ts`,
- * restated here for the same reason `SkillJudgeStatusDto` is: `libs/shared` is
- * the foundation layer and may not import a backend lib.
- *
- * Three roles, not two: the escalation is a THIRD opinion taken when the two
- * panellists disagreed, not an edit of either one's. Folding it into a
- * panellist role would erase the fact that a disagreement happened, which is
- * the only reason the third call was ever paid for.
- */
-export type SkillJudgePanelRoleDto =
-  'panellist-a' | 'panellist-b' | 'escalation';
-
-/**
- * One panellist's answer, as the wire carries it.
- *
- * A panel entry is a VERDICT, and it carries the same `status`/`score`
- * contract `SkillSynthesisCandidateSummary.judgeScore` does: only `'scored'`
- * may carry a number, and every other status carries `score: null`. Letting
- * `{ status: 'unscored', score: 10 }` reach a renderer would be the fabricated
- * verdict Phase 1 removed, one field to the left.
- */
-export interface SkillJudgePanelRationaleDto {
-  role: SkillJudgePanelRoleDto;
-  status: SkillJudgeStatusDto;
-  /** Populated ONLY on `status: 'scored'`. Never `0` as a stand-in for absent. */
-  score: number | null;
-  /** `null` = this panellist produced no per-criterion breakdown. */
-  criteria: SkillJudgeCriteriaDto | null;
-  /** A judge reason, or a lane failure's own user-facing reason. */
-  reason: string;
-  /** The rendering the escalation prompt actually read, as stored. */
-  summary: string;
-}
-
-export interface SkillSynthesisCandidateSummary {
-  id: string;
-  /**
-   * The SLUG. An internal id and the `SKILL.md` folder name — never a title.
-   * Render `displayName` and fall back to this.
-   */
-  name: string;
-  description: string;
-  status: 'candidate' | 'promoted' | 'rejected';
-  successCount: number;
-  failureCount: number;
-  createdAt: number;
-  promotedAt: number | null;
-  rejectedAt: number | null;
-  rejectedReason: string | null;
-  pinned: boolean;
-  /**
-   * The workspace this candidate was captured in, or `null` when its origin is
-   * unknown (captured before the column existed and not resolvable from the
-   * synthesis queue). `null` is NOT "cross-project" and must not be rendered as
-   * one — the honest label is "unknown project".
-   */
-  workspaceRoot: string | null;
-  // ── Judge verdict (TASK_2026_180, Phase 1) ────────────────────────────────
-  /** Human-readable title. `null` = none yet; the UI falls back to `name`. */
-  displayName: string | null;
-  /**
-   * `null` = the candidate was NOT scored — never judged, judged while the
-   * gate was off, or a judge call that failed. It is NOT a low score and it is
-   * NEVER `0`. Coalescing this to zero re-introduces exactly the defect this
-   * field exists to remove: before it, a failed judge call fabricated a verdict
-   * the UI then rendered as genuine. Read `judgeStatus` to tell the cases
-   * apart.
-   */
-  judgeScore: number | null;
-  /** `null` = no verdict has ever been recorded for this candidate. */
-  judgeStatus: SkillJudgeStatusDto | null;
-  /**
-   * Why. For `'unscored'` this is the FAILURE ("rate limited"), not a critique.
-   */
-  judgeReason: string | null;
-  /** `null` = the judge produced no per-criterion breakdown. */
-  judgeCriteria: SkillJudgeCriteriaDto | null;
-  // ── Empirical gates (TASK_2026_180, Phase 3) ──────────────────────────────
-  // Every number below repeats the `judgeScore` rule, for the same reason and
-  // with the same consequence for getting it wrong: `null` is NOT zero.
-  /**
-   * Plan-vs-actual replay alignment, 0–1.
-   *
-   * `null` = the replay NEVER RAN — no hold-out session existed, the gate was
-   * off, or the replay produced no trustworthy number. A genuine `0` means the
-   * replay ran and the skill aligned with nothing, which is real evidence
-   * AGAINST promotion. A reader that coalesces `null` to `0` turns "we never
-   * measured this" into "we measured it and it failed" — exactly the
-   * fabricated verdict Phase 1 removed, and it also makes an unmeasured
-   * candidate look ineligible for the retry it is still owed.
-   */
-  replayConfidence: number | null;
-  /**
-   * Description-only trigger-retrieval score, derived from precision + recall.
-   *
-   * `null` = the trigger eval never ran. A genuine `0` means the description
-   * retrieved nothing. Same rule as {@link replayConfidence}: never coalesce.
-   */
-  triggerScore: number | null;
-  /**
-   * The panel's per-role rationales, parsed off the stored JSON.
-   *
-   * `null` = no readable panel — either none was ever convened, or the stored
-   * record failed to parse or to satisfy the `status`/`score` contract. Never
-   * `[]`: the store refuses to write a panel with no members, so an empty list
-   * would describe a deliberation nobody held.
-   */
-  judgePanelRationales: SkillJudgePanelRationaleDto[] | null;
-}
-
-export interface SkillSynthesisCandidateDetail extends SkillSynthesisCandidateSummary {
-  bodyPath: string;
-  body: string | null;
-  trajectoryHash: string;
-  sourceSessionIds: string[];
-}
-
-export interface SkillSynthesisInvocationEntry {
-  id: string;
-  skillId: string;
-  sessionId: string;
-  succeeded: boolean;
-  invokedAt: number;
-  notes: string | null;
-}
-
-/**
- * How wide the candidate list reaches across projects.
- *
- * `'workspace'` — the current workspace, PLUS every candidate whose origin is
- * unknown (`workspaceRoot: null`: captured before the origin column existed).
- * Unknown rows are included rather than hidden, because hiding them would make
- * pre-existing candidates unreachable in every project.
- *
- * `'all'` — every candidate in `~/.ptah/state/ptah.sqlite`, which is shared by
- * every workspace on the machine.
- */
-export type SkillSynthesisCandidateScope = 'workspace' | 'all';
-
-export interface SkillSynthesisListCandidatesParams {
-  status?: 'candidate' | 'promoted' | 'rejected' | 'all';
-  limit?: number;
-  /**
-   * Defaults to `'workspace'`. The default is deliberately the NARROW one: a
-   * candidate is unreviewed work captured from one session in one project, and
-   * before this existed a freshly opened project's review queue was every
-   * other project's backlog.
-   *
-   * This scopes the LIST only. Promotion, clustering, dedup, the residency
-   * budget and the empirical gates all read the candidate set across projects
-   * on purpose — a promoted skill is propagated into every workspace.
-   */
-  scope?: SkillSynthesisCandidateScope;
-}
-export interface SkillSynthesisListCandidatesResult {
-  candidates: SkillSynthesisCandidateSummary[];
-}
-
-export interface SkillSynthesisGetCandidateParams {
-  id: string;
-}
-export interface SkillSynthesisGetCandidateResult {
-  candidate: SkillSynthesisCandidateDetail | null;
-}
-
-export interface SkillSynthesisPromoteParams {
-  id: string;
-}
-export interface SkillSynthesisPromoteResult {
-  promoted: boolean;
-  reason: string | null;
-  filePath: string | null;
-}
-
-export interface SkillSynthesisRejectParams {
-  id: string;
-  reason?: string;
-}
-export interface SkillSynthesisRejectResult {
-  rejected: boolean;
-}
-
-export interface SkillSynthesisRejectBulkParams {
-  ids: string[];
-  reason?: string;
-}
-export interface SkillSynthesisRejectBulkResult {
-  rejected: number;
-}
-export interface SkillSynthesisPromoteBulkParams {
-  ids: string[];
-}
-export interface SkillSynthesisPromoteBulkDecision {
-  id: string;
-  promoted: boolean;
-  reason: string | null;
-  filePath: string | null;
-}
-export interface SkillSynthesisPromoteBulkResult {
-  decisions: SkillSynthesisPromoteBulkDecision[];
-  promoted: number;
-}
-export interface SkillSynthesisRejectByPatternParams {
-  pattern: string;
-  reason?: string;
-}
-export interface SkillSynthesisRejectByPatternResult {
-  rejected: number;
-  matched: number;
-}
-
 export type SkillSynthesisSpecStatus =
   'active' | 'complete-unharvested' | 'harvested';
 export interface SkillSynthesisSpecSummary {
@@ -2794,385 +2437,7 @@ export interface SkillSynthesisClearStaleSpecsResult {
   taskIds: string[];
 }
 
-/**
- * Every `skill_synthesis_queue.stage` member (migration `0032`).
- *
- * This union is the wire-side restatement of `SkillQueueStage` in
- * `@ptah-extension/skill-synthesis`, which `libs/shared` may not import (it is
- * the foundation layer). Drift is caught at COMPILE TIME in the direction that
- * matters: the handler maps a backend row into this type, so a stage added to
- * `0032` and to the backend union but not here fails `nx typecheck rpc-handlers`.
- */
-export type SkillSynthesisQueueStage =
-  | 'prefilter'
-  | 'archaeology'
-  | 'synthesis'
-  | 'embedding'
-  | 'clustering'
-  | 'cluster-synthesis'
-  | 'judge'
-  | 'judge-panel'
-  | 'replay'
-  | 'trigger-eval'
-  | 'digest';
-
-/** Every `skill_synthesis_queue.status` member (migration `0032`). */
-export type SkillSynthesisQueueStatus =
-  'queued' | 'claimed' | 'running' | 'done' | 'failed' | 'unscored' | 'skipped';
-
-/**
- * One queue row as the Activity surface sees it.
- *
- * `last_error` is deliberately ABSENT. It holds whatever a stage threw —
- * an SDK message, a provider payload, a SQLite driver string — and forwarding
- * that verbatim to a renderer is the "never expose a raw error message across
- * the boundary" rule. `reason` is the short, deliberately-authored sentence the
- * drain writes for exactly this purpose; the full error stays in the log.
- */
-export interface SkillSynthesisQueueItem {
-  id: string;
-  sessionId: string;
-  /** Round-robin fairness key. `''` for cross-project stages. */
-  workspaceRoot: string;
-  stage: SkillSynthesisQueueStage;
-  status: SkillSynthesisQueueStatus;
-  attemptCount: number;
-  enqueuedAt: number;
-  /** Epoch ms before which the row is not eligible. `0` = eligible now. */
-  notBefore: number;
-  finishedAt: number | null;
-  /** Which provider lane ran (or will run) the row. `null` before Phase 1. */
-  lane: string | null;
-  /** Short and user-facing — a stall reason, a skip reason, a backoff note. */
-  reason: string | null;
-  candidateId: string | null;
-}
-
-/**
- * One drain `job_runs` row, resolved to its tier.
- *
- * `durationMs` is precomputed rather than left to the renderer: a run that is
- * still in flight has no end, and `null` says that unambiguously where
- * `endedAt - startedAt` would silently produce `NaN`.
- */
-export interface SkillSynthesisDrainRun {
-  id: string;
-  jobId: string;
-  tier: SkillDrainTier;
-  scheduledFor: number;
-  startedAt: number | null;
-  endedAt: number | null;
-  status: 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped';
-  /** `null` while the run has not finished. */
-  durationMs: number | null;
-  /** The drain's own summary line. Never a raw error message. */
-  summary: string | null;
-}
-
-/**
- * What one stage has actually SPENT today, from `skill_synthesis_budget`
- * (migration `0035`, keyed `(day_key, stage)` in UTC).
- *
- * This is the real token counter, not a proxy. Queue rows carry dispatches;
- * only the ledger carries tokens, and the ledger is day-and-stage-keyed rather
- * than row-keyed — so the cost figure rides the RESPONSE, not
- * {@link SkillSynthesisQueueItem}. A stage can appear here with no queue rows
- * left (it spent, then finished), and rows can exist for a stage that has spent
- * nothing; both are true statements and neither is derivable from the other.
- *
- * `stage: ''` is the unattributed bucket — spend no queue stage owned, such as
- * the foreground promotion gate's judge call. It is reported rather than
- * dropped because the entries must sum to the day total the daily cap
- * (`skillSynthesis.budget.maxTokensPerDay`) is compared against; an entry list
- * that summed to less would read as headroom the user does not have.
- */
-export interface SkillSynthesisStageSpend {
-  /** A queue stage, or `''` for spend no queue stage owned. */
-  stage: SkillSynthesisQueueStage | '';
-  inputTokens: number;
-  outputTokens: number;
-  /** `inputTokens + outputTokens` — the figure the daily cap gates on. */
-  totalTokens: number;
-  costUsd: number;
-}
-
-export interface SkillSynthesisQueueParams {
-  /** Queue rows to return, newest-enqueued first. */
-  limit?: number;
-  /** Drain runs to return, most-recently-scheduled first. */
-  runLimit?: number;
-}
-
-export interface SkillSynthesisQueueResult {
-  items: SkillSynthesisQueueItem[];
-  recentRuns: SkillSynthesisDrainRun[];
-  /** Today's UTC token ledger, one entry per stage, heaviest first. */
-  stageSpend: SkillSynthesisStageSpend[];
-}
-
-/**
- * Which sweep produced a digest item (TASK_2026_180 Phase 4).
- *
- * The wire restatement of `DigestItemKind` in `@ptah-extension/skill-synthesis`,
- * which `libs/shared` may not import. The names carry the `SkillDigest` prefix
- * rather than the backend's bare `DigestItem` because the RPC handler imports
- * BOTH sides into one file to map between them, and two `DigestItem`s in one
- * import list is a rename waiting to be got wrong.
- */
-export type SkillDigestItemKind =
-  'missed-trigger' | 'friction-opportunity' | 'win-rate' | 'memory-signal';
-
-/**
- * The receipts behind one digest item.
- *
- * `winRate` IS `number | null` AND `null` IS NEVER `0`. `null` means nobody has
- * measured this skill; `0` means it was measured and lost every measured
- * session. `0` is falsy, so `winRate || x` anywhere on this path silently
- * retitles a measured failure as an absent measurement — use `??` or an
- * explicit `=== null`. The backend half of this rule lives on
- * `SkillCandidateStore.getWinRates()` and `scoreForWinRate`; this is the same
- * rule at the wire.
- */
-export interface SkillDigestEvidence {
-  /** Sessions that justify the item. NEVER empty — an item with no receipts is not filed. */
-  sessionIds: string[];
-  /** Per-kind tallies (`missedSessions`, `retry`, `invocations`, `memoryHits`, …). */
-  counts: Record<string, number>;
-  /** `wins / measured` for the skill involved; `null` = unmeasured, NEVER `0`. */
-  winRate: number | null;
-}
-
-/**
- * One ranked nudge. `score` is a 0–1 attention weight and the digest arrives
- * sorted by it DESCENDING; it is not a quality score and carries no unit beyond
- * "look at this one first". A digest item is never an action — the user still
- * accepts or dismisses.
- */
-export interface SkillDigestItem {
-  kind: SkillDigestItemKind;
-  /** One short human-facing line. Safe to render as a heading. */
-  title: string;
-  /** Why this was surfaced, stated as measured facts rather than advice. */
-  rationale: string;
-  /** Attention weight, 0–1. Higher first. */
-  score: number;
-  evidence: SkillDigestEvidence;
-}
-
-export interface SkillSynthesisDigestParams {
-  /**
-   * The workspace whose sessions are swept. Omitted = the host's current
-   * workspace; `''` is the explicit cross-project feed and is NOT the same
-   * request as omitting the field.
-   */
-  workspaceRoot?: string;
-  /** Items returned after ranking. Defaults to the curator's own limit. */
-  limit?: number;
-  /**
-   * Whether this sweep may SPEND on the authoring lane.
-   *
-   * **Omitted means `false`, and that asymmetry is the whole point of the
-   * field.** The digest's one write — sweep (a)'s description rewrite — is
-   * authored by an LLM on the `synthesis` lane, and that lane is NOT covered by
-   * the drain's per-item token budget: no handler is registered for the
-   * `digest` queue stage and nothing enqueues a `digest` row, so
-   * `SkillGapCuratorService.runDigest` only ever runs in the foreground from
-   * this RPC. There is no budget gate underneath it.
-   *
-   * The digest is also refreshed AUTOMATICALLY — on tab init and, debounced, on
-   * four background event kinds — so a default of `true` would mean background
-   * activity buying unbudgeted LLM calls. The failure mode of getting this
-   * wrong is spending the user's money, so the safe value is the one a caller
-   * gets by saying nothing: every automatic path omits it or sends `false`, and
-   * only an explicit user-initiated refresh may send `true`.
-   *
-   * `false` does not degrade the digest. The sweep falls back to appending the
-   * archaeologist's VERBATIM session intents — exactly what shipped before the
-   * lane existed — so the ranking, the evidence and the write are all unchanged;
-   * only the wording of the appended clause is cheaper.
-   */
-  allowRewrite?: boolean;
-}
-
-export interface SkillSynthesisDigestResult {
-  /** Ranked by `score` DESCENDING. The order is part of the contract. */
-  items: SkillDigestItem[];
-}
-
-export interface SkillSynthesisInvocationsParams {
-  skillId: string;
-  limit?: number;
-}
-export interface SkillSynthesisInvocationsResult {
-  invocations: SkillSynthesisInvocationEntry[];
-}
-
-export type SkillSynthesisStatsParams = Record<string, never>;
-export interface SkillSynthesisStatsResult {
-  totalCandidates: number;
-  totalPromoted: number;
-  totalRejected: number;
-  totalInvocations: number;
-  activeSkills: number;
-}
-
-/**
- * DTO mirroring all SkillSynthesisSettings fields.
- * Shared between frontend and backend — no branded types.
- */
-export interface SkillSynthesisSettingsDto {
-  enabled: boolean;
-  successesToPromote: number;
-  dedupCosineThreshold: number;
-  maxActiveSkills: number;
-  candidatesDir: string;
-  evictionDecayRate: number;
-  generalizationContextThreshold: number;
-  dedupClusterThreshold: number;
-  prefilterMinEdits: number;
-  prefilterMinToolUses: number;
-  judgeEnabled: boolean;
-  minJudgeScore: number;
-  judgeModel: string;
-  judgeProvider: string;
-  enhanceTimeoutMs: {
-    value: number;
-    default: number;
-    min: number;
-    max: number;
-  };
-  maxPinnedSkills: number;
-  curatorEnabled: boolean;
-  curatorIntervalHours: number;
-  suggestionMinClusterSize: number;
-  suggestionMaxCandidates: number;
-  // TASK_2026_180 Phase 0 — the drain knobs.
-  //
-  // The keys are DOTTED because `skillSynthesis:getSettings` builds its config
-  // key as `skillSynthesis.${schemaKey}` and `updateSettings` writes back the
-  // same way. A key of `'drain.cronExpr'` is therefore literally the settings
-  // path `skillSynthesis.drain.cronExpr`; renaming it to `drainCronExpr` would
-  // silently read and write a key that no host stores.
-  'drain.cronExpr': string;
-  'drain.nightlyCronExpr': string;
-  'drain.weeklyCronExpr': string;
-  'drain.maxItemsPerRun': number;
-  'drain.nightlyMaxItemsPerRun': number;
-  'drain.weeklyMaxItemsPerRun': number;
-  'drain.perWorkspaceBatch': number;
-  'drain.foregroundBackoffMs': number;
-  'drain.pauseOnBattery': boolean;
-  'drain.maxAttempts': number;
-  'drain.staleClaimTtlMs': number;
-  'budget.maxTokensPerDay': number;
-  trayKeepalive: boolean;
-}
-
-export type SkillSynthesisGetSettingsParams = Record<string, never>;
-export interface SkillSynthesisGetSettingsResult {
-  settings: SkillSynthesisSettingsDto;
-}
-
-export type SkillSynthesisSettingsWriteDto = Omit<
-  SkillSynthesisSettingsDto,
-  'enhanceTimeoutMs'
-> & { enhanceTimeoutMs: number };
-
-export interface SkillSynthesisUpdateSettingsParams {
-  settings: Partial<SkillSynthesisSettingsWriteDto>;
-}
-export interface SkillSynthesisUpdateSettingsResult {
-  updated: boolean;
-}
-
-export interface SkillSynthesisPinParams {
-  id: string;
-}
-export interface SkillSynthesisPinResult {
-  pinned: boolean;
-}
-
-export interface SkillSynthesisUnpinParams {
-  id: string;
-}
-export interface SkillSynthesisUnpinResult {
-  pinned: boolean;
-}
-
-export type SkillSynthesisRunCuratorParams = Record<string, never>;
-
-export interface SkillSynthesisCuratorOverlap {
-  skillIdA: string;
-  skillIdB: string;
-  reason: string;
-}
-
-export interface SkillSynthesisRunCuratorResult {
-  reportPath: string;
-  changesQueued: number;
-  skippedPinned: number;
-  overlaps?: SkillSynthesisCuratorOverlap[];
-  suggestionsCreated: number;
-}
-
 export type SkillSuggestionStatus = 'pending' | 'accepted' | 'dismissed';
-
-export interface SkillSuggestionSummary {
-  id: string;
-  name: string;
-  description: string;
-  clusterSize: number;
-  technologyFingerprint: string;
-  judgeScore: number;
-  memberSessionIds: string[];
-  status: SkillSuggestionStatus;
-  createdAt: number;
-}
-
-export interface SkillSuggestionDetail extends SkillSuggestionSummary {
-  body: string;
-}
-
-export interface SkillSynthesisListSuggestionsParams {
-  status?: SkillSuggestionStatus;
-}
-export interface SkillSynthesisListSuggestionsResult {
-  suggestions: SkillSuggestionSummary[];
-}
-
-export interface SkillSynthesisAcceptSuggestionParams {
-  id: string;
-}
-export interface SkillSynthesisAcceptSuggestionResult {
-  accepted: boolean;
-  filePath: string;
-}
-
-export interface SkillSynthesisDismissSuggestionParams {
-  id: string;
-  reason?: string;
-}
-export interface SkillSynthesisDismissSuggestionResult {
-  dismissed: boolean;
-}
-
-export interface SkillSynthesisGetSuggestionParams {
-  id: string;
-}
-export interface SkillSynthesisGetSuggestionResult {
-  suggestion: SkillSuggestionDetail | null;
-}
-
-export interface SkillSynthesisUpdateSuggestionParams {
-  id: string;
-  name?: string;
-  description?: string;
-  body?: string;
-}
-export interface SkillSynthesisUpdateSuggestionResult {
-  updated: boolean;
-  suggestion: SkillSuggestionDetail | null;
-}
 
 export type GatewayPlatformId = 'telegram' | 'discord' | 'slack';
 export type GatewayApprovalStatus =
@@ -3807,6 +3072,8 @@ export type RpcMethodName = keyof RpcMethodRegistry;
  * verifyRpcRegistration uses set-membership checks only.
  */
 const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
+  'artifacts:list': true,
+  'artifacts:openLink': true,
   'analytics:spendSummary': true,
   'attention:getSnapshot': true,
   'chat:start': true,
@@ -4108,31 +3375,10 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'corpus:delete': true,
   'corpus:suggest': true,
 
-  'skillSynthesis:listCandidates': true,
-  'skillSynthesis:getCandidate': true,
-  'skillSynthesis:promote': true,
-  'skillSynthesis:reject': true,
-  'skillSynthesis:invocations': true,
-  'skillSynthesis:stats': true,
-  'skillSynthesis:getSettings': true,
-  'skillSynthesis:updateSettings': true,
-  'skillSynthesis:pin': true,
-  'skillSynthesis:unpin': true,
-  'skillSynthesis:runCurator': true,
-  'skillSynthesis:diagnostics': true,
-  'skillSynthesis:analyzeNow': true,
-  'skillSynthesis:setTriggers': true,
-  'skillSynthesis:getTriggers': true,
-  // TASK_2026_180 Phase 1. `skillSynthesis:` is ALREADY in
-  // `ALLOWED_METHOD_PREFIXES`, so only the compile-time half of
-  // dual-registration applies to these two: the registry entry above and this
-  // allow-map entry. Adding a runtime-guard entry per METHOD would be wrong —
-  // the guard is per PREFIX.
-  'skillSynthesis:setLanes': true,
-  'skillSynthesis:getLanes': true,
+  // The runtime guard accepts the skillSynthesis prefix; this map lists its
+  // retained methods individually for the compile-time contract.
   'skillSynthesis:listClones': true,
   'skillSynthesis:getClone': true,
-  'skillSynthesis:enhanceNow': true,
   'skillSynthesis:previewEnhancement': true,
   'skillSynthesis:applyProposal': true,
   'skillSynthesis:getHistoryBody': true,
@@ -4147,24 +3393,9 @@ const RPC_METHOD_ENTRIES: Record<RpcMethodName, true> = {
   'skillSynthesis:invocationStats': true,
   'skillSynthesis:getScorecards': true,
   'skillSynthesis:getScorecardDetail': true,
-  'skillSynthesis:listSuggestions': true,
-  'skillSynthesis:acceptSuggestion': true,
-  'skillSynthesis:dismissSuggestion': true,
-  'skillSynthesis:getSuggestion': true,
-  'skillSynthesis:updateSuggestion': true,
-  'skillSynthesis:rejectBulk': true,
-  'skillSynthesis:promoteBulk': true,
-  'skillSynthesis:rejectByPattern': true,
   'skillSynthesis:listSpecs': true,
   'skillSynthesis:harvestSpecs': true,
   'skillSynthesis:clearStaleSpecs': true,
-  'skillSynthesis:queue': true,
-  // TASK_2026_180 Phase 4 (correction C11). `skillSynthesis:` is ALREADY in
-  // `ALLOWED_METHOD_PREFIXES`, and that guard is per PREFIX — so the registry
-  // entry above plus this allow-map entry are the WHOLE of dual-registration
-  // for a new method in an existing namespace.
-  'skillSynthesis:digest': true,
-
   'cron:list': true,
   'cron:get': true,
   'cron:create': true,

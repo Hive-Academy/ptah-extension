@@ -1,0 +1,21 @@
+# Screenshot script repair (round 4)
+
+The prior `capture-results-2.json` records 8/22 shots and 17 errors. Its exact failure heads include `Theme mismatch: expected anubis-light/light, got anubis/dark`, `locator.click: Timeout 30000ms exceeded` for the hidden light option, `Recent failure remained after Clear all notices`, `locator.waitFor: Timeout 5000ms exceeded` while closing the panel, and `page.waitForFunction: Timeout 5000ms exceeded` while waiting for focus loss. No new capture was run.
+
+| Item | App code evidence | Script change |
+| --- | --- | --- |
+| Theme | `libs/frontend/chat-ui/src/lib/atoms/theme-toggle.component.ts:14-26,77-84,128-129` defines the palette trigger, option `data-theme`, and `ThemeService.setTheme` call. `libs/frontend/core/src/lib/services/theme.service.ts:67-70,185-194,353-359` lists `anubis-light` and sets `<html data-theme>` and `data-theme-mode`. | `shoot-populated.cjs:137-155` opens the picker, chooses `anubis-light`, uses a DOM button click invoking the same Angular handler if DaisyUI hides the option before Playwright can click it, waits for both root attributes, and closes the picker only when visible (`:95-108`). |
+| Live permission | `libs/frontend/chat/src/lib/services/chat-attention-source.service.ts:64-70,101-107,155-166` routes a real permission to its tab and suppresses its snackbar while that tab is visible and focused. `libs/frontend/chat/src/lib/components/templates/app-shell.component.ts:84-95` says the canvas is retained across view changes, so changing to Tasks does not guarantee the tab stops counting as visible. `libs/frontend/notification-center/src/lib/notification-center.component.ts:64-89` renders the Needs you row and `Allow`, `Deny`, and `Show in canvas` actions. | `shoot-populated.cjs:182-215` sends `permission:request` for the created tab while focused, opens the bell panel, checks the real Needs you row and enabled actions, captures `dark/light-panel-permission-live.png`, resolves the request, and closes the panel. The panel row is the chosen reliable surface; no Electron blur is used. |
+| Clear all | `libs/frontend/notification-center/src/lib/notification-center.component.ts:64-70,98-105,133-135` gives Needs you and Recent notices separate section IDs and renders `No recent notices` when empty. `libs/frontend/core/src/lib/services/notification.service.ts:180-188` clears recent entries only. | `shoot-populated.cjs:240-248` scopes the check to the Recent section, waits for its empty message, verifies it has no rows, and verifies Needs you still has a row. |
+| 800 px | `libs/frontend/notification-center/src/lib/notification-center.component.ts:25-41,171-173` defines the bell and panel; `toggle()` closes an open panel. | `shoot-populated.cjs:157-162,251-255` toggles the bell, waits until the panel is hidden, verifies closure before the 800 px request and viewport change, then captures the snackbar. |
+
+Safety in `shoot-populated.cjs` remains: private temp workspace (`:12-13`), port 9347 preflight (`:23-27,268`), cleanup and unconditional `capture-results-2.json` write (`:303-315`), 300 ms wait and disabled screenshot animations (`:117-129`), and the null-viewport fix using `window.innerWidth` (`:82`).
+
+`node --check .ptah/specs/TASK_2026_593_7c2e/visual-check/shoot-populated.cjs` exited 0 with no output. Electron, Playwright, Nx, Jest, builds, and the capture script were not run. A scoped Ptah diagnostics request reported unavailable after its TypeScript check timed out; it supplied no result for this `.cjs` file.
+
+## Decisions
+
+| Decision | Options and evidence | Reversible |
+| --- | --- | --- |
+| Capture the live permission in the bell panel | Tasks navigation could leave the retained canvas tab visible (`app-shell.component.ts:92-95`), while the Needs you panel renders the real request regardless of snackbar suppression (`notification-center.component.ts:64-89`). The request explicitly allowed a bell-panel row capture. | Yes |
+| Use the picker handler when Playwright cannot click the option | The hidden-option timeout came from Playwright actionability; clicking the existing option element invokes `selectTheme` and `ThemeService.setTheme` (`theme-toggle.component.ts:83,128-129`). | Yes |

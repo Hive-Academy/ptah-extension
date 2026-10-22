@@ -42,7 +42,9 @@ import {
   handleSurfaceToolCall,
   SURFACE_UPDATE_TOOL_NAME,
   SURFACE_GET_STATE_TOOL_NAME,
+  ARTIFACT_NOTIFICATION_TOKEN,
 } from '@ptah-extension/vscode-lm-tools';
+import type { ArtifactPublishedNotification } from '@ptah-extension/shared/mcp-apps-contracts';
 import { resolveRpcHandlerPlan } from '@ptah-extension/rpc-handlers';
 import type { SurfaceEnvelope } from '@ptah-extension/shared';
 import { SURFACE_CATALOG_VERSION } from '@ptah-extension/shared/mcp-apps-contracts/surface';
@@ -51,6 +53,41 @@ import { createMainWindowHandleGetter } from '../activation/bootstrap';
 import { IpcBridge } from '../ipc/ipc-bridge';
 import { ElectronWebviewManagerAdapter } from '../ipc/webview-manager-adapter';
 import { createElectronRpcHostProfile } from '../rpc-host-profile';
+import { registerArtifactNotification } from './phase-3-storage';
+
+describe('Electron artifact notification composition', () => {
+  const notification: ArtifactPublishedNotification = {
+    id: 'abcdefghijklmnop',
+    title: 'Dashboard',
+    revision: 1,
+    sessionId: 'tab-1',
+    viewerUrl: 'ptah-artifact://abcdefghijklmnop/index.html',
+    createdAt: '2026-10-20T12:00:00.000Z',
+  };
+
+  it('resolves the renderer lazily and sends metadata through the surface transport', async () => {
+    const c = rootContainer.createChildContainer();
+    registerArtifactNotification(c);
+    const notify = c.resolve<(
+      type: 'artifact:published',
+      payload: ArtifactPublishedNotification,
+    ) => Promise<void>>(ARTIFACT_NOTIFICATION_TOKEN);
+    await notify('artifact:published', notification);
+
+    const win = makeWindow();
+    registerWorkspaceStateStorageStub(c);
+    c.register(TOKENS.RPC_HANDLER, { useValue: {} });
+    const bridge = new IpcBridge(c, createMainWindowHandleGetter(() => win));
+    c.register(TOKENS.WEBVIEW_MANAGER, {
+      useValue: new ElectronWebviewManagerAdapter(bridge),
+    });
+    await notify('artifact:published', notification);
+    expect(win.webContents.send).toHaveBeenCalledWith('to-renderer', {
+      type: 'artifact:published',
+      payload: notification,
+    });
+  });
+});
 
 /**
  * Resolve and `register()` the real `SurfaceRpcHandlers` — found through the

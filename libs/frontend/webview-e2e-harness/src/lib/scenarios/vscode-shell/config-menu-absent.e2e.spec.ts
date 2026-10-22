@@ -6,7 +6,7 @@
  *
  * Uses the REAL `ptah-extension-webview` Angular bundle, the same artifact
  * both VS Code and Electron load, following `boot-progress.e2e.spec.ts` and
- * `../thoth/skills-lane-pickers.e2e.spec.ts` (read their doc comments before
+ * `../boot/boot-progress.e2e.spec.ts` (read their doc comments before
  * changing the `ptahConfig` shape in `./vscode-host.ts`).
  *
  * HOST CONFIG NOTE. `installVSCodeHost` (`./vscode-host.ts`) leaves

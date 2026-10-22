@@ -16,7 +16,6 @@ function makeRefs(overrides: Partial<ThothRefs> = {}): ThothRefs {
     sqliteConnection: null,
     memoryCurator: null,
     memoryTrigger: null,
-    skillSynthesis: null,
     skillTrigger: null,
     cronScheduler: null,
     gateway: null,
@@ -39,7 +38,8 @@ describe('ThothLifecycle', () => {
   it('transitions idle → activating → active and derives subsystem readiness', async () => {
     const transitions: ThothActivationSnapshot['status'][] = [];
     const lifecycle = new ThothLifecycle({
-      activate: async () => makeRefs({ memoryCurator: {} as never }),
+      activate: async () =>
+        makeRefs({ memoryCurator: {} as never, skillTrigger: {} as never }),
       dispose: async () => undefined,
     });
     lifecycle.on('change', (s: ThothActivationSnapshot) =>
@@ -52,6 +52,7 @@ describe('ThothLifecycle', () => {
     const snap = lifecycle.snapshot();
     expect(snap.status).toBe('active');
     expect(snap.subsystems.memory.ready).toBe(true);
+    expect(snap.subsystems.skills.ready).toBe(true);
     expect(snap.subsystems.gateway.ready).toBe(false);
   });
 

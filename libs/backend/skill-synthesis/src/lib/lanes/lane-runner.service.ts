@@ -9,7 +9,7 @@
  *  - the call into `IInternalQuery` with the lane's `auth` snapshot and, when
  *    the lane supports it, `outputFormat`,
  *  - draining the stream and the structured-output → manual-parse ladder,
- *  - recording usage into `SkillBudgetStore`,
+
  *  - mapping every outcome onto a `SkillLaneFailure` the drain can act on.
  *
  * **No stage builds its own timeout again.** `JUDGE_TIMEOUT_MS`,
@@ -71,26 +71,7 @@
  * cannot drive tools therefore degrades once and returns — it cannot burn the
  * timeout discovering the same thing repeatedly.
  *
- * ## The queue write, and the two kinds that earn one
- *
- * `SkillLaneFailure` is DATA — every caller gets it back and may act on it. On
- * top of that, a caller that hands over its `queueItemId` gets the TRANSPORT
- * failures written straight through to `SkillQueueStore.requeue`: `timeout`,
- * `auth-unresolvable` and `quota-exhausted` all mean "nothing ran, try later",
- * and all need the row back at `queued` behind a backoff before the next tick
- * can see it. Membership is `isTransportLaneFailure`, shared with the drain so
- * the two seams cannot disagree about which kinds those are.
- *
- * `requeue`, never `markUnscored`: `unscored` is the JUDGE's verdict ("we ran and
- * we do not know"), and spending it on an endpoint that never answered would make
- * the status mean two unrelated things. `structured-output-unsupported` is
- * deliberately NOT written here — it IS an `unscored` outcome and it lands on the
- * candidate as well as the row, which is B1.6/B1.7's mapping, not the runner's.
- *
- * `queueItemId` is optional because not every lane run has a row: the judge also
- * runs at the foreground promotion gate, and a runner that required a queue id
- * would force that caller to invent one.
- *
+
  * ## What this deliberately does NOT do
  *
  *  - It does not mark a row terminal. `markFailed` at `attempt_count >=
@@ -117,11 +98,11 @@ import {
   type IInternalQuery,
   type QueryOrigin,
 } from '../internal-query.interface';
-import type {
-  SkillBudgetStore,
-  SkillBudgetUsage,
-} from '../queue/skill-budget.store';
-import type { SkillQueueStore } from '../queue/skill-queue.store';
+interface SkillBudgetUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  costUsd?: number;
+}
 import type { LaneResolverService } from './lane-resolver.service';
 import {
   classifyThrownNetworkFailure,
@@ -134,7 +115,7 @@ import {
 import { extractJsonObject } from './lane-json';
 import type { ProviderNetworkBackoffs } from './provider-network-backoffs';
 import {
-  isTransportLaneFailure,
+
   type ResolvedSkillLane,
   type SkillLaneFailure,
   type SkillLaneFailureKind,
@@ -274,13 +255,7 @@ export interface LaneRunRequest extends QueryOrigin {
   readonly mcpServerRunning?: boolean;
   /** Only read when {@link mcpServerRunning} is supplied explicitly. */
   readonly mcpPort?: number;
-  /**
-   * The `skill_synthesis_queue` row this run belongs to, when there is one.
-   * Supplying it opts the run into the `requeue` write on the two transport
-   * failures; omitting it (the foreground promotion gate) leaves the failure as
-   * data the caller handles itself.
-   */
-  readonly queueItemId?: string;
+
 }
 
 export interface LaneRun {
@@ -366,21 +341,14 @@ export class LaneRunnerService {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(SKILL_SYNTHESIS_TOKENS.LANE_RESOLVER_SERVICE)
     private readonly resolver: LaneResolverService,
-    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_BUDGET_STORE)
-    private readonly budget: SkillBudgetStore,
+
     /**
      * Optional for the same reason every other consumer's is: a host without
      * the SDK still resolves this service, and answers `unavailable`.
      */
     @inject(INTERNAL_QUERY_SERVICE_TOKEN, { isOptional: true })
     private readonly internalQuery: IInternalQuery | null = null,
-    /**
-     * Optional so the three sibling specs — and any caller that never passes a
-     * `queueItemId` — can build a runner without a database behind it. A host
-     * that registers this library always has it.
-     */
-    @inject(SKILL_SYNTHESIS_TOKENS.SKILL_QUEUE_STORE, { isOptional: true })
-    private readonly queue: SkillQueueStore | null = null,
+
     /**
      * The host's MCP server status, when it has one. Optional AND LAST: the CLI
      * starts no MCP server at all, and the four sibling specs construct this
@@ -498,7 +466,7 @@ export class LaneRunnerService {
     if (first.answered) this.backoffFor(lane)?.recordSuccess();
     usage = mergeUsage(usage, first.usage);
     text = first.text;
-    this.recordUsage(first.usage);
+
 
     // R6: a first pass that spent its WHOLE turn budget without finishing means
     // the endpoint could not drive the retrieval loop inside it. Collapse the
@@ -567,7 +535,7 @@ export class LaneRunnerService {
       if (second.answered) this.backoffFor(lane)?.recordSuccess();
       usage = mergeUsage(usage, second.usage);
       text = second.text;
-      this.recordUsage(second.usage);
+
       read = readJson(second);
       structuredOutputHonoured = second.hasStructured;
       degradedReason = 'structured-output-unsupported';
@@ -746,32 +714,7 @@ export class LaneRunnerService {
     }
   }
 
-  /**
-   * The single exit for every failure, so the queue write cannot be forgotten at
-   * one of the four return sites.
-   *
-   * Only the two TRANSPORT kinds write. `structured-output-unsupported` passes
-   * through untouched: the row's `unscored` transition also has to set the
-   * candidate's `judge_status`, and splitting that pair across two owners is how
-   * a row and its candidate end up disagreeing.
-   */
-  private fail(req: LaneRunRequest, failure: SkillLaneFailure): LaneRunResult {
-    const shouldRequeue = isTransportLaneFailure(failure.kind);
-    if (req.queueItemId && this.queue && shouldRequeue) {
-      // A row this worker no longer holds returns `false` — expected after a
-      // reap, and not something to fail the run over.
-      const applied = this.queue.requeue(
-        req.queueItemId,
-        Date.now() + failure.retryAfterMs,
-        failure.reason,
-      );
-      if (!applied) {
-        this.logger.debug(
-          '[skill-synthesis] lane requeue skipped; the row is no longer claimed',
-          { lane: req.laneId, item: req.queueItemId, kind: failure.kind },
-        );
-      }
-    }
+  private fail(_req: LaneRunRequest, failure: SkillLaneFailure): LaneRunResult {
     return { status: 'failed', failure };
   }
 
@@ -832,20 +775,7 @@ export class LaneRunnerService {
     };
   }
 
-  /**
-   * A ledger write must never lose an otherwise good run: the tokens are spent
-   * either way, and failing the stage here would spend them again next tick.
-   */
-  private recordUsage(usage: SkillBudgetUsage): void {
-    if (!hasUsage(usage)) return;
-    try {
-      this.budget.record(usage);
-    } catch (error: unknown) {
-      this.logger.warn('[skill-synthesis] failed to record lane usage', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
+
 }
 
 /**
@@ -927,12 +857,4 @@ function mergeUsage(
     outputTokens: (a.outputTokens ?? 0) + (b.outputTokens ?? 0),
     costUsd: (a.costUsd ?? 0) + (b.costUsd ?? 0),
   };
-}
-
-function hasUsage(usage: SkillBudgetUsage): boolean {
-  return (
-    (usage.inputTokens ?? 0) > 0 ||
-    (usage.outputTokens ?? 0) > 0 ||
-    (usage.costUsd ?? 0) > 0
-  );
 }

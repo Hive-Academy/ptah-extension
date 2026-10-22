@@ -29,6 +29,13 @@ export const UsageFactSchema = z.object({
 export type CostSource = 'provider-reported' | 'model-priced' | 'unpriced';
 export type UsageFact = z.infer<typeof UsageFactSchema>;
 
+export const UsageTopSessionSchema = z.object({
+  sessionId: id, title: z.string().min(1).max(500), providerId: id, modelId: id,
+  costUsd: usd.nullable(), unpriced: z.boolean(), tokens: count,
+  messageCount: count, subagentCount: count, lastActive: instant,
+}).strict();
+export type UsageTopSession = z.infer<typeof UsageTopSessionSchema>;
+
 export const UsageSourceStatusSchema = z.object({
   sourceId: id,
   status: z.enum(['complete', 'partial', 'unavailable']),
@@ -41,6 +48,9 @@ export const UsageSummarySchema = z.object({
   version: z.literal(1), generatedAt: instant, timeZone: z.literal('UTC'),
   fromDay: day, untilDayExclusive: day,
   facts: z.array(UsageFactSchema).max(100000),
+  topSessions: z.array(UsageTopSessionSchema).max(5).optional(),
+  sessionCount: count.optional(), messageCount: count.optional(),
+  subagentCount: count.optional(),
   sources: z.array(UsageSourceStatusSchema).max(100),
   pricing: z.object({
     source: z.enum(['openrouter', 'bundled', 'unavailable']),

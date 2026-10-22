@@ -1,0 +1,167 @@
+electron pid: 13736
+viewport {"w":1280,"h":800}
+seeded events=40
+theme anubis
+== stage library (dark)
+| library-header | dark | pb-library-header-dark.png | Library view with pause/telemetry header (agents tab) |
+| library-skills | dark | pb-library-skills-dark.png | Library > Skills |
+(note dark) Skills cards: 4
+(note dark) Skills card 0: unused-skill |  | clone | · | 0/5 runs |  | Never invoked yet — usage metrics appear after its first recorded run. |  | Enhance now | Revert
+| card-skills-0 | dark | pb-card-skills-0-dark.png | Skills card 0 |
+(note dark) Skills card 1: used-skill |  | clone | · | 3/5 runs |  | INVOCATIONS | 3 | SUCCESS | No grade | Enhance now | Revert
+| card-skills-1 | dark | pb-card-skills-1-dark.png | Skills card 1 |
+(note dark) Skills card 2: graded-skill |  | clone | · | ready |  | INVOCATIONS | 6 | SUCCESS | 100% | Enhance now | Revert
+| card-skills-2 | dark | pb-card-skills-2-dark.png | Skills card 2 |
+(note dark) Skills card 3: zero-skill |  | clone | · | 2/5 runs |  | INVOCATIONS | 2 | SUCCESS | 0% | Enhance now | Revert
+| card-skills-3 | dark | pb-card-skills-3-dark.png | Skills card 3 |
+| drawer-skills-0 | dark | pb-drawer-skills-0-dark.png | Skills drawer 0 |
+(note dark) Skills drawer 0: unused-skill |  | clone | · | skill |  | × |  | Never invoked yet — usage metrics appear after its first recorded run. |  | Actions | Enhance now | Needs 5 recorded runs before an enhancement can be proposed — this one has 0. There is not enough usage evidence to improve it yet. | Body | Edit | unused-skill |  | Seeded body for unused-skill. |  | History (0) |  | No snapshots yet. One is written every time this entry is enhanced or rebased, so there is nothing to compare or revert to.
+(note dark) Skills drawer 0 detail rows: 0
+| drawer-skills-1 | dark | pb-drawer-skills-1-dark.png | Skills drawer 1 |
+(note dark) Skills drawer 1: used-skill |  | clone | · | skill |  | × | INVOCATIONS | 3 | SUCCESS | No grade | Actions | Enhance now | Needs 5 recorded runs before an enhancement can be proposed — this one has 3. There is not enough usage evidence to improve it yet. | Body | Edit | used-skill |  | Seeded body for used-skill. |  | History (0) |  | No snapshots yet. One is written every time this entry is enhanced or rebased, so there is nothing to compare or revert to.
+(note dark) Skills drawer 1 detail rows: 0
+| drawer-skills-2 | dark | pb-drawer-skills-2-dark.png | Skills drawer 2 |
+(note dark) Skills drawer 2: graded-skill |  | clone | · | skill |  | × | INVOCATIONS | 6 | SUCCESS | 100% | Actions | Enhance now | Body | Edit | graded-skill |  | Seeded body for graded-skill. |  | History (0) |  | No snapshots yet. One is written every time this entry is enhanced or rebased, so there is nothing to compare or revert to.
+(note dark) Skills drawer 2 detail rows: 0
+| drawer-skills-3 | dark | pb-drawer-skills-3-dark.png | Skills drawer 3 |
+(note dark) Skills drawer 3: zero-skill |  | clone | · | skill |  | × | INVOCATIONS | 2 | SUCCESS | 0% | Actions | Enhance now | Needs 5 recorded runs before an enhancement can be proposed — this one has 2. There is not enough usage evidence to improve it yet. | Body | Edit | zero-skill |  | Seeded body for zero-skill. |  | History (0) |  | No snapshots yet. One is written every time this entry is enhanced or rebased, so there is nothing to compare or revert to.
+(note dark) Skills drawer 3 detail rows: 0
+| library-commands | dark | pb-library-commands-dark.png | Library > Commands |
+(note dark) Commands cards: 3
+(note dark) Commands card 0: unused-cmd |  | clone | · | 0/5 runs |  | Never invoked yet — usage metrics appear after its first recorded run. |  | Enhance now | Revert
+| card-commands-0 | dark | pb-card-commands-0-dark.png | Commands card 0 |
+(note dark) Commands card 1: used-cmd |  | clone | · | 2/5 runs |  | INVOCATIONS | 2 | SUCCESS | No grade | Enhance now | Revert
+| card-commands-1 | dark | pb-card-commands-1-dark.png | Commands card 1 |
+(note dark) Commands card 2: graded-cmd |  | clone | · | 4/5 runs |  | INVOCATIONS | 4 | SUCCESS | 50% | Enhance now | Revert
+| card-commands-2 | dark | pb-card-commands-2-dark.png | Commands card 2 |
+| drawer-commands-0 | dark | pb-drawer-commands-0-dark.png | Commands drawer 0 |
+(note dark) Commands drawer 0: unused-cmd |  | clone | · | command |  | × |  | Never invoked yet — usage metrics appear after its first recorded run. |  | Actions | Enhance now | Needs 5 recorded runs before an enhancement can be proposed — this one has 0. There is not enough usage evidence to improve it yet. | Body | Edit | unused-cmd |  | Seeded body for unused-cmd. |  | History (0) |  | No snapshots yet. One is written every time this entry is enhanced or rebased, so there is nothing to compare or revert to.
+(note dark) Commands drawer 0 detail rows: 0
+| drawer-commands-1 | dark | pb-drawer-commands-1-dark.png | Commands drawer 1 |
+(note dark) Commands drawer 1: used-cmd |  | clone | · | command |  | × | INVOCATIONS | 2 | SUCCESS | No grade | Actions | Enhance now | Needs 5 recorded runs before an enhancement can be proposed — this one has 2. There is not enough usage evidence to improve it yet. | Body | Edit | used-cmd |  | Seeded body for used-cmd. |  | History (0) |  | No snapshots yet. One is written every time this entry is enhanced or rebased, so there is nothing to compare or revert to.
+(note dark) Commands drawer 1 detail rows: 0
+| drawer-commands-2 | dark | pb-drawer-commands-2-dark.png | Commands drawer 2 |
+(note dark) Commands drawer 2: graded-cmd |  | clone | · | command |  | × | INVOCATIONS | 4 | SUCCESS | 50% | Actions | Enhance now | Needs 5 recorded runs before an enhancement can be proposed — this one has 4. There is not enough usage evidence to improve it yet. | Body | Edit | graded-cmd |  | Seeded body for graded-cmd. |  | History (0) |  | No snapshots yet. One is written every time this entry is enhanced or rebased, so there is nothing to compare or revert to.
+(note dark) Commands drawer 2 detail rows: 0
+| library-agents | dark | pb-library-agents-dark.png | Library > Agents |
+(note dark) Agents cards: 4
+(note dark) Agents card 0: architect |  | clone | · | 0/5 runs |  | Never invoked yet — usage metrics appear after its first recorded run. |  | No grade | 0 inv | tokens: no data yet | cost: no data yet | claude | source | codex | not synced | copilot | not synced | cursor | not detecte
+| card-agents-0 | dark | pb-card-agents-0-dark.png | Agents card 0 |
+(note dark) Agents card 1: backend-developer |  | clone | · | 3/5 runs |  | INVOCATIONS | 3 | SUCCESS | No grade | OUTCOMES (30D) | no data yet | No grade | 3 inv | ~1.6k tok | ~$0.04 | claude | source | codex | not synced | copilot | not synced | cursor | not detected | opencode | not 
+| card-agents-1 | dark | pb-card-agents-1-dark.png | Agents card 1 |
+(note dark) Agents card 2: frontend-developer |  | clone | · | ready |  | INVOCATIONS | 6 | SUCCESS | 75% | OUTCOMES (30D) | no data yet | 75% ok | 6 inv | ~1.6k tok | ~$0.04 | claude | source | codex | not synced | copilot | not synced | cursor | not detected | opencode | not synced | 
+| card-agents-2 | dark | pb-card-agents-2-dark.png | Agents card 2 |
+(note dark) Agents card 3: code-reviewer |  | clone | · | 2/5 runs |  | INVOCATIONS | 2 | SUCCESS | 0% | OUTCOMES (30D) | no data yet | 0% ok | 2 inv | ~1.6k tok | ~$0.04 | claude | source | codex | not synced | copilot | not synced | cursor | not detected | opencode | not synced | anti
+| card-agents-3 | dark | pb-card-agents-3-dark.png | Agents card 3 |
+| drawer-agents-0 | dark | pb-drawer-agents-0-dark.png | Agents drawer 0 |
+(note dark) Agents drawer 0: architect |  | clone | · | agent |  | × |  | Never invoked yet — usage metrics appear after its first recorded run. |  | Actions | Enhance now | Needs 5 recorded runs before an enhancement can be proposed — this one has 0. There is not enough usage evidence to improve it yet. | Scorecard | No grade | 0 inv | tokens: no data yet | cost: no data yet |  | No graded runs yet. |  | Graded runs accrue when this agent is invoked inside orchestrated tasks that carry a spec verdict. Run tasks under .ptah/specs and their verdicts will appear here. |  | Body | Edit | architect |  | Seeded body for architect. |  | History (0) |  | No snapshots yet. One is written every time this entry is enhanced or reb
+(note dark) Agents drawer 0 detail rows: 0
+| dots-agents-0 | dark | pb-dots-agents-0-dark.png | Agents drawer 0 verdict dots |
+| drawer-agents-1 | dark | pb-drawer-agents-1-dark.png | Agents drawer 1 |
+(note dark) Agents drawer 1: backend-developer |  | clone | · | agent |  | × | INVOCATIONS | 3 | SUCCESS | No grade | OUTCOMES (30D) | no data yet | Actions | Enhance now | Needs 5 recorded runs before an enhancement can be proposed — this one has 3. There is not enough usage evidence to improve it yet. | Scorecard | No grade | 3 inv | ~1.6k tok | ~$0.04 | TASK_2026_101 | No grade | TOKENS | 1600 | COST | $0.04 | DURATION | 42.0s | TASK_2026_102 | No grade | TOKENS | 1600 | COST | $0.04 | DURATION | 42.0s | TASK_2026_103 | No grade | TOKENS | 1600 | COST | $0.04 | DURATION | 42.0s | Body | Edit | backend-developer |  | Seeded body for backend-developer. |  | History (0) |  | No snapshots yet. One is written every time t
+(note dark) Agents drawer 1 detail rows: 3
+| rows-agents-1 | dark | pb-rows-agents-1-dark.png | Agents drawer 1 detail rows |
+| dots-agents-1 | dark | pb-dots-agents-1-dark.png | Agents drawer 1 verdict dots |
+| drawer-agents-2 | dark | pb-drawer-agents-2-dark.png | Agents drawer 2 |
+(note dark) Agents drawer 2: frontend-developer |  | clone | · | agent |  | × | INVOCATIONS | 6 | SUCCESS | 75% | OUTCOMES (30D) | no data yet | Actions | Enhance now | Scorecard | 75% ok | 6 inv | ~1.6k tok | ~$0.04 | TASK_2026_201 | COMPLETE | TOKENS | 1600 | COST | $0.04 | DURATION | 42.0s | TASK_2026_202 | FAILED | TOKENS | 1600 | COST | $0.04 | DURATION | 42.0s | Unattributed run | No grade | TOKENS | 1600 | COST | $0.04 | DURATION | 42.0s | Body | Edit | frontend-developer |  | Seeded body for frontend-developer. |  | History (0) |  | No snapshots yet. One is written every time this entry is enhanced or rebased, so there is nothing to compare or revert to.
+(note dark) Agents drawer 2 detail rows: 3
+| rows-agents-2 | dark | pb-rows-agents-2-dark.png | Agents drawer 2 detail rows |
+| dots-agents-2 | dark | pb-dots-agents-2-dark.png | Agents drawer 2 verdict dots |
+| drawer-agents-3 | dark | pb-drawer-agents-3-dark.png | Agents drawer 3 |
+(note dark) Agents drawer 3: code-reviewer |  | clone | · | agent |  | × | INVOCATIONS | 2 | SUCCESS | 0% | OUTCOMES (30D) | no data yet | Actions | Enhance now | Needs 5 recorded runs before an enhancement can be proposed — this one has 2. There is not enough usage evidence to improve it yet. | Scorecard | 0% ok | 2 inv | ~1.6k tok | ~$0.04 |  | No graded runs yet. |  | Graded runs accrue when this agent is invoked inside orchestrated tasks that carry a spec verdict. Run tasks under .ptah/specs and their verdicts will appear here. |  | Body | Edit | code-reviewer |  | Seeded body for code-reviewer. |  | History (0) |  | No snapshots yet. One is written every time this entry is enhanced or rebased, so there is nothing t
+(note dark) Agents drawer 3 detail rows: 0
+| dots-agents-3 | dark | pb-dots-agents-3-dark.png | Agents drawer 3 verdict dots |
+(note dark) horizontal overflow: false
+theme anubis-light
+== stage library (light)
+| library-header | light | pb-library-header-light.png | Library view with pause/telemetry header (agents tab) |
+| library-skills | light | pb-library-skills-light.png | Library > Skills |
+(note light) Skills cards: 4
+(note light) Skills card 0: architect |  | clone | · | 0/5 runs |  | Never invoked yet — usage metrics appear after its first recorded run. |  | No grade | 0 inv | tokens: no data yet | cost: no data yet | claude | source | codex | not synced | copilot | not synced | cursor | not detecte
+| card-skills-0 | light | pb-card-skills-0-light.png | Skills card 0 |
+(note light) Skills card 1: backend-developer |  | clone | · | 3/5 runs |  | INVOCATIONS | 3 | SUCCESS | No grade | OUTCOMES (30D) | no data yet | No grade | 3 inv | ~1.6k tok | ~$0.04 | claude | source | codex | not synced | copilot | not synced | cursor | not detected | opencode | not 
+| card-skills-1 | light | pb-card-skills-1-light.png | Skills card 1 |
+(note light) Skills card 2: frontend-developer |  | clone | · | ready |  | INVOCATIONS | 6 | SUCCESS | 75% | OUTCOMES (30D) | no data yet | 75% ok | 6 inv | ~1.6k tok | ~$0.04 | claude | source | codex | not synced | copilot | not synced | cursor | not detected | opencode | not synced | 
+| card-skills-2 | light | pb-card-skills-2-light.png | Skills card 2 |
+(note light) Skills card 3: code-reviewer |  | clone | · | 2/5 runs |  | INVOCATIONS | 2 | SUCCESS | 0% | OUTCOMES (30D) | no data yet | 0% ok | 2 inv | ~1.6k tok | ~$0.04 | claude | source | codex | not synced | copilot | not synced | cursor | not detected | opencode | not synced | anti
+| card-skills-3 | light | pb-card-skills-3-light.png | Skills card 3 |
+| drawer-skills-0 | light | pb-drawer-skills-0-light.png | Skills drawer 0 |
+(note light) Skills drawer 0: architect |  | clone | · | agent |  | × |  | Never invoked yet — usage metrics appear after its first recorded run. |  | Actions | Enhance now | Needs 5 recorded runs before an enhancement can be proposed — this one has 0. There is not enough usage evidence to improve it yet. | Scorecard | No grade | 0 inv | tokens: no data yet | cost: no data yet |  | No graded runs yet. |  | Graded runs accrue when this agent is invoked inside orchestrated tasks that carry a spec verdict. Run tasks under .ptah/specs and their verdicts will appear here. |  | Body | Edit | architect |  | Seeded body for architect. |  | History (0) |  | No snapshots yet. One is written every time this entry is enhanced or reb
+(note light) Skills drawer 0 detail rows: 0
+| dots-skills-0 | light | pb-dots-skills-0-light.png | Skills drawer 0 verdict dots |
+| drawer-skills-1 | light | pb-drawer-skills-1-light.png | Skills drawer 1 |
+(note light) Skills drawer 1: backend-developer |  | clone | · | agent |  | × | INVOCATIONS | 3 | SUCCESS | No grade | OUTCOMES (30D) | no data yet | Actions | Enhance now | Needs 5 recorded runs before an enhancement can be proposed — this one has 3. There is not enough usage evidence to improve it yet. | Scorecard | No grade | 3 inv | ~1.6k tok | ~$0.04 | TASK_2026_101 | No grade | TOKENS | 1600 | COST | $0.04 | DURATION | 42.0s | TASK_2026_102 | No grade | TOKENS | 1600 | COST | $0.04 | DURATION | 42.0s | TASK_2026_103 | No grade | TOKENS | 1600 | COST | $0.04 | DURATION | 42.0s | Body | Edit | backend-developer |  | Seeded body for backend-developer. |  | History (0) |  | No snapshots yet. One is written every time t
+(note light) Skills drawer 1 detail rows: 3
+| rows-skills-1 | light | pb-rows-skills-1-light.png | Skills drawer 1 detail rows |
+| dots-skills-1 | light | pb-dots-skills-1-light.png | Skills drawer 1 verdict dots |
+| drawer-skills-2 | light | pb-drawer-skills-2-light.png | Skills drawer 2 |
+(note light) Skills drawer 2: frontend-developer |  | clone | · | agent |  | × | INVOCATIONS | 6 | SUCCESS | 75% | OUTCOMES (30D) | no data yet | Actions | Enhance now | Scorecard | 75% ok | 6 inv | ~1.6k tok | ~$0.04 | TASK_2026_201 | COMPLETE | TOKENS | 1600 | COST | $0.04 | DURATION | 42.0s | TASK_2026_202 | FAILED | TOKENS | 1600 | COST | $0.04 | DURATION | 42.0s | Unattributed run | No grade | TOKENS | 1600 | COST | $0.04 | DURATION | 42.0s | Body | Edit | frontend-developer |  | Seeded body for frontend-developer. |  | History (0) |  | No snapshots yet. One is written every time this entry is enhanced or rebased, so there is nothing to compare or revert to.
+(note light) Skills drawer 2 detail rows: 3
+| rows-skills-2 | light | pb-rows-skills-2-light.png | Skills drawer 2 detail rows |
+| dots-skills-2 | light | pb-dots-skills-2-light.png | Skills drawer 2 verdict dots |
+| drawer-skills-3 | light | pb-drawer-skills-3-light.png | Skills drawer 3 |
+(note light) Skills drawer 3: code-reviewer |  | clone | · | agent |  | × | INVOCATIONS | 2 | SUCCESS | 0% | OUTCOMES (30D) | no data yet | Actions | Enhance now | Needs 5 recorded runs before an enhancement can be proposed — this one has 2. There is not enough usage evidence to improve it yet. | Scorecard | 0% ok | 2 inv | ~1.6k tok | ~$0.04 |  | No graded runs yet. |  | Graded runs accrue when this agent is invoked inside orchestrated tasks that carry a spec verdict. Run tasks under .ptah/specs and their verdicts will appear here. |  | Body | Edit | code-reviewer |  | Seeded body for code-reviewer. |  | History (0) |  | No snapshots yet. One is written every time this entry is enhanced or rebased, so there is nothing t
+(note light) Skills drawer 3 detail rows: 0
+| dots-skills-3 | light | pb-dots-skills-3-light.png | Skills drawer 3 verdict dots |
+| library-commands | light | pb-library-commands-light.png | Library > Commands |
+(note light) Commands cards: 3
+(note light) Commands card 0: unused-cmd |  | clone | · | 0/5 runs |  | Never invoked yet — usage metrics appear after its first recorded run. |  | Enhance now | Revert
+| card-commands-0 | light | pb-card-commands-0-light.png | Commands card 0 |
+(note light) Commands card 1: used-cmd |  | clone | · | 2/5 runs |  | INVOCATIONS | 2 | SUCCESS | No grade | Enhance now | Revert
+| card-commands-1 | light | pb-card-commands-1-light.png | Commands card 1 |
+(note light) Commands card 2: graded-cmd |  | clone | · | 4/5 runs |  | INVOCATIONS | 4 | SUCCESS | 50% | Enhance now | Revert
+| card-commands-2 | light | pb-card-commands-2-light.png | Commands card 2 |
+| drawer-commands-0 | light | pb-drawer-commands-0-light.png | Commands drawer 0 |
+(note light) Commands drawer 0: unused-cmd |  | clone | · | command |  | × |  | Never invoked yet — usage metrics appear after its first recorded run. |  | Actions | Enhance now | Needs 5 recorded runs before an enhancement can be proposed — this one has 0. There is not enough usage evidence to improve it yet. | Body | Edit | unused-cmd |  | Seeded body for unused-cmd. |  | History (0) |  | No snapshots yet. One is written every time this entry is enhanced or rebased, so there is nothing to compare or revert to.
+(note light) Commands drawer 0 detail rows: 0
+| drawer-commands-1 | light | pb-drawer-commands-1-light.png | Commands drawer 1 |
+(note light) Commands drawer 1: used-cmd |  | clone | · | command |  | × | INVOCATIONS | 2 | SUCCESS | No grade | Actions | Enhance now | Needs 5 recorded runs before an enhancement can be proposed — this one has 2. There is not enough usage evidence to improve it yet. | Body | Edit | used-cmd |  | Seeded body for used-cmd. |  | History (0) |  | No snapshots yet. One is written every time this entry is enhanced or rebased, so there is nothing to compare or revert to.
+(note light) Commands drawer 1 detail rows: 0
+| drawer-commands-2 | light | pb-drawer-commands-2-light.png | Commands drawer 2 |
+(note light) Commands drawer 2: graded-cmd |  | clone | · | command |  | × | INVOCATIONS | 4 | SUCCESS | 50% | Actions | Enhance now | Needs 5 recorded runs before an enhancement can be proposed — this one has 4. There is not enough usage evidence to improve it yet. | Body | Edit | graded-cmd |  | Seeded body for graded-cmd. |  | History (0) |  | No snapshots yet. One is written every time this entry is enhanced or rebased, so there is nothing to compare or revert to.
+(note light) Commands drawer 2 detail rows: 0
+| library-agents | light | pb-library-agents-light.png | Library > Agents |
+(note light) Agents cards: 4
+(note light) Agents card 0: architect |  | clone | · | 0/5 runs |  | Never invoked yet — usage metrics appear after its first recorded run. |  | No grade | 0 inv | tokens: no data yet | cost: no data yet | claude | source | codex | not synced | copilot | not synced | cursor | not detecte
+| card-agents-0 | light | pb-card-agents-0-light.png | Agents card 0 |
+(note light) Agents card 1: backend-developer |  | clone | · | 3/5 runs |  | INVOCATIONS | 3 | SUCCESS | No grade | OUTCOMES (30D) | no data yet | No grade | 3 inv | ~1.6k tok | ~$0.04 | claude | source | codex | not synced | copilot | not synced | cursor | not detected | opencode | not 
+| card-agents-1 | light | pb-card-agents-1-light.png | Agents card 1 |
+(note light) Agents card 2: frontend-developer |  | clone | · | ready |  | INVOCATIONS | 6 | SUCCESS | 75% | OUTCOMES (30D) | no data yet | 75% ok | 6 inv | ~1.6k tok | ~$0.04 | claude | source | codex | not synced | copilot | not synced | cursor | not detected | opencode | not synced | 
+| card-agents-2 | light | pb-card-agents-2-light.png | Agents card 2 |
+(note light) Agents card 3: code-reviewer |  | clone | · | 2/5 runs |  | INVOCATIONS | 2 | SUCCESS | 0% | OUTCOMES (30D) | no data yet | 0% ok | 2 inv | ~1.6k tok | ~$0.04 | claude | source | codex | not synced | copilot | not synced | cursor | not detected | opencode | not synced | anti
+| card-agents-3 | light | pb-card-agents-3-light.png | Agents card 3 |
+| drawer-agents-0 | light | pb-drawer-agents-0-light.png | Agents drawer 0 |
+(note light) Agents drawer 0: architect |  | clone | · | agent |  | × |  | Never invoked yet — usage metrics appear after its first recorded run. |  | Actions | Enhance now | Needs 5 recorded runs before an enhancement can be proposed — this one has 0. There is not enough usage evidence to improve it yet. | Scorecard | No grade | 0 inv | tokens: no data yet | cost: no data yet |  | No graded runs yet. |  | Graded runs accrue when this agent is invoked inside orchestrated tasks that carry a spec verdict. Run tasks under .ptah/specs and their verdicts will appear here. |  | Body | Edit | architect |  | Seeded body for architect. |  | History (0) |  | No snapshots yet. One is written every time this entry is enhanced or reb
+(note light) Agents drawer 0 detail rows: 0
+| dots-agents-0 | light | pb-dots-agents-0-light.png | Agents drawer 0 verdict dots |
+| drawer-agents-1 | light | pb-drawer-agents-1-light.png | Agents drawer 1 |
+(note light) Agents drawer 1: backend-developer |  | clone | · | agent |  | × | INVOCATIONS | 3 | SUCCESS | No grade | OUTCOMES (30D) | no data yet | Actions | Enhance now | Needs 5 recorded runs before an enhancement can be proposed — this one has 3. There is not enough usage evidence to improve it yet. | Scorecard | No grade | 3 inv | ~1.6k tok | ~$0.04 | TASK_2026_101 | No grade | TOKENS | 1600 | COST | $0.04 | DURATION | 42.0s | TASK_2026_102 | No grade | TOKENS | 1600 | COST | $0.04 | DURATION | 42.0s | TASK_2026_103 | No grade | TOKENS | 1600 | COST | $0.04 | DURATION | 42.0s | Body | Edit | backend-developer |  | Seeded body for backend-developer. |  | History (0) |  | No snapshots yet. One is written every time t
+(note light) Agents drawer 1 detail rows: 3
+| rows-agents-1 | light | pb-rows-agents-1-light.png | Agents drawer 1 detail rows |
+| dots-agents-1 | light | pb-dots-agents-1-light.png | Agents drawer 1 verdict dots |
+| drawer-agents-2 | light | pb-drawer-agents-2-light.png | Agents drawer 2 |
+(note light) Agents drawer 2: frontend-developer |  | clone | · | agent |  | × | INVOCATIONS | 6 | SUCCESS | 75% | OUTCOMES (30D) | no data yet | Actions | Enhance now | Scorecard | 75% ok | 6 inv | ~1.6k tok | ~$0.04 | TASK_2026_201 | COMPLETE | TOKENS | 1600 | COST | $0.04 | DURATION | 42.0s | TASK_2026_202 | FAILED | TOKENS | 1600 | COST | $0.04 | DURATION | 42.0s | Unattributed run | No grade | TOKENS | 1600 | COST | $0.04 | DURATION | 42.0s | Body | Edit | frontend-developer |  | Seeded body for frontend-developer. |  | History (0) |  | No snapshots yet. One is written every time this entry is enhanced or rebased, so there is nothing to compare or revert to.
+(note light) Agents drawer 2 detail rows: 3
+| rows-agents-2 | light | pb-rows-agents-2-light.png | Agents drawer 2 detail rows |
+| dots-agents-2 | light | pb-dots-agents-2-light.png | Agents drawer 2 verdict dots |
+| drawer-agents-3 | light | pb-drawer-agents-3-light.png | Agents drawer 3 |
+(note light) Agents drawer 3: code-reviewer |  | clone | · | agent |  | × | INVOCATIONS | 2 | SUCCESS | 0% | OUTCOMES (30D) | no data yet | Actions | Enhance now | Needs 5 recorded runs before an enhancement can be proposed — this one has 2. There is not enough usage evidence to improve it yet. | Scorecard | 0% ok | 2 inv | ~1.6k tok | ~$0.04 |  | No graded runs yet. |  | Graded runs accrue when this agent is invoked inside orchestrated tasks that carry a spec verdict. Run tasks under .ptah/specs and their verdicts will appear here. |  | Body | Edit | code-reviewer |  | Seeded body for code-reviewer. |  | History (0) |  | No snapshots yet. One is written every time this entry is enhanced or rebased, so there is nothing t
+(note light) Agents drawer 3 detail rows: 0
+| dots-agents-3 | light | pb-dots-agents-3-light.png | Agents drawer 3 verdict dots |
+(note light) horizontal overflow: false
+DIAG indexes: [{"name":"idx_skill_candidates_status","tbl_name":"skill_candidates"},{"name":"idx_skill_candidates_success","tbl_name":"skill_candidates"},{"name":"idx_skill_candidates_traj","tbl_name":"skill_candidates"},{"name":"idx_skill_invocations_skill","tbl_name":"skill_invocations"},{"name":"idx_skill_invocations_context","tbl_name":"skill_invocations"},{"name":"idx_skill_registry_status","tbl_name":"skill_registry"},{"name":"idx_skill_suggestions_status","tbl_name":"skill_suggestions"},{"name":"idx_skill_suggestions_fingerprint","tbl_name":"skill_suggestions"},{"name":"idx_skill_candidates_judge","tbl_name":"skill_candidates"},{"name":"idx_skill_candidates_status_workspace","tbl_name":"skill_candidates"},{"name":"idx_skill_inv_events_slug","tbl_name":"skill_invocation_events"},{"name":"idx_skill_inv_events_ctx","tbl_name":"skill_invocation_events"},{"name":"idx_skill_inv_events_reconcile","tbl_name":"skill_invocation_events"},{"name":"idx_skill_inv_events_task","tbl_name":"skill_invocation_events"},{"name":"idx_skill_inv_events_session","tbl_name":"skill_invocation_events"},{"name":"idx_skill_inv_events_run","tbl_name":"skill_invocation_events"},{"name":"idx_skill_task_grades_subject","tbl_name":"skill_task_grades"},{"name":"idx_skill_task_grades_run","tbl_name":"skill_task_grades"}]
+DIAG user_version/migrations: [{"v":56}]
+DIAG ok: [{"graded":0}] <- SELECT COUNT(*) AS graded FROM skill_task_grades INDEXED BY 
+DIAG ok: [{"c":0,"d":0}] <- SELECT COUNT(*) c, COUNT(DISTINCT context_id) d FROM skill_i
+DIAG logfile \appdata\copilot\pkg\win32-x64\1.0.83\prebuilds\win32-x64\OneAuthInterop.LICENSE.txt (13046b): 
+DIAG logfile \home\.gemini\antigravity-cli\builtin\keep.txt (0b): 
+DIAG logfile \home\.gemini\antigravity-cli\cache\default_project_id.txt (19b): 
+DIAG logfile \home\.gemini\antigravity-cli\cli.log (27394b): 
+DIAG logfile \home\.gemini\antigravity-cli\crashes\crash_3984_74eeeaa6-3f08-45a2-9e92-b7121fc7e02d.log (0b): 
+DIAG logfile \home\.gemini\antigravity-cli\crashes\crash_42356_3ae4c3d3-ad6e-417d-88a5-d86c64748124.log (0b): 
+DIAG logfile \home\.gemini\antigravity-cli\log\cli-20261019_022942.log (27394b): 
+DIAG logfile \home\.local\share\opencode\log\opencode.log (16672b): 
+DIAG logfile \home\.ptah\plugins\ptah-core\skills\skill-creator\LICENSE.txt (11357b): 
+DIAG logfile \udd\Local Storage\leveldb\000003.log (281b): 
+DIAG logfile \udd\logs\Ptah Electron-2026-10-19.log (50056b): [2026-10-18T23:28:55.836Z] [INFO ] 2026-10-18T23:28:55.836Z - [electron RPC] RPC surface registered: {"methods":["config:getScopes","config:clearScopeOverride","agent:getConfig","agent:setConfig","agent:detectClis","agent:listCliModels","agent:permissionResponse","agent:e2eSeedPermission","agent:stop","agent:continue","agent:resumeCliSession","agent:outcomeSignals","agent:listDecisionModels","auth:getHealth","auth:getAuthStatus","auth:getEffectiveRoute","auth:checkConnection","auth:getStatus","auth:saveSettings","auth:setApiKey","auth:deleteStoredKey","auth:testConnection","auth:copilotLogin","auth:copilotLogout","auth:copilotStatus","auth:codexLogin","auth:getApiKeyStatus","auth:getScope","auth:clearWorkspaceOverride","auth:verifyDraftConnection","auth:cancelDraftVerification","boot:getReadiness","peerSession:list","peerSession:send","surface:read","surface:change","surface:select","surface:action","surface:operation","autocomplete:agents","autocomplete:commands","chat:start","chat:continue","chat:setStreamViewport","chat:resume","chat:history-page","chat:abort","chat:pending-questions","chat:running-agents","chat:agent-sessions","agent:backgroundList","config:model-switch","config:model-set","config:model-get","config:autopilot-toggle","config:autopilot-get","config:models-list","config:effort-get","config:effort-set","config:pricing-get","context:getAllFiles","context:getFileSuggestions","enhancedPrompts:getStatus","enhancedPrompts:runWizard","enhancedPrompts:setEnabled","
+rpc log tail: ["memory:searchSymbols","indexing:getStatus","memory:getTriggers","memory:stats","settings:get:skills.telemetry.enabled","memory:getTriggers","settings:get:skillSynthesis.enabled","cron:list","gateway:status","gateway:listBindings","skillSynthesis:listCandidates","skillSynthesis:listSuggestions","skillSynthesis:stats","skillSynthesis:diagnostics","skillSynthesis:queue","skillSynthesis:digest","skillSynthesis:listSpecs","skillSynthesis:getSettings","settings:get:skills.telemetry.enabled","settings:get:skillSynthesis.enabled","skillSynthesis:listSuggestions","skillSynthesis:listClones","skillSynthesis:getScorecards","agent:outcomeSignals","skillSynthesis:getClone","skillSynthesis:getClone","skillSynthesis:getClone","skillSynthesis:getClone","skillSynthesis:getClone","skillSynthesis:getClone","skillSynthesis:getClone","harness:health","skillSynthesis:listQuarantinedAgents","skillSynthesis:getAgentModels","agent:listCliModels","agent:getConfig","skillSynthesis:getClone","skillSynthesis:getScorecardDetail","skillSynthesis:getClone","skillSynthesis:getScorecardDetail","skillSynthesis:getClone","skillSynthesis:getScorecardDetail","skillSynthesis:getClone","skillSynthesis:getScorecardDetail","skillSynthesis:getClone","skillSynthesis:getClone","skillSynthesis:getClone","skillSynthesis:getClone","skillSynthesis:getClone","skillSynthesis:getClone","skillSynthesis:getClone","harness:health","skillSynthesis:listQuarantinedAgents","skillSynthesis:getAgentModels","agent:listCliModels","agent:getConfig","skillSynthesis:getClone","skillSynthesis:getClone","skillSynthesis:getClone","skillSynthesis:getClone"]

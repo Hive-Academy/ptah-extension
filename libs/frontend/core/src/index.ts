@@ -1,4 +1,5 @@
 export * from './lib/services';
+export { AttentionPermissionActionsComponent } from './lib/components/attention-permission-actions.component';
 export { SURFACE_FOCUS_ROUTER, type SurfaceFocusRouter } from './lib/tokens/surface-focus-router.token';
 export { ATTENTION_LANE_OPENER, type AttentionLaneOpener } from './lib/tokens/attention-lane-opener.token';
 export { ATTENTION_ACTION_DISPATCHER, type AttentionActionDispatcher, type AttentionActionOutcome } from './lib/tokens/attention-action-dispatcher.token';

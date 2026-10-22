@@ -61,7 +61,7 @@ export class CodexSource implements UsageSource {
       const timestampMs = Date.parse(entry.data.timestamp ?? '');
       if (!Number.isFinite(timestampMs) || tokens.data.cached_input_tokens > tokens.data.input_tokens) { malformed++; continue; }
       const eventId = createHash('sha256').update(JSON.stringify([entry.data.timestamp, model, tokens.data])).digest('hex');
-      facts.push({ key: `${sessionId ?? path.basename(file)}:${eventId}`, timestampMs, providerId: 'codex', modelId: model, workspaceRoot: cwd, inputUncachedTokens: tokens.data.input_tokens - tokens.data.cached_input_tokens, cacheReadTokens: tokens.data.cached_input_tokens, cacheWriteTokens: tokens.data.cache_write_input_tokens, outputTokens: tokens.data.output_tokens, sourceId: 'codex', requestCount: 1 });
+      facts.push({ key: `${sessionId ?? path.basename(file)}:${eventId}`, timestampMs, sessionId: sessionId ?? path.basename(file), sessionTitle: "Session " + (sessionId ?? path.basename(file)).slice(0, 8), providerId: 'codex', modelId: model, workspaceRoot: cwd, inputUncachedTokens: tokens.data.input_tokens - tokens.data.cached_input_tokens, cacheReadTokens: tokens.data.cached_input_tokens, cacheWriteTokens: tokens.data.cache_write_input_tokens, outputTokens: tokens.data.output_tokens, sourceId: 'codex', requestCount: 1 });
     }
     return { facts, malformed, partial };
   }

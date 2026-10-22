@@ -4,42 +4,34 @@ import {
   AppStateManager, ProvidersSettingsStateService, type ProvidersEffectiveRoute, type ProvidersOrchestration,
   type ProvidersSettingsSection,
 } from '@ptah-extension/core';
-import type { SkillLaneIdDto } from '@ptah-extension/shared';
 import { RoutingMapNodeComponent, type RoutingNodeState, type RoutingNodeTone } from './routing-map-node.component';
+import { BACKGROUND_ROLE_IDS } from './provider-consumer-rows';
 
 export type RoutingNodeId = 'main-agent' | 'background-roles' | 'cli-agents';
 
 /** Background roles in the order the Orchestration tab lists them (as `connection-usage.ts`). */
-const LANES: readonly { readonly id: SkillLaneIdDto; readonly label: string }[] = [
-  { id: 'archaeologist', label: 'Archaeologist lane' },
-  { id: 'synthesis', label: 'Synthesis lane' },
-  { id: 'judge', label: 'Judge lane' },
-  { id: 'replay', label: 'Replay lane' },
-];
-
 export interface BackgroundRolesPreview {
   /** Roles with a provider of their own, in list order: `{ label, provider }` (provider = connection name). */
   readonly explicit: readonly { readonly label: string; readonly provider: string }[];
-  /** Roles with no provider of their own: they follow the main agent. */
-  readonly following: number;
+  /** Roles without an explicit provider in this settings state. */
+  readonly defaulted: readonly string[];
   readonly total: number;
 }
 
-/** The six background roles, split into explicitly assigned ones and those following the main agent. */
+/** The background roles, split into explicitly assigned and defaulted roles. */
 export function backgroundRolesPreview(
   curatorProvider: string,
-  lanes: Readonly<Partial<Record<SkillLaneIdDto, { readonly provider?: string }>>>,
-  judgeProvider: string,
+  enhancementProvider: string,
   nameOf: (providerId: string) => string,
 ): BackgroundRolesPreview {
   const roles = [
     { label: 'Memory curator', provider: curatorProvider },
-    ...LANES.map((lane) => ({ label: lane.label, provider: lanes[lane.id]?.provider ?? '' })),
-    { label: 'Judging & enhancement', provider: judgeProvider },
+    { label: 'Enhancement', provider: enhancementProvider },
+    { label: 'Decision', provider: '' },
   ];
   const explicit = roles.filter((role) => role.provider.trim())
     .map((role) => ({ label: role.label, provider: nameOf(role.provider.trim()) }));
-  return { explicit, following: roles.length - explicit.length, total: roles.length };
+  return { explicit, defaulted: roles.filter((role) => !role.provider.trim()).map((role) => role.label), total: BACKGROUND_ROLE_IDS.length };
 }
 
 export interface CliAgentsPreview {
@@ -156,19 +148,16 @@ function sectionState(...sections: readonly ProvidersSettingsSection<unknown>[])
           (retryRequested)="retryBackground()">
           @if (background().preview; as preview) {
             <ul class="space-y-1">
-              @for (role of preview.explicit.slice(0, 2); track role.label) {
+              @for (role of preview.explicit; track role.label) {
                 <li class="flex items-baseline justify-between gap-2">
                   <span>{{ role.label }}</span>
                   <span class="min-w-0 break-words text-right font-mono text-[11px] text-base-content-muted">{{ role.provider }}</span>
                 </li>
               }
-              @if (preview.explicit.length > 2) {
-                <li class="text-base-content-muted" data-testid="routing-background-more">{{ preview.explicit.length - 2 }} more set</li>
-              }
-              @if (preview.following) {
-                <li class="flex items-baseline justify-between gap-2" data-testid="routing-background-following">
-                  <span>{{ preview.following }} {{ preview.following === 1 ? 'role' : 'roles' }}</span>
-                  <span class="text-[11px] text-base-content-muted">{{ preview.following === 1 ? 'Follows' : 'Follow' }} main agent</span>
+              @for (label of preview.defaulted; track label) {
+                <li class="flex items-baseline justify-between gap-2" data-testid="routing-background-default">
+                  <span>{{ label }}</span>
+                  <span class="text-[11px] text-base-content-muted">Default</span>
                 </li>
               }
             </ul>
@@ -246,17 +235,17 @@ export class RoutingMapComponent {
   });
 
   protected readonly background = computed(() => {
-    const memory = this.state.memory(), lanes = this.state.lanes(), judging = this.state.judging();
-    const state = sectionState(memory, lanes, judging);
+    const memory = this.state.memory(), enhancement = this.state.enhancement();
+    const state = sectionState(memory, enhancement);
     const preview = state === 'ready'
-      ? backgroundRolesPreview(memory.data?.curatorProvider ?? '', lanes.data ?? {}, judging.data?.judgeProvider ?? '',
+      ? backgroundRolesPreview(memory.data?.curatorProvider ?? '', enhancement.data?.provider ?? '',
         (id) => this.nameOf(id))
       : null;
     return {
       state, preview,
       tone: (preview?.explicit.length ? 'info' : 'neutral') as RoutingNodeTone,
       status: preview ? `${preview.total} roles` : 'Loading',
-      footer: preview ? `${preview.explicit.length} set · ${preview.following} following` : '',
+      footer: preview ? `${preview.explicit.length} set · ${preview.defaulted.length} default` : '',
     };
   });
 
@@ -283,7 +272,6 @@ export class RoutingMapComponent {
   /** Re-reads only the background sections that failed. */
   protected retryBackground(): void {
     if (this.state.memory().status === 'error') void this.state.refreshMemory();
-    if (this.state.lanes().status === 'error') void this.state.refreshLanes();
-    if (this.state.judging().status === 'error') void this.state.refreshJudging();
+    if (this.state.enhancement().status === 'error') void this.state.refreshEnhancement();
   }
 }

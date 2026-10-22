@@ -261,6 +261,31 @@ describe('CloneDetailDrawerComponent — outcome signals', () => {
     return fixture;
   }
 
+  describe.each(['skill', 'agent', 'command'] as const)('%s grade display', (kind) => {
+    it('keeps the one-sentence empty state when unused and ungraded', async () => {
+      const fixture = await render(clone({ kind, invocationCount: 0, successRate: null, historyCount: 0 }));
+      expect(find(fixture, 'drawer-unused')?.textContent).toContain('Never invoked yet');
+      expect(find(fixture, 'drawer-metrics')).toBeNull();
+    });
+
+    it('shows use and a neutral No grade when used without a grade', async () => {
+      const fixture = await render(clone({ kind, invocationCount: 3, successRate: null, historyCount: 0 }));
+      expect(find(fixture, 'clone-metric-invocations')?.textContent?.trim()).toBe('3');
+      expect(find(fixture, 'clone-metric-success')?.textContent?.trim()).toBe('No grade');
+      expect(find(fixture, 'clone-metric-success')?.classList).toContain('text-base-content-muted');
+      expect(find(fixture, 'clone-metric-success')?.classList).not.toContain('text-warning');
+      expect(find(fixture, 'drawer-unused')).toBeNull();
+    });
+
+    it.each([[0.75, '75%'], [0, '0%']] as const)(
+      'shows graded rate %s as %s',
+      async (successRate, expected) => {
+        const fixture = await render(clone({ kind, invocationCount: 3, successRate, historyCount: 0 }));
+        expect(find(fixture, 'clone-metric-success')?.textContent?.trim()).toBe(expected);
+      },
+    );
+  });
+
   it('keeps Success on a skill drawer', async () => {
     const fixture = await render(
       clone({ kind: 'skill', invocationCount: 4, successRate: 0.5 }),
@@ -282,7 +307,7 @@ describe('CloneDetailDrawerComponent — outcome signals', () => {
     expect(find(fixture, 'clone-metric-outcome-empty')).toBeNull();
   });
 
-  it('drops Success on an agent drawer and keeps the other metrics and the scorecard', async () => {
+  it('shows task grade and keeps agent outcomes and the scorecard', async () => {
     const fixture = await render(
       clone({
         kind: 'agent',
@@ -294,7 +319,7 @@ describe('CloneDetailDrawerComponent — outcome signals', () => {
       }),
       signals(),
     );
-    expect(find(fixture, 'clone-metric-success')).toBeNull();
+    expect(find(fixture, 'clone-metric-success')?.textContent?.trim()).toBe('100%');
     expect(find(fixture, 'clone-metric-invocations')?.textContent?.trim()).toBe(
       '7',
     );
@@ -325,7 +350,7 @@ describe('CloneDetailDrawerComponent — outcome signals', () => {
     expect(
       find(planner, 'clone-metric-outcome-failure')?.textContent?.trim(),
     ).toBe('timeout');
-    expect(find(planner, 'clone-metric-success')).toBeNull();
+    expect(find(planner, 'clone-metric-success')?.textContent?.trim()).toBe('100%');
 
     TestBed.resetTestingModule();
 
@@ -350,25 +375,23 @@ describe('CloneDetailDrawerComponent — outcome signals', () => {
     expect(
       find(reviewer, 'clone-metric-outcome-failure')?.textContent?.trim(),
     ).toBe('auth');
-    expect(find(reviewer, 'clone-metric-success')).toBeNull();
+    expect(find(reviewer, 'clone-metric-success')?.textContent?.trim()).toBe('100%');
   });
 
-  it('says no data yet for an agent with no outcome record', async () => {
+  it('keeps the empty sentence for an unused, ungraded agent', async () => {
     const fixture = await render(
       clone({
         kind: 'agent',
         slug: 'planner',
         invocationCount: 0,
-        successRate: 0,
+        successRate: null,
         lastEnhancedAt: null,
         historyCount: 0,
       }),
     );
-    expect(find(fixture, 'drawer-unused')).toBeNull();
+    expect(find(fixture, 'drawer-unused')?.textContent).toContain('Never invoked yet');
     expect(find(fixture, 'clone-metric-success')).toBeNull();
-    expect(
-      find(fixture, 'clone-metric-outcome-empty')?.textContent?.trim(),
-    ).toBe('no data yet');
+    expect(find(fixture, 'clone-metric-outcome-empty')).toBeNull();
     expect(find(fixture, 'drawer-scorecard')).toBeTruthy();
   });
 

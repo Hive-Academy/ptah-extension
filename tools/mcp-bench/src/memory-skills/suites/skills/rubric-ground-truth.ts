@@ -4,9 +4,8 @@
  * U1 labels come from the model panel (`labelling/model-panel.ts`): pass
  * `panel` to record method `model-panel`, the panel string, and the
  * unresolved-share cap.
- * Both `skill.rubric.inter-rater` (`rubric-agreement.suite.ts`) and the judge
- * agreement suites (`judge-agreement.suite.ts`) load it here, so the trust bar
- * one of them reports is the trust bar the other one scores against.
+ * The `skill.rubric.inter-rater` suite (`rubric-agreement.suite.ts`) loads it
+ * here to report its trust bar from the committed labels.
  *
  * Committed files (Batch 25, `tools/mcp-bench/fixtures/memory-skills/`):
  *   - `skill-labels.v1.csv`: `opaqueId,raterId,c1..c8,total,pass,ratedAt`,

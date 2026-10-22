@@ -1,5 +1,6 @@
 import axe from 'axe-core';
-import { Component, input, output } from '@angular/core';
+import { Component, input, output, signal } from '@angular/core';
+import { ClaudeRpcService } from '@ptah-extension/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { DisplayPanelComponent, type DisplayPanelViewStateChange } from '@ptah-extension/chat-ui/display-panel';
@@ -11,10 +12,20 @@ import { ChangeSetActionsService } from '../../../services/change-set/change-set
 import { DisplayDockState } from '../../../services/display-dock/display-dock.state';
 import { DisplaySheetComponent } from './display-sheet.component';
 import { DisplaySheetState } from './display-sheet.state';
+import { ArtifactStore } from '../../../services/artifact.store';
+
+const artifact = { id: 'artifact_123456789', title: 'Preview', revision: 1, sessionId: 'tab-1', viewerUrl: 'ptah-artifact://artifact_123456789/index.html', createdAt: '2026-10-20T00:00:00.000Z' };
+const records = signal<Readonly<Record<string, readonly typeof artifact[]>>>({});
+const lastError = signal<string | null>(null);
+const openLink = jest.fn().mockResolvedValue({ success: true, data: { opened: true } });
 
 @Component({ selector: 'ptah-display-panel', standalone: true, template: '<span role="alert">{{ actionError() }}</span>' })
 class StubPanel {
   readonly surfaces = input<readonly DisplaySurface[]>([]);
+  readonly artifacts = input<readonly typeof artifact[]>([]);
+  readonly open = input(true);
+  readonly fullscreenArtifactId = input<string | null>(null);
+  readonly fullscreenChange = output<boolean>();
   readonly summary = input<TurnSummaryModel | null>(null);
   readonly summaryTurnKey = input('');
   readonly selectedKey = input<string | null>(null);
@@ -26,6 +37,7 @@ class StubPanel {
   readonly viewStateChange = output<DisplayPanelViewStateChange>();
   readonly openFile = output<string>();
   readonly review = output<void>();
+  readonly openExternal = output<string>();
 }
 
 const changeSet: TurnChangeSet = {
@@ -48,13 +60,86 @@ const mountedPanel = async (fixture: ComponentFixture<DisplaySheetComponent>): P
 
 describe('DisplaySheetComponent', () => {
   beforeEach(() => {
+    records.set({});
+    lastError.set(null);
+    openLink.mockClear();
     TestBed.configureTestingModule({
       imports: [DisplaySheetComponent],
-      providers: [DisplayDockState, DisplaySheetState, { provide: ChangeSetActionsService, useValue: { openFile: jest.fn(), review: jest.fn() } }],
+      providers: [DisplayDockState, DisplaySheetState,
+        { provide: ArtifactStore, useValue: { records, lastError } },
+        { provide: ClaudeRpcService, useValue: { call: openLink } },
+        { provide: ChangeSetActionsService, useValue: { openFile: jest.fn(), review: jest.fn() } }],
     });
     TestBed.overrideComponent(DisplaySheetComponent, {
       remove: { imports: [DisplayPanelComponent] }, add: { imports: [StubPanel] },
     });
+  });
+
+  it('passes session artifacts to the panel, selects their key, and relays external links through RPC', async () => {
+    records.set({ 'tab-1': [artifact] });
+    const fixture = TestBed.createComponent(DisplaySheetComponent);
+    fixture.componentRef.setInput('tabId', 'tab-1');
+    const dock = TestBed.inject(DisplayDockState);
+    dock.openArtifact('tab-1', artifact.id);
+    fixture.detectChanges();
+    const display = await mountedPanel(fixture);
+    expect(display.artifacts()).toEqual([artifact]);
+    expect(display.selectedKey()).toBe(`artifact:${artifact.id}`);
+    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="display-sheet-bar"]')?.getAttribute('aria-label')).toBe('Display, 1 items');
+    display.openExternal.emit('https://example.com');
+    expect(openLink).toHaveBeenCalledWith('artifacts:openLink', { url: 'https://example.com' });
+    display.selectedKeyChange.emit('artifact:other');
+    expect(dock.tab('tab-1').selection).toEqual({ kind: 'artifact', artifactId: 'other' });
+    fixture.destroy();
+  });
+
+  it('unmounts the panel on collapse and drives the single viewer full screen request', async () => {
+    const fixture = TestBed.createComponent(DisplaySheetComponent);
+    fixture.componentRef.setInput('tabId', 'tab-1');
+    const dock = TestBed.inject(DisplayDockState);
+    dock.openArtifact('tab-1', artifact.id);
+    dock.requestFullscreenArtifact('tab-1', artifact.id);
+    fixture.detectChanges();
+    const child = await mountedPanel(fixture);
+    expect(child.fullscreenArtifactId()).toBe(artifact.id);
+    child.fullscreenChange.emit(false);
+    expect(dock.fullscreenArtifact('tab-1')).toBeNull();
+    dock.close('tab-1');
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).querySelector('ptah-display-panel')).toBeNull();
+    fixture.destroy();
+  });
+
+  it('alerts when an external link is not opened and displays list failure', async () => {
+    openLink.mockResolvedValueOnce({ success: false });
+    const fixture = TestBed.createComponent(DisplaySheetComponent);
+    fixture.componentRef.setInput('tabId', 'tab-1');
+    TestBed.inject(DisplayDockState).open('tab-1');
+    fixture.detectChanges();
+    const child = await mountedPanel(fixture);
+    child.openExternal.emit('https://example.com');
+    await Promise.resolve();
+    lastError.set('Unable to load artifacts.');
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Could not open the link.');
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Unable to load artifacts.');
+    fixture.destroy();
+  });
+
+  it('keeps the sheet open when Escape starts inside a dialog', () => {
+    const fixture = TestBed.createComponent(DisplaySheetComponent);
+    fixture.componentRef.setInput('tabId', 'tab-1');
+    const dock = TestBed.inject(DisplayDockState);
+    dock.open('tab-1');
+    fixture.detectChanges();
+    const region = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>('[data-testid="display-sheet-region"]')!;
+    const dialog = document.createElement('div');
+    dialog.setAttribute('role', 'dialog');
+    region.append(dialog);
+    dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    fixture.detectChanges();
+    expect(dock.tab('tab-1').open).toBe(true);
+    fixture.destroy();
   });
 
   it('takes no space when the tab has no display content and is closed', () => {
@@ -184,13 +269,12 @@ describe('DisplaySheetComponent', () => {
     expect(dock.tab('tab-1').viewStates.get('id:a')).toBe(viewState);
     dock.close('tab-1');
     fixture.detectChanges();
-    const region = (fixture.nativeElement as HTMLElement).querySelector<HTMLElement>('[data-testid="display-sheet-region"]')!;
-    expect(region.hidden).toBe(true);
-    expect(region.hasAttribute('inert')).toBe(true);
+    expect((fixture.nativeElement as HTMLElement).querySelector('[data-testid="display-sheet-region"]')).toBeNull();
     dock.open('tab-1');
     fixture.detectChanges();
-    expect(panel(fixture)).toBe(first);
-    expect(region.hidden).toBe(false);
+    const reopened = await mountedPanel(fixture);
+    expect(reopened).not.toBe(first);
+    expect(reopened.viewStates()).toBe(dock.tab('tab-1').viewStates);
     fixture.destroy();
   });
 

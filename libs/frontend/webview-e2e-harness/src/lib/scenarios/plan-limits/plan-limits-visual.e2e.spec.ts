@@ -222,7 +222,11 @@ test.describe('plan limits > dashboard provider account card', () => {
         await expect(tiles).toHaveCount(DASHBOARD_SNAPSHOT.owners.length, {
           timeout: 15_000,
         });
-        await expect(card.locator('[data-testid="tile-cooldown"]')).toBeVisible();
+        await expect(
+          card
+            .locator('[data-testid="tile-detail"]')
+            .filter({ hasText: 'a retry delay, not a plan reset' }),
+        ).toBeVisible();
         await fitViewportHeight(page, card, width);
         await capture(card, shotPath('dashboard-card', 'owners', theme, width));
 

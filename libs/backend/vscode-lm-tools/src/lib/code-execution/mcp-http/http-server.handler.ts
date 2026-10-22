@@ -7,6 +7,7 @@
  */
 
 import * as http from 'http';
+import { mcpAttachmentObserver } from './mcp-attachment-observer';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type {
   IStateStorage,
@@ -225,6 +226,8 @@ export async function stopHttpServer(
   if (!server) {
     return;
   }
+  const address = server.address();
+  if (address && typeof address !== 'string') mcpAttachmentObserver.clearPort(address.port);
 
   return new Promise((resolve) => {
     server.close(() => {
@@ -411,6 +414,20 @@ async function handleHttpRequest(
       mcpRequest._abortSignal = abortOnEarlyClose(res);
 
       const mcpResponse = await onMCPRequest(mcpRequest);
+      if (
+        mcpRequest._callerAgentId &&
+        /^[A-Za-z0-9-]{1,128}$/.test(mcpRequest._callerAgentId) &&
+        (mcpRequest.method === 'initialize' || mcpRequest.method === 'tools/list') &&
+        !('error' in mcpResponse) &&
+        req.socket.localPort
+      ) {
+        mcpAttachmentObserver.record({
+          agentId: mcpRequest._callerAgentId,
+          method: mcpRequest.method,
+          port: req.socket.localPort,
+          time: Date.now(),
+        });
+      }
       // The caller is gone: there is no one to write the reply to.
       if (res.destroyed) return;
 

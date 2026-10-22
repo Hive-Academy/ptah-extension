@@ -40,6 +40,7 @@ import {
   stopHttpServer,
 } from './http-server.handler';
 import type { MCPRequest, MCPResponse } from '../types';
+import { mcpAttachmentObserver } from './mcp-attachment-observer';
 
 function createLogger(): jest.Mocked<Logger> {
   return {
@@ -321,6 +322,21 @@ describe('HTTP request handling', () => {
   let server: http.Server | null = null;
   let port = 0;
   let onMCPRequest: jest.Mock<Promise<MCPResponse>, [MCPRequest]>;
+
+  it('records successful initialize by URL agent id and bound port', async () => {
+    const waiting = mcpAttachmentObserver.waitFor('lane-a', port, 1000);
+    await fetchPath(port, 'POST', '/agent/lane-a', JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize' }));
+    expect(await waiting).toMatchObject({ agentId: 'lane-a', port, method: 'initialize' });
+    expect(mcpAttachmentObserver.get('lane-b', port)).toBeUndefined();
+    await fetchPath(port, 'POST', '/agent/bad%2Fid', JSON.stringify({ jsonrpc: '2.0', id: 4, method: 'initialize' }));
+    expect(mcpAttachmentObserver.get('bad/id', port)).toBeUndefined();
+    await fetchPath(port, 'POST', '/agent/lane-b', JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call' }));
+    expect(mcpAttachmentObserver.get('lane-b', port)).toBeUndefined();
+    onMCPRequest.mockResolvedValueOnce({ jsonrpc: '2.0', id: 3, error: { code: -1, message: 'bad' } });
+    await fetchPath(port, 'POST', '/agent/lane-b', JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'initialize' }));
+    expect(mcpAttachmentObserver.get('lane-b', port)).toBeUndefined();
+    mcpAttachmentObserver.clear();
+  });
 
   beforeEach(async () => {
     logger = createLogger();

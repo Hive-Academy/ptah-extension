@@ -14,22 +14,11 @@ import {
   type CronScheduler,
   type IHandlerRegistry,
   type IJobStore,
-  type IPowerMonitor,
 } from '@ptah-extension/cron-scheduler';
-import {
-  SKILL_SYNTHESIS_TOKENS,
-  type SkillDrainService,
-} from '@ptah-extension/skill-synthesis';
-
-import { SKILL_DRAIN_JOBS } from './skill-drain-jobs';
 import {
   MEMORY_RETENTION_JOB,
   createMemoryRetentionHandler,
 } from './memory-retention-job';
-import {
-  SKILL_BACKLOG_CLEANUP_JOB,
-  createSkillBacklogCleanupHandler,
-} from './skill-backlog-cleanup-job';
 import {
   DEFAULT_THOTH_LOG_PREFIX,
   type StartThothCronOptions,
@@ -40,93 +29,13 @@ import {
   withActivityEmit,
   type ActivityEmitter,
 } from './activity-emitter';
-
-/**
- * Register the three drain handlers and upsert their jobs.
- *
- * `has()` guards the handler registration because `HandlerRegistry.register`
- * THROWS on a duplicate name, and a host may call `startThothCron` more than
- * once (re-activation, a second workspace). `jobStore.upsert` is idempotent by
- * definition, so it is not guarded — that is how the backup block already
- * behaves and the double-invocation spec pins both halves.
- *
- * Non-fatal by construction: a host with no skill-synthesis registration
- * simply gets no drain jobs.
- */
-function registerSkillDrainJobs(
-  container: DependencyContainer,
-  jobStore: IJobStore,
-  handlerRegistry: IHandlerRegistry,
-  workspaceProvider: IWorkspaceProvider,
-  logPrefix: string,
-  emit: ActivityEmitter,
-): void {
-  if (!container.isRegistered(SKILL_SYNTHESIS_TOKENS.SKILL_DRAIN_SERVICE)) {
-    return;
-  }
-  for (const job of SKILL_DRAIN_JOBS) {
-    if (!handlerRegistry.has(job.handlerName)) {
-      const drainHandler = withActivityEmit(
-        emit,
-        job.handlerName,
-        async (ctx) => {
-          const drain = container.resolve<SkillDrainService>(
-            SKILL_SYNTHESIS_TOKENS.SKILL_DRAIN_SERVICE,
-          );
-          // Resolved per run, not captured: the monitor is a live OS view and a
-          // laptop can move on and off mains between two ticks.
-          const monitor = container.resolve<IPowerMonitor>(
-            CRON_TOKENS.CRON_POWER_MONITOR,
-          );
-          const summary = await drain.drain({
-            tier: job.tier,
-            signal: ctx.signal,
-            onBattery: monitor.isOnBattery(),
-          });
-          // A gated tick did no work, so it is not a success. `DrainSummary`
-          // has carried `skipped` + `reason` since phase 1; before
-          // TASK_2026_315 it could only reach the run row as prose inside
-          // `summary`, and `cron:runs` said "succeeded". The reason token is
-          // passed through verbatim (`daily-token-budget-exhausted`,
-          // `on-battery`, …) rather than re-worded, so the run history shows
-          // the same string the drain logs.
-          return summary.skipped
-            ? {
-                outcome: 'skipped' as const,
-                reason: summary.reason ?? 'unknown',
-              }
-            : {
-                summary: `claimed ${summary.claimed}, done ${summary.done}, failed ${summary.failed}`,
-              };
-        },
-      );
-      handlerRegistry.register(job.handlerName, drainHandler);
-    }
-    jobStore.upsert({
-      id: job.jobId,
-      name: job.name,
-      cronExpr:
-        workspaceProvider.getConfiguration<string>(
-          'ptah',
-          job.cronExprKey,
-          job.defaultCronExpr,
-        ) || job.defaultCronExpr,
-      timezone: 'UTC',
-      prompt: `handler:${job.handlerName}`,
-      enabled: true,
-    });
-  }
-  console.log(
-    `${logPrefix} Skill synthesis drain cron jobs registered (frequent/nightly/weekly)`,
-  );
-}
+import { disableRetiredSkillPipelineJobs } from './retired-skill-jobs';
 
 /** Cron handler name for the out-of-process database integrity check. */
 const INTEGRITY_HANDLER_NAME = 'db:integrity';
 
 /**
- * 03:30 UTC daily. Deliberately NOT `0 3` (the daily backup above) and not
- * `0 4` (the weekly skills drain): the integrity check reads the whole database
+ * 03:30 UTC daily, offset from the 03:00 backup. The integrity check reads the whole database
  * file, and on a gigabyte database that read must not contend with the backup's
  * full-file WRITE on the same tick.
  */
@@ -146,8 +55,8 @@ const INTEGRITY_BOOT_DISPATCH_DELAY_MS = 60_000;
  * Register the integrity-check handler, upsert its nightly job, and arm the one
  * delayed boot dispatch.
  *
- * This block is the SECOND SEAM in this file, for the same reason as the drain
- * block above: `persistence-sqlite` must never import `cron-scheduler`, so
+ * This block is a separate registration seam, so a failure does not affect the
+ * backup block: `persistence-sqlite` must never import `cron-scheduler`, so
  * `thoth-runtime` is the only place where "a check is due" and "something runs
  * on a schedule" are allowed to meet. `SqliteIntegrityService` owns the
  * due-decision, the single-flight guard and the worker budget; this function
@@ -258,7 +167,7 @@ function registerIntegrityCheckJob(
  * Register the memory retention handler and upsert its hourly job
  * (TASK_2026_440).
  *
- * The THIRD SEAM in this file: `memory-curator` must not import
+ * This registration seam keeps `memory-curator` from importing
  * `cron-scheduler` or `skill-synthesis`, so the battery and foreground signals
  * reach `MemoryRetentionService.run` through the handler built by
  * `createMemoryRetentionHandler`. Registration does no work and runs no SQL
@@ -298,43 +207,6 @@ function registerMemoryRetentionJob(
   });
   console.log(
     `${logPrefix} Memory retention cron job registered (@ptah/memory-retention)`,
-  );
-}
-
-function registerSkillBacklogCleanupJob(
-  container: DependencyContainer,
-  jobStore: IJobStore,
-  handlerRegistry: IHandlerRegistry,
-  logPrefix: string,
-  emit: ActivityEmitter,
-): void {
-  if (
-    !container.isRegistered(
-      SKILL_SYNTHESIS_TOKENS.SKILL_BACKLOG_CLEANUP_SERVICE,
-    )
-  ) {
-    return;
-  }
-  if (!handlerRegistry.has(SKILL_BACKLOG_CLEANUP_JOB.handlerName)) {
-    handlerRegistry.register(
-      SKILL_BACKLOG_CLEANUP_JOB.handlerName,
-      withActivityEmit(
-        emit,
-        SKILL_BACKLOG_CLEANUP_JOB.handlerName,
-        createSkillBacklogCleanupHandler(container),
-      ),
-    );
-  }
-  jobStore.upsert({
-    id: SKILL_BACKLOG_CLEANUP_JOB.jobId,
-    name: SKILL_BACKLOG_CLEANUP_JOB.name,
-    cronExpr: SKILL_BACKLOG_CLEANUP_JOB.cronExpr,
-    timezone: SKILL_BACKLOG_CLEANUP_JOB.timezone,
-    prompt: `handler:${SKILL_BACKLOG_CLEANUP_JOB.handlerName}`,
-    enabled: true,
-  });
-  console.log(
-    `${logPrefix} Skills backlog cleanup cron job registered (@ptah/skills-backlog-cleanup)`,
   );
 }
 
@@ -475,23 +347,6 @@ export async function startThothCron(
           );
         }
         try {
-          registerSkillDrainJobs(
-            container,
-            container.resolve<IJobStore>(CRON_TOKENS.CRON_JOB_STORE),
-            container.resolve<IHandlerRegistry>(
-              CRON_TOKENS.CRON_HANDLER_REGISTRY,
-            ),
-            workspaceProvider,
-            logPrefix,
-            emitActivity,
-          );
-        } catch (drainErr: unknown) {
-          console.warn(
-            `${logPrefix} Skill drain cron registration failed (non-fatal):`,
-            drainErr instanceof Error ? drainErr.message : String(drainErr),
-          );
-        }
-        try {
           registerIntegrityCheckJob(
             container,
             container.resolve<IJobStore>(CRON_TOKENS.CRON_JOB_STORE),
@@ -528,22 +383,23 @@ export async function startThothCron(
               : String(retentionErr),
           );
         }
+      }
+      if (container.isRegistered(CRON_TOKENS.CRON_JOB_STORE)) {
         try {
-          registerSkillBacklogCleanupJob(
-            container,
+          const result = disableRetiredSkillPipelineJobs(
             container.resolve<IJobStore>(CRON_TOKENS.CRON_JOB_STORE),
-            container.resolve<IHandlerRegistry>(
-              CRON_TOKENS.CRON_HANDLER_REGISTRY,
-            ),
-            logPrefix,
-            emitActivity,
           );
-        } catch (cleanupErr: unknown) {
+          if (result.disabled > 0) {
+            console.log(`${logPrefix} Disabled ${result.disabled} retired skill pipeline jobs`);
+          }
+          if (result.failed.length > 0) {
+            console.warn(`${logPrefix} Failed to disable retired skill pipeline jobs:`, result.failed);
+          }
+        } catch (error: unknown) {
+          // degradation-audit: reported - cron still starts; the failed retirement is warned.
           console.warn(
-            `${logPrefix} Skills backlog cleanup cron registration failed (non-fatal):`,
-            cleanupErr instanceof Error
-              ? cleanupErr.message
-              : String(cleanupErr),
+            `${logPrefix} Retired skill pipeline job disable failed (non-fatal):`,
+            error instanceof Error ? error.message : String(error),
           );
         }
       }

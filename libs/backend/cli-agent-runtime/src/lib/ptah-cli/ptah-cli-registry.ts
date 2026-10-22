@@ -112,6 +112,13 @@ interface ProfileProxyLease {
 
 @injectable()
 export class PtahCliRegistry {
+  hasMcpPort(): boolean {
+    return this.spawnOptionsService.hasMcpPort();
+  }
+  getMcpPort(): number | undefined {
+    return this.spawnOptionsService.getMcpPort();
+  }
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.AUTH_SECRETS_SERVICE)

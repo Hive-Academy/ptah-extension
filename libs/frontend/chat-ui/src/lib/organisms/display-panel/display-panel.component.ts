@@ -19,8 +19,10 @@ import {
   type SurfaceInteractionState,
   type SurfaceViewState,
 } from '@ptah-extension/declarative-dashboard';
+import type { ArtifactRecord } from '@ptah-extension/shared';
 import type { TurnSummaryModel } from '../../molecules/turn-recap/turn-summary.model';
 import type { DisplaySurface } from './display-surfaces';
+import { ArtifactViewerComponent } from '../artifacts';
 import { TurnSummaryComponent } from './turn-summary.component';
 
 /**
@@ -43,6 +45,12 @@ type DisplayPanelItem =
       readonly key: string;
       readonly title: string;
       readonly surface: DisplaySurface;
+    }
+  | {
+      readonly kind: 'artifact';
+      readonly key: string;
+      readonly title: string;
+      readonly artifact: ArtifactRecord;
     };
 
 /**
@@ -144,6 +152,7 @@ function idSafe(key: string): string {
   selector: 'ptah-display-panel',
   standalone: true,
   imports: [
+    ArtifactViewerComponent,
     LucideAngularModule,
     SurfaceRendererComponent,
     TurnSummaryComponent,
@@ -152,6 +161,7 @@ function idSafe(key: string): string {
   styles: [PANEL_STYLES],
   template: `
     @if (items().length === 0) {
+      @if (missingArtifact()) { <p role="alert" data-testid="artifact-viewer-error">The artifact could not be displayed. It is not loaded in this tab.</p> }
       <div
         class="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center"
         data-testid="display-panel-empty"
@@ -208,6 +218,7 @@ function idSafe(key: string): string {
         class="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto p-3"
         data-testid="display-panel-body"
       >
+        @if (missingArtifact()) { <p role="alert" data-testid="display-panel-artifact-missing">The artifact could not be displayed. It is not loaded in this tab.</p> }
         @for (item of items(); track item.key) {
           <div
             role="tabpanel"
@@ -229,6 +240,14 @@ function idSafe(key: string): string {
                   (review)="review.emit()"
                 />
               }
+            } @else if (item.kind === 'artifact') {
+              @if (item.key === activeKey() && open()) { <ptah-artifact-viewer
+                [artifact]="item.artifact"
+                [fullscreen]="fullscreenArtifactId() === item.artifact.id"
+                (fullscreenChange)="fullscreenChange.emit($event)"
+                (openExternal)="openExternal.emit($event)"
+                data-testid="display-panel-artifact-viewer"
+              /> }
             } @else {
               @if (failedFences().has(item.surface.fenceKey)) {
                 <p
@@ -258,6 +277,15 @@ function idSafe(key: string): string {
 export class DisplayPanelComponent {
   /** The tab's agent surfaces in the published (creation) order. */
   readonly surfaces = input<readonly DisplaySurface[]>([]);
+  /**
+   * The tab's published artifacts (TASK_2026_710), in creation order. Each
+   * becomes one strip item next to the summary and surfaces, rendered through
+   * the sandboxed artifact viewer.
+   */
+  readonly artifacts = input<readonly ArtifactRecord[]>([]);
+  readonly open = input(true);
+  readonly fullscreenArtifactId = input<string | null>(null);
+  readonly fullscreenChange = output<boolean>();
   /** The selected turn's host-built summary, or `null` when there is none. */
   readonly summary = input<TurnSummaryModel | null>(null);
   /** The summary source's id of the turn `summary` describes. */
@@ -282,6 +310,11 @@ export class DisplayPanelComponent {
   readonly openFile = output<string>();
   /** Summary: review the turn's whole change set. */
   readonly review = output<void>();
+  /**
+   * An artifact viewer relayed a validated `open-link` request; the host
+   * routes the HTTP(S) URL through the main-process allowlist.
+   */
+  readonly openExternal = output<string>();
 
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly injector = inject(Injector);
@@ -319,7 +352,22 @@ export class DisplayPanelComponent {
         surface,
       });
     }
+    // The `artifact:` prefix cannot collide with the summary key or the
+    // `id:` / `anon:` surface keys.
+    for (const artifact of this.artifacts()) {
+      items.push({
+        kind: 'artifact',
+        key: `artifact:${artifact.id}`,
+        title: artifact.title,
+        artifact,
+      });
+    }
     return items;
+  });
+
+  protected readonly missingArtifact = computed(() => {
+    const key = this.selected();
+    return key?.startsWith('artifact:') === true && !this.items().some((item) => item.key === key);
   });
 
   /** The selected key when it is in the strip, else the first item's. */
@@ -329,6 +377,7 @@ export class DisplayPanelComponent {
     if (selected !== null && items.some((item) => item.key === selected)) {
       return selected;
     }
+    if (this.missingArtifact()) return null;
     return items[0]?.key ?? null;
   });
 

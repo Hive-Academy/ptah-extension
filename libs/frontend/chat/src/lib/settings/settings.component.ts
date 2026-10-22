@@ -53,11 +53,7 @@ const ORCHESTRATION_SECTIONS: ReadonlySet<string> =
     'background-models',
     'cli-agents',
     'memory-curator',
-    'archaeologist',
-    'synthesis',
-    'judge',
-    'replay',
-    'judging-enhancement',
+    'enhancement',
   ]);
 
 const isProvidersSection = (

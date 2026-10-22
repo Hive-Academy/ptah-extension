@@ -15,7 +15,7 @@ describe('AgentPermissionResponder', () => {
     const index = queue.findIndex((entry) => entry.requestId === requestId);
     if (index >= 0) queue.splice(index, 1);
   });
-  const handlePermissionResponse = jest.fn<void, [unknown, string]>();
+  const handlePermissionResponse = jest.fn<boolean, [unknown, string?]>(() => true);
   let responder: AgentPermissionResponder;
 
   beforeEach(() => {
@@ -82,8 +82,24 @@ describe('AgentPermissionResponder', () => {
     const request = { id: 'session-perm' } as PermissionRequest;
     responder.respondSession(request, 'allow', 'tab-2');
     expect(handlePermissionResponse).toHaveBeenCalledWith(
-      { id: 'session-perm', decision: 'allow' },
+      { id: 'session-perm', decision: 'allow', reason: undefined },
       'tab-2',
+    );
+  });
+
+  it.each(['allow', 'always_allow', 'deny'] as const)('answers a queued permission without a tab using the badge response path: %s', decision => {
+    const request = { id: 'session-perm' } as PermissionRequest;
+    expect(responder.respondSession(request, decision)).toBe(true);
+    expect(handlePermissionResponse).toHaveBeenCalledWith(
+      { id: 'session-perm', decision, reason: undefined }, undefined,
+    );
+  });
+
+  it('passes typed denial feedback in the old card response shape', () => {
+    const request = { id: 'session-perm' } as PermissionRequest;
+    expect(responder.respondSession(request, 'deny_with_message', undefined, 'Please narrow the command')).toBe(true);
+    expect(handlePermissionResponse).toHaveBeenCalledWith(
+      { id: 'session-perm', decision: 'deny_with_message', reason: 'Please narrow the command' }, undefined,
     );
   });
 

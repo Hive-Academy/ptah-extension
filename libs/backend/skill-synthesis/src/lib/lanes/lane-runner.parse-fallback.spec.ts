@@ -26,7 +26,6 @@ import {
 import { extractJsonObject } from './lane-json';
 import {
   assistantText,
-  makeBudgetStub,
   makeLogger,
   makeQueryStub,
   makeResolverStub,
@@ -46,7 +45,6 @@ function runner(
   return new LaneRunnerService(
     makeLogger(),
     makeResolverStub(lane).service,
-    makeBudgetStub().store,
     query.query,
   );
 }

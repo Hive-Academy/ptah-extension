@@ -98,7 +98,7 @@ describe('MEMORY_RETENTION_JOB', () => {
 });
 
 describe('createMemoryRetentionHandler', () => {
-  it('passes the cron signal and live gate readers to service.run', async () => {
+  it('passes the cron signal and live active/idle intervals to service.run', async () => {
     const { container, service, powerMonitor, tracker } = makeDoubles();
     const controller = new AbortController();
     const handler = createMemoryRetentionHandler(container);
@@ -112,6 +112,8 @@ describe('createMemoryRetentionHandler', () => {
     powerMonitor.isOnBattery.mockReturnValue(true);
     expect(options.isOnBattery()).toBe(true);
     expect(options.msSinceForegroundActivity()).toBe(42_000);
+    tracker.msSinceLastActivity.mockReturnValue(20 * 60_000);
+    expect(options.msSinceForegroundActivity()).toBe(20 * 60_000);
     expect(tracker.start).toHaveBeenCalledTimes(1);
   });
 

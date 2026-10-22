@@ -10,7 +10,7 @@
  *
  * Either change could drop a `MESSAGE_HANDLERS` registration. The failure mode
  * is silent: the app still boots, chat still works, the bundle still shrinks,
- * and gateway/skill/memory/status push events simply stop landing.
+ * and gateway/memory/status push events simply stop landing.
  *
  * "The service is still in the providers array" is NOT the assertion that
  * catches this — the provider list is exactly what the barrel swap could have
@@ -36,18 +36,11 @@ import {
   VSCodeService,
 } from '@ptah-extension/core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
-// `SkillSynthesisLiveService` reaches `TabManagerService` (via
-// `SkillDiagnosticsStateService`), which injects the inverted-dependency
-// `MODEL_REFRESH_CONTROL` token. `app.config.ts:151` binds it with this exact
-// helper, so the spec uses the same one rather than a hand-rolled stub.
-import { provideModelRefreshControl } from '@ptah-extension/chat';
-
-// The four services under test, each imported through the SAME specifier
+// The services under test, each imported through the SAME specifier
 // `app.config.ts` / `thoth-status.service.ts` use after Batch 3. If a narrow
 // barrel ever stops exporting one of them, this file fails to compile — which
 // is the cheapest possible form of the R4 check.
 import { GatewayStateService } from '@ptah-extension/messaging-gateway-ui/services';
-import { SkillSynthesisLiveService } from '@ptah-extension/skill-synthesis-ui/services';
 import { VecEmbedderRecoveryService } from '@ptah-extension/memory-curator-ui/services';
 import { ThothStatusService } from '@ptah-extension/dashboard';
 
@@ -59,7 +52,6 @@ import { ThothStatusService } from '@ptah-extension/dashboard';
 const WIRE = {
   gatewayStatusChanged: 'gateway:statusChanged',
   gatewayBindingsChanged: 'gateway:bindingsChanged',
-  skillSynthesisEvent: 'skillSynthesis:event',
   vecStatusChanged: 'db:vecStatusChanged',
   embedderStatusChanged: 'embedder:statusChanged',
   activityEvent: 'activity:event',
@@ -99,7 +91,6 @@ function dispatch(type: string, payload?: unknown): void {
 describe('Thoth push-message delivery with the Thoth view never opened (R4)', () => {
   let router: MessageRouterService;
   let gateway: GatewayStateService;
-  let skills: SkillSynthesisLiveService;
   let memory: VecEmbedderRecoveryService;
   let status: ThothStatusService;
   let activity: BackOfficeActivityService;
@@ -108,17 +99,11 @@ describe('Thoth push-message delivery with the Thoth view never opened (R4)', ()
     TestBed.configureTestingModule({
       providers: [
         { provide: VSCodeService, useValue: makeVscodeStub() },
-        ...provideModelRefreshControl(),
         MessageRouterService,
         // Mirrors app.config.ts exactly — same token, same useExisting shape.
         {
           provide: MESSAGE_HANDLERS,
           useExisting: GatewayStateService,
-          multi: true,
-        },
-        {
-          provide: MESSAGE_HANDLERS,
-          useExisting: SkillSynthesisLiveService,
           multi: true,
         },
         {
@@ -142,12 +127,11 @@ describe('Thoth push-message delivery with the Thoth view never opened (R4)', ()
     });
 
     gateway = TestBed.inject(GatewayStateService);
-    skills = TestBed.inject(SkillSynthesisLiveService);
     memory = TestBed.inject(VecEmbedderRecoveryService);
     status = TestBed.inject(ThothStatusService);
     activity = TestBed.inject(BackOfficeActivityService);
     // Constructing the router builds the handler map, which reads
-    // handledMessageTypes off all four services. A dropped registration or a
+    // handledMessageTypes off all registered services. A dropped registration or a
     // barrel that no longer resolves the class explodes here.
     router = TestBed.inject(MessageRouterService);
   });
@@ -156,11 +140,11 @@ describe('Thoth push-message delivery with the Thoth view never opened (R4)', ()
     TestBed.resetTestingModule();
   });
 
-  it('registers all four services with the router without instantiating any Thoth component', () => {
+  it('registers the services with the router without instantiating any Thoth component', () => {
     expect(router).toBeTruthy();
     const registered = TestBed.inject(MESSAGE_HANDLERS);
     expect(registered).toEqual(
-      expect.arrayContaining([gateway, skills, memory, status]),
+      expect.arrayContaining([gateway, memory, status]),
     );
   });
 
@@ -171,7 +155,6 @@ describe('Thoth push-message delivery with the Thoth view never opened (R4)', ()
     expect(MESSAGE_TYPES.GATEWAY_BINDINGS_CHANGED).toBe(
       WIRE.gatewayBindingsChanged,
     );
-    expect(MESSAGE_TYPES.SKILL_SYNTHESIS_EVENT).toBe(WIRE.skillSynthesisEvent);
     expect(MESSAGE_TYPES.VEC_STATUS_CHANGED).toBe(WIRE.vecStatusChanged);
     expect(MESSAGE_TYPES.EMBEDDER_STATUS_CHANGED).toBe(
       WIRE.embedderStatusChanged,
@@ -194,16 +177,6 @@ describe('Thoth push-message delivery with the Thoth view never opened (R4)', ()
 
     expect(gateway.bindings()).toHaveLength(1);
     expect(gateway.bindings()[0].id).toBe('binding-delivered');
-  });
-
-  it('delivers a raw skillSynthesis:event message to SkillSynthesisLiveService', () => {
-    expect(skills.activity()).toBeNull();
-
-    dispatch(WIRE.skillSynthesisEvent, {
-      event: { kind: 'curator-pass-start' },
-    });
-
-    expect(skills.activity()).toBe('Curator analyzing candidates…');
   });
 
   it('delivers a raw db:vecStatusChanged message to VecEmbedderRecoveryService', () => {

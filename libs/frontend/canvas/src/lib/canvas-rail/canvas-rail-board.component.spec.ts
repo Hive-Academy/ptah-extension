@@ -699,6 +699,21 @@ describe('CanvasRailBoardComponent rendering', () => {
     );
   });
 
+  it.each([88, 136])('subtracts the card-reported %i px attention height from geometry', (extra) => {
+    const { fixture, metrics } = mount();
+    const card = fixture.nativeElement.querySelector<HTMLElement>('[data-rail-card]');
+    if (!card) throw new Error('Missing rail card');
+    card.dataset['attentionExtra'] = String(extra);
+    card.style.height = `${COMPACT_RAIL_CARD_HEIGHT.comfortable + extra}px`;
+    fixture.componentInstance.onRailState({ tabId: 'a', state: 'needs' });
+    fixture.detectChanges();
+    expect(metrics.snapshot().railShifts).toBe(0);
+    card.dataset['attentionExtra'] = String(extra - 1);
+    fixture.componentInstance.onRailState({ tabId: 'a', state: 'running' });
+    fixture.detectChanges();
+    expect(metrics.snapshot().railShifts).toBe(1);
+  });
+
   it('anchors the last focused card after a density toggle', () => {
     const { fixture, focused } = mount();
     focused.set('b');

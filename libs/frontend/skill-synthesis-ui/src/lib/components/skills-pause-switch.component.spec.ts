@@ -2,6 +2,7 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { computed, signal } from '@angular/core';
 
 import { SkillSynthesisStateService } from '../services/skill-synthesis-state.service';
+import { SkillSynthesisRpcService } from '../services/skill-synthesis-rpc.service';
 
 import { SkillsPauseSwitchComponent } from './skills-pause-switch.component';
 
@@ -24,6 +25,7 @@ function makeState() {
       skillsSwitchError: error.asReadonly(),
       refreshSkillsEnabled: jest.fn(() => Promise.resolve()),
       setSkillsEnabled: jest.fn(() => Promise.resolve()),
+      setTelemetryEnabled: jest.fn(() => Promise.resolve()),
     },
   };
 }
@@ -31,12 +33,17 @@ function makeState() {
 describe('SkillsPauseSwitchComponent', () => {
   let state: ReturnType<typeof makeState>;
   let fixture: ComponentFixture<SkillsPauseSwitchComponent>;
+  const legacyRpc = {
+    getSettings: jest.fn(),
+    updateSettings: jest.fn(),
+  };
 
   function render(): HTMLElement {
     TestBed.configureTestingModule({
       imports: [SkillsPauseSwitchComponent],
       providers: [
         { provide: SkillSynthesisStateService, useValue: state.stub },
+        { provide: SkillSynthesisRpcService, useValue: legacyRpc },
       ],
     });
     fixture = TestBed.createComponent(SkillsPauseSwitchComponent);
@@ -52,6 +59,8 @@ describe('SkillsPauseSwitchComponent', () => {
 
   beforeEach(() => {
     state = makeState();
+    legacyRpc.getSettings.mockClear();
+    legacyRpc.updateSettings.mockClear();
   });
 
   it('renders an accessible "Skills" switch that is on, with the read-side copy', () => {
@@ -92,7 +101,84 @@ describe('SkillsPauseSwitchComponent', () => {
     input.checked = false;
     input.dispatchEvent(new Event('change'));
 
+    expect(state.stub.setSkillsEnabled).toHaveBeenCalledTimes(1);
     expect(state.stub.setSkillsEnabled).toHaveBeenCalledWith(false);
+    expect(state.stub.setTelemetryEnabled).not.toHaveBeenCalled();
+    expect(legacyRpc.getSettings).not.toHaveBeenCalled();
+    expect(legacyRpc.updateSettings).not.toHaveBeenCalled();
+  });
+
+  it('shows only the committed read-back value while saving and after the write', async () => {
+    let finishWrite: (() => void) | undefined;
+    state.stub.setSkillsEnabled.mockImplementation(async () => {
+      state.saving.set(true);
+      state.pending.set(false);
+      await new Promise<void>((resolve) => { finishWrite = resolve; });
+      // The host read-back can disagree with the requested value.
+      state.committed.set(true);
+      state.pending.set(null);
+      state.saving.set(false);
+    });
+    const root = render();
+    const input = toggle(root);
+
+    input.checked = false;
+    input.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+    expect(state.stub.setSkillsEnabled).toHaveBeenCalledTimes(1);
+    expect(input.checked).toBe(true);
+    expect(input.disabled).toBe(true);
+    expect(input.getAttribute('aria-checked')).toBe('true');
+
+    finishWrite?.();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(input.checked).toBe(true);
+    expect(input.disabled).toBe(false);
+    expect(state.stub.setTelemetryEnabled).not.toHaveBeenCalled();
+  });
+
+  it('reflects a changed host read-back after one pause write', async () => {
+    state.stub.setSkillsEnabled.mockImplementation(async () => {
+      state.committed.set(false);
+    });
+    const root = render();
+    const input = toggle(root);
+
+    input.checked = false;
+    input.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(state.stub.setSkillsEnabled).toHaveBeenCalledTimes(1);
+    expect(input.checked).toBe(false);
+    expect(input.getAttribute('aria-checked')).toBe('false');
+    expect(state.stub.setTelemetryEnabled).not.toHaveBeenCalled();
+  });
+
+  it('restores the committed value and shows the error after a failed write', async () => {
+    state.stub.setSkillsEnabled.mockImplementation(async () => {
+      state.saving.set(true);
+      state.pending.set(false);
+      await Promise.resolve();
+      state.pending.set(null);
+      state.error.set('Could not change the Skills switch.');
+      state.saving.set(false);
+    });
+    const root = render();
+    const input = toggle(root);
+
+    input.checked = false;
+    input.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(state.stub.setSkillsEnabled).toHaveBeenCalledTimes(1);
+    expect(input.checked).toBe(true);
+    expect(input.getAttribute('aria-checked')).toBe('true');
+    expect(root.querySelector('[data-testid="skills-pause-error"]')?.textContent)
+      .toContain('Could not change the Skills switch.');
+    expect(state.stub.setTelemetryEnabled).not.toHaveBeenCalled();
   });
 
   it('is disabled while the value is unknown and while a write is in flight', () => {

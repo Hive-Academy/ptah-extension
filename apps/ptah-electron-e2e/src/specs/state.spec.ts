@@ -78,8 +78,21 @@ test.describe('webview state IPC', () => {
     mainWindow,
   }) => {
     await mainWindow.waitForLoadState('domcontentloaded');
+    // The renderer persists its route through `VSCodeService.setState`, which
+    // sends its OWN copy of the whole state record. A raw `set-state` written
+    // before that first route write is overwritten by it, and the marker is
+    // lost before the reload even happens. Wait for the app's route record,
+    // then write the marker on top of the current state so the app's keys
+    // stay in the record.
+    await expect
+      .poll(() => stateJson(rpcBridge), { timeout: 30_000 })
+      .toContain('"ptahRoute"');
     const marker = `reload-${Date.now()}`;
-    await rpcBridge.setState({ persisted: marker });
+    const current = ((await rpcBridge.getState()) ?? {}) as Record<
+      string,
+      unknown
+    >;
+    await rpcBridge.setState({ ...current, persisted: marker });
     // Confirm the write landed BEFORE reloading. Otherwise a slow persist
     // makes this look like state lost across reload, which is the opposite
     // of what the spec is trying to prove.
@@ -88,11 +101,7 @@ test.describe('webview state IPC', () => {
     await mainWindow.reload();
     await mainWindow.waitForLoadState('domcontentloaded');
 
-    const after = (await rpcBridge.getState()) as Record<
-      string,
-      unknown
-    > | null;
-    expect(JSON.stringify(after ?? {})).toContain(marker);
+    await expect.poll(() => stateJson(rpcBridge)).toContain(marker);
   });
 
   test('non-serializable value (function) is handled gracefully', async ({

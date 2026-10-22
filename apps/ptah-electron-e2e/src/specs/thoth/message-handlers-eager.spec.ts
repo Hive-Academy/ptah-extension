@@ -1,87 +1,7 @@
 import { test, expect } from '../../support/fixtures';
 
-/**
- * R4 gate (TASK_2026_187 Batch 3) — independent e2e confirmation, against
- * the real running app, that the four `MESSAGE_HANDLERS` services
- * (`GatewayStateService`, `SkillSynthesisLiveService`,
- * `VecEmbedderRecoveryService`, `ThothStatusService`) still receive their
- * push messages now that `ThothShellComponent` is behind
- * `@defer (on immediate)` and the four services import through narrow
- * `/services` barrels instead of the wide ones.
- *
- * `apps/ptah-extension-webview/src/app/thoth-message-routing.spec.ts`
- * (Jest, developer's own artifact — batch-3-report.md §7) already proves
- * this at the `MessageRouterService` unit level. This file proves the same
- * property against the actual Electron renderer, with the actual deferred
- * chunk, and — the part the Jest spec cannot reach — with Thoth's DOM
- * genuinely never having been created.
- *
- * **Why "push it, then open the tab and look" is NOT enough on its own**,
- * for three of the four services: opening the relevant Thoth tab also
- * triggers that tab's OWN independent RPC-driven refresh on mount
- * (`GatewayStateService.initialize()`, `ThothStatusService.refreshIfNeeded()`
- * on first load, `db-health-panel`'s `VecEmbedderRecoveryService.prime()`).
- * If that refresh silently overwrote whatever the push had set, a test that
- * only asserts "the tab shows the right thing after I push and then open it"
- * would keep passing even if the push were silently dropped — the mount's
- * own fetch would produce a correct-looking screen regardless. That is
- * exactly the "materially weaker check" this file exists to close. Each
- * test below is built around a specific, verified mechanism that prevents
- * the post-open refresh from being able to launder a dropped push:
- *
- * - `SkillSynthesisLiveService`: its handling of a `curator-pass` event
- *   triggers `SkillSynthesisStateService.loadStats()` — an RPC call
- *   (`skillSynthesis:stats`) — as a direct side effect, observable via
- *   `ui.getObservedCalls` with **zero UI ever mounted**. This is the
- *   cleanest proof of the four: no tab, no DOM, no race.
- * - `GatewayStateService`: `gateway:status` is mocked to omit `adapters`.
- *   `GatewayStateService.applyStatus` calls `status.adapters.find(...)`
- *   with no guard (`gateway-state.service.ts`), so the mount-time
- *   `refreshStatus()` throws internally and is caught by its own
- *   try/catch — `platforms` is left untouched, and the pre-mount push
- *   survives to be observed on the *first* tab open.
- * - `VecEmbedderRecoveryService`: `db:health` is mocked to omit
- *   `vecDiagnostic`. `primeVecDiagnostic()` explicitly guards on
- *   `result.data?.vecDiagnostic` before overwriting
- *   (`vec-embedder-recovery.service.ts:127`, comment: *"push events keep
- *   state fresh after this"*) — an intentional product behaviour this test
- *   leans on, not an incidental throw.
- * - `ThothStatusService`: its `loadGateway()` is defensive
- *   (`derivePlatformSummaries` falls back safely on malformed data instead
- *   of throwing), so the omit-a-field trick does NOT work here — a
- *   malformed mock would make it silently overwrite `_gateway` with a
- *   clean "everything stopped" fallback. Instead: open once with a
- *   well-formed baseline (satisfies `refreshIfNeeded()`'s
- *   "only on the first call" guard), navigate away (destroys
- *   `ThothShellComponent`; the service is a root singleton and persists),
- *   push while Thoth is closed, reopen — `refreshIfNeeded()` is now a
- *   no-op, so the second mount cannot clobber the push.
- */
+/** Retained eager push handlers work while the Thoth tab is unopened. */
 test.describe('Thoth MESSAGE_HANDLERS — eager while Thoth is unopened (R4, TASK_2026_187)', () => {
-  test('SkillSynthesisLiveService: curator-pass triggers a stats refresh with Thoth never opened', async ({
-    ui,
-  }) => {
-    // No ui.openTab call anywhere in this test — 'chat' is the default view
-    // for the whole test, and no Thoth component of any kind is ever created.
-    await ui.pushEvent({
-      type: 'skillSynthesis:event',
-      payload: {
-        event: {
-          kind: 'curator-pass',
-          timestamp: Date.now(),
-          stats: { suggestionsCreated: 1 },
-        },
-      },
-    });
-
-    // loadStats() is called unconditionally on 'curator-pass'
-    // (skill-synthesis-live.service.ts) — this RPC firing with zero UI
-    // mounted is direct proof `SkillSynthesisLiveService` is alive,
-    // registered, and processed the message.
-    const observed = await ui.waitForObservedCall('skillSynthesis:stats');
-    expect(observed.method).toBe('skillSynthesis:stats');
-  });
-
   test('GatewayStateService: gateway:statusChanged lands before Thoth is ever opened', async ({
     ui,
   }) => {
@@ -240,3 +160,4 @@ test.describe('Thoth MESSAGE_HANDLERS — eager while Thoth is unopened (R4, TAS
     await expect(gatewayPillarValue).toHaveText('2');
   });
 });
+

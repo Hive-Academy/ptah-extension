@@ -56,6 +56,7 @@ export function buildLaneCompletionEnvelope(
     `Task: ${signal.taskHeadline || '(no task headline)'}`,
   ];
   if (signal.role) lines.push(`Role: ${signal.role}`);
+  if (signal.mcpAttachmentWarning) lines.push(`MCP warning: ${signal.mcpAttachmentWarning}`);
   if (signal.taskFolder) lines.push(`Task folder: ${signal.taskFolder}`);
   if (signal.deliverables.length === 0) {
     lines.push(

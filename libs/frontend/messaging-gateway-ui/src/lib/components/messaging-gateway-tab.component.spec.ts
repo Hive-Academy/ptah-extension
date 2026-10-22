@@ -150,6 +150,17 @@ describe('MessagingGatewayTabComponent (shell)', () => {
     TestBed.resetTestingModule();
   });
 
+  it('uses a container-sized grid for gateway statistics', () => {
+    const { fixture } = mount();
+    const grid = fixture.nativeElement.querySelector(
+      '[aria-label="Gateway statistics"]',
+    ) as HTMLElement;
+
+    expect(grid.classList.contains('grid-cols-[repeat(auto-fit,minmax(9.5rem,1fr))]')).toBe(true);
+    expect(grid.className).not.toContain('xl:grid-cols-');
+    expect(grid.children).toHaveLength(4);
+  });
+
   describe('VS Code parity', () => {
     it('renders the desktop-only placeholder when not Electron', () => {
       const { fixture, stub } = mount(makeStub(), false);

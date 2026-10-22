@@ -65,66 +65,27 @@ export const PROVIDER_AUTH_RESOLVER_TOKEN = Symbol.for(
 );
 
 export const SKILL_SYNTHESIS_TOKENS = {
-  /** SkillSynthesisService — top-level orchestrator (analyzes sessions). */
-  SKILL_SYNTHESIS_SERVICE: Symbol.for('PtahSkillSynthesisService'),
-  /** SkillPromotionService — applies the 3-success threshold + dedup + cap. */
-  SKILL_PROMOTION_SERVICE: Symbol.for('PtahSkillPromotionService'),
-  /** SkillInvocationTracker — records per-session invocations (success/fail). */
-  SKILL_INVOCATION_TRACKER: Symbol.for('PtahSkillInvocationTracker'),
-  /** SkillCandidateStore — SQLite persistence layer for candidates + vec rows. */
-  SKILL_CANDIDATE_STORE: Symbol.for('PtahSkillCandidateStore'),
-  /** SkillBacklogCleanupStore — durable cursor and candidate cleanup batches. */
-  SKILL_BACKLOG_CLEANUP_STORE: Symbol.for('PtahSkillBacklogCleanupStore'),
-  /** SkillBacklogCleanupService — one-time conservative candidate cleanup. */
-  SKILL_BACKLOG_CLEANUP_SERVICE: Symbol.for('PtahSkillBacklogCleanupService'),
-  /** SkillBacklogPurgeStateStore — one-row marker for the backlog purge (`0051`). */
-  SKILL_BACKLOG_PURGE_STATE_STORE: Symbol.for(
-    'PtahSkillBacklogPurgeStateStore',
-  ),
-  /** SkillRetirementService — usage-based dormancy and retirement sweep. */
-  SKILL_RETIREMENT_SERVICE: Symbol.for('PtahSkillRetirementService'),
-  /** SkillUmbrellaMergeService — umbrella merge, singletons, one-time backlog purge. */
-  SKILL_UMBRELLA_MERGE_SERVICE: Symbol.for('PtahSkillUmbrellaMergeService'),
-  /** SkillClusterDedupService — cluster-centroid dedup for promoted skills. */
-  SKILL_CLUSTER_DEDUP_SERVICE: Symbol.for('PtahSkillClusterDedupService'),
   /** SkillJudgeService — LLM-as-judge gate during promotion. */
   SKILL_JUDGE_SERVICE: Symbol.for('PtahSkillJudgeService'),
-  /** SkillCuratorService — Hermes-style periodic skill curation daemon. */
-  SKILL_CURATOR_SERVICE: Symbol.for('PtahSkillCuratorService'),
   /** SkillTriggerService — idle + boot-scan triggers for analyzeSession. */
   SKILL_TRIGGER_SERVICE: Symbol.for('PtahSkillTriggerService'),
-  /** SkillSynthesisDiagnosticsService — read-only diagnostics snapshot. */
-  SKILL_DIAGNOSTICS_SERVICE: Symbol.for('PtahSkillSynthesisDiagnosticsService'),
   /** SkillInvocationRecorder — capture-path telemetry for skill invocations. */
   SKILL_INVOCATION_RECORDER: Symbol.for('PtahSkillInvocationRecorder'),
   /** SkillRegistryStore — SQLite catalog of cloned skills/agents/commands. */
   SKILL_REGISTRY_STORE: Symbol.for('PtahSkillRegistryStore'),
+  SKILL_TASK_GRADE_STORE: Symbol.for('PtahSkillTaskGradeStore'),
   /** SkillMdMigrationStateStore — per-root marker for the SKILL.md content migration (`0041`). */
   SKILL_MD_MIGRATION_STATE_STORE: Symbol.for('PtahSkillMdMigrationStateStore'),
   /** SkillRegistryCatalogService — sidecar→skill_registry enrichment sync. */
   SKILL_REGISTRY_CATALOG_SERVICE: Symbol.for('PtahSkillRegistryCatalogService'),
   /** SkillEnhancerService — judge-gated auto-enhancement of cloned skills. */
   SKILL_ENHANCER_SERVICE: Symbol.for('PtahSkillEnhancerService'),
-  /** SkillSynthesizerService — LLM-driven candidate body synthesis. */
-  SKILL_SYNTHESIZER_SERVICE: Symbol.for('PtahSkillSynthesizerService'),
-  /** SkillSuggestionStore — SQLite persistence for cluster-level suggestions. */
-  SKILL_SUGGESTION_STORE: Symbol.for('PtahSkillSuggestionStore'),
-  /** SkillClusteringService — groups candidates for cluster suggestions. */
-  SKILL_CLUSTERING_SERVICE: Symbol.for('PtahSkillClusteringService'),
   /** SpecHarvesterService — reconciles .ptah/specs verdicts into telemetry. */
   SPEC_HARVESTER_SERVICE: Symbol.for('PtahSpecHarvesterService'),
   /** SubagentMetricsExtractor — transcript → per-invocation metrics + task_id. */
   SUBAGENT_METRICS_EXTRACTOR: Symbol.for('PtahSubagentMetricsExtractor'),
   /** SkillScorecardService — composes subagent metric aggregates + verdicts. */
   SKILL_SCORECARD_SERVICE: Symbol.for('PtahSkillScorecardService'),
-  /** SkillQueueStore — durable synthesis queue: enqueue, CAS claim, reap. */
-  SKILL_QUEUE_STORE: Symbol.for('PtahSkillSynthesisQueueStore'),
-  /** SkillBudgetStore — per-UTC-day token/cost ledger behind the drain gate. */
-  SKILL_BUDGET_STORE: Symbol.for('PtahSkillSynthesisBudgetStore'),
-  /** SkillDrainService — gated, round-robin drain of the synthesis queue. */
-  SKILL_DRAIN_SERVICE: Symbol.for('PtahSkillSynthesisDrainService'),
-  /** SkillStageHandlersService — the six queue stage protocols + their producers. */
-  SKILL_STAGE_HANDLERS_SERVICE: Symbol.for('PtahSkillStageHandlersService'),
   /** ForegroundActivityTracker — ms since the last chat turn, for the backoff gate. */
   FOREGROUND_ACTIVITY_TRACKER: Symbol.for('PtahSkillForegroundActivityTracker'),
   /**
@@ -140,16 +101,6 @@ export const SKILL_SYNTHESIS_TOKENS = {
   LANE_RUNNER_SERVICE: Symbol.for('PtahSkillLaneRunnerService'),
   /** SessionVerdictStore — the archaeologist's structured per-session verdict (`0034`). */
   SESSION_VERDICT_STORE: Symbol.for('PtahSkillSessionVerdictStore'),
-  /** SessionArchaeologistService — the orchestrated multi-pass session analyzer. */
-  SESSION_ARCHAEOLOGIST_SERVICE: Symbol.for('PtahSkillSessionArchaeologist'),
-  /** ReplayValidatorService — the empirical replay gate (`0036`). */
-  REPLAY_VALIDATOR_SERVICE: Symbol.for('PtahSkillReplayValidatorService'),
-  /** TriggerEvalService — measured, zero-LLM description-retrieval gate (`0036`). */
-  TRIGGER_EVAL_SERVICE: Symbol.for('PtahSkillTriggerEvalService'),
-  /** JudgePanelService — two judges on one lane, escalated on disagreement. */
-  JUDGE_PANEL_SERVICE: Symbol.for('PtahSkillJudgePanelService'),
-  /** SkillGapCuratorService — the four sweeps behind the weekly gap digest. */
-  SKILL_GAP_CURATOR_SERVICE: Symbol.for('PtahSkillGapCuratorService'),
 } as const;
 
 export type SkillSynthesisDIToken = keyof typeof SKILL_SYNTHESIS_TOKENS;

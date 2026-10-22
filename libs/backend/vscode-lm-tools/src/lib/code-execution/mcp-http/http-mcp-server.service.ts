@@ -23,6 +23,7 @@ import type { WebviewManager } from '@ptah-extension/vscode-core';
 import type { McpServerConfig } from '@ptah-extension/shared';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
+  IArtifactStore,
   IWorkspaceProvider,
   IStateStorage,
   IDisposable,
@@ -38,6 +39,7 @@ import { type IIDECapabilities } from '../namespace-builders';
 import { PermissionPromptService } from '../../permission/permission-prompt.service';
 import { PtahAPI } from '../types';
 import { handleMCPRequest, type ToolResultCallback } from '../mcp-core';
+import type { ArtifactNotification } from '../mcp-core/artifact-tool-handlers';
 import { killRunningChecks } from '../mcp-core/run-check.tool';
 import {
   TreeSitterCodeOutliner,
@@ -63,6 +65,9 @@ import {
   CLAUDE_TARGET,
   type PtahMcpSlot,
 } from './ptah-mcp-slots';
+
+/** Host callback for metadata-only artifact pushes. Registered by Electron. */
+export const ARTIFACT_NOTIFICATION_TOKEN = Symbol('ArtifactNotification');
 
 /** Why the `ptah` entry is not on disk. */
 export type McpRegistrationFailure =
@@ -97,6 +102,18 @@ export interface McpSubagentRegistration {
 }
 
 const REGISTERED: McpSubagentRegistration = { registered: true };
+
+/**
+ * Duplicated from SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER (agent-sdk) to avoid
+ * a vscode-lm-tools -> agent-sdk dependency. Keep the string in sync.
+ */
+const SDK_SESSION_LIFECYCLE_MANAGER = Symbol.for('SdkSessionLifecycleManager');
+
+/** The one lifecycle-manager read the artifact publish scope needs. */
+interface SessionWorkspaceReader {
+  getSessionWorkspace(idOrTabId: string): string | undefined;
+  find(idOrTabId: string): { tabId: string } | undefined;
+}
 
 function notRegistered(
   reason: McpRegistrationFailure,
@@ -307,6 +324,16 @@ export class CodeExecutionMCP
      */
     @inject(TOKENS.TREE_SITTER_PARSER_SERVICE, { isOptional: true })
     treeSitterParser?: OutlineQueryRunner,
+
+    @inject(PLATFORM_TOKENS.ARTIFACT_STORE, { isOptional: true })
+    private readonly artifactStore?: IArtifactStore,
+
+    @inject(ARTIFACT_NOTIFICATION_TOKEN, { isOptional: true })
+    private readonly notifyArtifactPublished?: ArtifactNotification,
+
+    /** Strict caller-session workspace lookup for artifact publishing. */
+    @inject(SDK_SESSION_LIFECYCLE_MANAGER, { isOptional: true })
+    private readonly sessionWorkspaces?: SessionWorkspaceReader,
   ) {
     this.codeOutliner =
       treeSitterParser === undefined
@@ -388,6 +415,11 @@ export class CodeExecutionMCP
       onMCPRequest: (request) =>
         handleMCPRequest(request, {
           ptahAPI: this.ptahAPI,
+          artifactStore: this.artifactStore,
+          notifyArtifactPublished: this.notifyArtifactPublished,
+          getSessionWorkspace: (id) =>
+            this.sessionWorkspaces?.getSessionWorkspace(id),
+          getSessionTabId: (id) => this.sessionWorkspaces?.find(id)?.tabId,
           permissionPromptService: this.permissionPromptService,
           webviewManager: this.webviewManager,
           logger: this.logger,

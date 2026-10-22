@@ -187,11 +187,11 @@ function emptyForm(timezone: string): CronJobFormState {
         </header>
 
         <div
-          class="grid grid-cols-2 gap-3 xl:grid-cols-4"
+          class="grid grid-cols-[repeat(auto-fit,minmax(9.5rem,1fr))] gap-3"
           aria-label="Cron statistics"
         >
-          <div class="stats surface-2">
-            <div class="stat p-4">
+          <div class="stats surface-2 min-w-0 overflow-hidden">
+            <div class="stat min-w-0 overflow-hidden p-4">
               <div class="stat-figure text-primary">
                 <lucide-angular
                   [img]="CalendarClockIcon"
@@ -199,7 +199,7 @@ function emptyForm(timezone: string): CronJobFormState {
                   aria-hidden="true"
                 />
               </div>
-              <div class="stat-title text-base-content-muted">Jobs</div>
+              <div class="stat-title min-w-0 whitespace-normal text-base-content-muted">Jobs</div>
               <div
                 class="stat-value text-2xl text-primary"
                 data-testid="cron-stat-total"
@@ -209,8 +209,8 @@ function emptyForm(timezone: string): CronJobFormState {
             </div>
           </div>
 
-          <div class="stats surface-2">
-            <div class="stat p-4">
+          <div class="stats surface-2 min-w-0 overflow-hidden">
+            <div class="stat min-w-0 overflow-hidden p-4">
               <div class="stat-figure text-success">
                 <lucide-angular
                   [img]="CirclePlayIcon"
@@ -218,7 +218,7 @@ function emptyForm(timezone: string): CronJobFormState {
                   aria-hidden="true"
                 />
               </div>
-              <div class="stat-title text-base-content-muted">Enabled</div>
+              <div class="stat-title min-w-0 whitespace-normal text-base-content-muted">Enabled</div>
               <div
                 class="stat-value text-2xl text-success"
                 data-testid="cron-stat-enabled"
@@ -228,8 +228,8 @@ function emptyForm(timezone: string): CronJobFormState {
             </div>
           </div>
 
-          <div class="stats surface-2">
-            <div class="stat p-4">
+          <div class="stats surface-2 min-w-0 overflow-hidden">
+            <div class="stat min-w-0 overflow-hidden p-4">
               <div class="stat-figure text-base-content-muted">
                 <lucide-angular
                   [img]="CirclePauseIcon"
@@ -237,7 +237,7 @@ function emptyForm(timezone: string): CronJobFormState {
                   aria-hidden="true"
                 />
               </div>
-              <div class="stat-title text-base-content-muted">Disabled</div>
+              <div class="stat-title min-w-0 whitespace-normal text-base-content-muted">Disabled</div>
               <div
                 class="stat-value text-2xl text-base-content-muted"
                 data-testid="cron-stat-disabled"
@@ -247,8 +247,8 @@ function emptyForm(timezone: string): CronJobFormState {
             </div>
           </div>
 
-          <div class="stats surface-2">
-            <div class="stat p-4">
+          <div class="stats surface-2 min-w-0 overflow-hidden">
+            <div class="stat min-w-0 overflow-hidden p-4">
               <div class="stat-figure text-info">
                 <lucide-angular
                   [img]="ClockIcon"
@@ -256,8 +256,8 @@ function emptyForm(timezone: string): CronJobFormState {
                   aria-hidden="true"
                 />
               </div>
-              <div class="stat-title text-base-content-muted">Next run</div>
-              <div class="stat-value text-sm font-medium text-info">
+              <div class="stat-title min-w-0 whitespace-normal text-base-content-muted">Next run</div>
+              <div class="stat-value min-w-0 break-words text-sm font-medium text-info">
                 {{ formatTime(stats().nextRunAt) }}
               </div>
               @if (stats().nextRunAt !== null) {

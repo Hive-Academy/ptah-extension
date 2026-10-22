@@ -165,9 +165,8 @@ export class HarnessFsService {
    *
    * `harnessPluginRoots` rather than `pluginPaths` because that is the channel
    * the mirror uses for `ptah-harness-*` — same treatment, different producer.
-   * `synthesizedSkillsRoot` is passed so the sweep has a root to compare
-   * against; the mirror is create-if-absent, so naming it costs a directory
-   * walk and never rewrites anything.
+   * `synthesizedSkillsRoot` follows the configured skills root, so the sweep
+   * compares against the same directory where promoted skills are written.
    *
    * Non-fatal: a failed mirror must not fail the skill the user just authored.
    */

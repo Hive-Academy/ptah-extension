@@ -171,7 +171,6 @@ export function createEmptyBootRefs(): BootRefs {
     sqliteConnection: null,
     memoryCurator: null,
     memoryTrigger: null,
-    skillSynthesis: null,
     skillTrigger: null,
     cronScheduler: null,
     symbolWatcher: null,

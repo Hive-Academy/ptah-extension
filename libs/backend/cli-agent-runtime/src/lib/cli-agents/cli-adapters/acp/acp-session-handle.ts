@@ -26,6 +26,7 @@ import type {
 } from '@agentclientprotocol/sdk';
 import type { IProcessSpawner } from '@ptah-extension/platform-core';
 import type { Logger } from '@ptah-extension/vscode-core';
+import { MCP_ATTACHMENT_TIMEOUT_MS } from '../../mcp-attachment-probe.port';
 import type { CliOutputSegment } from '@ptah-extension/shared';
 import type {
   CliCommandOptions,
@@ -174,6 +175,24 @@ export function createAcpSessionHandle(
   const { profile, options, logger } = config;
   const name = profile.displayName;
   const logContext = { vendor: profile.vendor };
+  const logMcpRequest = (
+    method: string,
+    servers: readonly McpServer[],
+    session?: string,
+  ): void => {
+    logger?.info('[AcpSessionHandle] session MCP servers', {
+      ...logContext,
+      method,
+      agentId: options.agentId,
+      sessionId: session,
+      mcpServers: servers.map((server) => ({
+        ...server,
+        ...('headers' in server
+          ? { headers: server.headers.length ? '[redacted]' : [] }
+          : {}),
+      })),
+    });
+  };
 
   const abort = new AbortController();
   const output = createBufferedEmitter<string>();
@@ -189,8 +208,11 @@ export function createAcpSessionHandle(
   let attachingSessionId: string | undefined;
   /** Session set up and config applied: the handle can take further prompts. */
   let setupComplete = false;
+  let sentMcpServers = false;
   /** The connection closed or the process exited. */
   let closed = false;
+  let mcpTimedOut = false;
+  let onMcpTimeout: (() => void) | undefined;
   let processExit: AcpProcessExit | undefined;
   let promptInFlight = false;
   /** Title of the first request the policy refused during the current prompt. */
@@ -325,7 +347,15 @@ export function createAcpSessionHandle(
       }
       return decision.response;
     },
-    extNotification: async (method) => {
+    extNotification: async (method, params) => {
+      if (method === '_x.ai/mcp/servers_updated') {
+        logger?.info('[AcpSessionHandle] MCP servers updated notification', {
+          ...logContext,
+          method,
+          serverCount: Array.isArray(params) ? params.length : undefined,
+          paramsAvailable: params !== undefined,
+        });
+      }
       if (profile.isExtensionNotification?.(method)) return;
       logger?.debug('[AcpSessionHandle] unsupported extension notification', {
         ...logContext,
@@ -423,6 +453,7 @@ export function createAcpSessionHandle(
     try {
       for (const attempt of attempts) {
         try {
+          logMcpRequest(`session/${attempt}`, mcpServers, resumeId);
           const response =
             attempt === 'resume'
               ? // mcpServers on resume too, or a resumed lane loses Ptah MCP (R7).
@@ -541,6 +572,14 @@ export function createAcpSessionHandle(
       }),
     );
     const version: unknown = isRecord(init) ? init.protocolVersion : undefined;
+    const initRecord: unknown = init;
+    logger?.info('[AcpSessionHandle] initialized', {
+      ...logContext,
+      protocolVersion: version,
+      mcpCapabilities: isRecord(initRecord)
+        ? initRecord['mcpCapabilities']
+        : undefined,
+    });
     if (version !== ACP_PROTOCOL_VERSION) {
       throw new AcpTurnFailure(
         `${name} speaks unsupported ACP protocol version ${String(version)}`,
@@ -548,6 +587,7 @@ export function createAcpSessionHandle(
     }
 
     const mcpServers = profile.buildMcpServers(options);
+    sentMcpServers = mcpServers.length > 0;
     let restoredContext = false;
     let advertised: readonly Record<string, unknown>[] = [];
     let id: string | undefined;
@@ -572,6 +612,7 @@ export function createAcpSessionHandle(
     }
 
     if (!id) {
+      logMcpRequest('session/new', mcpServers);
       const meta = profile.sessionMeta?.(options);
       const created: unknown = await call('session/new', () =>
         conn.newSession({
@@ -715,6 +756,50 @@ export function createAcpSessionHandle(
       return code;
     }
     if (abort.signal.aborted) return 1;
+    if (
+      options.attachmentProbe &&
+      options.agentId &&
+      options.mcpPort &&
+      sentMcpServers
+    ) {
+      const attachmentWait = new AbortController();
+      const attached = await Promise.race([
+        options.attachmentProbe.waitFor(
+          options.agentId,
+          options.mcpPort,
+          MCP_ATTACHMENT_TIMEOUT_MS,
+          attachmentWait.signal,
+        ),
+        transport.exited.then(() => undefined),
+        new Promise<undefined>((resolve) => {
+          if (abort.signal.aborted) resolve(undefined);
+          else
+            abort.signal.addEventListener('abort', () => resolve(undefined), {
+              once: true,
+              signal: attachmentWait.signal,
+            });
+        }),
+      ]);
+      attachmentWait.abort();
+      if (!attached && !closed && !abort.signal.aborted) {
+        mcpTimedOut = true;
+        onMcpTimeout?.();
+        logger?.warn(
+          '[AcpSessionHandle] Ptah MCP did not connect before first prompt',
+          {
+            ...logContext,
+            cause: 'handshake-timeout',
+            agentId: options.agentId,
+            port: options.mcpPort,
+            timeoutMs: MCP_ATTACHMENT_TIMEOUT_MS,
+          },
+        );
+        emitInfo(
+          'Ptah MCP did not connect within 15s; report in your final message.',
+        );
+      }
+    }
+    if (abort.signal.aborted || closed) return 1;
     return runPrompt(
       buildTaskPrompt(
         { ...options, resumeRestoresContext: restoredContext },
@@ -759,6 +844,10 @@ export function createAcpSessionHandle(
     done,
     onOutput: output.subscribe,
     onSegment: segment.subscribe,
+    onMcpAttachmentTimeout: (callback) => {
+      onMcpTimeout = callback;
+      if (mcpTimedOut) callback();
+    },
     getSessionId: () => sessionId ?? options.resumeSessionId,
     onSessionResolved: sessionResolved.subscribe,
     supportsContinuation,

@@ -9,9 +9,6 @@
  * with no network. A throwing source drops only that source.
  */
 import 'reflect-metadata';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import type { Logger } from '@ptah-extension/vscode-core';
 import {
@@ -167,41 +164,26 @@ describe('PlanLimitOwnerDiscoveryService', () => {
     expect(h.owners.detailsFor).toHaveBeenCalledWith(owner);
   });
 
-  it('discovers a signed-in Grok CLI store as an account read', async () => {
-    const home = await mkdtemp(join(tmpdir(), 'ptah-grok-'));
-    const oldHome = process.env['GROK_HOME'];
-    try {
-      process.env['GROK_HOME'] = home;
-      const h = createHarness(CLAUDE_CLI);
-      h.detection.detectAll.mockResolvedValue(detected('grok'));
-      h.owners.ownerForCliStore.mockReturnValue(GROK);
-      await h.service.discoverTargets({});
-      expect(h.owners.ownerForCliStore).not.toHaveBeenCalledWith('grok');
-      await writeFile(
-        join(home, 'auth.json'),
-        JSON.stringify({
-          'https://accounts.x.ai/sign-in': { key: 'private-test-token' },
-        }),
-      );
-      const entries = await h.service.discoverTargets({});
-      expect(h.owners.ownerForCliStore).toHaveBeenCalledWith('grok');
-      expect(entries).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            kind: 'read',
-            origin: 'cli-store',
-            target: expect.objectContaining({
-              providerId: 'grok',
-              ownerRef: GROK,
-            }),
+  it('discovers an installed Grok CLI without requiring a local login file', async () => {
+    const h = createHarness(CLAUDE_CLI);
+    h.detection.detectAll.mockResolvedValue(detected('grok'));
+    h.owners.ownerForCliStore.mockReturnValue(GROK);
+
+    const entries = await h.service.discoverTargets({});
+
+    expect(h.owners.ownerForCliStore).toHaveBeenCalledWith('grok');
+    expect(entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'read',
+          origin: 'cli-store',
+          target: expect.objectContaining({
+            providerId: 'grok',
+            ownerRef: GROK,
           }),
-        ]),
-      );
-    } finally {
-      if (oldHome === undefined) delete process.env['GROK_HOME'];
-      else process.env['GROK_HOME'] = oldHome;
-      await rm(home, { recursive: true, force: true });
-    }
+        }),
+      ]),
+    );
   });
   it('reconciles an unresolved Claude route with the sole verified account from the same home', async () => {
     const h = createHarness(CLAUDE_CLI);
@@ -304,6 +286,119 @@ describe('PlanLimitOwnerDiscoveryService', () => {
     expect(h.owners.ownerForOpenCode).toHaveBeenCalledTimes(1);
     expect(h.owners.ownerForCliStore).not.toHaveBeenCalledWith('opencode');
     expect(h.owners.ownerForCliStore).not.toHaveBeenCalledWith('antigravity');
+  });
+
+  it('lists the dashboard roster without session or owner keys and keeps the selected API-key status', async () => {
+    const h = createHarness(THIRD_PARTY('anthropic'));
+    h.detection.detectAll.mockResolvedValue(
+      detected('codex', 'opencode', 'antigravity', 'grok', 'copilot', 'cursor', 'pi'),
+    );
+    h.owners.ownerForOpenCode.mockReturnValue(OPENCODE_GO);
+    h.owners.ownerForCliStore.mockReturnValue(GROK);
+    h.agents.listAgents.mockResolvedValue([glmAgent('pc-glm')]);
+
+    const entries = await h.service.discoverTargets({ selectedProviderId: 'anthropic' });
+
+    expect(entries.map(providerOf)).toEqual([
+      'anthropic', 'opencode-go', 'antigravity', 'grok',
+      'openai-codex', 'ollama-cloud',
+    ]);
+    expect(entries[0]).toMatchObject({
+      kind: 'known',
+      origin: 'selected-provider',
+      snapshot: { status: 'unsupported-auth' },
+    });
+    expect(new Set(entries.map(ownerKeyOf)).size).toBe(entries.length);
+  });
+
+  it('starts CLI source deadlines after slow detection completes', async () => {
+    jest.useFakeTimers();
+    try {
+      const h = createHarness(CLAUDE_CLI);
+      h.detection.detectAll.mockImplementation(
+        () => new Promise((resolve) => setTimeout(() => resolve(detected('opencode', 'codex')), 4_000)),
+      );
+      h.owners.ownerForOpenCode.mockImplementation(
+        () => OPENCODE,
+      );
+      h.owners.resolveCodexHomeOwner.mockImplementation(
+        () => new Promise((resolve) => setTimeout(() => resolve(CODEX_A), 2_000)),
+      );
+
+      const pending = h.service.discoverTargets({});
+      await jest.advanceTimersByTimeAsync(6_000);
+      const entries = await pending;
+
+      expect(entries.map(ownerKeyOf)).toContain(OPENCODE.key);
+      expect(entries.discoveryIncomplete).toBe(false);
+      expect(entries.map(ownerKeyOf)).toContain(CODEX_A.key);
+      expect(h.logger.debug).not.toHaveBeenCalledWith(
+        '[PlanLimitOwnerDiscovery] source timed out',
+        expect.objectContaining({ source: 'cli-store' }),
+      );
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('settles a hung detector and keeps selected provider and Ptah CLI owners', async () => {
+    jest.useFakeTimers();
+    try {
+      const h = createHarness(THIRD_PARTY('anthropic'));
+      h.detection.detectAll.mockImplementation(() => new Promise(() => undefined));
+      h.agents.listAgents.mockResolvedValue([glmAgent('pc-glm')]);
+      const pending = h.service.discoverTargets({ selectedProviderId: 'anthropic' });
+      await jest.advanceTimersByTimeAsync(12_000);
+      const entries = await pending;
+      expect(entries.map(providerOf)).toEqual(['anthropic', 'ollama-cloud']);
+      expect(entries.discoveryIncomplete).toBe(true);
+      expect(entries[0]).toMatchObject({ kind: 'known', snapshot: { status: 'unsupported-auth' } });
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('caps detection plus the slow Codex lane by the shared deadline', async () => {
+    jest.useFakeTimers();
+    try {
+      const h = createHarness(THIRD_PARTY('anthropic'));
+      h.detection.detectAll.mockImplementation(() =>
+        new Promise((resolve) => setTimeout(() => resolve(detected('codex')), 4_000)),
+      );
+      h.owners.resolveCodexHomeOwner.mockImplementation(() => new Promise(() => undefined));
+      const pending = h.service.discoverTargets({ selectedProviderId: 'anthropic' }, Date.now() + 5_000);
+      await jest.advanceTimersByTimeAsync(5_000);
+      const entries = await pending;
+      expect(entries.map(providerOf)).toEqual(['anthropic']);
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('keeps a CLI-store owner when detection finishes near 12 seconds and Codex home hangs', async () => {
+    jest.useFakeTimers();
+    try {
+      const h = createHarness(THIRD_PARTY('anthropic'));
+      h.detection.detectAll.mockImplementation(() =>
+        new Promise((resolve) => setTimeout(() => resolve(detected('codex', 'opencode')), 11_999)),
+      );
+      h.owners.resolveCodexHomeOwner.mockImplementation(() => new Promise(() => undefined));
+      const pending = h.service.discoverTargets({}, Date.now() + 12_000);
+      await jest.advanceTimersByTimeAsync(12_000);
+      const entries = await pending;
+      expect(h.owners.resolveCodexHomeOwner).toHaveBeenCalled();
+      expect(entries).toContainEqual(expect.objectContaining({
+        kind: 'read',
+        origin: 'cli-store',
+        target: expect.objectContaining({ providerId: 'opencode', ownerRef: OPENCODE }),
+      }));
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('lists an installed OpenCode with a Go key once, as the Go subscription the lane bills', async () => {
