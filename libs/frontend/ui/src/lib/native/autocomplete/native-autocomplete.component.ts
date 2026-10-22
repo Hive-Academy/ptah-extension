@@ -66,6 +66,9 @@ let nextAutocompleteInstanceId = 0;
 /** A field-matched panel may grow past its field up to this width for longer rows (28rem). */
 const MATCHED_PANEL_MAX_PX = 448;
 
+/** Bound the initial placement so suggestions cannot remain invisible. */
+export const AUTOCOMPLETE_POSITION_TIMEOUT_MS = 1000;
+
 /**
  * Native autocomplete component using Floating UI and signal-based navigation.
  *
@@ -91,6 +94,7 @@ const MATCHED_PANEL_MAX_PX = 448;
     </div>
 
     @if (isOpen()) {
+      <div #layerRef popover="manual" class="ptah-autocomplete-layer">
       <div
         #floatingPanel
         class="suggestions-panel surface-3 z-50 max-h-80 flex flex-col rounded-xl p-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[oklch(var(--s))]"
@@ -155,8 +159,37 @@ const MATCHED_PANEL_MAX_PX = 448;
           </div>
         }
       </div>
+      </div>
     }
   `,
+  styles: [`
+    .ptah-autocomplete-layer {
+      position: fixed;
+      inset: 0;
+      /* In-page fallback (no Popover API): keep the shell above sibling panes. */
+      z-index: 50;
+      box-sizing: border-box;
+      width: 100%;
+      height: 100%;
+      max-width: none;
+      max-height: none;
+      margin: 0;
+      border: 0;
+      padding: 0;
+      overflow: visible;
+      background: transparent;
+      color: inherit;
+      box-shadow: none;
+      pointer-events: none;
+    }
+    .ptah-autocomplete-layer::backdrop {
+      background: transparent !important;
+      pointer-events: none !important;
+    }
+    .ptah-autocomplete-layer > .suggestions-panel {
+      pointer-events: auto;
+    }
+  `],
 })
 export class NativeAutocompleteComponent<T = unknown> implements OnDestroy {
   private readonly floatingUI = inject(FloatingUIService);
@@ -277,6 +310,12 @@ export class NativeAutocompleteComponent<T = unknown> implements OnDestroy {
    * Gates the reopen reset to the false→true transition only.
    */
   private panelWasOpen = false;
+  private readonly layerRef = viewChild<ElementRef<HTMLElement>>('layerRef');
+  private layerElement: HTMLElement | null = null;
+  private layerShowing = false;
+  private destroyed = false;
+  private openGeneration = 0;
+  private positionTimer: ReturnType<typeof setTimeout> | undefined;
 
   /**
    * True while the panel intentionally shows no active row
@@ -319,12 +358,19 @@ export class NativeAutocompleteComponent<T = unknown> implements OnDestroy {
     });
     effect(() => {
       const open = this.isOpen();
+      const generation = ++this.openGeneration;
       if (open) {
         if (!this.panelWasOpen) {
           untracked(() => this.applyOpenActiveIndex());
         }
-        queueMicrotask(() => this.positionPanel());
+        queueMicrotask(() => {
+          if (!this.destroyed && this.isOpen() && generation === this.openGeneration) {
+            void this.positionPanel(generation);
+          }
+        });
       } else {
+        this.clearPositionTimer();
+        this.hideLayer();
         this.floatingUI.cleanup();
       }
       this.panelWasOpen = open;
@@ -342,22 +388,88 @@ export class NativeAutocompleteComponent<T = unknown> implements OnDestroy {
    * Position the floating panel relative to the input.
    * Uses Floating UI for viewport-aware positioning with flip/shift.
    */
-  private async positionPanel(): Promise<void> {
+  private async positionPanel(generation: number): Promise<void> {
     const origin = this.inputOrigin()?.nativeElement;
     const panel = this.floatingPanel()?.nativeElement;
+    if (!origin || !panel) return;
 
-    if (origin && panel) {
-      if (this.matchInputWidth()) {
-        const width = origin.getBoundingClientRect().width;
-        panel.style.minWidth = `${width}px`;
-        panel.style.maxWidth = `${Math.max(width, MATCHED_PANEL_MAX_PX)}px`;
-      }
-      await this.floatingUI.position(origin, panel, {
-        placement: 'bottom-start',
-        offset: AUTOCOMPLETE_OVERLAY_OFFSET,
-        flip: true,
-        shift: true,
+    this.showLayer();
+    if (this.matchInputWidth()) {
+      const width = origin.getBoundingClientRect().width;
+      panel.style.minWidth = `${width}px`;
+      panel.style.maxWidth = `${Math.max(width, MATCHED_PANEL_MAX_PX)}px`;
+    }
+    this.clearPositionTimer();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<boolean>((resolve) => {
+      timer = setTimeout(() => resolve(false), AUTOCOMPLETE_POSITION_TIMEOUT_MS);
+      this.positionTimer = timer;
+    });
+    let positioned = false;
+    try {
+      positioned = await Promise.race([
+        this.floatingUI.position(origin, panel, {
+          placement: 'bottom-start',
+          offset: AUTOCOMPLETE_OVERLAY_OFFSET,
+          flip: true,
+          shift: true,
+        }).then(() => true),
+        timedOut,
+      ]);
+    } catch {
+      // degradation-audit: optional-capability - smart placement failed; reveal below the input.
+    } finally {
+      if (this.positionTimer === timer) this.clearPositionTimer();
+    }
+    if (this.destroyed || !this.isOpen() || generation !== this.openGeneration) return;
+    if (!positioned) {
+      const rect = origin.getBoundingClientRect();
+      Object.assign(panel.style, {
+        position: 'fixed',
+        left: `${rect.left}px`,
+        top: `${rect.bottom + AUTOCOMPLETE_OVERLAY_OFFSET}px`,
+        visibility: 'visible',
       });
+    }
+  }
+
+  private clearPositionTimer(): void {
+    if (this.positionTimer !== undefined) {
+      clearTimeout(this.positionTimer);
+      this.positionTimer = undefined;
+    }
+  }
+
+  private showLayer(): void {
+    const layer = this.layerRef()?.nativeElement;
+    if (!layer || this.destroyed) return;
+    this.layerElement = layer;
+    if (this.layerShowing) return;
+    if (typeof layer.showPopover === 'function') {
+      try {
+        layer.showPopover();
+        this.layerShowing = true;
+        layer.style.display = '';
+        return;
+      } catch {
+        // degradation-audit: optional-capability - promotion refused; keep suggestions visible in-page.
+      }
+    }
+    layer.style.display = 'block';
+  }
+
+  private hideLayer(): void {
+    const layer = this.layerElement;
+    const showing = this.layerShowing;
+    this.layerElement = null;
+    this.layerShowing = false;
+    if (!layer) return;
+    layer.style.display = '';
+    if (!showing || typeof layer.hidePopover !== 'function') return;
+    try {
+      layer.hidePopover();
+    } catch {
+      // degradation-audit: optional-capability - a detached or already hidden shell needs no dismissal.
     }
   }
 
@@ -530,6 +642,10 @@ export class NativeAutocompleteComponent<T = unknown> implements OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.destroyed = true;
+    this.openGeneration++;
+    this.clearPositionTimer();
+    this.hideLayer();
     this.floatingUI.cleanup();
   }
 }
