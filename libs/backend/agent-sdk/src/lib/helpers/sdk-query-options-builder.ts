@@ -45,7 +45,11 @@ import {
   type SessionMcpNotice,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
-import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
+import {
+  AUTH_PROVIDERS_TOKENS,
+  type ClaudeAccountRoute,
+} from '@ptah-extension/auth-providers-tokens';
+import { applyClaudeAccountRouteEnv } from './claude-account-route-env';
 import { SdkError, ModelNotAvailableError } from '../errors';
 import { SdkPermissionHandler } from '../sdk-permission-handler';
 import { SubagentHookHandler } from './subagent-hook-handler';
@@ -732,6 +736,8 @@ export function buildFlagSettingsArg(
  * Input parameters for building query options
  */
 export interface QueryOptionsInput {
+  /** Certified account route supplied by admission; omitted preserves ambient auth. */
+  accountRoute?: ClaudeAccountRoute;
   /** Async iterable stream of user messages */
   userMessageStream: AsyncIterable<SDKUserMessage>;
   /** Controller to abort the query */
@@ -1328,22 +1334,25 @@ export class SdkQueryOptionsBuilder {
         )
           ? ['user', 'project', 'local']
           : ['project', 'local'],
-        env: {
-          ...process.env,
-          ...buildTierEnvDefaults(effectiveAuthEnv),
-          ...effectiveAuthEnv,
-          NO_PROXY: '127.0.0.1,localhost',
-          ...experimentalBetaEnv(effectiveAuthEnv.ANTHROPIC_BASE_URL),
-          // No CLAUDE_CODE_MAX_CONTEXT_TOKENS: the pinned CLI reads it only
-          // when DISABLE_COMPACT is also set (see auto-compact-control.ts).
-          // Kill switch: disable the SDK's built-in workflows (ultracode/workflow
-          // keyword) only when the persisted `workflows.disabled` config resolved
-          // to true at the session origination point (chat-session.service). When
-          // absent/false the env is untouched so workflows stay ON.
-          ...(sessionConfig?.workflowsDisabled
-            ? { CLAUDE_CODE_DISABLE_WORKFLOWS: '1' }
-            : {}),
-        } as Record<string, string | undefined>,
+        env: applyClaudeAccountRouteEnv(
+          {
+            ...process.env,
+            ...buildTierEnvDefaults(effectiveAuthEnv),
+            ...effectiveAuthEnv,
+            NO_PROXY: '127.0.0.1,localhost',
+            ...experimentalBetaEnv(effectiveAuthEnv.ANTHROPIC_BASE_URL),
+            // No CLAUDE_CODE_MAX_CONTEXT_TOKENS: the pinned CLI reads it only
+            // when DISABLE_COMPACT is also set (see auto-compact-control.ts).
+            // Kill switch: disable the SDK's built-in workflows (ultracode/workflow
+            // keyword) only when the persisted `workflows.disabled` config resolved
+            // to true at the session origination point (chat-session.service). When
+            // absent/false the env is untouched so workflows stay ON.
+            ...(sessionConfig?.workflowsDisabled
+              ? { CLAUDE_CODE_DISABLE_WORKFLOWS: '1' }
+              : {}),
+          },
+          input.accountRoute,
+        ),
         stderr: (data: string) => {
           this.mcpBackoffService?.checkStderrForFailure(
             data,

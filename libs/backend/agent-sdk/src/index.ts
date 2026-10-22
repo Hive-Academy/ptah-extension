@@ -449,3 +449,4 @@ export {
 } from './lib/peer-sessions';
 
 export const AGENT_SDK_VERSION = '0.0.1';
+export { applyClaudeAccountRouteEnv } from './lib/helpers/claude-account-route-env';
