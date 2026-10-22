@@ -82,3 +82,13 @@ Each document gets one initial cross-side review and at most two author/reviewer
 - Review cap reached; one bounded orchestrator correction (81701a5de), independently reviewed by Codex (OpenAI reviewing Anthropic): APPROVED.
 - Review families: xAI on OpenAI (phase), OpenAI on Anthropic (correction). Static review only; CI runs tests.
 - P1-A (Batches 1–7) accepted pending CI on PR #808. Next phase: P1-B (Batches 8–11).
+
+## D15 — P1-B accepted (2026-10-23)
+
+- Phase review (Grok, xAI, reviewing Codex Batches 8–11): REVISE 5/10, 1 Blocking, 1 Serious, 2 Moderate (`code-logic-review-phase-p1-b.md`).
+- One fix round by two file-disjoint Codex lanes: f9cf528bd (finding 1: pin `CLAUDE_SECURESTORAGE_CONFIG_DIR` to the named dir, scrub `ANTHROPIC_CONFIG_DIR`/`ANTHROPIC_PROFILE`, refuse blank dir) and 5b0fac24a (findings 2–4: multi-turn prompt gate, per-run routing hint, effort without model, no segment cap). Moderates 3–4 fixed because they could break lane config or lose data (lean rule 4).
+- Orchestrator decision: the broad env prefix drop (CLAUDE*/ANTHROPIC*/AWS_/GOOGLE_/...) is deferred to Batch 17 certification. Evidence: secure-storage pin closes the proven SDK path; a broad drop changes lane config for all routes. Reversible.
+- CI fix by orchestrator f06ccae50: `buildClaudeLaneEnv` moved into `claude-sdk-lane-options.ts`, spawn-options import type-only (CI shard 1: 11 cli-agent-runtime suites failed on ESM `wasm-bundle-dir.ts` via agent-generation).
+- Grok re-review (`code-logic-re-review-phase-p1-b.md`): APPROVED 8/10, findings 1–4 RESOLVED, CI fix confirmed, no new defects.
+- Review families: xAI on OpenAI (phase + fixes), xAI on Anthropic (CI fix). Static review only; CI runs tests.
+- Open CI item (P1-A code): `provider-account.store.spec.ts` two cases fail on Linux CI (`unsupported-store` where `conflict` expected, `provider-account-route.ts:62-67` mkdir error mapping). Reproduce locally when the heavy-check slot is free.
