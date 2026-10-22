@@ -210,7 +210,7 @@ At each implementation phase's last batch, stop for one combined independent cod
 - Command: `Verify-ProviderAccountsBatch -Projects @('@ptah-extension/auth-providers') -Hosts $H`
 - Report: T/implementation-report-batch-07.md. Review artifact: T/code-logic-review-phase-p1-a.md; style T/code-style-review-phase-p1-a.md. Review full new-file snapshots and cumulative owned diff from base, not git commit ranges.
 
-## Batch 8: Final child-env route application in SDK constructors — PENDING
+## Batch 8: Final child-env route application in SDK constructors — COMPLETE (Codex; CI gate per D8a; phase review at 11)
 
 - Recommended executor: CLI lane, SDK env isolation; sequential; actual family unassigned.
 - Depends on: accepting P1-A review. Phase P1-B Execution primitives; review at 11.
