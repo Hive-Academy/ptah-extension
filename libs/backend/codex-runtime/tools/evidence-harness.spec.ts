@@ -224,7 +224,7 @@ describe('review regression guards using real functions and isolated disk', () =
     expect(() => assertSafeSandbox({ sandboxPolicy: { type: 'danger-full-access' } })).toThrow('Unsafe sandbox');
     expect(() => assertSafeSandbox('external-sandbox')).toThrow('Unsafe sandbox');
     for (const level of ['ask', 'plan', 'auto-edit', 'yolo'] as const) {
-      expect(policy(level).approvalPolicy).toBe('untrusted');
+      expect(policy(level).approvalPolicy).toBe('on-request');
       expect(policy(level).sandbox).toBe(level === 'auto-edit' || level === 'yolo' ? 'workspace-write' : 'read-only');
     }
   });

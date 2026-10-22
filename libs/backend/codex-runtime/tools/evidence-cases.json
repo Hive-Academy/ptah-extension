@@ -67,7 +67,7 @@
     "kind": "boundary",
     "level": "plan",
     "decision": "deny",
-    "purpose": "Read-only plus untrusted approvals; decline the single fixed marker write, require absence; positive reads and native plan transitions remain unverified"
+    "purpose": "Read-only plus on-request approvals; decline the single fixed marker write, require absence; positive reads and native plan transitions remain unverified"
   },
   {
     "id": "auto-edit-boundary",
@@ -80,7 +80,7 @@
     "kind": "boundary",
     "level": "auto-edit",
     "decision": "accept",
-    "purpose": "Workspace-write plus untrusted approvals; auto-accept only the single fixed marker command, interrupt at observed effect; multi-path boundary remains unverified"
+    "purpose": "Workspace-write plus on-request approvals; auto-accept only the single fixed marker command, interrupt at observed effect; multi-path boundary remains unverified"
   },
   {
     "id": "yolo-interrupt",
@@ -92,7 +92,7 @@
     "kind": "boundary",
     "level": "yolo",
     "decision": "accept",
-    "purpose": "Workspace-write plus untrusted approvals, never full access; auto-accept only the fixed marker command and interrupt at effect"
+    "purpose": "Workspace-write plus on-request approvals, never full access; auto-accept only the fixed marker command and interrupt at effect"
   },
   {
     "id": "mcp-approval",

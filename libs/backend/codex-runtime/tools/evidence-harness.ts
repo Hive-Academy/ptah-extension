@@ -510,7 +510,7 @@ function markerState(root: string, original: string, replacement: string, outsid
   return { original: markerExists(root, original), replacement: markerExists(root, replacement), outside: markerExists(root, outside) };
 }
 export function policy(level: EvidenceCase['level']): { sandbox: string; approvalPolicy: string } {
-  const selected = { sandbox: level === 'yolo' || level === 'auto-edit' ? 'workspace-write' : 'read-only', approvalPolicy: 'untrusted' };
+  const selected = { sandbox: level === 'yolo' || level === 'auto-edit' ? 'workspace-write' : 'read-only', approvalPolicy: 'on-request' };
   assertSafeSandbox(selected);
   return selected;
 }
