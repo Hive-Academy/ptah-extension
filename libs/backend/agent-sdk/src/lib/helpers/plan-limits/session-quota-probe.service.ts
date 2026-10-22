@@ -41,11 +41,7 @@
 import { injectable, inject } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import type { SessionId } from '@ptah-extension/shared';
-import type {
-  ClaudeAccountRoute,
-  ClaudeAccountNamedRoute,
-  ClaudeAccountAmbientRoute,
-} from '@ptah-extension/auth-providers-tokens';
+import type { ClaudeAccountNamedRoute } from '@ptah-extension/auth-providers-tokens';
 import { SDK_TOKENS } from '../../di/tokens';
 import type {
   AccountInfo,
@@ -103,34 +99,22 @@ export type AccountQuotaResult<T> =
 
 export interface SessionQuotaProbe {
   /** `null` on timeout, rejection, unknown session or missing query. */
-  readAccount(
-    sessionId: string,
-    route?: ClaudeAccountAmbientRoute,
-  ): Promise<AccountInfo | null>;
-  readAccount(
+  readAccount(sessionId: string): Promise<AccountInfo | null>;
+  /** Read account identity only from a query matching the named route. */
+  readAccountForRoute(
     sessionId: string,
     route: ClaudeAccountNamedRoute,
   ): Promise<AccountQuotaResult<AccountInfo>>;
-  readAccount(
-    sessionId: string,
-    route?: ClaudeAccountRoute,
-  ): Promise<AccountInfo | null | AccountQuotaResult<AccountInfo>>;
   /**
    * The given session's `/usage`, or with no id the most recently active
    * direct-Anthropic session's. `null` for a proxy route or on failure.
    */
-  readPlanUsage(
-    sessionId?: string,
-    route?: ClaudeAccountAmbientRoute,
-  ): Promise<ClaudePlanUsage | null>;
-  readPlanUsage(
+  readPlanUsage(sessionId?: string): Promise<ClaudePlanUsage | null>;
+  /** Read usage only from a query matching the named route. */
+  readPlanUsageForRoute(
     sessionId: string | undefined,
     route: ClaudeAccountNamedRoute,
   ): Promise<AccountQuotaResult<ClaudePlanUsage>>;
-  readPlanUsage(
-    sessionId?: string,
-    route?: ClaudeAccountRoute,
-  ): Promise<ClaudePlanUsage | null | AccountQuotaResult<ClaudePlanUsage>>;
   /** `null` when no session is registered under this id. */
   sessionRoute(sessionId: string): SessionQuotaRoute | null;
   invalidateAccountRoute?(route: ClaudeAccountNamedRoute): void;
@@ -194,27 +178,16 @@ export class SessionQuotaProbeService implements SessionQuotaProbe {
     ];
   }
 
-  readAccount(
-    sessionId: string,
-    route?: ClaudeAccountAmbientRoute,
-  ): Promise<AccountInfo | null>;
-  readAccount(
+  readAccountForRoute(
     sessionId: string,
     route: ClaudeAccountNamedRoute,
-  ): Promise<AccountQuotaResult<AccountInfo>>;
-  readAccount(
-    sessionId: string,
-    route?: ClaudeAccountRoute,
-  ): Promise<AccountInfo | null | AccountQuotaResult<AccountInfo>>;
-  readAccount(
-    sessionId: string,
-    route?: ClaudeAccountRoute,
-  ): Promise<AccountInfo | null | AccountQuotaResult<AccountInfo>> {
-    if (route?.kind === 'named') {
-      return this.readNamed(sessionId, route, 'accountInfo', (query) =>
-        typeof query.accountInfo === 'function' ? query.accountInfo() : null,
-      );
-    }
+  ): Promise<AccountQuotaResult<AccountInfo>> {
+    return this.readNamed(sessionId, route, 'accountInfo', (query) =>
+      typeof query.accountInfo === 'function' ? query.accountInfo() : null,
+    );
+  }
+
+  readAccount(sessionId: string): Promise<AccountInfo | null> {
     const query = this.queryOf(sessionId);
     if (!query) return Promise.resolve(null);
     const cached = this.accountReads.get(query);
@@ -241,30 +214,19 @@ export class SessionQuotaProbeService implements SessionQuotaProbe {
     return read;
   }
 
-  readPlanUsage(
-    sessionId?: string,
-    route?: ClaudeAccountAmbientRoute,
-  ): Promise<ClaudePlanUsage | null>;
-  readPlanUsage(
+  readPlanUsageForRoute(
     sessionId: string | undefined,
     route: ClaudeAccountNamedRoute,
-  ): Promise<AccountQuotaResult<ClaudePlanUsage>>;
-  readPlanUsage(
-    sessionId?: string,
-    route?: ClaudeAccountRoute,
-  ): Promise<ClaudePlanUsage | null | AccountQuotaResult<ClaudePlanUsage>>;
-  async readPlanUsage(
-    sessionId?: string,
-    route?: ClaudeAccountRoute,
-  ): Promise<ClaudePlanUsage | null | AccountQuotaResult<ClaudePlanUsage>> {
-    if (route?.kind === 'named') {
-      return this.readNamed(sessionId, route, 'usage', (query) => {
-        const usage = query[USAGE_METHOD];
-        return typeof usage === 'function'
-          ? usage.call(query, { skipBehaviors: true })
-          : null;
-      });
-    }
+  ): Promise<AccountQuotaResult<ClaudePlanUsage>> {
+    return this.readNamed(sessionId, route, 'usage', (query) => {
+      const usage = query[USAGE_METHOD];
+      return typeof usage === 'function'
+        ? usage.call(query, { skipBehaviors: true })
+        : null;
+    });
+  }
+
+  async readPlanUsage(sessionId?: string): Promise<ClaudePlanUsage | null> {
     const targetId =
       sessionId ??
       this.sessions

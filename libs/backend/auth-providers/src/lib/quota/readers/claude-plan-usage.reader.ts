@@ -152,12 +152,10 @@ const FIXED_WINDOWS: readonly FixedWindow[] = [
 ];
 
 /** The probe surface this reader needs. */
-export type ClaudePlanUsageProbe = {
-  // A union return keeps existing ambient-only test/host adapters compatible.
-  readPlanUsage: (
-    ...args: Parameters<SessionQuotaProbe['readPlanUsage']>
-  ) => ReturnType<SessionQuotaProbe['readPlanUsage']>;
-} & Partial<Pick<SessionQuotaProbe, 'readAccount'>>;
+export type ClaudePlanUsageProbe = Pick<SessionQuotaProbe, 'readPlanUsage'> &
+  Partial<
+    Pick<SessionQuotaProbe, 'readAccountForRoute' | 'readPlanUsageForRoute'>
+  >;
 
 /**
  * The Claude reader. `target.sessionHandle` picks the session whose query is
@@ -173,12 +171,16 @@ export function createClaudePlanUsageReader(
       const route = { ...target.claudeRoute };
       const sessionId = target.sessionHandle?.sessionId;
       if (!sessionId) return invalidSource('no-open-session');
-      if (!probe.readAccount || target.ownerRef.identityKind !== 'account') {
+      if (
+        !probe.readAccountForRoute ||
+        !probe.readPlanUsageForRoute ||
+        target.ownerRef.identityKind !== 'account'
+      ) {
         return invalidSource();
       }
-      const readAccount = probe.readAccount.bind(probe);
+      const readAccountForRoute = probe.readAccountForRoute.bind(probe);
       try {
-        const before = await readAccount(sessionId, route);
+        const before = await readAccountForRoute(sessionId, route);
         if (before.status !== 'available') {
           return invalidSource(
             before.code === 'no-open-session' ? before.code : undefined,
@@ -186,9 +188,9 @@ export function createClaudePlanUsageReader(
         }
         if (claudeAccountOwnerKey(before.value) !== target.ownerRef.key)
           return invalidSource();
-        const result = await probe.readPlanUsage(sessionId, route);
+        const result = await probe.readPlanUsageForRoute(sessionId, route);
         // Re-prove identity after the usage read; the probe also checks query and epoch.
-        const after = await readAccount(sessionId, route);
+        const after = await readAccountForRoute(sessionId, route);
         if (
           after.status !== 'available' ||
           claudeAccountOwnerKey(after.value) !== target.ownerRef.key
@@ -223,7 +225,6 @@ export function createClaudePlanUsageReader(
         windows: [],
       };
     }
-    if ('status' in usage) return invalidSource();
     return mapClaudePlanUsage(usage, now(), logger);
   };
 }

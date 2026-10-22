@@ -27,24 +27,24 @@ function route(dir: string, runId = 'run'): ClaudeAccountNamedRoute {
 }
 
 function harness() {
-  const readAccount = jest.fn();
+  const readAccountForRoute = jest.fn();
   const resolver = new ProviderOwnerResolver(
     {} as Logger,
     {} as IAuthSecretsService,
-    { readAccount } as Pick<
+    { readAccountForRoute } as Pick<
       SessionQuotaProbe,
-      'readAccount'
+      'readAccountForRoute'
     > as SessionQuotaProbe,
     {} as ICodexAccountUsageService & ICodexOwnerKeySource,
     {} as CodexHomeResolver,
   );
-  return { resolver, readAccount };
+  return { resolver, readAccountForRoute };
 }
 
 describe('Claude account owners', () => {
   it('uses trimmed email and organization, independent of the configuration directory', async () => {
-    const { resolver, readAccount } = harness();
-    readAccount.mockResolvedValue({
+    const { resolver, readAccountForRoute } = harness();
+    readAccountForRoute.mockResolvedValue({
       status: 'available',
       value: { email: ' a@example.test ', organization: ' org ' },
     });
@@ -55,7 +55,7 @@ describe('Claude account owners', () => {
       claudeAccountOwnerKey({ email: 'a@example.test', organization: 'org' }),
     );
     expect(JSON.stringify(first)).not.toMatch(/example|org|one|two/);
-    expect(readAccount).toHaveBeenCalledWith('s2', route('/two'));
+    expect(readAccountForRoute).toHaveBeenCalledWith('s2', route('/two'));
   });
 
   it('separates changed email and changed organization', () => {
@@ -70,13 +70,13 @@ describe('Claude account owners', () => {
   });
 
   it('never promotes failed route/run proof to the previously known owner', async () => {
-    const { resolver, readAccount } = harness();
-    readAccount.mockResolvedValueOnce({
+    const { resolver, readAccountForRoute } = harness();
+    readAccountForRoute.mockResolvedValueOnce({
       status: 'available',
       value: { email: 'a' },
     });
     const known = await resolver.ownerForSession('s', route('/one'));
-    readAccount.mockResolvedValue({
+    readAccountForRoute.mockResolvedValue({
       status: 'unavailable',
       code: 'stale-epoch',
     });

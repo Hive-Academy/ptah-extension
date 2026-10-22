@@ -44,29 +44,36 @@ function target(fingerprint = 'one', authEpoch = 1): PlanOwnerTarget {
   };
 }
 function harness() {
-  const readAccount = jest
+  const readAccountForRoute = jest
     .fn()
     .mockResolvedValue({ status: 'available', value: account });
-  const readPlanUsage = jest
+  const readPlanUsageForRoute = jest
     .fn()
     .mockResolvedValue({ status: 'available', value: usage });
+  const readPlanUsage = jest.fn().mockResolvedValue(usage);
   const recordWindowEvidence = jest.fn();
   const logger: Pick<Logger, 'debug' | 'warn'> = createMockLogger();
   const service = new PlanUsageService(
     logger as Logger,
     { snapshotFor: () => undefined, recordWindowEvidence },
     { resolve: jest.fn() },
-    { readAccount, readPlanUsage },
+    { readAccountForRoute, readPlanUsageForRoute, readPlanUsage },
     { getAccountUsage: jest.fn() },
   );
-  return { service, readAccount, readPlanUsage, recordWindowEvidence };
+  return {
+    service,
+    readAccountForRoute,
+    readPlanUsageForRoute,
+    readPlanUsage,
+    recordWindowEvidence,
+  };
 }
 
 describe('Claude owner cache and source handles', () => {
   it('shares same-owner stale windows across directories only after current proof', async () => {
-    const { service, readPlanUsage, recordWindowEvidence } = harness();
+    const { service, readPlanUsageForRoute, recordWindowEvidence } = harness();
     expect((await service.getOwnerSnapshot(target())).status).toBe('available');
-    readPlanUsage.mockResolvedValue({
+    readPlanUsageForRoute.mockResolvedValue({
       status: 'unavailable',
       code: 'service-unavailable',
     });
@@ -85,10 +92,10 @@ describe('Claude owner cache and source handles', () => {
   it.each(['stale-epoch', 'account-mismatch', 'no-open-session'])(
     'discards %s without stale fallback',
     async (code) => {
-      const { service, readPlanUsage, recordWindowEvidence } = harness();
+      const { service, readPlanUsageForRoute, recordWindowEvidence } = harness();
       await service.getOwnerSnapshot(target());
       recordWindowEvidence.mockClear();
-      readPlanUsage.mockResolvedValue({ status: 'unavailable', code });
+      readPlanUsageForRoute.mockResolvedValue({ status: 'unavailable', code });
       expect((await service.getOwnerSnapshot(target())).status).toBe(
         'service-unavailable',
       );
@@ -97,20 +104,20 @@ describe('Claude owner cache and source handles', () => {
   );
 
   it('rejects changed identity after a delayed usage read', async () => {
-    const { service, readAccount, readPlanUsage, recordWindowEvidence } =
+    const { service, readAccountForRoute, readPlanUsageForRoute, recordWindowEvidence } =
       harness();
     let finish!: (value: {
       status: 'available';
       value: ClaudePlanUsage;
     }) => void;
-    readPlanUsage.mockReturnValue(
+    readPlanUsageForRoute.mockReturnValue(
       new Promise((resolve) => {
         finish = resolve;
       }),
     );
     const pending = service.getOwnerSnapshot(target());
     await Promise.resolve();
-    readAccount.mockResolvedValue({
+    readAccountForRoute.mockResolvedValue({
       status: 'available',
       value: { email: 'other' },
     });
@@ -120,17 +127,17 @@ describe('Claude owner cache and source handles', () => {
   });
 
   it('does not join a different source or epoch for the same owner', async () => {
-    const { service, readPlanUsage } = harness();
+    const { service, readPlanUsageForRoute } = harness();
     await Promise.all([
       service.getOwnerSnapshot(target()),
       service.getOwnerSnapshot(target('two')),
       service.getOwnerSnapshot(target('one', 2)),
     ]);
-    expect(readPlanUsage).toHaveBeenCalledTimes(3);
+    expect(readPlanUsageForRoute).toHaveBeenCalledTimes(3);
   });
 
   it('keeps unknown owners unavailable and never chooses an unrelated query', async () => {
-    const { service, readPlanUsage } = harness();
+    const { service, readPlanUsageForRoute } = harness();
     const unknown = {
       ...target(),
       ownerRef: quotaOwnerRefFromKey(unknownOwnerKey('anthropic', 'run')),
@@ -143,7 +150,7 @@ describe('Claude owner cache and source handles', () => {
       sessionHandle: undefined,
     });
     expect(missing.unavailableReason).toBe('no-open-session');
-    expect(readPlanUsage).not.toHaveBeenCalled();
+    expect(readPlanUsageForRoute).not.toHaveBeenCalled();
   });
 
   it('retains ambient selection and its cached reading', async () => {
@@ -157,12 +164,12 @@ describe('Claude owner cache and source handles', () => {
   });
 
   it('discards late success after disposal and releases its cache', async () => {
-    const { service, readPlanUsage, recordWindowEvidence } = harness();
+    const { service, readPlanUsageForRoute, recordWindowEvidence } = harness();
     let finish!: (value: {
       status: 'available';
       value: ClaudePlanUsage;
     }) => void;
-    readPlanUsage.mockReturnValue(
+    readPlanUsageForRoute.mockReturnValue(
       new Promise((resolve) => {
         finish = resolve;
       }),

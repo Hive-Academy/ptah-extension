@@ -116,21 +116,21 @@ describe('account-scoped session quota controls', () => {
     const h = harness();
     const a = h.add('a');
     const b = h.add('b');
-    expect(await h.probe.readAccount('a', route())).toEqual({
+    expect(await h.probe.readAccountForRoute('a', route())).toEqual({
       status: 'available',
       value: account('a'),
     });
-    expect(await h.probe.readAccount('b', route('b'))).toEqual({
+    expect(await h.probe.readAccountForRoute('b', route('b'))).toEqual({
       status: 'available',
       value: account('b'),
     });
-    expect(await h.probe.readPlanUsage(undefined, route())).toEqual({
+    expect(await h.probe.readPlanUsageForRoute(undefined, route())).toEqual({
       status: 'available',
       value: usage,
     });
     expect(a.readUsage).toHaveBeenCalledWith({ skipBehaviors: true });
     expect(b.readUsage).not.toHaveBeenCalled();
-    expect(await h.probe.readAccount('b', route())).toEqual({
+    expect(await h.probe.readAccountForRoute('b', route())).toEqual({
       status: 'unavailable',
       code: 'account-mismatch',
     });
@@ -140,15 +140,15 @@ describe('account-scoped session quota controls', () => {
   it('returns closed unavailable codes for missing bindings, sessions, and control methods', async () => {
     const h = harness();
     h.add('a', false);
-    expect(await h.probe.readAccount('a', route())).toEqual({
+    expect(await h.probe.readAccountForRoute('a', route())).toEqual({
       status: 'unavailable',
       code: 'account-mismatch',
     });
-    expect(await h.probe.readPlanUsage(undefined, route())).toEqual({
+    expect(await h.probe.readPlanUsageForRoute(undefined, route())).toEqual({
       status: 'unavailable',
       code: 'no-open-session',
     });
-    expect(await h.probe.readAccount('missing', route())).toEqual({
+    expect(await h.probe.readAccountForRoute('missing', route())).toEqual({
       status: 'unavailable',
       code: 'no-open-session',
     });
@@ -157,16 +157,16 @@ describe('account-scoped session quota controls', () => {
       'a' as SessionId,
       partialMock<Query>({ close: jest.fn() }),
     );
-    expect(await h.probe.readAccount('a', route())).toEqual({
+    expect(await h.probe.readAccountForRoute('a', route())).toEqual({
       status: 'unavailable',
       code: 'service-unavailable',
     });
-    expect(await h.probe.readPlanUsage('a', route())).toEqual({
+    expect(await h.probe.readPlanUsageForRoute('a', route())).toEqual({
       status: 'unavailable',
       code: 'service-unavailable',
     });
     h.probe.dispose();
-    expect(await h.probe.readAccount('a', route())).toEqual({
+    expect(await h.probe.readAccountForRoute('a', route())).toEqual({
       status: 'unavailable',
       code: 'service-unavailable',
     });
@@ -182,16 +182,16 @@ describe('account-scoped session quota controls', () => {
           resolve = done;
         }),
     );
-    const first = h.probe.readAccount('a', route());
-    const second = h.probe.readAccount('a', route());
+    const first = h.probe.readAccountForRoute('a', route());
+    const second = h.probe.readAccountForRoute('a', route());
     expect(a.accountInfo).toHaveBeenCalledTimes(1);
     h.probe.invalidateAccountRoute(route('a', 2));
     resolve(account('stale'));
     const unavailable = { status: 'unavailable', code: 'stale-epoch' };
     expect(await first).toEqual(unavailable);
     expect(await second).toEqual(unavailable);
-    expect(await h.probe.readAccount('a', route())).toEqual(unavailable);
-    expect(await h.probe.readAccount('a', route('a', 2))).toEqual({
+    expect(await h.probe.readAccountForRoute('a', route())).toEqual(unavailable);
+    expect(await h.probe.readAccountForRoute('a', route('a', 2))).toEqual({
       status: 'unavailable',
       code: 'account-mismatch',
     });
@@ -208,7 +208,7 @@ describe('account-scoped session quota controls', () => {
           resolve = done;
         }),
     );
-    const pending = h.probe.readPlanUsage('a', route());
+    const pending = h.probe.readPlanUsageForRoute('a', route());
     h.registry.setSessionQuery(
       'a' as SessionId,
       partialMock<Query>({ accountInfo: jest.fn() }),
@@ -226,12 +226,12 @@ describe('account-scoped session quota controls', () => {
     const h = harness();
     const a = h.add('a');
     a.accountInfo.mockRejectedValueOnce(new Error('private failure'));
-    expect(await h.probe.readAccount('a', route())).toEqual({
+    expect(await h.probe.readAccountForRoute('a', route())).toEqual({
       status: 'unavailable',
       code: 'service-unavailable',
     });
     a.accountInfo.mockImplementation(() => new Promise(() => undefined));
-    const pending = h.probe.readAccount('a', route());
+    const pending = h.probe.readAccountForRoute('a', route());
     await jest.advanceTimersByTimeAsync(SESSION_QUOTA_PROBE_TIMEOUT_MS + 1);
     expect(await pending).toEqual({
       status: 'unavailable',

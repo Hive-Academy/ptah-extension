@@ -112,9 +112,8 @@ export type OwnerRequestHeaders = Readonly<
 >;
 
 /** The `accountInfo()` answer the probe returns, or `null` when it had none. */
-export type ClaudeAccountInfo = Exclude<
-  Awaited<ReturnType<SessionQuotaProbe['readAccount']>>,
-  { readonly status: string }
+export type ClaudeAccountInfo = Awaited<
+  ReturnType<SessionQuotaProbe['readAccount']>
 >;
 
 /** Identity only: configuration directories never contribute to a known owner. */
@@ -640,7 +639,7 @@ export class ProviderOwnerResolver {
     if (accountRoute?.kind === 'named') {
       let account: ClaudeAccountInfo = null;
       try {
-        const result = await this.probe.readAccount(sessionId, accountRoute);
+        const result = await this.probe.readAccountForRoute(sessionId, accountRoute);
         if (result.status === 'available') account = result.value;
       } catch {
         // degradation-audit: optional-capability - failed identity proof stays unknown.
