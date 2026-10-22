@@ -1,6 +1,6 @@
 ---
 name: ptah-surface-authoring
-description: Use when an agent wants to show a turn summary, stats, a file-change table, test results, a chart, a subagent usage dashboard, or CLI plan limits in Ptah chat or in the Ptah display panel. It explains how to author compact ptah-ui blocks that let the host render verified data.
+description: Authors ptah-ui blocks the host renders from verified data. Use for a turn summary, stats, file changes, test results, a chart, usage or plan limits in Ptah chat or the display panel. Marketing copy is technical-content-writer. A visual-system spec is ui-ux-designer. Those siblings may still apply when the task also asks for copy or a design system.
 ---
 
 Use a `ptah-ui` block for a compact recap, a comparison, a small set of statistics, changed files, test results, subagent usage, CLI plan limits, or a chart. Use ordinary prose for normal explanation, and use ordinary code fences for code the user needs to copy.

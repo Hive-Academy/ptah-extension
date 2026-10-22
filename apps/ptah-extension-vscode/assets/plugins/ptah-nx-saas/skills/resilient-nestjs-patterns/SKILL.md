@@ -1,6 +1,6 @@
 ---
 name: resilient-nestjs-patterns
-description: 'NestJS service patterns for orchestration and resilience. Use when splitting a complex service, layering controller, service and db service, adding retries or fallbacks, wiring EventEmitter events or SSE, or designing forRoot/forTesting dynamic modules.'
+description: 'NestJS patterns for retries, fallbacks, events and dynamic-module wiring. Use when adding retries or fallbacks, wiring EventEmitter events or SSE, or designing forRoot/forTesting dynamic modules. Persistence, auth, RBAC and repositories are nestjs-backend-patterns. Inbound webhook plumbing is webhook-architecture. A task that both persists and retries may load both skills.'
 ---
 
 # Resilient NestJS Patterns
