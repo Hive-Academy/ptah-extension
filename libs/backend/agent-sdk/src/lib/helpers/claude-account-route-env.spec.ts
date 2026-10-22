@@ -102,6 +102,9 @@ const compaction = {
 const model = {
   resolveModelId: (id: string) => id,
   hasCachedModels: () => false,
+  // Named routes validate against the account's own model list (Batch 17);
+  // an empty list is "unknown" and does not refuse.
+  getSupportedModels: jest.fn().mockResolvedValue([]),
 };
 
 function makeBuilder(): SdkQueryOptionsBuilder {

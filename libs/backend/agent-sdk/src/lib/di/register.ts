@@ -31,7 +31,11 @@ import type { CodeOutliner } from '@ptah-extension/tool-output-reducers';
 import { SdkAgentAdapter } from '../sdk-agent-adapter';
 import { SdkTranscriptReaderAdapter } from '../sdk-transcript-reader.adapter';
 import { SessionMetadataStore } from '../session-metadata-store';
-import { SessionImporterService } from '../session-importer.service';
+import {
+  SDK_SESSION_IMPORT_BINDING_LOOKUP,
+  SessionImporterService,
+} from '../session-importer.service';
+import { SDK_NAMED_ACCOUNT_PERSISTENCE } from '../helpers/sdk-query-runner.service';
 import { SessionHistoryReaderService } from '../session-history-reader.service';
 import { SessionStatsReaderService } from '../session-stats';
 import { SessionStatsOwnerService } from '../session-stats/session-stats-owner.service';
@@ -208,6 +212,12 @@ export function registerSdkServices(
     MODEL_DISPATCH_PROVENANCE_TAP,
     noOpModelDispatchProvenanceTap,
   );
+  // Named Claude accounts stay release-held (TASK_2026_712 D7/D21): no host
+  // has a certified persistence or import-lookup adapter yet, so both resolve
+  // to null and every named admission or import refuses. A host replaces these
+  // defaults when it registers the certified adapters.
+  container.register(SDK_NAMED_ACCOUNT_PERSISTENCE, { useValue: null });
+  container.register(SDK_SESSION_IMPORT_BINDING_LOOKUP, { useValue: null });
   container.register(
     SDK_TOKENS.SDK_SESSION_METADATA_STORE,
     { useClass: SessionMetadataStore },
