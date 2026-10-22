@@ -17,7 +17,7 @@ const REQUEST_TIMEOUT_MS = 15_000;
 const MAX_EVENTS = 4000;
 const idSchema = z.union([z.string(), z.number().int()]);
 const methodSchema = z.string().max(200).regex(/^[A-Za-z0-9_./:-]+$/);
-const header = { jsonrpc: z.literal('2.0').optional() };
+const header = { jsonrpc: z.literal('2.0').optional(), emittedAtMs: z.number().int().nonnegative().optional() };
 const requestFrame = z.object({ ...header, id: idSchema, method: methodSchema, params: z.unknown().optional() }).strict();
 const notificationFrame = z.object({ ...header, method: methodSchema, params: z.unknown().optional() }).strict();
 const responseFrame = z.object({ ...header, id: idSchema, result: z.unknown() }).strict();
@@ -43,18 +43,94 @@ export class TurnBudget {
   }
 }
 
+// Only literal harness messages and known error names may enter evidence notes.
+const failureMessages = new Set([
+  'frame too large',
+  'Experiment path is a symlink',
+  'Experiment overlaps a real Codex home',
+  'Path escapes experiment',
+  'Unsafe marker parent',
+  'Unsafe marker ancestor',
+  'Unsafe marker',
+  'Marker changed during check',
+  'Experiment root is a symlink',
+  'Experiment setup failed (details withheld)',
+  'Tree kill failed; cleanup cannot safely continue',
+  'Unsafe sandbox rejected',
+  'Invalid usage',
+  'Cumulative usage ceiling reached',
+  'unsupported server request',
+  'child failed',
+  'child closed',
+  'invalid or oversized protocol frame',
+  'stdin failed',
+  'event limit reached',
+  'experiment interrupted',
+  'approval/isolation gate failed',
+  'child stopped',
+  'outbound frame too large',
+  'not run: cap',
+  'RPC timeout',
+  'request write failed',
+  'child teardown not confirmed',
+  'Pinned binary/schema manifest mismatch',
+  'Network disable not confirmed by config/read',
+  'Observed path escapes experiment',
+  'Observed symlink',
+  'Unexpected marker effect',
+  'Unexpected request',
+  'Side effect before approval',
+  'Side effect during approval',
+  'Approval rejected by safety gate',
+  'Notification thread mismatch',
+  'Unexpected command',
+  'Unexpected file change',
+  'Unexpected or repeated tool item',
+  'CODEX_HOME isolation mismatch',
+  'Selected model not in first model/list page',
+  'Effective config differs from bounded profile',
+  'No usage evidence; stop before further inference',
+  'Planned turn budget exceeds cap',
+  'Required: --run --binary <absolute native path> --auth-source <absolute auth.json> --model <id> --out <markdown path>',
+  'Use a native executable',
+  'Auth source must be auth.json',
+  '--out must be a markdown artifact path',
+  'Artifact destination overlaps source credentials',
+  'Secret cleanup failed',
+]);
+const errorNames = new Set(['Error', 'TypeError', 'RangeError', 'SyntaxError', 'ReferenceError', 'URIError', 'EvalError', 'AggregateError', 'ZodError', 'AbortError']);
+export function recordCaseFailure(result: { notes?: string[] }, error: unknown): void {
+  const details = typeof error === 'object' && error !== null ? error : {};
+  const message = 'message' in details && typeof details.message === 'string' ? details.message : '';
+  const name = 'name' in details && typeof details.name === 'string' && errorNames.has(details.name) ? details.name : 'Error';
+  const note = failureMessages.has(message) ? message : `unclassified error (${name})`;
+  const notes = result.notes ??= [];
+  if (!notes.includes(note)) notes.push(note);
+}
+
 /** Buffer bytes, not decoded characters: multibyte sequences may span chunks. */
 export class FrameDecoder {
   private pending = Buffer.alloc(0);
+  rejectedFrameKeys: string[] = [];
   push(chunk: Buffer): Frame[] {
     const frames: Frame[] = [];
+    this.rejectedFrameKeys = [];
     let start = 0;
     for (let end = chunk.indexOf(10); end !== -1; end = chunk.indexOf(10, start)) {
       const part = chunk.subarray(start, end);
       if (this.pending.length + part.length > MAX_FRAME_BYTES) throw new Error('frame too large');
       const bytes = Buffer.concat([this.pending, part]);
       this.pending = Buffer.alloc(0);
-      if (bytes.length) frames.push(envelope.parse(JSON.parse(bytes.toString('utf8'))));
+      if (bytes.length) {
+        const value: unknown = JSON.parse(bytes.toString('utf8'));
+        const parsed = envelope.safeParse(value);
+        if (!parsed.success) {
+          this.rejectedFrameKeys = typeof value === 'object' && value !== null && !Array.isArray(value)
+            ? Object.keys(value).filter((key) => /^[a-z][A-Za-z0-9]{0,31}$/.test(key)).slice(0, 10) : []; // camelCase protocol keys only: no paths or env names
+          throw new Error('invalid or oversized protocol frame');
+        }
+        frames.push(parsed.data);
+      }
       start = end + 1;
     }
     if (this.pending.length + chunk.length - start > MAX_FRAME_BYTES) throw new Error('frame too large');
@@ -96,7 +172,7 @@ function within(root: string, path: string): boolean {
 }
 // Realm-safe: fs errors are not `instanceof Error` inside a Jest VM context.
 export function errorCode(error: unknown): string | undefined {
-  return typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : undefined;
+  return typeof error === 'object' && error !== null && 'code' in error && typeof error.code === 'string' ? error.code : undefined;
 }
 function missing(error: unknown): boolean {
   return errorCode(error) === 'ENOENT';
@@ -260,7 +336,14 @@ export class RpcChild {
     child.stdout.on('data', (chunk: Buffer) => {
       try {
         for (const frame of this.decoder.push(chunk)) this.receive(frame);
-      } catch { this.fail(new Error('invalid or oversized protocol frame')); this.stopSync(); }
+      } catch (error) {
+        const message = typeof error === 'object' && error !== null && 'message' in error ? error.message : undefined;
+        this.fail(new Error(typeof message === 'string' && failureMessages.has(message) ? message : 'invalid or oversized protocol frame'));
+        const keys = `Rejected frame keys: ${this.decoder.rejectedFrameKeys.join(', ')}`;
+        const notes = this.result.notes ??= [];
+        if (this.decoder.rejectedFrameKeys.length && !notes.includes(keys)) notes.push(keys);
+        this.stopSync();
+      }
     });
     child.stdin.on('error', () => this.fail(new Error('stdin failed')));
   }
@@ -269,6 +352,7 @@ export class RpcChild {
     this.result.events.push({ direction, method });
   }
   private fail(error: Error): void {
+    if (!this.failure && !this.ending) recordCaseFailure(this.result, error);
     this.failure ??= error;
     for (const pending of this.pending.values()) { clearTimeout(pending.timer); pending.reject(this.failure); }
     this.pending.clear();
@@ -732,7 +816,11 @@ export async function runHarness(options: HarnessOptions, cases: readonly Eviden
       try {
         await runCase(item, result, experiment, binary, model, budget, usage, manifest, schemaText, item.id === 'ask-command-accept', children);
         if (result.status !== 'observed') stop = true;
-      } catch { result.status = result.status === 'not run: cap' ? result.status : 'failed: protocol, isolation or approval gate'; stop = true; }
+      } catch (error) {
+        recordCaseFailure(result, error);
+        result.status = result.status === 'not run: cap' ? result.status : 'failed: protocol, isolation or approval gate';
+        stop = true;
+      }
     }
   } finally {
     try {

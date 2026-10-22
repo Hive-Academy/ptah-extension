@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { childEnvironment, cleanupExperiment, createExperiment, disk, FrameDecoder, MAX_FRAME_BYTES,
   parseOptions, RpcChild, runHarness, sanitize, TURN_CAP, TurnBudget, type Experiment,
   assertSafeSandbox, policy, markerApprovalDecision, markerExists, assertDisjointHomes, createFatalCleanup,
-  UsageBudget, USAGE_CEILING, type MarkerApproval, errorCode } from './evidence-harness';
+  UsageBudget, USAGE_CEILING, type MarkerApproval, errorCode, recordCaseFailure } from './evidence-harness';
 
 function fakeDisk(): jest.Mocked<typeof disk> {
   return {
@@ -24,6 +24,78 @@ function fakeChild() {
 }
 
 describe('evidence harness safety (no native binaries or models)', () => {
+  it('accepts the app-server timestamp notification without jsonrpc', () => {
+    const line = '{"method":"remoteControl/status/changed","params":{},"emittedAtMs":1761150000000}\n';
+    expect(new FrameDecoder().push(Buffer.from(line))).toEqual([
+      { method: 'remoteControl/status/changed', params: {}, emittedAtMs: 1761150000000 },
+    ]);
+  });
+
+  it.each([-1, 1.5, '1761150000000'])('rejects an invalid emittedAtMs (%s)', (emittedAtMs) => {
+    expect(() => new FrameDecoder().push(Buffer.from(JSON.stringify({ method: 'status', emittedAtMs }) + '\n'))).toThrow();
+  });
+
+  it('still rejects unknown top-level keys', () => {
+    expect(() => new FrameDecoder().push(Buffer.from('{"method":"status","foo":"private"}\n'))).toThrow();
+  });
+
+  it('records a failed case reason and bounded key names without frame values', async () => {
+    const child = fakeChild();
+    const result = { id: 'bad-frame', status: '', turns: 0, events: [], approvals: [], notes: [] as string[] };
+    const rpc = new RpcChild(child, result);
+    const frame = { method: 'private-method', params: { auth: 'private-auth' }, foo: 'private-output',
+      'bad key': 'private-value', CODEX_HOME: 'private', 'tmp/auth.json': 'private', ['k'.repeat(40)]: 'private',
+      ...Object.fromEntries(Array.from({ length: 12 }, (_, index) => [`key${index}`, 'private'])) };
+    child.stdout.write(JSON.stringify(frame) + '\n');
+    child.stdout.write(JSON.stringify(frame) + '\n');
+    expect(() => rpc.assertHealthy()).toThrow('invalid or oversized protocol frame');
+    expect(result.notes).toEqual(['invalid or oversized protocol frame',
+      'Rejected frame keys: method, params, foo, key0, key1, key2, key3, key4, key5, key6']);
+    expect(JSON.stringify(result.notes)).not.toContain('private');
+    expect(JSON.stringify(result.notes)).not.toContain('bad key');
+    expect(JSON.stringify(result.notes)).not.toMatch(/CODEX_HOME|auth\.json|kkkk/);
+    child.emit('close', 0);
+    await rpc.stop();
+    expect(result.notes).not.toContain('child stopped');
+  });
+
+  it('keeps the first allowlisted stdout failure instead of the protocol-frame substitute', async () => {
+    const child = fakeChild();
+    const result = { id: 'big-frame', status: '', turns: 0, events: [], approvals: [], notes: [] as string[] };
+    const rpc = new RpcChild(child, result);
+    child.stdout.write(Buffer.alloc(MAX_FRAME_BYTES + 1, 0x61));
+    expect(() => rpc.assertHealthy()).toThrow('frame too large');
+    expect(result.notes).toEqual(['frame too large']);
+    child.emit('close', 0);
+    await rpc.stop();
+  });
+
+  it('classifies only string error codes', () => {
+    expect(errorCode({ code: 'ENOENT' })).toBe('ENOENT');
+    expect(errorCode({ code: ['ESRCH'] })).toBeUndefined();
+    expect(errorCode({ code: { toString: () => 'ENOENT' } })).toBeUndefined();
+  });
+
+  it('records only allowlisted messages and safe error names across realms', () => {
+    const result = { notes: [] as string[] };
+    recordCaseFailure(result, { name: 'Error', message: 'RPC timeout' });
+    recordCaseFailure(result, { name: 'Error', message: 'RPC timeout' });
+    recordCaseFailure(result, { name: 'TypeError', message: '/temp/CODEX_HOME/auth.json private-auth' });
+    recordCaseFailure(result, { name: '/temp/private-auth', message: 'private-model-output' });
+    recordCaseFailure(result, 'private-stderr');
+    expect(result.notes).toEqual(['RPC timeout', 'unclassified error (TypeError)', 'unclassified error (Error)']);
+  });
+
+  it('does not report normal teardown as a case failure', async () => {
+    const child = fakeChild();
+    const result = { id: 'normal-stop', status: '', turns: 0, events: [], approvals: [], notes: [] as string[] };
+    const rpc = new RpcChild(child, result);
+    rpc.stopSync();
+    child.emit('close', 0);
+    await rpc.stop();
+    expect(result.notes).toEqual([]);
+  });
+
   it('enforces one cap across children, failed sends and compaction, with no reset', async () => {
     const budget = new TurnBudget();
     const result = { id: 'cap', status: 'not run', turns: 0, events: [], approvals: [] };
