@@ -92,3 +92,10 @@ Each document gets one initial cross-side review and at most two author/reviewer
 - Grok re-review (`code-logic-re-review-phase-p1-b.md`): APPROVED 8/10, findings 1–4 RESOLVED, CI fix confirmed, no new defects.
 - Review families: xAI on OpenAI (phase + fixes), xAI on Anthropic (CI fix). Static review only; CI runs tests.
 - Open CI item (P1-A code): `provider-account.store.spec.ts` two cases fail on Linux CI (`unsupported-store` where `conflict` expected, `provider-account-route.ts:62-67` mkdir error mapping). Reproduce locally when the heavy-check slot is free.
+
+## D16 — Batch 12 import linkage moves to Batch 16 (2026-10-23, orchestrator)
+
+- Lane finding: persisted import binding needs a linkage field in `session-metadata-store.ts` (SessionMetadata merges by SDK sessionId only; importer skips a same-ID entry from any route). That file is Batch 16 ownership and a shared file with TASK_2026_714 (their first edit).
+- Decision: Batch 12 binds history/rewind/stats/import *reading* to the explicit account context and returns an explicit unavailable result for a missing requested root. With a named context, the importer refuses to persist (explicit unsupported result, no write, no ambient fallback) until Batch 16 adds the validated immutable linkage. Ambient (no context) import stays unchanged.
+- Batch 16 acceptance gains: persisted import linkage per route; same SDK sessionId from two routes does not merge or skip silently.
+- Evidence: implementation-report-batch-12.md; batches.md Batch 16 scope (session metadata linkage). Fail-closed, reversible.

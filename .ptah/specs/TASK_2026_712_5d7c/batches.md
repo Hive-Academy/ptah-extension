@@ -270,7 +270,7 @@ At each implementation phase's last batch, stop for one combined independent cod
 - Command: `Verify-ProviderAccountsBatch -Projects @('@ptah-extension/cli-agent-runtime') -Hosts $H`
 - Report: T/implementation-report-batch-11.md. Reviews T/code-logic-review-phase-p1-b.md and T/code-style-review-phase-p1-b.md.
 
-## Batch 12: Bound Claude transcript/history/import/stats roots — PENDING
+## Batch 12: Bound Claude transcript/history/import/stats roots — IMPLEMENTED (Codex; D16 reduced import scope; review at 15)
 
 - Recommended executor: CLI lane, account-scoped filesystem readers; sequential; actual family unassigned.
 - Depends on: P1-B review. Phase P1-C Resources; review at 15.
@@ -341,6 +341,7 @@ At each implementation phase's last batch, stop for one combined independent cod
   - CREATE W/libs/backend/agent-sdk/src/lib/session-metadata-store.account-binding.spec.ts
   - MODIFY W/libs/backend/auth-providers/src/lib/accounts/provider-account.store.spec.ts
 - Plan 184–192/195. Registry authoritative binding commit and real SDK session attachment; metadata detail/parser/projection validated immutable linkage. Expose awaitable write/read, not fire-and-forget completion persistence. Resolve server binding before legacy classification; unavailable lookup refuses.
+- Acceptance (D16 addition): persisted import linkage per route; the same SDK sessionId from two routes neither merges nor is skipped silently; Batch 12 named-import refusal is lifted only by this linkage.
 - Acceptance: both writes succeed before admission result; either failure produces no prompt, no unbound resumable record; unknown baseline persists and cannot resume; old absent records remain ambient; malformed present record refuses. No directory leaks in references.
 - Command: `Verify-ProviderAccountsBatch -Projects @('@ptah-extension/auth-providers','@ptah-extension/agent-sdk') -Hosts $H`
 - Report T/implementation-report-batch-16.md.
