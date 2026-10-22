@@ -22,6 +22,7 @@
  */
 import { z } from 'zod';
 import type { Logger } from '@ptah-extension/vscode-core';
+import { claudeAccountOwnerKey } from '../provider-owner.resolver';
 import type { SessionQuotaProbe } from '@ptah-extension/agent-sdk';
 import {
   normaliseInstant,
@@ -151,7 +152,12 @@ const FIXED_WINDOWS: readonly FixedWindow[] = [
 ];
 
 /** The probe surface this reader needs. */
-export type ClaudePlanUsageProbe = Pick<SessionQuotaProbe, 'readPlanUsage'>;
+export type ClaudePlanUsageProbe = {
+  // A union return keeps existing ambient-only test/host adapters compatible.
+  readPlanUsage: (
+    ...args: Parameters<SessionQuotaProbe['readPlanUsage']>
+  ) => ReturnType<SessionQuotaProbe['readPlanUsage']>;
+} & Partial<Pick<SessionQuotaProbe, 'readAccount'>>;
 
 /**
  * The Claude reader. `target.sessionHandle` picks the session whose query is
@@ -163,6 +169,51 @@ export function createClaudePlanUsageReader(
   now: () => number = Date.now,
 ): PlanUsageReader {
   return async ({ target }) => {
+    if (target.claudeRoute?.kind === 'named') {
+      const route = { ...target.claudeRoute };
+      const sessionId = target.sessionHandle?.sessionId;
+      if (!sessionId) return invalidSource('no-open-session');
+      if (!probe.readAccount || target.ownerRef.identityKind !== 'account') {
+        return invalidSource();
+      }
+      const readAccount = probe.readAccount.bind(probe);
+      try {
+        const before = await readAccount(sessionId, route);
+        if (before.status !== 'available') {
+          return invalidSource(
+            before.code === 'no-open-session' ? before.code : undefined,
+          );
+        }
+        if (claudeAccountOwnerKey(before.value) !== target.ownerRef.key)
+          return invalidSource();
+        const result = await probe.readPlanUsage(sessionId, route);
+        // Re-prove identity after the usage read; the probe also checks query and epoch.
+        const after = await readAccount(sessionId, route);
+        if (
+          after.status !== 'available' ||
+          claudeAccountOwnerKey(after.value) !== target.ownerRef.key
+        )
+          return invalidSource();
+        if (!result || !('status' in result)) return invalidSource();
+        if (result.status !== 'available') {
+          if (result.code !== 'service-unavailable') {
+            return invalidSource(
+              result.code === 'no-open-session' ? result.code : undefined,
+            );
+          }
+          return {
+            status: 'service-unavailable',
+            windowSetEstablished: false,
+            windows: [],
+          };
+        }
+        return mapClaudePlanUsage(result.value, now(), logger);
+      } catch (error: unknown) {
+        // A parse failure follows successful source proof and may serve same-owner stale data.
+        if (error instanceof PlanUsageParseError) throw error;
+        return invalidSource();
+      }
+    }
     const usage = await probe.readPlanUsage(target.sessionHandle?.sessionId);
     if (usage === null) {
       return {
@@ -172,6 +223,7 @@ export function createClaudePlanUsageReader(
         windows: [],
       };
     }
+    if ('status' in usage) return invalidSource();
     return mapClaudePlanUsage(usage, now(), logger);
   };
 }
@@ -333,4 +385,15 @@ function parseFailure(
     reason,
   });
   return new PlanUsageParseError(PROVIDER_ID, fieldPath);
+}
+
+/** Source failures never fall back to an unrelated query or cached identity. */
+function invalidSource(reason?: 'no-open-session'): PlanUsageReading {
+  return {
+    status: 'service-unavailable',
+    windowSetEstablished: false,
+    windows: [],
+    sourceInvalid: true,
+    ...(reason && { unavailableReason: reason }),
+  };
 }

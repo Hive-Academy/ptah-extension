@@ -29,6 +29,7 @@ import {
   TOKENS,
   type IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
+import type { ClaudeAccountRoute } from '@ptah-extension/auth-providers-tokens';
 import { SDK_TOKENS, type SessionQuotaProbe } from '@ptah-extension/agent-sdk';
 import type {
   PlanLimitOwnerSnapshot,
@@ -111,9 +112,23 @@ export type OwnerRequestHeaders = Readonly<
 >;
 
 /** The `accountInfo()` answer the probe returns, or `null` when it had none. */
-export type ClaudeAccountInfo = Awaited<
-  ReturnType<SessionQuotaProbe['readAccount']>
+export type ClaudeAccountInfo = Exclude<
+  Awaited<ReturnType<SessionQuotaProbe['readAccount']>>,
+  { readonly status: string }
 >;
+
+/** Identity only: configuration directories never contribute to a known owner. */
+export function claudeAccountOwnerKey(
+  account: ClaudeAccountInfo,
+): string | null {
+  const email = account?.email?.trim();
+  return email
+    ? accountOwnerKey(
+        CLAUDE_PROVIDER_ID,
+        `${email}\0${account?.organization?.trim() ?? ''}`,
+      )
+    : null;
+}
 
 /** CLIs whose quota owner is the CLI's own credential store. */
 export type CliStoreOwner = 'opencode' | 'antigravity' | 'grok';
@@ -525,8 +540,8 @@ export class ProviderOwnerResolver {
     account: ClaudeAccountInfo,
     routeMaterial: string,
   ): QuotaOwnerRef {
-    const email = account?.email?.trim();
-    if (!email) {
+    const key = claudeAccountOwnerKey(account);
+    if (!key) {
       return this.mark(
         {
           ...quotaOwnerRefFromKey(
@@ -541,10 +556,7 @@ export class ProviderOwnerResolver {
         },
       );
     }
-    const organization = account?.organization?.trim() ?? '';
-    return quotaOwnerRefFromKey(
-      accountOwnerKey(CLAUDE_PROVIDER_ID, `${email}\0${organization}`),
-    );
+    return quotaOwnerRefFromKey(key);
   }
 
   /**
@@ -621,7 +633,30 @@ export class ProviderOwnerResolver {
    * - no record, no route, or a proxy without a provider id — unknown, keyed
    *   by the session.
    */
-  async ownerForSession(sessionId: string): Promise<QuotaOwnerRef> {
+  async ownerForSession(
+    sessionId: string,
+    accountRoute?: ClaudeAccountRoute,
+  ): Promise<QuotaOwnerRef> {
+    if (accountRoute?.kind === 'named') {
+      let account: ClaudeAccountInfo = null;
+      try {
+        const result = await this.probe.readAccount(sessionId, accountRoute);
+        if (result.status === 'available') account = result.value;
+      } catch {
+        // degradation-audit: optional-capability - failed identity proof stays unknown.
+      }
+      // Failed proof remains specific to this route/run; never reuse an identity.
+      return this.ownerForClaudeAccount(
+        account,
+        JSON.stringify([
+          accountRoute.routeFingerprint,
+          accountRoute.routeRevision,
+          accountRoute.authEpoch,
+          accountRoute.runId,
+          sessionId,
+        ]),
+      );
+    }
     const route = this.probe.sessionRoute(sessionId);
     const sessionMaterial = `session:${sessionId}`;
     if (
