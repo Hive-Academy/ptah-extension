@@ -852,6 +852,8 @@ export async function runHarness(options: HarnessOptions, cases: readonly Eviden
     writeFileSync(outputJson, JSON.stringify(artifact, null, 2) + '\n');
     appendFileSync(output, String(sanitize('\n| Case | Status | Charged turns |\n| --- | --- | ---: |\n' + results.map((entry) =>
       `| ${entry.id} | ${entry.status} | ${entry.turns} |`).join('\n') + `\n\nTotal: ${budget.consumed}/${TURN_CAP}. Usage ceiling: ${USAGE_CEILING}. Cleanup: ${cleanup}.\n`)));
+    // A failed secret cleanup must surface even when the run itself threw, so it overrides that error.
+    // eslint-disable-next-line no-unsafe-finally
     if (cleanup.startsWith('FAILED')) throw new Error('Secret cleanup failed');
   }
 }
