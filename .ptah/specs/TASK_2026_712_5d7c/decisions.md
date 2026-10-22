@@ -120,3 +120,13 @@ Each document gets one initial cross-side review and at most two author/reviewer
 - Deferred as named later items (lean rule 4; no lane-config break or data loss): F5 named plan-usage reads bypass TTL (add owner/epoch-proof cache + minimum interval); F8 no global cap on account model probes (add a small semaphore). Minors F9–F11 recorded.
 - Re-review: APPROVED (`code-logic-re-review-phase-p1-c.md`). Open follow-ups for Batch 17 certification: N1 (Moderate) raw account paths still logged at jsonl-reader.service.ts:448, :898, :1069; N2 (Minor) file-level symlink can redirect a named style write; N3 (Minor) no consumer of the style-unavailable marker yet (Batch 17 launcher / UI); N4 (Minor) redundant second readdir.
 - P1-C (Batches 12–15) accepted pending CI. Next phase: P1-D (Batches 16–22); Batch 16 owns shared session-metadata-store.ts — claim with TASK_2026_714 first.
+
+## D20 — Batch 16 split: SDK session attachment needs migration 0059 (2026-10-23, orchestrator)
+
+- Lane finding (implementation-report-batch-16.md): `0058_provider_accounts.ts:58` keys run bindings by run ID only; no SDK session ID column, attachment state or mapping table. SDK attachment, authoritative SDK-ID lookup and the two-store admission are blocked inside the five-file scope.
+- Decision: commit Batch 16 part A as delivered (awaitable run-binding commit/read, immutable path-free metadata linkage, collision refusal, server-first resolver, unknown-baseline resume refusal). Admission stays release-held, so no prompt is authorized by part A.
+- Batch 16b (new): append-only migration `0059_provider_account_session_links` (convention: migrations are append-only; 0044/0046 specs count them), plus store/service attach + lookup by (provider, SDK session ID). Primary key (provider, sdk_session_id): one SDK session binds to one route; a second route refuses (D16 refusal option). Two file-disjoint Codex lanes (≤6 files each) with one fixed schema contract.
+- Batch 12 named-import refusal stays until 16b and the importer handoff (report § Exact importer handoff) land. Importer owner: Batch 17 certification list (not yet owned; record in batches.md).
+- Recorded for its owner, not fixed: `libs/shared/src/lib/types/provider-account.schemas.ts:47,121-123` require positive epoch/revision, the registry persists zero-based values. Batch 17 aligns the shared schema.
+- Options rejected: edit unshipped 0058 in place (dev databases that already ran 0058 would never get the column); use run_id as an SDK alias (overloads identity). Reversible until merge.
+- Verification: diagnostics unavailable in the lane; per the user's lanes-first rule CI runs typecheck/tests. Local audit: agent-sdk 3/4, auth-providers 24/24.

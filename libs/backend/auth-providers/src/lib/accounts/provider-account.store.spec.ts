@@ -75,6 +75,65 @@ describe('ProviderAccountStore transactions', () => {
     expect(action).toThrow(expect.objectContaining({ code }));
   }
 
+  it('awaits the registry transaction and reads immutable unknown evidence from another connection', async () => {
+    add();
+    const committed = await a.commitRunBinding(request());
+    expect(committed.binding?.identity).toEqual({ kind: 'unknown' });
+    await expect(b.lookupRunBinding('run-00001')).resolves.toEqual({ status: 'bound', binding: committed.binding });
+    expect(JSON.stringify(committed.binding)).not.toContain(root);
+    expect(Object.isFrozen(committed.binding)).toBe(true);
+    expect(Object.isFrozen(committed.binding?.identity)).toBe(true);
+  });
+
+  it('reports unavailable registry lookup instead of legacy absence', async () => {
+    const unavailable = new ProviderAccountStore({ get db(): SqliteDatabase { throw { code: 'SQLITE_IOERR' }; } });
+    await expect(unavailable.lookupRunBinding('run-00001')).resolves.toEqual({ status: 'unavailable-storage' });
+    await expect(a.lookupRunBinding('run-absent')).resolves.toEqual({ status: 'absent' });
+  });
+
+  it('refuses extra identity fields before committing a path-bearing binding', async () => {
+    add();
+    const identity = { kind: 'unknown' as const, directory: '/private/account' };
+    await expect(a.commitRunBinding(request({ identity }))).rejects.toMatchObject({ code: 'identity-unproved' });
+    expect(count('run_bindings')).toBe(0);
+    expect(count('run_leases')).toBe(0);
+  });
+
+  it('rolls back a registry binding when the lease write fails', async () => {
+    add();
+    first.exec("CREATE TRIGGER fail_lease BEFORE INSERT ON provider_account_run_leases BEGIN SELECT RAISE(ABORT, 'fixture'); END");
+    await expect(a.commitRunBinding(request())).rejects.toMatchObject({ code: 'conflict' });
+    expect(count('run_bindings')).toBe(0);
+    expect(count('run_leases')).toBe(0);
+  });
+
+  it('refuses malformed stored evidence without downgrading to absence', async () => {
+    add();
+    await a.commitRunBinding(request());
+    first.prepare("UPDATE provider_account_run_bindings SET identity_kind = 'known', owner_key_hash = ? WHERE run_id = ?")
+      .run('/private/account', 'run-00001');
+    await expect(b.lookupRunBinding('run-00001')).resolves.toEqual({ status: 'invalid-bound' });
+  });
+
+  it('does not replace an existing registry binding', async () => {
+    add();
+    await a.commitRunBinding(request());
+    await expect(a.commitRunBinding(request({ identity: { kind: 'known', ownerKey: 'a'.repeat(64) } })))
+      .rejects.toMatchObject({ code: 'conflict' });
+    expect(a.binding('run-00001')?.identity).toEqual({ kind: 'unknown' });
+  });
+
+  it('keeps admission held and refuses persistence after service disposal', async () => {
+    const service = new ProviderAccountService(a, { db: first, dbPath: join(root, 'isolated.sqlite') });
+    await expect(service.admitClaudeRoute({ provider: 'claude', scope: 'main', operationId: 'owner-0001', runId: 'run-00001', selection: { kind: 'ambient' } }))
+      .resolves.toMatchObject({ code: 'release-held' });
+    add();
+    service.dispose();
+    await expect(service.lookupRunBinding('run-00001')).resolves.toEqual({ status: 'unavailable-storage' });
+    await expect(service.commitRunBinding(request())).rejects.toMatchObject({ code: 'unavailable-storage' });
+    expect(count('run_bindings')).toBe(0);
+  });
+
   it('status reservation keeps row unchanged and excludes auth across connections until completion', () => {
     add();
     const before = a.get(profileId);

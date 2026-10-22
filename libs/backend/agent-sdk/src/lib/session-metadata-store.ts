@@ -32,6 +32,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import EventEmitter from 'eventemitter3';
+import { z } from 'zod';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import {
   PLATFORM_TOKENS,
@@ -61,7 +62,56 @@ import type {
   SessionMetadataChangeKind,
   SubagentRecord,
 } from '@ptah-extension/shared';
-import { blankToUndefined } from '@ptah-extension/shared';
+import {
+  blankToUndefined, isProviderAccountOpaqueId, isProviderAccountOwnerKey,
+  type ProviderAccountBinding,
+} from '@ptah-extension/shared';
+
+// Registry migration 58 uses zero-based epochs/revisions. Strict objects reject
+// accidental directory/identity fields instead of silently stripping them.
+const accountRevision = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+const accountBindingSchema = z.object({
+  version: z.literal(1), provider: z.literal('claude'),
+  profileId: z.string().refine(isProviderAccountOpaqueId),
+  runId: z.string().refine(isProviderAccountOpaqueId),
+  routeFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+  routeRevision: accountRevision, authEpoch: accountRevision,
+  identity: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('unknown') }).strict(),
+    z.object({ kind: z.literal('known'), ownerKey: z.string().refine(isProviderAccountOwnerKey) }).strict(),
+  ]),
+}).strict();
+
+export class SessionAccountBindingError extends Error {
+  constructor(readonly code: 'invalid-bound' | 'binding-conflict' | 'identity-unproved' | 'unavailable-storage') {
+    super(`Session account linkage refused: ${code}`);
+    this.name = 'SessionAccountBindingError';
+  }
+}
+
+export type SessionAccountBindingLookup =
+  | { readonly status: 'absent' }
+  | { readonly status: 'bound'; readonly binding: ProviderAccountBinding }
+  | { readonly status: 'invalid-bound' | 'unavailable-storage' };
+
+function parseSessionAccountBinding(value: unknown): ProviderAccountBinding {
+  const parsed = accountBindingSchema.safeParse(value);
+  if (!parsed.success) throw new SessionAccountBindingError('invalid-bound');
+  return Object.freeze({ ...parsed.data, identity: Object.freeze(parsed.data.identity) });
+}
+
+function validateAccountLinkage(value: unknown): SessionMetadata {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new SessionAccountBindingError('invalid-bound');
+  }
+  const metadata = value as SessionMetadata;
+  if (!Object.prototype.hasOwnProperty.call(metadata, 'accountBinding')) return metadata;
+  return { ...metadata, accountBinding: parseSessionAccountBinding(metadata.accountBinding) };
+}
+
+function sameAccountBinding(left: ProviderAccountBinding, right: ProviderAccountBinding): boolean {
+  return JSON.stringify(parseSessionAccountBinding(left)) === JSON.stringify(parseSessionAccountBinding(right));
+}
 
 /**
  * Session metadata - UI state only, NOT message storage
@@ -75,6 +125,9 @@ export interface SessionMetadata {
 
   /** Canonical provider of the latest launched root turn, when known. */
   readonly providerId?: string;
+
+  /** Immutable opaque registry linkage. Absence alone is legacy ambient metadata. */
+  readonly accountBinding?: ProviderAccountBinding;
 
   /**
    * User-friendly session name
@@ -205,6 +258,7 @@ export const SESSION_METADATA_MIGRATION: StateStorageArraySplitPlan = {
   summaryFields: [
     { sourcePath: ['sessionId'] },
     { sourcePath: ['providerId'] },
+    { sourcePath: ['accountBinding'] },
     { sourcePath: ['name'] },
     { sourcePath: ['workspaceId'] },
     { sourcePath: ['createdAt'] },
@@ -291,9 +345,9 @@ export const LEGACY_SESSION_STORAGE_KEYS = {
 
 /** Lean listing entry: the record without its CLI references. */
 export function sessionIndexEntry(metadata: SessionMetadata): SessionMetadata {
-  const entry: Record<string, unknown> = { ...metadata };
-  delete entry['cliSessions'];
-  return entry as unknown as SessionMetadata;
+  const entry = { ...validateAccountLinkage(metadata) };
+  delete entry.cliSessions;
+  return entry;
 }
 
 /** A session as a global-store row. */
@@ -307,8 +361,8 @@ export function toSessionRecordInput(
     createdAt: detail.createdAt,
     lastActiveAt: detail.lastActiveAt,
     isChild: detail.isChildSession === true,
-    summary: sessionIndexEntry(detail) as unknown as Record<string, unknown>,
-    detail: detail as unknown as Record<string, unknown>,
+    summary: { ...sessionIndexEntry(detail) },
+    detail: { ...validateAccountLinkage(detail) },
   };
 }
 
@@ -638,6 +692,54 @@ export class SessionMetadataStore {
     this.emitChange('updated', metadata.sessionId, metadata.workspaceId);
   }
 
+  /** Named import checkpoint. Same SDK id on another route is an explicit refusal.
+   * This writes metadata only; callers must commit/attach the registry binding
+   * first and must not admit a query until both checkpoints have succeeded.
+   */
+  async saveAccountBound(metadata: SessionMetadata, binding: ProviderAccountBinding): Promise<void> {
+    const accountBinding = parseSessionAccountBinding(binding);
+    if (Object.prototype.hasOwnProperty.call(metadata, 'accountBinding') &&
+        !sameAccountBinding(parseSessionAccountBinding(metadata.accountBinding), accountBinding)) {
+      throw new SessionAccountBindingError('binding-conflict');
+    }
+    await this.save({ ...metadata, accountBinding });
+  }
+
+  /** Use before import's existing-record shortcut, so a collision cannot be skipped. */
+  async getAccountBound(sessionId: string, binding: ProviderAccountBinding): Promise<SessionMetadata | null> {
+    const expected = parseSessionAccountBinding(binding);
+    const existing = await this.get(sessionId);
+    if (existing && (!existing.accountBinding || !sameAccountBinding(existing.accountBinding, expected))) {
+      throw new SessionAccountBindingError('binding-conflict');
+    }
+    return existing;
+  }
+
+  /** The callback MUST query the server by SDK session id, never a local index.
+   * Resolve it before reading/classifying legacy metadata. A missing local field
+   * cannot erase a server binding, including for a top-level lane.
+   */
+  async resolveAccountBinding(
+    sessionId: string,
+    lookup: (sdkSessionId: string) => Promise<SessionAccountBindingLookup>,
+  ): Promise<ProviderAccountBinding | null> {
+    const authoritative = await lookup(sessionId);
+    if (authoritative.status === 'unavailable-storage' || authoritative.status === 'invalid-bound') {
+      throw new SessionAccountBindingError(authoritative.status);
+    }
+    const metadata = await this.get(sessionId);
+    if (authoritative.status === 'absent') {
+      if (metadata?.accountBinding) throw new SessionAccountBindingError('invalid-bound');
+      return null;
+    }
+    const binding = parseSessionAccountBinding(authoritative.binding);
+    if (metadata?.accountBinding && !sameAccountBinding(metadata.accountBinding, binding)) {
+      throw new SessionAccountBindingError('binding-conflict');
+    }
+    if (binding.identity.kind === 'unknown') throw new SessionAccountBindingError('identity-unproved');
+    return binding;
+  }
+
   /**
    * Internal save implementation (NOT serialized).
    * Called directly by addCliSession() and other mutations that already enqueue their own writes.
@@ -647,9 +749,15 @@ export class SessionMetadataStore {
     metadata: SessionMetadata,
     providerOverride?: string,
   ): Promise<void> {
+    metadata = validateAccountLinkage(metadata);
     const existing = await this.get(metadata.sessionId);
+    if (metadata.accountBinding && existing &&
+        (!existing.accountBinding || !sameAccountBinding(existing.accountBinding, metadata.accountBinding))) {
+      throw new SessionAccountBindingError('binding-conflict');
+    }
     const merged: SessionMetadata = {
       ...metadata,
+      ...(existing?.accountBinding ? { accountBinding: existing.accountBinding } : {}),
       ...(existing?.isChildSession && !metadata.isChildSession
         ? { isChildSession: true }
         : {}),
@@ -667,6 +775,7 @@ export class SessionMetadataStore {
         : {}),
     };
     if (this.isForeignWorkspace(merged.workspaceId)) {
+      if (merged.accountBinding) throw new SessionAccountBindingError('unavailable-storage');
       if (!this.strays.has(merged.sessionId)) {
         this.logger.info(
           '[SessionMetadataStore] Session belongs to an inactive workspace; keeping its metadata in memory until that workspace is active',
@@ -709,6 +818,9 @@ export class SessionMetadataStore {
       else all.push(detail);
       this.stage(all);
     }
+    // A named checkpoint must flush even when another write is queued. The
+    // ordinary coalesced queue may otherwise resolve this caller before I/O.
+    if (merged.accountBinding) await this.flush();
     this.logger.debug(
       `[SessionMetadataStore] Staged metadata for session ${metadata.sessionId}`,
     );
@@ -785,15 +897,15 @@ export class SessionMetadataStore {
    */
   async get(sessionId: string): Promise<SessionMetadata | null> {
     const stray = this.strays.get(sessionId);
-    if (stray) return { ...stray };
+    if (stray) return validateAccountLinkage({ ...stray });
     if (this.records) {
       await this.gate?.whenReady();
       const record = await this.records.get(sessionId);
       return record
-        ? omitJsonPaths(
-            record.detail as unknown as SessionMetadata,
+        ? validateAccountLinkage(omitJsonPaths(
+            validateAccountLinkage(record.detail),
             DETAIL_PROJECTION.omit,
-          )
+          ))
         : null;
     }
     if (isAsyncStateStorage(this.storage)) {
@@ -802,11 +914,11 @@ export class SessionMetadataStore {
         undefined,
         DETAIL_READ_OPTIONS,
       );
-      if (detail) return detail;
+      if (detail) return validateAccountLinkage(detail);
     }
     const all = await this.getAll();
     const summary = all.find((m) => m.sessionId === sessionId);
-    return summary ? omitJsonPaths(summary, DETAIL_PROJECTION.omit) : null;
+    return summary ? validateAccountLinkage(omitJsonPaths(summary, DETAIL_PROJECTION.omit)) : null;
   }
 
   /**
@@ -868,7 +980,7 @@ export class SessionMetadataStore {
       const rows = await this.records.listForWorkspace(workspaceId, {
         includeChildren,
       });
-      return rows.map((r) => r.summary as unknown as SessionMetadata);
+      return rows.map((r) => validateAccountLinkage(r.summary));
     }
     const all = await this.getAll();
     const normalizedQuery = workspaceId.replace(/\\/g, '/');
@@ -893,9 +1005,9 @@ export class SessionMetadataStore {
       await this.gate?.whenReady();
       // Every project of this host, not only the active one.
       const rows = await this.records.listAll({ includeChildren: true });
-      return rows.map((r) => r.summary as unknown as SessionMetadata);
+      return rows.map((r) => validateAccountLinkage(r.summary));
     }
-    if (this.pendingAll) return this.withStrays([...this.pendingAll]);
+    if (this.pendingAll) return this.withStrays([...this.pendingAll]).map(validateAccountLinkage);
     // Copied, not handed through. `_saveInternal` replaces entries in what it
     // gets back, and `IStateStorage.get` returns the adapter's own cached
     // array (`vscode.Memento` included) — so returning it directly let a
@@ -905,7 +1017,7 @@ export class SessionMetadataStore {
       SessionMetadata[] | SessionMetadataIndex
     >(STORAGE_KEY);
     const items = Array.isArray(stored) ? stored : stored?.items;
-    return this.withStrays([...(items ?? [])]);
+    return this.withStrays([...(items ?? [])]).map(validateAccountLinkage);
   }
 
   async saveAgentOutput(

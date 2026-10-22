@@ -11,7 +11,7 @@ import type { ClaudeAccountRunReservation, ClaudeAccountAuthOperationReservation
 import { ProviderAccountStoreError, revalidateProviderAccountRoute,
   withNewProviderAccountDirectory, providerAccountErrorCode, type CanonicalProviderAccountRoute } from './provider-account-route';
 
-const revision = z.number().int().nonnegative();
+const revision = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const opaqueId = z.string().refine(isProviderAccountOpaqueId);
 const profileSchema = z.object({
   profile_id: opaqueId, provider: z.literal('claude'), label: z.string().refine(isSafeProviderAccountLabel),
@@ -22,6 +22,11 @@ const profileSchema = z.object({
 export type StoredProviderAccount = z.infer<typeof profileSchema>;
 const selectionSchema = z.object({ profile_id: opaqueId.nullable(), revision });
 export interface StoredAccountSelection { readonly profileId: string | null; readonly revision: number }
+export type AccountBindingLookup =
+  | { readonly status: 'absent' }
+  | { readonly status: 'bound'; readonly binding: ProviderAccountBinding }
+  | { readonly status: 'invalid-bound' | 'unavailable-storage' };
+
 export interface AccountRunAdmission {
   readonly profileId: string | null;
   readonly expectedRevision: number;
@@ -88,6 +93,23 @@ export class ProviderAccountStore {
       .all().map(row => profileSchema.parse(row)));
   }
 
+  /** Awaitable registry commit only; this does not authorize prompt release. */
+  async commitRunBinding(request: AccountRunAdmission): Promise<ReturnType<ProviderAccountStore['admit']>> {
+    return this.admit(request);
+  }
+
+  /** A run-id lookup is NOT a session-id lookup. Storage failure is never absence. */
+  async lookupRunBinding(runId: string): Promise<AccountBindingLookup> {
+    let result: AccountBindingLookup;
+    try {
+      const binding = this.binding(runId);
+      result = binding ? { status: 'bound', binding } : { status: 'absent' };
+    } catch (error: unknown) {
+      result = { status: providerAccountErrorCode(error) === 'invalid-bound' ? 'invalid-bound' : 'unavailable-storage' };
+    }
+    return result;
+  }
+
   binding(runId: string): ProviderAccountBinding | null {
     this.validateIds(runId);
     return this.atomic(db => {
@@ -96,16 +118,20 @@ export class ProviderAccountStore {
       const row = z.object({ run_id: opaqueId, version: z.literal(1), provider: z.literal('claude'),
         profile_id: opaqueId, route_revision: revision, route_fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
         auth_epoch: revision, identity_kind: z.enum(['known', 'unknown']), owner_key_hash: z.string().nullable(),
-      }).parse(raw);
-      const identity: ProviderAccountIdentityEvidence = row.identity_kind === 'known' && row.owner_key_hash !== null
-        ? { kind: 'known', ownerKey: row.owner_key_hash } : { kind: 'unknown' };
-      if (row.identity_kind !== identity.kind || (identity.kind === 'unknown' && row.owner_key_hash !== null)) {
+      }).safeParse(raw);
+      if (!row.success) throw new ProviderAccountStoreError('invalid-bound');
+      const parsed = row.data;
+      const identity: ProviderAccountIdentityEvidence = parsed.identity_kind === 'known' && parsed.owner_key_hash !== null
+        ? { kind: 'known', ownerKey: parsed.owner_key_hash } : { kind: 'unknown' };
+      if (parsed.identity_kind !== identity.kind || (identity.kind === 'unknown' && parsed.owner_key_hash !== null)) {
         throw new ProviderAccountStoreError('invalid-bound');
       }
-      this.validateIdentity(identity);
-      return Object.freeze({ version: row.version, provider: row.provider, profileId: row.profile_id,
-        routeRevision: row.route_revision, routeFingerprint: row.route_fingerprint, authEpoch: row.auth_epoch,
-        runId: row.run_id, identity: Object.freeze(identity) });
+      if (identity.kind === 'known' && !isProviderAccountOwnerKey(identity.ownerKey)) {
+        throw new ProviderAccountStoreError('invalid-bound');
+      }
+      return Object.freeze({ version: parsed.version, provider: parsed.provider, profileId: parsed.profile_id,
+        routeRevision: parsed.route_revision, routeFingerprint: parsed.route_fingerprint, authEpoch: parsed.auth_epoch,
+        runId: parsed.run_id, identity: Object.freeze(identity) });
     });
   }
 
@@ -359,11 +385,13 @@ export class ProviderAccountStore {
     if (typeof label !== 'string' || !isSafeProviderAccountLabel(label)) throw new ProviderAccountStoreError('conflict');
   }
   private validateIdentity(identity: ProviderAccountIdentityEvidence): void {
-    if ((identity.kind !== 'unknown' && identity.kind !== 'known') ||
-      (identity.kind === 'known' && (typeof identity.ownerKey !== 'string' || !isProviderAccountOwnerKey(identity.ownerKey)))) {
-      throw new ProviderAccountStoreError('identity-unproved');
-    }
+    const parsed = z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('unknown') }).strict(),
+      z.object({ kind: z.literal('known'), ownerKey: z.string().refine(isProviderAccountOwnerKey) }).strict(),
+    ]).safeParse(identity);
+    if (!parsed.success) throw new ProviderAccountStoreError('identity-unproved');
   }
+
   private validateScope(workspace: string, scope: ProviderAccountScope): void {
     if (!workspace || (scope !== 'main' && scope !== 'lane')) throw new ProviderAccountStoreError('conflict');
   }
