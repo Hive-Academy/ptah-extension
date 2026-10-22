@@ -64,7 +64,12 @@ const FOCUSABLE_SELECTOR = [
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (isOpen()) {
-      <div class="fixed inset-0 z-50 flex" data-testid="native-drawer-root">
+      <div
+        #layer
+        popover="manual"
+        class="ptah-drawer-layer fixed inset-0 z-50 flex"
+        data-testid="native-drawer-root"
+      >
         <div
           class="ptah-drawer-backdrop absolute inset-0 bg-black/60 backdrop-blur-[2px]"
           data-testid="native-drawer-backdrop"
@@ -120,6 +125,25 @@ const FOCUSABLE_SELECTOR = [
     `
       :host {
         display: contents;
+      }
+
+      /* Manual popover: top layer, so no isolated ancestor (a glass surface) can
+         paint a later sibling over the drawer. Reset the UA [popover] box. */
+      .ptah-drawer-layer {
+        width: 100%;
+        height: 100%;
+        max-width: none;
+        max-height: none;
+        margin: 0;
+        border: 0;
+        padding: 0;
+        overflow: visible;
+        background: transparent;
+        color: inherit;
+      }
+
+      .ptah-drawer-layer::backdrop {
+        background: transparent;
       }
 
       @keyframes ptah-drawer-fade-in {
@@ -205,6 +229,7 @@ export class NativeDrawerComponent implements OnDestroy {
   readonly closed = output<void>();
 
   private readonly panel = viewChild<ElementRef<HTMLElement>>('panel');
+  private readonly layer = viewChild<ElementRef<HTMLElement>>('layer');
 
   /** Element focused before the drawer opened; focus returns here on close. */
   private previousActiveElement: HTMLElement | null = null;
@@ -218,7 +243,10 @@ export class NativeDrawerComponent implements OnDestroy {
             : null;
         // The panel is created by the `@if` in this same change detection
         // pass, so defer the focus move until it exists in the DOM.
-        queueMicrotask(() => this.focusPanel());
+        queueMicrotask(() => {
+          this.showLayer();
+          this.focusPanel();
+        });
       } else {
         this.restoreFocus();
       }
@@ -252,6 +280,17 @@ export class NativeDrawerComponent implements OnDestroy {
 
     if (event.key === 'Tab') {
       this.trapTab(event);
+    }
+  }
+
+  /** Promote the root to the top layer. Without the Popover API it stays in place. */
+  private showLayer(): void {
+    const layer = this.layer()?.nativeElement;
+    if (!layer || typeof layer.showPopover !== 'function') return;
+    try {
+      if (!layer.matches(':popover-open')) layer.showPopover();
+    } catch {
+      // Not connected: the drawer stays in the page layer.
     }
   }
 

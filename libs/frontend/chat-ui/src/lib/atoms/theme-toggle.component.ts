@@ -87,6 +87,12 @@ const CATEGORIES: readonly ThemeCategory[] = ['light', 'dark', 'glass'];
     .theme-tab[aria-selected='false'] {
       background: transparent;
     }
+    /* The fill alone measured 1.02:1 on glass light. The 2px bar uses the
+       copied panel ink, so it has the panel text's contrast in every theme. */
+    .theme-tab[aria-selected='true'] {
+      color: var(--picker-ink, currentColor);
+      box-shadow: inset 0 -2px 0 var(--picker-ink, currentColor);
+    }
     :host-context([data-glass='on']) .theme-tab[aria-selected='true'] {
       background: var(--glass-sel);
     }

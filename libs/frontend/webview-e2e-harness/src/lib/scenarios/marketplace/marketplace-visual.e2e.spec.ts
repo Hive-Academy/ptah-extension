@@ -110,6 +110,14 @@ async function waitForSettled(page: Page, scope = page.locator('body')): Promise
  * row ("viewport adjusted until the shell's measured width equals the
  * target").
  */
+/**
+ * Viewport-minus-shell gap last measured on a page. The Electron chrome is the
+ * same at every width, so the next fit starts from it and converges in one
+ * resize instead of two. Each resize re-lays-out the blurred glass surfaces
+ * and is the dominant cost of this spec.
+ */
+const measuredChromeGap = new WeakMap<Page, number>();
+
 async function fitShellWidth(
   page: Page,
   host: 'electron' | 'vscode',
@@ -127,7 +135,7 @@ async function fitShellWidth(
   // into a screenshot labeled with the requested width. Never call
   // setViewportSize with a non-finite, non-positive, or >1e7 width.
   const maxViewport = 10_000_000;
-  let viewport = target + 260; // seed above the known sidebar width
+  let viewport = target + (measuredChromeGap.get(page) ?? 260); // seed: last measured gap, else above the known sidebar width
   let measured = Number.NaN;
   let applied = viewport;
   for (let attempt = 0; attempt < 6; attempt += 1) {
@@ -153,7 +161,10 @@ async function fitShellWidth(
         `fitShellWidth: shell measure ${measured} is not a positive finite width (target ${target}, viewport ${applied}, measured ${measured})`,
       );
     }
-    if (Math.abs(measured - target) <= 2) return;
+    if (Math.abs(measured - target) <= 2) {
+      measuredChromeGap.set(page, applied - measured);
+      return;
+    }
     viewport = target + (applied - measured);
   }
   throw new Error(
@@ -177,6 +188,10 @@ for (const host of ['vscode', 'electron'] as const) {
     });
 
     test('six discovery views at 720/1100/1750', async ({ page, fixtureServer }) => {
+      // 18 captures. Measured locally: ~0.8-1.6s per element screenshot (the glass surfaces' backdrop blur is
+      // repainted for each one), about 27s of the electron run, plus ~0.2s per fit. That leaves no margin
+      // under the 30s default on a slower CI runner.
+      test.setTimeout(120_000);
       await boot(page, fixtureServer.url, host);
       const shell = page.locator('[data-testid="marketplace-shell"]');
 

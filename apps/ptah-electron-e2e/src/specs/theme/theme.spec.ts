@@ -1,3 +1,4 @@
+import type { Locator, Page } from '@playwright/test';
 import { test, expect } from '../../support/fixtures';
 
 /**
@@ -117,30 +118,104 @@ test.describe('Theme split — theme-extra.css fetch gating (H2, TASK_2026_187 U
   });
 });
 
+/**
+ * The picker splits the themes into Light / Dark / Glass tabs
+ * (theme-toggle.component.ts, TASK_2026_710). Only the active tab's tiles are
+ * rendered, so these helpers drive the tabs through role="tab" and
+ * aria-selected instead of assuming every tile is in the DOM at once.
+ */
+const PICKER_TABS = ['Light', 'Dark', 'Glass'] as const;
+
+function pickerPanel(page: Page): Locator {
+  return page.locator('div.dropdown-content[role="dialog"]');
+}
+
+/** Opens the picker unless it is already open (the popover stays open after a pick). */
+async function openPicker(page: Page): Promise<Locator> {
+  const panel = pickerPanel(page);
+  const open = await panel.evaluate((el) => el.matches(':popover-open'));
+  if (!open) await page.locator('[aria-label="Change theme"]').click();
+  await panel.waitFor({ state: 'visible' });
+  return panel;
+}
+
+/** Shows one tab and waits until it is the selected one. */
+async function showTab(
+  panel: Locator,
+  label: (typeof PICKER_TABS)[number],
+): Promise<void> {
+  const tab = panel.getByRole('tab', { name: label, exact: true });
+  // dispatchEvent for the stacking-context reason documented in pickTheme.
+  await tab.dispatchEvent('click');
+  await expect(tab).toHaveAttribute('aria-selected', 'true');
+}
+
+/** Finds the tab that lists `theme` and clicks its tile. */
+async function pickTheme(page: Page, theme: string): Promise<void> {
+  const panel = await openPicker(page);
+  const tile = panel.locator(`button[data-theme="${theme}"]`);
+  for (const label of PICKER_TABS) {
+    await showTab(panel, label);
+    if ((await tile.count()) === 1) {
+      // dispatchEvent, not .click(): the theme button sits above the canvas
+      // empty-state panel visually, but Playwright's real-mouse actionability
+      // check reports the empty state as the pointer-event target at that
+      // coordinate (a daisyUI dropdown-content stacking-context quirk, not an
+      // app bug -- the button IS visible and IS what a user's click lands on;
+      // confirmed by screenshot during triage). dispatchEvent fires the same
+      // DOM 'click' event the real handler listens for, without depending on
+      // Playwright's hit-test agreeing with the browser's own paint order.
+      await tile.dispatchEvent('click');
+      return;
+    }
+  }
+  throw new Error(`Theme "${theme}" is not listed in any picker tab`);
+}
+
 test.describe('Theme picker (H3 mechanics, TASK_2026_187 Unit 9)', () => {
   test('all 36 themes are listed and selectable', async ({ ui }) => {
     const page = ui.page;
-    await page.locator('[aria-label="Change theme"]').click();
+    const panel = await openPicker(page);
 
     // 36 = every entry in DAISYUI_THEMES
     // (libs/frontend/core/src/lib/services/theme.service.ts): the 34 stock
     // themes plus the ptah-glass pair. Update together with that metadata.
-    const themeButtons = page.locator(
-      'div.dropdown-content button[data-theme]',
-    );
-    await expect(themeButtons).toHaveCount(36);
+    // Each theme sits in exactly one tab, so the tabs together must list 36
+    // distinct, visible, enabled tiles.
+    await expect(panel.getByRole('tab')).toHaveCount(PICKER_TABS.length);
+    const listed: string[] = [];
+    for (const label of PICKER_TABS) {
+      await showTab(panel, label);
+      const tiles = panel.locator('button[data-theme]');
+      const count = await tiles.count();
+      expect(count, `${label} tab lists no themes`).toBeGreaterThan(0);
+      for (let index = 0; index < count; index += 1) {
+        const tile = tiles.nth(index);
+        await expect(tile).toBeVisible();
+        await expect(tile).toBeEnabled();
+        const name = (await tile.getAttribute('data-theme')) ?? '';
+        listed.push(name);
+        // Selectable means a click applies that exact theme. A pick stays in
+        // the same tab, so `tiles` keeps its order. dispatchEvent for the
+        // stacking-context reason documented in pickTheme. The first deferred
+        // pick waits on the theme-extra.css load, hence the 5s budget. 36
+        // picks fit well inside the 120s config timeout.
+        await tile.dispatchEvent('click');
+        await expect(page.locator('html')).toHaveAttribute('data-theme', name, {
+          timeout: 5_000,
+        });
+        await expect(tile).toHaveAttribute('aria-pressed', 'true');
+      }
+    }
+    expect(listed).toHaveLength(36);
+    expect(new Set(listed).size).toBe(36);
+    expect(listed).not.toContain('');
 
     // Spot-check both ends of the split: the two that stayed eager, and one
     // from the 32 that moved to the deferred sheet.
-    await expect(
-      page.locator('div.dropdown-content button[data-theme="anubis"]'),
-    ).toHaveCount(1);
-    await expect(
-      page.locator('div.dropdown-content button[data-theme="anubis-light"]'),
-    ).toHaveCount(1);
-    await expect(
-      page.locator('div.dropdown-content button[data-theme="dracula"]'),
-    ).toHaveCount(1);
+    expect(listed).toEqual(
+      expect.arrayContaining(['anubis', 'anubis-light', 'dracula']),
+    );
   });
 
   test('switching to a deferred theme at runtime fetches the sheet and applies it', async ({
@@ -154,19 +229,7 @@ test.describe('Theme picker (H3 mechanics, TASK_2026_187 Unit 9)', () => {
     // never been loaded in this session.
     expect(requests.some((u) => u.includes('theme-extra.css'))).toBe(false);
 
-    await page.locator('[aria-label="Change theme"]').click();
-    await page.locator('div.dropdown-content').waitFor({ state: 'visible' });
-    // dispatchEvent, not .click(): the theme button sits above the canvas
-    // empty-state panel visually, but Playwright's real-mouse actionability
-    // check reports the empty state as the pointer-event target at that
-    // coordinate (a daisyUI dropdown-content stacking-context quirk, not an
-    // app bug -- the button IS visible and IS what a user's click lands on;
-    // confirmed by screenshot during triage). dispatchEvent fires the same
-    // DOM 'click' event the real handler listens for, without depending on
-    // Playwright's hit-test agreeing with the browser's own paint order.
-    await page
-      .locator('div.dropdown-content button[data-theme="dracula"]')
-      .dispatchEvent('click');
+    await pickTheme(page, 'dracula');
 
     // First switch to a deferred theme in the session: the sheet loads on
     // demand (theme.service.ts's setTheme -> loadDeferredThemeSheet), then
@@ -178,14 +241,10 @@ test.describe('Theme picker (H3 mechanics, TASK_2026_187 Unit 9)', () => {
     );
     expect(requests.some((u) => u.includes('theme-extra.css'))).toBe(true);
 
-    // A second switch to a different one of the 32 reuses the now-loaded
-    // sheet -- applies without waiting on another fetch.
+    // A second switch to a different one of the 32 (in another tab) reuses
+    // the now-loaded sheet -- applies without waiting on another fetch.
     const requestCountAfterFirst = requests.length;
-    await page.locator('[aria-label="Change theme"]').click();
-    await page.locator('div.dropdown-content').waitFor({ state: 'visible' });
-    await page
-      .locator('div.dropdown-content button[data-theme="synthwave"]')
-      .dispatchEvent('click');
+    await pickTheme(page, 'synthwave');
     await expect(page.locator('html')).toHaveAttribute(
       'data-theme',
       'synthwave',
@@ -223,12 +282,7 @@ test.describe('Theme picker (H3 mechanics, TASK_2026_187 Unit 9)', () => {
         };
       });
     const pick = async (theme: string) => {
-      await page.locator('[aria-label="Change theme"]').click();
-      await page.locator('div.dropdown-content').waitFor({ state: 'visible' });
-      // dispatchEvent for the same stacking-context reason as the test above.
-      await page
-        .locator(`div.dropdown-content button[data-theme="${theme}"]`)
-        .dispatchEvent('click');
+      await pickTheme(page, theme);
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme, {
         timeout: 5_000,
       });

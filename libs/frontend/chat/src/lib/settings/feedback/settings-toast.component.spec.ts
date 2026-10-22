@@ -156,6 +156,67 @@ describe('SettingsToastComponent', () => {
     expect(query('settings-toast')).toBeNull();
   });
 
+  describe('top-layer promotion', () => {
+    const proto = HTMLElement.prototype;
+    let previousShow: PropertyDescriptor | undefined;
+
+    async function showToast(): Promise<HTMLElement> {
+      await feedback.save({ label: 'voice', scope: 'app', write: settlesTo({ status: 'saved' }), undo: null });
+      fixture.detectChanges();
+      // A second pass runs the effect once the view query sees the new region.
+      fixture.detectChanges();
+      return query('settings-toast-region') as HTMLElement;
+    }
+
+    beforeEach(() => {
+      previousShow = Object.getOwnPropertyDescriptor(proto, 'showPopover');
+      // jsdom may not know :popover-open; report a closed popover.
+      const realMatches = Element.prototype.matches;
+      jest
+        .spyOn(Element.prototype, 'matches')
+        .mockImplementation(function (this: Element, selector: string) {
+          return selector === ':popover-open' ? false : realMatches.call(this, selector);
+        });
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+      if (previousShow) Object.defineProperty(proto, 'showPopover', previousShow);
+      else Reflect.deleteProperty(proto, 'showPopover');
+    });
+
+    it('promotes the region with showPopover and keeps no in-page display override', async () => {
+      const shown: HTMLElement[] = [];
+      Object.defineProperty(proto, 'showPopover', {
+        configurable: true,
+        value(this: HTMLElement) {
+          shown.push(this);
+        },
+      });
+      const region = await showToast();
+      expect(shown).toContain(region);
+      expect(shown.every((el) => el === region)).toBe(true);
+      expect(region.style.display).toBe('');
+    });
+
+    it('stays visible in the page layer when the Popover API is missing', async () => {
+      Reflect.deleteProperty(proto, 'showPopover');
+      const region = await showToast();
+      expect(region.style.display).toBe('block');
+    });
+
+    it('stays visible in the page layer when showPopover throws', async () => {
+      Object.defineProperty(proto, 'showPopover', {
+        configurable: true,
+        value() {
+          throw new DOMException('not connected', 'InvalidStateError');
+        },
+      });
+      const region = await showToast();
+      expect(region.style.display).toBe('block');
+    });
+  });
+
   describe('placement over an open drawer (Batch 49b)', () => {
     const LIFT = '[body:has(ptah-native-drawer_[role=dialog])_&]:bottom-28';
     /** The CSS selector Tailwind emits for {@link LIFT}, minus the toast's own class. */

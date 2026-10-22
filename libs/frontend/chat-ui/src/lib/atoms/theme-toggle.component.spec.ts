@@ -429,6 +429,15 @@ describe('ThemeToggleComponent', () => {
     expect(css).not.toContain('outline: 2px solid currentColor');
   });
 
+  it('marks the selected tab with a panel-ink bar in every theme, not only a fill', () => {
+    // Inline styles never reach jsdom (see above), so pin the rule in the source.
+    const css = readFileSync(join(__dirname, 'theme-toggle.component.ts'), 'utf8');
+    const rule = /\n {4}\.theme-tab\[aria-selected='true'\] \{([^}]*)\}/.exec(css);
+    expect(rule).not.toBeNull();
+    expect(rule?.[1]).toContain('box-shadow: inset 0 -2px 0 var(--picker-ink, currentColor)');
+    expect(rule?.[1]).toContain('color: var(--picker-ink, currentColor)');
+  });
+
   function tabOf(fixture: ComponentFixture<ThemeToggleComponent>, label: string): HTMLButtonElement {
     return [...fixture.nativeElement.querySelectorAll('[role="tab"]')].find((node) =>
       (node as HTMLElement).textContent?.includes(label),

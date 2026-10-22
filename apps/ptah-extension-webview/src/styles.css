@@ -2934,6 +2934,16 @@ END OF ANUBIS DESIGN SYSTEM
   z-index: 30;
 }
 
+/* Open dialogs must lift every enclosing glass context above the header.
+   Keep blur on ::after: these ancestors must not contain fixed descendants.
+   The Electron body is a flex item, so z-index works without positioning it.
+   Preserve absolute/fixed/sticky positioning on all hosting surfaces.
+   Native top-layer popovers still paint above the dialog. */
+:root[data-glass='on'] [data-glass-surface]:has(.modal:is([open], .modal-open, :target), .modal-toggle:checked + .modal),
+:root[data-glass='on'] .electron-shell-root > .electron-shell-body:has(> [data-glass-surface] .modal:is([open], .modal-open, :target), > [data-glass-surface] .modal-toggle:checked + .modal) {
+  z-index: 40;
+}
+
 :root[data-glass='on'] .border-base-300 { border-color: var(--glass-line); }
 
 :root[data-glass='on'] .divider { color: oklch(var(--bcm, var(--bc))); font-size: 0.75rem; }
@@ -3250,13 +3260,49 @@ END OF ANUBIS DESIGN SYSTEM
 :root[data-glass='on'] .cs-answer[data-glass-surface='content'] {
   padding: var(--sidebar-spacing-sm) var(--sidebar-spacing-md);
 }
+/* The existing pt-4 marker denotes an answer following a work log. Glass
+   replaces that inset above; keep separation outside the painted card. */
+:root[data-glass='on'] .cs-answer[data-glass-surface='content'].pt-4 {
+  margin-top: var(--sidebar-spacing-md);
+}
+
+/* Prism Tomorrow is a dark palette loaded globally. Give glass-light answer
+   fences an opaque reading plane and a dark fallback for every token, including
+   punctuation/comments. All foregrounds exceed 4.5:1 against #f5f3ff. */
+:root[data-theme='ptah-glass-light'][data-glass='on'] .cs-answer pre {
+  background: #f5f3ff;
+  color: #243047;
+}
+/* Fence metadata sits outside pre; keep both labels opaque on a known plane. */
+:root[data-theme='ptah-glass-light'][data-glass='on'] .cs-answer .code-block-header {
+  background: #f5f3ff;
+  color: #243047;
+}
+:root[data-theme='ptah-glass-light'][data-glass='on'] .cs-answer .code-block-header :is(.code-lang-badge, .code-line-count) {
+  color: #243047;
+}
+:root[data-theme='ptah-glass-light'][data-glass='on'] .cs-answer pre code,
+:root[data-theme='ptah-glass-light'][data-glass='on'] .cs-answer pre .token {
+  color: #243047;
+  text-shadow: none;
+}
+:root[data-theme='ptah-glass-light'][data-glass='on'] .cs-answer pre :is(.token.keyword, .token.atrule, .token.builtin, .token.selector) {
+  color: #654187;
+}
+:root[data-theme='ptah-glass-light'][data-glass='on'] .cs-answer pre :is(.token.string, .token.char, .token.attr-value, .token.regex, .token.inserted) {
+  color: #23583a;
+}
+:root[data-theme='ptah-glass-light'][data-glass='on'] .cs-answer pre :is(.token.function, .token.function-name, .token.class-name, .token.number, .token.boolean, .token.constant) {
+  color: #805000;
+}
 :root[data-glass='on'] [data-glass-surface='tile'] { background: var(--glass-fill-tile); }
 :root[data-glass='on'] [data-glass-surface='plate'] { background: var(--glass-plate); }
 :root[data-glass='on'] :is(.modal-box, .dropdown-content, [data-glass-surface='overlay']):is(.bg-base-100, .bg-base-200, .bg-base-300) { background-color: transparent; }
-/* Menus nested in a bar: almost solid fill on the blur layer, not on the element (that layer would be what ::after blurs). */
+/* Menus nested in a bar: opaque fill prevents underlying text ghosting through
+   the unblurred layer. Keep the fill on ::after, as for the other surfaces. */
 :root[data-glass='on'] [data-glass-surface='bar'] .dropdown-content { background-color: transparent; }
 :root[data-glass='on'] [data-glass-surface='bar'] .dropdown-content::after {
-  background: oklch(var(--b1) / 0.97);
+  background: oklch(var(--b1));
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
