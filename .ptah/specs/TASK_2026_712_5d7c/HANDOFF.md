@@ -16,7 +16,7 @@ task and TASK_2026_714 (Codex App Server, another session) are merged to `main`.
 - Branch: `feat/provider-accounts` (tracks `origin/feat/provider-accounts`)
 - Task folder: `D:/projects/ptah-extension/.claude-worktrees/provider-accounts/.ptah/specs/TASK_2026_712_5d7c`
 - Follow-up task: `.../.ptah/specs/TASK_2026_715_6cba` (task.md + context.md only)
-- Local HEAD: `4ca9e4efc`. Remote branch HEAD: `7fd7e5fa5`. **21 local commits are not pushed.**
+- Local HEAD = remote HEAD = `eb14e1d09` (all commits pushed 2026-10-22 through the pre-push gate). CI for this head was not yet checked at handoff.
 - `node_modules` in the worktree is a git-ignored directory junction to
   `D:/projects/ptah-extension/node_modules` (D10). Keep it; it fixes the Jest `marked` mapping.
 
@@ -51,7 +51,7 @@ persistence-sqlite migration ratchet specs. Fix `515590f4d` is committed locally
 
 ## In progress / waiting
 
-1. **Push** of the 21 local commits. Blocked on the shared heavy-check slot (the pre-push hook runs
+1. **Push: DONE** (`eb14e1d09`, pre-push gate passed, slot released to TASK_2026_714). Next: check `gh pr checks 808` for the new head.
    di-lint + the Electron validate-deps build). Agreed queue: TASK_2026_710 (glass-theme, holds it
    now) → skill-routing (PR #807) → **TASK_2026_712 (us)** → TASK_2026_714. Wait for "released"
    from the skill-routing session (or 710 if skill-routing skips). After the push, send "released"
