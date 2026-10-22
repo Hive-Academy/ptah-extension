@@ -55,28 +55,31 @@ spike proves the required observations (`implementation-plan.md:262-270`).
 
 ## In progress — Batch 1c (UNCOMMITTED code in the worktree)
 
-Codex lane `b7783ef6` changed `libs/backend/codex-runtime/tools/`: `evidence-harness.ts` (673
-lines), `evidence-harness.spec.ts`, `evidence-cases.json`, NEW `evidence-failure-notes.ts`.
-Report: `batch-1c-report.md`. Content: sanitized "Unexpected command shape" notes with
+Codex lane `b7783ef6` (finished, exit 0, after it also processed two queued orchestrator messages;
+a separate resume `b316822f` failed at start and changed nothing) changed
+`libs/backend/codex-runtime/tools/`: `evidence-harness.ts` (921 lines; HEAD had 867),
+`evidence-harness.spec.ts` (428), `evidence-cases.json`, NEW `evidence-failure-notes.ts` (114),
+NEW `evidence-frames.ts` (45). Report: `batch-1c-report.md` (read it in full).
+Content: sanitized "Unexpected command shape" notes with
 `<ROOT>/<HOME>/<SCRATCH>/<WORKSPACE>/<NODE>/<MARKER_SCRIPT>` placeholders, wrapper/quoting
-classification, granular all-true policy for `ask`, structural config compare. NOT checked, NOT
-reviewed.
+classification, granular all-true policy for `ask` with `approvalsReviewer: "user"` on
+thread/start + turn/start (lane says the schema allows it), note
+`granular ask: no approval request observed` (`evidence-harness.ts:791`), structural config
+compare, frames/envelopes moved to `evidence-frames.ts`, failure notes to
+`evidence-failure-notes.ts`. **NOT checked, NOT reviewed, NOT committed.**
 
-Known defects in that diff (the follow-up round failed at resume start, exit 1 after 1 s, changed
-nothing):
-1. It packed lines to reach the 700-line lint limit (46 lines > 160 chars vs 15 at HEAD). Undo the
-   packing of unchanged code.
-2. Missing: NEW `tools/evidence-frames.ts` (move idSchema, methodSchema, header, the four frame
-   schemas, envelope, Frame types and FrameDecoder there; update imports).
-3. Missing: note `granular ask: no approval request observed` when a granular ask case completes
-   without an approval request (case still fails closed) + spec.
-4. Missing: set `approvalsReviewer: "user"` on thread/start or turn/start for granular ask cases,
-   only if the pinned 0.155.1 schema allows that literal (research report section 5).
-"True = ask" for the granular fields is an inference; the schema has no descriptions. Run 6 proves it.
+Open items in that diff:
+1. Harness is 921 lines, over the 700 `max-lines` limit (a lint WARNING, not an error). The lane
+   stopped as told. 25 lines are > 160 chars (15 at HEAD): check that no unchanged code was packed
+   (`git diff` the harness); restore original formatting where it was. Decide: accept the warning
+   (it existed before: 827) or extract one more cohesive module (for example the run-case logic).
+2. Verify the `approvalsReviewer` claim against the pinned schema (thread/start, turn/start params).
+3. "True = ask" for the granular fields is an inference; the schema has no descriptions. Run 6
+   proves it.
 
 ## Open problems
 
-- Granular semantics unproved; `approvalsReviewer` unchecked.
+- Granular semantics unproved; `approvalsReviewer` effect unproved (config/read does not echo it).
 - Ask-level parity: `on-request` lets sandbox-allowed commands run without a prompt.
 - Edited input: decline + `turn/steer` needs a real-model proof (not in the current 8 cases).
 - Turn budget: 7 of 8 turns remain; the cases need 8, so the last case (`compaction`) will not run
@@ -116,9 +119,10 @@ Bundled binary: `D:/projects/ptah-extension/node_modules/@openai/codex-win32-x64
 
 1. Read this file, `decisions.md` (last 25 rows), `batch-1c-report.md` and
    `codex-version-contract-report.md` section 5.
-2. Finish Batch 1c on a fresh Codex lane (`backend-developer`, workingDirectory = worktree, files =
-   the four tools files + new `evidence-frames.ts`, at most 25 tool calls, no checks, no git): fix
-   defects 1-4 above. Run `ptah_agent_list` first.
+2. Examine the uncommitted Batch 1c diff (`git diff -- libs/backend/codex-runtime/tools/` plus
+   the two new files). Settle open items 1-2 above; give any fix to a fresh Codex lane
+   (`backend-developer`, workingDirectory = worktree, the five tools files only, at most 20 tool
+   calls, no checks, no git). Run `ptah_agent_list` first.
 3. Different-family review of the full Batch 1c diff (Codex wrote it): a Claude
    `code-logic-reviewer` subagent, deliverable `code-logic-review-batch-1c.md`. One fix round.
 4. Claim the heavy-check slot, then:
