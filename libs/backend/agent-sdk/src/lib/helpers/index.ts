@@ -261,3 +261,4 @@ export {
   type SdkAdapterTeammateIdleEvent,
 } from './sdk-adapter-events.service';
 export { applyClaudeAccountRouteEnv } from './claude-account-route-env';
+export * from './named-account-prompt-gate';
