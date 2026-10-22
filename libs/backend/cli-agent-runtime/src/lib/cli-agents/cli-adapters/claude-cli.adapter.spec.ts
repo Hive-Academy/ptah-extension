@@ -299,8 +299,9 @@ describe('ClaudeCliAdapter native SDK execution', () => {
     const f = fixture();
     const first = await f.adapter.runSdk(f.input);
     const second = await f.adapter.runSdk(f.input);
-    const firstHint = f.permissionHandler.createCallback.mock.calls[0][0];
-    const secondHint = f.permissionHandler.createCallback.mock.calls[1][0];
+    // Argument 0 is the routable session id; the routing hint is argument 4.
+    const firstHint = f.permissionHandler.createCallback.mock.calls[0][4];
+    const secondHint = f.permissionHandler.createCallback.mock.calls[1][4];
     expect(firstHint).toMatch(/^claude:/);
     expect(secondHint).toMatch(/^claude:/);
     expect(secondHint).not.toBe(firstHint);
@@ -399,9 +400,11 @@ describe('ClaudeCliAdapter native SDK execution', () => {
     );
     const context = f.run.mock.calls[0][0];
     expect(context.options.abortController.signal.aborted).toBe(true);
-    await expect(context.mailbox.prompt.next()).resolves.toMatchObject({
-      done: true,
-    });
+    // A closed mailbox ends after the initial task drains; nothing new queues.
+    context.mailbox.push('late follow up');
+    const drained: unknown[] = [];
+    for await (const message of context.mailbox.prompt) drained.push(message);
+    expect(drained).toHaveLength(1);
     expect(f.limits.end).toHaveBeenCalled();
   });
 });
