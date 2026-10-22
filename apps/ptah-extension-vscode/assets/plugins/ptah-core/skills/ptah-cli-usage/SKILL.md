@@ -9,7 +9,8 @@ description: Drives the headless Ptah CLI when CI, another process, or a bridge 
 
 `@hive-academy/ptah-cli` ships the same DI graph used by the Ptah VS Code
 extension and Electron app, exposed as a single `ptah` binary that speaks
-JSON-RPC 2.0 NDJSON over stdio. The CLI has no clickable UI and exits when stdin closes.
+JSON-RPC 2.0 NDJSON over stdio. The CLI has no clickable UI. One-shot commands exit
+after their terminal result, and an `interact` session ends when stdin closes.
 
 | Need                                                     | Use                           |
 | -------------------------------------------------------- | ----------------------------- |

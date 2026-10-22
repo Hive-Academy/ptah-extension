@@ -1,6 +1,6 @@
 ---
 name: agent-lanes
-description: 'Contract for spawning, resuming and messaging background CLI agent lanes via the ptah_agent_* tools. Use when a task spawns or resumes a lane even if it never names a tool, orchestration or tribunal. Load before any ptah_agent_spawn. This is the mechanic orchestration and tribunal load for lane work, not a substitute for the engineering workflow or for a multi-vendor panel.'
+description: 'Contract for background CLI agent lanes via the ptah_agent_* tools. Use when a task spawns or resumes a lane, or checks, messages, recovers or verifies one, even if it never names a tool, orchestration or tribunal. Load before any ptah_agent_spawn. This is the mechanic orchestration and tribunal load for lane work, not a substitute for the engineering workflow or for a multi-vendor panel.'
 ---
 
 # Agent Lanes
