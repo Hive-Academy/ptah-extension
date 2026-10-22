@@ -44,8 +44,9 @@
  *
  * An unreadable settings store or an unreadable style directory degrades to
  * "no style". A cosmetic preference must not be able to stop a chat from
- * starting, or a spawned agent from running. Named contexts instead reject
- * an unavailable selected resource explicitly; they never substitute ambient state.
+ * starting, or a spawned agent from running. A missing global selection in a
+ * named account returns an unavailable marker. Invalid account roots still reject;
+ * neither case substitutes ambient state.
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -86,6 +87,8 @@ import {
 export interface OutputStyleSessionFields {
   readonly outputStyleName?: string;
   readonly outputStyleBody?: string;
+  /** The global selection is absent for this account; callers can show a notice. */
+  readonly outputStyleUnavailable?: true;
 }
 
 /** Per-call inputs. All optional; the chat path passes only `workspaceRoot`. */
@@ -171,7 +174,10 @@ export class OutputStyleSessionActivationService {
         ) ?? null;
 
       if (context?.kind === 'named' && winner === null) {
-        throw new OutputStyleAccountResourceError();
+        this.logger.warn(
+          '[OutputStyleSessionActivation] selected style unavailable for this account; starting without a style',
+        );
+        return { ...NO_OUTPUT_STYLE, outputStyleUnavailable: true };
       }
 
       const decision = this.activation.resolve({

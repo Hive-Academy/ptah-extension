@@ -8,6 +8,7 @@ import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
   OutputStyleDiscoveryService,
   userOutputStyleDirectory,
+  boundOutputStyleDirectory,
 } from './output-style-discovery.service';
 import { OutputStyleFileWriter } from './output-style-file.writer';
 import { OutputStyleSessionActivationService } from './output-style-session-activation.service';
@@ -75,7 +76,11 @@ function harness() {
     warn: jest.fn(),
     error: jest.fn(),
   };
-  const discovery = new OutputStyleDiscoveryService(files, workspace, logger as never);
+  const discovery = new OutputStyleDiscoveryService(
+    files,
+    workspace,
+    logger as never,
+  );
   const writer = new OutputStyleFileWriter(files, workspace, logger as never);
   const settings = { readGlobal: jest.fn(() => 'Terse') };
   const activation = new OutputStyleSessionActivationService(
@@ -84,10 +89,149 @@ function harness() {
     new OutputStyleActivationResolver(),
     settings as never,
   );
-  return { files, discovery, writer, activation };
+  return { files, discovery, writer, activation, logger };
 }
 
 describe('selected Claude output styles', () => {
+  beforeEach(() => {
+    // The content port is in-memory; model matching canonical host directories.
+    jest
+      .spyOn(fs, 'realpath')
+      .mockImplementation(async (target) => String(target));
+  });
+  afterEach(() => jest.restoreAllMocks());
+
+  it('uses opaque named paths and prevents opening rows through ambient editor routes', async () => {
+    const { files, writer, discovery } = harness();
+    expect(await writer.save(params, context)).toMatchObject({
+      ok: true,
+      location: { displayPath: 'account:output-styles/terse.md' },
+    });
+    await files.writeFile(
+      path.join(configRoot, 'output-styles', 'broken.md'),
+      '---\nname: [invalid\n---\nBody',
+    );
+    const result = await discovery.discover({}, context);
+    expect(result.styles.find((style) => style.name === 'Terse')).toMatchObject(
+      {
+        relativePath: 'account:output-styles/terse.md',
+        editable: false,
+      },
+    );
+    expect(result.invalid).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          relativePath: 'account:output-styles/broken.md',
+          openable: false,
+        }),
+      ]),
+    );
+    for (const row of [...result.styles, ...result.invalid]) {
+      expect(row.relativePath?.startsWith('~/.claude')).not.toBe(true);
+    }
+    expect(
+      await writer.stat({ tier: 'user', name: 'Terse' }, context),
+    ).toMatchObject({
+      ok: true,
+      location: { displayPath: 'account:output-styles/terse.md' },
+    });
+    expect(
+      await writer.delete({ tier: 'user', name: 'Terse' }, context),
+    ).toMatchObject({
+      ok: true,
+      location: { displayPath: 'account:output-styles/terse.md' },
+    });
+    expect(await writer.save(params)).toMatchObject({
+      ok: true,
+      location: { displayPath: '~/.claude/output-styles/terse.md' },
+    });
+  });
+
+  it('refuses an escaping named directory before discovery, save, stat or delete I/O', async () => {
+    const { files, writer, discovery } = harness();
+    jest
+      .spyOn(fs, 'realpath')
+      .mockImplementation(async (target) =>
+        String(target) === configRoot ? configRoot : userOutputStyleDirectory(),
+      );
+    await expect(discovery.discover({}, context)).rejects.toMatchObject({
+      code: 'unavailable',
+    });
+    for (const operation of [
+      () => writer.save(params, context),
+      () => writer.stat({ tier: 'user', name: 'Terse' }, context),
+      () => writer.delete({ tier: 'user', name: 'Terse' }, context),
+    ]) {
+      expect(await operation()).toMatchObject({
+        ok: false,
+        error: { code: 'NOT_FOUND' },
+      });
+    }
+    expect(files.readDirectory).not.toHaveBeenCalled();
+    expect(files.readFile).not.toHaveBeenCalled();
+    expect(files.writeFile).not.toHaveBeenCalled();
+    expect(files.delete).not.toHaveBeenCalled();
+  });
+
+  it('bounds real directory junctions and allows a genuinely absent style directory', async () => {
+    jest.restoreAllMocks();
+    const root = await fs.mkdtemp(path.join(tmpdir(), 'ptah-style-bound-'));
+    const account = path.join(root, 'account');
+    const outside = path.join(root, 'account-other');
+    const directory = path.join(account, 'output-styles');
+    if (context.kind !== 'named') throw new Error('Expected named fixture');
+    const selected = {
+      ...context,
+      route: { ...context.route, canonicalConfigDir: account },
+    };
+    try {
+      await fs.mkdir(account);
+      await fs.mkdir(outside);
+      expect(await boundOutputStyleDirectory(directory, 'user', selected)).toBe(
+        path.join(await fs.realpath(account), 'output-styles'),
+      );
+      await fs.symlink(outside, directory, 'junction');
+      await expect(
+        boundOutputStyleDirectory(directory, 'user', selected),
+      ).rejects.toMatchObject({ code: 'unavailable' });
+      await fs.unlink(directory);
+      const inside = path.join(account, 'styles');
+      await fs.mkdir(inside);
+      await fs.symlink(inside, directory, 'junction');
+      expect(await boundOutputStyleDirectory(directory, 'user', selected)).toBe(
+        await fs.realpath(inside),
+      );
+      await fs.rmdir(inside);
+      await expect(
+        boundOutputStyleDirectory(directory, 'user', selected),
+      ).rejects.toMatchObject({ code: 'unavailable' });
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('logs only a code and basename for named directory and file read errors', async () => {
+    const { files, writer, discovery, logger } = harness();
+    await writer.save(params, context);
+    const error = { code: 'EACCES', message: `denied ${configRoot}/secret` };
+    files.readDirectory.mockRejectedValueOnce(error);
+    await discovery.discover({}, context);
+    expect(logger.debug).toHaveBeenCalledWith(
+      '[output-styles] tier directory not readable',
+      { code: 'EACCES', fileName: 'output-styles' },
+    );
+    files.readFile.mockRejectedValueOnce(error);
+    await discovery.discover({}, context);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[output-styles] style file unreadable',
+      { code: 'EACCES', fileName: 'terse.md' },
+    );
+    expect(
+      JSON.stringify([logger.debug.mock.calls, logger.warn.mock.calls]),
+    ).not.toContain(configRoot);
+    expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('denied');
+  });
+
   it('writes, discovers, activates, stats, renames and deletes in the selected config root', async () => {
     const { files, writer, discovery, activation } = harness();
     const saved = await writer.save(params, context);
@@ -176,7 +320,7 @@ describe('selected Claude output styles', () => {
   });
 
   it('keeps ambient calls compatible and never substitutes their user styles for a named account', async () => {
-    const { writer, discovery, activation } = harness();
+    const { writer, discovery, activation, logger } = harness();
     await writer.save(params);
     expect(userOutputStyleDirectory(ambient)).toBe(userOutputStyleDirectory());
     expect(
@@ -189,9 +333,13 @@ describe('selected Claude output styles', () => {
         (style) => style.name === 'Terse',
       ),
     ).toBe(false);
-    await expect(
-      activation.resolveSessionFields({}, context),
-    ).rejects.toMatchObject({ code: 'unavailable' });
+    expect(await activation.resolveSessionFields({}, context)).toEqual({
+      outputStyleUnavailable: true,
+    });
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[OutputStyleSessionActivation] selected style unavailable for this account; starting without a style',
+    );
     expect(await activation.resolveSessionFields()).toEqual({
       outputStyleName: 'Terse',
     });
@@ -205,12 +353,17 @@ describe('selected Claude output styles', () => {
         ...context,
         route: { ...context.route, canonicalConfigDir: config },
       };
-      const { files, writer, discovery } = harness();
+      const { files, writer, discovery, activation } = harness();
       expect(await writer.save(params, invalid)).toMatchObject({
         ok: false,
         error: { code: 'NOT_FOUND' },
       });
       await expect(discovery.discover({}, invalid)).rejects.toMatchObject({
+        code: 'unavailable',
+      });
+      await expect(
+        activation.resolveSessionFields({}, invalid),
+      ).rejects.toMatchObject({
         code: 'unavailable',
       });
       expect(files.writeFile).not.toHaveBeenCalled();
