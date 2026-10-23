@@ -486,3 +486,47 @@ describe('named runner handoff', () => {
     expect(f.remove).toHaveBeenCalledWith('abort', expect.any(Function));
   });
 });
+
+
+// A2 mocked evidence only; no live SDK compatibility claim.
+describe('A2 mocked-evidence lane route and policy matrix', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('pins the lane route after hostile ambient and auth env without changing prompt or MCP policy', async () => {
+    jest.replaceProperty(process, 'env', {
+      PATH: 'D:/bin', CLAUDE_CONFIG_DIR: 'D:/ambient',
+      CLAUDE_SECURESTORAGE_CONFIG_DIR: 'D:/ambient-storage',
+      ANTHROPIC_API_KEY: 'ambient-secret',
+    });
+    const input = optionsInput();
+    input.authEnv = { ANTHROPIC_API_KEY: 'auth-env-secret' };
+    const baseline = buildClaudeSdkLaneOptions(input);
+    const route = {
+      kind: 'named', provider: 'claude', profileId: 'private-account-id',
+      runId: 'private-run-id', canonicalConfigDir: 'D:/private-account-path',
+      routeFingerprint: 'a'.repeat(64), routeRevision: 0, authEpoch: 0,
+    } as ClaudeAccountNamedRoute;
+    input.accountRoute = route;
+    const named = buildClaudeSdkLaneOptions(input);
+    expect(named.env?.['CLAUDE_CONFIG_DIR']).toBe(route.canonicalConfigDir);
+    expect(named.env?.['CLAUDE_SECURESTORAGE_CONFIG_DIR']).toBe(route.canonicalConfigDir);
+    expect(named.env).not.toHaveProperty('ANTHROPIC_API_KEY');
+    expect(named.systemPrompt).toEqual(baseline.systemPrompt);
+    expect(named.mcpServers).toBe(baseline.mcpServers);
+    expect(named.tools).toEqual(baseline.tools);
+    expect(named.permissionMode).toBe(baseline.permissionMode);
+    expect(named.allowDangerouslySkipPermissions).toBe(baseline.allowDangerouslySkipPermissions);
+    expect(named.strictMcpConfig).toBe(baseline.strictMcpConfig);
+    const permissionContext = { signal: input.abortController.signal, toolUseID: 'tool', requestId: 'request' };
+    expect(await named.canUseTool?.('Read', {}, permissionContext))
+      .toEqual(await baseline.canUseTool?.('Read', {}, permissionContext));
+    for (const secret of [route.profileId, route.runId, route.canonicalConfigDir]) {
+      expect(JSON.stringify(named.systemPrompt)).not.toContain(secret);
+    }
+    const other = buildClaudeSdkLaneOptions({ ...input, accountRoute: {
+      ...route, profileId: 'other', runId: 'other-run', canonicalConfigDir: 'D:/other-account',
+    } as ClaudeAccountNamedRoute });
+    expect(other.env?.['CLAUDE_CONFIG_DIR']).toBe('D:/other-account');
+    expect(named.env?.['CLAUDE_CONFIG_DIR']).toBe(route.canonicalConfigDir);
+  });
+});

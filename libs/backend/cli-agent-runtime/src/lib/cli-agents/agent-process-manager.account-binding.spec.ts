@@ -370,3 +370,57 @@ describe('AgentProcessManager account reference lifecycle', () => {
     expect(snapshot?.accountBinding.identity).toEqual(binding.identity);
   });
 });
+
+
+// A2 mocked evidence: registry outcomes are supplied by the existing port double.
+describe('A2 mocked-evidence restored lane binding matrix', () => {
+  it('rejects an old unknown identity even when the current authority would validate it', async () => {
+    const registry = port();
+    registry.lookupBySdkSession.mockResolvedValue({ status: 'bound', binding: {
+      ...binding, identity: { kind: 'unknown' },
+    } });
+    await expect(gate().gate.evaluate({ cli: 'claude', cliSessionId: 'sdk-session', accountBindings: registry }))
+      .rejects.toMatchObject({ code: 'identity-unproved' });
+    expect(registry.validateResume).not.toHaveBeenCalled();
+    expect(registry.persistReference).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['remove', 'missing-profile'], ['retarget', 'route-changed'],
+    ['sign-out', 'identity-unproved'], ['different re-auth identity', 'identity-mismatch'],
+    ['unknown re-auth identity', 'identity-unproved'],
+  ])('refuses %s on a parentless restored lane before context evaluation', async (_event, code) => {
+    const registry = port();
+    registry.validateResume.mockResolvedValue({ code });
+    const f = gate();
+    await expect(f.gate.evaluate({ cli: 'claude', cliSessionId: 'sdk-session',
+      accountBindings: registry, accountReference: reference }))
+      .rejects.toMatchObject({ code });
+    expect(f.reader).not.toHaveBeenCalled();
+    expect(f.output.appendLine).not.toHaveBeenCalled();
+    expect(registry.persistReference).not.toHaveBeenCalled();
+    expect(registry.validateResume).toHaveBeenCalledWith(reference);
+  });
+
+  it('keeps two parentless resumed bindings independent while validation overlaps', async () => {
+    const other: ProviderAccountBinding = { ...binding, profileId: 'account456',
+      runId: 'run67890', routeFingerprint: 'c'.repeat(64),
+      identity: { kind: 'known', ownerKey: 'd'.repeat(64) } };
+    const registry = port();
+    registry.lookupBySdkSession.mockImplementation(async ({ sdkSessionId }) => ({
+      status: 'bound', binding: sdkSessionId === 'first' ? binding : other,
+    }));
+    const checkpoint = deferred<void>();
+    registry.validateResume.mockImplementation(async () => { await checkpoint.promise; return { code: 'ok' }; });
+    const resume = gate().gate;
+    const first = resume.evaluate({ cli: 'claude', cliSessionId: 'first', accountBindings: registry });
+    const second = resume.evaluate({ cli: 'claude', cliSessionId: 'second', accountBindings: registry });
+    await settle();
+    checkpoint.resolve();
+    const results = await Promise.all([first, second]);
+    expect(results[0].accountReference).toEqual(reference);
+    expect(results[1].accountReference).toEqual({ accountBinding: other, accountBindingId: other.runId });
+    expect(registry.validateResume).toHaveBeenCalledWith(reference);
+    expect(registry.validateResume).toHaveBeenCalledWith({ accountBinding: other, accountBindingId: other.runId });
+  });
+});

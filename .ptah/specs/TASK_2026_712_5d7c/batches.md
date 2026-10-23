@@ -421,7 +421,7 @@ At each implementation phase's last batch, stop for one combined independent cod
 - Command: `Verify-ProviderAccountsBatch -Projects @('@ptah-extension/cli-agent-runtime','@ptah-extension/rpc-handlers') -Hosts $H`
 - Report T/implementation-report-batch-21.md.
 
-## Batch 22: Claude pre-prompt and resume acceptance matrix — IN PROGRESS (Codex lane cdd8d264)
+## Batch 22: Claude pre-prompt and resume acceptance matrix — IMPLEMENTED (Codex lane cdd8d264; review pending D25)
 
 - Recommended executor: CLI lane, adversarial contract tests; sequential; actual family unassigned.
 - Depends on: 17–21. Phase P1-D last; **STOP combined code-logic review Batches 16–22**.

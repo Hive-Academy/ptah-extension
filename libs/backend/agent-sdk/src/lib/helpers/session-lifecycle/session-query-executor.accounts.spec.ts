@@ -33,19 +33,24 @@ const message: SDKUserMessage = { type: 'user', session_id: '', parent_tool_use_
 const flush = async () => { for (let index = 0; index < 30; index++) await Promise.resolve(); };
 
 function fixture(settings: { fail?: string; cancel?: string; unproved?: string; unknown?: boolean;
-  mismatch?: boolean; pause?: string; held?: boolean; resumeUnknown?: boolean } = {}) {
+  mismatch?: boolean; pause?: string; held?: boolean; resumeUnknown?: boolean;
+  finalIdentity?: AccountInfo; changedAtFinalRead?: number } = {}) {
   const controller = new AbortController();
   const events: string[] = [];
   const paused = deferred<void>();
   const entered = deferred<void>();
   let yielded = 0;
+  const occurrences = new Map<string, number>();
+  const terminations: Array<ReturnType<typeof deferred<void>>> = [];
   let saved: ProviderAccountBinding | undefined;
   let epochListener: ((changed: ClaudeAccountNamedRoute) => void) | undefined;
   const step = async (name: string) => {
     events.push(name);
+    const occurrence = (occurrences.get(name) ?? 0) + 1;
+    occurrences.set(name, occurrence);
     if (settings.cancel === name) controller.abort();
     if (settings.fail === name) throw new Error('sensitive provider detail');
-    if (settings.pause === name) { entered.resolve(); await paused.promise; }
+    if (settings.pause === name || settings.pause === `${name}:${occurrence}`) { entered.resolve(); await paused.promise; }
   };
   const admission: ProviderAccountAdmissionPort = {
     admitClaudeRoute: jest.fn(async (): ReturnType<ProviderAccountAdmissionPort['admitClaudeRoute']> => {
@@ -93,6 +98,7 @@ function fixture(settings: { fail?: string; cancel?: string; unproved?: string; 
       events.push(stage);
       options.push(queryOptions);
       const terminated = deferred<void>();
+      terminations.push(terminated);
       observe?.(terminated.promise);
       const read = prompt[Symbol.asyncIterator]().next().then((result) => {
         if (!result.done) yielded++;
@@ -103,6 +109,8 @@ function fixture(settings: { fail?: string; cancel?: string; unproved?: string; 
       const query: Partial<ReturnType<QueryFunction>> = {
         accountInfo: jest.fn(async () => {
           await step(`${stage}-identity`);
+          if (stage === 'final' && settings.changedAtFinalRead === occurrences.get('final-identity'))
+            return settings.finalIdentity ?? {};
           return settings.unknown ? {} : settings.mismatch && stage === 'final'
             ? { ...account, email: 'different@example.test' } : account;
         }),
@@ -128,7 +136,7 @@ function fixture(settings: { fail?: string; cancel?: string; unproved?: string; 
     title: 'private title', canUseTool: async () => ({ behavior: 'allow', updatedInput: {} }) }, 'tab-a', metadata);
   const run = async (resume?: string) => { await bootstrap(resume); return launch(); };
   return { flow, events, reads, options, registry, persistence, admission, controller, log, bootstrap, launch, run,
-    paused, entered, yielded: () => yielded, saved: () => saved, epoch: () => epochListener };
+    paused, entered, terminations, yielded: () => yielded, saved: () => saved, epoch: () => epochListener };
 }
 
 describe('named SDK bootstrap and final admission', () => {
@@ -277,4 +285,121 @@ describe('named SDK bootstrap and final admission', () => {
     expect(fn).toHaveBeenCalledWith({ prompt, options });
     expect(query.accountInfo).not.toHaveBeenCalled();
   });
+});
+
+
+// A2 mocked evidence only: no installed SDK or live compatibility certification.
+describe('A2 mocked-evidence main admission adversarial matrix', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  it.each(['commit', 'attach', 'metadata', 'final-identity:2'])(
+    'keeps the prompt pending until %s completes', async pause => {
+      const f = fixture({ pause });
+      const pending = f.run();
+      await f.entered.promise;
+      await flush();
+      expect(f.yielded()).toBe(0);
+      expect(f.admission.releaseReservation).not.toHaveBeenCalled();
+      f.paused.resolve();
+      await pending;
+      await flush();
+      expect(await f.reads[1]).toEqual({ done: false, value: message });
+      expect(f.saved()).toEqual(binding);
+      await f.flow.dispose();
+    },
+  );
+
+  it.each(['lookup', 'admit', 'current', 'bootstrap-identity', 'final-identity',
+    'init', 'commit', 'attach', 'metadata', 'current:3', 'final-identity:2'])(
+    'ignores late %s completion after cancellation and settles once', async pause => {
+      const f = fixture({ pause });
+      const rejected = expect(f.run(pause === 'lookup' ? 'sdk-session-a' : undefined))
+        .rejects.toMatchObject({ code: 'release-held' });
+      await f.entered.promise;
+      f.controller.abort();
+      await rejected;
+      f.paused.resolve();
+      await flush();
+      await f.flow.dispose();
+      expect(f.yielded()).toBe(0);
+      expect(f.admission.releaseReservation).toHaveBeenCalledTimes(pause === 'lookup' ? 0 : 1);
+      expect(f.admission.retainUnresolvedReservation).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([{}, { ...account, email: 'other@example.test' }])(
+    'refuses changed own-query identity after durable writes: %p', async finalIdentity => {
+      const f = fixture({ changedAtFinalRead: 2, finalIdentity });
+      await expect(f.run()).rejects.toMatchObject({ code: 'release-held' });
+      expect(f.saved()).toEqual(binding);
+      expect(f.yielded()).toBe(0);
+      expect(f.events.filter(event => event === 'final-identity')).toHaveLength(2);
+    },
+  );
+
+  it('waits for final child close proof before releasing the lease', async () => {
+    const f = fixture({ unproved: 'final', pause: 'metadata' });
+    const rejected = expect(f.run()).rejects.toMatchObject({ code: 'release-held' });
+    await f.entered.promise;
+    f.controller.abort();
+    await flush();
+    expect(f.admission.releaseReservation).not.toHaveBeenCalled();
+    expect(f.admission.retainUnresolvedReservation).not.toHaveBeenCalled();
+    f.terminations[1].resolve();
+    await rejected;
+    f.paused.resolve();
+    await f.flow.dispose();
+    expect(f.yielded()).toBe(0);
+    expect(f.admission.releaseReservation).toHaveBeenCalledTimes(1);
+  });
+
+  it('retains an uncertain final child after cancellation without yielding', async () => {
+    const f = fixture({ unproved: 'final', pause: 'metadata' });
+    const rejected = expect(f.run()).rejects.toMatchObject({ code: 'release-held' });
+    await f.entered.promise;
+    f.controller.abort();
+    await jest.runAllTimersAsync();
+    await rejected;
+    f.paused.resolve();
+    await f.flow.dispose();
+    expect(f.yielded()).toBe(0);
+    expect(f.admission.releaseReservation).not.toHaveBeenCalled();
+    expect(f.admission.retainUnresolvedReservation).toHaveBeenCalledTimes(1);
+  });
+
+  it('never promotes an old unknown binding using a newly known query', async () => {
+    const f = fixture({ resumeUnknown: true });
+    await expect(f.run('sdk-session-a')).rejects.toMatchObject({ code: 'release-held' });
+    expect(f.options).toEqual([]);
+    expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
+    expect(f.persistence.attachSdkSession).not.toHaveBeenCalled();
+    expect(f.persistence.saveAccountBound).not.toHaveBeenCalled();
+    expect(f.yielded()).toBe(0);
+  });
+
+  it('resumes after same-identity re-auth without rewriting the old binding epoch', async () => {
+    const f = fixture();
+    jest.mocked(f.admission.admitClaudeRoute).mockResolvedValue({
+      code: 'ok', resources: { kind: 'named', route: { ...route, authEpoch: 1 },
+        accountDataDir: '/metadata', filesystemIdentity: { volumeId: 'v', fileId: 'f' } },
+      reservation: { ...reservation, authEpoch: 1 },
+    });
+    await f.run('sdk-session-a');
+    await flush();
+    expect(f.yielded()).toBe(1);
+    expect(f.saved()).toEqual(binding);
+    expect(f.persistence.commitRunBinding).not.toHaveBeenCalled();
+    await f.flow.dispose();
+  });
+
+  it('refuses a previously known resume when the current query identity is unknown', async () => {
+    const f = fixture({ unknown: true });
+    await expect(f.run('sdk-session-a')).rejects.toMatchObject({ code: 'release-held' });
+    expect(f.options).toHaveLength(1);
+    expect(f.yielded()).toBe(0);
+    expect(f.persistence.attachSdkSession).not.toHaveBeenCalled();
+    expect(f.persistence.saveAccountBound).not.toHaveBeenCalled();
+  });
+
 });

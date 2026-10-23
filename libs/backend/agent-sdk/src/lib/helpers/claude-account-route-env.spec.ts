@@ -336,3 +336,31 @@ describe('applyClaudeAccountRouteEnv', () => {
     });
   });
 });
+
+
+// A2 mocked evidence; constructors never launch a vendor child.
+describe('A2 mocked-evidence ambient and concurrent route matrix', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it.each([ambient, undefined])('adds no account env to a clean ambient constructor: %p', async route => {
+    jest.replaceProperty(process, 'env', { PATH: 'D:/bin' });
+    for (const options of [await mainOptions(route), oneShotOptions(route)]) {
+      expect(options.env).not.toHaveProperty('CLAUDE_CONFIG_DIR');
+      expect(options.env).not.toHaveProperty('CLAUDE_SECURESTORAGE_CONFIG_DIR');
+    }
+  });
+
+  it('keeps simultaneous distinct route construction independent of ambient selectors', async () => {
+    jest.replaceProperty(process, 'env', { ...inherited });
+    const other = { ...named, profileId: 'other', runId: 'other-run',
+      canonicalConfigDir: 'D:/accounts/other' } as ClaudeAccountNamedRoute;
+    const [first, second, ambientOptions] = await Promise.all([
+      mainOptions(named), mainOptions(other), mainOptions(ambient),
+    ]);
+    expect(first.env?.['CLAUDE_CONFIG_DIR']).toBe(named.canonicalConfigDir);
+    expect(second.env?.['CLAUDE_CONFIG_DIR']).toBe(other.canonicalConfigDir);
+    expect(ambientOptions.env?.['CLAUDE_CONFIG_DIR']).toBe(inherited['CLAUDE_CONFIG_DIR']);
+    expect(first.env).not.toBe(second.env);
+    expect(process.env).toEqual(inherited);
+  });
+});
