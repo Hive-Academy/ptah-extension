@@ -7,6 +7,10 @@
  * newer release exists it broadcasts an `available` state carrying the platform
  * installer URL and release notes; the update dialog's Download action opens
  * that URL in the browser. No electron-updater, no in-app download/install.
+ *
+ * Microsoft Store (MSIX) installs never check: the Store delivers their
+ * updates, so `start()` and `triggerCheck()` return before any GitHub request
+ * and the state stays `idle` (the update dialog never opens).
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -17,7 +21,10 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import type { UpdateLifecycleState } from '@ptah-extension/shared';
-import { isLocalProductionBuild } from '../../config/build-identity';
+import {
+  isLocalProductionBuild,
+  isMicrosoftStoreBuild,
+} from '../../config/build-identity';
 
 const GITHUB_RELEASES_URL =
   'https://api.github.com/repos/Hive-Academy/ptah-extension/releases';
@@ -127,6 +134,12 @@ export class UpdateManager implements IAppUpdater {
    * `PTAH_E2E_ALLOW_UPDATE_CHECK: '1'` through `launchPtah`'s `opts.env`.
    */
   async start(): Promise<void> {
+    if (isMicrosoftStoreBuild()) {
+      this.logger.info(
+        '[UpdateManager] Skipped — Microsoft Store build (updates come from the Store)',
+      );
+      return;
+    }
     if (isLocalProductionBuild()) {
       this.logger.info('[UpdateManager] Skipped — local-production build');
       return;
@@ -161,6 +174,12 @@ export class UpdateManager implements IAppUpdater {
 
   /** On-demand check (called by the update:check-now RPC handler). */
   async triggerCheck(): Promise<void> {
+    if (isMicrosoftStoreBuild()) {
+      this.logger.info(
+        '[UpdateManager] Manual check skipped — Microsoft Store build (updates come from the Store)',
+      );
+      return;
+    }
     if (isLocalProductionBuild()) {
       this.logger.info(
         '[UpdateManager] Manual check skipped — local-production build',

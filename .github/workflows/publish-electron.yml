@@ -2,45 +2,42 @@
 #
 # Cross-platform Electron builds for Windows, macOS, and Linux.
 #
+# Distribution channels:
+#   * Windows ships ONLY through the Microsoft Store (MSIX/appx). There is no
+#     NSIS installer, no code-signing step and nothing Windows-related in the
+#     GitHub Release. Microsoft signs the package after certification.
+#   * macOS (.dmg/.zip) and Linux (.AppImage/.deb) keep publishing to the
+#     GitHub Release, unsigned (macOS signing needs an Apple Developer account).
+#
 # Workflow:
 #   1. Push to release/electron (release-only branch, fed by a single PR from
-#      main) OR trigger manually with a bump type. Each run signs exactly 2
-#      files (Ptah.exe + installer) => ~$2 of eSigner usage per release.
+#      main) OR trigger manually with a bump type.
 #   2. Auto-bumps the version (computed in prepare, patched locally in build jobs)
 #   3. Checks if the version tag already exists (prevents duplicate releases)
 #   4. Builds for all 3 platforms in parallel
-#   5. Creates git tag + GitHub Release with all installers
-#   6. Opens a PR to merge the version bump into main
+#   5. Creates git tag + GitHub Release with the macOS and Linux artifacts
+#   6. Submits the Windows Store package to Microsoft Store (`store` job)
+#   7. Opens a PR to merge the version bump into main
 #
-# Dry run: builds, packages, and verifies all three OS legs, while skipping
-# eSigner signing, the tag, bump PR, and GitHub Release. Cost is zero eSigner
-# signatures and about 3 runner legs of minutes. Dry-run artifacts are unsigned
-# and must never be distributed.
+# Dry run: builds, packages, and verifies all three OS legs (including the
+# Windows MSIX), while skipping the tag, bump PR, GitHub Release and Store
+# submission. Dry-run artifacts must never be distributed.
 #
-# Version bump goes to a chore/ branch with a PR to main — never pushes back
+# Version bump goes to a chore/ branch with a PR to main - never pushes back
 # to release/electron (which would re-trigger this workflow in an infinite loop).
 # A commit message filter provides extra safety.
 #
-# Windows builds are signed with SSL.com eSigner (IV code signing certificate):
-# ONLY the main app executable (Ptah.exe) and the outer NSIS installer are
-# signed — NOT every internal .dll/.node. That covers SmartScreen (which
-# evaluates the downloaded installer + the launched exe) at 2 signatures per
-# release. Signing internal modules only matters under Windows Smart App
-# Control ENFORCEMENT (a small minority of machines) and is not reliably
-# satisfied by an IV cert anyway — an EV code-signing cert is the real fix if
-# SAC blocking is ever actually reported. macOS and Linux builds are unsigned —
-# macOS signing requires an Apple Developer account.
-#
-# COST MODEL — eSigner Cloud Signing is metered per SIGNATURE, not per request,
-# and there is NO free monthly allowance. Verified against the SSL.com monthly
-# invoices: July 2026 = 262 signed hashes -> $262.00, June 2026 = 663 -> $663.00,
-# i.e. a flat $1.00 per signed file. A batch_sign call that submits N hashes
-# bills N dollars. This is why the June 2026 bill hit $663: the signing step then
-# globbed every PE binary in win-unpacked (51 per build) and each retry re-signed
-# the whole batch. Two guards below keep that from recurring:
-#   * MAX_SIGN_BATCH caps how many files may be staged at all (see stage-sign).
-#   * Retries prune already-signed files from the stage dir, so N attempts cost
-#     at most one signature per file — never N per file.
+# Microsoft Store (MSIX): every Windows run (dry-run included) builds
+# win-unpacked, verifies its native modules, then packs an UNSIGNED Store
+# package (*-store.appx) from that tree and uploads it as artifact
+# ptah-msstore-<version>. It is never signed here. Identity values are committed in
+# apps/ptah-electron/electron-builder.yml (appx block). In publish mode only, the
+# `store` job submits it with the msstore CLI, after the GitHub Release. It needs
+# repository variables MSSTORE_TENANT_ID, MSSTORE_CLIENT_ID, MSSTORE_SELLER_ID,
+# MSSTORE_PRODUCT_ID and secret MSSTORE_CLIENT_SECRET; if any is missing the job
+# only prints a notice. Runs upload a draft (no-commit) by default; only a dispatch
+# with store-submission=commit submits for certification. The first Store
+# submission is done manually in Partner Center.
 
 name: Publish Electron
 
@@ -51,16 +48,26 @@ on:
   workflow_dispatch:
     inputs:
       bump:
-        description: 'Version bump type'
+        description: 'Version bump type (none = release the committed version unchanged)'
         required: true
         type: choice
         options:
           - patch
           - minor
           - major
+          - none
         default: patch
+      store-submission:
+        description: 'Microsoft Store: commit the submission, upload as draft only, or skip. Ignored in dry-run.'
+        required: false
+        type: choice
+        options:
+          - no-commit
+          - commit
+          - skip
+        default: no-commit
       dry-run:
-        description: 'Build, package and verify on all three OSes; no signing, tag, bump PR or release'
+        description: 'Build, package and verify on all three OSes; no tag, bump PR, release or Store submission'
         required: false
         type: boolean
         default: false
@@ -140,10 +147,29 @@ jobs:
             }
             const [major, minor, patch] = parts;
             const bump = '${BUMP_TYPE}';
-            if (bump === 'major') console.log(\`\${major+1}.0.0\`);
+            if (bump === 'none') console.log(\`\${major}.\${minor}.\${patch}\`);
+            else if (bump === 'major') console.log(\`\${major+1}.0.0\`);
             else if (bump === 'minor') console.log(\`\${major}.\${minor+1}.0\`);
             else console.log(\`\${major}.\${minor}.\${patch+1}\`);
           ")
+
+          # Store-valid, monotonic version guard (all modes): integer segments,
+          # major >= 1, each segment <= 65535, and strictly greater than every
+          # existing electron-v* tag (the Store only accepts increasing versions).
+          NEW_VERSION="$NEW_VERSION" node -e "
+            const v = process.env.NEW_VERSION;
+            const seg = v.split('.');
+            const fail = (m) => { console.error('::error::Version ' + v + ' rejected: ' + m); process.exit(1); };
+            if (seg.length !== 3 || !seg.every((s) => /^[0-9]+\$/.test(s))) fail('must be X.Y.Z integers');
+            const n = seg.map(Number);
+            if (n[0] < 1) fail('major must be >= 1 (Microsoft Store rule)');
+            if (n.some((x) => x > 65535)) fail('each segment must be <= 65535 (Microsoft Store rule)');
+            const tags = require('child_process').execSync('git tag -l \"electron-v*\"', { encoding: 'utf8' })
+              .split('\n').map((t) => t.trim().replace(/^electron-v/, '')).filter((t) => /^[0-9]+\.[0-9]+\.[0-9]+\$/.test(t));
+            const cmp = (a, b) => { const x = a.split('.').map(Number), y = b.split('.').map(Number); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] - y[i]; return 0; };
+            const higher = tags.find((t) => cmp(t, v) >= 0);
+            if (higher) fail('must be strictly greater than existing tag electron-v' + higher);
+          "
 
           node -e "
             const fs = require('fs');
@@ -334,17 +360,17 @@ jobs:
       #   production dependency not found  parent=monaco-editor
       #     dependency=dompurify version=3.2.7
       # because it does not read npm `overrides`. Re-run the prune (idempotent).
+      # Same order as the local package target: reconcile the declared
+      # onnxruntime-node version before packing so verify-packed-onnx.js below
+      # guards the CI artifacts too.
+      - name: Reconcile onnxruntime-node declared version (pre-pack)
+        run: node apps/ptah-electron/scripts/patch-transformers-onnx-dep.js
+
       - name: Prune renderer-only deps from the packaged manifest (pre-pack)
         run: node apps/ptah-electron/scripts/prune-dist-deps.js
 
       # macOS / Linux: single-shot package (build app + distributable together).
-      # Windows is split below into dir-build -> sign-exe -> repack-NSIS so the
-      # main app executable (Ptah.exe) carries the SSL.com IV signature INSIDE
-      # the installer, not just the outer installer itself. We intentionally do
-      # NOT sign internal .dll/.node modules: that only matters under Windows
-      # Smart App Control enforcement (rare) and would cost ~30-40 eSigner
-      # signatures per build — far over the Tier 1 monthly allowance. See the
-      # header comment for the full rationale.
+      # Windows builds win-unpacked (--dir) below and packs the Store appx from it.
       - name: Package for platform
         if: runner.os != 'Windows'
         run: npx electron-builder --config electron-builder.yml --project dist/apps/ptah-electron --publish never ${{ matrix.build-args }}
@@ -354,7 +380,7 @@ jobs:
           CXXFLAGS: '-std=c++20'
 
       # Post-pack gates for macOS/Linux (Windows runs its own copies inside the
-      # split signing flow below). Prove the packed better-sqlite3 ABI and the
+      # Windows flow below). Prove the packed better-sqlite3 ABI and the
       # tree-sitter WASM assets are present before shipping.
       #
       # TASK_2026_437 (Batch 10, Task 10.5): verify-packed-native.js also
@@ -374,9 +400,13 @@ jobs:
         if: runner.os != 'Windows'
         run: node apps/ptah-electron/scripts/verify-packed-wasm.js
 
-      # ---- Windows packaging + signing (split into 3 phases) ----------------
-      # Phase 1: build win-unpacked ONLY (--dir). No NSIS yet. The win-unpacked
-      # tree is real on-disk files we can sign before the installer wraps them.
+      - name: Verify packed onnxruntime-node (macOS/Linux)
+        if: runner.os != 'Windows'
+        run: node apps/ptah-electron/scripts/verify-packed-onnx.js
+
+      # ---- Windows packaging (Store only) -----------------------------------
+      # Build win-unpacked ONLY (--dir). No NSIS installer: the Store appx is
+      # packed from this tree further below.
       - name: Package Windows (win-unpacked only, no installer)
         if: runner.os == 'Windows'
         run: npx electron-builder --config electron-builder.yml --project dist/apps/ptah-electron --publish never --win --dir
@@ -384,295 +414,80 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           _CL_: /std:c++20
 
-      # Phase 1 gates: prove the packed better-sqlite3 ABI + tree-sitter WASM are
-      # correct in win-unpacked BEFORE we sign and repack. verify-packed-native
+      # Gates: prove the packed better-sqlite3 ABI + tree-sitter WASM are
+      # correct in win-unpacked BEFORE it is packed into the appx. verify-packed-native
       # scans dist/release recursively and finds win-unpacked/.../app.asar.unpacked
       # /node_modules/better-sqlite3/build/Release/better_sqlite3.node. WASM lives
       # inside win-unpacked/resources/app.asar (verify-packed-wasm scans for that).
       # TASK_2026_437 (Batch 10, Task 10.5): also verifies packed @parcel/watcher
       # (require + subscribe) — proves win32-x64 only (windows-latest is x64;
       # see the matrix comment above this job for windows-arm64).
-      - name: Verify packed native deps (better-sqlite3 ABI + @parcel/watcher, win-unpacked, pre-sign)
+      - name: Verify packed native deps (better-sqlite3 ABI + @parcel/watcher, win-unpacked)
         if: runner.os == 'Windows'
         run: node apps/ptah-electron/scripts/verify-packed-native.js
 
-      - name: Verify packed tree-sitter WASM (win-unpacked, pre-sign)
+      - name: Verify packed tree-sitter WASM (win-unpacked)
         if: runner.os == 'Windows'
         run: node apps/ptah-electron/scripts/verify-packed-wasm.js
 
-      # Phase 2a: stage ONLY the main app executable (Ptah.exe) for signing.
-      # We deliberately do NOT sign every internal .dll/.node: eSigner bills
-      # $1.00 per signed file with no free allowance, so signing the ~50 binaries
-      # in win-unpacked costs ~$51 per build (that is exactly what produced the
-      # $663 June 2026 invoice). Internal-module signatures only matter under
-      # Windows Smart App Control enforcement — rare, and not reliably satisfied
-      # by an IV cert anyway. Signing Ptah.exe + the outer installer covers
-      # SmartScreen for ~all users at 2 signatures per release. The batch_sign
-      # machinery below is retained (it now signs a single-file batch) and a JSON
-      # manifest records staged-name -> original-path for copy-back.
-      - name: Stage main app executable for signing
+      - name: Verify packed onnxruntime-node (win-unpacked)
         if: runner.os == 'Windows'
-        id: stage-sign
-        shell: pwsh
-        env:
-          # Hard ceiling on billable signatures per build. If the selection logic
-          # above ever regresses back to globbing the whole tree, this fails the
-          # build instead of silently spending ~$51. Raise deliberately.
-          MAX_SIGN_BATCH: '4'
-        run: |
-          $unpacked = "dist\release\win-unpacked"
-          if (-not (Test-Path $unpacked)) { throw "win-unpacked not found at $unpacked" }
-          $stage = "dist\sign-stage"
-          Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Force -Path $stage | Out-Null
-          # CodeSignTool batch_sign writes signed files to output_path and does
-          # NOT overwrite input in place — output_path MUST differ from dir_path,
-          # otherwise the originals stay unsigned (Get-AuthenticodeSignature ->
-          # NotSigned). Sign into a separate dir and copy back from there.
-          $signedDir = "dist\sign-out"
-          Remove-Item -Recurse -Force $signedDir -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Force -Path $signedDir | Out-Null
+        run: node apps/ptah-electron/scripts/verify-packed-onnx.js
 
-          # Only the main app executable is signed. It sits at the ROOT of
-          # win-unpacked and is named after productName (Ptah.exe). The MZ-header
-          # PE check below is retained as a defensive guard.
-          $candidates = Get-ChildItem -Path $unpacked -File |
-            Where-Object { $_.Name -eq 'Ptah.exe' }
-          $binaries = @()
-          $skipped = @()
-          foreach ($c in $candidates) {
-            $fs = [System.IO.File]::OpenRead($c.FullName)
-            try { $b0 = $fs.ReadByte(); $b1 = $fs.ReadByte() } finally { $fs.Dispose() }
-            if ($b0 -eq 0x4D -and $b1 -eq 0x5A) { $binaries += $c } else { $skipped += $c }
-          }
-          if ($skipped.Count -gt 0) {
-            Write-Host "Skipping $($skipped.Count) non-PE file(s) (no MZ header — not Windows binaries):"
-            $skipped | ForEach-Object { Write-Host "  SKIP $($_.FullName)" }
-          }
-          if ($binaries.Count -eq 0) { throw "No Windows PE (.exe/.dll/.node) binaries found under $unpacked" }
-          $maxBatch = [int]$env:MAX_SIGN_BATCH
-          if ($binaries.Count -gt $maxBatch) {
-            throw "Staged $($binaries.Count) binaries but MAX_SIGN_BATCH is $maxBatch. eSigner bills `$1.00 per signature — this build would cost `$$($binaries.Count). Fix the selection logic or raise MAX_SIGN_BATCH deliberately."
-          }
-
-          $manifest = @()
-          $i = 0
-          foreach ($b in $binaries) {
-            $i++
-            # CodeSignTool rejects unknown extensions; map .node -> .dll for signing.
-            $signExt = if ($b.Extension -eq '.node') { '.dll' } else { $b.Extension }
-            # Flat, collision-free staged name (the tree has many better_sqlite3.node etc.).
-            $stagedName = "{0:D3}_{1}{2}" -f $i, $b.BaseName, $signExt
-            $stagedPath = Join-Path $stage $stagedName
-            Copy-Item -LiteralPath $b.FullName -Destination $stagedPath -Force
-            $manifest += [pscustomobject]@{ staged = $stagedName; original = $b.FullName }
-          }
-
-          $manifestPath = "dist\sign-manifest.json"
-          $manifest | ConvertTo-Json -Depth 3 | Out-File -FilePath $manifestPath -Encoding utf8
-          Write-Host "Staged $($binaries.Count) binaries into $stage for batch signing:"
-          $binaries | ForEach-Object { Write-Host "  $($_.FullName)" }
-          echo "stage_dir=$stage" >> $env:GITHUB_OUTPUT
-          echo "signed_dir=$signedDir" >> $env:GITHUB_OUTPUT
-          echo "manifest=$manifestPath" >> $env:GITHUB_OUTPUT
-          echo "count=$($binaries.Count)" >> $env:GITHUB_OUTPUT
-
-      # Phase 2b: batch_sign signs every staged binary (output written to a
-      # separate dir). Single OTP per attempt. malware_block: true makes the
-      # action run a per-file `scan_code` first; each scan_code independently
-      # fetches an OAuth access token from SSL.com. That auth endpoint
-      # intermittently returns an HTML error page instead of JSON, which
-      # CodeSignTool reports as "Unexpected character (<) at position 0" thrown
-      # from AccessToken.getAccessToken — a transient SSL.com server-side flake,
-      # NOT a config error. When it hits, the batch produces no/partial output
-      # yet the action still exits 0. So: run with continue-on-error, count the
-      # output, and retry up to two more times.
-      #
-      # COST GUARD: override: true makes batch_sign re-sign every file still in
-      # dir_path, and eSigner bills $1.00 per signature — so a naive full-batch
-      # retry costs another full batch. Each check step below therefore DELETES
-      # the already-signed files from the stage dir first, leaving only the ones
-      # that actually failed. Three attempts can never cost more than one
-      # signature per staged file.
-      - name: Sign main app executable with SSL.com eSigner
-        if: runner.os == 'Windows' && needs.prepare.outputs.release_mode == 'publish'
-        uses: sslcom/esigner-codesign@v1.3.2
-        with: &batch_sign_with
-          command: batch_sign
-          username: ${{ secrets.SSL_COM_USERNAME }}
-          password: ${{ secrets.SSL_COM_PASSWORD }}
-          credential_id: ${{ secrets.SSL_COM_CREDENTIAL_ID }}
-          totp_secret: ${{ secrets.SSL_COM_TOTP_SECRET }}
-          dir_path: ${{ steps.stage-sign.outputs.stage_dir }}
-          output_path: ${{ steps.stage-sign.outputs.signed_dir }}
-          override: true
-          environment_name: PROD
-          # SSL.com PROD requires each hash to be malware-scanned before it will
-          # sign ("hash needs to be scanned first before submitting for signing").
-          # malware_block: true makes CodeSignTool submit the scan and wait.
-          malware_block: true
-        continue-on-error: true
-
-      - name: Check batch-sign output (attempt 1)
-        id: sign-check-1
-        if: runner.os == 'Windows' && needs.prepare.outputs.release_mode == 'publish'
-        shell: pwsh
-        run: |
-          $stageDir  = "${{ steps.stage-sign.outputs.stage_dir }}"
-          $signedDir = "${{ steps.stage-sign.outputs.signed_dir }}"
-          $expected  = [int]"${{ steps.stage-sign.outputs.count }}"
-          $have = @(Get-ChildItem -Path $signedDir -File -ErrorAction SilentlyContinue).Count
-          Write-Host "batch_sign attempt 1 produced $have / $expected signed file(s)"
-
-          # Cost guard: drop everything that already came back signed so the
-          # retry re-signs (and re-bills) only the files that actually failed.
-          $pruned = 0
-          foreach ($f in @(Get-ChildItem -Path $stageDir -File -ErrorAction SilentlyContinue)) {
-            if (Test-Path -LiteralPath (Join-Path $signedDir $f.Name)) {
-              Remove-Item -LiteralPath $f.FullName -Force
-              $pruned++
-            }
-          }
-          $remaining = @(Get-ChildItem -Path $stageDir -File -ErrorAction SilentlyContinue).Count
-          Write-Host "Pruned $pruned already-signed file(s) from the stage dir; $remaining left to sign."
-
-          if ($remaining -eq 0) {
-            "complete=true" >> $env:GITHUB_OUTPUT
-          } else {
-            "complete=false" >> $env:GITHUB_OUTPUT
-            Write-Host "Incomplete — likely a transient SSL.com auth/API error. Retrying after 30s."
-            Start-Sleep -Seconds 30
-          }
-
-      - name: Batch-sign retry (attempt 2)
-        if: runner.os == 'Windows' && needs.prepare.outputs.release_mode == 'publish' && steps.sign-check-1.outputs.complete != 'true'
-        uses: sslcom/esigner-codesign@v1.3.2
-        with: *batch_sign_with
-        continue-on-error: true
-
-      - name: Check batch-sign output (attempt 2)
-        id: sign-check-2
-        if: runner.os == 'Windows' && needs.prepare.outputs.release_mode == 'publish' && steps.sign-check-1.outputs.complete != 'true'
-        shell: pwsh
-        run: |
-          $stageDir  = "${{ steps.stage-sign.outputs.stage_dir }}"
-          $signedDir = "${{ steps.stage-sign.outputs.signed_dir }}"
-          $expected  = [int]"${{ steps.stage-sign.outputs.count }}"
-          $have = @(Get-ChildItem -Path $signedDir -File -ErrorAction SilentlyContinue).Count
-          Write-Host "batch_sign attempt 2 produced $have / $expected signed file(s)"
-
-          # Same cost guard as attempt 1 — the final retry only pays for the
-          # files that are still missing a signature.
-          $pruned = 0
-          foreach ($f in @(Get-ChildItem -Path $stageDir -File -ErrorAction SilentlyContinue)) {
-            if (Test-Path -LiteralPath (Join-Path $signedDir $f.Name)) {
-              Remove-Item -LiteralPath $f.FullName -Force
-              $pruned++
-            }
-          }
-          $remaining = @(Get-ChildItem -Path $stageDir -File -ErrorAction SilentlyContinue).Count
-          Write-Host "Pruned $pruned already-signed file(s) from the stage dir; $remaining left to sign."
-
-          if ($remaining -eq 0) {
-            "complete=true" >> $env:GITHUB_OUTPUT
-          } else {
-            "complete=false" >> $env:GITHUB_OUTPUT
-            Write-Host "Still incomplete — retrying after 60s."
-            Start-Sleep -Seconds 60
-          }
-
-      - name: Batch-sign retry (attempt 3)
-        if: runner.os == 'Windows' && needs.prepare.outputs.release_mode == 'publish' && steps.sign-check-1.outputs.complete != 'true' && steps.sign-check-2.outputs.complete != 'true'
-        uses: sslcom/esigner-codesign@v1.3.2
-        with: *batch_sign_with
-        continue-on-error: true
-
-      # Phase 2c: copy each signed binary back over its original location. The
-      # manifest is the source of truth, so this still works after the retry
-      # steps prune the stage dir. This is the strict final gate: it fails loudly
-      # if — after all sign attempts above — any staged file is missing or did
-      # not receive a Valid Authenticode signature.
-      - name: Copy signed binaries back into win-unpacked
-        if: runner.os == 'Windows' && needs.prepare.outputs.release_mode == 'publish'
-        shell: pwsh
-        run: |
-          $signedDir = "${{ steps.stage-sign.outputs.signed_dir }}"
-          $manifest = Get-Content "${{ steps.stage-sign.outputs.manifest }}" -Raw | ConvertFrom-Json
-          # Diagnostic: show what batch_sign actually emitted. An empty/short
-          # output dir here means every sign attempt hit the transient SSL.com
-          # auth/API error (HTML instead of JSON from AccessToken.getAccessToken).
-          $produced = @(Get-ChildItem -Path $signedDir -File -ErrorAction SilentlyContinue)
-          Write-Host "batch_sign produced $($produced.Count) file(s) in $signedDir"
-          $missing = @()
-          $unsigned = @()
-          foreach ($entry in $manifest) {
-            $signed = Join-Path $signedDir $entry.staged
-            if (-not (Test-Path $signed)) { $missing += $entry.staged; continue }
-            $sig = Get-AuthenticodeSignature -LiteralPath $signed
-            if ($sig.Status -ne 'Valid') { $unsigned += "$($entry.staged) [$($sig.Status)]" }
-            Copy-Item -LiteralPath $signed -Destination $entry.original -Force
-            Write-Host "Signed -> $($entry.original)  [$($sig.Status)]"
-          }
-          if ($missing.Count -gt 0) { throw "batch_sign did not produce: $($missing -join ', ')" }
-          if ($unsigned.Count -gt 0) { throw "Binaries lack a Valid signature after batch_sign: $($unsigned -join ', ')" }
-          Write-Host "All $($manifest.Count) staged binaries signed and copied back."
-
-      # Phase 3: build the NSIS installer FROM the now-signed win-unpacked dir.
-      # --prepackaged packs the distributable from the existing app dir without
-      # re-running asar packing or re-copying node_modules, so the signed
-      # Ptah.exe is carried verbatim into the installer.
-      # NOTE: --prepackaged is resolved relative to --project, so a relative
-      # "dist/release/win-unpacked" becomes dist/apps/ptah-electron/dist/release/
-      # win-unpacked (does not exist). Pass an ABSOLUTE workspace path so it
-      # points at the real output dir where phase 1's --dir build emitted it.
-      - name: Package Windows installer from signed app (NSIS)
+      # ---- Microsoft Store package (unsigned; every Windows run) -------------
+      - name: Check Store tile assets
         if: runner.os == 'Windows'
-        run: npx electron-builder --config electron-builder.yml --project dist/apps/ptah-electron --publish never --win --prepackaged "${{ github.workspace }}/dist/release/win-unpacked"
+        shell: pwsh
+        run: |
+          foreach ($n in 'StoreLogo','Square44x44Logo','Square150x150Logo','Wide310x150Logo') {
+            $p = "dist/apps/ptah-electron/assets/appx/$n.png"
+            if (-not (Test-Path $p)) { throw "Missing Store tile: $p (run apps/ptah-electron/scripts/generate-appx-assets.mjs)" }
+          }
+
+      # Packs the already-verified win-unpacked tree as an appx. NEVER sign it:
+      # Microsoft re-signs after certification. Assumption: --prepackaged works
+      # with the appx target. Fallback if it does not: drop --prepackaged (full
+      # repack from dist/apps/ptah-electron) and re-run the three verify-packed-*
+      # scripts after it.
+      - name: Package Microsoft Store MSIX (appx, unsigned, from win-unpacked)
+        if: runner.os == 'Windows'
+        run: npx electron-builder --config electron-builder.yml --project dist/apps/ptah-electron --publish never --win appx --prepackaged "${{ github.workspace }}/dist/release/win-unpacked"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Post-repack gates: re-prove ABI + WASM survived the NSIS repack. (The
-      # installer embeds win-unpacked verbatim. Only Ptah.exe is re-written by
-      # the signing phase, so the native modules are byte-identical here — the
-      # ABI-marker check is the contract that matters.)
-      - name: Verify packed native deps (better-sqlite3 ABI + @parcel/watcher, post-repack)
+      - name: Find Store package
         if: runner.os == 'Windows'
-        run: node apps/ptah-electron/scripts/verify-packed-native.js
-
-      - name: Verify packed tree-sitter WASM (post-repack)
-        if: runner.os == 'Windows'
-        run: node apps/ptah-electron/scripts/verify-packed-wasm.js
-
-      - name: Find Windows installer
-        if: runner.os == 'Windows'
-        id: find-exe
+        id: find-appx
         shell: pwsh
         run: |
-          $exe = (Get-ChildItem -Path "dist\release" -Filter "*.exe" | Select-Object -First 1).FullName
-          if (-not $exe) { throw "No .exe installer found to sign" }
-          Write-Host "Found installer: $exe"
-          echo "exe_path=$exe" >> $env:GITHUB_OUTPUT
+          $appx = @(Get-ChildItem -Path "dist\release" -Filter "*-store.appx")
+          if ($appx.Count -ne 1) { throw "Expected exactly one *-store.appx in dist\release, found $($appx.Count)" }
+          $item = $appx[0]
+          Write-Host "Found Store package: $($item.FullName)"
+          "appx_path=$($item.FullName)" >> $env:GITHUB_OUTPUT
+          "appx_name=$($item.Name)" >> $env:GITHUB_OUTPUT
+          "Store package: $($item.Name) ($([math]::Round($item.Length / 1MB, 1)) MB)" >> $env:GITHUB_STEP_SUMMARY
 
-      - name: Sign Windows installer with SSL.com eSigner
-        if: runner.os == 'Windows' && needs.prepare.outputs.release_mode == 'publish'
-        uses: sslcom/esigner-codesign@v1.3.2
+      - name: Upload Store package
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
         with:
-          command: sign
-          username: ${{ secrets.SSL_COM_USERNAME }}
-          password: ${{ secrets.SSL_COM_PASSWORD }}
-          credential_id: ${{ secrets.SSL_COM_CREDENTIAL_ID }}
-          totp_secret: ${{ secrets.SSL_COM_TOTP_SECRET }}
-          file_path: ${{ steps.find-exe.outputs.exe_path }}
-          override: true
-          environment_name: PROD
-          malware_block: false
+          name: ptah-msstore-${{ needs.prepare.outputs.version }}
+          path: ${{ steps.find-appx.outputs.appx_path }}
+          if-no-files-found: error
+          retention-days: ${{ needs.prepare.outputs.release_mode == 'publish' && 30 || 5 }}
 
+      # Windows ships only through the Store package uploaded above; nothing from
+      # the Windows leg goes into the general (GitHub Release) artifacts.
       - name: Upload artifacts
+        if: runner.os != 'Windows'
         uses: actions/upload-artifact@v4
         with:
           name: electron-${{ matrix.os }}
           path: |
             dist/release/
+            !dist/release/*.appx
+            !dist/release/__appx-*/
             !dist/release/win-unpacked/
             !dist/release/linux-unpacked/
             !dist/release/mac/
@@ -723,16 +538,20 @@ jobs:
             pkg.version = '${VERSION}';
             fs.writeFileSync('apps/ptah-electron/package.json', JSON.stringify(pkg, null, 2) + '\n');
           "
-          git add apps/ptah-electron/package.json
-          git commit --no-verify -m "chore(release): electron v${VERSION}"
-          git push origin "$BRANCH"
+          if git diff --quiet -- apps/ptah-electron/package.json; then
+            echo "::notice::package.json already at v${VERSION} on main; skipping bump commit and PR (tag pushed)."
+          else
+            git add apps/ptah-electron/package.json
+            git commit --no-verify -m "chore(release): electron v${VERSION}"
+            git push origin "$BRANCH"
 
-          # Create PR to main
-          gh pr create \
-            --base main \
-            --head "$BRANCH" \
-            --title "chore(release): electron v${VERSION}" \
-            --body "Auto-generated version bump after publishing Electron Desktop v${VERSION}."
+            # Create PR to main
+            gh pr create \
+              --base main \
+              --head "$BRANCH" \
+              --title "chore(release): electron v${VERSION}" \
+              --body "Auto-generated version bump after publishing Electron Desktop v${VERSION}."
+          fi
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -743,17 +562,6 @@ jobs:
       - name: List artifacts
         run: find artifacts -type f | head -50
 
-      - name: Rename installer files
-        run: |
-          # electron-builder NSIS uses spaces in filenames (e.g. "Ptah Setup 0.1.3.exe")
-          # Rename to dots for cleaner download URLs
-          find artifacts -type f -name "*Setup*.exe" -print0 | while IFS= read -r -d '' file; do
-            newname=$(echo "$file" | sed 's/ /./g')
-            if [ "$file" != "$newname" ]; then
-              mv "$file" "$newname"
-            fi
-          done
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -762,9 +570,105 @@ jobs:
           draft: false
           generate_release_notes: true
           files: |
-            artifacts/**/Ptah*.exe
             artifacts/**/*.dmg
             artifacts/**/*.zip
             artifacts/**/*.AppImage
             artifacts/**/*.deb
             artifacts/**/latest*.yml
+
+  # Microsoft Store submission (publish only). Runs after the GitHub Release so
+  # both channels share one version; a Store failure is re-runnable on its own
+  # and never blocks the release. Certification takes days, so this job only
+  # submits and reports the current status once.
+  store:
+    needs: [prepare, build, release]
+    if: needs.prepare.outputs.release_mode == 'publish' && (github.event.inputs.store-submission || 'no-commit') != 'skip'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      # Push-triggered runs have no inputs and upload a draft only; 'commit'
+      # happens only when a dispatch selects it.
+      STORE_MODE: ${{ github.event.inputs.store-submission || 'no-commit' }}
+    steps:
+      - name: Refuse unless publishing
+        shell: bash
+        env:
+          RELEASE_MODE: ${{ needs.prepare.outputs.release_mode }}
+        run: |
+          if [ "$RELEASE_MODE" != "publish" ]; then
+            echo "::error::Refusing Store submission in mode: $RELEASE_MODE"
+            exit 1
+          fi
+
+      - name: Check Store configuration
+        id: cfg
+        shell: pwsh
+        env:
+          MSSTORE_CLIENT_SECRET: ${{ secrets.MSSTORE_CLIENT_SECRET }}
+          MSSTORE_TENANT_ID: ${{ vars.MSSTORE_TENANT_ID }}
+          MSSTORE_CLIENT_ID: ${{ vars.MSSTORE_CLIENT_ID }}
+          MSSTORE_SELLER_ID: ${{ vars.MSSTORE_SELLER_ID }}
+          MSSTORE_PRODUCT_ID: ${{ vars.MSSTORE_PRODUCT_ID }}
+        run: |
+          $missing = @()
+          foreach ($n in 'MSSTORE_CLIENT_SECRET','MSSTORE_TENANT_ID','MSSTORE_CLIENT_ID','MSSTORE_SELLER_ID','MSSTORE_PRODUCT_ID') {
+            if ([string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($n))) { $missing += $n }
+          }
+          if ($missing.Count -gt 0) {
+            Write-Host "::notice::Microsoft Store submission skipped: missing $($missing -join ', '). The MSIX is in artifact ptah-msstore-${{ needs.prepare.outputs.version }}."
+            "configured=false" >> $env:GITHUB_OUTPUT
+          } else {
+            "configured=true" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Download Store package
+        if: steps.cfg.outputs.configured == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: ptah-msstore-${{ needs.prepare.outputs.version }}
+          path: store-pkg
+
+      - name: Set up msstore CLI
+        if: steps.cfg.outputs.configured == 'true'
+        uses: microsoft/microsoft-store-apppublisher@v1.1
+
+      - name: Configure msstore
+        if: steps.cfg.outputs.configured == 'true'
+        shell: pwsh
+        env:
+          MSSTORE_CLIENT_SECRET: ${{ secrets.MSSTORE_CLIENT_SECRET }}
+          MSSTORE_TENANT_ID: ${{ vars.MSSTORE_TENANT_ID }}
+          MSSTORE_CLIENT_ID: ${{ vars.MSSTORE_CLIENT_ID }}
+          MSSTORE_SELLER_ID: ${{ vars.MSSTORE_SELLER_ID }}
+        run: |
+          msstore reconfigure --tenantId "$env:MSSTORE_TENANT_ID" --sellerId "$env:MSSTORE_SELLER_ID" --clientId "$env:MSSTORE_CLIENT_ID" --clientSecret "$env:MSSTORE_CLIENT_SECRET"
+          if ($LASTEXITCODE -ne 0) { throw "msstore reconfigure failed" }
+
+      # Assumption: msstore publish accepts an .appx path for an MSIX product;
+      # confirmed by the first real submission.
+      - name: Submit to Microsoft Store
+        if: steps.cfg.outputs.configured == 'true'
+        shell: pwsh
+        env:
+          MSSTORE_PRODUCT_ID: ${{ vars.MSSTORE_PRODUCT_ID }}
+        run: |
+          $appx = @(Get-ChildItem -Path store-pkg -Filter "*.appx" -Recurse)
+          if ($appx.Count -ne 1) { throw "Expected exactly one .appx in store-pkg, found $($appx.Count)" }
+          $publishArgs = @('publish', $appx[0].FullName, '-id', $env:MSSTORE_PRODUCT_ID)
+          if ($env:STORE_MODE -eq 'no-commit') { $publishArgs += '--noCommit' }
+          "Microsoft Store submission mode: $env:STORE_MODE ($($appx[0].Name))" >> $env:GITHUB_STEP_SUMMARY
+          & msstore @publishArgs
+          if ($LASTEXITCODE -ne 0) { throw "msstore publish failed" }
+
+      - name: Submission status
+        if: steps.cfg.outputs.configured == 'true' && env.STORE_MODE == 'commit'
+        continue-on-error: true
+        shell: pwsh
+        env:
+          MSSTORE_PRODUCT_ID: ${{ vars.MSSTORE_PRODUCT_ID }}
+        run: |
+          $out = (msstore submission status $env:MSSTORE_PRODUCT_ID | Out-String)
+          "### Store submission status" >> $env:GITHUB_STEP_SUMMARY
+          $out >> $env:GITHUB_STEP_SUMMARY
