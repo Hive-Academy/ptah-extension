@@ -2,6 +2,7 @@
   "$schema": "./node_modules/nx/schemas/nx-schema.json",
   "//parallel": "Nx defaults to 3 concurrent TASKS, and each task starts its own Jest coordinator with its own worker pool, so the two numbers MULTIPLY. Measured 2026-09-20 on a 16-core host: one `nx run-many -t test` held 3 run-executor children and ~50 jest workers at 675-1,014 MB each, saturating the machine while the developer was working in Ptah. CI is unaffected — `.github/workflows/ci.yml` passes `--parallel=3 --maxWorkers=2` explicitly and a CLI flag beats this default. See TASK_2026_486_3b7e, and TASK_2026_404_edeb for the CI half.",
   "parallel": 2,
+  "defaultBase": "origin/main",
   "//sharedGlobals": "No root package.json / package-lock.json here: with pluginsConfig @nx/js projectsAffectedByDependencyUpdates 'auto', Nx reads the lockfile and marks only the projects that use a changed npm package (the default 'all' marks every project). Listing them made every dependency bump a full-graph run. Targets that read the root package files themselves (generatePackageJson, prune-lockfile, CLI-calling nx:run-commands) take `rootPackageFiles`.",
   "pluginsConfig": {
     "@nx/js": {
@@ -9,10 +10,7 @@
     }
   },
   "namedInputs": {
-    "default": [
-      "{projectRoot}/**/*",
-      "sharedGlobals"
-    ],
+    "default": ["{projectRoot}/**/*", "sharedGlobals"],
     "production": [
       "default",
       "!{projectRoot}/.eslintrc.json",
@@ -40,56 +38,30 @@
       "inputs": ["production", "^production", "rootPackageFiles"]
     },
     "typecheck": {
-      "inputs": [
-        "default",
-        "^production"
-      ]
+      "inputs": ["default", "^production"]
     },
     "validate-deps": {
-      "inputs": [
-        "default",
-        "^production"
-      ]
+      "inputs": ["default", "^production"]
     },
     "@angular/build:application": {
       "cache": true,
-      "dependsOn": [
-        "^build"
-      ],
-      "inputs": [
-        "production",
-        "^production"
-      ]
+      "dependsOn": ["^build"],
+      "inputs": ["production", "^production"]
     },
     "@nx/esbuild:esbuild": {
       "cache": true,
-      "dependsOn": [
-        "^build"
-      ],
-      "inputs": [
-        "production",
-        "^production"
-      ]
+      "dependsOn": ["^build"],
+      "inputs": ["production", "^production"]
     },
     "@nx/js:tsc": {
       "cache": true,
-      "dependsOn": [
-        "^build"
-      ],
-      "inputs": [
-        "production",
-        "^production"
-      ]
+      "dependsOn": ["^build"],
+      "inputs": ["production", "^production"]
     },
     "@nx/angular:ng-packagr-lite": {
       "cache": true,
-      "dependsOn": [
-        "^build"
-      ],
-      "inputs": [
-        "production",
-        "^production"
-      ]
+      "dependsOn": ["^build"],
+      "inputs": ["production", "^production"]
     },
     "lint": [
       {
@@ -104,9 +76,7 @@
           "{workspaceRoot}/eslint.config.mjs",
           "{workspaceRoot}/tools/eslint-rules/**/*",
           {
-            "externalDependencies": [
-              "eslint"
-            ]
+            "externalDependencies": ["eslint"]
           }
         ]
       }
@@ -122,11 +92,7 @@
             "coverage": true
           }
         },
-        "inputs": [
-          "default",
-          "^production",
-          "{workspaceRoot}/jest.preset.js"
-        ],
+        "inputs": ["default", "^production", "{workspaceRoot}/jest.preset.js"],
         "cache": true,
         "options": {
           "passWithNoTests": true
@@ -352,9 +318,7 @@
       "options": {
         "targetName": "e2e"
       },
-      "include": [
-        "apps/ptah-license-server-e2e/**/*"
-      ]
+      "include": ["apps/ptah-license-server-e2e/**/*"]
     }
   ],
   "analytics": true
