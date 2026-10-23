@@ -41,7 +41,7 @@ describe('Copilot lane host attention resolution', () => {
     const hostAttention = { resolve: jest.fn() };
     const broadcastMessage = jest.fn().mockResolvedValue(undefined);
     wireAgentEventListeners(buildContainer([
-      [TOKENS.AGENT_PROCESS_MANAGER, { events: new EventEmitter() }],
+      [TOKENS.AGENT_PROCESS_MANAGER, { events: new EventEmitter(), findAgentInfo: () => undefined }],
       [TOKENS.WEBVIEW_MANAGER, { broadcastMessage }],
       [TOKENS.CLI_DETECTION_SERVICE, { getAdapter: () => ({ permissionBridge: bridge }) }],
       [SDK_TOKENS.HOST_ATTENTION_COORDINATOR, hostAttention],
@@ -288,7 +288,7 @@ describe('persistCliSessionReference — bulk output stays out of the blob', () 
     const addCliSession = jest.fn().mockResolvedValue(undefined);
     const saveAgentOutput = jest.fn().mockResolvedValue(undefined);
     const container = buildContainer([
-      [TOKENS.AGENT_PROCESS_MANAGER, { readOutputForPersistence: readOutput }],
+      [TOKENS.AGENT_PROCESS_MANAGER, { readOutputForPersistence: readOutput, findAgentInfo: () => undefined }],
       [
         SDK_TOKENS.SDK_SESSION_METADATA_STORE,
         {
@@ -406,7 +406,7 @@ describe('persistCliSessionReference — bulk output stays out of the blob', () 
     const readOutput = jest.fn().mockReturnValue(buildOutput());
     const addCliSession = jest.fn().mockResolvedValue(undefined);
     const container = buildContainer([
-      [TOKENS.AGENT_PROCESS_MANAGER, { readOutputForPersistence: readOutput }],
+      [TOKENS.AGENT_PROCESS_MANAGER, { readOutputForPersistence: readOutput, findAgentInfo: () => undefined }],
       [
         SDK_TOKENS.SDK_SESSION_METADATA_STORE,
         {
@@ -470,7 +470,7 @@ describe('persistCliSessionReference — bulk write gates the reference', () => 
       .mockRejectedValueOnce(new Error('storage busy'))
       .mockResolvedValue(undefined);
     const container = buildContainer([
-      [TOKENS.AGENT_PROCESS_MANAGER, { readOutputForPersistence: readOutput }],
+      [TOKENS.AGENT_PROCESS_MANAGER, { readOutputForPersistence: readOutput, findAgentInfo: () => undefined }],
       [
         SDK_TOKENS.SDK_SESSION_METADATA_STORE,
         {
@@ -522,7 +522,7 @@ describe('persistCliSessionReference — bulk write gates the reference', () => 
       .mockRejectedValue(new Error('storage busy'));
     const logger = createMockLogger();
     const container = buildContainer([
-      [TOKENS.AGENT_PROCESS_MANAGER, { readOutputForPersistence: readOutput }],
+      [TOKENS.AGENT_PROCESS_MANAGER, { readOutputForPersistence: readOutput, findAgentInfo: () => undefined }],
       [
         SDK_TOKENS.SDK_SESSION_METADATA_STORE,
         {
@@ -567,7 +567,7 @@ describe('persistCliSessionReference — bulk write gates the reference', () => 
     const saveAgentOutput = jest.fn().mockRejectedValue(serializationError);
     const logger = createMockLogger();
     const container = buildContainer([
-      [TOKENS.AGENT_PROCESS_MANAGER, { readOutputForPersistence: readOutput }],
+      [TOKENS.AGENT_PROCESS_MANAGER, { readOutputForPersistence: readOutput, findAgentInfo: () => undefined }],
       [
         SDK_TOKENS.SDK_SESSION_METADATA_STORE,
         {
@@ -621,7 +621,11 @@ describe('quota owner persistence (TASK_2026_596 G3)', () => {
     const container = buildContainer([
       [
         TOKENS.AGENT_PROCESS_MANAGER,
-        { events, readOutputForPersistence: jest.fn().mockReturnValue({}) },
+        {
+          events,
+          readOutputForPersistence: jest.fn().mockReturnValue({}),
+          findAgentInfo: () => undefined,
+        },
       ],
       [
         TOKENS.WEBVIEW_MANAGER,
@@ -765,6 +769,7 @@ describe('wireAgentEventListeners — the drop reaches the log', () => {
     const agentProcessManager = {
       events,
       readOutputForPersistence: jest.fn().mockReturnValue(undefined),
+      findAgentInfo: () => undefined,
     };
     const container = buildContainer([
       [TOKENS.AGENT_PROCESS_MANAGER, agentProcessManager],

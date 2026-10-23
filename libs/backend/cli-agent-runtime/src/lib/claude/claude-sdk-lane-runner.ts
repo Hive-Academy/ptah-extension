@@ -169,8 +169,15 @@ export class ClaudeSdkLaneRunner {
       });
     };
     settleAbort = () => finish(1);
-    streamLoop.run(sdkQuery).then(finish, () => {
-      this.logger.error('[ClaudeLane] Stream loop failed.');
+    streamLoop.run(sdkQuery).then(finish, (error: unknown) => {
+      // Named lanes log no raw error text: it can carry account paths.
+      this.logger.error(
+        context.named
+          ? '[ClaudeLane] Stream loop failed.'
+          : `[PtahCliRegistry] spawnAgent stream loop error: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+      );
       finish(1);
     });
     if (context.named && abortController.signal.aborted) finish(1);
