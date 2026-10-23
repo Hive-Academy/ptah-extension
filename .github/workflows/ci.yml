@@ -145,7 +145,11 @@ jobs:
       - name: Build docs when affected
         shell: bash
         run: |
-          if ! node_modules/.bin/nx show projects --affected -t build --json | grep -q '"ptah-docs"'; then
+          if ! affected="$(node_modules/.bin/nx show projects --affected -t build --json)"; then
+            echo "Failed to determine affected build projects." >&2
+            exit 1
+          fi
+          if ! grep -q '"ptah-docs"' <<< "$affected"; then
             echo "ptah-docs is not affected."
             exit 0
           fi
