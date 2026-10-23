@@ -39,11 +39,18 @@ describe('immutable session account linkage', () => {
     { ...binding, identity: { kind: 'known', ownerKey: 'email@example.com' } },
     { ...binding, directory: '/private/account' },
     { ...binding, profileId: '/private/account' },
-  ])('refuses present malformed linkage on detail, list and projection', async accountBinding => {
+  ])('refuses present malformed linkage on detail and projection, but still lists it', async accountBinding => {
     const { storage, store } = fixture();
-    storage.__state.seed(key, [{ ...metadata, accountBinding }]);
+    const healthy: SessionMetadata = { ...metadata, sessionId: 'sdk-session-0002' };
+    storage.__state.seed(key, [{ ...metadata, accountBinding }, healthy]);
     await expect(store.get(metadata.sessionId)).rejects.toMatchObject({ code: 'invalid-bound' });
-    await expect(store.getAll()).rejects.toMatchObject({ code: 'invalid-bound' });
+    await expect(store.resolveAccountBinding(metadata.sessionId, async () => ({ status: 'absent' })))
+      .rejects.toMatchObject({ code: 'invalid-bound' });
+    // One bad row never hides the other sessions, and keeps its binding key.
+    const listed = await store.getAll();
+    expect(listed.map(m => m.sessionId)).toEqual([metadata.sessionId, healthy.sessionId]);
+    expect(Object.prototype.hasOwnProperty.call(listed[0], 'accountBinding')).toBe(true);
+    await expect(store.getForWorkspace('/workspace')).resolves.toHaveLength(2);
     const corrupted = storage.get<SessionMetadata[]>(key)?.[0];
     if (!corrupted) throw new Error('Missing fixture');
     expect(() => sessionIndexEntry(corrupted)).toThrow(expect.objectContaining({ code: 'invalid-bound' }));

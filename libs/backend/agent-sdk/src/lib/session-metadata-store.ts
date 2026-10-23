@@ -109,6 +109,20 @@ function validateAccountLinkage(value: unknown): SessionMetadata {
   return { ...metadata, accountBinding: parseSessionAccountBinding(metadata.accountBinding) };
 }
 
+/**
+ * List reads never fail as a whole for one bad row. A row whose binding does
+ * not parse keeps its stored `accountBinding`, so it never reads as ambient;
+ * single-session reads and every account gate still refuse it.
+ */
+function listAccountLinkage(value: unknown): SessionMetadata {
+  const metadata = value as SessionMetadata;
+  if (typeof value !== 'object' || value === null || Array.isArray(value) ||
+      !Object.prototype.hasOwnProperty.call(metadata, 'accountBinding')) return metadata;
+  const parsed = accountBindingSchema.safeParse(metadata.accountBinding);
+  if (!parsed.success) return metadata;
+  return { ...metadata, accountBinding: Object.freeze({ ...parsed.data, identity: Object.freeze(parsed.data.identity) }) };
+}
+
 function sameAccountBinding(left: ProviderAccountBinding, right: ProviderAccountBinding): boolean {
   return JSON.stringify(parseSessionAccountBinding(left)) === JSON.stringify(parseSessionAccountBinding(right));
 }
@@ -981,7 +995,7 @@ export class SessionMetadataStore {
       const rows = await this.records.listForWorkspace(workspaceId, {
         includeChildren,
       });
-      return rows.map((r) => validateAccountLinkage(r.summary));
+      return rows.map((r) => listAccountLinkage(r.summary));
     }
     const all = await this.getAll();
     const normalizedQuery = workspaceId.replace(/\\/g, '/');
@@ -1006,9 +1020,9 @@ export class SessionMetadataStore {
       await this.gate?.whenReady();
       // Every project of this host, not only the active one.
       const rows = await this.records.listAll({ includeChildren: true });
-      return rows.map((r) => validateAccountLinkage(r.summary));
+      return rows.map((r) => listAccountLinkage(r.summary));
     }
-    if (this.pendingAll) return this.withStrays([...this.pendingAll]).map(validateAccountLinkage);
+    if (this.pendingAll) return this.withStrays([...this.pendingAll]).map(listAccountLinkage);
     // Copied, not handed through. `_saveInternal` replaces entries in what it
     // gets back, and `IStateStorage.get` returns the adapter's own cached
     // array (`vscode.Memento` included) — so returning it directly let a
@@ -1018,7 +1032,7 @@ export class SessionMetadataStore {
       SessionMetadata[] | SessionMetadataIndex
     >(STORAGE_KEY);
     const items = Array.isArray(stored) ? stored : stored?.items;
-    return this.withStrays([...(items ?? [])]).map(validateAccountLinkage);
+    return this.withStrays([...(items ?? [])]).map(listAccountLinkage);
   }
 
   async saveAgentOutput(
