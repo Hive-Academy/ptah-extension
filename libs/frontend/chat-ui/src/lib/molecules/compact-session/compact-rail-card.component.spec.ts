@@ -298,7 +298,7 @@ describe(CompactRailCardComponent.name, () => {
     f.componentRef.setInput('contextPercent', 37.41666);
     f.detectChanges();
     const text = (f.nativeElement.textContent as string).replace(/\s+/g, ' ');
-    expect(text).toContain('ctx 37%');
+    expect(text).toContain('37% ctx');
     expect(text).not.toContain('37.41666');
   });
 
