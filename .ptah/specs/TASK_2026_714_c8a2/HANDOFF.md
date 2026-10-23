@@ -40,7 +40,7 @@ spike proves the required observations (`implementation-plan.md:262-270`).
 - Local only, NOT pushed: the docs commit with this HANDOFF.md, `decisions.md`, `batch-1c-report.md`,
   `codex-version-contract-report.md` and `code-logic-review-orchestrator-edits.md` (push with the
   next Batch 1c commit).
-- CI on `3ec2bb479` at wrap-up: 14 pass, 2 pending, 3 skipped, 0 failed. No code review (CodeRabbit
+- CI on `3ec2bb479`: finished, all jobs pass or skipped (0 failed). No code review (CodeRabbit
   skips drafts).
 
 ## User decisions this session (in `decisions.md`)
