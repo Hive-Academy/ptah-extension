@@ -32,6 +32,7 @@ import {
   initializeParams,
   assertThreadApprovalPolicy,
   shouldNoteMissingApproval,
+  commandMatches,
   markerApprovalDecision,
   markerExists,
   assertDisjointHomes,
@@ -47,6 +48,70 @@ import {
   recordCommandShape,
 } from './evidence-failure-notes';
 
+describe('strict command identity', () => {
+  const expected =
+    "& 'C:\\node.exe' 'C:\\case-marker.cjs' 'C:\\root' 'C:\\target'";
+
+  it('accepts the exact command on every platform', () => {
+    expect(commandMatches(expected, expected, 'win32')).toBe(true);
+    expect(commandMatches(expected, expected, 'linux')).toBe(true);
+    expect(commandMatches(undefined, expected, 'win32')).toBe(false);
+  });
+
+  it.each([
+    'C:\\Windows\\System32\\powershell.exe',
+    'C:\\Program Files\\PowerShell\\pwsh.exe',
+    'C:/Windows/POWERSHELL.EXE',
+    '\\\\server\\share\\pwsh.exe',
+  ])('accepts only the exact absolute PowerShell wrapper: %s', (shell) => {
+    expect(
+      commandMatches(`"${shell}" -Command "${expected}"`, expected, 'win32'),
+    ).toBe(true);
+  });
+
+  it.each([
+    `"powershell.exe" -Command "${expected}"`,
+    `"tools\\pwsh.exe" -Command "${expected}"`,
+    `"C:pwsh.exe" -Command "${expected}"`,
+    `"C:\\cmd.exe" -Command "${expected}"`,
+    `"C:\\bash" -Command "${expected}"`,
+    `"C:\\pwsh.exe" -NoProfile -Command "${expected}"`,
+    `"C:\\pwsh.exe" -Command "${expected}" extra`,
+    `"C:\\pwsh.exe" -Command "${expected}"\n`,
+    `"C:\\pwsh.exe" -Command "${expected} extra"`,
+    `"C:\\pwsh.exe" -Command "${expected.toUpperCase()}"`,
+    `"C:\\bad"path\\pwsh.exe" -Command "${expected}"`,
+  ])('rejects a non-identical or unsupported wrapper: %s', (observed) => {
+    expect(commandMatches(observed, expected, 'win32')).toBe(false);
+  });
+
+  it('rejects wrapper matching for double quotes and non-Windows platforms', () => {
+    const quoted = expected + ' "extra"';
+    expect(
+      commandMatches(`"C:\\pwsh.exe" -Command "${quoted}"`, quoted, 'win32'),
+    ).toBe(false);
+    expect(
+      commandMatches(
+        `"C:\\pwsh.exe" -Command "${expected}"`,
+        expected,
+        'linux',
+      ),
+    ).toBe(false);
+  });
+
+  it('builds a file-backed marker command without inline code or double quotes', () => {
+    const source = readFileSync(join(__dirname, 'evidence-harness.ts'), 'utf8');
+    expect(source).toContain(
+      '[process.execPath, markerScript, experiment.root, target]',
+    );
+    expect(source).not.toContain("[process.execPath, '-e'");
+    expect(source).toContain("if (expectedCommand.includes('\"'))");
+    expect(source).toContain('writeMarker(process.argv[2],process.argv[3]);');
+    expect(expected).not.toContain('"');
+    expect(expected).not.toContain("'-e'");
+  });
+});
+
 describe('bounded command shape diagnostics', () => {
   const experiment = {
     root: 'C:\\evidence',
@@ -54,8 +119,8 @@ describe('bounded command shape diagnostics', () => {
     scratch: 'C:\\evidence\\scratch',
     workspace: 'C:\\evidence\\workspace',
   };
-  const markerScript = "writeMarker('fixed')";
-  const expectedCommand = `'${process.execPath}' -e "${markerScript}" '${experiment.root}' '${experiment.workspace}'`;
+  const markerScript = 'C:\\evidence\\case-marker.cjs';
+  const expectedCommand = `'${process.execPath}' '${markerScript}' '${experiment.root}' '${experiment.workspace}'`;
   const context = { experiment, markerScript, expectedCommand, sanitize };
 
   it('replaces real home and temp paths while preserving nested experiment paths', () => {
@@ -180,7 +245,7 @@ describe('bounded command shape diagnostics', () => {
 
   it('distinguishes quoting from changed arguments and emits one shape per case', () => {
     const quoting = { notes: [] as string[] };
-    const command = `${process.execPath} -e "${markerScript}" ${experiment.root} ${experiment.workspace}`;
+    const command = `${process.execPath} "${markerScript}" ${experiment.root} ${experiment.workspace}`;
     recordCommandShape(quoting, {}, { command }, context);
     expect(quoting.notes).toContain('Command differs by: quoting');
     const other = { notes: [] as string[] };
@@ -193,6 +258,22 @@ describe('bounded command shape diagnostics', () => {
     recordCommandShape(other, {}, { command: 'second shape' }, context);
     expect(other.notes).toHaveLength(3);
     expect(other.notes).toContain('Command differs by: other');
+  });
+
+  it('preserves the PowerShell basename and classifies an absolute shell wrapper', () => {
+    const result = { notes: [] as string[] };
+    recordCommandShape(
+      result,
+      {},
+      {
+        command: `"C:\\Private Directory\\powershell.exe" -Command "${expectedCommand}"`,
+      },
+      context,
+    );
+    expect(result.notes[0]).toContain('"<PATH>\\powershell.exe" -Command');
+    expect(result.notes[0]).toContain('<MARKER_SCRIPT>');
+    expect(result.notes.join(' ')).not.toContain('Private Directory');
+    expect(result.notes).toContain('Command differs by: shell wrapper');
   });
 
   it('keeps only bounded command fields and camelCase key names, then sanitizes', () => {
@@ -1070,6 +1151,11 @@ describe('granular ask approval policy', () => {
       expect(shouldNoteMissingApproval('turn', level, false)).toBe(false);
       expect(shouldNoteMissingApproval('', level, false)).toBe(false);
     }
+  });
+
+  it('does not note missing approval after a harness gate failure', () => {
+    expect(shouldNoteMissingApproval('turn', 'ask', false, true)).toBe(false);
+    expect(shouldNoteMissingApproval('turn', 'ask', false, false)).toBe(true);
   });
 
   it('reports an allowlisted approval-policy mismatch', () => {

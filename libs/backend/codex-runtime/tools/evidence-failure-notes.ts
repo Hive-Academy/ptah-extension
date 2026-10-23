@@ -41,6 +41,7 @@ export const failureMessages = new Set([
   'Approval rejected by safety gate',
   'Notification thread mismatch',
   'Unexpected command',
+  'Command path contains a double quote',
   'Unexpected file change',
   'Unexpected or repeated tool item',
   'CODEX_HOME isolation mismatch',
@@ -143,7 +144,10 @@ export function recordCommandShape(
     )
     .sort((left, right) => right.value.length - left.value.length);
   const shape = (command: string): string => {
-    let value = command;
+    let value = command.replace(
+      /"(?:[A-Za-z]:[\\/]|\\\\)[^"\r\n]*[\\/](powershell\.exe|pwsh\.exe|cmd\.exe|bash|sh)"/gi,
+      '"<PATH>\\$1"',
+    );
     for (const script of variants(context.markerScript).sort(
       (left, right) => right.length - left.length,
     )) {

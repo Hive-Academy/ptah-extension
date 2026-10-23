@@ -846,8 +846,35 @@ export function shouldNoteMissingApproval(
   turnId: string,
   level: EvidenceCase['level'],
   approvalRequestObserved: boolean,
+  harnessFailed = false,
 ): boolean {
-  return !!turnId && level === 'ask' && !approvalRequestObserved;
+  return (
+    !!turnId && level === 'ask' && !approvalRequestObserved && !harnessFailed
+  );
+}
+
+export function commandMatches(
+  observed: unknown,
+  expected: string,
+  platform = process.platform,
+): boolean {
+  if (observed === expected) return true;
+  if (
+    platform !== 'win32' ||
+    expected.includes('"') ||
+    typeof observed !== 'string'
+  )
+    return false;
+  const wrapper =
+    /^"((?:[A-Za-z]:[\\/]|\\\\[^"\\/]+[\\/][^"\\/]+[\\/])[^"\r\n]*)" -Command "([^"\r\n]*)"$/.exec(
+      observed,
+    );
+  return (
+    wrapper !== null &&
+    wrapper[0] === observed &&
+    /[\\/](?:powershell|pwsh)\.exe$/i.test(wrapper[1]) &&
+    wrapper[2] === expected
+  );
 }
 
 function configSummary(value: unknown): unknown {
@@ -914,7 +941,9 @@ export function markerApprovalDecision(
     (context.kind === 'command' || context.kind === 'boundary') &&
     frame.method === 'item/commandExecution/requestApproval'
   ) {
-    return params['command'] === context.expectedCommand ? 'accept' : 'decline';
+    return commandMatches(params['command'], context.expectedCommand)
+      ? 'accept'
+      : 'decline';
   }
   if (
     context.kind === 'file' &&
@@ -1048,13 +1077,19 @@ async function runCase(
     process.platform === 'win32'
       ? "'" + value.replace(/'/g, "''") + "'"
       : "'" + value.replace(/'/g, "'\\''") + "'";
-  const markerScript =
-    MARKER_WRITER + ';writeMarker(process.argv[1],process.argv[2]);';
+  const markerScript = join(experiment.root, `${item.id}-marker.cjs`);
+  writeFileSync(
+    markerScript,
+    MARKER_WRITER + ';writeMarker(process.argv[2],process.argv[3]);',
+    { flag: 'wx', mode: 0o600 },
+  );
   const expectedCommand =
     (process.platform === 'win32' ? '& ' : '') +
-    [process.execPath, '-e', markerScript, experiment.root, target]
+    [process.execPath, markerScript, experiment.root, target]
       .map(shellQuote)
       .join(' ');
+  if (expectedCommand.includes('"'))
+    throw new Error('Command path contains a double quote');
   const overrides = [
     `mcp_servers.marker.command=${JSON.stringify(process.execPath)}`,
     `mcp_servers.marker.args=${JSON.stringify([fixture, JSON.stringify({ root: experiment.root, original })])}`,
@@ -1093,6 +1128,17 @@ async function runCase(
   let approvalPending = false;
   let approvalRounds = 0;
   let approvalRequestObserved = false;
+  let harnessFailed = false;
+  const noteWrapper = (command: unknown): void => {
+    if (
+      command !== expectedCommand &&
+      commandMatches(command, expectedCommand)
+    ) {
+      const notes = (result.notes ??= []);
+      const note = 'Command accepted via PowerShell wrapper';
+      if (!notes.includes(note)) notes.push(note);
+    }
+  };
   let toolItems = 0;
   const validatedFileItems = new Set<string>();
   const interrupt = (): void => {
@@ -1157,7 +1203,7 @@ async function runCase(
         }) === 'accept';
       if (!fixed && frame.method === 'item/commandExecution/requestApproval') {
         const params = record(frame.params ?? {});
-        if (params['command'] !== expectedCommand)
+        if (!commandMatches(params['command'], expectedCommand))
           recordCommandShape(result, params, params, {
             experiment,
             expectedCommand,
@@ -1172,6 +1218,8 @@ async function runCase(
         compacting
       )
         throw new Error('Unexpected request');
+      if (frame.method === 'item/commandExecution/requestApproval')
+        noteWrapper(record(frame.params ?? {})['command']);
       approvalRounds += 1;
       approvalPending = true;
       if (markerExists(experiment.root, target))
@@ -1210,7 +1258,7 @@ async function runCase(
     if (method === 'item/started' || method === 'item/completed') {
       const observed = record(data['item']);
       if (observed['type'] === 'commandExecution') {
-        if (observed['command'] !== expectedCommand) {
+        if (!commandMatches(observed['command'], expectedCommand)) {
           recordCommandShape(result, data, observed, {
             experiment,
             expectedCommand,
@@ -1220,6 +1268,7 @@ async function runCase(
           });
           throw new Error('Unexpected command');
         }
+        noteWrapper(observed['command']);
       }
       if (observed['type'] === 'fileChange') {
         const changes = z
@@ -1409,9 +1458,17 @@ async function runCase(
     }
     if (!result.usage)
       throw new Error('No usage evidence; stop before further inference');
+  } catch (error) {
+    harnessFailed = true;
+    throw error;
   } finally {
     if (
-      shouldNoteMissingApproval(turnId, item.level, approvalRequestObserved)
+      shouldNoteMissingApproval(
+        turnId,
+        item.level,
+        approvalRequestObserved,
+        harnessFailed,
+      )
     ) {
       (result.notes ??= []).push('granular ask: no approval request observed');
     }
