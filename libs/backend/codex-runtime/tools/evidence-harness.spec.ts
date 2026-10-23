@@ -11,14 +11,12 @@ import {
   symlinkSync,
   realpathSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import {
   childEnvironment,
   cleanupExperiment,
   createExperiment,
   disk,
-  FrameDecoder,
-  MAX_FRAME_BYTES,
   parseOptions,
   RpcChild,
   runHarness,
@@ -28,6 +26,10 @@ import {
   type Experiment,
   assertSafeSandbox,
   policy,
+  approvalPolicyOverride,
+  approvalPoliciesEqual,
+  assertEffectiveApprovalPolicy,
+  shouldNoteMissingApproval,
   markerApprovalDecision,
   markerExists,
   assertDisjointHomes,
@@ -36,8 +38,217 @@ import {
   USAGE_CEILING,
   type MarkerApproval,
   errorCode,
-  recordCaseFailure,
 } from './evidence-harness';
+import { FrameDecoder, MAX_FRAME_BYTES } from './evidence-frames';
+import {
+  recordCaseFailure,
+  recordCommandShape,
+} from './evidence-failure-notes';
+
+describe('bounded command shape diagnostics', () => {
+  const experiment = {
+    root: 'C:\\evidence',
+    home: 'C:\\evidence\\home',
+    scratch: 'C:\\evidence\\scratch',
+    workspace: 'C:\\evidence\\workspace',
+  };
+  const markerScript = "writeMarker('fixed')";
+  const expectedCommand = `'${process.execPath}' -e "${markerScript}" '${experiment.root}' '${experiment.workspace}'`;
+  const context = { experiment, markerScript, expectedCommand, sanitize };
+
+  it('replaces real home and temp paths while preserving nested experiment paths', () => {
+    const nested = {
+      root: join(tmpdir(), 'shape-experiment'),
+      home: join(tmpdir(), 'shape-experiment', 'home'),
+      scratch: join(tmpdir(), 'shape-experiment', 'scratch'),
+      workspace: join(homedir(), 'shape-workspace'),
+    };
+    const result = { notes: [] as string[] };
+    recordCommandShape(
+      result,
+      {},
+      {
+        command: [
+          `${homedir()}/private.txt`,
+          `${tmpdir()}/private.txt`,
+          nested.root,
+          nested.home,
+          nested.scratch,
+          nested.workspace,
+        ]
+          .map((path) => JSON.stringify(path))
+          .join(' '),
+      },
+      { ...context, experiment: nested },
+    );
+    expect(result.notes[0]).toBe(
+      'Unexpected command shape: "<USER_HOME>/private.txt" ' +
+        '"<TMP>/private.txt" "<ROOT>" "<HOME>" "<SCRATCH>" "<WORKSPACE>"',
+    );
+  });
+
+  it('replaces cwd, CODEX_HOME and the caller auth directory', () => {
+    const previous = process.env['CODEX_HOME'];
+    const codexHome = join(tmpdir(), 'shape-codex-home');
+    const authDirectory = join(codexHome, 'source');
+    try {
+      process.env['CODEX_HOME'] = codexHome;
+      const result = { notes: [] as string[] };
+      recordCommandShape(
+        result,
+        {},
+        {
+          command: [process.cwd(), codexHome, authDirectory].join(' '),
+        },
+        { ...context, authDirectory },
+      );
+      expect(result.notes[0]).toBe(
+        'Unexpected command shape: <CWD> <CODEX_HOME> <AUTH_DIR>',
+      );
+    } finally {
+      if (previous === undefined) delete process.env['CODEX_HOME'];
+      else process.env['CODEX_HOME'] = previous;
+    }
+  });
+
+  it.each([
+    'Z:\\unknown-profile\\private.txt',
+    'Z:/unknown-profile/private.txt',
+    '\\\\unknown-host\\share\\private.txt',
+    '/home/unknown-profile/private.txt',
+    '/Users/unknown-profile/private.txt',
+    '~/private.txt',
+  ])('redacts an unknown absolute path: %s', (path) => {
+    const result = { notes: [] as string[] };
+    recordCommandShape(result, {}, { command: `cat "${path}" tail` }, context);
+    expect(result.notes[0]).toBe('Unexpected command shape: cat "<PATH>" tail');
+  });
+
+  it('redacts a secret straddling character 400 before capping the note', () => {
+    const secret = 'private-boundary-secret';
+    const prefix = 'x '.repeat(195);
+    const result = { notes: [] as string[] };
+    recordCommandShape(
+      result,
+      {},
+      { command: prefix + secret + ' tail '.repeat(20) },
+      { ...context, sanitize: (value) => sanitize(value, [secret]) },
+    );
+    expect(result.notes[0]).toBe(
+      'Unexpected command shape: ' + prefix + '[REDACTED]',
+    );
+    expect(result.notes[0]).not.toContain('private');
+  });
+
+  it('replaces specific paths before the root, script quoting variants and the node executable', () => {
+    const result = { notes: [] as string[] };
+    recordCommandShape(
+      result,
+      { command: 'unused' },
+      {
+        command: [
+          process.execPath,
+          markerScript.replace(/'/g, "''"),
+          experiment.root,
+          experiment.home.replace(/\\/g, '/'),
+          experiment.scratch,
+          experiment.workspace,
+        ].join('  '),
+      },
+      context,
+    );
+    expect(result.notes[0]).toBe(
+      'Unexpected command shape: <NODE> <MARKER_SCRIPT> <ROOT> <HOME> <SCRATCH> <WORKSPACE>',
+    );
+  });
+
+  it.each(['powershell -Command', 'cmd /c', 'bash -lc'])(
+    'classifies %s without approving it',
+    (wrapper) => {
+      const result = { notes: [] as string[] };
+      recordCommandShape(
+        result,
+        {},
+        { command: `${wrapper} "${expectedCommand}"` },
+        context,
+      );
+      expect(result.notes).toContain('Command differs by: shell wrapper');
+    },
+  );
+
+  it('distinguishes quoting from changed arguments and emits one shape per case', () => {
+    const quoting = { notes: [] as string[] };
+    const command = `${process.execPath} -e "${markerScript}" ${experiment.root} ${experiment.workspace}`;
+    recordCommandShape(quoting, {}, { command }, context);
+    expect(quoting.notes).toContain('Command differs by: quoting');
+    const other = { notes: [] as string[] };
+    recordCommandShape(
+      other,
+      {},
+      { command: expectedCommand + ' extra' },
+      context,
+    );
+    recordCommandShape(other, {}, { command: 'second shape' }, context);
+    expect(other.notes).toHaveLength(3);
+    expect(other.notes).toContain('Command differs by: other');
+  });
+
+  it('keeps only bounded command fields and camelCase key names, then sanitizes', () => {
+    const result = { notes: [] as string[] };
+    const params = {
+      command: 'Bearer private-auth ' + 'x '.repeat(500),
+      env: 'private-env',
+      stderr: 'private-stderr',
+      modelText: 'private-model',
+      CODEX_HOME: 'private-home',
+      'bad key': 'private',
+      ['k'.repeat(40)]: 'private',
+    };
+    recordCommandShape(result, params, params, context);
+    expect(result.notes[0].length).toBeLessThanOrEqual(
+      'Unexpected command shape: '.length + 400,
+    );
+    expect(result.notes[0]).toContain('Bearer [REDACTED]');
+    expect(result.notes[1]).toBe(
+      'Request param keys: command, env, stderr, modelText',
+    );
+    expect(result.notes.join(' ')).not.toMatch(
+      /private|CODEX_HOME|bad key|kkkk/,
+    );
+  });
+
+  it('never records file-change contents or paths as command text', () => {
+    const result = { notes: [] as string[] };
+    recordCommandShape(
+      result,
+      { threadId: 'private' },
+      { changes: [{ path: 'private-path', diff: 'private-diff' }] },
+      context,
+      'file change',
+    );
+    expect(result.notes).toEqual([
+      'Unexpected file change shape: <missing command>',
+      'Request param keys: threadId',
+    ]);
+  });
+
+  it('matches path casing only on Windows', () => {
+    const workspace = '/evidence/workspace';
+    const result = { notes: [] as string[] };
+    recordCommandShape(
+      result,
+      {},
+      { command: workspace.toUpperCase() },
+      { ...context, experiment: { ...experiment, workspace } },
+    );
+    expect(result.notes[0]).toBe(
+      'Unexpected command shape: ' +
+        (process.platform === 'win32'
+          ? '<WORKSPACE>'
+          : workspace.toUpperCase()),
+    );
+  });
+});
 
 function fakeDisk(): jest.Mocked<typeof disk> {
   return {
@@ -465,7 +676,8 @@ describe('review regression guards using real functions and isolated disk', () =
       'Unsafe sandbox',
     );
     for (const level of ['ask', 'plan', 'auto-edit', 'yolo'] as const) {
-      expect(policy(level).approvalPolicy).toBe('on-request');
+      if (level !== 'ask')
+        expect(policy(level).approvalPolicy).toBe('on-request');
       expect(policy(level).sandbox).toBe(
         level === 'auto-edit' || level === 'yolo'
           ? 'workspace-write'
@@ -766,5 +978,84 @@ describe('review regression guards using real functions and isolated disk', () =
     ])
       expect(sanitized).not.toContain(secret);
     expect(sanitize(`| ${text} |`)).not.toContain('person@example.com');
+  });
+});
+
+describe('granular ask approval policy', () => {
+  it('notes missing approval only after an ask turn starts without a request', () => {
+    expect(shouldNoteMissingApproval('turn', 'ask', false)).toBe(true);
+    expect(shouldNoteMissingApproval('', 'ask', false)).toBe(false);
+    expect(shouldNoteMissingApproval('turn', 'ask', true)).toBe(false);
+    for (const level of [undefined, 'plan', 'auto-edit', 'yolo'] as const) {
+      expect(shouldNoteMissingApproval('turn', level, false)).toBe(false);
+      expect(shouldNoteMissingApproval('', level, false)).toBe(false);
+    }
+  });
+
+  it('reports an allowlisted approval-policy mismatch', () => {
+    const expected = policy('ask').approvalPolicy;
+    const message = 'Effective approval policy differs from bounded profile';
+    expect(() => assertEffectiveApprovalPolicy('on-request', expected)).toThrow(
+      message,
+    );
+    expect(() =>
+      assertEffectiveApprovalPolicy(expected, expected),
+    ).not.toThrow();
+    const result = { notes: [] as string[] };
+    try {
+      assertEffectiveApprovalPolicy('on-request', expected);
+    } catch (error) {
+      recordCaseFailure(result, error);
+    }
+    expect(result.notes).toEqual([message]);
+  });
+
+  const granular = {
+    sandbox_approval: true,
+    rules: true,
+    mcp_elicitations: true,
+    request_permissions: true,
+    skill_approval: true,
+  };
+  it('uses granular approvals for ask and the default read-only profile', () => {
+    for (const level of ['ask', undefined] as const)
+      expect(policy(level)).toEqual({
+        sandbox: 'read-only',
+        approvalPolicy: { granular },
+        approvalsReviewer: 'user',
+      });
+  });
+  it('serializes the config override as TOML, retaining on-request for other levels', () => {
+    expect(approvalPolicyOverride(policy('ask').approvalPolicy)).toBe(
+      'approval_policy={granular={sandbox_approval=true,rules=true,mcp_elicitations=true,request_permissions=true,skill_approval=true}}',
+    );
+    for (const level of ['plan', 'auto-edit', 'yolo'] as const) {
+      expect(approvalPolicyOverride(policy(level).approvalPolicy)).toBe(
+        'approval_policy="on-request"',
+      );
+      expect(policy(level)).not.toHaveProperty('approvalsReviewer');
+    }
+  });
+  it('compares the config structurally, rejecting changed, missing and extra values', () => {
+    const expected = policy('ask').approvalPolicy;
+    expect(
+      approvalPoliciesEqual(
+        { granular: Object.fromEntries(Object.entries(granular).reverse()) },
+        expected,
+      ),
+    ).toBe(true);
+    expect(
+      approvalPoliciesEqual(
+        { granular: { ...granular, rules: false } },
+        expected,
+      ),
+    ).toBe(false);
+    expect(approvalPoliciesEqual({ granular: { rules: true } }, expected)).toBe(
+      false,
+    );
+    expect(approvalPoliciesEqual({ granular, extra: true }, expected)).toBe(
+      false,
+    );
+    expect(approvalPoliciesEqual('on-request', expected)).toBe(false);
   });
 });

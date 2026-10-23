@@ -13,7 +13,7 @@
     "kind": "command",
     "level": "ask",
     "decision": "accept",
-    "purpose": "Hold command approval; absent before response, present after; usage notifications"
+    "purpose": "Read-only plus granular approvals; hold command approval; absent before response, present after; usage notifications"
   },
   {
     "id": "ask-command-deny",
@@ -22,7 +22,7 @@
     "kind": "command",
     "level": "ask",
     "decision": "deny",
-    "purpose": "Hold command approval; original marker remains absent after denial"
+    "purpose": "Read-only plus granular approvals; hold command approval; original marker remains absent after denial"
   },
   {
     "id": "modified-input-schema",
@@ -38,7 +38,7 @@
     "kind": "file",
     "level": "ask",
     "decision": "accept",
-    "purpose": "Hold file approval for sibling scratch marker; check before/after"
+    "purpose": "Read-only plus granular approvals; hold file approval for sibling scratch marker; check before/after"
   },
   {
     "id": "plan-read-only",
@@ -74,7 +74,7 @@
     "kind": "mcp",
     "level": "ask",
     "decision": "accept",
-    "purpose": "Per-child stdio fixture; one approval for the fixed original marker only; replacement and repeated calls declined"
+    "purpose": "Read-only plus granular approvals; per-child stdio fixture; one approval for the fixed original marker only; replacement and repeated calls declined"
   },
   {
     "id": "compaction",

@@ -25,11 +25,20 @@ import {
   relative,
   sep,
 } from 'node:path';
-import { parseArgs } from 'node:util';
+import { parseArgs, isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
-
+import {
+  FrameDecoder,
+  MAX_FRAME_BYTES,
+  type Frame,
+  type RequestFrame,
+} from './evidence-frames';
+import {
+  failureMessages,
+  recordCaseFailure,
+  recordCommandShape,
+} from './evidence-failure-notes';
 export const TURN_CAP = 8;
-export const MAX_FRAME_BYTES = 1024 * 1024;
 export const CASE_DEADLINE_MS = 60_000;
 export const USAGE_CEILING = 12_000;
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -40,52 +49,13 @@ export const OUTPUT_BOUNDS = {
   model_verbosity: 'low',
   tool_output_token_limit: 2000,
 } as const;
-const idSchema = z.union([z.string(), z.number().int()]);
-const methodSchema = z
-  .string()
-  .max(200)
-  .regex(/^[A-Za-z0-9_./:-]+$/);
-const header = {
-  jsonrpc: z.literal('2.0').optional(),
-  emittedAtMs: z.number().int().nonnegative().optional(),
-};
-const requestFrame = z
-  .object({
-    ...header,
-    id: idSchema,
-    method: methodSchema,
-    params: z.unknown().optional(),
-  })
-  .strict();
-const notificationFrame = z
-  .object({ ...header, method: methodSchema, params: z.unknown().optional() })
-  .strict();
-const responseFrame = z
-  .object({ ...header, id: idSchema, result: z.unknown() })
-  .strict();
-const errorFrame = z
-  .object({
-    ...header,
-    id: idSchema,
-    error: z.object({
-      code: z.number(),
-      message: z.string(),
-      data: z.unknown().optional(),
-    }),
-  })
-  .strict();
-const envelope = z.union([
-  requestFrame,
-  notificationFrame,
-  responseFrame,
-  errorFrame,
-]);
-type Frame = z.infer<typeof envelope>;
-type RequestFrame = z.infer<typeof requestFrame>;
+
 type JsonRecord = Record<string, unknown>;
+
 function record(value: unknown): JsonRecord {
   return z.record(z.string(), z.unknown()).parse(value);
 }
+
 function objectId(value: unknown, key: string): string {
   return z.string().parse(record(record(value)[key])['id']);
 }
@@ -102,137 +72,8 @@ export class TurnBudget {
   }
 }
 
-// Only literal harness messages and known error names may enter evidence notes.
-const failureMessages = new Set([
-  'frame too large',
-  'Experiment path is a symlink',
-  'Experiment overlaps a real Codex home',
-  'Path escapes experiment',
-  'Unsafe marker parent',
-  'Unsafe marker ancestor',
-  'Unsafe marker',
-  'Marker changed during check',
-  'Experiment root is a symlink',
-  'Experiment setup failed (details withheld)',
-  'Tree kill failed; cleanup cannot safely continue',
-  'Unsafe sandbox rejected',
-  'Invalid usage',
-  'Cumulative usage ceiling reached',
-  'unsupported server request',
-  'child failed',
-  'child closed',
-  'invalid or oversized protocol frame',
-  'stdin failed',
-  'event limit reached',
-  'experiment interrupted',
-  'approval/isolation gate failed',
-  'child stopped',
-  'outbound frame too large',
-  'not run: cap',
-  'RPC timeout',
-  'request write failed',
-  'child teardown not confirmed',
-  'Pinned binary/schema manifest mismatch',
-  'Network disable not confirmed by config/read',
-  'Observed path escapes experiment',
-  'Observed symlink',
-  'Unexpected marker effect',
-  'Unexpected request',
-  'Side effect before approval',
-  'Side effect during approval',
-  'Approval rejected by safety gate',
-  'Notification thread mismatch',
-  'Unexpected command',
-  'Unexpected file change',
-  'Unexpected or repeated tool item',
-  'CODEX_HOME isolation mismatch',
-  'Selected model not in first model/list page',
-  'Effective config differs from bounded profile',
-  'No usage evidence; stop before further inference',
-  'Planned turn budget exceeds cap',
-  'Required: --run --binary <absolute native path> --auth-source <absolute auth.json> --model <id> --out <markdown path>',
-  'Use a native executable',
-  'Auth source must be auth.json',
-  '--out must be a markdown artifact path',
-  'Artifact destination overlaps source credentials',
-  'Secret cleanup failed',
-]);
-const errorNames = new Set([
-  'Error',
-  'TypeError',
-  'RangeError',
-  'SyntaxError',
-  'ReferenceError',
-  'URIError',
-  'EvalError',
-  'AggregateError',
-  'ZodError',
-  'AbortError',
-]);
-export function recordCaseFailure(
-  result: { notes?: string[] },
-  error: unknown,
-): void {
-  const details = typeof error === 'object' && error !== null ? error : {};
-  const message =
-    'message' in details && typeof details.message === 'string'
-      ? details.message
-      : '';
-  const name =
-    'name' in details &&
-    typeof details.name === 'string' &&
-    errorNames.has(details.name)
-      ? details.name
-      : 'Error';
-  const note = failureMessages.has(message)
-    ? message
-    : `unclassified error (${name})`;
-  const notes = (result.notes ??= []);
-  if (!notes.includes(note)) notes.push(note);
-}
-
-/** Buffer bytes, not decoded characters: multibyte sequences may span chunks. */
-export class FrameDecoder {
-  private pending = Buffer.alloc(0);
-  rejectedFrameKeys: string[] = [];
-  push(chunk: Buffer): Frame[] {
-    const frames: Frame[] = [];
-    this.rejectedFrameKeys = [];
-    let start = 0;
-    for (
-      let end = chunk.indexOf(10);
-      end !== -1;
-      end = chunk.indexOf(10, start)
-    ) {
-      const part = chunk.subarray(start, end);
-      if (this.pending.length + part.length > MAX_FRAME_BYTES)
-        throw new Error('frame too large');
-      const bytes = Buffer.concat([this.pending, part]);
-      this.pending = Buffer.alloc(0);
-      if (bytes.length) {
-        const value: unknown = JSON.parse(bytes.toString('utf8'));
-        const parsed = envelope.safeParse(value);
-        if (!parsed.success) {
-          this.rejectedFrameKeys =
-            typeof value === 'object' && value !== null && !Array.isArray(value)
-              ? Object.keys(value)
-                  .filter((key) => /^[a-z][A-Za-z0-9]{0,31}$/.test(key))
-                  .slice(0, 10)
-              : []; // camelCase protocol keys only: no paths or env names
-          throw new Error('invalid or oversized protocol frame');
-        }
-        frames.push(parsed.data);
-      }
-      start = end + 1;
-    }
-    if (this.pending.length + chunk.length - start > MAX_FRAME_BYTES)
-      throw new Error('frame too large');
-    this.pending = Buffer.concat([this.pending, chunk.subarray(start)]);
-    return frames;
-  }
-}
-
 /** Artifacts contain summaries, never full wire params, model text, prompts or stderr. */
+
 export function sanitize(
   value: unknown,
   secrets: readonly string[] = [],
@@ -253,8 +94,8 @@ export function sanitize(
       )
       .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, '[REDACTED]')
       .replace(
-        /\b(?:acct|account|org|user)[_-][A-Za-z0-9_-]+\b/gi,
-        '[REDACTED]',
+        /<USER_HOME>|\b(?:acct|account|org|user)[_-][A-Za-z0-9_-]+\b/gi,
+        (match) => (match === '<USER_HOME>' ? match : '[REDACTED]'),
       )
       .replace(
         /\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/gi,
@@ -318,6 +159,7 @@ function within(root: string, path: string): boolean {
   );
 }
 // Realm-safe: fs errors are not `instanceof Error` inside a Jest VM context.
+
 export function errorCode(error: unknown): string | undefined {
   return typeof error === 'object' &&
     error !== null &&
@@ -326,10 +168,12 @@ export function errorCode(error: unknown): string | undefined {
     ? error.code
     : undefined;
 }
+
 function missing(error: unknown): boolean {
   return errorCode(error) === 'ENOENT';
 }
 // Canonicalize the existing ancestor too, so a missing .codex or CODEX_HOME cannot hide overlap.
+
 function canonical(path: string, io: typeof disk): string {
   try {
     return String(io.realpathSync(path));
@@ -338,6 +182,7 @@ function canonical(path: string, io: typeof disk): string {
     return join(canonical(dirname(path), io), basename(path));
   }
 }
+
 export function assertDisjointHomes(
   root: string,
   home: string,
@@ -360,6 +205,7 @@ export function assertDisjointHomes(
 }
 
 /** lstat before and after realpath: dangling links are never interpreted as absence. */
+
 export function markerExists(root: string, path: string): boolean {
   const actualRoot = realpathSync(root);
   if (lstatSync(root).isSymbolicLink() || !within(actualRoot, resolve(path)))
@@ -427,6 +273,7 @@ export function createExperiment(
     throw new Error('Experiment setup failed (details withheld)');
   }
 }
+
 export function cleanupExperiment(
   experiment: Experiment,
   keep: boolean,
@@ -443,6 +290,7 @@ export function cleanupExperiment(
     }
   }
 }
+
 export function childEnvironment(
   experiment: Experiment,
   source: NodeJS.ProcessEnv = process.env,
@@ -462,7 +310,6 @@ export function childEnvironment(
     TMPDIR: experiment.scratch,
   };
 }
-
 const caseSchema = z.object({
   id: z.string().regex(/^[a-z-]+$/),
   turnCost: z.number().int().min(0).max(1),
@@ -472,16 +319,20 @@ const caseSchema = z.object({
   decision: z.enum(['accept', 'deny']).optional(),
   purpose: z.string(),
 });
+
 type EvidenceCase = z.infer<typeof caseSchema>;
+
 interface EventSummary {
   direction: 'in' | 'out';
   method: string;
 }
+
 interface ApprovalSummary {
   method: string;
   absentBefore: boolean;
   response: string;
 }
+
 interface CaseResult {
   id: string;
   status: string;
@@ -494,11 +345,13 @@ interface CaseResult {
   effectiveConfig?: unknown;
   notes?: string[];
 }
+
 type Pending = {
   resolve: (value: unknown) => void;
   reject: (reason: Error) => void;
   timer: ReturnType<typeof setTimeout>;
 };
+
 type RpcProcess = EventEmitter & {
   stdin: Writable;
   stdout: Readable;
@@ -539,6 +392,7 @@ export function killTreeSync(child: RpcProcess): void {
 }
 
 /** Synchronous and repeatable, including a second Ctrl+C. Kill before deleting credentials. */
+
 export function createFatalCleanup(
   cleanup: () => void,
   children: ReadonlySet<RpcChild>,
@@ -773,11 +627,11 @@ export class RpcChild {
     await this.handlers;
   }
 }
-
 // Shared by the exact approved command and the local MCP fixture. No arbitrary path argument from the model.
 const MARKER_WRITER = String.raw`
 const fs = require('node:fs');
 const path = require('node:path');
+
 function writeMarker(root, target) {
   const actualRoot = fs.realpathSync(root);
   const within = value => {
@@ -845,10 +699,13 @@ const manifestSchema = z.object({
     serverNotifications: z.array(z.string()),
   }),
 });
+
 type Manifest = z.infer<typeof manifestSchema>;
+
 function digest(path: string): string {
   return createHash('sha256').update(readFileSync(path)).digest('hex');
 }
+
 function loadManifest(binary: string): {
   manifest: Manifest;
   schemaText: string;
@@ -874,9 +731,11 @@ function loadManifest(binary: string): {
   }
   return { manifest, schemaText: readFileSync(schemaPath, 'utf8') };
 }
+
 function delay(ms: number): Promise<void> {
   return new Promise((done) => setTimeout(done, ms));
 }
+
 function markerState(
   root: string,
   original: string,
@@ -889,20 +748,86 @@ function markerState(
     outside: markerExists(root, outside),
   };
 }
+
+type ApprovalPolicy =
+  | 'on-request'
+  | {
+      granular: {
+        sandbox_approval: boolean;
+        rules: boolean;
+        mcp_elicitations: boolean;
+        request_permissions: boolean;
+        skill_approval: boolean;
+      };
+    };
+
 export function policy(level: EvidenceCase['level']): {
   sandbox: string;
-  approvalPolicy: string;
+  approvalPolicy: ApprovalPolicy;
+  approvalsReviewer?: 'user';
 } {
+  const approvalPolicy: ApprovalPolicy =
+    level === 'ask' || level === undefined
+      ? {
+          granular: {
+            sandbox_approval: true,
+            rules: true,
+            mcp_elicitations: true,
+            request_permissions: true,
+            skill_approval: true,
+          },
+        }
+      : 'on-request';
   const selected = {
     sandbox:
       level === 'yolo' || level === 'auto-edit'
         ? 'workspace-write'
         : 'read-only',
-    approvalPolicy: 'on-request',
+    approvalPolicy,
+    ...(typeof approvalPolicy === 'string'
+      ? {}
+      : { approvalsReviewer: 'user' as const }),
   };
   assertSafeSandbox(selected);
   return selected;
 }
+
+export function approvalPolicyOverride(value: ApprovalPolicy): string {
+  return (
+    'approval_policy=' +
+    (typeof value === 'string'
+      ? JSON.stringify(value)
+      : '{granular={' +
+        Object.entries(value.granular)
+          .map(([key, enabled]) => `${key}=${enabled}`)
+          .join(',') +
+        '}}')
+  );
+}
+
+export function approvalPoliciesEqual(
+  actual: unknown,
+  expected: ApprovalPolicy,
+): boolean {
+  return isDeepStrictEqual(actual, expected);
+}
+
+export function assertEffectiveApprovalPolicy(
+  actual: unknown,
+  expected: ApprovalPolicy,
+): void {
+  if (!approvalPoliciesEqual(actual, expected))
+    throw new Error('Effective approval policy differs from bounded profile');
+}
+
+export function shouldNoteMissingApproval(
+  turnId: string,
+  level: EvidenceCase['level'],
+  approvalRequestObserved: boolean,
+): boolean {
+  return !!turnId && level === 'ask' && !approvalRequestObserved;
+}
+
 function configSummary(value: unknown): unknown {
   const config = record(record(value)['config']);
   assertSafeSandbox(config);
@@ -920,6 +845,7 @@ function configSummary(value: unknown): unknown {
     ].map((key) => [key, config[key]]),
   );
 }
+
 function usageSummary(params: unknown): unknown {
   const data = record(params);
   const usage = record(data['tokenUsage'] ?? {});
@@ -941,7 +867,9 @@ export interface MarkerApproval {
   validatedFileItems: ReadonlySet<string>;
   approvals: number;
 }
+
 /** The only accept decision in the harness: exact command, exact validated file, or fixed local MCP call. */
+
 export function markerApprovalDecision(
   frame: RequestFrame,
   context: MarkerApproval,
@@ -1082,6 +1010,7 @@ async function runCase(
   schemaText: string,
   compact: boolean,
   children: Set<RpcChild>,
+  authDirectory: string,
 ): Promise<void> {
   const original = join(experiment.workspace, `${item.id}.marker`);
   const replacement = join(
@@ -1115,7 +1044,7 @@ async function runCase(
     'features.apps=false',
     'sandbox_workspace_write.network_access=false',
     `sandbox_mode=${JSON.stringify(selected.sandbox)}`,
-    `approval_policy=${JSON.stringify(selected.approvalPolicy)}`,
+    approvalPolicyOverride(selected.approvalPolicy),
   ];
   assertSafeSandbox(selected);
   const child = spawn(
@@ -1141,6 +1070,7 @@ async function runCase(
   let outcome = false;
   let approvalPending = false;
   let approvalRounds = 0;
+  let approvalRequestObserved = false;
   let toolItems = 0;
   const validatedFileItems = new Set<string>();
   const interrupt = (): void => {
@@ -1175,6 +1105,7 @@ async function runCase(
   }, 20);
   const deadline = setTimeout(() => rpc.abort(), CASE_DEADLINE_MS);
   rpc.onRequest = async (frame) => {
+    approvalRequestObserved ||= frame.method.endsWith('/requestApproval');
     let answered = false;
     try {
       const denial = schemaDenial(schemaText, frame.method);
@@ -1202,6 +1133,17 @@ async function runCase(
           level: 'ask',
           decision: 'accept',
         }) === 'accept';
+      if (!fixed && frame.method === 'item/commandExecution/requestApproval') {
+        const params = record(frame.params ?? {});
+        if (params['command'] !== expectedCommand)
+          recordCommandShape(result, params, params, {
+            experiment,
+            expectedCommand,
+            markerScript,
+            authDirectory,
+            sanitize,
+          });
+      }
       if (
         !manifest.methods.serverRequests.includes(frame.method) ||
         !fixed ||
@@ -1246,8 +1188,16 @@ async function runCase(
     if (method === 'item/started' || method === 'item/completed') {
       const observed = record(data['item']);
       if (observed['type'] === 'commandExecution') {
-        if (observed['command'] !== expectedCommand)
+        if (observed['command'] !== expectedCommand) {
+          recordCommandShape(result, data, observed, {
+            experiment,
+            expectedCommand,
+            markerScript,
+            authDirectory,
+            sanitize,
+          });
           throw new Error('Unexpected command');
+        }
       }
       if (observed['type'] === 'fileChange') {
         const changes = z
@@ -1257,8 +1207,22 @@ async function runCase(
           item.kind !== 'file' ||
           changes.length !== 1 ||
           resolve(experiment.workspace, changes[0].path) !== target
-        )
+        ) {
+          recordCommandShape(
+            result,
+            data,
+            observed,
+            {
+              experiment,
+              expectedCommand,
+              markerScript,
+              authDirectory,
+              sanitize,
+            },
+            'file change',
+          );
           throw new Error('Unexpected file change');
+        }
         markerExists(experiment.root, target);
         if (method === 'item/started')
           validatedFileItems.add(z.string().parse(observed['id']));
@@ -1327,10 +1291,18 @@ async function runCase(
       Object.entries(OUTPUT_BOUNDS).some(
         ([key, value]) => effective[key] !== value,
       ) ||
-      effective['sandbox_mode'] !== selected.sandbox ||
-      effective['approval_policy'] !== selected.approvalPolicy
+      effective['sandbox_mode'] !== selected.sandbox
     )
       throw new Error('Effective config differs from bounded profile');
+    assertEffectiveApprovalPolicy(
+      effective['approval_policy'],
+      selected.approvalPolicy,
+    );
+    if (selected.approvalsReviewer) {
+      (result.notes ??= []).push(
+        'Effective config: approvalsReviewer="user" requested for thread/start and turn/start; not confirmed by config/read',
+      );
+    }
     const thread = await rpc.request('thread/start', {
       model,
       cwd: experiment.workspace,
@@ -1364,6 +1336,9 @@ async function runCase(
         model,
         sandboxPolicy,
         approvalPolicy: selected.approvalPolicy,
+        ...(selected.approvalsReviewer
+          ? { approvalsReviewer: selected.approvalsReviewer }
+          : {}),
         input: [{ type: 'text', text: prompt, text_elements: [] }],
       },
       budget,
@@ -1407,6 +1382,11 @@ async function runCase(
     if (!result.usage)
       throw new Error('No usage evidence; stop before further inference');
   } finally {
+    if (
+      shouldNoteMissingApproval(turnId, item.level, approvalRequestObserved)
+    ) {
+      (result.notes ??= []).push('granular ask: no approval request observed');
+    }
     clearInterval(guard);
     clearTimeout(deadline);
     await rpc.stop();
@@ -1429,6 +1409,7 @@ export interface HarnessOptions {
   model?: string;
   out?: string;
 }
+
 export function parseOptions(args: string[]): HarnessOptions {
   const { values } = parseArgs({
     args,
@@ -1597,6 +1578,7 @@ export async function runHarness(
           schemaText,
           item.id === 'ask-command-accept',
           children,
+          dirname(authPath),
         );
         if (result.status !== 'observed') stop = true;
       } catch (error) {
@@ -1688,7 +1670,6 @@ export async function runHarness(
     if (cleanup.startsWith('FAILED')) throw new Error('Secret cleanup failed');
   }
 }
-
 if (require.main === module) {
   const cases = z
     .array(caseSchema)
