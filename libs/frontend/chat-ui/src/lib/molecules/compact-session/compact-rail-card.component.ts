@@ -317,9 +317,6 @@ const EMPTY_LANES: CompactLaneSummary = {
           }
         } @else if (density() === 'dense') {
           <div class="rc-line h-full text-base-content-muted">
-            <span class="rc-ellipsis flex-1" [title]="laneCounts()"
-              >Lanes {{ lanes().total ? laneCounts() : 'none yet' }}</span
-            >
             @if (lanes().total >= 1) {
               <button
                 type="button"
@@ -337,7 +334,6 @@ const EMPTY_LANES: CompactLaneSummary = {
         } @else {
           <div class="rc-lane-rows">
             <div class="rc-line h-4 text-base-content-muted">
-              Lanes <span class="rc-ellipsis">{{ laneCounts() }}</span>
               @if (lanes().moreCount > 0) {
                 <button
                   type="button"
@@ -377,15 +373,17 @@ const EMPTY_LANES: CompactLaneSummary = {
         class="rc-line text-[11px] text-base-content-muted"
         [title]="todoTitle(todos()) + '; ' + gitTitle(gitStats())"
       >
-        <span>{{ todoCount() }}</span
-        ><span
-          >ctx
-          {{
-            contextPercent() === null ? '—' : roundedContextPercent() + '%'
-          }}</span
-        >
-        <span class="rc-ellipsis">{{ shownMetrics() }}</span
-        ><span class="ml-auto shrink-0">{{ gitCount() }}</span>
+        @if (todos().kind === 'known') { <span>{{ todoCount() }}</span> }
+        @if (summary().metrics.agentCount > 0) {
+          <span class="badge badge-xs badge-outline">{{ summary().metrics.agentCount }} {{ summary().metrics.agentCount === 1 ? 'agent' : 'agents' }}</span>
+        }
+        @if (cliCount(); as count) {
+          <span class="badge badge-xs badge-outline">{{ count }} CLI</span>
+        }
+        @if (roundedContextPercent() > 0) {
+          <span class="badge badge-xs badge-outline" aria-label="Context used">{{ roundedContextPercent() }}% ctx</span>
+        }
+        <span class="ml-auto shrink-0">{{ gitCount() }}</span>
       </div>
     </div>
   `,
@@ -423,36 +421,23 @@ export class CompactRailCardComponent implements DoCheck {
   readonly cardHeight = computed(
     () => COMPACT_RAIL_CARD_HEIGHT[this.density()],
   );
-  // The hold freezes only the live-changing summary and metrics under a press
+  // The hold freezes only the live-changing summary under a press
   // or text selection. The title is never latched: it changes only by an
   // explicit rename, which must show at once even while a selection holds.
-  private readonly latched = signal({ now: '', metrics: '' });
+  private readonly latched = signal('');
   readonly shownNow = computed(() =>
-    this.holdText() ? this.latched().now : this.summary().content.text,
-  );
-  readonly shownMetrics = computed(() =>
-    this.holdText() ? this.latched().metrics : this.metricsText(),
+    this.holdText() ? this.latched() : this.summary().content.text,
   );
   readonly selectName = computed(
     () =>
       `${this.title()}, ${this.state()}${this.branch() ? ', branch ' + this.branch() : ''}${this.callout()?.kind === 'permission' ? ', asks permission' : ''}${this.focused() ? ', in focus' : ''}`,
   );
-  readonly laneCounts = computed(() => {
-    const c = this.lanes().counts;
-    return (
-      (
-        [
-          ['running', c.running],
-          ['waiting', c.waiting],
-          ['failed', c.error],
-          ['done', c.done],
-          ['stopped', c.stopped],
-        ] as const
-      )
-        .filter(([, n]) => n > 0)
-        .map(([name, n]) => `${n} ${name}`)
-        .join(' · ') || 'none yet'
-    );
+  // Capped rows cannot supply an exact CLI count; unknown badges stay hidden.
+  readonly cliCount = computed(() => {
+    const lanes = this.lanes();
+    return lanes.rows.length === lanes.total
+      ? lanes.rows.filter((row) => row.kind === 'cli').length
+      : null;
   });
   readonly todoCount = computed(() => {
     const t = this.todos();
@@ -470,10 +455,7 @@ export class CompactRailCardComponent implements DoCheck {
   constructor() {
     effect(() => {
       if (!this.holdText())
-        this.latched.set({
-          now: this.summary().content.text,
-          metrics: this.metricsText(),
-        });
+        this.latched.set(this.summary().content.text);
     });
   }
 
@@ -498,8 +480,4 @@ export class CompactRailCardComponent implements DoCheck {
     }
   }
 
-  private metricsText(): string {
-    const m = this.summary().metrics;
-    return `${m.tokens ?? '—'} tokens · ${m.cost === null ? '—' : '$' + m.cost.toFixed(2)}`;
-  }
 }

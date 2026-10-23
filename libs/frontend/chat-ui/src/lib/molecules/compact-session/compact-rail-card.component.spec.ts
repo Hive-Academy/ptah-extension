@@ -95,6 +95,29 @@ describe(CompactRailCardComponent.name, () => {
       b.textContent?.trim().startsWith(name),
     ) as HTMLButtonElement | undefined;
 
+  it('shows only known positive summary badges and preserves the diff', () => {
+    const f = render();
+    const value = summary();
+    f.componentRef.setInput('summary', { ...value, metrics: { ...value.metrics, agentCount: 2 } });
+    f.componentRef.setInput('lanes', lanes(1));
+    f.componentRef.setInput('contextPercent', 35);
+    f.componentRef.setInput('gitStats', { kind: 'known', additions: 35, deletions: 0, partial: false });
+    f.detectChanges();
+    const badges = () => [...(f.nativeElement as HTMLElement).querySelectorAll('.badge')].map(b => b.textContent?.trim());
+    expect(badges()).toEqual(['2 agents', '1 CLI', '35% ctx']);
+    expect(f.nativeElement.textContent).toContain('+35');
+    expect(f.nativeElement.textContent).not.toContain('42 tokens');
+    f.componentRef.setInput('summary', value);
+    f.componentRef.setInput('lanes', lanes(0));
+    f.componentRef.setInput('contextPercent', null);
+    f.detectChanges();
+    expect(badges()).toEqual([]);
+    f.componentRef.setInput('contextPercent', 0);
+    f.componentRef.setInput('lanes', lanes(4));
+    f.detectChanges();
+    expect(badges()).toEqual([]);
+  });
+
   it('uses the shared height for both densities', () => {
     const f = render();
     expect(f.nativeElement.style.height).toBe(
@@ -426,7 +449,7 @@ describe(CompactRailCardComponent.name, () => {
     const more = jest.fn();
     f.componentInstance.moreLanes.subscribe(more);
     if (total === 0) {
-      expect(f.nativeElement.textContent).toContain('Lanes none yet');
+      expect(f.nativeElement.textContent).not.toContain('Lanes none yet');
       expect(button(f.nativeElement, '+')).toBeUndefined();
     } else {
       const action = button(f.nativeElement, `+${total}`) as HTMLButtonElement;

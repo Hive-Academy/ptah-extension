@@ -33,7 +33,7 @@ describe(InspectorSessionStatsComponent.name, () => {
     fixture.componentRef.setInput('stats', { ...stats, cache });
     fixture.detectChanges();
     const tile = root.querySelector('[data-testid="inspector-cache-tile"]');
-    expect(root.querySelector('ptah-inspector-cache-tile')?.classList.contains('col-span-2')).toBe(true);
+    expect(root.querySelector('ptah-inspector-cache-tile')?.classList.contains('col-span-2')).toBe(false);
     expect(tile?.textContent).toContain('1:00:00');
     fixture.componentRef.setInput('stats', { ...stats, sessionId: 'two', cache: { ttl: '5m', lastRequestAt: 0, expiresAt: 300_000 } });
     fixture.detectChanges();
@@ -45,7 +45,7 @@ describe(InspectorSessionStatsComponent.name, () => {
     fixture.destroy();
   });
 
-  it('renders the Model label and display name as separate stat tile rows', () => {
+  it('preserves the Model label and display name below the metric grid', () => {
     TestBed.configureTestingModule({
       imports: [InspectorSessionStatsComponent],
       providers: [{

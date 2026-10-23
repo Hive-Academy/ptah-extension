@@ -84,7 +84,7 @@ interface DockLayout {
       #dock
       role="tablist"
       aria-label="Lanes"
-      class="relative z-10 flex min-w-0 items-center gap-0.5 overflow-x-clip border-b border-surface-border bg-surface-1 px-2 pb-1 shadow-[0_6px_8px_-6px_rgb(0_0_0/0.45)]"
+      class="relative z-10 flex min-w-0 items-center gap-0.5 flex-wrap border-b border-surface-border bg-surface-1 px-2 pb-1 shadow-[0_6px_8px_-6px_rgb(0_0_0/0.45)]"
     >
       @for (group of view.groups; track group.kind; let first = $first) {
         @if (!first) {
@@ -161,14 +161,16 @@ interface DockLayout {
           }
         }
       }
-      <ptah-agent-dock-menu
-        [agents]="agents()"
-        [hidden]="view.hidden"
-        [selectedKey]="selectedKey()"
-        [compact]="view.compact"
-        [now]="now()"
-        (agentSelect)="onMenuSelect($event)"
-      />
+      @if (agents().length > 5) {
+        <ptah-agent-dock-menu
+          [agents]="agents()"
+          [hidden]="view.hidden"
+          [selectedKey]="selectedKey()"
+          [compact]="view.compact"
+          [now]="now()"
+          (agentSelect)="onMenuSelect($event)"
+        />
+      }
       @if (cardAgent(); as agent) {
         <ptah-agent-dock-card
           [agent]="agent"
@@ -270,6 +272,9 @@ export class CanvasLaneTabsComponent {
 
   constructor() {
     effect(() => {
+      if (this.cardKey() === this.selectedKey()) this.closeCard();
+    });
+    effect(() => {
       if (this.laneKey() !== this.selectedKey()) {
         this.laneSelected.emit(this.selectedKey());
       }
@@ -330,7 +335,7 @@ export class CanvasLaneTabsComponent {
   }
 
   protected onPointerEnter(event: PointerEvent, key: string): void {
-    if (event.pointerType === 'touch') return;
+    if (key === this.selectedKey() || event.pointerType === 'touch') return;
     this.tabHoveredKey = key;
     this.clearCardTimer();
     if (this.cardKey() === key) return;
@@ -347,6 +352,7 @@ export class CanvasLaneTabsComponent {
   }
 
   protected onTabFocus(event: FocusEvent, key: string): void {
+    if (key === this.selectedKey()) return;
     const target = event.currentTarget;
     if (!(target instanceof HTMLElement) || !target.matches(':focus-visible')) return;
     this.clearCardTimer();
@@ -384,6 +390,7 @@ export class CanvasLaneTabsComponent {
   }
 
   private openCard(key: string): void {
+    if (key === this.selectedKey()) return;
     this.cardKey.set(key);
     afterNextRender(
       () => {

@@ -63,7 +63,7 @@ function overflowRank(agent: SessionAgent, selectedKey: string): number {
 }
 
 /**
- * Visible agents fill `capacity + 1` slots (the extra slot is the pill) by
+ * Rosters of five or fewer stay inline. Larger rosters fill `capacity + 1` slots (the extra slot is the pill) by
  * rank, then both lists are returned in dock order. A worse rank is never
  * visible while a better rank is hidden.
  */
@@ -72,7 +72,7 @@ export function planDockOverflow(
   selectedKey: string,
   capacity: number,
 ): { visible: readonly SessionAgent[]; hidden: readonly SessionAgent[] } {
-  if (!Number.isFinite(capacity)) return { visible: agents, hidden: [] };
+  if (agents.length <= 5 || !Number.isFinite(capacity)) return { visible: agents, hidden: [] };
   const slots = Math.max(0, Math.floor(capacity)) + 1;
   const chosen = new Set(
     agents
