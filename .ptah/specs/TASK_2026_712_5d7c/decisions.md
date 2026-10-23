@@ -152,3 +152,11 @@ Each document gets one initial cross-side review and at most two author/reviewer
 
 - Lane finding (implementation-report-batch-18b.md): the Batch 18 gate `ChatSessionService.gateAccount` (`chat-session.service.ts:1752`) is private; `SessionRpcHandlers` already injects ChatSessionService (`session-rpc.handlers.ts:198`). `ensureSessionActiveForRewind` can resume, so it cannot serve as a gate-only call without changing ambient behaviour.
 - Decision: Batch 18b also owns `chat-session.service.ts` to add one public gate-only method that delegates to `gateAccount` (no logic copy, no DI change). Options rejected: handler DI change to the account port (duplicates gate logic); reuse ensureSessionActiveForRewind (ambient side effects). No concurrent owner (Batch 19 is cli-agent-runtime; Batch 21 comes later). Reversible.
+
+## D24 — CI shard 4 fix for Batch 19/20 (2026-10-23, orchestrator)
+
+- CI `test (shard 4/4)` on 9194a8d3c: 4 cli-agent-runtime suites, 15 tests failed. CLI E2E passed, so 9c3d441d5 fixed the DI boot regression.
+- Production defect (Batch 20, `claude/claude-sdk-lane-runner.ts:172`): the ambient stream-loop error log changed from `[PtahCliRegistry] spawnAgent stream loop error: <message>` to a generic text. Ambient must stay unchanged: ambient lanes log the original text again; named lanes keep the generic text (a raw error can carry account paths). Pinned by `ptah-cli-registry-sakana-proxy.spec.ts`.
+- Test-only: `agent-events.spec.ts`, `sdk-callbacks.spec.ts` mocks gain `findAgentInfo` (Batch 20 stale-exit check, `wiring/agent-events.ts:206,489`). Both real exit paths set a terminal status before `agent:exited`, so the guard does not skip ambient exits. `agent-process-manager.service.spec.ts` resume-gate assertions pin `accountReference: {}` (ambient passes an empty reference; `resolveLaneAccountResume` returns undefined for it — no behavior change).
+- Verification (slot held, released after push): the 4 suites 231/231; Batch 19/20 specs (account-binding, claude-cli.adapter, claude-sdk-lane-runner, lane-resume-gate) 108/108; di-lint OK; degradation audit no FAIL. Commit c124a1e4b, pushed.
+- The P1-D phase review is recorded as D25.

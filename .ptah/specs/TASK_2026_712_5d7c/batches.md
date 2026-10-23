@@ -348,7 +348,7 @@ At each implementation phase's last batch, stop for one combined independent cod
 - Command: `Verify-ProviderAccountsBatch -Projects @('@ptah-extension/auth-providers','@ptah-extension/agent-sdk') -Hosts $H`
 - Report T/implementation-report-batch-16.md.
 
-## Batch 17: SDK named bootstrap and final-query admission — PENDING
+## Batch 17: SDK named bootstrap and final-query admission — IMPLEMENTED (D21: e02d03ea4; 17b e3965c65c)
 
 - Recommended executor: CLI lane, high-capability SDK lifecycle/concurrency; sequential; actual family unassigned.
 - Depends on: 10/14/16. Phase P1-D; review at 22.
@@ -363,7 +363,7 @@ At each implementation phase's last batch, stop for one combined independent cod
 - Command: `Verify-ProviderAccountsBatch -Projects @('@ptah-extension/agent-sdk') -Hosts $H`
 - Report T/implementation-report-batch-17.md.
 
-## Batch 18: Central main-session fresh/resume/slash routing — PENDING
+## Batch 18: Central main-session fresh/resume/slash routing — IMPLEMENTED (D22/D23: a9bd94e49; 18b 3cced9150)
 
 - Recommended executor: CLI lane, main orchestration/account lifecycle; sequential; actual family unassigned.
 - Depends on: 12–17. Phase P1-D; review at 22.
@@ -376,7 +376,7 @@ At each implementation phase's last batch, stop for one combined independent cod
 - Command: `Verify-ProviderAccountsBatch -Projects @('@ptah-extension/rpc-handlers') -Hosts $H`
 - Report T/implementation-report-batch-18.md. If actual slash router lives elsewhere, stop to normalize that single ownership path before editing; do not invent a replacement service.
 
-## Batch 19: Lane persisted references and resume classification — PENDING
+## Batch 19: Lane persisted references and resume classification — IMPLEMENTED (5361a3004; spec mocks fixed c124a1e4b)
 
 - Recommended executor: CLI lane, lane lifecycle persistence; sequential; actual family unassigned.
 - Depends on: 16–18. Phase P1-D; review at 22.
@@ -391,7 +391,7 @@ At each implementation phase's last batch, stop for one combined independent cod
 - Command: `Verify-ProviderAccountsBatch -Projects @('@ptah-extension/cli-agent-runtime') -Hosts $H`
 - Report T/implementation-report-batch-19.md.
 
-## Batch 20: Named Claude lane gated dispatch and queued-turn validation — PENDING
+## Batch 20: Named Claude lane gated dispatch and queued-turn validation — IMPLEMENTED (b95a97e47; ambient log restored c124a1e4b)
 
 - Recommended executor: CLI lane, async SDK lane admission; sequential; actual family unassigned.
 - Depends on: 17/19. Phase P1-D; review at 22.
@@ -406,7 +406,7 @@ At each implementation phase's last batch, stop for one combined independent cod
 - Command: `Verify-ProviderAccountsBatch -Projects @('@ptah-extension/cli-agent-runtime') -Hosts $H`
 - Report T/implementation-report-batch-20.md.
 
-## Batch 21: Separate child-chat binding inheritance — PENDING
+## Batch 21: Separate child-chat binding inheritance — IMPLEMENTED (Codex lane c7c217b6)
 
 - Recommended executor: CLI lane, child-session orchestration; sequential; actual family unassigned.
 - Depends on: 18–20. Phase P1-D; review at 22.
@@ -421,7 +421,7 @@ At each implementation phase's last batch, stop for one combined independent cod
 - Command: `Verify-ProviderAccountsBatch -Projects @('@ptah-extension/cli-agent-runtime','@ptah-extension/rpc-handlers') -Hosts $H`
 - Report T/implementation-report-batch-21.md.
 
-## Batch 22: Claude pre-prompt and resume acceptance matrix — PENDING
+## Batch 22: Claude pre-prompt and resume acceptance matrix — IN PROGRESS (Codex lane cdd8d264)
 
 - Recommended executor: CLI lane, adversarial contract tests; sequential; actual family unassigned.
 - Depends on: 17–21. Phase P1-D last; **STOP combined code-logic review Batches 16–22**.

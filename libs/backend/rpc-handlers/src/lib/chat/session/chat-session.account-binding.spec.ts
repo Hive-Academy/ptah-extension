@@ -35,6 +35,7 @@ import type { ProviderAccountBinding, SessionId } from '@ptah-extension/shared';
 import { SessionMetadataStore } from '@ptah-extension/agent-sdk';
 import { createMockModelSettings } from '../../../test-utils/mock-settings';
 import { ChatSessionService } from './chat-session.service';
+import { ChildChatSessionHostAdapter } from './child-chat-session-host.adapter';
 import { ChatSlashCommandRouterService, gateMainSessionAccount, mainSessionAccountFailure } from './chat-slash-command-router.service';
 import { SessionMcpStatusRegistry } from './session-mcp-status.registry';
 
@@ -349,6 +350,114 @@ describe('slash routes and release hold', () => {
     })).rejects.toMatchObject({ code: 'conflict' });
     expect(h.accounts.selection).not.toHaveBeenCalled();
     expect(h.accounts.admitClaudeRoute).not.toHaveBeenCalled();
+    expectNoContext(h);
+  });
+});
+
+describe('separate child account inheritance (Batch 21)', () => {
+  const launch = (h: ReturnType<typeof harness>, handoff = false) => {
+    const common = { tabId: TAB, workspaceRoot: ROOT, prompt: 'private child task',
+      sessionName: 'child', sourceSessionId: SESSION };
+    return handoff
+      ? h.service.startHandoffSession({ ...common, cwd: ROOT })
+      : h.service.startAgentChildSession({ ...common, worktreePath: ROOT });
+  };
+
+  it.each([false, true])('inherits account A despite default B, handoff=%s', async handoff => {
+    const h = harness(true);
+    expect(await launch(h, handoff)).toMatchObject({ success: false, accountRefusal: HELD });
+    expect(h.accounts.lookupBySdkSession).toHaveBeenCalledWith({ provider: 'claude', sdkSessionId: SESSION });
+    expect(h.accounts.admitClaudeRoute).toHaveBeenCalledWith(expect.objectContaining({
+      selection: { kind: 'named', profileId: ORIGINAL }, runId: BINDING.runId,
+    }));
+    expect(h.accounts.selection).not.toHaveBeenCalled();
+    expectNoContext(h);
+  });
+
+  it.each(['missing-profile', 'route-changed', 'identity-mismatch', 'identity-unproved'])
+    ('refuses %s before child content', async code => {
+      const h = harness(true);
+      h.accounts.admitClaudeRoute.mockResolvedValue({ code, summary: 'The account route was refused.' });
+      expect(await launch(h)).toMatchObject({ success: false, accountRefusal: { code } });
+      expect(h.accounts.releaseReservation).not.toHaveBeenCalled();
+      expectNoContext(h);
+    });
+
+  it.each(['invalid-bound', 'unavailable-storage'])('does not replace an unknown parent binding: %s', async status => {
+    const h = harness(true);
+    h.accounts.lookupBySdkSession.mockResolvedValue({ status });
+    expect(await launch(h)).toMatchObject({ success: false, accountRefusal: { code: status } });
+    expect(h.accounts.selection).not.toHaveBeenCalled();
+    expect(h.accounts.admitClaudeRoute).not.toHaveBeenCalled();
+    expectNoContext(h);
+  });
+
+  it('refuses an unknown parent identity before admission', async () => {
+    const h = harness(true);
+    const binding = { ...BINDING, identity: { kind: 'unknown' } };
+    h.accounts.lookupBySdkSession.mockResolvedValue({ status: 'bound', binding });
+    h.get.mockResolvedValue({ accountBinding: binding });
+    expect(await launch(h)).toMatchObject({ success: false, accountRefusal: { code: 'identity-unproved' } });
+    expect(h.accounts.admitClaudeRoute).not.toHaveBeenCalled();
+    expectNoContext(h);
+  });
+
+  it.each([false, true])('unbound source ignores a newly named default, handoff=%s', async handoff => {
+    const h = harness();
+    expect(await launch(h, handoff)).toEqual({ success: true });
+    expect(h.accounts.selection).not.toHaveBeenCalled();
+    expect(h.accounts.admitClaudeRoute).not.toHaveBeenCalled();
+    expect(h.sdk.startChatSession).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([false, true])('incompatible provider keeps its existing launch arguments, handoff=%s', async handoff => {
+    const inherited = harness(true);
+    const fresh = harness();
+    for (const h of [inherited, fresh]) {
+      h.activeProvider.resolveActiveAuthForPath.mockReturnValue({ authMethod: 'apiKey', providerId: 'anthropic' });
+    }
+    expect(await launch(inherited, handoff)).toEqual({ success: true });
+    const common = { tabId: TAB, workspaceRoot: ROOT, prompt: 'private child task', sessionName: 'child' };
+    expect(await (handoff ? fresh.service.startHandoffSession({ ...common, cwd: ROOT })
+      : fresh.service.startAgentChildSession({ ...common, worktreePath: ROOT }))).toEqual({ success: true });
+    expect(inherited.sdk.startChatSession.mock.calls).toEqual(fresh.sdk.startChatSession.mock.calls);
+    expect(inherited.accounts.lookupBySdkSession).not.toHaveBeenCalled();
+    expect(inherited.accounts.admitClaudeRoute).not.toHaveBeenCalled();
+  });
+
+  it('releases only the child preflight reservation and retains the release hold', async () => {
+    const h = harness(true);
+    h.accounts.admitClaudeRoute.mockResolvedValue({ code: 'ok', reservation: {
+      reservationId: 'child-reservation', operationId: 'child-operation', authEpoch: 0,
+    } });
+    expect(await launch(h)).toMatchObject({ success: false, accountRefusal: { code: 'release-held' } });
+    expect(h.accounts.releaseReservation.mock.calls).toEqual([[{
+      reservationId: 'child-reservation', operationId: 'child-operation', authEpoch: 0, reason: 'startup-failure',
+    }]]);
+    expectNoContext(h);
+  });
+});
+
+describe('host passes authoritative source IDs (D22)', () => {
+  it.each([false, true])('passes the SDK source and retains typed refusal, handoff=%s', async handoff => {
+    const h = harness(true);
+    const host = new ChildChatSessionHostAdapter(createMockLogger() as unknown as Logger, {
+      getActiveWebviews: () => [], sendMessage: jest.fn().mockResolvedValue(false),
+      broadcastMessage: jest.fn().mockResolvedValue(undefined),
+    }, h.service);
+    const common = { tabId: TAB, workspaceRoot: ROOT, prompt: 'private task', sessionName: 'child' };
+    const result = handoff
+      ? await host.startHandoffSession({ ...common, cwd: ROOT, descriptor: {
+        tabId: TAB, fromTabId: TAB, fromSessionId: SESSION, workspaceRoot: ROOT, cwd: ROOT,
+        label: 'handoff', displayPrompt: 'private task', startedAt: 1,
+      } })
+      : await host.startChildSession({ ...common, worktreePath: ROOT, descriptor: {
+        tabId: TAB, sessionId: null, parentTabId: TAB, parentSessionId: SESSION, workspaceRoot: ROOT,
+        worktreePath: ROOT, branch: 'feat/child', label: 'child', displayPrompt: 'private task', startedAt: 1,
+      } });
+    expect(result).toMatchObject({ started: false, accountRefusal: HELD });
+    expect(h.accounts.lookupBySdkSession).toHaveBeenCalledWith({ provider: 'claude', sdkSessionId: SESSION });
+    expect(h.accounts.selection).not.toHaveBeenCalled();
     expectNoContext(h);
   });
 });

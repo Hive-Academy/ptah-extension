@@ -671,7 +671,7 @@ export class ChatSessionService {
    */
   async startAgentChildSession(
     params: AgentChildSessionStartParams,
-  ): Promise<ChatStartResult> {
+  ): Promise<ChatStartResult | NonNullable<ReturnType<typeof mainSessionAccountFailure>>> {
     const { tabId, workspaceRoot, worktreePath, prompt, sessionName, model } =
       params;
     try {
@@ -683,7 +683,7 @@ export class ChatSessionService {
       );
       if (refused) return refused;
 
-      await this.gateAccount({ workspacePath: workspaceRoot, sessionId: params.sourceSessionId,
+      await this.gateAccount({ workspacePath: workspaceRoot, sessionId: params.sourceSessionId, inheritedSource: true,
         accountSelection: params.accountSelection });
       const mcpServerRunning = this.codeExecutionMcp.getPort() !== null;
       const permissionLevel = this.childPermissionLevel(params.permissionLevel);
@@ -765,7 +765,7 @@ export class ChatSessionService {
    */
   async startHandoffSession(
     params: HandoffSessionStartParams,
-  ): Promise<ChatStartResult> {
+  ): Promise<ChatStartResult | NonNullable<ReturnType<typeof mainSessionAccountFailure>>> {
     const { tabId, workspaceRoot, cwd, prompt, sessionName, model } = params;
     const { permissionLevel } = params;
     try {
@@ -777,7 +777,7 @@ export class ChatSessionService {
       );
       if (refused) return refused;
 
-      await this.gateAccount({ workspacePath: workspaceRoot, sessionId: params.sourceSessionId,
+      await this.gateAccount({ workspacePath: workspaceRoot, sessionId: params.sourceSessionId, inheritedSource: true,
         accountSelection: params.accountSelection });
       const mcpServerRunning = this.codeExecutionMcp.getPort() !== null;
       this.logger.info('[ptah.main] handoff session - session config', {
@@ -1755,7 +1755,17 @@ export class ChatSessionService {
     return this.gateAccount({ sessionId });
   }
 
-  private async gateAccount(input: MainSessionAccountSelection & { workspacePath?: string; sessionId?: string }): Promise<void> {
+  private async gateAccount(input: MainSessionAccountSelection & { workspacePath?: string; sessionId?: string; inheritedSource?: boolean }): Promise<void> {
+    // A separate child/handoff inherits only on the native Claude route.
+    // Resume/fork/rewind calls are not inherited launches and must always
+    // validate their original binding, irrespective of today's provider.
+    if (input.inheritedSource && input.sessionId && input.workspacePath && this.activeProvider &&
+        this.activeProvider.resolveActiveAuthForPath(input.workspacePath).authMethod !== 'claudeCli') {
+      await gateMainSessionAccount({ accounts: this.accounts, activeProvider: this.activeProvider,
+        metadata: this.sessionMetadataStore }, { workspacePath: input.workspacePath,
+        accountSelection: input.accountSelection });
+      return;
+    }
     // Fresh ambient hosts retain their call sequence. Existing sessions still
     // inspect local linkage if the authoritative account service is unavailable.
     if (!this.accounts && input.accountSelection === undefined && !input.sessionId) return;
