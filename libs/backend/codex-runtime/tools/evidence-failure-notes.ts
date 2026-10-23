@@ -42,6 +42,7 @@ export const failureMessages = new Set([
   'Notification thread mismatch',
   'Unexpected command',
   'Command path contains a double quote',
+  'Command path contains a backslash',
   'Unexpected file change',
   'Unexpected or repeated tool item',
   'CODEX_HOME isolation mismatch',
@@ -148,9 +149,13 @@ export function recordCommandShape(
       /"(?:[A-Za-z]:[\\/]|\\\\)[^"\r\n]*[\\/](powershell\.exe|pwsh\.exe|cmd\.exe|bash|sh)"/gi,
       '"<PATH>\\$1"',
     );
-    for (const script of variants(context.markerScript).sort(
-      (left, right) => right.length - left.length,
-    )) {
+    for (const script of [
+      context.markerScript,
+      context.markerScript.replace(/\\/g, '/'),
+      context.markerScript.replace(/\//g, '\\'),
+    ]
+      .flatMap(variants)
+      .sort((left, right) => right.length - left.length)) {
       if (script) value = value.split(script).join('<MARKER_SCRIPT>');
     }
     for (const replacement of replacements) {
@@ -174,19 +179,47 @@ export function recordCommandShape(
         ? value.filter((entry): entry is string => typeof entry === 'string')
         : [];
   });
-  const actual = shape(commands.join(' '));
-  const expected = shape(context.expectedCommand);
-  const unquote = (value: string): string =>
-    value.replace(/["'`]/g, '').replace(/\s+/g, ' ').trim();
+  const observed = commands.join(' ');
+  const actual = shape(observed);
+  const expected = context.expectedCommand;
+  const acceptedWrapper =
+    /^"((?:[A-Za-z]:[\\/]|\\\\[^"\\/]+[\\/][^"\\/]+[\\/])[^"\r\n]*)" -Command "([^"\r\n]*)"$/.exec(
+      observed,
+    );
+  const inner =
+    acceptedWrapper &&
+    acceptedWrapper[0] === observed &&
+    /[\\/](?:powershell|pwsh)\.exe$/i.test(acceptedWrapper[1]) &&
+    !expected.includes('"')
+      ? acceptedWrapper[2]
+      : observed;
+  const unquote = (value: string): string => value.replace(/["']/g, '');
+  const whitespace = (value: string): string =>
+    value.replace(/\s+/g, ' ').trim();
   const wrapper =
     /^(?:&\s+)?["']?(?:(?:[A-Za-z]:)?[^\s"']*[\\/])?(?:powershell|pwsh)(?:\.exe)?["']?\s+(?:(?:-NoProfile|-NonInteractive)\s+)*-(?:Command|c)\s+|^(?:["']?(?:(?:[A-Za-z]:)?[^\s"']*[\\/])?cmd(?:\.exe)?["']?\s+\/c\s+)|^(?:["']?(?:[^\s"']*\/)?(?:bash|sh)["']?\s+-(?:lc|c)\s+)/i;
-  const withoutWrapper = actual.replace(wrapper, '');
+  const withoutWrapper = observed.replace(wrapper, '');
+  const wrapperInner = /^(?:"([\s\S]*)"|'([\s\S]*)')$/.exec(withoutWrapper);
+  const unwrapped = wrapperInner
+    ? (wrapperInner[1] ?? wrapperInner[2])
+    : withoutWrapper;
   const difference =
-    withoutWrapper !== actual && unquote(withoutWrapper) === unquote(expected)
-      ? 'shell wrapper'
-      : unquote(actual) === unquote(expected)
-        ? 'quoting'
-        : 'other';
+    inner !== expected && inner.replace(/\\\\/g, '\\') === expected
+      ? 'doubled backslashes'
+      : inner !== expected &&
+          inner.replace(/\\/g, '/') === expected.replace(/\\/g, '/')
+        ? 'slash direction'
+        : inner !== expected && inner.toLowerCase() === expected.toLowerCase()
+          ? 'case only'
+          : inner !== expected && whitespace(inner) === whitespace(expected)
+            ? 'whitespace'
+            : inner !== expected && unquote(inner) === unquote(expected)
+              ? 'quoting'
+              : inner === observed &&
+                  withoutWrapper !== observed &&
+                  unwrapped === expected
+                ? 'wrapper'
+                : 'other';
   notes.push(
     prefix +
       String(

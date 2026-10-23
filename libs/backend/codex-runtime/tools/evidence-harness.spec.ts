@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
+import { runInNewContext } from 'node:vm';
 import { join, resolve } from 'node:path';
 import {
   mkdtempSync,
@@ -33,6 +34,7 @@ import {
   assertThreadApprovalPolicy,
   shouldNoteMissingApproval,
   commandMatches,
+  markerCommand,
   markerApprovalDecision,
   markerExists,
   assertDisjointHomes,
@@ -101,14 +103,70 @@ describe('strict command identity', () => {
 
   it('builds a file-backed marker command without inline code or double quotes', () => {
     const source = readFileSync(join(__dirname, 'evidence-harness.ts'), 'utf8');
-    expect(source).toContain(
-      '[process.execPath, markerScript, experiment.root, target]',
-    );
+    expect(source).toContain('const expectedCommand = markerCommand([');
     expect(source).not.toContain("[process.execPath, '-e'");
-    expect(source).toContain("if (expectedCommand.includes('\"'))");
+    expect(source).toContain("if (command.includes('\"'))");
     expect(source).toContain('writeMarker(process.argv[2],process.argv[3]);');
     expect(expected).not.toContain('"');
     expect(expected).not.toContain("'-e'");
+  });
+
+  it('builds Windows command paths with forward slashes and no double quotes', () => {
+    const paths = [
+      'C:\\Program Files\\node.exe',
+      'C:\\evidence\\marker.cjs',
+      'C:\\evidence',
+      'C:\\evidence\\workspace\\case.marker',
+    ];
+    const command = markerCommand(paths, 'win32');
+    expect(command).toBe(
+      "& 'C:/Program Files/node.exe' 'C:/evidence/marker.cjs' 'C:/evidence' 'C:/evidence/workspace/case.marker'",
+    );
+    expect(command).not.toContain('\\');
+    expect(command).not.toContain('"');
+    expect(() => markerCommand(['C:\\bad"path'], 'win32')).toThrow(
+      'Command path contains a double quote',
+    );
+  });
+
+  it('rejects doubled backslashes and slash variants at the identity gate', () => {
+    for (const command of [
+      expected.replace(/\\/g, '\\\\'),
+      expected.replace(/\\/g, '/'),
+    ]) {
+      expect(commandMatches(command, expected, 'win32')).toBe(false);
+      expect(
+        commandMatches(
+          `"C:\\pwsh.exe" -Command "${command}"`,
+          expected,
+          'win32',
+        ),
+      ).toBe(false);
+    }
+  });
+
+  it('writes a confined marker with forward-slash root and target paths', () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'marker-slashes-')));
+    const target = join(root, 'workspace', 'case.marker');
+    try {
+      mkdirSync(join(root, 'workspace'));
+      const source = readFileSync(
+        join(__dirname, 'evidence-harness.ts'),
+        'utf8',
+      );
+      const writer = /const MARKER_WRITER = String.raw`([\s\S]*?)`;/.exec(
+        source,
+      )?.[1];
+      expect(writer).toBeDefined();
+      runInNewContext(writer + ';writeMarker(root, target);', {
+        require,
+        root: root.replace(/\\/g, '/'),
+        target: target.replace(/\\/g, '/'),
+      });
+      expect(readFileSync(target, 'utf8')).toBe('marker');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 
@@ -122,6 +180,50 @@ describe('bounded command shape diagnostics', () => {
   const markerScript = 'C:\\evidence\\case-marker.cjs';
   const expectedCommand = `'${process.execPath}' '${markerScript}' '${experiment.root}' '${experiment.workspace}'`;
   const context = { experiment, markerScript, expectedCommand, sanitize };
+
+  it.each([
+    [
+      'doubled backslashes',
+      "& 'C:\\\\private\\\\marker'",
+      "& 'C:\\private\\marker'",
+    ],
+    ['slash direction', "& 'C:/private/marker'", "& 'C:\\private\\marker'"],
+    ['case only', "& 'C:/PRIVATE/marker'", "& 'C:/private/marker'"],
+    ['whitespace', "&  'C:/private/marker'", "& 'C:/private/marker'"],
+    ['quoting', '& "C:/private/marker"', "& 'C:/private/marker'"],
+    ['wrapper', 'cmd /c "& \'C:/private/marker\'"', "& 'C:/private/marker'"],
+    ['other', "& 'C:/private/changed'", "& 'C:/private/marker'"],
+    [
+      'doubled backslashes',
+      '"C:\\Windows\\powershell.exe" -Command "& \'C:\\\\private\\\\marker\'"',
+      "& 'C:\\private\\marker'",
+    ],
+  ])(
+    'classifies %s from original command text without leaking paths',
+    (label, observed, expected) => {
+      const result = { notes: [] as string[] };
+      recordCommandShape(
+        result,
+        {},
+        { command: observed },
+        { ...context, expectedCommand: expected },
+      );
+      expect(result.notes[2]).toBe(`Command differs by: ${label}`);
+      expect(result.notes.join(' ')).not.toContain('private');
+    },
+  );
+
+  it('redacts every forward-slash command path to its specific placeholder', () => {
+    const result = { notes: [] as string[] };
+    const command = markerCommand(
+      [process.execPath, markerScript, experiment.root, experiment.workspace],
+      'win32',
+    );
+    recordCommandShape(result, {}, { command }, context);
+    expect(result.notes[0]).toBe(
+      "Unexpected command shape: & '<NODE>' '<MARKER_SCRIPT>' '<ROOT>' '<WORKSPACE>'",
+    );
+  });
 
   it('replaces real home and temp paths while preserving nested experiment paths', () => {
     const nested = {
@@ -239,7 +341,7 @@ describe('bounded command shape diagnostics', () => {
         { command: `${wrapper} "${expectedCommand}"` },
         context,
       );
-      expect(result.notes).toContain('Command differs by: shell wrapper');
+      expect(result.notes).toContain('Command differs by: wrapper');
     },
   );
 
@@ -260,7 +362,7 @@ describe('bounded command shape diagnostics', () => {
     expect(other.notes).toContain('Command differs by: other');
   });
 
-  it('preserves the PowerShell basename and classifies an absolute shell wrapper', () => {
+  it('preserves the PowerShell basename and strips the accepted wrapper for classification', () => {
     const result = { notes: [] as string[] };
     recordCommandShape(
       result,
@@ -273,7 +375,7 @@ describe('bounded command shape diagnostics', () => {
     expect(result.notes[0]).toContain('"<PATH>\\powershell.exe" -Command');
     expect(result.notes[0]).toContain('<MARKER_SCRIPT>');
     expect(result.notes.join(' ')).not.toContain('Private Directory');
-    expect(result.notes).toContain('Command differs by: shell wrapper');
+    expect(result.notes).toContain('Command differs by: other');
   });
 
   it('keeps only bounded command fields and camelCase key names, then sanitizes', () => {

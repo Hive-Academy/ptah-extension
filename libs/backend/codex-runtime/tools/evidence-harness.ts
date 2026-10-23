@@ -633,6 +633,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 function writeMarker(root, target) {
+  root = path.resolve(root);
+  target = path.resolve(target);
   const actualRoot = fs.realpathSync(root);
   const within = value => {
     const suffix = path.relative(actualRoot, value);
@@ -877,6 +879,27 @@ export function commandMatches(
   );
 }
 
+export function markerCommand(
+  paths: string[],
+  platform = process.platform,
+): string {
+  const command =
+    (platform === 'win32' ? '& ' : '') +
+    paths
+      .map((value) => {
+        const path = platform === 'win32' ? value.replace(/\\/g, '/') : value;
+        return platform === 'win32'
+          ? "'" + path.replace(/'/g, "''") + "'"
+          : "'" + path.replace(/'/g, "'\\''") + "'";
+      })
+      .join(' ');
+  if (command.includes('"'))
+    throw new Error('Command path contains a double quote');
+  if (platform === 'win32' && command.includes('\\'))
+    throw new Error('Command path contains a backslash');
+  return command;
+}
+
 function configSummary(value: unknown): unknown {
   const config = record(record(value)['config']);
   assertSafeSandbox(config);
@@ -1073,23 +1096,18 @@ async function runCase(
   const fixture = join(experiment.root, `${item.id}-mcp.cjs`);
   writeFileSync(fixture, MCP_FIXTURE, { flag: 'wx', mode: 0o600 });
   const selected = policy(item.level);
-  const shellQuote = (value: string): string =>
-    process.platform === 'win32'
-      ? "'" + value.replace(/'/g, "''") + "'"
-      : "'" + value.replace(/'/g, "'\\''") + "'";
   const markerScript = join(experiment.root, `${item.id}-marker.cjs`);
   writeFileSync(
     markerScript,
     MARKER_WRITER + ';writeMarker(process.argv[2],process.argv[3]);',
     { flag: 'wx', mode: 0o600 },
   );
-  const expectedCommand =
-    (process.platform === 'win32' ? '& ' : '') +
-    [process.execPath, markerScript, experiment.root, target]
-      .map(shellQuote)
-      .join(' ');
-  if (expectedCommand.includes('"'))
-    throw new Error('Command path contains a double quote');
+  const expectedCommand = markerCommand([
+    process.execPath,
+    markerScript,
+    experiment.root,
+    target,
+  ]);
   const overrides = [
     `mcp_servers.marker.command=${JSON.stringify(process.execPath)}`,
     `mcp_servers.marker.args=${JSON.stringify([fixture, JSON.stringify({ root: experiment.root, original })])}`,
