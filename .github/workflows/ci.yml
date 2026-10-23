@@ -111,12 +111,9 @@ jobs:
         if: hashFiles('dist/apps/ptah-extension-webview/browser-stats.json') != ''
         run: npm run gate:eager-closure
 
-  # Astro docs build, out of the `checks` critical path. A full-graph
-  # `nx affected -t build` spent 14-21 min on ptah-docs:build, while the
-  # same target alone takes ~13 s (locally and in deploy-docs.yml). Nx hides
-  # the output of a passing task, so stream it here to show any slow phase.
-  # The restore key stays job-scoped so a `checks` cache entry cannot hide
-  # a slow build behind a cache hit.
+  # Astro docs build, out of the `checks` critical path. The restore key
+  # stays job-scoped so a `checks` cache entry cannot hide a slow build
+  # behind a cache hit.
   docs-build:
     runs-on: ubuntu-latest
     permissions:
@@ -130,9 +127,16 @@ jobs:
       !startsWith(github.head_ref, 'chore/bump-extension-v') &&
       !contains(github.event.head_commit.message, 'chore(release)')
     steps:
+      # blob:none, not tree:0. `astro build` runs Starlight's
+      # `git log --name-status -- apps/ptah-docs/src/content/docs` over the
+      # full history (even with lastUpdated off). In a treeless clone that
+      # fetches the trees of every commit one by one: ptah-docs:build sat
+      # silent for 14-21 min (timed out at 20 on PR #814), against ~13 s with
+      # trees present. A blobless clone keeps the trees and the full history
+      # that nx affected needs.
       - uses: actions/checkout@v4
         with:
-          filter: tree:0
+          filter: blob:none
           fetch-depth: 0
 
       - uses: ./.github/actions/setup-ci

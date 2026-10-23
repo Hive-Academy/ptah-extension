@@ -13,6 +13,7 @@
   "targets": {
     "build-main": {
       "executor": "@nx/esbuild:esbuild",
+      "inputs": ["production", "^production", "rootPackageFiles"],
       "dependsOn": [],
       "outputs": [
         "{options.outputPath}/main.mjs",
