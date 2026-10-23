@@ -2,6 +2,12 @@
   "$schema": "./node_modules/nx/schemas/nx-schema.json",
   "//parallel": "Nx defaults to 3 concurrent TASKS, and each task starts its own Jest coordinator with its own worker pool, so the two numbers MULTIPLY. Measured 2026-09-20 on a 16-core host: one `nx run-many -t test` held 3 run-executor children and ~50 jest workers at 675-1,014 MB each, saturating the machine while the developer was working in Ptah. CI is unaffected — `.github/workflows/ci.yml` passes `--parallel=3 --maxWorkers=2` explicitly and a CLI flag beats this default. See TASK_2026_486_3b7e, and TASK_2026_404_edeb for the CI half.",
   "parallel": 2,
+  "//sharedGlobals": "No root package.json / package-lock.json here: with pluginsConfig @nx/js projectsAffectedByDependencyUpdates 'auto', Nx reads the lockfile and marks only the projects that use a changed npm package (the default 'all' marks every project). Listing them made every dependency bump a full-graph run. Targets that read the root package files themselves (generatePackageJson, prune-lockfile, CLI-calling nx:run-commands) take `rootPackageFiles`.",
+  "pluginsConfig": {
+    "@nx/js": {
+      "projectsAffectedByDependencyUpdates": "auto"
+    }
+  },
   "namedInputs": {
     "default": [
       "{projectRoot}/**/*",
@@ -19,12 +25,20 @@
     ],
     "sharedGlobals": [
       "{workspaceRoot}/tsconfig.base.json",
-      "{workspaceRoot}/package.json",
-      "{workspaceRoot}/package-lock.json",
       "{workspaceRoot}/nx.json"
+    ],
+    "rootPackageFiles": [
+      "{workspaceRoot}/package.json",
+      "{workspaceRoot}/package-lock.json"
     ]
   },
   "targetDefaults": {
+    "nx:run-commands": {
+      "inputs": ["default", "^default", "rootPackageFiles"]
+    },
+    "@nx/js:prune-lockfile": {
+      "inputs": ["production", "^production", "rootPackageFiles"]
+    },
     "typecheck": {
       "inputs": [
         "default",

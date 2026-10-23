@@ -7,6 +7,7 @@
   "targets": {
     "build": {
       "executor": "@nx/esbuild:esbuild",
+      "inputs": ["production", "^production", "rootPackageFiles"],
       "outputs": ["{options.outputPath}"],
       "defaultConfiguration": "production",
       "options": {
