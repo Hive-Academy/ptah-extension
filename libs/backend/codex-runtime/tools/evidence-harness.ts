@@ -1413,7 +1413,8 @@ async function runCase(
         ? 'Use only marker MCP write_marker once with slot original. No other tools or retries.'
         : item.kind === 'file'
           ? `Use the file edit tool once to create ${target} containing marker. Request approval. No commands or retries.`
-          : `Run exactly this command once, without wrappers or changes: ${expectedCommand}. Request approval. No other tools or retries.`;
+          : // The command stands alone on its line: run 6d copied a trailing period into it.
+            `Request approval, then run exactly this command once, without wrappers, changes or added punctuation. The command is the whole next line:\n${expectedCommand}\nNo other tools or retries.`;
     const sandboxPolicy =
       selected.sandbox === 'read-only'
         ? { type: 'readOnly', networkAccess: false }
