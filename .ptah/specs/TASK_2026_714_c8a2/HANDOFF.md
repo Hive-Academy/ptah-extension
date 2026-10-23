@@ -101,6 +101,9 @@ Open items in that diff:
   rpc-handlers `chat-session.service.ts`, `chat-slash-command-router.service.ts`,
   `session-rpc.handlers.ts`. Our later batches modify several of these: rebase on #808 first.
   Migration 0059 is theirs; any 714 migration is 0060 or later.
+- tsyringe note from 712 (for our DI registrations): `register(token, { useValue: null })` makes
+  `resolve()` throw "TypeInfo not known", even for optional injections. Use
+  `{ useFactory: () => null }` for a held/null default.
 - Heavy-check slot: claim by message, wait for "released", release after. Use ListAgents for
   current addresses. This session does not hold the slot.
 - Shared `node_modules`: the worktree has none of its own; Node resolves
