@@ -1,6 +1,6 @@
 import { homedir, tmpdir } from 'node:os';
 import type { Experiment } from './evidence-harness';
-// Only literal harness messages and known error names may enter evidence notes.
+// Only literal harness messages, bounded RPC codes and known error names enter notes.
 export const failureMessages = new Set([
   'frame too large',
   'Experiment path is a symlink',
@@ -83,9 +83,11 @@ export function recordCaseFailure(
     errorNames.has(details.name)
       ? details.name
       : 'Error';
-  const note = failureMessages.has(message)
-    ? message
-    : `unclassified error (${name})`;
+  const note =
+    failureMessages.has(message) ||
+    /^RPC error -?\d{1,6}$/.exec(message)?.[0] === message
+      ? message
+      : `unclassified error (${name})`;
   const notes = (result.notes ??= []);
   if (!notes.includes(note)) notes.push(note);
 }

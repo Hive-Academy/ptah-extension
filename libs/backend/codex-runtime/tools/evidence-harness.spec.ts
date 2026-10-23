@@ -29,6 +29,8 @@ import {
   approvalPolicyOverride,
   approvalPoliciesEqual,
   assertEffectiveApprovalPolicy,
+  initializeParams,
+  assertThreadApprovalPolicy,
   shouldNoteMissingApproval,
   markerApprovalDecision,
   markerExists,
@@ -392,6 +394,28 @@ describe('evidence harness safety (no native binaries or models)', () => {
       'unclassified error (TypeError)',
       'unclassified error (Error)',
     ]);
+  });
+
+  it.each(['RPC error -32600', 'RPC error 0', 'RPC error 999999'])(
+    'records a bounded RPC error code as-is: %s',
+    (message) => {
+      const result = { notes: [] as string[] };
+      recordCaseFailure(result, new Error(message));
+      expect(result.notes).toEqual([message]);
+    },
+  );
+
+  it.each([
+    'RPC error -32600 secret text',
+    'RPC error 1234567',
+    'RPC error -1234567',
+    'RPC error +32600',
+    'RPC error -32600\n',
+    'private-server-message',
+  ])('withholds unlisted RPC and server text: %s', (message) => {
+    const result = { notes: [] as string[] };
+    recordCaseFailure(result, new Error(message));
+    expect(result.notes).toEqual(['unclassified error (Error)']);
   });
 
   it('does not report normal teardown as a case failure', async () => {
@@ -982,6 +1006,62 @@ describe('review regression guards using real functions and isolated disk', () =
 });
 
 describe('granular ask approval policy', () => {
+  it('enables experimentalApi only for granular initialize params', () => {
+    for (const level of ['ask', undefined] as const) {
+      expect(initializeParams(policy(level).approvalPolicy)).toEqual({
+        clientInfo: { name: 'ptah_evidence', version: '0.0.1' },
+        capabilities: { experimentalApi: true },
+      });
+    }
+    for (const level of ['plan', 'auto-edit', 'yolo'] as const) {
+      expect(initializeParams(policy(level).approvalPolicy)).toEqual({
+        clientInfo: { name: 'ptah_evidence', version: '0.0.1' },
+        capabilities: { experimentalApi: false },
+      });
+    }
+  });
+
+  it('confirms an echoed granular policy and user reviewer structurally', () => {
+    expect(() =>
+      assertThreadApprovalPolicy(
+        {
+          approvalPolicy: {
+            granular: Object.fromEntries(Object.entries(granular).reverse()),
+          },
+          approvalsReviewer: 'user',
+        },
+        policy('ask').approvalPolicy,
+      ),
+    ).not.toThrow();
+  });
+
+  it('rejects missing or different thread approval policy and reviewer', () => {
+    const expected = policy('ask').approvalPolicy;
+    const message = 'Effective approval policy differs from bounded profile';
+    for (const response of [
+      { approvalsReviewer: 'user' },
+      { approvalPolicy: 'on-request', approvalsReviewer: 'user' },
+      {
+        approvalPolicy: { granular: { ...granular, rules: false } },
+        approvalsReviewer: 'user',
+      },
+      { approvalPolicy: expected },
+      { approvalPolicy: expected, approvalsReviewer: 'guardian_subagent' },
+      null,
+    ]) {
+      expect(() => assertThreadApprovalPolicy(response, expected)).toThrow(
+        message,
+      );
+      const result = { notes: [] as string[] };
+      try {
+        assertThreadApprovalPolicy(response, expected);
+      } catch (error) {
+        recordCaseFailure(result, error);
+      }
+      expect(result.notes).toEqual([message]);
+    }
+  });
+
   it('notes missing approval only after an ask turn starts without a request', () => {
     expect(shouldNoteMissingApproval('turn', 'ask', false)).toBe(true);
     expect(shouldNoteMissingApproval('', 'ask', false)).toBe(false);

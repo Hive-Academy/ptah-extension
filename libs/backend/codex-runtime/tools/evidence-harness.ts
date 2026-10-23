@@ -812,6 +812,28 @@ export function approvalPoliciesEqual(
   return isDeepStrictEqual(actual, expected);
 }
 
+export function initializeParams(approvalPolicy: ApprovalPolicy) {
+  return {
+    clientInfo: { name: 'ptah_evidence', version: '0.0.1' },
+    capabilities: { experimentalApi: typeof approvalPolicy !== 'string' },
+  };
+}
+
+export function assertThreadApprovalPolicy(
+  response: unknown,
+  expected: ApprovalPolicy,
+): void {
+  if (
+    typeof response !== 'object' ||
+    response === null ||
+    !('approvalPolicy' in response) ||
+    !approvalPoliciesEqual(response.approvalPolicy, expected) ||
+    !('approvalsReviewer' in response) ||
+    response.approvalsReviewer !== 'user'
+  )
+    throw new Error('Effective approval policy differs from bounded profile');
+}
+
 export function assertEffectiveApprovalPolicy(
   actual: unknown,
   expected: ApprovalPolicy,
@@ -1263,11 +1285,16 @@ async function runCase(
     inspect();
   };
   try {
+    if (typeof selected.approvalPolicy !== 'string') {
+      (result.notes ??= []).push(
+        'Initialize: experimentalApi=true (required by 0.155.1 for granular approvals)',
+      );
+    }
     const init = record(
-      await rpc.request('initialize', {
-        clientInfo: { name: 'ptah_evidence', version: '0.0.1' },
-        capabilities: { experimentalApi: false },
-      }),
+      await rpc.request(
+        'initialize',
+        initializeParams(selected.approvalPolicy),
+      ),
     );
     if (
       typeof init['codexHome'] !== 'string' ||
@@ -1298,11 +1325,6 @@ async function runCase(
       effective['approval_policy'],
       selected.approvalPolicy,
     );
-    if (selected.approvalsReviewer) {
-      (result.notes ??= []).push(
-        'Effective config: approvalsReviewer="user" requested for thread/start and turn/start; not confirmed by config/read',
-      );
-    }
     const thread = await rpc.request('thread/start', {
       model,
       cwd: experiment.workspace,
@@ -1311,6 +1333,12 @@ async function runCase(
       developerInstructions:
         'Evidence experiment. Only the single requested marker may be touched. Do not inspect credentials, config, home, environment or network. No subagents. No retries. Stop after one tool action.',
     });
+    if (typeof selected.approvalPolicy !== 'string') {
+      assertThreadApprovalPolicy(thread, selected.approvalPolicy);
+      (result.notes ??= []).push(
+        'Effective config: granular approvalPolicy and approvalsReviewer="user" confirmed by thread/start response',
+      );
+    }
     assertSafeSandbox(thread);
     threadId = objectId(thread, 'thread');
     const prompt =
