@@ -18,15 +18,15 @@ import {
 } from '@ptah-extension/chat-streaming';
 import {
   AgentLaneStatsComponent,
-  AgentSummaryComponent,
   agentRunLabel,
 } from '@ptah-extension/chat-ui';
+import { createExecutionNode } from '@ptah-extension/shared';
 import type {
   PermissionRequest,
   PermissionResponse,
 } from '@ptah-extension/shared';
 import { ExecutionHeaderComponent } from '../../molecules/execution-header/execution-header.component';
-import { ExecutionNodeComponent } from '../execution/execution-node.component';
+import { LaneTranscriptComponent } from '../transcript/lane-transcript.component';
 import { SessionAgentTrayService } from '../../../services/session-agents/session-agent-tray.service';
 import type { TrayAgentContext } from '../../../services/session-agents/session-agent-tray';
 import { summarizeExecutionNodes } from '../../../utils/message-summary.utils';
@@ -41,9 +41,8 @@ import { SubagentLaneComposerComponent } from './subagent-lane-composer.componen
     SlicePipe,
     LucideAngularModule,
     AgentLaneStatsComponent,
-    AgentSummaryComponent,
     ExecutionHeaderComponent,
-    ExecutionNodeComponent,
+    LaneTranscriptComponent,
     SubagentLaneComposerComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -124,9 +123,6 @@ import { SubagentLaneComposerComponent } from './subagent-lane-composer.componen
       </p>
     }
     <div class="space-y-2 pt-2">
-      @if (finishedSummary(); as content) {
-        <ptah-agent-summary [content]="content" />
-      }
       @if (entry()?.truncated || entry()?.spilled) {
         <p class="text-xs text-base-content-muted">
           Earlier output trimmed
@@ -181,14 +177,15 @@ import { SubagentLaneComposerComponent } from './subagent-lane-composer.componen
           No saved output for this agent
         </p>
       }
-      @for (node of nodes(); track node.id) {
-        <ptah-execution-node
-          [node]="node"
-          [agentTileMode]="false"
-          [getPermissionForTool]="getPermissionForTool()"
-          (permissionResponded)="permissionResponded.emit($event)"
-        />
-      } @empty {
+      <ptah-lane-transcript
+        [laneId]="key()"
+        [nodes]="messageNodes()"
+        [events]="events()"
+        [isStreaming]="live()"
+        [getPermissionForTool]="getPermissionForTool()"
+        (permissionResponded)="permissionResponded.emit($event)"
+      />
+      @if (nodes().length === 0) {
         @if (
           !finishedSummary() &&
           (!entry() ||
@@ -236,6 +233,10 @@ export class SubagentLaneComponent {
     this.store.revisionFor(this.key());
     return this.store.treeFor(this.record().parentToolUseId);
   });
+  protected readonly events = computed(() => {
+    this.store.revisionFor(this.key());
+    return [...(this.entry()?.state?.events.values() ?? [])];
+  });
   protected readonly name = computed(
     () =>
       this.record().teammateName ||
@@ -251,6 +252,20 @@ export class SubagentLaneComponent {
       ? null
       : (this.record().latestSummary ?? null),
   );
+  protected readonly messageNodes = computed(() => {
+    const summary = this.finishedSummary();
+    return summary
+      ? [
+          createExecutionNode({
+            id: `${this.key()}:summary`,
+            type: 'text',
+            status: 'complete',
+            content: summary,
+            startTime: this.record().completedAt ?? this.record().startedAt,
+          }),
+        ]
+      : this.nodes();
+  });
   protected readonly label = computed(() => {
     const record = this.record();
     const live = this.live();

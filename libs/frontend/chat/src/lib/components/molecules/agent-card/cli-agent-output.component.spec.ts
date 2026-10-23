@@ -1,3 +1,4 @@
+import { ChatStore } from '../../../services/chat.store';
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
@@ -22,6 +23,7 @@ import type {
 } from '@ptah-extension/shared';
 import { AgentCardComponent } from './agent-card.component';
 import { CliAgentOutputComponent } from './cli-agent-output.component';
+import { MessageBubbleComponent } from '../../organisms/message-bubble.component';
 import { ExecutionNodeComponent } from '../../organisms/execution/execution-node.component';
 import { ArtifactStore } from '../../../services/artifact.store';
 import { DisplayDockState } from '../../../services/display-dock/display-dock.state';
@@ -51,6 +53,13 @@ describe('unified CLI agent output', () => {
     TestBed.configureTestingModule({
       imports: [AgentCardComponent, CliAgentOutputComponent],
       providers: [
+        {
+          provide: ChatStore,
+          useValue: {
+            getPermissionForTool: () => null,
+            handlePermissionResponse: jest.fn(),
+          },
+        },
         provideSurfaceActiveTesting(),
         provideMarkdown(),
         DisplayDockState,
@@ -161,6 +170,14 @@ describe('unified CLI agent output', () => {
           ],
         }),
       );
+      const bubble = fixture.debugElement.query(
+        By.directive(MessageBubbleComponent),
+      );
+      expect(bubble).not.toBeNull();
+      expect(bubble.componentInstance.message().role).toBe('assistant');
+      expect(
+        fixture.nativeElement.querySelector('.chat-msg-slot .cs-turn'),
+      ).not.toBeNull();
       const node = fixture.debugElement.query(
         By.directive(ExecutionNodeComponent),
       );

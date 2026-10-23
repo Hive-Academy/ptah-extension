@@ -1,0 +1,105 @@
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  inject,
+  input,
+  output,
+  signal,
+} from '@angular/core';
+import { AgentMonitorStore } from '@ptah-extension/chat-streaming';
+import type {
+  ExecutionNode,
+  FlatStreamEventUnion,
+  PermissionRequest,
+  PermissionResponse,
+} from '@ptah-extension/shared';
+import {
+  MessageBubbleComponent,
+  type TurnLogToggle,
+} from '../message-bubble.component';
+import {
+  TranscriptTurnContexts,
+  streamingTurnIdsOf,
+} from './transcript-turn-contexts';
+import { laneTranscriptMessages } from './lane-transcript-messages';
+
+/** Message chrome is owned by MessageBubbleComponent for every transcript host. */
+@Component({
+  selector: 'ptah-lane-transcript',
+  standalone: true,
+  imports: [MessageBubbleComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  styleUrls: ['./chat-transcript.component.css'],
+  host: { class: 'block min-w-0' },
+  template: `
+    <div class="chat-scroll-content">
+      @for (message of messages(); track message.id; let i = $index) {
+        @let turn = contexts().get(message.id) ?? null;
+        @let live = turn !== null && liveTurns().has(turn.turnId);
+        <div
+          class="chat-msg-slot"
+          [attr.data-ptah-transcript-message-id]="message.id"
+        >
+          <ptah-message-bubble
+            class="block pb-3"
+            [message]="message"
+            [agentTileMode]="true"
+            [isStreaming]="
+              isStreaming() &&
+              i === messages().length - 1 &&
+              message.role === 'assistant'
+            "
+            [turn]="turn"
+            [turnLive]="live"
+            [now]="live ? now() : 0"
+            [logOpen]="turn ? (logChoices().get(turn.turnId) ?? null) : null"
+            [permissionLookup]="getPermissionForTool()"
+            [userActions]="false"
+            (permissionResponded)="permissionResponded.emit($event)"
+            (logToggled)="toggleLog($event)"
+          />
+        </div>
+      }
+    </div>
+  `,
+})
+export class LaneTranscriptComponent {
+  readonly laneId = input.required<string>();
+  readonly nodes = input.required<readonly ExecutionNode[]>();
+  readonly events = input<readonly FlatStreamEventUnion[]>([]);
+  readonly isStreaming = input(false);
+  readonly getPermissionForTool = input<
+    ((id: string) => PermissionRequest | null) | undefined
+  >();
+  readonly permissionResponded = output<PermissionResponse>();
+  private readonly monitor = inject(AgentMonitorStore);
+  private readonly turnContexts = new TranscriptTurnContexts();
+  protected readonly logChoices = signal<ReadonlyMap<string, boolean>>(
+    new Map(),
+  );
+  protected readonly messages = computed(() =>
+    laneTranscriptMessages(this.laneId(), this.nodes(), this.events()),
+  );
+  protected readonly contexts = computed(() =>
+    this.turnContexts.compute(this.messages()),
+  );
+  protected readonly liveTurns = computed(() =>
+    streamingTurnIdsOf(
+      this.messages(),
+      this.isStreaming()
+        ? Math.max(0, this.messages().length - 1)
+        : this.messages().length,
+      this.contexts(),
+    ),
+  );
+  protected readonly now = computed(() => {
+    this.monitor.tick();
+    return Date.now();
+  });
+  protected toggleLog(toggle: TurnLogToggle): void {
+    this.logChoices.update((choices) =>
+      new Map(choices).set(toggle.turnId, toggle.open),
+    );
+  }
+}

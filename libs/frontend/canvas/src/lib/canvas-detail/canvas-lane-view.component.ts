@@ -131,7 +131,7 @@ export function effectiveCanvasLaneKind(
           @switch (selectedKind()) {
             @case ('cli') {
               @if (selectedCli(); as agent) {
-                <div class="h-full flex flex-col gap-2 px-3 pt-2">
+                <div class="h-full flex flex-col gap-2 pt-2">
                   @for (
                     permission of agent.permissionQueue;
                     track permission.requestId
@@ -212,7 +212,7 @@ export function effectiveCanvasLaneKind(
       }
       <ng-template #subagentLane>
         @if (selectedSubagent(); as sub) {
-          <div class="flex h-full min-h-0 flex-col gap-2 px-3 pt-2">
+          <div class="flex h-full min-h-0 flex-col gap-2 pt-2">
             <ptah-subagent-lane
               class="block flex-1 min-h-0"
               [record]="sub"

@@ -1,3 +1,4 @@
+import { ChatStore } from '../../../services/chat.store';
 import { signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import {
@@ -6,7 +7,11 @@ import {
   type SubagentExecutionEntry,
   type SubagentRecord,
 } from '@ptah-extension/chat-streaming';
-import { ModelStateService, SURFACE_ACTIVE } from '@ptah-extension/core';
+import {
+  ModelStateService,
+  SURFACE_ACTIVE,
+  VSCodeService,
+} from '@ptah-extension/core';
 import { provideMarkdown } from 'ngx-markdown';
 import type { TrayAgentContext } from '../../../services/session-agents/session-agent-tray';
 import { SessionAgentTrayService } from '../../../services/session-agents/session-agent-tray.service';
@@ -122,6 +127,14 @@ describe('SubagentLaneComponent', () => {
     TestBed.configureTestingModule({
       imports: [SubagentLaneComponent],
       providers: [
+        {
+          provide: ChatStore,
+          useValue: {
+            getPermissionForTool: () => null,
+            handlePermissionResponse: jest.fn(),
+          },
+        },
+        { provide: VSCodeService, useValue: { isElectron: false } },
         { provide: SURFACE_ACTIVE, useValue: signal(true) },
         provideMarkdown(),
         {
@@ -292,6 +305,9 @@ describe('SubagentLaneComponent', () => {
       latestSummary: 'Investigation finished',
     });
     await fixture.whenStable();
+    expect(
+      fixture.nativeElement.querySelector('.chat-msg-slot .cs-answer'),
+    ).not.toBeNull();
     expect(fixture.nativeElement.textContent).toContain(
       'Investigation finished',
     );
