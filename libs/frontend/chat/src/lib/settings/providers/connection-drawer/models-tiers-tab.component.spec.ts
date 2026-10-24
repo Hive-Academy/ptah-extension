@@ -13,7 +13,7 @@ type Tiers = { sonnet: string | null; opus: string | null; haiku: string | null 
 const idle: ProvidersSettingsCommit = { status: 'idle', saved: [], unsaved: [], unconfirmed: [], refreshFailed: false, message: null };
 const ready = <T>(data: T): ProvidersSettingsSection<T> => ({ status: 'ready', data, error: null });
 const connection = (overrides: Partial<ProvidersConnection> = {}): ProvidersConnection => ({
-  id: 'moonshot', name: 'Moonshot (Kimi)', authMode: 'apiKey', hasKey: true, configured: true, custom: false,
+  id: 'kimi-code', name: 'Kimi Code', authMode: 'apiKey', hasKey: true, configured: true, custom: false,
   defaultsResolvable: true, accountLabel: null, tokenStale: false, ...overrides,
 });
 const CONTEXT = { scopeKey: 'workspace', activePath: '/workspace' };
@@ -34,7 +34,7 @@ class StateStub {
 
 describe('tiersApply', () => {
   it('excludes native Claude auth, whose SDK keeps its own model defaults', () => {
-    expect(tiersApply({ id: 'moonshot', authMode: 'apiKey' })).toBe(true);
+    expect(tiersApply({ id: 'kimi-code', authMode: 'apiKey' })).toBe(true);
     expect(tiersApply({ id: 'anthropic', authMode: 'apiKey' })).toBe(false);
     expect(tiersApply({ id: 'claude-cli', authMode: 'cli' })).toBe(false);
   });
@@ -53,7 +53,7 @@ describe('ModelsTiersTabComponent', () => {
         { provide: ProvidersSettingsStateService, useValue: state },
         SettingsSaveFeedbackService,
         { provide: PROVIDER_MODELS_LOADER, useValue: { listModels: jest.fn().mockResolvedValue({ totalCount: 2, models: [
-          { id: 'kimi-k2.5', name: 'Kimi K2.5', supportsToolUse: true }, { id: 'kimi-fast', name: 'Kimi Fast', supportsToolUse: false },
+          { id: 'k3', name: 'K3', supportsToolUse: true }, { id: 'kimi-for-coding', name: 'Kimi for Coding', supportsToolUse: false },
         ] }) } },
       ],
     });
@@ -75,12 +75,12 @@ describe('ModelsTiersTabComponent', () => {
 
   it('reads this connection\'s main-agent tiers, with a busy skeleton until they load', () => {
     render();
-    expect(state.refreshTiers).toHaveBeenCalledWith({ providerId: 'moonshot', scope: 'mainAgent' });
+    expect(state.refreshTiers).toHaveBeenCalledWith({ providerId: 'kimi-code', scope: 'mainAgent' });
     expect(query('models-skeleton')?.getAttribute('aria-busy')).toBe('true');
-    state.tiers.set(ready({ sonnet: 'kimi-k2.5', opus: null, haiku: null }));
+    state.tiers.set(ready({ sonnet: 'k3', opus: null, haiku: null }));
     fixture.detectChanges();
     expect(query('models-skeleton')).toBeNull();
-    expect(query('models-current-sonnet')?.textContent).toContain('kimi-k2.5');
+    expect(query('models-current-sonnet')?.textContent).toContain('k3');
     expect(query('models-current-opus')?.textContent).toContain('Provider default');
   });
 
@@ -95,14 +95,14 @@ describe('ModelsTiersTabComponent', () => {
 
   it('renders one searchable picker per tier, pinned to this connection (#34, #35, #38)', () => {
     render();
-    state.tiers.set(ready({ sonnet: 'kimi-k2.5', opus: null, haiku: null }));
+    state.tiers.set(ready({ sonnet: 'k3', opus: null, haiku: null }));
     fixture.detectChanges();
     for (const tier of ['sonnet', 'opus', 'haiku']) {
       expect(picker(tier).searchable()).toBe(true);
-      expect(picker(tier).fixedProvider()).toBe('moonshot');
+      expect(picker(tier).fixedProvider()).toBe('kimi-code');
       expect(picker(tier).defaultTier()).toBe(tier);
     }
-    expect(picker('sonnet').model()).toBe('kimi-k2.5');
+    expect(picker('sonnet').model()).toBe('k3');
   });
 
   it('native Claude auth shows a note and reads no tiers', () => {
@@ -115,19 +115,19 @@ describe('ModelsTiersTabComponent', () => {
   describe('save on selection with Undo (D2)', () => {
     beforeEach(() => {
       render();
-      state.tiers.set(ready({ sonnet: null, opus: 'kimi-k2.5', haiku: null }));
+      state.tiers.set(ready({ sonnet: null, opus: 'k3', haiku: null }));
       fixture.detectChanges();
     });
 
     it('a selection saves through setMainAgentTier; Undo is a second real write of the previous value', async () => {
-      picker('opus').selectionChange.emit({ provider: 'moonshot', model: 'kimi-fast' });
+      picker('opus').selectionChange.emit({ provider: 'kimi-code', model: 'kimi-for-coding' });
       await flush();
-      expect(state.setMainAgentTier).toHaveBeenCalledWith('moonshot', 'opus', 'kimi-fast', CONTEXT);
+      expect(state.setMainAgentTier).toHaveBeenCalledWith('kimi-code', 'opus', 'kimi-for-coding', CONTEXT);
       expect(query('settings-toast-inline')?.getAttribute('role')).toBe('status');
-      expect(query('settings-toast-inline')?.textContent).toContain('Saved Moonshot (Kimi) opus tier model to All Ptah apps.');
+      expect(query('settings-toast-inline')?.textContent).toContain('Saved Kimi Code opus tier model to All Ptah apps.');
       query('settings-toast-inline-undo')?.click();
       await flush();
-      expect(state.setMainAgentTier).toHaveBeenLastCalledWith('moonshot', 'opus', 'kimi-k2.5', CONTEXT);
+      expect(state.setMainAgentTier).toHaveBeenLastCalledWith('kimi-code', 'opus', 'k3', CONTEXT);
       expect(state.setMainAgentTier).toHaveBeenCalledTimes(2);
       expect(query('settings-toast-inline-undo')).toBeNull();
     });
@@ -135,15 +135,15 @@ describe('ModelsTiersTabComponent', () => {
     it('Default clears the tier (an empty model) and Undo restores it', async () => {
       query('models-default-opus')?.click();
       await flush();
-      expect(state.setMainAgentTier).toHaveBeenCalledWith('moonshot', 'opus', '', CONTEXT);
+      expect(state.setMainAgentTier).toHaveBeenCalledWith('kimi-code', 'opus', '', CONTEXT);
       expect(query('models-current-opus')?.textContent).toContain('Provider default');
       query('settings-toast-inline-undo')?.click();
       await flush();
-      expect(state.setMainAgentTier).toHaveBeenLastCalledWith('moonshot', 'opus', 'kimi-k2.5', CONTEXT);
+      expect(state.setMainAgentTier).toHaveBeenLastCalledWith('kimi-code', 'opus', 'k3', CONTEXT);
     });
 
     it('re-selecting the stored model writes nothing', async () => {
-      picker('opus').selectionChange.emit({ provider: 'moonshot', model: 'kimi-k2.5' });
+      picker('opus').selectionChange.emit({ provider: 'kimi-code', model: 'k3' });
       await flush();
       expect(state.setMainAgentTier).not.toHaveBeenCalled();
     });
@@ -153,7 +153,7 @@ describe('ModelsTiersTabComponent', () => {
         state.commit.set({ ...idle, status: 'failed', unsaved: ['Main agent opus model'], message: 'Main agent opus model was not saved.' });
         return true;
       });
-      picker('opus').selectionChange.emit({ provider: 'moonshot', model: 'kimi-fast' });
+      picker('opus').selectionChange.emit({ provider: 'kimi-code', model: 'kimi-for-coding' });
       await flush();
       expect(query('settings-toast-inline')?.getAttribute('role')).toBe('alert');
       expect(query('settings-toast-inline')?.textContent).toContain('Could not save');

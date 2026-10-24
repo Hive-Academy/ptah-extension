@@ -50,7 +50,7 @@ Ptah ships with first-class support for several AI providers. You only need to c
 | Codex           | API key or CLI login             | Your OpenAI dashboard               |
 | Ollama          | Local endpoint (no key)          | `http://localhost:11434` by default |
 | OpenRouter      | API key                          | Your OpenRouter dashboard           |
-| Moonshot (Kimi) | API key                          | Your Moonshot console               |
+| Kimi Code       | API key                          | Your Kimi Code console              |
 | Z.AI (GLM)      | API key                          | Your Z.AI console                   |
 
 Ptah also detects LM Studio and Ollama Cloud, and it accepts a custom

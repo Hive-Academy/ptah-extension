@@ -219,6 +219,7 @@ export {
   TIER_METADATA_ENV_VAR_MAP,
   ALL_TIER_ENV_KEYS,
   buildTierEnvDefaults,
+  buildStaticTierCapabilityEnv,
   type ModelTier,
   type EnvMappedTier,
 } from './sdk-model-service';

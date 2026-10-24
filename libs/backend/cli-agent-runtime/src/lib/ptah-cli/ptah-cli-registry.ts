@@ -40,6 +40,7 @@ import {
   getProviderAuthEnvVar,
   seedStaticModelPricing,
   buildSafeEnv,
+  buildStaticTierCapabilityEnv,
   buildFlagSettingsArg,
   buildSessionName,
   deriveWorkspaceLabel,
@@ -1535,6 +1536,12 @@ export class PtahCliRegistry {
       if (effectiveTiers.haiku) {
         authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL = effectiveTiers.haiku;
       }
+      // Static-only providers (Kimi Code) must declare effort and thinking
+      // themselves: the runtime does not recognise their model ids.
+      Object.assign(
+        authEnv,
+        buildStaticTierCapabilityEnv(provider.id, effectiveTiers),
+      );
     }
   }
 

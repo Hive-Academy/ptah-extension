@@ -9,20 +9,12 @@ type Row = [
 
 /** Every cli x provider / ptahCliId presence x blank-value combination. */
 const table: Row[] = [
-  [
-    'a system cli is its own family',
-    { cli: 'codex' },
-    'codex',
-  ],
-  [
-    'every other system cli likewise',
-    { cli: 'grok' },
-    'grok',
-  ],
+  ['a system cli is its own family', { cli: 'codex' }, 'codex'],
+  ['every other system cli likewise', { cli: 'grok' }, 'grok'],
   [
     'a ptah-cli agent groups under its provider',
-    { cli: 'ptah-cli', ptahCliId: 'pc-1', providerId: 'moonshot' },
-    'moonshot',
+    { cli: 'ptah-cli', ptahCliId: 'pc-1', providerId: 'kimi-code' },
+    'kimi-code',
   ],
   [
     'a ptah-cli agent without a provider falls back to the registry id',

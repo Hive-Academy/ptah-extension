@@ -132,7 +132,7 @@ function buildSteps(opts) {
         {
           label: 'Find Claude (Subscription)',
           // Boot puts the cursor on index 0. The provider list is:
-          //   0 Claude (API key)   1 OpenRouter        2 Moonshot (Kimi)
+          //   0 Claude (API key)   1 OpenRouter        2 Kimi Code
           //   3 Z.AI (GLM)         4 GitHub Copilot    5 OpenAI Codex
           //   6 Ollama             7 Ollama Cloud      8 LM Studio
           //   9 Claude (Subscription)                 10 Sakana (Fugu)

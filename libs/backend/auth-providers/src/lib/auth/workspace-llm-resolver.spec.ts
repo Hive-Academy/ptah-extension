@@ -90,7 +90,7 @@ const GLOBAL = {
   authMethod: 'thirdParty',
   anthropicProviderId: 'openrouter',
   'provider.thirdParty.openrouter.selectedModel': 'or-model',
-  'provider.thirdParty.moonshot.selectedModel': 'global-kimi',
+  'provider.thirdParty.z-ai.selectedModel': 'global-glm',
 };
 
 describe('WorkspaceLlmResolver', () => {
@@ -99,28 +99,28 @@ describe('WorkspaceLlmResolver', () => {
       global: GLOBAL,
       workspaceA: {
         authMethod: 'thirdParty',
-        anthropicProviderId: 'moonshot',
-        'provider.thirdParty.moonshot.selectedModel': 'kimi-k2.5',
+        anthropicProviderId: 'z-ai',
+        'provider.thirdParty.z-ai.selectedModel': 'glm-5.3',
       },
       activePath: WS_B,
     });
 
     const snapshot = await resolver.resolveForPath(WS_A);
 
-    expect(buildProfileForPath).toHaveBeenCalledWith(WS_A, 'kimi-k2.5');
-    expect(snapshot.providerId).toBe('moonshot');
-    expect(snapshot.model).toBe('kimi-k2.5');
-    expect(snapshot.auth?.env.ANTHROPIC_AUTH_TOKEN).toBe('moonshot-key');
-    expect(snapshot.auth?.baseUrl).toBe('https://moonshot.example/anthropic');
+    expect(buildProfileForPath).toHaveBeenCalledWith(WS_A, 'glm-5.3');
+    expect(snapshot.providerId).toBe('z-ai');
+    expect(snapshot.model).toBe('glm-5.3');
+    expect(snapshot.auth?.env.ANTHROPIC_AUTH_TOKEN).toBe('z-ai-key');
+    expect(snapshot.auth?.baseUrl).toBe('https://z-ai.example/anthropic');
   });
 
   it('a workspace with NO override resolves the global provider and model explicitly — not the active workspace', async () => {
-    // The active workspace (A) overrides to moonshot; B has no override.
+    // The active workspace (A) overrides to z-ai; B has no override.
     const { resolver } = await harness({
       global: GLOBAL,
       workspaceA: {
         authMethod: 'thirdParty',
-        anthropicProviderId: 'moonshot',
+        anthropicProviderId: 'z-ai',
       },
       activePath: WS_A,
     });
@@ -136,7 +136,7 @@ describe('WorkspaceLlmResolver', () => {
     const { resolver, buildProfileForPath } = await harness({
       global: GLOBAL,
       activePath: WS_A,
-      workspaceA: { anthropicProviderId: 'moonshot' },
+      workspaceA: { anthropicProviderId: 'z-ai' },
     });
 
     const snapshot = await resolver.resolveForPath(undefined);
@@ -193,7 +193,7 @@ describe('WorkspaceLlmResolver', () => {
         .model,
     ).toBe('or-other');
     expect(
-      (await resolver.resolveForPath(WS_B, { requestedModel: 'kimi-k2.5' }))
+      (await resolver.resolveForPath(WS_B, { requestedModel: 'glm-5.3' }))
         .model,
     ).toBe('or-model');
   });
@@ -210,21 +210,21 @@ describe('WorkspaceLlmResolver', () => {
   });
 
   it('reads the cooldown for the provider the snapshot targets', async () => {
-    // The path resolves openrouter, but the snapshot is built for moonshot.
+    // The path resolves openrouter, but the snapshot is built for z-ai.
     const { resolver } = await harness({
       global: GLOBAL,
-      profile: (_p, model) => profileFor('moonshot', model),
-      cooldowns: { moonshot: 12_000 },
+      profile: (_p, model) => profileFor('z-ai', model),
+      cooldowns: { 'z-ai': 12_000 },
     });
 
     const snapshot = await resolver.resolveForPath(WS_B);
 
-    expect(snapshot.providerId).toBe('moonshot');
+    expect(snapshot.providerId).toBe('z-ai');
     expect(snapshot.cooldownMs).toBe(12_000);
 
     const other = await harness({
       global: GLOBAL,
-      profile: (_p, model) => profileFor('moonshot', model),
+      profile: (_p, model) => profileFor('z-ai', model),
       cooldowns: { openrouter: 12_000 },
     });
     expect(

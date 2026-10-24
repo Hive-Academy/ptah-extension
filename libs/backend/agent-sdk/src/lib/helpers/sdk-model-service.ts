@@ -19,7 +19,11 @@ import {
   PLATFORM_TOKENS,
   type IStateStorage,
 } from '@ptah-extension/platform-core';
-import { AuthEnv, isDirectAnthropic } from '@ptah-extension/shared';
+import {
+  AuthEnv,
+  getStaticModelCapabilities,
+  isDirectAnthropic,
+} from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
 import { AUTH_PROVIDERS_TOKENS } from '@ptah-extension/auth-providers-tokens';
 import { ModelInfo } from '../types/sdk-types/claude-sdk.types';
@@ -44,7 +48,7 @@ export type ModelTier = 'opus' | 'sonnet' | 'haiku' | 'default';
 /**
  * The only model values a third-party Anthropic-compatible provider can serve.
  *
- * Under a translation proxy (Codex, Copilot, OpenRouter, Moonshot, …) the SDK's
+ * Under a translation proxy (Codex, Copilot, OpenRouter, Kimi Code, …) the SDK's
  * `supportedModels()` still reports Anthropic-only ids it bundles natively —
  * e.g. `claude-fable-5[1m]` ("Fable") and `opus[1m]` ("Opus (1M context)").
  * Those are NOT tier aliases, so tier mapping leaves them untouched and they
@@ -142,10 +146,43 @@ export const ALL_TIER_ENV_KEYS: ReadonlyArray<keyof AuthEnv> = [
 ];
 
 /**
+ * Build the tier `_SUPPORTED_CAPABILITIES` env from a provider's static
+ * registry models.
+ *
+ * The runtime gates effort and thinking per model id and does not recognise
+ * non-Claude ids, so a provider that only ships a static catalog must declare
+ * the capabilities itself. Writes a tier's key only when its model declares a
+ * non-empty list; never a partial or guessed one, because the runtime treats
+ * the value as an allowlist.
+ *
+ * @param providerId - Registry provider ID
+ * @param tiers - Resolved model id per tier (missing tiers are skipped)
+ * @returns The capability env keys to merge (empty when nothing is declared)
+ */
+export function buildStaticTierCapabilityEnv(
+  providerId: string,
+  tiers: Partial<Record<EnvMappedTier, string>>,
+): AuthEnv {
+  const env: AuthEnv = {};
+  for (const tier of Object.keys(
+    TIER_METADATA_ENV_VAR_MAP,
+  ) as EnvMappedTier[]) {
+    const modelId = tiers[tier];
+    if (!modelId) continue;
+    const capabilities = getStaticModelCapabilities(providerId, modelId);
+    if (capabilities && capabilities.length > 0) {
+      env[TIER_METADATA_ENV_VAR_MAP[tier].capabilities] =
+        capabilities.join(',');
+    }
+  }
+  return env;
+}
+
+/**
  * Build tier env var defaults for SDK subprocess environments.
  *
  * Only applies to third-party Anthropic-compatible providers (OpenRouter,
- * Moonshot, Z.AI) where bare tier names in subagent subprocesses need to be
+ * Kimi Code, Z.AI) where bare tier names in subagent subprocesses need to be
  * remapped to provider-specific model IDs via ANTHROPIC_DEFAULT_*_MODEL.
  *
  * For direct Anthropic (CLI or API key → api.anthropic.com), this returns an

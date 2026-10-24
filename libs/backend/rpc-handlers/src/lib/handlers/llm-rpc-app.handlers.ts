@@ -67,9 +67,9 @@ const PROVIDER_INFO: Record<string, ProviderInfo> = {
     keyPrefix: 'sk-or-',
     minLength: 20,
   },
-  moonshot: {
-    displayName: 'Moonshot AI',
-    envVar: 'MOONSHOT_API_KEY',
+  'kimi-code': {
+    displayName: 'Kimi Code',
+    envVar: 'KIMI_CODE_API_KEY',
     minLength: 10,
   },
   'z-ai': {

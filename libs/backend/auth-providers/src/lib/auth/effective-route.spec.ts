@@ -92,7 +92,7 @@ describe('resolveEffectiveAuthRoute — non-native providers are unchanged', () 
     expected: string;
   }> = [
     { id: 'openrouter', type: 'apiKey', expected: 'api-key' },
-    { id: 'moonshot', type: 'apiKey', expected: 'api-key' },
+    { id: 'kimi-code', type: 'apiKey', expected: 'api-key' },
     { id: 'z-ai', type: 'apiKey', expected: 'api-key' },
     { id: 'sakana', type: 'apiKey', expected: 'api-key' },
     { id: 'github-copilot', type: 'oauth', expected: 'oauth-proxy' },
@@ -157,7 +157,11 @@ describe('resolveEffectiveAuthRoute — driver identity matches ActiveProviderRe
 
   it('thirdParty without a selector falls back to DEFAULT_PROVIDER_ID, not llm.defaultProvider', () => {
     const result = resolveEffectiveAuthRoute(
-      config({ authMethod: 'thirdParty', defaultProvider: 'anthropic', anthropicProviderId: null }),
+      config({
+        authMethod: 'thirdParty',
+        defaultProvider: 'anthropic',
+        anthropicProviderId: null,
+      }),
       connected,
     );
     expect(result.driverProviderId).toBe('openrouter');
@@ -166,7 +170,11 @@ describe('resolveEffectiveAuthRoute — driver identity matches ActiveProviderRe
 
   it('thirdParty with a selector drives that provider', () => {
     const result = resolveEffectiveAuthRoute(
-      config({ authMethod: 'thirdParty', defaultProvider: 'openrouter', anthropicProviderId: 'claude-cli' }),
+      config({
+        authMethod: 'thirdParty',
+        defaultProvider: 'openrouter',
+        anthropicProviderId: 'claude-cli',
+      }),
       connected,
     );
     expect(result.driverProviderId).toBe('claude-cli');
@@ -200,7 +208,7 @@ describe('resolveEffectiveAuthRoute — raw un-normalised authMethod (pin 1)', (
     expect(result.ready).toBe(true);
   });
 
-  it("echoes an unrecognized raw value verbatim in the blocker", () => {
+  it('echoes an unrecognized raw value verbatim in the blocker', () => {
     const result = resolveEffectiveAuthRoute(
       config({ authMethod: '  MoonWalk  ' }),
       [],

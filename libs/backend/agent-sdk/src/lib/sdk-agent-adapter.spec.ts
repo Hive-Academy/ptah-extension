@@ -1116,7 +1116,7 @@ describe('SdkAgentAdapter', () => {
 
       // e.g. a save in another VS Code window, or another provider's tile.
       h.events.emitConfigChanged({
-        key: 'ptah.auth.provider.moonshot',
+        key: 'ptah.auth.provider.kimi-code',
         timestamp: Date.now(),
       });
       await flush();
@@ -1164,12 +1164,12 @@ describe('SdkAgentAdapter', () => {
       h.authManager.resolveActiveAuthForPath.mockImplementation(
         (root: string) =>
           root === '/ws/b'
-            ? { authMethod: 'thirdParty', providerId: 'moonshot' }
+            ? { authMethod: 'thirdParty', providerId: 'kimi-code' }
             : { authMethod: 'apiKey', providerId: 'anthropic' },
       );
 
       h.events.emitConfigChanged({
-        key: 'ptah.auth.provider.moonshot',
+        key: 'ptah.auth.provider.kimi-code',
         timestamp: Date.now(),
       });
       await flush();
@@ -1565,7 +1565,8 @@ describe('SdkAgentAdapter', () => {
       const activityWatchdog = new NoActivityWatchdog(100000, () => undefined);
       const onMessage: ExecuteQueryResult['onMessage'] = jest.fn();
       const onStreamEnd: ExecuteQueryResult['onStreamEnd'] = jest.fn();
-      const beforeLiveStatsDispose: ExecuteQueryResult['beforeLiveStatsDispose'] = jest.fn();
+      const beforeLiveStatsDispose: ExecuteQueryResult['beforeLiveStatsDispose'] =
+        jest.fn();
       h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
         sdkQuery,
         initialModel: 'claude-sonnet-4-20250514',
@@ -1729,7 +1730,8 @@ describe('SdkAgentAdapter', () => {
       const sdkQuery = createFakeQuery();
       const onMessage: ExecuteQueryResult['onMessage'] = jest.fn();
       const onStreamEnd: ExecuteQueryResult['onStreamEnd'] = jest.fn();
-      const beforeLiveStatsDispose: ExecuteQueryResult['beforeLiveStatsDispose'] = jest.fn();
+      const beforeLiveStatsDispose: ExecuteQueryResult['beforeLiveStatsDispose'] =
+        jest.fn();
       h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
         sdkQuery,
         initialModel: 'claude-sonnet-4-20250514',
@@ -1779,7 +1781,8 @@ describe('SdkAgentAdapter', () => {
       const activityWatchdog = new NoActivityWatchdog(100000, () => undefined);
       const onMessage: ExecuteQueryResult['onMessage'] = jest.fn();
       const onStreamEnd: ExecuteQueryResult['onStreamEnd'] = jest.fn();
-      const beforeLiveStatsDispose: ExecuteQueryResult['beforeLiveStatsDispose'] = jest.fn();
+      const beforeLiveStatsDispose: ExecuteQueryResult['beforeLiveStatsDispose'] =
+        jest.fn();
       h.sessionLifecycle.executeQuery.mockResolvedValueOnce({
         sdkQuery,
         initialModel: 'claude-sonnet-4-20250514',
@@ -2485,7 +2488,8 @@ describe('SdkAgentAdapter', () => {
       const activityWatchdog = new NoActivityWatchdog(100000, () => undefined);
       const onMessage: ExecuteQueryResult['onMessage'] = jest.fn();
       const onStreamEnd: ExecuteQueryResult['onStreamEnd'] = jest.fn();
-      const beforeLiveStatsDispose: ExecuteQueryResult['beforeLiveStatsDispose'] = jest.fn();
+      const beforeLiveStatsDispose: ExecuteQueryResult['beforeLiveStatsDispose'] =
+        jest.fn();
       h.sessionLifecycle.executeSlashCommandQuery.mockResolvedValueOnce({
         sdkQuery,
         initialModel: 'claude-sonnet-4-20250514',
@@ -2525,14 +2529,14 @@ describe('SdkAgentAdapter', () => {
         abortController: new AbortController(),
       } as ExecuteQueryResult);
       const authEnv = {
-        ANTHROPIC_BASE_URL: 'https://api.moonshot.ai/anthropic',
-        ANTHROPIC_AUTH_TOKEN: 'ms-key',
+        ANTHROPIC_BASE_URL: 'https://api.kimi.ai/coding/',
+        ANTHROPIC_API_KEY: 'kimi-key',
       };
 
       await h.adapter.executeSlashCommand('sess-1' as SessionId, '/compact', {
         sessionConfig: { model: 'default', projectPath: '/ws/b' },
         providerProfile: {
-          providerId: 'moonshot',
+          providerId: 'kimi-code',
           authEnv,
           model: 'kimi-k2.5',
           cliJsPath: '/profile/cli.js',
@@ -2540,7 +2544,7 @@ describe('SdkAgentAdapter', () => {
       });
       expect(h.metadataStore.updateProvider).toHaveBeenCalledWith(
         'sess-1',
-        'moonshot',
+        'kimi-code',
       );
 
       const [, , slashConfig] =

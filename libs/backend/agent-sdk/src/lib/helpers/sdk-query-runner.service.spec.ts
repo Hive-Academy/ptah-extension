@@ -721,7 +721,7 @@ describe('SdkQueryRunner', () => {
         ANTHROPIC_AUTH_TOKEN: 'chat-token',
       } as AuthEnv;
       const overrideEnv: AuthEnv = {
-        ANTHROPIC_BASE_URL: 'https://api.moonshot.ai/anthropic',
+        ANTHROPIC_BASE_URL: 'https://api.kimi.ai/coding/',
         ANTHROPIC_API_KEY: 'curator-key',
       } as AuthEnv;
       const h = makeRunner({ authEnv: chatEnv });
@@ -729,9 +729,7 @@ describe('SdkQueryRunner', () => {
       const options = await capturedOptions(h, { env: overrideEnv });
       const env = options.env as Record<string, string | undefined>;
 
-      expect(env['ANTHROPIC_BASE_URL']).toBe(
-        'https://api.moonshot.ai/anthropic',
-      );
+      expect(env['ANTHROPIC_BASE_URL']).toBe('https://api.kimi.ai/coding/');
       expect(env['ANTHROPIC_API_KEY']).toBe('curator-key');
       expect(env['ANTHROPIC_AUTH_TOKEN']).toBeUndefined();
       expect(options.settingSources).toEqual(['user', 'project', 'local']);
@@ -750,7 +748,7 @@ describe('SdkQueryRunner', () => {
 
         const options = await capturedOptions(h, {
           env: {
-            ANTHROPIC_BASE_URL: 'https://api.moonshot.ai/anthropic',
+            ANTHROPIC_BASE_URL: 'https://api.kimi.ai/coding/',
             ANTHROPIC_API_KEY: 'curator-key',
           } as AuthEnv,
         });
@@ -809,7 +807,7 @@ describe('SdkQueryRunner', () => {
 
     it('builds the override identity prompt from the override env (not this.authEnv)', async () => {
       const overrideEnv: AuthEnv = {
-        ANTHROPIC_BASE_URL: 'https://api.moonshot.ai/anthropic',
+        ANTHROPIC_BASE_URL: 'https://api.kimi.ai/coding/',
         ANTHROPIC_DEFAULT_SONNET_MODEL: 'kimi-k2-curator',
       } as AuthEnv;
       const h = makeRunner({ authEnv: {} as AuthEnv });
@@ -823,7 +821,7 @@ describe('SdkQueryRunner', () => {
 
     it('is byte-identical to today when input.auth is undefined (env keys + derived values)', async () => {
       const chatEnv: AuthEnv = {
-        ANTHROPIC_BASE_URL: 'https://api.moonshot.ai/anthropic',
+        ANTHROPIC_BASE_URL: 'https://api.kimi.ai/coding/',
         ANTHROPIC_API_KEY: 'chat-key',
         ANTHROPIC_DEFAULT_SONNET_MODEL: 'kimi-chat',
       } as AuthEnv;

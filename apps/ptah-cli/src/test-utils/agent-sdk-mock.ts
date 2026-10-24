@@ -12,7 +12,7 @@
  *   `auth.spec.ts` and `settings.spec.ts` both stubbed an inline
  *   `ANTHROPIC_PROVIDERS` array of `{id: string}` shapes — duplicated across
  *   files, and the chosen IDs (`anthropic`, `copilot`, `codex`) didn't
- *   match the real registry IDs (`openrouter`, `moonshot`, `z-ai`,
+ *   match the real registry IDs (`openrouter`, `kimi-code`, `z-ai`,
  *   `github-copilot`, `openai-codex`, `ollama`, `ollama-cloud`,
  *   `lm-studio`, plus the virtual `anthropic` direct ID).
  *

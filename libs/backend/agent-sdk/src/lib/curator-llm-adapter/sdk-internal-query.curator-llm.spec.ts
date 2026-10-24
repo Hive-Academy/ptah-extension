@@ -1296,8 +1296,8 @@ describe('SdkInternalQueryCuratorLlm — inherits the curated workspace provider
 
   it('with no curator provider pinned, uses the snapshot of the session workspace', async () => {
     const { adapter, capture, resolveForPath } = build({
-      providerId: 'moonshot',
-      model: 'kimi-k2.5',
+      providerId: 'kimi-code',
+      model: 'k3',
       auth: SNAPSHOT_AUTH,
     });
 
@@ -1311,7 +1311,7 @@ describe('SdkInternalQueryCuratorLlm — inherits the curated workspace provider
     expect(capture.model).toBe(CURATOR_DEFAULT_MODEL_TIER);
     expect(capture.dispatch).toEqual({
       providerSource: 'override',
-      overrideProviderId: 'moonshot',
+      overrideProviderId: 'kimi-code',
       component: 'memory-curator',
       laneId: MEMORY_CURATOR_QUERY_LANE,
     });
@@ -1331,8 +1331,8 @@ describe('SdkInternalQueryCuratorLlm — inherits the curated workspace provider
 
   it('stalls without a query when the workspace provider is cooling down', async () => {
     const { adapter, internalQuery } = build({
-      providerId: 'moonshot',
-      model: 'kimi-k2.5',
+      providerId: 'kimi-code',
+      model: 'k3',
       auth: SNAPSHOT_AUTH,
       cooldownMs: 10_000,
     });

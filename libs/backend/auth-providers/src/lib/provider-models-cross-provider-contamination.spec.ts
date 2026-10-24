@@ -51,8 +51,8 @@ const mockedAxios = axios as jest.Mocked<typeof axios>;
 // ---------------------------------------------------------------------------
 // A real OpenRouter-shaped /v1/models response: an anthropic/claude-* family
 // alongside unrelated ids, matching the doc comment at
-// provider-models.service.ts:47-49 ("Both OpenRouter and Moonshot use a
-// compatible format") and the registry entry for `openrouter`
+// provider-models.service.ts (`ModelsApiModel`, "OpenRouter uses this
+// format") and the registry entry for `openrouter`
 // (provider-registry.ts:178-192 — modelsEndpoint set, no defaultTiers).
 //
 // The claude-* ids are what made the deleted regex fire; a catalogue that did
@@ -153,14 +153,14 @@ afterEach(() => {
 
 describe('the model-catalogue fetch path writes no tier of its own', () => {
   it('leaves the ACTIVE session tier env untouched when a NON-active provider is browsed (Defect 2)', async () => {
-    // The active provider is Moonshot — the user is chatting on it right now.
+    // The active provider is Z.AI — the user is chatting on it right now.
     // Read back from the same ActiveProviderResolver the service itself uses,
     // rather than merely asserted by the test's own setup.
     const { service, authEnv } = makeService({
       authMethod: 'thirdParty',
-      anthropicProviderId: 'moonshot',
+      anthropicProviderId: 'z-ai',
     });
-    expect(service.resolveActiveProviderId()).toBe('moonshot');
+    expect(service.resolveActiveProviderId()).toBe('z-ai');
 
     // Precondition: `openrouter` has no persisted tier values for mainAgent —
     // the state in which the deleted auto-resolver used to fire.
@@ -189,9 +189,9 @@ describe('the model-catalogue fetch path writes no tier of its own', () => {
     expect(models.map((m) => m.id)).toContain('anthropic/claude-opus-4.5');
 
     // Browsing must not repoint the active session's tier mapping. The active
-    // provider is still Moonshot; Moonshot cannot serve an anthropic/claude-*
+    // provider is still Z.AI; Z.AI cannot serve an anthropic/claude-*
     // id, so a write here is a silent wrong-model send on the next message.
-    expect(service.resolveActiveProviderId()).toBe('moonshot');
+    expect(service.resolveActiveProviderId()).toBe('z-ai');
     for (const key of TIER_ENV_KEYS) {
       expect(process.env[key]).toBeUndefined();
     }

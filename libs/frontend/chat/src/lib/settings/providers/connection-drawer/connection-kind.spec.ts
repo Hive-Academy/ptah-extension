@@ -6,7 +6,7 @@ type KindInput = Pick<ProvidersConnection, 'authMode' | 'custom'>;
 describe('connectionKind', () => {
   it.each<[string, KindInput, ConnectionKind]>([
     ['Claude subscription (native CLI)', { authMode: 'cli', custom: false }, 'claude-cli'],
-    ['Claude API / Moonshot / Ollama Cloud (key)', { authMode: 'apiKey', custom: false }, 'api-key'],
+    ['Claude API / Kimi Code / Ollama Cloud (key)', { authMode: 'apiKey', custom: false }, 'api-key'],
     ['GitHub Copilot / OpenAI Codex (sign-in)', { authMode: 'oauth', custom: false }, 'oauth'],
     ['Ollama (local, native)', { authMode: 'local-native', custom: false }, 'local'],
     ['LM Studio (local, proxied)', { authMode: 'local-proxy', custom: false }, 'local'],

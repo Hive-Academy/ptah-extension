@@ -405,7 +405,7 @@ describe('cliMatrixRows', () => {
           .keyStatus,
       ).toEqual({ kind: 'keyless', label: 'No key needed' });
       expect(
-        glm({ hasStoredKey: false, hasApiKey: false, providerId: 'moonshot' })
+        glm({ hasStoredKey: false, hasApiKey: false, providerId: 'kimi-code' })
           .keyStatus,
       ).toEqual({ kind: 'missing', label: 'No API key' });
     });

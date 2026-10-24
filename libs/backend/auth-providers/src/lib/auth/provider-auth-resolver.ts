@@ -5,7 +5,10 @@ import {
   TOKENS,
   type IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
-import { ALL_TIER_ENV_KEYS } from '@ptah-extension/agent-sdk';
+import {
+  ALL_TIER_ENV_KEYS,
+  buildStaticTierCapabilityEnv,
+} from '@ptah-extension/agent-sdk';
 import type { OneShotAuthOverride } from '@ptah-extension/agent-sdk';
 import type { IProviderAuthResolver } from '@ptah-extension/agent-sdk';
 import type {
@@ -25,7 +28,10 @@ import { AUTH_PROVIDERS_TOKENS } from '../di/tokens';
 import type { ProviderModelsService } from '../provider-models.service';
 import type { DerivedTierMap } from '../model-tier-derivation';
 import { CuratorProxyManager } from './curator-proxy-manager';
-import { ProviderAuthError } from './provider-auth.error';
+import {
+  ProviderAuthError,
+  unavailableProviderMessage,
+} from './provider-auth.error';
 import { ProviderQuotaError } from './provider-quota.error';
 import type { ProviderQuotaStore } from './provider-quota.store';
 import type { ICopilotAuthService } from '../providers/copilot/copilot-provider.types';
@@ -244,6 +250,15 @@ export class ProviderAuthResolver implements IProviderAuthResolver {
     providerId: string,
     scope: ProviderTierScope,
   ): Promise<OneShotAuthOverride> {
+    // An id the registry does not know (a provider removed in an earlier
+    // release) fails closed before any key is read: `getProviderBaseUrl` would
+    // otherwise route that key to the default provider's host.
+    if (!getAnthropicProvider(providerId)) {
+      throw new ProviderAuthError(
+        providerId,
+        unavailableProviderMessage(providerId),
+      );
+    }
     const providerKey = await this.authSecrets.getProviderKey(providerId);
     if (!providerKey?.trim()) {
       throw new ProviderAuthError(
@@ -422,6 +437,10 @@ export class ProviderAuthResolver implements IProviderAuthResolver {
     if (sonnet) tiers.ANTHROPIC_DEFAULT_SONNET_MODEL = sonnet;
     if (opus) tiers.ANTHROPIC_DEFAULT_OPUS_MODEL = opus;
     if (haiku) tiers.ANTHROPIC_DEFAULT_HAIKU_MODEL = haiku;
+    Object.assign(
+      tiers,
+      buildStaticTierCapabilityEnv(providerId, { opus, sonnet, haiku }),
+    );
 
     if (!haiku) {
       this.logger.warn(
@@ -614,8 +633,19 @@ export class ProviderAuthResolver implements IProviderAuthResolver {
             }.`,
           );
         }
+        const draftBaseUrl = draft.baseUrl?.trim();
+        // Same fail-closed guard as `resolveThirdPartyApiKey`: without a draft
+        // base URL, an id the registry does not know (a retired provider such
+        // as `moonshot`) would resolve through `getProviderBaseUrl` to the
+        // default provider's host and send the draft key there.
+        if (!draftBaseUrl && !provider) {
+          throw new ProviderAuthError(
+            providerId,
+            unavailableProviderMessage(providerId),
+          );
+        }
         const baseUrl =
-          draft.baseUrl?.trim() || this.resolveDraftApiKeyBaseUrl(providerId);
+          draftBaseUrl || this.resolveDraftApiKeyBaseUrl(providerId);
         const authEnvVar = getProviderAuthEnvVar(providerId);
         const values: AuthEnv = {
           ANTHROPIC_BASE_URL: baseUrl,

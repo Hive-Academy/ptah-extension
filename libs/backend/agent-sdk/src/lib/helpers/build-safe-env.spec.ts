@@ -19,7 +19,7 @@ describe('experimentalBetaEnv', () => {
   });
 
   it('disables experimental betas for a remote third-party base URL', () => {
-    expect(experimentalBetaEnv('https://api.moonshot.cn/anthropic')).toEqual({
+    expect(experimentalBetaEnv('https://api.kimi.ai/coding/')).toEqual({
       CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: '1',
     });
   });
@@ -39,8 +39,6 @@ describe('experimentalBetaEnv', () => {
 
   it('keeps experimental betas on for a remote third-party URL when the override is set', () => {
     process.env[KEY] = '1';
-    expect(experimentalBetaEnv('https://api.moonshot.cn/anthropic')).toEqual(
-      {},
-    );
+    expect(experimentalBetaEnv('https://api.kimi.ai/coding/')).toEqual({});
   });
 });

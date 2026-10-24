@@ -76,7 +76,7 @@ const API_KEY_PROVIDER_PRIORITY = [
   'anthropic',
   'openrouter',
   'z-ai',
-  'moonshot',
+  'kimi-code',
   'ollama-cloud',
 ];
 

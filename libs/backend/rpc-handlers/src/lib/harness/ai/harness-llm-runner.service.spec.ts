@@ -70,11 +70,11 @@ const ARGS = {
 describe('HarnessLlmRunner — workspace provider and model', () => {
   it('runs on the provider and model of ONE snapshot resolved for its cwd', async () => {
     const auth = {
-      env: { ANTHROPIC_AUTH_TOKEN: 'moonshot-key' },
-      baseUrl: 'https://api.moonshot.ai/anthropic',
+      env: { ANTHROPIC_AUTH_TOKEN: 'kimi-code-key' },
+      baseUrl: 'https://api.kimi.ai/coding/',
     };
     const { runner, execute, resolveForPath } = makeRunner({
-      providerId: 'moonshot',
+      providerId: 'kimi-code',
       model: 'kimi-k2.5',
       auth,
     });
@@ -93,7 +93,7 @@ describe('HarnessLlmRunner — workspace provider and model', () => {
 
   it('passes a caller model to the resolver to validate rather than sending it as is', async () => {
     const { runner, execute, resolveForPath } = makeRunner({
-      providerId: 'moonshot',
+      providerId: 'kimi-code',
       model: 'kimi-k2.5',
       auth: { env: {} },
     });
@@ -125,7 +125,7 @@ describe('HarnessLlmRunner — workspace provider and model', () => {
   it('when the snapshot cannot be resolved, clears the abort timer and broadcasts failure', async () => {
     const clearSpy = jest.spyOn(global, 'clearTimeout');
     const { runner, execute, resolveForPath, broadcaster } = makeRunner({
-      providerId: 'moonshot',
+      providerId: 'kimi-code',
       model: 'kimi-k2.5',
     });
     resolveForPath.mockRejectedValueOnce(new Error('settings unreadable'));
