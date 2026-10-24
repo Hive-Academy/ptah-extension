@@ -7,6 +7,7 @@ import axios from 'axios';
 import { z } from 'zod';
 import { Logger } from '@ptah-extension/vscode-core';
 import type { IDisposable } from '@ptah-extension/platform-core';
+import { normalizeCodexHomeKey } from '@ptah-extension/codex-runtime';
 import type {
   CodexHomeAuthReader,
   CodexHomeAuthEvent,
@@ -45,7 +46,7 @@ type CodexAuthFile = z.infer<typeof authFileSchema>;
  * uses the OS profile, never HOME || USERPROFILE. Evidence: TASK_2026_714_c8a2
  * code-logic-review-batch-2c.md findings 1-3 (Codex OS-profile behavior) and
  * harness-sync targets/mcp/codex-home.ts codexHomeDir's trim/homedir convention.
- * Explicit context homes are normalized by the runtime before entering the port.
+ * Keep filesystem spelling intact; normalize only the owner identity key.
  */
 export function resolveCodexHome(
   environment: Readonly<Record<string, string | undefined>> = process.env,
@@ -155,7 +156,8 @@ export class CodexHomeAuthService implements CodexHomeAuthReader {
     };
   }
   private entry(home: string): HomeEntry {
-    const key = resolve(home);
+    const homePath = resolve(home);
+    const key = normalizeCodexHomeKey(homePath, process.platform);
     let entry = this.homes.get(key);
     if (!entry) {
       const listeners = new Set<(event: CodexHomeAuthEvent) => void>();
@@ -165,7 +167,7 @@ export class CodexHomeAuthService implements CodexHomeAuthReader {
         state: new HomeAuthState(
           this.logger,
           this.workspaceProvider,
-          key,
+          homePath,
           (kind) => {
             created.generation += 1;
             for (const listener of listeners) {
@@ -459,7 +461,10 @@ class HomeAuthState implements ICodexAuthService {
       const response = await fetch(endpoint, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!response.ok) return [];
+      if (!response.ok) {
+        this.logger.debug('[CodexAuth] Model discovery request failed.');
+        return [];
+      }
       const data = (await response.json()) as {
         models?: Array<{
           slug: string;
@@ -500,6 +505,7 @@ class HomeAuthState implements ICodexAuthService {
     } catch {
       // degradation-audit: optional-capability - live model discovery is optional;
       // an unavailable endpoint returns no discovered models, not an auth failure.
+      this.logger.debug('[CodexAuth] Model discovery unavailable.');
       return [];
     }
   }

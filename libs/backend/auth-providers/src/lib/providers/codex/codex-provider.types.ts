@@ -6,6 +6,7 @@
  * by the Codex CLI (~/.codex/auth.json).
  */
 
+import type { CodexAccountUsageResult } from '@ptah-extension/codex-runtime';
 import type { ProviderModelInfo } from '@ptah-extension/shared';
 
 /** Placeholder API key used when the translation proxy manages auth internally */
@@ -56,7 +57,9 @@ export interface CodexAuthFile {
  */
 export interface ICodexAuthService {
   /** Local-only eligibility check; never contacts an upstream provider. */
-  getAccountUsageEligibility(): Promise<'supported' | 'unsupported-auth' | 'unsupported-config'>;
+  getAccountUsageEligibility(): Promise<
+    'supported' | 'unsupported-auth' | 'unsupported-config'
+  >;
   /** Check whether valid Codex credentials are available */
   isAuthenticated(): Promise<boolean>;
   /** Get HTTP headers required for Codex API requests */
@@ -84,31 +87,17 @@ export interface ICodexAuthService {
   stopWatchingAuthFile(): void;
 }
 
-export type CodexAccountUsageStatus =
-  | 'available' | 'unsupported-auth' | 'unsupported-config'
-  | 'provider-unsupported' | 'cli-unavailable' | 'cli-version-unsupported'
-  | 'service-unavailable' | 'stale';
-
-export interface CodexAccountUsageResult {
-  readonly status: CodexAccountUsageStatus;
-  readonly providerId: string;
-  readonly fetchedAt?: number;
-  readonly staleSince?: number;
-  readonly account?: { readonly planType: string };
-  readonly quota?: {
-    readonly primary?: { readonly usedPercent: number; readonly windowDurationMins?: number | null; readonly resetsAt?: number | null };
-    readonly secondary?: { readonly usedPercent: number; readonly windowDurationMins?: number | null; readonly resetsAt?: number | null };
-    /** Which limit the backend reports as reached (e.g. `rate_limit_reached`), when it says so. */
-    readonly rateLimitReachedType?: string;
-  };
-  readonly activity?: {
-    readonly lifetimeTokens?: string | null;
-    readonly dailyUsage: ReadonlyArray<{ readonly startDate: string; readonly tokens: string }>;
-  };
-}
+export type {
+  CodexAccountUsageStatus,
+  CodexAccountUsageResult,
+} from '@ptah-extension/codex-runtime';
 
 export interface ICodexAccountUsageService {
-  getAccountUsage(options?: { refresh?: boolean; signal?: AbortSignal }): Promise<CodexAccountUsageResult>;
+  getAccountUsage(options?: {
+    home?: string;
+    refresh?: boolean;
+    signal?: AbortSignal;
+  }): Promise<CodexAccountUsageResult>;
   clearCache(): void;
   close(): Promise<void>;
 }

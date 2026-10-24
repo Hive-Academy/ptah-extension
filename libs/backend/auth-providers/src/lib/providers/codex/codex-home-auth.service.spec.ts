@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import * as fs from 'node:fs/promises';
+import * as nodeFs from 'node:fs';
 import { mkdtemp, readFile, writeFile, rm, mkdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -7,7 +8,10 @@ import axios from 'axios';
 import { z } from 'zod';
 import { createMockLogger } from '@ptah-extension/shared/testing';
 import { createMockWorkspaceProvider } from '@ptah-extension/platform-core/testing';
-import type { CodexHomeAuthReader } from '@ptah-extension/codex-runtime';
+import {
+  normalizeCodexHomeKey,
+  type CodexHomeAuthReader,
+} from '@ptah-extension/codex-runtime';
 import {
   CodexHomeAuthService,
   resolveCodexHome,
@@ -16,7 +20,16 @@ import {
 jest.mock('node:fs/promises', () => {
   const actual =
     jest.requireActual<typeof import('node:fs/promises')>('node:fs/promises');
-  return { ...actual, rename: jest.fn(actual.rename) };
+  return {
+    ...actual,
+    rename: jest.fn(actual.rename),
+    readFile: jest.fn(actual.readFile),
+    writeFile: jest.fn(actual.writeFile),
+  };
+});
+jest.mock('node:fs', () => {
+  const actual = jest.requireActual<typeof import('node:fs')>('node:fs');
+  return { ...actual, watch: jest.fn(actual.watch) };
 });
 jest.mock('axios');
 const post = jest.mocked(axios.post);
@@ -64,6 +77,74 @@ describe('CodexHomeAuthService', () => {
     ).toBe(join(a, '.codex'));
     expect(resolveCodexHome({}, () => a)).toBe(join(a, '.codex'));
   });
+
+  it('shares the core home key across trailing separators and Windows case aliases', () => {
+    const alias =
+      process.platform === 'win32' ? `${a.toUpperCase()}/` : `${a}/`;
+    expect(service.forHome(alias)).toBe(service.forHome(a));
+    expect(resolveCodexHome({ CODEX_HOME: alias })).toBe(resolve(alias));
+  });
+
+  (process.platform === 'win32' ? it : it.skip)(
+    'preserves mixed-case filesystem paths while Windows case aliases share an owner',
+    async () => {
+      const home = join(root, 'MixedCaseHome');
+      await mkdir(home);
+      await seed(home, stale('mixed'));
+      const read = jest.mocked(fs.readFile);
+      const write = jest.mocked(fs.writeFile);
+      const watcher = jest.mocked(nodeFs.watch);
+      post.mockResolvedValue({
+        data: { access_token: 'fresh', refresh_token: 'rotated' },
+      });
+      const owner = service.forHome(home);
+      const subscription = service.watch(home.toLowerCase(), jest.fn());
+      try {
+        expect(resolveCodexHome({ CODEX_HOME: home })).toBe(home);
+        expect(service.forHome(home.toUpperCase())).toBe(owner);
+        expect(await service.ensureTokensFresh(home.toUpperCase())).toBe(true);
+        expect(read).toHaveBeenCalledWith(join(home, 'auth.json'), 'utf-8');
+        expect(write).toHaveBeenCalledWith(
+          expect.stringContaining(join(home, 'auth.json')),
+          expect.any(String),
+          expect.objectContaining({ mode: 0o600 }),
+        );
+        expect(fs.rename).toHaveBeenCalledWith(
+          expect.stringContaining(join(home, 'auth.json')),
+          join(home, 'auth.json'),
+        );
+        expect(watcher).toHaveBeenCalledWith(home, expect.any(Function));
+      } finally {
+        subscription.dispose();
+      }
+    },
+  );
+
+  it.each(['http', 'exception'] as const)(
+    'logs sanitized model discovery failure: %s',
+    async (failure) => {
+      await seed(a, { OPENAI_API_KEY: 'private-test-key' });
+      const fetchMock = jest.spyOn(globalThis, 'fetch');
+      if (failure === 'http')
+        fetchMock.mockResolvedValue(
+          new Response('private-body', { status: 503 }),
+        );
+      else fetchMock.mockRejectedValue(new Error('private-test-key'));
+      try {
+        expect(await service.forHome(a).listModels()).toEqual([]);
+        expect(logger.debug).toHaveBeenCalledWith(
+          failure === 'http'
+            ? '[CodexAuth] Model discovery request failed.'
+            : '[CodexAuth] Model discovery unavailable.',
+        );
+        expect(JSON.stringify(logger.debug.mock.calls)).not.toContain(
+          'private-',
+        );
+      } finally {
+        fetchMock.mockRestore();
+      }
+    },
+  );
 
   it('implements the credential-free port and isolates invalid auth and cache by home', async () => {
     const reader: CodexHomeAuthReader = service;
@@ -321,7 +402,7 @@ describe('CodexHomeAuthService', () => {
       expect(await service.ensureTokensFresh(a)).toBe(true);
       expect(first).not.toHaveBeenCalled();
       expect(second).toHaveBeenCalledWith({
-        home: a,
+        home: normalizeCodexHomeKey(a, process.platform),
         generation: 1,
         kind: 'refreshed',
       });
